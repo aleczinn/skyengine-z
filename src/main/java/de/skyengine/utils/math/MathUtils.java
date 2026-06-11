@@ -6,15 +6,14 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public class MathUtils {
 
-    public static ThreadLocalRandom RANDOM = ThreadLocalRandom.current();
-
     public static int random(int range) {
-        return RANDOM.nextInt(range + 1);
+        return ThreadLocalRandom.current().nextInt(range + 1);
     }
 
     public static float randomAsFloat() {
-        return RANDOM.nextFloat();
+        return ThreadLocalRandom.current().nextFloat();
     }
+
 
     public static int clamp(int value, int min, int max) {
         if (min > max) throw new IllegalArgumentException("min value is higher than max value");
