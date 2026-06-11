@@ -10,104 +10,108 @@ import java.time.LocalDateTime;
 public class Logger {
 
     private final String name;
-    public static final boolean useANSI = true;
 
     protected Logger(String name) {
         this.name = name;
     }
 
     public void info(String message) {
-        this.message(message, LogLevel.INFO, null);
+        this.log(LogLevel.INFO, ANSI.WHITE, message, null, false);
     }
 
     public void info(String message, Throwable throwable) {
-        this.message(message, LogLevel.INFO, throwable);
+        this.log(LogLevel.INFO, ANSI.WHITE, message, throwable, false);
     }
 
     public void debug(String message) {
-        this.message(message, LogLevel.DEBUG, null);
+        /* Check FIRST - costs one branch instead of string building + stack trace */
+        if (!isDebugEnabled()) return;
+        this.log(LogLevel.DEBUG, ANSI.CYAN, message, null, false);
     }
 
     public void debug(String message, Throwable throwable) {
-        this.message(message, LogLevel.DEBUG, throwable);
+        if (!isDebugEnabled()) return;
+        this.log(LogLevel.DEBUG, ANSI.CYAN, message, throwable, false);
     }
 
     public void warning(String message) {
-        this.message(message, LogLevel.WARNING, null);
+        this.log(LogLevel.WARNING, ANSI.YELLOW, message, null, false);
     }
 
     public void warning(String message, Throwable throwable) {
-        this.message(message, LogLevel.WARNING, throwable);
+        this.log(LogLevel.WARNING, ANSI.YELLOW, message, throwable, false);
     }
 
     public void warning(Throwable throwable) {
-        this.message(null, LogLevel.WARNING, throwable);
+        this.log(LogLevel.WARNING, ANSI.YELLOW, null, throwable, false);
     }
 
     public void error(String message) {
-        this.message(message, LogLevel.ERROR, null);
+        this.log(LogLevel.ERROR, ANSI.PURPLE, message, null, true);
     }
 
     public void error(String message, Throwable throwable) {
-        this.message(message, LogLevel.ERROR, throwable);
+        this.log(LogLevel.ERROR, ANSI.PURPLE, message, throwable, true);
     }
 
     public void error(Throwable throwable) {
-        this.message(null, LogLevel.ERROR, throwable);
+        this.log(LogLevel.ERROR, ANSI.PURPLE, null, throwable, true);
     }
 
     public void fatal(String message) {
-        this.message(message, LogLevel.FATAL, null);
+        this.log(LogLevel.FATAL, ANSI.RED, message, null, true);
     }
 
     public void fatal(String message, Throwable throwable) {
-        this.message(message, LogLevel.FATAL, throwable);
+        this.log(LogLevel.FATAL, ANSI.RED, message, throwable, true);
     }
 
     public void fatal(Throwable throwable) {
-        this.message(null, LogLevel.FATAL, throwable);
+        this.log(LogLevel.FATAL, ANSI.RED, null, throwable, true);
     }
 
-    private void message(String message, LogLevel level, Throwable throwable) {
-        LocalDateTime ldt = LocalDateTime.now();
+    private static boolean isDebugEnabled() {
+        SkyEngine engine = SkyEngine.get();
+        return engine != null && engine.getConfig().getDebugMode() == EngineConfig.DebugMode.FULL;
+    }
 
-        String time = TimeUtils.timeFormatter.format(ldt);
-        String date = TimeUtils.dateFormatter.format(ldt);
+    private void log(LogLevel level, String color, String message, Throwable throwable, boolean resolveMethod) {
+        LocalDateTime now = LocalDateTime.now();
+        String time = TimeUtils.timeFormatter.format(now);
+        String date = TimeUtils.dateFormatter.format(now);
+        String thread = Thread.currentThread().getName();
 
-        String threadName = Thread.currentThread().getName();
-        String method = new Throwable().getStackTrace()[2].getMethodName();
+        /* Stack walking only for ERROR/FATAL - these are rare and worth the context */
+        String method = resolveMethod ? callerMethodName() : "";
 
         if (message == null || message.isEmpty()) {
             message = "NULL";
         }
 
-        switch (level) {
-            case INFO:
-                System.out.println("[" + time + "] " + "[" + threadName + "/" + ANSI.WHITE + level.toString() + ANSI.RESET + "] " + this.name + " " + method + " : " + message);
-                break;
-            case DEBUG:
-                if (SkyEngine.get().getConfig().getDebugMode().equals(EngineConfig.DebugMode.FULL)) {
-                    System.out.println("[" + time + "] " + "[" + threadName + "/" + ANSI.CYAN + level.toString() + ANSI.RESET + "] " + this.name + " " + method + " : " + message);
-                }
-                break;
-            case WARNING:
-                System.out.println("[" + time + "] " + "[" + threadName + "/" + ANSI.YELLOW + level.toString() + ANSI.RESET + "] " + this.name + " " + method + " : " + message);
-                break;
-            case ERROR:
-                System.out.println("[" + time + "] " + "[" + threadName + "/" + ANSI.PURPLE + level.toString() + ANSI.RESET + "] " + this.name + " " + method + " : " + message);
-                break;
-            case FATAL:
-                System.out.println("[" + time + "] " + "[" + threadName + "/" + ANSI.RED + level.toString() + ANSI.RESET + "] " + this.name + " " + method + " : " + message);
-                break;
-            default:
-                break;
+        StringBuilder sb = new StringBuilder(128);
+        sb.append('[').append(time).append("] [").append(thread).append('/')
+                .append(color).append(level).append(ANSI.RESET).append("] ")
+                .append(this.name);
+        if (!method.isEmpty()) {
+            sb.append('#').append(method);
         }
+        sb.append(" : ").append(message);
+
+        System.out.println(sb);
 
         if (throwable != null) {
             throwable.printStackTrace();
         }
 
-        LogManager.getLogmanager().add(threadName, this.name, method, message, time, date, level, throwable);
+        LogManager.getLogmanager().add(thread, this.name, method, message, time, date, level, throwable);
+    }
+
+    /** StackWalker is lazy - it only materializes the frames we actually consume. */
+    private static String callerMethodName() {
+        return StackWalker.getInstance()
+                .walk(frames -> frames.skip(3).findFirst())
+                .map(StackWalker.StackFrame::getMethodName)
+                .orElse("?");
     }
 
     public String getName() {
