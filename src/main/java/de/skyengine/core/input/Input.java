@@ -13,7 +13,19 @@ import org.lwjgl.glfw.GLFW;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Input system with a single-producer/single-consumer event queue.
+ * GLFW callbacks (main thread) only enqueue events - all state lives on
+ * the render thread and is frozen for the duration of a frame.
+ * <p>
+ * <b>Wie das funktioniert:</b>
+ * Producer/Consumer-Trennung: Die GLFW-Callbacks (Main-Thread) fassen die keyStates/mouseStates-Arrays nie mehr an – sie kodieren das Event in einen int (Type-Bit, Press/Release-Bit, Keycode) und legen ihn in den Ring-Buffer. Der Render-Thread leert die Queue einmal pro Frame in update() und wendet alles auf seine privaten Arrays an. Danach ist der Zustand bis zum nächsten Frame eingefroren.
+ * Warum der Ring-Buffer thread-sicher ist: Klassisches SPSC-Muster. Der Producer schreibt erst den Array-Slot, dann den queueTail (volatile write) – wer den neuen Tail sieht, sieht garantiert auch die Slot-Daten (happens-before). Da nur ein Thread schreibt und nur einer liest, braucht es weder Locks noch CAS-Schleifen. Null Allokationen, null Contention.
+ * Maus & Scroll: Cursor-Position kommt als volatile double rein (atomar laut Java-Spec, kein Tearing) und wird in update() einmalig gesnapshottet – deltaMouseX/Y ist damit pro Frame konsistent. Scroll wird akkumuliert statt überschrieben: Wenn zwischen zwei Frames zwei Scroll-Events kommen, ging in deiner alten Version eins verloren; jetzt addieren sie sich.
+ * Ein bewusster Trade-off, den du kennen solltest: Wenn Press und Release derselben Taste innerhalb eines einzigen Frames eintreffen (physisch nur bei extrem kurzen Klicks bei niedriger FPS möglich), gewinnt das Release – isKeyPressed ist in dem Frame false, der Klick "verschluckt". Das war in der alten Version genauso. Falls dich das später bei schnellen PvP-Klicks stört, lässt sich das in der Drain-Schleife nachrüsten (Release auf bereits-PRESSED-Keys um einen Frame verzögern)
+ */
 public class Input {
 
     private final Logger logger = LogManager.getLogger(Input.class.getName());
@@ -21,22 +33,42 @@ public class Input {
     private static final int KEY_COUNT = GLFW.GLFW_KEY_LAST + 1;            // 349
     private static final int MOUSE_COUNT = GLFW.GLFW_MOUSE_BUTTON_LAST + 1; // 8
 
+    /* --- Event encoding: [bit 17: type] [bit 16: action] [bits 0-15: code] --- */
+    private static final int TYPE_MOUSE = 1 << 17;
+    private static final int ACTION_PRESS = 1 << 16;
+    private static final int CODE_MASK = 0xFFFF;
+
+    /* --- SPSC ring buffer (power of two!) --- */
+    private static final int QUEUE_CAPACITY = 256;
+    private static final int QUEUE_MASK = QUEUE_CAPACITY - 1;
+    private final int[] eventQueue = new int[QUEUE_CAPACITY];
+    private final AtomicInteger queueTail = new AtomicInteger(); // written by main thread
+    private final AtomicInteger queueHead = new AtomicInteger(); // written by render thread
+
     private final Window window;
 
+    /* Written by callbacks (main thread), read by render thread.
+       volatile double reads/writes are atomic per JLS - no tearing. */
+    private volatile double rawMouseX = 0, rawMouseY = 0;
+    private volatile boolean cursorEntered = false;
+
+    /* Scroll accumulates between frames - tiny lock, events are rare */
+    private final Object scrollLock = new Object();
+    private double pendingScrollX = 0, pendingScrollY = 0;
+
+    /* --- Everything below is ONLY touched by the render thread --- */
     private double mouseX = 0, mouseY = 0;
     private double lastMouseX, lastMouseY;
     private double deltaMouseX, deltaMouseY;
     private double scrollX = 0, scrollY = 0;
 
-    private boolean cursorEntered = false;
-
     private final InputState[] keyStates = new InputState[KEY_COUNT];
     private final InputState[] mouseStates = new InputState[MOUSE_COUNT];
 
-    /* Only the keys/buttons that changed since the last update get processed */
-    private final int[] changedKeys = new int[KEY_COUNT];
+    /* Keys/buttons that changed last frame and need PRESSED->DOWN / RELEASED->NONE */
+    private final int[] changedKeys = new int[QUEUE_CAPACITY];
     private int changedKeyCount = 0;
-    private final int[] changedButtons = new int[MOUSE_COUNT];
+    private final int[] changedButtons = new int[QUEUE_CAPACITY];
     private int changedButtonCount = 0;
 
     private final Map<Integer, GameController> controller;
@@ -65,17 +97,12 @@ public class Input {
         GLFW.glfwSetJoystickCallback(this::onJoystick);
     }
 
+    /**
+     * Called once per frame on the render thread BEFORE game logic.
+     * After this returns, the input state is stable until the next call.
+     */
     public void update() {
-        this.deltaMouseX = this.mouseX - this.lastMouseX;
-        this.deltaMouseY = this.mouseY - this.lastMouseY;
-
-        this.lastMouseX = this.mouseX;
-        this.lastMouseY = this.mouseY;
-
-        this.scrollX = 0;
-        this.scrollY = 0;
-
-        /* Advance only changed keys: PRESSED -> DOWN, RELEASED -> NONE */
+        /* 1. Advance last frame's edges: PRESSED -> DOWN, RELEASED -> NONE */
         for (int i = 0; i < this.changedKeyCount; i++) {
             int key = this.changedKeys[i];
             InputState state = this.keyStates[key];
@@ -87,7 +114,6 @@ public class Input {
         }
         this.changedKeyCount = 0;
 
-        /* Same for mouse buttons */
         for (int i = 0; i < this.changedButtonCount; i++) {
             int button = this.changedButtons[i];
             InputState state = this.mouseStates[button];
@@ -99,9 +125,80 @@ public class Input {
         }
         this.changedButtonCount = 0;
 
-        /* Update controller states */
+        /* 2. Drain the event queue and apply this frame's events */
+        int head = this.queueHead.get();
+        int tail = this.queueTail.get(); // volatile read - sees all events published before it
+        while (head != tail) {
+            int event = this.eventQueue[head & QUEUE_MASK];
+            head++;
+
+            int code = event & CODE_MASK;
+            boolean press = (event & ACTION_PRESS) != 0;
+
+            if ((event & TYPE_MOUSE) != 0) {
+                this.mouseStates[code] = press ? InputState.PRESSED : InputState.RELEASED;
+                if (this.changedButtonCount < this.changedButtons.length) {
+                    this.changedButtons[this.changedButtonCount++] = code;
+                }
+            } else {
+                this.keyStates[code] = press ? InputState.PRESSED : InputState.RELEASED;
+                if (this.changedKeyCount < this.changedKeys.length) {
+                    this.changedKeys[this.changedKeyCount++] = code;
+                }
+            }
+        }
+        this.queueHead.set(head);
+
+        /* 3. Snapshot mouse position & scroll for this frame */
+        this.mouseX = this.rawMouseX;
+        this.mouseY = this.rawMouseY;
+        this.deltaMouseX = this.mouseX - this.lastMouseX;
+        this.deltaMouseY = this.mouseY - this.lastMouseY;
+        this.lastMouseX = this.mouseX;
+        this.lastMouseY = this.mouseY;
+
+        synchronized (this.scrollLock) {
+            this.scrollX = this.pendingScrollX;
+            this.scrollY = this.pendingScrollY;
+            this.pendingScrollX = 0;
+            this.pendingScrollY = 0;
+        }
+
+        /* 4. Controller states */
         for (GameController controller : this.controller.values()) {
             controller.update();
+        }
+    }
+
+    /* --- Producer side (main thread, GLFW callbacks) --- */
+
+    private void enqueue(int event) {
+        int tail = this.queueTail.get();
+        if (tail - this.queueHead.get() >= QUEUE_CAPACITY) {
+            return; // queue full (would need >256 events in one frame) - drop instead of corrupting
+        }
+        this.eventQueue[tail & QUEUE_MASK] = event;
+        this.queueTail.set(tail + 1); // volatile write publishes the slot to the consumer
+    }
+
+    private void onKey(long window, int key, int scancode, int action, int mods) {
+        if (key < 0 || key >= KEY_COUNT) return; // GLFW_KEY_UNKNOWN is -1
+
+        if (action == GLFW.GLFW_PRESS) {
+            this.enqueue(key | ACTION_PRESS);
+        } else if (action == GLFW.GLFW_RELEASE) {
+            this.enqueue(key);
+        }
+        /* GLFW_REPEAT intentionally ignored - DOWN covers held keys */
+    }
+
+    private void onMouseButton(long window, int button, int action, int mode) {
+        if (button < 0 || button >= MOUSE_COUNT) return;
+
+        if (action == GLFW.GLFW_PRESS) {
+            this.enqueue(button | TYPE_MOUSE | ACTION_PRESS);
+        } else if (action == GLFW.GLFW_RELEASE) {
+            this.enqueue(button | TYPE_MOUSE);
         }
     }
 
@@ -110,49 +207,14 @@ public class Input {
     }
 
     private void onCursorPos(long window, double x, double y) {
-        this.mouseX = x;
-        this.mouseY = y;
+        this.rawMouseX = x;
+        this.rawMouseY = y;
     }
 
     private void onScroll(long window, double xOffset, double yOffset) {
-        this.scrollX = xOffset;
-        this.scrollY = yOffset;
-    }
-
-    private void onMouseButton(long window, int button, int action, int mode) {
-        if (button < 0 || button >= MOUSE_COUNT) return;
-
-        if (action == GLFW.GLFW_PRESS) {
-            this.mouseStates[button] = InputState.PRESSED;
-            this.markButtonChanged(button);
-        } else if (action == GLFW.GLFW_RELEASE) {
-            this.mouseStates[button] = InputState.RELEASED;
-            this.markButtonChanged(button);
-        }
-    }
-
-    private void onKey(long window, int key, int scancode, int action, int mods) {
-        if (key < 0 || key >= KEY_COUNT) return; // GLFW_KEY_UNKNOWN is -1
-
-        if (action == GLFW.GLFW_PRESS) {
-            this.keyStates[key] = InputState.PRESSED;
-            this.markKeyChanged(key);
-        } else if (action == GLFW.GLFW_RELEASE) {
-            this.keyStates[key] = InputState.RELEASED;
-            this.markKeyChanged(key);
-        }
-        /* GLFW_REPEAT is intentionally ignored - DOWN already covers held keys */
-    }
-
-    private void markKeyChanged(int key) {
-        if (this.changedKeyCount < this.changedKeys.length) {
-            this.changedKeys[this.changedKeyCount++] = key;
-        }
-    }
-
-    private void markButtonChanged(int button) {
-        if (this.changedButtonCount < this.changedButtons.length) {
-            this.changedButtons[this.changedButtonCount++] = button;
+        synchronized (this.scrollLock) {
+            this.pendingScrollX += xOffset;
+            this.pendingScrollY += yOffset;
         }
     }
 
@@ -166,6 +228,8 @@ public class Input {
         }
     }
 
+    /* --- Queries (render thread) - plain array reads --- */
+
     /** Returns whether the button is currently pressed */
     public boolean isMouseDown(int button) {
         if (button < 0 || button >= MOUSE_COUNT) return false;
@@ -173,12 +237,12 @@ public class Input {
         return state == InputState.PRESSED || state == InputState.DOWN;
     }
 
-    /** Returns whether the button <b>was</b> <i>pressed</i> */
+    /** Returns whether the button <b>was</b> <i>pressed</i> this frame */
     public boolean isMousePressed(int button) {
         return button >= 0 && button < MOUSE_COUNT && this.mouseStates[button] == InputState.PRESSED;
     }
 
-    /** Returns whether the button <b>was</b> <i>released</i> */
+    /** Returns whether the button <b>was</b> <i>released</i> this frame */
     public boolean isMouseReleased(int button) {
         return button >= 0 && button < MOUSE_COUNT && this.mouseStates[button] == InputState.RELEASED;
     }
@@ -190,12 +254,12 @@ public class Input {
         return state == InputState.PRESSED || state == InputState.DOWN;
     }
 
-    /** Returns whether the key <b>was</b> <i>pressed</i> */
+    /** Returns whether the key <b>was</b> <i>pressed</i> this frame */
     public boolean isKeyPressed(int key) {
         return key >= 0 && key < KEY_COUNT && this.keyStates[key] == InputState.PRESSED;
     }
 
-    /** Returns whether the key <b>was</b> <i>released</i> */
+    /** Returns whether the key <b>was</b> <i>released</i> this frame */
     public boolean isKeyReleased(int key) {
         return key >= 0 && key < KEY_COUNT && this.keyStates[key] == InputState.RELEASED;
     }
@@ -250,7 +314,6 @@ public class Input {
         double keyboardValue = 0.0;
         double controllerValue = 0.0;
 
-        // Keyboard
         switch (axis) {
             case HORIZONTAL -> {
                 float left = this.isKeyDown(GLFW.GLFW_KEY_A) ? -1 : 0;
@@ -264,7 +327,6 @@ public class Input {
             }
         }
 
-        // Controller
         switch (axis) {
             case HORIZONTAL -> controllerValue = this.getControllerAxis(ControllerAxis.LEFT_X);
             case VERTICAL -> controllerValue = this.getControllerAxis(ControllerAxis.LEFT_Y);
