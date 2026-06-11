@@ -10,12 +10,16 @@ import de.skyengine.utils.logging.Logger;
 import de.skyengine.utils.math.MathUtils;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
 public class Input {
 
     private final Logger logger = LogManager.getLogger(Input.class.getName());
+
+    private static final int KEY_COUNT = GLFW.GLFW_KEY_LAST + 1;            // 349
+    private static final int MOUSE_COUNT = GLFW.GLFW_MOUSE_BUTTON_LAST + 1; // 8
 
     private final Window window;
 
@@ -26,17 +30,23 @@ public class Input {
 
     private boolean cursorEntered = false;
 
-    private final HashMap<Integer, InputState> mouseStates;
-    private final HashMap<Integer, InputState> keyStates;
+    private final InputState[] keyStates = new InputState[KEY_COUNT];
+    private final InputState[] mouseStates = new InputState[MOUSE_COUNT];
+
+    /* Only the keys/buttons that changed since the last update get processed */
+    private final int[] changedKeys = new int[KEY_COUNT];
+    private int changedKeyCount = 0;
+    private final int[] changedButtons = new int[MOUSE_COUNT];
+    private int changedButtonCount = 0;
 
     private final Map<Integer, GameController> controller;
 
     public Input(Window window) {
         this.window = window;
-
-        this.mouseStates = new HashMap<>();
-        this.keyStates = new HashMap<>();
         this.controller = new HashMap<>();
+
+        Arrays.fill(this.keyStates, InputState.NONE);
+        Arrays.fill(this.mouseStates, InputState.NONE);
     }
 
     public void init() {
@@ -65,25 +75,29 @@ public class Input {
         this.scrollX = 0;
         this.scrollY = 0;
 
-        /* Update mouse states */
-        this.mouseStates.forEach((key, value) -> {
-            if (value == InputState.PRESSED) {
-                this.mouseStates.put(key, InputState.DOWN);
+        /* Advance only changed keys: PRESSED -> DOWN, RELEASED -> NONE */
+        for (int i = 0; i < this.changedKeyCount; i++) {
+            int key = this.changedKeys[i];
+            InputState state = this.keyStates[key];
+            if (state == InputState.PRESSED) {
+                this.keyStates[key] = InputState.DOWN;
+            } else if (state == InputState.RELEASED) {
+                this.keyStates[key] = InputState.NONE;
             }
-            if (value == InputState.RELEASED) {
-                this.mouseStates.put(key, InputState.NONE);
-            }
-        });
+        }
+        this.changedKeyCount = 0;
 
-        /* Update key states */
-        this.keyStates.forEach((key, value) -> {
-            if (value == InputState.PRESSED) {
-                this.keyStates.put(key, InputState.DOWN);
+        /* Same for mouse buttons */
+        for (int i = 0; i < this.changedButtonCount; i++) {
+            int button = this.changedButtons[i];
+            InputState state = this.mouseStates[button];
+            if (state == InputState.PRESSED) {
+                this.mouseStates[button] = InputState.DOWN;
+            } else if (state == InputState.RELEASED) {
+                this.mouseStates[button] = InputState.NONE;
             }
-            if (value == InputState.RELEASED) {
-                this.keyStates.put(key, InputState.NONE);
-            }
-        });
+        }
+        this.changedButtonCount = 0;
 
         /* Update controller states */
         for (GameController controller : this.controller.values()) {
@@ -106,16 +120,39 @@ public class Input {
     }
 
     private void onMouseButton(long window, int button, int action, int mode) {
-        switch (action) {
-            case GLFW.GLFW_PRESS -> this.mouseStates.put(button, InputState.PRESSED);
-            case GLFW.GLFW_RELEASE -> this.mouseStates.put(button, InputState.RELEASED);
+        if (button < 0 || button >= MOUSE_COUNT) return;
+
+        if (action == GLFW.GLFW_PRESS) {
+            this.mouseStates[button] = InputState.PRESSED;
+            this.markButtonChanged(button);
+        } else if (action == GLFW.GLFW_RELEASE) {
+            this.mouseStates[button] = InputState.RELEASED;
+            this.markButtonChanged(button);
         }
     }
 
     private void onKey(long window, int key, int scancode, int action, int mods) {
-        switch (action) {
-            case GLFW.GLFW_PRESS -> this.keyStates.put(key, InputState.PRESSED);
-            case GLFW.GLFW_RELEASE -> this.keyStates.put(key, InputState.RELEASED);
+        if (key < 0 || key >= KEY_COUNT) return; // GLFW_KEY_UNKNOWN is -1
+
+        if (action == GLFW.GLFW_PRESS) {
+            this.keyStates[key] = InputState.PRESSED;
+            this.markKeyChanged(key);
+        } else if (action == GLFW.GLFW_RELEASE) {
+            this.keyStates[key] = InputState.RELEASED;
+            this.markKeyChanged(key);
+        }
+        /* GLFW_REPEAT is intentionally ignored - DOWN already covers held keys */
+    }
+
+    private void markKeyChanged(int key) {
+        if (this.changedKeyCount < this.changedKeys.length) {
+            this.changedKeys[this.changedKeyCount++] = key;
+        }
+    }
+
+    private void markButtonChanged(int button) {
+        if (this.changedButtonCount < this.changedButtons.length) {
+            this.changedButtons[this.changedButtonCount++] = button;
         }
     }
 
@@ -124,41 +161,43 @@ public class Input {
             this.controller.put(joystickId, new GameController(joystickId));
             this.logger.info("Controller connected. (" + joystickId + ", " + this.controller.get(joystickId).getName() + ")");
         } else if (event == GLFW.GLFW_DISCONNECTED) {
-            this.logger.info("Controller disconnected. (" + joystickId + ", " + this.controller.get(joystickId).getName() + ")");
-            this.controller.remove(joystickId);
+            GameController removed = this.controller.remove(joystickId);
+            this.logger.info("Controller disconnected. (" + joystickId + (removed != null ? ", " + removed.getName() : "") + ")");
         }
     }
 
     /** Returns whether the button is currently pressed */
     public boolean isMouseDown(int button) {
-        InputState state = this.mouseStates.get(button);
+        if (button < 0 || button >= MOUSE_COUNT) return false;
+        InputState state = this.mouseStates[button];
         return state == InputState.PRESSED || state == InputState.DOWN;
     }
 
     /** Returns whether the button <b>was</b> <i>pressed</i> */
     public boolean isMousePressed(int button) {
-        return this.mouseStates.get(button) == InputState.PRESSED;
+        return button >= 0 && button < MOUSE_COUNT && this.mouseStates[button] == InputState.PRESSED;
     }
 
     /** Returns whether the button <b>was</b> <i>released</i> */
     public boolean isMouseReleased(int button) {
-        return this.mouseStates.get(button) == InputState.RELEASED;
+        return button >= 0 && button < MOUSE_COUNT && this.mouseStates[button] == InputState.RELEASED;
     }
 
     /** Returns whether the key is currently pressed */
     public boolean isKeyDown(int key) {
-        InputState state = this.keyStates.get(key);
+        if (key < 0 || key >= KEY_COUNT) return false;
+        InputState state = this.keyStates[key];
         return state == InputState.PRESSED || state == InputState.DOWN;
     }
 
     /** Returns whether the key <b>was</b> <i>pressed</i> */
     public boolean isKeyPressed(int key) {
-        return this.keyStates.get(key) == InputState.PRESSED;
+        return key >= 0 && key < KEY_COUNT && this.keyStates[key] == InputState.PRESSED;
     }
 
     /** Returns whether the key <b>was</b> <i>released</i> */
     public boolean isKeyReleased(int key) {
-        return this.keyStates.get(key) == InputState.RELEASED;
+        return key >= 0 && key < KEY_COUNT && this.keyStates[key] == InputState.RELEASED;
     }
 
     /** Return the first connected controller or null if nothing is connected */
@@ -176,7 +215,6 @@ public class Input {
     public boolean isControllerConnected() {
         return !this.controller.isEmpty();
     }
-
 
     /** Returns whether the button is currently pressed */
     public boolean isControllerButtonDown(ControllerButton button) {
