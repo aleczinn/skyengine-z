@@ -50,10 +50,6 @@ public class Window implements IDisposable {
         this.capabilities = GL.createCapabilities();
         this.properties.update(this.capabilities);
 
-        if (!(GLFW.glfwExtensionSupported("GL_EXT_framebuffer_object") || GLFW.glfwExtensionSupported("GL_ARB_framebuffer_object"))) {
-            throw new RuntimeException("OpenGL 2.0 or higher with the FBO extension is required. OpenGL version: " + GL11.glGetString(GL11.GL_VERSION) + ", FBO extension: false");
-        }
-
         this.initDebugCallback();
 
         GLFW.glfwSetFramebufferSizeCallback(this.windowID, (window, width, height) -> {
@@ -93,8 +89,8 @@ public class Window implements IDisposable {
     private void initWindowHints() {
         GLFW.glfwWindowHint(GLFW.GLFW_OPENGL_PROFILE, GLFW.GLFW_OPENGL_CORE_PROFILE);
         GLFW.glfwWindowHint(GLFW.GLFW_OPENGL_FORWARD_COMPAT, GLFW.GLFW_TRUE);
-        GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MAJOR, 3);
-        GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 3);
+        GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MAJOR, 4);
+        GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 6);
 
         /* Disable window framebuffer bits, because we render into our separate FBO */
         GLFW.glfwWindowHint(GLFW.GLFW_DEPTH_BITS, 0);
