@@ -20,7 +20,7 @@ public class Color3 {
     public static final Color3 DARK_GRAY = new Color3(0.3F, 0.3F, 0.3F);
 
     public static final Color3 PINK = new Color3(1, 0.68F, 0.68F);
-    public static final Color3 ORANGE = new Color3(1, 0.58F, 1);
+    public static final Color3 ORANGE = new Color3(1, 0.58F, 0);
     public static final Color3 YELLOW = new Color3(1, 1, 0);
     public static final Color3 MAGENTA = new Color3(1, 0, 1);
     public static final Color3 CYAN = new Color3(0, 1, 1);
