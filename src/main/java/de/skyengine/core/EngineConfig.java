@@ -64,7 +64,7 @@ public class EngineConfig {
     }
 
     public double getAspectRatio() {
-        return ((double) this.windowHeight / this.windowHeight);
+        return (double) this.windowWidth / this.windowHeight;
     }
 
     public int getWindowMaxWidth() {
