@@ -138,6 +138,13 @@ public class Color4 {
         this.red -= red;
         this.green -= green;
         this.blue -= blue;
+        return this.clamp();
+    }
+
+    public Color4 subtract(float red, float green, float blue, float alpha) {
+        this.red -= red;
+        this.green -= green;
+        this.blue -= blue;
         this.alpha -= alpha;
         return this.clamp();
     }
@@ -329,8 +336,8 @@ public class Color4 {
         if (b > 0 && b < i) b = i;
 
         this.red = Math.min(r / factor, 1.0F);
-        this.blue = Math.min(g / factor, 1.0F);
-        this.green = Math.min(b / factor, 1.0F);
+        this.blue = Math.min(b / factor, 1.0F);
+        this.green = Math.min(g / factor, 1.0F);
         return this.clamp();
     }
 
@@ -345,7 +352,7 @@ public class Color4 {
         return this.clamp();
     }
 
-    public Color4 random() {
+    public static Color4 random() {
         return new Color4(
                 MathUtils.randomAsFloat(),
                 MathUtils.randomAsFloat(),
@@ -354,7 +361,7 @@ public class Color4 {
         );
     }
 
-    public Color4 random(float alpha) {
+    public static Color4 random(float alpha) {
         return new Color4(
                 MathUtils.randomAsFloat(),
                 MathUtils.randomAsFloat(),
