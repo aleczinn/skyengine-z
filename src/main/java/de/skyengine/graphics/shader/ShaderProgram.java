@@ -9,8 +9,6 @@ import org.joml.*;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.system.MemoryStack;
 
-import java.lang.Math;
-import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.util.HashMap;
 
