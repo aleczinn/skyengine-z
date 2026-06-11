@@ -1,34 +1,29 @@
 package de.skyengine;
 
-import org.lwjgl.glfw.GLFW;
-import org.lwjgl.opengl.GL;
-import org.lwjgl.opengl.GL11;
+import de.skyengine.core.EngineConfig;
+import de.skyengine.core.SkyEngine;
+import de.skyengine.graphics.color.Color4;
 
 public class DesktopLauncher {
 
     public static void main(String[] args) {
-        if (!GLFW.glfwInit()) throw new IllegalStateException("GLFW init failed");
+        EngineConfig config = new EngineConfig();
 
-        GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MAJOR, 4);
-        GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 6);
-        GLFW.glfwWindowHint(GLFW.GLFW_OPENGL_PROFILE, GLFW.GLFW_OPENGL_CORE_PROFILE);
+        config.setWindowSize(1280, 720);
+        config.setWindowMinSizeLimit(640, 360);
+        config.setWindowIcon(
+                "./src/main/resources/engine/logo/skyengine-logo-big-128.png",
+                "./src/main/resources/engine/logo/skyengine-logo-big-64.png",
+                "./src/main/resources/engine/logo/skyengine-logo-big-32.png"
+        );
+        config.setWindowMode(EngineConfig.WindowMode.WINDOWED);
+        config.setResizeable(true);
+        config.setMaximized(false);
+        config.setVSync(false);
+        config.setDebugMode(EngineConfig.DebugMode.FULL);
+        config.setWindowClearColor(new Color4(0.5F, 0.8F, 1.0F, 1.0F));
 
-        long window = GLFW.glfwCreateWindow(1280, 720, "SkyEngine - Z", 0L, 0L);
-        if (window == 0L) throw new IllegalStateException("Window creation failed");
-
-        GLFW.glfwMakeContextCurrent(window);
-        GL.createCapabilities();
-
-        System.out.println("OpenGL: " + GL11.glGetString(GL11.GL_VERSION));
-
-        while (!GLFW.glfwWindowShouldClose(window)) {
-            GL11.glClearColor(0.5f, 0.8f, 1.0f, 1.0f);
-            GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
-            GLFW.glfwSwapBuffers(window);
-            GLFW.glfwPollEvents();
-        }
-
-        GLFW.glfwDestroyWindow(window);
-        GLFW.glfwTerminate();
+        SkyEngine engine = new SkyEngine(config);
+        engine.launch();
     }
 }
