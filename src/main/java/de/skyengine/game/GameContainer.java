@@ -150,6 +150,11 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
             this.logger.debug("Toggle Fullscreen");
         }
+
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F)) {
+            this.world.getChunkManager().getChunks().clear();
+            this.logger.debug("reload chunks");
+        }
     }
 
     public Camera getCamera() {
