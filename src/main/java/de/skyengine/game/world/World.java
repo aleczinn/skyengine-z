@@ -42,6 +42,7 @@ public class World implements IInitializable, IDisposable {
     }
 
     public void render(Camera camera, float partialTick) {
+        this.chunkManager.processRemeshes();
         this.chunkRenderer.render(camera);
     }
 

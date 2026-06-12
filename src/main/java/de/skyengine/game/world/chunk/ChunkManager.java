@@ -3,7 +3,9 @@ package de.skyengine.game.world.chunk;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.generator.WorldGenerator;
 
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 
@@ -13,16 +15,17 @@ public class ChunkManager {
     private final ExecutorService workers;
     private final WorldGenerator generator;
 
-    /* Worker -> render thread: finished meshes waiting for GL upload */
-    private final ConcurrentLinkedQueue<MeshResult> uploadQueue = new ConcurrentLinkedQueue<>();
+    /* Worker -> render thread: Ein Batch wird immer komplett im selben Frame angewendet */
+    private final ConcurrentLinkedQueue<MeshBatch> uploadQueue = new ConcurrentLinkedQueue<>();
 
     private int renderDistance = 20; // in chunks
 
     /* One mesher per worker thread, reused (allocation-free) */
     private final ThreadLocal<ChunkMesher> meshers = ThreadLocal.withInitial(ChunkMesher::new);
 
-    public record MeshResult(int chunkX, int sectionY, int chunkZ, float[] vertexData) {
-    }
+    public record MeshResult(int chunkX, int sectionY, int chunkZ, float[] vertexData) {}
+
+    public record MeshBatch(List<MeshResult> results) {}
 
     public ChunkManager(WorldGenerator generator) {
         this.generator = generator;
@@ -37,7 +40,7 @@ public class ChunkManager {
     }
 
     /**
-     * Called once per tick from the render thread.
+     * Einmal pro TICK: Chunks erzeugen, generieren, Erst-Mesh, Unload.
      */
     public void update(EntityPlayer player) {
         int pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
@@ -66,7 +69,8 @@ public class ChunkManager {
                     });
                 }
 
-                /* 2a. Erst-Mesh: alle 16 Sections, sobald Nachbarn generiert sind */
+                /* 2. Erst-Mesh: alle 16 Sections, sobald Nachbarn generiert sind.
+                   Jede Section als eigener Batch, damit der Upload über Frames verteilt wird. */
                 if (chunk.status == ChunkStatus.GENERATED) {
                     Chunk north = this.getGenerated(cx, cz - 1);
                     Chunk south = this.getGenerated(cx, cz + 1);
@@ -80,32 +84,10 @@ public class ChunkManager {
                         ChunkMesher mesher = this.meshers.get();
                         for (int s = 0; s < Chunk.SECTIONS; s++) {
                             float[] mesh = mesher.mesh(finalChunk, s, north, south, west, east);
-                            this.uploadQueue.add(new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh));
+                            this.uploadQueue.add(new MeshBatch(List.of(
+                                    new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh))));
                         }
                         finalChunk.status = ChunkStatus.READY;
-                    });
-                }
-
-                /* 2b. Remesh: nur dirty Sections, Status bleibt READY */
-                else if (chunk.status == ChunkStatus.READY && chunk.hasDirtySections()) {
-                    Chunk north = this.getGenerated(cx, cz - 1);
-                    Chunk south = this.getGenerated(cx, cz + 1);
-                    Chunk west = this.getGenerated(cx - 1, cz);
-                    Chunk east = this.getGenerated(cx + 1, cz);
-                    if (north == null || south == null || west == null || east == null) continue;
-                    // Maske wird hier bewusst NICHT konsumiert -> bleibt für später erhalten
-
-                    int mask = chunk.consumeDirtySections();
-                    if (mask == 0) continue;
-
-                    Chunk finalChunk = chunk;
-                    this.workers.submit(() -> {
-                        ChunkMesher mesher = this.meshers.get();
-                        for (int s = 0; s < Chunk.SECTIONS; s++) {
-                            if ((mask & (1 << s)) == 0) continue;
-                            float[] mesh = mesher.mesh(finalChunk, s, north, south, west, east);
-                            this.uploadQueue.add(new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh));
-                        }
                     });
                 }
             }
@@ -124,6 +106,37 @@ public class ChunkManager {
         }
     }
 
+    /**
+     * Einmal pro FRAME (z.B. aus World.render) aufrufen: stößt Remeshes
+     * für dirty Sections sofort an, statt auf den nächsten Tick zu warten.
+     */
+    public void processRemeshes() {
+        for (Chunk chunk : this.chunks.values()) {
+            if (chunk.status != ChunkStatus.READY || !chunk.hasDirtySections()) continue;
+
+            Chunk north = this.getGenerated(chunk.chunkX, chunk.chunkZ - 1);
+            Chunk south = this.getGenerated(chunk.chunkX, chunk.chunkZ + 1);
+            Chunk west = this.getGenerated(chunk.chunkX - 1, chunk.chunkZ);
+            Chunk east = this.getGenerated(chunk.chunkX + 1, chunk.chunkZ);
+            /* Nachbarn fehlen (Weltrand): Maske NICHT konsumieren, bleibt für später erhalten */
+            if (north == null || south == null || west == null || east == null) continue;
+
+            int mask = chunk.consumeDirtySections();
+            if (mask == 0) continue;
+
+            this.workers.submit(() -> {
+                ChunkMesher mesher = this.meshers.get();
+                List<MeshResult> batch = new ArrayList<>(Integer.bitCount(mask));
+                for (int s = 0; s < Chunk.SECTIONS; s++) {
+                    if ((mask & (1 << s)) == 0) continue;
+                    batch.add(new MeshResult(chunk.chunkX, s, chunk.chunkZ,
+                            mesher.mesh(chunk, s, north, south, west, east)));
+                }
+                this.uploadQueue.add(new MeshBatch(batch));
+            });
+        }
+    }
+
     private Chunk getGenerated(int cx, int cz) {
         Chunk chunk = this.chunks.get(Chunk.key(cx, cz));
         if (chunk == null) return null;
@@ -135,7 +148,7 @@ public class ChunkManager {
         return this.chunks.get(Chunk.key(chunkX, chunkZ));
     }
 
-    public ConcurrentLinkedQueue<MeshResult> getUploadQueue() {
+    public ConcurrentLinkedQueue<MeshBatch> getUploadQueue() {
         return uploadQueue;
     }
 

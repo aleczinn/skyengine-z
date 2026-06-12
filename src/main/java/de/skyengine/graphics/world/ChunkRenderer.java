@@ -51,15 +51,17 @@ public class ChunkRenderer {
     public void render(Camera camera) {
         /* 1. Drain upload queue (bounded per frame) */
         int uploads = 0;
-        ChunkManager.MeshResult result;
-        while (uploads < MAX_UPLOADS_PER_FRAME && (result = this.chunkManager.getUploadQueue().poll()) != null) {
-            long key = sectionKey(result.chunkX(), result.sectionY(), result.chunkZ());
+        ChunkManager.MeshBatch batch;
+        while (uploads < MAX_UPLOADS_PER_FRAME && (batch = this.chunkManager.getUploadQueue().poll()) != null) {
+            for (ChunkManager.MeshResult result : batch.results()) {
+                long key = sectionKey(result.chunkX(), result.sectionY(), result.chunkZ());
 
-            SectionMesh old = this.meshes.remove(key);
-            if (old != null) old.dispose();
+                SectionMesh old = this.meshes.remove(key);
+                if (old != null) old.dispose();
 
-            if (result.vertexData() != null) {
-                this.meshes.put(key, new SectionMesh(result.chunkX(), result.sectionY(), result.chunkZ(), result.vertexData()));
+                if (result.vertexData() != null) {
+                    this.meshes.put(key, new SectionMesh(result.chunkX(), result.sectionY(), result.chunkZ(), result.vertexData()));
+                }
             }
             uploads++;
         }
