@@ -20,4 +20,9 @@ public final class Blocks {
     public static boolean isOpaque(short block) {
         return block != AIR;
     }
+
+    /** Kollision: blockiert dieser Block die Bewegung? */
+    public static boolean isSolid(short block) {
+        return block != AIR;
+    }
 }

@@ -4,6 +4,7 @@ import de.skyengine.core.input.Input;
 import de.skyengine.core.io.IDisposable;
 import de.skyengine.core.io.IInitializable;
 import de.skyengine.game.entity.EntityPlayer;
+import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
@@ -12,6 +13,9 @@ import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.world.ChunkRenderer;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class World implements IInitializable, IDisposable {
 
@@ -100,6 +104,50 @@ public class World implements IInitializable, IDisposable {
         if (chunk != null && chunk.status == ChunkStatus.READY) {
             chunk.markSectionDirty(sectionY);
         }
+    }
+
+    /**
+     * Sammelt alle soliden Block-AABBs innerhalb der Broadphase-Box.
+     * Wird vom Kollisionssystem (Entity.move) aufgerufen.
+     */
+    public List<AABB> getCollisionBoxes(AABB area) {
+        List<AABB> boxes = new ArrayList<>();
+
+        int x0 = (int) Math.floor(area.minX);
+        int x1 = (int) Math.floor(area.maxX);
+        int y0 = (int) Math.floor(area.minY);
+        int y1 = (int) Math.floor(area.maxY);
+        int z0 = (int) Math.floor(area.minZ);
+        int z1 = (int) Math.floor(area.maxZ);
+
+        for (int x = x0; x <= x1; x++) {
+            for (int z = z0; z <= z1; z++) {
+                for (int y = y0; y <= y1; y++) {
+                    if (this.isBlockSolidForCollision(x, y, z)) {
+                        boxes.add(new AABB(x, y, z, x + 1, y + 1, z + 1));
+                    }
+                }
+            }
+        }
+        return boxes;
+    }
+
+    /**
+     * Kollisionsabfrage. Ungeladene/ungenerierte Chunks zählen als SOLIDE,
+     * damit der Spieler beim Laden der Welt nicht durch den Boden fällt.
+     * (Bewusste Design-Entscheidung: man "klebt" stattdessen an einer
+     * unsichtbaren Wand am Weltrand, bis der Chunk generiert ist.)
+     */
+    public boolean isBlockSolidForCollision(int x, int y, int z) {
+        if (y < 0 || y >= Chunk.HEIGHT) return false;
+
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk == null) return true;
+
+        ChunkStatus status = chunk.status;
+        if (status == ChunkStatus.NEW || status == ChunkStatus.GENERATING) return true;
+
+        return Blocks.isSolid(chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK));
     }
 
     public ChunkManager getChunkManager() {

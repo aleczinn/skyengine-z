@@ -5,7 +5,8 @@ import de.skyengine.core.SkyEngine;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.*;
 import de.skyengine.game.entity.EntityPlayer;
-import de.skyengine.game.world.BlockRaycast;
+import de.skyengine.game.physics.AABB;
+import de.skyengine.game.world.block.BlockRaycast;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.graphics.camera.Camera;
@@ -59,7 +60,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     }
 
     public void update(Input input) {
-        this.player.update(input);
+        this.player.update(input, this.world);
         this.world.update(input, this.player);
     }
 
@@ -122,8 +123,15 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             /* Kamera-im-Block-Fall: face ist (0,0,0) -> würde den Zielblock ersetzen, abbrechen */
             if (hit.faceX() == 0 && hit.faceY() == 0 && hit.faceZ() == 0) return;
 
+//            if (this.world.getBlock(px, py, pz) == Blocks.AIR) {
+//                this.world.setBlock(px, py, pz, Blocks.STONE);
+//            }
+
             if (this.world.getBlock(px, py, pz) == Blocks.AIR) {
-                this.world.setBlock(px, py, pz, Blocks.STONE);
+                AABB blockBox = new AABB(px, py, pz, px + 1, py + 1, pz + 1);
+                if (!blockBox.intersects(this.player.getBoundingBox())) {
+                    this.world.setBlock(px, py, pz, Blocks.STONE);
+                }
             }
         }
     }
@@ -141,6 +149,10 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.debugChunkBoundingBox = !this.debugChunkBoundingBox;
             this.logger.debug("Chunk Bounding Box: " + this.debugChunkBoundingBox);
         }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F8)) {
+            this.world.getChunkManager().getChunks().clear();
+            this.logger.debug("reload chunks");
+        }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
             boolean fullscreen = SkyEngine.get().getConfig().isWindowed();
 
@@ -152,8 +164,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         }
 
         if (input.isKeyPressed(GLFW.GLFW_KEY_F)) {
-            this.world.getChunkManager().getChunks().clear();
-            this.logger.debug("reload chunks");
+            this.player.toggleFlying();
+            this.logger.debug("Flying: " + this.player.isFlying());
         }
     }
 

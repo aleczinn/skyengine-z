@@ -1,6 +1,6 @@
-package de.skyengine.game.world;
+package de.skyengine.game.world.block;
 
-import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.World;
 import org.joml.Vector3d;
 
 public final class BlockRaycast {
