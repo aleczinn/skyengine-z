@@ -16,7 +16,7 @@ public class ChunkManager {
     /* Worker -> render thread: finished meshes waiting for GL upload */
     private final ConcurrentLinkedQueue<MeshResult> uploadQueue = new ConcurrentLinkedQueue<>();
 
-    private int renderDistance = 10; // in chunks
+    private int renderDistance = 20; // in chunks
 
     /* One mesher per worker thread, reused (allocation-free) */
     private final ThreadLocal<ChunkMesher> meshers = ThreadLocal.withInitial(ChunkMesher::new);
