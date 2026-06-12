@@ -8,10 +8,15 @@ import de.skyengine.game.world.BlockRaycast;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.graphics.camera.Camera;
+import de.skyengine.utils.Utils;
+import de.skyengine.utils.logging.LogManager;
+import de.skyengine.utils.logging.Logger;
 import org.joml.Vector3d;
 import org.lwjgl.glfw.GLFW;
 
 public class GameContainer implements IInitializable, IResizeable, IDisposable {
+
+    private final Logger logger = LogManager.getLogger(GameContainer.class.getName());
 
     private Camera camera;
     private EntityPlayer player;
@@ -21,6 +26,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     /* Wiederverwendet, um Allokationen pro Frame zu vermeiden */
     private final Vector3d rayDirection = new Vector3d();
+
+    private boolean debugChunkBoundingBox = false;
+    private boolean debugChunkWireframe = false;
 
     public GameContainer() {
         this.camera = new Camera();
@@ -34,13 +42,27 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     public void init() {
         this.world.init(); // creates ChunkManager, renderer, texture array
         this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
+
+        SkyEngine.get().getInput().centerMouse();
         SkyEngine.get().getInput().disableCursor();
     }
 
     public void update(Input input) {
         // TODO : Remove later
-        if (input.isKeyDown(GLFW.GLFW_KEY_ESCAPE)) {
+        if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) {
             SkyEngine.get().shutdown();
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F6)) {
+            this.debugChunkWireframe = !this.debugChunkWireframe;
+            this.logger.debug("Wireframe: " + this.debugChunkWireframe);
+            Utils.setWireframe(this.debugChunkWireframe);
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F7)) {
+            this.debugChunkBoundingBox = !this.debugChunkBoundingBox;
+            this.logger.debug("Chunk Bounding Box: " + this.debugChunkBoundingBox);
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
+            this.logger.debug("Toggle Fullscreen");
         }
 
         this.player.update(input);
