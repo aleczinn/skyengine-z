@@ -3,8 +3,6 @@ package de.skyengine.game.world;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.IDisposable;
 import de.skyengine.core.io.IInitializable;
-import de.skyengine.core.io.IRenderable;
-import de.skyengine.core.io.IUpdatable;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.generator.WorldGenerator;
