@@ -76,21 +76,28 @@ public class World implements IInitializable, IDisposable {
         int lx = x & ChunkSection.MASK;
         int lz = z & ChunkSection.MASK;
 
+        int sy = y >> ChunkSection.SHIFT;
+
         chunk.setBlock(lx, y, lz, block);
-        chunk.dirty = true;
+        chunk.markSectionDirty(sy);
+
+        /* Vertikale Section-Grenzen */
+        if ((y & ChunkSection.MASK) == 0 && sy > 0) chunk.markSectionDirty(sy - 1);
+        if ((y & ChunkSection.MASK) == ChunkSection.MASK && sy < Chunk.SECTIONS - 1) chunk.markSectionDirty(sy + 1);
+
 
         /* An Chunk-Grenzen muss der Nachbar mit-remeshen, sonst bleiben dort falsche Faces */
-        if (lx == 0) this.markDirty(cx - 1, cz);
-        if (lx == ChunkSection.MASK) this.markDirty(cx + 1, cz);
-        if (lz == 0) this.markDirty(cx, cz - 1);
-        if (lz == ChunkSection.MASK) this.markDirty(cx, cz + 1);
+        if (lx == 0) this.markDirty(cx - 1, cz, sy);
+        if (lx == ChunkSection.MASK) this.markDirty(cx + 1, cz, sy);
+        if (lz == 0) this.markDirty(cx, cz - 1, sy);
+        if (lz == ChunkSection.MASK) this.markDirty(cx, cz + 1, sy);
     }
 
-    private void markDirty(int cx, int cz) {
+    private void markDirty(int cx, int cz, int sectionY) {
         Chunk chunk = this.chunkManager.getChunk(cx, cz);
 
         if (chunk != null && chunk.status == ChunkStatus.READY) {
-            chunk.dirty = true;
+            chunk.markSectionDirty(sectionY);
         }
     }
 

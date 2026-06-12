@@ -1,5 +1,7 @@
 package de.skyengine.game.world.chunk;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 public class Chunk {
 
     public static final int HEIGHT = 512;
@@ -10,14 +12,16 @@ public class Chunk {
 
     /* volatile: written by workers, read by render thread */
     public volatile ChunkStatus status = ChunkStatus.NEW;
-    public volatile boolean dirty = false; // needs remesh
+    private final AtomicInteger dirtySections = new AtomicInteger(0);
 
     public Chunk(int chunkX, int chunkZ) {
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
     }
 
-    /** local coords: x/z 0-31, y 0-511 */
+    /**
+     * local coords: x/z 0-31, y 0-511
+     */
     public short getBlock(int x, int y, int z) {
         if (y < 0 || y >= HEIGHT) return 0;
         ChunkSection section = this.sections[y >> ChunkSection.SHIFT];
@@ -40,8 +44,25 @@ public class Chunk {
         return this.sections[index];
     }
 
-    /** Pack chunk coords into a single long map key - no object allocation for lookups */
+    /**
+     * Pack chunk coords into a single long map key - no object allocation for lookups
+     */
     public static long key(int chunkX, int chunkZ) {
         return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
+    }
+
+    public void markSectionDirty(int sectionIndex) {
+        this.dirtySections.getAndUpdate(m -> m | (1 << sectionIndex));
+    }
+
+    public boolean hasDirtySections() {
+        return this.dirtySections.get() != 0;
+    }
+
+    /**
+     * Holt die Maske ab und setzt sie atomar auf 0.
+     */
+    public int consumeDirtySections() {
+        return this.dirtySections.getAndSet(0);
     }
 }

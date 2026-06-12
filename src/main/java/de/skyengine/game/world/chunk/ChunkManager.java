@@ -66,8 +66,8 @@ public class ChunkManager {
                     });
                 }
 
-                /* 2. Mesh chunks whose 4 neighbors are generated */
-                if (chunk.status == ChunkStatus.GENERATED || (chunk.status == ChunkStatus.READY && chunk.dirty)) {
+                /* 2a. Erst-Mesh: alle 16 Sections, sobald Nachbarn generiert sind */
+                if (chunk.status == ChunkStatus.GENERATED) {
                     Chunk north = this.getGenerated(cx, cz - 1);
                     Chunk south = this.getGenerated(cx, cz + 1);
                     Chunk west = this.getGenerated(cx - 1, cz);
@@ -75,7 +75,6 @@ public class ChunkManager {
                     if (north == null || south == null || west == null || east == null) continue;
 
                     chunk.status = ChunkStatus.MESHING;
-                    chunk.dirty = false;
                     Chunk finalChunk = chunk;
                     this.workers.submit(() -> {
                         ChunkMesher mesher = this.meshers.get();
@@ -84,6 +83,29 @@ public class ChunkManager {
                             this.uploadQueue.add(new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh));
                         }
                         finalChunk.status = ChunkStatus.READY;
+                    });
+                }
+
+                /* 2b. Remesh: nur dirty Sections, Status bleibt READY */
+                else if (chunk.status == ChunkStatus.READY && chunk.hasDirtySections()) {
+                    Chunk north = this.getGenerated(cx, cz - 1);
+                    Chunk south = this.getGenerated(cx, cz + 1);
+                    Chunk west = this.getGenerated(cx - 1, cz);
+                    Chunk east = this.getGenerated(cx + 1, cz);
+                    if (north == null || south == null || west == null || east == null) continue;
+                    // Maske wird hier bewusst NICHT konsumiert -> bleibt für später erhalten
+
+                    int mask = chunk.consumeDirtySections();
+                    if (mask == 0) continue;
+
+                    Chunk finalChunk = chunk;
+                    this.workers.submit(() -> {
+                        ChunkMesher mesher = this.meshers.get();
+                        for (int s = 0; s < Chunk.SECTIONS; s++) {
+                            if ((mask & (1 << s)) == 0) continue;
+                            float[] mesh = mesher.mesh(finalChunk, s, north, south, west, east);
+                            this.uploadQueue.add(new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh));
+                        }
                     });
                 }
             }
