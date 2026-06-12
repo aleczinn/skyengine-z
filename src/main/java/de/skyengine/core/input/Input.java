@@ -73,6 +73,9 @@ public class Input {
 
     /* Volatile, weil es auch vom Main-Thread (Fullscreen-Toggle) gesetzt wird */
     private volatile boolean resetMouseDelta = true;
+    /* Erst true, wenn GLFW die erste echte Cursorposition geliefert hat.
+      Vorher darf resetMouseDelta nicht konsumiert werden. */
+    private volatile boolean cursorInitialized = false;
 
     private final Map<Integer, GameController> controller;
 
@@ -157,10 +160,14 @@ public class Input {
         this.mouseY = this.rawMouseY;
 
         /* Cursor wurde repositioniert (erster Frame, Fullscreen-Toggle, etc.) -> Delta dieses Frames verwerfen */
-        if (this.resetMouseDelta) {
+        if (this.resetMouseDelta || !this.cursorInitialized) {
             this.lastMouseX = this.mouseX;
             this.lastMouseY = this.mouseY;
-            this.resetMouseDelta = false;
+            /* Flag erst löschen, wenn eine ECHTE Cursorposition bekannt ist -
+               sonst verpufft der Reset auf (0,0) vor dem ersten Callback */
+            if (this.cursorInitialized) {
+                this.resetMouseDelta = false;
+            }
         }
 
         this.deltaMouseX = this.mouseX - this.lastMouseX;
@@ -220,6 +227,7 @@ public class Input {
     private void onCursorPos(long window, double x, double y) {
         this.rawMouseX = x;
         this.rawMouseY = y;
+        this.cursorInitialized = true;
     }
 
     private void onScroll(long window, double xOffset, double yOffset) {
