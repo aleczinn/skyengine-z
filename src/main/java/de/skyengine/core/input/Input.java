@@ -71,6 +71,9 @@ public class Input {
     private final int[] changedButtons = new int[QUEUE_CAPACITY];
     private int changedButtonCount = 0;
 
+    /* Volatile, weil es auch vom Main-Thread (Fullscreen-Toggle) gesetzt wird */
+    private volatile boolean resetMouseDelta = true;
+
     private final Map<Integer, GameController> controller;
 
     public Input(Window window) {
@@ -152,6 +155,14 @@ public class Input {
         /* 3. Snapshot mouse position & scroll for this frame */
         this.mouseX = this.rawMouseX;
         this.mouseY = this.rawMouseY;
+
+        /* Cursor wurde repositioniert (erster Frame, Fullscreen-Toggle, etc.) -> Delta dieses Frames verwerfen */
+        if (this.resetMouseDelta) {
+            this.lastMouseX = this.mouseX;
+            this.lastMouseY = this.mouseY;
+            this.resetMouseDelta = false;
+        }
+
         this.deltaMouseX = this.mouseX - this.lastMouseX;
         this.deltaMouseY = this.mouseY - this.lastMouseY;
         this.lastMouseX = this.mouseX;
@@ -335,20 +346,26 @@ public class Input {
         return Math.abs(keyboardValue) > Math.abs(controllerValue) ? keyboardValue : controllerValue;
     }
 
-    public void showCursor() {
-        GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
-    }
-
-    public void hideCursor() {
-        GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_HIDDEN);
-    }
-
     public void disableCursor() {
         GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
+        if (GLFW.glfwRawMouseMotionSupported()) {
+            GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_RAW_MOUSE_MOTION, GLFW.GLFW_TRUE);
+        }
+        this.resetMouseDelta();
+    }
+
+    public void showCursor() {
+        GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
+        this.resetMouseDelta();
     }
 
     public void centerMouse() {
         GLFW.glfwSetCursorPos(this.window.getWindowID(), SkyEngine.get().getWindow().getWidth() / 2D, SkyEngine.get().getWindow().getHeight() / 2D);
+        this.resetMouseDelta();
+    }
+
+    public void hideCursor() {
+        GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_HIDDEN);
     }
 
     public String getClipboard() {
@@ -393,5 +410,13 @@ public class Input {
 
     public boolean isCursorEntered() {
         return cursorEntered;
+    }
+
+    /**
+     * Verwirft das Mouse-Delta des nächsten Frames. Aufrufen, wann immer der
+     * Cursor "teleportiert": Cursor-Modus-Wechsel, Fenstermodus-Wechsel, centerMouse.
+     */
+    public void resetMouseDelta() {
+        this.resetMouseDelta = true;
     }
 }

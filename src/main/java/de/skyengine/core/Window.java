@@ -163,6 +163,9 @@ public class Window implements IDisposable {
 
         this.config.setWindowMode(mode);
         this.applyWindowMode(mode, GLFW.glfwGetVideoMode(GLFW.glfwGetPrimaryMonitor()));
+
+        /* Fenstermodus-Wechsel repositioniert den Cursor -> Delta verwerfen */
+        SkyEngine.get().getInput().resetMouseDelta();
     }
 
     /**
