@@ -61,6 +61,10 @@ public class SkyEngine {
                 this.config.getWindowClearColor().alpha
         );
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+
+        GL11.glEnable(GL11.GL_DEPTH_TEST);
+        GL11.glEnable(GL11.GL_CULL_FACE);
+
         GL11.glEnable(GL31.GL_PRIMITIVE_RESTART);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL31.glPrimitiveRestartIndex(PRIMITIVE_RESTART_INDEX);
@@ -183,6 +187,8 @@ public class SkyEngine {
 
                 // Configure VAOs, Shader, Textures here
                 this.window.getFrameBuffer().create();
+
+                this.game.init();
 
                 /* Make sure everything is ready before we show the window */
                 GL11.glFlush();
