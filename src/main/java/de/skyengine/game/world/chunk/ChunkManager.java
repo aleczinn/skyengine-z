@@ -4,6 +4,7 @@ import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.generator.WorldGenerator;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +20,14 @@ public class ChunkManager {
     private final ConcurrentLinkedQueue<MeshBatch> uploadQueue = new ConcurrentLinkedQueue<>();
 
     private int renderDistance = 20; // in chunks
+
+    /* Begrenzt, wie viele Generierungs-Jobs pro Tick submitted werden.
+       Hält die Executor-Queue kurz -> nahe Chunks neuer Positionen kommen schnell dran. */
+    private static final int MAX_GENERATION_SUBMITS_PER_TICK = 64;
+
+    /* Distanzsortierte (dx, dz)-Offsets, einmal pro renderDistance berechnet */
+    private int[][] loadOrder;
+    private int loadOrderRadius = -1;
 
     /* One mesher per worker thread, reused (allocation-free) */
     private final ThreadLocal<ChunkMesher> meshers = ThreadLocal.withInitial(ChunkMesher::new);
@@ -40,66 +49,97 @@ public class ChunkManager {
     }
 
     /**
+     * Liefert die Offsets innerhalb des Kreises, sortiert nach Distanz zum Spieler.
+     * Wird nur neu berechnet, wenn sich die renderDistance ändert.
+     */
+    private int[][] getLoadOrder() {
+        if (this.loadOrderRadius != this.renderDistance) {
+            List<int[]> list = new ArrayList<>();
+            int r2 = this.renderDistance * this.renderDistance;
+
+            for (int dx = -this.renderDistance; dx <= this.renderDistance; dx++) {
+                for (int dz = -this.renderDistance; dz <= this.renderDistance; dz++) {
+                    if (dx * dx + dz * dz <= r2) {
+                        list.add(new int[]{dx, dz});
+                    }
+                }
+            }
+
+            list.sort(Comparator.comparingInt(a -> a[0] * a[0] + a[1] * a[1]));
+
+            this.loadOrder = list.toArray(new int[0][]);
+            this.loadOrderRadius = this.renderDistance;
+        }
+        return this.loadOrder;
+    }
+
+    /**
      * Einmal pro TICK: Chunks erzeugen, generieren, Erst-Mesh, Unload.
+     * Lädt circular: nächste Chunks zuerst, dank distanzsortierter Offsets.
      */
     public void update(EntityPlayer player) {
         int pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         int pcz = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
 
-        /* 1. Create + generate missing chunks in range */
-        for (int dx = -this.renderDistance; dx <= this.renderDistance; dx++) {
-            for (int dz = -this.renderDistance; dz <= this.renderDistance; dz++) {
-                if (dx * dx + dz * dz > this.renderDistance * this.renderDistance) continue;
+        int generationSubmits = 0;
 
-                int cx = pcx + dx, cz = pcz + dz;
-                long key = Chunk.key(cx, cz);
+        /* 1. Create + generate + Erst-Mesh, in Distanz-Reihenfolge */
+        for (int[] offset : this.getLoadOrder()) {
+            int cx = pcx + offset[0];
+            int cz = pcz + offset[1];
+            long key = Chunk.key(cx, cz);
 
-                Chunk chunk = this.chunks.get(key);
-                if (chunk == null) {
-                    chunk = new Chunk(cx, cz);
-                    this.chunks.put(key, chunk);
-                }
+            Chunk chunk = this.chunks.get(key);
+            if (chunk == null) {
+                chunk = new Chunk(cx, cz);
+                this.chunks.put(key, chunk);
+            }
 
-                if (chunk.status == ChunkStatus.NEW) {
-                    chunk.status = ChunkStatus.GENERATING;
-                    Chunk finalChunk = chunk;
-                    this.workers.submit(() -> {
-                        this.generator.generate(finalChunk);
-                        finalChunk.status = ChunkStatus.GENERATED;
-                    });
-                }
+            if (chunk.status == ChunkStatus.NEW && generationSubmits < MAX_GENERATION_SUBMITS_PER_TICK) {
+                generationSubmits++;
+                chunk.status = ChunkStatus.GENERATING;
+                Chunk finalChunk = chunk;
+                this.workers.submit(() -> {
+                    this.generator.generate(finalChunk);
+                    finalChunk.status = ChunkStatus.GENERATED;
+                });
+            }
 
-                /* 2. Erst-Mesh: alle 16 Sections, sobald Nachbarn generiert sind.
-                   Jede Section als eigener Batch, damit der Upload über Frames verteilt wird. */
-                if (chunk.status == ChunkStatus.GENERATED) {
-                    Chunk north = this.getGenerated(cx, cz - 1);
-                    Chunk south = this.getGenerated(cx, cz + 1);
-                    Chunk west = this.getGenerated(cx - 1, cz);
-                    Chunk east = this.getGenerated(cx + 1, cz);
-                    if (north == null || south == null || west == null || east == null) continue;
+            /* 2. Erst-Mesh: alle 16 Sections, sobald Nachbarn generiert sind.
+               Jede Section als eigener Batch, damit der Upload über Frames verteilt wird. */
+            if (chunk.status == ChunkStatus.GENERATED) {
+                Chunk north = this.getGenerated(cx, cz - 1);
+                Chunk south = this.getGenerated(cx, cz + 1);
+                Chunk west = this.getGenerated(cx - 1, cz);
+                Chunk east = this.getGenerated(cx + 1, cz);
+                if (north == null || south == null || west == null || east == null) continue;
 
-                    chunk.status = ChunkStatus.MESHING;
-                    Chunk finalChunk = chunk;
-                    this.workers.submit(() -> {
-                        ChunkMesher mesher = this.meshers.get();
-                        for (int s = 0; s < Chunk.SECTIONS; s++) {
-                            float[] mesh = mesher.mesh(finalChunk, s, north, south, west, east);
-                            this.uploadQueue.add(new MeshBatch(List.of(
-                                    new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh))));
-                        }
-                        finalChunk.status = ChunkStatus.READY;
-                    });
-                }
+                chunk.status = ChunkStatus.MESHING;
+                Chunk finalChunk = chunk;
+                this.workers.submit(() -> {
+                    ChunkMesher mesher = this.meshers.get();
+                    for (int s = 0; s < Chunk.SECTIONS; s++) {
+                        float[] mesh = mesher.mesh(finalChunk, s, north, south, west, east);
+                        this.uploadQueue.add(new MeshBatch(List.of(
+                                new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh))));
+                    }
+                    finalChunk.status = ChunkStatus.READY;
+                });
             }
         }
 
-        /* 3. Unload chunks far outside the render distance */
+        /* 3. Unload chunks far outside the render distance.
+           READY und GENERATED dürfen weg - nur laufende Jobs (GENERATING/MESHING)
+           bleiben, bis sie fertig sind, sonst arbeiten Worker auf entfernten Chunks. */
         int unloadDist = this.renderDistance + 2;
         Iterator<Map.Entry<Long, Chunk>> it = this.chunks.entrySet().iterator();
         while (it.hasNext()) {
             Chunk chunk = it.next().getValue();
             int dx = chunk.chunkX - pcx, dz = chunk.chunkZ - pcz;
-            if (dx * dx + dz * dz > unloadDist * unloadDist && (chunk.status == ChunkStatus.GENERATED || chunk.status == ChunkStatus.READY)) {
+            if (dx * dx + dz * dz <= unloadDist * unloadDist) continue;
+
+            ChunkStatus status = chunk.status;
+            if (status == ChunkStatus.READY || status == ChunkStatus.GENERATED || status == ChunkStatus.NEW) {
                 it.remove();
                 /* Renderer disposes the GL meshes when it notices the chunk is gone */
             }
@@ -158,6 +198,11 @@ public class ChunkManager {
 
     public int getRenderDistance() {
         return renderDistance;
+    }
+
+    public void setRenderDistance(int renderDistance) {
+        this.renderDistance = Math.max(2, renderDistance);
+        /* loadOrder wird beim nächsten update() automatisch neu berechnet */
     }
 
     public void dispose() {
