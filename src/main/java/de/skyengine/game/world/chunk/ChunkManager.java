@@ -99,7 +99,7 @@ public class ChunkManager {
         while (it.hasNext()) {
             Chunk chunk = it.next().getValue();
             int dx = chunk.chunkX - pcx, dz = chunk.chunkZ - pcz;
-            if (dx * dx + dz * dz > unloadDist * unloadDist && chunk.status == ChunkStatus.READY) {
+            if (dx * dx + dz * dz > unloadDist * unloadDist && (chunk.status == ChunkStatus.GENERATED || chunk.status == ChunkStatus.READY)) {
                 it.remove();
                 /* Renderer disposes the GL meshes when it notices the chunk is gone */
             }
