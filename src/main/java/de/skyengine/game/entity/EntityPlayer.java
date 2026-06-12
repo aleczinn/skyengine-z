@@ -1,11 +1,10 @@
 package de.skyengine.game.entity;
 
 import de.skyengine.core.input.Input;
-import de.skyengine.core.io.IUpdatable;
 import de.skyengine.utils.math.MathUtils;
 import org.lwjgl.glfw.GLFW;
 
-public class EntityPlayer extends Entity implements IUpdatable {
+public class EntityPlayer extends Entity {
 
     private static final float EYE_HEIGHT = 1.62F;
     private static final double FLY_SPEED = 0.5;     // blocks per tick (= 10 blocks/s at 20 TPS)
@@ -15,7 +14,6 @@ public class EntityPlayer extends Entity implements IUpdatable {
     /**
      * Per-TICK movement (20 TPS). Deterministic - only reads the frozen input state.
      */
-    @Override
     public void update(Input input) {
         super.tick();
 

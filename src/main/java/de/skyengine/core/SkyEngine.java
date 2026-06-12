@@ -80,7 +80,7 @@ public class SkyEngine {
 
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
 
-        this.game.render(partialTick);
+        this.game.render(this.input, partialTick);
         this.window.getFrameBuffer().blitToScreen();
 
         GLFW.glfwSwapBuffers(this.window.getWindowID());

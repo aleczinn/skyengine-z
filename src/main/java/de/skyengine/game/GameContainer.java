@@ -8,7 +8,7 @@ import de.skyengine.game.world.World;
 import de.skyengine.graphics.camera.Camera;
 import org.lwjgl.glfw.GLFW;
 
-public class GameContainer implements IInitializable, IUpdatable, IRenderable, IResizeable, IDisposable {
+public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     private Camera camera;
     private EntityPlayer player;
@@ -29,7 +29,6 @@ public class GameContainer implements IInitializable, IUpdatable, IRenderable, I
         SkyEngine.get().getInput().disableCursor();
     }
 
-    @Override
     public void update(Input input) {
         // TODO : Remove later
         if (input.isKeyDown(GLFW.GLFW_KEY_ESCAPE)) {
@@ -40,9 +39,7 @@ public class GameContainer implements IInitializable, IUpdatable, IRenderable, I
         this.world.update(input, this.player);
     }
 
-    @Override
-    public void render(float partialTick) {
-        Input input = SkyEngine.get().getInput();
+    public void render(Input input, float partialTick) {
 
         /* Mouse look per frame */
         this.player.turn(input.getDeltaMouseX(), input.getDeltaMouseY());
