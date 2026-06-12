@@ -7,9 +7,13 @@
 
 Eine moderne Voxel-Engine in Java, entwickelt mit LWJGL 3 und OpenGL. Das Ziel des Projekts ist die Entwicklung einer performanten und modularen Engine für voxelbasierte Welten mit Chunk-System, Mesh-Generierung und Echtzeit-Rendering.
 
+Diese Engine ist dabei eine Migration aus meinen verschiedensten Engines, welche ich bisher entwickelt habe.
+
+
 ## Features
 
-- 🌍 Feature 1
+- 🌍 Chunk-System inkl. Welt Rendering (Chunks sind Säulenförmig a 32x512x32m jedoch in Sektionen mit 32³ Blöcken verteilt)
+- 📷 Kamera inkl. Inverse Depth für bessere Tiefenaufteilung + Frustum Culling
 
 ## Development
 
