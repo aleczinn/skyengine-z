@@ -15,6 +15,8 @@ public class Camera {
     private float nearPlane = 0.05F;
     private float farPlane = 1500.0F;
 
+    private boolean inverseDepth = false;
+
     private final Matrix4f projection = new Matrix4f();
     private final Matrix4f view = new Matrix4f();
     private final Matrix4f projectionView = new Matrix4f();
@@ -37,12 +39,22 @@ public class Camera {
      * Recompute matrices. Call after follow() and after resize().
      */
     public void update(double aspectRatio) {
-        this.projection.setPerspective(
-                (float) Math.toRadians(this.fov),
-                (float) aspectRatio,
-                this.nearPlane,
-                this.farPlane
-        );
+        if (this.inverseDepth) {
+            /* Reversed-Z: far→0, near→1, Depth-Range [0,1] */
+            this.projection.setPerspective(
+                    (float) Math.toRadians(this.fov),
+                    (float) aspectRatio,
+                    this.farPlane, this.nearPlane,   // bewusst getauscht!
+                    true                              // zZeroToOne
+            );
+        } else {
+            this.projection.setPerspective(
+                    (float) Math.toRadians(this.fov),
+                    (float) aspectRatio,
+                    this.nearPlane,
+                    this.farPlane
+            );
+        }
 
         /* View matrix WITHOUT translation - chunks are rendered relative to the camera
            (camera-relative rendering avoids float precision issues far from origin) */
@@ -75,5 +87,9 @@ public class Camera {
 
     public void setFov(float fov) {
         this.fov = fov;
+    }
+
+    public void setInverseDepth(boolean value) {
+        this.inverseDepth = value;
     }
 }

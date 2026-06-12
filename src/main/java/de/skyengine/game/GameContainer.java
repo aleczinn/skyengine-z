@@ -6,6 +6,7 @@ import de.skyengine.core.io.*;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.World;
 import de.skyengine.graphics.camera.Camera;
+import org.lwjgl.glfw.GLFW;
 
 public class GameContainer implements IInitializable, IUpdatable, IRenderable, IResizeable, IDisposable {
 
@@ -19,18 +20,22 @@ public class GameContainer implements IInitializable, IUpdatable, IRenderable, I
         this.player.setPosition(0, 90, 0);
 
         this.world = new World("world");
-        this.world.init(); // creates ChunkManager, renderer, texture array
-
-        SkyEngine.get().getInput().disableCursor();
     }
 
     @Override
     public void init() {
-
+        this.world.init(); // creates ChunkManager, renderer, texture array
+        this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
+        SkyEngine.get().getInput().disableCursor();
     }
 
     @Override
     public void update(Input input) {
+        // TODO : Remove later
+        if (input.isKeyDown(GLFW.GLFW_KEY_ESCAPE)) {
+            SkyEngine.get().shutdown();
+        }
+
         this.player.update(input);
         this.world.update(input, this.player);
     }
