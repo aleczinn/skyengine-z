@@ -48,28 +48,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     }
 
     public void update(Input input) {
-        // TODO : Remove later
-        if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) {
-            SkyEngine.get().shutdown();
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F6)) {
-            this.debugChunkWireframe = !this.debugChunkWireframe;
-            this.logger.debug("Wireframe: " + this.debugChunkWireframe);
-            Utils.setWireframe(this.debugChunkWireframe);
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F7)) {
-            this.debugChunkBoundingBox = !this.debugChunkBoundingBox;
-            this.logger.debug("Chunk Bounding Box: " + this.debugChunkBoundingBox);
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
-            this.logger.debug("Toggle Fullscreen");
-        }
-
         this.player.update(input);
         this.world.update(input, this.player);
     }
 
     public void render(Input input, float partialTick) {
+        this.handleDebugInput(input);
 
         /* Mouse look per frame */
         this.player.turn(input.getDeltaMouseX(), input.getDeltaMouseY());
@@ -121,6 +105,24 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             if (this.world.getBlock(px, py, pz) == Blocks.AIR) {
                 this.world.setBlock(px, py, pz, Blocks.STONE);
             }
+        }
+    }
+
+    private void handleDebugInput(Input input) {
+        if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) {
+            SkyEngine.get().shutdown();
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F6)) {
+            this.debugChunkWireframe = !this.debugChunkWireframe;
+            this.logger.debug("Wireframe: " + this.debugChunkWireframe);
+            Utils.setWireframe(this.debugChunkWireframe);
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F7)) {
+            this.debugChunkBoundingBox = !this.debugChunkBoundingBox;
+            this.logger.debug("Chunk Bounding Box: " + this.debugChunkBoundingBox);
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
+            this.logger.debug("Toggle Fullscreen");
         }
     }
 
