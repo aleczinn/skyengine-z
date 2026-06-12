@@ -36,10 +36,10 @@ public class ChunkRenderer {
                 new Shader(FRAGMENT_SOURCE, ShaderType.FRAGMENT)
         );
         this.textures = new TextureArray(16, new String[] {
-                "./src/main/resources/game/textures/block/stone.png",      // layer 0
-                "./src/main/resources/game/textures/block/dirt.png",       // layer 1
-                "./src/main/resources/game/textures/block/grass_side.png", // layer 2
-                "./src/main/resources/game/textures/block/grass_top.png"   // layer 3
+                "./src/main/resources/game/texture/block/stone.png",      // layer 0
+                "./src/main/resources/game/texture/block/dirt.png",       // layer 1
+                "./src/main/resources/game/texture/block/grass_side.png", // layer 2
+                "./src/main/resources/game/texture/block/grass_top.png"   // layer 3
         });
     }
 
