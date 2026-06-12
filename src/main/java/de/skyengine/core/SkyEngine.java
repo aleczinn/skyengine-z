@@ -54,17 +54,17 @@ public class SkyEngine {
     }
 
     private void onRender(float partialTick) {
+        this.window.getFrameBuffer().bind();
+
         GL11.glClearColor(
                 this.config.getWindowClearColor().red,
                 this.config.getWindowClearColor().green,
                 this.config.getWindowClearColor().blue,
                 this.config.getWindowClearColor().alpha
         );
-        GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
 
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glEnable(GL11.GL_CULL_FACE);
-
         GL11.glEnable(GL31.GL_PRIMITIVE_RESTART);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL31.glPrimitiveRestartIndex(PRIMITIVE_RESTART_INDEX);
@@ -75,10 +75,11 @@ public class SkyEngine {
             GL11.glClearDepth(0.0);
         } else {
             GL11.glDepthFunc(GL11.GL_LESS);
+            GL11.glClearDepth(1.0);
         }
 
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
-        this.window.getFrameBuffer().bind();
+
         this.game.render(partialTick);
         this.window.getFrameBuffer().blitToScreen();
 
