@@ -1,5 +1,6 @@
 package de.skyengine.graphics.world;
 
+import de.skyengine.core.SkyEngine;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
@@ -18,6 +19,7 @@ public class SelectionBoxRenderer {
     public void init() {
         this.shader = new ShaderProgram(
                 new Shader(VERTEX, ShaderType.VERTEX),
+                new Shader(GEOMETRY, ShaderType.GEOMETRY),
                 new Shader(FRAGMENT, ShaderType.FRAGMENT)
         );
 
@@ -47,11 +49,17 @@ public class SelectionBoxRenderer {
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformVector3f("u_Offset",
                 (float) (blockX - cam.x), (float) (blockY - cam.y), (float) (blockZ - cam.z));
+        this.shader.setUniformVector2f("u_Viewport",
+                SkyEngine.get().getWindow().getWidth(),
+                SkyEngine.get().getWindow().getHeight()
+        );
+        this.shader.setUniformf("u_LineWidth", 2.5F); // Pixel
 
         GL30.glBindVertexArray(this.vao);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glDrawArrays(GL11.GL_LINES, 0, 24);
         GL11.glDisable(GL11.GL_BLEND);
+
         this.shader.unbind();
     }
 
@@ -62,20 +70,51 @@ public class SelectionBoxRenderer {
     }
 
     private static final String VERTEX = """
-            #version 460 core
-            layout(location = 0) in vec3 a_position;
-            uniform mat4 u_ProjectionView;
-            uniform vec3 u_Offset;
-            void main() {
-                gl_Position = u_ProjectionView * vec4(a_position + u_Offset, 1.0);
-            }
-            """;
+        #version 460 core
+        layout(location = 0) in vec3 a_position;
+        uniform mat4 u_ProjectionView;
+        uniform vec3 u_Offset;
+        void main() {
+            gl_Position = u_ProjectionView * vec4(a_position + u_Offset, 1.0);
+        }
+        """;
+
+    private static final String GEOMETRY = """
+        #version 460 core
+        layout(lines) in;
+        layout(triangle_strip, max_vertices = 4) out;
+
+        uniform vec2 u_Viewport;
+        uniform float u_LineWidth;
+
+        void main() {
+            vec4 p0 = gl_in[0].gl_Position;
+            vec4 p1 = gl_in[1].gl_Position;
+
+            /* Endpunkte in NDC (Normalized Device Coordinates) */
+            vec2 ndc0 = p0.xy / p0.w;
+            vec2 ndc1 = p1.xy / p1.w;
+
+            /* Linienrichtung in Pixeln, daraus die Normale */
+            vec2 dir = normalize((ndc1 - ndc0) * u_Viewport);
+            vec2 normal = vec2(-dir.y, dir.x);
+
+            /* Halbe Breite pro Seite: 1px entspricht 2.0/Viewport in NDC */
+            vec2 offset = normal * u_LineWidth / u_Viewport;
+
+            gl_Position = vec4((ndc0 + offset) * p0.w, p0.z, p0.w); EmitVertex();
+            gl_Position = vec4((ndc0 - offset) * p0.w, p0.z, p0.w); EmitVertex();
+            gl_Position = vec4((ndc1 + offset) * p1.w, p1.z, p1.w); EmitVertex();
+            gl_Position = vec4((ndc1 - offset) * p1.w, p1.z, p1.w); EmitVertex();
+            EndPrimitive();
+        }
+        """;
 
     private static final String FRAGMENT = """
-            #version 460 core
-            out vec4 fragColor;
-            void main() {
-                fragColor = vec4(0.0, 0.0, 0.0, 0.6);
-            }
-            """;
+        #version 460 core
+        out vec4 fragColor;
+        void main() {
+            fragColor = vec4(0.0, 0.0, 0.0, 0.6);
+        }
+        """;
 }
