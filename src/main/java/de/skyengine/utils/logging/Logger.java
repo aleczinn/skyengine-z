@@ -47,7 +47,7 @@ public class Logger {
     }
 
     public void error(String message) {
-        this.log(LogLevel.ERROR, ANSI.PURPLE, message, null, true);
+        this.log(LogLevel.ERROR, ANSI.RED, message, null, true);
     }
 
     public void error(String message, Throwable throwable) {
