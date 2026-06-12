@@ -30,47 +30,33 @@ public class Texture implements IDisposable {
 	
 	private static float maxAnisotropicFilterLevel = 0.0F;
 	private float anisotropicFilterLevel = 1.0F;
-	
-	public Texture(int textureID, int width, int height) {
-		this.textureID = textureID;
-		this.width = width;
-		this.height = height;
-	}
-	
-	public Texture(int width, int height, ByteBuffer data) {
-		this(width, height, data, false);
-	}
-	
-	public Texture(int width, int height, ByteBuffer data, boolean useMipMaps) {
-		this.textureID = GL11.glGenTextures();
-		this.width = width;
-		this.height = height;
-		
-		this.bind();
-		
-		this.uploadImageData(data, useMipMaps);
-		
-		this.unsafeSetFilter(this.minFilter, this.magFilter, true);
-		this.unsafeSetWrap(this.wrapU, this.wrapV, true);
-		this.unsafeSetAnisotropicFilterLevel(this.anisotropicFilterLevel, true);
-		
-		this.unbind();
-	}
 
 	public Texture(FileHandle file) {
-		this(file, false, false);
+		this(file, true);
 	}
 
 	public Texture(FileHandle file, boolean useMipMaps) {
-		this(file, false, useMipMaps);
-	}
-
-	public Texture(FileHandle file, boolean flipVertical, boolean useMipMaps) {
 		this.textureID = GL11.glGenTextures();
 		this.bind();
-		
-		this.uploadImageData(this.getDataFromPath(file, flipVertical), useMipMaps);
-		
+
+		if(!file.exists()) throw new RuntimeException("Path could not be found!");
+
+		try (MemoryStack stack = MemoryStack.stackPush()) {
+			IntBuffer w = stack.mallocInt(1), h = stack.mallocInt(1), c = stack.mallocInt(1);
+			ByteBuffer pixels = STBImage.stbi_load(file.path(), w, h, c, 4);
+			if (pixels == null) throw new RuntimeException("Texture not found: " + file.path());
+
+			this.width = w.get();
+			this.height = h.get();
+
+			GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, this.width, this.height, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, pixels);
+			STBImage.stbi_image_free(pixels);
+		}
+
+		if(useMipMaps) {
+			GL30.glGenerateMipmap(GL11.GL_TEXTURE_2D);
+		}
+
 		this.unsafeSetFilter(this.minFilter, this.magFilter, true);
 		this.unsafeSetWrap(this.wrapU, this.wrapV, true);
 		this.unsafeSetAnisotropicFilterLevel(this.anisotropicFilterLevel, true);
@@ -89,14 +75,6 @@ public class Texture implements IDisposable {
 	
 	public void unbind() {
 		GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
-	}
-	
-	private void uploadImageData(ByteBuffer data, boolean useMipMaps) {
-		GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, this.width, this.height,  0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, data);
-		
-		if(useMipMaps) {
-			GL30.glGenerateMipmap(GL11.GL_TEXTURE_2D);
-		}
 	}
 	
 	public void setFilter(TextureFilter minFilter, TextureFilter magFilter) {
@@ -201,25 +179,6 @@ public class Texture implements IDisposable {
 			return this.anisotropicFilterLevel;
 		GL11.glTexParameterf(GL11.GL_TEXTURE_2D, EXTTextureFilterAnisotropic.GL_TEXTURE_MAX_ANISOTROPY_EXT, level);
 		return this.anisotropicFilterLevel = level;
-	}
-	
-	private ByteBuffer getDataFromPath(FileHandle file, boolean flipVertical) {
-		if(!file.exists()) throw new RuntimeException("Path could not be found!");
-		
-		ByteBuffer data;
-		try(MemoryStack stack = MemoryStack.stackPush()) {
-			IntBuffer w = stack.mallocInt(1);
-			IntBuffer h = stack.mallocInt(1);
-			IntBuffer comp = stack.mallocInt(1);
-			
-			STBImage.stbi_set_flip_vertically_on_load(!flipVertical);
-			data = STBImage.stbi_load(file.path(), w, h, comp, 4);
-			if(data == null) throw new RuntimeException("Failed to load a texture file!" + System.lineSeparator() + STBImage.stbi_failure_reason());
-			
-			this.width = w.get();
-			this.height = h.get();
-		}
-		return data;
 	}
 	
 	public int getTextureID() {
