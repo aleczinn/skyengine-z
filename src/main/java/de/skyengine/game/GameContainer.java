@@ -30,6 +30,11 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     private static final double REACH = 6.0;
 
+    /* Block-Interaktion: sofort beim Klick, beim Halten alle 200ms (= 4 Ticks, wie Minecraft) */
+    private static final long INTERACT_DELAY_MS = 200;
+    private long lastBreakTime = 0;
+    private long lastPlaceTime = 0;
+
     /* Wiederverwendet, um Allokationen pro Frame zu vermeiden */
     private final Vector3d rayDirection = new Vector3d();
 
@@ -106,14 +111,21 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     }
 
     private void handleBlockInteraction(Input input) {
-        boolean breakBlock = input.isMousePressed(GLFW.GLFW_MOUSE_BUTTON_LEFT);
-        boolean placeBlock = input.isMousePressed(GLFW.GLFW_MOUSE_BUTTON_RIGHT);
-        if (!breakBlock && !placeBlock) return;
+        long now = System.currentTimeMillis();
 
+        /* Sofort beim Klick (isMousePressed) ODER beim Halten nach Ablauf des Delays */
+        boolean breakBlock = input.isMousePressed(GLFW.GLFW_MOUSE_BUTTON_LEFT)
+                || (input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_LEFT) && now - this.lastBreakTime >= INTERACT_DELAY_MS);
+
+        boolean placeBlock = input.isMousePressed(GLFW.GLFW_MOUSE_BUTTON_RIGHT)
+                || (input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_RIGHT) && now - this.lastPlaceTime >= INTERACT_DELAY_MS);
+
+        if (!breakBlock && !placeBlock) return;
         if (hit == null) return;
 
         if (breakBlock) {
             this.world.setBlock(hit.x(), hit.y(), hit.z(), Blocks.AIR);
+            this.lastBreakTime = now;
         } else {
             /* Platzieren: an der getroffenen Seite, nicht im Block selbst */
             int px = hit.x() + hit.faceX();
@@ -123,14 +135,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             /* Kamera-im-Block-Fall: face ist (0,0,0) -> würde den Zielblock ersetzen, abbrechen */
             if (hit.faceX() == 0 && hit.faceY() == 0 && hit.faceZ() == 0) return;
 
-//            if (this.world.getBlock(px, py, pz) == Blocks.AIR) {
-//                this.world.setBlock(px, py, pz, Blocks.STONE);
-//            }
-
             if (this.world.getBlock(px, py, pz) == Blocks.AIR) {
+                /* Nicht in den eigenen Körper bauen */
                 AABB blockBox = new AABB(px, py, pz, px + 1, py + 1, pz + 1);
                 if (!blockBox.intersects(this.player.getBoundingBox())) {
                     this.world.setBlock(px, py, pz, Blocks.STONE);
+                    this.lastPlaceTime = now;
                 }
             }
         }
@@ -139,6 +149,10 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private void handleDebugInput(Input input) {
         if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) {
             SkyEngine.get().shutdown();
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F)) {
+            this.player.toggleFlying();
+            this.logger.debug("Flying: " + this.player.isFlying());
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F6)) {
             this.debugChunkWireframe = !this.debugChunkWireframe;
@@ -161,11 +175,6 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             });
 
             this.logger.debug("Toggle Fullscreen");
-        }
-
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F)) {
-            this.player.toggleFlying();
-            this.logger.debug("Flying: " + this.player.isFlying());
         }
     }
 

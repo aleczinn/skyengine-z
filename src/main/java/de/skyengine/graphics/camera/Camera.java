@@ -28,7 +28,7 @@ public class Camera {
     public void follow(EntityPlayer player, float partialTick) {
         this.position.set(
                 player.lastX + (player.x - player.lastX) * partialTick,
-                player.lastY + (player.y - player.lastY) * partialTick + player.getEyeHeight(),
+                player.lastY + (player.y - player.lastY) * partialTick + player.getEyeHeight(partialTick),
                 player.lastZ + (player.z - player.lastZ) * partialTick
         );
         this.yaw = player.yaw;
