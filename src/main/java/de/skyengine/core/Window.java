@@ -56,7 +56,7 @@ public class Window implements IDisposable {
         this.initDebugCallback();
 
         GLFW.glfwSetFramebufferSizeCallback(this.windowID, (window, width, height) -> {
-            if (width <= 0 && height <= 0) return;
+            if (width <= 0 || height <= 0) return;
 
             this.config.setWindowWidth(width);
             this.config.setWindowHeight(height);
