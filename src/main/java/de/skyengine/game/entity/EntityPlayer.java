@@ -35,7 +35,7 @@ public class EntityPlayer extends Entity {
     private static final double SNEAK_EDGE_STEP = 0.05;      // Schrittweite beim Kürzen der Bewegung
     private static final double SNEAK_EDGE_DROP = 0.6;       // ab dieser Falltiefe gilt "keine Kante mehr"
 
-    private boolean flying = true; // Start im Fly-Modus, bis Spawn-Logik existiert
+    private boolean flying = false; // Start im Fly-Modus, bis Spawn-Logik existiert
     private boolean sprinting = false;
     private boolean sneaking = false;
 

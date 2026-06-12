@@ -1,0 +1,9 @@
+{
+  "id": "skyengine:glass",
+  "type": "cube",
+  "layer": "translucent",
+  "opaque": false,
+  "solid": true,
+  "cull_same": true,
+  "textures": { "all": "game/texture/block/glass.png" }
+}

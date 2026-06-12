@@ -1,28 +1,66 @@
 package de.skyengine.game.world.block;
 
+import de.skyengine.game.world.block.json.BlockLoader;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.utils.logging.LogManager;
+import de.skyengine.utils.logging.Logger;
+
+import java.io.File;
+
+/**
+ * Bootstrap + bequeme Konstanten. Die shorts sind die Default-State-IDs
+ * der jeweiligen Blöcke (deshalb funktionieren Generator, Raycast etc.
+ * weiterhin ohne Änderung an deren API).
+ */
 public final class Blocks {
 
-    public static final short AIR = 0;
-    public static final short STONE = 1;
-    public static final short DIRT = 2;
-    public static final short GRASS = 3;
+    private static final Logger LOGGER = LogManager.getLogger(Blocks.class.getName());
 
-    /** face: 0=top, 1=bottom, 2..5=sides. Returns texture array layer. */
-    public static int getTextureLayer(short block, int face) {
-        return switch (block) {
-            case STONE -> 0;
-            case DIRT -> 1;
-            case GRASS -> (face == 0 ? 3 : (face == 1 ? 1 : 2)); // top=grass, bottom=dirt, side=grass_side
-            default -> 0;
-        };
+    public static short AIR;
+    public static short STONE, DIRT, GRASS_BLOCK, SAND;
+    public static short GLASS;
+    public static short FARN, GRASS_TUFT;
+
+    /** Vor world.init() aufrufen! Lädt JSON-Blöcke und baked die Registry. */
+    public static void bootstrap(File blockDirectory) {
+        /* Luft IMMER zuerst registrieren -> State-ID 0. Chunks sind per Default 0 = leer. */
+        BlockRegistry.register(new Block(Identifier.of("skyengine:air"), Block.Settings.create().air()));
+
+        BlockLoader.load(blockDirectory);
+        BlockRegistry.bake();
+
+        AIR = idOf("skyengine:air");
+        STONE = idOf("skyengine:stone");
+        DIRT = idOf("skyengine:dirt");
+        GRASS_BLOCK = idOf("skyengine:grass_block");
+        SAND = idOf("skyengine:sand");
+        GLASS = idOf("skyengine:glass");
+        FARN = idOf("skyengine:farn");
+        GRASS_TUFT = idOf("skyengine:grass_tuft");
     }
 
-    public static boolean isOpaque(short block) {
-        return block != AIR;
+    private static short idOf(String id) {
+        Block block = BlockRegistry.get(Identifier.of(id));
+        if (block == null) {
+            LOGGER.warning("Block nicht gefunden, Fallback auf Luft: " + id);
+            return 0;
+        }
+        return block.getDefaultState().getId();
     }
 
-    /** Kollision: blockiert dieser Block die Bewegung? */
-    public static boolean isSolid(short block) {
-        return block != AIR;
+    /* --- Hot-Path-Helfer (Kollision, Mesher, Raycast) --- */
+
+    public static boolean isSolid(short stateId) {
+        return BlockRegistry.getState(stateId).isSolid();
     }
+
+    public static boolean isOpaque(short stateId) {
+        return BlockRegistry.getState(stateId).isOpaqueCube();
+    }
+
+    public static BlockState getState(short stateId) {
+        return BlockRegistry.getState(stateId);
+    }
+
+    private Blocks() {}
 }

@@ -1,0 +1,6 @@
+{
+  "id": "skyengine:dirt",
+  "type": "cube",
+  "layer": "opaque",
+  "textures": { "all": "game/texture/block/dirt.png" }
+}

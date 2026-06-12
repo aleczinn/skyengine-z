@@ -2,6 +2,7 @@ package de.skyengine.game;
 
 import de.skyengine.core.EngineConfig;
 import de.skyengine.core.SkyEngine;
+import de.skyengine.core.file.Files;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.*;
 import de.skyengine.game.entity.EntityPlayer;
@@ -17,6 +18,8 @@ import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import org.joml.Vector3d;
 import org.lwjgl.glfw.GLFW;
+
+import java.io.File;
 
 public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
@@ -55,6 +58,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     @Override
     public void init() {
+        Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
+
         this.world.init(); // creates ChunkManager, renderer, texture array
         this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
         this.selectionBoxRenderer.init();
@@ -139,7 +144,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 /* Nicht in den eigenen Körper bauen */
                 AABB blockBox = new AABB(px, py, pz, px + 1, py + 1, pz + 1);
                 if (!blockBox.intersects(this.player.getBoundingBox())) {
-                    this.world.setBlock(px, py, pz, Blocks.STONE);
+                    this.world.setBlock(px, py, pz, Blocks.GLASS);
                     this.lastPlaceTime = now;
                 }
             }

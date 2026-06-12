@@ -1,0 +1,6 @@
+{
+  "id": "skyengine:sand",
+  "type": "cube",
+  "layer": "opaque",
+  "textures": { "all": "game/texture/block/sand.png" }
+}

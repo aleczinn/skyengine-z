@@ -28,10 +28,17 @@ public class WorldGenerator {
 
                 for (int y = 0; y <= height; y++) {
                     short block;
-                    if (y == height) block = Blocks.GRASS;
+                    if (y == height) block = Blocks.GRASS_BLOCK;
                     else if (y >= height - 3) block = Blocks.DIRT;
                     else block = Blocks.STONE;
                     chunk.setBlock(x, y, z, block);
+                }
+
+                /* Vegetation: deterministisch über einen zweiten Noise-Sample */
+                float veg = this.noise.GetNoise((baseX + x) * 13.7F, (baseZ + z) * 13.7F);
+                if (height + 1 < Chunk.HEIGHT) {
+                    if (veg > 0.80F) chunk.setBlock(x, height + 1, z, Blocks.FARN);
+                    else if (veg > 0.55F) chunk.setBlock(x, height + 1, z, Blocks.GRASS_TUFT);
                 }
             }
         }

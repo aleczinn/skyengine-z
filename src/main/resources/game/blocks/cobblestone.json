@@ -1,0 +1,6 @@
+{
+  "id": "skyengine:cobblestone",
+  "type": "cube",
+  "layer": "opaque",
+  "textures": { "all": "game/texture/block/cobblestone.png" }
+}

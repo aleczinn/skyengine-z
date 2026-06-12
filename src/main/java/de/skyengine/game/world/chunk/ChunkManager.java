@@ -32,7 +32,7 @@ public class ChunkManager {
     /* One mesher per worker thread, reused (allocation-free) */
     private final ThreadLocal<ChunkMesher> meshers = ThreadLocal.withInitial(ChunkMesher::new);
 
-    public record MeshResult(int chunkX, int sectionY, int chunkZ, float[] vertexData) {}
+    public record MeshResult(int chunkX, int sectionY, int chunkZ, ChunkMesher.MeshData data) {}
 
     public record MeshBatch(List<MeshResult> results) {}
 
@@ -119,7 +119,7 @@ public class ChunkManager {
                 this.workers.submit(() -> {
                     ChunkMesher mesher = this.meshers.get();
                     for (int s = 0; s < Chunk.SECTIONS; s++) {
-                        float[] mesh = mesher.mesh(finalChunk, s, north, south, west, east);
+                        ChunkMesher.MeshData mesh = mesher.mesh(finalChunk, s, north, south, west, east);
                         this.uploadQueue.add(new MeshBatch(List.of(
                                 new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh))));
                     }
