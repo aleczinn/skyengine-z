@@ -14,7 +14,10 @@ java {
 
 application {
     mainClass = "de.skyengine.DesktopLauncher"
-    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
+    applicationDefaultJvmArgs = listOf(
+        "--enable-native-access=ALL-UNNAMED",
+        "--sun-misc-unsafe-memory-access=allow"
+    )
 }
 
 val lwjglVersion = "3.4.1"
