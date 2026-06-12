@@ -1,6 +1,6 @@
 package de.skyengine.utils.profiler;
 
-import de.skyengine.utils.MathUtils;
+import de.skyengine.utils.TimeUtils;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -66,7 +66,7 @@ public class Profiler {
 			}
 			
 			if(time > 100000000L) {
-				logger.fatal("Something's taking too long! '" + this.profilingSection + "' took " + MathUtils.nanoToMilli(time) + "ms");
+				logger.fatal("Something's taking too long! '" + this.profilingSection + "' took " + TimeUtils.nanosToMillis(time) + "ms");
 			}
 			
 			this.profilingSection = this.sectionList.isEmpty() ? "" : this.sectionList.get(this.sectionList.size() - 1);

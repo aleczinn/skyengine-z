@@ -1,6 +1,6 @@
 package de.skyengine.utils.profiler;
 
-import de.skyengine.utils.MathUtils;
+import de.skyengine.utils.TimeUtils;
 
 public class ProfilerResult implements Comparable<ProfilerResult>{
 
@@ -53,6 +53,6 @@ public class ProfilerResult implements Comparable<ProfilerResult>{
 	
 	@Override
 	public String toString() {
-		return this.name + " : " + "Time: " + this.time + "ns " + MathUtils.nanoToMilli(this.time) + "ms " + ", TotalTime=" + this.totalTime + "ns " + MathUtils.nanoToMilli(this.totalTime) + "ms [" + this.percentage + "%]";
+		return this.name + " : " + "Time: " + this.time + "ns " + TimeUtils.nanosToMillis(this.time) + "ms " + ", TotalTime=" + this.totalTime + "ns " + TimeUtils.nanosToMillis(this.totalTime) + "ms [" + this.percentage + "%]";
 	}
 }
