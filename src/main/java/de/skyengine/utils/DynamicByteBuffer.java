@@ -130,6 +130,6 @@ public class DynamicByteBuffer {
     }
 
     public void setPosition(int position) {
-        this.position = 0;
+        this.position = position;
     }
 }
