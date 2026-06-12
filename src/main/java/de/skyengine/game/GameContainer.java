@@ -1,5 +1,6 @@
 package de.skyengine.game;
 
+import de.skyengine.core.EngineConfig;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.*;
@@ -122,6 +123,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("Chunk Bounding Box: " + this.debugChunkBoundingBox);
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
+            boolean fullscreen = SkyEngine.get().getConfig().isWindowed();
+
+            SkyEngine.get().getMainThreadTasks().add(() -> {
+                SkyEngine.get().getWindow().setWindowMode(fullscreen ? EngineConfig.WindowMode.BORDERLESS_FULLSCREEN : EngineConfig.WindowMode.WINDOWED);
+            });
+
             this.logger.debug("Toggle Fullscreen");
         }
     }

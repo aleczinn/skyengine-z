@@ -34,7 +34,8 @@ public class SkyEngine {
     private final Input input;
     private final Files files;
 
-    private final Queue<DelayedRunnable> tasks;
+    private final Queue<Runnable> mainThreadTasks;
+    private final Queue<DelayedRunnable> renderTasks;
 
     private final GameContainer game;
 
@@ -45,7 +46,8 @@ public class SkyEngine {
         this.window = new Window(config);
         this.input = new Input(this.window);
         this.files = new Files();
-        this.tasks = new ConcurrentLinkedQueue<>();
+        this.mainThreadTasks = new ConcurrentLinkedQueue<>();
+        this.renderTasks = new ConcurrentLinkedQueue<>();
         this.game = new GameContainer();
     }
 
@@ -189,7 +191,7 @@ public class SkyEngine {
     public void launch() {
         try {
             CountDownLatch latch = new CountDownLatch(1);
-            this.tasks.add(new DelayedRunnable(() -> {
+            this.renderTasks.add(new DelayedRunnable(() -> {
                 this.window.init();
                 this.window.printDebug();
                 this.input.init();
@@ -242,11 +244,22 @@ public class SkyEngine {
 
         while (!this.window.shouldClose()) {
             GLFW.glfwWaitEvents();
+
+            Iterator<Runnable> iterator = this.mainThreadTasks.iterator();
+            while (iterator.hasNext()) {
+                Runnable dr = iterator.next();
+                try {
+                    iterator.remove();
+                    dr.run();
+                } catch (Exception e) {
+                    this.logger.fatal(e);
+                }
+            }
         }
     }
 
     private void drainRunnables() {
-        Iterator<DelayedRunnable> iterator = this.tasks.iterator();
+        Iterator<DelayedRunnable> iterator = this.renderTasks.iterator();
         while (iterator.hasNext()) {
             DelayedRunnable dr = iterator.next();
 
@@ -267,6 +280,11 @@ public class SkyEngine {
                 this.logger.fatal(e);
             }
         }
+    }
+
+    public void addTaskToMainThread(Runnable task) {
+        this.mainThreadTasks.add(task);
+        GLFW.glfwPostEmptyEvent();
     }
 
     /**
@@ -292,8 +310,12 @@ public class SkyEngine {
         return files;
     }
 
-    public Queue<DelayedRunnable> getTasks() {
-        return tasks;
+    public Queue<Runnable> getMainThreadTasks() {
+        return mainThreadTasks;
+    }
+
+    public Queue<DelayedRunnable> getRenderTasks() {
+        return renderTasks;
     }
 
     public GameContainer getGame() {

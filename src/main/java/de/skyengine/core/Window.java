@@ -27,6 +27,9 @@ public class Window implements IDisposable {
 
     private Long windowID = MemoryUtil.NULL;
 
+    /* Gemerkte Windowed-Geometrie, um sie beim Zurückwechseln wiederherzustellen */
+    private int windowedX, windowedY, windowedWidth, windowedHeight;
+
     private GLFWErrorCallback errorCallback;
     private Callback debugCallback;
 
@@ -58,7 +61,7 @@ public class Window implements IDisposable {
             this.config.setWindowWidth(width);
             this.config.setWindowHeight(height);
 
-            SkyEngine.get().getTasks().add(new DelayedRunnable(() -> {
+            SkyEngine.get().getRenderTasks().add(new DelayedRunnable(() -> {
                 this.frameBuffer.create();
                 SkyEngine.get().onResize(width, height);
                 GL11.glViewport(0, 0, width, height);
@@ -110,13 +113,14 @@ public class Window implements IDisposable {
 
     private void createWindow() {
         long monitor = GLFW.glfwGetPrimaryMonitor();
-        GLFWVidMode mode = GLFW.glfwGetVideoMode(monitor);
+        GLFWVidMode vidMode  = GLFW.glfwGetVideoMode(monitor);
 
         this.windowID = GLFW.glfwCreateWindow(
                 this.config.getWindowWidth(),
                 this.config.getWindowHeight(),
                 this.config.getTitle(),
-                this.config.isFullscreen() ? monitor : MemoryUtil.NULL, MemoryUtil.NULL
+                MemoryUtil.NULL,
+                MemoryUtil.NULL
         );
 
         if (this.windowID == MemoryUtil.NULL) throw new RuntimeException("Failed to create the window!");
@@ -129,32 +133,68 @@ public class Window implements IDisposable {
                 this.config.getWindowMaxHeight() > -1 ? this.config.getWindowMaxHeight() : GLFW.GLFW_DONT_CARE
         );
 
-        this.setupWindowMode(mode);
+        this.applyWindowMode(this.config.getWindowMode(), vidMode);
 
         if (this.config.getWindowIconPaths() != null) {
             this.setIcon(this.config.getWindowIconPaths());
         }
     }
 
-    private void setupWindowMode(GLFWVidMode vidMode) {
-        switch (this.config.getWindowMode()) {
-            case WINDOWED:
-                if (!this.config.isMaximized()) {
-                    GLFW.glfwSetWindowPos(this.windowID, vidMode.width() / 2 - this.config.getWindowWidth() / 2, vidMode.height() / 2 - this.config.getWindowHeight() / 2);
-                }
-                break;
-            case FULLSCREEN:
-                GLFW.glfwSetWindowMonitor(this.windowID, GLFW.glfwGetPrimaryMonitor(), 0, 0, vidMode.width(), vidMode.height(), GLFW.GLFW_DONT_CARE);
-                break;
-            case BORDERLESS_FULLSCREEN:
-                GLFW.glfwWindowHint(GLFW.GLFW_DECORATED, GLFW.GLFW_FALSE);
-                GLFW.glfwSetWindowMonitor(this.windowID, GLFW.glfwGetPrimaryMonitor(), 0, 0, vidMode.width(), vidMode.height(), GLFW.GLFW_DONT_CARE);
-                break;
+    /**
+     * Wechselt den Fenstermodus zur Laufzeit.
+     * NUR vom Main-Thread aufrufen (via SkyEngine.runOnMainThread)!
+     */
+    public void setWindowMode(EngineConfig.WindowMode mode) {
+        if (mode == this.config.getWindowMode()) return;
+
+        /* Beim Verlassen des Windowed-Modus die Geometrie merken */
+        if (this.config.isWindowed()) {
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                IntBuffer x = stack.mallocInt(1), y = stack.mallocInt(1);
+                IntBuffer w = stack.mallocInt(1), h = stack.mallocInt(1);
+                GLFW.glfwGetWindowPos(this.windowID, x, y);
+                GLFW.glfwGetWindowSize(this.windowID, w, h);
+                this.windowedX = x.get(0);
+                this.windowedY = y.get(0);
+                this.windowedWidth = w.get(0);
+                this.windowedHeight = h.get(0);
+            }
         }
 
-        if (this.config.isWindowed() && this.config.isMaximized()) {
-            this.config.setWindowWidth(vidMode.width());
-            this.config.setWindowHeight(vidMode.height());
+        this.config.setWindowMode(mode);
+        this.applyWindowMode(mode, GLFW.glfwGetVideoMode(GLFW.glfwGetPrimaryMonitor()));
+    }
+
+    /**
+     * Gemeinsamer Kern: wendet einen Modus auf das existierende Fenster an.
+     * Wird beim Erstellen (Main-Thread) und beim Laufzeit-Wechsel (Main-Thread) genutzt.
+     */
+    private void applyWindowMode(EngineConfig.WindowMode mode, GLFWVidMode vidMode) {
+        switch (mode) {
+            case WINDOWED -> {
+                GLFW.glfwSetWindowAttrib(this.windowID, GLFW.GLFW_DECORATED, GLFW.GLFW_TRUE);
+
+                /* Gemerkte Geometrie nutzen, sonst (beim Start) zentrieren */
+                int w = this.windowedWidth > 0 ? this.windowedWidth : this.config.getWindowWidth();
+                int h = this.windowedHeight > 0 ? this.windowedHeight : this.config.getWindowHeight();
+                int x = this.windowedWidth > 0 ? this.windowedX : vidMode.width() / 2 - w / 2;
+                int y = this.windowedHeight > 0 ? this.windowedY : vidMode.height() / 2 - h / 2;
+
+                GLFW.glfwSetWindowMonitor(this.windowID, MemoryUtil.NULL, x, y, w, h, GLFW.GLFW_DONT_CARE);
+
+                if (this.config.isMaximized()) {
+                    GLFW.glfwMaximizeWindow(this.windowID);
+                }
+            }
+            case FULLSCREEN -> GLFW.glfwSetWindowMonitor(
+                    this.windowID, GLFW.glfwGetPrimaryMonitor(),
+                    0, 0, vidMode.width(), vidMode.height(), vidMode.refreshRate());
+
+            case BORDERLESS_FULLSCREEN -> {
+                GLFW.glfwSetWindowAttrib(this.windowID, GLFW.GLFW_DECORATED, GLFW.GLFW_FALSE);
+                GLFW.glfwSetWindowMonitor(this.windowID, MemoryUtil.NULL,
+                        0, 0, vidMode.width(), vidMode.height(), GLFW.GLFW_DONT_CARE);
+            }
         }
     }
 
