@@ -21,7 +21,8 @@ public class ChunkManager {
     /* One mesher per worker thread, reused (allocation-free) */
     private final ThreadLocal<ChunkMesher> meshers = ThreadLocal.withInitial(ChunkMesher::new);
 
-    public record MeshResult(int chunkX, int sectionY, int chunkZ, float[] vertexData) {}
+    public record MeshResult(int chunkX, int sectionY, int chunkZ, float[] vertexData) {
+    }
 
     public ChunkManager(WorldGenerator generator) {
         this.generator = generator;
@@ -35,7 +36,9 @@ public class ChunkManager {
         });
     }
 
-    /** Called once per tick from the render thread. */
+    /**
+     * Called once per tick from the render thread.
+     */
     public void update(EntityPlayer player) {
         int pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         int pcz = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
@@ -106,9 +109,21 @@ public class ChunkManager {
         return (status == ChunkStatus.GENERATED || status == ChunkStatus.MESHING || status == ChunkStatus.READY) ? chunk : null;
     }
 
-    public ConcurrentLinkedQueue<MeshResult> getUploadQueue() { return uploadQueue; }
-    public ConcurrentHashMap<Long, Chunk> getChunks() { return chunks; }
-    public int getRenderDistance() { return renderDistance; }
+    public Chunk getChunk(int chunkX, int chunkZ) {
+        return this.chunks.get(Chunk.key(chunkX, chunkZ));
+    }
+
+    public ConcurrentLinkedQueue<MeshResult> getUploadQueue() {
+        return uploadQueue;
+    }
+
+    public ConcurrentHashMap<Long, Chunk> getChunks() {
+        return chunks;
+    }
+
+    public int getRenderDistance() {
+        return renderDistance;
+    }
 
     public void dispose() {
         this.workers.shutdownNow();

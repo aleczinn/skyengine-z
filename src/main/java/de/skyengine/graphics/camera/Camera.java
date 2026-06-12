@@ -65,6 +65,21 @@ public class Camera {
         this.frustum.set(this.projectionView, false);
     }
 
+    /**
+     * Blickrichtung als normalisierter Vektor, konsistent zur View-Matrix.
+     */
+    public Vector3d getDirection(Vector3d dest) {
+        double yawRad = Math.toRadians(this.yaw);
+        double pitchRad = Math.toRadians(this.pitch);
+        double cosPitch = Math.cos(pitchRad);
+
+        return dest.set(
+                cosPitch * Math.sin(yawRad),
+                -Math.sin(pitchRad),
+                -cosPitch * Math.cos(yawRad)
+        );
+    }
+
     public Vector3d getPosition() {
         return position;
     }

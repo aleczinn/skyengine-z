@@ -4,8 +4,11 @@ import de.skyengine.core.SkyEngine;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.*;
 import de.skyengine.game.entity.EntityPlayer;
+import de.skyengine.game.world.BlockRaycast;
 import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.Blocks;
 import de.skyengine.graphics.camera.Camera;
+import org.joml.Vector3d;
 import org.lwjgl.glfw.GLFW;
 
 public class GameContainer implements IInitializable, IResizeable, IDisposable {
@@ -13,6 +16,11 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private Camera camera;
     private EntityPlayer player;
     private World world;
+
+    private static final double REACH = 6.0;
+
+    /* Wiederverwendet, um Allokationen pro Frame zu vermeiden */
+    private final Vector3d rayDirection = new Vector3d();
 
     public GameContainer() {
         this.camera = new Camera();
@@ -47,6 +55,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.camera.follow(this.player, partialTick);
         this.camera.update(SkyEngine.get().getWindow().getAspectRatio());
 
+        this.handleBlockInteraction(input);
+
         this.world.render(this.camera, partialTick);
     }
 
@@ -59,6 +69,36 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     public void dispose() {
         if (this.world != null) {
             this.world.dispose();
+        }
+    }
+
+    private void handleBlockInteraction(Input input) {
+        boolean breakBlock = input.isMousePressed(GLFW.GLFW_MOUSE_BUTTON_LEFT);
+        boolean placeBlock = input.isMousePressed(GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+        if (!breakBlock && !placeBlock) return;
+
+        BlockRaycast.Hit hit = BlockRaycast.raycast(
+                this.world,
+                this.camera.getPosition(),
+                this.camera.getDirection(this.rayDirection),
+                REACH
+        );
+        if (hit == null) return;
+
+        if (breakBlock) {
+            this.world.setBlock(hit.x(), hit.y(), hit.z(), Blocks.AIR);
+        } else {
+            /* Platzieren: an der getroffenen Seite, nicht im Block selbst */
+            int px = hit.x() + hit.faceX();
+            int py = hit.y() + hit.faceY();
+            int pz = hit.z() + hit.faceZ();
+
+            /* Kamera-im-Block-Fall: face ist (0,0,0) -> würde den Zielblock ersetzen, abbrechen */
+            if (hit.faceX() == 0 && hit.faceY() == 0 && hit.faceZ() == 0) return;
+
+            if (this.world.getBlock(px, py, pz) == Blocks.AIR) {
+                this.world.setBlock(px, py, pz, Blocks.STONE);
+            }
         }
     }
 

@@ -4,7 +4,11 @@ import de.skyengine.core.input.Input;
 import de.skyengine.core.io.IDisposable;
 import de.skyengine.core.io.IInitializable;
 import de.skyengine.game.entity.EntityPlayer;
+import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
+import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.world.ChunkRenderer;
@@ -45,6 +49,49 @@ public class World implements IInitializable, IDisposable {
     public void dispose() {
         this.chunkRenderer.dispose();
         this.chunkManager.dispose();
+    }
+
+    /** Block an Weltkoordinaten. Ungeladene Chunks zählen als Luft. */
+    public short getBlock(int x, int y, int z) {
+        if (y < 0 || y >= Chunk.HEIGHT) return Blocks.AIR;
+
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk == null || chunk.status == ChunkStatus.NEW || chunk.status == ChunkStatus.GENERATING) {
+            return Blocks.AIR;
+        }
+        return chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
+    }
+
+    /** Setzt einen Block und markiert betroffene Chunks fürs Remeshing. */
+    public void setBlock(int x, int y, int z, short block) {
+        if (y < 0 || y >= Chunk.HEIGHT) return;
+
+        int cx = x >> ChunkSection.SHIFT;
+        int cz = z >> ChunkSection.SHIFT;
+
+        Chunk chunk = this.chunkManager.getChunk(cx, cz);
+        /* Nur fertige Chunks editieren - vermeidet Races mit laufenden Mesh-Jobs */
+        if (chunk == null || chunk.status != ChunkStatus.READY) return;
+
+        int lx = x & ChunkSection.MASK;
+        int lz = z & ChunkSection.MASK;
+
+        chunk.setBlock(lx, y, lz, block);
+        chunk.dirty = true;
+
+        /* An Chunk-Grenzen muss der Nachbar mit-remeshen, sonst bleiben dort falsche Faces */
+        if (lx == 0) this.markDirty(cx - 1, cz);
+        if (lx == ChunkSection.MASK) this.markDirty(cx + 1, cz);
+        if (lz == 0) this.markDirty(cx, cz - 1);
+        if (lz == ChunkSection.MASK) this.markDirty(cx, cz + 1);
+    }
+
+    private void markDirty(int cx, int cz) {
+        Chunk chunk = this.chunkManager.getChunk(cx, cz);
+
+        if (chunk != null && chunk.status == ChunkStatus.READY) {
+            chunk.dirty = true;
+        }
     }
 
     public ChunkManager getChunkManager() {
