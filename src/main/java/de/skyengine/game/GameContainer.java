@@ -9,6 +9,7 @@ import de.skyengine.game.world.BlockRaycast;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.graphics.camera.Camera;
+import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -22,6 +23,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private Camera camera;
     private EntityPlayer player;
     private World world;
+    private SelectionBoxRenderer selectionBoxRenderer;
 
     private static final double REACH = 6.0;
 
@@ -31,18 +33,22 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private boolean debugChunkBoundingBox = false;
     private boolean debugChunkWireframe = false;
 
+    private BlockRaycast.Hit hit = null;
+
     public GameContainer() {
         this.camera = new Camera();
         this.player = new EntityPlayer();
         this.player.setPosition(0, 90, 0);
 
         this.world = new World("world");
+        this.selectionBoxRenderer = new SelectionBoxRenderer();
     }
 
     @Override
     public void init() {
         this.world.init(); // creates ChunkManager, renderer, texture array
         this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
+        this.selectionBoxRenderer.init();
 
         SkyEngine.get().getInput().centerMouse();
         SkyEngine.get().getInput().disableCursor();
@@ -62,9 +68,20 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.camera.follow(this.player, partialTick);
         this.camera.update(SkyEngine.get().getWindow().getAspectRatio());
 
+        this.hit = BlockRaycast.raycast(
+                this.world,
+                this.camera.getPosition(),
+                this.camera.getDirection(this.rayDirection),
+                REACH
+        );
+
         this.handleBlockInteraction(input);
 
         this.world.render(this.camera, partialTick);
+
+        if (hit != null) {
+            this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z());
+        }
     }
 
     @Override
@@ -77,6 +94,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         if (this.world != null) {
             this.world.dispose();
         }
+        this.selectionBoxRenderer.dispose();
     }
 
     private void handleBlockInteraction(Input input) {
@@ -84,12 +102,6 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         boolean placeBlock = input.isMousePressed(GLFW.GLFW_MOUSE_BUTTON_RIGHT);
         if (!breakBlock && !placeBlock) return;
 
-        BlockRaycast.Hit hit = BlockRaycast.raycast(
-                this.world,
-                this.camera.getPosition(),
-                this.camera.getDirection(this.rayDirection),
-                REACH
-        );
         if (hit == null) return;
 
         if (breakBlock) {
