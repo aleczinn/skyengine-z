@@ -9,6 +9,7 @@ import de.skyengine.game.world.BlockRaycast;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.graphics.camera.Camera;
+import de.skyengine.graphics.ui.UIRenderer;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
@@ -24,6 +25,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private EntityPlayer player;
     private World world;
     private SelectionBoxRenderer selectionBoxRenderer;
+    private UIRenderer uiRenderer;
 
     private static final double REACH = 6.0;
 
@@ -42,6 +44,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         this.world = new World("world");
         this.selectionBoxRenderer = new SelectionBoxRenderer();
+        this.uiRenderer = new UIRenderer();
     }
 
     @Override
@@ -49,6 +52,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.world.init(); // creates ChunkManager, renderer, texture array
         this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
         this.selectionBoxRenderer.init();
+        this.uiRenderer.init();
 
         SkyEngine.get().getInput().centerMouse();
         SkyEngine.get().getInput().disableCursor();
@@ -59,14 +63,14 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.world.update(input, this.player);
     }
 
-    public void render(Input input, float partialTick) {
+    public void render(Input input, int width, int height, float partialTick) {
         this.handleDebugInput(input);
 
         /* Mouse look per frame */
         this.player.turn(input.getDeltaMouseX(), input.getDeltaMouseY());
 
         this.camera.follow(this.player, partialTick);
-        this.camera.update(SkyEngine.get().getWindow().getAspectRatio());
+        this.camera.update((double) width / height);
 
         this.hit = BlockRaycast.raycast(
                 this.world,
@@ -82,6 +86,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         if (hit != null) {
             this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z());
         }
+
+        this.uiRenderer.render(width, height);
     }
 
     @Override
@@ -95,6 +101,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.world.dispose();
         }
         this.selectionBoxRenderer.dispose();
+        this.uiRenderer.dispose();
     }
 
     private void handleBlockInteraction(Input input) {
