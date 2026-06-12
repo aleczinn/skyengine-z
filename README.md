@@ -14,6 +14,8 @@ Diese Engine ist dabei eine Migration aus meinen verschiedensten Engines, welche
 
 - 🌍 Chunk-System inkl. Welt Rendering (Chunks sind Säulenförmig a 32x512x32m jedoch in Sektionen mit 32³ Blöcken verteilt)
 - 📷 Kamera inkl. Inverse Depth für bessere Tiefenaufteilung + Frustum Culling
+- Block Platzieren/Abbauen
+- AABB Sweep Kollision + Spieler Physik wie Springen, Sneaken, Strafe, Fliegen etc.
 
 ## Development
 
