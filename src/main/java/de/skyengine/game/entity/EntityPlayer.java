@@ -29,7 +29,7 @@ public class EntityPlayer extends Entity {
 
     private static final double FLY_ACCEL = 0.05;           // ergibt ~10.9 m/s (MC Creative)
     private static final double FLY_SPRINT_FACTOR = 2.0;    // ergibt ~21.8 m/s
-    private static final double FLY_DRAG = 0.91;
+    private static final double FLY_DRAG = 0.88;
 
     /* --- Sneak-Kantenschutz --- */
     private static final double SNEAK_EDGE_STEP = 0.05;      // Schrittweite beim Kürzen der Bewegung

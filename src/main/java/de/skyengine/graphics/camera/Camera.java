@@ -11,7 +11,7 @@ public class Camera {
     private final Vector3d position = new Vector3d();
     private float yaw, pitch;
 
-    private float fov = 70.0F;
+    private float fov = 75.0F;
     private float nearPlane = 0.05F;
     private float farPlane = 1500.0F;
 
