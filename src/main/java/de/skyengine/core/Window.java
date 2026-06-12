@@ -196,6 +196,12 @@ public class Window implements IDisposable {
 
             this.debugCallback = GLUtil.setupDebugMessageCallback();
 
+            GL43.glDebugMessageControl(
+                    GL11.GL_DONT_CARE, GL11.GL_DONT_CARE,
+                    GL43.GL_DEBUG_SEVERITY_NOTIFICATION,
+                    (int[]) null, false
+            );
+
             if (this.properties.isUseSynchronousDebugCallback()) {
                 GL11.glEnable(ARBDebugOutput.GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
             }
