@@ -148,7 +148,15 @@ public class SkyEngine {
             if (System.currentTimeMillis() - lastStatusTime >= 1000) {
                 System.out.printf("FPS: %d, TPS: %d%n", frames, updates);
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
-                    this.window.setTitle("%s v%s | FPS: %d, TPS: %d".formatted(SkyEngine.ENGINE_NAME, SkyEngine.ENGINE_VERSION, frames, updates));
+                    this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d".formatted(
+                            ENGINE_NAME,
+                            ENGINE_VERSION,
+                            frames,
+                            updates,
+                            this.game.getWorld().getChunkRenderer().getRenderedSections(),
+                            this.game.getWorld().getChunkRenderer().getTotalSections(),
+                            this.game.getWorld().getChunkManager().getChunks().size()
+                    ));
                 }
 
                 frames = 0;

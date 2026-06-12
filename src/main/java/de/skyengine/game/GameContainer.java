@@ -72,4 +72,8 @@ public class GameContainer implements IInitializable, IUpdatable, IRenderable, I
     public EntityPlayer getPlayer() {
         return player;
     }
+
+    public World getWorld() {
+        return world;
+    }
 }

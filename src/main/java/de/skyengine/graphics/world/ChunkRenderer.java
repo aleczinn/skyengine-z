@@ -25,17 +25,22 @@ public class ChunkRenderer {
 
     private static final int MAX_UPLOADS_PER_FRAME = 8; // avoid upload spikes
 
+    private int renderedSections = 0;
+    private int totalSections = 0;
+
     public ChunkRenderer(ChunkManager chunkManager) {
         this.chunkManager = chunkManager;
     }
 
-    /** Render thread, GL context required */
+    /**
+     * Render thread, GL context required
+     */
     public void init() {
         this.shader = new ShaderProgram(
                 new Shader(VERTEX_SOURCE, ShaderType.VERTEX),
                 new Shader(FRAGMENT_SOURCE, ShaderType.FRAGMENT)
         );
-        this.textures = new TextureArray(16, new String[] {
+        this.textures = new TextureArray(16, new String[]{
                 "./src/main/resources/game/texture/block/stone.png",      // layer 0
                 "./src/main/resources/game/texture/block/dirt.png",       // layer 1
                 "./src/main/resources/game/texture/block/grass_side.png", // layer 2
@@ -78,6 +83,9 @@ public class ChunkRenderer {
         Vector3d cam = camera.getPosition();
         int size = ChunkSection.SIZE;
 
+        this.totalSections = this.meshes.size();
+        this.renderedSections = 0;
+
         for (SectionMesh mesh : this.meshes.values()) {
             float ox = (float) (((long) mesh.chunkX << ChunkSection.SHIFT) - cam.x);
             float oy = (float) (((long) mesh.sectionY << ChunkSection.SHIFT) - cam.y);
@@ -86,6 +94,8 @@ public class ChunkRenderer {
             /* Section AABB in camera-relative space.
                Mesh Y is column-local (0-511), so the AABB Y spans the section but the offset Y skips the section part */
             if (!camera.getFrustum().testAab(ox, oy, oz, ox + size, oy + size, oz + size)) continue;
+
+            this.renderedSections++;
 
             this.shader.setUniformVector3f("u_Offset", ox, oy - (mesh.sectionY << ChunkSection.SHIFT), oz);
             mesh.render();
@@ -110,13 +120,13 @@ public class ChunkRenderer {
             layout(location = 0) in vec3 a_position;
             layout(location = 1) in vec3 a_texCoord;   // u, v, layer
             layout(location = 2) in float a_brightness;
-
+            
             uniform mat4 u_ProjectionView;
             uniform vec3 u_Offset;
-
+            
             out vec3 v_texCoord;
             out float v_brightness;
-
+            
             void main() {
                 v_texCoord = a_texCoord;
                 v_brightness = a_brightness;
@@ -128,15 +138,23 @@ public class ChunkRenderer {
             #version 460 core
             in vec3 v_texCoord;
             in float v_brightness;
-
+            
             uniform sampler2DArray u_Textures;
-
+            
             out vec4 fragColor;
-
+            
             void main() {
                 vec4 color = texture(u_Textures, v_texCoord);
                 if (color.a < 0.5) discard;
                 fragColor = vec4(color.rgb * v_brightness, color.a);
             }
             """;
+
+    public int getRenderedSections() {
+        return renderedSections;
+    }
+
+    public int getTotalSections() {
+        return totalSections;
+    }
 }

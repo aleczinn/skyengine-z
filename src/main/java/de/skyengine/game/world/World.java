@@ -45,6 +45,15 @@ public class World implements IInitializable, IDisposable {
 
     @Override
     public void dispose() {
+        this.chunkRenderer.dispose();
+        this.chunkManager.dispose();
+    }
 
+    public ChunkManager getChunkManager() {
+        return chunkManager;
+    }
+
+    public ChunkRenderer getChunkRenderer() {
+        return chunkRenderer;
     }
 }
