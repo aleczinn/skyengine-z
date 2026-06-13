@@ -136,32 +136,23 @@ public abstract class ConnectingBlock extends JsonBlock {
         return BlockModels.bake(this.modelBoxes(state, this.postTexture(), this.armTexture()));
     }
 
-    /**
-     * true: Kollision ist EINE umschließende AABB des ganzen Moduls statt einzelner
-     * Arm-Boxen. Leichter und verhindert Hängenbleiben zwischen den Pfählen (Zäune).
-     */
-    protected boolean mergedCollision() { return false; }
+    /* Kollision UND Umriss sind eine einzige umschließende AABB des Moduls: leicht-
+       gewichtig, kein Hängenbleiben zwischen Pfählen, und die Selection-Box zeigt
+       genau diese Hitbox (nicht die einzelnen Arme). */
 
     @Override
     public BlockShape getCollisionShape(BlockState state) {
-        List<BoxElement> els = this.shapeBoxes(state, this.collisionHeight());
-        return this.mergedCollision() ? new BlockShape(new AABB[]{union(els)}) : toShape(els);
+        return new BlockShape(new AABB[]{union(this.shapeBoxes(state, this.collisionHeight()))});
     }
 
     @Override
     public BlockShape getOutlineShape(BlockState state) {
-        return toShape(this.shapeBoxes(state, 1.0));
-    }
-
-    private static BlockShape toShape(List<BoxElement> els) {
-        AABB[] boxes = new AABB[els.size()];
-        for (int i = 0; i < els.size(); i++) boxes[i] = els.get(i).toAABB();
-        return new BlockShape(boxes);
+        return new BlockShape(new AABB[]{union(this.shapeBoxes(state, 1.0))});
     }
 
     /** Umschließende AABB aller Boxen (das komplette Modul als eine Box). */
     private static AABB union(List<BoxElement> els) {
-        BoxElement f = els.get(0);
+        BoxElement f = els.getFirst();
         double minX = f.x0, minY = f.y0, minZ = f.z0, maxX = f.x1, maxY = f.y1, maxZ = f.z1;
         for (BoxElement e : els) {
             minX = Math.min(minX, e.x0); minY = Math.min(minY, e.y0); minZ = Math.min(minZ, e.z0);

@@ -18,9 +18,6 @@ public class FenceBlock extends ConnectingBlock {
     @Override protected double armMin() { return 0.4375; }
     @Override protected double armMax() { return 0.5625; }
 
-    /** Kollision als eine umschließende AABB - kein Hängenbleiben zwischen Pfählen. */
-    @Override protected boolean mergedCollision() { return true; }
-
     /** Zwei Riegel mit Hohlraum dazwischen (wie Minecraft). */
     @Override
     protected double[][] armSegments() {
