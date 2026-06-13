@@ -43,6 +43,10 @@ public class TextureArray {
 					GL12.glTexSubImage3D(GL30.GL_TEXTURE_2D_ARRAY, 0, 0, 0, layer, size, size, 1, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, pixels);
 					MemoryUtil.memFree(pixels);
 				} else {
+					/* Alpha-Bleed-Fix: transparente Pixel bekommen die RGB-Farbe
+					   ihres nächsten sichtbaren Nachbarn, damit die Mipmap-Mittlung
+					   keine fremde (oft weiße) Farbe einrechnet. */
+					bleedAlpha(pixels, size, size);
 					GL12.glTexSubImage3D(GL30.GL_TEXTURE_2D_ARRAY, 0, 0, 0, layer, size, size, 1, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, pixels);
 					STBImage.stbi_image_free(pixels);
 				}
@@ -60,6 +64,73 @@ public class TextureArray {
 		GL11.glTexParameterf(GL30.GL_TEXTURE_2D_ARRAY, GL46.GL_TEXTURE_MAX_ANISOTROPY, Math.min(8.0F, maxAniso));
 
 		this.logger.info("TextureArray erstellt: " + paths.length + " Layer à " + size + "x" + size);
+	}
+
+	/**
+	 * Behebt "Alpha Bleeding": Transparente Pixel (alpha == 0) tragen ihre RGB-Werte
+	 * nicht zur Mipmap-Mittelung bei, weil sie unsichtbar sind - aber die GPU mittelt
+	 * sie trotzdem mit. Viele PNGs speichern in transparenten Pixeln Weiß oder Schwarz,
+	 * was an Cutout-Kanten als heller/dunkler Saum sichtbar wird.
+	 * <p>
+	 * Fix: Jeder transparente Pixel kopiert die RGB-Farbe seines nächsten
+	 * undurchsichtigen Nachbarn. Alpha bleibt 0 (also weiterhin unsichtbar),
+	 * aber die RGB-Mittelung ergibt jetzt die korrekte Randfarbe.
+	 * <p>
+	 * Iterativer Flood-Fill: in mehreren Durchläufen breitet sich die Farbe
+	 * von den Kanten in die transparenten Flächen aus.
+	 *
+	 * @param pixels RGBA-Buffer, 4 Bytes pro Pixel (wird in-place verändert)
+	 * @param width  Texturbreite
+	 * @param height Texturhöhe
+	 */
+	private static void bleedAlpha(ByteBuffer pixels, int width, int height) {
+		/* Arbeitskopie der Alpha-Flags: true = Pixel hat eine gültige Farbe (sichtbar
+		   oder bereits gefüllt). Wir füllen iterativ, bis nichts mehr offen ist. */
+		boolean[] filled = new boolean[width * height];
+		for (int i = 0; i < width * height; i++) {
+			int alpha = pixels.get(i * 4 + 3) & 0xFF;
+			filled[i] = alpha != 0;
+		}
+
+		/* 4er-Nachbarschaft (oben, unten, links, rechts) */
+		int[] offX = {0, 0, -1, 1};
+		int[] offY = {-1, 1, 0, 0};
+
+		boolean changed = true;
+		/* Maximal so viele Durchläufe wie die längste Kante - dann ist garantiert
+		   jeder transparente Pixel erreicht (bei 16x16 also höchstens 16 Runden). */
+		int maxPasses = Math.max(width, height);
+
+		for (int pass = 0; pass < maxPasses && changed; pass++) {
+			changed = false;
+
+			for (int y = 0; y < height; y++) {
+				for (int x = 0; x < width; x++) {
+					int index = y * width + x;
+					if (filled[index]) continue;
+
+					/* Suche einen bereits gefüllten Nachbarn und übernimm dessen RGB */
+					for (int n = 0; n < 4; n++) {
+						int nx = x + offX[n];
+						int ny = y + offY[n];
+						if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+
+						int neighbor = ny * width + nx;
+						if (!filled[neighbor]) continue;
+
+						/* RGB des Nachbarn kopieren, Alpha (dieses Pixels) bleibt 0 */
+						pixels.put(index * 4,     pixels.get(neighbor * 4));     // r
+						pixels.put(index * 4 + 1, pixels.get(neighbor * 4 + 1)); // g
+						pixels.put(index * 4 + 2, pixels.get(neighbor * 4 + 2)); // b
+						/* Alpha NICHT anfassen - bleibt transparent */
+
+						filled[index] = true;
+						changed = true;
+						break;
+					}
+				}
+			}
+		}
 	}
 
 	/** Magenta/Schwarz-Schachbrett als Platzhalter für fehlende Texturen. */
