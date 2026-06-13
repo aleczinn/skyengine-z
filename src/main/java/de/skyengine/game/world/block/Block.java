@@ -1,6 +1,7 @@
 package de.skyengine.game.world.block;
 
 import de.skyengine.game.world.block.model.BakedQuad;
+import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Property;
 
@@ -90,6 +91,40 @@ public class Block {
      */
     public boolean hasRandomOffset(BlockState state) {
         return false;
+    }
+
+    /* --- Formen (Phase 2): Kollision, Raycast, Selection-Box --- */
+
+    /** Kollisionsform (Entity/Spieler). Default: voller Würfel wenn solide, sonst leer. */
+    public BlockShape getCollisionShape(BlockState state) {
+        return this.isSolid(state) ? BlockShape.FULL_CUBE : BlockShape.EMPTY;
+    }
+
+    /** Umrissform für Raycast + Selection-Box. Default: voller Würfel. */
+    public BlockShape getOutlineShape(BlockState state) {
+        return BlockShape.FULL_CUBE;
+    }
+
+    /**
+     * State, der beim Platzieren gesetzt wird (Facing aus Blickrichtung, Slab-Hälfte
+     * aus Trefferpunkt, ...). Default: Default-State.
+     *
+     * @param hitY relativer Trefferpunkt-Y innerhalb des Zielfeldes (0..1)
+     */
+    public BlockState getPlacementState(de.skyengine.game.world.World world,
+                                        int x, int y, int z,
+                                        int faceX, int faceY, int faceZ,
+                                        double hitY, float playerYaw) {
+        return this.defaultState;
+    }
+
+    /**
+     * Recompute des eigenen States nach einer Nachbaränderung (Verbindungen,
+     * Treppen-Ecken). Default: unverändert.
+     */
+    public BlockState getStateForNeighborUpdate(de.skyengine.game.world.World world,
+                                                int x, int y, int z, BlockState state) {
+        return state;
     }
 
     /**

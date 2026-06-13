@@ -1,0 +1,6 @@
+{
+  "id": "skyengine:stone_slab",
+  "type": "slab",
+  "layer": "opaque",
+  "textures": { "all": "game/texture/block/stone.png" }
+}

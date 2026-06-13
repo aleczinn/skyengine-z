@@ -1,0 +1,7 @@
+{
+  "id": "skyengine:oak_fence",
+  "type": "fence",
+  "layer": "cutout",
+  "opaque": false,
+  "textures": { "all": "game/texture/block/oak_planks.png" }
+}
