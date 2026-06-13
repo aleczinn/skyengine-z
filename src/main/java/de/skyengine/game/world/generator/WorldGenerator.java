@@ -37,8 +37,13 @@ public class WorldGenerator {
                 /* Vegetation: deterministisch über einen zweiten Noise-Sample */
                 float veg = this.noise.GetNoise((baseX + x) * 13.7F, (baseZ + z) * 13.7F);
                 if (height + 1 < Chunk.HEIGHT) {
-                    if (veg > 0.80F) chunk.setBlock(x, height + 1, z, Blocks.FARN);
-                    else if (veg > 0.55F) chunk.setBlock(x, height + 1, z, Blocks.GRASS_TUFT);
+                    if (veg > 0.76F) {
+                        chunk.setBlock(x, height + 1, z, Blocks.FERN);
+                    } else if (veg > 0.68F) {
+                        chunk.setBlock(x, height + 1, z, Blocks.ORANGE_TULIP);
+                    } else if(veg > 0.55F) {
+                        chunk.setBlock(x, height + 1, z, Blocks.SHORT_GRASS);
+                    }
                 }
             }
         }

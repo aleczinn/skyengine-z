@@ -1,0 +1,8 @@
+{
+  "id": "skyengine:orange_tulip",
+  "type": "cross",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": false,
+  "textures": { "all": "game/texture/block/orange_tulip.png" }
+}

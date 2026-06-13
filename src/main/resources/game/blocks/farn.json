@@ -1,8 +1,0 @@
-{
-  "id": "skyengine:farn",
-  "type": "cross",
-  "layer": "cutout",
-  "opaque": false,
-  "solid": false,
-  "textures": { "all": "game/texture/block/farn.png" }
-}

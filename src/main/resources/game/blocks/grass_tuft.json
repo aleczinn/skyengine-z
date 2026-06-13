@@ -1,8 +1,0 @@
-{
-  "id": "skyengine:grass_tuft",
-  "type": "cross",
-  "layer": "cutout",
-  "opaque": false,
-  "solid": false,
-  "textures": { "all": "game/texture/block/grass_tuft.png" }
-}

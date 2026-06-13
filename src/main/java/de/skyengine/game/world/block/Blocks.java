@@ -17,9 +17,10 @@ public final class Blocks {
     private static final Logger LOGGER = LogManager.getLogger(Blocks.class.getName());
 
     public static short AIR;
-    public static short STONE, DIRT, GRASS_BLOCK, SAND;
+    public static short STONE, COBBLESTONE, DIRT, GRASS_BLOCK, SAND;
     public static short GLASS;
-    public static short FARN, GRASS_TUFT;
+    public static short TNT;
+    public static short FERN, SHORT_GRASS, ORANGE_TULIP;
 
     /** Vor world.init() aufrufen! Lädt JSON-Blöcke und baked die Registry. */
     public static void bootstrap(File blockDirectory) {
@@ -30,13 +31,18 @@ public final class Blocks {
         BlockRegistry.bake();
 
         AIR = idOf("skyengine:air");
+
         STONE = idOf("skyengine:stone");
+        COBBLESTONE = idOf("skyengine:cobblestone");
         DIRT = idOf("skyengine:dirt");
         GRASS_BLOCK = idOf("skyengine:grass_block");
+
         SAND = idOf("skyengine:sand");
+        TNT = idOf("skyengine:tnt");
         GLASS = idOf("skyengine:glass");
-        FARN = idOf("skyengine:farn");
-        GRASS_TUFT = idOf("skyengine:grass_tuft");
+        FERN = idOf("skyengine:fern");
+        SHORT_GRASS = idOf("skyengine:short_grass");
+        ORANGE_TULIP = idOf("skyengine:orange_tulip");
     }
 
     private static short idOf(String id) {

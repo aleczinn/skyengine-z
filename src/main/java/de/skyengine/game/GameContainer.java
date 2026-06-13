@@ -144,7 +144,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 /* Nicht in den eigenen Körper bauen */
                 AABB blockBox = new AABB(px, py, pz, px + 1, py + 1, pz + 1);
                 if (!blockBox.intersects(this.player.getBoundingBox())) {
-                    this.world.setBlock(px, py, pz, Blocks.GLASS);
+                    this.world.setBlock(px, py, pz, Blocks.COBBLESTONE);
                     this.lastPlaceTime = now;
                 }
             }
