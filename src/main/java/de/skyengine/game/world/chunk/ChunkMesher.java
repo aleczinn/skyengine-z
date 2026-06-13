@@ -17,6 +17,9 @@ public class ChunkMesher {
             {-1,  0,  0}, { 1,  0,  0}
     };
 
+    /** Maximaler horizontaler Versatz für Cross-Blöcke (wie Minecraft: +/- 0.25). */
+    private static final float MAX_OFFSET = 0.25F;
+
     /** Mesh-Ergebnis einer Section, getrennt nach RenderLayer. Arrays sind null wenn leer. */
     public static final class MeshData {
         public final float[] opaque;
@@ -63,6 +66,15 @@ public class ChunkMesher {
                     VertexBuffer buffer = this.buffers[state.getRenderLayer().ordinal()];
                     int worldY = baseY + y;
 
+                    float offsetX = 0F, offsetZ = 0F;
+                    if (state.hasRandomOffset()) {
+                        int worldX = (chunk.chunkX << ChunkSection.SHIFT) + x;
+                        int worldZ = (chunk.chunkZ << ChunkSection.SHIFT) + z;
+                        long seed = posSeed(worldX, worldZ);
+                        offsetX = offsetFor(seed & 15L);
+                        offsetZ = offsetFor((seed >> 8) & 15L);
+                    }
+
                     for (BakedQuad quad : quads) {
                         int cullFace = quad.cullFace();
                         if (cullFace != BakedQuad.NO_CULL) {
@@ -73,7 +85,7 @@ public class ChunkMesher {
                             short neighborId = getBlock(chunk, north, south, west, east, nx, ny, nz);
                             if (!shouldRenderFace(state, neighborId)) continue;
                         }
-                        this.emitQuad(buffer, quad, x, worldY, z);
+                        this.emitQuad(buffer, quad, x, worldY, z, offsetX, offsetZ);
                     }
                 }
             }
@@ -100,7 +112,7 @@ public class ChunkMesher {
         return true;
     }
 
-    private void emitQuad(VertexBuffer buffer, BakedQuad quad, int x, int y, int z) {
+    private void emitQuad(VertexBuffer buffer, BakedQuad quad, int x, int y, int z, float offsetX, float offsetZ) {
         buffer.ensure(6 * VERTEX_SIZE);
         float[] verts = quad.vertices();
         float layer = quad.textureLayer();
@@ -108,14 +120,29 @@ public class ChunkMesher {
 
         for (int v = 0; v < 6; v++) {
             int i = v * 5;
-            buffer.data[buffer.count++] = verts[i] + x;
+            buffer.data[buffer.count++] = verts[i] + x + offsetX;
             buffer.data[buffer.count++] = verts[i + 1] + y;
-            buffer.data[buffer.count++] = verts[i + 2] + z;
+            buffer.data[buffer.count++] = verts[i + 2] + z + offsetZ;
             buffer.data[buffer.count++] = verts[i + 3];
             buffer.data[buffer.count++] = verts[i + 4];
             buffer.data[buffer.count++] = layer;
             buffer.data[buffer.count++] = brightness;
         }
+    }
+
+    /** Liefert aus 4 Seed-Bits einen Versatz in [-MAX_OFFSET, +MAX_OFFSET]. */
+    private static float offsetFor(long bits) {
+        return (bits / 15F - 0.5F) * 2F * MAX_OFFSET;
+    }
+
+    /**
+     * Deterministischer Positions-Hash (entspricht Minecrafts Mth.getSeed mit y=0).
+     * Gleiche Weltposition -> gleicher Versatz, stabil über Chunk-Grenzen und Remeshes.
+     */
+    private static long posSeed(int x, int z) {
+        long l = (long) (x * 3129871) ^ (long) z * 116129781L;
+        l = l * l * 42317861L + l * 11L;
+        return l >> 16;
     }
 
     /** Resolve a block including across chunk borders. x/z are section-local and may be -1 or 32. */

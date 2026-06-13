@@ -38,6 +38,11 @@ public class JsonBlock extends Block {
         };
     }
 
+    @Override
+    public boolean hasRandomOffset(BlockState state) {
+        return "cross".equals(this.definition.type);
+    }
+
     /** Sucht die Textur über eine Fallback-Kette (z.B. "top" -> "all"). */
     private int resolveLayer(String... keys) {
         for (String key : keys) {

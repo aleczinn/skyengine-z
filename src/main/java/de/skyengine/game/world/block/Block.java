@@ -85,6 +85,14 @@ public class Block {
     }
 
     /**
+     * Der Block bekommt beim Meshen einen seed-basierten XZ-Offset (wie
+     * Minecraft), damit Cross-Blöcke (Gras, Blumen) nicht in Reih und Glied stehen.
+     */
+    public boolean hasRandomOffset(BlockState state) {
+        return false;
+    }
+
+    /**
      * Backt das Modell eines States. Wird beim Registry-Bake aufgerufen,
      * nachdem alle Texturen registriert sind.
      */

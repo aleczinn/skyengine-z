@@ -56,6 +56,10 @@ public final class BlockState {
         return this.block.getRenderLayer(this);
     }
 
+    public boolean hasRandomOffset() {
+        return this.block.hasRandomOffset(this);
+    }
+
     /* --- Infrastruktur --- */
 
     public Block getBlock() {
