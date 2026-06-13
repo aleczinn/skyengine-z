@@ -57,6 +57,10 @@ public abstract class ConnectingBlock extends JsonBlock {
      */
     protected abstract double[][] armSegments();
 
+    /** Breite der Arme (perpendikular). Default = Pfostenbreite; Zaun macht sie dünner. */
+    protected double armMin() { return this.postMin(); }
+    protected double armMax() { return this.postMax(); }
+
     protected int postTexture() { return this.resolveLayer("all", "side"); }
     protected int armTexture() { return this.resolveLayer("all", "side"); }
 
@@ -97,7 +101,7 @@ public abstract class ConnectingBlock extends JsonBlock {
         for (Direction d : Direction.horizontal()) {
             if (!state.get(Properties.connection(d))) continue;
             for (double[] seg : this.armSegments()) {
-                els.add(this.arm(d, a, b, seg[0], seg[1], armTex));
+                els.add(this.arm(d, seg[0], seg[1], armTex));
             }
         }
         return els;
@@ -110,18 +114,20 @@ public abstract class ConnectingBlock extends JsonBlock {
         els.add(BoxElement.of(a, 0, a, b, height, b, 0));
 
         for (Direction d : Direction.horizontal()) {
-            if (state.get(Properties.connection(d))) els.add(this.arm(d, a, b, 0, height, 0));
+            if (state.get(Properties.connection(d))) els.add(this.arm(d, 0, height, 0));
         }
         return els;
     }
 
-    /** Ein Arm-Kasten Richtung d, perpendikular auf Pfostenbreite a..b, y von y0..y1. */
-    private BoxElement arm(Direction d, double a, double b, double y0, double y1, int tex) {
+    /** Ein Arm-Kasten Richtung d, perpendikular auf Armbreite, y von y0..y1. */
+    private BoxElement arm(Direction d, double y0, double y1, int tex) {
+        double a = this.postMin(), b = this.postMax();
+        double am = this.armMin(), aM = this.armMax();
         return switch (d) {
-            case NORTH -> BoxElement.of(a, y0, 0, b, y1, b, tex);
-            case SOUTH -> BoxElement.of(a, y0, a, b, y1, 1, tex);
-            case WEST -> BoxElement.of(0, y0, a, b, y1, b, tex);
-            default -> BoxElement.of(a, y0, a, 1, y1, b, tex); // EAST
+            case NORTH -> BoxElement.of(am, y0, 0, aM, y1, b, tex);
+            case SOUTH -> BoxElement.of(am, y0, a, aM, y1, 1, tex);
+            case WEST -> BoxElement.of(0, y0, am, b, y1, aM, tex);
+            default -> BoxElement.of(a, y0, am, 1, y1, aM, tex); // EAST
         };
     }
 

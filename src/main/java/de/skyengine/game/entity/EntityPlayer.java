@@ -19,7 +19,7 @@ public class EntityPlayer extends Entity {
 
     private static final double WALK_ACCEL = 0.1;
     private static final double AIR_ACCEL = 0.02;
-    private static final double SPRINT_FACTOR = 1.3;
+    private static final double SPRINT_FACTOR = 1.5;
     private static final double STRAFE_FACTOR = 1.2;
     private static final double SNEAK_FACTOR = 0.3;
 
@@ -47,6 +47,7 @@ public class EntityPlayer extends Entity {
 
     public EntityPlayer() {
         this.setSize(0.6F, 1.8F);
+        this.stepHeight = 0.6; // halbe Slabs/Stufen automatisch hochlaufen (wie Minecraft)
     }
 
     /**

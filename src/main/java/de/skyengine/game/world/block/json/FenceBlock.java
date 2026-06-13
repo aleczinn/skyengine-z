@@ -14,6 +14,10 @@ public class FenceBlock extends ConnectingBlock {
     @Override protected double postMax() { return 0.625; }
     @Override protected double collisionHeight() { return 1.5; }
 
+    /** Dünne 2px-Arme (wie Minecraft). */
+    @Override protected double armMin() { return 0.4375; }
+    @Override protected double armMax() { return 0.5625; }
+
     /** Zwei Riegel mit Hohlraum dazwischen (wie Minecraft). */
     @Override
     protected double[][] armSegments() {

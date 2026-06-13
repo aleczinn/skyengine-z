@@ -233,6 +233,15 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.world.getChunkManager().getChunks().clear();
             this.logger.debug("reload chunks");
         }
+        /* Stufenhöhe live justieren (Bild auf/ab) - zum Ausprobieren hoher Sprünge */
+        if (input.isKeyPressed(GLFW.GLFW_KEY_PAGE_UP)) {
+            this.player.stepHeight += 0.5;
+            this.logger.debug("Step height: " + this.player.stepHeight);
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_PAGE_DOWN)) {
+            this.player.stepHeight = Math.max(0, this.player.stepHeight - 0.5);
+            this.logger.debug("Step height: " + this.player.stepHeight);
+        }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
             boolean fullscreen = SkyEngine.get().getConfig().isWindowed();
 
