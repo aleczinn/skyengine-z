@@ -27,9 +27,11 @@ public class EntityPlayer extends Entity {
     private static final double AIR_DRAG_HORIZONTAL = 0.91;
     private static final double AIR_DRAG_VERTICAL = 0.98;
 
-    private static final double FLY_ACCEL = 0.05;           // ergibt ~10.9 m/s (MC Creative)
-    private static final double FLY_SPRINT_FACTOR = 2.0;    // ergibt ~21.8 m/s
+    private static final double FLY_ACCEL = 0.065;
+    private static final double FLY_SPRINT_FACTOR = 1.8;
+    private static final double FLY_VERTICAL_FACTOR = 0.6;   // Hoch/Runter langsamer als Vorwärts
     private static final double FLY_DRAG = 0.88;
+    private static final double FLY_DRAG_Y = 0.6;
 
     /* --- Sneak-Kantenschutz --- */
     private static final double SNEAK_EDGE_STEP = 0.05;      // Schrittweite beim Kürzen der Bewegung
@@ -133,13 +135,19 @@ public class EntityPlayer extends Entity {
         double accel = FLY_ACCEL * (this.sprinting ? FLY_SPRINT_FACTOR : 1.0);
         this.moveRelative(strafe, forward, accel);
 
-        if (up) this.motionY += accel;
-        if (down) this.motionY -= accel;
+        /* Horizontale Endgeschwindigkeit (accel / (1 - drag)), vertikal davon ein Anteil. */
+        double verticalSpeed = (FLY_ACCEL / (1.0 - FLY_DRAG)) * (this.sprinting ? FLY_SPRINT_FACTOR : 1.0) * FLY_VERTICAL_FACTOR;
+
+        if (up && !down) {
+            this.motionY = verticalSpeed;
+        } else if (down && !up) {
+            this.motionY = -verticalSpeed;
+        }
 
         this.move(world, this.motionX, this.motionY, this.motionZ);
 
         this.motionX *= FLY_DRAG;
-        this.motionY *= FLY_DRAG;
+        this.motionY *= FLY_DRAG_Y;
         this.motionZ *= FLY_DRAG;
     }
 
