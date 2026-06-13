@@ -1,0 +1,6 @@
+{
+  "id": "skyengine:oak_planks",
+  "type": "cube",
+  "layer": "opaque",
+  "textures": { "all": "game/texture/block/oak_planks.png" }
+}

@@ -17,7 +17,7 @@ public final class Blocks {
     private static final Logger LOGGER = LogManager.getLogger(Blocks.class.getName());
 
     public static short AIR;
-    public static short STONE, COBBLESTONE, DIRT, GRASS_BLOCK, SAND;
+    public static short STONE, OAK_PLANKS, COBBLESTONE, DIRT, GRASS_BLOCK, SAND;
     public static short GLASS;
     public static short TNT;
     public static short FERN, SHORT_GRASS, ORANGE_TULIP;
@@ -41,6 +41,7 @@ public final class Blocks {
         COBBLESTONE = idOf("skyengine:cobblestone");
         DIRT = idOf("skyengine:dirt");
         GRASS_BLOCK = idOf("skyengine:grass_block");
+        OAK_PLANKS = idOf("skyengine:oak_planks");
 
         SAND = idOf("skyengine:sand");
         TNT = idOf("skyengine:tnt");

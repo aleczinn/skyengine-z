@@ -70,7 +70,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
 
         this.hotbar = new short[]{
-                Blocks.COBBLESTONE, Blocks.STONE_SLAB, Blocks.STONE_STAIRS,
+                Blocks.OAK_PLANKS, Blocks.STONE_SLAB, Blocks.STONE_STAIRS,
                 Blocks.COBBLESTONE_STAIRS, Blocks.OAK_FENCE, Blocks.GLASS_PANE, Blocks.IRON_BARS
         };
 
