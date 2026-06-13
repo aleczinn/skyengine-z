@@ -136,9 +136,16 @@ public abstract class ConnectingBlock extends JsonBlock {
         return BlockModels.bake(this.modelBoxes(state, this.postTexture(), this.armTexture()));
     }
 
+    /**
+     * true: Kollision ist EINE umschließende AABB des ganzen Moduls statt einzelner
+     * Arm-Boxen. Leichter und verhindert Hängenbleiben zwischen den Pfählen (Zäune).
+     */
+    protected boolean mergedCollision() { return false; }
+
     @Override
     public BlockShape getCollisionShape(BlockState state) {
-        return toShape(this.shapeBoxes(state, this.collisionHeight()));
+        List<BoxElement> els = this.shapeBoxes(state, this.collisionHeight());
+        return this.mergedCollision() ? new BlockShape(new AABB[]{union(els)}) : toShape(els);
     }
 
     @Override
@@ -150,5 +157,16 @@ public abstract class ConnectingBlock extends JsonBlock {
         AABB[] boxes = new AABB[els.size()];
         for (int i = 0; i < els.size(); i++) boxes[i] = els.get(i).toAABB();
         return new BlockShape(boxes);
+    }
+
+    /** Umschließende AABB aller Boxen (das komplette Modul als eine Box). */
+    private static AABB union(List<BoxElement> els) {
+        BoxElement f = els.get(0);
+        double minX = f.x0, minY = f.y0, minZ = f.z0, maxX = f.x1, maxY = f.y1, maxZ = f.z1;
+        for (BoxElement e : els) {
+            minX = Math.min(minX, e.x0); minY = Math.min(minY, e.y0); minZ = Math.min(minZ, e.z0);
+            maxX = Math.max(maxX, e.x1); maxY = Math.max(maxY, e.y1); maxZ = Math.max(maxZ, e.z1);
+        }
+        return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
     }
 }
