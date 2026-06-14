@@ -1,6 +1,7 @@
 package de.skyengine.game.entity;
 
 import de.skyengine.core.input.Input;
+import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.World;
 import de.skyengine.utils.math.MathUtils;
 import org.lwjgl.glfw.GLFW;
@@ -183,18 +184,36 @@ public class EntityPlayer extends Entity {
     private double[] backOffFromEdge(World world, double dx, double dz) {
         double x = dx, z = dz;
 
-        while (x != 0 && world.getCollisionBoxes(this.boundingBox.copy().move(x, -SNEAK_EDGE_DROP, 0)).isEmpty()) {
+        while (x != 0 && this.noGroundUnder(world, x, 0)) {
             x = shrinkTowardsZero(x);
         }
-        while (z != 0 && world.getCollisionBoxes(this.boundingBox.copy().move(0, -SNEAK_EDGE_DROP, z)).isEmpty()) {
+        while (z != 0 && this.noGroundUnder(world, 0, z)) {
             z = shrinkTowardsZero(z);
         }
-        while (x != 0 && z != 0 && world.getCollisionBoxes(this.boundingBox.copy().move(x, -SNEAK_EDGE_DROP, z)).isEmpty()) {
+        while (x != 0 && z != 0 && this.noGroundUnder(world, x, z)) {
             x = shrinkTowardsZero(x);
             z = shrinkTowardsZero(z);
         }
 
         return new double[]{x, z};
+    }
+
+    /**
+     * true, wenn unter der um (dx, dz) versetzten und um SNEAK_EDGE_DROP abgesenkten
+     * Box KEINE Kollisionsbox tatsächlich liegt.
+     *
+     * <p>Wichtig: {@link World#getCollisionBoxes} ist nur eine Broadphase und meldet
+     * auch Boxen benachbarter Voxel. Bei schmalen Blöcken (Zaun-Pfosten, Glasscheibe,
+     * Eisenstäbe), die schmaler als ihr Voxel sind, würde ein reiner {@code isEmpty()}-
+     * Test fälschlich "Boden vorhanden" liefern, sobald man seitlich vom Pfosten steht –
+     * man liefe beim Sneaken herunter. Darum hier ein präziser Schnitt-Test.
+     */
+    private boolean noGroundUnder(World world, double dx, double dz) {
+        AABB probe = this.boundingBox.copy().move(dx, -SNEAK_EDGE_DROP, dz);
+        for (AABB box : world.getCollisionBoxes(probe)) {
+            if (box.intersects(probe)) return false;
+        }
+        return true;
     }
 
     private static double shrinkTowardsZero(double value) {
