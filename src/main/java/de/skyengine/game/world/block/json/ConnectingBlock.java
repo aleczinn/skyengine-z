@@ -107,16 +107,25 @@ public abstract class ConnectingBlock extends JsonBlock {
         return els;
     }
 
-    /** Kollision/Umriss: Pfosten + ein einfacher Kasten je Arm (Pfosten -> Kante). */
-    private List<BoxElement> shapeBoxes(BlockState state, double height) {
+    /**
+     * Kollision/Umriss als EINE zusammenhängende Shape: höchstens zwei sich am
+     * Pfosten überschneidende Balken - einer entlang Z (NORTH..SOUTH), einer
+     * entlang X (WEST..EAST), beide in Pfostenbreite. Eine gerade Verbindung wird
+     * dadurch zu EINEM durchgehenden Balken, Ecke/T/Kreuz zu zwei überlappenden
+     * Balken, die zusammen die echte Form ergeben. Bewusst NICHT die dünnen Arme
+     * des Sichtmodells (sonst Stufen/Kanten zum Hängenbleiben) und NICHT eine
+     * umschließende Box (sonst füllt ein Kreuz das ganze Feld).
+     */
+    private AABB[] connectedShape(BlockState state, double height) {
         double a = this.postMin(), b = this.postMax();
-        List<BoxElement> els = new ArrayList<>();
-        els.add(BoxElement.of(a, 0, a, b, height, b, 0));
+        boolean n = state.get(Properties.NORTH), s = state.get(Properties.SOUTH);
+        boolean w = state.get(Properties.WEST), e = state.get(Properties.EAST);
 
-        for (Direction d : Direction.horizontal()) {
-            if (state.get(Properties.connection(d))) els.add(this.arm(d, 0, height, 0));
-        }
-        return els;
+        List<AABB> boxes = new ArrayList<>(2);
+        if (n || s) boxes.add(new AABB(a, 0, n ? 0 : a, b, height, s ? 1 : b)); // Balken entlang Z
+        if (w || e) boxes.add(new AABB(w ? 0 : a, 0, a, e ? 1 : b, height, b)); // Balken entlang X
+        if (boxes.isEmpty()) boxes.add(new AABB(a, 0, a, b, height, b));         // nur Pfosten
+        return boxes.toArray(new AABB[0]);
     }
 
     /** Ein Arm-Kasten Richtung d, perpendikular auf Armbreite, y von y0..y1. */
@@ -136,28 +145,19 @@ public abstract class ConnectingBlock extends JsonBlock {
         return BlockModels.bake(this.modelBoxes(state, this.postTexture(), this.armTexture()));
     }
 
-    /* Kollision UND Umriss sind eine einzige umschließende AABB des Moduls: leicht-
-       gewichtig, kein Hängenbleiben zwischen Pfählen, und die Selection-Box zeigt
-       genau diese Hitbox (nicht die einzelnen Arme). */
+    /* Kollision UND Umriss sind eine zusammengesetzte Shape (VoxelShape): Pfosten
+       plus ein Kasten je verbundenem Arm. Die Teilboxen werden NICHT zu einer
+       umschließenden AABB vereinfacht, damit ein von Zäunen umringter Pfosten eine
+       kreuzförmige Hitbox behält (wie Minecraft) statt zu einem Rechteck zu werden.
+       Kollision, Raycast und Selection-Renderer testen jede Teilbox einzeln. */
 
     @Override
     public BlockShape getCollisionShape(BlockState state) {
-        return new BlockShape(new AABB[]{union(this.shapeBoxes(state, this.collisionHeight()))});
+        return new BlockShape(this.connectedShape(state, this.collisionHeight()));
     }
 
     @Override
     public BlockShape getOutlineShape(BlockState state) {
-        return new BlockShape(new AABB[]{union(this.shapeBoxes(state, 1.0))});
-    }
-
-    /** Umschließende AABB aller Boxen (das komplette Modul als eine Box). */
-    private static AABB union(List<BoxElement> els) {
-        BoxElement f = els.getFirst();
-        double minX = f.x0, minY = f.y0, minZ = f.z0, maxX = f.x1, maxY = f.y1, maxZ = f.z1;
-        for (BoxElement e : els) {
-            minX = Math.min(minX, e.x0); minY = Math.min(minY, e.y0); minZ = Math.min(minZ, e.z0);
-            maxX = Math.max(maxX, e.x1); maxY = Math.max(maxY, e.y1); maxZ = Math.max(maxZ, e.z1);
-        }
-        return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
+        return new BlockShape(this.connectedShape(state, 1.0));
     }
 }
