@@ -19,7 +19,7 @@ public class ChunkManager {
     /* Worker -> render thread: Ein Batch wird immer komplett im selben Frame angewendet */
     private final ConcurrentLinkedQueue<MeshBatch> uploadQueue = new ConcurrentLinkedQueue<>();
 
-    private int renderDistance = 20; // in chunks
+    private int renderDistance = 16; // in chunks
 
     /* Begrenzt, wie viele Generierungs-Jobs pro Tick submitted werden.
        Hält die Executor-Queue kurz -> nahe Chunks neuer Positionen kommen schnell dran. */
