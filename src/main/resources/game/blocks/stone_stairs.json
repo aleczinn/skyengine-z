@@ -1,0 +1,6 @@
+{
+  "id": "skyengine:stone_stairs",
+  "type": "stairs",
+  "layer": "opaque",
+  "textures": { "all": "game/textures/block/stone.png" }
+}

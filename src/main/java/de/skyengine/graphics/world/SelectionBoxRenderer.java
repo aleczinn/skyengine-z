@@ -1,6 +1,8 @@
 package de.skyengine.graphics.world;
 
 import de.skyengine.core.SkyEngine;
+import de.skyengine.game.physics.AABB;
+import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
@@ -13,8 +15,12 @@ import org.lwjgl.opengl.GL30;
 
 public class SelectionBoxRenderer {
 
+    private static final float INFLATE = 0.002F; // gegen Z-Fighting
+    private static final int FLOATS_PER_BOX = 24 * 3; // 12 Kanten * 2 Punkte * 3 Komponenten
+
     private ShaderProgram shader;
     private int vao, vbo;
+    private float[] scratch = new float[FLOATS_PER_BOX];
 
     public void init() {
         this.shader = new ShaderProgram(
@@ -23,26 +29,20 @@ public class SelectionBoxRenderer {
                 new Shader(FRAGMENT, ShaderType.FRAGMENT)
         );
 
-        /* 12 Kanten eines Einheitswürfels, leicht aufgeblasen gegen Z-Fighting */
-        float min = -0.002F, max = 1.002F;
-        float[] lines = {
-                min,min,min, max,min,min,  max,min,min, max,min,max,  max,min,max, min,min,max,  min,min,max, min,min,min, // unten
-                min,max,min, max,max,min,  max,max,min, max,max,max,  max,max,max, min,max,max,  min,max,max, min,max,min, // oben
-                min,min,min, min,max,min,  max,min,min, max,max,min,  max,min,max, max,max,max,  min,min,max, min,max,max  // vertikal
-        };
-
         this.vao = GL30.glGenVertexArrays();
         this.vbo = GL15.glGenBuffers();
         GL30.glBindVertexArray(this.vao);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
-        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, lines, GL15.GL_STATIC_DRAW);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, FLOATS_PER_BOX * 4L, GL15.GL_DYNAMIC_DRAW);
         GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, 0, 0);
         GL20.glEnableVertexAttribArray(0);
         GL30.glBindVertexArray(0);
     }
 
-    /** blockX/Y/Z aus dem Raycast-Hit, camera-relativ wie die Chunks */
-    public void render(Camera camera, int blockX, int blockY, int blockZ) {
+    /** blockX/Y/Z aus dem Raycast-Hit, camera-relativ wie die Chunks. */
+    public void render(Camera camera, int blockX, int blockY, int blockZ, BlockShape outline) {
+        AABB[] localBoxes = outline.isEmpty() ? BlockShape.FULL_CUBE.boxes() : outline.boxes();
+
         Vector3d cam = camera.getPosition();
 
         this.shader.bind();
@@ -56,11 +56,30 @@ public class SelectionBoxRenderer {
         this.shader.setUniformf("u_LineWidth", 2.5F); // Pixel
 
         GL30.glBindVertexArray(this.vao);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
         GL11.glEnable(GL11.GL_BLEND);
-        GL11.glDrawArrays(GL11.GL_LINES, 0, 24);
-        GL11.glDisable(GL11.GL_BLEND);
 
+        for (AABB box : localBoxes) {
+            this.fillBoxEdges(box);
+            GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, this.scratch);
+            GL11.glDrawArrays(GL11.GL_LINES, 0, 24);
+        }
+
+        GL11.glDisable(GL11.GL_BLEND);
         this.shader.unbind();
+    }
+
+    /** Schreibt die 12 Kanten einer Box (lokal, leicht aufgeblasen) in scratch. */
+    private void fillBoxEdges(AABB box) {
+        float ax = (float) box.minX - INFLATE, ay = (float) box.minY - INFLATE, az = (float) box.minZ - INFLATE;
+        float bx = (float) box.maxX + INFLATE, by = (float) box.maxY + INFLATE, bz = (float) box.maxZ + INFLATE;
+
+        float[] e = {
+                ax,ay,az, bx,ay,az,  bx,ay,az, bx,ay,bz,  bx,ay,bz, ax,ay,bz,  ax,ay,bz, ax,ay,az, // unten
+                ax,by,az, bx,by,az,  bx,by,az, bx,by,bz,  bx,by,bz, ax,by,bz,  ax,by,bz, ax,by,az, // oben
+                ax,ay,az, ax,by,az,  bx,ay,az, bx,by,az,  bx,ay,bz, bx,by,bz,  ax,ay,bz, ax,by,bz  // vertikal
+        };
+        System.arraycopy(e, 0, this.scratch, 0, e.length);
     }
 
     public void dispose() {

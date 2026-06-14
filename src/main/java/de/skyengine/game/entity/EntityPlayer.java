@@ -1,6 +1,7 @@
 package de.skyengine.game.entity;
 
 import de.skyengine.core.input.Input;
+import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.World;
 import de.skyengine.utils.math.MathUtils;
 import org.lwjgl.glfw.GLFW;
@@ -19,7 +20,7 @@ public class EntityPlayer extends Entity {
 
     private static final double WALK_ACCEL = 0.1;
     private static final double AIR_ACCEL = 0.02;
-    private static final double SPRINT_FACTOR = 1.3;
+    private static final double SPRINT_FACTOR = 1.5;
     private static final double STRAFE_FACTOR = 1.2;
     private static final double SNEAK_FACTOR = 0.3;
 
@@ -40,6 +41,7 @@ public class EntityPlayer extends Entity {
     private boolean flying = false; // Start im Fly-Modus, bis Spawn-Logik existiert
     private boolean sprinting = false;
     private boolean sneaking = false;
+    private boolean noClip = false;
 
     /* Augenhöhe wird pro Tick Richtung Zielwert interpoliert (weiche Kamera beim Sneaken) */
     private float eyeHeight = EYE_HEIGHT_STANDING;
@@ -47,6 +49,7 @@ public class EntityPlayer extends Entity {
 
     public EntityPlayer() {
         this.setSize(0.6F, 1.8F);
+        this.stepHeight = 0.6; // halbe Slabs/Stufen automatisch hochlaufen (wie Minecraft)
     }
 
     /**
@@ -182,18 +185,36 @@ public class EntityPlayer extends Entity {
     private double[] backOffFromEdge(World world, double dx, double dz) {
         double x = dx, z = dz;
 
-        while (x != 0 && world.getCollisionBoxes(this.boundingBox.copy().move(x, -SNEAK_EDGE_DROP, 0)).isEmpty()) {
+        while (x != 0 && this.noGroundUnder(world, x, 0)) {
             x = shrinkTowardsZero(x);
         }
-        while (z != 0 && world.getCollisionBoxes(this.boundingBox.copy().move(0, -SNEAK_EDGE_DROP, z)).isEmpty()) {
+        while (z != 0 && this.noGroundUnder(world, 0, z)) {
             z = shrinkTowardsZero(z);
         }
-        while (x != 0 && z != 0 && world.getCollisionBoxes(this.boundingBox.copy().move(x, -SNEAK_EDGE_DROP, z)).isEmpty()) {
+        while (x != 0 && z != 0 && this.noGroundUnder(world, x, z)) {
             x = shrinkTowardsZero(x);
             z = shrinkTowardsZero(z);
         }
 
         return new double[]{x, z};
+    }
+
+    /**
+     * true, wenn unter der um (dx, dz) versetzten und um SNEAK_EDGE_DROP abgesenkten
+     * Box KEINE Kollisionsbox tatsächlich liegt.
+     *
+     * <p>Wichtig: {@link World#getCollisionBoxes} ist nur eine Broadphase und meldet
+     * auch Boxen benachbarter Voxel. Bei schmalen Blöcken (Zaun-Pfosten, Glasscheibe,
+     * Eisenstäbe), die schmaler als ihr Voxel sind, würde ein reiner {@code isEmpty()}-
+     * Test fälschlich "Boden vorhanden" liefern, sobald man seitlich vom Pfosten steht –
+     * man liefe beim Sneaken herunter. Darum hier ein präziser Schnitt-Test.
+     */
+    private boolean noGroundUnder(World world, double dx, double dz) {
+        AABB probe = this.boundingBox.copy().move(dx, -SNEAK_EDGE_DROP, dz);
+        for (AABB box : world.getCollisionBoxes(probe)) {
+            if (box.intersects(probe)) return false;
+        }
+        return true;
     }
 
     private static double shrinkTowardsZero(double value) {
@@ -218,7 +239,16 @@ public class EntityPlayer extends Entity {
         if (this.flying) {
             /* Beim Einschalten Fallgeschwindigkeit abfangen, sonst "fällt" man weiter */
             this.motionY = 0;
+        } else {
+            /* NoClip nur im Flugmodus - beim Landen abschalten, sonst fällt man durch Blöcke */
+            this.noClip = false;
         }
+    }
+
+    /** NoClip umschalten - nur im Flugmodus aktivierbar. */
+    public void toggleNoClip() {
+        if (!this.flying) return;
+        this.noClip = !this.noClip;
     }
 
     public boolean isFlying() {
@@ -231,6 +261,10 @@ public class EntityPlayer extends Entity {
 
     public boolean isSneaking() {
         return sneaking;
+    }
+
+    public boolean isNoClip() {
+        return noClip;
     }
 
     /**

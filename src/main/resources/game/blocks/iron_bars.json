@@ -1,0 +1,7 @@
+{
+  "id": "skyengine:iron_bars",
+  "type": "pane",
+  "layer": "cutout",
+  "opaque": false,
+  "textures": { "all": "game/textures/block/iron_bars.png" }
+}

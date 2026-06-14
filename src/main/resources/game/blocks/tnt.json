@@ -3,8 +3,8 @@
   "type": "cube",
   "layer": "opaque",
   "textures": {
-    "top": "game/texture/block/tnt_top.png",
-    "bottom": "game/texture/block/tnt_bottom.png",
-    "side": "game/texture/block/tnt_side.png"
+    "top": "game/textures/block/tnt_top.png",
+    "bottom": "game/textures/block/tnt_bottom.png",
+    "side": "game/textures/block/tnt_side.png"
   }
 }

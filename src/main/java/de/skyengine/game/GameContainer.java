@@ -7,9 +7,14 @@ import de.skyengine.core.input.Input;
 import de.skyengine.core.io.*;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.physics.AABB;
+import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.json.SlabBlock;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.block.state.SlabType;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.ui.UIRenderer;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
@@ -46,6 +51,10 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     private BlockRaycast.Hit hit = null;
 
+    /* Test-Hotbar: Auswahl per Zahlentasten 1..n */
+    private short[] hotbar = new short[0];
+    private int hotbarIndex = 0;
+
     public GameContainer() {
         this.camera = new Camera();
         this.player = new EntityPlayer();
@@ -59,6 +68,17 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     @Override
     public void init() {
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
+
+        this.hotbar = new short[]{
+                Blocks.OAK_PLANKS,
+                Blocks.STONE_SLAB,
+                Blocks.STONE_STAIRS,
+                Blocks.COBBLESTONE_STAIRS,
+                Blocks.OAK_FENCE,
+                Blocks.GLASS_PANE,
+                Blocks.IRON_BARS,
+                Blocks.GLASS
+        };
 
         this.world.init(); // creates ChunkManager, renderer, texture array
         this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
@@ -76,6 +96,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     public void render(Input input, int width, int height, float partialTick) {
         this.handleDebugInput(input);
+        this.handleHotbarInput(input);
 
         /* Mouse look per frame */
         this.player.turn(input.getDeltaMouseX(), input.getDeltaMouseY());
@@ -95,7 +116,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.world.render(this.camera, partialTick);
 
         if (hit != null) {
-            this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z());
+            this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z(),
+                    Blocks.getState(this.hit.block()).getOutlineShape());
         }
 
         this.uiRenderer.render(width, height);
@@ -132,6 +154,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.world.setBlock(hit.x(), hit.y(), hit.z(), Blocks.AIR);
             this.lastBreakTime = now;
         } else {
+            short selected = this.hotbar[this.hotbarIndex];
+            Block block = Blocks.getState(selected).getBlock();
+
+            /* Slab auf vorhandene gleiche Slab -> Doppel-Slab */
+            if (this.tryMergeSlab(block, now)) return;
+
             /* Platzieren: an der getroffenen Seite, nicht im Block selbst */
             int px = hit.x() + hit.faceX();
             int py = hit.y() + hit.faceY();
@@ -141,12 +169,51 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             if (hit.faceX() == 0 && hit.faceY() == 0 && hit.faceZ() == 0) return;
 
             if (this.world.getBlock(px, py, pz) == Blocks.AIR) {
-                /* Nicht in den eigenen Körper bauen */
-                AABB blockBox = new AABB(px, py, pz, px + 1, py + 1, pz + 1);
-                if (!blockBox.intersects(this.player.getBoundingBox())) {
-                    this.world.setBlock(px, py, pz, Blocks.COBBLESTONE);
+                double relHitY = this.hit.hitY() - py;
+                BlockState place = block.getPlacementState(this.world, px, py, pz,
+                        this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(), relHitY, this.player.yaw);
+
+                /* Nicht in den eigenen Körper bauen - gegen die ECHTE Kollisionsform testen,
+                   damit dünne Blöcke (Panes, Zäune) neben einem platzierbar bleiben. */
+                if (!this.collidesWithPlayer(place, px, py, pz)) {
+                    this.world.setBlock(px, py, pz, place.getId());
                     this.lastPlaceTime = now;
                 }
+            }
+        }
+    }
+
+    /** Klick auf eine vorhandene Slab mit derselben Slab-Sorte -> Doppel-Slab. */
+    private boolean tryMergeSlab(Block block, long now) {
+        if (!(block instanceof SlabBlock)) return false;
+        BlockState target = Blocks.getState(this.hit.block());
+        if (target.getBlock() != block) return false;
+
+        SlabType type = target.get(Properties.SLAB_TYPE);
+        boolean merge = (type == SlabType.BOTTOM && this.hit.faceY() > 0)
+                || (type == SlabType.TOP && this.hit.faceY() < 0);
+        if (!merge) return false;
+
+        this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(),
+                target.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId());
+        this.lastPlaceTime = now;
+        return true;
+    }
+
+    /** true, wenn die Kollisionsform des Blocks an px/py/pz die Spieler-Box schneidet. */
+    private boolean collidesWithPlayer(BlockState state, int px, int py, int pz) {
+        for (AABB local : state.getCollisionShape().boxes()) {
+            if (local.copy().move(px, py, pz).intersects(this.player.getBoundingBox())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void handleHotbarInput(Input input) {
+        for (int i = 0; i < this.hotbar.length && i < 9; i++) {
+            if (input.isKeyPressed(GLFW.GLFW_KEY_1 + i)) {
+                this.hotbarIndex = i;
             }
         }
     }
@@ -158,6 +225,10 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         if (input.isKeyPressed(GLFW.GLFW_KEY_F)) {
             this.player.toggleFlying();
             this.logger.debug("Flying: " + this.player.isFlying());
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_N)) {
+            this.player.toggleNoClip();
+            this.logger.debug("NoClip: " + this.player.isNoClip());
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F6)) {
             this.debugChunkWireframe = !this.debugChunkWireframe;
@@ -171,6 +242,15 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         if (input.isKeyPressed(GLFW.GLFW_KEY_F8)) {
             this.world.getChunkManager().getChunks().clear();
             this.logger.debug("reload chunks");
+        }
+        /* Stufenhöhe live justieren (Bild auf/ab) - zum Ausprobieren hoher Sprünge */
+        if (input.isKeyPressed(GLFW.GLFW_KEY_PAGE_UP)) {
+            this.player.stepHeight += 0.5;
+            this.logger.debug("Step height: " + this.player.stepHeight);
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_PAGE_DOWN)) {
+            this.player.stepHeight = Math.max(0, this.player.stepHeight - 0.5);
+            this.logger.debug("Step height: " + this.player.stepHeight);
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
             boolean fullscreen = SkyEngine.get().getConfig().isWindowed();

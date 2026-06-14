@@ -28,7 +28,9 @@ public class WorldGenerator {
 
                 for (int y = 0; y <= height; y++) {
                     short block;
-                    if (y == height) block = Blocks.GRASS_BLOCK;
+                    if (y == 0) block = Blocks.BEDROCK;
+
+                    else if (y == height) block = Blocks.GRASS_BLOCK;
                     else if (y >= height - 3) block = Blocks.DIRT;
                     else block = Blocks.STONE;
                     chunk.setBlock(x, y, z, block);

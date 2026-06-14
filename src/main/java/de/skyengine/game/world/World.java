@@ -6,6 +6,9 @@ import de.skyengine.core.io.IInitializable;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.shape.BlockShape;
+import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
@@ -67,16 +70,31 @@ public class World implements IInitializable, IDisposable {
         return chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
     }
 
-    /** Setzt einen Block und markiert betroffene Chunks fürs Remeshing. */
+    /** Setzt einen Block (mit Nachbar-Updates für Verbindungen/Treppen-Ecken). */
     public void setBlock(int x, int y, int z, short block) {
-        if (y < 0 || y >= Chunk.HEIGHT) return;
+        this.setBlock(x, y, z, block, true);
+    }
+
+    /**
+     * @param updateNeighbors true: betroffene Nachbarn (Zäune, Panes, Treppen)
+     *                        rechnen ihren State neu. false vermeidet Rekursion
+     *                        bei den dadurch ausgelösten Folge-Updates.
+     */
+    public void setBlock(int x, int y, int z, short block, boolean updateNeighbors) {
+        if (!this.setBlockRaw(x, y, z, block)) return;
+        if (updateNeighbors) this.updateNeighbors(x, y, z);
+    }
+
+    /** Schreibt den Block und markiert Chunks fürs Remeshing. true bei Erfolg. */
+    private boolean setBlockRaw(int x, int y, int z, short block) {
+        if (y < 0 || y >= Chunk.HEIGHT) return false;
 
         int cx = x >> ChunkSection.SHIFT;
         int cz = z >> ChunkSection.SHIFT;
 
         Chunk chunk = this.chunkManager.getChunk(cx, cz);
         /* Nur fertige Chunks editieren - vermeidet Races mit laufenden Mesh-Jobs */
-        if (chunk == null || chunk.status != ChunkStatus.READY) return;
+        if (chunk == null || chunk.status != ChunkStatus.READY) return false;
 
         int lx = x & ChunkSection.MASK;
         int lz = z & ChunkSection.MASK;
@@ -96,6 +114,28 @@ public class World implements IInitializable, IDisposable {
         if (lx == ChunkSection.MASK) this.markDirty(cx + 1, cz, sy);
         if (lz == 0) this.markDirty(cx, cz - 1, sy);
         if (lz == ChunkSection.MASK) this.markDirty(cx, cz + 1, sy);
+        return true;
+    }
+
+    /**
+     * Lässt den geänderten Block und seine 4 horizontalen Nachbarn ihren State
+     * neu berechnen (Verbindungen, Treppen-Ecken). Nur ein Ring - keine Kaskade.
+     */
+    private void updateNeighbors(int x, int y, int z) {
+        this.updateStateAt(x, y, z);
+        for (Direction d : Direction.horizontal()) {
+            this.updateStateAt(x + d.offsetX(), y, z + d.offsetZ());
+        }
+    }
+
+    private void updateStateAt(int x, int y, int z) {
+        short id = this.getBlock(x, y, z);
+        if (id == Blocks.AIR) return;
+        BlockState current = Blocks.getState(id);
+        BlockState updated = current.getBlock().getStateForNeighborUpdate(this, x, y, z, current);
+        if (updated != current) {
+            this.setBlock(x, y, z, updated.getId(), false);
+        }
     }
 
     private void markDirty(int cx, int cz, int sectionY) {
@@ -115,7 +155,8 @@ public class World implements IInitializable, IDisposable {
 
         int x0 = (int) Math.floor(area.minX);
         int x1 = (int) Math.floor(area.maxX);
-        int y0 = (int) Math.floor(area.minY);
+        /* Eins tiefer scannen: höhere Shapes (Zaun = 1.5) eines Blocks darunter erfassen */
+        int y0 = (int) Math.floor(area.minY) - 1;
         int y1 = (int) Math.floor(area.maxY);
         int z0 = (int) Math.floor(area.minZ);
         int z1 = (int) Math.floor(area.maxZ);
@@ -123,13 +164,32 @@ public class World implements IInitializable, IDisposable {
         for (int x = x0; x <= x1; x++) {
             for (int z = z0; z <= z1; z++) {
                 for (int y = y0; y <= y1; y++) {
-                    if (this.isBlockSolidForCollision(x, y, z)) {
-                        boxes.add(new AABB(x, y, z, x + 1, y + 1, z + 1));
+                    BlockShape shape = this.getCollisionShape(x, y, z);
+                    if (shape.isEmpty()) continue;
+                    for (AABB local : shape.boxes()) {
+                        boxes.add(local.copy().move(x, y, z));
                     }
                 }
             }
         }
         return boxes;
+    }
+
+    /**
+     * Kollisionsform an Weltkoordinaten. Ungeladene/ungenerierte Chunks zählen
+     * als voller Würfel (siehe {@link #isBlockSolidForCollision}).
+     */
+    public BlockShape getCollisionShape(int x, int y, int z) {
+        if (y < 0 || y >= Chunk.HEIGHT) return BlockShape.EMPTY;
+
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk == null) return BlockShape.FULL_CUBE;
+
+        ChunkStatus status = chunk.status;
+        if (status == ChunkStatus.NEW || status == ChunkStatus.GENERATING) return BlockShape.FULL_CUBE;
+
+        short id = chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
+        return Blocks.getState(id).getCollisionShape();
     }
 
     /**
