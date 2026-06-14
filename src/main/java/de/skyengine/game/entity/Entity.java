@@ -61,6 +61,17 @@ public abstract class Entity {
      * über expandTowards() den kompletten Bewegungsweg dieses Ticks ab.
      */
     public void move(World world, double dx, double dy, double dz) {
+        /* NoClip: ohne Kollision verschieben, aber denselben Bewegungs-/Positions-Pfad
+           wie sonst nutzen (lastX/Y/Z aus update() bleiben erhalten -> Interpolation ok). */
+        if (this.isNoClip()) {
+            this.boundingBox.move(dx, dy, dz);
+            this.x = (this.boundingBox.minX + this.boundingBox.maxX) / 2.0;
+            this.y = this.boundingBox.minY;
+            this.z = (this.boundingBox.minZ + this.boundingBox.maxZ) / 2.0;
+            this.onGround = false;
+            return;
+        }
+
         double origDx = dx, origDy = dy, origDz = dz;
         AABB before = this.boundingBox.copy();
 
@@ -130,5 +141,10 @@ public abstract class Entity {
 
     public AABB getBoundingBox() {
         return boundingBox;
+    }
+
+    /** Wenn true, ignoriert {@link #move} jede Kollision (Standard: aus). */
+    public boolean isNoClip() {
+        return false;
     }
 }

@@ -41,6 +41,7 @@ public class EntityPlayer extends Entity {
     private boolean flying = false; // Start im Fly-Modus, bis Spawn-Logik existiert
     private boolean sprinting = false;
     private boolean sneaking = false;
+    private boolean noClip = false;
 
     /* Augenhöhe wird pro Tick Richtung Zielwert interpoliert (weiche Kamera beim Sneaken) */
     private float eyeHeight = EYE_HEIGHT_STANDING;
@@ -238,7 +239,16 @@ public class EntityPlayer extends Entity {
         if (this.flying) {
             /* Beim Einschalten Fallgeschwindigkeit abfangen, sonst "fällt" man weiter */
             this.motionY = 0;
+        } else {
+            /* NoClip nur im Flugmodus - beim Landen abschalten, sonst fällt man durch Blöcke */
+            this.noClip = false;
         }
+    }
+
+    /** NoClip umschalten - nur im Flugmodus aktivierbar. */
+    public void toggleNoClip() {
+        if (!this.flying) return;
+        this.noClip = !this.noClip;
     }
 
     public boolean isFlying() {
@@ -251,6 +261,10 @@ public class EntityPlayer extends Entity {
 
     public boolean isSneaking() {
         return sneaking;
+    }
+
+    public boolean isNoClip() {
+        return noClip;
     }
 
     /**
