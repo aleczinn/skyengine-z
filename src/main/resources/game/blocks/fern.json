@@ -4,5 +4,5 @@
   "layer": "cutout",
   "opaque": false,
   "solid": false,
-  "textures": { "all": "game/texture/block/fern.png" }
+  "textures": { "all": "game/textures/block/fern.png" }
 }

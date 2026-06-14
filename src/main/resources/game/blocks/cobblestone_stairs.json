@@ -1,0 +1,6 @@
+{
+  "id": "skyengine:cobblestone_stairs",
+  "type": "stairs",
+  "layer": "opaque",
+  "textures": { "all": "game/textures/block/cobblestone.png" }
+}

@@ -34,7 +34,7 @@ public class UIRenderer implements IDisposable {
         );
 
         this.crosshairTexture = new Texture(
-                SkyEngine.get().getFiles().absolute("./src/main/resources/game/texture/ui/crosshair_dot.png")
+                SkyEngine.get().getFiles().absolute("./src/main/resources/game/textures/ui/crosshair_dot.png")
         );
 
         /* Einheits-Quad (0..1) mit UVs - Position & Größe kommen als Uniforms.

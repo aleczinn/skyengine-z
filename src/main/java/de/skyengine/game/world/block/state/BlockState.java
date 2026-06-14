@@ -3,6 +3,7 @@ package de.skyengine.game.world.block.state;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.block.model.BakedQuad;
+import de.skyengine.game.world.block.shape.BlockShape;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -58,6 +59,14 @@ public final class BlockState {
 
     public boolean hasRandomOffset() {
         return this.block.hasRandomOffset(this);
+    }
+
+    public BlockShape getCollisionShape() {
+        return this.block.getCollisionShape(this);
+    }
+
+    public BlockShape getOutlineShape() {
+        return this.block.getOutlineShape(this);
     }
 
     /* --- Infrastruktur --- */

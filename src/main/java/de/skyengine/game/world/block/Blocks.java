@@ -17,10 +17,16 @@ public final class Blocks {
     private static final Logger LOGGER = LogManager.getLogger(Blocks.class.getName());
 
     public static short AIR;
-    public static short STONE, COBBLESTONE, DIRT, GRASS_BLOCK, SAND;
+    public static short BEDROCK;
+    public static short STONE, OAK_PLANKS, COBBLESTONE, DIRT, GRASS_BLOCK, SAND;
     public static short GLASS;
     public static short TNT;
     public static short FERN, SHORT_GRASS, ORANGE_TULIP;
+
+    /* Phase 2: Custom Models */
+    public static short STONE_SLAB, COBBLESTONE_SLAB;
+    public static short STONE_STAIRS, COBBLESTONE_STAIRS;
+    public static short OAK_FENCE, GLASS_PANE, IRON_BARS;
 
     /** Vor world.init() aufrufen! Lädt JSON-Blöcke und baked die Registry. */
     public static void bootstrap(File blockDirectory) {
@@ -31,11 +37,13 @@ public final class Blocks {
         BlockRegistry.bake();
 
         AIR = idOf("skyengine:air");
+        BEDROCK = idOf("skyengine:bedrock");
 
         STONE = idOf("skyengine:stone");
         COBBLESTONE = idOf("skyengine:cobblestone");
         DIRT = idOf("skyengine:dirt");
         GRASS_BLOCK = idOf("skyengine:grass_block");
+        OAK_PLANKS = idOf("skyengine:oak_planks");
 
         SAND = idOf("skyengine:sand");
         TNT = idOf("skyengine:tnt");
@@ -43,6 +51,14 @@ public final class Blocks {
         FERN = idOf("skyengine:fern");
         SHORT_GRASS = idOf("skyengine:short_grass");
         ORANGE_TULIP = idOf("skyengine:orange_tulip");
+
+        STONE_SLAB = idOf("skyengine:stone_slab");
+        COBBLESTONE_SLAB = idOf("skyengine:cobblestone_slab");
+        STONE_STAIRS = idOf("skyengine:stone_stairs");
+        COBBLESTONE_STAIRS = idOf("skyengine:cobblestone_stairs");
+        OAK_FENCE = idOf("skyengine:oak_fence");
+        GLASS_PANE = idOf("skyengine:glass_pane");
+        IRON_BARS = idOf("skyengine:iron_bars");
     }
 
     private static short idOf(String id) {

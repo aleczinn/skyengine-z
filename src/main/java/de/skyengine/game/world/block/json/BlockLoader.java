@@ -67,7 +67,16 @@ public final class BlockLoader {
                 .layer(layer)
                 .cullSame(definition.cull_same);
 
-        BlockRegistry.register(new JsonBlock(Identifier.of(definition.id), settings, definition));
+        Identifier id = Identifier.of(definition.id);
+        Block block = switch (definition.type) {
+            case "cross" -> new CrossBlock(id, settings, definition);
+            case "slab" -> new SlabBlock(id, settings, definition);
+            case "stairs" -> new StairsBlock(id, settings, definition);
+            case "fence" -> new FenceBlock(id, settings, definition);
+            case "pane" -> new PaneBlock(id, settings, definition);
+            default -> new JsonBlock(id, settings, definition);
+        };
+        BlockRegistry.register(block);
     }
 
     private BlockLoader() {}

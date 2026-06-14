@@ -1,6 +1,8 @@
 package de.skyengine.game.world.block;
 
 import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.shape.BlockShape;
+import de.skyengine.game.world.block.state.BlockState;
 import org.joml.Vector3d;
 
 public final class BlockRaycast {
@@ -11,7 +13,8 @@ public final class BlockRaycast {
      * @param faceX/Y/Z Normale der getroffenen Seite (z.B. 0,1,0 = Oberseite).
      *                Dort wird beim Platzieren der neue Block gesetzt.
      */
-    public record Hit(int x, int y, int z, short block, int faceX, int faceY, int faceZ) {}
+    public record Hit(int x, int y, int z, short block, int faceX, int faceY, int faceZ,
+                      double hitX, double hitY, double hitZ) {}
 
     private BlockRaycast() {}
 
@@ -48,8 +51,16 @@ public final class BlockRaycast {
         while (true) {
             short block = world.getBlock(x, y, z);
             if (block != Blocks.AIR) {
-                /* face ist (0,0,0) wenn die Kamera IM Block startet - Treffer trotzdem melden */
-                return new Hit(x, y, z, block, faceX, faceY, faceZ);
+                /* Formgenau: gegen die echte Outline-Shape testen, nicht den vollen Voxel.
+                   Trifft der Strahl nur die leere Hälfte (z.B. einer Slab) -> Traversal weiter. */
+                BlockState state = Blocks.getState(block);
+                BlockShape.RayHit rh = state.getOutlineShape().clip(origin, dir, x, y, z);
+                if (rh != null && rh.t() <= maxDistance) {
+                    double hx = origin.x + dir.x * rh.t();
+                    double hy = origin.y + dir.y * rh.t();
+                    double hz = origin.z + dir.z * rh.t();
+                    return new Hit(x, y, z, block, rh.faceX(), rh.faceY(), rh.faceZ(), hx, hy, hz);
+                }
             }
 
             /* Zur nächsten Voxelgrenze: die Achse mit dem kleinsten tMax gewinnt */

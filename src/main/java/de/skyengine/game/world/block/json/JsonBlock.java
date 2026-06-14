@@ -9,10 +9,15 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
+/**
+ * Basisklasse aller JSON-definierten Blöcke. Standardverhalten = voller Würfel.
+ * Spezielle Typen (cross, slab, stairs, fence, pane) sind Subklassen, die der
+ * {@link BlockLoader} anhand von {@code definition.type} instanziiert.
+ */
 public class JsonBlock extends Block {
 
-    private final Logger logger = LogManager.getLogger(JsonBlock.class.getName());
-    private final BlockDefinition definition;
+    protected final Logger logger = LogManager.getLogger(JsonBlock.class.getName());
+    protected final BlockDefinition definition;
 
     public JsonBlock(Identifier identifier, Settings settings, BlockDefinition definition) {
         super(identifier, settings);
@@ -21,30 +26,18 @@ public class JsonBlock extends Block {
 
     @Override
     public BakedQuad[] bakeModel(BlockState state) {
-        return switch (this.definition.type) {
-            case "cube" -> BlockModels.cube(
-                    this.resolveLayer("top", "all"),
-                    this.resolveLayer("bottom", "all"),
-                    this.resolveLayer("north", "side", "all"),
-                    this.resolveLayer("south", "side", "all"),
-                    this.resolveLayer("west", "side", "all"),
-                    this.resolveLayer("east", "side", "all")
-            );
-            case "cross" -> BlockModels.cross(this.resolveLayer("all", "side"));
-            default -> {
-                this.logger.error("Unbekannter Modell-Typ '" + this.definition.type + "' bei " + this.getIdentifier());
-                yield new BakedQuad[0];
-            }
-        };
-    }
-
-    @Override
-    public boolean hasRandomOffset(BlockState state) {
-        return "cross".equals(this.definition.type);
+        return BlockModels.cube(
+                this.resolveLayer("top", "all"),
+                this.resolveLayer("bottom", "all"),
+                this.resolveLayer("north", "side", "all"),
+                this.resolveLayer("south", "side", "all"),
+                this.resolveLayer("west", "side", "all"),
+                this.resolveLayer("east", "side", "all")
+        );
     }
 
     /** Sucht die Textur über eine Fallback-Kette (z.B. "top" -> "all"). */
-    private int resolveLayer(String... keys) {
+    protected int resolveLayer(String... keys) {
         for (String key : keys) {
             String path = this.definition.textures.get(key);
             if (path != null) return BlockTextures.layerOf(path);
