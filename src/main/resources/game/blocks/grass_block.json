@@ -3,8 +3,8 @@
   "type": "cube",
   "layer": "opaque",
   "textures": {
-    "top": "game/texture/block/grass_top.png",
-    "bottom": "game/texture/block/dirt.png",
-    "side": "game/texture/block/grass_side.png"
+    "top": "game/textures/block/grass_block_top.png",
+    "bottom": "game/textures/block/dirt.png",
+    "side": "game/textures/block/grass_block_side.png"
   }
 }

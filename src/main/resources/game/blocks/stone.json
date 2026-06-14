@@ -2,5 +2,5 @@
   "id": "skyengine:stone",
   "type": "cube",
   "layer": "opaque",
-  "textures": { "all": "game/texture/block/stone.png" }
+  "textures": { "all": "game/textures/block/stone.png" }
 }

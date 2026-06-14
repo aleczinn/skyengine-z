@@ -4,5 +4,5 @@
   "layer": "cutout",
   "opaque": false,
   "solid": false,
-  "textures": { "all": "game/texture/block/short_grass.png" }
+  "textures": { "all": "game/textures/block/short_grass.png" }
 }

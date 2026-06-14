@@ -3,5 +3,5 @@
   "type": "fence",
   "layer": "cutout",
   "opaque": false,
-  "textures": { "all": "game/texture/block/oak_planks.png" }
+  "textures": { "all": "game/textures/block/oak_planks.png" }
 }
