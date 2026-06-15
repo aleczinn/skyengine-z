@@ -75,7 +75,8 @@ public final class Shapes {
     private static Direction panelDir(BlockState state) {
         Direction facing = state.get(Properties.FACING);
         if (!state.get(Properties.OPEN)) return facing;
-        return state.get(Properties.HINGE) == DoorHinge.LEFT ? facing.rotateYCCW() : facing.rotateYCW();
+        /* Offen: schwingt zur Hinge-Seite (LEFT -> CW, RIGHT -> CCW), passend zur Modell-Rotation. */
+        return state.get(Properties.HINGE) == DoorHinge.LEFT ? facing.rotateYCW() : facing.rotateYCCW();
     }
 
     private static AABB slab(Direction edge) {

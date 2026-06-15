@@ -175,9 +175,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             if (hit.faceX() == 0 && hit.faceY() == 0 && hit.faceZ() == 0) return;
 
             if (this.world.getBlock(px, py, pz) == Blocks.AIR) {
+                double relHitX = this.hit.hitX() - px;
                 double relHitY = this.hit.hitY() - py;
+                double relHitZ = this.hit.hitZ() - pz;
                 BlockState place = block.getPlacementState(this.world, px, py, pz,
-                        this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(), relHitY, this.player.yaw);
+                        this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(),
+                        relHitX, relHitY, relHitZ, this.player.yaw);
 
                 /* Nicht in den eigenen Körper bauen - gegen die ECHTE Kollisionsform testen,
                    damit dünne Blöcke (Panes, Zäune) neben einem platzierbar bleiben. */
