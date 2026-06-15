@@ -27,7 +27,7 @@ public final class DoorBehavior implements BlockBehavior {
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
         /* Tür schließt an der dem Spieler zugewandten (vorderen) Kante an -> Blickrichtung invertiert. */
         Direction facing = Direction.fromYaw(ctx.playerYaw()).opposite();
-        DoorHinge hinge = hinge(ctx.world(), ctx.x(), ctx.y(), ctx.z(), facing);
+        DoorHinge hinge = hinge(ctx, facing);
 
         BlockState bottom = state.with(Properties.FACING, facing)
                 .with(Properties.HALF, BlockHalf.BOTTOM)
@@ -74,10 +74,14 @@ public final class DoorBehavior implements BlockBehavior {
         return state.getValues().containsKey(Properties.HINGE);
     }
 
-    private static DoorHinge hinge(World world, int x, int y, int z, Direction facing) {
-        Direction left = facing.rotateYCCW();
-        BlockState neighbor = Blocks.getState(world.getBlock(x + left.offsetX(), y, z + left.offsetZ()));
-        return (isDoor(neighbor) && neighbor.get(Properties.HINGE) == DoorHinge.LEFT)
-                ? DoorHinge.RIGHT : DoorHinge.LEFT;
+    /**
+     * Anschlag aus der Klickposition: projiziert den Trefferpunkt auf die „Rechts"-Achse
+     * (Spielersicht auf die Türvorderseite). Klick auf die rechte Hälfte -> Hinge RIGHT,
+     * sonst LEFT. So bestimmt der Spieler beim Platzieren die Öffnungsseite.
+     */
+    private static DoorHinge hinge(PlacementContext ctx, Direction facing) {
+        Direction right = facing.rotateYCCW();
+        double proj = (ctx.hitX() - 0.5) * right.offsetX() + (ctx.hitZ() - 0.5) * right.offsetZ();
+        return proj > 0 ? DoorHinge.RIGHT : DoorHinge.LEFT;
     }
 }

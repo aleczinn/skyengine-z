@@ -136,10 +136,10 @@ public class Block {
     public BlockState getPlacementState(de.skyengine.game.world.World world,
                                         int x, int y, int z,
                                         int faceX, int faceY, int faceZ,
-                                        double hitY, float playerYaw) {
+                                        double hitX, double hitY, double hitZ, float playerYaw) {
         BlockState state = this.defaultState;
         if (!this.config.behaviors().isEmpty()) {
-            PlacementContext ctx = new PlacementContext(world, x, y, z, faceX, faceY, faceZ, hitY, playerYaw);
+            PlacementContext ctx = new PlacementContext(world, x, y, z, faceX, faceY, faceZ, hitX, hitY, hitZ, playerYaw);
             for (BlockBehavior behavior : this.config.behaviors()) {
                 state = behavior.onPlace(ctx, state);
             }
