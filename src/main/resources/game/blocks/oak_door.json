@@ -1,0 +1,11 @@
+{
+  "id": "skyengine:oak_door",
+  "archetype": "door",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": false,
+  "textures": {
+    "bottom": "game/textures/block/oak_door_bottom.png",
+    "top": "game/textures/block/oak_door_top.png"
+  }
+}
