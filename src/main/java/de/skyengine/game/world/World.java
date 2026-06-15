@@ -5,8 +5,11 @@ import de.skyengine.core.io.IDisposable;
 import de.skyengine.core.io.IInitializable;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.physics.AABB;
+import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.entity.BlockEntity;
+import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.chunk.Chunk;
@@ -46,6 +49,27 @@ public class World implements IInitializable, IDisposable {
 
     public void update(Input input, EntityPlayer player) {
         this.chunkManager.update(player);
+        this.tickBlockEntities();
+    }
+
+    /** Tickt alle tickenden BlockEntities geladener Chunks (Maschinen, Pipes, ...). */
+    private void tickBlockEntities() {
+        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+            if (chunk.status != ChunkStatus.READY) continue;
+            var entities = chunk.blockEntities();
+            if (entities.isEmpty()) continue;
+            /* Snapshot: ein tick() darf Blöcke setzen und die Map verändern. */
+            for (BlockEntity be : new ArrayList<>(entities)) {
+                if (be.getType().isTicking()) be.tick();
+            }
+        }
+    }
+
+    /** BlockEntity an Weltkoordinaten oder null. */
+    public BlockEntity getBlockEntity(int x, int y, int z) {
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk == null) return null;
+        return chunk.getBlockEntity(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
     }
 
     public void render(Camera camera, float partialTick) {
@@ -81,8 +105,32 @@ public class World implements IInitializable, IDisposable {
      *                        bei den dadurch ausgelösten Folge-Updates.
      */
     public void setBlock(int x, int y, int z, short block, boolean updateNeighbors) {
+        short old = this.getBlock(x, y, z);
         if (!this.setBlockRaw(x, y, z, block)) return;
+        this.manageBlockEntity(x, y, z, old, block);
         if (updateNeighbors) this.updateNeighbors(x, y, z);
+    }
+
+    /**
+     * Legt die BlockEntity an oder entfernt sie, wenn sich der BlockEntity-Typ ändert.
+     * Reine State-Änderungen am selben Block (Verbindungen, Treppen-Ecken) lassen die
+     * vorhandene BlockEntity unberührt.
+     */
+    private void manageBlockEntity(int x, int y, int z, short oldId, short newId) {
+        BlockEntityType<?> oldType = Blocks.getState(oldId).getBlock().getBlockEntityType();
+        BlockEntityType<?> newType = Blocks.getState(newId).getBlock().getBlockEntityType();
+        if (oldType == newType) return;
+
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk == null) return;
+        int lx = x & ChunkSection.MASK, lz = z & ChunkSection.MASK;
+
+        if (oldType != null) chunk.removeBlockEntity(lx, y, lz);
+        if (newType != null) {
+            BlockEntity be = newType.create(new BlockPos(x, y, z), Blocks.getState(newId));
+            be.setWorld(this);
+            chunk.setBlockEntity(lx, y, lz, be);
+        }
     }
 
     /** Schreibt den Block und markiert Chunks fürs Remeshing. true bei Erfolg. */

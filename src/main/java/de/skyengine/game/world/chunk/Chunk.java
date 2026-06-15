@@ -1,5 +1,11 @@
 package de.skyengine.game.world.chunk;
 
+import de.skyengine.game.world.block.entity.BlockEntity;
+
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class Chunk {
@@ -9,6 +15,9 @@ public class Chunk {
 
     public final int chunkX, chunkZ;
     private final ChunkSection[] sections = new ChunkSection[SECTIONS];
+
+    /* BlockEntities, sparse; Key = lokale Position (x 0..31, z 0..31, y 0..511). Lazy. */
+    private Map<Integer, BlockEntity> blockEntities;
 
     /* volatile: written by workers, read by render thread */
     public volatile ChunkStatus status = ChunkStatus.NEW;
@@ -42,6 +51,29 @@ public class Chunk {
 
     public ChunkSection getSection(int index) {
         return this.sections[index];
+    }
+
+    /* --- BlockEntities --- */
+
+    private static int beKey(int x, int y, int z) {
+        return (x & 31) | ((z & 31) << 5) | ((y & 511) << 10);
+    }
+
+    public BlockEntity getBlockEntity(int x, int y, int z) {
+        return this.blockEntities == null ? null : this.blockEntities.get(beKey(x, y, z));
+    }
+
+    public void setBlockEntity(int x, int y, int z, BlockEntity entity) {
+        if (this.blockEntities == null) this.blockEntities = new HashMap<>();
+        this.blockEntities.put(beKey(x, y, z), entity);
+    }
+
+    public void removeBlockEntity(int x, int y, int z) {
+        if (this.blockEntities != null) this.blockEntities.remove(beKey(x, y, z));
+    }
+
+    public Collection<BlockEntity> blockEntities() {
+        return this.blockEntities == null ? Collections.emptyList() : this.blockEntities.values();
     }
 
     /**

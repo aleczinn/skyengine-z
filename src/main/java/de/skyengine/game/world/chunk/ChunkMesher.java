@@ -108,7 +108,7 @@ public class ChunkMesher {
     private static boolean shouldRenderFace(BlockState state, short neighborId) {
         BlockState neighbor = BlockRegistry.getState(neighborId);
         if (neighbor.isOpaqueCube()) return false;
-        if (neighbor.getBlock() == state.getBlock() && state.getBlock().cullsSameBlock()) return false;
+        if (neighbor.getBlock() == state.getBlock() && state.cullsSameBlock()) return false;
         return true;
     }
 

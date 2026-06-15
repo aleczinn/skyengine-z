@@ -1,19 +1,17 @@
 package de.skyengine.game.world.block;
 
+import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.StateFlags;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
-import java.util.LinkedHashMap;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public final class BlockRegistry {
 
     private static final Logger LOGGER = LogManager.getLogger(BlockRegistry.class.getName());
-
-    private static final Map<Identifier, Block> BLOCKS = new LinkedHashMap<>();
 
     /* volatile: wird auf dem Render-Thread gebaut, von Worker-Threads (Mesher) gelesen */
     private static volatile BlockState[] statesById = new BlockState[0];
@@ -21,15 +19,12 @@ public final class BlockRegistry {
 
     public static <T extends Block> T register(T block) {
         if (baked) throw new IllegalStateException("Registry ist bereits gebaked!");
-        if (BLOCKS.containsKey(block.getIdentifier())) {
-            throw new IllegalStateException("Block doppelt registriert: " + block.getIdentifier());
-        }
-        BLOCKS.put(block.getIdentifier(), block);
+        Registries.BLOCK.register(block.getIdentifier(), block);
         return block;
     }
 
     public static Block get(Identifier identifier) {
-        return BLOCKS.get(identifier);
+        return Registries.BLOCK.get(identifier);
     }
 
     /**
@@ -40,7 +35,7 @@ public final class BlockRegistry {
     public static void bake() {
         List<BlockState> all = new ArrayList<>();
 
-        for (Block block : BLOCKS.values()) {
+        for (Block block : Registries.BLOCK.values()) {
             for (BlockState state : block.getStates()) {
                 if (all.size() > 0xFFFF) {
                     throw new IllegalStateException("Mehr als 65536 BlockStates - Zeit für Paletten-Storage!");
@@ -54,15 +49,29 @@ public final class BlockRegistry {
             throw new IllegalStateException("State-ID 0 muss Luft sein - Luft zuerst registrieren!");
         }
 
-        /* Modelle backen (registriert dabei die Texturen in BlockTextures) */
+        /* Hot-Path-Flags packen + Modelle backen (registriert dabei die Texturen). */
         for (BlockState state : all) {
+            state.setFlags(computeFlags(state));
             state.setModel(state.getBlock().bakeModel(state));
         }
 
         statesById = all.toArray(new BlockState[0]);
+        Registries.BLOCK.freeze();
         baked = true;
 
-        LOGGER.info("BlockRegistry gebaked: " + BLOCKS.size() + " Blöcke, " + all.size() + " States");
+        LOGGER.info("BlockRegistry gebaked: " + Registries.BLOCK.size() + " Blöcke, " + all.size() + " States");
+    }
+
+    /** Berechnet die gepackten {@link StateFlags} eines States aus seinem Block. */
+    private static int computeFlags(BlockState state) {
+        Block block = state.getBlock();
+        int flags = 0;
+        if (block.isOpaqueCube(state)) flags |= StateFlags.OPAQUE_CUBE;
+        if (block.isSolid(state)) flags |= StateFlags.SOLID;
+        if (block.cullsSameBlock()) flags |= StateFlags.CULL_SAME;
+        if (block.hasRandomOffset(state)) flags |= StateFlags.RANDOM_OFFSET;
+        if (block.getBlockEntityType() != null) flags |= StateFlags.HAS_BLOCK_ENTITY;
+        return StateFlags.packLayer(flags, block.getRenderLayer(state));
     }
 
     public static BlockState getState(short id) {

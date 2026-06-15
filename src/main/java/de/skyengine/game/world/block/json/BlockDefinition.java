@@ -9,6 +9,7 @@ import java.util.Map;
 public class BlockDefinition {
 
     public String id;
+    public String archetype;            // bevorzugt; fällt auf 'type' zurück (Rückwärtskompat.)
     public String type = "cube";        // cube | cross | slab | stairs | fence | pane
     public String layer = "opaque";     // opaque | cutout | translucent
     public Boolean opaque;              // default: true wenn layer == opaque
@@ -19,4 +20,7 @@ public class BlockDefinition {
     /* Pfostenmaße in 0..16-Pixeln. Bei Connecting-Blöcken (fence/pane) liefert
        die x-Breite die Kollisions-Balkenbreite und ist daher Pflicht. */
     public ModelElements.ModelBox post;
+
+    /* Optionaler BlockEntityType-Identifier (z.B. "skyengine:furnace") für „lebende" Blöcke. */
+    public String block_entity;
 }
