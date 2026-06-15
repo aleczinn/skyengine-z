@@ -1,12 +1,9 @@
 package de.skyengine.game.world.block.json;
 
-import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
-import de.skyengine.game.world.block.model.BakedQuad;
-import de.skyengine.game.world.block.model.BlockModels;
-import de.skyengine.game.world.block.model.BoxElement;
+import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockHalf;
 import de.skyengine.game.world.block.state.BlockState;
@@ -14,17 +11,15 @@ import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.Property;
 import de.skyengine.game.world.block.state.StairShape;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Treppe mit voller Minecraft-Parität: drehbar in alle vier Richtungen,
  * upside-down platzierbar und mit automatischer Innen-/Außen-Eckenformung.
  *
- * <p>Kanonische Referenz: FACING=NORTH, HALF=BOTTOM. Die erhöhte Stufe liegt auf
- * der NORTH-Seite (z 0..0.5). Alle anderen Zustände entstehen durch
- * {@link BoxElement#rotateY} und {@link BoxElement#mirrorY}. Dieselben Boxen
- * liefern Modell und Kollision/Umriss.
+ * <p>Geometrie + Rotation kommen aus dem Blockstate/Modell (facing→y, half=top→x:180,
+ * shape→stairs/inner_stairs/outer_stairs). Kollision wird aus denselben Modell-Boxen
+ * abgeleitet. Java liefert nur noch das Verhalten: Platzierung und Ecken-Logik.
  */
 public class StairsBlock extends JsonBlock {
 
@@ -44,67 +39,9 @@ public class StairsBlock extends JsonBlock {
         return false;
     }
 
-    /* ---- Geometrie ---- */
-
-    private List<BoxElement> buildElements(BlockState state) {
-        int top = this.resolveLayer("top", "all");
-        int bottom = this.resolveLayer("bottom", "all");
-        int side = this.resolveLayer("side", "all");
-        int[] tex = {top, bottom, side, side, side, side};
-        int[] slabCull = {BakedQuad.NO_CULL, 1, BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL};
-        int[] noCull = {BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL};
-
-        List<BoxElement> els = new ArrayList<>(3);
-        els.add(new BoxElement(0, 0, 0, 1, 0.5, 1, tex.clone(), slabCull.clone())); // untere Stufe
-
-        StairShape shape = state.get(Properties.STAIR_SHAPE);
-        switch (shape) {
-            case STRAIGHT -> els.add(new BoxElement(0, 0.5, 0, 1, 1, 0.5, tex.clone(), noCull.clone()));
-            case OUTER_LEFT -> els.add(new BoxElement(0, 0.5, 0, 0.5, 1, 0.5, tex.clone(), noCull.clone()));
-            case OUTER_RIGHT -> els.add(new BoxElement(0.5, 0.5, 0, 1, 1, 0.5, tex.clone(), noCull.clone()));
-            case INNER_LEFT -> {
-                els.add(new BoxElement(0, 0.5, 0, 1, 1, 0.5, tex.clone(), noCull.clone()));
-                els.add(new BoxElement(0, 0.5, 0.5, 0.5, 1, 1, tex.clone(), noCull.clone()));
-            }
-            case INNER_RIGHT -> {
-                els.add(new BoxElement(0, 0.5, 0, 1, 1, 0.5, tex.clone(), noCull.clone()));
-                els.add(new BoxElement(0.5, 0.5, 0.5, 1, 1, 1, tex.clone(), noCull.clone()));
-            }
-        }
-
-        boolean top2 = state.get(Properties.HALF) == BlockHalf.TOP;
-        int turns = turnsFor(state.get(Properties.FACING));
-
-        List<BoxElement> out = new ArrayList<>(els.size());
-        for (BoxElement e : els) {
-            if (top2) e = e.mirrorY();
-            out.add(e.rotateY(turns));
-        }
-        return out;
-    }
-
-    /** NORTH=0, EAST=1, SOUTH=2, WEST=3 (CW-Vierteldrehungen ab Referenz NORTH). */
-    private static int turnsFor(Direction facing) {
-        return switch (facing) {
-            case NORTH -> 0;
-            case EAST -> 1;
-            case SOUTH -> 2;
-            case WEST -> 3;
-            default -> 0;
-        };
-    }
-
-    @Override
-    public BakedQuad[] bakeModel(BlockState state) {
-        return BlockModels.bake(this.buildElements(state));
-    }
-
     @Override
     public BlockShape getCollisionShape(BlockState state) {
-        List<BoxElement> els = this.buildElements(state);
-        AABB[] boxes = new AABB[els.size()];
-        for (int i = 0; i < els.size(); i++) boxes[i] = els.get(i).toAABB();
-        return new BlockShape(boxes);
+        return new BlockShape(BlockStateModels.bake(this, state).boxes());
     }
 
     @Override

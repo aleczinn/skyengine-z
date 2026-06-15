@@ -3,5 +3,9 @@
   "type": "pane",
   "layer": "cutout",
   "opaque": false,
-  "textures": { "all": "game/textures/block/iron_bars.png" }
+  "textures": { "all": "game/textures/block/iron_bars.png" },
+  "post": {
+    "from": [7, 0, 7],
+    "to": [9, 16, 9]
+  }
 }

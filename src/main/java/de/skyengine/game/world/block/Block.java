@@ -1,6 +1,7 @@
 package de.skyengine.game.world.block;
 
 import de.skyengine.game.world.block.model.BakedQuad;
+import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Property;
@@ -128,11 +129,13 @@ public class Block {
     }
 
     /**
-     * Backt das Modell eines States. Wird beim Registry-Bake aufgerufen,
-     * nachdem alle Texturen registriert sind.
+     * Backt das Modell eines States aus dem datengetriebenen Blockstate-/Modell-System
+     * (Phase 3). Wird beim Registry-Bake aufgerufen, nachdem die Modelle geladen sind.
+     * Sonderfälle (z.B. Cross) überschreiben dies.
      */
     public BakedQuad[] bakeModel(BlockState state) {
-        return new BakedQuad[0];
+        if (this.isAir()) return new BakedQuad[0];
+        return BlockStateModels.bake(this, state).quads();
     }
 
     public Identifier getIdentifier() {

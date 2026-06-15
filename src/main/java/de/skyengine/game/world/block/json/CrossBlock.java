@@ -3,12 +3,15 @@ package de.skyengine.game.world.block.json;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
+import de.skyengine.game.world.block.model.ModelLoader;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
 
 /**
  * Cross-Modell (Gras, Blumen, Setzlinge): zwei gekreuzte Quads, nicht solide,
- * mit seed-basiertem XZ-Offset. Kollision leer, Umriss eine kleine Box.
+ * mit seed-basiertem XZ-Offset. Diagonale Ebenen lassen sich nicht als Box-Elemente
+ * ausdrücken, daher Sonderfall: Geometrie via {@link BlockModels#cross}, Textur (#all)
+ * aus dem Modell {@code block/<id>}. Kollision leer, Umriss eine kleine Box.
  */
 public class CrossBlock extends JsonBlock {
 
@@ -20,7 +23,7 @@ public class CrossBlock extends JsonBlock {
 
     @Override
     public BakedQuad[] bakeModel(BlockState state) {
-        return BlockModels.cross(this.resolveLayer("all", "side"));
+        return BlockModels.cross(ModelLoader.textureLayer("block/" + this.getIdentifier().path(), "all"));
     }
 
     @Override
