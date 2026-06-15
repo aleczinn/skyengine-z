@@ -25,7 +25,8 @@ public final class DoorBehavior implements BlockBehavior {
 
     @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
-        Direction facing = Direction.fromYaw(ctx.playerYaw());
+        /* Tür schließt an der dem Spieler zugewandten (vorderen) Kante an -> Blickrichtung invertiert. */
+        Direction facing = Direction.fromYaw(ctx.playerYaw()).opposite();
         DoorHinge hinge = hinge(ctx.world(), ctx.x(), ctx.y(), ctx.z(), facing);
 
         BlockState bottom = state.with(Properties.FACING, facing)
