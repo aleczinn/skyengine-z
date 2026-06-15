@@ -4,8 +4,10 @@ import java.io.File;
 
 /**
  * Eine Inhaltsquelle (Engine-Resources, Resource-Pack oder Mod-Content). Liefert die
- * Verzeichnisse für Blöcke/Modelle/Blockstates eines Namespaces. Mehrere Quellen werden beim
- * Bootstrap zusammengeführt — der Modding-Einstieg für daten- und codeseitige Erweiterungen.
+ * Verzeichnisse für Blöcke und Modelle eines Namespaces. Die Block-Datei enthält neben der
+ * Definition auch ihre {@code variants}/{@code multipart}-Render-Sektion (kein eigener
+ * blockstates-Ordner mehr). Mehrere Quellen werden beim Bootstrap zusammengeführt — der
+ * Modding-Einstieg für daten- und codeseitige Erweiterungen.
  */
 public interface ContentSource {
 
@@ -14,6 +16,4 @@ public interface ContentSource {
     File blocks();
 
     File models();
-
-    File blockstates();
 }

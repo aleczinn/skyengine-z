@@ -46,10 +46,11 @@ public final class Blocks {
         File gameDir = blockDirectory.getParentFile();
         ContentSources.register(new FileContentSource("skyengine", gameDir));
 
-        /* Inhalte aus allen Quellen laden (Blöcke, dann Modelle + Blockstates vor dem Bake). */
+        /* Inhalte aus allen Quellen laden (Blöcke, dann Modelle + Blockstates vor dem Bake).
+           Die variants/multipart-Render-Sektion steckt in derselben Block-Datei. */
         for (ContentSource source : ContentSources.all()) BlockLoader.load(source.blocks());
         for (ContentSource source : ContentSources.all()) ModelLoader.load(source.models());
-        for (ContentSource source : ContentSources.all()) BlockStateModels.load(source.blockstates());
+        for (ContentSource source : ContentSources.all()) BlockStateModels.load(source.blocks());
 
         BlockRegistry.bake();
 

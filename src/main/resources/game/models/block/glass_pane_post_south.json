@@ -1,7 +1,0 @@
-{
-  "parent": "block/block",
-  "textures": { "all": "game/textures/block/glass.png" },
-  "elements": [
-    { "from": [7, 0, 7], "to": [9, 16, 9], "faces": { "south": { "texture": "#all" } } }
-  ]
-}
