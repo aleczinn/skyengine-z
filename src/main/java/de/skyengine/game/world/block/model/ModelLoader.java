@@ -32,7 +32,7 @@ public final class ModelLoader {
 
     /* ---- Gson-DTOs ---- */
     public static final class RawModel { String parent; Map<String, String> textures; List<RawElement> elements; }
-    public static final class RawElement { int[] from; int[] to; Map<String, RawFace> faces; }
+    public static final class RawElement { int[] from; int[] to; Map<String, RawFace> faces; boolean mirror; }
     public static final class RawFace { String texture; String cullface; int[] uv; }
 
     public static void load(File modelsRoot) {
@@ -132,7 +132,7 @@ public final class ModelLoader {
         }
         return new BoxElement(
                 ModelElements.px(el.from[0]), ModelElements.px(el.from[1]), ModelElements.px(el.from[2]),
-                ModelElements.px(el.to[0]), ModelElements.px(el.to[1]), ModelElements.px(el.to[2]), t, c);
+                ModelElements.px(el.to[0]), ModelElements.px(el.to[1]), ModelElements.px(el.to[2]), t, c, el.mirror);
     }
 
     private static String resolveRef(Map<String, String> tex, String ref) {

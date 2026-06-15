@@ -16,12 +16,20 @@ public final class BoxElement {
     public final double x0, y0, z0, x1, y1, z1;
     public final int[] tex;   // 6
     public final int[] cull;  // 6
+    /** Horizontaler Textur-Spiegel (U -> 1-U) für alle Faces, z.B. gespiegelte Tür-Grifftextur. */
+    public final boolean mirror;
 
     public BoxElement(double x0, double y0, double z0, double x1, double y1, double z1, int[] tex, int[] cull) {
+        this(x0, y0, z0, x1, y1, z1, tex, cull, false);
+    }
+
+    public BoxElement(double x0, double y0, double z0, double x1, double y1, double z1,
+                      int[] tex, int[] cull, boolean mirror) {
         this.x0 = x0; this.y0 = y0; this.z0 = z0;
         this.x1 = x1; this.y1 = y1; this.z1 = z1;
         this.tex = tex;
         this.cull = cull;
+        this.mirror = mirror;
     }
 
     /** Alle Faces dieselbe Textur, kein Culling (typisch für dünne Teile wie Zaunarme). */
@@ -36,7 +44,18 @@ public final class BoxElement {
     }
 
     public BakedQuad[] bake() {
-        return BlockModels.box(x0, y0, z0, x1, y1, z1, tex, cull);
+        BakedQuad[] quads = BlockModels.box(x0, y0, z0, x1, y1, z1, tex, cull);
+        if (this.mirror) {
+            for (int i = 0; i < quads.length; i++) quads[i] = flipU(quads[i]);
+        }
+        return quads;
+    }
+
+    /** Spiegelt die U-Koordinate (Index 3 je 5-Float-Vertex) jedes Quads horizontal. */
+    private static BakedQuad flipU(BakedQuad quad) {
+        float[] v = quad.vertices().clone();
+        for (int i = 3; i < v.length; i += 5) v[i] = 1.0F - v[i];
+        return new BakedQuad(v, quad.textureLayer(), quad.cullFace(), quad.brightness());
     }
 
     /** 90°-Schritte im Uhrzeigersinn um die Y-Achse (von oben gesehen), N->E->S->W. */
@@ -61,7 +80,7 @@ public final class BoxElement {
         nc[5] = rotCullFace(cull[2]); nc[3] = rotCullFace(cull[5]);
         nc[4] = rotCullFace(cull[3]); nc[2] = rotCullFace(cull[4]);
 
-        return new BoxElement(nx0, y0, nz0, nx1, y1, nz1, nt, nc);
+        return new BoxElement(nx0, y0, nz0, nx1, y1, nz1, nt, nc, mirror);
     }
 
     /** Dreht einen Cull-Face-Index um eine CW-Vierteldrehung (N->E->S->W). */
@@ -96,7 +115,7 @@ public final class BoxElement {
         nc[2] = rotCullFaceX(cull[0]); nc[1] = rotCullFaceX(cull[2]);
         nc[3] = rotCullFaceX(cull[1]); nc[0] = rotCullFaceX(cull[3]);
 
-        return new BoxElement(x0, ny0, nz0, x1, ny1, nz1, nt, nc);
+        return new BoxElement(x0, ny0, nz0, x1, ny1, nz1, nt, nc, mirror);
     }
 
     private static int rotCullFaceX(int face) {
@@ -118,7 +137,7 @@ public final class BoxElement {
         nc[0] = swapTopBottom(cull[1]); nc[1] = swapTopBottom(cull[0]);
         nc[2] = swapTopBottom(cull[2]); nc[3] = swapTopBottom(cull[3]);
         nc[4] = swapTopBottom(cull[4]); nc[5] = swapTopBottom(cull[5]);
-        return new BoxElement(x0, 1 - y1, z0, x1, 1 - y0, z1, nt, nc);
+        return new BoxElement(x0, 1 - y1, z0, x1, 1 - y0, z1, nt, nc, mirror);
     }
 
     private static int swapTopBottom(int face) {
