@@ -159,6 +159,14 @@ public class Block {
         return state;
     }
 
+    /** Rechtsklick-Interaktion. Delegiert an die Behaviors; true = verbraucht. */
+    public boolean onUse(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            if (behavior.onUse(world, x, y, z, state)) return true;
+        }
+        return false;
+    }
+
     /**
      * Backt das Modell eines States aus dem datengetriebenen Blockstate-/Modell-System
      * (Phase 3). Wird beim Registry-Bake aufgerufen, nachdem die Modelle geladen sind.

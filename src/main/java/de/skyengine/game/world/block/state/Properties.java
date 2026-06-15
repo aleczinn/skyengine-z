@@ -31,6 +31,12 @@ public final class Properties {
     /** Fluid-Stand 0..15. */
     public static final Property<Integer> LEVEL = Property.of("level", levels());
 
+    /** Offen/geschlossen (Türen, Trapdoors, Fence-Gates). */
+    public static final Property<Boolean> OPEN = Property.ofBoolean("open");
+
+    /** Türanschlag links/rechts. */
+    public static final Property<DoorHinge> HINGE = Property.ofEnum("hinge", DoorHinge.class);
+
     private static List<Integer> levels() {
         List<Integer> list = new ArrayList<>(16);
         for (int i = 0; i < 16; i++) list.add(i);

@@ -23,6 +23,7 @@ public final class Archetypes {
         register("pane", new PaneArchetype());
         register("pillar", new PillarArchetype());
         register("fluid", new FluidArchetype());
+        register("door", new DoorArchetype());
         register("custom", new CustomArchetype());
     }
 
