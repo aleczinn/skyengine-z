@@ -75,6 +75,40 @@ public final class BoxElement {
         };
     }
 
+    /** 90°-Schritte um die X-Achse (für Blockstate {@code x}, v.a. x=180 Upside-down). */
+    public BoxElement rotateX(int quarterTurns) {
+        BoxElement e = this;
+        for (int i = 0; i < Math.floorMod(quarterTurns, 4); i++) e = e.rotateXCW();
+        return e;
+    }
+
+    private BoxElement rotateXCW() {
+        /* (y,z) -> (z, 1-y) um die Mitte; Box bleibt achsenparallel */
+        double ny0 = z0, ny1 = z1;
+        double nz0 = 1 - y1, nz1 = 1 - y0;
+
+        int[] nt = new int[6];
+        int[] nc = new int[6];
+        nt[4] = tex[4]; nt[5] = tex[5];   // west/east bleiben
+        nc[4] = cull[4]; nc[5] = cull[5];
+        /* top->north->bottom->south->top : 0->2, 2->1, 1->3, 3->0 */
+        nt[2] = tex[0]; nt[1] = tex[2]; nt[3] = tex[1]; nt[0] = tex[3];
+        nc[2] = rotCullFaceX(cull[0]); nc[1] = rotCullFaceX(cull[2]);
+        nc[3] = rotCullFaceX(cull[1]); nc[0] = rotCullFaceX(cull[3]);
+
+        return new BoxElement(x0, ny0, nz0, x1, ny1, nz1, nt, nc);
+    }
+
+    private static int rotCullFaceX(int face) {
+        return switch (face) {
+            case 0 -> 2; // top -> north
+            case 2 -> 1; // north -> bottom
+            case 1 -> 3; // bottom -> south
+            case 3 -> 0; // south -> top
+            default -> face; // west/east/NO_CULL/NO_FACE
+        };
+    }
+
     /** Spiegelt vertikal (y -> 1-y); für upside-down Treppen / TOP-Slabs. */
     public BoxElement mirrorY() {
         int[] nt = tex.clone();

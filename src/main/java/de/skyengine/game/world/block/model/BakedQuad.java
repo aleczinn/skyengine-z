@@ -11,4 +11,10 @@ package de.skyengine.game.world.block.model;
 public record BakedQuad(float[] vertices, int textureLayer, int cullFace, float brightness) {
 
     public static final int NO_CULL = -1;
+
+    /**
+     * Sentinel als Texturlayer in {@link BlockModels#box}: dieses Face wird gar nicht
+     * erzeugt (z.B. Innenflächen zwischen Pfosten und Arm, die ohnehin verdeckt sind).
+     */
+    public static final int NO_FACE = -2;
 }

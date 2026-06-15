@@ -1,6 +1,8 @@
 package de.skyengine.game.world.block;
 
 import de.skyengine.game.world.block.json.BlockLoader;
+import de.skyengine.game.world.block.model.BlockStateModels;
+import de.skyengine.game.world.block.model.ModelLoader;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -34,6 +36,12 @@ public final class Blocks {
         BlockRegistry.register(new Block(Identifier.of("skyengine:air"), Block.Settings.create().air()));
 
         BlockLoader.load(blockDirectory);
+
+        /* Modelle + Blockstates VOR dem Bake laden (bakeModel liest sie). */
+        File gameDir = blockDirectory.getParentFile();
+        ModelLoader.load(new File(gameDir, "models"));
+        BlockStateModels.load(new File(gameDir, "blockstates"));
+
         BlockRegistry.bake();
 
         AIR = idOf("skyengine:air");
