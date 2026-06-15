@@ -1,0 +1,26 @@
+package de.skyengine.game.world.block.entity;
+
+import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.network.CableBlockEntity;
+import de.skyengine.game.world.block.registry.Registries;
+
+/**
+ * Registriert die mitgelieferten BlockEntity-Typen. Muss vor dem Laden der Block-JSONs laufen,
+ * damit ein {@code block_entity}-Verweis aufgelöst werden kann.
+ */
+public final class BlockEntities {
+
+    public static BlockEntityType<CableBlockEntity> ENERGY_CABLE;
+
+    private static boolean registered;
+
+    public static void bootstrap() {
+        if (registered) return;
+        registered = true;
+
+        ENERGY_CABLE = Registries.BLOCK_ENTITY.register(Identifier.of("energy_cable"),
+                new BlockEntityType<>((type, pos, state) -> new CableBlockEntity(type, pos), true));
+    }
+
+    private BlockEntities() {}
+}

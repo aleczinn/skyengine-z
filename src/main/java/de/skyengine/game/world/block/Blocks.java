@@ -1,5 +1,8 @@
 package de.skyengine.game.world.block;
 
+import de.skyengine.game.world.block.content.ContentSource;
+import de.skyengine.game.world.block.content.ContentSources;
+import de.skyengine.game.world.block.content.FileContentSource;
 import de.skyengine.game.world.block.json.BlockLoader;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.model.ModelLoader;
@@ -35,12 +38,17 @@ public final class Blocks {
         /* Luft IMMER zuerst registrieren -> State-ID 0. Chunks sind per Default 0 = leer. */
         BlockRegistry.register(new Block(Identifier.of("skyengine:air"), Block.Settings.create().air()));
 
-        BlockLoader.load(blockDirectory);
+        /* BlockEntity-Typen registrieren, bevor Blöcke ihren block_entity-Verweis auflösen. */
+        de.skyengine.game.world.block.entity.BlockEntities.bootstrap();
 
-        /* Modelle + Blockstates VOR dem Bake laden (bakeModel liest sie). */
+        /* Engine-Inhaltsquelle registrieren; Mods/Packs können vorher weitere hinzufügen. */
         File gameDir = blockDirectory.getParentFile();
-        ModelLoader.load(new File(gameDir, "models"));
-        BlockStateModels.load(new File(gameDir, "blockstates"));
+        ContentSources.register(new FileContentSource("skyengine", gameDir));
+
+        /* Inhalte aus allen Quellen laden (Blöcke, dann Modelle + Blockstates vor dem Bake). */
+        for (ContentSource source : ContentSources.all()) BlockLoader.load(source.blocks());
+        for (ContentSource source : ContentSources.all()) ModelLoader.load(source.models());
+        for (ContentSource source : ContentSources.all()) BlockStateModels.load(source.blockstates());
 
         BlockRegistry.bake();
 

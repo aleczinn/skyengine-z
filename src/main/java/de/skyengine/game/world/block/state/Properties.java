@@ -2,6 +2,7 @@ package de.skyengine.game.world.block.state;
 
 import de.skyengine.game.world.block.Direction;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -22,6 +23,19 @@ public final class Properties {
 
     public static final Property<StairShape> STAIR_SHAPE =
             Property.ofEnum("shape", StairShape.class);
+
+    /** Achse (Pillar/Log: X/Y/Z) aus der Platzierungsfläche. */
+    public static final Property<Direction.Axis> AXIS =
+            Property.ofEnum("axis", Direction.Axis.class);
+
+    /** Fluid-Stand 0..15. */
+    public static final Property<Integer> LEVEL = Property.of("level", levels());
+
+    private static List<Integer> levels() {
+        List<Integer> list = new ArrayList<>(16);
+        for (int i = 0; i < 16; i++) list.add(i);
+        return list;
+    }
 
     /** Verbindungs-Properties (Zäune, Panes, Walls, Pipes, Cables, Netzwerke). */
     public static final Property<Boolean> NORTH = Property.ofBoolean("north");
