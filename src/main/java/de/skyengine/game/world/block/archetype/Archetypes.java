@@ -21,6 +21,9 @@ public final class Archetypes {
         register("cross", new CrossArchetype());
         register("fence", new FenceArchetype());
         register("pane", new PaneArchetype());
+        register("pillar", new PillarArchetype());
+        register("fluid", new FluidArchetype());
+        register("custom", new CustomArchetype());
     }
 
     private static void register(String name, Archetype archetype) {

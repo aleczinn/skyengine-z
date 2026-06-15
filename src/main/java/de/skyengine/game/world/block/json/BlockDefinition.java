@@ -23,4 +23,23 @@ public class BlockDefinition {
 
     /* Optionaler BlockEntityType-Identifier (z.B. "skyengine:furnace") für „lebende" Blöcke. */
     public String block_entity;
+
+    /* Optionaler Kollisions-Override (getrennt vom Modell). Ersetzt die Archetyp-Default-Shape. */
+    public CollisionDef collision;
+
+    /** Kollisions-/Umriss-Boxen in 0..16-Pixeln. outline fällt auf boxes zurück. */
+    public static final class CollisionDef {
+        public ModelElements.ModelBox[] boxes;
+        public ModelElements.ModelBox[] outline;
+    }
+
+    /* Optionales generisches Connection-System (Zäune, Pipes, Cables). */
+    public ConnectionDef connection;
+
+    /** axes: north/east/south/west/up/down; rule: "same_family" | "energy"; group: Verbindungs-Familie. */
+    public static final class ConnectionDef {
+        public String[] axes;
+        public String rule;
+        public String group;
+    }
 }
