@@ -41,7 +41,7 @@ public final class BlockStateModels {
         STATES.clear();
         CACHE.clear();
         if (dir == null || !dir.isDirectory()) {
-            LOGGER.warning("blockstates-Ordner nicht gefunden: " + dir);
+            LOGGER.warning("Block-Ordner nicht gefunden: " + dir);
             return;
         }
         File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
@@ -66,14 +66,15 @@ public final class BlockStateModels {
     }
 
     private static ModelLoader.Baked bakeInternal(Block block, BlockState state) {
-        JsonObject root = STATES.get(block.getIdentifier().path());
-        if (root == null) {
-            LOGGER.warning("Kein Blockstate für " + block.getIdentifier());
-            return EMPTY;
+        String path = block.getIdentifier().path();
+        JsonObject root = STATES.get(path);
+        if (root != null) {
+            if (root.has("multipart")) return bakeMultipart(root.getAsJsonArray("multipart"), state);
+            if (root.has("variants")) return bakeVariant(root.getAsJsonObject("variants"), state);
         }
-        if (root.has("multipart")) return bakeMultipart(root.getAsJsonArray("multipart"), state);
-        if (root.has("variants")) return bakeVariant(root.getAsJsonObject("variants"), state);
-        return EMPTY;
+        /* Auto-Default: ohne variants/multipart rendert ein Block über das gleichnamige Modell
+           block/<id> (ohne Rotation) — spart die Boilerplate-Sektion bei einfachen Würfeln. */
+        return ModelLoader.bake("block/" + path, 0, 0);
     }
 
     private static ModelLoader.Baked bakeVariant(JsonObject variants, BlockState state) {

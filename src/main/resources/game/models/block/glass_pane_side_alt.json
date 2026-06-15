@@ -6,11 +6,11 @@
   },
   "elements": [
     {
-      "from": [7, 0, 0], "to": [9, 16, 7],
+      "from": [7, 0, 9], "to": [9, 16, 16],
       "faces": {
         "down":  { "texture": "#edge" },
         "up":    { "texture": "#edge" },
-        "north": { "texture": "#edge", "cullface": "north" },
+        "south": { "texture": "#edge", "cullface": "south" },
         "west":  { "texture": "#pane" },
         "east":  { "texture": "#pane" }
       }
