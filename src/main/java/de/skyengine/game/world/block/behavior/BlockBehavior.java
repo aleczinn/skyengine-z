@@ -18,4 +18,9 @@ public interface BlockBehavior {
     default BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
         return state;
     }
+
+    /** Rechtsklick auf den Block. true = verbraucht (kein Platzieren). Default: ignoriert. */
+    default boolean onUse(World world, int x, int y, int z, BlockState state) {
+        return false;
+    }
 }

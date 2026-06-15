@@ -1,8 +1,10 @@
 package de.skyengine.game.world.block.shape;
 
 import de.skyengine.game.physics.AABB;
+import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.DoorHinge;
 import de.skyengine.game.world.block.state.Properties;
 
 import java.util.ArrayList;
@@ -60,6 +62,31 @@ public final class Shapes {
         if (w || e) boxes.add(new AABB(w ? 0 : a, 0, a, e ? 1 : b, height, b));
         if (boxes.isEmpty()) boxes.add(new AABB(a, 0, a, b, height, b));
         return boxes.toArray(new AABB[0]);
+    }
+
+    /**
+     * Tür: 3px-Panel als Riegel. Geschlossen blockiert es die Durchgangsachse (FACING-Kante),
+     * offen liegt es an der Seitenkante (durchgehbar). Komplett zustandsabhängig, modellunabhängig.
+     */
+    public static ShapeProvider door() {
+        return state -> new BlockShape(new AABB[]{ slab(panelDir(state)) });
+    }
+
+    private static Direction panelDir(BlockState state) {
+        Direction facing = state.get(Properties.FACING);
+        if (!state.get(Properties.OPEN)) return facing;
+        return state.get(Properties.HINGE) == DoorHinge.LEFT ? facing.rotateYCCW() : facing.rotateYCW();
+    }
+
+    private static AABB slab(Direction edge) {
+        double t = 3.0 / 16.0;
+        return switch (edge) {
+            case NORTH -> new AABB(0, 0, 0, 1, 1, t);
+            case SOUTH -> new AABB(0, 0, 1 - t, 1, 1, 1);
+            case WEST -> new AABB(0, 0, 0, t, 1, 1);
+            case EAST -> new AABB(1 - t, 0, 0, 1, 1, 1);
+            default -> new AABB(0, 0, 0, 1, 1, t);
+        };
     }
 
     /** Cross (Gras/Blumen): keine Kollision, kleine Umriss-Box. */

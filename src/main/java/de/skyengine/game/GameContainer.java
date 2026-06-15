@@ -75,7 +75,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 Blocks.COBBLESTONE_STAIRS,
                 Blocks.OAK_FENCE,
                 Blocks.GLASS_PANE,
-                Blocks.IRON_BARS,
+                Blocks.OAK_DOOR,
                 Blocks.GLASS
         };
 
@@ -153,6 +153,13 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.world.setBlock(hit.x(), hit.y(), hit.z(), Blocks.AIR);
             this.lastBreakTime = now;
         } else {
+            /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
+            BlockState hitState = Blocks.getState(this.hit.block());
+            if (hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(), hitState)) {
+                this.lastPlaceTime = now;
+                return;
+            }
+
             short selected = this.hotbar[this.hotbarIndex];
             Block block = Blocks.getState(selected).getBlock();
 
