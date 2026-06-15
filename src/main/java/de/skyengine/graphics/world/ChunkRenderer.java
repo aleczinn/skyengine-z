@@ -9,6 +9,7 @@ import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
+import de.skyengine.graphics.texture.SpriteAnimations;
 import de.skyengine.graphics.texture.TextureArray;
 import org.joml.Vector3d;
 import org.lwjgl.opengl.GL11;
@@ -24,6 +25,8 @@ public class ChunkRenderer {
     private final ChunkManager chunkManager;
     private ShaderProgram shader;
     private TextureArray textures;
+    private SpriteAnimations animations;
+    private long lastAnimNanos;
 
     /* sectionKey -> mesh, render thread only */
     private final Map<Long, SectionMesh> meshes = new HashMap<>();
@@ -48,10 +51,19 @@ public class ChunkRenderer {
                 new Shader(FRAGMENT_SOURCE, ShaderType.FRAGMENT)
         );
         /* Layer-Reihenfolge kommt aus dem Model-Bake (BlockTextures) */
-        this.textures = new TextureArray(TEXTURE_SIZE, BlockTextures.getOrderedPaths());
+        String[] paths = BlockTextures.getOrderedPaths();
+        this.animations = SpriteAnimations.build(paths, TEXTURE_SIZE);
+        this.textures = new TextureArray(TEXTURE_SIZE, paths, this.animations.animatedLayers());
+        this.animations.uploadInitial(this.textures);
+        this.lastAnimNanos = System.nanoTime();
     }
 
     public void render(Camera camera) {
+        /* 0. Texturanimationen vorrücken (Frame-Tausch, kein Re-Mesh) */
+        long now = System.nanoTime();
+        this.animations.tick(this.textures, (now - this.lastAnimNanos) / 1.0e9);
+        this.lastAnimNanos = now;
+
         /* 1. Drain upload queue (bounded per frame) */
         int uploads = 0;
         ChunkManager.MeshBatch batch;
@@ -158,6 +170,7 @@ public class ChunkRenderer {
     public void dispose() {
         for (SectionMesh mesh : this.meshes.values()) mesh.dispose();
         this.meshes.clear();
+        if (this.animations != null) this.animations.dispose();
         if (this.shader != null) this.shader.dispose();
         if (this.textures != null) this.textures.dispose();
     }

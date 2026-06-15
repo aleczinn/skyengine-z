@@ -5,6 +5,10 @@ import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.RenderLayer;
+import de.skyengine.game.world.block.archetype.Archetype;
+import de.skyengine.game.world.block.archetype.ArchetypeBlockFactory;
+import de.skyengine.game.world.block.archetype.Archetypes;
+import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -30,6 +34,9 @@ public final class BlockLoader {
             LOGGER.warning("Keine Block-Definitionen in " + directory.getAbsolutePath());
             return;
         }
+
+        /* Archetypen bereitstellen, bevor Definitionen aufgelöst werden. */
+        Archetypes.bootstrap();
 
         /* Deterministische Reihenfolge -> stabile Runtime-IDs innerhalb einer Version */
         Arrays.sort(files, Comparator.comparing(File::getName));
@@ -58,8 +65,10 @@ public final class BlockLoader {
             default -> RenderLayer.OPAQUE;
         };
 
+        String archetype = definition.archetype != null ? definition.archetype : definition.type;
+
         boolean opaque = definition.opaque != null ? definition.opaque : layer == RenderLayer.OPAQUE;
-        boolean solid = definition.solid != null ? definition.solid : !definition.type.equals("cross");
+        boolean solid = definition.solid != null ? definition.solid : !archetype.equals("cross");
 
         Block.Settings settings = Block.Settings.create()
                 .opaque(opaque)
@@ -68,14 +77,12 @@ public final class BlockLoader {
                 .cullSame(definition.cull_same);
 
         Identifier id = Identifier.of(definition.id);
-        Block block = switch (definition.type) {
-            case "cross" -> new CrossBlock(id, settings, definition);
-            case "slab" -> new SlabBlock(id, settings, definition);
-            case "stairs" -> new StairsBlock(id, settings, definition);
-            case "fence" -> new FenceBlock(id, settings, definition);
-            case "pane" -> new PaneBlock(id, settings, definition);
-            default -> new JsonBlock(id, settings, definition);
-        };
+
+        /* Datengetriebener Archetyp; unbekannter Typ fällt auf einen schlichten JSON-Block zurück. */
+        Archetype arch = Registries.BLOCK_ARCHETYPE.get(Identifier.of(archetype));
+        Block block = arch != null
+                ? ArchetypeBlockFactory.create(arch, id, settings, definition)
+                : new JsonBlock(id, settings, definition);
         BlockRegistry.register(block);
     }
 

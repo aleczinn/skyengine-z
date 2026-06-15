@@ -11,7 +11,6 @@ import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
-import de.skyengine.game.world.block.json.SlabBlock;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.SlabType;
@@ -185,7 +184,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     /** Klick auf eine vorhandene Slab mit derselben Slab-Sorte -> Doppel-Slab. */
     private boolean tryMergeSlab(Block block, long now) {
-        if (!(block instanceof SlabBlock)) return false;
+        if (!block.getDefaultState().getValues().containsKey(Properties.SLAB_TYPE)) return false;
         BlockState target = Blocks.getState(this.hit.block());
         if (target.getBlock() != block) return false;
 

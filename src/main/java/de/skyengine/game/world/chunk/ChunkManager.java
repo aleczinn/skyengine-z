@@ -188,6 +188,11 @@ public class ChunkManager {
         return this.chunks.get(Chunk.key(chunkX, chunkZ));
     }
 
+    /** Alle aktuell geladenen Chunks (z.B. fürs BlockEntity-Ticking). */
+    public java.util.Collection<Chunk> loadedChunks() {
+        return this.chunks.values();
+    }
+
     public ConcurrentLinkedQueue<MeshBatch> getUploadQueue() {
         return uploadQueue;
     }

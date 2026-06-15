@@ -23,20 +23,23 @@ public final class Properties {
     public static final Property<StairShape> STAIR_SHAPE =
             Property.ofEnum("shape", StairShape.class);
 
-    /** Verbindungs-Properties für Zäune und Panes. */
+    /** Verbindungs-Properties (Zäune, Panes, Walls, Pipes, Cables, Netzwerke). */
     public static final Property<Boolean> NORTH = Property.ofBoolean("north");
     public static final Property<Boolean> EAST = Property.ofBoolean("east");
     public static final Property<Boolean> SOUTH = Property.ofBoolean("south");
     public static final Property<Boolean> WEST = Property.ofBoolean("west");
+    public static final Property<Boolean> UP = Property.ofBoolean("up");
+    public static final Property<Boolean> DOWN = Property.ofBoolean("down");
 
-    /** Verbindungs-Property passend zur horizontalen Richtung. */
+    /** Verbindungs-Property passend zur Richtung (alle 6 Achsen). */
     public static Property<Boolean> connection(Direction direction) {
         return switch (direction) {
             case NORTH -> NORTH;
             case EAST -> EAST;
             case SOUTH -> SOUTH;
             case WEST -> WEST;
-            default -> throw new IllegalArgumentException("Keine Verbindung für " + direction);
+            case UP -> UP;
+            case DOWN -> DOWN;
         };
     }
 
