@@ -1,0 +1,16 @@
+{
+  "textures": { "door": "game/textures/block/oak_door_bottom.png" },
+  "elements": [
+    {
+      "from": [0, 0, 0], "to": [16, 16, 3],
+      "faces": {
+        "north": { "texture": "#door" },
+        "south": { "texture": "#door" },
+        "west":  { "texture": "#door" },
+        "east":  { "texture": "#door" },
+        "up":    { "texture": "#door" },
+        "down":  { "texture": "#door" }
+      }
+    }
+  ]
+}
