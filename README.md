@@ -17,6 +17,7 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
 - 📷 Kamera inkl. Inverse Depth für bessere Tiefenaufteilung + Frustum Culling
 - 🫲🏼 Block Platzieren/Abbauen
 - 💥 AABB Sweep Kollision + Spieler Physik wie Springen, Sneaken, Strafe, Fliegen etc.
+- 🟩 Vollwertiges Block-System: Von Vollblöcken, Zäune, Türen, Druckplatten oder komplexe Multipart-Blöcke ist alles möglich
 
 ## Development
 
