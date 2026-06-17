@@ -120,6 +120,7 @@ public final class ModelLoader {
                    BakedQuad.NO_FACE, BakedQuad.NO_FACE, BakedQuad.NO_FACE};
         int[] c = {BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL,
                    BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL};
+        float[][] uv = null;
         if (el.faces != null) {
             for (Map.Entry<String, RawFace> e : el.faces.entrySet()) {
                 int idx = faceIndex(e.getKey());
@@ -128,11 +129,29 @@ public final class ModelLoader {
                 String path = resolveRef(tex, face.texture);
                 t[idx] = path == null ? 0 : BlockTextures.layerOf(path);
                 c[idx] = face.cullface != null ? faceIndex(face.cullface) : BakedQuad.NO_CULL;
+                if (face.uv != null && face.uv.length == 4) {
+                    if (uv == null) uv = new float[6][];
+                    uv[idx] = cornerUv(idx, face.uv);
+                }
             }
         }
         return new BoxElement(
                 ModelElements.px(el.from[0]), ModelElements.px(el.from[1]), ModelElements.px(el.from[2]),
-                ModelElements.px(el.to[0]), ModelElements.px(el.to[1]), ModelElements.px(el.to[2]), t, c, el.mirror);
+                ModelElements.px(el.to[0]), ModelElements.px(el.to[1]), ModelElements.px(el.to[2]), t, c, el.mirror, uv);
+    }
+
+    /**
+     * Wandelt ein Minecraft-UV-Rechteck {@code [u0,v0,u1,v1]} (Pixel 0..16, v von oben) in die
+     * vier Eck-UVs A,B,C,D (0..1) der jeweiligen Face um. Die Eckreihenfolge entspricht der in
+     * {@link BlockModels#box}; für ein Voll-Face-UV deckt sich das mit dem Extent-Default.
+     */
+    private static float[] cornerUv(int face, int[] rect) {
+        float u0 = rect[0] / 16f, v0 = rect[1] / 16f, u1 = rect[2] / 16f, v1 = rect[3] / 16f;
+        return switch (face) {
+            case 0 -> new float[]{u0, v0,  u0, v1,  u1, v1,  u1, v0}; // top:    A,B,C,D
+            case 1 -> new float[]{u0, v0,  u1, v0,  u1, v1,  u0, v1}; // bottom:  A,B,C,D
+            default -> new float[]{u0, v1,  u1, v1,  u1, v0,  u0, v0}; // Seiten (v0=oben)
+        };
     }
 
     private static String resolveRef(Map<String, String> tex, String ref) {
