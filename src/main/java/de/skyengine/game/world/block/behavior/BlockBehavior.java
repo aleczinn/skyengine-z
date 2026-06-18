@@ -42,4 +42,12 @@ public interface BlockBehavior {
     /** Abbau-Hook VOR dem Entfernen (Drops, andere Hälfte aufräumen, ...). Default: nichts. */
     default void onBreak(World world, int x, int y, int z, BlockState state) {
     }
+
+    /** Geplanter Tick (von {@code World.scheduleTick} ausgelöst): Fluss-Ausbreitung, Fallprüfung, ... Default: nichts. */
+    default void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    }
+
+    /** Zufalls-Tick (nur wenn der Block ticksRandomly meldet): Wachstum, Verfall, ... Default: nichts. */
+    default void randomTick(World world, int x, int y, int z, BlockState state) {
+    }
 }

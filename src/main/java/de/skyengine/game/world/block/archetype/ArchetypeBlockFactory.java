@@ -3,6 +3,7 @@ package de.skyengine.game.world.block.archetype;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.behavior.GravityBehavior;
 import de.skyengine.game.world.block.connection.ConnectionBehavior;
 import de.skyengine.game.world.block.connection.ConnectionComponent;
 import de.skyengine.game.world.block.connection.ConnectionRule;
@@ -34,6 +35,11 @@ public final class ArchetypeBlockFactory {
         /* Kollisions-Override (getrennt vom Modell) ersetzt die Archetyp-Default-Shape. */
         if (def.collision != null) {
             builder.shapes(de.skyengine.game.world.block.shape.JsonShapeProvider.of(def.collision));
+        }
+
+        /* Schwerkraft (Sand, Kies) - archetypübergreifendes Flag, hängt das GravityBehavior an. */
+        if (def.gravity) {
+            builder.behavior(new GravityBehavior());
         }
         return new Block(id, settings, builder.build());
     }
