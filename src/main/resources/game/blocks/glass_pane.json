@@ -3,5 +3,24 @@
   "type": "pane",
   "layer": "translucent",
   "opaque": false,
-  "textures": { "all": "game/textures/block/glass.png" }
+  "textures": {
+    "all": "game/textures/block/glass.png"
+  },
+  "post": {
+    "from": [7, 0, 7],
+    "to": [9, 16, 9]
+  },
+  "multipart": [
+    { "apply": { "model": "block/glass_pane_post" } },
+
+    { "when": { "north": "true" }, "apply": { "model": "block/glass_pane_side" } },
+    { "when": { "east": "true" },  "apply": { "model": "block/glass_pane_side", "y": 90 } },
+    { "when": { "south": "true" }, "apply": { "model": "block/glass_pane_side_alt" } },
+    { "when": { "west": "true" },  "apply": { "model": "block/glass_pane_side_alt", "y": 90 } },
+
+    { "when": { "north": "false" }, "apply": { "model": "block/glass_pane_noside" } },
+    { "when": { "east": "false" },  "apply": { "model": "block/glass_pane_noside_alt" } },
+    { "when": { "south": "false" }, "apply": { "model": "block/glass_pane_noside_alt", "y": 90 } },
+    { "when": { "west": "false" },  "apply": { "model": "block/glass_pane_noside", "y": 270 } }
+  ]
 }

@@ -1,6 +1,10 @@
 package de.skyengine.game.world.block;
 
+import de.skyengine.game.world.block.archetype.BlockConfig;
+import de.skyengine.game.world.block.behavior.BlockBehavior;
+import de.skyengine.game.world.block.behavior.PlacementContext;
 import de.skyengine.game.world.block.model.BakedQuad;
+import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Property;
@@ -14,6 +18,7 @@ public class Block {
 
     private final Identifier identifier;
     private final Settings settings;
+    private final BlockConfig config;
 
     private final List<Property<?>> properties = new ArrayList<>();
     private final List<BlockState> states = new ArrayList<>();
@@ -21,10 +26,23 @@ public class Block {
     private BlockState defaultState;
 
     public Block(Identifier identifier, Settings settings) {
+        this(identifier, settings, BlockConfig.EMPTY);
+    }
+
+    /**
+     * Komposition: zusätzliche Properties, Verhalten, Shapes und Modell kommen aus dem
+     * {@link BlockConfig} (vom Archetyp gefüllt). Transitionale Subklassen nutzen
+     * {@link #appendProperties} und Methoden-Overrides; ihre Config ist {@code EMPTY}.
+     */
+    public Block(Identifier identifier, Settings settings, BlockConfig config) {
         this.identifier = identifier;
         this.settings = settings;
+        this.config = config;
 
         this.appendProperties(this.properties);
+        for (Property<?> property : config.properties()) {
+            if (!this.properties.contains(property)) this.properties.add(property);
+        }
         this.createStates();
     }
 
@@ -69,7 +87,9 @@ public class Block {
     }
 
     public boolean isOpaqueCube(BlockState state) {
-        return this.settings.opaque;
+        return this.config.opaquePredicate() != null
+                ? this.config.opaquePredicate().test(state)
+                : this.settings.opaque;
     }
 
     public boolean isSolid(BlockState state) {
@@ -90,18 +110,20 @@ public class Block {
      * Minecraft), damit Cross-Blöcke (Gras, Blumen) nicht in Reih und Glied stehen.
      */
     public boolean hasRandomOffset(BlockState state) {
-        return false;
+        return this.config.randomOffset();
     }
 
     /* --- Formen (Phase 2): Kollision, Raycast, Selection-Box --- */
 
-    /** Kollisionsform (Entity/Spieler). Default: voller Würfel wenn solide, sonst leer. */
+    /** Kollisionsform (Entity/Spieler). Aus dem ShapeProvider (Archetyp) oder Default. */
     public BlockShape getCollisionShape(BlockState state) {
+        if (this.config.shapeProvider() != null) return this.config.shapeProvider().collision(state);
         return this.isSolid(state) ? BlockShape.FULL_CUBE : BlockShape.EMPTY;
     }
 
-    /** Umrissform für Raycast + Selection-Box. Default: voller Würfel. */
+    /** Umrissform für Raycast + Selection-Box. Aus dem ShapeProvider (Archetyp) oder Default. */
     public BlockShape getOutlineShape(BlockState state) {
+        if (this.config.shapeProvider() != null) return this.config.shapeProvider().outline(state);
         return BlockShape.FULL_CUBE;
     }
 
@@ -114,25 +136,56 @@ public class Block {
     public BlockState getPlacementState(de.skyengine.game.world.World world,
                                         int x, int y, int z,
                                         int faceX, int faceY, int faceZ,
-                                        double hitY, float playerYaw) {
-        return this.defaultState;
-    }
-
-    /**
-     * Recompute des eigenen States nach einer Nachbaränderung (Verbindungen,
-     * Treppen-Ecken). Default: unverändert.
-     */
-    public BlockState getStateForNeighborUpdate(de.skyengine.game.world.World world,
-                                                int x, int y, int z, BlockState state) {
+                                        double hitX, double hitY, double hitZ, float playerYaw) {
+        BlockState state = this.defaultState;
+        if (!this.config.behaviors().isEmpty()) {
+            PlacementContext ctx = new PlacementContext(world, x, y, z, faceX, faceY, faceZ, hitX, hitY, hitZ, playerYaw);
+            for (BlockBehavior behavior : this.config.behaviors()) {
+                state = behavior.onPlace(ctx, state);
+            }
+        }
         return state;
     }
 
     /**
-     * Backt das Modell eines States. Wird beim Registry-Bake aufgerufen,
-     * nachdem alle Texturen registriert sind.
+     * Recompute des eigenen States nach einer Nachbaränderung (Verbindungen,
+     * Treppen-Ecken). Delegiert an die Behaviors; Default: unverändert.
+     */
+    public BlockState getStateForNeighborUpdate(de.skyengine.game.world.World world,
+                                                int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            state = behavior.onNeighborUpdate(world, x, y, z, state);
+        }
+        return state;
+    }
+
+    /** Rechtsklick-Interaktion. Delegiert an die Behaviors; true = verbraucht. */
+    public boolean onUse(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            if (behavior.onUse(world, x, y, z, state)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Backt das Modell eines States aus dem datengetriebenen Blockstate-/Modell-System
+     * (Phase 3). Wird beim Registry-Bake aufgerufen, nachdem die Modelle geladen sind.
+     * Sonderfälle (z.B. Cross) überschreiben dies.
      */
     public BakedQuad[] bakeModel(BlockState state) {
-        return new BakedQuad[0];
+        if (this.isAir()) return new BakedQuad[0];
+        if (this.config.modelGenerator() != null) return this.config.modelGenerator().bake(state);
+        return BlockStateModels.bake(this, state).quads();
+    }
+
+    /** Connection-Gruppe (z.B. "fence", "pane") oder null. Steuert Verbindungen (siehe ConnectionRules). */
+    public String getConnectionGroup() {
+        return this.config.connectionGroup();
+    }
+
+    /** BlockEntity-Typ dieses Blocks oder null (kein „lebender" Block). */
+    public de.skyengine.game.world.block.entity.BlockEntityType<?> getBlockEntityType() {
+        return this.config.blockEntityType();
     }
 
     public Identifier getIdentifier() {

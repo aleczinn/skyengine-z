@@ -1,0 +1,7 @@
+{ "parent": "block/cube_bottom_top",
+  "textures": {
+    "top": "game/textures/block/grass_block_top.png",
+    "bottom": "game/textures/block/dirt.png",
+    "side": "game/textures/block/grass_block_side.png"
+  }
+}

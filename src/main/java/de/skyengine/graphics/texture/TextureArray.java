@@ -15,12 +15,20 @@ public class TextureArray {
 
 	private final Logger logger = LogManager.getLogger(TextureArray.class.getName());
 	private final int id;
+	private final int size;
+
+	public TextureArray(int size, String[] paths) {
+		this(size, paths, java.util.Set.of());
+	}
 
 	/**
-	 * @param size  Kantenlänge aller Texturen (z.B. 16) - ALLE Texturen müssen size x size sein!
-	 * @param paths Pfade relativ zum resources-Ordner, Index = Layer im Array
+	 * @param size        Kantenlänge aller (statischen) Texturen (z.B. 16)
+	 * @param paths       Pfade relativ zum resources-Ordner, Index = Layer im Array
+	 * @param skipLayers  Layer animierter Texturen: NICHT statisch laden, werden vom
+	 *                    {@link SpriteAnimations}-System pro Frame befüllt.
 	 */
-	public TextureArray(int size, String[] paths) {
+	public TextureArray(int size, String[] paths, java.util.Set<Integer> skipLayers) {
+		this.size = size;
 		int layerCount = Math.max(paths.length, 1);
 
 		this.id = GL11.glGenTextures();
@@ -33,6 +41,7 @@ public class TextureArray {
 			IntBuffer w = stack.mallocInt(1), h = stack.mallocInt(1), c = stack.mallocInt(1);
 
 			for (int layer = 0; layer < paths.length; layer++) {
+				if (skipLayers.contains(layer)) continue;
 				String fullPath = Files.RESOURCES_PATH + paths[layer];
 				ByteBuffer pixels = STBImage.stbi_load(fullPath, w, h, c, 4);
 
@@ -147,6 +156,17 @@ public class TextureArray {
 		}
 		buffer.flip();
 		return buffer;
+	}
+
+	/**
+	 * Ersetzt den Inhalt eines Layers (Basis-Mip). Für animierte Sprites pro Frame.
+	 * Mip-Level werden nicht neu erzeugt — bei animierten Blöcken in der Ferne minimal
+	 * unscharf; für Lava/Wasser vernachlässigbar.
+	 */
+	public void updateLayer(int layer, ByteBuffer rgba) {
+		GL11.glBindTexture(GL30.GL_TEXTURE_2D_ARRAY, this.id);
+		GL12.glTexSubImage3D(GL30.GL_TEXTURE_2D_ARRAY, 0, 0, 0, layer,
+				this.size, this.size, 1, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, rgba);
 	}
 
 	public void bind(int unit) {

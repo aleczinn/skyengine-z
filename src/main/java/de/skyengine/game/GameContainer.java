@@ -11,7 +11,6 @@ import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
-import de.skyengine.game.world.block.json.SlabBlock;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.SlabType;
@@ -76,7 +75,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 Blocks.COBBLESTONE_STAIRS,
                 Blocks.OAK_FENCE,
                 Blocks.GLASS_PANE,
-                Blocks.IRON_BARS,
+                Blocks.OAK_DOOR,
                 Blocks.GLASS
         };
 
@@ -154,6 +153,13 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.world.setBlock(hit.x(), hit.y(), hit.z(), Blocks.AIR);
             this.lastBreakTime = now;
         } else {
+            /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
+            BlockState hitState = Blocks.getState(this.hit.block());
+            if (hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(), hitState)) {
+                this.lastPlaceTime = now;
+                return;
+            }
+
             short selected = this.hotbar[this.hotbarIndex];
             Block block = Blocks.getState(selected).getBlock();
 
@@ -169,9 +175,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             if (hit.faceX() == 0 && hit.faceY() == 0 && hit.faceZ() == 0) return;
 
             if (this.world.getBlock(px, py, pz) == Blocks.AIR) {
+                double relHitX = this.hit.hitX() - px;
                 double relHitY = this.hit.hitY() - py;
+                double relHitZ = this.hit.hitZ() - pz;
                 BlockState place = block.getPlacementState(this.world, px, py, pz,
-                        this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(), relHitY, this.player.yaw);
+                        this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(),
+                        relHitX, relHitY, relHitZ, this.player.yaw);
 
                 /* Nicht in den eigenen Körper bauen - gegen die ECHTE Kollisionsform testen,
                    damit dünne Blöcke (Panes, Zäune) neben einem platzierbar bleiben. */
@@ -185,7 +194,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     /** Klick auf eine vorhandene Slab mit derselben Slab-Sorte -> Doppel-Slab. */
     private boolean tryMergeSlab(Block block, long now) {
-        if (!(block instanceof SlabBlock)) return false;
+        if (!block.getDefaultState().getValues().containsKey(Properties.SLAB_TYPE)) return false;
         BlockState target = Blocks.getState(this.hit.block());
         if (target.getBlock() != block) return false;
 
