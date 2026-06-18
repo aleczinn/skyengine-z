@@ -33,6 +33,7 @@ public final class Blocks {
     public static short STONE_STAIRS, COBBLESTONE_STAIRS;
     public static short OAK_FENCE, GLASS_PANE, IRON_BARS;
     public static short OAK_DOOR;
+    public static short CHEST;
 
     /** Vor world.init() aufrufen! Lädt JSON-Blöcke und baked die Registry. */
     public static void bootstrap(File blockDirectory) {
@@ -53,6 +54,7 @@ public final class Blocks {
         for (ContentSource source : ContentSources.all()) BlockStateModels.load(source.blocks());
 
         BlockRegistry.bake();
+        de.skyengine.game.world.item.Items.bootstrap();
 
         AIR = idOf("skyengine:air");
         BEDROCK = idOf("skyengine:bedrock");
@@ -78,6 +80,7 @@ public final class Blocks {
         GLASS_PANE = idOf("skyengine:glass_pane");
         IRON_BARS = idOf("skyengine:iron_bars");
         OAK_DOOR = idOf("skyengine:oak_door");
+        CHEST = idOf("skyengine:chest");
     }
 
     private static short idOf(String id) {

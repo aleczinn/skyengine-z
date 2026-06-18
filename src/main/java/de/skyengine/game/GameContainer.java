@@ -11,9 +11,15 @@ import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.entity.BlockEntity;
+import de.skyengine.game.world.block.entity.Capabilities;
+import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.SlabType;
+import de.skyengine.game.world.item.Item;
+import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.Items;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.ui.UIRenderer;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
@@ -24,6 +30,7 @@ import org.joml.Vector3d;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.File;
+import java.util.Optional;
 
 public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
@@ -69,6 +76,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
 
         this.hotbar = new short[]{
+                Blocks.CHEST,
                 Blocks.OAK_PLANKS,
                 Blocks.STONE_SLAB,
                 Blocks.STONE_STAIRS,
@@ -77,7 +85,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 Blocks.GLASS_PANE,
                 Blocks.OAK_DOOR,
                 Blocks.GLASS,
-                Blocks.SAND
+                Blocks.SAND,
         };
 
         this.world.init(); // creates ChunkManager, renderer, texture array
@@ -163,6 +171,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 return;
             }
 
+            /* Container (Truhe etc.): mit dem gewählten Block befüllen + Inhalt loggen (Test-Interaktion). */
+            if (this.tryUseContainer(now)) return;
+
             short selected = this.hotbar[this.hotbarIndex];
             Block block = Blocks.getState(selected).getBlock();
 
@@ -211,6 +222,44 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 target.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId());
         this.lastPlaceTime = now;
         return true;
+    }
+
+    /**
+     * Test-Interaktion für Container: legt 1 des gewählten Hotbar-Blocks als Item in die Truhe
+     * und loggt den Inhalt. Ersetzt später ein echtes Inventar-GUI (Phase 1.2b).
+     *
+     * @return true, wenn der getroffene Block ein ITEM_STORAGE-Container ist (Interaktion verbraucht)
+     */
+    private boolean tryUseContainer(long now) {
+        BlockEntity be = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
+        if (be == null) return false;
+        Optional<ItemStorage> opt = be.getCapability(Capabilities.ITEM_STORAGE, null);
+        if (opt.isEmpty()) return false;
+
+        ItemStorage inventory = opt.get();
+        Block selected = Blocks.getState(this.hotbar[this.hotbarIndex]).getBlock();
+        Item item = Items.get(selected.getIdentifier());
+        if (item != null) {
+            ItemStack rest = inventory.insert(new ItemStack(item, 1));
+            this.logger.debug("Truhe +1 " + item + (rest.isEmpty() ? "" : " (voll)"));
+            this.logContainer(inventory);
+        }
+        this.lastPlaceTime = now;
+        return true;
+    }
+
+    /** Loggt den belegten Inhalt eines Item-Lagers (Test-Hilfe bis zum GUI). */
+    private void logContainer(ItemStorage inventory) {
+        StringBuilder sb = new StringBuilder("Truhen-Inhalt:");
+        boolean any = false;
+        for (int i = 0; i < inventory.size(); i++) {
+            ItemStack stack = inventory.get(i);
+            if (!stack.isEmpty()) {
+                sb.append(" [").append(i).append("]=").append(stack);
+                any = true;
+            }
+        }
+        this.logger.debug(any ? sb.toString() : "Truhen-Inhalt: (leer)");
     }
 
     /** true, wenn die Kollisionsform des Blocks an px/py/pz die Spieler-Box schneidet. */

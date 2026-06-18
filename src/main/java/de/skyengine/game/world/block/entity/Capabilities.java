@@ -7,6 +7,7 @@ package de.skyengine.game.world.block.entity;
 public final class Capabilities {
 
     public static final Capability<EnergyStorage> ENERGY = new Capability<>("energy");
+    public static final Capability<ItemStorage> ITEM_STORAGE = new Capability<>("item_storage");
 
     private Capabilities() {}
 }
