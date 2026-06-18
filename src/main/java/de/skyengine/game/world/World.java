@@ -31,6 +31,9 @@ public class World implements IInitializable, IDisposable {
     private final ChunkManager chunkManager;
     private final ChunkRenderer chunkRenderer;
 
+    /** Wiederverwendeter Snapshot-Puffer fürs BlockEntity-Ticking (keine Allokation pro Chunk/Tick). */
+    private final List<BlockEntity> tickScratch = new ArrayList<>();
+
     public World(String name) {
         this.name = name;
         this.generator = new WorldGenerator(123);
@@ -58,8 +61,11 @@ public class World implements IInitializable, IDisposable {
             if (chunk.status != ChunkStatus.READY) continue;
             var entities = chunk.blockEntities();
             if (entities.isEmpty()) continue;
-            /* Snapshot: ein tick() darf Blöcke setzen und die Map verändern. */
-            for (BlockEntity be : new ArrayList<>(entities)) {
+            /* Snapshot in den wiederverwendeten Puffer: ein tick() darf Blöcke setzen / die Map verändern. */
+            this.tickScratch.clear();
+            this.tickScratch.addAll(entities);
+            for (int i = 0; i < this.tickScratch.size(); i++) {
+                BlockEntity be = this.tickScratch.get(i);
                 if (be.getType().isTicking()) be.tick();
             }
         }

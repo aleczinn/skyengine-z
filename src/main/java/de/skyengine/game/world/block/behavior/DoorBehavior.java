@@ -23,23 +23,32 @@ import de.skyengine.game.world.block.state.Properties;
  */
 public final class DoorBehavior implements BlockBehavior {
 
+    /** Tür passt nur, wenn über dem Zielfeld noch Platz für den oberen Teil ist. */
+    @Override
+    public boolean canPlace(PlacementContext ctx, BlockState state) {
+        return ctx.world().getBlock(ctx.x(), ctx.y() + 1, ctx.z()) == Blocks.AIR;
+    }
+
     @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
         /* Tür schließt an der dem Spieler zugewandten (vorderen) Kante an -> Blickrichtung invertiert. */
         Direction facing = Direction.fromYaw(ctx.playerYaw()).opposite();
         DoorHinge hinge = hinge(ctx, facing);
 
-        BlockState bottom = state.with(Properties.FACING, facing)
+        /* Nur den unteren State berechnen - der obere Teil kommt in onPlaced (nach der Validierung),
+           damit bei abgelehnter Platzierung kein schwebender Oberteil zurückbleibt. */
+        return state.with(Properties.FACING, facing)
                 .with(Properties.HALF, BlockHalf.BOTTOM)
                 .with(Properties.OPEN, false)
                 .with(Properties.HINGE, hinge);
+    }
 
-        /* Oberen Teil mitsetzen (ohne Nachbar-Kaskade, da der untere noch nicht steht). */
-        if (ctx.world().getBlock(ctx.x(), ctx.y() + 1, ctx.z()) == Blocks.AIR) {
-            ctx.world().setBlock(ctx.x(), ctx.y() + 1, ctx.z(),
-                    bottom.with(Properties.HALF, BlockHalf.TOP).getId(), false);
+    /** Setzt den oberen Türteil, nachdem der untere validiert platziert wurde. */
+    @Override
+    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+        if (world.getBlock(x, y + 1, z) == Blocks.AIR) {
+            world.setBlock(x, y + 1, z, state.with(Properties.HALF, BlockHalf.TOP).getId(), false);
         }
-        return bottom;
     }
 
     @Override

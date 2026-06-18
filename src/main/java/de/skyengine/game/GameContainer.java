@@ -150,6 +150,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         if (hit == null) return;
 
         if (breakBlock) {
+            BlockState broken = Blocks.getState(this.hit.block());
+            broken.getBlock().onBreak(this.world, hit.x(), hit.y(), hit.z(), broken);
             this.world.setBlock(hit.x(), hit.y(), hit.z(), Blocks.AIR);
             this.lastBreakTime = now;
         } else {
@@ -182,10 +184,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                         this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(),
                         relHitX, relHitY, relHitZ, this.player.yaw);
 
-                /* Nicht in den eigenen Körper bauen - gegen die ECHTE Kollisionsform testen,
-                   damit dünne Blöcke (Panes, Zäune) neben einem platzierbar bleiben. */
-                if (!this.collidesWithPlayer(place, px, py, pz)) {
+                /* place == null: ein Behavior lehnt ab (z.B. Tür ohne Platz). Sonst nicht in den
+                   eigenen Körper bauen - gegen die ECHTE Kollisionsform testen, damit dünne Blöcke
+                   (Panes, Zäune) neben einem platzierbar bleiben. */
+                if (place != null && !this.collidesWithPlayer(place, px, py, pz)) {
                     this.world.setBlock(px, py, pz, place.getId());
+                    block.onPlaced(this.world, px, py, pz, place);
                     this.lastPlaceTime = now;
                 }
             }
