@@ -6,6 +6,7 @@ import de.skyengine.core.io.IInitializable;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.BlockPos;
+import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.BlockEntity;
@@ -17,11 +18,13 @@ import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.generator.WorldGenerator;
+import de.skyengine.game.world.tick.ScheduledTickQueue;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.world.ChunkRenderer;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 public class World implements IInitializable, IDisposable {
 
@@ -33,6 +36,14 @@ public class World implements IInitializable, IDisposable {
 
     /** Wiederverwendeter Snapshot-Puffer fürs BlockEntity-Ticking (keine Allokation pro Chunk/Tick). */
     private final List<BlockEntity> tickScratch = new ArrayList<>();
+
+    /** Spielzeit in Ticks (20 TPS), bei jedem update() erhöht - Basis für geplante Ticks. */
+    private long gameTime;
+    private final Random random = new Random();
+    private final ScheduledTickQueue scheduledTicks = new ScheduledTickQueue();
+
+    /** Zufalls-Ticks pro nicht-leerer Section pro Tick (Wachstum, Verfall). 0 = aus. */
+    private static final int RANDOM_TICK_SPEED = 3;
 
     public World(String name) {
         this.name = name;
@@ -51,7 +62,10 @@ public class World implements IInitializable, IDisposable {
     }
 
     public void update(Input input, EntityPlayer player) {
+        this.gameTime++;
         this.chunkManager.update(player);
+        this.tickScheduled();
+        this.tickRandomBlocks();
         this.tickBlockEntities();
     }
 
@@ -67,6 +81,65 @@ public class World implements IInitializable, IDisposable {
             for (int i = 0; i < this.tickScratch.size(); i++) {
                 BlockEntity be = this.tickScratch.get(i);
                 if (be.getType().isTicking()) be.tick();
+            }
+        }
+    }
+
+    /* --- Tick-Scheduler (Phase 1.1): geplante + Zufalls-Ticks --- */
+
+    /**
+     * Merkt einen geplanten Tick für die Position vor. Nach {@code delayTicks} Ticks (min. 1)
+     * ruft der Block dort {@link de.skyengine.game.world.block.Block#scheduledTick} auf. Pro
+     * Position ist nur ein Tick gleichzeitig vorgemerkt (Dedup). Basis für Fluss/Fall.
+     */
+    public void scheduleTick(int x, int y, int z, int delayTicks) {
+        this.scheduledTicks.schedule(x, y, z, this.gameTime + Math.max(1, delayTicks));
+    }
+
+    /** true, wenn an der Position bereits ein geplanter Tick aussteht. */
+    public boolean isTickScheduled(int x, int y, int z) {
+        return this.scheduledTicks.isScheduled(x, y, z);
+    }
+
+    /** Aktuelle Spielzeit in Ticks (20 TPS). */
+    public long getGameTime() {
+        return this.gameTime;
+    }
+
+    /** Führt alle fälligen geplanten Ticks aus (Fluss-Ausbreitung, Fallprüfung, ...). */
+    private void tickScheduled() {
+        this.scheduledTicks.drainDue(this.gameTime, (x, y, z) -> {
+            BlockState state = Blocks.getState(this.getBlock(x, y, z));
+            if (!state.isAir()) state.getBlock().scheduledTick(this, x, y, z, state);
+        });
+    }
+
+    /**
+     * Zufalls-Ticks: pro nicht-leerer Section werden {@link #RANDOM_TICK_SPEED} zufällige
+     * Positionen gezogen; nur Blöcke mit {@link BlockState#ticksRandomly()} reagieren
+     * (Pflanzenwachstum, Verfall). Läuft über alle geladenen Chunks - später ggf. auf eine
+     * Simulationsdistanz um den Spieler begrenzen.
+     */
+    private void tickRandomBlocks() {
+        if (RANDOM_TICK_SPEED <= 0 || !BlockRegistry.hasRandomTickBlocks()) return;
+        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+            if (chunk.status != ChunkStatus.READY) continue;
+            int baseX = chunk.chunkX << ChunkSection.SHIFT;
+            int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
+            for (int si = 0; si < Chunk.SECTIONS; si++) {
+                ChunkSection section = chunk.getSection(si);
+                if (section == null || section.isEmpty()) continue;
+                int baseY = si << ChunkSection.SHIFT;
+                for (int n = 0; n < RANDOM_TICK_SPEED; n++) {
+                    int lx = this.random.nextInt(ChunkSection.SIZE);
+                    int ly = this.random.nextInt(ChunkSection.SIZE);
+                    int lz = this.random.nextInt(ChunkSection.SIZE);
+                    short id = section.getBlock(lx, ly, lz);
+                    if (id == Blocks.AIR) continue;
+                    BlockState state = Blocks.getState(id);
+                    if (!state.ticksRandomly()) continue;
+                    state.getBlock().randomTick(this, baseX + lx, baseY + ly, baseZ + lz, state);
+                }
             }
         }
     }

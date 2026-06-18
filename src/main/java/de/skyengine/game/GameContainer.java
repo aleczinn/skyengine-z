@@ -76,7 +76,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 Blocks.OAK_FENCE,
                 Blocks.GLASS_PANE,
                 Blocks.OAK_DOOR,
-                Blocks.GLASS
+                Blocks.GLASS,
+                Blocks.SAND
         };
 
         this.world.init(); // creates ChunkManager, renderer, texture array

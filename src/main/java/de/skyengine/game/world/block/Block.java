@@ -190,6 +190,25 @@ public class Block {
         }
     }
 
+    /** Geplanter Tick (Fluss, Fall, ...), von {@code World.scheduleTick} ausgelöst. Delegiert; Default: nichts. */
+    public void scheduledTick(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.scheduledTick(world, x, y, z, state);
+        }
+    }
+
+    /** Zufalls-Tick (Wachstum, Verfall, ...). Nur wenn {@link #ticksRandomly()}. Delegiert; Default: nichts. */
+    public void randomTick(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.randomTick(world, x, y, z, state);
+        }
+    }
+
+    /** true, wenn dieser Block beim Random-Tick berücksichtigt wird (Pflanzen, Gras). */
+    public boolean ticksRandomly() {
+        return this.config.tickRandomly();
+    }
+
     /**
      * Backt das Modell eines States aus dem datengetriebenen Blockstate-/Modell-System
      * (Phase 3). Wird beim Registry-Bake aufgerufen, nachdem die Modelle geladen sind.
