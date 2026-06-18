@@ -3,16 +3,13 @@ package de.skyengine.game.world.block.json;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
-import de.skyengine.game.world.block.model.BakedQuad;
-import de.skyengine.game.world.block.model.BlockModels;
-import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
 /**
- * Basisklasse aller JSON-definierten Blöcke. Standardverhalten = voller Würfel.
- * Spezielle Typen (cross, slab, stairs, fence, pane) sind Subklassen, die der
- * {@link BlockLoader} anhand von {@code definition.type} instanziiert.
+ * Basisklasse aller JSON-definierten Blöcke. Das Modell kommt ab Phase 3 aus dem
+ * datengetriebenen Blockstate-/Modell-System ({@link Block#bakeModel}); Subklassen
+ * fügen nur noch Verhalten hinzu (Properties, Platzierung, Nachbar-Updates, Formen).
  */
 public class JsonBlock extends Block {
 
@@ -24,19 +21,7 @@ public class JsonBlock extends Block {
         this.definition = definition;
     }
 
-    @Override
-    public BakedQuad[] bakeModel(BlockState state) {
-        return BlockModels.cube(
-                this.resolveLayer("top", "all"),
-                this.resolveLayer("bottom", "all"),
-                this.resolveLayer("north", "side", "all"),
-                this.resolveLayer("south", "side", "all"),
-                this.resolveLayer("west", "side", "all"),
-                this.resolveLayer("east", "side", "all")
-        );
-    }
-
-    /** Sucht die Textur über eine Fallback-Kette (z.B. "top" -> "all"). */
+    /** Sucht eine Textur in der (optionalen) textures-Map der Block-JSON. */
     protected int resolveLayer(String... keys) {
         for (String key : keys) {
             String path = this.definition.textures.get(key);

@@ -2,6 +2,7 @@ package de.skyengine.game.world.block.state;
 
 import de.skyengine.game.world.block.Direction;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -23,20 +24,42 @@ public final class Properties {
     public static final Property<StairShape> STAIR_SHAPE =
             Property.ofEnum("shape", StairShape.class);
 
-    /** Verbindungs-Properties für Zäune und Panes. */
+    /** Achse (Pillar/Log: X/Y/Z) aus der Platzierungsfläche. */
+    public static final Property<Direction.Axis> AXIS =
+            Property.ofEnum("axis", Direction.Axis.class);
+
+    /** Fluid-Stand 0..15. */
+    public static final Property<Integer> LEVEL = Property.of("level", levels());
+
+    /** Offen/geschlossen (Türen, Trapdoors, Fence-Gates). */
+    public static final Property<Boolean> OPEN = Property.ofBoolean("open");
+
+    /** Türanschlag links/rechts. */
+    public static final Property<DoorHinge> HINGE = Property.ofEnum("hinge", DoorHinge.class);
+
+    private static List<Integer> levels() {
+        List<Integer> list = new ArrayList<>(16);
+        for (int i = 0; i < 16; i++) list.add(i);
+        return list;
+    }
+
+    /** Verbindungs-Properties (Zäune, Panes, Walls, Pipes, Cables, Netzwerke). */
     public static final Property<Boolean> NORTH = Property.ofBoolean("north");
     public static final Property<Boolean> EAST = Property.ofBoolean("east");
     public static final Property<Boolean> SOUTH = Property.ofBoolean("south");
     public static final Property<Boolean> WEST = Property.ofBoolean("west");
+    public static final Property<Boolean> UP = Property.ofBoolean("up");
+    public static final Property<Boolean> DOWN = Property.ofBoolean("down");
 
-    /** Verbindungs-Property passend zur horizontalen Richtung. */
+    /** Verbindungs-Property passend zur Richtung (alle 6 Achsen). */
     public static Property<Boolean> connection(Direction direction) {
         return switch (direction) {
             case NORTH -> NORTH;
             case EAST -> EAST;
             case SOUTH -> SOUTH;
             case WEST -> WEST;
-            default -> throw new IllegalArgumentException("Keine Verbindung für " + direction);
+            case UP -> UP;
+            case DOWN -> DOWN;
         };
     }
 

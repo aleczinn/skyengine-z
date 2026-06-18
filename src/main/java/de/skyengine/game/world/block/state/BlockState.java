@@ -15,6 +15,8 @@ public final class BlockState {
 
     /** Runtime-ID, wird beim Registry-Bake vergeben. NICHT persistieren! */
     private short id;
+    /** Gepackte Hot-Path-Flags, beim Registry-Bake gesetzt (siehe {@link StateFlags}). */
+    private int flags;
     private BakedQuad[] model = new BakedQuad[0];
 
     public BlockState(Block block, Map<Property<?>, Object> values) {
@@ -46,19 +48,24 @@ public final class BlockState {
     }
 
     public boolean isOpaqueCube() {
-        return this.block.isOpaqueCube(this);
+        return (this.flags & StateFlags.OPAQUE_CUBE) != 0;
     }
 
     public boolean isSolid() {
-        return this.block.isSolid(this);
+        return (this.flags & StateFlags.SOLID) != 0;
     }
 
     public RenderLayer getRenderLayer() {
-        return this.block.getRenderLayer(this);
+        return StateFlags.layer(this.flags);
     }
 
     public boolean hasRandomOffset() {
-        return this.block.hasRandomOffset(this);
+        return (this.flags & StateFlags.RANDOM_OFFSET) != 0;
+    }
+
+    /** true: innere Faces zwischen zwei identischen Blöcken werden geculled (Glas-an-Glas). */
+    public boolean cullsSameBlock() {
+        return (this.flags & StateFlags.CULL_SAME) != 0;
     }
 
     public BlockShape getCollisionShape() {
@@ -85,6 +92,14 @@ public final class BlockState {
 
     public void setId(short id) {
         this.id = id;
+    }
+
+    public int getFlags() {
+        return flags;
+    }
+
+    public void setFlags(int flags) {
+        this.flags = flags;
     }
 
     public BakedQuad[] getModel() {

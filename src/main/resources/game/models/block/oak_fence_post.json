@@ -1,0 +1,6 @@
+{
+  "parent": "block/fence_post",
+  "textures": {
+    "all": "game/textures/block/oak_planks.png"
+  }
+}

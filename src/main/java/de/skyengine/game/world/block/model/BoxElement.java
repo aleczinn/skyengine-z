@@ -16,12 +16,32 @@ public final class BoxElement {
     public final double x0, y0, z0, x1, y1, z1;
     public final int[] tex;   // 6
     public final int[] cull;  // 6
+    /** Horizontaler Textur-Spiegel (U -> 1-U) für alle Faces, z.B. gespiegelte Tür-Grifftextur. */
+    public final boolean mirror;
+    /**
+     * Optionale explizite Face-UVs (6 Einträge, je {@code null} oder 8 Floats = vier UV-Paare
+     * A,B,C,D in 0..1). {@code null}-Einträge fallen auf die aus der Box-Ausdehnung abgeleiteten
+     * UVs zurück. Bei {@link #rotateY} rotieren diese UVs mit der Geometrie mit.
+     */
+    public final float[][] faceUv;
 
     public BoxElement(double x0, double y0, double z0, double x1, double y1, double z1, int[] tex, int[] cull) {
+        this(x0, y0, z0, x1, y1, z1, tex, cull, false, null);
+    }
+
+    public BoxElement(double x0, double y0, double z0, double x1, double y1, double z1,
+                      int[] tex, int[] cull, boolean mirror) {
+        this(x0, y0, z0, x1, y1, z1, tex, cull, mirror, null);
+    }
+
+    public BoxElement(double x0, double y0, double z0, double x1, double y1, double z1,
+                      int[] tex, int[] cull, boolean mirror, float[][] faceUv) {
         this.x0 = x0; this.y0 = y0; this.z0 = z0;
         this.x1 = x1; this.y1 = y1; this.z1 = z1;
         this.tex = tex;
         this.cull = cull;
+        this.mirror = mirror;
+        this.faceUv = faceUv;
     }
 
     /** Alle Faces dieselbe Textur, kein Culling (typisch für dünne Teile wie Zaunarme). */
@@ -36,7 +56,18 @@ public final class BoxElement {
     }
 
     public BakedQuad[] bake() {
-        return BlockModels.box(x0, y0, z0, x1, y1, z1, tex, cull);
+        BakedQuad[] quads = BlockModels.box(x0, y0, z0, x1, y1, z1, tex, cull, faceUv);
+        if (this.mirror) {
+            for (int i = 0; i < quads.length; i++) quads[i] = flipU(quads[i]);
+        }
+        return quads;
+    }
+
+    /** Spiegelt die U-Koordinate (Index 3 je 5-Float-Vertex) jedes Quads horizontal. */
+    private static BakedQuad flipU(BakedQuad quad) {
+        float[] v = quad.vertices().clone();
+        for (int i = 3; i < v.length; i += 5) v[i] = 1.0F - v[i];
+        return new BakedQuad(v, quad.textureLayer(), quad.cullFace(), quad.brightness());
     }
 
     /** 90°-Schritte im Uhrzeigersinn um die Y-Achse (von oben gesehen), N->E->S->W. */
@@ -61,7 +92,30 @@ public final class BoxElement {
         nc[5] = rotCullFace(cull[2]); nc[3] = rotCullFace(cull[5]);
         nc[4] = rotCullFace(cull[3]); nc[2] = rotCullFace(cull[4]);
 
-        return new BoxElement(nx0, y0, nz0, nx1, y1, nz1, nt, nc);
+        /* Face-UVs mitdrehen: Seiten wandern wie tex auf den neuen Index (Eckreihenfolge
+         * bleibt identisch); top/bottom bleiben dieselbe Face, ihre Textur rotiert aber 90°
+         * mit – das entspricht einer zyklischen Verschiebung der vier Eck-UVs. */
+        float[][] nuv = null;
+        if (faceUv != null) {
+            nuv = new float[6][];
+            nuv[0] = shiftCornersCW(faceUv[0]);   // top: A,B,C,D -> B,C,D,A
+            nuv[1] = shiftCornersCCW(faceUv[1]);  // bottom: A,B,C,D -> D,A,B,C
+            nuv[5] = faceUv[2]; nuv[3] = faceUv[5]; nuv[4] = faceUv[3]; nuv[2] = faceUv[4];
+        }
+
+        return new BoxElement(nx0, y0, nz0, nx1, y1, nz1, nt, nc, mirror, nuv);
+    }
+
+    /** Verschiebt die vier Eck-UVs A,B,C,D zyklisch zu B,C,D,A (Textur dreht 90° CW). */
+    private static float[] shiftCornersCW(float[] uv) {
+        if (uv == null) return null;
+        return new float[]{uv[2], uv[3], uv[4], uv[5], uv[6], uv[7], uv[0], uv[1]};
+    }
+
+    /** Verschiebt die vier Eck-UVs A,B,C,D zyklisch zu D,A,B,C (Gegenrichtung für die Unterseite). */
+    private static float[] shiftCornersCCW(float[] uv) {
+        if (uv == null) return null;
+        return new float[]{uv[6], uv[7], uv[0], uv[1], uv[2], uv[3], uv[4], uv[5]};
     }
 
     /** Dreht einen Cull-Face-Index um eine CW-Vierteldrehung (N->E->S->W). */
@@ -75,6 +129,42 @@ public final class BoxElement {
         };
     }
 
+    /** 90°-Schritte um die X-Achse (für Blockstate {@code x}, v.a. x=180 Upside-down). */
+    public BoxElement rotateX(int quarterTurns) {
+        BoxElement e = this;
+        for (int i = 0; i < Math.floorMod(quarterTurns, 4); i++) e = e.rotateXCW();
+        return e;
+    }
+
+    private BoxElement rotateXCW() {
+        /* (y,z) -> (z, 1-y) um die Mitte; Box bleibt achsenparallel */
+        double ny0 = z0, ny1 = z1;
+        double nz0 = 1 - y1, nz1 = 1 - y0;
+
+        int[] nt = new int[6];
+        int[] nc = new int[6];
+        nt[4] = tex[4]; nt[5] = tex[5];   // west/east bleiben
+        nc[4] = cull[4]; nc[5] = cull[5];
+        /* top->north->bottom->south->top : 0->2, 2->1, 1->3, 3->0 */
+        nt[2] = tex[0]; nt[1] = tex[2]; nt[3] = tex[1]; nt[0] = tex[3];
+        nc[2] = rotCullFaceX(cull[0]); nc[1] = rotCullFaceX(cull[2]);
+        nc[3] = rotCullFaceX(cull[1]); nc[0] = rotCullFaceX(cull[3]);
+
+        /* Explizite Face-UVs werden bei X-Rotation verworfen (Fallback auf Extent-UVs).
+         * Nur Blockstate-y nutzt explizite UVs (Glass-Pane/Iron-Bars), dort ist x stets 0. */
+        return new BoxElement(x0, ny0, nz0, x1, ny1, nz1, nt, nc, mirror);
+    }
+
+    private static int rotCullFaceX(int face) {
+        return switch (face) {
+            case 0 -> 2; // top -> north
+            case 2 -> 1; // north -> bottom
+            case 1 -> 3; // bottom -> south
+            case 3 -> 0; // south -> top
+            default -> face; // west/east/NO_CULL/NO_FACE
+        };
+    }
+
     /** Spiegelt vertikal (y -> 1-y); für upside-down Treppen / TOP-Slabs. */
     public BoxElement mirrorY() {
         int[] nt = tex.clone();
@@ -84,7 +174,7 @@ public final class BoxElement {
         nc[0] = swapTopBottom(cull[1]); nc[1] = swapTopBottom(cull[0]);
         nc[2] = swapTopBottom(cull[2]); nc[3] = swapTopBottom(cull[3]);
         nc[4] = swapTopBottom(cull[4]); nc[5] = swapTopBottom(cull[5]);
-        return new BoxElement(x0, 1 - y1, z0, x1, 1 - y0, z1, nt, nc);
+        return new BoxElement(x0, 1 - y1, z0, x1, 1 - y0, z1, nt, nc, mirror);
     }
 
     private static int swapTopBottom(int face) {

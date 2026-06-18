@@ -1,6 +1,11 @@
 package de.skyengine.game.world.block;
 
+import de.skyengine.game.world.block.content.ContentSource;
+import de.skyengine.game.world.block.content.ContentSources;
+import de.skyengine.game.world.block.content.FileContentSource;
 import de.skyengine.game.world.block.json.BlockLoader;
+import de.skyengine.game.world.block.model.BlockStateModels;
+import de.skyengine.game.world.block.model.ModelLoader;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -27,13 +32,26 @@ public final class Blocks {
     public static short STONE_SLAB, COBBLESTONE_SLAB;
     public static short STONE_STAIRS, COBBLESTONE_STAIRS;
     public static short OAK_FENCE, GLASS_PANE, IRON_BARS;
+    public static short OAK_DOOR;
 
     /** Vor world.init() aufrufen! Lädt JSON-Blöcke und baked die Registry. */
     public static void bootstrap(File blockDirectory) {
         /* Luft IMMER zuerst registrieren -> State-ID 0. Chunks sind per Default 0 = leer. */
         BlockRegistry.register(new Block(Identifier.of("skyengine:air"), Block.Settings.create().air()));
 
-        BlockLoader.load(blockDirectory);
+        /* BlockEntity-Typen registrieren, bevor Blöcke ihren block_entity-Verweis auflösen. */
+        de.skyengine.game.world.block.entity.BlockEntities.bootstrap();
+
+        /* Engine-Inhaltsquelle registrieren; Mods/Packs können vorher weitere hinzufügen. */
+        File gameDir = blockDirectory.getParentFile();
+        ContentSources.register(new FileContentSource("skyengine", gameDir));
+
+        /* Inhalte aus allen Quellen laden (Blöcke, dann Modelle + Blockstates vor dem Bake).
+           Die variants/multipart-Render-Sektion steckt in derselben Block-Datei. */
+        for (ContentSource source : ContentSources.all()) BlockLoader.load(source.blocks());
+        for (ContentSource source : ContentSources.all()) ModelLoader.load(source.models());
+        for (ContentSource source : ContentSources.all()) BlockStateModels.load(source.blocks());
+
         BlockRegistry.bake();
 
         AIR = idOf("skyengine:air");
@@ -59,6 +77,7 @@ public final class Blocks {
         OAK_FENCE = idOf("skyengine:oak_fence");
         GLASS_PANE = idOf("skyengine:glass_pane");
         IRON_BARS = idOf("skyengine:iron_bars");
+        OAK_DOOR = idOf("skyengine:oak_door");
     }
 
     private static short idOf(String id) {

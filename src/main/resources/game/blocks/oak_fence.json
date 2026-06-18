@@ -3,5 +3,18 @@
   "type": "fence",
   "layer": "cutout",
   "opaque": false,
-  "textures": { "all": "game/textures/block/oak_planks.png" }
+  "textures": {
+    "all": "game/textures/block/oak_planks.png"
+  },
+  "post": {
+    "from": [6, 0, 6],
+    "to": [10, 16, 10]
+  },
+  "multipart": [
+    { "apply": { "model": "block/oak_fence_post" } },
+    { "when": { "north": "true" }, "apply": { "model": "block/oak_fence_side" } },
+    { "when": { "east": "true" },  "apply": { "model": "block/oak_fence_side", "y": 90 } },
+    { "when": { "south": "true" }, "apply": { "model": "block/oak_fence_side", "y": 180 } },
+    { "when": { "west": "true" },  "apply": { "model": "block/oak_fence_side", "y": 270 } }
+  ]
 }
