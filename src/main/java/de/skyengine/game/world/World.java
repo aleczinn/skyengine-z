@@ -118,6 +118,19 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
+     * Platziert einen fertig berechneten Placement-State: setzt den Block (ohne Kaskade),
+     * lässt den Block etwaige Mehrteil-Logik anwenden (z.B. obere Türhälfte über
+     * {@link de.skyengine.game.world.block.Block#onPlaced}) und löst ERST DANACH die
+     * Nachbar-Updates aus. Das Ordering ist entscheidend - sonst entfernt sich z.B. die
+     * untere Türhälfte selbst, bevor die obere existiert.
+     */
+    public void placeBlock(int x, int y, int z, BlockState state) {
+        this.setBlock(x, y, z, state.getId(), false);
+        state.getBlock().onPlaced(this, x, y, z, state);
+        this.updateNeighbors(x, y, z);
+    }
+
+    /**
      * Legt die BlockEntity an oder entfernt sie, wenn sich der BlockEntity-Typ ändert.
      * Reine State-Änderungen am selben Block (Verbindungen, Treppen-Ecken) lassen die
      * vorhandene BlockEntity unberührt.

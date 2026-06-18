@@ -188,8 +188,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                    eigenen Körper bauen - gegen die ECHTE Kollisionsform testen, damit dünne Blöcke
                    (Panes, Zäune) neben einem platzierbar bleiben. */
                 if (place != null && !this.collidesWithPlayer(place, px, py, pz)) {
-                    this.world.setBlock(px, py, pz, place.getId());
-                    block.onPlaced(this.world, px, py, pz, place);
+                    this.world.placeBlock(px, py, pz, place);
                     this.lastPlaceTime = now;
                 }
             }
