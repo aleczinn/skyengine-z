@@ -11,6 +11,7 @@ import de.skyengine.game.world.block.registry.Registries;
 public final class BlockEntities {
 
     public static BlockEntityType<CableBlockEntity> ENERGY_CABLE;
+    public static BlockEntityType<ChestBlockEntity> CHEST;
 
     private static boolean registered;
 
@@ -20,6 +21,9 @@ public final class BlockEntities {
 
         ENERGY_CABLE = Registries.BLOCK_ENTITY.register(Identifier.of("energy_cable"),
                 new BlockEntityType<>((type, pos, state) -> new CableBlockEntity(type, pos), true));
+
+        CHEST = Registries.BLOCK_ENTITY.register(Identifier.of("chest"),
+                new BlockEntityType<>((type, pos, state) -> new ChestBlockEntity(type, pos), false));
     }
 
     private BlockEntities() {}
