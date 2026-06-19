@@ -46,6 +46,11 @@ public final class ChestBlockEntity extends BlockEntity {
         this.open = !this.open;
     }
 
+    /** Setzt den Deckel-Zielzustand (z.B. beim Öffnen/Schließen des Truhen-GUI). */
+    public void setOpen(boolean open) {
+        this.open = open;
+    }
+
     /** Interpolierter Öffnungsgrad [0..1] für flüssige Animation zwischen Ticks. */
     public float getOpenness(float partialTick) {
         return this.lastOpenness + (this.openness - this.lastOpenness) * partialTick;

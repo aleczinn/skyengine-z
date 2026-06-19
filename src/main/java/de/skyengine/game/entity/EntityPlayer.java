@@ -223,6 +223,18 @@ public class EntityPlayer extends Entity {
     }
 
     /**
+     * Friert die Tick-Interpolation ein (prev = current), z.B. bei offenem GUI. Ohne das würde
+     * {@code Camera.follow} weiter zwischen zwei verschiedenen Tick-Positionen interpolieren und die
+     * Kamera oszillieren ("jittern"), wenn man die Truhe beim Laufen/Springen öffnet.
+     */
+    public void snapPrevToCurrent() {
+        this.lastX = this.x;
+        this.lastY = this.y;
+        this.lastZ = this.z;
+        this.lastEyeHeight = this.eyeHeight;
+    }
+
+    /**
      * Per-FRAME mouse look - applied outside the tick so aiming stays smooth at any FPS.
      */
     public void turn(double deltaX, double deltaY) {
