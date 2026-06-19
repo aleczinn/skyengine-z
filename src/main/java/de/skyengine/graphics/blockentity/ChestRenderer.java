@@ -116,8 +116,8 @@ public final class ChestRenderer implements BlockEntityRenderer {
         float[] buf = new float[36 * FLOATS_PER_VERTEX];
         int[] i = {0};
 
-        quad(buf, i, x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, tu + d,         tv,     w, d); // up (+y)
-        quad(buf, i, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, tu + d + w,     tv,     w, d); // down (-y)
+        quad(buf, i, x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, tu + d + w,     tv,     w, d); // up (+y)
+        quad(buf, i, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, tu + d,         tv,     w, d); // down (-y)
         quad(buf, i, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, tu + d,         tv + d, w, h); // north (-z)
         quad(buf, i, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, tu + d + w + d, tv + d, w, h); // south (+z)
         quad(buf, i, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, tu,             tv + d, d, h); // west (-x)
