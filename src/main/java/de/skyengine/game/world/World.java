@@ -10,6 +10,7 @@ import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.BlockEntity;
+import de.skyengine.game.world.block.entity.BlockEntities;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
@@ -19,6 +20,8 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
+import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
+import de.skyengine.graphics.blockentity.ChestRenderer;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.world.ChunkRenderer;
 
@@ -33,6 +36,7 @@ public class World implements IInitializable, IDisposable {
     private final WorldGenerator generator;
     private final ChunkManager chunkManager;
     private final ChunkRenderer chunkRenderer;
+    private final BlockEntityRenderDispatcher blockEntityRenderer = new BlockEntityRenderDispatcher();
 
     /** Wiederverwendeter Snapshot-Puffer fürs BlockEntity-Ticking (keine Allokation pro Chunk/Tick). */
     private final List<BlockEntity> tickScratch = new ArrayList<>();
@@ -59,6 +63,8 @@ public class World implements IInitializable, IDisposable {
     @Override
     public void init() {
         this.chunkRenderer.init();
+        this.blockEntityRenderer.register(BlockEntities.CHEST, new ChestRenderer());
+        this.blockEntityRenderer.init();
     }
 
     public void update(Input input, EntityPlayer player) {
@@ -154,10 +160,12 @@ public class World implements IInitializable, IDisposable {
     public void render(Camera camera, float partialTick) {
         this.chunkManager.processRemeshes();
         this.chunkRenderer.render(camera);
+        this.blockEntityRenderer.render(this.chunkManager, camera, partialTick);
     }
 
     @Override
     public void dispose() {
+        this.blockEntityRenderer.dispose();
         this.chunkRenderer.dispose();
         this.chunkManager.dispose();
     }

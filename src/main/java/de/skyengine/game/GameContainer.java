@@ -13,6 +13,7 @@ import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.Capabilities;
+import de.skyengine.game.world.block.entity.ChestBlockEntity;
 import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
@@ -120,6 +121,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         );
 
         this.handleBlockInteraction(input);
+        this.handleChestInsert(input);
 
         this.world.render(this.camera, partialTick);
 
@@ -171,8 +173,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 return;
             }
 
-            /* Container (Truhe etc.): mit dem gewählten Block befüllen + Inhalt loggen (Test-Interaktion). */
-            if (this.tryUseContainer(now)) return;
+            /* Truhe: Rechtsklick toggelt den Deckel (Animation). Befüllen liegt auf Taste I. */
+            if (this.tryToggleChest(now)) return;
 
             short selected = this.hotbar[this.hotbarIndex];
             Block block = Blocks.getState(selected).getBlock();
@@ -224,17 +226,22 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         return true;
     }
 
-    /**
-     * Test-Interaktion für Container: legt 1 des gewählten Hotbar-Blocks als Item in die Truhe
-     * und loggt den Inhalt. Ersetzt später ein echtes Inventar-GUI (Phase 1.2b).
-     *
-     * @return true, wenn der getroffene Block ein ITEM_STORAGE-Container ist (Interaktion verbraucht)
-     */
-    private boolean tryUseContainer(long now) {
+    /** Rechtsklick auf eine Truhe toggelt den Deckel (Animation über den BlockEntityRenderer). */
+    private boolean tryToggleChest(long now) {
         BlockEntity be = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
-        if (be == null) return false;
+        if (!(be instanceof ChestBlockEntity chest)) return false;
+        chest.toggle();
+        this.lastPlaceTime = now;
+        return true;
+    }
+
+    /** Test-Befüllung (Taste I): legt 1 des gewählten Hotbar-Blocks in den anvisierten Container + loggt. */
+    private void handleChestInsert(Input input) {
+        if (!input.isKeyPressed(GLFW.GLFW_KEY_I) || this.hit == null) return;
+        BlockEntity be = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
+        if (be == null) return;
         Optional<ItemStorage> opt = be.getCapability(Capabilities.ITEM_STORAGE, null);
-        if (opt.isEmpty()) return false;
+        if (opt.isEmpty()) return;
 
         ItemStorage inventory = opt.get();
         Block selected = Blocks.getState(this.hotbar[this.hotbarIndex]).getBlock();
@@ -244,8 +251,6 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("Truhe +1 " + item + (rest.isEmpty() ? "" : " (voll)"));
             this.logContainer(inventory);
         }
-        this.lastPlaceTime = now;
-        return true;
     }
 
     /** Loggt den belegten Inhalt eines Item-Lagers (Test-Hilfe bis zum GUI). */
