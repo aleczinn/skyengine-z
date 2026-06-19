@@ -5,9 +5,9 @@
   "opaque": false,
   "facing": true,
   "block_entity": "skyengine:chest",
-  "textures": {
-  "top": "game/textures/block/bedrock.png",
-    "bottom": "game/textures/block/oak_log_top.png",
-    "side": "game/textures/block/oak_log.png"
+  "collision": {
+    "boxes": [
+      { "from": [1, 0, 1], "to": [15, 14, 15] }
+    ]
   }
 }

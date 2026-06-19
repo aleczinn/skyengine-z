@@ -31,8 +31,9 @@ public final class ChestRenderer implements BlockEntityRenderer {
     private static final int FLOATS_PER_VERTEX = 5;  // pos3 + uv2
     private static final float MAX_ANGLE = (float) Math.toRadians(90);
 
-    /* Scharnier: hintere Unterkante des Deckels (Blockeinheiten). */
-    private static final float HINGE_Y = 10f / 16f;
+    /* Scharnier: hintere Unterkante des Deckels (Blockeinheiten). MC-Maße: Truhe ist 14px hoch,
+       Deckel sitzt von 9..14, Scharnier an der hinteren Kante bei y=9, z=1. */
+    private static final float HINGE_Y = 9f / 16f;
     private static final float HINGE_Z = 1f / 16f;
 
     private ShaderProgram shader;
@@ -50,9 +51,9 @@ public final class ChestRenderer implements BlockEntityRenderer {
                 new Shader(FRAGMENT, ShaderType.FRAGMENT));
         this.texture = new Texture(new FileHandle("game/textures/entity/chest/normal.png", FileType.RESOURCE), false);
 
-        this.base = new Mesh(buildBox(1, 0, 1, 15, 10, 15, 0, 19));   // Korpus
-        this.lid = new Mesh(buildBox(1, 10, 1, 15, 15, 15, 0, 0));    // Deckel
-        this.latch = new Mesh(buildBox(7, 8, 15, 9, 12, 16, 0, 0));   // Schloss vorne (UV wie Vanilla-Knob)
+        this.base = new Mesh(buildBox(1, 0, 1, 15, 10, 15, 0, 19));   // Korpus (0..10)
+        this.lid = new Mesh(buildBox(1, 9, 1, 15, 14, 15, 0, 0));     // Deckel (9..14, MC-Höhe)
+        this.latch = new Mesh(buildBox(7, 7, 15, 9, 11, 16, 0, 0));   // Schloss vorne (UV wie Vanilla-Knob)
     }
 
     @Override
