@@ -12,17 +12,19 @@ import de.skyengine.game.world.block.BlockRaycast;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
-import de.skyengine.game.world.block.entity.Capabilities;
 import de.skyengine.game.world.block.entity.ChestBlockEntity;
-import de.skyengine.game.world.block.entity.ItemStorage;
+import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.SlabType;
+import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
+import de.skyengine.core.settings.GameSettings;
 import de.skyengine.graphics.camera.Camera;
-import de.skyengine.graphics.ui.UIRenderer;
+import de.skyengine.graphics.gui.ChestScreen;
+import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
@@ -31,7 +33,6 @@ import org.joml.Vector3d;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.File;
-import java.util.Optional;
 
 public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
@@ -41,7 +42,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private EntityPlayer player;
     private World world;
     private SelectionBoxRenderer selectionBoxRenderer;
-    private UIRenderer uiRenderer;
+    private GuiManager guiManager;
+
+    private final GameSettings settings = GameSettings.get();
 
     private static final double REACH = 6.0;
 
@@ -58,8 +61,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     private BlockRaycast.Hit hit = null;
 
-    /* Test-Hotbar: Auswahl per Zahlentasten 1..n */
-    private short[] hotbar = new short[0];
+    /* Spieler-Inventar (36 Slots: 0..8 Hotbar, 9..35 Hauptinventar). Auswahl per Zahlentasten 1..9. */
+    private final SimpleItemStorage playerInventory = new SimpleItemStorage(36);
     private int hotbarIndex = 0;
 
     public GameContainer() {
@@ -69,46 +72,59 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         this.world = new World("world");
         this.selectionBoxRenderer = new SelectionBoxRenderer();
-        this.uiRenderer = new UIRenderer();
     }
 
     @Override
     public void init() {
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
 
-        this.hotbar = new short[]{
-                Blocks.CHEST,
-                Blocks.OAK_PLANKS,
-                Blocks.STONE_SLAB,
-                Blocks.STONE_STAIRS,
-                Blocks.COBBLESTONE_STAIRS,
-                Blocks.OAK_FENCE,
-                Blocks.GLASS_PANE,
-                Blocks.OAK_DOOR,
-                Blocks.GLASS,
-                Blocks.SAND,
-        };
+        this.fillStartInventory();
 
         this.world.init(); // creates ChunkManager, renderer, texture array
         this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
         this.selectionBoxRenderer.init();
-        this.uiRenderer.init();
+
+        this.guiManager = new GuiManager(SkyEngine.get().getInput());
+        this.guiManager.init(this.world.getChunkRenderer().getTextureArray());
+
+        this.applySettings();
 
         SkyEngine.get().getInput().centerMouse();
         SkyEngine.get().getInput().disableCursor();
     }
 
+    /** Übernimmt die persistenten Einstellungen in die laufenden Systeme. */
+    private void applySettings() {
+        this.world.getChunkManager().setRenderDistance(this.settings.renderDistance);
+        this.camera.setFov(this.settings.fov);
+        this.guiManager.setScale(this.settings.guiScaleFactor());
+        GLFW.glfwSwapInterval(this.settings.vsync ? 1 : 0);
+    }
+
     public void update(Input input) {
-        this.player.update(input, this.world);
+        /* Bei offenem GUI friert die Spielerbewegung ein; prev=current verhindert Kamera-Jitter
+           (sonst interpoliert Camera.follow weiter zwischen zwei Tick-Positionen). Welt tickt weiter. */
+        if (this.guiManager.isOpen()) {
+            this.player.snapPrevToCurrent();
+        } else {
+            this.player.update(input, this.world);
+        }
         this.world.update(input, this.player);
     }
 
     public void render(Input input, int width, int height, float partialTick) {
-        this.handleDebugInput(input);
-        this.handleHotbarInput(input);
+        this.handleGlobalHotkeys(input);   // immer: Fullscreen, GUI-Scale, Render-Distanz
 
-        /* Mouse look per frame */
-        this.player.turn(input.getDeltaMouseX(), input.getDeltaMouseY());
+        boolean guiOpen = this.guiManager.isOpen();
+
+        /* Maus-Blick + Hotbar + Gameplay-Debug nur ohne offenes GUI. */
+        if (!guiOpen) {
+            if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) SkyEngine.get().shutdown();
+            this.handleDebugInput(input);
+            this.handleHotbarInput(input);
+            double sens = this.settings.mouseSensitivity;
+            this.player.turn(input.getDeltaMouseX() * sens, input.getDeltaMouseY() * sens);
+        }
 
         this.camera.follow(this.player, partialTick);
         this.camera.update((double) width / height);
@@ -120,17 +136,21 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 REACH
         );
 
-        this.handleBlockInteraction(input);
-        this.handleChestInsert(input);
+        if (guiOpen) {
+            this.guiManager.handleInput();       // Schließen + Slot-Klicks (kann den Screen schließen)
+        } else {
+            this.handleBlockInteraction(input);  // kann ein GUI öffnen
+        }
 
         this.world.render(this.camera, partialTick);
 
-        if (hit != null) {
+        if (this.hit != null && !this.guiManager.isOpen()) {
             this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z(),
                     Blocks.getState(this.hit.block()).getOutlineShape());
         }
 
-        this.uiRenderer.render(width, height);
+        /* Zentrale GUI-Verwaltung: HUD (kein Screen) bzw. Screen-Overlay + Cursor-Sync. */
+        this.guiManager.render(width, height, this.playerInventory, this.hotbarIndex);
     }
 
     @Override
@@ -140,11 +160,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     @Override
     public void dispose() {
+        this.settings.save();
         if (this.world != null) {
             this.world.dispose();
         }
         this.selectionBoxRenderer.dispose();
-        this.uiRenderer.dispose();
+        if (this.guiManager != null) this.guiManager.dispose();
     }
 
     private void handleBlockInteraction(Input input) {
@@ -173,11 +194,13 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 return;
             }
 
-            /* Truhe: Rechtsklick toggelt den Deckel (Animation). Befüllen liegt auf Taste I. */
-            if (this.tryToggleChest(now)) return;
+            /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). */
+            if (this.tryOpenChest(now)) return;
 
-            short selected = this.hotbar[this.hotbarIndex];
-            Block block = Blocks.getState(selected).getBlock();
+            /* Ausgewählter Hotbar-Slot muss einen platzierbaren Block enthalten. */
+            ItemStack selected = this.playerInventory.get(this.hotbarIndex);
+            if (selected.isEmpty() || !(selected.getItem() instanceof BlockItem blockItem)) return;
+            Block block = blockItem.getBlock();
 
             /* Slab auf vorhandene gleiche Slab -> Doppel-Slab */
             if (this.tryMergeSlab(block, now)) return;
@@ -226,45 +249,27 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         return true;
     }
 
-    /** Rechtsklick auf eine Truhe toggelt den Deckel (Animation über den BlockEntityRenderer). */
-    private boolean tryToggleChest(long now) {
+    /** Rechtsklick auf eine Truhe öffnet ihr GUI (Truhe + Spielerinventar) und öffnet den Deckel. */
+    private boolean tryOpenChest(long now) {
         BlockEntity be = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
         if (!(be instanceof ChestBlockEntity chest)) return false;
-        chest.toggle();
+        this.guiManager.open(new ChestScreen(chest, this.playerInventory));
         this.lastPlaceTime = now;
         return true;
     }
 
-    /** Test-Befüllung (Taste I): legt 1 des gewählten Hotbar-Blocks in den anvisierten Container + loggt. */
-    private void handleChestInsert(Input input) {
-        if (!input.isKeyPressed(GLFW.GLFW_KEY_I) || this.hit == null) return;
-        BlockEntity be = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
-        if (be == null) return;
-        Optional<ItemStorage> opt = be.getCapability(Capabilities.ITEM_STORAGE, null);
-        if (opt.isEmpty()) return;
-
-        ItemStorage inventory = opt.get();
-        Block selected = Blocks.getState(this.hotbar[this.hotbarIndex]).getBlock();
-        Item item = Items.get(selected.getIdentifier());
-        if (item != null) {
-            ItemStack rest = inventory.insert(new ItemStack(item, 1));
-            this.logger.debug("Truhe +1 " + item + (rest.isEmpty() ? "" : " (voll)"));
-            this.logContainer(inventory);
+    private void fillStartInventory() {
+        short[] start = {
+                Blocks.CHEST, Blocks.OAK_PLANKS, Blocks.STONE_SLAB, Blocks.STONE_STAIRS,
+                Blocks.COBBLESTONE_STAIRS, Blocks.OAK_FENCE, Blocks.GLASS_PANE, Blocks.OAK_DOOR, Blocks.GLASS,
+        };
+        for (int i = 0; i < start.length; i++) {
+            Item item = Items.get(Blocks.getState(start[i]).getBlock().getIdentifier());
+            if (item != null) this.playerInventory.set(i, new ItemStack(item, 64));
         }
-    }
-
-    /** Loggt den belegten Inhalt eines Item-Lagers (Test-Hilfe bis zum GUI). */
-    private void logContainer(ItemStorage inventory) {
-        StringBuilder sb = new StringBuilder("Truhen-Inhalt:");
-        boolean any = false;
-        for (int i = 0; i < inventory.size(); i++) {
-            ItemStack stack = inventory.get(i);
-            if (!stack.isEmpty()) {
-                sb.append(" [").append(i).append("]=").append(stack);
-                any = true;
-            }
-        }
-        this.logger.debug(any ? sb.toString() : "Truhen-Inhalt: (leer)");
+        /* Etwas im Hauptinventar zum Testen (Truhe befüllen/leeren). */
+        Item sand = Items.get(Blocks.getState(Blocks.SAND).getBlock().getIdentifier());
+        if (sand != null) this.playerInventory.set(9, new ItemStack(sand, 64));
     }
 
     /** true, wenn die Kollisionsform des Blocks an px/py/pz die Spieler-Box schneidet. */
@@ -278,17 +283,21 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     }
 
     private void handleHotbarInput(Input input) {
-        for (int i = 0; i < this.hotbar.length && i < 9; i++) {
+        for (int i = 0; i < 9; i++) {
             if (input.isKeyPressed(GLFW.GLFW_KEY_1 + i)) {
                 this.hotbarIndex = i;
             }
         }
+        /* Mausrad: hoch = vorheriger Slot, runter = nächster (mit Wrap), wie in Minecraft. */
+        double scroll = input.getScrollY();
+        if (scroll > 0) {
+            this.hotbarIndex = (this.hotbarIndex + 8) % 9;
+        } else if (scroll < 0) {
+            this.hotbarIndex = (this.hotbarIndex + 1) % 9;
+        }
     }
 
     private void handleDebugInput(Input input) {
-        if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) {
-            SkyEngine.get().shutdown();
-        }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F)) {
             this.player.toggleFlying();
             this.logger.debug("Flying: " + this.player.isFlying());
@@ -319,15 +328,48 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.player.stepHeight = Math.max(0, this.player.stepHeight - 0.5);
             this.logger.debug("Step height: " + this.player.stepHeight);
         }
+    }
+
+    /**
+     * Hotkeys, die immer wirken (auch bei offenem GUI): Vollbild (F11), GUI-Scale ([ / ]) und
+     * Render-Distanz (- / =). Geänderte Einstellungen werden sofort angewandt und persistiert —
+     * Übergangslösung bis zum editierbaren Optionsmenü.
+     */
+    private void handleGlobalHotkeys(Input input) {
         if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
             boolean fullscreen = SkyEngine.get().getConfig().isWindowed();
-
-            SkyEngine.get().getMainThreadTasks().add(() -> {
-                SkyEngine.get().getWindow().setWindowMode(fullscreen ? EngineConfig.WindowMode.BORDERLESS_FULLSCREEN : EngineConfig.WindowMode.WINDOWED);
-            });
-
+            SkyEngine.get().getMainThreadTasks().add(() ->
+                    SkyEngine.get().getWindow().setWindowMode(fullscreen
+                            ? EngineConfig.WindowMode.BORDERLESS_FULLSCREEN : EngineConfig.WindowMode.WINDOWED));
             this.logger.debug("Toggle Fullscreen");
         }
+
+        boolean changed = false;
+        if (input.isKeyPressed(GLFW.GLFW_KEY_LEFT_BRACKET)) {
+            this.settings.guiScale = Math.max(1, this.settings.guiScale - 5);
+            this.guiManager.setScale(this.settings.guiScaleFactor());
+            this.logger.debug("GUI-Scale: " + this.settings.guiScale);
+            changed = true;
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_RIGHT_BRACKET)) {
+            this.settings.guiScale = Math.min(100, this.settings.guiScale + 5);
+            this.guiManager.setScale(this.settings.guiScaleFactor());
+            this.logger.debug("GUI-Scale: " + this.settings.guiScale);
+            changed = true;
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_MINUS)) {
+            this.settings.renderDistance = Math.max(2, this.settings.renderDistance - 1);
+            this.world.getChunkManager().setRenderDistance(this.settings.renderDistance);
+            this.logger.debug("Render-Distanz: " + this.settings.renderDistance);
+            changed = true;
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_EQUAL)) {
+            this.settings.renderDistance = Math.min(32, this.settings.renderDistance + 1);
+            this.world.getChunkManager().setRenderDistance(this.settings.renderDistance);
+            this.logger.debug("Render-Distanz: " + this.settings.renderDistance);
+            changed = true;
+        }
+        if (changed) this.settings.save();
     }
 
     public Camera getCamera() {

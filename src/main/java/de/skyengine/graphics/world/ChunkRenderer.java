@@ -211,6 +211,11 @@ public class ChunkRenderer {
             }
             """;
 
+    /** Das Block-TextureArray (von der GUI für Item-Icons mitgenutzt). Erst nach {@link #init} gültig. */
+    public TextureArray getTextureArray() {
+        return textures;
+    }
+
     public int getRenderedSections() {
         return renderedSections;
     }

@@ -64,40 +64,54 @@ public class UIRenderer implements IDisposable {
         GL30.glBindVertexArray(0);
     }
 
-    /** Einmal pro Frame nach dem Welt-Rendering aufrufen. */
+    /** Einmal pro Frame nach dem Welt-Rendering aufrufen (zeichnet das Fadenkreuz). */
     public void render(int screenWidth, int screenHeight) {
-        /* UI-State: kein Depth, mit Blending */
-        GL11.glDisable(GL11.GL_DEPTH_TEST);
-        GL11.glEnable(GL11.GL_BLEND);
-
-        /* Pixel-Koordinaten, Ursprung oben links */
-        this.ortho.setOrtho2D(0, screenWidth, screenHeight, 0);
-
-        this.shader.bind();
-        this.shader.setUniformMatrix4f("u_Projection", this.ortho);
-        this.shader.setUniformi("u_Texture", 0);
-
-        /* --- Crosshair, zentriert --- */
+        this.begin(screenWidth, screenHeight);
         this.drawTexture(
                 this.crosshairTexture,
                 (screenWidth - CROSSHAIR_SIZE) / 2.0F,
                 (screenHeight - CROSSHAIR_SIZE) / 2.0F,
                 CROSSHAIR_SIZE, CROSSHAIR_SIZE
         );
+        this.end();
+    }
 
+    /** Startet einen 2D-Overlay-Pass (Pixelkoordinaten, Ursprung oben links). */
+    public void begin(int screenWidth, int screenHeight) {
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glEnable(GL11.GL_BLEND);
+        this.ortho.setOrtho2D(0, screenWidth, screenHeight, 0);
+        this.shader.bind();
+        this.shader.setUniformMatrix4f("u_Projection", this.ortho);
+        this.shader.setUniformi("u_Texture", 0);
+    }
+
+    public void end() {
         this.shader.unbind();
-
-        /* State für den nächsten Frame zurücksetzen */
         GL11.glDisable(GL11.GL_BLEND);
         GL11.glEnable(GL11.GL_DEPTH_TEST);
     }
 
     /** Zeichnet eine Textur an Pixelposition (x, y) mit gegebener Größe. */
     public void drawTexture(Texture texture, float x, float y, float width, float height) {
+        this.shader.setUniformi("u_UseTexture", 1);
+        this.shader.setUniformVector4f("u_Color", 1f, 1f, 1f, 1f);
         this.shader.setUniformVector2f("u_Position", x, y);
         this.shader.setUniformVector2f("u_Size", width, height);
 
         texture.bind(0);
+
+        GL30.glBindVertexArray(this.vao);
+        GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, 6);
+        GL30.glBindVertexArray(0);
+    }
+
+    /** Zeichnet ein einfarbiges Rechteck (Slots, Panel, abdunkelndes Overlay). */
+    public void drawRect(float x, float y, float width, float height, float r, float g, float b, float a) {
+        this.shader.setUniformi("u_UseTexture", 0);
+        this.shader.setUniformVector4f("u_Color", r, g, b, a);
+        this.shader.setUniformVector2f("u_Position", x, y);
+        this.shader.setUniformVector2f("u_Size", width, height);
 
         GL30.glBindVertexArray(this.vao);
         GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, 6);
@@ -135,11 +149,13 @@ public class UIRenderer implements IDisposable {
             in vec2 v_texCoord;
 
             uniform sampler2D u_Texture;
+            uniform vec4 u_Color;
+            uniform int u_UseTexture;
 
             out vec4 fragColor;
 
             void main() {
-                fragColor = texture(u_Texture, v_texCoord);
+                fragColor = u_UseTexture == 1 ? texture(u_Texture, v_texCoord) * u_Color : u_Color;
             }
             """;
 }
