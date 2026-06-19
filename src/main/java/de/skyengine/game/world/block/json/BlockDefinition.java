@@ -16,6 +16,7 @@ public class BlockDefinition {
     public Boolean solid;               // default: false bei cross, sonst true
     public boolean cull_same = false;   // Glas-an-Glas-Culling
     public boolean gravity = false;     // fällt nach unten (Sand, Kies) via GravityBehavior
+    public boolean facing = false;      // horizontale Ausrichtung zum Spieler (Truhe, Ofen) via HorizontalFacingBehavior
     public Map<String, String> textures = new HashMap<>();
 
     /* Pfostenmaße in 0..16-Pixeln. Bei Connecting-Blöcken (fence/pane) liefert

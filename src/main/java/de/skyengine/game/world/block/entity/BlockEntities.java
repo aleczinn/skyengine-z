@@ -23,7 +23,7 @@ public final class BlockEntities {
                 new BlockEntityType<>((type, pos, state) -> new CableBlockEntity(type, pos), true));
 
         CHEST = Registries.BLOCK_ENTITY.register(Identifier.of("chest"),
-                new BlockEntityType<>((type, pos, state) -> new ChestBlockEntity(type, pos), false));
+                new BlockEntityType<>((type, pos, state) -> new ChestBlockEntity(type, pos), true));
     }
 
     private BlockEntities() {}

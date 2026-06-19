@@ -2,9 +2,11 @@
   "id": "skyengine:chest",
   "type": "cube",
   "layer": "opaque",
+  "opaque": false,
+  "facing": true,
   "block_entity": "skyengine:chest",
   "textures": {
-    "top": "game/textures/block/bedrock.png",
+  "top": "game/textures/block/bedrock.png",
     "bottom": "game/textures/block/oak_log_top.png",
     "side": "game/textures/block/oak_log.png"
   }
