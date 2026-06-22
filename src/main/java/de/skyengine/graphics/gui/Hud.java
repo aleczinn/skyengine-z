@@ -16,7 +16,7 @@ public final class Hud {
     private static final float CROSS = 15;
     private static final float ICON = 16;
 
-    public void render(GuiManager gui, SimpleItemStorage inv, int selectedSlot) {
+    public void render(GuiManager gui, SimpleItemStorage inv, int selectedSlot, boolean drawCrosshair) {
         SpriteRenderer sr = gui.sprites();
         GuiTextures tex = gui.textures();
         float vW = gui.vWidth(), vH = gui.vHeight();
@@ -25,7 +25,7 @@ public final class Hud {
         float hy = vH - HOTBAR_H - 2f;
 
         sr.begin(vW, vH);
-        sr.drawSprite(tex.crosshair, (vW - CROSS) / 2f, (vH - CROSS) / 2f, CROSS, CROSS);
+        if (drawCrosshair) sr.drawSprite(tex.crosshair, (vW - CROSS) / 2f, (vH - CROSS) / 2f, CROSS, CROSS);
         sr.drawSprite(tex.hotbar, hx, hy, HOTBAR_W, HOTBAR_H);
         sr.drawSprite(tex.hotbarSelection, hx - 1 + selectedSlot * SLOT_STEP, hy - 1, SEL_W, SEL_H);
         sr.end();

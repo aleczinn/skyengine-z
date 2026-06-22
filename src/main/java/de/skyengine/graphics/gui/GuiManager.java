@@ -4,6 +4,7 @@ import de.skyengine.core.input.Input;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
+import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.texture.TextureArray;
 import org.lwjgl.glfw.GLFW;
 
@@ -38,9 +39,9 @@ public final class GuiManager {
         this.input = input;
     }
 
-    public void init(TextureArray blockTextures) {
+    public void init(TextureArray blockTextures, BlockEntityRenderDispatcher blockEntityRenderers) {
         this.sprites.init();
-        this.icons.init(blockTextures);
+        this.icons.init(blockTextures, blockEntityRenderers);
         this.textures.init();
     }
 
@@ -82,7 +83,11 @@ public final class GuiManager {
         }
     }
 
-    /** Pro Frame nach der Welt: Cursor synchronisieren + HUD (kein Screen) bzw. Screen zeichnen. */
+    /**
+     * Pro Frame nach der Welt: Cursor synchronisieren + ggf. Screen + Hotbar zeichnen.
+     * Die Hotbar wird IMMER gerendert (auch bei offenem Inventar, wie in Minecraft) und teilt sich die
+     * Daten mit dem Screen (gleiches Spielerinventar) -> automatisch synchron. Das Fadenkreuz nur ohne Screen.
+     */
     public void render(int screenW, int screenH, SimpleItemStorage hotbarInv, int selectedSlot) {
         this.syncCursor();
         this.vW = screenW / this.scale;
@@ -90,9 +95,8 @@ public final class GuiManager {
 
         if (this.screen != null) {
             this.screen.render(this, this.mouseX(), this.mouseY());
-        } else {
-            this.hud.render(this, hotbarInv, selectedSlot);
         }
+        this.hud.render(this, hotbarInv, selectedSlot, this.screen == null);
     }
 
     private void syncCursor() {

@@ -22,6 +22,11 @@ public final class BlockEntityRenderDispatcher {
         this.renderers.put(type, renderer);
     }
 
+    /** Renderer für einen Typ (z.B. für Inventar-Icons), oder null. */
+    public BlockEntityRenderer get(BlockEntityType<?> type) {
+        return this.renderers.get(type);
+    }
+
     public void init() {
         for (BlockEntityRenderer renderer : this.renderers.values()) renderer.init();
     }

@@ -43,6 +43,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
     private Mesh latch;   // Schloss/Henkel vorne (bewegt sich mit dem Deckel)
 
     private final Matrix4f model = new Matrix4f();
+    private final Matrix4f iconModel = new Matrix4f();
 
     @Override
     public void init() {
@@ -96,6 +97,39 @@ public final class ChestRenderer implements BlockEntityRenderer {
 
         this.shader.unbind();
         if (cull) GL11.glEnable(GL11.GL_CULL_FACE);
+    }
+
+    @Override
+    public boolean hasIcon() {
+        return true;
+    }
+
+    /**
+     * Zeichnet die GESCHLOSSENE Truhe als Inventar-Icon mit derselben Geometrie/Textur wie in der
+     * Welt. {@code mvp} ist die fertige (Ortho × Iso) Icon-Matrix des Icon-Renderers; zusätzlich wird
+     * um 90° um die Blockmitte gedreht, damit das Schloss/die Front zur linken sichtbaren Iso-Seite
+     * zeigt (sichtbare Iso-Flächen bei ROT_X=30/ROT_Y=225: links=+X, rechts=-Z, oben=+Y).
+     *
+     * <p>KEINE GL-State-Änderung: nutzt den im Icon-Pass aktiven State (Back-Face-Culling an,
+     * Tiefentest aus, Blend an). Das {@code buildBox}-Winding ist konsistent außen=Vorderseite, daher
+     * genügt Culling + Zeichenreihenfolge (Korpus→Deckel→Schloss) für die geschlossene Truhe — ein
+     * Tiefentest ist unnötig. Wichtig: kein Umschalten von depthFunc/Tiefentest, sonst rekompiliert
+     * der Treiber den auch in der Welt genutzten Truhen-Shader pro Frame (GL-Performance-Warnung).
+     */
+    @Override
+    public void renderIcon(Matrix4f mvp) {
+        this.iconModel.identity()
+                .translate(0.5f, 0.5f, 0.5f).rotateY((float) (Math.PI / 2)).translate(-0.5f, -0.5f, -0.5f);
+
+        this.shader.bind();
+        this.shader.setUniformMatrix4f("u_ProjectionView", mvp);
+        this.shader.setUniformMatrix4f("u_Model", this.iconModel);
+        this.shader.setUniformi("u_Texture", 0);
+        this.texture.bind(0);
+        this.base.render();
+        this.lid.render();    // geschlossen: kein Öffnungswinkel
+        this.latch.render();
+        this.shader.unbind();
     }
 
     @Override
