@@ -85,7 +85,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.selectionBoxRenderer.init();
 
         this.guiManager = new GuiManager(SkyEngine.get().getInput());
-        this.guiManager.init(this.world.getChunkRenderer().getTextureArray());
+        this.guiManager.init(this.world.getChunkRenderer().getTextureArray(),
+                this.world.getBlockEntityRenderDispatcher());
 
         this.applySettings();
 

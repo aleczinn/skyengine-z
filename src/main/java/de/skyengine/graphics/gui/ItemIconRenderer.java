@@ -1,11 +1,15 @@
 package de.skyengine.graphics.gui;
 
+import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockStateModels;
-import de.skyengine.game.world.block.model.ModelLoader;
+import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
+import de.skyengine.graphics.blockentity.BlockEntityRenderer;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
@@ -37,6 +41,8 @@ public final class ItemIconRenderer {
 
     private ShaderProgram shader;
     private TextureArray textures;
+    /** Für Block-Entity-Icons (z.B. Truhe): liefert den Renderer mit echtem Modell + 2D-Textur. */
+    private BlockEntityRenderDispatcher blockEntityRenderers;
 
     private final Matrix4f proj = new Matrix4f();
     private final Matrix4f model = new Matrix4f();
@@ -44,8 +50,9 @@ public final class ItemIconRenderer {
 
     private final Map<Item, Mesh> cache = new HashMap<>();
 
-    public void init(TextureArray textures) {
+    public void init(TextureArray textures, BlockEntityRenderDispatcher blockEntityRenderers) {
         this.textures = textures;
+        this.blockEntityRenderers = blockEntityRenderers;
         this.shader = new ShaderProgram(
                 new Shader(VERTEX, ShaderType.VERTEX),
                 new Shader(FRAGMENT, ShaderType.FRAGMENT));
@@ -67,8 +74,6 @@ public final class ItemIconRenderer {
      */
     public void drawIcon(ItemStack stack, float centerX, float centerY, float slotPixelSize, float vH) {
         if (stack == null || stack.isEmpty()) return;
-        Mesh mesh = this.cache.computeIfAbsent(stack.getItem(), this::bake);
-        if (mesh == null || mesh.count == 0) return;
 
         float s = slotPixelSize * ICON_SCALE;
         float cyUp = vH - centerY; // Ortho ist Y-up, Slotkoordinaten sind Y-down
@@ -79,8 +84,31 @@ public final class ItemIconRenderer {
                 .rotateY((float) Math.toRadians(ROT_Y))
                 .translate(-0.5f, -0.5f, -0.5f);
         this.proj.mul(this.model, this.mvp);
+
+        /* Block-Entity-Icon (z.B. Truhe): echtes BER-Modell + dessen 2D-Textur statt Block-Quads. */
+        BlockEntityRenderer custom = customIconFor(stack.getItem());
+        if (custom != null) {
+            custom.renderIcon(this.mvp);
+            /* Shader/Textur des Würfel-Pfads für nachfolgende Icons wiederherstellen. */
+            this.shader.bind();
+            this.shader.setUniformi("u_Textures", 0);
+            this.textures.bind(0);
+            return;
+        }
+
+        Mesh mesh = this.cache.computeIfAbsent(stack.getItem(), this::bake);
+        if (mesh == null || mesh.count == 0) return;
         this.shader.setUniformMatrix4f("u_MVP", this.mvp);
         mesh.render();
+    }
+
+    /** Liefert den BlockEntity-Renderer mit Icon-Fähigkeit für dieses Item, oder null. */
+    private BlockEntityRenderer customIconFor(Item item) {
+        if (this.blockEntityRenderers == null || !(item instanceof BlockItem bi)) return null;
+        BlockEntityType<?> type = bi.getBlock().getBlockEntityType();
+        if (type == null) return null;
+        BlockEntityRenderer r = this.blockEntityRenderers.get(type);
+        return (r != null && r.hasIcon()) ? r : null;
     }
 
     public void end() {
@@ -92,8 +120,15 @@ public final class ItemIconRenderer {
     /** Backt die Quads des Block-Default-States in ein interleaved Mesh [x,y,z,u,v,layer,brightness]. */
     private Mesh bake(Item item) {
         if (!(item instanceof BlockItem bi)) return null;
-        ModelLoader.Baked baked = BlockStateModels.bake(bi.getBlock(), bi.getBlock().getDefaultState());
-        BakedQuad[] quads = baked.quads();
+        BakedQuad[] quads = BlockStateModels.bake(bi.getBlock(), bi.getBlock().getDefaultState()).quads();
+
+        /* Blöcke mit leerem statischem Modell (z.B. die BER-gerenderte Truhe) hätten kein Icon —
+           Fallback auf einen echten Würfel-Block (Eichenbretter), dessen Texturlayer garantiert im
+           TextureArray liegt. Platzhalter, bis es ein dediziertes Item-/Chest-Modell gibt. */
+        if (quads.length == 0) {
+            BlockState fallback = Blocks.getState(Blocks.OAK_PLANKS);
+            quads = BlockStateModels.bake(fallback.getBlock(), fallback).quads();
+        }
 
         int verts = 0;
         for (BakedQuad q : quads) verts += q.vertices().length / 5;

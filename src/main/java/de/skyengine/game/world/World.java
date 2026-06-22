@@ -60,6 +60,10 @@ public class World implements IInitializable, IDisposable {
         return name;
     }
 
+    public BlockEntityRenderDispatcher getBlockEntityRenderDispatcher() {
+        return blockEntityRenderer;
+    }
+
     @Override
     public void init() {
         this.chunkRenderer.init();
