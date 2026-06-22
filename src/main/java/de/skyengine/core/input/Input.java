@@ -354,22 +354,41 @@ public class Input {
         return Math.abs(keyboardValue) > Math.abs(controllerValue) ? keyboardValue : controllerValue;
     }
 
+    /*
+     * WICHTIG: glfwSetInputMode(GLFW_CURSOR, ...) und glfwSetCursorPos MÜSSEN auf dem Main-Thread
+     * (dem Fenster-/Event-Thread, der runWindowProcessLoop fährt) laufen — nicht auf dem Render-Thread,
+     * von dem aus die Game-Loop diese Methoden aufruft. Unter Windows fesselt CURSOR_DISABLED den Cursor
+     * via ClipCursor an die Fenstermitte; das Freigeben (CURSOR_NORMAL -> ClipCursor(NULL)) greift nur,
+     * wenn es auf dem Message-Thread passiert. Vom Render-Thread aus wird der Cursor zwar sichtbar, bleibt
+     * aber mittig „gefangen". Daher über die Main-Thread-Queue deferieren (weckt via glfwPostEmptyEvent),
+     * genau wie der Fullscreen-Toggle. resetMouseDelta() ist volatile und absichtlich Main-Thread-fähig.
+     */
     public void disableCursor() {
-        GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
-        if (GLFW.glfwRawMouseMotionSupported()) {
-            GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_RAW_MOUSE_MOTION, GLFW.GLFW_TRUE);
-        }
-        this.resetMouseDelta();
+        SkyEngine.get().addTaskToMainThread(() -> {
+            GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
+            if (GLFW.glfwRawMouseMotionSupported()) {
+                GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_RAW_MOUSE_MOTION, GLFW.GLFW_TRUE);
+            }
+            this.resetMouseDelta();
+        });
     }
 
     public void showCursor() {
-        GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
-        this.resetMouseDelta();
+        SkyEngine.get().addTaskToMainThread(() -> {
+            /* Raw-Motion zuerst abschalten, dann Cursor freigeben. */
+            if (GLFW.glfwRawMouseMotionSupported()) {
+                GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_RAW_MOUSE_MOTION, GLFW.GLFW_FALSE);
+            }
+            GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
+            this.resetMouseDelta();
+        });
     }
 
     public void centerMouse() {
-        GLFW.glfwSetCursorPos(this.window.getWindowID(), SkyEngine.get().getWindow().getWidth() / 2D, SkyEngine.get().getWindow().getHeight() / 2D);
-        this.resetMouseDelta();
+        SkyEngine.get().addTaskToMainThread(() -> {
+            GLFW.glfwSetCursorPos(this.window.getWindowID(), SkyEngine.get().getWindow().getWidth() / 2D, SkyEngine.get().getWindow().getHeight() / 2D);
+            this.resetMouseDelta();
+        });
     }
 
     public void hideCursor() {
