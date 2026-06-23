@@ -1,5 +1,6 @@
 package de.skyengine.graphics.gui;
 
+import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.model.BakedQuad;
@@ -34,9 +35,13 @@ import java.util.Map;
  */
 public final class ItemIconRenderer {
 
-    /* Isometrische Ausrichtung (wie MCs Block-GUI-Transform rotation=[30,225]). Tunbar. */
+    /* Isometrische Ausrichtung. ROT_X=30 wie MC; ROT_Y=135 statt 225, damit das Richtungs-Shading
+       (hellere 0.8-Seite vs dunklere 0.6-Seite) wie in Minecraft RECHTS heller ist (225 zeigte es
+       links). Eine 90°-Drehung vertauscht die beiden sichtbaren Seitenflächen. Richtungsblöcke
+       (Truhe/Treppe) kompensieren das über ihre eigene Rotation, sodass ihre Netto-Drehung gleich
+       bleibt (Truhe: 270° Vorrotation, Treppe: inventory_y=270 -> netto 45° wie zuvor). */
     private static final float ROT_X = 30f;
-    private static final float ROT_Y = 225f;
+    private static final float ROT_Y = 135f;
     private static final float ICON_SCALE = 0.66f; // Würfelkante als Anteil der Slot-Pixelgröße
 
     private ShaderProgram shader;
@@ -49,6 +54,8 @@ public final class ItemIconRenderer {
     private final Matrix4f mvp = new Matrix4f();
 
     private final Map<Item, Mesh> cache = new HashMap<>();
+    /** Flache 2D-Icons (Glasscheibe, Tür) — wie MCs Item-Sprites; null-Mesh = Block ist nicht flach. */
+    private final Map<Item, FlatIcon> flatCache = new HashMap<>();
 
     public void init(TextureArray textures, BlockEntityRenderDispatcher blockEntityRenderers) {
         this.textures = textures;
@@ -74,6 +81,13 @@ public final class ItemIconRenderer {
      */
     public void drawIcon(ItemStack stack, float centerX, float centerY, float slotPixelSize, float vH) {
         if (stack == null || stack.isEmpty()) return;
+
+        /* Flaches 2D-Icon (Glasscheibe = ein Quad, Tür = zwei gestapelte Quads als Mini-Tür). */
+        FlatIcon flat = this.flatCache.computeIfAbsent(stack.getItem(), this::bakeFlat);
+        if (flat.mesh != null) {
+            drawFlat(flat, centerX, centerY, slotPixelSize, vH);
+            return;
+        }
 
         float s = slotPixelSize * ICON_SCALE;
         float cyUp = vH - centerY; // Ortho ist Y-up, Slotkoordinaten sind Y-down
@@ -102,6 +116,52 @@ public final class ItemIconRenderer {
         mesh.render();
     }
 
+    /** Zeichnet ein flaches, kamerazugewandtes Icon (kein Iso-Würfel) zentriert im Slot. */
+    private void drawFlat(FlatIcon flat, float centerX, float centerY, float slotPixelSize, float vH) {
+        float h = slotPixelSize;
+        float w = flat.door ? slotPixelSize * 0.5f : slotPixelSize; // Tür schmal/hoch, Scheibe quadratisch
+        float cyUp = vH - centerY;
+        this.model.identity().translate(centerX - w / 2f, cyUp - h / 2f, 0).scale(w, h, 1f);
+        this.proj.mul(this.model, this.mvp);
+        this.shader.setUniformMatrix4f("u_MVP", this.mvp);
+        flat.mesh.render();
+    }
+
+    /**
+     * Backt ein flaches Icon aus {@code icon_flat} (Liste von Texturpfaden, von unten nach oben
+     * gestapelt). Ein Eintrag = ein Voll-Slot-Quad (Glasscheibe), zwei = Mini-Tür (Unter-/Oberhälfte).
+     * Gibt {@link #NOT_FLAT} (mesh=null) zurück, wenn der Block kein flaches Icon definiert.
+     */
+    private FlatIcon bakeFlat(Item item) {
+        if (!(item instanceof BlockItem bi)) return NOT_FLAT;
+        String[] paths = BlockStateModels.flatIcon(bi.getBlock());
+        if (paths == null || paths.length == 0) return NOT_FLAT;
+        int n = paths.length;
+        float[] data = new float[n * 6 * 7];
+        int p = 0;
+        for (int i = 0; i < n; i++) {
+            int layer = BlockTextures.layerOf(paths[i]);
+            p = flatQuad(data, p, (float) i / n, (float) (i + 1) / n, layer);
+        }
+        return new FlatIcon(new Mesh(data), n >= 2);
+    }
+
+    /** Ein Voll-Breite-Quad (x 0..1) im y-Bereich [ya,yb], z=0, volle UV, voll hell. CCW von +Z. */
+    private static int flatQuad(float[] d, int p, float ya, float yb, int layer) {
+        p = flatVert(d, p, 0, ya, 0, 1, layer);
+        p = flatVert(d, p, 1, ya, 1, 1, layer);
+        p = flatVert(d, p, 1, yb, 1, 0, layer);
+        p = flatVert(d, p, 1, yb, 1, 0, layer);
+        p = flatVert(d, p, 0, yb, 0, 0, layer);
+        p = flatVert(d, p, 0, ya, 0, 1, layer);
+        return p;
+    }
+
+    private static int flatVert(float[] d, int p, float x, float y, float u, float v, int layer) {
+        d[p++] = x; d[p++] = y; d[p++] = 0; d[p++] = u; d[p++] = v; d[p++] = layer; d[p++] = 1f;
+        return p;
+    }
+
     /** Liefert den BlockEntity-Renderer mit Icon-Fähigkeit für dieses Item, oder null. */
     private BlockEntityRenderer customIconFor(Item item) {
         if (this.blockEntityRenderers == null || !(item instanceof BlockItem bi)) return null;
@@ -120,7 +180,9 @@ public final class ItemIconRenderer {
     /** Backt die Quads des Block-Default-States in ein interleaved Mesh [x,y,z,u,v,layer,brightness]. */
     private Mesh bake(Item item) {
         if (!(item instanceof BlockItem bi)) return null;
-        BakedQuad[] quads = BlockStateModels.bake(bi.getBlock(), bi.getBlock().getDefaultState()).quads();
+        /* bakeInventory nutzt ein optionales icon-spezifisches Modell (z.B. Zaun mit Armen, kleine
+           Tür, flache Glasscheibe) statt des Default-State-Modells — sonst Fallback auf Default. */
+        BakedQuad[] quads = BlockStateModels.bakeInventory(bi.getBlock()).quads();
 
         /* Blöcke mit leerem statischem Modell (z.B. die BER-gerenderte Truhe) hätten kein Icon —
            Fallback auf einen echten Würfel-Block (Eichenbretter), dessen Texturlayer garantiert im
@@ -155,6 +217,8 @@ public final class ItemIconRenderer {
     public void dispose() {
         for (Mesh m : this.cache.values()) if (m != null) m.dispose();
         this.cache.clear();
+        for (FlatIcon f : this.flatCache.values()) if (f.mesh != null) f.mesh.dispose();
+        this.flatCache.clear();
         if (this.shader != null) this.shader.dispose();
     }
 
@@ -188,6 +252,15 @@ public final class ItemIconRenderer {
             GL15.glDeleteBuffers(this.vbo);
         }
     }
+
+    /** Flaches 2D-Icon. {@code mesh==null} markiert „nicht flach" (zwischengespeicherter Negativtreffer). */
+    private static final class FlatIcon {
+        final Mesh mesh;
+        final boolean door;
+        FlatIcon(Mesh mesh, boolean door) { this.mesh = mesh; this.door = door; }
+    }
+
+    private static final FlatIcon NOT_FLAT = new FlatIcon(null, false);
 
     private static final String VERTEX = """
         #version 460 core
