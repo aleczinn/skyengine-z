@@ -34,6 +34,9 @@ public class ChunkRenderer {
     /* Pro Frame neu befüllt: alle Sections, die den Frustum-Test bestanden haben */
     private final List<SectionMesh> visible = new ArrayList<>();
 
+    /* Teilmenge von visible mit TRANSLUCENT-Layer - nur diese werden back-to-front sortiert */
+    private final List<SectionMesh> translucentVisible = new ArrayList<>();
+
     private static final int MAX_UPLOADS_PER_FRAME = 8;
     private static final int TEXTURE_SIZE = 16;
 
@@ -96,6 +99,7 @@ public class ChunkRenderer {
         int size = ChunkSection.SIZE;
 
         this.visible.clear();
+        this.translucentVisible.clear();
         this.totalSections = this.meshes.size();
 
         for (SectionMesh mesh : this.meshes.values()) {
@@ -105,6 +109,7 @@ public class ChunkRenderer {
 
             if (!camera.getFrustum().testAab(ox, oy, oz, ox + size, oy + size, oz + size)) continue;
             this.visible.add(mesh);
+            if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) this.translucentVisible.add(mesh);
         }
         this.renderedSections = this.visible.size();
 
@@ -116,22 +121,23 @@ public class ChunkRenderer {
 
         /* Pass 1 + 2: opaque & cutout (Alpha-Test bei 0.5) */
         this.shader.setUniformf("u_AlphaCutoff", 0.5F);
-        this.drawLayer(RenderLayer.OPAQUE, cam);
-        this.drawLayer(RenderLayer.CUTOUT, cam);
+        this.drawLayer(RenderLayer.OPAQUE, this.visible, cam);
+        this.drawLayer(RenderLayer.CUTOUT, this.visible, cam);
 
-        /* Pass 3: translucent - zuletzt, mit Blending, von hinten nach vorn sortiert */
-        this.visible.sort((a, b) -> Double.compare(distanceSq(b, cam), distanceSq(a, cam)));
+        /* Pass 3: translucent - zuletzt, mit Blending, von hinten nach vorn sortiert.
+           Nur die Sections mit Translucent-Layer sortieren, nicht die ganze visible-Liste. */
+        this.translucentVisible.sort((a, b) -> Double.compare(distanceSq(b, cam), distanceSq(a, cam)));
 
         GL11.glEnable(GL11.GL_BLEND);
         this.shader.setUniformf("u_AlphaCutoff", 0.001F);
-        this.drawLayer(RenderLayer.TRANSLUCENT, cam);
+        this.drawLayer(RenderLayer.TRANSLUCENT, this.translucentVisible, cam);
         GL11.glDisable(GL11.GL_BLEND);
 
         this.shader.unbind();
     }
 
-    private void drawLayer(RenderLayer layer, Vector3d cam) {
-        for (SectionMesh mesh : this.visible) {
+    private void drawLayer(RenderLayer layer, List<SectionMesh> meshes, Vector3d cam) {
+        for (SectionMesh mesh : meshes) {
             if (!mesh.hasLayer(layer)) continue;
 
             float ox = offsetX(mesh, cam);
