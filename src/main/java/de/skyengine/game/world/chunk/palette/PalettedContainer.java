@@ -1,8 +1,6 @@
 package de.skyengine.game.world.chunk.palette;
 
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Paletten-komprimierter Block-Speicher einer Sektion. Eine lokale Palette bildet die
@@ -18,7 +16,6 @@ public final class PalettedContainer {
     private final int size;
     private short[] palette;
     private int paletteSize;
-    private final Map<Short, Integer> reverse = new HashMap<>();
     private BitStorage storage;   // null => Single-Value (palette[0])
     private int nonAir;
 
@@ -27,7 +24,6 @@ public final class PalettedContainer {
         this.palette = new short[4];
         this.palette[0] = fill;
         this.paletteSize = 1;
-        this.reverse.put(fill, 0);
         this.nonAir = fill == 0 ? 0 : size;
     }
 
@@ -51,15 +47,16 @@ public final class PalettedContainer {
         return this.nonAir == 0;
     }
 
-    /* Liefert (oder vergibt) den Paletten-Index einer State-ID; vergrößert Palette/Storage. */
+    /* Liefert (oder vergibt) den Paletten-Index einer State-ID; vergrößert Palette/Storage.
+       Linearer Scan über die (typisch winzige) Palette - allokationsfrei und ohne Boxing. */
     private int idFor(short stateId) {
-        Integer existing = this.reverse.get(stateId);
-        if (existing != null) return existing;
+        for (int i = 0; i < this.paletteSize; i++) {
+            if (this.palette[i] == stateId) return i;
+        }
 
         int id = this.paletteSize;
         if (id == this.palette.length) this.palette = Arrays.copyOf(this.palette, this.palette.length * 2);
         this.palette[this.paletteSize++] = stateId;
-        this.reverse.put(stateId, id);
         ensureBits(bitsFor(this.paletteSize));
         return id;
     }
