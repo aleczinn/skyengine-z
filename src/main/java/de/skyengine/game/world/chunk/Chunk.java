@@ -7,6 +7,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class Chunk {
 
@@ -22,6 +25,11 @@ public class Chunk {
     /* volatile: written by workers, read by render thread */
     public volatile ChunkStatus status = ChunkStatus.NEW;
     private final AtomicInteger dirtySections = new AtomicInteger(0);
+
+    /* Schützt die Section-Container (PalettedContainer + sections[]-Allokation) gegen
+       gleichzeitige Worker-Mesh-Reads und Render-Thread-Writes. Mesh-Jobs nehmen den
+       Read-Lock, World.setBlockRaw den Write-Lock. */
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
     public Chunk(int chunkX, int chunkZ) {
         this.chunkX = chunkX;
@@ -96,5 +104,15 @@ public class Chunk {
      */
     public int consumeDirtySections() {
         return this.dirtySections.getAndSet(0);
+    }
+
+    /** Read-Lock für Worker-Mesh-Reads (mehrere Reader gleichzeitig erlaubt). */
+    public Lock readLock() {
+        return this.lock.readLock();
+    }
+
+    /** Write-Lock für Block-Edits auf dem Render-Thread (exklusiv gegen Mesh-Reads). */
+    public Lock writeLock() {
+        return this.lock.writeLock();
     }
 }
