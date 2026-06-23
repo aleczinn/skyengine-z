@@ -141,9 +141,13 @@ public class SkyEngine {
             this.onRender(partialTick);
             frames++;
 
-            // TODO: Add fps limit function here
-            if (this.config.getBackgroundFPS() > TPS && this.config.isMinimized()) {
-                this.sync(this.config.getBackgroundFPS(), lastLoopTime);
+            /* Hintergrund-FPS-Drosselung: minimiertes Fenster auf backgroundFPS begrenzen,
+               um CPU/GPU/Strom zu sparen. backgroundFPS <= 0 = unbegrenzt. VSync paced
+               bereits selbst -> dann nicht zusätzlich syncen. Quelle ist das Window-Objekt;
+               Settings-Änderungen werden über GameContainer.applySettings dorthin gespiegelt. */
+            int backgroundFPS = this.config.getBackgroundFPS();
+            if (backgroundFPS > 0 && this.window.isMinimized() && !this.window.isVSync()) {
+                this.sync(backgroundFPS, lastLoopTime);
             }
 
             // show states each 1 second

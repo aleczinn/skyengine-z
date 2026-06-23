@@ -74,7 +74,7 @@ public final class GameSettings {
 
     /** Pixel-Skalierungsfaktor der GUI aus {@link #guiScale} (1..100 -> 1.0..6.0). */
     public float guiScaleFactor() {
-        int v = Math.max(1, Math.min(100, this.guiScale));
+        int v = Math.clamp(this.guiScale, 1, 100);
         return 1.0f + (v - 1) / 99.0f * 5.0f;
     }
 
@@ -85,9 +85,9 @@ public final class GameSettings {
     }
 
     private void sanitize() {
-        this.guiScale = Math.max(1, Math.min(100, this.guiScale));
-        this.renderDistance = Math.max(2, Math.min(32, this.renderDistance));
-        this.fov = Math.max(30, Math.min(120, this.fov));
+        this.guiScale = Math.clamp(this.guiScale, 1, 100);
+        this.renderDistance = Math.clamp(this.renderDistance, 2, 32);
+        this.fov = Math.clamp(this.fov, 30, 120);
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.keyBindings == null) this.keyBindings = KeyBindings.defaults();

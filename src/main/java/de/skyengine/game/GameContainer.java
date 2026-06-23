@@ -99,7 +99,10 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.world.getChunkManager().setRenderDistance(this.settings.renderDistance);
         this.camera.setFov(this.settings.fov);
         this.guiManager.setScale(this.settings.guiScaleFactor());
-        GLFW.glfwSwapInterval(this.settings.vsync ? 1 : 0);
+        /* Über das Window setzen, damit dessen Zustand (config.isVSync) authoritativ bleibt -
+           der FPS-Limiter im gameLoop liest window.isVSync(). Läuft auf dem Render-Thread,
+           wo der GL-Kontext aktiv ist (glfwSwapInterval gehört dorthin, nicht auf den Main-Thread). */
+        SkyEngine.get().getWindow().setVsync(this.settings.vsync);
     }
 
     public void update(Input input) {
