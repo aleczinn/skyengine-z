@@ -23,6 +23,8 @@ public class DesktopLauncher {
         config.setDebugMode(EngineConfig.DebugMode.FULL);
         config.setWindowClearColor(new Color4(0.5F, 0.8F, 1.0F, 1.0F));
 
+        config.setBackgroundFPS(5);
+
         SkyEngine engine = new SkyEngine(config);
         engine.launch();
     }
