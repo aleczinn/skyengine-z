@@ -10,10 +10,10 @@ import de.skyengine.graphics.texture.Texture;
  */
 public final class GuiTextures {
 
-    public Texture chestBackground;   // container/generic_54.png (256x256)
-    public Texture hotbar;            // sprites/hud/hotbar.png (182x22)
-    public Texture hotbarSelection;   // sprites/hud/hotbar_selection.png (24x23)
-    public Texture crosshair;         // sprites/hud/crosshair.png (15x15)
+    public Texture chestBackground;
+    public Texture hotbar;
+    public Texture hotbarSelection;
+    public Texture crosshair;
 
     public void init() {
         this.chestBackground = load("game/textures/gui/container/generic_54.png");
