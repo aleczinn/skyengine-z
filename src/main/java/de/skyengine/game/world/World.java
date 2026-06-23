@@ -253,7 +253,13 @@ public class World implements IInitializable, IDisposable {
 
         int sy = y >> ChunkSection.SHIFT;
 
-        chunk.setBlock(lx, y, lz, block);
+        /* Write-Lock: serialisiert gegen laufende Worker-Mesh-Reads desselben Chunks. */
+        chunk.writeLock().lock();
+        try {
+            chunk.setBlock(lx, y, lz, block);
+        } finally {
+            chunk.writeLock().unlock();
+        }
         chunk.markSectionDirty(sy);
 
         /* Vertikale Section-Grenzen */
