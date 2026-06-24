@@ -6,7 +6,7 @@
     "all": "game/textures/block/cobblestone.png"
   },
   "inventory_model": "block/cobblestone_stairs",
-  "inventory_y": 270,
+  "inventory_y": 0,
   "variants": {
     "facing=east,half=bottom,shape=straight":     { "model": "block/cobblestone_stairs" },
     "facing=west,half=bottom,shape=straight":      { "model": "block/cobblestone_stairs", "y": 180 },
