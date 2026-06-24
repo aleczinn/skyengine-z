@@ -137,17 +137,29 @@ public class SkyEngine {
                 accumulatedTime = 0;
             }
 
-            float partialTick = (float) accumulatedTime / TICK_TIME_NANOS;
-            this.onRender(partialTick);
-            frames++;
+            if (this.window.isResizing()) {
+                /* Während eines aktiven Fenster-Resizes NICHT rendern/swappen. Ein zweiter Thread,
+                   der während der modalen Win32-Resize-Schleife ungebremst swapt, lässt den ganzen
+                   Desktop flackern. Ticks/Input laufen weiter, nur die Präsentation pausiert -
+                   beim Loslassen wird normal weitergezeichnet (vgl. Minecraft). */
+                try {
+                    Thread.sleep(8);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+            } else {
+                float partialTick = (float) accumulatedTime / TICK_TIME_NANOS;
+                this.onRender(partialTick);
+                frames++;
 
-            /* Hintergrund-FPS-Drosselung: minimiertes Fenster auf backgroundFPS begrenzen,
-               um CPU/GPU/Strom zu sparen. backgroundFPS <= 0 = unbegrenzt. VSync paced
-               bereits selbst -> dann nicht zusätzlich syncen. Quelle ist das Window-Objekt;
-               Settings-Änderungen werden über GameContainer.applySettings dorthin gespiegelt. */
-            int backgroundFPS = this.config.getBackgroundFPS();
-            if (backgroundFPS > 0 && this.window.isMinimized() && !this.window.isVSync()) {
-                this.sync(backgroundFPS, lastLoopTime);
+                /* Hintergrund-FPS-Drosselung: minimiertes Fenster auf backgroundFPS begrenzen,
+                   um CPU/GPU/Strom zu sparen. backgroundFPS <= 0 = unbegrenzt. VSync paced
+                   bereits selbst -> dann nicht zusätzlich syncen. Quelle ist das Window-Objekt;
+                   Settings-Änderungen werden über GameContainer.applySettings dorthin gespiegelt. */
+                int backgroundFPS = this.config.getBackgroundFPS();
+                if (backgroundFPS > 0 && this.window.isMinimized() && !this.window.isVSync()) {
+                    this.sync(backgroundFPS, lastLoopTime);
+                }
             }
 
             // show states each 1 second
