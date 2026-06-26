@@ -2,6 +2,7 @@ package de.skyengine.graphics.gui;
 
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockStateModels;
@@ -43,6 +44,11 @@ public final class ItemIconRenderer {
     private static final float ROT_X = 30f;
     private static final float ROT_Y = 135f;
     private static final float ICON_SCALE = 0.66f; // Würfelkante als Anteil der Slot-Pixelgröße
+
+    /* Helligkeit der dunklen Seitenachse (West/Ost) NUR im Icon. Stell-Schraube für mehr Tiefe/
+       Kontrast wie in Minecraft: kleiner = dunkler. Betrifft ausschließlich Hotbar-/Inventar-Icons,
+       die Welt-Block-Schattierung (BlockModels.FACE_BRIGHTNESS) bleibt davon unberührt. */
+    private static final float ICON_SIDE_BRIGHTNESS = 0.15f;
 
     private ShaderProgram shader;
     private TextureArray textures;
@@ -208,7 +214,12 @@ public final class ItemIconRenderer {
                 data[p++] = v[i * 5 + 3];
                 data[p++] = v[i * 5 + 4];
                 data[p++] = q.textureLayer();
-                data[p++] = q.brightness();
+                /* Dunkle Seitenachse (West/Ost) im Icon zusätzlich abdunkeln (nur Hotbar). */
+                float b = q.brightness();
+                if (q.cullFace() == Direction.WEST.faceIndex() || q.cullFace() == Direction.EAST.faceIndex()) {
+                    b = ICON_SIDE_BRIGHTNESS;
+                }
+                data[p++] = b;
             }
         }
         return new Mesh(data);
