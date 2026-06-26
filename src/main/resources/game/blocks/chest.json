@@ -1,0 +1,13 @@
+{
+  "id": "skyengine:chest",
+  "type": "cube",
+  "layer": "opaque",
+  "opaque": false,
+  "facing": true,
+  "block_entity": "skyengine:chest",
+  "collision": {
+    "boxes": [
+      { "from": [1, 0, 1], "to": [15, 14, 15] }
+    ]
+  }
+}

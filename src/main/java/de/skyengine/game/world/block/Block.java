@@ -132,19 +132,35 @@ public class Block {
      * aus Trefferpunkt, ...). Default: Default-State.
      *
      * @param hitY relativer Trefferpunkt-Y innerhalb des Zielfeldes (0..1)
+     * @return der zu platzierende State, oder {@code null} wenn ein Behavior die
+     *         Platzierung ablehnt (z.B. Tür ohne Platz für den oberen Teil)
      */
     public BlockState getPlacementState(de.skyengine.game.world.World world,
                                         int x, int y, int z,
                                         int faceX, int faceY, int faceZ,
                                         double hitX, double hitY, double hitZ, float playerYaw) {
         BlockState state = this.defaultState;
-        if (!this.config.behaviors().isEmpty()) {
-            PlacementContext ctx = new PlacementContext(world, x, y, z, faceX, faceY, faceZ, hitX, hitY, hitZ, playerYaw);
-            for (BlockBehavior behavior : this.config.behaviors()) {
-                state = behavior.onPlace(ctx, state);
-            }
+        if (this.config.behaviors().isEmpty()) return state;
+
+        PlacementContext ctx = new PlacementContext(world, x, y, z, faceX, faceY, faceZ, hitX, hitY, hitZ, playerYaw);
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            state = behavior.onPlace(ctx, state);
+        }
+        /* Veto nach dem Berechnen des States: lehnt ein Behavior ab, wird nicht platziert. */
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            if (!behavior.canPlace(ctx, state)) return null;
         }
         return state;
+    }
+
+    /**
+     * Seiteneffekte nach erfolgreicher Platzierung (z.B. den oberen Türteil setzen).
+     * Wird erst aufgerufen, nachdem der State validiert und gesetzt wurde.
+     */
+    public void onPlaced(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.onPlaced(world, x, y, z, state);
+        }
     }
 
     /**
@@ -165,6 +181,32 @@ public class Block {
             if (behavior.onUse(world, x, y, z, state)) return true;
         }
         return false;
+    }
+
+    /** Abbau-Hook (vor dem Entfernen). Delegiert an die Behaviors; Default: nichts. */
+    public void onBreak(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.onBreak(world, x, y, z, state);
+        }
+    }
+
+    /** Geplanter Tick (Fluss, Fall, ...), von {@code World.scheduleTick} ausgelöst. Delegiert; Default: nichts. */
+    public void scheduledTick(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.scheduledTick(world, x, y, z, state);
+        }
+    }
+
+    /** Zufalls-Tick (Wachstum, Verfall, ...). Nur wenn {@link #ticksRandomly()}. Delegiert; Default: nichts. */
+    public void randomTick(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.randomTick(world, x, y, z, state);
+        }
+    }
+
+    /** true, wenn dieser Block beim Random-Tick berücksichtigt wird (Pflanzen, Gras). */
+    public boolean ticksRandomly() {
+        return this.config.tickRandomly();
     }
 
     /**

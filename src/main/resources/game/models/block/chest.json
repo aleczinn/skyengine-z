@@ -1,0 +1,4 @@
+{
+  "_comment": "Truhe wird vom BlockEntityRenderer (ChestRenderer) gezeichnet - kein statisches Chunk-Mesh.",
+  "elements": []
+}

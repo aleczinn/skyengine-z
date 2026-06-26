@@ -65,6 +65,35 @@ public final class BlockStateModels {
         return baked;
     }
 
+    /**
+     * Texturpfade für ein flaches 2D-Icon (MC-Item-Sprite-Stil) aus optionalem {@code "icon_flat"}:
+     * Liste von Pfaden, von unten nach oben gestapelt (1 = volles Quad wie Glasscheibe, 2 = Mini-Tür
+     * aus Unter-/Oberhälfte). {@code null}, wenn der Block als 3D-Würfel/-Modell gerendert wird.
+     */
+    public static String[] flatIcon(Block block) {
+        JsonObject root = STATES.get(block.getIdentifier().path());
+        if (root == null || !root.has("icon_flat")) return null;
+        JsonArray arr = root.getAsJsonArray("icon_flat");
+        String[] out = new String[arr.size()];
+        for (int i = 0; i < arr.size(); i++) out[i] = arr.get(i).getAsString();
+        return out;
+    }
+
+    /**
+     * Backt das Inventar-/Icon-Modell eines Blocks. Optionales {@code "inventory_model"} im Blockstate
+     * (z.B. Zaun mit Armen, kleine Tür, flache Glasscheibe) hat Vorrang vor dem Default-State-Modell —
+     * so sieht das Icon aus wie in Minecraft, ohne die Welt-Darstellung zu beeinflussen.
+     */
+    public static ModelLoader.Baked bakeInventory(Block block) {
+        JsonObject root = STATES.get(block.getIdentifier().path());
+        if (root != null && root.has("inventory_model")) {
+            int x = root.has("inventory_x") ? root.get("inventory_x").getAsInt() : 0;
+            int y = root.has("inventory_y") ? root.get("inventory_y").getAsInt() : 0;
+            return ModelLoader.bake(root.get("inventory_model").getAsString(), x, y);
+        }
+        return bake(block, block.getDefaultState());
+    }
+
     private static ModelLoader.Baked bakeInternal(Block block, BlockState state) {
         String path = block.getIdentifier().path();
         JsonObject root = STATES.get(path);
