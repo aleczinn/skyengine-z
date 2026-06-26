@@ -21,6 +21,7 @@ bewusst viele Original-Minecraft-Texturen verwendet (Platzhalter, bis ein eigene
 4. **Unsicherheiten ausdrücklich benennen.** Wenn du dir bei einem Ansatz oder technischen Detail
    nicht sicher bist, sage das, bevor du fortfährst. Selbstsicherheit ohne Gewissheit richtet mehr
    Schaden an als das Eingestehen einer Wissenslücke.
+5. Achte bei der Entwicklung stets auf Wartbarkeit und Performance, sodass neue Anforderungen nicht unnötig komplex implementiert werden
 
 Zusätzlich:
 - **Sprache:** Code-Kommentare, Logs und Commit-Nachrichten sind auf **Deutsch** (siehe bestehende
