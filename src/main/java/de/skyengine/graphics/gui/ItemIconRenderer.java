@@ -2,10 +2,8 @@ package de.skyengine.graphics.gui;
 
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Blocks;
-import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.model.BakedQuad;
-import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.item.BlockItem;
@@ -46,11 +44,14 @@ public final class ItemIconRenderer {
     private static final float ROT_Y = 135f;
     private static final float ICON_SCALE = 0.66f; // Würfelkante als Anteil der Slot-Pixelgröße
 
-    /* Helligkeit der dunklen Seitenachse (West/Ost) NUR im Icon. Stell-Schraube für mehr Tiefe/
-       Kontrast wie in Minecraft: kleiner = dunkler. Betrifft ausschließlich Hotbar-/Inventar-Icons,
-       die Welt-Block-Schattierung (BlockModels.FACE_BRIGHTNESS) bleibt davon unberührt. Wird auch vom
-       Truhen-Icon (ChestRenderer.renderIcon) genutzt, damit der Kontrast über eine Schraube läuft. */
-    public static final float ICON_SIDE_BRIGHTNESS = 0.15f;
+    /* Pro-Achsen-Helligkeit NUR im Icon (Stell-Schrauben für den Iso-Look, kleiner = dunkler). In der
+       Iso-Ansicht sichtbar sind genau drei Flächengruppen: oben, X-Achse (West/Ost) und Z-Achse
+       (Nord/Süd) — die Unterseite ist nie sichtbar. Betrifft ausschließlich Hotbar-/Inventar-Icons,
+       die Welt-Block-Schattierung (BlockModels.FACE_BRIGHTNESS) bleibt unberührt. Auch vom Truhen-Icon
+       (ChestRenderer.renderIcon) genutzt, damit alle Icons über dieselben Schrauben laufen. */
+    public static final float ICON_TOP_BRIGHTNESS = 1.0f;  // oben
+    public static final float ICON_Z_BRIGHTNESS = 0.7f;    // Nord/Süd
+    public static final float ICON_X_BRIGHTNESS = 0.4f;   // West/Ost
 
     private ShaderProgram shader;
     private TextureArray textures;
@@ -209,6 +210,10 @@ public final class ItemIconRenderer {
         for (BakedQuad q : quads) {
             float[] v = q.vertices();
             int n = v.length / 5;
+            /* Icon-Helligkeit je Fläche aus der geometrischen Normale (pro-Achsen-Schrauben). Robust
+               gegen Innen-/NO_CULL-Seiten mehrteiliger Modelle (Treppenstufe). Diagonale Cross-Flächen
+               (Gras/Blumen) und die nie sichtbare Unterseite behalten ihren gebackenen Wert. */
+            float iconBrightness = iconBrightnessFor(v, q.brightness());
             for (int i = 0; i < n; i++) {
                 data[p++] = v[i * 5];
                 data[p++] = v[i * 5 + 1];
@@ -216,18 +221,32 @@ public final class ItemIconRenderer {
                 data[p++] = v[i * 5 + 3];
                 data[p++] = v[i * 5 + 4];
                 data[p++] = q.textureLayer();
-                /* Dunkle Seitenachse (West/Ost) im Icon zusätzlich abdunkeln (nur Hotbar). Erkannt am
-                   gebackenen Helligkeitswert (FACE_BRIGHTNESS[west]=0.6 ist eindeutig die X-Achse),
-                   NICHT an cullFace — sonst blieben Innen-/NO_CULL-Seitenflächen mehrteiliger Modelle
-                   (z.B. die obere Treppenstufe bei x=8) ungeshadet. */
-                float b = q.brightness();
-                if (b == BlockModels.FACE_BRIGHTNESS[Direction.WEST.faceIndex()]) {
-                    b = ICON_SIDE_BRIGHTNESS;
-                }
-                data[p++] = b;
+                data[p++] = iconBrightness;
             }
         }
         return new Mesh(data);
+    }
+
+    /**
+     * Wählt die Icon-Helligkeit einer Fläche anhand ihrer geometrischen Normale (aus dem ersten
+     * Dreieck der Quad-Vertices, 5 Floats je Vertex). Achsenparallele Box-Flächen (|Komponente|=1)
+     * werden den pro-Achsen-Schrauben zugeordnet; diagonale Cross-Flächen (|Komp.|≈0.707) und die
+     * Unterseite fallen auf den gebackenen Wert zurück.
+     */
+    private static float iconBrightnessFor(float[] v, float baked) {
+        float e1x = v[5] - v[0], e1y = v[6] - v[1], e1z = v[7] - v[2];
+        float e2x = v[10] - v[0], e2y = v[11] - v[1], e2z = v[12] - v[2];
+        float nx = e1y * e2z - e1z * e2y;
+        float ny = e1z * e2x - e1x * e2z;
+        float nz = e1x * e2y - e1y * e2x;
+        float len = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
+        if (len == 0f) return baked;
+        nx /= len; ny /= len; nz /= len;
+
+        if (ny > 0.5f) return ICON_TOP_BRIGHTNESS;        // oben
+        if (nx * nx > 0.81f) return ICON_X_BRIGHTNESS;    // West/Ost (|nx| > 0.9)
+        if (nz * nz > 0.81f) return ICON_Z_BRIGHTNESS;    // Nord/Süd (|nz| > 0.9)
+        return baked;                                     // Unterseite / diagonale Cross-Flächen
     }
 
     public void dispose() {
