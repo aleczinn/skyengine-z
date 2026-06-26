@@ -79,7 +79,9 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Texture", 0);
-        /* Welt-Truhe: normale MC-Seitenhelligkeit (West/Ost). */
+        /* Welt-Truhe: normale MC-Helligkeit pro Achse (oben/Nord-Süd/West-Ost). */
+        this.shader.setUniformf("u_TopBrightness", 1.0f);
+        this.shader.setUniformf("u_ZBrightness", 0.8f);
         this.shader.setUniformf("u_SideBrightness", 0.6f);
         this.texture.bind(0);
 
@@ -136,8 +138,10 @@ public final class ChestRenderer implements BlockEntityRenderer {
         /* Normalen wie die Icon-Geometrie um 270° drehen -> gleiche Iso-Schattierung wie Würfel-Icons. */
         this.normalRot.identity().rotateY((float) (1.5 * Math.PI));
         this.shader.setUniformMatrix4f("u_NormalRot", this.normalRot);
-        /* Icon: dieselbe verstärkte Seiten-Abdunklung wie die Würfel-Icons (eine Stell-Schraube). */
-        this.shader.setUniformf("u_SideBrightness", ItemIconRenderer.ICON_SIDE_BRIGHTNESS);
+        /* Icon: dieselben pro-Achsen-Schrauben wie die Würfel-Icons (oben/Nord-Süd/West-Ost). */
+        this.shader.setUniformf("u_TopBrightness", ItemIconRenderer.ICON_TOP_BRIGHTNESS);
+        this.shader.setUniformf("u_ZBrightness", ItemIconRenderer.ICON_Z_BRIGHTNESS);
+        this.shader.setUniformf("u_SideBrightness", ItemIconRenderer.ICON_X_BRIGHTNESS);
         this.shader.setUniformi("u_Texture", 0);
         this.texture.bind(0);
         this.base.render();
@@ -256,15 +260,20 @@ public final class ChestRenderer implements BlockEntityRenderer {
         in vec2 v_uv;
         in vec3 v_normal;
         uniform sampler2D u_Texture;
+        uniform float u_TopBrightness;
+        uniform float u_ZBrightness;
         uniform float u_SideBrightness;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Texture, v_uv);
             if (c.a < 0.5) discard;
-            // Richtungs-Shading aus der weltgedrehten Flaechen-Normale (MC-Werte): up,down,N/S,W/E.
-            // Die W/E-Seite ist als Uniform variabel: in der Welt 0.6, im Icon staerker abgedunkelt.
+            // Richtungs-Shading aus der weltgedrehten Flaechen-Normale. Top/N-S/W-E sind als Uniforms
+            // variabel (Welt: 1.0/0.8/0.6, Icon: eigene Schrauben); Unterseite fix 0.5 (nie sichtbar).
             vec3 n = normalize(v_normal);
-            float br = (n.y > 0.5) ? 1.0 : (n.y < -0.5) ? 0.5 : (abs(n.z) > 0.5) ? 0.8 : u_SideBrightness;
+            float br = (n.y > 0.5) ? u_TopBrightness
+                     : (n.y < -0.5) ? 0.5
+                     : (abs(n.z) > 0.5) ? u_ZBrightness
+                     : u_SideBrightness;
             fragColor = vec4(c.rgb * br, c.a);
         }
         """;
