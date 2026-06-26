@@ -264,7 +264,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     private void fillStartInventory() {
         short[] start = {
-                Blocks.CHEST, Blocks.OAK_PLANKS, Blocks.STONE_SLAB, Blocks.STONE_STAIRS,
+                Blocks.CHEST, Blocks.OAK_PLANKS, Blocks.STONE_SLAB, Blocks.OAK_LEAVES,
                 Blocks.COBBLESTONE_STAIRS, Blocks.OAK_FENCE, Blocks.GLASS_PANE, Blocks.OAK_DOOR, Blocks.GLASS,
         };
         for (int i = 0; i < start.length; i++) {

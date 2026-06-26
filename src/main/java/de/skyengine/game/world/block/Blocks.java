@@ -24,6 +24,7 @@ public final class Blocks {
     public static short AIR;
     public static short BEDROCK;
     public static short STONE, OAK_PLANKS, COBBLESTONE, DIRT, GRASS_BLOCK, SAND;
+    public static short OAK_LEAVES;
     public static short GLASS;
     public static short TNT;
     public static short FERN, SHORT_GRASS, ORANGE_TULIP;
@@ -64,6 +65,7 @@ public final class Blocks {
         DIRT = idOf("skyengine:dirt");
         GRASS_BLOCK = idOf("skyengine:grass_block");
         OAK_PLANKS = idOf("skyengine:oak_planks");
+        OAK_LEAVES = idOf("skyengine:oak_leaves");
 
         SAND = idOf("skyengine:sand");
         TNT = idOf("skyengine:tnt");
