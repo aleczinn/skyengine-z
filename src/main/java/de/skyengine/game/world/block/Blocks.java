@@ -24,6 +24,7 @@ public final class Blocks {
     public static short AIR;
     public static short BEDROCK;
     public static short STONE, OAK_PLANKS, COBBLESTONE, DIRT, GRASS_BLOCK, SAND;
+    public static short OAK_LEAVES;
     public static short GLASS;
     public static short TNT;
     public static short FERN, SHORT_GRASS, ORANGE_TULIP;
@@ -33,6 +34,7 @@ public final class Blocks {
     public static short STONE_STAIRS, COBBLESTONE_STAIRS;
     public static short OAK_FENCE, GLASS_PANE, IRON_BARS;
     public static short OAK_DOOR;
+    public static short CHEST;
 
     /** Vor world.init() aufrufen! Lädt JSON-Blöcke und baked die Registry. */
     public static void bootstrap(File blockDirectory) {
@@ -53,6 +55,7 @@ public final class Blocks {
         for (ContentSource source : ContentSources.all()) BlockStateModels.load(source.blocks());
 
         BlockRegistry.bake();
+        de.skyengine.game.world.item.Items.bootstrap();
 
         AIR = idOf("skyengine:air");
         BEDROCK = idOf("skyengine:bedrock");
@@ -62,6 +65,7 @@ public final class Blocks {
         DIRT = idOf("skyengine:dirt");
         GRASS_BLOCK = idOf("skyengine:grass_block");
         OAK_PLANKS = idOf("skyengine:oak_planks");
+        OAK_LEAVES = idOf("skyengine:oak_leaves");
 
         SAND = idOf("skyengine:sand");
         TNT = idOf("skyengine:tnt");
@@ -78,6 +82,7 @@ public final class Blocks {
         GLASS_PANE = idOf("skyengine:glass_pane");
         IRON_BARS = idOf("skyengine:iron_bars");
         OAK_DOOR = idOf("skyengine:oak_door");
+        CHEST = idOf("skyengine:chest");
     }
 
     private static short idOf(String id) {

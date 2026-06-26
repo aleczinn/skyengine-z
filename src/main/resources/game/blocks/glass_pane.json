@@ -10,6 +10,7 @@
     "from": [7, 0, 7],
     "to": [9, 16, 9]
   },
+  "icon_flat": ["game/textures/block/glass.png"],
   "multipart": [
     { "apply": { "model": "block/glass_pane_post" } },
 

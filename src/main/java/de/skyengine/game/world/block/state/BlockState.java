@@ -63,6 +63,11 @@ public final class BlockState {
         return (this.flags & StateFlags.RANDOM_OFFSET) != 0;
     }
 
+    /** true: nimmt am Random-Tick teil (Pflanzen, Verfall). Flag wird beim Bake gesetzt. */
+    public boolean ticksRandomly() {
+        return (this.flags & StateFlags.TICKS_RANDOMLY) != 0;
+    }
+
     /** true: innere Faces zwischen zwei identischen Blöcken werden geculled (Glas-an-Glas). */
     public boolean cullsSameBlock() {
         return (this.flags & StateFlags.CULL_SAME) != 0;

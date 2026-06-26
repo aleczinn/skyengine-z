@@ -37,6 +37,11 @@ public class Window implements IDisposable {
 
     private final FrameBuffer frameBuffer;
 
+    /* Zeitpunkt des letzten Resize-Events (Main-Thread schreibt im Callback, Render-Thread liest).
+       Solange das jünger als RESIZE_PAUSE_NANOS ist, gilt das Fenster als "wird gerade resized". */
+    private volatile long lastResizeNanos;
+    private static final long RESIZE_PAUSE_NANOS = 150_000_000L;
+
     public Window(EngineConfig config) {
         this.config = config;
         this.properties = new EngineProperties();
@@ -60,6 +65,7 @@ public class Window implements IDisposable {
 
             this.config.setWindowWidth(width);
             this.config.setWindowHeight(height);
+            this.lastResizeNanos = System.nanoTime();
 
             SkyEngine.get().getRenderTasks().add(new DelayedRunnable(() -> {
                 this.frameBuffer.create();
@@ -78,6 +84,16 @@ public class Window implements IDisposable {
         });
 
         GLFW.glfwSwapInterval(this.config.isVSync() ? 1 : 0);
+    }
+
+    /**
+     * true, solange das Fenster gerade aktiv resized wird (letztes Resize-Event jünger als
+     * {@link #RESIZE_PAUSE_NANOS}). Der Render-Thread pausiert dann Rendern/Swappen, um das
+     * Desktop-Flackern durch ungebremstes SwapBuffers in der modalen Win32-Resize-Schleife zu
+     * vermeiden. Wird vom Render-Thread gelesen (lock-frei über das volatile Feld).
+     */
+    public boolean isResizing() {
+        return System.nanoTime() - this.lastResizeNanos < RESIZE_PAUSE_NANOS;
     }
 
     private void initGLFW() {

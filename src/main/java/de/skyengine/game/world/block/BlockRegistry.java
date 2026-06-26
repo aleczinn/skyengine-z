@@ -16,6 +16,7 @@ public final class BlockRegistry {
     /* volatile: wird auf dem Render-Thread gebaut, von Worker-Threads (Mesher) gelesen */
     private static volatile BlockState[] statesById = new BlockState[0];
     private static boolean baked = false;
+    private static boolean hasRandomTick = false;
 
     public static <T extends Block> T register(T block) {
         if (baked) throw new IllegalStateException("Registry ist bereits gebaked!");
@@ -51,7 +52,9 @@ public final class BlockRegistry {
 
         /* Hot-Path-Flags packen + Modelle backen (registriert dabei die Texturen). */
         for (BlockState state : all) {
-            state.setFlags(computeFlags(state));
+            int f = computeFlags(state);
+            state.setFlags(f);
+            if ((f & StateFlags.TICKS_RANDOMLY) != 0) hasRandomTick = true;
             state.setModel(state.getBlock().bakeModel(state));
         }
 
@@ -71,6 +74,7 @@ public final class BlockRegistry {
         if (block.cullsSameBlock()) flags |= StateFlags.CULL_SAME;
         if (block.hasRandomOffset(state)) flags |= StateFlags.RANDOM_OFFSET;
         if (block.getBlockEntityType() != null) flags |= StateFlags.HAS_BLOCK_ENTITY;
+        if (block.ticksRandomly()) flags |= StateFlags.TICKS_RANDOMLY;
         return StateFlags.packLayer(flags, block.getRenderLayer(state));
     }
 
@@ -80,6 +84,11 @@ public final class BlockRegistry {
 
     public static int getStateCount() {
         return statesById.length;
+    }
+
+    /** true, wenn mindestens ein Block am Random-Tick teilnimmt - sonst kann der Pass entfallen. */
+    public static boolean hasRandomTickBlocks() {
+        return hasRandomTick;
     }
 
     private BlockRegistry() {}

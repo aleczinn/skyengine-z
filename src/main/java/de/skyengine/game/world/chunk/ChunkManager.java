@@ -118,10 +118,15 @@ public class ChunkManager {
                 Chunk finalChunk = chunk;
                 this.workers.submit(() -> {
                     ChunkMesher mesher = this.meshers.get();
-                    for (int s = 0; s < Chunk.SECTIONS; s++) {
-                        ChunkMesher.MeshData mesh = mesher.mesh(finalChunk, s, north, south, west, east);
-                        this.uploadQueue.add(new MeshBatch(List.of(
-                                new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh))));
+                    lockRead(finalChunk, north, south, west, east);
+                    try {
+                        for (int s = 0; s < Chunk.SECTIONS; s++) {
+                            ChunkMesher.MeshData mesh = mesher.mesh(finalChunk, s, north, south, west, east);
+                            this.uploadQueue.add(new MeshBatch(List.of(
+                                    new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh))));
+                        }
+                    } finally {
+                        unlockRead(finalChunk, north, south, west, east);
                     }
                     finalChunk.status = ChunkStatus.READY;
                 });
@@ -167,14 +172,38 @@ public class ChunkManager {
             this.workers.submit(() -> {
                 ChunkMesher mesher = this.meshers.get();
                 List<MeshResult> batch = new ArrayList<>(Integer.bitCount(mask));
-                for (int s = 0; s < Chunk.SECTIONS; s++) {
-                    if ((mask & (1 << s)) == 0) continue;
-                    batch.add(new MeshResult(chunk.chunkX, s, chunk.chunkZ,
-                            mesher.mesh(chunk, s, north, south, west, east)));
+                lockRead(chunk, north, south, west, east);
+                try {
+                    for (int s = 0; s < Chunk.SECTIONS; s++) {
+                        if ((mask & (1 << s)) == 0) continue;
+                        batch.add(new MeshResult(chunk.chunkX, s, chunk.chunkZ,
+                                mesher.mesh(chunk, s, north, south, west, east)));
+                    }
+                } finally {
+                    unlockRead(chunk, north, south, west, east);
                 }
                 this.uploadQueue.add(new MeshBatch(batch));
             });
         }
+    }
+
+    /* Read-Locks aller am Mesh beteiligten Chunks (self + 4 Nachbarn) gegen gleichzeitige
+       Block-Edits auf dem Render-Thread. Read-Locks sind untereinander kompatibel und der
+       Writer (setBlockRaw) hält nur einen Lock -> kein Deadlock. Alle fünf sind hier nie null. */
+    private static void lockRead(Chunk a, Chunk b, Chunk c, Chunk d, Chunk e) {
+        a.readLock().lock();
+        b.readLock().lock();
+        c.readLock().lock();
+        d.readLock().lock();
+        e.readLock().lock();
+    }
+
+    private static void unlockRead(Chunk a, Chunk b, Chunk c, Chunk d, Chunk e) {
+        e.readLock().unlock();
+        d.readLock().unlock();
+        c.readLock().unlock();
+        b.readLock().unlock();
+        a.readLock().unlock();
     }
 
     private Chunk getGenerated(int cx, int cz) {
