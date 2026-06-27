@@ -5,7 +5,9 @@ import de.skyengine.core.SkyEngine;
 import de.skyengine.core.file.Files;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.*;
+import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.EntityPlayer;
+import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
@@ -47,6 +49,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private final GameSettings settings = GameSettings.get();
 
     private static final double REACH = 6.0;
+
+    /** Reichweite (Blöcke), in der der Spieler gedroppte Items aufsammelt. */
+    private static final double PICKUP_RANGE = 1.4;
 
     /* Block-Interaktion: sofort beim Klick, beim Halten alle 200ms (= 4 Ticks, wie Minecraft) */
     private static final long INTERACT_DELAY_MS = 200;
@@ -114,6 +119,31 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.player.update(input, this.world);
         }
         this.world.update(input, this.player);
+        this.pickupItems();
+    }
+
+    /**
+     * Sammelt gedroppte Items in Reichweite ins Spielerinventar. Läuft nach dem Welt-Tick; setzt nur
+     * das removed-Flag (die Welt räumt die Liste selbst auf) - daher keine Mutation der Liste hier.
+     */
+    private void pickupItems() {
+        double px = this.player.x;
+        double py = this.player.y + 0.9; // grob Körpermitte
+        double pz = this.player.z;
+        for (Entity entity : this.world.getEntities()) {
+            if (!(entity instanceof ItemEntity item) || item.isRemoved() || item.getPickupDelay() > 0) continue;
+            double dx = item.x - px;
+            double dy = item.y - py;
+            double dz = item.z - pz;
+            if (dx * dx + dy * dy + dz * dz > PICKUP_RANGE * PICKUP_RANGE) continue;
+
+            ItemStack remaining = this.playerInventory.insert(item.getStack());
+            if (remaining.isEmpty()) {
+                item.remove();
+            } else {
+                item.getStack().setCount(remaining.getCount());
+            }
+        }
     }
 
     public void render(Input input, int width, int height, float partialTick) {
@@ -189,6 +219,10 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             BlockState broken = Blocks.getState(this.hit.block());
             broken.getBlock().onBreak(this.world, hit.x(), hit.y(), hit.z(), broken);
             this.world.setBlock(hit.x(), hit.y(), hit.z(), Blocks.AIR);
+            Item drop = Items.get(broken.getBlock().getIdentifier());
+            if (drop != null) {
+                this.world.spawnItem(hit.x() + 0.5, hit.y() + 0.5, hit.z() + 0.5, new ItemStack(drop, 1));
+            }
             this.lastBreakTime = now;
         } else {
             /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
@@ -264,8 +298,15 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     private void fillStartInventory() {
         short[] start = {
-                Blocks.CHEST, Blocks.OAK_PLANKS, Blocks.STONE_SLAB, Blocks.OAK_LEAVES,
-                Blocks.COBBLESTONE_STAIRS, Blocks.OAK_FENCE, Blocks.GLASS_PANE, Blocks.OAK_DOOR, Blocks.GLASS,
+                Blocks.CHEST,
+                Blocks.OAK_PLANKS,
+                Blocks.STONE_SLAB,
+                Blocks.SAND,
+                Blocks.COBBLESTONE_STAIRS,
+                Blocks.OAK_FENCE,
+                Blocks.GLASS_PANE,
+                Blocks.OAK_DOOR,
+                Blocks.GLASS,
         };
         for (int i = 0; i < start.length; i++) {
             Item item = Items.get(Blocks.getState(start[i]).getBlock().getIdentifier());
