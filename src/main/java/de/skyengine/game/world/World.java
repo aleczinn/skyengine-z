@@ -3,7 +3,10 @@ package de.skyengine.game.world;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.IDisposable;
 import de.skyengine.core.io.IInitializable;
+import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.EntityPlayer;
+import de.skyengine.game.entity.FallingBlockEntity;
+import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
@@ -19,10 +22,12 @@ import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.generator.WorldGenerator;
+import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.ChestRenderer;
 import de.skyengine.graphics.camera.Camera;
+import de.skyengine.graphics.entity.EntityRenderer;
 import de.skyengine.graphics.world.ChunkRenderer;
 
 import java.util.ArrayList;
@@ -37,6 +42,12 @@ public class World implements IInitializable, IDisposable {
     private final ChunkManager chunkManager;
     private final ChunkRenderer chunkRenderer;
     private final BlockEntityRenderDispatcher blockEntityRenderer = new BlockEntityRenderDispatcher();
+    private final EntityRenderer entityRenderer = new EntityRenderer();
+
+    /** Aktive Welt-Entities (Nicht-Player: fallende Blöcke, gedroppte Items). */
+    private final List<Entity> entities = new ArrayList<>();
+    /** Reentranzsicherer Puffer: Spawns aus einem laufenden Tick werden erst danach übernommen. */
+    private final List<Entity> pendingEntities = new ArrayList<>();
 
     /** Wiederverwendeter Snapshot-Puffer fürs BlockEntity-Ticking (keine Allokation pro Chunk/Tick). */
     private final List<BlockEntity> tickScratch = new ArrayList<>();
@@ -69,6 +80,7 @@ public class World implements IInitializable, IDisposable {
         this.chunkRenderer.init();
         this.blockEntityRenderer.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderer.init();
+        this.entityRenderer.init(this.chunkRenderer.getTextureArray());
     }
 
     public void update(Input input, EntityPlayer player) {
@@ -77,6 +89,50 @@ public class World implements IInitializable, IDisposable {
         this.tickScheduled();
         this.tickRandomBlocks();
         this.tickBlockEntities();
+        this.tickEntities();
+    }
+
+    /**
+     * Tickt alle Welt-Entities: zuerst gepufferte Spawns übernehmen, dann ticken (ein Tick darf
+     * neue Entities spawnen -> landen im Puffer, kommen nächsten Tick dran), zuletzt entfernte
+     * aussortieren.
+     */
+    private void tickEntities() {
+        if (!this.pendingEntities.isEmpty()) {
+            this.entities.addAll(this.pendingEntities);
+            this.pendingEntities.clear();
+        }
+        for (int i = 0; i < this.entities.size(); i++) {
+            this.entities.get(i).tick(this);
+        }
+        this.entities.removeIf(Entity::isRemoved);
+    }
+
+    /** Reiht eine Entity zum Spawnen ein (Übernahme im nächsten {@link #tickEntities}). */
+    public void spawnEntity(Entity entity) {
+        this.pendingEntities.add(entity);
+    }
+
+    /** Spawnt einen flüssig fallenden Block an der Blockposition (Fußpunkt = y, zentriert in x/z). */
+    public void spawnFallingBlock(int x, int y, int z, short blockId) {
+        FallingBlockEntity entity = new FallingBlockEntity(blockId);
+        entity.setPosition(x + 0.5, y, z + 0.5);
+        this.spawnEntity(entity);
+    }
+
+    /** Spawnt ein gedropptes Item mit leichtem Anfangsimpuls (kleiner „Pop"). */
+    public void spawnItem(double x, double y, double z, ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return;
+        ItemEntity entity = new ItemEntity(stack);
+        entity.setPosition(x, y, z);
+        entity.motionX = (this.random.nextDouble() - 0.5) * 0.1;
+        entity.motionY = 0.2;
+        entity.motionZ = (this.random.nextDouble() - 0.5) * 0.1;
+        this.spawnEntity(entity);
+    }
+
+    public List<Entity> getEntities() {
+        return this.entities;
     }
 
     /** Tickt alle tickenden BlockEntities geladener Chunks (Maschinen, Pipes, ...). */
@@ -165,10 +221,12 @@ public class World implements IInitializable, IDisposable {
         this.chunkManager.processRemeshes();
         this.chunkRenderer.render(camera);
         this.blockEntityRenderer.render(this.chunkManager, camera, partialTick);
+        this.entityRenderer.render(this.entities, camera, partialTick);
     }
 
     @Override
     public void dispose() {
+        this.entityRenderer.dispose();
         this.blockEntityRenderer.dispose();
         this.chunkRenderer.dispose();
         this.chunkManager.dispose();

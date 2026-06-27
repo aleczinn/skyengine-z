@@ -33,9 +33,8 @@ public final class GravityBehavior implements BlockBehavior {
     @Override
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
         if (world.getBlock(x, y - 1, z) != Blocks.AIR) return;   // Boden erreicht -> liegen bleiben
-        world.setBlock(x, y, z, Blocks.AIR);                     // hier entfernen
-        world.setBlock(x, y - 1, z, state.getId());              // eine Position tiefer setzen
-        world.scheduleTick(x, y - 1, z, FALL_DELAY);             // weiterfallen
+        world.setBlock(x, y, z, Blocks.AIR);                     // Block entfernen ...
+        world.spawnFallingBlock(x, y, z, state.getId());         // ... und als Entity flüssig fallen lassen
     }
 
     /** Plant einen Fall-Tick nur, wenn unter dem Block Luft ist (kein Tick für ruhende Blöcke). */
