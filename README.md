@@ -56,7 +56,10 @@ gradlew run
 
 ## Screenshots
 
-Comming soon.
+![Ingame Screenshot mit Hotbar und Block Rendering](./screenshots/readme-1.png?raw=true)
+
+![Ingame Screenshot mit hoher Sichtweite im Spectator Modus](./screenshots/readme-2.png?raw=true)
+
 
 ## Goals
 

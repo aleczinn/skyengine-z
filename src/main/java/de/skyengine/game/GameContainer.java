@@ -67,6 +67,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private boolean debugChunkBoundingBox = false;
     private boolean debugChunkWireframe = false;
 
+    /* Wird per F2 gesetzt und von SkyEngine nach dem fertigen Frame abgeholt. */
+    private boolean screenshotRequested = false;
+
     private BlockRaycast.Hit hit = null;
 
     /* Spieler-Inventar (36 Slots: 0..8 Hotbar, 9..35 Hauptinventar). Auswahl per Zahlentasten 1..9. */
@@ -417,6 +420,10 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
      * Übergangslösung bis zum editierbaren Optionsmenü.
      */
     private void handleGlobalHotkeys(Input input) {
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F2)) {
+            /* Nur markieren: der Pixel-Read passiert erst nach dem fertigen Frame (SkyEngine.onRender). */
+            this.screenshotRequested = true;
+        }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
             boolean fullscreen = SkyEngine.get().getConfig().isWindowed();
             SkyEngine.get().getMainThreadTasks().add(() ->
@@ -451,6 +458,13 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             changed = true;
         }
         if (changed) this.settings.save();
+    }
+
+    /** Holt eine angeforderte Screenshot-Aufnahme ab und setzt das Flag zurück. */
+    public boolean consumeScreenshotRequest() {
+        boolean requested = this.screenshotRequested;
+        this.screenshotRequested = false;
+        return requested;
     }
 
     public Camera getCamera() {
