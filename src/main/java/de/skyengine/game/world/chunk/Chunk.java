@@ -1,10 +1,13 @@
 package de.skyengine.game.world.chunk;
 
+import de.skyengine.game.entity.Entity;
 import de.skyengine.game.world.block.entity.BlockEntity;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
@@ -21,6 +24,10 @@ public class Chunk {
 
     /* BlockEntities, sparse; Key = lokale Position (x 0..31, z 0..31, y 0..511). Lazy. */
     private Map<Integer, BlockEntity> blockEntities;
+
+    /* Welt-Entities (fallende Blöcke, gedroppte Items) in diesem Chunk. Lazy; nur READY-Chunks
+       ticken/rendern. Entities, die den Chunk wechseln, werden umgehängt (siehe World.tickEntities). */
+    private List<Entity> entities;
 
     /* volatile: written by workers, read by render thread */
     public volatile ChunkStatus status = ChunkStatus.NEW;
@@ -82,6 +89,21 @@ public class Chunk {
 
     public Collection<BlockEntity> blockEntities() {
         return this.blockEntities == null ? Collections.emptyList() : this.blockEntities.values();
+    }
+
+    /* --- Entities --- */
+
+    public void addEntity(Entity entity) {
+        if (this.entities == null) this.entities = new ArrayList<>();
+        this.entities.add(entity);
+    }
+
+    public void removeEntity(Entity entity) {
+        if (this.entities != null) this.entities.remove(entity);
+    }
+
+    public List<Entity> entities() {
+        return this.entities == null ? Collections.emptyList() : this.entities;
     }
 
     /**

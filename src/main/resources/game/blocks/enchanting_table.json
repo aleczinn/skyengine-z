@@ -1,0 +1,12 @@
+{
+  "id": "skyengine:enchanting_table",
+  "type": "cube",
+  "layer": "opaque",
+  "opaque": false,
+  "block_entity": "skyengine:enchanting_table",
+  "collision": {
+    "boxes": [
+      { "from": [0, 0, 0], "to": [16, 12, 16] }
+    ]
+  }
+}
