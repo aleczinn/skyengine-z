@@ -31,6 +31,11 @@ public class FallingBlockEntity extends Entity {
     }
 
     @Override
+    public boolean isCollidable() {
+        return true;   // belegt die Zelle -> man kann keinen Block hineinsetzen, solange er fällt
+    }
+
+    @Override
     public void tick(World world) {
         super.update();
 

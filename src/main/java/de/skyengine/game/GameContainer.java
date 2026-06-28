@@ -5,7 +5,6 @@ import de.skyengine.core.SkyEngine;
 import de.skyengine.core.file.Files;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.*;
-import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.physics.AABB;
@@ -130,12 +129,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         double px = this.player.x;
         double py = this.player.y + 0.9; // grob Körpermitte
         double pz = this.player.z;
-        for (Entity entity : this.world.getEntities()) {
-            if (!(entity instanceof ItemEntity item) || item.isRemoved() || item.getPickupDelay() > 0) continue;
+        this.world.forEachEntityNearby(px, pz, 1, entity -> {
+            if (!(entity instanceof ItemEntity item) || item.isRemoved() || item.getPickupDelay() > 0) return;
             double dx = item.x - px;
             double dy = item.y - py;
             double dz = item.z - pz;
-            if (dx * dx + dy * dy + dz * dz > PICKUP_RANGE * PICKUP_RANGE) continue;
+            if (dx * dx + dy * dy + dz * dz > PICKUP_RANGE * PICKUP_RANGE) return;
 
             ItemStack remaining = this.playerInventory.insert(item.getStack());
             if (remaining.isEmpty()) {
@@ -143,7 +142,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             } else {
                 item.getStack().setCount(remaining.getCount());
             }
-        }
+        });
     }
 
     public void render(Input input, int width, int height, float partialTick) {
@@ -262,7 +261,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 /* place == null: ein Behavior lehnt ab (z.B. Tür ohne Platz). Sonst nicht in den
                    eigenen Körper bauen - gegen die ECHTE Kollisionsform testen, damit dünne Blöcke
                    (Panes, Zäune) neben einem platzierbar bleiben. */
-                if (place != null && !this.collidesWithPlayer(place, px, py, pz)) {
+                if (place != null && !this.collidesWithPlayer(place, px, py, pz)
+                        && !this.collidesWithEntities(place, px, py, pz)) {
                     this.world.placeBlock(px, py, pz, place);
                     this.lastPlaceTime = now;
                 }
@@ -321,6 +321,19 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private boolean collidesWithPlayer(BlockState state, int px, int py, int pz) {
         for (AABB local : state.getCollisionShape().boxes()) {
             if (local.copy().move(px, py, pz).intersects(this.player.getBoundingBox())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * true, wenn die Kollisionsform des Blocks an px/py/pz eine kollidierbare Entity schneidet
+     * (z.B. fallender Sand) - dann kann dort nicht gebaut werden, wie in Minecraft.
+     */
+    private boolean collidesWithEntities(BlockState state, int px, int py, int pz) {
+        for (AABB local : state.getCollisionShape().boxes()) {
+            if (this.world.intersectsCollidableEntity(local.copy().move(px, py, pz))) {
                 return true;
             }
         }
