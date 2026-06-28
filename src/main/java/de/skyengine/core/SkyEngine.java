@@ -3,6 +3,7 @@ package de.skyengine.core;
 import de.skyengine.core.file.Files;
 import de.skyengine.core.input.Input;
 import de.skyengine.game.GameContainer;
+import de.skyengine.graphics.Screenshot;
 import de.skyengine.utils.DelayedRunnable;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -84,6 +85,11 @@ public class SkyEngine {
 
         this.game.render(this.input, this.window.getWidth(), this.window.getHeight(), partialTick);
         this.window.getFrameBuffer().blitToScreen();
+
+        /* Screenshot aus dem aufgelösten Default-Framebuffer, bevor der Frame präsentiert wird. */
+        if (this.game.consumeScreenshotRequest()) {
+            Screenshot.capture(this.window.getWidth(), this.window.getHeight());
+        }
 
         GLFW.glfwSwapBuffers(this.window.getWindowID());
     }
