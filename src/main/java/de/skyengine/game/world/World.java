@@ -31,8 +31,10 @@ import de.skyengine.graphics.entity.EntityRenderer;
 import de.skyengine.graphics.world.ChunkRenderer;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
+import java.util.function.Consumer;
 
 public class World implements IInitializable, IDisposable {
 
@@ -44,10 +46,10 @@ public class World implements IInitializable, IDisposable {
     private final BlockEntityRenderDispatcher blockEntityRenderer = new BlockEntityRenderDispatcher();
     private final EntityRenderer entityRenderer = new EntityRenderer();
 
-    /** Aktive Welt-Entities (Nicht-Player: fallende Blöcke, gedroppte Items). */
-    private final List<Entity> entities = new ArrayList<>();
-    /** Reentranzsicherer Puffer: Spawns aus einem laufenden Tick werden erst danach übernommen. */
+    /** Reentranzsicherer Puffer: Spawns aus einem laufenden Tick werden erst danach in den Chunk übernommen. */
     private final List<Entity> pendingEntities = new ArrayList<>();
+    /** Zwischenpuffer für Entities, die in diesem Tick ihren Chunk wechseln (Umhängen nach dem Reconcile). */
+    private final List<Entity> transferBuffer = new ArrayList<>();
 
     /** Wiederverwendeter Snapshot-Puffer fürs BlockEntity-Ticking (keine Allokation pro Chunk/Tick). */
     private final List<BlockEntity> tickScratch = new ArrayList<>();
@@ -93,19 +95,60 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
-     * Tickt alle Welt-Entities: zuerst gepufferte Spawns übernehmen, dann ticken (ein Tick darf
-     * neue Entities spawnen -> landen im Puffer, kommen nächsten Tick dran), zuletzt entfernte
-     * aussortieren.
+     * Tickt die Welt-Entities pro Chunk (wie BlockEntities). Ablauf: 1) gepufferte Spawns in ihre
+     * Chunks übernehmen, 2) Entities aller READY-Chunks ticken (ein Tick darf neue Entities spawnen
+     * -> landen im Puffer, kommen nächsten Tick dran), 3) Reconcile: entfernte raus, in einen anderen
+     * Chunk gelaufene umhängen.
      */
     private void tickEntities() {
         if (!this.pendingEntities.isEmpty()) {
-            this.entities.addAll(this.pendingEntities);
+            for (Entity entity : this.pendingEntities) this.addToChunk(entity);
             this.pendingEntities.clear();
         }
-        for (int i = 0; i < this.entities.size(); i++) {
-            this.entities.get(i).tick(this);
+
+        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+            if (chunk.status != ChunkStatus.READY) continue;
+            List<Entity> list = chunk.entities();
+            for (int i = 0; i < list.size(); i++) list.get(i).tick(this);
         }
-        this.entities.removeIf(Entity::isRemoved);
+
+        this.reconcileEntityChunks();
+    }
+
+    /**
+     * Räumt nach dem Tick auf: entfernte Entities aussortieren und Entities, die ihren Chunk
+     * verlassen haben, in den Zielchunk umhängen. Das Umhängen wird gesammelt und erst nach dem
+     * Durchlauf angewandt, damit eine Entity nicht im selben Tick doppelt verarbeitet wird.
+     */
+    private void reconcileEntityChunks() {
+        this.transferBuffer.clear();
+        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+            List<Entity> list = chunk.entities();
+            if (list.isEmpty()) continue;
+            for (Iterator<Entity> it = list.iterator(); it.hasNext(); ) {
+                Entity entity = it.next();
+                if (entity.isRemoved()) {
+                    it.remove();
+                    continue;
+                }
+                int cx = (int) Math.floor(entity.x) >> ChunkSection.SHIFT;
+                int cz = (int) Math.floor(entity.z) >> ChunkSection.SHIFT;
+                if (cx != chunk.chunkX || cz != chunk.chunkZ) {
+                    it.remove();
+                    this.transferBuffer.add(entity);
+                }
+            }
+        }
+        for (Entity entity : this.transferBuffer) this.addToChunk(entity);
+        this.transferBuffer.clear();
+    }
+
+    /** Hängt eine Entity in den Chunk an ihrer aktuellen Position; verwirft sie, wenn der Chunk nicht (READY) geladen ist. */
+    private void addToChunk(Entity entity) {
+        int cx = (int) Math.floor(entity.x) >> ChunkSection.SHIFT;
+        int cz = (int) Math.floor(entity.z) >> ChunkSection.SHIFT;
+        Chunk chunk = this.chunkManager.getChunk(cx, cz);
+        if (chunk != null && chunk.status == ChunkStatus.READY) chunk.addEntity(entity);
     }
 
     /** Reiht eine Entity zum Spawnen ein (Übernahme im nächsten {@link #tickEntities}). */
@@ -131,8 +174,47 @@ public class World implements IInitializable, IDisposable {
         this.spawnEntity(entity);
     }
 
-    public List<Entity> getEntities() {
-        return this.entities;
+    /**
+     * Wendet {@code action} auf alle Entities im {@code chunkRadius}-Umfeld um (x,z) an
+     * (z.B. fürs Aufsammeln). {@code action} darf das removed-Flag setzen, aber die Listen nicht
+     * strukturell verändern.
+     */
+    public void forEachEntityNearby(double x, double z, int chunkRadius, Consumer<Entity> action) {
+        int ccx = (int) Math.floor(x) >> ChunkSection.SHIFT;
+        int ccz = (int) Math.floor(z) >> ChunkSection.SHIFT;
+        for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
+            for (int dz = -chunkRadius; dz <= chunkRadius; dz++) {
+                Chunk chunk = this.chunkManager.getChunk(ccx + dx, ccz + dz);
+                if (chunk == null) continue;
+                List<Entity> list = chunk.entities();
+                for (int i = 0; i < list.size(); i++) action.accept(list.get(i));
+            }
+        }
+    }
+
+    /**
+     * true, wenn eine kollidierbare Entity (fallender Block, später Mob) {@code box} schneidet.
+     * Verhindert das Setzen eines Blocks an die Stelle einer solchen Entity (siehe GameContainer).
+     * Prüft alle Chunks, die die Box berührt (Box kann eine Chunk-Grenze schneiden).
+     */
+    public boolean intersectsCollidableEntity(AABB box) {
+        int cx0 = (int) Math.floor(box.minX) >> ChunkSection.SHIFT;
+        int cx1 = (int) Math.floor(box.maxX) >> ChunkSection.SHIFT;
+        int cz0 = (int) Math.floor(box.minZ) >> ChunkSection.SHIFT;
+        int cz1 = (int) Math.floor(box.maxZ) >> ChunkSection.SHIFT;
+        for (int cx = cx0; cx <= cx1; cx++) {
+            for (int cz = cz0; cz <= cz1; cz++) {
+                Chunk chunk = this.chunkManager.getChunk(cx, cz);
+                if (chunk == null) continue;
+                for (Entity entity : chunk.entities()) {
+                    if (entity.isCollidable() && !entity.isRemoved()
+                            && entity.getBoundingBox().intersects(box)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /** Tickt alle tickenden BlockEntities geladener Chunks (Maschinen, Pipes, ...). */
@@ -221,7 +303,7 @@ public class World implements IInitializable, IDisposable {
         this.chunkManager.processRemeshes();
         this.chunkRenderer.render(camera);
         this.blockEntityRenderer.render(this.chunkManager, camera, partialTick);
-        this.entityRenderer.render(this.entities, camera, partialTick);
+        this.entityRenderer.render(this.chunkManager, camera, partialTick);
     }
 
     @Override

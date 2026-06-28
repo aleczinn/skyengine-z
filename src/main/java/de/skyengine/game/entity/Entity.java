@@ -77,6 +77,14 @@ public abstract class Entity {
     }
 
     /**
+     * Ob diese Entity Platz „belegt": verhindert das Setzen eines Blocks an ihrer Stelle (wie in
+     * Minecraft der fallende Sand oder ein Mob). Default: nein - Items blockieren nicht.
+     */
+    public boolean isCollidable() {
+        return false;
+    }
+
+    /**
      * Bewegt die Entity mit Kollision. Achsenweise: erst Y, dann X, dann Z.
      * Tunneling-sicher bei hoher Geschwindigkeit: die Broadphase-Box deckt
      * über expandTowards() den kompletten Bewegungsweg dieses Ticks ab.

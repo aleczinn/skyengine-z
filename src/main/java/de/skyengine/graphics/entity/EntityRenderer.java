@@ -5,6 +5,9 @@ import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.model.BakedQuad;
+import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.game.world.chunk.ChunkManager;
+import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.graphics.camera.Camera;
@@ -52,48 +55,53 @@ public final class EntityRenderer {
                 new Shader(FRAGMENT, ShaderType.FRAGMENT));
     }
 
-    public void render(List<Entity> entities, Camera camera, float partialTick) {
-        if (entities.isEmpty()) return;
-
+    public void render(ChunkManager chunkManager, Camera camera, float partialTick) {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Textures", 0);
         this.textures.bind(0);
 
         Vector3d cam = camera.getPosition();
-        for (int i = 0; i < entities.size(); i++) {
-            Entity e = entities.get(i);
-            if (e.isRemoved()) continue;
-
-            float ox = (float) (e.lastX + (e.x - e.lastX) * partialTick - cam.x);
-            float oy = (float) (e.lastY + (e.y - e.lastY) * partialTick - cam.y);
-            float oz = (float) (e.lastZ + (e.z - e.lastZ) * partialTick - cam.z);
-
-            if (e instanceof FallingBlockEntity fb) {
-                Mesh mesh = this.meshFor(fb.getBlockId());
-                if (mesh == null) continue;
-                /* Voller Würfel: Modell liegt in 0..1, Entity-x/z sind Zentrum, y der Fußpunkt. */
-                this.model.translation(ox - 0.5f, oy, oz - 0.5f);
-                this.shader.setUniformMatrix4f("u_Model", this.model);
-                mesh.render();
-            } else if (e instanceof ItemEntity item) {
-                int id = blockStateId(item.getStack());
-                if (id < 0) continue;
-                Mesh mesh = this.meshFor((short) id);
-                if (mesh == null) continue;
-                /* Kleiner, um Y rotierender und sanft wippender Würfel über dem Boden. */
-                float a = item.getAge() + partialTick;
-                float bob = (float) Math.sin(a * 0.1f) * 0.05f + 0.1f;
-                this.model.identity()
-                        .translate(ox, oy + bob, oz)
-                        .rotateY(a * 0.1f)
-                        .scale(ITEM_SCALE)
-                        .translate(-0.5f, -0.5f, -0.5f);
-                this.shader.setUniformMatrix4f("u_Model", this.model);
-                mesh.render();
+        for (Chunk chunk : chunkManager.loadedChunks()) {
+            if (chunk.status != ChunkStatus.READY) continue;
+            List<Entity> entities = chunk.entities();
+            for (int i = 0; i < entities.size(); i++) {
+                this.drawEntity(entities.get(i), cam, partialTick);
             }
         }
         this.shader.unbind();
+    }
+
+    private void drawEntity(Entity e, Vector3d cam, float partialTick) {
+        if (e.isRemoved()) return;
+
+        float ox = (float) (e.lastX + (e.x - e.lastX) * partialTick - cam.x);
+        float oy = (float) (e.lastY + (e.y - e.lastY) * partialTick - cam.y);
+        float oz = (float) (e.lastZ + (e.z - e.lastZ) * partialTick - cam.z);
+
+        if (e instanceof FallingBlockEntity fb) {
+            Mesh mesh = this.meshFor(fb.getBlockId());
+            if (mesh == null) return;
+            /* Voller Würfel: Modell liegt in 0..1, Entity-x/z sind Zentrum, y der Fußpunkt. */
+            this.model.translation(ox - 0.5f, oy, oz - 0.5f);
+            this.shader.setUniformMatrix4f("u_Model", this.model);
+            mesh.render();
+        } else if (e instanceof ItemEntity item) {
+            int id = blockStateId(item.getStack());
+            if (id < 0) return;
+            Mesh mesh = this.meshFor((short) id);
+            if (mesh == null) return;
+            /* Kleiner, um Y rotierender und sanft wippender Würfel über dem Boden. */
+            float a = item.getAge() + partialTick;
+            float bob = (float) Math.sin(a * 0.1f) * 0.05f + 0.1f;
+            this.model.identity()
+                    .translate(ox, oy + bob, oz)
+                    .rotateY(a * 0.1f)
+                    .scale(ITEM_SCALE)
+                    .translate(-0.5f, -0.5f, -0.5f);
+            this.shader.setUniformMatrix4f("u_Model", this.model);
+            mesh.render();
+        }
     }
 
     /** Block-State-ID für ein (Block-)Item, oder -1 wenn das Item keinen Würfel hat. */
