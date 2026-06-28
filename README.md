@@ -15,9 +15,16 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
 
 - 🌍 Chunk-System inkl. Welt Rendering (Chunks sind Säulenförmig a 32x512x32m jedoch in Sektionen mit 32³ Blöcken verteilt)
 - 📷 Kamera inkl. Inverse Depth für bessere Tiefenaufteilung + Frustum Culling
-- 🫲🏼 Block Platzieren/Abbauen
 - 💥 AABB Sweep Kollision + Spieler Physik wie Springen, Sneaken, Strafe, Fliegen etc.
-- 🟩 Vollwertiges Block-System: Von Vollblöcken, Zäune, Türen, Druckplatten oder komplexe Multipart-Blöcke ist alles möglich
+- 🫲🏼 Block Platzieren/Abbauen
+- 🟩 Vollwertiges Block-System: 
+  - Volle Blöcke wie Stein, Grass oder Erde
+  - Stufen und halbe Blöcke
+  - Kreuz-Blöcke wie Kurzes Grass oder Blumen mit zufälliger Block-Verschiebung im Rendering
+  - Transparente Blöcke wie Glass oder Laub
+  - Spezielle Blöcke wie Zäune, Glassscheiben, Eisenstäbe mit Verbindungs-Logik
+  - Animierte Blöcke mit Entity Verhalten wie Truhen mit Inventar und Aufklapp-Animation oder einen Zaubertisch, bei dem das Buch obendrauf den Spieler verfolgt und aufgeht
+  - Multipart Blöcke wie Türen, welche mit Spielerklick auf und zu gehen inkl. Platzierungslogik für Türanschlag
 
 ## Development
 
