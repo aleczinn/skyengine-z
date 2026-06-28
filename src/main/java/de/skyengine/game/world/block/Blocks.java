@@ -35,6 +35,7 @@ public final class Blocks {
     public static short OAK_FENCE, GLASS_PANE, IRON_BARS;
     public static short OAK_DOOR;
     public static short CHEST;
+    public static short ENCHANTING_TABLE;
 
     /** Vor world.init() aufrufen! Lädt JSON-Blöcke und baked die Registry. */
     public static void bootstrap(File blockDirectory) {
@@ -83,6 +84,7 @@ public final class Blocks {
         IRON_BARS = idOf("skyengine:iron_bars");
         OAK_DOOR = idOf("skyengine:oak_door");
         CHEST = idOf("skyengine:chest");
+        ENCHANTING_TABLE = idOf("skyengine:enchanting_table");
     }
 
     private static short idOf(String id) {
