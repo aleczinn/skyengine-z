@@ -15,6 +15,7 @@ import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
 import de.skyengine.graphics.texture.TextureArray;
+import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
 import org.joml.Vector3d;
 import org.lwjgl.opengl.GL11;
@@ -39,6 +40,8 @@ public final class EntityRenderer {
 
     private static final int FLOATS_PER_VERTEX = 7;   // pos3 + texCoord3(u,v,layer) + brightness1
     private static final float ITEM_SCALE = 0.25f;
+    /** Konservativer Rand fürs Frustum-Culling (deckt Würfel, Item-Wippe, Interpolation ab). */
+    private static final float CULL_MARGIN = 1.0f;
 
     private ShaderProgram shader;
     private TextureArray textures;
@@ -62,22 +65,28 @@ public final class EntityRenderer {
         this.textures.bind(0);
 
         Vector3d cam = camera.getPosition();
+        FrustumIntersection frustum = camera.getFrustum();
         for (Chunk chunk : chunkManager.loadedChunks()) {
             if (chunk.status != ChunkStatus.READY) continue;
             List<Entity> entities = chunk.entities();
             for (int i = 0; i < entities.size(); i++) {
-                this.drawEntity(entities.get(i), cam, partialTick);
+                this.drawEntity(entities.get(i), cam, frustum, partialTick);
             }
         }
         this.shader.unbind();
     }
 
-    private void drawEntity(Entity e, Vector3d cam, float partialTick) {
+    private void drawEntity(Entity e, Vector3d cam, FrustumIntersection frustum, float partialTick) {
         if (e.isRemoved()) return;
 
         float ox = (float) (e.lastX + (e.x - e.lastX) * partialTick - cam.x);
         float oy = (float) (e.lastY + (e.y - e.lastY) * partialTick - cam.y);
         float oz = (float) (e.lastZ + (e.z - e.lastZ) * partialTick - cam.z);
+
+        /* Frustum-Culling (kamerarelativ wie der ChunkRenderer): konservative Box deckt Würfel (0..1),
+           Item-Wippe und Tick-Interpolation ab - lieber zu großzügig als sichtbare Entity verlieren. */
+        if (!frustum.testAab(ox - CULL_MARGIN, oy - CULL_MARGIN, oz - CULL_MARGIN,
+                ox + CULL_MARGIN, oy + 1f + CULL_MARGIN, oz + CULL_MARGIN)) return;
 
         if (e instanceof FallingBlockEntity fb) {
             Mesh mesh = this.meshFor(fb.getBlockId());
