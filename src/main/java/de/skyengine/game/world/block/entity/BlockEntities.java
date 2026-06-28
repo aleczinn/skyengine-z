@@ -12,6 +12,7 @@ public final class BlockEntities {
 
     public static BlockEntityType<CableBlockEntity> ENERGY_CABLE;
     public static BlockEntityType<ChestBlockEntity> CHEST;
+    public static BlockEntityType<EnchantingTableBlockEntity> ENCHANTING_TABLE;
 
     private static boolean registered;
 
@@ -24,6 +25,9 @@ public final class BlockEntities {
 
         CHEST = Registries.BLOCK_ENTITY.register(Identifier.of("chest"),
                 new BlockEntityType<>((type, pos, state) -> new ChestBlockEntity(type, pos), true));
+
+        ENCHANTING_TABLE = Registries.BLOCK_ENTITY.register(Identifier.of("enchanting_table"),
+                new BlockEntityType<>((type, pos, state) -> new EnchantingTableBlockEntity(type, pos), true));
     }
 
     private BlockEntities() {}

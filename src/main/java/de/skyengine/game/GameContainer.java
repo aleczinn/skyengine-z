@@ -6,6 +6,7 @@ import de.skyengine.core.file.Files;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.*;
 import de.skyengine.game.entity.EntityPlayer;
+import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
@@ -48,10 +49,17 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     private static final double REACH = 6.0;
 
+    /** Reichweite (Blöcke), in der der Spieler gedroppte Items aufsammelt. */
+    private static final double PICKUP_RANGE = 1.4;
+
     /* Block-Interaktion: sofort beim Klick, beim Halten alle 200ms (= 4 Ticks, wie Minecraft) */
     private static final long INTERACT_DELAY_MS = 200;
     private long lastBreakTime = 0;
     private long lastPlaceTime = 0;
+
+    /* Doppel-Leertaste schaltet das Fliegen um (wie Minecraft): zweiter Tipp binnen 300ms. */
+    private static final long DOUBLE_TAP_MS = 300;
+    private long lastSpacePressTime = 0;
 
     /* Wiederverwendet, um Allokationen pro Frame zu vermeiden */
     private final Vector3d rayDirection = new Vector3d();
@@ -114,6 +122,31 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.player.update(input, this.world);
         }
         this.world.update(input, this.player);
+        this.pickupItems();
+    }
+
+    /**
+     * Sammelt gedroppte Items in Reichweite ins Spielerinventar. Läuft nach dem Welt-Tick; setzt nur
+     * das removed-Flag (die Welt räumt die Liste selbst auf) - daher keine Mutation der Liste hier.
+     */
+    private void pickupItems() {
+        double px = this.player.x;
+        double py = this.player.y + 0.9; // grob Körpermitte
+        double pz = this.player.z;
+        this.world.forEachEntityNearby(px, pz, 1, entity -> {
+            if (!(entity instanceof ItemEntity item) || item.isRemoved() || item.getPickupDelay() > 0) return;
+            double dx = item.x - px;
+            double dy = item.y - py;
+            double dz = item.z - pz;
+            if (dx * dx + dy * dy + dz * dz > PICKUP_RANGE * PICKUP_RANGE) return;
+
+            ItemStack remaining = this.playerInventory.insert(item.getStack());
+            if (remaining.isEmpty()) {
+                item.remove();
+            } else {
+                item.getStack().setCount(remaining.getCount());
+            }
+        });
     }
 
     public void render(Input input, int width, int height, float partialTick) {
@@ -148,13 +181,15 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         this.world.render(this.camera, partialTick);
 
-        if (this.hit != null && !this.guiManager.isOpen()) {
+        if (this.hit != null && !this.guiManager.isOpen() && this.player.getGamemode().interactsWithWorld()) {
             this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z(),
                     Blocks.getState(this.hit.block()).getOutlineShape());
         }
 
-        /* Zentrale GUI-Verwaltung: HUD (kein Screen) bzw. Screen-Overlay + Cursor-Sync. */
-        this.guiManager.render(width, height, this.playerInventory, this.hotbarIndex);
+        /* Zentrale GUI-Verwaltung: HUD (kein Screen) bzw. Screen-Overlay + Cursor-Sync.
+           Im Spectator ist die Hotbar ausgeblendet. */
+        boolean showHotbar = this.player.getGamemode() != Gamemode.SPECTATOR;
+        this.guiManager.render(width, height, this.playerInventory, this.hotbarIndex, showHotbar);
     }
 
     @Override
@@ -173,6 +208,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     }
 
     private void handleBlockInteraction(Input input) {
+        /* Spectator kann nicht abbauen/platzieren/nutzen (auch keine Truhe öffnen). */
+        if (!this.player.getGamemode().interactsWithWorld()) return;
+
         long now = System.currentTimeMillis();
 
         /* Sofort beim Klick (isMousePressed) ODER beim Halten nach Ablauf des Delays */
@@ -189,6 +227,13 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             BlockState broken = Blocks.getState(this.hit.block());
             broken.getBlock().onBreak(this.world, hit.x(), hit.y(), hit.z(), broken);
             this.world.setBlock(hit.x(), hit.y(), hit.z(), Blocks.AIR);
+            /* Drops nur im Survival; Creative baut ohne Item ab. */
+            if (this.player.getGamemode().dropsItems()) {
+                Item drop = Items.get(broken.getBlock().getIdentifier());
+                if (drop != null) {
+                    this.world.spawnItem(hit.x() + 0.5, hit.y() + 0.5, hit.z() + 0.5, new ItemStack(drop, 1));
+                }
+            }
             this.lastBreakTime = now;
         } else {
             /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
@@ -228,7 +273,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 /* place == null: ein Behavior lehnt ab (z.B. Tür ohne Platz). Sonst nicht in den
                    eigenen Körper bauen - gegen die ECHTE Kollisionsform testen, damit dünne Blöcke
                    (Panes, Zäune) neben einem platzierbar bleiben. */
-                if (place != null && !this.collidesWithPlayer(place, px, py, pz)) {
+                if (place != null && !this.collidesWithPlayer(place, px, py, pz)
+                        && !this.collidesWithEntities(place, px, py, pz)) {
                     this.world.placeBlock(px, py, pz, place);
                     this.lastPlaceTime = now;
                 }
@@ -264,8 +310,15 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     private void fillStartInventory() {
         short[] start = {
-                Blocks.CHEST, Blocks.OAK_PLANKS, Blocks.STONE_SLAB, Blocks.OAK_LEAVES,
-                Blocks.COBBLESTONE_STAIRS, Blocks.OAK_FENCE, Blocks.GLASS_PANE, Blocks.OAK_DOOR, Blocks.GLASS,
+                Blocks.CHEST,
+                Blocks.OAK_PLANKS,
+                Blocks.STONE_SLAB,
+                Blocks.SAND,
+                Blocks.COBBLESTONE_STAIRS,
+                Blocks.OAK_FENCE,
+                Blocks.GLASS_PANE,
+                Blocks.OAK_DOOR,
+                Blocks.ENCHANTING_TABLE,
         };
         for (int i = 0; i < start.length; i++) {
             Item item = Items.get(Blocks.getState(start[i]).getBlock().getIdentifier());
@@ -280,6 +333,19 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private boolean collidesWithPlayer(BlockState state, int px, int py, int pz) {
         for (AABB local : state.getCollisionShape().boxes()) {
             if (local.copy().move(px, py, pz).intersects(this.player.getBoundingBox())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * true, wenn die Kollisionsform des Blocks an px/py/pz eine kollidierbare Entity schneidet
+     * (z.B. fallender Sand) - dann kann dort nicht gebaut werden, wie in Minecraft.
+     */
+    private boolean collidesWithEntities(BlockState state, int px, int py, int pz) {
+        for (AABB local : state.getCollisionShape().boxes()) {
+            if (this.world.intersectsCollidableEntity(local.copy().move(px, py, pz))) {
                 return true;
             }
         }
@@ -302,13 +368,24 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     }
 
     private void handleDebugInput(Input input) {
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F)) {
-            this.player.toggleFlying();
-            this.logger.debug("Flying: " + this.player.isFlying());
+        /* Doppel-Leertaste = Fliegen umschalten (toggleFlying prüft den Modus selbst). */
+        if (input.isKeyPressed(GLFW.GLFW_KEY_SPACE)) {
+            long now = System.currentTimeMillis();
+            if (now - this.lastSpacePressTime <= DOUBLE_TAP_MS) {
+                this.player.toggleFlying();
+                this.logger.debug("Flying: " + this.player.isFlying());
+                this.lastSpacePressTime = 0; // verbraucht, damit ein dritter Tipp nicht sofort wieder toggelt
+            } else {
+                this.lastSpacePressTime = now;
+            }
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_N)) {
             this.player.toggleNoClip();
             this.logger.debug("NoClip: " + this.player.isNoClip());
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_G)) {
+            this.player.setGamemode(this.player.getGamemode().next());
+            this.logger.debug("Gamemode: " + this.player.getGamemode());
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F6)) {
             this.debugChunkWireframe = !this.debugChunkWireframe;

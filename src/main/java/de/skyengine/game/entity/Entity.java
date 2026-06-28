@@ -23,6 +23,9 @@ public abstract class Entity {
     protected float width = 0.6F;
     protected float height = 1.8F;
 
+    /** Markiert die Entity zum Entfernen; die Welt räumt sie nach dem Tick aus ihrer Liste. */
+    protected boolean removed = false;
+
     protected final AABB boundingBox = new AABB(0, 0, 0, 0, 0, 0);
 
     protected void setSize(float width, float height) {
@@ -53,6 +56,32 @@ public abstract class Entity {
         this.lastX = this.x;
         this.lastY = this.y;
         this.lastZ = this.z;
+    }
+
+    /**
+     * Von der Welt pro Tick für alle gelisteten Entities aufgerufen (nicht der Player - der wird
+     * als Sonderfall in {@code GameContainer} getickt). Default: nur der {@code last*}-Snapshot für
+     * die Render-Interpolation; bewegte Entities (fallender Block, Item) überschreiben das.
+     */
+    public void tick(World world) {
+        this.update();
+    }
+
+    /** Markiert die Entity zum Entfernen (z.B. fallender Block gelandet, Item aufgesammelt). */
+    public void remove() {
+        this.removed = true;
+    }
+
+    public boolean isRemoved() {
+        return this.removed;
+    }
+
+    /**
+     * Ob diese Entity Platz „belegt": verhindert das Setzen eines Blocks an ihrer Stelle (wie in
+     * Minecraft der fallende Sand oder ein Mob). Default: nein - Items blockieren nicht.
+     */
+    public boolean isCollidable() {
+        return false;
     }
 
     /**
