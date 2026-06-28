@@ -57,6 +57,10 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private long lastBreakTime = 0;
     private long lastPlaceTime = 0;
 
+    /* Doppel-Leertaste schaltet das Fliegen um (wie Minecraft): zweiter Tipp binnen 300ms. */
+    private static final long DOUBLE_TAP_MS = 300;
+    private long lastSpacePressTime = 0;
+
     /* Wiederverwendet, um Allokationen pro Frame zu vermeiden */
     private final Vector3d rayDirection = new Vector3d();
 
@@ -177,13 +181,15 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         this.world.render(this.camera, partialTick);
 
-        if (this.hit != null && !this.guiManager.isOpen()) {
+        if (this.hit != null && !this.guiManager.isOpen() && this.player.getGamemode().interactsWithWorld()) {
             this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z(),
                     Blocks.getState(this.hit.block()).getOutlineShape());
         }
 
-        /* Zentrale GUI-Verwaltung: HUD (kein Screen) bzw. Screen-Overlay + Cursor-Sync. */
-        this.guiManager.render(width, height, this.playerInventory, this.hotbarIndex);
+        /* Zentrale GUI-Verwaltung: HUD (kein Screen) bzw. Screen-Overlay + Cursor-Sync.
+           Im Spectator ist die Hotbar ausgeblendet. */
+        boolean showHotbar = this.player.getGamemode() != Gamemode.SPECTATOR;
+        this.guiManager.render(width, height, this.playerInventory, this.hotbarIndex, showHotbar);
     }
 
     @Override
@@ -202,6 +208,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     }
 
     private void handleBlockInteraction(Input input) {
+        /* Spectator kann nicht abbauen/platzieren/nutzen (auch keine Truhe öffnen). */
+        if (!this.player.getGamemode().interactsWithWorld()) return;
+
         long now = System.currentTimeMillis();
 
         /* Sofort beim Klick (isMousePressed) ODER beim Halten nach Ablauf des Delays */
@@ -218,9 +227,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             BlockState broken = Blocks.getState(this.hit.block());
             broken.getBlock().onBreak(this.world, hit.x(), hit.y(), hit.z(), broken);
             this.world.setBlock(hit.x(), hit.y(), hit.z(), Blocks.AIR);
-            Item drop = Items.get(broken.getBlock().getIdentifier());
-            if (drop != null) {
-                this.world.spawnItem(hit.x() + 0.5, hit.y() + 0.5, hit.z() + 0.5, new ItemStack(drop, 1));
+            /* Drops nur im Survival; Creative baut ohne Item ab. */
+            if (this.player.getGamemode().dropsItems()) {
+                Item drop = Items.get(broken.getBlock().getIdentifier());
+                if (drop != null) {
+                    this.world.spawnItem(hit.x() + 0.5, hit.y() + 0.5, hit.z() + 0.5, new ItemStack(drop, 1));
+                }
             }
             this.lastBreakTime = now;
         } else {
@@ -356,13 +368,24 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     }
 
     private void handleDebugInput(Input input) {
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F)) {
-            this.player.toggleFlying();
-            this.logger.debug("Flying: " + this.player.isFlying());
+        /* Doppel-Leertaste = Fliegen umschalten (toggleFlying prüft den Modus selbst). */
+        if (input.isKeyPressed(GLFW.GLFW_KEY_SPACE)) {
+            long now = System.currentTimeMillis();
+            if (now - this.lastSpacePressTime <= DOUBLE_TAP_MS) {
+                this.player.toggleFlying();
+                this.logger.debug("Flying: " + this.player.isFlying());
+                this.lastSpacePressTime = 0; // verbraucht, damit ein dritter Tipp nicht sofort wieder toggelt
+            } else {
+                this.lastSpacePressTime = now;
+            }
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_N)) {
             this.player.toggleNoClip();
             this.logger.debug("NoClip: " + this.player.isNoClip());
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_G)) {
+            this.player.setGamemode(this.player.getGamemode().next());
+            this.logger.debug("Gamemode: " + this.player.getGamemode());
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F6)) {
             this.debugChunkWireframe = !this.debugChunkWireframe;

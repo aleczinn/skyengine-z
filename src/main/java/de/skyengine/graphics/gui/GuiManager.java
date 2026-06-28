@@ -88,7 +88,7 @@ public final class GuiManager {
      * Die Hotbar wird IMMER gerendert (auch bei offenem Inventar, wie in Minecraft) und teilt sich die
      * Daten mit dem Screen (gleiches Spielerinventar) -> automatisch synchron. Das Fadenkreuz nur ohne Screen.
      */
-    public void render(int screenW, int screenH, SimpleItemStorage hotbarInv, int selectedSlot) {
+    public void render(int screenW, int screenH, SimpleItemStorage hotbarInv, int selectedSlot, boolean showHotbar) {
         this.syncCursor();
         this.vW = screenW / this.scale;
         this.vH = screenH / this.scale;
@@ -96,7 +96,7 @@ public final class GuiManager {
         if (this.screen != null) {
             this.screen.render(this, this.mouseX(), this.mouseY());
         }
-        this.hud.render(this, hotbarInv, selectedSlot, this.screen == null);
+        this.hud.render(this, hotbarInv, selectedSlot, this.screen == null, showHotbar);
     }
 
     private void syncCursor() {
