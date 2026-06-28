@@ -26,6 +26,7 @@ import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.ChestRenderer;
+import de.skyengine.graphics.blockentity.EnchantingTableRenderer;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.entity.EntityRenderer;
 import de.skyengine.graphics.world.ChunkRenderer;
@@ -54,6 +55,9 @@ public class World implements IInitializable, IDisposable {
     /** Wiederverwendeter Snapshot-Puffer fürs BlockEntity-Ticking (keine Allokation pro Chunk/Tick). */
     private final List<BlockEntity> tickScratch = new ArrayList<>();
 
+    /** Der Spieler dieses Ticks (für BlockEntities, die ihn brauchen, z.B. das Zaubertisch-Buch). */
+    private EntityPlayer player;
+
     /** Spielzeit in Ticks (20 TPS), bei jedem update() erhöht - Basis für geplante Ticks. */
     private long gameTime;
     private final Random random = new Random();
@@ -81,12 +85,14 @@ public class World implements IInitializable, IDisposable {
     public void init() {
         this.chunkRenderer.init();
         this.blockEntityRenderer.register(BlockEntities.CHEST, new ChestRenderer());
+        this.blockEntityRenderer.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
         this.blockEntityRenderer.init();
         this.entityRenderer.init(this.chunkRenderer.getTextureArray());
     }
 
     public void update(Input input, EntityPlayer player) {
         this.gameTime++;
+        this.player = player;
         this.chunkManager.update(player);
         this.tickScheduled();
         this.tickRandomBlocks();
@@ -290,6 +296,18 @@ public class World implements IInitializable, IDisposable {
                 }
             }
         }
+    }
+
+    /**
+     * Der Spieler, falls er sich innerhalb von {@code maxDist} (3D) um (x,y,z) befindet, sonst null.
+     * Aktuell ein einziger Spieler; bei mehreren später den nächsten wählen.
+     */
+    public EntityPlayer getNearestPlayer(double x, double y, double z, double maxDist) {
+        if (this.player == null) return null;
+        double dx = this.player.x - x;
+        double dy = this.player.y - y;
+        double dz = this.player.z - z;
+        return dx * dx + dy * dy + dz * dz <= maxDist * maxDist ? this.player : null;
     }
 
     /** BlockEntity an Weltkoordinaten oder null. */

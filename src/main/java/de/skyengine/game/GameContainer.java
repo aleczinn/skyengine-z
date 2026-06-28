@@ -306,7 +306,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 Blocks.OAK_FENCE,
                 Blocks.GLASS_PANE,
                 Blocks.OAK_DOOR,
-                Blocks.GLASS,
+                Blocks.ENCHANTING_TABLE,
         };
         for (int i = 0; i < start.length; i++) {
             Item item = Items.get(Blocks.getState(start[i]).getBlock().getIdentifier());
