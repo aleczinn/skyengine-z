@@ -1,6 +1,7 @@
 package de.skyengine.game.entity;
 
 import de.skyengine.core.input.Input;
+import de.skyengine.game.Gamemode;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.World;
 import de.skyengine.utils.math.MathUtils;
@@ -38,6 +39,7 @@ public class EntityPlayer extends Entity {
     private static final double SNEAK_EDGE_STEP = 0.05;      // Schrittweite beim Kürzen der Bewegung
     private static final double SNEAK_EDGE_DROP = 0.6;       // ab dieser Falltiefe gilt "keine Kante mehr"
 
+    private Gamemode gamemode = Gamemode.CREATIVE;
     private boolean flying = false; // Start im Fly-Modus, bis Spawn-Logik existiert
     private boolean sprinting = false;
     private boolean sneaking = false;
@@ -247,6 +249,8 @@ public class EntityPlayer extends Entity {
     }
 
     public void toggleFlying() {
+        /* Survival kann nicht fliegen; im Spectator ist der Flug erzwungen (F tut nichts). */
+        if (!this.gamemode.canFly() || this.gamemode.isAlwaysFly()) return;
         this.flying = !this.flying;
         if (this.flying) {
             /* Beim Einschalten Fallgeschwindigkeit abfangen, sonst "fällt" man weiter */
@@ -259,8 +263,31 @@ public class EntityPlayer extends Entity {
 
     /** NoClip umschalten - nur im Flugmodus aktivierbar. */
     public void toggleNoClip() {
+        /* Spectator-NoClip ist erzwungen und darf nicht abgeschaltet werden. */
+        if (this.gamemode.isAlwaysFly()) return;
         if (!this.flying) return;
         this.noClip = !this.noClip;
+    }
+
+    public Gamemode getGamemode() {
+        return gamemode;
+    }
+
+    /** Wechselt den Spielmodus und passt Flug/NoClip an dessen Regeln an. */
+    public void setGamemode(Gamemode mode) {
+        this.gamemode = mode;
+        if (mode.isAlwaysFly()) {
+            /* Spectator: dauerhaft fliegen + durch Blöcke fallen. */
+            this.flying = true;
+            this.noClip = true;
+            this.motionY = 0;
+        } else {
+            this.noClip = false;
+            /* Survival: kein Flug. Creative behält seinen aktuellen Flug-Zustand. */
+            if (!mode.canFly()) {
+                this.flying = false;
+            }
+        }
     }
 
     public boolean isFlying() {

@@ -16,7 +16,7 @@ public final class Hud {
     private static final float CROSS = 8;
     private static final float ICON = 16;
 
-    public void render(GuiManager gui, SimpleItemStorage inv, int selectedSlot, boolean drawCrosshair) {
+    public void render(GuiManager gui, SimpleItemStorage inv, int selectedSlot, boolean drawCrosshair, boolean drawHotbar) {
         SpriteRenderer sr = gui.sprites();
         GuiTextures tex = gui.textures();
         float vW = gui.vWidth(), vH = gui.vHeight();
@@ -29,17 +29,21 @@ public final class Hud {
             sr.drawSprite(tex.crosshair, (vW - CROSS) / 2f, (vH - CROSS) / 2f, CROSS, CROSS);
         }
 
-        sr.drawSprite(tex.hotbar, hx, hy, HOTBAR_W, HOTBAR_H);
-        sr.drawSprite(tex.hotbarSelection, hx - 1 + selectedSlot * SLOT_STEP, hy - 1, SEL_W, SEL_H);
+        if (drawHotbar) {
+            sr.drawSprite(tex.hotbar, hx, hy, HOTBAR_W, HOTBAR_H);
+            sr.drawSprite(tex.hotbarSelection, hx - 1 + selectedSlot * SLOT_STEP, hy - 1, SEL_W, SEL_H);
+        }
         sr.end();
 
-        gui.icons().begin(vW, vH);
-        for (int i = 0; i < 9; i++) {
-            ItemStack st = inv.get(i);
-            if (!st.isEmpty()) {
-                gui.icons().drawIcon(st, hx + 11 + i * SLOT_STEP, hy + 11, ICON, vH);
+        if (drawHotbar) {
+            gui.icons().begin(vW, vH);
+            for (int i = 0; i < 9; i++) {
+                ItemStack st = inv.get(i);
+                if (!st.isEmpty()) {
+                    gui.icons().drawIcon(st, hx + 11 + i * SLOT_STEP, hy + 11, ICON, vH);
+                }
             }
+            gui.icons().end();
         }
-        gui.icons().end();
     }
 }
