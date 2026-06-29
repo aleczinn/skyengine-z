@@ -4,6 +4,8 @@ import de.skyengine.core.input.Input;
 import de.skyengine.game.Gamemode;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.utils.math.MathUtils;
 import org.lwjgl.glfw.GLFW;
 
@@ -34,6 +36,13 @@ public class EntityPlayer extends Entity {
     private static final double FLY_VERTICAL_FACTOR = 0.6;   // Hoch/Runter langsamer als Vorwärts
     private static final double FLY_DRAG = 0.88;
     private static final double FLY_DRAG_Y = 0.6;
+
+    /* --- Schwimmen (Fluid) --- */
+    private static final double SWIM_ACCEL = 0.02;          // langsame Beschleunigung im Fluid
+    private static final double SWIM_GRAVITY = 0.02;         // sinkt langsam (statt voller Gravitation)
+    private static final double SWIM_UP = 0.04;             // Space = aufschwimmen
+    private static final double WATER_DRAG = 0.8;           // horizontale/vertikale Reibung Wasser
+    private static final double LAVA_DRAG = 0.5;            // Lava bremst stärker
 
     /* --- Sneak-Kantenschutz --- */
     private static final double SNEAK_EDGE_STEP = 0.05;      // Schrittweite beim Kürzen der Bewegung
@@ -87,9 +96,49 @@ public class EntityPlayer extends Entity {
 
         if (this.flying) {
             this.travelFlying(world, forward, strafe, up, shift);
+        } else if (this.inFluid(world, true)) {
+            this.travelSwimming(world, forward, strafe, up, true);
+        } else if (this.inFluid(world, false)) {
+            this.travelSwimming(world, forward, strafe, up, false);
         } else {
             this.travelWalking(world, forward, strafe, up);
         }
+    }
+
+    /**
+     * Schwimmen im Fluid: reduzierte Gravitation + Auftrieb, starke Reibung, Space schwimmt aufwärts.
+     * Fluids haben keine Kollision - der Spieler sinkt/schwimmt also durch sie hindurch.
+     */
+    private void travelSwimming(World world, double forward, double strafe, boolean up, boolean lava) {
+        this.moveRelative(strafe, forward, SWIM_ACCEL);
+        this.move(world, this.motionX, this.motionY, this.motionZ);
+
+        double drag = lava ? LAVA_DRAG : WATER_DRAG;
+        this.motionX *= drag;
+        this.motionZ *= drag;
+        this.motionY *= drag;
+        this.motionY -= SWIM_GRAVITY;
+        if (up) this.motionY += SWIM_UP; // aufschwimmen
+    }
+
+    /** true, wenn die Spieler-Box ein Fluid (lava=true: Lava, sonst Wasser) überlappt. */
+    private boolean inFluid(World world, boolean lava) {
+        int minX = (int) Math.floor(this.boundingBox.minX);
+        int maxX = (int) Math.floor(this.boundingBox.maxX);
+        int minY = (int) Math.floor(this.boundingBox.minY);
+        int maxY = (int) Math.floor(this.boundingBox.maxY);
+        int minZ = (int) Math.floor(this.boundingBox.minZ);
+        int maxZ = (int) Math.floor(this.boundingBox.maxZ);
+
+        for (int y = minY; y <= maxY; y++) {
+            for (int x = minX; x <= maxX; x++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    BlockState state = Blocks.getState(world.getBlock(x, y, z));
+                    if (state.isFluid() && state.getBlock().getFluidInfo().lava == lava) return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

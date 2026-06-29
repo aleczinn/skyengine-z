@@ -30,6 +30,15 @@ public class Item {
         return maxStackSize;
     }
 
+    /**
+     * Texturpfad für ein flaches 2D-Icon (Nicht-Block-Items wie Eimer). {@code null} bei Block-Items,
+     * die als 3D-Würfel/aus {@code icon_flat} gerendert werden. Der Pfad muss vor dem TextureArray-Bau
+     * über {@code BlockTextures.layerOf} registriert sein.
+     */
+    public String getIconTexture() {
+        return null;
+    }
+
     @Override
     public String toString() {
         return id.toString();

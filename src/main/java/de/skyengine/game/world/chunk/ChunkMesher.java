@@ -7,8 +7,8 @@ import de.skyengine.game.world.block.state.BlockState;
 
 public class ChunkMesher {
 
-    /** Floats pro Vertex: pos(3) + uv(2) + layer(1) + brightness(1) */
-    public static final int VERTEX_SIZE = 7;
+    /** Floats pro Vertex: pos(3) + uv(2) + layer(1) + color(3) */
+    public static final int VERTEX_SIZE = 9;
 
     /* Face-Indizes: 0=top, 1=bottom, 2=north(-z), 3=south(+z), 4=west(-x), 5=east(+x) */
     private static final int[][] FACE_OFFSET = {
@@ -60,11 +60,15 @@ public class ChunkMesher {
                     if (stateId == Blocks.AIR) continue;
 
                     BlockState state = BlockRegistry.getState(stateId);
-                    BakedQuad[] quads = state.getModel();
+                    int worldY = baseY + y;
+
+                    /* Fluids: Geometrie hängt von Nachbar-Leveln ab -> dynamisch statt gebackenes Modell. */
+                    BakedQuad[] quads = state.isFluid()
+                            ? FluidGeometry.build(state, chunk, north, south, west, east, x, worldY, z)
+                            : state.getModel();
                     if (quads.length == 0) continue;
 
                     VertexBuffer buffer = this.buffers[state.getRenderLayer().ordinal()];
-                    int worldY = baseY + y;
 
                     float offsetX = 0F, offsetZ = 0F;
                     if (state.hasRandomOffset()) {
@@ -118,6 +122,13 @@ public class ChunkMesher {
         float layer = quad.textureLayer();
         float brightness = quad.brightness();
 
+        /* Per-Vertex-Farbe = Helligkeit * Tint (0xRRGGBB). Tint ist normal weiß (neutral),
+           Wasser bringt seine Blaufarbe mit. So bleibt der Shader-Multiply unverändert. */
+        int tint = quad.tint();
+        float r = brightness * ((tint >> 16) & 0xFF) / 255F;
+        float g = brightness * ((tint >> 8) & 0xFF) / 255F;
+        float b = brightness * (tint & 0xFF) / 255F;
+
         for (int v = 0; v < 6; v++) {
             int i = v * 5;
             buffer.data[buffer.count++] = verts[i] + x + offsetX;
@@ -126,7 +137,9 @@ public class ChunkMesher {
             buffer.data[buffer.count++] = verts[i + 3];
             buffer.data[buffer.count++] = verts[i + 4];
             buffer.data[buffer.count++] = layer;
-            buffer.data[buffer.count++] = brightness;
+            buffer.data[buffer.count++] = r;
+            buffer.data[buffer.count++] = g;
+            buffer.data[buffer.count++] = b;
         }
     }
 

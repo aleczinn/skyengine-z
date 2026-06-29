@@ -16,6 +16,7 @@ public final class StateFlags {
     public static final int RANDOM_OFFSET    = 1 << 3;
     public static final int HAS_BLOCK_ENTITY = 1 << 4; // Phase 4d
     public static final int TICKS_RANDOMLY   = 1 << 7; // Phase 1.1 (Bit 5-6 sind der Layer)
+    public static final int FLUID            = 1 << 8; // Wasser/Lava: dynamische Geometrie im Mesher
 
     /* Render-Layer in 2 Bits (Bit 5-6). */
     private static final int LAYER_SHIFT = 5;

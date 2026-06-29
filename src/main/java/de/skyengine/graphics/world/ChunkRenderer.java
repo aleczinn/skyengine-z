@@ -185,17 +185,17 @@ public class ChunkRenderer {
             #version 460 core
             layout(location = 0) in vec3 a_position;
             layout(location = 1) in vec3 a_texCoord;   // u, v, layer
-            layout(location = 2) in float a_brightness;
+            layout(location = 2) in vec3 a_color;      // helligkeit * tint (rgb)
 
             uniform mat4 u_ProjectionView;
             uniform vec3 u_Offset;
 
             out vec3 v_texCoord;
-            out float v_brightness;
+            out vec3 v_color;
 
             void main() {
                 v_texCoord = a_texCoord;
-                v_brightness = a_brightness;
+                v_color = a_color;
                 gl_Position = u_ProjectionView * vec4(a_position + u_Offset, 1.0);
             }
             """;
@@ -203,7 +203,7 @@ public class ChunkRenderer {
     private static final String FRAGMENT_SOURCE = """
             #version 460 core
             in vec3 v_texCoord;
-            in float v_brightness;
+            in vec3 v_color;
 
             uniform sampler2DArray u_Textures;
             uniform float u_AlphaCutoff;
@@ -213,7 +213,7 @@ public class ChunkRenderer {
             void main() {
                 vec4 color = texture(u_Textures, v_texCoord);
                 if (color.a < u_AlphaCutoff) discard;
-                fragColor = vec4(color.rgb * v_brightness, color.a);
+                fragColor = vec4(color.rgb * v_color, color.a);
             }
             """;
 

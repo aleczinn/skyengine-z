@@ -1,6 +1,7 @@
 package de.skyengine.game.world.block;
 
 import de.skyengine.game.world.block.archetype.BlockConfig;
+import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.block.behavior.BlockBehavior;
 import de.skyengine.game.world.block.behavior.PlacementContext;
 import de.skyengine.game.world.block.model.BakedQuad;
@@ -103,6 +104,16 @@ public class Block {
     /** true: innere Faces zwischen zwei identischen Blöcken werden geculled (Glas-an-Glas). */
     public boolean cullsSameBlock() {
         return this.settings.cullSame;
+    }
+
+    /** true: Wasser/Lava — Geometrie kommt dynamisch aus dem Mesher (kein gebackenes Modell). */
+    public boolean isFluid() {
+        return this.config.fluidInfo() != null;
+    }
+
+    /** Fluid-Metadaten (Texturlayer, Ausbreitung, Tick) oder {@code null}, wenn kein Fluid. */
+    public FluidInfo getFluidInfo() {
+        return this.config.fluidInfo();
     }
 
     /**
@@ -216,6 +227,16 @@ public class Block {
      */
     public BakedQuad[] bakeModel(BlockState state) {
         if (this.isAir()) return new BakedQuad[0];
+        /* Fluids: keine gebackene Geometrie (der Mesher erzeugt sie nachbarabhängig). Hier nur die
+           Still-/Flow-Texturlayer im Atlas reservieren (läuft beim Bake, single-threaded). */
+        FluidInfo fluid = this.config.fluidInfo();
+        if (fluid != null) {
+            if (fluid.stillLayer < 0) {
+                fluid.stillLayer = BlockTextures.layerOf(fluid.stillTexture);
+                fluid.flowLayer = BlockTextures.layerOf(fluid.flowTexture);
+            }
+            return new BakedQuad[0];
+        }
         if (this.config.modelGenerator() != null) return this.config.modelGenerator().bake(state);
         return BlockStateModels.bake(this, state).quads();
     }

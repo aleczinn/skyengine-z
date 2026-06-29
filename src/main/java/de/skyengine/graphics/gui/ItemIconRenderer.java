@@ -142,8 +142,15 @@ public final class ItemIconRenderer {
      * Gibt {@link #NOT_FLAT} (mesh=null) zurück, wenn der Block kein flaches Icon definiert.
      */
     private FlatIcon bakeFlat(Item item) {
-        if (!(item instanceof BlockItem bi)) return NOT_FLAT;
-        String[] paths = BlockStateModels.flatIcon(bi.getBlock());
+        String[] paths;
+        if (item instanceof BlockItem bi) {
+            paths = BlockStateModels.flatIcon(bi.getBlock());
+        } else if (item.getIconTexture() != null) {
+            /* Nicht-Block-Item mit eigener Textur (z.B. Eimer) -> einfaches Voll-Slot-Quad. */
+            paths = new String[]{item.getIconTexture()};
+        } else {
+            paths = null;
+        }
         if (paths == null || paths.length == 0) return NOT_FLAT;
         int n = paths.length;
         float[] data = new float[n * 6 * 7];

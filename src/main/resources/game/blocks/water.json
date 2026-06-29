@@ -1,0 +1,13 @@
+{
+  "id": "skyengine:water",
+  "type": "fluid",
+  "layer": "translucent",
+  "opaque": false,
+  "solid": false,
+  "fluid_spread": 7,
+  "fluid_tick": 5,
+  "textures": {
+    "still": "game/textures/block/water_still.png",
+    "flow": "game/textures/block/water_flow.png"
+  }
+}

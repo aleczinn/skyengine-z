@@ -28,8 +28,11 @@ public final class Properties {
     public static final Property<Direction.Axis> AXIS =
             Property.ofEnum("axis", Direction.Axis.class);
 
-    /** Fluid-Stand 0..15. */
+    /** Fluid-Stand 0..15 (0 = Quelle, 1..7 = fließend). */
     public static final Property<Integer> LEVEL = Property.of("level", levels());
+
+    /** Fluid fällt als volle Säule nach unten (von oben gespeist). */
+    public static final Property<Boolean> FALLING = Property.ofBoolean("falling");
 
     /** Offen/geschlossen (Türen, Trapdoors, Fence-Gates). */
     public static final Property<Boolean> OPEN = Property.ofBoolean("open");
