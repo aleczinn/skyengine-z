@@ -175,8 +175,11 @@ public final class FluidGeometry {
         if (s.get(Properties.FALLING)) return 1.0f;
         int level = s.get(Properties.LEVEL);
         if (level <= 0) return SOURCE_HEIGHT;
-        int amount = 8 - Math.min(level, 7); // level 1 -> 7 ... level 7 -> 1
-        return amount / 8.0f * SOURCE_HEIGHT;
+        /* Reichweiten-relativ: über die ganze Reichweite von voll auf dünn. Lava (spread 3) fällt
+           damit steiler/dünner ab als Wasser (spread 7). level 1 -> hoch, level spread -> dünn. */
+        int spread = s.getBlock().getFluidInfo().spread;
+        int amount = spread + 1 - Math.min(level, spread);
+        return amount / (spread + 1.0f) * SOURCE_HEIGHT;
     }
 
     private static boolean isSameFluid(short id, Block fluid) {
