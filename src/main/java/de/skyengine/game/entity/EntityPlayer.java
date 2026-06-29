@@ -94,6 +94,8 @@ public class EntityPlayer extends Entity {
             strafe *= SNEAK_FACTOR;
         }
 
+        boolean wasOnGround = this.onGround;
+
         if (this.flying) {
             this.travelFlying(world, forward, strafe, up, shift);
         } else if (this.inFluid(world, true)) {
@@ -102,6 +104,13 @@ public class EntityPlayer extends Entity {
             this.travelSwimming(world, forward, strafe, up, false);
         } else {
             this.travelWalking(world, forward, strafe, up);
+        }
+
+        /* Creative-Fly: das Aufkommen auf dem Boden beendet das Fliegen (wie in Minecraft). Nur die
+           Flanke (Landung) zählt - so bleibt das Fly-Toggle im Stehen erhalten. Spectator (alwaysFly)
+           fliegt weiter. */
+        if (this.flying && this.onGround && !wasOnGround && !this.gamemode.isAlwaysFly()) {
+            this.flying = false;
         }
     }
 
