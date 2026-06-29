@@ -1,6 +1,7 @@
 package de.skyengine.game.world.block.archetype;
 
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.behavior.PlantBehavior;
 import de.skyengine.game.world.block.json.BlockDefinition;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.ModelLoader;
@@ -17,6 +18,7 @@ public final class CrossArchetype implements Archetype {
         String model = "block/" + Identifier.of(def.id).path();
         cfg.model(state -> BlockModels.cross(ModelLoader.textureLayer(model, "all")))
                 .shapes(Shapes.cross())
-                .randomOffset(true);
+                .randomOffset(true)
+                .behavior(new PlantBehavior());
     }
 }
