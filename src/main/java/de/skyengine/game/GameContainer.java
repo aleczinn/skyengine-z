@@ -324,17 +324,16 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     /**
      * Eimer-Interaktion: gefüllt platziert eine Fluid-Quelle, leer nimmt eine Quelle auf.
      * Im Survival wird der Eimer getauscht (gefüllt↔leer), im Creative nicht.
-     * Nutzt einen fluid-bewussten Raycast, damit Fluids als Ziel zählen.
      */
     private boolean handleBucket(BucketItem bucket, long now) {
-        BlockRaycast.Hit fhit = BlockRaycast.raycast(this.world, this.camera.getPosition(),
-                this.camera.getDirection(this.rayDirection), REACH, true);
-        if (fhit == null) return false;
-
         boolean consume = this.player.getGamemode() == Gamemode.SURVIVAL;
 
         if (bucket.isEmpty()) {
-            /* Aufnehmen: nur eine Fluid-Quelle (LEVEL 0, nicht fallend). */
+            /* Aufnehmen: fluid-bewusster Strahl, damit Wasser/Lava als Ziel zählt. Nur eine
+               Quelle (LEVEL 0, nicht fallend). */
+            BlockRaycast.Hit fhit = BlockRaycast.raycast(this.world, this.camera.getPosition(),
+                    this.camera.getDirection(this.rayDirection), REACH, true);
+            if (fhit == null) return false;
             BlockState state = Blocks.getState(fhit.block());
             if (!state.isFluid() || state.get(Properties.FALLING) || state.get(Properties.LEVEL) != 0) return false;
             this.world.setBlock(fhit.x(), fhit.y(), fhit.z(), Blocks.AIR);
@@ -346,16 +345,13 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             return true;
         }
 
-        /* Platzieren: Trifft der Strahl direkt ein Fluid, wird DIESE Zelle zur Quelle (neue Quelle
-           im Wasser), sonst an der getroffenen Seite. Ziel muss überbaubar sein (Luft/Fluid). */
-        int tx, ty, tz;
-        if (Blocks.getState(this.world.getBlock(fhit.x(), fhit.y(), fhit.z())).isFluid()) {
-            tx = fhit.x(); ty = fhit.y(); tz = fhit.z();
-        } else {
-            tx = fhit.x() + fhit.faceX();
-            ty = fhit.y() + fhit.faceY();
-            tz = fhit.z() + fhit.faceZ();
-        }
+        /* Platzieren wie ein Block: der normale (fluid-ignorierende) Strahl this.hit zielt durch
+           Wasser hindurch auf die feste Blockseite. Quelle kommt an die Trefferseite (Luft/Fluid). */
+        if (this.hit == null) return false;
+        if (this.hit.faceX() == 0 && this.hit.faceY() == 0 && this.hit.faceZ() == 0) return false;
+        int tx = this.hit.x() + this.hit.faceX();
+        int ty = this.hit.y() + this.hit.faceY();
+        int tz = this.hit.z() + this.hit.faceZ();
         if (!this.isReplaceable(this.world.getBlock(tx, ty, tz))) return false;
 
         Block fluid = bucket.getFluid();
