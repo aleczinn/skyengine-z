@@ -54,11 +54,20 @@ public final class FluidBehavior implements BlockBehavior {
             } else {
                 int best = Integer.MAX_VALUE; // kleinster Levelwert (höchstes Fluid) unter den Stützen
                 for (Direction d : Direction.horizontal()) {
-                    short ns = world.getBlock(x + d.offsetX(), y, z + d.offsetZ());
+                    int nx = x + d.offsetX(), nz = z + d.offsetZ();
+                    short ns = world.getBlock(nx, y, nz);
                     if (!isSameFluid(ns, fluid)) continue;
                     BlockState neighbor = Blocks.getState(ns);
-                    if (neighbor.get(Properties.FALLING)) continue;     // fallende Säule stützt nicht horizontal
-                    best = Math.min(best, isSource(neighbor) ? 0 : neighbor.get(Properties.LEVEL));
+                    if (neighbor.get(Properties.FALLING)) {
+                        /* Eine fallende Säule stützt nur dort, wo sie auf festem Boden aufkommt
+                           (Pfütze am Fuß) - mitten im freien Fall (Luft/Fluid darunter) nicht,
+                           sonst würde der Wasserfall in der Luft breiter. */
+                        short nbelow = world.getBlock(nx, y - 1, nz);
+                        if (nbelow == Blocks.AIR || isSameFluid(nbelow, fluid)) continue;
+                        best = 0;
+                    } else {
+                        best = Math.min(best, isSource(neighbor) ? 0 : neighbor.get(Properties.LEVEL));
+                    }
                 }
 
                 /* Unendliche Wasserquelle: ≥2 horizontale Quell-Nachbarn -> selbst Quelle. */
@@ -92,7 +101,8 @@ public final class FluidBehavior implements BlockBehavior {
         }
         if (isSameFluid(below, fluid)) return; // fällt bereits in vorhandenes Fluid
 
-        int eff = isSource(state) ? 0 : state.get(Properties.LEVEL);
+        /* Quelle UND aufkommende fallende Säule breiten mit voller Stärke aus (effektives Level 0). */
+        int eff = (isSource(state) || state.get(Properties.FALLING)) ? 0 : state.get(Properties.LEVEL);
         int spreadLevel = eff + 1;
         if (spreadLevel > info.spread) return;
         for (Direction d : Direction.horizontal()) {
