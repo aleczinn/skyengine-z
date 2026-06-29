@@ -3,6 +3,7 @@ package de.skyengine.game.world.block;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.Properties;
 import org.joml.Vector3d;
 
 public final class BlockRaycast {
@@ -31,8 +32,10 @@ public final class BlockRaycast {
     }
 
     /**
-     * @param includeFluids true: Fluids (Wasser/Lava) zählen als voller Würfel und werden getroffen
-     *                      (für den Eimer). Sonst werden sie über ihre leere Umrissform übersprungen.
+     * @param includeFluids true: Fluid-<b>Quellen</b> (LEVEL 0, nicht fallend) zählen als voller
+     *                      Würfel und werden getroffen (für den leeren Eimer); fließendes Fluid wird
+     *                      durchquert, damit man die Quelle dahinter trifft (wie Minecraft
+     *                      {@code Fluid.SOURCE_ONLY}). Sonst werden alle Fluids übersprungen.
      */
     public static Hit raycast(World world, Vector3d origin, Vector3d dir, double maxDistance, boolean includeFluids) {
         int x = (int) Math.floor(origin.x);
@@ -62,7 +65,14 @@ public final class BlockRaycast {
                 /* Formgenau: gegen die echte Outline-Shape testen, nicht den vollen Voxel.
                    Trifft der Strahl nur die leere Hälfte (z.B. einer Slab) -> Traversal weiter. */
                 BlockState state = Blocks.getState(block);
-                BlockShape shape = includeFluids && state.isFluid() ? BlockShape.FULL_CUBE : state.getOutlineShape();
+                BlockShape shape;
+                if (includeFluids && state.isFluid()) {
+                    /* Nur Quellen blockieren den Strahl; fließendes Fluid wird durchquert. */
+                    boolean sourceFluid = state.get(Properties.LEVEL) == 0 && !state.get(Properties.FALLING);
+                    shape = sourceFluid ? BlockShape.FULL_CUBE : BlockShape.EMPTY;
+                } else {
+                    shape = state.getOutlineShape();
+                }
                 BlockShape.RayHit rh = shape.clip(origin, dir, x, y, z);
                 if (rh != null && rh.t() <= maxDistance) {
                     double hx = origin.x + dir.x * rh.t();
