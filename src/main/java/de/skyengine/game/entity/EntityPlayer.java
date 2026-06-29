@@ -6,6 +6,7 @@ import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.utils.math.MathUtils;
 import org.lwjgl.glfw.GLFW;
 
@@ -43,6 +44,7 @@ public class EntityPlayer extends Entity {
     private static final double SWIM_UP = 0.04;             // Space = aufschwimmen
     private static final double WATER_DRAG = 0.8;           // horizontale/vertikale Reibung Wasser
     private static final double LAVA_DRAG = 0.5;            // Lava bremst stärker
+    private static final double FLUID_EPSILON = 0.001;      // Box vor Fluid-Sampling minimal schrumpfen (wie MC)
 
     /* --- Sneak-Kantenschutz --- */
     private static final double SNEAK_EDGE_STEP = 0.05;      // Schrittweite beim Kürzen der Bewegung
@@ -130,20 +132,31 @@ public class EntityPlayer extends Entity {
         if (up) this.motionY += SWIM_UP; // aufschwimmen
     }
 
-    /** true, wenn die Spieler-Box ein Fluid (lava=true: Lava, sonst Wasser) überlappt. */
+    /**
+     * true, wenn die Spieler-Box ein Fluid (lava=true: Lava, sonst Wasser) tatsächlich überlappt.
+     *
+     * <p>Die Box wird vor dem Sampling um {@link #FLUID_EPSILON} geschrumpft (wie Minecraft), damit
+     * bloßes Berühren einer Zellkante an deren Minimal-Ecke nicht fälschlich als "im Fluid" zählt.
+     * Pro Fluid-Zelle wird zudem gegen die echte Oberkante ({@link FluidGeometry#fluidHeight})
+     * geprüft: eine Zelle zählt nur, wenn die Box unter die Fluid-Oberfläche reicht – Stehen knapp
+     * über der Oberfläche schwimmt also nicht mehr.
+     */
     private boolean inFluid(World world, boolean lava) {
-        int minX = (int) Math.floor(this.boundingBox.minX);
-        int maxX = (int) Math.floor(this.boundingBox.maxX);
-        int minY = (int) Math.floor(this.boundingBox.minY);
-        int maxY = (int) Math.floor(this.boundingBox.maxY);
-        int minZ = (int) Math.floor(this.boundingBox.minZ);
-        int maxZ = (int) Math.floor(this.boundingBox.maxZ);
+        double minX = this.boundingBox.minX + FLUID_EPSILON, maxX = this.boundingBox.maxX - FLUID_EPSILON;
+        double minY = this.boundingBox.minY + FLUID_EPSILON, maxY = this.boundingBox.maxY - FLUID_EPSILON;
+        double minZ = this.boundingBox.minZ + FLUID_EPSILON, maxZ = this.boundingBox.maxZ - FLUID_EPSILON;
 
-        for (int y = minY; y <= maxY; y++) {
-            for (int x = minX; x <= maxX; x++) {
-                for (int z = minZ; z <= maxZ; z++) {
+        int x0 = (int) Math.floor(minX), x1 = (int) Math.floor(maxX);
+        int y0 = (int) Math.floor(minY), y1 = (int) Math.floor(maxY);
+        int z0 = (int) Math.floor(minZ), z1 = (int) Math.floor(maxZ);
+
+        for (int y = y0; y <= y1; y++) {
+            for (int x = x0; x <= x1; x++) {
+                for (int z = z0; z <= z1; z++) {
                     BlockState state = Blocks.getState(world.getBlock(x, y, z));
-                    if (state.isFluid() && state.getBlock().getFluidInfo().lava == lava) return true;
+                    if (!state.isFluid() || state.getBlock().getFluidInfo().lava != lava) continue;
+                    // Fluid füllt [y, y + Höhe]; Box ist im Fluid, wenn sie unter die Oberkante reicht.
+                    if (y + FluidGeometry.fluidHeight(state) >= minY) return true;
                 }
             }
         }

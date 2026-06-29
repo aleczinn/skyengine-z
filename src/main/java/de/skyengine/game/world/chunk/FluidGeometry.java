@@ -189,6 +189,11 @@ public final class FluidGeometry {
         return SOURCE_HEIGHT - t * (SOURCE_HEIGHT - MIN_HEIGHT);
     }
 
+    /** Sichtbare Oberkante (0..1) einer Fluid-Spalte aus LEVEL/FALLING – für Swim-/Höhenchecks. */
+    public static float fluidHeight(BlockState s) {
+        return ownHeight(s);
+    }
+
     private static boolean isSameFluid(short id, Block fluid) {
         BlockState s = BlockRegistry.getState(id);
         return s.isFluid() && s.getBlock() == fluid;
