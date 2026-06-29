@@ -27,6 +27,14 @@ public final class BlockRaycast {
      * @return Hit oder null, wenn nichts getroffen wurde
      */
     public static Hit raycast(World world, Vector3d origin, Vector3d dir, double maxDistance) {
+        return raycast(world, origin, dir, maxDistance, false);
+    }
+
+    /**
+     * @param includeFluids true: Fluids (Wasser/Lava) zählen als voller Würfel und werden getroffen
+     *                      (für den Eimer). Sonst werden sie über ihre leere Umrissform übersprungen.
+     */
+    public static Hit raycast(World world, Vector3d origin, Vector3d dir, double maxDistance, boolean includeFluids) {
         int x = (int) Math.floor(origin.x);
         int y = (int) Math.floor(origin.y);
         int z = (int) Math.floor(origin.z);
@@ -54,7 +62,8 @@ public final class BlockRaycast {
                 /* Formgenau: gegen die echte Outline-Shape testen, nicht den vollen Voxel.
                    Trifft der Strahl nur die leere Hälfte (z.B. einer Slab) -> Traversal weiter. */
                 BlockState state = Blocks.getState(block);
-                BlockShape.RayHit rh = state.getOutlineShape().clip(origin, dir, x, y, z);
+                BlockShape shape = includeFluids && state.isFluid() ? BlockShape.FULL_CUBE : state.getOutlineShape();
+                BlockShape.RayHit rh = shape.clip(origin, dir, x, y, z);
                 if (rh != null && rh.t() <= maxDistance) {
                     double hx = origin.x + dir.x * rh.t();
                     double hy = origin.y + dir.y * rh.t();

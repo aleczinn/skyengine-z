@@ -57,7 +57,7 @@ public class SectionMesh {
             int stride = ChunkMesher.VERTEX_SIZE * Float.BYTES;
             GL20.glVertexAttribPointer(0, 3, GL20.GL_FLOAT, false, stride, 0);                 // position
             GL20.glVertexAttribPointer(1, 3, GL20.GL_FLOAT, false, stride, 3 * Float.BYTES);   // uv + layer
-            GL20.glVertexAttribPointer(2, 1, GL20.GL_FLOAT, false, stride, 6 * Float.BYTES);   // brightness
+            GL20.glVertexAttribPointer(2, 3, GL20.GL_FLOAT, false, stride, 6 * Float.BYTES);   // color (helligkeit * tint)
             GL20.glEnableVertexAttribArray(0);
             GL20.glEnableVertexAttribArray(1);
             GL20.glEnableVertexAttribArray(2);

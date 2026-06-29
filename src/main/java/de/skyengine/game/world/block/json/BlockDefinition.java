@@ -17,6 +17,12 @@ public class BlockDefinition {
     public boolean cull_same = false;   // Glas-an-Glas-Culling
     public boolean gravity = false;     // fällt nach unten (Sand, Kies) via GravityBehavior
     public boolean facing = false;      // horizontale Ausrichtung zum Spieler (Truhe, Ofen) via HorizontalFacingBehavior
+
+    /* Fluid (archetype "fluid"): max. horizontale Ausbreitung und Tick-Takt des Flusses.
+       null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
+    public Integer fluid_spread;
+    public Integer fluid_tick;
+
     public Map<String, String> textures = new HashMap<>();
 
     /* Pfostenmaße in 0..16-Pixeln. Bei Connecting-Blöcken (fence/pane) liefert

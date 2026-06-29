@@ -30,6 +30,7 @@ public final class BlockConfig {
     private final String connectionGroup;
     private final BlockEntityType<?> blockEntityType;
     private final boolean tickRandomly;
+    private final FluidInfo fluidInfo;
 
     private BlockConfig(Builder b) {
         this.properties = List.copyOf(b.properties);
@@ -41,6 +42,7 @@ public final class BlockConfig {
         this.connectionGroup = b.connectionGroup;
         this.blockEntityType = b.blockEntityType;
         this.tickRandomly = b.tickRandomly;
+        this.fluidInfo = b.fluidInfo;
     }
 
     public List<Property<?>> properties() { return properties; }
@@ -52,6 +54,7 @@ public final class BlockConfig {
     public String connectionGroup() { return connectionGroup; }
     public BlockEntityType<?> blockEntityType() { return blockEntityType; }
     public boolean tickRandomly() { return tickRandomly; }
+    public FluidInfo fluidInfo() { return fluidInfo; }
 
     public static Builder builder() { return new Builder(); }
 
@@ -65,6 +68,7 @@ public final class BlockConfig {
         private String connectionGroup;
         private BlockEntityType<?> blockEntityType;
         private boolean tickRandomly;
+        private FluidInfo fluidInfo;
 
         public Builder property(Property<?> p) { this.properties.add(p); return this; }
         public Builder behavior(BlockBehavior b) { this.behaviors.add(b); return this; }
@@ -75,6 +79,7 @@ public final class BlockConfig {
         public Builder connectionGroup(String g) { this.connectionGroup = g; return this; }
         public Builder blockEntity(BlockEntityType<?> t) { this.blockEntityType = t; return this; }
         public Builder tickRandomly(boolean v) { this.tickRandomly = v; return this; }
+        public Builder fluid(FluidInfo f) { this.fluidInfo = f; return this; }
 
         public BlockConfig build() { return new BlockConfig(this); }
     }

@@ -10,6 +10,7 @@ import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
+import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
@@ -19,6 +20,7 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.SlabType;
 import de.skyengine.game.world.item.BlockItem;
+import de.skyengine.game.world.item.BucketItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
@@ -224,6 +226,14 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 || (input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_RIGHT) && now - this.lastPlaceTime >= INTERACT_DELAY_MS);
 
         if (!breakBlock && !placeBlock) return;
+
+        /* Eimer: eigener fluid-bewusster Strahl (Fluids sind im Normal-Raycast unsichtbar),
+           daher unabhängig von hit und vor dessen null-Prüfung. */
+        if (placeBlock) {
+            ItemStack held = this.playerInventory.get(this.hotbarIndex);
+            if (held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket, now)) return;
+        }
+
         if (hit == null) return;
 
         if (breakBlock) {
@@ -265,7 +275,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             /* Kamera-im-Block-Fall: face ist (0,0,0) -> würde den Zielblock ersetzen, abbrechen */
             if (hit.faceX() == 0 && hit.faceY() == 0 && hit.faceZ() == 0) return;
 
-            if (this.world.getBlock(px, py, pz) == Blocks.AIR) {
+            if (this.isReplaceable(this.world.getBlock(px, py, pz))) {
                 double relHitX = this.hit.hitX() - px;
                 double relHitY = this.hit.hitY() - py;
                 double relHitZ = this.hit.hitZ() - pz;
@@ -311,7 +321,67 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         return true;
     }
 
+    /**
+     * Eimer-Interaktion: gefüllt platziert eine Fluid-Quelle, leer nimmt eine Quelle auf.
+     * Im Survival wird der Eimer getauscht (gefüllt↔leer), im Creative nicht.
+     * Nutzt einen fluid-bewussten Raycast, damit Fluids als Ziel zählen.
+     */
+    private boolean handleBucket(BucketItem bucket, long now) {
+        BlockRaycast.Hit fhit = BlockRaycast.raycast(this.world, this.camera.getPosition(),
+                this.camera.getDirection(this.rayDirection), REACH, true);
+        if (fhit == null) return false;
+
+        boolean consume = this.player.getGamemode() == Gamemode.SURVIVAL;
+
+        if (bucket.isEmpty()) {
+            /* Aufnehmen: nur eine Fluid-Quelle (LEVEL 0, nicht fallend). */
+            BlockState state = Blocks.getState(fhit.block());
+            if (!state.isFluid() || state.get(Properties.FALLING) || state.get(Properties.LEVEL) != 0) return false;
+            this.world.setBlock(fhit.x(), fhit.y(), fhit.z(), Blocks.AIR);
+            if (consume) {
+                String id = state.getBlock().getFluidInfo().lava ? "skyengine:lava_bucket" : "skyengine:water_bucket";
+                this.consumeHeld(Items.get(Identifier.of(id)));
+            }
+            this.lastPlaceTime = now;
+            return true;
+        }
+
+        /* Platzieren: Trifft der Strahl direkt ein Fluid, wird DIESE Zelle zur Quelle (neue Quelle
+           im Wasser), sonst an der getroffenen Seite. Ziel muss überbaubar sein (Luft/Fluid). */
+        int tx, ty, tz;
+        if (Blocks.getState(this.world.getBlock(fhit.x(), fhit.y(), fhit.z())).isFluid()) {
+            tx = fhit.x(); ty = fhit.y(); tz = fhit.z();
+        } else {
+            tx = fhit.x() + fhit.faceX();
+            ty = fhit.y() + fhit.faceY();
+            tz = fhit.z() + fhit.faceZ();
+        }
+        if (!this.isReplaceable(this.world.getBlock(tx, ty, tz))) return false;
+
+        Block fluid = bucket.getFluid();
+        short source = fluid.getDefaultState()
+                .with(Properties.LEVEL, 0).with(Properties.FALLING, false).getId();
+        this.world.setBlock(tx, ty, tz, source);
+        this.world.scheduleTick(tx, ty, tz, 1);
+        if (consume) this.consumeHeld(Items.get(Identifier.of("skyengine:bucket")));
+        this.lastPlaceTime = now;
+        return true;
+    }
+
+    /** Verbraucht einen Eimer aus dem gehaltenen Slot und legt das Ergebnis-Item ab. */
+    private void consumeHeld(Item result) {
+        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        if (held.getCount() > 1) {
+            held.setCount(held.getCount() - 1);
+            if (result != null) this.playerInventory.insert(new ItemStack(result, 1));
+        } else {
+            this.playerInventory.set(this.hotbarIndex, result != null ? new ItemStack(result, 1) : ItemStack.EMPTY);
+        }
+    }
+
     private void fillStartInventory() {
+        /* Hotbar (Slots 0-8): Test-Blöcke + die drei Eimer hinten, damit Wasser/Lava direkt
+           testbar sind. Wasser hat kein Block-Item mehr (gehört in den Eimer). */
         short[] start = {
                 Blocks.CHEST,
                 Blocks.OAK_PLANKS,
@@ -319,17 +389,35 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 Blocks.SAND,
                 Blocks.COBBLESTONE_STAIRS,
                 Blocks.OAK_FENCE,
-                Blocks.GLASS_PANE,
-                Blocks.OAK_DOOR,
-                Blocks.ENCHANTING_TABLE,
         };
         for (int i = 0; i < start.length; i++) {
             Item item = Items.get(Blocks.getState(start[i]).getBlock().getIdentifier());
             if (item != null) this.playerInventory.set(i, new ItemStack(item, 64));
         }
-        /* Etwas im Hauptinventar zum Testen (Truhe befüllen/leeren). */
-        Item sand = Items.get(Blocks.getState(Blocks.SAND).getBlock().getIdentifier());
-        if (sand != null) this.playerInventory.set(9, new ItemStack(sand, 64));
+        this.setItem(6, "skyengine:water_bucket");
+        this.setItem(7, "skyengine:lava_bucket");
+        this.setItem(8, "skyengine:bucket");
+
+        /* Glasscheibe/Tür + Sand ins Hauptinventar (zum Testen, Truhe befüllen/leeren). */
+        this.setBlock(9, Blocks.GLASS_PANE);
+        this.setBlock(10, Blocks.OAK_DOOR);
+        this.setBlock(11, Blocks.SAND);
+    }
+
+    /** Legt 64 eines Blocks in einen Inventar-Slot (Block-Item über die Identifier-Registry). */
+    private void setBlock(int slot, short block) {
+        Item item = Items.get(Blocks.getState(block).getBlock().getIdentifier());
+        if (item != null) this.playerInventory.set(slot, new ItemStack(item, 64));
+    }
+
+    private void setItem(int slot, String itemId) {
+        Item item = Items.get(Identifier.of(itemId));
+        if (item != null) this.playerInventory.set(slot, new ItemStack(item, 1));
+    }
+
+    /** Eine Zelle ist überbaubar, wenn sie leer ist oder ein Fluid enthält (Wasser/Lava). */
+    private boolean isReplaceable(short block) {
+        return block == Blocks.AIR || Blocks.getState(block).isFluid();
     }
 
     /** true, wenn die Kollisionsform des Blocks an px/py/pz die Spieler-Box schneidet. */

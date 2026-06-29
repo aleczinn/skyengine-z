@@ -1,0 +1,13 @@
+{
+  "id": "skyengine:lava",
+  "type": "fluid",
+  "layer": "translucent",
+  "opaque": false,
+  "solid": false,
+  "fluid_spread": 3,
+  "fluid_tick": 30,
+  "textures": {
+    "still": "game/textures/block/lava_still.png",
+    "flow": "game/textures/block/lava_flow.png"
+  }
+}
