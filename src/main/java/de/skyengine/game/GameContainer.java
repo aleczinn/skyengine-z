@@ -227,8 +227,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         if (!breakBlock && !placeBlock) return;
 
-        /* Eimer: eigener fluid-bewusster Strahl (Fluids sind im Normal-Raycast unsichtbar),
-           daher unabhängig von hit und vor dessen null-Prüfung. */
+        /* Eimer vor der hit==null-Prüfung: Der LEERE Eimer nutzt einen eigenen fluid-bewussten
+           Strahl (Fluids sind im Normal-Raycast unsichtbar) und funktioniert auch ohne this.hit.
+           Der gefüllte Eimer platziert wie ein Block über this.hit (siehe handleBucket). */
         if (placeBlock) {
             ItemStack held = this.playerInventory.get(this.hotbarIndex);
             if (held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket, now)) return;
@@ -267,32 +268,43 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             /* Slab auf vorhandene gleiche Slab -> Doppel-Slab */
             if (this.tryMergeSlab(block, now)) return;
 
-            /* Platzieren: an der getroffenen Seite, nicht im Block selbst */
-            int px = hit.x() + hit.faceX();
-            int py = hit.y() + hit.faceY();
-            int pz = hit.z() + hit.faceZ();
+            /* Platzieren: an der getroffenen Seite (Fluids zählen als Luft, this.hit ignoriert sie). */
+            int[] t = this.placementTarget();
+            if (t == null) return;
+            int px = t[0], py = t[1], pz = t[2];
 
-            /* Kamera-im-Block-Fall: face ist (0,0,0) -> würde den Zielblock ersetzen, abbrechen */
-            if (hit.faceX() == 0 && hit.faceY() == 0 && hit.faceZ() == 0) return;
+            double relHitX = this.hit.hitX() - px;
+            double relHitY = this.hit.hitY() - py;
+            double relHitZ = this.hit.hitZ() - pz;
+            BlockState place = block.getPlacementState(this.world, px, py, pz,
+                    this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(),
+                    relHitX, relHitY, relHitZ, this.player.yaw);
 
-            if (this.isReplaceable(this.world.getBlock(px, py, pz))) {
-                double relHitX = this.hit.hitX() - px;
-                double relHitY = this.hit.hitY() - py;
-                double relHitZ = this.hit.hitZ() - pz;
-                BlockState place = block.getPlacementState(this.world, px, py, pz,
-                        this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(),
-                        relHitX, relHitY, relHitZ, this.player.yaw);
-
-                /* place == null: ein Behavior lehnt ab (z.B. Tür ohne Platz). Sonst nicht in den
-                   eigenen Körper bauen - gegen die ECHTE Kollisionsform testen, damit dünne Blöcke
-                   (Panes, Zäune) neben einem platzierbar bleiben. */
-                if (place != null && !this.collidesWithPlayer(place, px, py, pz)
-                        && !this.collidesWithEntities(place, px, py, pz)) {
-                    this.world.placeBlock(px, py, pz, place);
-                    this.lastPlaceTime = now;
-                }
+            /* place == null: ein Behavior lehnt ab (z.B. Tür ohne Platz). Sonst nicht in den
+               eigenen Körper bauen - gegen die ECHTE Kollisionsform testen, damit dünne Blöcke
+               (Panes, Zäune) neben einem platzierbar bleiben. */
+            if (place != null && !this.collidesWithPlayer(place, px, py, pz)
+                    && !this.collidesWithEntities(place, px, py, pz)) {
+                this.world.placeBlock(px, py, pz, place);
+                this.lastPlaceTime = now;
             }
         }
+    }
+
+    /**
+     * Gemeinsame Zielzelle fürs Platzieren (Block ODER gefüllter Eimer) aus {@code this.hit}.
+     * Fluids zählen als Luft, weil der Normal-Raycast sie ignoriert. Liefert {@code null}, wenn
+     * kein gültiges Ziel: kein Treffer, Kamera im Block ({@code face == 0,0,0}) oder die Zielzelle
+     * ist nicht überbaubar (weder Luft noch Fluid).
+     */
+    private int[] placementTarget() {
+        if (this.hit == null) return null;
+        if (this.hit.faceX() == 0 && this.hit.faceY() == 0 && this.hit.faceZ() == 0) return null;
+        int px = this.hit.x() + this.hit.faceX();
+        int py = this.hit.y() + this.hit.faceY();
+        int pz = this.hit.z() + this.hit.faceZ();
+        if (!this.isReplaceable(this.world.getBlock(px, py, pz))) return null;
+        return new int[]{px, py, pz};
     }
 
     /** Klick auf eine vorhandene Slab mit derselben Slab-Sorte -> Doppel-Slab. */
@@ -347,18 +359,14 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         /* Platzieren wie ein Block: der normale (fluid-ignorierende) Strahl this.hit zielt durch
            Wasser hindurch auf die feste Blockseite. Quelle kommt an die Trefferseite (Luft/Fluid). */
-        if (this.hit == null) return false;
-        if (this.hit.faceX() == 0 && this.hit.faceY() == 0 && this.hit.faceZ() == 0) return false;
-        int tx = this.hit.x() + this.hit.faceX();
-        int ty = this.hit.y() + this.hit.faceY();
-        int tz = this.hit.z() + this.hit.faceZ();
-        if (!this.isReplaceable(this.world.getBlock(tx, ty, tz))) return false;
+        int[] t = this.placementTarget();
+        if (t == null) return false;
 
         Block fluid = bucket.getFluid();
         short source = fluid.getDefaultState()
                 .with(Properties.LEVEL, 0).with(Properties.FALLING, false).getId();
-        this.world.setBlock(tx, ty, tz, source);
-        this.world.scheduleTick(tx, ty, tz, 1);
+        this.world.setBlock(t[0], t[1], t[2], source);
+        this.world.scheduleTick(t[0], t[1], t[2], 1);
         if (consume) this.consumeHeld(Items.get(Identifier.of("skyengine:bucket")));
         this.lastPlaceTime = now;
         return true;
