@@ -26,6 +26,9 @@ public final class FluidGeometry {
     /** Sichtbare Oberkante einer Quelle (14/16, wie MC-Wasser). */
     private static final float SOURCE_HEIGHT = 0.875f;
 
+    /** Globale dünnste Fließstelle am äußersten Level (1/16). Gilt für alle Fluids. */
+    private static final float MIN_HEIGHT = 1f / 16f;
+
     /** Default-Wasserfarbe (gepackt 0xRRGGBB). Später positions-/biome-abhängig. */
     private static final int WATER_TINT = 0x4076E6;
 
@@ -170,16 +173,20 @@ public final class FluidGeometry {
         return sum / count;
     }
 
-    /** Eigenhöhe einer Fluid-Spalte aus LEVEL/FALLING (ohne Nachbarbetrachtung). */
+    /**
+     * Eigenhöhe einer Fluid-Spalte aus LEVEL/FALLING (ohne Nachbarbetrachtung). Linear von der
+     * Quelle ({@link #SOURCE_HEIGHT}) bis zur globalen dünnsten Stelle ({@link #MIN_HEIGHT}) über
+     * die Reichweite {@code spread}: am äußersten Level (= spread) immer MIN_HEIGHT. Beide Fluids
+     * enden gleich dünn; Lava (spread 3) fällt durch die kürzere Reichweite nur steiler ab als
+     * Wasser (spread 7).
+     */
     private static float ownHeight(BlockState s) {
         if (s.get(Properties.FALLING)) return 1.0f;
         int level = s.get(Properties.LEVEL);
         if (level <= 0) return SOURCE_HEIGHT;
-        /* Reichweiten-relativ: über die ganze Reichweite von voll auf dünn. Lava (spread 3) fällt
-           damit steiler/dünner ab als Wasser (spread 7). level 1 -> hoch, level spread -> dünn. */
         int spread = s.getBlock().getFluidInfo().spread;
-        int amount = spread + 1 - Math.min(level, spread);
-        return amount / (spread + 1.0f) * SOURCE_HEIGHT;
+        float t = Math.min(level, spread) / (float) spread;
+        return SOURCE_HEIGHT - t * (SOURCE_HEIGHT - MIN_HEIGHT);
     }
 
     private static boolean isSameFluid(short id, Block fluid) {
