@@ -68,8 +68,8 @@ public final class FluidGeometry {
                 uv = new float[]{0, 0, 0, 1, 1, 1, 1, 0};
             } else {
                 float angle = (float) Math.atan2(velZ, velX) - (float) (Math.PI / 2.0);
-                float s = (float) Math.sin(angle) * 0.25f;
-                float c = (float) Math.cos(angle) * 0.25f;
+                float s = (float) Math.sin(angle) * 0.5f;
+                float c = (float) Math.cos(angle) * 0.5f;
                 uv = new float[]{
                         0.5f - c - s, 0.5f - c + s,
                         0.5f - c + s, 0.5f + c + s,
