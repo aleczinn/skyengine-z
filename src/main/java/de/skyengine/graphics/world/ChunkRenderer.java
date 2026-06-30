@@ -58,6 +58,9 @@ public class ChunkRenderer {
         this.animations = SpriteAnimations.build(paths, TEXTURE_SIZE);
         this.textures = new TextureArray(TEXTURE_SIZE, paths, this.animations.animatedLayers());
         this.animations.uploadInitial(this.textures);
+        /* Mipmaps neu bauen, jetzt mit echten Fluid-Frame-0-Daten (animierte Layer waren beim
+           ersten glGenerateMipmap noch leer → hätten in der Ferne transparente Mips). */
+        this.textures.regenerateMipmaps();
         this.lastAnimNanos = System.nanoTime();
     }
 

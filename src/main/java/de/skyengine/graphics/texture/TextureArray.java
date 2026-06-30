@@ -159,6 +159,15 @@ public class TextureArray {
 	}
 
 	/**
+	 * Mipmaps neu erzeugen — nötig nachdem animierte Layer ihre Initial-Frames erhalten haben
+	 * (sonst bleiben deren Mip-Level transparent → Fluids faden in der Ferne aus).
+	 */
+	public void regenerateMipmaps() {
+		GL11.glBindTexture(GL30.GL_TEXTURE_2D_ARRAY, this.id);
+		GL30.glGenerateMipmap(GL30.GL_TEXTURE_2D_ARRAY);
+	}
+
+	/**
 	 * Ersetzt den Inhalt eines Layers (Basis-Mip). Für animierte Sprites pro Frame.
 	 * Mip-Level werden nicht neu erzeugt — bei animierten Blöcken in der Ferne minimal
 	 * unscharf; für Lava/Wasser vernachlässigbar.
