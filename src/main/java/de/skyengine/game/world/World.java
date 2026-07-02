@@ -360,9 +360,12 @@ public class World implements IInitializable, IDisposable {
 
     public void render(Camera camera, float partialTick) {
         this.chunkManager.processRemeshes();
-        this.chunkRenderer.render(camera);
+        /* Entities VOR dem Translucent-Pass (Vanilla-Reihenfolge): Wasser blendet über
+           Items/BlockEntities, statt sie hinter sich unsichtbar zu machen. */
+        this.chunkRenderer.renderSolid(camera);
         this.blockEntityRenderer.render(this.chunkManager, camera, partialTick);
         this.entityRenderer.render(this.chunkManager, camera, partialTick);
+        this.chunkRenderer.renderTranslucent(camera);
     }
 
     @Override
