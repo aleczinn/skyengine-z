@@ -250,6 +250,15 @@ public class World implements IInitializable, IDisposable {
         this.scheduledTicks.schedule(x, y, z, this.gameTime + Math.max(1, delayTicks));
     }
 
+    /**
+     * Wie {@link #scheduleTick}, zieht aber einen bereits anstehenden <em>späteren</em> Tick auf diese
+     * frühere Zeit vor (statt ihn zu ignorieren). Für prompte Reaktionen (z.B. Lava+Wasser→Cobble),
+     * die einen regulären Fluss-Tick überholen müssen.
+     */
+    public void scheduleTickEarlier(int x, int y, int z, int delayTicks) {
+        this.scheduledTicks.scheduleEarlier(x, y, z, this.gameTime + Math.max(1, delayTicks));
+    }
+
     /** true, wenn an der Position bereits ein geplanter Tick aussteht. */
     public boolean isTickScheduled(int x, int y, int z) {
         return this.scheduledTicks.isScheduled(x, y, z);
