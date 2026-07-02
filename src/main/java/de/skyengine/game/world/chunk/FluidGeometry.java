@@ -18,8 +18,9 @@ import java.util.List;
  *
  * <p>Die erzeugten Quads sind bereits face-gecullt (verdeckte Flächen werden gar
  * nicht erzeugt) und tragen {@link BakedQuad#NO_CULL}, damit der Mesher sie ohne
- * weitere Nachbarprüfung emittiert. Diagonale über zwei Chunk-Grenzen werden mit
- * {@code 0} (Luft) angenähert (kleiner Naht-Effekt am Chunk-Rand).
+ * weitere Nachbarprüfung emittiert. Diagonale über zwei Chunk-Grenzen sind nicht
+ * erreichbar und zählen bei der Eck-Mittelung nicht mit (Ecke am Chunk-Eck minimal
+ * zu hoch statt sichtbarer Delle).
  */
 public final class FluidGeometry {
 
@@ -137,34 +138,58 @@ public final class FluidGeometry {
     }
 
     /**
-     * Höhe einer Ecke = Mittel der Eigenhöhen der bis zu 4 am Eck zusammentreffenden
-     * Fluid-Spalten. Spalte mit Fluid darüber bzw. eine Quelle „voll" → 1.0.
+     * Höhe einer Ecke im Minecraft-Stil (LiquidBlockRenderer): gewichtetes Mittel der
+     * Sichthöhen von Selbst-Spalte, den beiden Kardinal-Nachbarn am Eck und der Diagonale.
+     * Luft zählt mit Höhe 0 (zieht die Ecke herunter → steile Schräge), solide Blöcke
+     * zählen gar nicht (Ecke bleibt hoch), hohe Spalten (Quelle/fallend, ≥ 0.8) zählen
+     * 10-fach. Die Diagonale zählt nur, wenn einer der beiden Kardinal-Nachbarn selbst
+     * Fluid ist (Höhe > 0) — Fluid „sieht" nicht um eine solide Ecke herum.
      */
     private static float corner(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east,
                                 int x, int worldY, int z, Block fluid, BlockState self,
                                 int cornerX, int cornerZ, boolean fluidAbove) {
         if (fluidAbove) return 1.0f;
 
-        float sum = 0f;
-        int count = 0;
-        boolean anyFull = false;
+        int dx = cornerX == 0 ? -1 : 1;
+        int dz = cornerZ == 0 ? -1 : 1;
+        float a = columnHeight(chunk, north, south, west, east, x + dx, worldY, z, fluid);
+        float b = columnHeight(chunk, north, south, west, east, x, worldY, z + dz, fluid);
+        if (a >= 1.0f || b >= 1.0f) return 1.0f;
 
-        for (int dx = cornerX - 1; dx <= cornerX; dx++) {
-            for (int dz = cornerZ - 1; dz <= cornerZ; dz++) {
-                short id = sample(chunk, north, south, west, east, x + dx, worldY, z + dz);
-                if (!isSameFluid(id, fluid)) continue;
-                count++;
-                if (isSameFluid(sample(chunk, north, south, west, east, x + dx, worldY + 1, z + dz), fluid)) {
-                    anyFull = true;
-                } else {
-                    sum += ownHeight(BlockRegistry.getState(id));
-                }
-            }
+        float d = -1f;
+        if (a > 0f || b > 0f) {
+            d = columnHeight(chunk, north, south, west, east, x + dx, worldY, z + dz, fluid);
+            if (d >= 1.0f) return 1.0f;
         }
 
-        if (anyFull) return 1.0f;
-        if (count == 0) return ownHeight(self); // sollte nicht vorkommen (self ist Fluid)
-        return sum / count;
+        float sum = 0f;
+        float weight = 0f;
+        for (float h : new float[]{ownHeight(self), a, b, d}) {
+            if (h >= 0.8f) {
+                sum += h * 10f;
+                weight += 10f;
+            } else if (h >= 0f) {
+                sum += h;
+                weight += 1f;
+            }
+        }
+        return sum / weight; // weight >= 1: die Selbst-Spalte zählt immer
+    }
+
+    /**
+     * Sichthöhe einer Spalte für die Eck-Mittelung: gleiches Fluid → Eigenhöhe (bzw. 1.0
+     * mit Fluid darüber), nicht-solide Blöcke (Luft, Pflanzen) → 0, solide Blöcke und
+     * unerreichbare Diagonalen → -1 (zählen nicht mit).
+     */
+    private static float columnHeight(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east,
+                                      int x, int y, int z, Block fluid) {
+        short id = sample(chunk, north, south, west, east, x, y, z);
+        if (id < 0) return -1f;
+        if (isSameFluid(id, fluid)) {
+            if (isSameFluid(sample(chunk, north, south, west, east, x, y + 1, z), fluid)) return 1.0f;
+            return ownHeight(BlockRegistry.getState(id));
+        }
+        return BlockRegistry.getState(id).isSolid() ? -1f : 0f;
     }
 
     /**
@@ -185,19 +210,21 @@ public final class FluidGeometry {
     }
 
     private static boolean isSameFluid(short id, Block fluid) {
+        if (id < 0) return false; // unerreichbare Diagonale
         BlockState s = BlockRegistry.getState(id);
         return s.isFluid() && s.getBlock() == fluid;
     }
 
     /**
      * Block an section-lokalen x/z (dürfen -1..SIZE sein) und Welt-Y, über die 4
-     * Kardinal-Nachbar-Chunks. Diagonale über zwei Grenzen → 0 (Luft, Fallback).
+     * Kardinal-Nachbar-Chunks. Diagonale über zwei Grenzen → -1 (unerreichbar; wird
+     * nur von der Eckhöhen-Berechnung abgefragt und dort übersprungen).
      */
     private static short sample(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east,
                                 int x, int y, int z) {
         int size = ChunkSection.SIZE;
         if (x < 0 || x >= size) {
-            if (z < 0 || z >= size) return 0; // Diagonal-Ecke: nicht erreichbar
+            if (z < 0 || z >= size) return -1; // Diagonal-Ecke: nicht erreichbar
             Chunk c = x < 0 ? west : east;
             return c != null ? c.getBlock(x < 0 ? size - 1 : 0, y, z) : 0;
         }
