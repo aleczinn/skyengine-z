@@ -4,7 +4,8 @@
   "layer": "translucent",
   "opaque": false,
   "solid": false,
-  "fluid_spread": 3,
+  "fluid_spread": 7,
+  "drop_off": 2,
   "fluid_tick": 30,
   "textures": {
     "still": "game/textures/block/lava_still.png",

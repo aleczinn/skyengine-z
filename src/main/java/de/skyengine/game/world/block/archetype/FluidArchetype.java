@@ -27,7 +27,8 @@ public final class FluidArchetype implements Archetype {
         String still = def.textures.getOrDefault("still", "game/textures/block/water_still.png");
         String flow = def.textures.getOrDefault("flow", "game/textures/block/water_flow.png");
         boolean lava = def.id != null && def.id.contains("lava");
-        int spread = def.fluid_spread != null ? def.fluid_spread : (lava ? 3 : 7);
+        int spread = def.fluid_spread != null ? def.fluid_spread : 7;
+        int dropOff = def.drop_off != null ? def.drop_off : (lava ? 2 : 1);
         int tick = def.fluid_tick != null ? def.fluid_tick : (lava ? 30 : 5);
 
         cfg.property(Properties.LEVEL)
@@ -35,6 +36,6 @@ public final class FluidArchetype implements Archetype {
                 .shapes(NO_COLLISION)
                 .opaque(state -> false)
                 .behavior(new FluidBehavior())
-                .fluid(new FluidInfo(still, flow, spread, tick, lava));
+                .fluid(new FluidInfo(still, flow, spread, dropOff, tick, lava));
     }
 }

@@ -387,8 +387,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         /* Hotbar (Slots 0-8): Test-Blöcke + die drei Eimer hinten, damit Wasser/Lava direkt
            testbar sind. Wasser hat kein Block-Item mehr (gehört in den Eimer). */
         short[] start = {
-                Blocks.CHEST,
                 Blocks.OAK_PLANKS,
+                Blocks.GLASS,
                 Blocks.STONE_SLAB,
                 Blocks.SAND,
                 Blocks.COBBLESTONE_STAIRS,

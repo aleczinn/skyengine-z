@@ -1,8 +1,8 @@
 package de.skyengine.game.world.tick;
 
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.PriorityQueue;
-import java.util.Set;
 
 /**
  * Deferred Block-Ticks, geordnet nach Ziel-Tick (dann FIFO). Pro Position ist nur EIN Tick
@@ -39,18 +39,35 @@ public final class ScheduledTickQueue {
         int c = Long.compare(a.triggerTime, b.triggerTime);
         return c != 0 ? c : Long.compare(a.seq, b.seq);
     });
-    private final Set<Long> scheduled = new HashSet<>();
+    /** Position -> maßgebliche (früheste) eingeplante Trigger-Zeit. Ältere Queue-Entries sind Karteileichen. */
+    private final Map<Long, Long> scheduledTime = new HashMap<>();
     private long seqCounter;
 
-    /** Merkt einen Tick zur {@code triggerTime} vor. false, wenn an der Position bereits einer ansteht. */
+    /** Merkt einen Tick zur {@code triggerTime} vor. false, wenn an der Position bereits einer ansteht (first-wins). */
     public boolean schedule(int x, int y, int z, long triggerTime) {
-        if (!this.scheduled.add(pack(x, y, z))) return false;
+        long key = pack(x, y, z);
+        if (this.scheduledTime.containsKey(key)) return false;
+        this.scheduledTime.put(key, triggerTime);
+        this.queue.add(new Entry(x, y, z, triggerTime, this.seqCounter++));
+        return true;
+    }
+
+    /**
+     * Plant einen Tick vor; ein bereits anstehender <em>späterer</em> Tick wird auf diese frühere Zeit
+     * vorgezogen (der alte Entry wird zur Karteileiche). Gibt es schon einen gleich frühen/früheren,
+     * passiert nichts. false, wenn nichts geändert wurde.
+     */
+    public boolean scheduleEarlier(int x, int y, int z, long triggerTime) {
+        long key = pack(x, y, z);
+        Long cur = this.scheduledTime.get(key);
+        if (cur != null && cur <= triggerTime) return false;
+        this.scheduledTime.put(key, triggerTime);
         this.queue.add(new Entry(x, y, z, triggerTime, this.seqCounter++));
         return true;
     }
 
     public boolean isScheduled(int x, int y, int z) {
-        return this.scheduled.contains(pack(x, y, z));
+        return this.scheduledTime.containsKey(pack(x, y, z));
     }
 
     /**
@@ -63,7 +80,11 @@ public final class ScheduledTickQueue {
         Entry e;
         while ((e = this.queue.peek()) != null && e.triggerTime <= now && e.seq < cutoff) {
             this.queue.poll();
-            this.scheduled.remove(pack(e.x, e.y, e.z));
+            long key = pack(e.x, e.y, e.z);
+            Long cur = this.scheduledTime.get(key);
+            /* Karteileiche überspringen: durch scheduleEarlier vorgezogen oder bereits abgearbeitet. */
+            if (cur == null || cur != e.triggerTime) continue;
+            this.scheduledTime.remove(key);
             consumer.run(e.x, e.y, e.z);
         }
     }
