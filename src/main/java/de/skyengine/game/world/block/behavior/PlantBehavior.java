@@ -2,12 +2,13 @@ package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
-import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 
 /**
  * Verhalten für Cross-Pflanzen (Gras, Farn, Blumen): zerbricht, sobald die feste Stütze
- * darunter fehlt oder die Pflanze von einem Fluid erreicht wird. Kein Drop (vorerst).
+ * darunter fehlt. Überschwemmung übernimmt das {@link FluidBehavior} (Fluid ersetzt die
+ * Pflanze erst, wenn es wirklich in ihre Zelle fließt, und droppt dabei das Item).
+ * Kein Drop bei Stützen-Verlust (vorerst).
  */
 public final class PlantBehavior implements BlockBehavior {
 
@@ -17,19 +18,8 @@ public final class PlantBehavior implements BlockBehavior {
         return Blocks.getState(Blocks.AIR); // zerbricht
     }
 
-    /** Überlebt nur auf einem festen Block und solange kein Fluid die Zelle erreicht. */
+    /** Überlebt nur auf einem festen Block. */
     private static boolean canSurvive(World world, int x, int y, int z) {
-        BlockState below = Blocks.getState(world.getBlock(x, y - 1, z));
-        if (!below.isSolid()) return false;            // Stütze weg / nicht fest
-        return !isReachedByFluid(world, x, y, z);      // nicht überschwemmt
-    }
-
-    /** Fluid direkt darüber (fällt herein) oder horizontal angrenzend (fließt herein). */
-    private static boolean isReachedByFluid(World world, int x, int y, int z) {
-        if (Blocks.getState(world.getBlock(x, y + 1, z)).isFluid()) return true;
-        for (Direction d : Direction.horizontal()) {
-            if (Blocks.getState(world.getBlock(x + d.offsetX(), y, z + d.offsetZ())).isFluid()) return true;
-        }
-        return false;
+        return Blocks.getState(world.getBlock(x, y - 1, z)).isSolid();
     }
 }

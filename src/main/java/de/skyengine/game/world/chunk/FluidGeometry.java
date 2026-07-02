@@ -23,12 +23,6 @@ import java.util.List;
  */
 public final class FluidGeometry {
 
-    /** Sichtbare Oberkante einer Quelle (14/16, wie MC-Wasser). */
-    private static final float SOURCE_HEIGHT = 0.875f;
-
-    /** Globale dünnste Fließstelle am äußersten Level (1/16). Gilt für alle Fluids. */
-    private static final float MIN_HEIGHT = 1f / 16f;
-
     /** Default-Wasserfarbe (gepackt 0xRRGGBB). Später positions-/biome-abhängig. */
     private static final int WATER_TINT = 0x4076E6;
 
@@ -174,19 +168,15 @@ public final class FluidGeometry {
     }
 
     /**
-     * Eigenhöhe einer Fluid-Spalte aus LEVEL/FALLING (ohne Nachbarbetrachtung). Linear von der
-     * Quelle ({@link #SOURCE_HEIGHT}) bis zur globalen dünnsten Stelle ({@link #MIN_HEIGHT}) über
-     * die Reichweite {@code spread}: am äußersten Level (= spread) immer MIN_HEIGHT. Beide Fluids
-     * enden gleich dünn; Lava (spread 3) fällt durch die kürzere Reichweite nur steiler ab als
-     * Wasser (spread 7).
+     * Eigenhöhe einer Fluid-Spalte aus LEVEL/FALLING (ohne Nachbarbetrachtung), nach der
+     * Minecraft-Formel {@code (8 - level) / 9}: Quelle (Level 0) → 8/9, Level 7 → 1/9, fallende
+     * Säule → voller Block. Fluid-unabhängig; Lava wirkt nur „klobiger", weil sie pro Block
+     * 2 Level verliert (dropOff 2: Level 2, 4, 6).
      */
     private static float ownHeight(BlockState s) {
         if (s.get(Properties.FALLING)) return 1.0f;
-        int level = s.get(Properties.LEVEL);
-        if (level <= 0) return SOURCE_HEIGHT;
-        int spread = s.getBlock().getFluidInfo().spread;
-        float t = Math.min(level, spread) / (float) spread;
-        return SOURCE_HEIGHT - t * (SOURCE_HEIGHT - MIN_HEIGHT);
+        int level = Math.min(s.get(Properties.LEVEL), 7);
+        return (8 - level) / 9.0f;
     }
 
     /** Sichtbare Oberkante (0..1) einer Fluid-Spalte aus LEVEL/FALLING – für Swim-/Höhenchecks. */

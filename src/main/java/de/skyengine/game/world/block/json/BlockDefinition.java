@@ -18,10 +18,11 @@ public class BlockDefinition {
     public boolean gravity = false;     // fällt nach unten (Sand, Kies) via GravityBehavior
     public boolean facing = false;      // horizontale Ausrichtung zum Spieler (Truhe, Ofen) via HorizontalFacingBehavior
 
-    /* Fluid (archetype "fluid"): max. horizontale Ausbreitung und Tick-Takt des Flusses.
-       null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
+    /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
+       Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;
     public Integer fluid_tick;
+    public Integer drop_off;
 
     public Map<String, String> textures = new HashMap<>();
 
