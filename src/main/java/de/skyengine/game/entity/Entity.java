@@ -183,8 +183,15 @@ public abstract class Entity {
         return new double[]{cdx, cdy, cdz};
     }
 
+    /** true, wenn die Box ein Fluid (lava=true: Lava, sonst Wasser) tatsächlich überlappt. */
+    protected boolean isInFluid(World world, boolean lava) {
+        return this.fluidDepth(world, lava) > 0;
+    }
+
     /**
-     * true, wenn die Box ein Fluid (lava=true: Lava, sonst Wasser) tatsächlich überlappt.
+     * Eintauchtiefe der Box im Fluid (lava=true: Lava, sonst Wasser): maximales
+     * {@code Zell-Oberfläche − box.minY} über alle überlappten Fluid-Zellen, 0 wenn keine
+     * (Vanilla {@code getFluidHeight}). Steuert Schwimm-Weiche, Jump-Threshold und Push-Stärke.
      *
      * <p>Die Box wird vor dem Sampling um {@link #FLUID_EPSILON} geschrumpft (wie Minecraft), damit
      * bloßes Berühren einer Zellkante an deren Minimal-Ecke nicht fälschlich als "im Fluid" zählt.
@@ -192,7 +199,7 @@ public abstract class Entity {
      * geprüft: eine Zelle zählt nur, wenn die Box unter die Fluid-Oberfläche reicht – Stehen knapp
      * über der Oberfläche schwimmt also nicht mehr.
      */
-    protected boolean isInFluid(World world, boolean lava) {
+    protected double fluidDepth(World world, boolean lava) {
         double minX = this.boundingBox.minX + FLUID_EPSILON, maxX = this.boundingBox.maxX - FLUID_EPSILON;
         double minY = this.boundingBox.minY + FLUID_EPSILON, maxY = this.boundingBox.maxY - FLUID_EPSILON;
         double minZ = this.boundingBox.minZ + FLUID_EPSILON, maxZ = this.boundingBox.maxZ - FLUID_EPSILON;
@@ -201,23 +208,28 @@ public abstract class Entity {
         int y0 = (int) Math.floor(minY), y1 = (int) Math.floor(maxY);
         int z0 = (int) Math.floor(minZ), z1 = (int) Math.floor(maxZ);
 
+        double depth = 0;
         for (int y = y0; y <= y1; y++) {
             for (int x = x0; x <= x1; x++) {
                 for (int z = z0; z <= z1; z++) {
                     BlockState state = Blocks.getState(world.getBlock(x, y, z));
                     if (!state.isFluid() || state.getBlock().getFluidInfo().lava != lava) continue;
                     // Fluid füllt [y, y + Höhe]; Box ist im Fluid, wenn sie unter die Oberkante reicht.
-                    if (y + FluidGeometry.fluidHeight(state) >= minY) return true;
+                    depth = Math.max(depth, y + FluidGeometry.fluidHeight(state) - minY);
                 }
             }
         }
-        return false;
+        return depth;
     }
 
     /**
-     * Strömungs-Push (vereinfachtes Vanilla-Fluid-Pushing): mittelt die normierten Flow-Vektoren
-     * aller überlappten Fluid-Zellen des Typs und addiert sie mit {@code scale} auf die Motion.
-     * Vanillas FALLING-Sog und Mindest-Push für ruhende Entities entfallen.
+     * Strömungs-Push (Vanilla-Fluid-Pushing): mittelt die normierten Flow-Vektoren aller
+     * überlappten Fluid-Zellen des Typs und addiert sie mit {@code scale} auf die Motion.
+     * Wie in Vanilla wird jeder Zell-Vektor mit der Eintauchtiefe skaliert, solange diese
+     * unter 0.4 liegt (flaches Wasser schiebt schwach, quellnah volle Kraft), und nur bei
+     * Nicht-Spielern wird das Mittel wieder normiert — der Spieler spürt die Tiefe direkt.
+     * Ruhende Entities bekommen einen Mindest-Push (0.0045), damit sie in schwacher Strömung
+     * nicht festkleben. Vanillas FALLING-Sog entfällt.
      */
     protected void applyFluidPush(World world, boolean lava, double scale) {
         double minX = this.boundingBox.minX + FLUID_EPSILON, maxX = this.boundingBox.maxX - FLUID_EPSILON;
@@ -229,26 +241,50 @@ public abstract class Entity {
         int z0 = (int) Math.floor(minZ), z1 = (int) Math.floor(maxZ);
 
         double sumX = 0, sumZ = 0;
+        double depth = 0; // laufendes Maximum der Eintauchtiefe (wie Vanilla)
+        int count = 0;
         double[] flow = new double[2];
         for (int y = y0; y <= y1; y++) {
             for (int x = x0; x <= x1; x++) {
                 for (int z = z0; z <= z1; z++) {
                     BlockState state = Blocks.getState(world.getBlock(x, y, z));
                     if (!state.isFluid() || state.getBlock().getFluidInfo().lava != lava) continue;
-                    if (y + FluidGeometry.fluidHeight(state) < minY) continue; // unter der Box
+                    double surface = y + FluidGeometry.fluidHeight(state);
+                    if (surface < minY) continue; // unter der Box
+                    depth = Math.max(depth, surface - minY);
+                    count++; // auch Stillwasser-Zellen verdünnen das Mittel (wie Vanilla)
                     FluidBehavior.flowVector(world, x, y, z, flow);
                     double len = Math.sqrt(flow[0] * flow[0] + flow[1] * flow[1]);
                     if (len < 1.0E-8) continue;
-                    sumX += flow[0] / len;
-                    sumZ += flow[1] / len;
+                    double cellScale = depth < 0.4 ? depth / len : 1.0 / len;
+                    sumX += flow[0] * cellScale;
+                    sumZ += flow[1] * cellScale;
                 }
             }
         }
 
         double len = Math.sqrt(sumX * sumX + sumZ * sumZ);
         if (len < 1.0E-8) return;
-        this.motionX += sumX / len * scale;
-        this.motionZ += sumZ / len * scale;
+        sumX /= count;
+        sumZ /= count;
+        if (!(this instanceof EntityPlayer)) {
+            // Nicht-Spieler (Items): Richtung zählt, Stärke ist konstant (Vanilla)
+            len = Math.sqrt(sumX * sumX + sumZ * sumZ);
+            sumX /= len;
+            sumZ /= len;
+        }
+        double pushX = sumX * scale;
+        double pushZ = sumZ * scale;
+
+        /* Mindest-Push (Vanilla): quasi-ruhende Entities bekommen mindestens 0.0045,
+           sonst kämen sie in flacher/schwacher Strömung nie in Bewegung. */
+        double pushLen = Math.sqrt(pushX * pushX + pushZ * pushZ);
+        if (Math.abs(this.motionX) < 0.003 && Math.abs(this.motionZ) < 0.003 && pushLen < 0.0045) {
+            pushX = pushX / pushLen * 0.0045;
+            pushZ = pushZ / pushLen * 0.0045;
+        }
+        this.motionX += pushX;
+        this.motionZ += pushZ;
     }
 
     public AABB getBoundingBox() {

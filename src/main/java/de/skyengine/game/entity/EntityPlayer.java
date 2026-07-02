@@ -42,6 +42,7 @@ public class EntityPlayer extends Entity {
     private static final double WATER_DRAG = 0.8;           // horizontale/vertikale Reibung Wasser
     private static final double LAVA_DRAG = 0.5;            // Lava bremst stärker
     private static final double FLUID_JUMP_OUT = 0.3;        // Heraussprung an der Wasserkante (Vanilla)
+    private static final double FLUID_JUMP_THRESHOLD = 0.4;  // flacher eingetaucht -> Space = voller Sprung
 
     /* --- Sneak-Kantenschutz --- */
     private static final double SNEAK_EDGE_STEP = 0.05;      // Schrittweite beim Kürzen der Bewegung
@@ -103,12 +104,16 @@ public class EntityPlayer extends Entity {
 
         if (this.flying) {
             this.travelFlying(world, forward, strafe, up, shift);
-        } else if (this.isInFluid(world, true)) {
-            this.travelSwimming(world, forward, strafe, up, true);
-        } else if (this.isInFluid(world, false)) {
-            this.travelSwimming(world, forward, strafe, up, false);
         } else {
-            this.travelWalking(world, forward, strafe, up);
+            double lavaDepth = this.fluidDepth(world, true);
+            double waterDepth = this.fluidDepth(world, false);
+            if (lavaDepth > 0) {
+                this.travelSwimming(world, forward, strafe, up, true, lavaDepth);
+            } else if (waterDepth > 0) {
+                this.travelSwimming(world, forward, strafe, up, false, waterDepth);
+            } else {
+                this.travelWalking(world, forward, strafe, up);
+            }
         }
 
         /* Creative-Fly: das Aufkommen auf dem Boden beendet das Fliegen (wie in Minecraft). Nur die
@@ -122,8 +127,9 @@ public class EntityPlayer extends Entity {
     /**
      * Schwimmen im Fluid: reduzierte Gravitation + Auftrieb, starke Reibung, Space schwimmt aufwärts.
      * Fluids haben keine Kollision - der Spieler sinkt/schwimmt also durch sie hindurch.
+     * {@code depth} = Eintauchtiefe (siehe {@link #fluidDepth}) für die Sprung-Fallunterscheidung.
      */
-    private void travelSwimming(World world, double forward, double strafe, boolean up, boolean lava) {
+    private void travelSwimming(World world, double forward, double strafe, boolean up, boolean lava, double depth) {
         this.moveRelative(strafe, forward, SWIM_ACCEL);
         double mx = this.motionX, mz = this.motionZ; // Bewegungsabsicht für den Kanten-Check
         this.move(world, this.motionX, this.motionY, this.motionZ);
@@ -140,7 +146,15 @@ public class EntityPlayer extends Entity {
         this.motionZ *= drag;
         this.motionY *= drag;
         this.motionY -= SWIM_GRAVITY;
-        if (up) this.motionY += SWIM_UP; // aufschwimmen
+        if (up) {
+            if (this.onGround && depth <= FLUID_JUMP_THRESHOLD) {
+                /* Flaches Fluid (Vanilla getFluidJumpThreshold): voller Sprung vom Boden,
+                   sonst käme man aus Level-1-Wasser nie über eine Blockkante. */
+                this.motionY = JUMP_POWER;
+            } else {
+                this.motionY += SWIM_UP; // aufschwimmen
+            }
+        }
     }
 
     /**
