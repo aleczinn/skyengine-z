@@ -58,9 +58,30 @@ public final class FluidGeometry {
            Flow-Textur entlang des Gefälles gedreht (UVs um die Mitte rotiert, wie Minecraft), damit
            die Animation sichtbar von der Quelle wegläuft. */
         if (!fluidAbove) {
-            /* Fließrichtung (bergab) aus dem Höhen-Gradienten der Ecken: West-Ost bzw. Nord-Süd. */
-            float velX = (h00 + h01) - (h10 + h11);
-            float velZ = (h00 + h10) - (h01 + h11);
+            /* Fließrichtung wie Vanilla FlowingFluid.getFlow: pro Himmelsrichtung zieht nur
+               gleiches Fluid (Level-Differenz) bzw. eine Abfall-Kante (freie Zelle mit gleichem
+               Fluid eine Ebene tiefer); solide Nachbarn und leere Zellen tragen nichts bei.
+               NICHT aus den Eckhöhen ableiten - die werden von Wänden/Luft geformt und kippen
+               die Richtung neben Blöcken ins Diagonale. Vanillas FALLING-Zusatzterm entfällt:
+               Zellen mit Fluid darüber bekommen gar kein Top-Face. */
+            float own = ownHeight(state);
+            float velX = 0f, velZ = 0f;
+            for (int i = 0; i < 4; i++) {
+                int dx = i == 0 ? -1 : i == 1 ? 1 : 0;
+                int dz = i == 2 ? -1 : i == 3 ? 1 : 0;
+                short nid = sample(chunk, north, south, west, east, x + dx, worldY, z + dz);
+                float diff = 0f;
+                if (isSameFluid(nid, fluid)) {
+                    diff = own - ownHeight(BlockRegistry.getState(nid));
+                } else if (!BlockRegistry.getState(nid).isSolid()) {
+                    short bid = sample(chunk, north, south, west, east, x + dx, worldY - 1, z + dz);
+                    if (isSameFluid(bid, fluid)) { // Abfall-Kante: zieht stark bergab
+                        diff = own - (ownHeight(BlockRegistry.getState(bid)) - 8f / 9f);
+                    }
+                }
+                velX += dx * diff;
+                velZ += dz * diff;
+            }
             float[] uv; // u,v je Ecke in Reihenfolge A(0,0) B(0,1) C(1,1) D(1,0)
             if (stillTop || (Math.abs(velX) < 1.0e-4f && Math.abs(velZ) < 1.0e-4f)) {
                 uv = new float[]{0, 0, 0, 1, 1, 1, 1, 0};
