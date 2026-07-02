@@ -7,6 +7,7 @@ import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
@@ -316,6 +317,39 @@ public final class FluidBehavior implements BlockBehavior {
 
     private static boolean isSource(BlockState s) {
         return s.isFluid() && !s.get(Properties.FALLING) && s.get(Properties.LEVEL) == 0;
+    }
+
+    /**
+     * Fließrichtung der Fluid-Zelle (x,y,z) für Entity-Strömung, unnormiert in {@code out[0]/out[1]}.
+     * Gleiche Formel wie der Render-Flow im Top-Face von {@code FluidGeometry.build} (Vanilla
+     * FlowingFluid.getFlow): pro Himmelsrichtung zieht nur gleiches Fluid (Level-Differenz) bzw.
+     * eine Abfall-Kante (freie Zelle mit gleichem Fluid eine Ebene tiefer); solide Nachbarn und
+     * leere Zellen tragen nichts bei. Bewusst dupliziert: der Mesher sampelt aus Thread-Gründen
+     * über Chunks, Entities über die World.
+     */
+    public static void flowVector(World world, int x, int y, int z, double[] out) {
+        out[0] = 0;
+        out[1] = 0;
+        BlockState state = Blocks.getState(world.getBlock(x, y, z));
+        if (!state.isFluid()) return;
+        Block fluid = state.getBlock();
+        double own = FluidGeometry.fluidHeight(state);
+
+        for (Direction d : Direction.horizontal()) {
+            int nx = x + d.offsetX(), nz = z + d.offsetZ();
+            short nid = world.getBlock(nx, y, nz);
+            double diff = 0;
+            if (isSameFluid(nid, fluid)) {
+                diff = own - FluidGeometry.fluidHeight(Blocks.getState(nid));
+            } else if (!Blocks.getState(nid).isSolid()) {
+                short bid = world.getBlock(nx, y - 1, nz);
+                if (isSameFluid(bid, fluid)) { // Abfall-Kante: zieht stark bergab
+                    diff = own - (FluidGeometry.fluidHeight(Blocks.getState(bid)) - 8.0 / 9.0);
+                }
+            }
+            out[0] += d.offsetX() * diff;
+            out[1] += d.offsetZ() * diff;
+        }
     }
 
     private static boolean isSameFluid(short id, Block fluid) {

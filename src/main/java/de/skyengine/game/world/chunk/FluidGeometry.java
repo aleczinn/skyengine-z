@@ -63,7 +63,8 @@ public final class FluidGeometry {
                Fluid eine Ebene tiefer); solide Nachbarn und leere Zellen tragen nichts bei.
                NICHT aus den Eckhöhen ableiten - die werden von Wänden/Luft geformt und kippen
                die Richtung neben Blöcken ins Diagonale. Vanillas FALLING-Zusatzterm entfällt:
-               Zellen mit Fluid darüber bekommen gar kein Top-Face. */
+               Zellen mit Fluid darüber bekommen gar kein Top-Face. Gleiche Formel Welt-basiert
+               für die Entity-Strömung: FluidBehavior.flowVector. */
             float own = ownHeight(state);
             float velX = 0f, velZ = 0f;
             for (int i = 0; i < 4; i++) {
