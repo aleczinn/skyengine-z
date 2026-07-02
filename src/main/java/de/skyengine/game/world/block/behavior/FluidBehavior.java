@@ -55,13 +55,23 @@ public final class FluidBehavior implements BlockBehavior {
         /* 1) Wasser/Lava-Reaktion hat Vorrang (kann diesen Block ersetzen). */
         if (reaction(world, x, y, z, state, info)) return;
 
-        /* Hohlraum-Regel (Vanilla): eine ersetzbare Nachbarzelle, die horizontal auch das
-           Gegen-Fluid berührt, wird direkt zu Cobblestone - ohne dass ein Fluid hineinfließt. */
+        /* Hohlraum-Regel (Vanilla): eine ersetzbare Zelle zwischen Wasser und Lava wird zu
+           Cobblestone - im LAVA-Takt (tickDelay 30), wie das Minecraft-Generator-Delay.
+           Wasser stößt nur den Tick ruhender Lava an, erzeugt den Cobble aber nicht selbst. */
         for (Direction d : Direction.horizontal()) {
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
             if (!canFluidReplace(world.getBlock(nx, y, nz))) continue;
-            if (oppositeFluidAdjacent(world, nx, y, nz, info.lava, d.opposite())) {
-                world.setBlock(nx, y, nz, Blocks.COBBLESTONE);
+            for (Direction d2 : Direction.horizontal()) {
+                if (d2 == d.opposite()) continue;
+                int ox = nx + d2.offsetX(), oz = nz + d2.offsetZ();
+                FluidInfo oi = Blocks.getState(world.getBlock(ox, y, oz)).getBlock().getFluidInfo();
+                if (oi == null || oi.lava == info.lava) continue;
+                if (info.lava) {
+                    world.setBlock(nx, y, nz, Blocks.COBBLESTONE);
+                } else {
+                    world.scheduleTick(ox, y, oz, oi.tickDelay); // ruhende Lava im eigenen Takt wecken
+                }
+                break;
             }
         }
 
@@ -170,7 +180,10 @@ public final class FluidBehavior implements BlockBehavior {
                wird aber nicht überschrieben. Quellen blockieren (Vanilla canPassThrough). */
             boolean sameFlowing = isSameFluid(ns, fluid) && !isSource(Blocks.getState(ns));
             if (!canFluidReplace(ns) && !sameFlowing) continue; // nicht passierbar
-            flow[i] = canFluidReplace(ns);
+            /* Misch-Zellen (grenzen horizontal ans Gegen-Fluid) bleiben frei: dort erzeugt die
+               Hohlraum-Regel im Lava-Takt Cobblestone, statt dass das Fluid hineinfließt. */
+            flow[i] = canFluidReplace(ns)
+                    && !oppositeFluidAdjacent(world, nx, y, nz, info.lava, d.opposite());
             slope[i] = canDescend(world, nx, y, nz)
                     ? 0
                     : slopeDistance(world, nx, y, nz, fluid, 1, slopeFind, d.opposite());
