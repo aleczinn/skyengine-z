@@ -34,6 +34,13 @@ public final class FluidBehavior implements BlockBehavior {
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
         FluidInfo info = state.getBlock().getFluidInfo();
+        /* Lava+Wasser reagiert synchron - updateStateAt wendet den zurückgegebenen Fremd-State
+           direkt an. Deckt beide Fälle im selben Tick ab (kein sichtbarer Lava-Frame im
+           Cobble-Generator): Lava fließt in wasserangrenzende Zelle (eigenes Update direkt nach
+           setBlock) und Wasser erreicht bestehende Lava (Nachbar-Update). */
+        if (info.lava && waterAdjacent(world, x, y, z)) {
+            return Blocks.getState(isSource(state) ? Blocks.OBSIDIAN : Blocks.COBBLESTONE);
+        }
         world.scheduleTickEarlier(x, y, z, reactionDelay(world, x, y, z, info));
         return state;
     }
@@ -146,8 +153,13 @@ public final class FluidBehavior implements BlockBehavior {
         for (int i = 0; i < dirs.length; i++) {
             Direction d = dirs[i];
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
-            if (!canFluidReplace(world.getBlock(nx, y, nz))) continue; // nicht passierbar
-            flow[i] = true;
+            short ns = world.getBlock(nx, y, nz);
+            /* Eigenes fließendes Fluid zählt bei der Gefälle-Suche weiter mit (hält minSlope auf
+               der etablierten Fließrichtung, sonst flutet die zweitbeste Richtung die Terrasse),
+               wird aber nicht überschrieben. Quellen blockieren (Vanilla canPassThrough). */
+            boolean sameFlowing = isSameFluid(ns, fluid) && !isSource(Blocks.getState(ns));
+            if (!canFluidReplace(ns) && !sameFlowing) continue; // nicht passierbar
+            flow[i] = canFluidReplace(ns);
             slope[i] = canDescend(world, nx, y, nz)
                     ? 0
                     : slopeDistance(world, nx, y, nz, fluid, 1, slopeFind, d.opposite());
@@ -201,19 +213,21 @@ public final class FluidBehavior implements BlockBehavior {
         return info.tickDelay;
     }
 
-    /** Wasser+Lava-Kontakt. Gibt true zurück, wenn dieser Block dabei ersetzt wurde. */
+    /** Wasser oben/seitlich angrenzend? (Unten nicht: dort gilt die Stein-Regel im Abfluss.) */
+    private static boolean waterAdjacent(World world, int x, int y, int z) {
+        for (Direction d : Direction.values()) {
+            if (d == Direction.DOWN) continue;
+            short ns = world.getBlock(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ());
+            if (isWater(Blocks.getState(ns))) return true;
+        }
+        return false;
+    }
+
+    /** Wasser+Lava-Kontakt (Fallback, falls kein Nachbar-Update lief, z.B. nach Chunk-Load).
+     *  Gibt true zurück, wenn dieser Block dabei ersetzt wurde. */
     private boolean reaction(World world, int x, int y, int z, BlockState state, FluidInfo info) {
         if (info.lava) {
-            boolean waterAdjacent = false;
-            for (Direction d : Direction.values()) {
-                if (d == Direction.DOWN) continue; // Wasser nur unterhalb: Stein-Regel im Abfluss-Branch, keine Selbst-Umwandlung
-                short ns = world.getBlock(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ());
-                if (isWater(Blocks.getState(ns))) {
-                    waterAdjacent = true;
-                    break;
-                }
-            }
-            if (waterAdjacent) {
+            if (waterAdjacent(world, x, y, z)) {
                 /* Lava-Quelle + Wasser seitlich/oben -> Obsidian; fließende Lava + Wasser -> Cobblestone. */
                 world.setBlock(x, y, z, isSource(state) ? Blocks.OBSIDIAN : Blocks.COBBLESTONE);
                 return true;
