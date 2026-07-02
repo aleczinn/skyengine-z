@@ -18,9 +18,9 @@ import java.util.List;
  *
  * <p>Die erzeugten Quads sind bereits face-gecullt (verdeckte Flächen werden gar
  * nicht erzeugt) und tragen {@link BakedQuad#NO_CULL}, damit der Mesher sie ohne
- * weitere Nachbarprüfung emittiert. Diagonale über zwei Chunk-Grenzen sind nicht
- * erreichbar und zählen bei der Eck-Mittelung nicht mit (Ecke am Chunk-Eck minimal
- * zu hoch statt sichtbarer Delle).
+ * weitere Nachbarprüfung emittiert. Für die Eck-Mittelung an Chunk-Ecken braucht
+ * der Mesher auch die 4 Diagonal-Nachbarn — sonst berechnen die vier angrenzenden
+ * Zellen die gemeinsame Ecke unterschiedlich und die Flächen klaffen auseinander.
  */
 public final class FluidGeometry {
 
@@ -30,7 +30,7 @@ public final class FluidGeometry {
     private FluidGeometry() {}
 
     public static BakedQuad[] build(BlockState state,
-                                    Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east,
+                                    Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
                                     int x, int worldY, int z) {
         Block fluid = state.getBlock();
         FluidInfo info = fluid.getFluidInfo();
@@ -40,12 +40,12 @@ public final class FluidGeometry {
         /* Wasser wird eingefärbt (Texturen sind grau); Lava ist bereits orange → neutral. */
         int tint = info.lava ? BakedQuad.WHITE : WATER_TINT;
 
-        boolean fluidAbove = isSameFluid(sample(chunk, north, south, west, east, x, worldY + 1, z), fluid);
+        boolean fluidAbove = isSameFluid(sample(chunk, north, south, west, east, diagonals, x, worldY + 1, z), fluid);
 
-        float h00 = corner(chunk, north, south, west, east, x, worldY, z, fluid, state, 0, 0, fluidAbove);
-        float h10 = corner(chunk, north, south, west, east, x, worldY, z, fluid, state, 1, 0, fluidAbove);
-        float h11 = corner(chunk, north, south, west, east, x, worldY, z, fluid, state, 1, 1, fluidAbove);
-        float h01 = corner(chunk, north, south, west, east, x, worldY, z, fluid, state, 0, 1, fluidAbove);
+        float h00 = corner(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, state, 0, 0, fluidAbove);
+        float h10 = corner(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, state, 1, 0, fluidAbove);
+        float h11 = corner(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, state, 1, 1, fluidAbove);
+        float h01 = corner(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, state, 0, 1, fluidAbove);
 
         List<BakedQuad> quads = new ArrayList<>(6);
 
@@ -70,12 +70,12 @@ public final class FluidGeometry {
             for (int i = 0; i < 4; i++) {
                 int dx = i == 0 ? -1 : i == 1 ? 1 : 0;
                 int dz = i == 2 ? -1 : i == 3 ? 1 : 0;
-                short nid = sample(chunk, north, south, west, east, x + dx, worldY, z + dz);
+                short nid = sample(chunk, north, south, west, east, diagonals, x + dx, worldY, z + dz);
                 float diff = 0f;
                 if (isSameFluid(nid, fluid)) {
                     diff = own - ownHeight(BlockRegistry.getState(nid));
                 } else if (!BlockRegistry.getState(nid).isSolid()) {
-                    short bid = sample(chunk, north, south, west, east, x + dx, worldY - 1, z + dz);
+                    short bid = sample(chunk, north, south, west, east, diagonals, x + dx, worldY - 1, z + dz);
                     if (isSameFluid(bid, fluid)) { // Abfall-Kante: zieht stark bergab
                         diff = own - (ownHeight(BlockRegistry.getState(bid)) - 8f / 9f);
                     }
@@ -105,7 +105,7 @@ public final class FluidGeometry {
         }
 
         /* BOTTOM — wenn unten weder gleiches Fluid noch ein opaker Block. */
-        short below = sample(chunk, north, south, west, east, x, worldY - 1, z);
+        short below = sample(chunk, north, south, west, east, diagonals, x, worldY - 1, z);
         if (!isSameFluid(below, fluid) && !BlockRegistry.getState(below).isOpaqueCube()) {
             quads.add(quad(still, BlockModels.FACE_BRIGHTNESS[1], tint,
                     0, 0, 0, 0, 0,
@@ -116,7 +116,7 @@ public final class FluidGeometry {
 
         /* SEITEN — je gegen Nicht-Fluid und nicht-opaken Nachbarn, mit den beiden Kanten-Eckhöhen. */
         // north (z-): Kante z=0, Ecken h00 (x=0) / h10 (x=1)
-        if (sideVisible(chunk, north, south, west, east, x, worldY, z, fluid, 0, -1)) {
+        if (sideVisible(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, 0, -1)) {
             quads.add(quad(flow, BlockModels.FACE_BRIGHTNESS[2], tint,
                     1, 0, 0, 0, 1,
                     0, 0, 0, 1, 1,
@@ -124,7 +124,7 @@ public final class FluidGeometry {
                     1, h10, 0, 0, 1 - h10));
         }
         // south (z+): Kante z=1, Ecken h01 (x=0) / h11 (x=1)
-        if (sideVisible(chunk, north, south, west, east, x, worldY, z, fluid, 0, 1)) {
+        if (sideVisible(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, 0, 1)) {
             quads.add(quad(flow, BlockModels.FACE_BRIGHTNESS[3], tint,
                     0, 0, 1, 0, 1,
                     1, 0, 1, 1, 1,
@@ -132,7 +132,7 @@ public final class FluidGeometry {
                     0, h01, 1, 0, 1 - h01));
         }
         // west (x-): Kante x=0, Ecken h00 (z=0) / h01 (z=1)
-        if (sideVisible(chunk, north, south, west, east, x, worldY, z, fluid, -1, 0)) {
+        if (sideVisible(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, -1, 0)) {
             quads.add(quad(flow, BlockModels.FACE_BRIGHTNESS[4], tint,
                     0, 0, 0, 0, 1,
                     0, 0, 1, 1, 1,
@@ -140,7 +140,7 @@ public final class FluidGeometry {
                     0, h00, 0, 0, 1 - h00));
         }
         // east (x+): Kante x=1, Ecken h10 (z=0) / h11 (z=1)
-        if (sideVisible(chunk, north, south, west, east, x, worldY, z, fluid, 1, 0)) {
+        if (sideVisible(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, 1, 0)) {
             quads.add(quad(flow, BlockModels.FACE_BRIGHTNESS[5], tint,
                     1, 0, 1, 0, 1,
                     1, 0, 0, 1, 1,
@@ -152,9 +152,9 @@ public final class FluidGeometry {
     }
 
     /** Eine Seite ist sichtbar, wenn der Nachbar weder dasselbe Fluid noch ein opaker Würfel ist. */
-    private static boolean sideVisible(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east,
+    private static boolean sideVisible(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
                                        int x, int worldY, int z, Block fluid, int dx, int dz) {
-        short id = sample(chunk, north, south, west, east, x + dx, worldY, z + dz);
+        short id = sample(chunk, north, south, west, east, diagonals, x + dx, worldY, z + dz);
         if (isSameFluid(id, fluid)) return false;
         return !BlockRegistry.getState(id).isOpaqueCube();
     }
@@ -167,20 +167,20 @@ public final class FluidGeometry {
      * 10-fach. Die Diagonale zählt nur, wenn einer der beiden Kardinal-Nachbarn selbst
      * Fluid ist (Höhe > 0) — Fluid „sieht" nicht um eine solide Ecke herum.
      */
-    private static float corner(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east,
+    private static float corner(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
                                 int x, int worldY, int z, Block fluid, BlockState self,
                                 int cornerX, int cornerZ, boolean fluidAbove) {
         if (fluidAbove) return 1.0f;
 
         int dx = cornerX == 0 ? -1 : 1;
         int dz = cornerZ == 0 ? -1 : 1;
-        float a = columnHeight(chunk, north, south, west, east, x + dx, worldY, z, fluid);
-        float b = columnHeight(chunk, north, south, west, east, x, worldY, z + dz, fluid);
+        float a = columnHeight(chunk, north, south, west, east, diagonals, x + dx, worldY, z, fluid);
+        float b = columnHeight(chunk, north, south, west, east, diagonals, x, worldY, z + dz, fluid);
         if (a >= 1.0f || b >= 1.0f) return 1.0f;
 
         float d = -1f;
         if (a > 0f || b > 0f) {
-            d = columnHeight(chunk, north, south, west, east, x + dx, worldY, z + dz, fluid);
+            d = columnHeight(chunk, north, south, west, east, diagonals, x + dx, worldY, z + dz, fluid);
             if (d >= 1.0f) return 1.0f;
         }
 
@@ -200,15 +200,14 @@ public final class FluidGeometry {
 
     /**
      * Sichthöhe einer Spalte für die Eck-Mittelung: gleiches Fluid → Eigenhöhe (bzw. 1.0
-     * mit Fluid darüber), nicht-solide Blöcke (Luft, Pflanzen) → 0, solide Blöcke und
-     * unerreichbare Diagonalen → -1 (zählen nicht mit).
+     * mit Fluid darüber), nicht-solide Blöcke (Luft, Pflanzen) → 0, solide Blöcke → -1
+     * (zählen nicht mit).
      */
-    private static float columnHeight(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east,
+    private static float columnHeight(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
                                       int x, int y, int z, Block fluid) {
-        short id = sample(chunk, north, south, west, east, x, y, z);
-        if (id < 0) return -1f;
+        short id = sample(chunk, north, south, west, east, diagonals, x, y, z);
         if (isSameFluid(id, fluid)) {
-            if (isSameFluid(sample(chunk, north, south, west, east, x, y + 1, z), fluid)) return 1.0f;
+            if (isSameFluid(sample(chunk, north, south, west, east, diagonals, x, y + 1, z), fluid)) return 1.0f;
             return ownHeight(BlockRegistry.getState(id));
         }
         return BlockRegistry.getState(id).isSolid() ? -1f : 0f;
@@ -232,21 +231,23 @@ public final class FluidGeometry {
     }
 
     private static boolean isSameFluid(short id, Block fluid) {
-        if (id < 0) return false; // unerreichbare Diagonale
         BlockState s = BlockRegistry.getState(id);
         return s.isFluid() && s.getBlock() == fluid;
     }
 
     /**
      * Block an section-lokalen x/z (dürfen -1..SIZE sein) und Welt-Y, über die 4
-     * Kardinal-Nachbar-Chunks. Diagonale über zwei Grenzen → -1 (unerreichbar; wird
-     * nur von der Eckhöhen-Berechnung abgefragt und dort übersprungen).
+     * Kardinal- und 4 Diagonal-Nachbar-Chunks ({@code diagonals} in Reihenfolge NW, NE, SW, SE
+     * — so liefert sie der ChunkManager).
      */
-    private static short sample(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east,
+    private static short sample(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
                                 int x, int y, int z) {
         int size = ChunkSection.SIZE;
         if (x < 0 || x >= size) {
-            if (z < 0 || z >= size) return -1; // Diagonal-Ecke: nicht erreichbar
+            if (z < 0 || z >= size) { // Diagonal-Ecke über zwei Chunk-Grenzen
+                Chunk c = diagonals[(z < 0 ? 0 : 2) + (x < 0 ? 0 : 1)];
+                return c != null ? c.getBlock(x < 0 ? size - 1 : 0, y, z < 0 ? size - 1 : 0) : 0;
+            }
             Chunk c = x < 0 ? west : east;
             return c != null ? c.getBlock(x < 0 ? size - 1 : 0, y, z) : 0;
         }

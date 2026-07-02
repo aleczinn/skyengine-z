@@ -45,7 +45,7 @@ public class ChunkMesher {
      *
      * @return MeshData oder null, wenn die Section komplett leer ist
      */
-    public MeshData mesh(Chunk chunk, int sectionIndex, Chunk north, Chunk south, Chunk west, Chunk east) {
+    public MeshData mesh(Chunk chunk, int sectionIndex, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals) {
         ChunkSection section = chunk.getSection(sectionIndex);
         if (section == null || section.isEmpty()) return null;
 
@@ -62,9 +62,10 @@ public class ChunkMesher {
                     BlockState state = BlockRegistry.getState(stateId);
                     int worldY = baseY + y;
 
-                    /* Fluids: Geometrie hängt von Nachbar-Leveln ab -> dynamisch statt gebackenes Modell. */
+                    /* Fluids: Geometrie hängt von Nachbar-Leveln ab -> dynamisch statt gebackenes Modell.
+                       Die Diagonal-Chunks braucht nur die Fluid-Eckhöhe an Chunk-Ecken. */
                     BakedQuad[] quads = state.isFluid()
-                            ? FluidGeometry.build(state, chunk, north, south, west, east, x, worldY, z)
+                            ? FluidGeometry.build(state, chunk, north, south, west, east, diagonals, x, worldY, z)
                             : state.getModel();
                     if (quads.length == 0) continue;
 

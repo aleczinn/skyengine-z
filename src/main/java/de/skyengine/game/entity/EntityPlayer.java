@@ -136,9 +136,11 @@ public class EntityPlayer extends Entity {
 
         /* Heraussprung an der Kante (Vanilla): horizontal gegen ein Hindernis geschwommen und
            darüber (0.6 höher) ist Platz -> Aufwärts-Boost; wiederholt sich jeden Tick, solange
-           die Kollision anhält, bis man auf dem Block steht. */
+           die Kollision anhält, bis man auf dem Block steht. max(): ein voller Sprung aus
+           flachem Wasser (0.42) darf nicht auf 0.3 gekappt werden, sonst reicht der Bogen
+           nicht über die Blockkante. */
         if (this.horizontalCollision && this.isFree(world, mx, 0.6, mz)) {
-            this.motionY = FLUID_JUMP_OUT;
+            this.motionY = Math.max(this.motionY, FLUID_JUMP_OUT);
         }
 
         double drag = lava ? LAVA_DRAG : WATER_DRAG;

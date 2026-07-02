@@ -105,28 +105,30 @@ public class ChunkManager {
                 });
             }
 
-            /* 2. Erst-Mesh: alle 16 Sections, sobald Nachbarn generiert sind.
+            /* 2. Erst-Mesh: alle 16 Sections, sobald alle 8 Nachbarn generiert sind (Diagonalen
+               braucht die Fluid-Eckhöhen-Berechnung an Chunk-Ecken).
                Jede Section als eigener Batch, damit der Upload über Frames verteilt wird. */
             if (chunk.status == ChunkStatus.GENERATED) {
                 Chunk north = this.getGenerated(cx, cz - 1);
                 Chunk south = this.getGenerated(cx, cz + 1);
                 Chunk west = this.getGenerated(cx - 1, cz);
                 Chunk east = this.getGenerated(cx + 1, cz);
-                if (north == null || south == null || west == null || east == null) continue;
+                Chunk[] diagonals = this.getGeneratedDiagonals(cx, cz);
+                if (north == null || south == null || west == null || east == null || diagonals == null) continue;
 
                 chunk.status = ChunkStatus.MESHING;
                 Chunk finalChunk = chunk;
                 this.workers.submit(() -> {
                     ChunkMesher mesher = this.meshers.get();
-                    lockRead(finalChunk, north, south, west, east);
+                    lockRead(finalChunk, north, south, west, east, diagonals);
                     try {
                         for (int s = 0; s < Chunk.SECTIONS; s++) {
-                            ChunkMesher.MeshData mesh = mesher.mesh(finalChunk, s, north, south, west, east);
+                            ChunkMesher.MeshData mesh = mesher.mesh(finalChunk, s, north, south, west, east, diagonals);
                             this.uploadQueue.add(new MeshBatch(List.of(
                                     new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh))));
                         }
                     } finally {
-                        unlockRead(finalChunk, north, south, west, east);
+                        unlockRead(finalChunk, north, south, west, east, diagonals);
                     }
                     finalChunk.status = ChunkStatus.READY;
                 });
@@ -163,8 +165,9 @@ public class ChunkManager {
             Chunk south = this.getGenerated(chunk.chunkX, chunk.chunkZ + 1);
             Chunk west = this.getGenerated(chunk.chunkX - 1, chunk.chunkZ);
             Chunk east = this.getGenerated(chunk.chunkX + 1, chunk.chunkZ);
+            Chunk[] diagonals = this.getGeneratedDiagonals(chunk.chunkX, chunk.chunkZ);
             /* Nachbarn fehlen (Weltrand): Maske NICHT konsumieren, bleibt für später erhalten */
-            if (north == null || south == null || west == null || east == null) continue;
+            if (north == null || south == null || west == null || east == null || diagonals == null) continue;
 
             int mask = chunk.consumeDirtySections();
             if (mask == 0) continue;
@@ -172,38 +175,53 @@ public class ChunkManager {
             this.workers.submit(() -> {
                 ChunkMesher mesher = this.meshers.get();
                 List<MeshResult> batch = new ArrayList<>(Integer.bitCount(mask));
-                lockRead(chunk, north, south, west, east);
+                lockRead(chunk, north, south, west, east, diagonals);
                 try {
                     for (int s = 0; s < Chunk.SECTIONS; s++) {
                         if ((mask & (1 << s)) == 0) continue;
                         batch.add(new MeshResult(chunk.chunkX, s, chunk.chunkZ,
-                                mesher.mesh(chunk, s, north, south, west, east)));
+                                mesher.mesh(chunk, s, north, south, west, east, diagonals)));
                     }
                 } finally {
-                    unlockRead(chunk, north, south, west, east);
+                    unlockRead(chunk, north, south, west, east, diagonals);
                 }
                 this.uploadQueue.add(new MeshBatch(batch));
             });
         }
     }
 
-    /* Read-Locks aller am Mesh beteiligten Chunks (self + 4 Nachbarn) gegen gleichzeitige
-       Block-Edits auf dem Render-Thread. Read-Locks sind untereinander kompatibel und der
-       Writer (setBlockRaw) hält nur einen Lock -> kein Deadlock. Alle fünf sind hier nie null. */
-    private static void lockRead(Chunk a, Chunk b, Chunk c, Chunk d, Chunk e) {
+    /* Read-Locks aller am Mesh beteiligten Chunks (self + 4 Kardinale + 4 Diagonalen) gegen
+       gleichzeitige Block-Edits auf dem Render-Thread. Read-Locks sind untereinander kompatibel
+       und der Writer (setBlockRaw) hält nur einen Lock -> kein Deadlock. Alle neun sind hier nie null. */
+    private static void lockRead(Chunk a, Chunk b, Chunk c, Chunk d, Chunk e, Chunk[] diagonals) {
         a.readLock().lock();
         b.readLock().lock();
         c.readLock().lock();
         d.readLock().lock();
         e.readLock().lock();
+        for (Chunk diag : diagonals) diag.readLock().lock();
     }
 
-    private static void unlockRead(Chunk a, Chunk b, Chunk c, Chunk d, Chunk e) {
+    private static void unlockRead(Chunk a, Chunk b, Chunk c, Chunk d, Chunk e, Chunk[] diagonals) {
+        for (int i = diagonals.length - 1; i >= 0; i--) diagonals[i].readLock().unlock();
         e.readLock().unlock();
         d.readLock().unlock();
         c.readLock().unlock();
         b.readLock().unlock();
         a.readLock().unlock();
+    }
+
+    /**
+     * Die 4 diagonalen Nachbarn (Reihenfolge NW, NE, SW, SE — wie {@code FluidGeometry.sample}
+     * sie erwartet), oder null, wenn einer noch nicht generiert ist.
+     */
+    private Chunk[] getGeneratedDiagonals(int cx, int cz) {
+        Chunk nw = this.getGenerated(cx - 1, cz - 1);
+        Chunk ne = this.getGenerated(cx + 1, cz - 1);
+        Chunk sw = this.getGenerated(cx - 1, cz + 1);
+        Chunk se = this.getGenerated(cx + 1, cz + 1);
+        if (nw == null || ne == null || sw == null || se == null) return null;
+        return new Chunk[]{nw, ne, sw, se};
     }
 
     private Chunk getGenerated(int cx, int cz) {
