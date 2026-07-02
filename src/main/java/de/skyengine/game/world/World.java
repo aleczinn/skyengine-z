@@ -66,6 +66,14 @@ public class World implements IInitializable, IDisposable {
     /** Zufalls-Ticks pro nicht-leerer Section pro Tick (Wachstum, Verfall). 0 = aus. */
     private static final int RANDOM_TICK_SPEED = 3;
 
+    /** Verzögerung, mit der geplante Ticks außerhalb der Simulations-Distanz erneut vorgemerkt werden. */
+    private static final int OUT_OF_SIM_RESCHEDULE = 20;
+
+    /** Nur Chunks in diesem Radius (in Chunks) um den Spieler ticken (Random/Scheduled/Entities). */
+    private int simulationDistance = 10;
+    /* Spieler-Chunk des laufenden Ticks - Basis für isSimulated(). */
+    private int playerChunkX, playerChunkZ;
+
     public World(String name) {
         this.name = name;
         this.generator = new WorldGenerator(123);
@@ -93,11 +101,24 @@ public class World implements IInitializable, IDisposable {
     public void update(Input input, EntityPlayer player) {
         this.gameTime++;
         this.player = player;
+        this.playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
+        this.playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
         this.chunkManager.update(player);
         this.tickScheduled();
         this.tickRandomBlocks();
         this.tickBlockEntities();
         this.tickEntities();
+    }
+
+    /** Simulations-Distanz in Chunks setzen (min. 2). Chunks außerhalb werden nicht getickt. */
+    public void setSimulationDistance(int distance) {
+        this.simulationDistance = Math.max(2, distance);
+    }
+
+    /** true, wenn der Chunk im Simulations-Radius um den Spieler liegt (zirkulär, wie Render-Distanz). */
+    private boolean isSimulated(int cx, int cz) {
+        int dx = cx - this.playerChunkX, dz = cz - this.playerChunkZ;
+        return dx * dx + dz * dz <= this.simulationDistance * this.simulationDistance;
     }
 
     /**
@@ -114,6 +135,7 @@ public class World implements IInitializable, IDisposable {
 
         for (Chunk chunk : this.chunkManager.loadedChunks()) {
             if (chunk.status != ChunkStatus.READY) continue;
+            if (!this.isSimulated(chunk.chunkX, chunk.chunkZ)) continue;
             List<Entity> list = chunk.entities();
             for (int i = 0; i < list.size(); i++) list.get(i).tick(this);
         }
@@ -227,6 +249,7 @@ public class World implements IInitializable, IDisposable {
     private void tickBlockEntities() {
         for (Chunk chunk : this.chunkManager.loadedChunks()) {
             if (chunk.status != ChunkStatus.READY) continue;
+            if (!this.isSimulated(chunk.chunkX, chunk.chunkZ)) continue;
             var entities = chunk.blockEntities();
             if (entities.isEmpty()) continue;
             /* Snapshot in den wiederverwendeten Puffer: ein tick() darf Blöcke setzen / die Map verändern. */
@@ -269,9 +292,18 @@ public class World implements IInitializable, IDisposable {
         return this.gameTime;
     }
 
-    /** Führt alle fälligen geplanten Ticks aus (Fluss-Ausbreitung, Fallprüfung, ...). */
+    /**
+     * Führt alle fälligen geplanten Ticks aus (Fluss-Ausbreitung, Fallprüfung, ...). Außerhalb der
+     * Simulations-Distanz wird der Tick nicht ausgeführt, sondern erneut vorgemerkt - der Fluss
+     * friert dort ein und läuft weiter, sobald der Spieler zurückkommt. (Während des Drains neu
+     * geplante Einträge verarbeitet drainDue erst im nächsten Tick -> keine Endlosschleife.)
+     */
     private void tickScheduled() {
         this.scheduledTicks.drainDue(this.gameTime, (x, y, z) -> {
+            if (!this.isSimulated(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT)) {
+                this.scheduledTicks.schedule(x, y, z, this.gameTime + OUT_OF_SIM_RESCHEDULE);
+                return;
+            }
             BlockState state = Blocks.getState(this.getBlock(x, y, z));
             if (!state.isAir()) state.getBlock().scheduledTick(this, x, y, z, state);
         });
@@ -280,13 +312,13 @@ public class World implements IInitializable, IDisposable {
     /**
      * Zufalls-Ticks: pro nicht-leerer Section werden {@link #RANDOM_TICK_SPEED} zufällige
      * Positionen gezogen; nur Blöcke mit {@link BlockState#ticksRandomly()} reagieren
-     * (Pflanzenwachstum, Verfall). Läuft über alle geladenen Chunks - später ggf. auf eine
-     * Simulationsdistanz um den Spieler begrenzen.
+     * (Pflanzenwachstum, Verfall). Begrenzt auf die Simulations-Distanz um den Spieler.
      */
     private void tickRandomBlocks() {
         if (RANDOM_TICK_SPEED <= 0 || !BlockRegistry.hasRandomTickBlocks()) return;
         for (Chunk chunk : this.chunkManager.loadedChunks()) {
             if (chunk.status != ChunkStatus.READY) continue;
+            if (!this.isSimulated(chunk.chunkX, chunk.chunkZ)) continue;
             int baseX = chunk.chunkX << ChunkSection.SHIFT;
             int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
             for (int si = 0; si < Chunk.SECTIONS; si++) {
@@ -439,6 +471,11 @@ public class World implements IInitializable, IDisposable {
         if (lx == ChunkSection.MASK) this.markDirty(cx + 1, cz, sy);
         if (lz == 0) this.markDirty(cx, cz - 1, sy);
         if (lz == ChunkSection.MASK) this.markDirty(cx, cz + 1, sy);
+        /* Chunk-ECKEN zusätzlich diagonal: dessen Fluid-Eckhöhen sampeln diese Zelle. */
+        if (lx == 0 && lz == 0) this.markDirty(cx - 1, cz - 1, sy);
+        if (lx == 0 && lz == ChunkSection.MASK) this.markDirty(cx - 1, cz + 1, sy);
+        if (lx == ChunkSection.MASK && lz == 0) this.markDirty(cx + 1, cz - 1, sy);
+        if (lx == ChunkSection.MASK && lz == ChunkSection.MASK) this.markDirty(cx + 1, cz + 1, sy);
         return true;
     }
 

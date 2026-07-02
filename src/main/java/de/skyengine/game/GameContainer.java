@@ -110,6 +110,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     /** Übernimmt die persistenten Einstellungen in die laufenden Systeme. */
     private void applySettings() {
         this.world.getChunkManager().setRenderDistance(this.settings.renderDistance);
+        this.world.setSimulationDistance(this.settings.simulationDistance);
         this.camera.setFov(this.settings.fov);
         this.guiManager.setScale(this.settings.guiScaleFactor());
         /* Über das Window setzen, damit dessen Zustand (config.isVSync) authoritativ bleibt -

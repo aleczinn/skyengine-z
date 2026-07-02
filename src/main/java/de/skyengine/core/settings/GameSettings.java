@@ -31,6 +31,7 @@ public final class GameSettings {
     /* GUI-Größe als Schieberegler 1..100 (feiner als MCs Stufen). 1 = 1.0x, 100 = 6.0x. */
     public int guiScale = 50;
     public int renderDistance = 16;   // in Chunks
+    public int simulationDistance = 10; // in Chunks; nur Chunks in diesem Radius ticken (wie MC)
     public int fov = 75;
     public boolean vsync = false;
     public double mouseSensitivity = 1.0;
@@ -87,6 +88,7 @@ public final class GameSettings {
     private void sanitize() {
         this.guiScale = Math.clamp(this.guiScale, 1, 100);
         this.renderDistance = Math.clamp(this.renderDistance, 2, 32);
+        this.simulationDistance = Math.clamp(this.simulationDistance, 2, 32);
         this.fov = Math.clamp(this.fov, 30, 120);
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
