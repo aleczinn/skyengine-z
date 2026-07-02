@@ -25,9 +25,11 @@ import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.core.settings.GameSettings;
+import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.gui.ChestScreen;
 import de.skyengine.graphics.gui.GuiManager;
+import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
@@ -192,10 +194,43 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                     Blocks.getState(this.hit.block()).getOutlineShape());
         }
 
+        this.renderFluidOverlay();
+
         /* Zentrale GUI-Verwaltung: HUD (kein Screen) bzw. Screen-Overlay + Cursor-Sync.
            Im Spectator ist die Hotbar ausgeblendet. */
         boolean showHotbar = this.player.getGamemode() != Gamemode.SPECTATOR;
         this.guiManager.render(width, height, this.playerInventory, this.hotbarIndex, showHotbar);
+    }
+
+    /**
+     * Fullscreen-Tint, wenn das Kamera-Auge in einem Fluid steckt (wie Minecraft):
+     * Wasser -> blau/leicht, Lava -> orange/dicht. Gezeichnet zwischen Welt und HUD.
+     */
+    private void renderFluidOverlay() {
+        Vector3d eye = this.camera.getPosition();
+        int bx = (int) Math.floor(eye.x);
+        int by = (int) Math.floor(eye.y);
+        int bz = (int) Math.floor(eye.z);
+        BlockState state = Blocks.getState(this.world.getBlock(bx, by, bz));
+        if (!state.isFluid()) return;
+
+        /* Zelle zählt als voll, wenn darüber dasselbe Fluid steht (wie FluidGeometry),
+           sonst gilt die sichtbare Oberkante aus LEVEL/FALLING. */
+        float height = 1.0f;
+        BlockState above = Blocks.getState(this.world.getBlock(bx, by + 1, bz));
+        if (!(above.isFluid() && above.getBlock() == state.getBlock())) {
+            height = FluidGeometry.fluidHeight(state);
+        }
+        if (eye.y - by >= height) return;
+
+        SpriteRenderer sr = this.guiManager.sprites();
+        sr.begin(1, 1); // Ortho 0..1 -> Fullscreen-Rect unabhängig vom GUI-Scale
+        if (state.getBlock().getFluidInfo().lava) {
+            sr.drawRect(0, 0, 1, 1, 0.6f, 0.1f, 0.0f, 0.8f);    // Lava: dicht, orange-rot
+        } else {
+            sr.drawRect(0, 0, 1, 1, 0.25f, 0.46f, 0.9f, 0.35f); // Wasser (an 0x4076E6 angelehnt)
+        }
+        sr.end();
     }
 
     @Override

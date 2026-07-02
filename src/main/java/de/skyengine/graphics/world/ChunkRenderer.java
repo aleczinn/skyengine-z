@@ -38,6 +38,11 @@ public class ChunkRenderer {
     private final List<SectionMesh> translucentVisible = new ArrayList<>();
 
     private static final int MAX_UPLOADS_PER_FRAME = 8;
+
+    /* Deckelt Quad-Sorts pro Frame — bei Kamerabewegung wollen sonst alle sichtbaren
+       Translucent-Sections gleichzeitig neu sortieren (Ozean -> Upload-Spike). */
+    private static final int MAX_TRANSLUCENT_SORTS_PER_FRAME = 8;
+
     private static final int TEXTURE_SIZE = 16;
 
     private int renderedSections = 0;
@@ -64,7 +69,12 @@ public class ChunkRenderer {
         this.lastAnimNanos = System.nanoTime();
     }
 
-    public void render(Camera camera) {
+    /**
+     * Opaque- und Cutout-Pass (inkl. Upload/Cleanup/Frustum-Culling). Der Translucent-Pass
+     * folgt separat in {@link #renderTranslucent}, damit Entities dazwischen rendern können
+     * (Vanilla-Reihenfolge: Wasser blendet über Entities).
+     */
+    public void renderSolid(Camera camera) {
         /* 0. Texturanimationen vorrücken (Frame-Tausch, kein Re-Mesh) */
         long now = System.nanoTime();
         this.animations.tick(this.textures, (now - this.lastAnimNanos) / 1.0e9);
@@ -127,9 +137,30 @@ public class ChunkRenderer {
         this.drawLayer(RenderLayer.OPAQUE, this.visible, cam);
         this.drawLayer(RenderLayer.CUTOUT, this.visible, cam);
 
-        /* Pass 3: translucent - zuletzt, mit Blending, von hinten nach vorn sortiert.
-           Nur die Sections mit Translucent-Layer sortieren, nicht die ganze visible-Liste. */
+        this.shader.unbind();
+    }
+
+    /**
+     * Pass 3: translucent — zuletzt, mit Blending, Sections von hinten nach vorn sortiert,
+     * Quads innerhalb der Sections per {@link SectionMesh#sortTranslucent} (Vanilla-Stil).
+     * Nutzt die in {@link #renderSolid} befüllten visible-Listen desselben Frames.
+     */
+    public void renderTranslucent(Camera camera) {
+        Vector3d cam = camera.getPosition();
+
+        this.shader.bind();
+        this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
+        this.shader.setUniformi("u_Textures", 0);
+        this.textures.bind(0);
+
+        /* Nur die Sections mit Translucent-Layer sortieren, nicht die ganze visible-Liste. */
         this.translucentVisible.sort((a, b) -> Double.compare(distanceSq(b, cam), distanceSq(a, cam)));
+
+        /* Per-Quad-Sortierung: nahe Sections zuerst (Liste ist fern -> nah). */
+        int sortBudget = MAX_TRANSLUCENT_SORTS_PER_FRAME;
+        for (int i = this.translucentVisible.size() - 1; i >= 0 && sortBudget > 0; i--) {
+            if (this.translucentVisible.get(i).sortTranslucent(cam)) sortBudget--;
+        }
 
         GL11.glEnable(GL11.GL_BLEND);
         this.shader.setUniformf("u_AlphaCutoff", 0.001F);
