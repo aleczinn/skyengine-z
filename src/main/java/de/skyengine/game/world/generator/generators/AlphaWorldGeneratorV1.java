@@ -20,6 +20,16 @@ public class AlphaWorldGeneratorV1 extends WorldGenerator {
         this.noise.SetFrequency(0.004F);
     }
 
+    /**
+     * Terrainhöhe (y des obersten Blocks) an Weltkoordinaten — pure Funktion ohne
+     * Chunk-Abhängigkeit. Threadsicher (Noise wird nur gelesen); Basis fürs LOD-System.
+     */
+    @Override
+    public int sampleHeight(int x, int z) {
+        float n = this.noise.GetNoise(x, z);
+        return 80 + (int) (n * 40);
+    }
+
     @Override
     public void generate(Chunk chunk) {
         int baseX = chunk.chunkX << ChunkSection.SHIFT;

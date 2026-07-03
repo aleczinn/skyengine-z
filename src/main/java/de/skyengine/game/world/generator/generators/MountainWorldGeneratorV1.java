@@ -56,16 +56,31 @@ public class MountainWorldGeneratorV1 extends WorldGenerator {
     }
 
     @Override
+    public int sampleHeight(int x, int z) {
+        float plainsH = PLAINS_BASE + this.plainsNoise.GetNoise(x, z) * PLAINS_AMP;
+
+        float mask = smoothstep((this.maskNoise.GetNoise(x, z) - MASK_START) / (MASK_END - MASK_START));
+
+        int height = (int) plainsH;
+        if (mask > 0F) {
+            /* Ridged nur samplen, wo die Maske ueberhaupt wirkt */
+            float ridged = (this.mountainNoise.GetNoise(x, z) + 1F) * 0.5F;
+            height += (int) (mask * ridged * MOUNTAIN_AMP);
+        }
+        return Math.min(height, Chunk.HEIGHT - 2);
+    }
+
+    @Override
     public void generate(Chunk chunk) {
         int baseX = chunk.chunkX << ChunkSection.SHIFT;
         int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
 
         for (int x = 0; x < ChunkSection.SIZE; x++) {
             for (int z = 0; z < ChunkSection.SIZE; z++) {
-                float wx = baseX + x;
-                float wz = baseZ + z;
+                int wx = baseX + x;
+                int wz = baseZ + z;
 
-                int height = this.terrainHeight(wx, wz);
+                int height = this.sampleHeight(wx, wz);
 
                 /* Hoehenlinien verwackeln, damit Fels-/Schneegrenze nicht schnurgerade verlaeuft */
                 int snowLine = SNOW_LINE;
@@ -125,21 +140,6 @@ public class MountainWorldGeneratorV1 extends WorldGenerator {
                 }
             }
         }
-    }
-
-    /* Terrain-Hoehe: flache Ebenen, per Maske eingeblendete Ridged-Gebirge */
-    private int terrainHeight(float wx, float wz) {
-        float plainsH = PLAINS_BASE + this.plainsNoise.GetNoise(wx, wz) * PLAINS_AMP;
-
-        float mask = smoothstep((this.maskNoise.GetNoise(wx, wz) - MASK_START) / (MASK_END - MASK_START));
-
-        int height = (int) plainsH;
-        if (mask > 0F) {
-            /* Ridged nur samplen, wo die Maske ueberhaupt wirkt */
-            float ridged = (this.mountainNoise.GetNoise(wx, wz) + 1F) * 0.5F;
-            height += (int) (mask * ridged * MOUNTAIN_AMP);
-        }
-        return Math.min(height, Chunk.HEIGHT - 2);
     }
 
     private static float smoothstep(float t) {
