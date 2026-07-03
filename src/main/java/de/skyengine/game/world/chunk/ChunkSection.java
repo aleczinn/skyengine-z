@@ -1,5 +1,7 @@
 package de.skyengine.game.world.chunk;
 
+import de.skyengine.game.world.chunk.palette.PalettedContainer;
+
 public class ChunkSection {
 
     public static final int SIZE = 32;
@@ -7,31 +9,28 @@ public class ChunkSection {
     public static final int MASK = SIZE - 1;
     public static final int VOLUME = SIZE * SIZE * SIZE;
 
-    /* Lazily allocated - empty sections (pure air/sky) cost nothing.
-       short[] now, palette compression later. */
-    private short[] blocks;
-    private int nonAirCount = 0;
+    /* Lazily allocated - leere Sektionen (reine Luft) kosten nichts. Sonst paletten-
+       komprimiert: typische Chunks brauchen nur wenige Bit pro Block statt der vollen ID-Breite. */
+    private PalettedContainer container;
 
-    public short getBlock(int x, int y, int z) {
-        if (this.blocks == null) return 0;
-        return this.blocks[(y << (SHIFT * 2)) | (z << SHIFT) | x];
+    public int getBlock(int x, int y, int z) {
+        if (this.container == null) return 0;
+        return this.container.get((y << (SHIFT * 2)) | (z << SHIFT) | x);
     }
 
-    public void setBlock(int x, int y, int z, short block) {
-        int index = (y << (SHIFT * 2)) | (z << SHIFT) | x;
-        if (this.blocks == null) {
+    public void setBlock(int x, int y, int z, int block) {
+        if (this.container == null) {
             if (block == 0) return;
-            this.blocks = new short[VOLUME];
+            this.container = new PalettedContainer(VOLUME, 0);
         }
-
-        short old = this.blocks[index];
-        if (old == block) return;
-        if (old == 0) this.nonAirCount++;
-        if (block == 0) this.nonAirCount--;
-        this.blocks[index] = block;
+        this.container.set((y << (SHIFT * 2)) | (z << SHIFT) | x, block);
     }
 
     public boolean isEmpty() {
-        return this.nonAirCount == 0;
+        return this.container == null || this.container.isEmpty();
+    }
+
+    public PalettedContainer container() {
+        return this.container;
     }
 }

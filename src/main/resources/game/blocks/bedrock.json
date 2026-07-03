@@ -1,0 +1,8 @@
+{
+  "id": "skyengine:bedrock",
+  "type": "cube",
+  "layer": "opaque",
+  "textures": {
+    "all": "game/textures/block/bedrock.png"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "skyengine:oak_leaves",
+  "type": "cube",
+  "layer": "cutout",
+  "opaque": false,
+  "textures": {
+    "all": "game/textures/block/oak_leaves.png"
+  }
+}

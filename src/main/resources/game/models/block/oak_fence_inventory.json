@@ -1,0 +1,39 @@
+{
+  "parent": "block/block",
+  "textures": {
+    "all": "game/textures/block/oak_planks.png"
+  },
+  "_comment": "Icon-Modell (wie MC fence_inventory): Pfosten + zwei durchgehende Arme (Z-Achse).",
+  "elements": [
+    { "from": [6, 0, 6], "to": [10, 16, 10],
+      "faces": {
+        "down":  { "texture": "#all" },
+        "up":    { "texture": "#all" },
+        "north": { "texture": "#all" },
+        "south": { "texture": "#all" },
+        "west":  { "texture": "#all" },
+        "east":  { "texture": "#all" }
+      }
+    },
+    { "from": [7, 6, 0], "to": [9, 9, 16],
+      "faces": {
+        "down":  { "texture": "#all" },
+        "up":    { "texture": "#all" },
+        "north": { "texture": "#all" },
+        "south": { "texture": "#all" },
+        "west":  { "texture": "#all" },
+        "east":  { "texture": "#all" }
+      }
+    },
+    { "from": [7, 12, 0], "to": [9, 15, 16],
+      "faces": {
+        "down":  { "texture": "#all" },
+        "up":    { "texture": "#all" },
+        "north": { "texture": "#all" },
+        "south": { "texture": "#all" },
+        "west":  { "texture": "#all" },
+        "east":  { "texture": "#all" }
+      }
+    }
+  ]
+}

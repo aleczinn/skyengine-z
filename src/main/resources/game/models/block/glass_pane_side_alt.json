@@ -1,0 +1,19 @@
+{
+  "parent": "block/block",
+  "textures": {
+    "pane": "game/textures/block/glass.png",
+    "edge": "game/textures/block/glass_pane_top.png"
+  },
+  "elements": [
+    {
+      "from": [7, 0, 9], "to": [9, 16, 16],
+      "faces": {
+        "down":  { "uv": [7, 9, 9, 16], "texture": "#edge" },
+        "up":    { "uv": [7, 9, 9, 16], "texture": "#edge" },
+        "south": { "texture": "#edge", "cullface": "south" },
+        "west":  { "texture": "#pane" },
+        "east":  { "texture": "#pane" }
+      }
+    }
+  ]
+}

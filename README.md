@@ -9,13 +9,24 @@ Eine moderne Voxel-Engine in Java, entwickelt mit LWJGL 3 und OpenGL. Das Ziel d
 
 Diese Engine ist dabei eine Migration aus meinen verschiedensten Engines, welche ich bisher entwickelt habe.
 
+Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded from https://www.planetminecraft.com/texture_pack/16x-c-tetra-1-13/
 
 ## Features
 
 - 🌍 Chunk-System inkl. Welt Rendering (Chunks sind Säulenförmig a 32x512x32m jedoch in Sektionen mit 32³ Blöcken verteilt)
 - 📷 Kamera inkl. Inverse Depth für bessere Tiefenaufteilung + Frustum Culling
-- 🫲🏼 Block Platzieren/Abbauen
 - 💥 AABB Sweep Kollision + Spieler Physik wie Springen, Sneaken, Strafe, Fliegen etc.
+- 🫲🏼 Block Platzieren/Abbauen
+- 🟩 Vollwertiges Block-System: 
+  - Volle Blöcke wie Stein, Grass oder Erde
+  - Stufen und halbe Blöcke
+  - Kreuz-Blöcke wie Kurzes Grass oder Blumen mit zufälliger Block-Verschiebung im Rendering
+  - Transparente Blöcke wie Glass oder Laub
+  - Spezielle Blöcke wie Zäune, Glassscheiben, Eisenstäbe mit Verbindungs-Logik
+  - Animierte Blöcke mit Entity Verhalten wie Truhen mit Inventar und Aufklapp-Animation oder einen Zaubertisch, bei dem das Buch obendrauf den Spieler verfolgt und aufgeht
+  - Multipart Blöcke wie Türen, welche mit Spielerklick auf und zu gehen inkl. Platzierungslogik für Türanschlag
+- 📜 Einfache GUI wie Hotbar des Spielers oder Truheninventar mit Item-Verschiebung via Maus
+- 🎲 Verschiedene Gamemode's wie Survival, Kreativ oder Zuschauer (Fliegen + NoClip)
 
 ## Development
 
@@ -45,7 +56,10 @@ gradlew run
 
 ## Screenshots
 
-Comming soon.
+![Ingame Screenshot mit Hotbar und Block Rendering](./screenshots/readme-1.png?raw=true)
+
+![Ingame Screenshot mit hoher Sichtweite im Spectator Modus](./screenshots/readme-2.png?raw=true)
+
 
 ## Goals
 

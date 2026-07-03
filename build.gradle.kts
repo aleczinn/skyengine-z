@@ -44,4 +44,5 @@ dependencies {
     runtimeOnly("org.lwjgl", "lwjgl-stb", classifier = lwjglNatives)
     implementation("org.joml", "joml", jomlVersion)
     implementation("org.joml", "joml-primitives", jomlPrimitivesVersion)
+    implementation("com.google.code.gson:gson:2.14.0")
 }

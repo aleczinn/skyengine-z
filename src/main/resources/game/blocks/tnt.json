@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:tnt",
+  "type": "cube",
+  "layer": "opaque",
+  "textures": {
+    "top": "game/textures/block/tnt_top.png",
+    "bottom": "game/textures/block/tnt_bottom.png",
+    "side": "game/textures/block/tnt_side.png"
+  }
+}

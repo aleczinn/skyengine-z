@@ -1,0 +1,13 @@
+{
+  "id": "skyengine:stone_slab",
+  "type": "slab",
+  "layer": "opaque",
+  "textures": {
+    "all": "game/textures/block/stone.png"
+  },
+  "variants": {
+    "type=bottom": { "model": "block/stone_slab" },
+    "type=top":    { "model": "block/stone_slab_top" },
+    "type=double": { "model": "block/stone" }
+  }
+}
