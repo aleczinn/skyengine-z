@@ -70,8 +70,10 @@ public class TextureArray {
 		GL11.glTexParameteri(GL30.GL_TEXTURE_2D_ARRAY, GL12.GL_TEXTURE_MAX_LEVEL, 4);
 
 		float maxAniso = GL11.glGetFloat(GL46.GL_MAX_TEXTURE_MAX_ANISOTROPY);
-		GL11.glTexParameterf(GL30.GL_TEXTURE_2D_ARRAY, GL46.GL_TEXTURE_MAX_ANISOTROPY, Math.min(8.0F, maxAniso));
+		float aniso = de.skyengine.core.settings.GameSettings.get().anisotropicFiltering;
+		GL11.glTexParameterf(GL30.GL_TEXTURE_2D_ARRAY, GL46.GL_TEXTURE_MAX_ANISOTROPY, Math.min(aniso, maxAniso));
 
+		de.skyengine.graphics.GlDebug.labelTexture(this.id, "Block-TextureArray (" + paths.length + " Layer)");
 		this.logger.info("TextureArray erstellt: " + paths.length + " Layer à " + size + "x" + size);
 	}
 
