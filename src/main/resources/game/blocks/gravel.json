@@ -1,0 +1,9 @@
+{
+  "id": "skyengine:gravel",
+  "type": "cube",
+  "layer": "opaque",
+  "gravity": true,
+  "textures": {
+    "all": "game/textures/block/gravel.png"
+  }
+}
