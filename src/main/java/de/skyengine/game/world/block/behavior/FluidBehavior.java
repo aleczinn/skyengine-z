@@ -19,8 +19,10 @@ import de.skyengine.game.world.item.Items;
  *   <li>Fließendes Fluid bezieht seinen Stand aus dem höchsten horizontalen Nachbarn (sonst trocknet es).</li>
  *   <li>Fällt nach unten (FALLING) wenn darunter Luft ist; sonst breitet es sich horizontal aus.</li>
  *   <li>Zwei benachbarte Wasserquellen erzeugen dazwischen eine neue Quelle (unendliches Wasser).</li>
- *   <li>Wasser+Lava-Kontakt: Lavaquelle→Obsidian, fließende Lava→Cobblestone, Lava fällt in Wasser→Stein.</li>
- *   <li>Hohlraum-Regel: eine Luftzelle, die horizontal Wasser UND Lava berührt, wird zu Cobblestone.</li>
+ *   <li>Wasser+Lava-Kontakt: Lavaquelle→Obsidian, fließende Lava→Cobblestone, Lava fällt in Wasser→Stein.
+ *       Reagiert wird nur bei ECHTEM Kontakt (ein Fluid breitet sich in die Nachbarzelle aus bzw.
+ *       Nachbar-Update) - zwei Fluids am Reichweiten-Ende mit einer Lücke dazwischen reagieren
+ *       nicht (Vanilla-"Druck"-Regel).</li>
  *   <li>Ersetzbare Blöcke (Pflanzen) werden weggespült und droppen ihr Item.</li>
  * </ul>
  * Parameter (Reichweite, Tick-Takt, Lava-Flag) kommen aus {@link FluidInfo}.
@@ -55,26 +57,6 @@ public final class FluidBehavior implements BlockBehavior {
 
         /* 1) Wasser/Lava-Reaktion hat Vorrang (kann diesen Block ersetzen). */
         if (reaction(world, x, y, z, state, info)) return;
-
-        /* Hohlraum-Regel (Vanilla): eine ersetzbare Zelle zwischen Wasser und Lava wird zu
-           Cobblestone - im LAVA-Takt (tickDelay 30), wie das Minecraft-Generator-Delay.
-           Wasser stößt nur den Tick ruhender Lava an, erzeugt den Cobble aber nicht selbst. */
-        for (Direction d : Direction.horizontal()) {
-            int nx = x + d.offsetX(), nz = z + d.offsetZ();
-            if (!canFluidReplace(world.getBlock(nx, y, nz))) continue;
-            for (Direction d2 : Direction.horizontal()) {
-                if (d2 == d.opposite()) continue;
-                int ox = nx + d2.offsetX(), oz = nz + d2.offsetZ();
-                FluidInfo oi = Blocks.getState(world.getBlock(ox, y, oz)).getBlock().getFluidInfo();
-                if (oi == null || oi.lava == info.lava) continue;
-                if (info.lava) {
-                    world.setBlock(nx, y, nz, Blocks.COBBLESTONE);
-                } else {
-                    world.scheduleTick(ox, y, oz, oi.tickDelay); // ruhende Lava im eigenen Takt wecken
-                }
-                break;
-            }
-        }
 
         boolean source = isSource(state);
 
@@ -181,10 +163,7 @@ public final class FluidBehavior implements BlockBehavior {
                wird aber nicht überschrieben. Quellen blockieren (Vanilla canPassThrough). */
             boolean sameFlowing = isSameFluid(ns, fluid) && !isSource(Blocks.getState(ns));
             if (!canFluidReplace(ns) && !sameFlowing) continue; // nicht passierbar
-            /* Misch-Zellen (grenzen horizontal ans Gegen-Fluid) bleiben frei: dort erzeugt die
-               Hohlraum-Regel im Lava-Takt Cobblestone, statt dass das Fluid hineinfließt. */
-            flow[i] = canFluidReplace(ns)
-                    && !oppositeFluidAdjacent(world, nx, y, nz, info.lava, d.opposite());
+            flow[i] = canFluidReplace(ns);
             slope[i] = canDescend(world, nx, y, nz)
                     ? 0
                     : slopeDistance(world, nx, y, nz, fluid, 1, slopeFind, d.opposite());
@@ -236,18 +215,6 @@ public final class FluidBehavior implements BlockBehavior {
             if (ni != null && ni.lava != info.lava) return 1; // gegensätzliches Fluid -> direkte Reaktion
         }
         return info.tickDelay;
-    }
-
-    /** Grenzt horizontal (außer cameFrom) das Gegen-Fluid an? Für die Hohlraum-Regel. */
-    private static boolean oppositeFluidAdjacent(World world, int x, int y, int z,
-                                                 boolean selfLava, Direction cameFrom) {
-        for (Direction d : Direction.horizontal()) {
-            if (d == cameFrom) continue;
-            FluidInfo ni = Blocks.getState(world.getBlock(x + d.offsetX(), y, z + d.offsetZ()))
-                    .getBlock().getFluidInfo();
-            if (ni != null && ni.lava != selfLava) return true;
-        }
-        return false;
     }
 
     /** Wasser oben/seitlich angrenzend? (Unten nicht: dort gilt die Stein-Regel im Abfluss.) */
