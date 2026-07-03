@@ -4,11 +4,13 @@ import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.generator.WorldGenerator;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class ChunkManager {
 
@@ -19,15 +21,42 @@ public class ChunkManager {
     /* Worker -> render thread: Ein Batch wird immer komplett im selben Frame angewendet */
     private final ConcurrentLinkedQueue<MeshBatch> uploadQueue = new ConcurrentLinkedQueue<>();
 
+    /* Remesh-Batches (Edits/Fluid) - werden vom Renderer VOR der normalen Queue geleert,
+       damit platzierte Blöcke nicht hinter dem Initial-Load warten. */
+    private final ConcurrentLinkedQueue<MeshBatch> priorityUploadQueue = new ConcurrentLinkedQueue<>();
+
     private int renderDistance = 16; // in chunks
 
     /* Begrenzt, wie viele Generierungs-Jobs pro Tick submitted werden.
        Hält die Executor-Queue kurz -> nahe Chunks neuer Positionen kommen schnell dran. */
     private static final int MAX_GENERATION_SUBMITS_PER_TICK = 64;
 
-    /* Distanzsortierte (dx, dz)-Offsets, einmal pro renderDistance berechnet */
-    private int[][] loadOrder;
+    /* Job-Prioritäten für den Worker-Pool: Remeshes überholen den Initial-Load. */
+    private static final int PRIO_REMESH = 0;
+    private static final int PRIO_LOAD = 1;
+
+    private final AtomicLong taskSeq = new AtomicLong();
+
+    /* (dx, dz)-Offsets im Kreis, einmal pro renderDistance gebaut; Reihenfolge wird per
+       Score (Distanz + Blickrichtung) in update() umsortiert */
+    private Offset[] loadOrder;
     private int loadOrderRadius = -1;
+
+    /* Zustand des letzten Score-Sorts: neu sortiert wird nur bei Chunk-Wechsel oder >20° Drehung */
+    private int lastSortPcx = Integer.MIN_VALUE, lastSortPcz;
+    private float lastSortYaw;
+
+    private static final class Offset {
+        final int dx, dz;
+        final float dist;
+        float score;
+
+        Offset(int dx, int dz) {
+            this.dx = dx;
+            this.dz = dz;
+            this.dist = (float) Math.sqrt(dx * dx + dz * dz);
+        }
+    }
 
     /* One mesher per worker thread, reused (allocation-free) */
     private final ThreadLocal<ChunkMesher> meshers = ThreadLocal.withInitial(ChunkMesher::new);
@@ -40,7 +69,10 @@ public class ChunkManager {
         this.generator = generator;
 
         int threads = Math.max(2, Runtime.getRuntime().availableProcessors() - 2);
-        this.workers = Executors.newFixedThreadPool(threads, r -> {
+        /* Prioritäts-Queue statt FIFO: Edit-Remeshes (PRIO_REMESH) überholen wartende
+           Generierungs-/Erst-Mesh-Jobs (PRIO_LOAD), ohne einen eigenen Thread zu brauchen. */
+        this.workers = new ThreadPoolExecutor(threads, threads, 0L, TimeUnit.MILLISECONDS,
+                new PriorityBlockingQueue<>(), r -> {
             Thread t = new Thread(r, "Chunk Worker");
             t.setDaemon(true);
             t.setPriority(Thread.NORM_PRIORITY - 1);
@@ -48,45 +80,85 @@ public class ChunkManager {
         });
     }
 
+    private void submitTask(int prio, Runnable job) {
+        /* execute statt submit: submit() würde in ein nicht-vergleichbares FutureTask wrappen */
+        this.workers.execute(new PrioTask(prio, this.taskSeq.getAndIncrement(), job));
+    }
+
+    /* PriorityBlockingQueue ist nicht stabil — seq hält gleiche Prioritäten in Einreihungs-
+       Reihenfolge, sonst würde die Blickrichtungs-Sortierung der Lade-Jobs verwürfelt. */
+    private record PrioTask(int prio, long seq, Runnable job) implements Runnable, Comparable<PrioTask> {
+        @Override
+        public void run() {
+            this.job.run();
+        }
+
+        @Override
+        public int compareTo(PrioTask o) {
+            if (this.prio != o.prio) return Integer.compare(this.prio, o.prio);
+            return Long.compare(this.seq, o.seq);
+        }
+    }
+
     /**
-     * Liefert die Offsets innerhalb des Kreises, sortiert nach Distanz zum Spieler.
-     * Wird nur neu berechnet, wenn sich die renderDistance ändert.
+     * Liefert die Offsets innerhalb des Kreises. Wird nur neu gebaut, wenn sich die
+     * renderDistance ändert; die Reihenfolge sortiert update() nach Score um.
      */
-    private int[][] getLoadOrder() {
+    private Offset[] getLoadOrder() {
         if (this.loadOrderRadius != this.renderDistance) {
-            List<int[]> list = new ArrayList<>();
+            List<Offset> list = new ArrayList<>();
             int r2 = this.renderDistance * this.renderDistance;
 
             for (int dx = -this.renderDistance; dx <= this.renderDistance; dx++) {
                 for (int dz = -this.renderDistance; dz <= this.renderDistance; dz++) {
                     if (dx * dx + dz * dz <= r2) {
-                        list.add(new int[]{dx, dz});
+                        list.add(new Offset(dx, dz));
                     }
                 }
             }
 
-            list.sort(Comparator.comparingInt(a -> a[0] * a[0] + a[1] * a[1]));
-
-            this.loadOrder = list.toArray(new int[0][]);
+            this.loadOrder = list.toArray(new Offset[0]);
             this.loadOrderRadius = this.renderDistance;
+            this.lastSortPcx = Integer.MIN_VALUE; // erzwingt den Score-Sort im nächsten update()
         }
         return this.loadOrder;
     }
 
     /**
      * Einmal pro TICK: Chunks erzeugen, generieren, Erst-Mesh, Unload.
-     * Lädt circular: nächste Chunks zuerst, dank distanzsortierter Offsets.
+     * Reihenfolge: nah vor fern, in Blickrichtung vor dahinter (Score-Sort).
      */
     public void update(EntityPlayer player) {
         int pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         int pcz = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
 
+        Offset[] order = this.getLoadOrder();
+
+        /* Blickrichtungs-Priorisierung: score = dist * (1.5 - 0.5*cos(Winkel zur Blickrichtung))
+           -> voraus zählt die Distanz 1x, seitlich 1.5x, hinten 2x. Nahe Chunks kommen damit
+           immer früh dran, das Sichtfeld füllt sich aber zuerst. Neu sortiert wird nur bei
+           Chunk-Wechsel oder >20° Drehung (wrap-sicher). */
+        float yawDelta = Math.abs(((player.yaw - this.lastSortYaw + 540.0f) % 360.0f) - 180.0f);
+        if (pcx != this.lastSortPcx || pcz != this.lastSortPcz || yawDelta > 20.0f) {
+            this.lastSortPcx = pcx;
+            this.lastSortPcz = pcz;
+            this.lastSortYaw = player.yaw;
+
+            double yawRad = Math.toRadians(player.yaw);
+            float vx = (float) Math.sin(yawRad);
+            float vz = (float) -Math.cos(yawRad);
+            for (Offset o : order) {
+                o.score = 1.5f * o.dist - 0.5f * (o.dx * vx + o.dz * vz);
+            }
+            Arrays.sort(order, Comparator.comparingDouble(o -> o.score));
+        }
+
         int generationSubmits = 0;
 
-        /* 1. Create + generate + Erst-Mesh, in Distanz-Reihenfolge */
-        for (int[] offset : this.getLoadOrder()) {
-            int cx = pcx + offset[0];
-            int cz = pcz + offset[1];
+        /* 1. Create + generate + Erst-Mesh, in Score-Reihenfolge */
+        for (Offset offset : order) {
+            int cx = pcx + offset.dx;
+            int cz = pcz + offset.dz;
             long key = Chunk.key(cx, cz);
 
             Chunk chunk = this.chunks.get(key);
@@ -99,7 +171,7 @@ public class ChunkManager {
                 generationSubmits++;
                 chunk.status = ChunkStatus.GENERATING;
                 Chunk finalChunk = chunk;
-                this.workers.submit(() -> {
+                this.submitTask(PRIO_LOAD, () -> {
                     this.generator.generate(finalChunk);
                     finalChunk.status = ChunkStatus.GENERATED;
                 });
@@ -118,7 +190,7 @@ public class ChunkManager {
 
                 chunk.status = ChunkStatus.MESHING;
                 Chunk finalChunk = chunk;
-                this.workers.submit(() -> {
+                this.submitTask(PRIO_LOAD, () -> {
                     ChunkMesher mesher = this.meshers.get();
                     lockRead(finalChunk, north, south, west, east, diagonals);
                     try {
@@ -172,7 +244,7 @@ public class ChunkManager {
             int mask = chunk.consumeDirtySections();
             if (mask == 0) continue;
 
-            this.workers.submit(() -> {
+            this.submitTask(PRIO_REMESH, () -> {
                 ChunkMesher mesher = this.meshers.get();
                 List<MeshResult> batch = new ArrayList<>(Integer.bitCount(mask));
                 lockRead(chunk, north, south, west, east, diagonals);
@@ -185,7 +257,7 @@ public class ChunkManager {
                 } finally {
                     unlockRead(chunk, north, south, west, east, diagonals);
                 }
-                this.uploadQueue.add(new MeshBatch(batch));
+                this.priorityUploadQueue.add(new MeshBatch(batch));
             });
         }
     }
@@ -242,6 +314,11 @@ public class ChunkManager {
 
     public ConcurrentLinkedQueue<MeshBatch> getUploadQueue() {
         return uploadQueue;
+    }
+
+    /** Remesh-Batches (Edits/Fluid) — vom Renderer vor der normalen Queue zu leeren. */
+    public ConcurrentLinkedQueue<MeshBatch> getPriorityUploadQueue() {
+        return priorityUploadQueue;
     }
 
     public ConcurrentHashMap<Long, Chunk> getChunks() {
