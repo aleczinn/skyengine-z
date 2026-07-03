@@ -28,13 +28,18 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
   - Flüssigkeiten wie Wasser und Lava mit Reaktionsverhalten für Obsidian, Cobblestone und Stein
 - 📜 Einfache GUI wie Hotbar des Spielers oder Truheninventar mit Item-Verschiebung via Maus
 - 🎲 Verschiedene Gamemode's wie Survival, Kreativ oder Zuschauer (Fliegen + NoClip)
+- 🔝 Optimizations & Features
+  - Frustum Culling
+  - Vertex Komprimierung zu 16 bits
+  - Nutzen von MultiDrawIndirect & BufferStorage -> Reduziert Draw-Calls von 12.288 auf 3 (16 Chunk Renderdistanz; 3 weil einen für OPAQUE, CUTOUT & TRANSLUCENT)
+  - Ambient Occlusion
 
 ## Development
 
 ### Prerequisites
 
 - Java 25
-- Gradle 8+
+- Gradle 9+
 
 ### Installation
 
