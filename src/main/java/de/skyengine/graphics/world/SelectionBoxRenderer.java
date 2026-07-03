@@ -1,6 +1,9 @@
 package de.skyengine.graphics.world;
 
 import de.skyengine.core.SkyEngine;
+import de.skyengine.game.physics.AABB;
+import de.skyengine.game.world.block.shape.BlockShape;
+import de.skyengine.game.world.block.shape.ShapeOutline;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
@@ -13,6 +16,8 @@ import org.lwjgl.opengl.GL30;
 
 public class SelectionBoxRenderer {
 
+    private static final int INITIAL_FLOATS = 24 * 3; // Startgröße des VBO (wächst bei Bedarf)
+
     private ShaderProgram shader;
     private int vao, vbo;
 
@@ -23,26 +28,26 @@ public class SelectionBoxRenderer {
                 new Shader(FRAGMENT, ShaderType.FRAGMENT)
         );
 
-        /* 12 Kanten eines Einheitswürfels, leicht aufgeblasen gegen Z-Fighting */
-        float min = -0.002F, max = 1.002F;
-        float[] lines = {
-                min,min,min, max,min,min,  max,min,min, max,min,max,  max,min,max, min,min,max,  min,min,max, min,min,min, // unten
-                min,max,min, max,max,min,  max,max,min, max,max,max,  max,max,max, min,max,max,  min,max,max, min,max,min, // oben
-                min,min,min, min,max,min,  max,min,min, max,max,min,  max,min,max, max,max,max,  min,min,max, min,max,max  // vertikal
-        };
-
         this.vao = GL30.glGenVertexArrays();
         this.vbo = GL15.glGenBuffers();
         GL30.glBindVertexArray(this.vao);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
-        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, lines, GL15.GL_STATIC_DRAW);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, INITIAL_FLOATS * 4L, GL15.GL_DYNAMIC_DRAW);
         GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, 0, 0);
         GL20.glEnableVertexAttribArray(0);
         GL30.glBindVertexArray(0);
     }
 
-    /** blockX/Y/Z aus dem Raycast-Hit, camera-relativ wie die Chunks */
-    public void render(Camera camera, int blockX, int blockY, int blockZ) {
+    /** blockX/Y/Z aus dem Raycast-Hit, camera-relativ wie die Chunks. */
+    public void render(Camera camera, int blockX, int blockY, int blockZ, BlockShape outline) {
+        AABB[] localBoxes = outline.isEmpty() ? BlockShape.FULL_CUBE.boxes() : outline.boxes();
+
+        /* Zusammengefasste Silhouette der Vereinigung (eine Kontur statt Box-für-Box).
+           Kein Welt-Inflate: die Kanten liegen exakt auf den Blockgrenzen — der Tiefen-Bias
+           (glPolygonOffset, s.u.) sorgt für die Sichtbarkeit gegen koplanare Flächen. */
+        float[] edges = ShapeOutline.build(localBoxes, 0f);
+        if (edges.length == 0) return;
+
         Vector3d cam = camera.getPosition();
 
         this.shader.bind();
@@ -56,10 +61,28 @@ public class SelectionBoxRenderer {
         this.shader.setUniformf("u_LineWidth", 2.5F); // Pixel
 
         GL30.glBindVertexArray(this.vao);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
         GL11.glEnable(GL11.GL_BLEND);
-        GL11.glDrawArrays(GL11.GL_LINES, 0, 24);
-        GL11.glDisable(GL11.GL_BLEND);
 
+        /* Sichtbarkeit wie die Selection-Box in Minecraft: koplanare Kanten (auf eigenen Block-Faces
+           + Nachbarn wie dem Grasblock darunter) sollen den Tiefentest gewinnen. Dazu die „or-equal"-
+           Variante der AKTIVEN Depth-Func nehmen — die Engine läuft im Reversed-Z-Modus (GL_GREATER,
+           nah≈1), wo GL_LEQUAL die ferneren Rückkanten gewinnen ließe (= Durchscheinen). Den winzigen
+           Tiefen-Bias liefert der Vertex-Shader (Skalierung Richtung Kamera, wie MCs
+           VIEW_OFFSET_Z_LAYERING). Tiefentest bleibt aktiv -> echt verdeckte Kanten bleiben verborgen. */
+        int prevDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
+        int orEqualFunc = switch (prevDepthFunc) {
+            case GL11.GL_GREATER -> GL11.GL_GEQUAL; // Reversed-Z
+            case GL11.GL_LESS -> GL11.GL_LEQUAL;    // Standard-Z
+            default -> prevDepthFunc;               // bereits inklusiv / Sonderfall
+        };
+        GL11.glDepthFunc(orEqualFunc);
+
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, edges, GL15.GL_DYNAMIC_DRAW);
+        GL11.glDrawArrays(GL11.GL_LINES, 0, edges.length / 3);
+
+        GL11.glDepthFunc(prevDepthFunc);
+        GL11.glDisable(GL11.GL_BLEND);
         this.shader.unbind();
     }
 
@@ -75,7 +98,12 @@ public class SelectionBoxRenderer {
         uniform mat4 u_ProjectionView;
         uniform vec3 u_Offset;
         void main() {
-            gl_Position = u_ProjectionView * vec4(a_position + u_Offset, 1.0);
+            /* Wie Minecrafts VIEW_OFFSET_Z_LAYERING: die kamerarelative Position minimal Richtung
+               Kamera skalieren (Faktor 4095/4096). Distanzproportionaler, steigungsunabhängiger
+               Tiefen-Bias — macht koplanare Kanten sichtbar, lässt aber Kanten hinter massiven
+               Blöcken NICHT durchscheinen. */
+            vec3 camRel = (a_position + u_Offset) * 0.99975586;
+            gl_Position = u_ProjectionView * vec4(camRel, 1.0);
         }
         """;
 

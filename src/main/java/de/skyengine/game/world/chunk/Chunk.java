@@ -1,6 +1,18 @@
 package de.skyengine.game.world.chunk;
 
+import de.skyengine.game.entity.Entity;
+import de.skyengine.game.world.block.entity.BlockEntity;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class Chunk {
 
@@ -10,9 +22,21 @@ public class Chunk {
     public final int chunkX, chunkZ;
     private final ChunkSection[] sections = new ChunkSection[SECTIONS];
 
+    /* BlockEntities, sparse; Key = lokale Position (x 0..31, z 0..31, y 0..511). Lazy. */
+    private Map<Integer, BlockEntity> blockEntities;
+
+    /* Welt-Entities (fallende Blöcke, gedroppte Items) in diesem Chunk. Lazy; nur READY-Chunks
+       ticken/rendern. Entities, die den Chunk wechseln, werden umgehängt (siehe World.tickEntities). */
+    private List<Entity> entities;
+
     /* volatile: written by workers, read by render thread */
     public volatile ChunkStatus status = ChunkStatus.NEW;
     private final AtomicInteger dirtySections = new AtomicInteger(0);
+
+    /* Schützt die Section-Container (PalettedContainer + sections[]-Allokation) gegen
+       gleichzeitige Worker-Mesh-Reads und Render-Thread-Writes. Mesh-Jobs nehmen den
+       Read-Lock, World.setBlockRaw den Write-Lock. */
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
     public Chunk(int chunkX, int chunkZ) {
         this.chunkX = chunkX;
@@ -22,14 +46,14 @@ public class Chunk {
     /**
      * local coords: x/z 0-31, y 0-511
      */
-    public short getBlock(int x, int y, int z) {
+    public int getBlock(int x, int y, int z) {
         if (y < 0 || y >= HEIGHT) return 0;
         ChunkSection section = this.sections[y >> ChunkSection.SHIFT];
         if (section == null) return 0;
         return section.getBlock(x, y & ChunkSection.MASK, z);
     }
 
-    public void setBlock(int x, int y, int z, short block) {
+    public void setBlock(int x, int y, int z, int block) {
         if (y < 0 || y >= HEIGHT) return;
         int sectionIndex = y >> ChunkSection.SHIFT;
         ChunkSection section = this.sections[sectionIndex];
@@ -42,6 +66,44 @@ public class Chunk {
 
     public ChunkSection getSection(int index) {
         return this.sections[index];
+    }
+
+    /* --- BlockEntities --- */
+
+    private static int beKey(int x, int y, int z) {
+        return (x & 31) | ((z & 31) << 5) | ((y & 511) << 10);
+    }
+
+    public BlockEntity getBlockEntity(int x, int y, int z) {
+        return this.blockEntities == null ? null : this.blockEntities.get(beKey(x, y, z));
+    }
+
+    public void setBlockEntity(int x, int y, int z, BlockEntity entity) {
+        if (this.blockEntities == null) this.blockEntities = new HashMap<>();
+        this.blockEntities.put(beKey(x, y, z), entity);
+    }
+
+    public void removeBlockEntity(int x, int y, int z) {
+        if (this.blockEntities != null) this.blockEntities.remove(beKey(x, y, z));
+    }
+
+    public Collection<BlockEntity> blockEntities() {
+        return this.blockEntities == null ? Collections.emptyList() : this.blockEntities.values();
+    }
+
+    /* --- Entities --- */
+
+    public void addEntity(Entity entity) {
+        if (this.entities == null) this.entities = new ArrayList<>();
+        this.entities.add(entity);
+    }
+
+    public void removeEntity(Entity entity) {
+        if (this.entities != null) this.entities.remove(entity);
+    }
+
+    public List<Entity> entities() {
+        return this.entities == null ? Collections.emptyList() : this.entities;
     }
 
     /**
@@ -64,5 +126,15 @@ public class Chunk {
      */
     public int consumeDirtySections() {
         return this.dirtySections.getAndSet(0);
+    }
+
+    /** Read-Lock für Worker-Mesh-Reads (mehrere Reader gleichzeitig erlaubt). */
+    public Lock readLock() {
+        return this.lock.readLock();
+    }
+
+    /** Write-Lock für Block-Edits auf dem Render-Thread (exklusiv gegen Mesh-Reads). */
+    public Lock writeLock() {
+        return this.lock.writeLock();
     }
 }

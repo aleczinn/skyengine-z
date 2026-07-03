@@ -1,0 +1,48 @@
+package de.skyengine.game.world.chunk.palette;
+
+/**
+ * Kompakte Ganzzahl-Indizes fester Bitbreite, gepackt in einem {@code long[]}. Einträge
+ * dürfen Long-Grenzen überspannen. Wird von {@link PalettedContainer} als Index-Speicher
+ * genutzt (bitsPerEntry = ceil(log2(Paletten-Größe))).
+ */
+public final class BitStorage {
+
+    private final long[] data;
+    private final int bitsPerEntry;
+    private final int size;
+    private final long mask;
+
+    public BitStorage(int bitsPerEntry, int size) {
+        this.bitsPerEntry = bitsPerEntry;
+        this.size = size;
+        this.mask = (1L << bitsPerEntry) - 1L;
+        this.data = new long[(int) (((long) size * bitsPerEntry + 63) / 64)];
+    }
+
+    public int get(int index) {
+        long bitIndex = (long) index * this.bitsPerEntry;
+        int arr = (int) (bitIndex >> 6);
+        int off = (int) (bitIndex & 63);
+        long value = this.data[arr] >>> off;
+        if (off + this.bitsPerEntry > 64) {
+            value |= this.data[arr + 1] << (64 - off);
+        }
+        return (int) (value & this.mask);
+    }
+
+    public void set(int index, int value) {
+        long bitIndex = (long) index * this.bitsPerEntry;
+        int arr = (int) (bitIndex >> 6);
+        int off = (int) (bitIndex & 63);
+        this.data[arr] = (this.data[arr] & ~(this.mask << off)) | (((long) value & this.mask) << off);
+        if (off + this.bitsPerEntry > 64) {
+            int bitsInFirst = 64 - off;
+            this.data[arr + 1] = (this.data[arr + 1] & ~(this.mask >>> bitsInFirst))
+                    | (((long) value & this.mask) >>> bitsInFirst);
+        }
+    }
+
+    public int bitsPerEntry() { return bitsPerEntry; }
+    public int size() { return size; }
+    public long[] raw() { return data; }
+}

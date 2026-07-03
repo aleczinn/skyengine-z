@@ -1,6 +1,8 @@
 package de.skyengine.game.entity;
 
 import de.skyengine.core.input.Input;
+import de.skyengine.game.Gamemode;
+import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.World;
 import de.skyengine.utils.math.MathUtils;
 import org.lwjgl.glfw.GLFW;
@@ -19,7 +21,7 @@ public class EntityPlayer extends Entity {
 
     private static final double WALK_ACCEL = 0.1;
     private static final double AIR_ACCEL = 0.02;
-    private static final double SPRINT_FACTOR = 1.3;
+    private static final double SPRINT_FACTOR = 1.5;
     private static final double STRAFE_FACTOR = 1.2;
     private static final double SNEAK_FACTOR = 0.3;
 
@@ -33,13 +35,24 @@ public class EntityPlayer extends Entity {
     private static final double FLY_DRAG = 0.88;
     private static final double FLY_DRAG_Y = 0.6;
 
+    /* --- Schwimmen (Fluid) --- */
+    private static final double SWIM_ACCEL = 0.02;          // langsame Beschleunigung im Fluid
+    private static final double SWIM_GRAVITY = 0.02;         // sinkt langsam (statt voller Gravitation)
+    private static final double SWIM_UP = 0.04;             // Space = aufschwimmen
+    private static final double WATER_DRAG = 0.8;           // horizontale/vertikale Reibung Wasser
+    private static final double LAVA_DRAG = 0.5;            // Lava bremst stärker
+    private static final double FLUID_JUMP_OUT = 0.3;        // Heraussprung an der Wasserkante (Vanilla)
+    private static final double FLUID_JUMP_THRESHOLD = 0.4;  // flacher eingetaucht -> Space = voller Sprung
+
     /* --- Sneak-Kantenschutz --- */
     private static final double SNEAK_EDGE_STEP = 0.05;      // Schrittweite beim Kürzen der Bewegung
     private static final double SNEAK_EDGE_DROP = 0.6;       // ab dieser Falltiefe gilt "keine Kante mehr"
 
-    private boolean flying = true; // Start im Fly-Modus, bis Spawn-Logik existiert
+    private Gamemode gamemode = Gamemode.CREATIVE;
+    private boolean flying = false; // Start im Fly-Modus, bis Spawn-Logik existiert
     private boolean sprinting = false;
     private boolean sneaking = false;
+    private boolean noClip = false;
 
     /* Augenhöhe wird pro Tick Richtung Zielwert interpoliert (weiche Kamera beim Sneaken) */
     private float eyeHeight = EYE_HEIGHT_STANDING;
@@ -47,6 +60,7 @@ public class EntityPlayer extends Entity {
 
     public EntityPlayer() {
         this.setSize(0.6F, 1.8F);
+        this.stepHeight = 0.6; // halbe Slabs/Stufen automatisch hochlaufen (wie Minecraft)
     }
 
     /**
@@ -80,11 +94,82 @@ public class EntityPlayer extends Entity {
             strafe *= SNEAK_FACTOR;
         }
 
+        boolean wasOnGround = this.onGround;
+
+        /* Strömung schiebt den Spieler (Vanilla: fliegende Spieler sind ausgenommen). */
+        if (!this.flying) {
+            this.applyFluidPush(world, false, WATER_PUSH);
+            this.applyFluidPush(world, true, LAVA_PUSH);
+        }
+
         if (this.flying) {
             this.travelFlying(world, forward, strafe, up, shift);
         } else {
-            this.travelWalking(world, forward, strafe, up);
+            double lavaDepth = this.fluidDepth(world, true);
+            double waterDepth = this.fluidDepth(world, false);
+            if (lavaDepth > 0) {
+                this.travelSwimming(world, forward, strafe, up, true, lavaDepth);
+            } else if (waterDepth > 0) {
+                this.travelSwimming(world, forward, strafe, up, false, waterDepth);
+            } else {
+                this.travelWalking(world, forward, strafe, up);
+            }
         }
+
+        /* Creative-Fly: das Aufkommen auf dem Boden beendet das Fliegen (wie in Minecraft). Nur die
+           Flanke (Landung) zählt - so bleibt das Fly-Toggle im Stehen erhalten. Spectator (alwaysFly)
+           fliegt weiter. */
+        if (this.flying && this.onGround && !wasOnGround && !this.gamemode.isAlwaysFly()) {
+            this.flying = false;
+        }
+    }
+
+    /**
+     * Schwimmen im Fluid: reduzierte Gravitation + Auftrieb, starke Reibung, Space schwimmt aufwärts.
+     * Fluids haben keine Kollision - der Spieler sinkt/schwimmt also durch sie hindurch.
+     * {@code depth} = Eintauchtiefe (siehe {@link #fluidDepth}) für die Sprung-Fallunterscheidung.
+     */
+    private void travelSwimming(World world, double forward, double strafe, boolean up, boolean lava, double depth) {
+        this.moveRelative(strafe, forward, SWIM_ACCEL);
+        double mx = this.motionX, mz = this.motionZ; // Bewegungsabsicht für den Kanten-Check
+        this.move(world, this.motionX, this.motionY, this.motionZ);
+
+        /* Heraussprung an der Kante (Vanilla): horizontal gegen ein Hindernis geschwommen und
+           darüber (0.6 höher) ist Platz -> Aufwärts-Boost; wiederholt sich jeden Tick, solange
+           die Kollision anhält, bis man auf dem Block steht. max(): ein voller Sprung aus
+           flachem Wasser (0.42) darf nicht auf 0.3 gekappt werden, sonst reicht der Bogen
+           nicht über die Blockkante. */
+        if (this.horizontalCollision && this.isFree(world, mx, 0.6, mz)) {
+            this.motionY = Math.max(this.motionY, FLUID_JUMP_OUT);
+        }
+
+        double drag = lava ? LAVA_DRAG : WATER_DRAG;
+        this.motionX *= drag;
+        this.motionZ *= drag;
+        this.motionY *= drag;
+        this.motionY -= SWIM_GRAVITY;
+        if (up) {
+            if (this.onGround && depth <= FLUID_JUMP_THRESHOLD) {
+                /* Flaches Fluid (Vanilla getFluidJumpThreshold): voller Sprung vom Boden,
+                   sonst käme man aus Level-1-Wasser nie über eine Blockkante. */
+                this.motionY = JUMP_POWER;
+            } else {
+                this.motionY += SWIM_UP; // aufschwimmen
+            }
+        }
+    }
+
+    /**
+     * true, wenn die um (dx, dy, dz) verschobene Box kollisionsfrei wäre. Präziser
+     * {@code intersects}-Test, weil {@link World#getCollisionBoxes} nur eine Broadphase ist
+     * (siehe {@link #noGroundUnder}).
+     */
+    private boolean isFree(World world, double dx, double dy, double dz) {
+        AABB probe = this.boundingBox.copy().move(dx, dy, dz);
+        for (AABB box : world.getCollisionBoxes(probe)) {
+            if (box.intersects(probe)) return false;
+        }
+        return true;
     }
 
     /**
@@ -182,13 +267,13 @@ public class EntityPlayer extends Entity {
     private double[] backOffFromEdge(World world, double dx, double dz) {
         double x = dx, z = dz;
 
-        while (x != 0 && world.getCollisionBoxes(this.boundingBox.copy().move(x, -SNEAK_EDGE_DROP, 0)).isEmpty()) {
+        while (x != 0 && this.noGroundUnder(world, x, 0)) {
             x = shrinkTowardsZero(x);
         }
-        while (z != 0 && world.getCollisionBoxes(this.boundingBox.copy().move(0, -SNEAK_EDGE_DROP, z)).isEmpty()) {
+        while (z != 0 && this.noGroundUnder(world, 0, z)) {
             z = shrinkTowardsZero(z);
         }
-        while (x != 0 && z != 0 && world.getCollisionBoxes(this.boundingBox.copy().move(x, -SNEAK_EDGE_DROP, z)).isEmpty()) {
+        while (x != 0 && z != 0 && this.noGroundUnder(world, x, z)) {
             x = shrinkTowardsZero(x);
             z = shrinkTowardsZero(z);
         }
@@ -196,9 +281,39 @@ public class EntityPlayer extends Entity {
         return new double[]{x, z};
     }
 
+    /**
+     * true, wenn unter der um (dx, dz) versetzten und um SNEAK_EDGE_DROP abgesenkten
+     * Box KEINE Kollisionsbox tatsächlich liegt.
+     *
+     * <p>Wichtig: {@link World#getCollisionBoxes} ist nur eine Broadphase und meldet
+     * auch Boxen benachbarter Voxel. Bei schmalen Blöcken (Zaun-Pfosten, Glasscheibe,
+     * Eisenstäbe), die schmaler als ihr Voxel sind, würde ein reiner {@code isEmpty()}-
+     * Test fälschlich "Boden vorhanden" liefern, sobald man seitlich vom Pfosten steht –
+     * man liefe beim Sneaken herunter. Darum hier ein präziser Schnitt-Test.
+     */
+    private boolean noGroundUnder(World world, double dx, double dz) {
+        AABB probe = this.boundingBox.copy().move(dx, -SNEAK_EDGE_DROP, dz);
+        for (AABB box : world.getCollisionBoxes(probe)) {
+            if (box.intersects(probe)) return false;
+        }
+        return true;
+    }
+
     private static double shrinkTowardsZero(double value) {
         if (value < SNEAK_EDGE_STEP && value > -SNEAK_EDGE_STEP) return 0;
         return value > 0 ? value - SNEAK_EDGE_STEP : value + SNEAK_EDGE_STEP;
+    }
+
+    /**
+     * Friert die Tick-Interpolation ein (prev = current), z.B. bei offenem GUI. Ohne das würde
+     * {@code Camera.follow} weiter zwischen zwei verschiedenen Tick-Positionen interpolieren und die
+     * Kamera oszillieren ("jittern"), wenn man die Truhe beim Laufen/Springen öffnet.
+     */
+    public void snapPrevToCurrent() {
+        this.lastX = this.x;
+        this.lastY = this.y;
+        this.lastZ = this.z;
+        this.lastEyeHeight = this.eyeHeight;
     }
 
     /**
@@ -214,10 +329,44 @@ public class EntityPlayer extends Entity {
     }
 
     public void toggleFlying() {
+        /* Survival kann nicht fliegen; im Spectator ist der Flug erzwungen (F tut nichts). */
+        if (!this.gamemode.canFly() || this.gamemode.isAlwaysFly()) return;
         this.flying = !this.flying;
         if (this.flying) {
             /* Beim Einschalten Fallgeschwindigkeit abfangen, sonst "fällt" man weiter */
             this.motionY = 0;
+        } else {
+            /* NoClip nur im Flugmodus - beim Landen abschalten, sonst fällt man durch Blöcke */
+            this.noClip = false;
+        }
+    }
+
+    /** NoClip umschalten - nur im Flugmodus aktivierbar. */
+    public void toggleNoClip() {
+        /* Spectator-NoClip ist erzwungen und darf nicht abgeschaltet werden. */
+        if (this.gamemode.isAlwaysFly()) return;
+        if (!this.flying) return;
+        this.noClip = !this.noClip;
+    }
+
+    public Gamemode getGamemode() {
+        return gamemode;
+    }
+
+    /** Wechselt den Spielmodus und passt Flug/NoClip an dessen Regeln an. */
+    public void setGamemode(Gamemode mode) {
+        this.gamemode = mode;
+        if (mode.isAlwaysFly()) {
+            /* Spectator: dauerhaft fliegen + durch Blöcke fallen. */
+            this.flying = true;
+            this.noClip = true;
+            this.motionY = 0;
+        } else {
+            this.noClip = false;
+            /* Survival: kein Flug. Creative behält seinen aktuellen Flug-Zustand. */
+            if (!mode.canFly()) {
+                this.flying = false;
+            }
         }
     }
 
@@ -231,6 +380,10 @@ public class EntityPlayer extends Entity {
 
     public boolean isSneaking() {
         return sneaking;
+    }
+
+    public boolean isNoClip() {
+        return noClip;
     }
 
     /**

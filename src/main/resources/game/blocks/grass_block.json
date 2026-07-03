@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:grass_block",
+  "type": "cube",
+  "layer": "opaque",
+  "textures": {
+    "top": "game/textures/block/grass_block_top.png",
+    "bottom": "game/textures/block/dirt.png",
+    "side": "game/textures/block/grass_block_side.png"
+  }
+}

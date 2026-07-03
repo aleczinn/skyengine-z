@@ -1,6 +1,9 @@
 package de.skyengine.game.world.block;
 
 import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.shape.BlockShape;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.Properties;
 import org.joml.Vector3d;
 
 public final class BlockRaycast {
@@ -11,7 +14,8 @@ public final class BlockRaycast {
      * @param faceX/Y/Z Normale der getroffenen Seite (z.B. 0,1,0 = Oberseite).
      *                Dort wird beim Platzieren der neue Block gesetzt.
      */
-    public record Hit(int x, int y, int z, short block, int faceX, int faceY, int faceZ) {}
+    public record Hit(int x, int y, int z, int block, int faceX, int faceY, int faceZ,
+                      double hitX, double hitY, double hitZ) {}
 
     private BlockRaycast() {}
 
@@ -24,6 +28,16 @@ public final class BlockRaycast {
      * @return Hit oder null, wenn nichts getroffen wurde
      */
     public static Hit raycast(World world, Vector3d origin, Vector3d dir, double maxDistance) {
+        return raycast(world, origin, dir, maxDistance, false);
+    }
+
+    /**
+     * @param includeFluids true: Fluid-<b>Quellen</b> (LEVEL 0, nicht fallend) zählen als voller
+     *                      Würfel und werden getroffen (für den leeren Eimer); fließendes Fluid wird
+     *                      durchquert, damit man die Quelle dahinter trifft (wie Minecraft
+     *                      {@code Fluid.SOURCE_ONLY}). Sonst werden alle Fluids übersprungen.
+     */
+    public static Hit raycast(World world, Vector3d origin, Vector3d dir, double maxDistance, boolean includeFluids) {
         int x = (int) Math.floor(origin.x);
         int y = (int) Math.floor(origin.y);
         int z = (int) Math.floor(origin.z);
@@ -46,10 +60,26 @@ public final class BlockRaycast {
         int faceX = 0, faceY = 0, faceZ = 0;
 
         while (true) {
-            short block = world.getBlock(x, y, z);
+            int block = world.getBlock(x, y, z);
             if (block != Blocks.AIR) {
-                /* face ist (0,0,0) wenn die Kamera IM Block startet - Treffer trotzdem melden */
-                return new Hit(x, y, z, block, faceX, faceY, faceZ);
+                /* Formgenau: gegen die echte Outline-Shape testen, nicht den vollen Voxel.
+                   Trifft der Strahl nur die leere Hälfte (z.B. einer Slab) -> Traversal weiter. */
+                BlockState state = Blocks.getState(block);
+                BlockShape shape;
+                if (includeFluids && state.isFluid()) {
+                    /* Nur Quellen blockieren den Strahl; fließendes Fluid wird durchquert. */
+                    boolean sourceFluid = state.get(Properties.LEVEL) == 0 && !state.get(Properties.FALLING);
+                    shape = sourceFluid ? BlockShape.FULL_CUBE : BlockShape.EMPTY;
+                } else {
+                    shape = state.getOutlineShape();
+                }
+                BlockShape.RayHit rh = shape.clip(origin, dir, x, y, z);
+                if (rh != null && rh.t() <= maxDistance) {
+                    double hx = origin.x + dir.x * rh.t();
+                    double hy = origin.y + dir.y * rh.t();
+                    double hz = origin.z + dir.z * rh.t();
+                    return new Hit(x, y, z, block, rh.faceX(), rh.faceY(), rh.faceZ(), hx, hy, hz);
+                }
             }
 
             /* Zur nächsten Voxelgrenze: die Achse mit dem kleinsten tMax gewinnt */
