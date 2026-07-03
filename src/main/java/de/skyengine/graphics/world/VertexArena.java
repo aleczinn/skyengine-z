@@ -1,6 +1,7 @@
 package de.skyengine.graphics.world;
 
 import de.skyengine.game.world.chunk.ChunkMesher;
+import de.skyengine.graphics.GlDebug;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL31;
 import org.lwjgl.opengl.GL44;
@@ -25,11 +26,12 @@ public final class VertexArena {
     /** Bytes pro Vertex (gepacktes Format, siehe {@link ChunkMesher#VERTEX_SIZE}). */
     private static final int VERTEX_BYTES = ChunkMesher.VERTEX_SIZE * Integer.BYTES;
 
-    /* Bewusst NICHT persistent gemappt: gemappte+kohärente Buffer landen im Host-RAM und
-       die GPU müsste die gesamte Geometrie jeden Frame über PCIe ziehen (gemessen: ~4x
-       FPS-Einbruch). glBufferSubData hält den Buffer device-local; implizite Syncs drohen
-       nicht, weil Regionen dank Deferred-Free nie beschrieben werden, solange sie in-flight sind. */
-    private static final int STORAGE_FLAGS = GL44.GL_DYNAMIC_STORAGE_BIT;
+    /* Bewusst NICHT gemappt und NICHT per glBufferSubData beschrieben: beides bewegt den
+       Buffer im NVIDIA-Treiber frueher oder spaeter ins Host-RAM ("copied/moved from VIDEO
+       memory to HOST memory") und die GPU muesste die Geometrie ueber PCIe ziehen (gemessen:
+       bis ~4x FPS-Einbruch). Uploads laufen stattdessen ueber einen kleinen Orphaning-
+       Staging-Buffer + glCopyBufferSubData (GPU-seitig) -> die Arena bleibt device-local. */
+    private static final int STORAGE_FLAGS = 0;
 
     /** Ein gemieteter Bereich der Arena. Nach {@link #free} nicht mehr verwenden. */
     public static final class Region {
@@ -49,6 +51,7 @@ public final class VertexArena {
 
     private record PendingFree(Region region, long frame) {}
 
+    private final String name;
     private int buffer;
     private long capacity;
 
@@ -58,7 +61,17 @@ public final class VertexArena {
 
     private long usedBytes = 0;
 
-    public VertexArena(long initialCapacity) {
+    /* Staging fuer Uploads: pro alloc() via glBufferData georphant (klassisches Streaming —
+       der Treiber verwaltet in-flight Kopien selbst), dann GPU-Copy in die Arena. */
+    private final int stagingBuffer;
+
+    public VertexArena(String name, long initialCapacity) {
+        this.name = name;
+        this.stagingBuffer = GL15.glGenBuffers();
+        /* Buffer-Name wird erst durch das erste Bind zum Objekt — sonst GL_INVALID_VALUE beim Label */
+        GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, this.stagingBuffer);
+        GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, 0);
+        GlDebug.labelBuffer(this.stagingBuffer, name + " Staging");
         this.createBuffer(initialCapacity);
         this.freeList.put(0L, initialCapacity);
     }
@@ -95,9 +108,13 @@ public final class VertexArena {
         }
         this.usedBytes += size;
 
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.buffer);
-        GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, offset, meshData);
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
+        /* Orphaning-Staging + GPU-Copy: kein CPU-Schreibzugriff auf die Arena selbst */
+        GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, this.stagingBuffer);
+        GL15.glBufferData(GL31.GL_COPY_READ_BUFFER, meshData, GL15.GL_STREAM_DRAW);
+        GL15.glBindBuffer(GL31.GL_COPY_WRITE_BUFFER, this.buffer);
+        GL31.glCopyBufferSubData(GL31.GL_COPY_READ_BUFFER, GL31.GL_COPY_WRITE_BUFFER, 0, offset, size);
+        GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, 0);
+        GL15.glBindBuffer(GL31.GL_COPY_WRITE_BUFFER, 0);
         return new Region(offset, size);
     }
 
@@ -169,10 +186,12 @@ public final class VertexArena {
         GL44.glBufferStorage(GL15.GL_ARRAY_BUFFER, size, STORAGE_FLAGS);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
         this.capacity = size;
+        GlDebug.labelBuffer(this.buffer, this.name + " (" + (size >> 20) + " MB)");
     }
 
     public void dispose() {
         GL15.glDeleteBuffers(this.buffer);
+        GL15.glDeleteBuffers(this.stagingBuffer);
         this.freeList.clear();
         this.pendingFrees.clear();
     }

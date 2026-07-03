@@ -8,6 +8,7 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
@@ -124,16 +125,23 @@ public class ChunkRenderer {
         this.textures.regenerateMipmaps();
         this.lastAnimNanos = System.nanoTime();
 
-        /* Arenen: OPAQUE trägt das Terrain, CUTOUT/TRANSLUCENT sind deutlich kleiner. */
-        this.arenas[RenderLayer.OPAQUE.ordinal()] = new VertexArena(32L * 1024 * 1024);
-        this.arenas[RenderLayer.CUTOUT.ordinal()] = new VertexArena(8L * 1024 * 1024);
-        this.arenas[RenderLayer.TRANSLUCENT.ordinal()] = new VertexArena(8L * 1024 * 1024);
+        /* Arenen: OPAQUE trägt das Terrain (~70 MB bei Sichtweite 16), CUTOUT/TRANSLUCENT
+           sind deutlich kleiner. Wachsen bei Bedarf. */
+        this.arenas[RenderLayer.OPAQUE.ordinal()] = new VertexArena("VertexArena OPAQUE", 64L * 1024 * 1024);
+        this.arenas[RenderLayer.CUTOUT.ordinal()] = new VertexArena("VertexArena CUTOUT", 8L * 1024 * 1024);
+        this.arenas[RenderLayer.TRANSLUCENT.ordinal()] = new VertexArena("VertexArena TRANSLUCENT", 8L * 1024 * 1024);
 
-        for (int i = 0; i < this.vaos.length; i++) this.vaos[i] = GL30.glGenVertexArrays();
+        for (int i = 0; i < this.vaos.length; i++) {
+            this.vaos[i] = GL30.glGenVertexArrays();
+            /* VAO-Name existiert erst nach dem ersten Bind — sonst GL_INVALID_VALUE beim Label */
+            GL30.glBindVertexArray(this.vaos[i]);
+            GlDebug.labelVertexArray(this.vaos[i], "ChunkRenderer VAO " + RenderLayer.VALUES[i]);
+        }
+        GL30.glBindVertexArray(0);
 
         /* Initial: 16k Draws je Layer-Segment reichen weit; Ringe wachsen bei Bedarf. */
-        this.commandRing = new MappedRing(SLOTS, 3 * MappedRing.align(16384L * COMMAND_BYTES));
-        this.offsetRing = new MappedRing(SLOTS, 3 * MappedRing.align(16384L * OFFSET_BYTES));
+        this.commandRing = new MappedRing("MDI CommandRing", SLOTS, 3 * MappedRing.align(16384L * COMMAND_BYTES));
+        this.offsetRing = new MappedRing("MDI OffsetRing", SLOTS, 3 * MappedRing.align(16384L * OFFSET_BYTES));
 
         this.logger.info("MDI-Renderer: Arenen " + (this.arenas[0].getCapacity() >> 20) + "/"
                 + (this.arenas[1].getCapacity() >> 20) + "/" + (this.arenas[2].getCapacity() >> 20)
@@ -397,6 +405,7 @@ public class ChunkRenderer {
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, this.sharedEbo);
         GL15.glBufferData(GL15.GL_ELEMENT_ARRAY_BUFFER, indices, GL15.GL_STATIC_DRAW);
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0);
+        GlDebug.labelBuffer(this.sharedEbo, "Geteilter Quad-EBO (" + newCapacity + " Quads)");
         this.indexCapacityQuads = newCapacity;
     }
 

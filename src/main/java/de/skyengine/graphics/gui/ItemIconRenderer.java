@@ -9,6 +9,7 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.BlockEntityRenderer;
 import de.skyengine.graphics.shader.Shader;
@@ -274,6 +275,7 @@ public final class ItemIconRenderer {
             GL30.glBindVertexArray(this.vao);
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
             GL15.glBufferData(GL15.GL_ARRAY_BUFFER, data, GL15.GL_STATIC_DRAW);
+            GlDebug.labelBuffer(this.vbo, "ItemIconRenderer Mesh-VBO");
             int stride = 7 * Float.BYTES;
             GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, stride, 0);
             GL20.glVertexAttribPointer(1, 3, GL11.GL_FLOAT, false, stride, 3 * Float.BYTES);

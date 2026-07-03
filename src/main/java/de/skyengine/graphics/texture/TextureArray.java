@@ -72,6 +72,7 @@ public class TextureArray {
 		float maxAniso = GL11.glGetFloat(GL46.GL_MAX_TEXTURE_MAX_ANISOTROPY);
 		GL11.glTexParameterf(GL30.GL_TEXTURE_2D_ARRAY, GL46.GL_TEXTURE_MAX_ANISOTROPY, Math.min(8.0F, maxAniso));
 
+		de.skyengine.graphics.GlDebug.labelTexture(this.id, "Block-TextureArray (" + paths.length + " Layer)");
 		this.logger.info("TextureArray erstellt: " + paths.length + " Layer à " + size + "x" + size);
 	}
 
