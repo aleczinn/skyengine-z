@@ -36,7 +36,7 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
     private ShaderProgram shader;
     private Texture texture;
 
-    private Mesh leftLid, rightLid, leftPages, rightPages, flipPage1, flipPage2;
+    private Mesh leftLid, rightLid, seam, leftPages, rightPages, flipPage1, flipPage2;
 
     private final Matrix4f base = new Matrix4f();
     private final Matrix4f part = new Matrix4f();
@@ -49,13 +49,14 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
         this.texture = new Texture(
                 new FileHandle("game/textures/entity/enchanting_table_book.png", FileType.RESOURCE), false);
 
-        /* MC BookModel: texOffs + addBox(ox,oy,oz, w,h,d). +Y oben (UV-Flip im quad()). */
-        this.leftLid = new Mesh(buildBox(-6, -5, 0, 0, 5, 0.005f, 0, 0));    // Deckel links
-        this.rightLid = new Mesh(buildBox(0, -5, 0, 6, 5, 0.005f, 16, 0));   // Deckel rechts
-        this.leftPages = new Mesh(buildBox(0, -4, -0.99f, 5, 4, 0.01f, 0, 10));
-        this.rightPages = new Mesh(buildBox(0, -4, -0.99f, 5, 4, 0.01f, 12, 10));
-        this.flipPage1 = new Mesh(buildBox(0, -4, 0, 5, 4, 0.005f, 24, 10));
-        this.flipPage2 = new Mesh(buildBox(0, -4, 0, 5, 4, 0.005f, 24, 10));
+        /* MC BookModel 1:1: texOffs(tu,tv) + addBox(ox,oy,oz, w,h,d). */
+        this.leftLid = new Mesh(buildBox(-6, -5, -0.005f, 6, 10, 0.005f, 0, 0));    // Deckel links
+        this.rightLid = new Mesh(buildBox(0, -5, -0.005f, 6, 10, 0.005f, 16, 0));   // Deckel rechts
+        this.seam = new Mesh(buildBox(-1, -5, 0, 2, 10, 0.005f, 12, 0));            // Buchrücken (quer)
+        this.leftPages = new Mesh(buildBox(0, -4, -0.99f, 5, 8, 1f, 0, 10));
+        this.rightPages = new Mesh(buildBox(0, -4, -0.99f, 5, 8, 1f, 12, 10));
+        this.flipPage1 = new Mesh(buildBox(0, -4, 0, 5, 8, 0.005f, 24, 10));
+        this.flipPage2 = new Mesh(buildBox(0, -4, 0, 5, 8, 0.005f, 24, 10));
     }
 
     @Override
@@ -94,6 +95,7 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
 
         drawPart(this.leftLid, 0, 0, -1, (float) Math.PI + f);
         drawPart(this.rightLid, 0, 0, 1, -f);
+        drawPart(this.seam, 0, 0, 0, (float) (Math.PI / 2));   // fest 90°, nicht animiert (wie MC)
         drawPart(this.leftPages, sinF, 0, 0, f);
         drawPart(this.rightPages, sinF, 0, 0, -f);
         drawPart(this.flipPage1, sinF, 0, 0, f - f * 2f * p1);
@@ -114,6 +116,7 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
     public void dispose() {
         if (this.leftLid != null) this.leftLid.dispose();
         if (this.rightLid != null) this.rightLid.dispose();
+        if (this.seam != null) this.seam.dispose();
         if (this.leftPages != null) this.leftPages.dispose();
         if (this.rightPages != null) this.rightPages.dispose();
         if (this.flipPage1 != null) this.flipPage1.dispose();
@@ -130,37 +133,43 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
         return v < min ? min : Math.min(v, max);
     }
 
-    /* --- Box-UV-Mesh-Bau (Minecraft-Layout, Float-Maße) wie ChestRenderer, ohne Normalen --- */
+    /* --- Box-UV-Mesh-Bau: exakt Vanillas ModelPart.Cube (das Buch ist ein verbatim MC-Modell,
+       daher KEINE Chest-Konvention - stbi lädt ohne Flip, v = tv/H sampelt top-down wie MC). --- */
 
-    /** Box von (x0,y0,z0) bis (x1,y1,z1) in px mit Box-UV ab Offset (tu,tv) -> pos3+uv2, 36 Vertices. */
-    private static float[] buildBox(float x0, float y0, float z0, float x1, float y1, float z1, int tu, int tv) {
-        float w = x1 - x0, h = y1 - y0, d = z1 - z0;
+    /** Box wie MC addBox(ox,oy,oz, w,h,d) in px mit Box-UV ab texOffs(tu,tv) -> pos3+uv2, 36 Vertices. */
+    private static float[] buildBox(float ox, float oy, float oz, float w, float h, float d, int tu, int tv) {
+        float x1 = ox, y1 = oy, z1 = oz;
+        float x2 = ox + w, y2 = oy + h, z2 = oz + d;
+
+        /* UV-Stationen des Vanilla-Layouts: Reihe 1 [down][up], Reihe 2 [west][north][east][south]. */
+        float u0 = tu, u1 = tu + d, u2 = tu + d + w, u3 = u2 + w, u4 = u2 + d, u5 = u4 + w;
+        float va = tv, vb = tv + d, vc = vb + h;
+
         float[] buf = new float[36 * FLOATS_PER_VERTEX];
         int[] i = {0};
-
-        quad(buf, i, x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, tu + d + w,     tv,     w, d); // up (+y)
-        quad(buf, i, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, tu + d,         tv,     w, d); // down (-y)
-        quad(buf, i, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, tu + d,         tv + d, w, h); // north (-z)
-        quad(buf, i, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, tu + d + w + d, tv + d, w, h); // south (+z)
-        quad(buf, i, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, tu,             tv + d, d, h); // west (-x)
-        quad(buf, i, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, tu + d + w,     tv + d, d, h); // east (+x)
+        face(buf, i, x2, y1, z2, x1, y1, z2, x1, y1, z1, x2, y1, z1, u1, va, u2, vb); // down (y1)
+        face(buf, i, x2, y2, z1, x1, y2, z1, x1, y2, z2, x2, y2, z2, u2, vb, u3, va); // up (y2), V invertiert
+        face(buf, i, x1, y1, z1, x1, y1, z2, x1, y2, z2, x1, y2, z1, u0, vb, u1, vc); // west (x1)
+        face(buf, i, x2, y1, z1, x1, y1, z1, x1, y2, z1, x2, y2, z1, u1, vb, u2, vc); // north (z1)
+        face(buf, i, x2, y1, z2, x2, y1, z1, x2, y2, z1, x2, y2, z2, u2, vb, u4, vc); // east (x2)
+        face(buf, i, x1, y1, z2, x2, y1, z2, x2, y2, z2, x1, y2, z2, u4, vb, u5, vc); // south (z2)
         return buf;
     }
 
-    /* Ein Face: 4 Ecken a..d + UV-Rechteck. Vertikal in-place gespiegelt wie ChestRenderer (Engine
-       sampelt bottom-up, Vanilla-Box-UV ist top-down authored). */
-    private static void quad(float[] buf, int[] i,
+    /* Ein Face nach Vanillas Polygon-Remap: a->(U2,V1), b->(U1,V1), c->(U1,V2), d->(U2,V2).
+       Triangulierung {a,b,c} + {a,c,d}; Winding unkritisch (Culling beim Zeichnen aus). */
+    private static void face(float[] buf, int[] i,
                              float ax, float ay, float az, float bx, float by, float bz,
                              float cx, float cy, float cz, float dx, float dy, float dz,
-                             float tu, float tv, float tw, float th) {
-        float u0 = tu / TEX_W, v0 = tv / TEX_H;
-        float u1 = (tu + tw) / TEX_W, v1 = (tv + th) / TEX_H;
-        vert(buf, i, ax, ay, az, u0, v0);
-        vert(buf, i, bx, by, bz, u1, v0);
-        vert(buf, i, cx, cy, cz, u1, v1);
-        vert(buf, i, ax, ay, az, u0, v0);
-        vert(buf, i, cx, cy, cz, u1, v1);
-        vert(buf, i, dx, dy, dz, u0, v1);
+                             float tu1, float tv1, float tu2, float tv2) {
+        float U1 = tu1 / TEX_W, V1 = tv1 / TEX_H;
+        float U2 = tu2 / TEX_W, V2 = tv2 / TEX_H;
+        vert(buf, i, ax, ay, az, U2, V1);
+        vert(buf, i, bx, by, bz, U1, V1);
+        vert(buf, i, cx, cy, cz, U1, V2);
+        vert(buf, i, ax, ay, az, U2, V1);
+        vert(buf, i, cx, cy, cz, U1, V2);
+        vert(buf, i, dx, dy, dz, U2, V2);
     }
 
     private static void vert(float[] buf, int[] i, float x, float y, float z, float u, float v) {
