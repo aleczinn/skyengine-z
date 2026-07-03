@@ -47,7 +47,7 @@ public final class EntityRenderer {
     private TextureArray textures;
 
     /** Würfel-Mesh je Block-State-ID (Wert null = kein/leeres Modell -> nicht zeichnen). */
-    private final Map<Short, Mesh> cache = new HashMap<>();
+    private final Map<Integer, Mesh> cache = new HashMap<>();
 
     private final Matrix4f model = new Matrix4f();
 
@@ -98,7 +98,7 @@ public final class EntityRenderer {
         } else if (e instanceof ItemEntity item) {
             int id = blockStateId(item.getStack());
             if (id < 0) return;
-            Mesh mesh = this.meshFor((short) id);
+            Mesh mesh = this.meshFor(id);
             if (mesh == null) return;
             /* Kleiner, um Y rotierender und sanft wippender Würfel über dem Boden. */
             float a = item.getAge() + partialTick;
@@ -120,7 +120,7 @@ public final class EntityRenderer {
     }
 
     /** Liefert das gecachte Würfel-Mesh (lazy gebacken) oder null bei leerem Modell. */
-    private Mesh meshFor(short stateId) {
+    private Mesh meshFor(int stateId) {
         if (this.cache.containsKey(stateId)) return this.cache.get(stateId);
         Mesh mesh = build(stateId);
         this.cache.put(stateId, mesh);
@@ -128,7 +128,7 @@ public final class EntityRenderer {
     }
 
     /** Backt die Quads des States in ein interleaved Mesh [x,y,z,u,v,layer,brightness]. */
-    private static Mesh build(short stateId) {
+    private static Mesh build(int stateId) {
         BakedQuad[] quads = Blocks.getState(stateId).getModel();
         if (quads == null || quads.length == 0) return null;
 

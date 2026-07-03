@@ -56,7 +56,7 @@ public class ChunkMesher {
         for (int y = 0; y < ChunkSection.SIZE; y++) {
             for (int z = 0; z < ChunkSection.SIZE; z++) {
                 for (int x = 0; x < ChunkSection.SIZE; x++) {
-                    short stateId = section.getBlock(x, y, z);
+                    int stateId = section.getBlock(x, y, z);
                     if (stateId == Blocks.AIR) continue;
 
                     BlockState state = BlockRegistry.getState(stateId);
@@ -87,7 +87,7 @@ public class ChunkMesher {
                             int ny = worldY + FACE_OFFSET[cullFace][1];
                             int nz = z + FACE_OFFSET[cullFace][2];
 
-                            short neighborId = getBlock(chunk, north, south, west, east, nx, ny, nz);
+                            int neighborId = getBlock(chunk, north, south, west, east, nx, ny, nz);
                             if (!shouldRenderFace(state, neighborId)) continue;
                         }
                         this.emitQuad(buffer, quad, x, worldY, z, offsetX, offsetZ);
@@ -110,7 +110,7 @@ public class ChunkMesher {
      * 2. Nachbar ist DERSELBE Block und der Block cullt gegen sich selbst
      *    (Glas-an-Glas, später Wasser-an-Wasser) -> Face unsichtbar
      */
-    private static boolean shouldRenderFace(BlockState state, short neighborId) {
+    private static boolean shouldRenderFace(BlockState state, int neighborId) {
         BlockState neighbor = BlockRegistry.getState(neighborId);
         if (neighbor.isOpaqueCube()) return false;
         if (neighbor.getBlock() == state.getBlock() && state.cullsSameBlock()) return false;
@@ -160,7 +160,7 @@ public class ChunkMesher {
     }
 
     /** Resolve a block including across chunk borders. x/z are section-local and may be -1 or 32. */
-    private static short getBlock(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, int x, int y, int z) {
+    private static int getBlock(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, int x, int y, int z) {
         if (x < 0)  return west  != null ? west.getBlock(ChunkSection.SIZE - 1, y, z) : 0;
         if (x >= ChunkSection.SIZE) return east != null ? east.getBlock(0, y, z) : 0;
         if (z < 0)  return north != null ? north.getBlock(x, y, ChunkSection.SIZE - 1) : 0;

@@ -14,7 +14,7 @@ public final class BlockState {
     private final Map<Property<?>, Object> values;
 
     /** Runtime-ID, wird beim Registry-Bake vergeben. NICHT persistieren! */
-    private short id;
+    private int id;
     /** Gepackte Hot-Path-Flags, beim Registry-Bake gesetzt (siehe {@link StateFlags}). */
     private int flags;
     private BakedQuad[] model = new BakedQuad[0];
@@ -96,11 +96,11 @@ public final class BlockState {
         return values;
     }
 
-    public short getId() {
+    public int getId() {
         return id;
     }
 
-    public void setId(short id) {
+    public void setId(int id) {
         this.id = id;
     }
 

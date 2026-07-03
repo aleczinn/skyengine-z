@@ -13,7 +13,7 @@ import de.skyengine.utils.logging.Logger;
 import java.io.File;
 
 /**
- * Bootstrap + bequeme Konstanten. Die shorts sind die Default-State-IDs
+ * Bootstrap + bequeme Konstanten. Die ints sind die Default-State-IDs
  * der jeweiligen Blöcke (deshalb funktionieren Generator, Raycast etc.
  * weiterhin ohne Änderung an deren API).
  */
@@ -21,24 +21,24 @@ public final class Blocks {
 
     private static final Logger LOGGER = LogManager.getLogger(Blocks.class.getName());
 
-    public static short AIR;
-    public static short BEDROCK;
-    public static short STONE, OAK_PLANKS, COBBLESTONE, DIRT, GRASS_BLOCK, SAND;
-    public static short OAK_LEAVES;
-    public static short GLASS;
-    public static short TNT;
-    public static short FERN, SHORT_GRASS, ORANGE_TULIP;
+    public static int AIR;
+    public static int BEDROCK;
+    public static int STONE, OAK_PLANKS, COBBLESTONE, DIRT, GRASS_BLOCK, SAND;
+    public static int OAK_LEAVES;
+    public static int GLASS;
+    public static int TNT;
+    public static int FERN, SHORT_GRASS, ORANGE_TULIP;
 
     /* Phase 2: Custom Models */
-    public static short STONE_SLAB, COBBLESTONE_SLAB;
-    public static short STONE_STAIRS, COBBLESTONE_STAIRS;
-    public static short OAK_FENCE, GLASS_PANE, IRON_BARS;
-    public static short OAK_DOOR;
-    public static short CHEST;
-    public static short ENCHANTING_TABLE;
+    public static int STONE_SLAB, COBBLESTONE_SLAB;
+    public static int STONE_STAIRS, COBBLESTONE_STAIRS;
+    public static int OAK_FENCE, GLASS_PANE, IRON_BARS;
+    public static int OAK_DOOR;
+    public static int CHEST;
+    public static int ENCHANTING_TABLE;
 
     /* Fluids + Reaktionsprodukt */
-    public static short WATER, LAVA, OBSIDIAN;
+    public static int WATER, LAVA, OBSIDIAN;
 
     /** Vor world.init() aufrufen! Lädt JSON-Blöcke und baked die Registry. */
     public static void bootstrap(File blockDirectory) {
@@ -94,7 +94,7 @@ public final class Blocks {
         OBSIDIAN = idOf("skyengine:obsidian");
     }
 
-    private static short idOf(String id) {
+    private static int idOf(String id) {
         Block block = BlockRegistry.get(Identifier.of(id));
         if (block == null) {
             LOGGER.warning("Block nicht gefunden, Fallback auf Luft: " + id);
@@ -105,16 +105,21 @@ public final class Blocks {
 
     /* --- Hot-Path-Helfer (Kollision, Mesher, Raycast) --- */
 
-    public static boolean isSolid(short stateId) {
+    public static boolean isSolid(int stateId) {
         return BlockRegistry.getState(stateId).isSolid();
     }
 
-    public static boolean isOpaque(short stateId) {
+    public static boolean isOpaque(int stateId) {
         return BlockRegistry.getState(stateId).isOpaqueCube();
     }
 
-    public static BlockState getState(short stateId) {
+    public static BlockState getState(int stateId) {
         return BlockRegistry.getState(stateId);
+    }
+
+    /** true, wenn ein fallender Block diese Zelle einnehmen darf (Luft oder Fluid). */
+    public static boolean canFallInto(int stateId) {
+        return stateId == AIR || getState(stateId).isFluid();
     }
 
     private Blocks() {}

@@ -14,7 +14,7 @@ public final class BlockRaycast {
      * @param faceX/Y/Z Normale der getroffenen Seite (z.B. 0,1,0 = Oberseite).
      *                Dort wird beim Platzieren der neue Block gesetzt.
      */
-    public record Hit(int x, int y, int z, short block, int faceX, int faceY, int faceZ,
+    public record Hit(int x, int y, int z, int block, int faceX, int faceY, int faceZ,
                       double hitX, double hitY, double hitZ) {}
 
     private BlockRaycast() {}
@@ -60,7 +60,7 @@ public final class BlockRaycast {
         int faceX = 0, faceY = 0, faceZ = 0;
 
         while (true) {
-            short block = world.getBlock(x, y, z);
+            int block = world.getBlock(x, y, z);
             if (block != Blocks.AIR) {
                 /* Formgenau: gegen die echte Outline-Shape testen, nicht den vollen Voxel.
                    Trifft der Strahl nur die leere Hälfte (z.B. einer Slab) -> Traversal weiter. */

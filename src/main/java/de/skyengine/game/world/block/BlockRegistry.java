@@ -38,10 +38,7 @@ public final class BlockRegistry {
 
         for (Block block : Registries.BLOCK.values()) {
             for (BlockState state : block.getStates()) {
-                if (all.size() > 0xFFFF) {
-                    throw new IllegalStateException("Mehr als 65536 BlockStates - Zeit für Paletten-Storage!");
-                }
-                state.setId((short) all.size());
+                state.setId(all.size());
                 all.add(state);
             }
         }
@@ -79,8 +76,8 @@ public final class BlockRegistry {
         return StateFlags.packLayer(flags, block.getRenderLayer(state));
     }
 
-    public static BlockState getState(short id) {
-        return statesById[id & 0xFFFF];
+    public static BlockState getState(int id) {
+        return statesById[id];
     }
 
     public static int getStateCount() {

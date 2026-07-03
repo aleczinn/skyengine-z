@@ -185,7 +185,7 @@ public class World implements IInitializable, IDisposable {
     }
 
     /** Spawnt einen flüssig fallenden Block an der Blockposition (Fußpunkt = y, zentriert in x/z). */
-    public void spawnFallingBlock(int x, int y, int z, short blockId) {
+    public void spawnFallingBlock(int x, int y, int z, int blockId) {
         FallingBlockEntity entity = new FallingBlockEntity(blockId);
         entity.setPosition(x + 0.5, y, z + 0.5);
         this.spawnEntity(entity);
@@ -329,7 +329,7 @@ public class World implements IInitializable, IDisposable {
                     int lx = this.random.nextInt(ChunkSection.SIZE);
                     int ly = this.random.nextInt(ChunkSection.SIZE);
                     int lz = this.random.nextInt(ChunkSection.SIZE);
-                    short id = section.getBlock(lx, ly, lz);
+                    int id = section.getBlock(lx, ly, lz);
                     if (id == Blocks.AIR) continue;
                     BlockState state = Blocks.getState(id);
                     if (!state.ticksRandomly()) continue;
@@ -377,7 +377,7 @@ public class World implements IInitializable, IDisposable {
     }
 
     /** Block an Weltkoordinaten. Ungeladene Chunks zählen als Luft. */
-    public short getBlock(int x, int y, int z) {
+    public int getBlock(int x, int y, int z) {
         if (y < 0 || y >= Chunk.HEIGHT) return Blocks.AIR;
 
         Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
@@ -388,7 +388,7 @@ public class World implements IInitializable, IDisposable {
     }
 
     /** Setzt einen Block (mit Nachbar-Updates für Verbindungen/Treppen-Ecken). */
-    public void setBlock(int x, int y, int z, short block) {
+    public void setBlock(int x, int y, int z, int block) {
         this.setBlock(x, y, z, block, true);
     }
 
@@ -397,8 +397,8 @@ public class World implements IInitializable, IDisposable {
      *                        rechnen ihren State neu. false vermeidet Rekursion
      *                        bei den dadurch ausgelösten Folge-Updates.
      */
-    public void setBlock(int x, int y, int z, short block, boolean updateNeighbors) {
-        short old = this.getBlock(x, y, z);
+    public void setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
+        int old = this.getBlock(x, y, z);
         if (!this.setBlockRaw(x, y, z, block)) return;
         this.manageBlockEntity(x, y, z, old, block);
         if (updateNeighbors) this.updateNeighbors(x, y, z);
@@ -422,7 +422,7 @@ public class World implements IInitializable, IDisposable {
      * Reine State-Änderungen am selben Block (Verbindungen, Treppen-Ecken) lassen die
      * vorhandene BlockEntity unberührt.
      */
-    private void manageBlockEntity(int x, int y, int z, short oldId, short newId) {
+    private void manageBlockEntity(int x, int y, int z, int oldId, int newId) {
         BlockEntityType<?> oldType = Blocks.getState(oldId).getBlock().getBlockEntityType();
         BlockEntityType<?> newType = Blocks.getState(newId).getBlock().getBlockEntityType();
         if (oldType == newType) return;
@@ -440,7 +440,7 @@ public class World implements IInitializable, IDisposable {
     }
 
     /** Schreibt den Block und markiert Chunks fürs Remeshing. true bei Erfolg. */
-    private boolean setBlockRaw(int x, int y, int z, short block) {
+    private boolean setBlockRaw(int x, int y, int z, int block) {
         if (y < 0 || y >= Chunk.HEIGHT) return false;
 
         int cx = x >> ChunkSection.SHIFT;
@@ -497,7 +497,7 @@ public class World implements IInitializable, IDisposable {
     }
 
     private void updateStateAt(int x, int y, int z) {
-        short id = this.getBlock(x, y, z);
+        int id = this.getBlock(x, y, z);
         if (id == Blocks.AIR) return;
         BlockState current = Blocks.getState(id);
         BlockState updated = current.getBlock().getStateForNeighborUpdate(this, x, y, z, current);
@@ -556,7 +556,7 @@ public class World implements IInitializable, IDisposable {
         ChunkStatus status = chunk.status;
         if (status == ChunkStatus.NEW || status == ChunkStatus.GENERATING) return BlockShape.FULL_CUBE;
 
-        short id = chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
+        int id = chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
         return Blocks.getState(id).getCollisionShape();
     }
 

@@ -5,14 +5,14 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.state.BlockState;
 
 /**
- * Schwerkraft (Sand, Kies): der Block fällt nach unten, solange darunter Luft ist.
+ * Schwerkraft (Sand, Kies): der Block fällt, solange darunter Luft oder ein Fluid ist.
  *
- * <p>Block-basiert über den Tick-Scheduler (Phase 1.1) - der Block „springt" pro
- * {@link #FALL_DELAY} Ticks eine Position tiefer. Erster Konsument des Schedulers.
- * Eine flüssig fallende Entity (smooth) ist ein späteres Upgrade (Phase 1.4).
+ * <p>Der geplante Tick entfernt den Block und spawnt eine {@link
+ * de.skyengine.game.entity.FallingBlockEntity}, die flüssig fällt und beim Aufprall
+ * wieder zu einem Block wird (ggf. unter Verdrängung eines Fluids, wie in MC).
  *
  * <p>Ausgelöst beim Platzieren und bei Nachbar-Updates (z.B. wenn der Block darunter
- * abgebaut wird); der geplante Tick prüft erneut und fällt ggf. eine Position tiefer.
+ * abgebaut wird oder Wasser darunter fließt).
  */
 public final class GravityBehavior implements BlockBehavior {
 
@@ -32,13 +32,13 @@ public final class GravityBehavior implements BlockBehavior {
 
     @Override
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
-        if (world.getBlock(x, y - 1, z) != Blocks.AIR) return;   // Boden erreicht -> liegen bleiben
-        world.setBlock(x, y, z, Blocks.AIR);                     // Block entfernen ...
-        world.spawnFallingBlock(x, y, z, state.getId());         // ... und als Entity flüssig fallen lassen
+        if (!Blocks.canFallInto(world.getBlock(x, y - 1, z))) return; // Boden erreicht -> liegen bleiben
+        world.setBlock(x, y, z, Blocks.AIR);                          // Block entfernen ...
+        world.spawnFallingBlock(x, y, z, state.getId());              // ... und als Entity flüssig fallen lassen
     }
 
-    /** Plant einen Fall-Tick nur, wenn unter dem Block Luft ist (kein Tick für ruhende Blöcke). */
+    /** Plant einen Fall-Tick nur, wenn unter dem Block Luft/Fluid ist (kein Tick für ruhende Blöcke). */
     private static void scheduleIfUnsupported(World world, int x, int y, int z) {
-        if (world.getBlock(x, y - 1, z) == Blocks.AIR) world.scheduleTick(x, y, z, FALL_DELAY);
+        if (Blocks.canFallInto(world.getBlock(x, y - 1, z))) world.scheduleTick(x, y, z, FALL_DELAY);
     }
 }

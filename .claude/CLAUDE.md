@@ -112,8 +112,8 @@ Die Architektur gilt als reif — **kein Rewrite**, neue Features sind additive 
   `"gravity": true`), `HorizontalFacingBehavior` (`"facing": true`), Door/Slab/Stairs-Behaviors.
 - **BlockEntities & Capabilities** (`entity/`): `BlockEntity`, `Capability`, `ItemStorage`/
   `EnergyStorage` (z.B. `ChestBlockEntity`, `CableBlockEntity` für Energie-Netz).
-- **State-Storage:** `state/BlockState` + `palette/PalettedContainer`. Globales 65536-State-Limit in
-  `BlockRegistry.bake` (heute kein Problem; `getState` maskiert mit `& 0xFFFF`).
+- **State-Storage:** `state/BlockState` + `palette/PalettedContainer`. State-IDs sind `int`
+  (kein 65536-Limit mehr); der Speicher bleibt dank Palette + `BitStorage`-Indizes kompakt.
 
 ### Modell-/Textur-Auflösung — bekannte Stolpersteine
 

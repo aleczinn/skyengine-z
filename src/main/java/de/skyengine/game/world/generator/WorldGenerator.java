@@ -27,7 +27,7 @@ public class WorldGenerator {
                 int height = 80 + (int) (n * 40);
 
                 for (int y = 0; y <= height; y++) {
-                    short block;
+                    int block;
                     if (y == 0) block = Blocks.BEDROCK;
 
                     else if (y == height) block = Blocks.GRASS_BLOCK;

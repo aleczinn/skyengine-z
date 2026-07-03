@@ -70,12 +70,12 @@ public final class FluidGeometry {
             for (int i = 0; i < 4; i++) {
                 int dx = i == 0 ? -1 : i == 1 ? 1 : 0;
                 int dz = i == 2 ? -1 : i == 3 ? 1 : 0;
-                short nid = sample(chunk, north, south, west, east, diagonals, x + dx, worldY, z + dz);
+                int nid = sample(chunk, north, south, west, east, diagonals, x + dx, worldY, z + dz);
                 float diff = 0f;
                 if (isSameFluid(nid, fluid)) {
                     diff = own - ownHeight(BlockRegistry.getState(nid));
                 } else if (!BlockRegistry.getState(nid).isSolid()) {
-                    short bid = sample(chunk, north, south, west, east, diagonals, x + dx, worldY - 1, z + dz);
+                    int bid = sample(chunk, north, south, west, east, diagonals, x + dx, worldY - 1, z + dz);
                     if (isSameFluid(bid, fluid)) { // Abfall-Kante: zieht stark bergab
                         diff = own - (ownHeight(BlockRegistry.getState(bid)) - 8f / 9f);
                     }
@@ -105,7 +105,7 @@ public final class FluidGeometry {
         }
 
         /* BOTTOM — wenn unten weder gleiches Fluid noch ein opaker Block. */
-        short below = sample(chunk, north, south, west, east, diagonals, x, worldY - 1, z);
+        int below = sample(chunk, north, south, west, east, diagonals, x, worldY - 1, z);
         if (!isSameFluid(below, fluid) && !BlockRegistry.getState(below).isOpaqueCube()) {
             quads.add(quad(still, BlockModels.FACE_BRIGHTNESS[1], tint,
                     0, 0, 0, 0, 0,
@@ -154,7 +154,7 @@ public final class FluidGeometry {
     /** Eine Seite ist sichtbar, wenn der Nachbar weder dasselbe Fluid noch ein opaker Würfel ist. */
     private static boolean sideVisible(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
                                        int x, int worldY, int z, Block fluid, int dx, int dz) {
-        short id = sample(chunk, north, south, west, east, diagonals, x + dx, worldY, z + dz);
+        int id = sample(chunk, north, south, west, east, diagonals, x + dx, worldY, z + dz);
         if (isSameFluid(id, fluid)) return false;
         return !BlockRegistry.getState(id).isOpaqueCube();
     }
@@ -205,7 +205,7 @@ public final class FluidGeometry {
      */
     private static float columnHeight(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
                                       int x, int y, int z, Block fluid) {
-        short id = sample(chunk, north, south, west, east, diagonals, x, y, z);
+        int id = sample(chunk, north, south, west, east, diagonals, x, y, z);
         if (isSameFluid(id, fluid)) {
             if (isSameFluid(sample(chunk, north, south, west, east, diagonals, x, y + 1, z), fluid)) return 1.0f;
             return ownHeight(BlockRegistry.getState(id));
@@ -230,7 +230,7 @@ public final class FluidGeometry {
         return ownHeight(s);
     }
 
-    private static boolean isSameFluid(short id, Block fluid) {
+    private static boolean isSameFluid(int id, Block fluid) {
         BlockState s = BlockRegistry.getState(id);
         return s.isFluid() && s.getBlock() == fluid;
     }
@@ -240,7 +240,7 @@ public final class FluidGeometry {
      * Kardinal- und 4 Diagonal-Nachbar-Chunks ({@code diagonals} in Reihenfolge NW, NE, SW, SE
      * — so liefert sie der ChunkManager).
      */
-    private static short sample(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
+    private static int sample(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
                                 int x, int y, int z) {
         int size = ChunkSection.SIZE;
         if (x < 0 || x >= size) {
