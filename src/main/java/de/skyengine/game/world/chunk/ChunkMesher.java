@@ -1,5 +1,6 @@
 package de.skyengine.game.world.chunk;
 
+import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.RenderLayer;
@@ -68,6 +69,9 @@ public class ChunkMesher {
     /* Wiederverwendeter AO-Puffer (4 Eckwerte des aktuellen Quads) */
     private final float[] aoCorners = new float[4];
 
+    /* Ambient-Occlusion-Setting, einmal pro mesh()-Aufruf gelesen (konsistent pro Section) */
+    private boolean ambientOcclusion = true;
+
     /* Eindeutige Ecken A,B,C,D im 6-Vertex-Quad der BakedQuads (A,B,C,C,D,A) */
     private static final int[] UNIQUE_VERTS = {0, 1, 2, 4};
     /* Emissions-Reihenfolge der 4 Ecken: normal = Diagonale A-C, geflippt = B-D (AO-Anisotropie-Fix;
@@ -128,6 +132,7 @@ public class ChunkMesher {
         this.west = west;
         this.east = east;
         this.diagonals = diagonals;
+        this.ambientOcclusion = GameSettings.get().ambientOcclusion;
 
         int baseY = sectionIndex << ChunkSection.SHIFT;
 
@@ -243,6 +248,12 @@ public class ChunkMesher {
                         if (!shouldRenderFace(gf.state, neighborId)) continue;
 
                         BakedQuad quad = gf.quads[face];
+                        if (!this.ambientOcclusion) {
+                            /* AO aus: alle Zellen uniform hell (aoIdx 3 = 1.0) -> mergen maximal */
+                            grid[b << ChunkSection.SHIFT | a] = (((long) stateId << 2) | 3L) + 1L;
+                            any = true;
+                            continue;
+                        }
                         this.computeAo(quad, x, worldY, z, this.aoCorners);
                         float ao = this.aoCorners[0];
                         if (ao == this.aoCorners[1] && ao == this.aoCorners[2] && ao == this.aoCorners[3]) {
@@ -408,11 +419,11 @@ public class ChunkMesher {
         float g = brightness * ((tint >> 8) & 0xFF) / 255F;
         float b = brightness * (tint & 0xFF) / 255F;
 
-        /* AO nur für Quads, die bündig an einem Nachbarn liegen (cullFace gesetzt).
-           NO_CULL-Quads (Cross-Modelle, Fluids) bleiben unverändert hell. */
+        /* AO nur für Quads, die bündig an einem Nachbarn liegen (cullFace gesetzt) und wenn
+           Ambient Occlusion an ist. NO_CULL-Quads (Cross, Fluids) bleiben unverändert hell. */
         int[] emitOrder = EMIT_NORMAL;
         float[] ao = null;
-        if (quad.cullFace() != BakedQuad.NO_CULL) {
+        if (this.ambientOcclusion && quad.cullFace() != BakedQuad.NO_CULL) {
             ao = this.aoCorners;
             this.computeAo(quad, x, worldY, z, ao);
             /* Anisotropie-Fix: Diagonale durch das hellere Eckpaar legen, sonst

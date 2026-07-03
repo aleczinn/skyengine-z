@@ -125,9 +125,9 @@ public class ChunkRenderer {
         this.textures.regenerateMipmaps();
         this.lastAnimNanos = System.nanoTime();
 
-        /* Arenen: OPAQUE trägt das Terrain (~70 MB bei Sichtweite 16), CUTOUT/TRANSLUCENT
-           sind deutlich kleiner. Wachsen bei Bedarf. */
-        this.arenas[RenderLayer.OPAQUE.ordinal()] = new VertexArena("VertexArena OPAQUE", 64L * 1024 * 1024);
+        /* Arenen: OPAQUE trägt das Terrain (~70-100 MB bei Sichtweite 16 — großzügig, damit
+           das Wachstum im Normalbetrieb entfällt), CUTOUT/TRANSLUCENT sind deutlich kleiner. */
+        this.arenas[RenderLayer.OPAQUE.ordinal()] = new VertexArena("VertexArena OPAQUE", 96L * 1024 * 1024);
         this.arenas[RenderLayer.CUTOUT.ordinal()] = new VertexArena("VertexArena CUTOUT", 8L * 1024 * 1024);
         this.arenas[RenderLayer.TRANSLUCENT.ordinal()] = new VertexArena("VertexArena TRANSLUCENT", 8L * 1024 * 1024);
 
