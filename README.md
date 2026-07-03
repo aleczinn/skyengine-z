@@ -77,6 +77,8 @@ v1.0.2 | Ambient Occlusion + Greedy Meshing + MultiDrawIndirect
 
 ![Ingame Screenshot mit Ambient Occlusion, Greedy Meshing und MultiDrawIndirect](./screenshots/readme-3.png?raw=true)
 
+![Ingame Screenshot mit Weitsicht inkl. Ambient Occlusion, Greedy Meshing und MultiDrawIndirect](./screenshots/readme-4.png?raw=true)
+
 v1.0.0 | Blöcke wie Gras, Kreuz-Blöcke wie kurzes Gras oder Tulpen
 
 ![Ingame Screenshot mit Hotbar und Block Rendering](./screenshots/readme-1.png?raw=true)
