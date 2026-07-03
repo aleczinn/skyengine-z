@@ -10,6 +10,7 @@ public abstract class WorldGenerator {
         this.seed = seed;
     }
 
+    public abstract int sampleHeight(int x, int z);
     public abstract void generate(Chunk chunk);
 
     public int getSeed() {
