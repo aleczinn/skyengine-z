@@ -189,8 +189,8 @@ public class ChunkRenderer {
             float oy = offsetY(mesh, cam);
             float oz = offsetZ(mesh, cam);
 
-            /* Mesh-Y ist column-lokal (0-511), daher die Section-Höhe aus dem Offset rausrechnen */
-            this.shader.setUniformVector3f("u_Offset", ox, oy - (mesh.sectionY << ChunkSection.SHIFT), oz);
+            /* Mesh-Koordinaten sind section-lokal (0-32) */
+            this.shader.setUniformVector3f("u_Offset", ox, oy, oz);
             mesh.render(layer);
         }
     }
@@ -226,11 +226,12 @@ public class ChunkRenderer {
         if (this.textures != null) this.textures.dispose();
     }
 
+    /* Gepacktes Vertex-Format (16 Bytes, siehe ChunkMesher.VERTEX_SIZE):
+       x: posX | posY<<16 (u16 fixed 8.8, Bias +1) — y: posZ | u<<16 (uv fixed 6.10, Bias +1)
+       z: v | layer<<16 — w: rgb8 */
     private static final String VERTEX_SOURCE = """
             #version 460 core
-            layout(location = 0) in vec3 a_position;
-            layout(location = 1) in vec3 a_texCoord;   // u, v, layer
-            layout(location = 2) in vec3 a_color;      // helligkeit * tint (rgb)
+            layout(location = 0) in uvec4 a_data;
 
             uniform mat4 u_ProjectionView;
             uniform vec3 u_Offset;
@@ -239,9 +240,14 @@ public class ChunkRenderer {
             out vec3 v_color;
 
             void main() {
-                v_texCoord = a_texCoord;
-                v_color = a_color;
-                gl_Position = u_ProjectionView * vec4(a_position + u_Offset, 1.0);
+                vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16), float(a_data.y & 0xFFFFu)) * (1.0 / 256.0) - 1.0;
+                vec2 uv = vec2(float(a_data.y >> 16), float(a_data.z & 0xFFFFu)) * (1.0 / 1024.0) - 1.0;
+                float layer = float(a_data.z >> 16);
+                vec3 color = vec3(float(a_data.w & 0xFFu), float((a_data.w >> 8) & 0xFFu), float((a_data.w >> 16) & 0xFFu)) * (1.0 / 255.0);
+
+                v_texCoord = vec3(uv, layer);
+                v_color = color;
+                gl_Position = u_ProjectionView * vec4(pos + u_Offset, 1.0);
             }
             """;
 
