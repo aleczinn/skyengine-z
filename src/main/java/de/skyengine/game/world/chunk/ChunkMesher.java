@@ -40,6 +40,20 @@ public class ChunkMesher {
     /* Ein wiederverwendeter Buffer pro RenderLayer (Index = RenderLayer.ordinal()) */
     private final VertexBuffer[] buffers = {new VertexBuffer(), new VertexBuffer(), new VertexBuffer()};
 
+    /* Kontext des laufenden mesh()-Aufrufs (für AO-Sampling über Chunk-Grenzen).
+       Mesher ist ThreadLocal -> keine Nebenläufigkeit; wird am Ende genullt (kein Chunk-Leak). */
+    private Chunk chunk, north, south, west, east;
+    private Chunk[] diagonals;
+
+    /* Wiederverwendeter AO-Puffer (4 Eckwerte des aktuellen Quads) */
+    private final float[] aoCorners = new float[4];
+
+    /* Eindeutige Ecken A,B,C,D im 6-Vertex-Quad (A,B,C,C,D,A) */
+    private static final int[] UNIQUE_VERTS = {0, 1, 2, 4};
+    /* Emissions-Reihenfolge: normal = Diagonale A-C, geflippt = Diagonale B-D (AO-Anisotropie-Fix) */
+    private static final int[] EMIT_NORMAL = {0, 1, 2, 2, 3, 0};
+    private static final int[] EMIT_FLIPPED = {1, 2, 3, 3, 0, 1};
+
     /**
      * Mesht eine Section. Läuft auf einem Worker-Thread - reine Daten, kein GL.
      *
@@ -50,6 +64,13 @@ public class ChunkMesher {
         if (section == null || section.isEmpty()) return null;
 
         for (VertexBuffer buffer : this.buffers) buffer.reset();
+
+        this.chunk = chunk;
+        this.north = north;
+        this.south = south;
+        this.west = west;
+        this.east = east;
+        this.diagonals = diagonals;
 
         int baseY = sectionIndex << ChunkSection.SHIFT;
 
@@ -96,6 +117,9 @@ public class ChunkMesher {
             }
         }
 
+        this.chunk = this.north = this.south = this.west = this.east = null;
+        this.diagonals = null;
+
         MeshData data = new MeshData(
                 this.buffers[0].copyOrNull(),
                 this.buffers[1].copyOrNull(),
@@ -123,25 +147,102 @@ public class ChunkMesher {
         float layer = quad.textureLayer();
         float brightness = quad.brightness();
 
-        /* Per-Vertex-Farbe = Helligkeit * Tint (0xRRGGBB). Tint ist normal weiß (neutral),
+        /* Per-Vertex-Farbe = Helligkeit * AO * Tint (0xRRGGBB). Tint ist normal weiß (neutral),
            Wasser bringt seine Blaufarbe mit. So bleibt der Shader-Multiply unverändert. */
         int tint = quad.tint();
         float r = brightness * ((tint >> 16) & 0xFF) / 255F;
         float g = brightness * ((tint >> 8) & 0xFF) / 255F;
         float b = brightness * (tint & 0xFF) / 255F;
 
+        /* AO nur für Quads, die bündig an einem Nachbarn liegen (cullFace gesetzt).
+           NO_CULL-Quads (Cross-Modelle, Fluids) bleiben unverändert hell. */
+        int[] emitOrder = EMIT_NORMAL;
+        float[] ao = null;
+        if (quad.cullFace() != BakedQuad.NO_CULL) {
+            ao = this.aoCorners;
+            this.computeAo(quad, x, y, z, ao);
+            /* Anisotropie-Fix: Diagonale durch das hellere Eckpaar legen, sonst
+               kippt der Interpolations-Gradient je nach Triangulierung sichtbar. */
+            if (ao[1] + ao[3] > ao[0] + ao[2]) emitOrder = EMIT_FLIPPED;
+        }
+
         for (int v = 0; v < 6; v++) {
-            int i = v * 5;
+            int corner = emitOrder[v];
+            int i = UNIQUE_VERTS[corner] * 5;
+            float aoValue = ao != null ? ao[corner] : 1F;
             buffer.data[buffer.count++] = verts[i] + x + offsetX;
             buffer.data[buffer.count++] = verts[i + 1] + y;
             buffer.data[buffer.count++] = verts[i + 2] + z + offsetZ;
             buffer.data[buffer.count++] = verts[i + 3];
             buffer.data[buffer.count++] = verts[i + 4];
             buffer.data[buffer.count++] = layer;
-            buffer.data[buffer.count++] = r;
-            buffer.data[buffer.count++] = g;
-            buffer.data[buffer.count++] = b;
+            buffer.data[buffer.count++] = r * aoValue;
+            buffer.data[buffer.count++] = g * aoValue;
+            buffer.data[buffer.count++] = b * aoValue;
         }
+    }
+
+    /**
+     * Ambient Occlusion nach Minecraft-Art: pro Quad-Ecke die zwei Kanten-Nachbarn und der
+     * Eck-Nachbar in der Ebene VOR der Face (also im Nachbar-Layer). 4 Stufen, Ecke voll
+     * eingeschlossen (beide Kanten opak) = dunkelste Stufe.
+     *
+     * @param out die 4 AO-Werte in der Reihenfolge der eindeutigen Quad-Ecken A,B,C,D
+     */
+    private void computeAo(BakedQuad quad, int x, int y, int z, float[] out) {
+        int face = quad.cullFace();
+        int ox = FACE_OFFSET[face][0], oy = FACE_OFFSET[face][1], oz = FACE_OFFSET[face][2];
+
+        /* Tangentenachsen der Face-Ebene: 0=x, 1=y, 2=z */
+        int t1, t2;
+        if (oy != 0) { t1 = 0; t2 = 2; }        // top/bottom -> x,z
+        else if (oz != 0) { t1 = 0; t2 = 1; }   // north/south -> x,y
+        else { t1 = 1; t2 = 2; }                // west/east -> y,z
+
+        float[] verts = quad.vertices();
+        for (int c = 0; c < 4; c++) {
+            int i = UNIQUE_VERTS[c] * 5;
+            /* Vorzeichen der Ecke entlang beider Tangenten (Koordinate 0 -> -1, Koordinate 1 -> +1) */
+            int s = verts[i + t1] >= 0.5F ? 1 : -1;
+            int t = verts[i + t2] >= 0.5F ? 1 : -1;
+
+            int s1x = ox + (t1 == 0 ? s : 0), s1y = oy + (t1 == 1 ? s : 0), s1z = oz + (t1 == 2 ? s : 0);
+            int s2x = ox + (t2 == 0 ? t : 0), s2y = oy + (t2 == 1 ? t : 0), s2z = oz + (t2 == 2 ? t : 0);
+
+            boolean side1 = this.occludes(x + s1x, y + s1y, z + s1z);
+            boolean side2 = this.occludes(x + s2x, y + s2y, z + s2z);
+
+            int level;
+            if (side1 && side2) {
+                level = 0; // Ecke komplett eingeschlossen, Eck-Block egal
+            } else {
+                boolean corner = this.occludes(x + s1x + s2x - ox, y + s1y + s2y - oy, z + s1z + s2z - oz);
+                level = 3 - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0);
+            }
+            out[c] = 0.4F + level * 0.2F;
+        }
+    }
+
+    private boolean occludes(int x, int y, int z) {
+        return BlockRegistry.getState(this.sample(x, y, z)).isOpaqueCube();
+    }
+
+    /** Block-Sample inkl. Diagonal-Chunks (x/z dürfen -1..32 sein); außerhalb geladener Chunks Luft. */
+    private int sample(int x, int y, int z) {
+        int size = ChunkSection.SIZE;
+        if (x < 0 || x >= size) {
+            if (z < 0 || z >= size) { // Diagonal-Ecke über zwei Chunk-Grenzen
+                Chunk c = this.diagonals[(z < 0 ? 0 : 2) + (x < 0 ? 0 : 1)];
+                return c != null ? c.getBlock(x < 0 ? size - 1 : 0, y, z < 0 ? size - 1 : 0) : 0;
+            }
+            Chunk c = x < 0 ? this.west : this.east;
+            return c != null ? c.getBlock(x < 0 ? size - 1 : 0, y, z) : 0;
+        }
+        if (z < 0 || z >= size) {
+            Chunk c = z < 0 ? this.north : this.south;
+            return c != null ? c.getBlock(x, y, z < 0 ? size - 1 : 0) : 0;
+        }
+        return this.chunk.getBlock(x, y, z);
     }
 
     /** Liefert aus 4 Seed-Bits einen Versatz in [-MAX_OFFSET, +MAX_OFFSET]. */
