@@ -133,6 +133,25 @@ Classloader, **kein** rein deklaratives JSON (JSON kann kein Verhalten ausdrück
 
 ---
 
+## Fluid-System (Wasser/Lava)
+
+Logik in `behavior/FluidBehavior` (Scheduled-Tick-basiert), Parameter aus `FluidInfo`
+(JSON-Felder `fluid_spread`, `drop_off`, `fluid_tick` in `game/blocks/water.json`/`lava.json`).
+
+- **LEVEL-Konvention ist INVERS zu Vanilla:** `LEVEL 0` = Quelle (stärkstes Fluid), höhere Werte =
+  schwächer; pro horizontalem Block kommt `dropOff` dazu, `LEVEL > spread` trocknet aus.
+  `FALLING = true` = fallende Säule (zählt effektiv als Level 0). Wasser: dropOff 1 → 7 Blöcke
+  Reichweite; Lava: dropOff 2 → 3 Blöcke.
+- **Wasser+Lava reagiert NUR bei echtem Kontakt** (ein Fluid breitet sich in die Nachbarzelle aus
+  bzw. Nachbar-Update): Lavaquelle→Obsidian, fließende Lava→Cobblestone, Lava fließt/fällt in
+  Wasser→Stein. Es gibt bewusst **keine** Adjazenz-über-Lücke-Regel: Enden beide Fluids mit
+  maximaler Reichweite und einer Luftzelle dazwischen, kann sich keines mehr ausbreiten → **kein**
+  Cobble (Vanilla-„Druck"-Regel). Das ist Absicht — nicht „reparieren", indem man Reaktionen an
+  bloße Nachbarschaft koppelt.
+- Fluid-Verhalten ist **nur visuell** verifizierbar (Engine-Fenster nötig).
+
+---
+
 ## Ressourcen (`src/main/resources/`)
 
 - `game/blocks/` — Block-Definitionen (JSON).
