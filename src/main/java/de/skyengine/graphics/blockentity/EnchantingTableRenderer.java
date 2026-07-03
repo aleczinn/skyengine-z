@@ -54,7 +54,7 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
         this.rightLid = new Mesh(buildBox(0, -5, -0.005f, 6, 10, 0.005f, 16, 0));   // Deckel rechts
         this.seam = new Mesh(buildBox(-1, -5, 0, 2, 10, 0.005f, 12, 0));            // Buchrücken (quer)
         this.leftPages = new Mesh(buildBox(0, -4, -0.99f, 5, 8, 1f, 0, 10));
-        this.rightPages = new Mesh(buildBox(0, -4, -0.99f, 5, 8, 1f, 12, 10));
+        this.rightPages = new Mesh(buildBox(0, -4, -0.01f, 5, 8, 1f, 12, 10));
         this.flipPage1 = new Mesh(buildBox(0, -4, 0, 5, 8, 0.005f, 24, 10));
         this.flipPage2 = new Mesh(buildBox(0, -4, 0, 5, 8, 0.005f, 24, 10));
     }
