@@ -80,20 +80,17 @@ public class ChunkRenderer {
         this.animations.tick(this.textures, (now - this.lastAnimNanos) / 1.0e9);
         this.lastAnimNanos = now;
 
-        /* 1. Drain upload queue (bounded per frame) */
-        int uploads = 0;
+        /* 1a. Prioritäts-Batches (Edit-/Fluid-Remeshes) immer zuerst und vollständig —
+           das Volumen ist klein und der Spieler soll seine Änderung sofort sehen. */
         ChunkManager.MeshBatch batch;
+        while ((batch = this.chunkManager.getPriorityUploadQueue().poll()) != null) {
+            this.applyBatch(batch);
+        }
+
+        /* 1b. Normale Upload-Queue (Initial-Load), gedeckelt pro Frame */
+        int uploads = 0;
         while (uploads < MAX_UPLOADS_PER_FRAME && (batch = this.chunkManager.getUploadQueue().poll()) != null) {
-            for (ChunkManager.MeshResult result : batch.results()) {
-                long key = sectionKey(result.chunkX(), result.sectionY(), result.chunkZ());
-
-                SectionMesh old = this.meshes.remove(key);
-                if (old != null) old.dispose();
-
-                if (result.data() != null && !result.data().isEmpty()) {
-                    this.meshes.put(key, new SectionMesh(result.chunkX(), result.sectionY(), result.chunkZ(), result.data()));
-                }
-            }
+            this.applyBatch(batch);
             uploads++;
         }
 
@@ -168,6 +165,20 @@ public class ChunkRenderer {
         GL11.glDisable(GL11.GL_BLEND);
 
         this.shader.unbind();
+    }
+
+    /** Wendet einen Mesh-Batch an: alte Section-Meshes ersetzen, leere entfernen. */
+    private void applyBatch(ChunkManager.MeshBatch batch) {
+        for (ChunkManager.MeshResult result : batch.results()) {
+            long key = sectionKey(result.chunkX(), result.sectionY(), result.chunkZ());
+
+            SectionMesh old = this.meshes.remove(key);
+            if (old != null) old.dispose();
+
+            if (result.data() != null && !result.data().isEmpty()) {
+                this.meshes.put(key, new SectionMesh(result.chunkX(), result.sectionY(), result.chunkZ(), result.data()));
+            }
+        }
     }
 
     private void drawLayer(RenderLayer layer, List<SectionMesh> meshes, Vector3d cam) {
