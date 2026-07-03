@@ -24,6 +24,8 @@ import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.generators.MountainWorldGeneratorV1;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.lod.GeneratorLodDataSource;
+import de.skyengine.game.world.lod.LodBlockAppearance;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
@@ -96,7 +98,10 @@ public class World implements IInitializable, IDisposable {
     @Override
     public void init() {
         this.chunkRenderer.init();
-        this.lodManager = new LodManager(this.generator, this.chunkManager);
+        /* LOD: abstrahierte Datenquelle (heute Generator) + Block-Darstellung aus den
+           gebackenen Modellen — beides erst nach dem Registry-Bake verfügbar. */
+        this.lodManager = new LodManager(new GeneratorLodDataSource(this.generator),
+                new LodBlockAppearance(), this.chunkManager);
         this.chunkRenderer.setLodManager(this.lodManager);
         this.blockEntityRenderer.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderer.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());

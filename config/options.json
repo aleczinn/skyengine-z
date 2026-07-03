@@ -9,7 +9,11 @@
   "ambientOcclusion": true,
   "anisotropicFiltering": 16,
   "lodEnabled": true,
-  "lodDistance": 128,
+  "lodRings": [
+    32,
+    64,
+    128
+  ],
   "keyBindings": {
     "open_inventory": 69,
     "drop": 81,

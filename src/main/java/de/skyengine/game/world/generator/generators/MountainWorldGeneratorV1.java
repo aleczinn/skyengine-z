@@ -4,6 +4,7 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
+import de.skyengine.game.world.lod.LodDataSource;
 import de.skyengine.utils.math.FastNoiseLite;
 
 public class MountainWorldGeneratorV1 extends WorldGenerator {
@@ -70,6 +71,48 @@ public class MountainWorldGeneratorV1 extends WorldGenerator {
         return Math.min(height, Chunk.HEIGHT - 2);
     }
 
+    /**
+     * Oberflächen-Sample fürs LOD: im Ozean ist die sichtbare Oberfläche der Wasserspiegel
+     * (nicht der Meeresboden), sonst das höhenabhängige Deckmaterial.
+     */
+    @Override
+    public long sampleSurface(int x, int z) {
+        int height = this.sampleHeight(x, z);
+        if (height < SEA_LEVEL) return LodDataSource.pack(Blocks.WATER, SEA_LEVEL);
+        return LodDataSource.pack(this.surfaceTop(x, z, height), height);
+    }
+
+    /** Deckmaterial nach Höhe (inkl. verwackelter Fels-/Schneegrenze) — von generate() UND LOD genutzt. */
+    private int surfaceTop(int wx, int wz, int height) {
+        int snowLine = SNOW_LINE;
+        int stoneLine = STONE_LINE;
+        if (height >= STONE_LINE - (int) LINE_DITHER) {
+            float dither = this.plainsNoise.GetNoise(wx * 7.3F, wz * 7.3F);
+            snowLine += (int) (dither * LINE_DITHER);
+            stoneLine += (int) (dither * LINE_DITHER);
+        }
+
+        if (height < SEA_LEVEL) {
+            /* Unterwasser-Boden: Sand in Ufernaehe, Kies in der Tiefe */
+            return (height >= SEA_LEVEL - 4) ? Blocks.SAND : Blocks.GRAVEL;
+        } else if (height <= SEA_LEVEL + 2) {
+            /* Strand-Band rund um den Meeresspiegel */
+            return Blocks.SAND;
+        } else if (height >= snowLine) {
+            return Blocks.SNOW;
+        } else if (height >= stoneLine) {
+            return Blocks.STONE;
+        }
+        return Blocks.GRASS_BLOCK;
+    }
+
+    /** Füllmaterial unter dem Deckblock (3 Schichten, s. generate). */
+    private static int fillerFor(int top) {
+        if (top == Blocks.GRASS_BLOCK) return Blocks.DIRT;
+        if (top == Blocks.SNOW) return Blocks.STONE;
+        return top;
+    }
+
     @Override
     public void generate(Chunk chunk) {
         int baseX = chunk.chunkX << ChunkSection.SHIFT;
@@ -82,36 +125,9 @@ public class MountainWorldGeneratorV1 extends WorldGenerator {
 
                 int height = this.sampleHeight(wx, wz);
 
-                /* Hoehenlinien verwackeln, damit Fels-/Schneegrenze nicht schnurgerade verlaeuft */
-                int snowLine = SNOW_LINE;
-                int stoneLine = STONE_LINE;
-                if (height >= STONE_LINE - (int) LINE_DITHER) {
-                    float dither = this.plainsNoise.GetNoise(wx * 7.3F, wz * 7.3F);
-                    snowLine += (int) (dither * LINE_DITHER);
-                    stoneLine += (int) (dither * LINE_DITHER);
-                }
-
-                /* Oberflaechenmaterial nach Hoehe bestimmen */
-                int top;
-                int filler;
-                if (height < SEA_LEVEL) {
-                    /* Unterwasser-Boden: Sand in Ufernaehe, Kies in der Tiefe */
-                    top = filler = (height >= SEA_LEVEL - 4) ? Blocks.SAND : Blocks.GRAVEL;
-                } else if (height <= SEA_LEVEL + 2) {
-                    /* Strand-Band rund um den Meeresspiegel */
-                    top = filler = Blocks.SAND;
-                } else if (height >= snowLine) {
-                    /* Schneekappe */
-                    top = Blocks.SNOW;
-                    filler = Blocks.STONE;
-                } else if (height >= stoneLine) {
-                    /* Felsiger Berg */
-                    top = filler = Blocks.STONE;
-                } else {
-                    /* Ebene / Huegel */
-                    top = Blocks.GRASS_BLOCK;
-                    filler = Blocks.DIRT;
-                }
+                /* Oberflaechenmaterial nach Hoehe (geteilte Logik mit dem LOD-Sample) */
+                int top = this.surfaceTop(wx, wz, height);
+                int filler = fillerFor(top);
 
                 for (int y = 0; y <= height; y++) {
                     int block;
