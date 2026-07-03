@@ -26,6 +26,7 @@ import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
+import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.gui.ChestScreen;
@@ -601,13 +602,19 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("LOD: " + (this.settings.lodEnabled ? "an" : "aus"));
             changed = true;
         }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_P)) {
+            /* Debug: Chunk-Loading einfrieren, um in LOD-Gebiete zu fliegen (nicht persistiert) */
+            ChunkManager chunkManager = this.world.getChunkManager();
+            chunkManager.setLoadingPaused(!chunkManager.isLoadingPaused());
+            this.logger.debug("Chunk-Loading " + (chunkManager.isLoadingPaused() ? "pausiert" : "fortgesetzt"));
+        }
         if (changed) this.settings.save();
     }
 
     /** Sichtweite der Projektion: mit LOD hinter den äußersten Ring gelegt, sonst wie bisher 1500. */
     private float computeFarPlane() {
         if (!this.settings.lodEnabled) return 1500.0F;
-        return (this.settings.lodDistance + 8) * 32.0F;
+        return (this.settings.lodRings[this.settings.lodRings.length - 1] + 8) * 32.0F;
     }
 
     /** Holt eine angeforderte Screenshot-Aufnahme ab und setzt das Flag zurück. */

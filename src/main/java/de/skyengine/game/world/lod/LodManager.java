@@ -2,15 +2,13 @@ package de.skyengine.game.world.lod;
 
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.entity.EntityPlayer;
-import de.skyengine.game.world.block.Blocks;
-import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
-import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -20,13 +18,16 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * Verwaltet die Heightmap-LOD-Ringe um den Spieler (Clipmap-Prinzip): exponentielle Ringe
- * jenseits der Render-Distanz, Level L (Zellgröße 2^L Blöcke) deckt die Chunk-Distanz
- * rd·2^(L-1)..rd·2^L, gedeckelt bei {@code lodDistance}. L0 = echte Chunks (unverändert).
+ * Verwaltet die blockbasierten Heightmap-LOD-Ringe um den Spieler (Clipmap-Prinzip):
+ * L0 = echte Chunks bis renderDistance, darüber Ringe mit äußeren Grenzen aus
+ * {@code GameSettings.lodRings} (Level L → Zellgröße 2^L Blöcke, siehe {@link LodConfig}).
  *
- * <p>Tick-getrieben aus {@code World.update()} (Tick und Render laufen auf demselben Thread);
- * Mesh-Jobs laufen mit niedrigster Priorität auf den bestehenden Chunk-Workern und liefern
- * über eine Queue an den {@code ChunkRenderer}, der die Meshes in der OPAQUE-Arena hält.
+ * <p>Datenquelle ist ausschließlich die abstrahierte {@link LodDataSource} (heute die pure
+ * Generator-Funktion) — nie Chunk-Daten; LOD kann Spieleränderungen daher weder überschreiben
+ * noch verzögern. Tick-getrieben aus {@code World.update()} (Tick und Render laufen auf
+ * demselben Thread); Mesh-Jobs laufen mit niedrigster Priorität (unter Spieler-Remeshes und
+ * Chunk-Load) auf den bestehenden Chunk-Workern und liefern über eine Queue an den
+ * {@code ChunkRenderer}, der die Meshes in der OPAQUE-Arena hält.
  */
 public class LodManager {
 
@@ -39,17 +40,17 @@ public class LodManager {
 
     private record Candidate(long key, int level, double distSq) {}
 
-    /* Deckelt die Executor-Queue — Jobs sind billig (nur Noise-Samples), aber nah-zuerst. */
+    /* Deckelt die Executor-Queue — Jobs sind billig (nur Source-Samples), aber nah-zuerst. */
     private static final int MAX_SUBMITS_PER_TICK = 32;
-
-    /* Zellgröße max. 2^7 = 128 = ganze Region (eine Zelle pro Region) */
-    private static final int MAX_LEVEL = 7;
 
     private final Logger logger = LogManager.getLogger(LodManager.class.getName());
 
-    private final WorldGenerator generator;
+    private final LodDataSource source;
+    private final LodBlockAppearance appearance;
     private final ChunkManager chunkManager;
-    private final int grassTopLayer;
+
+    /* Eine Mesher-Instanz pro Worker-Thread (wiederverwendete Puffer, wie ChunkMesher) */
+    private final ThreadLocal<LodMesher> meshers = ThreadLocal.withInitial(LodMesher::new);
 
     /* Soll-Zustand: regionKey -> Level. Nur auf dem Tick-/Render-Thread. */
     private final Map<Long, Integer> desired = new HashMap<>();
@@ -60,12 +61,16 @@ public class LodManager {
     /* Worker -> Render-Thread */
     private final ConcurrentLinkedQueue<LodMeshResult> results = new ConcurrentLinkedQueue<>();
 
-    /* Settings-Epoche: rd-/lodDistance-/Toggle-Änderung entwertet alle gebauten Meshes */
+    /* Settings-Epoche: Ring-/rd-/Toggle-Änderung entwertet alle gebauten Meshes */
     private int epoch = 0;
+
+    /* Ring-Konfiguration der aktuellen Epoche — wird den Mesh-Jobs mitgegeben */
+    private LodConfig config = new LodConfig(16, new int[]{32, 64, 128});
 
     /* Zustand der letzten Desired-Berechnung */
     private int lastRegionX = Integer.MIN_VALUE, lastRegionZ;
-    private int lastRenderDistance = -1, lastLodDistance = -1;
+    private int lastRenderDistance = -1;
+    private int[] lastRings = null;
     private boolean lastEnabled = true;
 
     /* Spielerposition der letzten Desired-Berechnung — Basis der Level-Zuordnung */
@@ -73,32 +78,10 @@ public class LodManager {
     /* Spieler-Chunk (aktuell) — Mittelpunkt des Clip-Kreises für neue Mesh-Jobs */
     private int pcx, pcz;
 
-    private int renderDistance = 16;
-
-    public LodManager(WorldGenerator generator, ChunkManager chunkManager) {
-        this.generator = generator;
+    public LodManager(LodDataSource source, LodBlockAppearance appearance, ChunkManager chunkManager) {
+        this.source = source;
+        this.appearance = appearance;
         this.chunkManager = chunkManager;
-
-        /* Top-Layer des Grasblocks aus dem real gebackenen Modell auflösen — nie raten! */
-        int layer = 0;
-        for (BakedQuad quad : Blocks.getState(Blocks.GRASS_BLOCK).getModel()) {
-            if (quad.cullFace() == 0) {
-                layer = quad.textureLayer();
-                break;
-            }
-        }
-        this.grassTopLayer = layer;
-    }
-
-    /** LOD-Level (1..MAX_LEVEL) für eine Distanz in Blöcken: Ring L endet bei rd·2^L Chunks. */
-    public static int levelAt(double distBlocks, int renderDistance) {
-        int level = 1;
-        double outer = renderDistance * 64.0; // rd·2 Chunks in Blöcken = äußere Kante von Ring 1
-        while (distBlocks >= outer && level < MAX_LEVEL) {
-            level++;
-            outer *= 2;
-        }
-        return level;
     }
 
     public static long key(int rx, int rz) {
@@ -107,10 +90,15 @@ public class LodManager {
 
     /** Einmal pro Tick, nach {@code chunkManager.update()}. */
     public void update(EntityPlayer player) {
+        /* Debug-Pause friert auch das LOD ein (Desired-Set + Clip-Kreis bleiben stehen,
+           fertige Ergebnisse lädt der Renderer weiter hoch) — so lässt sich in LOD-Gebiete
+           fliegen, ohne dass das Clip-Loch mitwandert. */
+        if (this.chunkManager.isLoadingPaused()) return;
+
         GameSettings settings = GameSettings.get();
         boolean enabled = settings.lodEnabled;
         int rd = settings.renderDistance;
-        int lodDistance = settings.lodDistance;
+        int[] rings = settings.lodRings;
 
         this.pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.pcz = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
@@ -118,48 +106,50 @@ public class LodManager {
         int prz = Math.floorDiv((int) Math.floor(player.z), LodMesher.REGION_BLOCKS);
 
         boolean settingsChanged = enabled != this.lastEnabled || rd != this.lastRenderDistance
-                || lodDistance != this.lastLodDistance;
-        if (settingsChanged) this.epoch++; // alle Meshes entwertet (Ringe/Clipping verschoben)
+                || !Arrays.equals(rings, this.lastRings);
+        if (settingsChanged) {
+            this.epoch++; // alle Meshes entwertet (Ringe/Clipping verschoben)
+            this.config = new LodConfig(rd, rings.clone());
+        }
 
         if (settingsChanged || prx != this.lastRegionX || prz != this.lastRegionZ) {
             this.px = player.x;
             this.pz = player.z;
-            this.renderDistance = rd;
-            this.recomputeDesired(enabled, rd, lodDistance);
+            this.recomputeDesired(enabled);
             this.lastRegionX = prx;
             this.lastRegionZ = prz;
             this.lastEnabled = enabled;
             this.lastRenderDistance = rd;
-            this.lastLodDistance = lodDistance;
+            this.lastRings = rings.clone();
         }
 
         if (!this.desired.isEmpty()) this.submitPass();
     }
 
-    /** Baut den Soll-Zustand neu: Annulus zwischen Clip-Radius und lodDistance, Level pro Region. */
-    private void recomputeDesired(boolean enabled, int rd, int lodDistance) {
+    /** Baut den Soll-Zustand neu: Annulus zwischen Clip-Radius und äußerstem Ring, Level pro Region. */
+    private void recomputeDesired(boolean enabled) {
         this.desired.clear();
         if (!enabled) {
             this.current.clear(); // Renderer räumt die Meshes ab (isDesiredKey == false)
             return;
         }
 
-        double lodOuter = lodDistance * 32.0;
-        double clip = LodMesher.clipRadius(rd);
+        double outer = this.config.outerRadiusBlocks();
+        double clip = this.config.clipRadius();
         int prx = Math.floorDiv((int) Math.floor(this.px), LodMesher.REGION_BLOCKS);
         int prz = Math.floorDiv((int) Math.floor(this.pz), LodMesher.REGION_BLOCKS);
-        int radius = (int) Math.ceil((lodOuter + LodMesher.HALF_DIAG) / LodMesher.REGION_BLOCKS);
+        int radius = (int) Math.ceil((outer + LodMesher.HALF_DIAG) / LodMesher.REGION_BLOCKS);
 
-        int[] counts = new int[MAX_LEVEL + 1];
+        int[] counts = new int[this.config.rings().length + 1];
         for (int dz = -radius; dz <= radius; dz++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 int rx = prx + dx, rz = prz + dz;
                 double cx = (rx + 0.5) * LodMesher.REGION_BLOCKS - this.px;
                 double cz = (rz + 0.5) * LodMesher.REGION_BLOCKS - this.pz;
                 double d = Math.sqrt(cx * cx + cz * cz);
-                if (d - LodMesher.HALF_DIAG >= lodOuter) continue;   // ganz außerhalb
-                if (d + LodMesher.HALF_DIAG <= clip) continue;       // ganz im echten Chunk-Bereich
-                int level = levelAt(d, rd);
+                if (d - LodMesher.HALF_DIAG >= outer) continue;   // ganz außerhalb
+                if (d + LodMesher.HALF_DIAG <= clip) continue;    // ganz im echten Chunk-Bereich
+                int level = this.config.levelAt(d);
                 this.desired.put(key(rx, rz), level);
                 counts[level]++;
             }
@@ -169,7 +159,7 @@ public class LodManager {
         this.current.keySet().removeIf(k -> !this.desired.containsKey(k));
 
         StringBuilder sb = new StringBuilder("LOD-Regionen: ");
-        for (int l = 1; l <= MAX_LEVEL; l++) {
+        for (int l = 1; l < counts.length; l++) {
             if (counts[l] > 0) sb.append("L").append(l).append("=").append(counts[l]).append(" ");
         }
         this.logger.debug(sb.append("(gesamt ").append(this.desired.size()).append(")").toString());
@@ -202,11 +192,12 @@ public class LodManager {
 
             int rx = (int) (cand.key >> 32), rz = (int) cand.key;
             int level = cand.level, jobEpoch = this.epoch;
-            int jobPcx = this.pcx, jobPcz = this.pcz, jobRd = this.renderDistance;
+            int jobPcx = this.pcx, jobPcz = this.pcz;
             double jobPx = this.px, jobPz = this.pz;
-            this.chunkManager.submitLodTask(() -> this.results.add(LodMesher.mesh(
-                    this.generator, level, rx, rz, jobEpoch, jobPcx, jobPcz, jobPx, jobPz,
-                    jobRd, this.grassTopLayer)));
+            LodConfig jobConfig = this.config;
+            this.chunkManager.submitLodTask(() -> this.results.add(this.meshers.get().mesh(
+                    this.source, this.appearance, jobConfig, level, rx, rz,
+                    jobEpoch, jobPcx, jobPcz, jobPx, jobPz)));
         }
     }
 
@@ -217,7 +208,7 @@ public class LodManager {
      */
     private boolean clipStale(Current c, long key) {
         if (c.pcx == this.pcx && c.pcz == this.pcz) return false;
-        double reach = LodMesher.clipRadius(this.renderDistance) + LodMesher.HALF_DIAG;
+        double reach = this.config.clipRadius() + LodMesher.HALF_DIAG;
         return this.regionNearChunk(key, c.pcx, c.pcz, reach)
                 || this.regionNearChunk(key, this.pcx, this.pcz, reach);
     }

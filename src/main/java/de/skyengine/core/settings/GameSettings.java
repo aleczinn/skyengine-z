@@ -42,7 +42,9 @@ public final class GameSettings {
     public int anisotropicFiltering = 16;
     /* Heightmap-LOD jenseits der Render-Distanz (Fernsicht) */
     public boolean lodEnabled = true;
-    public int lodDistance = 128;     // äußerer LOD-Ring in Chunks
+    /* Äußere LOD-Ringgrenzen in Chunks für L1..Ln (L0 = echte Chunks bis renderDistance).
+       Level L nutzt Zellgröße 2^L Blöcke; Default: L1 bis 32, L2 bis 64, L3 bis 128. */
+    public int[] lodRings = {32, 64, 128};
     public Map<String, Integer> keyBindings = KeyBindings.defaults();
 
     public static GameSettings get() {
@@ -92,13 +94,29 @@ public final class GameSettings {
         return k != null ? k : KeyBindings.defaults().getOrDefault(action, 0);
     }
 
+    /**
+     * LOD-Ringe absichern: max. 5 Level (Zellgröße 2^5 = 32 = UV-/Teiler-Grenze des
+     * Vertex-Formats), Werte 8..512 Chunks, streng aufsteigend — sonst Default.
+     */
+    private static int[] sanitizeLodRings(int[] rings) {
+        int[] fallback = {32, 64, 128};
+        if (rings == null || rings.length == 0 || rings.length > 5) return fallback;
+        int prev = 0;
+        for (int i = 0; i < rings.length; i++) {
+            rings[i] = Math.clamp(rings[i], 8, 512);
+            if (rings[i] <= prev) return fallback;
+            prev = rings[i];
+        }
+        return rings;
+    }
+
     private void sanitize() {
         this.guiScale = Math.clamp(this.guiScale, 1, 100);
         this.renderDistance = Math.clamp(this.renderDistance, 2, 32);
         this.simulationDistance = Math.clamp(this.simulationDistance, 2, 32);
         this.fov = Math.clamp(this.fov, 30, 120);
         this.anisotropicFiltering = Math.clamp(this.anisotropicFiltering, 1, 16);
-        this.lodDistance = Math.clamp(this.lodDistance, 32, 256);
+        this.lodRings = sanitizeLodRings(this.lodRings);
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.keyBindings == null) {

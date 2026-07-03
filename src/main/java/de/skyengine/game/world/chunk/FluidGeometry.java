@@ -24,8 +24,8 @@ import java.util.List;
  */
 public final class FluidGeometry {
 
-    /** Default-Wasserfarbe (gepackt 0xRRGGBB). Später positions-/biome-abhängig. */
-    private static final int WATER_TINT = 0x4076E6;
+    /** Default-Wasserfarbe (gepackt 0xRRGGBB). Später positions-/biome-abhängig. Auch vom LOD genutzt. */
+    public static final int WATER_TINT = 0x4076E6;
 
     private FluidGeometry() {}
 
