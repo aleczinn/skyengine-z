@@ -151,6 +151,10 @@ Logik in `behavior/FluidBehavior` (Scheduled-Tick-basiert), Parameter aus `Fluid
   Reichweite an der Lücke → **kein** Cobble (Vanilla-„Druck"-Regel). Beides ist Absicht — weder
   die Druck-Bedingung entfernen noch Reaktionen an bloße Nachbarschaft ohne Druck koppeln.
   Fluids fließen selbst nie in Misch-Zellen (Zellen, die ans Gegen-Fluid grenzen).
+- **Timing:** Kontakt-Konvertierung ist synchron (Nachbar-Update, wie MC `neighborChanged`),
+  aber die **Ausbreitung tickt immer im eigenen Takt** (`fluid_tick`: Wasser 5, Lava 30) — kein
+  beschleunigtes Ticken neben dem Gegen-Fluid einbauen, sonst rast z.B. Wasser über ein Lavafeld
+  und konvertiert alles instant statt sichtbar nacheinander.
 - Fluid-Verhalten ist **nur visuell** verifizierbar (Engine-Fenster nötig).
 
 ---
