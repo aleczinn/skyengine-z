@@ -142,12 +142,15 @@ Logik in `behavior/FluidBehavior` (Scheduled-Tick-basiert), Parameter aus `Fluid
   schwächer; pro horizontalem Block kommt `dropOff` dazu, `LEVEL > spread` trocknet aus.
   `FALLING = true` = fallende Säule (zählt effektiv als Level 0). Wasser: dropOff 1 → 7 Blöcke
   Reichweite; Lava: dropOff 2 → 3 Blöcke.
-- **Wasser+Lava reagiert NUR bei echtem Kontakt** (ein Fluid breitet sich in die Nachbarzelle aus
-  bzw. Nachbar-Update): Lavaquelle→Obsidian, fließende Lava→Cobblestone, Lava fließt/fällt in
-  Wasser→Stein. Es gibt bewusst **keine** Adjazenz-über-Lücke-Regel: Enden beide Fluids mit
-  maximaler Reichweite und einer Luftzelle dazwischen, kann sich keines mehr ausbreiten → **kein**
-  Cobble (Vanilla-„Druck"-Regel). Das ist Absicht — nicht „reparieren", indem man Reaktionen an
-  bloße Nachbarschaft koppelt.
+- **Wasser+Lava-Reaktion:** Bei direktem Kontakt (Nachbar-Update) Lavaquelle→Obsidian, fließende
+  Lava→Cobblestone, Lava fließt/fällt in Wasser→Stein. Zusätzlich die **Hohlraum-Regel mit
+  Druck-Bedingung**: Eine Luftzelle horizontal zwischen Wasser und Lava wird (im Lava-Takt) zu
+  Cobblestone, aber **nur**, wenn mindestens eines der beiden Fluids sie reichweitenmäßig noch
+  erreichen könnte (`effLevel + dropOff <= spread`, „Druck") — unabhängig davon, wohin die
+  Gefälle-Suche (minSlope) den Fluss real umlenkt. Enden **beide** Fluids mit maximaler
+  Reichweite an der Lücke → **kein** Cobble (Vanilla-„Druck"-Regel). Beides ist Absicht — weder
+  die Druck-Bedingung entfernen noch Reaktionen an bloße Nachbarschaft ohne Druck koppeln.
+  Fluids fließen selbst nie in Misch-Zellen (Zellen, die ans Gegen-Fluid grenzen).
 - Fluid-Verhalten ist **nur visuell** verifizierbar (Engine-Fenster nötig).
 
 ---
