@@ -1,0 +1,179 @@
+package de.skyengine.graphics.world;
+
+import de.skyengine.game.world.chunk.ChunkMesher;
+import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL31;
+import org.lwjgl.opengl.GL44;
+
+import java.util.ArrayDeque;
+import java.util.Map;
+import java.util.TreeMap;
+
+/**
+ * Große, device-lokale Vertex-Arena für Section-Meshes eines RenderLayers.
+ * Sections mieten {@link Region}en (First-Fit-Free-List) statt eigener VBOs — dadurch kann
+ * der ChunkRenderer alle Sections eines Layers mit EINEM MultiDrawIndirect-Call zeichnen
+ * (baseVertex = {@link Region#vertexOffset()}).
+ *
+ * <p>Freigaben sind <b>deferred</b>: Die GPU kann eine Region noch aus den letzten Frames
+ * lesen, daher wandern freigegebene Regionen erst nach dem Fence-Signal des Frames zurück
+ * in die Free-List ({@link #free} taggt mit der aktuellen Frame-Nummer, {@link #collect}
+ * gibt alles bis zur zuletzt abgeschlossenen Frame-Nummer zurück). Nur Render-Thread.
+ */
+public final class VertexArena {
+
+    /** Bytes pro Vertex (gepacktes Format, siehe {@link ChunkMesher#VERTEX_SIZE}). */
+    private static final int VERTEX_BYTES = ChunkMesher.VERTEX_SIZE * Integer.BYTES;
+
+    /* Bewusst NICHT persistent gemappt: gemappte+kohärente Buffer landen im Host-RAM und
+       die GPU müsste die gesamte Geometrie jeden Frame über PCIe ziehen (gemessen: ~4x
+       FPS-Einbruch). glBufferSubData hält den Buffer device-local; implizite Syncs drohen
+       nicht, weil Regionen dank Deferred-Free nie beschrieben werden, solange sie in-flight sind. */
+    private static final int STORAGE_FLAGS = GL44.GL_DYNAMIC_STORAGE_BIT;
+
+    /** Ein gemieteter Bereich der Arena. Nach {@link #free} nicht mehr verwenden. */
+    public static final class Region {
+        private final long offset; // Bytes
+        private final long size;   // Bytes
+
+        private Region(long offset, long size) {
+            this.offset = offset;
+            this.size = size;
+        }
+
+        /** Vertex-Index des Region-Anfangs — direkt als baseVertex des Indirect-Commands nutzbar. */
+        public int vertexOffset() {
+            return (int) (this.offset / VERTEX_BYTES);
+        }
+    }
+
+    private record PendingFree(Region region, long frame) {}
+
+    private int buffer;
+    private long capacity;
+
+    /* Free-List: Offset -> Größe (Bytes), zusammenhängend koalesziert */
+    private final TreeMap<Long, Long> freeList = new TreeMap<>();
+    private final ArrayDeque<PendingFree> pendingFrees = new ArrayDeque<>();
+
+    private long usedBytes = 0;
+
+    public VertexArena(long initialCapacity) {
+        this.createBuffer(initialCapacity);
+        this.freeList.put(0L, initialCapacity);
+    }
+
+    /** GL-Buffer-Name — der Renderer bindet ihn als Vertex-Quelle im VAO (nach Wachstum neu!). */
+    public int getBuffer() {
+        return this.buffer;
+    }
+
+    public long getCapacity() {
+        return this.capacity;
+    }
+
+    public long getUsedBytes() {
+        return this.usedBytes;
+    }
+
+    /**
+     * Mietet eine Region und kopiert die Mesh-Daten hinein (memcpy in den gemappten Buffer).
+     * Wächst bei Bedarf (neuer Buffer -> Renderer muss {@link #getBuffer()} neu binden).
+     */
+    public Region alloc(int[] meshData) {
+        long size = (long) meshData.length * Integer.BYTES;
+
+        Long offset = this.findFirstFit(size);
+        if (offset == null) {
+            this.grow(Math.max(this.capacity + this.capacity / 2, this.capacity + size));
+            offset = this.findFirstFit(size);
+        }
+
+        long blockSize = this.freeList.remove(offset);
+        if (blockSize > size) {
+            this.freeList.put(offset + size, blockSize - size);
+        }
+        this.usedBytes += size;
+
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.buffer);
+        GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, offset, meshData);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
+        return new Region(offset, size);
+    }
+
+    /**
+     * Gibt eine Region frei — deferred: erst wenn der Frame {@code currentFrame} von der GPU
+     * abgeschlossen wurde ({@link #collect}), landet sie wieder in der Free-List.
+     */
+    public void free(Region region, long currentFrame) {
+        if (region == null) return;
+        this.pendingFrees.addLast(new PendingFree(region, currentFrame));
+    }
+
+    /** Übernimmt alle Deferred-Frees bis einschließlich {@code completedFrame} in die Free-List. */
+    public void collect(long completedFrame) {
+        while (!this.pendingFrees.isEmpty() && this.pendingFrees.peekFirst().frame <= completedFrame) {
+            Region region = this.pendingFrees.removeFirst().region;
+            this.usedBytes -= region.size;
+            this.insertCoalescing(region.offset, region.size);
+        }
+    }
+
+    private Long findFirstFit(long size) {
+        for (Map.Entry<Long, Long> entry : this.freeList.entrySet()) {
+            if (entry.getValue() >= size) return entry.getKey();
+        }
+        return null;
+    }
+
+    /** Fügt einen freien Bereich ein und verschmilzt ihn mit direkten Nachbarn. */
+    private void insertCoalescing(long offset, long size) {
+        Map.Entry<Long, Long> prev = this.freeList.floorEntry(offset);
+        if (prev != null && prev.getKey() + prev.getValue() == offset) {
+            offset = prev.getKey();
+            size += prev.getValue();
+            this.freeList.remove(prev.getKey());
+        }
+        Long nextSize = this.freeList.get(offset + size);
+        if (nextSize != null) {
+            this.freeList.remove(offset + size);
+            size += nextSize;
+        }
+        this.freeList.put(offset, size);
+    }
+
+    /**
+     * Vergrößert die Arena: neuer Buffer, GPU-seitige Kopie des alten Inhalts, alter Buffer
+     * wird gelöscht (GL hält ihn am Leben, bis ausstehende Commands durch sind). Regionen
+     * behalten ihre Offsets — nur die Buffer-Bindung im VAO muss erneuert werden.
+     */
+    private void grow(long newCapacity) {
+        int oldBuffer = this.buffer;
+        long oldCapacity = this.capacity;
+
+        this.createBuffer(newCapacity);
+
+        GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, oldBuffer);
+        GL15.glBindBuffer(GL31.GL_COPY_WRITE_BUFFER, this.buffer);
+        GL31.glCopyBufferSubData(GL31.GL_COPY_READ_BUFFER, GL31.GL_COPY_WRITE_BUFFER, 0, 0, oldCapacity);
+        GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, 0);
+        GL15.glBindBuffer(GL31.GL_COPY_WRITE_BUFFER, 0);
+        GL15.glDeleteBuffers(oldBuffer);
+
+        this.insertCoalescing(oldCapacity, newCapacity - oldCapacity);
+    }
+
+    private void createBuffer(long size) {
+        this.buffer = GL15.glGenBuffers();
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.buffer);
+        GL44.glBufferStorage(GL15.GL_ARRAY_BUFFER, size, STORAGE_FLAGS);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
+        this.capacity = size;
+    }
+
+    public void dispose() {
+        GL15.glDeleteBuffers(this.buffer);
+        this.freeList.clear();
+        this.pendingFrees.clear();
+    }
+}

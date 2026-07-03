@@ -4,22 +4,24 @@ import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.ChunkSection;
 import org.joml.Vector3d;
-import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL15;
-import org.lwjgl.opengl.GL20;
-import org.lwjgl.opengl.GL30;
 
 import java.util.Arrays;
 
+/**
+ * Section-Mesh als Mieter der {@link VertexArena}: hält pro RenderLayer nur noch eine
+ * Arena-Region + Quad-Anzahl — keine eigenen VAOs/VBOs. Gezeichnet wird zentral im
+ * {@link ChunkRenderer} über MultiDrawIndirect (baseVertex = Region-Offset).
+ */
 public class SectionMesh {
 
     public final int chunkX, sectionY, chunkZ;
 
-    /* Index = RenderLayer.ordinal(), null wenn der Layer leer ist */
-    private final LayerMesh[] layers = new LayerMesh[RenderLayer.VALUES.length];
-
     /** Ints pro Quad: 4 Vertices à VERTEX_SIZE (gepacktes Format, siehe ChunkMesher). */
     private static final int QUAD_INTS = 4 * ChunkMesher.VERTEX_SIZE;
+
+    /* Index = RenderLayer.ordinal(); Region null = Layer leer */
+    private final VertexArena.Region[] regions = new VertexArena.Region[RenderLayer.VALUES.length];
+    private final int[] quadCounts = new int[RenderLayer.VALUES.length];
 
     /* CPU-Kopie des Translucent-Layers für die Per-Quad-Sortierung (null ohne Translucent-Inhalt).
        Referenz auf das Mesher-Array — wird nach dem Upload sonst nirgends mehr benutzt. */
@@ -32,25 +34,42 @@ public class SectionMesh {
     private static long[] sortKeys = new long[1024];
     private static int[] sortScratch = new int[1024 * QUAD_INTS];
 
-    public SectionMesh(int chunkX, int sectionY, int chunkZ, ChunkMesher.MeshData data) {
+    /** Alloziert die Regionen aller nicht-leeren Layer. Render-Thread. */
+    public SectionMesh(int chunkX, int sectionY, int chunkZ, ChunkMesher.MeshData data, VertexArena[] arenas) {
         this.chunkX = chunkX;
         this.sectionY = sectionY;
         this.chunkZ = chunkZ;
         this.translucentData = data.translucent;
 
-        if (data.opaque != null) this.layers[RenderLayer.OPAQUE.ordinal()] = new LayerMesh(data.opaque, GL15.GL_STATIC_DRAW);
-        if (data.cutout != null) this.layers[RenderLayer.CUTOUT.ordinal()] = new LayerMesh(data.cutout, GL15.GL_STATIC_DRAW);
-        /* Translucent wird beim Quad-Sort wiederholt neu hochgeladen */
-        if (data.translucent != null) this.layers[RenderLayer.TRANSLUCENT.ordinal()] = new LayerMesh(data.translucent, GL15.GL_DYNAMIC_DRAW);
+        this.upload(RenderLayer.OPAQUE, data.opaque, arenas);
+        this.upload(RenderLayer.CUTOUT, data.cutout, arenas);
+        this.upload(RenderLayer.TRANSLUCENT, data.translucent, arenas);
+    }
+
+    private void upload(RenderLayer layer, int[] data, VertexArena[] arenas) {
+        if (data == null) return;
+        int i = layer.ordinal();
+        this.regions[i] = arenas[i].alloc(data);
+        this.quadCounts[i] = data.length / QUAD_INTS;
     }
 
     public boolean hasLayer(RenderLayer layer) {
-        return this.layers[layer.ordinal()] != null;
+        return this.regions[layer.ordinal()] != null;
     }
 
-    public void render(RenderLayer layer) {
-        LayerMesh mesh = this.layers[layer.ordinal()];
-        if (mesh != null) mesh.render();
+    /** baseVertex für den Indirect-Command dieses Layers. Nur bei hasLayer aufrufen. */
+    public int baseVertex(RenderLayer layer) {
+        return this.regions[layer.ordinal()].vertexOffset();
+    }
+
+    /** Index-Anzahl für den Indirect-Command dieses Layers (Quads · 6). */
+    public int indexCount(RenderLayer layer) {
+        return this.quadCounts[layer.ordinal()] * 6;
+    }
+
+    /** Größte Quad-Anzahl aller Layer — fürs Sizing des geteilten Index-Buffers. */
+    public int maxQuads() {
+        return Math.max(this.quadCounts[0], Math.max(this.quadCounts[1], this.quadCounts[2]));
     }
 
     /** Entpackt eine Fixed-Point-Positions-Komponente (u16, 8.8, Bias +1). */
@@ -59,13 +78,15 @@ public class SectionMesh {
     }
 
     /**
-     * Sortiert die Translucent-Quads back-to-front zur Kamera und lädt den VBO neu hoch
-     * (Vanilla-Stil, gegen falsche Blend-Reihenfolge innerhalb einer Section). Sortiert nur,
-     * wenn die Kamera seit dem letzten Sort mehr als 1 Block bewegt wurde. Render-Thread only.
+     * Sortiert die Translucent-Quads back-to-front zur Kamera (Vanilla-Stil, gegen falsche
+     * Blend-Reihenfolge innerhalb einer Section). Die sortierten Daten wandern in eine NEUE
+     * Arena-Region (alte wird deferred freigegeben) — in-place schreiben wäre ein Sync-Hazard,
+     * weil die GPU die alte Region noch aus Vorframes lesen kann. Sortiert nur, wenn die
+     * Kamera seit dem letzten Sort mehr als 1 Block bewegt wurde. Render-Thread only.
      *
      * @return true, wenn tatsächlich neu sortiert wurde (fürs Frame-Budget im ChunkRenderer)
      */
-    public boolean sortTranslucent(Vector3d cam) {
+    public boolean sortTranslucent(Vector3d cam, VertexArena arena, long currentFrame) {
         int[] data = this.translucentData;
         if (data == null) return false;
 
@@ -105,98 +126,27 @@ public class SectionMesh {
         }
         Arrays.sort(sortKeys, 0, quads);
 
-        /* Fern -> nah in den Scratch, zurückkopieren (data behält exakte Länge für
-           glBufferSubData) und den VBO aktualisieren. */
+        /* Fern -> nah in den Scratch, zurückkopieren und in eine frische Region hochladen. */
         int out = 0;
         for (int i = quads - 1; i >= 0; i--) {
             System.arraycopy(data, (int) sortKeys[i] * QUAD_INTS, sortScratch, out, QUAD_INTS);
             out += QUAD_INTS;
         }
         System.arraycopy(sortScratch, 0, data, 0, data.length);
-        this.layers[RenderLayer.TRANSLUCENT.ordinal()].updateData(data);
+
+        int layer = RenderLayer.TRANSLUCENT.ordinal();
+        arena.free(this.regions[layer], currentFrame);
+        this.regions[layer] = arena.alloc(data);
         return true;
     }
 
-    public void dispose() {
-        for (LayerMesh mesh : this.layers) {
-            if (mesh != null) mesh.dispose();
-        }
-    }
-
-    /* ------------------------------------------------------------------ */
-
-    /**
-     * Geteilter Quad-Index-Buffer (0,1,2, 2,3,0 je Quad) für ALLE Section-Meshes.
-     * Wächst bei Bedarf; der alte Buffer wird gelöscht — GL hält ihn am Leben, solange
-     * ihn noch ein bestehendes VAO referenziert (bereits gebaute Meshes bleiben gültig).
-     * Nur Render-Thread.
-     */
-    private static int sharedIndexBuffer = 0;
-    private static int sharedIndexCapacity = 0; // in Quads
-
-    private static int indexBufferFor(int quads) {
-        if (quads > sharedIndexCapacity || sharedIndexBuffer == 0) {
-            int newCapacity = Math.max(32768, Integer.highestOneBit(quads - 1) << 1);
-            int[] indices = new int[newCapacity * 6];
-            for (int q = 0, i = 0; q < newCapacity; q++) {
-                int v = q * 4;
-                indices[i++] = v;
-                indices[i++] = v + 1;
-                indices[i++] = v + 2;
-                indices[i++] = v + 2;
-                indices[i++] = v + 3;
-                indices[i++] = v;
+    /** Gibt alle Regionen deferred frei. */
+    public void dispose(VertexArena[] arenas, long currentFrame) {
+        for (int i = 0; i < this.regions.length; i++) {
+            if (this.regions[i] != null) {
+                arenas[i].free(this.regions[i], currentFrame);
+                this.regions[i] = null;
             }
-            if (sharedIndexBuffer != 0) GL15.glDeleteBuffers(sharedIndexBuffer);
-            sharedIndexBuffer = GL15.glGenBuffers();
-            GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, sharedIndexBuffer);
-            GL15.glBufferData(GL15.GL_ELEMENT_ARRAY_BUFFER, indices, GL15.GL_STATIC_DRAW);
-            GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0);
-            sharedIndexCapacity = newCapacity;
-        }
-        return sharedIndexBuffer;
-    }
-
-    private static final class LayerMesh {
-        private final int vao, vbo;
-        private final int indexCount;
-
-        LayerMesh(int[] data, int usage) {
-            int quads = data.length / QUAD_INTS;
-            this.indexCount = quads * 6;
-
-            this.vao = GL30.glGenVertexArrays();
-            this.vbo = GL15.glGenBuffers();
-
-            GL30.glBindVertexArray(this.vao);
-            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
-            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, data, usage);
-
-            /* Ein einziges uvec4-Attribut, entpackt im Vertex-Shader */
-            int stride = ChunkMesher.VERTEX_SIZE * Integer.BYTES;
-            GL30.glVertexAttribIPointer(0, 4, GL11.GL_UNSIGNED_INT, stride, 0);
-            GL20.glEnableVertexAttribArray(0);
-
-            /* EBO-Bindung wird im VAO gespeichert */
-            GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, indexBufferFor(quads));
-
-            GL30.glBindVertexArray(0);
-        }
-
-        void render() {
-            GL30.glBindVertexArray(this.vao);
-            GL11.glDrawElements(GL11.GL_TRIANGLES, this.indexCount, GL11.GL_UNSIGNED_INT, 0L);
-        }
-
-        /** Ersetzt den VBO-Inhalt (gleiche Größe wie beim Erzeugen). Render-Thread. */
-        void updateData(int[] data) {
-            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
-            GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, data);
-        }
-
-        void dispose() {
-            GL30.glDeleteVertexArrays(this.vao);
-            GL15.glDeleteBuffers(this.vbo);
         }
     }
 }
