@@ -17,14 +17,22 @@ public class WorldGenerator {
         this.noise.SetFrequency(0.004F);
     }
 
+    /**
+     * Terrainhöhe (y des obersten Blocks) an Weltkoordinaten — pure Funktion ohne
+     * Chunk-Abhängigkeit. Threadsicher (Noise wird nur gelesen); Basis fürs LOD-System.
+     */
+    public int sampleHeight(int x, int z) {
+        float n = this.noise.GetNoise(x, z);
+        return 80 + (int) (n * 40);
+    }
+
     public void generate(Chunk chunk) {
         int baseX = chunk.chunkX << ChunkSection.SHIFT;
         int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
 
         for (int x = 0; x < ChunkSection.SIZE; x++) {
             for (int z = 0; z < ChunkSection.SIZE; z++) {
-                float n = this.noise.GetNoise(baseX + x, baseZ + z);
-                int height = 80 + (int) (n * 40);
+                int height = this.sampleHeight(baseX + x, baseZ + z);
 
                 for (int y = 0; y <= height; y++) {
                     int block;

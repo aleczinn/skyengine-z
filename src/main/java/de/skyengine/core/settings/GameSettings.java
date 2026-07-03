@@ -40,6 +40,9 @@ public final class GameSettings {
     public volatile boolean ambientOcclusion = true;
     /* Anisotropes Filtern (1 = aus .. 16), wird beim Erzeugen des TextureArrays angewandt */
     public int anisotropicFiltering = 16;
+    /* Heightmap-LOD jenseits der Render-Distanz (Fernsicht) */
+    public boolean lodEnabled = true;
+    public int lodDistance = 128;     // äußerer LOD-Ring in Chunks
     public Map<String, Integer> keyBindings = KeyBindings.defaults();
 
     public static GameSettings get() {
@@ -95,6 +98,7 @@ public final class GameSettings {
         this.simulationDistance = Math.clamp(this.simulationDistance, 2, 32);
         this.fov = Math.clamp(this.fov, 30, 120);
         this.anisotropicFiltering = Math.clamp(this.anisotropicFiltering, 1, 16);
+        this.lodDistance = Math.clamp(this.lodDistance, 32, 256);
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.keyBindings == null) {
