@@ -18,15 +18,15 @@ public class FallingBlockEntity extends Entity {
     private static final double DRAG_Y = 0.98;
 
     /** Der fallende State (als gebackene Runtime-ID). */
-    private final short blockId;
+    private final int blockId;
 
-    public FallingBlockEntity(short blockId) {
+    public FallingBlockEntity(int blockId) {
         this.blockId = blockId;
         /* Knapp unter 1, damit die Box sauber in eine Zelle rastet (kein Klemmen an Nachbarn). */
         this.setSize(0.98F, 0.98F);
     }
 
-    public short getBlockId() {
+    public int getBlockId() {
         return this.blockId;
     }
 
@@ -48,9 +48,9 @@ public class FallingBlockEntity extends Entity {
             int by = (int) Math.floor(this.y);
             int bz = (int) Math.floor(this.z);
 
-            /* Zielzelle frei -> wieder Block werden; sonst (z.B. dort steht inzwischen etwas)
-               als Item droppen, damit der Block nicht verloren geht. */
-            if (world.getBlock(bx, by, bz) == Blocks.AIR) {
+            /* Zielzelle frei oder Fluid -> wieder Block werden (verdrängt das Fluid wie in MC);
+               sonst (z.B. dort steht inzwischen etwas Festes) als Item droppen. */
+            if (Blocks.canFallInto(world.getBlock(bx, by, bz))) {
                 world.setBlock(bx, by, bz, this.blockId);
             } else {
                 this.dropAsItem(world, bx, by, bz);

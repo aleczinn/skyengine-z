@@ -34,7 +34,7 @@ public final class BlockStateModels {
     private static final Gson GSON = new Gson();
 
     private static final Map<String, JsonObject> STATES = new HashMap<>();
-    private static final Map<Short, ModelLoader.Baked> CACHE = new ConcurrentHashMap<>();
+    private static final Map<Integer, ModelLoader.Baked> CACHE = new ConcurrentHashMap<>();
     private static final ModelLoader.Baked EMPTY = new ModelLoader.Baked(new BakedQuad[0], new AABB[0]);
 
     public static void load(File dir) {

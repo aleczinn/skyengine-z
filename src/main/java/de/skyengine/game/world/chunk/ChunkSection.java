@@ -10,18 +10,18 @@ public class ChunkSection {
     public static final int VOLUME = SIZE * SIZE * SIZE;
 
     /* Lazily allocated - leere Sektionen (reine Luft) kosten nichts. Sonst paletten-
-       komprimiert: typische Chunks brauchen nur wenige Bit pro Block statt 16. */
+       komprimiert: typische Chunks brauchen nur wenige Bit pro Block statt der vollen ID-Breite. */
     private PalettedContainer container;
 
-    public short getBlock(int x, int y, int z) {
+    public int getBlock(int x, int y, int z) {
         if (this.container == null) return 0;
         return this.container.get((y << (SHIFT * 2)) | (z << SHIFT) | x);
     }
 
-    public void setBlock(int x, int y, int z, short block) {
+    public void setBlock(int x, int y, int z, int block) {
         if (this.container == null) {
             if (block == 0) return;
-            this.container = new PalettedContainer(VOLUME, (short) 0);
+            this.container = new PalettedContainer(VOLUME, 0);
         }
         this.container.set((y << (SHIFT * 2)) | (z << SHIFT) | x, block);
     }

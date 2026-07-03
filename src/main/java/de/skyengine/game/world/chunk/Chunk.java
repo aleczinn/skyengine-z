@@ -46,14 +46,14 @@ public class Chunk {
     /**
      * local coords: x/z 0-31, y 0-511
      */
-    public short getBlock(int x, int y, int z) {
+    public int getBlock(int x, int y, int z) {
         if (y < 0 || y >= HEIGHT) return 0;
         ChunkSection section = this.sections[y >> ChunkSection.SHIFT];
         if (section == null) return 0;
         return section.getBlock(x, y & ChunkSection.MASK, z);
     }
 
-    public void setBlock(int x, int y, int z, short block) {
+    public void setBlock(int x, int y, int z, int block) {
         if (y < 0 || y >= HEIGHT) return;
         int sectionIndex = y >> ChunkSection.SHIFT;
         ChunkSection section = this.sections[sectionIndex];

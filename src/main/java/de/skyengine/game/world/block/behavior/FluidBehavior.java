@@ -101,14 +101,14 @@ public final class FluidBehavior implements BlockBehavior {
                 int best = Integer.MAX_VALUE; // kleinster Levelwert (höchstes Fluid) unter den Stützen
                 for (Direction d : Direction.horizontal()) {
                     int nx = x + d.offsetX(), nz = z + d.offsetZ();
-                    short ns = world.getBlock(nx, y, nz);
+                    int ns = world.getBlock(nx, y, nz);
                     if (!isSameFluid(ns, fluid)) continue;
                     BlockState neighbor = Blocks.getState(ns);
                     if (neighbor.get(Properties.FALLING)) {
                         /* Eine fallende Säule stützt nur dort, wo sie auf festem Boden aufkommt
                            (Pfütze am Fuß) - mitten im freien Fall (Luft/Fluid darunter) nicht,
                            sonst würde der Wasserfall in der Luft breiter. */
-                        short nbelow = world.getBlock(nx, y - 1, nz);
+                        int nbelow = world.getBlock(nx, y - 1, nz);
                         if (canFluidReplace(nbelow) || isSameFluid(nbelow, fluid)) continue;
                         best = 0;
                     } else {
@@ -118,7 +118,7 @@ public final class FluidBehavior implements BlockBehavior {
 
                 /* Unendliche Wasserquelle: ≥2 horizontale Quell-Nachbarn UND kein Fall nach unten
                    möglich (Boden solid oder selbst eine Quelle) -> selbst Quelle. */
-                short srcBelow = world.getBlock(x, y - 1, z);
+                int srcBelow = world.getBlock(x, y - 1, z);
                 boolean noFall = Blocks.isSolid(srcBelow)
                         || (isSameFluid(srcBelow, fluid) && isSource(Blocks.getState(srcBelow)));
                 if (!info.lava && noFall && countSourceNeighbors(world, x, y, z, fluid) >= 2) {
@@ -146,7 +146,7 @@ public final class FluidBehavior implements BlockBehavior {
            (Luft/Pflanze/eigenes fließendes Fluid). Eine eigene QUELLE darunter zählt wie Boden:
            nur eine Quelle breitet sich darüber seitlich aus, fließendes Fluid ruht (Vanilla).
            Gegen-Fluid darunter zählt ebenfalls wie Boden (Wasser fließt über Lavaseen). */
-        short below = world.getBlock(x, y - 1, z);
+        int below = world.getBlock(x, y - 1, z);
         BlockState belowState = Blocks.getState(below);
         boolean belowSameFluid = isSameFluid(below, fluid);
         boolean belowSameSource = belowSameFluid && isSource(belowState);
@@ -186,7 +186,7 @@ public final class FluidBehavior implements BlockBehavior {
         for (int i = 0; i < dirs.length; i++) {
             Direction d = dirs[i];
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
-            short ns = world.getBlock(nx, y, nz);
+            int ns = world.getBlock(nx, y, nz);
             /* Eigenes fließendes Fluid zählt bei der Gefälle-Suche weiter mit (hält minSlope auf
                der etablierten Fließrichtung, sonst flutet die zweitbeste Richtung die Terrasse),
                wird aber nicht überschrieben. Quellen blockieren (Vanilla canPassThrough). */
@@ -205,7 +205,7 @@ public final class FluidBehavior implements BlockBehavior {
             if (!flow[i] || slope[i] != minSlope) continue;
             Direction d = dirs[i];
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
-            short target = world.getBlock(nx, y, nz); // erneut lesen: Nachbar-Updates können die Zelle geändert haben
+            int target = world.getBlock(nx, y, nz); // erneut lesen: Nachbar-Updates können die Zelle geändert haben
             if (!canFluidReplace(target)) continue;
             if (target != Blocks.AIR) dropBlockItem(world, nx, y, nz, Blocks.getState(target));
             world.setBlock(nx, y, nz, fluidState(fluid, spreadLevel, false));
@@ -230,7 +230,7 @@ public final class FluidBehavior implements BlockBehavior {
         for (Direction d : Direction.horizontal()) {
             if (d == cameFrom) continue;
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
-            short ns = world.getBlock(nx, y, nz);
+            int ns = world.getBlock(nx, y, nz);
             if (!canFluidReplace(ns) && !isSameFluid(ns, fluid)) continue; // nicht passierbar (Look-Through durch eigenes Fluid)
             if (canDescend(world, nx, y, nz)) return dist;                 // Loch gefunden
             if (dist >= maxDist) continue;
@@ -261,7 +261,7 @@ public final class FluidBehavior implements BlockBehavior {
     private static boolean waterAdjacent(World world, int x, int y, int z) {
         for (Direction d : Direction.values()) {
             if (d == Direction.DOWN) continue;
-            short ns = world.getBlock(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ());
+            int ns = world.getBlock(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ());
             if (isWater(Blocks.getState(ns))) return true;
         }
         return false;
@@ -292,7 +292,7 @@ public final class FluidBehavior implements BlockBehavior {
     private int countSourceNeighbors(World world, int x, int y, int z, Block fluid) {
         int count = 0;
         for (Direction d : Direction.horizontal()) {
-            short ns = world.getBlock(x + d.offsetX(), y, z + d.offsetZ());
+            int ns = world.getBlock(x + d.offsetX(), y, z + d.offsetZ());
             if (isSameFluid(ns, fluid) && isSource(Blocks.getState(ns))) count++;
         }
         return count;
@@ -303,7 +303,7 @@ public final class FluidBehavior implements BlockBehavior {
      * nicht-solide Blöcke ohne Kollisionsform (Cross-Pflanzen: Gras, Blumen, Farn). Andere Fluids
      * nie (Level-Logik/Reaktion), Blöcke mit Kollision (z.B. Türen, solid=false) ebenfalls nie.
      */
-    private static boolean canFluidReplace(short id) {
+    private static boolean canFluidReplace(int id) {
         if (id == Blocks.AIR) return true;
         BlockState s = Blocks.getState(id);
         return !s.isFluid() && !s.isSolid() && s.getCollisionShape().isEmpty();
@@ -315,7 +315,7 @@ public final class FluidBehavior implements BlockBehavior {
         if (item != null) world.spawnItem(x + 0.5, y + 0.5, z + 0.5, new ItemStack(item, 1));
     }
 
-    private static short fluidState(Block fluid, int level, boolean falling) {
+    private static int fluidState(Block fluid, int level, boolean falling) {
         return fluid.getDefaultState()
                 .with(Properties.LEVEL, level)
                 .with(Properties.FALLING, falling)
@@ -344,12 +344,12 @@ public final class FluidBehavior implements BlockBehavior {
 
         for (Direction d : Direction.horizontal()) {
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
-            short nid = world.getBlock(nx, y, nz);
+            int nid = world.getBlock(nx, y, nz);
             double diff = 0;
             if (isSameFluid(nid, fluid)) {
                 diff = own - FluidGeometry.fluidHeight(Blocks.getState(nid));
             } else if (!Blocks.getState(nid).isSolid()) {
-                short bid = world.getBlock(nx, y - 1, nz);
+                int bid = world.getBlock(nx, y - 1, nz);
                 if (isSameFluid(bid, fluid)) { // Abfall-Kante: zieht stark bergab
                     diff = own - (FluidGeometry.fluidHeight(Blocks.getState(bid)) - 8.0 / 9.0);
                 }
@@ -359,7 +359,7 @@ public final class FluidBehavior implements BlockBehavior {
         }
     }
 
-    private static boolean isSameFluid(short id, Block fluid) {
+    private static boolean isSameFluid(int id, Block fluid) {
         BlockState s = Blocks.getState(id);
         return s.isFluid() && s.getBlock() == fluid;
     }

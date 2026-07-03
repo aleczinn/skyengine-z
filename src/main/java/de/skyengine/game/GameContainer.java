@@ -399,7 +399,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         if (t == null) return false;
 
         Block fluid = bucket.getFluid();
-        short source = fluid.getDefaultState()
+        int source = fluid.getDefaultState()
                 .with(Properties.LEVEL, 0).with(Properties.FALLING, false).getId();
         this.world.setBlock(t[0], t[1], t[2], source);
         this.world.scheduleTick(t[0], t[1], t[2], 1);
@@ -422,7 +422,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private void fillStartInventory() {
         /* Hotbar (Slots 0-8): Test-Blöcke + die drei Eimer hinten, damit Wasser/Lava direkt
            testbar sind. Wasser hat kein Block-Item mehr (gehört in den Eimer). */
-        short[] start = {
+        int[] start = {
                 Blocks.OAK_PLANKS,
                 Blocks.GLASS,
                 Blocks.STONE_SLAB,
@@ -445,7 +445,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     }
 
     /** Legt 64 eines Blocks in einen Inventar-Slot (Block-Item über die Identifier-Registry). */
-    private void setBlock(int slot, short block) {
+    private void setBlock(int slot, int block) {
         Item item = Items.get(Blocks.getState(block).getBlock().getIdentifier());
         if (item != null) this.playerInventory.set(slot, new ItemStack(item, 64));
     }
@@ -456,7 +456,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     }
 
     /** Eine Zelle ist überbaubar, wenn sie leer ist oder ein Fluid enthält (Wasser/Lava). */
-    private boolean isReplaceable(short block) {
+    private boolean isReplaceable(int block) {
         return block == Blocks.AIR || Blocks.getState(block).isFluid();
     }
 
