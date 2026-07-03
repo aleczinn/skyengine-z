@@ -1,6 +1,7 @@
 {
   "guiScale": 50,
   "renderDistance": 16,
+  "simulationDistance": 10,
   "fov": 75,
   "vsync": false,
   "mouseSensitivity": 1.0,

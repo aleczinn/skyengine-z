@@ -43,7 +43,19 @@ public class ItemEntity extends Entity {
         this.age++;
         if (this.pickupDelay > 0) this.pickupDelay--;
 
-        this.motionY -= GRAVITY;
+        /* Strömung zieht das Item mit (Lava: nur Push - Items verbrennen bei uns nicht). */
+        this.applyFluidPush(world, false, WATER_PUSH);
+        this.applyFluidPush(world, true, LAVA_PUSH);
+
+        if (this.isInFluid(world, false)) {
+            /* Unter Wasser: keine Gravitation, sanfter Auftrieb (Vanilla setUnderwaterMovement);
+               die normale Reibung unten läuft zusätzlich (wie in Minecraft). */
+            this.motionX *= 0.99;
+            this.motionZ *= 0.99;
+            if (this.motionY < 0.06) this.motionY += 5.0E-4;
+        } else {
+            this.motionY -= GRAVITY;
+        }
         this.move(world, this.motionX, this.motionY, this.motionZ);
         this.motionY *= DRAG_Y;
 

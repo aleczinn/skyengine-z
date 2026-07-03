@@ -1,6 +1,7 @@
 package de.skyengine.game.world.item;
 
 import de.skyengine.game.world.block.Block;
+import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.registry.Registries;
 
@@ -14,11 +15,29 @@ public final class Items {
     public static void bootstrap() {
         for (Block block : Registries.BLOCK.values()) {
             if (block.isAir()) continue;
+            /* Fluids (Wasser/Lava) bekommen kein Block-Item — sie werden nur über Eimer gehandhabt. */
+            if (block.isFluid()) continue;
             Identifier id = block.getIdentifier();
             if (!Registries.ITEM.contains(id)) {
                 Registries.ITEM.register(id, new BlockItem(block));
             }
         }
+
+        /* Eimer sind eigenständige Items (keine Block-Items). Leer stapelt wie in MC bis 16. */
+        Block water = Registries.BLOCK.get(Identifier.of("skyengine:water"));
+        Block lava = Registries.BLOCK.get(Identifier.of("skyengine:lava"));
+        registerBucket("skyengine:bucket", null, "game/textures/item/bucket.png", 16);
+        registerBucket("skyengine:water_bucket", water, "game/textures/item/water_bucket.png", 1);
+        registerBucket("skyengine:lava_bucket", lava, "game/textures/item/lava_bucket.png", 1);
+    }
+
+    private static void registerBucket(String id, Block fluid, String texture, int maxStackSize) {
+        Identifier i = Identifier.of(id);
+        if (!Registries.ITEM.contains(i)) {
+            Registries.ITEM.register(i, new BucketItem(i, fluid, texture, maxStackSize));
+        }
+        /* Item-Textur in den Block-Atlas aufnehmen (vor dem TextureArray-Bau in ChunkRenderer.init). */
+        BlockTextures.layerOf(texture);
     }
 
     public static Item get(Identifier id) {

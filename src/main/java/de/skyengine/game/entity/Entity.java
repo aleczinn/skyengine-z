@@ -2,10 +2,20 @@ package de.skyengine.game.entity;
 
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.behavior.FluidBehavior;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.chunk.FluidGeometry;
 
 import java.util.List;
 
 public abstract class Entity {
+
+    /* --- Fluid-Strömung (Vanilla-Push, pro Tick auf die Motion addiert) --- */
+    protected static final double WATER_PUSH = 0.014;
+    protected static final double LAVA_PUSH = 0.0023;
+    /** Box vor Fluid-Sampling minimal schrumpfen (wie MC), gegen Zellkanten-Berührung. */
+    protected static final double FLUID_EPSILON = 0.001;
 
     /** Position = FUSSPUNKT der Entity (Mitte der Unterseite der BoundingBox) */
     public double x, y, z;
@@ -16,6 +26,8 @@ public abstract class Entity {
 
     public float yaw, pitch;
     public boolean onGround = false;
+    /** true, wenn der letzte {@link #move} horizontal an einem Hindernis geclippt wurde. */
+    public boolean horizontalCollision = false;
 
     /** Maximale Stufenhöhe, die automatisch hochgelaufen wird (0 = aus). */
     public double stepHeight = 0.0;
@@ -98,6 +110,7 @@ public abstract class Entity {
             this.y = this.boundingBox.minY;
             this.z = (this.boundingBox.minZ + this.boundingBox.maxZ) / 2.0;
             this.onGround = false;
+            this.horizontalCollision = false;
             return;
         }
 
@@ -133,6 +146,8 @@ public abstract class Entity {
         }
 
         this.onGround = stepped || (origDy != ny && origDy < 0);
+        /* Nach dem Auto-Step: ein vollständig erklommenes Hindernis zählt nicht als Kollision. */
+        this.horizontalCollision = nx != origDx || nz != origDz;
 
         /* Motion auf blockierten Achsen nullen (gegen Wand laufen, auf Boden landen) */
         if (origDx != nx) this.motionX = 0;
@@ -166,6 +181,110 @@ public abstract class Entity {
         this.boundingBox.move(0, 0, cdz);
 
         return new double[]{cdx, cdy, cdz};
+    }
+
+    /** true, wenn die Box ein Fluid (lava=true: Lava, sonst Wasser) tatsächlich überlappt. */
+    protected boolean isInFluid(World world, boolean lava) {
+        return this.fluidDepth(world, lava) > 0;
+    }
+
+    /**
+     * Eintauchtiefe der Box im Fluid (lava=true: Lava, sonst Wasser): maximales
+     * {@code Zell-Oberfläche − box.minY} über alle überlappten Fluid-Zellen, 0 wenn keine
+     * (Vanilla {@code getFluidHeight}). Steuert Schwimm-Weiche, Jump-Threshold und Push-Stärke.
+     *
+     * <p>Die Box wird vor dem Sampling um {@link #FLUID_EPSILON} geschrumpft (wie Minecraft), damit
+     * bloßes Berühren einer Zellkante an deren Minimal-Ecke nicht fälschlich als "im Fluid" zählt.
+     * Pro Fluid-Zelle wird zudem gegen die echte Oberkante ({@link FluidGeometry#fluidHeight})
+     * geprüft: eine Zelle zählt nur, wenn die Box unter die Fluid-Oberfläche reicht – Stehen knapp
+     * über der Oberfläche schwimmt also nicht mehr.
+     */
+    protected double fluidDepth(World world, boolean lava) {
+        double minX = this.boundingBox.minX + FLUID_EPSILON, maxX = this.boundingBox.maxX - FLUID_EPSILON;
+        double minY = this.boundingBox.minY + FLUID_EPSILON, maxY = this.boundingBox.maxY - FLUID_EPSILON;
+        double minZ = this.boundingBox.minZ + FLUID_EPSILON, maxZ = this.boundingBox.maxZ - FLUID_EPSILON;
+
+        int x0 = (int) Math.floor(minX), x1 = (int) Math.floor(maxX);
+        int y0 = (int) Math.floor(minY), y1 = (int) Math.floor(maxY);
+        int z0 = (int) Math.floor(minZ), z1 = (int) Math.floor(maxZ);
+
+        double depth = 0;
+        for (int y = y0; y <= y1; y++) {
+            for (int x = x0; x <= x1; x++) {
+                for (int z = z0; z <= z1; z++) {
+                    BlockState state = Blocks.getState(world.getBlock(x, y, z));
+                    if (!state.isFluid() || state.getBlock().getFluidInfo().lava != lava) continue;
+                    // Fluid füllt [y, y + Höhe]; Box ist im Fluid, wenn sie unter die Oberkante reicht.
+                    depth = Math.max(depth, y + FluidGeometry.fluidHeight(state) - minY);
+                }
+            }
+        }
+        return depth;
+    }
+
+    /**
+     * Strömungs-Push (Vanilla-Fluid-Pushing): mittelt die normierten Flow-Vektoren aller
+     * überlappten Fluid-Zellen des Typs und addiert sie mit {@code scale} auf die Motion.
+     * Wie in Vanilla wird jeder Zell-Vektor mit der Eintauchtiefe skaliert, solange diese
+     * unter 0.4 liegt (flaches Wasser schiebt schwach, quellnah volle Kraft), und nur bei
+     * Nicht-Spielern wird das Mittel wieder normiert — der Spieler spürt die Tiefe direkt.
+     * Ruhende Entities bekommen einen Mindest-Push (0.0045), damit sie in schwacher Strömung
+     * nicht festkleben. Vanillas FALLING-Sog entfällt.
+     */
+    protected void applyFluidPush(World world, boolean lava, double scale) {
+        double minX = this.boundingBox.minX + FLUID_EPSILON, maxX = this.boundingBox.maxX - FLUID_EPSILON;
+        double minY = this.boundingBox.minY + FLUID_EPSILON, maxY = this.boundingBox.maxY - FLUID_EPSILON;
+        double minZ = this.boundingBox.minZ + FLUID_EPSILON, maxZ = this.boundingBox.maxZ - FLUID_EPSILON;
+
+        int x0 = (int) Math.floor(minX), x1 = (int) Math.floor(maxX);
+        int y0 = (int) Math.floor(minY), y1 = (int) Math.floor(maxY);
+        int z0 = (int) Math.floor(minZ), z1 = (int) Math.floor(maxZ);
+
+        double sumX = 0, sumZ = 0;
+        double depth = 0; // laufendes Maximum der Eintauchtiefe (wie Vanilla)
+        int count = 0;
+        double[] flow = new double[2];
+        for (int y = y0; y <= y1; y++) {
+            for (int x = x0; x <= x1; x++) {
+                for (int z = z0; z <= z1; z++) {
+                    BlockState state = Blocks.getState(world.getBlock(x, y, z));
+                    if (!state.isFluid() || state.getBlock().getFluidInfo().lava != lava) continue;
+                    double surface = y + FluidGeometry.fluidHeight(state);
+                    if (surface < minY) continue; // unter der Box
+                    depth = Math.max(depth, surface - minY);
+                    count++; // auch Stillwasser-Zellen verdünnen das Mittel (wie Vanilla)
+                    FluidBehavior.flowVector(world, x, y, z, flow);
+                    double len = Math.sqrt(flow[0] * flow[0] + flow[1] * flow[1]);
+                    if (len < 1.0E-8) continue;
+                    double cellScale = depth < 0.4 ? depth / len : 1.0 / len;
+                    sumX += flow[0] * cellScale;
+                    sumZ += flow[1] * cellScale;
+                }
+            }
+        }
+
+        double len = Math.sqrt(sumX * sumX + sumZ * sumZ);
+        if (len < 1.0E-8) return;
+        sumX /= count;
+        sumZ /= count;
+        if (!(this instanceof EntityPlayer)) {
+            // Nicht-Spieler (Items): Richtung zählt, Stärke ist konstant (Vanilla)
+            len = Math.sqrt(sumX * sumX + sumZ * sumZ);
+            sumX /= len;
+            sumZ /= len;
+        }
+        double pushX = sumX * scale;
+        double pushZ = sumZ * scale;
+
+        /* Mindest-Push (Vanilla): quasi-ruhende Entities bekommen mindestens 0.0045,
+           sonst kämen sie in flacher/schwacher Strömung nie in Bewegung. */
+        double pushLen = Math.sqrt(pushX * pushX + pushZ * pushZ);
+        if (Math.abs(this.motionX) < 0.003 && Math.abs(this.motionZ) < 0.003 && pushLen < 0.0045) {
+            pushX = pushX / pushLen * 0.0045;
+            pushZ = pushZ / pushLen * 0.0045;
+        }
+        this.motionX += pushX;
+        this.motionZ += pushZ;
     }
 
     public AABB getBoundingBox() {

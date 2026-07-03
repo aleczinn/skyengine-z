@@ -37,6 +37,9 @@ public final class Blocks {
     public static short CHEST;
     public static short ENCHANTING_TABLE;
 
+    /* Fluids + Reaktionsprodukt */
+    public static short WATER, LAVA, OBSIDIAN;
+
     /** Vor world.init() aufrufen! Lädt JSON-Blöcke und baked die Registry. */
     public static void bootstrap(File blockDirectory) {
         /* Luft IMMER zuerst registrieren -> State-ID 0. Chunks sind per Default 0 = leer. */
@@ -85,6 +88,10 @@ public final class Blocks {
         OAK_DOOR = idOf("skyengine:oak_door");
         CHEST = idOf("skyengine:chest");
         ENCHANTING_TABLE = idOf("skyengine:enchanting_table");
+
+        WATER = idOf("skyengine:water");
+        LAVA = idOf("skyengine:lava");
+        OBSIDIAN = idOf("skyengine:obsidian");
     }
 
     private static short idOf(String id) {
