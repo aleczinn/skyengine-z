@@ -3,6 +3,7 @@ package de.skyengine.game.world.block;
 import de.skyengine.game.world.block.content.ContentSource;
 import de.skyengine.game.world.block.content.ContentSources;
 import de.skyengine.game.world.block.content.FileContentSource;
+import de.skyengine.game.world.block.entity.BlockEntities;
 import de.skyengine.game.world.block.json.BlockLoader;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.model.ModelLoader;
@@ -21,15 +22,13 @@ public final class Blocks {
 
     private static final Logger LOGGER = LogManager.getLogger(Blocks.class.getName());
 
-    public static int AIR;
-    public static int BEDROCK;
-    public static int STONE, OAK_PLANKS, COBBLESTONE, DIRT, GRASS_BLOCK, SAND;
+    public static int AIR, BEDROCK;
+    public static int STONE, COBBLESTONE, OAK_PLANKS, DIRT, GRASS_BLOCK, OBSIDIAN, SNOW, OAK_LOG;
     public static int OAK_LEAVES;
     public static int GLASS;
     public static int TNT;
     public static int FERN, SHORT_GRASS, ORANGE_TULIP;
 
-    /* Phase 2: Custom Models */
     public static int STONE_SLAB, COBBLESTONE_SLAB;
     public static int STONE_STAIRS, COBBLESTONE_STAIRS;
     public static int OAK_FENCE, GLASS_PANE, IRON_BARS;
@@ -37,8 +36,11 @@ public final class Blocks {
     public static int CHEST;
     public static int ENCHANTING_TABLE;
 
-    /* Fluids + Reaktionsprodukt */
-    public static int WATER, LAVA, OBSIDIAN;
+    /* Gravity Blocks */
+    public static int SAND, GRAVEL;
+
+    /* Fluids */
+    public static int WATER, LAVA;
 
     /** Vor world.init() aufrufen! Lädt JSON-Blöcke und baked die Registry. */
     public static void bootstrap(File blockDirectory) {
@@ -46,7 +48,7 @@ public final class Blocks {
         BlockRegistry.register(new Block(Identifier.of("skyengine:air"), Block.Settings.create().air()));
 
         /* BlockEntity-Typen registrieren, bevor Blöcke ihren block_entity-Verweis auflösen. */
-        de.skyengine.game.world.block.entity.BlockEntities.bootstrap();
+        BlockEntities.bootstrap();
 
         /* Engine-Inhaltsquelle registrieren; Mods/Packs können vorher weitere hinzufügen. */
         File gameDir = blockDirectory.getParentFile();
@@ -68,10 +70,15 @@ public final class Blocks {
         COBBLESTONE = idOf("skyengine:cobblestone");
         DIRT = idOf("skyengine:dirt");
         GRASS_BLOCK = idOf("skyengine:grass_block");
+        OAK_LOG = idOf("skyengine:oak_log");
         OAK_PLANKS = idOf("skyengine:oak_planks");
+        SNOW = idOf("skyengine:snow");
+
+
         OAK_LEAVES = idOf("skyengine:oak_leaves");
 
         SAND = idOf("skyengine:sand");
+        GRAVEL = idOf("skyengine:gravel");
         TNT = idOf("skyengine:tnt");
         GLASS = idOf("skyengine:glass");
         FERN = idOf("skyengine:fern");

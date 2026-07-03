@@ -1,1 +1,6 @@
-{ "parent": "block/cube_all", "textures": { "all": "game/textures/block/dirt.png" } }
+{
+  "parent": "block/cube_all",
+  "textures": {
+    "all": "game/textures/block/dirt.png"
+  }
+}
