@@ -8,6 +8,8 @@
   "graphicsMode": "FANCY",
   "ambientOcclusion": true,
   "anisotropicFiltering": 16,
+  "lodEnabled": false,
+  "lodDistance": 128,
   "keyBindings": {
     "open_inventory": 69,
     "drop": 81,
@@ -22,6 +24,7 @@
     "hotbar_7": 55,
     "hotbar_8": 56,
     "hotbar_9": 57,
-    "ambient_occlusion": 79
+    "ambient_occlusion": 79,
+    "lod": 76
   }
 }

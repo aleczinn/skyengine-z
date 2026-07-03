@@ -60,13 +60,6 @@ gradlew build
 gradlew run
 ```
 
-## Screenshots
-
-![Ingame Screenshot mit Hotbar und Block Rendering](./screenshots/readme-1.png?raw=true)
-
-![Ingame Screenshot mit hoher Sichtweite im Spectator Modus](./screenshots/readme-2.png?raw=true)
-
-
 ## Goals
 
 Die Engine dient als Lern- und Entwicklungsprojekt für moderne Rendering-Techniken, Engine-Architekturen und die Optimierung voxelbasierter Welten.
@@ -78,8 +71,18 @@ Der Fokus liegt auf:
 - Erweiterbarkeit
 - Moderne OpenGL-Techniken
 
+## Screenshots
+
+v1.0.2 | Ambient Occlusion + Greedy Meshing + MultiDrawIndirect
+
+![Ingame Screenshot mit Ambient Occlusion, Greedy Meshing und MultiDrawIndirect](./screenshots/readme-3.png?raw=true)
+
+v1.0.0 | Blöcke wie Gras, Kreuz-Blöcke wie kurzes Gras oder Tulpen
+
+![Ingame Screenshot mit Hotbar und Block Rendering](./screenshots/readme-1.png?raw=true)
+
+![Ingame Screenshot mit hoher Sichtweite im Spectator Modus](./screenshots/readme-2.png?raw=true)
+
 ## License
 
-Dieses Repository ist ausschließlich zur Ansicht veröffentlicht.
-Eine Nutzung, Vervielfältigung oder Weiterverwendung des Codes
-ist ohne ausdrückliche Genehmigung nicht gestattet.
+Dieses Repository ist ausschließlich zur Ansicht veröffentlicht. Eine Nutzung, Vervielfältigung oder Weiterverwendung des Codes ist ohne ausdrückliche Genehmigung nicht gestattet.
