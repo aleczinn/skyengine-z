@@ -1,5 +1,6 @@
 package de.skyengine.graphics.world;
 
+import de.skyengine.graphics.GlDebug;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL30;
@@ -23,12 +24,14 @@ final class MappedRing {
 
     private static final int MAP_FLAGS = GL30.GL_MAP_WRITE_BIT | GL44.GL_MAP_PERSISTENT_BIT | GL44.GL_MAP_COHERENT_BIT;
 
+    private final String name;
     private final int slots;
     private long slotSize;
     private int buffer;
     private ByteBuffer mapped;
 
-    MappedRing(int slots, long initialSlotSize) {
+    MappedRing(String name, int slots, long initialSlotSize) {
+        this.name = name;
         this.slots = slots;
         this.create(align(initialSlotSize));
     }
@@ -67,6 +70,7 @@ final class MappedRing {
         if (this.mapped == null) {
             throw new IllegalStateException("MappedRing: persistentes Mapping fehlgeschlagen (" + newSlotSize * this.slots + " Bytes)");
         }
+        GlDebug.labelBuffer(this.buffer, this.name);
     }
 
     /** Int-Sicht auf einen Slot (Index 0 = Slot-Anfang). */

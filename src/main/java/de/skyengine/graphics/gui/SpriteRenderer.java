@@ -1,5 +1,6 @@
 package de.skyengine.graphics.gui;
 
+import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
@@ -40,6 +41,7 @@ public final class SpriteRenderer {
         GL30.glBindVertexArray(this.vao);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, quad, GL15.GL_STATIC_DRAW);
+        GlDebug.labelBuffer(this.vbo, "SpriteRenderer Quad-VBO");
         int stride = 4 * Float.BYTES;
         GL20.glVertexAttribPointer(0, 2, GL11.GL_FLOAT, false, stride, 0);
         GL20.glVertexAttribPointer(1, 2, GL11.GL_FLOAT, false, stride, 2 * Float.BYTES);
