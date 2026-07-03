@@ -264,7 +264,10 @@ public class ChunkRenderer {
             void main() {
                 vec4 color = texture(u_Textures, v_texCoord);
                 if (color.a < u_AlphaCutoff) discard;
-                fragColor = vec4(color.rgb * v_color, color.a);
+                /* Clamp gegen Attribut-EXTRApolation: kantenparallel gesehene Faces rastern als
+                   degenerierte Sliver-Dreiecke, deren Interpolation die per-Vertex-AO-Farben
+                   ueber 1.0 hinaus extrapoliert -> helle Funkel-Striche auf Augenhoehe. */
+                fragColor = vec4(color.rgb * clamp(v_color, 0.0, 1.0), color.a);
             }
             """;
 
