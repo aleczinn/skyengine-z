@@ -7,8 +7,23 @@ import de.skyengine.game.world.block.state.BlockState;
 
 public class ChunkMesher {
 
-    /** Floats pro Vertex: pos(3) + uv(2) + layer(1) + color(3) */
-    public static final int VERTEX_SIZE = 9;
+    /**
+     * Ints pro Vertex (gepacktes Format, 16 Bytes statt 36):
+     * <pre>
+     * int0: posX | posY &lt;&lt; 16     (u16 fixed-point 8.8, Bias +1 Block, section-lokal)
+     * int1: posZ | u    &lt;&lt; 16     (u als u16 fixed-point 6.10, Bias +1)
+     * int2: v    | layer &lt;&lt; 16    (v wie u; layer = Texture-Array-Layer)
+     * int3: r | g &lt;&lt; 8 | b &lt;&lt; 16  (Farbe = Helligkeit * AO * Tint, je u8)
+     * </pre>
+     * Entpackt wird im Vertex-Shader des ChunkRenderers. Ein Quad = 4 Vertices (A,B,C,D),
+     * Triangulierung über den geteilten Index-Buffer (0,1,2, 2,3,0).
+     */
+    public static final int VERTEX_SIZE = 4;
+
+    /** Bias/Skalierung des Positions-Fixed-Points (1/256 Block; Bias fängt Offsets bis -1 ab). */
+    public static final float POS_SCALE = 256F;
+    /** Skalierung des UV-Fixed-Points (1/1024; reicht für Greedy-UVs bis 32+). */
+    public static final float UV_SCALE = 1024F;
 
     /* Face-Indizes: 0=top, 1=bottom, 2=north(-z), 3=south(+z), 4=west(-x), 5=east(+x) */
     private static final int[][] FACE_OFFSET = {
@@ -22,11 +37,11 @@ public class ChunkMesher {
 
     /** Mesh-Ergebnis einer Section, getrennt nach RenderLayer. Arrays sind null wenn leer. */
     public static final class MeshData {
-        public final float[] opaque;
-        public final float[] cutout;
-        public final float[] translucent;
+        public final int[] opaque;
+        public final int[] cutout;
+        public final int[] translucent;
 
-        MeshData(float[] opaque, float[] cutout, float[] translucent) {
+        MeshData(int[] opaque, int[] cutout, int[] translucent) {
             this.opaque = opaque;
             this.cutout = cutout;
             this.translucent = translucent;
@@ -48,11 +63,12 @@ public class ChunkMesher {
     /* Wiederverwendeter AO-Puffer (4 Eckwerte des aktuellen Quads) */
     private final float[] aoCorners = new float[4];
 
-    /* Eindeutige Ecken A,B,C,D im 6-Vertex-Quad (A,B,C,C,D,A) */
+    /* Eindeutige Ecken A,B,C,D im 6-Vertex-Quad der BakedQuads (A,B,C,C,D,A) */
     private static final int[] UNIQUE_VERTS = {0, 1, 2, 4};
-    /* Emissions-Reihenfolge: normal = Diagonale A-C, geflippt = Diagonale B-D (AO-Anisotropie-Fix) */
-    private static final int[] EMIT_NORMAL = {0, 1, 2, 2, 3, 0};
-    private static final int[] EMIT_FLIPPED = {1, 2, 3, 3, 0, 1};
+    /* Emissions-Reihenfolge der 4 Ecken: normal = Diagonale A-C, geflippt = B-D (AO-Anisotropie-Fix;
+       der Index-Buffer trianguliert immer 0,1,2 / 2,3,0 über die emittierte Reihenfolge) */
+    private static final int[] EMIT_NORMAL = {0, 1, 2, 3};
+    private static final int[] EMIT_FLIPPED = {1, 2, 3, 0};
 
     /**
      * Mesht eine Section. Läuft auf einem Worker-Thread - reine Daten, kein GL.
@@ -111,7 +127,7 @@ public class ChunkMesher {
                             int neighborId = getBlock(chunk, north, south, west, east, nx, ny, nz);
                             if (!shouldRenderFace(state, neighborId)) continue;
                         }
-                        this.emitQuad(buffer, quad, x, worldY, z, offsetX, offsetZ);
+                        this.emitQuad(buffer, quad, x, y, worldY, z, offsetX, offsetZ);
                     }
                 }
             }
@@ -141,10 +157,10 @@ public class ChunkMesher {
         return true;
     }
 
-    private void emitQuad(VertexBuffer buffer, BakedQuad quad, int x, int y, int z, float offsetX, float offsetZ) {
-        buffer.ensure(6 * VERTEX_SIZE);
+    private void emitQuad(VertexBuffer buffer, BakedQuad quad, int x, int localY, int worldY, int z, float offsetX, float offsetZ) {
+        buffer.ensure(4 * VERTEX_SIZE);
         float[] verts = quad.vertices();
-        float layer = quad.textureLayer();
+        int layer = quad.textureLayer();
         float brightness = quad.brightness();
 
         /* Per-Vertex-Farbe = Helligkeit * AO * Tint (0xRRGGBB). Tint ist normal weiß (neutral),
@@ -160,26 +176,45 @@ public class ChunkMesher {
         float[] ao = null;
         if (quad.cullFace() != BakedQuad.NO_CULL) {
             ao = this.aoCorners;
-            this.computeAo(quad, x, y, z, ao);
+            this.computeAo(quad, x, worldY, z, ao);
             /* Anisotropie-Fix: Diagonale durch das hellere Eckpaar legen, sonst
                kippt der Interpolations-Gradient je nach Triangulierung sichtbar. */
             if (ao[1] + ao[3] > ao[0] + ao[2]) emitOrder = EMIT_FLIPPED;
         }
 
-        for (int v = 0; v < 6; v++) {
+        for (int v = 0; v < 4; v++) {
             int corner = emitOrder[v];
             int i = UNIQUE_VERTS[corner] * 5;
             float aoValue = ao != null ? ao[corner] : 1F;
-            buffer.data[buffer.count++] = verts[i] + x + offsetX;
-            buffer.data[buffer.count++] = verts[i + 1] + y;
-            buffer.data[buffer.count++] = verts[i + 2] + z + offsetZ;
-            buffer.data[buffer.count++] = verts[i + 3];
-            buffer.data[buffer.count++] = verts[i + 4];
-            buffer.data[buffer.count++] = layer;
-            buffer.data[buffer.count++] = r * aoValue;
-            buffer.data[buffer.count++] = g * aoValue;
-            buffer.data[buffer.count++] = b * aoValue;
+            putVertex(buffer,
+                    verts[i] + x + offsetX, verts[i + 1] + localY, verts[i + 2] + z + offsetZ,
+                    verts[i + 3], verts[i + 4], layer,
+                    r * aoValue, g * aoValue, b * aoValue);
         }
+    }
+
+    /** Packt einen Vertex ins 4-Int-Format (siehe {@link #VERTEX_SIZE}). */
+    private static void putVertex(VertexBuffer buffer, float px, float py, float pz,
+                                  float u, float v, int layer, float r, float g, float b) {
+        int xi = fixedPos(px), yi = fixedPos(py), zi = fixedPos(pz);
+        int ui = fixedUv(u), vi = fixedUv(v);
+        int ri = (int) (r * 255F + 0.5F);
+        int gi = (int) (g * 255F + 0.5F);
+        int bi = (int) (b * 255F + 0.5F);
+        buffer.data[buffer.count++] = xi | yi << 16;
+        buffer.data[buffer.count++] = zi | ui << 16;
+        buffer.data[buffer.count++] = vi | layer << 16;
+        buffer.data[buffer.count++] = ri | gi << 8 | bi << 16;
+    }
+
+    private static int fixedPos(float f) {
+        int v = Math.round((f + 1F) * POS_SCALE);
+        return v < 0 ? 0 : Math.min(v, 0xFFFF);
+    }
+
+    private static int fixedUv(float f) {
+        int v = Math.round((f + 1F) * UV_SCALE);
+        return v < 0 ? 0 : Math.min(v, 0xFFFF);
     }
 
     /**
@@ -272,7 +307,7 @@ public class ChunkMesher {
     /* ------------------------------------------------------------------ */
 
     private static final class VertexBuffer {
-        float[] data = new float[16384];
+        int[] data = new int[16384];
         int count = 0;
 
         void reset() {
@@ -281,15 +316,15 @@ public class ChunkMesher {
 
         void ensure(int additional) {
             if (this.count + additional > this.data.length) {
-                float[] bigger = new float[Math.max(this.data.length * 2, this.count + additional)];
+                int[] bigger = new int[Math.max(this.data.length * 2, this.count + additional)];
                 System.arraycopy(this.data, 0, bigger, 0, this.count);
                 this.data = bigger;
             }
         }
 
-        float[] copyOrNull() {
+        int[] copyOrNull() {
             if (this.count == 0) return null;
-            float[] out = new float[this.count];
+            int[] out = new int[this.count];
             System.arraycopy(this.data, 0, out, 0, this.count);
             return out;
         }
