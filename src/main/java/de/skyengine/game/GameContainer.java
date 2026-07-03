@@ -25,6 +25,7 @@ import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.core.settings.GameSettings;
+import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.gui.ChestScreen;
@@ -583,6 +584,13 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.settings.renderDistance = Math.min(32, this.settings.renderDistance + 1);
             this.world.getChunkManager().setRenderDistance(this.settings.renderDistance);
             this.logger.debug("Render-Distanz: " + this.settings.renderDistance);
+            changed = true;
+        }
+        if (input.isKeyPressed(this.settings.key(KeyBindings.AMBIENT_OCCLUSION))) {
+            this.settings.ambientOcclusion = !this.settings.ambientOcclusion;
+            /* AO steckt im gebackenen Mesh -> alle Chunks progressiv neu meshen */
+            this.world.getChunkManager().remeshAll();
+            this.logger.debug("Ambient Occlusion: " + (this.settings.ambientOcclusion ? "an" : "aus"));
             changed = true;
         }
         if (changed) this.settings.save();

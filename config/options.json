@@ -6,6 +6,8 @@
   "vsync": false,
   "mouseSensitivity": 1.0,
   "graphicsMode": "FANCY",
+  "ambientOcclusion": true,
+  "anisotropicFiltering": 16,
   "keyBindings": {
     "open_inventory": 69,
     "drop": 81,
@@ -19,6 +21,7 @@
     "hotbar_6": 54,
     "hotbar_7": 55,
     "hotbar_8": 56,
-    "hotbar_9": 57
+    "hotbar_9": 57,
+    "ambient_occlusion": 79
   }
 }

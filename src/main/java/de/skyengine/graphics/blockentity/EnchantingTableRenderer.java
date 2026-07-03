@@ -188,6 +188,7 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
             GL30.glBindVertexArray(this.vao);
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
             GL15.glBufferData(GL15.GL_ARRAY_BUFFER, data, GL15.GL_STATIC_DRAW);
+            de.skyengine.graphics.GlDebug.labelBuffer(this.vbo, "EnchantingTableRenderer Mesh-VBO");
             int stride = FLOATS_PER_VERTEX * Float.BYTES;
             GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, stride, 0);
             GL20.glVertexAttribPointer(1, 2, GL11.GL_FLOAT, false, stride, 3 * Float.BYTES);

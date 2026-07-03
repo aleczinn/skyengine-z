@@ -36,6 +36,10 @@ public final class GameSettings {
     public boolean vsync = false;
     public double mouseSensitivity = 1.0;
     public GraphicsMode graphicsMode = GraphicsMode.FANCY;
+    /* volatile: wird von den Mesher-Worker-Threads gelesen (Toggle löst Voll-Remesh aus) */
+    public volatile boolean ambientOcclusion = true;
+    /* Anisotropes Filtern (1 = aus .. 16), wird beim Erzeugen des TextureArrays angewandt */
+    public int anisotropicFiltering = 16;
     public Map<String, Integer> keyBindings = KeyBindings.defaults();
 
     public static GameSettings get() {
@@ -90,9 +94,14 @@ public final class GameSettings {
         this.renderDistance = Math.clamp(this.renderDistance, 2, 32);
         this.simulationDistance = Math.clamp(this.simulationDistance, 2, 32);
         this.fov = Math.clamp(this.fov, 30, 120);
+        this.anisotropicFiltering = Math.clamp(this.anisotropicFiltering, 1, 16);
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
-        if (this.keyBindings == null) this.keyBindings = KeyBindings.defaults();
-        else KeyBindings.defaults().forEach(this.keyBindings::putIfAbsent); // fehlende Binds ergänzen
+        if (this.keyBindings == null) {
+            this.keyBindings = KeyBindings.defaults();
+        } else {
+            KeyBindings.defaults().forEach(this.keyBindings::putIfAbsent);       // fehlende Binds ergänzen
+            this.keyBindings.keySet().retainAll(KeyBindings.defaults().keySet()); // verwaiste entfernen
+        }
     }
 }

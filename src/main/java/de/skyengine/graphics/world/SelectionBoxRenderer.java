@@ -2,6 +2,7 @@ package de.skyengine.graphics.world;
 
 import de.skyengine.core.SkyEngine;
 import de.skyengine.game.physics.AABB;
+import de.skyengine.graphics.GlDebug;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.shape.ShapeOutline;
 import de.skyengine.graphics.camera.Camera;
@@ -33,6 +34,7 @@ public class SelectionBoxRenderer {
         GL30.glBindVertexArray(this.vao);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, INITIAL_FLOATS * 4L, GL15.GL_DYNAMIC_DRAW);
+        GlDebug.labelBuffer(this.vbo, "SelectionBox VBO (Streaming)");
         GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, 0, 0);
         GL20.glEnableVertexAttribArray(0);
         GL30.glBindVertexArray(0);

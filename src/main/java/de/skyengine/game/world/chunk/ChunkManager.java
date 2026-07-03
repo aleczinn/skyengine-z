@@ -226,6 +226,18 @@ public class ChunkManager {
     }
 
     /**
+     * Setzt alle fertigen Chunks auf GENERATED zurück — der normale Lade-Pfad ({@link #update})
+     * meshed sie dann progressiv neu (Blickrichtungs-Score, Upload-Budget). Für Settings, die
+     * ins gebackene Mesh eingehen (z.B. Smooth Lighting): alte Meshes bleiben sichtbar, bis der
+     * Ersatz hochgeladen ist. Chunks, die gerade GENERATING/MESHING sind, bleiben unberührt.
+     */
+    public void remeshAll() {
+        for (Chunk chunk : this.chunks.values()) {
+            if (chunk.status == ChunkStatus.READY) chunk.status = ChunkStatus.GENERATED;
+        }
+    }
+
+    /**
      * Einmal pro FRAME (z.B. aus World.render) aufrufen: stößt Remeshes
      * für dirty Sections sofort an, statt auf den nächsten Tick zu warten.
      */
