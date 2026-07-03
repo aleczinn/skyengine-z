@@ -115,6 +115,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.world.getChunkManager().setRenderDistance(this.settings.renderDistance);
         this.world.setSimulationDistance(this.settings.simulationDistance);
         this.camera.setFov(this.settings.fov);
+        this.camera.setFarPlane(this.computeFarPlane());
         this.guiManager.setScale(this.settings.guiScaleFactor());
         /* Über das Window setzen, damit dessen Zustand (config.isVSync) authoritativ bleibt -
            der FPS-Limiter im gameLoop liest window.isVSync(). Läuft auf dem Render-Thread,
@@ -593,7 +594,20 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("Ambient Occlusion: " + (this.settings.ambientOcclusion ? "an" : "aus"));
             changed = true;
         }
+        if (input.isKeyPressed(this.settings.key(KeyBindings.LOD))) {
+            this.settings.lodEnabled = !this.settings.lodEnabled;
+            /* LodManager liest das Setting im nächsten Tick; farPlane sofort nachziehen */
+            this.camera.setFarPlane(this.computeFarPlane());
+            this.logger.debug("LOD: " + (this.settings.lodEnabled ? "an" : "aus"));
+            changed = true;
+        }
         if (changed) this.settings.save();
+    }
+
+    /** Sichtweite der Projektion: mit LOD hinter den äußersten Ring gelegt, sonst wie bisher 1500. */
+    private float computeFarPlane() {
+        if (!this.settings.lodEnabled) return 1500.0F;
+        return (this.settings.lodDistance + 8) * 32.0F;
     }
 
     /** Holt eine angeforderte Screenshot-Aufnahme ab und setzt das Flag zurück. */

@@ -23,6 +23,7 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.ChestRenderer;
@@ -44,6 +45,8 @@ public class World implements IInitializable, IDisposable {
     private final WorldGenerator generator;
     private final ChunkManager chunkManager;
     private final ChunkRenderer chunkRenderer;
+    /* Heightmap-LOD jenseits der Render-Distanz; erst in init() erzeugt (braucht gebackene Modelle) */
+    private LodManager lodManager;
     private final BlockEntityRenderDispatcher blockEntityRenderer = new BlockEntityRenderDispatcher();
     private final EntityRenderer entityRenderer = new EntityRenderer();
 
@@ -92,6 +95,8 @@ public class World implements IInitializable, IDisposable {
     @Override
     public void init() {
         this.chunkRenderer.init();
+        this.lodManager = new LodManager(this.generator, this.chunkManager);
+        this.chunkRenderer.setLodManager(this.lodManager);
         this.blockEntityRenderer.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderer.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
         this.blockEntityRenderer.init();
@@ -104,6 +109,7 @@ public class World implements IInitializable, IDisposable {
         this.playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
         this.chunkManager.update(player);
+        this.lodManager.update(player);
         this.tickScheduled();
         this.tickRandomBlocks();
         this.tickBlockEntities();

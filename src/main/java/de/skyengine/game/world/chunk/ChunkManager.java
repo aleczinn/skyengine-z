@@ -31,9 +31,11 @@ public class ChunkManager {
        Hält die Executor-Queue kurz -> nahe Chunks neuer Positionen kommen schnell dran. */
     private static final int MAX_GENERATION_SUBMITS_PER_TICK = 64;
 
-    /* Job-Prioritäten für den Worker-Pool: Remeshes überholen den Initial-Load. */
+    /* Job-Prioritäten für den Worker-Pool: Remeshes überholen den Initial-Load;
+       LOD-Meshes laufen nur, wenn keine Chunk-Arbeit ansteht. */
     private static final int PRIO_REMESH = 0;
     private static final int PRIO_LOAD = 1;
+    private static final int PRIO_LOD = 2;
 
     private final AtomicLong taskSeq = new AtomicLong();
 
@@ -83,6 +85,11 @@ public class ChunkManager {
     private void submitTask(int prio, Runnable job) {
         /* execute statt submit: submit() würde in ein nicht-vergleichbares FutureTask wrappen */
         this.workers.execute(new PrioTask(prio, this.taskSeq.getAndIncrement(), job));
+    }
+
+    /** Reiht einen LOD-Mesh-Job mit niedrigster Priorität ein — verdrängt nie Chunk-Jobs. */
+    public void submitLodTask(Runnable job) {
+        this.submitTask(PRIO_LOD, job);
     }
 
     /* PriorityBlockingQueue ist nicht stabil — seq hält gleiche Prioritäten in Einreihungs-
