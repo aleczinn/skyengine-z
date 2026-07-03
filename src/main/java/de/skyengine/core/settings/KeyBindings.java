@@ -16,6 +16,7 @@ public final class KeyBindings {
     public static final String DROP = "drop";
     public static final String FLY = "fly";
     public static final String NOCLIP = "noclip";
+    public static final String AMBIENT_OCCLUSION = "ambient_occlusion";
 
     /** Slot i (1..9) -> "hotbar_i". */
     public static String hotbar(int slot) {
@@ -28,6 +29,7 @@ public final class KeyBindings {
         m.put(DROP, GLFW.GLFW_KEY_Q);
         m.put(FLY, GLFW.GLFW_KEY_F);
         m.put(NOCLIP, GLFW.GLFW_KEY_N);
+        m.put(AMBIENT_OCCLUSION, GLFW.GLFW_KEY_O);
         for (int i = 1; i <= 9; i++) {
             m.put(hotbar(i), GLFW.GLFW_KEY_1 + (i - 1));
         }
