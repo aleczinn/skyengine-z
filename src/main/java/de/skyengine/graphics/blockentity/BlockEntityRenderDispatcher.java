@@ -1,11 +1,14 @@
 package de.skyengine.graphics.blockentity;
 
+import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.graphics.camera.Camera;
+import org.joml.FrustumIntersection;
+import org.joml.Vector3d;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -15,6 +18,9 @@ import java.util.Map;
  * BlockEntities geladener Chunks, die einen Renderer haben. Läuft NACH dem Chunk-Mesh.
  */
 public final class BlockEntityRenderDispatcher {
+
+    /** Konservativer Rand fürs Frustum-Culling (deckt Deckel-Animation, schwebendes Buch etc. ab). */
+    private static final float CULL_MARGIN = 1.0f;
 
     private final Map<BlockEntityType<?>, BlockEntityRenderer> renderers = new HashMap<>();
 
@@ -33,11 +39,24 @@ public final class BlockEntityRenderDispatcher {
 
     public void render(ChunkManager chunkManager, Camera camera, float partialTick) {
         if (this.renderers.isEmpty()) return;
+        Vector3d cam = camera.getPosition();
+        FrustumIntersection frustum = camera.getFrustum();
         for (Chunk chunk : chunkManager.loadedChunks()) {
             if (chunk.status != ChunkStatus.READY) continue;
             for (BlockEntity be : chunk.blockEntities()) {
                 BlockEntityRenderer renderer = this.renderers.get(be.getType());
-                if (renderer != null) renderer.render(be, camera, partialTick);
+                if (renderer == null) continue;
+
+                /* Frustum-Culling (kamerarelativ wie EntityRenderer): Block belegt pos..pos+1,
+                   Margin deckt über den Block hinausragende Teile (Deckel, Buch) ab. */
+                BlockPos pos = be.getPos();
+                float ox = (float) (pos.x() - cam.x);
+                float oy = (float) (pos.y() - cam.y);
+                float oz = (float) (pos.z() - cam.z);
+                if (!frustum.testAab(ox - CULL_MARGIN, oy - CULL_MARGIN, oz - CULL_MARGIN,
+                        ox + 1f + CULL_MARGIN, oy + 1f + CULL_MARGIN, oz + 1f + CULL_MARGIN)) continue;
+
+                renderer.render(be, camera, partialTick);
             }
         }
     }
