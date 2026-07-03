@@ -38,6 +38,11 @@ public class ChunkRenderer {
     private final List<SectionMesh> translucentVisible = new ArrayList<>();
 
     private static final int MAX_UPLOADS_PER_FRAME = 8;
+
+    /* Deckelt Quad-Sorts pro Frame — bei Kamerabewegung wollen sonst alle sichtbaren
+       Translucent-Sections gleichzeitig neu sortieren (Ozean -> Upload-Spike). */
+    private static final int MAX_TRANSLUCENT_SORTS_PER_FRAME = 8;
+
     private static final int TEXTURE_SIZE = 16;
 
     private int renderedSections = 0;
@@ -58,29 +63,34 @@ public class ChunkRenderer {
         this.animations = SpriteAnimations.build(paths, TEXTURE_SIZE);
         this.textures = new TextureArray(TEXTURE_SIZE, paths, this.animations.animatedLayers());
         this.animations.uploadInitial(this.textures);
+        /* Mipmaps neu bauen, jetzt mit echten Fluid-Frame-0-Daten (animierte Layer waren beim
+           ersten glGenerateMipmap noch leer → hätten in der Ferne transparente Mips). */
+        this.textures.regenerateMipmaps();
         this.lastAnimNanos = System.nanoTime();
     }
 
-    public void render(Camera camera) {
+    /**
+     * Opaque- und Cutout-Pass (inkl. Upload/Cleanup/Frustum-Culling). Der Translucent-Pass
+     * folgt separat in {@link #renderTranslucent}, damit Entities dazwischen rendern können
+     * (Vanilla-Reihenfolge: Wasser blendet über Entities).
+     */
+    public void renderSolid(Camera camera) {
         /* 0. Texturanimationen vorrücken (Frame-Tausch, kein Re-Mesh) */
         long now = System.nanoTime();
         this.animations.tick(this.textures, (now - this.lastAnimNanos) / 1.0e9);
         this.lastAnimNanos = now;
 
-        /* 1. Drain upload queue (bounded per frame) */
-        int uploads = 0;
+        /* 1a. Prioritäts-Batches (Edit-/Fluid-Remeshes) immer zuerst und vollständig —
+           das Volumen ist klein und der Spieler soll seine Änderung sofort sehen. */
         ChunkManager.MeshBatch batch;
+        while ((batch = this.chunkManager.getPriorityUploadQueue().poll()) != null) {
+            this.applyBatch(batch);
+        }
+
+        /* 1b. Normale Upload-Queue (Initial-Load), gedeckelt pro Frame */
+        int uploads = 0;
         while (uploads < MAX_UPLOADS_PER_FRAME && (batch = this.chunkManager.getUploadQueue().poll()) != null) {
-            for (ChunkManager.MeshResult result : batch.results()) {
-                long key = sectionKey(result.chunkX(), result.sectionY(), result.chunkZ());
-
-                SectionMesh old = this.meshes.remove(key);
-                if (old != null) old.dispose();
-
-                if (result.data() != null && !result.data().isEmpty()) {
-                    this.meshes.put(key, new SectionMesh(result.chunkX(), result.sectionY(), result.chunkZ(), result.data()));
-                }
-            }
+            this.applyBatch(batch);
             uploads++;
         }
 
@@ -124,9 +134,30 @@ public class ChunkRenderer {
         this.drawLayer(RenderLayer.OPAQUE, this.visible, cam);
         this.drawLayer(RenderLayer.CUTOUT, this.visible, cam);
 
-        /* Pass 3: translucent - zuletzt, mit Blending, von hinten nach vorn sortiert.
-           Nur die Sections mit Translucent-Layer sortieren, nicht die ganze visible-Liste. */
+        this.shader.unbind();
+    }
+
+    /**
+     * Pass 3: translucent — zuletzt, mit Blending, Sections von hinten nach vorn sortiert,
+     * Quads innerhalb der Sections per {@link SectionMesh#sortTranslucent} (Vanilla-Stil).
+     * Nutzt die in {@link #renderSolid} befüllten visible-Listen desselben Frames.
+     */
+    public void renderTranslucent(Camera camera) {
+        Vector3d cam = camera.getPosition();
+
+        this.shader.bind();
+        this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
+        this.shader.setUniformi("u_Textures", 0);
+        this.textures.bind(0);
+
+        /* Nur die Sections mit Translucent-Layer sortieren, nicht die ganze visible-Liste. */
         this.translucentVisible.sort((a, b) -> Double.compare(distanceSq(b, cam), distanceSq(a, cam)));
+
+        /* Per-Quad-Sortierung: nahe Sections zuerst (Liste ist fern -> nah). */
+        int sortBudget = MAX_TRANSLUCENT_SORTS_PER_FRAME;
+        for (int i = this.translucentVisible.size() - 1; i >= 0 && sortBudget > 0; i--) {
+            if (this.translucentVisible.get(i).sortTranslucent(cam)) sortBudget--;
+        }
 
         GL11.glEnable(GL11.GL_BLEND);
         this.shader.setUniformf("u_AlphaCutoff", 0.001F);
@@ -134,6 +165,20 @@ public class ChunkRenderer {
         GL11.glDisable(GL11.GL_BLEND);
 
         this.shader.unbind();
+    }
+
+    /** Wendet einen Mesh-Batch an: alte Section-Meshes ersetzen, leere entfernen. */
+    private void applyBatch(ChunkManager.MeshBatch batch) {
+        for (ChunkManager.MeshResult result : batch.results()) {
+            long key = sectionKey(result.chunkX(), result.sectionY(), result.chunkZ());
+
+            SectionMesh old = this.meshes.remove(key);
+            if (old != null) old.dispose();
+
+            if (result.data() != null && !result.data().isEmpty()) {
+                this.meshes.put(key, new SectionMesh(result.chunkX(), result.sectionY(), result.chunkZ(), result.data()));
+            }
+        }
     }
 
     private void drawLayer(RenderLayer layer, List<SectionMesh> meshes, Vector3d cam) {
@@ -185,17 +230,17 @@ public class ChunkRenderer {
             #version 460 core
             layout(location = 0) in vec3 a_position;
             layout(location = 1) in vec3 a_texCoord;   // u, v, layer
-            layout(location = 2) in float a_brightness;
+            layout(location = 2) in vec3 a_color;      // helligkeit * tint (rgb)
 
             uniform mat4 u_ProjectionView;
             uniform vec3 u_Offset;
 
             out vec3 v_texCoord;
-            out float v_brightness;
+            out vec3 v_color;
 
             void main() {
                 v_texCoord = a_texCoord;
-                v_brightness = a_brightness;
+                v_color = a_color;
                 gl_Position = u_ProjectionView * vec4(a_position + u_Offset, 1.0);
             }
             """;
@@ -203,7 +248,7 @@ public class ChunkRenderer {
     private static final String FRAGMENT_SOURCE = """
             #version 460 core
             in vec3 v_texCoord;
-            in float v_brightness;
+            in vec3 v_color;
 
             uniform sampler2DArray u_Textures;
             uniform float u_AlphaCutoff;
@@ -213,7 +258,7 @@ public class ChunkRenderer {
             void main() {
                 vec4 color = texture(u_Textures, v_texCoord);
                 if (color.a < u_AlphaCutoff) discard;
-                fragColor = vec4(color.rgb * v_brightness, color.a);
+                fragColor = vec4(color.rgb * v_color, color.a);
             }
             """;
 

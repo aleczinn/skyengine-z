@@ -73,6 +73,11 @@ public final class BlockState {
         return (this.flags & StateFlags.CULL_SAME) != 0;
     }
 
+    /** true: Wasser/Lava — Geometrie wird dynamisch vom Mesher erzeugt (kein gebackenes Modell). */
+    public boolean isFluid() {
+        return (this.flags & StateFlags.FLUID) != 0;
+    }
+
     public BlockShape getCollisionShape() {
         return this.block.getCollisionShape(this);
     }

@@ -84,20 +84,31 @@ public final class SpriteAnimations {
             IntBuffer w = stack.mallocInt(1), h = stack.mallocInt(1), c = stack.mallocInt(1);
             ByteBuffer pixels = STBImage.stbi_load(Files.RESOURCES_PATH + path, w, h, c, 4);
 
-            if (pixels == null || w.get(0) != size || h.get(0) % size != 0) {
+            int imgW = w.get(0), imgH = h.get(0);
+            if (pixels == null || imgW % size != 0 || imgH % size != 0) {
                 if (pixels != null) STBImage.stbi_image_free(pixels);
-                LOGGER.warning("Animierte Textur hat falsche Maße (Breite " + size + ", Höhe Vielfaches): " + path);
+                LOGGER.warning("Animierte Textur hat falsche Maße (Breite & Höhe Vielfache von " + size + "): " + path);
                 return null;
             }
 
-            int frameCount = h.get(0) / size;
-            int frameBytes = size * size * 4;
+            /* Textur wird als Raster aus size×size-Kacheln gelesen; jede Kachel ist ein Frame.
+               Reihenfolge spaltenweise: linke Spalte oben→unten, dann nächste Spalte (16-breit =
+               eine Spalte = bisheriges Verhalten). Kacheln werden unverändert übernommen. */
+            int cols = imgW / size, rows = imgH / size;
+            int frameCount = cols * rows;
+            int rowBytes = size * 4;
             ByteBuffer[] frames = new ByteBuffer[frameCount];
-            for (int i = 0; i < frameCount; i++) {
-                ByteBuffer fb = MemoryUtil.memAlloc(frameBytes);
-                int src = i * frameBytes;
-                for (int b = 0; b < frameBytes; b++) fb.put(b, pixels.get(src + b));
-                frames[i] = fb;
+            int f = 0;
+            for (int cx = 0; cx < cols; cx++) {
+                for (int ry = 0; ry < rows; ry++) {
+                    ByteBuffer fb = MemoryUtil.memAlloc(size * size * 4);
+                    for (int py = 0; py < size; py++) {
+                        int srcByte = (((ry * size + py) * imgW) + cx * size) * 4;
+                        int dstByte = py * rowBytes;
+                        for (int bx = 0; bx < rowBytes; bx++) fb.put(dstByte + bx, pixels.get(srcByte + bx));
+                    }
+                    frames[f++] = fb;
+                }
             }
             STBImage.stbi_image_free(pixels);
 

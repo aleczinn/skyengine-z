@@ -133,6 +133,28 @@ Classloader, **kein** rein deklaratives JSON (JSON kann kein Verhalten ausdrück
 
 ---
 
+## Fluid-System (Wasser/Lava)
+
+Logik in `behavior/FluidBehavior` (Scheduled-Tick-basiert), Parameter aus `FluidInfo`
+(JSON-Felder `fluid_spread`, `drop_off`, `fluid_tick` in `game/blocks/water.json`/`lava.json`).
+
+- **LEVEL-Konvention ist INVERS zu Vanilla:** `LEVEL 0` = Quelle (stärkstes Fluid), höhere Werte =
+  schwächer; pro horizontalem Block kommt `dropOff` dazu, `LEVEL > spread` trocknet aus.
+  `FALLING = true` = fallende Säule (zählt effektiv als Level 0). Wasser: dropOff 1 → 7 Blöcke
+  Reichweite; Lava: dropOff 2 → 3 Blöcke.
+- **Wasser+Lava-Reaktion:** Bei direktem Kontakt (Nachbar-Update) Lavaquelle→Obsidian, fließende
+  Lava→Cobblestone, Lava fließt/fällt in Wasser→Stein. Zusätzlich die **Hohlraum-Regel mit
+  Druck-Bedingung**: Eine Luftzelle horizontal zwischen Wasser und Lava wird (im Lava-Takt) zu
+  Cobblestone, aber **nur**, wenn mindestens eines der beiden Fluids sie reichweitenmäßig noch
+  erreichen könnte (`effLevel + dropOff <= spread`, „Druck") — unabhängig davon, wohin die
+  Gefälle-Suche (minSlope) den Fluss real umlenkt. Enden **beide** Fluids mit maximaler
+  Reichweite an der Lücke → **kein** Cobble (Vanilla-„Druck"-Regel). Beides ist Absicht — weder
+  die Druck-Bedingung entfernen noch Reaktionen an bloße Nachbarschaft ohne Druck koppeln.
+  Fluids fließen selbst nie in Misch-Zellen (Zellen, die ans Gegen-Fluid grenzen).
+- Fluid-Verhalten ist **nur visuell** verifizierbar (Engine-Fenster nötig).
+
+---
+
 ## Ressourcen (`src/main/resources/`)
 
 - `game/blocks/` — Block-Definitionen (JSON).

@@ -75,6 +75,7 @@ public final class BlockRegistry {
         if (block.hasRandomOffset(state)) flags |= StateFlags.RANDOM_OFFSET;
         if (block.getBlockEntityType() != null) flags |= StateFlags.HAS_BLOCK_ENTITY;
         if (block.ticksRandomly()) flags |= StateFlags.TICKS_RANDOMLY;
+        if (block.isFluid()) flags |= StateFlags.FLUID;
         return StateFlags.packLayer(flags, block.getRenderLayer(state));
     }
 
