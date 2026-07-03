@@ -2,8 +2,13 @@ package de.skyengine.game.world.chunk;
 
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.state.BlockState;
+
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 public class ChunkMesher {
 
@@ -70,6 +75,42 @@ public class ChunkMesher {
     private static final int[] EMIT_NORMAL = {0, 1, 2, 3};
     private static final int[] EMIT_FLIPPED = {1, 2, 3, 0};
 
+    /* Achsen je Face (0=x, 1=y, 2=z): N = Normale, T1/T2 = Tangenten der Face-Ebene.
+       Face-Reihenfolge wie FACE_OFFSET: top, bottom, north, south, west, east. */
+    private static final int[] AXIS_N = {1, 1, 2, 2, 0, 0};
+    private static final int[] AXIS_T1 = {0, 0, 0, 0, 1, 1};
+    private static final int[] AXIS_T2 = {2, 2, 1, 1, 2, 2};
+
+    /* Snapshot der Section-Blöcke (ein Palette-Read pro Zelle statt sechs im Greedy-Pass) */
+    private final int[] blockSnapshot = new int[ChunkSection.VOLUME];
+    /* Merge-Grid einer Slice: 0 = leer/schon emittiert, sonst Merge-Schlüssel */
+    private final long[] keyGrid = new long[ChunkSection.SIZE * ChunkSection.SIZE];
+    /* Wiederverwendete Zellkoordinate (Achsen-indiziert) */
+    private final int[] cellPos = new int[3];
+    private final float[] vertPos = new float[3];
+
+    /* Greedy-Eignung + Face-Quads je BlockState-ID (lazy; Mesher ist ThreadLocal) */
+    private final Map<Integer, GreedyFaces> greedyCache = new HashMap<>();
+
+    /**
+     * Vorberechnete Daten eines greedy-fähigen States: die 6 Full-Cube-Face-Quads und je Face
+     * die UV-Orientierung (läuft u entlang T1 oder T2 — entscheidet, ob u mit Breite oder Höhe
+     * des gemergten Quads skaliert). {@link #NONE} = State ist nicht greedy-fähig.
+     */
+    private static final class GreedyFaces {
+        static final GreedyFaces NONE = new GreedyFaces(null, null, null);
+
+        final BlockState state;
+        final BakedQuad[] quads;     // Index = Face
+        final boolean[] uAlongT1;    // Index = Face
+
+        GreedyFaces(BlockState state, BakedQuad[] quads, boolean[] uAlongT1) {
+            this.state = state;
+            this.quads = quads;
+            this.uAlongT1 = uAlongT1;
+        }
+    }
+
     /**
      * Mesht eine Section. Läuft auf einem Worker-Thread - reine Daten, kein GL.
      *
@@ -90,11 +131,28 @@ public class ChunkMesher {
 
         int baseY = sectionIndex << ChunkSection.SHIFT;
 
+        /* Snapshot der eigenen Section: der Greedy-Pass liest jede Zelle 6x — ein Array-Read
+           ist deutlich billiger als der Paletten-Zugriff. */
+        int[] blocks = this.blockSnapshot;
         for (int y = 0; y < ChunkSection.SIZE; y++) {
             for (int z = 0; z < ChunkSection.SIZE; z++) {
                 for (int x = 0; x < ChunkSection.SIZE; x++) {
-                    int stateId = section.getBlock(x, y, z);
+                    blocks[snapIndex(x, y, z)] = section.getBlock(x, y, z);
+                }
+            }
+        }
+
+        /* Pass 1: Greedy Meshing für opake Full-Cube-Faces */
+        this.greedyPass(baseY);
+
+        /* Pass 2: alles andere (Fluids, Cross, Slabs, Stairs, ... sowie Cubes mit un-greedy-baren
+           Modellen) über den klassischen Pfad */
+        for (int y = 0; y < ChunkSection.SIZE; y++) {
+            for (int z = 0; z < ChunkSection.SIZE; z++) {
+                for (int x = 0; x < ChunkSection.SIZE; x++) {
+                    int stateId = blocks[snapIndex(x, y, z)];
                     if (stateId == Blocks.AIR) continue;
+                    if (this.greedyFaces(stateId) != GreedyFaces.NONE) continue; // in Pass 1 erledigt
 
                     BlockState state = BlockRegistry.getState(stateId);
                     int worldY = baseY + y;
@@ -143,6 +201,186 @@ public class ChunkMesher {
         );
         return data.isEmpty() ? null : data;
     }
+
+    /* ------------------------- Greedy Meshing ------------------------- */
+
+    /**
+     * Pass 1: fasst benachbarte, identisch aussehende Full-Cube-Faces pro Face-Richtung und
+     * Slice zu großen Quads zusammen (Textur kachelt über UV &gt; 1). Merge-Schlüssel =
+     * State-ID + uniformer AO-Wert; Zellen mit uneinheitlichem AO (Kanten/Ecken) werden
+     * einzeln mit per-Vertex-AO emittiert. Nur der OPAQUE-Layer — greedy-fähige States
+     * sind per Definition opak.
+     */
+    private void greedyPass(int baseY) {
+        VertexBuffer buffer = this.buffers[RenderLayer.OPAQUE.ordinal()];
+        long[] grid = this.keyGrid;
+        int[] pos = this.cellPos;
+        int size = ChunkSection.SIZE;
+
+        for (int face = 0; face < 6; face++) {
+            int axisN = AXIS_N[face], axisT1 = AXIS_T1[face], axisT2 = AXIS_T2[face];
+            int offX = FACE_OFFSET[face][0], offY = FACE_OFFSET[face][1], offZ = FACE_OFFSET[face][2];
+
+            for (int slice = 0; slice < size; slice++) {
+                Arrays.fill(grid, 0L);
+                boolean any = false;
+
+                /* Sichtbare, greedy-fähige Zellen der Slice einsammeln */
+                for (int b = 0; b < size; b++) {
+                    for (int a = 0; a < size; a++) {
+                        pos[axisN] = slice;
+                        pos[axisT1] = a;
+                        pos[axisT2] = b;
+                        int x = pos[0], y = pos[1], z = pos[2];
+
+                        int stateId = this.blockSnapshot[snapIndex(x, y, z)];
+                        if (stateId == Blocks.AIR) continue;
+                        GreedyFaces gf = this.greedyFaces(stateId);
+                        if (gf == GreedyFaces.NONE) continue;
+
+                        int worldY = baseY + y;
+                        int neighborId = this.sample(x + offX, worldY + offY, z + offZ);
+                        if (!shouldRenderFace(gf.state, neighborId)) continue;
+
+                        BakedQuad quad = gf.quads[face];
+                        this.computeAo(quad, x, worldY, z, this.aoCorners);
+                        float ao = this.aoCorners[0];
+                        if (ao == this.aoCorners[1] && ao == this.aoCorners[2] && ao == this.aoCorners[3]) {
+                            /* +1, damit der Schlüssel nie 0 (= leer) ist */
+                            int aoIdx = Math.round((ao - 0.4F) * 5F);
+                            grid[b << ChunkSection.SHIFT | a] = (((long) stateId << 2) | aoIdx) + 1L;
+                            any = true;
+                        } else {
+                            /* Uneinheitliches AO (Kante/Ecke): einzeln, mit Ecken-AO + Flip */
+                            this.emitQuad(buffer, quad, x, y, worldY, z, 0F, 0F);
+                        }
+                    }
+                }
+                if (!any) continue;
+
+                /* Mergen: Breite zuerst, dann Höhe (klassisches Greedy) */
+                for (int b = 0; b < size; b++) {
+                    for (int a = 0; a < size; a++) {
+                        long key = grid[b << ChunkSection.SHIFT | a];
+                        if (key == 0L) continue;
+
+                        int w = 1;
+                        while (a + w < size && grid[b << ChunkSection.SHIFT | (a + w)] == key) w++;
+
+                        int h = 1;
+                        expand:
+                        while (b + h < size) {
+                            for (int i = 0; i < w; i++) {
+                                if (grid[(b + h) << ChunkSection.SHIFT | (a + i)] != key) break expand;
+                            }
+                            h++;
+                        }
+
+                        for (int j = 0; j < h; j++) {
+                            for (int i = 0; i < w; i++) grid[(b + j) << ChunkSection.SHIFT | (a + i)] = 0L;
+                        }
+
+                        int stateId = (int) ((key - 1L) >>> 2);
+                        float ao = 0.4F + ((key - 1L) & 3L) * 0.2F;
+                        this.emitGreedyQuad(buffer, this.greedyFaces(stateId), face, slice, a, b, w, h, ao);
+                        a += w - 1;
+                    }
+                }
+            }
+        }
+    }
+
+    /** Emittiert ein gemergtes w×h-Quad; Geometrie und UV-Orientierung kommen aus dem Face-Quad. */
+    private void emitGreedyQuad(VertexBuffer buffer, GreedyFaces gf, int face, int slice,
+                                int a, int b, int w, int h, float ao) {
+        BakedQuad quad = gf.quads[face];
+        float[] verts = quad.vertices();
+        int axisN = AXIS_N[face], axisT1 = AXIS_T1[face], axisT2 = AXIS_T2[face];
+        boolean uAlongT1 = gf.uAlongT1[face];
+
+        int tint = quad.tint();
+        float shade = quad.brightness() * ao;
+        float r = shade * ((tint >> 16) & 0xFF) / 255F;
+        float g = shade * ((tint >> 8) & 0xFF) / 255F;
+        float bl = shade * (tint & 0xFF) / 255F;
+
+        buffer.ensure(4 * VERTEX_SIZE);
+        float[] p = this.vertPos;
+        for (int c = 0; c < 4; c++) {
+            int i = UNIQUE_VERTS[c] * 5;
+            p[axisN] = slice + verts[i + axisN];
+            p[axisT1] = a + verts[i + axisT1] * w;
+            p[axisT2] = b + verts[i + axisT2] * h;
+            /* Ecken-UVs sind 0/1; Skalierung mit w bzw. h lässt die Textur pro Block kacheln
+               und erhält Spiegelung/Rotation des Original-Mappings (Periodizität). */
+            float u = verts[i + 3] * (uAlongT1 ? w : h);
+            float v = verts[i + 4] * (uAlongT1 ? h : w);
+            putVertex(buffer, p[0], p[1], p[2], u, v, quad.textureLayer(), r, g, bl);
+        }
+    }
+
+    /** Greedy-Eignung eines States (lazy gecacht). */
+    private GreedyFaces greedyFaces(int stateId) {
+        GreedyFaces gf = this.greedyCache.get(stateId);
+        if (gf == null) {
+            gf = buildGreedyFaces(stateId);
+            this.greedyCache.put(stateId, gf);
+        }
+        return gf;
+    }
+
+    /**
+     * Greedy-fähig = opaker Full-Cube im OPAQUE-Layer ohne Random-Offset, dessen Modell aus
+     * exakt 6 Full-Face-Quads (eines je Face, Ecken-Koordinaten und -UVs auf 0/1) besteht.
+     * Alles andere (Slabs, Stairs, Custom-Modelle, ...) läuft über den klassischen Pfad.
+     */
+    private static GreedyFaces buildGreedyFaces(int stateId) {
+        BlockState state = BlockRegistry.getState(stateId);
+        if (!state.isOpaqueCube() || state.isFluid() || state.hasRandomOffset()
+                || state.getRenderLayer() != RenderLayer.OPAQUE) {
+            return GreedyFaces.NONE;
+        }
+        BakedQuad[] model = state.getModel();
+        if (model == null || model.length != 6) return GreedyFaces.NONE;
+
+        BakedQuad[] quads = new BakedQuad[6];
+        for (BakedQuad quad : model) {
+            int face = quad.cullFace();
+            if (face < 0 || face >= 6 || quads[face] != null) return GreedyFaces.NONE;
+            quads[face] = quad;
+        }
+
+        boolean[] uAlongT1 = new boolean[6];
+        for (int face = 0; face < 6; face++) {
+            BakedQuad quad = quads[face];
+            int axisN = AXIS_N[face], axisT1 = AXIS_T1[face], axisT2 = AXIS_T2[face];
+            float plane = FACE_OFFSET[face][0] + FACE_OFFSET[face][1] + FACE_OFFSET[face][2] > 0 ? 1F : 0F;
+            float[] verts = quad.vertices();
+
+            int cornerMask = 0;
+            float u00 = 0F, u10 = 0F;
+            for (int c = 0; c < 4; c++) {
+                int i = UNIQUE_VERTS[c] * 5;
+                if (verts[i + axisN] != plane) return GreedyFaces.NONE;
+                float c1 = verts[i + axisT1], c2 = verts[i + axisT2];
+                float u = verts[i + 3], v = verts[i + 4];
+                if ((c1 != 0F && c1 != 1F) || (c2 != 0F && c2 != 1F)) return GreedyFaces.NONE;
+                if ((u != 0F && u != 1F) || (v != 0F && v != 1F)) return GreedyFaces.NONE;
+                cornerMask |= 1 << ((c1 == 1F ? 1 : 0) | (c2 == 1F ? 2 : 0));
+                if (c1 == 0F && c2 == 0F) u00 = u;
+                if (c1 == 1F && c2 == 0F) u10 = u;
+            }
+            if (cornerMask != 0b1111) return GreedyFaces.NONE;
+            uAlongT1[face] = u00 != u10;
+        }
+        return new GreedyFaces(state, quads, uAlongT1);
+    }
+
+    private static int snapIndex(int x, int y, int z) {
+        return (y << (ChunkSection.SHIFT * 2)) | (z << ChunkSection.SHIFT) | x;
+    }
+
+    /* ------------------------------------------------------------------ */
 
     /**
      * Culling-Regeln:
