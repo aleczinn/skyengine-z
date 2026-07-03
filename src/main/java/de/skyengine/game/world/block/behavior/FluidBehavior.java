@@ -33,7 +33,7 @@ public final class FluidBehavior implements BlockBehavior {
     @Override
     public void onPlaced(World world, int x, int y, int z, BlockState state) {
         FluidInfo info = state.getBlock().getFluidInfo();
-        world.scheduleTickEarlier(x, y, z, reactionDelay(world, x, y, z, info));
+        world.scheduleTickEarlier(x, y, z, info.tickDelay);
     }
 
     @Override
@@ -42,11 +42,14 @@ public final class FluidBehavior implements BlockBehavior {
         /* Lava+Wasser reagiert synchron - updateStateAt wendet den zurückgegebenen Fremd-State
            direkt an. Deckt beide Fälle im selben Tick ab (kein sichtbarer Lava-Frame im
            Cobble-Generator): Lava fließt in wasserangrenzende Zelle (eigenes Update direkt nach
-           setBlock) und Wasser erreicht bestehende Lava (Nachbar-Update). */
+           setBlock) und Wasser erreicht bestehende Lava (Nachbar-Update). Die AUSBREITUNG tickt
+           dagegen immer im eigenen Takt (info.tickDelay) - kein beschleunigtes Ticken neben dem
+           Gegen-Fluid, sonst rast die Wasserfront über ein Lavafeld und konvertiert alles quasi
+           instant statt Ring für Ring (MC-Pacing). */
         if (info.lava && waterAdjacent(world, x, y, z)) {
             return Blocks.getState(isSource(state) ? Blocks.OBSIDIAN : Blocks.COBBLESTONE);
         }
-        world.scheduleTickEarlier(x, y, z, reactionDelay(world, x, y, z, info));
+        world.scheduleTickEarlier(x, y, z, info.tickDelay);
         return state;
     }
 
@@ -157,7 +160,7 @@ public final class FluidBehavior implements BlockBehavior {
             if (canFluidReplace(below)) {       // freier Raum/Pflanze -> als fallende Säule weiter
                 if (below != Blocks.AIR) dropBlockItem(world, x, y - 1, z, belowState);
                 world.setBlock(x, y - 1, z, fluidState(fluid, 1, true));
-                world.scheduleTickEarlier(x, y - 1, z, reactionDelay(world, x, y - 1, z, info));
+                world.scheduleTickEarlier(x, y - 1, z, info.tickDelay);
             }
             /* Vanilla: >=3 horizontale Quell-Nachbarn -> trotz Abfluss zusätzlich seitwärts
                (dichte Quell-Pools bleiben an der Oberfläche geschlossen). */
@@ -206,7 +209,7 @@ public final class FluidBehavior implements BlockBehavior {
             if (!canFluidReplace(target)) continue;
             if (target != Blocks.AIR) dropBlockItem(world, nx, y, nz, Blocks.getState(target));
             world.setBlock(nx, y, nz, fluidState(fluid, spreadLevel, false));
-            world.scheduleTickEarlier(nx, y, nz, reactionDelay(world, nx, y, nz, info));
+            world.scheduleTickEarlier(nx, y, nz, info.tickDelay);
         }
     }
 
@@ -234,16 +237,6 @@ public final class FluidBehavior implements BlockBehavior {
             min = Math.min(min, slopeDistance(world, nx, y, nz, fluid, dist + 1, maxDist, d.opposite()));
         }
         return min;
-    }
-
-    /** Tickdelay für eine neu platzierte Fluidzelle: grenzt das Gegen-Fluid an, sofort reagieren. */
-    private static int reactionDelay(World world, int x, int y, int z, FluidInfo info) {
-        for (Direction d : Direction.values()) {
-            BlockState n = Blocks.getState(world.getBlock(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ()));
-            FluidInfo ni = n.getBlock().getFluidInfo();
-            if (ni != null && ni.lava != info.lava) return 1; // gegensätzliches Fluid -> direkte Reaktion
-        }
-        return info.tickDelay;
     }
 
     /** Grenzt horizontal (außer cameFrom) das Gegen-Fluid an? Für die Hohlraum-Regel. */
