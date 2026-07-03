@@ -22,6 +22,7 @@ import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.generator.WorldGenerator;
+import de.skyengine.game.world.generator.generators.MountainWorldGeneratorV1;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
@@ -79,7 +80,7 @@ public class World implements IInitializable, IDisposable {
 
     public World(String name) {
         this.name = name;
-        this.generator = new WorldGenerator(123);
+        this.generator = new MountainWorldGeneratorV1(123);
         this.chunkManager = new ChunkManager(this.generator);
         this.chunkRenderer = new ChunkRenderer(this.chunkManager);
     }
