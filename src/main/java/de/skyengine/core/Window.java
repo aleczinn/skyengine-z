@@ -261,6 +261,15 @@ public class Window implements IDisposable {
                     (int[]) null, false
             );
 
+            // NVIDIA-Performance-Warnung 0x20052 ("Pixel transfer is synchronized with 3D rendering")
+            // stummschalten: wird durch die winzigen Sprite-Animations-Uploads (16x16, ~1 KB) ausgeloest
+            // und ist in dieser Groessenordnung irrelevant.
+            GL43.glDebugMessageControl(
+                    GL43.GL_DEBUG_SOURCE_API, GL43.GL_DEBUG_TYPE_PERFORMANCE,
+                    GL11.GL_DONT_CARE,
+                    new int[] { 0x20052 }, false
+            );
+
             if (this.properties.isUseSynchronousDebugCallback()) {
                 GL11.glEnable(ARBDebugOutput.GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
             }
