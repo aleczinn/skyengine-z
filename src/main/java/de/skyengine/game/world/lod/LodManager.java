@@ -175,14 +175,21 @@ public class LodManager {
         this.logger.debug(sb.append("(gesamt ").append(this.desired.size()).append(")").toString());
     }
 
-    /** 16-Bit-Maske der Region: Bit gesetzt = Chunk zeigt gerade echtes Terrain (READY). */
+    /**
+     * 16-Bit-Maske der Region: Bit gesetzt = Chunk zeigt gerade WIRKLICH echtes Terrain.
+     * READY allein reicht nicht (heißt nur "Batches eingereiht") — erst wenn der Renderer
+     * alle Sections angewendet hat, darf das LOD weichen, sonst flackern Löcher auf,
+     * bevor der echte Mesh sichtbar ist.
+     */
     private int computeMask(int rx, int rz) {
         int baseCx = rx * 4, baseCz = rz * 4;
         int mask = 0;
         for (int dz = 0; dz < 4; dz++) {
             for (int dx = 0; dx < 4; dx++) {
                 Chunk chunk = this.chunkManager.getChunk(baseCx + dx, baseCz + dz);
-                if (chunk != null && chunk.status == ChunkStatus.READY) mask |= 1 << (dz * 4 + dx);
+                if (chunk != null && chunk.status == ChunkStatus.READY && chunk.isFullyUploaded()) {
+                    mask |= 1 << (dz * 4 + dx);
+                }
             }
         }
         return mask;

@@ -369,6 +369,11 @@ public class ChunkRenderer {
     /** Wendet einen Mesh-Batch an: alte Section-Regionen freigeben, neue allozieren. */
     private void applyBatch(ChunkManager.MeshBatch batch) {
         for (ChunkManager.MeshResult result : batch.results()) {
+            /* Upload-Bestätigung für die LOD-Maske: erst wenn alle Sections angewendet sind,
+               darf das LOD dort weichen (Chunk kann bei Unload-Race schon fehlen). */
+            Chunk chunk = this.chunkManager.getChunks().get(Chunk.key(result.chunkX(), result.chunkZ()));
+            if (chunk != null) chunk.markSectionUploaded();
+
             long key = sectionKey(result.chunkX(), result.sectionY(), result.chunkZ());
 
             SectionMesh old = this.meshes.remove(key);
