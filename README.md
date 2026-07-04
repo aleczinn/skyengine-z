@@ -33,6 +33,7 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
   - Vertex Komprimierung zu 16 bits
   - Nutzen von MultiDrawIndirect & BufferStorage -> Reduziert Draw-Calls von 12.288 auf 3 (16 Chunk Renderdistanz; 3 weil einen für OPAQUE, CUTOUT & TRANSLUCENT)
   - Ambient Occlusion
+  - Level of Detail
 
 ## Development
 
@@ -72,6 +73,10 @@ Der Fokus liegt auf:
 - Moderne OpenGL-Techniken
 
 ## Screenshots
+
+v1.0.3 | Level of Detail (128 Render Distanz in Chunks bei >1000 FPS -> Entspricht in Minecraft einer Renderdistanz von 256)
+
+![Ingame Screenshot mit einer Renderdistanz von 16 L0 Chunks und ingesamt 128](./screenshots/readme-5.png?raw=true)
 
 v1.0.2 | Ambient Occlusion + Greedy Meshing + MultiDrawIndirect
 
