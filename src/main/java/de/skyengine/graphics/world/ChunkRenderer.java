@@ -398,8 +398,8 @@ public class ChunkRenderer {
             if (old != null) old.dispose(arena, this.frameId);
 
             if (result.data().length > 0) {
-                LodMesh mesh = new LodMesh(result.rx(), result.rz(), result.level(), result.data(),
-                        result.minY(), result.maxY(), arena);
+                LodMesh mesh = new LodMesh(result.rx(), result.rz(), result.level(), result.yBase(),
+                        result.data(), result.minY(), result.maxY(), arena);
                 this.lodMeshes.put(key, mesh);
                 this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.quadCount());
                 uploads++;
@@ -439,7 +439,7 @@ public class ChunkRenderer {
 
             int oi = offBase + n * 4;
             offs.put(oi, (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x));
-            offs.put(oi + 1, (float) -cam.y);       // Mesh-Höhen sind absolut (0..~122)
+            offs.put(oi + 1, (float) (mesh.yBase - cam.y)); // Vertices sind relativ zu yBase gepackt
             offs.put(oi + 2, (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z));
             offs.put(oi + 3, 0F);
             n++;

@@ -24,9 +24,9 @@ import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.generators.MountainWorldGeneratorV1;
 import de.skyengine.game.world.item.ItemStack;
-import de.skyengine.game.world.lod.GeneratorLodDataSource;
 import de.skyengine.game.world.lod.LodBlockAppearance;
 import de.skyengine.game.world.lod.LodManager;
+import de.skyengine.game.world.lod.WorldLodDataSource;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.ChestRenderer;
@@ -98,9 +98,9 @@ public class World implements IInitializable, IDisposable {
     @Override
     public void init() {
         this.chunkRenderer.init();
-        /* LOD: abstrahierte Datenquelle (heute Generator) + Block-Darstellung aus den
-           gebackenen Modellen — beides erst nach dem Registry-Bake verfügbar. */
-        this.lodManager = new LodManager(new GeneratorLodDataSource(this.generator),
+        /* LOD: abstrahierte Datenquelle (nah: echte Chunkdaten, fern: Generator-Noise) +
+           Block-Darstellung aus den gebackenen Modellen — erst nach dem Registry-Bake. */
+        this.lodManager = new LodManager(new WorldLodDataSource(this.chunkManager, this.generator),
                 new LodBlockAppearance(), this.chunkManager);
         this.chunkRenderer.setLodManager(this.lodManager);
         this.blockEntityRenderer.register(BlockEntities.CHEST, new ChestRenderer());
@@ -563,7 +563,12 @@ public class World implements IInitializable, IDisposable {
         if (y < 0 || y >= Chunk.HEIGHT) return BlockShape.EMPTY;
 
         Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
-        if (chunk == null) return BlockShape.FULL_CUBE;
+        /* Ungeladen = solide (Boden-Schutz beim Laden). Fliegend aber Luft — sonst klebt man
+           an einer unsichtbaren Wand am Rand (z.B. mit pausiertem Chunk-Loading). Betrifft
+           praktisch nur den Spieler: andere Entities leben nur in geladenen Chunks. */
+        if (chunk == null) {
+            return this.player != null && this.player.isFlying() ? BlockShape.EMPTY : BlockShape.FULL_CUBE;
+        }
 
         ChunkStatus status = chunk.status;
         if (status == ChunkStatus.NEW || status == ChunkStatus.GENERATING) return BlockShape.FULL_CUBE;
@@ -582,7 +587,8 @@ public class World implements IInitializable, IDisposable {
         if (y < 0 || y >= Chunk.HEIGHT) return false;
 
         Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
-        if (chunk == null) return true;
+        /* Ungeladen = solide, außer der Spieler fliegt (s. getCollisionShape). */
+        if (chunk == null) return !(this.player != null && this.player.isFlying());
 
         ChunkStatus status = chunk.status;
         if (status == ChunkStatus.NEW || status == ChunkStatus.GENERATING) return true;

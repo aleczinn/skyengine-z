@@ -1,44 +1,44 @@
 package de.skyengine.game.world.lod;
 
 /**
- * Unveränderliche Ring-Konfiguration einer Settings-Epoche: {@code renderDistance} = Ende
- * von L0 (echte Chunks), {@code rings} = äußere Ringgrenzen in Chunks für L1..Ln
- * (aus {@code GameSettings.lodRings}, z.B. {32, 64, 128} bei rd 16 → L1 16–32, L2 32–64,
- * L3 64–128). Wird vom {@link LodManager} erzeugt und den Mesh-Jobs mitgegeben — Manager
- * und Mesher rechnen so garantiert mit derselben Level-Zuordnung (keine Sync-Logik).
+ * Unveränderliche Ring-Konfiguration einer Settings-Epoche, rein formelbasiert aus den zwei
+ * Config-Werten {@code renderDistance} (RD, Ende von L0 = echte Chunks) und
+ * {@code lodMaxDistance} (äußerste LOD-Reichweite):
+ *
+ * <pre>
+ * maxLevel      = clamp(ceil(log2(lodMaxDistance / RD)), 1, 5)   // Stride 2^5 = 32 = Formatgrenze
+ * levelAt(dist) = clamp(floor(log2(dist / RD)) + 1, 1, maxLevel)
+ * </pre>
+ *
+ * Beispiel RD=24/lodMax=256: L1 24–48 (Stride 2), L2 48–96 (4), L3 96–192 (8), L4 192–256 (16).
+ * RD oder lodMaxDistance ändern ⇒ die Level-Anzahl ergibt sich automatisch.
+ *
+ * <p>Wird vom {@link LodManager} erzeugt und den Mesh-Jobs mitgegeben — Manager und Mesher
+ * rechnen so garantiert mit derselben Level-Zuordnung (keine Sync-Logik).
  */
-public record LodConfig(int renderDistance, int[] rings) {
+public record LodConfig(int renderDistance, int lodMaxDistance, int maxLevel) {
 
-    /**
-     * LOD-Level (1..n) für eine Distanz in Blöcken. Jenseits des letzten Rings wird aufs
-     * letzte Level geklemmt (solche Regionen sind nie desired, Nachbar-Abfragen des Meshers
-     * bleiben aber konsistent).
-     */
-    public int levelAt(double distBlocks) {
-        for (int i = 0; i < this.rings.length - 1; i++) {
-            if (distBlocks < this.rings[i] * 32.0) return i + 1;
-        }
-        return this.rings.length;
+    public static LodConfig of(int renderDistance, int lodMaxDistance) {
+        int ratio = (int) Math.ceil((double) lodMaxDistance / renderDistance);
+        int maxLevel = ratio <= 1 ? 1 : 32 - Integer.numberOfLeadingZeros(ratio - 1); // ceil(log2)
+        return new LodConfig(renderDistance, lodMaxDistance, Math.clamp(maxLevel, 1, 5));
     }
 
-    /** Zellgröße eines Levels in Blöcken (2^L; sanitize begrenzt auf max. 5 Level = 32). */
+    /** LOD-Level (1..maxLevel) für eine Distanz in Blöcken; innen wird auf L1 geklemmt. */
+    public int levelAt(double distBlocks) {
+        int n = (int) (distBlocks / (this.renderDistance * 32.0));
+        if (n < 1) return 1;
+        int level = 32 - Integer.numberOfLeadingZeros(n); // floor(log2(n)) + 1
+        return Math.min(level, this.maxLevel);
+    }
+
+    /** Zellgröße (Stride) eines Levels in Blöcken (2^L, max 32). */
     public int cellSize(int level) {
         return 1 << level;
     }
 
-    /** Äußerer Rand des letzten LOD-Rings in Blöcken. */
+    /** Äußerer LOD-Rand in Blöcken (Desired-Deckel; die Level-Formel selbst bleibt pur). */
     public double outerRadiusBlocks() {
-        return this.rings[this.rings.length - 1] * 32.0;
-    }
-
-    /**
-     * Radius in Blöcken, innerhalb dessen LOD-Zellen übersprungen werden: der äußerste
-     * geladene Chunk-Ring wird nie gemesht (8-Nachbarn-Bedingung) und die Mesh-Grenze ist
-     * ausgefranst → rd-2, plus 16 Toleranz für die Chunk-Quantisierung der Spielerposition.
-     * Überlappung mit echtem Terrain ist unkritisch (Sections zeichnen zuerst und gewinnen
-     * den Depth-Test), Lücken zeigen dagegen Himmel an Hang-Silhouetten.
-     */
-    public float clipRadius() {
-        return (this.renderDistance - 2) * 32.0F - 16.0F;
+        return this.lodMaxDistance * 32.0;
     }
 }
