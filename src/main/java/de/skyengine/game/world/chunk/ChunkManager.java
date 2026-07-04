@@ -27,13 +27,19 @@ public class ChunkManager {
 
     private int renderDistance = 16; // in chunks
 
+    /* Debug: friert Laden/Generieren/Unload ein (Remeshes von Spieler-Edits laufen weiter).
+       volatile nur der Sichtbarkeit halber — gelesen wird auf dem Tick-/Render-Thread. */
+    private volatile boolean loadingPaused = false;
+
     /* Begrenzt, wie viele Generierungs-Jobs pro Tick submitted werden.
        Hält die Executor-Queue kurz -> nahe Chunks neuer Positionen kommen schnell dran. */
     private static final int MAX_GENERATION_SUBMITS_PER_TICK = 64;
 
-    /* Job-Prioritäten für den Worker-Pool: Remeshes überholen den Initial-Load. */
+    /* Job-Prioritäten für den Worker-Pool: Remeshes überholen den Initial-Load;
+       LOD-Meshes laufen nur, wenn keine Chunk-Arbeit ansteht. */
     private static final int PRIO_REMESH = 0;
     private static final int PRIO_LOAD = 1;
+    private static final int PRIO_LOD = 2;
 
     private final AtomicLong taskSeq = new AtomicLong();
 
@@ -85,6 +91,20 @@ public class ChunkManager {
         this.workers.execute(new PrioTask(prio, this.taskSeq.getAndIncrement(), job));
     }
 
+    /** Reiht einen LOD-Mesh-Job mit niedrigster Priorität ein — verdrängt nie Chunk-Jobs. */
+    public void submitLodTask(Runnable job) {
+        this.submitTask(PRIO_LOD, job);
+    }
+
+    /** Debug: pausiert Laden/Generieren/Unload (Remeshes von Spieler-Edits laufen weiter). */
+    public void setLoadingPaused(boolean paused) {
+        this.loadingPaused = paused;
+    }
+
+    public boolean isLoadingPaused() {
+        return loadingPaused;
+    }
+
     /* PriorityBlockingQueue ist nicht stabil — seq hält gleiche Prioritäten in Einreihungs-
        Reihenfolge, sonst würde die Blickrichtungs-Sortierung der Lade-Jobs verwürfelt. */
     private record PrioTask(int prio, long seq, Runnable job) implements Runnable, Comparable<PrioTask> {
@@ -129,6 +149,8 @@ public class ChunkManager {
      * Reihenfolge: nah vor fern, in Blickrichtung vor dahinter (Score-Sort).
      */
     public void update(EntityPlayer player) {
+        if (this.loadingPaused) return;
+
         int pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         int pcz = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
 

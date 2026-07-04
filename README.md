@@ -3,7 +3,7 @@
 [![Java](https://img.shields.io/badge/Java-25-ED8B00?style=flat-square\&logo=openjdk)](https://openjdk.org)
 [![LWJGL](https://img.shields.io/badge/LWJGL-3-FFFFFF?style=flat-square)](https://www.lwjgl.org)
 [![OpenGL](https://img.shields.io/badge/OpenGL-4.6-5586A4?style=flat-square\&logo=opengl)](https://www.opengl.org)
-[![Gradle](https://img.shields.io/badge/Gradle-8-02303A?style=flat-square\&logo=gradle)](https://gradle.org)
+[![Gradle](https://img.shields.io/badge/Gradle-9-02303A?style=flat-square\&logo=gradle)](https://gradle.org)
 
 Eine moderne Voxel-Engine in Java, entwickelt mit LWJGL 3 und OpenGL. Das Ziel des Projekts ist die Entwicklung einer performanten und modularen Engine für voxelbasierte Welten mit Chunk-System, Mesh-Generierung und Echtzeit-Rendering.
 
@@ -28,13 +28,19 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
   - Flüssigkeiten wie Wasser und Lava mit Reaktionsverhalten für Obsidian, Cobblestone und Stein
 - 📜 Einfache GUI wie Hotbar des Spielers oder Truheninventar mit Item-Verschiebung via Maus
 - 🎲 Verschiedene Gamemode's wie Survival, Kreativ oder Zuschauer (Fliegen + NoClip)
+- 🔝 Optimizations & Features
+  - Frustum Culling
+  - Vertex Komprimierung zu 16 bits
+  - Nutzen von MultiDrawIndirect & BufferStorage -> Reduziert Draw-Calls von 12.288 auf 3 (16 Chunk Renderdistanz; 3 weil einen für OPAQUE, CUTOUT & TRANSLUCENT)
+  - Ambient Occlusion
+  - Level of Detail
 
 ## Development
 
 ### Prerequisites
 
 - Java 25
-- Gradle 8+
+- Gradle 9+
 
 ### Installation
 
@@ -55,13 +61,6 @@ gradlew build
 gradlew run
 ```
 
-## Screenshots
-
-![Ingame Screenshot mit Hotbar und Block Rendering](./screenshots/readme-1.png?raw=true)
-
-![Ingame Screenshot mit hoher Sichtweite im Spectator Modus](./screenshots/readme-2.png?raw=true)
-
-
 ## Goals
 
 Die Engine dient als Lern- und Entwicklungsprojekt für moderne Rendering-Techniken, Engine-Architekturen und die Optimierung voxelbasierter Welten.
@@ -73,8 +72,24 @@ Der Fokus liegt auf:
 - Erweiterbarkeit
 - Moderne OpenGL-Techniken
 
+## Screenshots
+
+v1.0.3 | Level of Detail (128 Render Distanz in Chunks bei >1000 FPS -> Entspricht in Minecraft einer Renderdistanz von 256)
+
+![Ingame Screenshot mit einer Renderdistanz von 16 L0 Chunks und ingesamt 128](./screenshots/readme-5.png?raw=true)
+
+v1.0.2 | Ambient Occlusion + Greedy Meshing + MultiDrawIndirect
+
+![Ingame Screenshot mit Ambient Occlusion, Greedy Meshing und MultiDrawIndirect](./screenshots/readme-3.png?raw=true)
+
+![Ingame Screenshot mit Weitsicht inkl. Ambient Occlusion, Greedy Meshing und MultiDrawIndirect](./screenshots/readme-4.png?raw=true)
+
+v1.0.0 | Blöcke wie Gras, Kreuz-Blöcke wie kurzes Gras oder Tulpen
+
+![Ingame Screenshot mit Hotbar und Block Rendering](./screenshots/readme-1.png?raw=true)
+
+![Ingame Screenshot mit hoher Sichtweite im Spectator Modus](./screenshots/readme-2.png?raw=true)
+
 ## License
 
-Dieses Repository ist ausschließlich zur Ansicht veröffentlicht.
-Eine Nutzung, Vervielfältigung oder Weiterverwendung des Codes
-ist ohne ausdrückliche Genehmigung nicht gestattet.
+Dieses Repository ist ausschließlich zur Ansicht veröffentlicht. Eine Nutzung, Vervielfältigung oder Weiterverwendung des Codes ist ohne ausdrückliche Genehmigung nicht gestattet.

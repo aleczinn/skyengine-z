@@ -40,6 +40,12 @@ public final class GameSettings {
     public volatile boolean ambientOcclusion = true;
     /* Anisotropes Filtern (1 = aus .. 16), wird beim Erzeugen des TextureArrays angewandt */
     public int anisotropicFiltering = 16;
+    /* Heightmap-LOD jenseits der Render-Distanz (Fernsicht) */
+    public boolean lodEnabled = true;
+    /* Äußerste LOD-Reichweite in Chunks. Level ergeben sich automatisch: Level L endet bei
+       renderDistance·2^L, gedeckelt bei lodMaxDistance (rd16/lod128 → L1 16-32, L2 32-64,
+       L3 64-128). lodMaxDistance <= renderDistance schaltet das LOD faktisch ab. */
+    public int lodMaxDistance = 128;
     public Map<String, Integer> keyBindings = KeyBindings.defaults();
 
     public static GameSettings get() {
@@ -95,6 +101,7 @@ public final class GameSettings {
         this.simulationDistance = Math.clamp(this.simulationDistance, 2, 32);
         this.fov = Math.clamp(this.fov, 30, 120);
         this.anisotropicFiltering = Math.clamp(this.anisotropicFiltering, 1, 16);
+        this.lodMaxDistance = Math.clamp(this.lodMaxDistance, 8, 512);
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.keyBindings == null) {

@@ -104,6 +104,11 @@ public class Camera {
         this.fov = fov;
     }
 
+    /** Sichtweite der Projektion (in Blöcken) — mit LOD hinter den äußersten Ring gelegt. */
+    public void setFarPlane(float farPlane) {
+        this.farPlane = farPlane;
+    }
+
     public void setInverseDepth(boolean value) {
         this.inverseDepth = value;
     }
