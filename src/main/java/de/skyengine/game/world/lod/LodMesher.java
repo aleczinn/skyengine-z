@@ -184,6 +184,18 @@ public final class LodMesher {
         return this.cells[(cz + 1) * this.stride + (cx + 1)];
     }
 
+    /**
+     * Clip-Status einer (Nachbar-)Zelle — die Masken-Kante (geclippt ↔ ungeclippt) braucht
+     * dieselben Skirts wie Regionsränder, sonst blitzen an der L0-Naht ~1 Block hohe
+     * Schlitze durch (echte Säulen variieren gegenüber dem Zentrum-Sample). Außerhalb der
+     * Region false: dort greift das Regionsrand-edge-Flag (Maske kennt nur eigene Chunks).
+     */
+    private boolean neighborClipped(int cx, int cz) {
+        int n = this.cellCount;
+        if (cx < 0 || cx >= n || cz < 0 || cz >= n) return false;
+        return this.clipped[cz * n + cx];
+    }
+
     /** Sichtbare Oberkante einer Zelle: Fluide auf Quellhöhe (8/9), sonst Blockoberkante (+1). */
     private float topOf(long sample) {
         int h = LodDataSource.height(sample);
@@ -206,15 +218,19 @@ public final class LodMesher {
             long nSample = this.cell(cx, cz + dz);
             float top = this.topOf(sample);
             float nTop = this.topOf(nSample);
-            if (!edge && nTop >= top) {
+            /* Skirt an Regionsrand- UND Masken-Kanten (geclippter Nachbar = L0-Naht) */
+            boolean nClipped = this.neighborClipped(cx, cz + dz);
+            boolean skirt = edge || nClipped;
+            if (!skirt && nTop >= top) {
                 cx++;
                 continue;
             }
             int run = 1;
             while (cx + run < n && run < maxRun && !this.clipped[cz * n + cx + run]
-                    && this.cell(cx + run, cz) == sample && this.cell(cx + run, cz + dz) == nSample) run++;
+                    && this.cell(cx + run, cz) == sample && this.cell(cx + run, cz + dz) == nSample
+                    && this.neighborClipped(cx + run, cz + dz) == nClipped) run++;
 
-            float bottom = Math.max(0F, Math.min(nTop, top) - (edge ? this.edgeSkirt : 0F));
+            float bottom = Math.max(0F, Math.min(nTop, top) - (skirt ? this.edgeSkirt : 0F));
             float x0 = cx * s, x1 = (cx + run) * s;
             float z = (dz < 0 ? cz : cz + 1) * s;
             int block = LodDataSource.block(sample);
@@ -240,15 +256,19 @@ public final class LodMesher {
             long nSample = this.cell(cx + dx, cz);
             float top = this.topOf(sample);
             float nTop = this.topOf(nSample);
-            if (!edge && nTop >= top) {
+            /* Skirt an Regionsrand- UND Masken-Kanten (geclippter Nachbar = L0-Naht) */
+            boolean nClipped = this.neighborClipped(cx + dx, cz);
+            boolean skirt = edge || nClipped;
+            if (!skirt && nTop >= top) {
                 cz++;
                 continue;
             }
             int run = 1;
             while (cz + run < n && run < maxRun && !this.clipped[(cz + run) * n + cx]
-                    && this.cell(cx, cz + run) == sample && this.cell(cx + dx, cz + run) == nSample) run++;
+                    && this.cell(cx, cz + run) == sample && this.cell(cx + dx, cz + run) == nSample
+                    && this.neighborClipped(cx + dx, cz + run) == nClipped) run++;
 
-            float bottom = Math.max(0F, Math.min(nTop, top) - (edge ? this.edgeSkirt : 0F));
+            float bottom = Math.max(0F, Math.min(nTop, top) - (skirt ? this.edgeSkirt : 0F));
             float z0 = cz * s, z1 = (cz + run) * s;
             float x = (dx < 0 ? cx : cx + 1) * s;
             int block = LodDataSource.block(sample);
