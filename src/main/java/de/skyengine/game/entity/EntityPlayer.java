@@ -30,7 +30,7 @@ public class EntityPlayer extends Entity {
     private static final double AIR_DRAG_VERTICAL = 0.98;
 
     private static final double FLY_ACCEL = 0.065;
-    private static final double FLY_SPRINT_FACTOR = 20.5;
+    private static final double FLY_SPRINT_FACTOR = 2.5;
     private static final double FLY_VERTICAL_FACTOR = 0.6;   // Hoch/Runter langsamer als Vorwärts
     private static final double FLY_DRAG = 0.88;
     private static final double FLY_DRAG_Y = 0.6;
