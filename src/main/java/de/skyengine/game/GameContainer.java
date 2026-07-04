@@ -614,7 +614,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     /** Sichtweite der Projektion: mit LOD hinter den äußersten Ring gelegt, sonst wie bisher 1500. */
     private float computeFarPlane() {
         if (!this.settings.lodEnabled) return 1500.0F;
-        return (this.settings.lodRings[this.settings.lodRings.length - 1] + 8) * 32.0F;
+        return (Math.max(this.settings.lodMaxDistance, this.settings.renderDistance) + 8) * 32.0F;
     }
 
     /** Holt eine angeforderte Screenshot-Aufnahme ab und setzt das Flag zurück. */

@@ -12,16 +12,20 @@ public class LodMesh {
 
     public final int rx, rz;      // Regionskoordinaten (1 Region = 128 Blöcke)
     public final int level;       // LOD-Level (Zellgröße 2^level Blöcke)
-    public final float minY, maxY; // y-Bereich der Surface (fürs Frustum-AABB)
+    /* Y-Basis: Vertices sind relativ dazu gepackt (u16 trägt nur ~254 Blöcke Spanne);
+       der Renderer addiert yBase im Draw-Offset. */
+    public final int yBase;
+    public final float minY, maxY; // absoluter y-Bereich (fürs Frustum-AABB)
 
     private final VertexArena.Region region;
     private final int quadCount;
 
     /** Alloziert die Arena-Region und lädt die Mesh-Daten hoch. Render-Thread. */
-    public LodMesh(int rx, int rz, int level, int[] data, float minY, float maxY, VertexArena arena) {
+    public LodMesh(int rx, int rz, int level, int yBase, int[] data, float minY, float maxY, VertexArena arena) {
         this.rx = rx;
         this.rz = rz;
         this.level = level;
+        this.yBase = yBase;
         this.minY = minY;
         this.maxY = maxY;
         this.quadCount = data.length / (4 * ChunkMesher.VERTEX_SIZE);

@@ -27,6 +27,13 @@ public final class FluidGeometry {
     /** Default-Wasserfarbe (gepackt 0xRRGGBB). Später positions-/biome-abhängig. Auch vom LOD genutzt. */
     public static final int WATER_TINT = 0x4076E6;
 
+    /**
+     * Oberkante einer stillen Quelle (Level 0) nach der Formel {@code (8 - level) / 9}
+     * (s. {@link #ownHeight}). Das LOD setzt seine Fluid-Zellen exakt auf diese Höhe —
+     * gleiche Pack-Quantisierung wie das echte stille Wasser → koplanar, kein Z-Fighting.
+     */
+    public static final float SOURCE_HEIGHT = 8F / 9F;
+
     private FluidGeometry() {}
 
     public static BakedQuad[] build(BlockState state,
