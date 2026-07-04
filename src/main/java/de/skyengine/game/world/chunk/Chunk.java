@@ -33,6 +33,12 @@ public class Chunk {
     public volatile ChunkStatus status = ChunkStatus.NEW;
     private final AtomicInteger dirtySections = new AtomicInteger(0);
 
+    /* Vom Renderer angewendete Section-Uploads. READY heißt nur "Batches eingereiht" —
+       erst ab SECTIONS angewendeten Batches ist der Chunk wirklich sichtbar (die LOD-Maske
+       wartet darauf, sonst reißt sie Löcher vor dem Upload). Nur der Render-Thread schreibt
+       (applyBatch), gelesen wird auf demselben Thread — keine Synchronisation nötig. */
+    private int uploadedSections;
+
     /* Schützt die Section-Container (PalettedContainer + sections[]-Allokation) gegen
        gleichzeitige Worker-Mesh-Reads und Render-Thread-Writes. Mesh-Jobs nehmen den
        Read-Lock, World.setBlockRaw den Write-Lock. */
@@ -41,6 +47,16 @@ public class Chunk {
     public Chunk(int chunkX, int chunkZ) {
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
+    }
+
+    /** Renderer meldet einen angewendeten Section-Upload (Remesh-Batches sättigen harmlos). */
+    public void markSectionUploaded() {
+        this.uploadedSections++;
+    }
+
+    /** true, sobald alle 16 Initial-Section-Meshes vom Renderer angewendet wurden. */
+    public boolean isFullyUploaded() {
+        return this.uploadedSections >= SECTIONS;
     }
 
     /**
