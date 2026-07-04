@@ -24,7 +24,7 @@ public final class TestTreeFeature implements Feature {
         int wx = placer.sourceMinX() + rng.nextInt(ChunkSection.SIZE);
         int wz = placer.sourceMinZ() + rng.nextInt(ChunkSection.SIZE);
         int trunkHeight = 6 + rng.nextInt(7); // 6..12
-        int radius = 4 + rng.nextInt(13);     // 4..16 -> Kronen kreuzen regelmäßig Grenzen
+        int radius = 2 + rng.nextInt(3);      // 2..4 -> realistische Größe; ~40% kreuzen trotzdem Grenzen
 
         /* Nur auf Grasflächen (pures Sampling — keine Chunk-Reads für die Platzierung!) */
         if (placer.surfaceBlock(wx, wz) != Blocks.GRASS_BLOCK) return;
