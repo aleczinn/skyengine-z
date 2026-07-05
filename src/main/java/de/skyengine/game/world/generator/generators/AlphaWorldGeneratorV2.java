@@ -48,6 +48,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     private static final float CHEESE_THRESHOLD = 0.62F;
     /* Tunnel (Spaghetti): beide Noises gleichzeitig nahe null */
     private static final float SPAGHETTI_THRESHOLD = 0.06F;
+    /* Gesteins-Adern: Noise-Extreme werden zu Diorit/Granit/Andesit-Blasen im Stein */
+    private static final float STONE_VEIN_THRESHOLD = 0.62F;
 
     private final ClimateSampler climate;
     /* Lokales Terrain-Detail; Amplitude skaliert mit der Erosion (glatt vs. zerklueftet) */
@@ -64,6 +66,11 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     private final FastNoiseLite cheeseNoise;
     private final FastNoiseLite spaghettiNoise1;
     private final FastNoiseLite spaghettiNoise2;
+    /* Gesteinsvarianten im Untergrund: Noise 1 -> Granit (+)/Diorit (-), Noise 2 -> Andesit.
+     * Zwei getrennte glatte Noises statt Mittelband auf einem — ein Mittelband ergaebe
+     * Schalen um jede Granit-/Diorit-Blase statt eigener Adern. */
+    private final FastNoiseLite stoneNoise1;
+    private final FastNoiseLite stoneNoise2;
 
     /* Generierungszeit-Statistik (threadsicher, Log alle 256 Chunks) */
     private final AtomicLong generateNanos = new AtomicLong();
@@ -115,6 +122,18 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         this.spaghettiNoise2 = new FastNoiseLite(seed + 17);
         this.spaghettiNoise2.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.spaghettiNoise2.SetFrequency(0.01F);
+
+        this.stoneNoise1 = new FastNoiseLite(seed + 18);
+        this.stoneNoise1.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
+        this.stoneNoise1.SetFractalType(FastNoiseLite.FractalType.FBm);
+        this.stoneNoise1.SetFractalOctaves(2);
+        this.stoneNoise1.SetFrequency(0.03F);
+
+        this.stoneNoise2 = new FastNoiseLite(seed + 19);
+        this.stoneNoise2.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
+        this.stoneNoise2.SetFractalType(FastNoiseLite.FractalType.FBm);
+        this.stoneNoise2.SetFractalOctaves(2);
+        this.stoneNoise2.SetFrequency(0.03F);
     }
 
     @Override
@@ -281,6 +300,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         float[] cheeseGrid = new float[gridsY * gridsXZ * gridsXZ];
         float[] sp1Grid = new float[gridsY * gridsXZ * gridsXZ];
         float[] sp2Grid = new float[gridsY * gridsXZ * gridsXZ];
+        float[] stone1Grid = new float[gridsY * gridsXZ * gridsXZ];
+        float[] stone2Grid = new float[gridsY * gridsXZ * gridsXZ];
         for (int gy = 0; gy < gridsY; gy++) {
             float y = gy * GRID_Y;
             for (int gx = 0; gx < gridsXZ; gx++) {
@@ -293,6 +314,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                     cheeseGrid[gi] = this.cheeseNoise.GetNoise(wx, y, wz);
                     sp1Grid[gi] = this.spaghettiNoise1.GetNoise(wx, y, wz);
                     sp2Grid[gi] = this.spaghettiNoise2.GetNoise(wx, y, wz);
+                    stone1Grid[gi] = this.stoneNoise1.GetNoise(wx, y, wz);
+                    stone2Grid[gi] = this.stoneNoise2.GetNoise(wx, y, wz);
                 }
             }
         }
@@ -303,6 +326,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         float[] colCheese = new float[gridsY];
         float[] colSp1 = new float[gridsY];
         float[] colSp2 = new float[gridsY];
+        float[] colStone1 = new float[gridsY];
+        float[] colStone2 = new float[gridsY];
         boolean[] solid = new boolean[yTop + 1];
 
         for (int x = 0; x < size; x++) {
@@ -316,6 +341,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                 bilinearColumn(cheeseGrid, gridsXZ, gridsY, x, z, colCheese);
                 bilinearColumn(sp1Grid, gridsXZ, gridsY, x, z, colSp1);
                 bilinearColumn(sp2Grid, gridsXZ, gridsY, x, z, colSp2);
+                bilinearColumn(stone1Grid, gridsXZ, gridsY, x, z, colStone1);
+                bilinearColumn(stone2Grid, gridsXZ, gridsY, x, z, colStone2);
 
                 /* Ozean-/Flussboeden nicht anstechen, sonst laeuft das Wasser in die Hoehle */
                 boolean protectFloor = h2d < SEA_LEVEL + 2;
@@ -350,7 +377,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                     int block;
                     if (y == topSolid) block = tops[i];
                     else if (y >= topSolid - 3) block = fillers[i];
-                    else block = Blocks.STONE;
+                    else block = stoneAt(colStone1, colStone2, y);
                     chunk.setBlock(x, y, z, block);
                 }
 
@@ -484,6 +511,15 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                 return;
             }
         }
+    }
+
+    /** Gesteinsvariante im Untergrund: Noise-Extreme streuen Granit/Diorit/Andesit in den Stein. */
+    private static int stoneAt(float[] colStone1, float[] colStone2, int y) {
+        float n1 = lerpColumn(colStone1, y);
+        if (n1 > STONE_VEIN_THRESHOLD) return Blocks.GRANITE;
+        if (n1 < -STONE_VEIN_THRESHOLD) return Blocks.DIORITE;
+        if (lerpColumn(colStone2, y) > STONE_VEIN_THRESHOLD) return Blocks.ANDESITE;
+        return Blocks.STONE;
     }
 
     /** Bilineare Interpolation eines Noise-Grids auf die Block-Spalte (x, z) — ein Wert pro Grid-Layer. */

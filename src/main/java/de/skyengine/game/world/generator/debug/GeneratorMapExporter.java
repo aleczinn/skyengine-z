@@ -145,6 +145,10 @@ public final class GeneratorMapExporter {
         colors.put(Blocks.SNOW, 0xF8FCFC);
         colors.put(Blocks.STONE, 0x707070);
         colors.put(Blocks.DIRT, 0x8B5A2B);
+        /* Gesteinsvarianten kontrastreich, damit Adern im Querschnitt auffallen */
+        colors.put(Blocks.GRANITE, 0xB06050);
+        colors.put(Blocks.DIORITE, 0xE8E8E8);
+        colors.put(Blocks.ANDESITE, 0x4A6A4A);
         return colors;
     }
 
