@@ -3,6 +3,7 @@
   "type": "cube",
   "layer": "cutout",
   "opaque": false,
+  "tint": "foliage",
   "textures": {
     "all": "game/textures/block/oak_leaves.png"
   }

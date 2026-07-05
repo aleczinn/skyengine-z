@@ -46,6 +46,29 @@ public final class BlockModels {
         return cube(all, all, all);
     }
 
+    /* 1/64 Block: exakt 4 Einheiten im 8.8-Fixed-Format des Meshers — das Overlay liegt damit
+       garantiert VOR der (greedy-gemergten) Basis-Seite, kein Z-Fighting bei Reversed-Z. */
+    public static final float OVERLAY_OFFSET = 1F / 64F;
+
+    /**
+     * Getintete Seiten-Overlay-Quads (Faces north/south/west/east), um {@link #OVERLAY_OFFSET}
+     * nach außen versetzt (Grasblock: Grasrand über der Dirt-Seite). CullFace/Helligkeit wie
+     * die jeweilige Basis-Seite — AO im Mesher greift damit identisch.
+     */
+    public static BakedQuad[] overlaySides(int textureLayer, int tint) {
+        BakedQuad[] out = new BakedQuad[4];
+        for (int face = 2; face < 6; face++) {
+            float[] verts = FACE_VERTICES[face].clone();
+            int axis = face <= 3 ? 2 : 0;                       // north/south: z, west/east: x
+            float value = (face & 1) == 0 ? -OVERLAY_OFFSET : 1F + OVERLAY_OFFSET; // 2/4 = Minus-Seite
+            for (int v = 0; v < 6; v++) {
+                verts[v * 5 + axis] = value;
+            }
+            out[face - 2] = new BakedQuad(verts, textureLayer, face, FACE_BRIGHTNESS[face], tint);
+        }
+        return out;
+    }
+
     /**
      * Cross-Modell (Gras, Blumen, Setzlinge): 2 diagonale Ebenen, jeweils
      * doppelseitig gebacken (GL_CULL_FACE bleibt damit global an).
