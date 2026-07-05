@@ -220,12 +220,30 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     /** Deckmaterial an (wx, wz) — von generate() UND LOD genutzt (geteilte Logik gegen Naehte). */
     private int surfaceTop(int wx, int wz, int height, Biome biome) {
         if (height < SEA_LEVEL) {
-            /* Unterwasser-Boden: Sand ufernah, dann Ton in ruhigen Flecken, Kies in der Tiefe */
+            /* Unterwasser-Boden: tiefenabhaengig gemischte Flecken aus Sand/Ton/Erde/Kies
+             * statt Ein-Material-Zonen; zwei dekorrelierte Samples desselben Noise
+             * (Skalen-Offset-Muster wie V1) fuer unabhaengige Fleckenmuster */
             int depth = SEA_LEVEL - height;
-            if (depth <= 4) return Blocks.SAND;
-            float floor = this.floorNoise.GetNoise(wx, wz);
-            if (depth <= 9) return (floor > 0.35F) ? Blocks.CLAY : Blocks.SAND;
-            return (floor > 0.45F) ? Blocks.CLAY : Blocks.GRAVEL;
+            float n1 = this.floorNoise.GetNoise(wx, wz);
+            float n2 = this.floorNoise.GetNoise(wx * 1.7F + 537F, wz * 1.7F + 537F);
+
+            if (depth <= 3) {
+                /* Ufer: Sand-Basis mit Erd- und Kiesflecken */
+                if (n2 > 0.5F) return Blocks.DIRT;
+                if (n1 < -0.6F) return Blocks.GRAVEL;
+                return Blocks.SAND;
+            }
+            if (depth <= 9) {
+                /* Flachwasser: ausgewogene Mischung */
+                if (n1 > 0.4F) return Blocks.CLAY;
+                if (n1 < -0.4F) return Blocks.GRAVEL;
+                return (n2 > 0.3F) ? Blocks.DIRT : Blocks.SAND;
+            }
+            /* Tiefe: Kies dominiert, aber mit Ton-, Erd- und Sandbaenken durchsetzt */
+            if (n2 > 0.5F) return Blocks.SAND;
+            if (n1 > 0.4F) return Blocks.CLAY;
+            if (n2 < -0.45F) return Blocks.DIRT;
+            return Blocks.GRAVEL;
         }
 
         /* Stein-/Schneegrenze mit verwackelten Hoehenlinien (nur Gebirge erreicht diese Hoehen) */
@@ -250,10 +268,10 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         return this.surfaceTop(x, z, height, this.biomeAt(x, z));
     }
 
-    /** Fuellmaterial unter dem Deckblock (3 Schichten). */
+    /** Fuellmaterial unter dem Deckblock (variable Schichtdicke, s. generate). */
     private static int fillerFor(int top, Biome biome) {
         if (top == Blocks.SAND) return Blocks.SANDSTONE;
-        if (top == Blocks.GRAVEL || top == Blocks.CLAY) return top;
+        if (top == Blocks.GRAVEL || top == Blocks.CLAY || top == Blocks.DIRT) return top;
         if (top == Blocks.SNOW || top == Blocks.STONE) return Blocks.STONE;
         /* Gras immer auf Erde — auch auf Inseln, deren Biom OCEAN ist (fillerBlock = Kies) */
         if (top == Blocks.GRASS_BLOCK) return Blocks.DIRT;
