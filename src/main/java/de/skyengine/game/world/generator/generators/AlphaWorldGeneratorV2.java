@@ -66,6 +66,9 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     /* Kontinentalwellen: sehr niederfrequente Hebung/Senkung ganzer Regionen (~12k Bloecke),
      * damit die Welt aus LOD-Distanz nicht wie eine flache Scheibe wirkt */
     private final FastNoiseLite upliftNoise;
+    /* Bergform-Vielfalt: langsam wechselndes Noise, das lokal die Ridged-Schaerfe kappt —
+     * statt durchgehend spitzer Grate entstehen Hochebenen, breite Ruecken und offene Taeler */
+    private final FastNoiseLite plateauNoise;
     /* Lokales Terrain-Detail; Amplitude skaliert mit der Erosion (glatt vs. zerklueftet) */
     private final FastNoiseLite detailNoise;
     /* Berg-Form: Ridged-Fraktal fuer Grate und Gipfel */
@@ -154,6 +157,12 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         this.upliftNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.upliftNoise.SetFractalOctaves(2);
         this.upliftNoise.SetFrequency(0.00008F);
+
+        this.plateauNoise = new FastNoiseLite(seed + 21);
+        this.plateauNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
+        this.plateauNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
+        this.plateauNoise.SetFractalOctaves(2);
+        this.plateauNoise.SetFrequency(0.0006F);
     }
 
     @Override
@@ -171,11 +180,16 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         /* Erosion moduliert das lokale Detail: glatte Ebenen vs. schroffe Huegel */
         h += this.detailNoise.GetNoise(x, z) * lerp(4F, 36F, this.ruggedness(c));
 
-        /* Berg-Aufschlag nur, wo das Gebirgs-Gewicht wirkt (deckungsgleich mit EXTREME_HILLS) */
+        /* Berg-Aufschlag nur, wo das Gebirgs-Gewicht wirkt (deckungsgleich mit EXTREME_HILLS).
+         * Das Plateau-Noise kappt lokal die Ridged-Spitzen: steilere Flanken (x1.25), aber
+         * Deckel bei 0.52 -> Hochebenen und breite Ruecken statt durchgehender Nadel-Grate;
+         * wo flatness hoch UND ridged niedrig ist, bleiben offene Talboeden im Gebirge. */
         float m = Biomes.mountainWeight(c);
         if (m > 0F) {
             float ridged = (this.mountainNoise.GetNoise(x, z) + 1F) * 0.5F;
-            h += m * ridged * MOUNTAIN_AMP;
+            float flatness = smoothstep((this.plateauNoise.GetNoise(x, z) - 0.05F) / 0.45F);
+            float shape = lerp(ridged, Math.min(ridged * 1.25F, 0.52F), flatness);
+            h += m * shape * MOUNTAIN_AMP;
         }
 
         h = this.carveRiver(x, z, h, c);
@@ -185,10 +199,10 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     }
 
     /**
-     * Kontinentalwellen-Offset: sehr niederfrequente Hebung/Senkung (bis ±{@link #UPLIFT_AMP})
-     * des Grundniveaus ganzer Regionen. Zur Kueste hin auf 0 ausgeblendet, damit die
-     * Kuestenlinie am Meeresspiegel verankert bleibt; abgesenkte Binnenregionen koennen
-     * dadurch bewusst unter den Meeresspiegel fallen (Binnenseen).
+     * Kontinentalwellen-Offset: sehr niederfrequente Hebung/Senkung (~+75 bis −35) des
+     * Grundniveaus ganzer Regionen. Zur Kueste hin auf 0 ausgeblendet, damit die
+     * Kuestenlinie am Meeresspiegel verankert bleibt; abgesenktes hohes Binnenland kann
+     * bewusst gelegentlich unter den Meeresspiegel fallen (Binnenseen).
      */
     private float upliftOffset(int x, int z, Climate c) {
         float gate = smoothstep((c.continentalness() - Biomes.C_BEACH) / 0.25F);
