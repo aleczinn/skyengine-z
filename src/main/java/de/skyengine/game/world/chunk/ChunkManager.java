@@ -2,6 +2,7 @@ package de.skyengine.game.world.chunk;
 
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.generator.WorldGenerator;
+import de.skyengine.game.world.generator.feature.ChunkDecorator;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -17,6 +18,7 @@ public class ChunkManager {
     private final ConcurrentHashMap<Long, Chunk> chunks = new ConcurrentHashMap<>();
     private final ExecutorService workers;
     private final WorldGenerator generator;
+    private final ChunkDecorator decorator;
 
     /* Worker -> render thread: Ein Batch wird immer komplett im selben Frame angewendet */
     private final ConcurrentLinkedQueue<MeshBatch> uploadQueue = new ConcurrentLinkedQueue<>();
@@ -71,8 +73,9 @@ public class ChunkManager {
 
     public record MeshBatch(List<MeshResult> results) {}
 
-    public ChunkManager(WorldGenerator generator) {
+    public ChunkManager(WorldGenerator generator, ChunkDecorator decorator) {
         this.generator = generator;
+        this.decorator = decorator;
 
         int threads = Math.max(2, Runtime.getRuntime().availableProcessors() - 2);
         /* Prioritäts-Queue statt FIFO: Edit-Remeshes (PRIO_REMESH) überholen wartende
@@ -145,7 +148,7 @@ public class ChunkManager {
     }
 
     /**
-     * Einmal pro TICK: Chunks erzeugen, generieren, Erst-Mesh, Unload.
+     * Einmal pro TICK: Chunks erzeugen, generieren, dekorieren, Erst-Mesh, Unload.
      * Reihenfolge: nah vor fern, in Blickrichtung vor dahinter (Score-Sort).
      */
     public void update(EntityPlayer player) {
@@ -199,15 +202,33 @@ public class ChunkManager {
                 });
             }
 
-            /* 2. Erst-Mesh: alle 16 Sections, sobald alle 8 Nachbarn generiert sind (Diagonalen
-               braucht die Fluid-Eckhöhen-Berechnung an Chunk-Ecken).
-               Jede Section als eigener Batch, damit der Upload über Frames verteilt wird. */
+            /* 2. Dekoration (Feature-Pass, Scheiben-Modell): sobald das 3x3-Umfeld Terrain hat.
+               Der Manager wartet hier nur ab - der Job stößt selbst nie Generierung an. */
             if (chunk.status == ChunkStatus.GENERATED) {
-                Chunk north = this.getGenerated(cx, cz - 1);
-                Chunk south = this.getGenerated(cx, cz + 1);
-                Chunk west = this.getGenerated(cx - 1, cz);
-                Chunk east = this.getGenerated(cx + 1, cz);
-                Chunk[] diagonals = this.getGeneratedDiagonals(cx, cz);
+                if (this.getAtLeast(cx, cz - 1, ChunkStatus.GENERATED) == null
+                        || this.getAtLeast(cx, cz + 1, ChunkStatus.GENERATED) == null
+                        || this.getAtLeast(cx - 1, cz, ChunkStatus.GENERATED) == null
+                        || this.getAtLeast(cx + 1, cz, ChunkStatus.GENERATED) == null
+                        || this.getDiagonalsAtLeast(cx, cz, ChunkStatus.GENERATED) == null) continue;
+
+                chunk.status = ChunkStatus.DECORATING;
+                Chunk finalChunk = chunk;
+                this.submitTask(PRIO_LOAD, () -> {
+                    this.decorator.decorate(finalChunk);
+                    finalChunk.status = ChunkStatus.DECORATED;
+                });
+            }
+
+            /* 3. Erst-Mesh: alle 16 Sections, sobald alle 8 Nachbarn dekoriert sind - erst dann
+               stehen die Feature-Scheiben an den Rändern fest (Diagonalen braucht zusätzlich
+               die Fluid-Eckhöhen-Berechnung an Chunk-Ecken).
+               Jede Section als eigener Batch, damit der Upload über Frames verteilt wird. */
+            if (chunk.status == ChunkStatus.DECORATED) {
+                Chunk north = this.getAtLeast(cx, cz - 1, ChunkStatus.DECORATED);
+                Chunk south = this.getAtLeast(cx, cz + 1, ChunkStatus.DECORATED);
+                Chunk west = this.getAtLeast(cx - 1, cz, ChunkStatus.DECORATED);
+                Chunk east = this.getAtLeast(cx + 1, cz, ChunkStatus.DECORATED);
+                Chunk[] diagonals = this.getDiagonalsAtLeast(cx, cz, ChunkStatus.DECORATED);
                 if (north == null || south == null || west == null || east == null || diagonals == null) continue;
 
                 chunk.status = ChunkStatus.MESHING;
@@ -229,9 +250,10 @@ public class ChunkManager {
             }
         }
 
-        /* 3. Unload chunks far outside the render distance.
-           READY und GENERATED dürfen weg - nur laufende Jobs (GENERATING/MESHING)
-           bleiben, bis sie fertig sind, sonst arbeiten Worker auf entfernten Chunks. */
+        /* 4. Unload chunks far outside the render distance.
+           READY, DECORATED und GENERATED dürfen weg - nur laufende Jobs
+           (GENERATING/DECORATING/MESHING) bleiben, bis sie fertig sind,
+           sonst arbeiten Worker auf entfernten Chunks. */
         int unloadDist = this.renderDistance + 2;
         Iterator<Map.Entry<Long, Chunk>> it = this.chunks.entrySet().iterator();
         while (it.hasNext()) {
@@ -240,7 +262,8 @@ public class ChunkManager {
             if (dx * dx + dz * dz <= unloadDist * unloadDist) continue;
 
             ChunkStatus status = chunk.status;
-            if (status == ChunkStatus.READY || status == ChunkStatus.GENERATED || status == ChunkStatus.NEW) {
+            if (status == ChunkStatus.READY || status == ChunkStatus.DECORATED
+                    || status == ChunkStatus.GENERATED || status == ChunkStatus.NEW) {
                 it.remove();
                 /* Renderer disposes the GL meshes when it notices the chunk is gone */
             }
@@ -248,14 +271,15 @@ public class ChunkManager {
     }
 
     /**
-     * Setzt alle fertigen Chunks auf GENERATED zurück — der normale Lade-Pfad ({@link #update})
+     * Setzt alle fertigen Chunks auf DECORATED zurück (NICHT GENERATED — sonst würden sie
+     * erneut dekoriert und Features doppelt platziert) — der normale Lade-Pfad ({@link #update})
      * meshed sie dann progressiv neu (Blickrichtungs-Score, Upload-Budget). Für Settings, die
      * ins gebackene Mesh eingehen (z.B. Smooth Lighting): alte Meshes bleiben sichtbar, bis der
-     * Ersatz hochgeladen ist. Chunks, die gerade GENERATING/MESHING sind, bleiben unberührt.
+     * Ersatz hochgeladen ist. Chunks, die gerade GENERATING/DECORATING/MESHING sind, bleiben unberührt.
      */
     public void remeshAll() {
         for (Chunk chunk : this.chunks.values()) {
-            if (chunk.status == ChunkStatus.READY) chunk.status = ChunkStatus.GENERATED;
+            if (chunk.status == ChunkStatus.READY) chunk.status = ChunkStatus.DECORATED;
         }
     }
 
@@ -267,11 +291,11 @@ public class ChunkManager {
         for (Chunk chunk : this.chunks.values()) {
             if (chunk.status != ChunkStatus.READY || !chunk.hasDirtySections()) continue;
 
-            Chunk north = this.getGenerated(chunk.chunkX, chunk.chunkZ - 1);
-            Chunk south = this.getGenerated(chunk.chunkX, chunk.chunkZ + 1);
-            Chunk west = this.getGenerated(chunk.chunkX - 1, chunk.chunkZ);
-            Chunk east = this.getGenerated(chunk.chunkX + 1, chunk.chunkZ);
-            Chunk[] diagonals = this.getGeneratedDiagonals(chunk.chunkX, chunk.chunkZ);
+            Chunk north = this.getAtLeast(chunk.chunkX, chunk.chunkZ - 1, ChunkStatus.GENERATED);
+            Chunk south = this.getAtLeast(chunk.chunkX, chunk.chunkZ + 1, ChunkStatus.GENERATED);
+            Chunk west = this.getAtLeast(chunk.chunkX - 1, chunk.chunkZ, ChunkStatus.GENERATED);
+            Chunk east = this.getAtLeast(chunk.chunkX + 1, chunk.chunkZ, ChunkStatus.GENERATED);
+            Chunk[] diagonals = this.getDiagonalsAtLeast(chunk.chunkX, chunk.chunkZ, ChunkStatus.GENERATED);
             /* Nachbarn fehlen (Weltrand): Maske NICHT konsumieren, bleibt für später erhalten */
             if (north == null || south == null || west == null || east == null || diagonals == null) continue;
 
@@ -319,22 +343,22 @@ public class ChunkManager {
 
     /**
      * Die 4 diagonalen Nachbarn (Reihenfolge NW, NE, SW, SE — wie {@code FluidGeometry.sample}
-     * sie erwartet), oder null, wenn einer noch nicht generiert ist.
+     * sie erwartet), oder null, wenn einer den Mindest-Status noch nicht erreicht hat.
      */
-    private Chunk[] getGeneratedDiagonals(int cx, int cz) {
-        Chunk nw = this.getGenerated(cx - 1, cz - 1);
-        Chunk ne = this.getGenerated(cx + 1, cz - 1);
-        Chunk sw = this.getGenerated(cx - 1, cz + 1);
-        Chunk se = this.getGenerated(cx + 1, cz + 1);
+    private Chunk[] getDiagonalsAtLeast(int cx, int cz, ChunkStatus min) {
+        Chunk nw = this.getAtLeast(cx - 1, cz - 1, min);
+        Chunk ne = this.getAtLeast(cx + 1, cz - 1, min);
+        Chunk sw = this.getAtLeast(cx - 1, cz + 1, min);
+        Chunk se = this.getAtLeast(cx + 1, cz + 1, min);
         if (nw == null || ne == null || sw == null || se == null) return null;
         return new Chunk[]{nw, ne, sw, se};
     }
 
-    private Chunk getGenerated(int cx, int cz) {
+    /** Chunk an (cx, cz), sofern er mindestens den Status {@code min} erreicht hat — sonst null. */
+    private Chunk getAtLeast(int cx, int cz, ChunkStatus min) {
         Chunk chunk = this.chunks.get(Chunk.key(cx, cz));
         if (chunk == null) return null;
-        ChunkStatus status = chunk.status;
-        return (status == ChunkStatus.GENERATED || status == ChunkStatus.MESHING || status == ChunkStatus.READY) ? chunk : null;
+        return chunk.status.isAtLeast(min) ? chunk : null;
     }
 
     public Chunk getChunk(int chunkX, int chunkZ) {
