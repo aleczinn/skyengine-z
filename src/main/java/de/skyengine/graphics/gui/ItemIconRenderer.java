@@ -1,5 +1,6 @@
 package de.skyengine.graphics.gui;
 
+import de.skyengine.core.SkyEngine;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntityType;
@@ -30,9 +31,11 @@ import java.util.Map;
  * Nutzt die bereits gebackenen Block-Quads (inkl. Texturlayer + Helligkeit pro Fläche) und das
  * vorhandene Block-{@link TextureArray}. Das Mesh je Block wird einmal gebacken und gecacht.
  *
- * <p>Kein Tiefentest nötig: Back-Face-Culling (global an) lässt nur die drei sichtbaren Würfelseiten
- * übrig, die sich in der Projektion nicht überlappen. Reihenfolge der Icons ist daher egal; das
- * Cursor-Icon wird zuletzt gezeichnet und liegt dadurch oben.
+ * <p>3D-Icons laufen MIT Tiefentest: mehrteilige, sich durchdringende Modelle (Zaun: Balken
+ * stecken in den Pfosten) sind über die Zeichenreihenfolge allein nicht korrekt darstellbar.
+ * Vor jedem Icon wird der Tiefenpuffer geleert — dadurch liegt das zuletzt gezeichnete
+ * Cursor-Icon weiterhin über den Slot-Icons. Die Ortho-Projektion folgt dem aktiven
+ * Tiefen-Modus der Engine (Reversed-Z: nah→1 + GL_GREATER, sonst nah→0 + GL_LESS).
  */
 public final class ItemIconRenderer {
 
@@ -77,7 +80,13 @@ public final class ItemIconRenderer {
 
     /** Beginnt den Icon-Pass: Shader, Y-up-Ortho-Projektion und GL-State. (Virtueller GUI-Raum.) */
     public void begin(float vW, float vH) {
-        this.proj.identity().ortho(0, vW, 0, vH, -2000, 2000, true);
+        /* Near/Far passend zum aktiven Tiefen-Modus: Reversed-Z (global GL_GREATER, clearDepth 0)
+           braucht nah→1/fern→0, Standard-Z (GL_LESS, clearDepth 1) nah→0/fern→1. */
+        if (SkyEngine.get().getWindow().getProperties().isUseInverseDepth()) {
+            this.proj.identity().ortho(0, vW, 0, vH, 2000, -2000, true);
+        } else {
+            this.proj.identity().ortho(0, vW, 0, vH, -2000, 2000, true);
+        }
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
         this.textures.bind(0);
@@ -123,7 +132,12 @@ public final class ItemIconRenderer {
         Mesh mesh = this.cache.computeIfAbsent(stack.getItem(), this::bake);
         if (mesh == null || mesh.count == 0) return;
         this.shader.setUniformMatrix4f("u_MVP", this.mvp);
+        /* Tiefentest pro Icon: durchdringende Modellteile (Zaun-Balken in den Pfosten) brauchen
+           echte Verdeckung. Clear pro Icon -> das zuletzt gezeichnete Cursor-Icon bleibt oben. */
+        GL11.glEnable(GL11.GL_DEPTH_TEST);
+        GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
         mesh.render();
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
     }
 
     /** Zeichnet ein flaches, kamerazugewandtes Icon (kein Iso-Würfel) zentriert im Slot. */
