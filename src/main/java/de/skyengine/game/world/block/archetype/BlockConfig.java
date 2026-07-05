@@ -32,6 +32,7 @@ public final class BlockConfig {
     private final boolean tickRandomly;
     private final FluidInfo fluidInfo;
     private final int tint;
+    private final int tintType;
     private final int tintFaceMask;
     private final String overlayTexture;
     private final List<String> placeOn;
@@ -52,6 +53,7 @@ public final class BlockConfig {
         this.tickRandomly = b.tickRandomly;
         this.fluidInfo = b.fluidInfo;
         this.tint = b.tint;
+        this.tintType = b.tintType;
         this.tintFaceMask = b.tintFaceMask;
         this.overlayTexture = b.overlayTexture;
         this.placeOn = b.placeOn == null ? null : List.copyOf(b.placeOn);
@@ -73,6 +75,8 @@ public final class BlockConfig {
     public FluidInfo fluidInfo() { return fluidInfo; }
     /** Multiplikations-Tint 0xRRGGBB ({@code BakedQuad.WHITE} = neutral). */
     public int tint() { return tint; }
+    /** Biome-Tint-Typ ({@code BakedQuad.TINT_*}); NONE = fester Tint-Wert. */
+    public int tintType() { return tintType; }
     /** Bitmaske {@code 1 << face} der zu tintenden Faces; -1 = alle Quads (inkl. NO_CULL). */
     public int tintFaceMask() { return tintFaceMask; }
     /** Texturpfad für getintete Seiten-Overlay-Quads (Grasblock) oder null. */
@@ -102,6 +106,7 @@ public final class BlockConfig {
         private boolean tickRandomly;
         private FluidInfo fluidInfo;
         private int tint = de.skyengine.game.world.block.model.BakedQuad.WHITE;
+        private int tintType = de.skyengine.game.world.block.model.BakedQuad.TINT_NONE;
         private int tintFaceMask = -1;
         private String overlayTexture;
         private List<String> placeOn;
@@ -121,6 +126,7 @@ public final class BlockConfig {
         public Builder tickRandomly(boolean v) { this.tickRandomly = v; return this; }
         public Builder fluid(FluidInfo f) { this.fluidInfo = f; return this; }
         public Builder tint(int t) { this.tint = t; return this; }
+        public Builder tintType(int t) { this.tintType = t; return this; }
         public Builder tintFaces(int mask) { this.tintFaceMask = mask; return this; }
         public Builder overlayTexture(String path) { this.overlayTexture = path; return this; }
         public Builder placeOn(List<String> ids) { this.placeOn = ids; return this; }

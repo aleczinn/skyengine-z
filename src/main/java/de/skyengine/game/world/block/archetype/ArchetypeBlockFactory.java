@@ -58,6 +58,7 @@ public final class ArchetypeBlockFactory {
         /* Vegetations-Tint (Gras, Farn, Laub) - archetypübergreifend aus der JSON. */
         if (def.tint != null) {
             builder.tint(Tints.byName(def.tint));
+            builder.tintType(Tints.typeByName(def.tint));
             builder.tintFaces(parseFaceMask(def.tint_faces));
         }
         String overlay = def.textures.get("overlay");

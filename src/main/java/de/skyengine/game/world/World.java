@@ -23,8 +23,8 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
-import de.skyengine.game.world.generator.feature.TestTreeFeature;
-import de.skyengine.game.world.generator.generators.MountainWorldGeneratorV1;
+import de.skyengine.game.world.generator.feature.trees.BiomeTreeFeature;
+import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.lod.LodBlockAppearance;
 import de.skyengine.game.world.lod.LodManager;
@@ -84,10 +84,10 @@ public class World implements IInitializable, IDisposable {
 
     public World(String name) {
         this.name = name;
-        this.generator = new MountainWorldGeneratorV1(123);
-        /* Feature-Pass (Dekoration): Platzhalter-Baum, bis die echten Baum-Algorithmen kommen */
+        this.generator = new AlphaWorldGeneratorV2(123);
+        /* Feature-Pass (Dekoration): biome-abhaengige Baeume (featureId 0) */
         this.chunkManager = new ChunkManager(this.generator,
-                new ChunkDecorator(this.generator, List.of(new TestTreeFeature())));
+                new ChunkDecorator(this.generator, List.of(new BiomeTreeFeature())));
         this.chunkRenderer = new ChunkRenderer(this.chunkManager);
     }
 
