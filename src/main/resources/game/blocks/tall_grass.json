@@ -5,7 +5,7 @@
   "opaque": false,
   "solid": false,
   "tint": "grass",
-  "inventory_model": "block/tall_grass_top",
+  "icon_item": "game/textures/block/tall_grass_top.png",
   "textures": {
     "all": "game/textures/block/tall_grass_bottom.png"
   }

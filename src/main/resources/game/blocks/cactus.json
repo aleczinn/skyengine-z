@@ -3,6 +3,7 @@
   "type": "custom",
   "layer": "cutout",
   "opaque": false,
+  "place_on": ["skyengine:sand", "skyengine:cactus"],
   "textures": {
     "side": "game/textures/block/cactus_side.png"
   },
