@@ -2,6 +2,8 @@
   "id": "skyengine:enchanting_table",
   "type": "cube",
   "layer": "opaque",
+  "hardness": 5,
+  "tool": "pickaxe",
   "opaque": false,
   "block_entity": "skyengine:enchanting_table",
   "collision": {

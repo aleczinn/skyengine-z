@@ -1,0 +1,15 @@
+{
+  "id": "skyengine:acacia_slab",
+  "type": "slab",
+  "layer": "opaque",
+  "hardness": 2,
+  "tool": "axe",
+  "textures": {
+    "all": "game/textures/block/acacia_planks.png"
+  },
+  "variants": {
+    "type=bottom": { "model": "block/acacia_slab" },
+    "type=top":    { "model": "block/acacia_slab_top" },
+    "type=double": { "model": "block/acacia_planks" }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "skyengine:tall_grass",
+  "archetype": "tall_cross",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": false,
+  "tint": "grass",
+  "icon_item": "game/textures/block/tall_grass_top.png",
+  "textures": {
+    "all": "game/textures/block/tall_grass_bottom.png"
+  }
+}

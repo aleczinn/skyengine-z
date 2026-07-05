@@ -2,6 +2,8 @@
   "id": "skyengine:stone",
   "type": "cube",
   "layer": "opaque",
+  "hardness": 1.5,
+  "tool": "pickaxe",
   "textures": {
     "all": "game/textures/block/stone.png"
   }

@@ -293,7 +293,19 @@ public class ChunkRenderer {
 
         this.shader.setUniformf("u_AlphaCutoff", 0.5F);
         this.drawSegment(RenderLayer.OPAQUE, cmdOpaque, offOpaque, nOpaque);
+
+        /* CUTOUT mit "or-equal"-Depth-Func: die koplanaren Gras-Seiten-Overlays (identische
+           Vertices wie ihre OPAQUE-Basis-Seite) muessen den Tiefentest exakt gewinnen.
+           Reversed-Z: GREATER -> GEQUAL (Muster wie SelectionBoxRenderer). */
+        int prevDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
+        int orEqualFunc = switch (prevDepthFunc) {
+            case GL11.GL_GREATER -> GL11.GL_GEQUAL;
+            case GL11.GL_LESS -> GL11.GL_LEQUAL;
+            default -> prevDepthFunc;
+        };
+        GL11.glDepthFunc(orEqualFunc);
         this.drawSegment(RenderLayer.CUTOUT, cmdCutout, offCutout, nCutout);
+        GL11.glDepthFunc(prevDepthFunc);
 
         this.shader.unbind();
     }

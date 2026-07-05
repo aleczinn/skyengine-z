@@ -1,0 +1,16 @@
+{
+  "id": "skyengine:mangrove_log",
+  "archetype": "pillar",
+  "layer": "opaque",
+  "hardness": 2,
+  "tool": "axe",
+  "textures": {
+    "side": "game/textures/block/mangrove_log.png",
+    "top": "game/textures/block/mangrove_log_top.png"
+  },
+  "variants": {
+    "axis=y": { "model": "block/mangrove_log" },
+    "axis=x": { "model": "block/mangrove_log", "x": 90, "y": 90 },
+    "axis=z": { "model": "block/mangrove_log", "x": 90 }
+  }
+}

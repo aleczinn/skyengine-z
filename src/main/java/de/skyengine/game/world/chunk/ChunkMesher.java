@@ -261,11 +261,15 @@ public class ChunkMesher {
                         int neighborId = this.sample(x + offX, worldY + offY, z + offZ);
                         if (!shouldRenderFace(gf.state, neighborId)) continue;
 
-                        /* Seiten-Overlay (Grasblock): pro sichtbarer Zelle einzeln in den
-                           CUTOUT-Layer — unabhängig davon, ob die Basis-Face merged oder nicht. */
+                        /* Seiten-Overlay (Grasblock): Basis-Face EINZELN emittieren (nicht mergen)
+                           + koplanares Overlay in den CUTOUT-Layer. Identische Vertices in derselben
+                           Section => identische Tiefenwerte (GL-Invarianz); der CUTOUT-Pass zeichnet
+                           mit "or-equal"-Depth-Func, damit das Overlay exakt gewinnt. */
                         if (gf.overlays != null && gf.overlays[face] != null) {
+                            this.emitQuad(buffer, gf.quads[face], x, y, worldY, z, 0F, 0F);
                             this.emitQuad(this.buffers[RenderLayer.CUTOUT.ordinal()],
                                     gf.overlays[face], x, y, worldY, z, 0F, 0F);
+                            continue;
                         }
 
                         BakedQuad quad = gf.quads[face];

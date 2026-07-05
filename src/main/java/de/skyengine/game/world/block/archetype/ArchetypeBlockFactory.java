@@ -6,6 +6,7 @@ import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.Tints;
 import de.skyengine.game.world.block.behavior.GravityBehavior;
 import de.skyengine.game.world.block.behavior.HorizontalFacingBehavior;
+import de.skyengine.game.world.block.behavior.SupportBehavior;
 import de.skyengine.game.world.block.connection.ConnectionBehavior;
 import de.skyengine.game.world.block.connection.ConnectionComponent;
 import de.skyengine.game.world.block.connection.ConnectionRule;
@@ -15,6 +16,10 @@ import de.skyengine.game.world.block.entity.Capabilities;
 import de.skyengine.game.world.block.json.BlockDefinition;
 import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.item.ToolTier;
+import de.skyengine.game.world.item.ToolType;
+
+import java.util.List;
 
 /** Baut aus einem {@link Archetype} + {@link BlockDefinition} einen fertig konfigurierten Block. */
 public final class ArchetypeBlockFactory {
@@ -58,6 +63,25 @@ public final class ArchetypeBlockFactory {
         String overlay = def.textures.get("overlay");
         if (overlay != null) {
             builder.overlayTexture(overlay);
+        }
+
+        /* Stütz-/Platzierungsregeln (Cactus nur auf Sand, Tür nur auf voller Oberseite). */
+        if (def.place_on != null || def.place_on_full_top) {
+            List<String> placeOn = def.place_on == null ? null : List.of(def.place_on);
+            builder.placeOn(placeOn);
+            builder.placeOnFullTop(def.place_on_full_top);
+            builder.behavior(new SupportBehavior(placeOn, def.place_on_full_top));
+        }
+
+        /* Survival-Mining: Härte + effektive Tool-Klasse + Mindest-Tier für Drops. */
+        if (def.hardness != null) {
+            builder.hardness(def.hardness);
+        }
+        if (def.tool != null) {
+            builder.toolType(ToolType.byName(def.tool));
+        }
+        if (def.harvest_tier != null) {
+            builder.harvestLevel(ToolTier.levelByName(def.harvest_tier));
         }
         return new Block(id, settings, builder.build());
     }

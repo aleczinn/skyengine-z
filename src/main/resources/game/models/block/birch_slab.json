@@ -1,0 +1,2 @@
+{ "parent": "block/slab",
+  "textures": { "top": "game/textures/block/birch_planks.png", "bottom": "game/textures/block/birch_planks.png", "side": "game/textures/block/birch_planks.png" } }

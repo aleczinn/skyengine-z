@@ -19,6 +19,7 @@ public final class Archetypes {
         register("slab", new SlabArchetype());
         register("stairs", new StairsArchetype());
         register("cross", new CrossArchetype());
+        register("tall_cross", new TallCrossArchetype());
         register("fence", new FenceArchetype());
         register("pane", new PaneArchetype());
         register("pillar", new PillarArchetype());
