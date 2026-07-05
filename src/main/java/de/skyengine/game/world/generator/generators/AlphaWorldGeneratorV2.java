@@ -207,6 +207,55 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     }
 
     /**
+     * Echte Terrainoberkante (oberster Solid-Block): beruecksichtigt die 3D-Verformung, die
+     * die Oberflaeche in zerklueftetem Terrain bis zu ±{@link #SHAPE_AMP_MAX} Bloecke von
+     * {@link #sampleHeight} entfernt — Basis fuer Feature-Platzierung (sonst schweben Baeume).
+     * Pure Funktion: die Dichte-Gitterpunkte liegen auf globalen 4er/8er-Rastern, das Ergebnis
+     * ist daher exakt identisch mit dem generate()-Fill (Hoehlen-Carving ausgenommen, das die
+     * Oberflaeche konstruktionsbedingt fast nie beruehrt).
+     */
+    @Override
+    public int surfaceSolidHeight(int x, int z) {
+        Climate smooth = this.climate.sampleSmooth(x, z);
+        int h2d = this.heightFor(x, z, smooth);
+        float amp = SHAPE_AMP_MAX * this.ruggedness(smooth);
+        if (amp <= 0F) return h2d; // flache Biome liegen exakt auf der Heightmap
+
+        int top = Math.min(Chunk.HEIGHT - 2, h2d + (int) amp + 3);
+        int solidBelow = Math.max(1, h2d - (int) SHAPE_AMP_MAX - 4); // ab hier rein 2D = fest
+
+        /* Shape-Noise bilinear pro Grid-Layer (identisch zu bilinearColumn in generate) */
+        int x0 = Math.floorDiv(x, GRID_XZ) * GRID_XZ;
+        int z0 = Math.floorDiv(z, GRID_XZ) * GRID_XZ;
+        float fx = (x - x0) / (float) GRID_XZ;
+        float fz = (z - z0) / (float) GRID_XZ;
+        int gyMin = solidBelow / GRID_Y;
+        int gyMax = top / GRID_Y + 1;
+        float[] layers = new float[gyMax - gyMin + 1];
+        for (int gy = gyMin; gy <= gyMax; gy++) {
+            layers[gy - gyMin] = this.shapeLayer(x0, z0, fx, fz, gy * GRID_Y);
+        }
+
+        for (int y = top; y > solidBelow; y--) {
+            int gy = y / GRID_Y;
+            float fy = (y & (GRID_Y - 1)) / (float) GRID_Y;
+            float shape = lerp(layers[gy - gyMin], layers[gy - gyMin + 1], fy);
+            if ((h2d - y) + shape * amp > 0F) return y;
+        }
+        return solidBelow;
+    }
+
+    /** Shape-Noise an einem Grid-Layer, bilinear auf (x,z) — gleiche Mathematik wie generate(). */
+    private float shapeLayer(int x0, int z0, float fx, float fz, int cornerY) {
+        float yScaled = cornerY * 1.5F;
+        float v00 = this.shapeNoise.GetNoise(x0, yScaled, z0);
+        float v01 = this.shapeNoise.GetNoise(x0, yScaled, z0 + GRID_XZ);
+        float v10 = this.shapeNoise.GetNoise(x0 + GRID_XZ, yScaled, z0);
+        float v11 = this.shapeNoise.GetNoise(x0 + GRID_XZ, yScaled, z0 + GRID_XZ);
+        return lerp(lerp(v00, v01, fz), lerp(v10, v11, fz), fx);
+    }
+
+    /**
      * Oberflaechen-Sample fuers LOD: im Ozean ist die sichtbare Oberflaeche der Wasserspiegel
      * (nicht der Meeresboden), sonst das geteilte Deckmaterial.
      */

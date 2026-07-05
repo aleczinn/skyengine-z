@@ -48,9 +48,13 @@ public final class FeaturePlacer {
         return sourceMinZ;
     }
 
-    /** Pure Terrain-Höhe an (wx, wz) — auch über Chunk-Grenzen hinweg sicher. */
+    /**
+     * Pure echte Terrainoberkante an (wx, wz) — auch über Chunk-Grenzen hinweg sicher.
+     * Nutzt {@link WorldGenerator#surfaceSolidHeight}, damit Features auch bei 3D-verformtem
+     * Terrain auf dem realen Boden stehen (nicht auf der 2D-Heightmap schweben).
+     */
     public int surfaceHeight(int wx, int wz) {
-        return this.generator.sampleHeight(wx, wz);
+        return this.generator.surfaceSolidHeight(wx, wz);
     }
 
     /** Purer Oberflächen-Block an (wx, wz) (im Ozean: Wasser am Meeresspiegel). */
