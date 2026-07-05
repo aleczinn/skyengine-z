@@ -36,6 +36,15 @@ public abstract class WorldGenerator {
     }
 
     /**
+     * Echte Terrainoberkante (oberster Solid-Block) — Basis fuer Feature-Platzierung.
+     * Default: {@link #sampleHeight}; Generatoren mit 3D-Dichte ueberschreiben das, weil
+     * ihre reale Oberflaeche von der 2D-Hoehe abweichen kann.
+     */
+    public int surfaceSolidHeight(int x, int z) {
+        return this.sampleHeight(x, z);
+    }
+
+    /**
      * Gras-Farbe an Weltposition (fuers LOD; L0 nutzt die Tint-Grids aus generate()).
      * Default: fester Platzhalter — Generatoren mit Biomen ueberschreiben das.
      */
