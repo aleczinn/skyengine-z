@@ -34,6 +34,9 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
   - Nutzen von MultiDrawIndirect & BufferStorage -> Reduziert Draw-Calls von 12.288 auf 3 (16 Chunk Renderdistanz; 3 weil einen für OPAQUE, CUTOUT & TRANSLUCENT)
   - Ambient Occlusion
   - Level of Detail
+- 🏔️ Welt-Generator
+  - Biome
+  - Strukturen wie Bäume, Palmen
 
 ## Development
 
