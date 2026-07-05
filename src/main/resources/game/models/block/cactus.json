@@ -5,13 +5,25 @@
     "top": "game/textures/block/cactus_top.png",
     "side": "game/textures/block/cactus_side.png"
   },
-  "_comment": "MC cactus, aber Deckel/Boden auf 14x14 eingerueckt (UV 1..15): der transparente 1px-Rand von cactus_top wuerde sonst als Durchguck-Ring auf den Hintergrund sichtbar. Seiten als volle Quads auf 1px eingerueckten Ebenen (ohne cullface, sonst wuerden Nachbarn sie faelschlich wegcullen).",
+  "_comment": "Verbatim MC cactus (Deckel voll, transparenter Rand wird discarded -> unsichtbare Ueberhang-Lippe wie in Vanilla). Zusaetzlich 4 Innenwand-Faces auf den eingerueckten Seiten-Ebenen: Strahlen, die durch den discardeten Deckelrand fallen, treffen so die gruene Innenwand statt des hellen Hintergrunds (sonst Durchguck-Linien); von aussen unsichtbar, Silhouette bleibt exakt Vanilla. Seiten ohne cullface, sonst wuerden Nachbarn sie faelschlich wegcullen.",
   "elements": [
-    { "from": [1, 0, 1], "to": [15, 16, 15],
+    { "from": [0, 0, 0], "to": [16, 16, 16],
       "faces": {
-        "down": { "uv": [1, 1, 15, 15], "texture": "#bottom", "cullface": "down" },
-        "up":   { "uv": [1, 1, 15, 15], "texture": "#top", "cullface": "up" }
+        "down": { "uv": [0, 0, 16, 16], "texture": "#bottom", "cullface": "down" },
+        "up":   { "uv": [0, 0, 16, 16], "texture": "#top", "cullface": "up" }
       }
+    },
+    { "from": [0, 0, 1], "to": [16, 16, 1],
+      "faces": { "south": { "uv": [0, 0, 16, 16], "texture": "#side" } }
+    },
+    { "from": [0, 0, 15], "to": [16, 16, 15],
+      "faces": { "north": { "uv": [0, 0, 16, 16], "texture": "#side" } }
+    },
+    { "from": [1, 0, 0], "to": [1, 16, 16],
+      "faces": { "east": { "uv": [0, 0, 16, 16], "texture": "#side" } }
+    },
+    { "from": [15, 0, 0], "to": [15, 16, 16],
+      "faces": { "west": { "uv": [0, 0, 16, 16], "texture": "#side" } }
     },
     { "from": [0, 0, 1], "to": [16, 16, 15],
       "faces": {
