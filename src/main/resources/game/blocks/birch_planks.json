@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:birch_planks",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 2,
+  "tool": "axe",
+  "textures": {
+    "all": "game/textures/block/birch_planks.png"
+  }
+}

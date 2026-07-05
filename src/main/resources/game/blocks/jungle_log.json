@@ -1,0 +1,16 @@
+{
+  "id": "skyengine:jungle_log",
+  "archetype": "pillar",
+  "layer": "opaque",
+  "hardness": 2,
+  "tool": "axe",
+  "textures": {
+    "side": "game/textures/block/jungle_log.png",
+    "top": "game/textures/block/jungle_log_top.png"
+  },
+  "variants": {
+    "axis=y": { "model": "block/jungle_log" },
+    "axis=x": { "model": "block/jungle_log", "x": 90, "y": 90 },
+    "axis=z": { "model": "block/jungle_log", "x": 90 }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "skyengine:chiseled_red_sandstone",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 0.8,
+  "tool": "pickaxe",
+  "textures": {
+    "top": "game/textures/block/red_sandstone_top.png",
+    "bottom": "game/textures/block/red_sandstone_top.png",
+    "side": "game/textures/block/chiseled_red_sandstone.png"
+  }
+}

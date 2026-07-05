@@ -1,0 +1,11 @@
+{
+  "id": "skyengine:emerald_ore",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 3,
+  "tool": "pickaxe",
+  "harvest_tier": "iron",
+  "textures": {
+    "all": "game/textures/block/emerald_ore.png"
+  }
+}
