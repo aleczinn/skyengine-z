@@ -286,7 +286,7 @@ public final class LodMesher {
     /** Flaches Top-Quad auf absoluter Höhe y (CCW von oben, u=x / v=z wie BlockModels-Top). */
     private void emitTop(int block, float x0, float z0, float x1, float z1, float y) {
         int layer = this.appearance.topLayer(block);
-        int tint = this.appearance.tint(block);
+        int tint = this.appearance.topTint(block);
         float brightness = BlockModels.FACE_BRIGHTNESS[0];
         float u = x1 - x0, v = z1 - z0;
 
@@ -308,7 +308,7 @@ public final class LodMesher {
     private void emitWall(int block, int face, float xa, float za, float xb, float zb,
                           float bottom, float top) {
         int layer = this.appearance.sideLayer(block);
-        int tint = this.appearance.tint(block);
+        int tint = this.appearance.sideTint(block);
         float brightness = BlockModels.FACE_BRIGHTNESS[face];
         float u = Math.abs(xb - xa) + Math.abs(zb - za);
         float v = Math.min(top - bottom, MAX_MERGE_BLOCKS);

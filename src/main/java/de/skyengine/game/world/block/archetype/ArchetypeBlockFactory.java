@@ -3,6 +3,7 @@ package de.skyengine.game.world.block.archetype;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.Tints;
 import de.skyengine.game.world.block.behavior.GravityBehavior;
 import de.skyengine.game.world.block.behavior.HorizontalFacingBehavior;
 import de.skyengine.game.world.block.connection.ConnectionBehavior;
@@ -48,7 +49,35 @@ public final class ArchetypeBlockFactory {
             builder.property(Properties.FACING);
             builder.behavior(new HorizontalFacingBehavior());
         }
+
+        /* Vegetations-Tint (Gras, Farn, Laub) - archetypübergreifend aus der JSON. */
+        if (def.tint != null) {
+            builder.tint(Tints.byName(def.tint));
+            builder.tintFaces(parseFaceMask(def.tint_faces));
+        }
+        String overlay = def.textures.get("overlay");
+        if (overlay != null) {
+            builder.overlayTexture(overlay);
+        }
         return new Block(id, settings, builder.build());
+    }
+
+    /** up/down/... -> Bitmaske (1 << Face-Index); null/leer = alle Quads (-1). */
+    private static int parseFaceMask(String[] faces) {
+        if (faces == null || faces.length == 0) return -1;
+        int mask = 0;
+        for (String face : faces) {
+            mask |= 1 << switch (face.toLowerCase()) {
+                case "up" -> 0;
+                case "down" -> 1;
+                case "north" -> 2;
+                case "south" -> 3;
+                case "west" -> 4;
+                case "east" -> 5;
+                default -> throw new IllegalArgumentException("Unbekanntes tint_face: " + face);
+            };
+        }
+        return mask;
     }
 
     private static void applyConnection(BlockConfig.Builder builder, BlockDefinition.ConnectionDef def) {

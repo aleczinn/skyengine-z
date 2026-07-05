@@ -18,6 +18,12 @@ public class BlockDefinition {
     public boolean gravity = false;     // fällt nach unten (Sand, Kies) via GravityBehavior
     public boolean facing = false;      // horizontale Ausrichtung zum Spieler (Truhe, Ofen) via HorizontalFacingBehavior
 
+    /* Vegetations-Tint (siehe Tints): "grass" | "foliage". tint_faces schränkt optional auf
+       einzelne Faces ein (up/down/north/south/west/east); null = alle Quads (inkl. Cross).
+       textures.overlay definiert zusätzlich getintete Seiten-Overlay-Quads (Grasblock). */
+    public String tint;
+    public String[] tint_faces;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;

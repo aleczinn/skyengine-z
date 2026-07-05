@@ -31,6 +31,9 @@ public final class BlockConfig {
     private final BlockEntityType<?> blockEntityType;
     private final boolean tickRandomly;
     private final FluidInfo fluidInfo;
+    private final int tint;
+    private final int tintFaceMask;
+    private final String overlayTexture;
 
     private BlockConfig(Builder b) {
         this.properties = List.copyOf(b.properties);
@@ -43,6 +46,9 @@ public final class BlockConfig {
         this.blockEntityType = b.blockEntityType;
         this.tickRandomly = b.tickRandomly;
         this.fluidInfo = b.fluidInfo;
+        this.tint = b.tint;
+        this.tintFaceMask = b.tintFaceMask;
+        this.overlayTexture = b.overlayTexture;
     }
 
     public List<Property<?>> properties() { return properties; }
@@ -55,6 +61,12 @@ public final class BlockConfig {
     public BlockEntityType<?> blockEntityType() { return blockEntityType; }
     public boolean tickRandomly() { return tickRandomly; }
     public FluidInfo fluidInfo() { return fluidInfo; }
+    /** Multiplikations-Tint 0xRRGGBB ({@code BakedQuad.WHITE} = neutral). */
+    public int tint() { return tint; }
+    /** Bitmaske {@code 1 << face} der zu tintenden Faces; -1 = alle Quads (inkl. NO_CULL). */
+    public int tintFaceMask() { return tintFaceMask; }
+    /** Texturpfad für getintete Seiten-Overlay-Quads (Grasblock) oder null. */
+    public String overlayTexture() { return overlayTexture; }
 
     public static Builder builder() { return new Builder(); }
 
@@ -69,6 +81,9 @@ public final class BlockConfig {
         private BlockEntityType<?> blockEntityType;
         private boolean tickRandomly;
         private FluidInfo fluidInfo;
+        private int tint = de.skyengine.game.world.block.model.BakedQuad.WHITE;
+        private int tintFaceMask = -1;
+        private String overlayTexture;
 
         public Builder property(Property<?> p) { this.properties.add(p); return this; }
         public Builder behavior(BlockBehavior b) { this.behaviors.add(b); return this; }
@@ -80,6 +95,9 @@ public final class BlockConfig {
         public Builder blockEntity(BlockEntityType<?> t) { this.blockEntityType = t; return this; }
         public Builder tickRandomly(boolean v) { this.tickRandomly = v; return this; }
         public Builder fluid(FluidInfo f) { this.fluidInfo = f; return this; }
+        public Builder tint(int t) { this.tint = t; return this; }
+        public Builder tintFaces(int mask) { this.tintFaceMask = mask; return this; }
+        public Builder overlayTexture(String path) { this.overlayTexture = path; return this; }
 
         public BlockConfig build() { return new BlockConfig(this); }
     }
