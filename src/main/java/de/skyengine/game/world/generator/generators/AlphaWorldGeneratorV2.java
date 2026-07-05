@@ -41,6 +41,10 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     private static final int SNOW_LINE = 160;
     /* Verwackelung der Hoehenlinien, damit keine geraden Konturen entstehen (wie V1) */
     private static final float LINE_DITHER = 10F;
+    /* Hangneigung wird auf diesen Wert gekappt; die Steinlinie sinkt damit um max. 3*8=24 —
+     * der Wert steckt auch im Gate, ab dem der (teure) Neigungs-Test ueberhaupt laeuft */
+    private static final int SLOPE_MAX = 8;
+    private static final int SLOPE_STONE_MAX = SLOPE_MAX * 3;
 
     /* 3D-Dichte: Noise nur an Gitterpunkten (4 Bloecke horizontal, 8 vertikal) samplen und
      * pro Block trilinear interpolieren — ~2.500 statt ~250.000 3D-Evals pro Chunk */
@@ -69,6 +73,9 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     /* Bergform-Vielfalt: langsam wechselndes Noise, das lokal die Ridged-Schaerfe kappt —
      * statt durchgehend spitzer Grate entstehen Hochebenen, breite Ruecken und offene Taeler */
     private final FastNoiseLite plateauNoise;
+    /* Grossraeumige Welligkeit der Stein-/Schneegrenze: das kleinraeumige LINE_DITHER
+     * verschwindet aus LOD-Distanz optisch, dieses Noise haelt die Grenze auch fern wellig */
+    private final FastNoiseLite snowWobbleNoise;
     /* Lokales Terrain-Detail; Amplitude skaliert mit der Erosion (glatt vs. zerklueftet) */
     private final FastNoiseLite detailNoise;
     /* Berg-Form: Ridged-Fraktal fuer Grate und Gipfel */
@@ -163,6 +170,12 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         this.plateauNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.plateauNoise.SetFractalOctaves(2);
         this.plateauNoise.SetFrequency(0.0006F);
+
+        this.snowWobbleNoise = new FastNoiseLite(seed + 22);
+        this.snowWobbleNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
+        this.snowWobbleNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
+        this.snowWobbleNoise.SetFractalOctaves(2);
+        this.snowWobbleNoise.SetFrequency(0.0012F);
     }
 
     @Override
@@ -171,6 +184,27 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     }
 
     private int heightFor(int x, int z, Climate c) {
+        float h = this.carveRiver(x, z, this.rawHeight(x, z, c), c);
+
+        /* Untergrenze knapp ueber Bedrock: extreme Senkung+Detail darf nicht unter 0 laufen */
+        return Math.clamp((int) h, 8, Chunk.HEIGHT - 2);
+    }
+
+    /**
+     * Lokale Hangneigung (Bloecke Hoehendifferenz pro Block, gekappt auf {@link #SLOPE_MAX}),
+     * aus zentralen Differenzen der flussfreien Rohhoehe. Bewusst NUR im Grenzbereich der
+     * Stein-/Schneelinie aufgerufen — vier zusaetzliche Klima-Samples pro Aufruf.
+     */
+    private float slopeAt(int x, int z) {
+        float dx = this.rawHeight(x + 3, z, this.climate.sampleSmooth(x + 3, z))
+                - this.rawHeight(x - 3, z, this.climate.sampleSmooth(x - 3, z));
+        float dz = this.rawHeight(x, z + 3, this.climate.sampleSmooth(x, z + 3))
+                - this.rawHeight(x, z - 3, this.climate.sampleSmooth(x, z - 3));
+        return Math.min((Math.abs(dx) + Math.abs(dz)) / 6F, SLOPE_MAX);
+    }
+
+    /** Terrainhoehe OHNE Fluss-Carving — Basis von {@link #heightFor} und dem Hangneigungs-Test. */
+    private float rawHeight(int x, int z, Climate c) {
         /* Grundform aus der Kontinentalitaet: Tiefsee -> Kueste -> Landesinneres */
         float h = continentSpline(c.continentalness());
 
@@ -191,11 +225,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
             float shape = lerp(ridged, Math.min(ridged * 1.25F, 0.52F), flatness);
             h += m * shape * MOUNTAIN_AMP;
         }
-
-        h = this.carveRiver(x, z, h, c);
-
-        /* Untergrenze knapp ueber Bedrock: extreme Senkung+Detail darf nicht unter 0 laufen */
-        return Math.clamp((int) h, 8, Chunk.HEIGHT - 2);
+        return h;
     }
 
     /**
@@ -357,13 +387,18 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
             return Blocks.GRAVEL;
         }
 
-        /* Stein-/Schneegrenze relativ zum regionalen Grundniveau (uplift), mit verwackelten
-         * Hoehenlinien — nur Terrain deutlich ueber seiner Region erreicht diese Hoehen */
-        int stoneLine = STONE_LINE + (int) uplift;
-        if (height >= stoneLine - (int) LINE_DITHER) {
-            float dither = this.detailNoise.GetNoise(wx * 7.3F, wz * 7.3F);
-            if (height >= SNOW_LINE + (int) uplift + (int) (dither * LINE_DITHER)) return Blocks.SNOW;
-            if (height >= stoneLine + (int) (dither * LINE_DITHER)) return Blocks.STONE;
+        /* Stein-/Schneegrenze relativ zum regionalen Grundniveau (uplift), grossraeumig
+         * gewellt (snowWobble) und kleinraeumig verwackelt (LINE_DITHER). Zusaetzlich
+         * hangabhaengig: an Steilflanken rutscht die Steinlinie nach unten (frueher Fels)
+         * und die Schneelinie nach oben (kein Schnee an Waenden) — Schnee folgt dadurch
+         * Kuppen und Rinnen statt einer horizontalen Kappe. */
+        float lineShift = uplift + this.snowWobbleNoise.GetNoise(wx, wz) * 18F;
+        int stoneLine = STONE_LINE + (int) lineShift;
+        if (height >= stoneLine - SLOPE_STONE_MAX - (int) LINE_DITHER) {
+            float dither = this.detailNoise.GetNoise(wx * 7.3F, wz * 7.3F) * LINE_DITHER;
+            float slope = this.slopeAt(wx, wz);
+            if (height >= SNOW_LINE + (int) (lineShift + slope * 5F + dither)) return Blocks.SNOW;
+            if (height >= stoneLine + (int) (dither - slope * 3F)) return Blocks.STONE;
         }
 
         /* Strandband rund um den Meeresspiegel, Kante leicht verwackelt */
