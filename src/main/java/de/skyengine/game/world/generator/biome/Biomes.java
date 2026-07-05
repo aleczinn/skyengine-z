@@ -38,8 +38,9 @@ public final class Biomes {
     public static final Biome PLAINS = new Biome(3, "plains",
             Blocks.GRASS_BLOCK, Blocks.DIRT, 0x91BD59, 0x77AB2F, 0x8DB360,
             0.04F, new TreeEntry[]{new TreeEntry(4, TreeShapes.OAK), new TreeEntry(1, TreeShapes.BIRCH)},
-            new PlantEntry[]{new PlantEntry(0.84F, Blocks.POPPY), new PlantEntry(0.80F, Blocks.DANDELION),
-                    new PlantEntry(0.74F, Blocks.ORANGE_TULIP), new PlantEntry(0.55F, Blocks.SHORT_GRASS)});
+            new PlantEntry[]{new PlantEntry(0.87F, Blocks.TALL_GRASS), new PlantEntry(0.84F, Blocks.POPPY),
+                    new PlantEntry(0.80F, Blocks.DANDELION), new PlantEntry(0.74F, Blocks.ORANGE_TULIP),
+                    new PlantEntry(0.55F, Blocks.SHORT_GRASS)});
     public static final Biome DESERT = new Biome(4, "desert",
             Blocks.SAND, Blocks.SANDSTONE, 0xBFB755, 0xAEA42A, 0xFA9418,
             0F, Biome.NO_TREES,
