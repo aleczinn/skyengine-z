@@ -24,6 +24,12 @@ public class BlockDefinition {
     public String tint;
     public String[] tint_faces;
 
+    /* Platzierungs-/Stütz-Regeln (SupportBehavior): place_on = erlaubte Träger-Block-IDs
+       (z.B. Cactus nur auf Sand/Cactus); place_on_full_top = Träger braucht eine volle
+       tragende Oberseite (Vollblock, Top-Slab, kopfüber-Treppe). Beides gesetzt = beides. */
+    public String[] place_on;
+    public boolean place_on_full_top = false;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;

@@ -275,6 +275,11 @@ public class Block {
         return BlockModels.overlaySides(BlockTextures.layerOf(texture), this.config.tint());
     }
 
+    /** Multiplikations-Tint 0xRRGGBB des Blocks (WHITE = neutral) — u.a. für flache Item-Icons. */
+    public int getTint() {
+        return this.config.tint();
+    }
+
     /** Connection-Gruppe (z.B. "fence", "pane") oder null. Steuert Verbindungen (siehe ConnectionRules). */
     public String getConnectionGroup() {
         return this.config.connectionGroup();

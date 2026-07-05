@@ -80,6 +80,16 @@ public final class BlockStateModels {
     }
 
     /**
+     * Texturpfad für ein einzelnes flaches Item-Sprite (optionales {@code "icon_item"},
+     * MC-Item-Look — z.B. Tür-Sprite, Pflanzen). {@code null} = kein Item-Sprite definiert.
+     */
+    public static String iconItem(Block block) {
+        JsonObject root = STATES.get(block.getIdentifier().path());
+        if (root == null || !root.has("icon_item")) return null;
+        return root.get("icon_item").getAsString();
+    }
+
+    /**
      * Backt das Inventar-/Icon-Modell eines Blocks. Optionales {@code "inventory_model"} im Blockstate
      * (z.B. Zaun mit Armen, kleine Tür, flache Glasscheibe) hat Vorrang vor dem Default-State-Modell —
      * so sieht das Icon aus wie in Minecraft, ohne die Welt-Darstellung zu beeinflussen.

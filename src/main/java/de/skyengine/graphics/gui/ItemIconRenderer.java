@@ -159,8 +159,13 @@ public final class ItemIconRenderer {
      */
     private FlatIcon bakeFlat(Item item) {
         String[] paths;
+        int tint = BakedQuad.WHITE;
         if (item instanceof BlockItem bi) {
-            paths = BlockStateModels.flatIcon(bi.getBlock());
+            /* icon_item (einzelnes Item-Sprite, MC-Look) hat Vorrang vor icon_flat. Der
+               Block-Tint wird mitgenommen, damit z.B. tall_grass/fern gruen erscheinen. */
+            String single = BlockStateModels.iconItem(bi.getBlock());
+            paths = single != null ? new String[]{single} : BlockStateModels.flatIcon(bi.getBlock());
+            tint = bi.getBlock().getTint();
         } else if (item.getIconTexture() != null) {
             /* Nicht-Block-Item mit eigener Textur (z.B. Eimer) -> einfaches Voll-Slot-Quad. */
             paths = new String[]{item.getIconTexture()};
@@ -168,30 +173,33 @@ public final class ItemIconRenderer {
             paths = null;
         }
         if (paths == null || paths.length == 0) return NOT_FLAT;
+        float r = ((tint >> 16) & 0xFF) / 255F;
+        float g = ((tint >> 8) & 0xFF) / 255F;
+        float b = (tint & 0xFF) / 255F;
         int n = paths.length;
         float[] data = new float[n * 6 * 9];
         int p = 0;
         for (int i = 0; i < n; i++) {
             int layer = BlockTextures.layerOf(paths[i]);
-            p = flatQuad(data, p, (float) i / n, (float) (i + 1) / n, layer);
+            p = flatQuad(data, p, (float) i / n, (float) (i + 1) / n, layer, r, g, b);
         }
         return new FlatIcon(new Mesh(data), n >= 2);
     }
 
-    /** Ein Voll-Breite-Quad (x 0..1) im y-Bereich [ya,yb], z=0, volle UV, voll hell. CCW von +Z. */
-    private static int flatQuad(float[] d, int p, float ya, float yb, int layer) {
-        p = flatVert(d, p, 0, ya, 0, 1, layer);
-        p = flatVert(d, p, 1, ya, 1, 1, layer);
-        p = flatVert(d, p, 1, yb, 1, 0, layer);
-        p = flatVert(d, p, 1, yb, 1, 0, layer);
-        p = flatVert(d, p, 0, yb, 0, 0, layer);
-        p = flatVert(d, p, 0, ya, 0, 1, layer);
+    /** Ein Voll-Breite-Quad (x 0..1) im y-Bereich [ya,yb], z=0, volle UV, Farbe = Tint. CCW von +Z. */
+    private static int flatQuad(float[] d, int p, float ya, float yb, int layer, float r, float g, float b) {
+        p = flatVert(d, p, 0, ya, 0, 1, layer, r, g, b);
+        p = flatVert(d, p, 1, ya, 1, 1, layer, r, g, b);
+        p = flatVert(d, p, 1, yb, 1, 0, layer, r, g, b);
+        p = flatVert(d, p, 1, yb, 1, 0, layer, r, g, b);
+        p = flatVert(d, p, 0, yb, 0, 0, layer, r, g, b);
+        p = flatVert(d, p, 0, ya, 0, 1, layer, r, g, b);
         return p;
     }
 
-    private static int flatVert(float[] d, int p, float x, float y, float u, float v, int layer) {
+    private static int flatVert(float[] d, int p, float x, float y, float u, float v, int layer, float r, float g, float b) {
         d[p++] = x; d[p++] = y; d[p++] = 0; d[p++] = u; d[p++] = v; d[p++] = layer;
-        d[p++] = 1f; d[p++] = 1f; d[p++] = 1f;
+        d[p++] = r; d[p++] = g; d[p++] = b;
         return p;
     }
 

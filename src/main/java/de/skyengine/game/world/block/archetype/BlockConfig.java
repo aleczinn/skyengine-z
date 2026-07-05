@@ -34,6 +34,8 @@ public final class BlockConfig {
     private final int tint;
     private final int tintFaceMask;
     private final String overlayTexture;
+    private final List<String> placeOn;
+    private final boolean placeOnFullTop;
 
     private BlockConfig(Builder b) {
         this.properties = List.copyOf(b.properties);
@@ -49,6 +51,8 @@ public final class BlockConfig {
         this.tint = b.tint;
         this.tintFaceMask = b.tintFaceMask;
         this.overlayTexture = b.overlayTexture;
+        this.placeOn = b.placeOn == null ? null : List.copyOf(b.placeOn);
+        this.placeOnFullTop = b.placeOnFullTop;
     }
 
     public List<Property<?>> properties() { return properties; }
@@ -67,6 +71,10 @@ public final class BlockConfig {
     public int tintFaceMask() { return tintFaceMask; }
     /** Texturpfad für getintete Seiten-Overlay-Quads (Grasblock) oder null. */
     public String overlayTexture() { return overlayTexture; }
+    /** Erlaubte Träger-Block-IDs ("skyengine:sand", …) oder null = keine Einschränkung. */
+    public List<String> placeOn() { return placeOn; }
+    /** true = Träger braucht eine volle tragende Oberseite (Vollblock, Top-Slab, Kopfüber-Treppe). */
+    public boolean placeOnFullTop() { return placeOnFullTop; }
 
     public static Builder builder() { return new Builder(); }
 
@@ -84,6 +92,8 @@ public final class BlockConfig {
         private int tint = de.skyengine.game.world.block.model.BakedQuad.WHITE;
         private int tintFaceMask = -1;
         private String overlayTexture;
+        private List<String> placeOn;
+        private boolean placeOnFullTop;
 
         public Builder property(Property<?> p) { this.properties.add(p); return this; }
         public Builder behavior(BlockBehavior b) { this.behaviors.add(b); return this; }
@@ -98,6 +108,8 @@ public final class BlockConfig {
         public Builder tint(int t) { this.tint = t; return this; }
         public Builder tintFaces(int mask) { this.tintFaceMask = mask; return this; }
         public Builder overlayTexture(String path) { this.overlayTexture = path; return this; }
+        public Builder placeOn(List<String> ids) { this.placeOn = ids; return this; }
+        public Builder placeOnFullTop(boolean v) { this.placeOnFullTop = v; return this; }
 
         public BlockConfig build() { return new BlockConfig(this); }
     }
