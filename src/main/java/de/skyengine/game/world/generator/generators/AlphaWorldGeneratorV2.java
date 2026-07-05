@@ -371,12 +371,18 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                     if (isSolid && topSolid == 0) topSolid = y;
                 }
 
+                /* Filler-Tiefe variiert pro Spalte (1..4 Schichten): mal ein einzelner
+                 * Dirt-Block ueber massivem Fels, mal die dicke Schicht — wirkt an
+                 * Haengen/Klippen natuerlicher als eine konstante Tiefe */
+                float fillerNoise = this.detailNoise.GetNoise((baseX + x) * 3.1F, (baseZ + z) * 3.1F);
+                int fillerDepth = Math.clamp(1 + (int) ((fillerNoise + 1F) * 1.7F), 1, 4);
+
                 chunk.setBlock(x, 0, z, Blocks.BEDROCK);
                 for (int y = 1; y <= topSolid; y++) {
                     if (!solid[y]) continue; // Hoehlenluft (Sections sind per Default Luft)
                     int block;
                     if (y == topSolid) block = tops[i];
-                    else if (y >= topSolid - 3) block = fillers[i];
+                    else if (y >= topSolid - fillerDepth) block = fillers[i];
                     else block = stoneAt(colStone1, colStone2, y);
                     chunk.setBlock(x, y, z, block);
                 }
