@@ -20,6 +20,18 @@ public final class Tints {
     public static final int FOLIAGE_SPRUCE = 0x619961;
     public static final int FOLIAGE_MANGROVE = 0x92BD59;
 
+    /**
+     * JSON-Name -> Biome-Tint-Typ ({@link BakedQuad#TINT_GRASS}/{@link BakedQuad#TINT_FOLIAGE}).
+     * Nur "grass" und "foliage" sind biome-abhängig; Festfarben (Birke, Fichte, ...) bleiben NONE.
+     */
+    public static int typeByName(String name) {
+        return switch (name) {
+            case "grass" -> BakedQuad.TINT_GRASS;
+            case "foliage" -> BakedQuad.TINT_FOLIAGE;
+            default -> BakedQuad.TINT_NONE;
+        };
+    }
+
     /** JSON-Name -> Tint; unbekannte Namen loggen eine Warnung und bleiben neutral (WHITE). */
     public static int byName(String name) {
         return switch (name) {

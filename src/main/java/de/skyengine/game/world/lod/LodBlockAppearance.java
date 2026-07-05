@@ -19,6 +19,8 @@ public final class LodBlockAppearance {
     private final int[] sideLayers;
     private final int[] topTints;
     private final int[] sideTints;
+    private final int[] topTintTypes;
+    private final int[] sideTintTypes;
     private final boolean[] fluids;
 
     /** Erst nach BlockRegistry.bake() erzeugen (World.init). */
@@ -28,6 +30,8 @@ public final class LodBlockAppearance {
         this.sideLayers = new int[count];
         this.topTints = new int[count];
         this.sideTints = new int[count];
+        this.topTintTypes = new int[count];
+        this.sideTintTypes = new int[count];
         this.fluids = new boolean[count];
 
         for (int id = 0; id < count; id++) {
@@ -52,10 +56,12 @@ public final class LodBlockAppearance {
                 if (top < 0 && quad.cullFace() == 0) {
                     top = quad.textureLayer();
                     this.topTints[id] = quad.tint(); // Vegetations-Tint kommt generisch mit (Gras-Top)
+                    this.topTintTypes[id] = quad.tintType();
                 }
                 if (side < 0 && quad.cullFace() >= 2) {
                     side = quad.textureLayer();
                     this.sideTints[id] = quad.tint();
+                    this.sideTintTypes[id] = quad.tintType();
                 }
             }
             /* Fallbacks: fehlt eine Seite, die andere nehmen; Luft/Cross-Modelle tauchen
@@ -81,6 +87,16 @@ public final class LodBlockAppearance {
     /** Gepackter Multiplikations-Tint 0xRRGGBB der Seiten (WHITE = neutral). */
     public int sideTint(int stateId) {
         return this.sideTints[stateId];
+    }
+
+    /** Biome-Tint-Typ der Oberseite ({@code BakedQuad.TINT_*}); NONE = fester Tint. */
+    public int topTintType(int stateId) {
+        return this.topTintTypes[stateId];
+    }
+
+    /** Biome-Tint-Typ der Seiten ({@code BakedQuad.TINT_*}); NONE = fester Tint. */
+    public int sideTintType(int stateId) {
+        return this.sideTintTypes[stateId];
     }
 
     /** true für Fluide — deren Zell-Top liegt auf der Quellhöhe (8/9) statt auf Höhe+1. */

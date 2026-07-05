@@ -45,6 +45,16 @@ public final class WorldLodDataSource implements LodDataSource {
         return this.generator.sampleSurface(cx, cz);
     }
 
+    @Override
+    public int grassTintAt(int x, int z) {
+        return this.generator.grassTintAt(x, z);
+    }
+
+    @Override
+    public int foliageTintAt(int x, int z) {
+        return this.generator.foliageTintAt(x, z);
+    }
+
     /**
      * Spaltenscan von oben: erster Block, der Fluid oder solide ist (Vegetation/Luft wird
      * übersprungen). Nur Chunks mit vollständigem Terrain (mindestens GENERATED).
