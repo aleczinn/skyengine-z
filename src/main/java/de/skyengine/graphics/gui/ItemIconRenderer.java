@@ -134,10 +134,19 @@ public final class ItemIconRenderer {
         if (mesh == null || mesh.count == 0) return;
         this.shader.setUniformMatrix4f("u_MVP", this.mvp);
         /* Tiefentest pro Icon: durchdringende Modellteile (Zaun-Balken in den Pfosten) brauchen
-           echte Verdeckung. Clear pro Icon -> das zuletzt gezeichnete Cursor-Icon bleibt oben. */
+           echte Verdeckung. Clear pro Icon -> das zuletzt gezeichnete Cursor-Icon bleibt oben.
+           "or-equal"-Func, damit koplanare Overlay-Quads (Grasblock-Seite) exakt gewinnen. */
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+        int prevDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
+        int orEqualFunc = switch (prevDepthFunc) {
+            case GL11.GL_GREATER -> GL11.GL_GEQUAL;
+            case GL11.GL_LESS -> GL11.GL_LEQUAL;
+            default -> prevDepthFunc;
+        };
+        GL11.glDepthFunc(orEqualFunc);
         mesh.render();
+        GL11.glDepthFunc(prevDepthFunc);
         GL11.glDisable(GL11.GL_DEPTH_TEST);
     }
 

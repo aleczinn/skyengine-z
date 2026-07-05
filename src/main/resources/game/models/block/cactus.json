@@ -5,12 +5,12 @@
     "top": "game/textures/block/cactus_top.png",
     "side": "game/textures/block/cactus_side.png"
   },
-  "_comment": "Verbatim MC cactus: Deckel voll, Seiten als volle Quads auf 1px eingerueckten Ebenen (ohne cullface, sonst wuerden Nachbarn sie faelschlich wegcullen).",
+  "_comment": "MC cactus, aber Deckel/Boden auf 14x14 eingerueckt (UV 1..15): der transparente 1px-Rand von cactus_top wuerde sonst als Durchguck-Ring auf den Hintergrund sichtbar. Seiten als volle Quads auf 1px eingerueckten Ebenen (ohne cullface, sonst wuerden Nachbarn sie faelschlich wegcullen).",
   "elements": [
-    { "from": [0, 0, 0], "to": [16, 16, 16],
+    { "from": [1, 0, 1], "to": [15, 16, 15],
       "faces": {
-        "down": { "uv": [0, 0, 16, 16], "texture": "#bottom", "cullface": "down" },
-        "up":   { "uv": [0, 0, 16, 16], "texture": "#top", "cullface": "up" }
+        "down": { "uv": [1, 1, 15, 15], "texture": "#bottom", "cullface": "down" },
+        "up":   { "uv": [1, 1, 15, 15], "texture": "#top", "cullface": "up" }
       }
     },
     { "from": [0, 0, 1], "to": [16, 16, 15],
