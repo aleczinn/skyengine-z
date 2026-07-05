@@ -82,6 +82,9 @@ public class CrackRenderer {
         GL30.glBindVertexArray(this.vao);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
         GL11.glEnable(GL11.GL_BLEND);
+        /* Wie MCs "Crumbling": Risse multiplizieren sich in die Blocktextur (2*src*dst),
+           statt hell drüberzuliegen. Danach die globale Alpha-Blend-Func wiederherstellen. */
+        GL11.glBlendFunc(GL11.GL_DST_COLOR, GL11.GL_SRC_COLOR);
 
         /* Koplanar zur Block-Oberfläche: „or-equal"-Variante der aktiven Depth-Func
            (Reversed-Z: GEQUAL), Bias liefert der Vertex-Shader (wie SelectionBox). */
@@ -97,6 +100,7 @@ public class CrackRenderer {
         GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, data.length / 6);
 
         GL11.glDepthFunc(prevDepthFunc);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glDisable(GL11.GL_BLEND);
         this.shader.unbind();
     }
