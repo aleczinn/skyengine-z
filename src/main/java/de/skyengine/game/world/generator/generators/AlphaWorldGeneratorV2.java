@@ -1,6 +1,10 @@
 package de.skyengine.game.world.generator.generators;
 
+import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.state.BlockHalf;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
@@ -581,6 +585,12 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         for (Biome.PlantEntry plant : biome.plants) {
             if (veg > plant.threshold()) {
                 chunk.setBlock(x, topSolid + 1, z, plant.blockId());
+                /* Zweiblock-Pflanzen (tall_grass): obere Haelfte direkt mitsetzen — der
+                 * Default-State ist nur die untere (HALF=BOTTOM, vgl. TallPlantBehavior) */
+                BlockState state = BlockRegistry.getState(plant.blockId());
+                if (state.getValues().containsKey(Properties.HALF)) {
+                    chunk.setBlock(x, topSolid + 2, z, state.with(Properties.HALF, BlockHalf.TOP).getId());
+                }
                 return;
             }
         }
