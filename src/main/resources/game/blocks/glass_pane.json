@@ -2,6 +2,7 @@
   "id": "skyengine:glass_pane",
   "type": "pane",
   "layer": "translucent",
+  "hardness": 0.3,
   "opaque": false,
   "textures": {
     "all": "game/textures/block/glass.png"

@@ -30,6 +30,13 @@ public class BlockDefinition {
     public String[] place_on;
     public boolean place_on_full_top = false;
 
+    /* Survival-Mining: hardness (null -> 0 = instant, -1 = unzerstörbar wie Bedrock),
+       tool = effektive Tool-Klasse (pickaxe/axe/shovel/sword; null = Hand reicht, droppt immer),
+       harvest_tier = Mindest-Material für Drops (wood/stone/copper/iron/diamond/netherite). */
+    public Float hardness;
+    public String tool;
+    public String harvest_tier;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;

@@ -2,6 +2,7 @@
   "id": "skyengine:birch_leaves",
   "type": "cube",
   "layer": "cutout",
+  "hardness": 0.2,
   "opaque": false,
   "tint": "foliage_birch",
   "textures": {

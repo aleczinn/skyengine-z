@@ -2,6 +2,7 @@
   "id": "skyengine:purple_wool",
   "type": "cube",
   "layer": "opaque",
+  "hardness": 0.8,
   "textures": {
     "all": "game/textures/block/purple_wool.png"
   }

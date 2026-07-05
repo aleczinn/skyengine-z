@@ -2,6 +2,8 @@
   "id": "skyengine:clay",
   "type": "cube",
   "layer": "opaque",
+  "hardness": 0.6,
+  "tool": "shovel",
   "textures": {
     "all": "game/textures/block/clay.png"
   }

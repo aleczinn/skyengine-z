@@ -95,6 +95,12 @@ public final class Blocks {
         BlockRegistry.bake();
         de.skyengine.game.world.item.Items.bootstrap();
 
+        /* Abbau-Riss-Texturen in den Block-Atlas aufnehmen (vor dem TextureArray-Bau in
+           ChunkRenderer.init) — der CrackRenderer holt sich die Layer-Indizes später idempotent. */
+        for (int i = 0; i < 10; i++) {
+            BlockTextures.layerOf("game/textures/block/destroy_stage_" + i + ".png");
+        }
+
         AIR = idOf("skyengine:air");
         BEDROCK = idOf("skyengine:bedrock");
 

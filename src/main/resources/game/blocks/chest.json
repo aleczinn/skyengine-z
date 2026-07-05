@@ -2,6 +2,8 @@
   "id": "skyengine:chest",
   "type": "cube",
   "layer": "opaque",
+  "hardness": 2.5,
+  "tool": "axe",
   "opaque": false,
   "facing": true,
   "block_entity": "skyengine:chest",

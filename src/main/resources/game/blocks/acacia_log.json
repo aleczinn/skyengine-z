@@ -2,6 +2,8 @@
   "id": "skyengine:acacia_log",
   "archetype": "pillar",
   "layer": "opaque",
+  "hardness": 2,
+  "tool": "axe",
   "textures": {
     "side": "game/textures/block/acacia_log.png",
     "top": "game/textures/block/acacia_log_top.png"

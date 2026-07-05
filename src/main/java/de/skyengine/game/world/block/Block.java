@@ -280,6 +280,21 @@ public class Block {
         return this.config.tint();
     }
 
+    /** Abbau-Härte (Survival): 0 = instant, negativ = unzerstörbar (Bedrock). */
+    public float getHardness() {
+        return this.config.hardness();
+    }
+
+    /** Effektive Tool-Klasse oder null (= Hand reicht, droppt immer). */
+    public de.skyengine.game.world.item.ToolType getToolType() {
+        return this.config.toolType();
+    }
+
+    /** Mindest-Harvest-Level für Drops (0 = jedes Tier der passenden Klasse). */
+    public int getHarvestLevel() {
+        return this.config.harvestLevel();
+    }
+
     /** Connection-Gruppe (z.B. "fence", "pane") oder null. Steuert Verbindungen (siehe ConnectionRules). */
     public String getConnectionGroup() {
         return this.config.connectionGroup();

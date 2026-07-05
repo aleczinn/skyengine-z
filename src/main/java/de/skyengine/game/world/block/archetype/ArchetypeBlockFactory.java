@@ -16,6 +16,8 @@ import de.skyengine.game.world.block.entity.Capabilities;
 import de.skyengine.game.world.block.json.BlockDefinition;
 import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.item.ToolTier;
+import de.skyengine.game.world.item.ToolType;
 
 import java.util.List;
 
@@ -69,6 +71,17 @@ public final class ArchetypeBlockFactory {
             builder.placeOn(placeOn);
             builder.placeOnFullTop(def.place_on_full_top);
             builder.behavior(new SupportBehavior(placeOn, def.place_on_full_top));
+        }
+
+        /* Survival-Mining: Härte + effektive Tool-Klasse + Mindest-Tier für Drops. */
+        if (def.hardness != null) {
+            builder.hardness(def.hardness);
+        }
+        if (def.tool != null) {
+            builder.toolType(ToolType.byName(def.tool));
+        }
+        if (def.harvest_tier != null) {
+            builder.harvestLevel(ToolTier.levelByName(def.harvest_tier));
         }
         return new Block(id, settings, builder.build());
     }

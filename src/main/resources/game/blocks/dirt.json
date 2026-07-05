@@ -2,6 +2,8 @@
   "id": "skyengine:dirt",
   "type": "cube",
   "layer": "opaque",
+  "hardness": 0.5,
+  "tool": "shovel",
   "textures": {
     "all": "game/textures/block/dirt.png"
   }
