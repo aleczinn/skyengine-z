@@ -46,3 +46,5 @@ bin/
 
 ### Engine ###
 config/
+debug/
+debug-maps/
