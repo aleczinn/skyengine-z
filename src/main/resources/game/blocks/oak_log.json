@@ -2,6 +2,8 @@
   "id": "skyengine:oak_log",
   "type": "cube",
   "layer": "opaque",
+  "hardness": 2,
+  "tool": "axe",
   "textures": {
     "top": "game/textures/block/oak_log_top.png",
     "side": "game/textures/block/oak_log.png",

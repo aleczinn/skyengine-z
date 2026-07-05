@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:diorite",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 1.5,
+  "tool": "pickaxe",
+  "textures": {
+    "all": "game/textures/block/diorite.png"
+  }
+}

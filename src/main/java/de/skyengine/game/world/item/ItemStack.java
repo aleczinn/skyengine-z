@@ -13,6 +13,8 @@ public final class ItemStack {
 
     private final Item item;
     private int count;
+    /** Abnutzung (Tools): 0 = neu; erreicht sie die Tier-Haltbarkeit, zerbricht das Tool. */
+    private int damage;
 
     public ItemStack(Item item, int count) {
         this.item = item;
@@ -44,8 +46,19 @@ public final class ItemStack {
         return !this.isEmpty() && !other.isEmpty() && this.item == other.item;
     }
 
+    public int getDamage() {
+        return damage;
+    }
+
+    public void setDamage(int damage) {
+        this.damage = Math.max(0, damage);
+    }
+
     public ItemStack copy() {
-        return this.isEmpty() ? EMPTY : new ItemStack(this.item, this.count);
+        if (this.isEmpty()) return EMPTY;
+        ItemStack copy = new ItemStack(this.item, this.count);
+        copy.damage = this.damage;
+        return copy;
     }
 
     /* --- Persistenz (DataTag) --- */
@@ -55,6 +68,7 @@ public final class ItemStack {
         if (!this.isEmpty()) {
             tag.putString("id", this.item.getId().toString());
             tag.putInt("count", this.count);
+            if (this.damage > 0) tag.putInt("damage", this.damage);
         }
         return tag;
     }
@@ -64,7 +78,10 @@ public final class ItemStack {
         String id = tag.getString("id", null);
         if (id == null) return EMPTY;
         Item item = Items.get(Identifier.of(id));
-        return item == null ? EMPTY : new ItemStack(item, tag.getInt("count", 1));
+        if (item == null) return EMPTY;
+        ItemStack stack = new ItemStack(item, tag.getInt("count", 1));
+        stack.damage = tag.getInt("damage", 0);
+        return stack;
     }
 
     @Override

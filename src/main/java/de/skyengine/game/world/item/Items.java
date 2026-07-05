@@ -3,6 +3,7 @@ package de.skyengine.game.world.item;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.registry.Registries;
 
 /**
@@ -20,6 +21,29 @@ public final class Items {
             Identifier id = block.getIdentifier();
             if (!Registries.ITEM.contains(id)) {
                 Registries.ITEM.register(id, new BlockItem(block));
+            }
+
+            /* Icon-Texturen (icon_item/icon_flat) in den Block-Atlas aufnehmen — MUSS vor dem
+               TextureArray-Bau laufen, sonst bekämen sie beim ersten Zeichnen einen
+               Layer-Index außerhalb des Arrays (gleiche Falle wie bei den Eimern unten). */
+            String iconItem = BlockStateModels.iconItem(block);
+            if (iconItem != null) BlockTextures.layerOf(iconItem);
+            String[] iconFlat = BlockStateModels.flatIcon(block);
+            if (iconFlat != null) {
+                for (String path : iconFlat) BlockTextures.layerOf(path);
+            }
+        }
+
+        /* Werkzeuge: 7 Materialien x 4 Typen (IDs/Texturen im MC-Schema: wooden_pickaxe, golden_axe, ...). */
+        for (ToolTier tier : ToolTier.values()) {
+            for (ToolType type : ToolType.values()) {
+                String name = tier.prefix() + "_" + type.name().toLowerCase();
+                Identifier id = Identifier.of("skyengine:" + name);
+                String texture = "game/textures/item/" + name + ".png";
+                if (!Registries.ITEM.contains(id)) {
+                    Registries.ITEM.register(id, new ToolItem(id, type, tier, texture));
+                }
+                BlockTextures.layerOf(texture); // vor dem TextureArray-Bau registrieren
             }
         }
 

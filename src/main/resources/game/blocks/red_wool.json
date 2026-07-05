@@ -1,0 +1,9 @@
+{
+  "id": "skyengine:red_wool",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 0.8,
+  "textures": {
+    "all": "game/textures/block/red_wool.png"
+  }
+}

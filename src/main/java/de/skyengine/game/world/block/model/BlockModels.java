@@ -47,6 +47,21 @@ public final class BlockModels {
     }
 
     /**
+     * Getintete Seiten-Overlay-Quads (Faces north/south/west/east), EXAKT koplanar zur
+     * jeweiligen Basis-Seite (Grasblock: Grasrand über der Dirt-Seite) — identische Vertices
+     * wie {@link #face} liefern identische Tiefenwerte; der Mesher emittiert die Basis-Seite
+     * solcher Blöcke einzeln (nicht greedy) und der CUTOUT-Pass zeichnet mit „or-equal"-
+     * Depth-Func, damit das Overlay den Tiefentest exakt gewinnt (kein Offset, kein Spalt).
+     */
+    public static BakedQuad[] overlaySides(int textureLayer, int tint) {
+        BakedQuad[] out = new BakedQuad[4];
+        for (int face = 2; face < 6; face++) {
+            out[face - 2] = new BakedQuad(FACE_VERTICES[face], textureLayer, face, FACE_BRIGHTNESS[face], tint);
+        }
+        return out;
+    }
+
+    /**
      * Cross-Modell (Gras, Blumen, Setzlinge): 2 diagonale Ebenen, jeweils
      * doppelseitig gebacken (GL_CULL_FACE bleibt damit global an).
      * Inset 0.146 wie in Minecraft, damit das Quad Breite 1.0 hat.

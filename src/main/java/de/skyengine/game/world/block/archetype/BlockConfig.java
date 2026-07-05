@@ -31,6 +31,14 @@ public final class BlockConfig {
     private final BlockEntityType<?> blockEntityType;
     private final boolean tickRandomly;
     private final FluidInfo fluidInfo;
+    private final int tint;
+    private final int tintFaceMask;
+    private final String overlayTexture;
+    private final List<String> placeOn;
+    private final boolean placeOnFullTop;
+    private final float hardness;
+    private final de.skyengine.game.world.item.ToolType toolType;
+    private final int harvestLevel;
 
     private BlockConfig(Builder b) {
         this.properties = List.copyOf(b.properties);
@@ -43,6 +51,14 @@ public final class BlockConfig {
         this.blockEntityType = b.blockEntityType;
         this.tickRandomly = b.tickRandomly;
         this.fluidInfo = b.fluidInfo;
+        this.tint = b.tint;
+        this.tintFaceMask = b.tintFaceMask;
+        this.overlayTexture = b.overlayTexture;
+        this.placeOn = b.placeOn == null ? null : List.copyOf(b.placeOn);
+        this.placeOnFullTop = b.placeOnFullTop;
+        this.hardness = b.hardness;
+        this.toolType = b.toolType;
+        this.harvestLevel = b.harvestLevel;
     }
 
     public List<Property<?>> properties() { return properties; }
@@ -55,6 +71,22 @@ public final class BlockConfig {
     public BlockEntityType<?> blockEntityType() { return blockEntityType; }
     public boolean tickRandomly() { return tickRandomly; }
     public FluidInfo fluidInfo() { return fluidInfo; }
+    /** Multiplikations-Tint 0xRRGGBB ({@code BakedQuad.WHITE} = neutral). */
+    public int tint() { return tint; }
+    /** Bitmaske {@code 1 << face} der zu tintenden Faces; -1 = alle Quads (inkl. NO_CULL). */
+    public int tintFaceMask() { return tintFaceMask; }
+    /** Texturpfad für getintete Seiten-Overlay-Quads (Grasblock) oder null. */
+    public String overlayTexture() { return overlayTexture; }
+    /** Erlaubte Träger-Block-IDs ("skyengine:sand", …) oder null = keine Einschränkung. */
+    public List<String> placeOn() { return placeOn; }
+    /** true = Träger braucht eine volle tragende Oberseite (Vollblock, Top-Slab, Kopfüber-Treppe). */
+    public boolean placeOnFullTop() { return placeOnFullTop; }
+    /** Abbau-Härte: 0 = instant, negativ = unzerstörbar (Bedrock). */
+    public float hardness() { return hardness; }
+    /** Effektive Tool-Klasse oder null (= Hand reicht, droppt immer). */
+    public de.skyengine.game.world.item.ToolType toolType() { return toolType; }
+    /** Mindest-Harvest-Level für Drops (0 = jedes Tier der passenden Klasse). */
+    public int harvestLevel() { return harvestLevel; }
 
     public static Builder builder() { return new Builder(); }
 
@@ -69,6 +101,14 @@ public final class BlockConfig {
         private BlockEntityType<?> blockEntityType;
         private boolean tickRandomly;
         private FluidInfo fluidInfo;
+        private int tint = de.skyengine.game.world.block.model.BakedQuad.WHITE;
+        private int tintFaceMask = -1;
+        private String overlayTexture;
+        private List<String> placeOn;
+        private boolean placeOnFullTop;
+        private float hardness = 0F;
+        private de.skyengine.game.world.item.ToolType toolType;
+        private int harvestLevel = 0;
 
         public Builder property(Property<?> p) { this.properties.add(p); return this; }
         public Builder behavior(BlockBehavior b) { this.behaviors.add(b); return this; }
@@ -80,6 +120,14 @@ public final class BlockConfig {
         public Builder blockEntity(BlockEntityType<?> t) { this.blockEntityType = t; return this; }
         public Builder tickRandomly(boolean v) { this.tickRandomly = v; return this; }
         public Builder fluid(FluidInfo f) { this.fluidInfo = f; return this; }
+        public Builder tint(int t) { this.tint = t; return this; }
+        public Builder tintFaces(int mask) { this.tintFaceMask = mask; return this; }
+        public Builder overlayTexture(String path) { this.overlayTexture = path; return this; }
+        public Builder placeOn(List<String> ids) { this.placeOn = ids; return this; }
+        public Builder placeOnFullTop(boolean v) { this.placeOnFullTop = v; return this; }
+        public Builder hardness(float v) { this.hardness = v; return this; }
+        public Builder toolType(de.skyengine.game.world.item.ToolType t) { this.toolType = t; return this; }
+        public Builder harvestLevel(int level) { this.harvestLevel = level; return this; }
 
         public BlockConfig build() { return new BlockConfig(this); }
     }

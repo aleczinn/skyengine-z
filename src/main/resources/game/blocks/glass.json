@@ -2,6 +2,7 @@
   "id": "skyengine:glass",
   "type": "cube",
   "layer": "translucent",
+  "hardness": 0.3,
   "opaque": false,
   "solid": true,
   "cull_same": true,

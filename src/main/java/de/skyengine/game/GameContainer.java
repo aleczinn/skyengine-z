@@ -24,6 +24,8 @@ import de.skyengine.game.world.item.BucketItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
+import de.skyengine.game.world.item.ToolItem;
+import de.skyengine.graphics.world.CrackRenderer;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.chunk.ChunkManager;
@@ -49,6 +51,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private EntityPlayer player;
     private World world;
     private SelectionBoxRenderer selectionBoxRenderer;
+    private CrackRenderer crackRenderer;
     private GuiManager guiManager;
 
     private final GameSettings settings = GameSettings.get();
@@ -62,6 +65,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private static final long INTERACT_DELAY_MS = 200;
     private long lastBreakTime = 0;
     private long lastPlaceTime = 0;
+
+    /* Survival-Mining: zeitbasierter Abbau-Fortschritt am aktuellen Ziel-Block (0..1).
+       Zielwechsel oder Loslassen setzt zurück; Creative bricht weiterhin instant. */
+    private int miningX = Integer.MIN_VALUE, miningY, miningZ;
+    private float miningProgress = 0F;
+    private long lastMiningMs = 0;
 
     /* Doppel-Leertaste schaltet das Fliegen um (wie Minecraft): zweiter Tipp binnen 300ms. */
     private static final long DOUBLE_TAP_MS = 300;
@@ -89,6 +98,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         this.world = new World("world");
         this.selectionBoxRenderer = new SelectionBoxRenderer();
+        this.crackRenderer = new CrackRenderer();
     }
 
     @Override
@@ -100,6 +110,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.world.init(); // creates ChunkManager, renderer, texture array
         this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
         this.selectionBoxRenderer.init();
+        this.crackRenderer.init(this.world.getChunkRenderer().getTextureArray());
 
         this.guiManager = new GuiManager(SkyEngine.get().getInput());
         this.guiManager.init(this.world.getChunkRenderer().getTextureArray(),
@@ -195,6 +206,14 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         if (this.hit != null && !this.guiManager.isOpen() && this.player.getGamemode().interactsWithWorld()) {
             this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z(),
                     Blocks.getState(this.hit.block()).getOutlineShape());
+
+            /* Abbau-Risse (Survival): nur solange das Raycast-Ziel dem Mining-Ziel entspricht. */
+            if (this.miningProgress > 0F && this.hit.x() == this.miningX
+                    && this.hit.y() == this.miningY && this.hit.z() == this.miningZ) {
+                int stage = Math.min(9, (int) (this.miningProgress * 10F));
+                this.crackRenderer.render(this.camera, this.miningX, this.miningY, this.miningZ,
+                        Blocks.getState(this.hit.block()).getOutlineShape(), stage);
+            }
         }
 
         this.renderFluidOverlay();
@@ -248,7 +267,100 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.world.dispose();
         }
         this.selectionBoxRenderer.dispose();
+        if (this.crackRenderer != null) this.crackRenderer.dispose();
         if (this.guiManager != null) this.guiManager.dispose();
+    }
+
+    /**
+     * Survival-Mining: akkumuliert Abbau-Fortschritt am Ziel-Block (MC-Formel), solange die
+     * linke Maustaste gehalten wird. Härte 0 = instant (über den Klick-/Halte-Trigger),
+     * Härte &lt; 0 = unzerstörbar (Bedrock). Drops/Abnutzung übernimmt {@link #breakTargetBlock}.
+     */
+    private void updateMining(boolean held, boolean clickTrigger, long now) {
+        if (!held || this.hit == null) {
+            this.resetMining();
+            return;
+        }
+
+        /* Zielwechsel -> Fortschritt neu ansetzen */
+        if (this.hit.x() != this.miningX || this.hit.y() != this.miningY || this.hit.z() != this.miningZ) {
+            this.miningX = this.hit.x();
+            this.miningY = this.hit.y();
+            this.miningZ = this.hit.z();
+            this.miningProgress = 0F;
+            this.lastMiningMs = now;
+        }
+
+        BlockState state = Blocks.getState(this.hit.block());
+        float hardness = state.getBlock().getHardness();
+        if (hardness < 0F) { // Bedrock: unzerstörbar
+            this.miningProgress = 0F;
+            this.lastMiningMs = now;
+            return;
+        }
+
+        if (hardness == 0F) { // instant (Pflanzen, TNT) — mit demselben Klick-/Halte-Takt wie Creative
+            if (clickTrigger) this.breakTargetBlock(state, false, now);
+            return;
+        }
+
+        ItemStack held0 = this.playerInventory.get(this.hotbarIndex);
+        float speed = 1F;
+        if (held0.getItem() instanceof ToolItem tool && tool.getType() == state.getBlock().getToolType()) {
+            speed = tool.getTier().speed();
+        }
+        /* MC-Formel: Schaden pro Tick = speed/hardness/30 (harvestbar) bzw. /100 -> pro Sekunde /1.5 bzw. /5 */
+        float perSecond = speed / hardness / (isHarvestable(state, held0) ? 1.5F : 5F);
+
+        float dt = (now - this.lastMiningMs) / 1000F;
+        this.lastMiningMs = now;
+        this.miningProgress += dt * perSecond;
+
+        if (this.miningProgress >= 1F) {
+            this.breakTargetBlock(state, true, now);
+        }
+    }
+
+    /**
+     * Baut den Ziel-Block ({@code this.hit}) ab: onBreak + AIR setzen, Drop nur bei
+     * dropsItems UND passendem Tool (MC-Harvest-Regel), optional Tool-Abnutzung.
+     */
+    private void breakTargetBlock(BlockState broken, boolean applyDurability, long now) {
+        broken.getBlock().onBreak(this.world, this.hit.x(), this.hit.y(), this.hit.z(), broken);
+        this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(), Blocks.AIR);
+
+        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        /* Drops nur im Survival UND nur, wenn Tool-Klasse + Tier passen. */
+        if (this.player.getGamemode().dropsItems() && isHarvestable(broken, held)) {
+            Item drop = Items.get(broken.getBlock().getIdentifier());
+            if (drop != null) {
+                this.world.spawnItem(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5, new ItemStack(drop, 1));
+            }
+        }
+
+        /* Tool-Abnutzung (nur Survival bei Härte > 0): zerbricht bei erreichter Haltbarkeit. */
+        if (applyDurability && held.getItem() instanceof ToolItem tool) {
+            held.setDamage(held.getDamage() + 1);
+            if (held.getDamage() >= tool.getTier().durability()) {
+                this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
+            }
+        }
+
+        this.lastBreakTime = now;
+        this.resetMining();
+    }
+
+    /** MC-Harvest-Regel: ohne Tool-Anforderung droppt alles; sonst passende Klasse + Mindest-Tier. */
+    private static boolean isHarvestable(BlockState state, ItemStack held) {
+        de.skyengine.game.world.item.ToolType required = state.getBlock().getToolType();
+        if (required == null) return true;
+        if (!(held.getItem() instanceof ToolItem tool) || tool.getType() != required) return false;
+        return tool.getTier().level() >= state.getBlock().getHarvestLevel();
+    }
+
+    private void resetMining() {
+        this.miningProgress = 0F;
+        this.miningX = Integer.MIN_VALUE;
     }
 
     private void handleBlockInteraction(Input input) {
@@ -264,6 +376,14 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         boolean placeBlock = input.isMousePressed(GLFW.GLFW_MOUSE_BUTTON_RIGHT)
                 || (input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_RIGHT) && now - this.lastPlaceTime >= INTERACT_DELAY_MS);
 
+        /* Survival: zeitbasierter Abbau nach Härte/Tool — läuft jeden Frame, solange die linke
+           Maustaste gehalten wird (der breakBlock-Trigger unten gilt nur für den Instant-Pfad). */
+        if (!this.player.getGamemode().isInstantBreak()) {
+            this.updateMining(input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_LEFT), breakBlock, now);
+        } else {
+            this.resetMining();
+        }
+
         if (!breakBlock && !placeBlock) return;
 
         /* Eimer vor der hit==null-Prüfung: Der LEERE Eimer nutzt einen eigenen fluid-bewussten
@@ -277,17 +397,10 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         if (hit == null) return;
 
         if (breakBlock) {
-            BlockState broken = Blocks.getState(this.hit.block());
-            broken.getBlock().onBreak(this.world, hit.x(), hit.y(), hit.z(), broken);
-            this.world.setBlock(hit.x(), hit.y(), hit.z(), Blocks.AIR);
-            /* Drops nur im Survival; Creative baut ohne Item ab. */
-            if (this.player.getGamemode().dropsItems()) {
-                Item drop = Items.get(broken.getBlock().getIdentifier());
-                if (drop != null) {
-                    this.world.spawnItem(hit.x() + 0.5, hit.y() + 0.5, hit.z() + 0.5, new ItemStack(drop, 1));
-                }
+            /* Instant-Abbau nur im Creative — Survival läuft über updateMining (oben). */
+            if (this.player.getGamemode().isInstantBreak()) {
+                this.breakTargetBlock(Blocks.getState(this.hit.block()), false, now);
             }
-            this.lastBreakTime = now;
         } else {
             /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
             BlockState hitState = Blocks.getState(this.hit.block());
@@ -426,12 +539,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         /* Hotbar (Slots 0-8): Test-Blöcke + die drei Eimer hinten, damit Wasser/Lava direkt
            testbar sind. Wasser hat kein Block-Item mehr (gehört in den Eimer). */
         int[] start = {
-                Blocks.OAK_PLANKS,
+                Blocks.TALL_GRASS,
                 Blocks.GLASS,
                 Blocks.STONE_SLAB,
                 Blocks.SAND,
                 Blocks.COBBLESTONE_STAIRS,
-                Blocks.OAK_FENCE,
+                Blocks.CACTUS,
         };
         for (int i = 0; i < start.length; i++) {
             Item item = Items.get(Blocks.getState(start[i]).getBlock().getIdentifier());

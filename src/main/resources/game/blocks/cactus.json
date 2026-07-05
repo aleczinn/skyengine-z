@@ -1,0 +1,15 @@
+{
+  "id": "skyengine:cactus",
+  "type": "custom",
+  "layer": "cutout",
+  "hardness": 0.4,
+  "opaque": false,
+  "place_on": ["skyengine:sand", "skyengine:cactus"],
+  "textures": {
+    "side": "game/textures/block/cactus_side.png"
+  },
+  "collision": {
+    "boxes":   [ { "from": [1, 0, 1], "to": [15, 15, 15] } ],
+    "outline": [ { "from": [1, 0, 1], "to": [15, 16, 15] } ]
+  }
+}

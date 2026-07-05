@@ -102,16 +102,18 @@ public class ChunkMesher {
      * des gemergten Quads skaliert). {@link #NONE} = State ist nicht greedy-fähig.
      */
     private static final class GreedyFaces {
-        static final GreedyFaces NONE = new GreedyFaces(null, null, null);
+        static final GreedyFaces NONE = new GreedyFaces(null, null, null, null);
 
         final BlockState state;
         final BakedQuad[] quads;     // Index = Face
         final boolean[] uAlongT1;    // Index = Face
+        final BakedQuad[] overlays;  // Index = Face, null = keine Overlays (Normalfall)
 
-        GreedyFaces(BlockState state, BakedQuad[] quads, boolean[] uAlongT1) {
+        GreedyFaces(BlockState state, BakedQuad[] quads, boolean[] uAlongT1, BakedQuad[] overlays) {
             this.state = state;
             this.quads = quads;
             this.uAlongT1 = uAlongT1;
+            this.overlays = overlays;
         }
     }
 
@@ -192,6 +194,18 @@ public class ChunkMesher {
                         }
                         this.emitQuad(buffer, quad, x, y, worldY, z, offsetX, offsetZ);
                     }
+
+                    /* Seiten-Overlays (Sicherheitsnetz für nicht-greedy-fähige Overlay-Blöcke):
+                       gleiche Cull-Prüfung, Ziel immer CUTOUT. */
+                    for (BakedQuad quad : state.getOverlay()) {
+                        int cullFace = quad.cullFace();
+                        int nx = x + FACE_OFFSET[cullFace][0];
+                        int ny = worldY + FACE_OFFSET[cullFace][1];
+                        int nz = z + FACE_OFFSET[cullFace][2];
+                        int neighborId = getBlock(chunk, north, south, west, east, nx, ny, nz);
+                        if (!shouldRenderFace(state, neighborId)) continue;
+                        this.emitQuad(this.buffers[RenderLayer.CUTOUT.ordinal()], quad, x, y, worldY, z, offsetX, offsetZ);
+                    }
                 }
             }
         }
@@ -246,6 +260,17 @@ public class ChunkMesher {
                         int worldY = baseY + y;
                         int neighborId = this.sample(x + offX, worldY + offY, z + offZ);
                         if (!shouldRenderFace(gf.state, neighborId)) continue;
+
+                        /* Seiten-Overlay (Grasblock): Basis-Face EINZELN emittieren (nicht mergen)
+                           + koplanares Overlay in den CUTOUT-Layer. Identische Vertices in derselben
+                           Section => identische Tiefenwerte (GL-Invarianz); der CUTOUT-Pass zeichnet
+                           mit "or-equal"-Depth-Func, damit das Overlay exakt gewinnt. */
+                        if (gf.overlays != null && gf.overlays[face] != null) {
+                            this.emitQuad(buffer, gf.quads[face], x, y, worldY, z, 0F, 0F);
+                            this.emitQuad(this.buffers[RenderLayer.CUTOUT.ordinal()],
+                                    gf.overlays[face], x, y, worldY, z, 0F, 0F);
+                            continue;
+                        }
 
                         BakedQuad quad = gf.quads[face];
                         if (!this.ambientOcclusion) {
@@ -384,7 +409,15 @@ public class ChunkMesher {
             if (cornerMask != 0b1111) return GreedyFaces.NONE;
             uAlongT1[face] = u00 != u10;
         }
-        return new GreedyFaces(state, quads, uAlongT1);
+
+        /* Seiten-Overlays (Grasblock) je Face einsortieren — sie werden pro sichtbarer Zelle
+           einzeln in den CUTOUT-Layer emittiert und mergen nicht (Greedy bleibt OPAQUE-only). */
+        BakedQuad[] overlays = null;
+        for (BakedQuad quad : state.getOverlay()) {
+            if (overlays == null) overlays = new BakedQuad[6];
+            overlays[quad.cullFace()] = quad;
+        }
+        return new GreedyFaces(state, quads, uAlongT1, overlays);
     }
 
     private static int snapIndex(int x, int y, int z) {

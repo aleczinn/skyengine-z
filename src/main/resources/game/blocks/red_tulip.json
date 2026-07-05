@@ -1,0 +1,11 @@
+{
+  "id": "skyengine:red_tulip",
+  "type": "cross",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": false,
+  "icon_item": "game/textures/block/red_tulip.png",
+  "textures": {
+    "all": "game/textures/block/red_tulip.png"
+  }
+}

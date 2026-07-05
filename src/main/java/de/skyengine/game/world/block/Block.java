@@ -5,6 +5,7 @@ import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.block.behavior.BlockBehavior;
 import de.skyengine.game.world.block.behavior.PlacementContext;
 import de.skyengine.game.world.block.model.BakedQuad;
+import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
@@ -237,8 +238,61 @@ public class Block {
             }
             return new BakedQuad[0];
         }
-        if (this.config.modelGenerator() != null) return this.config.modelGenerator().bake(state);
-        return BlockStateModels.bake(this, state).quads();
+        BakedQuad[] quads = this.config.modelGenerator() != null
+                ? this.config.modelGenerator().bake(state)
+                : BlockStateModels.bake(this, state).quads();
+        return this.applyTint(quads);
+    }
+
+    /**
+     * Wendet den Block-Tint (Vegetation, siehe {@link Tints}) auf die gebackenen Quads an —
+     * no-op bei neutralem Tint. Die Face-Maske schränkt optional auf einzelne Faces ein
+     * (Grasblock: nur oben); Maske -1 tintet alle Quads inkl. NO_CULL (Cross). Public,
+     * weil der Icon-Pfad frisch aus den Modell-JSONs backt und den Tint selbst anwenden muss.
+     */
+    public BakedQuad[] applyTint(BakedQuad[] quads) {
+        int tint = this.config.tint();
+        if (tint == BakedQuad.WHITE) return quads;
+        int mask = this.config.tintFaceMask();
+        BakedQuad[] out = new BakedQuad[quads.length];
+        for (int i = 0; i < quads.length; i++) {
+            BakedQuad q = quads[i];
+            boolean hit = mask == -1 || (q.cullFace() >= 0 && (mask & 1 << q.cullFace()) != 0);
+            /* Vertex-Array wird geteilt (nie mutiert) — nur der Tint-Wert ändert sich. */
+            out[i] = hit ? new BakedQuad(q.vertices(), q.textureLayer(), q.cullFace(), q.brightness(), tint) : q;
+        }
+        return out;
+    }
+
+    /**
+     * Getintete Seiten-Overlay-Quads (Grasblock: Grasrand über der Dirt-Seite) oder leer.
+     * Landen beim Meshing im CUTOUT-Layer, 1/64 Block nach außen versetzt (Reversed-Z).
+     */
+    public BakedQuad[] bakeOverlay(BlockState state) {
+        String texture = this.config.overlayTexture();
+        if (texture == null) return new BakedQuad[0];
+        /* Layer-Registrierung zur Bake-Zeit, single-threaded — wie die Fluid-Layer oben. */
+        return BlockModels.overlaySides(BlockTextures.layerOf(texture), this.config.tint());
+    }
+
+    /** Multiplikations-Tint 0xRRGGBB des Blocks (WHITE = neutral) — u.a. für flache Item-Icons. */
+    public int getTint() {
+        return this.config.tint();
+    }
+
+    /** Abbau-Härte (Survival): 0 = instant, negativ = unzerstörbar (Bedrock). */
+    public float getHardness() {
+        return this.config.hardness();
+    }
+
+    /** Effektive Tool-Klasse oder null (= Hand reicht, droppt immer). */
+    public de.skyengine.game.world.item.ToolType getToolType() {
+        return this.config.toolType();
+    }
+
+    /** Mindest-Harvest-Level für Drops (0 = jedes Tier der passenden Klasse). */
+    public int getHarvestLevel() {
+        return this.config.harvestLevel();
     }
 
     /** Connection-Gruppe (z.B. "fence", "pane") oder null. Steuert Verbindungen (siehe ConnectionRules). */
