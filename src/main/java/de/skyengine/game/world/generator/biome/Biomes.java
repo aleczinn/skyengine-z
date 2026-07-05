@@ -18,9 +18,11 @@ import de.skyengine.game.world.generator.feature.trees.TreeShapes;
  */
 public final class Biomes {
 
-    /* Kontinentalitaets-Schwellen: darunter Ozean bzw. Strandband */
+    /* Kontinentalitaets-Schwellen: darunter Ozean bzw. Strandband. Das Band ist bewusst
+     * schmal (0.06): der Kontinentalitaets-Gradient ist seit der Frequenz-Absenkung flacher,
+     * dieselbe Schwellen-Spanne wird dadurch in Bloecken deutlich breiter. */
     public static final float C_OCEAN = -0.19F;
-    public static final float C_BEACH = -0.08F;
+    public static final float C_BEACH = -0.13F;
 
     /* Ab diesem mountainWeight gilt eine Position als Extreme Hills */
     public static final float MOUNTAIN_THRESHOLD = 0.5F;
