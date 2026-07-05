@@ -18,6 +18,8 @@ public final class BlockState {
     /** Gepackte Hot-Path-Flags, beim Registry-Bake gesetzt (siehe {@link StateFlags}). */
     private int flags;
     private BakedQuad[] model = new BakedQuad[0];
+    /** Getintete Seiten-Overlay-Quads (Grasblock) — der Mesher emittiert sie in den CUTOUT-Layer. */
+    private BakedQuad[] overlay = new BakedQuad[0];
 
     public BlockState(Block block, Map<Property<?>, Object> values) {
         this.block = block;
@@ -118,6 +120,14 @@ public final class BlockState {
 
     public void setModel(BakedQuad[] model) {
         this.model = model;
+    }
+
+    public BakedQuad[] getOverlay() {
+        return overlay;
+    }
+
+    public void setOverlay(BakedQuad[] overlay) {
+        this.overlay = overlay;
     }
 
     @Override

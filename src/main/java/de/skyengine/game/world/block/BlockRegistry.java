@@ -53,6 +53,7 @@ public final class BlockRegistry {
             state.setFlags(f);
             if ((f & StateFlags.TICKS_RANDOMLY) != 0) hasRandomTick = true;
             state.setModel(state.getBlock().bakeModel(state));
+            state.setOverlay(state.getBlock().bakeOverlay(state));
         }
 
         statesById = all.toArray(new BlockState[0]);

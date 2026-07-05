@@ -1,0 +1,11 @@
+{
+  "id": "skyengine:cornflower",
+  "type": "cross",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": false,
+  "icon_item": "game/textures/block/cornflower.png",
+  "textures": {
+    "all": "game/textures/block/cornflower.png"
+  }
+}

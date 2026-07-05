@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:mossy_stone_bricks",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 1.5,
+  "tool": "pickaxe",
+  "textures": {
+    "all": "game/textures/block/mossy_stone_bricks.png"
+  }
+}

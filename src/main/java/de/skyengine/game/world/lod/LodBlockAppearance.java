@@ -17,7 +17,8 @@ public final class LodBlockAppearance {
 
     private final int[] topLayers;
     private final int[] sideLayers;
-    private final int[] tints;
+    private final int[] topTints;
+    private final int[] sideTints;
     private final boolean[] fluids;
 
     /** Erst nach BlockRegistry.bake() erzeugen (World.init). */
@@ -25,26 +26,37 @@ public final class LodBlockAppearance {
         int count = BlockRegistry.getStateCount();
         this.topLayers = new int[count];
         this.sideLayers = new int[count];
-        this.tints = new int[count];
+        this.topTints = new int[count];
+        this.sideTints = new int[count];
         this.fluids = new boolean[count];
 
         for (int id = 0; id < count; id++) {
             BlockState state = BlockRegistry.getState(id);
-            this.tints[id] = BakedQuad.WHITE;
+            this.topTints[id] = BakedQuad.WHITE;
+            this.sideTints[id] = BakedQuad.WHITE;
             this.fluids[id] = state.isFluid();
 
             FluidInfo fluid = state.getBlock().getFluidInfo();
             if (fluid != null) {
                 this.topLayers[id] = fluid.stillLayer;
                 this.sideLayers[id] = fluid.stillLayer;
-                if (!fluid.lava) this.tints[id] = FluidGeometry.WATER_TINT;
+                if (!fluid.lava) {
+                    this.topTints[id] = FluidGeometry.WATER_TINT;
+                    this.sideTints[id] = FluidGeometry.WATER_TINT;
+                }
                 continue;
             }
 
             int top = -1, side = -1;
             for (BakedQuad quad : state.getModel()) {
-                if (top < 0 && quad.cullFace() == 0) top = quad.textureLayer();
-                if (side < 0 && quad.cullFace() >= 2) side = quad.textureLayer();
+                if (top < 0 && quad.cullFace() == 0) {
+                    top = quad.textureLayer();
+                    this.topTints[id] = quad.tint(); // Vegetations-Tint kommt generisch mit (Gras-Top)
+                }
+                if (side < 0 && quad.cullFace() >= 2) {
+                    side = quad.textureLayer();
+                    this.sideTints[id] = quad.tint();
+                }
             }
             /* Fallbacks: fehlt eine Seite, die andere nehmen; Luft/Cross-Modelle tauchen
                als Oberflächenblock ohnehin nicht auf. */
@@ -61,9 +73,14 @@ public final class LodBlockAppearance {
         return this.sideLayers[stateId];
     }
 
-    /** Gepackter Multiplikations-Tint 0xRRGGBB (WHITE = neutral). */
-    public int tint(int stateId) {
-        return this.tints[stateId];
+    /** Gepackter Multiplikations-Tint 0xRRGGBB der Oberseite (WHITE = neutral). */
+    public int topTint(int stateId) {
+        return this.topTints[stateId];
+    }
+
+    /** Gepackter Multiplikations-Tint 0xRRGGBB der Seiten (WHITE = neutral). */
+    public int sideTint(int stateId) {
+        return this.sideTints[stateId];
     }
 
     /** true für Fluide — deren Zell-Top liegt auf der Quellhöhe (8/9) statt auf Höhe+1. */

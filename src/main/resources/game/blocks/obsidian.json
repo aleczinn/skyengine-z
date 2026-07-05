@@ -2,6 +2,9 @@
   "id": "skyengine:obsidian",
   "type": "cube",
   "layer": "opaque",
+  "hardness": 50,
+  "tool": "pickaxe",
+  "harvest_tier": "diamond",
   "textures": {
     "all": "game/textures/block/obsidian.png"
   }

@@ -8,7 +8,7 @@
   "graphicsMode": "FANCY",
   "ambientOcclusion": true,
   "anisotropicFiltering": 16,
-  "lodEnabled": true,
+  "lodEnabled": false,
   "lodMaxDistance": 128,
   "keyBindings": {
     "open_inventory": 69,

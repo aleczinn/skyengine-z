@@ -1,0 +1,11 @@
+{
+  "id": "skyengine:iron_ore",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 3,
+  "tool": "pickaxe",
+  "harvest_tier": "stone",
+  "textures": {
+    "all": "game/textures/block/iron_ore.png"
+  }
+}

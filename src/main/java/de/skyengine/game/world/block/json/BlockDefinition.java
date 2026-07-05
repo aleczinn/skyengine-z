@@ -18,6 +18,25 @@ public class BlockDefinition {
     public boolean gravity = false;     // fällt nach unten (Sand, Kies) via GravityBehavior
     public boolean facing = false;      // horizontale Ausrichtung zum Spieler (Truhe, Ofen) via HorizontalFacingBehavior
 
+    /* Vegetations-Tint (siehe Tints): "grass" | "foliage". tint_faces schränkt optional auf
+       einzelne Faces ein (up/down/north/south/west/east); null = alle Quads (inkl. Cross).
+       textures.overlay definiert zusätzlich getintete Seiten-Overlay-Quads (Grasblock). */
+    public String tint;
+    public String[] tint_faces;
+
+    /* Platzierungs-/Stütz-Regeln (SupportBehavior): place_on = erlaubte Träger-Block-IDs
+       (z.B. Cactus nur auf Sand/Cactus); place_on_full_top = Träger braucht eine volle
+       tragende Oberseite (Vollblock, Top-Slab, kopfüber-Treppe). Beides gesetzt = beides. */
+    public String[] place_on;
+    public boolean place_on_full_top = false;
+
+    /* Survival-Mining: hardness (null -> 0 = instant, -1 = unzerstörbar wie Bedrock),
+       tool = effektive Tool-Klasse (pickaxe/axe/shovel/sword; null = Hand reicht, droppt immer),
+       harvest_tier = Mindest-Material für Drops (wood/stone/copper/iron/diamond/netherite). */
+    public Float hardness;
+    public String tool;
+    public String harvest_tier;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;

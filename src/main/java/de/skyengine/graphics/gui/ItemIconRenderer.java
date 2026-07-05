@@ -5,6 +5,7 @@ import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.model.BakedQuad;
+import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.item.BlockItem;
@@ -133,10 +134,19 @@ public final class ItemIconRenderer {
         if (mesh == null || mesh.count == 0) return;
         this.shader.setUniformMatrix4f("u_MVP", this.mvp);
         /* Tiefentest pro Icon: durchdringende Modellteile (Zaun-Balken in den Pfosten) brauchen
-           echte Verdeckung. Clear pro Icon -> das zuletzt gezeichnete Cursor-Icon bleibt oben. */
+           echte Verdeckung. Clear pro Icon -> das zuletzt gezeichnete Cursor-Icon bleibt oben.
+           "or-equal"-Func, damit koplanare Overlay-Quads (Grasblock-Seite) exakt gewinnen. */
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+        int prevDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
+        int orEqualFunc = switch (prevDepthFunc) {
+            case GL11.GL_GREATER -> GL11.GL_GEQUAL;
+            case GL11.GL_LESS -> GL11.GL_LEQUAL;
+            default -> prevDepthFunc;
+        };
+        GL11.glDepthFunc(orEqualFunc);
         mesh.render();
+        GL11.glDepthFunc(prevDepthFunc);
         GL11.glDisable(GL11.GL_DEPTH_TEST);
     }
 
@@ -158,8 +168,13 @@ public final class ItemIconRenderer {
      */
     private FlatIcon bakeFlat(Item item) {
         String[] paths;
+        int tint = BakedQuad.WHITE;
         if (item instanceof BlockItem bi) {
-            paths = BlockStateModels.flatIcon(bi.getBlock());
+            /* icon_item (einzelnes Item-Sprite, MC-Look) hat Vorrang vor icon_flat. Der
+               Block-Tint wird mitgenommen, damit z.B. tall_grass/fern gruen erscheinen. */
+            String single = BlockStateModels.iconItem(bi.getBlock());
+            paths = single != null ? new String[]{single} : BlockStateModels.flatIcon(bi.getBlock());
+            tint = bi.getBlock().getTint();
         } else if (item.getIconTexture() != null) {
             /* Nicht-Block-Item mit eigener Textur (z.B. Eimer) -> einfaches Voll-Slot-Quad. */
             paths = new String[]{item.getIconTexture()};
@@ -167,29 +182,33 @@ public final class ItemIconRenderer {
             paths = null;
         }
         if (paths == null || paths.length == 0) return NOT_FLAT;
+        float r = ((tint >> 16) & 0xFF) / 255F;
+        float g = ((tint >> 8) & 0xFF) / 255F;
+        float b = (tint & 0xFF) / 255F;
         int n = paths.length;
-        float[] data = new float[n * 6 * 7];
+        float[] data = new float[n * 6 * 9];
         int p = 0;
         for (int i = 0; i < n; i++) {
             int layer = BlockTextures.layerOf(paths[i]);
-            p = flatQuad(data, p, (float) i / n, (float) (i + 1) / n, layer);
+            p = flatQuad(data, p, (float) i / n, (float) (i + 1) / n, layer, r, g, b);
         }
         return new FlatIcon(new Mesh(data), n >= 2);
     }
 
-    /** Ein Voll-Breite-Quad (x 0..1) im y-Bereich [ya,yb], z=0, volle UV, voll hell. CCW von +Z. */
-    private static int flatQuad(float[] d, int p, float ya, float yb, int layer) {
-        p = flatVert(d, p, 0, ya, 0, 1, layer);
-        p = flatVert(d, p, 1, ya, 1, 1, layer);
-        p = flatVert(d, p, 1, yb, 1, 0, layer);
-        p = flatVert(d, p, 1, yb, 1, 0, layer);
-        p = flatVert(d, p, 0, yb, 0, 0, layer);
-        p = flatVert(d, p, 0, ya, 0, 1, layer);
+    /** Ein Voll-Breite-Quad (x 0..1) im y-Bereich [ya,yb], z=0, volle UV, Farbe = Tint. CCW von +Z. */
+    private static int flatQuad(float[] d, int p, float ya, float yb, int layer, float r, float g, float b) {
+        p = flatVert(d, p, 0, ya, 0, 1, layer, r, g, b);
+        p = flatVert(d, p, 1, ya, 1, 1, layer, r, g, b);
+        p = flatVert(d, p, 1, yb, 1, 0, layer, r, g, b);
+        p = flatVert(d, p, 1, yb, 1, 0, layer, r, g, b);
+        p = flatVert(d, p, 0, yb, 0, 0, layer, r, g, b);
+        p = flatVert(d, p, 0, ya, 0, 1, layer, r, g, b);
         return p;
     }
 
-    private static int flatVert(float[] d, int p, float x, float y, float u, float v, int layer) {
-        d[p++] = x; d[p++] = y; d[p++] = 0; d[p++] = u; d[p++] = v; d[p++] = layer; d[p++] = 1f;
+    private static int flatVert(float[] d, int p, float x, float y, float u, float v, int layer, float r, float g, float b) {
+        d[p++] = x; d[p++] = y; d[p++] = 0; d[p++] = u; d[p++] = v; d[p++] = layer;
+        d[p++] = r; d[p++] = g; d[p++] = b;
         return p;
     }
 
@@ -208,12 +227,16 @@ public final class ItemIconRenderer {
         GL11.glEnable(GL11.GL_DEPTH_TEST);
     }
 
-    /** Backt die Quads des Block-Default-States in ein interleaved Mesh [x,y,z,u,v,layer,brightness]. */
+    /** Backt die Quads des Block-Default-States in ein interleaved Mesh [x,y,z,u,v,layer,r,g,b]. */
     private Mesh bake(Item item) {
         if (!(item instanceof BlockItem bi)) return null;
         /* bakeInventory nutzt ein optionales icon-spezifisches Modell (z.B. Zaun mit Armen, kleine
-           Tür, flache Glasscheibe) statt des Default-State-Modells — sonst Fallback auf Default. */
-        BakedQuad[] quads = BlockStateModels.bakeInventory(bi.getBlock()).quads();
+           Tür, flache Glasscheibe) statt des Default-State-Modells — sonst Fallback auf Default.
+           Der Icon-Pfad backt frisch aus den Modell-JSONs und läuft damit am Retint in
+           Block.bakeModel vorbei — Tint + Seiten-Overlay (Gras/Laub) hier explizit anwenden. */
+        BakedQuad[] quads = bi.getBlock().applyTint(BlockStateModels.bakeInventory(bi.getBlock()).quads());
+        BakedQuad[] overlay = bi.getBlock().getDefaultState().getOverlay();
+        if (overlay.length > 0) quads = BlockModels.concat(quads, overlay);
 
         /* Blöcke mit leerem statischem Modell (z.B. die BER-gerenderte Truhe) hätten kein Icon —
            Fallback auf einen echten Würfel-Block (Eichenbretter), dessen Texturlayer garantiert im
@@ -227,7 +250,7 @@ public final class ItemIconRenderer {
         for (BakedQuad q : quads) verts += q.vertices().length / 5;
         if (verts == 0) return null;
 
-        float[] data = new float[verts * 7];
+        float[] data = new float[verts * 9];
         int p = 0;
         for (BakedQuad q : quads) {
             float[] v = q.vertices();
@@ -236,6 +259,10 @@ public final class ItemIconRenderer {
                gegen Innen-/NO_CULL-Seiten mehrteiliger Modelle (Treppenstufe). Diagonale Cross-Flächen
                (Gras/Blumen) und die nie sichtbare Unterseite behalten ihren gebackenen Wert. */
             float iconBrightness = iconBrightnessFor(v, q.brightness());
+            int tint = q.tint();
+            float r = iconBrightness * ((tint >> 16) & 0xFF) / 255F;
+            float g = iconBrightness * ((tint >> 8) & 0xFF) / 255F;
+            float b = iconBrightness * (tint & 0xFF) / 255F;
             for (int i = 0; i < n; i++) {
                 data[p++] = v[i * 5];
                 data[p++] = v[i * 5 + 1];
@@ -243,7 +270,9 @@ public final class ItemIconRenderer {
                 data[p++] = v[i * 5 + 3];
                 data[p++] = v[i * 5 + 4];
                 data[p++] = q.textureLayer();
-                data[p++] = iconBrightness;
+                data[p++] = r;
+                data[p++] = g;
+                data[p++] = b;
             }
         }
         return new Mesh(data);
@@ -283,17 +312,17 @@ public final class ItemIconRenderer {
         final int vao, vbo, count;
 
         Mesh(float[] data) {
-            this.count = data.length / 7;
+            this.count = data.length / 9;
             this.vao = GL30.glGenVertexArrays();
             this.vbo = GL15.glGenBuffers();
             GL30.glBindVertexArray(this.vao);
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
             GL15.glBufferData(GL15.GL_ARRAY_BUFFER, data, GL15.GL_STATIC_DRAW);
             GlDebug.labelBuffer(this.vbo, "ItemIconRenderer Mesh-VBO");
-            int stride = 7 * Float.BYTES;
+            int stride = 9 * Float.BYTES;
             GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, stride, 0);
             GL20.glVertexAttribPointer(1, 3, GL11.GL_FLOAT, false, stride, 3 * Float.BYTES);
-            GL20.glVertexAttribPointer(2, 1, GL11.GL_FLOAT, false, stride, 6 * Float.BYTES);
+            GL20.glVertexAttribPointer(2, 3, GL11.GL_FLOAT, false, stride, 6 * Float.BYTES);
             GL20.glEnableVertexAttribArray(0);
             GL20.glEnableVertexAttribArray(1);
             GL20.glEnableVertexAttribArray(2);
@@ -324,13 +353,13 @@ public final class ItemIconRenderer {
         #version 460 core
         layout(location = 0) in vec3 a_position;
         layout(location = 1) in vec3 a_texCoord;
-        layout(location = 2) in float a_brightness;
+        layout(location = 2) in vec3 a_color;
         uniform mat4 u_MVP;
         out vec3 v_texCoord;
-        out float v_brightness;
+        out vec3 v_color;
         void main() {
             v_texCoord = a_texCoord;
-            v_brightness = a_brightness;
+            v_color = a_color;
             gl_Position = u_MVP * vec4(a_position, 1.0);
         }
         """;
@@ -338,13 +367,13 @@ public final class ItemIconRenderer {
     private static final String FRAGMENT = """
         #version 460 core
         in vec3 v_texCoord;
-        in float v_brightness;
+        in vec3 v_color;
         uniform sampler2DArray u_Textures;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < 0.01) discard;
-            fragColor = vec4(c.rgb * v_brightness, c.a);
+            fragColor = vec4(c.rgb * v_color, c.a);
         }
         """;
 }

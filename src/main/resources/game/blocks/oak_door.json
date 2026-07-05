@@ -2,13 +2,16 @@
   "id": "skyengine:oak_door",
   "archetype": "door",
   "layer": "cutout",
+  "hardness": 3,
+  "tool": "axe",
   "opaque": false,
   "solid": false,
   "textures": {
     "top": "game/textures/block/oak_door_top.png",
     "bottom": "game/textures/block/oak_door_bottom.png"
   },
-  "icon_flat": ["game/textures/block/oak_door_bottom.png", "game/textures/block/oak_door_top.png"],
+  "icon_item": "game/textures/item/oak_door.png",
+  "place_on_full_top": true,
   "variants": {
     "facing=north,half=bottom,hinge=left,open=false":  { "model": "block/oak_door_bottom" },
     "facing=north,half=bottom,hinge=left,open=true":   { "model": "block/oak_door_bottom", "y": 90 },

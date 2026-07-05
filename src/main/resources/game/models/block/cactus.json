@@ -1,0 +1,41 @@
+{
+  "parent": "block/block",
+  "textures": {
+    "bottom": "game/textures/block/cactus_bottom.png",
+    "top": "game/textures/block/cactus_top.png",
+    "side": "game/textures/block/cactus_side.png"
+  },
+  "_comment": "Verbatim MC cactus (Deckel voll, transparenter Rand wird discarded -> unsichtbare Ueberhang-Lippe wie in Vanilla). Zusaetzlich 4 Innenwand-Faces auf den eingerueckten Seiten-Ebenen: Strahlen, die durch den discardeten Deckelrand fallen, treffen so die gruene Innenwand statt des hellen Hintergrunds (sonst Durchguck-Linien); von aussen unsichtbar, Silhouette bleibt exakt Vanilla. Seiten ohne cullface, sonst wuerden Nachbarn sie faelschlich wegcullen.",
+  "elements": [
+    { "from": [0, 0, 0], "to": [16, 16, 16],
+      "faces": {
+        "down": { "uv": [0, 0, 16, 16], "texture": "#bottom", "cullface": "down" },
+        "up":   { "uv": [0, 0, 16, 16], "texture": "#top", "cullface": "up" }
+      }
+    },
+    { "from": [0, 0, 1], "to": [16, 16, 1],
+      "faces": { "south": { "uv": [0, 0, 16, 16], "texture": "#side" } }
+    },
+    { "from": [0, 0, 15], "to": [16, 16, 15],
+      "faces": { "north": { "uv": [0, 0, 16, 16], "texture": "#side" } }
+    },
+    { "from": [1, 0, 0], "to": [1, 16, 16],
+      "faces": { "east": { "uv": [0, 0, 16, 16], "texture": "#side" } }
+    },
+    { "from": [15, 0, 0], "to": [15, 16, 16],
+      "faces": { "west": { "uv": [0, 0, 16, 16], "texture": "#side" } }
+    },
+    { "from": [0, 0, 1], "to": [16, 16, 15],
+      "faces": {
+        "north": { "uv": [0, 0, 16, 16], "texture": "#side" },
+        "south": { "uv": [0, 0, 16, 16], "texture": "#side" }
+      }
+    },
+    { "from": [1, 0, 0], "to": [15, 16, 16],
+      "faces": {
+        "west": { "uv": [0, 0, 16, 16], "texture": "#side" },
+        "east": { "uv": [0, 0, 16, 16], "texture": "#side" }
+      }
+    }
+  ]
+}
