@@ -527,13 +527,21 @@ public class ChunkRenderer {
             indices[i++] = v + 3;
             indices[i++] = v;
         }
-        if (this.sharedEbo != 0) GL15.glDeleteBuffers(this.sharedEbo);
+        /* Neuen EBO VOR dem Löschen des alten erzeugen (wie VertexArena.grow): solange der
+           alte Name lebt, ist der neue garantiert verschieden — sonst recycelt der Treiber
+           den Namen, ensureVaoBindings hält die Bindung für aktuell und die VAOs zeigen
+           weiter auf das alte, zu kleine EBO-Objekt (Garbage-Indizes hinter dessen Ende). */
+        int oldEbo = this.sharedEbo;
         this.sharedEbo = GL15.glGenBuffers();
         /* Kein VAO gebunden -> Bindung landet nicht versehentlich in einem VAO */
         GL30.glBindVertexArray(0);
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, this.sharedEbo);
         GL15.glBufferData(GL15.GL_ELEMENT_ARRAY_BUFFER, indices, GL15.GL_STATIC_DRAW);
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0);
+        if (oldEbo != 0) {
+            GL15.glDeleteBuffers(oldEbo);
+            this.logger.debug("Quad-EBO gewachsen: " + this.indexCapacityQuads + " -> " + newCapacity + " Quads");
+        }
         GlDebug.labelBuffer(this.sharedEbo, "Geteilter Quad-EBO (" + newCapacity + " Quads)");
         this.indexCapacityQuads = newCapacity;
     }
