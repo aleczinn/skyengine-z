@@ -55,7 +55,17 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     /* Gesteins-Adern: Noise-Extreme werden zu Diorit/Granit/Andesit-Blasen im Stein */
     private static final float STONE_VEIN_THRESHOLD = 0.62F;
 
+    /* Kontinentalwellen: Hebung deutlich staerker als Senkung (Bias + getrennte Skalen),
+     * und Senkung zusaetzlich nach Spline-Headroom gedrosselt — sonst fluten die Wellen
+     * die grossen base-67-Ebenen und die Welt zerfaellt zum Archipel */
+    private static final float UPLIFT_UP = 75F;
+    private static final float UPLIFT_DOWN = 45F;
+    private static final float UPLIFT_BIAS = 0.25F;
+
     private final ClimateSampler climate;
+    /* Kontinentalwellen: sehr niederfrequente Hebung/Senkung ganzer Regionen (~12k Bloecke),
+     * damit die Welt aus LOD-Distanz nicht wie eine flache Scheibe wirkt */
+    private final FastNoiseLite upliftNoise;
     /* Lokales Terrain-Detail; Amplitude skaliert mit der Erosion (glatt vs. zerklueftet) */
     private final FastNoiseLite detailNoise;
     /* Berg-Form: Ridged-Fraktal fuer Grate und Gipfel */
@@ -138,6 +148,12 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         this.stoneNoise2.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.stoneNoise2.SetFractalOctaves(2);
         this.stoneNoise2.SetFrequency(0.03F);
+
+        this.upliftNoise = new FastNoiseLite(seed + 20);
+        this.upliftNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
+        this.upliftNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
+        this.upliftNoise.SetFractalOctaves(2);
+        this.upliftNoise.SetFrequency(0.00008F);
     }
 
     @Override
@@ -148,6 +164,9 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     private int heightFor(int x, int z, Climate c) {
         /* Grundform aus der Kontinentalitaet: Tiefsee -> Kueste -> Landesinneres */
         float h = continentSpline(c.continentalness());
+
+        /* Kontinentalwellen heben/senken das regionale Grundniveau (an der Kueste 0) */
+        h += this.upliftOffset(x, z, c);
 
         /* Erosion moduliert das lokale Detail: glatte Ebenen vs. schroffe Huegel */
         h += this.detailNoise.GetNoise(x, z) * lerp(4F, 36F, this.ruggedness(c));
@@ -161,7 +180,25 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
         h = this.carveRiver(x, z, h, c);
 
-        return Math.min((int) h, Chunk.HEIGHT - 2);
+        /* Untergrenze knapp ueber Bedrock: extreme Senkung+Detail darf nicht unter 0 laufen */
+        return Math.clamp((int) h, 8, Chunk.HEIGHT - 2);
+    }
+
+    /**
+     * Kontinentalwellen-Offset: sehr niederfrequente Hebung/Senkung (bis ±{@link #UPLIFT_AMP})
+     * des Grundniveaus ganzer Regionen. Zur Kueste hin auf 0 ausgeblendet, damit die
+     * Kuestenlinie am Meeresspiegel verankert bleibt; abgesenkte Binnenregionen koennen
+     * dadurch bewusst unter den Meeresspiegel fallen (Binnenseen).
+     */
+    private float upliftOffset(int x, int z, Climate c) {
+        float gate = smoothstep((c.continentalness() - Biomes.C_BEACH) / 0.25F);
+        if (gate <= 0F) return 0F;
+        float n = this.upliftNoise.GetNoise(x, z) + UPLIFT_BIAS;
+        if (n >= 0F) return n * UPLIFT_UP * gate;
+        /* Senkung nur, wo das Grundniveau Luft nach unten hat: kuestennahe Ebenen (base ~67)
+         * bleiben ueber dem Meer, nur hoeheres Binnenland bildet gelegentlich tiefe Senken */
+        float headroom = smoothstep((continentSpline(c.continentalness()) - 64F) / 26F);
+        return n * UPLIFT_DOWN * headroom * gate;
     }
 
     /**
@@ -194,10 +231,11 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
     /**
      * Stuetzpunkte der Grundhoehe ueber die Kontinentalitaet (piecewise-linear):
-     * Tiefsee 30 -> Kuestenlinie ~62 (bei C_OCEAN) -> flaches Landesinneres bis ~92.
+     * Tiefsee 10 -> Schelf -> Kuestenlinie ~62 (bei C_OCEAN) -> flaches Landesinneres bis ~92.
      */
     private static float continentSpline(float c) {
-        if (c < -0.45F) return lerpMap(c, -1.00F, -0.45F, 30F, 45F);
+        if (c < -0.55F) return lerpMap(c, -1.00F, -0.55F, 10F, 28F);
+        if (c < -0.45F) return lerpMap(c, -0.55F, -0.45F, 28F, 45F);
         if (c < Biomes.C_OCEAN) return lerpMap(c, -0.45F, Biomes.C_OCEAN, 45F, 62F);
         if (c < Biomes.C_BEACH) return lerpMap(c, Biomes.C_OCEAN, Biomes.C_BEACH, 62F, 67F);
         if (c < 0.30F) return lerpMap(c, Biomes.C_BEACH, 0.30F, 67F, 74F);
@@ -265,13 +303,19 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
      */
     @Override
     public long sampleSurface(int x, int z) {
-        int height = this.sampleHeight(x, z);
+        Climate smooth = this.climate.sampleSmooth(x, z);
+        int height = this.heightFor(x, z, smooth);
         if (height < SEA_LEVEL) return LodDataSource.pack(Blocks.WATER, SEA_LEVEL);
-        return LodDataSource.pack(this.surfaceTop(x, z, height, this.biomeAt(x, z)), height);
+        int top = this.surfaceTop(x, z, height, this.biomeAt(x, z), this.upliftOffset(x, z, smooth));
+        return LodDataSource.pack(top, height);
     }
 
-    /** Deckmaterial an (wx, wz) — von generate() UND LOD genutzt (geteilte Logik gegen Naehte). */
-    private int surfaceTop(int wx, int wz, int height, Biome biome) {
+    /**
+     * Deckmaterial an (wx, wz) — von generate() UND LOD genutzt (geteilte Logik gegen Naehte).
+     * {@code uplift} verschiebt die Stein-/Schneegrenze mit dem regionalen Grundniveau,
+     * sonst waeren hochgehobene Ebenen komplett schneebedeckt.
+     */
+    private int surfaceTop(int wx, int wz, int height, Biome biome, float uplift) {
         if (height < SEA_LEVEL) {
             /* Unterwasser-Boden: tiefenabhaengig gemischte Flecken aus Sand/Ton/Erde/Kies
              * statt Ein-Material-Zonen; zwei dekorrelierte Samples desselben Noise
@@ -299,11 +343,13 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
             return Blocks.GRAVEL;
         }
 
-        /* Stein-/Schneegrenze mit verwackelten Hoehenlinien (nur Gebirge erreicht diese Hoehen) */
-        if (height >= STONE_LINE - (int) LINE_DITHER) {
+        /* Stein-/Schneegrenze relativ zum regionalen Grundniveau (uplift), mit verwackelten
+         * Hoehenlinien — nur Terrain deutlich ueber seiner Region erreicht diese Hoehen */
+        int stoneLine = STONE_LINE + (int) uplift;
+        if (height >= stoneLine - (int) LINE_DITHER) {
             float dither = this.detailNoise.GetNoise(wx * 7.3F, wz * 7.3F);
-            if (height >= SNOW_LINE + (int) (dither * LINE_DITHER)) return Blocks.SNOW;
-            if (height >= STONE_LINE + (int) (dither * LINE_DITHER)) return Blocks.STONE;
+            if (height >= SNOW_LINE + (int) uplift + (int) (dither * LINE_DITHER)) return Blocks.SNOW;
+            if (height >= stoneLine + (int) (dither * LINE_DITHER)) return Blocks.STONE;
         }
 
         /* Strandband rund um den Meeresspiegel, Kante leicht verwackelt */
@@ -317,8 +363,9 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
     /** Nur fuer Debug-Karten (GeneratorMapExporter): Deckmaterial auch unter Wasser sichtbar. */
     public int debugSurfaceTop(int x, int z) {
-        int height = this.sampleHeight(x, z);
-        return this.surfaceTop(x, z, height, this.biomeAt(x, z));
+        Climate smooth = this.climate.sampleSmooth(x, z);
+        int height = this.heightFor(x, z, smooth);
+        return this.surfaceTop(x, z, height, this.biomeAt(x, z), this.upliftOffset(x, z, smooth));
     }
 
     /** Fuellmaterial unter dem Deckblock (variable Schichtdicke, s. generate). */
@@ -356,7 +403,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                 Biome biome = this.biomeAt(wx, wz);
                 heights[i] = h;
                 biomes[i] = biome;
-                tops[i] = this.surfaceTop(wx, wz, h, biome);
+                tops[i] = this.surfaceTop(wx, wz, h, biome, this.upliftOffset(wx, wz, smooth));
                 fillers[i] = fillerFor(tops[i], biome);
                 shapeAmps[i] = SHAPE_AMP_MAX * this.ruggedness(smooth);
                 if (h > maxH) maxH = h;
