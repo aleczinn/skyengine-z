@@ -1,0 +1,14 @@
+{
+  "id": "skyengine:pale_oak_log",
+  "archetype": "pillar",
+  "layer": "opaque",
+  "textures": {
+    "side": "game/textures/block/pale_oak_log.png",
+    "top": "game/textures/block/pale_oak_log_top.png"
+  },
+  "variants": {
+    "axis=y": { "model": "block/pale_oak_log" },
+    "axis=x": { "model": "block/pale_oak_log", "x": 90, "y": 90 },
+    "axis=z": { "model": "block/pale_oak_log", "x": 90 }
+  }
+}

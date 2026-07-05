@@ -1,0 +1,14 @@
+{
+  "id": "skyengine:acacia_log",
+  "archetype": "pillar",
+  "layer": "opaque",
+  "textures": {
+    "side": "game/textures/block/acacia_log.png",
+    "top": "game/textures/block/acacia_log_top.png"
+  },
+  "variants": {
+    "axis=y": { "model": "block/acacia_log" },
+    "axis=x": { "model": "block/acacia_log", "x": 90, "y": 90 },
+    "axis=z": { "model": "block/acacia_log", "x": 90 }
+  }
+}
