@@ -42,6 +42,38 @@ public final class Blocks {
     /* Fluids */
     public static int WATER, LAVA;
 
+    /* Stein-Varianten + Ziegel */
+    public static int DIORITE, ANDESITE, GRANITE, POLISHED_DIORITE, POLISHED_ANDESITE, POLISHED_GRANITE;
+    public static int STONE_BRICKS, MOSSY_STONE_BRICKS, CRACKED_STONE_BRICKS, CHISELED_STONE_BRICKS, BRICKS;
+
+    /* Sandstein */
+    public static int SANDSTONE, CHISELED_SANDSTONE, CUT_SANDSTONE;
+    public static int RED_SANDSTONE, CHISELED_RED_SANDSTONE, CUT_RED_SANDSTONE;
+
+    /* Erze */
+    public static int COAL_ORE, IRON_ORE, COPPER_ORE, GOLD_ORE, REDSTONE_ORE, LAPIS_ORE, DIAMOND_ORE, EMERALD_ORE;
+
+    /* Wolle (16 Farben) */
+    public static int WHITE_WOOL, ORANGE_WOOL, MAGENTA_WOOL, LIGHT_BLUE_WOOL, YELLOW_WOOL, LIME_WOOL, PINK_WOOL, GRAY_WOOL;
+    public static int LIGHT_GRAY_WOOL, CYAN_WOOL, PURPLE_WOOL, BLUE_WOOL, BROWN_WOOL, GREEN_WOOL, RED_WOOL, BLACK_WOOL;
+
+    /* Holz: Logs (+ stripped), Planks, Leaves, Slabs, Stairs, Fences */
+    public static int BIRCH_LOG, SPRUCE_LOG, DARK_OAK_LOG, ACACIA_LOG, JUNGLE_LOG, MANGROVE_LOG, PALE_OAK_LOG;
+    public static int STRIPPED_BIRCH_LOG, STRIPPED_SPRUCE_LOG, STRIPPED_DARK_OAK_LOG, STRIPPED_ACACIA_LOG,
+            STRIPPED_JUNGLE_LOG, STRIPPED_MANGROVE_LOG, STRIPPED_PALE_OAK_LOG;
+    public static int BIRCH_PLANKS, SPRUCE_PLANKS, DARK_OAK_PLANKS, ACACIA_PLANKS, JUNGLE_PLANKS, MANGROVE_PLANKS, PALE_OAK_PLANKS;
+    public static int BIRCH_LEAVES, SPRUCE_LEAVES, DARK_OAK_LEAVES, ACACIA_LEAVES, JUNGLE_LEAVES, MANGROVE_LEAVES, PALE_OAK_LEAVES;
+    public static int BIRCH_SLAB, SPRUCE_SLAB, DARK_OAK_SLAB, ACACIA_SLAB, JUNGLE_SLAB, MANGROVE_SLAB, PALE_OAK_SLAB;
+    public static int BIRCH_STAIRS, SPRUCE_STAIRS, DARK_OAK_STAIRS, ACACIA_STAIRS, JUNGLE_STAIRS, MANGROVE_STAIRS, PALE_OAK_STAIRS;
+    public static int BIRCH_FENCE, SPRUCE_FENCE, DARK_OAK_FENCE, ACACIA_FENCE, JUNGLE_FENCE, MANGROVE_FENCE, PALE_OAK_FENCE;
+
+    /* Vegetation */
+    public static int RED_TULIP, WHITE_TULIP, PINK_TULIP, DANDELION, AZURE_BLUET, POPPY, CORNFLOWER;
+    public static int TALL_GRASS, DEAD_BUSH, CACTUS;
+
+    /* Sonstiges */
+    public static int CLAY;
+
     /** Vor world.init() aufrufen! Lädt JSON-Blöcke und baked die Registry. */
     public static void bootstrap(File blockDirectory) {
         /* Luft IMMER zuerst registrieren -> State-ID 0. Chunks sind per Default 0 = leer. */
@@ -99,6 +131,114 @@ public final class Blocks {
         WATER = idOf("skyengine:water");
         LAVA = idOf("skyengine:lava");
         OBSIDIAN = idOf("skyengine:obsidian");
+
+        DIORITE = idOf("skyengine:diorite");
+        ANDESITE = idOf("skyengine:andesite");
+        GRANITE = idOf("skyengine:granite");
+        POLISHED_DIORITE = idOf("skyengine:polished_diorite");
+        POLISHED_ANDESITE = idOf("skyengine:polished_andesite");
+        POLISHED_GRANITE = idOf("skyengine:polished_granite");
+        STONE_BRICKS = idOf("skyengine:stone_bricks");
+        MOSSY_STONE_BRICKS = idOf("skyengine:mossy_stone_bricks");
+        CRACKED_STONE_BRICKS = idOf("skyengine:cracked_stone_bricks");
+        CHISELED_STONE_BRICKS = idOf("skyengine:chiseled_stone_bricks");
+        BRICKS = idOf("skyengine:bricks");
+
+        SANDSTONE = idOf("skyengine:sandstone");
+        CHISELED_SANDSTONE = idOf("skyengine:chiseled_sandstone");
+        CUT_SANDSTONE = idOf("skyengine:cut_sandstone");
+        RED_SANDSTONE = idOf("skyengine:red_sandstone");
+        CHISELED_RED_SANDSTONE = idOf("skyengine:chiseled_red_sandstone");
+        CUT_RED_SANDSTONE = idOf("skyengine:cut_red_sandstone");
+
+        COAL_ORE = idOf("skyengine:coal_ore");
+        IRON_ORE = idOf("skyengine:iron_ore");
+        COPPER_ORE = idOf("skyengine:copper_ore");
+        GOLD_ORE = idOf("skyengine:gold_ore");
+        REDSTONE_ORE = idOf("skyengine:redstone_ore");
+        LAPIS_ORE = idOf("skyengine:lapis_ore");
+        DIAMOND_ORE = idOf("skyengine:diamond_ore");
+        EMERALD_ORE = idOf("skyengine:emerald_ore");
+
+        WHITE_WOOL = idOf("skyengine:white_wool");
+        ORANGE_WOOL = idOf("skyengine:orange_wool");
+        MAGENTA_WOOL = idOf("skyengine:magenta_wool");
+        LIGHT_BLUE_WOOL = idOf("skyengine:light_blue_wool");
+        YELLOW_WOOL = idOf("skyengine:yellow_wool");
+        LIME_WOOL = idOf("skyengine:lime_wool");
+        PINK_WOOL = idOf("skyengine:pink_wool");
+        GRAY_WOOL = idOf("skyengine:gray_wool");
+        LIGHT_GRAY_WOOL = idOf("skyengine:light_gray_wool");
+        CYAN_WOOL = idOf("skyengine:cyan_wool");
+        PURPLE_WOOL = idOf("skyengine:purple_wool");
+        BLUE_WOOL = idOf("skyengine:blue_wool");
+        BROWN_WOOL = idOf("skyengine:brown_wool");
+        GREEN_WOOL = idOf("skyengine:green_wool");
+        RED_WOOL = idOf("skyengine:red_wool");
+        BLACK_WOOL = idOf("skyengine:black_wool");
+
+        BIRCH_LOG = idOf("skyengine:birch_log");
+        SPRUCE_LOG = idOf("skyengine:spruce_log");
+        DARK_OAK_LOG = idOf("skyengine:dark_oak_log");
+        ACACIA_LOG = idOf("skyengine:acacia_log");
+        JUNGLE_LOG = idOf("skyengine:jungle_log");
+        MANGROVE_LOG = idOf("skyengine:mangrove_log");
+        PALE_OAK_LOG = idOf("skyengine:pale_oak_log");
+        STRIPPED_BIRCH_LOG = idOf("skyengine:stripped_birch_log");
+        STRIPPED_SPRUCE_LOG = idOf("skyengine:stripped_spruce_log");
+        STRIPPED_DARK_OAK_LOG = idOf("skyengine:stripped_dark_oak_log");
+        STRIPPED_ACACIA_LOG = idOf("skyengine:stripped_acacia_log");
+        STRIPPED_JUNGLE_LOG = idOf("skyengine:stripped_jungle_log");
+        STRIPPED_MANGROVE_LOG = idOf("skyengine:stripped_mangrove_log");
+        STRIPPED_PALE_OAK_LOG = idOf("skyengine:stripped_pale_oak_log");
+        BIRCH_PLANKS = idOf("skyengine:birch_planks");
+        SPRUCE_PLANKS = idOf("skyengine:spruce_planks");
+        DARK_OAK_PLANKS = idOf("skyengine:dark_oak_planks");
+        ACACIA_PLANKS = idOf("skyengine:acacia_planks");
+        JUNGLE_PLANKS = idOf("skyengine:jungle_planks");
+        MANGROVE_PLANKS = idOf("skyengine:mangrove_planks");
+        PALE_OAK_PLANKS = idOf("skyengine:pale_oak_planks");
+        BIRCH_LEAVES = idOf("skyengine:birch_leaves");
+        SPRUCE_LEAVES = idOf("skyengine:spruce_leaves");
+        DARK_OAK_LEAVES = idOf("skyengine:dark_oak_leaves");
+        ACACIA_LEAVES = idOf("skyengine:acacia_leaves");
+        JUNGLE_LEAVES = idOf("skyengine:jungle_leaves");
+        MANGROVE_LEAVES = idOf("skyengine:mangrove_leaves");
+        PALE_OAK_LEAVES = idOf("skyengine:pale_oak_leaves");
+        BIRCH_SLAB = idOf("skyengine:birch_slab");
+        SPRUCE_SLAB = idOf("skyengine:spruce_slab");
+        DARK_OAK_SLAB = idOf("skyengine:dark_oak_slab");
+        ACACIA_SLAB = idOf("skyengine:acacia_slab");
+        JUNGLE_SLAB = idOf("skyengine:jungle_slab");
+        MANGROVE_SLAB = idOf("skyengine:mangrove_slab");
+        PALE_OAK_SLAB = idOf("skyengine:pale_oak_slab");
+        BIRCH_STAIRS = idOf("skyengine:birch_stairs");
+        SPRUCE_STAIRS = idOf("skyengine:spruce_stairs");
+        DARK_OAK_STAIRS = idOf("skyengine:dark_oak_stairs");
+        ACACIA_STAIRS = idOf("skyengine:acacia_stairs");
+        JUNGLE_STAIRS = idOf("skyengine:jungle_stairs");
+        MANGROVE_STAIRS = idOf("skyengine:mangrove_stairs");
+        PALE_OAK_STAIRS = idOf("skyengine:pale_oak_stairs");
+        BIRCH_FENCE = idOf("skyengine:birch_fence");
+        SPRUCE_FENCE = idOf("skyengine:spruce_fence");
+        DARK_OAK_FENCE = idOf("skyengine:dark_oak_fence");
+        ACACIA_FENCE = idOf("skyengine:acacia_fence");
+        JUNGLE_FENCE = idOf("skyengine:jungle_fence");
+        MANGROVE_FENCE = idOf("skyengine:mangrove_fence");
+        PALE_OAK_FENCE = idOf("skyengine:pale_oak_fence");
+
+        RED_TULIP = idOf("skyengine:red_tulip");
+        WHITE_TULIP = idOf("skyengine:white_tulip");
+        PINK_TULIP = idOf("skyengine:pink_tulip");
+        DANDELION = idOf("skyengine:dandelion");
+        AZURE_BLUET = idOf("skyengine:azure_bluet");
+        POPPY = idOf("skyengine:poppy");
+        CORNFLOWER = idOf("skyengine:cornflower");
+        TALL_GRASS = idOf("skyengine:tall_grass");
+        DEAD_BUSH = idOf("skyengine:dead_bush");
+        CACTUS = idOf("skyengine:cactus");
+
+        CLAY = idOf("skyengine:clay");
     }
 
     private static int idOf(String id) {

@@ -1,0 +1,14 @@
+{
+  "id": "skyengine:stripped_mangrove_log",
+  "archetype": "pillar",
+  "layer": "opaque",
+  "textures": {
+    "side": "game/textures/block/stripped_mangrove_log.png",
+    "top": "game/textures/block/stripped_mangrove_log_top.png"
+  },
+  "variants": {
+    "axis=y": { "model": "block/stripped_mangrove_log" },
+    "axis=x": { "model": "block/stripped_mangrove_log", "x": 90, "y": 90 },
+    "axis=z": { "model": "block/stripped_mangrove_log", "x": 90 }
+  }
+}

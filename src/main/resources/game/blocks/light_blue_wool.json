@@ -1,0 +1,8 @@
+{
+  "id": "skyengine:light_blue_wool",
+  "type": "cube",
+  "layer": "opaque",
+  "textures": {
+    "all": "game/textures/block/light_blue_wool.png"
+  }
+}

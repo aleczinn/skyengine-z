@@ -1,0 +1,14 @@
+{
+  "id": "skyengine:birch_log",
+  "archetype": "pillar",
+  "layer": "opaque",
+  "textures": {
+    "side": "game/textures/block/birch_log.png",
+    "top": "game/textures/block/birch_log_top.png"
+  },
+  "variants": {
+    "axis=y": { "model": "block/birch_log" },
+    "axis=x": { "model": "block/birch_log", "x": 90, "y": 90 },
+    "axis=z": { "model": "block/birch_log", "x": 90 }
+  }
+}

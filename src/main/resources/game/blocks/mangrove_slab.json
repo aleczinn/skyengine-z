@@ -1,0 +1,13 @@
+{
+  "id": "skyengine:mangrove_slab",
+  "type": "slab",
+  "layer": "opaque",
+  "textures": {
+    "all": "game/textures/block/mangrove_planks.png"
+  },
+  "variants": {
+    "type=bottom": { "model": "block/mangrove_slab" },
+    "type=top":    { "model": "block/mangrove_slab_top" },
+    "type=double": { "model": "block/mangrove_planks" }
+  }
+}

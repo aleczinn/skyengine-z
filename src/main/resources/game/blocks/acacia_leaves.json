@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:acacia_leaves",
+  "type": "cube",
+  "layer": "cutout",
+  "opaque": false,
+  "tint": "foliage",
+  "textures": {
+    "all": "game/textures/block/acacia_leaves.png"
+  }
+}
