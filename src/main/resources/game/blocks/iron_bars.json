@@ -2,6 +2,8 @@
   "id": "skyengine:iron_bars",
   "type": "pane",
   "layer": "cutout",
+  "hardness": 5,
+  "tool": "pickaxe",
   "opaque": false,
   "textures": {
     "all": "game/textures/block/iron_bars.png"

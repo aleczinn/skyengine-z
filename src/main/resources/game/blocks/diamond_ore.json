@@ -2,6 +2,9 @@
   "id": "skyengine:diamond_ore",
   "type": "cube",
   "layer": "opaque",
+  "hardness": 3,
+  "tool": "pickaxe",
+  "harvest_tier": "iron",
   "textures": {
     "all": "game/textures/block/diamond_ore.png"
   }

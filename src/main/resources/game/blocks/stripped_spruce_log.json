@@ -2,6 +2,8 @@
   "id": "skyengine:stripped_spruce_log",
   "archetype": "pillar",
   "layer": "opaque",
+  "hardness": 2,
+  "tool": "axe",
   "textures": {
     "side": "game/textures/block/stripped_spruce_log.png",
     "top": "game/textures/block/stripped_spruce_log_top.png"

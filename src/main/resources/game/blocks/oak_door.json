@@ -2,6 +2,8 @@
   "id": "skyengine:oak_door",
   "archetype": "door",
   "layer": "cutout",
+  "hardness": 3,
+  "tool": "axe",
   "opaque": false,
   "solid": false,
   "textures": {

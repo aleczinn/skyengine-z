@@ -2,6 +2,8 @@
   "id": "skyengine:stripped_birch_log",
   "archetype": "pillar",
   "layer": "opaque",
+  "hardness": 2,
+  "tool": "axe",
   "textures": {
     "side": "game/textures/block/stripped_birch_log.png",
     "top": "game/textures/block/stripped_birch_log_top.png"

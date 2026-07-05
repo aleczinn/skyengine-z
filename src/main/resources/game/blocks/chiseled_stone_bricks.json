@@ -2,6 +2,8 @@
   "id": "skyengine:chiseled_stone_bricks",
   "type": "cube",
   "layer": "opaque",
+  "hardness": 1.5,
+  "tool": "pickaxe",
   "textures": {
     "all": "game/textures/block/chiseled_stone_bricks.png"
   }

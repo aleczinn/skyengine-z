@@ -2,6 +2,7 @@
   "id": "skyengine:cactus",
   "type": "custom",
   "layer": "cutout",
+  "hardness": 0.4,
   "opaque": false,
   "place_on": ["skyengine:sand", "skyengine:cactus"],
   "textures": {

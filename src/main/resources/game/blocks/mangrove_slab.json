@@ -2,6 +2,8 @@
   "id": "skyengine:mangrove_slab",
   "type": "slab",
   "layer": "opaque",
+  "hardness": 2,
+  "tool": "axe",
   "textures": {
     "all": "game/textures/block/mangrove_planks.png"
   },

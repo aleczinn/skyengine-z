@@ -34,6 +34,19 @@ public final class Items {
             }
         }
 
+        /* Werkzeuge: 7 Materialien x 4 Typen (IDs/Texturen im MC-Schema: wooden_pickaxe, golden_axe, ...). */
+        for (ToolTier tier : ToolTier.values()) {
+            for (ToolType type : ToolType.values()) {
+                String name = tier.prefix() + "_" + type.name().toLowerCase();
+                Identifier id = Identifier.of("skyengine:" + name);
+                String texture = "game/textures/item/" + name + ".png";
+                if (!Registries.ITEM.contains(id)) {
+                    Registries.ITEM.register(id, new ToolItem(id, type, tier, texture));
+                }
+                BlockTextures.layerOf(texture); // vor dem TextureArray-Bau registrieren
+            }
+        }
+
         /* Eimer sind eigenständige Items (keine Block-Items). Leer stapelt wie in MC bis 16. */
         Block water = Registries.BLOCK.get(Identifier.of("skyengine:water"));
         Block lava = Registries.BLOCK.get(Identifier.of("skyengine:lava"));

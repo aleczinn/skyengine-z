@@ -2,6 +2,7 @@
   "id": "skyengine:green_wool",
   "type": "cube",
   "layer": "opaque",
+  "hardness": 0.8,
   "textures": {
     "all": "game/textures/block/green_wool.png"
   }
