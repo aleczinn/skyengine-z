@@ -303,16 +303,17 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                      * schmale Laeufe = steile Kerbe, breite = flacher Ufersaum;
                      * Untergrenze 1.1 haelt die Sohle ueberall voll gecarvt */
                     float t = smoothstep(1F - river.dist() / valleyHalf);
-                    float carve = Math.min(1F, t * Math.clamp(4.5F / river.half(), 1.1F, 2.4F));
+                    float carve = Math.min(1F, t * Math.clamp(13F / river.half(), 1.1F, 2.4F));
                     /* Steile Hangquerungen: faellt das Terrain quer zum Kanal schneller ab,
                      * als der Uferdamm auffuellt, folgt der Spiegel dem Gelaende in Stufen
                      * (Bett relativ dazu -> Kanal bleibt nass) statt als Wand zu stehen;
                      * max. 2 ueber raw wie beim 3a-Klammerwert */
                     float effWater = Math.min(spiegel, raw + 2F);
                     /* Betttiefe: regionale Variation (versetztes Sediment-Sample) plus
-                     * Breiten-Kopplung — breite Abschnitte sind 3-5 tief statt fix ~2 */
+                     * Breiten-Kopplung — normale Laeufe ~5-8 tief, breite bis ~10,
+                     * Quell-Baeche flach (Kopplung erst ab Halbbreite 4) */
                     float depthVar = (this.sedimentNoise.GetNoise(x * 1.3F + 557F, z * 1.3F + 557F) + 1F) * 0.5F;
-                    float bed = effWater - 1F - depthVar * 2F - Math.min(2.5F, (river.half() - 3F) * 0.4F);
+                    float bed = effWater - 2F - depthVar * 2F - Math.min(6F, Math.max(0F, river.half() - 4F) * 0.7F);
                     if (h > bed) h = lerp(h, bed, carve);
                     damp *= 1F - carve;
                     riverWater = (int) effWater;
