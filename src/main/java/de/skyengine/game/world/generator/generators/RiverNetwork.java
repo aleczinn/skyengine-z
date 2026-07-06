@@ -29,7 +29,7 @@ public final class RiverNetwork {
      * MAX_STEPS*STEP + maximale Tal-/Schulterbreite (3840 + ~70) < CELL —
      * sampleAt muss daher nur die 3x3-Nachbarzellen abfragen. */
     static final int CELL = 4096;
-    /* Spiegel liegt so viele Bloecke unter dem Traeger (uebernimmt RIVER_DOWNCUT) */
+    /* Spiegel liegt so viele Bloecke unter dem Traeger — haelt die Ufer ueber dem Wasser */
     static final float DOWNCUT = 3F;
     /* Carve-Zone (Tal) reicht bis VALLEY_FACTOR * Halbbreite von der Mittellinie,
      * die Uferdamm-Schulter nochmal SHOULDER_FACTOR weiter */

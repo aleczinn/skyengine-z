@@ -35,11 +35,6 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     static final int SEA_LEVEL = 64;
     /* Maximaler Berg-Aufschlag (skaliert mit Biomes.mountainWeight) -> Gipfel bis ~260 */
     private static final float MOUNTAIN_AMP = 170F;
-    /* River-Werte unterhalb dieser Schwelle bilden das Flusstal (~15-30 Bloecke breit) */
-    private static final float RIVER_VALLEY = 0.045F;
-    /* Spiegel liegt so viele Bloecke UNTER dem Traeger: der Traeger folgt dem Terrain,
-     * ohne Downcut laege das Wasser also buendig mit der Wiese statt in einer Senke */
-    private static final float RIVER_DOWNCUT = 3F;
     /* Ab dieser Hoehe: Fels statt Biomdecke */
     private static final int STONE_LINE = 125;
     /* Ab dieser Hoehe: Schneekappe */
@@ -100,11 +95,11 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     /* Lokales Terrain-Detail; Amplitude skaliert mit der Erosion (glatt vs. zerklueftet) */
     private final FastNoiseLite detailNoise;
     /* Die ersten BEIDEN Oktaven des Detail-Noise als Einzel-Instanzen (Oktave i des FBm =
-     * GenNoiseSingle(seed+i-1, coords*f*2^(i-1)), Gewichte 0.533/0.267): der Fluss-Traeger
-     * folgt damit dem echten Terrain bis auf die kleinen Oktaven 3+4 (~±0.6 in Ebenen) —
-     * nur so liegt der Spiegel (Traeger − RIVER_DOWNCUT) verlaesslich UNTER der Wiese.
-     * detailBase2 teilt den Basis-Seed mit mountainNoise (seed+11), aber andere Frequenz/
-     * Nutzung -> keine sichtbare Korrelation, und im Gebirge ist das Carving eh ausgeblendet. */
+     * GenNoiseSingle(seed+i-1, coords*f*2^(i-1)), Gewichte 0.533/0.267): Traeger und Leitfeld
+     * des Fluss-Netzes ({@link #riverCarrier}/{@link #riverGuide}) folgen damit dem echten
+     * Terrain bis auf die kleinen Oktaven 3+4 (~±0.6 in Ebenen) — nur so liegt das monotone
+     * Spiegel-Profil verlaesslich UNTER der Wiese. detailBase2 teilt den Basis-Seed mit
+     * mountainNoise (seed+11), aber andere Frequenz/Nutzung -> keine sichtbare Korrelation. */
     private final FastNoiseLite detailBaseNoise;
     private final FastNoiseLite detailBase2Noise;
     /* Berg-Form: Ridged-Fraktal fuer Grate und Gipfel */
