@@ -69,9 +69,11 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     private static final int LAKE_RADIUS_MIN = 40;
     private static final int LAKE_RADIUS_MAX = 90;
     private static final float LAKE_CHANCE = 0.35F;
-    /* Beckentiefe unter dem Seespiegel; Ringpunkte fuer Spiegel/Hang-Gate */
+    /* Beckentiefe unter dem Seespiegel; Ringpunkte fuer Spiegel/Hang-Gate — auf dem VOLLEN
+     * Radius (maximale Wasserausdehnung) und dicht genug, dass hangseitig kein Gelaende
+     * zwischen zwei Punkten unter den Spiegel rutscht (sonst Wasserwand am See-Rand) */
     private static final int LAKE_DEPTH = 5;
-    private static final int LAKE_RING_POINTS = 8;
+    private static final int LAKE_RING_POINTS = 16;
     private static final int LAKE_MAX_RING_SPAN = 12;
 
     /* Kontinentalwellen: Hebung deutlich staerker als Senkung (Bias + getrennte Skalen),
@@ -246,6 +248,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         float raw = this.rawHeight(x, z, c);
         float h = raw;
         int waterLevel = SEA_LEVEL;
+        int riverWater = Integer.MIN_VALUE;
         float damp = 1F;
 
         /* Fluss (nicht im Ozean/Strandband; billiger Vorab-Test vor dem Breiten-Noise) */
@@ -274,10 +277,13 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                         if (h > bed) h = lerp(h, bed, carve);
                         damp *= 1F - carve;
                         /* Wasser nur, wo das Terrain nahe am Traeger liegt: Toleranz 6
-                         * schluckt die Rest-Oktaven, blockt aber echte Senken-Querungen
-                         * (dort stuende sonst eine hohe freie Wasserflanke am Talrand) */
+                         * schluckt die Rest-Oktaven, blockt aber echte Senken-Querungen.
+                         * Der Spiegel wird zusaetzlich ans reale Terrain geklammert
+                         * (max. 2 ueber raw): wo das Gelaende unter dem Traeger liegt,
+                         * faellt die Wasseroberflaeche in 1-Block-Stufen mit — statt als
+                         * freie Wasserwand neben tieferem Ufer zu stehen */
                         if (raw >= riverBase - 6F) {
-                            waterLevel = Math.max(waterLevel, (int) riverBase - 1);
+                            riverWater = Math.min((int) riverBase - 1, (int) raw + 2);
                         }
                     }
                 }
@@ -294,8 +300,13 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                 if (h > target) h = lerp(h, target, t);
                 damp *= 1F - t;
                 waterLevel = Math.max(waterLevel, lake.level);
+                /* Fluss quert den See: der Flussspiegel folgt dem gecarvten Becken
+                 * in 1-2-Block-Stufen bis auf Seehoehe hinab, statt (ueber raw vom
+                 * See-Carving nichts wissend) als Wasserruecken darueber zu stehen */
+                riverWater = Math.min(riverWater, Math.max(lake.level, (int) h + 2));
             }
         }
+        waterLevel = Math.max(waterLevel, riverWater);
 
         /* Untergrenze knapp ueber Bedrock: extreme Senkung+Detail darf nicht unter 0 laufen */
         int height = Math.clamp((int) h, 8, Chunk.HEIGHT - 2);
@@ -437,8 +448,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         int max = min;
         for (int i = 0; i < LAKE_RING_POINTS; i++) {
             double angle = 2 * Math.PI * i / LAKE_RING_POINTS;
-            int rx = centerX + (int) (Math.cos(angle) * radius * 0.9F);
-            int rz = centerZ + (int) (Math.sin(angle) * radius * 0.9F);
+            int rx = centerX + (int) (Math.cos(angle) * radius);
+            int rz = centerZ + (int) (Math.sin(angle) * radius);
             int h = this.heightBeforeLakes(rx, rz);
             if (h < min) min = h;
             if (h > max) max = h;
