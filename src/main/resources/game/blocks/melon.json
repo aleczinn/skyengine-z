@@ -1,0 +1,12 @@
+{
+  "id": "skyengine:melon",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 1.0,
+  "tool": "axe",
+  "textures": {
+    "top": "game/textures/block/melon_top.png",
+    "bottom": "game/textures/block/melon_top.png",
+    "side": "game/textures/block/melon_side.png"
+  }
+}
