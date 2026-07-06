@@ -93,6 +93,10 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     private final FastNoiseLite snowWobbleNoise;
     /* Lokales Terrain-Detail; Amplitude skaliert mit der Erosion (glatt vs. zerklueftet) */
     private final FastNoiseLite detailNoise;
+    /* NUR die Basisoktave des Detail-Noise (gleicher Seed+Frequenz, ohne Fraktal): der
+     * Fluss-Traeger folgt damit den breiten Mulden/Buckeln des echten Terrains — die
+     * Restabweichung (Oktaven 2-4) bleibt klein genug fuer eingedaemmte Ufer */
+    private final FastNoiseLite detailBaseNoise;
     /* Berg-Form: Ridged-Fraktal fuer Grate und Gipfel */
     private final FastNoiseLite mountainNoise;
     /* Kleinraeumige Materialflecken fuer Ozean-/Flussboeden (Ton/Kies/Sand) */
@@ -137,6 +141,10 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         this.detailNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.detailNoise.SetFractalOctaves(4);
         this.detailNoise.SetFrequency(0.004F);
+
+        this.detailBaseNoise = new FastNoiseLite(seed + 10);
+        this.detailBaseNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
+        this.detailBaseNoise.SetFrequency(0.004F);
 
         this.mountainNoise = new FastNoiseLite(seed + 11);
         this.mountainNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
@@ -211,11 +219,83 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     }
 
     private int heightFor(int x, int z, Climate c) {
-        float h = this.carveRiver(x, z, this.rawHeight(x, z, c), c);
-        h = this.carveLake(x, z, h);
+        return this.columnFor(x, z, c, true).height;
+    }
+
+    /** Ergebnis der Spaltenberechnung: Hoehe, lokaler Wasserspiegel, 3D-Verformungs-Amplitude. */
+    private record ColumnSample(int height, int waterLevel, float shapeAmp) {
+    }
+
+    /**
+     * Berechnet eine Terrainspalte komplett: Rohhoehe, Fluss- und See-Carving, den lokalen
+     * Wasserspiegel (Meer, gelaendefolgender Fluss oder See) und die 3D-Amplitude. Fluss-
+     * und Seebecken daempfen die 3D-Verformung auf 0 — sonst hebt das Shape-Noise die Sohle
+     * stellenweise ueber den Wasserspiegel (trockene Flussbett-Flicken).
+     *
+     * <p>Fluesse folgen einem niederfrequenten Traeger (Spline + Kontinentalwellen, OHNE
+     * Detail/Berge): der Spiegel steigt ~1 Block je 30-80 Bloecke, der Fluss klettert
+     * Haenge in 1-Block-Stufen hinauf. Wasser gibt es nur, wo der Fluss wirklich
+     * eingeschnitten ist (Rohhoehe nahe am Traeger) — quert die Flusslinie eine tiefere
+     * Senke, endet der Lauf dort statt eine Wasserwand zu bilden.
+     */
+    private ColumnSample columnFor(int x, int z, Climate c, boolean withLakes) {
+        float raw = this.rawHeight(x, z, c);
+        float h = raw;
+        int waterLevel = SEA_LEVEL;
+        float damp = 1F;
+
+        /* Fluss (nicht im Ozean/Strandband; billiger Vorab-Test vor dem Breiten-Noise) */
+        if (c.continentalness() >= Biomes.C_BEACH) {
+            float r = this.climate.riverValue(x, z);
+            if (r < RIVER_VALLEY * 1.6F) {
+                float valley = RIVER_VALLEY * this.climate.riverWidth(x, z);
+                if (r < valley) {
+                    /* 0 am Talrand .. 1 in der Flussmitte; *1.4 macht die Sohle flach.
+                     * Gebirge und Wueste blenden das Carving aus: Fluesse verjuengen sich
+                     * und enden am Gebirgsrand bzw. versiegen vor der Wueste. */
+                    float dry = desertness(c);
+                    float mountain = smoothstep((Biomes.mountainWeight(c) - 0.25F) / 0.2F);
+                    float t = smoothstep(1F - r / valley) * (1F - dry) * (1F - mountain);
+                    float carve = Math.min(1F, t * 1.4F);
+                    if (carve > 0F) {
+                        /* Traeger = Basis + Basisoktave des Detail-Noise (x0.533 = deren
+                         * Anteil am normierten FBm): folgt den breiten Mulden/Buckeln des
+                         * Terrains; zur Kueste hin auf Meeresspiegel geblendet (Muendung) */
+                        float coast = smoothstep((c.continentalness() - Biomes.C_BEACH) / 0.06F);
+                        float base = continentSpline(c.continentalness()) + this.upliftOffset(x, z, c)
+                                + this.detailBaseNoise.GetNoise(x, z) * 0.533F * lerp(4F, 36F, this.ruggedness(c));
+                        float riverBase = lerp(SEA_LEVEL, Math.max(SEA_LEVEL, base), coast);
+                        float bed = riverBase - 3F + dry * 5F;
+                        /* nur absenken — Senken zu ueberbruecken ergaebe trockene Daemme */
+                        if (h > bed) h = lerp(h, bed, carve);
+                        damp *= 1F - carve;
+                        /* Wasser nur, wo das Terrain nahe am Traeger liegt: Toleranz 6
+                         * schluckt die Rest-Oktaven, blockt aber echte Senken-Querungen
+                         * (dort stuende sonst eine hohe freie Wasserflanke am Talrand) */
+                        if (raw >= riverBase - 6F) {
+                            waterLevel = Math.max(waterLevel, (int) riverBase - 1);
+                        }
+                    }
+                }
+            }
+        }
+
+        /* See: Becken glockenfoermig unter den Spiegel carven (Fluss-Trick) — Becken
+         * garantiert unterm Wasser, unberuehrter Rand garantiert darueber (Bergsee-faehig) */
+        if (withLakes) {
+            Lake lake = this.lakeAt(x, z);
+            if (lake != null) {
+                float t = Math.min(1F, smoothstep(1F - this.lakeShoreNorm(lake, x, z)) * 1.3F);
+                float target = lake.level - LAKE_DEPTH;
+                if (h > target) h = lerp(h, target, t);
+                damp *= 1F - t;
+                waterLevel = Math.max(waterLevel, lake.level);
+            }
+        }
 
         /* Untergrenze knapp ueber Bedrock: extreme Senkung+Detail darf nicht unter 0 laufen */
-        return Math.clamp((int) h, 8, Chunk.HEIGHT - 2);
+        int height = Math.clamp((int) h, 8, Chunk.HEIGHT - 2);
+        return new ColumnSample(height, waterLevel, SHAPE_AMP_MAX * this.ruggedness(c) * damp);
     }
 
     /**
@@ -223,9 +303,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
      * (der Spiegel eines Sees darf nicht vom eigenen Becken abhaengen: Rekursion).
      */
     private int heightBeforeLakes(int x, int z) {
-        Climate c = this.climate.sampleSmooth(x, z);
-        float h = this.carveRiver(x, z, this.rawHeight(x, z, c), c);
-        return Math.clamp((int) h, 8, Chunk.HEIGHT - 2);
+        return this.columnFor(x, z, this.climate.sampleSmooth(x, z), false).height;
     }
 
     /**
@@ -303,42 +381,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         return n * UPLIFT_DOWN * headroom * gate;
     }
 
-    /**
-     * Senkt die Hoehe entlang der Flusslinien auf Wasserspiegel-Niveau ab. Die Flusslogik lebt
-     * komplett in der Hoehenberechnung: Bett unter SEA_LEVEL + Wasser-Fill -> Fluesse erscheinen
-     * automatisch konsistent in L0 UND LOD.
-     */
-    private float carveRiver(int x, int z, float h, Climate c) {
-        /* Im Ozean/Strandband keine Fluesse einschneiden (dort ist eh Wasserspiegel-Niveau) */
-        if (c.continentalness() < Biomes.C_BEACH) return h;
-
-        float r = this.climate.riverValue(x, z);
-        if (r >= RIVER_VALLEY) return h;
-
-        /* 0 am Talrand .. 1 in der Flussmitte; *1.4 macht die Sohle flach statt V-foermig.
-         * In der Wueste blendet das Carving aus UND das Bett-Ziel steigt ueber den
-         * Meeresspiegel — sonst fuehrt schon halbe Trockenheit noch Wasser durch die Wueste. */
-        float dry = desertness(c);
-        float t = smoothstep(1F - r / RIVER_VALLEY) * (1F - dry);
-        float bed = lerp(SEA_LEVEL - 3, SEA_LEVEL + 2, dry);
-        return lerp(h, bed, Math.min(1F, t * 1.4F));
-    }
 
     /* ------------------------------------------------------------------ Seen (Worley) */
-
-    /**
-     * Senkt das Terrain innerhalb eines Sees glockenfoermig unter dessen Spiegel (gleicher
-     * Trick wie {@link #carveRiver}): das Becken liegt dadurch garantiert unter dem Wasser,
-     * der unberuehrte Rand garantiert darueber — funktioniert auch als Bergsee im Hochtal.
-     */
-    private float carveLake(int x, int z, float h) {
-        Lake lake = this.lakeAt(x, z);
-        if (lake == null) return h;
-        float target = lake.level - LAKE_DEPTH;
-        if (h <= target) return h;
-        float t = smoothstep(1F - this.lakeShoreNorm(lake, x, z));
-        return lerp(h, target, Math.min(1F, t * 1.3F));
-    }
 
     /**
      * Normierte Ufer-Distanz 0 (Zentrum) .. >=1 (ausserhalb): die echte Distanz wird per
@@ -401,12 +445,12 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     }
 
     /**
-     * Wasserspiegel an (x, z): Meeresspiegel, innerhalb eines Sees dessen (hoeherer) Spiegel.
-     * Pure Funktion — von generate() UND LOD genutzt, damit Seen nahtfrei erscheinen.
+     * Wasserspiegel an (x, z): Meeresspiegel, Fluss-Traeger oder Seespiegel — pure Funktion,
+     * hauptsaechlich fuer Debug-Karten und Sonden (intern liefert {@link #columnFor} den
+     * Spiegel zusammen mit der Hoehe, ohne das Klima doppelt zu samplen).
      */
     public int waterLevelAt(int x, int z) {
-        Lake lake = this.lakeAt(x, z);
-        return (lake != null) ? Math.max(SEA_LEVEL, lake.level) : SEA_LEVEL;
+        return this.columnFor(x, z, this.climate.sampleSmooth(x, z), true).waterLevel;
     }
 
     /** Deterministischer Zell-Hash -> [0, 1). */
@@ -466,10 +510,10 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
      */
     @Override
     public int surfaceSolidHeight(int x, int z) {
-        Climate smooth = this.climate.sampleSmooth(x, z);
-        int h2d = this.heightFor(x, z, smooth);
-        float amp = SHAPE_AMP_MAX * this.ruggedness(smooth);
-        if (amp <= 0F) return h2d; // flache Biome liegen exakt auf der Heightmap
+        ColumnSample cs = this.columnFor(x, z, this.climate.sampleSmooth(x, z), true);
+        int h2d = cs.height;
+        float amp = cs.shapeAmp;
+        if (amp <= 0F) return h2d; // flache Biome/Wasserbecken liegen exakt auf der Heightmap
 
         int top = Math.min(Chunk.HEIGHT - 2, h2d + (int) amp + 3);
         int solidBelow = Math.max(1, h2d - (int) SHAPE_AMP_MAX - 4); // ab hier rein 2D = fest
@@ -512,12 +556,11 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     @Override
     public long sampleSurface(int x, int z) {
         Climate smooth = this.climate.sampleSmooth(x, z);
-        int height = this.heightFor(x, z, smooth);
-        int waterLevel = this.waterLevelAt(x, z);
-        if (height < waterLevel) return LodDataSource.pack(Blocks.WATER, waterLevel);
-        int top = this.surfaceTop(x, z, height, this.biomeAt(x, z),
-                this.upliftOffset(x, z, smooth), waterLevel);
-        return LodDataSource.pack(top, height);
+        ColumnSample cs = this.columnFor(x, z, smooth, true);
+        if (cs.height < cs.waterLevel) return LodDataSource.pack(Blocks.WATER, cs.waterLevel);
+        int top = this.surfaceTop(x, z, cs.height, this.biomeAt(x, z),
+                this.upliftOffset(x, z, smooth), cs.waterLevel);
+        return LodDataSource.pack(top, cs.height);
     }
 
     /**
@@ -580,9 +623,9 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     /** Nur fuer Debug-Karten (GeneratorMapExporter): Deckmaterial auch unter Wasser sichtbar. */
     public int debugSurfaceTop(int x, int z) {
         Climate smooth = this.climate.sampleSmooth(x, z);
-        int height = this.heightFor(x, z, smooth);
-        return this.surfaceTop(x, z, height, this.biomeAt(x, z),
-                this.upliftOffset(x, z, smooth), this.waterLevelAt(x, z));
+        ColumnSample cs = this.columnFor(x, z, smooth, true);
+        return this.surfaceTop(x, z, cs.height, this.biomeAt(x, z),
+                this.upliftOffset(x, z, smooth), cs.waterLevel);
     }
 
     /** Fuellmaterial unter dem Deckblock (variable Schichtdicke, s. generate). */
@@ -617,15 +660,15 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                 int i = x * size + z;
 
                 Climate smooth = this.climate.sampleSmooth(wx, wz);
-                int h = this.heightFor(wx, wz, smooth);
+                ColumnSample cs = this.columnFor(wx, wz, smooth, true);
+                int h = cs.height;
                 Biome biome = this.biomeAt(wx, wz);
-                int waterLevel = this.waterLevelAt(wx, wz);
                 heights[i] = h;
                 biomes[i] = biome;
-                waterLevels[i] = waterLevel;
-                tops[i] = this.surfaceTop(wx, wz, h, biome, this.upliftOffset(wx, wz, smooth), waterLevel);
+                waterLevels[i] = cs.waterLevel;
+                tops[i] = this.surfaceTop(wx, wz, h, biome, this.upliftOffset(wx, wz, smooth), cs.waterLevel);
                 fillers[i] = fillerFor(tops[i], biome);
-                shapeAmps[i] = SHAPE_AMP_MAX * this.ruggedness(smooth);
+                shapeAmps[i] = cs.shapeAmp;
                 if (h > maxH) maxH = h;
             }
         }
