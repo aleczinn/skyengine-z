@@ -26,12 +26,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * Klimafeldern ({@link ClimateSampler}) abgeleitet — Biomuebergaenge sind dadurch automatisch
  * glatt, ohne Parameter-Blending an Biomgrenzen.
  *
- * <p>Seed-Offsets: ClimateSampler reserviert seed+0..+8, eigene Noises belegen seed+10..+23.
+ * <p>Seed-Offsets: ClimateSampler reserviert seed+0..+8, eigene Noises belegen seed+10..+23,
+ * das Fluss-Netz ({@link RiverNetwork}) seed+24/+25.
  */
 public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
     /* Meeresspiegel: bis zu dieser Hoehe wird Wasser aufgefuellt */
-    private static final int SEA_LEVEL = 64;
+    static final int SEA_LEVEL = 64;
     /* Maximaler Berg-Aufschlag (skaliert mit Biomes.mountainWeight) -> Gipfel bis ~260 */
     private static final float MOUNTAIN_AMP = 170F;
     /* River-Werte unterhalb dieser Schwelle bilden das Flusstal (~15-30 Bloecke breit) */
@@ -134,6 +135,9 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
      * Berechnung sampelt 9 Ring-Hoehen — einmal pro Zelle rechnen statt pro Spalte.
      * ConcurrentHashMap, weil mehrere Worker-Threads parallel generieren. */
     private final ConcurrentHashMap<Long, Lake> lakeCache = new ConcurrentHashMap<>();
+
+    /* Quelle-zu-Muendung-Flussnetz (eigene Zellen-Memoization, s. RiverNetwork) */
+    private final RiverNetwork riverNetwork;
 
     /** Ein See: fester Spiegel pro See (flach!), Becken wird unter den Spiegel gecarvt. */
     private record Lake(int centerX, int centerZ, int radius, int level) {
@@ -238,6 +242,13 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         this.sedimentNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.sedimentNoise.SetFractalOctaves(2);
         this.sedimentNoise.SetFrequency(0.0015F);
+
+        this.riverNetwork = new RiverNetwork(this, seed);
+    }
+
+    /** Fluss-Netz — public fuer Sonden/Debug-Karten (wie {@link #waterLevelAt}). */
+    public RiverNetwork riverNetwork() {
+        return this.riverNetwork;
     }
 
     @Override
@@ -502,8 +513,45 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         return this.columnFor(x, z, this.climate.sampleSmooth(x, z), true).waterLevel;
     }
 
-    /** Deterministischer Zell-Hash -> [0, 1). */
-    private static float hash01(int x, int z, int seed, int salt) {
+    /* ------------------------------------------------------------------ Fluss-Netz (Hooks) */
+
+    /**
+     * Leitfeld fuer den Fluss-Trace: glatte Grundhoehe (Spline + Kontinentalwellen +
+     * Detail-Basisoktave) plus Gebirgsgewicht als weiche Penalty — Traces laufen um
+     * Massive herum statt Canyons zu erzwingen. Bewusst OHNE die hochfrequenten
+     * Oktaven/Ridges: die Falllinie soll grossraeumig fallen, nicht lokal zittern.
+     */
+    float riverGuide(int x, int z) {
+        Climate c = this.climate.sampleSmooth(x, z);
+        return continentSpline(c.continentalness()) + this.upliftOffset(x, z, c)
+                + this.detailBaseNoise.GetNoise(x, z) * 0.533F * lerp(4F, 36F, this.ruggedness(c))
+                + Biomes.mountainWeight(c) * MOUNTAIN_AMP * 0.35F;
+    }
+
+    /**
+     * Traeger fuer das Spiegel-Profil: folgt dem echten Terrain per Detail-Oktaven 1+2
+     * (Gewichte 0.533/0.267 = deren Anteile am normierten FBm) bis auf ±~0.6 in Ebenen.
+     */
+    float riverCarrier(int x, int z) {
+        Climate c = this.climate.sampleSmooth(x, z);
+        return continentSpline(c.continentalness()) + this.upliftOffset(x, z, c)
+                + (this.detailBaseNoise.GetNoise(x, z) * 0.533F
+                + this.detailBase2Noise.GetNoise(x, z) * 0.267F)
+                * lerp(4F, 36F, this.ruggedness(c));
+    }
+
+    /** Kontinentalitaet (glatt) — Quell-Gate des Fluss-Netzes. */
+    float continentalnessAt(int x, int z) {
+        return this.climate.sampleSmooth(x, z).continentalness();
+    }
+
+    /** Liegt (x, z) im Wasser eines Worley-Sees? Muendungs-Test des Fluss-Traces. */
+    boolean insideLake(int x, int z) {
+        return this.lakeAt(x, z) != null;
+    }
+
+    /** Deterministischer Zell-Hash -> [0, 1) — auch vom Fluss-Netz genutzt. */
+    static float hash01(int x, int z, int seed, int salt) {
         int h = seed ^ salt * 0x9E3779B1;
         h ^= x * 0x85EBCA6B;
         h ^= z * 0xC2B2AE35;
