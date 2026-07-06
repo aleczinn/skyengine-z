@@ -1,0 +1,16 @@
+{
+  "id": "skyengine:basalt",
+  "archetype": "pillar",
+  "layer": "opaque",
+  "hardness": 1.5,
+  "tool": "pickaxe",
+  "textures": {
+    "side": "game/textures/block/basalt_side.png",
+    "top": "game/textures/block/basalt_top.png"
+  },
+  "variants": {
+    "axis=y": { "model": "block/basalt" },
+    "axis=x": { "model": "block/basalt", "x": 90, "y": 90 },
+    "axis=z": { "model": "block/basalt", "x": 90 }
+  }
+}

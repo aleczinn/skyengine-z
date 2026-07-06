@@ -1,0 +1,6 @@
+{
+  "parent": "block/cube_all",
+  "textures": {
+    "all": "game/textures/block/gray_terracotta.png"
+  }
+}
