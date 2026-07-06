@@ -47,7 +47,7 @@ public final class WorldLodDataSource implements LodDataSource {
 
     /**
      * Spaltenscan von oben: erster Block, der Fluid oder solide ist (Vegetation/Luft wird
-     * übersprungen). Nur Chunks mit vollständigen Daten (GENERATED/MESHING/READY).
+     * übersprungen). Nur Chunks mit vollständigem Terrain (mindestens GENERATED).
      *
      * <p>Liest die Paletten bewusst OHNE Lock (Worker-Thread): einzelne verrissene Samples
      * sind transient und werden beim nächsten Remesh korrigiert; Edits passieren ohnehin nur
@@ -56,8 +56,7 @@ public final class WorldLodDataSource implements LodDataSource {
     private long sampleFromChunk(int x, int z) {
         Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
         if (chunk == null) return MISS;
-        ChunkStatus status = chunk.status;
-        if (status != ChunkStatus.GENERATED && status != ChunkStatus.MESHING && status != ChunkStatus.READY) {
+        if (!chunk.status.isAtLeast(ChunkStatus.GENERATED)) {
             return MISS;
         }
 
