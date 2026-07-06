@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:packed_mud",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 1.0,
+  "tool": "pickaxe",
+  "textures": {
+    "all": "game/textures/block/packed_mud.png"
+  }
+}
