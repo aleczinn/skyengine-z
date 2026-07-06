@@ -36,6 +36,9 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     private static final float MOUNTAIN_AMP = 170F;
     /* River-Werte unterhalb dieser Schwelle bilden das Flusstal (~15-30 Bloecke breit) */
     private static final float RIVER_VALLEY = 0.045F;
+    /* Spiegel liegt so viele Bloecke UNTER dem Traeger: der Traeger folgt dem Terrain,
+     * ohne Downcut laege das Wasser also buendig mit der Wiese statt in einer Senke */
+    private static final float RIVER_DOWNCUT = 3F;
     /* Ab dieser Hoehe: Fels statt Biomdecke */
     private static final int STONE_LINE = 125;
     /* Ab dieser Hoehe: Schneekappe */
@@ -95,10 +98,14 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     private final FastNoiseLite snowWobbleNoise;
     /* Lokales Terrain-Detail; Amplitude skaliert mit der Erosion (glatt vs. zerklueftet) */
     private final FastNoiseLite detailNoise;
-    /* NUR die Basisoktave des Detail-Noise (gleicher Seed+Frequenz, ohne Fraktal): der
-     * Fluss-Traeger folgt damit den breiten Mulden/Buckeln des echten Terrains — die
-     * Restabweichung (Oktaven 2-4) bleibt klein genug fuer eingedaemmte Ufer */
+    /* Die ersten BEIDEN Oktaven des Detail-Noise als Einzel-Instanzen (Oktave i des FBm =
+     * GenNoiseSingle(seed+i-1, coords*f*2^(i-1)), Gewichte 0.533/0.267): der Fluss-Traeger
+     * folgt damit dem echten Terrain bis auf die kleinen Oktaven 3+4 (~±0.6 in Ebenen) —
+     * nur so liegt der Spiegel (Traeger − RIVER_DOWNCUT) verlaesslich UNTER der Wiese.
+     * detailBase2 teilt den Basis-Seed mit mountainNoise (seed+11), aber andere Frequenz/
+     * Nutzung -> keine sichtbare Korrelation, und im Gebirge ist das Carving eh ausgeblendet. */
     private final FastNoiseLite detailBaseNoise;
+    private final FastNoiseLite detailBase2Noise;
     /* Berg-Form: Ridged-Fraktal fuer Grate und Gipfel */
     private final FastNoiseLite mountainNoise;
     /* Kleinraeumige Materialflecken fuer Ozean-/Flussboeden (Ton/Kies/Sand) */
@@ -153,6 +160,10 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         this.detailBaseNoise = new FastNoiseLite(seed + 10);
         this.detailBaseNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.detailBaseNoise.SetFrequency(0.004F);
+
+        this.detailBase2Noise = new FastNoiseLite(seed + 11);
+        this.detailBase2Noise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
+        this.detailBase2Noise.SetFrequency(0.008F);
 
         this.mountainNoise = new FastNoiseLite(seed + 11);
         this.mountainNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
@@ -265,28 +276,37 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         if (c.continentalness() >= Biomes.C_BEACH) {
             float r = this.climate.riverValue(x, z);
             if (r < RIVER_VALLEY * 1.6F) {
-                float valley = RIVER_VALLEY * this.climate.riverWidth(x, z);
+                float width = this.climate.riverWidth(x, z);
+                float valley = RIVER_VALLEY * width;
                 if (r < valley) {
-                    /* 0 am Talrand .. 1 in der Flussmitte; *1.4 macht die Sohle flach.
-                     * Gebirge und Wueste blenden das Carving aus: Fluesse verjuengen sich
-                     * und enden am Gebirgsrand bzw. versiegen vor der Wueste. */
+                    /* 0 am Talrand .. 1 in der Flussmitte. Die Saettigung koppelt invers
+                     * an die Talbreite: schmale Abschnitte = steile Boeschung (Kerbe),
+                     * breite = flacher Ufersaum; Untergrenze 1.1 haelt die Sohle ueberall
+                     * voll gecarvt. Gebirge und Wueste blenden das Carving aus: Fluesse
+                     * verjuengen sich und enden am Gebirgsrand bzw. versiegen vor der Wueste. */
                     float dry = desertness(c);
                     float mountain = smoothstep((Biomes.mountainWeight(c) - 0.25F) / 0.2F);
                     float t = smoothstep(1F - r / valley) * (1F - dry) * (1F - mountain);
-                    float carve = Math.min(1F, t * 1.4F);
+                    float carve = Math.min(1F, t * Math.clamp(1.5F / width, 1.1F, 2.4F));
                     if (carve > 0F) {
-                        /* Traeger = Basis + Basisoktave des Detail-Noise (x0.533 = deren
-                         * Anteil am normierten FBm): folgt den breiten Mulden/Buckeln des
-                         * Terrains; zur Kueste hin auf Meeresspiegel geblendet (Muendung) */
+                        /* Traeger = Basis + Oktaven 1+2 des Detail-Noise (Gewichte 0.533/
+                         * 0.267 = deren Anteile am normierten FBm): folgt dem Terrain bis
+                         * auf ±~0.6 in Ebenen; zur Kueste hin auf Meeresspiegel geblendet */
                         float coast = smoothstep((c.continentalness() - Biomes.C_BEACH) / 0.06F);
                         float base = continentSpline(c.continentalness()) + this.upliftOffset(x, z, c)
-                                + this.detailBaseNoise.GetNoise(x, z) * 0.533F * lerp(4F, 36F, this.ruggedness(c));
+                                + (this.detailBaseNoise.GetNoise(x, z) * 0.533F
+                                + this.detailBase2Noise.GetNoise(x, z) * 0.267F)
+                                * lerp(4F, 36F, this.ruggedness(c));
                         float riverBase = lerp(SEA_LEVEL, Math.max(SEA_LEVEL, base), coast);
+                        /* Spiegel liegt RIVER_DOWNCUT unter dem Traeger (= Senke mit klarer
+                         * Ufer-Kante); nahe der Kueste sinkt er unter den Meeresspiegel,
+                         * dann flutet das Meer den Unterlauf als Aestuar-Arm */
+                        float riverSurf = riverBase - RIVER_DOWNCUT;
                         /* Betttiefe variiert regional (~1-3 Bloecke Wassertiefe statt fix 2);
                          * versetztes Sediment-Sample, damit Tiefe und Ufermaterial nicht
                          * gekoppelt sind */
                         float depthVar = (this.sedimentNoise.GetNoise(x * 1.3F + 557F, z * 1.3F + 557F) + 1F) * 0.5F;
-                        float bed = riverBase - 2F - depthVar * 2F + dry * 5F;
+                        float bed = riverSurf - 1F - depthVar * 2F + dry * 5F;
                         /* nur absenken — Senken zu ueberbruecken ergaebe trockene Daemme */
                         if (h > bed) h = lerp(h, bed, carve);
                         damp *= 1F - carve;
@@ -297,7 +317,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                          * faellt die Wasseroberflaeche in 1-Block-Stufen mit — statt als
                          * freie Wasserwand neben tieferem Ufer zu stehen */
                         if (raw >= riverBase - 6F) {
-                            riverWater = Math.min((int) riverBase - 1, (int) raw + 2);
+                            riverWater = Math.min((int) riverSurf, (int) raw + 2);
                         }
                     }
                 }
