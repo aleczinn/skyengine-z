@@ -26,14 +26,15 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class RiverNetwork {
 
     /* Zellraster; ein Lauf verlaesst den 3x3-Ring seiner Quellzelle nie:
-     * MAX_STEPS*STEP + maximale Tal-/Schulterbreite (3840 + ~70) < CELL —
+     * MAX_STEPS*STEP (3744) + See-Endknoten (~220) + Bbox-Margin (Pond-Halbbreite
+     * ~34 * VALLEY_FACTOR * SHOULDER_FACTOR ~ 100) = ~4064 < CELL —
      * sampleAt muss daher nur die 3x3-Nachbarzellen abfragen. */
     static final int CELL = 4096;
     /* Spiegel liegt so viele Bloecke unter dem Traeger — haelt die Ufer ueber dem Wasser */
     static final float DOWNCUT = 3F;
     /* Carve-Zone (Tal) reicht bis VALLEY_FACTOR * Halbbreite von der Mittellinie,
      * die Uferdamm-Schulter nochmal SHOULDER_FACTOR weiter */
-    static final float VALLEY_FACTOR = 2.5F;
+    static final float VALLEY_FACTOR = 1.9F;
     static final float SHOULDER_FACTOR = 1.5F;
 
     /* Trace: Schrittweite und Maximallaenge (78*48 = 3744 Bloecke; der See-Endknoten kann
@@ -58,12 +59,13 @@ public final class RiverNetwork {
      * (Detail-Oktave, ±10) soll der Lauf als Kerbe durchschneiden (Profil bleibt ja unten),
      * nur tiefe Kontinentalwellen-Becken enden endorheisch. */
     private static final float BASIN_ASCENT = 12F;
-    /* Kanal-Halbbreite: Basis + Noise-Variation + Wachstum flussabwaerts (~3..7.5) */
-    private static final float HALF_MIN = 3F;
-    private static final float HALF_NOISE = 2F;
-    private static final float HALF_GROWTH = 2.5F;
+    /* Kanal-Halbbreite: Basis + Noise-Variation + Wachstum flussabwaerts (~9..17,
+     * Wasserbreite damit ~20-30 Bloecke; Oberlaeufe starten per Quell-Ramp schmaler) */
+    private static final float HALF_MIN = 9F;
+    private static final float HALF_NOISE = 4F;
+    private static final float HALF_GROWTH = 4F;
     /* Endbecken: letzte Halbbreite aufgeweitet -> kleiner Teich statt stumpfem Ende */
-    private static final float POND_FACTOR = 2.5F;
+    private static final float POND_FACTOR = 2F;
 
     /** Endtyp eines Laufs — fuer Sonden/Debug. */
     public static final byte END_SEA = 0;
@@ -73,8 +75,9 @@ public final class RiverNetwork {
 
     /* Zusammenfluss: kommt ein Trace einem frueheren Lauf derselben Zelle so nahe,
      * muendet er dort als Nebenfluss (zwei getrennte Kanaele mit verschiedenen
-     * Spiegeln Seite an Seite ergaeben Wasser-an-Wasser-Kanten) */
-    private static final float JOIN_DIST = 40F;
+     * Spiegeln Seite an Seite ergaeben Wasser-an-Wasser-Kanten). Muss >= der
+     * doppelten typischen Tal-Halbbreite sein, sonst liegen 25er-Kanaele Wand an Wand. */
+    private static final float JOIN_DIST = 64F;
 
     private final AlphaWorldGeneratorV2 gen;
     private final int seed;
