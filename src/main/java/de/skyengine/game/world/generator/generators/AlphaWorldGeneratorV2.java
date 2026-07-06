@@ -656,6 +656,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         int[] fillers = new int[size * size];
         int[] waterLevels = new int[size * size];
         float[] shapeAmps = new float[size * size];
+        float[] uplifts = new float[size * size];
         Biome[] biomes = new Biome[size * size];
         int maxH = 0;
         for (int x = 0; x < size; x++) {
@@ -670,7 +671,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                 heights[i] = h;
                 biomes[i] = biome;
                 waterLevels[i] = cs.waterLevel;
-                tops[i] = this.surfaceTop(wx, wz, h, biome, this.upliftOffset(wx, wz, smooth), cs.waterLevel);
+                uplifts[i] = this.upliftOffset(wx, wz, smooth);
+                tops[i] = this.surfaceTop(wx, wz, h, biome, uplifts[i], cs.waterLevel);
                 fillers[i] = fillerFor(tops[i], biome);
                 shapeAmps[i] = cs.shapeAmp;
                 if (h > maxH) maxH = h;
@@ -757,6 +759,17 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                     if (isSolid && topSolid == 0) topSolid = y;
                 }
 
+                /* Ufersaum-Korrektur: hat die 3D-Verformung die reale Oberflaeche UEBER den
+                 * Wasserspiegel gehoben (2D-Hoehe lag darunter), passt das vorberechnete
+                 * Unterwasser-Deckmaterial nicht mehr — fuer die echte, trockene Hoehe neu
+                 * bestimmen (sonst liegen Ton-/Kiesflaechen offen am Ufer). */
+                int top = tops[i];
+                int filler = fillers[i];
+                if (topSolid >= waterLevel && h2d < waterLevel) {
+                    top = this.surfaceTop(baseX + x, baseZ + z, topSolid, biomes[i], uplifts[i], waterLevel);
+                    filler = fillerFor(top, biomes[i]);
+                }
+
                 /* Filler-Tiefe variiert pro Spalte (1..4 Schichten): mal ein einzelner
                  * Dirt-Block ueber massivem Fels, mal die dicke Schicht — wirkt an
                  * Haengen/Klippen natuerlicher als eine konstante Tiefe */
@@ -767,8 +780,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                 for (int y = 1; y <= topSolid; y++) {
                     if (!solid[y]) continue; // Hoehlenluft (Sections sind per Default Luft)
                     int block;
-                    if (y == topSolid) block = tops[i];
-                    else if (y >= topSolid - fillerDepth) block = fillers[i];
+                    if (y == topSolid) block = top;
+                    else if (y >= topSolid - fillerDepth) block = filler;
                     else block = stoneAt(colStone1, colStone2, y);
                     chunk.setBlock(x, y, z, block);
                 }
@@ -778,9 +791,9 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                     chunk.setBlock(x, y, z, Blocks.WATER);
                 }
 
-                /* Bodenpflanzen: biome-abhaengig, deterministisch ueber das Veg-Noise */
+                /* Bodenpflanzen: biome-abhaengig, deterministisch ueber Dichtefeld + Hash */
                 if (topSolid >= waterLevel && topSolid + 3 < Chunk.HEIGHT) {
-                    this.placePlants(chunk, x, z, baseX + x, baseZ + z, topSolid, tops[i], biomes[i]);
+                    this.placePlants(chunk, x, z, baseX + x, baseZ + z, topSolid, top, biomes[i]);
                 }
             }
         }
