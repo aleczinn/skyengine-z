@@ -334,6 +334,20 @@ public final class RiverNetwork {
                 end = END_LAKE;
                 break;
             }
+            /* Selbstschnitt: naehert sich der Lauf seinem EIGENEN frueheren Verlauf
+             * (Orbit in einer Leitfeld-Senke, Haarnadel die sich schliesst), endet er
+             * hier als Becken — sonst verknaeult sich der Trace zu Spiral-Knoten */
+            boolean selfHit = false;
+            for (int k = 0; k < n - 3; k++) {
+                float dx = x - xs[k];
+                float dz = z - zs[k];
+                if (dx * dx + dz * dz < JOIN_DIST * JOIN_DIST) {
+                    selfHit = true;
+                    break;
+                }
+            }
+            if (selfHit) break;
+
             /* Zusammenfluss mit einem frueheren Lauf derselben Zelle: auf dessen
              * naechsten Knoten muenden, Spiegel klemmt auf den tieferen */
             if (prior != null) {
