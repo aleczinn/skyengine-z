@@ -18,7 +18,7 @@ import java.util.concurrent.CountDownLatch;
 public class SkyEngine {
 
     public static final String ENGINE_NAME = "SkyEngine";
-    public static final String ENGINE_VERSION = "1.0.3";
+    public static final String ENGINE_VERSION = "0.0.6";
 
     /** The index/token used in an index buffer for primitive restart. */
     public static final int PRIMITIVE_RESTART_INDEX = 0xFFFF;
@@ -172,14 +172,17 @@ public class SkyEngine {
             if (System.currentTimeMillis() - lastStatusTime >= 1000) {
                 System.out.printf("FPS: %d, TPS: %d%n", frames, updates);
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
-                    this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d".formatted(
+                    this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s".formatted(
                             ENGINE_NAME,
                             ENGINE_VERSION,
                             frames,
                             updates,
                             this.game.getWorld().getChunkRenderer().getRenderedSections(),
                             this.game.getWorld().getChunkRenderer().getTotalSections(),
-                            this.game.getWorld().getChunkManager().getChunks().size()
+                            this.game.getWorld().getChunkManager().getChunks().size(),
+                            Math.round(this.game.getPlayer().x),
+                            Math.round(this.game.getPlayer().y),
+                            Math.round(this.game.getPlayer().z)
                     ));
                 }
 

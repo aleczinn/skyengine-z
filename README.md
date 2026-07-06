@@ -34,6 +34,9 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
   - Nutzen von MultiDrawIndirect & BufferStorage -> Reduziert Draw-Calls von 12.288 auf 3 (16 Chunk Renderdistanz; 3 weil einen für OPAQUE, CUTOUT & TRANSLUCENT)
   - Ambient Occlusion
   - Level of Detail
+- 🏔️ Welt-Generator
+  - Biome
+  - Strukturen wie Bäume, Palmen
 
 ## Development
 
@@ -74,21 +77,31 @@ Der Fokus liegt auf:
 
 ## Screenshots
 
-v1.0.3 | Level of Detail (128 Render Distanz in Chunks bei >1000 FPS -> Entspricht in Minecraft einer Renderdistanz von 256)
+v0.0.6 | Welt-Generator V2.1 verbessertes Terrain Shaping + Fluss Netzwerk, bei dem Terrain um Flüsse gebaut wird + Vegetations-Fix
 
-![Ingame Screenshot mit einer Renderdistanz von 16 L0 Chunks und ingesamt 128](./screenshots/readme-5.png?raw=true)
+![Ingame Screenshot mit neuer Welt-Generierung inkl. Biomes](project/0.0.6_world-generator-with-river-network.png?raw=true)
 
-v1.0.2 | Ambient Occlusion + Greedy Meshing + MultiDrawIndirect
+v0.0.5 | Welt-Generator V2 (Bioms, Structure-System für Bäume)
 
-![Ingame Screenshot mit Ambient Occlusion, Greedy Meshing und MultiDrawIndirect](./screenshots/readme-3.png?raw=true)
+![Ingame Screenshot mit neuer Welt-Generierung inkl. Biomes](project/0.0.5_world-generator-with-bioms+tinting.png?raw=true)
 
-![Ingame Screenshot mit Weitsicht inkl. Ambient Occlusion, Greedy Meshing und MultiDrawIndirect](./screenshots/readme-4.png?raw=true)
+v0.0.4 | Level of Detail (128 Render Distanz in Chunks bei >1000 FPS -> Entspricht in Minecraft einer Renderdistanz von 256)
 
-v1.0.0 | Blöcke wie Gras, Kreuz-Blöcke wie kurzes Gras oder Tulpen
+![Ingame Screenshot mit einer Renderdistanz von 16 L0 Chunks und ingesamt 128](./project/0.0.4_level-of-detail.png?raw=true)
 
-![Ingame Screenshot mit Hotbar und Block Rendering](./screenshots/readme-1.png?raw=true)
+v0.0.3 | Ambient Occlusion + Greedy Meshing + MultiDrawIndirect
 
-![Ingame Screenshot mit hoher Sichtweite im Spectator Modus](./screenshots/readme-2.png?raw=true)
+![Ingame Screenshot mit Ambient Occlusion, Greedy Meshing und MultiDrawIndirect](./project/0.0.3_greedy-meshing+multi-draw-indirect+ambient-occlusion.png?raw=true)
+
+v0.0.2 | Fluid-System (Screenshot stammt 0.0.5)
+
+![Fluid-System mit Wasser und Lava inkl. Cobble-Stone-Generator Funktion](./project/0.0.2_fluid-system+reaction-system.png?raw=true)
+
+v0.0.1 | Blöcke-System: Grass, Stein; Kreuzblöcke für kurzes Gras, Tulpen; Stufen, Zäune, Custom Modelle wie Zaubertisch 
+
+![Ingame Screenshot mit Hotbar und Block Rendering](./project/0.0.0_1.png?raw=true)
+
+![Ingame Screenshot mit hoher Sichtweite im Spectator Modus](./project/0.0.1_1.png?raw=true)
 
 ## License
 

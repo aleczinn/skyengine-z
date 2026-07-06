@@ -9,18 +9,32 @@ package de.skyengine.game.world.block.model;
  * (z.B. Cross-Modelle).
  * <p>
  * tint: gepackte Multiplikationsfarbe 0xRRGGBB (Default {@link #WHITE} = neutral),
- * im Mesher mit der Helligkeit verrechnet. Genutzt für den Wasser-Tint (später Biome).
+ * im Mesher mit der Helligkeit verrechnet. Genutzt für Wasser- und Vegetations-Tint.
+ * <p>
+ * tintType: {@link #TINT_NONE} = fester Tint-Wert; {@link #TINT_GRASS}/{@link #TINT_FOLIAGE}
+ * = der Mesher ersetzt den Tint zur Mesh-Zeit durch die Biome-Farbe an der Blockposition
+ * (tint bleibt als Fallback, z.B. für Item-Icons und Chunks ohne Tint-Grid).
  */
-public record BakedQuad(float[] vertices, int textureLayer, int cullFace, float brightness, int tint) {
+public record BakedQuad(float[] vertices, int textureLayer, int cullFace, float brightness, int tint, int tintType) {
 
     public static final int NO_CULL = -1;
 
     /** Neutraler Tint (keine Einfärbung). */
     public static final int WHITE = 0xFFFFFF;
 
+    /* Biome-Tint-Typen (s. tintType) */
+    public static final int TINT_NONE = 0;
+    public static final int TINT_GRASS = 1;
+    public static final int TINT_FOLIAGE = 2;
+
     /** Komfort-Konstruktor ohne Tint (neutral weiß) — für alle Nicht-Fluid-Modelle. */
     public BakedQuad(float[] vertices, int textureLayer, int cullFace, float brightness) {
-        this(vertices, textureLayer, cullFace, brightness, WHITE);
+        this(vertices, textureLayer, cullFace, brightness, WHITE, TINT_NONE);
+    }
+
+    /** Komfort-Konstruktor mit festem Tint ohne Biome-Abhängigkeit (z.B. Wasser). */
+    public BakedQuad(float[] vertices, int textureLayer, int cullFace, float brightness, int tint) {
+        this(vertices, textureLayer, cullFace, brightness, tint, TINT_NONE);
     }
 
     /**

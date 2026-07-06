@@ -1,5 +1,7 @@
 package de.skyengine.game.world.lod;
 
+import de.skyengine.game.world.block.Tints;
+
 /**
  * Abstrahierte Oberflächen-Quelle fürs LOD: liefert pro Zelle den obersten sichtbaren Block
  * und dessen Höhe. Heute implementiert über die pure Generator-Funktion
@@ -18,6 +20,16 @@ public interface LodDataSource {
      * {@link #pack}; auslesen mit {@link #block(long)} / {@link #height(long)}.
      */
     long sampleSurface(int x, int z, int size);
+
+    /** Biome-Grasfarbe an Weltposition (fuer GRASS-getintete LOD-Zellen). Default: Platzhalter. */
+    default int grassTintAt(int x, int z) {
+        return Tints.GRASS;
+    }
+
+    /** Biome-Laubfarbe an Weltposition (fuer FOLIAGE-getintete LOD-Zellen). */
+    default int foliageTintAt(int x, int z) {
+        return Tints.FOLIAGE;
+    }
 
     static long pack(int blockId, int height) {
         return ((long) blockId << 32) | (height & 0xFFFFFFFFL);

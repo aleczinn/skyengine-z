@@ -29,6 +29,12 @@ public class Chunk {
        ticken/rendern. Entities, die den Chunk wechseln, werden umgehängt (siehe World.tickEntities). */
     private List<Entity> entities;
 
+    /* Biome-Tint-Eckwerte (33x33, Index cx*33+cz, 0xRRGGBB) — vom Generator in generate()
+       berechnet (pure Funktionswerte, an gemeinsamen Raendern chunk-uebergreifend identisch),
+       vom Mesher pro Vertex bilinear gelesen. null = Generator ohne Biome-Tints (V1). */
+    public int[] grassTintCorners;
+    public int[] foliageTintCorners;
+
     /* volatile: written by workers, read by render thread */
     public volatile ChunkStatus status = ChunkStatus.NEW;
     private final AtomicInteger dirtySections = new AtomicInteger(0);

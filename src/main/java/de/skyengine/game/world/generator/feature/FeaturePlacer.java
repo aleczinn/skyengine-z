@@ -4,6 +4,7 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
+import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.lod.LodDataSource;
 
 import java.util.Random;
@@ -47,14 +48,23 @@ public final class FeaturePlacer {
         return sourceMinZ;
     }
 
-    /** Pure Terrain-Höhe an (wx, wz) — auch über Chunk-Grenzen hinweg sicher. */
+    /**
+     * Pure echte Terrainoberkante an (wx, wz) — auch über Chunk-Grenzen hinweg sicher.
+     * Nutzt {@link WorldGenerator#surfaceSolidHeight}, damit Features auch bei 3D-verformtem
+     * Terrain auf dem realen Boden stehen (nicht auf der 2D-Heightmap schweben).
+     */
     public int surfaceHeight(int wx, int wz) {
-        return this.generator.sampleHeight(wx, wz);
+        return this.generator.surfaceSolidHeight(wx, wz);
     }
 
     /** Purer Oberflächen-Block an (wx, wz) (im Ozean: Wasser am Meeresspiegel). */
     public int surfaceBlock(int wx, int wz) {
         return LodDataSource.block(this.generator.sampleSurface(wx, wz));
+    }
+
+    /** Pures Biom an (wx, wz) — Basis für biome-abhängige Feature-Entscheidungen. */
+    public Biome biome(int wx, int wz) {
+        return this.generator.biomeAt(wx, wz);
     }
 
     /** Schreibt den Block, wenn (wx, wy, wz) im Ziel-Chunk liegt — sonst stilles No-Op. */
