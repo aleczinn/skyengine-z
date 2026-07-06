@@ -10,7 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Deterministisches Quelle-zu-Muendung-Flussnetz nach dem Worley-See-Muster, eine Stufe
- * groesser: pro 2048er-Zelle werden 0-2 Quellen im Hochland gewuerfelt und von dort auf
+ * groesser: pro 4096er-Zelle werden 0-2 Quellen im Hochland gewuerfelt und von dort auf
  * einem glatten Leitfeld bergab getract, bis der Lauf das Meer, einen Worley-See oder
  * (abflusslose Senke/Maximallaenge) ein aufgeweitetes Endbecken erreicht. Jeder Lauf
  * traegt ein MONOTON FALLENDES Spiegel-Profil (laufendes Minimum ueber Traeger − Downcut):

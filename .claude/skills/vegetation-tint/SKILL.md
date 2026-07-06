@@ -29,9 +29,8 @@ description: Biome-abhängige Gras-/Laubfärbung — tintType-Pipeline vom Block
 
 Die Grasrand-Overlays über den Dirt-Seiten werden mit **identischen Vertices** wie die
 OPAQUE-Basis-Seite emittiert (`BlockModels.overlaySides` nutzt direkt `FACE_VERTICES` —
-koplanar, kein Offset). Achtung: Der Javadoc an `Block.bakeOverlay` behauptet noch „1/64 Block
-nach außen versetzt" — der ist **veraltet**, der Code und der ChunkMesher-Kommentar (koplanar +
-or-equal) sind maßgeblich.
+koplanar, kein Offset). Ein früherer 1/64-Offset-Ansatz wurde bewusst durch die
+Koplanar+or-equal-Lösung ersetzt — keinen Offset wieder einführen.
 Identische Vertices in derselben Section ⇒ identische Tiefenwerte (GL-Invarianz); der CUTOUT-Pass
 zeichnet mit „or-equal"-Depth-Func (Reversed-Z: GEQUAL), damit das Overlay exakt gewinnt.
 Konsequenzen:

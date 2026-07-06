@@ -267,7 +267,8 @@ public class Block {
 
     /**
      * Getintete Seiten-Overlay-Quads (Grasblock: Grasrand über der Dirt-Seite) oder leer.
-     * Landen beim Meshing im CUTOUT-Layer, 1/64 Block nach außen versetzt (Reversed-Z).
+     * Landen beim Meshing KOPLANAR (identische Vertices wie die Basis-Seite) im CUTOUT-Layer;
+     * der CUTOUT-Pass zeichnet mit "or-equal"-Depth-Func, damit das Overlay exakt gewinnt.
      */
     public BakedQuad[] bakeOverlay(BlockState state) {
         String texture = this.config.overlayTexture();
