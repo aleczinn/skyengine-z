@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Klimafeldern ({@link ClimateSampler}) abgeleitet — Biomuebergaenge sind dadurch automatisch
  * glatt, ohne Parameter-Blending an Biomgrenzen.
  *
- * <p>Seed-Offsets: ClimateSampler reserviert seed+0..+6, eigene Noises starten ab seed+10.
+ * <p>Seed-Offsets: ClimateSampler reserviert seed+0..+8, eigene Noises belegen seed+10..+23.
  */
 public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
@@ -103,6 +103,10 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     private final FastNoiseLite mountainNoise;
     /* Kleinraeumige Materialflecken fuer Ozean-/Flussboeden (Ton/Kies/Sand) */
     private final FastNoiseLite floorNoise;
+    /* Regionale Sediment-Charakteristik (~600-1000 Bloecke, grob ein Flussabschnitt bzw.
+     * Meeresgebiet): verschiebt die floorNoise-Schwellen — manche Fluesse/Meere ton-reich,
+     * andere kiesig oder fast rein sandig. Zweites (versetztes) Sample variiert die Flusstiefe. */
+    private final FastNoiseLite sedimentNoise;
     /* Bodenpflanzen-DICHTEFELD: weiche 0..1-Verteilung ueber ~150-250 Bloecke; ob eine
      * einzelne Spalte bewachsen ist, entscheidet ein Pro-Block-Hash gegen dieses Feld —
      * keine binaeren Bewuchs-Klumpen mehr */
@@ -217,6 +221,12 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         this.snowWobbleNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.snowWobbleNoise.SetFractalOctaves(2);
         this.snowWobbleNoise.SetFrequency(0.0012F);
+
+        this.sedimentNoise = new FastNoiseLite(seed + 23);
+        this.sedimentNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
+        this.sedimentNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
+        this.sedimentNoise.SetFractalOctaves(2);
+        this.sedimentNoise.SetFrequency(0.0015F);
     }
 
     @Override
@@ -272,7 +282,11 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                         float base = continentSpline(c.continentalness()) + this.upliftOffset(x, z, c)
                                 + this.detailBaseNoise.GetNoise(x, z) * 0.533F * lerp(4F, 36F, this.ruggedness(c));
                         float riverBase = lerp(SEA_LEVEL, Math.max(SEA_LEVEL, base), coast);
-                        float bed = riverBase - 3F + dry * 5F;
+                        /* Betttiefe variiert regional (~1-3 Bloecke Wassertiefe statt fix 2);
+                         * versetztes Sediment-Sample, damit Tiefe und Ufermaterial nicht
+                         * gekoppelt sind */
+                        float depthVar = (this.sedimentNoise.GetNoise(x * 1.3F + 557F, z * 1.3F + 557F) + 1F) * 0.5F;
+                        float bed = riverBase - 2F - depthVar * 2F + dry * 5F;
                         /* nur absenken — Senken zu ueberbruecken ergaebe trockene Daemme */
                         if (h > bed) h = lerp(h, bed, carve);
                         damp *= 1F - carve;
@@ -588,26 +602,30 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         if (height < waterLevel) {
             /* Unterwasser-Boden: tiefenabhaengig gemischte Flecken aus Sand/Ton/Erde/Kies
              * statt Ein-Material-Zonen; zwei dekorrelierte Samples desselben Noise
-             * (Skalen-Offset-Muster wie V1) fuer unabhaengige Fleckenmuster */
+             * (Skalen-Offset-Muster wie V1) fuer unabhaengige Fleckenmuster. Das regionale
+             * Sediment-Noise verschiebt die Schwellen pro Fluss-/Meeresgebiet: ton-reiche
+             * neben fast ton-freien Abschnitten statt weltweit identischer Mischung. */
             int depth = waterLevel - height;
             float n1 = this.floorNoise.GetNoise(wx, wz);
             float n2 = this.floorNoise.GetNoise(wx * 1.7F + 537F, wz * 1.7F + 537F);
+            float sed = this.sedimentNoise.GetNoise(wx, wz);
 
             if (depth <= 3) {
-                /* Ufer: Sand-Basis mit Erd- und Kiesflecken */
+                /* Ufer: Sand-Basis mit Erd- und Kiesflecken; Ton nur in Ton-Regionen */
+                if (n1 > 0.8F - Math.max(0F, sed) * 0.5F) return Blocks.CLAY;
                 if (n2 > 0.5F) return Blocks.DIRT;
-                if (n1 < -0.6F) return Blocks.GRAVEL;
+                if (n1 < -0.6F + Math.max(0F, -sed) * 0.25F) return Blocks.GRAVEL;
                 return Blocks.SAND;
             }
             if (depth <= 9) {
-                /* Flachwasser: ausgewogene Mischung */
-                if (n1 > 0.4F) return Blocks.CLAY;
-                if (n1 < -0.4F) return Blocks.GRAVEL;
+                /* Flachwasser: ausgewogene Mischung; negativer sed = kiesige Region */
+                if (n1 > 0.55F - sed * 0.3F) return Blocks.CLAY;
+                if (n1 < -0.4F - sed * 0.2F) return Blocks.GRAVEL;
                 return (n2 > 0.3F) ? Blocks.DIRT : Blocks.SAND;
             }
             /* Tiefe: Kies dominiert, aber mit Ton-, Erd- und Sandbaenken durchsetzt */
             if (n2 > 0.5F) return Blocks.SAND;
-            if (n1 > 0.4F) return Blocks.CLAY;
+            if (n1 > 0.6F - sed * 0.25F) return Blocks.CLAY;
             if (n2 < -0.45F) return Blocks.DIRT;
             return Blocks.GRAVEL;
         }
