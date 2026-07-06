@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:tuff_bricks",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 1.5,
+  "tool": "pickaxe",
+  "textures": {
+    "all": "game/textures/block/tuff_bricks.png"
+  }
+}
