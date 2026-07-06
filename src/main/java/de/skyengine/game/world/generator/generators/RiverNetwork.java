@@ -42,7 +42,7 @@ public final class RiverNetwork {
     private static final int STEP = 48;
     private static final int MAX_STEPS = 78;
     /* Quell-Kandidaten pro Zelle */
-    private static final int SOURCE_TRIES = 4;
+    private static final int SOURCE_TRIES = 6;
     /* Richtungswahl pro Schritt: Kandidaten im Faecher um die aktuelle Richtung. Die
      * Drehstrafe (Bloecke Leitfeld-Malus pro Radiant Abweichung) wirkt als Momentum
      * gegen Zickzack, der Maeander-Jitter verbiegt die reine Falllinie zu Boegen.
@@ -57,9 +57,9 @@ public final class RiverNetwork {
     private static final float MEANDER_ANGLE = (float) Math.toRadians(20);
     private static final float TURN_MAX = (float) Math.toRadians(28);
     /* Quellen nur im Hochland und klar landeinwaerts */
-    private static final float SOURCE_MIN_GUIDE = 78F;
+    private static final float SOURCE_MIN_GUIDE = 74F;
     private static final float SOURCE_MIN_CONT = Biomes.C_BEACH + 0.05F;
-    private static final float SOURCE_CHANCE = 0.75F;
+    private static final float SOURCE_CHANCE = 0.9F;
     /* Steigt das Leitfeld vorwaerts staerker als so viele Bloecke, sitzt der Lauf in einer
      * echten abflusslosen Senke -> Endbecken. Bewusst grosszuegig: kleine Leitfeld-Dellen
      * (Detail-Oktave, ±10) soll der Lauf als Kerbe durchschneiden (Profil bleibt ja unten),
@@ -335,17 +335,28 @@ public final class RiverNetwork {
             /* Muendung in einen Worley-See — grosszuegig per Radius+Talbreite erkannt:
              * auch ein Lauf, der das Becken nur streifen wuerde, endet hier. Der letzte
              * Knoten zieht zum Seezentrum und klemmt den Spiegel auf Seehoehe, damit der
-             * Kanal sichtbar IM Becken muendet statt am Ufer in der Luft zu haengen. */
-            AlphaWorldGeneratorV2.Lake lake = this.gen.lakeNear(Math.round(x), Math.round(z),
-                    (int) (halfs[n - 1] * VALLEY_FACTOR * SHOULDER_FACTOR));
+             * Kanal sichtbar IM Becken muendet statt am Ufer in der Luft zu haengen.
+             * Liegt der Seespiegel UEBER dem (monotonen!) Profil, kann der Lauf dort
+             * nicht muenden — er endet als Becken davor, mit genug Abstand, dass sein
+             * Tal den Seerand nicht anschneidet (sonst steht der hoehere Seespiegel
+             * als Wasserwand am tiefer gecarvten Kanal). */
+            int reach = (int) (halfs[n - 1] * VALLEY_FACTOR * SHOULDER_FACTOR);
+            AlphaWorldGeneratorV2.Lake lake = this.gen.lakeNear(Math.round(x), Math.round(z), reach + 64);
             if (lake != null) {
-                xs[n] = lake.centerX();
-                zs[n] = lake.centerZ();
-                surfs[n] = Math.min(surf, lake.level());
-                halfs[n] = halfs[n - 1];
-                n++;
-                end = END_LAKE;
-                break;
+                if (lake.level() > surf + 2F) {
+                    end = END_POND;
+                    break;
+                }
+                if (this.gen.lakeNear(Math.round(x), Math.round(z), reach) != null) {
+                    xs[n] = lake.centerX();
+                    zs[n] = lake.centerZ();
+                    surfs[n] = Math.min(surf, lake.level());
+                    halfs[n] = halfs[n - 1];
+                    n++;
+                    end = END_LAKE;
+                    break;
+                }
+                /* See in Sicht, aber passend tief und noch nicht erreicht -> weiterlaufen */
             }
             /* Selbstschnitt: naehert sich der Lauf seinem EIGENEN frueheren Verlauf
              * (Orbit in einer Leitfeld-Senke, Haarnadel die sich schliesst), endet er
@@ -391,6 +402,14 @@ public final class RiverNetwork {
         }
         if (n < 2) return null;
         if (end == END_POND) halfs[n - 1] *= POND_FACTOR;
+
+        /* Rueckwaerts-Glaettung: steile Profil-Abstuerze (See-Muendung am Hang, Klippen)
+         * auf max. 3 Bloecke pro Segment verteilen — Kaskadentreppe statt einer hohen
+         * stehenden Wasserwand an der Kante. Monotonie bleibt erhalten, es werden nur
+         * fruehere Knoten abgesenkt (der Kanal schneidet sich dort tiefer ein). */
+        for (int i = n - 2; i >= 0; i--) {
+            surfs[i] = Math.min(surfs[i], surfs[i + 1] + 3F);
+        }
 
         return new River(Arrays.copyOf(xs, n), Arrays.copyOf(zs, n),
                 Arrays.copyOf(surfs, n), Arrays.copyOf(halfs, n), end);
