@@ -1,0 +1,11 @@
+{
+  "id": "skyengine:brown_mushroom",
+  "type": "cross",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": false,
+  "icon_item": "game/textures/block/brown_mushroom.png",
+  "textures": {
+    "all": "game/textures/block/brown_mushroom.png"
+  }
+}

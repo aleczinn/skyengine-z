@@ -1,0 +1,12 @@
+{
+  "id": "skyengine:dirt_path",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 0.65,
+  "tool": "shovel",
+  "textures": {
+    "top": "game/textures/block/dirt_path_top.png",
+    "bottom": "game/textures/block/dirt.png",
+    "side": "game/textures/block/dirt_path_side.png"
+  }
+}
