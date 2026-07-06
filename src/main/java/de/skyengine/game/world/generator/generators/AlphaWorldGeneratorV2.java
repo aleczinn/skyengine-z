@@ -17,6 +17,7 @@ import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import de.skyengine.utils.math.FastNoiseLite;
 
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -59,6 +60,20 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     /* Gesteins-Adern: Noise-Extreme werden zu Diorit/Granit/Andesit-Blasen im Stein */
     private static final float STONE_VEIN_THRESHOLD = 0.62F;
 
+    /* Lokale Seen auf einem Worley-Zellraster: pro Zelle hoechstens ein Kandidatenpunkt.
+     * Jitter+Radius sind so gewaehlt, dass ein See seine Zelle NIE verlaesst
+     * (Zentrum 192+-100, Radius <=90 -> Wasser in [2, 382]): keine Ueberlappung zweier
+     * Wasserspiegel, und pro Spalte genuegt der Blick in die EIGENE Zelle. */
+    private static final int LAKE_CELL = 384;
+    private static final int LAKE_JITTER = 100;
+    private static final int LAKE_RADIUS_MIN = 40;
+    private static final int LAKE_RADIUS_MAX = 90;
+    private static final float LAKE_CHANCE = 0.35F;
+    /* Beckentiefe unter dem Seespiegel; Ringpunkte fuer Spiegel/Hang-Gate */
+    private static final int LAKE_DEPTH = 5;
+    private static final int LAKE_RING_POINTS = 8;
+    private static final int LAKE_MAX_RING_SPAN = 12;
+
     /* Kontinentalwellen: Hebung deutlich staerker als Senkung (Bias + getrennte Skalen),
      * und Senkung zusaetzlich nach Spline-Headroom gedrosselt — sonst fluten die Wellen
      * die grossen base-67-Ebenen und die Welt zerfaellt zum Archipel */
@@ -95,6 +110,18 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
      * Schalen um jede Granit-/Diorit-Blase statt eigener Adern. */
     private final FastNoiseLite stoneNoise1;
     private final FastNoiseLite stoneNoise2;
+
+    /* See-Zellen-Cache: Spiegel/Radius pro Worley-Zelle sind pure Funktionswerte, aber ihre
+     * Berechnung sampelt 9 Ring-Hoehen — einmal pro Zelle rechnen statt pro Spalte.
+     * ConcurrentHashMap, weil mehrere Worker-Threads parallel generieren. */
+    private final ConcurrentHashMap<Long, Lake> lakeCache = new ConcurrentHashMap<>();
+
+    /** Ein See: fester Spiegel pro See (flach!), Becken wird unter den Spiegel gecarvt. */
+    private record Lake(int centerX, int centerZ, int radius, int level) {
+    }
+
+    /** Zellen-Sentinel fuer "kein See" (Cache kann kein null speichern). */
+    private static final Lake NO_LAKE = new Lake(0, 0, 0, 0);
 
     /* Generierungszeit-Statistik (threadsicher, Log alle 256 Chunks) */
     private final AtomicLong generateNanos = new AtomicLong();
@@ -185,8 +212,19 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
     private int heightFor(int x, int z, Climate c) {
         float h = this.carveRiver(x, z, this.rawHeight(x, z, c), c);
+        h = this.carveLake(x, z, h);
 
         /* Untergrenze knapp ueber Bedrock: extreme Senkung+Detail darf nicht unter 0 laufen */
+        return Math.clamp((int) h, 8, Chunk.HEIGHT - 2);
+    }
+
+    /**
+     * Hoehe OHNE See-Becken — Basis fuer die Seespiegel-Berechnung an den Ringpunkten
+     * (der Spiegel eines Sees darf nicht vom eigenen Becken abhaengen: Rekursion).
+     */
+    private int heightBeforeLakes(int x, int z) {
+        Climate c = this.climate.sampleSmooth(x, z);
+        float h = this.carveRiver(x, z, this.rawHeight(x, z, c), c);
         return Math.clamp((int) h, 8, Chunk.HEIGHT - 2);
     }
 
@@ -225,7 +263,27 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
             float shape = lerp(ridged, Math.min(ridged * 1.25F, 0.52F), flatness);
             h += m * shape * MOUNTAIN_AMP;
         }
+
+        /* Wueste ist knochentrocken: Senken unter Meereshoehe werden mit Terrain aufgefuellt
+         * statt (durch den Wasser-Fill) zu Tuempeln. Stetig ueber desertness -> keine Kante
+         * an der Biomgrenze; max() laesst hoeheres Terrain unveraendert. */
+        float dry = desertness(c);
+        if (dry > 0F) {
+            h = lerp(h, Math.max(h, SEA_LEVEL + 2), dry);
+        }
         return h;
+    }
+
+    /**
+     * Trockenheits-Faktor 0..1 — Gate fuer Wasser-Unterdrueckung (Terrain-Klammer,
+     * Fluss-Carving). Die Rampen starten bewusst VOR den Schwellen des DESERT-Buckets
+     * (Temperatur > 0.25, Feuchtigkeit < -0.2) und werden per min() statt Produkt
+     * kombiniert: so ist schon die gesamte Biomgrenze weitgehend trocken (Fluesse
+     * versiegen kurz vor der Wueste), nicht erst das Wuesteninnere.
+     */
+    private static float desertness(Climate c) {
+        return Math.min(smoothstep((c.temperature() - 0.18F) / 0.10F),
+                smoothstep((-0.13F - c.humidity()) / 0.10F));
     }
 
     /**
@@ -257,10 +315,116 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         float r = this.climate.riverValue(x, z);
         if (r >= RIVER_VALLEY) return h;
 
-        /* 0 am Talrand .. 1 in der Flussmitte; *1.4 macht die Sohle flach statt V-foermig */
-        float t = smoothstep(1F - r / RIVER_VALLEY);
-        return lerp(h, SEA_LEVEL - 3, Math.min(1F, t * 1.4F));
+        /* 0 am Talrand .. 1 in der Flussmitte; *1.4 macht die Sohle flach statt V-foermig.
+         * In der Wueste blendet das Carving aus UND das Bett-Ziel steigt ueber den
+         * Meeresspiegel — sonst fuehrt schon halbe Trockenheit noch Wasser durch die Wueste. */
+        float dry = desertness(c);
+        float t = smoothstep(1F - r / RIVER_VALLEY) * (1F - dry);
+        float bed = lerp(SEA_LEVEL - 3, SEA_LEVEL + 2, dry);
+        return lerp(h, bed, Math.min(1F, t * 1.4F));
     }
+
+    /* ------------------------------------------------------------------ Seen (Worley) */
+
+    /**
+     * Senkt das Terrain innerhalb eines Sees glockenfoermig unter dessen Spiegel (gleicher
+     * Trick wie {@link #carveRiver}): das Becken liegt dadurch garantiert unter dem Wasser,
+     * der unberuehrte Rand garantiert darueber — funktioniert auch als Bergsee im Hochtal.
+     */
+    private float carveLake(int x, int z, float h) {
+        Lake lake = this.lakeAt(x, z);
+        if (lake == null) return h;
+        float target = lake.level - LAKE_DEPTH;
+        if (h <= target) return h;
+        float t = smoothstep(1F - this.lakeShoreNorm(lake, x, z));
+        return lerp(h, target, Math.min(1F, t * 1.3F));
+    }
+
+    /**
+     * Normierte Ufer-Distanz 0 (Zentrum) .. >=1 (ausserhalb): die echte Distanz wird per
+     * Noise nur nach INNEN verzerrt (Buchten) — nie ueber den Radius hinaus, sonst koennte
+     * das Wasser jenseits der Ringpunkte auslaufen. Macht aus der Kreisscheibe eine
+     * unregelmaessige Uferlinie.
+     */
+    private float lakeShoreNorm(Lake lake, int x, int z) {
+        float d = (float) Math.sqrt(sq(x - lake.centerX) + sq(z - lake.centerZ));
+        float bay = Math.max(0F, this.detailNoise.GetNoise(x * 1.9F + 713F, z * 1.9F + 713F));
+        return d * (1F + bay * 0.55F) / lake.radius;
+    }
+
+    /** Der See, in dessen (Noise-verzerrtem) Ufer (x, z) liegt — oder null. */
+    private Lake lakeAt(int x, int z) {
+        /* Ein See verlaesst seine Zelle nie (s. Konstanten) -> nur die eigene Zelle pruefen */
+        Lake lake = this.lakeFor(Math.floorDiv(x, LAKE_CELL), Math.floorDiv(z, LAKE_CELL));
+        if (lake == NO_LAKE) return null;
+        if (sq(x - lake.centerX) + sq(z - lake.centerZ) > sq(lake.radius)) return null;
+        return (this.lakeShoreNorm(lake, x, z) <= 1F) ? lake : null;
+    }
+
+    /** See-Daten der Zelle (gecacht); {@link #NO_LAKE}, wenn die Zelle keinen See traegt. */
+    private Lake lakeFor(int cellX, int cellZ) {
+        long key = ((long) cellX << 32) ^ (cellZ & 0xFFFFFFFFL);
+        return this.lakeCache.computeIfAbsent(key, k -> this.computeLake(cellX, cellZ));
+    }
+
+    private Lake computeLake(int cellX, int cellZ) {
+        if (hash01(cellX, cellZ, this.seed, 0x5EE1) >= LAKE_CHANCE) return NO_LAKE;
+
+        int centerX = cellX * LAKE_CELL + LAKE_CELL / 2
+                + (int) ((hash01(cellX, cellZ, this.seed, 0x5EE2) * 2F - 1F) * LAKE_JITTER);
+        int centerZ = cellZ * LAKE_CELL + LAKE_CELL / 2
+                + (int) ((hash01(cellX, cellZ, this.seed, 0x5EE3) * 2F - 1F) * LAKE_JITTER);
+
+        /* Nur im (feuchten) Binnenland: keine Seen im Ozean/Strandband oder in Trockenregionen */
+        Climate c = this.climate.sampleSmooth(centerX, centerZ);
+        if (c.continentalness() < Biomes.C_BEACH + 0.03F) return NO_LAKE;
+        if (c.humidity() < -0.1F) return NO_LAKE;
+
+        int radius = LAKE_RADIUS_MIN + (int) (hash01(cellX, cellZ, this.seed, 0x5EE4)
+                * (LAKE_RADIUS_MAX - LAKE_RADIUS_MIN));
+
+        /* Spiegel = niedrigster Punkt von Zentrum + Ring minus 1 -> Wasser bleibt im Becken;
+         * zu grosses Gefaelle am Ring = Hanglage -> kein See */
+        int min = this.heightBeforeLakes(centerX, centerZ);
+        int max = min;
+        for (int i = 0; i < LAKE_RING_POINTS; i++) {
+            double angle = 2 * Math.PI * i / LAKE_RING_POINTS;
+            int rx = centerX + (int) (Math.cos(angle) * radius * 0.9F);
+            int rz = centerZ + (int) (Math.sin(angle) * radius * 0.9F);
+            int h = this.heightBeforeLakes(rx, rz);
+            if (h < min) min = h;
+            if (h > max) max = h;
+        }
+        if (max - min > LAKE_MAX_RING_SPAN) return NO_LAKE;
+
+        return new Lake(centerX, centerZ, radius, min - 1);
+    }
+
+    /**
+     * Wasserspiegel an (x, z): Meeresspiegel, innerhalb eines Sees dessen (hoeherer) Spiegel.
+     * Pure Funktion — von generate() UND LOD genutzt, damit Seen nahtfrei erscheinen.
+     */
+    public int waterLevelAt(int x, int z) {
+        Lake lake = this.lakeAt(x, z);
+        return (lake != null) ? Math.max(SEA_LEVEL, lake.level) : SEA_LEVEL;
+    }
+
+    /** Deterministischer Zell-Hash -> [0, 1). */
+    private static float hash01(int x, int z, int seed, int salt) {
+        int h = seed ^ salt * 0x9E3779B1;
+        h ^= x * 0x85EBCA6B;
+        h ^= z * 0xC2B2AE35;
+        h ^= h >>> 15;
+        h *= 0x2C1B3C6D;
+        h ^= h >>> 13;
+        return (h >>> 8) * (1F / (1 << 24));
+    }
+
+    private static long sq(long v) {
+        return v * v;
+    }
+
+    /* ------------------------------------------------------------------ */
 
     /**
      * Zerklueftungs-Faktor 0..1 aus niedriger Erosion, nahe der Kuestenlinie stark gedaempft —
@@ -349,22 +513,25 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     public long sampleSurface(int x, int z) {
         Climate smooth = this.climate.sampleSmooth(x, z);
         int height = this.heightFor(x, z, smooth);
-        if (height < SEA_LEVEL) return LodDataSource.pack(Blocks.WATER, SEA_LEVEL);
-        int top = this.surfaceTop(x, z, height, this.biomeAt(x, z), this.upliftOffset(x, z, smooth));
+        int waterLevel = this.waterLevelAt(x, z);
+        if (height < waterLevel) return LodDataSource.pack(Blocks.WATER, waterLevel);
+        int top = this.surfaceTop(x, z, height, this.biomeAt(x, z),
+                this.upliftOffset(x, z, smooth), waterLevel);
         return LodDataSource.pack(top, height);
     }
 
     /**
      * Deckmaterial an (wx, wz) — von generate() UND LOD genutzt (geteilte Logik gegen Naehte).
      * {@code uplift} verschiebt die Stein-/Schneegrenze mit dem regionalen Grundniveau,
-     * sonst waeren hochgehobene Ebenen komplett schneebedeckt.
+     * sonst waeren hochgehobene Ebenen komplett schneebedeckt. {@code waterLevel} ist der
+     * lokale Wasserspiegel (Meer ODER See) — Seeboeden bekommen dieselben Material-Flecken.
      */
-    private int surfaceTop(int wx, int wz, int height, Biome biome, float uplift) {
-        if (height < SEA_LEVEL) {
+    private int surfaceTop(int wx, int wz, int height, Biome biome, float uplift, int waterLevel) {
+        if (height < waterLevel) {
             /* Unterwasser-Boden: tiefenabhaengig gemischte Flecken aus Sand/Ton/Erde/Kies
              * statt Ein-Material-Zonen; zwei dekorrelierte Samples desselben Noise
              * (Skalen-Offset-Muster wie V1) fuer unabhaengige Fleckenmuster */
-            int depth = SEA_LEVEL - height;
+            int depth = waterLevel - height;
             float n1 = this.floorNoise.GetNoise(wx, wz);
             float n2 = this.floorNoise.GetNoise(wx * 1.7F + 537F, wz * 1.7F + 537F);
 
@@ -414,7 +581,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     public int debugSurfaceTop(int x, int z) {
         Climate smooth = this.climate.sampleSmooth(x, z);
         int height = this.heightFor(x, z, smooth);
-        return this.surfaceTop(x, z, height, this.biomeAt(x, z), this.upliftOffset(x, z, smooth));
+        return this.surfaceTop(x, z, height, this.biomeAt(x, z),
+                this.upliftOffset(x, z, smooth), this.waterLevelAt(x, z));
     }
 
     /** Fuellmaterial unter dem Deckblock (variable Schichtdicke, s. generate). */
@@ -439,6 +607,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         int[] heights = new int[size * size];
         int[] tops = new int[size * size];
         int[] fillers = new int[size * size];
+        int[] waterLevels = new int[size * size];
         float[] shapeAmps = new float[size * size];
         Biome[] biomes = new Biome[size * size];
         int maxH = 0;
@@ -450,9 +619,11 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                 Climate smooth = this.climate.sampleSmooth(wx, wz);
                 int h = this.heightFor(wx, wz, smooth);
                 Biome biome = this.biomeAt(wx, wz);
+                int waterLevel = this.waterLevelAt(wx, wz);
                 heights[i] = h;
                 biomes[i] = biome;
-                tops[i] = this.surfaceTop(wx, wz, h, biome, this.upliftOffset(wx, wz, smooth));
+                waterLevels[i] = waterLevel;
+                tops[i] = this.surfaceTop(wx, wz, h, biome, this.upliftOffset(wx, wz, smooth), waterLevel);
                 fillers[i] = fillerFor(tops[i], biome);
                 shapeAmps[i] = SHAPE_AMP_MAX * this.ruggedness(smooth);
                 if (h > maxH) maxH = h;
@@ -511,8 +682,9 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                 bilinearColumn(stone1Grid, gridsXZ, gridsY, x, z, colStone1);
                 bilinearColumn(stone2Grid, gridsXZ, gridsY, x, z, colStone2);
 
-                /* Ozean-/Flussboeden nicht anstechen, sonst laeuft das Wasser in die Hoehle */
-                boolean protectFloor = h2d < SEA_LEVEL + 2;
+                int waterLevel = waterLevels[i];
+                /* Ozean-/Fluss-/Seeboeden nicht anstechen, sonst laeuft das Wasser in die Hoehle */
+                boolean protectFloor = h2d < waterLevel + 2;
                 int colTop = Math.min(yTop, h2d + (int) amp + 3);
 
                 int topSolid = 0;
@@ -554,13 +726,13 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                     chunk.setBlock(x, y, z, block);
                 }
 
-                /* Wasser: lueckenlose Quell-Saeule bis zum Meeresspiegel */
-                for (int y = topSolid + 1; y <= SEA_LEVEL; y++) {
+                /* Wasser: lueckenlose Quell-Saeule bis zum lokalen Wasserspiegel (Meer/See) */
+                for (int y = topSolid + 1; y <= waterLevel; y++) {
                     chunk.setBlock(x, y, z, Blocks.WATER);
                 }
 
                 /* Bodenpflanzen: biome-abhaengig, deterministisch ueber das Veg-Noise */
-                if (topSolid >= SEA_LEVEL && topSolid + 3 < Chunk.HEIGHT) {
+                if (topSolid >= waterLevel && topSolid + 3 < Chunk.HEIGHT) {
                     this.placePlants(chunk, x, z, baseX + x, baseZ + z, topSolid, tops[i], biomes[i]);
                 }
             }
