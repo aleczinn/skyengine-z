@@ -19,4 +19,14 @@ public final class GeneratorLodDataSource implements LodDataSource {
     public long sampleSurface(int x, int z, int size) {
         return this.generator.sampleSurface(x + size / 2, z + size / 2);
     }
+
+    @Override
+    public int grassTintAt(int x, int z) {
+        return this.generator.grassTintAt(x, z);
+    }
+
+    @Override
+    public int foliageTintAt(int x, int z) {
+        return this.generator.foliageTintAt(x, z);
+    }
 }

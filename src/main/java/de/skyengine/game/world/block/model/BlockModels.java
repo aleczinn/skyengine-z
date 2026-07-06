@@ -53,10 +53,10 @@ public final class BlockModels {
      * solcher Blöcke einzeln (nicht greedy) und der CUTOUT-Pass zeichnet mit „or-equal"-
      * Depth-Func, damit das Overlay den Tiefentest exakt gewinnt (kein Offset, kein Spalt).
      */
-    public static BakedQuad[] overlaySides(int textureLayer, int tint) {
+    public static BakedQuad[] overlaySides(int textureLayer, int tint, int tintType) {
         BakedQuad[] out = new BakedQuad[4];
         for (int face = 2; face < 6; face++) {
-            out[face - 2] = new BakedQuad(FACE_VERTICES[face], textureLayer, face, FACE_BRIGHTNESS[face], tint);
+            out[face - 2] = new BakedQuad(FACE_VERTICES[face], textureLayer, face, FACE_BRIGHTNESS[face], tint, tintType);
         }
         return out;
     }

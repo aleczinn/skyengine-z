@@ -43,3 +43,9 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Engine ###
+config/
+debug/
+debug-maps/
+screenshots/

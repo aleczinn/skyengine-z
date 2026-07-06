@@ -340,6 +340,10 @@ public class ChunkMesher {
         float g = shade * ((tint >> 8) & 0xFF) / 255F;
         float bl = shade * (tint & 0xFF) / 255F;
 
+        /* Biome-Tint pro VERTEX aus dem Eck-Grid: gemergte Quads bekommen einen glatten
+           Farbverlauf, der Tint bleibt aus dem Merge-Schlüssel raus (Greedy unangetastet). */
+        boolean biomeTint = quad.tintType() != BakedQuad.TINT_NONE && this.chunk.grassTintCorners != null;
+
         buffer.ensure(4 * VERTEX_SIZE);
         float[] p = this.vertPos;
         for (int c = 0; c < 4; c++) {
@@ -347,12 +351,42 @@ public class ChunkMesher {
             p[axisN] = slice + verts[i + axisN];
             p[axisT1] = a + verts[i + axisT1] * w;
             p[axisT2] = b + verts[i + axisT2] * h;
+            if (biomeTint) {
+                int t = this.biomeTint(quad.tintType(), p[0], p[2], tint);
+                r = shade * ((t >> 16) & 0xFF) / 255F;
+                g = shade * ((t >> 8) & 0xFF) / 255F;
+                bl = shade * (t & 0xFF) / 255F;
+            }
             /* Ecken-UVs sind 0/1; Skalierung mit w bzw. h lässt die Textur pro Block kacheln
                und erhält Spiegelung/Rotation des Original-Mappings (Periodizität). */
             float u = verts[i + 3] * (uAlongT1 ? w : h);
             float v = verts[i + 4] * (uAlongT1 ? h : w);
             putVertex(buffer, p[0], p[1], p[2], u, v, quad.textureLayer(), r, g, bl);
         }
+    }
+
+    /**
+     * Biome-Tint an einer chunk-lokalen (x,z)-Position: bilinear zwischen den umliegenden
+     * Eckwerten des 33x33-Grids (siehe {@link Chunk#grassTintCorners}). Fallback = gebackener
+     * Platzhalter-Tint, falls der Generator keine Grids liefert.
+     */
+    private int biomeTint(int tintType, float px, float pz, int fallback) {
+        int[] grid = tintType == BakedQuad.TINT_FOLIAGE ? this.chunk.foliageTintCorners : this.chunk.grassTintCorners;
+        if (grid == null) return fallback;
+        int n = ChunkSection.SIZE + 1;
+        int x0 = Math.clamp((int) px, 0, ChunkSection.SIZE - 1);
+        int z0 = Math.clamp((int) pz, 0, ChunkSection.SIZE - 1);
+        float fx = px - x0, fz = pz - z0;
+        int c00 = grid[x0 * n + z0], c01 = grid[x0 * n + z0 + 1];
+        int c10 = grid[(x0 + 1) * n + z0], c11 = grid[(x0 + 1) * n + z0 + 1];
+        int r = (int) lerp(lerp((c00 >> 16) & 0xFF, (c01 >> 16) & 0xFF, fz), lerp((c10 >> 16) & 0xFF, (c11 >> 16) & 0xFF, fz), fx);
+        int g = (int) lerp(lerp((c00 >> 8) & 0xFF, (c01 >> 8) & 0xFF, fz), lerp((c10 >> 8) & 0xFF, (c11 >> 8) & 0xFF, fz), fx);
+        int b = (int) lerp(lerp(c00 & 0xFF, c01 & 0xFF, fz), lerp(c10 & 0xFF, c11 & 0xFF, fz), fx);
+        return (r << 16) | (g << 8) | b;
+    }
+
+    private static float lerp(float a, float b, float t) {
+        return a + (b - a) * t;
     }
 
     /** Greedy-Eignung eines States (lazy gecacht). */
@@ -448,6 +482,10 @@ public class ChunkMesher {
         /* Per-Vertex-Farbe = Helligkeit * AO * Tint (0xRRGGBB). Tint ist normal weiß (neutral),
            Wasser bringt seine Blaufarbe mit. So bleibt der Shader-Multiply unverändert. */
         int tint = quad.tint();
+        /* Biome-Tint am Blockzentrum (Cross/Leaves/Overlay sind blockweise Quads) */
+        if (quad.tintType() != BakedQuad.TINT_NONE) {
+            tint = this.biomeTint(quad.tintType(), x + 0.5F, z + 0.5F, tint);
+        }
         float r = brightness * ((tint >> 16) & 0xFF) / 255F;
         float g = brightness * ((tint >> 8) & 0xFF) / 255F;
         float b = brightness * (tint & 0xFF) / 255F;

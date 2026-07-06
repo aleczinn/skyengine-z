@@ -1,5 +1,6 @@
 package de.skyengine.game.world.lod;
 
+import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.FluidGeometry;
@@ -60,6 +61,8 @@ public final class LodMesher {
     private int stride, cellCount;             // Kontext des laufenden mesh()-Aufrufs
     private int yBase, edgeSkirt;
     private LodBlockAppearance appearance;
+    private LodDataSource source;              // fuer Biome-Tint-Samples an Quad-Zentren
+    private int regionBaseX, regionBaseZ;      // Weltkoordinaten-Ursprung der Region
     private float minBottom, maxTop;           // absolut (fürs Frustum-AABB)
 
     /** Skirt-Tiefe an Regionsrand-Kanten, wächst mit der Zellgröße (s. MAX_SKIRT-Herleitung). */
@@ -81,9 +84,12 @@ public final class LodMesher {
         this.stride = n + 2;                    // Zellen -1..n (Randring für Wände)
         this.cellCount = n;
         this.appearance = appearance;
+        this.source = source;
         this.edgeSkirt = edgeSkirtOf(level);
         int baseX = rx * REGION_BLOCKS;
         int baseZ = rz * REGION_BLOCKS;
+        this.regionBaseX = baseX;
+        this.regionBaseZ = baseZ;
 
         /* Komplett von echtem Terrain bedeckt → nichts zu meshen (spart das Sampling). */
         if (mask == 0xFFFF) {
@@ -155,6 +161,7 @@ public final class LodMesher {
         float minY = this.vi == 0 ? 0F : this.minBottom;
         float maxY = this.vi == 0 ? 0F : this.maxTop;
         this.appearance = null;
+        this.source = null;
         return new LodMeshResult(level, rx, rz, epoch, mask, this.yBase, data, minY, maxY);
     }
 
@@ -194,6 +201,20 @@ public final class LodMesher {
         int n = this.cellCount;
         if (cx < 0 || cx >= n || cz < 0 || cz >= n) return false;
         return this.clipped[cz * n + cx];
+    }
+
+    /**
+     * Biome-Tint eines Quads: bei GRASS/FOLIAGE-Typ liefert die Datenquelle die Biomfarbe am
+     * Quad-Zentrum (region-lokale Koordinaten -> Welt), sonst bleibt der gebackene Tint.
+     */
+    private int tintFor(int baked, int tintType, float localX, float localZ) {
+        if (tintType == BakedQuad.TINT_GRASS) {
+            return this.source.grassTintAt(this.regionBaseX + (int) localX, this.regionBaseZ + (int) localZ);
+        }
+        if (tintType == BakedQuad.TINT_FOLIAGE) {
+            return this.source.foliageTintAt(this.regionBaseX + (int) localX, this.regionBaseZ + (int) localZ);
+        }
+        return baked;
     }
 
     /** Sichtbare Oberkante einer Zelle: Fluide auf Quellhöhe (8/9), sonst Blockoberkante (+1). */
@@ -286,7 +307,8 @@ public final class LodMesher {
     /** Flaches Top-Quad auf absoluter Höhe y (CCW von oben, u=x / v=z wie BlockModels-Top). */
     private void emitTop(int block, float x0, float z0, float x1, float z1, float y) {
         int layer = this.appearance.topLayer(block);
-        int tint = this.appearance.topTint(block);
+        int tint = this.tintFor(this.appearance.topTint(block), this.appearance.topTintType(block),
+                (x0 + x1) * 0.5F, (z0 + z1) * 0.5F);
         float brightness = BlockModels.FACE_BRIGHTNESS[0];
         float u = x1 - x0, v = z1 - z0;
 
@@ -308,7 +330,8 @@ public final class LodMesher {
     private void emitWall(int block, int face, float xa, float za, float xb, float zb,
                           float bottom, float top) {
         int layer = this.appearance.sideLayer(block);
-        int tint = this.appearance.sideTint(block);
+        int tint = this.tintFor(this.appearance.sideTint(block), this.appearance.sideTintType(block),
+                (xa + xb) * 0.5F, (za + zb) * 0.5F);
         float brightness = BlockModels.FACE_BRIGHTNESS[face];
         float u = Math.abs(xb - xa) + Math.abs(zb - za);
         float v = Math.min(top - bottom, MAX_MERGE_BLOCKS);

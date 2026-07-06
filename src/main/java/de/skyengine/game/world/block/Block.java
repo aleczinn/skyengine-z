@@ -253,13 +253,14 @@ public class Block {
     public BakedQuad[] applyTint(BakedQuad[] quads) {
         int tint = this.config.tint();
         if (tint == BakedQuad.WHITE) return quads;
+        int tintType = this.config.tintType();
         int mask = this.config.tintFaceMask();
         BakedQuad[] out = new BakedQuad[quads.length];
         for (int i = 0; i < quads.length; i++) {
             BakedQuad q = quads[i];
             boolean hit = mask == -1 || (q.cullFace() >= 0 && (mask & 1 << q.cullFace()) != 0);
-            /* Vertex-Array wird geteilt (nie mutiert) — nur der Tint-Wert ändert sich. */
-            out[i] = hit ? new BakedQuad(q.vertices(), q.textureLayer(), q.cullFace(), q.brightness(), tint) : q;
+            /* Vertex-Array wird geteilt (nie mutiert) — nur Tint-Wert und -Typ ändern sich. */
+            out[i] = hit ? new BakedQuad(q.vertices(), q.textureLayer(), q.cullFace(), q.brightness(), tint, tintType) : q;
         }
         return out;
     }
@@ -272,7 +273,7 @@ public class Block {
         String texture = this.config.overlayTexture();
         if (texture == null) return new BakedQuad[0];
         /* Layer-Registrierung zur Bake-Zeit, single-threaded — wie die Fluid-Layer oben. */
-        return BlockModels.overlaySides(BlockTextures.layerOf(texture), this.config.tint());
+        return BlockModels.overlaySides(BlockTextures.layerOf(texture), this.config.tint(), this.config.tintType());
     }
 
     /** Multiplikations-Tint 0xRRGGBB des Blocks (WHITE = neutral) — u.a. für flache Item-Icons. */
