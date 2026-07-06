@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Seed-Offsets: ClimateSampler reserviert seed+0..+8, eigene Noises belegen seed+10..+23,
  * das Fluss-Netz ({@link RiverNetwork}) seed+24/+25.
  */
-public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
+public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
     /* Meeresspiegel: bis zu dieser Hoehe wird Wasser aufgefuellt */
     static final int SEA_LEVEL = 64;
@@ -144,9 +144,9 @@ public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
     /* Generierungszeit-Statistik (threadsicher, Log alle 256 Chunks) */
     private final AtomicLong generateNanos = new AtomicLong();
     private final AtomicInteger generateCount = new AtomicInteger();
-    private final Logger logger = LogManager.getLogger(AlphaWorldGeneratorV2_1.class.getName());
+    private final Logger logger = LogManager.getLogger(AlphaWorldGeneratorV2.class.getName());
 
-    public AlphaWorldGeneratorV2_1(int seed) {
+    public AlphaWorldGeneratorV2(int seed) {
         super(seed);
         this.climate = new ClimateSampler(seed);
 

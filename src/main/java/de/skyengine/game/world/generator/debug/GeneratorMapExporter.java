@@ -6,7 +6,7 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.biome.Biomes;
 import de.skyengine.game.world.generator.climate.ClimateSampler;
-import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2_1;
+import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -51,7 +51,7 @@ public final class GeneratorMapExporter {
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
 
         int seed = 123; // gleicher Seed wie World
-        AlphaWorldGeneratorV2_1 generator = new AlphaWorldGeneratorV2_1(seed);
+        AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(seed);
         ClimateSampler climate = new ClimateSampler(seed);
 
         long start = System.currentTimeMillis();
@@ -110,7 +110,7 @@ public final class GeneratorMapExporter {
      * Schneidet 32 echte generate()-Chunks entlang X bei festem Z auf (x-y-Bild, y 0..319):
      * Luft = schwarz (Hoehlen!), Wasser = blau, Materialien wie in der Materialkarte.
      */
-    public static void writeCrossSection(AlphaWorldGeneratorV2_1 generator, Map<Integer, Integer> colors,
+    public static void writeCrossSection(AlphaWorldGeneratorV2 generator, Map<Integer, Integer> colors,
                                          int startX, int wz, String name) throws IOException {
         int chunkCount = 32;
         int imageHeight = 320;
