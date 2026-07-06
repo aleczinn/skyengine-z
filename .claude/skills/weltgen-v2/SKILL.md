@@ -53,10 +53,9 @@ Ringpunkte aus.
 
 ## RiverNetwork (Quelle→Mündung)
 
-4096er-Zellen (`CELL`; der Klassen-Kommentar sagt noch „2048er" — die Konstante gilt);
-`SOURCE_TRIES = 6` Quell-Kandidaten pro Zelle, durch Gates + 250-Block-Abstandsregel (`nearAny`)
-bleiben praktisch 0–2 Läufe übrig (keine harte Kappe im Code). Ein Lauf verlässt den 3×3-Ring
-seiner Quellzelle nie → `sampleAt` fragt nur 3×3 Zellen.
+4096er-Zellen (`CELL`); `SOURCE_TRIES = 6` Quell-Kandidaten pro Zelle, durch Gates +
+250-Block-Abstandsregel (`nearAny`) bleiben praktisch 0–2 Läufe übrig (keine harte Kappe im
+Code). Ein Lauf verlässt den 3×3-Ring seiner Quellzelle nie → `sampleAt` fragt nur 3×3 Zellen.
 Trace läuft auf `riverGuide` bergab (glattes Leitfeld MIT Gebirgs-Penalty, OHNE hochfrequente
 Oktaven); der Spiegel folgt `riverCarrier` (Terrain bis auf Detail-Oktaven 3+4) als
 **laufendes Minimum − DOWNCUT 3** → monoton fallend, Wasserwände konstruktionsbedingt
