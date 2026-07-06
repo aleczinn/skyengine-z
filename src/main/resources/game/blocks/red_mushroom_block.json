@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:red_mushroom_block",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 0.2,
+  "tool": "axe",
+  "textures": {
+    "all": "game/textures/block/red_mushroom_block.png"
+  }
+}
