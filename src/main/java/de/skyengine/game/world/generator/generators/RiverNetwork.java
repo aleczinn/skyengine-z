@@ -45,11 +45,17 @@ public final class RiverNetwork {
     private static final int SOURCE_TRIES = 4;
     /* Richtungswahl pro Schritt: Kandidaten im Faecher um die aktuelle Richtung. Die
      * Drehstrafe (Bloecke Leitfeld-Malus pro Radiant Abweichung) wirkt als Momentum
-     * gegen Zickzack, der Maeander-Jitter verbiegt die reine Falllinie zu Boegen. */
+     * gegen Zickzack, der Maeander-Jitter verbiegt die reine Falllinie zu Boegen.
+     * TURN_MAX klemmt die tatsaechliche Drehung pro Schritt hart — ohne die Klammer
+     * konnte wander+off bis 105 Grad springen (harte Knicke in der Flusslinie). */
     private static final int FAN = 7;
+    /* Sichtfeld bewusst breiter als TURN_MAX: der Trace SIEHT Auswege seitlich
+     * (sonst enden Laeufe frueh im Becken), dreht sich ihnen aber nur mit max.
+     * TURN_MAX pro Schritt zu — sanfter Bogen statt Knick. */
     private static final float FAN_SPREAD = (float) Math.toRadians(70);
-    private static final float TURN_PENALTY = 1.5F;
-    private static final float MEANDER_ANGLE = (float) Math.toRadians(35);
+    private static final float TURN_PENALTY = 2F;
+    private static final float MEANDER_ANGLE = (float) Math.toRadians(20);
+    private static final float TURN_MAX = (float) Math.toRadians(28);
     /* Quellen nur im Hochland und klar landeinwaerts */
     private static final float SOURCE_MIN_GUIDE = 78F;
     private static final float SOURCE_MIN_CONT = Biomes.C_BEACH + 0.05F;
@@ -307,10 +313,14 @@ public final class RiverNetwork {
             /* Abflusslose Senke: vorwaerts geht es nur noch bergauf -> Endbecken hier */
             if (bestGuide > guide + BASIN_ASCENT) break;
 
+            /* Harte Drehklammer: sanfte Boegen statt Knicke (wander+off ungeklemmt
+             * koennte bis FAN_SPREAD+MEANDER_ANGLE in einem Schritt drehen). Nach der
+             * Klammer weicht die Landeposition vom Kandidaten ab -> Leitfeld neu samplen */
+            bestAngle = heading + Math.clamp(bestAngle - heading, -TURN_MAX, TURN_MAX);
             heading = bestAngle;
             x += (float) Math.cos(bestAngle) * STEP;
             z += (float) Math.sin(bestAngle) * STEP;
-            guide = bestGuide;
+            guide = this.guideAt(x, z);
             surf = Math.min(surf, this.gen.riverCarrier(Math.round(x), Math.round(z)) - DOWNCUT);
             xs[n] = x;
             zs[n] = z;
