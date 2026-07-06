@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:smooth_basalt",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 1.5,
+  "tool": "pickaxe",
+  "textures": {
+    "all": "game/textures/block/smooth_basalt.png"
+  }
+}

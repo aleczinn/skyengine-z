@@ -57,6 +57,15 @@ public final class Blocks {
     public static int WHITE_WOOL, ORANGE_WOOL, MAGENTA_WOOL, LIGHT_BLUE_WOOL, YELLOW_WOOL, LIME_WOOL, PINK_WOOL, GRAY_WOOL;
     public static int LIGHT_GRAY_WOOL, CYAN_WOOL, PURPLE_WOOL, BLUE_WOOL, BROWN_WOOL, GREEN_WOOL, RED_WOOL, BLACK_WOOL;
 
+    /* Terracotta (Basis + 16 Farben) */
+    public static int TERRACOTTA, WHITE_TERRACOTTA, ORANGE_TERRACOTTA, MAGENTA_TERRACOTTA, LIGHT_BLUE_TERRACOTTA,
+            YELLOW_TERRACOTTA, LIME_TERRACOTTA, PINK_TERRACOTTA, GRAY_TERRACOTTA;
+    public static int LIGHT_GRAY_TERRACOTTA, CYAN_TERRACOTTA, PURPLE_TERRACOTTA, BLUE_TERRACOTTA, BROWN_TERRACOTTA,
+            GREEN_TERRACOTTA, RED_TERRACOTTA, BLACK_TERRACOTTA;
+
+    /* Basalt */
+    public static int BASALT, POLISHED_BASALT, SMOOTH_BASALT;
+
     /* Holz: Logs (+ stripped), Planks, Leaves, Slabs, Stairs, Fences */
     public static int BIRCH_LOG, SPRUCE_LOG, DARK_OAK_LOG, ACACIA_LOG, JUNGLE_LOG, MANGROVE_LOG, PALE_OAK_LOG;
     public static int STRIPPED_BIRCH_LOG, STRIPPED_SPRUCE_LOG, STRIPPED_DARK_OAK_LOG, STRIPPED_ACACIA_LOG,
@@ -182,6 +191,28 @@ public final class Blocks {
         GREEN_WOOL = idOf("skyengine:green_wool");
         RED_WOOL = idOf("skyengine:red_wool");
         BLACK_WOOL = idOf("skyengine:black_wool");
+
+        TERRACOTTA = idOf("skyengine:terracotta");
+        WHITE_TERRACOTTA = idOf("skyengine:white_terracotta");
+        ORANGE_TERRACOTTA = idOf("skyengine:orange_terracotta");
+        MAGENTA_TERRACOTTA = idOf("skyengine:magenta_terracotta");
+        LIGHT_BLUE_TERRACOTTA = idOf("skyengine:light_blue_terracotta");
+        YELLOW_TERRACOTTA = idOf("skyengine:yellow_terracotta");
+        LIME_TERRACOTTA = idOf("skyengine:lime_terracotta");
+        PINK_TERRACOTTA = idOf("skyengine:pink_terracotta");
+        GRAY_TERRACOTTA = idOf("skyengine:gray_terracotta");
+        LIGHT_GRAY_TERRACOTTA = idOf("skyengine:light_gray_terracotta");
+        CYAN_TERRACOTTA = idOf("skyengine:cyan_terracotta");
+        PURPLE_TERRACOTTA = idOf("skyengine:purple_terracotta");
+        BLUE_TERRACOTTA = idOf("skyengine:blue_terracotta");
+        BROWN_TERRACOTTA = idOf("skyengine:brown_terracotta");
+        GREEN_TERRACOTTA = idOf("skyengine:green_terracotta");
+        RED_TERRACOTTA = idOf("skyengine:red_terracotta");
+        BLACK_TERRACOTTA = idOf("skyengine:black_terracotta");
+
+        BASALT = idOf("skyengine:basalt");
+        POLISHED_BASALT = idOf("skyengine:polished_basalt");
+        SMOOTH_BASALT = idOf("skyengine:smooth_basalt");
 
         BIRCH_LOG = idOf("skyengine:birch_log");
         SPRUCE_LOG = idOf("skyengine:spruce_log");
