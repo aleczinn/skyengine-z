@@ -1,5 +1,6 @@
 package de.skyengine.game.world.generator.feature.trees;
 
+import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.feature.Feature;
@@ -31,6 +32,13 @@ public final class BiomeTreeFeature implements Feature {
 
             /* Nur auf dem Deckblock des Bioms (schliesst Wasser, Fels- und Schneekuppen aus) */
             if (placer.surfaceBlock(x, z) != biome.surfaceBlock) continue;
+
+            /* Kein Baum direkt an der Wasserkante: auch die 4 Nachbarn muessen trocken sein
+             * (pures Sampling, kein RNG-Zug -> Scheiben-Vertrag bleibt intakt) */
+            if (placer.surfaceBlock(x + 1, z) == Blocks.WATER || placer.surfaceBlock(x - 1, z) == Blocks.WATER
+                    || placer.surfaceBlock(x, z + 1) == Blocks.WATER || placer.surfaceBlock(x, z - 1) == Blocks.WATER) {
+                continue;
+            }
 
             TreeShape shape = TreeShapes.pick(biome.trees, rng);
             shape.place(placer, x, placer.surfaceHeight(x, z) + 1, z, rng);
