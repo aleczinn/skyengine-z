@@ -36,9 +36,10 @@ public final class RiverNetwork {
     static final float VALLEY_FACTOR = 2.5F;
     static final float SHOULDER_FACTOR = 1.5F;
 
-    /* Trace: Schrittweite und Maximallaenge (80*48 = 3840 Bloecke) */
+    /* Trace: Schrittweite und Maximallaenge (78*48 = 3744 Bloecke; der See-Endknoten kann
+     * nochmal ~220 Bloecke anhaengen -> Gesamtausdehnung bleibt unter CELL) */
     private static final int STEP = 48;
-    private static final int MAX_STEPS = 80;
+    private static final int MAX_STEPS = 78;
     /* Quell-Kandidaten pro Zelle */
     private static final int SOURCE_TRIES = 4;
     /* Richtungswahl pro Schritt: Kandidaten im Faecher um die aktuelle Richtung. Die
@@ -68,6 +69,12 @@ public final class RiverNetwork {
     public static final byte END_SEA = 0;
     public static final byte END_LAKE = 1;
     public static final byte END_POND = 2;
+    public static final byte END_JOIN = 3;
+
+    /* Zusammenfluss: kommt ein Trace einem frueheren Lauf derselben Zelle so nahe,
+     * muendet er dort als Nebenfluss (zwei getrennte Kanaele mit verschiedenen
+     * Spiegeln Seite an Seite ergaeben Wasser-an-Wasser-Kanten) */
+    private static final float JOIN_DIST = 40F;
 
     private final AlphaWorldGeneratorV2 gen;
     private final int seed;
@@ -156,15 +163,21 @@ public final class RiverNetwork {
     }
 
     /**
-     * Naechster Fluss an (x, z) — oder null ausserhalb jeder Tal-/Schulterzone. Bei sich
-     * kreuzenden Laeufen gewinnt der mit der kleinsten normierten Distanz (dominanter
-     * Kanal); bewusst kein Junction-Merging in v1.
+     * Naechster Fluss an (x, z) — oder null ausserhalb jeder Tal-/Schulterzone. Distanz und
+     * Breite kommen vom dominanten Lauf (kleinste normierte Distanz); der Spiegel ist das
+     * MINIMUM aller Laeufe in Reichweite — bei Kreuzungen/Parallellaeufen "fliesst" das
+     * Wasser so zum tieferen Kanal, statt dass der hoehere Spiegel als Wand danebensteht.
+     * Bewusst kein echtes Junction-Merging in v1.
      */
     public Sample sampleAt(int x, int z) {
         int cellX = Math.floorDiv(x, CELL);
         int cellZ = Math.floorDiv(z, CELL);
-        Sample best = null;
+        /* Segment-Beitraege in Reichweite (fuer den Spiegel-Blend); Ueberlauf harmlos */
+        float[] blendW = new float[48];
+        float[] blendSurf = new float[48];
+        int count = 0;
         float bestNorm = Float.MAX_VALUE;
+        float bestDist = 0F, bestHalf = 0F, bestSurf = 0F;
         for (int i = -1; i <= 1; i++) {
             for (int j = -1; j <= 1; j++) {
                 for (River r : this.riversFor(cellX + i, cellZ + j)) {
@@ -180,15 +193,34 @@ public final class RiverNetwork {
                         float half = lerp(r.half[s], r.half[s + 1], t);
                         if (dist > half * VALLEY_FACTOR * SHOULDER_FACTOR) continue;
                         float norm = dist / half;
+                        float w = Math.clamp((VALLEY_FACTOR - norm) / (VALLEY_FACTOR - 1F), 0F, 1F);
+                        if (w > 0F && count < blendW.length) {
+                            blendW[count] = w;
+                            blendSurf[count] = lerp(r.surf[s], r.surf[s + 1], t);
+                            count++;
+                        }
                         if (norm < bestNorm) {
                             bestNorm = norm;
-                            best = new Sample(dist, lerp(r.surf[s], r.surf[s + 1], t), half);
+                            bestDist = dist;
+                            bestHalf = half;
+                            bestSurf = lerp(r.surf[s], r.surf[s + 1], t);
                         }
                     }
                 }
             }
         }
-        return best;
+        if (bestNorm == Float.MAX_VALUE) return null;
+
+        /* Spiegel-Blend: JEDES tiefere Segment in Reichweite zieht den Spiegel herunter —
+         * voll in seinem Kanal (w=1), zum Talrand hin stetig auslaufend (w=0). Deckt
+         * Kreuzungen, Parallellaeufe UND Haarnadel-Maeander desselben Laufs ab: ohne den
+         * Blend stuenden zwei benachbarte Kanalarme mit verschiedenen Spiegeln als
+         * Wasser-an-Wasser-Wand nebeneinander. */
+        float surf = bestSurf;
+        for (int i = 0; i < count; i++) {
+            surf = Math.min(surf, lerp(bestSurf, blendSurf[i], blendW[i]));
+        }
+        return new Sample(bestDist, surf, bestHalf);
     }
 
     /** Alle Laeufe mit Quelle in dieser Zelle (gecacht) — auch fuer Sonden/Debug-Karten. */
@@ -204,7 +236,10 @@ public final class RiverNetwork {
             float sx = cellX * CELL + AlphaWorldGeneratorV2.hash01(cellX, cellZ, this.seed, 0xF20 + i) * CELL;
             float sz = cellZ * CELL + AlphaWorldGeneratorV2.hash01(cellX, cellZ, this.seed, 0xF30 + i) * CELL;
             float salt = AlphaWorldGeneratorV2.hash01(cellX, cellZ, this.seed, 0xF40 + i) * 8192F;
-            River river = this.trace(sx, sz, salt);
+            /* Keine Quelle direkt neben einem frueheren Lauf derselben Zelle (der Rest
+             * der Naehe-Faelle muendet ueber den Zusammenfluss-Check im Trace) */
+            if (list != null && nearAny(list, sx, sz)) continue;
+            River river = this.trace(sx, sz, salt, list);
             if (river == null) continue;
             if (list == null) list = new ArrayList<>(2);
             list.add(river);
@@ -213,7 +248,7 @@ public final class RiverNetwork {
     }
 
     /** Bergab-Trace von einer Quellposition; null, wenn die Quell-Gates nicht erfuellt sind. */
-    private River trace(float sx, float sz, float salt) {
+    private River trace(float sx, float sz, float salt, List<River> prior) {
         int ix = Math.round(sx), iz = Math.round(sz);
         float guide = this.gen.riverGuide(ix, iz);
         if (guide < SOURCE_MIN_GUIDE) return null;
@@ -224,10 +259,11 @@ public final class RiverNetwork {
          * Traeger — ohne dieses Gate starten Bergzonen-Quellen mit Spiegel unterm Meer */
         if (surf < AlphaWorldGeneratorV2.SEA_LEVEL + 6F) return null;
 
-        float[] xs = new float[MAX_STEPS + 1];
-        float[] zs = new float[MAX_STEPS + 1];
-        float[] surfs = new float[MAX_STEPS + 1];
-        float[] halfs = new float[MAX_STEPS + 1];
+        /* +2: Quellknoten und ggf. der angehaengte See-Endknoten */
+        float[] xs = new float[MAX_STEPS + 2];
+        float[] zs = new float[MAX_STEPS + 2];
+        float[] surfs = new float[MAX_STEPS + 2];
+        float[] halfs = new float[MAX_STEPS + 2];
         xs[0] = sx;
         zs[0] = sz;
         surfs[0] = surf;
@@ -283,9 +319,47 @@ public final class RiverNetwork {
                 end = END_SEA;
                 break;
             }
-            if (this.gen.insideLake(Math.round(x), Math.round(z))) {
+            /* Muendung in einen Worley-See — grosszuegig per Radius+Talbreite erkannt:
+             * auch ein Lauf, der das Becken nur streifen wuerde, endet hier. Der letzte
+             * Knoten zieht zum Seezentrum und klemmt den Spiegel auf Seehoehe, damit der
+             * Kanal sichtbar IM Becken muendet statt am Ufer in der Luft zu haengen. */
+            AlphaWorldGeneratorV2.Lake lake = this.gen.lakeNear(Math.round(x), Math.round(z),
+                    (int) (halfs[n - 1] * VALLEY_FACTOR * SHOULDER_FACTOR));
+            if (lake != null) {
+                xs[n] = lake.centerX();
+                zs[n] = lake.centerZ();
+                surfs[n] = Math.min(surf, lake.level());
+                halfs[n] = halfs[n - 1];
+                n++;
                 end = END_LAKE;
                 break;
+            }
+            /* Zusammenfluss mit einem frueheren Lauf derselben Zelle: auf dessen
+             * naechsten Knoten muenden, Spiegel klemmt auf den tieferen */
+            if (prior != null) {
+                River other = null;
+                int join = -1;
+                for (River r : prior) {
+                    for (int k = 0; k < r.x.length; k++) {
+                        float dx = x - r.x[k];
+                        float dz = z - r.z[k];
+                        if (dx * dx + dz * dz < JOIN_DIST * JOIN_DIST) {
+                            other = r;
+                            join = k;
+                            break;
+                        }
+                    }
+                    if (other != null) break;
+                }
+                if (other != null) {
+                    xs[n] = other.x[join];
+                    zs[n] = other.z[join];
+                    surfs[n] = Math.min(surf, other.surf[join]);
+                    halfs[n] = halfs[n - 1];
+                    n++;
+                    end = END_JOIN;
+                    break;
+                }
             }
         }
         if (n < 2) return null;
@@ -299,10 +373,27 @@ public final class RiverNetwork {
         return this.gen.riverGuide(Math.round(x), Math.round(z));
     }
 
+    /** Liegt (x, z) naeher als ~250 Bloecke an einem der Laeufe? (Quell-Abstandsregel) */
+    private static boolean nearAny(List<River> rivers, float x, float z) {
+        for (River r : rivers) {
+            if (x < r.minX - 250F || x > r.maxX + 250F || z < r.minZ - 250F || z > r.maxZ + 250F) continue;
+            for (int s = 0; s < r.x.length; s++) {
+                float dx = x - r.x[s];
+                float dz = z - r.z[s];
+                /* Knoten-Abstand genuegt (Segmente sind nur STEP lang, Toleranz deckt das) */
+                if (dx * dx + dz * dz < 250F * 250F) return true;
+            }
+        }
+        return false;
+    }
+
     /** Kanal-Halbbreite an einer Bogenlaenge: Noise-Variation + Wachstum flussabwaerts. */
     private float halfWidth(float arcLen, float salt) {
         float noise = (this.widthNoise.GetNoise(arcLen, salt) + 1F) * 0.5F;
-        return HALF_MIN + noise * HALF_NOISE + arcLen / (MAX_STEPS * STEP) * HALF_GROWTH;
+        /* Quell-Verjuengung: Laeufe beginnen als schmaler Bach und erreichen nach ~500
+         * Bloecken volle Breite — kein stumpfer, breiter Kanalanfang mitten im Gelaende */
+        float ramp = Math.clamp(0.3F + arcLen / 500F, 0.3F, 1F);
+        return (HALF_MIN + noise * HALF_NOISE + arcLen / (MAX_STEPS * STEP) * HALF_GROWTH) * ramp;
     }
 
     private static float lerp(float a, float b, float t) {
