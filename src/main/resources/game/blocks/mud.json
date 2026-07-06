@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:mud",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 0.5,
+  "tool": "shovel",
+  "textures": {
+    "all": "game/textures/block/mud.png"
+  }
+}

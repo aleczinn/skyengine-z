@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:mud_bricks",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 1.5,
+  "tool": "pickaxe",
+  "textures": {
+    "all": "game/textures/block/mud_bricks.png"
+  }
+}

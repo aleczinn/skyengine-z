@@ -1,0 +1,1 @@
+{ "parent": "block/cube_bottom_top", "textures": { "top": "game/textures/block/mushroom_block_inside.png", "bottom": "game/textures/block/mushroom_block_inside.png", "side": "game/textures/block/mushroom_stem.png" } }

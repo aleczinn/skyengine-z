@@ -539,7 +539,6 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         /* Hotbar (Slots 0-8): Test-Blöcke + die drei Eimer hinten, damit Wasser/Lava direkt
            testbar sind. Wasser hat kein Block-Item mehr (gehört in den Eimer). */
         int[] start = {
-                Blocks.TALL_GRASS,
                 Blocks.GLASS,
                 Blocks.STONE_SLAB,
                 Blocks.SAND,
@@ -550,6 +549,11 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             Item item = Items.get(Blocks.getState(start[i]).getBlock().getIdentifier());
             if (item != null) this.playerInventory.set(i, new ItemStack(item, 64));
         }
+
+        this.setItem(0, "skyengine:tuff");
+        this.setItem(1, "skyengine:coarse_dirt");
+        this.setItem(2, "skyengine:red_mushroom");
+
         this.setItem(6, "skyengine:water_bucket");
         this.setItem(7, "skyengine:lava_bucket");
         this.setItem(8, "skyengine:bucket");
@@ -558,6 +562,20 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.setBlock(9, Blocks.GLASS_PANE);
         this.setBlock(10, Blocks.OAK_DOOR);
         this.setBlock(11, Blocks.SAND);
+
+        // TEMP: neue Blöcke zum visuellen Testen, wird nach der Verifikation wieder entfernt.
+        String[] testBlocks = {
+                "skyengine:tuff", "skyengine:tuff_bricks", "skyengine:polished_tuff",
+                "skyengine:chiseled_tuff", "skyengine:chiseled_tuff_bricks",
+                "skyengine:coarse_dirt", "skyengine:rooted_dirt", "skyengine:dirt_path", "skyengine:podzol",
+                "skyengine:mud", "skyengine:mud_bricks", "skyengine:packed_mud", "skyengine:muddy_mangrove_roots",
+                "skyengine:melon", "skyengine:pumpkin", "skyengine:carved_pumpkin",
+                "skyengine:brown_mushroom", "skyengine:red_mushroom",
+                "skyengine:brown_mushroom_block", "skyengine:red_mushroom_block", "skyengine:mushroom_stem"
+        };
+        for (int i = 0; i < testBlocks.length; i++) {
+            this.setItem(12 + i, testBlocks[i]);
+        }
     }
 
     /** Legt 64 eines Blocks in einen Inventar-Slot (Block-Item über die Identifier-Registry). */
