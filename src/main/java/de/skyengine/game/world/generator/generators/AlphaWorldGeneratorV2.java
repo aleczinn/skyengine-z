@@ -101,7 +101,9 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     private final FastNoiseLite mountainNoise;
     /* Kleinraeumige Materialflecken fuer Ozean-/Flussboeden (Ton/Kies/Sand) */
     private final FastNoiseLite floorNoise;
-    /* Bodenpflanzen-Verteilung (Farn, Gras, Blumen, Dead Bush) */
+    /* Bodenpflanzen-DICHTEFELD: weiche 0..1-Verteilung ueber ~150-250 Bloecke; ob eine
+     * einzelne Spalte bewachsen ist, entscheidet ein Pro-Block-Hash gegen dieses Feld —
+     * keine binaeren Bewuchs-Klumpen mehr */
     private final FastNoiseLite vegNoise;
     /* 3D-Verformung der Oberflaeche (Ueberhaenge, Boegen, unregelmaessige Klippen) */
     private final FastNoiseLite shapeNoise;
@@ -160,7 +162,9 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
         this.vegNoise = new FastNoiseLite(seed + 13);
         this.vegNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
-        this.vegNoise.SetFrequency(0.055F);
+        this.vegNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
+        this.vegNoise.SetFractalOctaves(2);
+        this.vegNoise.SetFrequency(0.008F);
 
         this.shapeNoise = new FastNoiseLite(seed + 14);
         this.shapeNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
@@ -874,17 +878,19 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     }
 
     /**
-     * Bodenpflanzen auf dem Deckblock: auf Gras die {@code biome.plants}-Liste (erste passende
-     * Schwelle), in der Wueste zusaetzlich Kakteen (1-3 hoch) auf Sand. Deterministisch ueber
-     * das Veg-Noise (V1-Muster) — kein Feature-Pass noetig (einbloeckig, kein Overreach).
+     * Bodenpflanzen auf dem Deckblock: das weiche Dichtefeld (vegNoise) moduliert die
+     * Pro-Block-Wahrscheinlichkeit ({@code biome.plantDensity}), ein deterministischer
+     * Block-Hash wuerfelt Platzierung und Art (Gewichte) — natuerliche, durchmischte
+     * Verteilung statt binaerer Klumpen. Kein Feature-Pass noetig (einbloeckig).
      */
     private void placePlants(Chunk chunk, int x, int z, int wx, int wz, int topSolid, int top, Biome biome) {
-        float veg = this.vegNoise.GetNoise(wx, wz);
+        /* Dichtefaktor 0.25..1: nie ganz kahl, nie Vollteppich */
+        float density = 0.25F + 0.75F * (this.vegNoise.GetNoise(wx, wz) + 1F) * 0.5F;
 
         if (biome == Biomes.DESERT && top == Blocks.SAND) {
-            /* Kakteen: sehr sparsam, Hoehe waechst mit dem Noise-Wert */
-            if (veg > 0.93F) {
-                int height = 1 + Math.min(2, (int) ((veg - 0.93F) * 40F));
+            /* Kakteen: sehr vereinzelt statt in Haufen, Hoehe 1-3 aus dem Hash */
+            if (hash01(wx, wz, this.seed, 0xCAC7) < 0.004F * density) {
+                int height = 1 + (int) (hash01(wx, wz, this.seed, 0xCAC8) * 3F);
                 for (int i = 1; i <= height; i++) {
                     chunk.setBlock(x, topSolid + i, z, Blocks.CACTUS);
                 }
@@ -892,9 +898,16 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
             }
         }
 
-        if (top != biome.surfaceBlock) return; // Strandband/Felskuppen bleiben kahl
+        if (top != biome.surfaceBlock || biome.plants.length == 0) return; // Strand/Fels bleibt kahl
+        if (hash01(wx, wz, this.seed, 0x9EA7) >= biome.plantDensity * density) return;
+
+        /* Pflanzenart per zweitem Hash gegen die Gewichtssumme */
+        int total = 0;
+        for (Biome.PlantEntry plant : biome.plants) total += plant.weight();
+        int pick = (int) (hash01(wx, wz, this.seed, 0x9EA8) * total);
         for (Biome.PlantEntry plant : biome.plants) {
-            if (veg > plant.threshold()) {
+            pick -= plant.weight();
+            if (pick < 0) {
                 chunk.setBlock(x, topSolid + 1, z, plant.blockId());
                 /* Zweiblock-Pflanzen (tall_grass): obere Haelfte direkt mitsetzen — der
                  * Default-State ist nur die untere (HALF=BOTTOM, vgl. TallPlantBehavior) */
