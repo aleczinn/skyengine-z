@@ -18,50 +18,52 @@ import de.skyengine.game.world.generator.feature.trees.TreeShapes;
  */
 public final class Biomes {
 
-    /* Kontinentalitaets-Schwellen: darunter Ozean bzw. Strandband */
+    /* Kontinentalitaets-Schwellen: darunter Ozean bzw. Strandband. Das Band ist bewusst
+     * schmal (0.06): der Kontinentalitaets-Gradient ist seit der Frequenz-Absenkung flacher,
+     * dieselbe Schwellen-Spanne wird dadurch in Bloecken deutlich breiter. */
     public static final float C_OCEAN = -0.19F;
-    public static final float C_BEACH = -0.08F;
+    public static final float C_BEACH = -0.13F;
 
     /* Ab diesem mountainWeight gilt eine Position als Extreme Hills */
     public static final float MOUNTAIN_THRESHOLD = 0.5F;
 
     public static final Biome OCEAN = new Biome(0, "ocean",
             Blocks.GRAVEL, Blocks.GRAVEL, 0x8EB971, 0x71A74D, 0x1F3C99,
-            0F, Biome.NO_TREES, Biome.NO_PLANTS);
+            0F, Biome.NO_TREES, 0F, Biome.NO_PLANTS);
     public static final Biome BEACH = new Biome(1, "beach",
             Blocks.SAND, Blocks.SANDSTONE, 0x91BD59, 0x77AB2F, 0xF7E9A3,
-            0F, Biome.NO_TREES, Biome.NO_PLANTS);
+            0F, Biome.NO_TREES, 0F, Biome.NO_PLANTS);
     public static final Biome CARIBBEAN_BEACH = new Biome(2, "caribbean_beach",
             Blocks.SAND, Blocks.SANDSTONE, 0x64C93F, 0x30BB0B, 0x2FD5C8,
             0.25F, new TreeEntry[]{new TreeEntry(1, TreeShapes.PALM)},
-            Biome.NO_PLANTS);
+            0F, Biome.NO_PLANTS);
     public static final Biome PLAINS = new Biome(3, "plains",
             Blocks.GRASS_BLOCK, Blocks.DIRT, 0x91BD59, 0x77AB2F, 0x8DB360,
             0.04F, new TreeEntry[]{new TreeEntry(4, TreeShapes.OAK), new TreeEntry(1, TreeShapes.BIRCH)},
-            new PlantEntry[]{new PlantEntry(0.87F, Blocks.TALL_GRASS), new PlantEntry(0.84F, Blocks.POPPY),
-                    new PlantEntry(0.80F, Blocks.DANDELION), new PlantEntry(0.74F, Blocks.ORANGE_TULIP),
-                    new PlantEntry(0.55F, Blocks.SHORT_GRASS)});
+            0.40F, new PlantEntry[]{new PlantEntry(70, Blocks.SHORT_GRASS), new PlantEntry(12, Blocks.TALL_GRASS),
+                    new PlantEntry(5, Blocks.POPPY), new PlantEntry(5, Blocks.DANDELION),
+                    new PlantEntry(3, Blocks.ORANGE_TULIP)});
     public static final Biome DESERT = new Biome(4, "desert",
             Blocks.SAND, Blocks.SANDSTONE, 0xBFB755, 0xAEA42A, 0xFA9418,
             0F, Biome.NO_TREES,
-            new PlantEntry[]{new PlantEntry(0.80F, Blocks.DEAD_BUSH)});
+            0.015F, new PlantEntry[]{new PlantEntry(1, Blocks.DEAD_BUSH)});
     public static final Biome JUNGLE = new Biome(5, "jungle",
             Blocks.GRASS_BLOCK, Blocks.DIRT, 0x59C93C, 0x30BB0B, 0x537B09,
             0.65F, new TreeEntry[]{new TreeEntry(4, TreeShapes.JUNGLE), new TreeEntry(1, TreeShapes.OAK)},
-            new PlantEntry[]{new PlantEntry(0.72F, Blocks.TALL_GRASS), new PlantEntry(0.55F, Blocks.FERN),
-                    new PlantEntry(0.35F, Blocks.SHORT_GRASS)});
+            0.55F, new PlantEntry[]{new PlantEntry(45, Blocks.SHORT_GRASS), new PlantEntry(30, Blocks.FERN),
+                    new PlantEntry(25, Blocks.TALL_GRASS)});
     public static final Biome SPRUCE_FOREST = new Biome(6, "spruce_forest",
             Blocks.GRASS_BLOCK, Blocks.DIRT, 0x86B783, 0x68A464, 0x0B6659,
             0.45F, new TreeEntry[]{new TreeEntry(1, TreeShapes.SPRUCE)},
-            new PlantEntry[]{new PlantEntry(0.74F, Blocks.FERN), new PlantEntry(0.60F, Blocks.SHORT_GRASS)});
+            0.28F, new PlantEntry[]{new PlantEntry(60, Blocks.SHORT_GRASS), new PlantEntry(40, Blocks.FERN)});
     public static final Biome REDWOOD_FOREST = new Biome(7, "redwood_forest",
             Blocks.GRASS_BLOCK, Blocks.DIRT, 0x86B87F, 0x68A55F, 0x8B4513,
             0.22F, new TreeEntry[]{new TreeEntry(3, TreeShapes.REDWOOD), new TreeEntry(1, TreeShapes.SPRUCE)},
-            new PlantEntry[]{new PlantEntry(0.68F, Blocks.FERN), new PlantEntry(0.52F, Blocks.SHORT_GRASS)});
+            0.30F, new PlantEntry[]{new PlantEntry(55, Blocks.FERN), new PlantEntry(45, Blocks.SHORT_GRASS)});
     public static final Biome EXTREME_HILLS = new Biome(8, "extreme_hills",
             Blocks.GRASS_BLOCK, Blocks.DIRT, 0x8AB689, 0x6DA36B, 0x606060,
             0.08F, new TreeEntry[]{new TreeEntry(2, TreeShapes.SPRUCE), new TreeEntry(1, TreeShapes.OAK)},
-            new PlantEntry[]{new PlantEntry(0.70F, Blocks.SHORT_GRASS)});
+            0.20F, new PlantEntry[]{new PlantEntry(1, Blocks.SHORT_GRASS)});
 
     public static final Biome[] ALL = {OCEAN, BEACH, CARIBBEAN_BEACH, PLAINS, DESERT,
             JUNGLE, SPRUCE_FOREST, REDWOOD_FOREST, EXTREME_HILLS};

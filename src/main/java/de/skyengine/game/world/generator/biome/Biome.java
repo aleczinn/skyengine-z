@@ -13,8 +13,8 @@ public final class Biome {
     public record TreeEntry(int weight, TreeShape shape) {
     }
 
-    /** Bodenpflanze: gesetzt, wenn das Vegetations-Noise ueber der Schwelle liegt (erste passt). */
-    public record PlantEntry(float threshold, int blockId) {
+    /** Gewichtete Bodenpflanze (Auswahl per Hash gegen die Gewichtssumme). */
+    public record PlantEntry(int weight, int blockId) {
     }
 
     public static final TreeEntry[] NO_TREES = new TreeEntry[0];
@@ -38,10 +38,12 @@ public final class Biome {
     /* Baum-Dichte: Annahme-Wahrscheinlichkeit pro Platzierungsversuch (8 Versuche/Chunk) */
     public final float treeChance;
     public final TreeEntry[] trees;
+    /* Bodenpflanzen: Basis-Wahrscheinlichkeit pro Spalte (0..1, moduliert vom Dichtefeld) */
+    public final float plantDensity;
     public final PlantEntry[] plants;
 
     Biome(int id, String name, int surfaceBlock, int fillerBlock, int grassTint, int foliageTint,
-          int debugColor, float treeChance, TreeEntry[] trees, PlantEntry[] plants) {
+          int debugColor, float treeChance, TreeEntry[] trees, float plantDensity, PlantEntry[] plants) {
         this.id = id;
         this.name = name;
         this.surfaceBlock = surfaceBlock;
@@ -51,6 +53,7 @@ public final class Biome {
         this.debugColor = debugColor;
         this.treeChance = treeChance;
         this.trees = trees;
+        this.plantDensity = plantDensity;
         this.plants = plants;
     }
 }

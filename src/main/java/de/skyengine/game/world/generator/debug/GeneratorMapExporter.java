@@ -66,12 +66,20 @@ public final class GeneratorMapExporter {
         /* Biomkarte MIT Dither -> gezackte statt gerade Grenzen sichtbar */
         writeMap("biomes", (wx, wz) -> Biomes.lookup(climate.sample(wx, wz)).debugColor);
 
-        /* Oberflaechenmaterial (unter Wasser: Boden blaeulich abgedunkelt) */
+        /* Oberflaechenmaterial (unter Wasser: Boden blaeulich abgedunkelt — auch Seen!) */
         Map<Integer, Integer> materialColors = materialColors();
         writeMap("surface", (wx, wz) -> {
             int color = materialColors.getOrDefault(generator.debugSurfaceTop(wx, wz), 0xFF00FF);
             int height = generator.sampleHeight(wx, wz);
-            return (height < SEA_LEVEL) ? mixBlue(color) : color;
+            return (height < generator.waterLevelAt(wx, wz)) ? mixBlue(color) : color;
+        });
+
+        /* Wasserflaechen-Karte: Meer/See blau (Seespiegel hellblau), Land nach Hoehe grau */
+        writeMap("water", (wx, wz) -> {
+            int height = generator.sampleHeight(wx, wz);
+            int waterLevel = generator.waterLevelAt(wx, wz);
+            if (height >= waterLevel) return heightColor(height);
+            return (waterLevel > SEA_LEVEL) ? 0x55CCEE : 0x2244CC;
         });
 
         /* Vertikaler Querschnitt durch ECHTE generate()-Chunks (Hoehlen/Ueberhaenge sichtbar) */
