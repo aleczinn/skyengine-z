@@ -26,16 +26,15 @@ import java.util.concurrent.atomic.AtomicLong;
  * Klimafeldern ({@link ClimateSampler}) abgeleitet — Biomuebergaenge sind dadurch automatisch
  * glatt, ohne Parameter-Blending an Biomgrenzen.
  *
- * <p>Seed-Offsets: ClimateSampler reserviert seed+0..+6, eigene Noises starten ab seed+10.
+ * <p>Seed-Offsets: ClimateSampler reserviert seed+0..+8, eigene Noises belegen seed+10..+23,
+ * das Fluss-Netz ({@link RiverNetwork}) seed+24/+25.
  */
 public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
 
     /* Meeresspiegel: bis zu dieser Hoehe wird Wasser aufgefuellt */
-    private static final int SEA_LEVEL = 64;
+    static final int SEA_LEVEL = 64;
     /* Maximaler Berg-Aufschlag (skaliert mit Biomes.mountainWeight) -> Gipfel bis ~260 */
     private static final float MOUNTAIN_AMP = 170F;
-    /* River-Werte unterhalb dieser Schwelle bilden das Flusstal (~15-30 Bloecke breit) */
-    private static final float RIVER_VALLEY = 0.045F;
     /* Ab dieser Hoehe: Fels statt Biomdecke */
     private static final int STONE_LINE = 125;
     /* Ab dieser Hoehe: Schneekappe */
@@ -69,9 +68,11 @@ public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
     private static final int LAKE_RADIUS_MIN = 40;
     private static final int LAKE_RADIUS_MAX = 90;
     private static final float LAKE_CHANCE = 0.35F;
-    /* Beckentiefe unter dem Seespiegel; Ringpunkte fuer Spiegel/Hang-Gate */
+    /* Beckentiefe unter dem Seespiegel; Ringpunkte fuer Spiegel/Hang-Gate — auf dem VOLLEN
+     * Radius (maximale Wasserausdehnung) und dicht genug, dass hangseitig kein Gelaende
+     * zwischen zwei Punkten unter den Spiegel rutscht (sonst Wasserwand am See-Rand) */
     private static final int LAKE_DEPTH = 5;
-    private static final int LAKE_RING_POINTS = 8;
+    private static final int LAKE_RING_POINTS = 16;
     private static final int LAKE_MAX_RING_SPAN = 12;
 
     /* Kontinentalwellen: Hebung deutlich staerker als Senkung (Bias + getrennte Skalen),
@@ -93,14 +94,22 @@ public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
     private final FastNoiseLite snowWobbleNoise;
     /* Lokales Terrain-Detail; Amplitude skaliert mit der Erosion (glatt vs. zerklueftet) */
     private final FastNoiseLite detailNoise;
-    /* NUR die Basisoktave des Detail-Noise (gleicher Seed+Frequenz, ohne Fraktal): der
-     * Fluss-Traeger folgt damit den breiten Mulden/Buckeln des echten Terrains — die
-     * Restabweichung (Oktaven 2-4) bleibt klein genug fuer eingedaemmte Ufer */
+    /* Die ersten BEIDEN Oktaven des Detail-Noise als Einzel-Instanzen (Oktave i des FBm =
+     * GenNoiseSingle(seed+i-1, coords*f*2^(i-1)), Gewichte 0.533/0.267): Traeger und Leitfeld
+     * des Fluss-Netzes ({@link #riverCarrier}/{@link #riverGuide}) folgen damit dem echten
+     * Terrain bis auf die kleinen Oktaven 3+4 (~±0.6 in Ebenen) — nur so liegt das monotone
+     * Spiegel-Profil verlaesslich UNTER der Wiese. detailBase2 teilt den Basis-Seed mit
+     * mountainNoise (seed+11), aber andere Frequenz/Nutzung -> keine sichtbare Korrelation. */
     private final FastNoiseLite detailBaseNoise;
+    private final FastNoiseLite detailBase2Noise;
     /* Berg-Form: Ridged-Fraktal fuer Grate und Gipfel */
     private final FastNoiseLite mountainNoise;
     /* Kleinraeumige Materialflecken fuer Ozean-/Flussboeden (Ton/Kies/Sand) */
     private final FastNoiseLite floorNoise;
+    /* Regionale Sediment-Charakteristik (~600-1000 Bloecke, grob ein Flussabschnitt bzw.
+     * Meeresgebiet): verschiebt die floorNoise-Schwellen — manche Fluesse/Meere ton-reich,
+     * andere kiesig oder fast rein sandig. Zweites (versetztes) Sample variiert die Flusstiefe. */
+    private final FastNoiseLite sedimentNoise;
     /* Bodenpflanzen-DICHTEFELD: weiche 0..1-Verteilung ueber ~150-250 Bloecke; ob eine
      * einzelne Spalte bewachsen ist, entscheidet ein Pro-Block-Hash gegen dieses Feld —
      * keine binaeren Bewuchs-Klumpen mehr */
@@ -122,8 +131,11 @@ public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
      * ConcurrentHashMap, weil mehrere Worker-Threads parallel generieren. */
     private final ConcurrentHashMap<Long, Lake> lakeCache = new ConcurrentHashMap<>();
 
+    /* Quelle-zu-Muendung-Flussnetz (eigene Zellen-Memoization, s. RiverNetwork) */
+    private final RiverNetwork riverNetwork;
+
     /** Ein See: fester Spiegel pro See (flach!), Becken wird unter den Spiegel gecarvt. */
-    private record Lake(int centerX, int centerZ, int radius, int level) {
+    record Lake(int centerX, int centerZ, int radius, int level) {
     }
 
     /** Zellen-Sentinel fuer "kein See" (Cache kann kein null speichern). */
@@ -147,6 +159,10 @@ public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
         this.detailBaseNoise = new FastNoiseLite(seed + 10);
         this.detailBaseNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.detailBaseNoise.SetFrequency(0.004F);
+
+        this.detailBase2Noise = new FastNoiseLite(seed + 11);
+        this.detailBase2Noise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
+        this.detailBase2Noise.SetFrequency(0.008F);
 
         this.mountainNoise = new FastNoiseLite(seed + 11);
         this.mountainNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
@@ -215,6 +231,19 @@ public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
         this.snowWobbleNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.snowWobbleNoise.SetFractalOctaves(2);
         this.snowWobbleNoise.SetFrequency(0.0012F);
+
+        this.sedimentNoise = new FastNoiseLite(seed + 23);
+        this.sedimentNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
+        this.sedimentNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
+        this.sedimentNoise.SetFractalOctaves(2);
+        this.sedimentNoise.SetFrequency(0.0015F);
+
+        this.riverNetwork = new RiverNetwork(this, seed);
+    }
+
+    /** Fluss-Netz — public fuer Sonden/Debug-Karten (wie {@link #waterLevelAt}). */
+    public RiverNetwork riverNetwork() {
+        return this.riverNetwork;
     }
 
     @Override
@@ -232,61 +261,69 @@ public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
 
     /**
      * Berechnet eine Terrainspalte komplett: Rohhoehe, Fluss- und See-Carving, den lokalen
-     * Wasserspiegel (Meer, gelaendefolgender Fluss oder See) und die 3D-Amplitude. Fluss-
-     * und Seebecken daempfen die 3D-Verformung auf 0 — sonst hebt das Shape-Noise die Sohle
-     * stellenweise ueber den Wasserspiegel (trockene Flussbett-Flicken).
+     * Wasserspiegel (Meer, Fluss oder See) und die 3D-Amplitude. Fluss- und Seebecken
+     * daempfen die 3D-Verformung auf 0 — sonst hebt das Shape-Noise die Sohle stellenweise
+     * ueber den Wasserspiegel (trockene Flussbett-Flicken).
      *
-     * <p>Fluesse folgen einem niederfrequenten Traeger (Spline + Kontinentalwellen, OHNE
-     * Detail/Berge): der Spiegel steigt ~1 Block je 30-80 Bloecke, der Fluss klettert
-     * Haenge in 1-Block-Stufen hinauf. Wasser gibt es nur, wo der Fluss wirklich
-     * eingeschnitten ist (Rohhoehe nahe am Traeger) — quert die Flusslinie eine tiefere
-     * Senke, endet der Lauf dort statt eine Wasserwand zu bilden.
+     * <p>Fluesse kommen aus dem {@link RiverNetwork}: explizite Laeufe mit monoton
+     * fallendem Spiegel-Profil von der Quelle bis Meer/See/Endbecken. Das Terrain wird
+     * um den Lauf geformt (Kanal carven, lokale Senken als Uferdamm auffuellen) statt
+     * umgekehrt — Gates und Klammern des alten Iso-Linien-Modells entfallen.
+     *
+     * <p>{@code withWater=false} rechnet die reine Terrainform OHNE See- und Fluss-Carving:
+     * Basis der Seespiegel-Ringpunkte. Seen duerfen dabei nicht von Fluessen abhaengen,
+     * sonst entsteht eine Cache-Rekursion (See-Ring -> Fluss-Trace -> Muendungs-See).
      */
-    private ColumnSample columnFor(int x, int z, Climate c, boolean withLakes) {
+    private ColumnSample columnFor(int x, int z, Climate c, boolean withWater) {
         float raw = this.rawHeight(x, z, c);
         float h = raw;
         int waterLevel = SEA_LEVEL;
+        int riverWater = Integer.MIN_VALUE;
         float damp = 1F;
 
-        /* Fluss (nicht im Ozean/Strandband; billiger Vorab-Test vor dem Breiten-Noise) */
-        if (c.continentalness() >= Biomes.C_BEACH) {
-            float r = this.climate.riverValue(x, z);
-            if (r < RIVER_VALLEY * 1.6F) {
-                float valley = RIVER_VALLEY * this.climate.riverWidth(x, z);
-                if (r < valley) {
-                    /* 0 am Talrand .. 1 in der Flussmitte; *1.4 macht die Sohle flach.
-                     * Gebirge und Wueste blenden das Carving aus: Fluesse verjuengen sich
-                     * und enden am Gebirgsrand bzw. versiegen vor der Wueste. */
-                    float dry = desertness(c);
-                    float mountain = smoothstep((Biomes.mountainWeight(c) - 0.25F) / 0.2F);
-                    float t = smoothstep(1F - r / valley) * (1F - dry) * (1F - mountain);
-                    float carve = Math.min(1F, t * 1.4F);
-                    if (carve > 0F) {
-                        /* Traeger = Basis + Basisoktave des Detail-Noise (x0.533 = deren
-                         * Anteil am normierten FBm): folgt den breiten Mulden/Buckeln des
-                         * Terrains; zur Kueste hin auf Meeresspiegel geblendet (Muendung) */
-                        float coast = smoothstep((c.continentalness() - Biomes.C_BEACH) / 0.06F);
-                        float base = continentSpline(c.continentalness()) + this.upliftOffset(x, z, c)
-                                + this.detailBaseNoise.GetNoise(x, z) * 0.533F * lerp(4F, 36F, this.ruggedness(c));
-                        float riverBase = lerp(SEA_LEVEL, Math.max(SEA_LEVEL, base), coast);
-                        float bed = riverBase - 3F + dry * 5F;
-                        /* nur absenken — Senken zu ueberbruecken ergaebe trockene Daemme */
-                        if (h > bed) h = lerp(h, bed, carve);
-                        damp *= 1F - carve;
-                        /* Wasser nur, wo das Terrain nahe am Traeger liegt: Toleranz 6
-                         * schluckt die Rest-Oktaven, blockt aber echte Senken-Querungen
-                         * (dort stuende sonst eine hohe freie Wasserflanke am Talrand) */
-                        if (raw >= riverBase - 6F) {
-                            waterLevel = Math.max(waterLevel, (int) riverBase - 1);
-                        }
-                    }
+        /* Fluss: Kanal + Tal um die Polylinie des Netzes formen */
+        if (withWater) {
+            RiverNetwork.Sample river = this.riverNetwork.sampleAt(x, z);
+            if (river != null) {
+                float spiegel = river.surf();
+                float valleyHalf = river.half() * RiverNetwork.VALLEY_FACTOR;
+                float shoulder = valleyHalf * RiverNetwork.SHOULDER_FACTOR;
+                /* Uferdamm: lokale Senken unterm Spiegel werden bis Spiegel+1 aufgefuellt
+                 * (gedeckelt, nach aussen ausgeblendet) — die einzige Terrain-ANHEBUNG im
+                 * Fluss-System. Noetig, weil das monotone Profil lokalen Terrain-Dips
+                 * nicht folgen darf; die Dips sind konstruktionsbedingt flach (Profil
+                 * liegt an jedem Knoten unter Traeger−3, Rest-Oktaven ±~4). */
+                if (raw < spiegel + 1F) {
+                    float lift = Math.min(4F, spiegel + 1F - raw);
+                    float fade = Math.min(1F, (shoulder - river.dist()) / (shoulder - valleyHalf));
+                    h = Math.max(h, raw + lift * smoothstep(fade));
+                }
+                if (river.dist() < valleyHalf) {
+                    /* 0 am Talrand .. 1 im Kanal; Saettigung invers zur Kanalbreite:
+                     * schmale Laeufe = steile Kerbe, breite = flacher Ufersaum;
+                     * Untergrenze 1.1 haelt die Sohle ueberall voll gecarvt */
+                    float t = smoothstep(1F - river.dist() / valleyHalf);
+                    float carve = Math.min(1F, t * Math.clamp(13F / river.half(), 1.1F, 2.4F));
+                    /* Steile Hangquerungen: faellt das Terrain quer zum Kanal schneller ab,
+                     * als der Uferdamm auffuellt, folgt der Spiegel dem Gelaende in Stufen
+                     * (Bett relativ dazu -> Kanal bleibt nass) statt als Wand zu stehen;
+                     * max. 2 ueber raw wie beim 3a-Klammerwert */
+                    float effWater = Math.min(spiegel, raw + 2F);
+                    /* Betttiefe: regionale Variation (versetztes Sediment-Sample) plus
+                     * Breiten-Kopplung — normale Laeufe ~5-8 tief, breite bis ~10,
+                     * Quell-Baeche flach (Kopplung erst ab Halbbreite 4) */
+                    float depthVar = (this.sedimentNoise.GetNoise(x * 1.3F + 557F, z * 1.3F + 557F) + 1F) * 0.5F;
+                    float bed = effWater - 2F - depthVar * 2F - Math.min(6F, Math.max(0F, river.half() - 4F) * 0.7F);
+                    if (h > bed) h = lerp(h, bed, carve);
+                    damp *= 1F - carve;
+                    riverWater = (int) effWater;
                 }
             }
         }
 
-        /* See: Becken glockenfoermig unter den Spiegel carven (Fluss-Trick) — Becken
-         * garantiert unterm Wasser, unberuehrter Rand garantiert darueber (Bergsee-faehig) */
-        if (withLakes) {
+        /* See: Becken glockenfoermig unter den Spiegel carven — Becken garantiert unterm
+         * Wasser, unberuehrter Rand garantiert darueber (Bergsee-faehig) */
+        if (withWater) {
             Lake lake = this.lakeAt(x, z);
             if (lake != null) {
                 float t = Math.min(1F, smoothstep(1F - this.lakeShoreNorm(lake, x, z)) * 1.3F);
@@ -294,8 +331,13 @@ public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
                 if (h > target) h = lerp(h, target, t);
                 damp *= 1F - t;
                 waterLevel = Math.max(waterLevel, lake.level);
+                /* Fluss muendet in den See: der Flussspiegel folgt dem gecarvten Becken
+                 * in 1-2-Block-Stufen bis auf Seehoehe hinab, statt als Wasserruecken
+                 * ueber dem Ufer zu stehen */
+                riverWater = Math.min(riverWater, Math.max(lake.level, (int) h + 2));
             }
         }
+        waterLevel = Math.max(waterLevel, riverWater);
 
         /* Untergrenze knapp ueber Bedrock: extreme Senkung+Detail darf nicht unter 0 laufen */
         int height = Math.clamp((int) h, 8, Chunk.HEIGHT - 2);
@@ -303,8 +345,9 @@ public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
     }
 
     /**
-     * Hoehe OHNE See-Becken — Basis fuer die Seespiegel-Berechnung an den Ringpunkten
-     * (der Spiegel eines Sees darf nicht vom eigenen Becken abhaengen: Rekursion).
+     * Hoehe OHNE See-Becken und OHNE Fluss-Carving — Basis fuer die Seespiegel-Berechnung
+     * an den Ringpunkten (der Spiegel eines Sees darf weder vom eigenen Becken noch von
+     * Fluessen abhaengen: Cache-Rekursion, s. {@link #columnFor}).
      */
     private int heightBeforeLakes(int x, int z) {
         return this.columnFor(x, z, this.climate.sampleSmooth(x, z), false).height;
@@ -437,8 +480,8 @@ public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
         int max = min;
         for (int i = 0; i < LAKE_RING_POINTS; i++) {
             double angle = 2 * Math.PI * i / LAKE_RING_POINTS;
-            int rx = centerX + (int) (Math.cos(angle) * radius * 0.9F);
-            int rz = centerZ + (int) (Math.sin(angle) * radius * 0.9F);
+            int rx = centerX + (int) (Math.cos(angle) * radius);
+            int rz = centerZ + (int) (Math.sin(angle) * radius);
             int h = this.heightBeforeLakes(rx, rz);
             if (h < min) min = h;
             if (h > max) max = h;
@@ -457,8 +500,66 @@ public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
         return this.columnFor(x, z, this.climate.sampleSmooth(x, z), true).waterLevel;
     }
 
-    /** Deterministischer Zell-Hash -> [0, 1). */
-    private static float hash01(int x, int z, int seed, int salt) {
+    /* ------------------------------------------------------------------ Fluss-Netz (Hooks) */
+
+    /**
+     * Leitfeld fuer den Fluss-Trace: glatte Grundhoehe (Spline + Kontinentalwellen +
+     * Detail-Basisoktave) plus Gebirgsgewicht als weiche Penalty — Traces laufen um
+     * Massive herum statt Canyons zu erzwingen. Bewusst OHNE die hochfrequenten
+     * Oktaven/Ridges: die Falllinie soll grossraeumig fallen, nicht lokal zittern.
+     */
+    float riverGuide(int x, int z) {
+        Climate c = this.climate.sampleSmooth(x, z);
+        return continentSpline(c.continentalness()) + this.upliftOffset(x, z, c)
+                + this.detailBaseNoise.GetNoise(x, z) * 0.533F * lerp(4F, 36F, this.ruggedness(c))
+                + Biomes.mountainWeight(c) * MOUNTAIN_AMP * 0.35F;
+    }
+
+    /**
+     * Traeger fuer das Spiegel-Profil: folgt dem echten Terrain per Detail-Oktaven 1+2
+     * (Gewichte 0.533/0.267 = deren Anteile am normierten FBm) bis auf ±~0.6 in Ebenen.
+     */
+    float riverCarrier(int x, int z) {
+        Climate c = this.climate.sampleSmooth(x, z);
+        return continentSpline(c.continentalness()) + this.upliftOffset(x, z, c)
+                + (this.detailBaseNoise.GetNoise(x, z) * 0.533F
+                + this.detailBase2Noise.GetNoise(x, z) * 0.267F)
+                * lerp(4F, 36F, this.ruggedness(c));
+    }
+
+    /** Kontinentalitaet (glatt) — Quell-Gate des Fluss-Netzes. */
+    float continentalnessAt(int x, int z) {
+        return this.climate.sampleSmooth(x, z).continentalness();
+    }
+
+    /** Liegt (x, z) im Wasser eines Worley-Sees? Quell-Gate des Fluss-Traces. */
+    boolean insideLake(int x, int z) {
+        return this.lakeAt(x, z) != null;
+    }
+
+    /**
+     * Der See, dessen Wasser (x, z) naeher als {@code margin} kommt — grosszuegiger
+     * Radius-Test OHNE Ufer-Noise, fuer die Muendungs-Erkennung des Fluss-Traces: auch
+     * ein Lauf, der ein Seebecken nur STREIFT, muss dort enden, sonst steht sein Spiegel
+     * als Wasserwand neben dem tieferen Seespiegel. Prueft die 3x3-Nachbarzellen, weil
+     * die Flanke eines Nachbarzellen-Sees in Randnaehe in Reichweite liegen kann.
+     */
+    Lake lakeNear(int x, int z, int margin) {
+        int cellX = Math.floorDiv(x, LAKE_CELL);
+        int cellZ = Math.floorDiv(z, LAKE_CELL);
+        for (int i = -1; i <= 1; i++) {
+            for (int j = -1; j <= 1; j++) {
+                Lake lake = this.lakeFor(cellX + i, cellZ + j);
+                if (lake == NO_LAKE) continue;
+                long reach = lake.radius + margin;
+                if (sq(x - lake.centerX) + sq(z - lake.centerZ) <= reach * reach) return lake;
+            }
+        }
+        return null;
+    }
+
+    /** Deterministischer Zell-Hash -> [0, 1) — auch vom Fluss-Netz genutzt. */
+    static float hash01(int x, int z, int seed, int salt) {
         int h = seed ^ salt * 0x9E3779B1;
         h ^= x * 0x85EBCA6B;
         h ^= z * 0xC2B2AE35;
@@ -577,26 +678,30 @@ public class AlphaWorldGeneratorV2_1 extends WorldGenerator {
         if (height < waterLevel) {
             /* Unterwasser-Boden: tiefenabhaengig gemischte Flecken aus Sand/Ton/Erde/Kies
              * statt Ein-Material-Zonen; zwei dekorrelierte Samples desselben Noise
-             * (Skalen-Offset-Muster wie V1) fuer unabhaengige Fleckenmuster */
+             * (Skalen-Offset-Muster wie V1) fuer unabhaengige Fleckenmuster. Das regionale
+             * Sediment-Noise verschiebt die Schwellen pro Fluss-/Meeresgebiet: ton-reiche
+             * neben fast ton-freien Abschnitten statt weltweit identischer Mischung. */
             int depth = waterLevel - height;
             float n1 = this.floorNoise.GetNoise(wx, wz);
             float n2 = this.floorNoise.GetNoise(wx * 1.7F + 537F, wz * 1.7F + 537F);
+            float sed = this.sedimentNoise.GetNoise(wx, wz);
 
             if (depth <= 3) {
-                /* Ufer: Sand-Basis mit Erd- und Kiesflecken */
+                /* Ufer: Sand-Basis mit Erd- und Kiesflecken; Ton nur in Ton-Regionen */
+                if (n1 > 0.8F - Math.max(0F, sed) * 0.5F) return Blocks.CLAY;
                 if (n2 > 0.5F) return Blocks.DIRT;
-                if (n1 < -0.6F) return Blocks.GRAVEL;
+                if (n1 < -0.6F + Math.max(0F, -sed) * 0.25F) return Blocks.GRAVEL;
                 return Blocks.SAND;
             }
             if (depth <= 9) {
-                /* Flachwasser: ausgewogene Mischung */
-                if (n1 > 0.4F) return Blocks.CLAY;
-                if (n1 < -0.4F) return Blocks.GRAVEL;
+                /* Flachwasser: ausgewogene Mischung; negativer sed = kiesige Region */
+                if (n1 > 0.55F - sed * 0.3F) return Blocks.CLAY;
+                if (n1 < -0.4F - sed * 0.2F) return Blocks.GRAVEL;
                 return (n2 > 0.3F) ? Blocks.DIRT : Blocks.SAND;
             }
             /* Tiefe: Kies dominiert, aber mit Ton-, Erd- und Sandbaenken durchsetzt */
             if (n2 > 0.5F) return Blocks.SAND;
-            if (n1 > 0.4F) return Blocks.CLAY;
+            if (n1 > 0.6F - sed * 0.25F) return Blocks.CLAY;
             if (n2 < -0.45F) return Blocks.DIRT;
             return Blocks.GRAVEL;
         }
