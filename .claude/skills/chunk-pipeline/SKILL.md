@@ -56,7 +56,9 @@ die **LOD-Maske**, sonst reißt das LOD Löcher auf, bevor der echte Mesh da ist
 DECORATED wie ungeladen (AIR bzw. FULL_CUBE), und `processRemeshes` verlangt Nachbarn ≥
 DECORATED — denn GENERATING/DECORATING-Chunks werden von Workern **lock-frei** beschrieben
 (Generator/FeaturePlacer), und `PalettedContainer`/`BitStorage` sind nicht threadsicher
-(torn reads). Diese Schwellen nie auf GENERATED absenken.
+(torn reads). Diese Schwellen nie auf GENERATED absenken. Einzige bewusste Ausnahme:
+`WorldLodDataSource` liest ab GENERATED lock-frei (transiente Fehler remeshen sich weg —
+siehe lod-system-Skill); diese Ausnahme weder auf andere Leser übertragen noch dort „reparieren".
 
 `World.setBlockRaw` schreibt nur in READY-Chunks (verhindert Races mit laufenden Mesh-Jobs), nimmt den
 **Write-Lock** des Chunks; Mesh-Jobs nehmen Read-Locks auf alle 9 beteiligten Chunks

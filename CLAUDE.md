@@ -110,3 +110,39 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
 - Seen dürfen nie von Flüssen abhängen (Cache-Rekursion); Generator-Funktionen müssen pur sein
 - Reversed-Z: Depth-Funcs nie hartkodieren, or-equal-Mapping wie im ChunkRenderer
 - Arena-Regionen/GL-Buffer nie sofort freigeben/löschen — Fence-geschützt bzw. neu-vor-alt
+
+## Handoff-Hinweise
+
+**Die 5 häufigsten Fehlerquellen in diesem Projekt (subsystemübergreifend):**
+
+1. **„Kompiliert" mit „funktioniert" verwechseln.** Fast alles Sichtbare (Meshing, Rendering,
+   Fluids, LOD, Tints) ist NUR im laufenden Fenster prüfbar. Ohne Fenster: ehrlich als
+   „visuell ungetestet" ausweisen (Skill `visuelle-verifikation`).
+2. **Minecraft-Wissen ungeprüft übertragen.** Dieses Projekt weicht bewusst ab: 32er-Chunks
+   (nie `>>4`/`&15`), Fluid-LEVEL invers (0 = Quelle), eigene Entity-UV-Konvention, kein
+   Licht-/Sky-System. Vor jeder „das ist wie in Minecraft"-Annahme den passenden Skill lesen.
+3. **Thread-Kontext ignorieren.** GL nur auf dem Render-Thread, GLFW-Fenster/Cursor nur auf dem
+   Main-Thread, Worker arbeiten lock-frei nach festen Regeln (DECORATED-Lese-Grenze, Fences,
+   deferred frees). Verstöße crashen nicht, sondern erzeugen sporadische, nicht reproduzierbare
+   Fehler — die teuerste Bug-Klasse hier.
+4. **Schutzmechanismen als „überflüssig" entfernen.** AO-Shader-Clamp, `withWater=false`,
+   Fluid-Druck-Bedingung, `seq`-Tiebreaker, neu-vor-alt bei GL-Buffern, or-equal-Depth,
+   koplanare Overlays: alles Fixes für real beobachtete, teuer gefundene Bugs. Sieht etwas
+   redundant aus → zuständigen Skill lesen, dann fragen — nie einfach löschen.
+5. **An der wirkungslosen Stelle editieren.** `textures` in der Block-JSON (Archetyp-Blöcke),
+   geratene Textur-Layer, fehlende Modell-Datei, hartkodierte Depth-Funcs. Symptom „meine
+   Änderung bewirkt nichts" heißt fast immer: falsche Stelle — nicht mehr Code nachschieben.
+
+**Eskalationsregel — stoppen und den User fragen, wenn eine Änderung:**
+
+- etwas anfassen müsste, das ein Skill mit „nie/NICHT/Absicht" markiert;
+- die Threading-/Locking-Struktur, Status-Übergänge oder binäre Layouts ÄNDERN müsste
+  (Vertex-Format, Arena/EBO, Palette, Seed-Offsets);
+- die generierte Welt bestehender Seeds verändern würde (Weltgen bit-stabil halten —
+  Beweis: `GeneratorMapExporter`-Karten vorher/nachher hashen);
+- scheinbar toten Code löschen soll (Beispiel: `GeneratorLodDataSource` ist absichtlich da);
+- auf einen Widerspruch zwischen Code und Skill-Doku stößt — dann ist eines von beiden
+  falsch: melden, nicht stillschweigend „reparieren".
+
+Kein Nachfragen nötig für additive Standard-Arbeit nach Skill-Muster (neuer Block/Behavior/
+Feature, Bugfix mit klarer Ursache) — dort gelten die Arbeitsregeln aus `.claude/CLAUDE.md`.
