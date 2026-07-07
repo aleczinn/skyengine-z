@@ -24,6 +24,11 @@ public final class GeneratorLodDataSource implements LodDataSource {
     }
 
     @Override
+    public long sampleGround(int x, int z, int size) {
+        return this.generator.sampleGroundSurface(x + size / 2, z + size / 2);
+    }
+
+    @Override
     public int grassTintAt(int x, int z) {
         return this.generator.grassTintAt(x, z);
     }

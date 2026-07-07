@@ -40,7 +40,7 @@ public class LodManager {
 
     /** Fertiges Regionen-Mesh (Worker → Render-Thread). Leere data = Region komplett geclippt. */
     public record LodMeshResult(int level, int rx, int rz, int epoch, int mask, int yBase,
-                                int[] data, float minY, float maxY) {}
+                                int[] opaqueData, int[] translucentData, float minY, float maxY) {}
 
     /* Stand einer hochgeladenen Region: Level + Settings-Epoche + Chunk-Maske des Meshes */
     private record Current(int level, int epoch, int mask) {}

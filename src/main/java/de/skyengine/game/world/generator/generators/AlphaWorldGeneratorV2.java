@@ -678,6 +678,20 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     }
 
     /**
+     * Boden-Sample fuers LOD: wie {@link #sampleSurface}, aber ohne Wasser-Zweig — liefert
+     * auch unter Wasser (Ozean/See/Fluss) den festen Boden (Deckmaterial + gecarvte
+     * Bodenhoehe). Pure Funktion, rein lesend — generiert nichts, aendert keine Seeds.
+     */
+    @Override
+    public long sampleGroundSurface(int x, int z) {
+        Climate smooth = this.climate.sampleSmooth(x, z);
+        ColumnSample cs = this.columnFor(x, z, smooth, true);
+        int top = this.surfaceTop(x, z, cs.height, Biomes.lookup(this.climate.sample(x, z, smooth)),
+                cs.uplift, cs.waterLevel);
+        return LodDataSource.pack(top, cs.height);
+    }
+
+    /**
      * Deckmaterial an (wx, wz) — von generate() UND LOD genutzt (geteilte Logik gegen Naehte).
      * {@code uplift} verschiebt die Stein-/Schneegrenze mit dem regionalen Grundniveau,
      * sonst waeren hochgehobene Ebenen komplett schneebedeckt. {@code waterLevel} ist der
