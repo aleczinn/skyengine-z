@@ -77,6 +77,10 @@ Der Fokus liegt auf:
 
 ## Screenshots
 
+v0.0.7 | Level of Detail V2 (LOD nun in eigenen Vertex Arenen, Ambient Occlusion, supportet nun Transparenz für Wasser)
+
+![Ingame Screenshot mit verbessertem Level of Detail](project/0.0.7_level-of-detail-v2.png?raw=true)
+
 v0.0.6 | Welt-Generator V2.1 verbessertes Terrain Shaping + Fluss Netzwerk, bei dem Terrain um Flüsse gebaut wird + Vegetations-Fix
 
 ![Ingame Screenshot mit neuer Welt-Generierung inkl. Biomes](project/0.0.6_world-generator-with-river-network.png?raw=true)
