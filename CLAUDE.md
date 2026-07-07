@@ -101,6 +101,7 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
 
 - GLFW-Fenster/Cursor → nur via `addTaskToMainThread`; GL nur auf dem Render-Thread
 - Chunks sind 32er: `ChunkSection.SHIFT/MASK` statt `>>4`/`&15`
+- Chunks unter DECORATED nie lesen (Worker schreiben lock-frei) — Guards in World/processRemeshes
 - Worker-Jobs: `execute` mit `PrioTask`, nie `submit`
 - `BlockTextures.layerOf` nach dem TextureArray-Bau = kaputter Layer-Index
 - Cube-Block ohne `models/block/<id>.json` = unsichtbar; Block-JSON-`textures` ist bei

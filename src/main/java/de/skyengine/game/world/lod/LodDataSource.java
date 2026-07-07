@@ -4,9 +4,9 @@ import de.skyengine.game.world.block.Tints;
 
 /**
  * Abstrahierte Oberflächen-Quelle fürs LOD: liefert pro Zelle den obersten sichtbaren Block
- * und dessen Höhe. Heute implementiert über die pure Generator-Funktion
- * ({@link GeneratorLodDataSource}); später können gespeicherte Welten, Spieleränderungen
- * und Strukturen dieselbe Schnittstelle bedienen, ohne dass Mesher/Manager sich ändern.
+ * und dessen Höhe. Verdrahtet ist {@link WorldLodDataSource} (nah: echte Chunkdaten, fern:
+ * pure Generator-Funktion — s. World.init); später können gespeicherte Welten und Strukturen
+ * dieselbe Schnittstelle bedienen, ohne dass Mesher/Manager sich ändern.
  *
  * <p>Implementierungen MÜSSEN threadsicher und deterministisch sein: die Worker rufen sie
  * parallel auf, und benachbarte Regionen sampeln dieselben Rand-Zellen erneut — nur wenn

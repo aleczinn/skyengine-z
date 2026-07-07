@@ -351,7 +351,7 @@ public final class FluidBehavior implements BlockBehavior {
             } else if (!Blocks.getState(nid).isSolid()) {
                 int bid = world.getBlock(nx, y - 1, nz);
                 if (isSameFluid(bid, fluid)) { // Abfall-Kante: zieht stark bergab
-                    diff = own - (FluidGeometry.fluidHeight(Blocks.getState(bid)) - 8.0 / 9.0);
+                    diff = own - (FluidGeometry.fluidHeight(Blocks.getState(bid)) - FluidGeometry.SOURCE_HEIGHT);
                 }
             }
             out[0] += d.offsetX() * diff;

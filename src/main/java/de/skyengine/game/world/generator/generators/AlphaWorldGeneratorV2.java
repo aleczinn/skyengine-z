@@ -8,6 +8,7 @@ import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
+import de.skyengine.game.world.generator.WorldgenSeeds;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.biome.Biomes;
 import de.skyengine.game.world.generator.climate.Climate;
@@ -26,8 +27,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * Klimafeldern ({@link ClimateSampler}) abgeleitet — Biomuebergaenge sind dadurch automatisch
  * glatt, ohne Parameter-Blending an Biomgrenzen.
  *
- * <p>Seed-Offsets: ClimateSampler reserviert seed+0..+8, eigene Noises belegen seed+10..+23,
- * das Fluss-Netz ({@link RiverNetwork}) seed+24/+25.
+ * <p>Seed-Offsets werden zentral in {@link de.skyengine.game.world.generator.WorldgenSeeds}
+ * vergeben (ClimateSampler 0..8, eigene Noises 10..23, {@link RiverNetwork} 24/25).
  */
 public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
@@ -150,89 +151,89 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         super(seed);
         this.climate = new ClimateSampler(seed);
 
-        this.detailNoise = new FastNoiseLite(seed + 10);
+        this.detailNoise = new FastNoiseLite(seed + WorldgenSeeds.DETAIL);
         this.detailNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.detailNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.detailNoise.SetFractalOctaves(4);
         this.detailNoise.SetFrequency(0.004F);
 
-        this.detailBaseNoise = new FastNoiseLite(seed + 10);
+        this.detailBaseNoise = new FastNoiseLite(seed + WorldgenSeeds.DETAIL_BASE);
         this.detailBaseNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.detailBaseNoise.SetFrequency(0.004F);
 
-        this.detailBase2Noise = new FastNoiseLite(seed + 11);
+        this.detailBase2Noise = new FastNoiseLite(seed + WorldgenSeeds.DETAIL_BASE_2);
         this.detailBase2Noise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.detailBase2Noise.SetFrequency(0.008F);
 
-        this.mountainNoise = new FastNoiseLite(seed + 11);
+        this.mountainNoise = new FastNoiseLite(seed + WorldgenSeeds.MOUNTAIN);
         this.mountainNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.mountainNoise.SetFractalType(FastNoiseLite.FractalType.Ridged);
         this.mountainNoise.SetFractalOctaves(4);
         this.mountainNoise.SetFrequency(0.003F);
 
-        this.floorNoise = new FastNoiseLite(seed + 12);
+        this.floorNoise = new FastNoiseLite(seed + WorldgenSeeds.FLOOR);
         this.floorNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.floorNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.floorNoise.SetFractalOctaves(2);
         this.floorNoise.SetFrequency(0.03F);
 
-        this.vegNoise = new FastNoiseLite(seed + 13);
+        this.vegNoise = new FastNoiseLite(seed + WorldgenSeeds.VEGETATION);
         this.vegNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.vegNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.vegNoise.SetFractalOctaves(2);
         this.vegNoise.SetFrequency(0.008F);
 
-        this.shapeNoise = new FastNoiseLite(seed + 14);
+        this.shapeNoise = new FastNoiseLite(seed + WorldgenSeeds.SHAPE);
         this.shapeNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.shapeNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.shapeNoise.SetFractalOctaves(3);
         this.shapeNoise.SetFrequency(0.008F);
 
-        this.cheeseNoise = new FastNoiseLite(seed + 15);
+        this.cheeseNoise = new FastNoiseLite(seed + WorldgenSeeds.CHEESE);
         this.cheeseNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.cheeseNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.cheeseNoise.SetFractalOctaves(3);
         this.cheeseNoise.SetFrequency(0.012F);
 
-        this.spaghettiNoise1 = new FastNoiseLite(seed + 16);
+        this.spaghettiNoise1 = new FastNoiseLite(seed + WorldgenSeeds.SPAGHETTI_1);
         this.spaghettiNoise1.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.spaghettiNoise1.SetFrequency(0.01F);
 
-        this.spaghettiNoise2 = new FastNoiseLite(seed + 17);
+        this.spaghettiNoise2 = new FastNoiseLite(seed + WorldgenSeeds.SPAGHETTI_2);
         this.spaghettiNoise2.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.spaghettiNoise2.SetFrequency(0.01F);
 
-        this.stoneNoise1 = new FastNoiseLite(seed + 18);
+        this.stoneNoise1 = new FastNoiseLite(seed + WorldgenSeeds.STONE_1);
         this.stoneNoise1.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.stoneNoise1.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.stoneNoise1.SetFractalOctaves(2);
         this.stoneNoise1.SetFrequency(0.03F);
 
-        this.stoneNoise2 = new FastNoiseLite(seed + 19);
+        this.stoneNoise2 = new FastNoiseLite(seed + WorldgenSeeds.STONE_2);
         this.stoneNoise2.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.stoneNoise2.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.stoneNoise2.SetFractalOctaves(2);
         this.stoneNoise2.SetFrequency(0.03F);
 
-        this.upliftNoise = new FastNoiseLite(seed + 20);
+        this.upliftNoise = new FastNoiseLite(seed + WorldgenSeeds.UPLIFT);
         this.upliftNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.upliftNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.upliftNoise.SetFractalOctaves(2);
         this.upliftNoise.SetFrequency(0.00008F);
 
-        this.plateauNoise = new FastNoiseLite(seed + 21);
+        this.plateauNoise = new FastNoiseLite(seed + WorldgenSeeds.PLATEAU);
         this.plateauNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.plateauNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.plateauNoise.SetFractalOctaves(2);
         this.plateauNoise.SetFrequency(0.0006F);
 
-        this.snowWobbleNoise = new FastNoiseLite(seed + 22);
+        this.snowWobbleNoise = new FastNoiseLite(seed + WorldgenSeeds.SNOW_WOBBLE);
         this.snowWobbleNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.snowWobbleNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.snowWobbleNoise.SetFractalOctaves(2);
         this.snowWobbleNoise.SetFrequency(0.0012F);
 
-        this.sedimentNoise = new FastNoiseLite(seed + 23);
+        this.sedimentNoise = new FastNoiseLite(seed + WorldgenSeeds.SEDIMENT);
         this.sedimentNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.sedimentNoise.SetFractalType(FastNoiseLite.FractalType.FBm);
         this.sedimentNoise.SetFractalOctaves(2);
@@ -255,8 +256,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         return this.columnFor(x, z, c, true).height;
     }
 
-    /** Ergebnis der Spaltenberechnung: Hoehe, lokaler Wasserspiegel, 3D-Verformungs-Amplitude. */
-    private record ColumnSample(int height, int waterLevel, float shapeAmp) {
+    /** Ergebnis der Spaltenberechnung: Hoehe, lokaler Wasserspiegel, 3D-Amplitude, Uplift. */
+    private record ColumnSample(int height, int waterLevel, float shapeAmp, float uplift) {
     }
 
     /**
@@ -275,7 +276,10 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
      * sonst entsteht eine Cache-Rekursion (See-Ring -> Fluss-Trace -> Muendungs-See).
      */
     private ColumnSample columnFor(int x, int z, Climate c, boolean withWater) {
-        float raw = this.rawHeight(x, z, c);
+        /* Uplift einmal berechnen und durchreichen — generate()/sampleSurface brauchen ihn
+           fuer die Stein-/Schneegrenze erneut (frueher doppelt gerechnet). */
+        float uplift = this.upliftOffset(x, z, c);
+        float raw = this.rawHeight(x, z, c, uplift);
         float h = raw;
         int waterLevel = SEA_LEVEL;
         int riverWater = Integer.MIN_VALUE;
@@ -341,7 +345,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
         /* Untergrenze knapp ueber Bedrock: extreme Senkung+Detail darf nicht unter 0 laufen */
         int height = Math.clamp((int) h, 8, Chunk.HEIGHT - 2);
-        return new ColumnSample(height, waterLevel, SHAPE_AMP_MAX * this.ruggedness(c) * damp);
+        return new ColumnSample(height, waterLevel, SHAPE_AMP_MAX * this.ruggedness(c) * damp, uplift);
     }
 
     /**
@@ -368,11 +372,16 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
     /** Terrainhoehe OHNE Fluss-Carving — Basis von {@link #heightFor} und dem Hangneigungs-Test. */
     private float rawHeight(int x, int z, Climate c) {
+        return this.rawHeight(x, z, c, this.upliftOffset(x, z, c));
+    }
+
+    /** Wie {@link #rawHeight(int, int, Climate)}, mit bereits berechnetem Uplift (Hot-Path). */
+    private float rawHeight(int x, int z, Climate c, float uplift) {
         /* Grundform aus der Kontinentalitaet: Tiefsee -> Kueste -> Landesinneres */
         float h = continentSpline(c.continentalness());
 
         /* Kontinentalwellen heben/senken das regionale Grundniveau (an der Kueste 0) */
-        h += this.upliftOffset(x, z, c);
+        h += uplift;
 
         /* Erosion moduliert das lokale Detail: glatte Ebenen vs. schroffe Huegel */
         h += this.detailNoise.GetNoise(x, z) * lerp(4F, 36F, this.ruggedness(c));
@@ -663,8 +672,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         Climate smooth = this.climate.sampleSmooth(x, z);
         ColumnSample cs = this.columnFor(x, z, smooth, true);
         if (cs.height < cs.waterLevel) return LodDataSource.pack(Blocks.WATER, cs.waterLevel);
-        int top = this.surfaceTop(x, z, cs.height, this.biomeAt(x, z),
-                this.upliftOffset(x, z, smooth), cs.waterLevel);
+        int top = this.surfaceTop(x, z, cs.height, Biomes.lookup(this.climate.sample(x, z, smooth)),
+                cs.uplift, cs.waterLevel);
         return LodDataSource.pack(top, cs.height);
     }
 
@@ -733,8 +742,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     public int debugSurfaceTop(int x, int z) {
         Climate smooth = this.climate.sampleSmooth(x, z);
         ColumnSample cs = this.columnFor(x, z, smooth, true);
-        return this.surfaceTop(x, z, cs.height, this.biomeAt(x, z),
-                this.upliftOffset(x, z, smooth), cs.waterLevel);
+        return this.surfaceTop(x, z, cs.height, Biomes.lookup(this.climate.sample(x, z, smooth)),
+                cs.uplift, cs.waterLevel);
     }
 
     /** Fuellmaterial unter dem Deckblock (variable Schichtdicke, s. generate). */
@@ -772,11 +781,13 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                 Climate smooth = this.climate.sampleSmooth(wx, wz);
                 ColumnSample cs = this.columnFor(wx, wz, smooth, true);
                 int h = cs.height;
-                Biome biome = this.biomeAt(wx, wz);
+                /* Biome aus dem vorhandenen Smooth-Sample + Dither ableiten — spart die zweite
+                   volle 4-Feld-Klima-Auswertung pro Spalte (bit-identisch zu biomeAt). */
+                Biome biome = Biomes.lookup(this.climate.sample(wx, wz, smooth));
                 heights[i] = h;
                 biomes[i] = biome;
                 waterLevels[i] = cs.waterLevel;
-                uplifts[i] = this.upliftOffset(wx, wz, smooth);
+                uplifts[i] = cs.uplift;
                 tops[i] = this.surfaceTop(wx, wz, h, biome, uplifts[i], cs.waterLevel);
                 fillers[i] = fillerFor(tops[i], biome);
                 shapeAmps[i] = cs.shapeAmp;
