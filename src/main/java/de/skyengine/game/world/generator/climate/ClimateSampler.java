@@ -1,5 +1,6 @@
 package de.skyengine.game.world.generator.climate;
 
+import de.skyengine.game.world.generator.WorldgenSeeds;
 import de.skyengine.utils.math.FastNoiseLite;
 
 /**
@@ -7,9 +8,8 @@ import de.skyengine.utils.math.FastNoiseLite;
  * tausend Bloecke). Threadsicher, da alle FastNoiseLite-Instanzen nur im Konstruktor
  * konfiguriert und danach ausschliesslich gelesen werden (Muster wie MountainWorldGeneratorV1).
  *
- * <p>Reservierte Seed-Offsets dieses Samplers: seed+0 .. seed+8 (seed+5/+6/+8 sind seit dem
- * Wechsel aufs RiverNetwork frei, bleiben aber reserviert). Generator-eigene Noises muessen
- * ab seed+10 starten, damit keine Layer korrelieren.
+ * <p>Seed-Offsets werden zentral in {@link WorldgenSeeds} vergeben (dieser Sampler: 0..8) —
+ * neue Noises dort eintragen, damit keine Layer korrelieren.
  */
 public final class ClimateSampler {
 
@@ -28,16 +28,16 @@ public final class ClimateSampler {
 
     public ClimateSampler(int seed) {
         /* Klimazonen: sehr grossraeumig (Regionen mehrere tausend Bloecke), wenige Oktaven */
-        this.temperatureNoise = fbm(seed, 2, 0.0002F);
-        this.humidityNoise = fbm(seed + 1, 2, 0.00028F);
+        this.temperatureNoise = fbm(seed + WorldgenSeeds.TEMPERATURE, 2, 0.0002F);
+        this.humidityNoise = fbm(seed + WorldgenSeeds.HUMIDITY, 2, 0.00028F);
         /* Kontinente/Ozeane: am grossraeumigsten, sonst zerfallen Ozeane in kleine Flecken */
-        this.continentalnessNoise = fbm(seed + 2, 3, 0.00015F);
-        this.erosionNoise = fbm(seed + 3, 3, 0.0005F);
+        this.continentalnessNoise = fbm(seed + WorldgenSeeds.CONTINENTALNESS, 3, 0.00015F);
+        this.erosionNoise = fbm(seed + WorldgenSeeds.EROSION, 3, 0.0005F);
 
         /* Hochfrequentes Dither fuer wackelige statt gerade Grenzlinien */
-        this.ditherNoise = fbm(seed + 4, 1, 0.05F);
+        this.ditherNoise = fbm(seed + WorldgenSeeds.DITHER, 1, 0.05F);
 
-        this.coastDetailNoise = fbm(seed + 7, 3, 0.004F);
+        this.coastDetailNoise = fbm(seed + WorldgenSeeds.COAST_DETAIL, 3, 0.004F);
     }
 
     private static FastNoiseLite fbm(int seed, int octaves, float frequency) {
@@ -55,12 +55,22 @@ public final class ClimateSampler {
      * probabilistische Materialmischung an Biomgrenzen ohne zusaetzlichen Blending-Code.
      */
     public Climate sample(int x, int z) {
+        return this.sample(x, z, this.sampleSmooth(x, z));
+    }
+
+    /**
+     * Wie {@link #sample(int, int)}, nutzt aber ein bereits vorhandenes Smooth-Sample
+     * DERSELBEN Position — spart die zweite volle 4-Feld-Auswertung (Hot-Path: der Generator
+     * sampelt pro Spalte smooth fürs Höhenmodell UND gedithert fürs Biom). Das Ergebnis ist
+     * bit-identisch zu {@link #sample(int, int)}.
+     */
+    public Climate sample(int x, int z, Climate smooth) {
         float dither = this.ditherNoise.GetNoise(x, z) * DITHER_STRENGTH;
         return new Climate(
-                this.temperatureNoise.GetNoise(x, z) + dither,
-                this.humidityNoise.GetNoise(x, z) + dither,
-                this.continentalness(x, z) + dither,
-                this.erosionNoise.GetNoise(x, z) + dither);
+                smooth.temperature() + dither,
+                smooth.humidity() + dither,
+                smooth.continentalness() + dither,
+                smooth.erosion() + dither);
     }
 
     /** Klima OHNE Dither — fuer Hoehenmodell und Tint-Grid (glatte Verlaeufe, kein Rauschen). */

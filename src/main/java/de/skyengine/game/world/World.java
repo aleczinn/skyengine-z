@@ -397,7 +397,10 @@ public class World implements IInitializable, IDisposable {
         if (y < 0 || y >= Chunk.HEIGHT) return Blocks.AIR;
 
         Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
-        if (chunk == null || chunk.status == ChunkStatus.NEW || chunk.status == ChunkStatus.GENERATING) {
+        /* Erst ab DECORATED lesen: während GENERATING/DECORATING schreiben Worker lock-frei
+           (Generator/FeaturePlacer) — ein Read würde mit dem PalettedContainer-Wachstum racen
+           (torn reads: falsche State-IDs, im Grenzfall AIOOBE). */
+        if (chunk == null || !chunk.status.isAtLeast(ChunkStatus.DECORATED)) {
             return Blocks.AIR;
         }
         return chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
@@ -574,8 +577,9 @@ public class World implements IInitializable, IDisposable {
             return this.player != null && this.player.isFlying() ? BlockShape.EMPTY : BlockShape.FULL_CUBE;
         }
 
+        /* < DECORATED: Worker schreiben noch lock-frei (s. getBlock) -> wie ungeladen behandeln */
         ChunkStatus status = chunk.status;
-        if (status == ChunkStatus.NEW || status == ChunkStatus.GENERATING) return BlockShape.FULL_CUBE;
+        if (!status.isAtLeast(ChunkStatus.DECORATED)) return BlockShape.FULL_CUBE;
 
         int id = chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
         return Blocks.getState(id).getCollisionShape();
@@ -594,8 +598,9 @@ public class World implements IInitializable, IDisposable {
         /* Ungeladen = solide, außer der Spieler fliegt (s. getCollisionShape). */
         if (chunk == null) return !(this.player != null && this.player.isFlying());
 
+        /* < DECORATED: Worker schreiben noch lock-frei (s. getBlock) -> wie ungeladen behandeln */
         ChunkStatus status = chunk.status;
-        if (status == ChunkStatus.NEW || status == ChunkStatus.GENERATING) return true;
+        if (!status.isAtLeast(ChunkStatus.DECORATED)) return true;
 
         return Blocks.isSolid(chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK));
     }
