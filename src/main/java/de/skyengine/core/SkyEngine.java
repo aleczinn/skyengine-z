@@ -172,7 +172,7 @@ public class SkyEngine {
             if (System.currentTimeMillis() - lastStatusTime >= 1000) {
                 System.out.printf("FPS: %d, TPS: %d%n", frames, updates);
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
-                    this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s".formatted(
+                    this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s | Biom: %s".formatted(
                             ENGINE_NAME,
                             ENGINE_VERSION,
                             frames,
@@ -182,7 +182,11 @@ public class SkyEngine {
                             this.game.getWorld().getChunkManager().getChunks().size(),
                             Math.round(this.game.getPlayer().x),
                             Math.round(this.game.getPlayer().y),
-                            Math.round(this.game.getPlayer().z)
+                            Math.round(this.game.getPlayer().z),
+                            /* Debug-Hilfe: Biom an der Spielerposition (pure Funktion, 1x/Sekunde) */
+                            this.game.getWorld().getGenerator().biomeAt(
+                                    (int) Math.floor(this.game.getPlayer().x),
+                                    (int) Math.floor(this.game.getPlayer().z)).name
                     ));
                 }
 

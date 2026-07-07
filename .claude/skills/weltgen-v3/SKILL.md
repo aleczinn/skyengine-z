@@ -81,8 +81,17 @@ blendet sie nur ein/aus:
   der lokale c-Gradient ist nur ~0.0002-0.001/Block, breitere Bänder verschmieren an flachen
   Küsten zur Rampe. Ortssteuerung ausschließlich über geblendetes cliffHeight — anderswo
   entstehen keine Klippen. Das Strandband schrumpft vor der Wand auf einen schmalen Saum.
-- **Canyon-Terrassen** (`terrace`): Höhe in TERRACE_STEP-11-Stufen, doppeltes Smootherstep
-  (C1, flache Tritte, steile Kanten), Einblendung `terraceStrength * inlandGate`.
+- **Canyon-Terrassen** (`terrace`): Höhe in TERRACE_STEP-11-Stufen; der komplette Hub liegt
+  im mittleren **TERRACE_EDGE-Anteil (0.15)** jeder Stufe (Smootherstep-Rampe, C1 an den
+  Clamp-Grenzen, max. Steigung ≈12× Untergrund). Einblendung
+  `terraceMix(geblendete terraceStrength) * inlandGate` — **terraceMix**
+  (`smoothstep((s−0.15)/0.45)`) gleicht die Blend-Verdünnung aus: selbst im Canyon-Kern ist
+  die Dominanz nur ~0.7, aus terraceStrength 0.85 würden sonst ~0.59 (Tritte behalten 41 %
+  Hangneigung → Hügel mit Konturlinien statt Stufen; so gemessen und gefixt 2026-07). Das
+  ist das Höhen-Gegenstück zum minShare-Gate. Frühere Formel (doppeltes Smootherstep, max.
+  3.5×) verschmierte die Kanten an flachen Hängen über 15-25 Blöcke — nicht zurückbauen.
+  Merksatz: **Parameter-Blending verdünnt „Drama-Parameter" auch im Biom-Kern** — jeder
+  Shaper, der erst nahe Stärke 1 wirkt, braucht eine Remap am Einsatzort.
 - **Canyon-Strata** (`canyonStratum(y + strataShift)`): gewellte Terracotta-Bandfolge nach
   absoluter Höhe (floorMod 26, Versatz ±7 aus sedimentNoise, nur oberhalb STRATA_MIN_Y 45),
   nur in Canyon-gelabelten Spalten, im Stein-Bereich UNTER den 1-4 Filler-Schichten →

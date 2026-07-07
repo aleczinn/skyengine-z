@@ -24,7 +24,7 @@ import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
 import de.skyengine.game.world.generator.feature.trees.BiomeTreeFeature;
-import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
+import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV3;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.lod.LodBlockAppearance;
 import de.skyengine.game.world.lod.LodManager;
@@ -84,7 +84,8 @@ public class World implements IInitializable, IDisposable {
 
     public World(String name) {
         this.name = name;
-        this.generator = new AlphaWorldGeneratorV2(123);
+        /* V3 = Biome-Parameter-Blending; V2 bleibt als bit-stabiler Regressionsanker waehlbar */
+        this.generator = new AlphaWorldGeneratorV3(123);
         /* Feature-Pass (Dekoration): biome-abhaengige Baeume (featureId 0) */
         this.chunkManager = new ChunkManager(this.generator,
                 new ChunkDecorator(this.generator, List.of(new BiomeTreeFeature())));
@@ -93,6 +94,11 @@ public class World implements IInitializable, IDisposable {
 
     public String getName() {
         return name;
+    }
+
+    /** Weltgenerator — u.a. fuer die Spawn-Hoehe (GameContainer). */
+    public WorldGenerator getGenerator() {
+        return generator;
     }
 
     public BlockEntityRenderDispatcher getBlockEntityRenderDispatcher() {

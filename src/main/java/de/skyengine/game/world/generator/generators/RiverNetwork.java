@@ -87,7 +87,7 @@ public final class RiverNetwork {
      * doppelten typischen Tal-Halbbreite sein, sonst liegen 25er-Kanaele Wand an Wand. */
     private static final float JOIN_DIST = 64F;
 
-    private final AlphaWorldGeneratorV2 gen;
+    private final RiverTerrain gen;
     private final int seed;
     /* Maeander-Ablenkung und Breitenverlauf, beide ueber die Bogenlaenge gesampelt
      * (zweite Noise-Koordinate = Fluss-Salt, trennt die Laeufe voneinander) */
@@ -98,7 +98,7 @@ public final class RiverNetwork {
     private final ConcurrentHashMap<Long, River[]> cache = new ConcurrentHashMap<>();
     private static final River[] NONE = new River[0];
 
-    public RiverNetwork(AlphaWorldGeneratorV2 gen, int seed) {
+    public RiverNetwork(RiverTerrain gen, int seed) {
         this.gen = gen;
         this.seed = seed;
 
@@ -343,7 +343,7 @@ public final class RiverNetwork {
              * Tal den Seerand nicht anschneidet (sonst steht der hoehere Seespiegel
              * als Wasserwand am tiefer gecarvten Kanal). */
             int reach = (int) (halfs[n - 1] * VALLEY_FACTOR * SHOULDER_FACTOR);
-            AlphaWorldGeneratorV2.Lake lake = this.gen.lakeNear(Math.round(x), Math.round(z), reach + 64);
+            Lake lake = this.gen.lakeNear(Math.round(x), Math.round(z), reach + 64);
             if (lake != null) {
                 if (lake.level() > surf + 2F) {
                     end = END_POND;

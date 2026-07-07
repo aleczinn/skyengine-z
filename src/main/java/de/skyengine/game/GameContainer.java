@@ -105,6 +105,11 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     public void init() {
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
 
+        /* Spawn auf die echte Terrainoberkante setzen — erst NACH Blocks.bootstrap moeglich
+         * (Weltgen beruehrt Biomes/Blocks), das feste Y=90 aus dem Konstruktor steckte den
+         * Spieler bei hohem Spawn-Terrain (z.B. V3-Fjord-Hochland ~140) sonst in den Berg. */
+        this.player.setPosition(0, this.world.getGenerator().surfaceSolidHeight(0, 0) + 2, 0);
+
         this.fillStartInventory();
 
         this.world.init(); // creates ChunkManager, renderer, texture array
@@ -538,43 +543,13 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private void fillStartInventory() {
         /* Hotbar (Slots 0-8): Test-Blöcke + die drei Eimer hinten, damit Wasser/Lava direkt
            testbar sind. Wasser hat kein Block-Item mehr (gehört in den Eimer). */
-        int[] start = {
-                Blocks.GLASS,
-                Blocks.STONE_SLAB,
-                Blocks.SAND,
-                Blocks.COBBLESTONE_STAIRS,
-                Blocks.CACTUS,
+        int[] hotbar = {
+                Blocks.OAK_PLANKS,
+                Blocks.SAND
         };
-        for (int i = 0; i < start.length; i++) {
-            Item item = Items.get(Blocks.getState(start[i]).getBlock().getIdentifier());
+        for (int i = 0; i < hotbar.length; i++) {
+            Item item = Items.get(Blocks.getState(hotbar[i]).getBlock().getIdentifier());
             if (item != null) this.playerInventory.set(i, new ItemStack(item, 64));
-        }
-
-        this.setItem(0, "skyengine:tuff");
-        this.setItem(1, "skyengine:coarse_dirt");
-        this.setItem(2, "skyengine:red_mushroom");
-
-        this.setItem(6, "skyengine:water_bucket");
-        this.setItem(7, "skyengine:lava_bucket");
-        this.setItem(8, "skyengine:bucket");
-
-        /* Glasscheibe/Tür + Sand ins Hauptinventar (zum Testen, Truhe befüllen/leeren). */
-        this.setBlock(9, Blocks.GLASS_PANE);
-        this.setBlock(10, Blocks.OAK_DOOR);
-        this.setBlock(11, Blocks.SAND);
-
-        // TEMP: neue Blöcke zum visuellen Testen, wird nach der Verifikation wieder entfernt.
-        String[] testBlocks = {
-                "skyengine:tuff", "skyengine:tuff_bricks", "skyengine:polished_tuff",
-                "skyengine:chiseled_tuff", "skyengine:chiseled_tuff_bricks",
-                "skyengine:coarse_dirt", "skyengine:rooted_dirt", "skyengine:dirt_path", "skyengine:podzol",
-                "skyengine:mud", "skyengine:mud_bricks", "skyengine:packed_mud", "skyengine:muddy_mangrove_roots",
-                "skyengine:melon", "skyengine:pumpkin", "skyengine:carved_pumpkin",
-                "skyengine:brown_mushroom", "skyengine:red_mushroom",
-                "skyengine:brown_mushroom_block", "skyengine:red_mushroom_block", "skyengine:mushroom_stem"
-        };
-        for (int i = 0; i < testBlocks.length; i++) {
-            this.setItem(12 + i, testBlocks[i]);
         }
     }
 

@@ -4,9 +4,14 @@ import de.skyengine.core.file.Files;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.generator.WorldGenerator;
+import de.skyengine.game.world.generator.biome.BiomeWeights;
 import de.skyengine.game.world.generator.biome.Biomes;
 import de.skyengine.game.world.generator.climate.ClimateSampler;
+import de.skyengine.game.world.generator.climate.ClimateSamplerV3;
+import de.skyengine.game.world.generator.climate.ClimateV3;
 import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
+import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV3;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -51,39 +56,59 @@ public final class GeneratorMapExporter {
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
 
         int seed = 123; // gleicher Seed wie World
-        AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(seed);
+        AlphaWorldGeneratorV2 v2 = new AlphaWorldGeneratorV2(seed);
+        AlphaWorldGeneratorV3 v3 = new AlphaWorldGeneratorV3(seed);
         ClimateSampler climate = new ClimateSampler(seed);
+        ClimateSamplerV3 climateV3 = new ClimateSamplerV3(seed);
 
         long start = System.currentTimeMillis();
-        writeMap("height", (wx, wz) -> heightColor(generator.sampleHeight(wx, wz)));
 
-        /* Klimakarten MIT Dither (sample), damit auch das Grenzrauschen sichtbar ist */
-        writeMap("temperature", (wx, wz) -> valueColor(climate.sample(wx, wz).temperature()));
-        writeMap("humidity", (wx, wz) -> valueColor(climate.sample(wx, wz).humidity()));
-        writeMap("continentalness", (wx, wz) -> valueColor(climate.sample(wx, wz).continentalness()));
-        writeMap("erosion", (wx, wz) -> valueColor(climate.sample(wx, wz).erosion()));
+        /* Klimakarten: reine Felder (smooth) — Felder sind fuer V2 und V3 identisch,
+         * nur variant gibt es ausschliesslich in V3 */
+        writeMap("temperature", (wx, wz) -> valueColor(climate.sampleSmooth(wx, wz).temperature()));
+        writeMap("humidity", (wx, wz) -> valueColor(climate.sampleSmooth(wx, wz).humidity()));
+        writeMap("continentalness", (wx, wz) -> valueColor(climate.sampleSmooth(wx, wz).continentalness()));
+        writeMap("erosion", (wx, wz) -> valueColor(climate.sampleSmooth(wx, wz).erosion()));
+        writeMap("variant", (wx, wz) -> valueColor(climateV3.sampleSmooth(wx, wz).variant()));
 
-        /* Biomkarte MIT Dither -> gezackte statt gerade Grenzen sichtbar */
-        writeMap("biomes", (wx, wz) -> Biomes.lookup(climate.sample(wx, wz)).debugColor);
-
-        /* Oberflaechenmaterial (unter Wasser: Boden blaeulich abgedunkelt — auch Seen!) */
         Map<Integer, Integer> materialColors = materialColors();
-        writeMap("surface", (wx, wz) -> {
-            int color = materialColors.getOrDefault(generator.debugSurfaceTop(wx, wz), 0xFF00FF);
-            int height = generator.sampleHeight(wx, wz);
-            return (height < generator.waterLevelAt(wx, wz)) ? mixBlue(color) : color;
-        });
 
-        /* Wasserflaechen-Karte: Meer/See blau (Seespiegel hellblau), Land nach Hoehe grau */
-        writeMap("water", (wx, wz) -> {
-            int height = generator.sampleHeight(wx, wz);
-            int waterLevel = generator.waterLevelAt(wx, wz);
+        /* --- V2: bit-stabile Referenz (Vergleichsanker fuer die V3-Portierung) --- */
+        writeMap("v2_height", (wx, wz) -> heightColor(v2.sampleHeight(wx, wz)));
+        writeMap("v2_biomes", (wx, wz) -> Biomes.lookup(climate.sample(wx, wz)).debugColor);
+        writeMap("v2_surface", (wx, wz) -> {
+            int color = materialColors.getOrDefault(v2.debugSurfaceTop(wx, wz), 0xFF00FF);
+            return (v2.sampleHeight(wx, wz) < v2.waterLevelAt(wx, wz)) ? mixBlue(color) : color;
+        });
+        writeMap("v2_water", (wx, wz) -> {
+            int height = v2.sampleHeight(wx, wz);
+            int waterLevel = v2.waterLevelAt(wx, wz);
             if (height >= waterLevel) return heightColor(height);
             return (waterLevel > SEA_LEVEL) ? 0x55CCEE : 0x2244CC;
         });
+        writeCrossSection(v2, materialColors, centerX - 512, centerZ, "v2_section");
 
-        /* Vertikaler Querschnitt durch ECHTE generate()-Chunks (Hoehlen/Ueberhaenge sichtbar) */
-        writeCrossSection(generator, materialColors, centerX - 512, centerZ, "section");
+        /* --- V3: Biome-Parameter-Blending --- */
+        writeMap("v3_height", (wx, wz) -> heightColor(v3.sampleHeight(wx, wz)));
+        writeMap("v3_biomes", (wx, wz) -> v3.biomeAt(wx, wz).debugColor);
+        /* Blend-Zonen der TERRAIN-Gewichte (smooth, ohne Warp — so blendet auch columnFor):
+         * Biomfarbe x Dominanz des staerksten Profils (dunkel = starke Mischung) */
+        writeMap("v3_blend", (wx, wz) -> {
+            ClimateV3 c = climateV3.sampleSmooth(wx, wz);
+            return scale(BiomeWeights.pick(c).debugColor, 0.35F + 0.65F * BiomeWeights.dominance(c));
+        });
+        writeMap("v3_surface", (wx, wz) -> {
+            int color = materialColors.getOrDefault(v3.debugSurfaceTop(wx, wz), 0xFF00FF);
+            return (v3.sampleHeight(wx, wz) < v3.waterLevelAt(wx, wz)) ? mixBlue(color) : color;
+        });
+        writeMap("v3_water", (wx, wz) -> {
+            int height = v3.sampleHeight(wx, wz);
+            int waterLevel = v3.waterLevelAt(wx, wz);
+            if (height >= waterLevel) return heightColor(height);
+            return (waterLevel > SEA_LEVEL) ? 0x55CCEE : 0x2244CC;
+        });
+        writeCrossSection(v3, materialColors, centerX - 512, centerZ, "v3_section");
+
         System.out.println("Fertig in " + (System.currentTimeMillis() - start) + " ms -> " + OUTPUT_DIR.getAbsolutePath());
     }
 
@@ -110,7 +135,7 @@ public final class GeneratorMapExporter {
      * Schneidet 32 echte generate()-Chunks entlang X bei festem Z auf (x-y-Bild, y 0..319):
      * Luft = schwarz (Hoehlen!), Wasser = blau, Materialien wie in der Materialkarte.
      */
-    public static void writeCrossSection(AlphaWorldGeneratorV2 generator, Map<Integer, Integer> colors,
+    public static void writeCrossSection(WorldGenerator generator, Map<Integer, Integer> colors,
                                          int startX, int wz, String name) throws IOException {
         int chunkCount = 32;
         int imageHeight = 320;
@@ -156,7 +181,24 @@ public final class GeneratorMapExporter {
         colors.put(Blocks.GRANITE, 0xB06050);
         colors.put(Blocks.DIORITE, 0xE8E8E8);
         colors.put(Blocks.ANDESITE, 0x4A6A4A);
+        /* Canyon-Strata (V3): Terracotta-Baender + Mesa-Deckflaeche */
+        colors.put(Blocks.RED_SANDSTONE, 0xA6541F);
+        colors.put(Blocks.TERRACOTTA, 0x985E43);
+        colors.put(Blocks.ORANGE_TERRACOTTA, 0xA05325);
+        colors.put(Blocks.RED_TERRACOTTA, 0x8F3D2E);
+        colors.put(Blocks.YELLOW_TERRACOTTA, 0xBA8523);
+        colors.put(Blocks.WHITE_TERRACOTTA, 0xD1B2A1);
+        colors.put(Blocks.LIGHT_GRAY_TERRACOTTA, 0xB7A18F);
+        colors.put(Blocks.BROWN_TERRACOTTA, 0x4D3323);
         return colors;
+    }
+
+    /** Skaliert die RGB-Kanaele einer Farbe mit f (0..1) — fuer die Blend-Dominanz-Karte. */
+    private static int scale(int color, float f) {
+        int r = (int) (((color >> 16) & 0xFF) * f);
+        int g = (int) (((color >> 8) & 0xFF) * f);
+        int b = (int) ((color & 0xFF) * f);
+        return (r << 16) | (g << 8) | b;
     }
 
     /** Mischt die Farbe zu 45% mit Blau (Unterwasser-Kennzeichnung). */

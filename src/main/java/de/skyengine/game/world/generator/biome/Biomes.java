@@ -65,8 +65,20 @@ public final class Biomes {
             0.08F, new TreeEntry[]{new TreeEntry(2, TreeShapes.SPRUCE), new TreeEntry(1, TreeShapes.OAK)},
             0.20F, new PlantEntry[]{new PlantEntry(1, Blocks.SHORT_GRASS)});
 
+    /* --- Nur V3 (BiomeWeights): der V2-Lookup unten kennt diese Biome bewusst NICHT --- */
+    public static final Biome FJORD_HIGHLANDS = new Biome(9, "fjord_highlands",
+            Blocks.GRASS_BLOCK, Blocks.DIRT, 0x80B497, 0x5FA470, 0x2E6E8E,
+            0.30F, new TreeEntry[]{new TreeEntry(1, TreeShapes.SPRUCE)},
+            0.22F, new PlantEntry[]{new PlantEntry(55, Blocks.FERN), new PlantEntry(45, Blocks.SHORT_GRASS)});
+    /* Canyon: keine Baeume (nur Kakteen + tote Buesche, s. placePlants in V3);
+     * surfaceBlock ist der Mesa-Fels, der Sandboden dazwischen kommt aus surfaceTop */
+    public static final Biome CANYON = new Biome(10, "canyon",
+            Blocks.RED_SANDSTONE, Blocks.ORANGE_TERRACOTTA, 0xBFB755, 0xAEA42A, 0xC46A2B,
+            0F, Biome.NO_TREES,
+            0.012F, new PlantEntry[]{new PlantEntry(1, Blocks.DEAD_BUSH)});
+
     public static final Biome[] ALL = {OCEAN, BEACH, CARIBBEAN_BEACH, PLAINS, DESERT,
-            JUNGLE, SPRUCE_FOREST, REDWOOD_FOREST, EXTREME_HILLS};
+            JUNGLE, SPRUCE_FOREST, REDWOOD_FOREST, EXTREME_HILLS, FJORD_HIGHLANDS, CANYON};
 
     /*
      * Inland-Zuordnung [Temperatur-Bucket][Feuchtigkeits-Bucket]:

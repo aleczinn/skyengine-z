@@ -8,20 +8,25 @@ import de.skyengine.utils.math.FastNoiseLite;
  * tausend Bloecke). Threadsicher, da alle FastNoiseLite-Instanzen nur im Konstruktor
  * konfiguriert und danach ausschliesslich gelesen werden (Muster wie MountainWorldGeneratorV1).
  *
- * <p>Seed-Offsets werden zentral in {@link WorldgenSeeds} vergeben (dieser Sampler: 0..8) —
- * neue Noises dort eintragen, damit keine Layer korrelieren.
+ * <p>Seed-Offsets werden zentral in {@link WorldgenSeeds} vergeben (dieser Sampler: 0..8
+ * plus WARP_X/WARP_Z fuer den Klassifikations-Warp) — neue Noises dort eintragen, damit
+ * keine Layer korrelieren.
  */
 public final class ClimateSampler {
 
-    /* Staerke des Grenz-Dithers: verwackelt Biomgrenzen in einem ~10-20-Block-Streifen
-     * (verallgemeinertes LINE_DITHER-Prinzip aus MountainWorldGeneratorV1) */
-    private static final float DITHER_STRENGTH = 0.05F;
+    /* Domain-Warp der Klassifikations-Koordinaten: Amplitude in Bloecken und Frequenz der
+     * Verschiebefelder. Ersetzt das fruehere additive Grenz-Dither — das verrauschte die
+     * Felder PRO BLOCK (bei |Gradient| ~0.001/Block effektiv ±50 Bloecke Streuung -> Speckle),
+     * der Warp verschiebt die GrenzLINIE dagegen kohaerent (zusammenhaengend wellig). */
+    private static final float WARP_AMP = 24F;
+    private static final float WARP_FREQ = 0.006F;
 
     private final FastNoiseLite temperatureNoise;
     private final FastNoiseLite humidityNoise;
     private final FastNoiseLite continentalnessNoise;
     private final FastNoiseLite erosionNoise;
-    private final FastNoiseLite ditherNoise;
+    private final FastNoiseLite warpXNoise;
+    private final FastNoiseLite warpZNoise;
     /* Fraktales Kuestendetail: verschiebt die Kuestenlinie kleinraeumig um ±30-60 Bloecke —
      * bei den grossraeumigen Kontinent-Frequenzen waere die Kueste sonst eine glatte Kurve */
     private final FastNoiseLite coastDetailNoise;
@@ -34,8 +39,9 @@ public final class ClimateSampler {
         this.continentalnessNoise = fbm(seed + WorldgenSeeds.CONTINENTALNESS, 3, 0.00015F);
         this.erosionNoise = fbm(seed + WorldgenSeeds.EROSION, 3, 0.0005F);
 
-        /* Hochfrequentes Dither fuer wackelige statt gerade Grenzlinien */
-        this.ditherNoise = fbm(seed + WorldgenSeeds.DITHER, 1, 0.05F);
+        /* Zwei unabhaengige Verschiebefelder fuer den Domain-Warp der Klassifikation */
+        this.warpXNoise = fbm(seed + WorldgenSeeds.WARP_X, 2, WARP_FREQ);
+        this.warpZNoise = fbm(seed + WorldgenSeeds.WARP_Z, 2, WARP_FREQ);
 
         this.coastDetailNoise = fbm(seed + WorldgenSeeds.COAST_DETAIL, 3, 0.004F);
     }
@@ -50,30 +56,19 @@ public final class ClimateSampler {
     }
 
     /**
-     * Klima MIT Grenz-Dither — fuer Biome-Lookup und Oberflaechenmaterial. An Schwellwerten
-     * flackert das Ergebnis dadurch in einem schmalen Streifen zwischen beiden Seiten:
-     * probabilistische Materialmischung an Biomgrenzen ohne zusaetzlichen Blending-Code.
+     * Klima am DOMAIN-GEWARPTEN Punkt — fuer die Biom-KLASSIFIKATION (Lookup, Material,
+     * Vegetation, Tints): die Sample-Koordinaten werden kohaerent um bis zu ±{@link #WARP_AMP}
+     * Bloecke verschoben, Biomgrenzen werden dadurch zusammenhaengende wellige Linien.
+     * Ist eine volle zweite Feld-Auswertung (andere Position!) — das Hoehenmodell nutzt
+     * weiterhin {@link #sampleSmooth} an den echten Koordinaten.
      */
     public Climate sample(int x, int z) {
-        return this.sample(x, z, this.sampleSmooth(x, z));
+        int wx = x + (int) (this.warpXNoise.GetNoise(x, z) * WARP_AMP);
+        int wz = z + (int) (this.warpZNoise.GetNoise(x, z) * WARP_AMP);
+        return this.sampleSmooth(wx, wz);
     }
 
-    /**
-     * Wie {@link #sample(int, int)}, nutzt aber ein bereits vorhandenes Smooth-Sample
-     * DERSELBEN Position — spart die zweite volle 4-Feld-Auswertung (Hot-Path: der Generator
-     * sampelt pro Spalte smooth fürs Höhenmodell UND gedithert fürs Biom). Das Ergebnis ist
-     * bit-identisch zu {@link #sample(int, int)}.
-     */
-    public Climate sample(int x, int z, Climate smooth) {
-        float dither = this.ditherNoise.GetNoise(x, z) * DITHER_STRENGTH;
-        return new Climate(
-                smooth.temperature() + dither,
-                smooth.humidity() + dither,
-                smooth.continentalness() + dither,
-                smooth.erosion() + dither);
-    }
-
-    /** Klima OHNE Dither — fuer Hoehenmodell und Tint-Grid (glatte Verlaeufe, kein Rauschen). */
+    /** Klima OHNE Warp — fuer Hoehenmodell (glatte Verlaeufe, exakte Position). */
     public Climate sampleSmooth(int x, int z) {
         return new Climate(
                 this.temperatureNoise.GetNoise(x, z),

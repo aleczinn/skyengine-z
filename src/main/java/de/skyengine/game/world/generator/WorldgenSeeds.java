@@ -15,6 +15,7 @@ public final class WorldgenSeeds {
     public static final int HUMIDITY = 1;
     public static final int CONTINENTALNESS = 2;
     public static final int EROSION = 3;
+    /** Frei seit Domain-Warp (das additive Grenz-Dither wurde ersetzt) — reserviert lassen. */
     public static final int DITHER = 4;
     public static final int COAST_DETAIL = 7;
 
@@ -41,6 +42,14 @@ public final class WorldgenSeeds {
     /* --- RiverNetwork (24..25) --- */
     public static final int RIVER_MEANDER = 24;
     public static final int RIVER_WIDTH = 25;
+
+    /* --- ClimateSamplerV3 / AlphaWorldGeneratorV3 (26..) --- */
+    /** 5. Klimafeld „Variante": trennt Biome mit gleichem Klima (Wueste vs. Canyon, Wald vs. Birke). */
+    public static final int VARIANT = 26;
+    /* Domain-Warp der Biom-Klassifikation (BEIDE Sampler): verschiebt Grenzlinien kohaerent
+     * statt sie pro Block zu verrauschen (ersetzt das additive DITHER). */
+    public static final int WARP_X = 27;
+    public static final int WARP_Z = 28;
 
     private WorldgenSeeds() {}
 }
