@@ -291,11 +291,14 @@ public class ChunkManager {
         for (Chunk chunk : this.chunks.values()) {
             if (chunk.status != ChunkStatus.READY || !chunk.hasDirtySections()) continue;
 
-            Chunk north = this.getAtLeast(chunk.chunkX, chunk.chunkZ - 1, ChunkStatus.GENERATED);
-            Chunk south = this.getAtLeast(chunk.chunkX, chunk.chunkZ + 1, ChunkStatus.GENERATED);
-            Chunk west = this.getAtLeast(chunk.chunkX - 1, chunk.chunkZ, ChunkStatus.GENERATED);
-            Chunk east = this.getAtLeast(chunk.chunkX + 1, chunk.chunkZ, ChunkStatus.GENERATED);
-            Chunk[] diagonals = this.getDiagonalsAtLeast(chunk.chunkX, chunk.chunkZ, ChunkStatus.GENERATED);
+            /* Mindestens DECORATED: der Dekorator schreibt lock-frei (FeaturePlacer) — ein
+               Remesh-Job dürfte einen DECORATING-Nachbarn nicht lesen (Read-Lock schützt nur
+               gegen setBlockRaw). Ab DECORATED wird nur noch mit Write-Lock geschrieben. */
+            Chunk north = this.getAtLeast(chunk.chunkX, chunk.chunkZ - 1, ChunkStatus.DECORATED);
+            Chunk south = this.getAtLeast(chunk.chunkX, chunk.chunkZ + 1, ChunkStatus.DECORATED);
+            Chunk west = this.getAtLeast(chunk.chunkX - 1, chunk.chunkZ, ChunkStatus.DECORATED);
+            Chunk east = this.getAtLeast(chunk.chunkX + 1, chunk.chunkZ, ChunkStatus.DECORATED);
+            Chunk[] diagonals = this.getDiagonalsAtLeast(chunk.chunkX, chunk.chunkZ, ChunkStatus.DECORATED);
             /* Nachbarn fehlen (Weltrand): Maske NICHT konsumieren, bleibt für später erhalten */
             if (north == null || south == null || west == null || east == null || diagonals == null) continue;
 

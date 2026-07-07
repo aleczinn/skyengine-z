@@ -26,10 +26,11 @@ berühren (nicht aus Generator-Konstruktoren!).
 
 ## Seed-Offset-Buchführung (bei jedem neuen Noise prüfen!)
 
-ClimateSampler: seed+0..+8. Generator-Noises: seed+10..+23 (Zuordnung siehe Konstruktor).
-RiverNetwork: seed+24 (Mäander), seed+25 (Breite). Neue Noises bekommen den nächsten freien
-Offset — Doppelbelegung korreliert Felder sichtbar (Ausnahme bewusst: detailBase2/mountain teilen
-seed+11 bei anderer Frequenz/Nutzung).
+Alle Seed-Offsets werden zentral in `generator/WorldgenSeeds` vergeben (ClimateSampler 0..8,
+Generator-Noises 10..23, RiverNetwork 24/25). Neue Noises bekommen dort den nächsten freien
+Eintrag — Doppelbelegung korreliert Felder sichtbar. Bewusste Ausnahmen sind als Konstanten
+kodiert (`DETAIL_BASE = DETAIL`, `DETAIL_BASE_2 = MOUNTAIN`). **Werte nie umnummerieren** —
+sie definieren die generierte Welt eines Seeds.
 
 ## Spaltenberechnung (`columnFor`) — Reihenfolge und withWater-Flag
 

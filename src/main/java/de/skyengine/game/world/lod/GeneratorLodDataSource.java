@@ -4,8 +4,11 @@ import de.skyengine.game.world.generator.WorldGenerator;
 
 /**
  * {@link LodDataSource} über die pure Generator-Funktion: ein Punkt-Sample am
- * Zellmittelpunkt repräsentiert die Zelle. Eine spätere Chunk-/Speicher-Quelle kann
- * stattdessen über die volle size×size-Fläche aggregieren.
+ * Zellmittelpunkt repräsentiert die Zelle.
+ *
+ * <p><b>Aktuell nicht verdrahtet</b> — die Engine nutzt {@link WorldLodDataSource}
+ * (nah: echte Chunkdaten, fern: Generator). Bewusst behalten als rein generatorbasierte
+ * Quelle für GL-freie Werkzeuge/Debug; NICHT versehentlich in World.init einsetzen.
  */
 public final class GeneratorLodDataSource implements LodDataSource {
 

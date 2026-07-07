@@ -9,8 +9,15 @@ description: Wie man Änderungen an dieser Engine ehrlich verifiziert — was oh
 
 1. **`./gradlew compileJava`** — schneller Pflicht-Check. Beweist NUR Kompilierbarkeit.
 2. **`GeneratorMapExporter`** (`generator/debug/`, eigene `main`, **kein GL/Engine-Start**):
-   Falschfarben-PNGs (Klima, Biome, Höhen, Oberfläche) nach `debug-maps/`; Args
-   `<step> <centerX> <centerZ>`. Der richtige Weg für Weltgen-Änderungen — Sekunden statt Flug.
+   Falschfarben-PNGs (Klima, Biome, Höhen, Oberfläche, `section` = echte generate()-Chunks)
+   nach `debug-maps/`; Args `<step> <centerX> <centerZ>`. Der richtige Weg für
+   Weltgen-Änderungen — Sekunden statt Flug. **Bit-Identitäts-Beweis:** Karten vor/nach der
+   Änderung per Hash vergleichen. Aufruf (PATH-Java ist zu alt, Projekt braucht JDK 25;
+   Pfade ggf. prüfen):
+   ```powershell
+   & "$env:USERPROFILE\.jdks\ms-25.0.3\bin\java.exe" -cp "build\classes\java\main;<gson-jar aus ~\.gradle\caches>" `
+     de.skyengine.game.world.generator.debug.GeneratorMapExporter 4 0 0
+   ```
 3. **`./gradlew run`** — alles Sichtbare (Meshing, Rendering, Fluids, LOD, GUI, Tints) ist NUR so
    prüfbar. Konsole zeigt FPS/TPS jede Sekunde; der Fenstertitel (im Debug-Modus) Sections
    sichtbar/total, Chunk-Zahl, Spielerposition.

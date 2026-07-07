@@ -8,8 +8,6 @@ import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.state.BlockState;
 
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 
 public class ChunkMesher {
 
@@ -93,8 +91,10 @@ public class ChunkMesher {
     private final int[] cellPos = new int[3];
     private final float[] vertPos = new float[3];
 
-    /* Greedy-Eignung + Face-Quads je BlockState-ID (lazy; Mesher ist ThreadLocal) */
-    private final Map<Integer, GreedyFaces> greedyCache = new HashMap<>();
+    /* Greedy-Eignung + Face-Quads je BlockState-ID (lazy; Mesher ist ThreadLocal).
+       Array statt HashMap: der Lookup läuft ~200k-mal pro Section (Pass 1 + Pass 2) —
+       das Autoboxing der State-IDs würde pro Lookup allozieren. */
+    private GreedyFaces[] greedyCache = new GreedyFaces[0];
 
     /**
      * Vorberechnete Daten eines greedy-fähigen States: die 6 Full-Cube-Face-Quads und je Face
@@ -189,7 +189,7 @@ public class ChunkMesher {
                             int ny = worldY + FACE_OFFSET[cullFace][1];
                             int nz = z + FACE_OFFSET[cullFace][2];
 
-                            int neighborId = getBlock(chunk, north, south, west, east, nx, ny, nz);
+                            int neighborId = this.sample(nx, ny, nz);
                             if (!shouldRenderFace(state, neighborId)) continue;
                         }
                         this.emitQuad(buffer, quad, x, y, worldY, z, offsetX, offsetZ);
@@ -202,7 +202,7 @@ public class ChunkMesher {
                         int nx = x + FACE_OFFSET[cullFace][0];
                         int ny = worldY + FACE_OFFSET[cullFace][1];
                         int nz = z + FACE_OFFSET[cullFace][2];
-                        int neighborId = getBlock(chunk, north, south, west, east, nx, ny, nz);
+                        int neighborId = this.sample(nx, ny, nz);
                         if (!shouldRenderFace(state, neighborId)) continue;
                         this.emitQuad(this.buffers[RenderLayer.CUTOUT.ordinal()], quad, x, y, worldY, z, offsetX, offsetZ);
                     }
@@ -389,12 +389,18 @@ public class ChunkMesher {
         return a + (b - a) * t;
     }
 
-    /** Greedy-Eignung eines States (lazy gecacht). */
+    /** Greedy-Eignung eines States (lazy gecacht; Index = State-ID). */
     private GreedyFaces greedyFaces(int stateId) {
-        GreedyFaces gf = this.greedyCache.get(stateId);
+        GreedyFaces[] cache = this.greedyCache;
+        if (stateId >= cache.length) {
+            /* Größe steht nach dem Registry-Bake fest; wächst nur beim allerersten Zugriff */
+            cache = Arrays.copyOf(cache, BlockRegistry.getStateCount());
+            this.greedyCache = cache;
+        }
+        GreedyFaces gf = cache[stateId];
         if (gf == null) {
             gf = buildGreedyFaces(stateId);
-            this.greedyCache.put(stateId, gf);
+            cache[stateId] = gf;
         }
         return gf;
     }
@@ -582,22 +588,10 @@ public class ChunkMesher {
         return BlockRegistry.getState(this.sample(x, y, z)).isOpaqueCube();
     }
 
-    /** Block-Sample inkl. Diagonal-Chunks (x/z dürfen -1..32 sein); außerhalb geladener Chunks Luft. */
+    /** Block-Sample inkl. Diagonal-Chunks (x/z dürfen -1..32 sein) — geteilte Auflösung, s. {@link NeighborSampler}. */
     private int sample(int x, int y, int z) {
-        int size = ChunkSection.SIZE;
-        if (x < 0 || x >= size) {
-            if (z < 0 || z >= size) { // Diagonal-Ecke über zwei Chunk-Grenzen
-                Chunk c = this.diagonals[(z < 0 ? 0 : 2) + (x < 0 ? 0 : 1)];
-                return c != null ? c.getBlock(x < 0 ? size - 1 : 0, y, z < 0 ? size - 1 : 0) : 0;
-            }
-            Chunk c = x < 0 ? this.west : this.east;
-            return c != null ? c.getBlock(x < 0 ? size - 1 : 0, y, z) : 0;
-        }
-        if (z < 0 || z >= size) {
-            Chunk c = z < 0 ? this.north : this.south;
-            return c != null ? c.getBlock(x, y, z < 0 ? size - 1 : 0) : 0;
-        }
-        return this.chunk.getBlock(x, y, z);
+        return NeighborSampler.sample(this.chunk, this.north, this.south, this.west, this.east,
+                this.diagonals, x, y, z);
     }
 
     /** Liefert aus 4 Seed-Bits einen Versatz in [-MAX_OFFSET, +MAX_OFFSET]. */
@@ -613,15 +607,6 @@ public class ChunkMesher {
         long l = (long) (x * 3129871) ^ (long) z * 116129781L;
         l = l * l * 42317861L + l * 11L;
         return l >> 16;
-    }
-
-    /** Resolve a block including across chunk borders. x/z are section-local and may be -1 or 32. */
-    private static int getBlock(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, int x, int y, int z) {
-        if (x < 0)  return west  != null ? west.getBlock(ChunkSection.SIZE - 1, y, z) : 0;
-        if (x >= ChunkSection.SIZE) return east != null ? east.getBlock(0, y, z) : 0;
-        if (z < 0)  return north != null ? north.getBlock(x, y, ChunkSection.SIZE - 1) : 0;
-        if (z >= ChunkSection.SIZE) return south != null ? south.getBlock(x, y, 0) : 0;
-        return chunk.getBlock(x, y, z);
     }
 
     /* ------------------------------------------------------------------ */
