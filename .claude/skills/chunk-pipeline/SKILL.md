@@ -52,6 +52,12 @@ die **LOD-Maske**, sonst reißt das LOD Löcher auf, bevor der echte Mesh da ist
 
 ## Edits & Remeshing
 
+**Lese-Grenze DECORATED:** `World.getBlock` und die Kollisionsabfragen behandeln Chunks unter
+DECORATED wie ungeladen (AIR bzw. FULL_CUBE), und `processRemeshes` verlangt Nachbarn ≥
+DECORATED — denn GENERATING/DECORATING-Chunks werden von Workern **lock-frei** beschrieben
+(Generator/FeaturePlacer), und `PalettedContainer`/`BitStorage` sind nicht threadsicher
+(torn reads). Diese Schwellen nie auf GENERATED absenken.
+
 `World.setBlockRaw` schreibt nur in READY-Chunks (verhindert Races mit laufenden Mesh-Jobs), nimmt den
 **Write-Lock** des Chunks; Mesh-Jobs nehmen Read-Locks auf alle 9 beteiligten Chunks
 (`ChunkManager.lockRead`). Dirty-Markierung: eigene Section, vertikal angrenzende Section bei y an

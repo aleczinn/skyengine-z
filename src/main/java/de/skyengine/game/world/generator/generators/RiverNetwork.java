@@ -1,5 +1,6 @@
 package de.skyengine.game.world.generator.generators;
 
+import de.skyengine.game.world.generator.WorldgenSeeds;
 import de.skyengine.game.world.generator.biome.Biomes;
 import de.skyengine.utils.math.FastNoiseLite;
 
@@ -21,7 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Ergebnis unabhaengig von Chunk-Reihenfolge und Threads. Die Seen duerfen dafuer NICHT
  * von Fluessen abhaengen (Ringhoehen auf flussfreiem Terrain), sonst Cache-Rekursion.
  *
- * <p>Nutzt seed+24 (Maeander) und seed+25 (Kanalbreite).
+ * <p>Seed-Offsets zentral in {@link de.skyengine.game.world.generator.WorldgenSeeds}
+ * (Maeander 24, Kanalbreite 25).
  */
 public final class RiverNetwork {
 
@@ -100,11 +102,11 @@ public final class RiverNetwork {
         this.gen = gen;
         this.seed = seed;
 
-        this.meanderNoise = new FastNoiseLite(seed + 24);
+        this.meanderNoise = new FastNoiseLite(seed + WorldgenSeeds.RIVER_MEANDER);
         this.meanderNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.meanderNoise.SetFrequency(0.004F);
 
-        this.widthNoise = new FastNoiseLite(seed + 25);
+        this.widthNoise = new FastNoiseLite(seed + WorldgenSeeds.RIVER_WIDTH);
         this.widthNoise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
         this.widthNoise.SetFrequency(0.002F);
     }

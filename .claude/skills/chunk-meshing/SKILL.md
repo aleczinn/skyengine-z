@@ -61,8 +61,9 @@ Renderers — niemals eigene Indizes pro Section erfinden.
 
 `shouldRenderFace`: Nachbar opaker Full-Cube → unsichtbar; Nachbar = derselbe Block und
 `cullsSameBlock()` (Glas an Glas) → unsichtbar. `sample(x,y,z)` erlaubt x/z in −1..32 und löst
-über die 4 Kardinal- + 4 **Diagonal**-Chunks auf (Diagonalen-Reihenfolge NW,NE,SW,SE — so liefert
-sie der ChunkManager, `FluidGeometry.sample` erwartet dieselbe). Außerhalb geladener Chunks: Luft.
+über die 4 Kardinal- + 4 **Diagonal**-Chunks auf — die Auflösung (inkl. Diagonalen-Reihenfolge
+NW,NE,SW,SE, wie der ChunkManager sie liefert) liegt zentral in `chunk/NeighborSampler` und wird
+von ChunkMesher UND FluidGeometry geteilt; Änderungen nur dort. Außerhalb geladener Chunks: Luft.
 
 Cross-Blöcke mit `hasRandomOffset()` bekommen einen deterministischen XZ-Versatz aus `posSeed`
 (entspricht Minecrafts `Mth.getSeed` mit y=0) — stabil über Chunk-Grenzen und Remeshes.

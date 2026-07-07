@@ -34,6 +34,9 @@ public final class FluidGeometry {
      */
     public static final float SOURCE_HEIGHT = 8F / 9F;
 
+    /** Geteiltes Leer-Ergebnis — vermeidet Allokationen für unsichtbare Fluid-Zellen. */
+    private static final BakedQuad[] NO_QUADS = new BakedQuad[0];
+
     private FluidGeometry() {}
 
     public static BakedQuad[] build(BlockState state,
@@ -41,13 +44,27 @@ public final class FluidGeometry {
                                     int x, int worldY, int z) {
         Block fluid = state.getBlock();
         FluidInfo info = fluid.getFluidInfo();
-        if (info == null) return new BakedQuad[0];
+        if (info == null) return NO_QUADS;
+
+        boolean fluidAbove = isSameFluid(sample(chunk, north, south, west, east, diagonals, x, worldY + 1, z), fluid);
+
+        /* Fast-Path: komplett von gleichem Fluid umschlossen -> garantiert 0 Quads (Top/Bottom/
+           Seiten werden alle gegen gleiches Fluid geculled). Spart in Ozean-/See-Innenzellen
+           die Eckhöhen-Berechnung und die Listen-Allokation pro Zelle — die Snapshot-
+           Optimierung des Meshers greift für Fluid-Nachbar-Samples nicht. */
+        if (fluidAbove
+                && isSameFluid(sample(chunk, north, south, west, east, diagonals, x, worldY - 1, z), fluid)
+                && isSameFluid(sample(chunk, north, south, west, east, diagonals, x - 1, worldY, z), fluid)
+                && isSameFluid(sample(chunk, north, south, west, east, diagonals, x + 1, worldY, z), fluid)
+                && isSameFluid(sample(chunk, north, south, west, east, diagonals, x, worldY, z - 1), fluid)
+                && isSameFluid(sample(chunk, north, south, west, east, diagonals, x, worldY, z + 1), fluid)) {
+            return NO_QUADS;
+        }
+
         int still = info.stillLayer;
         int flow = info.flowLayer;
         /* Wasser wird eingefärbt (Texturen sind grau); Lava ist bereits orange → neutral. */
         int tint = info.lava ? BakedQuad.WHITE : WATER_TINT;
-
-        boolean fluidAbove = isSameFluid(sample(chunk, north, south, west, east, diagonals, x, worldY + 1, z), fluid);
 
         float h00 = corner(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, state, 0, 0, fluidAbove);
         float h10 = corner(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, state, 1, 0, fluidAbove);
@@ -84,7 +101,7 @@ public final class FluidGeometry {
                 } else if (!BlockRegistry.getState(nid).isSolid()) {
                     int bid = sample(chunk, north, south, west, east, diagonals, x + dx, worldY - 1, z + dz);
                     if (isSameFluid(bid, fluid)) { // Abfall-Kante: zieht stark bergab
-                        diff = own - (ownHeight(BlockRegistry.getState(bid)) - 8f / 9f);
+                        diff = own - (ownHeight(BlockRegistry.getState(bid)) - SOURCE_HEIGHT);
                     }
                 }
                 velX += dx * diff;
@@ -243,26 +260,12 @@ public final class FluidGeometry {
     }
 
     /**
-     * Block an section-lokalen x/z (dürfen -1..SIZE sein) und Welt-Y, über die 4
-     * Kardinal- und 4 Diagonal-Nachbar-Chunks ({@code diagonals} in Reihenfolge NW, NE, SW, SE
-     * — so liefert sie der ChunkManager).
+     * Block an section-lokalen x/z (dürfen -1..SIZE sein) und Welt-Y — geteilte Auflösung
+     * mit dem ChunkMesher (Diagonal-Konvention!), siehe {@link NeighborSampler}.
      */
     private static int sample(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
                                 int x, int y, int z) {
-        int size = ChunkSection.SIZE;
-        if (x < 0 || x >= size) {
-            if (z < 0 || z >= size) { // Diagonal-Ecke über zwei Chunk-Grenzen
-                Chunk c = diagonals[(z < 0 ? 0 : 2) + (x < 0 ? 0 : 1)];
-                return c != null ? c.getBlock(x < 0 ? size - 1 : 0, y, z < 0 ? size - 1 : 0) : 0;
-            }
-            Chunk c = x < 0 ? west : east;
-            return c != null ? c.getBlock(x < 0 ? size - 1 : 0, y, z) : 0;
-        }
-        if (z < 0 || z >= size) {
-            Chunk c = z < 0 ? north : south;
-            return c != null ? c.getBlock(x, y, z < 0 ? size - 1 : 0) : 0;
-        }
-        return chunk.getBlock(x, y, z);
+        return NeighborSampler.sample(chunk, north, south, west, east, diagonals, x, y, z);
     }
 
     /** Baut ein Quad aus 4 Eckpunkten (A,B,C,D, CCW von außen) zu 6 Vertices (A,B,C,C,D,A). */
