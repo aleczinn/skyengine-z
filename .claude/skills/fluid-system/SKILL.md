@@ -54,7 +54,8 @@ Nicht-offensichtliche Invarianten:
 Fluid-Geometrie wird beim Meshen dynamisch gebaut (kein gebackenes Modell): Eckhöhen als
 gewichtetes Mittel der Spalten (Quelle/fallend ≥ 0.8 zählt 10×, Luft zieht auf 0, solide zählen
 nicht; Diagonale nur, wenn eine Kardinale Fluid ist). **Dafür braucht der Mesher die
-Diagonal-Chunks** — sonst klaffen die vier Zellen einer Chunk-Ecke auseinander. Top-Face bekommt
+Diagonal-Chunks** — sonst klaffen die vier Zellen einer Chunk-Ecke auseinander (Nachbar-Auflösung
+über den geteilten `chunk/NeighborSampler`, siehe chunk-meshing). Top-Face bekommt
 die Flow-Textur entlang der Fließrichtung rotiert (Vanilla `getFlow`-Formel — NICHT aus Eckhöhen
 ableiten, die kippen neben Wänden ins Diagonale). Dieselbe Formel existiert bewusst dupliziert
 Welt-basiert in `FluidBehavior.flowVector` (Entity-Strömung, `Entity`-Push) — beide synchron halten.

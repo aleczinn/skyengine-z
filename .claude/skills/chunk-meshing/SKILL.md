@@ -16,7 +16,9 @@ Puffer werden wiederverwendet; der Chunk-Kontext wird am Ende genullt (kein Leak
   **uneinheitlichem AO** (Kanten/Ecken) werden einzeln mit per-Vertex-AO emittiert — Greedy merged
   nur uniform helle Flächen. Texturen kacheln über UV > 1 (GL_REPEAT im TextureArray).
 - **Pass 2 (klassisch):** alles andere — Fluids (dynamische `FluidGeometry`), Cross, Slabs, Stairs,
-  Cubes mit nicht-greedy-fähigen Modellen, plus Seiten-Overlays.
+  Cubes mit nicht-greedy-fähigen Modellen, plus Seiten-Overlays nicht-greedy-fähiger Blöcke
+  (Sicherheitsnetz — der Grasblock-Normalfall läuft in Pass 1 als Einzel-Emission,
+  siehe vegetation-tint).
 
 ## Greedy-Fähigkeit ist streng (buildGreedyFaces)
 
@@ -54,8 +56,9 @@ int3: r | g<<8 | b<<16    (Farbe = Helligkeit × AO × Tint)
 ```
 Konsequenzen: Positionen tragen nur ~−1..+254 Blöcke (deshalb packt das LOD relativ zu `yBase`);
 UVs tragen max. ~63 (deshalb Merge-Deckel im LOD; Section-Greedy bleibt ≤ 32 durch die
-Section-Größe). Ein Quad = 4 Vertices, Triangulierung über den **geteilten Index-Buffer** des
-Renderers — niemals eigene Indizes pro Section erfinden.
+Section-Größe). Ein Quad = 4 Vertices (BakedQuad liefert 6 Modell-Vertices A,B,C,C,D,A —
+der Mesher emittiert daraus die 4 eindeutigen Ecken via `UNIQUE_VERTS`), Triangulierung über den
+**geteilten Index-Buffer** des Renderers — niemals eigene Indizes pro Section erfinden.
 
 ## Cull- und Sampling-Regeln
 
