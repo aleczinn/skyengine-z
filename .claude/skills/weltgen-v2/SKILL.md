@@ -1,9 +1,19 @@
 ---
 name: weltgen-v2
-description: AlphaWorldGeneratorV2 — klimabasierte Höhe/Biome aus denselben Feldern, Seed-Offset-Vergabe, Worley-Seen (Cache-Rekursions-Falle!), RiverNetwork (Quelle→Mündung, monotones Profil), 3D-Dichte/Höhlen, Feature-Pass mit Scheiben-Modell. Lesen vor JEDER Änderung an Weltgenerierung, Biomen, Seen, Flüssen oder Features.
+description: AlphaWorldGeneratorV2 — bit-stabiler Regressionsanker (Default ist V3!), klimabasierte Höhe/Biome, Domain-Warp-Klassifikation, Seed-Offset-Vergabe, Worley-Seen (Cache-Rekursions-Falle!), geteiltes RiverNetwork via RiverTerrain, 3D-Dichte/Höhlen, Feature-Pass mit Scheiben-Modell. Lesen vor JEDER Änderung an Weltgenerierung, Biomen, Seen, Flüssen oder Features.
 ---
 
 # Weltgenerierung V2
+
+## Rolle: bit-stabiler Regressionsanker (nicht mehr der Default)
+
+Der aktive Default-Generator in `World` ist `AlphaWorldGeneratorV3` (Biome-Parameter-Blending,
+Skill `weltgen-v3`). V2 bleibt absichtlich bestehen und darf sich **nicht bit-verändern**:
+seine Höhenkarte ist der Regressionsbeweis dafür, dass geteilte Umbauten (Sampler, RiverNetwork)
+das Terrain nicht anfassen. Jede Änderung, die V2 berührt, braucht den Hash-Beweis
+(`GeneratorMapExporter` → `v2_height.png` vorher/nachher mit identischen Args hashen).
+Die einzige nachträgliche, bewusste Ausnahme war der Domain-Warp der Klassifikation (s.u.) —
+Höhen blieben dabei hash-identisch, nur Biom-/Material-/Tint-Grenzen änderten sich.
 
 ## Kernprinzip: alles sind pure Funktionen von (Seed, Position)
 
@@ -15,22 +25,37 @@ Seiteneffekt einbaut, erzeugt Nähte, die erst Kilometer weiter auffallen.
 
 ## Klima → Höhe UND Biome (deshalb keine Blend-Logik nötig)
 
-`ClimateSampler` (seed+0..+8 reserviert): 4 niederfrequente Felder (Temperatur, Feuchte,
-Kontinentalität inkl. Küstendetail, Erosion). Zwei Sample-Pfade: `sample()` MIT Grenz-Dither
-(Biome-Lookup, Materialien — probabilistische Mischung an Grenzen) und `sampleSmooth()` OHNE
-(Höhenmodell, Tint-Grids). `Biomes.lookup` ist reiner Schwellwert-Lookup über die stetigen Felder
-→ Übergänge sind automatisch glatt; `Biomes.mountainWeight` skaliert ZUGLEICH den Berg-Aufschlag
-im Höhenmodell → Extreme-Hills-Biom und Berg-Terrain sind per Konstruktion deckungsgleich.
+`ClimateSampler` (Seed-Offsets 0..8 + WARP_X/Z): 4 niederfrequente Felder (Temperatur, Feuchte,
+Kontinentalität inkl. Küstendetail, Erosion). Zwei Sample-Pfade:
+
+- **`sample()` = Klassifikations-Pfad mit Domain-Warp:** die Sample-Koordinaten werden über
+  zwei Verschiebefelder (WARP_X/Z = Seed-Offset 27/28, FBm 2 Oktaven, Freq 0.006) kohärent um
+  bis zu ±24 Blöcke verschoben, dann `sampleSmooth` am gewarpten Punkt. Nutzer: `biomeAt`,
+  Material-Biom (`surfaceTop`-Aufrufer in generate/sampleSurface/debugSurfaceTop), Tint-Grids,
+  LOD-Tints. Biomgrenzen werden dadurch zusammenhängende wellige Linien.
+- **`sampleSmooth()` = glatter Pfad ohne Warp:** Höhenmodell, Seespiegel, Fluss-Hooks,
+  Klima-Debug-Karten — immer an den echten Koordinaten.
+
+Der Warp **ersetzt** das frühere additive Grenz-Dither: das verrauschte die Felder PRO BLOCK
+(bei |Gradient| ~0.001/Block effektiv ±50 Blöcke Streuung → Speckle an Biomgrenzen), der Warp
+verschiebt die Grenz-LINIE dagegen kohärent. Es gibt **kein** Dither und keinen
+`sample(x, z, smooth)`-Overload mehr; Seed-Offset `DITHER = 4` ist frei, bleibt aber reserviert.
+Kosten: der Warp-Pfad ist eine volle zweite Feld-Auswertung (andere Position!) pro Spalte.
+
+`Biomes.lookup` ist reiner Schwellwert-Lookup über die stetigen Felder → Übergänge sind
+automatisch glatt; `Biomes.mountainWeight` skaliert ZUGLEICH den Berg-Aufschlag im Höhenmodell
+→ Extreme-Hills-Biom und Berg-Terrain sind per Konstruktion deckungsgleich.
 **Init-Falle:** `Biomes` fängt `Blocks.*`-IDs beim Klassen-Init ein — nie vor `Blocks.bootstrap`
 berühren (nicht aus Generator-Konstruktoren!).
 
 ## Seed-Offset-Buchführung (bei jedem neuen Noise prüfen!)
 
 Alle Seed-Offsets werden zentral in `generator/WorldgenSeeds` vergeben (ClimateSampler 0..8,
-Generator-Noises 10..23, RiverNetwork 24/25). Neue Noises bekommen dort den nächsten freien
-Eintrag — Doppelbelegung korreliert Felder sichtbar. Bewusste Ausnahmen sind als Konstanten
-kodiert (`DETAIL_BASE = DETAIL`, `DETAIL_BASE_2 = MOUNTAIN`). **Werte nie umnummerieren** —
-sie definieren die generierte Welt eines Seeds.
+Generator-Noises 10..23, RiverNetwork 24/25, V3: VARIANT 26, Warp beider Sampler 27/28).
+Neue Noises bekommen dort den nächsten freien Eintrag — Doppelbelegung korreliert Felder
+sichtbar. Bewusste Ausnahmen sind als Konstanten kodiert (`DETAIL_BASE = DETAIL`,
+`DETAIL_BASE_2 = MOUNTAIN`); `DITHER = 4` ist seit dem Warp unbenutzt, bleibt reserviert.
+**Werte nie umnummerieren** — sie definieren die generierte Welt eines Seeds.
 
 ## Spaltenberechnung (`columnFor`) — Reihenfolge und withWater-Flag
 
@@ -52,7 +77,12 @@ min(Zentrum, 16 Ringpunkte) − 1; Ring-Spanne > 12 = Hanglage = kein See. Ufer-
 Distanz nur nach INNEN (Buchten) — nie über den Radius hinaus, sonst läuft Wasser jenseits der
 Ringpunkte aus.
 
-## RiverNetwork (Quelle→Mündung)
+## RiverNetwork (Quelle→Mündung) — geteilt via `RiverTerrain`
+
+`RiverNetwork` ist gegen das Interface `RiverTerrain` geschrieben (Hooks: `riverGuide`,
+`riverCarrier`, `continentalnessAt`, `insideLake`, `lakeNear`) — V2 UND V3 implementieren es,
+`Lake` ist dafür ein Top-Level-Record. Alle Hooks müssen pure Funktionen von (Seed, Position)
+sein; Änderungen am Netz treffen **beide** Generatoren (Hash-Beweis für V2 nicht vergessen!).
 
 4096er-Zellen (`CELL`); `SOURCE_TRIES = 6` Quell-Kandidaten pro Zelle, durch Gates +
 250-Block-Abstandsregel (`nearAny`) bleiben praktisch 0–2 Läufe übrig (keine harte Kappe im
@@ -86,9 +116,14 @@ Vorzustände. Die Feature-Listen-Reihenfolge in `World` geht in den Seed ein.
 ## Verifikation
 
 - **`GeneratorMapExporter` (eigene main, kein GL!)**: schreibt Falschfarben-PNGs nach
-  `debug-maps/` — Klima, Biome, Höhen in Sekunden prüfen, args `<step> <centerX> <centerZ>`.
+  `debug-maps/` — Klima-Felder plus pro Generator `v2_height/v2_biomes/v2_surface/v2_water/
+  v2_section` und die `v3_*`-Pendants (+ `v3_blend`), args `<step> <centerX> <centerZ>`.
   Das ist der schnellste Weg, Weltgen-Änderungen zu verifizieren.
+- **Bit-Stabilität:** `v2_height.png` mit identischen Args vorher/nachher hashen — muss bei
+  jeder Änderung identisch bleiben, die V2-Code oder geteilte Klassen (ClimateSampler,
+  RiverNetwork, Lake) berührt.
 - Determinismus-Check: F8 (Chunks neu laden) muss exakt dieselbe Welt ergeben; Nähte an
   Chunk-Grenzen = verletzte Purity.
-- Performance: Log „Generierung: X ms/Chunk" alle 256 Chunks (Richtwert ~2,5 ms/Chunk).
-- In-Game-Optik (Flussufer, Seeränder, Schneegrenze) nur visuell.
+- Performance: Log „Generierung: X ms/Chunk" alle 256 Chunks (Richtwert V2 ~2,5 ms/Chunk).
+- In-Game-Optik (Flussufer, Seeränder, Schneegrenze) nur visuell; der Fenstertitel zeigt das
+  Biom an der Spielerposition („Biom: …") als Debug-Hilfe.
