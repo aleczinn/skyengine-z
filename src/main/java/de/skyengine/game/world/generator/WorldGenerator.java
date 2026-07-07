@@ -28,6 +28,15 @@ public abstract class WorldGenerator {
     }
 
     /**
+     * Boden-Sample fürs LOD: wie {@link #sampleSurface}, aber ohne Wasser — liefert auch
+     * unter Wasser den festen Boden. Default: identisch zur Oberfläche (Generatoren ohne
+     * Wasser); Generatoren mit Wasserspiegel überschreiben das.
+     */
+    public long sampleGroundSurface(int x, int z) {
+        return this.sampleSurface(x, z);
+    }
+
+    /**
      * Biom an Weltposition — pures Sampling, threadsicher. Default: Ebene (Generatoren ohne
      * Biome, z.B. V1); Biome-Generatoren ueberschreiben das.
      */

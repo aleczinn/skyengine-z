@@ -17,7 +17,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class Chunk {
 
     public static final int HEIGHT = 512;
-    public static final int SECTIONS = HEIGHT / ChunkSection.SIZE; // 16
+    public static final int SECTIONS = HEIGHT / ChunkSection.SIZE;
 
     public final int chunkX, chunkZ;
     private final ChunkSection[] sections = new ChunkSection[SECTIONS];
