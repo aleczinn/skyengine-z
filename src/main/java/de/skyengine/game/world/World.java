@@ -570,37 +570,34 @@ public class World implements IInitializable, IDisposable {
         if (y < 0 || y >= Chunk.HEIGHT) return BlockShape.EMPTY;
 
         Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
-        /* Ungeladen = solide (Boden-Schutz beim Laden). Fliegend aber Luft — sonst klebt man
-           an einer unsichtbaren Wand am Rand (z.B. mit pausiertem Chunk-Loading). Betrifft
-           praktisch nur den Spieler: andere Entities leben nur in geladenen Chunks. */
-        if (chunk == null) {
+        /* Unfertig für Kollision = ungeladen ODER Status < DECORATED (dort schreiben Worker noch
+           lock-frei, s. getBlock -> nicht lesen). Solche Zellen zählen als solide (Boden-Schutz
+           beim Laden). Fliegend aber Luft — sonst klebt man an einer unsichtbaren Wand am Rand
+           (z.B. mit pausiertem Chunk-Loading, wo Frontier-Chunks unter DECORATED einfrieren).
+           Beide Zweige geben eine Konstante zurück, ohne den Chunk zu lesen. Betrifft praktisch
+           nur den Spieler: andere Entities leben nur in geladenen Chunks. */
+        if (chunk == null || !chunk.status.isAtLeast(ChunkStatus.DECORATED)) {
             return this.player != null && this.player.isFlying() ? BlockShape.EMPTY : BlockShape.FULL_CUBE;
         }
-
-        /* < DECORATED: Worker schreiben noch lock-frei (s. getBlock) -> wie ungeladen behandeln */
-        ChunkStatus status = chunk.status;
-        if (!status.isAtLeast(ChunkStatus.DECORATED)) return BlockShape.FULL_CUBE;
 
         int id = chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
         return Blocks.getState(id).getCollisionShape();
     }
 
     /**
-     * Kollisionsabfrage. Ungeladene/ungenerierte Chunks zählen als SOLIDE,
-     * damit der Spieler beim Laden der Welt nicht durch den Boden fällt.
-     * (Bewusste Design-Entscheidung: man "klebt" stattdessen an einer
-     * unsichtbaren Wand am Weltrand, bis der Chunk generiert ist.)
+     * Kollisionsabfrage. Ungeladene/ungenerierte Chunks (inkl. Status < DECORATED) zählen als
+     * SOLIDE, damit der Spieler beim Laden der Welt nicht durch den Boden fällt — außer er
+     * fliegt, dann Luft (sonst unsichtbare Wand am Rand, s. {@link #getCollisionShape}).
      */
     public boolean isBlockSolidForCollision(int x, int y, int z) {
         if (y < 0 || y >= Chunk.HEIGHT) return false;
 
         Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
-        /* Ungeladen = solide, außer der Spieler fliegt (s. getCollisionShape). */
-        if (chunk == null) return !(this.player != null && this.player.isFlying());
-
-        /* < DECORATED: Worker schreiben noch lock-frei (s. getBlock) -> wie ungeladen behandeln */
-        ChunkStatus status = chunk.status;
-        if (!status.isAtLeast(ChunkStatus.DECORATED)) return true;
+        /* Unfertig für Kollision = ungeladen ODER < DECORATED (Worker schreiben noch lock-frei
+           -> nicht lesen). Solide, außer der Spieler fliegt. Beide Zweige ohne Chunk-Read. */
+        if (chunk == null || !chunk.status.isAtLeast(ChunkStatus.DECORATED)) {
+            return !(this.player != null && this.player.isFlying());
+        }
 
         return Blocks.isSolid(chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK));
     }
