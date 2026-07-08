@@ -75,6 +75,8 @@ public final class LodMesher {
        Fluid-Zellen der feste Boden darunter — Basis für Terrain-Tops/-Wände/AO/yBase. */
     private long[] ground = new long[0];
     private boolean[] clipped = new boolean[0];
+    /* Merge-Marker der Wasser-Tops (2D-Greedy): true = Zelle schon in ein Quad gemerged. */
+    private boolean[] waterConsumed = new boolean[0];
     /* Getrennte Ausgabepuffer: Fluid-Top-Quads -> translucent (transparent, eigene Arena/
        eigener Draw-Call im Renderer), alles andere (Terrain-Tops + ALLE Wände/Skirts,
        auch an Fluid-Zellen) -> opaque. Wände bleiben bewusst immer opak — sie stellen feste
@@ -193,11 +195,16 @@ public final class LodMesher {
         }
 
         /* 3b. Wasser-Tops über die Oberflächen-Samples (nur Fluid-Zellen), ohne AO —
-           Wasserflächen sind eben; AO würde fleckig und zerstört den Merge. */
+           Wasserflächen sind eben; AO würde fleckig und zerstört den Merge. 2D-Greedy
+           (Breite entlang x, dann Höhe entlang z, wie im ChunkMesher-Greedy) — 1D erzeugte
+           lange dünne Streifen; flache Ozeanflächen werden so zu wenigen großen Rechtecken. */
+        if (this.waterConsumed.length < n * n) this.waterConsumed = new boolean[n * n];
+        else Arrays.fill(this.waterConsumed, 0, n * n, false);
         for (int cz = 0; cz < n; cz++) {
             int cx = 0;
             while (cx < n) {
-                if (this.clipped[cz * n + cx]) {
+                int idx = cz * n + cx;
+                if (this.clipped[idx] || this.waterConsumed[idx]) {
                     cx++;
                     continue;
                 }
@@ -207,12 +214,27 @@ public final class LodMesher {
                     cx++;
                     continue;
                 }
-                int run = 1;
-                while (cx + run < n && run < maxRun && !this.clipped[cz * n + cx + run]
-                        && this.cell(cx + run, cz) == sample) run++;
+                int w = 1;
+                while (cx + w < n && w < maxRun && !this.clipped[cz * n + cx + w]
+                        && !this.waterConsumed[cz * n + cx + w] && this.cell(cx + w, cz) == sample) w++;
 
-                this.emitTop(block, AO_NONE, cx * s, cz * s, (cx + run) * s, (cz + 1) * s, this.topOf(sample));
-                cx += run;
+                int h = 1;
+                expand:
+                while (cz + h < n && h < maxRun) {
+                    for (int i = 0; i < w; i++) {
+                        int j = (cz + h) * n + (cx + i);
+                        if (this.clipped[j] || this.waterConsumed[j] || this.cell(cx + i, cz + h) != sample) {
+                            break expand;
+                        }
+                    }
+                    h++;
+                }
+
+                for (int dz = 0; dz < h; dz++) {
+                    for (int dx = 0; dx < w; dx++) this.waterConsumed[(cz + dz) * n + (cx + dx)] = true;
+                }
+                this.emitTop(block, AO_NONE, cx * s, cz * s, (cx + w) * s, (cz + h) * s, this.topOf(sample));
+                cx += w;
             }
         }
 
