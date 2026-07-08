@@ -39,9 +39,16 @@ public final class FluidGeometry {
 
     private FluidGeometry() {}
 
+    /**
+     * @param skipMergedTop true, wenn der ChunkMesher das flach-stille Top-Face dieser Zelle
+     *                      bereits in seinem gemergten Wasser-Pass emittiert hat — dann hier
+     *                      NICHT nochmal (sonst doppelte Fläche). Boden/Seiten/fließende Tops
+     *                      bleiben davon unberührt. Die Merge-Bedingung ist identisch mit
+     *                      {@link #isMergeableFlatStillTop} (dieselben corner()-Werte).
+     */
     public static BakedQuad[] build(BlockState state,
                                     Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
-                                    int x, int worldY, int z) {
+                                    int x, int worldY, int z, boolean skipMergedTop) {
         Block fluid = state.getBlock();
         FluidInfo info = fluid.getFluidInfo();
         if (info == null) return NO_QUADS;
@@ -80,8 +87,10 @@ public final class FluidGeometry {
 
         /* TOP — nur wenn oben kein gleiches Fluid (sonst verdeckt). Bei fließendem Wasser wird die
            Flow-Textur entlang des Gefälles gedreht (UVs um die Mitte rotiert, wie Minecraft), damit
-           die Animation sichtbar von der Quelle wegläuft. */
-        if (!fluidAbove) {
+           die Animation sichtbar von der Quelle wegläuft. Flach-stille Quell-Tops (Meeresoberfläche)
+           übernimmt der gemergte Wasser-Pass des ChunkMeshers -> hier auslassen. */
+        boolean mergedTop = skipMergedTop && flatStillAtSource(state, h00, h10, h11, h01);
+        if (!fluidAbove && !mergedTop) {
             /* Fließrichtung wie Vanilla FlowingFluid.getFlow: pro Himmelsrichtung zieht nur
                gleiches Fluid (Level-Differenz) bzw. eine Abfall-Kante (freie Zelle mit gleichem
                Fluid eine Ebene tiefer); solide Nachbarn und leere Zellen tragen nichts bei.
@@ -252,6 +261,40 @@ public final class FluidGeometry {
     /** Sichtbare Oberkante (0..1) einer Fluid-Spalte aus LEVEL/FALLING – für Swim-/Höhenchecks. */
     public static float fluidHeight(BlockState s) {
         return ownHeight(s);
+    }
+
+    /**
+     * True, wenn dieses Fluid-Top eine flache, stille Quell-Oberfläche auf voller Quellhöhe ist —
+     * also greedy-fähig (mehrere solche Zellen sind koplanar und texturgleich). Bedingung: Quelle
+     * (Level 0), nicht fallend und alle vier Eckhöhen exakt {@link #SOURCE_HEIGHT}. Eine bloß
+     * symmetrisch abgesenkte (aber flache) Uferzelle erfüllt das NICHT — sie darf nicht mit der
+     * Quell-Ebene verschmelzen (Höhensprung/Z-Fighting).
+     */
+    private static boolean flatStillAtSource(BlockState state, float h00, float h10, float h11, float h01) {
+        if (state.get(Properties.LEVEL) != 0 || state.get(Properties.FALLING)) return false;
+        return h00 == SOURCE_HEIGHT && h10 == SOURCE_HEIGHT && h11 == SOURCE_HEIGHT && h01 == SOURCE_HEIGHT;
+    }
+
+    /**
+     * Ob die Zelle ein zum Mergen geeignetes flach-stilles Top-Face hat (sichtbar, d.h. kein
+     * gleiches Fluid darüber). Der ChunkMesher nutzt das für seinen gemergten Wasser-Pass und
+     * gibt anschließend {@code skipMergedTop=true} an {@link #build} — die Merge-Bedingung ist
+     * dort identisch (dieselben {@link #corner}-Werte, deterministisch pro Worker).
+     */
+    public static boolean isMergeableFlatStillTop(BlockState state,
+                                                  Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
+                                                  int x, int worldY, int z) {
+        Block fluid = state.getBlock();
+        if (fluid.getFluidInfo() == null) return false;
+        if (state.get(Properties.LEVEL) != 0 || state.get(Properties.FALLING)) return false;
+        if (isSameFluid(sample(chunk, north, south, west, east, diagonals, x, worldY + 1, z), fluid)) {
+            return false; // Top verdeckt -> nichts zu mergen
+        }
+        float h00 = corner(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, state, 0, 0, false);
+        float h10 = corner(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, state, 1, 0, false);
+        float h11 = corner(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, state, 1, 1, false);
+        float h01 = corner(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, state, 0, 1, false);
+        return flatStillAtSource(state, h00, h10, h11, h01);
     }
 
     private static boolean isSameFluid(int id, Block fluid) {
