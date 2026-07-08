@@ -266,13 +266,24 @@ public final class FluidGeometry {
     /**
      * True, wenn dieses Fluid-Top eine flache, stille Quell-Oberfläche auf voller Quellhöhe ist —
      * also greedy-fähig (mehrere solche Zellen sind koplanar und texturgleich). Bedingung: Quelle
-     * (Level 0), nicht fallend und alle vier Eckhöhen exakt {@link #SOURCE_HEIGHT}. Eine bloß
+     * (Level 0), nicht fallend und alle vier Eckhöhen auf {@link #SOURCE_HEIGHT}. Eine bloß
      * symmetrisch abgesenkte (aber flache) Uferzelle erfüllt das NICHT — sie darf nicht mit der
      * Quell-Ebene verschmelzen (Höhensprung/Z-Fighting).
+     *
+     * <p>Toleranz-Vergleich statt {@code ==}: {@link #corner} mittelt gewichtet, wodurch eine
+     * echte Innenozean-Ecke ≈ 8/9 herauskommt, aber wegen Float-Rundung nicht bit-gleich mit
+     * {@link #SOURCE_HEIGHT}. Die Rundung liegt bei ~1e-6, die nächst-niedrigere echte Eckhöhe
+     * (eine Luft-/Schwächer-Fluid-Spalte am Eck) fällt um ≥ ~0,004 ab — {@code EPS} trennt sauber.
      */
+    private static final float SOURCE_EPS = 1.0e-3f;
+
     private static boolean flatStillAtSource(BlockState state, float h00, float h10, float h11, float h01) {
         if (state.get(Properties.LEVEL) != 0 || state.get(Properties.FALLING)) return false;
-        return h00 == SOURCE_HEIGHT && h10 == SOURCE_HEIGHT && h11 == SOURCE_HEIGHT && h01 == SOURCE_HEIGHT;
+        return atSourceHeight(h00) && atSourceHeight(h10) && atSourceHeight(h11) && atSourceHeight(h01);
+    }
+
+    private static boolean atSourceHeight(float h) {
+        return Math.abs(h - SOURCE_HEIGHT) < SOURCE_EPS;
     }
 
     /**
