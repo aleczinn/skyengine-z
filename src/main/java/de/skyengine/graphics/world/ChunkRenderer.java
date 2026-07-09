@@ -14,6 +14,7 @@ import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.LodMesher;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.camera.Camera;
+import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
@@ -341,6 +342,7 @@ public class ChunkRenderer {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Textures", 0);
+        this.setFogUniforms();
         this.textures.bind(0);
 
         this.shader.setUniformf("u_AlphaCutoff", 0.5F);
@@ -397,6 +399,7 @@ public class ChunkRenderer {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Textures", 0);
+        this.setFogUniforms();
         this.textures.bind(0);
 
         GL11.glEnable(GL11.GL_BLEND);
@@ -679,6 +682,27 @@ public class ChunkRenderer {
         }
     }
 
+    /** Setzt die Fog-Uniforms für den gebundenen Chunk-Shader. Fog blendet fernes Terrain
+        Richtung Clear-Color (= Himmel) und nimmt dem Horizont damit den Kontrast, der das
+        Sub-Pixel-Flimmern verursacht. Bezugsgröße ist die sichtbare Terrain-Reichweite
+        (nicht die Far-Plane): mit LOD der äußerste LOD-Ring, ohne LOD die Chunk-Ladekante. */
+    private void setFogUniforms() {
+        GameSettings settings = GameSettings.get();
+        if (settings.fog) {
+            float range = (settings.lodEnabled
+                    ? Math.max(settings.lodMaxDistance, settings.renderDistance)
+                    : settings.renderDistance) * 32.0F;
+            this.shader.setUniformf("u_FogStart", range * 0.60F);
+            this.shader.setUniformf("u_FogEnd", range);
+        } else {
+            /* Fog aus: Start/Ende jenseits jeder Distanz -> Faktor 0, keine Shader-Variante nötig */
+            this.shader.setUniformf("u_FogStart", 1.0e30F);
+            this.shader.setUniformf("u_FogEnd", 2.0e30F);
+        }
+        Color4 clear = SkyEngine.get().getConfig().getWindowClearColor();
+        this.shader.setUniformVector3f("u_FogColor", clear.red, clear.green, clear.blue);
+    }
+
     /* ------------------------- Helfer ------------------------- */
 
     /** Debug-Label für einen Arena-/VAO-Slot (RenderLayer-Name oder LOD-Pseudo-Layer). */
@@ -748,6 +772,7 @@ public class ChunkRenderer {
 
             out vec3 v_texCoord;
             out vec3 v_color;
+            out float v_viewDist;
 
             void main() {
                 vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16), float(a_data.y & 0xFFFFu)) * (1.0 / 256.0) - 1.0;
@@ -757,7 +782,11 @@ public class ChunkRenderer {
 
                 v_texCoord = vec3(uv, layer);
                 v_color = color;
-                gl_Position = u_ProjectionView * vec4(pos + u_DrawOffsets[gl_DrawID].xyz, 1.0);
+                /* Positionen sind kamerarelativ -> length() = Sichtdistanz fuer den Fog
+                   (rotationsinvariant, kein "Atmen" des Nebels beim Umschauen) */
+                vec3 rel = pos + u_DrawOffsets[gl_DrawID].xyz;
+                v_viewDist = length(rel);
+                gl_Position = u_ProjectionView * vec4(rel, 1.0);
             }
             """;
 
@@ -765,9 +794,13 @@ public class ChunkRenderer {
             #version 460 core
             in vec3 v_texCoord;
             in vec3 v_color;
+            in float v_viewDist;
 
             uniform sampler2DArray u_Textures;
             uniform float u_AlphaCutoff;
+            uniform vec3 u_FogColor;
+            uniform float u_FogStart;
+            uniform float u_FogEnd;
 
             out vec4 fragColor;
 
@@ -777,7 +810,11 @@ public class ChunkRenderer {
                 /* Clamp gegen Attribut-EXTRApolation: kantenparallel gesehene Faces rastern als
                    degenerierte Sliver-Dreiecke, deren Interpolation die per-Vertex-AO-Farben
                    ueber 1.0 hinaus extrapoliert -> helle Funkel-Striche auf Augenhoehe. */
-                fragColor = vec4(color.rgb * clamp(v_color, 0.0, 1.0), color.a);
+                vec3 lit = color.rgb * clamp(v_color, 0.0, 1.0);
+                /* Linearer Distanz-Fog Richtung Clear-Color: nimmt dem Horizont den Kontrast
+                   (Sub-Pixel-Flimmern des Fernterrains) und versteckt die Far-Plane-Kante. */
+                float fog = clamp((v_viewDist - u_FogStart) / (u_FogEnd - u_FogStart), 0.0, 1.0);
+                fragColor = vec4(mix(lit, u_FogColor, fog), color.a);
             }
             """;
 

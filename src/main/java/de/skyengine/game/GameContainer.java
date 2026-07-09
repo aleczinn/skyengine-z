@@ -645,8 +645,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             }
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_N)) {
-            this.player.toggleNoClip();
-            this.logger.debug("NoClip: " + this.player.isNoClip());
+            GameSettings.get().fog = !GameSettings.get().fog;
+            this.logger.debug("Fog: " + GameSettings.get().fog);
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_G)) {
             this.player.setGamemode(this.player.getGamemode().next());
