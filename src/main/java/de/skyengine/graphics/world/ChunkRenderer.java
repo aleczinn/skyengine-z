@@ -691,9 +691,15 @@ public class ChunkRenderer {
         if (settings.fog) {
             float range = (settings.lodEnabled
                     ? Math.max(settings.lodMaxDistance, settings.renderDistance)
-                    : settings.renderDistance) * 32.0F;
-            this.shader.setUniformf("u_FogStart", range * 0.60F);
-            this.shader.setUniformf("u_FogEnd", range);
+                    : settings.renderDistance) * ChunkSection.SIZE;
+            /* Fog-Ende ~3 Chunks VOR die theoretische Grenze: der Lade-Kreis ist auf ganze
+               Chunks quantisiert und der Spieler steht bis zu 31 Blöcke neben seinem
+               Chunk-Ursprung — die sichtbare Kante liegt daher bis zu ~2-3 Chunks innerhalb
+               von rd*32. Ohne diesen Rand bleibt die Stufen-Silhouette der Ladegrenze bei
+               kurzer Fog-Spanne (ohne LOD) sichtbar. */
+            float fogEnd = Math.max(range - 96.0F, 64.0F);
+            this.shader.setUniformf("u_FogStart", fogEnd * 0.60F);
+            this.shader.setUniformf("u_FogEnd", fogEnd);
         } else {
             /* Fog aus: Start/Ende jenseits jeder Distanz -> Faktor 0, keine Shader-Variante nötig */
             this.shader.setUniformf("u_FogStart", 1.0e30F);
