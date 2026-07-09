@@ -38,7 +38,7 @@ public final class GameSettings {
     public GraphicsMode graphicsMode = GraphicsMode.FANCY;
     /* volatile: wird von den Mesher-Worker-Threads gelesen (Toggle löst Voll-Remesh aus) */
     public volatile boolean ambientOcclusion = true;
-    /* Anisotropes Filtern (1 = aus .. 16), wird beim Erzeugen des TextureArrays angewandt */
+    /* Anisotropes Filtern (1 = aus, 2, 4, 8, 16), wird beim Erzeugen des TextureArrays angewandt */
     public int anisotropicFiltering = 16;
     /* Heightmap-LOD jenseits der Render-Distanz (Fernsicht) */
     public boolean lodEnabled = true;
