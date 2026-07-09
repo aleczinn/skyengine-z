@@ -7,12 +7,15 @@ description: ChunkRenderer mit MultiDrawIndirect — VertexArena (deferred frees
 
 ## Warum diese Architektur
 
-Ein Draw-Call pro Section×Layer skaliert nicht. Stattdessen: pro `RenderLayer` (OPAQUE 96 MB /
-CUTOUT 8 MB / TRANSLUCENT 8 MB) EINE `VertexArena`, in der Sections Regionen mieten
-(First-Fit-Free-List). Pro Frame wird nur das Indirect-Command-Array + ein Offset-SSBO gebaut →
-**ein `glMultiDrawElementsIndirect` pro Layer**. LOD-Draws hängen sich als weitere Commands ans
-OPAQUE-Segment (gleiche Arena, gleicher Shader). Braucht GL 4.3 (MDI) + 4.4 (BufferStorage) —
-`init()` wirft sonst.
+Ein Draw-Call pro Section×Layer skaliert nicht. Stattdessen: **5 `VertexArena`s** — pro
+`RenderLayer` eine (OPAQUE 96 MB / CUTOUT 64 MB / TRANSLUCENT 8 MB) plus zwei dedizierte
+LOD-Arenen (LOD-OPAQUE: Startgröße aus `LodMesher.estimateOpaqueArenaBytes`, ~250 MB bei
+Default-Settings, plus `ensureCapacity`-Vorabvergrößerung bei Settings-Wechsel; LOD-TRANSLUCENT
+2 MB). Sections/Regionen mieten darin Bereiche (First-Fit-Free-List). Pro Frame wird nur das
+Indirect-Command-Array + ein Offset-SSBO gebaut → **ein `glMultiDrawElementsIndirect` pro
+Segment**; die LOD-Draws sind EIGENE Segmente direkt nach dem jeweiligen Terrain-Segment
+(gleicher Shader, aber baseVertex gilt nur im selben Vertex-Buffer → eigene Arena = eigener
+Draw-Call). Braucht GL 4.3 (MDI) + 4.4 (BufferStorage) — `init()` wirft sonst.
 
 ## Lebenszyklus & Synchronisation (die gefährlichen Teile)
 
@@ -48,12 +51,18 @@ visible-Listen desselben Frames (Cursor `cmdCursor`/`offCursor` verbindet die Se
 `beginFrame()` läuft in `renderSolid`, `endFrame()` NUR am Ende von `renderTranslucent` —
 beide Methoden müssen daher immer paarweise pro Frame aufgerufen werden.
 
-- OPAQUE: AlphaCutoff 0.5. CUTOUT: gleicher Cutoff, aber **"or-equal"-Depth-Func**
-  (Reversed-Z: GREATER→GEQUAL), damit koplanare Gras-Seiten-Overlays exakt gewinnen.
+- OPAQUE + LOD-OPAQUE: AlphaCutoff 0.5 (Cutout-Discard funktioniert damit auch im LOD-Segment —
+  darauf bauen die koplanaren LOD-Gras-Overlay-Wände). CUTOUT: gleicher Cutoff, aber
+  **"or-equal"-Depth-Func** (Reversed-Z: GREATER→GEQUAL), damit koplanare Gras-Seiten-Overlays
+  exakt gewinnen.
 - TRANSLUCENT: Blending an, Cutoff 0.001; Sections back-to-front (Command-Reihenfolge = Zeichen-
   Reihenfolge im MDI), Quads innerhalb einer Section per `SectionMesh.sortTranslucent` —
   **budgetiert** (max. 8 Sorts/Frame, nahe Sections zuerst), sonst Upload-Spike bei Kamerabewegung
   über einem Ozean. Sortierte Daten wandern in frische Arena-Regionen → danach `ensureVaoBindings`.
+  LOD-TRANSLUCENT (Wasser-Tops/Fluid-Wände) bewusst unsortiert.
+- **Fog:** beide Pässe setzen `u_FogColor/u_FogStart/u_FogEnd` (`setFogUniforms`, hängt an
+  `GameSettings.fog` + `lodEnabled`); der Offscreen-Framebuffer rendert mit MSAA
+  (`GameSettings.msaaSamples`).
 
 ## Upload-Budgets pro Frame
 

@@ -76,6 +76,13 @@ Radius `renderDistance + 2`; nur NEW/GENERATED/DECORATED/READY werden entfernt �
 laufenden Jobs (GENERATING/DECORATING/MESHING) bleiben, bis der Job fertig ist. Die GL-Meshes
 entsorgt der Renderer selbst, wenn er den Chunk nicht mehr in der Map findet.
 
+**LOD-Unload-Gate:** Sichtbare Chunks (`isFullyUploaded()` — bewusst nicht status==READY,
+s. remeshAll) warten zusätzlich auf `lodManager.coversChunk(...)`: solange das hochgeladene
+LOD-Mesh ihre Zelle noch clippt, bleiben sie mit `pendingUnload = true` in der Map (die
+LOD-Maske zählt sie ab da als abwesend → Region remesht die Zelle un-geclippt, erst dann
+Unload — sonst Pop-in-Loch). Zurück im Radius wird das Flag zurückgesetzt. Notventil: jenseits
+`renderDistance + 6` wird bedingungslos entladen. Details: Skill `lod-system`, Mechanismus 3.
+
 ## Verifikation
 
 - Neue Status-Übergänge: Wer setzt den Status, auf welchem Thread? (Worker setzen nur „ihr"

@@ -75,13 +75,16 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
 - Chunk-Pipeline mit Nachbar-Gating, Prioritäts-Workern, Edit-Priority-Uploads
 - Meshing: Greedy + Minecraft-AO (inkl. Flip + Shader-Clamp), 16-Byte-Vertices, Index-Buffer
 - Rendering: MDI + VertexArena + Frame-Fences, TextureArray mit animierten Sprites,
-  Translucent-Sortierung, BlockEntity-Renderer (Chest, EnchantingTable), Reversed-Z
+  Translucent-Sortierung, BlockEntity-Renderer (Chest, EnchantingTable), Reversed-Z,
+  Distanz-Fog (auch über LOD) + MSAA-Offscreen-Framebuffer (beides GameSettings)
 - Block-System (Architektur gilt als **reif — kein Rewrite**): ~171 JSON-Blöcke, Archetypen,
   Behaviors, Verbindungen (Zaun/Pane/Cable), Türen, BlockEntities + Capabilities (Item/Energie)
 - Fluids komplett (Fluss, Reaktionen, Eimer, Schwimmen/Strömung, Unterwasser-Overlay)
 - Weltgen V2: Klima→Höhe/Biome, 3D-Dichte/Höhlen, Worley-Seen, Fluss-Netz Quelle→Mündung
   (~2,5 ms/Chunk), Feature-Bäume (Scheiben-Modell), Debug-Karten-Exporter
-- LOD: formelbasierte Clipmap-Ringe, Chunk-Masken-Clipping, Skirts, Epoche/Hysterese
+- LOD: formelbasierte Clipmap-Ringe, Chunk-Masken-Clipping (Load- UND Unload-Gate gegen
+  Pop-ins), Skirts, Epoche/Hysterese, eigene Vertex-Arenen, AO, transluzentes LOD-Wasser,
+  getönte Gras-Overlay-Wände
 - Vegetations-Tint biome-abhängig (Eck-Grids + bilinear), koplanare Grasblock-Overlays
 - Mining: MC-Harvest-Regel, 28 Tools (7 Tiers × 4 Typen), Durability, Crack-Overlay,
   Bedrock unzerstörbar; Gamemodes Survival/Creative/Spectator; Item-Entities + Aufsammeln
