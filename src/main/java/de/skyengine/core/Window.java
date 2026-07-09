@@ -294,7 +294,6 @@ public class Window implements IDisposable {
         this.logger.debug("UseBufferStorage: " + this.properties.isUseBufferStorage());
         this.logger.debug("UseClearBuffer: " + this.properties.isUseClearBuffer());
         this.logger.debug("UseInverseDepth: " + this.properties.isUseInverseDepth());
-        this.logger.debug("UseNvMultisampleCoverage: " + this.properties.isUseNvMultisampleCoverage());
         this.logger.debug("CanUseSynchronousDebugCallback: " + this.properties.isUseSynchronousDebugCallback());
         this.logger.debug("GenerateDrawCallsViaShader: " + this.properties.isGenerateDrawCallsViaShader());
         this.logger.debug("UseOcclusionCulling: " + this.properties.isUseOcclusionCulling());

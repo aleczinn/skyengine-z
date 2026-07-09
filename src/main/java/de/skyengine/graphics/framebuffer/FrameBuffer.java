@@ -9,7 +9,6 @@ import de.skyengine.utils.logging.Logger;
 import org.lwjgl.opengl.ARBDirectStateAccess;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL30;
-import org.lwjgl.opengl.NVFramebufferMultisampleCoverage;
 
 public class FrameBuffer implements IDisposable {
 
@@ -22,9 +21,6 @@ public class FrameBuffer implements IDisposable {
 
     private int colorRbo;
     private int depthRbo;
-
-    /** Coverage-Sample-Zahl (nur NV-Coverage-Pfad; muss >= der Color-Sample-Zahl sein). */
-    private static final int COVERAGE_SAMPLES = 16;
 
     public FrameBuffer(EngineConfig config, EngineProperties properties) {
         this.config = config;
@@ -46,6 +42,7 @@ public class FrameBuffer implements IDisposable {
         this.colorRbo = GL30.glGenRenderbuffers();
         GL30.glBindRenderbuffer(GL30.GL_RENDERBUFFER, this.colorRbo);
         this.renderbufferStorage(samples, GL30.GL_RGBA8);
+        this.logGrantedSamples(samples);
         GL30.glFramebufferRenderbuffer(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL30.GL_RENDERBUFFER, this.colorRbo);
 
         // Depth Buffer
@@ -67,16 +64,26 @@ public class FrameBuffer implements IDisposable {
     }
 
     /** Legt den Storage des aktuell gebundenen Renderbuffers an: ohne Multisample bei 0 Samples,
-        sonst MSAA (auf NVIDIA über den Coverage-Pfad, Coverage-Samples >= Color-Samples). */
+        sonst MSAA. (Der frühere NV-CSAA-Pfad wurde entfernt — moderne Treiber runden die
+        Coverage-Anfrage still auf volles 16x MSAA auf, gemessen auf RTX 4080.) */
     private void renderbufferStorage(int samples, int internalFormat) {
         int width = this.config.getWindowWidth(), height = this.config.getWindowHeight();
 
         if (samples <= 0) {
             GL30.glRenderbufferStorage(GL30.GL_RENDERBUFFER, internalFormat, width, height);
-        } else if (this.properties.isUseNvMultisampleCoverage()) {
-            NVFramebufferMultisampleCoverage.glRenderbufferStorageMultisampleCoverageNV(GL30.GL_RENDERBUFFER, Math.max(COVERAGE_SAMPLES, samples), samples, internalFormat, width, height);
         } else {
             GL30.glRenderbufferStorageMultisample(GL30.GL_RENDERBUFFER, samples, internalFormat, width, height);
+        }
+    }
+
+    /** Loggt die vom Treiber tatsächlich GEWÄHRTE Sample-Zahl des aktuell gebundenen
+        Renderbuffers — Treiber dürfen Anfragen aufrunden. */
+    private void logGrantedSamples(int requestedSamples) {
+        if (requestedSamples <= 0) {
+            this.logger.debug("MSAA: aus");
+        } else {
+            int granted = GL30.glGetRenderbufferParameteri(GL30.GL_RENDERBUFFER, GL30.GL_RENDERBUFFER_SAMPLES);
+            this.logger.debug("MSAA: angefordert " + requestedSamples + " Samples — gewährt " + granted);
         }
     }
 
