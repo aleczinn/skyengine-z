@@ -697,8 +697,12 @@ public class ChunkRenderer {
                Chunk-Ursprung — die sichtbare Kante liegt daher bis zu ~2-3 Chunks innerhalb
                von rd*32. Ohne diesen Rand bleibt die Stufen-Silhouette der Ladegrenze bei
                kurzer Fog-Spanne (ohne LOD) sichtbar. */
-            float fogEnd = Math.max(range - 96.0F, 64.0F);
-            this.shader.setUniformf("u_FogStart", fogEnd * 0.60F);
+            float fogEnd = Math.max(range - 3 * ChunkSection.SIZE, 2 * ChunkSection.SIZE);
+            /* Ohne LOD ist der einzige Fog-Zweck das Verstecken der Ladekante -> kurze steile
+               Rampe (80 %), damit von der knappen Sichtweite mehr klar bleibt; mit LOD lange
+               Rampe (60 %) gegen das Sub-Pixel-Flimmern des Fernterrains. */
+            float startFactor = settings.lodEnabled ? 0.60F : 0.80F;
+            this.shader.setUniformf("u_FogStart", fogEnd * startFactor);
             this.shader.setUniformf("u_FogEnd", fogEnd);
         } else {
             /* Fog aus: Start/Ende jenseits jeder Distanz -> Faktor 0, keine Shader-Variante nötig */
