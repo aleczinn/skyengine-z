@@ -45,6 +45,10 @@ public class Chunk {
        (applyBatch), gelesen wird auf demselben Thread — keine Synchronisation nötig. */
     private int uploadedSections;
 
+    /* Unload-Gate: Chunk liegt außerhalb der Unload-Distanz, wartet aber, bis das LOD
+       seine Zelle deckt (symmetrisch zum Lade-Gate der LOD-Maske). Nur Tick-Thread. */
+    public boolean pendingUnload;
+
     /* Schützt die Section-Container (PalettedContainer + sections[]-Allokation) gegen
        gleichzeitige Worker-Mesh-Reads und Render-Thread-Writes. Mesh-Jobs nehmen den
        Read-Lock, World.setBlockRaw den Write-Lock. */
