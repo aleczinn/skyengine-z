@@ -21,6 +21,11 @@ public final class LodBlockAppearance {
     private final int[] sideTints;
     private final int[] topTintTypes;
     private final int[] sideTintTypes;
+    /* Seiten-Overlay (z.B. getönter Grasrand über der Dirt-Seite): Layer/Tint des separat
+       gebackenen Overlay-Quads (state.getOverlay(), nicht im Modell!); Layer -1 = keins. */
+    private final int[] sideOverlayLayers;
+    private final int[] sideOverlayTints;
+    private final int[] sideOverlayTintTypes;
     private final boolean[] fluids;
 
     /** Erst nach BlockRegistry.bake() erzeugen (World.init). */
@@ -32,12 +37,16 @@ public final class LodBlockAppearance {
         this.sideTints = new int[count];
         this.topTintTypes = new int[count];
         this.sideTintTypes = new int[count];
+        this.sideOverlayLayers = new int[count];
+        this.sideOverlayTints = new int[count];
+        this.sideOverlayTintTypes = new int[count];
         this.fluids = new boolean[count];
 
         for (int id = 0; id < count; id++) {
             BlockState state = BlockRegistry.getState(id);
             this.topTints[id] = BakedQuad.WHITE;
             this.sideTints[id] = BakedQuad.WHITE;
+            this.sideOverlayLayers[id] = -1;
             this.fluids[id] = state.isFluid();
 
             FluidInfo fluid = state.getBlock().getFluidInfo();
@@ -68,6 +77,17 @@ public final class LodBlockAppearance {
                als Oberflächenblock ohnehin nicht auf. */
             this.topLayers[id] = top >= 0 ? top : Math.max(side, 0);
             this.sideLayers[id] = side >= 0 ? side : this.topLayers[id];
+
+            /* Alle Seiten-Overlays sind identisch gebacken (BlockModels.overlaySides) —
+               das erste mit Seiten-Cullface reicht. */
+            for (BakedQuad quad : state.getOverlay()) {
+                if (quad.cullFace() >= 2) {
+                    this.sideOverlayLayers[id] = quad.textureLayer();
+                    this.sideOverlayTints[id] = quad.tint();
+                    this.sideOverlayTintTypes[id] = quad.tintType();
+                    break;
+                }
+            }
         }
     }
 
@@ -97,6 +117,21 @@ public final class LodBlockAppearance {
     /** Biome-Tint-Typ der Seiten ({@code BakedQuad.TINT_*}); NONE = fester Tint. */
     public int sideTintType(int stateId) {
         return this.sideTintTypes[stateId];
+    }
+
+    /** Textur-Layer des Seiten-Overlays (getönter Grasrand); -1 = Block hat kein Overlay. */
+    public int sideOverlayLayer(int stateId) {
+        return this.sideOverlayLayers[stateId];
+    }
+
+    /** Gepackter Multiplikations-Tint 0xRRGGBB des Seiten-Overlays. */
+    public int sideOverlayTint(int stateId) {
+        return this.sideOverlayTints[stateId];
+    }
+
+    /** Biome-Tint-Typ des Seiten-Overlays ({@code BakedQuad.TINT_*}); NONE = fester Tint. */
+    public int sideOverlayTintType(int stateId) {
+        return this.sideOverlayTintTypes[stateId];
     }
 
     /** true für Fluide — deren Zell-Top liegt auf der Quellhöhe (8/9) statt auf Höhe+1. */
