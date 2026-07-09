@@ -13,7 +13,6 @@ public class EngineProperties {
     private boolean useClearBuffer;
     private boolean drawPointsWithGS;
     private boolean useInverseDepth;
-    private boolean useNvMultisampleCoverage;
     private boolean generateDrawCallsViaShader;
     private boolean useOcclusionCulling;
     private boolean useTemporalCoherenceOcclusionCulling;
@@ -31,7 +30,6 @@ public class EngineProperties {
         this.useClearBuffer = caps.GL_ARB_clear_buffer_object || caps.OpenGL43;
         this.drawPointsWithGS = useMultiDrawIndirect; // <- we just haven't implemented point/GS rendering without MDI yet
         this.useInverseDepth = caps.GL_ARB_clip_control || caps.OpenGL45;
-        this.useNvMultisampleCoverage = caps.GL_NV_framebuffer_multisample_coverage;
         this.canUseSynchronousDebugCallback = caps.GL_ARB_debug_output || caps.OpenGL43;
         this.generateDrawCallsViaShader = caps.GL_ARB_shader_image_load_store/* 4.2 */ && caps.GL_ARB_shader_storage_buffer_object/* 4.3 */ && caps.GL_ARB_shader_atomic_counters/* 4.2 */ || caps.OpenGL43;
         this.useOcclusionCulling = this.generateDrawCallsViaShader && this.useMultiDrawIndirect;
@@ -64,10 +62,6 @@ public class EngineProperties {
 
     public boolean isUseInverseDepth() {
         return useInverseDepth;
-    }
-
-    public boolean isUseNvMultisampleCoverage() {
-        return useNvMultisampleCoverage;
     }
 
     public boolean isUseSynchronousDebugCallback() {
