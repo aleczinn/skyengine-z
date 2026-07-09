@@ -40,6 +40,10 @@ public final class GameSettings {
     public volatile boolean ambientOcclusion = true;
     /* Anisotropes Filtern (1 = aus, 2, 4, 8, 16), wird beim Erzeugen des TextureArrays angewandt */
     public int anisotropicFiltering = 16;
+    /* MSAA-Sample-Zahl des Offscreen-Framebuffers (0 = aus, 2, 4, 8, 16), greift beim nächsten
+       Framebuffer-Aufbau (Start bzw. Fenster-Resize). 4 gegen das kriechende Kanten-Aliasing
+       des fernen Voxel-Terrains. */
+    public int msaaSamples = 4;
     /* Heightmap-LOD jenseits der Render-Distanz (Fernsicht) */
     public boolean lodEnabled = true;
     /* Äußerste LOD-Reichweite in Chunks. Level ergeben sich automatisch: Level L endet bei
@@ -101,6 +105,7 @@ public final class GameSettings {
         this.simulationDistance = Math.clamp(this.simulationDistance, 2, 32);
         this.fov = Math.clamp(this.fov, 30, 120);
         this.anisotropicFiltering = Math.clamp(this.anisotropicFiltering, 1, 16);
+        this.msaaSamples = Math.clamp(this.msaaSamples, 0, 16);
         this.lodMaxDistance = Math.clamp(this.lodMaxDistance, 8, 512);
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
