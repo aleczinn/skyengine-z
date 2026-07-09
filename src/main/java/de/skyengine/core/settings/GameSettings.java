@@ -15,8 +15,9 @@ import java.util.Map;
  * {@code ./config/options.json}. Wird beim Start geladen, beim Beenden und bei Änderungen gespeichert.
  * Singleton-Zugriff über {@link #get()}.
  *
- * <p>Reine Daten + Persistenz — das Anwenden (Render-Distanz, FOV, VSync, GUI-Scale, Sensitivität)
- * erledigt der {@code GameContainer}, der Zugriff auf World/Camera/Window/Gui hat.
+ * <p>Reine Daten + Persistenz — das Anwenden (Render-Distanz, FOV, VSync, GUI-Scale, Sensitivität,
+ * AO, MSAA, Fog, LOD an/aus + Reichweite, anisotropes Filtern, …) erledigen {@code GameContainer}
+ * bzw. die jeweiligen Renderer-/Framebuffer-Stellen, die Zugriff auf World/Camera/Window/Gui haben.
  */
 public final class GameSettings {
 
