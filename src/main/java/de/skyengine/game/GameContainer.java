@@ -721,7 +721,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         }
         if (input.isKeyPressed(this.settings.key(KeyBindings.AMBIENT_OCCLUSION))) {
             this.settings.ambientOcclusion = !this.settings.ambientOcclusion;
-            /* AO steckt im gebackenen Mesh -> alle Chunks progressiv neu meshen */
+            /* AO steckt im gebackenen Mesh -> alle Chunks progressiv neu meshen
+               (LOD zieht via Epoche im nächsten LodManager-Tick selbst nach) */
             this.world.getChunkManager().remeshAll();
             this.logger.debug("Ambient Occlusion: " + (this.settings.ambientOcclusion ? "an" : "aus"));
             changed = true;
