@@ -44,6 +44,9 @@ public final class GameSettings {
        Framebuffer-Aufbau (Start bzw. Fenster-Resize). 4 gegen das kriechende Kanten-Aliasing
        des fernen Voxel-Terrains. */
     public int msaaSamples = 4;
+    /* Distanz-Fog Richtung Clear-Color am Sichtweiten-Rand (dämpft Horizont-Flimmern,
+       versteckt Far-Plane-Kante und LOD-Übergänge) */
+    public boolean fog = true;
     /* Heightmap-LOD jenseits der Render-Distanz (Fernsicht) */
     public boolean lodEnabled = true;
     /* Äußerste LOD-Reichweite in Chunks. Level ergeben sich automatisch: Level L endet bei
