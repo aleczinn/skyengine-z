@@ -99,10 +99,11 @@ public final class LodMesher {
         return Math.min(BASE_SKIRT << level, MAX_SKIRT);
     }
 
-    /* Empirisch (gemessen bei RD=16/lodMax=128, ~3300 Regionen): im Schnitt ~1,5 Quads je
-       LOD-Zelle (Boden-Top + gelegentliche Wand zu niedrigeren Nachbarn). Der Aufschlag auf
-       1,75 deckt wand-reiches (bergiges) Terrain und die erste Füllung ohne Grow ab. */
-    private static final float QUADS_PER_CELL = 1.75F;
+    /* Empirisch (gemessen bei RD=16/lodMax=128: ohne Overlay-Wände 1,56, MIT koplanaren
+       Gras-Overlay-Wänden 1,97 Quads je LOD-Zelle — Boden-Top + Wände zu niedrigeren Nachbarn).
+       Der Aufschlag auf 2,25 (~+14 %) deckt wand-reiches (bergiges) Terrain und die erste
+       Füllung ohne Grow ab. */
+    private static final float QUADS_PER_CELL = 2.25F;
 
     /**
      * Schätzt die für die LOD-OPAQUE-Arena nötige Bytemenge aus der Ring-Konfiguration, damit
@@ -633,6 +634,23 @@ public final class LodMesher {
            Position (nah an oder unter einer LOD-Wasserkante) den Bildschirm als große opake
            Fläche. Wände an festem Terrain bleiben opak. */
         boolean fluidWall = this.appearance.isFluid(block);
+
+        /* Koplanares Seiten-Overlay (getönter Grasrand) ZUERST emittieren: identische Vertices
+           im selben Opaque-Draw ⇒ identische Tiefe (GL-Invarianz); die danach emittierte
+           Basis-Wand verliert den strikten Tiefentest genau dort, wo das Overlay nicht
+           discarded wurde (u_AlphaCutoff 0.5 gilt auch im LOD-OPAQUE-Segment). Gegenstück zur
+           koplanaren Or-Equal-Lösung des ChunkMesher — bewusst OHNE Offset und ohne eigenen
+           Pass; die Reihenfolge Overlay-vor-Basis ist tragend. */
+        int overlayLayer = this.appearance.sideOverlayLayer(block);
+        if (!fluidWall && overlayLayer >= 0) {
+            int overlayTint = this.tintFor(this.appearance.sideOverlayTint(block),
+                    this.appearance.sideOverlayTintType(block), (xa + xb) * 0.5F, (za + zb) * 0.5F);
+            this.ensureCapacity(false);
+            this.putVertex(false, xa, bottom, za, 0F, v, overlayLayer, brightness, overlayTint);
+            this.putVertex(false, xb, bottom, zb, u, v, overlayLayer, brightness, overlayTint);
+            this.putVertex(false, xb, top, zb, u, 0F, overlayLayer, brightness, overlayTint);
+            this.putVertex(false, xa, top, za, 0F, 0F, overlayLayer, brightness, overlayTint);
+        }
 
         this.ensureCapacity(fluidWall);
         this.putVertex(fluidWall, xa, bottom, za, 0F, v, layer, brightness, tint);
