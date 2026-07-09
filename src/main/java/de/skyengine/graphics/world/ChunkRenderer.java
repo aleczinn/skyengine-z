@@ -77,6 +77,10 @@ public class ChunkRenderer {
 
     private static final int MAX_LOD_UPLOADS_PER_FRAME = 4;
 
+    /* Letzter LOD-Settings-Stand für die Arena-Vorabvergrößerung (s. applyLodResults) */
+    private int lastLodRenderDistance = -1, lastLodMaxDistance = -1;
+    private boolean lastLodEnabled;
+
     private static final int MAX_UPLOADS_PER_FRAME = 8;
 
     /* Deckelt Quad-Sorts pro Frame — bei Kamerabewegung wollen sonst alle sichtbaren
@@ -472,6 +476,22 @@ public class ChunkRenderer {
     private void applyLodResults() {
         VertexArena opaqueArena = this.arenas[LOD_OPAQUE];
         VertexArena translucentArena = this.arenas[LOD_TRANSLUCENT];
+
+        /* Arena-Vorabvergrößerung bei Settings-Wechsel: Wird LOD zur Laufzeit eingeschaltet
+           (oder die Reichweite erhöht), startet die Arena sonst vom kleinen Init-Floor und
+           wächst treppenweise (~9 Grows à 1,5x, jeder mit voller GPU-Kopie — real beobachtet
+           8→196 MB). Einmalig auf die Schätzung wachsen statt vieler Schritte. */
+        GameSettings settings = GameSettings.get();
+        if (settings.lodEnabled != this.lastLodEnabled || settings.renderDistance != this.lastLodRenderDistance
+                || settings.lodMaxDistance != this.lastLodMaxDistance) {
+            this.lastLodEnabled = settings.lodEnabled;
+            this.lastLodRenderDistance = settings.renderDistance;
+            this.lastLodMaxDistance = settings.lodMaxDistance;
+            if (settings.lodEnabled) {
+                opaqueArena.ensureCapacity(LodMesher.estimateOpaqueArenaBytes(
+                        LodConfig.of(settings.renderDistance, settings.lodMaxDistance)));
+            }
+        }
         int uploads = 0;
         LodManager.LodMeshResult result;
         while (uploads < MAX_LOD_UPLOADS_PER_FRAME && (result = this.lodManager.pollResult()) != null) {

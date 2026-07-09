@@ -114,14 +114,15 @@ public final class LodMesher {
      */
     public static long estimateOpaqueArenaBytes(LodConfig config) {
         double outer = config.outerRadiusBlocks();
-        int rr = (int) Math.ceil(outer / REGION_BLOCKS);
+        /* Exakt dieselbe Geometrie wie LodManager.recomputeDesired: der Anker liegt im
+           Regionszentrum, Abstände der Regionszentren sind also Vielfache von REGION_BLOCKS;
+           der Rand-Ring zählt über d - HALF_DIAG < outer mit (Kreis-Überlappung). */
+        int rr = (int) Math.ceil((outer + HALF_DIAG) / REGION_BLOCKS);
         long cells = 0;
         for (int rz = -rr; rz <= rr; rz++) {
             for (int rx = -rr; rx <= rr; rx++) {
-                double cx = (rx + 0.5) * REGION_BLOCKS;
-                double cz = (rz + 0.5) * REGION_BLOCKS;
-                double dist = Math.sqrt(cx * cx + cz * cz);
-                if (dist > outer) continue;
+                double dist = Math.sqrt((double) (rx * rx + rz * rz)) * REGION_BLOCKS;
+                if (dist - HALF_DIAG >= outer) continue;
                 int cellsPerRow = REGION_BLOCKS / config.cellSize(config.levelAt(dist));
                 cells += (long) cellsPerRow * cellsPerRow;
             }

@@ -136,6 +136,15 @@ public final class VertexArena {
         }
     }
 
+    /**
+     * Wächst einmalig auf mindestens {@code target} Bytes — statt vieler 1,5x-Schritte mit
+     * jeweils voller GPU-Kopie (z.B. beim Einschalten des LOD zur Laufzeit: sonst wächst die
+     * Arena vom kleinen Floor treppenweise auf den Steady-State hoch).
+     */
+    public void ensureCapacity(long target) {
+        if (target > this.capacity) this.grow(target);
+    }
+
     private Long findFirstFit(long size) {
         for (Map.Entry<Long, Long> entry : this.freeList.entrySet()) {
             if (entry.getValue() >= size) return entry.getKey();
