@@ -64,8 +64,12 @@ public class TextureArray {
 
 		GL30.glGenerateMipmap(GL30.GL_TEXTURE_2D_ARRAY);
 
-		/* The Minecraft look: crisp pixels up close, smooth mip transitions in the distance */
-		GL11.glTexParameteri(GL30.GL_TEXTURE_2D_ARRAY, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST_MIPMAP_LINEAR);
+		/* Nah gestochen scharf (MAG = NEAREST), fern geglättet: Trilinear-Minification
+		   (LINEAR innerhalb der Mip-Stufe UND zwischen den Stufen) statt NEAREST_MIPMAP_LINEAR —
+		   letzteres punkt-sampelt pro Mip und erzeugt bei fernen/schräg gesehenen Flächen ein
+		   schwirrendes Moiré, das auch das (aktive) Aniso-Filtern nicht glätten kann. Der
+		   MAG-Filter bleibt NEAREST, der Nah-Look ändert sich also nicht. */
+		GL11.glTexParameteri(GL30.GL_TEXTURE_2D_ARRAY, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
 		GL11.glTexParameteri(GL30.GL_TEXTURE_2D_ARRAY, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
 		GL11.glTexParameteri(GL30.GL_TEXTURE_2D_ARRAY, GL12.GL_TEXTURE_MAX_LEVEL, 4);
 
