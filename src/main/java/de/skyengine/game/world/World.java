@@ -107,6 +107,7 @@ public class World implements IInitializable, IDisposable {
         this.lodManager = new LodManager(new WorldLodDataSource(this.chunkManager, this.generator),
                 new LodBlockAppearance(), this.chunkManager);
         this.chunkRenderer.setLodManager(this.lodManager);
+        this.chunkManager.setLodManager(this.lodManager); // Unload-Gate: erst entladen, wenn LOD deckt
         this.blockEntityRenderer.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderer.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
         this.blockEntityRenderer.init();

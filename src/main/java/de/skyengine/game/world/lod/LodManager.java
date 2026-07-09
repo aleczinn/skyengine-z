@@ -191,7 +191,10 @@ public class LodManager {
         for (int dz = 0; dz < 4; dz++) {
             for (int dx = 0; dx < 4; dx++) {
                 Chunk chunk = this.chunkManager.getChunk(baseCx + dx, baseCz + dz);
-                if (chunk != null && chunk.status == ChunkStatus.READY && chunk.isFullyUploaded()) {
+                /* pendingUnload zählt als abwesend: die Region un-clippt die Zelle, BEVOR der
+                   Chunk wirklich verschwindet (symmetrisches Gegenstück zum Upload-Gate). */
+                if (chunk != null && chunk.status == ChunkStatus.READY && chunk.isFullyUploaded()
+                        && !chunk.pendingUnload) {
                     mask |= 1 << (dz * 4 + dx);
                 }
             }
@@ -272,5 +275,21 @@ public class LodManager {
     /** true, solange die Region gewünscht ist — der Renderer räumt Meshes ab, sobald false. */
     public boolean isDesiredKey(long key) {
         return this.desired.containsKey(key);
+    }
+
+    /**
+     * true, wenn der Chunk ohne sichtbares Loch entladen werden kann: das hochgeladene
+     * LOD-Mesh zeigt seine Zelle bereits (Bit ungesetzt = ungeclippt) oder dort ist kein
+     * LOD gewünscht (Region außerhalb / LOD aus → desired leer). Die Epoche wird bewusst
+     * ignoriert — current.mask beschreibt immer das Mesh auf dem Schirm, auch über
+     * Epoch-Wechsel hinweg (stale Ergebnisse werden nie hochgeladen).
+     */
+    public boolean coversChunk(int cx, int cz) {
+        long key = key(Math.floorDiv(cx, 4), Math.floorDiv(cz, 4));
+        if (!this.desired.containsKey(key)) return true;
+        Current c = this.current.get(key);
+        if (c == null) return false; // erster Upload der Region steht noch aus
+        int bit = Math.floorMod(cz, 4) * 4 + Math.floorMod(cx, 4);
+        return (c.mask & (1 << bit)) == 0;
     }
 }
