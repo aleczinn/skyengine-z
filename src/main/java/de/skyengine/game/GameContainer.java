@@ -648,6 +648,11 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             GameSettings.get().fog = !GameSettings.get().fog;
             this.logger.debug("Fog: " + GameSettings.get().fog);
         }
+        /* NoClip nur im Flugmodus (toggleNoClip prüft selbst); Log zeigt den echten Zustand */
+        if (input.isKeyPressed(GLFW.GLFW_KEY_V)) {
+            this.player.toggleNoClip();
+            this.logger.debug("NoClip: " + this.player.isNoClip());
+        }
         if (input.isKeyPressed(GLFW.GLFW_KEY_G)) {
             this.player.setGamemode(this.player.getGamemode().next());
             this.logger.debug("Gamemode: " + this.player.getGamemode());

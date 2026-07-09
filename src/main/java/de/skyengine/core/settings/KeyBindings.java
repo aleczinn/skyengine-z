@@ -29,7 +29,7 @@ public final class KeyBindings {
         m.put(OPEN_INVENTORY, GLFW.GLFW_KEY_E);
         m.put(DROP, GLFW.GLFW_KEY_Q);
         m.put(FLY, GLFW.GLFW_KEY_F);
-        m.put(NOCLIP, GLFW.GLFW_KEY_N);
+        m.put(NOCLIP, GLFW.GLFW_KEY_V);
         m.put(AMBIENT_OCCLUSION, GLFW.GLFW_KEY_O);
         m.put(LOD, GLFW.GLFW_KEY_L);
         for (int i = 1; i <= 9; i++) {
