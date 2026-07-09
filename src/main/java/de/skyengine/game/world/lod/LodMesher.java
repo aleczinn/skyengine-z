@@ -98,6 +98,37 @@ public final class LodMesher {
         return Math.min(BASE_SKIRT << level, MAX_SKIRT);
     }
 
+    /* Empirisch (gemessen bei RD=16/lodMax=128, ~3300 Regionen): im Schnitt ~1,5 Quads je
+       LOD-Zelle (Boden-Top + gelegentliche Wand zu niedrigeren Nachbarn). Der Aufschlag auf
+       1,75 deckt wand-reiches (bergiges) Terrain und die erste Füllung ohne Grow ab. */
+    private static final float QUADS_PER_CELL = 1.75F;
+
+    /**
+     * Schätzt die für die LOD-OPAQUE-Arena nötige Bytemenge aus der Ring-Konfiguration, damit
+     * der {@link de.skyengine.graphics.world.ChunkRenderer} die Arena gleich groß genug anlegt
+     * (kein Treppen-Wachstum beim Start → weniger NVIDIA-0x20072-Warnungen; die Arena wächst bei
+     * Bedarf trotzdem weiter). Iteriert das Regionsraster im Außenradius und summiert die Zellen
+     * je Region ((REGION_BLOCKS/2^level)²) über dieselbe pure {@link LodConfig#levelAt}-Formel wie
+     * der Mesher. Skaliert damit automatisch mit renderDistance/lodMaxDistance. Reine Schätzung.
+     */
+    public static long estimateOpaqueArenaBytes(LodConfig config) {
+        double outer = config.outerRadiusBlocks();
+        int rr = (int) Math.ceil(outer / REGION_BLOCKS);
+        long cells = 0;
+        for (int rz = -rr; rz <= rr; rz++) {
+            for (int rx = -rr; rx <= rr; rx++) {
+                double cx = (rx + 0.5) * REGION_BLOCKS;
+                double cz = (rz + 0.5) * REGION_BLOCKS;
+                double dist = Math.sqrt(cx * cx + cz * cz);
+                if (dist > outer) continue;
+                int cellsPerRow = REGION_BLOCKS / config.cellSize(config.levelAt(dist));
+                cells += (long) cellsPerRow * cellsPerRow;
+            }
+        }
+        long quads = (long) (cells * QUADS_PER_CELL);
+        return quads * QUAD_INTS * Integer.BYTES;
+    }
+
     /**
      * Mesht eine Region. Worker-Thread, reine Daten, kein GL.
      *
