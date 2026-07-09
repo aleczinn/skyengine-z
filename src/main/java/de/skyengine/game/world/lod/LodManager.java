@@ -71,7 +71,8 @@ public class LodManager {
     /* Worker -> Render-Thread */
     private final ConcurrentLinkedQueue<LodMeshResult> results = new ConcurrentLinkedQueue<>();
 
-    /* Settings-Epoche: rd-/lodMaxDistance-/Toggle-Änderung entwertet alle gebauten Meshes */
+    /* Settings-Epoche: rd-/lodMaxDistance-/LOD-Toggle-/AO-Toggle-Änderung entwertet alle
+       gebauten Meshes (AO steckt fest im LOD-Mesh, muss also neu gebaut werden) */
     private int epoch = 0;
 
     /* Ring-Konfiguration der aktuellen Epoche — wird den Mesh-Jobs mitgegeben */
@@ -83,6 +84,7 @@ public class LodManager {
     /* Zustand der letzten Desired-Berechnung */
     private int lastRenderDistance = -1, lastLodMaxDistance = -1;
     private boolean lastEnabled = true;
+    private boolean lastAmbientOcclusion = true;
 
     /* Spieler-Chunk (aktuell) — Zentrum der Masken-Scan-Zone */
     private int pcx, pcz;
@@ -107,12 +109,13 @@ public class LodManager {
         boolean enabled = settings.lodEnabled;
         int rd = settings.renderDistance;
         int lodMax = settings.lodMaxDistance;
+        boolean ao = settings.ambientOcclusion;
 
         this.pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.pcz = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
 
         boolean settingsChanged = enabled != this.lastEnabled || rd != this.lastRenderDistance
-                || lodMax != this.lastLodMaxDistance;
+                || lodMax != this.lastLodMaxDistance || ao != this.lastAmbientOcclusion;
         if (settingsChanged) {
             this.epoch++; // alle Meshes entwertet (Ringe verschoben)
             this.config = LodConfig.of(rd, lodMax);
@@ -131,6 +134,7 @@ public class LodManager {
             this.lastEnabled = enabled;
             this.lastRenderDistance = rd;
             this.lastLodMaxDistance = lodMax;
+            this.lastAmbientOcclusion = ao;
         }
 
         if (!this.desired.isEmpty()) this.submitPass();

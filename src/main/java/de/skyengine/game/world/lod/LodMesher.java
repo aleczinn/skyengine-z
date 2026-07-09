@@ -1,5 +1,6 @@
 package de.skyengine.game.world.lod;
 
+import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.chunk.ChunkMesher;
@@ -200,6 +201,10 @@ public final class LodMesher {
            durch das transluzente Wasser sichtbar). Merge nur bei uniformem UND gleichem AO —
            wie im ChunkMesher-Greedy: uneinheitliche Zellen einzeln mit per-Ecke-AO, sonst
            interpoliert die GPU die Eckwerte als lange Gradient-Bänder über den Run. */
+        /* AO aus (Setting): neutral hell (1.0) + frei mergen nach Block+Höhe — exakt wie im
+           ChunkMesher (aoIdx 3 = 1.0), damit der Look über die LOD-Grenze konsistent bleibt.
+           Live gelesen; der LodManager bumpt bei AO-Toggle die Epoche → alle Regionen neu. */
+        boolean useAo = GameSettings.get().ambientOcclusion;
         int maxRun = Math.max(1, MAX_MERGE_BLOCKS / s);
         for (int cz = 0; cz < n; cz++) {
             int cx = 0;
@@ -210,15 +215,22 @@ public final class LodMesher {
                 }
                 long g = this.groundCell(cx, cz);
                 float top = this.topOf(g);
-                float[] ao = this.aoScratch;
-                this.computeCellAo(cx, cz, top, ao);
-                boolean uniform = ao[0] == ao[1] && ao[1] == ao[2] && ao[2] == ao[3];
+                float[] ao;
+                boolean uniform;
+                if (useAo) {
+                    ao = this.aoScratch;
+                    this.computeCellAo(cx, cz, top, ao);
+                    uniform = ao[0] == ao[1] && ao[1] == ao[2] && ao[2] == ao[3];
+                } else {
+                    ao = AO_NONE;
+                    uniform = true;
+                }
 
                 int run = 1;
                 if (uniform) {
                     while (cx + run < n && run < maxRun && !this.clipped[cz * n + cx + run]
                             && this.groundCell(cx + run, cz) == g
-                            && this.cellAoUniform(cx + run, cz, top, ao[0])) run++;
+                            && (!useAo || this.cellAoUniform(cx + run, cz, top, ao[0]))) run++;
                 }
                 this.emitTop(LodDataSource.block(g), ao, cx * s, cz * s, (cx + run) * s, (cz + 1) * s, top);
                 cx += run;
