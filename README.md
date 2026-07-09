@@ -77,6 +77,10 @@ Der Fokus liegt auf:
 
 ## Screenshots
 
+v0.0.7 | Distanz-Nebel (auch bei LOD)
+
+![Ingame Screenshot mit Nebel-Effekt](project/0.0.7_fog.png?raw=true)
+
 v0.0.7 | Level of Detail V2 (LOD nun in eigenen Vertex Arenen, Ambient Occlusion, supportet nun Transparenz für Wasser)
 
 ![Ingame Screenshot mit verbessertem Level of Detail](project/0.0.7_level-of-detail-v2.png?raw=true)
