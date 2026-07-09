@@ -2,12 +2,14 @@ package de.skyengine.graphics.world;
 
 import de.skyengine.core.SkyEngine;
 import de.skyengine.core.EngineProperties;
+import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.lod.LodConfig;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.LodMesher;
 import de.skyengine.graphics.GlDebug;
@@ -160,14 +162,25 @@ public class ChunkRenderer {
         this.textures.regenerateMipmaps();
         this.lastAnimNanos = System.nanoTime();
 
-        /* Arenen: OPAQUE trägt das Terrain (~70-100 MB bei Sichtweite 16 — großzügig, damit
-           das Wachstum im Normalbetrieb entfällt), CUTOUT/TRANSLUCENT sind deutlich kleiner. */
+        /* Arenen großzügig nahe am Steady-State starten, damit das Wachstum im Normalbetrieb
+           entfällt (jeder Grow = neuer Buffer + Voll-Kopie + NVIDIA-0x20072-Warnung). OPAQUE
+           trägt das Terrain (~70-100 MB bei Sichtweite 16); CUTOUT (Gras-Seiten-Overlays)
+           erreicht bei voller Sichtweite ~60 MB — sonst wächst es beim Start mehrfach hoch. */
         this.arenas[RenderLayer.OPAQUE.ordinal()] = new VertexArena("VertexArena OPAQUE", 96L * 1024 * 1024);
-        this.arenas[RenderLayer.CUTOUT.ordinal()] = new VertexArena("VertexArena CUTOUT", 8L * 1024 * 1024);
+        this.arenas[RenderLayer.CUTOUT.ordinal()] = new VertexArena("VertexArena CUTOUT", 64L * 1024 * 1024);
         this.arenas[RenderLayer.TRANSLUCENT.ordinal()] = new VertexArena("VertexArena TRANSLUCENT", 8L * 1024 * 1024);
-        /* Eigene, deutlich kleinere Arenen für LOD (Regionsgeometrie ist gegenüber echtem
-           Terrain gering) — volle Isolation von Section-Meshes, wächst bei Bedarf wie oben. */
-        this.arenas[LOD_OPAQUE] = new VertexArena("VertexArena LOD-OPAQUE", 8L * 1024 * 1024);
+        /* Eigene Arenen für LOD (volle Isolation von Section-Meshes). LOD-OPAQUE (Boden +
+           Wände der Clipmap-Ringe) skaliert stark mit lodMaxDistance (bei Default RD=16/
+           lodMax=128 real ~190 MB) — Startgröße daher aus der Ring-Konfiguration schätzen,
+           statt einer festen Zahl, die entweder VRAM verschwendet oder mehrfach nachwächst.
+           Deckel nach unten auf 8 MB (kleine Sichtweiten / LOD aus). Wächst bei Bedarf weiter. */
+        GameSettings settings = GameSettings.get();
+        long lodOpaqueBytes = 8L * 1024 * 1024;
+        if (settings.lodEnabled) {
+            lodOpaqueBytes = Math.max(lodOpaqueBytes,
+                    LodMesher.estimateOpaqueArenaBytes(LodConfig.of(settings.renderDistance, settings.lodMaxDistance)));
+        }
+        this.arenas[LOD_OPAQUE] = new VertexArena("VertexArena LOD-OPAQUE", lodOpaqueBytes);
         this.arenas[LOD_TRANSLUCENT] = new VertexArena("VertexArena LOD-TRANSLUCENT", 2L * 1024 * 1024);
 
         for (int i = 0; i < this.vaos.length; i++) {
