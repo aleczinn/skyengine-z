@@ -36,11 +36,26 @@ public final class FrameProfiler {
         }
     }
 
-    /** CPU-Sektionen (FRAME = gesamtes onRender inkl. Swap). */
+    /**
+     * CPU-Sektionen in Frame-Reihenfolge; FRAME = gesamtes onRender inkl. Swap.
+     * Die Statuszeile weist zusätzlich rest = frame − Σ(übrige) aus, damit
+     * unattributierte Zeit sofort sichtbar bleibt.
+     */
     public enum Cpu {
-        CULL("cull"),
-        WRITE("write"),
-        REMESH("remesh"),
+        CLEAR("clear"),     // FBO-Bind + State-Enables + glClear
+        ANIM("anim"),       // Textur-Animationen (glTexSubImage-Uploads)
+        SYNC("sync"),       // Fence-Wait + Arena-Collect (beginFrame) + Fence-Create (endFrame)
+        UPLOAD("upload"),   // Mesh-/LOD-Upload-Queues + Cleanup-Loops
+        CULL("cull"),       // Frustum-Tests + Listenbau
+        WRITE("write"),     // Command-/Offset-Segmente in den MappedRing
+        GLSUB("glsub"),     // GL-Submission: Binds/Uniforms/MDI-Calls beider Chunk-Pässe
+        REMESH("remesh"),   // ChunkManager.processRemeshes
+        BE("be"),           // BlockEntity-Renderer (iteriert alle Chunks)
+        ENT("ent"),         // Entity-Renderer (iteriert alle Chunks)
+        SORT("sort"),       // Translucent: Section-Sort + Quad-Sort-Budget
+        OVL("ovl"),         // Selection-Box + Crack + Fluid-Overlay
+        GUI("gui"),         // GuiManager (HUD inkl. Item-Icons)
+        SWAP("swap"),       // glfwSwapBuffers (kann im Treiber blocken)
         FRAME("frame");
 
         final String label;
@@ -138,10 +153,19 @@ public final class FrameProfiler {
             gpuSum[g.ordinal()] = 0;
         }
         sb.append(" | CPU[µs]");
+        long attributed = 0;
         for (Cpu c : Cpu.values()) {
-            sb.append(' ').append(c.label).append('=').append(cpuSum[c.ordinal()] / cpuFrames / 1000);
+            if (c == Cpu.FRAME) continue;
+            long avg = cpuSum[c.ordinal()] / cpuFrames / 1000;
+            attributed += cpuSum[c.ordinal()];
+            sb.append(' ').append(c.label).append('=').append(avg);
             cpuSum[c.ordinal()] = 0;
         }
+        long frameAvg = cpuSum[Cpu.FRAME.ordinal()] / cpuFrames / 1000;
+        /* rest = im FRAME enthaltene, aber keiner Sektion zugeordnete Zeit */
+        long restAvg = (cpuSum[Cpu.FRAME.ordinal()] - attributed) / cpuFrames / 1000;
+        sb.append(" | frame=").append(frameAvg).append(" rest=").append(restAvg);
+        cpuSum[Cpu.FRAME.ordinal()] = 0;
         gpuFrames = 0;
         cpuFrames = 0;
         return sb.toString();

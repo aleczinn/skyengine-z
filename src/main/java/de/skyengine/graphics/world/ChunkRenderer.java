@@ -232,13 +232,19 @@ public class ChunkRenderer {
      */
     public void renderSolid(Camera camera) {
         /* 0. Texturanimationen vorrücken (Frame-Tausch, kein Re-Mesh) */
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.ANIM);
         long now = System.nanoTime();
         this.animations.tick(this.textures, (now - this.lastAnimNanos) / 1.0e9);
         this.lastAnimNanos = now;
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.ANIM);
 
         /* 1. Frame-Slot übernehmen: auf den 3 Frames alten Fence warten (i.d.R. längst
            signalisiert) und dann die bis dahin aufgelaufenen Arena-Frees einsammeln. */
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.SYNC);
         this.beginFrame();
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.SYNC);
+
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.UPLOAD);
 
         /* 2a. Prioritäts-Batches (Edit-/Fluid-Remeshes) immer zuerst und vollständig —
            das Volumen ist klein und der Spieler soll seine Änderung sofort sehen. */
@@ -280,6 +286,8 @@ public class ChunkRenderer {
                 }
             }
         }
+
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.UPLOAD);
 
         /* 4. Frustum culling, einmal pro Frame */
         Vector3d cam = camera.getPosition();
@@ -370,6 +378,7 @@ public class ChunkRenderer {
 
         /* 7. Render-Pässe: opaque & cutout (Alpha-Test bei 0.5) — je EIN Draw-Call.
            u_Textures ist einmalig gesetzt (init); Fog lädt nur bei Wertänderung hoch. */
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.GLSUB);
         this.shader.bind();
         this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
         this.setFogUniforms();
@@ -395,6 +404,7 @@ public class ChunkRenderer {
         GL11.glDepthFunc(properties.baseDepthFunc());
 
         this.shader.unbind();
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.GLSUB);
     }
 
     /**
@@ -405,6 +415,8 @@ public class ChunkRenderer {
      */
     public void renderTranslucent(Camera camera) {
         Vector3d cam = camera.getPosition();
+
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.SORT);
 
         /* Nur die Sections mit Translucent-Layer sortieren, nicht die ganze visible-Liste. */
         this.translucentVisible.sort((a, b) -> Double.compare(distanceSq(b, cam), distanceSq(a, cam)));
@@ -417,6 +429,8 @@ public class ChunkRenderer {
             if (this.translucentVisible.get(i).sortTranslucent(cam, translucentArena, this.frameId)) sortBudget--;
         }
         this.ensureVaoBindings();
+
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.SORT);
 
         FrameProfiler.cpuStart(FrameProfiler.Cpu.WRITE);
 
@@ -436,6 +450,7 @@ public class ChunkRenderer {
            bleiben als Programm-Uniform-State erhalten (die Entity-/BlockEntity-Pässe dazwischen
            nutzen eigene Programme) — kein Re-Upload nötig. Nur die Textur-Unit neu binden,
            die Entity-Renderer binden dort ihre eigenen Texturen. */
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.GLSUB);
         this.shader.bind();
         this.textures.bind(0);
 
@@ -453,9 +468,12 @@ public class ChunkRenderer {
         GL11.glDisable(GL11.GL_BLEND);
 
         this.shader.unbind();
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.GLSUB);
 
         /* Frame-Ende: Fence schützt Ring-Slot und Arena-Regionen dieses Frames */
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.SYNC);
         this.endFrame();
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.SYNC);
     }
 
     /* ------------------------- Frame-Sync ------------------------- */

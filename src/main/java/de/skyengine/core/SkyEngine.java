@@ -61,6 +61,8 @@ public class SkyEngine {
         FrameProfiler.newFrame();
         FrameProfiler.cpuStart(FrameProfiler.Cpu.FRAME);
 
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.CLEAR);
+
         this.window.getFrameBuffer().bind();
 
         GL11.glClearColor(
@@ -81,6 +83,8 @@ public class SkyEngine {
 
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
 
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.CLEAR);
+
         this.game.render(this.input, this.window.getWidth(), this.window.getHeight(), partialTick);
 
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.BLIT);
@@ -92,7 +96,9 @@ public class SkyEngine {
             Screenshot.capture(this.window.getWidth(), this.window.getHeight());
         }
 
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.SWAP);
         GLFW.glfwSwapBuffers(this.window.getWindowID());
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.SWAP);
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.FRAME);
     }

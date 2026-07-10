@@ -30,6 +30,7 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.FluidGeometry;
+import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.gui.ChestScreen;
 import de.skyengine.graphics.gui.GuiManager;
@@ -203,6 +204,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         this.world.render(this.camera, partialTick);
 
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.OVL);
+
         if (this.hit != null && !this.guiManager.isOpen() && this.player.getGamemode().interactsWithWorld()) {
             this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z(),
                     Blocks.getState(this.hit.block()).getOutlineShape());
@@ -218,10 +221,14 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         this.renderFluidOverlay();
 
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
+
         /* Zentrale GUI-Verwaltung: HUD (kein Screen) bzw. Screen-Overlay + Cursor-Sync.
            Im Spectator ist die Hotbar ausgeblendet. */
         boolean showHotbar = this.player.getGamemode() != Gamemode.SPECTATOR;
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
         this.guiManager.render(width, height, this.playerInventory, this.hotbarIndex, showHotbar);
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
     }
 
     /**
