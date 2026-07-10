@@ -2,6 +2,10 @@ package de.skyengine.core;
 
 import org.lwjgl.opengl.GLCapabilities;
 
+import static org.lwjgl.opengl.GL11C.GL_GEQUAL;
+import static org.lwjgl.opengl.GL11C.GL_GREATER;
+import static org.lwjgl.opengl.GL11C.GL_LEQUAL;
+import static org.lwjgl.opengl.GL11C.GL_LESS;
 import static org.lwjgl.opengl.GL11C.glGetInteger;
 import static org.lwjgl.opengl.GL31C.GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT;
 
@@ -62,6 +66,25 @@ public class EngineProperties {
 
     public boolean isUseInverseDepth() {
         return useInverseDepth;
+    }
+
+    /**
+     * Basis-Depth-Func, wie sie {@code SkyEngine.onRender} pro Frame setzt (Reversed-Z:
+     * GREATER, sonst LESS). Muss exakt diese Stelle spiegeln — Renderer nutzen den Wert,
+     * um nach or-equal-Pässen den Basis-Zustand ohne glGetInteger wiederherzustellen
+     * (glGetInteger auf Pipeline-State ist ein synchroner Treiber-Roundtrip pro Frame).
+     */
+    public int baseDepthFunc() {
+        return this.useInverseDepth ? GL_GREATER : GL_LESS;
+    }
+
+    /**
+     * "or-equal"-Variante der Basis-Func (GREATER→GEQUAL, LESS→LEQUAL) für koplanare
+     * Overlays (Gras-Seiten, Selection-Box, Crack, Item-Icons) — Schutzmechanismus für
+     * Reversed-Z, Semantik identisch zum bisherigen switch-Mapping in den Renderern.
+     */
+    public int orEqualDepthFunc() {
+        return this.useInverseDepth ? GL_GEQUAL : GL_LEQUAL;
     }
 
     public boolean isUseSynchronousDebugCallback() {
