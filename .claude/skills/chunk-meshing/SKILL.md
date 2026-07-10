@@ -15,6 +15,10 @@ Puffer werden wiederverwendet; der Chunk-Kontext wird am Ende genullt (kein Leak
   Merge-Schlüssel = `stateId << 2 | AO-Quantisierung` (+1, damit 0 = leer bleibt). Zellen mit
   **uneinheitlichem AO** (Kanten/Ecken) werden einzeln mit per-Vertex-AO emittiert — Greedy merged
   nur uniform helle Flächen. Texturen kacheln über UV > 1 (GL_REPEAT im TextureArray).
+- **Pass 1.5 (Greedy-Wasser-Tops):** flach-stille Fluid-Quell-Tops (Meeresoberfläche) werden pro
+  y-Slice greedy zu großen TRANSLUCENT-Quads gemergt (Kriterium `FluidGeometry.
+  isMergeableFlatStillTop`); die Zellen landen in `mergedWaterTop`, damit `FluidGeometry.build`
+  in Pass 2 ihr Top auslässt (Rest der Fluid-Geometrie bleibt dynamisch).
 - **Pass 2 (klassisch):** alles andere — Fluids (dynamische `FluidGeometry`), Cross, Slabs, Stairs,
   Cubes mit nicht-greedy-fähigen Modellen, plus Seiten-Overlays nicht-greedy-fähiger Blöcke
   (Sicherheitsnetz — der Grasblock-Normalfall läuft in Pass 1 als Einzel-Emission,

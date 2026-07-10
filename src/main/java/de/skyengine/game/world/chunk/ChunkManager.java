@@ -3,6 +3,7 @@ package de.skyengine.game.world.chunk;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
+import de.skyengine.game.world.lod.LodManager;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -28,6 +29,9 @@ public class ChunkManager {
     private final ConcurrentLinkedQueue<MeshBatch> priorityUploadQueue = new ConcurrentLinkedQueue<>();
 
     private int renderDistance = 16; // in chunks
+
+    /* Unload-Gate: sichtbare Chunks erst entladen, wenn das LOD ihre Zelle deckt. null = Gate aus. */
+    private LodManager lodManager;
 
     /* Debug: friert Laden/Generieren/Unload ein (Remeshes von Spieler-Edits laufen weiter).
        volatile nur der Sichtbarkeit halber — gelesen wird auf dem Tick-/Render-Thread. */
@@ -255,15 +259,31 @@ public class ChunkManager {
            (GENERATING/DECORATING/MESHING) bleiben, bis sie fertig sind,
            sonst arbeiten Worker auf entfernten Chunks. */
         int unloadDist = this.renderDistance + 2;
+        /* Notventil: jenseits davon wird bedingungslos entladen — pendingUnload-Chunks können
+           sich bei schnellem Flug nicht unbegrenzt ansammeln, wenn das LOD hinterherhinkt. */
+        int hardDist = unloadDist + 4;
         Iterator<Map.Entry<Long, Chunk>> it = this.chunks.entrySet().iterator();
         while (it.hasNext()) {
             Chunk chunk = it.next().getValue();
             int dx = chunk.chunkX - pcx, dz = chunk.chunkZ - pcz;
-            if (dx * dx + dz * dz <= unloadDist * unloadDist) continue;
+            int d2 = dx * dx + dz * dz;
+            if (d2 <= unloadDist * unloadDist) {
+                chunk.pendingUnload = false; // wieder im Radius → Gate zurücksetzen
+                continue;
+            }
 
             ChunkStatus status = chunk.status;
             if (status == ChunkStatus.READY || status == ChunkStatus.DECORATED
                     || status == ChunkStatus.GENERATED || status == ChunkStatus.NEW) {
+                /* Sichtbare Chunks (alle Sections auf dem Schirm) erst entfernen, wenn das
+                   hochgeladene LOD-Mesh die Zelle deckt — sonst reißt ein Loch auf, bis der
+                   Region-Remesh durch ist. Nicht (voll) hochgeladene Chunks waren nie in
+                   einer LOD-Maske geclippt und dürfen sofort weg. */
+                if (chunk.isFullyUploaded() && d2 <= hardDist * hardDist
+                        && this.lodManager != null && !this.lodManager.coversChunk(chunk.chunkX, chunk.chunkZ)) {
+                    chunk.pendingUnload = true; // computeMask behandelt ihn ab jetzt als abwesend
+                    continue;
+                }
                 it.remove();
                 /* Renderer disposes the GL meshes when it notices the chunk is gone */
             }
@@ -393,6 +413,10 @@ public class ChunkManager {
     public void setRenderDistance(int renderDistance) {
         this.renderDistance = Math.max(2, renderDistance);
         /* loadOrder wird beim nächsten update() automatisch neu berechnet */
+    }
+
+    public void setLodManager(LodManager lodManager) {
+        this.lodManager = lodManager;
     }
 
     public void dispose() {

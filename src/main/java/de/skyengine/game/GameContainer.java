@@ -644,6 +644,11 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 this.lastSpacePressTime = now;
             }
         }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_V)) {
+            GameSettings.get().fog = !GameSettings.get().fog;
+            this.logger.debug("Fog: " + GameSettings.get().fog);
+        }
+        /* NoClip nur im Flugmodus (toggleNoClip prüft selbst); Log zeigt den echten Zustand */
         if (input.isKeyPressed(GLFW.GLFW_KEY_N)) {
             this.player.toggleNoClip();
             this.logger.debug("NoClip: " + this.player.isNoClip());
@@ -721,7 +726,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         }
         if (input.isKeyPressed(this.settings.key(KeyBindings.AMBIENT_OCCLUSION))) {
             this.settings.ambientOcclusion = !this.settings.ambientOcclusion;
-            /* AO steckt im gebackenen Mesh -> alle Chunks progressiv neu meshen */
+            /* AO steckt im gebackenen Mesh -> alle Chunks progressiv neu meshen
+               (LOD zieht via Epoche im nächsten LodManager-Tick selbst nach) */
             this.world.getChunkManager().remeshAll();
             this.logger.debug("Ambient Occlusion: " + (this.settings.ambientOcclusion ? "an" : "aus"));
             changed = true;

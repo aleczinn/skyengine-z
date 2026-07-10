@@ -36,7 +36,8 @@ Race-Fenstern und GL-State ist das die teuerste Verwechslung im Projekt.
 | F8 | Alle Chunks verwerfen und neu laden (Determinismus-Check!) |
 | P | Chunk-Loading/-Unload einfrieren (Edit-Remeshes laufen weiter; friert auch LOD-Desired ein) |
 | G | Gamemode durchschalten (Survival/Creative/Spectator) |
-| N | NoClip; Doppel-Leertaste = Fliegen |
+| N | Distanz-Fog an/aus |
+| V | NoClip (nur im Flugmodus wirksam); Doppel-Leertaste = Fliegen togglen |
 | − / = | Render-Distanz; [ / ] GUI-Scale; F11 Fullscreen |
 | KeyBindings.AMBIENT_OCCLUSION / .LOD | AO-Toggle (remeshAll) / LOD-Toggle (Epoche) |
 

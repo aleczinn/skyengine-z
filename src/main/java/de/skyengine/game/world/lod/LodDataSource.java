@@ -21,6 +21,15 @@ public interface LodDataSource {
      */
     long sampleSurface(int x, int z, int size);
 
+    /**
+     * Boden-Sample einer Zelle: wie {@link #sampleSurface}, aber ohne Wasser — liefert auch
+     * unter Wasser den festen Boden (fuer das Terrain unter LOD-Wasserflaechen). Default:
+     * identisch zur Oberflaeche (Quellen ohne Wasser-Kenntnis).
+     */
+    default long sampleGround(int x, int z, int size) {
+        return this.sampleSurface(x, z, size);
+    }
+
     /** Biome-Grasfarbe an Weltposition (fuer GRASS-getintete LOD-Zellen). Default: Platzhalter. */
     default int grassTintAt(int x, int z) {
         return Tints.GRASS;
