@@ -4,7 +4,9 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.RenderLayer;
+import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.block.model.BakedQuad;
+import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.state.BlockState;
 
 import java.util.Arrays;
@@ -87,6 +89,9 @@ public class ChunkMesher {
     private final int[] blockSnapshot = new int[ChunkSection.VOLUME];
     /* Merge-Grid einer Slice: 0 = leer/schon emittiert, sonst Merge-Schlüssel */
     private final long[] keyGrid = new long[ChunkSection.SIZE * ChunkSection.SIZE];
+    /* Markiert Fluid-Zellen, deren flach-stilles Top-Face der gemergte Wasser-Pass schon
+       emittiert hat -> Pass 2 (FluidGeometry.build) lässt dort den Top aus. Pro mesh() neu. */
+    private final boolean[] mergedWaterTop = new boolean[ChunkSection.VOLUME];
     /* Wiederverwendete Zellkoordinate (Achsen-indiziert) */
     private final int[] cellPos = new int[3];
     private final float[] vertPos = new float[3];
@@ -152,6 +157,10 @@ public class ChunkMesher {
         /* Pass 1: Greedy Meshing für opake Full-Cube-Faces */
         this.greedyPass(baseY);
 
+        /* Pass 1.5: flach-stille Wasser-Tops (Meeresoberfläche) greedy zu großen TRANSLUCENT-Quads
+           zusammenfassen; markiert die betroffenen Zellen für Pass 2. */
+        this.waterTopPass(baseY);
+
         /* Pass 2: alles andere (Fluids, Cross, Slabs, Stairs, ... sowie Cubes mit un-greedy-baren
            Modellen) über den klassischen Pfad */
         for (int y = 0; y < ChunkSection.SIZE; y++) {
@@ -165,9 +174,11 @@ public class ChunkMesher {
                     int worldY = baseY + y;
 
                     /* Fluids: Geometrie hängt von Nachbar-Leveln ab -> dynamisch statt gebackenes Modell.
-                       Die Diagonal-Chunks braucht nur die Fluid-Eckhöhe an Chunk-Ecken. */
+                       Die Diagonal-Chunks braucht nur die Fluid-Eckhöhe an Chunk-Ecken. Ein bereits
+                       im Wasser-Pass gemergtes flach-stilles Top wird hier ausgelassen. */
                     BakedQuad[] quads = state.isFluid()
-                            ? FluidGeometry.build(state, chunk, north, south, west, east, diagonals, x, worldY, z)
+                            ? FluidGeometry.build(state, chunk, north, south, west, east, diagonals, x, worldY, z,
+                                    this.mergedWaterTop[snapIndex(x, y, z)])
                             : state.getModel();
                     if (quads.length == 0) continue;
 
@@ -363,6 +374,93 @@ public class ChunkMesher {
             float v = verts[i + 4] * (uAlongT1 ? h : w);
             putVertex(buffer, p[0], p[1], p[2], u, v, quad.textureLayer(), r, g, bl);
         }
+    }
+
+    /**
+     * Pass 1.5: fasst benachbarte, flach-stille Fluid-Quell-Tops (typisch die Meeresoberfläche)
+     * pro y-Slice zu großen Quads zusammen (Textur kachelt über UV &gt; 1, wie im Greedy-Pass) und
+     * emittiert sie in den TRANSLUCENT-Layer. Merge-Schlüssel = State-ID (trennt Wasser/Lava und
+     * unterschiedliche Level automatisch — mergefähig ist ohnehin nur Level 0). Betroffene Zellen
+     * werden in {@link #mergedWaterTop} markiert, damit {@link FluidGeometry#build} ihr Top auslässt.
+     * Boden, Seiten und fließende/schräge Tops bleiben in Pass 2.
+     */
+    private void waterTopPass(int baseY) {
+        Arrays.fill(this.mergedWaterTop, false);
+        VertexBuffer buffer = this.buffers[RenderLayer.TRANSLUCENT.ordinal()];
+        long[] grid = this.keyGrid;
+        int size = ChunkSection.SIZE;
+
+        for (int y = 0; y < size; y++) {
+            int worldY = baseY + y;
+            Arrays.fill(grid, 0L);
+            boolean any = false;
+
+            /* Mergefähige flach-stille Tops der Slice einsammeln */
+            for (int z = 0; z < size; z++) {
+                for (int x = 0; x < size; x++) {
+                    int stateId = this.blockSnapshot[snapIndex(x, y, z)];
+                    if (stateId == Blocks.AIR) continue;
+                    BlockState state = BlockRegistry.getState(stateId);
+                    if (!state.isFluid()) continue;
+                    if (!FluidGeometry.isMergeableFlatStillTop(state, this.chunk, this.north, this.south,
+                            this.west, this.east, this.diagonals, x, worldY, z)) continue;
+                    grid[z << ChunkSection.SHIFT | x] = ((long) stateId) + 1L; // +1: 0 bleibt „leer"
+                    this.mergedWaterTop[snapIndex(x, y, z)] = true;
+                    any = true;
+                }
+            }
+            if (!any) continue;
+
+            /* Mergen: Breite zuerst, dann Höhe (klassisches Greedy, s. greedyPass) */
+            for (int z = 0; z < size; z++) {
+                for (int x = 0; x < size; x++) {
+                    long key = grid[z << ChunkSection.SHIFT | x];
+                    if (key == 0L) continue;
+
+                    int w = 1;
+                    while (x + w < size && grid[z << ChunkSection.SHIFT | (x + w)] == key) w++;
+
+                    int h = 1;
+                    expand:
+                    while (z + h < size) {
+                        for (int i = 0; i < w; i++) {
+                            if (grid[(z + h) << ChunkSection.SHIFT | (x + i)] != key) break expand;
+                        }
+                        h++;
+                    }
+
+                    for (int j = 0; j < h; j++) {
+                        for (int i = 0; i < w; i++) grid[(z + j) << ChunkSection.SHIFT | (x + i)] = 0L;
+                    }
+
+                    this.emitWaterTop(buffer, (int) (key - 1L), x, y, z, w, h);
+                    x += w - 1;
+                }
+            }
+        }
+    }
+
+    /**
+     * Emittiert ein flach-stilles Wasser-Top als w×h-Quad auf {@link FluidGeometry#SOURCE_HEIGHT}.
+     * Winding/UV wie das Einzel-Top in {@link FluidGeometry}: A(0,0) B(0,h) C(w,h) D(w,0), Still-
+     * Textur pro Block gekachelt. NO_CULL-Charakter — kein AO (volle Face-Helligkeit).
+     */
+    private void emitWaterTop(VertexBuffer buffer, int stateId, int x, int localY, int z, int w, int h) {
+        BlockState state = BlockRegistry.getState(stateId);
+        FluidInfo info = state.getBlock().getFluidInfo();
+        int layer = info.stillLayer;
+        int tint = info.lava ? BakedQuad.WHITE : FluidGeometry.WATER_TINT;
+        float brightness = BlockModels.FACE_BRIGHTNESS[0];
+        float r = brightness * ((tint >> 16) & 0xFF) / 255F;
+        float g = brightness * ((tint >> 8) & 0xFF) / 255F;
+        float b = brightness * (tint & 0xFF) / 255F;
+        float y = localY + FluidGeometry.SOURCE_HEIGHT;
+
+        buffer.ensure(4 * VERTEX_SIZE);
+        putVertex(buffer, x, y, z, 0F, 0F, layer, r, g, b);
+        putVertex(buffer, x, y, z + h, 0F, h, layer, r, g, b);
+        putVertex(buffer, x + w, y, z + h, w, h, layer, r, g, b);
+        putVertex(buffer, x + w, y, z, w, 0F, layer, r, g, b);
     }
 
     /**

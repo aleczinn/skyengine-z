@@ -39,10 +39,20 @@ public final class WorldLodDataSource implements LodDataSource {
     public long sampleSurface(int x, int z, int size) {
         int cx = x + size / 2, cz = z + size / 2;
         if (size <= CHUNK_SAMPLING_MAX_STRIDE) {
-            long sample = this.sampleFromChunk(cx, cz);
+            long sample = this.sampleFromChunk(cx, cz, false);
             if (sample != MISS) return sample;
         }
         return this.generator.sampleSurface(cx, cz);
+    }
+
+    @Override
+    public long sampleGround(int x, int z, int size) {
+        int cx = x + size / 2, cz = z + size / 2;
+        if (size <= CHUNK_SAMPLING_MAX_STRIDE) {
+            long sample = this.sampleFromChunk(cx, cz, true);
+            if (sample != MISS) return sample;
+        }
+        return this.generator.sampleGroundSurface(cx, cz);
     }
 
     @Override
@@ -57,13 +67,15 @@ public final class WorldLodDataSource implements LodDataSource {
 
     /**
      * Spaltenscan von oben: erster Block, der Fluid oder solide ist (Vegetation/Luft wird
-     * übersprungen). Nur Chunks mit vollständigem Terrain (mindestens GENERATED).
+     * übersprungen); mit {@code skipFluids} wird auch Fluid übersprungen und der erste
+     * SOLIDE Block geliefert (fester Boden unter Wasser). Nur Chunks mit vollständigem
+     * Terrain (mindestens GENERATED).
      *
      * <p>Liest die Paletten bewusst OHNE Lock (Worker-Thread): einzelne verrissene Samples
      * sind transient und werden beim nächsten Remesh korrigiert; Edits passieren ohnehin nur
      * in READY-Chunks, deren Zellen die LOD-Maske ausblendet.
      */
-    private long sampleFromChunk(int x, int z) {
+    private long sampleFromChunk(int x, int z, boolean skipFluids) {
         Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
         if (chunk == null) return MISS;
         if (!chunk.status.isAtLeast(ChunkStatus.GENERATED)) {
@@ -78,7 +90,7 @@ public final class WorldLodDataSource implements LodDataSource {
                 int id = section.getBlock(lx, ly, lz);
                 if (id == Blocks.AIR) continue;
                 BlockState state = Blocks.getState(id);
-                if (state.isFluid() || state.isSolid()) {
+                if (state.isSolid() || (!skipFluids && state.isFluid())) {
                     return LodDataSource.pack(id, (si << ChunkSection.SHIFT) + ly);
                 }
             }

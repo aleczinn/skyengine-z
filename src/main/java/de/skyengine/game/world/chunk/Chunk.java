@@ -17,7 +17,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class Chunk {
 
     public static final int HEIGHT = 512;
-    public static final int SECTIONS = HEIGHT / ChunkSection.SIZE; // 16
+    public static final int SECTIONS = HEIGHT / ChunkSection.SIZE;
 
     public final int chunkX, chunkZ;
     private final ChunkSection[] sections = new ChunkSection[SECTIONS];
@@ -44,6 +44,10 @@ public class Chunk {
        wartet darauf, sonst reißt sie Löcher vor dem Upload). Nur der Render-Thread schreibt
        (applyBatch), gelesen wird auf demselben Thread — keine Synchronisation nötig. */
     private int uploadedSections;
+
+    /* Unload-Gate: Chunk liegt außerhalb der Unload-Distanz, wartet aber, bis das LOD
+       seine Zelle deckt (symmetrisch zum Lade-Gate der LOD-Maske). Nur Tick-Thread. */
+    public boolean pendingUnload;
 
     /* Schützt die Section-Container (PalettedContainer + sections[]-Allokation) gegen
        gleichzeitige Worker-Mesh-Reads und Render-Thread-Writes. Mesh-Jobs nehmen den

@@ -60,6 +60,10 @@ die Flow-Textur entlang der Fließrichtung rotiert (Vanilla `getFlow`-Formel —
 ableiten, die kippen neben Wänden ins Diagonale). Dieselbe Formel existiert bewusst dupliziert
 Welt-basiert in `FluidBehavior.flowVector` (Entity-Strömung, `Entity`-Push) — beide synchron halten.
 Wasser wird per `WATER_TINT 0x4076E6` eingefärbt (Texturen sind grau), Lava neutral.
+**Greedy-Kopplung:** flach-stille Quell-Tops merged der ChunkMesher in einem eigenen Pass 1.5
+greedy zu großen TRANSLUCENT-Quads (`FluidGeometry.isMergeableFlatStillTop` + Markierung in
+`mergedWaterTop`, damit `FluidGeometry.build` das Top auslässt — s. chunk-meshing); im LOD
+meshen Fluid-Flächen vollständig greedy und rendern transluzent (s. lod-system).
 Eimer: `BucketItem` + `GameContainer.handleBucket` (leerer Eimer nutzt einen fluid-bewussten
 Raycast; der normale Raycast ignoriert Fluids). Unterwasser-Overlay: `renderFluidOverlay`.
 

@@ -40,7 +40,7 @@ public class LodManager {
 
     /** Fertiges Regionen-Mesh (Worker → Render-Thread). Leere data = Region komplett geclippt. */
     public record LodMeshResult(int level, int rx, int rz, int epoch, int mask, int yBase,
-                                int[] data, float minY, float maxY) {}
+                                int[] opaqueData, int[] translucentData, float minY, float maxY) {}
 
     /* Stand einer hochgeladenen Region: Level + Settings-Epoche + Chunk-Maske des Meshes */
     private record Current(int level, int epoch, int mask) {}
@@ -71,7 +71,8 @@ public class LodManager {
     /* Worker -> Render-Thread */
     private final ConcurrentLinkedQueue<LodMeshResult> results = new ConcurrentLinkedQueue<>();
 
-    /* Settings-Epoche: rd-/lodMaxDistance-/Toggle-Änderung entwertet alle gebauten Meshes */
+    /* Settings-Epoche: rd-/lodMaxDistance-/LOD-Toggle-/AO-Toggle-Änderung entwertet alle
+       gebauten Meshes (AO steckt fest im LOD-Mesh, muss also neu gebaut werden) */
     private int epoch = 0;
 
     /* Ring-Konfiguration der aktuellen Epoche — wird den Mesh-Jobs mitgegeben */
@@ -83,6 +84,7 @@ public class LodManager {
     /* Zustand der letzten Desired-Berechnung */
     private int lastRenderDistance = -1, lastLodMaxDistance = -1;
     private boolean lastEnabled = true;
+    private boolean lastAmbientOcclusion = true;
 
     /* Spieler-Chunk (aktuell) — Zentrum der Masken-Scan-Zone */
     private int pcx, pcz;
@@ -107,12 +109,13 @@ public class LodManager {
         boolean enabled = settings.lodEnabled;
         int rd = settings.renderDistance;
         int lodMax = settings.lodMaxDistance;
+        boolean ao = settings.ambientOcclusion;
 
         this.pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.pcz = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
 
         boolean settingsChanged = enabled != this.lastEnabled || rd != this.lastRenderDistance
-                || lodMax != this.lastLodMaxDistance;
+                || lodMax != this.lastLodMaxDistance || ao != this.lastAmbientOcclusion;
         if (settingsChanged) {
             this.epoch++; // alle Meshes entwertet (Ringe verschoben)
             this.config = LodConfig.of(rd, lodMax);
@@ -131,6 +134,7 @@ public class LodManager {
             this.lastEnabled = enabled;
             this.lastRenderDistance = rd;
             this.lastLodMaxDistance = lodMax;
+            this.lastAmbientOcclusion = ao;
         }
 
         if (!this.desired.isEmpty()) this.submitPass();
@@ -187,7 +191,10 @@ public class LodManager {
         for (int dz = 0; dz < 4; dz++) {
             for (int dx = 0; dx < 4; dx++) {
                 Chunk chunk = this.chunkManager.getChunk(baseCx + dx, baseCz + dz);
-                if (chunk != null && chunk.status == ChunkStatus.READY && chunk.isFullyUploaded()) {
+                /* pendingUnload zählt als abwesend: die Region un-clippt die Zelle, BEVOR der
+                   Chunk wirklich verschwindet (symmetrisches Gegenstück zum Upload-Gate). */
+                if (chunk != null && chunk.status == ChunkStatus.READY && chunk.isFullyUploaded()
+                        && !chunk.pendingUnload) {
                     mask |= 1 << (dz * 4 + dx);
                 }
             }
@@ -268,5 +275,21 @@ public class LodManager {
     /** true, solange die Region gewünscht ist — der Renderer räumt Meshes ab, sobald false. */
     public boolean isDesiredKey(long key) {
         return this.desired.containsKey(key);
+    }
+
+    /**
+     * true, wenn der Chunk ohne sichtbares Loch entladen werden kann: das hochgeladene
+     * LOD-Mesh zeigt seine Zelle bereits (Bit ungesetzt = ungeclippt) oder dort ist kein
+     * LOD gewünscht (Region außerhalb / LOD aus → desired leer). Die Epoche wird bewusst
+     * ignoriert — current.mask beschreibt immer das Mesh auf dem Schirm, auch über
+     * Epoch-Wechsel hinweg (stale Ergebnisse werden nie hochgeladen).
+     */
+    public boolean coversChunk(int cx, int cz) {
+        long key = key(Math.floorDiv(cx, 4), Math.floorDiv(cz, 4));
+        if (!this.desired.containsKey(key)) return true;
+        Current c = this.current.get(key);
+        if (c == null) return false; // erster Upload der Region steht noch aus
+        int bit = Math.floorMod(cz, 4) * 4 + Math.floorMod(cx, 4);
+        return (c.mask & (1 << bit)) == 0;
     }
 }
