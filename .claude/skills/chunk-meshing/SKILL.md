@@ -1,6 +1,6 @@
 ---
 name: chunk-meshing
-description: ChunkMesher — Greedy-Meshing-Pass, Ambient Occlusion (inkl. Flip und Shader-Clamp), gepacktes 16-Byte-Vertex-Format, Cull-Regeln, Nachbar-Sampling über Chunk-Grenzen. Lesen vor Änderungen an ChunkMesher, Vertex-Format, AO oder allem, was Quads emittiert.
+description: ChunkMesher — Greedy-Meshing-Pass, Ambient Occlusion (inkl. Flip und Shader-Clamp), gepacktes 20-Byte-Vertex-Format, Cull-Regeln, Nachbar-Sampling über Chunk-Grenzen. Lesen vor Änderungen an ChunkMesher, Vertex-Format, AO oder allem, was Quads emittiert.
 ---
 
 # Chunk-Meshing (ChunkMesher)
@@ -49,14 +49,16 @@ auf Würfeln), muss prüfen, ob der Greedy-Check sie korrekt ablehnt oder korrek
 AO nur für Quads mit gesetztem `cullFace`; NO_CULL-Quads (Cross, Fluids) bleiben voll hell.
 Das AO-Setting wird 1× pro mesh()-Aufruf gelesen (konsistent pro Section).
 
-## Vertex-Format (16 Bytes — Grenzen kennen!)
+## Vertex-Format (20 Bytes — Grenzen kennen!)
 
-4 Ints pro Vertex (`VERTEX_SIZE = 4`), entpackt im Vertex-Shader des ChunkRenderers:
+5 Ints pro Vertex (`VERTEX_SIZE = 5`), entpackt im Vertex-Shader des ChunkRenderers:
 ```
 int0: posX | posY << 16   (u16 fixed 8.8, POS_SCALE=256, Bias +1 Block, section-lokal)
 int1: posZ | u    << 16   (UV fixed 6.10, UV_SCALE=1024, Bias +1)
 int2: v    | layer << 16  (layer = TextureArray-Layer)
 int3: r | g<<8 | b<<16    (Farbe = Helligkeit × AO × Tint)
+int4: reserviert für farbiges Licht (RGB8 + 8 Bit frei) — noch ungenutzt, der Vertex-Shader
+      liest weiterhin nur ein uvec4 (int0..int3); Stride wächst automatisch mit VERTEX_SIZE
 ```
 Konsequenzen: Positionen tragen nur ~−1..+254 Blöcke (deshalb packt das LOD relativ zu `yBase`);
 UVs tragen max. ~63 (deshalb Merge-Deckel im LOD; Section-Greedy bleibt ≤ 32 durch die
