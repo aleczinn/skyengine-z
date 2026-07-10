@@ -12,6 +12,7 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.lod.LodConfig;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.LodMesher;
+import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.color.Color4;
@@ -132,6 +133,14 @@ public class ChunkRenderer {
     private int renderedSections = 0;
     private int totalSections = 0;
 
+    /* Gecachte Uniform-Locations des Chunk-Shaders (erspart Map-Lookups im Hot-Path) */
+    private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogColor;
+
+    /* Zuletzt hochgeladene Fog-Werte: Upload nur bei Änderung (Settings/Clear-Color) —
+       die Werte sind pro Frame konstant, ein Re-Upload pro Pass wäre doppelt umsonst. */
+    private float lastFogStart = Float.NaN, lastFogEnd = Float.NaN;
+    private float lastFogR = -1F, lastFogG = -1F, lastFogB = -1F;
+
     public ChunkRenderer(ChunkManager chunkManager) {
         this.chunkManager = chunkManager;
     }
@@ -157,6 +166,15 @@ public class ChunkRenderer {
                 new Shader(VERTEX_SOURCE, ShaderType.VERTEX),
                 new Shader(FRAGMENT_SOURCE, ShaderType.FRAGMENT)
         );
+        /* Uniform-Locations einmalig cachen; u_Textures ändert sich nie -> einmal setzen */
+        this.locProjectionView = this.shader.getUniformLocation("u_ProjectionView");
+        this.locAlphaCutoff = this.shader.getUniformLocation("u_AlphaCutoff");
+        this.locFogStart = this.shader.getUniformLocation("u_FogStart");
+        this.locFogEnd = this.shader.getUniformLocation("u_FogEnd");
+        this.locFogColor = this.shader.getUniformLocation("u_FogColor");
+        this.shader.bind();
+        this.shader.setUniformi("u_Textures", 0);
+        this.shader.unbind();
         /* Layer-Reihenfolge kommt aus dem Model-Bake (BlockTextures) */
         String[] paths = BlockTextures.getOrderedPaths();
         this.animations = SpriteAnimations.build(paths, TEXTURE_SIZE);
@@ -267,6 +285,8 @@ public class ChunkRenderer {
         Vector3d cam = camera.getPosition();
         int size = ChunkSection.SIZE;
 
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.CULL);
+
         this.visible.clear();
         this.translucentVisible.clear();
         this.totalSections = this.meshes.size();
@@ -298,6 +318,8 @@ public class ChunkRenderer {
         }
         int lodDraws = this.visibleLod.size();
 
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.CULL);
+
         /* 5. Kapazitäten sicherstellen (Uploads können Arenen/EBO gewachsen sein lassen) */
         this.ensureIndexCapacity(this.maxSeenQuads);
         this.ensureVaoBindings();
@@ -322,6 +344,8 @@ public class ChunkRenderer {
                         + MappedRing.align((long) lodDraws * OFFSET_BYTES));
 
         /* 6. Command-/Offset-Segmente für OPAQUE und CUTOUT schreiben */
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.WRITE);
+
         IntBuffer cmds = this.commandRing.intView(this.frameSlot);
         FloatBuffer offs = this.offsetRing.floatView(this.frameSlot);
 
@@ -342,29 +366,33 @@ public class ChunkRenderer {
         this.cmdCursor = cmdCutout + MappedRing.align((long) nCutout * COMMAND_BYTES);
         this.offCursor = offCutout + MappedRing.align((long) nCutout * OFFSET_BYTES);
 
-        /* 7. Render-Pässe: opaque & cutout (Alpha-Test bei 0.5) — je EIN Draw-Call */
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.WRITE);
+
+        /* 7. Render-Pässe: opaque & cutout (Alpha-Test bei 0.5) — je EIN Draw-Call.
+           u_Textures ist einmalig gesetzt (init); Fog lädt nur bei Wertänderung hoch. */
         this.shader.bind();
-        this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
-        this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
         this.setFogUniforms();
         this.textures.bind(0);
 
-        this.shader.setUniformf("u_AlphaCutoff", 0.5F);
+        this.shader.setUniformf(this.locAlphaCutoff, 0.5F);
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.SOLID);
         this.drawSegment(RenderLayer.OPAQUE.ordinal(), cmdOpaque, offOpaque, nOpaque);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.SOLID);
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.LOD_OPAQUE);
         this.drawLodSegment(LOD_OPAQUE, cmdLodOpaque, offLodOpaque, nLodOpaque);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.LOD_OPAQUE);
 
         /* CUTOUT mit "or-equal"-Depth-Func: die koplanaren Gras-Seiten-Overlays (identische
            Vertices wie ihre OPAQUE-Basis-Seite) muessen den Tiefentest exakt gewinnen.
-           Reversed-Z: GREATER -> GEQUAL (Muster wie SelectionBoxRenderer). */
-        int prevDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
-        int orEqualFunc = switch (prevDepthFunc) {
-            case GL11.GL_GREATER -> GL11.GL_GEQUAL;
-            case GL11.GL_LESS -> GL11.GL_LEQUAL;
-            default -> prevDepthFunc;
-        };
-        GL11.glDepthFunc(orEqualFunc);
+           Reversed-Z: GREATER -> GEQUAL. Die Funcs kommen statisch aus EngineProperties
+           statt per glGetInteger (synchroner Treiber-Roundtrip pro Frame). */
+        EngineProperties properties = SkyEngine.get().getWindow().getProperties();
+        GL11.glDepthFunc(properties.orEqualDepthFunc());
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.CUTOUT);
         this.drawSegment(RenderLayer.CUTOUT.ordinal(), cmdCutout, offCutout, nCutout);
-        GL11.glDepthFunc(prevDepthFunc);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.CUTOUT);
+        GL11.glDepthFunc(properties.baseDepthFunc());
 
         this.shader.unbind();
     }
@@ -390,6 +418,8 @@ public class ChunkRenderer {
         }
         this.ensureVaoBindings();
 
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.WRITE);
+
         IntBuffer cmds = this.commandRing.intView(this.frameSlot);
         FloatBuffer offs = this.offsetRing.floatView(this.frameSlot);
         int n = this.writeSegment(RenderLayer.TRANSLUCENT, this.translucentVisible, cmds, offs, this.cmdCursor, this.offCursor, cam);
@@ -400,19 +430,26 @@ public class ChunkRenderer {
         long offLodT = this.offCursor + MappedRing.align((long) n * OFFSET_BYTES);
         int nLodT = this.writeLodTranslucentSegment(cmds, offs, cmdLodT, offLodT, cam);
 
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.WRITE);
+
+        /* Gleiches Programm wie renderSolid im selben Frame: u_ProjectionView/Fog/u_Textures
+           bleiben als Programm-Uniform-State erhalten (die Entity-/BlockEntity-Pässe dazwischen
+           nutzen eigene Programme) — kein Re-Upload nötig. Nur die Textur-Unit neu binden,
+           die Entity-Renderer binden dort ihre eigenen Texturen. */
         this.shader.bind();
-        this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
-        this.shader.setUniformi("u_Textures", 0);
-        this.setFogUniforms();
         this.textures.bind(0);
 
         GL11.glEnable(GL11.GL_BLEND);
-        this.shader.setUniformf("u_AlphaCutoff", 0.001F);
+        this.shader.setUniformf(this.locAlphaCutoff, 0.001F);
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.TRANSLUCENT);
         this.drawSegment(RenderLayer.TRANSLUCENT.ordinal(), this.cmdCursor, this.offCursor, n);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.TRANSLUCENT);
         /* Bewusst keine Sortierung für LOD-Translucent (weder Region- noch Quad-Sortierung):
            LOD-Wasserflächen sind großflächige, meist einfache Top-Quads ohne die
            Überlappungskomplexität von Höhlenwasser. */
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.LOD_TRANSLUCENT);
         this.drawLodSegment(LOD_TRANSLUCENT, cmdLodT, offLodT, nLodT);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.LOD_TRANSLUCENT);
         GL11.glDisable(GL11.GL_BLEND);
 
         this.shader.unbind();
@@ -708,6 +745,7 @@ public class ChunkRenderer {
         (nicht die Far-Plane): mit LOD der äußerste LOD-Ring, ohne LOD die Chunk-Ladekante. */
     private void setFogUniforms() {
         GameSettings settings = GameSettings.get();
+        float fogStart, fogEnd;
         if (settings.fog) {
             float range = (settings.lodEnabled
                     ? Math.max(settings.lodMaxDistance, settings.renderDistance)
@@ -717,20 +755,32 @@ public class ChunkRenderer {
                Chunk-Ursprung — die sichtbare Kante liegt daher bis zu ~2-3 Chunks innerhalb
                von rd*32. Ohne diesen Rand bleibt die Stufen-Silhouette der Ladegrenze bei
                kurzer Fog-Spanne (ohne LOD) sichtbar. */
-            float fogEnd = Math.max(range - 3 * ChunkSection.SIZE, 2 * ChunkSection.SIZE);
+            fogEnd = Math.max(range - 3 * ChunkSection.SIZE, 2 * ChunkSection.SIZE);
             /* Ohne LOD ist der einzige Fog-Zweck das Verstecken der Ladekante -> kurze steile
                Rampe (80 %), damit von der knappen Sichtweite mehr klar bleibt; mit LOD lange
                Rampe (60 %) gegen das Sub-Pixel-Flimmern des Fernterrains. */
-            float startFactor = settings.lodEnabled ? 0.60F : 0.80F;
-            this.shader.setUniformf("u_FogStart", fogEnd * startFactor);
-            this.shader.setUniformf("u_FogEnd", fogEnd);
+            fogStart = fogEnd * (settings.lodEnabled ? 0.60F : 0.80F);
         } else {
             /* Fog aus: Start/Ende jenseits jeder Distanz -> Faktor 0, keine Shader-Variante nötig */
-            this.shader.setUniformf("u_FogStart", 1.0e30F);
-            this.shader.setUniformf("u_FogEnd", 2.0e30F);
+            fogStart = 1.0e30F;
+            fogEnd = 2.0e30F;
         }
         Color4 clear = SkyEngine.get().getConfig().getWindowClearColor();
-        this.shader.setUniformVector3f("u_FogColor", clear.red, clear.green, clear.blue);
+
+        /* Upload nur bei Änderung — die Werte hängen nur an Settings/Clear-Color, nicht an
+           der Kamera. Uniform-State bleibt im Programm erhalten. */
+        if (fogStart == this.lastFogStart && fogEnd == this.lastFogEnd
+                && clear.red == this.lastFogR && clear.green == this.lastFogG && clear.blue == this.lastFogB) {
+            return;
+        }
+        this.shader.setUniformf(this.locFogStart, fogStart);
+        this.shader.setUniformf(this.locFogEnd, fogEnd);
+        this.shader.setUniformVector3f(this.locFogColor, clear.red, clear.green, clear.blue);
+        this.lastFogStart = fogStart;
+        this.lastFogEnd = fogEnd;
+        this.lastFogR = clear.red;
+        this.lastFogG = clear.green;
+        this.lastFogB = clear.blue;
     }
 
     /* ------------------------- Helfer ------------------------- */
