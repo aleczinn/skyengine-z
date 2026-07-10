@@ -644,12 +644,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 this.lastSpacePressTime = now;
             }
         }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_N)) {
+        if (input.isKeyPressed(GLFW.GLFW_KEY_V)) {
             GameSettings.get().fog = !GameSettings.get().fog;
             this.logger.debug("Fog: " + GameSettings.get().fog);
         }
         /* NoClip nur im Flugmodus (toggleNoClip prüft selbst); Log zeigt den echten Zustand */
-        if (input.isKeyPressed(GLFW.GLFW_KEY_V)) {
+        if (input.isKeyPressed(GLFW.GLFW_KEY_N)) {
             this.player.toggleNoClip();
             this.logger.debug("NoClip: " + this.player.isNoClip());
         }
