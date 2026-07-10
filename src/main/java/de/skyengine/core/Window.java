@@ -270,7 +270,9 @@ public class Window implements IDisposable {
                     new int[] { 0x20052 }, false
             );
 
-            if (this.properties.isUseSynchronousDebugCallback()) {
+            /* Synchroner Debug-Output nur noch opt-in (EngineConfig): er serialisiert jeden
+               GL-Call und drückt die FPS massiv — der asynchrone Callback reicht im Alltag. */
+            if (this.config.isSynchronousDebug() && this.properties.isUseSynchronousDebugCallback()) {
                 GL11.glEnable(ARBDebugOutput.GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
             }
         }
