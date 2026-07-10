@@ -33,6 +33,7 @@ import de.skyengine.game.world.tick.ScheduledTickQueue;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.ChestRenderer;
 import de.skyengine.graphics.blockentity.EnchantingTableRenderer;
+import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.entity.EntityRenderer;
 import de.skyengine.graphics.world.ChunkRenderer;
@@ -376,7 +377,9 @@ public class World implements IInitializable, IDisposable {
     }
 
     public void render(Camera camera, float partialTick) {
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.REMESH);
         this.chunkManager.processRemeshes();
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.REMESH);
         /* Entities VOR dem Translucent-Pass (Vanilla-Reihenfolge): Wasser blendet über
            Items/BlockEntities, statt sie hinter sich unsichtbar zu machen. */
         this.chunkRenderer.renderSolid(camera);
