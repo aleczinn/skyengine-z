@@ -1,5 +1,6 @@
 package de.skyengine.graphics.gui;
 
+import de.skyengine.core.EngineProperties;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Blocks;
@@ -138,15 +139,11 @@ public final class ItemIconRenderer {
            "or-equal"-Func, damit koplanare Overlay-Quads (Grasblock-Seite) exakt gewinnen. */
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
-        int prevDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
-        int orEqualFunc = switch (prevDepthFunc) {
-            case GL11.GL_GREATER -> GL11.GL_GEQUAL;
-            case GL11.GL_LESS -> GL11.GL_LEQUAL;
-            default -> prevDepthFunc;
-        };
-        GL11.glDepthFunc(orEqualFunc);
+        /* Funcs statisch aus EngineProperties statt glGetInteger (synchroner Roundtrip pro Icon). */
+        EngineProperties properties = SkyEngine.get().getWindow().getProperties();
+        GL11.glDepthFunc(properties.orEqualDepthFunc());
         mesh.render();
-        GL11.glDepthFunc(prevDepthFunc);
+        GL11.glDepthFunc(properties.baseDepthFunc());
         GL11.glDisable(GL11.GL_DEPTH_TEST);
     }
 
