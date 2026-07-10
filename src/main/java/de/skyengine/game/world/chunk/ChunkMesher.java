@@ -14,17 +14,19 @@ import java.util.Arrays;
 public class ChunkMesher {
 
     /**
-     * Ints pro Vertex (gepacktes Format, 16 Bytes statt 36):
+     * Ints pro Vertex (gepacktes Format, 20 Bytes statt 36):
      * <pre>
      * int0: posX | posY &lt;&lt; 16     (u16 fixed-point 8.8, Bias +1 Block, section-lokal)
      * int1: posZ | u    &lt;&lt; 16     (u als u16 fixed-point 6.10, Bias +1)
      * int2: v    | layer &lt;&lt; 16    (v wie u; layer = Texture-Array-Layer)
      * int3: r | g &lt;&lt; 8 | b &lt;&lt; 16  (Farbe = Helligkeit * AO * Tint, je u8)
+     * int4: reserviert für farbiges Licht (RGB8 + 8 Bit frei) — noch ungenutzt,
+     *       der Vertex-Shader liest ihn aktuell nicht
      * </pre>
      * Entpackt wird im Vertex-Shader des ChunkRenderers. Ein Quad = 4 Vertices (A,B,C,D),
      * Triangulierung über den geteilten Index-Buffer (0,1,2, 2,3,0).
      */
-    public static final int VERTEX_SIZE = 4;
+    public static final int VERTEX_SIZE = 5;
 
     /** Bias/Skalierung des Positions-Fixed-Points (1/256 Block; Bias fängt Offsets bis -1 ab). */
     public static final float POS_SCALE = 256F;
@@ -617,7 +619,7 @@ public class ChunkMesher {
         }
     }
 
-    /** Packt einen Vertex ins 4-Int-Format (siehe {@link #VERTEX_SIZE}). */
+    /** Packt einen Vertex ins 5-Int-Format (siehe {@link #VERTEX_SIZE}). */
     private static void putVertex(VertexBuffer buffer, float px, float py, float pz,
                                   float u, float v, int layer, float r, float g, float b) {
         int xi = fixedPos(px), yi = fixedPos(py), zi = fixedPos(pz);
@@ -629,6 +631,7 @@ public class ChunkMesher {
         buffer.data[buffer.count++] = zi | ui << 16;
         buffer.data[buffer.count++] = vi | layer << 16;
         buffer.data[buffer.count++] = ri | gi << 8 | bi << 16;
+        buffer.data[buffer.count++] = 0; // reserviert für farbiges Licht (Phase Lichtsystem)
     }
 
     private static int fixedPos(float f) {

@@ -786,9 +786,11 @@ public class ChunkRenderer {
         if (this.textures != null) this.textures.dispose();
     }
 
-    /* Gepacktes Vertex-Format (16 Bytes, siehe ChunkMesher.VERTEX_SIZE):
+    /* Gepacktes Vertex-Format (20 Bytes, siehe ChunkMesher.VERTEX_SIZE):
        x: posX | posY<<16 (u16 fixed 8.8, Bias +1) — y: posZ | u<<16 (uv fixed 6.10, Bias +1)
        z: v | layer<<16 — w: rgb8
+       (5. Int reserviert für farbiges Licht, vom Shader aktuell ungenutzt — Stride wächst
+       automatisch über ChunkMesher.VERTEX_SIZE, a_data liest weiterhin nur die ersten 4 Ints)
        Section-Origin (kamerarelativ) kommt pro Draw aus dem SSBO, indiziert via gl_DrawID. */
     private static final String VERTEX_SOURCE = """
             #version 460 core
