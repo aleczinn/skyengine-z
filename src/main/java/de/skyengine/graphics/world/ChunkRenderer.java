@@ -812,10 +812,12 @@ public class ChunkRenderer {
 
                 v_texCoord = vec3(uv, layer);
                 v_color = color;
-                /* Positionen sind kamerarelativ -> length() = Sichtdistanz fuer den Fog
-                   (rotationsinvariant, kein "Atmen" des Nebels beim Umschauen) */
+                /* Positionen sind kamerarelativ und welt-achsen-ausgerichtet -> length(rel.xz) =
+                   horizontale Sichtdistanz fuer ZYLINDRISCHEN Fog (wie MC 1.18+): Hochfliegen
+                   schiebt das Terrain unter dem Spieler nicht in den Nebel, die horizontale
+                   Ladekante bleibt verdeckt. Rotationsinvariant, kein "Atmen" beim Umschauen. */
                 vec3 rel = pos + u_DrawOffsets[gl_DrawID].xyz;
-                v_viewDist = length(rel);
+                v_viewDist = length(rel.xz);
                 gl_Position = u_ProjectionView * vec4(rel, 1.0);
             }
             """;
