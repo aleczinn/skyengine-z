@@ -4,6 +4,7 @@ import de.skyengine.game.entity.EntityPlayer;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
 import org.joml.Vector3d;
+import org.joml.Vector3f;
 
 public class Camera {
 
@@ -22,6 +23,21 @@ public class Camera {
     private final Matrix4f projectionView = new Matrix4f();
     private final FrustumIntersection frustum = new FrustumIntersection();
 
+    /* --- TAA-Zustand (s. AntiAliasingPass) --- */
+    /* Subpixel-Jitter als NDC-Offset (Post-NDC-Shift auf die Projektion); 0 = kein Jitter. */
+    private float jitterX, jitterY;
+    /* PV des VORHERIGEN Frames, UNGEJITTERT — Reprojektionsziel der History. */
+    private final Matrix4f prevProjectionView = new Matrix4f();
+    /* PV des aktuellen Frames ohne Jitter (wird im nächsten update() zu prev). */
+    private final Matrix4f unjitteredProjectionView = new Matrix4f();
+    /* Inverse der aktuellen GEJITTERTEN PV — exakt das, was das Depth erzeugt hat. */
+    private final Matrix4f invProjectionView = new Matrix4f();
+    private final Vector3d prevPosition = new Vector3d();
+    /* camNow − camPrev (double-Differenz, dann float): P_relPrev = P_relNow + camDelta. */
+    private final Vector3f camDelta = new Vector3f();
+    private boolean prevValid = false;
+    private final Matrix4f jitterScratch = new Matrix4f();
+
     /**
      * Call once per frame before rendering. Interpolates between the player's last and current tick position.
      */
@@ -39,6 +55,19 @@ public class Camera {
      * Recompute matrices. Call after follow() and after resize().
      */
     public void update(double aspectRatio) {
+        /* TAA: Vorframe-Zustand sichern, BEVOR die Matrizen überschrieben werden.
+           (follow() hat position bereits aktualisiert; prevPosition stammt vom Ende
+           des letzten update() — die Reihenfolge follow -> update ist tragend.) */
+        if (this.prevValid) {
+            this.prevProjectionView.set(this.unjitteredProjectionView);
+            this.camDelta.set(
+                    (float) (this.position.x - this.prevPosition.x),
+                    (float) (this.position.y - this.prevPosition.y),
+                    (float) (this.position.z - this.prevPosition.z));
+        } else {
+            this.camDelta.set(0F);
+        }
+
         if (this.inverseDepth) {
             /* Reversed-Z: far→0, near→1, Depth-Range [0,1] */
             this.projection.setPerspective(
@@ -61,8 +90,44 @@ public class Camera {
         this.view.rotationX((float) Math.toRadians(this.pitch))
                 .rotateY((float) Math.toRadians(this.yaw));
 
-        this.projection.mul(this.view, this.projectionView);
+        this.projection.mul(this.view, this.unjitteredProjectionView);
+        if (!this.prevValid) this.prevProjectionView.set(this.unjitteredProjectionView);
+
+        /* Subpixel-Jitter (nur TAA): Post-NDC-Shift T(jx,jy,0) LINKS auf die PV —
+           clip.xy += jitter*w, exakt und unabhängig von der Depth-Konvention. Frustum
+           nutzt bewusst die gejitterte Matrix (Halbpixel-Versatz ist irrelevant). */
+        if (this.jitterX != 0F || this.jitterY != 0F) {
+            this.jitterScratch.translation(this.jitterX, this.jitterY, 0F)
+                    .mul(this.unjitteredProjectionView, this.projectionView);
+        } else {
+            this.projectionView.set(this.unjitteredProjectionView);
+        }
+        this.projectionView.invert(this.invProjectionView);
         this.frustum.set(this.projectionView, false);
+
+        this.prevPosition.set(this.position);
+        this.prevValid = true;
+    }
+
+    /** NDC-Subpixel-Offset des Frames (TAA); (0,0) = kein Jitter. Vor update() setzen. */
+    public void setJitter(float ndcX, float ndcY) {
+        this.jitterX = ndcX;
+        this.jitterY = ndcY;
+    }
+
+    /** Inverse der aktuellen (gejitterten) PV — rekonstruiert Depth zu kamerarelativen Positionen. */
+    public Matrix4f getInvProjectionViewMatrix() {
+        return invProjectionView;
+    }
+
+    /** UNGEJITTERTE PV des vorherigen Frames (Reprojektionsziel der TAA-History). */
+    public Matrix4f getPrevProjectionViewMatrix() {
+        return prevProjectionView;
+    }
+
+    /** camNow − camPrev (float aus double-Differenz): P_relPrev = P_relNow + camDelta. */
+    public Vector3f getCamDelta() {
+        return camDelta;
     }
 
     /**

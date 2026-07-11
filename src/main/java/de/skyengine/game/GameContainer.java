@@ -37,10 +37,12 @@ import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.post.PostProcessingSettings;
 import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
+import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
+import org.joml.Vector2f;
 import org.joml.Vector3d;
 import org.lwjgl.glfw.GLFW;
 
@@ -58,6 +60,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private GuiManager guiManager;
 
     private final GameSettings settings = GameSettings.get();
+
+    /* TAA-Jitter des Frames (wiederverwendet, s. renderWorld) */
+    private final Vector2f taaJitter = new Vector2f();
 
     private static final double REACH = 6.0;
 
@@ -193,8 +198,15 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.player.turn(input.getDeltaMouseX() * sens, input.getDeltaMouseY() * sens);
         }
 
+        /* TAA-Subpixel-Jitter (0,0 wenn TAA aus) VOR dem Matrix-Update, Kameradaten für
+           die Reprojektion DANACH in den Post-Context — Reihenfolge ist tragend. */
+        PostProcessor post = SkyEngine.get().getPostProcessor();
+        post.nextJitter(this.taaJitter, width, height);
+        this.camera.setJitter(this.taaJitter.x, this.taaJitter.y);
+
         this.camera.follow(this.player, partialTick);
         this.camera.update((double) width / height);
+        post.updateTaaCamera(this.camera);
 
         this.hit = BlockRaycast.raycast(
                 this.world,

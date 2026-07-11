@@ -1,9 +1,12 @@
 package de.skyengine.graphics.post;
 
 import de.skyengine.core.io.IDisposable;
+import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.framebuffer.FrameBuffer;
+import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.post.passes.AntiAliasingPass;
 import de.skyengine.graphics.post.passes.ColorGradingPass;
+import org.joml.Vector2f;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import org.lwjgl.opengl.GL11;
@@ -62,6 +65,9 @@ public class PostProcessor implements IDisposable {
     private PostProcessingSettings settings;
     private int ubo;
 
+    /* TAA-Jitter: Halton(2,3)-Index, advanct nur bei aktivem TAA (nextJitter). */
+    private int jitterFrame;
+
     /**
      * Render-Thread, GL-Kontext aktiv (nach FrameBuffer.create()).
      */
@@ -88,6 +94,42 @@ public class PostProcessor implements IDisposable {
         return this.settings;
     }
 
+    /**
+     * NDC-Subpixel-Jitter des Frames für {@link Camera#setJitter} — Halton(2,3)-Sequenz
+     * (8 Samples, Pixel-Offset ±0,5 → NDC über die Fenstergröße). Liefert (0,0) und
+     * advanct NICHT, wenn TAA nicht aktiv ist (kein Bild-Wackeln bei NONE/FXAA).
+     */
+    public void nextJitter(Vector2f dest, int width, int height) {
+        if (this.settings.getAaMode() != AntiAliasingMode.TAA) {
+            dest.set(0F, 0F);
+            return;
+        }
+        this.jitterFrame = (this.jitterFrame + 1) & 7;
+        int i = this.jitterFrame + 1; // Halton-Index 1..8 (Index 0 wäre (0,0) doppelt)
+        dest.set(
+                (halton(i, 2) - 0.5F) * 2F / width,
+                (halton(i, 3) - 0.5F) * 2F / height);
+    }
+
+    /** Radikal-invers zur Basis b — Standard-Jitter-Sequenz (gut verteilte Subpixel). */
+    private static float halton(int index, int base) {
+        float f = 1F, r = 0F;
+        while (index > 0) {
+            f /= base;
+            r += f * (index % base);
+            index /= base;
+        }
+        return r;
+    }
+
+    /** Kameradaten des Frames für die TAA-Reprojektion in den Context kopieren —
+        nach {@code camera.update(...)} aufrufen (GameContainer.renderWorld). */
+    public void updateTaaCamera(Camera camera) {
+        this.context.invProjView.set(camera.getInvProjectionViewMatrix());
+        this.context.prevProjView.set(camera.getPrevProjectionViewMatrix());
+        this.context.camDelta.set(camera.getCamDelta());
+    }
+
     public void resize(int width, int height) {
         this.context.resize(width, height);
 
@@ -102,6 +144,7 @@ public class PostProcessor implements IDisposable {
      * zurück (die GUI setzt ihren State selbst, SkyEngine reaktiviert pro Frame).
      */
     public void render(FrameBuffer frameBuffer) {
+        this.context.frame++;
         this.context.sceneColor = frameBuffer.getColorTexture();
         this.context.sceneDepth = frameBuffer.getDepthTexture();
 
