@@ -83,6 +83,14 @@ public final class FrameProfiler {
     private static int gpuFrames = 0;   // Frames mit ausgelesenen GPU-Ergebnissen
     private static int cpuFrames = 0;
 
+    /* GPU-Frame-Spanne: GL_TIMESTAMP-Paar pro Slot (Start in newFrame, Ende vor dem Swap).
+       span − Σ(Busy-Sektionen) = Leerlauf-Blasen in der GPU-Timeline des Frames —
+       unterscheidet „GPU rechnet wirklich" von „GPU wartet (Present/Latenz)". */
+    private static final int[][] tsQueries = new int[SLOTS][2];
+    private static final boolean[] tsUsed = new boolean[SLOTS];
+    private static long spanSum = 0;
+    private static int spanFrames = 0;
+
     private FrameProfiler() {
     }
 
@@ -99,6 +107,8 @@ public final class FrameProfiler {
                     for (int q = 0; q < queries[s].length; q++) {
                         queries[s][q] = GL15.glGenQueries();
                     }
+                    tsQueries[s][0] = GL15.glGenQueries();
+                    tsQueries[s][1] = GL15.glGenQueries();
                 }
             }
         }
@@ -116,6 +126,28 @@ public final class FrameProfiler {
         }
         if (any) gpuFrames++;
         cpuFrames++;
+
+        /* Timestamp-Spanne des 3 Frames alten Slots lesen, dann den Start-Stempel
+           für diesen Frame setzen (erster GL-Befehl des Frames). */
+        if (tsUsed[slot]) {
+            long t0 = GL33.glGetQueryObjectui64(tsQueries[slot][0], GL15.GL_QUERY_RESULT);
+            long t1 = GL33.glGetQueryObjectui64(tsQueries[slot][1], GL15.GL_QUERY_RESULT);
+            spanSum += t1 - t0;
+            spanFrames++;
+            tsUsed[slot] = false;
+        }
+        GL33.glQueryCounter(tsQueries[slot][0], GL33.GL_TIMESTAMP);
+    }
+
+    /** Direkt vor glfwSwapBuffers aufrufen: setzt den End-Stempel der GPU-Frame-Spanne. */
+    public static void gpuFrameEnd() {
+        if (!enabled) return;
+        GL33.glQueryCounter(tsQueries[slot][1], GL33.GL_TIMESTAMP);
+        tsUsed[slot] = true;
+    }
+
+    public static boolean isEnabled() {
+        return enabled;
     }
 
     public static void gpuBegin(Gpu section) {
@@ -152,6 +184,9 @@ public final class FrameProfiler {
             sb.append(' ').append(g.label).append('=').append(avg);
             gpuSum[g.ordinal()] = 0;
         }
+        sb.append(" span=").append(spanFrames > 0 ? spanSum / spanFrames / 1000 : 0);
+        spanSum = 0;
+        spanFrames = 0;
         sb.append(" | CPU[µs]");
         long attributed = 0;
         for (Cpu c : Cpu.values()) {

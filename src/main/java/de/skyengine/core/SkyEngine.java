@@ -96,6 +96,9 @@ public class SkyEngine {
             Screenshot.capture(this.window.getWidth(), this.window.getHeight());
         }
 
+        /* End-Stempel der GPU-Frame-Spanne: letzter GL-Befehl vor dem Present */
+        FrameProfiler.gpuFrameEnd();
+
         FrameProfiler.cpuStart(FrameProfiler.Cpu.SWAP);
         GLFW.glfwSwapBuffers(this.window.getWindowID());
         FrameProfiler.cpuStop(FrameProfiler.Cpu.SWAP);
@@ -181,7 +184,12 @@ public class SkyEngine {
             if (System.currentTimeMillis() - lastStatusTime >= 1000) {
                 System.out.printf("FPS: %d, TPS: %d%n", frames, updates);
                 String profilerLine = FrameProfiler.statusLineAndReset();
-                if (profilerLine != null) System.out.println(profilerLine);
+                if (profilerLine != null) {
+                    System.out.println(profilerLine);
+                    String syncLine = this.game.getWorld() != null
+                            ? this.game.getWorld().getChunkRenderer().syncStatsLineAndReset() : null;
+                    if (syncLine != null) System.out.println(syncLine);
+                }
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
                     this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s".formatted(
                             ENGINE_NAME,
