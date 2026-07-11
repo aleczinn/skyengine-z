@@ -37,6 +37,9 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
 - 🏔️ Welt-Generator
   - Biome
   - Strukturen wie Bäume, Palmen
+- 🖼️ Post Processing Pipeline
+  - Color Grading
+  - Antialiasing: None, FXAA
 
 ## Development
 
