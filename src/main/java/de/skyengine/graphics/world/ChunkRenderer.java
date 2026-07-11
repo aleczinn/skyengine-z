@@ -88,6 +88,9 @@ public class ChunkRenderer {
     private int lastChunkRemovalVersion = -1;
     private int lastLodDesiredVersion = -1;
 
+    /* Fence-Diagnose (nur bei aktivem FrameProfiler gefüllt, s. beginFrame) */
+    private long syncFrames, syncSignaled, syncWaitNs, syncWaitMaxNs;
+
     private static final int MAX_UPLOADS_PER_FRAME = 8;
 
     /* Deckelt Quad-Sorts pro Frame — bei Kamerabewegung wollen sonst alle sichtbaren
@@ -497,10 +500,23 @@ public class ChunkRenderer {
         this.frameSlot = (int) (this.frameId % SLOTS);
         long fence = this.fences[this.frameSlot];
         if (fence != 0L) {
-            int status;
-            do {
-                status = GL32.glClientWaitSync(fence, GL32.GL_SYNC_FLUSH_COMMANDS_BIT, 1_000_000_000L);
-            } while (status == GL32.GL_TIMEOUT_EXPIRED);
+            if (FrameProfiler.isEnabled()) {
+                /* Diagnose: erst blockierungsfreier Status-Poll (timeout 0, ohne Flush) —
+                   unterscheidet „GPU war längst fertig" von echtem Warten auf die Timeline. */
+                this.syncFrames++;
+                int status = GL32.glClientWaitSync(fence, 0, 0L);
+                if (status == GL32.GL_ALREADY_SIGNALED || status == GL32.GL_CONDITION_SATISFIED) {
+                    this.syncSignaled++;
+                } else {
+                    long t0 = System.nanoTime();
+                    this.waitOnFence(fence);
+                    long waited = System.nanoTime() - t0;
+                    this.syncWaitNs += waited;
+                    if (waited > this.syncWaitMaxNs) this.syncWaitMaxNs = waited;
+                }
+            } else {
+                this.waitOnFence(fence);
+            }
             GL32.glDeleteSync(fence);
             this.fences[this.frameSlot] = 0L;
 
@@ -508,6 +524,33 @@ public class ChunkRenderer {
             long completed = this.slotFrames[this.frameSlot];
             for (VertexArena arena : this.arenas) arena.collect(completed);
         }
+    }
+
+    /** Blockierendes Warten auf den Fence (Flush-Bit: Commands sicher abgeschickt). */
+    private void waitOnFence(long fence) {
+        int status;
+        do {
+            status = GL32.glClientWaitSync(fence, GL32.GL_SYNC_FLUSH_COMMANDS_BIT, 1_000_000_000L);
+        } while (status == GL32.GL_TIMEOUT_EXPIRED);
+    }
+
+    /**
+     * Fence-Diagnose der letzten Sekunde (nur bei aktivem FrameProfiler, sonst null):
+     * wie oft war der 3 Frames alte Fence beim Eintreffen schon signalisiert, und wie
+     * lange hat das echte Warten im Schnitt/Maximum gedauert.
+     */
+    public String syncStatsLineAndReset() {
+        if (this.syncFrames == 0) return null;
+        long waitedFrames = this.syncFrames - this.syncSignaled;
+        String line = "Fence: signalisiert %d/%d | Wartezeit avg=%dµs max=%dµs".formatted(
+                this.syncSignaled, this.syncFrames,
+                waitedFrames > 0 ? this.syncWaitNs / waitedFrames / 1000 : 0,
+                this.syncWaitMaxNs / 1000);
+        this.syncFrames = 0;
+        this.syncSignaled = 0;
+        this.syncWaitNs = 0;
+        this.syncWaitMaxNs = 0;
+        return line;
     }
 
     private void endFrame() {
