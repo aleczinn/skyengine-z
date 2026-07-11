@@ -88,7 +88,8 @@ public final class LodMesher {
     private int viTranslucent;
     private int stride, cellCount;             // Kontext des laufenden mesh()-Aufrufs
     private int yBase, edgeSkirt;
-    private float posScale;                    // Vertex-Packungs-Skala (s. mesh())
+    private int sizeRegions;                   // Footprint in 128er-Regionen (1 oder 4)
+    private float posScale;                    // Vertex-Packungs-Skala (s. posScaleFor)
     private LodBlockAppearance appearance;
     private LodDataSource source;              // fuer Biome-Tint-Samples an Quad-Zentren
     private int regionBaseX, regionBaseZ;      // Weltkoordinaten-Ursprung der Region
@@ -141,17 +142,19 @@ public final class LodMesher {
      *               Basis der Level-Zuordnung, muss zum LodManager passen (pure Funktion)
      */
     public LodMeshResult mesh(LodDataSource source, LodBlockAppearance appearance, LodConfig config,
-                              int level, int rx, int rz, int epoch, int mask, int ax, int az) {
+                              int level, int sizeRegions, int rx, int rz, int epoch, int mask, int ax, int az) {
         int s = config.cellSize(level);
-        int n = REGION_BLOCKS / s;
+        int regionBlocks = sizeRegions * REGION_BLOCKS;
+        int n = regionBlocks / s;
         this.stride = n + 2;                    // Zellen -1..n (Randring für Wände)
         this.cellCount = n;
+        this.sizeRegions = sizeRegions;
         this.appearance = appearance;
         this.source = source;
         this.edgeSkirt = edgeSkirtOf(level);
         /* Positions-Skala der Vertex-Packung — muss zum per-Draw .w des Renderers passen
-           (Superregionen packen mit 1/64, s. ChunkRenderer-Shader). Aktuell konstant. */
-        this.posScale = ChunkMesher.POS_SCALE;
+           (Superregionen packen mit 1/64, s. ChunkRenderer-Shader und posScaleFor). */
+        this.posScale = posScaleFor(sizeRegions);
         int baseX = rx * REGION_BLOCKS;
         int baseZ = rz * REGION_BLOCKS;
         this.regionBaseX = baseX;
@@ -159,7 +162,7 @@ public final class LodMesher {
 
         /* Komplett von echtem Terrain bedeckt → nichts zu meshen (spart das Sampling). */
         if (mask == 0xFFFF) {
-            return new LodMeshResult(level, rx, rz, epoch, mask, 0, new int[0], new int[0], 0F, 0F);
+            return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, 0, new int[0], new int[0], 0F, 0F);
         }
 
         if (this.cells.length < this.stride * this.stride) {
@@ -180,9 +183,9 @@ public final class LodMesher {
         for (int cz = -1; cz <= n; cz++) {
             for (int cx = -1; cx <= n; cx++) {
                 int wx = baseX + cx * s, wz = baseZ + cz * s;
-                long sample = sampleCell(source, config, wx, wz, s, rx, rz, ax, az);
+                long sample = sampleCell(source, config, wx, wz, s, rx, rz, sizeRegions, ax, az);
                 long groundSample = this.appearance.isFluid(LodDataSource.block(sample))
-                        ? sampleGroundCell(source, config, wx, wz, s, rx, rz, ax, az) : sample;
+                        ? sampleGroundCell(source, config, wx, wz, s, rx, rz, sizeRegions, ax, az) : sample;
                 int i = (cz + 1) * this.stride + (cx + 1);
                 this.cells[i] = sample;
                 this.ground[i] = groundSample;
@@ -194,12 +197,18 @@ public final class LodMesher {
         /* yBase: u16 trägt nur ~254 Blöcke Spanne — relativ zur tiefsten Geometrie packen. */
         this.yBase = Math.max(0, minHeight - this.edgeSkirt - 2);
 
-        /* 2. Clip-Maske pro Zelle (Zellen liegen raster-aligned in genau einem Chunk). */
-        int cellsPerChunk = 32 / s;
-        for (int cz = 0; cz < n; cz++) {
-            for (int cx = 0; cx < n; cx++) {
-                int bit = (cz / cellsPerChunk) * 4 + (cx / cellsPerChunk);
-                this.clipped[cz * n + cx] = (mask & (1 << bit)) != 0;
+        /* 2. Clip-Maske pro Zelle (Zellen liegen raster-aligned in genau einem Chunk).
+           mask == 0 (u.a. IMMER bei Superregionen, Distanz-Gate) überspringt die Expansion —
+           schneller, und die 16-Bit-Bit-Arithmetik (Stride *4) gilt ohnehin nur für n <= 32. */
+        if (mask == 0) {
+            java.util.Arrays.fill(this.clipped, 0, n * n, false);
+        } else {
+            int cellsPerChunk = 32 / s;
+            for (int cz = 0; cz < n; cz++) {
+                for (int cx = 0; cx < n; cx++) {
+                    int bit = (cz / cellsPerChunk) * 4 + (cx / cellsPerChunk);
+                    this.clipped[cz * n + cx] = (mask & (1 << bit)) != 0;
+                }
             }
         }
 
@@ -318,20 +327,36 @@ public final class LodMesher {
         float maxY = empty ? 0F : this.maxTop;
         this.appearance = null;
         this.source = null;
-        return new LodMeshResult(level, rx, rz, epoch, mask, this.yBase, opaqueData, translucentData, minY, maxY);
+        return new LodMeshResult(level, rx, rz, this.sizeRegions, epoch, mask, this.yBase, opaqueData, translucentData, minY, maxY);
+    }
+
+    /**
+     * Positions-Skala der Vertex-Packung je Regionsgröße: 128er packen mit 1/256 (wie
+     * Sections), Superregionen mit 1/64 — der u16-Fixed-Point trägt bei 1/256 nur ~255
+     * Blöcke Region-lokale Spanne, bei 1/64 ~1023 (x/z UND y). Muss exakt zum per-Draw
+     * .w-Wert des Renderers passen ({@code LodMesh.invPosScale}).
+     */
+    public static float posScaleFor(int sizeRegions) {
+        return sizeRegions > 1 ? 64F : ChunkMesher.POS_SCALE;
     }
 
     /* ------------------------- Sampling ------------------------- */
 
     /**
-     * Sample einer Zelle mit Ursprung (wx,wz): innerhalb der eigenen Region aufs eigene
-     * Raster (s), sonst aufs Raster des Nachbar-Levels ausgerichtet.
+     * Sample einer Zelle mit Ursprung (wx,wz): innerhalb des eigenen Footprints
+     * ([rx, rx+size) × [rz, rz+size) in 128er-Regionskoordinaten) aufs eigene Raster (s),
+     * sonst aufs Raster des Nachbar-Levels ausgerichtet. Innerhalb einer Superregion mit
+     * uniformem Level ist das Sample identisch zu dem der ungemergten 128er-Regionen
+     * (s teilt 128, Zellursprünge liegen auf demselben globalen Raster) — Determinismus
+     * an allen Nähten bleibt erhalten.
      */
     private static long sampleCell(LodDataSource source, LodConfig config, int wx, int wz, int s,
-                                   int rx, int rz, int ax, int az) {
+                                   int rx, int rz, int size, int ax, int az) {
         int rxc = Math.floorDiv(wx, REGION_BLOCKS);
         int rzc = Math.floorDiv(wz, REGION_BLOCKS);
-        if (rxc == rx && rzc == rz) return source.sampleSurface(wx, wz, s);
+        if (rxc >= rx && rxc < rx + size && rzc >= rz && rzc < rz + size) {
+            return source.sampleSurface(wx, wz, s);
+        }
 
         int s2 = config.cellSize(neighborLevel(config, rxc, rzc, ax, az));
         return source.sampleSurface(Math.floorDiv(wx, s2) * s2, Math.floorDiv(wz, s2) * s2, s2);
@@ -339,10 +364,12 @@ public final class LodMesher {
 
     /** Boden-Variante von {@link #sampleCell} — gleiche Rasterlogik, liefert den festen Grund. */
     private static long sampleGroundCell(LodDataSource source, LodConfig config, int wx, int wz, int s,
-                                         int rx, int rz, int ax, int az) {
+                                         int rx, int rz, int size, int ax, int az) {
         int rxc = Math.floorDiv(wx, REGION_BLOCKS);
         int rzc = Math.floorDiv(wz, REGION_BLOCKS);
-        if (rxc == rx && rzc == rz) return source.sampleGround(wx, wz, s);
+        if (rxc >= rx && rxc < rx + size && rzc >= rz && rzc < rz + size) {
+            return source.sampleGround(wx, wz, s);
+        }
 
         int s2 = config.cellSize(neighborLevel(config, rxc, rzc, ax, az));
         return source.sampleGround(Math.floorDiv(wx, s2) * s2, Math.floorDiv(wz, s2) * s2, s2);
