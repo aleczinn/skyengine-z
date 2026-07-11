@@ -38,12 +38,13 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  */
 public class LodManager {
 
-    /** Fertiges Regionen-Mesh (Worker → Render-Thread). Leere data = Region komplett geclippt. */
-    public record LodMeshResult(int level, int rx, int rz, int epoch, int mask, int yBase,
+    /** Fertiges Regionen-Mesh (Worker → Render-Thread). Leere data = Region komplett geclippt.
+        sizeRegions = Footprint in 128er-Regionen (1 = normal, 4 = Superregion). */
+    public record LodMeshResult(int level, int rx, int rz, int sizeRegions, int epoch, int mask, int yBase,
                                 int[] opaqueData, int[] translucentData, float minY, float maxY) {}
 
-    /* Stand einer hochgeladenen Region: Level + Settings-Epoche + Chunk-Maske des Meshes */
-    private record Current(int level, int epoch, int mask) {}
+    /* Stand einer hochgeladenen Region: Level + Größe + Settings-Epoche + Chunk-Maske des Meshes */
+    private record Current(int level, int sizeRegions, int epoch, int mask) {}
 
     private record Candidate(long key, int level, int mask, double distSq) {}
 
@@ -253,7 +254,7 @@ public class LodManager {
             int jobAx = this.anchorX, jobAz = this.anchorZ;
             LodConfig jobConfig = this.config;
             this.chunkManager.submitLodTask(() -> this.results.add(this.meshers.get().mesh(
-                    this.source, this.appearance, jobConfig, level, rx, rz,
+                    this.source, this.appearance, jobConfig, level, 1, rx, rz,
                     jobEpoch, mask, jobAx, jobAz)));
         }
     }
@@ -275,7 +276,7 @@ public class LodManager {
         long key = key(result.rx(), result.rz());
         Integer want = this.desired.get(key);
         if (want == null || want != result.level() || result.epoch() != this.epoch) return false;
-        this.current.put(key, new Current(result.level(), result.epoch(), result.mask()));
+        this.current.put(key, new Current(result.level(), result.sizeRegions(), result.epoch(), result.mask()));
         return true;
     }
 

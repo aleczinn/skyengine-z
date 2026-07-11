@@ -349,7 +349,7 @@ public class ChunkRenderer {
         }
         this.renderedSections = this.visible.size();
 
-        /* 4b. LOD-Regionen: Frustum-Test über das Regionen-AABB (128 x [minY,maxY] x 128) */
+        /* 4b. LOD-Regionen: Frustum-Test über das Regionen-AABB (sizeBlocks x [minY,maxY]) */
         boolean lodSplit = FrameProfiler.isEnabled();
         this.visibleLod.clear();
         if (lodSplit) {
@@ -361,7 +361,7 @@ public class ChunkRenderer {
             float y0 = (float) (mesh.minY - cam.y);
             float y1 = (float) (mesh.maxY - cam.y);
             if (!camera.getFrustum().testAab(ox, y0, oz,
-                    ox + LodMesher.REGION_BLOCKS, y1, oz + LodMesher.REGION_BLOCKS)) continue;
+                    ox + mesh.sizeBlocks, y1, oz + mesh.sizeBlocks)) continue;
             this.visibleLod.add(mesh);
             if (lodSplit) this.visibleLodByLevel[mesh.level].add(mesh);
         }
@@ -679,8 +679,8 @@ public class ChunkRenderer {
             if (old != null) old.dispose(opaqueArena, translucentArena, this.frameId);
 
             if (result.opaqueData().length > 0 || result.translucentData().length > 0) {
-                LodMesh mesh = new LodMesh(result.rx(), result.rz(), result.level(), result.yBase(),
-                        result.opaqueData(), result.translucentData(), result.minY(), result.maxY(),
+                LodMesh mesh = new LodMesh(result.rx(), result.rz(), result.level(), result.sizeRegions(),
+                        result.yBase(), result.opaqueData(), result.translucentData(), result.minY(), result.maxY(),
                         opaqueArena, translucentArena);
                 this.lodMeshes.put(key, mesh);
                 this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.maxQuads());
@@ -739,7 +739,7 @@ public class ChunkRenderer {
             offs.put(oi, (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x));
             offs.put(oi + 1, (float) (mesh.yBase - cam.y)); // Vertices sind relativ zu yBase gepackt
             offs.put(oi + 2, (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z));
-            offs.put(oi + 3, 1F / 256F); // .w = Positions-Skala (2^-8 exakt -> bitidentisch)
+            offs.put(oi + 3, mesh.invPosScale); // .w = Positions-Skala (1/256; Superregionen 1/64)
             n++;
         }
         return n;
@@ -772,7 +772,7 @@ public class ChunkRenderer {
             offs.put(oi, (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x));
             offs.put(oi + 1, (float) (mesh.yBase - cam.y)); // Vertices sind relativ zu yBase gepackt
             offs.put(oi + 2, (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z));
-            offs.put(oi + 3, 1F / 256F); // .w = Positions-Skala (2^-8 exakt -> bitidentisch)
+            offs.put(oi + 3, mesh.invPosScale); // .w = Positions-Skala (1/256; Superregionen 1/64)
             n++;
         }
         return n;
