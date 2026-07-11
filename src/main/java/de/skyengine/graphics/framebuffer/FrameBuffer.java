@@ -60,8 +60,16 @@ public class FrameBuffer implements IDisposable {
 
         int width = this.config.getWindowWidth(), height = this.config.getWindowHeight();
 
-        /* MSAA-Sample-Zahl aus den Settings (0 = aus), an die Hardware-Grenze geklemmt. */
-        this.samples = Math.min(GameSettings.get().msaaSamples, GL11.glGetInteger(GL30.GL_MAX_SAMPLES));
+        /* Die Sample-Zahl folgt dem AA-MODUS (PostProcessingSettings): nur aaMode=MSAA
+           multisampelt (Qualität aus GameSettings.msaaSamples, 0 → 4); alle anderen Modi
+           rendern ohne MSAA und haben damit die sample-bare Depth-Textur für TAA.
+           this.samples speichert den WUNSCH (ungeklemmt) — der Neuaufbau-Vergleich in
+           SkyEngine.onRender bleibt so stabil, auch wenn die Hardware weniger gewährt. */
+        de.skyengine.graphics.post.PostProcessor post = de.skyengine.core.SkyEngine.get().getPostProcessor();
+        this.samples = post != null && post.getSettings() != null
+                ? post.getSettings().effectiveMsaaSamples(GameSettings.get().msaaSamples)
+                : GameSettings.get().msaaSamples;
+        int granted = Math.min(this.samples, GL11.glGetInteger(GL30.GL_MAX_SAMPLES));
 
         this.id = GL30.glGenFramebuffers();
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.id);
@@ -79,13 +87,13 @@ public class FrameBuffer implements IDisposable {
             /* Multisample-Renderbuffer; Color als RGBA16F, damit HDR-Werte den Resolve überleben. */
             this.colorRbo = GL30.glGenRenderbuffers();
             GL30.glBindRenderbuffer(GL30.GL_RENDERBUFFER, this.colorRbo);
-            GL30.glRenderbufferStorageMultisample(GL30.GL_RENDERBUFFER, this.samples, GL30.GL_RGBA16F, width, height);
-            this.logGrantedSamples(this.samples);
+            GL30.glRenderbufferStorageMultisample(GL30.GL_RENDERBUFFER, granted, GL30.GL_RGBA16F, width, height);
+            this.logGrantedSamples(granted);
             GL30.glFramebufferRenderbuffer(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL30.GL_RENDERBUFFER, this.colorRbo);
 
             this.depthRbo = GL30.glGenRenderbuffers();
             GL30.glBindRenderbuffer(GL30.GL_RENDERBUFFER, this.depthRbo);
-            GL30.glRenderbufferStorageMultisample(GL30.GL_RENDERBUFFER, this.samples, GL30.GL_DEPTH_COMPONENT32F, width, height);
+            GL30.glRenderbufferStorageMultisample(GL30.GL_RENDERBUFFER, granted, GL30.GL_DEPTH_COMPONENT32F, width, height);
             GL30.glFramebufferRenderbuffer(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT, GL30.GL_RENDERBUFFER, this.depthRbo);
 
             GL30.glBindRenderbuffer(GL30.GL_RENDERBUFFER, 0);

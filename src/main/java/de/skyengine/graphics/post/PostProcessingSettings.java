@@ -30,9 +30,21 @@ public final class PostProcessingSettings {
     /** Tonemap-Operator (Domänenwechsel HDR → display-referred). NONE = Passthrough. */
     public enum TonemapOperator { NONE, REINHARD, ACES }
 
-    /** AA-Verfahren des {@code AntiAliasingPass}. TAA braucht msaaSamples=0 (Depth-Textur);
-        SMAA ist ein späterer Modus im selben Switch. */
-    public enum AntiAliasingMode { NONE, FXAA, TAA }
+    /**
+     * Anti-Aliasing — EIN Schalter für die komplette Kette (F9 zyklt):
+     * <ul>
+     *   <li>{@code NONE} — roh, schärfstes Bild, Kanten flimmern.</li>
+     *   <li>{@code FXAA} — billiges Kanten-AA (ein Fullscreen-Pass).</li>
+     *   <li>{@code TAA} — zeitliche Akkumulation, scharf + stabil.</li>
+     *   <li>{@code TAA_FXAA} — BSL-Kette (FXAA-Vorstufe vor TAA): ruhigere Kanten,
+     *       ~+40 % AA-Kosten gegenüber TAA.</li>
+     *   <li>{@code MSAA} — Hardware-Multisampling; Sample-Zahl aus GameSettings.msaaSamples
+     *       (0 → 4). Teuerster Modus bei hoher Auflösung; der Szene-Framebuffer folgt dem
+     *       Modus (nur Nicht-MSAA-Modi haben eine sample-bare Depth-Textur).</li>
+     * </ul>
+     * SMAA wäre ein späterer Modus im selben Switch.
+     */
+    public enum AntiAliasingMode { NONE, FXAA, TAA, TAA_FXAA, MSAA }
 
     /** Debug-Visualisierung der Post-Kette — reiner Hook, in Phase 1 ohne Wirkung.
         Spätere Werte z.B. SCENE_DEPTH, GRADING_DELTA, AA_DIFF. */
@@ -66,9 +78,6 @@ public final class PostProcessingSettings {
     /* TAA: LOD-Bias des Block-TextureArrays solange TAA aktiv ist (negativ = schärfer;
        holt von der zeitlichen Mittelung weggeglättetes Mip-Detail zurück). */
     private float taaMipBias = -0.5F;
-    /* TAA: FXAA-Vorstufe auf dem aktuellen Frame (BSL-Kette). true = ruhigere Kanten,
-       false = schärfer + ein Fullscreen-Pass weniger (minimal mehr Kantenflimmern). */
-    private boolean taaFxaaPre = true;
 
     /* --- Reserviert: Pässe existieren noch nicht (Bloom/Vignette/Sharpen kommen später,
            die Felder sind bereits ladbar/setzbar, werden aber von keinem Pass gelesen) --- */
@@ -136,7 +145,6 @@ public final class PostProcessingSettings {
         this.debugMode = fresh.debugMode;
         this.taaHistoryWeight = fresh.taaHistoryWeight;
         this.taaMipBias = fresh.taaMipBias;
-        this.taaFxaaPre = fresh.taaFxaaPre;
         this.bloomIntensity = fresh.bloomIntensity;
         this.bloomThreshold = fresh.bloomThreshold;
         this.vignette = fresh.vignette;
@@ -184,7 +192,18 @@ public final class PostProcessingSettings {
     public PostDebugMode getDebugMode() { return this.debugMode; }
     public float getTaaHistoryWeight() { return this.taaHistoryWeight; }
     public float getTaaMipBias() { return this.taaMipBias; }
-    public boolean isTaaFxaaPre() { return this.taaFxaaPre; }
+
+    /** true bei den zeitlich akkumulierenden Modi (TAA/TAA_FXAA) — Jitter + Mip-Bias aktiv. */
+    public boolean isTemporalAa() {
+        return this.aaMode == AntiAliasingMode.TAA || this.aaMode == AntiAliasingMode.TAA_FXAA;
+    }
+
+    /** Effektive MSAA-Sample-Zahl des Szene-Framebuffers: nur im MSAA-Modus > 0
+        (configured aus GameSettings.msaaSamples; 0 → Default 4). */
+    public int effectiveMsaaSamples(int configured) {
+        if (this.aaMode != AntiAliasingMode.MSAA) return 0;
+        return configured > 0 ? configured : 4;
+    }
     public float getBloomIntensity() { return this.bloomIntensity; }
     public float getBloomThreshold() { return this.bloomThreshold; }
     public float getVignette() { return this.vignette; }
@@ -209,7 +228,6 @@ public final class PostProcessingSettings {
     public void setAaMode(AntiAliasingMode v) { this.aaMode = v == null ? AntiAliasingMode.NONE : v; this.dirty = true; }
     public void setTaaHistoryWeight(float v) { this.taaHistoryWeight = Math.clamp(v, 0F, 0.98F); this.dirty = true; }
     public void setTaaMipBias(float v) { this.taaMipBias = Math.clamp(v, -2F, 0F); this.dirty = true; }
-    public void setTaaFxaaPre(boolean v) { this.taaFxaaPre = v; this.dirty = true; }
     public void setDebugMode(PostDebugMode v) { this.debugMode = v == null ? PostDebugMode.NONE : v; this.dirty = true; }
     public void setBloomIntensity(float v) { this.bloomIntensity = v; this.dirty = true; }
     public void setBloomThreshold(float v) { this.bloomThreshold = v; this.dirty = true; }

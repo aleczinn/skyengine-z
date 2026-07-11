@@ -401,16 +401,21 @@ public final class AntiAliasingPass implements PostPass {
 
     @Override
     public boolean isActive(PostContext context) {
-        return context.settings.getAaMode() != AntiAliasingMode.NONE;
+        AntiAliasingMode mode = context.settings.getAaMode();
+        /* MSAA = Hardware-AA im Szene-Framebuffer (folgt dem Modus, s. FrameBuffer) —
+           kein Post-Pass noetig. */
+        return mode != AntiAliasingMode.NONE && mode != AntiAliasingMode.MSAA;
     }
 
     @Override
     public void execute(PostContext context) {
-        boolean taa = context.settings.getAaMode() == AntiAliasingMode.TAA;
+        boolean taa = context.settings.isTemporalAa();
         if (taa && context.sceneDepth == 0) {
-            /* Ohne Depth-Textur (MSAA > 0) keine Reprojektion moeglich -> FXAA-Fallback. */
+            /* Sicherheitsnetz: der Framebuffer folgt dem AA-Modus (TAA-Modi => MSAA 0 =>
+               Depth-Textur vorhanden) — dieser Zweig greift nur im Uebergangs-Frame
+               eines Moduswechsels. Dann FXAA statt Reprojektion. */
             if (!this.warnedNoDepth) {
-                this.logger.warning("TAA braucht msaaSamples=0 (Depth-Textur) — falle auf FXAA zurück");
+                this.logger.warning("TAA ohne Depth-Textur (Framebuffer noch MSAA?) — FXAA-Fallback");
                 this.warnedNoDepth = true;
             }
             taa = false;
@@ -437,13 +442,13 @@ public final class AntiAliasingPass implements PostPass {
         int write = this.historyWrite;
         int read = 1 - write;
 
-        /* 1) FXAA-Vorstufe (BSL: FXAA + TAA laufen zusammen): glaettet die Kanten des
+        /* 1) FXAA-Vorstufe (Modus TAA_FXAA, BSL-Kette): glaettet die Kanten des
            aktuellen Frames VOR der Akkumulation (weniger Flimmer-Input), Subpixel-Anteil
            halbiert — exakt BSLs "#ifdef TAA". Ziel: Ping-0-Zwischentextur.
-           Abschaltbar (taaFxaaPre=false): schaerfer + ein Fullscreen-Pass weniger,
+           Modus TAA laesst sie weg: schaerfer + ein Fullscreen-Pass weniger,
            dafuer minimal mehr Kantenflimmern in Bewegung. */
         int current = context.input;
-        if (context.settings.isTaaFxaaPre()) {
+        if (context.settings.getAaMode() == AntiAliasingMode.TAA_FXAA) {
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.pingFbo(0));
             this.fxaaProgram.bind();
             this.fxaaProgram.setUniformVector2f("u_InvResolution", 1F / context.width, 1F / context.height);
