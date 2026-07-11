@@ -102,6 +102,7 @@ public class PostProcessor implements IDisposable {
     public void nextJitter(Vector2f dest, int width, int height) {
         if (this.settings.getAaMode() != AntiAliasingMode.TAA) {
             dest.set(0F, 0F);
+            this.context.jitterUv.set(0F, 0F);
             return;
         }
         this.jitterFrame = (this.jitterFrame + 1) & 7;
@@ -109,6 +110,8 @@ public class PostProcessor implements IDisposable {
         dest.set(
                 (halton(i, 2) - 0.5F) * 2F / width,
                 (halton(i, 3) - 0.5F) * 2F / height);
+        /* Fürs jitter-kompensierte Current-Sampling im Resolve: UV-Versatz = NDC/2 */
+        this.context.jitterUv.set(dest.x * 0.5F, dest.y * 0.5F);
     }
 
     /** Radikal-invers zur Basis b — Standard-Jitter-Sequenz (gut verteilte Subpixel). */

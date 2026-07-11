@@ -51,6 +51,9 @@ public final class AntiAliasingPass implements PostPass {
 
             uniform sampler2D u_Input;
             uniform vec2 u_InvResolution; // 1/Breite, 1/Hoehe
+            /* 1.0 = pures FXAA; 0.5 als TAA-Vorstufe (BSL halbiert den Subpixel-Anteil
+               unter TAA — die zeitliche Akkumulation uebernimmt das Subpixel-Glaetten). */
+            uniform float u_SubpixelScale;
 
             const float EDGE_THRESHOLD_MIN = 0.0312;
             const float EDGE_THRESHOLD_MAX = 0.125;
@@ -163,7 +166,7 @@ public final class AntiAliasingPass implements PostPass {
                 float lumaAverage = (1.0 / 12.0) * (2.0 * (lumaDownUp + lumaLeftRight) + lumaLeftCorners + lumaRightCorners);
                 float subPixelOffset1 = clamp(abs(lumaAverage - lumaCenter) / lumaRange, 0.0, 1.0);
                 float subPixelOffset2 = (-2.0 * subPixelOffset1 + 3.0) * subPixelOffset1 * subPixelOffset1;
-                float subPixelOffsetFinal = subPixelOffset2 * subPixelOffset2 * SUBPIXEL_QUALITY;
+                float subPixelOffsetFinal = subPixelOffset2 * subPixelOffset2 * SUBPIXEL_QUALITY * u_SubpixelScale;
                 finalOffset = max(finalOffset, subPixelOffsetFinal);
 
                 vec2 finalUv = v_uv;
@@ -174,76 +177,89 @@ public final class AntiAliasingPass implements PostPass {
             }
             """;
 
-    /* TAA-Resolve: Reprojektion + Farb-AABB-Clamp + Blend, schreibt in die History.
-       Reversed-Z + ClipControl ZERO_TO_ONE: Depth-Sample d IST Clip-z in [0,1] (kein
-       z*2-1!), d=0 = fern (Clear). Matrizen/Delta s. Camera-Javadoc. */
+    /* TAA-Resolve, portiert auf das Verhalten von BSL Shaders v10 (Capt Tatsu, taa.glsl —
+       vom User als Referenz geliefert): YCoCg-ClipAABB statt RGB-Clamp (erhaelt Detail,
+       v.a. Laub), Catmull-Rom c=0.7/5-Tap normalisiert (schaerfer als Standard-c=0.5),
+       Blend exp(-velocity)*0.2 + (weight-0.2). Unsere kamerarelative Reprojektion bleibt
+       (aequivalent zu BSLs Chocapic-Reprojection). Reversed-Z + ClipControl ZERO_TO_ONE:
+       Depth-Sample d IST Clip-z in [0,1] (kein z*2-1!), d=0 = fern (Clear).
+       LEHREN (nicht rueckbauen): (1) Current NIE resampeln — jede Filterung (auch CR)
+       frisst die Frische des aktuellen Frames; die frueher versuchte Jitter-Kompensation
+       war deshalb ein Fehler. (2) History NIE bilinear sampeln (IIR-Resample-Blur). */
     private static final String TAA_FRAGMENT_SHADER = """
             #version 460 core
 
             in vec2 v_uv;
             out vec4 fragColor;
 
-            uniform sampler2D u_Current;    // LDR nach Grading (gejittert gerendert)
+            uniform sampler2D u_Current;    // LDR nach Grading, FXAA-vorgeglaettet (BSL-Kette)
             uniform sampler2D u_History;    // Read-Seite des Ping-Pongs (Vorframe-Resolve)
             uniform sampler2D u_Depth;      // Szene-Depth (32F, Reversed-Z)
             uniform mat4 u_InvProjView;     // Inverse der GEJITTERTEN PV des Frames
             uniform mat4 u_PrevProjView;    // UNGEJITTERTE PV des Vorframes
             uniform vec3 u_CamDelta;        // camNow - camPrev: P_relPrev = P_relNow + delta
             uniform int u_HistoryValid;     // 0 = erster Frame nach Reset -> nur aktuell
-            /* History-Gewicht (settings.taaHistoryWeight): hoeher = ruhiger/traeger,
-               niedriger = schaerfer/flimmriger. Bei Bewegung adaptiv abgesenkt (s. main). */
+            /* Standbild-History-Gewicht (settings.taaHistoryWeight, Default 0.9 = BSL);
+               Bewegung senkt es ueber exp(-velocity) bis auf (weight - 0.2) ab. */
             uniform float u_HistoryWeight;
 
-            /*
-             * Catmull-Rom-Sampling (bikubisch, 9 bilineare Taps, Jimenez-Schema) statt
-             * bilinear: prevUv liegt bei stehender Kamera JEDEN Frame um den aktuellen
-             * Jitter (+-0,5 px) versetzt — bilineares Resampling faltet die History damit
-             * pro Frame erneut mit dem Bilinear-Zelt und akkumuliert eine IIR-Weich-
-             * zeichnung weit ueber 1 px (Befund: Ferne "extrem blurry"). Catmull-Rom
-             * rekonstruiert nahezu verlustfrei. NIE auf bilinear zurueckbauen!
-             */
+            vec3 rgbToYCoCg(vec3 col) {
+                return vec3(
+                    col.r *  0.25 + col.g * 0.5 + col.b *  0.25,
+                    col.r *  0.5                - col.b *  0.5,
+                    col.r * -0.25 + col.g * 0.5 + col.b * -0.25);
+            }
+
+            vec3 yCoCgToRgb(vec3 col) {
+                float n = col.r - col.b;
+                return vec3(n + col.g, col.r + col.b, n - col.g);
+            }
+
+            /* Richtungs-Clip zur AABB-Mitte (BSL ClipAABB) — erhaelt im Gegensatz zum
+               harten clamp() die Farbrelation der History (weniger Detail-Abflachung). */
+            vec3 clipAabb(vec3 q, vec3 aabbMin, vec3 aabbMax) {
+                vec3 pClip = 0.5 * (aabbMax + aabbMin);
+                vec3 eClip = 0.5 * (aabbMax - aabbMin) + 0.00000001;
+                vec3 vClip = q - pClip;
+                vec3 vUnit = vClip / eClip;
+                vec3 aUnit = abs(vUnit);
+                float maUnit = max(aUnit.x, max(aUnit.y, aUnit.z));
+                return maUnit > 1.0 ? pClip + vClip / maUnit : q;
+            }
+
+            /* Catmull-Rom c=0.7, 5 Taps, gewichts-normalisiert (BSL textureCatmullRom):
+               schaerferer Kernel als Standard-c=0.5, Eck-Taps entfallen. */
             vec3 sampleHistoryCatmullRom(vec2 uv, vec2 texSize) {
-                vec2 samplePos = uv * texSize;
-                vec2 texPos1 = floor(samplePos - 0.5) + 0.5;
-                vec2 f = samplePos - texPos1;
-                vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
-                vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
-                vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
-                vec2 w3 = f * f * (-0.5 + 0.5 * f);
+                vec2 position = uv * texSize;
+                vec2 centerPosition = floor(position - 0.5) + 0.5;
+                vec2 f = position - centerPosition;
+                vec2 f2 = f * f;
+                vec2 f3 = f * f2;
+
+                const float c = 0.7;
+                vec2 w0 =        -c  * f3 +  2.0 * c         * f2 - c * f;
+                vec2 w1 =  (2.0 - c) * f3 - (3.0 - c)        * f2         + 1.0;
+                vec2 w2 = -(2.0 - c) * f3 + (3.0 -  2.0 * c) * f2 + c * f;
+                vec2 w3 =         c  * f3 -                c * f2;
+
                 vec2 w12 = w1 + w2;
-                vec2 offset12 = w2 / w12;
-                vec2 texPos0 = (texPos1 - 1.0) / texSize;
-                vec2 texPos3 = (texPos1 + 2.0) / texSize;
-                vec2 texPos12 = (texPos1 + offset12) / texSize;
-                vec3 result =
-                      texture(u_History, vec2(texPos0.x,  texPos0.y)).rgb  * (w0.x  * w0.y)
-                    + texture(u_History, vec2(texPos12.x, texPos0.y)).rgb  * (w12.x * w0.y)
-                    + texture(u_History, vec2(texPos3.x,  texPos0.y)).rgb  * (w3.x  * w0.y)
-                    + texture(u_History, vec2(texPos0.x,  texPos12.y)).rgb * (w0.x  * w12.y)
-                    + texture(u_History, vec2(texPos12.x, texPos12.y)).rgb * (w12.x * w12.y)
-                    + texture(u_History, vec2(texPos3.x,  texPos12.y)).rgb * (w3.x  * w12.y)
-                    + texture(u_History, vec2(texPos0.x,  texPos3.y)).rgb  * (w0.x  * w3.y)
-                    + texture(u_History, vec2(texPos12.x, texPos3.y)).rgb  * (w12.x * w3.y)
-                    + texture(u_History, vec2(texPos3.x,  texPos3.y)).rgb  * (w3.x  * w3.y);
-                return max(result, 0.0); // CR kann unterschwingen
+                vec2 tc12 = (centerPosition + w2 / w12) / texSize;
+                vec2 tc0 = (centerPosition - 1.0) / texSize;
+                vec2 tc3 = (centerPosition + 2.0) / texSize;
+                vec4 color = vec4(texture(u_History, vec2(tc12.x, tc0.y )).rgb, 1.0) * (w12.x * w0.y )
+                           + vec4(texture(u_History, vec2(tc0.x,  tc12.y)).rgb, 1.0) * (w0.x  * w12.y)
+                           + vec4(texture(u_History, vec2(tc12.x, tc12.y)).rgb, 1.0) * (w12.x * w12.y)
+                           + vec4(texture(u_History, vec2(tc3.x,  tc12.y)).rgb, 1.0) * (w3.x  * w12.y)
+                           + vec4(texture(u_History, vec2(tc12.x, tc3.y )).rgb, 1.0) * (w12.x * w3.y );
+                return max(color.rgb / color.a, 0.0);
             }
 
             void main() {
+                /* Current ROH lesen — nie resampeln (s. Klassen-Kommentar) */
                 vec3 current = texture(u_Current, v_uv).rgb;
                 if (u_HistoryValid == 0) {
                     fragColor = vec4(current, 1.0);
                     return;
-                }
-
-                /* 3x3-Farb-AABB des aktuellen Frames: Clamp-Huelle gegen Ghosting
-                   (bewegte Items/Wasseranimation haben keinen Velocity-Buffer). */
-                vec3 minC = current, maxC = current;
-                for (int y = -1; y <= 1; y++) {
-                    for (int x = -1; x <= 1; x++) {
-                        vec3 c = textureOffset(u_Current, v_uv, ivec2(x, y)).rgb;
-                        minC = min(minC, c);
-                        maxC = max(maxC, c);
-                    }
                 }
 
                 /* Kamerarelative Reprojektion in die Vorframe-UV */
@@ -262,18 +278,36 @@ public final class AntiAliasingPass implements PostPass {
                 }
 
                 vec2 texSize = vec2(textureSize(u_History, 0));
-                vec3 history = clamp(sampleHistoryCatmullRom(prevUv, texSize), minC, maxC);
+                vec3 history = sampleHistoryCatmullRom(prevUv, texSize);
 
-                /* Bewegungsadaptiv: bei schneller Kamerabewegung weniger History
-                   (schaerfer, minimal flimmriger) — Standbild bleibt voll stabil. */
-                float velPx = length((prevUv - v_uv) * texSize);
-                float weight = u_HistoryWeight * (1.0 - 0.35 * clamp(velPx / 8.0, 0.0, 1.0));
+                /* 8-Nachbar-AABB in YCoCg + Richtungs-Clip (BSL NeighbourhoodClipping) */
+                vec2 texel = 1.0 / texSize;
+                vec3 minClr = rgbToYCoCg(current);
+                vec3 maxClr = minClr;
+                for (int y = -1; y <= 1; y++) {
+                    for (int x = -1; x <= 1; x++) {
+                        if (x == 0 && y == 0) continue;
+                        vec3 clr = rgbToYCoCg(texture(u_Current, v_uv + vec2(x, y) * texel).rgb);
+                        minClr = min(minClr, clr);
+                        maxClr = max(maxClr, clr);
+                    }
+                }
+                history = yCoCgToRgb(clipAabb(rgbToYCoCg(history), minClr, maxClr));
 
-                fragColor = vec4(mix(current, history, weight), 1.0);
+                /* BSL-Blend: Bewegung mischt sofort ~30 % frisches Current dazu (scharf),
+                   Standbild akkumuliert mit u_HistoryWeight (Default 0.9). */
+                float velPx = length((v_uv - prevUv) * texSize);
+                float weight = exp(-velPx) * 0.2 + (u_HistoryWeight - 0.2);
+
+                fragColor = vec4(mix(current, history, clamp(weight, 0.0, 0.98)), 1.0);
             }
             """;
 
-    /* History -> Screen; optionaler Unsharp-Term (settings.sharpen) NUR auf der Ausgabe. */
+    /* History -> Screen; Schaerfung (settings.sharpen 0..1) NUR auf der Ausgabe.
+       Operator: AMD CAS (Contrast Adaptive Sharpening) — per-Pixel-adaptive Staerke,
+       halo-frei by design. FALLE (dokumentiert, nicht wiederholen): die fruehere
+       Unsharp+Nachbar-Clamp-Fassung war auf Voxel-Texturen wirkungslos, weil fast
+       jeder Texel ein lokales Extremum ist und der Clamp den Effekt auffrass. */
     private static final String COPY_FRAGMENT_SHADER = """
             #version 460 core
 
@@ -281,25 +315,25 @@ public final class AntiAliasingPass implements PostPass {
             out vec4 fragColor;
 
             uniform sampler2D u_Input;
-            uniform float u_Sharpen; // 0 = reiner Copy
+            uniform float u_Sharpen; // 0 = reiner Copy, sinnvoll 0..1
 
             void main() {
-                vec3 c = texture(u_Input, v_uv).rgb;
+                vec3 e = texture(u_Input, v_uv).rgb;
                 if (u_Sharpen > 0.0) {
-                    vec3 n0 = textureOffset(u_Input, v_uv, ivec2( 1, 0)).rgb;
-                    vec3 n1 = textureOffset(u_Input, v_uv, ivec2(-1, 0)).rgb;
-                    vec3 n2 = textureOffset(u_Input, v_uv, ivec2( 0, 1)).rgb;
-                    vec3 n3 = textureOffset(u_Input, v_uv, ivec2( 0,-1)).rgb;
-                    vec3 blur = (n0 + n1 + n2 + n3) * 0.25;
-                    /* Faktor 2: sharpen 0.5 (BSL-uebliche Staerke) ist deutlich sichtbar.
-                       Clamp gegen die lokale Nachbarschaft statt hart [0,1] — kein
-                       Ringing/Halo an harten Kanten. */
-                    vec3 sharpened = c + (c - blur) * (u_Sharpen * 2.0);
-                    vec3 minN = min(c, min(min(n0, n1), min(n2, n3)));
-                    vec3 maxN = max(c, max(max(n0, n1), max(n2, n3)));
-                    c = clamp(sharpened, minN, maxN);
+                    vec3 a = textureOffset(u_Input, v_uv, ivec2(-1, 0)).rgb;
+                    vec3 b = textureOffset(u_Input, v_uv, ivec2( 1, 0)).rgb;
+                    vec3 c = textureOffset(u_Input, v_uv, ivec2( 0,-1)).rgb;
+                    vec3 d = textureOffset(u_Input, v_uv, ivec2( 0, 1)).rgb;
+                    vec3 minRGB = min(min(a, b), min(min(c, d), e));
+                    vec3 maxRGB = max(max(a, b), max(max(c, d), e));
+                    /* CAS-Gewicht: viel Schaerfung wo Kontrast-Spielraum ist, wenig an
+                       bereits harten Kanten (deshalb kein Ringing). */
+                    vec3 amp = sqrt(clamp(min(minRGB, 2.0 - maxRGB) / max(maxRGB, vec3(1e-5)), 0.0, 1.0));
+                    float peak = -1.0 / mix(8.0, 5.0, clamp(u_Sharpen, 0.0, 1.0));
+                    vec3 w = amp * peak;
+                    e = clamp((e + (a + b + c + d) * w) / (4.0 * w + 1.0), 0.0, 1.0);
                 }
-                fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+                fragColor = vec4(e, 1.0);
             }
             """;
 
@@ -376,6 +410,7 @@ public final class AntiAliasingPass implements PostPass {
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.targetFbo);
             this.fxaaProgram.bind();
             this.fxaaProgram.setUniformVector2f("u_InvResolution", 1F / context.width, 1F / context.height);
+            this.fxaaProgram.setUniformf("u_SubpixelScale", 1.0F);
             GL13.glActiveTexture(GL13.GL_TEXTURE0);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
             context.drawFullscreenTriangle();
@@ -391,7 +426,19 @@ public final class AntiAliasingPass implements PostPass {
         int write = this.historyWrite;
         int read = 1 - write;
 
-        /* 1) Resolve -> History-Write (nie direkt der Screen — das Ergebnis muss persistieren) */
+        /* 1) FXAA-Vorstufe (BSL: FXAA + TAA laufen zusammen): glaettet die Kanten des
+           aktuellen Frames VOR der Akkumulation (weniger Flimmer-Input), Subpixel-Anteil
+           halbiert — exakt BSLs "#ifdef TAA". Ziel: Ping-0-Zwischentextur. */
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.pingFbo(0));
+        this.fxaaProgram.bind();
+        this.fxaaProgram.setUniformVector2f("u_InvResolution", 1F / context.width, 1F / context.height);
+        this.fxaaProgram.setUniformf("u_SubpixelScale", 0.5F);
+        GL13.glActiveTexture(GL13.GL_TEXTURE0);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
+        context.drawFullscreenTriangle();
+        this.fxaaProgram.unbind();
+
+        /* 2) Resolve -> History-Write (nie direkt der Screen — das Ergebnis muss persistieren) */
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.historyFbo[write]);
         this.taaProgram.bind();
         this.taaProgram.setUniformMatrix4f("u_InvProjView", context.invProjView);
@@ -400,7 +447,7 @@ public final class AntiAliasingPass implements PostPass {
         this.taaProgram.setUniformi("u_HistoryValid", this.historyValid ? 1 : 0);
         this.taaProgram.setUniformf("u_HistoryWeight", context.settings.getTaaHistoryWeight());
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.pingTexture(0)); // FXAA-geglaettetes Current
         GL13.glActiveTexture(GL13.GL_TEXTURE1);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.historyTex[read]);
         GL13.glActiveTexture(GL13.GL_TEXTURE2);
@@ -408,7 +455,7 @@ public final class AntiAliasingPass implements PostPass {
         context.drawFullscreenTriangle();
         this.taaProgram.unbind();
 
-        /* 2) Copy/Sharpen -> Ziel; History-Slot fuer spaetere Paesse publizieren */
+        /* 3) Copy/Sharpen (CAS) -> Ziel; History-Slot fuer spaetere Paesse publizieren */
         context.history = this.historyTex[write];
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.targetFbo);
         this.copyProgram.bind();
