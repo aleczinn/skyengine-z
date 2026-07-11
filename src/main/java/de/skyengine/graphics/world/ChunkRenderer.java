@@ -91,6 +91,23 @@ public class ChunkRenderer {
     /* Fence-Diagnose (nur bei aktivem FrameProfiler gefüllt, s. beginFrame) */
     private long syncFrames, syncSignaled, syncWaitNs, syncWaitMaxNs;
 
+    /* Mess-Gate LOD-Superregionen: bei aktivem FrameProfiler wird das LOD-Opaque-Segment
+       pro Level in eigene MDI-Sub-Segmente mit eigener GPU-Query gesplittet (GL_TIME_ELAPSED
+       darf nicht verschachteln -> ein Draw pro Level). Ohne Profiler: ein Draw wie bisher.
+       Index 1..5 = LOD-Level (LodConfig deckelt maxLevel auf 5). */
+    private static final int MAX_LOD_LEVELS = 5;
+    @SuppressWarnings("unchecked")
+    private final List<LodMesh>[] visibleLodByLevel = new List[MAX_LOD_LEVELS + 1];
+    private static final FrameProfiler.Gpu[] LOD_LEVEL_GPU = {
+            null, FrameProfiler.Gpu.LOD_O_L1, FrameProfiler.Gpu.LOD_O_L2,
+            FrameProfiler.Gpu.LOD_O_L3, FrameProfiler.Gpu.LOD_O_L4, FrameProfiler.Gpu.LOD_O_L5
+    };
+    /* Sub-Segment-Cursor/Draw-Zahlen pro Level (nur im Split-Modus befüllt, keine
+       per-Frame-Allokationen im Hot-Path) */
+    private final long[] lodLvlCmd = new long[MAX_LOD_LEVELS + 1];
+    private final long[] lodLvlOff = new long[MAX_LOD_LEVELS + 1];
+    private final int[] lodLvlN = new int[MAX_LOD_LEVELS + 1];
+
     private static final int MAX_UPLOADS_PER_FRAME = 8;
 
     /* Deckelt Quad-Sorts pro Frame — bei Kamerabewegung wollen sonst alle sichtbaren
@@ -152,6 +169,7 @@ public class ChunkRenderer {
 
     public ChunkRenderer(ChunkManager chunkManager) {
         this.chunkManager = chunkManager;
+        for (int l = 1; l <= MAX_LOD_LEVELS; l++) this.visibleLodByLevel[l] = new ArrayList<>();
     }
 
     /** Verdrahtet das LOD-System (aus World.init). Ohne Manager rendert alles wie bisher. */
@@ -332,7 +350,11 @@ public class ChunkRenderer {
         this.renderedSections = this.visible.size();
 
         /* 4b. LOD-Regionen: Frustum-Test über das Regionen-AABB (128 x [minY,maxY] x 128) */
+        boolean lodSplit = FrameProfiler.isEnabled();
         this.visibleLod.clear();
+        if (lodSplit) {
+            for (int l = 1; l <= MAX_LOD_LEVELS; l++) this.visibleLodByLevel[l].clear();
+        }
         for (LodMesh mesh : this.lodMeshes.values()) {
             float ox = (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x);
             float oz = (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z);
@@ -341,6 +363,7 @@ public class ChunkRenderer {
             if (!camera.getFrustum().testAab(ox, y0, oz,
                     ox + LodMesher.REGION_BLOCKS, y1, oz + LodMesher.REGION_BLOCKS)) continue;
             this.visibleLod.add(mesh);
+            if (lodSplit) this.visibleLodByLevel[mesh.level].add(mesh);
         }
         int lodDraws = this.visibleLod.size();
 
@@ -356,15 +379,30 @@ public class ChunkRenderer {
            (tatsächlich nur der Teil mit hasTranslucent() — exakte Zählung lohnt hier nicht,
            die Ringe wachsen ohnehin nur bei echtem Bedarf). */
         int translucentDraws = this.translucentVisible.size();
+        /* Im Split-Modus ist jedes per-Level-Sub-Segment einzeln aligned (SSBO-Offset-
+           Anforderung) -> Kapazität als Summe der aligned Level-Segmente rechnen. */
+        long lodCmdCap, lodOffCap;
+        if (lodSplit) {
+            lodCmdCap = 0;
+            lodOffCap = 0;
+            for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
+                int n = this.visibleLodByLevel[l].size();
+                lodCmdCap += MappedRing.align((long) n * COMMAND_BYTES);
+                lodOffCap += MappedRing.align((long) n * OFFSET_BYTES);
+            }
+        } else {
+            lodCmdCap = MappedRing.align((long) lodDraws * COMMAND_BYTES);
+            lodOffCap = MappedRing.align((long) lodDraws * OFFSET_BYTES);
+        }
         this.commandRing.ensureSlotCapacity(
                 MappedRing.align((long) opaqueDraws * COMMAND_BYTES)
-                        + MappedRing.align((long) lodDraws * COMMAND_BYTES)
+                        + lodCmdCap
                         + MappedRing.align((long) cutoutDraws * COMMAND_BYTES)
                         + MappedRing.align((long) translucentDraws * COMMAND_BYTES)
                         + MappedRing.align((long) lodDraws * COMMAND_BYTES));
         this.offsetRing.ensureSlotCapacity(
                 MappedRing.align((long) opaqueDraws * OFFSET_BYTES)
-                        + MappedRing.align((long) lodDraws * OFFSET_BYTES)
+                        + lodOffCap
                         + MappedRing.align((long) cutoutDraws * OFFSET_BYTES)
                         + MappedRing.align((long) translucentDraws * OFFSET_BYTES)
                         + MappedRing.align((long) lodDraws * OFFSET_BYTES));
@@ -379,13 +417,29 @@ public class ChunkRenderer {
         int nOpaque = this.writeSegment(RenderLayer.OPAQUE, this.visible, cmds, offs, cmdOpaque, offOpaque, cam);
 
         /* LOD-Opaque: eigenes Segment, eigener Draw-Call (eigene Arena -> eigener Vertex-Buffer,
-           baseVertex wäre in der Section-Arena ungültig). */
+           baseVertex wäre in der Section-Arena ungültig). Im Split-Modus (FrameProfiler) pro
+           Level ein eigenes, einzeln aligntes Sub-Segment für per-Level-GPU-Queries. */
         long cmdLodOpaque = cmdOpaque + MappedRing.align((long) nOpaque * COMMAND_BYTES);
         long offLodOpaque = offOpaque + MappedRing.align((long) nOpaque * OFFSET_BYTES);
-        int nLodOpaque = this.writeLodOpaqueSegment(cmds, offs, cmdLodOpaque, offLodOpaque, cam);
-
-        long cmdCutout = cmdLodOpaque + MappedRing.align((long) nLodOpaque * COMMAND_BYTES);
-        long offCutout = offLodOpaque + MappedRing.align((long) nLodOpaque * OFFSET_BYTES);
+        long cmdCutout, offCutout;
+        int nLodOpaque = 0;
+        if (lodSplit) {
+            long c = cmdLodOpaque, o = offLodOpaque;
+            for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
+                List<LodMesh> list = this.visibleLodByLevel[l];
+                this.lodLvlCmd[l] = c;
+                this.lodLvlOff[l] = o;
+                this.lodLvlN[l] = list.isEmpty() ? 0 : this.writeLodOpaqueSegment(list, cmds, offs, c, o, cam);
+                c += MappedRing.align((long) this.lodLvlN[l] * COMMAND_BYTES);
+                o += MappedRing.align((long) this.lodLvlN[l] * OFFSET_BYTES);
+            }
+            cmdCutout = c;
+            offCutout = o;
+        } else {
+            nLodOpaque = this.writeLodOpaqueSegment(this.visibleLod, cmds, offs, cmdLodOpaque, offLodOpaque, cam);
+            cmdCutout = cmdLodOpaque + MappedRing.align((long) nLodOpaque * COMMAND_BYTES);
+            offCutout = offLodOpaque + MappedRing.align((long) nLodOpaque * OFFSET_BYTES);
+        }
         int nCutout = this.writeSegment(RenderLayer.CUTOUT, this.visible, cmds, offs, cmdCutout, offCutout, cam);
 
         /* Cursor für das Translucent-Segment in renderTranslucent merken */
@@ -406,9 +460,16 @@ public class ChunkRenderer {
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.SOLID);
         this.drawSegment(RenderLayer.OPAQUE.ordinal(), cmdOpaque, offOpaque, nOpaque);
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.SOLID);
-        FrameProfiler.gpuBegin(FrameProfiler.Gpu.LOD_OPAQUE);
-        this.drawLodSegment(LOD_OPAQUE, cmdLodOpaque, offLodOpaque, nLodOpaque);
-        FrameProfiler.gpuEnd(FrameProfiler.Gpu.LOD_OPAQUE);
+        if (lodSplit) {
+            for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
+                if (this.lodLvlN[l] == 0) continue;
+                FrameProfiler.gpuBegin(LOD_LEVEL_GPU[l]);
+                this.drawLodSegment(LOD_OPAQUE, this.lodLvlCmd[l], this.lodLvlOff[l], this.lodLvlN[l]);
+                FrameProfiler.gpuEnd(LOD_LEVEL_GPU[l]);
+            }
+        } else {
+            this.drawLodSegment(LOD_OPAQUE, cmdLodOpaque, offLodOpaque, nLodOpaque);
+        }
 
         /* CUTOUT mit "or-equal"-Depth-Func: die koplanaren Gras-Seiten-Overlays (identische
            Vertices wie ihre OPAQUE-Basis-Seite) muessen den Tiefentest exakt gewinnen.
@@ -627,29 +688,44 @@ public class ChunkRenderer {
             }
         }
 
-        /* Statistik gelegentlich loggen (Budget-Annahmen verifizierbar halten) */
+        /* Statistik gelegentlich loggen (Budget-Annahmen verifizierbar halten); per Level
+           aufgeschlüsselt als Datenbasis für das Superregionen-Mess-Gate. */
         if ((this.frameId & 2047) == 0 && !this.lodMeshes.isEmpty()) {
             long quads = 0;
-            for (LodMesh mesh : this.lodMeshes.values()) quads += mesh.quadCount();
-            this.logger.debug("LOD: " + this.lodMeshes.size() + " Regionen, " + quads
-                    + " Quads, " + ((quads * 4 * ChunkMesher.VERTEX_SIZE * Integer.BYTES) >> 20) + " MB Arena");
+            long[] lvlRegions = new long[MAX_LOD_LEVELS + 1];
+            long[] lvlQuads = new long[MAX_LOD_LEVELS + 1];
+            for (LodMesh mesh : this.lodMeshes.values()) {
+                quads += mesh.quadCount();
+                lvlRegions[mesh.level]++;
+                lvlQuads[mesh.level] += mesh.quadCount();
+            }
+            StringBuilder sb = new StringBuilder("LOD: ").append(this.lodMeshes.size())
+                    .append(" Regionen, ").append(quads).append(" Quads, ")
+                    .append((quads * 4 * ChunkMesher.VERTEX_SIZE * Integer.BYTES) >> 20).append(" MB Arena |");
+            for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
+                if (lvlRegions[l] == 0) continue;
+                sb.append(" L").append(l).append("=").append(lvlRegions[l])
+                        .append("R/").append(lvlQuads[l]).append("Q");
+            }
+            this.logger.debug(sb.toString());
         }
     }
 
     /**
-     * Schreibt die sichtbaren LOD-Opaque-Regionen als eigenes Indirect-Command-Segment (eigene
+     * Schreibt die LOD-Opaque-Regionen der Liste als eigenes Indirect-Command-Segment (eigene
      * Arena, eigener Draw-Call — baseVertex ist nur innerhalb desselben Vertex-Buffers gültig).
+     * Liste = alle sichtbaren Regionen oder (Split-Modus) die eines einzelnen Levels.
      * Offset-Semantik unverändert: .xyz = Ursprung kamerarelativ, .w = 0.
      *
      * @return Anzahl geschriebener LOD-Opaque-Draws
      */
-    private int writeLodOpaqueSegment(IntBuffer cmds, FloatBuffer offs, long cmdSegBytes, long offSegBytes,
-                                      Vector3d cam) {
+    private int writeLodOpaqueSegment(List<LodMesh> list, IntBuffer cmds, FloatBuffer offs,
+                                      long cmdSegBytes, long offSegBytes, Vector3d cam) {
         int cmdBase = (int) (cmdSegBytes / Integer.BYTES);
         int offBase = (int) (offSegBytes / Float.BYTES);
         int n = 0;
-        for (int i = 0; i < this.visibleLod.size(); i++) {
-            LodMesh mesh = this.visibleLod.get(i);
+        for (int i = 0; i < list.size(); i++) {
+            LodMesh mesh = list.get(i);
             if (!mesh.hasOpaque()) continue;
 
             int ci = cmdBase + n * 5;
