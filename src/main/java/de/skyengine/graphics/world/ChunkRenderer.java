@@ -82,6 +82,12 @@ public class ChunkRenderer {
     private int lastLodRenderDistance = -1, lastLodMaxDistance = -1;
     private boolean lastLodEnabled;
 
+    /* Gate für die Cleanup-Walks (Schritte 3/3b): die O(Meshes)-Prüfungen laufen nur noch
+       in Frames, in denen sich Chunk-Set bzw. LOD-Desired-Set wirklich geändert haben
+       (gemessen ~250 µs/Frame gespart im Steady-State). -1 = beim ersten Frame laufen. */
+    private int lastChunkRemovalVersion = -1;
+    private int lastLodDesiredVersion = -1;
+
     private static final int MAX_UPLOADS_PER_FRAME = 8;
 
     /* Deckelt Quad-Sorts pro Frame — bei Kamerabewegung wollen sonst alle sichtbaren
@@ -263,18 +269,27 @@ public class ChunkRenderer {
         /* 2c. LOD-Uploads (eigenes Budget) — Meshes landen in der bestehenden OPAQUE-Arena */
         if (this.lodManager != null) this.applyLodResults();
 
-        /* 3. Meshes entladener Chunks freigeben (Regionen deferred) */
-        Iterator<Map.Entry<Long, SectionMesh>> it = this.meshes.entrySet().iterator();
-        while (it.hasNext()) {
-            SectionMesh mesh = it.next().getValue();
-            if (!this.chunkManager.getChunks().containsKey(Chunk.key(mesh.chunkX, mesh.chunkZ))) {
-                mesh.dispose(this.arenas, this.frameId);
-                it.remove();
+        /* 3. Meshes entladener Chunks freigeben (Regionen deferred) — nur in Frames, in denen
+           der ChunkManager wirklich etwas entfernt hat (Removal-Version), statt jeden Frame
+           alle Meshes gegen die Chunk-Map zu prüfen. update() (Tick) läuft vor renderSolid,
+           der Walk greift also im selben Frame wie die Entfernung. */
+        int removalVersion = this.chunkManager.getChunkRemovalVersion();
+        if (removalVersion != this.lastChunkRemovalVersion) {
+            this.lastChunkRemovalVersion = removalVersion;
+            Iterator<Map.Entry<Long, SectionMesh>> it = this.meshes.entrySet().iterator();
+            while (it.hasNext()) {
+                SectionMesh mesh = it.next().getValue();
+                if (!this.chunkManager.getChunks().containsKey(Chunk.key(mesh.chunkX, mesh.chunkZ))) {
+                    mesh.dispose(this.arenas, this.frameId);
+                    it.remove();
+                }
             }
         }
 
-        /* 3b. Nicht mehr gewünschte LOD-Regionen freigeben (deferred) */
-        if (this.lodManager != null) {
+        /* 3b. Nicht mehr gewünschte LOD-Regionen freigeben (deferred) — analog gegated über
+           die Desired-Version (bumpt bei jedem recomputeDesired, auch Anker-Bewegung). */
+        if (this.lodManager != null && this.lodManager.getDesiredVersion() != this.lastLodDesiredVersion) {
+            this.lastLodDesiredVersion = this.lodManager.getDesiredVersion();
             VertexArena lodOpaqueArena = this.arenas[LOD_OPAQUE];
             VertexArena lodTranslucentArena = this.arenas[LOD_TRANSLUCENT];
             Iterator<Map.Entry<Long, LodMesh>> lit = this.lodMeshes.entrySet().iterator();
@@ -516,7 +531,10 @@ public class ChunkRenderer {
             SectionMesh old = this.meshes.remove(key);
             if (old != null) old.dispose(this.arenas, this.frameId);
 
-            if (result.data() != null && !result.data().isEmpty()) {
+            /* Späte Batches entladener Chunks verwerfen (chunk == null): der Cleanup-Walk in
+               Schritt 3 läuft nur noch bei Removal-Version-Wechsel — ein danach eingefügtes
+               Waisen-Mesh würde nie wieder abgeräumt (Arena-Leak + Geistergeometrie). */
+            if (chunk != null && result.data() != null && !result.data().isEmpty()) {
                 SectionMesh mesh = new SectionMesh(result.chunkX(), result.sectionY(), result.chunkZ(), result.data(), this.arenas);
                 this.meshes.put(key, mesh);
                 this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.maxQuads());

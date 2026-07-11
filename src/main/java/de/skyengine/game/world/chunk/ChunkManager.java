@@ -37,6 +37,12 @@ public class ChunkManager {
        volatile nur der Sichtbarkeit halber — gelesen wird auf dem Tick-/Render-Thread. */
     private volatile boolean loadingPaused = false;
 
+    /* Zählt Entfernungen aus der chunks-Map (Unload-Loop + clearAllChunks). Der ChunkRenderer
+       räumt seine Section-Meshes nur in Frames auf, in denen sich dieser Wert geändert hat,
+       statt jeden Frame ALLE Meshes gegen die Map zu prüfen (gemessen ~250 µs/Frame im
+       Steady-State). Nur auf dem Tick-/Render-Thread geschrieben und gelesen. */
+    private int chunkRemovalVersion = 0;
+
     /* Begrenzt, wie viele Generierungs-Jobs pro Tick submitted werden.
        Hält die Executor-Queue kurz -> nahe Chunks neuer Positionen kommen schnell dran. */
     private static final int MAX_GENERATION_SUBMITS_PER_TICK = 64;
@@ -286,6 +292,7 @@ public class ChunkManager {
                 }
                 it.remove();
                 /* Renderer disposes the GL meshes when it notices the chunk is gone */
+                this.chunkRemovalVersion++;
             }
         }
     }
@@ -301,6 +308,20 @@ public class ChunkManager {
         for (Chunk chunk : this.chunks.values()) {
             if (chunk.status == ChunkStatus.READY) chunk.status = ChunkStatus.DECORATED;
         }
+    }
+
+    /**
+     * Verwirft ALLE Chunks (Debug-F8). Muss statt {@code getChunks().clear()} benutzt werden,
+     * damit {@link #chunkRemovalVersion} bumpt — sonst bemerkt der ChunkRenderer die
+     * Entfernung nicht und die alten Meshes blieben als Geistergeometrie stehen.
+     */
+    public void clearAllChunks() {
+        this.chunks.clear();
+        this.chunkRemovalVersion++;
+    }
+
+    public int getChunkRemovalVersion() {
+        return chunkRemovalVersion;
     }
 
     /**
