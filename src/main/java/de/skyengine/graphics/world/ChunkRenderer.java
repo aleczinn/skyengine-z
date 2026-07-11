@@ -739,7 +739,7 @@ public class ChunkRenderer {
             offs.put(oi, (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x));
             offs.put(oi + 1, (float) (mesh.yBase - cam.y)); // Vertices sind relativ zu yBase gepackt
             offs.put(oi + 2, (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z));
-            offs.put(oi + 3, 0F);
+            offs.put(oi + 3, 1F / 256F); // .w = Positions-Skala (2^-8 exakt -> bitidentisch)
             n++;
         }
         return n;
@@ -772,7 +772,7 @@ public class ChunkRenderer {
             offs.put(oi, (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x));
             offs.put(oi + 1, (float) (mesh.yBase - cam.y)); // Vertices sind relativ zu yBase gepackt
             offs.put(oi + 2, (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z));
-            offs.put(oi + 3, 0F);
+            offs.put(oi + 3, 1F / 256F); // .w = Positions-Skala (2^-8 exakt -> bitidentisch)
             n++;
         }
         return n;
@@ -804,7 +804,7 @@ public class ChunkRenderer {
             offs.put(oi, offsetX(mesh, cam));
             offs.put(oi + 1, offsetY(mesh, cam));
             offs.put(oi + 2, offsetZ(mesh, cam));
-            offs.put(oi + 3, 0F);
+            offs.put(oi + 3, 1F / 256F); // .w = Positions-Skala (2^-8 exakt -> bitidentisch)
             n++;
         }
         return n;
@@ -1012,7 +1012,9 @@ public class ChunkRenderer {
             out float v_viewDist;
 
             void main() {
-                vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16), float(a_data.y & 0xFFFFu)) * (1.0 / 256.0) - 1.0;
+                /* Positions-Skala pro Draw aus .w (Sections + normales LOD: 1/256; LOD-
+                   Superregionen: 1/64 -- u16-Fixed-Point traegt sonst nur ~255 Bloecke). */
+                vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16), float(a_data.y & 0xFFFFu)) * u_DrawOffsets[gl_DrawID].w - 1.0;
                 vec2 uv = vec2(float(a_data.y >> 16), float(a_data.z & 0xFFFFu)) * (1.0 / 1024.0) - 1.0;
                 float layer = float(a_data.z >> 16);
                 vec3 color = vec3(float(a_data.w & 0xFFu), float((a_data.w >> 8) & 0xFFu), float((a_data.w >> 16) & 0xFFu)) * (1.0 / 255.0);
