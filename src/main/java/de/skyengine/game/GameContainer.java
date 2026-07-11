@@ -63,6 +63,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     /* TAA-Jitter des Frames (wiederverwendet, s. renderWorld) */
     private final Vector2f taaJitter = new Vector2f();
+    /* Zuletzt angewandter Textur-LOD-Bias (TAA aktiv → taaMipBias, sonst 0) */
+    private float appliedMipBias;
 
     private static final double REACH = 6.0;
 
@@ -203,6 +205,16 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         PostProcessor post = SkyEngine.get().getPostProcessor();
         post.nextJitter(this.taaJitter, width, height);
         this.camera.setJitter(this.taaJitter.x, this.taaJitter.y);
+
+        /* TAA-Mip-Bias des Block-TextureArrays: nur bei Zustandswechsel setzen
+           (aaMode-Wechsel oder taaMipBias-Tuning), kein glTexParameter pro Frame. */
+        float wantedBias = post.getSettings().getAaMode() == AntiAliasingMode.TAA
+                ? post.getSettings().getTaaMipBias() : 0F;
+        if (wantedBias != this.appliedMipBias) {
+            this.world.getChunkRenderer().getTextureArray().setLodBias(wantedBias);
+            this.appliedMipBias = wantedBias;
+            this.logger.debug("Textur-LOD-Bias: " + wantedBias);
+        }
 
         this.camera.follow(this.player, partialTick);
         this.camera.update((double) width / height);

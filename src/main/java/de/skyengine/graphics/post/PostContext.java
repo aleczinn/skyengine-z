@@ -2,6 +2,7 @@ package de.skyengine.graphics.post;
 
 import de.skyengine.core.io.IDisposable;
 import org.joml.Matrix4f;
+import org.joml.Vector2f;
 import org.joml.Vector3f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
@@ -35,6 +36,11 @@ public final class PostContext implements IDisposable {
     public final Matrix4f invProjView = new Matrix4f();  // Inverse der GEJITTERTEN PV
     public final Matrix4f prevProjView = new Matrix4f(); // UNGEJITTERTE PV des Vorframes
     public final Vector3f camDelta = new Vector3f();     // camNow − camPrev (kamerarelativ)
+    /* Aktueller Kamera-Jitter in UV (NDC/2); (0,0) wenn TAA aus (PostProcessor.nextJitter).
+       Vom TAA-Resolve bewusst NICHT mehr genutzt (BSL-Port: Current wird roh gesampelt —
+       jede Resample-Kompensation frisst die Frische des Frames); bleibt als Anschluss
+       für künftige Effekte, die den Jitter kennen müssen. */
+    public final Vector2f jitterUv = new Vector2f();
 
     /* Frame-Zähler (PostProcessor.render) — Pässe erkennen Aussetzer (History invalid). */
     public long frame;

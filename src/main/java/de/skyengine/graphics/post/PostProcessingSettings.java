@@ -62,7 +62,10 @@ public final class PostProcessingSettings {
 
     /* TAA: History-Gewicht (höher = ruhiger/weicher, niedriger = schärfer/flimmriger);
        bei Kamerabewegung senkt der Resolve-Shader es zusätzlich adaptiv ab. */
-    private float taaHistoryWeight = 0.9F;
+    private float taaHistoryWeight = 0.85F;
+    /* TAA: LOD-Bias des Block-TextureArrays solange TAA aktiv ist (negativ = schärfer;
+       holt von der zeitlichen Mittelung weggeglättetes Mip-Detail zurück). */
+    private float taaMipBias = -0.5F;
 
     /* --- Reserviert: Pässe existieren noch nicht (Bloom/Vignette/Sharpen kommen später,
            die Felder sind bereits ladbar/setzbar, werden aber von keinem Pass gelesen) --- */
@@ -129,6 +132,7 @@ public final class PostProcessingSettings {
         this.aaMode = fresh.aaMode;
         this.debugMode = fresh.debugMode;
         this.taaHistoryWeight = fresh.taaHistoryWeight;
+        this.taaMipBias = fresh.taaMipBias;
         this.bloomIntensity = fresh.bloomIntensity;
         this.bloomThreshold = fresh.bloomThreshold;
         this.vignette = fresh.vignette;
@@ -145,6 +149,8 @@ public final class PostProcessingSettings {
         this.saturation = Math.max(0F, this.saturation);
         this.contrast = Math.max(0F, this.contrast);
         this.taaHistoryWeight = Math.clamp(this.taaHistoryWeight, 0F, 0.98F);
+        this.taaMipBias = Math.clamp(this.taaMipBias, -2F, 0F);
+        this.sharpen = Math.clamp(this.sharpen, 0F, 1F); // CAS-Stärke
     }
 
     /** true genau einmal nach jeder Änderung — der PostProcessor lädt dann das UBO neu. */
@@ -173,6 +179,7 @@ public final class PostProcessingSettings {
     public AntiAliasingMode getAaMode() { return this.aaMode; }
     public PostDebugMode getDebugMode() { return this.debugMode; }
     public float getTaaHistoryWeight() { return this.taaHistoryWeight; }
+    public float getTaaMipBias() { return this.taaMipBias; }
     public float getBloomIntensity() { return this.bloomIntensity; }
     public float getBloomThreshold() { return this.bloomThreshold; }
     public float getVignette() { return this.vignette; }
@@ -196,6 +203,7 @@ public final class PostProcessingSettings {
     public void setGamma(float v) { this.gamma = v <= 0F ? 1.0F : v; this.dirty = true; }
     public void setAaMode(AntiAliasingMode v) { this.aaMode = v == null ? AntiAliasingMode.NONE : v; this.dirty = true; }
     public void setTaaHistoryWeight(float v) { this.taaHistoryWeight = Math.clamp(v, 0F, 0.98F); this.dirty = true; }
+    public void setTaaMipBias(float v) { this.taaMipBias = Math.clamp(v, -2F, 0F); this.dirty = true; }
     public void setDebugMode(PostDebugMode v) { this.debugMode = v == null ? PostDebugMode.NONE : v; this.dirty = true; }
     public void setBloomIntensity(float v) { this.bloomIntensity = v; this.dirty = true; }
     public void setBloomThreshold(float v) { this.bloomThreshold = v; this.dirty = true; }
