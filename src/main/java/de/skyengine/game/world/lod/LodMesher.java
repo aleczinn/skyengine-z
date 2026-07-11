@@ -36,8 +36,9 @@ import java.util.Arrays;
  *
  * <p>Läuft auf den Chunk-Workern, liest ausschließlich die {@link LodDataSource}. Ausgabe:
  * gepacktes 16-Byte-Vertex-Format des {@link ChunkMesher}. Eine Instanz pro Worker-Thread.
- * Gegen Quad-Explosion: 1D-Greedy-Merge (Tops/N-S-Wände entlang x, W-O-Wände entlang z),
- * Deckel {@link #MAX_MERGE_BLOCKS}.
+ * Gegen Quad-Explosion: 2D-Greedy-Merge der Tops (Breite entlang x, dann Höhe entlang z, wie
+ * im ChunkMesher-Greedy) und 1D-Runs der Wände entlang ihrer Kante (die zweite Quad-Dimension
+ * ist dort bereits die Höhe), Deckel {@link #MAX_MERGE_BLOCKS} je Achse.
  */
 public final class LodMesher {
 
@@ -76,8 +77,9 @@ public final class LodMesher {
        Fluid-Zellen der feste Boden darunter — Basis für Terrain-Tops/-Wände/AO/yBase. */
     private long[] ground = new long[0];
     private boolean[] clipped = new boolean[0];
-    /* Merge-Marker der Wasser-Tops (2D-Greedy): true = Zelle schon in ein Quad gemerged. */
-    private boolean[] waterConsumed = new boolean[0];
+    /* Merge-Marker der Top-Pässe (2D-Greedy): true = Zelle schon in ein Quad gemerged;
+       wird vor Terrain- (3a) und Wasser-Pass (3b) jeweils zurückgesetzt. */
+    private boolean[] consumed = new boolean[0];
     /* Getrennte Ausgabepuffer: Fluid-Top-Quads -> translucent (transparent, eigene Arena/
        eigener Draw-Call im Renderer), alles andere (Terrain-Tops + ALLE Wände/Skirts,
        auch an Fluid-Zellen) -> opaque. Wände bleiben bewusst immer opak — sie stellen feste
@@ -213,18 +215,23 @@ public final class LodMesher {
         }
 
         /* 3a. Terrain-Tops über die Boden-Samples (auch unter Wasser — der Meeresboden ist
-           durch das transluzente Wasser sichtbar). Merge nur bei uniformem UND gleichem AO —
-           wie im ChunkMesher-Greedy: uneinheitliche Zellen einzeln mit per-Ecke-AO, sonst
-           interpoliert die GPU die Eckwerte als lange Gradient-Bänder über den Run. */
+           durch das transluzente Wasser sichtbar). 2D-Greedy: Breite entlang x, dann Höhe
+           entlang z (wie Wasser-Tops in 3b / ChunkMesher-Greedy). Merge nur bei uniformem
+           UND gleichem AO — wie im ChunkMesher-Greedy: uneinheitliche Zellen einzeln mit
+           per-Ecke-AO, sonst interpoliert die GPU die Eckwerte als Gradient-Bänder über
+           die gemergte Fläche. */
         /* AO aus (Setting): neutral hell (1.0) + frei mergen nach Block+Höhe — exakt wie im
            ChunkMesher (aoIdx 3 = 1.0), damit der Look über die LOD-Grenze konsistent bleibt.
            Live gelesen; der LodManager bumpt bei AO-Toggle die Epoche → alle Regionen neu. */
         boolean useAo = GameSettings.get().ambientOcclusion;
         int maxRun = Math.max(1, MAX_MERGE_BLOCKS / s);
+        if (this.consumed.length < n * n) this.consumed = new boolean[n * n];
+        else Arrays.fill(this.consumed, 0, n * n, false);
         for (int cz = 0; cz < n; cz++) {
             int cx = 0;
             while (cx < n) {
-                if (this.clipped[cz * n + cx]) {
+                int idx = cz * n + cx;
+                if (this.clipped[idx] || this.consumed[idx]) {
                     cx++;
                     continue;
                 }
@@ -241,14 +248,32 @@ public final class LodMesher {
                     uniform = true;
                 }
 
-                int run = 1;
+                int w = 1, h = 1;
                 if (uniform) {
-                    while (cx + run < n && run < maxRun && !this.clipped[cz * n + cx + run]
-                            && this.groundCell(cx + run, cz) == g
-                            && (!useAo || this.cellAoUniform(cx + run, cz, top, ao[0]))) run++;
+                    while (cx + w < n && w < maxRun && !this.clipped[cz * n + cx + w]
+                            && !this.consumed[cz * n + cx + w] && this.groundCell(cx + w, cz) == g
+                            && (!useAo || this.cellAoUniform(cx + w, cz, top, ao[0]))) w++;
+
+                    /* Gleiches Sample ⇒ gleiche Oberkante — top gilt auch für die Kandidatenzeile */
+                    expand:
+                    while (cz + h < n && h < maxRun) {
+                        for (int i = 0; i < w; i++) {
+                            int j = (cz + h) * n + (cx + i);
+                            if (this.clipped[j] || this.consumed[j] || this.groundCell(cx + i, cz + h) != g
+                                    || (useAo && !this.cellAoUniform(cx + i, cz + h, top, ao[0]))) {
+                                break expand;
+                            }
+                        }
+                        h++;
+                    }
+
+                    /* Zeile 0 überspringt cx += w; nur die Folgezeilen brauchen den Marker */
+                    for (int dz = 1; dz < h; dz++) {
+                        for (int dx = 0; dx < w; dx++) this.consumed[(cz + dz) * n + (cx + dx)] = true;
+                    }
                 }
-                this.emitTop(LodDataSource.block(g), ao, cx * s, cz * s, (cx + run) * s, (cz + 1) * s, top);
-                cx += run;
+                this.emitTop(LodDataSource.block(g), ao, cx * s, cz * s, (cx + w) * s, (cz + h) * s, top);
+                cx += w;
             }
         }
 
@@ -256,13 +281,12 @@ public final class LodMesher {
            Wasserflächen sind eben; AO würde fleckig und zerstört den Merge. 2D-Greedy
            (Breite entlang x, dann Höhe entlang z, wie im ChunkMesher-Greedy) — 1D erzeugte
            lange dünne Streifen; flache Ozeanflächen werden so zu wenigen großen Rechtecken. */
-        if (this.waterConsumed.length < n * n) this.waterConsumed = new boolean[n * n];
-        else Arrays.fill(this.waterConsumed, 0, n * n, false);
+        Arrays.fill(this.consumed, 0, n * n, false); // von 3a wiederverwendet
         for (int cz = 0; cz < n; cz++) {
             int cx = 0;
             while (cx < n) {
                 int idx = cz * n + cx;
-                if (this.clipped[idx] || this.waterConsumed[idx]) {
+                if (this.clipped[idx] || this.consumed[idx]) {
                     cx++;
                     continue;
                 }
@@ -274,14 +298,14 @@ public final class LodMesher {
                 }
                 int w = 1;
                 while (cx + w < n && w < maxRun && !this.clipped[cz * n + cx + w]
-                        && !this.waterConsumed[cz * n + cx + w] && this.cell(cx + w, cz) == sample) w++;
+                        && !this.consumed[cz * n + cx + w] && this.cell(cx + w, cz) == sample) w++;
 
                 int h = 1;
                 expand:
                 while (cz + h < n && h < maxRun) {
                     for (int i = 0; i < w; i++) {
                         int j = (cz + h) * n + (cx + i);
-                        if (this.clipped[j] || this.waterConsumed[j] || this.cell(cx + i, cz + h) != sample) {
+                        if (this.clipped[j] || this.consumed[j] || this.cell(cx + i, cz + h) != sample) {
                             break expand;
                         }
                     }
@@ -289,7 +313,7 @@ public final class LodMesher {
                 }
 
                 for (int dz = 0; dz < h; dz++) {
-                    for (int dx = 0; dx < w; dx++) this.waterConsumed[(cz + dz) * n + (cx + dx)] = true;
+                    for (int dx = 0; dx < w; dx++) this.consumed[(cz + dz) * n + (cx + dx)] = true;
                 }
                 this.emitTop(block, AO_NONE, cx * s, cz * s, (cx + w) * s, (cz + h) * s, this.topOf(sample));
                 cx += w;
