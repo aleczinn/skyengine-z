@@ -674,7 +674,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("Chunk Bounding Box: " + this.debugChunkBoundingBox);
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F8)) {
-            this.world.getChunkManager().getChunks().clear();
+            /* Über clearAllChunks statt getChunks().clear(): bumpt die Removal-Version,
+               sonst räumt der Renderer die alten Meshes nicht ab (Geistergeometrie). */
+            this.world.getChunkManager().clearAllChunks();
             this.logger.debug("reload chunks");
         }
         /* Stufenhöhe live justieren (Bild auf/ab) - zum Ausprobieren hoher Sprünge */
