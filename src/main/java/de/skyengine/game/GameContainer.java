@@ -35,6 +35,8 @@ import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.gui.ChestScreen;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.SpriteRenderer;
+import de.skyengine.graphics.post.PostProcessingSettings;
+import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
@@ -172,7 +174,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         });
     }
 
-    public void render(Input input, int width, int height, float partialTick) {
+    /**
+     * Welt-Anteil des Frames (Input/Kamera/Raycast + Welt, 3D-Overlays, Fluid-Tint) — zeichnet
+     * in das gebundene Szene-Target (HDR). Die GUI folgt getrennt in {@link #renderGui} NACH
+     * der Post-Kette (SkyEngine.onRender), damit HUD/Text nie durch Grading/AA laufen.
+     */
+    public void renderWorld(Input input, int width, int height, float partialTick) {
         this.handleGlobalHotkeys(input);   // immer: Fullscreen, GUI-Scale, Render-Distanz
 
         boolean guiOpen = this.guiManager.isOpen();
@@ -222,9 +229,14 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.renderFluidOverlay();
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
+    }
 
-        /* Zentrale GUI-Verwaltung: HUD (kein Screen) bzw. Screen-Overlay + Cursor-Sync.
-           Im Spectator ist die Hotbar ausgeblendet. */
+    /**
+     * GUI-Anteil des Frames — zeichnet in den Default-Framebuffer, NACH der Post-Kette
+     * (pixelgenau, kein Grading/AA). Zentrale GUI-Verwaltung: HUD (kein Screen) bzw.
+     * Screen-Overlay + Cursor-Sync. Im Spectator ist die Hotbar ausgeblendet.
+     */
+    public void renderGui(int width, int height) {
         boolean showHotbar = this.player.getGamemode() != Gamemode.SPECTATOR;
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
         this.guiManager.render(width, height, this.playerInventory, this.hotbarIndex, showHotbar);
@@ -673,6 +685,20 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                sonst räumt der Renderer die alten Meshes nicht ab (Geistergeometrie). */
             this.world.getChunkManager().clearAllChunks();
             this.logger.debug("reload chunks");
+        }
+        /* Post-Processing: F9 schaltet den AA-Modus durch (NONE/FXAA/...), F10 lädt
+           config/postprocessing.json neu (Grading-Tuning ohne Neustart). Nur Laufzeit-
+           Zustand — nichts davon wird in options.json persistiert. */
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F9)) {
+            PostProcessingSettings post = SkyEngine.get().getPostProcessor().getSettings();
+            AntiAliasingMode[] modes = AntiAliasingMode.values();
+            AntiAliasingMode next = modes[(post.getAaMode().ordinal() + 1) % modes.length];
+            post.setAaMode(next);
+            this.logger.debug("Anti-Aliasing: " + next);
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F10)) {
+            SkyEngine.get().getPostProcessor().getSettings().reloadFromFile();
+            this.logger.debug("Post-Processing-Einstellungen neu geladen");
         }
         /* Stufenhöhe live justieren (Bild auf/ab) - zum Ausprobieren hoher Sprünge */
         if (input.isKeyPressed(GLFW.GLFW_KEY_PAGE_UP)) {

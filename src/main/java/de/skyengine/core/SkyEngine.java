@@ -5,6 +5,7 @@ import de.skyengine.core.input.Input;
 import de.skyengine.game.GameContainer;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.Screenshot;
+import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.utils.DelayedRunnable;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -40,6 +41,7 @@ public class SkyEngine {
     private final Queue<DelayedRunnable> renderTasks;
 
     private final GameContainer game;
+    private final PostProcessor postProcessor;
 
     public SkyEngine(EngineConfig config) {
         instance = this;
@@ -51,6 +53,7 @@ public class SkyEngine {
         this.mainThreadTasks = new ConcurrentLinkedQueue<>();
         this.renderTasks = new ConcurrentLinkedQueue<>();
         this.game = new GameContainer();
+        this.postProcessor = new PostProcessor(); // GL-Init erst in launch() (Render-Thread)
     }
 
     private void onUpdate() {
@@ -85,13 +88,18 @@ public class SkyEngine {
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.CLEAR);
 
-        this.game.render(this.input, this.window.getWidth(), this.window.getHeight(), partialTick);
+        /* Welt in das Szene-Target (HDR); die GUI kommt erst NACH der Post-Kette in den
+           Default-Framebuffer — HUD/Text durchlaufen nie Grading/AA (pixelgenau). */
+        this.game.renderWorld(this.input, this.window.getWidth(), this.window.getHeight(), partialTick);
 
-        FrameProfiler.gpuBegin(FrameProfiler.Gpu.BLIT);
-        this.window.getFrameBuffer().blitToScreen();
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.BLIT); // misst jetzt Resolve + Post-Kette
+        this.window.getFrameBuffer().resolve();
+        this.postProcessor.render(this.window.getFrameBuffer());
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.BLIT);
 
-        /* Screenshot aus dem aufgelösten Default-Framebuffer, bevor der Frame präsentiert wird. */
+        this.game.renderGui(this.window.getWidth(), this.window.getHeight());
+
+        /* Screenshot aus dem fertigen Default-Framebuffer (inkl. GUI), vor dem Present. */
         if (this.game.consumeScreenshotRequest()) {
             Screenshot.capture(this.window.getWidth(), this.window.getHeight());
         }
@@ -107,6 +115,7 @@ public class SkyEngine {
     }
 
     public void onResize(int width, int height) {
+        this.postProcessor.resize(width, height);
         this.game.resize(width, height);
     }
 
@@ -114,6 +123,7 @@ public class SkyEngine {
         this.logger.info("Stopping!");
 
         this.game.dispose();
+        this.postProcessor.dispose();
 
         this.drainRunnables();
         GL.setCapabilities(null);
@@ -256,6 +266,7 @@ public class SkyEngine {
 
                 // Configure VAOs, Shader, Textures here
                 this.window.getFrameBuffer().create();
+                this.postProcessor.init(this.window.getWidth(), this.window.getHeight());
 
                 this.game.init();
 
@@ -378,6 +389,10 @@ public class SkyEngine {
 
     public GameContainer getGame() {
         return game;
+    }
+
+    public PostProcessor getPostProcessor() {
+        return postProcessor;
     }
 
     public static SkyEngine get() {
