@@ -20,10 +20,16 @@ import org.lwjgl.opengl.GL33;
  */
 public final class FrameProfiler {
 
-    /** Disjunkte GPU-Abschnitte (Reihenfolge = Ausgabe-Reihenfolge). */
+    /** Disjunkte GPU-Abschnitte (Reihenfolge = Ausgabe-Reihenfolge). Das LOD-Opaque-Segment
+        wird pro LOD-Level einzeln gemessen (Mess-Gate für den Superregionen-Merge) —
+        Level ohne sichtbare Regionen zeigen 0. */
     public enum Gpu {
         SOLID("solid"),
-        LOD_OPAQUE("lodO"),
+        LOD_O_L1("lodO1"),
+        LOD_O_L2("lodO2"),
+        LOD_O_L3("lodO3"),
+        LOD_O_L4("lodO4"),
+        LOD_O_L5("lodO5"),
         CUTOUT("cut"),
         TRANSLUCENT("trans"),
         LOD_TRANSLUCENT("lodT"),
