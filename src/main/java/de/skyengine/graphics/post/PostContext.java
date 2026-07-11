@@ -1,6 +1,8 @@
 package de.skyengine.graphics.post;
 
 import de.skyengine.core.io.IDisposable;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL30;
@@ -21,13 +23,21 @@ public final class PostContext implements IDisposable {
     /* --- Ressourcen-Slots (Textur-IDs, 0 = aktuell nicht vorhanden) --- */
     public int sceneColor;   // HDR-Szene (RGBA16F), bei MSAA erst nach FrameBuffer.resolve() aktuell
     public int sceneDepth;   // Szenen-Tiefe (32F, Reversed-Z) — nur bei MSAA=0
-    public int velocity;     // reserviert: Bewegungsvektoren (TAA, Phase 2)
-    public int history;      // reserviert: History-Buffer (TAA, Phase 2)
+    public int velocity;     // reserviert: per-Objekt-Bewegungsvektoren (TAA nutzt bisher Kamera-Reprojektion)
+    public int history;      // TAA-History des Frames (Write-Seite, vom AntiAliasingPass publiziert)
     public int lut;          // reserviert: 3D-LUT (LUTPass, display-referred nach Grading)
 
     /* --- Verkettung: vom PostProcessor vor jedem execute() gesetzt --- */
     public int input;        // Eingangstextur des aktuellen Passes
     public int targetFbo;    // Ziel-FBO des aktuellen Passes (0 = Default-Framebuffer/Screen)
+
+    /* --- TAA-Kameradaten des Frames (PostProcessor.updateTaaCamera, s. Camera) --- */
+    public final Matrix4f invProjView = new Matrix4f();  // Inverse der GEJITTERTEN PV
+    public final Matrix4f prevProjView = new Matrix4f(); // UNGEJITTERTE PV des Vorframes
+    public final Vector3f camDelta = new Vector3f();     // camNow − camPrev (kamerarelativ)
+
+    /* Frame-Zähler (PostProcessor.render) — Pässe erkennen Aussetzer (History invalid). */
+    public long frame;
 
     public PostProcessingSettings settings;
     public int width, height;

@@ -30,8 +30,9 @@ public final class PostProcessingSettings {
     /** Tonemap-Operator (Domänenwechsel HDR → display-referred). NONE = Passthrough. */
     public enum TonemapOperator { NONE, REINHARD, ACES }
 
-    /** AA-Verfahren des {@code AntiAliasingPass}; TAA/SMAA sind spätere Modi im selben Switch. */
-    public enum AntiAliasingMode { NONE, FXAA }
+    /** AA-Verfahren des {@code AntiAliasingPass}. TAA braucht msaaSamples=0 (Depth-Textur);
+        SMAA ist ein späterer Modus im selben Switch. */
+    public enum AntiAliasingMode { NONE, FXAA, TAA }
 
     /** Debug-Visualisierung der Post-Kette — reiner Hook, in Phase 1 ohne Wirkung.
         Spätere Werte z.B. SCENE_DEPTH, GRADING_DELTA, AA_DIFF. */
@@ -58,6 +59,10 @@ public final class PostProcessingSettings {
     /* --- Pipeline-Modi --- */
     private AntiAliasingMode aaMode = AntiAliasingMode.NONE;
     private PostDebugMode debugMode = PostDebugMode.NONE;
+
+    /* TAA: History-Gewicht (höher = ruhiger/weicher, niedriger = schärfer/flimmriger);
+       bei Kamerabewegung senkt der Resolve-Shader es zusätzlich adaptiv ab. */
+    private float taaHistoryWeight = 0.9F;
 
     /* --- Reserviert: Pässe existieren noch nicht (Bloom/Vignette/Sharpen kommen später,
            die Felder sind bereits ladbar/setzbar, werden aber von keinem Pass gelesen) --- */
@@ -123,6 +128,7 @@ public final class PostProcessingSettings {
         this.gamma = fresh.gamma;
         this.aaMode = fresh.aaMode;
         this.debugMode = fresh.debugMode;
+        this.taaHistoryWeight = fresh.taaHistoryWeight;
         this.bloomIntensity = fresh.bloomIntensity;
         this.bloomThreshold = fresh.bloomThreshold;
         this.vignette = fresh.vignette;
@@ -138,6 +144,7 @@ public final class PostProcessingSettings {
         if (this.gain < 0F) this.gain = 0F;
         this.saturation = Math.max(0F, this.saturation);
         this.contrast = Math.max(0F, this.contrast);
+        this.taaHistoryWeight = Math.clamp(this.taaHistoryWeight, 0F, 0.98F);
     }
 
     /** true genau einmal nach jeder Änderung — der PostProcessor lädt dann das UBO neu. */
@@ -165,6 +172,7 @@ public final class PostProcessingSettings {
     public float getGamma() { return this.gamma; }
     public AntiAliasingMode getAaMode() { return this.aaMode; }
     public PostDebugMode getDebugMode() { return this.debugMode; }
+    public float getTaaHistoryWeight() { return this.taaHistoryWeight; }
     public float getBloomIntensity() { return this.bloomIntensity; }
     public float getBloomThreshold() { return this.bloomThreshold; }
     public float getVignette() { return this.vignette; }
@@ -187,6 +195,7 @@ public final class PostProcessingSettings {
     public void setVibrance(float v) { this.vibrance = v; this.dirty = true; }
     public void setGamma(float v) { this.gamma = v <= 0F ? 1.0F : v; this.dirty = true; }
     public void setAaMode(AntiAliasingMode v) { this.aaMode = v == null ? AntiAliasingMode.NONE : v; this.dirty = true; }
+    public void setTaaHistoryWeight(float v) { this.taaHistoryWeight = Math.clamp(v, 0F, 0.98F); this.dirty = true; }
     public void setDebugMode(PostDebugMode v) { this.debugMode = v == null ? PostDebugMode.NONE : v; this.dirty = true; }
     public void setBloomIntensity(float v) { this.bloomIntensity = v; this.dirty = true; }
     public void setBloomThreshold(float v) { this.bloomThreshold = v; this.dirty = true; }
