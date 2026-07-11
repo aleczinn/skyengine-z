@@ -100,7 +100,7 @@ public class PostProcessor implements IDisposable {
      * advanct NICHT, wenn TAA nicht aktiv ist (kein Bild-Wackeln bei NONE/FXAA).
      */
     public void nextJitter(Vector2f dest, int width, int height) {
-        if (this.settings.getAaMode() != AntiAliasingMode.TAA) {
+        if (!this.settings.isTemporalAa()) {
             dest.set(0F, 0F);
             this.context.jitterUv.set(0F, 0F);
             return;

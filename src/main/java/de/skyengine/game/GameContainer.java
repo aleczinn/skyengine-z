@@ -208,7 +208,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         /* TAA-Mip-Bias des Block-TextureArrays: nur bei Zustandswechsel setzen
            (aaMode-Wechsel oder taaMipBias-Tuning), kein glTexParameter pro Frame. */
-        float wantedBias = post.getSettings().getAaMode() == AntiAliasingMode.TAA
+        float wantedBias = post.getSettings().isTemporalAa()
                 ? post.getSettings().getTaaMipBias() : 0F;
         if (wantedBias != this.appliedMipBias) {
             this.world.getChunkRenderer().getTextureArray().setLodBias(wantedBias);

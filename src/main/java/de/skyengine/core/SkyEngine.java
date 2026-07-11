@@ -2,6 +2,7 @@ package de.skyengine.core;
 
 import de.skyengine.core.file.Files;
 import de.skyengine.core.input.Input;
+import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.GameContainer;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.Screenshot;
@@ -65,6 +66,15 @@ public class SkyEngine {
         FrameProfiler.cpuStart(FrameProfiler.Cpu.FRAME);
 
         FrameProfiler.cpuStart(FrameProfiler.Cpu.CLEAR);
+
+        /* Der Szene-Framebuffer folgt dem AA-Modus (MSAA-Modus multisampelt, alle anderen
+           liefern die Depth-Textur für TAA) — Neuaufbau nur bei Moduswechsel (F9/F10),
+           und VOR bind/clear, damit kein halb-initialisierter Frame entsteht. */
+        int wantedSamples = this.postProcessor.getSettings()
+                .effectiveMsaaSamples(GameSettings.get().msaaSamples);
+        if (wantedSamples != this.window.getFrameBuffer().getSamples()) {
+            this.window.getFrameBuffer().create();
+        }
 
         this.window.getFrameBuffer().bind();
 
@@ -201,7 +211,7 @@ public class SkyEngine {
                     if (syncLine != null) System.out.println(syncLine);
                 }
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
-                    this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s".formatted(
+                    this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s | AntiAliasing: %s".formatted(
                             ENGINE_NAME,
                             ENGINE_VERSION,
                             frames,
@@ -211,7 +221,8 @@ public class SkyEngine {
                             this.game.getWorld().getChunkManager().getChunks().size(),
                             Math.round(this.game.getPlayer().x),
                             Math.round(this.game.getPlayer().y),
-                            Math.round(this.game.getPlayer().z)
+                            Math.round(this.game.getPlayer().z),
+                            this.postProcessor.getSettings().getAaMode()
                     ));
                 }
 
@@ -265,8 +276,10 @@ public class SkyEngine {
                 }
 
                 // Configure VAOs, Shader, Textures here
-                this.window.getFrameBuffer().create();
+                /* Post VOR dem Framebuffer: der FB liest den AA-Modus aus den
+                   Post-Settings (MSAA-Modus => Multisample, sonst Depth-Textur). */
                 this.postProcessor.init(this.window.getWidth(), this.window.getHeight());
+                this.window.getFrameBuffer().create();
 
                 this.game.init();
 
