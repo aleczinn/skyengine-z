@@ -88,6 +88,7 @@ public final class LodMesher {
     private int viTranslucent;
     private int stride, cellCount;             // Kontext des laufenden mesh()-Aufrufs
     private int yBase, edgeSkirt;
+    private float posScale;                    // Vertex-Packungs-Skala (s. mesh())
     private LodBlockAppearance appearance;
     private LodDataSource source;              // fuer Biome-Tint-Samples an Quad-Zentren
     private int regionBaseX, regionBaseZ;      // Weltkoordinaten-Ursprung der Region
@@ -148,6 +149,9 @@ public final class LodMesher {
         this.appearance = appearance;
         this.source = source;
         this.edgeSkirt = edgeSkirtOf(level);
+        /* Positions-Skala der Vertex-Packung — muss zum per-Draw .w des Renderers passen
+           (Superregionen packen mit 1/64, s. ChunkRenderer-Shader). Aktuell konstant. */
+        this.posScale = ChunkMesher.POS_SCALE;
         int baseX = rx * REGION_BLOCKS;
         int baseZ = rz * REGION_BLOCKS;
         this.regionBaseX = baseX;
@@ -683,9 +687,9 @@ public final class LodMesher {
      */
     private void putVertex(boolean translucent, float x, float y, float z, float u, float v,
                            int layer, float brightness, int tint) {
-        int px = (int) ((x + 1F) * ChunkMesher.POS_SCALE + 0.5F);
-        int py = Math.clamp((int) ((y - this.yBase + 1F) * ChunkMesher.POS_SCALE + 0.5F), 0, 0xFFFF);
-        int pz = (int) ((z + 1F) * ChunkMesher.POS_SCALE + 0.5F);
+        int px = (int) ((x + 1F) * this.posScale + 0.5F);
+        int py = Math.clamp((int) ((y - this.yBase + 1F) * this.posScale + 0.5F), 0, 0xFFFF);
+        int pz = (int) ((z + 1F) * this.posScale + 0.5F);
         int pu = (int) ((u + 1F) * ChunkMesher.UV_SCALE + 0.5F);
         int pv = (int) ((v + 1F) * ChunkMesher.UV_SCALE + 0.5F);
         int r = Math.clamp((int) (((tint >> 16) & 0xFF) * brightness + 0.5F), 0, 255);
