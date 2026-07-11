@@ -262,6 +262,14 @@ public final class AntiAliasingPass implements PostPass {
                     return;
                 }
 
+                /* LEHRE (entfernter Sky-Early-Out, User-Befund "Laub jittert"): Early-Outs
+                   im Resolve duerfen NIE von per-Frame-instabilen Bedingungen abhaengen.
+                   Ein "d==0 -> rohes Current"-Kurzschluss klingt gratis (Himmel ist uniform),
+                   aber Kronenpixel alternieren unter dem +-0,5-px-Jitter zwischen Blatt
+                   (d!=0, akkumuliert) und Himmelsloch (d==0, roh) — die Akkumulation bricht
+                   frameweise genau auf Alpha-Test-Kanten = sichtbares Laub-Jittern.
+                   d==0 laeuft deshalb durch den normalen Pfad (Fernpunkt reprojiziert korrekt). */
+
                 /* Kamerarelative Reprojektion in die Vorframe-UV */
                 float d = texture(u_Depth, v_uv).r;
                 vec4 rel = u_InvProjView * vec4(v_uv * 2.0 - 1.0, d, 1.0);
@@ -329,7 +337,10 @@ public final class AntiAliasingPass implements PostPass {
                     /* CAS-Gewicht: viel Schaerfung wo Kontrast-Spielraum ist, wenig an
                        bereits harten Kanten (deshalb kein Ringing). */
                     vec3 amp = sqrt(clamp(min(minRGB, 2.0 - maxRGB) / max(maxRGB, vec3(1e-5)), 0.0, 1.0));
-                    float peak = -1.0 / mix(8.0, 5.0, clamp(u_Sharpen, 0.0, 1.0));
+                    /* Bewusst ueber die offizielle CAS-Grenze (/5) hinaus bis /4: TAA auf
+                       Voxel-Content vertraegt kraeftigeres Nachschaerfen (per-Pixel-adaptiv
+                       bleibt es halo-arm); sharpen 1.0 = deutlich kraeftiger. */
+                    float peak = -1.0 / mix(8.0, 4.0, clamp(u_Sharpen, 0.0, 1.0));
                     vec3 w = amp * peak;
                     e = clamp((e + (a + b + c + d) * w) / (4.0 * w + 1.0), 0.0, 1.0);
                 }
@@ -428,15 +439,21 @@ public final class AntiAliasingPass implements PostPass {
 
         /* 1) FXAA-Vorstufe (BSL: FXAA + TAA laufen zusammen): glaettet die Kanten des
            aktuellen Frames VOR der Akkumulation (weniger Flimmer-Input), Subpixel-Anteil
-           halbiert — exakt BSLs "#ifdef TAA". Ziel: Ping-0-Zwischentextur. */
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.pingFbo(0));
-        this.fxaaProgram.bind();
-        this.fxaaProgram.setUniformVector2f("u_InvResolution", 1F / context.width, 1F / context.height);
-        this.fxaaProgram.setUniformf("u_SubpixelScale", 0.5F);
-        GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
-        context.drawFullscreenTriangle();
-        this.fxaaProgram.unbind();
+           halbiert — exakt BSLs "#ifdef TAA". Ziel: Ping-0-Zwischentextur.
+           Abschaltbar (taaFxaaPre=false): schaerfer + ein Fullscreen-Pass weniger,
+           dafuer minimal mehr Kantenflimmern in Bewegung. */
+        int current = context.input;
+        if (context.settings.isTaaFxaaPre()) {
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.pingFbo(0));
+            this.fxaaProgram.bind();
+            this.fxaaProgram.setUniformVector2f("u_InvResolution", 1F / context.width, 1F / context.height);
+            this.fxaaProgram.setUniformf("u_SubpixelScale", 0.5F);
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
+            context.drawFullscreenTriangle();
+            this.fxaaProgram.unbind();
+            current = context.pingTexture(0);
+        }
 
         /* 2) Resolve -> History-Write (nie direkt der Screen — das Ergebnis muss persistieren) */
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.historyFbo[write]);
@@ -447,7 +464,7 @@ public final class AntiAliasingPass implements PostPass {
         this.taaProgram.setUniformi("u_HistoryValid", this.historyValid ? 1 : 0);
         this.taaProgram.setUniformf("u_HistoryWeight", context.settings.getTaaHistoryWeight());
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.pingTexture(0)); // FXAA-geglaettetes Current
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, current); // ggf. FXAA-geglaettetes Current
         GL13.glActiveTexture(GL13.GL_TEXTURE1);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.historyTex[read]);
         GL13.glActiveTexture(GL13.GL_TEXTURE2);
@@ -474,8 +491,12 @@ public final class AntiAliasingPass implements PostPass {
         for (int i = 0; i < 2; i++) {
             this.historyTex[i] = GL11.glGenTextures();
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.historyTex[i]);
-            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA16F, width, height, 0,
-                    GL11.GL_RGBA, GL30.GL_HALF_FLOAT, (ByteBuffer) null);
+            /* RGB10_A2 statt RGBA16F: LDR-Akkumulation braucht kein Half-Float — 10 Bit/
+               Kanal = 4x Display-Praezision, halbiert aber die History-Bandbreite
+               (8 -> 4 Byte/Pixel; bei 5120x1440 ~60 MB/Frame). Bei sichtbarem Banding
+               (Verlaeufe) zurueck auf RGBA16F. */
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGB10_A2, width, height, 0,
+                    GL11.GL_RGBA, GL12.GL_UNSIGNED_INT_2_10_10_10_REV, (ByteBuffer) null);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);

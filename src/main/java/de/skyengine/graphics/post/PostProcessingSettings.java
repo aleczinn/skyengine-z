@@ -66,6 +66,9 @@ public final class PostProcessingSettings {
     /* TAA: LOD-Bias des Block-TextureArrays solange TAA aktiv ist (negativ = schärfer;
        holt von der zeitlichen Mittelung weggeglättetes Mip-Detail zurück). */
     private float taaMipBias = -0.5F;
+    /* TAA: FXAA-Vorstufe auf dem aktuellen Frame (BSL-Kette). true = ruhigere Kanten,
+       false = schärfer + ein Fullscreen-Pass weniger (minimal mehr Kantenflimmern). */
+    private boolean taaFxaaPre = true;
 
     /* --- Reserviert: Pässe existieren noch nicht (Bloom/Vignette/Sharpen kommen später,
            die Felder sind bereits ladbar/setzbar, werden aber von keinem Pass gelesen) --- */
@@ -133,6 +136,7 @@ public final class PostProcessingSettings {
         this.debugMode = fresh.debugMode;
         this.taaHistoryWeight = fresh.taaHistoryWeight;
         this.taaMipBias = fresh.taaMipBias;
+        this.taaFxaaPre = fresh.taaFxaaPre;
         this.bloomIntensity = fresh.bloomIntensity;
         this.bloomThreshold = fresh.bloomThreshold;
         this.vignette = fresh.vignette;
@@ -180,6 +184,7 @@ public final class PostProcessingSettings {
     public PostDebugMode getDebugMode() { return this.debugMode; }
     public float getTaaHistoryWeight() { return this.taaHistoryWeight; }
     public float getTaaMipBias() { return this.taaMipBias; }
+    public boolean isTaaFxaaPre() { return this.taaFxaaPre; }
     public float getBloomIntensity() { return this.bloomIntensity; }
     public float getBloomThreshold() { return this.bloomThreshold; }
     public float getVignette() { return this.vignette; }
@@ -204,6 +209,7 @@ public final class PostProcessingSettings {
     public void setAaMode(AntiAliasingMode v) { this.aaMode = v == null ? AntiAliasingMode.NONE : v; this.dirty = true; }
     public void setTaaHistoryWeight(float v) { this.taaHistoryWeight = Math.clamp(v, 0F, 0.98F); this.dirty = true; }
     public void setTaaMipBias(float v) { this.taaMipBias = Math.clamp(v, -2F, 0F); this.dirty = true; }
+    public void setTaaFxaaPre(boolean v) { this.taaFxaaPre = v; this.dirty = true; }
     public void setDebugMode(PostDebugMode v) { this.debugMode = v == null ? PostDebugMode.NONE : v; this.dirty = true; }
     public void setBloomIntensity(float v) { this.bloomIntensity = v; this.dirty = true; }
     public void setBloomThreshold(float v) { this.bloomThreshold = v; this.dirty = true; }
