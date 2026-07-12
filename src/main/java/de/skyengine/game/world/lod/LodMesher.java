@@ -98,6 +98,28 @@ public final class LodMesher {
     private float minBottom, maxTop;           // absolut (fürs Frustum-AABB)
     private final float[] aoScratch = new float[4]; // wiederverwendet: P1,P2,P3,P4 pro Top-Quad
 
+    /* Optionaler Debug-Statistik-Sink: NUR vom LodQuadCensus gesetzt. In der laufenden Engine
+       bleibt dies null (jede Zählung ist per if(stats != null) geguardet → kein Overhead, keine
+       Verhaltens-/Layout-Änderung). Akkumuliert über alle Regionen eines Zensus-Laufs. */
+    private LodMeshStats stats;
+
+    /* TEMP/Debug (Perf-Messung, nicht persistiert): schaltet die koplanaren Seiten-Overlay-Wände
+       (getönter Grasrand) im LOD ab. Default an → unverändertes Verhalten. Umschaltbar per F5
+       (GameContainer); der LodManager bumpt bei Wechsel die Epoche → alle Regionen neu gemesht. */
+    public static volatile boolean EMIT_GRASS_OVERLAY = true;
+    private boolean emitOverlay;               // je mesh()-Aufruf aus dem Flag gekapselt
+
+    /* Höhenquantisierung: Terrain-Höhe pro LOD-Zelle auf ein Vielfaches der Zellbreite (Stride)
+       runden — Nachbarzellen teilen häufiger dieselbe Höhe → Greedy-Merge statt zellbreiter
+       1-Block-Treppen (s. Plan). Default an (= Fix aktiv); per F4 umschaltbar (A/B), LodManager
+       bumpt bei Wechsel die Epoche. Wasser bleibt roh (flach). NICHT persistiert. */
+    public static volatile boolean QUANTIZE_HEIGHT = true;
+
+    /** Debug: aktiviert die Quad-Statistik (LodQuadCensus). In-Engine nicht aufrufen. */
+    public void setStats(LodMeshStats stats) {
+        this.stats = stats;
+    }
+
     /** Skirt-Tiefe an Regionsrand-Kanten, wächst mit der Zellgröße (s. MAX_SKIRT-Herleitung). */
     private static int edgeSkirtOf(int level) {
         return Math.min(BASE_SKIRT << level, MAX_SKIRT);
@@ -157,6 +179,7 @@ public final class LodMesher {
         /* Positions-Skala der Vertex-Packung — muss zum per-Draw .w des Renderers passen
            (Superregionen packen mit 1/64, s. ChunkRenderer-Shader und posScaleFor). */
         this.posScale = posScaleFor(sizeRegions);
+        this.emitOverlay = EMIT_GRASS_OVERLAY; // einmal kapseln (kein volatile-Read je Wand)
         int baseX = rx * REGION_BLOCKS;
         int baseZ = rz * REGION_BLOCKS;
         this.regionBaseX = baseX;
@@ -185,9 +208,9 @@ public final class LodMesher {
         for (int cz = -1; cz <= n; cz++) {
             for (int cx = -1; cx <= n; cx++) {
                 int wx = baseX + cx * s, wz = baseZ + cz * s;
-                long sample = sampleCell(source, config, wx, wz, s, rx, rz, sizeRegions, ax, az);
+                long sample = this.sampleCell(source, config, wx, wz, s, rx, rz, sizeRegions, ax, az);
                 long groundSample = this.appearance.isFluid(LodDataSource.block(sample))
-                        ? sampleGroundCell(source, config, wx, wz, s, rx, rz, sizeRegions, ax, az) : sample;
+                        ? this.sampleGroundCell(source, config, wx, wz, s, rx, rz, sizeRegions, ax, az) : sample;
                 int i = (cz + 1) * this.stride + (cx + 1);
                 this.cells[i] = sample;
                 this.ground[i] = groundSample;
@@ -224,6 +247,10 @@ public final class LodMesher {
            ChunkMesher (aoIdx 3 = 1.0), damit der Look über die LOD-Grenze konsistent bleibt.
            Live gelesen; der LodManager bumpt bei AO-Toggle die Epoche → alle Regionen neu. */
         boolean useAo = GameSettings.get().ambientOcclusion;
+
+        /* Debug: Merge-Grenzen der Terrain-Tops erfassen (ordnungsunabhängig, s. LodMeshStats). */
+        if (this.stats != null) this.recordSeams(n, useAo);
+
         int maxRun = Math.max(1, MAX_MERGE_BLOCKS / s);
         if (this.consumed.length < n * n) this.consumed = new boolean[n * n];
         else Arrays.fill(this.consumed, 0, n * n, false);
@@ -374,29 +401,48 @@ public final class LodMesher {
      * (s teilt 128, Zellursprünge liegen auf demselben globalen Raster) — Determinismus
      * an allen Nähten bleibt erhalten.
      */
-    private static long sampleCell(LodDataSource source, LodConfig config, int wx, int wz, int s,
-                                   int rx, int rz, int size, int ax, int az) {
+    private long sampleCell(LodDataSource source, LodConfig config, int wx, int wz, int s,
+                            int rx, int rz, int size, int ax, int az) {
         int rxc = Math.floorDiv(wx, REGION_BLOCKS);
         int rzc = Math.floorDiv(wz, REGION_BLOCKS);
         if (rxc >= rx && rxc < rx + size && rzc >= rz && rzc < rz + size) {
-            return source.sampleSurface(wx, wz, s);
+            return this.quantizeHeight(source.sampleSurface(wx, wz, s), s);
         }
 
         int s2 = config.cellSize(neighborLevel(config, rxc, rzc, ax, az));
-        return source.sampleSurface(Math.floorDiv(wx, s2) * s2, Math.floorDiv(wz, s2) * s2, s2);
+        return this.quantizeHeight(
+                source.sampleSurface(Math.floorDiv(wx, s2) * s2, Math.floorDiv(wz, s2) * s2, s2), s2);
     }
 
     /** Boden-Variante von {@link #sampleCell} — gleiche Rasterlogik, liefert den festen Grund. */
-    private static long sampleGroundCell(LodDataSource source, LodConfig config, int wx, int wz, int s,
-                                         int rx, int rz, int size, int ax, int az) {
+    private long sampleGroundCell(LodDataSource source, LodConfig config, int wx, int wz, int s,
+                                  int rx, int rz, int size, int ax, int az) {
         int rxc = Math.floorDiv(wx, REGION_BLOCKS);
         int rzc = Math.floorDiv(wz, REGION_BLOCKS);
         if (rxc >= rx && rxc < rx + size && rzc >= rz && rzc < rz + size) {
-            return source.sampleGround(wx, wz, s);
+            return this.quantizeHeight(source.sampleGround(wx, wz, s), s);
         }
 
         int s2 = config.cellSize(neighborLevel(config, rxc, rzc, ax, az));
-        return source.sampleGround(Math.floorDiv(wx, s2) * s2, Math.floorDiv(wz, s2) * s2, s2);
+        return this.quantizeHeight(
+                source.sampleGround(Math.floorDiv(wx, s2) * s2, Math.floorDiv(wz, s2) * s2, s2), s2);
+    }
+
+    /**
+     * Rundet die Terrain-Höhe eines Samples auf ein Vielfaches der Zell-Stride ab
+     * ({@code floor(h/stride)*stride}) — Nachbarzellen teilen häufiger dieselbe Höhe, sodass der
+     * Greedy-Merge greift statt zellbreiter 1-Block-Stufen. {@code floor} hält LOD-Terrain unter
+     * der realen Oberfläche (keine überstehenden Klötze an der L0-Naht). Rein aus (Höhe, Stride)
+     * abgeleitet, also deterministisch — MUSS mit der tatsächlich verwendeten Stride ({@code s}
+     * bzw. {@code s2}) aufgerufen werden, damit Rand-Ring-Zellen fremder Regionen denselben Wert
+     * ergeben. Wasser bleibt roh (Spiegel flach/koplanar), {@code stride <= 1} = kein Effekt.
+     */
+    private long quantizeHeight(long sample, int stride) {
+        if (!QUANTIZE_HEIGHT || stride <= 1) return sample;
+        int block = LodDataSource.block(sample);
+        if (this.appearance.isFluid(block)) return sample;
+        int h = LodDataSource.height(sample);
+        return LodDataSource.pack(block, Math.floorDiv(h, stride) * stride);
     }
 
     private static int neighborLevel(LodConfig config, int nrx, int nrz, int ax, int az) {
@@ -475,6 +521,7 @@ public final class LodMesher {
                     && this.groundCell(cx + run, cz) == sample && this.groundCell(cx + run, cz + dz) == nSample
                     && this.neighborClipped(cx + run, cz + dz) == nClipped) run++;
 
+            if (this.stats != null) this.recordTerrainWall(edge, nClipped, nTop, top);
             float skirtDepth = edge ? this.edgeSkirt : (nClipped ? MASK_EDGE_SKIRT : 0F);
             float bottom = Math.max(0F, Math.min(nTop, top) - skirtDepth);
             float x0 = cx * s, x1 = (cx + run) * s;
@@ -516,6 +563,7 @@ public final class LodMesher {
                     && this.groundCell(cx, cz + run) == sample && this.groundCell(cx + dx, cz + run) == nSample
                     && this.neighborClipped(cx + dx, cz + run) == nClipped) run++;
 
+            if (this.stats != null) this.recordTerrainWall(edge, nClipped, nTop, top);
             float skirtDepth = edge ? this.edgeSkirt : (nClipped ? MASK_EDGE_SKIRT : 0F);
             float bottom = Math.max(0F, Math.min(nTop, top) - skirtDepth);
             float z0 = cz * s, z1 = (cz + run) * s;
@@ -626,6 +674,9 @@ public final class LodMesher {
         /* Fluid-Tops gehen in den Translucent-Puffer (transparente Wasserfläche); alles
            andere bleibt opak. Wände an Fluid-Zellen sind analog transluzent (s. emitWall). */
         boolean fluidTop = this.appearance.isFluid(block);
+        if (this.stats != null) {
+            if (fluidTop) this.stats.topWater++; else this.stats.topTerrain++;
+        }
 
         this.ensureCapacity(fluidTop);
         this.putVertex(fluidTop, x0, y, z0, 0F, 0F, layer, brightness * ao[0], tint);
@@ -670,6 +721,81 @@ public final class LodMesher {
         return 0.4F + level * 0.2F;
     }
 
+    /* ------------------------- Debug-Statistik (nur bei gesetztem stats) ------------------------- */
+
+    /**
+     * Zählt die Merge-Grenzen des Terrain-Top-Rasters: für jede interne +x-/+z-Adjazenz der
+     * Regionszellen [0,n)² wird GENAU EINMAL bestimmt, warum die beiden Zellen NICHT ins selbe
+     * Greedy-Quad dürfen (Material > Höhe > AO, sonst mergebar). Ordnungsunabhängig — spiegelt
+     * das Merge-POTENZIAL, nicht die konkrete Greedy-Reihenfolge (s. {@link LodMeshStats}).
+     * Der AO-Test bildet die Merge-Regel des Top-Passes ab: zwei gleich-gesampelte Zellen mergen
+     * nur, wenn BEIDE AO-uniform sind UND denselben Eckwert tragen.
+     */
+    private void recordSeams(int n, boolean useAo) {
+        /* AO-Uniform-Wert je Zelle vorberechnen (NaN = nicht uniform oder geclippt). Nur offline
+           (stats != null) → lokale Allokation ist unkritisch. */
+        float[] aoU = null;
+        if (useAo) {
+            aoU = new float[n * n];
+            float[] tmp = new float[4];
+            for (int cz = 0; cz < n; cz++) {
+                for (int cx = 0; cx < n; cx++) {
+                    if (this.clipped[cz * n + cx]) {
+                        aoU[cz * n + cx] = Float.NaN;
+                        continue;
+                    }
+                    float top = this.topOf(this.groundCell(cx, cz));
+                    this.computeCellAo(cx, cz, top, tmp);
+                    aoU[cz * n + cx] = (tmp[0] == tmp[1] && tmp[1] == tmp[2] && tmp[2] == tmp[3])
+                            ? tmp[0] : Float.NaN;
+                }
+            }
+        }
+        for (int cz = 0; cz < n; cz++) {
+            for (int cx = 0; cx < n; cx++) {
+                if (cx + 1 < n) this.classifySeam(cx, cz, cx + 1, cz, n, useAo, aoU);
+                if (cz + 1 < n) this.classifySeam(cx, cz, cx, cz + 1, n, useAo, aoU);
+            }
+        }
+    }
+
+    private void classifySeam(int ax, int az, int bx, int bz, int n, boolean useAo, float[] aoU) {
+        int ia = az * n + ax, ib = bz * n + bx;
+        if (this.clipped[ia] || this.clipped[ib]) {
+            this.stats.seamClipped++;
+            return;
+        }
+        long ga = this.groundCell(ax, az), gb = this.groundCell(bx, bz);
+        if (LodDataSource.block(ga) != LodDataSource.block(gb)) {
+            this.stats.seamMaterial++;
+            return;
+        }
+        if (LodDataSource.height(ga) != LodDataSource.height(gb)) {
+            this.stats.seamHeight++;
+            return;
+        }
+        if (useAo) {
+            float va = aoU[ia], vb = aoU[ib];
+            if (Float.isNaN(va) || Float.isNaN(vb) || va != vb) {
+                this.stats.seamAo++;
+                return;
+            }
+        }
+        this.stats.seamMergeable++;
+    }
+
+    /**
+     * Klassifiziert eine gerade emittierte opake Terrain-Wand: existierte sie auch OHNE
+     * Skirt-Regel (echte Reliefstufe, Nachbar niedriger sichtbar → {@code nTop < top})? Wenn
+     * nicht, ist es ein reiner Skirt-Quad — am Regionsrand ({@code edge}) oder an einer
+     * Masken-Kante ({@code nClipped}). Summe der drei Klassen == {@code wallTerrain}.
+     */
+    private void recordTerrainWall(boolean edge, boolean nClipped, float nTop, float top) {
+        if (nTop < top) this.stats.wallRealStep++;
+        else if (edge) this.stats.wallEdgeSkirt++;
+        else this.stats.wallMaskSkirt++;
+    }
+
     /**
      * Senkrechte Wand von bottom bis top (absolut) zwischen den Bodenpunkten A=(xa,za) und
      * B=(xb,zb) (A→B = u-Richtung; Aufrufer wählt die CCW-Sicht von außen). v=0 an der
@@ -697,7 +823,8 @@ public final class LodMesher {
            koplanaren Or-Equal-Lösung des ChunkMesher — bewusst OHNE Offset und ohne eigenen
            Pass; die Reihenfolge Overlay-vor-Basis ist tragend. */
         int overlayLayer = this.appearance.sideOverlayLayer(block);
-        if (!fluidWall && overlayLayer >= 0) {
+        if (!fluidWall && overlayLayer >= 0 && this.emitOverlay) {
+            if (this.stats != null) this.stats.wallOverlay++;
             int overlayTint = this.tintFor(this.appearance.sideOverlayTint(block),
                     this.appearance.sideOverlayTintType(block), (xa + xb) * 0.5F, (za + zb) * 0.5F);
             this.ensureCapacity(false);
@@ -707,6 +834,9 @@ public final class LodMesher {
             this.putVertex(false, xa, top, za, 0F, 0F, overlayLayer, brightness, overlayTint);
         }
 
+        if (this.stats != null) {
+            if (fluidWall) this.stats.wallWater++; else this.stats.wallTerrain++;
+        }
         this.ensureCapacity(fluidWall);
         this.putVertex(fluidWall, xa, bottom, za, 0F, v, layer, brightness, tint);
         this.putVertex(fluidWall, xb, bottom, zb, u, v, layer, brightness, tint);
