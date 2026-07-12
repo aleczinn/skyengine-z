@@ -234,7 +234,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.handleBlockInteraction(input);  // kann ein GUI öffnen
         }
 
+        /* Wireframe (F6) gilt NUR für die Welt-Geometrie: der Line-Mode ist globaler GL-State und
+           würde sonst auch das Fullscreen-Dreieck der Post-Kette (und die GUI-Quads) zu Linien
+           machen — dann bliebe der Default-Framebuffer unbeschrieben ("eingefrorenes" Bild). */
+        if (this.debugChunkWireframe) Utils.enableWireframe();
         this.world.render(this.camera, partialTick);
+        if (this.debugChunkWireframe) Utils.disableWireframe();
 
         FrameProfiler.cpuStart(FrameProfiler.Cpu.OVL);
 
@@ -709,9 +714,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("LOD Seiten-Overlay: " + (LodMesher.EMIT_GRASS_OVERLAY ? "an" : "aus"));
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F6)) {
+            /* Nur das Flag: den GL-Line-Mode setzt renderWorld eng um den Welt-Draw (s. dort). */
             this.debugChunkWireframe = !this.debugChunkWireframe;
             this.logger.debug("Wireframe: " + this.debugChunkWireframe);
-            Utils.setWireframe(this.debugChunkWireframe);
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F7)) {
             this.debugChunkBoundingBox = !this.debugChunkBoundingBox;
