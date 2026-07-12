@@ -38,12 +38,13 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  */
 public class LodManager {
 
-    /** Fertiges Regionen-Mesh (Worker → Render-Thread). Leere data = Region komplett geclippt. */
-    public record LodMeshResult(int level, int rx, int rz, int epoch, int mask, int yBase,
+    /** Fertiges Regionen-Mesh (Worker → Render-Thread). Leere data = Region komplett geclippt.
+        sizeRegions = Footprint in 128er-Regionen (1 = normal, 4 = Superregion). */
+    public record LodMeshResult(int level, int rx, int rz, int sizeRegions, int epoch, int mask, int yBase,
                                 int[] opaqueData, int[] translucentData, float minY, float maxY) {}
 
-    /* Stand einer hochgeladenen Region: Level + Settings-Epoche + Chunk-Maske des Meshes */
-    private record Current(int level, int epoch, int mask) {}
+    /* Stand einer hochgeladenen Region: Level + Größe + Settings-Epoche + Chunk-Maske des Meshes */
+    private record Current(int level, int sizeRegions, int epoch, int mask) {}
 
     private record Candidate(long key, int level, int mask, double distSq) {}
 
@@ -74,6 +75,12 @@ public class LodManager {
     /* Settings-Epoche: rd-/lodMaxDistance-/LOD-Toggle-/AO-Toggle-Änderung entwertet alle
        gebauten Meshes (AO steckt fest im LOD-Mesh, muss also neu gebaut werden) */
     private int epoch = 0;
+
+    /* Version des desired-Sets: bumpt bei JEDEM recomputeDesired — auch bei reiner
+       Anker-Bewegung. epoch ist bewusst KEIN Ersatz (bumpt nur bei settingsChanged)!
+       Der ChunkRenderer räumt seine LOD-Meshes nur in Frames auf, in denen sich dieser
+       Wert geändert hat, statt jeden Frame alle Regionen gegen desired zu prüfen. */
+    private int desiredVersion = 0;
 
     /* Ring-Konfiguration der aktuellen Epoche — wird den Mesh-Jobs mitgegeben */
     private LodConfig config = LodConfig.of(16, 128);
@@ -142,6 +149,7 @@ public class LodManager {
 
     /** Baut den Soll-Zustand neu: alle Regionen bis zum äußersten Ring, Level pro Region. */
     private void recomputeDesired(boolean enabled) {
+        this.desiredVersion++;
         this.desired.clear();
         if (!enabled) {
             this.current.clear(); // Renderer räumt die Meshes ab (isDesiredKey == false)
@@ -246,7 +254,7 @@ public class LodManager {
             int jobAx = this.anchorX, jobAz = this.anchorZ;
             LodConfig jobConfig = this.config;
             this.chunkManager.submitLodTask(() -> this.results.add(this.meshers.get().mesh(
-                    this.source, this.appearance, jobConfig, level, rx, rz,
+                    this.source, this.appearance, jobConfig, level, 1, rx, rz,
                     jobEpoch, mask, jobAx, jobAz)));
         }
     }
@@ -268,13 +276,18 @@ public class LodManager {
         long key = key(result.rx(), result.rz());
         Integer want = this.desired.get(key);
         if (want == null || want != result.level() || result.epoch() != this.epoch) return false;
-        this.current.put(key, new Current(result.level(), result.epoch(), result.mask()));
+        this.current.put(key, new Current(result.level(), result.sizeRegions(), result.epoch(), result.mask()));
         return true;
     }
 
     /** true, solange die Region gewünscht ist — der Renderer räumt Meshes ab, sobald false. */
     public boolean isDesiredKey(long key) {
         return this.desired.containsKey(key);
+    }
+
+    /** Version des desired-Sets (s. Feld-Kommentar) — Gate für den Cleanup-Walk im Renderer. */
+    public int getDesiredVersion() {
+        return desiredVersion;
     }
 
     /**

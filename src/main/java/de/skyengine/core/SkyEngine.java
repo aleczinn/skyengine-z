@@ -2,8 +2,11 @@ package de.skyengine.core;
 
 import de.skyengine.core.file.Files;
 import de.skyengine.core.input.Input;
+import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.GameContainer;
+import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.Screenshot;
+import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.utils.DelayedRunnable;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -39,6 +42,7 @@ public class SkyEngine {
     private final Queue<DelayedRunnable> renderTasks;
 
     private final GameContainer game;
+    private final PostProcessor postProcessor;
 
     public SkyEngine(EngineConfig config) {
         instance = this;
@@ -50,6 +54,7 @@ public class SkyEngine {
         this.mainThreadTasks = new ConcurrentLinkedQueue<>();
         this.renderTasks = new ConcurrentLinkedQueue<>();
         this.game = new GameContainer();
+        this.postProcessor = new PostProcessor(); // GL-Init erst in launch() (Render-Thread)
     }
 
     private void onUpdate() {
@@ -57,6 +62,20 @@ public class SkyEngine {
     }
 
     private void onRender(float partialTick) {
+        FrameProfiler.newFrame();
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.FRAME);
+
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.CLEAR);
+
+        /* Der Szene-Framebuffer folgt dem AA-Modus (MSAA-Modus multisampelt, alle anderen
+           liefern die Depth-Textur für TAA) — Neuaufbau nur bei Moduswechsel (F9/F10),
+           und VOR bind/clear, damit kein halb-initialisierter Frame entsteht. */
+        int wantedSamples = this.postProcessor.getSettings()
+                .effectiveMsaaSamples(GameSettings.get().msaaSamples);
+        if (wantedSamples != this.window.getFrameBuffer().getSamples()) {
+            this.window.getFrameBuffer().create();
+        }
+
         this.window.getFrameBuffer().bind();
 
         GL11.glClearColor(
@@ -66,35 +85,47 @@ public class SkyEngine {
                 this.config.getWindowClearColor().alpha
         );
 
+        /* Depth-Test/Cull-Face pro Frame neu aktivieren: GUI-/BlockEntity-Renderer deaktivieren
+           sie ohne Restore. Die Basis-Depth-Func spiegelt EngineProperties.baseDepthFunc() —
+           beide Stellen müssen konsistent bleiben (Reversed-Z: GREATER). Statisches State
+           (Clip-Control, ClearDepth, Primitive-Restart, Blend-Func) wird einmalig in launch()
+           gesetzt statt pro Frame. */
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glEnable(GL11.GL_CULL_FACE);
-        GL11.glEnable(GL31.GL_PRIMITIVE_RESTART);
-        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        GL31.glPrimitiveRestartIndex(PRIMITIVE_RESTART_INDEX);
-
-        if (this.window.getProperties().isUseInverseDepth()) {
-            ARBClipControl.glClipControl(GL20.GL_LOWER_LEFT, ARBClipControl.GL_ZERO_TO_ONE);
-            GL11.glDepthFunc(GL11.GL_GREATER);
-            GL11.glClearDepth(0.0);
-        } else {
-            GL11.glDepthFunc(GL11.GL_LESS);
-            GL11.glClearDepth(1.0);
-        }
+        GL11.glDepthFunc(this.window.getProperties().baseDepthFunc());
 
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
 
-        this.game.render(this.input, this.window.getWidth(), this.window.getHeight(), partialTick);
-        this.window.getFrameBuffer().blitToScreen();
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.CLEAR);
 
-        /* Screenshot aus dem aufgelösten Default-Framebuffer, bevor der Frame präsentiert wird. */
+        /* Welt in das Szene-Target (HDR); die GUI kommt erst NACH der Post-Kette in den
+           Default-Framebuffer — HUD/Text durchlaufen nie Grading/AA (pixelgenau). */
+        this.game.renderWorld(this.input, this.window.getWidth(), this.window.getHeight(), partialTick);
+
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.BLIT); // misst jetzt Resolve + Post-Kette
+        this.window.getFrameBuffer().resolve();
+        this.postProcessor.render(this.window.getFrameBuffer());
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.BLIT);
+
+        this.game.renderGui(this.window.getWidth(), this.window.getHeight());
+
+        /* Screenshot aus dem fertigen Default-Framebuffer (inkl. GUI), vor dem Present. */
         if (this.game.consumeScreenshotRequest()) {
             Screenshot.capture(this.window.getWidth(), this.window.getHeight());
         }
 
+        /* End-Stempel der GPU-Frame-Spanne: letzter GL-Befehl vor dem Present */
+        FrameProfiler.gpuFrameEnd();
+
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.SWAP);
         GLFW.glfwSwapBuffers(this.window.getWindowID());
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.SWAP);
+
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.FRAME);
     }
 
     public void onResize(int width, int height) {
+        this.postProcessor.resize(width, height);
         this.game.resize(width, height);
     }
 
@@ -102,6 +133,7 @@ public class SkyEngine {
         this.logger.info("Stopping!");
 
         this.game.dispose();
+        this.postProcessor.dispose();
 
         this.drainRunnables();
         GL.setCapabilities(null);
@@ -171,8 +203,15 @@ public class SkyEngine {
             // show states each 1 second
             if (System.currentTimeMillis() - lastStatusTime >= 1000) {
                 System.out.printf("FPS: %d, TPS: %d%n", frames, updates);
+                String profilerLine = FrameProfiler.statusLineAndReset();
+                if (profilerLine != null) {
+                    System.out.println(profilerLine);
+                    String syncLine = this.game.getWorld() != null
+                            ? this.game.getWorld().getChunkRenderer().syncStatsLineAndReset() : null;
+                    if (syncLine != null) System.out.println(syncLine);
+                }
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
-                    this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s".formatted(
+                    this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s | AntiAliasing: %s".formatted(
                             ENGINE_NAME,
                             ENGINE_VERSION,
                             frames,
@@ -182,7 +221,8 @@ public class SkyEngine {
                             this.game.getWorld().getChunkManager().getChunks().size(),
                             Math.round(this.game.getPlayer().x),
                             Math.round(this.game.getPlayer().y),
-                            Math.round(this.game.getPlayer().z)
+                            Math.round(this.game.getPlayer().z),
+                            this.postProcessor.getSettings().getAaMode()
                     ));
                 }
 
@@ -221,7 +261,24 @@ public class SkyEngine {
                 this.window.printDebug();
                 this.input.init();
 
+                /* Statisches GL-State einmalig (aus onRender hierher bewegt): verstellt niemand
+                   dauerhaft — CrackRenderer stellt die Blend-Func nach seinem Draw wieder her,
+                   Clip-Control/ClearDepth/Primitive-Restart fasst sonst kein Code an. */
+                GL11.glEnable(GL31.GL_PRIMITIVE_RESTART);
+                GL31.glPrimitiveRestartIndex(PRIMITIVE_RESTART_INDEX);
+                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+                if (this.window.getProperties().isUseInverseDepth()) {
+                    /* Reversed-Z: Depth-Range [0,1] ohne Remapping + Clear auf "fern" = 0 */
+                    ARBClipControl.glClipControl(GL20.GL_LOWER_LEFT, ARBClipControl.GL_ZERO_TO_ONE);
+                    GL11.glClearDepth(0.0);
+                } else {
+                    GL11.glClearDepth(1.0);
+                }
+
                 // Configure VAOs, Shader, Textures here
+                /* Post VOR dem Framebuffer: der FB liest den AA-Modus aus den
+                   Post-Settings (MSAA-Modus => Multisample, sonst Depth-Textur). */
+                this.postProcessor.init(this.window.getWidth(), this.window.getHeight());
                 this.window.getFrameBuffer().create();
 
                 this.game.init();
@@ -345,6 +402,10 @@ public class SkyEngine {
 
     public GameContainer getGame() {
         return game;
+    }
+
+    public PostProcessor getPostProcessor() {
+        return postProcessor;
     }
 
     public static SkyEngine get() {

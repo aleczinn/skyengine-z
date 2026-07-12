@@ -36,8 +36,9 @@ import java.util.Arrays;
  *
  * <p>Läuft auf den Chunk-Workern, liest ausschließlich die {@link LodDataSource}. Ausgabe:
  * gepacktes 16-Byte-Vertex-Format des {@link ChunkMesher}. Eine Instanz pro Worker-Thread.
- * Gegen Quad-Explosion: 1D-Greedy-Merge (Tops/N-S-Wände entlang x, W-O-Wände entlang z),
- * Deckel {@link #MAX_MERGE_BLOCKS}.
+ * Gegen Quad-Explosion: 2D-Greedy-Merge der Tops (Breite entlang x, dann Höhe entlang z, wie
+ * im ChunkMesher-Greedy) und 1D-Runs der Wände entlang ihrer Kante (die zweite Quad-Dimension
+ * ist dort bereits die Höhe), Deckel {@link #MAX_MERGE_BLOCKS} je Achse.
  */
 public final class LodMesher {
 
@@ -76,8 +77,9 @@ public final class LodMesher {
        Fluid-Zellen der feste Boden darunter — Basis für Terrain-Tops/-Wände/AO/yBase. */
     private long[] ground = new long[0];
     private boolean[] clipped = new boolean[0];
-    /* Merge-Marker der Wasser-Tops (2D-Greedy): true = Zelle schon in ein Quad gemerged. */
-    private boolean[] waterConsumed = new boolean[0];
+    /* Merge-Marker der Top-Pässe (2D-Greedy): true = Zelle schon in ein Quad gemerged;
+       wird vor Terrain- (3a) und Wasser-Pass (3b) jeweils zurückgesetzt. */
+    private boolean[] consumed = new boolean[0];
     /* Getrennte Ausgabepuffer: Fluid-Top-Quads -> translucent (transparent, eigene Arena/
        eigener Draw-Call im Renderer), alles andere (Terrain-Tops + ALLE Wände/Skirts,
        auch an Fluid-Zellen) -> opaque. Wände bleiben bewusst immer opak — sie stellen feste
@@ -88,6 +90,8 @@ public final class LodMesher {
     private int viTranslucent;
     private int stride, cellCount;             // Kontext des laufenden mesh()-Aufrufs
     private int yBase, edgeSkirt;
+    private int sizeRegions;                   // Footprint in 128er-Regionen (1 oder 4)
+    private float posScale;                    // Vertex-Packungs-Skala (s. posScaleFor)
     private LodBlockAppearance appearance;
     private LodDataSource source;              // fuer Biome-Tint-Samples an Quad-Zentren
     private int regionBaseX, regionBaseZ;      // Weltkoordinaten-Ursprung der Region
@@ -140,14 +144,19 @@ public final class LodMesher {
      *               Basis der Level-Zuordnung, muss zum LodManager passen (pure Funktion)
      */
     public LodMeshResult mesh(LodDataSource source, LodBlockAppearance appearance, LodConfig config,
-                              int level, int rx, int rz, int epoch, int mask, int ax, int az) {
+                              int level, int sizeRegions, int rx, int rz, int epoch, int mask, int ax, int az) {
         int s = config.cellSize(level);
-        int n = REGION_BLOCKS / s;
+        int regionBlocks = sizeRegions * REGION_BLOCKS;
+        int n = regionBlocks / s;
         this.stride = n + 2;                    // Zellen -1..n (Randring für Wände)
         this.cellCount = n;
+        this.sizeRegions = sizeRegions;
         this.appearance = appearance;
         this.source = source;
         this.edgeSkirt = edgeSkirtOf(level);
+        /* Positions-Skala der Vertex-Packung — muss zum per-Draw .w des Renderers passen
+           (Superregionen packen mit 1/64, s. ChunkRenderer-Shader und posScaleFor). */
+        this.posScale = posScaleFor(sizeRegions);
         int baseX = rx * REGION_BLOCKS;
         int baseZ = rz * REGION_BLOCKS;
         this.regionBaseX = baseX;
@@ -155,7 +164,7 @@ public final class LodMesher {
 
         /* Komplett von echtem Terrain bedeckt → nichts zu meshen (spart das Sampling). */
         if (mask == 0xFFFF) {
-            return new LodMeshResult(level, rx, rz, epoch, mask, 0, new int[0], new int[0], 0F, 0F);
+            return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, 0, new int[0], new int[0], 0F, 0F);
         }
 
         if (this.cells.length < this.stride * this.stride) {
@@ -176,9 +185,9 @@ public final class LodMesher {
         for (int cz = -1; cz <= n; cz++) {
             for (int cx = -1; cx <= n; cx++) {
                 int wx = baseX + cx * s, wz = baseZ + cz * s;
-                long sample = sampleCell(source, config, wx, wz, s, rx, rz, ax, az);
+                long sample = sampleCell(source, config, wx, wz, s, rx, rz, sizeRegions, ax, az);
                 long groundSample = this.appearance.isFluid(LodDataSource.block(sample))
-                        ? sampleGroundCell(source, config, wx, wz, s, rx, rz, ax, az) : sample;
+                        ? sampleGroundCell(source, config, wx, wz, s, rx, rz, sizeRegions, ax, az) : sample;
                 int i = (cz + 1) * this.stride + (cx + 1);
                 this.cells[i] = sample;
                 this.ground[i] = groundSample;
@@ -190,28 +199,39 @@ public final class LodMesher {
         /* yBase: u16 trägt nur ~254 Blöcke Spanne — relativ zur tiefsten Geometrie packen. */
         this.yBase = Math.max(0, minHeight - this.edgeSkirt - 2);
 
-        /* 2. Clip-Maske pro Zelle (Zellen liegen raster-aligned in genau einem Chunk). */
-        int cellsPerChunk = 32 / s;
-        for (int cz = 0; cz < n; cz++) {
-            for (int cx = 0; cx < n; cx++) {
-                int bit = (cz / cellsPerChunk) * 4 + (cx / cellsPerChunk);
-                this.clipped[cz * n + cx] = (mask & (1 << bit)) != 0;
+        /* 2. Clip-Maske pro Zelle (Zellen liegen raster-aligned in genau einem Chunk).
+           mask == 0 (u.a. IMMER bei Superregionen, Distanz-Gate) überspringt die Expansion —
+           schneller, und die 16-Bit-Bit-Arithmetik (Stride *4) gilt ohnehin nur für n <= 32. */
+        if (mask == 0) {
+            java.util.Arrays.fill(this.clipped, 0, n * n, false);
+        } else {
+            int cellsPerChunk = 32 / s;
+            for (int cz = 0; cz < n; cz++) {
+                for (int cx = 0; cx < n; cx++) {
+                    int bit = (cz / cellsPerChunk) * 4 + (cx / cellsPerChunk);
+                    this.clipped[cz * n + cx] = (mask & (1 << bit)) != 0;
+                }
             }
         }
 
         /* 3a. Terrain-Tops über die Boden-Samples (auch unter Wasser — der Meeresboden ist
-           durch das transluzente Wasser sichtbar). Merge nur bei uniformem UND gleichem AO —
-           wie im ChunkMesher-Greedy: uneinheitliche Zellen einzeln mit per-Ecke-AO, sonst
-           interpoliert die GPU die Eckwerte als lange Gradient-Bänder über den Run. */
+           durch das transluzente Wasser sichtbar). 2D-Greedy: Breite entlang x, dann Höhe
+           entlang z (wie Wasser-Tops in 3b / ChunkMesher-Greedy). Merge nur bei uniformem
+           UND gleichem AO — wie im ChunkMesher-Greedy: uneinheitliche Zellen einzeln mit
+           per-Ecke-AO, sonst interpoliert die GPU die Eckwerte als Gradient-Bänder über
+           die gemergte Fläche. */
         /* AO aus (Setting): neutral hell (1.0) + frei mergen nach Block+Höhe — exakt wie im
            ChunkMesher (aoIdx 3 = 1.0), damit der Look über die LOD-Grenze konsistent bleibt.
            Live gelesen; der LodManager bumpt bei AO-Toggle die Epoche → alle Regionen neu. */
         boolean useAo = GameSettings.get().ambientOcclusion;
         int maxRun = Math.max(1, MAX_MERGE_BLOCKS / s);
+        if (this.consumed.length < n * n) this.consumed = new boolean[n * n];
+        else Arrays.fill(this.consumed, 0, n * n, false);
         for (int cz = 0; cz < n; cz++) {
             int cx = 0;
             while (cx < n) {
-                if (this.clipped[cz * n + cx]) {
+                int idx = cz * n + cx;
+                if (this.clipped[idx] || this.consumed[idx]) {
                     cx++;
                     continue;
                 }
@@ -228,14 +248,32 @@ public final class LodMesher {
                     uniform = true;
                 }
 
-                int run = 1;
+                int w = 1, h = 1;
                 if (uniform) {
-                    while (cx + run < n && run < maxRun && !this.clipped[cz * n + cx + run]
-                            && this.groundCell(cx + run, cz) == g
-                            && (!useAo || this.cellAoUniform(cx + run, cz, top, ao[0]))) run++;
+                    while (cx + w < n && w < maxRun && !this.clipped[cz * n + cx + w]
+                            && !this.consumed[cz * n + cx + w] && this.groundCell(cx + w, cz) == g
+                            && (!useAo || this.cellAoUniform(cx + w, cz, top, ao[0]))) w++;
+
+                    /* Gleiches Sample ⇒ gleiche Oberkante — top gilt auch für die Kandidatenzeile */
+                    expand:
+                    while (cz + h < n && h < maxRun) {
+                        for (int i = 0; i < w; i++) {
+                            int j = (cz + h) * n + (cx + i);
+                            if (this.clipped[j] || this.consumed[j] || this.groundCell(cx + i, cz + h) != g
+                                    || (useAo && !this.cellAoUniform(cx + i, cz + h, top, ao[0]))) {
+                                break expand;
+                            }
+                        }
+                        h++;
+                    }
+
+                    /* Zeile 0 überspringt cx += w; nur die Folgezeilen brauchen den Marker */
+                    for (int dz = 1; dz < h; dz++) {
+                        for (int dx = 0; dx < w; dx++) this.consumed[(cz + dz) * n + (cx + dx)] = true;
+                    }
                 }
-                this.emitTop(LodDataSource.block(g), ao, cx * s, cz * s, (cx + run) * s, (cz + 1) * s, top);
-                cx += run;
+                this.emitTop(LodDataSource.block(g), ao, cx * s, cz * s, (cx + w) * s, (cz + h) * s, top);
+                cx += w;
             }
         }
 
@@ -243,13 +281,12 @@ public final class LodMesher {
            Wasserflächen sind eben; AO würde fleckig und zerstört den Merge. 2D-Greedy
            (Breite entlang x, dann Höhe entlang z, wie im ChunkMesher-Greedy) — 1D erzeugte
            lange dünne Streifen; flache Ozeanflächen werden so zu wenigen großen Rechtecken. */
-        if (this.waterConsumed.length < n * n) this.waterConsumed = new boolean[n * n];
-        else Arrays.fill(this.waterConsumed, 0, n * n, false);
+        Arrays.fill(this.consumed, 0, n * n, false); // von 3a wiederverwendet
         for (int cz = 0; cz < n; cz++) {
             int cx = 0;
             while (cx < n) {
                 int idx = cz * n + cx;
-                if (this.clipped[idx] || this.waterConsumed[idx]) {
+                if (this.clipped[idx] || this.consumed[idx]) {
                     cx++;
                     continue;
                 }
@@ -261,14 +298,14 @@ public final class LodMesher {
                 }
                 int w = 1;
                 while (cx + w < n && w < maxRun && !this.clipped[cz * n + cx + w]
-                        && !this.waterConsumed[cz * n + cx + w] && this.cell(cx + w, cz) == sample) w++;
+                        && !this.consumed[cz * n + cx + w] && this.cell(cx + w, cz) == sample) w++;
 
                 int h = 1;
                 expand:
                 while (cz + h < n && h < maxRun) {
                     for (int i = 0; i < w; i++) {
                         int j = (cz + h) * n + (cx + i);
-                        if (this.clipped[j] || this.waterConsumed[j] || this.cell(cx + i, cz + h) != sample) {
+                        if (this.clipped[j] || this.consumed[j] || this.cell(cx + i, cz + h) != sample) {
                             break expand;
                         }
                     }
@@ -276,7 +313,7 @@ public final class LodMesher {
                 }
 
                 for (int dz = 0; dz < h; dz++) {
-                    for (int dx = 0; dx < w; dx++) this.waterConsumed[(cz + dz) * n + (cx + dx)] = true;
+                    for (int dx = 0; dx < w; dx++) this.consumed[(cz + dz) * n + (cx + dx)] = true;
                 }
                 this.emitTop(block, AO_NONE, cx * s, cz * s, (cx + w) * s, (cz + h) * s, this.topOf(sample));
                 cx += w;
@@ -314,20 +351,36 @@ public final class LodMesher {
         float maxY = empty ? 0F : this.maxTop;
         this.appearance = null;
         this.source = null;
-        return new LodMeshResult(level, rx, rz, epoch, mask, this.yBase, opaqueData, translucentData, minY, maxY);
+        return new LodMeshResult(level, rx, rz, this.sizeRegions, epoch, mask, this.yBase, opaqueData, translucentData, minY, maxY);
+    }
+
+    /**
+     * Positions-Skala der Vertex-Packung je Regionsgröße: 128er packen mit 1/256 (wie
+     * Sections), Superregionen mit 1/64 — der u16-Fixed-Point trägt bei 1/256 nur ~255
+     * Blöcke Region-lokale Spanne, bei 1/64 ~1023 (x/z UND y). Muss exakt zum per-Draw
+     * .w-Wert des Renderers passen ({@code LodMesh.invPosScale}).
+     */
+    public static float posScaleFor(int sizeRegions) {
+        return sizeRegions > 1 ? 64F : ChunkMesher.POS_SCALE;
     }
 
     /* ------------------------- Sampling ------------------------- */
 
     /**
-     * Sample einer Zelle mit Ursprung (wx,wz): innerhalb der eigenen Region aufs eigene
-     * Raster (s), sonst aufs Raster des Nachbar-Levels ausgerichtet.
+     * Sample einer Zelle mit Ursprung (wx,wz): innerhalb des eigenen Footprints
+     * ([rx, rx+size) × [rz, rz+size) in 128er-Regionskoordinaten) aufs eigene Raster (s),
+     * sonst aufs Raster des Nachbar-Levels ausgerichtet. Innerhalb einer Superregion mit
+     * uniformem Level ist das Sample identisch zu dem der ungemergten 128er-Regionen
+     * (s teilt 128, Zellursprünge liegen auf demselben globalen Raster) — Determinismus
+     * an allen Nähten bleibt erhalten.
      */
     private static long sampleCell(LodDataSource source, LodConfig config, int wx, int wz, int s,
-                                   int rx, int rz, int ax, int az) {
+                                   int rx, int rz, int size, int ax, int az) {
         int rxc = Math.floorDiv(wx, REGION_BLOCKS);
         int rzc = Math.floorDiv(wz, REGION_BLOCKS);
-        if (rxc == rx && rzc == rz) return source.sampleSurface(wx, wz, s);
+        if (rxc >= rx && rxc < rx + size && rzc >= rz && rzc < rz + size) {
+            return source.sampleSurface(wx, wz, s);
+        }
 
         int s2 = config.cellSize(neighborLevel(config, rxc, rzc, ax, az));
         return source.sampleSurface(Math.floorDiv(wx, s2) * s2, Math.floorDiv(wz, s2) * s2, s2);
@@ -335,10 +388,12 @@ public final class LodMesher {
 
     /** Boden-Variante von {@link #sampleCell} — gleiche Rasterlogik, liefert den festen Grund. */
     private static long sampleGroundCell(LodDataSource source, LodConfig config, int wx, int wz, int s,
-                                         int rx, int rz, int ax, int az) {
+                                         int rx, int rz, int size, int ax, int az) {
         int rxc = Math.floorDiv(wx, REGION_BLOCKS);
         int rzc = Math.floorDiv(wz, REGION_BLOCKS);
-        if (rxc == rx && rzc == rz) return source.sampleGround(wx, wz, s);
+        if (rxc >= rx && rxc < rx + size && rzc >= rz && rzc < rz + size) {
+            return source.sampleGround(wx, wz, s);
+        }
 
         int s2 = config.cellSize(neighborLevel(config, rxc, rzc, ax, az));
         return source.sampleGround(Math.floorDiv(wx, s2) * s2, Math.floorDiv(wz, s2) * s2, s2);
@@ -678,12 +733,14 @@ public final class LodMesher {
      * Packt einen Vertex ins Chunk-Format (Konstanten aus {@link ChunkMesher}, Bias +1);
      * y wird relativ zu {@link #yBase} gepackt (Renderer addiert yBase im Draw-Offset).
      * Clamp als Sicherheitsnetz gegen Format-Überlauf (wie ChunkMesher.fixedPos).
+     * Der 5. Int ist wie bei {@link ChunkMesher#VERTEX_SIZE} für farbiges Licht reserviert
+     * und wird aktuell nicht befüllt.
      */
     private void putVertex(boolean translucent, float x, float y, float z, float u, float v,
                            int layer, float brightness, int tint) {
-        int px = (int) ((x + 1F) * ChunkMesher.POS_SCALE + 0.5F);
-        int py = Math.clamp((int) ((y - this.yBase + 1F) * ChunkMesher.POS_SCALE + 0.5F), 0, 0xFFFF);
-        int pz = (int) ((z + 1F) * ChunkMesher.POS_SCALE + 0.5F);
+        int px = (int) ((x + 1F) * this.posScale + 0.5F);
+        int py = Math.clamp((int) ((y - this.yBase + 1F) * this.posScale + 0.5F), 0, 0xFFFF);
+        int pz = (int) ((z + 1F) * this.posScale + 0.5F);
         int pu = (int) ((u + 1F) * ChunkMesher.UV_SCALE + 0.5F);
         int pv = (int) ((v + 1F) * ChunkMesher.UV_SCALE + 0.5F);
         int r = Math.clamp((int) (((tint >> 16) & 0xFF) * brightness + 0.5F), 0, 255);
@@ -695,6 +752,7 @@ public final class LodMesher {
         buf[i++] = pz | (pu << 16);
         buf[i++] = pv | (layer << 16);
         buf[i++] = r | (g << 8) | (b << 16);
+        buf[i++] = 0; // reserviert für farbiges Licht (Phase Lichtsystem)
         if (translucent) this.viTranslucent = i; else this.viOpaque = i;
     }
 }

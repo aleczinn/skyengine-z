@@ -123,6 +123,27 @@ public class ShaderProgram implements IDisposable {
         return this.uniforms.getOrDefault(name, -1);
     }
 
+    /* --- Overloads mit direkter Location (Hot-Path: erspart den Map-Lookup pro Aufruf;
+       Location vorher einmalig über getUniformLocation holen) --- */
+
+    public void setUniformf(int location, float value) {
+        GL20.glUniform1f(location, value);
+    }
+
+    public void setUniformi(int location, int value) {
+        GL20.glUniform1i(location, value);
+    }
+
+    public void setUniformVector3f(int location, float x, float y, float z) {
+        GL20.glUniform3f(location, x, y, z);
+    }
+
+    public void setUniformMatrix4f(int location, Matrix4f matrix) {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            GL20.glUniformMatrix4fv(location, false, matrix.get(stack.mallocFloat(16)));
+        }
+    }
+
     public void setUniformf(String location, float value) {
         GL20.glUniform1f(this.getUniformLocation(location), value);
     }

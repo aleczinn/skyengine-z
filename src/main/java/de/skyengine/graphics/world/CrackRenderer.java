@@ -1,5 +1,7 @@
 package de.skyengine.graphics.world;
 
+import de.skyengine.core.EngineProperties;
+import de.skyengine.core.SkyEngine;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.shape.BlockShape;
@@ -86,20 +88,16 @@ public class CrackRenderer {
            statt hell drüberzuliegen. Danach die globale Alpha-Blend-Func wiederherstellen. */
         GL11.glBlendFunc(GL11.GL_DST_COLOR, GL11.GL_SRC_COLOR);
 
-        /* Koplanar zur Block-Oberfläche: „or-equal"-Variante der aktiven Depth-Func
-           (Reversed-Z: GEQUAL), Bias liefert der Vertex-Shader (wie SelectionBox). */
-        int prevDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
-        int orEqualFunc = switch (prevDepthFunc) {
-            case GL11.GL_GREATER -> GL11.GL_GEQUAL;
-            case GL11.GL_LESS -> GL11.GL_LEQUAL;
-            default -> prevDepthFunc;
-        };
-        GL11.glDepthFunc(orEqualFunc);
+        /* Koplanar zur Block-Oberfläche: „or-equal"-Variante der Basis-Depth-Func
+           (Reversed-Z: GEQUAL), Bias liefert der Vertex-Shader (wie SelectionBox).
+           Funcs statisch aus EngineProperties statt glGetInteger (synchroner Roundtrip). */
+        EngineProperties properties = SkyEngine.get().getWindow().getProperties();
+        GL11.glDepthFunc(properties.orEqualDepthFunc());
 
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, data, GL15.GL_DYNAMIC_DRAW);
         GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, data.length / 6);
 
-        GL11.glDepthFunc(prevDepthFunc);
+        GL11.glDepthFunc(properties.baseDepthFunc());
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glDisable(GL11.GL_BLEND);
         this.shader.unbind();

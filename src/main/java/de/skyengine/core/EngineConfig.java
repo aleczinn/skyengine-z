@@ -26,6 +26,11 @@ public class EngineConfig {
     private Color4 windowClearColor = Color4.BLACK;
     private DebugMode debugMode = DebugMode.NONE;
 
+    /* Synchroner Debug-Output serialisiert JEDEN GL-Call durch den Treiber-Debug-Layer
+       (massiver FPS-Verlust). Nur zum Einkreisen von Fehlerquellen aktivieren, wenn der
+       exakte Auslöser einer Debug-Meldung im Callstack gebraucht wird. */
+    private boolean synchronousDebug = false;
+
     public String getTitle() {
         return title;
     }
@@ -187,6 +192,14 @@ public class EngineConfig {
 
     public void setDebugMode(DebugMode debugMode) {
         this.debugMode = debugMode;
+    }
+
+    public boolean isSynchronousDebug() {
+        return synchronousDebug;
+    }
+
+    public void setSynchronousDebug(boolean synchronousDebug) {
+        this.synchronousDebug = synchronousDebug;
     }
 
     public int getBackgroundFPS() {

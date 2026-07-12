@@ -30,14 +30,19 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.FluidGeometry;
+import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.gui.ChestScreen;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.SpriteRenderer;
+import de.skyengine.graphics.post.PostProcessingSettings;
+import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
+import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
+import org.joml.Vector2f;
 import org.joml.Vector3d;
 import org.lwjgl.glfw.GLFW;
 
@@ -55,6 +60,11 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private GuiManager guiManager;
 
     private final GameSettings settings = GameSettings.get();
+
+    /* TAA-Jitter des Frames (wiederverwendet, s. renderWorld) */
+    private final Vector2f taaJitter = new Vector2f();
+    /* Zuletzt angewandter Textur-LOD-Bias (TAA aktiv → taaMipBias, sonst 0) */
+    private float appliedMipBias;
 
     private static final double REACH = 6.0;
 
@@ -171,7 +181,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         });
     }
 
-    public void render(Input input, int width, int height, float partialTick) {
+    /**
+     * Welt-Anteil des Frames (Input/Kamera/Raycast + Welt, 3D-Overlays, Fluid-Tint) — zeichnet
+     * in das gebundene Szene-Target (HDR). Die GUI folgt getrennt in {@link #renderGui} NACH
+     * der Post-Kette (SkyEngine.onRender), damit HUD/Text nie durch Grading/AA laufen.
+     */
+    public void renderWorld(Input input, int width, int height, float partialTick) {
         this.handleGlobalHotkeys(input);   // immer: Fullscreen, GUI-Scale, Render-Distanz
 
         boolean guiOpen = this.guiManager.isOpen();
@@ -185,8 +200,25 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.player.turn(input.getDeltaMouseX() * sens, input.getDeltaMouseY() * sens);
         }
 
+        /* TAA-Subpixel-Jitter (0,0 wenn TAA aus) VOR dem Matrix-Update, Kameradaten für
+           die Reprojektion DANACH in den Post-Context — Reihenfolge ist tragend. */
+        PostProcessor post = SkyEngine.get().getPostProcessor();
+        post.nextJitter(this.taaJitter, width, height);
+        this.camera.setJitter(this.taaJitter.x, this.taaJitter.y);
+
+        /* TAA-Mip-Bias des Block-TextureArrays: nur bei Zustandswechsel setzen
+           (aaMode-Wechsel oder taaMipBias-Tuning), kein glTexParameter pro Frame. */
+        float wantedBias = post.getSettings().isTemporalAa()
+                ? post.getSettings().getTaaMipBias() : 0F;
+        if (wantedBias != this.appliedMipBias) {
+            this.world.getChunkRenderer().getTextureArray().setLodBias(wantedBias);
+            this.appliedMipBias = wantedBias;
+            this.logger.debug("Textur-LOD-Bias: " + wantedBias);
+        }
+
         this.camera.follow(this.player, partialTick);
         this.camera.update((double) width / height);
+        post.updateTaaCamera(this.camera);
 
         this.hit = BlockRaycast.raycast(
                 this.world,
@@ -203,6 +235,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         this.world.render(this.camera, partialTick);
 
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.OVL);
+
         if (this.hit != null && !this.guiManager.isOpen() && this.player.getGamemode().interactsWithWorld()) {
             this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z(),
                     Blocks.getState(this.hit.block()).getOutlineShape());
@@ -218,10 +252,19 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         this.renderFluidOverlay();
 
-        /* Zentrale GUI-Verwaltung: HUD (kein Screen) bzw. Screen-Overlay + Cursor-Sync.
-           Im Spectator ist die Hotbar ausgeblendet. */
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
+    }
+
+    /**
+     * GUI-Anteil des Frames — zeichnet in den Default-Framebuffer, NACH der Post-Kette
+     * (pixelgenau, kein Grading/AA). Zentrale GUI-Verwaltung: HUD (kein Screen) bzw.
+     * Screen-Overlay + Cursor-Sync. Im Spectator ist die Hotbar ausgeblendet.
+     */
+    public void renderGui(int width, int height) {
         boolean showHotbar = this.player.getGamemode() != Gamemode.SPECTATOR;
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
         this.guiManager.render(width, height, this.playerInventory, this.hotbarIndex, showHotbar);
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
     }
 
     /**
@@ -644,14 +687,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 this.lastSpacePressTime = now;
             }
         }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_V)) {
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F)) {
             GameSettings.get().fog = !GameSettings.get().fog;
             this.logger.debug("Fog: " + GameSettings.get().fog);
-        }
-        /* NoClip nur im Flugmodus (toggleNoClip prüft selbst); Log zeigt den echten Zustand */
-        if (input.isKeyPressed(GLFW.GLFW_KEY_N)) {
-            this.player.toggleNoClip();
-            this.logger.debug("NoClip: " + this.player.isNoClip());
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_G)) {
             this.player.setGamemode(this.player.getGamemode().next());
@@ -667,8 +705,24 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("Chunk Bounding Box: " + this.debugChunkBoundingBox);
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F8)) {
-            this.world.getChunkManager().getChunks().clear();
+            /* Über clearAllChunks statt getChunks().clear(): bumpt die Removal-Version,
+               sonst räumt der Renderer die alten Meshes nicht ab (Geistergeometrie). */
+            this.world.getChunkManager().clearAllChunks();
             this.logger.debug("reload chunks");
+        }
+        /* Post-Processing: F9 schaltet den AA-Modus durch (NONE/FXAA/...), F10 lädt
+           config/postprocessing.json neu (Grading-Tuning ohne Neustart). Nur Laufzeit-
+           Zustand — nichts davon wird in options.json persistiert. */
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F9)) {
+            PostProcessingSettings post = SkyEngine.get().getPostProcessor().getSettings();
+            AntiAliasingMode[] modes = AntiAliasingMode.values();
+            AntiAliasingMode next = modes[(post.getAaMode().ordinal() + 1) % modes.length];
+            post.setAaMode(next);
+            this.logger.debug("Anti-Aliasing: " + next);
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F10)) {
+            SkyEngine.get().getPostProcessor().getSettings().reloadFromFile();
+            this.logger.debug("Post-Processing-Einstellungen neu geladen");
         }
         /* Stufenhöhe live justieren (Bild auf/ab) - zum Ausprobieren hoher Sprünge */
         if (input.isKeyPressed(GLFW.GLFW_KEY_PAGE_UP)) {
@@ -724,7 +778,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("Render-Distanz: " + this.settings.renderDistance);
             changed = true;
         }
-        if (input.isKeyPressed(this.settings.key(KeyBindings.AMBIENT_OCCLUSION))) {
+        if (input.isKeyPressed(GLFW.GLFW_KEY_O)) {
             this.settings.ambientOcclusion = !this.settings.ambientOcclusion;
             /* AO steckt im gebackenen Mesh -> alle Chunks progressiv neu meshen
                (LOD zieht via Epoche im nächsten LodManager-Tick selbst nach) */
@@ -732,7 +786,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("Ambient Occlusion: " + (this.settings.ambientOcclusion ? "an" : "aus"));
             changed = true;
         }
-        if (input.isKeyPressed(this.settings.key(KeyBindings.LOD))) {
+        if (input.isKeyPressed(GLFW.GLFW_KEY_L)) {
             this.settings.lodEnabled = !this.settings.lodEnabled;
             /* LodManager liest das Setting im nächsten Tick; farPlane sofort nachziehen */
             this.camera.setFarPlane(this.computeFarPlane());
