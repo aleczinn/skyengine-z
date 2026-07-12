@@ -174,6 +174,18 @@ public class TextureArray {
 	}
 
 	/**
+	 * LOD-Bias der Minification (negativ = feinere Mip-Wahl = schärfer). TAA setzt −0,5
+	 * (Settings taaMipBias), um von der zeitlichen Mittelung weggeglättetes Mip-Detail
+	 * zurückzuholen — Standard-Begleiter von TAA (BSL & Co.); ohne TAA wieder 0.
+	 * Wirkt nur auf Minification: NEAREST-MAG-Nahlook und GUI-Icons bleiben unberührt.
+	 * Render-Thread.
+	 */
+	public void setLodBias(float bias) {
+		GL11.glBindTexture(GL30.GL_TEXTURE_2D_ARRAY, this.id);
+		GL11.glTexParameterf(GL30.GL_TEXTURE_2D_ARRAY, GL14.GL_TEXTURE_LOD_BIAS, bias);
+	}
+
+	/**
 	 * Ersetzt den Inhalt eines Layers (Basis-Mip). Für animierte Sprites pro Frame.
 	 * Mip-Level werden nicht neu erzeugt — bei animierten Blöcken in der Ferne minimal
 	 * unscharf; für Lava/Wasser vernachlässigbar.

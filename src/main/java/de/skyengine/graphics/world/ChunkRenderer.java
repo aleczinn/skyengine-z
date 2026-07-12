@@ -12,6 +12,7 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.lod.LodConfig;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.LodMesher;
+import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.color.Color4;
@@ -81,6 +82,32 @@ public class ChunkRenderer {
     private int lastLodRenderDistance = -1, lastLodMaxDistance = -1;
     private boolean lastLodEnabled;
 
+    /* Gate für die Cleanup-Walks (Schritte 3/3b): die O(Meshes)-Prüfungen laufen nur noch
+       in Frames, in denen sich Chunk-Set bzw. LOD-Desired-Set wirklich geändert haben
+       (gemessen ~250 µs/Frame gespart im Steady-State). -1 = beim ersten Frame laufen. */
+    private int lastChunkRemovalVersion = -1;
+    private int lastLodDesiredVersion = -1;
+
+    /* Fence-Diagnose (nur bei aktivem FrameProfiler gefüllt, s. beginFrame) */
+    private long syncFrames, syncSignaled, syncWaitNs, syncWaitMaxNs;
+
+    /* Mess-Gate LOD-Superregionen: bei aktivem FrameProfiler wird das LOD-Opaque-Segment
+       pro Level in eigene MDI-Sub-Segmente mit eigener GPU-Query gesplittet (GL_TIME_ELAPSED
+       darf nicht verschachteln -> ein Draw pro Level). Ohne Profiler: ein Draw wie bisher.
+       Index 1..5 = LOD-Level (LodConfig deckelt maxLevel auf 5). */
+    private static final int MAX_LOD_LEVELS = 5;
+    @SuppressWarnings("unchecked")
+    private final List<LodMesh>[] visibleLodByLevel = new List[MAX_LOD_LEVELS + 1];
+    private static final FrameProfiler.Gpu[] LOD_LEVEL_GPU = {
+            null, FrameProfiler.Gpu.LOD_O_L1, FrameProfiler.Gpu.LOD_O_L2,
+            FrameProfiler.Gpu.LOD_O_L3, FrameProfiler.Gpu.LOD_O_L4, FrameProfiler.Gpu.LOD_O_L5
+    };
+    /* Sub-Segment-Cursor/Draw-Zahlen pro Level (nur im Split-Modus befüllt, keine
+       per-Frame-Allokationen im Hot-Path) */
+    private final long[] lodLvlCmd = new long[MAX_LOD_LEVELS + 1];
+    private final long[] lodLvlOff = new long[MAX_LOD_LEVELS + 1];
+    private final int[] lodLvlN = new int[MAX_LOD_LEVELS + 1];
+
     private static final int MAX_UPLOADS_PER_FRAME = 8;
 
     /* Deckelt Quad-Sorts pro Frame — bei Kamerabewegung wollen sonst alle sichtbaren
@@ -132,8 +159,17 @@ public class ChunkRenderer {
     private int renderedSections = 0;
     private int totalSections = 0;
 
+    /* Gecachte Uniform-Locations des Chunk-Shaders (erspart Map-Lookups im Hot-Path) */
+    private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogColor;
+
+    /* Zuletzt hochgeladene Fog-Werte: Upload nur bei Änderung (Settings/Clear-Color) —
+       die Werte sind pro Frame konstant, ein Re-Upload pro Pass wäre doppelt umsonst. */
+    private float lastFogStart = Float.NaN, lastFogEnd = Float.NaN;
+    private float lastFogR = -1F, lastFogG = -1F, lastFogB = -1F;
+
     public ChunkRenderer(ChunkManager chunkManager) {
         this.chunkManager = chunkManager;
+        for (int l = 1; l <= MAX_LOD_LEVELS; l++) this.visibleLodByLevel[l] = new ArrayList<>();
     }
 
     /** Verdrahtet das LOD-System (aus World.init). Ohne Manager rendert alles wie bisher. */
@@ -157,6 +193,15 @@ public class ChunkRenderer {
                 new Shader(VERTEX_SOURCE, ShaderType.VERTEX),
                 new Shader(FRAGMENT_SOURCE, ShaderType.FRAGMENT)
         );
+        /* Uniform-Locations einmalig cachen; u_Textures ändert sich nie -> einmal setzen */
+        this.locProjectionView = this.shader.getUniformLocation("u_ProjectionView");
+        this.locAlphaCutoff = this.shader.getUniformLocation("u_AlphaCutoff");
+        this.locFogStart = this.shader.getUniformLocation("u_FogStart");
+        this.locFogEnd = this.shader.getUniformLocation("u_FogEnd");
+        this.locFogColor = this.shader.getUniformLocation("u_FogColor");
+        this.shader.bind();
+        this.shader.setUniformi("u_Textures", 0);
+        this.shader.unbind();
         /* Layer-Reihenfolge kommt aus dem Model-Bake (BlockTextures) */
         String[] paths = BlockTextures.getOrderedPaths();
         this.animations = SpriteAnimations.build(paths, TEXTURE_SIZE);
@@ -214,13 +259,19 @@ public class ChunkRenderer {
      */
     public void renderSolid(Camera camera) {
         /* 0. Texturanimationen vorrücken (Frame-Tausch, kein Re-Mesh) */
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.ANIM);
         long now = System.nanoTime();
         this.animations.tick(this.textures, (now - this.lastAnimNanos) / 1.0e9);
         this.lastAnimNanos = now;
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.ANIM);
 
         /* 1. Frame-Slot übernehmen: auf den 3 Frames alten Fence warten (i.d.R. längst
            signalisiert) und dann die bis dahin aufgelaufenen Arena-Frees einsammeln. */
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.SYNC);
         this.beginFrame();
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.SYNC);
+
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.UPLOAD);
 
         /* 2a. Prioritäts-Batches (Edit-/Fluid-Remeshes) immer zuerst und vollständig —
            das Volumen ist klein und der Spieler soll seine Änderung sofort sehen. */
@@ -239,18 +290,27 @@ public class ChunkRenderer {
         /* 2c. LOD-Uploads (eigenes Budget) — Meshes landen in der bestehenden OPAQUE-Arena */
         if (this.lodManager != null) this.applyLodResults();
 
-        /* 3. Meshes entladener Chunks freigeben (Regionen deferred) */
-        Iterator<Map.Entry<Long, SectionMesh>> it = this.meshes.entrySet().iterator();
-        while (it.hasNext()) {
-            SectionMesh mesh = it.next().getValue();
-            if (!this.chunkManager.getChunks().containsKey(Chunk.key(mesh.chunkX, mesh.chunkZ))) {
-                mesh.dispose(this.arenas, this.frameId);
-                it.remove();
+        /* 3. Meshes entladener Chunks freigeben (Regionen deferred) — nur in Frames, in denen
+           der ChunkManager wirklich etwas entfernt hat (Removal-Version), statt jeden Frame
+           alle Meshes gegen die Chunk-Map zu prüfen. update() (Tick) läuft vor renderSolid,
+           der Walk greift also im selben Frame wie die Entfernung. */
+        int removalVersion = this.chunkManager.getChunkRemovalVersion();
+        if (removalVersion != this.lastChunkRemovalVersion) {
+            this.lastChunkRemovalVersion = removalVersion;
+            Iterator<Map.Entry<Long, SectionMesh>> it = this.meshes.entrySet().iterator();
+            while (it.hasNext()) {
+                SectionMesh mesh = it.next().getValue();
+                if (!this.chunkManager.getChunks().containsKey(Chunk.key(mesh.chunkX, mesh.chunkZ))) {
+                    mesh.dispose(this.arenas, this.frameId);
+                    it.remove();
+                }
             }
         }
 
-        /* 3b. Nicht mehr gewünschte LOD-Regionen freigeben (deferred) */
-        if (this.lodManager != null) {
+        /* 3b. Nicht mehr gewünschte LOD-Regionen freigeben (deferred) — analog gegated über
+           die Desired-Version (bumpt bei jedem recomputeDesired, auch Anker-Bewegung). */
+        if (this.lodManager != null && this.lodManager.getDesiredVersion() != this.lastLodDesiredVersion) {
+            this.lastLodDesiredVersion = this.lodManager.getDesiredVersion();
             VertexArena lodOpaqueArena = this.arenas[LOD_OPAQUE];
             VertexArena lodTranslucentArena = this.arenas[LOD_TRANSLUCENT];
             Iterator<Map.Entry<Long, LodMesh>> lit = this.lodMeshes.entrySet().iterator();
@@ -263,9 +323,13 @@ public class ChunkRenderer {
             }
         }
 
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.UPLOAD);
+
         /* 4. Frustum culling, einmal pro Frame */
         Vector3d cam = camera.getPosition();
         int size = ChunkSection.SIZE;
+
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.CULL);
 
         this.visible.clear();
         this.translucentVisible.clear();
@@ -285,18 +349,25 @@ public class ChunkRenderer {
         }
         this.renderedSections = this.visible.size();
 
-        /* 4b. LOD-Regionen: Frustum-Test über das Regionen-AABB (128 x [minY,maxY] x 128) */
+        /* 4b. LOD-Regionen: Frustum-Test über das Regionen-AABB (sizeBlocks x [minY,maxY]) */
+        boolean lodSplit = FrameProfiler.isEnabled();
         this.visibleLod.clear();
+        if (lodSplit) {
+            for (int l = 1; l <= MAX_LOD_LEVELS; l++) this.visibleLodByLevel[l].clear();
+        }
         for (LodMesh mesh : this.lodMeshes.values()) {
             float ox = (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x);
             float oz = (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z);
             float y0 = (float) (mesh.minY - cam.y);
             float y1 = (float) (mesh.maxY - cam.y);
             if (!camera.getFrustum().testAab(ox, y0, oz,
-                    ox + LodMesher.REGION_BLOCKS, y1, oz + LodMesher.REGION_BLOCKS)) continue;
+                    ox + mesh.sizeBlocks, y1, oz + mesh.sizeBlocks)) continue;
             this.visibleLod.add(mesh);
+            if (lodSplit) this.visibleLodByLevel[mesh.level].add(mesh);
         }
         int lodDraws = this.visibleLod.size();
+
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.CULL);
 
         /* 5. Kapazitäten sicherstellen (Uploads können Arenen/EBO gewachsen sein lassen) */
         this.ensureIndexCapacity(this.maxSeenQuads);
@@ -308,20 +379,37 @@ public class ChunkRenderer {
            (tatsächlich nur der Teil mit hasTranslucent() — exakte Zählung lohnt hier nicht,
            die Ringe wachsen ohnehin nur bei echtem Bedarf). */
         int translucentDraws = this.translucentVisible.size();
+        /* Im Split-Modus ist jedes per-Level-Sub-Segment einzeln aligned (SSBO-Offset-
+           Anforderung) -> Kapazität als Summe der aligned Level-Segmente rechnen. */
+        long lodCmdCap, lodOffCap;
+        if (lodSplit) {
+            lodCmdCap = 0;
+            lodOffCap = 0;
+            for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
+                int n = this.visibleLodByLevel[l].size();
+                lodCmdCap += MappedRing.align((long) n * COMMAND_BYTES);
+                lodOffCap += MappedRing.align((long) n * OFFSET_BYTES);
+            }
+        } else {
+            lodCmdCap = MappedRing.align((long) lodDraws * COMMAND_BYTES);
+            lodOffCap = MappedRing.align((long) lodDraws * OFFSET_BYTES);
+        }
         this.commandRing.ensureSlotCapacity(
                 MappedRing.align((long) opaqueDraws * COMMAND_BYTES)
-                        + MappedRing.align((long) lodDraws * COMMAND_BYTES)
+                        + lodCmdCap
                         + MappedRing.align((long) cutoutDraws * COMMAND_BYTES)
                         + MappedRing.align((long) translucentDraws * COMMAND_BYTES)
                         + MappedRing.align((long) lodDraws * COMMAND_BYTES));
         this.offsetRing.ensureSlotCapacity(
                 MappedRing.align((long) opaqueDraws * OFFSET_BYTES)
-                        + MappedRing.align((long) lodDraws * OFFSET_BYTES)
+                        + lodOffCap
                         + MappedRing.align((long) cutoutDraws * OFFSET_BYTES)
                         + MappedRing.align((long) translucentDraws * OFFSET_BYTES)
                         + MappedRing.align((long) lodDraws * OFFSET_BYTES));
 
         /* 6. Command-/Offset-Segmente für OPAQUE und CUTOUT schreiben */
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.WRITE);
+
         IntBuffer cmds = this.commandRing.intView(this.frameSlot);
         FloatBuffer offs = this.offsetRing.floatView(this.frameSlot);
 
@@ -329,44 +417,73 @@ public class ChunkRenderer {
         int nOpaque = this.writeSegment(RenderLayer.OPAQUE, this.visible, cmds, offs, cmdOpaque, offOpaque, cam);
 
         /* LOD-Opaque: eigenes Segment, eigener Draw-Call (eigene Arena -> eigener Vertex-Buffer,
-           baseVertex wäre in der Section-Arena ungültig). */
+           baseVertex wäre in der Section-Arena ungültig). Im Split-Modus (FrameProfiler) pro
+           Level ein eigenes, einzeln aligntes Sub-Segment für per-Level-GPU-Queries. */
         long cmdLodOpaque = cmdOpaque + MappedRing.align((long) nOpaque * COMMAND_BYTES);
         long offLodOpaque = offOpaque + MappedRing.align((long) nOpaque * OFFSET_BYTES);
-        int nLodOpaque = this.writeLodOpaqueSegment(cmds, offs, cmdLodOpaque, offLodOpaque, cam);
-
-        long cmdCutout = cmdLodOpaque + MappedRing.align((long) nLodOpaque * COMMAND_BYTES);
-        long offCutout = offLodOpaque + MappedRing.align((long) nLodOpaque * OFFSET_BYTES);
+        long cmdCutout, offCutout;
+        int nLodOpaque = 0;
+        if (lodSplit) {
+            long c = cmdLodOpaque, o = offLodOpaque;
+            for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
+                List<LodMesh> list = this.visibleLodByLevel[l];
+                this.lodLvlCmd[l] = c;
+                this.lodLvlOff[l] = o;
+                this.lodLvlN[l] = list.isEmpty() ? 0 : this.writeLodOpaqueSegment(list, cmds, offs, c, o, cam);
+                c += MappedRing.align((long) this.lodLvlN[l] * COMMAND_BYTES);
+                o += MappedRing.align((long) this.lodLvlN[l] * OFFSET_BYTES);
+            }
+            cmdCutout = c;
+            offCutout = o;
+        } else {
+            nLodOpaque = this.writeLodOpaqueSegment(this.visibleLod, cmds, offs, cmdLodOpaque, offLodOpaque, cam);
+            cmdCutout = cmdLodOpaque + MappedRing.align((long) nLodOpaque * COMMAND_BYTES);
+            offCutout = offLodOpaque + MappedRing.align((long) nLodOpaque * OFFSET_BYTES);
+        }
         int nCutout = this.writeSegment(RenderLayer.CUTOUT, this.visible, cmds, offs, cmdCutout, offCutout, cam);
 
         /* Cursor für das Translucent-Segment in renderTranslucent merken */
         this.cmdCursor = cmdCutout + MappedRing.align((long) nCutout * COMMAND_BYTES);
         this.offCursor = offCutout + MappedRing.align((long) nCutout * OFFSET_BYTES);
 
-        /* 7. Render-Pässe: opaque & cutout (Alpha-Test bei 0.5) — je EIN Draw-Call */
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.WRITE);
+
+        /* 7. Render-Pässe: opaque & cutout (Alpha-Test bei 0.5) — je EIN Draw-Call.
+           u_Textures ist einmalig gesetzt (init); Fog lädt nur bei Wertänderung hoch. */
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.GLSUB);
         this.shader.bind();
-        this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
-        this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
         this.setFogUniforms();
         this.textures.bind(0);
 
-        this.shader.setUniformf("u_AlphaCutoff", 0.5F);
+        this.shader.setUniformf(this.locAlphaCutoff, 0.5F);
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.SOLID);
         this.drawSegment(RenderLayer.OPAQUE.ordinal(), cmdOpaque, offOpaque, nOpaque);
-        this.drawLodSegment(LOD_OPAQUE, cmdLodOpaque, offLodOpaque, nLodOpaque);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.SOLID);
+        if (lodSplit) {
+            for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
+                if (this.lodLvlN[l] == 0) continue;
+                FrameProfiler.gpuBegin(LOD_LEVEL_GPU[l]);
+                this.drawLodSegment(LOD_OPAQUE, this.lodLvlCmd[l], this.lodLvlOff[l], this.lodLvlN[l]);
+                FrameProfiler.gpuEnd(LOD_LEVEL_GPU[l]);
+            }
+        } else {
+            this.drawLodSegment(LOD_OPAQUE, cmdLodOpaque, offLodOpaque, nLodOpaque);
+        }
 
         /* CUTOUT mit "or-equal"-Depth-Func: die koplanaren Gras-Seiten-Overlays (identische
            Vertices wie ihre OPAQUE-Basis-Seite) muessen den Tiefentest exakt gewinnen.
-           Reversed-Z: GREATER -> GEQUAL (Muster wie SelectionBoxRenderer). */
-        int prevDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
-        int orEqualFunc = switch (prevDepthFunc) {
-            case GL11.GL_GREATER -> GL11.GL_GEQUAL;
-            case GL11.GL_LESS -> GL11.GL_LEQUAL;
-            default -> prevDepthFunc;
-        };
-        GL11.glDepthFunc(orEqualFunc);
+           Reversed-Z: GREATER -> GEQUAL. Die Funcs kommen statisch aus EngineProperties
+           statt per glGetInteger (synchroner Treiber-Roundtrip pro Frame). */
+        EngineProperties properties = SkyEngine.get().getWindow().getProperties();
+        GL11.glDepthFunc(properties.orEqualDepthFunc());
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.CUTOUT);
         this.drawSegment(RenderLayer.CUTOUT.ordinal(), cmdCutout, offCutout, nCutout);
-        GL11.glDepthFunc(prevDepthFunc);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.CUTOUT);
+        GL11.glDepthFunc(properties.baseDepthFunc());
 
         this.shader.unbind();
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.GLSUB);
     }
 
     /**
@@ -377,6 +494,8 @@ public class ChunkRenderer {
      */
     public void renderTranslucent(Camera camera) {
         Vector3d cam = camera.getPosition();
+
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.SORT);
 
         /* Nur die Sections mit Translucent-Layer sortieren, nicht die ganze visible-Liste. */
         this.translucentVisible.sort((a, b) -> Double.compare(distanceSq(b, cam), distanceSq(a, cam)));
@@ -390,6 +509,10 @@ public class ChunkRenderer {
         }
         this.ensureVaoBindings();
 
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.SORT);
+
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.WRITE);
+
         IntBuffer cmds = this.commandRing.intView(this.frameSlot);
         FloatBuffer offs = this.offsetRing.floatView(this.frameSlot);
         int n = this.writeSegment(RenderLayer.TRANSLUCENT, this.translucentVisible, cmds, offs, this.cmdCursor, this.offCursor, cam);
@@ -400,25 +523,36 @@ public class ChunkRenderer {
         long offLodT = this.offCursor + MappedRing.align((long) n * OFFSET_BYTES);
         int nLodT = this.writeLodTranslucentSegment(cmds, offs, cmdLodT, offLodT, cam);
 
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.WRITE);
+
+        /* Gleiches Programm wie renderSolid im selben Frame: u_ProjectionView/Fog/u_Textures
+           bleiben als Programm-Uniform-State erhalten (die Entity-/BlockEntity-Pässe dazwischen
+           nutzen eigene Programme) — kein Re-Upload nötig. Nur die Textur-Unit neu binden,
+           die Entity-Renderer binden dort ihre eigenen Texturen. */
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.GLSUB);
         this.shader.bind();
-        this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
-        this.shader.setUniformi("u_Textures", 0);
-        this.setFogUniforms();
         this.textures.bind(0);
 
         GL11.glEnable(GL11.GL_BLEND);
-        this.shader.setUniformf("u_AlphaCutoff", 0.001F);
+        this.shader.setUniformf(this.locAlphaCutoff, 0.001F);
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.TRANSLUCENT);
         this.drawSegment(RenderLayer.TRANSLUCENT.ordinal(), this.cmdCursor, this.offCursor, n);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.TRANSLUCENT);
         /* Bewusst keine Sortierung für LOD-Translucent (weder Region- noch Quad-Sortierung):
            LOD-Wasserflächen sind großflächige, meist einfache Top-Quads ohne die
            Überlappungskomplexität von Höhlenwasser. */
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.LOD_TRANSLUCENT);
         this.drawLodSegment(LOD_TRANSLUCENT, cmdLodT, offLodT, nLodT);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.LOD_TRANSLUCENT);
         GL11.glDisable(GL11.GL_BLEND);
 
         this.shader.unbind();
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.GLSUB);
 
         /* Frame-Ende: Fence schützt Ring-Slot und Arena-Regionen dieses Frames */
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.SYNC);
         this.endFrame();
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.SYNC);
     }
 
     /* ------------------------- Frame-Sync ------------------------- */
@@ -427,10 +561,23 @@ public class ChunkRenderer {
         this.frameSlot = (int) (this.frameId % SLOTS);
         long fence = this.fences[this.frameSlot];
         if (fence != 0L) {
-            int status;
-            do {
-                status = GL32.glClientWaitSync(fence, GL32.GL_SYNC_FLUSH_COMMANDS_BIT, 1_000_000_000L);
-            } while (status == GL32.GL_TIMEOUT_EXPIRED);
+            if (FrameProfiler.isEnabled()) {
+                /* Diagnose: erst blockierungsfreier Status-Poll (timeout 0, ohne Flush) —
+                   unterscheidet „GPU war längst fertig" von echtem Warten auf die Timeline. */
+                this.syncFrames++;
+                int status = GL32.glClientWaitSync(fence, 0, 0L);
+                if (status == GL32.GL_ALREADY_SIGNALED || status == GL32.GL_CONDITION_SATISFIED) {
+                    this.syncSignaled++;
+                } else {
+                    long t0 = System.nanoTime();
+                    this.waitOnFence(fence);
+                    long waited = System.nanoTime() - t0;
+                    this.syncWaitNs += waited;
+                    if (waited > this.syncWaitMaxNs) this.syncWaitMaxNs = waited;
+                }
+            } else {
+                this.waitOnFence(fence);
+            }
             GL32.glDeleteSync(fence);
             this.fences[this.frameSlot] = 0L;
 
@@ -438,6 +585,33 @@ public class ChunkRenderer {
             long completed = this.slotFrames[this.frameSlot];
             for (VertexArena arena : this.arenas) arena.collect(completed);
         }
+    }
+
+    /** Blockierendes Warten auf den Fence (Flush-Bit: Commands sicher abgeschickt). */
+    private void waitOnFence(long fence) {
+        int status;
+        do {
+            status = GL32.glClientWaitSync(fence, GL32.GL_SYNC_FLUSH_COMMANDS_BIT, 1_000_000_000L);
+        } while (status == GL32.GL_TIMEOUT_EXPIRED);
+    }
+
+    /**
+     * Fence-Diagnose der letzten Sekunde (nur bei aktivem FrameProfiler, sonst null):
+     * wie oft war der 3 Frames alte Fence beim Eintreffen schon signalisiert, und wie
+     * lange hat das echte Warten im Schnitt/Maximum gedauert.
+     */
+    public String syncStatsLineAndReset() {
+        if (this.syncFrames == 0) return null;
+        long waitedFrames = this.syncFrames - this.syncSignaled;
+        String line = "Fence: signalisiert %d/%d | Wartezeit avg=%dµs max=%dµs".formatted(
+                this.syncSignaled, this.syncFrames,
+                waitedFrames > 0 ? this.syncWaitNs / waitedFrames / 1000 : 0,
+                this.syncWaitMaxNs / 1000);
+        this.syncFrames = 0;
+        this.syncSignaled = 0;
+        this.syncWaitNs = 0;
+        this.syncWaitMaxNs = 0;
+        return line;
     }
 
     private void endFrame() {
@@ -461,7 +635,10 @@ public class ChunkRenderer {
             SectionMesh old = this.meshes.remove(key);
             if (old != null) old.dispose(this.arenas, this.frameId);
 
-            if (result.data() != null && !result.data().isEmpty()) {
+            /* Späte Batches entladener Chunks verwerfen (chunk == null): der Cleanup-Walk in
+               Schritt 3 läuft nur noch bei Removal-Version-Wechsel — ein danach eingefügtes
+               Waisen-Mesh würde nie wieder abgeräumt (Arena-Leak + Geistergeometrie). */
+            if (chunk != null && result.data() != null && !result.data().isEmpty()) {
                 SectionMesh mesh = new SectionMesh(result.chunkX(), result.sectionY(), result.chunkZ(), result.data(), this.arenas);
                 this.meshes.put(key, mesh);
                 this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.maxQuads());
@@ -502,8 +679,8 @@ public class ChunkRenderer {
             if (old != null) old.dispose(opaqueArena, translucentArena, this.frameId);
 
             if (result.opaqueData().length > 0 || result.translucentData().length > 0) {
-                LodMesh mesh = new LodMesh(result.rx(), result.rz(), result.level(), result.yBase(),
-                        result.opaqueData(), result.translucentData(), result.minY(), result.maxY(),
+                LodMesh mesh = new LodMesh(result.rx(), result.rz(), result.level(), result.sizeRegions(),
+                        result.yBase(), result.opaqueData(), result.translucentData(), result.minY(), result.maxY(),
                         opaqueArena, translucentArena);
                 this.lodMeshes.put(key, mesh);
                 this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.maxQuads());
@@ -511,29 +688,44 @@ public class ChunkRenderer {
             }
         }
 
-        /* Statistik gelegentlich loggen (Budget-Annahmen verifizierbar halten) */
+        /* Statistik gelegentlich loggen (Budget-Annahmen verifizierbar halten); per Level
+           aufgeschlüsselt als Datenbasis für das Superregionen-Mess-Gate. */
         if ((this.frameId & 2047) == 0 && !this.lodMeshes.isEmpty()) {
             long quads = 0;
-            for (LodMesh mesh : this.lodMeshes.values()) quads += mesh.quadCount();
-            this.logger.debug("LOD: " + this.lodMeshes.size() + " Regionen, " + quads
-                    + " Quads, " + ((quads * 4 * ChunkMesher.VERTEX_SIZE * Integer.BYTES) >> 20) + " MB Arena");
+            long[] lvlRegions = new long[MAX_LOD_LEVELS + 1];
+            long[] lvlQuads = new long[MAX_LOD_LEVELS + 1];
+            for (LodMesh mesh : this.lodMeshes.values()) {
+                quads += mesh.quadCount();
+                lvlRegions[mesh.level]++;
+                lvlQuads[mesh.level] += mesh.quadCount();
+            }
+            StringBuilder sb = new StringBuilder("LOD: ").append(this.lodMeshes.size())
+                    .append(" Regionen, ").append(quads).append(" Quads, ")
+                    .append((quads * 4 * ChunkMesher.VERTEX_SIZE * Integer.BYTES) >> 20).append(" MB Arena |");
+            for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
+                if (lvlRegions[l] == 0) continue;
+                sb.append(" L").append(l).append("=").append(lvlRegions[l])
+                        .append("R/").append(lvlQuads[l]).append("Q");
+            }
+            this.logger.debug(sb.toString());
         }
     }
 
     /**
-     * Schreibt die sichtbaren LOD-Opaque-Regionen als eigenes Indirect-Command-Segment (eigene
+     * Schreibt die LOD-Opaque-Regionen der Liste als eigenes Indirect-Command-Segment (eigene
      * Arena, eigener Draw-Call — baseVertex ist nur innerhalb desselben Vertex-Buffers gültig).
+     * Liste = alle sichtbaren Regionen oder (Split-Modus) die eines einzelnen Levels.
      * Offset-Semantik unverändert: .xyz = Ursprung kamerarelativ, .w = 0.
      *
      * @return Anzahl geschriebener LOD-Opaque-Draws
      */
-    private int writeLodOpaqueSegment(IntBuffer cmds, FloatBuffer offs, long cmdSegBytes, long offSegBytes,
-                                      Vector3d cam) {
+    private int writeLodOpaqueSegment(List<LodMesh> list, IntBuffer cmds, FloatBuffer offs,
+                                      long cmdSegBytes, long offSegBytes, Vector3d cam) {
         int cmdBase = (int) (cmdSegBytes / Integer.BYTES);
         int offBase = (int) (offSegBytes / Float.BYTES);
         int n = 0;
-        for (int i = 0; i < this.visibleLod.size(); i++) {
-            LodMesh mesh = this.visibleLod.get(i);
+        for (int i = 0; i < list.size(); i++) {
+            LodMesh mesh = list.get(i);
             if (!mesh.hasOpaque()) continue;
 
             int ci = cmdBase + n * 5;
@@ -547,7 +739,7 @@ public class ChunkRenderer {
             offs.put(oi, (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x));
             offs.put(oi + 1, (float) (mesh.yBase - cam.y)); // Vertices sind relativ zu yBase gepackt
             offs.put(oi + 2, (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z));
-            offs.put(oi + 3, 0F);
+            offs.put(oi + 3, mesh.invPosScale); // .w = Positions-Skala (1/256; Superregionen 1/64)
             n++;
         }
         return n;
@@ -580,7 +772,7 @@ public class ChunkRenderer {
             offs.put(oi, (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x));
             offs.put(oi + 1, (float) (mesh.yBase - cam.y)); // Vertices sind relativ zu yBase gepackt
             offs.put(oi + 2, (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z));
-            offs.put(oi + 3, 0F);
+            offs.put(oi + 3, mesh.invPosScale); // .w = Positions-Skala (1/256; Superregionen 1/64)
             n++;
         }
         return n;
@@ -612,7 +804,7 @@ public class ChunkRenderer {
             offs.put(oi, offsetX(mesh, cam));
             offs.put(oi + 1, offsetY(mesh, cam));
             offs.put(oi + 2, offsetZ(mesh, cam));
-            offs.put(oi + 3, 0F);
+            offs.put(oi + 3, 1F / 256F); // .w = Positions-Skala (2^-8 exakt -> bitidentisch)
             n++;
         }
         return n;
@@ -708,6 +900,7 @@ public class ChunkRenderer {
         (nicht die Far-Plane): mit LOD der äußerste LOD-Ring, ohne LOD die Chunk-Ladekante. */
     private void setFogUniforms() {
         GameSettings settings = GameSettings.get();
+        float fogStart, fogEnd;
         if (settings.fog) {
             float range = (settings.lodEnabled
                     ? Math.max(settings.lodMaxDistance, settings.renderDistance)
@@ -717,20 +910,32 @@ public class ChunkRenderer {
                Chunk-Ursprung — die sichtbare Kante liegt daher bis zu ~2-3 Chunks innerhalb
                von rd*32. Ohne diesen Rand bleibt die Stufen-Silhouette der Ladegrenze bei
                kurzer Fog-Spanne (ohne LOD) sichtbar. */
-            float fogEnd = Math.max(range - 3 * ChunkSection.SIZE, 2 * ChunkSection.SIZE);
+            fogEnd = Math.max(range - 3 * ChunkSection.SIZE, 2 * ChunkSection.SIZE);
             /* Ohne LOD ist der einzige Fog-Zweck das Verstecken der Ladekante -> kurze steile
                Rampe (80 %), damit von der knappen Sichtweite mehr klar bleibt; mit LOD lange
                Rampe (60 %) gegen das Sub-Pixel-Flimmern des Fernterrains. */
-            float startFactor = settings.lodEnabled ? 0.60F : 0.80F;
-            this.shader.setUniformf("u_FogStart", fogEnd * startFactor);
-            this.shader.setUniformf("u_FogEnd", fogEnd);
+            fogStart = fogEnd * (settings.lodEnabled ? 0.60F : 0.80F);
         } else {
             /* Fog aus: Start/Ende jenseits jeder Distanz -> Faktor 0, keine Shader-Variante nötig */
-            this.shader.setUniformf("u_FogStart", 1.0e30F);
-            this.shader.setUniformf("u_FogEnd", 2.0e30F);
+            fogStart = 1.0e30F;
+            fogEnd = 2.0e30F;
         }
         Color4 clear = SkyEngine.get().getConfig().getWindowClearColor();
-        this.shader.setUniformVector3f("u_FogColor", clear.red, clear.green, clear.blue);
+
+        /* Upload nur bei Änderung — die Werte hängen nur an Settings/Clear-Color, nicht an
+           der Kamera. Uniform-State bleibt im Programm erhalten. */
+        if (fogStart == this.lastFogStart && fogEnd == this.lastFogEnd
+                && clear.red == this.lastFogR && clear.green == this.lastFogG && clear.blue == this.lastFogB) {
+            return;
+        }
+        this.shader.setUniformf(this.locFogStart, fogStart);
+        this.shader.setUniformf(this.locFogEnd, fogEnd);
+        this.shader.setUniformVector3f(this.locFogColor, clear.red, clear.green, clear.blue);
+        this.lastFogStart = fogStart;
+        this.lastFogEnd = fogEnd;
+        this.lastFogR = clear.red;
+        this.lastFogG = clear.green;
+        this.lastFogB = clear.blue;
     }
 
     /* ------------------------- Helfer ------------------------- */
@@ -786,9 +991,11 @@ public class ChunkRenderer {
         if (this.textures != null) this.textures.dispose();
     }
 
-    /* Gepacktes Vertex-Format (16 Bytes, siehe ChunkMesher.VERTEX_SIZE):
+    /* Gepacktes Vertex-Format (20 Bytes, siehe ChunkMesher.VERTEX_SIZE):
        x: posX | posY<<16 (u16 fixed 8.8, Bias +1) — y: posZ | u<<16 (uv fixed 6.10, Bias +1)
        z: v | layer<<16 — w: rgb8
+       (5. Int reserviert für farbiges Licht, vom Shader aktuell ungenutzt — Stride wächst
+       automatisch über ChunkMesher.VERTEX_SIZE, a_data liest weiterhin nur die ersten 4 Ints)
        Section-Origin (kamerarelativ) kommt pro Draw aus dem SSBO, indiziert via gl_DrawID. */
     private static final String VERTEX_SOURCE = """
             #version 460 core
@@ -805,7 +1012,9 @@ public class ChunkRenderer {
             out float v_viewDist;
 
             void main() {
-                vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16), float(a_data.y & 0xFFFFu)) * (1.0 / 256.0) - 1.0;
+                /* Positions-Skala pro Draw aus .w (Sections + normales LOD: 1/256; LOD-
+                   Superregionen: 1/64 -- u16-Fixed-Point traegt sonst nur ~255 Bloecke). */
+                vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16), float(a_data.y & 0xFFFFu)) * u_DrawOffsets[gl_DrawID].w - 1.0;
                 vec2 uv = vec2(float(a_data.y >> 16), float(a_data.z & 0xFFFFu)) * (1.0 / 1024.0) - 1.0;
                 float layer = float(a_data.z >> 16);
                 vec3 color = vec3(float(a_data.w & 0xFFu), float((a_data.w >> 8) & 0xFFu), float((a_data.w >> 16) & 0xFFu)) * (1.0 / 255.0);

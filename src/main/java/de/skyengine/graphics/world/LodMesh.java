@@ -1,6 +1,7 @@
 package de.skyengine.graphics.world;
 
 import de.skyengine.game.world.chunk.ChunkMesher;
+import de.skyengine.game.world.lod.LodMesher;
 
 /**
  * LOD-Regionen-Mesh: eine Region (128x128 Blöcke) Heightmap-Surface-Geometrie im gepackten
@@ -11,9 +12,13 @@ import de.skyengine.game.world.chunk.ChunkMesher;
  */
 public class LodMesh {
 
-    public final int rx, rz;      // Regionskoordinaten (1 Region = 128 Blöcke)
+    public final int rx, rz;      // Regionskoordinaten (Ecke, in 128er-Regionen)
     public final int level;       // LOD-Level (Zellgröße 2^level Blöcke)
-    /* Y-Basis: Vertices sind relativ dazu gepackt (u16 trägt nur ~254 Blöcke Spanne);
+    /* Footprint: 128 (normal) oder 512 Blöcke (4x4-Superregion) — bestimmt Frustum-AABB,
+       und die per-Draw-Positions-Skala (Superregionen packen mit 1/64 statt 1/256). */
+    public final int sizeBlocks;
+    public final float invPosScale;
+    /* Y-Basis: Vertices sind relativ dazu gepackt (u16 trägt nur ~254/1023 Blöcke Spanne);
        der Renderer addiert yBase im Draw-Offset. */
     public final int yBase;
     public final float minY, maxY; // absoluter y-Bereich (fürs Frustum-AABB)
@@ -23,11 +28,13 @@ public class LodMesh {
     private final int opaqueQuadCount, translucentQuadCount;
 
     /** Alloziert die Arena-Regionen und lädt die Mesh-Daten hoch. Render-Thread. */
-    public LodMesh(int rx, int rz, int level, int yBase, int[] opaqueData, int[] translucentData,
+    public LodMesh(int rx, int rz, int level, int sizeRegions, int yBase, int[] opaqueData, int[] translucentData,
                    float minY, float maxY, VertexArena opaqueArena, VertexArena translucentArena) {
         this.rx = rx;
         this.rz = rz;
         this.level = level;
+        this.sizeBlocks = sizeRegions * LodMesher.REGION_BLOCKS;
+        this.invPosScale = 1F / LodMesher.posScaleFor(sizeRegions);
         this.yBase = yBase;
         this.minY = minY;
         this.maxY = maxY;

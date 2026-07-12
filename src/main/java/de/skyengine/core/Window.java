@@ -111,8 +111,11 @@ public class Window implements IDisposable {
         GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MAJOR, 4);
         GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 6);
 
-        /* Disable window framebuffer bits, because we render into our separate FBO */
-        GLFW.glfwWindowHint(GLFW.GLFW_DEPTH_BITS, 0);
+        /* Die Welt rendert ins Szene-FBO, aber die GUI zeichnet seit dem Post-Processing-Split
+           direkt in den Default-Framebuffer — und der ItemIconRenderer braucht dort echten
+           Tiefentest pro 3D-Icon (Zaun-Balken, koplanare Grasblock-Overlays; er cleart das
+           Depth selbst pro Icon). Ohne Depth-Bits fehlt z.B. der Kaktus-Deckel im Hotbar-Icon. */
+        GLFW.glfwWindowHint(GLFW.GLFW_DEPTH_BITS, 24);
         GLFW.glfwWindowHint(GLFW.GLFW_STENCIL_BITS, 0);
         GLFW.glfwWindowHint(GLFW.GLFW_ALPHA_BITS, 0);
 
@@ -270,7 +273,9 @@ public class Window implements IDisposable {
                     new int[] { 0x20052 }, false
             );
 
-            if (this.properties.isUseSynchronousDebugCallback()) {
+            /* Synchroner Debug-Output nur noch opt-in (EngineConfig): er serialisiert jeden
+               GL-Call und drückt die FPS massiv — der asynchrone Callback reicht im Alltag. */
+            if (this.config.isSynchronousDebug() && this.properties.isUseSynchronousDebugCallback()) {
                 GL11.glEnable(ARBDebugOutput.GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
             }
         }

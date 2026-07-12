@@ -1,5 +1,6 @@
 package de.skyengine.graphics.world;
 
+import de.skyengine.core.EngineProperties;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.graphics.GlDebug;
@@ -68,22 +69,18 @@ public class SelectionBoxRenderer {
 
         /* Sichtbarkeit wie die Selection-Box in Minecraft: koplanare Kanten (auf eigenen Block-Faces
            + Nachbarn wie dem Grasblock darunter) sollen den Tiefentest gewinnen. Dazu die „or-equal"-
-           Variante der AKTIVEN Depth-Func nehmen — die Engine läuft im Reversed-Z-Modus (GL_GREATER,
+           Variante der Basis-Depth-Func nehmen — die Engine läuft im Reversed-Z-Modus (GL_GREATER,
            nah≈1), wo GL_LEQUAL die ferneren Rückkanten gewinnen ließe (= Durchscheinen). Den winzigen
            Tiefen-Bias liefert der Vertex-Shader (Skalierung Richtung Kamera, wie MCs
-           VIEW_OFFSET_Z_LAYERING). Tiefentest bleibt aktiv -> echt verdeckte Kanten bleiben verborgen. */
-        int prevDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
-        int orEqualFunc = switch (prevDepthFunc) {
-            case GL11.GL_GREATER -> GL11.GL_GEQUAL; // Reversed-Z
-            case GL11.GL_LESS -> GL11.GL_LEQUAL;    // Standard-Z
-            default -> prevDepthFunc;               // bereits inklusiv / Sonderfall
-        };
-        GL11.glDepthFunc(orEqualFunc);
+           VIEW_OFFSET_Z_LAYERING). Tiefentest bleibt aktiv -> echt verdeckte Kanten bleiben verborgen.
+           Funcs statisch aus EngineProperties statt glGetInteger (synchroner Roundtrip pro Frame). */
+        EngineProperties properties = SkyEngine.get().getWindow().getProperties();
+        GL11.glDepthFunc(properties.orEqualDepthFunc());
 
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, edges, GL15.GL_DYNAMIC_DRAW);
         GL11.glDrawArrays(GL11.GL_LINES, 0, edges.length / 3);
 
-        GL11.glDepthFunc(prevDepthFunc);
+        GL11.glDepthFunc(properties.baseDepthFunc());
         GL11.glDisable(GL11.GL_BLEND);
         this.shader.unbind();
     }
