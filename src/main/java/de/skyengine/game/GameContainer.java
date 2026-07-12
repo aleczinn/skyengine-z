@@ -778,7 +778,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("Render-Distanz: " + this.settings.renderDistance);
             changed = true;
         }
-        if (input.isKeyPressed(this.settings.key(KeyBindings.AMBIENT_OCCLUSION))) {
+        if (input.isKeyPressed(GLFW.GLFW_KEY_O)) {
             this.settings.ambientOcclusion = !this.settings.ambientOcclusion;
             /* AO steckt im gebackenen Mesh -> alle Chunks progressiv neu meshen
                (LOD zieht via Epoche im nächsten LodManager-Tick selbst nach) */
@@ -786,7 +786,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("Ambient Occlusion: " + (this.settings.ambientOcclusion ? "an" : "aus"));
             changed = true;
         }
-        if (input.isKeyPressed(this.settings.key(KeyBindings.LOD))) {
+        if (input.isKeyPressed(GLFW.GLFW_KEY_L)) {
             this.settings.lodEnabled = !this.settings.lodEnabled;
             /* LodManager liest das Setting im nächsten Tick; farPlane sofort nachziehen */
             this.camera.setFarPlane(this.computeFarPlane());
