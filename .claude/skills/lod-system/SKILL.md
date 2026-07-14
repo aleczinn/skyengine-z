@@ -21,7 +21,15 @@ ebenfalls. Gras-Wände tragen ein koplanares getöntes Overlay-Quad (s.u.).
   Formatgrenze des UV-Fixed-Point). RD/lodMax ändern ⇒ Levelzahl ergibt sich automatisch.
 - `LodManager` (Tick-Thread, aus `World.update`): Soll-Zustand `desired` (regionKey → Level),
   Ist-Zustand `current`, `inflight`-Set gegen Doppel-Submits; Jobs laufen mit **niedrigster**
-  Priorität auf den Chunk-Workern (`submitLodTask`), max. 32 Submits/Tick, nah-zuerst.
+  Priorität auf den Chunk-Workern (`submitLodTask`), max. 32 Submits/Tick. Submit-Reihenfolge =
+  Zwei-Stufen-Score wie die Chunk-Ladereihenfolge (Sichtkegel cos 75° zuerst, dann Distanz) —
+  rein distanzsortiert war sie blickrichtungs-blind, ein 180°-Dreh änderte nichts am sichtbaren
+  LOD-Fortschritt. Der Score ändert NUR die Reihenfolge, nie Level/Anker (Determinismus).
+  **`submitPass` ist zusätzlich auf `chunkManager.isInitialLoadComplete()` gegated** — echtes
+  Terrain zuerst. `PRIO_LOD` allein reicht dafür NICHT: die Priorität verhindert nur das
+  Verdrängen in der Queue; läuft sie kurz leer, greift ein freier Worker sofort einen LOD-Job und
+  zieht ihn ohne Präemption durch — und beim Start sind diese Jobs teuer (ohne Chunks fällt die
+  Datenquelle pro Zelle auf den Generator-Noise zurück).
 - `ChunkRenderer` übernimmt Ergebnisse (Budget 4/Frame), schreibt eigene LOD-Segmente hinter
   die Terrain-Segmente und räumt Meshes ab, sobald `isDesiredKey` false ist. Die
   LOD-OPAQUE-Arena startet mit `LodMesher.estimateOpaqueArenaBytes` (Schätzung spiegelt die
@@ -44,6 +52,14 @@ ebenfalls. Gras-Wände tragen ein koplanares getöntes Overlay-Quad (s.u.).
    bevor der echte Mesh sichtbar ist. Masken-Diff (Chunk fertig geladen/entladen) triggert
    Region-Remesh. Innen wird NICHT per Radius ausgeschlossen — die Maske clippt zellgenau und
    füllt Lücken, solange Chunks laden.
+   **Keinen Innen-Radius einbauen** (einmal gebaut, sofort wieder ausgebaut): Er misst vom **Anker**
+   (hinkt per Hysterese bis `RECOMPUTE_DISTANCE` hinterher), der Chunk-Unload dagegen vom
+   **Spieler** (`(rd+2)*32`) — Zellen ausgeschlossener Regionen landen dadurch jenseits des
+   Unload-Radius: Chunk weg, LOD nie da ⇒ **Ring aus Löchern beim Fliegen**. Zusätzlich schaltet er
+   still das Unload-Gate ab (`coversChunk` liefert für nicht gewünschte Regionen `true`). Er bringt
+   auch nichts: sind die 16 Chunks geladen, ist die Maske `0xFFFF` und `LodMesher.mesh` steigt mit
+   einem LEEREN Mesh aus — LOD unter dem Spieler kostet nichts. Gegen LOD-Flackern beim Weltstart
+   wirkt das Lade-Gate (`ChunkManager.isInitialLoadComplete`, s.o.), nicht die Ring-Geometrie.
    **Unload-Gate (Gegenrichtung):** Der ChunkManager entfernt sichtbare Chunks
    (`isFullyUploaded()`, bewusst NICHT status==READY — `remeshAll()` setzt READY→DECORATED
    zurück, während die Meshes sichtbar bleiben) jenseits rd+2 erst, wenn
@@ -77,7 +93,9 @@ ebenfalls. Gras-Wände tragen ein koplanares getöntes Overlay-Quad (s.u.).
   L0-Naht) brauchen dieselben Skirts**, sonst blitzen ~1 Block hohe Schlitze durch.
 - Das 16-Byte-Vertexformat trägt nur ~254 Blöcke Y-Spanne → Vertices werden relativ zu `yBase`
   (tiefste Geometrie − Skirt − 2) gepackt; der Renderer schiebt per Draw-Offset zurück.
-  1D-Greedy-Merge ist auf `MAX_MERGE_BLOCKS = 32` gedeckelt (UV-Fixed-Point 6.10 trägt max ~63).
+  Der Greedy-Merge ist auf `MAX_MERGE_BLOCKS = 32` je Achse gedeckelt (UV-Fixed-Point 6.10 trägt
+  max ~63). Tops mergen **2D** (Breite entlang x, dann Höhe entlang z — wie im ChunkMesher),
+  Wände 1D entlang ihrer Kante (die zweite Quad-Dimension ist dort schon die Höhe).
 
 ## Datenquellen
 
