@@ -115,6 +115,14 @@ public final class LodMesher {
        bumpt bei Wechsel die Epoche. Wasser bleibt roh (flach). NICHT persistiert. */
     public static volatile boolean QUANTIZE_HEIGHT = true;
 
+    /* Deckel der Quantisierungs-Stufe. Ohne Deckel quantisiert L4/L5 auf 16/32 Blöcke — im
+       Fenster-A/B (Render-Distanz testweise 4, dadurch L4/L5 nah am Spieler) kippt das Terrain
+       damit sichtbar in grobe Plateaus/Mesa-Wände. 8 ist die größte Stufe, die bei der
+       Ship-Config (rd=16/lodMax=128 ⇒ nur L1..L3, Stride ≤ 8) im A/B optisch NICHT auffiel.
+       Bei rd=16/lodMax=128 ist der Deckel damit wirkungslos (Stride ist ohnehin ≤ 8) — er greift
+       nur, wenn hohe Level existieren (großes lodMax oder kleine Render-Distanz). */
+    private static final int MAX_QUANT_STRIDE = 8;
+
     /** Debug: aktiviert die Quad-Statistik (LodQuadCensus). In-Engine nicht aufrufen. */
     public void setStats(LodMeshStats stats) {
         this.stats = stats;
@@ -430,8 +438,9 @@ public final class LodMesher {
 
     /**
      * Rundet die Terrain-Höhe eines Samples auf ein Vielfaches der Zell-Stride ab
-     * ({@code floor(h/stride)*stride}) — Nachbarzellen teilen häufiger dieselbe Höhe, sodass der
-     * Greedy-Merge greift statt zellbreiter 1-Block-Stufen. {@code floor} hält LOD-Terrain unter
+     * ({@code floor(h/q)*q} mit {@code q = min(stride, MAX_QUANT_STRIDE)}) — Nachbarzellen teilen
+     * häufiger dieselbe Höhe, sodass der Greedy-Merge greift statt zellbreiter 1-Block-Stufen.
+     * Der Deckel hält die Stufenhöhe optisch verträglich. {@code floor} hält LOD-Terrain unter
      * der realen Oberfläche (keine überstehenden Klötze an der L0-Naht). Rein aus (Höhe, Stride)
      * abgeleitet, also deterministisch — MUSS mit der tatsächlich verwendeten Stride ({@code s}
      * bzw. {@code s2}) aufgerufen werden, damit Rand-Ring-Zellen fremder Regionen denselben Wert
@@ -441,8 +450,9 @@ public final class LodMesher {
         if (!QUANTIZE_HEIGHT || stride <= 1) return sample;
         int block = LodDataSource.block(sample);
         if (this.appearance.isFluid(block)) return sample;
+        int q = Math.min(stride, MAX_QUANT_STRIDE);
         int h = LodDataSource.height(sample);
-        return LodDataSource.pack(block, Math.floorDiv(h, stride) * stride);
+        return LodDataSource.pack(block, Math.floorDiv(h, q) * q);
     }
 
     private static int neighborLevel(LodConfig config, int nrx, int nrz, int ax, int az) {
