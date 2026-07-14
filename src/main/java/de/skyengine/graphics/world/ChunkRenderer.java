@@ -223,26 +223,39 @@ public class ChunkRenderer {
         this.textures.regenerateMipmaps();
         this.lastAnimNanos = System.nanoTime();
 
-        /* Arenen großzügig nahe am Steady-State starten, damit das Wachstum im Normalbetrieb
-           entfällt (jeder Grow = neuer Buffer + Voll-Kopie + NVIDIA-0x20072-Warnung). OPAQUE
-           trägt das Terrain (~70-100 MB bei Sichtweite 16); CUTOUT (Gras-Seiten-Overlays)
-           erreicht bei voller Sichtweite ~60 MB — sonst wächst es beim Start mehrfach hoch. */
-        this.arenas[RenderLayer.OPAQUE.ordinal()] = new VertexArena("VertexArena OPAQUE", 96L * 1024 * 1024);
-        this.arenas[RenderLayer.CUTOUT.ordinal()] = new VertexArena("VertexArena CUTOUT", 64L * 1024 * 1024);
-        this.arenas[RenderLayer.TRANSLUCENT.ordinal()] = new VertexArena("VertexArena TRANSLUCENT", 8L * 1024 * 1024);
+        /* Arenen so starten, dass das Wachstum auch beim SCHNELLEN FLIEGEN entfällt — jeder
+           Grow ist eine GPU-Vollkopie der ganzen Arena im Frame (= gemessener Ruckler, der
+           sogar die Flugsteuerung kurz anhält, plus NVIDIA-0x20072-Warnung).
+
+           Bezugsgröße ist bewusst der (rd+6)-Kreis, NICHT rd: pendingUnload-Chunks behalten
+           ihre Meshes bis zum Notventil rd+6, solange das LOD ihre Zelle noch nicht deckt —
+           beim Flug hält die Arena also weit mehr als den Steady-State (real beobachtet:
+           OPAQUE wuchs bei rd=16 von 96 auf 324 MB, inkl. First-Fit-Fragmentierung).
+           Die Bytes/Chunk sind aus Sprint-Flug-Messungen abgeleitet (OPAQUE: Endstand 324 MB /
+           ~1520 Chunks ≈ 220 KB; CUTOUT trägt das LAUB — über Wald wuchs es real auf >285 MB,
+           also NICHT kleiner ansetzen als OPAQUE); Floors = bisherige Startgrößen. */
+        GameSettings settings = GameSettings.get();
+        int holdRadius = settings.renderDistance + 6;
+        long holdChunks = Math.round(Math.PI * holdRadius * holdRadius);
+        this.arenas[RenderLayer.OPAQUE.ordinal()] = new VertexArena("VertexArena OPAQUE",
+                Math.max(96L << 20, holdChunks * 256L * 1024));
+        this.arenas[RenderLayer.CUTOUT.ordinal()] = new VertexArena("VertexArena CUTOUT",
+                Math.max(64L << 20, holdChunks * 256L * 1024));
+        this.arenas[RenderLayer.TRANSLUCENT.ordinal()] = new VertexArena("VertexArena TRANSLUCENT",
+                Math.max(8L << 20, holdChunks * 16L * 1024));
         /* Eigene Arenen für LOD (volle Isolation von Section-Meshes). LOD-OPAQUE (Boden +
            Wände der Clipmap-Ringe) skaliert stark mit lodMaxDistance (bei Default RD=16/
            lodMax=128 real ~190 MB) — Startgröße daher aus der Ring-Konfiguration schätzen,
            statt einer festen Zahl, die entweder VRAM verschwendet oder mehrfach nachwächst.
            Deckel nach unten auf 8 MB (kleine Sichtweiten / LOD aus). Wächst bei Bedarf weiter. */
-        GameSettings settings = GameSettings.get();
         long lodOpaqueBytes = 8L * 1024 * 1024;
         if (settings.lodEnabled) {
             lodOpaqueBytes = Math.max(lodOpaqueBytes,
                     LodMesher.estimateOpaqueArenaBytes(LodConfig.of(settings.renderDistance, settings.lodMaxDistance)));
         }
         this.arenas[LOD_OPAQUE] = new VertexArena("VertexArena LOD-OPAQUE", lodOpaqueBytes);
-        this.arenas[LOD_TRANSLUCENT] = new VertexArena("VertexArena LOD-TRANSLUCENT", 2L * 1024 * 1024);
+        /* 8 MB statt 2: bei Ozean im Ring wuchs die Arena sonst direkt beim Start (2->4 MB). */
+        this.arenas[LOD_TRANSLUCENT] = new VertexArena("VertexArena LOD-TRANSLUCENT", 8L * 1024 * 1024);
 
         for (int i = 0; i < this.vaos.length; i++) {
             this.vaos[i] = GL30.glGenVertexArrays();
