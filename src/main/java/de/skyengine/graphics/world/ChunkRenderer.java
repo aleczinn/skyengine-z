@@ -153,7 +153,18 @@ public class ChunkRenderer {
        koplanares echtes Terrain den Tiefentest IMMER gewinnt — sonst fightet das LOD im
        Lade-Fenster (Chunk fertig hochgeladen, Region noch nicht remeshed) mit dem echten
        Terrain. Vorzeichen hängt am Depth-Modus (Muster verwandt mit or-equal-DepthFunc):
-       Reversed-Z bedeutet näher = GRÖSSERER Depth-Wert → "weiter weg" = negativer Offset. */
+       Reversed-Z bedeutet näher = GRÖSSERER Depth-Wert → "weiter weg" = negativer Offset.
+
+       NUR Units, KEIN Steigungsterm (factor bleibt 0) — das ist tragend, nicht nachlässig:
+       glPolygonOffset rechnet o = factor * m + units * r, wobei m die Tiefensteigung des
+       Polygons im Fensterraum ist. Tops und Wände/Skirts des LOD stecken im SELBEN Draw, haben
+       aber gegensätzliche Steigungen: Bei flachem Blick in die Ferne ist m der fast von der
+       Seite gesehenen Top-Quads riesig, das der senkrechten (also fast frontal gesehenen)
+       Skirt-Wände dagegen ~0. Ein Steigungsterm drückt damit den LOD-Boden weit hinter seine
+       EIGENEN, eigentlich vergrabenen Regionsrand-Skirts — die bluten dann als schwarzes
+       128er-Gitter (= REGION_BLOCKS) durch die Landschaft. Für den eigentlichen Zweck reicht
+       ein konstanter Bias: L0- und LOD-Terrain sind dort koplanar (gleiche Ebene, gleiche
+       Steigung), da trägt der Steigungsterm ohnehin nichts bei. */
     private float lodOffsetFactor, lodOffsetUnits;
 
     private int renderedSections = 0;
@@ -186,8 +197,8 @@ public class ChunkRenderer {
 
         /* Tiefen-Bias-Richtung je Depth-Modus (s. Feld-Kommentar lodOffsetFactor) */
         float sign = properties.isUseInverseDepth() ? -1F : 1F;
-        this.lodOffsetFactor = sign;
-        this.lodOffsetUnits = sign * 2F;
+        this.lodOffsetFactor = 0F;          // KEIN Steigungsterm — s. Feld-Kommentar!
+        this.lodOffsetUnits = sign * 8F;    // konstanter Bias (ersetzt den Steigungsanteil)
 
         this.shader = new ShaderProgram(
                 new Shader(VERTEX_SOURCE, ShaderType.VERTEX),
