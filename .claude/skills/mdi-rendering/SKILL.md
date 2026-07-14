@@ -8,10 +8,16 @@ description: ChunkRenderer mit MultiDrawIndirect — VertexArena (deferred frees
 ## Warum diese Architektur
 
 Ein Draw-Call pro Section×Layer skaliert nicht. Stattdessen: **5 `VertexArena`s** — pro
-`RenderLayer` eine (OPAQUE 96 MB / CUTOUT 64 MB / TRANSLUCENT 8 MB) plus zwei dedizierte
-LOD-Arenen (LOD-OPAQUE: Startgröße aus `LodMesher.estimateOpaqueArenaBytes`, ~250 MB bei
-Default-Settings, plus `ensureCapacity`-Vorabvergrößerung bei Settings-Wechsel; LOD-TRANSLUCENT
-2 MB). Sections/Regionen mieten darin Bereiche (First-Fit-Free-List). Pro Frame wird nur das
+`RenderLayer` eine (Startgröße aus dem **(rd+6)-Kreis** × Bytes/Chunk-Erfahrungswert, Floors
+96/64/8 MB — rd+6 ist Absicht: `pendingUnload`-Chunks halten ihre Meshes bis zum Notventil,
+beim Flug hält die Arena also weit mehr als den Steady-State; real beobachtet wuchs OPAQUE bei
+rd=16 sonst von 96 auf 324 MB) plus zwei dedizierte LOD-Arenen (LOD-OPAQUE: Startgröße aus
+`LodMesher.estimateOpaqueArenaBytes`, plus `ensureCapacity`-Vorabvergrößerung bei
+Settings-Wechsel; LOD-TRANSLUCENT 2 MB). Sections/Regionen mieten darin Bereiche
+(First-Fit-Free-List). **Jeder `grow` ist eine GPU-Vollkopie der ganzen Arena im Frame** —
+das war der gemessene Flug-Ruckler (friert auf dem Single-Thread auch Input/Tick ein). Deshalb:
+Startgrößen so, dass es im Normalbetrieb NIE wächst, Grow-Faktor 2 (statt 1,5) und eine
+Debug-Logzeile pro Grow (jede davon heißt: Startgrößen passen nicht mehr). Pro Frame wird nur das
 Indirect-Command-Array + ein Offset-SSBO gebaut → **ein `glMultiDrawElementsIndirect` pro
 Segment**; die LOD-Draws sind EIGENE Segmente direkt nach dem jeweiligen Terrain-Segment
 (gleicher Shader, aber baseVertex gilt nur im selben Vertex-Buffer → eigene Arena = eigener

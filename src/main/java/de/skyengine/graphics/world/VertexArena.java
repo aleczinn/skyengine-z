@@ -2,6 +2,8 @@ package de.skyengine.graphics.world;
 
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.graphics.GlDebug;
+import de.skyengine.utils.logging.LogManager;
+import de.skyengine.utils.logging.Logger;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL31;
 import org.lwjgl.opengl.GL44;
@@ -51,6 +53,8 @@ public final class VertexArena {
 
     private record PendingFree(Region region, long frame) {}
 
+    private final Logger logger = LogManager.getLogger(VertexArena.class.getName());
+
     private final String name;
     private int buffer;
     private long capacity;
@@ -98,7 +102,11 @@ public final class VertexArena {
 
         Long offset = this.findFirstFit(size);
         if (offset == null) {
-            this.grow(Math.max(this.capacity + this.capacity / 2, this.capacity + size));
+            /* Faktor 2 statt 1,5: jeder Grow ist eine GPU-Vollkopie der ganzen Arena (= der
+               gemessene Frame-Spike beim Flug) — der größere Faktor halbiert die Anzahl der
+               Kopien bis zum Ziel. Die Startgrößen sind ohnehin so gewählt, dass es im
+               Normalbetrieb gar nicht erst wächst (ChunkRenderer.init). */
+            this.grow(Math.max(this.capacity * 2, this.capacity + size));
             offset = this.findFirstFit(size);
         }
 
@@ -174,6 +182,7 @@ public final class VertexArena {
      * behalten ihre Offsets — nur die Buffer-Bindung im VAO muss erneuert werden.
      */
     private void grow(long newCapacity) {
+        long start = System.nanoTime();
         int oldBuffer = this.buffer;
         long oldCapacity = this.capacity;
 
@@ -187,6 +196,13 @@ public final class VertexArena {
         GL15.glDeleteBuffers(oldBuffer);
 
         this.insertCoalescing(oldCapacity, newCapacity - oldCapacity);
+
+        /* Grows sind der teuerste Einzel-Frame-Vorgang des Renderers (Vollkopie) und sollten im
+           Normalbetrieb NIE auftreten — jede Zeile hier ist ein Hinweis, dass die Startgrößen
+           (ChunkRenderer.init) nicht mehr passen. Gemessen wird nur die CPU-Submit-Zeit; die
+           eigentliche Kopie läuft asynchron auf der GPU und drückt zusätzlich den Frame. */
+        this.logger.debug("Arena-Grow " + this.name + ": " + (oldCapacity >> 20) + " -> "
+                + (newCapacity >> 20) + " MB (Submit " + (System.nanoTime() - start) / 1_000_000 + " ms)");
     }
 
     private void createBuffer(long size) {
