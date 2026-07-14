@@ -90,8 +90,7 @@ public class ChunkManager {
         int threads = Math.max(2, Runtime.getRuntime().availableProcessors() - 2);
         /* Prioritäts-Queue statt FIFO: Edit-Remeshes (PRIO_REMESH) überholen wartende
            Generierungs-/Erst-Mesh-Jobs (PRIO_LOAD), ohne einen eigenen Thread zu brauchen. */
-        this.workers = new ThreadPoolExecutor(threads, threads, 0L, TimeUnit.MILLISECONDS,
-                new PriorityBlockingQueue<>(), r -> {
+        this.workers = new ThreadPoolExecutor(threads, threads, 0L, TimeUnit.MILLISECONDS, new PriorityBlockingQueue<>(), r -> {
             Thread t = new Thread(r, "Chunk Worker");
             t.setDaemon(true);
             t.setPriority(Thread.NORM_PRIORITY - 1);
