@@ -66,10 +66,11 @@ public final class WorldLodDataSource implements LodDataSource {
     }
 
     /**
-     * Spaltenscan von oben: erster Block, der Fluid oder solide ist (Vegetation/Luft wird
-     * übersprungen); mit {@code skipFluids} wird auch Fluid übersprungen und der erste
-     * SOLIDE Block geliefert (fester Boden unter Wasser). Nur Chunks mit vollständigem
-     * Terrain (mindestens GENERATED).
+     * Spaltenscan von oben: erster OPAKER VOLLBLOCK oder Fluid; mit {@code skipFluids} wird
+     * auch Fluid übersprungen (fester Boden unter Wasser). Vegetation (Leaves, Cross-Pflanzen)
+     * und Nicht-Vollblöcke werden übersprungen — LOD zeigt bewusst nur Terrain; die Baumkrone
+     * als LOD-Oberfläche sah kaputt aus. Nur Chunks mit vollständigem Terrain (mindestens
+     * GENERATED).
      *
      * <p>Liest die Paletten bewusst OHNE Lock (Worker-Thread): einzelne verrissene Samples
      * sind transient und werden beim nächsten Remesh korrigiert; Edits passieren ohnehin nur
@@ -90,7 +91,8 @@ public final class WorldLodDataSource implements LodDataSource {
                 int id = section.getBlock(lx, ly, lz);
                 if (id == Blocks.AIR) continue;
                 BlockState state = Blocks.getState(id);
-                if (state.isSolid() || (!skipFluids && state.isFluid())) {
+                if ((state.isOpaqueCube() && !state.isExcludedFromLodSurface())
+                        || (!skipFluids && state.isFluid())) {
                     return LodDataSource.pack(id, (si << ChunkSection.SHIFT) + ly);
                 }
             }
