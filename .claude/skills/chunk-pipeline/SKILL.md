@@ -29,7 +29,11 @@ Kaskaden/Deadlocks im Worker-Pool). Diese Invariante bei neuen Feature-Typen NIC
 
 ## Worker-Prioritäten (häufige Falle)
 
-`PriorityBlockingQueue` mit `PrioTask(prio, seq)`: PRIO_REMESH(0) < PRIO_LOAD(1) < PRIO_LOD(2).
+`PriorityBlockingQueue` mit `PrioTask(prio, seq)`:
+PRIO_REMESH(0) < PRIO_LOD_CLIP(1) < PRIO_LOAD(2) < PRIO_LOD(3).
+LOD_CLIP = LOD-Masken-Remeshes (Chunk sichtbar geworden / pendingUnload) — die überholen die
+Lade-Queue bewusst, sonst steht beim Schnellflug die alte LOD-Geometrie sekundenlang über frisch
+erschienenen L0-Chunks (Clip-Job hinter bis zu LOAD_QUEUE_LIMIT Lade-Jobs).
 Zwei Fallen:
 1. **`workers.execute(...)`, niemals `submit(...)`** — submit wrappt in ein nicht-vergleichbares
    FutureTask → ClassCastException in der Priority-Queue.

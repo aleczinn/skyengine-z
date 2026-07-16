@@ -361,6 +361,13 @@ public class ChunkRenderer {
 
         int opaqueDraws = 0, cutoutDraws = 0;
         for (SectionMesh mesh : this.meshes.values()) {
+            /* Sicht-Gate: solange ein hochgeladenes LOD-Mesh die Zelle noch ungeclippt zeigt,
+               Chunk-Sections NICHT zeichnen — applyLodResults lief oben im selben Frame, das
+               geclippte LOD und der Chunk erscheinen/verschwinden also im SELBEN Frame
+               (atomarer Swap statt Doppelbild an der Ladefront). Versteckt auch
+               teil-hochgeladene Chunks (kein progressiver Teil-Pop). */
+            if (this.lodManager != null && this.lodManager.lodShowsCell(mesh.chunkX, mesh.chunkZ)) continue;
+
             float ox = offsetX(mesh, cam);
             float oy = offsetY(mesh, cam);
             float oz = offsetZ(mesh, cam);

@@ -46,7 +46,8 @@ public class LodManager {
     /* Stand einer hochgeladenen Region: Level + Größe + Settings-Epoche + Chunk-Maske des Meshes */
     private record Current(int level, int sizeRegions, int epoch, int mask) {}
 
-    private record Candidate(long key, int level, int mask, double score) {}
+    /* clip = reiner Masken-Diff (Level/Epoche stimmen schon) → höhere Worker-Priorität */
+    private record Candidate(long key, int level, int mask, double score, boolean clip) {}
 
     /* Deckelt die Executor-Queue — Jobs sind billig (nur Source-Samples), aber nah-zuerst. */
     private static final int MAX_SUBMITS_PER_TICK = 32;
@@ -264,12 +265,16 @@ public class LodManager {
 
             Current c = this.current.get(key);
             boolean needs = c == null || c.level != level || c.epoch != this.epoch;
+            boolean clip = false;
             int mask = Integer.MIN_VALUE; // noch nicht berechnet
             if (!needs && (c.mask != 0 || distSq < nearReal * nearReal)) {
                 /* Masken-Diff: Chunk fertig geladen oder entladen → Region remeshen.
-                   c.mask != 0 fängt den Unload-Fall auch außerhalb der Nahzone. */
+                   c.mask != 0 fängt den Unload-Fall auch außerhalb der Nahzone.
+                   Diese Clip-Remeshes laufen mit erhöhter Priorität (PRIO_LOD_CLIP) —
+                   sonst steht die alte LOD-Geometrie sekundenlang über frisch
+                   erschienenen L0-Chunks (hinter der vollen Lade-Queue). */
                 mask = this.computeMask(rx, rz);
-                needs = mask != c.mask;
+                needs = clip = mask != c.mask;
             }
             if (!needs) continue;
 
@@ -282,7 +287,7 @@ public class LodManager {
             double score = (cos >= VIEW_CONE_COS ? 0 : this.config.outerRadiusBlocks()) + dist;
 
             if (candidates == null) candidates = new ArrayList<>();
-            candidates.add(new Candidate(key, level, mask, score));
+            candidates.add(new Candidate(key, level, mask, score, clip));
         }
         if (candidates == null) return;
 
@@ -299,7 +304,7 @@ public class LodManager {
             LodConfig jobConfig = this.config;
             this.chunkManager.submitLodTask(() -> this.results.add(this.meshers.get().mesh(
                     this.source, this.appearance, jobConfig, level, 1, rx, rz,
-                    jobEpoch, mask, jobAx, jobAz)));
+                    jobEpoch, mask, jobAx, jobAz)), cand.clip);
         }
     }
 
@@ -346,6 +351,25 @@ public class LodManager {
         if (!this.desired.containsKey(key)) return true;
         Current c = this.current.get(key);
         if (c == null) return false; // erster Upload der Region steht noch aus
+        int bit = Math.floorMod(cz, 4) * 4 + Math.floorMod(cx, 4);
+        return (c.mask & (1 << bit)) == 0;
+    }
+
+    /**
+     * Sicht-Gate für den Renderer: true, wenn ein HOCHGELADENES LOD-Mesh die Zelle (cx,cz)
+     * gerade zeigt (Bit ungeclippt) — dann werden die Section-Meshes dieses Chunks NICHT
+     * gezeichnet. Sobald das geclippte LOD-Mesh übernommen wird (acceptResult aktualisiert
+     * current.mask, läuft im Frame VOR dem Cull-Pass), erscheint der Chunk im SELBEN Frame:
+     * atomarer Swap statt Doppelbild (Laden) bzw. Doppelframe (Entladen).
+     *
+     * <p>Bewusst NICHT {@link #coversChunk} verwenden: dessen "!desired → true"-Zweig würde
+     * Chunks ohne LOD fälschlich verstecken (Loch). current ist auf desired gepruned, daher
+     * reicht der eine Lookup; ist kein Mesh hochgeladen (c == null), gibt es nichts, das den
+     * Chunk verdecken könnte → zeichnen.
+     */
+    public boolean lodShowsCell(int cx, int cz) {
+        Current c = this.current.get(key(Math.floorDiv(cx, 4), Math.floorDiv(cz, 4)));
+        if (c == null) return false;
         int bit = Math.floorMod(cz, 4) * 4 + Math.floorMod(cx, 4);
         return (c.mask & (1 << bit)) == 0;
     }
