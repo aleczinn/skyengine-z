@@ -21,7 +21,20 @@ ebenfalls. Gras-Wände tragen ein koplanares getöntes Overlay-Quad (s.u.).
   Formatgrenze des UV-Fixed-Point). RD/lodMax ändern ⇒ Levelzahl ergibt sich automatisch.
 - `LodManager` (Tick-Thread, aus `World.update`): Soll-Zustand `desired` (regionKey → Level),
   Ist-Zustand `current`, `inflight`-Set gegen Doppel-Submits; Jobs laufen mit **niedrigster**
-  Priorität auf den Chunk-Workern (`submitLodTask`), max. 32 Submits/Tick, nah-zuerst.
+  Priorität auf den Chunk-Workern (`submitLodTask`), max. 32 Submits/Tick. **Ausnahme:** reine
+  Masken-Remeshes (Level/Epoche stimmen, nur `mask != c.mask`) submitten mit `clip=true` →
+  `PRIO_LOD_CLIP` **vor** der Lade-Queue — sonst verhungert der Clip hinter bis zu
+  LOAD_QUEUE_LIMIT Lade-Jobs: beim Schnellflug steht die alte LOD-Geometrie sekundenlang über
+  frisch erschienenen L0-Chunks (Lade-Richtung) bzw. pendingUnload-Chunks halten ihre Meshes
+  fest (Arena-Druck, Unload-Richtung). Neubauten/Level-/Epoche-Wechsel bleiben `PRIO_LOD`. Submit-Reihenfolge =
+  Zwei-Stufen-Score wie die Chunk-Ladereihenfolge (Sichtkegel cos 75° zuerst, dann Distanz) —
+  rein distanzsortiert war sie blickrichtungs-blind, ein 180°-Dreh änderte nichts am sichtbaren
+  LOD-Fortschritt. Der Score ändert NUR die Reihenfolge, nie Level/Anker (Determinismus).
+  **`submitPass` ist zusätzlich auf `chunkManager.isInitialLoadComplete()` gegated** — echtes
+  Terrain zuerst. `PRIO_LOD` allein reicht dafür NICHT: die Priorität verhindert nur das
+  Verdrängen in der Queue; läuft sie kurz leer, greift ein freier Worker sofort einen LOD-Job und
+  zieht ihn ohne Präemption durch — und beim Start sind diese Jobs teuer (ohne Chunks fällt die
+  Datenquelle pro Zelle auf den Generator-Noise zurück).
 - `ChunkRenderer` übernimmt Ergebnisse (Budget 4/Frame), schreibt eigene LOD-Segmente hinter
   die Terrain-Segmente und räumt Meshes ab, sobald `isDesiredKey` false ist. Die
   LOD-OPAQUE-Arena startet mit `LodMesher.estimateOpaqueArenaBytes` (Schätzung spiegelt die
@@ -44,6 +57,14 @@ ebenfalls. Gras-Wände tragen ein koplanares getöntes Overlay-Quad (s.u.).
    bevor der echte Mesh sichtbar ist. Masken-Diff (Chunk fertig geladen/entladen) triggert
    Region-Remesh. Innen wird NICHT per Radius ausgeschlossen — die Maske clippt zellgenau und
    füllt Lücken, solange Chunks laden.
+   **Keinen Innen-Radius einbauen** (einmal gebaut, sofort wieder ausgebaut): Er misst vom **Anker**
+   (hinkt per Hysterese bis `RECOMPUTE_DISTANCE` hinterher), der Chunk-Unload dagegen vom
+   **Spieler** (`(rd+2)*32`) — Zellen ausgeschlossener Regionen landen dadurch jenseits des
+   Unload-Radius: Chunk weg, LOD nie da ⇒ **Ring aus Löchern beim Fliegen**. Zusätzlich schaltet er
+   still das Unload-Gate ab (`coversChunk` liefert für nicht gewünschte Regionen `true`). Er bringt
+   auch nichts: sind die 16 Chunks geladen, ist die Maske `0xFFFF` und `LodMesher.mesh` steigt mit
+   einem LEEREN Mesh aus — LOD unter dem Spieler kostet nichts. Gegen LOD-Flackern beim Weltstart
+   wirkt das Lade-Gate (`ChunkManager.isInitialLoadComplete`, s.o.), nicht die Ring-Geometrie.
    **Unload-Gate (Gegenrichtung):** Der ChunkManager entfernt sichtbare Chunks
    (`isFullyUploaded()`, bewusst NICHT status==READY — `remeshAll()` setzt READY→DECORATED
    zurück, während die Meshes sichtbar bleiben) jenseits rd+2 erst, wenn
@@ -52,6 +73,14 @@ ebenfalls. Gras-Wände tragen ein koplanares getöntes Overlay-Quad (s.u.).
    als abwesend → Region un-clippt, BEVOR der Chunk verschwindet. Notventil: jenseits rd+6 wird
    bedingungslos entladen. Verdrahtung: `chunkManager.setLodManager(...)` in `World.init`.
    Kein Loch-Frame, weil `applyLodResults` im Renderer VOR der Section-Mesh-Disposal läuft.
+   **Sicht-Gate (atomarer Swap, beide Richtungen):** Der Cull-Loop des ChunkRenderers (und
+   gespiegelt der BlockEntityRenderDispatcher) überspringt Section-Meshes, solange
+   `LodManager.lodShowsCell(cx,cz)` true ist (hochgeladenes LOD-Mesh zeigt die Zelle noch,
+   Bit ungeclippt). Da `applyLodResults` im selben Frame VOR dem Cull läuft, erscheinen
+   geclipptes LOD und Chunk im SELBEN Frame — kein Doppelbild an der Ladefront, kein
+   progressiver Teil-Pop teil-hochgeladener Chunks. Fürs VERSTECKEN nie `coversChunk`
+   verwenden: dessen „!desired → true"-Zweig würde Chunks ohne LOD verstecken (Loch);
+   `lodShowsCell` prüft nur `current` (auf desired gepruned).
 4. **Determinismus des Meshers:** Jede Zelle wird rein am Zellmittel gesampelt — identisch aus
    Sicht ALLER Regionen. Zellen fremder Regionen werden auf DEREN Zellraster gesampelt
    (`neighborLevel` nutzt dieselbe pure `levelAt`-Formel mit demselben Anker). Wer hier einen
@@ -77,14 +106,23 @@ ebenfalls. Gras-Wände tragen ein koplanares getöntes Overlay-Quad (s.u.).
   L0-Naht) brauchen dieselben Skirts**, sonst blitzen ~1 Block hohe Schlitze durch.
 - Das 16-Byte-Vertexformat trägt nur ~254 Blöcke Y-Spanne → Vertices werden relativ zu `yBase`
   (tiefste Geometrie − Skirt − 2) gepackt; der Renderer schiebt per Draw-Offset zurück.
-  1D-Greedy-Merge ist auf `MAX_MERGE_BLOCKS = 32` gedeckelt (UV-Fixed-Point 6.10 trägt max ~63).
+  Der Greedy-Merge ist auf `MAX_MERGE_BLOCKS = 32` je Achse gedeckelt (UV-Fixed-Point 6.10 trägt
+  max ~63). Tops mergen **2D** (Breite entlang x, dann Höhe entlang z — wie im ChunkMesher),
+  Wände 1D entlang ihrer Kante (die zweite Quad-Dimension ist dort schon die Höhe).
 
 ## Datenquellen
 
 `LodDataSource` ist die EINZIGE Datenquelle des Meshers (LOD kann Spieleränderungen weder
 überschreiben noch verzögern). `WorldLodDataSource`: Stride ≤ 4 (L1/L2) sampelt echte Chunkdaten
 (Spaltenscan, bewusst ohne Lock — transiente Fehler remeshen sich weg), sonst pure
-Generator-Funktion (`sampleSurface`). Implementierungen MÜSSEN threadsicher und deterministisch
+Generator-Funktion (`sampleSurface`). Der Spaltenscan akzeptiert nur **opake Vollblöcke ohne
+`no_lod_surface`-Flag** (`isOpaqueCube && !isExcludedFromLodSurface`) oder Fluid — LOD ist
+bewusst baum-/vegetationsfrei: Leaves sind `solid=true` und wurden mit dem alten
+`isSolid`-Prädikat zur LOD-Oberfläche (Baumkronen-Klötze in L1/L2), danach die Logs darunter
+(kahle Stamm-Säulen). Logs sind per Struktur-Flags nicht von Stein unterscheidbar (Archetyp
+wird beim Bake verworfen, oak_log ist sogar `cube`) → Block-JSON-Flag `"no_lod_surface": true`
+auf den 5 Weltgen-Logs (oak/birch/spruce/acacia/jungle; Redwood=spruce, Palm=jungle). Der
+Generator-Pfad war schon immer baumfrei — Features entstehen erst im Dekorations-Pass. Implementierungen MÜSSEN threadsicher und deterministisch
 sein — Nachbarregionen sampeln dieselben Randzellen erneut.
 
 ## Verifikation

@@ -4,6 +4,8 @@ import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
 import de.skyengine.game.world.lod.LodManager;
+import de.skyengine.utils.logging.LogManager;
+import de.skyengine.utils.logging.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -12,9 +14,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class ChunkManager {
+
+    private final Logger logger = LogManager.getLogger(ChunkManager.class.getName());
 
     private final ConcurrentHashMap<Long, Chunk> chunks = new ConcurrentHashMap<>();
     private final ExecutorService workers;
@@ -47,13 +52,59 @@ public class ChunkManager {
        Hält die Executor-Queue kurz -> nahe Chunks neuer Positionen kommen schnell dran. */
     private static final int MAX_GENERATION_SUBMITS_PER_TICK = 64;
 
+    /* Deckel für WARTENDE Lade-Jobs in der Worker-Queue. Tragend für die Sichtfeld-Prio:
+       PrioTask trägt nur (prio, seq) — die Reihenfolge einmal eingereihter Jobs ist damit
+       EINGEFROREN. Ohne Deckel stauen sich beim Weltstart tausende Jobs (der 64er-Deckel oben
+       gilt nur für die Generierung, Dekoration und Erst-Mesh waren ungedeckelt) und ein
+       Blickrichtungswechsel sortiert faktisch nichts mehr um. Mit Deckel bleibt die sortierte
+       Offset-Liste in update() die echte Reihenfolge: hoch genug, dass die Worker über einen
+       50-ms-Tick gesättigt bleiben, niedrig genug, dass ein 180°-Dreh binnen 1-2 Ticks greift. */
+    private static final int LOAD_QUEUE_LIMIT = 128;
+
+    /* Sichtfeld-Priorisierung, Stufe 1 = Sichtkegel. cos(75°) = FOV/2 plus ~30° Sicherheitsrand.
+       Der Rand ist Absicht: die Pipeline ist NACHBAR-GEGATED (ein sichtbarer Chunk darf erst
+       dekorieren/meshen, wenn alle 8 Nachbarn so weit sind). Ein exakter Frustum-Schnitt würde
+       genau die Nachbarn am Rand des Sichtkegels nach hinten schieben — die sichtbaren Chunks
+       müssten dann auf sie warten. */
+    private static final float VIEW_CONE_COS = 0.2588F;
+
+    /* Chunks in diesem Umkreis sind IMMER Stufe 1 (Physik/Kollision + Gating-Nachbarn des
+       Spielerchunks) — auch wenn sie hinter dem Spieler liegen. */
+    private static final int NEAR_ALWAYS = 2;
+
     /* Job-Prioritäten für den Worker-Pool: Remeshes überholen den Initial-Load;
-       LOD-Meshes laufen nur, wenn keine Chunk-Arbeit ansteht. */
+       LOD-Meshes laufen nur, wenn keine Chunk-Arbeit ansteht. Ausnahme LOD_CLIP:
+       Masken-Remeshes (Chunk wurde sichtbar bzw. geht in pendingUnload) überholen die
+       Lade-Queue — hinter bis zu LOAD_QUEUE_LIMIT Lade-Jobs verhungert der Clip sonst
+       beim Schnellflug: sichtbare Doppel-Geometrie (LOD über frischen L0-Chunks) in
+       Lade-Richtung, festgehaltene pendingUnload-Meshes (Arena-Druck) in Unload-Richtung. */
     private static final int PRIO_REMESH = 0;
-    private static final int PRIO_LOAD = 1;
-    private static final int PRIO_LOD = 2;
+    private static final int PRIO_LOD_CLIP = 1;
+    private static final int PRIO_LOAD = 2;
+    private static final int PRIO_LOD = 3;
 
     private final AtomicLong taskSeq = new AtomicLong();
+
+    /* AUSSTEHENDE Lade-Jobs (wartend + laufend) — Basis für LOAD_QUEUE_LIMIT und den Latch. */
+    private final AtomicInteger pendingLoadTasks = new AtomicInteger();
+
+    /* Lade-Jobs, die update() in DIESEM Tick eingereiht hat (nur Tick-Thread). */
+    private int loadSubmitsThisTick;
+
+    /* Latch: true, sobald die Lade-Pipeline einmal ihren FIXPUNKT erreicht hat — nichts mehr
+       einzureihen UND nichts mehr ausstehend. Gate für das LOD: echte Chunks haben Vorrang,
+       LOD-Jobs (beim Start teuer — ohne Chunks fällt die LodDataSource pro Zelle auf den
+       Generator-Noise zurück) laufen erst danach.
+
+       Fixpunkt statt "alle Chunks READY": die äußersten Ringe des Lade-Kreises finden ihre
+       Gating-Nachbarn (Dekoration braucht 8× GENERATED, Erst-Mesh 8× DECORATED) außerhalb des
+       Kreises NICHT und bleiben dauerhaft auf GENERATED/DECORATED stehen. Ein "alle READY"-Latch
+       würde deshalb NIE auslösen und das LOD für immer abschalten (real beobachtet).
+
+       Bewusst ein EINMALIGER Latch, kein Dauer-Gate: "solange irgendein Chunk lädt" würde im
+       Betrieb permanent greifen (an der Ladefront ist immer etwas offen) → LOD-Regionen würden
+       nie mehr remeshen. */
+    private volatile boolean initialLoadComplete = false;
 
     /* (dx, dz)-Offsets im Kreis, einmal pro renderDistance gebaut; Reihenfolge wird per
        Score (Distanz + Blickrichtung) in update() umsortiert */
@@ -90,8 +141,7 @@ public class ChunkManager {
         int threads = Math.max(2, Runtime.getRuntime().availableProcessors() - 2);
         /* Prioritäts-Queue statt FIFO: Edit-Remeshes (PRIO_REMESH) überholen wartende
            Generierungs-/Erst-Mesh-Jobs (PRIO_LOAD), ohne einen eigenen Thread zu brauchen. */
-        this.workers = new ThreadPoolExecutor(threads, threads, 0L, TimeUnit.MILLISECONDS,
-                new PriorityBlockingQueue<>(), r -> {
+        this.workers = new ThreadPoolExecutor(threads, threads, 0L, TimeUnit.MILLISECONDS, new PriorityBlockingQueue<>(), r -> {
             Thread t = new Thread(r, "Chunk Worker");
             t.setDaemon(true);
             t.setPriority(Thread.NORM_PRIORITY - 1);
@@ -104,9 +154,39 @@ public class ChunkManager {
         this.workers.execute(new PrioTask(prio, this.taskSeq.getAndIncrement(), job));
     }
 
-    /** Reiht einen LOD-Mesh-Job mit niedrigster Priorität ein — verdrängt nie Chunk-Jobs. */
-    public void submitLodTask(Runnable job) {
-        this.submitTask(PRIO_LOD, job);
+    /**
+     * Lade-Job (Generierung/Dekoration/Erst-Mesh) mit Buchführung für {@link #LOAD_QUEUE_LIMIT}
+     * und {@link #initialLoadComplete}. Dekrementiert wird am ENDE des Jobs — der Zähler steht
+     * also für AUSSTEHENDE Arbeit (wartend + laufend), sonst könnte der Latch auslösen, während
+     * Worker noch mitten in einem Chunk stecken.
+     */
+    private void submitLoadTask(Runnable job) {
+        this.pendingLoadTasks.incrementAndGet();
+        this.loadSubmitsThisTick++;
+        this.submitTask(PRIO_LOAD, () -> {
+            try {
+                job.run();
+            } finally {
+                this.pendingLoadTasks.decrementAndGet();
+            }
+        });
+    }
+
+    /**
+     * Reiht einen LOD-Mesh-Job ein. Normale Builds laufen mit niedrigster Priorität
+     * (verdrängen nie Chunk-Jobs); Clip-Remeshes ({@code clip=true}, reiner Masken-Diff)
+     * überholen die Lade-Queue (s. Kommentar an den PRIO_*-Konstanten).
+     */
+    public void submitLodTask(Runnable job, boolean clip) {
+        this.submitTask(clip ? PRIO_LOD_CLIP : PRIO_LOD, job);
+    }
+
+    /**
+     * true, sobald alle Chunks im Radius einmal READY waren (s. {@link #initialLoadComplete}).
+     * Der {@link LodManager} submittet erst danach — echtes Terrain hat Vorrang.
+     */
+    public boolean isInitialLoadComplete() {
+        return this.initialLoadComplete;
     }
 
     /** Debug: pausiert Laden/Generieren/Unload (Remeshes von Spieler-Edits laufen weiter). */
@@ -169,10 +249,11 @@ public class ChunkManager {
 
         Offset[] order = this.getLoadOrder();
 
-        /* Blickrichtungs-Priorisierung: score = dist * (1.5 - 0.5*cos(Winkel zur Blickrichtung))
-           -> voraus zählt die Distanz 1x, seitlich 1.5x, hinten 2x. Nahe Chunks kommen damit
-           immer früh dran, das Sichtfeld füllt sich aber zuerst. Neu sortiert wird nur bei
-           Chunk-Wechsel oder >20° Drehung (wrap-sicher). */
+        /* Sichtfeld-Priorisierung in ZWEI STUFEN: Stufe 1 = Sichtkegel (inkl. Rand, s.
+           VIEW_CONE_COS) oder Nahbereich, Stufe 2 = alles andere; innerhalb einer Stufe
+           entscheidet die Distanz. Der Bias (renderDistance + 1) ist größer als jede mögliche
+           Stufe-1-Distanz -> kein Chunk hinter dem Spieler kann je einen sichtbaren überholen.
+           Neu sortiert wird nur bei Chunk-Wechsel oder >20° Drehung (wrap-sicher). */
         float yawDelta = Math.abs(((player.yaw - this.lastSortYaw + 540.0f) % 360.0f) - 180.0f);
         if (pcx != this.lastSortPcx || pcz != this.lastSortPcz || yawDelta > 20.0f) {
             this.lastSortPcx = pcx;
@@ -182,16 +263,26 @@ public class ChunkManager {
             double yawRad = Math.toRadians(player.yaw);
             float vx = (float) Math.sin(yawRad);
             float vz = (float) -Math.cos(yawRad);
+            float tier2Bias = this.renderDistance + 1;
             for (Offset o : order) {
-                o.score = 1.5f * o.dist - 0.5f * (o.dx * vx + o.dz * vz);
+                /* dist == 0 (Spielerchunk) hat keine Richtung -> immer Stufe 1 */
+                float cos = o.dist > 0F ? (o.dx * vx + o.dz * vz) / o.dist : 1F;
+                boolean inView = cos >= VIEW_CONE_COS || o.dist <= NEAR_ALWAYS;
+                o.score = (inView ? 0F : tier2Bias) + o.dist;
             }
             Arrays.sort(order, Comparator.comparingDouble(o -> o.score));
         }
 
         int generationSubmits = 0;
+        this.loadSubmitsThisTick = 0;
 
         /* 1. Create + generate + Erst-Mesh, in Score-Reihenfolge */
         for (Offset offset : order) {
+            /* Queue-Deckel: nicht weiter einreihen, solange genug Lade-Arbeit aussteht. Bricht die
+               Score-Reihenfolge NICHT — die Liste ist sortiert, der Rest kommt nächsten Tick
+               (und wird nach einer Drehung vorher neu bewertet). */
+            if (this.pendingLoadTasks.get() >= LOAD_QUEUE_LIMIT) break;
+
             int cx = pcx + offset.dx;
             int cz = pcz + offset.dz;
             long key = Chunk.key(cx, cz);
@@ -206,7 +297,7 @@ public class ChunkManager {
                 generationSubmits++;
                 chunk.status = ChunkStatus.GENERATING;
                 Chunk finalChunk = chunk;
-                this.submitTask(PRIO_LOAD, () -> {
+                this.submitLoadTask(() -> {
                     this.generator.generate(finalChunk);
                     finalChunk.status = ChunkStatus.GENERATED;
                 });
@@ -223,7 +314,7 @@ public class ChunkManager {
 
                 chunk.status = ChunkStatus.DECORATING;
                 Chunk finalChunk = chunk;
-                this.submitTask(PRIO_LOAD, () -> {
+                this.submitLoadTask(() -> {
                     this.decorator.decorate(finalChunk);
                     finalChunk.status = ChunkStatus.DECORATED;
                 });
@@ -243,7 +334,7 @@ public class ChunkManager {
 
                 chunk.status = ChunkStatus.MESHING;
                 Chunk finalChunk = chunk;
-                this.submitTask(PRIO_LOAD, () -> {
+                this.submitLoadTask(() -> {
                     ChunkMesher mesher = this.meshers.get();
                     lockRead(finalChunk, north, south, west, east, diagonals);
                     try {
@@ -258,6 +349,13 @@ public class ChunkManager {
                     finalChunk.status = ChunkStatus.READY;
                 });
             }
+        }
+
+        /* Fixpunkt der Lade-Pipeline: nichts mehr einzureihen UND nichts mehr ausstehend →
+           ab jetzt darf das LOD submitten. Nur setzen, nie löschen (s. initialLoadComplete). */
+        if (!this.initialLoadComplete && this.loadSubmitsThisTick == 0 && this.pendingLoadTasks.get() == 0) {
+            this.initialLoadComplete = true;
+            this.logger.debug("Initialer Chunk-Load fertig — LOD-Jobs sind ab jetzt freigegeben");
         }
 
         /* 4. Unload chunks far outside the render distance.
@@ -318,6 +416,7 @@ public class ChunkManager {
     public void clearAllChunks() {
         this.chunks.clear();
         this.chunkRemovalVersion++;
+        this.initialLoadComplete = false; // alles lädt neu → LOD wartet wieder auf das echte Terrain
     }
 
     public int getChunkRemovalVersion() {
@@ -434,6 +533,7 @@ public class ChunkManager {
     public void setRenderDistance(int renderDistance) {
         this.renderDistance = Math.max(2, renderDistance);
         /* loadOrder wird beim nächsten update() automatisch neu berechnet */
+        this.initialLoadComplete = false; // größerer Radius → erst die neuen Chunks, dann LOD
     }
 
     public void setLodManager(LodManager lodManager) {

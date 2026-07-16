@@ -29,15 +29,41 @@ Kaskaden/Deadlocks im Worker-Pool). Diese Invariante bei neuen Feature-Typen NIC
 
 ## Worker-Prioritäten (häufige Falle)
 
-`PriorityBlockingQueue` mit `PrioTask(prio, seq)`: PRIO_REMESH(0) < PRIO_LOAD(1) < PRIO_LOD(2).
+`PriorityBlockingQueue` mit `PrioTask(prio, seq)`:
+PRIO_REMESH(0) < PRIO_LOD_CLIP(1) < PRIO_LOAD(2) < PRIO_LOD(3).
+LOD_CLIP = LOD-Masken-Remeshes (Chunk sichtbar geworden / pendingUnload) — die überholen die
+Lade-Queue bewusst, sonst steht beim Schnellflug die alte LOD-Geometrie sekundenlang über frisch
+erschienenen L0-Chunks (Clip-Job hinter bis zu LOAD_QUEUE_LIMIT Lade-Jobs).
 Zwei Fallen:
 1. **`workers.execute(...)`, niemals `submit(...)`** — submit wrappt in ein nicht-vergleichbares
    FutureTask → ClassCastException in der Priority-Queue.
 2. Der `seq`-Zähler ist der Tiebreaker: PriorityBlockingQueue ist nicht stabil, ohne seq würde die
    Blickrichtungs-Sortierung der Lade-Jobs verwürfelt.
 
-Ladereihenfolge: Offsets im Kreis, Score = `1.5*dist − 0.5*(Blickrichtungs-Skalarprodukt)`;
-neu sortiert nur bei Chunk-Wechsel oder >20° Drehung. Max. 64 Generierungs-Submits pro Tick.
+**Ladereihenfolge — Sichtfeld in zwei Stufen:** Offsets im Kreis, Score =
+`(imSichtkegel ? 0 : renderDistance+1) + dist`. Stufe 1 = `cos(Winkel zur Blickrichtung) >=
+VIEW_CONE_COS` (cos 75° = FOV/2 **plus ~30° Rand**) ODER `dist <= NEAR_ALWAYS` (2 Chunks);
+Stufe 2 = Rest. Der Bias ist größer als jede Stufe-1-Distanz → nichts hinter dem Spieler überholt
+je einen sichtbaren Chunk. **Der Rand des Kegels ist tragend:** die Pipeline ist nachbar-gegated —
+ein exakter Frustum-Schnitt würde genau die Gating-Nachbarn am Kegelrand nach hinten schieben und
+die sichtbaren Chunks auf sie warten lassen. Neu sortiert nur bei Chunk-Wechsel oder >20° Drehung.
+
+**`LOAD_QUEUE_LIMIT` (128 wartende Lade-Jobs) — ohne das wirkt die Sortierung nicht:** `PrioTask`
+trägt nur `(prio, seq)`, die Reihenfolge **eingereihter** Jobs ist also eingefroren; der 64er-Deckel
+gilt nur für die Generierung (Dekoration/Erst-Mesh waren ungedeckelt). Ohne Deckel staut sich beim
+Start ein Rückstau von tausenden Jobs und ein 180°-Dreh sortiert faktisch nichts mehr um. Gezählt
+werden die WARTENDEN Jobs (`pendingLoadTasks`, dekrementiert beim Job-START); `update()` bricht den
+Offset-Durchlauf ab, sobald der Deckel erreicht ist — der Rest kommt im nächsten Tick, dann ggf.
+neu bewertet.
+
+**`initialLoadComplete` (Latch):** true, sobald die Lade-Pipeline einmal ihren **Fixpunkt** erreicht
+hat — `loadSubmitsThisTick == 0` UND `pendingLoadTasks == 0`. Reset in `clearAllChunks()` (F8) und
+`setRenderDistance`. Der `LodManager` submittet erst danach (s. Skill `lod-system`).
+**Nicht „alle Chunks READY" als Kriterium nehmen** (real gebaut, LOD blieb für immer aus): die
+äußersten Ringe des Lade-Kreises finden ihre Gating-Nachbarn außerhalb des Kreises nicht und bleiben
+dauerhaft auf GENERATED/DECORATED stehen — „alle READY" tritt nie ein. Bewusst ein EINMALIGER Latch —
+ein Dauer-Gate „solange etwas lädt" würde LOD im Betrieb permanent blockieren (an der Ladefront ist
+immer etwas offen).
 
 ## Upload-Pfad (Worker → Render-Thread)
 

@@ -384,7 +384,7 @@ public class World implements IInitializable, IDisposable {
            Items/BlockEntities, statt sie hinter sich unsichtbar zu machen. */
         this.chunkRenderer.renderSolid(camera);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.BE);
-        this.blockEntityRenderer.render(this.chunkManager, camera, partialTick);
+        this.blockEntityRenderer.render(this.chunkManager, this.lodManager, camera, partialTick);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.BE);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.ENT);
         this.entityRenderer.render(this.chunkManager, camera, partialTick);

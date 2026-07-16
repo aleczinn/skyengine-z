@@ -80,6 +80,11 @@ public final class BlockState {
         return (this.flags & StateFlags.FLUID) != 0;
     }
 
+    /** true: nie als LOD-Terrain-Oberfläche sampeln (Logs — LOD zeigt nur Terrain). */
+    public boolean isExcludedFromLodSurface() {
+        return (this.flags & StateFlags.NO_LOD_SURFACE) != 0;
+    }
+
     public BlockShape getCollisionShape() {
         return this.block.getCollisionShape(this);
     }
