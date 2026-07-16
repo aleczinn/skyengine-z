@@ -74,7 +74,8 @@ public final class BlockLoader {
                 .opaque(opaque)
                 .solid(solid)
                 .layer(layer)
-                .cullSame(definition.cull_same);
+                .cullSame(definition.cull_same)
+                .noLodSurface(definition.no_lod_surface);
 
         Identifier id = Identifier.of(definition.id);
 

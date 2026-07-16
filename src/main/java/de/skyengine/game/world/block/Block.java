@@ -107,6 +107,11 @@ public class Block {
         return this.settings.cullSame;
     }
 
+    /** true: nie als LOD-Terrain-Oberfläche sampeln (Logs — LOD zeigt nur Terrain). */
+    public boolean isExcludedFromLodSurface() {
+        return this.settings.noLodSurface;
+    }
+
     /** true: Wasser/Lava — Geometrie kommt dynamisch aus dem Mesher (kein gebackenes Modell). */
     public boolean isFluid() {
         return this.config.fluidInfo() != null;
@@ -332,6 +337,7 @@ public class Block {
         boolean opaque = true;
         boolean solid = true;
         boolean cullSame = false;
+        boolean noLodSurface = false;
         RenderLayer renderLayer = RenderLayer.OPAQUE;
 
         public static Settings create() {
@@ -362,6 +368,11 @@ public class Block {
 
         public Settings cullSame(boolean cullSame) {
             this.cullSame = cullSame;
+            return this;
+        }
+
+        public Settings noLodSurface(boolean noLodSurface) {
+            this.noLodSurface = noLodSurface;
             return this;
         }
     }
