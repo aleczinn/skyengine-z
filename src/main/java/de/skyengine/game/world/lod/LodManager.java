@@ -46,10 +46,16 @@ public class LodManager {
     /* Stand einer hochgeladenen Region: Level + Größe + Settings-Epoche + Chunk-Maske des Meshes */
     private record Current(int level, int sizeRegions, int epoch, int mask) {}
 
-    private record Candidate(long key, int level, int mask, double distSq) {}
+    /* clip = reiner Masken-Diff (Level/Epoche stimmen schon) → höhere Worker-Priorität */
+    private record Candidate(long key, int level, int mask, double score, boolean clip) {}
 
     /* Deckelt die Executor-Queue — Jobs sind billig (nur Source-Samples), aber nah-zuerst. */
     private static final int MAX_SUBMITS_PER_TICK = 32;
+
+    /* Sichtkegel der Submit-Reihenfolge — gleicher Kegel wie die Chunk-Ladereihenfolge
+       (ChunkManager.VIEW_CONE_COS, cos 75°): Regionen im Blickfeld zuerst, sonst ändert ein
+       180°-Dreh nichts am sichtbaren LOD-Fortschritt (vorher rein distanzsortiert). */
+    private static final double VIEW_CONE_COS = 0.2588;
 
     /* Hysterese: Recompute erst, wenn der Spieler Regionshälfte (64) + Puffer verlässt. */
     private static final int RECOMPUTE_DISTANCE = 64 + 24;
@@ -98,6 +104,9 @@ public class LodManager {
     /* Spieler-Chunk (aktuell) — Zentrum der Masken-Scan-Zone */
     private int pcx, pcz;
 
+    /* Blickrichtung (aktuell) — Basis des Sichtkegel-Scores in submitPass */
+    private double viewX, viewZ = -1;
+
     public LodManager(LodDataSource source, LodBlockAppearance appearance, ChunkManager chunkManager) {
         this.source = source;
         this.appearance = appearance;
@@ -125,6 +134,11 @@ public class LodManager {
         this.pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.pcz = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
 
+        /* Blickrichtung für den Submit-Score (gleiche Yaw-Konvention wie ChunkManager) */
+        double yawRad = Math.toRadians(player.yaw);
+        this.viewX = Math.sin(yawRad);
+        this.viewZ = -Math.cos(yawRad);
+
         boolean settingsChanged = enabled != this.lastEnabled || rd != this.lastRenderDistance
                 || lodMax != this.lastLodMaxDistance || ao != this.lastAmbientOcclusion
                 || overlay != this.lastGrassOverlay || quantize != this.lastQuantizeHeight;
@@ -151,7 +165,12 @@ public class LodManager {
             this.lastQuantizeHeight = quantize;
         }
 
-        if (!this.desired.isEmpty()) this.submitPass();
+        /* Echtes Terrain zuerst: LOD-Jobs erst einreihen, wenn der Radius einmal komplett stand.
+           PRIO_LOD allein reicht dafür NICHT — die Priorität verhindert nur das Verdrängen in der
+           Queue; läuft sie kurz leer, greifen freie Worker sofort einen LOD-Job und ziehen ihn
+           ohne Präemption durch. Und beim Start sind diese Jobs teuer: ohne geladene Chunks fällt
+           die WorldLodDataSource pro Zelle auf den Generator-Noise zurück. */
+        if (!this.desired.isEmpty() && this.chunkManager.isInitialLoadComplete()) this.submitPass();
     }
 
     /** Baut den Soll-Zustand neu: alle Regionen bis zum äußersten Ring, Level pro Region. */
@@ -177,7 +196,18 @@ public class LodManager {
                 double d = Math.sqrt(cx * cx + cz * cz);
                 if (d - LodMesher.HALF_DIAG >= outer) continue; // ganz außerhalb
                 /* Innen wird NICHT ausgeschlossen — dort clippt die Chunk-Maske zellgenau
-                   (und füllt Lücken, solange Chunks noch laden). */
+                   (und füllt Lücken, solange Chunks noch laden).
+
+                   KEINEN Radius-Ausschluss für den Innenbereich einbauen (einmal gebaut, sofort
+                   wieder ausgebaut): Er misst vom ANKER, der dem Spieler per Hysterese bis
+                   RECOMPUTE_DISTANCE hinterherhinkt, während der Chunk-Unload vom SPIELER misst
+                   ((rd+2)*32). Zellen einer so ausgeschlossenen Region landen dadurch jenseits des
+                   Unload-Radius → Chunk weg, LOD nie da → Ring aus Löchern beim Fliegen. Zusätzlich
+                   schaltet er still das Unload-Gate ab (coversChunk liefert für nicht gewünschte
+                   Regionen true). Nötig ist er ohnehin nicht: sind die 16 Chunks geladen, ist die
+                   Maske 0xFFFF und LodMesher.mesh steigt mit einem LEEREN Mesh aus — LOD unter dem
+                   Spieler kostet nichts. Gegen LOD-Geflacker beim Weltstart wirkt das Lade-Gate
+                   (ChunkManager.isInitialLoadComplete), nicht die Ring-Geometrie. */
                 int level = this.config.levelAt(d);
                 this.desired.put(key(rx, rz), level);
                 counts[level]++;
@@ -235,21 +265,33 @@ public class LodManager {
 
             Current c = this.current.get(key);
             boolean needs = c == null || c.level != level || c.epoch != this.epoch;
+            boolean clip = false;
             int mask = Integer.MIN_VALUE; // noch nicht berechnet
             if (!needs && (c.mask != 0 || distSq < nearReal * nearReal)) {
                 /* Masken-Diff: Chunk fertig geladen oder entladen → Region remeshen.
-                   c.mask != 0 fängt den Unload-Fall auch außerhalb der Nahzone. */
+                   c.mask != 0 fängt den Unload-Fall auch außerhalb der Nahzone.
+                   Diese Clip-Remeshes laufen mit erhöhter Priorität (PRIO_LOD_CLIP) —
+                   sonst steht die alte LOD-Geometrie sekundenlang über frisch
+                   erschienenen L0-Chunks (hinter der vollen Lade-Queue). */
                 mask = this.computeMask(rx, rz);
-                needs = mask != c.mask;
+                needs = clip = mask != c.mask;
             }
             if (!needs) continue;
 
+            /* Zwei-Stufen-Score wie die Chunk-Ladereihenfolge: Sichtkegel zuerst, innerhalb
+               einer Stufe nach Distanz. Bias = outerRadius > jede Stufe-1-Distanz. Ändert NUR
+               die Reihenfolge — welche Regionen mit welchem Level gebaut werden, bleibt
+               identisch (Anker-/Level-Formel und damit der Determinismus unangetastet). */
+            double dist = Math.sqrt(distSq);
+            double cos = dist > 0 ? (cx * this.viewX + cz * this.viewZ) / dist : 1.0;
+            double score = (cos >= VIEW_CONE_COS ? 0 : this.config.outerRadiusBlocks()) + dist;
+
             if (candidates == null) candidates = new ArrayList<>();
-            candidates.add(new Candidate(key, level, mask, distSq));
+            candidates.add(new Candidate(key, level, mask, score, clip));
         }
         if (candidates == null) return;
 
-        candidates.sort(Comparator.comparingDouble(Candidate::distSq));
+        candidates.sort(Comparator.comparingDouble(Candidate::score));
         int submits = Math.min(MAX_SUBMITS_PER_TICK, candidates.size());
         for (int i = 0; i < submits; i++) {
             Candidate cand = candidates.get(i);
@@ -262,7 +304,7 @@ public class LodManager {
             LodConfig jobConfig = this.config;
             this.chunkManager.submitLodTask(() -> this.results.add(this.meshers.get().mesh(
                     this.source, this.appearance, jobConfig, level, 1, rx, rz,
-                    jobEpoch, mask, jobAx, jobAz)));
+                    jobEpoch, mask, jobAx, jobAz)), cand.clip);
         }
     }
 
@@ -309,6 +351,25 @@ public class LodManager {
         if (!this.desired.containsKey(key)) return true;
         Current c = this.current.get(key);
         if (c == null) return false; // erster Upload der Region steht noch aus
+        int bit = Math.floorMod(cz, 4) * 4 + Math.floorMod(cx, 4);
+        return (c.mask & (1 << bit)) == 0;
+    }
+
+    /**
+     * Sicht-Gate für den Renderer: true, wenn ein HOCHGELADENES LOD-Mesh die Zelle (cx,cz)
+     * gerade zeigt (Bit ungeclippt) — dann werden die Section-Meshes dieses Chunks NICHT
+     * gezeichnet. Sobald das geclippte LOD-Mesh übernommen wird (acceptResult aktualisiert
+     * current.mask, läuft im Frame VOR dem Cull-Pass), erscheint der Chunk im SELBEN Frame:
+     * atomarer Swap statt Doppelbild (Laden) bzw. Doppelframe (Entladen).
+     *
+     * <p>Bewusst NICHT {@link #coversChunk} verwenden: dessen "!desired → true"-Zweig würde
+     * Chunks ohne LOD fälschlich verstecken (Loch). current ist auf desired gepruned, daher
+     * reicht der eine Lookup; ist kein Mesh hochgeladen (c == null), gibt es nichts, das den
+     * Chunk verdecken könnte → zeichnen.
+     */
+    public boolean lodShowsCell(int cx, int cz) {
+        Current c = this.current.get(key(Math.floorDiv(cx, 4), Math.floorDiv(cz, 4)));
+        if (c == null) return false;
         int bit = Math.floorMod(cz, 4) * 4 + Math.floorMod(cx, 4);
         return (c.mask & (1 << bit)) == 0;
     }

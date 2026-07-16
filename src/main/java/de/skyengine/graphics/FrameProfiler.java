@@ -48,6 +48,8 @@ public final class FrameProfiler {
      * unattributierte Zeit sofort sichtbar bleibt.
      */
     public enum Cpu {
+        TICK("tick"),       // Summe der onUpdate-Aufrufe eines Loop-Durchlaufs (VOR onRender,
+                            // also NICHT in FRAME enthalten — bleibt aus der rest-Rechnung raus)
         CLEAR("clear"),     // FBO-Bind + State-Enables + glClear
         ANIM("anim"),       // Textur-Animationen (glTexSubImage-Uploads)
         SYNC("sync"),       // Fence-Wait + Arena-Collect (beginFrame) + Fence-Create (endFrame)
@@ -88,6 +90,14 @@ public final class FrameProfiler {
     private static final long[] cpuStart = new long[Cpu.values().length];
     private static int gpuFrames = 0;   // Frames mit ausgelesenen GPU-Ergebnissen
     private static int cpuFrames = 0;
+
+    /* Spike-Erfassung: Werte des LAUFENDEN Loop-Durchlaufs (Tick + Frame) — die 1-s-Mittelwerte
+       verstecken einzelne Ruckler komplett (ein 40-ms-Frame verschwindet im Schnitt über ~60
+       Frames). loopEndSpikeLine() prüft pro Durchlauf gegen den Schwellwert und liefert bei
+       Überschreitung EINE Detailzeile mit den Sektionswerten genau dieses Durchlaufs. */
+    private static final long SPIKE_THRESHOLD_NANOS = 25_000_000L; // 25 ms
+    private static final long[] cpuLoop = new long[Cpu.values().length];
+    private static long maxLoopNanos = 0; // schlechtester Durchlauf seit der letzten Statuszeile
 
     /* GPU-Frame-Spanne: GL_TIMESTAMP-Paar pro Slot (Start in newFrame, Ende vor dem Swap).
        span − Σ(Busy-Sektionen) = Leerlauf-Blasen in der GPU-Timeline des Frames —
@@ -174,7 +184,38 @@ public final class FrameProfiler {
 
     public static void cpuStop(Cpu section) {
         if (!enabled) return;
-        cpuSum[section.ordinal()] += System.nanoTime() - cpuStart[section.ordinal()];
+        long elapsed = System.nanoTime() - cpuStart[section.ordinal()];
+        cpuSum[section.ordinal()] += elapsed;
+        cpuLoop[section.ordinal()] += elapsed;
+    }
+
+    /**
+     * Einmal pro Loop-Durchlauf am Ende aufrufen (nach onRender bzw. dem Resize-Skip):
+     * prüft Tick+Frame dieses Durchlaufs gegen den Spike-Schwellwert und setzt die
+     * Durchlauf-Werte zurück. Liefert bei Überschreitung eine Detailzeile mit den
+     * Sektionswerten GENAU DIESES Durchlaufs (µs), sonst null.
+     */
+    public static String loopEndSpikeLine() {
+        if (!enabled) return null;
+
+        long loop = cpuLoop[Cpu.TICK.ordinal()] + cpuLoop[Cpu.FRAME.ordinal()];
+        if (loop > maxLoopNanos) maxLoopNanos = loop;
+
+        String line = null;
+        if (loop >= SPIKE_THRESHOLD_NANOS) {
+            StringBuilder sb = new StringBuilder("SPIKE[µs] loop=").append(loop / 1000);
+            long attributed = 0;
+            for (Cpu c : Cpu.values()) {
+                if (c == Cpu.FRAME) continue;
+                if (c != Cpu.TICK) attributed += cpuLoop[c.ordinal()]; // TICK liegt außerhalb von FRAME
+                sb.append(' ').append(c.label).append('=').append(cpuLoop[c.ordinal()] / 1000);
+            }
+            long frame = cpuLoop[Cpu.FRAME.ordinal()];
+            sb.append(" frame=").append(frame / 1000).append(" rest=").append((frame - attributed) / 1000);
+            line = sb.toString();
+        }
+        java.util.Arrays.fill(cpuLoop, 0L);
+        return line;
     }
 
     /**
@@ -198,7 +239,8 @@ public final class FrameProfiler {
         for (Cpu c : Cpu.values()) {
             if (c == Cpu.FRAME) continue;
             long avg = cpuSum[c.ordinal()] / cpuFrames / 1000;
-            attributed += cpuSum[c.ordinal()];
+            /* TICK läuft VOR onRender und steckt nicht in FRAME → nicht in rest einrechnen */
+            if (c != Cpu.TICK) attributed += cpuSum[c.ordinal()];
             sb.append(' ').append(c.label).append('=').append(avg);
             cpuSum[c.ordinal()] = 0;
         }
@@ -206,6 +248,10 @@ public final class FrameProfiler {
         /* rest = im FRAME enthaltene, aber keiner Sektion zugeordnete Zeit */
         long restAvg = (cpuSum[Cpu.FRAME.ordinal()] - attributed) / cpuFrames / 1000;
         sb.append(" | frame=").append(frameAvg).append(" rest=").append(restAvg);
+        /* max = schlechtester Loop-Durchlauf (Tick+Frame) der Sekunde — macht Ausreißer
+           sichtbar, die der Durchschnitt verschluckt */
+        sb.append(" max=").append(maxLoopNanos / 1000);
+        maxLoopNanos = 0;
         cpuSum[Cpu.FRAME.ordinal()] = 0;
         gpuFrames = 0;
         cpuFrames = 0;

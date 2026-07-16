@@ -28,8 +28,9 @@ niemals ein Property doppelt definieren.
 - `BlockLoader` sortiert die JSON-Dateien nach Namen → **stabile IDs nur innerhalb einer Version**.
   IDs NIE persistieren (Kommentar an `BlockState.id`); dafür gibt es `BlockStateCodec`.
 - Beim Bake werden Hot-Path-`StateFlags` gepackt (opaqueCube, solid, layer, fluid, randomOffset,
-  cullSame, ticksRandomly, hasBlockEntity) und Modelle gebacken. Nach dem Bake ist die Registry
-  eingefroren (`register` wirft).
+  cullSame, ticksRandomly, hasBlockEntity, noLodSurface — Block-JSON `"no_lod_surface": true`
+  schließt einen Block als LOD-Terrain-Oberfläche aus, gesetzt auf den Weltgen-Logs) und Modelle
+  gebacken. Nach dem Bake ist die Registry eingefroren (`register` wirft).
 - `statesById` ist volatile: gebaut auf dem Render-Thread, gelesen von Worker-Threads.
 
 `Blocks.bootstrap(...)` ist die einzige korrekte Init-Reihenfolge: Luft → BlockEntities →

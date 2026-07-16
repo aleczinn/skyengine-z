@@ -163,12 +163,14 @@ public class SkyEngine {
             this.input.update();
 
             int ticksProcessed = 0;
+            FrameProfiler.cpuStart(FrameProfiler.Cpu.TICK);
             while (accumulatedTime >= TICK_TIME_NANOS && ticksProcessed < 10) {
                 this.onUpdate();
                 accumulatedTime -= TICK_TIME_NANOS;
                 ticksProcessed++;
                 updates++;
             }
+            FrameProfiler.cpuStop(FrameProfiler.Cpu.TICK);
 
             if (ticksProcessed >= 10) {
                 this.logger.warning("Can't keep up with TPS! Skipping " + (accumulatedTime / TICK_TIME_NANOS) + " Ticks.");
@@ -199,6 +201,11 @@ public class SkyEngine {
                     this.sync(backgroundFPS, lastLoopTime);
                 }
             }
+
+            /* Spike-Erfassung: einzelne lange Loop-Durchläufe (Tick+Frame) sofort mit ihren
+               Sektionswerten loggen — die 1-s-Mittelwerte verstecken solche Ruckler komplett. */
+            String spikeLine = FrameProfiler.loopEndSpikeLine();
+            if (spikeLine != null) System.out.println(spikeLine);
 
             // show states each 1 second
             if (System.currentTimeMillis() - lastStatusTime >= 1000) {
