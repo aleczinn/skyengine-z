@@ -73,10 +73,15 @@ public class ChunkManager {
     private static final int NEAR_ALWAYS = 2;
 
     /* Job-Prioritäten für den Worker-Pool: Remeshes überholen den Initial-Load;
-       LOD-Meshes laufen nur, wenn keine Chunk-Arbeit ansteht. */
+       LOD-Meshes laufen nur, wenn keine Chunk-Arbeit ansteht. Ausnahme LOD_CLIP:
+       Masken-Remeshes (Chunk wurde sichtbar bzw. geht in pendingUnload) überholen die
+       Lade-Queue — hinter bis zu LOAD_QUEUE_LIMIT Lade-Jobs verhungert der Clip sonst
+       beim Schnellflug: sichtbare Doppel-Geometrie (LOD über frischen L0-Chunks) in
+       Lade-Richtung, festgehaltene pendingUnload-Meshes (Arena-Druck) in Unload-Richtung. */
     private static final int PRIO_REMESH = 0;
-    private static final int PRIO_LOAD = 1;
-    private static final int PRIO_LOD = 2;
+    private static final int PRIO_LOD_CLIP = 1;
+    private static final int PRIO_LOAD = 2;
+    private static final int PRIO_LOD = 3;
 
     private final AtomicLong taskSeq = new AtomicLong();
 
@@ -167,9 +172,13 @@ public class ChunkManager {
         });
     }
 
-    /** Reiht einen LOD-Mesh-Job mit niedrigster Priorität ein — verdrängt nie Chunk-Jobs. */
-    public void submitLodTask(Runnable job) {
-        this.submitTask(PRIO_LOD, job);
+    /**
+     * Reiht einen LOD-Mesh-Job ein. Normale Builds laufen mit niedrigster Priorität
+     * (verdrängen nie Chunk-Jobs); Clip-Remeshes ({@code clip=true}, reiner Masken-Diff)
+     * überholen die Lade-Queue (s. Kommentar an den PRIO_*-Konstanten).
+     */
+    public void submitLodTask(Runnable job, boolean clip) {
+        this.submitTask(clip ? PRIO_LOD_CLIP : PRIO_LOD, job);
     }
 
     /**
