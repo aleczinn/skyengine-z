@@ -74,6 +74,10 @@ public class ChunkMesher {
     /* Ambient-Occlusion-Setting, einmal pro mesh()-Aufruf gelesen (konsistent pro Section) */
     private boolean ambientOcclusion = true;
 
+    /* LeavesQuality LOW: Laub-Faces gegen JEDES Nachbar-Laub cullen (auch fremde Laub-Arten —
+       MC-„Schnelle Grafik"). Einmal pro mesh()-Aufruf gelesen, konsistent pro Section. */
+    private boolean cullLeaves = false;
+
     /* Eindeutige Ecken A,B,C,D im 6-Vertex-Quad der BakedQuads (A,B,C,C,D,A) */
     private static final int[] UNIQUE_VERTS = {0, 1, 2, 4};
     /* Emissions-Reihenfolge der 4 Ecken: normal = Diagonale A-C, geflippt = B-D (AO-Anisotropie-Fix;
@@ -142,6 +146,7 @@ public class ChunkMesher {
         this.east = east;
         this.diagonals = diagonals;
         this.ambientOcclusion = GameSettings.get().ambientOcclusion;
+        this.cullLeaves = GameSettings.get().leavesQuality == GameSettings.LeavesQuality.LOW;
 
         int baseY = sectionIndex << ChunkSection.SHIFT;
 
@@ -571,11 +576,13 @@ public class ChunkMesher {
      * 1. Nachbar ist ein opaker Full-Cube -> Face unsichtbar
      * 2. Nachbar ist DERSELBE Block und der Block cullt gegen sich selbst
      *    (Glas-an-Glas, später Wasser-an-Wasser) -> Face unsichtbar
+     * 3. LeavesQuality LOW: Laub-an-Laub (auch fremde Laub-Arten) -> Face unsichtbar
      */
-    private static boolean shouldRenderFace(BlockState state, int neighborId) {
+    private boolean shouldRenderFace(BlockState state, int neighborId) {
         BlockState neighbor = BlockRegistry.getState(neighborId);
         if (neighbor.isOpaqueCube()) return false;
         if (neighbor.getBlock() == state.getBlock() && state.cullsSameBlock()) return false;
+        if (this.cullLeaves && state.isLeaves() && neighbor.isLeaves()) return false;
         return true;
     }
 

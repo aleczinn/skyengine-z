@@ -29,6 +29,14 @@ public final class GameSettings {
 
     public enum GraphicsMode { FAST, FANCY }
 
+    /**
+     * Laub-Optik: LOW cullt Faces zwischen benachbarten Laub-Blöcken (dichte Kronen, deutlich
+     * weniger Quads — MC-„Schnelle Grafik"-Look), MID = alle Laub-Faces (heutiger Look),
+     * HIGH = Platzhalter für bushy leaves (überstehende Zusatz-Quads) — verhält sich bis zur
+     * Umsetzung wie MID.
+     */
+    public enum LeavesQuality { LOW, MID, HIGH }
+
     /* GUI-Größe als Schieberegler 1..100 (feiner als MCs Stufen). 1 = 1.0x, 100 = 6.0x. */
     public int guiScale = 50;
     public int renderDistance = 16;   // in Chunks
@@ -39,6 +47,8 @@ public final class GameSettings {
     public GraphicsMode graphicsMode = GraphicsMode.FANCY;
     /* volatile: wird von den Mesher-Worker-Threads gelesen (Toggle löst Voll-Remesh aus) */
     public volatile boolean ambientOcclusion = true;
+    /* volatile: wird von den Mesher-Worker-Threads gelesen (Zyklus-Hotkey löst Voll-Remesh aus) */
+    public volatile LeavesQuality leavesQuality = LeavesQuality.MID;
     /* Anisotropes Filtern (1 = aus, 2, 4, 8, 16), wird beim Erzeugen des TextureArrays angewandt */
     public int anisotropicFiltering = 16;
     /* MSAA-Sample-Zahl des Offscreen-Framebuffers (0 = aus, 2, 4, 8, 16), greift beim nächsten
@@ -113,6 +123,7 @@ public final class GameSettings {
         this.lodMaxDistance = Math.clamp(this.lodMaxDistance, 8, 512);
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
+        if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;
         if (this.keyBindings == null) {
             this.keyBindings = KeyBindings.defaults();
         } else {
