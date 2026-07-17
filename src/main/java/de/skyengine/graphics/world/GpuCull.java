@@ -9,11 +9,11 @@ import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import org.joml.Vector3d;
 import org.joml.Vector4f;
-import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
+import org.lwjgl.opengl.GL31;
 import org.lwjgl.opengl.GL42;
 import org.lwjgl.opengl.GL43;
 import org.lwjgl.opengl.GL44;
@@ -45,14 +45,15 @@ public class GpuCull {
     /**
      * Laufzeit-Schalter (A/B-Vergleich); wirkt nur, wenn die Capabilities vorhanden sind.
      *
-     * <p>DEFAULT AUS (Stand 2026-07-17, RTX 4080): Der Pfad ist korrekt (Bild identisch zum
-     * CPU-Cull, Sicht-Gate + per-Level-Queries verifiziert), kostet aber heute netto GPU-Zeit —
-     * solid ~50→143 µs (Compute→Draw-Barrier-Stall, kaum Arbeit dazwischen) und ~180 µs CPU in
-     * glsub (MDIC-Treiber-Overhead, ~30 µs pro glMultiDrawElementsIndirectCount); bei
-     * Upload-Bursts im Flug zudem 76–114-ms-glsub-Spikes (Treiber-Serialisierung Copies↔
-     * Compute↔IndirectCount — Ursache offen). Einschalten lohnt erst mit Hi-Z (P4), wenn der
-     * GPU-Pfad Occlusion-Arbeit einspart; die Descriptor-/Gate-Pflege läuft immer mit, der
-     * Toggle greift daher sofort. */
+     * <p>DEFAULT AUS (Stand 2026-07-17, RTX 4080): Der Pfad ist korrekt und nach der
+     * Spike-Diagnose fast paritätisch zum CPU-Cull (solid 55–61 vs. 58 µs, glsub 4–8 µs,
+     * keine GPU-Cull-Spikes mehr — gelöst durch (1) plain MDI mit Null-Commands statt
+     * glMultiDrawElementsIndirectCount, dessen Count-Lesung die Submission bis zum
+     * Pipeline-Leerlauf stallte, und (2) Statistik-Lesung über einen persistent gemappten
+     * Read-Ring statt glGetBufferSubData, das den Count-Buffer jeden Frame VIDEO↔HOST
+     * verschob). Verbleibende Kosten ~8 % FPS (Compute + Barrier ohne Occlusion-Nutzen) —
+     * einschalten, wenn Hi-Z (P4) den Pfad bezahlt; die Descriptor-/Gate-Pflege läuft
+     * immer mit, der Toggle greift daher sofort. */
     public static volatile boolean ENABLED = false;
 
     /* Segmente in Draw-Reihenfolge: Sections OPAQUE, Sections CUTOUT, LOD-Opaque L1..L5.
@@ -102,6 +103,12 @@ public class GpuCull {
     private MappedRing descRing;    // DESC_KINDS Bereiche hintereinander je Slot
     private MappedRing gateRing;
     private int cmdBuffer, offBuffer, countBuffer;
+    /* Statistik-Rückweg: GPU kopiert die Counts in diesen persistent-READ-gemappten Ring;
+       die CPU liest nach dem Frame-Fence direkt aus dem Mapping — KEIN glGetBufferSubData
+       (das ließ den Treiber den Count-Buffer jeden Frame VIDEO<->HOST verschieben und
+       stallte bei Upload-Bursts sekundenlang: die 62-99-ms-Spikes). */
+    private int countReadBuffer;
+    private java.nio.ByteBuffer countReadMapped;
     private long cmdSlotBytes, offSlotBytes;
     private final long[] segCmdBase = new long[SEGMENTS];   // Byte-Basen im Slot (aligned egal, 20B-Raster)
     private final long[] segOffBase = new long[SEGMENTS];
@@ -112,7 +119,6 @@ public class GpuCull {
     private final Vector4f planeScratch = new Vector4f();
     private final float[] planes = new float[24];
     private final int[] countScratch = new int[SEGMENTS];
-    private final IntBuffer countReadScratch = BufferUtils.createIntBuffer(SEGMENTS);
 
     @SuppressWarnings("unchecked")
     public GpuCull() {
@@ -180,6 +186,14 @@ public class GpuCull {
         GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, this.countBuffer);
         GL44.glBufferStorage(GL43.GL_SHADER_STORAGE_BUFFER, (long) SLOTS * COUNT_SLOT_BYTES, 0);
         GlDebug.labelBuffer(this.countBuffer, "GpuCull Counts");
+
+        int readFlags = GL30.GL_MAP_READ_BIT | GL44.GL_MAP_PERSISTENT_BIT | GL44.GL_MAP_COHERENT_BIT;
+        this.countReadBuffer = GL15.glGenBuffers();
+        GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, this.countReadBuffer);
+        GL44.glBufferStorage(GL43.GL_SHADER_STORAGE_BUFFER, (long) SLOTS * COUNT_SLOT_BYTES, readFlags);
+        this.countReadMapped = GL30.glMapBufferRange(GL43.GL_SHADER_STORAGE_BUFFER, 0,
+                (long) SLOTS * COUNT_SLOT_BYTES, readFlags);
+        GlDebug.labelBuffer(this.countReadBuffer, "GpuCull Counts-Readback");
         GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
     }
 
@@ -301,6 +315,7 @@ public class GpuCull {
         GL15.glDeleteBuffers(this.cmdBuffer);
         GL15.glDeleteBuffers(this.offBuffer);
         GL15.glDeleteBuffers(this.countBuffer);
+        GL15.glDeleteBuffers(this.countReadBuffer); // Delete unmappt implizit
         this.createOutputBuffers();
         this.logger.debug("GPU-Cull: Descriptor-Kapazität gewachsen auf " + newCapacity);
     }
@@ -313,6 +328,7 @@ public class GpuCull {
      * Aufruf VOR den Draw-Segmenten; der Aufrufer setzt danach die Memory-Barrier.
      */
     public void dispatch(int frameSlot, Camera camera) {
+        this.lastDispatchSlot = frameSlot;
         if (this.appliedVersion[frameSlot] != this.version) {
             this.appliedVersion[frameSlot] = this.version;
             IntBuffer desc = this.descRing.intView(frameSlot);
@@ -386,8 +402,20 @@ public class GpuCull {
 
     /** Nach allen Dispatches, vor den Draws: Commands/Offsets für Indirect-Draw + Vertex-Shader. */
     public void barrier() {
-        GL42.glMemoryBarrier(GL43.GL_COMMAND_BARRIER_BIT | GL43.GL_SHADER_STORAGE_BARRIER_BIT);
+        GL42.glMemoryBarrier(GL43.GL_COMMAND_BARRIER_BIT | GL43.GL_SHADER_STORAGE_BARRIER_BIT
+                | GL42.GL_BUFFER_UPDATE_BARRIER_BIT);
+        /* Statistik-Copy (GPU-seitig, pipelined): Counts in den Read-Ring — gelesen wird erst
+           nach dem Frame-Fence direkt aus dem Mapping. */
+        GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, this.countBuffer);
+        GL15.glBindBuffer(GL31.GL_COPY_WRITE_BUFFER, this.countReadBuffer);
+        GL31.glCopyBufferSubData(GL31.GL_COPY_READ_BUFFER, GL31.GL_COPY_WRITE_BUFFER,
+                (long) this.lastDispatchSlot * COUNT_SLOT_BYTES,
+                (long) this.lastDispatchSlot * COUNT_SLOT_BYTES, (long) SEGMENTS * Integer.BYTES);
+        GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, 0);
+        GL15.glBindBuffer(GL31.GL_COPY_WRITE_BUFFER, 0);
     }
+
+    private int lastDispatchSlot;
 
     /* --- Draw-Parameter für den ChunkRenderer --- */
 
@@ -420,27 +448,26 @@ public class GpuCull {
     }
 
     /**
-     * Enge CPU-bekannte Obergrenze für maxDrawCount des Segments — NICHT die Kapazität:
-     * der Treiber iteriert bis maxDrawCount (prädiziert), 8192 leere Sub-Draws kosteten
-     * messbar GPU-Zeit (solid 58→151 µs im ersten Lauf).
+     * Draw-Zahl des Segments für das normale glMultiDrawElementsIndirect: Slot = Descriptor-
+     * Index (keine Kompaktierung), also die volle Descriptor-Zahl der jeweiligen Art —
+     * gecullte/fremde Slots tragen Null-Commands. Die LOD-Level-Segmente spannen alle
+     * LOD-Descriptoren (Löcher sind Null-Commands des jeweils anderen Levels).
      */
-    public int maxDraws(int segment) {
+    public int drawCount(int segment) {
         if (segment == SEG_OPAQUE) return this.mirrorCount[0];
         if (segment == SEG_CUTOUT) return this.mirrorCount[1];
-        return this.lodLevelCount[segment - SEG_LOD_BASE + 1];
+        return this.mirrorCount[DESC_LOD];
     }
 
     /**
-     * Draw-Zahlen des (fence-bestätigt fertigen) Slots für die Statistik — winzige synchrone
-     * Lesung NACH dem Fence, die GPU ist mit dem Slot garantiert durch.
+     * Draw-Zahlen des (fence-bestätigt fertigen) Slots für die Statistik — reine Lesung aus
+     * dem persistent gemappten Read-Ring, KEIN GL-Call (s. countReadBuffer-Kommentar).
      */
     public int[] readCounts(int frameSlot) {
-        GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, this.countBuffer);
-        this.countReadScratch.clear();
-        GL15.glGetBufferSubData(GL43.GL_SHADER_STORAGE_BUFFER,
-                (long) frameSlot * COUNT_SLOT_BYTES, this.countReadScratch);
-        GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
-        for (int i = 0; i < SEGMENTS; i++) this.countScratch[i] = this.countReadScratch.get(i);
+        int base = frameSlot * COUNT_SLOT_BYTES;
+        for (int i = 0; i < SEGMENTS; i++) {
+            this.countScratch[i] = this.countReadMapped.getInt(base + i * Integer.BYTES);
+        }
         return this.countScratch;
     }
 
@@ -452,6 +479,8 @@ public class GpuCull {
         GL15.glDeleteBuffers(this.cmdBuffer);
         GL15.glDeleteBuffers(this.offBuffer);
         GL15.glDeleteBuffers(this.countBuffer);
+        GL15.glDeleteBuffers(this.countReadBuffer);
+        this.countReadMapped = null;
     }
 
     /* ------------------------- Compute-Shader ------------------------- */
@@ -485,12 +514,17 @@ public class GpuCull {
             void main() {
                 uint i = gl_GlobalInvocationID.x;
                 if (i >= uint(u_Count)) return;
+                uint ci = uint(u_CmdBase) + i * 5u;
                 DrawDesc d = u_Descs[i];
-                if (d.draw.x == 0u) return;
-                if (u_LevelFilter >= 0) {
-                    if (d.ipos.z != u_LevelFilter) return;
-                } else if (u_Hidden[d.ipos.z] != 0u) {
-                    return; // Spalte von LOD verdeckt (atomarer Swap wie im CPU-Pfad)
+
+                bool sichtbar = d.draw.x != 0u;
+                if (sichtbar) {
+                    if (u_LevelFilter >= 0) {
+                        sichtbar = d.ipos.z == u_LevelFilter;
+                    } else {
+                        /* Spalte von LOD verdeckt (atomarer Swap wie im CPU-Pfad) */
+                        sichtbar = u_Hidden[d.ipos.z] == 0u;
+                    }
                 }
 
                 /* Kamerarelatives AABB: XZ über exakte int-Differenz (Welt-Koordinaten als int,
@@ -498,24 +532,38 @@ public class GpuCull {
                 float camY = float(u_CamBlock.y) + u_CamFrac.y;
                 float ox = float(d.ipos.x - u_CamBlock.x) - u_CamFrac.x;
                 float oz = float(d.ipos.y - u_CamBlock.z) - u_CamFrac.z;
-                vec3 mn = vec3(ox, d.bounds.x - camY, oz);
-                vec3 mx = vec3(ox + d.bounds.z, d.bounds.y - camY, oz + d.bounds.z);
-                for (int p = 0; p < 6; p++) {
-                    vec4 pl = u_Planes[p];
-                    vec3 v = vec3(pl.x >= 0.0 ? mx.x : mn.x,
-                                  pl.y >= 0.0 ? mx.y : mn.y,
-                                  pl.z >= 0.0 ? mx.z : mn.z);
-                    if (dot(pl.xyz, v) + pl.w < 0.0) return;
+                if (sichtbar) {
+                    vec3 mn = vec3(ox, d.bounds.x - camY, oz);
+                    vec3 mx = vec3(ox + d.bounds.z, d.bounds.y - camY, oz + d.bounds.z);
+                    for (int p = 0; p < 6 && sichtbar; p++) {
+                        vec4 pl = u_Planes[p];
+                        vec3 v = vec3(pl.x >= 0.0 ? mx.x : mn.x,
+                                      pl.y >= 0.0 ? mx.y : mn.y,
+                                      pl.z >= 0.0 ? mx.z : mn.z);
+                        sichtbar = dot(pl.xyz, v) + pl.w >= 0.0;
+                    }
                 }
 
-                uint slot = atomicAdd(u_Counts[u_CountIndex], 1u);
-                uint ci = uint(u_CmdBase) + slot * 5u;
+                /* Gecullt: Null-Command schreiben (count=0), NICHT einfach return — sonst
+                   zeichnen veraltete Slot-Inhalte des Ring-Slots Geister-Geometrie. */
+                if (!sichtbar) {
+                    u_Cmds[ci] = 0u;
+                    return;
+                }
+
+                /* Slot = Descriptor-Index (KEINE Kompaktierung): geculltes schreibt oben ein
+                   Null-Command. Leere Draws sind auf der GPU fast gratis (gemessen), dafuer
+                   entfaellt glMultiDrawElementsIndirectCount samt GL_PARAMETER_BUFFER — dessen
+                   Count-Lesung stallte die Submission treiberseitig (76-114-ms-Spikes bei
+                   Upload-Bursts) — und die Draw-Reihenfolge bleibt stabil. Der Count-Buffer
+                   dient nur noch der Statistik. */
+                atomicAdd(u_Counts[u_CountIndex], 1u);
                 u_Cmds[ci] = d.draw.x;      // count
                 u_Cmds[ci + 1u] = 1u;       // instanceCount
                 u_Cmds[ci + 2u] = 0u;       // firstIndex (geteilter EBO ab 0)
                 u_Cmds[ci + 3u] = d.draw.y; // baseVertex
                 u_Cmds[ci + 4u] = 0u;       // baseInstance
-                u_Offs[uint(u_OffBase) + slot] = vec4(ox, float(d.ipos.w) - camY, oz, d.bounds.w);
+                u_Offs[uint(u_OffBase) + i] = vec4(ox, float(d.ipos.w) - camY, oz, d.bounds.w);
             }
             """;
 }
