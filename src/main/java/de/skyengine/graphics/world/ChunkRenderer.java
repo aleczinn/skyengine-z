@@ -257,6 +257,7 @@ public class ChunkRenderer {
         this.lodManager = lodManager;
     }
 
+
     /** Render thread, GL context required. Blocks.bootstrap() muss vorher gelaufen sein! */
     public void init() {
         EngineProperties properties = SkyEngine.get().getWindow().getProperties();
@@ -713,6 +714,17 @@ public class ChunkRenderer {
         }
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.CUTOUT);
         GL11.glDepthFunc(properties.baseDepthFunc());
+
+        /* Hi-Z-Pyramide JETZT bauen — nach OPAQUE/CUTOUT, VOR dem Translucent-Pass: die
+           Wasseroberfläche schreibt Depth, darf aber nichts verdecken — sonst cullt sich
+           der Meeresboden gegen seine eigene koplanare AABB-Oberkante (Wasserspiegel) und
+           der TAA-Jitter kippt den Grenzfall pro Frame (Flacker-Löcher im Ozean).
+           BlockEntities/Entities fehlen im Depth: nur weniger Culling, nie falsches. */
+        if (gpu) {
+            var window = SkyEngine.get().getWindow();
+            this.gpuCull.buildPyramid(window.getFrameBuffer().getDepthTexture(),
+                    window.getWidth(), window.getHeight(), camera);
+        }
 
         /* TEMP (P4-Spike-Diagnose): Aufschlüsselung loggen, wenn die Submission stallt. */
         if (gpu) {
