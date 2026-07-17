@@ -511,7 +511,10 @@ public class World implements IInitializable, IDisposable {
 
     /**
      * Lässt den geänderten Block und seine 4 horizontalen Nachbarn ihren State
-     * neu berechnen (Verbindungen, Treppen-Ecken). Nur ein Ring - keine Kaskade.
+     * neu berechnen (Verbindungen, Treppen-Ecken). Reine State-Änderungen bleiben
+     * ein Ring ohne Kaskade; entfernt sich ein Block dabei selbst (z.B. Tall Grass
+     * nach Stützverlust), löst diese Entfernung einen Folge-Ring aus, damit
+     * abhängige Blöcke (Tür-/Pflanzen-Oberhälfte) mitbenachrichtigt werden.
      */
     private void updateNeighbors(int x, int y, int z) {
         this.updateStateAt(x, y, z);
@@ -529,7 +532,11 @@ public class World implements IInitializable, IDisposable {
         BlockState current = Blocks.getState(id);
         BlockState updated = current.getBlock().getStateForNeighborUpdate(this, x, y, z, current);
         if (updated != current) {
-            this.setBlock(x, y, z, updated.getId(), false);
+            /* Selbst-Entfernen kaskadiert (Tür-/Tall-Grass-Oberhälfte nach Stützverlust),
+               reine State-Änderungen (Verbindungen, Treppen) bewusst nicht. Keine Endlos-
+               Kaskade möglich: jeder Kaskadenschritt entfernt einen Block endgültig. */
+            boolean removed = updated.getId() == Blocks.AIR;
+            this.setBlock(x, y, z, updated.getId(), removed);
         }
     }
 
