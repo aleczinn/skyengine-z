@@ -12,6 +12,7 @@ import org.joml.Vector4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
@@ -55,15 +56,16 @@ public class GpuCull {
      * jeden Frame VIDEO↔HOST verschob).
      *
      * <p>Die Hi-Z-Occlusion (buildPyramid/istVerdeckt) funktioniert grundsätzlich (Spawn:
-     * sichtbare Draws 588→~330, solid ~40 µs), zeigt aber an Küsten-/Ozean-Szenen schnelles
-     * Flackern falsch geculleter Regionen — OFFEN. Zwei behobene Ursachen: Pyramide muss VOR
-     * dem Translucent-Pass gebaut werden (Wasser-Depth verdeckte den koplanaren Meeresboden)
-     * + 0.5-Block-AABB-Inflation gegen Jitter-Grenzfälle. HAUPTVERDACHT für den Rest: die
-     * Pyramide sampelt die Depth-Textur MITTEN im Frame, während sie Depth-Attachment des
-     * GEBUNDENEN Framebuffers ist — undefiniertes Verhalten (Feedback-Grauzone), passend zum
-     * zufälligen per-Frame-Flackern. Nächster Schritt (P4-Abschluss): Depth am Ende des
-     * Opaque-Passes per glBlitFramebuffer in eine EIGENE Textur kopieren und die Pyramide
-     * daraus bauen (oder FBO-Unbind + glTextureBarrier absichern), dann erneut verifizieren. */
+     * sichtbare Draws 588→~330, solid ~40 µs), zeigt aber weiterhin schnelles Flackern
+     * distanz-konstanter LOD-Regions-RINGE (nur GPU-Pfad, nur LOD, nur in Bewegung) — OFFEN.
+     * Bereits behoben (je für sich korrekt, Symptom blieb): Pyramide VOR dem Translucent-Pass
+     * (Wasser-Depth verdeckte den koplanaren Meeresboden), 0.5-Block-AABB-Inflation,
+     * Depth-Blit in eigene Textur (Sampling des gebundenen FBO-Attachments war UB),
+     * 4-Frame-Streak-Hysterese gegen Verdikt-Oszillation. DASS die Hysterese nichts änderte,
+     * grenzt ein: Hauptverdacht ist ein pro Frame KIPPENDES u_OcclusionEnabled (hiZValid/
+     * Guards) — dagegen ist die Hysterese wirkungslos, weil der Streak in Aus-Frames nicht
+     * zurückgesetzt wird — oder ein Fehler außerhalb des Verdeckungstests. Diagnose über die
+     * Draw-Count-/Enable-Telemetrie und den Occlusion-Debug-Modus (rot statt gecullt). */
     public static volatile boolean ENABLED = false;
 
     /* Segmente in Draw-Reihenfolge: Sections OPAQUE, Sections CUTOUT, LOD-Opaque L1..L5.
@@ -98,6 +100,12 @@ public class GpuCull {
     private final int[][] mirror = new int[DESC_KINDS][];
     private final int[] mirrorCount = new int[DESC_KINDS];      // höchster belegter Slot + 1
     private final ArrayDeque<Integer>[] freeSlots;
+
+    /* Pro Slot rotierende 8-Bit-Generation (wandert in draw.z): entwertet die
+       Occlusion-Streak-Historie eines Slots bei Wiederverwendung — sonst erbt ein frisch
+       registriertes Mesh den „verdeckt"-Zähler seines Vorgängers (1-Frame-Löcher bei
+       jedem LOD-Remesh). */
+    private int[][] slotGen = new int[DESC_KINDS][];
     private final int[] lodLevelCount = new int[MAX_LOD_LEVELS + 1];
 
     /* Sicht-Gate: 1 uint pro Chunk-Spalte (1 = von LOD verdeckt, Sections nicht zeichnen). */
@@ -113,6 +121,10 @@ public class GpuCull {
     private MappedRing descRing;    // DESC_KINDS Bereiche hintereinander je Slot
     private MappedRing gateRing;
     private int cmdBuffer, offBuffer, countBuffer;
+    /* Occlusion-Streak (gen<<24 | Zähler) pro Descriptor-Slot: device-lokal und bewusst
+       NICHT geringt — persistiert über Frames; die per-Slot-Read-Modify-Writes sind durch
+       die in-order-GPU-Ausführung serialisiert (genau eine Invocation pro Slot und Frame). */
+    private int streakBuffer;
     /* Statistik-Rückweg: GPU kopiert die Counts in diesen persistent-READ-gemappten Ring;
        die CPU liest nach dem Frame-Fence direkt aus dem Mapping — KEIN glGetBufferSubData
        (das ließ den Treiber den Count-Buffer jeden Frame VIDEO<->HOST verschieben und
@@ -137,7 +149,10 @@ public class GpuCull {
         /* Spiegel immer anlegen: die Descriptor-Pflege läuft auch ohne GPU-Support/bei
            ENABLED=false weiter (billig) — der Laufzeit-Toggle greift dadurch sofort. */
         this.descCapacity = 8192;
-        for (int k = 0; k < DESC_KINDS; k++) this.mirror[k] = new int[this.descCapacity * DESC_INTS];
+        for (int k = 0; k < DESC_KINDS; k++) {
+            this.mirror[k] = new int[this.descCapacity * DESC_INTS];
+            this.slotGen[k] = new int[this.descCapacity];
+        }
     }
 
     /** Render-Thread, GL-Kontext nötig. {@code supported=false} lässt alles im CPU-Pfad. */
@@ -165,6 +180,7 @@ public class GpuCull {
         this.locCullPrevCamBlock = this.compute.getUniformLocation("u_PrevCamBlock");
         this.locCullPrevCamFrac = this.compute.getUniformLocation("u_PrevCamFrac");
         this.locCullHiZMips = this.compute.getUniformLocation("u_HiZMips");
+        this.locStreakBase = this.compute.getUniformLocation("u_StreakBase");
 
         this.hiZCopy = new ShaderProgram(new Shader(HIZ_COPY_SOURCE, ShaderType.COMPUTE));
         this.locCopyDepth = this.hiZCopy.getUniformLocation("u_Depth");
@@ -211,6 +227,16 @@ public class GpuCull {
         GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, this.countBuffer);
         GL44.glBufferStorage(GL43.GL_SHADER_STORAGE_BUFFER, (long) SLOTS * COUNT_SLOT_BYTES, 0);
         GlDebug.labelBuffer(this.countBuffer, "GpuCull Counts");
+
+        this.streakBuffer = GL15.glGenBuffers();
+        GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, this.streakBuffer);
+        GL44.glBufferStorage(GL43.GL_SHADER_STORAGE_BUFFER,
+                (long) DESC_KINDS * this.descCapacity * Integer.BYTES, 0);
+        /* BufferStorage-Inhalt ist undefiniert -> auf 0 klaren (Zähler 0, Generation 0). */
+        GL43.glClearBufferSubData(GL43.GL_SHADER_STORAGE_BUFFER, GL30.GL_R32UI,
+                0, (long) DESC_KINDS * this.descCapacity * Integer.BYTES,
+                GL30.GL_RED_INTEGER, GL11.GL_UNSIGNED_INT, (IntBuffer) null);
+        GlDebug.labelBuffer(this.streakBuffer, "GpuCull Occlusion-Streaks");
 
         int readFlags = GL30.GL_MAP_READ_BIT | GL44.GL_MAP_PERSISTENT_BIT | GL44.GL_MAP_COHERENT_BIT;
         this.countReadBuffer = GL15.glGenBuffers();
@@ -299,6 +325,8 @@ public class GpuCull {
 
         int[] m = this.mirror[kind];
         int i = slot * DESC_INTS;
+        int gen = (this.slotGen[kind][slot] + 1) & 0xFF;
+        this.slotGen[kind][slot] = gen;
         m[i] = ix;
         m[i + 1] = iz;
         m[i + 2] = izArg;                       // Sections: Gate-Slot, LOD: Level
@@ -309,7 +337,7 @@ public class GpuCull {
         m[i + 7] = Float.floatToRawIntBits(b3); // Positions-Skala (.w des Draw-Offsets)
         m[i + 8] = indexCount;
         m[i + 9] = baseVertex;
-        m[i + 10] = 0;
+        m[i + 10] = gen;                        // Slot-Generation (Occlusion-Streak-Tag)
         m[i + 11] = 0;
         this.version++;
         return slot;
@@ -328,6 +356,9 @@ public class GpuCull {
             int[] grown = new int[newCapacity * DESC_INTS];
             System.arraycopy(this.mirror[k], 0, grown, 0, this.mirror[k].length);
             this.mirror[k] = grown;
+            int[] grownGen = new int[newCapacity];
+            System.arraycopy(this.slotGen[k], 0, grownGen, 0, this.slotGen[k].length);
+            this.slotGen[k] = grownGen;
         }
         this.descCapacity = newCapacity;
         if (!this.supported) return;
@@ -341,6 +372,7 @@ public class GpuCull {
         GL15.glDeleteBuffers(this.offBuffer);
         GL15.glDeleteBuffers(this.countBuffer);
         GL15.glDeleteBuffers(this.countReadBuffer); // Delete unmappt implizit
+        GL15.glDeleteBuffers(this.streakBuffer);    // Streaks starten neu bei 0 (harmlos)
         this.createOutputBuffers();
         this.logger.debug("GPU-Cull: Descriptor-Kapazität gewachsen auf " + newCapacity);
     }
@@ -420,6 +452,7 @@ public class GpuCull {
                 (long) frameSlot * COUNT_SLOT_BYTES, (long) SEGMENTS * Integer.BYTES);
         GL30.glBindBufferRange(GL43.GL_SHADER_STORAGE_BUFFER, 8, this.gateRing.getBuffer(),
                 this.gateRing.slotOffset(frameSlot), MappedRing.align((long) this.gateMirror.length * Integer.BYTES));
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 9, this.streakBuffer);
 
         /* Sections: OPAQUE + CUTOUT (Level-Filter -1 = Sicht-Gate aktiv). */
         this.dispatchKind(frameSlot, SEG_OPAQUE, 0, this.mirrorCount[0], -1);
@@ -443,6 +476,7 @@ public class GpuCull {
         this.compute.setUniformi(this.locCmdBase, (int) (this.segCmdBase[segment] / Integer.BYTES));
         this.compute.setUniformi(this.locOffBase, (int) (this.segOffBase[segment] / OFFSET_BYTES));
         this.compute.setUniformi(this.locCountIndex, segment);
+        this.compute.setUniformi(this.locStreakBase, kind * this.descCapacity);
         GL43.glDispatchCompute((count + 255) / 256, 1, 1);
     }
 
@@ -471,12 +505,17 @@ public class GpuCull {
        Latenz, konservativ abgesichert (Rand-/Near-/Sprung-Guards im Shader bzw. dispatch). */
     private ShaderProgram hiZCopy, hiZReduce;
     private int hiZTexture;
+    /* Eigene Depth-KOPIE (Blit-Ziel): die Pyramide darf NIE das Depth-Attachment des noch
+       gebundenen Szene-FBO sampeln — das ist undefiniertes Verhalten (Feedback-Grauzone)
+       und war die Ursache des schnellen Küsten-Flackerns. Der Blit synchronisiert zugleich
+       die ausstehenden Depth-Writes des Opaque-Passes. */
+    private int hiZDepthCopy, hiZBlitFbo;
     private int hiZWidth, hiZHeight, hiZMips;
     private boolean hiZValid;
     private final org.joml.Matrix4f hiZViewProj = new org.joml.Matrix4f();
     private double hiZCamX, hiZCamY, hiZCamZ;
     private int locCullOcclusion, locCullHiZ, locCullPrevViewProj, locCullPrevCamBlock,
-            locCullPrevCamFrac, locCullHiZMips;
+            locCullPrevCamFrac, locCullHiZMips, locStreakBase;
     private int locCopyDepth;
     private int locReduceSrcLevel;
 
@@ -498,10 +537,25 @@ public class GpuCull {
             this.createHiZTexture(width, height);
         }
 
-        /* Mip 0: Depth-Textur -> R32F. */
+        /* Depth des gebundenen Szene-FBO in die eigene Kopie blitten (definiertes Verhalten;
+           Formate identisch DEPTH_COMPONENT32F). Danach Bindings zurück auf das Szene-FBO.
+           Guard: Default-Framebuffer (0) hat 24-Bit-Depth -> Blit wäre GL_INVALID_OPERATION
+           („Depth formats do not match", im allerersten Frame beobachtet). */
+        int sceneFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+        if (sceneFbo == 0) {
+            this.hiZValid = false;
+            return;
+        }
+        GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, sceneFbo);
+        GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, this.hiZBlitFbo);
+        GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
+                GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, sceneFbo);
+
+        /* Mip 0: Depth-KOPIE -> R32F. */
         this.hiZCopy.bind();
         GL13.glActiveTexture(GL13.GL_TEXTURE2);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, depthTexture);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.hiZDepthCopy);
         this.hiZCopy.setUniformi(this.locCopyDepth, 2);
         GL42.glBindImageTexture(0, this.hiZTexture, 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_R32F);
         GL43.glDispatchCompute((width + 15) / 16, (height + 15) / 16, 1);
@@ -532,6 +586,8 @@ public class GpuCull {
 
     private void createHiZTexture(int width, int height) {
         if (this.hiZTexture != 0) GL11.glDeleteTextures(this.hiZTexture);
+        if (this.hiZDepthCopy != 0) GL11.glDeleteTextures(this.hiZDepthCopy);
+        if (this.hiZBlitFbo != 0) GL30.glDeleteFramebuffers(this.hiZBlitFbo);
         this.hiZWidth = width;
         this.hiZHeight = height;
         this.hiZMips = 32 - Integer.numberOfLeadingZeros(Math.max(width, height));
@@ -543,6 +599,22 @@ public class GpuCull {
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL12.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL12.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
         GlDebug.labelTexture(this.hiZTexture, "GpuCull Hi-Z-Pyramide");
+
+        /* Depth-Kopie + Blit-FBO (depth-only, Draw-/Read-Buffer NONE für Completeness). */
+        this.hiZDepthCopy = GL11.glGenTextures();
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.hiZDepthCopy);
+        GL42.glTexStorage2D(GL11.GL_TEXTURE_2D, 1, GL30.GL_DEPTH_COMPONENT32F, width, height);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL14.GL_TEXTURE_COMPARE_MODE, GL11.GL_NONE);
+        GlDebug.labelTexture(this.hiZDepthCopy, "GpuCull Depth-Kopie");
+        this.hiZBlitFbo = GL30.glGenFramebuffers();
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.hiZBlitFbo);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT,
+                GL11.GL_TEXTURE_2D, this.hiZDepthCopy, 0);
+        GL11.glDrawBuffer(GL11.GL_NONE);
+        GL11.glReadBuffer(GL11.GL_NONE);
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
         this.hiZValid = false;
     }
 
@@ -609,8 +681,11 @@ public class GpuCull {
         GL15.glDeleteBuffers(this.offBuffer);
         GL15.glDeleteBuffers(this.countBuffer);
         GL15.glDeleteBuffers(this.countReadBuffer);
+        GL15.glDeleteBuffers(this.streakBuffer);
         this.countReadMapped = null;
         if (this.hiZTexture != 0) GL11.glDeleteTextures(this.hiZTexture);
+        if (this.hiZDepthCopy != 0) GL11.glDeleteTextures(this.hiZDepthCopy);
+        if (this.hiZBlitFbo != 0) GL30.glDeleteFramebuffers(this.hiZBlitFbo);
         if (this.hiZCopy != null) this.hiZCopy.dispose();
         if (this.hiZReduce != null) this.hiZReduce.dispose();
     }
@@ -633,6 +708,9 @@ public class GpuCull {
             layout(std430, binding = 6) writeonly buffer Offsets { vec4 u_Offs[]; };
             layout(std430, binding = 7) buffer Counts { uint u_Counts[]; };
             layout(std430, binding = 8) readonly buffer Gate { uint u_Hidden[]; };
+            /* Occlusion-Streak pro Slot: (Generation << 24) | Zähler aufeinanderfolgender
+               verdeckt-Verdikte. Persistiert über Frames (nicht geringt). */
+            layout(std430, binding = 9) buffer Streak { uint u_Streak[]; };
 
             uniform vec4 u_Planes[6];
             uniform ivec3 u_CamBlock;
@@ -650,6 +728,7 @@ public class GpuCull {
             uniform ivec3 u_PrevCamBlock;
             uniform vec3 u_PrevCamFrac;
             uniform int u_HiZMips;
+            uniform int u_StreakBase; // Basis der Descriptor-Art im Streak-Buffer
 
             /* true = AABB ist durch die letzte Frame-Tiefe sicher verdeckt. Konservativ:
                Naeher-Ring, Near-Plane-Schnitt und Bildrand-Beruehrung gelten als sichtbar
@@ -712,6 +791,9 @@ public class GpuCull {
                         sichtbar = u_Hidden[d.ipos.z] == 0u;
                     }
                 }
+                /* zulaessig = lebt und gehoert zu diesem Dispatch (Level/Gate) — Basis fuer
+                   die Streak-Pflege, unabhaengig vom Frustum-Ergebnis. */
+                bool zulaessig = sichtbar;
 
                 /* Kamerarelatives AABB: XZ über exakte int-Differenz (Welt-Koordinaten als int,
                    Kamera-Anker als Block + Bruchteil — float-Präzisions-Falle der Roadmap). */
@@ -729,8 +811,24 @@ public class GpuCull {
                         sichtbar = dot(pl.xyz, v) + pl.w >= 0.0;
                     }
                 }
-                if (sichtbar && u_OcclusionEnabled != 0 && istVerdeckt(d)) {
-                    sichtbar = false;
+                /* Hi-Z mit temporaler HYSTERESE: gecullt wird erst nach 4 aufeinanderfolgenden
+                   verdeckt-Verdikten. Grenzfaelle an Verdeckungskanten oszillieren sonst mit
+                   Periode 2 (gezeichnet -> eigene Tiefe schuetzt -> verdeckt -> Tiefe fehlt ->
+                   sichtbar -> ...) und flackern bei Kamerabewegung als ganze Regionen.
+                   Frustum-Ausschluss loescht die Historie (konservativ beim Wiedereintritt);
+                   die Slot-Generation (draw.z) entwertet geerbte Streaks bei Slot-Reuse. */
+                if (u_OcclusionEnabled != 0 && zulaessig) {
+                    uint si = uint(u_StreakBase) + i;
+                    uint gen = d.draw.z & 0xFFu;
+                    uint alt = u_Streak[si];
+                    uint zaehler = (alt >> 24) == gen ? (alt & 0xFFFFFFu) : 0u;
+                    if (sichtbar && istVerdeckt(d)) {
+                        zaehler = min(zaehler + 1u, 255u);
+                    } else {
+                        zaehler = 0u;
+                    }
+                    u_Streak[si] = (gen << 24) | zaehler;
+                    if (zaehler >= 4u) sichtbar = false;
                 }
 
                 /* Gecullt: Null-Command schreiben (count=0), NICHT einfach return — sonst
