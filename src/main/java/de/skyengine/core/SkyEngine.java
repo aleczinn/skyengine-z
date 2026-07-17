@@ -216,6 +216,9 @@ public class SkyEngine {
                     String syncLine = this.game.getWorld() != null
                             ? this.game.getWorld().getChunkRenderer().syncStatsLineAndReset() : null;
                     if (syncLine != null) System.out.println(syncLine);
+                    String gpuCullLine = this.game.getWorld() != null
+                            ? this.game.getWorld().getChunkRenderer().gpuCullStatsLineAndReset() : null;
+                    if (gpuCullLine != null) System.out.println(gpuCullLine);
                 }
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
                     this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s | AntiAliasing: %s".formatted(
