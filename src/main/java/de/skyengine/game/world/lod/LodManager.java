@@ -187,7 +187,7 @@ public class LodManager {
         int prz = Math.floorDiv(this.anchorZ, LodMesher.REGION_BLOCKS);
         int radius = (int) Math.ceil((outer + LodMesher.HALF_DIAG) / LodMesher.REGION_BLOCKS);
 
-        int[] counts = new int[this.config.maxLevel() + 1];
+        int[] counts = new int[this.config.maxEffectiveLevel() + 1];
         for (int dz = -radius; dz <= radius; dz++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 int rx = prx + dx, rz = prz + dz;
