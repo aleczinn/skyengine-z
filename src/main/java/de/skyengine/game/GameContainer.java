@@ -804,6 +804,17 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("Ambient Occlusion: " + (this.settings.ambientOcclusion ? "an" : "aus"));
             changed = true;
         }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_K)) {
+            /* Debug: GPU-Cull-Pfad live an/aus (A/B ohne Neustart, nicht persistiert) */
+            de.skyengine.graphics.world.GpuCull.ENABLED = !de.skyengine.graphics.world.GpuCull.ENABLED;
+            this.logger.debug("GPU-Cull: " + (de.skyengine.graphics.world.GpuCull.ENABLED ? "an" : "aus"));
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_J)) {
+            /* Debug: GPU-Occlusion-Verdikte rot zeichnen statt cullen (nicht persistiert) */
+            de.skyengine.graphics.world.GpuCull.DEBUG_TINT = !de.skyengine.graphics.world.GpuCull.DEBUG_TINT;
+            this.logger.debug("GPU-Cull-Debug (rot statt cullen): "
+                    + (de.skyengine.graphics.world.GpuCull.DEBUG_TINT ? "an" : "aus"));
+        }
         if (input.isKeyPressed(GLFW.GLFW_KEY_H)) {
             /* Laub-Qualität zyklisch LOW -> MID -> HIGH; steckt im gebackenen Mesh -> Voll-Remesh */
             GameSettings.LeavesQuality[] values = GameSettings.LeavesQuality.values();

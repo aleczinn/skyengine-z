@@ -159,6 +159,13 @@ public class ChunkRenderer {
     /* Fence-Diagnose (nur bei aktivem FrameProfiler gefüllt, s. beginFrame) */
     private long syncFrames, syncSignaled, syncWaitNs, syncWaitMaxNs;
 
+    /* GPU-Cull-Draw-Telemetrie: min/max der per-Frame-Draw-Counts je Segment über die letzte
+       Sekunde (aus dem gemappten Count-Readback). Springende Spannweiten = objektiver
+       Flacker-Nachweis inkl. WELCHES Segment (Diagnose des LOD-Ring-Flackerns). */
+    private final int[] gpuDrawMin = new int[GpuCull.SEGMENTS];
+    private final int[] gpuDrawMax = new int[GpuCull.SEGMENTS];
+    private boolean gpuDrawStatsValid;
+
     /* Mess-Gate LOD-Superregionen: bei aktivem FrameProfiler wird das LOD-Opaque-Segment
        pro Level in eigene MDI-Sub-Segmente mit eigener GPU-Query gesplittet (GL_TIME_ELAPSED
        darf nicht verschachteln -> ein Draw pro Level). Ohne Profiler: ein Draw wie bisher.
@@ -841,9 +848,20 @@ public class ChunkRenderer {
             for (VertexArena arena : this.arenas) arena.collect(completed);
 
             /* GPU-Cull: Draw-Zahlen des fence-bestätigt fertigen Slots für die Statistik
-               (Fenstertitel) — reine Lesung aus dem gemappten Read-Ring, kein GL-Call. */
+               (Fenstertitel + 1-s-Telemetrie) — reine Lesung aus dem Read-Ring, kein GL-Call. */
             if (this.gpuCull.isActive()) {
-                this.renderedSections = this.gpuCull.readCounts(this.frameSlot)[GpuCull.SEG_OPAQUE];
+                int[] counts = this.gpuCull.readCounts(this.frameSlot);
+                this.renderedSections = counts[GpuCull.SEG_OPAQUE];
+                for (int s = 0; s < GpuCull.SEGMENTS; s++) {
+                    if (!this.gpuDrawStatsValid) {
+                        this.gpuDrawMin[s] = counts[s];
+                        this.gpuDrawMax[s] = counts[s];
+                    } else {
+                        if (counts[s] < this.gpuDrawMin[s]) this.gpuDrawMin[s] = counts[s];
+                        if (counts[s] > this.gpuDrawMax[s]) this.gpuDrawMax[s] = counts[s];
+                    }
+                }
+                this.gpuDrawStatsValid = true;
             }
         }
     }
@@ -873,6 +891,28 @@ public class ChunkRenderer {
         this.syncWaitNs = 0;
         this.syncWaitMaxNs = 0;
         return line;
+    }
+
+    /**
+     * GPU-Cull-Telemetrie der letzten Sekunde: min/max der Draw-Counts je Segment (springende
+     * Spannweiten = Flacker-Nachweis) + Occlusion-Enable-Zähler. null ohne aktiven GPU-Pfad.
+     */
+    public String gpuCullStatsLineAndReset() {
+        String telemetrie = this.gpuCull.telemetrieZeileUndReset();
+        if (!this.gpuDrawStatsValid) return telemetrie;
+        StringBuilder sb = new StringBuilder("GpuCull-Draws: op ")
+                .append(this.gpuDrawMin[GpuCull.SEG_OPAQUE]).append("..").append(this.gpuDrawMax[GpuCull.SEG_OPAQUE])
+                .append(" | cut ")
+                .append(this.gpuDrawMin[GpuCull.SEG_CUTOUT]).append("..").append(this.gpuDrawMax[GpuCull.SEG_CUTOUT]);
+        for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
+            int s = GpuCull.SEG_LOD_BASE + l - 1;
+            if (this.gpuDrawMax[s] == 0) continue;
+            sb.append(" | L").append(l).append(' ')
+                    .append(this.gpuDrawMin[s]).append("..").append(this.gpuDrawMax[s]);
+        }
+        this.gpuDrawStatsValid = false;
+        if (telemetrie != null) sb.append(" | ").append(telemetrie);
+        return sb.toString();
     }
 
     private void endFrame() {
@@ -1532,6 +1572,11 @@ public class ChunkRenderer {
 
                 v_texCoord = vec3(uv, layer);
                 v_color = color;
+                /* Occlusion-Debug (GpuCull.DEBUG_TINT): der Compute markiert Verdeckt-Verdikte
+                   ueber baseInstance=1 statt sie zu cullen -> rot tinten. */
+                if (gl_BaseInstance != 0) {
+                    v_color = mix(v_color, vec3(1.0, 0.1, 0.1), 0.7);
+                }
                 /* Positionen sind kamerarelativ und welt-achsen-ausgerichtet -> length(rel.xz) =
                    horizontale Sichtdistanz fuer ZYLINDRISCHEN Fog (wie MC 1.18+): Hochfliegen
                    schiebt das Terrain unter dem Spieler nicht in den Nebel, die horizontale

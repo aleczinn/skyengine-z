@@ -55,18 +55,26 @@ public class GpuCull {
      * einen persistent gemappten Read-Ring statt glGetBufferSubData, das den Count-Buffer
      * jeden Frame VIDEO↔HOST verschob).
      *
-     * <p>Die Hi-Z-Occlusion (buildPyramid/istVerdeckt) funktioniert grundsätzlich (Spawn:
-     * sichtbare Draws 588→~330, solid ~40 µs), zeigt aber weiterhin schnelles Flackern
-     * distanz-konstanter LOD-Regions-RINGE (nur GPU-Pfad, nur LOD, nur in Bewegung) — OFFEN.
-     * Bereits behoben (je für sich korrekt, Symptom blieb): Pyramide VOR dem Translucent-Pass
-     * (Wasser-Depth verdeckte den koplanaren Meeresboden), 0.5-Block-AABB-Inflation,
-     * Depth-Blit in eigene Textur (Sampling des gebundenen FBO-Attachments war UB),
-     * 4-Frame-Streak-Hysterese gegen Verdikt-Oszillation. DASS die Hysterese nichts änderte,
-     * grenzt ein: Hauptverdacht ist ein pro Frame KIPPENDES u_OcclusionEnabled (hiZValid/
-     * Guards) — dagegen ist die Hysterese wirkungslos, weil der Streak in Aus-Frames nicht
-     * zurückgesetzt wird — oder ein Fehler außerhalb des Verdeckungstests. Diagnose über die
-     * Draw-Count-/Enable-Telemetrie und den Occlusion-Debug-Modus (rot statt gecullt). */
+     * <p>Die Hi-Z-Occlusion (buildPyramid/istVerdeckt) hat eine per Telemetrie BEWIESENE
+     * strukturelle Schwäche: den Selbst-Feedback-Loop. Messung (statische Kamera am Spawn,
+     * Enable stabil aktiv 1311/1311): Draw-Counts oszillieren op 270..336 / L4 24..83 pro
+     * Sekunde; mit Debug-Rot (Verdikte werden gezeichnet statt gecullt → Pyramide immer
+     * vollständig) dagegen perfekt stabil op 588..588 / L4 477..477. Ergo: die Verdikte sind
+     * deterministisch, aber gecullte Objekte FEHLEN in der nächsten Pyramide und werden durch
+     * ihre eigene Abwesenheit wieder sichtbar — die 4-Frame-Hysterese verschiebt nur die
+     * Periode des Kreisens. Bereits korrekt eingebaute Vorstufen: Pyramide VOR dem
+     * Translucent-Pass, 0.5-Block-AABB-Inflation, Depth-Blit in eigene Textur (Sampling des
+     * gebundenen FBO-Attachments war UB), Streak-Hysterese + Slot-Generationen.
+     *
+     * <p>Die strukturell korrekte Lösung ist TWO-PHASE-Occlusion (Roadmap P4): Phase 1
+     * zeichnet die Letzte-Frame-Sichtbaren und baut daraus die Pyramide, Phase 2 testet den
+     * Rest und zeichnet Nachzügler — Pyramide am Frame-Ende immer vollständig, kein Loop.
+     * Bis dahin DEFAULT AUS. Werkzeuge: Hotkey K = GPU-Pfad an/aus, J = Debug-Rot,
+     * 1-s-Telemetrie „GpuCull-Draws"/„GpuCull-Occlusion" (DebugMode.FULL). */
     public static volatile boolean ENABLED = false;
+
+    /** Occlusion-Debug (Hotkey J): Verdeckt-Verdikte werden ROT gezeichnet statt gecullt. */
+    public static volatile boolean DEBUG_TINT = false;
 
     /* Segmente in Draw-Reihenfolge: Sections OPAQUE, Sections CUTOUT, LOD-Opaque L1..L5.
        Translucent (Sections + LOD) bleibt bewusst CPU (Sortierung bzw. Kleinstmengen). */
@@ -181,6 +189,7 @@ public class GpuCull {
         this.locCullPrevCamFrac = this.compute.getUniformLocation("u_PrevCamFrac");
         this.locCullHiZMips = this.compute.getUniformLocation("u_HiZMips");
         this.locStreakBase = this.compute.getUniformLocation("u_StreakBase");
+        this.locCullDebug = this.compute.getUniformLocation("u_CullDebug");
 
         this.hiZCopy = new ShaderProgram(new Shader(HIZ_COPY_SOURCE, ShaderType.COMPUTE));
         this.locCopyDepth = this.hiZCopy.getUniformLocation("u_Depth");
@@ -427,9 +436,16 @@ public class GpuCull {
            (Teleport/F8 → ein Frame ungeculled, konservativ). Getestet wird mit Matrix/Kamera
            des Pyramiden-Frames (1 Frame Latenz). */
         double jx = cam.x - this.hiZCamX, jy = cam.y - this.hiZCamY, jz = cam.z - this.hiZCamZ;
-        boolean occlusion = this.hiZValid
-                && jx * jx + jy * jy + jz * jz < HIZ_MAX_CAM_JUMP * HIZ_MAX_CAM_JUMP;
+        boolean sprung = jx * jx + jy * jy + jz * jz >= HIZ_MAX_CAM_JUMP * HIZ_MAX_CAM_JUMP;
+        boolean occlusion = this.hiZValid && !sprung;
+        if (occlusion) {
+            this.statActive++;
+        } else {
+            this.statInactive++;
+            if (this.hiZValid && sprung) this.statJump++;
+        }
         this.compute.setUniformi(this.locCullOcclusion, occlusion ? 1 : 0);
+        this.compute.setUniformi(this.locCullDebug, DEBUG_TINT ? 1 : 0);
         if (occlusion) {
             GL13.glActiveTexture(GL13.GL_TEXTURE2);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.hiZTexture);
@@ -515,12 +531,17 @@ public class GpuCull {
     private final org.joml.Matrix4f hiZViewProj = new org.joml.Matrix4f();
     private double hiZCamX, hiZCamY, hiZCamZ;
     private int locCullOcclusion, locCullHiZ, locCullPrevViewProj, locCullPrevCamBlock,
-            locCullPrevCamFrac, locCullHiZMips, locStreakBase;
+            locCullPrevCamFrac, locCullHiZMips, locStreakBase, locCullDebug;
     private int locCopyDepth;
     private int locReduceSrcLevel;
 
     /** Maximale Kamerabewegung seit dem Pyramiden-Frame, bis Occlusion aussetzt (Teleport/F8). */
     private static final double HIZ_MAX_CAM_JUMP = 48.0;
+
+    /* Telemetrie (1-s-Fenster, s. telemetrieZeileUndReset): WARUM war die Occlusion je Frame
+       (in)aktiv? Ein pro Frame kippendes Enable würde exakt das beobachtete Dauerflackern
+       erzeugen — diese Zähler beweisen oder widerlegen das in einer Logzeile. */
+    private int statActive, statInactive, statNoDepth, statNoFbo, statJump;
 
     /**
      * Baut die Depth-Pyramide aus dem fertigen Szenen-Depth (Aufruf NACH dem Resolve, Ende des
@@ -529,7 +550,12 @@ public class GpuCull {
      * nächsten Frame gemerkt.
      */
     public void buildPyramid(int depthTexture, int width, int height, Camera camera) {
-        if (!this.isActive() || depthTexture == 0 || width <= 0 || height <= 0) {
+        if (!this.isActive()) {
+            this.hiZValid = false;
+            return;
+        }
+        if (depthTexture == 0 || width <= 0 || height <= 0) {
+            this.statNoDepth++;
             this.hiZValid = false;
             return;
         }
@@ -543,6 +569,7 @@ public class GpuCull {
            („Depth formats do not match", im allerersten Frame beobachtet). */
         int sceneFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
         if (sceneFbo == 0) {
+            this.statNoFbo++;
             this.hiZValid = false;
             return;
         }
@@ -664,6 +691,20 @@ public class GpuCull {
      * Draw-Zahlen des (fence-bestätigt fertigen) Slots für die Statistik — reine Lesung aus
      * dem persistent gemappten Read-Ring, KEIN GL-Call (s. countReadBuffer-Kommentar).
      */
+    /** 1-s-Telemetrie: warum war die Occlusion je Frame (in)aktiv? null wenn keine Frames. */
+    public String telemetrieZeileUndReset() {
+        int gesamt = this.statActive + this.statInactive;
+        if (gesamt == 0) return null;
+        String line = "GpuCull-Occlusion: aktiv %d/%d (inaktiv: keinDepth %d, keinFbo %d, Sprung %d)".formatted(
+                this.statActive, gesamt, this.statNoDepth, this.statNoFbo, this.statJump);
+        this.statActive = 0;
+        this.statInactive = 0;
+        this.statNoDepth = 0;
+        this.statNoFbo = 0;
+        this.statJump = 0;
+        return line;
+    }
+
     public int[] readCounts(int frameSlot) {
         int base = frameSlot * COUNT_SLOT_BYTES;
         for (int i = 0; i < SEGMENTS; i++) {
@@ -729,6 +770,7 @@ public class GpuCull {
             uniform vec3 u_PrevCamFrac;
             uniform int u_HiZMips;
             uniform int u_StreakBase; // Basis der Descriptor-Art im Streak-Buffer
+            uniform int u_CullDebug;  // 1 = Verdeckt-Verdikte rot zeichnen statt cullen
 
             /* true = AABB ist durch die letzte Frame-Tiefe sicher verdeckt. Konservativ:
                Naeher-Ring, Near-Plane-Schnitt und Bildrand-Beruehrung gelten als sichtbar
@@ -817,18 +859,27 @@ public class GpuCull {
                    sichtbar -> ...) und flackern bei Kamerabewegung als ganze Regionen.
                    Frustum-Ausschluss loescht die Historie (konservativ beim Wiedereintritt);
                    die Slot-Generation (draw.z) entwertet geerbte Streaks bei Slot-Reuse. */
-                if (u_OcclusionEnabled != 0 && zulaessig) {
+                uint basisInstanz = 0u;
+                if (zulaessig) {
                     uint si = uint(u_StreakBase) + i;
                     uint gen = d.draw.z & 0xFFu;
                     uint alt = u_Streak[si];
                     uint zaehler = (alt >> 24) == gen ? (alt & 0xFFFFFFu) : 0u;
-                    if (sichtbar && istVerdeckt(d)) {
+                    if (u_OcclusionEnabled != 0 && sichtbar && istVerdeckt(d)) {
                         zaehler = min(zaehler + 1u, 255u);
                     } else {
+                        /* Auch bei INAKTIVER Occlusion loeschen: ein pro Frame kippendes
+                           Enable darf nie einen Streak ansammeln (fail-open statt Flackern). */
                         zaehler = 0u;
                     }
                     u_Streak[si] = (gen << 24) | zaehler;
-                    if (zaehler >= 4u) sichtbar = false;
+                    if (zaehler >= 4u) {
+                        if (u_CullDebug != 0) {
+                            basisInstanz = 1u; // Debug: zeichnen, der Vertex-Shader tintet rot
+                        } else {
+                            sichtbar = false;
+                        }
+                    }
                 }
 
                 /* Gecullt: Null-Command schreiben (count=0), NICHT einfach return — sonst
@@ -849,7 +900,7 @@ public class GpuCull {
                 u_Cmds[ci + 1u] = 1u;       // instanceCount
                 u_Cmds[ci + 2u] = 0u;       // firstIndex (geteilter EBO ab 0)
                 u_Cmds[ci + 3u] = d.draw.y; // baseVertex
-                u_Cmds[ci + 4u] = 0u;       // baseInstance
+                u_Cmds[ci + 4u] = basisInstanz; // 1 = Occlusion-Debug-Markierung (rot)
                 u_Offs[uint(u_OffBase) + i] = vec4(ox, float(d.ipos.w) - camY, oz, d.bounds.w);
             }
             """;
