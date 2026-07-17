@@ -10,6 +10,8 @@ import de.skyengine.utils.logging.Logger;
 import org.joml.Vector3d;
 import org.joml.Vector4f;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
+import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
@@ -45,15 +47,23 @@ public class GpuCull {
     /**
      * Laufzeit-Schalter (A/B-Vergleich); wirkt nur, wenn die Capabilities vorhanden sind.
      *
-     * <p>DEFAULT AUS (Stand 2026-07-17, RTX 4080): Der Pfad ist korrekt und nach der
-     * Spike-Diagnose fast paritätisch zum CPU-Cull (solid 55–61 vs. 58 µs, glsub 4–8 µs,
-     * keine GPU-Cull-Spikes mehr — gelöst durch (1) plain MDI mit Null-Commands statt
-     * glMultiDrawElementsIndirectCount, dessen Count-Lesung die Submission bis zum
-     * Pipeline-Leerlauf stallte, und (2) Statistik-Lesung über einen persistent gemappten
-     * Read-Ring statt glGetBufferSubData, das den Count-Buffer jeden Frame VIDEO↔HOST
-     * verschob). Verbleibende Kosten ~8 % FPS (Compute + Barrier ohne Occlusion-Nutzen) —
-     * einschalten, wenn Hi-Z (P4) den Pfad bezahlt; die Descriptor-/Gate-Pflege läuft
-     * immer mit, der Toggle greift daher sofort. */
+     * <p>DEFAULT AUS (Stand 2026-07-17, RTX 4080). Frustum-Teil ist nach der Spike-Diagnose
+     * paritätisch zum CPU-Cull (solid 55–61 vs. 58 µs, glsub 4–8 µs, keine Spikes — gelöst
+     * durch (1) plain MDI mit Null-Commands statt glMultiDrawElementsIndirectCount, dessen
+     * Count-Lesung die Submission bis zum Pipeline-Leerlauf stallte, und (2) Statistik über
+     * einen persistent gemappten Read-Ring statt glGetBufferSubData, das den Count-Buffer
+     * jeden Frame VIDEO↔HOST verschob).
+     *
+     * <p>Die Hi-Z-Occlusion (buildPyramid/istVerdeckt) funktioniert grundsätzlich (Spawn:
+     * sichtbare Draws 588→~330, solid ~40 µs), zeigt aber an Küsten-/Ozean-Szenen schnelles
+     * Flackern falsch geculleter Regionen — OFFEN. Zwei behobene Ursachen: Pyramide muss VOR
+     * dem Translucent-Pass gebaut werden (Wasser-Depth verdeckte den koplanaren Meeresboden)
+     * + 0.5-Block-AABB-Inflation gegen Jitter-Grenzfälle. HAUPTVERDACHT für den Rest: die
+     * Pyramide sampelt die Depth-Textur MITTEN im Frame, während sie Depth-Attachment des
+     * GEBUNDENEN Framebuffers ist — undefiniertes Verhalten (Feedback-Grauzone), passend zum
+     * zufälligen per-Frame-Flackern. Nächster Schritt (P4-Abschluss): Depth am Ende des
+     * Opaque-Passes per glBlitFramebuffer in eine EIGENE Textur kopieren und die Pyramide
+     * daraus bauen (oder FBO-Unbind + glTextureBarrier absichern), dann erneut verifizieren. */
     public static volatile boolean ENABLED = false;
 
     /* Segmente in Draw-Reihenfolge: Sections OPAQUE, Sections CUTOUT, LOD-Opaque L1..L5.
@@ -149,6 +159,21 @@ public class GpuCull {
         this.locCmdBase = this.compute.getUniformLocation("u_CmdBase");
         this.locOffBase = this.compute.getUniformLocation("u_OffBase");
         this.locCountIndex = this.compute.getUniformLocation("u_CountIndex");
+        this.locCullOcclusion = this.compute.getUniformLocation("u_OcclusionEnabled");
+        this.locCullHiZ = this.compute.getUniformLocation("u_HiZ");
+        this.locCullPrevViewProj = this.compute.getUniformLocation("u_PrevViewProj");
+        this.locCullPrevCamBlock = this.compute.getUniformLocation("u_PrevCamBlock");
+        this.locCullPrevCamFrac = this.compute.getUniformLocation("u_PrevCamFrac");
+        this.locCullHiZMips = this.compute.getUniformLocation("u_HiZMips");
+
+        this.hiZCopy = new ShaderProgram(new Shader(HIZ_COPY_SOURCE, ShaderType.COMPUTE));
+        this.locCopyDepth = this.hiZCopy.getUniformLocation("u_Depth");
+        this.hiZReduce = new ShaderProgram(new Shader(HIZ_REDUCE_SOURCE, ShaderType.COMPUTE));
+        this.locReduceSrcLevel = this.hiZReduce.getUniformLocation("u_SrcLevel");
+        /* Beide Pyramiden-Sampler lesen von Textur-Unit 2 (Unit 0 gehört dem TextureArray). */
+        this.hiZReduce.bind();
+        this.hiZReduce.setUniformi("u_Src", 2);
+        this.hiZReduce.unbind();
 
         this.descRing = new MappedRing("GpuCull DescRing",
                 SLOTS, MappedRing.align((long) DESC_KINDS * this.descCapacity * DESC_INTS * Integer.BYTES));
@@ -366,6 +391,27 @@ public class GpuCull {
         this.compute.setUniformVector3f(this.locCamFrac,
                 (float) (cam.x - cbx), (float) (cam.y - cby), (float) (cam.z - cbz));
 
+        /* Hi-Z-Occlusion: nur mit gültiger Pyramide UND ohne Kamera-Sprung seit deren Frame
+           (Teleport/F8 → ein Frame ungeculled, konservativ). Getestet wird mit Matrix/Kamera
+           des Pyramiden-Frames (1 Frame Latenz). */
+        double jx = cam.x - this.hiZCamX, jy = cam.y - this.hiZCamY, jz = cam.z - this.hiZCamZ;
+        boolean occlusion = this.hiZValid
+                && jx * jx + jy * jy + jz * jz < HIZ_MAX_CAM_JUMP * HIZ_MAX_CAM_JUMP;
+        this.compute.setUniformi(this.locCullOcclusion, occlusion ? 1 : 0);
+        if (occlusion) {
+            GL13.glActiveTexture(GL13.GL_TEXTURE2);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.hiZTexture);
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            this.compute.setUniformi(this.locCullHiZ, 2);
+            this.compute.setUniformi(this.locCullHiZMips, this.hiZMips);
+            this.compute.setUniformMatrix4f(this.locCullPrevViewProj, this.hiZViewProj);
+            int pbx = (int) Math.floor(this.hiZCamX), pby = (int) Math.floor(this.hiZCamY),
+                    pbz = (int) Math.floor(this.hiZCamZ);
+            GL20.glUniform3i(this.locCullPrevCamBlock, pbx, pby, pbz);
+            this.compute.setUniformVector3f(this.locCullPrevCamFrac,
+                    (float) (this.hiZCamX - pbx), (float) (this.hiZCamY - pby), (float) (this.hiZCamZ - pbz));
+        }
+
         GL30.glBindBufferRange(GL43.GL_SHADER_STORAGE_BUFFER, 5, this.cmdBuffer,
                 (long) frameSlot * this.cmdSlotBytes, this.cmdSlotBytes);
         GL30.glBindBufferRange(GL43.GL_SHADER_STORAGE_BUFFER, 6, this.offBuffer,
@@ -416,6 +462,89 @@ public class GpuCull {
     }
 
     private int lastDispatchSlot;
+
+    /* ------------------------- Hi-Z-Occlusion (P4) ------------------------- */
+
+    /* R32F-Pyramide über dem Szenen-Depth des VORHERIGEN Frames (Reversed-Z ⇒ MIN-Reduktion:
+       konservativ hält jede Zelle den am weitesten entfernten Wert ihres Fußabdrucks).
+       Der Cull-Compute testet AABBs mit der Matrix/Kamera des Pyramiden-Frames — 1 Frame
+       Latenz, konservativ abgesichert (Rand-/Near-/Sprung-Guards im Shader bzw. dispatch). */
+    private ShaderProgram hiZCopy, hiZReduce;
+    private int hiZTexture;
+    private int hiZWidth, hiZHeight, hiZMips;
+    private boolean hiZValid;
+    private final org.joml.Matrix4f hiZViewProj = new org.joml.Matrix4f();
+    private double hiZCamX, hiZCamY, hiZCamZ;
+    private int locCullOcclusion, locCullHiZ, locCullPrevViewProj, locCullPrevCamBlock,
+            locCullPrevCamFrac, locCullHiZMips;
+    private int locCopyDepth;
+    private int locReduceSrcLevel;
+
+    /** Maximale Kamerabewegung seit dem Pyramiden-Frame, bis Occlusion aussetzt (Teleport/F8). */
+    private static final double HIZ_MAX_CAM_JUMP = 48.0;
+
+    /**
+     * Baut die Depth-Pyramide aus dem fertigen Szenen-Depth (Aufruf NACH dem Resolve, Ende des
+     * Frames; {@code depthTexture} 0 = kein Depth-Texture-Pfad, z.B. MSAA an → Occlusion aus).
+     * Läuft GPU-seitig pipelined; die Matrix/Kamera dieses Frames wird für den Test im
+     * nächsten Frame gemerkt.
+     */
+    public void buildPyramid(int depthTexture, int width, int height, Camera camera) {
+        if (!this.isActive() || depthTexture == 0 || width <= 0 || height <= 0) {
+            this.hiZValid = false;
+            return;
+        }
+        if (this.hiZTexture == 0 || this.hiZWidth != width || this.hiZHeight != height) {
+            this.createHiZTexture(width, height);
+        }
+
+        /* Mip 0: Depth-Textur -> R32F. */
+        this.hiZCopy.bind();
+        GL13.glActiveTexture(GL13.GL_TEXTURE2);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, depthTexture);
+        this.hiZCopy.setUniformi(this.locCopyDepth, 2);
+        GL42.glBindImageTexture(0, this.hiZTexture, 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_R32F);
+        GL43.glDispatchCompute((width + 15) / 16, (height + 15) / 16, 1);
+
+        /* Reduktion: Level für Level MIN aus 2×2 (+ Rand-Klemmung bei ungeraden Größen). */
+        this.hiZReduce.bind();
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.hiZTexture);
+        int w = width, h = height;
+        for (int level = 1; level < this.hiZMips; level++) {
+            GL42.glMemoryBarrier(GL42.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL43.GL_TEXTURE_FETCH_BARRIER_BIT);
+            w = Math.max(1, w / 2);
+            h = Math.max(1, h / 2);
+            this.hiZReduce.setUniformi(this.locReduceSrcLevel, level - 1);
+            GL42.glBindImageTexture(0, this.hiZTexture, level, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_R32F);
+            GL43.glDispatchCompute((w + 15) / 16, (h + 15) / 16, 1);
+        }
+        this.hiZReduce.unbind();
+        GL13.glActiveTexture(GL13.GL_TEXTURE0);
+        GL42.glMemoryBarrier(GL43.GL_TEXTURE_FETCH_BARRIER_BIT);
+
+        this.hiZViewProj.set(camera.getProjectionViewMatrix());
+        Vector3d cam = camera.getPosition();
+        this.hiZCamX = cam.x;
+        this.hiZCamY = cam.y;
+        this.hiZCamZ = cam.z;
+        this.hiZValid = true;
+    }
+
+    private void createHiZTexture(int width, int height) {
+        if (this.hiZTexture != 0) GL11.glDeleteTextures(this.hiZTexture);
+        this.hiZWidth = width;
+        this.hiZHeight = height;
+        this.hiZMips = 32 - Integer.numberOfLeadingZeros(Math.max(width, height));
+        this.hiZTexture = GL11.glGenTextures();
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.hiZTexture);
+        GL42.glTexStorage2D(GL11.GL_TEXTURE_2D, this.hiZMips, GL30.GL_R32F, width, height);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST_MIPMAP_NEAREST);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL12.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL12.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+        GlDebug.labelTexture(this.hiZTexture, "GpuCull Hi-Z-Pyramide");
+        this.hiZValid = false;
+    }
 
     /* --- Draw-Parameter für den ChunkRenderer --- */
 
@@ -481,6 +610,9 @@ public class GpuCull {
         GL15.glDeleteBuffers(this.countBuffer);
         GL15.glDeleteBuffers(this.countReadBuffer);
         this.countReadMapped = null;
+        if (this.hiZTexture != 0) GL11.glDeleteTextures(this.hiZTexture);
+        if (this.hiZCopy != null) this.hiZCopy.dispose();
+        if (this.hiZReduce != null) this.hiZReduce.dispose();
     }
 
     /* ------------------------- Compute-Shader ------------------------- */
@@ -510,6 +642,60 @@ public class GpuCull {
             uniform int u_CmdBase;     // in Commands (5-uint-Schritte bereits eingerechnet)
             uniform int u_OffBase;     // in vec4s
             uniform int u_CountIndex;
+
+            /* Hi-Z-Occlusion: Pyramide + Matrix/Kamera des VORHERIGEN Frames. */
+            uniform int u_OcclusionEnabled;
+            uniform sampler2D u_HiZ;
+            uniform mat4 u_PrevViewProj;
+            uniform ivec3 u_PrevCamBlock;
+            uniform vec3 u_PrevCamFrac;
+            uniform int u_HiZMips;
+
+            /* true = AABB ist durch die letzte Frame-Tiefe sicher verdeckt. Konservativ:
+               Naeher-Ring, Near-Plane-Schnitt und Bildrand-Beruehrung gelten als sichtbar
+               (frisch hereinrotierte Bereiche haben keine gueltige Tiefe). Reversed-Z:
+               Objekt-Naechstpunkt (max ndc.z) < MIN-Pyramidenwert => verdeckt. */
+            bool istVerdeckt(DrawDesc d) {
+                float pox = float(d.ipos.x - u_PrevCamBlock.x) - u_PrevCamFrac.x;
+                float poz = float(d.ipos.y - u_PrevCamBlock.z) - u_PrevCamFrac.z;
+                float pcamY = float(u_PrevCamBlock.y) + u_PrevCamFrac.y;
+                /* AABB konservativ um 0.5 Bloecke aufblasen: entschaerft Koplanar-Grenzfaelle
+                   (Oberflaeche des Objekts == Pyramiden-Tiefe), die sonst an Subpixel-Jitter
+                   pro Frame kippen wuerden. */
+                vec3 mn = vec3(pox - 0.5, d.bounds.x - pcamY - 0.5, poz - 0.5);
+                vec3 mx = vec3(pox + d.bounds.z + 0.5, d.bounds.y - pcamY + 0.5, poz + d.bounds.z + 0.5);
+
+                /* Naeher-Ring immer zeichnen (Latenz-/Praezisions-Puffer). */
+                vec2 zentrum = vec2(pox + d.bounds.z * 0.5, poz + d.bounds.z * 0.5);
+                if (dot(zentrum, zentrum) < 96.0 * 96.0) return false;
+
+                vec2 uvMin = vec2(2.0);
+                vec2 uvMax = vec2(-1.0);
+                float maxZ = 0.0;
+                for (int c = 0; c < 8; c++) {
+                    vec3 ecke = vec3((c & 1) != 0 ? mx.x : mn.x,
+                                     (c & 2) != 0 ? mx.y : mn.y,
+                                     (c & 4) != 0 ? mx.z : mn.z);
+                    vec4 clip = u_PrevViewProj * vec4(ecke, 1.0);
+                    if (clip.w < 0.05) return false; // hinter/nahe der Kamera -> sichtbar
+                    vec2 uv = (clip.xy / clip.w) * 0.5 + 0.5;
+                    uvMin = min(uvMin, uv);
+                    uvMax = max(uvMax, uv);
+                    maxZ = max(maxZ, clip.z / clip.w);
+                }
+                /* Bildrand beruehrt: keine gueltige Tiefe dahinter -> sichtbar. */
+                if (uvMin.x < 0.0 || uvMin.y < 0.0 || uvMax.x > 1.0 || uvMax.y > 1.0) return false;
+
+                vec2 groesse = vec2(textureSize(u_HiZ, 0));
+                vec2 rectPx = (uvMax - uvMin) * groesse;
+                int level = clamp(int(ceil(log2(max(rectPx.x, rectPx.y) + 1.0))), 0, u_HiZMips - 1);
+                float d0 = textureLod(u_HiZ, uvMin, float(level)).r;
+                float d1 = textureLod(u_HiZ, vec2(uvMax.x, uvMin.y), float(level)).r;
+                float d2 = textureLod(u_HiZ, vec2(uvMin.x, uvMax.y), float(level)).r;
+                float d3 = textureLod(u_HiZ, uvMax, float(level)).r;
+                float minTiefe = min(min(d0, d1), min(d2, d3));
+                return maxZ < minTiefe;
+            }
 
             void main() {
                 uint i = gl_GlobalInvocationID.x;
@@ -543,6 +729,9 @@ public class GpuCull {
                         sichtbar = dot(pl.xyz, v) + pl.w >= 0.0;
                     }
                 }
+                if (sichtbar && u_OcclusionEnabled != 0 && istVerdeckt(d)) {
+                    sichtbar = false;
+                }
 
                 /* Gecullt: Null-Command schreiben (count=0), NICHT einfach return — sonst
                    zeichnen veraltete Slot-Inhalte des Ring-Slots Geister-Geometrie. */
@@ -564,6 +753,42 @@ public class GpuCull {
                 u_Cmds[ci + 3u] = d.draw.y; // baseVertex
                 u_Cmds[ci + 4u] = 0u;       // baseInstance
                 u_Offs[uint(u_OffBase) + i] = vec4(ox, float(d.ipos.w) - camY, oz, d.bounds.w);
+            }
+            """;
+
+    /* Mip 0 der Pyramide: Szenen-Depth (32F) 1:1 in die R32F-Pyramide kopieren. */
+    private static final String HIZ_COPY_SOURCE = """
+            #version 460 core
+            layout(local_size_x = 16, local_size_y = 16) in;
+            uniform sampler2D u_Depth;
+            layout(r32f, binding = 0) writeonly uniform image2D u_Dst;
+            void main() {
+                ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+                ivec2 size = imageSize(u_Dst);
+                if (p.x >= size.x || p.y >= size.y) return;
+                imageStore(u_Dst, p, vec4(texelFetch(u_Depth, p, 0).r));
+            }
+            """;
+
+    /* Eine Pyramiden-Stufe: MIN aus 2x2 des Quell-Levels (Reversed-Z: MIN = am weitesten
+       entfernt = konservativ fuer den Verdeckungstest). Rand-Klemmung fuer ungerade Groessen. */
+    private static final String HIZ_REDUCE_SOURCE = """
+            #version 460 core
+            layout(local_size_x = 16, local_size_y = 16) in;
+            uniform sampler2D u_Src;
+            uniform int u_SrcLevel;
+            layout(r32f, binding = 0) writeonly uniform image2D u_Dst;
+            void main() {
+                ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+                ivec2 dstSize = imageSize(u_Dst);
+                if (p.x >= dstSize.x || p.y >= dstSize.y) return;
+                ivec2 srcSize = textureSize(u_Src, u_SrcLevel);
+                ivec2 s = p * 2;
+                float d = texelFetch(u_Src, min(s, srcSize - 1), u_SrcLevel).r;
+                d = min(d, texelFetch(u_Src, min(s + ivec2(1, 0), srcSize - 1), u_SrcLevel).r);
+                d = min(d, texelFetch(u_Src, min(s + ivec2(0, 1), srcSize - 1), u_SrcLevel).r);
+                d = min(d, texelFetch(u_Src, min(s + ivec2(1, 1), srcSize - 1), u_SrcLevel).r);
+                imageStore(u_Dst, p, vec4(d));
             }
             """;
 }
