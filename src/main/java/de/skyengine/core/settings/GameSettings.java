@@ -58,6 +58,9 @@ public final class GameSettings {
     /* Distanz-Fog Richtung Clear-Color am Sichtweiten-Rand (dämpft Horizont-Flimmern,
        versteckt Far-Plane-Kante und LOD-Übergänge) */
     public boolean fog = true;
+    /* Kleinvegetation (Gras/Blumen/Pilze): Distanz in Chunks, ab der die Ausdünnung beginnt
+       (graduell per Pflanzen-Hash, komplett weg bei +50 %). 0 = keine Ausdünnung. */
+    public int vegetationDistance = 8;
     /* Heightmap-LOD jenseits der Render-Distanz (Fernsicht) */
     public boolean lodEnabled = true;
     /* Äußerste LOD-Reichweite in Chunks. Level ergeben sich automatisch: Level L endet bei
@@ -121,6 +124,7 @@ public final class GameSettings {
         this.anisotropicFiltering = Math.clamp(this.anisotropicFiltering, 1, 16);
         this.msaaSamples = Math.clamp(this.msaaSamples, 0, 16);
         this.lodMaxDistance = Math.clamp(this.lodMaxDistance, 8, 512);
+        this.vegetationDistance = Math.clamp(this.vegetationDistance, 0, 32);
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;
