@@ -97,6 +97,8 @@ public final class LodMesher {
     private int regionBaseX, regionBaseZ;      // Weltkoordinaten-Ursprung der Region
     private float minBottom, maxTop;           // absolut (fürs Frustum-AABB)
     private final float[] aoScratch = new float[4]; // wiederverwendet: P1,P2,P3,P4 pro Top-Quad
+    private final float[] aoFlatScratch = new float[4]; // Scratch für cellAoFlat (Merge-Kandidaten)
+    private boolean flatAo;                    // Fern-Level: AO pro Zelle abgeflacht (s. mesh)
 
     /* Optionaler Debug-Statistik-Sink: NUR vom LodQuadCensus gesetzt. In der laufenden Engine
        bleibt dies null (jede Zählung ist per if(stats != null) geguardet → kein Overhead, keine
@@ -256,6 +258,12 @@ public final class LodMesher {
            Live gelesen; der LodManager bumpt bei AO-Toggle die Epoche → alle Regionen neu. */
         boolean useAo = GameSettings.get().ambientOcclusion;
 
+        /* Fern-Level (äußerster Ring + Fern-Band): AO pro Zelle auf EINEN Wert abgeflacht
+           (Mittel der 4 Ecken, auf die AO-Leiter gerastet) — Eck-Varianz blockierte laut
+           Zensus ~40 % der Top-Merge-Kanten; bei 8+-Block-Zellen in Fog-Distanz ist das
+           Hillshading-Detail nicht mehr auflösbar. Innere Ringe bleiben unverändert. */
+        this.flatAo = level >= config.maxLevel();
+
         /* Debug: Merge-Grenzen der Terrain-Tops erfassen (ordnungsunabhängig, s. LodMeshStats). */
         if (this.stats != null) this.recordSeams(n, useAo);
 
@@ -274,7 +282,11 @@ public final class LodMesher {
                 float top = this.topOf(g);
                 float[] ao;
                 boolean uniform;
-                if (useAo) {
+                if (useAo && this.flatAo) {
+                    ao = this.aoScratch;
+                    ao[0] = ao[1] = ao[2] = ao[3] = this.cellAoFlat(cx, cz, top);
+                    uniform = true;
+                } else if (useAo) {
                     ao = this.aoScratch;
                     this.computeCellAo(cx, cz, top, ao);
                     uniform = ao[0] == ao[1] && ao[1] == ao[2] && ao[2] == ao[3];
@@ -287,7 +299,7 @@ public final class LodMesher {
                 if (uniform) {
                     while (cx + w < n && w < maxRun && !this.clipped[cz * n + cx + w]
                             && !this.consumed[cz * n + cx + w] && this.groundCell(cx + w, cz) == g
-                            && (!useAo || this.cellAoUniform(cx + w, cz, top, ao[0]))) w++;
+                            && (!useAo || this.aoMergeable(cx + w, cz, top, ao[0]))) w++;
 
                     /* Gleiches Sample ⇒ gleiche Oberkante — top gilt auch für die Kandidatenzeile */
                     expand:
@@ -295,7 +307,7 @@ public final class LodMesher {
                         for (int i = 0; i < w; i++) {
                             int j = (cz + h) * n + (cx + i);
                             if (this.clipped[j] || this.consumed[j] || this.groundCell(cx + i, cz + h) != g
-                                    || (useAo && !this.cellAoUniform(cx + i, cz + h, top, ao[0]))) {
+                                    || (useAo && !this.aoMergeable(cx + i, cz + h, top, ao[0]))) {
                                 break expand;
                             }
                         }
@@ -712,6 +724,24 @@ public final class LodMesher {
         out[3] = this.cornerAo(ownTop, cx + 1, cz, cx, cz - 1, cx + 1, cz - 1); // NE
     }
 
+    /** Merge-Kriterium je nach Modus: Fern-Level vergleichen den abgeflachten Zell-Wert. */
+    private boolean aoMergeable(int cx, int cz, float ownTop, float value) {
+        return this.flatAo ? this.cellAoFlat(cx, cz, ownTop) == value
+                : this.cellAoUniform(cx, cz, ownTop, value);
+    }
+
+    /**
+     * Zell-AO als EIN uniformer Wert: Mittel der 4 Ecken, auf die AO-Leiter (0.4 + k·0.2)
+     * gerastet. Identischer Ausdruck für Run-Start und Merge-Kandidaten → bitgleiche Floats,
+     * die ==-Vergleiche sind deterministisch.
+     */
+    private float cellAoFlat(int cx, int cz, float ownTop) {
+        this.computeCellAo(cx, cz, ownTop, this.aoFlatScratch);
+        float avg = (this.aoFlatScratch[0] + this.aoFlatScratch[1]
+                + this.aoFlatScratch[2] + this.aoFlatScratch[3]) * 0.25F;
+        return 0.4F + Math.round((avg - 0.4F) / 0.2F) * 0.2F;
+    }
+
     /** true, wenn alle 4 Ecken-AO-Werte der Zelle exakt {@code value} sind (Merge-Kriterium). */
     private boolean cellAoUniform(int cx, int cz, float ownTop, float value) {
         return this.cornerAo(ownTop, cx - 1, cz, cx, cz - 1, cx - 1, cz - 1) == value
@@ -755,6 +785,10 @@ public final class LodMesher {
                         continue;
                     }
                     float top = this.topOf(this.groundCell(cx, cz));
+                    if (this.flatAo) { // Statistik spiegelt die Fern-Level-Abflachung
+                        aoU[cz * n + cx] = this.cellAoFlat(cx, cz, top);
+                        continue;
+                    }
                     this.computeCellAo(cx, cz, top, tmp);
                     aoU[cz * n + cx] = (tmp[0] == tmp[1] && tmp[1] == tmp[2] && tmp[2] == tmp[3])
                             ? tmp[0] : Float.NaN;
