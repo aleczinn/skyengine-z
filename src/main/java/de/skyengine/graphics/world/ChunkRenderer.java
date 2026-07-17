@@ -23,6 +23,7 @@ import de.skyengine.graphics.texture.SpriteAnimations;
 import de.skyengine.graphics.texture.TextureArray;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
+import org.joml.FrustumIntersection;
 import org.joml.Vector3d;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
@@ -63,6 +64,25 @@ public class ChunkRenderer {
     /* sectionKey -> mesh, render thread only */
     private final Map<Long, SectionMesh> meshes = new HashMap<>();
 
+    /* Cull-Hierarchie: Chunk-Spalten-Index über den Section-Meshes. Erst das Spalten-AABB
+       (XZ der Spalte, [minSy,maxSy] der vorhandenen Sections) gegen das Frustum testen, nur
+       bei Schnitt die einzelnen Sections — spart den Großteil der testAab-Aufrufe (gemessen
+       war der flache Loop ~135 µs/Frame) und zieht das LOD-Sicht-Gate von pro-Section auf
+       pro-Spalte vor. Parallel-Index zu this.meshes: an ALLEN Mutationsstellen über
+       columnAdd/columnRemove mitpflegen (put/remove/Cleanup-Walk/dispose). */
+    private static final class CullColumn {
+        final int chunkX, chunkZ;
+        final SectionMesh[] sections = new SectionMesh[Chunk.SECTIONS];
+        int count, minSy, maxSy;
+
+        CullColumn(int chunkX, int chunkZ) {
+            this.chunkX = chunkX;
+            this.chunkZ = chunkZ;
+        }
+    }
+
+    private final Map<Long, CullColumn> cullColumns = new HashMap<>();
+
     /* Pro Frame neu befüllt: alle Sections, die den Frustum-Test bestanden haben */
     private final List<SectionMesh> visible = new ArrayList<>();
 
@@ -75,6 +95,28 @@ public class ChunkRenderer {
     private final Map<Long, LodMesh> lodMeshes = new HashMap<>();
     private final List<LodMesh> visibleLod = new ArrayList<>();
     private LodManager lodManager;
+
+    /* Cull-Hierarchie LOD: 4×4-Regionen-Kacheln (512 Blöcke) mit aggregiertem [minY,maxY] —
+       analog zum Spalten-Index (der flache Regionen-Loop war die größere Hälfte der Cull-Zeit).
+       Superregionen (sizeBlocks > REGION_BLOCKS, aktuell ruhender Pfad) passen nicht sicher in
+       eine Kachel und werden separat flach getestet. Pflege über lodTileAdd/lodTileRemove. */
+    private static final class LodTile {
+        final int tx, tz;
+        final List<LodMesh> members = new ArrayList<>();
+        float minY, maxY;
+
+        LodTile(int tx, int tz) {
+            this.tx = tx;
+            this.tz = tz;
+        }
+    }
+
+    private static final int LOD_TILE_SHIFT = 2; // 4×4 Regionen = 512 Blöcke Kachelkante
+    private final Map<Long, LodTile> lodTiles = new HashMap<>();
+    private final List<LodMesh> lodOversize = new ArrayList<>();
+
+    /* Sichtbare LOD-Regionen mit Translucent-Anteil (pro Frame, aus dem Kachel-Cull). */
+    private final List<LodMesh> visibleLodTranslucent = new ArrayList<>();
 
     private static final int MAX_LOD_UPLOADS_PER_FRAME = 4;
 
@@ -327,6 +369,7 @@ public class ChunkRenderer {
                 if (!this.chunkManager.getChunks().containsKey(Chunk.key(mesh.chunkX, mesh.chunkZ))) {
                     mesh.dispose(this.arenas, this.frameId);
                     it.remove();
+                    this.columnRemove(mesh);
                 }
             }
         }
@@ -343,6 +386,7 @@ public class ChunkRenderer {
                 if (!this.lodManager.isDesiredKey(entry.getKey())) {
                     entry.getValue().dispose(lodOpaqueArena, lodTranslucentArena, this.frameId);
                     lit.remove();
+                    this.lodTileRemove(entry.getValue());
                 }
             }
         }
@@ -357,44 +401,60 @@ public class ChunkRenderer {
 
         this.visible.clear();
         this.translucentVisible.clear();
+        this.visibleLodTranslucent.clear();
         this.totalSections = this.meshes.size();
 
         int opaqueDraws = 0, cutoutDraws = 0;
-        for (SectionMesh mesh : this.meshes.values()) {
-            /* Sicht-Gate: solange ein hochgeladenes LOD-Mesh die Zelle noch ungeclippt zeigt,
-               Chunk-Sections NICHT zeichnen — applyLodResults lief oben im selben Frame, das
-               geclippte LOD und der Chunk erscheinen/verschwinden also im SELBEN Frame
-               (atomarer Swap statt Doppelbild an der Ladefront). Versteckt auch
-               teil-hochgeladene Chunks (kein progressiver Teil-Pop). */
-            if (this.lodManager != null && this.lodManager.lodShowsCell(mesh.chunkX, mesh.chunkZ)) continue;
-
-            float ox = offsetX(mesh, cam);
-            float oy = offsetY(mesh, cam);
-            float oz = offsetZ(mesh, cam);
-
-            if (!camera.getFrustum().testAab(ox, oy, oz, ox + size, oy + size, oz + size)) continue;
-            this.visible.add(mesh);
-            if (mesh.hasLayer(RenderLayer.OPAQUE)) opaqueDraws++;
-            if (mesh.hasLayer(RenderLayer.CUTOUT)) cutoutDraws++;
-            if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) this.translucentVisible.add(mesh);
-        }
-        this.renderedSections = this.visible.size();
-
-        /* 4b. LOD-Regionen: Frustum-Test über das Regionen-AABB (sizeBlocks x [minY,maxY]) */
         boolean lodSplit = FrameProfiler.isEnabled();
         this.visibleLod.clear();
         if (lodSplit) {
             for (int l = 1; l <= MAX_LOD_LEVELS; l++) this.visibleLodByLevel[l].clear();
         }
-        for (LodMesh mesh : this.lodMeshes.values()) {
-            float ox = (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x);
-            float oz = (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z);
-            float y0 = (float) (mesh.minY - cam.y);
-            float y1 = (float) (mesh.maxY - cam.y);
-            if (!camera.getFrustum().testAab(ox, y0, oz,
-                    ox + mesh.sizeBlocks, y1, oz + mesh.sizeBlocks)) continue;
-            this.visibleLod.add(mesh);
-            if (lodSplit) this.visibleLodByLevel[mesh.level].add(mesh);
+        FrustumIntersection frustum = camera.getFrustum();
+        for (CullColumn col : this.cullColumns.values()) {
+            /* Sicht-Gate: solange ein hochgeladenes LOD-Mesh die Zelle noch ungeclippt zeigt,
+               Chunk-Sections NICHT zeichnen — applyLodResults lief oben im selben Frame, das
+               geclippte LOD und der Chunk erscheinen/verschwinden also im SELBEN Frame
+               (atomarer Swap statt Doppelbild an der Ladefront). Versteckt auch
+               teil-hochgeladene Chunks (kein progressiver Teil-Pop). Pro Spalte statt
+               pro Section — die Zelle ist ohnehin spaltenweit. */
+            if (this.lodManager != null && this.lodManager.lodShowsCell(col.chunkX, col.chunkZ)) continue;
+
+            /* Spalten-AABB zuerst: nur bei Schnitt die einzelnen Sections testen. */
+            float ox = (float) (((long) col.chunkX << ChunkSection.SHIFT) - cam.x);
+            float oz = (float) (((long) col.chunkZ << ChunkSection.SHIFT) - cam.z);
+            float cy0 = (float) (((long) col.minSy << ChunkSection.SHIFT) - cam.y);
+            float cy1 = (float) (((long) (col.maxSy + 1) << ChunkSection.SHIFT) - cam.y);
+            if (!frustum.testAab(ox, cy0, oz, ox + size, cy1, oz + size)) continue;
+
+            for (int sy = col.minSy; sy <= col.maxSy; sy++) {
+                SectionMesh mesh = col.sections[sy];
+                if (mesh == null) continue;
+                float oy = offsetY(mesh, cam);
+                if (!frustum.testAab(ox, oy, oz, ox + size, oy + size, oz + size)) continue;
+                this.visible.add(mesh);
+                if (mesh.hasLayer(RenderLayer.OPAQUE)) opaqueDraws++;
+                if (mesh.hasLayer(RenderLayer.CUTOUT)) cutoutDraws++;
+                if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) this.translucentVisible.add(mesh);
+            }
+        }
+        this.renderedSections = this.visible.size();
+
+        /* 4b. LOD-Regionen: Kachel-AABB zuerst, dann Regionen (nur CPU-Pfad). */
+        int tileBlocks = LodMesher.REGION_BLOCKS << LOD_TILE_SHIFT;
+        for (LodTile tile : this.lodTiles.values()) {
+            /* Kachel-AABB zuerst (4×4 Regionen, aggregiertes [minY,maxY]). */
+            float tx = (float) (((long) tile.tx << LOD_TILE_SHIFT) * LodMesher.REGION_BLOCKS - cam.x);
+            float tz = (float) (((long) tile.tz << LOD_TILE_SHIFT) * LodMesher.REGION_BLOCKS - cam.z);
+            if (!frustum.testAab(tx, (float) (tile.minY - cam.y), tz,
+                    tx + tileBlocks, (float) (tile.maxY - cam.y), tz + tileBlocks)) continue;
+            for (int i = 0; i < tile.members.size(); i++) {
+                this.cullLodMesh(tile.members.get(i), frustum, cam, lodSplit);
+            }
+        }
+        /* Superregionen (ruhender Pfad) passen nicht sicher in eine Kachel → flach testen. */
+        for (int i = 0; i < this.lodOversize.size(); i++) {
+            this.cullLodMesh(this.lodOversize.get(i), frustum, cam, lodSplit);
         }
         int lodDraws = this.visibleLod.size();
 
@@ -410,6 +470,7 @@ public class ChunkRenderer {
            (tatsächlich nur der Teil mit hasTranslucent() — exakte Zählung lohnt hier nicht,
            die Ringe wachsen ohnehin nur bei echtem Bedarf). */
         int translucentDraws = this.translucentVisible.size();
+        int lodTDraws = this.visibleLodTranslucent.size();
         /* Im Split-Modus ist jedes per-Level-Sub-Segment einzeln aligned (SSBO-Offset-
            Anforderung) -> Kapazität als Summe der aligned Level-Segmente rechnen. */
         long lodCmdCap, lodOffCap;
@@ -430,13 +491,13 @@ public class ChunkRenderer {
                         + lodCmdCap
                         + MappedRing.align((long) cutoutDraws * COMMAND_BYTES)
                         + MappedRing.align((long) translucentDraws * COMMAND_BYTES)
-                        + MappedRing.align((long) lodDraws * COMMAND_BYTES));
+                        + MappedRing.align((long) lodTDraws * COMMAND_BYTES));
         this.offsetRing.ensureSlotCapacity(
                 MappedRing.align((long) opaqueDraws * OFFSET_BYTES)
                         + lodOffCap
                         + MappedRing.align((long) cutoutDraws * OFFSET_BYTES)
                         + MappedRing.align((long) translucentDraws * OFFSET_BYTES)
-                        + MappedRing.align((long) lodDraws * OFFSET_BYTES));
+                        + MappedRing.align((long) lodTDraws * OFFSET_BYTES));
 
         /* 6. Command-/Offset-Segmente für OPAQUE und CUTOUT schreiben */
         FrameProfiler.cpuStart(FrameProfiler.Cpu.WRITE);
@@ -664,7 +725,10 @@ public class ChunkRenderer {
             long key = sectionKey(result.chunkX(), result.sectionY(), result.chunkZ());
 
             SectionMesh old = this.meshes.remove(key);
-            if (old != null) old.dispose(this.arenas, this.frameId);
+            if (old != null) {
+                old.dispose(this.arenas, this.frameId);
+                this.columnRemove(old);
+            }
 
             /* Späte Batches entladener Chunks verwerfen (chunk == null): der Cleanup-Walk in
                Schritt 3 läuft nur noch bei Removal-Version-Wechsel — ein danach eingefügtes
@@ -672,6 +736,7 @@ public class ChunkRenderer {
             if (chunk != null && result.data() != null && !result.data().isEmpty()) {
                 SectionMesh mesh = new SectionMesh(result.chunkX(), result.sectionY(), result.chunkZ(), result.data(), this.arenas);
                 this.meshes.put(key, mesh);
+                this.columnAdd(mesh);
                 this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.maxQuads());
             }
         }
@@ -707,13 +772,17 @@ public class ChunkRenderer {
 
             long key = LodManager.key(result.rx(), result.rz());
             LodMesh old = this.lodMeshes.remove(key);
-            if (old != null) old.dispose(opaqueArena, translucentArena, this.frameId);
+            if (old != null) {
+                old.dispose(opaqueArena, translucentArena, this.frameId);
+                this.lodTileRemove(old);
+            }
 
             if (result.opaqueData().length > 0 || result.translucentData().length > 0) {
                 LodMesh mesh = new LodMesh(result.rx(), result.rz(), result.level(), result.sizeRegions(),
                         result.yBase(), result.opaqueData(), result.translucentData(), result.minY(), result.maxY(),
                         opaqueArena, translucentArena);
                 this.lodMeshes.put(key, mesh);
+                this.lodTileAdd(mesh);
                 this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.maxQuads());
                 uploads++;
             }
@@ -788,9 +857,8 @@ public class ChunkRenderer {
         int cmdBase = (int) (cmdSegBytes / Integer.BYTES);
         int offBase = (int) (offSegBytes / Float.BYTES);
         int n = 0;
-        for (int i = 0; i < this.visibleLod.size(); i++) {
-            LodMesh mesh = this.visibleLod.get(i);
-            if (!mesh.hasTranslucent()) continue;
+        for (int i = 0; i < this.visibleLodTranslucent.size(); i++) {
+            LodMesh mesh = this.visibleLodTranslucent.get(i);
 
             int ci = cmdBase + n * 5;
             cmds.put(ci, mesh.indexCountTranslucent());        // count
@@ -989,6 +1057,95 @@ public class ChunkRenderer {
         return (float) (((long) mesh.chunkZ << ChunkSection.SHIFT) - cam.z);
     }
 
+    /* ------------------------- Cull-Index-Pflege (Spalten/Kacheln) ------------------------- */
+
+    private CullColumn columnAdd(SectionMesh mesh) {
+        CullColumn col = this.cullColumns.computeIfAbsent(Chunk.key(mesh.chunkX, mesh.chunkZ),
+                k -> new CullColumn(mesh.chunkX, mesh.chunkZ));
+        if (col.sections[mesh.sectionY] == null) col.count++;
+        col.sections[mesh.sectionY] = mesh;
+        if (col.count == 1) {
+            col.minSy = mesh.sectionY;
+            col.maxSy = mesh.sectionY;
+        } else {
+            col.minSy = Math.min(col.minSy, mesh.sectionY);
+            col.maxSy = Math.max(col.maxSy, mesh.sectionY);
+        }
+        return col;
+    }
+
+    private void columnRemove(SectionMesh mesh) {
+        long key = Chunk.key(mesh.chunkX, mesh.chunkZ);
+        CullColumn col = this.cullColumns.get(key);
+        if (col == null || col.sections[mesh.sectionY] == null) return;
+        col.sections[mesh.sectionY] = null;
+        if (--col.count == 0) {
+            this.cullColumns.remove(key);
+            return;
+        }
+        /* min/max nur bei Entfernung neu bestimmen (16 Slots, selten) */
+        int lo = Chunk.SECTIONS, hi = -1;
+        for (int sy = 0; sy < Chunk.SECTIONS; sy++) {
+            if (col.sections[sy] != null) {
+                if (sy < lo) lo = sy;
+                hi = sy;
+            }
+        }
+        col.minSy = lo;
+        col.maxSy = hi;
+    }
+
+    /** Frustum-Test + Sichtbar-Listen für ein einzelnes LOD-Mesh (aus Kachel- oder Flach-Pfad). */
+    private void cullLodMesh(LodMesh mesh, FrustumIntersection frustum, Vector3d cam, boolean lodSplit) {
+        float ox = (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x);
+        float oz = (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z);
+        float y0 = (float) (mesh.minY - cam.y);
+        float y1 = (float) (mesh.maxY - cam.y);
+        if (!frustum.testAab(ox, y0, oz, ox + mesh.sizeBlocks, y1, oz + mesh.sizeBlocks)) return;
+        this.visibleLod.add(mesh);
+        if (mesh.hasTranslucent()) this.visibleLodTranslucent.add(mesh);
+        if (lodSplit) this.visibleLodByLevel[mesh.level].add(mesh);
+    }
+
+    private void lodTileAdd(LodMesh mesh) {
+        if (mesh.sizeBlocks > LodMesher.REGION_BLOCKS) {
+            this.lodOversize.add(mesh);
+            return;
+        }
+        LodTile tile = this.lodTiles.computeIfAbsent(
+                LodManager.key(mesh.rx >> LOD_TILE_SHIFT, mesh.rz >> LOD_TILE_SHIFT),
+                k -> new LodTile(mesh.rx >> LOD_TILE_SHIFT, mesh.rz >> LOD_TILE_SHIFT));
+        tile.members.add(mesh);
+        if (tile.members.size() == 1) {
+            tile.minY = mesh.minY;
+            tile.maxY = mesh.maxY;
+        } else {
+            tile.minY = Math.min(tile.minY, mesh.minY);
+            tile.maxY = Math.max(tile.maxY, mesh.maxY);
+        }
+    }
+
+    private void lodTileRemove(LodMesh mesh) {
+        if (mesh.sizeBlocks > LodMesher.REGION_BLOCKS) {
+            this.lodOversize.remove(mesh);
+            return;
+        }
+        long key = LodManager.key(mesh.rx >> LOD_TILE_SHIFT, mesh.rz >> LOD_TILE_SHIFT);
+        LodTile tile = this.lodTiles.get(key);
+        if (tile == null || !tile.members.remove(mesh)) return;
+        if (tile.members.isEmpty()) {
+            this.lodTiles.remove(key);
+            return;
+        }
+        float lo = Float.MAX_VALUE, hi = -Float.MAX_VALUE;
+        for (LodMesh m : tile.members) {
+            if (m.minY < lo) lo = m.minY;
+            if (m.maxY > hi) hi = m.maxY;
+        }
+        tile.minY = lo;
+        tile.maxY = hi;
+    }
+
     private static double distanceSq(SectionMesh mesh, Vector3d cam) {
         double cx = ((long) mesh.chunkX << ChunkSection.SHIFT) + ChunkSection.SIZE / 2.0 - cam.x;
         double cy = ((long) mesh.sectionY << ChunkSection.SHIFT) + ChunkSection.SIZE / 2.0 - cam.y;
@@ -1003,10 +1160,13 @@ public class ChunkRenderer {
     public void dispose() {
         for (SectionMesh mesh : this.meshes.values()) mesh.dispose(this.arenas, this.frameId);
         this.meshes.clear();
+        this.cullColumns.clear();
         for (LodMesh mesh : this.lodMeshes.values()) {
             mesh.dispose(this.arenas[LOD_OPAQUE], this.arenas[LOD_TRANSLUCENT], this.frameId);
         }
         this.lodMeshes.clear();
+        this.lodTiles.clear();
+        this.lodOversize.clear();
         for (long fence : this.fences) {
             if (fence != 0L) GL32.glDeleteSync(fence);
         }
