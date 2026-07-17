@@ -32,7 +32,6 @@ import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL32;
 import org.lwjgl.opengl.GL40;
 import org.lwjgl.opengl.GL43;
-import org.lwjgl.opengl.GL46;
 
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
@@ -479,7 +478,13 @@ public class ChunkRenderer {
                 if (!frustum.testAab(ox, oy, oz, ox + size, oy + size, oz + size)) continue;
                 this.visibleDetail.add(mesh);
             }
+            /* TEMP (P4-Spike-Diagnose) */
+            long dbgDispatch = System.nanoTime();
             this.gpuCull.dispatch(this.frameSlot, camera);
+            long dbgDispatchDauer = System.nanoTime() - dbgDispatch;
+            if (dbgDispatchDauer > 5_000_000L) {
+                this.logger.debug("GPU-Cull-SPIKE dispatch: " + dbgDispatchDauer / 1000 + "us");
+            }
         } else {
         for (CullColumn col : this.cullColumns.values()) {
             /* Sicht-Gate: solange ein hochgeladenes LOD-Mesh die Zelle noch ungeclippt zeigt,
@@ -624,13 +629,20 @@ public class ChunkRenderer {
         /* 7. Render-Pässe: opaque & cutout (Alpha-Test bei 0.5) — je EIN Draw-Call.
            u_Textures ist einmalig gesetzt (init); Fog lädt nur bei Wertänderung hoch. */
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GLSUB);
+        /* TEMP (P4-Spike-Diagnose): feinkörnige Zeitmessung im GPU-Pfad — wird nach der
+           Ursachen-Klärung wieder entfernt. */
+        long dbgT0 = gpu ? System.nanoTime() : 0L;
+        long dbgBarrier = 0, dbgSolid = 0, dbgLod = 0;
         this.shader.bind();
         this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
         this.setFogUniforms();
         this.textures.bind(0);
 
         /* GPU-Pfad: Compute-Ergebnisse (Commands/Offsets/Counts) vor den Draws sichtbar machen. */
-        if (gpu) this.gpuCull.barrier();
+        if (gpu) {
+            this.gpuCull.barrier();
+            dbgBarrier = System.nanoTime();
+        }
 
         this.shader.setUniformf(this.locAlphaCutoff, 0.5F);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.SOLID);
@@ -640,6 +652,7 @@ public class ChunkRenderer {
             this.drawSegment(RenderLayer.OPAQUE.ordinal(), cmdOpaque, offOpaque, nOpaque);
         }
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.SOLID);
+        if (gpu) dbgSolid = System.nanoTime();
         if (gpu) {
             /* Immer per Level (eigene Count-Segmente): per-Level-GPU-Queries bleiben möglich,
                leere Level werden über den CPU-bekannten Descriptor-Zähler übersprungen. */
@@ -649,6 +662,7 @@ public class ChunkRenderer {
                 this.drawLodSegmentGpu(LOD_OPAQUE, GpuCull.SEG_LOD_BASE + l - 1);
                 FrameProfiler.gpuEnd(LOD_LEVEL_GPU[l]);
             }
+            dbgLod = System.nanoTime();
         } else if (lodSplit) {
             for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
                 if (this.lodLvlN[l] == 0) continue;
@@ -699,6 +713,17 @@ public class ChunkRenderer {
         }
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.CUTOUT);
         GL11.glDepthFunc(properties.baseDepthFunc());
+
+        /* TEMP (P4-Spike-Diagnose): Aufschlüsselung loggen, wenn die Submission stallt. */
+        if (gpu) {
+            long dbgEnd = System.nanoTime();
+            if (dbgEnd - dbgT0 > 5_000_000L) {
+                this.logger.debug("GPU-Cull-SPIKE glsub: gesamt=%dus vorlauf+barrier=%dus solid=%dus lod=%dus cutout+detail=%dus"
+                        .formatted((dbgEnd - dbgT0) / 1000, (dbgBarrier - dbgT0) / 1000,
+                                (dbgSolid - dbgBarrier) / 1000, (dbgLod - dbgSolid) / 1000,
+                                (dbgEnd - dbgLod) / 1000));
+            }
+        }
 
         this.shader.unbind();
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GLSUB);
@@ -804,7 +829,7 @@ public class ChunkRenderer {
             for (VertexArena arena : this.arenas) arena.collect(completed);
 
             /* GPU-Cull: Draw-Zahlen des fence-bestätigt fertigen Slots für die Statistik
-               (Fenstertitel) — winzige Lesung, die GPU ist mit dem Slot garantiert durch. */
+               (Fenstertitel) — reine Lesung aus dem gemappten Read-Ring, kein GL-Call. */
             if (this.gpuCull.isActive()) {
                 this.renderedSections = this.gpuCull.readCounts(this.frameSlot)[GpuCull.SEG_OPAQUE];
             }
@@ -1090,20 +1115,22 @@ public class ChunkRenderer {
     }
 
     /**
-     * GPU-Cull-Variante von {@link #drawSegment}: Commands/Offsets kommen aus den vom
-     * Compute-Pass kompaktierten GpuCull-Puffern, die Draw-Zahl per IndirectCount aus dem
-     * Count-Buffer (GL_PARAMETER_BUFFER) — die CPU kennt sie nie.
+     * GPU-Cull-Variante von {@link #drawSegment}: Commands/Offsets kommen aus dem Compute-Pass
+     * (Slot = Descriptor-Index, gecullte Slots = Null-Commands), gezeichnet wird mit normalem
+     * glMultiDrawElementsIndirect und CPU-bekannter Draw-Zahl. BEWUSST kein
+     * glMultiDrawElementsIndirectCount: dessen Count-Buffer-Lesung stallte die Submission im
+     * Treiber bis zum Pipeline-Leerlauf (gemessen 76–114 ms bei Upload-Bursts; Null-Draws
+     * sind dagegen fast gratis — Superregionen-Messung).
      */
     private void drawSegmentGpu(int slot, int segment) {
+        int drawCount = this.gpuCull.drawCount(segment);
+        if (drawCount == 0) return;
         GL30.glBindVertexArray(this.vaos[slot]);
         GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, this.gpuCull.getCommandBuffer());
-        GL15.glBindBuffer(GL46.GL_PARAMETER_BUFFER, this.gpuCull.getCountBuffer());
         GL30.glBindBufferRange(GL43.GL_SHADER_STORAGE_BUFFER, 0, this.gpuCull.getOffsetBuffer(),
                 this.gpuCull.offsetOffset(this.frameSlot, segment), this.gpuCull.offsetBytes(segment));
-        GL46.glMultiDrawElementsIndirectCount(GL11.GL_TRIANGLES, GL11.GL_UNSIGNED_INT,
-                this.gpuCull.commandOffset(this.frameSlot, segment),
-                this.gpuCull.countOffset(this.frameSlot, segment),
-                this.gpuCull.maxDraws(segment), 0);
+        GL43.glMultiDrawElementsIndirect(GL11.GL_TRIANGLES, GL11.GL_UNSIGNED_INT,
+                this.gpuCull.commandOffset(this.frameSlot, segment), drawCount, 0);
         GL30.glBindVertexArray(0);
     }
 
