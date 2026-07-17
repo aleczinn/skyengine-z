@@ -16,6 +16,9 @@ public class SectionMesh {
 
     public final int chunkX, sectionY, chunkZ;
 
+    /* Descriptor-Slots im GPU-Cull-Substrat (-1 = nicht registriert), gepflegt vom ChunkRenderer. */
+    int gpuSlotOpaque = -1, gpuSlotCutout = -1;
+
     /** Ints pro Quad: 4 Vertices à VERTEX_SIZE (gepacktes Format, siehe ChunkMesher). */
     private static final int QUAD_INTS = 4 * ChunkMesher.VERTEX_SIZE;
 

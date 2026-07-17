@@ -32,6 +32,7 @@ import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL32;
 import org.lwjgl.opengl.GL40;
 import org.lwjgl.opengl.GL43;
+import org.lwjgl.opengl.GL46;
 
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
@@ -74,6 +75,7 @@ public class ChunkRenderer {
         final int chunkX, chunkZ;
         final SectionMesh[] sections = new SectionMesh[Chunk.SECTIONS];
         int count, minSy, maxSy;
+        int gateSlot = -1; // Sicht-Gate-Slot im GPU-Cull-Substrat (pro Spalte)
 
         CullColumn(int chunkX, int chunkZ) {
             this.chunkX = chunkX;
@@ -88,6 +90,15 @@ public class ChunkRenderer {
 
     /* Teilmenge von visible mit TRANSLUCENT-Layer - nur diese werden back-to-front sortiert */
     private final List<SectionMesh> translucentVisible = new ArrayList<>();
+
+    /* Alle Meshes mit TRANSLUCENT-Layer (Mitgliedschafts-Hooks in applyBatch/Cleanup):
+       im GPU-Cull-Pfad entfällt der große Section-Loop, Translucent bleibt aber CPU
+       (Sortierung braucht CPU-Reihenfolge) — dafür reicht diese kleine Liste. */
+    private final List<SectionMesh> translucentMeshes = new ArrayList<>();
+
+    /* GPU-Cull-Substrat (P3): Compute-Frustum + Command-Kompaktierung + IndirectCount für
+       OPAQUE/CUTOUT/LOD-OPAQUE. CPU-Pfad bleibt vollständig erhalten (Fallback + A/B). */
+    private final GpuCull gpuCull = new GpuCull();
 
     /* --- Heightmap-LOD: zusätzliche Draws im OPAQUE-Segment (gleiche Arena, gleicher Shader) --- */
 
@@ -115,8 +126,10 @@ public class ChunkRenderer {
     private final Map<Long, LodTile> lodTiles = new HashMap<>();
     private final List<LodMesh> lodOversize = new ArrayList<>();
 
-    /* Sichtbare LOD-Regionen mit Translucent-Anteil (pro Frame, aus dem Kachel-Cull). */
+    /* Sichtbare LOD-Regionen mit Translucent-Anteil (pro Frame): im CPU-Pfad aus dem
+       Kachel-Cull befüllt, im GPU-Pfad aus lodTranslucentMeshes (Kleinstmenge, flach). */
     private final List<LodMesh> visibleLodTranslucent = new ArrayList<>();
+    private final List<LodMesh> lodTranslucentMeshes = new ArrayList<>();
 
     private static final int MAX_LOD_UPLOADS_PER_FRAME = 4;
 
@@ -311,6 +324,9 @@ public class ChunkRenderer {
         this.commandRing = new MappedRing("MDI CommandRing", SLOTS, 3 * MappedRing.align(16384L * COMMAND_BYTES));
         this.offsetRing = new MappedRing("MDI OffsetRing", SLOTS, 3 * MappedRing.align(16384L * OFFSET_BYTES));
 
+        /* GPU-Cull-Substrat (P3): ohne IndirectCount-Capability bleibt alles im CPU-Pfad. */
+        this.gpuCull.init(properties.isSourceIndirectDrawCallCountFromBuffer());
+
         this.logger.info("MDI-Renderer: Arenen " + (this.arenas[0].getCapacity() >> 20) + "/"
                 + (this.arenas[1].getCapacity() >> 20) + "/" + (this.arenas[2].getCapacity() >> 20)
                 + " MB (Sections), " + (this.arenas[LOD_OPAQUE].getCapacity() >> 20) + "/"
@@ -369,7 +385,7 @@ public class ChunkRenderer {
                 if (!this.chunkManager.getChunks().containsKey(Chunk.key(mesh.chunkX, mesh.chunkZ))) {
                     mesh.dispose(this.arenas, this.frameId);
                     it.remove();
-                    this.columnRemove(mesh);
+                    this.unregisterSectionMesh(mesh);
                 }
             }
         }
@@ -384,9 +400,11 @@ public class ChunkRenderer {
             while (lit.hasNext()) {
                 Map.Entry<Long, LodMesh> entry = lit.next();
                 if (!this.lodManager.isDesiredKey(entry.getKey())) {
-                    entry.getValue().dispose(lodOpaqueArena, lodTranslucentArena, this.frameId);
+                    LodMesh mesh = entry.getValue();
+                    mesh.dispose(lodOpaqueArena, lodTranslucentArena, this.frameId);
                     lit.remove();
-                    this.lodTileRemove(entry.getValue());
+                    this.unregisterLodMesh(mesh);
+                    this.refreshGateForRegion(mesh.rx, mesh.rz, mesh.sizeBlocks / LodMesher.REGION_BLOCKS);
                 }
             }
         }
@@ -399,6 +417,7 @@ public class ChunkRenderer {
 
         FrameProfiler.cpuStart(FrameProfiler.Cpu.CULL);
 
+        boolean gpu = this.gpuCull.isActive();
         this.visible.clear();
         this.translucentVisible.clear();
         this.visibleLodTranslucent.clear();
@@ -411,6 +430,29 @@ public class ChunkRenderer {
             for (int l = 1; l <= MAX_LOD_LEVELS; l++) this.visibleLodByLevel[l].clear();
         }
         FrustumIntersection frustum = camera.getFrustum();
+        if (gpu) {
+            /* GPU-Pfad: OPAQUE/CUTOUT/LOD-OPAQUE cullt der Compute-Pass (Dispatch unten) —
+               die CPU testet nur die kleinen Translucent-Mengen, deren Sortierung
+               CPU-Reihenfolge braucht. Das Sicht-Gate gilt hier wie im Spalten-Loop. */
+            for (int i = 0; i < this.translucentMeshes.size(); i++) {
+                SectionMesh mesh = this.translucentMeshes.get(i);
+                if (this.lodManager != null && this.lodManager.lodShowsCell(mesh.chunkX, mesh.chunkZ)) continue;
+                float ox = offsetX(mesh, cam);
+                float oy = offsetY(mesh, cam);
+                float oz = offsetZ(mesh, cam);
+                if (!frustum.testAab(ox, oy, oz, ox + size, oy + size, oz + size)) continue;
+                this.translucentVisible.add(mesh);
+            }
+            for (int i = 0; i < this.lodTranslucentMeshes.size(); i++) {
+                LodMesh mesh = this.lodTranslucentMeshes.get(i);
+                float ox = (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x);
+                float oz = (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z);
+                if (!frustum.testAab(ox, (float) (mesh.minY - cam.y), oz,
+                        ox + mesh.sizeBlocks, (float) (mesh.maxY - cam.y), oz + mesh.sizeBlocks)) continue;
+                this.visibleLodTranslucent.add(mesh);
+            }
+            this.gpuCull.dispatch(this.frameSlot, camera);
+        } else {
         for (CullColumn col : this.cullColumns.values()) {
             /* Sicht-Gate: solange ein hochgeladenes LOD-Mesh die Zelle noch ungeclippt zeigt,
                Chunk-Sections NICHT zeichnen — applyLodResults lief oben im selben Frame, das
@@ -456,6 +498,7 @@ public class ChunkRenderer {
         for (int i = 0; i < this.lodOversize.size(); i++) {
             this.cullLodMesh(this.lodOversize.get(i), frustum, cam, lodSplit);
         }
+        } // Ende CPU-Cull-Pfad
         int lodDraws = this.visibleLod.size();
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.CULL);
@@ -548,11 +591,27 @@ public class ChunkRenderer {
         this.setFogUniforms();
         this.textures.bind(0);
 
+        /* GPU-Pfad: Compute-Ergebnisse (Commands/Offsets/Counts) vor den Draws sichtbar machen. */
+        if (gpu) this.gpuCull.barrier();
+
         this.shader.setUniformf(this.locAlphaCutoff, 0.5F);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.SOLID);
-        this.drawSegment(RenderLayer.OPAQUE.ordinal(), cmdOpaque, offOpaque, nOpaque);
+        if (gpu) {
+            this.drawSegmentGpu(RenderLayer.OPAQUE.ordinal(), GpuCull.SEG_OPAQUE);
+        } else {
+            this.drawSegment(RenderLayer.OPAQUE.ordinal(), cmdOpaque, offOpaque, nOpaque);
+        }
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.SOLID);
-        if (lodSplit) {
+        if (gpu) {
+            /* Immer per Level (eigene Count-Segmente): per-Level-GPU-Queries bleiben möglich,
+               leere Level werden über den CPU-bekannten Descriptor-Zähler übersprungen. */
+            for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
+                if (this.gpuCull.lodLevelCount(l) == 0) continue;
+                FrameProfiler.gpuBegin(LOD_LEVEL_GPU[l]);
+                this.drawLodSegmentGpu(LOD_OPAQUE, GpuCull.SEG_LOD_BASE + l - 1);
+                FrameProfiler.gpuEnd(LOD_LEVEL_GPU[l]);
+            }
+        } else if (lodSplit) {
             for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
                 if (this.lodLvlN[l] == 0) continue;
                 FrameProfiler.gpuBegin(LOD_LEVEL_GPU[l]);
@@ -570,7 +629,11 @@ public class ChunkRenderer {
         EngineProperties properties = SkyEngine.get().getWindow().getProperties();
         GL11.glDepthFunc(properties.orEqualDepthFunc());
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.CUTOUT);
-        this.drawSegment(RenderLayer.CUTOUT.ordinal(), cmdCutout, offCutout, nCutout);
+        if (gpu) {
+            this.drawSegmentGpu(RenderLayer.CUTOUT.ordinal(), GpuCull.SEG_CUTOUT);
+        } else {
+            this.drawSegment(RenderLayer.CUTOUT.ordinal(), cmdCutout, offCutout, nCutout);
+        }
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.CUTOUT);
         GL11.glDepthFunc(properties.baseDepthFunc());
 
@@ -676,6 +739,12 @@ public class ChunkRenderer {
             /* Frames werden in Reihenfolge fertig -> alles bis slotFrames[slot] ist durch. */
             long completed = this.slotFrames[this.frameSlot];
             for (VertexArena arena : this.arenas) arena.collect(completed);
+
+            /* GPU-Cull: Draw-Zahlen des fence-bestätigt fertigen Slots für die Statistik
+               (Fenstertitel) — winzige Lesung, die GPU ist mit dem Slot garantiert durch. */
+            if (this.gpuCull.isActive()) {
+                this.renderedSections = this.gpuCull.readCounts(this.frameSlot)[GpuCull.SEG_OPAQUE];
+            }
         }
     }
 
@@ -727,7 +796,7 @@ public class ChunkRenderer {
             SectionMesh old = this.meshes.remove(key);
             if (old != null) {
                 old.dispose(this.arenas, this.frameId);
-                this.columnRemove(old);
+                this.unregisterSectionMesh(old);
             }
 
             /* Späte Batches entladener Chunks verwerfen (chunk == null): der Cleanup-Walk in
@@ -736,7 +805,7 @@ public class ChunkRenderer {
             if (chunk != null && result.data() != null && !result.data().isEmpty()) {
                 SectionMesh mesh = new SectionMesh(result.chunkX(), result.sectionY(), result.chunkZ(), result.data(), this.arenas);
                 this.meshes.put(key, mesh);
-                this.columnAdd(mesh);
+                this.registerSectionMesh(mesh);
                 this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.maxQuads());
             }
         }
@@ -774,7 +843,7 @@ public class ChunkRenderer {
             LodMesh old = this.lodMeshes.remove(key);
             if (old != null) {
                 old.dispose(opaqueArena, translucentArena, this.frameId);
-                this.lodTileRemove(old);
+                this.unregisterLodMesh(old);
             }
 
             if (result.opaqueData().length > 0 || result.translucentData().length > 0) {
@@ -782,10 +851,13 @@ public class ChunkRenderer {
                         result.yBase(), result.opaqueData(), result.translucentData(), result.minY(), result.maxY(),
                         opaqueArena, translucentArena);
                 this.lodMeshes.put(key, mesh);
-                this.lodTileAdd(mesh);
+                this.registerLodMesh(mesh);
                 this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.maxQuads());
                 uploads++;
             }
+            /* Sicht-Gate der betroffenen Spalten nachziehen (auch bei leerem Ergebnis —
+               die Maske kann Zellen freigegeben haben). */
+            this.refreshGateForRegion(result.rx(), result.rz(), result.sizeRegions());
         }
 
         /* Statistik gelegentlich loggen (Budget-Annahmen verifizierbar halten); per Level
@@ -919,6 +991,32 @@ public class ChunkRenderer {
         GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
         GL11.glPolygonOffset(this.lodOffsetFactor, this.lodOffsetUnits);
         this.drawSegment(slot, cmdSegBytes, offSegBytes, drawCount);
+        GL11.glDisable(GL11.GL_POLYGON_OFFSET_FILL);
+    }
+
+    /**
+     * GPU-Cull-Variante von {@link #drawSegment}: Commands/Offsets kommen aus den vom
+     * Compute-Pass kompaktierten GpuCull-Puffern, die Draw-Zahl per IndirectCount aus dem
+     * Count-Buffer (GL_PARAMETER_BUFFER) — die CPU kennt sie nie.
+     */
+    private void drawSegmentGpu(int slot, int segment) {
+        GL30.glBindVertexArray(this.vaos[slot]);
+        GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, this.gpuCull.getCommandBuffer());
+        GL15.glBindBuffer(GL46.GL_PARAMETER_BUFFER, this.gpuCull.getCountBuffer());
+        GL30.glBindBufferRange(GL43.GL_SHADER_STORAGE_BUFFER, 0, this.gpuCull.getOffsetBuffer(),
+                this.gpuCull.offsetOffset(this.frameSlot, segment), this.gpuCull.offsetBytes(segment));
+        GL46.glMultiDrawElementsIndirectCount(GL11.GL_TRIANGLES, GL11.GL_UNSIGNED_INT,
+                this.gpuCull.commandOffset(this.frameSlot, segment),
+                this.gpuCull.countOffset(this.frameSlot, segment),
+                this.gpuCull.maxDraws(segment), 0);
+        GL30.glBindVertexArray(0);
+    }
+
+    /** GPU-Cull-Variante von {@link #drawLodSegment} (Polygon-Offset wie dort). */
+    private void drawLodSegmentGpu(int slot, int segment) {
+        GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
+        GL11.glPolygonOffset(this.lodOffsetFactor, this.lodOffsetUnits);
+        this.drawSegmentGpu(slot, segment);
         GL11.glDisable(GL11.GL_POLYGON_OFFSET_FILL);
     }
 
@@ -1059,9 +1157,83 @@ public class ChunkRenderer {
 
     /* ------------------------- Cull-Index-Pflege (Spalten/Kacheln) ------------------------- */
 
+    /**
+     * Meldet ein Section-Mesh bei allen Cull-Strukturen an: Spalten-Index, GPU-Descriptoren
+     * (OPAQUE/CUTOUT) und Translucent-Liste. Gegenstück: {@link #unregisterSectionMesh}.
+     */
+    private void registerSectionMesh(SectionMesh mesh) {
+        CullColumn col = this.columnAdd(mesh);
+        int bx = mesh.chunkX << ChunkSection.SHIFT;
+        int bz = mesh.chunkZ << ChunkSection.SHIFT;
+        int by = mesh.sectionY << ChunkSection.SHIFT;
+        if (mesh.hasLayer(RenderLayer.OPAQUE)) {
+            mesh.gpuSlotOpaque = this.gpuCull.addSection(GpuCull.SEG_OPAQUE, bx, bz, by, col.gateSlot,
+                    mesh.indexCount(RenderLayer.OPAQUE), mesh.baseVertex(RenderLayer.OPAQUE));
+        }
+        if (mesh.hasLayer(RenderLayer.CUTOUT)) {
+            mesh.gpuSlotCutout = this.gpuCull.addSection(GpuCull.SEG_CUTOUT, bx, bz, by, col.gateSlot,
+                    mesh.indexCount(RenderLayer.CUTOUT), mesh.baseVertex(RenderLayer.CUTOUT));
+        }
+        if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) this.translucentMeshes.add(mesh);
+    }
+
+    private void unregisterSectionMesh(SectionMesh mesh) {
+        if (mesh.gpuSlotOpaque >= 0) this.gpuCull.removeSection(GpuCull.SEG_OPAQUE, mesh.gpuSlotOpaque);
+        if (mesh.gpuSlotCutout >= 0) this.gpuCull.removeSection(GpuCull.SEG_CUTOUT, mesh.gpuSlotCutout);
+        mesh.gpuSlotOpaque = -1;
+        mesh.gpuSlotCutout = -1;
+        if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) this.translucentMeshes.remove(mesh);
+        this.columnRemove(mesh);
+    }
+
+    /** Analog für LOD-Regionen: Kachel-Index, GPU-Descriptor (Opaque), Translucent-Liste. */
+    private void registerLodMesh(LodMesh mesh) {
+        this.lodTileAdd(mesh);
+        if (mesh.hasOpaque()) {
+            mesh.gpuSlot = this.gpuCull.addLod(mesh.level,
+                    mesh.rx * LodMesher.REGION_BLOCKS, mesh.rz * LodMesher.REGION_BLOCKS, mesh.yBase,
+                    mesh.minY, mesh.maxY, mesh.sizeBlocks, mesh.invPosScale,
+                    mesh.indexCountOpaque(), mesh.baseVertexOpaque());
+        }
+        if (mesh.hasTranslucent()) this.lodTranslucentMeshes.add(mesh);
+    }
+
+    private void unregisterLodMesh(LodMesh mesh) {
+        if (mesh.gpuSlot >= 0) {
+            this.gpuCull.removeLod(mesh.level, mesh.gpuSlot);
+            mesh.gpuSlot = -1;
+        }
+        if (mesh.hasTranslucent()) this.lodTranslucentMeshes.remove(mesh);
+        this.lodTileRemove(mesh);
+    }
+
+    /**
+     * Aktualisiert das Sicht-Gate der Chunk-Spalten einer LOD-Region — nach jedem
+     * Mesh-Wechsel/-Abbau der Region, damit GPU- und CPU-Pfad denselben atomaren
+     * Swap zeigen (applyLodResults läuft im selben Frame VOR Cull/Dispatch).
+     */
+    private void refreshGateForRegion(int rx, int rz, int sizeRegions) {
+        int chunksPerRegion = LodMesher.REGION_BLOCKS / ChunkSection.SIZE;
+        int c0x = rx * chunksPerRegion, c0z = rz * chunksPerRegion;
+        int span = sizeRegions * chunksPerRegion;
+        for (int cz = 0; cz < span; cz++) {
+            for (int cx = 0; cx < span; cx++) {
+                CullColumn col = this.cullColumns.get(Chunk.key(c0x + cx, c0z + cz));
+                if (col != null && col.gateSlot >= 0) {
+                    this.gpuCull.setGate(col.gateSlot,
+                            this.lodManager != null && this.lodManager.lodShowsCell(col.chunkX, col.chunkZ));
+                }
+            }
+        }
+    }
+
     private CullColumn columnAdd(SectionMesh mesh) {
         CullColumn col = this.cullColumns.computeIfAbsent(Chunk.key(mesh.chunkX, mesh.chunkZ),
                 k -> new CullColumn(mesh.chunkX, mesh.chunkZ));
+        if (col.gateSlot < 0) {
+            col.gateSlot = this.gpuCull.allocGate(
+                    this.lodManager != null && this.lodManager.lodShowsCell(col.chunkX, col.chunkZ));
+        }
         if (col.sections[mesh.sectionY] == null) col.count++;
         col.sections[mesh.sectionY] = mesh;
         if (col.count == 1) {
@@ -1080,6 +1252,7 @@ public class ChunkRenderer {
         if (col == null || col.sections[mesh.sectionY] == null) return;
         col.sections[mesh.sectionY] = null;
         if (--col.count == 0) {
+            if (col.gateSlot >= 0) this.gpuCull.freeGate(col.gateSlot);
             this.cullColumns.remove(key);
             return;
         }
@@ -1167,6 +1340,9 @@ public class ChunkRenderer {
         this.lodMeshes.clear();
         this.lodTiles.clear();
         this.lodOversize.clear();
+        this.translucentMeshes.clear();
+        this.lodTranslucentMeshes.clear();
+        this.gpuCull.dispose();
         for (long fence : this.fences) {
             if (fence != 0L) GL32.glDeleteSync(fence);
         }
