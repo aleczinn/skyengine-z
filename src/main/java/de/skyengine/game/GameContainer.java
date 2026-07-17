@@ -804,6 +804,14 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("Ambient Occlusion: " + (this.settings.ambientOcclusion ? "an" : "aus"));
             changed = true;
         }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_H)) {
+            /* Laub-Qualität zyklisch LOW -> MID -> HIGH; steckt im gebackenen Mesh -> Voll-Remesh */
+            GameSettings.LeavesQuality[] values = GameSettings.LeavesQuality.values();
+            this.settings.leavesQuality = values[(this.settings.leavesQuality.ordinal() + 1) % values.length];
+            this.world.getChunkManager().remeshAll();
+            this.logger.debug("Laub-Qualität: " + this.settings.leavesQuality);
+            changed = true;
+        }
         if (input.isKeyPressed(GLFW.GLFW_KEY_L)) {
             this.settings.lodEnabled = !this.settings.lodEnabled;
             /* LodManager liest das Setting im nächsten Tick; farPlane sofort nachziehen */

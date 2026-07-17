@@ -2,6 +2,7 @@
   "id": "skyengine:pale_oak_leaves",
   "type": "cube",
   "layer": "cutout",
+  "leaves": true,
   "hardness": 0.2,
   "opaque": false,
   "textures": {

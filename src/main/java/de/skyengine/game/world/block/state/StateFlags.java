@@ -18,6 +18,9 @@ public final class StateFlags {
     public static final int TICKS_RANDOMLY   = 1 << 7; // Phase 1.1 (Bit 5-6 sind der Layer)
     public static final int FLUID            = 1 << 8; // Wasser/Lava: dynamische Geometrie im Mesher
     public static final int NO_LOD_SURFACE   = 1 << 9; // nie als LOD-Terrain-Oberfläche (Logs)
+    /* Bit 25 bewusst hoch gewählt: der lightning-system-Branch belegt die Bits 9-24
+       (Licht-Opazität + Luminanz) — so bleibt der Merge konfliktfrei. */
+    public static final int LEAVES           = 1 << 25; // Laub (LeavesQuality-LOW-Culling)
 
     /* Render-Layer in 2 Bits (Bit 5-6). */
     private static final int LAYER_SHIFT = 5;
