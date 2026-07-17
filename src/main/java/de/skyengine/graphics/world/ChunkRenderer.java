@@ -96,6 +96,20 @@ public class ChunkRenderer {
        (Sortierung braucht CPU-Reihenfolge) — dafür reicht diese kleine Liste. */
     private final List<SectionMesh> translucentMeshes = new ArrayList<>();
 
+    /* Kleinvegetation (Detail-Segment in der CUTOUT-Arena): sichtbare Meshes pro Frame +
+       Mitglieds-Liste für den GPU-Cull-Pfad (dort wird Detail vorerst CPU-gecullt und über
+       den Mapped-Ring gezeichnet — GpuCull-Descriptor-Integration kommt mit P4). */
+    private final List<SectionMesh> visibleDetail = new ArrayList<>();
+    private final List<SectionMesh> detailMeshes = new ArrayList<>();
+
+    /* Anker der Vegetations-Ausdünnung: die Fade-Distanz wird NICHT von der Live-Position
+       gerechnet (jede Bewegung ließe einzelne Pflanzen nacheinander auftauchen), sondern vom
+       zuletzt gesetzten Chunk-Zentrum; der Anker springt erst nach, wenn der Spieler sich
+       DETAIL_ANCHOR_HYSTERESE Blöcke entfernt hat -> seltene Batch-Pops statt Dauer-Getröpfel,
+       und kein Hin-und-her-Flackern beim Entlanglaufen einer Chunk-Grenze (LOD-Anker-Muster). */
+    private static final double DETAIL_ANCHOR_HYSTERESE = 48.0;
+    private double detailAnchorX = Double.NaN, detailAnchorZ;
+
     /* GPU-Cull-Substrat (P3): Compute-Frustum + Command-Kompaktierung + IndirectCount für
        OPAQUE/CUTOUT/LOD-OPAQUE. CPU-Pfad bleibt vollständig erhalten (Fallback + A/B). */
     private final GpuCull gpuCull = new GpuCull();
@@ -226,7 +240,8 @@ public class ChunkRenderer {
     private int totalSections = 0;
 
     /* Gecachte Uniform-Locations des Chunk-Shaders (erspart Map-Lookups im Hot-Path) */
-    private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogColor;
+    private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogColor,
+            locDetailFade, locDetailCamSnap;
 
     /* Zuletzt hochgeladene Fog-Werte: Upload nur bei Änderung (Settings/Clear-Color) —
        die Werte sind pro Frame konstant, ein Re-Upload pro Pass wäre doppelt umsonst. */
@@ -265,8 +280,11 @@ public class ChunkRenderer {
         this.locFogStart = this.shader.getUniformLocation("u_FogStart");
         this.locFogEnd = this.shader.getUniformLocation("u_FogEnd");
         this.locFogColor = this.shader.getUniformLocation("u_FogColor");
+        this.locDetailFade = this.shader.getUniformLocation("u_DetailFade");
+        this.locDetailCamSnap = this.shader.getUniformLocation("u_DetailCamSnap");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F); // Ausdünnung default aus
         this.shader.unbind();
         /* Layer-Reihenfolge kommt aus dem Model-Bake (BlockTextures) */
         String[] paths = BlockTextures.getOrderedPaths();
@@ -421,6 +439,7 @@ public class ChunkRenderer {
         this.visible.clear();
         this.translucentVisible.clear();
         this.visibleLodTranslucent.clear();
+        this.visibleDetail.clear();
         this.totalSections = this.meshes.size();
 
         int opaqueDraws = 0, cutoutDraws = 0;
@@ -451,6 +470,15 @@ public class ChunkRenderer {
                         ox + mesh.sizeBlocks, (float) (mesh.maxY - cam.y), oz + mesh.sizeBlocks)) continue;
                 this.visibleLodTranslucent.add(mesh);
             }
+            for (int i = 0; i < this.detailMeshes.size(); i++) {
+                SectionMesh mesh = this.detailMeshes.get(i);
+                if (this.lodManager != null && this.lodManager.lodShowsCell(mesh.chunkX, mesh.chunkZ)) continue;
+                float ox = offsetX(mesh, cam);
+                float oy = offsetY(mesh, cam);
+                float oz = offsetZ(mesh, cam);
+                if (!frustum.testAab(ox, oy, oz, ox + size, oy + size, oz + size)) continue;
+                this.visibleDetail.add(mesh);
+            }
             this.gpuCull.dispatch(this.frameSlot, camera);
         } else {
         for (CullColumn col : this.cullColumns.values()) {
@@ -478,6 +506,7 @@ public class ChunkRenderer {
                 if (mesh.hasLayer(RenderLayer.OPAQUE)) opaqueDraws++;
                 if (mesh.hasLayer(RenderLayer.CUTOUT)) cutoutDraws++;
                 if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) this.translucentVisible.add(mesh);
+                if (mesh.hasDetail()) this.visibleDetail.add(mesh);
             }
         }
         this.renderedSections = this.visible.size();
@@ -514,6 +543,7 @@ public class ChunkRenderer {
            die Ringe wachsen ohnehin nur bei echtem Bedarf). */
         int translucentDraws = this.translucentVisible.size();
         int lodTDraws = this.visibleLodTranslucent.size();
+        int detailDraws = this.visibleDetail.size();
         /* Im Split-Modus ist jedes per-Level-Sub-Segment einzeln aligned (SSBO-Offset-
            Anforderung) -> Kapazität als Summe der aligned Level-Segmente rechnen. */
         long lodCmdCap, lodOffCap;
@@ -533,12 +563,14 @@ public class ChunkRenderer {
                 MappedRing.align((long) opaqueDraws * COMMAND_BYTES)
                         + lodCmdCap
                         + MappedRing.align((long) cutoutDraws * COMMAND_BYTES)
+                        + MappedRing.align((long) detailDraws * COMMAND_BYTES)
                         + MappedRing.align((long) translucentDraws * COMMAND_BYTES)
                         + MappedRing.align((long) lodTDraws * COMMAND_BYTES));
         this.offsetRing.ensureSlotCapacity(
                 MappedRing.align((long) opaqueDraws * OFFSET_BYTES)
                         + lodOffCap
                         + MappedRing.align((long) cutoutDraws * OFFSET_BYTES)
+                        + MappedRing.align((long) detailDraws * OFFSET_BYTES)
                         + MappedRing.align((long) translucentDraws * OFFSET_BYTES)
                         + MappedRing.align((long) lodTDraws * OFFSET_BYTES));
 
@@ -577,9 +609,15 @@ public class ChunkRenderer {
         }
         int nCutout = this.writeSegment(RenderLayer.CUTOUT, this.visible, cmds, offs, cmdCutout, offCutout, cam);
 
+        /* Kleinvegetations-Segment (CUTOUT-Arena, eigener Draw für die Distanz-Ausdünnung).
+           Läuft in BEIDEN Cull-Pfaden über den Mapped-Ring (GPU-Descriptor-Integration: P4). */
+        long cmdDetail = cmdCutout + MappedRing.align((long) nCutout * COMMAND_BYTES);
+        long offDetail = offCutout + MappedRing.align((long) nCutout * OFFSET_BYTES);
+        int nDetail = this.writeDetailSegment(cmds, offs, cmdDetail, offDetail, cam);
+
         /* Cursor für das Translucent-Segment in renderTranslucent merken */
-        this.cmdCursor = cmdCutout + MappedRing.align((long) nCutout * COMMAND_BYTES);
-        this.offCursor = offCutout + MappedRing.align((long) nCutout * OFFSET_BYTES);
+        this.cmdCursor = cmdDetail + MappedRing.align((long) nDetail * COMMAND_BYTES);
+        this.offCursor = offDetail + MappedRing.align((long) nDetail * OFFSET_BYTES);
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.WRITE);
 
@@ -633,6 +671,31 @@ public class ChunkRenderer {
             this.drawSegmentGpu(RenderLayer.CUTOUT.ordinal(), GpuCull.SEG_CUTOUT);
         } else {
             this.drawSegment(RenderLayer.CUTOUT.ordinal(), cmdCutout, offCutout, nCutout);
+        }
+        /* Kleinvegetation: gleicher Pass-State, aber mit aktiver Distanz-Ausdünnung — der
+           Shader kollabiert ferne Pflanzen deterministisch per Pflanzen-Hash (int3-Topbyte).
+           Danach Fade wieder deaktivieren, alle anderen Segmente bleiben unberührt. */
+        if (nDetail > 0) {
+            int start = GameSettings.get().vegetationDistance;
+            if (start > 0) {
+                /* Anker nachziehen (Chunk-Zentrum, mit Hysterese — s. Feld-Kommentar). */
+                double dax = cam.x - this.detailAnchorX, daz = cam.z - this.detailAnchorZ;
+                if (Double.isNaN(this.detailAnchorX)
+                        || dax * dax + daz * daz > DETAIL_ANCHOR_HYSTERESE * DETAIL_ANCHOR_HYSTERESE) {
+                    this.detailAnchorX = (Math.floorDiv((int) Math.floor(cam.x), ChunkSection.SIZE)
+                            * ChunkSection.SIZE) + ChunkSection.SIZE / 2.0;
+                    this.detailAnchorZ = (Math.floorDiv((int) Math.floor(cam.z), ChunkSection.SIZE)
+                            * ChunkSection.SIZE) + ChunkSection.SIZE / 2.0;
+                }
+                float startBlocks = start << ChunkSection.SHIFT;
+                this.shader.setUniformVector2f(this.locDetailFade, startBlocks, 1F / (startBlocks * 0.5F));
+                /* Versatz Live-Kamera -> Anker (klein, float-exakt): der Shader rechnet die
+                   Fade-Distanz damit vom Anker statt von der Kamera. */
+                this.shader.setUniformVector2f(this.locDetailCamSnap,
+                        (float) (cam.x - this.detailAnchorX), (float) (cam.z - this.detailAnchorZ));
+            }
+            this.drawSegment(RenderLayer.CUTOUT.ordinal(), cmdDetail, offDetail, nDetail);
+            if (start > 0) this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F);
         }
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.CUTOUT);
         GL11.glDepthFunc(properties.baseDepthFunc());
@@ -995,6 +1058,38 @@ public class ChunkRenderer {
     }
 
     /**
+     * Schreibt die Kleinvegetations-Draws (Detail-Region in der CUTOUT-Arena) der sichtbaren
+     * Sections als eigenes Segment — analog {@link #writeSegment}, aber über die
+     * Detail-Accessoren der SectionMesh.
+     *
+     * @return Anzahl geschriebener Draws
+     */
+    private int writeDetailSegment(IntBuffer cmds, FloatBuffer offs, long cmdSegBytes, long offSegBytes,
+                                   Vector3d cam) {
+        int cmdBase = (int) (cmdSegBytes / Integer.BYTES);
+        int offBase = (int) (offSegBytes / Float.BYTES);
+        int n = 0;
+        for (int i = 0; i < this.visibleDetail.size(); i++) {
+            SectionMesh mesh = this.visibleDetail.get(i);
+
+            int ci = cmdBase + n * 5;
+            cmds.put(ci, mesh.indexCountDetail());      // count
+            cmds.put(ci + 1, 1);                        // instanceCount
+            cmds.put(ci + 2, 0);                        // firstIndex (geteilter EBO ab 0)
+            cmds.put(ci + 3, mesh.baseVertexDetail());  // baseVertex = Region in der CUTOUT-Arena
+            cmds.put(ci + 4, 0);                        // baseInstance (ungenutzt)
+
+            int oi = offBase + n * 4;
+            offs.put(oi, offsetX(mesh, cam));
+            offs.put(oi + 1, offsetY(mesh, cam));
+            offs.put(oi + 2, offsetZ(mesh, cam));
+            offs.put(oi + 3, 1F / 256F);
+            n++;
+        }
+        return n;
+    }
+
+    /**
      * GPU-Cull-Variante von {@link #drawSegment}: Commands/Offsets kommen aus den vom
      * Compute-Pass kompaktierten GpuCull-Puffern, die Draw-Zahl per IndirectCount aus dem
      * Count-Buffer (GL_PARAMETER_BUFFER) — die CPU kennt sie nie.
@@ -1175,6 +1270,7 @@ public class ChunkRenderer {
                     mesh.indexCount(RenderLayer.CUTOUT), mesh.baseVertex(RenderLayer.CUTOUT));
         }
         if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) this.translucentMeshes.add(mesh);
+        if (mesh.hasDetail()) this.detailMeshes.add(mesh);
     }
 
     private void unregisterSectionMesh(SectionMesh mesh) {
@@ -1183,6 +1279,7 @@ public class ChunkRenderer {
         mesh.gpuSlotOpaque = -1;
         mesh.gpuSlotCutout = -1;
         if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) this.translucentMeshes.remove(mesh);
+        if (mesh.hasDetail()) this.detailMeshes.remove(mesh);
         this.columnRemove(mesh);
     }
 
@@ -1342,6 +1439,7 @@ public class ChunkRenderer {
         this.lodOversize.clear();
         this.translucentMeshes.clear();
         this.lodTranslucentMeshes.clear();
+        this.detailMeshes.clear();
         this.gpuCull.dispose();
         for (long fence : this.fences) {
             if (fence != 0L) GL32.glDeleteSync(fence);
@@ -1373,6 +1471,13 @@ public class ChunkRenderer {
             };
 
             uniform mat4 u_ProjectionView;
+            /* Kleinvegetations-Ausduennung: x = Start-Distanz (Bloecke), y = 1/Fade-Spanne.
+               y <= 0 = aus; nur waehrend des Detail-Segment-Draws aktiv. */
+            uniform vec2 u_DetailFade;
+            /* Versatz Live-Kamera -> Ausduennungs-Anker (Chunk-Zentrum mit Hysterese):
+               die Fade-Distanz haengt damit NICHT an der kontinuierlichen Bewegung
+               (kein Dauer-Getroepfel einzelner Pflanzen, nur seltene Batch-Pops). */
+            uniform vec2 u_DetailCamSnap;
 
             out vec3 v_texCoord;
             out vec3 v_color;
@@ -1394,6 +1499,23 @@ public class ChunkRenderer {
                    Ladekante bleibt verdeckt. Rotationsinvariant, kein "Atmen" beim Umschauen. */
                 vec3 rel = pos + u_DrawOffsets[gl_DrawID].xyz;
                 v_viewDist = length(rel.xz);
+
+                /* Distanz-Ausduennung der Kleinvegetation: der Pflanzen-Hash (Topbyte von
+                   int3, pro Pflanze identisch — beide Tall-Grass-Haelften teilen ihn) wird
+                   gegen die distanzabhaengige Dichte getestet; verlierende Pflanzen
+                   kollabieren zu degenerierten Quads (Punkt ausserhalb des Clip-Volumens).
+                   Die Distanz kommt aus dem SECTION-Zentrum (Draw-Offset) — fuer alle
+                   Vertices eines Quads identisch. Per-Vertex-Distanz wuerde nahe der
+                   Schwelle einzelne Ecken kollabieren -> himmelweite Sliver-Dreiecke. */
+                if (u_DetailFade.y > 0.0) {
+                    float sectionDist = length(u_DrawOffsets[gl_DrawID].xz + vec2(16.0) + u_DetailCamSnap);
+                    float dichte = 1.0 - clamp((sectionDist - u_DetailFade.x) * u_DetailFade.y, 0.0, 1.0);
+                    if (float((a_data.w >> 24) & 0xFFu) > dichte * 255.0) {
+                        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+                        return;
+                    }
+                }
+
                 gl_Position = u_ProjectionView * vec4(rel, 1.0);
             }
             """;

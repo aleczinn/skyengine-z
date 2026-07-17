@@ -134,6 +134,10 @@ public class ShaderProgram implements IDisposable {
         GL20.glUniform1i(location, value);
     }
 
+    public void setUniformVector2f(int location, float x, float y) {
+        GL20.glUniform2f(location, x, y);
+    }
+
     public void setUniformVector3f(int location, float x, float y, float z) {
         GL20.glUniform3f(location, x, y, z);
     }

@@ -43,25 +43,35 @@ public class ChunkMesher {
     /** Maximaler horizontaler Versatz für Cross-Blöcke (wie Minecraft: +/- 0.25). */
     private static final float MAX_OFFSET = 0.25F;
 
-    /** Mesh-Ergebnis einer Section, getrennt nach RenderLayer. Arrays sind null wenn leer. */
+    /**
+     * Mesh-Ergebnis einer Section, getrennt nach RenderLayer. Arrays sind null wenn leer.
+     * {@code detail} = Kleinvegetation (Cross-Blöcke mit Random-Offset: Gras, Blumen, Pilze,
+     * Setzlinge) — landet in der CUTOUT-Arena, aber als eigene Region/eigenes Draw-Segment,
+     * damit der Renderer sie distanzabhängig ausdünnen/skippen kann.
+     */
     public static final class MeshData {
         public final int[] opaque;
         public final int[] cutout;
         public final int[] translucent;
+        public final int[] detail;
 
-        MeshData(int[] opaque, int[] cutout, int[] translucent) {
+        MeshData(int[] opaque, int[] cutout, int[] translucent, int[] detail) {
             this.opaque = opaque;
             this.cutout = cutout;
             this.translucent = translucent;
+            this.detail = detail;
         }
 
         public boolean isEmpty() {
-            return this.opaque == null && this.cutout == null && this.translucent == null;
+            return this.opaque == null && this.cutout == null && this.translucent == null
+                    && this.detail == null;
         }
     }
 
-    /* Ein wiederverwendeter Buffer pro RenderLayer (Index = RenderLayer.ordinal()) */
-    private final VertexBuffer[] buffers = {new VertexBuffer(), new VertexBuffer(), new VertexBuffer()};
+    /* Ein wiederverwendeter Buffer pro RenderLayer (Index = RenderLayer.ordinal()) + 1 für
+       das Kleinvegetations-Segment (Index DETAIL_BUFFER). */
+    private static final int DETAIL_BUFFER = RenderLayer.VALUES.length;
+    private final VertexBuffer[] buffers = {new VertexBuffer(), new VertexBuffer(), new VertexBuffer(), new VertexBuffer()};
 
     /* Kontext des laufenden mesh()-Aufrufs (für AO-Sampling über Chunk-Grenzen).
        Mesher ist ThreadLocal -> keine Nebenläufigkeit; wird am Ende genullt (kein Chunk-Leak). */
@@ -77,6 +87,12 @@ public class ChunkMesher {
     /* LeavesQuality LOW: Laub-Faces gegen JEDES Nachbar-Laub cullen (auch fremde Laub-Arten —
        MC-„Schnelle Grafik"). Einmal pro mesh()-Aufruf gelesen, konsistent pro Section. */
     private boolean cullLeaves = false;
+
+    /* Pflanzen-Hash (0..255) der gerade emittierten Kleinvegetation: wandert in die oberen
+       8 Bit von int3 (dort ungenutzt; int4 bleibt fürs Lichtsystem reserviert). Der Shader
+       dünnt damit ferne Pflanzen deterministisch aus. 0 = kein Detail-Quad (alle anderen
+       Pfade schreiben weiter bit-identische Vertices). */
+    private int plantHash = 0;
 
     /* Eindeutige Ecken A,B,C,D im 6-Vertex-Quad der BakedQuads (A,B,C,C,D,A) */
     private static final int[] UNIQUE_VERTS = {0, 1, 2, 4};
@@ -198,6 +214,15 @@ public class ChunkMesher {
                         long seed = posSeed(worldX, worldZ);
                         offsetX = offsetFor(seed & 15L);
                         offsetZ = offsetFor((seed >> 8) & 15L);
+
+                        /* Kleinvegetation (Cross mit Random-Offset) -> eigenes Detail-Segment
+                           mit Pflanzen-Hash für die Distanz-Ausdünnung im Shader. Der Hash
+                           kommt aus dem XZ-Seed: beide Hälften einer Tall-Grass-Pflanze teilen
+                           ihn und verschwinden gemeinsam. 1..255 (0 = "kein Detail"). */
+                        if (state.getRenderLayer() == RenderLayer.CUTOUT) {
+                            buffer = this.buffers[DETAIL_BUFFER];
+                            this.plantHash = (int) ((seed >>> 16) & 0xFF) | 1;
+                        }
                     }
 
                     for (BakedQuad quad : quads) {
@@ -212,6 +237,7 @@ public class ChunkMesher {
                         }
                         this.emitQuad(buffer, quad, x, y, worldY, z, offsetX, offsetZ);
                     }
+                    this.plantHash = 0; // nur die Detail-Quads tragen den Hash
 
                     /* Seiten-Overlays (Sicherheitsnetz für nicht-greedy-fähige Overlay-Blöcke):
                        gleiche Cull-Prüfung, Ziel immer CUTOUT. */
@@ -234,7 +260,8 @@ public class ChunkMesher {
         MeshData data = new MeshData(
                 this.buffers[0].copyOrNull(),
                 this.buffers[1].copyOrNull(),
-                this.buffers[2].copyOrNull()
+                this.buffers[2].copyOrNull(),
+                this.buffers[DETAIL_BUFFER].copyOrNull()
         );
         return data.isEmpty() ? null : data;
     }
@@ -627,7 +654,7 @@ public class ChunkMesher {
     }
 
     /** Packt einen Vertex ins 5-Int-Format (siehe {@link #VERTEX_SIZE}). */
-    private static void putVertex(VertexBuffer buffer, float px, float py, float pz,
+    private void putVertex(VertexBuffer buffer, float px, float py, float pz,
                                   float u, float v, int layer, float r, float g, float b) {
         int xi = fixedPos(px), yi = fixedPos(py), zi = fixedPos(pz);
         int ui = fixedUv(u), vi = fixedUv(v);
@@ -637,7 +664,7 @@ public class ChunkMesher {
         buffer.data[buffer.count++] = xi | yi << 16;
         buffer.data[buffer.count++] = zi | ui << 16;
         buffer.data[buffer.count++] = vi | layer << 16;
-        buffer.data[buffer.count++] = ri | gi << 8 | bi << 16;
+        buffer.data[buffer.count++] = ri | gi << 8 | bi << 16 | this.plantHash << 24;
         buffer.data[buffer.count++] = 0; // reserviert für farbiges Licht (Phase Lichtsystem)
     }
 
