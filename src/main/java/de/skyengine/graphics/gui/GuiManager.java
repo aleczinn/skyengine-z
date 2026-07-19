@@ -5,6 +5,7 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
+import de.skyengine.graphics.gui.font.FontRenderer;
 import de.skyengine.graphics.texture.TextureArray;
 import org.lwjgl.glfw.GLFW;
 
@@ -26,6 +27,7 @@ public final class GuiManager {
 
     private final SpriteRenderer sprites = new SpriteRenderer();
     private final ItemIconRenderer icons = new ItemIconRenderer();
+    private final FontRenderer font = new FontRenderer();
     private final GuiTextures textures = new GuiTextures();
     private final Hud hud = new Hud();
 
@@ -42,21 +44,46 @@ public final class GuiManager {
     public void init(TextureArray blockTextures, BlockEntityRenderDispatcher blockEntityRenderers) {
         this.sprites.init();
         this.icons.init(blockTextures, blockEntityRenderers);
+        this.font.init();
         this.textures.init();
     }
 
     /* --- Zugriff für Screens/HUD --- */
-    public SpriteRenderer sprites() { return this.sprites; }
-    public ItemIconRenderer icons() { return this.icons; }
-    public GuiTextures textures() { return this.textures; }
-    public float vWidth() { return this.vW; }
-    public float vHeight() { return this.vH; }
+    public SpriteRenderer sprites() {
+        return this.sprites;
+    }
 
-    public void setScale(float scale) { this.scale = Math.max(1f, scale); }
+    public ItemIconRenderer icons() {
+        return this.icons;
+    }
 
-    public boolean isOpen() { return this.screen != null; }
+    public FontRenderer font() {
+        return this.font;
+    }
 
-    public void open(Screen screen) { this.screen = screen; }
+    public GuiTextures textures() {
+        return this.textures;
+    }
+
+    public float vWidth() {
+        return this.vW;
+    }
+
+    public float vHeight() {
+        return this.vH;
+    }
+
+    public void setScale(float scale) {
+        this.scale = Math.max(1f, scale);
+    }
+
+    public boolean isOpen() {
+        return this.screen != null;
+    }
+
+    public void open(Screen screen) {
+        this.screen = screen;
+    }
 
     public void close() {
         if (this.screen != null) {
@@ -65,10 +92,17 @@ public final class GuiManager {
         }
     }
 
-    public double mouseX() { return this.input.getMouseX() / this.scale; }
-    public double mouseY() { return this.input.getMouseY() / this.scale; }
+    public double mouseX() {
+        return this.input.getMouseX() / this.scale;
+    }
 
-    /** Eingaben bei offenem Screen: Schließen (Inventar-Taste/ESC) + Maus-Slot-Klicks. */
+    public double mouseY() {
+        return this.input.getMouseY() / this.scale;
+    }
+
+    /**
+     * Eingaben bei offenem Screen: Schließen (Inventar-Taste/ESC) + Maus-Slot-Klicks.
+     */
     public void handleInput() {
         if (this.screen == null) return;
         if (this.input.isKeyPressed(GameSettings.get().key(KeyBindings.OPEN_INVENTORY))
@@ -111,6 +145,7 @@ public final class GuiManager {
     public void dispose() {
         this.sprites.dispose();
         this.icons.dispose();
+        this.font.dispose();
         this.textures.dispose();
     }
 }
