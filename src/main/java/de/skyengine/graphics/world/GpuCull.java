@@ -12,7 +12,6 @@ import org.joml.Vector4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
-import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
@@ -57,6 +56,17 @@ public class GpuCull {
      * Kern-Invariante: das Vis-Bit entscheidet nur die PHASEN-ZUORDNUNG, nie die
      * Sichtbarkeit — stale Bits (K-Toggle, Kaltstart, Buffer-Neuaufbau) kosten höchstens
      * einen Frame Phase-2-Umweg, nie ein Loch.
+     *
+     * <p>KOSTEN-REALITÄT (bewusste Entscheidung, nicht „optimieren bis schneller"): der
+     * GPU-Pfad kostet ~0,15–0,2 ms Fixkosten pro Frame, AUFLÖSUNGSUNABHÄNGIG (gemessen
+     * 720p 1440→1180 FPS und 5120×1440 880→750 FPS = jeweils +0,15–0,2 ms Frame-Zeit) —
+     * das ist die Sync-Struktur (Phase-1-Draws → Pyramide → Phase 2, zweiter Draw-Satz,
+     * 4 Barriers), nicht die Pyramiden-Arbeit (Pow2-Viertel-Basis + gefaltete Reduktion,
+     * 3 Dispatches). Bei heutigem unbeleuchtetem Content spart die Occlusion fast nichts
+     * (Early-Z killt verdeckte Pixel ohnehin) — der Pfad ist also HEUTE langsamer als der
+     * CPU-Cull. Default trotzdem AN (User-Entscheidung 2026-07-19): er wird ständig
+     * mitgetestet und zahlt zurück, sobald Licht-Merge/Schatten-Pass die Frames real
+     * verteuern (Schatten-Pass bekommt das Culling gratis).
      *
      * <p>Historie: die Ein-Phasen-Vorstufe hatte einen per Telemetrie BEWIESENEN
      * Selbst-Feedback-Loop — gecullte Objekte fehlten in der Pyramide des Folgeframes und
@@ -204,6 +214,7 @@ public class GpuCull {
         this.locCopyDepth = this.hiZCopy.getUniformLocation("u_Depth");
         this.hiZReduce = new ShaderProgram(new Shader(HIZ_REDUCE_SOURCE, ShaderType.COMPUTE));
         this.locReduceSrcLevel = this.hiZReduce.getUniformLocation("u_SrcLevel");
+        this.locReduceLevels = this.hiZReduce.getUniformLocation("u_Levels");
         /* Beide Pyramiden-Sampler lesen von Textur-Unit 2 (Unit 0 gehört dem TextureArray). */
         this.hiZReduce.bind();
         this.hiZReduce.setUniformi("u_Src", 2);
@@ -570,20 +581,31 @@ public class GpuCull {
     /* R32F-Pyramide über dem Phase-1-Depth DIESES Frames (Reversed-Z ⇒ MIN-Reduktion:
        konservativ hält jede Zelle den am weitesten entfernten Wert ihres Fußabdrucks).
        Der Phase-2-Compute testet AABBs mit der aktuellen Matrix/Kamera — keine Latenz;
-       Rand-/Near-/Nahring-Guards im Shader bleiben als Konservativismen. */
+       Rand-/Near-/Nahring-Guards im Shader bleiben als Konservativismen.
+
+       KOSTEN-DESIGN (5120x1440 kostete die Voll-Kette ~0,5 ms KRITISCHEN PFAD mitten im
+       Frame — bei 1,2-ms-Frames der 850→600-FPS-Einbruch; GPU-Auslastung blieb niedrig,
+       weil die 13 Mini-Reduce-Dispatches mit je einer Barrier vor allem Pipeline-BLASEN
+       erzeugten, keine Arbeit):
+       - Basis-Mip ist POW2 bei ~Viertel-Aufloesung (Footprint-MIN direkt aus dem Szenen-
+         Depth, lueckenlose Kachelung) → ~16x weniger Pyramiden-Arbeit, und alle weiteren
+         Halbierungen sind EXAKT (nie ungerade → der Odd-Size-Verlust der letzten
+         Spalte/Zeile, Ursache der LOD-Loch-Linien, ist strukturell unmoeglich).
+       - Reduktion GEFALTET: 4 Mip-Stufen pro Dispatch ueber Shared Memory → 3 Dispatches
+         und 3 Barriers statt 13 (die Blasen-Quelle).
+       - KEIN Voll-Blit mehr: das Szene-FBO wird waehrend des Baus ABGEBUNDEN, dann ist
+         das direkte Sampeln seines Depth-Attachments spec-sauber (die Feedback-UB-Falle
+         — Ursache des frueheren Kuesten-Flackerns — besteht nur bei GEBUNDENEM FBO;
+         Unbind macht die Depth-Writes zugleich sichtbar). */
     private ShaderProgram hiZCopy, hiZReduce;
     private int hiZTexture;
-    /* Eigene Depth-KOPIE (Blit-Ziel): die Pyramide darf NIE das Depth-Attachment des noch
-       gebundenen Szene-FBO sampeln — das ist undefiniertes Verhalten (Feedback-Grauzone)
-       und war die Ursache des schnellen Küsten-Flackerns. Der Blit synchronisiert zugleich
-       die ausstehenden Depth-Writes des Opaque-Passes. */
-    private int hiZDepthCopy, hiZBlitFbo;
-    private int hiZWidth, hiZHeight, hiZMips;
+    private int hiZWidth, hiZHeight, hiZMips;      // Basis-Mip-Groesse (Pow2) + Stufenzahl
+    private int hiZSrcWidth, hiZSrcHeight;         // Fenstergroesse, fuer die die Basis gilt
     private boolean hiZValid;
     private int locCullOcclusion, locCullHiZ, locCullViewProj, locCullHiZMips,
             locVisBase, locCullDebug;
     private int locCopyDepth;
-    private int locReduceSrcLevel;
+    private int locReduceSrcLevel, locReduceLevels;
 
     /* Telemetrie (1-s-Fenster, s. telemetrieZeileUndReset): WARUM war die Occlusion je Frame
        (in)aktiv? (keinDepth = MSAA/kein Depth-Texture-Pfad, keinFbo = Default-Framebuffer). */
@@ -604,83 +626,76 @@ public class GpuCull {
             this.hiZValid = false;
             return;
         }
-        if (this.hiZTexture == 0 || this.hiZWidth != width || this.hiZHeight != height) {
+        if (this.hiZTexture == 0 || this.hiZSrcWidth != width || this.hiZSrcHeight != height) {
             this.createHiZTexture(width, height);
         }
 
-        /* Depth des gebundenen Szene-FBO in die eigene Kopie blitten (definiertes Verhalten;
-           Formate identisch DEPTH_COMPONENT32F). Danach Bindings zurück auf das Szene-FBO.
-           Guard: Default-Framebuffer (0) hat 24-Bit-Depth -> Blit wäre GL_INVALID_OPERATION
-           („Depth formats do not match", im allerersten Frame beobachtet). */
+        /* Guard: Default-Framebuffer = Szene rendert nicht in den FBO, dessen Depth-Textur
+           wir gleich sampeln würden (nur im allerersten Frame beobachtet). */
         int sceneFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
         if (sceneFbo == 0) {
             this.statNoFbo++;
             this.hiZValid = false;
             return;
         }
-        GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, sceneFbo);
-        GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, this.hiZBlitFbo);
-        GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
-                GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, sceneFbo);
+        /* Szene-FBO für den Bau ABBINDEN: das Depth-Attachment eines GEBUNDENEN FBO zu
+           sampeln ist Feedback-UB (war die Ursache des Küsten-Flackerns) — nach dem Unbind
+           ist das direkte Sampeln definiert und die ausstehenden Depth-Writes sind sichtbar.
+           Ersetzt den früheren Voll-Blit in eine Depth-Kopie (~0,1 ms Bandbreite bei 5120er
+           Breite). Am Ende wird das Szene-FBO wieder gebunden. */
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
 
-        /* Mip 0: Depth-KOPIE -> R32F. */
+        /* Basis-Mip (Pow2, ~Viertel-Auflösung): konservatives Footprint-MIN direkt aus dem
+           Szenen-Depth — jeder Basis-Texel deckt seinen exakten Pixel-Bereich lückenlos ab. */
         this.hiZCopy.bind();
         GL13.glActiveTexture(GL13.GL_TEXTURE2);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.hiZDepthCopy);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, depthTexture);
         this.hiZCopy.setUniformi(this.locCopyDepth, 2);
         GL42.glBindImageTexture(0, this.hiZTexture, 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_R32F);
-        GL43.glDispatchCompute((width + 15) / 16, (height + 15) / 16, 1);
+        GL43.glDispatchCompute((this.hiZWidth + 15) / 16, (this.hiZHeight + 15) / 16, 1);
 
-        /* Reduktion: Level für Level MIN aus 2×2 (+ Rand-Klemmung bei ungeraden Größen). */
+        /* Gefaltete Reduktion: 4 Mip-Stufen pro Dispatch über Shared Memory (Pow2-Kette,
+           exakte Halbierungen) — 3 Dispatches/Barriers statt 13 (Blasen-Quelle). */
         this.hiZReduce.bind();
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.hiZTexture);
-        int w = width, h = height;
-        for (int level = 1; level < this.hiZMips; level++) {
+        for (int src = 0; src + 1 < this.hiZMips; src += 4) {
             GL42.glMemoryBarrier(GL42.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL43.GL_TEXTURE_FETCH_BARRIER_BIT);
-            w = Math.max(1, w / 2);
-            h = Math.max(1, h / 2);
-            this.hiZReduce.setUniformi(this.locReduceSrcLevel, level - 1);
-            GL42.glBindImageTexture(0, this.hiZTexture, level, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_R32F);
-            GL43.glDispatchCompute((w + 15) / 16, (h + 15) / 16, 1);
+            int levels = Math.min(4, this.hiZMips - 1 - src);
+            this.hiZReduce.setUniformi(this.locReduceSrcLevel, src);
+            this.hiZReduce.setUniformi(this.locReduceLevels, levels);
+            for (int i = 0; i < 4; i++) {
+                int level = src + 1 + Math.min(i, levels - 1);
+                GL42.glBindImageTexture(i, this.hiZTexture, level, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_R32F);
+            }
+            int w1 = Math.max(1, this.hiZWidth >> (src + 1));
+            int h1 = Math.max(1, this.hiZHeight >> (src + 1));
+            GL43.glDispatchCompute((w1 + 7) / 8, (h1 + 7) / 8, 1);
         }
         this.hiZReduce.unbind();
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, sceneFbo);
         GL42.glMemoryBarrier(GL43.GL_TEXTURE_FETCH_BARRIER_BIT);
         this.hiZValid = true;
     }
 
     private void createHiZTexture(int width, int height) {
         if (this.hiZTexture != 0) GL11.glDeleteTextures(this.hiZTexture);
-        if (this.hiZDepthCopy != 0) GL11.glDeleteTextures(this.hiZDepthCopy);
-        if (this.hiZBlitFbo != 0) GL30.glDeleteFramebuffers(this.hiZBlitFbo);
-        this.hiZWidth = width;
-        this.hiZHeight = height;
-        this.hiZMips = 32 - Integer.numberOfLeadingZeros(Math.max(width, height));
+        this.hiZSrcWidth = width;
+        this.hiZSrcHeight = height;
+        /* Basis = größte Zweierpotenz ≤ Viertel-Auflösung: Pow2 macht ALLE Halbierungen
+           exakt (kein Odd-Size-Verlust möglich), Viertel-Auflösung reicht für Region-/
+           Section-AABBs locker (1 Basis-Texel ≈ 4-6 Bildpixel, Test bleibt konservativ). */
+        this.hiZWidth = Math.max(1, Integer.highestOneBit(Math.max(1, width / 4)));
+        this.hiZHeight = Math.max(1, Integer.highestOneBit(Math.max(1, height / 4)));
+        this.hiZMips = 32 - Integer.numberOfLeadingZeros(Math.max(this.hiZWidth, this.hiZHeight));
         this.hiZTexture = GL11.glGenTextures();
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.hiZTexture);
-        GL42.glTexStorage2D(GL11.GL_TEXTURE_2D, this.hiZMips, GL30.GL_R32F, width, height);
+        GL42.glTexStorage2D(GL11.GL_TEXTURE_2D, this.hiZMips, GL30.GL_R32F, this.hiZWidth, this.hiZHeight);
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST_MIPMAP_NEAREST);
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL12.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL12.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
         GlDebug.labelTexture(this.hiZTexture, "GpuCull Hi-Z-Pyramide");
-
-        /* Depth-Kopie + Blit-FBO (depth-only, Draw-/Read-Buffer NONE für Completeness). */
-        this.hiZDepthCopy = GL11.glGenTextures();
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.hiZDepthCopy);
-        GL42.glTexStorage2D(GL11.GL_TEXTURE_2D, 1, GL30.GL_DEPTH_COMPONENT32F, width, height);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL14.GL_TEXTURE_COMPARE_MODE, GL11.GL_NONE);
-        GlDebug.labelTexture(this.hiZDepthCopy, "GpuCull Depth-Kopie");
-        this.hiZBlitFbo = GL30.glGenFramebuffers();
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.hiZBlitFbo);
-        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT,
-                GL11.GL_TEXTURE_2D, this.hiZDepthCopy, 0);
-        GL11.glDrawBuffer(GL11.GL_NONE);
-        GL11.glReadBuffer(GL11.GL_NONE);
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
         this.hiZValid = false;
     }
 
@@ -764,8 +779,6 @@ public class GpuCull {
         GL15.glDeleteBuffers(this.visBuffer);
         this.countReadMapped = null;
         if (this.hiZTexture != 0) GL11.glDeleteTextures(this.hiZTexture);
-        if (this.hiZDepthCopy != 0) GL11.glDeleteTextures(this.hiZDepthCopy);
-        if (this.hiZBlitFbo != 0) GL30.glDeleteFramebuffers(this.hiZBlitFbo);
         if (this.hiZCopy != null) this.hiZCopy.dispose();
         if (this.hiZReduce != null) this.hiZReduce.dispose();
     }
@@ -843,8 +856,9 @@ public class GpuCull {
                     uvMax = max(uvMax, uv);
                     maxZ = max(maxZ, clip.z / clip.w);
                 }
-                /* Raster-Rand: das analytische Rect um 1 Pixel erweitern — die Rasterisierung
-                   deckt nur Sample-ZENTREN, die exakte Rect-Kante kann im nicht gesampelten
+                /* Raster-Rand: das analytische Rect um 1 BASIS-TEXEL erweitern (bei der
+                   Viertel-Aufloesungs-Basis ~4-6 Bildpixel) — die Rasterisierung deckt nur
+                   Sample-ZENTREN, die exakte Rect-Kante kann im nicht gesampelten
                    Nachbar-Texel liegen (die 0.5-Block-Inflation ist auf LOD-Distanz weit
                    unter einem Pixel und schuetzt dagegen nicht). Die Level-Wahl unten
                    rechnet mit dem erweiterten Rect -> 4-Ecken-Abdeckung bleibt garantiert. */
@@ -948,7 +962,10 @@ public class GpuCull {
             }
             """;
 
-    /* Mip 0 der Pyramide: Szenen-Depth (32F) 1:1 in die R32F-Pyramide kopieren. */
+    /* Basis-Mip der Pyramide: konservatives Footprint-MIN aus dem Szenen-Depth in die
+       Pow2-Basis bei ~Viertel-Aufloesung. Jeder Basis-Texel deckt seinen exakten
+       Pixel-Bereich ab (lueckenlose Kachelung ueber Ganzzahl-Grenzen) — Reversed-Z-MIN
+       ist nie naeher als real, kein Depth-Pixel faellt aus der Reduktion. */
     private static final String HIZ_COPY_SOURCE = """
             #version 460 core
             layout(local_size_x = 16, local_size_y = 16) in;
@@ -956,55 +973,84 @@ public class GpuCull {
             layout(r32f, binding = 0) writeonly uniform image2D u_Dst;
             void main() {
                 ivec2 p = ivec2(gl_GlobalInvocationID.xy);
-                ivec2 size = imageSize(u_Dst);
-                if (p.x >= size.x || p.y >= size.y) return;
-                imageStore(u_Dst, p, vec4(texelFetch(u_Depth, p, 0).r));
+                ivec2 dstSize = imageSize(u_Dst);
+                if (p.x >= dstSize.x || p.y >= dstSize.y) return;
+                ivec2 srcSize = textureSize(u_Depth, 0);
+                int x0 = p.x * srcSize.x / dstSize.x;
+                int x1 = (p.x + 1) * srcSize.x / dstSize.x;
+                int y0 = p.y * srcSize.y / dstSize.y;
+                int y1 = (p.y + 1) * srcSize.y / dstSize.y;
+                float d = 1.0;
+                for (int y = y0; y < y1; y++) {
+                    for (int x = x0; x < x1; x++) {
+                        d = min(d, texelFetch(u_Depth, ivec2(x, y), 0).r);
+                    }
+                }
+                imageStore(u_Dst, p, vec4(d));
             }
             """;
 
-    /* Eine Pyramiden-Stufe: MIN aus 2x2 des Quell-Levels (Reversed-Z: MIN = am weitesten
-       entfernt = konservativ fuer den Verdeckungstest). Bei UNGERADEN Quellgroessen wird die
-       letzte Spalte/Zeile explizit in die MIN einbezogen — reine Klemmung liess sie frueher
-       aus der Reduktion fallen (falsche Culls an Silhouette/Horizont, LOD-Loecher). */
+    /* Gefaltete Pyramiden-Reduktion: EIN Dispatch schreibt bis zu 4 Mip-Stufen (MIN aus 2x2,
+       Reversed-Z: MIN = am weitesten entfernt = konservativ) — eine 8x8-Workgroup reduziert
+       ihre 16x16-Quellkachel ueber Shared Memory bis zur 1x1. Ersetzt 13 Einzel-Dispatches
+       mit je einer Barrier (Pipeline-Blasen = der FPS-Verlust des GPU-Pfads). Die Basis ist
+       Pow2 -> alle Halbierungen exakt; die Klemmung dupliziert nur bei Dimension 1 (exakt
+       konservativ), und Out-of-Range-Threads liefern geklemmte Duplikate — fuer die
+       Shared-MIN neutral. Der fruehere Odd-Size-Verlust der letzten Spalte/Zeile (Ursache
+       der LOD-Loch-Linien: Himmel fiel aus der MIN) ist durch Pow2 strukturell unmoeglich. */
     private static final String HIZ_REDUCE_SOURCE = """
             #version 460 core
-            layout(local_size_x = 16, local_size_y = 16) in;
+            layout(local_size_x = 8, local_size_y = 8) in;
             uniform sampler2D u_Src;
             uniform int u_SrcLevel;
-            layout(r32f, binding = 0) writeonly uniform image2D u_Dst;
+            uniform int u_Levels; // Anzahl zu schreibender Ziel-Level (1..4)
+            layout(r32f, binding = 0) writeonly uniform image2D u_Dst0;
+            layout(r32f, binding = 1) writeonly uniform image2D u_Dst1;
+            layout(r32f, binding = 2) writeonly uniform image2D u_Dst2;
+            layout(r32f, binding = 3) writeonly uniform image2D u_Dst3;
 
-            float fetchMin(ivec2 c, ivec2 srcSize) {
-                return texelFetch(u_Src, min(c, srcSize - 1), u_SrcLevel).r;
-            }
+            shared float s_Tile[8][8];
 
             void main() {
-                ivec2 p = ivec2(gl_GlobalInvocationID.xy);
-                ivec2 dstSize = imageSize(u_Dst);
-                if (p.x >= dstSize.x || p.y >= dstSize.y) return;
+                ivec2 lp = ivec2(gl_LocalInvocationID.xy);
+                ivec2 p = ivec2(gl_GlobalInvocationID.xy); // Texel in Level u_SrcLevel+1
                 ivec2 srcSize = textureSize(u_Src, u_SrcLevel);
                 ivec2 s = p * 2;
-                float d = fetchMin(s, srcSize);
-                d = min(d, fetchMin(s + ivec2(1, 0), srcSize));
-                d = min(d, fetchMin(s + ivec2(0, 1), srcSize));
-                d = min(d, fetchMin(s + ivec2(1, 1), srcSize));
-                /* UNGERADE Quellgroesse: dstSize = srcSize/2 laesst die letzte Spalte/Zeile
-                   sonst von KEINEM Dst-Texel abgedeckt — ihr Inhalt (am oberen/rechten
-                   Bildrand oft Himmel = fern) fiele aus der MIN-Reduktion, der Mip
-                   behauptete dort NAEHERE Tiefe als real -> falsche Occlusion-Culls an
-                   Silhouetten/Horizont (die beobachteten LOD-Loecher). Die dritte
-                   Spalte/Zeile mitnehmen (Klemmung macht das fuer innere Texel neutral). */
-                bool oddX = (srcSize.x & 1) != 0;
-                bool oddY = (srcSize.y & 1) != 0;
-                if (oddX) {
-                    d = min(d, fetchMin(s + ivec2(2, 0), srcSize));
-                    d = min(d, fetchMin(s + ivec2(2, 1), srcSize));
+                float d = texelFetch(u_Src, min(s, srcSize - 1), u_SrcLevel).r;
+                d = min(d, texelFetch(u_Src, min(s + ivec2(1, 0), srcSize - 1), u_SrcLevel).r);
+                d = min(d, texelFetch(u_Src, min(s + ivec2(0, 1), srcSize - 1), u_SrcLevel).r);
+                d = min(d, texelFetch(u_Src, min(s + ivec2(1, 1), srcSize - 1), u_SrcLevel).r);
+                ivec2 sz = imageSize(u_Dst0);
+                if (p.x < sz.x && p.y < sz.y) imageStore(u_Dst0, p, vec4(d));
+                s_Tile[lp.y][lp.x] = d;
+                barrier();
+
+                /* Stufen +2..+4 aus Shared Memory (Schrittmuster 2/4/8; barrier() steht
+                   IMMER im uniformen Kontrollfluss — nur die Schreiber sind maskiert). */
+                if (u_Levels >= 2 && (lp.x & 1) == 0 && (lp.y & 1) == 0) {
+                    d = min(min(s_Tile[lp.y][lp.x], s_Tile[lp.y][lp.x + 1]),
+                            min(s_Tile[lp.y + 1][lp.x], s_Tile[lp.y + 1][lp.x + 1]));
+                    ivec2 q = p >> 1;
+                    sz = imageSize(u_Dst1);
+                    if (q.x < sz.x && q.y < sz.y) imageStore(u_Dst1, q, vec4(d));
+                    s_Tile[lp.y][lp.x] = d;
                 }
-                if (oddY) {
-                    d = min(d, fetchMin(s + ivec2(0, 2), srcSize));
-                    d = min(d, fetchMin(s + ivec2(1, 2), srcSize));
+                barrier();
+                if (u_Levels >= 3 && (lp.x & 3) == 0 && (lp.y & 3) == 0) {
+                    d = min(min(s_Tile[lp.y][lp.x], s_Tile[lp.y][lp.x + 2]),
+                            min(s_Tile[lp.y + 2][lp.x], s_Tile[lp.y + 2][lp.x + 2]));
+                    ivec2 q = p >> 2;
+                    sz = imageSize(u_Dst2);
+                    if (q.x < sz.x && q.y < sz.y) imageStore(u_Dst2, q, vec4(d));
+                    s_Tile[lp.y][lp.x] = d;
                 }
-                if (oddX && oddY) d = min(d, fetchMin(s + ivec2(2, 2), srcSize));
-                imageStore(u_Dst, p, vec4(d));
+                barrier();
+                if (u_Levels >= 4 && lp.x == 0 && lp.y == 0) {
+                    d = min(min(s_Tile[0][0], s_Tile[0][4]), min(s_Tile[4][0], s_Tile[4][4]));
+                    ivec2 q = p >> 3;
+                    sz = imageSize(u_Dst3);
+                    if (q.x < sz.x && q.y < sz.y) imageStore(u_Dst3, q, vec4(d));
+                }
             }
             """;
 }
