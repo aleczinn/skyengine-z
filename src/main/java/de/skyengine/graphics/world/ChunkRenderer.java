@@ -159,11 +159,18 @@ public class ChunkRenderer {
     /* Fence-Diagnose (nur bei aktivem FrameProfiler gefüllt, s. beginFrame) */
     private long syncFrames, syncSignaled, syncWaitNs, syncWaitMaxNs;
 
-    /* GPU-Cull-Draw-Telemetrie: min/max der per-Frame-Draw-Counts je Segment über die letzte
-       Sekunde (aus dem gemappten Count-Readback). Springende Spannweiten = objektiver
-       Flacker-Nachweis inkl. WELCHES Segment (Diagnose des LOD-Ring-Flackerns). */
-    private final int[] gpuDrawMin = new int[GpuCull.SEGMENTS];
-    private final int[] gpuDrawMax = new int[GpuCull.SEGMENTS];
+    /* GPU-Cull-Draw-Telemetrie: min/max der per-Frame-Draw-Counts je Segment und Phase über
+       die letzte Sekunde (aus dem gemappten Count-Readback; [0..SEGMENTS) = Phase 1,
+       [SEGMENTS..2*SEGMENTS) = Phase 2). Two-Phase-Abnahmekriterium: die SUMME P1+P2 eines
+       Segments muss bei statischer Kamera konstant sein — einzelne Grenzobjekte dürfen die
+       Phase wechseln. Springende Summen = objektiver Flacker-Nachweis inkl. WELCHES Segment. */
+    private final int[] gpuDrawMin = new int[2 * GpuCull.SEGMENTS];
+    private final int[] gpuDrawMax = new int[2 * GpuCull.SEGMENTS];
+    /* Zusätzlich die PER-FRAME-SUMME P1+P2 je Segment (min/max über die Sekunde): die
+       Phasen-Spannen alleine können ein Loch verstecken (P1 und P2 unabhängig getrackt) —
+       nur eine konstante SUMME bei statischer Kamera beweist „nichts fehlt". */
+    private final int[] gpuSumMin = new int[GpuCull.SEGMENTS];
+    private final int[] gpuSumMax = new int[GpuCull.SEGMENTS];
     private boolean gpuDrawStatsValid;
 
     /* Mess-Gate LOD-Superregionen: bei aktivem FrameProfiler wird das LOD-Opaque-Segment
@@ -488,7 +495,7 @@ public class ChunkRenderer {
             }
             /* TEMP (P4-Spike-Diagnose) */
             long dbgDispatch = System.nanoTime();
-            this.gpuCull.dispatch(this.frameSlot, camera);
+            this.gpuCull.dispatchPhase1(this.frameSlot, camera);
             long dbgDispatchDauer = System.nanoTime() - dbgDispatch;
             if (dbgDispatchDauer > 5_000_000L) {
                 this.logger.debug("GPU-Cull-SPIKE dispatch: " + dbgDispatchDauer / 1000 + "us");
@@ -655,7 +662,7 @@ public class ChunkRenderer {
         this.shader.setUniformf(this.locAlphaCutoff, 0.5F);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.SOLID);
         if (gpu) {
-            this.drawSegmentGpu(RenderLayer.OPAQUE.ordinal(), GpuCull.SEG_OPAQUE);
+            this.drawSegmentGpu(RenderLayer.OPAQUE.ordinal(), GpuCull.SEG_OPAQUE, 0);
         } else {
             this.drawSegment(RenderLayer.OPAQUE.ordinal(), cmdOpaque, offOpaque, nOpaque);
         }
@@ -667,7 +674,7 @@ public class ChunkRenderer {
             for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
                 if (this.gpuCull.lodLevelCount(l) == 0) continue;
                 FrameProfiler.gpuBegin(LOD_LEVEL_GPU[l]);
-                this.drawLodSegmentGpu(LOD_OPAQUE, GpuCull.SEG_LOD_BASE + l - 1);
+                this.drawLodSegmentGpu(LOD_OPAQUE, GpuCull.SEG_LOD_BASE + l - 1, 0);
                 FrameProfiler.gpuEnd(LOD_LEVEL_GPU[l]);
             }
             dbgLod = System.nanoTime();
@@ -690,7 +697,7 @@ public class ChunkRenderer {
         GL11.glDepthFunc(properties.orEqualDepthFunc());
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.CUTOUT);
         if (gpu) {
-            this.drawSegmentGpu(RenderLayer.CUTOUT.ordinal(), GpuCull.SEG_CUTOUT);
+            this.drawSegmentGpu(RenderLayer.CUTOUT.ordinal(), GpuCull.SEG_CUTOUT, 0);
         } else {
             this.drawSegment(RenderLayer.CUTOUT.ordinal(), cmdCutout, offCutout, nCutout);
         }
@@ -722,15 +729,35 @@ public class ChunkRenderer {
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.CUTOUT);
         GL11.glDepthFunc(properties.baseDepthFunc());
 
-        /* Hi-Z-Pyramide JETZT bauen — nach OPAQUE/CUTOUT, VOR dem Translucent-Pass: die
-           Wasseroberfläche schreibt Depth, darf aber nichts verdecken — sonst cullt sich
-           der Meeresboden gegen seine eigene koplanare AABB-Oberkante (Wasserspiegel) und
-           der TAA-Jitter kippt den Grenzfall pro Frame (Flacker-Löcher im Ozean).
-           BlockEntities/Entities fehlen im Depth: nur weniger Culling, nie falsches. */
+        /* Two-Phase-Occlusion, Phase 2: Hi-Z-Pyramide aus dem Phase-1-Depth DIESES Frames
+           bauen (nach OPAQUE/CUTOUT/Detail, VOR dem Translucent-Pass — die Wasseroberfläche
+           schreibt Depth, darf aber nichts verdecken, sonst cullt sich der Meeresboden gegen
+           seine eigene koplanare AABB-Oberkante; BlockEntities/Entities fehlen im Depth: nur
+           weniger Culling, nie falsches). Danach testet der Phase-2-Compute ALLE Descriptoren
+           gegen diese Same-Frame-Pyramide und zeichnet Nachzügler sofort — die Pyramide ist
+           damit am Frame-Ende immer vollständig, der Selbst-Feedback-Loop des Ein-Phasen-
+           Hi-Z (LOD-Ring-Flackern in Linien) ist strukturell weg. */
         if (gpu) {
             var window = SkyEngine.get().getWindow();
             this.gpuCull.buildPyramid(window.getFrameBuffer().getDepthTexture(),
-                    window.getWidth(), window.getHeight(), camera);
+                    window.getWidth(), window.getHeight());
+            this.gpuCull.dispatchPhase2(this.frameSlot, camera);
+            this.gpuCull.barrier();
+            this.gpuCull.copyCounts();
+            /* buildPyramid/dispatchPhase2 haben Programm + Unit-2-Binding verstellt — Draw-
+               State wiederherstellen (PV/Fog/Cutoff sind Programm-State und bleiben gültig).
+               Keine FrameProfiler-GPU-Queries: die Query-Objekte sind 1× pro Frame-Slot und
+               Section vergeben, ein zweites Begin würde die Phase-1-Messung überschreiben. */
+            this.shader.bind();
+            this.textures.bind(0);
+            this.drawSegmentGpu(RenderLayer.OPAQUE.ordinal(), GpuCull.SEG_OPAQUE, 1);
+            for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
+                if (this.gpuCull.lodLevelCount(l) == 0) continue;
+                this.drawLodSegmentGpu(LOD_OPAQUE, GpuCull.SEG_LOD_BASE + l - 1, 1);
+            }
+            GL11.glDepthFunc(properties.orEqualDepthFunc());
+            this.drawSegmentGpu(RenderLayer.CUTOUT.ordinal(), GpuCull.SEG_CUTOUT, 1);
+            GL11.glDepthFunc(properties.baseDepthFunc());
         }
 
         /* TEMP (P4-Spike-Diagnose): Aufschlüsselung loggen, wenn die Submission stallt. */
@@ -851,14 +878,25 @@ public class ChunkRenderer {
                (Fenstertitel + 1-s-Telemetrie) — reine Lesung aus dem Read-Ring, kein GL-Call. */
             if (this.gpuCull.isActive()) {
                 int[] counts = this.gpuCull.readCounts(this.frameSlot);
-                this.renderedSections = counts[GpuCull.SEG_OPAQUE];
-                for (int s = 0; s < GpuCull.SEGMENTS; s++) {
+                this.renderedSections = counts[GpuCull.SEG_OPAQUE]
+                        + counts[GpuCull.SEGMENTS + GpuCull.SEG_OPAQUE];
+                for (int s = 0; s < 2 * GpuCull.SEGMENTS; s++) {
                     if (!this.gpuDrawStatsValid) {
                         this.gpuDrawMin[s] = counts[s];
                         this.gpuDrawMax[s] = counts[s];
                     } else {
                         if (counts[s] < this.gpuDrawMin[s]) this.gpuDrawMin[s] = counts[s];
                         if (counts[s] > this.gpuDrawMax[s]) this.gpuDrawMax[s] = counts[s];
+                    }
+                }
+                for (int s = 0; s < GpuCull.SEGMENTS; s++) {
+                    int sum = counts[s] + counts[GpuCull.SEGMENTS + s];
+                    if (!this.gpuDrawStatsValid) {
+                        this.gpuSumMin[s] = sum;
+                        this.gpuSumMax[s] = sum;
+                    } else {
+                        if (sum < this.gpuSumMin[s]) this.gpuSumMin[s] = sum;
+                        if (sum > this.gpuSumMax[s]) this.gpuSumMax[s] = sum;
                     }
                 }
                 this.gpuDrawStatsValid = true;
@@ -894,25 +932,38 @@ public class ChunkRenderer {
     }
 
     /**
-     * GPU-Cull-Telemetrie der letzten Sekunde: min/max der Draw-Counts je Segment (springende
-     * Spannweiten = Flacker-Nachweis) + Occlusion-Enable-Zähler. null ohne aktiven GPU-Pfad.
+     * GPU-Cull-Telemetrie der letzten Sekunde: min/max der Draw-Counts je Segment und Phase
+     * als "P1min..P1max+P2min..P2max" (bei statischer Kamera muss die SUMME P1+P2 konstant
+     * sein — Flacker-Nachweis) + Occlusion-Enable-Zähler. null ohne aktiven GPU-Pfad.
      */
     public String gpuCullStatsLineAndReset() {
         String telemetrie = this.gpuCull.telemetrieZeileUndReset();
         if (!this.gpuDrawStatsValid) return telemetrie;
-        StringBuilder sb = new StringBuilder("GpuCull-Draws: op ")
-                .append(this.gpuDrawMin[GpuCull.SEG_OPAQUE]).append("..").append(this.gpuDrawMax[GpuCull.SEG_OPAQUE])
-                .append(" | cut ")
-                .append(this.gpuDrawMin[GpuCull.SEG_CUTOUT]).append("..").append(this.gpuDrawMax[GpuCull.SEG_CUTOUT]);
+        StringBuilder sb = new StringBuilder("GpuCull-Draws: op ");
+        this.appendPhaseRange(sb, GpuCull.SEG_OPAQUE);
+        sb.append(" | cut ");
+        this.appendPhaseRange(sb, GpuCull.SEG_CUTOUT);
         for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
             int s = GpuCull.SEG_LOD_BASE + l - 1;
-            if (this.gpuDrawMax[s] == 0) continue;
-            sb.append(" | L").append(l).append(' ')
-                    .append(this.gpuDrawMin[s]).append("..").append(this.gpuDrawMax[s]);
+            if (this.gpuDrawMax[s] == 0 && this.gpuDrawMax[GpuCull.SEGMENTS + s] == 0) continue;
+            sb.append(" | L").append(l).append(' ');
+            this.appendPhaseRange(sb, s);
         }
         this.gpuDrawStatsValid = false;
         if (telemetrie != null) sb.append(" | ").append(telemetrie);
         return sb.toString();
+    }
+
+    /**
+     * Draw-Spannweite eines Segments als "ΣSummenSpanne (P1-Spanne+P2-Spanne)". Kriterium
+     * bei statischer Kamera: die SUMMEN-Spanne muss ein Punkt sein (Σn..n) — nur das
+     * beweist, dass kein Objekt in einem Frame ganz fehlt (Phasen-Wechsel sind erlaubt).
+     */
+    private void appendPhaseRange(StringBuilder sb, int segment) {
+        sb.append('Σ').append(this.gpuSumMin[segment]).append("..").append(this.gpuSumMax[segment])
+                .append(" (").append(this.gpuDrawMin[segment]).append("..").append(this.gpuDrawMax[segment])
+                .append('+').append(this.gpuDrawMin[GpuCull.SEGMENTS + segment])
+                .append("..").append(this.gpuDrawMax[GpuCull.SEGMENTS + segment]).append(')');
     }
 
     private void endFrame() {
@@ -1172,9 +1223,11 @@ public class ChunkRenderer {
      * glMultiDrawElementsIndirect und CPU-bekannter Draw-Zahl. BEWUSST kein
      * glMultiDrawElementsIndirectCount: dessen Count-Buffer-Lesung stallte die Submission im
      * Treiber bis zum Pipeline-Leerlauf (gemessen 76–114 ms bei Upload-Bursts; Null-Draws
-     * sind dagegen fast gratis — Superregionen-Messung).
+     * sind dagegen fast gratis — Superregionen-Messung). {@code phase} wählt den Command-
+     * Bereich des Two-Phase-Cull (0 = Letzte-Frame-Sichtbare, 1 = Nachzügler); die Offsets
+     * teilen sich beide Phasen.
      */
-    private void drawSegmentGpu(int slot, int segment) {
+    private void drawSegmentGpu(int slot, int segment, int phase) {
         int drawCount = this.gpuCull.drawCount(segment);
         if (drawCount == 0) return;
         GL30.glBindVertexArray(this.vaos[slot]);
@@ -1182,15 +1235,15 @@ public class ChunkRenderer {
         GL30.glBindBufferRange(GL43.GL_SHADER_STORAGE_BUFFER, 0, this.gpuCull.getOffsetBuffer(),
                 this.gpuCull.offsetOffset(this.frameSlot, segment), this.gpuCull.offsetBytes(segment));
         GL43.glMultiDrawElementsIndirect(GL11.GL_TRIANGLES, GL11.GL_UNSIGNED_INT,
-                this.gpuCull.commandOffset(this.frameSlot, segment), drawCount, 0);
+                this.gpuCull.commandOffset(this.frameSlot, segment, phase), drawCount, 0);
         GL30.glBindVertexArray(0);
     }
 
     /** GPU-Cull-Variante von {@link #drawLodSegment} (Polygon-Offset wie dort). */
-    private void drawLodSegmentGpu(int slot, int segment) {
+    private void drawLodSegmentGpu(int slot, int segment, int phase) {
         GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
         GL11.glPolygonOffset(this.lodOffsetFactor, this.lodOffsetUnits);
-        this.drawSegmentGpu(slot, segment);
+        this.drawSegmentGpu(slot, segment, phase);
         GL11.glDisable(GL11.GL_POLYGON_OFFSET_FILL);
     }
 
