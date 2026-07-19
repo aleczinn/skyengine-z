@@ -34,6 +34,7 @@ import de.skyengine.game.world.lod.LodMesher;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.gui.ChestScreen;
+import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.post.PostProcessingSettings;
@@ -92,6 +93,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     private boolean debugChunkBoundingBox = false;
     private boolean debugChunkWireframe = false;
+
+    /* F3-Debug-Overlay (FPS/Position/Biome/...), Toggle in handleGlobalHotkeys. */
+    private final DebugOverlay debugOverlay = new DebugOverlay();
 
     /* Wird per F2 gesetzt und von SkyEngine nach dem fertigen Frame abgeholt. */
     private boolean screenshotRequested = false;
@@ -270,6 +274,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         boolean showHotbar = this.player.getGamemode() != Gamemode.SPECTATOR;
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
         this.guiManager.render(width, height, this.playerInventory, this.hotbarIndex, showHotbar);
+        if (this.debugOverlay.isVisible()) {
+            this.debugOverlay.render(this.guiManager, this.world, this.player);
+        }
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
     }
 
@@ -762,6 +769,10 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         if (input.isKeyPressed(GLFW.GLFW_KEY_F2)) {
             /* Nur markieren: der Pixel-Read passiert erst nach dem fertigen Frame (SkyEngine.onRender). */
             this.screenshotRequested = true;
+        }
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F3)) {
+            this.debugOverlay.toggle();
+            this.logger.debug("Debug-Overlay: " + (this.debugOverlay.isVisible() ? "an" : "aus"));
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
             boolean fullscreen = SkyEngine.get().getConfig().isWindowed();
