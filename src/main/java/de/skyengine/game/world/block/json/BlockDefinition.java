@@ -16,6 +16,7 @@ public class BlockDefinition {
     public Boolean solid;               // default: false bei cross, sonst true
     public boolean cull_same = false;   // Glas-an-Glas-Culling
     public boolean no_lod_surface = false; // nie als LOD-Terrain-Oberfläche sampeln (Logs)
+    public boolean leaves = false;      // Laub: bei LeavesQuality LOW cullt Laub-an-Laub
     public boolean gravity = false;     // fällt nach unten (Sand, Kies) via GravityBehavior
     public boolean facing = false;      // horizontale Ausrichtung zum Spieler (Truhe, Ofen) via HorizontalFacingBehavior
 

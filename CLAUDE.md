@@ -86,11 +86,14 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
   Pop-ins), Skirts, Epoche/Hysterese, eigene Vertex-Arenen, AO, transluzentes LOD-Wasser,
   getönte Gras-Overlay-Wände
 - Vegetations-Tint biome-abhängig (Eck-Grids + bilinear), koplanare Grasblock-Overlays
+- GPU-driven Culling (GpuCull, Default AN, Hotkey K = A/B): Frustum + Sicht-Gate + LOD per
+  Compute, Two-Phase-Hi-Z-Occlusion (Pow2-Viertel-Pyramide); kostet heute ~0,2 ms/Frame,
+  zahlt sich ab Licht/Schatten aus — Details/Fallen im Skill `mdi-rendering`
 - Mining: MC-Harvest-Regel, 28 Tools (7 Tiers × 4 Typen), Durability, Crack-Overlay,
   Bedrock unzerstörbar; Gamemodes Survival/Creative/Spectator; Item-Entities + Aufsammeln
 
 **Offen / geplant (bekannt, nicht angefangen):**
-- Occlusion Culling (nächster Rendering-Schritt laut Roadmap)
+- Licht-Merge (`lightning-system`-Branch) + Schatten-Pass — dann amortisiert sich der GPU-Cull-Pfad
 - Welt-/Inventar-Persistenz (Speichern/Laden) und Crafting
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
 - TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert)

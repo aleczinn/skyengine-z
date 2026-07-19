@@ -16,12 +16,20 @@ public class SectionMesh {
 
     public final int chunkX, sectionY, chunkZ;
 
+    /* Descriptor-Slots im GPU-Cull-Substrat (-1 = nicht registriert), gepflegt vom ChunkRenderer. */
+    int gpuSlotOpaque = -1, gpuSlotCutout = -1;
+
     /** Ints pro Quad: 4 Vertices à VERTEX_SIZE (gepacktes Format, siehe ChunkMesher). */
     private static final int QUAD_INTS = 4 * ChunkMesher.VERTEX_SIZE;
 
     /* Index = RenderLayer.ordinal(); Region null = Layer leer */
     private final VertexArena.Region[] regions = new VertexArena.Region[RenderLayer.VALUES.length];
     private final int[] quadCounts = new int[RenderLayer.VALUES.length];
+
+    /* Kleinvegetations-Segment (Gras/Blumen/Pilze): eigene Region in der CUTOUT-Arena,
+       eigenes Draw-Segment im Renderer (distanzabhängige Ausdünnung/Skip). */
+    private VertexArena.Region detailRegion;
+    private int detailQuadCount;
 
     /* CPU-Kopie des Translucent-Layers für die Per-Quad-Sortierung (null ohne Translucent-Inhalt).
        Referenz auf das Mesher-Array — wird nach dem Upload sonst nirgends mehr benutzt. */
@@ -44,6 +52,10 @@ public class SectionMesh {
         this.upload(RenderLayer.OPAQUE, data.opaque, arenas);
         this.upload(RenderLayer.CUTOUT, data.cutout, arenas);
         this.upload(RenderLayer.TRANSLUCENT, data.translucent, arenas);
+        if (data.detail != null) {
+            this.detailRegion = arenas[RenderLayer.CUTOUT.ordinal()].alloc(data.detail);
+            this.detailQuadCount = data.detail.length / QUAD_INTS;
+        }
     }
 
     private void upload(RenderLayer layer, int[] data, VertexArena[] arenas) {
@@ -67,9 +79,24 @@ public class SectionMesh {
         return this.quadCounts[layer.ordinal()] * 6;
     }
 
+    public boolean hasDetail() {
+        return this.detailRegion != null;
+    }
+
+    /** baseVertex des Kleinvegetations-Segments (CUTOUT-Arena). Nur bei hasDetail aufrufen. */
+    public int baseVertexDetail() {
+        return this.detailRegion.vertexOffset();
+    }
+
+    /** Index-Anzahl des Kleinvegetations-Segments (Quads · 6). */
+    public int indexCountDetail() {
+        return this.detailQuadCount * 6;
+    }
+
     /** Größte Quad-Anzahl aller Layer — fürs Sizing des geteilten Index-Buffers. */
     public int maxQuads() {
-        return Math.max(this.quadCounts[0], Math.max(this.quadCounts[1], this.quadCounts[2]));
+        return Math.max(Math.max(this.quadCounts[0], this.detailQuadCount),
+                Math.max(this.quadCounts[1], this.quadCounts[2]));
     }
 
     /** Entpackt eine Fixed-Point-Positions-Komponente (u16, 8.8, Bias +1). */
@@ -147,6 +174,10 @@ public class SectionMesh {
                 arenas[i].free(this.regions[i], currentFrame);
                 this.regions[i] = null;
             }
+        }
+        if (this.detailRegion != null) {
+            arenas[RenderLayer.CUTOUT.ordinal()].free(this.detailRegion, currentFrame);
+            this.detailRegion = null;
         }
     }
 }

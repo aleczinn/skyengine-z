@@ -75,6 +75,7 @@ public final class BlockRegistry {
         if (block.ticksRandomly()) flags |= StateFlags.TICKS_RANDOMLY;
         if (block.isFluid()) flags |= StateFlags.FLUID;
         if (block.isExcludedFromLodSurface()) flags |= StateFlags.NO_LOD_SURFACE;
+        if (block.isLeaves()) flags |= StateFlags.LEAVES;
         return StateFlags.packLayer(flags, block.getRenderLayer(state));
     }
 

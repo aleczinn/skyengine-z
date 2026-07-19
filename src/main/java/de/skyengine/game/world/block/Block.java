@@ -112,6 +112,11 @@ public class Block {
         return this.settings.noLodSurface;
     }
 
+    /** true: Laub — bei LeavesQuality LOW cullen Laub-Faces gegen JEDES Nachbar-Laub. */
+    public boolean isLeaves() {
+        return this.settings.leaves;
+    }
+
     /** true: Wasser/Lava — Geometrie kommt dynamisch aus dem Mesher (kein gebackenes Modell). */
     public boolean isFluid() {
         return this.config.fluidInfo() != null;
@@ -338,6 +343,7 @@ public class Block {
         boolean solid = true;
         boolean cullSame = false;
         boolean noLodSurface = false;
+        boolean leaves = false;
         RenderLayer renderLayer = RenderLayer.OPAQUE;
 
         public static Settings create() {
@@ -373,6 +379,11 @@ public class Block {
 
         public Settings noLodSurface(boolean noLodSurface) {
             this.noLodSurface = noLodSurface;
+            return this;
+        }
+
+        public Settings leaves(boolean leaves) {
+            this.leaves = leaves;
             return this;
         }
     }

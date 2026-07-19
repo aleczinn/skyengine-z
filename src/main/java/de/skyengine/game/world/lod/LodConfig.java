@@ -8,6 +8,7 @@ package de.skyengine.game.world.lod;
  * <pre>
  * maxLevel      = clamp(ceil(log2(lodMaxDistance / RD)), 1, 5)   // Stride 2^5 = 32 = Formatgrenze
  * levelAt(dist) = clamp(floor(log2(dist / RD)) + 1, 1, maxLevel)
+ *                 (+1 im Fern-Band, s. FAR_BAND_FACTOR, Deckel 5)
  * </pre>
  *
  * Beispiel RD=24/lodMax=256: L1 24–48 (Stride 2), L2 48–96 (4), L3 96–192 (8), L4 192–256 (16).
@@ -24,12 +25,27 @@ public record LodConfig(int renderDistance, int lodMaxDistance, int maxLevel) {
         return new LodConfig(renderDistance, lodMaxDistance, Math.clamp(maxLevel, 1, 5));
     }
 
-    /** LOD-Level (1..maxLevel) für eine Distanz in Blöcken; innen wird auf L1 geklemmt. */
+    /* Anteil des Außenradius, ab dem das äußerste Band eine Stufe gröber sampelt (+1 Level):
+       halbiert dort die Zellen pro Achse (größter LOD-Quad-Hebel laut Zensus). 0.75 hält die
+       Vergröberung im hintersten Viertel, wo Distanz-Fog und Pixeldichte sie kaschieren. */
+    private static final double FAR_BAND_FACTOR = 0.75;
+
+    /** LOD-Level (1..maxEffectiveLevel) für eine Distanz in Blöcken; innen wird auf L1 geklemmt. */
     public int levelAt(double distBlocks) {
         int n = (int) (distBlocks / (this.renderDistance * 32.0));
         if (n < 1) return 1;
-        int level = 32 - Integer.numberOfLeadingZeros(n); // floor(log2(n)) + 1
-        return Math.min(level, this.maxLevel);
+        int level = Math.min(32 - Integer.numberOfLeadingZeros(n), this.maxLevel); // floor(log2)+1
+        /* Fern-Band nur im äußersten (maxLevel-)Ring — die Bedingung level == maxLevel hält
+           die Zuordnung monoton über die Distanz (kein Band-Sprung bei krummen Ratios). */
+        if (level == this.maxLevel && distBlocks >= this.outerRadiusBlocks() * FAR_BAND_FACTOR) {
+            level = Math.min(level + 1, 5);
+        }
+        return level;
+    }
+
+    /** Höchstes real vergebenes Level inkl. Fern-Band (für Array-Dimensionierung pro Level). */
+    public int maxEffectiveLevel() {
+        return Math.min(this.maxLevel + 1, 5);
     }
 
     /** Zellgröße (Stride) eines Levels in Blöcken (2^L, max 32). */
