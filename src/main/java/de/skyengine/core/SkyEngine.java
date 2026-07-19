@@ -44,6 +44,10 @@ public class SkyEngine {
     private final GameContainer game;
     private final PostProcessor postProcessor;
 
+    /* Letzte 1-Sekunden-Zählwerte aus dem gameLoop — für On-Screen-Anzeigen (F3). */
+    private int currentFps;
+    private int currentTps;
+
     public SkyEngine(EngineConfig config) {
         instance = this;
 
@@ -209,6 +213,9 @@ public class SkyEngine {
 
             // show states each 1 second
             if (System.currentTimeMillis() - lastStatusTime >= 1000) {
+                /* Letzte Sekundenwerte für On-Screen-Anzeigen (F3-Debug-Overlay) festhalten. */
+                this.currentFps = frames;
+                this.currentTps = updates;
                 System.out.printf("FPS: %d, TPS: %d%n", frames, updates);
                 String profilerLine = FrameProfiler.statusLineAndReset();
                 if (profilerLine != null) {
@@ -412,6 +419,16 @@ public class SkyEngine {
 
     public GameContainer getGame() {
         return game;
+    }
+
+    /** FPS der letzten vollen Sekunde (0 bis zur ersten Messung). */
+    public int getCurrentFps() {
+        return currentFps;
+    }
+
+    /** TPS der letzten vollen Sekunde (0 bis zur ersten Messung). */
+    public int getCurrentTps() {
+        return currentTps;
     }
 
     public PostProcessor getPostProcessor() {
