@@ -57,7 +57,7 @@ public final class LodQuadCensus {
         double outer = config.outerRadiusBlocks();
         int radius = (int) Math.ceil((outer + LodMesher.HALF_DIAG) / LodMesher.REGION_BLOCKS);
 
-        int levels = config.maxLevel() + 1;
+        int levels = config.maxEffectiveLevel() + 1;
         long[] regions = new long[levels];
         long[] opaque = new long[levels];
         long[] translucent = new long[levels];

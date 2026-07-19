@@ -2,6 +2,7 @@
   "id": "skyengine:mangrove_leaves",
   "type": "cube",
   "layer": "cutout",
+  "leaves": true,
   "hardness": 0.2,
   "opaque": false,
   "tint": "foliage_mangrove",

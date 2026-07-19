@@ -23,6 +23,9 @@ public class LodMesh {
     public final int yBase;
     public final float minY, maxY; // absoluter y-Bereich (fürs Frustum-AABB)
 
+    /* Descriptor-Slot im GPU-Cull-Substrat (-1 = nicht registriert), gepflegt vom ChunkRenderer. */
+    int gpuSlot = -1;
+
     private final VertexArena.Region opaqueRegion;       // null = keine Opaque-Geometrie
     private final VertexArena.Region translucentRegion;  // null = keine Translucent-Geometrie
     private final int opaqueQuadCount, translucentQuadCount;

@@ -65,6 +65,11 @@ public final class BlockState {
         return (this.flags & StateFlags.RANDOM_OFFSET) != 0;
     }
 
+    /** Laub-Block (bei LeavesQuality LOW cullen Laub-Faces gegen jedes Nachbar-Laub). */
+    public boolean isLeaves() {
+        return (this.flags & StateFlags.LEAVES) != 0;
+    }
+
     /** true: nimmt am Random-Tick teil (Pflanzen, Verfall). Flag wird beim Bake gesetzt. */
     public boolean ticksRandomly() {
         return (this.flags & StateFlags.TICKS_RANDOMLY) != 0;
