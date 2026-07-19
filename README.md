@@ -14,7 +14,7 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
 ## Features
 
 - 🌍 Chunk-System inkl. Welt Rendering (Chunks sind Säulenförmig a 32x512x32m jedoch in Sektionen mit 32³ Blöcken verteilt)
-- 📷 Kamera inkl. Inverse Depth für bessere Tiefenaufteilung + Frustum Culling
+- 📷 Kamera inkl. Inverse Depth für bessere Tiefenaufteilung
 - 💥 AABB Sweep Kollision + Spieler Physik wie Springen, Sneaken, Strafe, Fliegen etc.
 - 🫲🏼 Block Platzieren/Abbauen
 - 🟩 Vollwertiges Block-System: 
@@ -26,7 +26,10 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
   - Animierte Blöcke mit Entity Verhalten wie Truhen mit Inventar und Aufklapp-Animation oder einen Zaubertisch, bei dem das Buch obendrauf den Spieler verfolgt und aufgeht
   - Multipart Blöcke wie Türen, welche mit Spielerklick auf und zu gehen inkl. Platzierungslogik für Türanschlag
   - Flüssigkeiten wie Wasser und Lava mit Reaktionsverhalten für Obsidian, Cobblestone und Stein
-- 📜 Einfache GUI wie Hotbar des Spielers oder Truheninventar mit Item-Verschiebung via Maus
+- 📜 GUI-System
+  - Font Rendering (TTF -> Texture Atlas -> Zeichnen)
+  - Hotbar mit Blöcken
+  - Inventar für Truhe
 - 🎲 Verschiedene Gamemode's wie Survival, Kreativ oder Zuschauer (Fliegen + NoClip)
 - 🔝 Optimizations & Features
   - Frustum Culling
@@ -34,6 +37,7 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
   - Nutzen von MultiDrawIndirect & BufferStorage -> Reduziert Draw-Calls von 12.288 auf 3 (16 Chunk Renderdistanz; 3 weil einen für OPAQUE, CUTOUT & TRANSLUCENT)
   - Ambient Occlusion
   - Level of Detail
+  - GPU Acceleration (Frustum-/Occlusion Culling)
 - 🏔️ Welt-Generator
   - Biome
   - Strukturen wie Bäume, Palmen
