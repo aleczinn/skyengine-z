@@ -26,6 +26,8 @@ public final class GuiSelectWorld extends GuiScreen {
 
     private static final float ENTRY_W = 260, ENTRY_H = 28, ROW_GAP = 2;
     private static final float SCROLL_STEP = 30;
+    /** Zeitfenster für Doppelklick-Laden (Klick auf den bereits selektierten Eintrag). */
+    private static final long DOUBLE_CLICK_MS = 400;
     private static final Color4 SUBTITLE = new Color4(0.65f, 0.65f, 0.65f, 1f);
 
     private final List<GuiComponent> entries = new ArrayList<>();
@@ -35,6 +37,7 @@ public final class GuiSelectWorld extends GuiScreen {
 
     private List<WorldSave> saves = List.of();
     private int selected = -1;
+    private long lastClickTime;
     private Button play, delete;
 
     public GuiSelectWorld(GuiScreen parent) {
@@ -79,6 +82,14 @@ public final class GuiSelectWorld extends GuiScreen {
         @Override
         public boolean mousePressed(double mx, double my, int button) {
             if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT || !this.isMouseOver(mx, my)) return false;
+            /* Doppelklick auf den bereits selektierten Eintrag lädt die Welt direkt (wie MC). */
+            long now = System.currentTimeMillis();
+            if (GuiSelectWorld.this.selected == this.index
+                    && now - GuiSelectWorld.this.lastClickTime <= DOUBLE_CLICK_MS) {
+                SkyEngine.get().getGame().enterWorld(GuiSelectWorld.this.saves.get(this.index));
+                return true;
+            }
+            GuiSelectWorld.this.lastClickTime = now;
             GuiSelectWorld.this.select(this.index);
             return true;
         }
