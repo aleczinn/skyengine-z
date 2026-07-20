@@ -55,8 +55,9 @@ public abstract class GuiScreen {
 
     /**
      * Hintergrund im Sprite-Pass: über einer laufenden Welt wird gedimmt; ohne Welt
-     * (Hauptmenü-Kontext) kommt der gekachelte Menü-Hintergrund (Kachel ist halbtransparentes
-     * Grau im modernen MC-Stil und braucht Schwarz darunter).
+     * (Hauptmenü-Kontext) kommt das Hintergrundbild (object-cover) — für Untermenü-Lesbarkeit
+     * leicht abgedunkelt — bzw. der Kachel-Fallback, wenn kein Bild vorliegt.
+     * Das GuiMainMenu überschreibt das und zeigt das Bild ungedimmt.
      */
     protected void renderBackground(GuiManager gui) {
         float vW = gui.vWidth(), vH = gui.vHeight();
@@ -64,6 +65,32 @@ public abstract class GuiScreen {
             gui.sprites().drawRect(0, 0, vW, vH, 0f, 0f, 0f, 0.4f);
             return;
         }
+        if (this.drawMenuImage(gui)) {
+            gui.sprites().drawRect(0, 0, vW, vH, 0f, 0f, 0f, 0.4f);
+        } else {
+            this.drawMenuTiles(gui);
+        }
+    }
+
+    /**
+     * Zeichnet das Menü-Hintergrundbild als <b>object-cover</b> (CSS-Analogon): gleichmäßig
+     * skaliert auf die kleinste Größe, die den Viewport voll bedeckt, zentriert — der Überstand
+     * wird beidseitig abgeschnitten (Ultrawide: links/rechts crop, 16:9 exakt, nie verzerrt).
+     * @return false, wenn kein Bild geladen ist (Fallback: {@link #drawMenuTiles}).
+     */
+    protected boolean drawMenuImage(GuiManager gui) {
+        Texture image = gui.textures().menuBackgroundImage;
+        if (image == null) return false;
+        float vW = gui.vWidth(), vH = gui.vHeight();
+        float scale = Math.max(vW / image.getWidth(), vH / image.getHeight());
+        float w = image.getWidth() * scale, h = image.getHeight() * scale;
+        gui.sprites().drawSprite(image, (vW - w) / 2f, (vH - h) / 2f, w, h);
+        return true;
+    }
+
+    /** Kachel-Fallback: halbtransparente MC-Menü-Kachel über Schwarz. */
+    protected void drawMenuTiles(GuiManager gui) {
+        float vW = gui.vWidth(), vH = gui.vHeight();
         gui.sprites().drawRect(0, 0, vW, vH, 0.06f, 0.06f, 0.06f, 1f);
         Texture tile = gui.textures().menuBackground;
         for (float y = 0; y < vH; y += MENU_TILE) {
