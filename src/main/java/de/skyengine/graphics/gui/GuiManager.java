@@ -1,5 +1,6 @@
 package de.skyengine.graphics.gui;
 
+import de.skyengine.audio.SoundManager;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
@@ -25,6 +26,7 @@ import org.lwjgl.opengl.GL11;
 public final class GuiManager {
 
     private final Input input;
+    private final SoundManager sound;
 
     private final SpriteRenderer sprites = new SpriteRenderer();
     private final ItemIconRenderer icons = new ItemIconRenderer();
@@ -44,8 +46,9 @@ public final class GuiManager {
 
     private int lastCursorMode = -1; // -1 = unbekannt, 0 = disabled, 1 = normal
 
-    public GuiManager(Input input) {
+    public GuiManager(Input input, SoundManager sound) {
         this.input = input;
+        this.sound = sound;
     }
 
     /** Früher Boot-Anteil: nur die block-unabhängigen 2D-Renderer (für den Boot-Ladebildschirm). */
@@ -63,6 +66,10 @@ public final class GuiManager {
     /* --- Zugriff für Screens/HUD --- */
     public SpriteRenderer sprites() {
         return this.sprites;
+    }
+
+    public SoundManager sound() {
+        return this.sound;
     }
 
     public ItemIconRenderer icons() {

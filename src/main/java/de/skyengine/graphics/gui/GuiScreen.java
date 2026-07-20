@@ -2,6 +2,7 @@ package de.skyengine.graphics.gui;
 
 import de.skyengine.core.SkyEngine;
 import de.skyengine.graphics.gui.layout.Stack;
+import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.GuiComponent;
 import de.skyengine.graphics.texture.Texture;
 import org.lwjgl.glfw.GLFW;
@@ -138,6 +139,11 @@ public abstract class GuiScreen {
         /* Fokus: angeklicktes fokussierbares Widget erhält ihn, alle anderen verlieren ihn. */
         for (GuiComponent c : this.leaves) {
             c.setFocused(c == clicked && c.isFocusable());
+        }
+        /* MC-Klick-Sound zentral für alle Buttons (inkl. Cycle-/Keybind-Buttons);
+           Slider/Textfelder/Listeneinträge bleiben bewusst stumm (wie MC). */
+        if (clicked instanceof Button) {
+            gui.sound().playUiClick();
         }
         return clicked != null;
     }
