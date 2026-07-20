@@ -5,6 +5,7 @@ import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.Anchor;
+import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.Label;
@@ -32,21 +33,20 @@ public final class GuiMainMenu extends GuiScreen {
 
         Label title = new Label(SkyEngine.ENGINE_NAME, 32).measure(gui);
         Button singleplayer = new Button("Einzelspieler", () -> gui.open(new GuiSelectWorld(this)));
-        Button options = new Button("Optionen", () -> gui.open(new GuiOptionsMenu(this)));
-        Button quit = new Button("Spiel beenden", () -> SkyEngine.get().shutdown());
+        /* Nebeneinander wie in MC: 98 + 4 + 98 = 200 = Breite des Einzelspieler-Buttons. */
+        Button options = new Button("Optionen", 98, 20, () -> gui.open(new GuiOptionsMenu(this)));
+        Button quit = new Button("Spiel beenden", 98, 20, () -> SkyEngine.get().shutdown());
 
         Label version = new Label(SkyEngine.ENGINE_NAME + " v" + SkyEngine.ENGINE_VERSION,
                 8, VERSION_COLOR, true).measure(gui);
         version.layoutAt(2, vH - 10);
 
-        this.components.add(title);
-        this.components.add(singleplayer);
-        this.components.add(options);
-        this.components.add(quit);
+        this.components.add(new VStack(8,
+                title,
+                singleplayer,
+                new HStack(4, options, quit)
+        ).anchor(Anchor.CENTER));
         this.components.add(version);
-
-        VStack stack = new VStack(8).add(title).add(singleplayer).add(options).add(quit);
-        stack.layoutAnchored(vW, vH, Anchor.CENTER, 0, 0);
     }
 
     /** Hauptmenü: Hintergrundbild UNGEDIMMT (object-cover); ohne Bild der Kachel-Fallback. */

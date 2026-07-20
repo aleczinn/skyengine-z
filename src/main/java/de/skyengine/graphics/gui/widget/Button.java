@@ -9,6 +9,9 @@ import org.lwjgl.glfw.GLFW;
 /**
  * Standard-Schaltfläche im MC-Look ({@code widget/button.png} als 9-Slice, Rand 3 px).
  * Löst {@code onPress} beim Linksklick aus.
+ *
+ * <p><b>Breite/Höhe</b> kommen AUSSCHLIESSLICH aus dem Konstruktor (Default 200×20) bzw. dem
+ * {@code w}/{@code h}-Feld VOR dem Layout — Stacks positionieren nur, sie skalieren nicht.
  */
 public class Button extends GuiComponent {
 

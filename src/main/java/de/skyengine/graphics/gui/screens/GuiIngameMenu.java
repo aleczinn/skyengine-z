@@ -33,13 +33,7 @@ public final class GuiIngameMenu extends GuiScreen {
         Button toTitle = new Button("Hauptmenü", () -> SkyEngine.get().getGame().exitToTitle());
         Button quit = new Button("Spiel beenden", () -> SkyEngine.get().shutdown());
 
-        this.components.add(title);
-        this.components.add(resume);
-        this.components.add(options);
-        this.components.add(toTitle);
-        this.components.add(quit);
-
-        VStack stack = new VStack(8).add(title).add(resume).add(options).add(toTitle).add(quit);
-        stack.layoutAnchored(vW, vH, Anchor.CENTER, 0, 0);
+        this.components.add(new VStack(8, title, resume, options, toTitle, quit)
+                .anchor(Anchor.CENTER));
     }
 }

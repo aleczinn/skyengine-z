@@ -4,6 +4,7 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
+import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
@@ -62,12 +63,9 @@ public final class GuiKeybinds extends GuiScreen {
             for (KeybindButton b : this.keyButtons) b.refresh();
         });
         Button done = new Button("Fertig", 150, 20, () -> this.goBack(gui));
-        HStack footer = new HStack(6).add(resetAll).add(done);
-        footer.layoutAt((vW - footer.width()) / 2f, vH - 26);
 
         this.components.add(title);
-        this.components.add(resetAll);
-        this.components.add(done);
+        this.components.add(new HStack(6, resetAll, done).anchor(Anchor.BOTTOM_CENTER, 0, 6));
 
         this.listTop = 6 + 14 + 6;
         this.listBottom = vH - 32;
@@ -118,7 +116,7 @@ public final class GuiKeybinds extends GuiScreen {
 
         gui.sprites().begin(vW, vH);
         this.renderBackground(gui);
-        for (GuiComponent c : this.components) {
+        for (GuiComponent c : this.leaves) {
             c.updateHover(mouseX, mouseY);
             c.renderBackground(gui, mouseX, mouseY);
         }

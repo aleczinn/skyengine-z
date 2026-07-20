@@ -46,22 +46,14 @@ public final class GuiCreateWorld extends GuiScreen {
         });
         Button cancel = new Button("Abbrechen", 98, 20, () -> this.goBack(gui));
 
-        this.components.add(title);
-        this.components.add(nameLabel);
-        this.components.add(this.name);
-        this.components.add(seedLabel);
-        this.components.add(this.seed);
-        this.components.add(create);
-        this.components.add(cancel);
-
-        VStack stack = new VStack(4)
-                .add(title)
-                .add(nameLabel)
-                .add(this.name)
-                .add(seedLabel)
-                .add(this.seed)
-                .add(new HStack(4).add(create).add(cancel));
-        stack.layoutAnchored(vW, vH, Anchor.CENTER, 0, 0);
+        this.components.add(new VStack(4,
+                title,
+                nameLabel,
+                this.name,
+                seedLabel,
+                this.seed,
+                new HStack(4, create, cancel)
+        ).anchor(Anchor.CENTER));
     }
 
     /** Leer -> Zufall; ganze Zahl -> direkt; sonst String-Hash (wie MC). */

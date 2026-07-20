@@ -1,6 +1,7 @@
 package de.skyengine.graphics.gui;
 
 import de.skyengine.core.SkyEngine;
+import de.skyengine.graphics.gui.layout.Stack;
 import de.skyengine.graphics.gui.widget.GuiComponent;
 import de.skyengine.graphics.texture.Texture;
 import org.lwjgl.glfw.GLFW;
@@ -21,7 +22,14 @@ import java.util.List;
  */
 public abstract class GuiScreen {
 
+    /**
+     * Top-Level-Komponenten des Screens — Widgets ODER {@link Stack}s (deklarativ, Kinder
+     * NICHT zusätzlich einzeln registrieren). Events/Rendering laufen über die abgeflachte
+     * {@link #leaves}-Liste, die {@link #layout} nach jedem init() neu aufbaut.
+     */
     protected final List<GuiComponent> components = new ArrayList<>();
+    /** Abgeflachte Blatt-Widgets aus {@link #components} (Stacks aufgelöst). */
+    protected final List<GuiComponent> leaves = new ArrayList<>();
     protected final GuiScreen parent;
 
     protected GuiScreen(GuiScreen parent) {
@@ -32,6 +40,22 @@ public abstract class GuiScreen {
     public void init(GuiManager gui, float vW, float vH) {}
 
     /**
+     * Läuft direkt nach {@link #init} (GuiManager): layoutet alle verankerten Stacks und baut
+     * die flache {@link #leaves}-Liste neu auf.
+     */
+    public final void layout(float vW, float vH) {
+        for (GuiComponent c : this.components) {
+            if (c instanceof Stack stack && stack.hasAnchor()) {
+                stack.applyAnchor(vW, vH);
+            }
+        }
+        this.leaves.clear();
+        for (GuiComponent c : this.components) {
+            c.collectLeaves(this.leaves);
+        }
+    }
+
+    /**
      * Default-Render: Hintergrund + alle Widgets in zwei Pässen (Sprites, dann Font).
      * Screens mit eigener Zeichnung (z.B. Slot-GUIs) überschreiben diese Methode.
      */
@@ -39,7 +63,7 @@ public abstract class GuiScreen {
         SpriteRenderer sr = gui.sprites();
         sr.begin(gui.vWidth(), gui.vHeight());
         this.renderBackground(gui);
-        for (GuiComponent c : this.components) {
+        for (GuiComponent c : this.leaves) {
             if (!c.visible) continue;
             c.updateHover(mouseX, mouseY);
             c.renderBackground(gui, mouseX, mouseY);
@@ -47,7 +71,7 @@ public abstract class GuiScreen {
         sr.end();
 
         gui.font().begin(gui.vWidth(), gui.vHeight());
-        for (GuiComponent c : this.components) {
+        for (GuiComponent c : this.leaves) {
             if (c.visible) c.renderText(gui, mouseX, mouseY);
         }
         gui.font().end();
@@ -105,33 +129,33 @@ public abstract class GuiScreen {
     /** Maus-Druck: Fokus-Wechsel + Weitergabe an die Widgets. true = konsumiert. */
     public boolean mousePressed(GuiManager gui, double mouseX, double mouseY, int button) {
         GuiComponent clicked = null;
-        for (GuiComponent c : this.components) {
+        for (GuiComponent c : this.leaves) {
             if (c.visible && c.mousePressed(mouseX, mouseY, button)) {
                 clicked = c;
                 break;
             }
         }
         /* Fokus: angeklicktes fokussierbares Widget erhält ihn, alle anderen verlieren ihn. */
-        for (GuiComponent c : this.components) {
+        for (GuiComponent c : this.leaves) {
             c.setFocused(c == clicked && c.isFocusable());
         }
         return clicked != null;
     }
 
     public void mouseReleased(GuiManager gui, double mouseX, double mouseY, int button) {
-        for (GuiComponent c : this.components) {
+        for (GuiComponent c : this.leaves) {
             if (c.visible) c.mouseReleased(mouseX, mouseY, button);
         }
     }
 
     public void mouseDragged(GuiManager gui, double mouseX, double mouseY, int button) {
-        for (GuiComponent c : this.components) {
+        for (GuiComponent c : this.leaves) {
             if (c.visible) c.mouseDragged(mouseX, mouseY, button);
         }
     }
 
     public boolean mouseScrolled(GuiManager gui, double mouseX, double mouseY, double amount) {
-        for (GuiComponent c : this.components) {
+        for (GuiComponent c : this.leaves) {
             if (c.visible && c.mouseScrolled(mouseX, mouseY, amount)) return true;
         }
         return false;
@@ -155,7 +179,7 @@ public abstract class GuiScreen {
     }
 
     protected GuiComponent focusedComponent() {
-        for (GuiComponent c : this.components) {
+        for (GuiComponent c : this.leaves) {
             if (c.isFocused()) return c;
         }
         return null;

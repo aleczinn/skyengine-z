@@ -7,6 +7,7 @@ import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
+import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
@@ -129,16 +130,11 @@ public final class GuiSelectWorld extends GuiScreen {
         });
         Button back = new Button("Zurück", 130, 20, () -> this.goBack(gui));
 
-        VStack footer = new VStack(4)
-                .add(new HStack(4).add(this.play).add(create))
-                .add(new HStack(4).add(this.delete).add(back));
-        footer.layoutAt((vW - footer.width()) / 2f, vH - 50);
-
         this.components.add(title);
-        this.components.add(this.play);
-        this.components.add(create);
-        this.components.add(this.delete);
-        this.components.add(back);
+        this.components.add(new VStack(4,
+                new HStack(4, this.play, create),
+                new HStack(4, this.delete, back)
+        ).anchor(Anchor.BOTTOM_CENTER, 0, 6));
 
         this.select(this.selected);
 
@@ -176,7 +172,7 @@ public final class GuiSelectWorld extends GuiScreen {
 
         gui.sprites().begin(vW, vH);
         this.renderBackground(gui);
-        for (GuiComponent c : this.components) {
+        for (GuiComponent c : this.leaves) {
             c.updateHover(mouseX, mouseY);
             c.renderBackground(gui, mouseX, mouseY);
         }

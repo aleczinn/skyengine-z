@@ -70,6 +70,14 @@ public abstract class GuiComponent implements Layoutable {
         this.focused = focused;
     }
 
+    /**
+     * Sammelt die event-/renderfähigen Blatt-Widgets ein. Default: das Widget selbst;
+     * Layout-Container (Stacks) rekursieren stattdessen in ihre Kinder.
+     */
+    public void collectLeaves(java.util.List<GuiComponent> out) {
+        out.add(this);
+    }
+
     /* --- Layoutable --- */
 
     @Override
