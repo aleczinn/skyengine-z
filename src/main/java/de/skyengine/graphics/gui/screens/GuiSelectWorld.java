@@ -7,6 +7,7 @@ import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
+import de.skyengine.graphics.gui.ScrollBar;
 import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
@@ -35,6 +36,7 @@ public final class GuiSelectWorld extends GuiScreen {
     private VStack rows;
     private float listTop, listBottom, rowsX;
     private double scrollOffset;
+    private final ScrollBar scrollBar = new ScrollBar();
 
     private List<WorldSave> saves = List.of();
     private int selected = -1;
@@ -153,6 +155,7 @@ public final class GuiSelectWorld extends GuiScreen {
             this.rows.add(empty);
         }
         this.rowsX = (vW - ENTRY_W) / 2f;
+        this.scrollBar.layout(this.rowsX + ENTRY_W + 4, this.listTop, this.listBottom - this.listTop);
         this.applyScroll();
     }
 
@@ -182,6 +185,7 @@ public final class GuiSelectWorld extends GuiScreen {
             c.renderBackground(gui, mouseX, mouseY);
         }
         gui.disableScissor();
+        this.scrollBar.draw(gui, this.rows.height(), this.scrollOffset);
         gui.sprites().end();
 
         gui.font().begin(vW, vH);
@@ -198,6 +202,12 @@ public final class GuiSelectWorld extends GuiScreen {
 
     @Override
     public boolean mousePressed(GuiManager gui, double mouseX, double mouseY, int button) {
+        double barOffset = this.scrollBar.mousePressed(mouseX, mouseY, this.rows.height(), this.scrollOffset);
+        if (barOffset >= 0) {
+            this.scrollOffset = barOffset;
+            this.applyScroll();
+            return true;
+        }
         if (super.mousePressed(gui, mouseX, mouseY, button)) return true;
         if (this.inViewport(mouseY)) {
             for (GuiComponent c : this.entries) {
@@ -205,6 +215,23 @@ public final class GuiSelectWorld extends GuiScreen {
             }
         }
         return false;
+    }
+
+    @Override
+    public void mouseDragged(GuiManager gui, double mouseX, double mouseY, int button) {
+        double barOffset = this.scrollBar.mouseDragged(mouseY, this.rows.height());
+        if (barOffset >= 0) {
+            this.scrollOffset = barOffset;
+            this.applyScroll();
+            return;
+        }
+        super.mouseDragged(gui, mouseX, mouseY, button);
+    }
+
+    @Override
+    public void mouseReleased(GuiManager gui, double mouseX, double mouseY, int button) {
+        this.scrollBar.mouseReleased();
+        super.mouseReleased(gui, mouseX, mouseY, button);
     }
 
     @Override
