@@ -109,7 +109,7 @@ public final class GuiSelectWorld extends GuiScreen {
         this.saves = WorldSaves.list();
         if (this.selected >= this.saves.size()) this.selected = -1;
 
-        Label title = new Label("Welt auswählen", 14).measure(gui);
+        Label title = new Label("Ausgewählte Welt spielen", 14).measure(gui);
         title.layoutAt((vW - title.width()) / 2f, 6);
 
         this.play = new Button("Welt spielen", 130, 20, () -> {
@@ -117,7 +117,7 @@ public final class GuiSelectWorld extends GuiScreen {
                 SkyEngine.get().getGame().enterWorld(this.saves.get(this.selected));
             }
         });
-        Button create = new Button("Neue Welt...", 130, 20, () -> gui.open(new GuiCreateWorld(this)));
+        Button create = new Button("Neue Welt erstellen", 130, 20, () -> gui.open(new GuiCreateWorld(this)));
         this.delete = new Button("Löschen", 130, 20, () -> {
             if (this.selected < 0) return;
             WorldSave save = this.saves.get(this.selected);
