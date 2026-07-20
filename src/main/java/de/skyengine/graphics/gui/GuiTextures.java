@@ -55,7 +55,7 @@ public final class GuiTextures {
 
         /* Fehlertolerant: das Bild ist optional (User-Asset). Mipmaps + trilinear,
            weil es beim object-cover-Zeichnen herunterskaliert wird. */
-        FileHandle image = new FileHandle("game/menu/main_menu.png", FileType.RESOURCE);
+        FileHandle image = new FileHandle("game/textures/menu/main_menu.png", FileType.RESOURCE);
         if (image.exists()) {
             this.menuBackgroundImage = new Texture(image, true);
             this.menuBackgroundImage.setFilter(TextureFilter.MIPMAP, TextureFilter.LINEAR);
