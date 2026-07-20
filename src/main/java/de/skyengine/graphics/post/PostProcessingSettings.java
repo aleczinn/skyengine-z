@@ -25,7 +25,8 @@ public final class PostProcessingSettings {
 
     private static final Logger LOGGER = LogManager.getLogger(PostProcessingSettings.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final File FILE = new File("config/postprocessing.json");
+    /* Liegt im Spiel-Root (%APPDATA%\.skyengine), nicht im Arbeitsverzeichnis. */
+    private static final File FILE = de.skyengine.core.file.GameDirectory.resolve("config/postprocessing.json");
 
     /** Tonemap-Operator (Domänenwechsel HDR → display-referred). NONE = Passthrough. */
     public enum TonemapOperator { NONE, REINHARD, ACES }

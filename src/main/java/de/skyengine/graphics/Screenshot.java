@@ -20,7 +20,8 @@ import java.time.format.DateTimeFormatter;
 public final class Screenshot {
 
     private static final Logger LOGGER = LogManager.getLogger(Screenshot.class.getName());
-    private static final File DIRECTORY = new File("screenshots");
+    /* Liegt im Spiel-Root (%APPDATA%\.skyengine), nicht im Arbeitsverzeichnis. */
+    private static final File DIRECTORY = de.skyengine.core.file.GameDirectory.resolve("screenshots");
     private static final DateTimeFormatter NAME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 
     private Screenshot() {}

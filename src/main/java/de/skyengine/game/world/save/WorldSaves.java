@@ -20,7 +20,8 @@ public final class WorldSaves {
 
     private static final Logger LOGGER = LogManager.getLogger(WorldSaves.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final File ROOT = new File("saves");
+    /* Liegt im Spiel-Root (%APPDATA%\.skyengine), nicht im Arbeitsverzeichnis. */
+    private static final File ROOT = de.skyengine.core.file.GameDirectory.resolve("saves");
 
     /** Ein Savegame: Ordnername (eindeutig) + geladene Metadaten. */
     public record WorldSave(String dirName, LevelData level) {}
