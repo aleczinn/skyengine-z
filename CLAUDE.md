@@ -67,6 +67,7 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
 | `lod-system` | …LodManager/LodMesher/LodConfig oder LOD-Anbindung im Renderer |
 | `weltgen-v2` | …Weltgenerierung, Biome, Seen, Flüsse, Features, Noise-Seeds |
 | `vegetation-tint` | …Gras-/Laubfärbung, Tint-Grids, Grasblock-Overlay |
+| `sound-system` | …Sounds/Musik, OpenAL, SoundManager, Block-Sound-Gruppen, Lautstärke-Settings |
 | `visuelle-verifikation` | …IMMER bevor eine Änderung als „fertig" gemeldet wird |
 
 ## Aktueller Stand
@@ -91,6 +92,9 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
   zahlt sich ab Licht/Schatten aus — Details/Fallen im Skill `mdi-rendering`
 - Mining: MC-Harvest-Regel, 28 Tools (7 Tiers × 4 Typen), Durability, Crack-Overlay,
   Bedrock unzerstörbar; Gamemodes Survival/Creative/Spectator; Item-Entities + Aufsammeln
+- Sound (OpenAL): blockabhängige Schritte/Hit/Break/Place (Sound-Gruppen aus JSON/Tool/
+  Archetyp), Musik-Streaming mit Loop, Master-/Musik-Volume (GameSettings); Assets =
+  MC-Platzhalter via `scripts/extract-mc-sounds.ps1` — Details im Skill `sound-system`
 
 **Offen / geplant (bekannt, nicht angefangen):**
 - Licht-Merge (`lightning-system`-Branch) + Schatten-Pass — dann amortisiert sich der GPU-Cull-Pfad
@@ -101,7 +105,7 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
 **Bewusst nicht vorhanden (nicht „vergessen" — nicht ungefragt bauen):**
 - **Kein Sky-Rendering** (keine Atmosphäre/Wolken/God-Rays — Clear-Color ist der Himmel)
 - **Kein Lichtsystem** (keine Block-/Himmelslicht-Propagation; Helligkeit = Face-Brightness × AO)
-- Kein Sound (OpenAL nur als Dependency), keine Mobs, kein Multiplayer, keine Test-Infrastruktur
+- Keine Mobs, kein Multiplayer, keine Test-Infrastruktur
 
 ## Wiederkehrende Fallen (Kurzliste — Details in den Skills)
 
