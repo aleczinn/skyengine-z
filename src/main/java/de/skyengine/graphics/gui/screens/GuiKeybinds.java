@@ -4,6 +4,7 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
+import de.skyengine.graphics.gui.ScrollBar;
 import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
@@ -34,6 +35,7 @@ public final class GuiKeybinds extends GuiScreen {
 
     private float listTop, listBottom, rowsX;
     private double scrollOffset;
+    private final ScrollBar scrollBar = new ScrollBar();
 
     public GuiKeybinds(GuiScreen parent) {
         super(parent);
@@ -87,6 +89,8 @@ public final class GuiKeybinds extends GuiScreen {
             this.rows.add(new HStack(4).add(name).add(key).add(reset));
         }
         this.rowsX = (vW - this.rows.width()) / 2f;
+        this.scrollBar.layout(this.rowsX + this.rows.width() + 4, this.listTop,
+                this.listBottom - this.listTop);
         this.applyScroll();
     }
 
@@ -126,6 +130,7 @@ public final class GuiKeybinds extends GuiScreen {
             c.renderBackground(gui, mouseX, mouseY);
         }
         gui.disableScissor();
+        this.scrollBar.draw(gui, this.rows.height(), this.scrollOffset);
         gui.sprites().end();
 
         /* Fester Text (Titel/Footer) — eigener Pass, ungeclippt. */
@@ -149,6 +154,12 @@ public final class GuiKeybinds extends GuiScreen {
             capturing.cancelCapture();
             return true;
         }
+        double barOffset = this.scrollBar.mousePressed(mouseX, mouseY, this.rows.height(), this.scrollOffset);
+        if (barOffset >= 0) {
+            this.scrollOffset = barOffset;
+            this.applyScroll();
+            return true;
+        }
         if (super.mousePressed(gui, mouseX, mouseY, button)) return true;
         if (this.inViewport(mouseY)) {
             for (GuiComponent c : this.rowComponents) {
@@ -156,6 +167,23 @@ public final class GuiKeybinds extends GuiScreen {
             }
         }
         return false;
+    }
+
+    @Override
+    public void mouseDragged(GuiManager gui, double mouseX, double mouseY, int button) {
+        double barOffset = this.scrollBar.mouseDragged(mouseY, this.rows.height());
+        if (barOffset >= 0) {
+            this.scrollOffset = barOffset;
+            this.applyScroll();
+            return;
+        }
+        super.mouseDragged(gui, mouseX, mouseY, button);
+    }
+
+    @Override
+    public void mouseReleased(GuiManager gui, double mouseX, double mouseY, int button) {
+        this.scrollBar.mouseReleased();
+        super.mouseReleased(gui, mouseX, mouseY, button);
     }
 
     @Override
