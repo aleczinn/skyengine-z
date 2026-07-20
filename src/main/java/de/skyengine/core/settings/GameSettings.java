@@ -67,6 +67,9 @@ public final class GameSettings {
        renderDistance·2^L, gedeckelt bei lodMaxDistance (rd16/lod128 → L1 16-32, L2 32-64,
        L3 64-128). lodMaxDistance <= renderDistance schaltet das LOD faktisch ab. */
     public int lodMaxDistance = 128;
+    /* Lautstärke 0..100: master wirkt global (OpenAL-Listener-Gain), music nur auf die Musik. */
+    public int masterVolume = 100;
+    public int musicVolume = 50;
     public Map<String, Integer> keyBindings = KeyBindings.defaults();
 
     public static GameSettings get() {
@@ -125,6 +128,8 @@ public final class GameSettings {
         this.msaaSamples = Math.clamp(this.msaaSamples, 0, 16);
         this.lodMaxDistance = Math.clamp(this.lodMaxDistance, 8, 512);
         this.vegetationDistance = Math.clamp(this.vegetationDistance, 0, 32);
+        this.masterVolume = Math.clamp(this.masterVolume, 0, 100);
+        this.musicVolume = Math.clamp(this.musicVolume, 0, 100);
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;

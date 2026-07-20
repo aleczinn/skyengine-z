@@ -386,6 +386,11 @@ public class EntityPlayer extends Entity {
         return noClip;
     }
 
+    /** true, wenn der Spieler in Wasser oder Lava steht (z.B. für die Laufgeräusch-Sperre). */
+    public boolean isTouchingFluid(World world) {
+        return this.isInFluid(world, false) || this.isInFluid(world, true);
+    }
+
     /**
      * Interpolierte Augenhöhe für die Kamera (weicher Sneak-Übergang).
      */

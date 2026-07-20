@@ -1,5 +1,6 @@
 {
   "id": "skyengine:light_gray_wool",
+  "sound": "cloth",
   "type": "cube",
   "layer": "opaque",
   "hardness": 0.8,

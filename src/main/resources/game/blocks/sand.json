@@ -1,5 +1,6 @@
 {
   "id": "skyengine:sand",
+  "sound": "sand",
   "type": "cube",
   "layer": "opaque",
   "hardness": 0.5,

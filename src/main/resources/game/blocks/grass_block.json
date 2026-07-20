@@ -1,5 +1,6 @@
 {
   "id": "skyengine:grass_block",
+  "sound": "grass",
   "type": "cube",
   "layer": "opaque",
   "hardness": 0.6,

@@ -1,5 +1,6 @@
 {
   "id": "skyengine:cactus",
+  "sound": "cloth",
   "type": "custom",
   "layer": "cutout",
   "hardness": 0.4,
