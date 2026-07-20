@@ -30,7 +30,10 @@ public class Camera {
     private final Matrix4f prevProjectionView = new Matrix4f();
     /* PV des aktuellen Frames ohne Jitter (wird im nächsten update() zu prev). */
     private final Matrix4f unjitteredProjectionView = new Matrix4f();
-    /* Inverse der aktuellen GEJITTERTEN PV — exakt das, was das Depth erzeugt hat. */
+    /* Inverse der aktuellen UNGEJITTERTEN PV — Reprojektion rechnet komplett jitterfrei:
+       im Stillstand ist prevUv == v_uv exakt (velPx == 0), sonst kräuselt Sub-Pixel-Geometrie
+       in der Ferne (Residual-Velocity ≈ Jitter drückte das History-Gewicht). Der Halbpixel-
+       Fehler gegen das gejitterte Depth ist subpixelig und gewollt (Standard-TAA-Praxis). */
     private final Matrix4f invProjectionView = new Matrix4f();
     private final Vector3d prevPosition = new Vector3d();
     /* camNow − camPrev (double-Differenz, dann float): P_relPrev = P_relNow + camDelta. */
@@ -102,7 +105,7 @@ public class Camera {
         } else {
             this.projectionView.set(this.unjitteredProjectionView);
         }
-        this.projectionView.invert(this.invProjectionView);
+        this.unjitteredProjectionView.invert(this.invProjectionView);
         this.frustum.set(this.projectionView, false);
 
         this.prevPosition.set(this.position);
@@ -115,7 +118,7 @@ public class Camera {
         this.jitterY = ndcY;
     }
 
-    /** Inverse der aktuellen (gejitterten) PV — rekonstruiert Depth zu kamerarelativen Positionen. */
+    /** Inverse der aktuellen UNGEJITTERTEN PV — rekonstruiert Depth jitterfrei zu kamerarelativen Positionen. */
     public Matrix4f getInvProjectionViewMatrix() {
         return invProjectionView;
     }

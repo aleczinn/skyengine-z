@@ -195,7 +195,7 @@ public final class AntiAliasingPass implements PostPass {
             uniform sampler2D u_Current;    // LDR nach Grading, FXAA-vorgeglaettet (BSL-Kette)
             uniform sampler2D u_History;    // Read-Seite des Ping-Pongs (Vorframe-Resolve)
             uniform sampler2D u_Depth;      // Szene-Depth (32F, Reversed-Z)
-            uniform mat4 u_InvProjView;     // Inverse der GEJITTERTEN PV des Frames
+            uniform mat4 u_InvProjView;     // Inverse der UNGEJITTERTEN PV (jitterfrei: Stillstand -> velPx == 0)
             uniform mat4 u_PrevProjView;    // UNGEJITTERTE PV des Vorframes
             uniform vec3 u_CamDelta;        // camNow - camPrev: P_relPrev = P_relNow + delta
             uniform int u_HistoryValid;     // 0 = erster Frame nach Reset -> nur aktuell
