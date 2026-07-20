@@ -87,6 +87,7 @@ public final class GuiOptionsMenu extends GuiScreen {
 
         this.components.add(new VStack(4,
                 title,
+                new Spacer(0, 8),
                 new HStack(4, fov, guiScale),
                 new HStack(4, sensitivity, vsync),
                 new HStack(4, master, music),
