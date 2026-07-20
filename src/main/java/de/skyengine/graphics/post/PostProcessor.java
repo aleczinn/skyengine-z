@@ -6,6 +6,7 @@ import de.skyengine.graphics.framebuffer.FrameBuffer;
 import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.post.passes.AntiAliasingPass;
 import de.skyengine.graphics.post.passes.ColorGradingPass;
+import de.skyengine.graphics.post.passes.MenuBlurPass;
 import org.joml.Vector2f;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -62,6 +63,7 @@ public class PostProcessor implements IDisposable {
 
     private final PostContext context = new PostContext();
     private final List<PostPass> passes = new ArrayList<>();
+    private final MenuBlurPass menuBlur = new MenuBlurPass();
     private PostProcessingSettings settings;
     private int ubo;
 
@@ -85,6 +87,9 @@ public class PostProcessor implements IDisposable {
 
         this.passes.add(new ColorGradingPass());
         this.passes.add(new AntiAliasingPass());
+        /* Menü-Blur als LETZTER Pass: nur aktiv bei offenem Pause-Menü (Stärke > 0) —
+           dann übernimmt er automatisch das Default-FBO (Last-Active-Mechanik der Kette). */
+        this.passes.add(this.menuBlur);
         for (PostPass pass : this.passes) pass.init(this.context);
 
         this.logger.debug("PostProcessor: " + this.passes.size() + " Pässe, UBO-Binding " + SETTINGS_UBO_BINDING);
@@ -92,6 +97,11 @@ public class PostProcessor implements IDisposable {
 
     public PostProcessingSettings getSettings() {
         return this.settings;
+    }
+
+    /** 1×/Frame (GameContainer): Menü-Blur an/aus — die Stärke blendet zeitbasiert nach. */
+    public void setMenuBlur(boolean active) {
+        this.menuBlur.setTarget(active);
     }
 
     /**

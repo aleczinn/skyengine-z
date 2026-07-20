@@ -118,6 +118,11 @@ public final class GuiManager {
         return this.screen != null && this.screen.capturesKeys();
     }
 
+    /** true, wenn der offene GuiScreen die Szene dahinter blurt (Pause-Menü + Unterseiten). */
+    public boolean blursBackground() {
+        return this.screen != null && this.screen.blursBackground();
+    }
+
     public GuiScreen current() {
         return this.screen;
     }

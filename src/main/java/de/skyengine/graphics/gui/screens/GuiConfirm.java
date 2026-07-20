@@ -31,6 +31,11 @@ public final class GuiConfirm extends GuiScreen {
     }
 
     @Override
+    public boolean blursBackground() {
+        return this.parent != null && this.parent.blursBackground();
+    }
+
+    @Override
     public void init(GuiManager gui, float vW, float vH) {
         this.components.clear();
 
