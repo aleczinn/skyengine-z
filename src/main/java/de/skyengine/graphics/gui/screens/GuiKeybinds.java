@@ -47,6 +47,11 @@ public final class GuiKeybinds extends GuiScreen {
     }
 
     @Override
+    public boolean blursBackground() {
+        return this.parent != null && this.parent.blursBackground();
+    }
+
+    @Override
     public boolean capturesKeys() {
         return this.capturing() != null;
     }

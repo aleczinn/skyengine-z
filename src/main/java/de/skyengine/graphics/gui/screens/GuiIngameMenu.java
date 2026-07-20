@@ -25,6 +25,11 @@ public final class GuiIngameMenu extends GuiScreen {
     }
 
     @Override
+    public boolean blursBackground() {
+        return true;
+    }
+
+    @Override
     public void init(GuiManager gui, float vW, float vH) {
         this.components.clear();
 

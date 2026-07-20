@@ -213,6 +213,14 @@ public abstract class GuiScreen {
         return false;
     }
 
+    /**
+     * true: die Szene hinter dem Screen wird geblurt (Pause-Menü + dessen Unterseiten;
+     * animiert im {@code MenuBlurPass}). Container-GUIs bleiben bewusst scharf (nur Dim).
+     */
+    public boolean blursBackground() {
+        return false;
+    }
+
     /** true: die Inventar-Taste schließt diesen GuiScreen (nur Container-Screens). */
     public boolean closesOnInventoryKey() {
         return false;

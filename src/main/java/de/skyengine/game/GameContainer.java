@@ -391,6 +391,11 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Musik-Streaming läuft auch im Hauptmenü weiter. */
         this.soundManager.update();
 
+        /* Menü-Blur: nur mit Welt UND blur-wolligem Screen (Pause + Unterseiten);
+           der Pass animiert die Stärke selbst (Ein-/Ausblenden). */
+        SkyEngine.get().getPostProcessor().setMenuBlur(
+                this.world != null && this.guiManager.blursBackground());
+
         /* Hauptmenü (keine Welt): nur GUI-Eingaben routen, gezeichnet wird in renderGui. */
         if (this.world == null) {
             this.guiManager.handleInput();
