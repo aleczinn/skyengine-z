@@ -18,17 +18,25 @@ public enum BlockSoundGroup {
     SAND("sand", "sand"),
     SNOW("snow", "snow"),
     CLOTH("cloth", "cloth"),
-    /** Wie MC: Schritte auf Glas klingen nach Stein, der Bruch nach Glas (random/glass -> dig/glass). */
-    GLASS("stone", "glass");
+    /** Wie MC: Schritte auf Glas klingen nach Stein, der Bruch nach Glas (random/glass -> dig/glass),
+     *  Platzieren wieder nach Stein (Glas klirrt nur beim Zerbrechen). */
+    GLASS("stone", "glass", "stone");
 
     /** Datei-Basisname unter game/sounds/step/ (Varianten 1..N). */
     public final String stepName;
     /** Datei-Basisname unter game/sounds/dig/ (Varianten 1..N). */
     public final String digName;
+    /** Datei-Basisname fürs PLATZIEREN — zeigt auf eine dig-Basis (es gibt keine place-Assets). */
+    public final String placeName;
 
     BlockSoundGroup(String stepName, String digName) {
+        this(stepName, digName, digName);
+    }
+
+    BlockSoundGroup(String stepName, String digName, String placeName) {
         this.stepName = stepName;
         this.digName = digName;
+        this.placeName = placeName;
     }
 
     /**

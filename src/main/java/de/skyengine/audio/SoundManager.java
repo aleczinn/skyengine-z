@@ -53,6 +53,8 @@ public final class SoundManager implements IDisposable {
 
     private final EnumMap<BlockSoundGroup, int[]> stepBuffers = new EnumMap<>(BlockSoundGroup.class);
     private final EnumMap<BlockSoundGroup, int[]> digBuffers = new EnumMap<>(BlockSoundGroup.class);
+    /* Platzier-Sounds: teilen die dig-Arrays laut placeName (GLASS platziert wie Stein). */
+    private final EnumMap<BlockSoundGroup, int[]> placeBuffers = new EnumMap<>(BlockSoundGroup.class);
 
     private final MusicPlayer music = new MusicPlayer();
     private final Random random = new Random();
@@ -93,6 +95,18 @@ public final class SoundManager implements IDisposable {
         for (BlockSoundGroup group : BlockSoundGroup.values()) {
             loaded += this.preload(this.stepBuffers, group, "step", group.stepName);
             loaded += this.preload(this.digBuffers, group, "dig", group.digName);
+        }
+
+        /* Platzieren nutzt dig-Buffer; placeName darf auf eine FREMDE dig-Basis zeigen
+           (GLASS platziert wie Stein) — Arrays werden geteilt, nichts wird neu geladen. */
+        for (BlockSoundGroup group : BlockSoundGroup.values()) {
+            for (BlockSoundGroup donor : BlockSoundGroup.values()) {
+                if (donor.digName.equals(group.placeName)) {
+                    int[] buffers = this.digBuffers.get(donor);
+                    if (buffers != null) this.placeBuffers.put(group, buffers);
+                    break;
+                }
+            }
         }
 
         /* UI-Klick (Buttons) — einzelne Datei, fehlertolerant (fehlt sie: Klicks bleiben stumm). */
@@ -160,9 +174,9 @@ public final class SoundManager implements IDisposable {
         this.play(this.digBuffers.get(group), DIG_GAIN, DIG_PITCH, true, true, x, y, z);
     }
 
-    /** Platzier-Sound (gleiche Gruppe wie der Bruch) an der Block-Position. */
+    /** Platzier-Sound an der Block-Position — dig-Basis laut {@code placeName} (GLASS = Stein). */
     public void playPlace(BlockSoundGroup group, double x, double y, double z) {
-        this.play(this.digBuffers.get(group), DIG_GAIN, DIG_PITCH, true, true, x, y, z);
+        this.play(this.placeBuffers.get(group), DIG_GAIN, DIG_PITCH, true, true, x, y, z);
     }
 
     /** UI-Button-Klick — nicht-positional, FESTER Pitch (MC-Klick klingt immer identisch). */
@@ -268,6 +282,7 @@ public final class SoundManager implements IDisposable {
         java.util.HashSet<int[]> unique = new java.util.HashSet<>();
         unique.addAll(this.stepBuffers.values());
         unique.addAll(this.digBuffers.values());
+        unique.addAll(this.placeBuffers.values());
         if (this.uiClickVariants != null) unique.add(this.uiClickVariants);
         for (int[] variants : unique) {
             for (int buffer : variants) AL10.alDeleteBuffers(buffer);
