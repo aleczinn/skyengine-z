@@ -18,9 +18,12 @@ description: OpenAL-Audio — SoundManager (Source-Pool, Effekt-Preload), MusicP
   Refill pro Frame via `AL_BUFFERS_PROCESSED`, Loop via `stb_vorbis_seek_start`,
   Underrun-Neustart, `AL_SOURCE_RELATIVE` (Musik klebt am Listener).
 - **`BlockSoundGroup`** — Enum (STONE/WOOD/GRAVEL/GRASS/SAND/SNOW/CLOTH/GLASS) mit
-  Datei-Basisnamen für `step/` und `dig/`. Sonderfall wie MC: `GLASS` steppt auf „stone",
-  bricht als „glass". Gruppen mit gleichem Basisnamen **teilen sich die AL-Buffer**
-  (Dedup beim Preload; dispose dedupliziert über Identität).
+  Datei-Basisnamen für `step/`, `dig/` und dem Platzieren (`placeName`, zeigt auf eine
+  dig-Basis — es gibt keine place-Assets, Default = digName). Sonderfall wie MC: `GLASS`
+  steppt auf „stone", bricht als „glass", **platziert als „stone"** (placeBuffers teilen
+  die dig-Arrays laut placeName, nichts wird doppelt geladen). Gruppen mit gleichem
+  Basisnamen **teilen sich die AL-Buffer** (Dedup beim Preload; dispose dedupliziert
+  über Identität).
 - **Zuordnung Block→Gruppe** (`BlockSoundGroup.resolve`): explizites `"sound"`-Feld in der
   Block-JSON gewinnt (unbekannter Wert → Warnung + STONE); sonst Ableitung AXE→WOOD,
   SHOVEL→GRAVEL, Archetyp cross/tall_cross→GRASS, Fallback STONE. Verdrahtung:
