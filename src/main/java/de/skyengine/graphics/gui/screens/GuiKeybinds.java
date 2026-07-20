@@ -130,7 +130,7 @@ public final class GuiKeybinds extends GuiScreen {
 
         /* Fester Text (Titel/Footer) — eigener Pass, ungeclippt. */
         gui.font().begin(vW, vH);
-        for (GuiComponent c : this.components) c.renderText(gui, mouseX, mouseY);
+        for (GuiComponent c : this.leaves) c.renderText(gui, mouseX, mouseY);
         gui.font().end();
 
         /* Listen-Text: FontRenderer flusht erst bei end() -> eigenes begin/end im Scissor. */

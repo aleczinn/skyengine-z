@@ -185,7 +185,7 @@ public final class GuiSelectWorld extends GuiScreen {
         gui.sprites().end();
 
         gui.font().begin(vW, vH);
-        for (GuiComponent c : this.components) c.renderText(gui, mouseX, mouseY);
+        for (GuiComponent c : this.leaves) c.renderText(gui, mouseX, mouseY);
         gui.font().end();
 
         /* Listen-Text separat clippen (FontRenderer flusht erst bei end()). */
