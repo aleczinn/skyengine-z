@@ -95,12 +95,24 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
 - Sound (OpenAL): blockabhängige Schritte/Hit/Break/Place (Sound-Gruppen aus JSON/Tool/
   Archetyp), Musik-Streaming mit Loop, Master-/Musik-Volume (GameSettings); Assets =
   MC-Platzhalter via `scripts/extract-mc-sounds.ps1` — Details im Skill `sound-system`
+- GUI-System komplett (graphics/gui): Widget-Basis (`GuiComponent` + Button/Slider/CycleButton/
+  KeybindButton/Label/TextField, 9-Slice), Stack-Layout (VStack/HStack/Anchor), Screen-Basis mit
+  parent-Navigation + vollem Event-Routing (Maus/Drag/Scroll/Keys/Char via SPSC-Queue);
+  Screens: Titel, Pause (ESC — beendet NICHT mehr!), Optionen+Grafik (Live-Apply), Tastenbelegung
+  (Rebinding+Reset, Capture schluckt alle Tasten), Weltauswahl/Erstellen/Löschen, Welt-Ladebalken
+  (`isInitialLoadComplete`), Boot-Ladebildschirm (gestaffelte Init, Fenster früh), Inventar (E) +
+  Truhe auf gemeinsamer `AbstractContainerScreen`-Basis; GuiScale = Prozent (30–170, 100 % ≈ 3,5×)
+- Lifecycle: World/Player lazy (`enterWorld`/`exitToTitle`), `BlockTextureAtlas` + BE-Renderer
+  welt-unabhängig (GameContainer, Engine-Lebensdauer); Welt-Metadaten-Persistenz
+  `saves/<ordner>/level.json` (Name/Seed/Daten/Spielerzustand/Inventar — Chunks regenerieren!)
 
 **Offen / geplant (bekannt, nicht angefangen):**
 - Licht-Merge (`lightning-system`-Branch) + Schatten-Pass — dann amortisiert sich der GPU-Cull-Pfad
-- Welt-/Inventar-Persistenz (Speichern/Laden) und Crafting
+- Chunk-Persistenz (Block-Änderungen speichern — level.json hält nur Metadaten/Spieler/Inventar)
+  und Crafting; Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
+  (Andockpunkt: `AbstractContainerScreen.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
-- TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert)
+- TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert, inkl. Test-Truhe)
 
 **Bewusst nicht vorhanden (nicht „vergessen" — nicht ungefragt bauen):**
 - **Kein Sky-Rendering** (keine Atmosphäre/Wolken/God-Rays — Clear-Color ist der Himmel)

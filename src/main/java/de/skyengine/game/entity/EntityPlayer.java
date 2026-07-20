@@ -1,11 +1,12 @@
 package de.skyengine.game.entity;
 
 import de.skyengine.core.input.Input;
+import de.skyengine.core.settings.GameSettings;
+import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.Gamemode;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.World;
 import de.skyengine.utils.math.MathUtils;
-import org.lwjgl.glfw.GLFW;
 
 public class EntityPlayer extends Entity {
 
@@ -69,20 +70,22 @@ public class EntityPlayer extends Entity {
     public void update(Input input, World world) {
         super.update();
 
+        /* Bewegungs-Keys aus den umbelegbaren KeyBindings (Defaults: WASD/Space/Shift/Strg). */
+        GameSettings settings = GameSettings.get();
         double forward = 0, strafe = 0;
-        if (input.isKeyDown(GLFW.GLFW_KEY_W)) forward += 1;
-        if (input.isKeyDown(GLFW.GLFW_KEY_S)) forward -= 1;
-        if (input.isKeyDown(GLFW.GLFW_KEY_D)) strafe += 1;
-        if (input.isKeyDown(GLFW.GLFW_KEY_A)) strafe -= 1;
+        if (input.isKeyDown(settings.key(KeyBindings.FORWARD))) forward += 1;
+        if (input.isKeyDown(settings.key(KeyBindings.BACK))) forward -= 1;
+        if (input.isKeyDown(settings.key(KeyBindings.RIGHT))) strafe += 1;
+        if (input.isKeyDown(settings.key(KeyBindings.LEFT))) strafe -= 1;
 
-        boolean up = input.isKeyDown(GLFW.GLFW_KEY_SPACE);
-        boolean shift = input.isKeyDown(GLFW.GLFW_KEY_LEFT_SHIFT);
+        boolean up = input.isKeyDown(settings.key(KeyBindings.JUMP));
+        boolean shift = input.isKeyDown(settings.key(KeyBindings.SNEAK));
 
         /* Shift = Sneak nur am Boden-Modus; im Fly-Modus bleibt Shift "runter" */
         this.sneaking = !this.flying && shift;
 
         /* Sprint nur bei Vorwärtsbewegung und nicht beim Sneaken */
-        this.sprinting = input.isKeyDown(GLFW.GLFW_KEY_LEFT_CONTROL) && forward > 0 && !this.sneaking;
+        this.sprinting = input.isKeyDown(settings.key(KeyBindings.SPRINT)) && forward > 0 && !this.sneaking;
 
         /* Augenhöhe weich Richtung Ziel bewegen (~3 Ticks Übergang) */
         this.lastEyeHeight = this.eyeHeight;
@@ -372,6 +375,18 @@ public class EntityPlayer extends Entity {
 
     public boolean isFlying() {
         return flying;
+    }
+
+    /** Flugzustand direkt setzen (Savegame-Restore) — respektiert die Gamemode-Regeln. */
+    public void setFlying(boolean flying) {
+        if (this.gamemode.isAlwaysFly()) return;         // Spectator: Flug erzwungen
+        if (flying && !this.gamemode.canFly()) return;   // Survival: kein Flug
+        this.flying = flying;
+        if (flying) {
+            this.motionY = 0;
+        } else {
+            this.noClip = false;
+        }
     }
 
     public boolean isSprinting() {
