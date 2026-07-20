@@ -30,6 +30,10 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
   - Font Rendering (TTF -> Texture Atlas -> Zeichnen)
   - Hotbar mit Blöcken
   - Inventar für Truhe
+- 🎶 Audio System
+  - Unterstützt bis 5.1 Surround Sound
+  - Soundeffekte
+  - Musik
 - 🎲 Verschiedene Gamemode's wie Survival, Kreativ oder Zuschauer (Fliegen + NoClip)
 - 🔝 Optimizations & Features
   - Frustum Culling
