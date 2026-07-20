@@ -34,6 +34,8 @@ public final class GuiTextures {
     /* Optionales Vollbild-Hintergrundbild fürs Hauptmenü (object-cover); null, wenn die
        Datei fehlt -> Kachel-Fallback. */
     public Texture menuBackgroundImage;
+    /* Optionales Logo fürs Hauptmenü; null, wenn die Datei fehlt -> Text-Titel-Fallback. */
+    public Texture logo;
 
     public void init() {
         this.chestBackground = load("game/textures/gui/container/generic_54.png");
@@ -53,13 +55,19 @@ public final class GuiTextures {
         this.textFieldHighlighted = load("game/textures/gui/sprites/widget/text_field_highlighted.png");
         this.menuBackground = load("game/textures/gui/menu_background.png");
 
-        /* Fehlertolerant: das Bild ist optional (User-Asset). Mipmaps + trilinear,
-           weil es beim object-cover-Zeichnen herunterskaliert wird. */
-        FileHandle image = new FileHandle("game/textures/menu/main_menu.png", FileType.RESOURCE);
-        if (image.exists()) {
-            this.menuBackgroundImage = new Texture(image, true);
-            this.menuBackgroundImage.setFilter(TextureFilter.MIPMAP, TextureFilter.LINEAR);
-        }
+        /* Fehlertolerant: Bild + Logo sind optionale User-Assets. Mipmaps + trilinear,
+           weil beide beim Zeichnen stark herunterskaliert werden. */
+        this.menuBackgroundImage = loadOptional("game/textures/menu/main_menu.png");
+        this.logo = loadOptional("game/textures/menu/logo.png");
+    }
+
+    /** Lädt eine optionale hochauflösende Textur (null, wenn die Datei fehlt). */
+    private static Texture loadOptional(String path) {
+        FileHandle handle = new FileHandle(path, FileType.RESOURCE);
+        if (!handle.exists()) return null;
+        Texture texture = new Texture(handle, true);
+        texture.setFilter(TextureFilter.MIPMAP, TextureFilter.LINEAR);
+        return texture;
     }
 
     private static Texture load(String path) {
@@ -83,5 +91,6 @@ public final class GuiTextures {
         if (this.textFieldHighlighted != null) this.textFieldHighlighted.dispose();
         if (this.menuBackground != null) this.menuBackground.dispose();
         if (this.menuBackgroundImage != null) this.menuBackgroundImage.dispose();
+        if (this.logo != null) this.logo.dispose();
     }
 }

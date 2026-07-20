@@ -8,6 +8,8 @@ import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
+import de.skyengine.graphics.gui.widget.GuiComponent;
+import de.skyengine.graphics.gui.widget.Image;
 import de.skyengine.graphics.gui.widget.Label;
 
 /**
@@ -31,7 +33,10 @@ public final class GuiMainMenu extends GuiScreen {
     public void init(GuiManager gui, float vW, float vH) {
         this.components.clear();
 
-        Label title = new Label(SkyEngine.ENGINE_NAME, 32).measure(gui);
+        /* Logo-Bild, wenn vorhanden — sonst Text-Titel als Fallback. */
+        GuiComponent title = gui.textures().logo != null
+                ? new Image(gui.textures().logo, 256)
+                : new Label(SkyEngine.ENGINE_NAME, 32).measure(gui);
         Button singleplayer = new Button("Einzelspieler", () -> gui.open(new GuiSelectWorld(this)));
         /* Nebeneinander wie in MC: 98 + 4 + 98 = 200 = Breite des Einzelspieler-Buttons. */
         Button options = new Button("Optionen", 98, 20, () -> gui.open(new GuiOptionsMenu(this)));
