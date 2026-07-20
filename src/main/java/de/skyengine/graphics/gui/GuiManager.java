@@ -34,8 +34,16 @@ public final class GuiManager {
     private final GuiTextures textures = new GuiTextures();
     private final Hud hud = new Hud();
 
+    /* Garantierte virtuelle Mindestfläche: Bei kleinen Fenstern wird der Scale automatisch
+       reduziert (wie MCs Auto-GUI-Scale), damit Menüs/Hotbar IMMER komplett passen — die
+       Screens sind für vH ≈ 206 (720p bei 100 %) gebaut. */
+    private static final float MIN_VW = 340, MIN_VH = 210;
+
     private GuiScreen screen;
+    /** Gewünschter Scale aus den Settings — Obergrenze für {@link #effectiveScale}. */
     private float scale = 3.5f;
+    /** Tatsächlich angewandter Scale (Wunschwert, geklemmt auf die Mindest-vW/vH). */
+    private float effectiveScale = 3.5f;
     private float vW, vH;
 
     /* Für welche vW/vH der offene GuiScreen zuletzt layoutet wurde (NaN = init steht aus). */
@@ -135,11 +143,11 @@ public final class GuiManager {
     }
 
     public double mouseX() {
-        return this.input.getMouseX() / this.scale;
+        return this.input.getMouseX() / this.effectiveScale;
     }
 
     public double mouseY() {
-        return this.input.getMouseY() / this.scale;
+        return this.input.getMouseY() / this.effectiveScale;
     }
 
     /**
@@ -201,8 +209,12 @@ public final class GuiManager {
     public void render(int screenW, int screenH, SimpleItemStorage hotbarInv, int selectedSlot, boolean showHotbar) {
         this.syncCursor();
         this.screenHpx = screenH;
-        this.vW = screenW / this.scale;
-        this.vH = screenH / this.scale;
+        /* Auto-Scale: bei kleinen Fenstern den Scale reduzieren, damit die virtuelle Fläche
+           nie unter MIN_VW×MIN_VH fällt (UI schrumpft mit, statt abgeschnitten zu werden). */
+        this.effectiveScale = Math.max(1f, Math.min(this.scale,
+                Math.min(screenW / MIN_VW, screenH / MIN_VH)));
+        this.vW = screenW / this.effectiveScale;
+        this.vH = screenH / this.effectiveScale;
 
         /* HUD ZUERST (wie in Minecraft): ein offener GuiScreen samt Dim liegt ÜBER der Hotbar —
            sonst übermalt die Hotbar z.B. die Footer-Buttons von Scroll-Menüs. */
@@ -230,10 +242,10 @@ public final class GuiManager {
      */
     public void enableScissor(float vx, float vy, float vw, float vh) {
         GL11.glEnable(GL11.GL_SCISSOR_TEST);
-        GL11.glScissor(Math.round(vx * this.scale),
-                Math.round(this.screenHpx - (vy + vh) * this.scale),
-                Math.round(vw * this.scale),
-                Math.round(vh * this.scale));
+        GL11.glScissor(Math.round(vx * this.effectiveScale),
+                Math.round(this.screenHpx - (vy + vh) * this.effectiveScale),
+                Math.round(vw * this.effectiveScale),
+                Math.round(vh * this.effectiveScale));
     }
 
     public void disableScissor() {
