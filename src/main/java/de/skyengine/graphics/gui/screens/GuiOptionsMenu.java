@@ -4,7 +4,7 @@ import de.skyengine.core.SkyEngine;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.GameContainer;
 import de.skyengine.graphics.gui.GuiManager;
-import de.skyengine.graphics.gui.Screen;
+import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
@@ -15,17 +15,17 @@ import de.skyengine.graphics.gui.widget.Slider;
 
 /**
  * Optionsmenü (allgemein): FOV, GUI-Größe, Sensitivität, VSync, Lautstärken. Grafik-Einstellungen
- * liegen auf der Unterseite {@link VideoSettingsScreen} (zwei Spalten passen nicht komplett in die
+ * liegen auf der Unterseite {@link GuiVideoSettings} (zwei Spalten passen nicht komplett in die
  * virtuelle Höhe bei 720p). Erreichbar aus Pause- und (später) Titel-Menü; speichert beim Verlassen.
  */
-public final class OptionsScreen extends Screen {
+public final class GuiOptionsMenu extends GuiScreen {
 
     /* Breite/Höhe einer Options-Zelle (zweispaltig, MC-Maß). */
     static final float CELL_W = 150, CELL_H = 20;
 
     private final GameSettings settings = GameSettings.get();
 
-    public OptionsScreen(Screen parent) {
+    public GuiOptionsMenu(GuiScreen parent) {
         super(parent);
     }
 
@@ -48,7 +48,7 @@ public final class OptionsScreen extends Screen {
                     game.getCamera().setFov((int) v);
                 }, null);
 
-        /* GUI-Größe erst beim Loslassen anwenden: setScale layoutet den Screen neu
+        /* GUI-Größe erst beim Loslassen anwenden: setScale layoutet den GuiScreen neu
            und würde einen laufenden Drag abbrechen. */
         Slider guiScale = new Slider(CELL_W, CELL_H, 30, 170, 5, this.settings.guiScalePercent,
                 v -> "GUI-Größe: " + (int) v + " %",
@@ -80,8 +80,8 @@ public final class OptionsScreen extends Screen {
                 }, null);
 
         /* Drei einzelne Punkte statt "…" (U+2026) — der Font-Atlas hat die Ellipse nicht. */
-        Button video = new Button("Grafik...", CELL_W, CELL_H, () -> gui.open(new VideoSettingsScreen(this)));
-        Button keybinds = new Button("Tastenbelegung...", CELL_W, CELL_H, () -> gui.open(new KeybindsScreen(this)));
+        Button video = new Button("Grafik...", CELL_W, CELL_H, () -> gui.open(new GuiVideoSettings(this)));
+        Button keybinds = new Button("Tastenbelegung...", CELL_W, CELL_H, () -> gui.open(new GuiKeybinds(this)));
         Button done = new Button("Fertig", () -> this.goBack(gui));
 
         this.components.add(title);

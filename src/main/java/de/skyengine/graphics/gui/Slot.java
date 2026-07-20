@@ -5,7 +5,7 @@ import de.skyengine.game.world.item.ItemStack;
 
 /**
  * Ein GUI-Slot: Verweis auf ein {@link ItemStorage} + Slot-Index, dazu die Pixelposition (oben links)
- * im Screen. So teilen sich Truhe und Spielerinventar dieselbe Slot-Logik.
+ * im GuiScreen. So teilen sich Truhe und Spielerinventar dieselbe Slot-Logik.
  */
 public final class Slot {
 

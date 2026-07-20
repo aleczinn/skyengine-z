@@ -6,7 +6,7 @@ import de.skyengine.game.world.save.WorldSaves.WorldSave;
 import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
-import de.skyengine.graphics.gui.Screen;
+import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
@@ -22,7 +22,7 @@ import java.util.List;
  * Weltauswahl (Einzelspieler): scrollbare Savegame-Liste (Name, Seed, zuletzt gespielt),
  * darunter Spielen / Neue Welt / Löschen (mit Bestätigung) / Zurück.
  */
-public final class WorldSelectScreen extends Screen {
+public final class GuiSelectWorld extends GuiScreen {
 
     private static final float ENTRY_W = 260, ENTRY_H = 28, ROW_GAP = 2;
     private static final float SCROLL_STEP = 30;
@@ -37,7 +37,7 @@ public final class WorldSelectScreen extends Screen {
     private int selected = -1;
     private Button play, delete;
 
-    public WorldSelectScreen(Screen parent) {
+    public GuiSelectWorld(GuiScreen parent) {
         super(parent);
     }
 
@@ -59,7 +59,7 @@ public final class WorldSelectScreen extends Screen {
         @Override
         public void renderBackground(GuiManager gui, double mx, double my) {
             gui.sprites().drawRect(this.x, this.y, this.w, this.h, 0f, 0f, 0f, 0.5f);
-            if (WorldSelectScreen.this.selected == this.index) {
+            if (GuiSelectWorld.this.selected == this.index) {
                 /* Auswahl-Rahmen (1 px, weiß) */
                 gui.sprites().drawRect(this.x, this.y, this.w, 1, 1f, 1f, 1f, 1f);
                 gui.sprites().drawRect(this.x, this.y + this.h - 1, this.w, 1, 1f, 1f, 1f, 1f);
@@ -79,7 +79,7 @@ public final class WorldSelectScreen extends Screen {
         @Override
         public boolean mousePressed(double mx, double my, int button) {
             if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT || !this.isMouseOver(mx, my)) return false;
-            WorldSelectScreen.this.select(this.index);
+            GuiSelectWorld.this.select(this.index);
             return true;
         }
     }
@@ -106,11 +106,11 @@ public final class WorldSelectScreen extends Screen {
                 SkyEngine.get().getGame().enterWorld(this.saves.get(this.selected));
             }
         });
-        Button create = new Button("Neue Welt...", 130, 20, () -> gui.open(new CreateWorldScreen(this)));
+        Button create = new Button("Neue Welt...", 130, 20, () -> gui.open(new GuiCreateWorld(this)));
         this.delete = new Button("Löschen", 130, 20, () -> {
             if (this.selected < 0) return;
             WorldSave save = this.saves.get(this.selected);
-            gui.open(new ConfirmScreen(this, "Welt löschen?",
+            gui.open(new GuiConfirm(this, "Welt löschen?",
                     "\"" + save.level().name + "\" wird unwiderruflich gelöscht.", () -> {
                 WorldSaves.delete(save);
                 this.selected = -1;

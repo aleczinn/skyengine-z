@@ -1,7 +1,7 @@
 package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.graphics.gui.GuiManager;
-import de.skyengine.graphics.gui.Screen;
+import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
@@ -10,15 +10,15 @@ import de.skyengine.graphics.gui.widget.Label;
 
 /**
  * Generische Ja/Nein-Abfrage („Welt wirklich löschen?"). „Ja" führt die Aktion aus und kehrt
- * zum Eltern-Screen zurück; „Nein"/ESC kehrt nur zurück.
+ * zum Eltern-GuiScreen zurück; „Nein"/ESC kehrt nur zurück.
  */
-public final class ConfirmScreen extends Screen {
+public final class GuiConfirm extends GuiScreen {
 
     private final String title;
     private final String message;
     private final Runnable onConfirm;
 
-    public ConfirmScreen(Screen parent, String title, String message, Runnable onConfirm) {
+    public GuiConfirm(GuiScreen parent, String title, String message, Runnable onConfirm) {
         super(parent);
         this.title = title;
         this.message = message;

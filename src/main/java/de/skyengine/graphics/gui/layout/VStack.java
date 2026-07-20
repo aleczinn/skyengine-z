@@ -6,7 +6,7 @@ import java.util.List;
 /**
  * Vertikaler Stapel: positioniert Kinder untereinander mit festem Abstand ({@code gap}).
  * Kinder behalten ihre eigene Größe; die Breite des Stacks ist die des breitesten Kindes.
- * Layout passiert nur bei {@link #layoutAt}/{@link #layoutAnchored} — vom Screen in
+ * Layout passiert nur bei {@link #layoutAt}/{@link #layoutAnchored} — vom GuiScreen in
  * {@code init()} aufzurufen, nicht pro Frame.
  */
 public final class VStack implements Layoutable {

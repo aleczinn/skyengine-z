@@ -142,7 +142,7 @@ public class PostProcessor implements IDisposable {
     }
 
     /**
-     * Führt die Kette aus: Szene ({@code frameBuffer}, bereits resolved) → Pässe → Screen.
+     * Führt die Kette aus: Szene ({@code frameBuffer}, bereits resolved) → Pässe → GuiScreen.
      * Erwartet den Default-Framebuffer als Endziel; lässt Depth-Test/Blend deaktiviert
      * zurück (die GUI setzt ihren State selbst, SkyEngine reaktiviert pro Frame).
      */

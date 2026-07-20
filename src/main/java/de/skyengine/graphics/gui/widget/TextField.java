@@ -79,7 +79,7 @@ public final class TextField extends GuiComponent {
 
     @Override
     public boolean mousePressed(double mx, double my, int button) {
-        /* Fokus setzt der Screen (über isFocusable) — hier nur konsumieren, wenn getroffen. */
+        /* Fokus setzt der GuiScreen (über isFocusable) — hier nur konsumieren, wenn getroffen. */
         return this.enabled && button == GLFW.GLFW_MOUSE_BUTTON_LEFT && this.isMouseOver(mx, my);
     }
 
@@ -111,7 +111,7 @@ public final class TextField extends GuiComponent {
             case GLFW.GLFW_KEY_HOME -> this.caret = 0;
             case GLFW.GLFW_KEY_END -> this.caret = this.text.length();
             case GLFW.GLFW_KEY_ESCAPE -> {
-                return false; // ESC bewusst durchreichen (Screen: zurück)
+                return false; // ESC bewusst durchreichen (GuiScreen: zurück)
             }
             default -> {
                 /* Alle übrigen Tasten schlucken, solange fokussiert — sonst wirken

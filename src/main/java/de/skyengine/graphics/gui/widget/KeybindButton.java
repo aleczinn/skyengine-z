@@ -8,7 +8,7 @@ import java.util.Map;
 
 /**
  * Button einer Tastenbelegung: zeigt die gebundene Taste; Klick startet die Aufnahme
- * („> Taste... <"), die nächste Taste bindet (ESC bricht ab — behandelt der KeybindsScreen).
+ * („> Taste... <"), die nächste Taste bindet (ESC bricht ab — behandelt der GuiKeybinds).
  * Kollidiert die Taste mit einer anderen Aktion, wird der Text rot (erlaubt, nur markiert).
  */
 public final class KeybindButton extends Button {

@@ -10,10 +10,10 @@ import de.skyengine.graphics.texture.Texture;
 /**
  * GUI der Truhe mit der MC-Textur {@code container/generic_54.png}: 27 Truhen-Slots oben,
  * darunter das Spielerinventar (27 Haupt + 9 Hotbar) im MC-Standardlayout (176×167).
- * Slot-/Carried-Logik kommt aus {@link AbstractContainerScreen}; Öffnen/Schließen steuert
+ * Slot-/Carried-Logik kommt aus {@link GuiContainer}; Öffnen/Schließen steuert
  * den Truhendeckel.
  */
-public final class ChestScreen extends AbstractContainerScreen {
+public final class GuiChest extends GuiContainer {
 
     private static final int W = 176, H = 167;
     private static final float TEX = 256f;
@@ -23,7 +23,7 @@ public final class ChestScreen extends AbstractContainerScreen {
     private final ItemStorage playerInv;
     private float guiX, guiY;
 
-    public ChestScreen(ChestBlockEntity chest, ItemStorage playerInv) {
+    public GuiChest(ChestBlockEntity chest, ItemStorage playerInv) {
         super(playerInv, chest.getInventory());
         this.chest = chest;
         this.chestInv = chest.getInventory();

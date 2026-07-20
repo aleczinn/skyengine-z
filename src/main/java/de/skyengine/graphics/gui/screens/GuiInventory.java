@@ -11,7 +11,7 @@ import de.skyengine.graphics.texture.Texture;
  * 27 Haupt-Slots + 9 Hotbar-Slots im Standardlayout. Der Crafting-/Rüstungs-Bereich der
  * Textur bleibt vorerst funktionslos (Phase 2).
  */
-public final class InventoryScreen extends AbstractContainerScreen {
+public final class GuiInventory extends GuiContainer {
 
     private static final int W = 176, H = 166;
     private static final float TEX = 256f;
@@ -19,7 +19,7 @@ public final class InventoryScreen extends AbstractContainerScreen {
     private final ItemStorage playerInv;
     private float guiX, guiY;
 
-    public InventoryScreen(ItemStorage playerInv) {
+    public GuiInventory(ItemStorage playerInv) {
         super(playerInv);
         this.playerInv = playerInv;
     }

@@ -4,7 +4,7 @@ import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.game.world.item.ItemStack;
 
 /**
- * In-Game-HUD (gezeichnet, wenn kein Screen offen ist): Fadenkreuz + Hotbar mit Auswahlrahmen und
+ * In-Game-HUD (gezeichnet, wenn kein GuiScreen offen ist): Fadenkreuz + Hotbar mit Auswahlrahmen und
  * 3D-Item-Icons. MC-Texturen: {@code sprites/hud/hotbar.png} (182×22), {@code hotbar_selection.png}
  * (24×23), {@code crosshair_circle.png} (15×15). Stack-Zahlen folgen mit dem Font-System.
  */

@@ -30,7 +30,7 @@ public final class PostContext implements IDisposable {
 
     /* --- Verkettung: vom PostProcessor vor jedem execute() gesetzt --- */
     public int input;        // Eingangstextur des aktuellen Passes
-    public int targetFbo;    // Ziel-FBO des aktuellen Passes (0 = Default-Framebuffer/Screen)
+    public int targetFbo;    // Ziel-FBO des aktuellen Passes (0 = Default-Framebuffer/GuiScreen)
 
     /* --- TAA-Kameradaten des Frames (PostProcessor.updateTaaCamera, s. Camera) --- */
     public final Matrix4f invProjView = new Matrix4f();  // Inverse der GEJITTERTEN PV

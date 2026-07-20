@@ -7,22 +7,22 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
-import de.skyengine.graphics.gui.Screen;
+import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.texture.Texture;
 
 /**
  * Welt-Ladebildschirm nach dem Eintritt: Balken ≈ READY-Chunks / Lade-Kreis; schließt sich,
  * sobald {@code ChunkManager.isInitialLoadComplete()} den Lade-Fixpunkt meldet (einmaliger
- * Latch — spätere Resets des Flags durch Remesh/Renderdistanz sind hier egal, der Screen
+ * Latch — spätere Resets des Flags durch Remesh/Renderdistanz sind hier egal, der GuiScreen
  * existiert dann nicht mehr). Nicht schließbar, pausiert NICHT (sonst laden nie Chunks).
  */
-public final class WorldLoadingScreen extends Screen {
+public final class GuiWorldLoading extends GuiScreen {
 
     private static final float TILE = 32;
     private static final float BAR_W = 200, BAR_H = 6;
 
-    public WorldLoadingScreen() {
+    public GuiWorldLoading() {
         super(null);
     }
 
