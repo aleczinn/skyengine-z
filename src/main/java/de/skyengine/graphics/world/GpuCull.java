@@ -75,7 +75,7 @@ public class GpuCull {
      * perfekt stabil). Die 4-Frame-Streak-Hysterese verschob nur die Periode — deshalb
      * Two-Phase statt Hysterese. Werkzeuge: Hotkey K = GPU-Pfad an/aus, J = Debug-Rot,
      * 1-s-Telemetrie „GpuCull-Draws"/„GpuCull-Occlusion" (DebugMode.FULL). */
-    public static volatile boolean ENABLED = true;
+    public static volatile boolean ENABLED = false;
 
     /** Occlusion-Debug (Hotkey J): Verdeckt-Verdikte werden ROT gezeichnet statt gecullt. */
     public static volatile boolean DEBUG_TINT = false;
