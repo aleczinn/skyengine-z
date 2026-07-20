@@ -28,9 +28,6 @@ public abstract class Stack extends GuiComponent {
     protected final List<GuiComponent> children = new ArrayList<>();
     protected final float gap;
 
-    private Anchor anchor;
-    private float anchorPadX, anchorPadY;
-
     protected Stack(float gap, GuiComponent... children) {
         this.gap = gap;
         for (GuiComponent child : children) {
@@ -43,32 +40,8 @@ public abstract class Stack extends GuiComponent {
         return this;
     }
 
-    /** Verankert den Stack — der GuiScreen layoutet ihn nach init() automatisch. */
-    public Stack anchor(Anchor anchor) {
-        return this.anchor(anchor, 0, 0);
-    }
-
-    public Stack anchor(Anchor anchor, float padX, float padY) {
-        this.anchor = anchor;
-        this.anchorPadX = padX;
-        this.anchorPadY = padY;
-        return this;
-    }
-
-    public boolean hasAnchor() {
-        return this.anchor != null;
-    }
-
-    /** Layoutet den Stack an seinem gespeicherten Anker (vom GuiScreen nach init() gerufen). */
-    public void applyAnchor(float vW, float vH) {
-        this.layoutAt(this.anchor.resolveX(vW, this.width(), this.anchorPadX),
-                this.anchor.resolveY(vH, this.height(), this.anchorPadY));
-    }
-
-    /** Einmaliges manuelles Anker-Layout ohne gespeicherten Anker. */
-    public void layoutAnchored(float vW, float vH, Anchor anchor, float padX, float padY) {
-        this.layoutAt(anchor.resolveX(vW, this.width(), padX), anchor.resolveY(vH, this.height(), padY));
-    }
+    /* Die Anker-Mechanik (anchor/hasAnchor/applyAnchor) kommt aus GuiComponent —
+       sie gilt für ALLE Widgets, nicht nur Stacks (z.B. Labels unten rechts). */
 
     /** Stacks sind reine Layout-Knoten: nur die Blätter landen in der Event-/Render-Liste. */
     @Override

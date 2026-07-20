@@ -46,8 +46,8 @@ public abstract class GuiScreen {
      */
     public final void layout(float vW, float vH) {
         for (GuiComponent c : this.components) {
-            if (c instanceof Stack stack && stack.hasAnchor()) {
-                stack.applyAnchor(vW, vH);
+            if (c.hasAnchor()) {
+                c.applyAnchor(vW, vH);
             }
         }
         this.leaves.clear();

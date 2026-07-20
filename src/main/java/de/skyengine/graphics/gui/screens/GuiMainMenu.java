@@ -43,18 +43,15 @@ public final class GuiMainMenu extends GuiScreen {
         Button quit = new Button("Spiel beenden", 98, 20, () -> SkyEngine.get().shutdown());
 
         Label version = new Label(SkyEngine.ENGINE_NAME + " v" + SkyEngine.ENGINE_VERSION, 8, VERSION_COLOR, true).measure(gui);
-        version.layoutAt(2, vH - 10);
-
         Label copyright = new Label("Copyright", 8, VERSION_COLOR, true).measure(gui);
-        copyright.layoutAt(vW - 100, vH - 10);
 
         this.components.add(new VStack(8,
                 title,
                 singleplayer,
                 new HStack(4, options, quit)
         ).anchor(Anchor.CENTER));
-        this.components.add(version);
-        this.components.add(copyright);
+        this.components.add(version.anchor(Anchor.BOTTOM_LEFT, 2, 2));
+        this.components.add(copyright.anchor(Anchor.BOTTOM_RIGHT, 2, 2));
     }
 
     /** Hauptmenü: Hintergrundbild UNGEDIMMT (object-cover); ohne Bild der Kachel-Fallback. */

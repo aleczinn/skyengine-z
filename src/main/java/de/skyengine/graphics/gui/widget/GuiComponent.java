@@ -1,6 +1,7 @@
 package de.skyengine.graphics.gui.widget;
 
 import de.skyengine.graphics.gui.GuiManager;
+import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.Layoutable;
 
 /**
@@ -21,6 +22,33 @@ public abstract class GuiComponent implements Layoutable {
 
     protected boolean hovered;
     protected boolean focused;
+
+    /* Optionaler Anker: der GuiScreen positioniert verankerte Top-Level-Komponenten
+       nach init() automatisch (Labels unten rechts, zentrierte Stacks, ...). */
+    private Anchor anchor;
+    private float anchorPadX, anchorPadY;
+
+    /** Verankert die Komponente — Layout übernimmt der GuiScreen nach init(). Chainable. */
+    public GuiComponent anchor(Anchor anchor) {
+        return this.anchor(anchor, 0, 0);
+    }
+
+    public GuiComponent anchor(Anchor anchor, float padX, float padY) {
+        this.anchor = anchor;
+        this.anchorPadX = padX;
+        this.anchorPadY = padY;
+        return this;
+    }
+
+    public boolean hasAnchor() {
+        return this.anchor != null;
+    }
+
+    /** Layoutet die Komponente an ihrem gespeicherten Anker (vom GuiScreen gerufen). */
+    public void applyAnchor(float vW, float vH) {
+        this.layoutAt(this.anchor.resolveX(vW, this.width(), this.anchorPadX),
+                this.anchor.resolveY(vH, this.height(), this.anchorPadY));
+    }
 
     public boolean isMouseOver(double mx, double my) {
         return mx >= this.x && mx < this.x + this.w && my >= this.y && my < this.y + this.h;
