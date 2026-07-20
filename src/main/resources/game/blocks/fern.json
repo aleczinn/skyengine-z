@@ -4,6 +4,7 @@
   "layer": "cutout",
   "opaque": false,
   "solid": false,
+  "replaceable": true,
   "icon_item": "game/textures/block/fern.png",
   "tint": "grass",
   "textures": {

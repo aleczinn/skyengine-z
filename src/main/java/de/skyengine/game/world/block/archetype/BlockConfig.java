@@ -27,6 +27,7 @@ public final class BlockConfig {
     private final ModelGenerator modelGenerator;
     private final Predicate<BlockState> opaquePredicate;
     private final boolean randomOffset;
+    private final boolean replaceable;
     private final String connectionGroup;
     private final BlockEntityType<?> blockEntityType;
     private final boolean tickRandomly;
@@ -49,6 +50,7 @@ public final class BlockConfig {
         this.modelGenerator = b.modelGenerator;
         this.opaquePredicate = b.opaquePredicate;
         this.randomOffset = b.randomOffset;
+        this.replaceable = b.replaceable;
         this.connectionGroup = b.connectionGroup;
         this.blockEntityType = b.blockEntityType;
         this.tickRandomly = b.tickRandomly;
@@ -71,6 +73,7 @@ public final class BlockConfig {
     public ModelGenerator modelGenerator() { return modelGenerator; }
     public Predicate<BlockState> opaquePredicate() { return opaquePredicate; }
     public boolean randomOffset() { return randomOffset; }
+    public boolean replaceable() { return replaceable; }
     public String connectionGroup() { return connectionGroup; }
     public BlockEntityType<?> blockEntityType() { return blockEntityType; }
     public boolean tickRandomly() { return tickRandomly; }
@@ -105,6 +108,7 @@ public final class BlockConfig {
         private ModelGenerator modelGenerator;
         private Predicate<BlockState> opaquePredicate;
         private boolean randomOffset;
+        private boolean replaceable;
         private String connectionGroup;
         private BlockEntityType<?> blockEntityType;
         private boolean tickRandomly;
@@ -126,6 +130,7 @@ public final class BlockConfig {
         public Builder model(ModelGenerator m) { this.modelGenerator = m; return this; }
         public Builder opaque(Predicate<BlockState> p) { this.opaquePredicate = p; return this; }
         public Builder randomOffset(boolean v) { this.randomOffset = v; return this; }
+        public Builder replaceable(boolean v) { this.replaceable = v; return this; }
         public Builder connectionGroup(String g) { this.connectionGroup = g; return this; }
         public Builder blockEntity(BlockEntityType<?> t) { this.blockEntityType = t; return this; }
         public Builder tickRandomly(boolean v) { this.tickRandomly = v; return this; }

@@ -312,6 +312,11 @@ public class Block {
         return this.config.soundGroup();
     }
 
+    /** true = Platzieren in diese Zelle ersetzt den Block (Gras/Farn, wie MC — kein Drop). */
+    public boolean isReplaceable() {
+        return this.config.replaceable();
+    }
+
     /** Connection-Gruppe (z.B. "fence", "pane") oder null. Steuert Verbindungen (siehe ConnectionRules). */
     public String getConnectionGroup() {
         return this.config.connectionGroup();
