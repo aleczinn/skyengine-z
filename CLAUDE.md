@@ -104,7 +104,10 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
   Truhe auf gemeinsamer `AbstractContainerScreen`-Basis; GuiScale = Prozent (30–170, 100 % ≈ 3,5×)
 - Lifecycle: World/Player lazy (`enterWorld`/`exitToTitle`), `BlockTextureAtlas` + BE-Renderer
   welt-unabhängig (GameContainer, Engine-Lebensdauer); Welt-Metadaten-Persistenz
-  `saves/<ordner>/level.json` (Name/Seed/Daten/Spielerzustand/Inventar — Chunks regenerieren!)
+  `saves/<ordner>/level.json` (Name/Seed/Daten/Spielerzustand/Inventar — Chunks regenerieren!);
+  Screen-Klassen heißen `Gui*` (GuiScreen/GuiMainMenu/GuiOptionsMenu/…, MC-Stil);
+  Spiel-Root = `%APPDATA%\.skyengine` (`GameDirectory`: config/saves/screenshots, einmalige
+  Migration aus dem Arbeitsverzeichnis; debug/ + debug-maps/ bleiben im Projekt)
 
 **Offen / geplant (bekannt, nicht angefangen):**
 - Licht-Merge (`lightning-system`-Branch) + Schatten-Pass — dann amortisiert sich der GPU-Cull-Pfad
