@@ -40,6 +40,7 @@ public final class BlockConfig {
     private final float hardness;
     private final de.skyengine.game.world.item.ToolType toolType;
     private final int harvestLevel;
+    private final de.skyengine.audio.BlockSoundGroup soundGroup;
 
     private BlockConfig(Builder b) {
         this.properties = List.copyOf(b.properties);
@@ -61,6 +62,7 @@ public final class BlockConfig {
         this.hardness = b.hardness;
         this.toolType = b.toolType;
         this.harvestLevel = b.harvestLevel;
+        this.soundGroup = b.soundGroup;
     }
 
     public List<Property<?>> properties() { return properties; }
@@ -91,6 +93,8 @@ public final class BlockConfig {
     public de.skyengine.game.world.item.ToolType toolType() { return toolType; }
     /** Mindest-Harvest-Level für Drops (0 = jedes Tier der passenden Klasse). */
     public int harvestLevel() { return harvestLevel; }
+    /** Sound-Gruppe für Schritt-/Abbau-/Platzier-Sounds. */
+    public de.skyengine.audio.BlockSoundGroup soundGroup() { return soundGroup; }
 
     public static Builder builder() { return new Builder(); }
 
@@ -114,6 +118,7 @@ public final class BlockConfig {
         private float hardness = 0F;
         private de.skyengine.game.world.item.ToolType toolType;
         private int harvestLevel = 0;
+        private de.skyengine.audio.BlockSoundGroup soundGroup = de.skyengine.audio.BlockSoundGroup.STONE;
 
         public Builder property(Property<?> p) { this.properties.add(p); return this; }
         public Builder behavior(BlockBehavior b) { this.behaviors.add(b); return this; }
@@ -134,6 +139,7 @@ public final class BlockConfig {
         public Builder hardness(float v) { this.hardness = v; return this; }
         public Builder toolType(de.skyengine.game.world.item.ToolType t) { this.toolType = t; return this; }
         public Builder harvestLevel(int level) { this.harvestLevel = level; return this; }
+        public Builder sound(de.skyengine.audio.BlockSoundGroup g) { this.soundGroup = g; return this; }
 
         public BlockConfig build() { return new BlockConfig(this); }
     }

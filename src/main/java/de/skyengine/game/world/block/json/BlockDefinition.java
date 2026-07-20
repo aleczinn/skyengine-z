@@ -39,6 +39,10 @@ public class BlockDefinition {
     public String tool;
     public String harvest_tier;
 
+    /* Optionale Sound-Gruppe (stone/wood/gravel/grass/sand/snow/cloth/glass);
+       null = Ableitung aus tool/archetype (siehe BlockSoundGroup.resolve). */
+    public String sound;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;
