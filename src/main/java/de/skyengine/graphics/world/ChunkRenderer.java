@@ -1410,8 +1410,12 @@ public class ChunkRenderer {
         if (mesh.gpuSlotCutout >= 0) this.gpuCull.removeSection(GpuCull.SEG_CUTOUT, mesh.gpuSlotCutout);
         mesh.gpuSlotOpaque = -1;
         mesh.gpuSlotCutout = -1;
-        if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) this.translucentMeshes.remove(mesh);
-        if (mesh.hasDetail()) this.detailMeshes.remove(mesh);
+        /* IMMER entfernen (ungeguardet): dispose() läuft an beiden Aufrufstellen VOR dem
+           Unregister und nullt die Regionen — hasLayer/hasDetail wären dann schon false und
+           das tote Mesh bliebe für immer in den Listen. Der GPU-Cull-Pfad iteriert diese
+           Listen direkt und crashte damit beim Block-Edit (baseVertexDetail auf null-Region). */
+        this.translucentMeshes.remove(mesh);
+        this.detailMeshes.remove(mesh);
         this.columnRemove(mesh);
     }
 
