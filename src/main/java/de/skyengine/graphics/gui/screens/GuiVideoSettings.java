@@ -12,6 +12,7 @@ import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.CycleButton;
 import de.skyengine.graphics.gui.widget.Label;
 import de.skyengine.graphics.gui.widget.Slider;
+import de.skyengine.graphics.gui.widget.Spacer;
 
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
@@ -104,6 +105,7 @@ public final class GuiVideoSettings extends GuiScreen {
                 new HStack(4, ao, leaves),
                 new HStack(4, fog, vegetation),
                 new HStack(4, lod, lodDistance),
+                new Spacer(0, 8),
                 done
         ).anchor(Anchor.CENTER));
     }
