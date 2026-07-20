@@ -33,7 +33,7 @@ public final class PostContext implements IDisposable {
     public int targetFbo;    // Ziel-FBO des aktuellen Passes (0 = Default-Framebuffer/GuiScreen)
 
     /* --- TAA-Kameradaten des Frames (PostProcessor.updateTaaCamera, s. Camera) --- */
-    public final Matrix4f invProjView = new Matrix4f();  // Inverse der GEJITTERTEN PV
+    public final Matrix4f invProjView = new Matrix4f();  // Inverse der UNGEJITTERTEN PV (jitterfreie Reprojektion)
     public final Matrix4f prevProjView = new Matrix4f(); // UNGEJITTERTE PV des Vorframes
     public final Vector3f camDelta = new Vector3f();     // camNow − camPrev (kamerarelativ)
     /* Aktueller Kamera-Jitter in UV (NDC/2); (0,0) wenn TAA aus (PostProcessor.nextJitter).
