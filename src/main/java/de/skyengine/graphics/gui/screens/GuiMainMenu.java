@@ -11,6 +11,7 @@ import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.GuiComponent;
 import de.skyengine.graphics.gui.widget.Image;
 import de.skyengine.graphics.gui.widget.Label;
+import de.skyengine.graphics.gui.widget.Spacer;
 
 /**
  * Hauptmenü (Startbildschirm): gekachelter Menü-Hintergrund, Titel, Einzelspieler / Optionen /
@@ -47,6 +48,7 @@ public final class GuiMainMenu extends GuiScreen {
 
         this.components.add(new VStack(8,
                 title,
+                new Spacer(0, 12),
                 singleplayer,
                 new HStack(4, options, quit)
         ).anchor(Anchor.CENTER));

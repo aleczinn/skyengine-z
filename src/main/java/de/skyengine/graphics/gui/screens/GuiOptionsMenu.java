@@ -12,6 +12,7 @@ import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.CycleButton;
 import de.skyengine.graphics.gui.widget.Label;
 import de.skyengine.graphics.gui.widget.Slider;
+import de.skyengine.graphics.gui.widget.Spacer;
 
 /**
  * Optionsmenü (allgemein): FOV, GUI-Größe, Sensitivität, VSync, Lautstärken. Grafik-Einstellungen
@@ -90,6 +91,7 @@ public final class GuiOptionsMenu extends GuiScreen {
                 new HStack(4, sensitivity, vsync),
                 new HStack(4, master, music),
                 new HStack(4, video, keybinds),
+                new Spacer(0, 8),
                 done
         ).anchor(Anchor.CENTER));
     }
