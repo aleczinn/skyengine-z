@@ -1,5 +1,6 @@
 {
   "id": "skyengine:glass_pane",
+  "sound": "glass",
   "type": "pane",
   "layer": "translucent",
   "hardness": 0.3,

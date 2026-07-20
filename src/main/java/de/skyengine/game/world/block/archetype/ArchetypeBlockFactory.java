@@ -1,5 +1,6 @@
 package de.skyengine.game.world.block.archetype;
 
+import de.skyengine.audio.BlockSoundGroup;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
@@ -84,6 +85,11 @@ public final class ArchetypeBlockFactory {
         if (def.harvest_tier != null) {
             builder.harvestLevel(ToolTier.levelByName(def.harvest_tier));
         }
+
+        /* Sound-Gruppe: explizites JSON-Feld oder Ableitung aus Tool/Archetyp. */
+        String archetypeName = def.archetype != null ? def.archetype : def.type;
+        builder.sound(BlockSoundGroup.resolve(def.sound, ToolType.byName(def.tool), archetypeName));
+
         return new Block(id, settings, builder.build());
     }
 

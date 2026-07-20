@@ -307,6 +307,11 @@ public class Block {
         return this.config.harvestLevel();
     }
 
+    /** Sound-Gruppe für Schritt-/Abbau-/Platzier-Sounds. */
+    public de.skyengine.audio.BlockSoundGroup getSoundGroup() {
+        return this.config.soundGroup();
+    }
+
     /** Connection-Gruppe (z.B. "fence", "pane") oder null. Steuert Verbindungen (siehe ConnectionRules). */
     public String getConnectionGroup() {
         return this.config.connectionGroup();
