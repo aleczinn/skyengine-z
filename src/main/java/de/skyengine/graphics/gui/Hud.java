@@ -4,9 +4,9 @@ import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.game.world.item.ItemStack;
 
 /**
- * In-Game-HUD (gezeichnet, wenn kein GuiScreen offen ist): Fadenkreuz + Hotbar mit Auswahlrahmen und
- * 3D-Item-Icons. MC-Texturen: {@code sprites/hud/hotbar.png} (182×22), {@code hotbar_selection.png}
- * (24×23), {@code crosshair_circle.png} (15×15). Stack-Zahlen folgen mit dem Font-System.
+ * In-Game-HUD (gezeichnet, wenn kein GuiScreen offen ist): Fadenkreuz + Hotbar mit Auswahlrahmen,
+ * 3D-Item-Icons und Stack-Zahlen. MC-Texturen: {@code sprites/hud/hotbar.png} (182×22),
+ * {@code hotbar_selection.png} (24×23), {@code crosshair_circle.png} (15×15).
  */
 public final class Hud {
 
@@ -44,6 +44,14 @@ public final class Hud {
                 }
             }
             gui.icons().end();
+
+            /* Stack-Zahlen über den Icons (Font-Pass nach dem Icon-Pass). Icon-Zentrum ist
+               (hx+11+i*STEP, hy+11) -> Slot-Ecke = Zentrum - ICON/2. */
+            gui.font().begin(vW, vH);
+            for (int i = 0; i < 9; i++) {
+                StackText.draw(gui, inv.get(i), hx + 11 + i * SLOT_STEP - ICON / 2f, hy + 11 - ICON / 2f, ICON);
+            }
+            gui.font().end();
         }
     }
 }

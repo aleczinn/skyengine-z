@@ -5,6 +5,7 @@ import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.Slot;
+import de.skyengine.graphics.gui.StackText;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -83,7 +84,7 @@ public abstract class GuiContainer extends GuiScreen {
         }
     }
 
-    /** Alle Slot-Icons + den getragenen Stapel am Cursor zeichnen (eigener Icon-Pass). */
+    /** Alle Slot-Icons + den getragenen Stapel am Cursor zeichnen (Icon-Pass + Zahlen-Pass). */
     protected void drawSlotIcons(GuiManager gui, double mouseX, double mouseY) {
         float vW = gui.vWidth(), vH = gui.vHeight();
         gui.icons().begin(vW, vH);
@@ -95,6 +96,18 @@ public abstract class GuiContainer extends GuiScreen {
             gui.icons().drawIcon(this.carried, (float) mouseX, (float) mouseY, SLOT, vH);
         }
         gui.icons().end();
+
+        /* Stack-Zahlen NACH dem Icon-Pass (Depth aus -> Text liegt über den 3D-Icons),
+           unten rechts im Slot wie in Minecraft. */
+        gui.font().begin(vW, vH);
+        for (Slot s : this.slots) {
+            StackText.draw(gui, s.get(), s.x, s.y, SLOT);
+        }
+        if (!this.carried.isEmpty()) {
+            StackText.draw(gui, this.carried,
+                    (float) mouseX - SLOT / 2f, (float) mouseY - SLOT / 2f, SLOT);
+        }
+        gui.font().end();
     }
 
     @Override
