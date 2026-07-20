@@ -37,7 +37,7 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
 - 🎲 Verschiedene Gamemode's wie Survival, Kreativ oder Zuschauer (Fliegen + NoClip)
 - 🔝 Optimizations & Features
   - Frustum Culling
-  - Vertex Komprimierung zu 16 bits
+  - Vertex Komprimierung zu 20 bits (x, y, w, h, u, v, skylight + block light)
   - Nutzen von MultiDrawIndirect & BufferStorage -> Reduziert Draw-Calls von 12.288 auf 3 (16 Chunk Renderdistanz; 3 weil einen für OPAQUE, CUTOUT & TRANSLUCENT)
   - Ambient Occlusion
   - Level of Detail
