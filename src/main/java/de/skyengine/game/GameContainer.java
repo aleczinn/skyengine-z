@@ -33,6 +33,7 @@ import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.game.world.lod.LodMesher;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
+import de.skyengine.audio.SoundManager;
 import de.skyengine.graphics.gui.ChestScreen;
 import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
@@ -97,6 +98,14 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     /* F3-Debug-Overlay (FPS/Position/Biome/...), Toggle in handleGlobalHotkeys. */
     private final DebugOverlay debugOverlay = new DebugOverlay();
 
+    /* Audio: Effekt-Sounds + Musik (OpenAL, komplett auf dem Render-Thread). */
+    private final SoundManager soundManager = new SoundManager();
+    /* Laufgeräusche: zurückgelegte Distanz seit dem letzten Schritt (MC-Kadenz ~1.6 Blöcke). */
+    private static final double STEP_INTERVAL = 1.6;
+    private double stepDistance = 0;
+    /* Periodischer Hit-Sound während des Survival-Abbaus (zeitbasiert, updateMining ist frame-getaktet). */
+    private long lastHitSoundMs = 0;
+
     /* Wird per F2 gesetzt und von SkyEngine nach dem fertigen Frame abgeholt. */
     private boolean screenshotRequested = false;
 
@@ -131,7 +140,11 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.guiManager.init(this.world.getChunkRenderer().getTextureArray(),
                 this.world.getBlockEntityRenderDispatcher());
 
+        this.soundManager.init();
+
         this.applySettings();
+
+        this.soundManager.playMusic("music/minecraft.ogg", true);
 
         SkyEngine.get().getInput().centerMouse();
         SkyEngine.get().getInput().disableCursor();
@@ -148,6 +161,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
            der FPS-Limiter im gameLoop liest window.isVSync(). Läuft auf dem Render-Thread,
            wo der GL-Kontext aktiv ist (glfwSwapInterval gehört dorthin, nicht auf den Main-Thread). */
         SkyEngine.get().getWindow().setVsync(this.settings.vsync);
+        this.soundManager.setMasterVolume(this.settings.masterVolume / 100F);
+        this.soundManager.setMusicVolume(this.settings.musicVolume / 100F);
     }
 
     public void update(Input input) {
@@ -157,6 +172,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.player.snapPrevToCurrent();
         } else {
             this.player.update(input, this.world);
+            this.updateStepSounds();
         }
         this.world.update(input, this.player);
         this.pickupItems();
@@ -184,6 +200,33 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
                 item.getStack().setCount(remaining.getCount());
             }
         });
+    }
+
+    /**
+     * Blockabhängige Laufgeräusche (pro Tick): Distanz-Akkumulator wie in MC — ein Schritt
+     * pro {@link #STEP_INTERVAL} zurückgelegten Blöcken (Sprint = automatisch schnellere
+     * Kadenz). Kein Sound in der Luft, beim Fliegen, Sneaken (lautlos wie MC) oder im Fluid.
+     */
+    private void updateStepSounds() {
+        if (!this.player.onGround || this.player.isFlying() || this.player.isSneaking()
+                || this.player.isTouchingFluid(this.world)) {
+            return;
+        }
+        double dx = this.player.x - this.player.lastX;
+        double dz = this.player.z - this.player.lastZ;
+        this.stepDistance += Math.sqrt(dx * dx + dz * dz);
+        if (this.stepDistance < STEP_INTERVAL) return;
+        this.stepDistance = 0;
+
+        int bx = (int) Math.floor(this.player.x);
+        int by = (int) Math.floor(this.player.y - 0.2); // Fußpunkt leicht abgesenkt: trifft auch Slabs/Stufen
+        int bz = (int) Math.floor(this.player.z);
+        int ground = this.world.getBlock(bx, by, bz);
+        if (ground == Blocks.AIR || Blocks.getState(ground).isFluid()) {
+            ground = this.world.getBlock(bx, by - 1, bz); // Kantenlauf: eine Zelle tiefer probieren
+            if (ground == Blocks.AIR || Blocks.getState(ground).isFluid()) return;
+        }
+        this.soundManager.playStep(Blocks.getState(ground).getBlock().getSoundGroup());
     }
 
     /**
@@ -224,6 +267,10 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.camera.follow(this.player, partialTick);
         this.camera.update((double) width / height);
         post.updateTaaCamera(this.camera);
+
+        /* Audio pro Frame: Listener auf die interpolierte Kamera + Musik-Streaming nachfüllen. */
+        this.soundManager.updateListener(this.camera);
+        this.soundManager.update();
 
         this.hit = BlockRaycast.raycast(
                 this.world,
@@ -325,6 +372,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.selectionBoxRenderer.dispose();
         if (this.crackRenderer != null) this.crackRenderer.dispose();
         if (this.guiManager != null) this.guiManager.dispose();
+        this.soundManager.dispose();
     }
 
     /**
@@ -372,6 +420,13 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.lastMiningMs = now;
         this.miningProgress += dt * perSecond;
 
+        /* Periodischer Hit-Sound während des Abbaus (wie MCs Schlag-Takt). */
+        if (now - this.lastHitSoundMs >= 250) {
+            this.lastHitSoundMs = now;
+            this.soundManager.playHit(state.getBlock().getSoundGroup(),
+                    this.miningX + 0.5, this.miningY + 0.5, this.miningZ + 0.5);
+        }
+
         if (this.miningProgress >= 1F) {
             this.breakTargetBlock(state, true, now);
         }
@@ -382,6 +437,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
      * dropsItems UND passendem Tool (MC-Harvest-Regel), optional Tool-Abnutzung.
      */
     private void breakTargetBlock(BlockState broken, boolean applyDurability, long now) {
+        this.soundManager.playBreak(broken.getBlock().getSoundGroup(),
+                this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
         broken.getBlock().onBreak(this.world, this.hit.x(), this.hit.y(), this.hit.z(), broken);
         this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(), Blocks.AIR);
 
@@ -494,6 +551,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             if (place != null && !this.collidesWithPlayer(place, px, py, pz)
                     && !this.collidesWithEntities(place, px, py, pz)) {
                 this.world.placeBlock(px, py, pz, place);
+                this.soundManager.playPlace(place.getBlock().getSoundGroup(), px + 0.5, py + 0.5, pz + 0.5);
                 this.lastPlaceTime = now;
             }
         }
@@ -528,6 +586,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(),
                 target.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId());
+        this.soundManager.playPlace(block.getSoundGroup(),
+                this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
         this.lastPlaceTime = now;
         return true;
     }
