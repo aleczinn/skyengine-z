@@ -737,13 +737,18 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /**
      * Gemeinsame Zielzelle fürs Platzieren (Block ODER gefüllter Eimer) aus {@code this.hit}.
-     * Fluids zählen als Luft, weil der Normal-Raycast sie ignoriert. Liefert {@code null}, wenn
-     * kein gültiges Ziel: kein Treffer, Kamera im Block ({@code face == 0,0,0}) oder die Zielzelle
-     * ist nicht überbaubar (weder Luft noch Fluid).
+     * Fluids zählen als Luft, weil der Normal-Raycast sie ignoriert. Ersetzbare Pflanzen
+     * (Gras/Farn, {@link Block#isReplaceable()}) werden direkt überbaut: Zielzelle = getroffene
+     * Zelle statt Nachbarzelle. Liefert {@code null}, wenn kein gültiges Ziel: kein Treffer,
+     * Kamera im Block ({@code face == 0,0,0}) oder die Zielzelle ist nicht überbaubar.
      */
     private int[] placementTarget() {
         if (this.hit == null) return null;
         if (this.hit.faceX() == 0 && this.hit.faceY() == 0 && this.hit.faceZ() == 0) return null;
+        /* Ersetzbare Pflanzen (Gras/Farn): direkt in die getroffene Zelle bauen, wie MC. */
+        if (Blocks.getState(this.hit.block()).getBlock().isReplaceable()) {
+            return new int[]{this.hit.x(), this.hit.y(), this.hit.z()};
+        }
         int px = this.hit.x() + this.hit.faceX();
         int py = this.hit.y() + this.hit.faceY();
         int pz = this.hit.z() + this.hit.faceZ();
@@ -891,9 +896,11 @@ public class GameContainer implements IResizeable, IDisposable {
         if (item != null) this.playerInventory.set(slot, new ItemStack(item, 1));
     }
 
-    /** Eine Zelle ist überbaubar, wenn sie leer ist oder ein Fluid enthält (Wasser/Lava). */
+    /** Eine Zelle ist überbaubar, wenn sie leer ist, ein Fluid enthält (Wasser/Lava)
+     *  oder einen als replaceable markierten Block (Gras/Farn). */
     private boolean isReplaceable(int block) {
-        return block == Blocks.AIR || Blocks.getState(block).isFluid();
+        return block == Blocks.AIR || Blocks.getState(block).isFluid()
+                || Blocks.getState(block).getBlock().isReplaceable();
     }
 
     /** true, wenn die Kollisionsform des Blocks an px/py/pz die Spieler-Box schneidet. */
