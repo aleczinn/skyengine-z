@@ -9,7 +9,6 @@ import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.SpriteRenderer;
-import de.skyengine.graphics.texture.Texture;
 
 /**
  * Welt-Ladebildschirm nach dem Eintritt: Balken ≈ READY-Chunks / Lade-Kreis; schließt sich,
@@ -19,7 +18,6 @@ import de.skyengine.graphics.texture.Texture;
  */
 public final class GuiWorldLoading extends GuiScreen {
 
-    private static final float TILE = 32;
     private static final float BAR_W = 200, BAR_H = 6;
 
     public GuiWorldLoading() {
@@ -55,15 +53,8 @@ public final class GuiWorldLoading extends GuiScreen {
         float vW = gui.vWidth(), vH = gui.vHeight();
         SpriteRenderer sr = gui.sprites();
         sr.begin(vW, vH);
-        /* Deckender Kachel-Hintergrund (Schwarz unterlegt — die Kachel ist halbtransparent),
-           die halbfertige Welt dahinter soll nicht durchscheinen. */
-        sr.drawRect(0, 0, vW, vH, 0.06f, 0.06f, 0.06f, 1f);
-        Texture tex = gui.textures().menuBackground;
-        for (float y = 0; y < vH; y += TILE) {
-            for (float x = 0; x < vW; x += TILE) {
-                sr.drawSprite(tex, x, y, TILE, TILE);
-            }
-        }
+        /* Deckender Kachel-Hintergrund — die halbfertige Welt dahinter soll nicht durchscheinen. */
+        this.drawMenuTiles(gui);
         float bx = (vW - BAR_W) / 2f, by = vH / 2f + 8;
         sr.drawRect(bx - 1, by - 1, BAR_W + 2, BAR_H + 2, 1f, 1f, 1f, 0.35f);
         sr.drawRect(bx, by, BAR_W * progress, BAR_H, 1f, 1f, 1f, 0.9f);

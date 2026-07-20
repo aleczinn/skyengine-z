@@ -49,5 +49,11 @@ public final class GuiMainMenu extends GuiScreen {
         stack.layoutAnchored(vW, vH, Anchor.CENTER, 0, 0);
     }
 
-    /* Hintergrund: geerbter Menü-Kachel-Default (GuiScreen.renderBackground ohne Welt). */
+    /** Hauptmenü: Hintergrundbild UNGEDIMMT (object-cover); ohne Bild der Kachel-Fallback. */
+    @Override
+    protected void renderBackground(GuiManager gui) {
+        if (!this.drawMenuImage(gui)) {
+            this.drawMenuTiles(gui);
+        }
+    }
 }

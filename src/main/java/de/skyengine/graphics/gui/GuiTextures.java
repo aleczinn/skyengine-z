@@ -3,6 +3,7 @@ package de.skyengine.graphics.gui;
 import de.skyengine.core.file.FileHandle;
 import de.skyengine.core.file.FileType;
 import de.skyengine.graphics.texture.Texture;
+import de.skyengine.graphics.texture.TextureFilter;
 
 /**
  * Lädt und hält die (MC-kompatiblen) GUI-Texturen als einzelne {@link Texture} (NEAREST, ohne Mipmaps).
@@ -30,6 +31,9 @@ public final class GuiTextures {
 
     /* Gekachelter Hintergrund für Titel-/Ladebildschirm (32er-Kacheln) */
     public Texture menuBackground;
+    /* Optionales Vollbild-Hintergrundbild fürs Hauptmenü (object-cover); null, wenn die
+       Datei fehlt -> Kachel-Fallback. */
+    public Texture menuBackgroundImage;
 
     public void init() {
         this.chestBackground = load("game/textures/gui/container/generic_54.png");
@@ -48,6 +52,14 @@ public final class GuiTextures {
         this.textField = load("game/textures/gui/sprites/widget/text_field.png");
         this.textFieldHighlighted = load("game/textures/gui/sprites/widget/text_field_highlighted.png");
         this.menuBackground = load("game/textures/gui/menu_background.png");
+
+        /* Fehlertolerant: das Bild ist optional (User-Asset). Mipmaps + trilinear,
+           weil es beim object-cover-Zeichnen herunterskaliert wird. */
+        FileHandle image = new FileHandle("game/menu/main_menu.png", FileType.RESOURCE);
+        if (image.exists()) {
+            this.menuBackgroundImage = new Texture(image, true);
+            this.menuBackgroundImage.setFilter(TextureFilter.MIPMAP, TextureFilter.LINEAR);
+        }
     }
 
     private static Texture load(String path) {
@@ -70,5 +82,6 @@ public final class GuiTextures {
         if (this.textField != null) this.textField.dispose();
         if (this.textFieldHighlighted != null) this.textFieldHighlighted.dispose();
         if (this.menuBackground != null) this.menuBackground.dispose();
+        if (this.menuBackgroundImage != null) this.menuBackgroundImage.dispose();
     }
 }
