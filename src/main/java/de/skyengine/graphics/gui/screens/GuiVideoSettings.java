@@ -4,7 +4,7 @@ import de.skyengine.core.SkyEngine;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.GameContainer;
 import de.skyengine.graphics.gui.GuiManager;
-import de.skyengine.graphics.gui.Screen;
+import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
@@ -13,19 +13,19 @@ import de.skyengine.graphics.gui.widget.CycleButton;
 import de.skyengine.graphics.gui.widget.Label;
 import de.skyengine.graphics.gui.widget.Slider;
 
-import static de.skyengine.graphics.gui.screens.OptionsScreen.CELL_H;
-import static de.skyengine.graphics.gui.screens.OptionsScreen.CELL_W;
+import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
+import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
 
 /**
  * Grafik-Unterseite des Optionsmenüs: Distanzen, MSAA/Anisotropie (greifen erst beim nächsten
  * Framebuffer-/Textur-Aufbau), AO/Laub (lösen einen Voll-Remesh aus), Nebel, LOD.
  * Welt-abhängige Anwendungen sind null-geguardet (Optionen sind auch ohne Welt erreichbar).
  */
-public final class VideoSettingsScreen extends Screen {
+public final class GuiVideoSettings extends GuiScreen {
 
     private final GameSettings settings = GameSettings.get();
 
-    public VideoSettingsScreen(Screen parent) {
+    public GuiVideoSettings(GuiScreen parent) {
         super(parent);
     }
 

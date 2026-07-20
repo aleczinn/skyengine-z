@@ -38,14 +38,14 @@ import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.ChestRenderer;
 import de.skyengine.graphics.blockentity.EnchantingTableRenderer;
 import de.skyengine.graphics.gui.BootProgress;
-import de.skyengine.graphics.gui.screens.ChestScreen;
-import de.skyengine.graphics.gui.screens.InventoryScreen;
+import de.skyengine.graphics.gui.screens.GuiChest;
+import de.skyengine.graphics.gui.screens.GuiInventory;
 import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.SpriteRenderer;
-import de.skyengine.graphics.gui.screens.PauseScreen;
-import de.skyengine.graphics.gui.screens.TitleScreen;
-import de.skyengine.graphics.gui.screens.WorldLoadingScreen;
+import de.skyengine.graphics.gui.screens.GuiIngameMenu;
+import de.skyengine.graphics.gui.screens.GuiMainMenu;
+import de.skyengine.graphics.gui.screens.GuiWorldLoading;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.game.world.block.entity.BlockEntities;
 import de.skyengine.game.world.save.LevelData;
@@ -181,11 +181,11 @@ public class GameContainer implements IResizeable, IDisposable {
 
         progress.frame("Fertig", 1f);
         /* Start im Hauptmenü — Cursor sichtbar (syncCursor), Welt kommt über den Menü-Flow. */
-        this.guiManager.open(new TitleScreen());
+        this.guiManager.open(new GuiMainMenu());
     }
 
     /**
-     * Betritt eine Welt aus einem Savegame (Render-Thread, aus einem Screen-Callback): baut
+     * Betritt eine Welt aus einem Savegame (Render-Thread, aus einem GuiScreen-Callback): baut
      * World + Spieler auf (Position/Inventar aus level.json, sonst Spawn + Start-Inventar),
      * wendet die Welt-Einstellungen an und zeigt den Welt-Ladebildschirm.
      */
@@ -219,11 +219,11 @@ public class GameContainer implements IResizeable, IDisposable {
 
         this.applySettings(); // Welt-Anteile (Render-/Sim-Distanz, farPlane) greifen jetzt
 
-        this.guiManager.open(new WorldLoadingScreen());
+        this.guiManager.open(new GuiWorldLoading());
     }
 
     /**
-     * Verlässt die Welt zurück ins Hauptmenü (Render-Thread): erst den Screen schließen
+     * Verlässt die Welt zurück ins Hauptmenü (Render-Thread): erst den GuiScreen schließen
      * (getragene Stapel landen im Inventar), dann speichern, dann die Welt abbauen.
      * glFinish stellt sicher, dass kein In-Flight-Draw mehr auf den GL-Ressourcen der Welt
      * liegt, bevor sie sterben (ein einmaliger Stall beim Menü-Wechsel ist unkritisch).
@@ -238,7 +238,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.currentSave = null;
         this.hit = null;
         this.resetMining();
-        this.guiManager.open(new TitleScreen());
+        this.guiManager.open(new GuiMainMenu());
     }
 
     /** Schreibt Spielerzustand + Inventar in die level.json des aktiven Savegames. */
@@ -402,11 +402,11 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Maus-Blick + Hotbar + Gameplay-Debug nur ohne offenes GUI. */
         if (!guiOpen) {
             /* ESC öffnet das Pause-Menü (Beenden geht über dessen Button). */
-            if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) this.guiManager.open(new PauseScreen());
+            if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) this.guiManager.open(new GuiIngameMenu());
             /* Inventar-Taste (Default E) öffnet das Spielerinventar; dieselbe Taste schließt es
                wieder (closesOnInventoryKey im GuiManager-Routing). */
             if (input.isKeyPressed(this.settings.key(KeyBindings.OPEN_INVENTORY))) {
-                this.guiManager.open(new InventoryScreen(this.playerInventory));
+                this.guiManager.open(new GuiInventory(this.playerInventory));
             }
             this.handleDebugInput(input);
             this.handleHotbarInput(input);
@@ -445,8 +445,8 @@ public class GameContainer implements IResizeable, IDisposable {
         );
 
         if (guiOpen) {
-            this.guiManager.handleInput();       // Schließen + Slot-Klicks (kann den Screen schließen)
-            /* Ein Screen-Callback (PauseScreen „Hauptmenü") kann exitToTitle() ausgelöst haben —
+            this.guiManager.handleInput();       // Schließen + Slot-Klicks (kann den GuiScreen schließen)
+            /* Ein GuiScreen-Callback (GuiIngameMenu „Hauptmenü") kann exitToTitle() ausgelöst haben —
                dann ist die Welt weg und der Rest des Frames darf sie nicht mehr anfassen. */
             if (this.world == null) return;
         } else {
@@ -482,8 +482,8 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /**
      * GUI-Anteil des Frames — zeichnet in den Default-Framebuffer, NACH der Post-Kette
-     * (pixelgenau, kein Grading/AA). Zentrale GUI-Verwaltung: HUD (kein Screen) bzw.
-     * Screen-Overlay + Cursor-Sync. Im Spectator ist die Hotbar ausgeblendet.
+     * (pixelgenau, kein Grading/AA). Zentrale GUI-Verwaltung: HUD (kein GuiScreen) bzw.
+     * GuiScreen-Overlay + Cursor-Sync. Im Spectator ist die Hotbar ausgeblendet.
      */
     public void renderGui(int width, int height) {
         boolean showHotbar = this.player != null && this.player.getGamemode() != Gamemode.SPECTATOR;
@@ -769,7 +769,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private boolean tryOpenChest(long now) {
         BlockEntity be = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
         if (!(be instanceof ChestBlockEntity chest)) return false;
-        this.guiManager.open(new ChestScreen(chest, this.playerInventory));
+        this.guiManager.open(new GuiChest(chest, this.playerInventory));
         this.lastPlaceTime = now;
         return true;
     }
@@ -1026,7 +1026,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.logger.debug("Toggle Fullscreen");
         }
 
-        /* Bei offenem Screen keine Buchstaben-/Symbol-Hotkeys — sonst tippen Textfelder
+        /* Bei offenem GuiScreen keine Buchstaben-/Symbol-Hotkeys — sonst tippen Textfelder
            versehentlich GUI-Scale/Render-Distanz um. F2/F3/F11 (oben) bleiben immer aktiv. */
         if (this.guiManager.isOpen()) return;
 

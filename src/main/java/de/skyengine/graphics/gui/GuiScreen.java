@@ -10,21 +10,21 @@ import java.util.List;
 
 /**
  * Basis eines GUI-Bildschirms (Menü, Truhe, Inventar, ...). Der {@link GuiManager} hält höchstens
- * einen offenen Screen, zeigt dann den Cursor und routet alle Eingaben hierher.
+ * einen offenen GuiScreen, zeigt dann den Cursor und routet alle Eingaben hierher.
  *
  * <p>Koordinaten kommen im <b>virtuellen</b> GUI-Raum (bereits GUI-skaliert). Widgets werden in
  * {@link #init} gebaut und layoutet — der GuiManager ruft init beim Öffnen und bei jeder Änderung
  * von Fenstergröße/GUI-Scale erneut auf (kein Layout pro Frame).
  *
- * <p>Navigation über {@code parent}: „Zurück"/ESC öffnet den Eltern-Screen wieder
- * ({@link #goBack}); ohne Eltern schließt der Screen (sofern {@link #isClosable()}).
+ * <p>Navigation über {@code parent}: „Zurück"/ESC öffnet den Eltern-GuiScreen wieder
+ * ({@link #goBack}); ohne Eltern schließt der GuiScreen (sofern {@link #isClosable()}).
  */
-public abstract class Screen {
+public abstract class GuiScreen {
 
     protected final List<GuiComponent> components = new ArrayList<>();
-    protected final Screen parent;
+    protected final GuiScreen parent;
 
-    protected Screen(Screen parent) {
+    protected GuiScreen(GuiScreen parent) {
         this.parent = parent;
     }
 
@@ -134,7 +134,7 @@ public abstract class Screen {
         return null;
     }
 
-    /** Zurück zum Eltern-Screen bzw. schließen, wenn es keinen gibt. */
+    /** Zurück zum Eltern-GuiScreen bzw. schließen, wenn es keinen gibt. */
     protected void goBack(GuiManager gui) {
         if (this.parent != null) {
             gui.open(this.parent);
@@ -143,25 +143,25 @@ public abstract class Screen {
         }
     }
 
-    /** true: die Welt tickt nicht, solange dieser Screen offen ist (Pause-Menü). */
+    /** true: die Welt tickt nicht, solange dieser GuiScreen offen ist (Pause-Menü). */
     public boolean pausesGame() {
         return false;
     }
 
     /**
-     * true: der Screen beansprucht gerade ALLE Tasten exklusiv (laufende Keybind-Aufnahme) —
+     * true: der GuiScreen beansprucht gerade ALLE Tasten exklusiv (laufende Keybind-Aufnahme) —
      * auch die sonst immer aktiven Hotkeys (F2/F3/F11) müssen dann pausieren.
      */
     public boolean capturesKeys() {
         return false;
     }
 
-    /** true: die Inventar-Taste schließt diesen Screen (nur Container-Screens). */
+    /** true: die Inventar-Taste schließt diesen GuiScreen (nur Container-Screens). */
     public boolean closesOnInventoryKey() {
         return false;
     }
 
-    /** false: Screen kann nicht geschlossen werden (Titelbildschirm, Ladebildschirm). */
+    /** false: GuiScreen kann nicht geschlossen werden (Titelbildschirm, Ladebildschirm). */
     public boolean isClosable() {
         return true;
     }

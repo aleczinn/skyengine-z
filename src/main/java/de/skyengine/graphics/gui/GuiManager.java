@@ -12,13 +12,13 @@ import org.lwjgl.opengl.GL11;
 
 /**
  * Zentrale Sammelstelle für alles GUI/HUD: bündelt {@link SpriteRenderer} (2D), {@link ItemIconRenderer}
- * (3D-Icons), {@link GuiTextures}, das {@link Hud} und den aktuell offenen {@link Screen}.
+ * (3D-Icons), {@link GuiTextures}, das {@link Hud} und den aktuell offenen {@link GuiScreen}.
  *
  * <ul>
  *   <li><b>GUI-Scaling</b>: arbeitet in einem virtuellen Koordinatenraum {@code vW=screenW/scale},
  *       {@code vH=screenH/scale}; die Renderer projizieren darüber, sodass die ganze GUI einheitlich
  *       skaliert. Mauskoordinaten werden durch {@code scale} geteilt.</li>
- *   <li><b>Cursor</b> zustandsgesteuert: offener Screen ⇒ CURSOR_NORMAL, sonst CURSOR_DISABLED
+ *   <li><b>Cursor</b> zustandsgesteuert: offener GuiScreen ⇒ CURSOR_NORMAL, sonst CURSOR_DISABLED
  *       (idempotent, nur bei Wechsel) — behebt den „Maus klebt in der Mitte"-Bug.</li>
  * </ul>
  */
@@ -32,11 +32,11 @@ public final class GuiManager {
     private final GuiTextures textures = new GuiTextures();
     private final Hud hud = new Hud();
 
-    private Screen screen;
+    private GuiScreen screen;
     private float scale = 3.5f;
     private float vW, vH;
 
-    /* Für welche vW/vH der offene Screen zuletzt layoutet wurde (NaN = init steht aus). */
+    /* Für welche vW/vH der offene GuiScreen zuletzt layoutet wurde (NaN = init steht aus). */
     private float layoutVW = Float.NaN, layoutVH = Float.NaN;
 
     /* Fensterhöhe in Pixeln (für die virtuell->Pixel-Umrechnung des Scissors, y-Flip). */
@@ -93,26 +93,26 @@ public final class GuiManager {
         return this.screen != null;
     }
 
-    /** true, wenn der offene Screen die Welt pausiert (Pause-Menü). */
+    /** true, wenn der offene GuiScreen die Welt pausiert (Pause-Menü). */
     public boolean pausesGame() {
         return this.screen != null && this.screen.pausesGame();
     }
 
-    /** true, wenn der offene Screen gerade alle Tasten exklusiv beansprucht (Keybind-Aufnahme). */
+    /** true, wenn der offene GuiScreen gerade alle Tasten exklusiv beansprucht (Keybind-Aufnahme). */
     public boolean capturesKeys() {
         return this.screen != null && this.screen.capturesKeys();
     }
 
-    public Screen current() {
+    public GuiScreen current() {
         return this.screen;
     }
 
     /**
-     * Öffnet einen Screen (ersetzt ggf. den aktuellen, dessen onClose dann läuft —
+     * Öffnet einen GuiScreen (ersetzt ggf. den aktuellen, dessen onClose dann läuft —
      * so speichert z.B. ein Optionsmenü beim Zurück-Navigieren). Das Layout ({@code init})
      * passiert im nächsten {@link #render}, wenn vW/vH sicher aktuell sind.
      */
-    public void open(Screen screen) {
+    public void open(GuiScreen screen) {
         if (this.screen != null && this.screen != screen) {
             this.screen.onClose();
         }
@@ -136,19 +136,19 @@ public final class GuiManager {
     }
 
     /**
-     * Routet alle Eingaben an den offenen Screen: Tasten (inkl. Default-ESC im Screen),
+     * Routet alle Eingaben an den offenen GuiScreen: Tasten (inkl. Default-ESC im GuiScreen),
      * Text-Eingabe, Maus-Druck/-Loslassen/-Ziehen und Scrollen. Die Inventar-Taste schließt
-     * nur Container-Screens ({@link Screen#closesOnInventoryKey()}) — und nur, wenn kein
+     * nur Container-Screens ({@link GuiScreen#closesOnInventoryKey()}) — und nur, wenn kein
      * Widget (z.B. Textfeld) die Taste konsumiert hat.
      */
     public void handleInput() {
         if (this.screen == null) return;
         double mx = this.mouseX(), my = this.mouseY();
 
-        /* Tasten: erst der Screen (fokussiertes Widget, Default-ESC), dann die Schließ-Taste. */
+        /* Tasten: erst der GuiScreen (fokussiertes Widget, Default-ESC), dann die Schließ-Taste. */
         int inventoryKey = GameSettings.get().key(KeyBindings.OPEN_INVENTORY);
         this.input.forEachKeyPressedThisFrame(key -> {
-            if (this.screen == null) return; // Screen wurde von einer vorherigen Taste geschlossen
+            if (this.screen == null) return; // GuiScreen wurde von einer vorherigen Taste geschlossen
             if (this.screen.keyPressed(this, key)) return;
             if (key == inventoryKey && this.screen.closesOnInventoryKey()) {
                 this.close();
@@ -187,9 +187,9 @@ public final class GuiManager {
     private static final int[] MOUSE_BUTTONS = {GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_MOUSE_BUTTON_RIGHT};
 
     /**
-     * Pro Frame nach der Welt: Cursor synchronisieren + ggf. Screen + Hotbar zeichnen.
+     * Pro Frame nach der Welt: Cursor synchronisieren + ggf. GuiScreen + Hotbar zeichnen.
      * Die Hotbar wird IMMER gerendert (auch bei offenem Inventar, wie in Minecraft) und teilt sich die
-     * Daten mit dem Screen (gleiches Spielerinventar) -> automatisch synchron. Das Fadenkreuz nur ohne Screen.
+     * Daten mit dem GuiScreen (gleiches Spielerinventar) -> automatisch synchron. Das Fadenkreuz nur ohne GuiScreen.
      */
     public void render(int screenW, int screenH, SimpleItemStorage hotbarInv, int selectedSlot, boolean showHotbar) {
         this.syncCursor();
@@ -197,7 +197,7 @@ public final class GuiManager {
         this.vW = screenW / this.scale;
         this.vH = screenH / this.scale;
 
-        /* HUD ZUERST (wie in Minecraft): ein offener Screen samt Dim liegt ÜBER der Hotbar —
+        /* HUD ZUERST (wie in Minecraft): ein offener GuiScreen samt Dim liegt ÜBER der Hotbar —
            sonst übermalt die Hotbar z.B. die Footer-Buttons von Scroll-Menüs. */
         if (hotbarInv != null) {
             this.hud.render(this, hotbarInv, selectedSlot, this.screen == null, showHotbar);

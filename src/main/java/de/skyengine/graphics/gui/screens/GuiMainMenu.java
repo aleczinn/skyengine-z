@@ -3,7 +3,7 @@ package de.skyengine.graphics.gui.screens;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.gui.GuiManager;
-import de.skyengine.graphics.gui.Screen;
+import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
@@ -13,11 +13,11 @@ import de.skyengine.graphics.gui.widget.Label;
  * Hauptmenü (Startbildschirm): gekachelter Menü-Hintergrund, Titel, Einzelspieler / Optionen /
  * Beenden. Nicht schließbar — es gibt keine Welt, in die ESC zurückkehren könnte.
  */
-public final class TitleScreen extends Screen {
+public final class GuiMainMenu extends GuiScreen {
 
     private static final Color4 VERSION_COLOR = new Color4(0.7f, 0.7f, 0.7f, 1f);
 
-    public TitleScreen() {
+    public GuiMainMenu() {
         super(null);
     }
 
@@ -31,8 +31,8 @@ public final class TitleScreen extends Screen {
         this.components.clear();
 
         Label title = new Label(SkyEngine.ENGINE_NAME, 32).measure(gui);
-        Button singleplayer = new Button("Einzelspieler", () -> gui.open(new WorldSelectScreen(this)));
-        Button options = new Button("Optionen", () -> gui.open(new OptionsScreen(this)));
+        Button singleplayer = new Button("Einzelspieler", () -> gui.open(new GuiSelectWorld(this)));
+        Button options = new Button("Optionen", () -> gui.open(new GuiOptionsMenu(this)));
         Button quit = new Button("Spiel beenden", () -> SkyEngine.get().shutdown());
 
         Label version = new Label(SkyEngine.ENGINE_NAME + " v" + SkyEngine.ENGINE_VERSION,
@@ -49,5 +49,5 @@ public final class TitleScreen extends Screen {
         stack.layoutAnchored(vW, vH, Anchor.CENTER, 0, 0);
     }
 
-    /* Hintergrund: geerbter Menü-Kachel-Default (Screen.renderBackground ohne Welt). */
+    /* Hintergrund: geerbter Menü-Kachel-Default (GuiScreen.renderBackground ohne Welt). */
 }

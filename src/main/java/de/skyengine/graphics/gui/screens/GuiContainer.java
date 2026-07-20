@@ -3,7 +3,7 @@ package de.skyengine.graphics.gui.screens;
 import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.graphics.gui.GuiManager;
-import de.skyengine.graphics.gui.Screen;
+import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.Slot;
 import org.lwjgl.glfw.GLFW;
 
@@ -16,7 +16,7 @@ import java.util.List;
  * beim Schließen. Die Klick-Logik ist über {@link #onSlotClick} überschreibbar — dort docken
  * später Stack-Regeln/Maus-Shortcuts (Phase 2) an, ohne die Screens anzufassen.
  */
-public abstract class AbstractContainerScreen extends Screen {
+public abstract class GuiContainer extends GuiScreen {
 
     protected static final int COLS = 9, SLOT = 16, STEP = 18;
 
@@ -26,7 +26,7 @@ public abstract class AbstractContainerScreen extends Screen {
     /** Ziele fürs Zurücklegen des getragenen Stapels beim Schließen (in Reihenfolge). */
     private final ItemStorage[] returnCarriedTo;
 
-    protected AbstractContainerScreen(ItemStorage... returnCarriedTo) {
+    protected GuiContainer(ItemStorage... returnCarriedTo) {
         super(null);
         this.returnCarriedTo = returnCarriedTo;
     }

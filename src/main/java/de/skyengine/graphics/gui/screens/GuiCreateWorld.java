@@ -3,7 +3,7 @@ package de.skyengine.graphics.gui.screens;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.game.world.save.WorldSaves;
 import de.skyengine.graphics.gui.GuiManager;
-import de.skyengine.graphics.gui.Screen;
+import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
@@ -17,12 +17,12 @@ import java.util.Random;
  * Neue Welt anlegen: Name + Seed (leer = zufällig; Zahl wird direkt übernommen, sonst
  * zählt der String-Hash). „Erstellen" legt das Savegame an und betritt die Welt sofort.
  */
-public final class CreateWorldScreen extends Screen {
+public final class GuiCreateWorld extends GuiScreen {
 
     private TextField name;
     private TextField seed;
 
-    public CreateWorldScreen(Screen parent) {
+    public GuiCreateWorld(GuiScreen parent) {
         super(parent);
     }
 

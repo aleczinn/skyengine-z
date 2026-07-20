@@ -3,7 +3,7 @@ package de.skyengine.graphics.gui.screens;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.graphics.gui.GuiManager;
-import de.skyengine.graphics.gui.Screen;
+import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
@@ -21,7 +21,7 @@ import java.util.List;
  * die Aufnahme; die nächste gedrückte Taste bindet, ESC bricht ab. Konflikte werden rot
  * markiert, aber erlaubt. Gespeichert wird beim Verlassen.
  */
-public final class KeybindsScreen extends Screen {
+public final class GuiKeybinds extends GuiScreen {
 
     private static final float ROW_GAP = 2;
     private static final float SCROLL_STEP = 22; // eine Zeile pro Rastung
@@ -34,7 +34,7 @@ public final class KeybindsScreen extends Screen {
     private float listTop, listBottom, rowsX;
     private double scrollOffset;
 
-    public KeybindsScreen(Screen parent) {
+    public GuiKeybinds(GuiScreen parent) {
         super(parent);
     }
 

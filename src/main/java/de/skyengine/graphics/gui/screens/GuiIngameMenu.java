@@ -2,7 +2,7 @@ package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.core.SkyEngine;
 import de.skyengine.graphics.gui.GuiManager;
-import de.skyengine.graphics.gui.Screen;
+import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
@@ -12,9 +12,9 @@ import de.skyengine.graphics.gui.widget.Label;
  * Pause-Menü (ESC im Spiel): pausiert die Welt, solange es offen ist.
  * ESC/„Zurück zum Spiel" schließt; „Beenden" beendet die Engine.
  */
-public final class PauseScreen extends Screen {
+public final class GuiIngameMenu extends GuiScreen {
 
-    public PauseScreen() {
+    public GuiIngameMenu() {
         super(null);
     }
 
@@ -29,7 +29,7 @@ public final class PauseScreen extends Screen {
 
         Label title = new Label("Spiel pausiert", 14).measure(gui);
         Button resume = new Button("Zurück zum Spiel", gui::close);
-        Button options = new Button("Optionen", () -> gui.open(new OptionsScreen(this)));
+        Button options = new Button("Optionen", () -> gui.open(new GuiOptionsMenu(this)));
         Button toTitle = new Button("Hauptmenü", () -> SkyEngine.get().getGame().exitToTitle());
         Button quit = new Button("Spiel beenden", () -> SkyEngine.get().shutdown());
 

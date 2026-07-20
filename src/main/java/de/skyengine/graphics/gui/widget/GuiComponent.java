@@ -7,7 +7,7 @@ import de.skyengine.graphics.gui.layout.Layoutable;
  * Basis aller GUI-Widgets (Button, Slider, Label, ...). Koordinaten liegen im virtuellen
  * GUI-Raum (siehe {@link GuiManager}), Ursprung oben links, y nach unten.
  *
- * <p>Gerendert wird in <b>zwei Pässen</b>, damit der Screen pro Frame nur je ein
+ * <p>Gerendert wird in <b>zwei Pässen</b>, damit der GuiScreen pro Frame nur je ein
  * begin/end-Paar von SpriteRenderer und FontRenderer braucht (Muster: DebugOverlay):
  * {@link #renderBackground} läuft im Sprite-Pass, {@link #renderText} im Font-Pass.
  *
@@ -26,7 +26,7 @@ public abstract class GuiComponent implements Layoutable {
         return mx >= this.x && mx < this.x + this.w && my >= this.y && my < this.y + this.h;
     }
 
-    /** Vom Screen einmal pro Frame vor dem Rendern aufgerufen. */
+    /** Vom GuiScreen einmal pro Frame vor dem Rendern aufgerufen. */
     public void updateHover(double mx, double my) {
         this.hovered = this.enabled && this.isMouseOver(mx, my);
     }

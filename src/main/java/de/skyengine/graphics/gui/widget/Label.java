@@ -5,7 +5,7 @@ import de.skyengine.graphics.gui.GuiManager;
 
 /**
  * Statischer Text (nur Font-Pass). Größe = Zeilenhöhe in virtuellen Pixeln;
- * Breite/Höhe werden fürs Layout aus dem Text abgeleitet, sobald der Screen sie setzt.
+ * Breite/Höhe werden fürs Layout aus dem Text abgeleitet, sobald der GuiScreen sie setzt.
  */
 public final class Label extends GuiComponent {
 
