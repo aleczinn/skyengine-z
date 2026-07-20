@@ -47,6 +47,8 @@ $wanted = @(
     @{ pattern = 'minecraft/sounds/dig/cloth*.ogg';   dest = 'dig' },
     # Glas-Bruch liegt in MC unter random/ -> bei uns einheitlich unter dig/
     @{ pattern = 'minecraft/sounds/random/glass[1-3].ogg'; dest = 'dig' },
+    # UI-Button-Klick (einzelne Datei, keine Varianten)
+    @{ pattern = 'minecraft/sounds/random/click.ogg'; dest = 'ui' },
     # Klassische Musik-Tracks (im modernen Index nach Songnamen benannt)
     @{ pattern = 'minecraft/sounds/music/game/minecraft.ogg';  dest = 'music' },
     @{ pattern = 'minecraft/sounds/music/game/sweden.ogg';     dest = 'music' },

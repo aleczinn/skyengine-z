@@ -150,7 +150,7 @@ public class GameContainer implements IResizeable, IDisposable {
      * Renderer, damit der Boot-Ladebildschirm zeichnen kann.
      */
     public void initBoot() {
-        this.guiManager = new GuiManager(SkyEngine.get().getInput());
+        this.guiManager = new GuiManager(SkyEngine.get().getInput(), this.soundManager);
         this.guiManager.initEarly();
     }
 

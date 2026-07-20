@@ -40,6 +40,8 @@ public final class SoundManager implements IDisposable {
     private static final float STEP_GAIN = 0.15F, STEP_PITCH = 1.0F;
     private static final float HIT_GAIN = 0.25F, HIT_PITCH = 0.5F;
     private static final float DIG_GAIN = 1.0F, DIG_PITCH = 0.8F;
+    /* UI-Button-Klick (wie MCs Button-Gain) */
+    private static final float UI_CLICK_GAIN = 0.25F;
 
     private final Logger logger = LogManager.getLogger(SoundManager.class.getName());
 
@@ -54,6 +56,9 @@ public final class SoundManager implements IDisposable {
 
     private final MusicPlayer music = new MusicPlayer();
     private final Random random = new Random();
+
+    /* UI-Klick als Ein-Element-Varianten-Array (null, solange ui/click.ogg fehlt). */
+    private int[] uiClickVariants;
 
     /* Wiederverwendet fürs Listener-Update (keine Frame-Allokationen). */
     private final Vector3d direction = new Vector3d();
@@ -88,6 +93,19 @@ public final class SoundManager implements IDisposable {
         for (BlockSoundGroup group : BlockSoundGroup.values()) {
             loaded += this.preload(this.stepBuffers, group, "step", group.stepName);
             loaded += this.preload(this.digBuffers, group, "dig", group.digName);
+        }
+
+        /* UI-Klick (Buttons) — einzelne Datei, fehlertolerant (fehlt sie: Klicks bleiben stumm). */
+        File click = new File(this.soundsDir, "ui/click.ogg");
+        if (click.exists()) {
+            int buffer = OggLoader.load(click, true);
+            if (buffer != -1) {
+                this.uiClickVariants = new int[]{buffer};
+                loaded++;
+            }
+        } else {
+            this.logger.warning("ui/click.ogg fehlt — Button-Klicks bleiben stumm "
+                    + "(scripts/extract-mc-sounds.ps1 ausführen).");
         }
 
         this.enabled = true;
@@ -129,33 +147,39 @@ public final class SoundManager implements IDisposable {
 
     /** Laufgeräusch — nicht-positional am Listener. */
     public void playStep(BlockSoundGroup group) {
-        this.play(this.stepBuffers.get(group), STEP_GAIN, STEP_PITCH, false, 0, 0, 0);
+        this.play(this.stepBuffers.get(group), STEP_GAIN, STEP_PITCH, true, false, 0, 0, 0);
     }
 
     /** Abbau-Schlag während des Minings — gedämpfte Step-Variante an der Block-Position. */
     public void playHit(BlockSoundGroup group, double x, double y, double z) {
-        this.play(this.stepBuffers.get(group), HIT_GAIN, HIT_PITCH, true, x, y, z);
+        this.play(this.stepBuffers.get(group), HIT_GAIN, HIT_PITCH, true, true, x, y, z);
     }
 
     /** Finaler Bruch-Sound an der Block-Position. */
     public void playBreak(BlockSoundGroup group, double x, double y, double z) {
-        this.play(this.digBuffers.get(group), DIG_GAIN, DIG_PITCH, true, x, y, z);
+        this.play(this.digBuffers.get(group), DIG_GAIN, DIG_PITCH, true, true, x, y, z);
     }
 
     /** Platzier-Sound (gleiche Gruppe wie der Bruch) an der Block-Position. */
     public void playPlace(BlockSoundGroup group, double x, double y, double z) {
-        this.play(this.digBuffers.get(group), DIG_GAIN, DIG_PITCH, true, x, y, z);
+        this.play(this.digBuffers.get(group), DIG_GAIN, DIG_PITCH, true, true, x, y, z);
     }
 
-    /** Zufällige Variante + ±10 % Zufalls-Pitch auf einer freien Pool-Source. */
-    private void play(int[] variants, float gain, float pitch, boolean positional, double x, double y, double z) {
+    /** UI-Button-Klick — nicht-positional, FESTER Pitch (MC-Klick klingt immer identisch). */
+    public void playUiClick() {
+        this.play(this.uiClickVariants, UI_CLICK_GAIN, 1.0F, false, false, 0, 0, 0);
+    }
+
+    /** Zufällige Variante + optional ±10 % Zufalls-Pitch auf einer freien Pool-Source. */
+    private void play(int[] variants, float gain, float pitch, boolean pitchJitter,
+                      boolean positional, double x, double y, double z) {
         if (!this.enabled || variants == null) return;
         int source = this.acquireSource();
         if (source == -1) return; // Pool voll: Sound verwerfen statt laufende zu stehlen
 
         AL10.alSourcei(source, AL10.AL_BUFFER, variants[this.random.nextInt(variants.length)]);
         AL10.alSourcef(source, AL10.AL_GAIN, gain);
-        AL10.alSourcef(source, AL10.AL_PITCH, pitch * (0.9F + this.random.nextFloat() * 0.2F));
+        AL10.alSourcef(source, AL10.AL_PITCH, pitchJitter ? pitch * (0.9F + this.random.nextFloat() * 0.2F) : pitch);
         if (positional) {
             AL10.alSourcei(source, AL10.AL_SOURCE_RELATIVE, AL10.AL_FALSE);
             AL10.alSource3f(source, AL10.AL_POSITION, (float) x, (float) y, (float) z);
@@ -244,6 +268,7 @@ public final class SoundManager implements IDisposable {
         java.util.HashSet<int[]> unique = new java.util.HashSet<>();
         unique.addAll(this.stepBuffers.values());
         unique.addAll(this.digBuffers.values());
+        if (this.uiClickVariants != null) unique.add(this.uiClickVariants);
         for (int[] variants : unique) {
             for (int buffer : variants) AL10.alDeleteBuffers(buffer);
         }
