@@ -90,9 +90,8 @@ public abstract class GuiScreen {
             gui.sprites().drawRect(0, 0, vW, vH, 0f, 0f, 0f, 0.4f);
             return;
         }
-        if (this.drawMenuImage(gui)) {
-            gui.sprites().drawRect(0, 0, vW, vH, 0f, 0f, 0f, 0.4f);
-        } else {
+        /* drawMenuImage dimmt bereits selbst — hier NICHT nochmal (sonst Doppel-Dim). */
+        if (!this.drawMenuImage(gui)) {
             this.drawMenuTiles(gui);
         }
     }
@@ -110,6 +109,7 @@ public abstract class GuiScreen {
         float scale = Math.max(vW / image.getWidth(), vH / image.getHeight());
         float w = image.getWidth() * scale, h = image.getHeight() * scale;
         gui.sprites().drawSprite(image, (vW - w) / 2f, (vH - h) / 2f, w, h);
+        gui.sprites().drawRect(0, 0, vW, vH, 0f, 0f, 0f, 0.4F);
         return true;
     }
 
