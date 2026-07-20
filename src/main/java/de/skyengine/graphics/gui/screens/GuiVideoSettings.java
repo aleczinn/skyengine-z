@@ -97,28 +97,15 @@ public final class GuiVideoSettings extends GuiScreen {
 
         Button done = new Button("Fertig", () -> this.goBack(gui));
 
-        this.components.add(title);
-        this.components.add(render);
-        this.components.add(simulation);
-        this.components.add(msaa);
-        this.components.add(aniso);
-        this.components.add(ao);
-        this.components.add(leaves);
-        this.components.add(fog);
-        this.components.add(vegetation);
-        this.components.add(lod);
-        this.components.add(lodDistance);
-        this.components.add(done);
-
-        VStack stack = new VStack(4)
-                .add(title)
-                .add(new HStack(4).add(render).add(simulation))
-                .add(new HStack(4).add(msaa).add(aniso))
-                .add(new HStack(4).add(ao).add(leaves))
-                .add(new HStack(4).add(fog).add(vegetation))
-                .add(new HStack(4).add(lod).add(lodDistance))
-                .add(done);
-        stack.layoutAnchored(vW, vH, Anchor.CENTER, 0, 0);
+        this.components.add(new VStack(4,
+                title,
+                new HStack(4, render, simulation),
+                new HStack(4, msaa, aniso),
+                new HStack(4, ao, leaves),
+                new HStack(4, fog, vegetation),
+                new HStack(4, lod, lodDistance),
+                done
+        ).anchor(Anchor.CENTER));
     }
 
     /** AO/Laub stecken im gebackenen Mesh -> Voll-Remesh (nur mit Welt möglich). */

@@ -84,25 +84,14 @@ public final class GuiOptionsMenu extends GuiScreen {
         Button keybinds = new Button("Tastenbelegung...", CELL_W, CELL_H, () -> gui.open(new GuiKeybinds(this)));
         Button done = new Button("Fertig", () -> this.goBack(gui));
 
-        this.components.add(title);
-        this.components.add(fov);
-        this.components.add(guiScale);
-        this.components.add(sensitivity);
-        this.components.add(vsync);
-        this.components.add(master);
-        this.components.add(music);
-        this.components.add(video);
-        this.components.add(keybinds);
-        this.components.add(done);
-
-        VStack stack = new VStack(4)
-                .add(title)
-                .add(new HStack(4).add(fov).add(guiScale))
-                .add(new HStack(4).add(sensitivity).add(vsync))
-                .add(new HStack(4).add(master).add(music))
-                .add(new HStack(4).add(video).add(keybinds))
-                .add(done);
-        stack.layoutAnchored(vW, vH, Anchor.CENTER, 0, 0);
+        this.components.add(new VStack(4,
+                title,
+                new HStack(4, fov, guiScale),
+                new HStack(4, sensitivity, vsync),
+                new HStack(4, master, music),
+                new HStack(4, video, keybinds),
+                done
+        ).anchor(Anchor.CENTER));
     }
 
     @Override

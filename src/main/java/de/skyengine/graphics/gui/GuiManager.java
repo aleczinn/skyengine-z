@@ -203,9 +203,11 @@ public final class GuiManager {
             this.hud.render(this, hotbarInv, selectedSlot, this.screen == null, showHotbar);
         }
         if (this.screen != null) {
-            /* Layout beim Öffnen und bei jeder Größen-/Scale-Änderung (statt pro Frame). */
+            /* Layout beim Öffnen und bei jeder Größen-/Scale-Änderung (statt pro Frame):
+               init baut die Widgets, layout() verankert Stacks + flacht den Baum ab. */
             if (this.vW != this.layoutVW || this.vH != this.layoutVH) {
                 this.screen.init(this, this.vW, this.vH);
+                this.screen.layout(this.vW, this.vH);
                 this.layoutVW = this.vW;
                 this.layoutVH = this.vH;
             }
