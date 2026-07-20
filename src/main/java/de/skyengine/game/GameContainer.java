@@ -34,10 +34,23 @@ import de.skyengine.game.world.lod.LodMesher;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.audio.SoundManager;
-import de.skyengine.graphics.gui.ChestScreen;
+import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
+import de.skyengine.graphics.blockentity.ChestRenderer;
+import de.skyengine.graphics.blockentity.EnchantingTableRenderer;
+import de.skyengine.graphics.gui.BootProgress;
+import de.skyengine.graphics.gui.screens.ChestScreen;
+import de.skyengine.graphics.gui.screens.InventoryScreen;
 import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.SpriteRenderer;
+import de.skyengine.graphics.gui.screens.PauseScreen;
+import de.skyengine.graphics.gui.screens.TitleScreen;
+import de.skyengine.graphics.gui.screens.WorldLoadingScreen;
+import de.skyengine.graphics.texture.BlockTextureAtlas;
+import de.skyengine.game.world.block.entity.BlockEntities;
+import de.skyengine.game.world.save.LevelData;
+import de.skyengine.game.world.save.WorldSaves;
+import org.lwjgl.opengl.GL11;
 import de.skyengine.graphics.post.PostProcessingSettings;
 import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.post.PostProcessor;
@@ -51,7 +64,8 @@ import org.lwjgl.glfw.GLFW;
 
 import java.io.File;
 
-public class GameContainer implements IInitializable, IResizeable, IDisposable {
+/* Kein IInitializable mehr: der Boot läuft zweistufig über initBoot()/initStaged() (Ladebildschirm). */
+public class GameContainer implements IResizeable, IDisposable {
 
     private final Logger logger = LogManager.getLogger(GameContainer.class.getName());
 
@@ -61,6 +75,11 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private SelectionBoxRenderer selectionBoxRenderer;
     private CrackRenderer crackRenderer;
     private GuiManager guiManager;
+
+    /* Welt-unabhängige Engine-Ressourcen (Boot-Init, leben bis zum Exit): Welt-Ein-/Austritte
+       erzeugen sie nicht neu — Layer-Indizes des Atlas stecken in den gebackenen Modellen. */
+    private final BlockTextureAtlas atlas = new BlockTextureAtlas();
+    private final BlockEntityRenderDispatcher blockEntityRenderers = new BlockEntityRenderDispatcher();
 
     private final GameSettings settings = GameSettings.get();
 
@@ -115,45 +134,166 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     private final SimpleItemStorage playerInventory = new SimpleItemStorage(36);
     private int hotbarIndex = 0;
 
+    /* Aktives Savegame (null im Hauptmenü) — Ziel für saveCurrentWorld beim Austritt/Beenden. */
+    private WorldSaves.WorldSave currentSave;
+
     public GameContainer() {
         this.camera = new Camera();
-        this.player = new EntityPlayer();
-        this.player.setPosition(0, 90, 0);
-
-        this.world = new World("world");
+        /* world/player sind lazy: sie entstehen erst beim Welt-Eintritt (enterWorld) und
+           sterben bei der Rückkehr ins Hauptmenü (exitToTitle). */
         this.selectionBoxRenderer = new SelectionBoxRenderer();
         this.crackRenderer = new CrackRenderer();
     }
 
-    @Override
-    public void init() {
-        Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
-
-        this.fillStartInventory();
-
-        this.world.init(); // creates ChunkManager, renderer, texture array
-        this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
-        this.selectionBoxRenderer.init();
-        this.crackRenderer.init(this.world.getChunkRenderer().getTextureArray());
-
+    /**
+     * Früher Boot-Anteil (VOR dem Anzeigen des Fensters): nur GuiManager mit Sprite-/Font-
+     * Renderer, damit der Boot-Ladebildschirm zeichnen kann.
+     */
+    public void initBoot() {
         this.guiManager = new GuiManager(SkyEngine.get().getInput());
-        this.guiManager.init(this.world.getChunkRenderer().getTextureArray(),
-                this.world.getBlockEntityRenderDispatcher());
-
-        this.soundManager.init();
-
-        this.applySettings();
-
-        this.soundManager.playMusic("music/minecraft.ogg", true);
-
-        SkyEngine.get().getInput().centerMouse();
-        SkyEngine.get().getInput().disableCursor();
+        this.guiManager.initEarly();
     }
 
-    /** Übernimmt die persistenten Einstellungen in die laufenden Systeme. */
-    private void applySettings() {
-        this.world.getChunkManager().setRenderDistance(this.settings.renderDistance);
-        this.world.setSimulationDistance(this.settings.simulationDistance);
+    /**
+     * Gestaffelter Boot (NACH dem Anzeigen des Fensters): lädt die Engine-Ressourcen in
+     * Etappen und zeichnet dazwischen je einen Fortschritts-Frame.
+     */
+    public void initStaged(BootProgress progress) {
+        progress.frame("Blöcke und Modelle laden...", 0.05f);
+        Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
+
+        progress.frame("Texturen bauen...", 0.45f);
+        this.atlas.init();
+
+        progress.frame("Renderer initialisieren...", 0.65f);
+        this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
+        this.selectionBoxRenderer.init();
+        this.crackRenderer.init(this.atlas.textures());
+        this.blockEntityRenderers.register(BlockEntities.CHEST, new ChestRenderer());
+        this.blockEntityRenderers.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
+        this.blockEntityRenderers.init();
+        this.guiManager.initLate(this.atlas.textures(), this.blockEntityRenderers);
+
+        progress.frame("Sound laden...", 0.85f);
+        this.soundManager.init();
+        this.applySettings();
+        this.soundManager.playMusic("music/minecraft.ogg", true);
+
+        progress.frame("Fertig", 1f);
+        /* Start im Hauptmenü — Cursor sichtbar (syncCursor), Welt kommt über den Menü-Flow. */
+        this.guiManager.open(new TitleScreen());
+    }
+
+    /**
+     * Betritt eine Welt aus einem Savegame (Render-Thread, aus einem Screen-Callback): baut
+     * World + Spieler auf (Position/Inventar aus level.json, sonst Spawn + Start-Inventar),
+     * wendet die Welt-Einstellungen an und zeigt den Welt-Ladebildschirm.
+     */
+    public void enterWorld(WorldSaves.WorldSave save) {
+        this.currentSave = save;
+        this.world = new World(save.dirName(), save.level().seed, this.atlas, this.blockEntityRenderers);
+        this.world.init();
+
+        this.player = new EntityPlayer();
+        LevelData.PlayerData saved = save.level().player;
+        if (saved != null) {
+            this.player.setPosition(saved.x, saved.y, saved.z);
+            this.player.yaw = saved.yaw;
+            this.player.pitch = saved.pitch;
+            try {
+                this.player.setGamemode(Gamemode.valueOf(saved.gamemode));
+            } catch (Exception ignored) { /* unbekannter Modus -> Default */ }
+            this.player.setFlying(saved.flying);
+        } else {
+            int spawnY = this.world.getGenerator().sampleHeight(0, 0) + 2;
+            this.player.setPosition(0.5, spawnY, 0.5);
+        }
+
+        this.clearInventory();
+        if (!save.level().inventory.isEmpty()) {
+            this.loadInventory(save.level().inventory);
+        } else {
+            this.fillStartInventory();
+        }
+        this.hotbarIndex = 0;
+
+        this.applySettings(); // Welt-Anteile (Render-/Sim-Distanz, farPlane) greifen jetzt
+
+        this.guiManager.open(new WorldLoadingScreen());
+    }
+
+    /**
+     * Verlässt die Welt zurück ins Hauptmenü (Render-Thread): erst den Screen schließen
+     * (getragene Stapel landen im Inventar), dann speichern, dann die Welt abbauen.
+     * glFinish stellt sicher, dass kein In-Flight-Draw mehr auf den GL-Ressourcen der Welt
+     * liegt, bevor sie sterben (ein einmaliger Stall beim Menü-Wechsel ist unkritisch).
+     */
+    public void exitToTitle() {
+        this.guiManager.close();
+        this.saveCurrentWorld();
+        GL11.glFinish();
+        this.world.dispose();
+        this.world = null;
+        this.player = null;
+        this.currentSave = null;
+        this.hit = null;
+        this.resetMining();
+        this.guiManager.open(new TitleScreen());
+    }
+
+    /** Schreibt Spielerzustand + Inventar in die level.json des aktiven Savegames. */
+    private void saveCurrentWorld() {
+        if (this.currentSave == null || this.world == null || this.player == null) return;
+
+        LevelData level = this.currentSave.level();
+        level.lastPlayed = System.currentTimeMillis();
+
+        LevelData.PlayerData data = new LevelData.PlayerData();
+        data.x = this.player.x;
+        data.y = this.player.y;
+        data.z = this.player.z;
+        data.yaw = this.player.yaw;
+        data.pitch = this.player.pitch;
+        data.gamemode = this.player.getGamemode().name();
+        data.flying = this.player.isFlying();
+        level.player = data;
+
+        level.inventory.clear();
+        for (int slot = 0; slot < this.playerInventory.size(); slot++) {
+            ItemStack stack = this.playerInventory.get(slot);
+            if (stack.isEmpty()) continue;
+            LevelData.ItemEntry entry = new LevelData.ItemEntry();
+            entry.slot = slot;
+            entry.id = stack.getItem().getId().toString();
+            entry.count = stack.getCount();
+            entry.damage = stack.getDamage();
+            level.inventory.add(entry);
+        }
+
+        WorldSaves.save(this.currentSave);
+        this.logger.info("Welt gespeichert: " + this.currentSave.dirName());
+    }
+
+    /** Stellt das Inventar aus level.json wieder her (unbekannte Item-IDs -> Slot bleibt leer). */
+    private void loadInventory(java.util.List<LevelData.ItemEntry> entries) {
+        for (LevelData.ItemEntry entry : entries) {
+            if (entry.slot < 0 || entry.slot >= this.playerInventory.size()) continue;
+            Item item = Items.get(Identifier.of(entry.id));
+            if (item == null) continue;
+            ItemStack stack = new ItemStack(item, entry.count);
+            stack.setDamage(entry.damage);
+            this.playerInventory.set(entry.slot, stack);
+        }
+    }
+
+    /** Übernimmt die persistenten Einstellungen in die laufenden Systeme (auch vom Optionsmenü genutzt). */
+    public void applySettings() {
+        /* Welt-Anteile nur mit Welt (Optionen sind auch aus dem Hauptmenü erreichbar);
+           beim nächsten enterWorld laufen sie ohnehin erneut. */
+        if (this.world != null) {
+            this.world.getChunkManager().setRenderDistance(this.settings.renderDistance);
+            this.world.setSimulationDistance(this.settings.simulationDistance);
+        }
         this.camera.setFov(this.settings.fov);
         this.camera.setFarPlane(this.computeFarPlane());
         this.guiManager.setScale(this.settings.guiScaleFactor());
@@ -161,21 +301,32 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
            der FPS-Limiter im gameLoop liest window.isVSync(). Läuft auf dem Render-Thread,
            wo der GL-Kontext aktiv ist (glfwSwapInterval gehört dorthin, nicht auf den Main-Thread). */
         SkyEngine.get().getWindow().setVsync(this.settings.vsync);
+        this.applyAudioSettings();
+    }
+
+    /** Nur die Lautstärken übernehmen (Options-Slider, live beim Ziehen). */
+    public void applyAudioSettings() {
         this.soundManager.setMasterVolume(this.settings.masterVolume / 100F);
         this.soundManager.setMusicVolume(this.settings.musicVolume / 100F);
     }
 
     public void update(Input input) {
+        if (this.world == null || this.player == null) return; // Hauptmenü: nichts zu ticken
+
         /* Bei offenem GUI friert die Spielerbewegung ein; prev=current verhindert Kamera-Jitter
-           (sonst interpoliert Camera.follow weiter zwischen zwei Tick-Positionen). Welt tickt weiter. */
+           (sonst interpoliert Camera.follow weiter zwischen zwei Tick-Positionen). */
         if (this.guiManager.isOpen()) {
             this.player.snapPrevToCurrent();
         } else {
             this.player.update(input, this.world);
             this.updateStepSounds();
         }
-        this.world.update(input, this.player);
-        this.pickupItems();
+        /* Pause-Menü hält die Welt komplett an (wie MC-Singleplayer); Container-GUIs
+           (Truhe) lassen sie weiterticken. */
+        if (!this.guiManager.pausesGame()) {
+            this.world.update(input, this.player);
+            this.pickupItems();
+        }
     }
 
     /**
@@ -237,11 +388,26 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     public void renderWorld(Input input, int width, int height, float partialTick) {
         this.handleGlobalHotkeys(input);   // immer: Fullscreen, GUI-Scale, Render-Distanz
 
+        /* Musik-Streaming läuft auch im Hauptmenü weiter. */
+        this.soundManager.update();
+
+        /* Hauptmenü (keine Welt): nur GUI-Eingaben routen, gezeichnet wird in renderGui. */
+        if (this.world == null) {
+            this.guiManager.handleInput();
+            return;
+        }
+
         boolean guiOpen = this.guiManager.isOpen();
 
         /* Maus-Blick + Hotbar + Gameplay-Debug nur ohne offenes GUI. */
         if (!guiOpen) {
-            if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) SkyEngine.get().shutdown();
+            /* ESC öffnet das Pause-Menü (Beenden geht über dessen Button). */
+            if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) this.guiManager.open(new PauseScreen());
+            /* Inventar-Taste (Default E) öffnet das Spielerinventar; dieselbe Taste schließt es
+               wieder (closesOnInventoryKey im GuiManager-Routing). */
+            if (input.isKeyPressed(this.settings.key(KeyBindings.OPEN_INVENTORY))) {
+                this.guiManager.open(new InventoryScreen(this.playerInventory));
+            }
             this.handleDebugInput(input);
             this.handleHotbarInput(input);
             double sens = this.settings.mouseSensitivity;
@@ -268,9 +434,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.camera.update((double) width / height);
         post.updateTaaCamera(this.camera);
 
-        /* Audio pro Frame: Listener auf die interpolierte Kamera + Musik-Streaming nachfüllen. */
+        /* Audio pro Frame: Listener auf die interpolierte Kamera (Streaming läuft oben). */
         this.soundManager.updateListener(this.camera);
-        this.soundManager.update();
 
         this.hit = BlockRaycast.raycast(
                 this.world,
@@ -281,6 +446,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
         if (guiOpen) {
             this.guiManager.handleInput();       // Schließen + Slot-Klicks (kann den Screen schließen)
+            /* Ein Screen-Callback (PauseScreen „Hauptmenü") kann exitToTitle() ausgelöst haben —
+               dann ist die Welt weg und der Rest des Frames darf sie nicht mehr anfassen. */
+            if (this.world == null) return;
         } else {
             this.handleBlockInteraction(input);  // kann ein GUI öffnen
         }
@@ -318,10 +486,12 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
      * Screen-Overlay + Cursor-Sync. Im Spectator ist die Hotbar ausgeblendet.
      */
     public void renderGui(int width, int height) {
-        boolean showHotbar = this.player.getGamemode() != Gamemode.SPECTATOR;
+        boolean showHotbar = this.player != null && this.player.getGamemode() != Gamemode.SPECTATOR;
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
-        this.guiManager.render(width, height, this.playerInventory, this.hotbarIndex, showHotbar);
-        if (this.debugOverlay.isVisible()) {
+        /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair). */
+        this.guiManager.render(width, height, this.world != null ? this.playerInventory : null,
+                this.hotbarIndex, showHotbar);
+        if (this.debugOverlay.isVisible() && this.world != null) {
             this.debugOverlay.render(this.guiManager, this.world, this.player);
         }
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
@@ -366,12 +536,15 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     @Override
     public void dispose() {
         this.settings.save();
+        this.saveCurrentWorld(); // Welt-Zustand auch beim direkten Beenden aus dem Spiel sichern
         if (this.world != null) {
             this.world.dispose();
         }
         this.selectionBoxRenderer.dispose();
         if (this.crackRenderer != null) this.crackRenderer.dispose();
         if (this.guiManager != null) this.guiManager.dispose();
+        this.blockEntityRenderers.dispose();
+        this.atlas.dispose();
         this.soundManager.dispose();
     }
 
@@ -651,6 +824,13 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         }
     }
 
+    /** Leert das Spielerinventar (vor jedem Welt-Eintritt — keine Items aus der Vorwelt). */
+    private void clearInventory() {
+        for (int i = 0; i < this.playerInventory.size(); i++) {
+            this.playerInventory.set(i, ItemStack.EMPTY);
+        }
+    }
+
     private void fillStartInventory() {
         /* Hotbar (Slots 0-8): Test-Blöcke + die drei Eimer hinten, damit Wasser/Lava direkt
            testbar sind. Wasser hat kein Block-Item mehr (gehört in den Eimer). */
@@ -670,6 +850,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
         this.setItem(1, "skyengine:coarse_dirt");
         this.setItem(2, "skyengine:red_mushroom");
 
+        this.setItem(5, "skyengine:chest"); // TEMP: Truhe zum GUI-Testen direkt in der Hotbar
         this.setItem(6, "skyengine:water_bucket");
         this.setItem(7, "skyengine:lava_bucket");
         this.setItem(8, "skyengine:bucket");
@@ -735,7 +916,7 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     private void handleHotbarInput(Input input) {
         for (int i = 0; i < 9; i++) {
-            if (input.isKeyPressed(GLFW.GLFW_KEY_1 + i)) {
+            if (input.isKeyPressed(this.settings.key(KeyBindings.hotbar(i + 1)))) {
                 this.hotbarIndex = i;
             }
         }
@@ -749,8 +930,8 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
     }
 
     private void handleDebugInput(Input input) {
-        /* Doppel-Leertaste = Fliegen umschalten (toggleFlying prüft den Modus selbst). */
-        if (input.isKeyPressed(GLFW.GLFW_KEY_SPACE)) {
+        /* Doppel-Sprungtaste = Fliegen umschalten (toggleFlying prüft den Modus selbst). */
+        if (input.isKeyPressed(this.settings.key(KeyBindings.JUMP))) {
             long now = System.currentTimeMillis();
             if (now - this.lastSpacePressTime <= DOUBLE_TAP_MS) {
                 this.player.toggleFlying();
@@ -826,6 +1007,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
      * Übergangslösung bis zum editierbaren Optionsmenü.
      */
     private void handleGlobalHotkeys(Input input) {
+        /* Laufende Keybind-Aufnahme schluckt ALLE Tasten — sonst macht das Binden von F2
+           gleichzeitig einen Screenshot. */
+        if (this.guiManager.capturesKeys()) return;
         if (input.isKeyPressed(GLFW.GLFW_KEY_F2)) {
             /* Nur markieren: der Pixel-Read passiert erst nach dem fertigen Frame (SkyEngine.onRender). */
             this.screenshotRequested = true;
@@ -842,17 +1026,21 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
             this.logger.debug("Toggle Fullscreen");
         }
 
+        /* Bei offenem Screen keine Buchstaben-/Symbol-Hotkeys — sonst tippen Textfelder
+           versehentlich GUI-Scale/Render-Distanz um. F2/F3/F11 (oben) bleiben immer aktiv. */
+        if (this.guiManager.isOpen()) return;
+
         boolean changed = false;
         if (input.isKeyPressed(GLFW.GLFW_KEY_LEFT_BRACKET)) {
-            this.settings.guiScale = Math.max(1, this.settings.guiScale - 5);
+            this.settings.guiScalePercent = Math.max(30, this.settings.guiScalePercent - 5);
             this.guiManager.setScale(this.settings.guiScaleFactor());
-            this.logger.debug("GUI-Scale: " + this.settings.guiScale);
+            this.logger.debug("GUI-Größe: " + this.settings.guiScalePercent + " %");
             changed = true;
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_RIGHT_BRACKET)) {
-            this.settings.guiScale = Math.min(100, this.settings.guiScale + 5);
+            this.settings.guiScalePercent = Math.min(170, this.settings.guiScalePercent + 5);
             this.guiManager.setScale(this.settings.guiScaleFactor());
-            this.logger.debug("GUI-Scale: " + this.settings.guiScale);
+            this.logger.debug("GUI-Größe: " + this.settings.guiScalePercent + " %");
             changed = true;
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_MINUS)) {
@@ -933,5 +1121,9 @@ public class GameContainer implements IInitializable, IResizeable, IDisposable {
 
     public World getWorld() {
         return world;
+    }
+
+    public GuiManager getGuiManager() {
+        return guiManager;
     }
 }

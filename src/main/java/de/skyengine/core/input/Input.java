@@ -33,10 +33,13 @@ public class Input {
     private static final int KEY_COUNT = GLFW.GLFW_KEY_LAST + 1;            // 349
     private static final int MOUSE_COUNT = GLFW.GLFW_MOUSE_BUTTON_LAST + 1; // 8
 
-    /* --- Event encoding: [bit 17: type] [bit 16: action] [bits 0-15: code] --- */
-    private static final int TYPE_MOUSE = 1 << 17;
-    private static final int ACTION_PRESS = 1 << 16;
-    private static final int CODE_MASK = 0xFFFF;
+    /* --- Event encoding: [Bits 31-30: Typ (0=KEY, 1=MOUSE, 2=CHAR)] [Bit 29: Press] [Bits 0-20: Code] ---
+       21 Code-Bits reichen für GLFW-Keycodes (<= 348) UND Unicode-Codepoints (<= 0x10FFFF). */
+    private static final int TYPE_MOUSE = 1 << 30;
+    private static final int TYPE_CHAR = 2 << 30;
+    private static final int TYPE_MASK = 3 << 30;
+    private static final int ACTION_PRESS = 1 << 29;
+    private static final int CODE_MASK = 0x1FFFFF;
 
     /* --- SPSC ring buffer (power of two!) --- */
     private static final int QUEUE_CAPACITY = 256;
@@ -71,6 +74,12 @@ public class Input {
     private final int[] changedButtons = new int[QUEUE_CAPACITY];
     private int changedButtonCount = 0;
 
+    /* Text-Eingabe (glfwSetCharCallback): Unicode-Codepoints dieses Frames, in Event-Reihenfolge
+       relativ zu den Key-Events (gleiche Queue) - wichtig für Textfelder (Backspace vs. Zeichen). */
+    private static final int MAX_CHARS_PER_FRAME = 64;
+    private final int[] charsTyped = new int[MAX_CHARS_PER_FRAME];
+    private int charCount = 0;
+
     /* Volatile, weil es auch vom Main-Thread (Fullscreen-Toggle) gesetzt wird */
     private volatile boolean resetMouseDelta = true;
     /* Erst true, wenn GLFW die erste echte Cursorposition geliefert hat.
@@ -100,6 +109,7 @@ public class Input {
         GLFW.glfwSetScrollCallback(this.window.getWindowID(), this::onScroll);
         GLFW.glfwSetMouseButtonCallback(this.window.getWindowID(), this::onMouseButton);
         GLFW.glfwSetKeyCallback(this.window.getWindowID(), this::onKey);
+        GLFW.glfwSetCharCallback(this.window.getWindowID(), this::onChar);
         GLFW.glfwSetJoystickCallback(this::onJoystick);
     }
 
@@ -132,16 +142,22 @@ public class Input {
         this.changedButtonCount = 0;
 
         /* 2. Drain the event queue and apply this frame's events */
+        this.charCount = 0;
         int head = this.queueHead.get();
         int tail = this.queueTail.get(); // volatile read - sees all events published before it
         while (head != tail) {
             int event = this.eventQueue[head & QUEUE_MASK];
             head++;
 
+            int type = event & TYPE_MASK;
             int code = event & CODE_MASK;
             boolean press = (event & ACTION_PRESS) != 0;
 
-            if ((event & TYPE_MOUSE) != 0) {
+            if (type == TYPE_CHAR) {
+                if (this.charCount < this.charsTyped.length) {
+                    this.charsTyped[this.charCount++] = code;
+                }
+            } else if (type == TYPE_MOUSE) {
                 this.mouseStates[code] = press ? InputState.PRESSED : InputState.RELEASED;
                 if (this.changedButtonCount < this.changedButtons.length) {
                     this.changedButtons[this.changedButtonCount++] = code;
@@ -220,6 +236,10 @@ public class Input {
         }
     }
 
+    private void onChar(long window, int codepoint) {
+        this.enqueue((codepoint & CODE_MASK) | TYPE_CHAR);
+    }
+
     private void onCursorEnter(long window, boolean entered) {
         this.cursorEntered = entered;
     }
@@ -281,6 +301,26 @@ public class Input {
     /** Returns whether the key <b>was</b> <i>released</i> this frame */
     public boolean isKeyReleased(int key) {
         return key >= 0 && key < KEY_COUNT && this.keyStates[key] == InputState.RELEASED;
+    }
+
+    /** Ruft den Consumer für jede Taste auf, die in diesem Frame frisch gedrückt wurde. */
+    public void forEachKeyPressedThisFrame(java.util.function.IntConsumer consumer) {
+        for (int i = 0; i < this.changedKeyCount; i++) {
+            int key = this.changedKeys[i];
+            if (this.keyStates[key] == InputState.PRESSED) {
+                consumer.accept(key);
+            }
+        }
+    }
+
+    /** Anzahl der in diesem Frame getippten Unicode-Zeichen (Textfelder). */
+    public int charCount() {
+        return this.charCount;
+    }
+
+    /** Unicode-Codepoint Nr. {@code index} dieses Frames (0 <= index < {@link #charCount()}). */
+    public int charAt(int index) {
+        return this.charsTyped[index];
     }
 
     /** Return the first connected controller or null if nothing is connected */

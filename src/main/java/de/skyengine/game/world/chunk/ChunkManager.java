@@ -531,7 +531,12 @@ public class ChunkManager {
     }
 
     public void setRenderDistance(int renderDistance) {
-        this.renderDistance = Math.max(2, renderDistance);
+        int clamped = Math.max(2, renderDistance);
+        /* Idempotent: unveränderter Wert darf initialLoadComplete nicht resetten (das Optionsmenü
+           ruft applySettings auch für unabhängige Einstellungen auf und würde sonst das
+           LOD-Gating jedes Mal neu anstoßen). */
+        if (clamped == this.renderDistance) return;
+        this.renderDistance = clamped;
         /* loadOrder wird beim nächsten update() automatisch neu berechnet */
         this.initialLoadComplete = false; // größerer Radius → erst die neuen Chunks, dann LOD
     }
@@ -542,5 +547,15 @@ public class ChunkManager {
 
     public void dispose() {
         this.workers.shutdownNow();
+        /* Auf laufende Jobs warten: beim Welt-Austritt (Rückkehr ins Hauptmenü) dürfen keine
+           Alt-Jobs mehr auf Chunk-/Generator-Daten arbeiten, wenn direkt danach eine neue Welt
+           entsteht. Beim App-Exit ist das Warten ebenso korrekt (Jobs sind kurz). */
+        try {
+            if (!this.workers.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                this.logger.warning("Chunk-Worker haben nach 2 s nicht terminiert");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

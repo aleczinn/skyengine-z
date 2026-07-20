@@ -37,8 +37,9 @@ public final class GameSettings {
      */
     public enum LeavesQuality { LOW, MID, HIGH }
 
-    /* GUI-Größe als Schieberegler 1..100 (feiner als MCs Stufen). 1 = 1.0x, 100 = 6.0x. */
-    public int guiScale = 50;
+    /* GUI-Größe in Prozent (30..170, 5er-Schritte): 100 % = Referenz-Look (Faktor 3.5). Ersetzt
+       das alte guiScale-Feld (1..100 -> 1.0..6.0); alte options.json fallen auf 100 % zurück. */
+    public int guiScalePercent = 100;
     public int renderDistance = 16;   // in Chunks
     public int simulationDistance = 10; // in Chunks; nur Chunks in diesem Radius ticken (wie MC)
     public int fov = 75;
@@ -107,10 +108,9 @@ public final class GameSettings {
         }
     }
 
-    /** Pixel-Skalierungsfaktor der GUI aus {@link #guiScale} (1..100 -> 1.0..6.0). */
+    /** Pixel-Skalierungsfaktor der GUI aus {@link #guiScalePercent} (100 % = Faktor 3.5). */
     public float guiScaleFactor() {
-        int v = Math.clamp(this.guiScale, 1, 100);
-        return 1.0f + (v - 1) / 99.0f * 5.0f;
+        return 3.5f * Math.clamp(this.guiScalePercent, 30, 170) / 100.0f;
     }
 
     /** Gebundener Key einer Aktion (Fallback: Default-Belegung). */
@@ -120,7 +120,8 @@ public final class GameSettings {
     }
 
     private void sanitize() {
-        this.guiScale = Math.clamp(this.guiScale, 1, 100);
+        /* 5er-Raster + Grenzen (alte options.json ohne das Feld landet über den GSON-Default bei 100) */
+        this.guiScalePercent = Math.clamp((this.guiScalePercent + 2) / 5 * 5, 30, 170);
         this.renderDistance = Math.clamp(this.renderDistance, 2, 32);
         this.simulationDistance = Math.clamp(this.simulationDistance, 2, 32);
         this.fov = Math.clamp(this.fov, 30, 120);
