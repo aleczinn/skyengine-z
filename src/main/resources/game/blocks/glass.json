@@ -1,5 +1,6 @@
 {
   "id": "skyengine:glass",
+  "sound": "glass",
   "type": "cube",
   "layer": "translucent",
   "hardness": 0.3,

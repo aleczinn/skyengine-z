@@ -1,5 +1,6 @@
 {
   "id": "skyengine:birch_leaves",
+  "sound": "grass",
   "type": "cube",
   "layer": "cutout",
   "leaves": true,

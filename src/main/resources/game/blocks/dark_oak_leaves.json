@@ -1,5 +1,6 @@
 {
   "id": "skyengine:dark_oak_leaves",
+  "sound": "grass",
   "type": "cube",
   "layer": "cutout",
   "leaves": true,

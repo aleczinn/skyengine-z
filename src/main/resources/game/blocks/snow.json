@@ -1,5 +1,6 @@
 {
   "id": "skyengine:snow",
+  "sound": "snow",
   "type": "cube",
   "layer": "opaque",
   "hardness": 0.2,
