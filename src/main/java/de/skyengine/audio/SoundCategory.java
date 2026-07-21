@@ -9,22 +9,24 @@ package de.skyengine.audio;
  * die Regler existieren schon und greifen, sobald entsprechende Systeme Sounds abspielen.
  */
 public enum SoundCategory {
-    MUSIC("Musik", 50),
-    WEATHER("Wetter", 100),
-    BLOCKS("Blöcke", 100),
-    HOSTILE("Feindliche Kreaturen", 100),
-    FRIENDLY("Freundliche Kreaturen", 100),
-    PLAYER("Spieler", 100),
-    AMBIENT("Atmosphäre", 100),
-    UI("Benutzeroberfläche", 100);
+    MUSIC(50),
+    WEATHER(100),
+    BLOCKS(100),
+    HOSTILE(100),
+    FRIENDLY(100),
+    PLAYER(100),
+    AMBIENT(100),
+    UI(100);
 
-    /** Deutsche Slider-Beschriftung. */
-    public final String label;
     /** Default-Lautstärke 0..100 (Musik wie bisher gedämpft). */
     public final int defaultVolume;
 
-    SoundCategory(String label, int defaultVolume) {
-        this.label = label;
+    SoundCategory(int defaultVolume) {
         this.defaultVolume = defaultVolume;
+    }
+
+    /** i18n-Key der Slider-Beschriftung ({@code sound.category.<name>}). */
+    public String translationKey() {
+        return "sound.category." + this.name().toLowerCase(java.util.Locale.ROOT);
     }
 }

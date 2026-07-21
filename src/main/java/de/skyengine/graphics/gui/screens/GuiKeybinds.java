@@ -1,5 +1,6 @@
 package de.skyengine.graphics.gui.screens;
 
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.graphics.gui.GuiManager;
@@ -62,14 +63,14 @@ public final class GuiKeybinds extends GuiScreen {
         this.rowComponents.clear();
         this.keyButtons.clear();
 
-        Label title = new Label("Tastenbelegung", 14).measure(gui);
+        Label title = new Label(I18n.tr("options.keybinds.title"), 14).measure(gui);
         title.layoutAt((vW - title.width()) / 2f, 6);
 
-        Button resetAll = new Button("Alle zurücksetzen", 150, 20, () -> {
+        Button resetAll = new Button(I18n.tr("options.keybinds.reset_all"), 150, 20, () -> {
             GameSettings.get().keyBindings = KeyBindings.defaults();
             for (KeybindButton b : this.keyButtons) b.refresh();
         });
-        Button done = new Button("Fertig", 150, 20, () -> this.goBack(gui));
+        Button done = new Button(I18n.tr("gui.done"), 150, 20, () -> this.goBack(gui));
 
         this.components.add(title);
         this.components.add(new HStack(6, resetAll, done).anchor(Anchor.BOTTOM_CENTER, 0, 6));
@@ -83,7 +84,7 @@ public final class GuiKeybinds extends GuiScreen {
             Label name = new Label(KeyBindings.label(action), 10).measure(gui);
             name.w = 110; // feste Spaltenbreite statt Textbreite (bündige Spalten)
             KeybindButton key = new KeybindButton(action, 70, 20);
-            Button reset = new Button("Reset", 50, 20, () -> {
+            Button reset = new Button(I18n.tr("options.keybinds.reset"), 50, 20, () -> {
                 GameSettings.get().keyBindings.put(action, KeyBindings.defaults().get(action));
                 key.refresh();
             });

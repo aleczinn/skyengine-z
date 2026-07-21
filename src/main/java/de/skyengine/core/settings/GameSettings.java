@@ -81,6 +81,8 @@ public final class GameSettings {
     /* Schleichen/Sprinten: false = Taste halten, true = Umschalten (Toggle). */
     public boolean sneakToggle = false;
     public boolean sprintToggle = false;
+    /* Sprache (Datei-Code unter game/lang/, z. B. de_de / en_us). */
+    public String language = "de_de";
     public Map<String, Integer> keyBindings = KeyBindings.defaults();
 
     public static GameSettings get() {
@@ -166,6 +168,7 @@ public final class GameSettings {
             this.soundVolumes.keySet().retainAll(defaultSoundVolumes().keySet());
         }
         if (this.audioDevice == null) this.audioDevice = "";
+        if (this.language == null || this.language.isBlank()) this.language = "de_de";
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;

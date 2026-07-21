@@ -1,0 +1,157 @@
+{
+  "name": "Deutsch (Deutschland)",
+
+  "gui": {
+    "done": "Fertig",
+    "cancel": "Abbrechen",
+    "back": "Zurück",
+    "yes": "Ja",
+    "no": "Nein",
+    "on": "AN",
+    "off": "AUS"
+  },
+
+  "menu": {
+    "singleplayer": "Einzelspieler",
+    "multiplayer": "Mehrspieler",
+    "options": "Optionen",
+    "quit": "Spiel beenden",
+    "copyright": "Copyright"
+  },
+
+  "pause": {
+    "title": "Spielmenü",
+    "resume": "Zurück zum Spiel",
+    "options": "Optionen",
+    "quit_to_title": "Speichern und zurück zum Hauptmenü"
+  },
+
+  "options": {
+    "title": "Optionen",
+    "fov": "FOV: %d",
+    "gui_scale": "GUI-Größe: %d %%",
+    "language": "Sprache...",
+    "resourcepacks": "Ressourcenpakete...",
+
+    "video": {
+      "button": "Grafik...",
+      "title": "Grafik",
+      "render_distance": "Render-Distanz: %d",
+      "simulation_distance": "Simulations-Distanz: %d",
+      "msaa": "MSAA",
+      "anisotropy": "Anisotropie",
+      "ao": "Ambient Occlusion",
+      "leaves": "Laub",
+      "fog": "Nebel",
+      "vegetation_distance": "Vegetations-Distanz: %s",
+      "lod": "LOD (Fernsicht)",
+      "lod_distance": "LOD-Distanz: %d",
+      "vsync": "VSync"
+    },
+
+    "sound": {
+      "button": "Musik & Geräusche...",
+      "title": "Musik & Geräusche",
+      "master": "Gesamtlautstärke: %d %%",
+      "device": "Gerät",
+      "device_default": "Systemstandard"
+    },
+
+    "controls": {
+      "button": "Steuerung...",
+      "title": "Steuerung",
+      "sensitivity": "Sensitivität: %d %%",
+      "sneak": "Schleichen",
+      "sprint": "Sprinten",
+      "toggle": "Umschalten",
+      "hold": "Halten",
+      "keybinds": "Tastenbelegung..."
+    },
+
+    "keybinds": {
+      "title": "Tastenbelegung",
+      "reset_all": "Alle zurücksetzen",
+      "reset": "Reset"
+    }
+  },
+
+  "sound": {
+    "category": {
+      "music": "Musik",
+      "weather": "Wetter",
+      "blocks": "Blöcke",
+      "hostile": "Feindliche Kreaturen",
+      "friendly": "Freundliche Kreaturen",
+      "player": "Spieler",
+      "ambient": "Atmosphäre",
+      "ui": "Benutzeroberfläche"
+    }
+  },
+
+  "key": {
+    "forward": "Vorwärts",
+    "back": "Rückwärts",
+    "left": "Links",
+    "right": "Rechts",
+    "jump": "Springen",
+    "sneak": "Schleichen",
+    "sprint": "Sprinten",
+    "open_inventory": "Inventar",
+    "drop": "Item wegwerfen",
+    "hotbar": "Hotbar-Slot %s"
+  },
+
+  "language": {
+    "title": "Sprache"
+  },
+
+  "world": {
+    "select": {
+      "title": "Ausgewählte Welt spielen",
+      "play": "Welt spielen",
+      "create": "Neue Welt erstellen",
+      "delete": "Löschen",
+      "seed": "Seed: %s",
+      "delete_title": "Welt löschen?",
+      "delete_message": "\"%s\" wird unwiderruflich gelöscht.",
+      "empty": "Noch keine Welten - erstelle eine!"
+    },
+    "create": {
+      "title": "Neue Welt erstellen",
+      "name": "Name der Welt",
+      "default_name": "Neue Welt",
+      "seed": "Seed (leer = zufällig)",
+      "create": "Erstellen"
+    },
+    "loading": "Welt wird generiert..."
+  },
+
+  "resourcepacks": {
+    "title": "Ressourcenpakete",
+    "none": "Keine Pakete gefunden.",
+    "folder": "Ordner: %s",
+    "placeholder": "Pakete werden noch nicht geladen (Platzhalter).",
+    "open_folder": "Paketordner öffnen"
+  },
+
+  "boot": {
+    "blocks": "Blöcke und Modelle laden...",
+    "textures": "Texturen bauen...",
+    "renderer": "Renderer initialisieren...",
+    "sound": "Sound laden...",
+    "done": "Fertig"
+  },
+
+  "debug": {
+    "facing": {
+      "north": "Nord (-Z)",
+      "northeast": "Nordost",
+      "east": "Ost (+X)",
+      "southeast": "Südost",
+      "south": "Süd (+Z)",
+      "southwest": "Südwest",
+      "west": "West (-X)",
+      "northwest": "Nordwest"
+    }
+  }
+}

@@ -1,6 +1,7 @@
 package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.core.file.GameDirectory;
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
@@ -31,7 +32,7 @@ public final class GuiResourcePacks extends GuiOptionsScreen {
 
     @Override
     protected String title() {
-        return "Ressourcenpakete";
+        return I18n.tr("resourcepacks.title");
     }
 
     @Override
@@ -41,21 +42,21 @@ public final class GuiResourcePacks extends GuiOptionsScreen {
         /* Ordner + Zips als Kandidaten anzeigen (Laden folgt mit dem Pack-System). */
         File[] entries = dir.listFiles(f -> f.isDirectory() || f.getName().toLowerCase().endsWith(".zip"));
         if (entries == null || entries.length == 0) {
-            content.add(new Label("Keine Pakete gefunden.", 9).measure(gui));
+            content.add(new Label(I18n.tr("resourcepacks.none"), 9).measure(gui));
         } else {
             for (File entry : entries) {
                 content.add(new Label("- " + entry.getName(), 9).measure(gui));
             }
         }
         content.add(new Spacer(0, 4));
-        content.add(new Label("Ordner: " + dir.getPath(), 8, HINT_COLOR, true).measure(gui));
-        content.add(new Label("Pakete werden noch nicht geladen (Platzhalter).", 8, HINT_COLOR, true).measure(gui));
+        content.add(new Label(I18n.tr("resourcepacks.folder", dir.getPath()), 8, HINT_COLOR, true).measure(gui));
+        content.add(new Label(I18n.tr("resourcepacks.placeholder"), 8, HINT_COLOR, true).measure(gui));
     }
 
     @Override
     protected GuiComponent buildFooter(GuiManager gui) {
-        Button open = new Button("Paketordner öffnen", 150, 20, GuiResourcePacks::openPacksFolder);
-        Button done = new Button("Fertig", 150, 20, () -> this.goBack(gui));
+        Button open = new Button(I18n.tr("resourcepacks.open_folder"), 150, 20, GuiResourcePacks::openPacksFolder);
+        Button done = new Button(I18n.tr("gui.done"), 150, 20, () -> this.goBack(gui));
         return new HStack(6, open, done);
     }
 

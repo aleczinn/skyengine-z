@@ -1,5 +1,6 @@
 package de.skyengine.graphics.gui.screens;
 
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.ScrollBar;
@@ -59,7 +60,7 @@ public abstract class GuiOptionsScreen extends GuiScreen {
     /** Footer unten (Default: nur „Fertig") — Screens mit Zusatz-Buttons überschreiben
      *  (eine 20 hohe Button-Reihe; höhere Footer verschieben listBottom NICHT mit). */
     protected GuiComponent buildFooter(GuiManager gui) {
-        return new Button("Fertig", () -> this.goBack(gui));
+        return new Button(I18n.tr("gui.done"), () -> this.goBack(gui));
     }
 
     @Override

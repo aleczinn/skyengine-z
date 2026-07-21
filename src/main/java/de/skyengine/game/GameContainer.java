@@ -26,6 +26,7 @@ import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.item.ToolItem;
 import de.skyengine.graphics.world.CrackRenderer;
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.chunk.ChunkManager;
@@ -139,6 +140,8 @@ public class GameContainer implements IResizeable, IDisposable {
     private WorldSaves.WorldSave currentSave;
 
     public GameContainer() {
+        /* Sprache VOR dem ersten Screen/Boot-Frame laden — alle GUI-Texte laufen über I18n. */
+        I18n.load(this.settings.language);
         this.camera = new Camera();
         /* world/player sind lazy: sie entstehen erst beim Welt-Eintritt (enterWorld) und
            sterben bei der Rückkehr ins Hauptmenü (exitToTitle). */
@@ -160,13 +163,13 @@ public class GameContainer implements IResizeable, IDisposable {
      * Etappen und zeichnet dazwischen je einen Fortschritts-Frame.
      */
     public void initStaged(BootProgress progress) {
-        progress.frame("Blöcke und Modelle laden...", 0.05f);
+        progress.frame(I18n.tr("boot.blocks"), 0.05f);
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
 
-        progress.frame("Texturen bauen...", 0.45f);
+        progress.frame(I18n.tr("boot.textures"), 0.45f);
         this.atlas.init();
 
-        progress.frame("Renderer initialisieren...", 0.65f);
+        progress.frame(I18n.tr("boot.renderer"), 0.65f);
         this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
         this.selectionBoxRenderer.init();
         this.crackRenderer.init(this.atlas.textures());
@@ -175,12 +178,12 @@ public class GameContainer implements IResizeable, IDisposable {
         this.blockEntityRenderers.init();
         this.guiManager.initLate(this.atlas.textures(), this.blockEntityRenderers);
 
-        progress.frame("Sound laden...", 0.85f);
+        progress.frame(I18n.tr("boot.sound"), 0.85f);
         this.soundManager.init();
         this.applySettings();
         this.soundManager.playMusic("music/minecraft.ogg", true);
 
-        progress.frame("Fertig", 1f);
+        progress.frame(I18n.tr("boot.done"), 1f);
         /* Start im Hauptmenü — Cursor sichtbar (syncCursor), Welt kommt über den Menü-Flow. */
         this.guiManager.open(new GuiMainMenu());
     }

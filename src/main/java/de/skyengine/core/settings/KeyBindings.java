@@ -1,5 +1,6 @@
 package de.skyengine.core.settings;
 
+import de.skyengine.core.i18n.I18n;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -51,22 +52,11 @@ public final class KeyBindings {
         return new ArrayList<>(defaults().keySet());
     }
 
-    /** Deutscher Anzeigename einer Aktion. */
+    /** Übersetzter Anzeigename einer Aktion (Keys {@code key.<aktion>} bzw. {@code key.hotbar}). */
     public static String label(String action) {
-        return switch (action) {
-            case FORWARD -> "Vorwärts";
-            case BACK -> "Rückwärts";
-            case LEFT -> "Links";
-            case RIGHT -> "Rechts";
-            case JUMP -> "Springen";
-            case SNEAK -> "Schleichen";
-            case SPRINT -> "Sprinten";
-            case OPEN_INVENTORY -> "Inventar";
-            case DROP -> "Item wegwerfen";
-            default -> action.startsWith("hotbar_")
-                    ? "Hotbar-Slot " + action.substring("hotbar_".length())
-                    : action;
-        };
+        return action.startsWith("hotbar_")
+                ? I18n.tr("key.hotbar", action.substring("hotbar_".length()))
+                : I18n.tr("key." + action);
     }
 
     private KeyBindings() {}
