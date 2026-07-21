@@ -65,18 +65,18 @@ public final class GuiOptionsMenu extends GuiScreen {
         /* Drei einzelne Punkte statt "…" (U+2026) — der Font-Atlas hat die Ellipse nicht. */
         Button sound = new Button("Musik & Geräusche...", CELL_W, CELL_H, () -> gui.open(new GuiSoundOptions(this)));
         Button controls = new Button("Steuerung...", CELL_W, CELL_H, () -> gui.open(new GuiControls(this)));
-        Button video = new Button("Grafik...", CELL_W, CELL_H, () -> gui.open(new GuiVideoSettings(this)));
+        Button graphics = new Button("Grafik...", CELL_W, CELL_H, () -> gui.open(new GuiVideoSettings(this)));
         Button language = new Button("Sprache...", CELL_W, CELL_H, () -> gui.open(new GuiLanguage(this)));
         Button packs = new Button("Ressourcenpakete...", CELL_W, CELL_H, () -> gui.open(new GuiResourcePacks(this)));
         Button done = new Button("Fertig", () -> this.goBack(gui));
 
-        /* MC-Layout: Titel weit oben, Inhalt im oberen Drittel angedockt. */
         VStack content = new VStack(4,
                 new HStack(4, fov, guiScale),
                 new Spacer(0, 8),
-                new HStack(4, sound, controls),
-                new HStack(4, video, language),
-                packs,
+                new HStack(4, graphics, sound),
+                new HStack(4, language, controls),
+                /* Leere rechte Zelle: Spacer statt null — Stacks rufen width() auf jedem Kind. */
+                new HStack(4, packs, new Spacer(CELL_W, CELL_H)),
                 new Spacer(0, 8),
                 done);
         this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
