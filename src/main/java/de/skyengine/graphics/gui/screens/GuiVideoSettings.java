@@ -12,7 +12,6 @@ import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.CycleButton;
 import de.skyengine.graphics.gui.widget.Label;
 import de.skyengine.graphics.gui.widget.Slider;
-import de.skyengine.graphics.gui.widget.Spacer;
 
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
@@ -101,6 +100,12 @@ public final class GuiVideoSettings extends GuiScreen {
                 v -> this.settings.lodMaxDistance = (int) v,
                 game::applySettings);
 
+        CycleButton<Boolean> vsync = CycleButton.onOff("VSync", CELL_W, CELL_H, this.settings.vsync, v -> {
+            this.settings.vsync = v;
+            /* Läuft auf dem Render-Thread — glfwSwapInterval gehört genau dorthin. */
+            SkyEngine.get().getWindow().setVsync(v);
+        });
+
         Button done = new Button("Fertig", () -> this.goBack(gui));
 
         /* MC-Layout: Titel weit oben, Inhalt im oberen Drittel angedockt (contentTop klemmt
@@ -111,7 +116,9 @@ public final class GuiVideoSettings extends GuiScreen {
                 new HStack(4, ao, leaves),
                 new HStack(4, fog, vegetation),
                 new HStack(4, lod, lodDistance),
-                new Spacer(0, 8),
+                vsync,
+                /* Kein Spacer vor "Fertig": mit VSync-Zeile liefe der Button bei der
+                   Mindest-vHöhe 210 (720p) sonst unten aus dem Bild. */
                 done);
         this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
         this.components.add(content.anchor(Anchor.TOP_CENTER, 0, contentTop(vH, content.height())));

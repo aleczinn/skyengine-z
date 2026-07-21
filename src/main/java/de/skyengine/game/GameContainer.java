@@ -33,6 +33,7 @@ import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.game.world.lod.LodMesher;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
+import de.skyengine.audio.SoundCategory;
 import de.skyengine.audio.SoundManager;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.ChestRenderer;
@@ -307,7 +308,9 @@ public class GameContainer implements IResizeable, IDisposable {
     /** Nur die Lautstärken übernehmen (Options-Slider, live beim Ziehen). */
     public void applyAudioSettings() {
         this.soundManager.setMasterVolume(this.settings.masterVolume / 100F);
-        this.soundManager.setMusicVolume(this.settings.musicVolume / 100F);
+        for (SoundCategory category : SoundCategory.values()) {
+            this.soundManager.setCategoryVolume(category, this.settings.soundVolume(category) / 100F);
+        }
     }
 
     public void update(Input input) {
