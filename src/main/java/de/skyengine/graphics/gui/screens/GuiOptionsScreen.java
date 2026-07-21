@@ -56,6 +56,12 @@ public abstract class GuiOptionsScreen extends GuiScreen {
     /** Füllt den scrollbaren Mittelteil — nur {@code content.add(...)}-Zeilen. */
     protected abstract void buildContent(GuiManager gui, VStack content);
 
+    /** Footer unten (Default: nur „Fertig") — Screens mit Zusatz-Buttons überschreiben
+     *  (eine 20 hohe Button-Reihe; höhere Footer verschieben listBottom NICHT mit). */
+    protected GuiComponent buildFooter(GuiManager gui) {
+        return new Button("Fertig", () -> this.goBack(gui));
+    }
+
     @Override
     public final void init(GuiManager gui, float vW, float vH) {
         this.components.clear();
@@ -63,7 +69,7 @@ public abstract class GuiOptionsScreen extends GuiScreen {
 
         Label title = new Label(this.title(), 14).measure(gui);
         this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
-        this.components.add(new Button("Fertig", () -> this.goBack(gui)).anchor(Anchor.BOTTOM_CENTER, 0, 4));
+        this.components.add(this.buildFooter(gui).anchor(Anchor.BOTTOM_CENTER, 0, 4));
 
         this.rows = new VStack(4);
         this.buildContent(gui, this.rows);
