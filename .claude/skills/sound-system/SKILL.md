@@ -1,6 +1,6 @@
 ---
 name: sound-system
-description: OpenAL-Audio — SoundManager (Source-Pool, Effekt-Preload), MusicPlayer (stb_vorbis-Streaming), BlockSoundGroup-Ableitung, GameContainer-Hooks (Schritte/Hit/Break/Place), Asset-Extraktion aus Minecraft. Lesen bevor Sounds, Musik, OpenAL, Sound-Gruppen oder Lautstärke-Settings angefasst werden.
+description: OpenAL-Audio — SoundManager (Source-Pool, Effekt-Preload), MusicPlayer (stb_vorbis-Streaming), BlockSoundGroup-Ableitung, GameContainer-Hooks (Schritte/Hit/Break/Place, Hurt/Fall, Essen), Asset-Extraktion aus Minecraft. Lesen bevor Sounds, Musik, OpenAL, Sound-Gruppen oder Lautstärke-Settings angefasst werden.
 ---
 
 # Sound-System (OpenAL)
@@ -29,11 +29,19 @@ description: OpenAL-Audio — SoundManager (Source-Pool, Effekt-Preload), MusicP
   SHOVEL→GRAVEL, Archetyp cross/tall_cross→GRASS, Fallback STONE. Verdrahtung:
   `BlockDefinition.sound` → `ArchetypeBlockFactory` → `BlockConfig.soundGroup` →
   `Block.getSoundGroup()` (Muster wie `hardness`).
+- **Lose Spieler-/UI-Sounds** (ohne BlockSoundGroup, via `loadVariants(folder, base)` —
+  nummerierte Varianten `<base>1..N.ogg`, sonst Einzeldatei `<base>.ogg`; fehlt beides:
+  Warnung + null = stumm): `ui/click`, `damage/hit1-3` (Hurt), `damage/fallsmall`/`fallbig`
+  (Aufprall), `eat/eat1-3` (Kauen), `eat/burp`. Play-Methoden `playHurt()`/`playFall(big)`/
+  `playEat()`/`playBurp()` — alle Kanal `PLAYER`, nicht-positional, ±10 % Pitch.
 - **Hooks im `GameContainer`:** `soundManager.init()` vor `applySettings()`, danach
   `playMusic("music/minecraft.ogg", true)`; pro Frame in `renderWorld` nach
   `camera.update`: `updateListener(camera)` + `update()` (Musik-Refill); pro Tick
-  `updateStepSounds()`; Hit alle 250 ms in `updateMining`, Break in `breakTargetBlock`,
-  Place nach `world.placeBlock` UND in `tryMergeSlab`; `dispose()` am Ende.
+  `updateStepSounds()` + `updateHurtSounds()` (pollt `EntityPlayer.consumeHurt()`/
+  `consumeFallDamage()` — der Schaden entsteht tief in der Physik, EntityPlayer kennt
+  keinen SoundManager; Fall-„big" ab 4 Schaden) sowie Ess-Sounds in `updateEating`
+  (Kauen alle 4 Ticks, Burp beim Abschluss); Hit alle 250 ms in `updateMining`, Break in
+  `breakTargetBlock`, Place nach `world.placeBlock` UND in `tryMergeSlab`; `dispose()` am Ende.
 
 ## Threading
 
@@ -52,8 +60,11 @@ brauchen keinerlei Synchronisation.
   Dig/Place 1.0/0.8; überall ±10 % Zufalls-Pitch. Positional: `AL_REFERENCE_DISTANCE=4`,
   `AL_MAX_DISTANCE=32`.
 - **Step-Kadenz:** Distanz-Akkumulator (`STEP_INTERVAL=1.6` Blöcke) statt Timer — Sprint
-  ergibt automatisch schnellere Schritte. Guards: kein Sound bei `!onGround`, Fliegen,
-  Sneaken (lautlos wie MC) oder `isTouchingFluid`. Dafür existiert
+  ergibt automatisch schnellere Schritte. Die Distanz akkumuliert AUCH in der Luft
+  (MC: `walkDist`) — nur die Sound-Auslösung verlangt `onGround`; so gibt jeder
+  Sprint-Sprung bei der Landung einen Schritt (Springen auf der Stelle bleibt stumm).
+  Guards (kein Akkumulieren + kein Sound): Fliegen, Sneaken (lautlos wie MC),
+  `isTouchingFluid`. Dafür existiert
   `EntityPlayer.isTouchingFluid(World)` als public Wrapper — `isInFluid` bleibt protected.
   Bodenblock via `floor(y - 0.2)` (trifft Slabs), bei AIR/Fluid eine Zelle tiefer probieren.
 - **Asset-Extraktion:** `scripts/extract-mc-sounds.ps1` zieht die OGGs aus

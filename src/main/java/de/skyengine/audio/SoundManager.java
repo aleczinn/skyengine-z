@@ -49,6 +49,11 @@ public final class SoundManager implements IDisposable {
     private static final float DIG_GAIN = 1.0F, DIG_PITCH = 0.8F;
     /* UI-Button-Klick (wie MCs Button-Gain) */
     private static final float UI_CLICK_GAIN = 0.25F;
+    /* Spieler-Sounds (Hurt/Aufprall/Essen) — nicht-positional am Listener, Kanal PLAYER. */
+    private static final float HURT_GAIN = 1.0F;
+    private static final float FALL_GAIN = 0.5F;
+    private static final float EAT_GAIN = 0.75F;
+    private static final float BURP_GAIN = 0.5F;
 
     private final Logger logger = LogManager.getLogger(SoundManager.class.getName());
 
@@ -69,8 +74,13 @@ public final class SoundManager implements IDisposable {
     private final MusicPlayer music = new MusicPlayer();
     private final Random random = new Random();
 
-    /* UI-Klick als Ein-Element-Varianten-Array (null, solange ui/click.ogg fehlt). */
-    private int[] uiClickVariants;
+    /* Lose Effekt-Sounds ohne BlockSoundGroup (null, solange die Dateien fehlen -> No-Op). */
+    private int[] uiClickVariants;   // ui/click.ogg
+    private int[] hurtVariants;      // damage/hit1..3
+    private int[] fallSmallVariants; // damage/fallsmall.ogg
+    private int[] fallBigVariants;   // damage/fallbig.ogg
+    private int[] eatVariants;       // eat/eat1..3
+    private int[] burpVariants;      // eat/burp.ogg
 
     /* Wiederverwendet fürs Listener-Update (keine Frame-Allokationen). */
     private final Vector3d direction = new Vector3d();
@@ -133,18 +143,16 @@ public final class SoundManager implements IDisposable {
             }
         }
 
-        /* UI-Klick (Buttons) — einzelne Datei, fehlertolerant (fehlt sie: Klicks bleiben stumm). */
-        File click = new File(this.soundsDir, "ui/click.ogg");
-        if (click.exists()) {
-            int buffer = OggLoader.load(click, true);
-            if (buffer != -1) {
-                this.uiClickVariants = new int[]{buffer};
-                loaded++;
-            }
-        } else {
-            this.logger.warning("ui/click.ogg fehlt — Button-Klicks bleiben stumm "
-                    + "(scripts/extract-mc-sounds.ps1 ausführen).");
-        }
+        /* Lose Effekt-Sounds (UI-Klick, Hurt/Aufprall, Essen) — fehlertolerant: fehlt eine
+           Datei, bleibt der jeweilige Sound stumm (Warnung im loadVariants). */
+        this.uiClickVariants = this.loadVariants("ui", "click");
+        this.hurtVariants = this.loadVariants("damage", "hit");
+        this.fallSmallVariants = this.loadVariants("damage", "fallsmall");
+        this.fallBigVariants = this.loadVariants("damage", "fallbig");
+        this.eatVariants = this.loadVariants("eat", "eat");
+        this.burpVariants = this.loadVariants("eat", "burp");
+        loaded += count(this.uiClickVariants) + count(this.hurtVariants) + count(this.fallSmallVariants)
+                + count(this.fallBigVariants) + count(this.eatVariants) + count(this.burpVariants);
 
         this.enabled = true;
         String deviceName = ALC10.alcGetString(this.device, ALC10.ALC_DEVICE_SPECIFIER);
@@ -181,6 +189,40 @@ public final class SoundManager implements IDisposable {
         return count;
     }
 
+    /**
+     * Lädt lose Varianten {@code <folder>/<baseName>1..N.ogg}; gibt es keine nummerierten,
+     * wird die Einzeldatei {@code <baseName>.ogg} probiert (ui/click, eat/burp). Fehlt beides:
+     * Warnung + null — die zugehörige play-Methode bleibt dann stumm.
+     */
+    private int[] loadVariants(String folder, String baseName) {
+        int[] variants = new int[MAX_VARIANTS];
+        int count = 0;
+        for (int i = 1; i <= MAX_VARIANTS; i++) {
+            File file = new File(this.soundsDir, folder + "/" + baseName + i + ".ogg");
+            if (!file.exists()) break;
+            int buffer = OggLoader.load(file, true);
+            if (buffer == -1) continue;
+            variants[count++] = buffer;
+        }
+        if (count == 0) {
+            File single = new File(this.soundsDir, folder + "/" + baseName + ".ogg");
+            if (single.exists()) {
+                int buffer = OggLoader.load(single, true);
+                if (buffer != -1) variants[count++] = buffer;
+            }
+        }
+        if (count == 0) {
+            this.logger.warning(folder + "/" + baseName + "*.ogg fehlt — Sound bleibt stumm "
+                    + "(scripts/extract-mc-sounds.ps1 ausführen).");
+            return null;
+        }
+        return Arrays.copyOf(variants, count);
+    }
+
+    private static int count(int[] variants) {
+        return variants == null ? 0 : variants.length;
+    }
+
     /* --- Gameplay-API (No-Ops, solange nicht enabled) --- */
 
     /** Laufgeräusch — nicht-positional am Listener. */
@@ -206,6 +248,27 @@ public final class SoundManager implements IDisposable {
     /** UI-Button-Klick — nicht-positional, FESTER Pitch (MC-Klick klingt immer identisch). */
     public void playUiClick() {
         this.play(this.uiClickVariants, SoundCategory.UI, UI_CLICK_GAIN, 1.0F, false, false, 0, 0, 0);
+    }
+
+    /** Spieler nimmt Schaden — nicht-positional (eigener Spieler). */
+    public void playHurt() {
+        this.play(this.hurtVariants, SoundCategory.PLAYER, HURT_GAIN, 1.0F, true, false, 0, 0, 0);
+    }
+
+    /** Aufprall bei Fallschaden; {@code big} = schwerer Sturz (MC-Grenze: ab 4 Schaden). */
+    public void playFall(boolean big) {
+        this.play(big ? this.fallBigVariants : this.fallSmallVariants,
+                SoundCategory.PLAYER, FALL_GAIN, 1.0F, true, false, 0, 0, 0);
+    }
+
+    /** Kau-Sound während des Essens. */
+    public void playEat() {
+        this.play(this.eatVariants, SoundCategory.PLAYER, EAT_GAIN, 1.0F, true, false, 0, 0, 0);
+    }
+
+    /** Rülpser nach abgeschlossenem Essen. */
+    public void playBurp() {
+        this.play(this.burpVariants, SoundCategory.PLAYER, BURP_GAIN, 1.0F, true, false, 0, 0, 0);
     }
 
     /** Zufällige Variante + optional ±10 % Zufalls-Pitch auf einer freien Pool-Source. */
@@ -337,7 +400,10 @@ public final class SoundManager implements IDisposable {
         unique.addAll(this.stepBuffers.values());
         unique.addAll(this.digBuffers.values());
         unique.addAll(this.placeBuffers.values());
-        if (this.uiClickVariants != null) unique.add(this.uiClickVariants);
+        for (int[] loose : new int[][]{this.uiClickVariants, this.hurtVariants, this.fallSmallVariants,
+                this.fallBigVariants, this.eatVariants, this.burpVariants}) {
+            if (loose != null) unique.add(loose);
+        }
         for (int[] variants : unique) {
             for (int buffer : variants) AL10.alDeleteBuffers(buffer);
         }

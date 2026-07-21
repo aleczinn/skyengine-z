@@ -49,6 +49,13 @@ $wanted = @(
     @{ pattern = 'minecraft/sounds/random/glass[1-3].ogg'; dest = 'dig' },
     # UI-Button-Klick (einzelne Datei, keine Varianten)
     @{ pattern = 'minecraft/sounds/random/click.ogg'; dest = 'ui' },
+    # Spieler-Schaden (Hurt) + Aufprall bei Fallschaden
+    @{ pattern = 'minecraft/sounds/damage/hit[1-3].ogg';  dest = 'damage' },
+    @{ pattern = 'minecraft/sounds/damage/fallsmall.ogg'; dest = 'damage' },
+    @{ pattern = 'minecraft/sounds/damage/fallbig.ogg';   dest = 'damage' },
+    # Essen: Kauen + Burp (in MC unter random/ -> bei uns gebuendelt unter eat/)
+    @{ pattern = 'minecraft/sounds/random/eat[1-3].ogg';  dest = 'eat' },
+    @{ pattern = 'minecraft/sounds/random/burp.ogg';      dest = 'eat' },
     # Klassische Musik-Tracks (im modernen Index nach Songnamen benannt)
     @{ pattern = 'minecraft/sounds/music/game/minecraft.ogg';  dest = 'music' },
     @{ pattern = 'minecraft/sounds/music/game/sweden.ogg';     dest = 'music' },
