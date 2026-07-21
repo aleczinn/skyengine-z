@@ -1,5 +1,6 @@
 package de.skyengine.game.world.item;
 
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.world.block.Identifier;
 
 /**
@@ -28,6 +29,16 @@ public class Item {
 
     public int getMaxStackSize() {
         return maxStackSize;
+    }
+
+    /** i18n-Key des Anzeigenamens ({@code item.<namespace>.<pfad>}; BlockItems überschreiben auf {@code block.}). */
+    public String translationKey() {
+        return "item." + this.id.namespace() + "." + this.id.path();
+    }
+
+    /** Übersetzter Anzeigename (I18n prettifiziert ungepflegte Keys aus dem Pfad). */
+    public String getDisplayName() {
+        return I18n.tr(this.translationKey());
     }
 
     /**
