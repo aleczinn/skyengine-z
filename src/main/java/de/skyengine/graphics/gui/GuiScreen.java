@@ -215,7 +215,7 @@ public abstract class GuiScreen {
     }
 
     /** true: die Welt tickt nicht, solange dieser GuiScreen offen ist (Pause-Menü). */
-    public boolean pausesGame() {
+    public boolean doesPausesGame() {
         return false;
     }
 

@@ -31,8 +31,8 @@ public final class GuiVideoSettings extends GuiScreen {
     }
 
     @Override
-    public boolean pausesGame() {
-        return this.parent != null && this.parent.pausesGame();
+    public boolean doesPausesGame() {
+        return this.parent != null && this.parent.doesPausesGame();
     }
 
     @Override
