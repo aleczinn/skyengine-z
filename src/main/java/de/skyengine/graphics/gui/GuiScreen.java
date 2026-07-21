@@ -101,7 +101,7 @@ public abstract class GuiScreen {
     protected void renderBackground(GuiManager gui) {
         float vW = gui.vWidth(), vH = gui.vHeight();
         if (SkyEngine.get().getGame().getWorld() != null) {
-            gui.sprites().drawRect(0, 0, vW, vH, 0f, 0f, 0f, 0.4f);
+            gui.sprites().drawRect(0, 0, vW, vH, 0f, 0f, 0f, 0.6f);
             return;
         }
         /* drawMenuImage dimmt bereits selbst — hier NICHT nochmal (sonst Doppel-Dim). */
