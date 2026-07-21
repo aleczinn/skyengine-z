@@ -77,6 +77,11 @@ public class EntityPlayer extends Entity {
     private float fallDistance = 0;
     private int foodTimer = 0;
 
+    /* Sound-Flanken (der GameContainer pollt sie pro Tick via consume*): Schaden erlitten
+       + Höhe des letzten Fallschadens (0 = keiner) für den Aufprall-Sound. */
+    private boolean hurtThisTick = false;
+    private float fallDamageTaken = 0;
+
     /* Halten/Umschalten-Zustand für Sneak/Sprint + Vor-Tick-Tastenzustand (Flanken-Erkennung) */
     private boolean sneakActive, sprintActive;
     private boolean lastSneakDown, lastSprintDown;
@@ -215,6 +220,7 @@ public class EntityPlayer extends Entity {
                 this.exhaustion += EXHAUSTION_REGEN;
             } else if (this.foodLevel == 0 && this.health > 1) {
                 this.health = Math.max(1, this.health - 1);
+                this.hurtThisTick = true; // Verhungern läuft an damage() vorbei — Hurt-Sound trotzdem
             }
         }
     }
@@ -238,7 +244,9 @@ public class EntityPlayer extends Entity {
         if (this.onGround) {
             if (!wasOnGround) {
                 float damage = this.fallDistance - FALL_DAMAGE_THRESHOLD;
-                if (damage > 0) this.damage(damage);
+                if (damage > 0 && this.damage(damage)) {
+                    this.fallDamageTaken = damage;
+                }
             }
             this.fallDistance = 0;
         }
@@ -528,10 +536,30 @@ public class EntityPlayer extends Entity {
 
     /* --- Vitals --- */
 
-    /** Fügt Schaden zu — nur im SURVIVAL (Creative/Spectator sind unverwundbar). */
-    public void damage(float amount) {
-        if (this.gamemode != Gamemode.SURVIVAL || amount <= 0) return;
+    /**
+     * Fügt Schaden zu — nur im SURVIVAL (Creative/Spectator sind unverwundbar).
+     *
+     * @return true, wenn der Schaden angewendet wurde
+     */
+    public boolean damage(float amount) {
+        if (this.gamemode != Gamemode.SURVIVAL || amount <= 0) return false;
         this.health = Math.max(0, this.health - amount);
+        this.hurtThisTick = true;
+        return true;
+    }
+
+    /** Liest und löscht die „Schaden erlitten"-Flanke (GameContainer spielt darauf den Hurt-Sound). */
+    public boolean consumeHurt() {
+        boolean hurt = this.hurtThisTick;
+        this.hurtThisTick = false;
+        return hurt;
+    }
+
+    /** Liest und löscht den zuletzt erlittenen Fallschaden (0 = keiner) für den Aufprall-Sound. */
+    public float consumeFallDamage() {
+        float taken = this.fallDamageTaken;
+        this.fallDamageTaken = 0;
+        return taken;
     }
 
     public void heal(float amount) {
@@ -551,6 +579,8 @@ public class EntityPlayer extends Entity {
         this.exhaustion = 0;
         this.fallDistance = 0;
         this.foodTimer = 0;
+        this.hurtThisTick = false;
+        this.fallDamageTaken = 0;
     }
 
     /** Essen anwenden (MC): Hunger auffüllen, Sättigung dazu — nie über den Hungerbalken hinaus. */

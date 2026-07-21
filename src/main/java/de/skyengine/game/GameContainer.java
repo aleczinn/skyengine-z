@@ -368,6 +368,7 @@ public class GameContainer implements IResizeable, IDisposable {
                aber ohne Tasten — wie in MC gehen die Eingaben ans GUI. */
             this.player.update(this.guiManager.isOpen() ? Input.EMPTY : input, this.world);
             this.updateStepSounds();
+            this.updateHurtSounds();
             this.updateEating(input);
             /* Tod (z.B. Fallschaden — auch mit offenem Container-GUI möglich): Todesscreen
                öffnen; open() schließt ein offenes Inventar/eine Truhe sauber über onClose. */
@@ -413,14 +414,16 @@ public class GameContainer implements IResizeable, IDisposable {
      * Kadenz). Kein Sound in der Luft, beim Fliegen, Sneaken (lautlos wie MC) oder im Fluid.
      */
     private void updateStepSounds() {
-        if (!this.player.onGround || this.player.isFlying() || this.player.isSneaking()
+        if (this.player.isFlying() || this.player.isSneaking()
                 || this.player.isTouchingFluid(this.world)) {
             return;
         }
+        /* Distanz auch in der Luft akkumulieren (MC: walkDist) — so überschreitet ein
+           Sprint-Sprung die Schwelle sofort bei der Landung -> Schritt bei jedem Aufkommen. */
         double dx = this.player.x - this.player.lastX;
         double dz = this.player.z - this.player.lastZ;
         this.stepDistance += Math.sqrt(dx * dx + dz * dz);
-        if (this.stepDistance < STEP_INTERVAL) return;
+        if (!this.player.onGround || this.stepDistance < STEP_INTERVAL) return;
         this.stepDistance = 0;
 
         int bx = (int) Math.floor(this.player.x);
@@ -432,6 +435,13 @@ public class GameContainer implements IResizeable, IDisposable {
             if (ground == Blocks.AIR || Blocks.getState(ground).isFluid()) return;
         }
         this.soundManager.playStep(Blocks.getState(ground).getBlock().getSoundGroup());
+    }
+
+    /** Hurt-/Aufprall-Sounds aus den EntityPlayer-Flanken (der Schaden entsteht tief in der Physik). */
+    private void updateHurtSounds() {
+        float fall = this.player.consumeFallDamage();
+        if (fall > 0) this.soundManager.playFall(fall >= 4); // MC-Grenze: ab 4 Schaden „big"
+        if (this.player.consumeHurt()) this.soundManager.playHurt();
     }
 
     /**
@@ -545,8 +555,8 @@ public class GameContainer implements IResizeable, IDisposable {
      * GuiScreen-Overlay + Cursor-Sync.
      */
     public void renderGui(int width, int height) {
-        /* Hotbar auch im Spectator sichtbar (User-Wunsch) — nur ohne Spieler/Welt gibt es keine. */
-        boolean showHotbar = this.player != null;
+        /* Spectator zeigt wie MC keine Hotbar (Crosshair bleibt); ohne Spieler/Welt gibt es keine. */
+        boolean showHotbar = this.player != null && this.player.getGamemode() != Gamemode.SPECTATOR;
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
         /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair). */
         this.guiManager.render(width, height, this.world != null ? this.playerInventory : null,
@@ -578,10 +588,13 @@ public class GameContainer implements IResizeable, IDisposable {
         if (++this.eatingTicks >= EAT_TICKS) {
             this.eatingTicks = 0;
             this.player.eat(food.getNutrition(), food.getSaturation());
+            this.soundManager.playBurp();
             held.setCount(held.getCount() - 1);
             if (held.getCount() <= 0) {
                 this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
             }
+        } else if (this.eatingTicks % 4 == 0) {
+            this.soundManager.playEat(); // Kau-Sound alle 4 Ticks (MC-Gefühl: ~8 Kauer bis zum Burp)
         }
     }
 
