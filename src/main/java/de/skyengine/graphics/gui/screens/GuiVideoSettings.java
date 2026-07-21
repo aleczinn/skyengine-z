@@ -96,7 +96,7 @@ public final class GuiVideoSettings extends GuiScreen {
                     game.applySettings(); // farPlane nachziehen; LodManager liest das Setting selbst
                 });
 
-        Slider lodDistance = new Slider(CELL_W, CELL_H, 8, 512, 8, this.settings.lodMaxDistance,
+        Slider lodDistance = new Slider(CELL_W, CELL_H, 8, 256, 8, this.settings.lodMaxDistance,
                 v -> "LOD-Distanz: " + (int) v,
                 v -> this.settings.lodMaxDistance = (int) v,
                 game::applySettings);
