@@ -21,6 +21,7 @@ import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.SlabType;
 import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.BucketItem;
+import de.skyengine.game.world.item.FoodItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
@@ -139,6 +140,9 @@ public class GameContainer implements IResizeable, IDisposable {
     /* Slot-Wechsel-Zeitpunkt für die Itemnamen-Einblendung über der Hotbar (reine Anzeige). */
     private static final long ITEM_NAME_HOLD_MS = 2000, ITEM_NAME_FADE_MS = 500;
     private long itemNameShownAt = 0;
+    /* Ess-Fortschritt in Ticks (Rechtsklick halten auf ein FoodItem, MC: 32 Ticks = 1,6 s). */
+    private static final int EAT_TICKS = 32;
+    private int eatingTicks = 0;
 
     /* Aktives Savegame (null im Hauptmenü) — Ziel für saveCurrentWorld beim Austritt/Beenden. */
     private WorldSaves.WorldSave currentSave;
@@ -364,6 +368,7 @@ public class GameContainer implements IResizeable, IDisposable {
                aber ohne Tasten — wie in MC gehen die Eingaben ans GUI. */
             this.player.update(this.guiManager.isOpen() ? Input.EMPTY : input, this.world);
             this.updateStepSounds();
+            this.updateEating(input);
             /* Tod (z.B. Fallschaden — auch mit offenem Container-GUI möglich): Todesscreen
                öffnen; open() schließt ein offenes Inventar/eine Truhe sauber über onClose. */
             if (this.player.isDead() && !(this.guiManager.current() instanceof GuiDeathScreen)) {
@@ -550,6 +555,34 @@ public class GameContainer implements IResizeable, IDisposable {
             this.debugOverlay.render(this.guiManager, this.world, this.player);
         }
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
+    }
+
+    /**
+     * Essen (tick-basiert, 20 TPS): Rechtsklick auf ein FoodItem halten füllt nach
+     * {@link #EAT_TICKS} Ticks Hunger + Sättigung und verbraucht ein Item. Nur im SURVIVAL,
+     * nur bei nicht vollem Hungerbalken, ohne offenes GUI; Loslassen oder Slot-Wechsel
+     * (handleHotbarInput) setzt den Fortschritt zurück. FoodItems sind keine BlockItems —
+     * der Platzierungs-Pfad in handleBlockInteraction ignoriert sie ohnehin.
+     */
+    private void updateEating(Input input) {
+        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        if (this.guiManager.isOpen()
+                || this.player.getGamemode() != Gamemode.SURVIVAL
+                || this.player.isDead()
+                || !(held.getItem() instanceof FoodItem food)
+                || this.player.getFoodLevel() >= EntityPlayer.MAX_FOOD
+                || !input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_RIGHT)) {
+            this.eatingTicks = 0;
+            return;
+        }
+        if (++this.eatingTicks >= EAT_TICKS) {
+            this.eatingTicks = 0;
+            this.player.eat(food.getNutrition(), food.getSaturation());
+            held.setCount(held.getCount() - 1);
+            if (held.getCount() <= 0) {
+                this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
+            }
+        }
     }
 
     /** Einblend-Alpha des Hotbar-Itemnamens: 2 s voll, dann 0,5 s linear ausblenden. */
@@ -918,6 +951,10 @@ public class GameContainer implements IResizeable, IDisposable {
         this.setItem(1, "skyengine:coarse_dirt");
         this.setItem(2, "skyengine:red_mushroom");
 
+        /* TEMP: Essen zum Hunger-Testen (Survival, Rechtsklick halten). */
+        this.setItem(3, "skyengine:apple", 16);
+        this.setItem(4, "skyengine:bread", 16);
+
         this.setItem(5, "skyengine:chest"); // TEMP: Truhe zum GUI-Testen direkt in der Hotbar
         this.setItem(6, "skyengine:water_bucket");
         this.setItem(7, "skyengine:lava_bucket");
@@ -950,8 +987,12 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private void setItem(int slot, String itemId) {
+        this.setItem(slot, itemId, 1);
+    }
+
+    private void setItem(int slot, String itemId, int count) {
         Item item = Items.get(Identifier.of(itemId));
-        if (item != null) this.playerInventory.set(slot, new ItemStack(item, 1));
+        if (item != null) this.playerInventory.set(slot, new ItemStack(item, count));
     }
 
     /** Eine Zelle ist überbaubar, wenn sie leer ist, ein Fluid enthält (Wasser/Lava)
@@ -1000,6 +1041,7 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         if (this.hotbarIndex != before) {
             this.itemNameShownAt = System.currentTimeMillis();
+            this.eatingTicks = 0; // Slot-Wechsel bricht angefangenes Essen ab
         }
     }
 

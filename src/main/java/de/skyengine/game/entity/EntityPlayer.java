@@ -61,11 +61,21 @@ public class EntityPlayer extends Entity {
     private boolean sneaking = false;
     private boolean noClip = false;
 
+    /* MC-Hunger-Konstanten: Erschöpfung pro Aktion, 80-Tick-Takt (4 s) für Regen/Verhungern. */
+    private static final float EXHAUSTION_SPRINT_PER_M = 0.1f;
+    private static final float EXHAUSTION_SWIM_PER_M = 0.01f;
+    private static final float EXHAUSTION_JUMP = 0.05f;
+    private static final float EXHAUSTION_SPRINT_JUMP = 0.2f;
+    private static final float EXHAUSTION_REGEN = 6f;
+    private static final float EXHAUSTION_STEP = 4f;
+    private static final int FOOD_TICK_INTERVAL = 80;
+
     private float health = MAX_HEALTH;
     private int foodLevel = MAX_FOOD;
     private float saturation = 5;
     private float exhaustion = 0;
     private float fallDistance = 0;
+    private int foodTimer = 0;
 
     /* Halten/Umschalten-Zustand für Sneak/Sprint + Vor-Tick-Tastenzustand (Flanken-Erkennung) */
     private boolean sneakActive, sprintActive;
@@ -164,6 +174,49 @@ public class EntityPlayer extends Entity {
         }
 
         this.updateFallDamage(world, wasOnGround);
+        this.updateHunger(world);
+    }
+
+    /**
+     * MC-Hunger-Modell (nur SURVIVAL, lebendig): Bewegung erzeugt Erschöpfung; je 4 Erschöpfung
+     * sinkt erst die Sättigung, dann der Hungerbalken. Im 80-Tick-Takt: bei Hunger ≥ 18
+     * regeneriert 1 HP (kostet 6 Erschöpfung), bei Hunger 0 verhungert man bis auf ein
+     * halbes Herz (MC-Normal: kein Hungertod).
+     */
+    private void updateHunger(World world) {
+        if (this.gamemode != Gamemode.SURVIVAL || this.isDead()) {
+            this.foodTimer = 0;
+            return;
+        }
+
+        double dx = this.x - this.lastX, dz = this.z - this.lastZ;
+        double dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist > 0) {
+            if (this.isTouchingFluid(world)) {
+                this.exhaustion += (float) (dist * EXHAUSTION_SWIM_PER_M);
+            } else if (this.sprinting) {
+                this.exhaustion += (float) (dist * EXHAUSTION_SPRINT_PER_M);
+            }
+        }
+
+        while (this.exhaustion >= EXHAUSTION_STEP) {
+            this.exhaustion -= EXHAUSTION_STEP;
+            if (this.saturation > 0) {
+                this.saturation = Math.max(0, this.saturation - 1);
+            } else {
+                this.foodLevel = Math.max(0, this.foodLevel - 1);
+            }
+        }
+
+        if (++this.foodTimer >= FOOD_TICK_INTERVAL) {
+            this.foodTimer = 0;
+            if (this.foodLevel >= 18 && this.health < MAX_HEALTH) {
+                this.heal(1);
+                this.exhaustion += EXHAUSTION_REGEN;
+            } else if (this.foodLevel == 0 && this.health > 1) {
+                this.health = Math.max(1, this.health - 1);
+            }
+        }
     }
 
     /**
@@ -246,6 +299,9 @@ public class EntityPlayer extends Entity {
     private void travelWalking(World world, double forward, double strafe, boolean jump) {
         if (jump && this.onGround) {
             this.motionY = JUMP_POWER;
+            if (this.gamemode == Gamemode.SURVIVAL) {
+                this.exhaustion += this.sprinting ? EXHAUSTION_SPRINT_JUMP : EXHAUSTION_JUMP;
+            }
             if (this.sprinting) {
                 double yawRad = Math.toRadians(this.yaw);
                 this.motionX += Math.sin(yawRad) * SPRINT_JUMP_BOOST;
@@ -494,6 +550,13 @@ public class EntityPlayer extends Entity {
         this.saturation = 5;
         this.exhaustion = 0;
         this.fallDistance = 0;
+        this.foodTimer = 0;
+    }
+
+    /** Essen anwenden (MC): Hunger auffüllen, Sättigung dazu — nie über den Hungerbalken hinaus. */
+    public void eat(int nutrition, float saturationValue) {
+        this.foodLevel = Math.min(MAX_FOOD, this.foodLevel + nutrition);
+        this.saturation = Math.min(this.foodLevel, this.saturation + saturationValue);
     }
 
     public float getHealth() {

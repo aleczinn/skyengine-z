@@ -53,6 +53,19 @@ public final class Items {
         registerBucket("skyengine:bucket", null, "game/textures/item/bucket.png", 16);
         registerBucket("skyengine:water_bucket", water, "game/textures/item/water_bucket.png", 1);
         registerBucket("skyengine:lava_bucket", lava, "game/textures/item/lava_bucket.png", 1);
+
+        /* Essen (MC-Werte: nutrition in Halb-Icons, saturation). */
+        registerFood("skyengine:apple", 4, 2.4F, "game/textures/item/apple.png");
+        registerFood("skyengine:bread", 5, 6.0F, "game/textures/item/bread.png");
+    }
+
+    private static void registerFood(String id, int nutrition, float saturation, String texture) {
+        Identifier i = Identifier.of(id);
+        if (!Registries.ITEM.contains(i)) {
+            Registries.ITEM.register(i, new FoodItem(i, nutrition, saturation, texture));
+        }
+        /* Item-Textur in den Block-Atlas aufnehmen (vor dem TextureArray-Bau, wie bei den Eimern). */
+        BlockTextures.layerOf(texture);
     }
 
     private static void registerBucket(String id, Block fluid, String texture, int maxStackSize) {
