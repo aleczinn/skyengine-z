@@ -62,6 +62,10 @@ public final class GameSettings {
     /* Distanz-Fog Richtung Clear-Color am Sichtweiten-Rand (dämpft Horizont-Flimmern,
        versteckt Far-Plane-Kante und LOD-Übergänge) */
     public boolean fog = true;
+    /* View-Bobbing (Kamera wippt beim Laufen, wie MC) — aus für Motion-Sickness-Empfindliche. */
+    public boolean viewBobbing = true;
+    /* Kamera-Roll beim Schaden (Hurt-Tilt). */
+    public boolean damageTilt = true;
     /* Kleinvegetation (Gras/Blumen/Pilze): Distanz in Chunks, ab der die Ausdünnung beginnt
        (graduell per Pflanzen-Hash, komplett weg bei +50 %). 0 = keine Ausdünnung. */
     public int vegetationDistance = 8;

@@ -102,6 +102,15 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
   (Rebinding+Reset, Capture schluckt alle Tasten), Weltauswahl/Erstellen/Löschen, Welt-Ladebalken
   (`isInitialLoadComplete`), Boot-Ladebildschirm (gestaffelte Init, Fenster früh), Inventar (E) +
   Truhe auf gemeinsamer `AbstractContainerScreen`-Basis; GuiScale = Prozent (30–170, 100 % ≈ 3,5×)
+- Spieler-Rendering (graphics/player): Humanoid-Modell mit Classic-Skin 64×64 (skin.png im
+  Spielordner überschreibt Steve), Inventar-Vorschau (folgt Maus), F5-Perspektiven
+  (Ego/hinten/vorne mit Kamera-Kollisions-Raycast; Interaktion zielt IMMER vom Auge;
+  LOD-Seiten-Debug jetzt F12), prozedurale Animationen (Limb-Swing/Sneak/Arm-Schwung,
+  `PlayerAnimationState`), First-Person-Hand mit extrudierten Item-Sprites +
+  Vanilla-Display-Transforms, View-Bobbing + Hurt-Tilt (GameSettings-Toggles).
+  **Konvention:** Modell/Pose vanilla-y-down VERBATIM, Umrechnung NUR in
+  `PlayerModel.applyModelSpace` (0.9375-Scale + rotateX(π)) — nie in y-up „spiegeln",
+  das war der Textur-Flip-Bug
 - Lifecycle: World/Player lazy (`enterWorld`/`exitToTitle`), `BlockTextureAtlas` + BE-Renderer
   welt-unabhängig (GameContainer, Engine-Lebensdauer); Welt-Metadaten-Persistenz
   `saves/<ordner>/level.json` (Name/Seed/Daten/Spielerzustand/Inventar — Chunks regenerieren!);
