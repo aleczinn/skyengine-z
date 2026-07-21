@@ -55,6 +55,10 @@ public class EntityPlayer extends Entity {
     private boolean sneaking = false;
     private boolean noClip = false;
 
+    /* Halten/Umschalten-Zustand für Sneak/Sprint + Vor-Tick-Tastenzustand (Flanken-Erkennung) */
+    private boolean sneakActive, sprintActive;
+    private boolean lastSneakDown, lastSprintDown;
+
     /* Augenhöhe wird pro Tick Richtung Zielwert interpoliert (weiche Kamera beim Sneaken) */
     private float eyeHeight = EYE_HEIGHT_STANDING;
     private float lastEyeHeight = EYE_HEIGHT_STANDING;
@@ -80,12 +84,29 @@ public class EntityPlayer extends Entity {
 
         boolean up = input.isKeyDown(settings.key(KeyBindings.JUMP));
         boolean shift = input.isKeyDown(settings.key(KeyBindings.SNEAK));
+        boolean sprintKey = input.isKeyDown(settings.key(KeyBindings.SPRINT));
 
-        /* Shift = Sneak nur am Boden-Modus; im Fly-Modus bleibt Shift "runter" */
-        this.sneaking = !this.flying && shift;
+        /* Halten- oder Umschalt-Modus (GameSettings): Toggle flippt auf der Druck-Flanke
+           (pro Tick erkannt). Sneak-Flanken im Flug ignorieren — Shift ist dort "Sinken",
+           sonst landet man unerwartet schleichend. */
+        if (settings.sneakToggle) {
+            if (shift && !this.lastSneakDown && !this.flying) this.sneakActive = !this.sneakActive;
+        } else {
+            this.sneakActive = shift;
+        }
+        if (settings.sprintToggle) {
+            if (sprintKey && !this.lastSprintDown) this.sprintActive = !this.sprintActive;
+        } else {
+            this.sprintActive = sprintKey;
+        }
+        this.lastSneakDown = shift;
+        this.lastSprintDown = sprintKey;
+
+        /* Sneak nur am Boden-Modus; im Fly-Modus bleibt Shift "runter" */
+        this.sneaking = !this.flying && this.sneakActive;
 
         /* Sprint nur bei Vorwärtsbewegung und nicht beim Sneaken */
-        this.sprinting = input.isKeyDown(settings.key(KeyBindings.SPRINT)) && forward > 0 && !this.sneaking;
+        this.sprinting = this.sprintActive && forward > 0 && !this.sneaking;
 
         /* Augenhöhe weich Richtung Ziel bewegen (~3 Ticks Übergang) */
         this.lastEyeHeight = this.eyeHeight;
