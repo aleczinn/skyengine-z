@@ -26,6 +26,11 @@ public final class LevelData {
         /** Enum-Name (robust gegen Ordinal-Änderungen). */
         public String gamemode;
         public boolean flying;
+        /* Vitals bewusst Boxed: alte level.json ohne die Felder -> null -> volle Werte beim
+           Laden (ein primitives 0.0 hieße "tot beim Betreten"). */
+        public Float health;
+        public Integer foodLevel;
+        public Float saturation;
     }
 
     public static final class ItemEntry {

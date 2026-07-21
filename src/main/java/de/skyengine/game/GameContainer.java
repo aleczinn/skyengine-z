@@ -46,6 +46,7 @@ import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.gui.screens.GuiIngameMenu;
+import de.skyengine.graphics.gui.screens.GuiDeathScreen;
 import de.skyengine.graphics.gui.screens.GuiMainMenu;
 import de.skyengine.graphics.gui.screens.GuiWorldLoading;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
@@ -212,8 +213,14 @@ public class GameContainer implements IResizeable, IDisposable {
             } catch (Exception ignored) { /* unbekannter Modus -> Default */ }
             this.player.setFlying(saved.flying);
         } else {
-            int spawnY = this.world.getGenerator().sampleHeight(0, 0) + 2;
-            this.player.setPosition(0.5, spawnY, 0.5);
+            this.placeAtWorldSpawn(this.player);
+        }
+        if (saved != null) {
+            /* Vitals nur übernehmen, wenn vorhanden — alte level.json ohne die Felder liefert
+               null (Boxed-Typen), sonst wäre GSON-Default 0 = sofort tot. */
+            if (saved.health != null) this.player.setHealth(saved.health);
+            if (saved.foodLevel != null) this.player.setFoodLevel(saved.foodLevel);
+            if (saved.saturation != null) this.player.setSaturation(saved.saturation);
         }
 
         this.clearInventory();
@@ -227,6 +234,27 @@ public class GameContainer implements IResizeable, IDisposable {
         this.applySettings(); // Welt-Anteile (Render-/Sim-Distanz, farPlane) greifen jetzt
 
         this.guiManager.open(new GuiWorldLoading());
+    }
+
+    /** Setzt den Spieler an den Weltspawn (deterministisch: Terrainhöhe bei 0,0 + 2). */
+    private void placeAtWorldSpawn(EntityPlayer player) {
+        int spawnY = this.world.getGenerator().sampleHeight(0, 0) + 2;
+        player.setPosition(0.5, spawnY, 0.5);
+    }
+
+    /**
+     * Respawn nach dem Tod (Todesscreen-Button): zurück an den Weltspawn mit vollen Vitals;
+     * das Inventar bleibt unangetastet (kein Item-Drop, User-Entscheid).
+     */
+    public void respawnPlayer() {
+        if (this.world == null || this.player == null) return;
+        this.guiManager.close();
+        this.placeAtWorldSpawn(this.player);
+        this.player.motionX = 0;
+        this.player.motionY = 0;
+        this.player.motionZ = 0;
+        this.player.resetVitals();
+        this.player.snapPrevToCurrent();
     }
 
     /**
@@ -263,6 +291,9 @@ public class GameContainer implements IResizeable, IDisposable {
         data.pitch = this.player.pitch;
         data.gamemode = this.player.getGamemode().name();
         data.flying = this.player.isFlying();
+        data.health = this.player.getHealth();
+        data.foodLevel = this.player.getFoodLevel();
+        data.saturation = this.player.getSaturation();
         level.player = data;
 
         level.inventory.clear();
@@ -333,6 +364,11 @@ public class GameContainer implements IResizeable, IDisposable {
                aber ohne Tasten — wie in MC gehen die Eingaben ans GUI. */
             this.player.update(this.guiManager.isOpen() ? Input.EMPTY : input, this.world);
             this.updateStepSounds();
+            /* Tod (z.B. Fallschaden — auch mit offenem Container-GUI möglich): Todesscreen
+               öffnen; open() schließt ein offenes Inventar/eine Truhe sauber über onClose. */
+            if (this.player.isDead() && !(this.guiManager.current() instanceof GuiDeathScreen)) {
+                this.guiManager.open(new GuiDeathScreen());
+            }
         }
         /* Pause-Menü hält die Welt komplett an (wie MC-Singleplayer); Container-GUIs
            (Truhe) lassen sie weiterticken. */
@@ -501,14 +537,15 @@ public class GameContainer implements IResizeable, IDisposable {
     /**
      * GUI-Anteil des Frames — zeichnet in den Default-Framebuffer, NACH der Post-Kette
      * (pixelgenau, kein Grading/AA). Zentrale GUI-Verwaltung: HUD (kein GuiScreen) bzw.
-     * GuiScreen-Overlay + Cursor-Sync. Im Spectator ist die Hotbar ausgeblendet.
+     * GuiScreen-Overlay + Cursor-Sync.
      */
     public void renderGui(int width, int height) {
-        boolean showHotbar = this.player != null && this.player.getGamemode() != Gamemode.SPECTATOR;
+        /* Hotbar auch im Spectator sichtbar (User-Wunsch) — nur ohne Spieler/Welt gibt es keine. */
+        boolean showHotbar = this.player != null;
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
         /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair). */
         this.guiManager.render(width, height, this.world != null ? this.playerInventory : null,
-                this.hotbarIndex, showHotbar, this.itemNameAlpha());
+                this.hotbarIndex, showHotbar, this.itemNameAlpha(), this.player);
         if (this.debugOverlay.isVisible() && this.world != null) {
             this.debugOverlay.render(this.guiManager, this.world, this.player);
         }

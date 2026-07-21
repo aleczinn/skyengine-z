@@ -105,6 +105,12 @@
     "title": "Sprache"
   },
 
+  "death": {
+    "title": "Du bist gestorben!",
+    "respawn": "Wiederbeleben",
+    "main_menu": "Hauptmenü"
+  },
+
   "world": {
     "select": {
       "title": "Ausgewählte Welt spielen",

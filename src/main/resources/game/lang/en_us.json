@@ -105,6 +105,12 @@
     "title": "Language"
   },
 
+  "death": {
+    "title": "You Died!",
+    "respawn": "Respawn",
+    "main_menu": "Main Menu"
+  },
+
   "world": {
     "select": {
       "title": "Select World",

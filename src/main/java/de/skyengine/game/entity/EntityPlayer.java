@@ -49,11 +49,23 @@ public class EntityPlayer extends Entity {
     private static final double SNEAK_EDGE_STEP = 0.05;      // Schrittweite beim Kürzen der Bewegung
     private static final double SNEAK_EDGE_DROP = 0.6;       // ab dieser Falltiefe gilt "keine Kante mehr"
 
+    /* --- Vitals (nur im SURVIVAL relevant): 1 HP = halbes Herz, 20 = 10 Herzen. --- */
+    public static final float MAX_HEALTH = 20;
+    public static final int MAX_FOOD = 20;
+    /** Fallhöhe in Blöcken, die noch keinen Schaden verursacht (MC: Schaden = Höhe − 3). */
+    private static final float FALL_DAMAGE_THRESHOLD = 3;
+
     private Gamemode gamemode = Gamemode.CREATIVE;
     private boolean flying = false; // Start im Fly-Modus, bis Spawn-Logik existiert
     private boolean sprinting = false;
     private boolean sneaking = false;
     private boolean noClip = false;
+
+    private float health = MAX_HEALTH;
+    private int foodLevel = MAX_FOOD;
+    private float saturation = 5;
+    private float exhaustion = 0;
+    private float fallDistance = 0;
 
     /* Halten/Umschalten-Zustand für Sneak/Sprint + Vor-Tick-Tastenzustand (Flanken-Erkennung) */
     private boolean sneakActive, sprintActive;
@@ -73,6 +85,10 @@ public class EntityPlayer extends Entity {
      */
     public void update(Input input, World world) {
         super.update();
+
+        /* Tot: keine Steuerung mehr — die Physik läuft weiter (der Körper fällt aus), bis der
+           Todesscreen Respawn oder Hauptmenü auslöst. */
+        if (this.isDead()) input = Input.EMPTY;
 
         /* Bewegungs-Keys aus den umbelegbaren KeyBindings (Defaults: WASD/Space/Shift/Strg). */
         GameSettings settings = GameSettings.get();
@@ -145,6 +161,33 @@ public class EntityPlayer extends Entity {
            fliegt weiter. */
         if (this.flying && this.onGround && !wasOnGround && !this.gamemode.isAlwaysFly()) {
             this.flying = false;
+        }
+
+        this.updateFallDamage(world, wasOnGround);
+    }
+
+    /**
+     * Fallhöhe akkumulieren und auf der Landungs-Flanke als Schaden anwenden (MC-Regel:
+     * Schaden in HP = Fallhöhe − 3 Blöcke). Fliegen, Fluid-Kontakt oder Aufwärtsbewegung
+     * setzen die Fallhöhe zurück (Wasser-Landung ist damit immer schadensfrei).
+     */
+    private void updateFallDamage(World world, boolean wasOnGround) {
+        if (this.flying || this.isTouchingFluid(world)) {
+            this.fallDistance = 0;
+            return;
+        }
+        double dy = this.y - this.lastY;
+        if (dy < 0) {
+            this.fallDistance += (float) -dy;
+        } else if (dy > 0) {
+            this.fallDistance = 0;
+        }
+        if (this.onGround) {
+            if (!wasOnGround) {
+                float damage = this.fallDistance - FALL_DAMAGE_THRESHOLD;
+                if (damage > 0) this.damage(damage);
+            }
+            this.fallDistance = 0;
         }
     }
 
@@ -425,6 +468,59 @@ public class EntityPlayer extends Entity {
     /** true, wenn der Spieler in Wasser oder Lava steht (z.B. für die Laufgeräusch-Sperre). */
     public boolean isTouchingFluid(World world) {
         return this.isInFluid(world, false) || this.isInFluid(world, true);
+    }
+
+    /* --- Vitals --- */
+
+    /** Fügt Schaden zu — nur im SURVIVAL (Creative/Spectator sind unverwundbar). */
+    public void damage(float amount) {
+        if (this.gamemode != Gamemode.SURVIVAL || amount <= 0) return;
+        this.health = Math.max(0, this.health - amount);
+    }
+
+    public void heal(float amount) {
+        if (amount <= 0 || this.isDead()) return;
+        this.health = Math.min(MAX_HEALTH, this.health + amount);
+    }
+
+    public boolean isDead() {
+        return this.health <= 0;
+    }
+
+    /** Respawn: volle Herzen/Hunger, Erschöpfung und Fallhöhe zurücksetzen. */
+    public void resetVitals() {
+        this.health = MAX_HEALTH;
+        this.foodLevel = MAX_FOOD;
+        this.saturation = 5;
+        this.exhaustion = 0;
+        this.fallDistance = 0;
+    }
+
+    public float getHealth() {
+        return health;
+    }
+
+    /** Savegame-Restore. */
+    public void setHealth(float health) {
+        this.health = Math.clamp(health, 0, MAX_HEALTH);
+    }
+
+    public int getFoodLevel() {
+        return foodLevel;
+    }
+
+    /** Savegame-Restore. */
+    public void setFoodLevel(int foodLevel) {
+        this.foodLevel = Math.clamp(foodLevel, 0, MAX_FOOD);
+    }
+
+    public float getSaturation() {
+        return saturation;
+    }
+
+    /** Savegame-Restore. */
+    public void setSaturation(float saturation) {
+        this.saturation = Math.clamp(saturation, 0, MAX_FOOD);
     }
 
     /**

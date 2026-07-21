@@ -17,6 +17,14 @@ public final class GuiTextures {
     public Texture hotbarSelection;
     public Texture crosshair;
 
+    /* Survival-HUD: Herzen + Hungerbalken (9×9-Einzelsprites, MC-1.20.5+-Layout) */
+    public Texture heartContainer;
+    public Texture heartFull;
+    public Texture heartHalf;
+    public Texture foodEmpty;
+    public Texture foodFull;
+    public Texture foodHalf;
+
     /* Widget-Sprites (9-Slice, Rand 3 px) */
     public Texture button;
     public Texture buttonHighlighted;
@@ -43,6 +51,13 @@ public final class GuiTextures {
         this.hotbar = load("game/textures/gui/sprites/hud/hotbar.png");
         this.hotbarSelection = load("game/textures/gui/sprites/hud/hotbar_selection.png");
         this.crosshair = load("game/textures/gui/sprites/hud/crosshair.png");
+
+        this.heartContainer = load("game/textures/gui/sprites/hud/heart/container.png");
+        this.heartFull = load("game/textures/gui/sprites/hud/heart/full.png");
+        this.heartHalf = load("game/textures/gui/sprites/hud/heart/half.png");
+        this.foodEmpty = load("game/textures/gui/sprites/hud/food_empty.png");
+        this.foodFull = load("game/textures/gui/sprites/hud/food_full.png");
+        this.foodHalf = load("game/textures/gui/sprites/hud/food_half.png");
 
         this.button = load("game/textures/gui/sprites/widget/button.png");
         this.buttonHighlighted = load("game/textures/gui/sprites/widget/button_highlighted.png");
@@ -80,6 +95,12 @@ public final class GuiTextures {
         if (this.hotbar != null) this.hotbar.dispose();
         if (this.hotbarSelection != null) this.hotbarSelection.dispose();
         if (this.crosshair != null) this.crosshair.dispose();
+        if (this.heartContainer != null) this.heartContainer.dispose();
+        if (this.heartFull != null) this.heartFull.dispose();
+        if (this.heartHalf != null) this.heartHalf.dispose();
+        if (this.foodEmpty != null) this.foodEmpty.dispose();
+        if (this.foodFull != null) this.foodFull.dispose();
+        if (this.foodHalf != null) this.foodHalf.dispose();
         if (this.button != null) this.button.dispose();
         if (this.buttonHighlighted != null) this.buttonHighlighted.dispose();
         if (this.buttonDisabled != null) this.buttonDisabled.dispose();
