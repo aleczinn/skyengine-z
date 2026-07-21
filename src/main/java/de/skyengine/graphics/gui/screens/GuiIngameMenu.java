@@ -7,7 +7,6 @@ import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.Label;
-import de.skyengine.graphics.gui.widget.Spacer;
 
 /**
  * Pause-Menü (ESC im Spiel): pausiert die Welt, solange es offen ist.
@@ -38,12 +37,9 @@ public final class GuiIngameMenu extends GuiScreen {
         Button options = new Button("Optionen", () -> gui.open(new GuiOptionsMenu(this)));
         Button toTitle = new Button("Speichern und zurück zum Hauptmenü", () -> SkyEngine.get().getGame().exitToTitle());
 
-        this.components.add(new VStack(8,
-                title,
-                new Spacer(0, 8),
-                resume,
-                options,
-                toTitle)
-                .anchor(Anchor.CENTER));
+        /* MC-Layout: Titel weit oben, Buttons im oberen Drittel angedockt. */
+        VStack content = new VStack(8, resume, options, toTitle);
+        this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
+        this.components.add(content.anchor(Anchor.TOP_CENTER, 0, contentTop(vH, content.height())));
     }
 }

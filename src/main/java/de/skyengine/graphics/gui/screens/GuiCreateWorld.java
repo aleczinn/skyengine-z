@@ -46,14 +46,15 @@ public final class GuiCreateWorld extends GuiScreen {
         });
         Button cancel = new Button("Abbrechen", 98, 20, () -> this.goBack(gui));
 
-        this.components.add(new VStack(4,
-                title,
+        /* MC-Layout: Titel weit oben, Inhalt im oberen Drittel angedockt. */
+        VStack content = new VStack(4,
                 nameLabel,
                 this.name,
                 seedLabel,
                 this.seed,
-                new HStack(4, create, cancel)
-        ).anchor(Anchor.CENTER));
+                new HStack(4, create, cancel));
+        this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
+        this.components.add(content.anchor(Anchor.TOP_CENTER, 0, contentTop(vH, content.height())));
     }
 
     /** Leer -> Zufall; ganze Zahl -> direkt; sonst String-Hash (wie MC). */

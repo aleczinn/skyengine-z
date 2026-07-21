@@ -90,16 +90,16 @@ public final class GuiOptionsMenu extends GuiScreen {
         Button keybinds = new Button("Tastenbelegung...", CELL_W, CELL_H, () -> gui.open(new GuiKeybinds(this)));
         Button done = new Button("Fertig", () -> this.goBack(gui));
 
-        this.components.add(new VStack(4,
-                title,
-                new Spacer(0, 8),
+        /* MC-Layout: Titel weit oben, Inhalt im oberen Drittel angedockt. */
+        VStack content = new VStack(4,
                 new HStack(4, fov, guiScale),
                 new HStack(4, sensitivity, vsync),
                 new HStack(4, master, music),
                 new HStack(4, video, keybinds),
                 new Spacer(0, 8),
-                done
-        ).anchor(Anchor.CENTER));
+                done);
+        this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
+        this.components.add(content.anchor(Anchor.TOP_CENTER, 0, contentTop(vH, content.height())));
     }
 
     @Override
