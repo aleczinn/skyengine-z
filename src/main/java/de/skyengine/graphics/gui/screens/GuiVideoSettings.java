@@ -97,11 +97,19 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
             SkyEngine.get().getWindow().setVsync(v);
         });
 
+        /* Beide greifen live (werden pro Frame in updateViewEffect gelesen). */
+        CycleButton<Boolean> bobbing = CycleButton.onOff(I18n.tr("options.video.view_bobbing"), CELL_W, CELL_H,
+                this.settings.viewBobbing, v -> this.settings.viewBobbing = v);
+
+        CycleButton<Boolean> damageTilt = CycleButton.onOff(I18n.tr("options.video.damage_tilt"), CELL_W, CELL_H,
+                this.settings.damageTilt, v -> this.settings.damageTilt = v);
+
         content.add(new HStack(4, render, simulation));
         content.add(new HStack(4, msaa, aniso));
         content.add(new HStack(4, ao, leaves));
         content.add(new HStack(4, fog, vegetation));
         content.add(new HStack(4, lod, lodDistance));
+        content.add(new HStack(4, bobbing, damageTilt));
         content.add(vsync);
     }
 

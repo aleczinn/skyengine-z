@@ -379,6 +379,11 @@ public class World implements IInitializable, IDisposable {
     }
 
     public void render(Camera camera, float partialTick) {
+        this.render(camera, partialTick, null);
+    }
+
+    /** @param beforeTranslucent optionaler Draw-Hook (Third-Person-Spieler) VOR dem Translucent-Pass. */
+    public void render(Camera camera, float partialTick, Runnable beforeTranslucent) {
         FrameProfiler.cpuStart(FrameProfiler.Cpu.REMESH);
         this.chunkManager.processRemeshes();
         FrameProfiler.cpuStop(FrameProfiler.Cpu.REMESH);
@@ -390,6 +395,7 @@ public class World implements IInitializable, IDisposable {
         FrameProfiler.cpuStop(FrameProfiler.Cpu.BE);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.ENT);
         this.entityRenderer.render(this.chunkManager, camera, partialTick);
+        if (beforeTranslucent != null) beforeTranslucent.run();
         FrameProfiler.cpuStop(FrameProfiler.Cpu.ENT);
         this.chunkRenderer.renderTranslucent(camera);
     }
