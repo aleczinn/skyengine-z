@@ -135,6 +135,11 @@ public final class PlayerRenderer implements IDisposable {
         this.pose.armY = this.model.getArmPivotY();
         this.pose.headYRot = (float) Math.toRadians(f * 20f);   // netHeadYaw = 40° − 20°
         this.pose.headXRot = (float) Math.toRadians(-f1 * 20f);
+        /* Idle-Haltung wie MC: Arme leicht nach vorn und außen angewinkelt (getunt). */
+        this.pose.rightArmXRot = -0.06F;
+        this.pose.leftArmXRot = -0.06F;
+        this.pose.rightArmZRot = 0.05F;
+        this.pose.leftArmZRot = -0.05F;
 
         /* Ortho ist y-up, GUI y-down -> Fußpunkt spiegeln; yaw 180 = Front zum Betrachter. */
         PlayerModel.applyModelSpace(this.base.translation(centerX, vH - feetY, 0)
@@ -217,23 +222,18 @@ public final class PlayerRenderer implements IDisposable {
         this.pose.headYRot = (float) Math.toRadians(PlayerAnimationState.wrapDegrees(player.yaw - bodyYaw));
         this.pose.headXRot = (float) Math.toRadians(player.pitch);
 
-        /* Essen: rechter Arm hebt das Item zum Mund + Kau-Nicken (Werte visuell getunt);
-           währenddessen kein Attack-Schwung. */
-        if (anim.isEating()) {
-            /* Arm pumpt im Kau-Takt zum Mund (Werte visuell getunt). */
-            float cycle = (float) Math.abs(Math.cos(anim.getEatTime(partialTick) / 4.0 * Math.PI));
-            this.pose.rightArmXRot = -1.0F - cycle * 0.9F;   // pendelt zwischen angehoben und Mund
-            this.pose.rightArmYRot = -0.4F;
-            if (player.isSneaking()) {
-                this.applyCrouchPose();
-            }
-            return;
+        /* Essen: rechter Arm fährt EINMAL weich zum Mund (geglätteter Blend, kein Kau-Pumpen)
+           und beim Aufhören zurück; währenddessen kein Attack-Schwung. */
+        float eatWeight = anim.getEatWeight(partialTick);
+        if (eatWeight > 0F) {
+            this.pose.rightArmXRot = this.pose.rightArmXRot * (1F - eatWeight) + -1.9F * eatWeight;
+            this.pose.rightArmYRot = -0.4F * eatWeight;
         }
 
         /* Attack-Schwung (setupAttackAnimation, rechter Arm): Körper dreht mit, Arm-Pivots
            wandern auf dem Schulterkreis, Arm hackt nach vorn-unten. */
         float sp = anim.getSwingProgress(partialTick);
-        if (sp > 0F) {
+        if (eatWeight == 0F && sp > 0F) {
             this.pose.bodyYRot = (float) (Math.sin(Math.sqrt(sp) * 2 * Math.PI) * 0.2);
             this.pose.rightArmZ = (float) Math.sin(this.pose.bodyYRot) * 5F;
             this.pose.rightArmX = (float) -Math.cos(this.pose.bodyYRot) * 5F;

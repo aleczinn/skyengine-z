@@ -700,8 +700,10 @@ public class GameContainer implements IResizeable, IDisposable {
             }
         } else {
             this.animState.setEating(EAT_TICKS - this.eatingTicks); // zählt runter wie MC
-            if (this.eatingTicks % 4 == 0) {
-                this.soundManager.playEat(); // Kau-Sound alle 4 Ticks (MC-Gefühl: ~8 Kauer bis zum Burp)
+            /* Kau-Sounds erst ab 7 verstrichenen Ticks (Vanilla: remaining <= duration-7) —
+               dann ist das Item in der FP-Animation am Gesicht angekommen; danach 4er-Takt. */
+            if (this.eatingTicks > 7 && this.eatingTicks % 4 == 0) {
+                this.soundManager.playEat();
             }
         }
     }

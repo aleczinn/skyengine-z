@@ -30,6 +30,9 @@ public final class PlayerAnimationState {
     /* Ess-Zustand: verbleibende Ticks (−1 = isst nicht). Wird NICHT hier getickt —
        GameContainer.updateEating setzt ihn pro Tick (dort lebt das Ess-Gameplay). */
     private int eatingTicksLeft = -1;
+    /* Geglätteter Ess-Blend 0..1 für die Third-Person-Pose: Arm fährt EINMAL weich zum
+       Mund und beim Aufhören zurück (±0.25/Tick ≈ 4 Ticks Übergang, kein Kau-Pumpen). */
+    private float eatWeight, prevEatWeight;
 
     /* View-Bobbing (MC bob/walkDist). */
     private float bob, prevBob;
@@ -99,6 +102,9 @@ public final class PlayerAnimationState {
 
         if (this.hurtTime > 0) this.hurtTime--;
 
+        this.prevEatWeight = this.eatWeight;
+        this.eatWeight = Math.clamp(this.eatWeight + (this.isEating() ? 0.25F : -0.25F), 0F, 1F);
+
         /* Bob-Amplitude wächst nur am Boden (Vanilla) — in der Luft klingt sie in ~3 Ticks ab. */
         float bobTarget = player.onGround ? Math.min(0.1F, horizontal) : 0F;
         this.bob += (bobTarget - this.bob) * 0.4F;
@@ -136,10 +142,16 @@ public final class PlayerAnimationState {
         return this.eatingTicksLeft - partialTick + 1F;
     }
 
+    /** Geglätteter Ess-Blend 0..1 (Third-Person-Arm zum Mund und zurück). */
+    public float getEatWeight(float partialTick) {
+        return this.prevEatWeight + (this.eatWeight - this.prevEatWeight) * partialTick;
+    }
+
     /** Bei Pause/GUI-Standbild: prev = current, damit nichts weiter-interpoliert. */
     public void snapPrev() {
         this.prevLimbSwing = this.limbSwing;
         this.prevLimbSwingAmount = this.limbSwingAmount;
+        this.prevEatWeight = this.eatWeight;
         this.prevBodyYaw = this.bodyYaw;
         this.prevSwingProgress = this.swingProgress;
         this.prevBob = this.bob;
@@ -151,6 +163,7 @@ public final class PlayerAnimationState {
         this.limbSwing = 0; this.prevLimbSwing = 0;
         this.limbSwingAmount = 0; this.prevLimbSwingAmount = 0;
         this.eatingTicksLeft = -1;
+        this.eatWeight = 0; this.prevEatWeight = 0;
         this.bodyYaw = 0; this.prevBodyYaw = 0;
         this.swinging = false; this.swingTime = 0;
         this.swingProgress = 0; this.prevSwingProgress = 0;
