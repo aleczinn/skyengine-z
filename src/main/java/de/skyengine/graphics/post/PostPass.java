@@ -23,6 +23,6 @@ public interface PostPass extends IDisposable {
     /** false = Pass wird übersprungen (zählt auch nicht als letzter Pass der Kette). */
     boolean isActive(PostContext context);
 
-    /** Zeichnet von {@code context.input} nach {@code context.targetFbo} (0 = Screen). */
+    /** Zeichnet von {@code context.input} nach {@code context.targetFbo} (0 = GuiScreen). */
     void execute(PostContext context);
 }

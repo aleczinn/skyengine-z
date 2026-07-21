@@ -4,6 +4,7 @@
   "layer": "cutout",
   "opaque": false,
   "solid": false,
+  "replaceable": true,
   "tint": "grass",
   "icon_item": "game/textures/block/tall_grass_top.png",
   "textures": {

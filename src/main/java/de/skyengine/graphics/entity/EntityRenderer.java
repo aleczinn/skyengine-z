@@ -5,6 +5,7 @@ import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.model.BakedQuad;
+import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkStatus;
@@ -38,7 +39,7 @@ import java.util.Map;
  */
 public final class EntityRenderer {
 
-    private static final int FLOATS_PER_VERTEX = 7;   // pos3 + texCoord3(u,v,layer) + brightness1
+    private static final int FLOATS_PER_VERTEX = 9;   // pos3 + texCoord3(u,v,layer) + rgb3 (brightness × fester Tint)
     private static final float ITEM_SCALE = 0.25f;
     /** Konservativer Rand fürs Frustum-Culling (deckt Würfel, Item-Wippe, Interpolation ab). */
     private static final float CULL_MARGIN = 1.0f;
@@ -127,10 +128,14 @@ public final class EntityRenderer {
         return mesh;
     }
 
-    /** Backt die Quads des States in ein interleaved Mesh [x,y,z,u,v,layer,brightness]. */
+    /** Backt die Quads des States in ein interleaved Mesh [x,y,z,u,v,layer,r,g,b]. */
     private static Mesh build(int stateId) {
         BakedQuad[] quads = Blocks.getState(stateId).getModel();
         if (quads == null || quads.length == 0) return null;
+        /* Seiten-Overlay (Grasblock) anhängen wie beim Inventar-Icon — sonst bleiben die
+           Gras-Seitenstreifen des Drops grau. */
+        BakedQuad[] overlay = Blocks.getState(stateId).getOverlay();
+        if (overlay.length > 0) quads = BlockModels.concat(quads, overlay);
 
         int verts = 0;
         for (BakedQuad q : quads) verts += q.vertices().length / 5;
@@ -141,6 +146,11 @@ public final class EntityRenderer {
         for (BakedQuad q : quads) {
             float[] v = q.vertices();
             int n = v.length / 5;
+            /* Fester Fallback-Tint aus dem Quad (kein Biome-Grid — Drops wie Inventar-Icons). */
+            int tint = q.tint();
+            float r = q.brightness() * ((tint >> 16) & 0xFF) / 255F;
+            float g = q.brightness() * ((tint >> 8) & 0xFF) / 255F;
+            float b = q.brightness() * (tint & 0xFF) / 255F;
             for (int i = 0; i < n; i++) {
                 data[p++] = v[i * 5];
                 data[p++] = v[i * 5 + 1];
@@ -148,7 +158,9 @@ public final class EntityRenderer {
                 data[p++] = v[i * 5 + 3];
                 data[p++] = v[i * 5 + 4];
                 data[p++] = q.textureLayer();
-                data[p++] = q.brightness();
+                data[p++] = r;
+                data[p++] = g;
+                data[p++] = b;
             }
         }
         return new Mesh(data);
@@ -175,7 +187,7 @@ public final class EntityRenderer {
             int stride = FLOATS_PER_VERTEX * Float.BYTES;
             GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, stride, 0);
             GL20.glVertexAttribPointer(1, 3, GL11.GL_FLOAT, false, stride, 3 * Float.BYTES);
-            GL20.glVertexAttribPointer(2, 1, GL11.GL_FLOAT, false, stride, 6 * Float.BYTES);
+            GL20.glVertexAttribPointer(2, 3, GL11.GL_FLOAT, false, stride, 6 * Float.BYTES);
             GL20.glEnableVertexAttribArray(0);
             GL20.glEnableVertexAttribArray(1);
             GL20.glEnableVertexAttribArray(2);
@@ -197,14 +209,14 @@ public final class EntityRenderer {
         #version 460 core
         layout(location = 0) in vec3 a_position;
         layout(location = 1) in vec3 a_texCoord;
-        layout(location = 2) in float a_brightness;
+        layout(location = 2) in vec3 a_color;
         uniform mat4 u_ProjectionView;
         uniform mat4 u_Model;
         out vec3 v_texCoord;
-        out float v_brightness;
+        out vec3 v_color;
         void main() {
             v_texCoord = a_texCoord;
-            v_brightness = a_brightness;
+            v_color = a_color;
             gl_Position = u_ProjectionView * u_Model * vec4(a_position, 1.0);
         }
         """;
@@ -212,13 +224,13 @@ public final class EntityRenderer {
     private static final String FRAGMENT = """
         #version 460 core
         in vec3 v_texCoord;
-        in float v_brightness;
+        in vec3 v_color;
         uniform sampler2DArray u_Textures;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < 0.5) discard;
-            fragColor = vec4(c.rgb * v_brightness, c.a);
+            fragColor = vec4(c.rgb * v_color, c.a);
         }
         """;
 }
