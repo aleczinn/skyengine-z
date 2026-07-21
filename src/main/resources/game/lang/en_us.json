@@ -1,0 +1,170 @@
+{
+  "name": "English (US)",
+
+  "gui": {
+    "done": "Done",
+    "cancel": "Cancel",
+    "back": "Back",
+    "yes": "Yes",
+    "no": "No",
+    "on": "ON",
+    "off": "OFF"
+  },
+
+  "menu": {
+    "singleplayer": "Singleplayer",
+    "multiplayer": "Multiplayer",
+    "options": "Options",
+    "quit": "Quit Game",
+    "copyright": "Copyright"
+  },
+
+  "pause": {
+    "title": "Game Menu",
+    "resume": "Back to Game",
+    "options": "Options",
+    "quit_to_title": "Save and Quit to Title"
+  },
+
+  "options": {
+    "title": "Options",
+    "fov": "FOV: %d",
+    "gui_scale": "GUI Scale: %d %%",
+    "language": "Language...",
+    "resourcepacks": "Resource Packs...",
+
+    "video": {
+      "button": "Video Settings...",
+      "title": "Video Settings",
+      "render_distance": "Render Distance: %d",
+      "simulation_distance": "Simulation Distance: %d",
+      "msaa": "MSAA",
+      "anisotropy": "Anisotropy",
+      "ao": "Ambient Occlusion",
+      "leaves": "Leaves",
+      "fog": "Fog",
+      "vegetation_distance": "Vegetation Distance: %s",
+      "lod": "LOD (Far View)",
+      "lod_distance": "LOD Distance: %d",
+      "vsync": "VSync"
+    },
+
+    "sound": {
+      "button": "Music & Sounds...",
+      "title": "Music & Sounds",
+      "master": "Master Volume: %d %%",
+      "device": "Device",
+      "device_default": "System Default"
+    },
+
+    "controls": {
+      "button": "Controls...",
+      "title": "Controls",
+      "sensitivity": "Sensitivity: %d %%",
+      "sneak": "Sneak",
+      "sprint": "Sprint",
+      "toggle": "Toggle",
+      "hold": "Hold",
+      "keybinds": "Key Binds..."
+    },
+
+    "keybinds": {
+      "title": "Key Binds",
+      "reset_all": "Reset All",
+      "reset": "Reset"
+    }
+  },
+
+  "sound": {
+    "category": {
+      "music": "Music",
+      "weather": "Weather",
+      "blocks": "Blocks",
+      "hostile": "Hostile Creatures",
+      "friendly": "Friendly Creatures",
+      "player": "Players",
+      "ambient": "Ambient",
+      "ui": "UI"
+    }
+  },
+
+  "key": {
+    "forward": "Forward",
+    "back": "Back",
+    "left": "Left",
+    "right": "Right",
+    "jump": "Jump",
+    "sneak": "Sneak",
+    "sprint": "Sprint",
+    "open_inventory": "Inventory",
+    "drop": "Drop Item",
+    "hotbar": "Hotbar Slot %s"
+  },
+
+  "language": {
+    "title": "Language"
+  },
+
+  "death": {
+    "title": "You Died!",
+    "respawn": "Respawn",
+    "main_menu": "Main Menu"
+  },
+
+  "world": {
+    "select": {
+      "title": "Select World",
+      "play": "Play World",
+      "create": "Create New World",
+      "delete": "Delete",
+      "seed": "Seed: %s",
+      "delete_title": "Delete world?",
+      "delete_message": "\"%s\" will be lost forever.",
+      "empty": "No worlds yet - create one!"
+    },
+    "create": {
+      "title": "Create New World",
+      "name": "World Name",
+      "default_name": "New World",
+      "seed": "Seed (blank = random)",
+      "create": "Create"
+    },
+    "loading": "Generating world..."
+  },
+
+  "resourcepacks": {
+    "title": "Resource Packs",
+    "none": "No packs found.",
+    "folder": "Folder: %s",
+    "placeholder": "Packs are not loaded yet (placeholder).",
+    "open_folder": "Open Pack Folder"
+  },
+
+  "boot": {
+    "blocks": "Loading blocks and models...",
+    "textures": "Building textures...",
+    "renderer": "Initializing renderers...",
+    "sound": "Loading sounds...",
+    "done": "Done"
+  },
+
+  "debug": {
+    "facing": {
+      "north": "North (-Z)",
+      "northeast": "Northeast",
+      "east": "East (+X)",
+      "southeast": "Southeast",
+      "south": "South (+Z)",
+      "southwest": "Southwest",
+      "west": "West (-X)",
+      "northwest": "Northwest"
+    }
+  },
+
+  "block": {
+    "skyengine": {
+      "tnt": "TNT",
+      "lapis_ore": "Lapis Lazuli Ore"
+    }
+  }
+}

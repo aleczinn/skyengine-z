@@ -1,0 +1,57 @@
+package de.skyengine.graphics.gui.screens;
+
+import de.skyengine.core.i18n.I18n;
+import de.skyengine.graphics.gui.GuiManager;
+import de.skyengine.graphics.gui.GuiScreen;
+import de.skyengine.graphics.gui.layout.Anchor;
+import de.skyengine.graphics.gui.layout.HStack;
+import de.skyengine.graphics.gui.layout.VStack;
+import de.skyengine.graphics.gui.widget.Button;
+import de.skyengine.graphics.gui.widget.Label;
+
+/**
+ * Generische Ja/Nein-Abfrage („Welt wirklich löschen?"). „Ja" führt die Aktion aus und kehrt
+ * zum Eltern-GuiScreen zurück; „Nein"/ESC kehrt nur zurück.
+ */
+public final class GuiConfirm extends GuiScreen {
+
+    private final String title;
+    private final String message;
+    private final Runnable onConfirm;
+
+    public GuiConfirm(GuiScreen parent, String title, String message, Runnable onConfirm) {
+        super(parent);
+        this.title = title;
+        this.message = message;
+        this.onConfirm = onConfirm;
+    }
+
+    @Override
+    public boolean doesPausesGame() {
+        return this.parent != null && this.parent.doesPausesGame();
+    }
+
+    @Override
+    public boolean blursBackground() {
+        return this.parent != null && this.parent.blursBackground();
+    }
+
+    @Override
+    public void init(GuiManager gui, float vW, float vH) {
+        this.components.clear();
+
+        Label titleLabel = new Label(this.title, 14).measure(gui);
+        Label messageLabel = new Label(this.message, 10).measure(gui);
+        Button yes = new Button(I18n.tr("gui.yes"), 100, 20, () -> {
+            this.onConfirm.run();
+            this.goBack(gui);
+        });
+        Button no = new Button(I18n.tr("gui.no"), 100, 20, () -> this.goBack(gui));
+
+        this.components.add(new VStack(8,
+                titleLabel,
+                messageLabel,
+                new HStack(8, yes, no)
+        ).anchor(Anchor.CENTER));
+    }
+}

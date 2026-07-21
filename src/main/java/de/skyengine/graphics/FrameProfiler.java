@@ -202,8 +202,8 @@ public final class FrameProfiler {
         if (loop > maxLoopNanos) maxLoopNanos = loop;
 
         String line = null;
-        if (loop >= SPIKE_THRESHOLD_NANOS) {
-            StringBuilder sb = new StringBuilder("SPIKE[µs] loop=").append(loop / 1000);
+        if (loop >= SPIKE_THRESHOLD_NANOS) { // µs
+            StringBuilder sb = new StringBuilder("SPIKE[us] loop=").append(loop / 1000);
             long attributed = 0;
             for (Cpu c : Cpu.values()) {
                 if (c == Cpu.FRAME) continue;
@@ -225,7 +225,7 @@ public final class FrameProfiler {
     public static String statusLineAndReset() {
         if (!enabled || cpuFrames == 0) return null;
 
-        StringBuilder sb = new StringBuilder("GPU[µs]");
+        StringBuilder sb = new StringBuilder("GPU[us]"); // µs
         for (Gpu g : Gpu.values()) {
             long avg = gpuFrames > 0 ? gpuSum[g.ordinal()] / gpuFrames / 1000 : 0;
             sb.append(' ').append(g.label).append('=').append(avg);
@@ -234,7 +234,7 @@ public final class FrameProfiler {
         sb.append(" span=").append(spanFrames > 0 ? spanSum / spanFrames / 1000 : 0);
         spanSum = 0;
         spanFrames = 0;
-        sb.append(" | CPU[µs]");
+        sb.append(" | CPU[us]"); // µs
         long attributed = 0;
         for (Cpu c : Cpu.values()) {
             if (c == Cpu.FRAME) continue;

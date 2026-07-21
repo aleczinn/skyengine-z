@@ -18,7 +18,7 @@ import java.nio.ByteBuffer;
 
 /**
  * Generischer Anti-Aliasing-Pass: schaltet über {@link AntiAliasingMode} —
- * <b>NONE</b> = Pass inaktiv (Grading schreibt direkt in den Screen),
+ * <b>NONE</b> = Pass inaktiv (Grading schreibt direkt in den GuiScreen),
  * <b>FXAA</b> = FXAA 3.11 (Quality) auf dem LDR-Grading-Ergebnis,
  * <b>TAA</b> = zeitliche Akkumulation (der eigentliche MSAA-Ersatz fürs Voxel-Fern-Shimmer).
  *
@@ -29,7 +29,7 @@ import java.nio.ByteBuffer;
  * blendet sie — geclampt auf die 3×3-Farb-AABB des aktuellen Frames (Ghosting-Schutz;
  * ersetzt den Velocity-Buffer, {@code context.velocity} bleibt der Anschluss für
  * per-Objekt-Motion). Resolve schreibt in die History (Ping-Pong, RGBA16F), ein
- * Copy-/Sharpen-Schritt bringt sie auf den Screen — Sharpen ({@code settings.sharpen})
+ * Copy-/Sharpen-Schritt bringt sie auf den GuiScreen — Sharpen ({@code settings.sharpen})
  * wirkt NUR auf die Ausgabe, nie in die History (Feedback-Artefakte).
  *
  * <p><b>Voraussetzung:</b> {@code sceneDepth} existiert nur bei msaaSamples=0 — bei
@@ -195,7 +195,7 @@ public final class AntiAliasingPass implements PostPass {
             uniform sampler2D u_Current;    // LDR nach Grading, FXAA-vorgeglaettet (BSL-Kette)
             uniform sampler2D u_History;    // Read-Seite des Ping-Pongs (Vorframe-Resolve)
             uniform sampler2D u_Depth;      // Szene-Depth (32F, Reversed-Z)
-            uniform mat4 u_InvProjView;     // Inverse der GEJITTERTEN PV des Frames
+            uniform mat4 u_InvProjView;     // Inverse der UNGEJITTERTEN PV (jitterfrei: Stillstand -> velPx == 0)
             uniform mat4 u_PrevProjView;    // UNGEJITTERTE PV des Vorframes
             uniform vec3 u_CamDelta;        // camNow - camPrev: P_relPrev = P_relNow + delta
             uniform int u_HistoryValid;     // 0 = erster Frame nach Reset -> nur aktuell
@@ -311,7 +311,7 @@ public final class AntiAliasingPass implements PostPass {
             }
             """;
 
-    /* History -> Screen; Schaerfung (settings.sharpen 0..1) NUR auf der Ausgabe.
+    /* History -> GuiScreen; Schaerfung (settings.sharpen 0..1) NUR auf der Ausgabe.
        Operator: AMD CAS (Contrast Adaptive Sharpening) — per-Pixel-adaptive Staerke,
        halo-frei by design. FALLE (dokumentiert, nicht wiederholen): die fruehere
        Unsharp+Nachbar-Clamp-Fassung war auf Voxel-Texturen wirkungslos, weil fast
@@ -460,7 +460,7 @@ public final class AntiAliasingPass implements PostPass {
             current = context.pingTexture(0);
         }
 
-        /* 2) Resolve -> History-Write (nie direkt der Screen — das Ergebnis muss persistieren) */
+        /* 2) Resolve -> History-Write (nie direkt der GuiScreen — das Ergebnis muss persistieren) */
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.historyFbo[write]);
         this.taaProgram.bind();
         this.taaProgram.setUniformMatrix4f("u_InvProjView", context.invProjView);

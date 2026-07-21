@@ -1,6 +1,7 @@
 package de.skyengine.graphics.gui;
 
 import de.skyengine.core.SkyEngine;
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.chunk.ChunkSection;
@@ -22,16 +23,16 @@ public final class DebugOverlay {
     private static final float TEXT_SIZE = 10.0F;
     private static final float MARGIN = 2.5F;
 
-    /** 8 Himmelsrichtungen, Index = round(yaw/45) % 8; yaw 0 blickt Richtung -Z. */
+    /** 8 Himmelsrichtungen (i18n-Keys), Index = round(yaw/45) % 8; yaw 0 blickt Richtung -Z. */
     private static final String[] FACING = {
-            "Nord (-Z)",
-            "Nordost",
-            "Ost (+X)",
-            "Südost",
-            "Süd (+Z)",
-            "Südwest",
-            "West (-X)",
-            "Nordwest"
+            "debug.facing.north",
+            "debug.facing.northeast",
+            "debug.facing.east",
+            "debug.facing.southeast",
+            "debug.facing.south",
+            "debug.facing.southwest",
+            "debug.facing.west",
+            "debug.facing.northwest"
     };
 
     private boolean visible;
@@ -64,7 +65,8 @@ public final class DebugOverlay {
                 bx, by, bz,
                 bx & ChunkSection.MASK, by & ChunkSection.MASK, bz & ChunkSection.MASK,
                 bx >> ChunkSection.SHIFT, bz >> ChunkSection.SHIFT));
-        lines.add(String.format(Locale.ROOT, "Facing: %s (yaw %.1f / pitch %.1f)", FACING[facing], player.yaw, player.pitch));
+        lines.add(String.format(Locale.ROOT, "Facing: %s (yaw %.1f / pitch %.1f)",
+                I18n.tr(FACING[facing]), player.yaw, player.pitch));
         lines.add("Biome: " + world.biomeAt(bx, bz).name);
         lines.add("Sections: %d/%d  Chunks: %d".formatted(
                 world.getChunkRenderer().getRenderedSections(),

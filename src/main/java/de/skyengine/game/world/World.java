@@ -13,7 +13,6 @@ import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.BlockEntity;
-import de.skyengine.game.world.block.entity.BlockEntities;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
@@ -32,8 +31,7 @@ import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.WorldLodDataSource;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
-import de.skyengine.graphics.blockentity.ChestRenderer;
-import de.skyengine.graphics.blockentity.EnchantingTableRenderer;
+import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.entity.EntityRenderer;
@@ -54,7 +52,10 @@ public class World implements IInitializable, IDisposable {
     private final ChunkRenderer chunkRenderer;
     /* Heightmap-LOD jenseits der Render-Distanz; erst in init() erzeugt (braucht gebackene Modelle) */
     private LodManager lodManager;
-    private final BlockEntityRenderDispatcher blockEntityRenderer = new BlockEntityRenderDispatcher();
+    /* Engine-Lebensdauer (GameContainer): Atlas + BlockEntity-Renderer überleben Welt-Austritte —
+       die Welt hält nur Referenzen und disposed sie NICHT. */
+    private final BlockTextureAtlas atlas;
+    private final BlockEntityRenderDispatcher blockEntityRenderer;
     private final EntityRenderer entityRenderer = new EntityRenderer();
 
     /** Reentranzsicherer Puffer: Spawns aus einem laufenden Tick werden erst danach in den Chunk übernommen. */
@@ -84,9 +85,11 @@ public class World implements IInitializable, IDisposable {
     /* Spieler-Chunk des laufenden Ticks - Basis für isSimulated(). */
     private int playerChunkX, playerChunkZ;
 
-    public World(String name) {
+    public World(String name, int seed, BlockTextureAtlas atlas, BlockEntityRenderDispatcher blockEntityRenderer) {
         this.name = name;
-        this.generator = new AlphaWorldGeneratorV2(123);
+        this.atlas = atlas;
+        this.blockEntityRenderer = blockEntityRenderer;
+        this.generator = new AlphaWorldGeneratorV2(seed);
         /* Feature-Pass (Dekoration): biome-abhaengige Baeume (featureId 0) */
         this.chunkManager = new ChunkManager(this.generator,
                 new ChunkDecorator(this.generator, List.of(new BiomeTreeFeature())));
@@ -103,17 +106,15 @@ public class World implements IInitializable, IDisposable {
 
     @Override
     public void init() {
-        this.chunkRenderer.init();
+        this.chunkRenderer.init(this.atlas);
         /* LOD: abstrahierte Datenquelle (nah: echte Chunkdaten, fern: Generator-Noise) +
            Block-Darstellung aus den gebackenen Modellen — erst nach dem Registry-Bake. */
         this.lodManager = new LodManager(new WorldLodDataSource(this.chunkManager, this.generator),
                 new LodBlockAppearance(), this.chunkManager);
         this.chunkRenderer.setLodManager(this.lodManager);
         this.chunkManager.setLodManager(this.lodManager); // Unload-Gate: erst entladen, wenn LOD deckt
-        this.blockEntityRenderer.register(BlockEntities.CHEST, new ChestRenderer());
-        this.blockEntityRenderer.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
-        this.blockEntityRenderer.init();
-        this.entityRenderer.init(this.chunkRenderer.getTextureArray());
+        /* BlockEntity-Renderer werden beim Boot registriert/initialisiert (GameContainer). */
+        this.entityRenderer.init(this.atlas.textures());
     }
 
     public void update(Input input, EntityPlayer player) {
@@ -395,10 +396,13 @@ public class World implements IInitializable, IDisposable {
 
     @Override
     public void dispose() {
-        this.entityRenderer.dispose();
-        this.blockEntityRenderer.dispose();
-        this.chunkRenderer.dispose();
+        /* ERST die Worker stoppen (inkl. awaitTermination), DANN die GL-Ressourcen: In-flight-
+           Mesh-Jobs dürfen beim Welt-Austritt nicht mehr laufen, wenn Arenen/Meshes sterben —
+           sonst arbeiten Alt-Jobs beim direkten Wiedereintritt in die neue Welt hinein. */
         this.chunkManager.dispose();
+        this.entityRenderer.dispose();
+        this.chunkRenderer.dispose();
+        /* blockEntityRenderer + atlas NICHT disposen: Engine-Lebensdauer (GameContainer). */
     }
 
     /** Block an Weltkoordinaten. Ungeladene Chunks zählen als Luft. */
@@ -621,6 +625,10 @@ public class World implements IInitializable, IDisposable {
     /** Biom an Weltposition (pures Generator-Sampling) — z.B. fürs F3-Debug-Overlay. */
     public Biome biomeAt(int x, int z) {
         return this.generator.biomeAt(x, z);
+    }
+
+    public WorldGenerator getGenerator() {
+        return generator;
     }
 
     public ChunkManager getChunkManager() {

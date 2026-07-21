@@ -90,6 +90,8 @@ public final class ArchetypeBlockFactory {
         String archetypeName = def.archetype != null ? def.archetype : def.type;
         builder.sound(BlockSoundGroup.resolve(def.sound, ToolType.byName(def.tool), archetypeName));
 
+        builder.replaceable(def.replaceable);
+
         return new Block(id, settings, builder.build());
     }
 

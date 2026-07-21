@@ -18,6 +18,7 @@ public class BlockDefinition {
     public boolean no_lod_surface = false; // nie als LOD-Terrain-Oberfläche sampeln (Logs)
     public boolean leaves = false;      // Laub: bei LeavesQuality LOW cullt Laub-an-Laub
     public boolean gravity = false;     // fällt nach unten (Sand, Kies) via GravityBehavior
+    public boolean replaceable = false; // Platzieren in diese Zelle ersetzt den Block (Gras/Farn, wie MC — kein Drop)
     public boolean facing = false;      // horizontale Ausrichtung zum Spieler (Truhe, Ofen) via HorizontalFacingBehavior
 
     /* Vegetations-Tint (siehe Tints): "grass" | "foliage". tint_faces schränkt optional auf

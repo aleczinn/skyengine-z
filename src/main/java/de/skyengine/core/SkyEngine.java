@@ -6,6 +6,7 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.GameContainer;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.Screenshot;
+import de.skyengine.graphics.gui.BootProgress;
 import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.utils.DelayedRunnable;
 import de.skyengine.utils.logging.LogManager;
@@ -44,7 +45,7 @@ public class SkyEngine {
     private final GameContainer game;
     private final PostProcessor postProcessor;
 
-    /* Letzte 1-Sekunden-Zählwerte aus dem gameLoop — für On-Screen-Anzeigen (F3). */
+    /* Letzte 1-Sekunden-Zählwerte aus dem gameLoop — für On-GuiScreen-Anzeigen (F3). */
     private int currentFps;
     private int currentTps;
 
@@ -213,7 +214,7 @@ public class SkyEngine {
 
             // show states each 1 second
             if (System.currentTimeMillis() - lastStatusTime >= 1000) {
-                /* Letzte Sekundenwerte für On-Screen-Anzeigen (F3-Debug-Overlay) festhalten. */
+                /* Letzte Sekundenwerte für On-GuiScreen-Anzeigen (F3-Debug-Overlay) festhalten. */
                 this.currentFps = frames;
                 this.currentTps = updates;
                 System.out.printf("FPS: %d, TPS: %d%n", frames, updates);
@@ -228,19 +229,25 @@ public class SkyEngine {
                     if (gpuCullLine != null) System.out.println(gpuCullLine);
                 }
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
-                    this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s | AntiAliasing: %s".formatted(
-                            ENGINE_NAME,
-                            ENGINE_VERSION,
-                            frames,
-                            updates,
-                            this.game.getWorld().getChunkRenderer().getRenderedSections(),
-                            this.game.getWorld().getChunkRenderer().getTotalSections(),
-                            this.game.getWorld().getChunkManager().getChunks().size(),
-                            Math.round(this.game.getPlayer().x),
-                            Math.round(this.game.getPlayer().y),
-                            Math.round(this.game.getPlayer().z),
-                            this.postProcessor.getSettings().getAaMode()
-                    ));
+                    /* Ohne Welt (Hauptmenü) gibt es keine Chunk-/Spieler-Werte für den Titel. */
+                    if (this.game.getWorld() != null && this.game.getPlayer() != null) {
+                        this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s | AntiAliasing: %s".formatted(
+                                ENGINE_NAME,
+                                ENGINE_VERSION,
+                                frames,
+                                updates,
+                                this.game.getWorld().getChunkRenderer().getRenderedSections(),
+                                this.game.getWorld().getChunkRenderer().getTotalSections(),
+                                this.game.getWorld().getChunkManager().getChunks().size(),
+                                Math.round(this.game.getPlayer().x),
+                                Math.round(this.game.getPlayer().y),
+                                Math.round(this.game.getPlayer().z),
+                                this.postProcessor.getSettings().getAaMode()
+                        ));
+                    } else {
+                        this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Hauptmenü".formatted(
+                                ENGINE_NAME, ENGINE_VERSION, frames, updates));
+                    }
                 }
 
                 frames = 0;
@@ -298,14 +305,18 @@ public class SkyEngine {
                 this.postProcessor.init(this.window.getWidth(), this.window.getHeight());
                 this.window.getFrameBuffer().create();
 
-                this.game.init();
+                /* Früher Boot-Anteil: nur Sprite-/Font-Renderer für den Ladebildschirm. */
+                this.game.initBoot();
 
-                /* Make sure everything is ready before we show the window */
                 GL11.glFlush();
                 GL11.glFinish();
 
-                /* Notify the latch so that the window can be shown */
+                /* Fenster JETZT zeigen (Main-Thread verlässt latch.await) — der Rest des
+                   Boots läuft gestaffelt weiter und zeichnet Fortschritts-Frames dazwischen.
+                   Der Main-Thread ist dabei schon im Event-Loop -> Fenster bleibt bedienbar. */
                 latch.countDown();
+
+                this.game.initStaged(new BootProgress(this.game.getGuiManager()));
                 return null;
             }, "Init", 0));
 

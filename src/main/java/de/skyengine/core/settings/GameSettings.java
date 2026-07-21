@@ -2,12 +2,14 @@ package de.skyengine.core.settings;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import de.skyengine.audio.SoundCategory;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -23,7 +25,8 @@ public final class GameSettings {
 
     private static final Logger LOGGER = LogManager.getLogger(GameSettings.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final File FILE = new File("config/options.json");
+    /* Liegt im Spiel-Root (%APPDATA%\.skyengine), nicht im Arbeitsverzeichnis. */
+    private static final File FILE = de.skyengine.core.file.GameDirectory.resolve("config/options.json");
 
     private static GameSettings instance;
 
@@ -37,8 +40,9 @@ public final class GameSettings {
      */
     public enum LeavesQuality { LOW, MID, HIGH }
 
-    /* GUI-Größe als Schieberegler 1..100 (feiner als MCs Stufen). 1 = 1.0x, 100 = 6.0x. */
-    public int guiScale = 50;
+    /* GUI-Größe in Prozent (30..170, 5er-Schritte): 100 % = Referenz-Look (Faktor 3.5). Ersetzt
+       das alte guiScale-Feld (1..100 -> 1.0..6.0); alte options.json fallen auf 100 % zurück. */
+    public int guiScalePercent = 100;
     public int renderDistance = 16;   // in Chunks
     public int simulationDistance = 10; // in Chunks; nur Chunks in diesem Radius ticken (wie MC)
     public int fov = 75;
@@ -67,9 +71,18 @@ public final class GameSettings {
        renderDistance·2^L, gedeckelt bei lodMaxDistance (rd16/lod128 → L1 16-32, L2 32-64,
        L3 64-128). lodMaxDistance <= renderDistance schaltet das LOD faktisch ab. */
     public int lodMaxDistance = 128;
-    /* Lautstärke 0..100: master wirkt global (OpenAL-Listener-Gain), music nur auf die Musik. */
+    /* Gesamtlautstärke 0..100 (wirkt global als OpenAL-Listener-Gain). */
     public int masterVolume = 100;
-    public int musicVolume = 50;
+    /* Kanal-Lautstärken 0..100, Keys = SoundCategory-Namen (ersetzt das alte musicVolume-Feld:
+       Musik ist jetzt der MUSIC-Kanal; alte options.json fällt auf die Kanal-Defaults zurück). */
+    public Map<String, Integer> soundVolumes = defaultSoundVolumes();
+    /* OpenAL-Ausgabegerät (voller ALC-Name, "" = Systemstandard). */
+    public String audioDevice = "";
+    /* Schleichen/Sprinten: false = Taste halten, true = Umschalten (Toggle). */
+    public boolean sneakToggle = false;
+    public boolean sprintToggle = false;
+    /* Sprache (Datei-Code unter game/lang/, z. B. de_de / en_us). */
+    public String language = "de_de";
     public Map<String, Integer> keyBindings = KeyBindings.defaults();
 
     public static GameSettings get() {
@@ -107,10 +120,9 @@ public final class GameSettings {
         }
     }
 
-    /** Pixel-Skalierungsfaktor der GUI aus {@link #guiScale} (1..100 -> 1.0..6.0). */
+    /** Pixel-Skalierungsfaktor der GUI aus {@link #guiScalePercent} (100 % = Faktor 3.5). */
     public float guiScaleFactor() {
-        int v = Math.clamp(this.guiScale, 1, 100);
-        return 1.0f + (v - 1) / 99.0f * 5.0f;
+        return 3.5f * Math.clamp(this.guiScalePercent, 30, 170) / 100.0f;
     }
 
     /** Gebundener Key einer Aktion (Fallback: Default-Belegung). */
@@ -119,8 +131,23 @@ public final class GameSettings {
         return k != null ? k : KeyBindings.defaults().getOrDefault(action, 0);
     }
 
+    /** Lautstärke eines Sound-Kanals 0..100 (Fallback: Kanal-Default). */
+    public int soundVolume(SoundCategory category) {
+        Integer v = this.soundVolumes != null ? this.soundVolumes.get(category.name()) : null;
+        return v != null ? v : category.defaultVolume;
+    }
+
+    private static Map<String, Integer> defaultSoundVolumes() {
+        Map<String, Integer> map = new LinkedHashMap<>();
+        for (SoundCategory category : SoundCategory.values()) {
+            map.put(category.name(), category.defaultVolume);
+        }
+        return map;
+    }
+
     private void sanitize() {
-        this.guiScale = Math.clamp(this.guiScale, 1, 100);
+        /* 5er-Raster + Grenzen (alte options.json ohne das Feld landet über den GSON-Default bei 100) */
+        this.guiScalePercent = Math.clamp((this.guiScalePercent + 2) / 5 * 5, 30, 170);
         this.renderDistance = Math.clamp(this.renderDistance, 2, 32);
         this.simulationDistance = Math.clamp(this.simulationDistance, 2, 32);
         this.fov = Math.clamp(this.fov, 30, 120);
@@ -129,7 +156,19 @@ public final class GameSettings {
         this.lodMaxDistance = Math.clamp(this.lodMaxDistance, 8, 512);
         this.vegetationDistance = Math.clamp(this.vegetationDistance, 0, 32);
         this.masterVolume = Math.clamp(this.masterVolume, 0, 100);
-        this.musicVolume = Math.clamp(this.musicVolume, 0, 100);
+        if (this.soundVolumes == null) {
+            this.soundVolumes = defaultSoundVolumes();
+        } else {
+            for (SoundCategory category : SoundCategory.values()) {
+                Integer v = this.soundVolumes.get(category.name());
+                this.soundVolumes.put(category.name(),
+                        Math.clamp(v != null ? v : category.defaultVolume, 0, 100));
+            }
+            /* Verwaiste Keys (umbenannte/entfernte Kanäle) rauswerfen — Muster keyBindings. */
+            this.soundVolumes.keySet().retainAll(defaultSoundVolumes().keySet());
+        }
+        if (this.audioDevice == null) this.audioDevice = "";
+        if (this.language == null || this.language.isBlank()) this.language = "de_de";
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;

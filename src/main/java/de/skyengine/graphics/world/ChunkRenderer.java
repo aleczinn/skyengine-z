@@ -19,7 +19,7 @@ import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
-import de.skyengine.graphics.texture.SpriteAnimations;
+import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.graphics.texture.TextureArray;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -57,9 +57,10 @@ public class ChunkRenderer {
 
     private final ChunkManager chunkManager;
     private ShaderProgram shader;
+    /* Block-Atlas: gehört dem GameContainer (Engine-Lebensdauer, welt-unabhängig) —
+       der Renderer hält nur Referenzen und disposed NICHTS davon. */
+    private BlockTextureAtlas atlas;
     private TextureArray textures;
-    private SpriteAnimations animations;
-    private long lastAnimNanos;
 
     /* sectionKey -> mesh, render thread only */
     private final Map<Long, SectionMesh> meshes = new HashMap<>();
@@ -196,8 +197,6 @@ public class ChunkRenderer {
        Translucent-Sections gleichzeitig neu sortieren (Ozean -> Upload-Spike). */
     private static final int MAX_TRANSLUCENT_SORTS_PER_FRAME = 8;
 
-    private static final int TEXTURE_SIZE = 16;
-
     /* --- MDI-Infrastruktur --- */
 
     /* Pseudo-Layer-Indizes für LOD: eigene Arena + eigener Draw-Call (volle Isolation von
@@ -272,8 +271,8 @@ public class ChunkRenderer {
     }
 
 
-    /** Render thread, GL context required. Blocks.bootstrap() muss vorher gelaufen sein! */
-    public void init() {
+    /** Render thread, GL context required. Der Atlas muss bereits gebaut sein (Boot). */
+    public void init(BlockTextureAtlas atlas) {
         EngineProperties properties = SkyEngine.get().getWindow().getProperties();
         if (!properties.isUseMultiDrawIndirect() || !properties.isUseBufferStorage()) {
             throw new IllegalStateException("ChunkRenderer benötigt MultiDrawIndirect (GL 4.3) + BufferStorage (GL 4.4)");
@@ -300,15 +299,10 @@ public class ChunkRenderer {
         this.shader.setUniformi("u_Textures", 0);
         this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F); // Ausdünnung default aus
         this.shader.unbind();
-        /* Layer-Reihenfolge kommt aus dem Model-Bake (BlockTextures) */
-        String[] paths = BlockTextures.getOrderedPaths();
-        this.animations = SpriteAnimations.build(paths, TEXTURE_SIZE);
-        this.textures = new TextureArray(TEXTURE_SIZE, paths, this.animations.animatedLayers());
-        this.animations.uploadInitial(this.textures);
-        /* Mipmaps neu bauen, jetzt mit echten Fluid-Frame-0-Daten (animierte Layer waren beim
-           ersten glGenerateMipmap noch leer → hätten in der Ferne transparente Mips). */
-        this.textures.regenerateMipmaps();
-        this.lastAnimNanos = System.nanoTime();
+        /* Atlas kommt von außen (BlockTextureAtlas, einmal beim Boot gebaut) — Welt-Ein-/
+           Austritte erzeugen ihn nicht neu (Layer-Indizes stecken in den gebackenen Modellen). */
+        this.atlas = atlas;
+        this.textures = atlas.textures();
 
         /* Arenen so starten, dass das Wachstum auch beim SCHNELLEN FLIEGEN entfällt — jeder
            Grow ist eine GPU-Vollkopie der ganzen Arena im Frame (= gemessener Ruckler, der
@@ -374,9 +368,7 @@ public class ChunkRenderer {
     public void renderSolid(Camera camera) {
         /* 0. Texturanimationen vorrücken (Frame-Tausch, kein Re-Mesh) */
         FrameProfiler.cpuStart(FrameProfiler.Cpu.ANIM);
-        long now = System.nanoTime();
-        this.animations.tick(this.textures, (now - this.lastAnimNanos) / 1.0e9);
-        this.lastAnimNanos = now;
+        this.atlas.tick();
         FrameProfiler.cpuStop(FrameProfiler.Cpu.ANIM);
 
         /* 1. Frame-Slot übernehmen: auf den 3 Frames alten Fence warten (i.d.R. längst
@@ -1587,9 +1579,9 @@ public class ChunkRenderer {
         for (VertexArena arena : this.arenas) {
             if (arena != null) arena.dispose();
         }
-        if (this.animations != null) this.animations.dispose();
+        /* Atlas (textures/animations) NICHT disposen — gehört dem GameContainer und
+           überlebt Welt-Austritte (Hauptmenü braucht ihn für Item-Icons). */
         if (this.shader != null) this.shader.dispose();
-        if (this.textures != null) this.textures.dispose();
     }
 
     /* Gepacktes Vertex-Format (20 Bytes, siehe ChunkMesher.VERTEX_SIZE):

@@ -27,9 +27,10 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
   - Multipart Blöcke wie Türen, welche mit Spielerklick auf und zu gehen inkl. Platzierungslogik für Türanschlag
   - Flüssigkeiten wie Wasser und Lava mit Reaktionsverhalten für Obsidian, Cobblestone und Stein
 - 📜 GUI-System
+  - Texturen / Formen zeichnen 
   - Font Rendering (TTF -> Texture Atlas -> Zeichnen)
-  - Hotbar mit Blöcken
-  - Inventar für Truhe
+  - HUD mit Hotbar
+  - GuiScreens darunter Boot Splash Screen mit Ladebalken, Hauptmenü, Pause Menü, Optionen + Gui Komponenten wie Button, Slider etc. 
 - 🎶 Audio System
   - Unterstützt bis 5.1 Surround Sound
   - Soundeffekte
