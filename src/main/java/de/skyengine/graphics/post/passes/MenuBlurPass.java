@@ -29,7 +29,7 @@ public final class MenuBlurPass implements PostPass {
     /** ¼-Auflösung: weich genug für Menü-Hintergrund, praktisch gratis. */
     private static final int DOWNSCALE = 4;
     /** Ein-/Ausblendzeit der Blur-Stärke in Sekunden. */
-    private static final float FADE_SECONDS = 0.18f;
+    private static final float FADE_SECONDS = 0.08f;
 
     private static final String BLUR_FRAGMENT = """
             #version 460 core
