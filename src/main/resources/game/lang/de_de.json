@@ -339,6 +339,8 @@
 
   "item": {
     "skyengine": {
+      "apple": "Apfel",
+      "bread": "Brot",
       "wooden_pickaxe": "Holzspitzhacke",
       "wooden_axe": "Holzaxt",
       "wooden_shovel": "Holzschaufel",
