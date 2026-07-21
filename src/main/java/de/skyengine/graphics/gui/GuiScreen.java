@@ -56,6 +56,20 @@ public abstract class GuiScreen {
         }
     }
 
+    /** Y-Position des Titels im MC-Layout (Titel weit oben, ~11 % der virtuellen Höhe). */
+    protected static float titleTop(float vH) {
+        return vH / 9f;
+    }
+
+    /**
+     * Y-Position des Inhalts-Stacks im MC-Layout: im oberen Drittel angedockt ({@code vH/4}),
+     * bei kleinen Fenstern aber so geklemmt, dass der Inhalt weder unten rausläuft noch in
+     * den Titel rutscht (GuiVideoSettings ist beim Auto-Scale-Minimum vH=210 höher als 3/4 vH).
+     */
+    protected static float contentTop(float vH, float contentH) {
+        return Math.max(titleTop(vH) + 20, Math.min(vH / 4f, vH - contentH - 8));
+    }
+
     /**
      * Default-Render: Hintergrund + alle Widgets in zwei Pässen (Sprites, dann Font).
      * Screens mit eigener Zeichnung (z.B. Slot-GUIs) überschreiben diese Methode.

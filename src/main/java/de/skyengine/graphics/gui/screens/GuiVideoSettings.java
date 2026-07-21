@@ -103,16 +103,18 @@ public final class GuiVideoSettings extends GuiScreen {
 
         Button done = new Button("Fertig", () -> this.goBack(gui));
 
-        this.components.add(new VStack(4,
-                title,
+        /* MC-Layout: Titel weit oben, Inhalt im oberen Drittel angedockt (contentTop klemmt
+           gegen Unten-Überlauf — dieser Screen ist der höchste). */
+        VStack content = new VStack(4,
                 new HStack(4, render, simulation),
                 new HStack(4, msaa, aniso),
                 new HStack(4, ao, leaves),
                 new HStack(4, fog, vegetation),
                 new HStack(4, lod, lodDistance),
                 new Spacer(0, 8),
-                done
-        ).anchor(Anchor.CENTER));
+                done);
+        this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
+        this.components.add(content.anchor(Anchor.TOP_CENTER, 0, contentTop(vH, content.height())));
     }
 
     /** AO/Laub stecken im gebackenen Mesh -> Voll-Remesh (nur mit Welt möglich). */
