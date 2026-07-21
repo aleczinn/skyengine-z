@@ -159,8 +159,9 @@ public class GameContainer implements IResizeable, IDisposable {
     /* Slot-Wechsel-Zeitpunkt für die Itemnamen-Einblendung über der Hotbar (reine Anzeige). */
     private static final long ITEM_NAME_HOLD_MS = 2000, ITEM_NAME_FADE_MS = 500;
     private long itemNameShownAt = 0;
-    /* Ess-Fortschritt in Ticks (Rechtsklick halten auf ein FoodItem, MC: 32 Ticks = 1,6 s). */
-    private static final int EAT_TICKS = 32;
+    /* Ess-Fortschritt in Ticks (Rechtsklick halten auf ein FoodItem, MC: 32 Ticks = 1,6 s).
+       Public: auch Zeitbasis der Ess-Animation (FirstPersonHandRenderer). */
+    public static final int EAT_TICKS = 32;
     private int eatingTicks = 0;
 
     /* Aktives Savegame (null im Hauptmenü) — Ziel für saveCurrentWorld beim Austritt/Beenden. */
@@ -388,6 +389,9 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.guiManager.pausesGame() || this.guiManager.current() instanceof GuiWorldLoading) {
             this.player.snapPrevToCurrent();
             this.animState.snapPrev();
+            /* Ess-Animation nicht in der Pause weiterwackeln lassen (ihr Kau-Nicken hängt am
+               partialTick); das Essen bricht beim Fortsetzen ohnehin ab (Maustaste ist los). */
+            this.animState.clearEating();
         } else {
             /* Offenes Container-GUI (Inventar/Truhe): Physik läuft weiter (fallen/Strömung),
                aber ohne Tasten — wie in MC gehen die Eingaben ans GUI. */
@@ -682,18 +686,23 @@ public class GameContainer implements IResizeable, IDisposable {
                 || this.player.getFoodLevel() >= EntityPlayer.MAX_FOOD
                 || !input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_RIGHT)) {
             this.eatingTicks = 0;
+            this.animState.clearEating();
             return;
         }
         if (++this.eatingTicks >= EAT_TICKS) {
             this.eatingTicks = 0;
+            this.animState.clearEating();
             this.player.eat(food.getNutrition(), food.getSaturation());
             this.soundManager.playBurp();
             held.setCount(held.getCount() - 1);
             if (held.getCount() <= 0) {
                 this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
             }
-        } else if (this.eatingTicks % 4 == 0) {
-            this.soundManager.playEat(); // Kau-Sound alle 4 Ticks (MC-Gefühl: ~8 Kauer bis zum Burp)
+        } else {
+            this.animState.setEating(EAT_TICKS - this.eatingTicks); // zählt runter wie MC
+            if (this.eatingTicks % 4 == 0) {
+                this.soundManager.playEat(); // Kau-Sound alle 4 Ticks (MC-Gefühl: ~8 Kauer bis zum Burp)
+            }
         }
     }
 

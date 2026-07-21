@@ -18,8 +18,12 @@ import de.skyengine.utils.logging.Logger;
 import org.joml.Matrix4f;
 import org.joml.Vector3d;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.stb.STBImage;
+import org.lwjgl.system.MemoryStack;
 
 import java.io.File;
+import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
 
 /**
  * Zeichnet das Spielermodell mit Classic-Skin (64×64): Inventar-Vorschau (Ortho im GUI-Pass,
@@ -44,34 +48,62 @@ public final class PlayerRenderer implements IDisposable {
     private final Matrix4f base = new Matrix4f();
     private final Matrix4f itemMatrix = new Matrix4f();
 
-    /** Initialisiert Shader, Meshes und Skin. Nur auf dem Render-Thread. */
+    /* Skin-Format (slim = 3px-Arme), automatisch aus dem PNG erkannt (loadSkin). */
+    private boolean slim;
+
+    /** Initialisiert Shader, Skin (setzt das slim-Flag!) und Meshes. Nur auf dem Render-Thread. */
     public void init() {
         this.shader = new ShaderProgram(
                 new Shader(VERTEX, ShaderType.VERTEX),
                 new Shader(FRAGMENT, ShaderType.FRAGMENT));
-        this.model.init();
-        this.skin = this.loadSkin();
+        this.skin = this.loadSkin();   // VOR model.init — bestimmt das Arm-Layout
+        this.model.init(this.slim);
     }
 
-    /** Eigener Skin aus dem Spielordner, sonst Default-Steve; nur Classic 64×64 wird akzeptiert. */
+    /** Eigener Skin aus dem Spielordner, sonst Default-Steve; nur 64×64 wird akzeptiert. */
     private Texture loadSkin() {
         File custom = GameDirectory.resolve("skin.png");
         if (custom.isFile()) {
             try {
                 Texture texture = new Texture(new FileHandle(custom), false);
                 if (texture.getWidth() == 64 && texture.getHeight() == 64) {
-                    this.logger.info("Eigener Skin geladen: " + custom.getAbsolutePath());
+                    this.slim = detectSlim(custom.getPath());
+                    this.logger.info("Eigener Skin geladen (" + (this.slim ? "slim" : "classic")
+                            + "): " + custom.getAbsolutePath());
                     return texture;
                 }
                 this.logger.warning("skin.png ist " + texture.getWidth() + "×" + texture.getHeight()
-                        + " — nur Classic 64×64 wird unterstützt, nutze Default-Skin.");
+                        + " — nur 64×64 wird unterstützt, nutze Default-Skin.");
                 texture.dispose();
             } catch (RuntimeException e) {
                 this.logger.warning("skin.png konnte nicht geladen werden (" + e.getMessage()
                         + ") — nutze Default-Skin.");
             }
         }
+        this.slim = false; // Steve ist classic
         return new Texture(new FileHandle("game/textures/entity/player/steve.png", FileType.RESOURCE), false);
+    }
+
+    /**
+     * Slim-Heuristik (das Format steht nicht im PNG, MC hält es in Profil-Metadaten):
+     * Die Classic-Arm-Textur belegt Spalten 40..55, slim nur 40..53 — sind die Prüfpunkte
+     * in den Spalten 54/55 alle transparent, ist der Skin slim.
+     */
+    private boolean detectSlim(String path) {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer w = stack.mallocInt(1), h = stack.mallocInt(1), c = stack.mallocInt(1);
+            ByteBuffer pixels = STBImage.stbi_load(path, w, h, c, 4);
+            if (pixels == null) return false;
+            boolean slim = alpha(pixels, w.get(0), 54, 20) == 0
+                    && alpha(pixels, w.get(0), 55, 20) == 0
+                    && alpha(pixels, w.get(0), 55, 31) == 0;
+            STBImage.stbi_image_free(pixels);
+            return slim;
+        }
+    }
+
+    private static int alpha(ByteBuffer pixels, int width, int x, int y) {
+        return pixels.get((y * width + x) * 4 + 3) & 0xFF;
     }
 
     /**
@@ -100,6 +132,7 @@ public final class PlayerRenderer implements IDisposable {
         float bodyYaw = 180f + f * 20f;
 
         this.pose.reset();
+        this.pose.armY = this.model.getArmPivotY();
         this.pose.headYRot = (float) Math.toRadians(f * 20f);   // netHeadYaw = 40° − 20°
         this.pose.headXRot = (float) Math.toRadians(-f1 * 20f);
 
@@ -172,6 +205,7 @@ public final class PlayerRenderer implements IDisposable {
      */
     private void computePose(EntityPlayer player, PlayerAnimationState anim, float partialTick, float bodyYaw) {
         this.pose.reset();
+        this.pose.armY = this.model.getArmPivotY();
 
         float amount = anim.getLimbSwingAmount(partialTick);
         float swing = anim.getLimbSwing(partialTick);
@@ -182,6 +216,19 @@ public final class PlayerRenderer implements IDisposable {
 
         this.pose.headYRot = (float) Math.toRadians(PlayerAnimationState.wrapDegrees(player.yaw - bodyYaw));
         this.pose.headXRot = (float) Math.toRadians(player.pitch);
+
+        /* Essen: rechter Arm hebt das Item zum Mund + Kau-Nicken (Werte visuell getunt);
+           währenddessen kein Attack-Schwung. */
+        if (anim.isEating()) {
+            /* Arm pumpt im Kau-Takt zum Mund (Werte visuell getunt). */
+            float cycle = (float) Math.abs(Math.cos(anim.getEatTime(partialTick) / 4.0 * Math.PI));
+            this.pose.rightArmXRot = -1.0F - cycle * 0.9F;   // pendelt zwischen angehoben und Mund
+            this.pose.rightArmYRot = -0.4F;
+            if (player.isSneaking()) {
+                this.applyCrouchPose();
+            }
+            return;
+        }
 
         /* Attack-Schwung (setupAttackAnimation, rechter Arm): Körper dreht mit, Arm-Pivots
            wandern auf dem Schulterkreis, Arm hackt nach vorn-unten. */
@@ -207,17 +254,21 @@ public final class PlayerRenderer implements IDisposable {
             this.pose.rightArmZRot += (float) (Math.sin(sp * Math.PI) * -0.4);
         }
 
-        /* Crouch-Pose (Vanilla-Werte verbatim). */
         if (player.isSneaking()) {
-            this.pose.bodyXRot = 0.5F;
-            this.pose.bodyY = 3.2F;
-            this.pose.headY = 4.2F;
-            this.pose.armY = 5.2F;
-            this.pose.rightArmXRot += 0.4F;
-            this.pose.leftArmXRot += 0.4F;
-            this.pose.legY = 12.2F;
-            this.pose.legZ = 4F;
+            this.applyCrouchPose();
         }
+    }
+
+    /** Crouch-Pose (Vanilla-Werte verbatim; Arm-Pivot slim-abhängig). */
+    private void applyCrouchPose() {
+        this.pose.bodyXRot = 0.5F;
+        this.pose.bodyY = 3.2F;
+        this.pose.headY = 4.2F;
+        this.pose.armY = this.model.getArmPivotY() + 3.2F;
+        this.pose.rightArmXRot += 0.4F;
+        this.pose.leftArmXRot += 0.4F;
+        this.pose.legY = 12.2F;
+        this.pose.legZ = 4F;
     }
 
     /**
@@ -228,11 +279,15 @@ public final class PlayerRenderer implements IDisposable {
     private void drawHeldItem(HeldItemMeshes items, ItemStack held, Matrix4f projectionView) {
         if (items == null || held == null || held.isEmpty()) return;
         /* Vanilla-Kette: das translate(1, 2, -10) px = (1/16, 0.125, -0.625) Blöcke wandert
-           durch das rotateX(-90) effektiv ans Armende — KEIN zusätzlicher Handgelenk-Versatz. */
+           durch das rotateX(-90) effektiv ans Armende — KEIN zusätzlicher Handgelenk-Versatz.
+           Slim: Anker 0.5px weiter innen (Vanilla PlayerModel.translateToHand). */
+        float slimShift = this.model.isSlim() ? -0.5F : 0F;
+        this.pose.rightArmX += slimShift;
         Matrix4f m = this.model.rightArmMatrix(this.base, this.pose, this.itemMatrix)
                 .rotateX((float) Math.toRadians(-90))
                 .rotateY((float) Math.toRadians(180))
                 .translate(1F, 2F, -10F);
+        this.pose.rightArmX -= slimShift;
         items.bind(projectionView);
         items.drawThirdPerson(held.getItem(), m);
         items.unbind();

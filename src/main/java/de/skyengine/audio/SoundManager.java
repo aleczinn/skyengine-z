@@ -53,7 +53,7 @@ public final class SoundManager implements IDisposable {
     private static final float HURT_GAIN = 1.0F;
     private static final float FALL_GAIN = 0.5F;
     private static final float EAT_GAIN = 0.75F;
-    private static final float BURP_GAIN = 0.5F;
+    private static final float BURP_GAIN = 0.25F; // bewusst dezenter als MCs 0.5 (User-Wunsch)
 
     private final Logger logger = LogManager.getLogger(SoundManager.class.getName());
 
