@@ -19,7 +19,7 @@ public final class GuiIngameMenu extends GuiScreen {
     }
 
     @Override
-    public boolean pausesGame() {
+    public boolean doesPausesGame() {
         return true;
     }
 

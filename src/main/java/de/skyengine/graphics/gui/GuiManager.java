@@ -110,7 +110,7 @@ public final class GuiManager {
 
     /** true, wenn der offene GuiScreen die Welt pausiert (Pause-Menü). */
     public boolean pausesGame() {
-        return this.screen != null && this.screen.pausesGame();
+        return this.screen != null && this.screen.doesPausesGame();
     }
 
     /** true, wenn der offene GuiScreen gerade alle Tasten exklusiv beansprucht (Keybind-Aufnahme). */
