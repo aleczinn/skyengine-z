@@ -66,6 +66,7 @@ public final class GuiChest extends GuiContainer {
         sr.end();
 
         this.drawSlotIcons(gui, mouseX, mouseY);
+        this.drawTooltip(gui, mouseX, mouseY);
     }
 
     @Override

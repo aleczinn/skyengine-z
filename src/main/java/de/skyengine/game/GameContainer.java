@@ -135,6 +135,9 @@ public class GameContainer implements IResizeable, IDisposable {
     /* Spieler-Inventar (36 Slots: 0..8 Hotbar, 9..35 Hauptinventar). Auswahl per Zahlentasten 1..9. */
     private final SimpleItemStorage playerInventory = new SimpleItemStorage(36);
     private int hotbarIndex = 0;
+    /* Slot-Wechsel-Zeitpunkt für die Itemnamen-Einblendung über der Hotbar (reine Anzeige). */
+    private static final long ITEM_NAME_HOLD_MS = 2000, ITEM_NAME_FADE_MS = 500;
+    private long itemNameShownAt = 0;
 
     /* Aktives Savegame (null im Hauptmenü) — Ziel für saveCurrentWorld beim Austritt/Beenden. */
     private WorldSaves.WorldSave currentSave;
@@ -505,11 +508,19 @@ public class GameContainer implements IResizeable, IDisposable {
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
         /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair). */
         this.guiManager.render(width, height, this.world != null ? this.playerInventory : null,
-                this.hotbarIndex, showHotbar);
+                this.hotbarIndex, showHotbar, this.itemNameAlpha());
         if (this.debugOverlay.isVisible() && this.world != null) {
             this.debugOverlay.render(this.guiManager, this.world, this.player);
         }
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
+    }
+
+    /** Einblend-Alpha des Hotbar-Itemnamens: 2 s voll, dann 0,5 s linear ausblenden. */
+    private float itemNameAlpha() {
+        long since = System.currentTimeMillis() - this.itemNameShownAt;
+        if (this.itemNameShownAt == 0 || since >= ITEM_NAME_HOLD_MS + ITEM_NAME_FADE_MS) return 0f;
+        if (since <= ITEM_NAME_HOLD_MS) return 1f;
+        return (ITEM_NAME_HOLD_MS + ITEM_NAME_FADE_MS - since) / (float) ITEM_NAME_FADE_MS;
     }
 
     /**
@@ -937,6 +948,7 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private void handleHotbarInput(Input input) {
+        int before = this.hotbarIndex;
         for (int i = 0; i < 9; i++) {
             if (input.isKeyPressed(this.settings.key(KeyBindings.hotbar(i + 1)))) {
                 this.hotbarIndex = i;
@@ -948,6 +960,9 @@ public class GameContainer implements IResizeable, IDisposable {
             this.hotbarIndex = (this.hotbarIndex + 8) % 9;
         } else if (scroll < 0) {
             this.hotbarIndex = (this.hotbarIndex + 1) % 9;
+        }
+        if (this.hotbarIndex != before) {
+            this.itemNameShownAt = System.currentTimeMillis();
         }
     }
 

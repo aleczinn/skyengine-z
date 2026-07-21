@@ -153,5 +153,12 @@
       "west": "West (-X)",
       "northwest": "Northwest"
     }
+  },
+
+  "block": {
+    "skyengine": {
+      "tnt": "TNT",
+      "lapis_ore": "Lapis Lazuli Ore"
+    }
   }
 }

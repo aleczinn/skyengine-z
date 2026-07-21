@@ -15,4 +15,9 @@ public final class BlockItem extends Item {
     public Block getBlock() {
         return block;
     }
+
+    @Override
+    public String translationKey() {
+        return "block." + this.getId().namespace() + "." + this.getId().path();
+    }
 }

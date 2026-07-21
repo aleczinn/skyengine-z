@@ -216,7 +216,8 @@ public final class GuiManager {
      * Die Hotbar wird IMMER gerendert (auch bei offenem Inventar, wie in Minecraft) und teilt sich die
      * Daten mit dem GuiScreen (gleiches Spielerinventar) -> automatisch synchron. Das Fadenkreuz nur ohne GuiScreen.
      */
-    public void render(int screenW, int screenH, SimpleItemStorage hotbarInv, int selectedSlot, boolean showHotbar) {
+    public void render(int screenW, int screenH, SimpleItemStorage hotbarInv, int selectedSlot,
+                       boolean showHotbar, float itemNameAlpha) {
         this.syncCursor();
         this.screenHpx = screenH;
         /* Auto-Scale: bei kleinen Fenstern den Scale reduzieren, damit die virtuelle Fläche
@@ -229,7 +230,7 @@ public final class GuiManager {
         /* HUD ZUERST (wie in Minecraft): ein offener GuiScreen samt Dim liegt ÜBER der Hotbar —
            sonst übermalt die Hotbar z.B. die Footer-Buttons von Scroll-Menüs. */
         if (hotbarInv != null) {
-            this.hud.render(this, hotbarInv, selectedSlot, this.screen == null, showHotbar);
+            this.hud.render(this, hotbarInv, selectedSlot, this.screen == null, showHotbar, itemNameAlpha);
         }
         if (this.screen != null) {
             /* Layout beim Öffnen und bei jeder Größen-/Scale-Änderung (statt pro Frame):

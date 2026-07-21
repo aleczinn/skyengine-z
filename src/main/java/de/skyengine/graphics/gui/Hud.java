@@ -2,11 +2,14 @@ package de.skyengine.graphics.gui;
 
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.graphics.color.Color4;
 
 /**
  * In-Game-HUD (gezeichnet, wenn kein GuiScreen offen ist): Fadenkreuz + Hotbar mit Auswahlrahmen,
  * 3D-Item-Icons und Stack-Zahlen. MC-Texturen: {@code sprites/hud/hotbar.png} (182×22),
  * {@code hotbar_selection.png} (24×23), {@code crosshair_circle.png} (15×15).
+ * Beim Slot-Wechsel blendet der Itemname über der Hotbar ein/aus ({@code itemNameAlpha},
+ * berechnet im GameContainer).
  */
 public final class Hud {
 
@@ -15,8 +18,10 @@ public final class Hud {
     private static final float SEL_W = 24, SEL_H = 23;
     private static final float CROSS = 8;
     private static final float ICON = 16;
+    private static final float NAME_TEXT = 10;
 
-    public void render(GuiManager gui, SimpleItemStorage inv, int selectedSlot, boolean drawCrosshair, boolean drawHotbar) {
+    public void render(GuiManager gui, SimpleItemStorage inv, int selectedSlot, boolean drawCrosshair,
+                       boolean drawHotbar, float itemNameAlpha) {
         SpriteRenderer sr = gui.sprites();
         GuiTextures tex = gui.textures();
         float vW = gui.vWidth(), vH = gui.vHeight();
@@ -52,6 +57,19 @@ public final class Hud {
                 StackText.draw(gui, inv.get(i), hx + 11 + i * SLOT_STEP - ICON / 2f, hy + 11 - ICON / 2f, ICON);
             }
             gui.font().end();
+
+            this.drawSelectedItemName(gui, inv.get(selectedSlot), hy, vW, vH, itemNameAlpha);
         }
+    }
+
+    /** Name des selektierten Items zentriert über der Hotbar (Alpha = Einblend-/Ausblendwert). */
+    private void drawSelectedItemName(GuiManager gui, ItemStack selected, float hy, float vW, float vH, float alpha) {
+        if (alpha <= 0 || selected.isEmpty()) return;
+        String name = selected.getDisplayName();
+        float x = (vW - gui.font().getStringWidth(name, NAME_TEXT)) / 2f;
+        float y = hy - gui.font().lineHeight(NAME_TEXT) - 4;
+        gui.font().begin(vW, vH);
+        gui.font().drawStringWithShadow(name, x, y, NAME_TEXT, new Color4(1f, 1f, 1f, alpha));
+        gui.font().end();
     }
 }

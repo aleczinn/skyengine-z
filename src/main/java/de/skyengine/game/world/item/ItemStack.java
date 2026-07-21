@@ -41,6 +41,11 @@ public final class ItemStack {
         return this.item == null ? 0 : this.item.getMaxStackSize();
     }
 
+    /** Übersetzter Anzeigename des Items (leer bei leerem Stack). */
+    public String getDisplayName() {
+        return this.isEmpty() ? "" : this.item.getDisplayName();
+    }
+
     /** true, wenn beide denselben Item-Typ tragen (stapelbar). */
     public boolean canStackWith(ItemStack other) {
         return !this.isEmpty() && !other.isEmpty() && this.item == other.item;
