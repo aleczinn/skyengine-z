@@ -267,8 +267,14 @@ public final class GuiManager {
     private void syncCursor() {
         int want = this.screen != null ? 1 : 0;
         if (want != this.lastCursorMode) {
-            if (want == 1) this.input.showCursor();
-            else this.input.disableCursor();
+            if (want == 1) {
+                this.input.showCursor();
+                /* Cursor mittig starten (wie MC) — beide Aufrufe laufen deferiert in
+                   Reihenfolge auf dem Main-Thread, centerMouse resettet das Maus-Delta. */
+                this.input.centerMouse();
+            } else {
+                this.input.disableCursor();
+            }
             this.lastCursorMode = want;
         }
     }
