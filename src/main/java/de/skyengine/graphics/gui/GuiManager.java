@@ -2,6 +2,7 @@ package de.skyengine.graphics.gui;
 
 import de.skyengine.audio.SoundManager;
 import de.skyengine.core.input.Input;
+import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
@@ -217,7 +218,7 @@ public final class GuiManager {
      * Daten mit dem GuiScreen (gleiches Spielerinventar) -> automatisch synchron. Das Fadenkreuz nur ohne GuiScreen.
      */
     public void render(int screenW, int screenH, SimpleItemStorage hotbarInv, int selectedSlot,
-                       boolean showHotbar, float itemNameAlpha) {
+                       boolean showHotbar, float itemNameAlpha, EntityPlayer player) {
         this.syncCursor();
         this.screenHpx = screenH;
         /* Auto-Scale: bei kleinen Fenstern den Scale reduzieren, damit die virtuelle Fläche
@@ -230,7 +231,7 @@ public final class GuiManager {
         /* HUD ZUERST (wie in Minecraft): ein offener GuiScreen samt Dim liegt ÜBER der Hotbar —
            sonst übermalt die Hotbar z.B. die Footer-Buttons von Scroll-Menüs. */
         if (hotbarInv != null) {
-            this.hud.render(this, hotbarInv, selectedSlot, this.screen == null, showHotbar, itemNameAlpha);
+            this.hud.render(this, hotbarInv, selectedSlot, this.screen == null, showHotbar, itemNameAlpha, player);
         }
         if (this.screen != null) {
             /* Layout beim Öffnen und bei jeder Größen-/Scale-Änderung (statt pro Frame):
