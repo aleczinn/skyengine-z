@@ -1,6 +1,7 @@
 package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.core.SkyEngine;
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.GameContainer;
 import de.skyengine.graphics.gui.GuiManager;
@@ -31,7 +32,7 @@ public final class GuiOptionsMenu extends GuiOptionsScreen {
 
     @Override
     protected String title() {
-        return "Optionen";
+        return I18n.tr("options.title");
     }
 
     @Override
@@ -39,7 +40,7 @@ public final class GuiOptionsMenu extends GuiOptionsScreen {
         GameContainer game = SkyEngine.get().getGame();
 
         Slider fov = new Slider(CELL_W, CELL_H, 30, 120, 1, this.settings.fov,
-                v -> "FOV: " + (int) v,
+                v -> I18n.tr("options.fov", (int) v),
                 v -> {
                     this.settings.fov = (int) v;
                     game.getCamera().setFov((int) v);
@@ -48,16 +49,16 @@ public final class GuiOptionsMenu extends GuiOptionsScreen {
         /* GUI-Größe erst beim Loslassen anwenden: setScale layoutet den GuiScreen neu
            und würde einen laufenden Drag abbrechen. */
         Slider guiScale = new Slider(CELL_W, CELL_H, 30, 170, 5, this.settings.guiScalePercent,
-                v -> "GUI-Größe: " + (int) v + " %",
+                v -> I18n.tr("options.gui_scale", (int) v),
                 v -> this.settings.guiScalePercent = (int) v,
                 () -> gui.setScale(this.settings.guiScaleFactor()));
 
-        /* Drei einzelne Punkte statt "…" (U+2026) — der Font-Atlas hat die Ellipse nicht. */
-        Button sound = new Button("Musik & Geräusche...", CELL_W, CELL_H, () -> gui.open(new GuiSoundOptions(this)));
-        Button controls = new Button("Steuerung...", CELL_W, CELL_H, () -> gui.open(new GuiControls(this)));
-        Button graphics = new Button("Grafik...", CELL_W, CELL_H, () -> gui.open(new GuiVideoSettings(this)));
-        Button language = new Button("Sprache...", CELL_W, CELL_H, () -> gui.open(new GuiLanguage(this)));
-        Button packs = new Button("Ressourcenpakete...", CELL_W, CELL_H, () -> gui.open(new GuiResourcePacks(this)));
+        /* Die "..." stehen in den Sprachdateien (drei Punkte — der Font-Atlas hat kein U+2026). */
+        Button sound = new Button(I18n.tr("options.sound.button"), CELL_W, CELL_H, () -> gui.open(new GuiSoundOptions(this)));
+        Button controls = new Button(I18n.tr("options.controls.button"), CELL_W, CELL_H, () -> gui.open(new GuiControls(this)));
+        Button graphics = new Button(I18n.tr("options.video.button"), CELL_W, CELL_H, () -> gui.open(new GuiVideoSettings(this)));
+        Button language = new Button(I18n.tr("options.language"), CELL_W, CELL_H, () -> gui.open(new GuiLanguage(this)));
+        Button packs = new Button(I18n.tr("options.resourcepacks"), CELL_W, CELL_H, () -> gui.open(new GuiResourcePacks(this)));
 
         content.add(new HStack(4, fov, guiScale));
         content.add(new Spacer(0, 8));

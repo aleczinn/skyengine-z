@@ -1,6 +1,7 @@
 package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.core.SkyEngine;
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.world.save.WorldSaves;
 import de.skyengine.game.world.save.WorldSaves.WorldSave;
 import de.skyengine.graphics.color.Color4;
@@ -56,7 +57,7 @@ public final class GuiSelectWorld extends GuiScreen {
         Entry(int index, WorldSave save) {
             this.index = index;
             this.name = save.level().name;
-            this.subtitle = "Seed: " + save.level().seed + "  |  "
+            this.subtitle = I18n.tr("world.select.seed", String.valueOf(save.level().seed)) + "  |  "
                     + new SimpleDateFormat("dd.MM.yyyy HH:mm").format(save.level().lastPlayed);
             this.w = ENTRY_W;
             this.h = ENTRY_H;
@@ -112,25 +113,25 @@ public final class GuiSelectWorld extends GuiScreen {
         this.saves = WorldSaves.list();
         if (this.selected >= this.saves.size()) this.selected = -1;
 
-        Label title = new Label("Ausgewählte Welt spielen", 14).measure(gui);
+        Label title = new Label(I18n.tr("world.select.title"), 14).measure(gui);
         title.layoutAt((vW - title.width()) / 2f, 6);
 
-        this.play = new Button("Welt spielen", 130, 20, () -> {
+        this.play = new Button(I18n.tr("world.select.play"), 130, 20, () -> {
             if (this.selected >= 0) {
                 SkyEngine.get().getGame().enterWorld(this.saves.get(this.selected));
             }
         });
-        Button create = new Button("Neue Welt erstellen", 130, 20, () -> gui.open(new GuiCreateWorld(this)));
-        this.delete = new Button("Löschen", 130, 20, () -> {
+        Button create = new Button(I18n.tr("world.select.create"), 130, 20, () -> gui.open(new GuiCreateWorld(this)));
+        this.delete = new Button(I18n.tr("world.select.delete"), 130, 20, () -> {
             if (this.selected < 0) return;
             WorldSave save = this.saves.get(this.selected);
-            gui.open(new GuiConfirm(this, "Welt löschen?",
-                    "\"" + save.level().name + "\" wird unwiderruflich gelöscht.", () -> {
+            gui.open(new GuiConfirm(this, I18n.tr("world.select.delete_title"),
+                    I18n.tr("world.select.delete_message", save.level().name), () -> {
                 WorldSaves.delete(save);
                 this.selected = -1;
             }));
         });
-        Button back = new Button("Zurück", 130, 20, () -> this.goBack(gui));
+        Button back = new Button(I18n.tr("gui.back"), 130, 20, () -> this.goBack(gui));
 
         this.components.add(title);
         this.components.add(new VStack(4,
@@ -150,7 +151,7 @@ public final class GuiSelectWorld extends GuiScreen {
             this.rows.add(entry);
         }
         if (this.saves.isEmpty()) {
-            Label empty = new Label("Noch keine Welten - erstelle eine!", 10, SUBTITLE, false).measure(gui);
+            Label empty = new Label(I18n.tr("world.select.empty"), 10, SUBTITLE, false).measure(gui);
             this.entries.add(empty);
             this.rows.add(empty);
         }

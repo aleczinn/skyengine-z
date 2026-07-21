@@ -1,6 +1,7 @@
 package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.core.SkyEngine;
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.chunk.Chunk;
@@ -60,7 +61,7 @@ public final class GuiWorldLoading extends GuiScreen {
         sr.drawRect(bx, by, BAR_W * progress, BAR_H, 1f, 1f, 1f, 0.9f);
         sr.end();
 
-        String text = "Welt wird generiert...";
+        String text = I18n.tr("world.loading");
         gui.font().begin(vW, vH);
         gui.font().drawStringWithShadow(text,
                 (vW - gui.font().getStringWidth(text, 12)) / 2f, vH / 2f - 12, 12, Colors.WHITE);

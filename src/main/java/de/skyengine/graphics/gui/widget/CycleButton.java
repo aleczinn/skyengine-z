@@ -1,5 +1,7 @@
 package de.skyengine.graphics.gui.widget;
 
+import de.skyengine.core.i18n.I18n;
+
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -46,6 +48,6 @@ public final class CycleButton<T> extends Button {
     /** Fertiger AN/AUS-Cycle für boolesche Einstellungen. */
     public static CycleButton<Boolean> onOff(String name, float w, float h, boolean current, Consumer<Boolean> onChange) {
         return new CycleButton<>(name, w, h, new Boolean[]{Boolean.TRUE, Boolean.FALSE}, current,
-                v -> v ? "AN" : "AUS", onChange);
+                v -> I18n.tr(v ? "gui.on" : "gui.off"), onChange);
     }
 }

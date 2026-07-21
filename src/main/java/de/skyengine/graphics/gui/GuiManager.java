@@ -127,6 +127,11 @@ public final class GuiManager {
         return this.screen;
     }
 
+    /** Erzwingt ein Re-Init des offenen Screens im nächsten Frame (z. B. nach Sprachwechsel). */
+    public void relayoutCurrent() {
+        this.layoutVW = Float.NaN;
+    }
+
     /**
      * Öffnet einen GuiScreen (ersetzt ggf. den aktuellen, dessen onClose dann läuft —
      * so speichert z.B. ein Optionsmenü beim Zurück-Navigieren). Das Layout ({@code init})

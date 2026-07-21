@@ -2,6 +2,7 @@ package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.audio.SoundCategory;
 import de.skyengine.core.SkyEngine;
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.GameContainer;
 import de.skyengine.graphics.gui.GuiManager;
@@ -35,7 +36,7 @@ public final class GuiSoundOptions extends GuiOptionsScreen {
 
     @Override
     protected String title() {
-        return "Musik & Geräusche";
+        return I18n.tr("options.sound.title");
     }
 
     @Override
@@ -44,7 +45,7 @@ public final class GuiSoundOptions extends GuiOptionsScreen {
         float wideW = CELL_W * 2 + 4;
 
         Slider master = new Slider(wideW, CELL_H, 0, 100, 5, this.settings.masterVolume,
-                v -> "Gesamtlautstärke: " + (int) v + " %",
+                v -> I18n.tr("options.sound.master", (int) v),
                 v -> {
                     this.settings.masterVolume = (int) v;
                     game.applyAudioSettings();
@@ -54,7 +55,7 @@ public final class GuiSoundOptions extends GuiOptionsScreen {
         List<Slider> channels = new ArrayList<>();
         for (SoundCategory category : SoundCategory.values()) {
             channels.add(new Slider(CELL_W, CELL_H, 0, 100, 5, this.settings.soundVolume(category),
-                    v -> category.label + ": " + (int) v + " %",
+                    v -> I18n.tr(category.translationKey()) + ": " + (int) v + " %",
                     v -> {
                         this.settings.soundVolumes.put(category.name(), (int) v);
                         game.applyAudioSettings();
@@ -66,7 +67,7 @@ public final class GuiSoundOptions extends GuiOptionsScreen {
         devices.add("");
         devices.addAll(gui.sound().listDevices());
         String current = devices.contains(this.settings.audioDevice) ? this.settings.audioDevice : "";
-        CycleButton<String> device = new CycleButton<>("Gerät", wideW, CELL_H,
+        CycleButton<String> device = new CycleButton<>(I18n.tr("options.sound.device"), wideW, CELL_H,
                 devices.toArray(new String[0]), current,
                 GuiSoundOptions::deviceLabel,
                 v -> {
@@ -84,7 +85,7 @@ public final class GuiSoundOptions extends GuiOptionsScreen {
 
     /** Anzeigename: Systemstandard-Eintrag, OpenAL-Soft-Präfix weg, Überlänge kappen. */
     private static String deviceLabel(String name) {
-        if (name.isEmpty()) return "Systemstandard";
+        if (name.isEmpty()) return I18n.tr("options.sound.device_default");
         String label = name.startsWith(DEVICE_PREFIX) ? name.substring(DEVICE_PREFIX.length()) : name;
         return label.length() > 34 ? label.substring(0, 31) + "..." : label;
     }

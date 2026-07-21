@@ -1,6 +1,7 @@
 package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.core.SkyEngine;
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.Anchor;
@@ -32,10 +33,10 @@ public final class GuiIngameMenu extends GuiScreen {
     public void init(GuiManager gui, float vW, float vH) {
         this.components.clear();
 
-        Label title = new Label("Spielmenü", 14).measure(gui);
-        Button resume = new Button("Zurück zum Spiel", gui::close);
-        Button options = new Button("Optionen", () -> gui.open(new GuiOptionsMenu(this)));
-        Button toTitle = new Button("Speichern und zurück zum Hauptmenü", () -> SkyEngine.get().getGame().exitToTitle());
+        Label title = new Label(I18n.tr("pause.title"), 14).measure(gui);
+        Button resume = new Button(I18n.tr("pause.resume"), gui::close);
+        Button options = new Button(I18n.tr("pause.options"), () -> gui.open(new GuiOptionsMenu(this)));
+        Button toTitle = new Button(I18n.tr("pause.quit_to_title"), () -> SkyEngine.get().getGame().exitToTitle());
 
         /* MC-Layout: Titel weit oben, Buttons im oberen Drittel angedockt. */
         VStack content = new VStack(8, resume, options, toTitle);
