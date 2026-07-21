@@ -6,12 +6,9 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.GameContainer;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
-import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
-import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.CycleButton;
-import de.skyengine.graphics.gui.widget.Label;
 import de.skyengine.graphics.gui.widget.Slider;
 
 import java.util.ArrayList;
@@ -25,7 +22,7 @@ import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
  * {@link SoundCategory}-Kanäle zweispaltig, darunter die Wahl des Ausgabegeräts
  * (ALC_SOFT_reopen_device — greift sofort, ohne Neuladen der Sounds).
  */
-public final class GuiSoundOptions extends GuiScreen {
+public final class GuiSoundOptions extends GuiOptionsScreen {
 
     /** Präfix, das OpenAL-Soft jedem Gerätenamen voranstellt — für die Anzeige unnötig. */
     private static final String DEVICE_PREFIX = "OpenAL Soft on ";
@@ -37,22 +34,14 @@ public final class GuiSoundOptions extends GuiScreen {
     }
 
     @Override
-    public boolean doesPausesGame() {
-        return this.parent != null && this.parent.doesPausesGame();
+    protected String title() {
+        return "Musik & Geräusche";
     }
 
     @Override
-    public boolean blursBackground() {
-        return this.parent != null && this.parent.blursBackground();
-    }
-
-    @Override
-    public void init(GuiManager gui, float vW, float vH) {
-        this.components.clear();
+    protected void buildContent(GuiManager gui, VStack content) {
         GameContainer game = SkyEngine.get().getGame();
         float wideW = CELL_W * 2 + 4;
-
-        Label title = new Label("Musik & Geräusche", 14).measure(gui);
 
         Slider master = new Slider(wideW, CELL_H, 0, 100, 5, this.settings.masterVolume,
                 v -> "Gesamtlautstärke: " + (int) v + " %",
@@ -85,20 +74,12 @@ public final class GuiSoundOptions extends GuiScreen {
                     gui.sound().setDevice(v);
                 });
 
-        Button done = new Button("Fertig", () -> this.goBack(gui));
-
-        /* Keine Spacer: der Screen ist der höchste — mit Luft liefe "Fertig" bei der
-           Mindest-vHöhe 210 (720p) unten aus dem Bild. */
-        VStack content = new VStack(4,
-                master,
-                new HStack(4, channels.get(0), channels.get(1)),
-                new HStack(4, channels.get(2), channels.get(3)),
-                new HStack(4, channels.get(4), channels.get(5)),
-                new HStack(4, channels.get(6), channels.get(7)),
-                device,
-                done);
-        this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
-        this.components.add(content.anchor(Anchor.TOP_CENTER, 0, contentTop(vH, content.height())));
+        content.add(master);
+        content.add(new HStack(4, channels.get(0), channels.get(1)));
+        content.add(new HStack(4, channels.get(2), channels.get(3)));
+        content.add(new HStack(4, channels.get(4), channels.get(5)));
+        content.add(new HStack(4, channels.get(6), channels.get(7)));
+        content.add(device);
     }
 
     /** Anzeigename: Systemstandard-Eintrag, OpenAL-Soft-Präfix weg, Überlänge kappen. */
