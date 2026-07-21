@@ -28,6 +28,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class Input {
 
+    /** Leere Eingabe (keine Taste gedrückt, keine Mausbewegung) — für die Spieler-Physik bei
+     *  offenem Container-GUI. Wird nie {@code update()}t, die States bleiben dauerhaft NONE. */
+    public static final Input EMPTY = new Input(null);
+
     private final Logger logger = LogManager.getLogger(Input.class.getName());
 
     private static final int KEY_COUNT = GLFW.GLFW_KEY_LAST + 1;            // 349

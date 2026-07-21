@@ -313,12 +313,16 @@ public class GameContainer implements IResizeable, IDisposable {
     public void update(Input input) {
         if (this.world == null || this.player == null) return; // Hauptmenü: nichts zu ticken
 
-        /* Bei offenem GUI friert die Spielerbewegung ein; prev=current verhindert Kamera-Jitter
-           (sonst interpoliert Camera.follow weiter zwischen zwei Tick-Positionen). */
-        if (this.guiManager.isOpen()) {
+        /* Spieler friert nur ein, wenn das Spiel pausiert (prev=current verhindert Kamera-Jitter,
+           sonst interpoliert Camera.follow weiter zwischen zwei Tick-Positionen). Ausnahme
+           Ladebildschirm: pausiert nicht (Chunks laden über world.update), aber der Spieler darf
+           nicht in die ungeladene Welt fallen (ungeladene Chunks kollidieren als Luft). */
+        if (this.guiManager.pausesGame() || this.guiManager.current() instanceof GuiWorldLoading) {
             this.player.snapPrevToCurrent();
         } else {
-            this.player.update(input, this.world);
+            /* Offenes Container-GUI (Inventar/Truhe): Physik läuft weiter (fallen/Strömung),
+               aber ohne Tasten — wie in MC gehen die Eingaben ans GUI. */
+            this.player.update(this.guiManager.isOpen() ? Input.EMPTY : input, this.world);
             this.updateStepSounds();
         }
         /* Pause-Menü hält die Welt komplett an (wie MC-Singleplayer); Container-GUIs
