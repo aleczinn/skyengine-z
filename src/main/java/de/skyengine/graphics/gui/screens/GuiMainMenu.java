@@ -7,10 +7,7 @@ import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
-import de.skyengine.graphics.gui.widget.Button;
-import de.skyengine.graphics.gui.widget.GuiComponent;
-import de.skyengine.graphics.gui.widget.Image;
-import de.skyengine.graphics.gui.widget.Label;
+import de.skyengine.graphics.gui.widget.*;
 
 /**
  * Hauptmenü (Startbildschirm): gekachelter Menü-Hintergrund, Titel, Einzelspieler / Optionen /
@@ -35,9 +32,10 @@ public final class GuiMainMenu extends GuiScreen {
 
         /* Logo-Bild, wenn vorhanden — sonst Text-Titel als Fallback. */
         GuiComponent title = gui.textures().logo != null
-                ? new Image(gui.textures().logo, 192)
+                ? new Image(gui.textures().logo, 256)
                 : new Label(SkyEngine.ENGINE_NAME, 32).measure(gui);
         Button singleplayer = new Button("Einzelspieler", () -> gui.open(new GuiSelectWorld(this)));
+        Button multiplayer = new Button("Mehrspieler", null);
         /* Nebeneinander wie in MC: 98 + 4 + 98 = 200 = Breite des Einzelspieler-Buttons. */
         Button options = new Button("Optionen", 98, 20, () -> gui.open(new GuiOptionsMenu(this)));
         Button quit = new Button("Spiel beenden", 98, 20, () -> SkyEngine.get().shutdown());
@@ -47,10 +45,17 @@ public final class GuiMainMenu extends GuiScreen {
 
         /* Logo fest oben (wie die Menü-Titel), Buttons bleiben mittig. */
         this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
+//        this.components.add(new VStack(8,
+//                singleplayer,
+//                multiplayer,
+//                new HStack(4, options, quit)
+//        ).anchor(Anchor.CENTER));
+
         this.components.add(new VStack(8,
                 singleplayer,
                 new HStack(4, options, quit)
-        ).anchor(Anchor.CENTER));
+        ).anchor(Anchor.TOP_CENTER, 0, vH * 0.48f));
+
         this.components.add(version.anchor(Anchor.BOTTOM_LEFT, 2, 2));
         this.components.add(copyright.anchor(Anchor.BOTTOM_RIGHT, 2, 2));
     }
