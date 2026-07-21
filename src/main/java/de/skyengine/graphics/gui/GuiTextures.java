@@ -57,7 +57,7 @@ public final class GuiTextures {
 
         /* Fehlertolerant: Bild + Logo sind optionale User-Assets. Mipmaps + trilinear,
            weil beide beim Zeichnen stark herunterskaliert werden. */
-        this.menuBackgroundImage = loadOptional("game/textures/menu/main_menu.png");
+        this.menuBackgroundImage = loadOptional("game/textures/menu/main_menu_v0.0.7.png");
         this.logo = loadOptional("game/textures/menu/logo.png");
     }
 
