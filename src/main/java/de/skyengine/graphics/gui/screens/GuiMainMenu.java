@@ -15,7 +15,7 @@ import de.skyengine.graphics.gui.widget.*;
  */
 public final class GuiMainMenu extends GuiScreen {
 
-    private static final Color4 VERSION_COLOR = new Color4(0.7f, 0.7f, 0.7f, 1f);
+    private static final Color4 VERSION_COLOR = new Color4(1.0F, 1.0F, 1.0F, 1.0F);
 
     public GuiMainMenu() {
         super(null);
