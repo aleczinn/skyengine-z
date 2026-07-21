@@ -2,6 +2,7 @@ package de.skyengine.audio;
 
 import de.skyengine.core.file.Files;
 import de.skyengine.core.io.IDisposable;
+import de.skyengine.core.settings.GameSettings;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -11,11 +12,16 @@ import org.lwjgl.openal.AL10;
 import org.lwjgl.openal.ALC;
 import org.lwjgl.openal.ALC10;
 import org.lwjgl.openal.ALCCapabilities;
+import org.lwjgl.openal.ALUtil;
+import org.lwjgl.openal.EnumerateAllExt;
+import org.lwjgl.openal.SOFTReopenDevice;
 
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
+import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Random;
 
 /**
@@ -26,8 +32,9 @@ import java.util.Random;
  * <ul>
  *   <li><b>Robustheit:</b> fehlt der Sounds-Ordner oder das Audio-Gerät, deaktiviert sich das
  *       System mit einer Warnung — alle play-Methoden sind dann No-Ops (Muster Font-System).</li>
- *   <li><b>Lautstärke:</b> Master = Listener-Gain (wirkt global inkl. Musik),
- *       Musik = Source-Gain der Musik-Source (effektiv master × music, wie MC).</li>
+ *   <li><b>Lautstärke:</b> Master = Listener-Gain (wirkt global inkl. Musik); jeder Sound gehört
+ *       zu einem {@link SoundCategory}-Kanal, dessen Faktor auf den Source-Gain multipliziert
+ *       wird (Musik = MUSIC-Kanal auf der Musik-Source; effektiv master × Kanal, wie MC).</li>
  *   <li>Effekt-Sounds werden beim Init komplett vorgeladen (wenige MB); Musik wird gestreamt.</li>
  * </ul>
  */
@@ -47,6 +54,9 @@ public final class SoundManager implements IDisposable {
 
     private boolean enabled;
     private long device, context;
+
+    /* Kanal-Faktoren 0..1 (Index = SoundCategory-Ordinal), aus GameSettings via applyAudioSettings. */
+    private final float[] categoryGains = new float[SoundCategory.values().length];
 
     private int[] pool;
     private int poolCursor;
@@ -76,7 +86,21 @@ public final class SoundManager implements IDisposable {
             return;
         }
 
-        this.device = ALC10.alcOpenDevice((ByteBuffer) null);
+        Arrays.fill(this.categoryGains, 1.0F);
+
+        /* Gespeichertes Wunsch-Gerät zuerst versuchen; weg/umbenannt -> Systemstandard. */
+        String preferred = GameSettings.get().audioDevice;
+        if (preferred != null && !preferred.isEmpty()) {
+            this.device = ALC10.alcOpenDevice(preferred);
+            if (this.device == 0) {
+                this.logger.warning("Gespeichertes Audio-Gerät nicht gefunden (" + preferred
+                        + ") — nutze Systemstandard.");
+                GameSettings.get().audioDevice = "";
+            }
+        }
+        if (this.device == 0) {
+            this.device = ALC10.alcOpenDevice((ByteBuffer) null);
+        }
         if (this.device == 0) {
             this.logger.warning("Kein OpenAL-Audio-Gerät gefunden — Audio deaktiviert.");
             return;
@@ -161,38 +185,38 @@ public final class SoundManager implements IDisposable {
 
     /** Laufgeräusch — nicht-positional am Listener. */
     public void playStep(BlockSoundGroup group) {
-        this.play(this.stepBuffers.get(group), STEP_GAIN, STEP_PITCH, true, false, 0, 0, 0);
+        this.play(this.stepBuffers.get(group), SoundCategory.PLAYER, STEP_GAIN, STEP_PITCH, true, false, 0, 0, 0);
     }
 
     /** Abbau-Schlag während des Minings — gedämpfte Step-Variante an der Block-Position. */
     public void playHit(BlockSoundGroup group, double x, double y, double z) {
-        this.play(this.stepBuffers.get(group), HIT_GAIN, HIT_PITCH, true, true, x, y, z);
+        this.play(this.stepBuffers.get(group), SoundCategory.BLOCKS, HIT_GAIN, HIT_PITCH, true, true, x, y, z);
     }
 
     /** Finaler Bruch-Sound an der Block-Position. */
     public void playBreak(BlockSoundGroup group, double x, double y, double z) {
-        this.play(this.digBuffers.get(group), DIG_GAIN, DIG_PITCH, true, true, x, y, z);
+        this.play(this.digBuffers.get(group), SoundCategory.BLOCKS, DIG_GAIN, DIG_PITCH, true, true, x, y, z);
     }
 
     /** Platzier-Sound an der Block-Position — dig-Basis laut {@code placeName} (GLASS = Stein). */
     public void playPlace(BlockSoundGroup group, double x, double y, double z) {
-        this.play(this.placeBuffers.get(group), DIG_GAIN, DIG_PITCH, true, true, x, y, z);
+        this.play(this.placeBuffers.get(group), SoundCategory.BLOCKS, DIG_GAIN, DIG_PITCH, true, true, x, y, z);
     }
 
     /** UI-Button-Klick — nicht-positional, FESTER Pitch (MC-Klick klingt immer identisch). */
     public void playUiClick() {
-        this.play(this.uiClickVariants, UI_CLICK_GAIN, 1.0F, false, false, 0, 0, 0);
+        this.play(this.uiClickVariants, SoundCategory.UI, UI_CLICK_GAIN, 1.0F, false, false, 0, 0, 0);
     }
 
     /** Zufällige Variante + optional ±10 % Zufalls-Pitch auf einer freien Pool-Source. */
-    private void play(int[] variants, float gain, float pitch, boolean pitchJitter,
+    private void play(int[] variants, SoundCategory category, float gain, float pitch, boolean pitchJitter,
                       boolean positional, double x, double y, double z) {
         if (!this.enabled || variants == null) return;
         int source = this.acquireSource();
         if (source == -1) return; // Pool voll: Sound verwerfen statt laufende zu stehlen
 
         AL10.alSourcei(source, AL10.AL_BUFFER, variants[this.random.nextInt(variants.length)]);
-        AL10.alSourcef(source, AL10.AL_GAIN, gain);
+        AL10.alSourcef(source, AL10.AL_GAIN, gain * this.categoryGains[category.ordinal()]);
         AL10.alSourcef(source, AL10.AL_PITCH, pitchJitter ? pitch * (0.9F + this.random.nextFloat() * 0.2F) : pitch);
         if (positional) {
             AL10.alSourcei(source, AL10.AL_SOURCE_RELATIVE, AL10.AL_FALSE);
@@ -262,10 +286,40 @@ public final class SoundManager implements IDisposable {
         AL10.alListenerf(AL10.AL_GAIN, gain);
     }
 
-    /** Musik-Lautstärke (zusätzlich zum Master). */
-    public void setMusicVolume(float gain) {
+    /** Kanal-Lautstärke (zusätzlich zum Master); MUSIC greift sofort auf die laufende Musik. */
+    public void setCategoryVolume(SoundCategory category, float gain) {
         if (!this.enabled) return;
-        this.music.setVolume(gain);
+        this.categoryGains[category.ordinal()] = gain;
+        if (category == SoundCategory.MUSIC) this.music.setVolume(gain);
+    }
+
+    /* --- Ausgabegerät --- */
+
+    /** Alle Ausgabegeräte (volle ALC-Namen); leer, wenn Audio aus oder Enumeration fehlt. */
+    public List<String> listDevices() {
+        if (!this.enabled || !ALC10.alcIsExtensionPresent(0, "ALC_ENUMERATE_ALL_EXT")) return List.of();
+        List<String> devices = ALUtil.getStringList(0, EnumerateAllExt.ALC_ALL_DEVICES_SPECIFIER);
+        return devices != null ? devices : List.of();
+    }
+
+    /**
+     * Wechselt das Ausgabegerät im laufenden Betrieb ({@code ALC_SOFT_reopen_device}) — Context
+     * und Buffer bleiben erhalten, kein Neuladen nötig. {@code name} leer = Systemstandard.
+     */
+    public void setDevice(String name) {
+        if (!this.enabled) return;
+        if (!ALC10.alcIsExtensionPresent(this.device, "ALC_SOFT_reopen_device")) {
+            this.logger.warning("ALC_SOFT_reopen_device nicht verfügbar — Gerätewechsel erst nach Neustart.");
+            return;
+        }
+        boolean ok = name == null || name.isEmpty()
+                ? SOFTReopenDevice.alcReopenDeviceSOFT(this.device, (ByteBuffer) null, (IntBuffer) null)
+                : SOFTReopenDevice.alcReopenDeviceSOFT(this.device, name, (IntBuffer) null);
+        if (ok) {
+            this.logger.info("Audio-Gerät gewechselt: " + (name == null || name.isEmpty() ? "Systemstandard" : name));
+        } else {
+            this.logger.warning("Audio-Gerätewechsel fehlgeschlagen (" + name + ") — Gerät unverändert.");
+        }
     }
 
     @Override

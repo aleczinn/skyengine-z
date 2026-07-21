@@ -9,15 +9,16 @@ import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
-import de.skyengine.graphics.gui.widget.CycleButton;
 import de.skyengine.graphics.gui.widget.Label;
 import de.skyengine.graphics.gui.widget.Slider;
 import de.skyengine.graphics.gui.widget.Spacer;
 
 /**
- * Optionsmenü (allgemein): FOV, GUI-Größe, Sensitivität, VSync, Lautstärken. Grafik-Einstellungen
- * liegen auf der Unterseite {@link GuiVideoSettings} (zwei Spalten passen nicht komplett in die
- * virtuelle Höhe bei 720p). Erreichbar aus Pause- und (später) Titel-Menü; speichert beim Verlassen.
+ * Optionsmenü (Übersicht): nur noch FOV + GUI-Größe direkt, alles andere auf Unterseiten —
+ * {@link GuiSoundOptions} (Lautstärken/Gerät), {@link GuiControls} (Sensitivität/Toggles/
+ * Tastenbelegung), {@link GuiVideoSettings} (Grafik inkl. VSync), {@link GuiLanguage} und
+ * {@link GuiResourcePacks} (beides Platzhalter). Erreichbar aus Pause- und Titel-Menü;
+ * speichert beim Verlassen.
  */
 public final class GuiOptionsMenu extends GuiScreen {
 
@@ -61,41 +62,21 @@ public final class GuiOptionsMenu extends GuiScreen {
                 v -> this.settings.guiScalePercent = (int) v,
                 () -> gui.setScale(this.settings.guiScaleFactor()));
 
-        Slider sensitivity = new Slider(CELL_W, CELL_H, 10, 300, 5, this.settings.mouseSensitivity * 100,
-                v -> "Sensitivität: " + (int) v + " %",
-                v -> this.settings.mouseSensitivity = v / 100.0, null);
-
-        CycleButton<Boolean> vsync = CycleButton.onOff("VSync", CELL_W, CELL_H, this.settings.vsync, v -> {
-            this.settings.vsync = v;
-            /* Läuft auf dem Render-Thread — glfwSwapInterval gehört genau dorthin. */
-            SkyEngine.get().getWindow().setVsync(v);
-        });
-
-        Slider master = new Slider(CELL_W, CELL_H, 0, 100, 5, this.settings.masterVolume,
-                v -> "Lautstärke: " + (int) v + " %",
-                v -> {
-                    this.settings.masterVolume = (int) v;
-                    game.applyAudioSettings();
-                }, null);
-
-        Slider music = new Slider(CELL_W, CELL_H, 0, 100, 5, this.settings.musicVolume,
-                v -> "Musik: " + (int) v + " %",
-                v -> {
-                    this.settings.musicVolume = (int) v;
-                    game.applyAudioSettings();
-                }, null);
-
         /* Drei einzelne Punkte statt "…" (U+2026) — der Font-Atlas hat die Ellipse nicht. */
+        Button sound = new Button("Musik & Geräusche...", CELL_W, CELL_H, () -> gui.open(new GuiSoundOptions(this)));
+        Button controls = new Button("Steuerung...", CELL_W, CELL_H, () -> gui.open(new GuiControls(this)));
         Button video = new Button("Grafik...", CELL_W, CELL_H, () -> gui.open(new GuiVideoSettings(this)));
-        Button keybinds = new Button("Tastenbelegung...", CELL_W, CELL_H, () -> gui.open(new GuiKeybinds(this)));
+        Button language = new Button("Sprache...", CELL_W, CELL_H, () -> gui.open(new GuiLanguage(this)));
+        Button packs = new Button("Ressourcenpakete...", CELL_W, CELL_H, () -> gui.open(new GuiResourcePacks(this)));
         Button done = new Button("Fertig", () -> this.goBack(gui));
 
         /* MC-Layout: Titel weit oben, Inhalt im oberen Drittel angedockt. */
         VStack content = new VStack(4,
                 new HStack(4, fov, guiScale),
-                new HStack(4, sensitivity, vsync),
-                new HStack(4, master, music),
-                new HStack(4, video, keybinds),
+                new Spacer(0, 8),
+                new HStack(4, sound, controls),
+                new HStack(4, video, language),
+                packs,
                 new Spacer(0, 8),
                 done);
         this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
