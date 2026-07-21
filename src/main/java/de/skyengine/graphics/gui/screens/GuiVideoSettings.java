@@ -5,12 +5,9 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.GameContainer;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
-import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
-import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.CycleButton;
-import de.skyengine.graphics.gui.widget.Label;
 import de.skyengine.graphics.gui.widget.Slider;
 
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
@@ -18,10 +15,10 @@ import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
 
 /**
  * Grafik-Unterseite des Optionsmenüs: Distanzen, MSAA/Anisotropie (greifen erst beim nächsten
- * Framebuffer-/Textur-Aufbau), AO/Laub (lösen einen Voll-Remesh aus), Nebel, LOD.
+ * Framebuffer-/Textur-Aufbau), AO/Laub (lösen einen Voll-Remesh aus), Nebel, LOD, VSync.
  * Welt-abhängige Anwendungen sind null-geguardet (Optionen sind auch ohne Welt erreichbar).
  */
-public final class GuiVideoSettings extends GuiScreen {
+public final class GuiVideoSettings extends GuiOptionsScreen {
 
     private final GameSettings settings = GameSettings.get();
 
@@ -30,21 +27,13 @@ public final class GuiVideoSettings extends GuiScreen {
     }
 
     @Override
-    public boolean doesPausesGame() {
-        return this.parent != null && this.parent.doesPausesGame();
+    protected String title() {
+        return "Grafik";
     }
 
     @Override
-    public boolean blursBackground() {
-        return this.parent != null && this.parent.blursBackground();
-    }
-
-    @Override
-    public void init(GuiManager gui, float vW, float vH) {
-        this.components.clear();
+    protected void buildContent(GuiManager gui, VStack content) {
         GameContainer game = SkyEngine.get().getGame();
-
-        Label title = new Label("Grafik", 14).measure(gui);
 
         /* Distanzen erst beim Loslassen anwenden (Chunk-Loading/Unload ist teuer). */
         Slider render = new Slider(CELL_W, CELL_H, 2, 32, 1, this.settings.renderDistance,
@@ -106,22 +95,12 @@ public final class GuiVideoSettings extends GuiScreen {
             SkyEngine.get().getWindow().setVsync(v);
         });
 
-        Button done = new Button("Fertig", () -> this.goBack(gui));
-
-        /* MC-Layout: Titel weit oben, Inhalt im oberen Drittel angedockt (contentTop klemmt
-           gegen Unten-Überlauf — dieser Screen ist der höchste). */
-        VStack content = new VStack(4,
-                new HStack(4, render, simulation),
-                new HStack(4, msaa, aniso),
-                new HStack(4, ao, leaves),
-                new HStack(4, fog, vegetation),
-                new HStack(4, lod, lodDistance),
-                vsync,
-                /* Kein Spacer vor "Fertig": mit VSync-Zeile liefe der Button bei der
-                   Mindest-vHöhe 210 (720p) sonst unten aus dem Bild. */
-                done);
-        this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
-        this.components.add(content.anchor(Anchor.TOP_CENTER, 0, contentTop(vH, content.height())));
+        content.add(new HStack(4, render, simulation));
+        content.add(new HStack(4, msaa, aniso));
+        content.add(new HStack(4, ao, leaves));
+        content.add(new HStack(4, fog, vegetation));
+        content.add(new HStack(4, lod, lodDistance));
+        content.add(vsync);
     }
 
     /** AO/Laub stecken im gebackenen Mesh -> Voll-Remesh (nur mit Welt möglich). */
