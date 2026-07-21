@@ -11,7 +11,6 @@ import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.GuiComponent;
 import de.skyengine.graphics.gui.widget.Image;
 import de.skyengine.graphics.gui.widget.Label;
-import de.skyengine.graphics.gui.widget.Spacer;
 
 /**
  * Hauptmenü (Startbildschirm): gekachelter Menü-Hintergrund, Titel, Einzelspieler / Optionen /
@@ -46,9 +45,9 @@ public final class GuiMainMenu extends GuiScreen {
         Label version = new Label(SkyEngine.ENGINE_NAME + " v" + SkyEngine.ENGINE_VERSION, 8, VERSION_COLOR, true).measure(gui);
         Label copyright = new Label("Copyright", 8, VERSION_COLOR, true).measure(gui);
 
+        /* Logo fest oben (wie die Menü-Titel), Buttons bleiben mittig. */
+        this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
         this.components.add(new VStack(8,
-                title,
-                new Spacer(0, 12),
                 singleplayer,
                 new HStack(4, options, quit)
         ).anchor(Anchor.CENTER));
