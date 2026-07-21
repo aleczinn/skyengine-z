@@ -415,11 +415,17 @@ public final class LodMesher {
 
     /**
      * Sample einer Zelle mit Ursprung (wx,wz): innerhalb des eigenen Footprints
-     * ([rx, rx+size) × [rz, rz+size) in 128er-Regionskoordinaten) aufs eigene Raster (s),
-     * sonst aufs Raster des Nachbar-Levels ausgerichtet. Innerhalb einer Superregion mit
-     * uniformem Level ist das Sample identisch zu dem der ungemergten 128er-Regionen
-     * (s teilt 128, Zellursprünge liegen auf demselben globalen Raster) — Determinismus
-     * an allen Nähten bleibt erhalten.
+     * ([rx, rx+size) × [rz, rz+size) in 128er-Regionskoordinaten) aufs eigene Raster (s);
+     * sonst an der Rasterposition des NACHBAR-Levels gesampelt (s2-ausgerichtet), aber im
+     * EIGENEN Raster quantisiert. Die Ring-Höhen fließen ausschließlich in VERGLEICHE mit
+     * eigenen Zellen ein (Wand-Bedingung, Ecken-AO) — Vergleichbarkeit schlägt hier
+     * Mesh-Exaktheit: mit Nachbar-Quantisierung (s2) läge flaches Terrain an Level-Grenzen
+     * scheinbar auf zwei Höhen (floor auf verschiedene Vielfache) → Phantom-AO-Streifen und
+     * Phantom-Stufenwände entlang der Randzellreihe. Der reale Restversatz der gerenderten
+     * Meshes (< MAX_QUANT_STRIDE) bleibt und wird von den Regionsrand-Skirts (>= 32 Blöcke)
+     * verdeckt. Innerhalb einer Superregion mit uniformem Level ist das Sample identisch zu
+     * dem der ungemergten 128er-Regionen (s teilt 128, Zellursprünge auf demselben globalen
+     * Raster) — Determinismus an diesen Nähten bleibt erhalten.
      */
     private long sampleCell(LodDataSource source, LodConfig config, int wx, int wz, int s,
                             int rx, int rz, int size, int ax, int az) {
@@ -431,7 +437,7 @@ public final class LodMesher {
 
         int s2 = config.cellSize(neighborLevel(config, rxc, rzc, ax, az));
         return this.quantizeHeight(
-                source.sampleSurface(Math.floorDiv(wx, s2) * s2, Math.floorDiv(wz, s2) * s2, s2), s2);
+                source.sampleSurface(Math.floorDiv(wx, s2) * s2, Math.floorDiv(wz, s2) * s2, s2), s);
     }
 
     /** Boden-Variante von {@link #sampleCell} — gleiche Rasterlogik, liefert den festen Grund. */
@@ -445,7 +451,7 @@ public final class LodMesher {
 
         int s2 = config.cellSize(neighborLevel(config, rxc, rzc, ax, az));
         return this.quantizeHeight(
-                source.sampleGround(Math.floorDiv(wx, s2) * s2, Math.floorDiv(wz, s2) * s2, s2), s2);
+                source.sampleGround(Math.floorDiv(wx, s2) * s2, Math.floorDiv(wz, s2) * s2, s2), s);
     }
 
     /**
@@ -454,9 +460,10 @@ public final class LodMesher {
      * häufiger dieselbe Höhe, sodass der Greedy-Merge greift statt zellbreiter 1-Block-Stufen.
      * Der Deckel hält die Stufenhöhe optisch verträglich. {@code floor} hält LOD-Terrain unter
      * der realen Oberfläche (keine überstehenden Klötze an der L0-Naht). Rein aus (Höhe, Stride)
-     * abgeleitet, also deterministisch — MUSS mit der tatsächlich verwendeten Stride ({@code s}
-     * bzw. {@code s2}) aufgerufen werden, damit Rand-Ring-Zellen fremder Regionen denselben Wert
-     * ergeben. Wasser bleibt roh (Spiegel flach/koplanar), {@code stride <= 1} = kein Effekt.
+     * abgeleitet, also deterministisch. Wird auch für Rand-Ring-Zellen fremder Regionen mit der
+     * EIGENEN Stride {@code s} aufgerufen (s. {@link #sampleCell}) — Ring-Höhen dienen nur dem
+     * Vergleich mit eigenen Zellen, nicht der Rekonstruktion des Nachbar-Meshes.
+     * Wasser bleibt roh (Spiegel flach/koplanar), {@code stride <= 1} = kein Effekt.
      */
     private long quantizeHeight(long sample, int stride) {
         if (!QUANTIZE_HEIGHT || stride <= 1) return sample;

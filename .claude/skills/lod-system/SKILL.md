@@ -83,8 +83,12 @@ ebenfalls. Gras-Wände tragen ein koplanares getöntes Overlay-Quad (s.u.).
    `lodShowsCell` prüft nur `current` (auf desired gepruned).
 4. **Determinismus des Meshers:** Jede Zelle wird rein am Zellmittel gesampelt — identisch aus
    Sicht ALLER Regionen. Zellen fremder Regionen werden auf DEREN Zellraster gesampelt
-   (`neighborLevel` nutzt dieselbe pure `levelAt`-Formel mit demselben Anker). Wer hier einen
-   Sonderpfad einbaut, erzeugt Nähte/Löcher an Regionsgrenzen, die nur aus bestimmten
+   (`neighborLevel` nutzt dieselbe pure `levelAt`-Formel mit demselben Anker), aber im EIGENEN
+   Raster quantisiert (`quantizeHeight(..., s)`): Ring-Höhen sind reine VERGLEICHSwerte für
+   Wand-Bedingung/Ecken-AO — mit Nachbar-Quantisierung ergäbe flaches Terrain an Level-Grenzen
+   Phantom-AO-Streifen und Phantom-Stufenwände; den realen Restversatz der Meshes
+   (< MAX_QUANT_STRIDE) decken die Regionsrand-Skirts. Wer an der Levelzuordnung/Sample-Position
+   einen Sonderpfad einbaut, erzeugt Nähte/Löcher an Regionsgrenzen, die nur aus bestimmten
    Blickwinkeln sichtbar sind.
 
 ## Optik-Details
