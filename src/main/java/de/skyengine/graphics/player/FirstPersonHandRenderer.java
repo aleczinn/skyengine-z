@@ -1,6 +1,7 @@
 package de.skyengine.graphics.player;
 
 import de.skyengine.core.SkyEngine;
+import de.skyengine.game.GameContainer;
 import de.skyengine.game.entity.PlayerAnimationState;
 import de.skyengine.game.world.item.ItemStack;
 import org.joml.Matrix4f;
@@ -62,18 +63,36 @@ public final class FirstPersonHandRenderer {
             return;
         }
 
-        /* Vanilla renderArmWithItem: Swing-Versatz + Arm-Transform + Attack-Rotationen,
-           danach der Display-Transform des Items (in drawFirstPerson). */
-        float f5 = (float) Math.sin(sp * sp * Math.PI);
-        float f6 = (float) Math.sin(sqrtSp * Math.PI);
-        float fx = -0.4F * f6;
-        float fy = 0.2F * (float) Math.sin(sqrtSp * 2 * Math.PI);
-        float fz = -0.2F * (float) Math.sin(sp * Math.PI);
-        this.model.translation(fx + 0.56F, fy - 0.52F, fz - 0.72F)
-                .rotateY((float) Math.toRadians(45F + f5 * -20F))
-                .rotateZ((float) Math.toRadians(f6 * -20F))
-                .rotateX((float) Math.toRadians(f6 * -80F))
-                .rotateY((float) Math.toRadians(-45F));
+        if (anim.isEating()) {
+            /* Vanilla-Reihenfolge: ERST applyEatTransform, DANN applyItemArmTransform —
+               die Eat-Rotationen drehen den Arm-Versatz mit, dadurch schwenkt das Item
+               zur Bildmitte ans Gesicht (f1 1 -> 0 bis zum Schlucken) und nickt im
+               Kau-Takt. Umgekehrt bleibt es riesig/flach rechts unten liegen. */
+            this.model.identity();
+            float f = anim.getEatTime(partialTick);
+            float f1 = f / GameContainer.EAT_TICKS;
+            if (f1 < 0.8F) {
+                this.model.translate(0F, (float) Math.abs(Math.cos(f / 4.0 * Math.PI) * 0.1), 0F);
+            }
+            float f3 = 1F - (float) Math.pow(f1, 27.0);
+            this.model.translate(f3 * 0.6F, f3 * -0.5F, 0F)
+                    .rotateY((float) Math.toRadians(f3 * 90F))
+                    .rotateX((float) Math.toRadians(f3 * 10F))
+                    .rotateZ((float) Math.toRadians(f3 * 30F))
+                    .translate(0.56F, -0.52F, -0.72F);
+        } else {
+            /* Vanilla renderArmWithItem: Swing-Versatz + Arm-Transform + Attack-Rotationen. */
+            float f5 = (float) Math.sin(sp * sp * Math.PI);
+            float f6 = (float) Math.sin(sqrtSp * Math.PI);
+            float fx = -0.4F * f6;
+            float fy = 0.2F * (float) Math.sin(sqrtSp * 2 * Math.PI);
+            float fz = -0.2F * (float) Math.sin(sp * Math.PI);
+            this.model.translation(fx + 0.56F, fy - 0.52F, fz - 0.72F)
+                    .rotateY((float) Math.toRadians(45F + f5 * -20F))
+                    .rotateZ((float) Math.toRadians(f6 * -20F))
+                    .rotateX((float) Math.toRadians(f6 * -80F))
+                    .rotateY((float) Math.toRadians(-45F));
+        }
         items.bind(this.pv);
         items.drawFirstPerson(held.getItem(), this.model);
         items.unbind();

@@ -30,23 +30,43 @@ public final class PlayerModel {
     private Mesh rightArm, rightSleeve, leftArm, leftSleeve;
     private Mesh rightLeg, rightPants, leftLeg, leftPants;
 
+    /* Slim-Variante (Alex, 3px-Arme): schmalere Arm-Boxen, Arm-Pivot 0.5px tiefer. */
+    private boolean slim;
+
     private final Matrix4f part = new Matrix4f();
 
     /** Baut alle Part-Meshes (GL — nur auf dem Render-Thread). */
-    public void init() {
-        /* Vanilla HumanoidModel/PlayerModel (Classic): addBox relativ zum Part-Pivot. */
+    public void init(boolean slim) {
+        this.slim = slim;
+        /* Vanilla HumanoidModel/PlayerModel: addBox relativ zum Part-Pivot. */
         this.head = new Mesh(buildBox(-4, -8, -4, 8, 8, 8, 0, 0, 0));
         this.hat = new Mesh(buildBox(-4, -8, -4, 8, 8, 8, 32, 0, 0.5f));
         this.body = new Mesh(buildBox(-4, 0, -2, 8, 12, 4, 16, 16, 0));
         this.jacket = new Mesh(buildBox(-4, 0, -2, 8, 12, 4, 16, 32, 0.25f));
-        this.rightArm = new Mesh(buildBox(-3, -2, -2, 4, 12, 4, 40, 16, 0));
-        this.rightSleeve = new Mesh(buildBox(-3, -2, -2, 4, 12, 4, 40, 32, 0.25f));
-        this.leftArm = new Mesh(buildBox(-1, -2, -2, 4, 12, 4, 32, 48, 0));
-        this.leftSleeve = new Mesh(buildBox(-1, -2, -2, 4, 12, 4, 48, 48, 0.25f));
+        if (slim) {
+            this.rightArm = new Mesh(buildBox(-2, -2, -2, 3, 12, 4, 40, 16, 0));
+            this.rightSleeve = new Mesh(buildBox(-2, -2, -2, 3, 12, 4, 40, 32, 0.25f));
+            this.leftArm = new Mesh(buildBox(-1, -2, -2, 3, 12, 4, 32, 48, 0));
+            this.leftSleeve = new Mesh(buildBox(-1, -2, -2, 3, 12, 4, 48, 48, 0.25f));
+        } else {
+            this.rightArm = new Mesh(buildBox(-3, -2, -2, 4, 12, 4, 40, 16, 0));
+            this.rightSleeve = new Mesh(buildBox(-3, -2, -2, 4, 12, 4, 40, 32, 0.25f));
+            this.leftArm = new Mesh(buildBox(-1, -2, -2, 4, 12, 4, 32, 48, 0));
+            this.leftSleeve = new Mesh(buildBox(-1, -2, -2, 4, 12, 4, 48, 48, 0.25f));
+        }
         this.rightLeg = new Mesh(buildBox(-2, 0, -2, 4, 12, 4, 0, 16, 0));
         this.rightPants = new Mesh(buildBox(-2, 0, -2, 4, 12, 4, 0, 32, 0.25f));
         this.leftLeg = new Mesh(buildBox(-2, 0, -2, 4, 12, 4, 16, 48, 0));
         this.leftPants = new Mesh(buildBox(-2, 0, -2, 4, 12, 4, 0, 48, 0.25f));
+    }
+
+    public boolean isSlim() {
+        return this.slim;
+    }
+
+    /** Arm-Pivot-Höhe (Vanilla: slim 2.5, classic 2.0) — nach jedem Pose-Reset setzen. */
+    public float getArmPivotY() {
+        return this.slim ? 2.5f : 2f;
     }
 
     /**

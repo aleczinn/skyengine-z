@@ -13,7 +13,7 @@ public final class PlayerAnimationState {
     private static final int HURT_TICKS = 10;   // Abklingzeit des Hurt-Kamera-Rolls (wie MC)
 
     /* Gliedmaßen-Schwung: Phase (akkumuliert) + Amplitude 0..1 (geglättet). */
-    private float limbSwing;
+    private float limbSwing, prevLimbSwing;
     private float limbSwingAmount, prevLimbSwingAmount;
 
     /* Körper-Yaw zieht dem Kopf weich nach (MC renderYawOffset), Grad. */
@@ -27,6 +27,10 @@ public final class PlayerAnimationState {
     /* Hurt-Timer (dekrementiert pro Tick). */
     private int hurtTime;
 
+    /* Ess-Zustand: verbleibende Ticks (−1 = isst nicht). Wird NICHT hier getickt —
+       GameContainer.updateEating setzt ihn pro Tick (dort lebt das Ess-Gameplay). */
+    private int eatingTicksLeft = -1;
+
     /* View-Bobbing (MC bob/walkDist). */
     private float bob, prevBob;
     private float walkDist, prevWalkDist;
@@ -35,6 +39,7 @@ public final class PlayerAnimationState {
 
     /** Ein Simulations-Tick (20 TPS) — nach {@code player.update(...)} aufrufen. */
     public void tick(EntityPlayer player) {
+        this.prevLimbSwing = this.limbSwing;
         this.prevLimbSwingAmount = this.limbSwingAmount;
         this.prevBodyYaw = this.bodyYaw;
         this.prevSwingProgress = this.swingProgress;
@@ -55,15 +60,30 @@ public final class PlayerAnimationState {
         this.limbSwingAmount += (amount - this.limbSwingAmount) * 0.4F;
         this.limbSwing += this.limbSwingAmount;
 
-        /* Körper folgt dem Blick: bei Bewegung aktiv nachziehen, im Stand erst wenn der Kopf
-           mehr als 75° verdreht ist; danach harter Clamp auf ±75° (MC-Verhalten vereinfacht). */
-        float diff = wrapDegrees(player.yaw - this.bodyYaw);
-        if (horizontal > 0.005F) {
-            this.bodyYaw += diff * 0.3F;
+        /* Körper-Yaw (Vanilla aiStep + tickHeadTurn): bei Bewegung dreht der KÖRPER zur
+           Bewegungsrichtung (Diagonal-/Seitwärtslauf = Körper schräg zur Kamera), rückwärts
+           bleibt er vorwärts gerichtet; Attack zieht ihn zum Blick. Immer weiche 0.3-Annäherung,
+           danach ±75°-Clamp gegen den Kopf + Extra-Zug ab 50° Verdrehung. */
+        float target = this.bodyYaw;
+        if (dx * dx + dz * dz > 0.0025F) {
+            /* Bewegungsrichtungs-Yaw in unserer Konvention: dir(yaw) = (sin yaw, -cos yaw). */
+            float moveYaw = (float) Math.toDegrees(Math.atan2(dx, -dz));
+            if (Math.abs(wrapDegrees(moveYaw - player.yaw)) > 95F) {
+                moveYaw += 180F;
+            }
+            target = moveYaw;
         }
-        diff = wrapDegrees(player.yaw - this.bodyYaw);
-        if (diff < -75F) this.bodyYaw = player.yaw + 75F;
-        if (diff > 75F) this.bodyYaw = player.yaw - 75F;
+        if (this.swinging) {
+            target = player.yaw;
+        }
+        this.bodyYaw += wrapDegrees(target - this.bodyYaw) * 0.3F;
+        float diff = wrapDegrees(player.yaw - this.bodyYaw);
+        if (diff < -75F) diff = -75F;
+        if (diff > 75F) diff = 75F;
+        this.bodyYaw = player.yaw - diff;
+        if (diff * diff > 2500F) {
+            this.bodyYaw += diff * 0.2F;
+        }
 
         /* Vanilla updateSwingTime: Neustart-Marker -1 wird HIER inkrementiert (nicht im
            swing()-Aufruf) — kein sichtbarer Mid-Frame-Reset des Fortschritts. */
@@ -98,8 +118,27 @@ public final class PlayerAnimationState {
         this.hurtTime = HURT_TICKS;
     }
 
+    /** Startet/aktualisiert die Ess-Animation ({@code ticksLeft} zählt runter wie MC). */
+    public void setEating(int ticksLeft) {
+        this.eatingTicksLeft = ticksLeft;
+    }
+
+    public void clearEating() {
+        this.eatingTicksLeft = -1;
+    }
+
+    public boolean isEating() {
+        return this.eatingTicksLeft >= 0;
+    }
+
+    /** Vanilla-Zeitbasis der Ess-Animation (applyEatTransform): ticksLeft − pt + 1. */
+    public float getEatTime(float partialTick) {
+        return this.eatingTicksLeft - partialTick + 1F;
+    }
+
     /** Bei Pause/GUI-Standbild: prev = current, damit nichts weiter-interpoliert. */
     public void snapPrev() {
+        this.prevLimbSwing = this.limbSwing;
         this.prevLimbSwingAmount = this.limbSwingAmount;
         this.prevBodyYaw = this.bodyYaw;
         this.prevSwingProgress = this.swingProgress;
@@ -109,8 +148,9 @@ public final class PlayerAnimationState {
 
     /** Kompletter Reset (Welt-Eintritt/Respawn). */
     public void reset() {
-        this.limbSwing = 0;
+        this.limbSwing = 0; this.prevLimbSwing = 0;
         this.limbSwingAmount = 0; this.prevLimbSwingAmount = 0;
+        this.eatingTicksLeft = -1;
         this.bodyYaw = 0; this.prevBodyYaw = 0;
         this.swinging = false; this.swingTime = 0;
         this.swingProgress = 0; this.prevSwingProgress = 0;
@@ -123,8 +163,11 @@ public final class PlayerAnimationState {
     /* --- Interpolations-Getter (partialTick) --- */
 
     public float getLimbSwing(float partialTick) {
-        /* MC: Phase minus des noch nicht getickten Anteils der Amplitude. */
-        return this.limbSwing - this.limbSwingAmount * (1F - partialTick);
+        /* prev/current-Interpolation statt MCs "limbSwing − amount·(1−pt)": im Normalbetrieb
+           identisch (limbSwing_neu = alt + amount ⇒ prev + Δ·pt = limbSwing − amount·(1−pt)),
+           friert aber bei snapPrev() korrekt ein — MCs Formel hängt am frame-variablen
+           partialTick und ließ das Modell in der Pause zwischen zwei Schritten zittern. */
+        return this.prevLimbSwing + (this.limbSwing - this.prevLimbSwing) * partialTick;
     }
 
     public float getLimbSwingAmount(float partialTick) {
