@@ -30,5 +30,14 @@ public interface BlockEntityRenderer {
      */
     default void renderIcon(Matrix4f mvp) {}
 
+    /**
+     * Zeichnet das Block-Modell als gehaltenes Item (First-/Third-Person-Hand, Inventar-Vorschau).
+     * {@code mvp} ist die fertige Matrix (ProjView × Hand-/Display-Transform); das Modell liegt in
+     * 0..1-Blockeinheiten. WICHTIG: kein Depth-/Cull-State anfassen (Reversed-Z-Funcs sind global
+     * gesetzt, der Hand-Pass hat Tiefentest an und Culling aus) — nur eigenen Shader/Textur binden
+     * und am Ende unbinden; den Aufrufer-State stellt {@code HeldItemMeshes} wieder her.
+     */
+    default void renderHeld(Matrix4f mvp) {}
+
     default void dispose() {}
 }

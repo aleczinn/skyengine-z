@@ -151,6 +151,34 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.unbind();
     }
 
+    /**
+     * Zeichnet die GESCHLOSSENE Truhe als gehaltenes Item. {@code mvp} kommt fertig aus
+     * {@code HeldItemMeshes} (ProjView × Hand-/Display-Transform) — daher u_Model = Identität
+     * (keine Icon-Vorrotation) und u_NormalRot = Identität (Richtungs-Shading truhen-lokal:
+     * Deckel hell, Front/Rück 0.8, Seiten 0.6 — gleicher Look wie die Welt-Truhe).
+     * Wie bei {@link #renderIcon}: KEIN Depth-/Cull-Umschalten (Shader-Rekompilierungs-Warnung).
+     */
+    @Override
+    public void renderHeld(Matrix4f mvp) {
+        this.iconModel.identity();
+
+        this.shader.bind();
+        this.shader.setUniformMatrix4f("u_ProjectionView", mvp);
+        this.shader.setUniformMatrix4f("u_Model", this.iconModel);
+        this.normalRot.identity();
+        this.shader.setUniformMatrix4f("u_NormalRot", this.normalRot);
+        /* Hand: normale Welt-Helligkeit statt der dunkleren Icon-Schrauben. */
+        this.shader.setUniformf("u_TopBrightness", 1.0f);
+        this.shader.setUniformf("u_ZBrightness", 0.8f);
+        this.shader.setUniformf("u_SideBrightness", 0.6f);
+        this.shader.setUniformi("u_Texture", 0);
+        this.texture.bind(0);
+        this.base.render();
+        this.lid.render();    // geschlossen: kein Öffnungswinkel
+        this.latch.render();
+        this.shader.unbind();
+    }
+
     @Override
     public void dispose() {
         if (this.base != null) this.base.dispose();

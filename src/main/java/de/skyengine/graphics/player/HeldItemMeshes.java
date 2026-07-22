@@ -11,7 +11,10 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ToolItem;
+import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.graphics.GlDebug;
+import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
+import de.skyengine.graphics.blockentity.BlockEntityRenderer;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
@@ -49,16 +52,21 @@ public final class HeldItemMeshes {
 
     private ShaderProgram shader;
     private TextureArray textures;
+    /** Für BER-Blöcke ohne statisches Modell (Truhe): eigener Renderer statt Planks-Fallback. */
+    private BlockEntityRenderDispatcher blockEntityRenderers;
 
-    private record HeldMesh(Mesh mesh, boolean flat, boolean handheld) {}
-    private static final HeldMesh EMPTY = new HeldMesh(null, false, false);
+    private record HeldMesh(Mesh mesh, boolean flat, boolean handheld, BlockEntityRenderer custom) {}
+    private static final HeldMesh EMPTY = new HeldMesh(null, false, false, null);
 
     private final Map<Item, HeldMesh> cache = new HashMap<>();
     private final Matrix4f transform = new Matrix4f();
+    private final Matrix4f projView = new Matrix4f();
+    private final Matrix4f mvp = new Matrix4f();
     private boolean cullWasEnabled;
 
-    public void init(TextureArray textures) {
+    public void init(TextureArray textures, BlockEntityRenderDispatcher blockEntityRenderers) {
         this.textures = textures;
+        this.blockEntityRenderers = blockEntityRenderers;
         this.shader = new ShaderProgram(
                 new Shader(VERTEX, ShaderType.VERTEX),
                 new Shader(FRAGMENT, ShaderType.FRAGMENT));
@@ -68,6 +76,7 @@ public final class HeldItemMeshes {
     public void bind(Matrix4f projectionView) {
         this.cullWasEnabled = GL11.glIsEnabled(GL11.GL_CULL_FACE);
         GL11.glDisable(GL11.GL_CULL_FACE);
+        this.projView.set(projectionView);
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", projectionView);
         this.shader.setUniformi("u_Textures", 0);
@@ -85,6 +94,17 @@ public final class HeldItemMeshes {
      */
     public void drawFirstPerson(Item item, Matrix4f base) {
         HeldMesh held = this.meshFor(item);
+        if (held.custom != null) {
+            /* BER-Block (Truhe): gleiche Display-Kette wie der Block-Zweig, aber der eigene
+               Renderer zeichnet (eigener Shader/Textur) — danach unseren State wiederherstellen. */
+            this.transform.set(base)
+                    .rotateXYZ(0F, (float) Math.toRadians(45), 0F).scale(0.40F)
+                    .translate(-0.5F, -0.5F, -0.5F);
+            this.projView.mul(this.transform, this.mvp);
+            held.custom.renderHeld(this.mvp);
+            this.restoreAfterCustom();
+            return;
+        }
         if (held.mesh == null) return;
         this.transform.set(base);
         if (held.flat) {
@@ -105,6 +125,18 @@ public final class HeldItemMeshes {
      */
     public void drawThirdPerson(Item item, Matrix4f base) {
         HeldMesh held = this.meshFor(item);
+        if (held.custom != null) {
+            /* BER-Block (Truhe): Block-Display-Kette, gezeichnet vom eigenen Renderer. */
+            this.transform.set(base)
+                    .translate(0F, 2.5F, 0F)
+                    .rotateXYZ((float) Math.toRadians(75), (float) Math.toRadians(45), 0F)
+                    .scale(16F * 0.375F)
+                    .translate(-0.5F, -0.5F, -0.5F);
+            this.projView.mul(this.transform, this.mvp);
+            held.custom.renderHeld(this.mvp);
+            this.restoreAfterCustom();
+            return;
+        }
         if (held.mesh == null) return;
         this.transform.set(base);
         if (!held.flat) {
@@ -144,16 +176,39 @@ public final class HeldItemMeshes {
         }
         boolean handheld = item instanceof ToolItem;
         if (paths != null && paths.length == 1) {
-            return new HeldMesh(buildExtruded(paths[0], tint), true, handheld);
+            return new HeldMesh(buildExtruded(paths[0], tint), true, handheld, null);
         }
         if (paths != null && paths.length > 1) {
-            return new HeldMesh(buildFlat(paths, tint), true, handheld);
+            return new HeldMesh(buildFlat(paths, tint), true, handheld, null);
         }
         if (item instanceof BlockItem bi) {
+            /* BER-Block ohne statisches Modell (Truhe): eigener Renderer statt Planks-Fallback.
+               Greift NUR bei leerem Modell — Blöcke mit echtem Modell (Zaubertisch) unberührt. */
+            BakedQuad[] quads = bi.getBlock().getDefaultState().getModel();
+            if (quads == null || quads.length == 0) {
+                BlockEntityRenderer custom = this.customHeldFor(bi);
+                if (custom != null) return new HeldMesh(null, false, false, custom);
+            }
             Mesh mesh = buildBlock(bi.getBlock().getDefaultState());
-            if (mesh != null) return new HeldMesh(mesh, false, false);
+            if (mesh != null) return new HeldMesh(mesh, false, false, null);
         }
         return EMPTY;
+    }
+
+    /** BlockEntity-Renderer mit eigenem Modell (Vorbild ItemIconRenderer.customIconFor). */
+    private BlockEntityRenderer customHeldFor(BlockItem bi) {
+        if (this.blockEntityRenderers == null) return null;
+        BlockEntityType<?> type = bi.getBlock().getBlockEntityType();
+        if (type == null) return null;
+        BlockEntityRenderer r = this.blockEntityRenderers.get(type);
+        return (r != null && r.hasIcon()) ? r : null;
+    }
+
+    /** Nach einem BER-Draw eigenen Shader/Textur wiederherstellen (u_ProjectionView persistiert). */
+    private void restoreAfterCustom() {
+        this.shader.bind();
+        this.shader.setUniformi("u_Textures", 0);
+        this.textures.bind(0);
     }
 
     /* --- Sprite-Extrusion (MC ItemModelGenerator): 0..1 in x/y, 1 px dick um z=0.5 --- */
