@@ -50,6 +50,11 @@ import de.skyengine.graphics.gui.screens.GuiIngameMenu;
 import de.skyengine.graphics.gui.screens.GuiDeathScreen;
 import de.skyengine.graphics.gui.screens.GuiMainMenu;
 import de.skyengine.graphics.gui.screens.GuiWorldLoading;
+import de.skyengine.game.entity.PlayerAnimationState;
+import de.skyengine.graphics.camera.CameraPerspective;
+import de.skyengine.graphics.player.FirstPersonHandRenderer;
+import de.skyengine.graphics.player.HeldItemMeshes;
+import de.skyengine.graphics.player.PlayerRenderer;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.game.world.block.entity.BlockEntities;
 import de.skyengine.game.world.save.LevelData;
@@ -62,6 +67,7 @@ import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
+import org.joml.Matrix4f;
 import org.joml.Vector2f;
 import org.joml.Vector3d;
 import org.lwjgl.glfw.GLFW;
@@ -112,9 +118,6 @@ public class GameContainer implements IResizeable, IDisposable {
     private static final long DOUBLE_TAP_MS = 300;
     private long lastSpacePressTime = 0;
 
-    /* Wiederverwendet, um Allokationen pro Frame zu vermeiden */
-    private final Vector3d rayDirection = new Vector3d();
-
     private boolean debugChunkBoundingBox = false;
     private boolean debugChunkWireframe = false;
 
@@ -123,6 +126,22 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /* Audio: Effekt-Sounds + Musik (OpenAL, komplett auf dem Render-Thread). */
     private final SoundManager soundManager = new SoundManager();
+
+    /* Spielermodell (Skin): Inventar-Vorschau + Third-Person. Welt-unabhängig (Engine-Lebensdauer). */
+    private final PlayerRenderer playerRenderer = new PlayerRenderer();
+    private final HeldItemMeshes heldItemMeshes = new HeldItemMeshes();
+    private final FirstPersonHandRenderer handRenderer = new FirstPersonHandRenderer();
+    /* Bob-/Hurt-Effektmatrix des Frames (View-Vorsatz für Kamera UND First-Person-Hand). */
+    private final Matrix4f viewEffect = new Matrix4f();
+    /* Animations-Zustand (Limb-Swing/Arm-Schwung/Hurt/Bob) + Kamera-Perspektive (F5-Zyklus). */
+    private final PlayerAnimationState animState = new PlayerAnimationState();
+    private CameraPerspective perspective = CameraPerspective.FIRST_PERSON;
+    private static final double THIRD_PERSON_DISTANCE = 4.0;
+    /* Augenpunkt/-richtung des Frames: Interaktions-/Mining-Strahl zielt auch in Third-Person
+       vom Auge, nie von der versetzten Kamera. */
+    private final Vector3d eyePosition = new Vector3d();
+    private final Vector3d eyeDirection = new Vector3d();
+    private final Vector3d camRayDirection = new Vector3d();
     /* Laufgeräusche: zurückgelegte Distanz seit dem letzten Schritt (MC-Kadenz ~1.6 Blöcke). */
     private static final double STEP_INTERVAL = 1.6;
     private double stepDistance = 0;
@@ -140,8 +159,9 @@ public class GameContainer implements IResizeable, IDisposable {
     /* Slot-Wechsel-Zeitpunkt für die Itemnamen-Einblendung über der Hotbar (reine Anzeige). */
     private static final long ITEM_NAME_HOLD_MS = 2000, ITEM_NAME_FADE_MS = 500;
     private long itemNameShownAt = 0;
-    /* Ess-Fortschritt in Ticks (Rechtsklick halten auf ein FoodItem, MC: 32 Ticks = 1,6 s). */
-    private static final int EAT_TICKS = 32;
+    /* Ess-Fortschritt in Ticks (Rechtsklick halten auf ein FoodItem, MC: 32 Ticks = 1,6 s).
+       Public: auch Zeitbasis der Ess-Animation (FirstPersonHandRenderer). */
+    public static final int EAT_TICKS = 32;
     private int eatingTicks = 0;
 
     /* Aktives Savegame (null im Hauptmenü) — Ziel für saveCurrentWorld beim Austritt/Beenden. */
@@ -184,6 +204,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.blockEntityRenderers.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderers.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
         this.blockEntityRenderers.init();
+        this.playerRenderer.init();
+        this.heldItemMeshes.init(this.atlas.textures());
         this.guiManager.initLate(this.atlas.textures(), this.blockEntityRenderers);
 
         progress.frame(I18n.tr("boot.sound"), 0.85f);
@@ -234,6 +256,8 @@ public class GameContainer implements IResizeable, IDisposable {
             this.fillStartInventory();
         }
         this.hotbarIndex = 0;
+        this.animState.reset();
+        this.perspective = CameraPerspective.FIRST_PERSON;
 
         this.applySettings(); // Welt-Anteile (Render-/Sim-Distanz, farPlane) greifen jetzt
 
@@ -253,6 +277,7 @@ public class GameContainer implements IResizeable, IDisposable {
     public void respawnPlayer() {
         if (this.world == null || this.player == null) return;
         this.guiManager.close();
+        this.animState.reset();
         this.placeAtWorldSpawn(this.player);
         this.player.motionX = 0;
         this.player.motionY = 0;
@@ -363,10 +388,15 @@ public class GameContainer implements IResizeable, IDisposable {
            nicht in die ungeladene Welt fallen (ungeladene Chunks kollidieren als Luft). */
         if (this.guiManager.pausesGame() || this.guiManager.current() instanceof GuiWorldLoading) {
             this.player.snapPrevToCurrent();
+            this.animState.snapPrev();
+            /* Ess-Animation nicht in der Pause weiterwackeln lassen (ihr Kau-Nicken hängt am
+               partialTick); das Essen bricht beim Fortsetzen ohnehin ab (Maustaste ist los). */
+            this.animState.clearEating();
         } else {
             /* Offenes Container-GUI (Inventar/Truhe): Physik läuft weiter (fallen/Strömung),
                aber ohne Tasten — wie in MC gehen die Eingaben ans GUI. */
             this.player.update(this.guiManager.isOpen() ? Input.EMPTY : input, this.world);
+            this.animState.tick(this.player);
             this.updateStepSounds();
             this.updateHurtSounds();
             this.updateEating(input);
@@ -441,7 +471,10 @@ public class GameContainer implements IResizeable, IDisposable {
     private void updateHurtSounds() {
         float fall = this.player.consumeFallDamage();
         if (fall > 0) this.soundManager.playFall(fall >= 4); // MC-Grenze: ab 4 Schaden „big"
-        if (this.player.consumeHurt()) this.soundManager.playHurt();
+        if (this.player.consumeHurt()) {
+            this.soundManager.playHurt();
+            this.animState.hurt(); // Kamera-Roll (Hurt-Tilt)
+        }
     }
 
     /**
@@ -475,10 +508,14 @@ public class GameContainer implements IResizeable, IDisposable {
             /* Inventar-Taste (Default E) öffnet das Spielerinventar; dieselbe Taste schließt es
                wieder (closesOnInventoryKey im GuiManager-Routing). */
             if (input.isKeyPressed(this.settings.key(KeyBindings.OPEN_INVENTORY))) {
-                this.guiManager.open(new GuiInventory(this.playerInventory));
+                this.guiManager.open(new GuiInventory(this.playerInventory, this.playerRenderer,
+                        this.heldItemMeshes, () -> this.playerInventory.get(this.hotbarIndex)));
             }
             this.handleDebugInput(input);
             this.handleHotbarInput(input);
+            if (input.isKeyPressed(this.settings.key(KeyBindings.TOGGLE_PERSPECTIVE))) {
+                this.perspective = this.perspective.next();
+            }
             double sens = this.settings.mouseSensitivity;
             this.player.turn(input.getDeltaMouseX() * sens, input.getDeltaMouseY() * sens);
         }
@@ -500,18 +537,20 @@ public class GameContainer implements IResizeable, IDisposable {
         }
 
         this.camera.follow(this.player, partialTick);
+        /* Augenpunkt/-richtung VOR dem Third-Person-Versatz sichern — Interaktion, Mining und
+           der Eimer-Strahl zielen immer vom Auge, egal wo die Kamera hängt. */
+        this.eyePosition.set(this.camera.getPosition());
+        this.camera.getDirection(this.eyeDirection);
+        this.applyPerspective();
+        this.updateViewEffect(partialTick);
+        this.camera.setViewEffect(this.viewEffect);
         this.camera.update((double) width / height);
         post.updateTaaCamera(this.camera);
 
         /* Audio pro Frame: Listener auf die interpolierte Kamera (Streaming läuft oben). */
         this.soundManager.updateListener(this.camera);
 
-        this.hit = BlockRaycast.raycast(
-                this.world,
-                this.camera.getPosition(),
-                this.camera.getDirection(this.rayDirection),
-                REACH
-        );
+        this.hit = BlockRaycast.raycast(this.world, this.eyePosition, this.eyeDirection, REACH);
 
         if (guiOpen) {
             this.guiManager.handleInput();       // Schließen + Slot-Klicks (kann den GuiScreen schließen)
@@ -526,7 +565,13 @@ public class GameContainer implements IResizeable, IDisposable {
            würde sonst auch das Fullscreen-Dreieck der Post-Kette (und die GUI-Quads) zu Linien
            machen — dann bliebe der Default-Framebuffer unbeschrieben ("eingefrorenes" Bild). */
         if (this.debugChunkWireframe) Utils.enableWireframe();
-        this.world.render(this.camera, partialTick);
+        if (this.perspective.isFirstPerson()) {
+            this.world.render(this.camera, partialTick);
+        } else {
+            this.world.render(this.camera, partialTick, () ->
+                    this.playerRenderer.renderThirdPerson(this.player, this.animState, this.camera, partialTick,
+                            this.heldItemMeshes, this.playerInventory.get(this.hotbarIndex)));
+        }
         if (this.debugChunkWireframe) Utils.disableWireframe();
 
         FrameProfiler.cpuStart(FrameProfiler.Cpu.OVL);
@@ -546,7 +591,65 @@ public class GameContainer implements IResizeable, IDisposable {
 
         this.renderFluidOverlay();
 
+        /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Depth-Clear. */
+        if (this.perspective.isFirstPerson() && this.player.getGamemode() != Gamemode.SPECTATOR) {
+            this.handRenderer.render(this.playerRenderer, this.heldItemMeshes,
+                    this.playerInventory.get(this.hotbarIndex), this.animState,
+                    (float) width / height, partialTick, this.viewEffect);
+        }
+
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
+    }
+
+    /**
+     * Bob-/Hurt-Effektmatrix des Frames (MC bobHurt + bobView): Hurt-Roll beim Schaden
+     * (vereinfacht ohne Angreifer-Richtung) und View-Bobbing beim Laufen. Beides über
+     * GameSettings abschaltbar; Bobbing nur First-Person und nicht beim Fliegen. Die Matrix
+     * geht identisch an Kamera UND First-Person-Hand (Hand wackelt mit, wie MC).
+     */
+    private void updateViewEffect(float partialTick) {
+        this.viewEffect.identity();
+        if (this.settings.damageTilt && this.animState.getHurtTime() > 0) {
+            float f = (this.animState.getHurtTime() - partialTick) / 10F;
+            float roll = (float) Math.sin(f * f * f * f * Math.PI) * 14F;
+            this.viewEffect.rotateZ((float) Math.toRadians(-roll));
+        }
+        if (this.settings.viewBobbing && this.perspective.isFirstPerson() && !this.player.isFlying()) {
+            float f1 = -this.animState.getWalkDistExtrapolated(partialTick);
+            float f2 = this.animState.getBob(partialTick);
+            float sin = (float) Math.sin(f1 * Math.PI);
+            float cos = (float) Math.cos(f1 * Math.PI);
+            this.viewEffect
+                    .translate(sin * f2 * 0.5F, -Math.abs(cos * f2), 0F)
+                    .rotateZ((float) Math.toRadians(sin * f2 * 3F))
+                    .rotateX((float) Math.toRadians(Math.abs((float) Math.cos(f1 * Math.PI - 0.2F) * f2) * 5F));
+        }
+    }
+
+    /**
+     * Third-Person: Kamera vom Augenpunkt nach hinten (BACK) bzw. vorn (FRONT) versetzen,
+     * per Block-Raycast abgeschnitten (Kamera nie in der Wand). FRONT blickt zum Spieler
+     * zurück. Läuft zwischen {@code camera.follow} und {@code camera.update}.
+     */
+    private void applyPerspective() {
+        if (this.perspective.isFirstPerson()) return;
+        boolean front = this.perspective == CameraPerspective.THIRD_PERSON_FRONT;
+        this.camRayDirection.set(this.eyeDirection);
+        if (!front) this.camRayDirection.negate();
+
+        double dist = THIRD_PERSON_DISTANCE;
+        BlockRaycast.Hit blocked = BlockRaycast.raycast(this.world, this.eyePosition, this.camRayDirection, dist);
+        if (blocked != null) {
+            double dx = blocked.hitX() - this.eyePosition.x;
+            double dy = blocked.hitY() - this.eyePosition.y;
+            double dz = blocked.hitZ() - this.eyePosition.z;
+            dist = Math.max(0.3, Math.sqrt(dx * dx + dy * dy + dz * dz) - 0.1);
+        }
+        /* getPosition() ist die Live-Referenz der Kamera — bewusst in-place versetzen. */
+        this.camera.getPosition().fma(dist, this.camRayDirection);
+        if (front) {
+            this.camera.setRotation(this.player.yaw + 180F, -this.player.pitch);
+        }
     }
 
     /**
@@ -558,9 +661,10 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Spectator zeigt wie MC keine Hotbar (Crosshair bleibt); ohne Spieler/Welt gibt es keine. */
         boolean showHotbar = this.player != null && this.player.getGamemode() != Gamemode.SPECTATOR;
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
-        /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair). */
+        /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair);
+           Crosshair nur in First Person (in den F5-Ansichten zielt man nicht über die Bildmitte). */
         this.guiManager.render(width, height, this.world != null ? this.playerInventory : null,
-                this.hotbarIndex, showHotbar, this.itemNameAlpha(), this.player);
+                this.hotbarIndex, showHotbar, this.perspective.isFirstPerson(), this.itemNameAlpha(), this.player);
         if (this.debugOverlay.isVisible() && this.world != null) {
             this.debugOverlay.render(this.guiManager, this.world, this.player);
         }
@@ -583,18 +687,25 @@ public class GameContainer implements IResizeable, IDisposable {
                 || this.player.getFoodLevel() >= EntityPlayer.MAX_FOOD
                 || !input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_RIGHT)) {
             this.eatingTicks = 0;
+            this.animState.clearEating();
             return;
         }
         if (++this.eatingTicks >= EAT_TICKS) {
             this.eatingTicks = 0;
+            this.animState.clearEating();
             this.player.eat(food.getNutrition(), food.getSaturation());
             this.soundManager.playBurp();
             held.setCount(held.getCount() - 1);
             if (held.getCount() <= 0) {
                 this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
             }
-        } else if (this.eatingTicks % 4 == 0) {
-            this.soundManager.playEat(); // Kau-Sound alle 4 Ticks (MC-Gefühl: ~8 Kauer bis zum Burp)
+        } else {
+            this.animState.setEating(EAT_TICKS - this.eatingTicks); // zählt runter wie MC
+            /* Kau-Sounds erst ab 7 verstrichenen Ticks (Vanilla: remaining <= duration-7) —
+               dann ist das Item in der FP-Animation am Gesicht angekommen; danach 4er-Takt. */
+            if (this.eatingTicks > 7 && this.eatingTicks % 4 == 0) {
+                this.soundManager.playEat();
+            }
         }
     }
 
@@ -651,6 +762,8 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         this.selectionBoxRenderer.dispose();
         if (this.crackRenderer != null) this.crackRenderer.dispose();
+        this.playerRenderer.dispose();
+        this.heldItemMeshes.dispose();
         if (this.guiManager != null) this.guiManager.dispose();
         this.blockEntityRenderers.dispose();
         this.atlas.dispose();
@@ -701,6 +814,7 @@ public class GameContainer implements IResizeable, IDisposable {
         float dt = (now - this.lastMiningMs) / 1000F;
         this.lastMiningMs = now;
         this.miningProgress += dt * perSecond;
+        this.animState.swing(); // kontinuierlicher Hack-Schwung während des Abbaus
 
         /* Periodischer Hit-Sound während des Abbaus (wie MCs Schlag-Takt). */
         if (now - this.lastHitSoundMs >= 250) {
@@ -779,6 +893,9 @@ public class GameContainer implements IResizeable, IDisposable {
             this.resetMining();
         }
 
+        /* Arm-Schwung: jeder Abbau-Klick/-Halte-Takt schwingt (auch ins Leere, wie MC). */
+        if (breakBlock) this.animState.swing();
+
         if (!breakBlock && !placeBlock) return;
 
         /* Eimer vor der hit==null-Prüfung: Der LEERE Eimer nutzt einen eigenen fluid-bewussten
@@ -800,7 +917,7 @@ public class GameContainer implements IResizeable, IDisposable {
             /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
             BlockState hitState = Blocks.getState(this.hit.block());
             if (hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(), hitState)) {
-                this.lastPlaceTime = now;
+                this.markPlaced(now);
                 return;
             }
 
@@ -834,9 +951,15 @@ public class GameContainer implements IResizeable, IDisposable {
                     && !this.collidesWithEntities(place, px, py, pz)) {
                 this.world.placeBlock(px, py, pz, place);
                 this.soundManager.playPlace(place.getBlock().getSoundGroup(), px + 0.5, py + 0.5, pz + 0.5);
-                this.lastPlaceTime = now;
+                this.markPlaced(now);
             }
         }
+    }
+
+    /** Erfolgreiche Rechtsklick-Aktion: Interakt-Delay neu starten + Arm-Schwung (wie MC). */
+    private void markPlaced(long now) {
+        this.lastPlaceTime = now;
+        this.animState.swing();
     }
 
     /**
@@ -875,7 +998,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 target.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId());
         this.soundManager.playPlace(block.getSoundGroup(),
                 this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
-        this.lastPlaceTime = now;
+        this.markPlaced(now);
         return true;
     }
 
@@ -884,7 +1007,7 @@ public class GameContainer implements IResizeable, IDisposable {
         BlockEntity be = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
         if (!(be instanceof ChestBlockEntity chest)) return false;
         this.guiManager.open(new GuiChest(chest, this.playerInventory));
-        this.lastPlaceTime = now;
+        this.markPlaced(now);
         return true;
     }
 
@@ -898,8 +1021,8 @@ public class GameContainer implements IResizeable, IDisposable {
         if (bucket.isEmpty()) {
             /* Aufnehmen: fluid-bewusster Strahl, damit Wasser/Lava als Ziel zählt. Nur eine
                Quelle (LEVEL 0, nicht fallend). */
-            BlockRaycast.Hit fhit = BlockRaycast.raycast(this.world, this.camera.getPosition(),
-                    this.camera.getDirection(this.rayDirection), REACH, true);
+            BlockRaycast.Hit fhit = BlockRaycast.raycast(this.world, this.eyePosition,
+                    this.eyeDirection, REACH, true);
             if (fhit == null) return false;
             BlockState state = Blocks.getState(fhit.block());
             if (!state.isFluid() || state.get(Properties.FALLING) || state.get(Properties.LEVEL) != 0) return false;
@@ -908,7 +1031,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 String id = state.getBlock().getFluidInfo().lava ? "skyengine:lava_bucket" : "skyengine:water_bucket";
                 this.consumeHeld(Items.get(Identifier.of(id)));
             }
-            this.lastPlaceTime = now;
+            this.markPlaced(now);
             return true;
         }
 
@@ -923,7 +1046,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.world.setBlock(t[0], t[1], t[2], source);
         this.world.scheduleTick(t[0], t[1], t[2], 1);
         if (consume) this.consumeHeld(Items.get(Identifier.of("skyengine:bucket")));
-        this.lastPlaceTime = now;
+        this.markPlaced(now);
         return true;
     }
 
@@ -1084,9 +1207,10 @@ public class GameContainer implements IResizeable, IDisposable {
             LodMesher.QUANTIZE_HEIGHT = !LodMesher.QUANTIZE_HEIGHT;
             this.logger.debug("LOD Höhenquantisierung: " + (LodMesher.QUANTIZE_HEIGHT ? "an" : "aus"));
         }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F5)) {
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F12)) {
             /* TEMP/Debug (Perf-Messung): koplanare LOD-Seiten-Overlays an/aus. Nicht persistiert;
-               der LodManager remesht bei Wechsel via Epoche alle LOD-Regionen. */
+               der LodManager remesht bei Wechsel via Epoche alle LOD-Regionen.
+               (Von F5 auf F12 verlegt — F5 ist jetzt der Perspektiven-Wechsel wie in MC.) */
             LodMesher.EMIT_GRASS_OVERLAY = !LodMesher.EMIT_GRASS_OVERLAY;
             this.logger.debug("LOD Seiten-Overlay: " + (LodMesher.EMIT_GRASS_OVERLAY ? "an" : "aus"));
         }

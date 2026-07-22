@@ -1,10 +1,15 @@
 package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.game.world.block.entity.ItemStorage;
+import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.Slot;
 import de.skyengine.graphics.gui.SpriteRenderer;
+import de.skyengine.graphics.player.HeldItemMeshes;
+import de.skyengine.graphics.player.PlayerRenderer;
 import de.skyengine.graphics.texture.Texture;
+
+import java.util.function.Supplier;
 
 /**
  * Spielerinventar (Taste E) mit der MC-Textur {@code container/inventory.png} (176×166):
@@ -17,11 +22,18 @@ public final class GuiInventory extends GuiContainer {
     private static final float TEX = 256f;
 
     private final ItemStorage playerInv;
+    private final PlayerRenderer playerRenderer;
+    private final HeldItemMeshes heldItemMeshes;
+    private final Supplier<ItemStack> heldItem;   // ausgewählter Hotbar-Slot (fürs Modell in der Hand)
     private float guiX, guiY;
 
-    public GuiInventory(ItemStorage playerInv) {
+    public GuiInventory(ItemStorage playerInv, PlayerRenderer playerRenderer,
+                        HeldItemMeshes heldItemMeshes, Supplier<ItemStack> heldItem) {
         super(playerInv);
         this.playerInv = playerInv;
+        this.playerRenderer = playerRenderer;
+        this.heldItemMeshes = heldItemMeshes;
+        this.heldItem = heldItem;
     }
 
     @Override
@@ -51,6 +63,10 @@ public final class GuiInventory extends GuiContainer {
         sr.drawSprite(bg, this.guiX, this.guiY, W, H, 0, 0, W / TEX, H / TEX);
         this.drawSlotHover(gui, mouseX, mouseY);
         sr.end();
+
+        /* Spieler-Vorschau im freien Bereich oben links (folgt der Maus, MC-Stil). */
+        this.playerRenderer.renderPreview(this.guiX + 51.5f, this.guiY + 75, 30,
+                mouseX, mouseY, vW, vH, this.heldItemMeshes, this.heldItem.get());
 
         this.drawSlotIcons(gui, mouseX, mouseY);
         this.drawTooltip(gui, mouseX, mouseY);

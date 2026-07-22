@@ -24,6 +24,7 @@ public final class KeyBindings {
     public static final String SPRINT = "sprint";
     public static final String OPEN_INVENTORY = "open_inventory";
     public static final String DROP = "drop";
+    public static final String TOGGLE_PERSPECTIVE = "toggle_perspective";
 
     /** Slot i (1..9) -> "hotbar_i". */
     public static String hotbar(int slot) {
@@ -41,6 +42,7 @@ public final class KeyBindings {
         m.put(SPRINT, GLFW.GLFW_KEY_LEFT_CONTROL);
         m.put(OPEN_INVENTORY, GLFW.GLFW_KEY_E);
         m.put(DROP, GLFW.GLFW_KEY_Q);
+        m.put(TOGGLE_PERSPECTIVE, GLFW.GLFW_KEY_F5);
         for (int i = 1; i <= 9; i++) {
             m.put(hotbar(i), GLFW.GLFW_KEY_1 + (i - 1));
         }

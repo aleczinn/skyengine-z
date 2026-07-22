@@ -46,7 +46,9 @@
       "vegetation_distance": "Vegetation Distance: %s",
       "lod": "LOD (Far View)",
       "lod_distance": "LOD Distance: %d",
-      "vsync": "VSync"
+      "vsync": "VSync",
+      "view_bobbing": "View Bobbing",
+      "damage_tilt": "Damage Tilt"
     },
 
     "sound": {
@@ -98,6 +100,7 @@
     "sprint": "Sprint",
     "open_inventory": "Inventory",
     "drop": "Drop Item",
+    "toggle_perspective": "Toggle Perspective",
     "hotbar": "Hotbar Slot %s"
   },
 
