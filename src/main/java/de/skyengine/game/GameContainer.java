@@ -205,7 +205,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.blockEntityRenderers.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
         this.blockEntityRenderers.init();
         this.playerRenderer.init();
-        this.heldItemMeshes.init(this.atlas.textures());
+        this.heldItemMeshes.init(this.atlas.textures(), this.blockEntityRenderers);
         this.guiManager.initLate(this.atlas.textures(), this.blockEntityRenderers);
 
         progress.frame(I18n.tr("boot.sound"), 0.85f);
@@ -1099,21 +1099,7 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Glasscheibe/Tür + Sand ins Hauptinventar (zum Testen, Truhe befüllen/leeren). */
         this.setBlock(9, Blocks.GLASS_PANE);
         this.setBlock(10, Blocks.OAK_DOOR);
-        this.setBlock(11, Blocks.SAND);
-
-        // TEMP: neue Blöcke zum visuellen Testen, wird nach der Verifikation wieder entfernt.
-        String[] testBlocks = {
-                "skyengine:tuff", "skyengine:tuff_bricks", "skyengine:polished_tuff",
-                "skyengine:chiseled_tuff", "skyengine:chiseled_tuff_bricks",
-                "skyengine:coarse_dirt", "skyengine:rooted_dirt", "skyengine:dirt_path", "skyengine:podzol",
-                "skyengine:mud", "skyengine:mud_bricks", "skyengine:packed_mud", "skyengine:muddy_mangrove_roots",
-                "skyengine:melon", "skyengine:pumpkin", "skyengine:carved_pumpkin",
-                "skyengine:brown_mushroom", "skyengine:red_mushroom",
-                "skyengine:brown_mushroom_block", "skyengine:red_mushroom_block", "skyengine:mushroom_stem"
-        };
-        for (int i = 0; i < testBlocks.length; i++) {
-            this.setItem(12 + i, testBlocks[i]);
-        }
+        this.setBlock(11, Blocks.ENCHANTING_TABLE);
     }
 
     /** Legt 64 eines Blocks in einen Inventar-Slot (Block-Item über die Identifier-Registry). */
