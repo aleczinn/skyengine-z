@@ -91,13 +91,15 @@ Der Fokus liegt auf:
 - Erweiterbarkeit
 - Moderne OpenGL-Techniken
 
-## Screenshots
+## Screenshots / Changelog
 
 v0.0.8
 - Gui-System (GuiScreens, Komponenten wie Button, Slider, CycleButton inkl. Persistenz; Ressourcenpacks sind WIP)
+- Gui Inventare sind ebenfalls möglich (z. B. Inventar im Survival mit Spielermodell)
 - I18n für Übersetzungen im Menü, Hotbar oder Itemnamen
-- Spieler wird basierend auf Minecraft Skins gerendert
-- Gui Inventare sind ebenfalls möglich (Survival Inventar mit Spielermodell)
+- Spieler wird basierend auf Minecraft Skins gerendert (eigener Skin in appdata/.skyengine/skin.png)
+- Hand-Item-Rendering
+- Spieleranimationen für Laufen/Essen/Block Interaktion
 
 ![Gui-System](project/0.0.8_gui-system.png?raw=true)
 
