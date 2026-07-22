@@ -32,6 +32,9 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
+    /** Generator-Version fuer den Save-Header (level.json) — bei bit-brechenden Aenderungen erhoehen. */
+    public static final int VERSION = 1;
+
     /* Meeresspiegel: bis zu dieser Hoehe wird Wasser aufgefuellt */
     static final int SEA_LEVEL = 64;
     /* Maximaler Berg-Aufschlag (skaliert mit Biomes.mountainWeight) -> Gipfel bis ~260 */
@@ -941,6 +944,12 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     private static final int TINT_COARSE = 13;
     /* Geglaettete Punkte: lokale Position (k - 1) * 4 fuer k = 0..10 (deckt -4..+36) */
     private static final int TINT_SMOOTH = 11;
+
+    /** Persistenz-Load: Grids ueber DENSELBEN Codepfad wie generate() neu berechnen (bit-identisch). */
+    @Override
+    public void fillTintCorners(Chunk chunk) {
+        this.buildTintGrids(chunk, chunk.chunkX << ChunkSection.SHIFT, chunk.chunkZ << ChunkSection.SHIFT);
+    }
 
     /** Berechnet die 33x33-Eck-Farbgrids des Chunks (pure Funktionswerte -> keine Naehte). */
     private void buildTintGrids(Chunk chunk, int baseX, int baseZ) {

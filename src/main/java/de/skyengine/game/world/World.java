@@ -20,12 +20,19 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.core.file.GameDirectory;
+import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
 import de.skyengine.game.world.generator.feature.trees.BiomeTreeFeature;
 import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
+import de.skyengine.game.world.generator.generators.VoidWorldGenerator;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.save.LevelData;
+import de.skyengine.game.world.save.WorldStorage;
+import de.skyengine.utils.logging.LogManager;
+import de.skyengine.utils.logging.Logger;
 import de.skyengine.game.world.lod.LodBlockAppearance;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.WorldLodDataSource;
@@ -37,6 +44,7 @@ import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.entity.EntityRenderer;
 import de.skyengine.graphics.world.ChunkRenderer;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -45,10 +53,14 @@ import java.util.function.Consumer;
 
 public class World implements IInitializable, IDisposable {
 
+    private final Logger logger = LogManager.getLogger(World.class.getName());
+
     private final String name;
 
     private final WorldGenerator generator;
     private final ChunkManager chunkManager;
+    /* Chunk-Persistenz (Region-Dateien + eigener IO-Thread); Flush in dispose(). */
+    private final WorldStorage storage;
     private final ChunkRenderer chunkRenderer;
     /* Heightmap-LOD jenseits der Render-Distanz; erst in init() erzeugt (braucht gebackene Modelle) */
     private LodManager lodManager;
@@ -80,20 +92,48 @@ public class World implements IInitializable, IDisposable {
     /** Verzögerung, mit der geplante Ticks außerhalb der Simulations-Distanz erneut vorgemerkt werden. */
     private static final int OUT_OF_SIM_RESCHEDULE = 20;
 
+    /** Autosave-Intervall für modifizierte Chunks in Ticks (60 s bei 20 TPS). */
+    private static final int AUTOSAVE_INTERVAL = 1200;
+
     /** Nur Chunks in diesem Radius (in Chunks) um den Spieler ticken (Random/Scheduled/Entities). */
     private int simulationDistance = 10;
     /* Spieler-Chunk des laufenden Ticks - Basis für isSimulated(). */
     private int playerChunkX, playerChunkZ;
 
-    public World(String name, int seed, BlockTextureAtlas atlas, BlockEntityRenderDispatcher blockEntityRenderer) {
-        this.name = name;
+    public World(String dirName, LevelData level, BlockTextureAtlas atlas, BlockEntityRenderDispatcher blockEntityRenderer) {
+        this.name = dirName;
         this.atlas = atlas;
         this.blockEntityRenderer = blockEntityRenderer;
-        this.generator = new AlphaWorldGeneratorV2(seed);
-        /* Feature-Pass (Dekoration): biome-abhaengige Baeume (featureId 0) */
-        this.chunkManager = new ChunkManager(this.generator,
-                new ChunkDecorator(this.generator, List.of(new BiomeTreeFeature())));
+
+        /* Generator nach worldType: importierte Welten (MC-Import) kommen komplett aus den
+           Region-Dateien und bekommen den Void-Generator ohne Features. */
+        boolean imported = "imported".equals(level.worldType);
+        if (imported) {
+            this.generator = new VoidWorldGenerator(level.seed);
+            this.chunkManager = new ChunkManager(this.generator,
+                    new ChunkDecorator(this.generator, List.of()));
+        } else {
+            this.generator = new AlphaWorldGeneratorV2(level.seed);
+            /* Feature-Pass (Dekoration): biome-abhaengige Baeume (featureId 0) */
+            this.chunkManager = new ChunkManager(this.generator,
+                    new ChunkDecorator(this.generator, List.of(new BiomeTreeFeature())));
+            if (level.generatorVersion != null && level.generatorVersion != AlphaWorldGeneratorV2.VERSION) {
+                this.logger.warning("Welt wurde mit Generator-Version " + level.generatorVersion
+                        + " erstellt, Engine hat Version " + AlphaWorldGeneratorV2.VERSION
+                        + " — ungespeicherte Gegenden können sich ändern (Nähte möglich)");
+            }
+        }
         this.chunkRenderer = new ChunkRenderer(this.chunkManager);
+
+        /* Chunk-Persistenz: Snapshots liegen in saves/<dir>/region; generierte Welten
+           speichern nur modifizierte Chunks (Tints werden beim Laden neu berechnet),
+           importierte alle (Tints im Payload). */
+        String generatorId = level.generator != null ? level.generator : (imported ? "minecraft_import" : "alpha_v2");
+        int generatorVersion = level.generatorVersion != null ? level.generatorVersion
+                : (imported ? 1 : AlphaWorldGeneratorV2.VERSION);
+        this.storage = new WorldStorage(new File(GameDirectory.resolve("saves"), dirName + "/region"),
+                this, this.generator, generatorId, generatorVersion, imported);
+        this.chunkManager.setStorage(this.storage);
     }
 
     public String getName() {
@@ -124,10 +164,63 @@ public class World implements IInitializable, IDisposable {
         this.playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
         this.chunkManager.update(player);
         this.lodManager.update(player);
+        this.schedulePendingFluidTicks();
         this.tickScheduled();
         this.tickRandomBlocks();
         this.tickBlockEntities();
         this.tickEntities();
+        /* Autosave: modifizierte Chunks periodisch wegschreiben (asynchron, IO-Thread).
+           Fallende Blöcke werden hier bewusst NICHT materialisiert (würden sichtbar
+           in der Luft einrasten) — sie landen ohnehin binnen Sekunden als Block-Edit. */
+        if (this.gameTime % AUTOSAVE_INTERVAL == 0) {
+            this.saveModifiedChunks(false);
+        }
+    }
+
+    /**
+     * Plant die vom Chunk-Load gesammelten Fluid-Ticks ein (fließendes/fallendes Wasser
+     * bzw. Lava liefe sonst nach dem Laden nie weiter). Muss auf dem Tick-Thread laufen —
+     * die ScheduledTickQueue ist nicht threadsicher.
+     */
+    private void schedulePendingFluidTicks() {
+        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+            int[] pending = chunk.pendingFluidTicks;
+            if (pending == null || !chunk.status.isAtLeast(ChunkStatus.DECORATED)) continue;
+            int baseX = chunk.chunkX << ChunkSection.SHIFT;
+            int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
+            for (int packed : pending) {
+                int x = baseX + (packed & 31);
+                int z = baseZ + ((packed >> 5) & 31);
+                int y = (packed >> 10) & 511;
+                FluidInfo info = Blocks.getState(chunk.getBlock(packed & 31, y, (packed >> 5) & 31))
+                        .getBlock().getFluidInfo();
+                this.scheduleTick(x, y, z, info != null ? info.tickDelay : 5);
+            }
+            chunk.pendingFluidTicks = null;
+        }
+    }
+
+    /**
+     * Reiht alle modifizierten Chunks zum Speichern ein (asynchron; Flush garantiert erst
+     * {@code storage.close()} in {@link #dispose()}). {@code materializeFalling} nur beim
+     * Welt-Austritt — s. {@link Chunk#materializeFallingBlocks()}.
+     */
+    public void saveModifiedChunks(boolean materializeFalling) {
+        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+            if (!chunk.modified || chunk.saveQueued) continue;
+            if (materializeFalling) chunk.materializeFallingBlocks();
+            chunk.saveQueued = true;
+            this.storage.enqueueSave(chunk);
+        }
+    }
+
+    /**
+     * Markiert den Chunk als seit dem letzten Save verändert — für Mutationen, die nicht
+     * über {@link #setBlock} laufen (z.B. Truhen-Inventar über das GUI).
+     */
+    public void markChunkModified(int x, int z) {
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk != null && chunk.status == ChunkStatus.READY) chunk.modified = true;
     }
 
     /** Simulations-Distanz in Chunks setzen (min. 2). Chunks außerhalb werden nicht getickt. */
@@ -406,6 +499,9 @@ public class World implements IInitializable, IDisposable {
            Mesh-Jobs dürfen beim Welt-Austritt nicht mehr laufen, wenn Arenen/Meshes sterben —
            sonst arbeiten Alt-Jobs beim direkten Wiedereintritt in die neue Welt hinein. */
         this.chunkManager.dispose();
+        /* NACH den Workern: jetzt schreibt niemand mehr auf Chunks — ausstehende Save-Jobs
+           flushen (bis 10 s) und die Region-Handles schließen. */
+        this.storage.close();
         this.entityRenderer.dispose();
         this.chunkRenderer.dispose();
         /* blockEntityRenderer + atlas NICHT disposen: Engine-Lebensdauer (GameContainer). */
@@ -517,6 +613,9 @@ public class World implements IInitializable, IDisposable {
         if (lx == 0 && lz == ChunkSection.MASK) this.markDirty(cx - 1, cz + 1, sy);
         if (lx == ChunkSection.MASK && lz == 0) this.markDirty(cx + 1, cz - 1, sy);
         if (lx == ChunkSection.MASK && lz == ChunkSection.MASK) this.markDirty(cx + 1, cz + 1, sy);
+
+        /* Persistenz: Chunk ist seit dem letzten Save verändert. */
+        chunk.modified = true;
         return true;
     }
 

@@ -4,9 +4,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Welt-Metadaten für {@code saves/<ordner>/level.json} (GSON-DTO). Chunks werden NICHT
- * gespeichert — die Welt regeneriert aus dem Seed; Block-Änderungen gehen beim Verlassen
- * verloren (bewusster Zwischenstand, volle Chunk-Persistenz ist ein eigenes Projekt).
+ * Welt-Metadaten für {@code saves/<ordner>/level.json} (GSON-DTO). Chunks liegen in
+ * {@code region/*.srg} (nur modifizierte; s. WorldStorage), der Spieler in
+ * {@code player/player.dat} — level.json hält NUR noch Welt-Metadaten.
+ * Alle neuen Felder sind Boxed/null-tolerant (alte level.json laden mit Defaults).
  */
 public final class LevelData {
 
@@ -15,9 +16,18 @@ public final class LevelData {
     public long created;
     public long lastPlayed;
 
-    /** null, bis die Welt zum ersten Mal verlassen/gespeichert wurde. */
+    /** Version des Save-Layouts (null = 1). Strikt getrennt von der Chunk-payloadVersion. */
+    public Integer formatVersion;
+    /** "default" (generiert) oder "imported" (MC-Import, Void-Generator). null = default. */
+    public String worldType;
+    /** Generator-Kennung (Provenienz), z.B. "alpha_v2" / "minecraft_import". null = alpha_v2. */
+    public String generator;
+    /** Version des Generators, mit dem die Welt läuft (Mismatch -> Warnung). null = 1. */
+    public Integer generatorVersion;
+
+    /** NUR noch Migration: Alt-Saves vor player.dat. Wird beim nächsten Speichern genullt. */
     public PlayerData player;
-    /** Nur belegte Slots. */
+    /** NUR noch Migration, s. {@link #player}. */
     public List<ItemEntry> inventory = new ArrayList<>();
 
     public static final class PlayerData {

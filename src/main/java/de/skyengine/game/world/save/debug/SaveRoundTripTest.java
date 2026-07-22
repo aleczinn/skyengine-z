@@ -147,7 +147,7 @@ public final class SaveRoundTripTest {
         generator.generate(other);
         byte[] payloadB = ChunkSerializer.serialize(other, "alpha_v2", 1, true);
 
-        WorldStorage storage = new WorldStorage(dir);
+        WorldStorage storage = new WorldStorage(dir, null, null, "test", 1, true);
         storage.writeChunk(3, -7, raw);       // Region (0,-1), landet in Sektor 1
         storage.writeChunk(18, -7, payloadB); // Region (1,-1)
         check(storage.hasChunk(3, -7) && storage.hasChunk(18, -7), "hasChunk für gespeicherte Chunks");
@@ -167,7 +167,7 @@ public final class SaveRoundTripTest {
 
         /* Alles über eine ECHTE Datei-Neuöffnung zurücklesen. */
         storage.close();
-        storage = new WorldStorage(dir);
+        storage = new WorldStorage(dir, null, null, "test", 1, true);
         check(Arrays.equals(storage.readChunk(3, -7), raw), "Chunk (3,-7) nach Neuöffnung identisch (in-place + Move überlebt)");
         check(Arrays.equals(storage.readChunk(4, -7), raw), "Chunk (4,-7) nach Neuöffnung identisch (aus wiederverwendetem Sektor)");
         check(Arrays.equals(storage.readChunk(18, -7), payloadB), "Chunk (18,-7) nach Neuöffnung identisch (Nachbar-Region)");
@@ -181,7 +181,7 @@ public final class SaveRoundTripTest {
             rafFile.seek(4096 + 20);
             rafFile.write(b ^ 0xFF);
         }
-        storage = new WorldStorage(dir);
+        storage = new WorldStorage(dir, null, null, "test", 1, true);
         check(storage.readChunk(4, -7) == null, "Korrupter Chunk wird erkannt (CRC) und als ungültig behandelt");
         check(Arrays.equals(storage.readChunk(3, -7), raw), "Nachbar-Chunk derselben Region bleibt lesbar");
         storage.close();

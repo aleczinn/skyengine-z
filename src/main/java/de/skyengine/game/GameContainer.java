@@ -57,7 +57,10 @@ import de.skyengine.graphics.player.HeldItemMeshes;
 import de.skyengine.graphics.player.PlayerRenderer;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.game.world.block.entity.BlockEntities;
+import de.skyengine.game.world.block.entity.DataTag;
+import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
 import de.skyengine.game.world.save.LevelData;
+import de.skyengine.game.world.save.PlayerIO;
 import de.skyengine.game.world.save.WorldSaves;
 import org.lwjgl.opengl.GL11;
 import de.skyengine.graphics.post.PostProcessingSettings;
@@ -73,6 +76,7 @@ import org.joml.Vector3d;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.File;
+import java.util.UUID;
 
 /* Kein IInitializable mehr: der Boot läuft zweistufig über initBoot()/initStaged() (Ladebildschirm). */
 public class GameContainer implements IResizeable, IDisposable {
@@ -156,6 +160,8 @@ public class GameContainer implements IResizeable, IDisposable {
     /* Spieler-Inventar (36 Slots: 0..8 Hotbar, 9..35 Hauptinventar). Auswahl per Zahlentasten 1..9. */
     private final SimpleItemStorage playerInventory = new SimpleItemStorage(36);
     private int hotbarIndex = 0;
+    /* Spieler-UUID (player.dat, Multiplayer-Vorbereitung): beim Betreten geladen oder neu erzeugt. */
+    private UUID playerUuid;
     /* Slot-Wechsel-Zeitpunkt für die Itemnamen-Einblendung über der Hotbar (reine Anzeige). */
     private static final long ITEM_NAME_HOLD_MS = 2000, ITEM_NAME_FADE_MS = 500;
     private long itemNameShownAt = 0;
@@ -225,12 +231,32 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     public void enterWorld(WorldSaves.WorldSave save) {
         this.currentSave = save;
-        this.world = new World(save.dirName(), save.level().seed, this.atlas, this.blockEntityRenderers);
+        this.world = new World(save.dirName(), save.level(), this.atlas, this.blockEntityRenderers);
         this.world.init();
 
         this.player = new EntityPlayer();
+        this.playerUuid = null;
+        /* Spielerzustand: player.dat ist die Quelle; Alt-Saves ohne player.dat werden einmalig
+           aus den level.json-Feldern migriert (beim nächsten Speichern genullt). */
+        DataTag playerTag = PlayerIO.read(new File(WorldSaves.dir(save.dirName()), "player/player.dat"));
         LevelData.PlayerData saved = save.level().player;
-        if (saved != null) {
+        if (playerTag != null) {
+            this.player.setPosition(playerTag.getDouble("x", 0.5),
+                    playerTag.getDouble("y", 80), playerTag.getDouble("z", 0.5));
+            this.player.yaw = (float) playerTag.getDouble("yaw", 0);
+            this.player.pitch = (float) playerTag.getDouble("pitch", 0);
+            try {
+                this.player.setGamemode(Gamemode.valueOf(playerTag.getString("gamemode", "")));
+            } catch (Exception ignored) { /* unbekannter Modus -> Default */ }
+            this.player.setFlying(playerTag.getBoolean("flying", false));
+            /* Fehlende Keys -> Defaults des frischen Spielers (volle Vitals). */
+            this.player.setHealth((float) playerTag.getDouble("health", this.player.getHealth()));
+            this.player.setFoodLevel(playerTag.getInt("foodLevel", this.player.getFoodLevel()));
+            this.player.setSaturation((float) playerTag.getDouble("saturation", this.player.getSaturation()));
+            long most = playerTag.getLong("uuidMost", 0);
+            long least = playerTag.getLong("uuidLeast", 0);
+            if (most != 0 || least != 0) this.playerUuid = new UUID(most, least);
+        } else if (saved != null) {
             this.player.setPosition(saved.x, saved.y, saved.z);
             this.player.yaw = saved.yaw;
             this.player.pitch = saved.pitch;
@@ -238,24 +264,27 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.player.setGamemode(Gamemode.valueOf(saved.gamemode));
             } catch (Exception ignored) { /* unbekannter Modus -> Default */ }
             this.player.setFlying(saved.flying);
-        } else {
-            this.placeAtWorldSpawn(this.player);
-        }
-        if (saved != null) {
             /* Vitals nur übernehmen, wenn vorhanden — alte level.json ohne die Felder liefert
                null (Boxed-Typen), sonst wäre GSON-Default 0 = sofort tot. */
             if (saved.health != null) this.player.setHealth(saved.health);
             if (saved.foodLevel != null) this.player.setFoodLevel(saved.foodLevel);
             if (saved.saturation != null) this.player.setSaturation(saved.saturation);
+        } else {
+            this.placeAtWorldSpawn(this.player);
         }
+        if (this.playerUuid == null) this.playerUuid = UUID.randomUUID();
 
         this.clearInventory();
-        if (!save.level().inventory.isEmpty()) {
+        this.hotbarIndex = 0;
+        DataTag savedInventory = playerTag != null ? playerTag.getTag("inventory") : null;
+        if (savedInventory != null) {
+            this.playerInventory.load(savedInventory);
+            this.hotbarIndex = Math.clamp(playerTag.getInt("selectedSlot", 0), 0, 8);
+        } else if (!save.level().inventory.isEmpty()) {
             this.loadInventory(save.level().inventory);
         } else {
             this.fillStartInventory();
         }
-        this.hotbarIndex = 0;
         this.animState.reset();
         this.perspective = CameraPerspective.FIRST_PERSON;
 
@@ -305,39 +334,47 @@ public class GameContainer implements IResizeable, IDisposable {
         this.guiManager.open(new GuiMainMenu());
     }
 
-    /** Schreibt Spielerzustand + Inventar in die level.json des aktiven Savegames. */
+    /**
+     * Speichert die Welt: level.json (nur Welt-Metadaten), player/player.dat
+     * (Zustand + Inventar, binäres DataTag) und reiht alle modifizierten Chunks ein
+     * (den Flush garantiert storage.close() in world.dispose()).
+     */
     private void saveCurrentWorld() {
         if (this.currentSave == null || this.world == null || this.player == null) return;
 
         LevelData level = this.currentSave.level();
         level.lastPlayed = System.currentTimeMillis();
-
-        LevelData.PlayerData data = new LevelData.PlayerData();
-        data.x = this.player.x;
-        data.y = this.player.y;
-        data.z = this.player.z;
-        data.yaw = this.player.yaw;
-        data.pitch = this.player.pitch;
-        data.gamemode = this.player.getGamemode().name();
-        data.flying = this.player.isFlying();
-        data.health = this.player.getHealth();
-        data.foodLevel = this.player.getFoodLevel();
-        data.saturation = this.player.getSaturation();
-        level.player = data;
-
+        /* Save-Layout-Defaults für Alt-Welten nachziehen; die alten Spieler-Felder werden
+           genullt — die Migration nach player.dat ist damit abgeschlossen. */
+        if (level.formatVersion == null) level.formatVersion = 1;
+        if (level.worldType == null) level.worldType = "default";
+        if (level.generator == null) level.generator = "alpha_v2";
+        if (level.generatorVersion == null) level.generatorVersion = AlphaWorldGeneratorV2.VERSION;
+        level.player = null;
         level.inventory.clear();
-        for (int slot = 0; slot < this.playerInventory.size(); slot++) {
-            ItemStack stack = this.playerInventory.get(slot);
-            if (stack.isEmpty()) continue;
-            LevelData.ItemEntry entry = new LevelData.ItemEntry();
-            entry.slot = slot;
-            entry.id = stack.getItem().getId().toString();
-            entry.count = stack.getCount();
-            entry.damage = stack.getDamage();
-            level.inventory.add(entry);
-        }
-
         WorldSaves.save(this.currentSave);
+
+        DataTag tag = new DataTag();
+        tag.putLong("uuidMost", this.playerUuid.getMostSignificantBits());
+        tag.putLong("uuidLeast", this.playerUuid.getLeastSignificantBits());
+        tag.putDouble("x", this.player.x);
+        tag.putDouble("y", this.player.y);
+        tag.putDouble("z", this.player.z);
+        tag.putDouble("yaw", this.player.yaw);
+        tag.putDouble("pitch", this.player.pitch);
+        tag.putString("gamemode", this.player.getGamemode().name());
+        tag.putBoolean("flying", this.player.isFlying());
+        tag.putDouble("health", this.player.getHealth());
+        tag.putInt("foodLevel", this.player.getFoodLevel());
+        tag.putDouble("saturation", this.player.getSaturation());
+        tag.putInt("selectedSlot", this.hotbarIndex);
+        DataTag inventory = new DataTag();
+        this.playerInventory.save(inventory);
+        tag.putTag("inventory", inventory);
+        PlayerIO.write(new File(WorldSaves.dir(this.currentSave.dirName()), "player/player.dat"), tag);
+
+        /* Exit-Save: fallende Blöcke materialisieren und modifizierte Chunks einreihen. */
+        this.world.saveModifiedChunks(true);
         this.logger.info("Welt gespeichert: " + this.currentSave.dirName());
     }
 
@@ -1007,6 +1044,9 @@ public class GameContainer implements IResizeable, IDisposable {
         BlockEntity be = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
         if (!(be instanceof ChestBlockEntity chest)) return false;
         this.guiManager.open(new GuiChest(chest, this.playerInventory));
+        /* Persistenz: das GUI mutiert das Truhen-Inventar direkt (kein World-Hook) —
+           Über-Approximation "geöffnet = potenziell geändert" kostet einen Chunk-Write. */
+        this.world.markChunkModified(this.hit.x(), this.hit.z());
         this.markPlaced(now);
         return true;
     }

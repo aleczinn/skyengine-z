@@ -42,6 +42,15 @@ public abstract class BlockEntity {
 
     public void save(DataTag tag) {}
 
+    /**
+     * Markiert den eigenen Chunk als seit dem letzten Save verändert — von Unterklassen
+     * nach persistenten Zustandsänderungen aufrufen (z.B. künftige tickende Maschinen).
+     * Das Truhen-GUI markiert stattdessen beim Öffnen (GameContainer).
+     */
+    protected final void markDirty() {
+        if (this.world != null) this.world.markChunkModified(this.pos.x(), this.pos.z());
+    }
+
     /** Liefert eine Fähigkeit für eine Seite (oder null), falls vorhanden. Default: leer. */
     public <C> Optional<C> getCapability(Capability<C> capability, Direction side) {
         return Optional.empty();

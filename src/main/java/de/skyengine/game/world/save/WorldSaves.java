@@ -2,6 +2,7 @@ package de.skyengine.game.world.save;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -59,9 +60,18 @@ public final class WorldSaves {
         level.seed = seed;
         level.created = System.currentTimeMillis();
         level.lastPlayed = level.created;
+        level.formatVersion = 1;
+        level.worldType = "default";
+        level.generator = "alpha_v2";
+        level.generatorVersion = AlphaWorldGeneratorV2.VERSION;
         WorldSave save = new WorldSave(dirName, level);
         save(save);
         return save;
+    }
+
+    /** Absoluter Ordner eines Savegames (für player.dat/region neben der level.json). */
+    public static File dir(String dirName) {
+        return new File(ROOT, dirName);
     }
 
     /** Schreibt die level.json des Savegames (legt den Ordner bei Bedarf an). */
