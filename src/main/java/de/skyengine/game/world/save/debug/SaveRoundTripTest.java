@@ -14,6 +14,7 @@ import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.save.ChunkSerializer;
+import de.skyengine.game.world.save.WorldStorage;
 
 import java.io.File;
 import java.util.Arrays;
@@ -133,6 +134,57 @@ public final class SaveRoundTripTest {
             check(fallback.getBlock(5, 200, 5) == chunk.getBlock(5, 200, 5),
                     "Übrige Blöcke der Section bleiben erhalten");
         }
+
+        /* ================= M2: Region-Datei + WorldStorage ================= */
+        System.out.println("--- Region-Storage ---");
+        File dir = new File("build/tmp/region-roundtrip");
+        if (dir.exists()) {
+            File[] old = dir.listFiles();
+            if (old != null) for (File f : old) f.delete();
+        }
+
+        Chunk other = new Chunk(18, -7); // Region (1,-1) — testet die Region-Grenze bei negativen Koordinaten
+        generator.generate(other);
+        byte[] payloadB = ChunkSerializer.serialize(other, "alpha_v2", 1, true);
+
+        WorldStorage storage = new WorldStorage(dir);
+        storage.writeChunk(3, -7, raw);       // Region (0,-1), landet in Sektor 1
+        storage.writeChunk(18, -7, payloadB); // Region (1,-1)
+        check(storage.hasChunk(3, -7) && storage.hasChunk(18, -7), "hasChunk für gespeicherte Chunks");
+        check(!storage.hasChunk(99, 99), "hasChunk-Miss für nie gespeicherte Region");
+
+        /* Wachstum erzwingen: inkompressibler 40-KB-Payload -> Move (Append), Sektor 1 wird frei. */
+        byte[] big = new byte[40 * 1024];
+        new java.util.Random(42).nextBytes(big);
+        storage.writeChunk(3, -7, big);
+        File regionFile = new File(dir, "r.0.-1.srg");
+        long lengthAfterBig = regionFile.length();
+        /* Neuer 1-Sektor-Chunk muss die Lücke (Sektor 1) wiederverwenden — Datei wächst nicht. */
+        storage.writeChunk(4, -7, raw);
+        check(regionFile.length() == lengthAfterBig, "Freigewordener Sektor wird wiederverwendet (Datei wächst nicht)");
+        /* Zurück auf klein: passt in-place in die alten Sektoren, Rest wird freigegeben. */
+        storage.writeChunk(3, -7, raw);
+
+        /* Alles über eine ECHTE Datei-Neuöffnung zurücklesen. */
+        storage.close();
+        storage = new WorldStorage(dir);
+        check(Arrays.equals(storage.readChunk(3, -7), raw), "Chunk (3,-7) nach Neuöffnung identisch (in-place + Move überlebt)");
+        check(Arrays.equals(storage.readChunk(4, -7), raw), "Chunk (4,-7) nach Neuöffnung identisch (aus wiederverwendetem Sektor)");
+        check(Arrays.equals(storage.readChunk(18, -7), payloadB), "Chunk (18,-7) nach Neuöffnung identisch (Nachbar-Region)");
+        check(storage.readChunk(5, -7) == null, "Nie gespeicherter Chunk liefert null");
+        storage.close();
+
+        /* Korruption: ein Byte in den Daten von Chunk (4,-7) (Sektor 1) kippen -> CRC muss greifen. */
+        try (java.io.RandomAccessFile rafFile = new java.io.RandomAccessFile(regionFile, "rw")) {
+            rafFile.seek(4096 + 20);
+            int b = rafFile.read();
+            rafFile.seek(4096 + 20);
+            rafFile.write(b ^ 0xFF);
+        }
+        storage = new WorldStorage(dir);
+        check(storage.readChunk(4, -7) == null, "Korrupter Chunk wird erkannt (CRC) und als ungültig behandelt");
+        check(Arrays.equals(storage.readChunk(3, -7), raw), "Nachbar-Chunk derselben Region bleibt lesbar");
+        storage.close();
 
         System.out.println(errors == 0 ? "ROUND-TRIP OK" : "ROUND-TRIP FEHLGESCHLAGEN: " + errors + " Fehler");
         System.exit(errors == 0 ? 0 : 1);
