@@ -661,9 +661,10 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Spectator zeigt wie MC keine Hotbar (Crosshair bleibt); ohne Spieler/Welt gibt es keine. */
         boolean showHotbar = this.player != null && this.player.getGamemode() != Gamemode.SPECTATOR;
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
-        /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair). */
+        /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair);
+           Crosshair nur in First Person (in den F5-Ansichten zielt man nicht über die Bildmitte). */
         this.guiManager.render(width, height, this.world != null ? this.playerInventory : null,
-                this.hotbarIndex, showHotbar, this.itemNameAlpha(), this.player);
+                this.hotbarIndex, showHotbar, this.perspective.isFirstPerson(), this.itemNameAlpha(), this.player);
         if (this.debugOverlay.isVisible() && this.world != null) {
             this.debugOverlay.render(this.guiManager, this.world, this.player);
         }
