@@ -93,11 +93,23 @@ Der Fokus liegt auf:
 
 ## Screenshots
 
-v0.0.7 | Distanz-Nebel (auch bei LOD)
+v0.0.8
+- Gui-System (GuiScreens, Komponenten wie Button, Slider, CycleButton inkl. Persistenz; Ressourcenpacks sind WIP)
+- I18n für Übersetzungen im Menü, Hotbar oder Itemnamen
+- Spieler wird basierend auf Minecraft Skins gerendert
+- Gui Inventare sind ebenfalls möglich (Survival Inventar mit Spielermodell)
+
+![Gui-System](project/0.0.8_gui-system.png?raw=true)
+
+![Spielerinventar](project/0.0.8_inventar_mit_spielermodell.png?raw=true)
+
+![Spieler mit Frontalperspektive](project/0.0.8_spieler_frontal_person.png?raw=true)
+
+v0.0.7
+- Distanz-Nebel (auch bei LOD)
+- Level of Detail Verbesserungen (LOD nun in eigenen Vertex Arenen, Ambient Occlusion, supportet nun Transparenz für Wasser) 
 
 ![Ingame Screenshot mit Nebel-Effekt](project/0.0.7_fog.png?raw=true)
-
-v0.0.7 | Level of Detail V2 (LOD nun in eigenen Vertex Arenen, Ambient Occlusion, supportet nun Transparenz für Wasser)
 
 ![Ingame Screenshot mit verbessertem Level of Detail](project/0.0.7_level-of-detail-v2.png?raw=true)
 
@@ -121,9 +133,12 @@ v0.0.2 | Fluid-System (Screenshot stammt 0.0.5)
 
 ![Fluid-System mit Wasser und Lava inkl. Cobble-Stone-Generator Funktion](./project/0.0.2_fluid-system+reaction-system.png?raw=true)
 
-v0.0.1 | Blöcke-System: Grass, Stein; Kreuzblöcke für kurzes Gras, Tulpen; Stufen, Zäune, Custom Modelle wie Zaubertisch 
+v0.0.1
+- Basis
+- Blöcke-System: Grass, Stein; Kreuzblöcke für kurzes Gras, Tulpen; Stufen, Zäune, Custom Modelle wie Zaubertisch
+- Simples Welt-Rendering
 
-![Ingame Screenshot mit Hotbar und Block Rendering](./project/0.0.0_1.png?raw=true)
+![Ingame Screenshot mit Hotbar und Block Rendering](./project/0.0.1_1.png?raw=true)
 
 ![Ingame Screenshot mit hoher Sichtweite im Spectator Modus](./project/0.0.1_1.png?raw=true)
 

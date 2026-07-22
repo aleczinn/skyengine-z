@@ -22,7 +22,7 @@ import java.util.concurrent.CountDownLatch;
 public class SkyEngine {
 
     public static final String ENGINE_NAME = "SkyEngine";
-    public static final String ENGINE_VERSION = "0.0.7";
+    public static final String ENGINE_VERSION = "0.0.8";
 
     /** The index/token used in an index buffer for primitive restart. */
     public static final int PRIMITIVE_RESTART_INDEX = 0xFFFF;
