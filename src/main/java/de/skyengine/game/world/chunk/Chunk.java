@@ -49,6 +49,11 @@ public class Chunk {
        seine Zelle deckt (symmetrisch zum Lade-Gate der LOD-Maske). Nur Tick-Thread. */
     public boolean pendingUnload;
 
+    /* Vom ChunkSerializer beim Laden gesammelte Positionen fließender Fluide (gepackt wie
+       beKey) — der Tick-Thread plant daraus Scheduled-Ticks und nullt das Feld wieder
+       (Sichtbarkeit über das volatile status-Publish des Load-Jobs). */
+    public int[] pendingFluidTicks;
+
     /* Schützt die Section-Container (PalettedContainer + sections[]-Allokation) gegen
        gleichzeitige Worker-Mesh-Reads und Render-Thread-Writes. Mesh-Jobs nehmen den
        Read-Lock, World.setBlockRaw den Write-Lock. */
@@ -92,6 +97,14 @@ public class Chunk {
 
     public ChunkSection getSection(int index) {
         return this.sections[index];
+    }
+
+    /**
+     * Setzt eine komplett aufgebaute Section ein. NUR für den Persistenz-Load-Pfad,
+     * bevor der Chunk per Status-Publish lesbar wird — danach wäre das ein Race.
+     */
+    public void installSection(int index, ChunkSection section) {
+        this.sections[index] = section;
     }
 
     /* --- BlockEntities --- */

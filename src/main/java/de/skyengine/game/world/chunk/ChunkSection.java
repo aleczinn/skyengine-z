@@ -13,6 +13,13 @@ public class ChunkSection {
        komprimiert: typische Chunks brauchen nur wenige Bit pro Block statt der vollen ID-Breite. */
     private PalettedContainer container;
 
+    public ChunkSection() {}
+
+    /** Rebuild aus persistierten Daten (Chunk-Load). */
+    public ChunkSection(PalettedContainer container) {
+        this.container = container;
+    }
+
     public int getBlock(int x, int y, int z) {
         if (this.container == null) return 0;
         return this.container.get((y << (SHIFT * 2)) | (z << SHIFT) | x);

@@ -27,6 +27,22 @@ public final class PalettedContainer {
         this.nonAir = fill == 0 ? 0 : size;
     }
 
+    /**
+     * Rebuild aus persistierten Daten (Chunk-Load): stellt Palette, Index-Speicher und
+     * nonAir-Zähler exakt wieder her (inkl. bitsPerEntry-Zustand — ein set()-Neuaufbau
+     * könnte den nicht reproduzieren). Die Palette wird kopiert, der Storage übernommen.
+     */
+    public PalettedContainer(int size, int[] palette, int paletteSize, BitStorage storage, int nonAir) {
+        if (paletteSize < 1 || paletteSize > palette.length) {
+            throw new IllegalArgumentException("Ungültige Paletten-Größe: " + paletteSize);
+        }
+        this.size = size;
+        this.palette = Arrays.copyOf(palette, Math.max(4, paletteSize));
+        this.paletteSize = paletteSize;
+        this.storage = storage;
+        this.nonAir = nonAir;
+    }
+
     public int get(int index) {
         if (this.storage == null) return this.palette[0];
         return this.palette[this.storage.get(index)];
@@ -85,5 +101,9 @@ public final class PalettedContainer {
 
     public BitStorage storage() {
         return this.storage;
+    }
+
+    public int nonAir() {
+        return this.nonAir;
     }
 }

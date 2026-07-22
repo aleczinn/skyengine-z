@@ -1,0 +1,382 @@
+package de.skyengine.game.world.save;
+
+import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.BlockPos;
+import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.entity.BlockEntity;
+import de.skyengine.game.world.block.entity.BlockEntityType;
+import de.skyengine.game.world.block.entity.DataTag;
+import de.skyengine.game.world.block.registry.Registries;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.BlockStateCodec;
+import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.chunk.palette.BitStorage;
+import de.skyengine.game.world.chunk.palette.PalettedContainer;
+import de.skyengine.utils.logging.LogManager;
+import de.skyengine.utils.logging.Logger;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.zip.CRC32;
+import java.util.zip.DataFormatException;
+import java.util.zip.Deflater;
+import java.util.zip.Inflater;
+
+/**
+ * Serialisiert einen Chunk als selbsttragenden Snapshot (Blöcke + Tints + BlockEntities)
+ * und stellt ihn wieder her. BlockStates werden als stabile Strings über
+ * {@link BlockStateCodec} persistiert (Runtime-IDs sind flüchtig!), dedupliziert über eine
+ * chunk-weite Palette; die Section-Bit-Daten ({@link BitStorage}) werden roh übernommen.
+ *
+ * <p>Payload-Format v1 (unkomprimiert; Kompression/CRC über {@link #compress}/{@link #crc32},
+ * CRC immer über den ROHEN Payload — Kompressionswechsel ändern die Prüfsumme nicht):
+ * <pre>
+ * byte  payloadVersion = 1
+ * UTF   generatorId, int generatorVersion      (Provenienz — strikt getrennt von payloadVersion)
+ * int   paletteCount, paletteCount × UTF        (chunk-weite State-Strings)
+ * 16 ×  Section: byte mode
+ *       0 = leer | 1 = Single-Value (int chunkPaletteIndex)
+ *       2 = int localCount, localCount × int chunkPaletteIndex,
+ *           byte bitsPerEntry, int nonAir, int longCount, longCount × long
+ * byte  hasStoredTints; wenn 1: 2 × 33*33 int (grass, foliage)
+ * int   beCount, beCount × { int packedLocalPos, UTF typeId, DataTag binär }
+ * </pre>
+ *
+ * <p>Threading: {@link #serialize} verlangt, dass der Aufrufer den Read-Lock des Chunks
+ * hält; {@link #deserialize} darf nur auf einem Chunk laufen, der noch nicht per
+ * Status-Publish lesbar ist (Load-Job vor dem Setzen von DECORATED).
+ */
+public final class ChunkSerializer {
+
+    public static final byte PAYLOAD_VERSION = 1;
+
+    private static final Logger LOGGER = LogManager.getLogger(ChunkSerializer.class.getName());
+
+    private static final byte SECTION_EMPTY = 0;
+    private static final byte SECTION_SINGLE = 1;
+    private static final byte SECTION_BITS = 2;
+
+    private static final int TINT_GRID_SIZE = 33 * 33;
+
+    /* Einmal-pro-String-Warnung über alle Chunks hinweg (sonst Log-Flut bei großen Welten). */
+    private static final Set<String> warnedStates = ConcurrentHashMap.newKeySet();
+
+    /* --- Serialisieren --- */
+
+    /** Aufrufer hält den Read-Lock des Chunks. Tints werden nur mit {@code storeTints} geschrieben. */
+    public static byte[] serialize(Chunk chunk, String generatorId, int generatorVersion, boolean storeTints) {
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(64 * 1024);
+            DataOutputStream out = new DataOutputStream(bytes);
+
+            out.writeByte(PAYLOAD_VERSION);
+            out.writeUTF(generatorId);
+            out.writeInt(generatorVersion);
+
+            /* Pass 1: chunk-weite Palette aufbauen (Runtime-ID -> Palette-Index). */
+            Map<Integer, Integer> paletteIndex = new LinkedHashMap<>();
+            for (int s = 0; s < Chunk.SECTIONS; s++) {
+                ChunkSection section = chunk.getSection(s);
+                if (section == null || section.isEmpty()) continue;
+                for (int stateId : section.container().paletteEntries()) {
+                    paletteIndex.putIfAbsent(stateId, paletteIndex.size());
+                }
+            }
+            out.writeInt(paletteIndex.size());
+            for (int stateId : paletteIndex.keySet()) {
+                out.writeUTF(BlockStateCodec.encode(Blocks.getState(stateId)));
+            }
+
+            /* Pass 2: Sections. */
+            for (int s = 0; s < Chunk.SECTIONS; s++) {
+                ChunkSection section = chunk.getSection(s);
+                if (section == null || section.isEmpty()) {
+                    out.writeByte(SECTION_EMPTY);
+                    continue;
+                }
+                PalettedContainer container = section.container();
+                BitStorage storage = container.storage();
+                int[] local = container.paletteEntries();
+                if (storage == null) {
+                    out.writeByte(SECTION_SINGLE);
+                    out.writeInt(paletteIndex.get(local[0]));
+                    continue;
+                }
+                out.writeByte(SECTION_BITS);
+                out.writeInt(local.length);
+                for (int stateId : local) out.writeInt(paletteIndex.get(stateId));
+                out.writeByte(storage.bitsPerEntry());
+                out.writeInt(container.nonAir());
+                long[] raw = storage.raw();
+                out.writeInt(raw.length);
+                for (long word : raw) out.writeLong(word);
+            }
+
+            /* Tints. */
+            boolean tints = storeTints && chunk.grassTintCorners != null && chunk.foliageTintCorners != null;
+            out.writeByte(tints ? 1 : 0);
+            if (tints) {
+                for (int v : chunk.grassTintCorners) out.writeInt(v);
+                for (int v : chunk.foliageTintCorners) out.writeInt(v);
+            }
+
+            /* BlockEntities: Key aus der Welt-Position rekonstruieren (gleiche Packung wie Chunk.beKey). */
+            List<BlockEntity> saveable = new ArrayList<>();
+            for (BlockEntity be : chunk.blockEntities()) {
+                if (Registries.BLOCK_ENTITY.idOf(be.getType()) == null) {
+                    LOGGER.warning("BlockEntity ohne Registry-Eintrag wird nicht gespeichert: " + be.getClass().getName());
+                    continue;
+                }
+                saveable.add(be);
+            }
+            out.writeInt(saveable.size());
+            for (BlockEntity be : saveable) {
+                BlockPos pos = be.getPos();
+                out.writeInt(packLocalPos(pos.x() & 31, pos.y(), pos.z() & 31));
+                out.writeUTF(Registries.BLOCK_ENTITY.idOf(be.getType()).toString());
+                DataTag tag = new DataTag();
+                be.save(tag);
+                DataTagIO.write(tag, out);
+            }
+
+            return bytes.toByteArray();
+        } catch (IOException e) {
+            /* ByteArrayOutputStream wirft real nie — nur DataTagIO-Fehler landen hier. */
+            throw new UncheckedIOException("Chunk-Serialisierung fehlgeschlagen ("
+                    + chunk.chunkX + ", " + chunk.chunkZ + ")", e);
+        }
+    }
+
+    /* --- Deserialisieren --- */
+
+    /**
+     * Stellt den Chunk aus einem Payload wieder her. {@code world} darf null sein
+     * (Headless-Tests) — dann bleibt {@code setWorld} an BlockEntities aus.
+     * Wirft {@link IOException} bei jedem Formatfehler; der Aufrufer fällt dann auf
+     * Regeneration zurück.
+     */
+    public static void deserialize(Chunk chunk, byte[] payload, World world) throws IOException {
+        DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload));
+
+        byte version = in.readByte();
+        if (version != PAYLOAD_VERSION) {
+            throw new IOException("Unbekannte Chunk-Payload-Version " + version);
+        }
+        in.readUTF();  // generatorId — Provenienz, aktuell nur Format-Bestandteil
+        in.readInt();  // generatorVersion
+
+        /* Chunk-Palette: Strings -> Runtime-IDs; unbekannte States werden Luft (+ 1 Warnung). */
+        int paletteCount = in.readInt();
+        if (paletteCount < 0 || paletteCount > ChunkSection.VOLUME * Chunk.SECTIONS) {
+            throw new IOException("Ungültige Paletten-Größe " + paletteCount);
+        }
+        int[] palette = new int[paletteCount];
+        boolean[] unknown = new boolean[paletteCount];
+        for (int i = 0; i < paletteCount; i++) {
+            String encoded = in.readUTF();
+            BlockState state = BlockStateCodec.decode(encoded);
+            if (state == null) {
+                palette[i] = 0;
+                unknown[i] = true;
+                if (warnedStates.add(encoded)) {
+                    LOGGER.warning("Unbekannter Block-State in Save-Datei, ersetze durch Luft: " + encoded);
+                }
+            } else {
+                palette[i] = state.getId();
+            }
+        }
+
+        List<Integer> fluidTicks = new ArrayList<>();
+
+        for (int s = 0; s < Chunk.SECTIONS; s++) {
+            byte mode = in.readByte();
+            switch (mode) {
+                case SECTION_EMPTY -> chunk.installSection(s, null);
+                case SECTION_SINGLE -> {
+                    int stateId = palette[checkIndex(in.readInt(), paletteCount)];
+                    if (stateId == 0) {
+                        chunk.installSection(s, null);
+                    } else {
+                        PalettedContainer container = new PalettedContainer(ChunkSection.VOLUME, stateId);
+                        chunk.installSection(s, new ChunkSection(container));
+                        collectFluidTicks(fluidTicks, s, container, new int[]{stateId});
+                    }
+                }
+                case SECTION_BITS -> {
+                    int localCount = in.readInt();
+                    if (localCount < 1 || localCount > paletteCount) {
+                        throw new IOException("Ungültige Section-Palette (" + localCount + " Einträge)");
+                    }
+                    int[] local = new int[localCount];
+                    boolean anyUnknown = false;
+                    for (int i = 0; i < localCount; i++) {
+                        int idx = checkIndex(in.readInt(), paletteCount);
+                        local[i] = palette[idx];
+                        anyUnknown |= unknown[idx];
+                    }
+                    int bitsPerEntry = in.readByte();
+                    if (bitsPerEntry < 1 || bitsPerEntry > 31) {
+                        throw new IOException("Ungültige Bitbreite " + bitsPerEntry);
+                    }
+                    int nonAir = in.readInt();
+                    int longCount = in.readInt();
+                    long[] data = new long[longCount];
+                    for (int i = 0; i < longCount; i++) data[i] = in.readLong();
+
+                    BitStorage storage = new BitStorage(bitsPerEntry, ChunkSection.VOLUME, data);
+                    /* Wurden Paletten-Einträge zu Luft, stimmt der gespeicherte nonAir nicht mehr. */
+                    if (anyUnknown) {
+                        nonAir = 0;
+                        for (int i = 0; i < ChunkSection.VOLUME; i++) {
+                            int idx = storage.get(i);
+                            if (idx < localCount && local[idx] != 0) nonAir++;
+                        }
+                    }
+                    PalettedContainer container = new PalettedContainer(ChunkSection.VOLUME, local, localCount, storage, nonAir);
+                    chunk.installSection(s, nonAir == 0 ? null : new ChunkSection(container));
+                    if (nonAir > 0) collectFluidTicks(fluidTicks, s, container, local);
+                }
+                default -> throw new IOException("Unbekannter Section-Modus " + mode);
+            }
+        }
+
+        /* Tints. */
+        if (in.readByte() != 0) {
+            int[] grass = new int[TINT_GRID_SIZE];
+            int[] foliage = new int[TINT_GRID_SIZE];
+            for (int i = 0; i < TINT_GRID_SIZE; i++) grass[i] = in.readInt();
+            for (int i = 0; i < TINT_GRID_SIZE; i++) foliage[i] = in.readInt();
+            chunk.grassTintCorners = grass;
+            chunk.foliageTintCorners = foliage;
+        }
+
+        /* BlockEntities. */
+        int beCount = in.readInt();
+        for (int i = 0; i < beCount; i++) {
+            int packed = in.readInt();
+            String typeId = in.readUTF();
+            DataTag tag = DataTagIO.read(in);
+
+            BlockEntityType<?> type = Registries.BLOCK_ENTITY.get(Identifier.of(typeId));
+            if (type == null) {
+                LOGGER.warning("Unbekannter BlockEntity-Typ in Save-Datei, überspringe: " + typeId);
+                continue;
+            }
+            int lx = packed & 31;
+            int lz = (packed >> 5) & 31;
+            int y = (packed >> 10) & 511;
+            BlockPos pos = new BlockPos((chunk.chunkX << ChunkSection.SHIFT) + lx, y,
+                    (chunk.chunkZ << ChunkSection.SHIFT) + lz);
+            BlockEntity be = type.create(pos, Blocks.getState(chunk.getBlock(lx, y, lz)));
+            be.load(tag);
+            if (world != null) be.setWorld(world);
+            chunk.setBlockEntity(lx, y, lz, be);
+        }
+
+        chunk.pendingFluidTicks = fluidTicks.isEmpty() ? null
+                : fluidTicks.stream().mapToInt(Integer::intValue).toArray();
+    }
+
+    /* Sammelt Positionen fließender Fluide (LEVEL>0 oder FALLING) — Quellen ticken nicht von
+       selbst und werden bewusst nicht eingeplant (importierter Ozean!). Paletten-Vorcheck:
+       ohne fließendes Fluid in der Palette kostet die Section nichts. */
+    private static void collectFluidTicks(List<Integer> ticks, int sectionIndex, PalettedContainer container, int[] localPalette) {
+        boolean anyFlowing = false;
+        for (int stateId : localPalette) {
+            if (isFlowingFluid(stateId)) { anyFlowing = true; break; }
+        }
+        if (!anyFlowing) return;
+
+        int yBase = sectionIndex << ChunkSection.SHIFT;
+        for (int ly = 0; ly < ChunkSection.SIZE; ly++) {
+            for (int lz = 0; lz < ChunkSection.SIZE; lz++) {
+                for (int lx = 0; lx < ChunkSection.SIZE; lx++) {
+                    int stateId = container.get((ly << (ChunkSection.SHIFT * 2)) | (lz << ChunkSection.SHIFT) | lx);
+                    if (isFlowingFluid(stateId)) {
+                        ticks.add(packLocalPos(lx, yBase + ly, lz));
+                    }
+                }
+            }
+        }
+    }
+
+    private static boolean isFlowingFluid(int stateId) {
+        BlockState state = Blocks.getState(stateId);
+        return state.isFluid() && (state.get(Properties.FALLING) || state.get(Properties.LEVEL) > 0);
+    }
+
+    /* Gleiche Packung wie Chunk.beKey (x | z<<5 | y<<10). */
+    private static int packLocalPos(int lx, int y, int lz) {
+        return (lx & 31) | ((lz & 31) << 5) | ((y & 511) << 10);
+    }
+
+    private static int checkIndex(int index, int paletteCount) throws IOException {
+        if (index < 0 || index >= paletteCount) {
+            throw new IOException("Paletten-Index außerhalb des Bereichs: " + index + " / " + paletteCount);
+        }
+        return index;
+    }
+
+    /* --- Kompression + Prüfsumme (CRC immer über den ROHEN Payload) --- */
+
+    public static byte[] compress(byte[] raw) {
+        Deflater deflater = new Deflater(Deflater.BEST_SPEED);
+        try {
+            deflater.setInput(raw);
+            deflater.finish();
+            ByteArrayOutputStream out = new ByteArrayOutputStream(Math.max(64, raw.length / 4));
+            byte[] buffer = new byte[8192];
+            while (!deflater.finished()) {
+                out.write(buffer, 0, deflater.deflate(buffer));
+            }
+            return out.toByteArray();
+        } finally {
+            deflater.end();
+        }
+    }
+
+    public static byte[] decompress(byte[] compressed, int rawLength) throws IOException {
+        Inflater inflater = new Inflater();
+        try {
+            inflater.setInput(compressed);
+            byte[] raw = new byte[rawLength];
+            int offset = 0;
+            while (offset < rawLength && !inflater.finished()) {
+                int n = inflater.inflate(raw, offset, rawLength - offset);
+                if (n == 0 && inflater.needsInput()) {
+                    throw new IOException("Deflate-Strom unvollständig (" + offset + "/" + rawLength + " Bytes)");
+                }
+                offset += n;
+            }
+            if (offset != rawLength) {
+                throw new IOException("Deflate-Strom liefert " + offset + " statt " + rawLength + " Bytes");
+            }
+            return raw;
+        } catch (DataFormatException e) {
+            throw new IOException("Deflate-Strom beschädigt", e);
+        } finally {
+            inflater.end();
+        }
+    }
+
+    public static int crc32(byte[] raw) {
+        CRC32 crc = new CRC32();
+        crc.update(raw);
+        return (int) crc.getValue();
+    }
+
+    private ChunkSerializer() {}
+}
