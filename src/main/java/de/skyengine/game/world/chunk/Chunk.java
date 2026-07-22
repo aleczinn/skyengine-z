@@ -1,12 +1,15 @@
 package de.skyengine.game.world.chunk;
 
 import de.skyengine.game.entity.Entity;
+import de.skyengine.game.entity.FallingBlockEntity;
+import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -53,6 +56,14 @@ public class Chunk {
        beKey) — der Tick-Thread plant daraus Scheduled-Ticks und nullt das Feld wieder
        (Sichtbarkeit über das volatile status-Publish des Load-Jobs). */
     public int[] pendingFluidTicks;
+
+    /* Persistenz: seit dem letzten Save verändert (Edits/BlockEntity-Mutationen). Gesetzt auf
+       dem Tick-Thread, zurückgesetzt NUR im Save-Job (IO-Thread, im Read-Lock-Fenster) —
+       volatile für die Sichtbarkeit zwischen beiden. */
+    public volatile boolean modified;
+    /* true zwischen Einreihen und Abschluss eines Save-Jobs — der Unload wartet darauf
+       (Chunk bleibt bis zum fertigen Save in der Map). Tick-Thread setzt, IO-Thread löscht. */
+    public volatile boolean saveQueued;
 
     /* Schützt die Section-Container (PalettedContainer + sections[]-Allokation) gegen
        gleichzeitige Worker-Mesh-Reads und Render-Thread-Writes. Mesh-Jobs nehmen den
@@ -143,6 +154,33 @@ public class Chunk {
 
     public List<Entity> entities() {
         return this.entities == null ? Collections.emptyList() : this.entities;
+    }
+
+    /**
+     * Wandelt fallende Block-Entities dieses Chunks in echte Blöcke um (vor Unload-/Exit-Save;
+     * Tick-Thread). Beim periodischen Autosave bewusst NICHT aufrufen — live fallender Sand
+     * würde sichtbar in der Luft einrasten. Zellen, die inzwischen belegt sind, bleiben
+     * Entity (geht dann wie Item-Entities bewusst nicht mit ins Save).
+     */
+    public void materializeFallingBlocks() {
+        if (this.entities == null || this.entities.isEmpty()) return;
+        this.writeLock().lock();
+        try {
+            for (Iterator<Entity> it = this.entities.iterator(); it.hasNext(); ) {
+                Entity entity = it.next();
+                if (!(entity instanceof FallingBlockEntity falling) || entity.isRemoved()) continue;
+                int lx = ((int) Math.floor(entity.x)) & ChunkSection.MASK;
+                int y = (int) Math.floor(entity.y);
+                int lz = ((int) Math.floor(entity.z)) & ChunkSection.MASK;
+                if (y >= 0 && y < HEIGHT && Blocks.canFallInto(this.getBlock(lx, y, lz))) {
+                    this.setBlock(lx, y, lz, falling.getBlockId());
+                    this.modified = true;
+                    it.remove();
+                }
+            }
+        } finally {
+            this.writeLock().unlock();
+        }
     }
 
     /**

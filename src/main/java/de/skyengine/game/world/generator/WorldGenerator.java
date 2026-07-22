@@ -66,6 +66,14 @@ public abstract class WorldGenerator {
         return Tints.FOLIAGE;
     }
 
+    /**
+     * Befüllt die 33x33-Tint-Eck-Grids des Chunks neu — Persistenz-Load-Pfad, wenn keine
+     * Grids gespeichert sind. MUSS derselbe Codepfad wie in {@link #generate} sein (V2:
+     * geglättetes Bilerp, NICHT {@link #grassTintAt} — sonst Farb-Nähte zu frisch
+     * generierten Nachbarn). Default: keine Grids (Generatoren ohne Biome-Tints).
+     */
+    public void fillTintCorners(Chunk chunk) {}
+
     public int getSeed() {
         return seed;
     }

@@ -1,5 +1,8 @@
 package de.skyengine.game.world.save;
 
+import de.skyengine.game.world.World;
+import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -9,15 +12,25 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Chunk-Store einer Welt: bildet Chunk-Koordinaten auf Region-Dateien
- * ({@code region/r.<rx>.<rz>.srg}, 16×16 Chunks) ab und verwaltet die offenen Handles.
+ * ({@code region/r.<rx>.<rz>.srg}, 16×16 Chunks) ab, verwaltet die offenen Handles und
+ * besitzt den einzigen Schreib-Thread ("Chunk IO").
  *
- * <p>Single-Writer-Disziplin: alle Methoden sind {@code synchronized} — ein Lock genügt,
+ * <p>Single-Writer-Disziplin: alle Datei-Methoden sind {@code synchronized} — ein Lock genügt,
  * Region-IO ist ms-skalig und die Aufrufer (Chunk-Worker lesend, IO-Thread schreibend)
  * kontendieren praktisch nie. Der HÄUFIGE Fall „Chunk nie gespeichert" (unmodifizierte
  * Chunks generierter Welten) kostet über {@code missingRegions} nur einen Set-Lookup.
+ *
+ * <p>Save-Jobs laufen bewusst NICHT auf dem Chunk-Worker-Pool: dessen dispose() macht
+ * {@code shutdownNow} und würde wartende Saves verwerfen (Datenverlust). Der eigene
+ * IO-Executor wird in {@link #close()} per shutdown + await geflusht — Aufruf in
+ * {@code World.dispose()} NACH {@code chunkManager.dispose()}.
  */
 public class WorldStorage {
 
@@ -32,13 +45,114 @@ public class WorldStorage {
     /* Regionen, deren Datei nicht existiert — Cache für den häufigen Miss-Fall. */
     private final Set<Long> missingRegions = new HashSet<>();
 
-    public WorldStorage(File regionDir) {
+    private final World world;
+    private final WorldGenerator generator;
+    private final String generatorId;
+    private final int generatorVersion;
+    /* Importierte Welten speichern ihre Tint-Grids (MC-Biome != Engine-Biome); generierte
+       berechnen sie beim Laden über generator.fillTintCorners neu (bleibt dynamisch). */
+    private final boolean storeTints;
+
+    private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "Chunk IO");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    public WorldStorage(File regionDir, World world, WorldGenerator generator,
+                        String generatorId, int generatorVersion, boolean storeTints) {
         this.regionDir = regionDir;
+        this.world = world;
+        this.generator = generator;
+        this.generatorId = generatorId;
+        this.generatorVersion = generatorVersion;
+        this.storeTints = storeTints;
     }
 
     private static long regionKey(int rx, int rz) {
         return ((long) rx << 32) | (rz & 0xFFFFFFFFL);
     }
+
+    /* --- Lade-Pfad (Chunk-Worker) --- */
+
+    /**
+     * Lädt den Chunk aus seinem Snapshot. false bei „nicht vorhanden" ODER Fehler (geloggt) —
+     * der Aufrufer generiert dann. Läuft auf einem Chunk-Worker, BEVOR der Chunk per
+     * Status-Publish lesbar wird (gleicher Vertrag wie generator.generate).
+     */
+    public boolean loadChunk(Chunk chunk) {
+        byte[] payload = this.readChunk(chunk.chunkX, chunk.chunkZ);
+        if (payload == null) return false;
+        try {
+            ChunkSerializer.deserialize(chunk, payload, this.world);
+        } catch (Exception e) {
+            this.logger.warning("Chunk (" + chunk.chunkX + ", " + chunk.chunkZ
+                    + ") nicht deserialisierbar — wird regeneriert", e);
+            clearPartialLoad(chunk);
+            return false;
+        }
+        /* Generierte Welten: Grids nicht im Payload -> über denselben Codepfad wie generate()
+           neu berechnen (pur, threadsicher). Importierte Welten haben sie im Payload. */
+        if (chunk.grassTintCorners == null) {
+            this.generator.fillTintCorners(chunk);
+        }
+        return true;
+    }
+
+    /* Halb befüllte Chunks vor dem Generator-Fallback restlos leeren (der Generator startet
+       auf einem leeren Chunk und überschreibt Luft-Zellen nicht). */
+    private static void clearPartialLoad(Chunk chunk) {
+        for (int s = 0; s < Chunk.SECTIONS; s++) chunk.installSection(s, null);
+        chunk.blockEntities().clear();
+        chunk.grassTintCorners = null;
+        chunk.foliageTintCorners = null;
+        chunk.pendingFluidTicks = null;
+    }
+
+    /* --- Save-Pfad (Tick-Thread reiht ein, IO-Thread schreibt) --- */
+
+    /**
+     * Reiht einen Save des Chunks ein. Der Aufrufer (Tick-Thread) hat {@code saveQueued}
+     * bereits gesetzt; der Job snapshottet unter dem Read-Lock, schreibt off-Lock und löscht
+     * die Flags. Schreibfehler setzen {@code modified} zurück — der nächste Trigger
+     * versucht es erneut, nichts geht still verloren.
+     */
+    public void enqueueSave(Chunk chunk) {
+        try {
+            this.ioExecutor.execute(() -> this.saveNow(chunk));
+        } catch (RejectedExecutionException e) {
+            /* close() lief bereits — darf nur nach dem letzten Trigger passieren. */
+            chunk.saveQueued = false;
+            this.logger.error("Save-Job nach Storage-Close verworfen: Chunk ("
+                    + chunk.chunkX + ", " + chunk.chunkZ + ")");
+        }
+    }
+
+    private void saveNow(Chunk chunk) {
+        byte[] payload;
+        chunk.readLock().lock();
+        try {
+            if (!chunk.modified) {
+                chunk.saveQueued = false;
+                return;
+            }
+            payload = ChunkSerializer.serialize(chunk, this.generatorId, this.generatorVersion, this.storeTints);
+            chunk.modified = false;
+        } finally {
+            chunk.readLock().unlock();
+        }
+        try {
+            this.writeChunk(chunk.chunkX, chunk.chunkZ, payload);
+        } catch (Exception e) {
+            chunk.modified = true;
+            this.logger.error("Chunk (" + chunk.chunkX + ", " + chunk.chunkZ
+                    + ") konnte nicht gespeichert werden", e);
+        } finally {
+            chunk.saveQueued = false;
+        }
+    }
+
+    /* --- Region-Datei-Zugriff (synchronized Single-Writer) --- */
 
     /** true, wenn für den Chunk ein Snapshot existiert (nur Header-/Set-Lookup, kein IO). */
     public synchronized boolean hasChunk(int chunkX, int chunkZ) {
@@ -91,8 +205,7 @@ public class WorldStorage {
             return region;
         } catch (IOException e) {
             if (create) {
-                /* Schreibpfad: Fehler weiterreichen wäre Datenverlust ohne Diagnose — loggen,
-                   der Save des Chunks schlägt fehl und bleibt über das modified-Flag erhalten. */
+                /* Schreibpfad: loggen, der Save schlägt fehl und bleibt über modified erhalten. */
                 this.logger.error("Region-Datei (" + rx + ", " + rz + ") nicht öffnbar", e);
             } else {
                 this.logger.warning("Region-Datei (" + rx + ", " + rz + ") nicht lesbar — Chunks werden regeneriert", e);
@@ -102,16 +215,30 @@ public class WorldStorage {
         }
     }
 
-    /** Schließt alle Region-Handles. */
-    public synchronized void close() {
-        for (RegionFile region : this.regions.values()) {
-            try {
-                region.close();
-            } catch (IOException e) {
-                this.logger.error("Region-Datei ließ sich nicht schließen", e);
+    /**
+     * Flusht alle ausstehenden Save-Jobs (bis 10 s) und schließt die Region-Handles.
+     * In {@code World.dispose()} NACH {@code chunkManager.dispose()} aufrufen — danach
+     * schreibt kein Worker mehr auf Chunks.
+     */
+    public void close() {
+        this.ioExecutor.shutdown();
+        try {
+            if (!this.ioExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                this.logger.error("Chunk-IO-Flush nach 10 s abgebrochen — es können Chunk-Saves fehlen!");
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
-        this.regions.clear();
-        this.missingRegions.clear();
+        synchronized (this) {
+            for (RegionFile region : this.regions.values()) {
+                try {
+                    region.close();
+                } catch (IOException e) {
+                    this.logger.error("Region-Datei ließ sich nicht schließen", e);
+                }
+            }
+            this.regions.clear();
+            this.missingRegions.clear();
+        }
     }
 }
