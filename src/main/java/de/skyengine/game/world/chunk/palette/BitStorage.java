@@ -19,6 +19,19 @@ public final class BitStorage {
         this.data = new long[(int) (((long) size * bitsPerEntry + 63) / 64)];
     }
 
+    /** Rebuild aus persistierten Daten (Chunk-Load). Prüft, dass die Array-Länge exakt passt. */
+    public BitStorage(int bitsPerEntry, int size, long[] data) {
+        int expected = (int) (((long) size * bitsPerEntry + 63) / 64);
+        if (data.length != expected) {
+            throw new IllegalArgumentException("BitStorage-Länge passt nicht: " + data.length
+                    + " Longs statt " + expected + " (bitsPerEntry=" + bitsPerEntry + ", size=" + size + ")");
+        }
+        this.bitsPerEntry = bitsPerEntry;
+        this.size = size;
+        this.mask = (1L << bitsPerEntry) - 1L;
+        this.data = data;
+    }
+
     public int get(int index) {
         long bitIndex = (long) index * this.bitsPerEntry;
         int arr = (int) (bitIndex >> 6);
