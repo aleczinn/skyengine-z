@@ -41,6 +41,6 @@ public final class GuiIngameMenu extends GuiScreen {
         /* MC-Layout: Titel weit oben, Buttons im oberen Drittel angedockt. */
         VStack content = new VStack(8, resume, options, toTitle);
         this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
-        this.components.add(content.anchor(Anchor.TOP_CENTER, 0, contentTop(vH, content.height())));
+        this.components.add(content.anchor(Anchor.CENTER, 0, contentTop(vH, content.height())));
     }
 }
