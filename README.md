@@ -14,7 +14,9 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
 ## Features
 
 - 🌍 Chunk-System inkl. Welt Rendering (Chunks sind Säulenförmig a 32x512x32m jedoch in Sektionen mit 32³ Blöcken verteilt)
-- 📷 Kamera inkl. Inverse Depth für bessere Tiefenaufteilung
+- 📷 Kamera
+  - Inverse Depth für bessere Tiefenaufteilung
+  - First-/Third-/Frontal Perspektive
 - 💥 AABB Sweep Kollision + Spieler Physik wie Springen, Sneaken, Strafe, Fliegen etc.
 - 🫲🏼 Block Platzieren/Abbauen
 - 🟩 Vollwertiges Block-System: 
@@ -35,7 +37,6 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
   - Unterstützt bis 5.1 Surround Sound
   - Soundeffekte
   - Musik
-- 🎲 Verschiedene Gamemode's wie Survival, Kreativ oder Zuschauer (Fliegen + NoClip)
 - 🔝 Optimizations & Features
   - Frustum Culling
   - Vertex Komprimierung zu 20 bits (x, y, w, h, u, v, skylight + block light)
@@ -49,6 +50,9 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
 - 🖼️ Post Processing Pipeline
   - Color Grading
   - Antialiasing: None, FXAA, TAA, FXAA + TAA, MSAA
+- 🎲 Spiel
+  - Verschiedene Gamemode's wie Survival, Kreativ oder Zuschauer (Fliegen + NoClip)
+  - Spieler + Animation für Laufen/Essen
 
 ## Development
 
