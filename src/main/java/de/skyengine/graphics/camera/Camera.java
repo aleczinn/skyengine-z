@@ -20,6 +20,9 @@ public class Camera {
 
     private final Matrix4f projection = new Matrix4f();
     private final Matrix4f view = new Matrix4f();
+    /* View-Vorsatz (Bobbing/Hurt-Tilt): wirkt NUR auf die View-Matrix — Position, Raycast,
+       Audio-Listener und getDirection bleiben unberührt. Identität = kein Effekt. */
+    private final Matrix4f viewEffect = new Matrix4f();
     private final Matrix4f projectionView = new Matrix4f();
     private final FrustumIntersection frustum = new FrustumIntersection();
 
@@ -89,8 +92,11 @@ public class Camera {
         }
 
         /* View matrix WITHOUT translation - chunks are rendered relative to the camera
-           (camera-relative rendering avoids float precision issues far from origin) */
-        this.view.rotationX((float) Math.toRadians(this.pitch))
+           (camera-relative rendering avoids float precision issues far from origin).
+           Der viewEffect-Vorsatz (Bobbing/Hurt) sitzt links und steckt damit auch in der
+           ungejitterten PV — TAA-Reprojektion behandelt ihn wie normale Kamerabewegung. */
+        this.view.set(this.viewEffect)
+                .rotateX((float) Math.toRadians(this.pitch))
                 .rotateY((float) Math.toRadians(this.yaw));
 
         this.projection.mul(this.view, this.unjitteredProjectionView);
@@ -166,6 +172,17 @@ public class Camera {
 
     public float getPitch() {
         return pitch;
+    }
+
+    /** Bob-/Hurt-Effektmatrix des Frames (kopiert); Identität = kein Effekt. Vor update() setzen. */
+    public void setViewEffect(Matrix4f effect) {
+        this.viewEffect.set(effect);
+    }
+
+    /** Blickwinkel direkt setzen (Third-Person-Front dreht die Kamera zum Spieler um). */
+    public void setRotation(float yaw, float pitch) {
+        this.yaw = yaw;
+        this.pitch = pitch;
     }
 
     public void setFov(float fov) {

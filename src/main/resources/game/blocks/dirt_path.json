@@ -2,8 +2,11 @@
   "id": "skyengine:dirt_path",
   "type": "cube",
   "layer": "opaque",
+  "opaque": false,
+  "cull_same": true,
   "hardness": 0.65,
   "tool": "shovel",
+  "collision": { "boxes": [ { "from": [0, 0, 0], "to": [16, 15, 16] } ] },
   "textures": {
     "top": "game/textures/block/dirt_path_top.png",
     "bottom": "game/textures/block/dirt.png",
