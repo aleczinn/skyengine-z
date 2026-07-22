@@ -222,12 +222,14 @@ public final class PlayerRenderer implements IDisposable {
         this.pose.headYRot = (float) Math.toRadians(PlayerAnimationState.wrapDegrees(player.yaw - bodyYaw));
         this.pose.headXRot = (float) Math.toRadians(player.pitch);
 
-        /* Essen: rechter Arm fährt EINMAL weich zum Mund (geglätteter Blend, kein Kau-Pumpen)
-           und beim Aufhören zurück; währenddessen kein Attack-Schwung. */
+        /* Essen: rechter Arm fährt weich vor den Mund (geglätteter Blend) — flacher Winkel
+           (Hand auf Mund- statt Augenhöhe) + stärker zur Gesichtsmitte, dazu ein kleines
+           Kau-Wippen mit derselben Zeitbasis wie die First-Person-Hand; kein Attack-Schwung. */
         float eatWeight = anim.getEatWeight(partialTick);
         if (eatWeight > 0F) {
-            this.pose.rightArmXRot = this.pose.rightArmXRot * (1F - eatWeight) + -1.9F * eatWeight;
-            this.pose.rightArmYRot = -0.4F * eatWeight;
+            float chew = (float) (Math.cos(anim.getEatTime(partialTick) / 4.0 * Math.PI) * 0.1);
+            this.pose.rightArmXRot = this.pose.rightArmXRot * (1F - eatWeight) + (-1.45F + chew) * eatWeight;
+            this.pose.rightArmYRot = -0.6F * eatWeight;
         }
 
         /* Attack-Schwung (setupAttackAnimation, rechter Arm): Körper dreht mit, Arm-Pivots

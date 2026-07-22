@@ -215,10 +215,11 @@ public final class GuiManager {
     /**
      * Pro Frame nach der Welt: Cursor synchronisieren + ggf. GuiScreen + Hotbar zeichnen.
      * Die Hotbar wird IMMER gerendert (auch bei offenem Inventar, wie in Minecraft) und teilt sich die
-     * Daten mit dem GuiScreen (gleiches Spielerinventar) -> automatisch synchron. Das Fadenkreuz nur ohne GuiScreen.
+     * Daten mit dem GuiScreen (gleiches Spielerinventar) -> automatisch synchron. Das Fadenkreuz nur ohne
+     * GuiScreen und nur, wenn der Aufrufer es will (First Person).
      */
     public void render(int screenW, int screenH, SimpleItemStorage hotbarInv, int selectedSlot,
-                       boolean showHotbar, float itemNameAlpha, EntityPlayer player) {
+                       boolean showHotbar, boolean crosshair, float itemNameAlpha, EntityPlayer player) {
         this.syncCursor();
         this.screenHpx = screenH;
         /* Auto-Scale: bei kleinen Fenstern den Scale reduzieren, damit die virtuelle Fläche
@@ -231,7 +232,7 @@ public final class GuiManager {
         /* HUD ZUERST (wie in Minecraft): ein offener GuiScreen samt Dim liegt ÜBER der Hotbar —
            sonst übermalt die Hotbar z.B. die Footer-Buttons von Scroll-Menüs. */
         if (hotbarInv != null) {
-            this.hud.render(this, hotbarInv, selectedSlot, this.screen == null, showHotbar, itemNameAlpha, player);
+            this.hud.render(this, hotbarInv, selectedSlot, this.screen == null && crosshair, showHotbar, itemNameAlpha, player);
         }
         if (this.screen != null) {
             /* Layout beim Öffnen und bei jeder Größen-/Scale-Änderung (statt pro Frame):
@@ -270,8 +271,12 @@ public final class GuiManager {
             if (want == 1) {
                 this.input.showCursor();
                 /* Cursor mittig starten (wie MC) — beide Aufrufe laufen deferiert in
-                   Reihenfolge auf dem Main-Thread, centerMouse resettet das Maus-Delta. */
-                this.input.centerMouse();
+                   Reihenfolge auf dem Main-Thread, centerMouse resettet das Maus-Delta.
+                   Nur wenn der Cursor vorher im Spiel gefangen war (0 -> 1): Beim Spielstart
+                   (Hauptmenü, lastCursorMode == -1) darf die Maus nicht wegspringen. */
+                if (this.lastCursorMode == 0) {
+                    this.input.centerMouse();
+                }
             } else {
                 this.input.disableCursor();
             }
