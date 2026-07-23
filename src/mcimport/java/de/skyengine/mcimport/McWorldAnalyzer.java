@@ -4,6 +4,7 @@ import de.skyengine.mcimport.mca.McBlockState;
 import de.skyengine.mcimport.mca.McChunk;
 import de.skyengine.mcimport.mca.McChunkParser;
 import de.skyengine.mcimport.mca.McRegionFile;
+import de.skyengine.mcimport.mca.McWorldPaths;
 import de.skyengine.mcimport.mca.McSection;
 import de.skyengine.mcimport.nbt.NbtReader;
 
@@ -38,13 +39,14 @@ public final class McWorldAnalyzer {
         File world = new File(args[0]);
         int maxChunks = args.length >= 2 ? Integer.parseInt(args[1]) : 500;
 
-        File regionDir = new File(world, "region");
-        File[] regionFiles = regionDir.listFiles((dir, name) -> REGION_NAME.matcher(name).matches());
-        if (regionFiles == null || regionFiles.length == 0) {
-            System.out.println("Keine region/*.mca gefunden unter: " + regionDir.getAbsolutePath()
+        File regionDir = McWorldPaths.overworldRegionDir(world);
+        if (regionDir == null) {
+            System.out.println("Keine region/*.mca gefunden unter: " + world.getAbsolutePath()
+                    + " (weder region/ noch dimensions/minecraft/overworld/region/)"
                     + " — keine (moderne) Java-Edition-Welt?");
             System.exit(1);
         }
+        File[] regionFiles = regionDir.listFiles((dir, name) -> REGION_NAME.matcher(name).matches());
         java.util.Arrays.sort(regionFiles, Comparator.comparing(File::getName));
 
         Map<String, Long> byBlockType = new HashMap<>();

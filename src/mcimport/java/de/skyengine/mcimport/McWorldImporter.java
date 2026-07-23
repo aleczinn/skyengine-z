@@ -23,6 +23,7 @@ import de.skyengine.mcimport.mca.McBlockState;
 import de.skyengine.mcimport.mca.McChunk;
 import de.skyengine.mcimport.mca.McChunkParser;
 import de.skyengine.mcimport.mca.McRegionFile;
+import de.skyengine.mcimport.mca.McWorldPaths;
 import de.skyengine.mcimport.mca.McSection;
 import de.skyengine.mcimport.nbt.NbtCompound;
 import de.skyengine.mcimport.nbt.NbtList;
@@ -65,6 +66,8 @@ public final class McWorldImporter {
     /* Zähler für die Abschluss-Summary. */
     private static int chunksImported, mcChunksMissing, cellsOutOfRange, chestsImported;
     private static int itemsImported, itemsSkipped, blockEntitiesSkipped;
+    /* Importierte Engine-Chunks (Chunk.key) — für die Spawn-Plausibilitätsprüfung. */
+    private static final java.util.Set<Long> importedChunks = new java.util.HashSet<>();
 
     public static void main(String[] args) throws Exception {
         if (args.length < 2) {
@@ -74,12 +77,14 @@ public final class McWorldImporter {
         File mcWorld = new File(args[0]);
         String worldName = args[1];
 
-        File regionDir = new File(mcWorld, "region");
-        File[] regionFiles = regionDir.listFiles((dir, name) -> REGION_NAME.matcher(name).matches());
-        if (regionFiles == null || regionFiles.length == 0) {
-            System.out.println("Keine region/*.mca gefunden unter: " + regionDir.getAbsolutePath());
+        File regionDir = McWorldPaths.overworldRegionDir(mcWorld);
+        if (regionDir == null) {
+            System.out.println("Keine region/*.mca gefunden unter: " + mcWorld.getAbsolutePath()
+                    + " (weder region/ noch dimensions/minecraft/overworld/region/)");
             System.exit(1);
         }
+        System.out.println("Region-Quelle: " + regionDir.getAbsolutePath());
+        File[] regionFiles = regionDir.listFiles((dir, name) -> REGION_NAME.matcher(name).matches());
         Arrays.sort(regionFiles, Comparator.comparing(File::getName));
 
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
@@ -93,7 +98,6 @@ public final class McWorldImporter {
         level.generator = "minecraft_import";
         level.generatorVersion = 1;
         WorldSaves.save(save);
-        writePlayerDat(save.dirName(), mcWorld);
 
         File targetRegionDir = new File(WorldSaves.dir(save.dirName()), "region");
         if (!targetRegionDir.exists() && !targetRegionDir.mkdirs()) {
@@ -116,6 +120,17 @@ public final class McWorldImporter {
             convertRegion(file, rx, rz, targetRegionDir, mapper, grassTints, foliageTints);
         }
         long elapsed = System.currentTimeMillis() - start;
+
+        /* Spawn erst NACH der Konvertierung schreiben — dann können wir warnen, wenn er
+           in einen nicht importierten Bereich zeigt (z.B. kaputte Export-Maps). */
+        double[] spawn = readSpawn(mcWorld);
+        writePlayerDat(save.dirName(), spawn);
+        long spawnChunk = Chunk.key(((int) Math.floor(spawn[0])) >> ChunkSection.SHIFT,
+                ((int) Math.floor(spawn[2])) >> ChunkSection.SHIFT);
+        if (!importedChunks.contains(spawnChunk)) {
+            System.out.println("WARNUNG: Der Spawn-Chunk wurde NICHT importiert — der Spieler");
+            System.out.println("         startet in leerem Gebiet. Spawn ggf. in der player.dat anpassen.");
+        }
 
         System.out.println();
         System.out.println("=== Import fertig: " + save.dirName() + " ===");
@@ -162,6 +177,7 @@ public final class McWorldImporter {
                     chunk.foliageTintCorners = foliageTints;
                     byte[] payload = ChunkSerializer.serialize(chunk, "minecraft_import", 1, true, null);
                     target.write(chunkX & 15, chunkZ & 15, payload);
+                    importedChunks.add(Chunk.key(chunkX, chunkZ));
                     chunksImported++;
                     written++;
                 }
@@ -270,30 +286,51 @@ public final class McWorldImporter {
         }
     }
 
-    /** Spawn aus der MC-level.dat (NBT, gzip) → player.dat (Creative + fliegend, Y+64). */
-    private static void writePlayerDat(String dirName, File mcWorld) {
-        double x = 0.5, y = 100, z = 0.5;
+    /**
+     * Spawn aus der MC-level.dat (NBT, gzip): klassisch {@code Data.SpawnX/Y/Z} ODER das
+     * neuere {@code Data.spawn}-Compound ({@code pos}-IntArray + yaw/pitch, ~1.21.6+).
+     * Liefert Engine-Koordinaten (Y+64+1 Sicherheitsabstand) + yaw/pitch.
+     */
+    private static double[] readSpawn(File mcWorld) {
         try (FileInputStream in = new FileInputStream(new File(mcWorld, "level.dat"))) {
             NbtCompound data = NbtReader.readAuto(in).requireCompound("Data");
-            x = data.getInt("SpawnX", 0) + 0.5;
-            y = data.getInt("SpawnY", 64) + Y_OFFSET + 1.0; // +1 Sicherheitsabstand
-            z = data.getInt("SpawnZ", 0) + 0.5;
+
+            NbtCompound spawn = data.getCompound("spawn");
+            if (spawn != null) {
+                int[] pos = spawn.getIntArray("pos");
+                if (pos != null && pos.length == 3) {
+                    return new double[]{pos[0] + 0.5, pos[1] + Y_OFFSET + 1.0, pos[2] + 0.5,
+                            spawn.getDouble("yaw", 0), spawn.getDouble("pitch", 0)};
+                }
+            }
+            if (data.contains("SpawnX")) {
+                return new double[]{data.getInt("SpawnX", 0) + 0.5,
+                        data.getInt("SpawnY", 64) + Y_OFFSET + 1.0,
+                        data.getInt("SpawnZ", 0) + 0.5, 0, 0};
+            }
+            System.out.println("level.dat ohne Spawn-Angabe — Fallback 0/100/0");
         } catch (Exception e) {
             System.out.println("level.dat nicht lesbar (" + e.getMessage() + ") — Spawn-Fallback 0/100/0");
         }
+        return new double[]{0.5, 100, 0.5, 0, 0};
+    }
+
+    /** Schreibt die player.dat (Creative + fliegend) an die Spawn-Position. */
+    private static void writePlayerDat(String dirName, double[] spawn) {
         DataTag tag = new DataTag();
         UUID uuid = UUID.randomUUID();
         tag.putLong("uuidMost", uuid.getMostSignificantBits());
         tag.putLong("uuidLeast", uuid.getLeastSignificantBits());
-        tag.putDouble("x", x);
-        tag.putDouble("y", y);
-        tag.putDouble("z", z);
-        tag.putDouble("yaw", 0);
-        tag.putDouble("pitch", 0);
+        tag.putDouble("x", spawn[0]);
+        tag.putDouble("y", spawn[1]);
+        tag.putDouble("z", spawn[2]);
+        tag.putDouble("yaw", spawn[3]);
+        tag.putDouble("pitch", spawn[4]);
         tag.putString("gamemode", "CREATIVE");
         tag.putBoolean("flying", true);
         PlayerIO.write(new File(new File(WorldSaves.dir(dirName), "player"), "player.dat"), tag);
-        System.out.printf("Spawn: %.1f / %.1f / %.1f (MC-Spawn + Y-Offset %d)%n", x, y, z, Y_OFFSET);
+        System.out.printf("Spawn: %.1f / %.1f / %.1f (MC-Spawn + Y-Offset %d)%n",
+                spawn[0], spawn[1], spawn[2], Y_OFFSET);
     }
 
     private McWorldImporter() {}
