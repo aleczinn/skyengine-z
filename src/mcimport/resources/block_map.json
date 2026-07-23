@@ -1,0 +1,31 @@
+{
+  "minecraft:cave_air": "skyengine:air",
+  "minecraft:void_air": "skyengine:air",
+
+  "minecraft:grass": "skyengine:short_grass",
+  "minecraft:snow_block": "skyengine:snow",
+
+  "minecraft:deepslate": "skyengine:stone",
+  "minecraft:cobbled_deepslate": "skyengine:cobblestone",
+  "minecraft:smooth_stone": "skyengine:stone",
+  "minecraft:infested_stone": "skyengine:stone",
+  "minecraft:infested_deepslate": "skyengine:stone",
+  "minecraft:mossy_cobblestone": "skyengine:cobblestone",
+  "minecraft:calcite": "skyengine:diorite",
+  "minecraft:moss_block": "skyengine:grass_block",
+
+  "minecraft:seagrass": "skyengine:water",
+  "minecraft:tall_seagrass": "skyengine:water",
+  "minecraft:kelp": "skyengine:water",
+  "minecraft:kelp_plant": "skyengine:water",
+  "minecraft:bubble_column": "skyengine:water",
+
+  "minecraft:deepslate_coal_ore": "skyengine:coal_ore",
+  "minecraft:deepslate_iron_ore": "skyengine:iron_ore",
+  "minecraft:deepslate_copper_ore": "skyengine:copper_ore",
+  "minecraft:deepslate_gold_ore": "skyengine:gold_ore",
+  "minecraft:deepslate_redstone_ore": "skyengine:redstone_ore",
+  "minecraft:deepslate_lapis_ore": "skyengine:lapis_ore",
+  "minecraft:deepslate_diamond_ore": "skyengine:diamond_ore",
+  "minecraft:deepslate_emerald_ore": "skyengine:emerald_ore"
+}

@@ -37,6 +37,13 @@ tasks.register<JavaExec>("mcAnalyze") {
     mainClass = "de.skyengine.mcimport.McWorldAnalyzer"
 }
 
+tasks.register<JavaExec>("mcMapReport") {
+    group = "application"
+    description = "Prüft die Block-Mapping-Abdeckung gegen eine Minecraft-Welt (M5)"
+    classpath = sourceSets["mcimport"].runtimeClasspath
+    mainClass = "de.skyengine.mcimport.McMappingReport"
+}
+
 val lwjglVersion = "3.4.1"
 val jomlVersion = "1.10.9"
 val jomlPrimitivesVersion = "1.10.0"
