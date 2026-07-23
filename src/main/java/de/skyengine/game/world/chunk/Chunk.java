@@ -4,6 +4,7 @@ import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
+import de.skyengine.game.world.tick.SavedTick;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -52,10 +53,16 @@ public class Chunk {
        seine Zelle deckt (symmetrisch zum Lade-Gate der LOD-Maske). Nur Tick-Thread. */
     public boolean pendingUnload;
 
-    /* Vom ChunkSerializer beim Laden gesammelte Positionen fließender Fluide (gepackt wie
-       beKey) — der Tick-Thread plant daraus Scheduled-Ticks und nullt das Feld wieder
-       (Sichtbarkeit über das volatile status-Publish des Load-Jobs). */
-    public int[] pendingFluidTicks;
+    /* Vom ChunkSerializer beim Laden übergebene Scheduled-Ticks. KEIN Persistenzspeicher,
+       sondern nur ein temporärer Übergabepuffer zwischen Lade-Worker und Tick-Thread:
+       Publikation über das volatile status-Publish des Load-Jobs; der Tick-Thread plant
+       die Einträge ab READY in die ScheduledTickQueue ein und nullt das Feld. */
+    public List<SavedTick> pendingScheduledTicks;
+
+    /* Zum Save: Queue-Snapshot dieses Chunks, vom Tick-Thread im Enqueue-Moment gesetzt
+       (WorldStorage.enqueueSave — einziger Ort!), vom IO-Thread im Read-Lock-Fenster
+       gelesen und genullt (happens-before über die Executor-Übergabe). */
+    public List<SavedTick> scheduledTickSnapshot;
 
     /* Persistenz: seit dem letzten Save verändert (Edits/BlockEntity-Mutationen). Gesetzt auf
        dem Tick-Thread, zurückgesetzt NUR im Save-Job (IO-Thread, im Read-Lock-Fenster) —

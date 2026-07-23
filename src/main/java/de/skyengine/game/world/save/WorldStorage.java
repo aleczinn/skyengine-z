@@ -3,6 +3,7 @@ package de.skyengine.game.world.save;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.generator.WorldGenerator;
+import de.skyengine.game.world.tick.SavedTick;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -10,6 +11,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -106,18 +108,25 @@ public class WorldStorage {
         chunk.blockEntities().clear();
         chunk.grassTintCorners = null;
         chunk.foliageTintCorners = null;
-        chunk.pendingFluidTicks = null;
+        chunk.pendingScheduledTicks = null;
     }
 
     /* --- Save-Pfad (Tick-Thread reiht ein, IO-Thread schreibt) --- */
 
     /**
-     * Reiht einen Save des Chunks ein. Der Aufrufer (Tick-Thread) hat {@code saveQueued}
-     * bereits gesetzt; der Job snapshottet unter dem Read-Lock, schreibt off-Lock und löscht
-     * die Flags. Schreibfehler setzen {@code modified} zurück — der nächste Trigger
-     * versucht es erneut, nichts geht still verloren.
+     * Reiht einen Save des Chunks ein. NUR Tick-Thread (Unload, Autosave, Exit, F8) —
+     * hier wird auch der Scheduled-Tick-Snapshot gezogen (die Queue ist tick-thread-only);
+     * dadurch sind ALLE Enqueue-Orte automatisch korrekt. Der Aufrufer hat
+     * {@code saveQueued} bereits gesetzt; der Job snapshottet die Blöcke unter dem
+     * Read-Lock, schreibt off-Lock und löscht die Flags. Schreibfehler setzen
+     * {@code modified} zurück — der nächste Trigger versucht es erneut.
+     *
+     * <p>Tick- und Block-Snapshot können minimal auseinanderliegen: ein dazwischen
+     * gefeuerter Tick ist doppelt im Save und feuert nach dem Laden einmal ins Leere —
+     * Ticks sind Zustands-Neubewertungen, das ist harmlos.
      */
     public void enqueueSave(Chunk chunk) {
+        chunk.scheduledTickSnapshot = this.world != null ? this.world.snapshotScheduledTicks(chunk) : null;
         try {
             this.ioExecutor.execute(() -> this.saveNow(chunk));
         } catch (RejectedExecutionException e) {
@@ -132,11 +141,13 @@ public class WorldStorage {
         byte[] payload;
         chunk.readLock().lock();
         try {
+            List<SavedTick> ticks = chunk.scheduledTickSnapshot;
+            chunk.scheduledTickSnapshot = null;
             if (!chunk.modified) {
                 chunk.saveQueued = false;
                 return;
             }
-            payload = ChunkSerializer.serialize(chunk, this.generatorId, this.generatorVersion, this.storeTints);
+            payload = ChunkSerializer.serialize(chunk, this.generatorId, this.generatorVersion, this.storeTints, ticks);
             chunk.modified = false;
         } finally {
             chunk.readLock().unlock();

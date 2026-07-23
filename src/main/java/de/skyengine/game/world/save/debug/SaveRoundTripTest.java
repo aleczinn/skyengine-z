@@ -15,16 +15,22 @@ import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.save.ChunkSerializer;
 import de.skyengine.game.world.save.WorldStorage;
+import de.skyengine.game.world.tick.SavedTick;
+import de.skyengine.game.world.tick.ScheduledTickQueue;
+import de.skyengine.game.world.tick.ScheduledTickTypes;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * Standalone-Werkzeug (eigene main, kein GL/Engine-Start, Muster {@code GeneratorMapExporter}):
- * generiert einen Chunk, ergänzt Edits (Treppe mit Properties, fließendes/fallendes Wasser,
- * Truhe mit Items), serialisiert ihn, stellt ihn wieder her und vergleicht ALLES.
- * Prüft außerdem Kompression + CRC-Round-Trip und die Fluid-Tick-Sammlung
- * (Quellen dürfen NICHT eingeplant werden). Exit-Code 0 = alles identisch.
+ * generiert einen Chunk, ergänzt Edits (Treppe mit Properties, Fluide, Truhe mit Items),
+ * serialisiert ihn (v2 inkl. Scheduled-Ticks), stellt ihn wieder her und vergleicht ALLES.
+ * Prüft außerdem Kompression + CRC-Round-Trip, die Scheduled-Tick-Wiederherstellung
+ * (Quelle-mit-Resttick = Fluid-Freeze-Bugfall, unbekannte Tick-Typen, Validierung) und
+ * das Region-Storage. Exit-Code 0 = alles identisch.
  */
 public final class SaveRoundTripTest {
 
@@ -55,9 +61,21 @@ public final class SaveRoundTripTest {
         chest.getInventory().set(13, damaged);
         chunk.setBlockEntity(8, 200, 8, chest);
 
+        /* Scheduled-Ticks (v2): Quelle mit Rest-Delay = exakt der Fluid-Freeze-Bugfall.
+           Dazwischen ein unbekannter Typ und zwei invalide Einträge (falscher Chunk,
+           y außerhalb) — sie dürfen den Reststream nicht verwürfeln. */
+        int sourceX = 3 * ChunkSection.SIZE + 7, sourceZ = -7 * ChunkSection.SIZE + 7;
+        int flowX = 3 * ChunkSection.SIZE + 5, flowZ = -7 * ChunkSection.SIZE + 5;
+        List<SavedTick> savedTicks = List.of(
+                new SavedTick(ScheduledTickTypes.BLOCK, sourceX, 200, sourceZ, 3),
+                new SavedTick("future_test_type", sourceX, 210, sourceZ, 9),
+                new SavedTick(ScheduledTickTypes.BLOCK, flowX, 200, flowZ, 1),
+                new SavedTick(ScheduledTickTypes.BLOCK, sourceX + 32, 200, sourceZ, 4),
+                new SavedTick(ScheduledTickTypes.BLOCK, sourceX, 600, sourceZ, 4));
+
         /* --- Serialisieren + Kompression/CRC-Round-Trip --- */
         t0 = System.currentTimeMillis();
-        byte[] raw = ChunkSerializer.serialize(chunk, "alpha_v2", 1, true);
+        byte[] raw = ChunkSerializer.serialize(chunk, "alpha_v2", 1, true, savedTicks);
         long serializeMs = System.currentTimeMillis() - t0;
         byte[] compressed = ChunkSerializer.compress(raw);
         int crc = ChunkSerializer.crc32(raw);
@@ -112,13 +130,35 @@ public final class SaveRoundTripTest {
             check(false, "Truhen-BlockEntity wiederhergestellt");
         }
 
-        /* Fluid-Ticks: genau die zwei fließenden Positionen, die Quelle nicht. */
-        int[] ticks = restored.pendingFluidTicks == null ? new int[0] : restored.pendingFluidTicks;
-        check(contains(ticks, packLocal(5, 200, 5)), "Fließendes Wasser (level=3) eingeplant");
-        check(contains(ticks, packLocal(6, 200, 6)), "Fallendes Wasser eingeplant");
-        check(!contains(ticks, packLocal(7, 200, 7)), "Wasser-Quelle NICHT eingeplant");
-        System.out.println("Fluid-Ticks gesamt: " + ticks.length
-                + " (Generator-Wasser sind Quellen und zählen nicht mit)");
+        /* Scheduled-Ticks: 2 gültige wiederhergestellt, unbekannter Typ + 2 invalide raus. */
+        List<SavedTick> restoredTicks = restored.pendingScheduledTicks;
+        check(restoredTicks != null && restoredTicks.size() == 2,
+                "2 gültige Ticks wiederhergestellt (unbekannter Typ + 2 invalide übersprungen)");
+        if (restoredTicks != null && restoredTicks.size() == 2) {
+            SavedTick first = restoredTicks.get(0);
+            SavedTick second = restoredTicks.get(1);
+            check(first.x() == sourceX && first.y() == 200 && first.z() == sourceZ && first.remainingTicks() == 3,
+                    "Quelle-Tick (VOR dem unbekannten Eintrag) korrekt");
+            check(second.x() == flowX && second.z() == flowZ && second.remainingTicks() == 1,
+                    "Fluss-Tick (NACH dem unbekannten Eintrag) korrekt — Stream intakt");
+
+            /* Restore-Pipeline (wie World.restorePendingScheduledTicks): Queue -> drainDue feuert. */
+            ScheduledTickQueue queue = new ScheduledTickQueue();
+            long now = 1000;
+            for (SavedTick tick : restoredTicks) queue.schedule(tick.x(), tick.y(), tick.z(), now + tick.remainingTicks());
+            List<String> fired = new ArrayList<>();
+            queue.drainDue(now + 3, (x, y, z) -> fired.add(x + "," + y + "," + z));
+            check(fired.contains(sourceX + ",200," + sourceZ), "Quelle -> Save -> Load -> Tick FEUERT (Bugfall behoben)");
+            check(fired.contains(flowX + ",200," + flowZ), "Fluss-Tick feuert");
+        }
+
+        /* forEachPending: Vorzeichen-Erweiterung + Überfällig-Klemme. */
+        ScheduledTickQueue negQueue = new ScheduledTickQueue();
+        negQueue.schedule(-100, 50, -217, 500);  // triggerTime 500 < now 1000 -> überfällig
+        int[] got = new int[4];
+        negQueue.forEachPending(1000, (x, y, z, rem) -> { got[0] = x; got[1] = y; got[2] = z; got[3] = rem; });
+        check(got[0] == -100 && got[1] == 50 && got[2] == -217, "forEachPending entpackt negative Koordinaten korrekt");
+        check(got[3] == 1, "Überfälliger Tick -> Rest-Delay 1");
 
         /* --- Luft-Fallback: unbekannter State (Block aus dem Spiel entfernt) --- */
         byte[] tampered = raw.clone();
@@ -145,7 +185,7 @@ public final class SaveRoundTripTest {
 
         Chunk other = new Chunk(18, -7); // Region (1,-1) — testet die Region-Grenze bei negativen Koordinaten
         generator.generate(other);
-        byte[] payloadB = ChunkSerializer.serialize(other, "alpha_v2", 1, true);
+        byte[] payloadB = ChunkSerializer.serialize(other, "alpha_v2", 1, true, null);
 
         WorldStorage storage = new WorldStorage(dir, null, null, "test", 1, true);
         storage.writeChunk(3, -7, raw);       // Region (0,-1), landet in Sektor 1
@@ -206,16 +246,6 @@ public final class SaveRoundTripTest {
         BlockState state = BlockStateCodec.decode(encoded);
         if (state == null) throw new IllegalStateException("Testblock nicht gefunden: " + encoded);
         return state.getId();
-    }
-
-    /* Gleiche Packung wie Chunk.beKey / ChunkSerializer.packLocalPos. */
-    private static int packLocal(int lx, int y, int lz) {
-        return (lx & 31) | ((lz & 31) << 5) | ((y & 511) << 10);
-    }
-
-    private static boolean contains(int[] array, int value) {
-        for (int v : array) if (v == value) return true;
-        return false;
     }
 
     private static void check(boolean ok, String what) {
