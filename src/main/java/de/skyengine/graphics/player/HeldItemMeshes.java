@@ -116,7 +116,9 @@ public final class HeldItemMeshes {
         }
         this.transform.translate(-0.5F, -0.5F, -0.5F);
         this.shader.setUniformMatrix4f("u_Model", this.transform);
+        if (!held.flat) GL11.glEnable(GL11.GL_CULL_FACE);   // Block-Würfel: Rückseiten cullen (Glas wie Vanilla)
         held.mesh.render();
+        if (!held.flat) GL11.glDisable(GL11.GL_CULL_FACE);
     }
 
     /**
