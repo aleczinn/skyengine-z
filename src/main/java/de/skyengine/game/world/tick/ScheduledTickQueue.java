@@ -89,6 +89,31 @@ public final class ScheduledTickQueue {
         }
     }
 
+    /** Callback für einen anstehenden Tick (Weltkoordinaten + Rest-Delay ab now, min. 1). */
+    @FunctionalInterface
+    public interface PendingConsumer {
+        void accept(int x, int y, int z, int remainingTicks);
+    }
+
+    /**
+     * Meldet alle anstehenden Ticks (Reihenfolge unspezifiziert) — Basis für die
+     * Chunk-Persistenz. Iteriert die scheduledTime-Map (die Wahrheit OHNE die
+     * Karteileichen der PriorityQueue). Bereits fällige Ticks melden Rest-Delay 1
+     * (früher als der nächste Tick geht nicht). Nur Tick-Thread.
+     */
+    public void forEachPending(long now, PendingConsumer consumer) {
+        for (Map.Entry<Long, Long> entry : this.scheduledTime.entrySet()) {
+            long key = entry.getKey();
+            /* Entpacken mit Vorzeichen-Erweiterung: x liegt in den obersten 26 Bit
+               (arithm. Long-Shift erweitert), z braucht die explizite 26-Bit-Erweiterung. */
+            int x = (int) (key >> 38);
+            int z = ((int) ((key >> 12) & 0x3FFFFFF) << 6) >> 6;
+            int y = (int) (key & 0xFFF);
+            int remaining = (int) Math.max(1, entry.getValue() - now);
+            consumer.accept(x, y, z, remaining);
+        }
+    }
+
     public int size() {
         return this.queue.size();
     }

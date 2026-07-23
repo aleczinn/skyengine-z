@@ -21,7 +21,6 @@ import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.core.file.GameDirectory;
-import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
@@ -36,7 +35,9 @@ import de.skyengine.utils.logging.Logger;
 import de.skyengine.game.world.lod.LodBlockAppearance;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.WorldLodDataSource;
+import de.skyengine.game.world.tick.SavedTick;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
+import de.skyengine.game.world.tick.ScheduledTickTypes;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.graphics.FrameProfiler;
@@ -164,7 +165,7 @@ public class World implements IInitializable, IDisposable {
         this.playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
         this.chunkManager.update(player);
         this.lodManager.update(player);
-        this.schedulePendingFluidTicks();
+        this.restorePendingScheduledTicks();
         this.tickScheduled();
         this.tickRandomBlocks();
         this.tickBlockEntities();
@@ -178,26 +179,41 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
-     * Plant die vom Chunk-Load gesammelten Fluid-Ticks ein (fließendes/fallendes Wasser
-     * bzw. Lava liefe sonst nach dem Laden nie weiter). Muss auf dem Tick-Thread laufen —
-     * die ScheduledTickQueue ist nicht threadsicher.
+     * Plant die beim Chunk-Load übergebenen Scheduled-Ticks ein (sonst stünde z.B. frisch
+     * geladenes Wasser für immer). Erst ab READY — vorher würde der Tick feuern, bevor
+     * {@code setBlockRaw} schreiben kann (nur READY-Chunks sind editierbar), und die
+     * Ausbreitung verpuffte still. Tick-Thread (ScheduledTickQueue ist nicht threadsicher);
+     * das volatile status ist der Publikationspunkt und wird VOR dem Feld gelesen.
      */
-    private void schedulePendingFluidTicks() {
+    private void restorePendingScheduledTicks() {
         for (Chunk chunk : this.chunkManager.loadedChunks()) {
-            int[] pending = chunk.pendingFluidTicks;
-            if (pending == null || !chunk.status.isAtLeast(ChunkStatus.DECORATED)) continue;
-            int baseX = chunk.chunkX << ChunkSection.SHIFT;
-            int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
-            for (int packed : pending) {
-                int x = baseX + (packed & 31);
-                int z = baseZ + ((packed >> 5) & 31);
-                int y = (packed >> 10) & 511;
-                FluidInfo info = Blocks.getState(chunk.getBlock(packed & 31, y, (packed >> 5) & 31))
-                        .getBlock().getFluidInfo();
-                this.scheduleTick(x, y, z, info != null ? info.tickDelay : 5);
+            if (chunk.status != ChunkStatus.READY) continue;
+            List<SavedTick> pending = chunk.pendingScheduledTicks;
+            if (pending == null) continue;
+            for (SavedTick tick : pending) {
+                /* Unbekannte Typen filtert schon der Serializer — defensiver Zweitcheck. */
+                ScheduledTickTypes.ScheduledTickRestorer restorer = ScheduledTickTypes.get(tick.type());
+                if (restorer != null) restorer.restore(this, tick.x(), tick.y(), tick.z(), tick.remainingTicks());
             }
-            chunk.pendingFluidTicks = null;
+            chunk.pendingScheduledTicks = null;
         }
+    }
+
+    /**
+     * Sammelt die anstehenden Scheduled-Ticks des Chunks für die Persistenz (Typ "block" —
+     * alles in der Queue dispatcht über Block.scheduledTick). Künftige Systeme mit eigenen
+     * Datenstrukturen hängen sich hier als weitere Quellen an. Nur Tick-Thread; einziger
+     * Aufrufer ist {@code WorldStorage.enqueueSave}. null, wenn nichts ansteht.
+     * Optimierung später (nur Notiz): die ScheduledTickQueue kann optional nach Chunk-Key
+     * gruppieren, statt pro Save die ganze Map zu scannen.
+     */
+    public List<SavedTick> snapshotScheduledTicks(Chunk chunk) {
+        List<SavedTick> ticks = new ArrayList<>();
+        this.scheduledTicks.forEachPending(this.gameTime, (x, y, z, remaining) -> {
+            if ((x >> ChunkSection.SHIFT) != chunk.chunkX || (z >> ChunkSection.SHIFT) != chunk.chunkZ) return;
+            ticks.add(new SavedTick(ScheduledTickTypes.BLOCK, x, y, z, remaining));
+        });
+        return ticks.isEmpty() ? null : ticks;
     }
 
     /**

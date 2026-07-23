@@ -10,11 +10,12 @@ import de.skyengine.game.world.block.entity.DataTag;
 import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.BlockStateCodec;
-import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.palette.BitStorage;
 import de.skyengine.game.world.chunk.palette.PalettedContainer;
+import de.skyengine.game.world.tick.SavedTick;
+import de.skyengine.game.world.tick.ScheduledTickTypes;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -41,10 +42,10 @@ import java.util.zip.Inflater;
  * {@link BlockStateCodec} persistiert (Runtime-IDs sind flüchtig!), dedupliziert über eine
  * chunk-weite Palette; die Section-Bit-Daten ({@link BitStorage}) werden roh übernommen.
  *
- * <p>Payload-Format v1 (unkomprimiert; Kompression/CRC über {@link #compress}/{@link #crc32},
+ * <p>Payload-Format v2 (unkomprimiert; Kompression/CRC über {@link #compress}/{@link #crc32},
  * CRC immer über den ROHEN Payload — Kompressionswechsel ändern die Prüfsumme nicht):
  * <pre>
- * byte  payloadVersion = 1
+ * byte  payloadVersion = 2                      (v1 bleibt lesbar, nur ohne Tick-Abschnitt)
  * UTF   generatorId, int generatorVersion      (Provenienz — strikt getrennt von payloadVersion)
  * int   paletteCount, paletteCount × UTF        (chunk-weite State-Strings)
  * 16 ×  Section: byte mode
@@ -53,6 +54,7 @@ import java.util.zip.Inflater;
  *           byte bitsPerEntry, int nonAir, int longCount, longCount × long
  * byte  hasStoredTints; wenn 1: 2 × 33*33 int (grass, foliage)
  * int   beCount, beCount × { int packedLocalPos, UTF typeId, DataTag binär }
+ * int   tickCount, tickCount × { UTF tickTypeId, int x, int y, int z, int remainingTicks }
  * </pre>
  *
  * <p>Threading: {@link #serialize} verlangt, dass der Aufrufer den Read-Lock des Chunks
@@ -61,7 +63,9 @@ import java.util.zip.Inflater;
  */
 public final class ChunkSerializer {
 
-    public static final byte PAYLOAD_VERSION = 1;
+    /* v2: generischer Scheduled-Tick-Abschnitt (tickTypeId + absolute Position + Rest-Delay).
+       v1-Payloads bleiben lesbar, haben aber keine Ticks. */
+    public static final byte PAYLOAD_VERSION = 2;
 
     private static final Logger LOGGER = LogManager.getLogger(ChunkSerializer.class.getName());
 
@@ -73,11 +77,17 @@ public final class ChunkSerializer {
 
     /* Einmal-pro-String-Warnung über alle Chunks hinweg (sonst Log-Flut bei großen Welten). */
     private static final Set<String> warnedStates = ConcurrentHashMap.newKeySet();
+    private static final Set<String> warnedTickTypes = ConcurrentHashMap.newKeySet();
 
     /* --- Serialisieren --- */
 
-    /** Aufrufer hält den Read-Lock des Chunks. Tints werden nur mit {@code storeTints} geschrieben. */
-    public static byte[] serialize(Chunk chunk, String generatorId, int generatorVersion, boolean storeTints) {
+    /**
+     * Aufrufer hält den Read-Lock des Chunks. Tints werden nur mit {@code storeTints}
+     * geschrieben; {@code scheduledTicks} ist der auf dem Tick-Thread gezogene
+     * Queue-Snapshot des Chunks (null = keine).
+     */
+    public static byte[] serialize(Chunk chunk, String generatorId, int generatorVersion,
+                                   boolean storeTints, List<SavedTick> scheduledTicks) {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(64 * 1024);
             DataOutputStream out = new DataOutputStream(bytes);
@@ -152,6 +162,18 @@ public final class ChunkSerializer {
                 DataTagIO.write(tag, out);
             }
 
+            /* Scheduled-Ticks (v2): generisch über tickTypeId — s. ScheduledTickTypes. */
+            out.writeInt(scheduledTicks == null ? 0 : scheduledTicks.size());
+            if (scheduledTicks != null) {
+                for (SavedTick tick : scheduledTicks) {
+                    out.writeUTF(tick.type());
+                    out.writeInt(tick.x());
+                    out.writeInt(tick.y());
+                    out.writeInt(tick.z());
+                    out.writeInt(tick.remainingTicks());
+                }
+            }
+
             return bytes.toByteArray();
         } catch (IOException e) {
             /* ByteArrayOutputStream wirft real nie — nur DataTagIO-Fehler landen hier. */
@@ -172,7 +194,7 @@ public final class ChunkSerializer {
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload));
 
         byte version = in.readByte();
-        if (version != PAYLOAD_VERSION) {
+        if (version < 1 || version > PAYLOAD_VERSION) {
             throw new IOException("Unbekannte Chunk-Payload-Version " + version);
         }
         in.readUTF();  // generatorId — Provenienz, aktuell nur Format-Bestandteil
@@ -199,8 +221,6 @@ public final class ChunkSerializer {
             }
         }
 
-        List<Integer> fluidTicks = new ArrayList<>();
-
         for (int s = 0; s < Chunk.SECTIONS; s++) {
             byte mode = in.readByte();
             switch (mode) {
@@ -210,9 +230,7 @@ public final class ChunkSerializer {
                     if (stateId == 0) {
                         chunk.installSection(s, null);
                     } else {
-                        PalettedContainer container = new PalettedContainer(ChunkSection.VOLUME, stateId);
-                        chunk.installSection(s, new ChunkSection(container));
-                        collectFluidTicks(fluidTicks, s, container, new int[]{stateId});
+                        chunk.installSection(s, new ChunkSection(new PalettedContainer(ChunkSection.VOLUME, stateId)));
                     }
                 }
                 case SECTION_BITS -> {
@@ -247,7 +265,6 @@ public final class ChunkSerializer {
                     }
                     PalettedContainer container = new PalettedContainer(ChunkSection.VOLUME, local, localCount, storage, nonAir);
                     chunk.installSection(s, nonAir == 0 ? null : new ChunkSection(container));
-                    if (nonAir > 0) collectFluidTicks(fluidTicks, s, container, local);
                 }
                 default -> throw new IOException("Unbekannter Section-Modus " + mode);
             }
@@ -286,36 +303,39 @@ public final class ChunkSerializer {
             chunk.setBlockEntity(lx, y, lz, be);
         }
 
-        chunk.pendingFluidTicks = fluidTicks.isEmpty() ? null
-                : fluidTicks.stream().mapToInt(Integer::intValue).toArray();
-    }
-
-    /* Sammelt Positionen fließender Fluide (LEVEL>0 oder FALLING) — Quellen ticken nicht von
-       selbst und werden bewusst nicht eingeplant (importierter Ozean!). Paletten-Vorcheck:
-       ohne fließendes Fluid in der Palette kostet die Section nichts. */
-    private static void collectFluidTicks(List<Integer> ticks, int sectionIndex, PalettedContainer container, int[] localPalette) {
-        boolean anyFlowing = false;
-        for (int stateId : localPalette) {
-            if (isFlowingFluid(stateId)) { anyFlowing = true; break; }
-        }
-        if (!anyFlowing) return;
-
-        int yBase = sectionIndex << ChunkSection.SHIFT;
-        for (int ly = 0; ly < ChunkSection.SIZE; ly++) {
-            for (int lz = 0; lz < ChunkSection.SIZE; lz++) {
-                for (int lx = 0; lx < ChunkSection.SIZE; lx++) {
-                    int stateId = container.get((ly << (ChunkSection.SHIFT * 2)) | (lz << ChunkSection.SHIFT) | lx);
-                    if (isFlowingFluid(stateId)) {
-                        ticks.add(packLocalPos(lx, yBase + ly, lz));
-                    }
-                }
+        /* Scheduled-Ticks (ab v2; v1-Saves haben keine — Zustand wie vor dem Fix). */
+        if (version >= 2) {
+            int tickCount = in.readInt();
+            if (tickCount < 0 || tickCount > ChunkSection.VOLUME * Chunk.SECTIONS) {
+                throw new IOException("Ungültige Tick-Anzahl " + tickCount);
             }
+            List<SavedTick> ticks = tickCount == 0 ? null : new ArrayList<>(tickCount);
+            for (int i = 0; i < tickCount; i++) {
+                String type = in.readUTF();
+                int x = in.readInt();
+                int y = in.readInt();
+                int z = in.readInt();
+                int remaining = in.readInt();
+                /* Unbekannter Typ (Save aus neuerer Engine): Eintrag überspringen, Stream
+                   bleibt intakt (feste Feldbreiten). */
+                if (ScheduledTickTypes.get(type) == null) {
+                    if (warnedTickTypes.add(type)) {
+                        LOGGER.warning("Unbekannter Tick-Typ in Save-Datei, überspringe: " + type);
+                    }
+                    continue;
+                }
+                /* Absolute Koordinaten validieren: korrupte Daten dürfen keine Ticks in
+                   fremde Chunks streuen; Rest-Delay < 1 = überfällig -> 1. */
+                if ((x >> ChunkSection.SHIFT) != chunk.chunkX || (z >> ChunkSection.SHIFT) != chunk.chunkZ
+                        || y < 0 || y >= Chunk.HEIGHT) {
+                    LOGGER.warning("Tick außerhalb des Chunks (" + chunk.chunkX + ", " + chunk.chunkZ
+                            + ") bei (" + x + ", " + y + ", " + z + ") — übersprungen");
+                    continue;
+                }
+                ticks.add(new SavedTick(type, x, y, z, Math.max(1, remaining)));
+            }
+            chunk.pendingScheduledTicks = ticks == null || ticks.isEmpty() ? null : ticks;
         }
-    }
-
-    private static boolean isFlowingFluid(int stateId) {
-        BlockState state = Blocks.getState(stateId);
-        return state.isFluid() && (state.get(Properties.FALLING) || state.get(Properties.LEVEL) > 0);
     }
 
     /* Gleiche Packung wie Chunk.beKey (x | z<<5 | y<<10). */
