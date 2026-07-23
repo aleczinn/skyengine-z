@@ -1,6 +1,7 @@
 package de.skyengine.game.world.lod;
 
 import de.skyengine.core.settings.GameSettings;
+import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.chunk.ChunkMesher;
@@ -279,6 +280,11 @@ public final class LodMesher {
                     continue;
                 }
                 long g = this.groundCell(cx, cz);
+                /* Leere Spalten (Void-Rand importierter Welten): kein Terrain — nichts emittieren. */
+                if (LodDataSource.block(g) == Blocks.AIR) {
+                    cx++;
+                    continue;
+                }
                 float top = this.topOf(g);
                 float[] ao;
                 boolean uniform;
@@ -533,6 +539,11 @@ public final class LodMesher {
                 continue;
             }
             long sample = this.groundCell(cx, cz);
+            /* Leere Spalte (Void): keine Wand, kein Skirt — auch nicht am Regionsrand. */
+            if (LodDataSource.block(sample) == Blocks.AIR) {
+                cx++;
+                continue;
+            }
             long nSample = this.groundCell(cx, cz + dz);
             float top = this.topOf(sample);
             float nTop = this.topOf(nSample);
@@ -575,6 +586,11 @@ public final class LodMesher {
                 continue;
             }
             long sample = this.groundCell(cx, cz);
+            /* Leere Spalte (Void): keine Wand, kein Skirt — auch nicht am Regionsrand. */
+            if (LodDataSource.block(sample) == Blocks.AIR) {
+                cz++;
+                continue;
+            }
             long nSample = this.groundCell(cx + dx, cz);
             float top = this.topOf(sample);
             float nTop = this.topOf(nSample);
@@ -696,6 +712,7 @@ public final class LodMesher {
      */
     private void emitTop(int block, float[] ao, float x0, float z0, float x1, float z1, float y) {
         int layer = this.appearance.topLayer(block);
+        if (layer < 0) return; // Block ohne gebackenes Quad (z.B. Luft) — nichts zu zeichnen
         int tint = this.tintFor(this.appearance.topTint(block), this.appearance.topTintType(block),
                 (x0 + x1) * 0.5F, (z0 + z1) * 0.5F);
         float brightness = BlockModels.FACE_BRIGHTNESS[0];
@@ -854,6 +871,21 @@ public final class LodMesher {
      */
     private void emitWall(int block, int face, float xa, float za, float xb, float zb,
                           float bottom, float top) {
+        if (this.appearance.sideLayer(block) < 0) return; // Block ohne gebackenes Quad
+        /* Der UV-Fixed-Point trägt nur ~63 Blöcke v-Spanne — höhere Wände (Klippen,
+           Import-Rand über dem Void) in vertikale Segmente teilen, damit die Textur pro
+           Block repeatet statt über die volle Höhe gestreckt zu werden. Segmentgrenzen
+           liegen ganzzahlige Vielfache unter top → die Texturphase läuft nahtlos durch. */
+        float segTop = top;
+        while (segTop > bottom) {
+            float segBottom = Math.max(bottom, segTop - MAX_MERGE_BLOCKS);
+            this.emitWallSegment(block, face, xa, za, xb, zb, segBottom, segTop);
+            segTop = segBottom;
+        }
+    }
+
+    private void emitWallSegment(int block, int face, float xa, float za, float xb, float zb,
+                                 float bottom, float top) {
         int layer = this.appearance.sideLayer(block);
         int tint = this.tintFor(this.appearance.sideTint(block), this.appearance.sideTintType(block),
                 (xa + xb) * 0.5F, (za + zb) * 0.5F);
