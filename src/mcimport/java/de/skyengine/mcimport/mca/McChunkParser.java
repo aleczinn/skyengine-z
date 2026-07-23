@@ -56,7 +56,14 @@ public final class McChunkParser {
             }
             sections.add(parseSection(section.requireInt("Y"), blockStates));
         }
-        return new McChunk(chunkX, chunkZ, dataVersion, sections, skipped);
+
+        /* BlockEntities roh durchreichen (fehlende Liste = keine). */
+        List<NbtCompound> blockEntities = new ArrayList<>();
+        NbtList beList = root.getList("block_entities");
+        if (beList != null) {
+            for (int i = 0; i < beList.size(); i++) blockEntities.add(beList.compoundAt(i));
+        }
+        return new McChunk(chunkX, chunkZ, dataVersion, sections, skipped, blockEntities);
     }
 
     private static McSection parseSection(int y, NbtCompound blockStates) throws IOException {

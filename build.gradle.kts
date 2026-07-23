@@ -44,6 +44,13 @@ tasks.register<JavaExec>("mcMapReport") {
     mainClass = "de.skyengine.mcimport.McMappingReport"
 }
 
+tasks.register<JavaExec>("mcImport") {
+    group = "application"
+    description = "Konvertiert eine Minecraft-Welt (1.18+) in eine SkyEngine-Welt (M6)"
+    classpath = sourceSets["mcimport"].runtimeClasspath
+    mainClass = "de.skyengine.mcimport.McWorldImporter"
+}
+
 val lwjglVersion = "3.4.1"
 val jomlVersion = "1.10.9"
 val jomlPrimitivesVersion = "1.10.0"
