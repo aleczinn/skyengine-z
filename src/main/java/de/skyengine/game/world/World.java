@@ -33,7 +33,9 @@ import de.skyengine.game.world.save.WorldStorage;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import de.skyengine.game.world.lod.LodBlockAppearance;
+import de.skyengine.game.world.lod.LodDataSource;
 import de.skyengine.game.world.lod.LodManager;
+import de.skyengine.game.world.lod.StorageLodDataSource;
 import de.skyengine.game.world.lod.WorldLodDataSource;
 import de.skyengine.game.world.tick.SavedTick;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
@@ -62,6 +64,8 @@ public class World implements IInitializable, IDisposable {
     private final ChunkManager chunkManager;
     /* Chunk-Persistenz (Region-Dateien + eigener IO-Thread); Flush in dispose(). */
     private final WorldStorage storage;
+    /* worldType "imported" — steuert u.a. die LOD-Datenquelle (Storage statt Generator). */
+    private final boolean imported;
     private final ChunkRenderer chunkRenderer;
     /* Heightmap-LOD jenseits der Render-Distanz; erst in init() erzeugt (braucht gebackene Modelle) */
     private LodManager lodManager;
@@ -109,6 +113,7 @@ public class World implements IInitializable, IDisposable {
         /* Generator nach worldType: importierte Welten (MC-Import) kommen komplett aus den
            Region-Dateien und bekommen den Void-Generator ohne Features. */
         boolean imported = "imported".equals(level.worldType);
+        this.imported = imported;
         if (imported) {
             this.generator = new VoidWorldGenerator(level.seed);
             this.chunkManager = new ChunkManager(this.generator,
@@ -148,10 +153,14 @@ public class World implements IInitializable, IDisposable {
     @Override
     public void init() {
         this.chunkRenderer.init(this.atlas);
-        /* LOD: abstrahierte Datenquelle (nah: echte Chunkdaten, fern: Generator-Noise) +
-           Block-Darstellung aus den gebackenen Modellen — erst nach dem Registry-Bake. */
-        this.lodManager = new LodManager(new WorldLodDataSource(this.chunkManager, this.generator),
-                new LodBlockAppearance(), this.chunkManager);
+        /* LOD: abstrahierte Datenquelle + Block-Darstellung aus den gebackenen Modellen —
+           erst nach dem Registry-Bake. Importierte Welten sampeln die Region-Snapshots
+           (der Void-Generator kennt kein Terrain), generierte wie bisher Chunkdaten +
+           Generator-Noise. */
+        LodDataSource lodSource = this.imported
+                ? new StorageLodDataSource(this.storage)
+                : new WorldLodDataSource(this.chunkManager, this.generator);
+        this.lodManager = new LodManager(lodSource, new LodBlockAppearance(), this.chunkManager);
         this.chunkRenderer.setLodManager(this.lodManager);
         this.chunkManager.setLodManager(this.lodManager); // Unload-Gate: erst entladen, wenn LOD deckt
         /* BlockEntity-Renderer werden beim Boot registriert/initialisiert (GameContainer). */

@@ -55,6 +55,14 @@ public class WorldStorage {
        berechnen sie beim Laden über generator.fillTintCorners neu (bleibt dynamisch). */
     private final boolean storeTints;
 
+    /** Callback nach jedem erfolgreichen Chunk-Write (läuft auf dem IO-Thread). */
+    public interface ChunkWriteListener {
+        void onChunkWritten(int chunkX, int chunkZ);
+    }
+
+    /* Invalidiert z.B. den LOD-Heightmap-Cache importierter Welten (StorageLodDataSource). */
+    private volatile ChunkWriteListener writeListener;
+
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "Chunk IO");
         thread.setDaemon(true);
@@ -193,6 +201,12 @@ public class WorldStorage {
             throw new IOException("Region-Datei für Chunk (" + chunkX + ", " + chunkZ + ") nicht öffnbar");
         }
         region.write(chunkX & REGION_MASK, chunkZ & REGION_MASK, rawPayload);
+        ChunkWriteListener listener = this.writeListener;
+        if (listener != null) listener.onChunkWritten(chunkX, chunkZ);
+    }
+
+    public void setWriteListener(ChunkWriteListener listener) {
+        this.writeListener = listener;
     }
 
     private RegionFile region(int rx, int rz, boolean create) {

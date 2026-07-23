@@ -54,6 +54,15 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
   - Verschiedene Gamemode's wie Survival, Kreativ oder Zuschauer (Fliegen + NoClip)
   - Spieler + Animation für Laufen/Essen
 
+## Tools
+
+Ab der 0.0.9 kann man Minecraft Welten in das SkyEngine Format konvertieren. Dieses Tool ist auch im GuiWorldSelection implementiert.
+Ansonsten kann man es mit diesem Befehl nutzen:
+
+```bash
+./gradlew mcimport --args="'<path_for_minecraft_world>' '<world_name>'"
+```
+
 ## Development
 
 ### Prerequisites
@@ -92,6 +101,10 @@ Der Fokus liegt auf:
 - Moderne OpenGL-Techniken
 
 ## Screenshots / Changelog
+
+v0.0.9 | Persistenz der Welt
+- Generische Scheduled-Tick System für Blöcke wie Wasser/Öfen/Maschinen
+- Tool zum Importieren von Minecraft Welten ab 1.18 
 
 v0.0.8
 - Gui-System (GuiScreens, Komponenten wie Button, Slider, CycleButton inkl. Persistenz; Ressourcenpacks sind WIP)

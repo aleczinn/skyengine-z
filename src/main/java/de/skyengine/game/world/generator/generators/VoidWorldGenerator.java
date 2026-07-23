@@ -7,8 +7,8 @@ import de.skyengine.game.world.lod.LodDataSource;
 
 /**
  * Leer-Generator für importierte Welten (worldType "imported"): alle Chunks kommen aus den
- * Region-Dateien, Generierung liefert bewusst nichts. Fern-LOD jenseits der gespeicherten
- * Chunks existiert damit nicht (sampleSurface = Luft) — bewusste, simpelste Lösung.
+ * Region-Dateien, Generierung liefert bewusst nichts. Das Fern-LOD sampelt bei diesen
+ * Welten die Region-Snapshots (StorageLodDataSource), nicht diesen Generator.
  */
 public final class VoidWorldGenerator extends WorldGenerator {
 
