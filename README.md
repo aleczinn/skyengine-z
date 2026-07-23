@@ -61,6 +61,9 @@ Ansonsten kann man es mit diesem Befehl nutzen:
 
 ```bash
 ./gradlew mcimport --args="'<path_for_minecraft_world>' '<world_name>'"
+
+Beispiel:
+./gradlew mcImport --args="'C:/Users/useerrr/AppData/Roaming/.minecraft/saves/MeineWelt' 'MeineWelt'"
 ```
 
 ## Development
