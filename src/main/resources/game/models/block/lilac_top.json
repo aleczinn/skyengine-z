@@ -1,0 +1,6 @@
+{
+  "parent": "block/cross",
+  "textures": {
+    "all": "game/textures/block/lilac_top.png"
+  }
+}

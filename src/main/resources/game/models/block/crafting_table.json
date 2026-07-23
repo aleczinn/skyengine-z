@@ -1,0 +1,10 @@
+{ "parent": "block/cube",
+  "textures": {
+    "up": "game/textures/block/crafting_table_top.png",
+    "down": "game/textures/block/oak_planks.png",
+    "north": "game/textures/block/crafting_table_front.png",
+    "west": "game/textures/block/crafting_table_front.png",
+    "south": "game/textures/block/crafting_table_side.png",
+    "east": "game/textures/block/crafting_table_side.png"
+  }
+}
