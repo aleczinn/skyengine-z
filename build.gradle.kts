@@ -20,6 +20,23 @@ application {
     )
 }
 
+/* Minecraft-Importer: eigenes SourceSet, Abhängigkeit NUR Importer -> Engine.
+   Die Engine (main) referenziert KEINE Importer-Klasse. */
+sourceSets {
+    create("mcimport") {
+        java.srcDir("src/mcimport/java")
+        compileClasspath += sourceSets.main.get().output + sourceSets.main.get().compileClasspath
+        runtimeClasspath += sourceSets.main.get().output + sourceSets.main.get().runtimeClasspath
+    }
+}
+
+tasks.register<JavaExec>("mcAnalyze") {
+    group = "application"
+    description = "Analysiert eine Minecraft-Welt (1.18+): NBT/MCA-Leser mit Histogramm (M4)"
+    classpath = sourceSets["mcimport"].runtimeClasspath
+    mainClass = "de.skyengine.mcimport.McWorldAnalyzer"
+}
+
 val lwjglVersion = "3.4.1"
 val jomlVersion = "1.10.9"
 val jomlPrimitivesVersion = "1.10.0"
