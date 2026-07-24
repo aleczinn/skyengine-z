@@ -1,5 +1,6 @@
 package de.skyengine.game.world;
 
+import de.skyengine.audio.SoundManager;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.IDisposable;
 import de.skyengine.core.io.IInitializable;
@@ -7,6 +8,7 @@ import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.entity.ItemEntity;
+import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
@@ -74,6 +76,8 @@ public class World implements IInitializable, IDisposable {
     private final BlockTextureAtlas atlas;
     private final BlockEntityRenderDispatcher blockEntityRenderer;
     private final EntityRenderer entityRenderer = new EntityRenderer();
+    /* Engine-Lebensdauer (GameContainer): für Sounds aus der Welt-Logik (z.B. TNT-Explosion). Nullable. */
+    private SoundManager soundManager;
 
     /** Reentranzsicherer Puffer: Spawns aus einem laufenden Tick werden erst danach in den Chunk übernommen. */
     private final List<Entity> pendingEntities = new ArrayList<>();
@@ -144,6 +148,16 @@ public class World implements IInitializable, IDisposable {
 
     public String getName() {
         return name;
+    }
+
+    /** Injiziert der GameContainer nach der Welt-Erzeugung; erlaubt Sounds aus der Welt-Logik. */
+    public void setSoundManager(SoundManager soundManager) {
+        this.soundManager = soundManager;
+    }
+
+    /** SoundManager der Welt oder {@code null} (dann bleiben Welt-Sounds stumm). */
+    public SoundManager getSoundManager() {
+        return this.soundManager;
     }
 
     public BlockEntityRenderDispatcher getBlockEntityRenderDispatcher() {
@@ -327,6 +341,17 @@ public class World implements IInitializable, IDisposable {
         FallingBlockEntity entity = new FallingBlockEntity(blockId);
         entity.setPosition(x + 0.5, y, z + 0.5);
         this.spawnEntity(entity);
+    }
+
+    /** Spawnt gezündetes TNT als Entity (Fuse-Countdown + weißer Blink) mit MC-typischem Hüpfer. */
+    public void spawnPrimedTnt(double x, double y, double z, float power, int fuse) {
+        PrimedTntEntity entity = new PrimedTntEntity(power, fuse);
+        entity.setPosition(x, y, z);
+        entity.motionY = 0.2;
+        entity.motionX = (this.random.nextDouble() - 0.5) * 0.02;
+        entity.motionZ = (this.random.nextDouble() - 0.5) * 0.02;
+        this.spawnEntity(entity);
+        if (this.soundManager != null) this.soundManager.playFuse(x, y, z); // Zisch beim Zünden
     }
 
     /** Spawnt ein gedropptes Item mit leichtem Anfangsimpuls (kleiner „Pop"). */

@@ -3,6 +3,7 @@ package de.skyengine.graphics.entity;
 import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.entity.ItemEntity;
+import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
@@ -63,6 +64,7 @@ public final class EntityRenderer {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformf("u_WhiteFlash", 0f); // Default: kein Blink (Falling/Item unverändert)
         this.textures.bind(0);
 
         Vector3d cam = camera.getPosition();
@@ -96,6 +98,15 @@ public final class EntityRenderer {
             this.model.translation(ox - 0.5f, oy, oz - 0.5f);
             this.shader.setUniformMatrix4f("u_Model", this.model);
             mesh.render();
+        } else if (e instanceof PrimedTntEntity tnt) {
+            Mesh mesh = this.meshFor(Blocks.TNT);
+            if (mesh == null) return;
+            /* Voller TNT-Würfel wie FallingBlock, zusätzlich weißer Blink über u_WhiteFlash. */
+            this.shader.setUniformf("u_WhiteFlash", tnt.whiteFlash(partialTick));
+            this.model.translation(ox - 0.5f, oy, oz - 0.5f);
+            this.shader.setUniformMatrix4f("u_Model", this.model);
+            mesh.render();
+            this.shader.setUniformf("u_WhiteFlash", 0f); // zurücksetzen für folgende Entities
         } else if (e instanceof ItemEntity item) {
             int id = blockStateId(item.getStack());
             if (id < 0) return;
@@ -226,11 +237,13 @@ public final class EntityRenderer {
         in vec3 v_texCoord;
         in vec3 v_color;
         uniform sampler2DArray u_Textures;
+        uniform float u_WhiteFlash;   // 0..1: mischt das Fragment Richtung Weiß (TNT-Blink)
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < 0.5) discard;
-            fragColor = vec4(c.rgb * v_color, c.a);
+            vec3 rgb = mix(c.rgb * v_color, vec3(1.0), u_WhiteFlash);
+            fragColor = vec4(rgb, c.a);
         }
         """;
 }
