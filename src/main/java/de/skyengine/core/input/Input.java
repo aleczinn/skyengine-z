@@ -307,6 +307,32 @@ public class Input {
         return key >= 0 && key < KEY_COUNT && this.keyStates[key] == InputState.RELEASED;
     }
 
+    /* --- Keybinds (Taste ODER Maustaste) ---
+       Ein Bind-Code ist ein GLFW-Key-Code, oder — ab MOUSE_OFFSET — eine Maustaste
+       (Code = MOUSE_OFFSET + GLFW-Mouse-Button). GLFW-Keys reichen nur bis ~348, der Offset
+       liegt weit darüber → keine Kollision. */
+    public static final int MOUSE_OFFSET = 1000;
+
+    /** Encodiert eine GLFW-Maustaste als Keybind-Code. */
+    public static int mouseBind(int button) {
+        return MOUSE_OFFSET + button;
+    }
+
+    /** true, wenn der Bind-Code eine Maustaste ist (statt einer Tastatur-Taste). */
+    public static boolean isMouseBind(int code) {
+        return code >= MOUSE_OFFSET;
+    }
+
+    /** Flanke (dieser Frame) für einen Bind — dispatcht auf Taste oder Maustaste. */
+    public boolean isBindPressed(int code) {
+        return isMouseBind(code) ? this.isMousePressed(code - MOUSE_OFFSET) : this.isKeyPressed(code);
+    }
+
+    /** Gehalten für einen Bind — dispatcht auf Taste oder Maustaste. */
+    public boolean isBindDown(int code) {
+        return isMouseBind(code) ? this.isMouseDown(code - MOUSE_OFFSET) : this.isKeyDown(code);
+    }
+
     /** Ruft den Consumer für jede Taste auf, die in diesem Frame frisch gedrückt wurde. */
     public void forEachKeyPressedThisFrame(java.util.function.IntConsumer consumer) {
         for (int i = 0; i < this.changedKeyCount; i++) {

@@ -39,18 +39,15 @@ public final class LodQuadCensus {
         GeneratorLodDataSource source = new GeneratorLodDataSource(new AlphaWorldGeneratorV2(SEED));
         LodBlockAppearance appearance = new LodBlockAppearance();
 
-        /* AO=an (realistische Einstellung) fest; A/B über die Höhenquantisierung (aus → an). */
+        /* AO=an (realistische Einstellung) fest. */
         GameSettings.get().ambientOcclusion = true;
-        for (boolean quantize : new boolean[]{false, true}) {
-            LodMesher.QUANTIZE_HEIGHT = quantize;
-            census(source, appearance, LodConfig.of(16, 128), true, quantize);
-            census(source, appearance, LodConfig.of(16, 512), true, quantize);
-        }
+        census(source, appearance, LodConfig.of(16, 128), true);
+        census(source, appearance, LodConfig.of(16, 512), true);
     }
 
     /** Mesht alle Regionen des Rings und druckt die Quad-/Vertex-Summen pro Level. */
     private static void census(GeneratorLodDataSource source, LodBlockAppearance appearance,
-                               LodConfig config, boolean ao, boolean quantize) {
+                               LodConfig config, boolean ao) {
         LodMesher mesher = new LodMesher();
         LodMeshStats stats = new LodMeshStats();
         mesher.setStats(stats); // aktiviert die Quad-Statistik (in-engine null → aus)
@@ -80,9 +77,8 @@ public final class LodQuadCensus {
         }
         long elapsed = System.currentTimeMillis() - start;
 
-        System.out.printf(Locale.ROOT, "%n=== Zensus rd=%d lodMax=%d AO=%s quant=%s (Seed %d, %d ms) ===%n",
-                config.renderDistance(), config.lodMaxDistance(), ao ? "an" : "aus",
-                quantize ? "an" : "aus", SEED, elapsed);
+        System.out.printf(Locale.ROOT, "%n=== Zensus rd=%d lodMax=%d AO=%s (Seed %d, %d ms) ===%n",
+                config.renderDistance(), config.lodMaxDistance(), ao ? "an" : "aus", SEED, elapsed);
         System.out.printf(Locale.ROOT, "%-6s %10s %14s %14s %14s %14s%n",
                 "Level", "Regionen", "OpakQ", "TranslQ", "GesamtQ", "Vertices");
         long totalRegions = 0, totalOpaque = 0, totalTranslucent = 0;

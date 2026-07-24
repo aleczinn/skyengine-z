@@ -1,6 +1,7 @@
 package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.core.i18n.I18n;
+import de.skyengine.core.input.Input;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.graphics.gui.GuiManager;
@@ -154,10 +155,10 @@ public final class GuiKeybinds extends GuiScreen {
 
     @Override
     public boolean mousePressed(GuiManager gui, double mouseX, double mouseY, int button) {
-        /* Laufende Aufnahme: Klick daneben bricht ab (wie ESC). */
+        /* Laufende Aufnahme: der Mausklick wird als Bind aufgenommen (ESC bricht ab, s. keyPressed). */
         KeybindButton capturing = this.capturing();
         if (capturing != null) {
-            capturing.cancelCapture();
+            capturing.bind(Input.mouseBind(button));
             return true;
         }
         double barOffset = this.scrollBar.mousePressed(mouseX, mouseY, this.rows.height(), this.scrollOffset);

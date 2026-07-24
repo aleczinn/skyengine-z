@@ -112,12 +112,6 @@ public final class LodMesher {
     public static volatile boolean EMIT_GRASS_OVERLAY = true;
     private boolean emitOverlay;               // je mesh()-Aufruf aus dem Flag gekapselt
 
-    /* Höhenquantisierung: Terrain-Höhe pro LOD-Zelle auf ein Vielfaches der Zellbreite (Stride)
-       runden — Nachbarzellen teilen häufiger dieselbe Höhe → Greedy-Merge statt zellbreiter
-       1-Block-Treppen (s. Plan). Default an (= Fix aktiv); per F4 umschaltbar (A/B), LodManager
-       bumpt bei Wechsel die Epoche. Wasser bleibt roh (flach). NICHT persistiert. */
-    public static volatile boolean QUANTIZE_HEIGHT = true;
-
     /* Deckel der Quantisierungs-Stufe. Ohne Deckel quantisiert L4/L5 auf 16/32 Blöcke — im
        Fenster-A/B (Render-Distanz testweise 4, dadurch L4/L5 nah am Spieler) kippt das Terrain
        damit sichtbar in grobe Plateaus/Mesa-Wände. 8 ist die größte Stufe, die bei der
@@ -472,7 +466,7 @@ public final class LodMesher {
      * Wasser bleibt roh (Spiegel flach/koplanar), {@code stride <= 1} = kein Effekt.
      */
     private long quantizeHeight(long sample, int stride) {
-        if (!QUANTIZE_HEIGHT || stride <= 1) return sample;
+        if (stride <= 1) return sample;
         int block = LodDataSource.block(sample);
         if (this.appearance.isFluid(block)) return sample;
         int q = Math.min(stride, MAX_QUANT_STRIDE);

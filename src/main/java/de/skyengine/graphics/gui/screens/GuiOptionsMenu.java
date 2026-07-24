@@ -59,13 +59,13 @@ public final class GuiOptionsMenu extends GuiOptionsScreen {
         Button graphics = new Button(I18n.tr("options.video.button"), CELL_W, CELL_H, () -> gui.open(new GuiVideoSettings(this)));
         Button language = new Button(I18n.tr("options.language"), CELL_W, CELL_H, () -> gui.open(new GuiLanguage(this)));
         Button packs = new Button(I18n.tr("options.resourcepacks"), CELL_W, CELL_H, () -> gui.open(new GuiResourcePacks(this)));
+        Button debug = new Button(I18n.tr("options.debug.button"), CELL_W, CELL_H, () -> gui.open(new GuiDebugScreen(this)));
 
         content.add(new HStack(4, fov, guiScale));
         content.add(new Spacer(0, 8));
         content.add(new HStack(4, graphics, sound));
         content.add(new HStack(4, language, controls));
-        /* Leere rechte Zelle: Spacer statt null — Stacks rufen width() auf jedem Kind. */
-        content.add(new HStack(4, packs, new Spacer(CELL_W, CELL_H)));
+        content.add(new HStack(4, packs, debug));
     }
 
     @Override

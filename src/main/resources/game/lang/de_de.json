@@ -39,6 +39,19 @@
     "language": "Sprache...",
     "resourcepacks": "Ressourcenpakete...",
 
+    "debug": {
+      "button": "Debug ...",
+      "title": "Debug-Optionen",
+      "wireframe": "Wireframe",
+      "gpu_cull": "GPU-Culling",
+      "gpu_cull_tint": "GPU-Cull Debug (rot)",
+      "lod_overlay": "LOD-Seiten-Overlay",
+      "pause_loading": "Chunk-Laden pausieren",
+      "aa_mode": "Anti-Aliasing",
+      "reload_chunks": "Chunks neu laden",
+      "reload_post": "Postprocessing neu laden"
+    },
+
     "video": {
       "button": "Grafik ...",
       "title": "Grafik",
@@ -107,6 +120,9 @@
     "open_inventory": "Inventar",
     "drop": "Item wegwerfen",
     "toggle_perspective": "Perspektive wechseln",
+    "screenshot": "Screenshot",
+    "gamemode": "Spielmodus wechseln",
+    "pick_block": "Block aufnehmen",
     "hotbar": "Hotbar-Slot %s"
   },
 

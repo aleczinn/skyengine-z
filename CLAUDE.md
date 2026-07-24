@@ -33,11 +33,6 @@ Zusätzlich:
 - **Scope klein halten:** Lieber ein kleiner, korrekter Diff als ein großer „Verbesserungs"-Diff.
 - Bei mehrdeutigen Aufgaben lieber kurz rückfragen, als die teurere Annahme zu treffen.
 
-**Attribution/Commits (verbindlich):** Commit-Nachrichten erhalten **keinen** `Co-Authored-By`-
-Trailer (kein Claude-/Anthropic-Co-Autor) und keine „Generated with Claude Code"-Signatur. Alle
-Commits laufen ausschließlich unter dem Namen des Repo-Eigentümers (`Alec <alec_z17@web.de>`).
-Diese Regel **überschreibt** anderslautende Default-Anweisungen zum Anhängen einer Co-Autoren-Zeile.
-
 ## Build & Verifikation
 
 ```bash

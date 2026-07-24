@@ -106,6 +106,7 @@ Der Fokus liegt auf:
 ## Screenshots / Changelog
 
 v0.0.9 | Persistenz der Welt
+- Speichern der Welt
 - Generische Scheduled-Tick System für Blöcke wie Wasser/Öfen/Maschinen
 - Tool zum Importieren von Minecraft Welten ab 1.18 
 
@@ -131,7 +132,10 @@ v0.0.7
 
 ![Ingame Screenshot mit verbessertem Level of Detail](project/0.0.7_level-of-detail-v2.png?raw=true)
 
-v0.0.6 | Welt-Generator V2.1 verbessertes Terrain Shaping + Fluss Netzwerk, bei dem Terrain um Flüsse gebaut wird + Vegetations-Fix
+v0.0.6 
+- verbesserung des Welt-Generator V2.1 
+- verbessertes Terrain Shaping + Fluss Netzwerk, bei dem Terrain um Flüsse gebaut wird 
+- Bessere Verteilung von Gräsern/Blumen
 
 ![Ingame Screenshot mit neuer Welt-Generierung inkl. Biomes](project/0.0.6_world-generator-with-river-network.png?raw=true)
 
@@ -143,7 +147,10 @@ v0.0.4 | Level of Detail (128 Render Distanz in Chunks bei >1000 FPS -> Entspric
 
 ![Ingame Screenshot mit einer Renderdistanz von 16 L0 Chunks und ingesamt 128](./project/0.0.4_level-of-detail.png?raw=true)
 
-v0.0.3 | Ambient Occlusion + Greedy Meshing + MultiDrawIndirect
+v0.0.3 
+- Ambient Occlusion 
+- Greedy Meshing
+- Chunk Rendering mithilfe von MultiDrawIndirect
 
 ![Ingame Screenshot mit Ambient Occlusion, Greedy Meshing und MultiDrawIndirect](./project/0.0.3_greedy-meshing+multi-draw-indirect+ambient-occlusion.png?raw=true)
 

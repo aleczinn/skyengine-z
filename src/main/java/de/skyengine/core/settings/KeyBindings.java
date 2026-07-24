@@ -1,6 +1,7 @@
 package de.skyengine.core.settings;
 
 import de.skyengine.core.i18n.I18n;
+import de.skyengine.core.input.Input;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -25,6 +26,9 @@ public final class KeyBindings {
     public static final String OPEN_INVENTORY = "open_inventory";
     public static final String DROP = "drop";
     public static final String TOGGLE_PERSPECTIVE = "toggle_perspective";
+    public static final String SCREENSHOT = "screenshot";
+    public static final String GAMEMODE = "gamemode";
+    public static final String PICK_BLOCK = "pick_block";
 
     /** Slot i (1..9) -> "hotbar_i". */
     public static String hotbar(int slot) {
@@ -43,6 +47,9 @@ public final class KeyBindings {
         m.put(OPEN_INVENTORY, GLFW.GLFW_KEY_E);
         m.put(DROP, GLFW.GLFW_KEY_Q);
         m.put(TOGGLE_PERSPECTIVE, GLFW.GLFW_KEY_F5);
+        m.put(SCREENSHOT, GLFW.GLFW_KEY_F2);
+        m.put(GAMEMODE, GLFW.GLFW_KEY_G);
+        m.put(PICK_BLOCK, Input.mouseBind(GLFW.GLFW_MOUSE_BUTTON_MIDDLE));
         for (int i = 1; i <= 9; i++) {
             m.put(hotbar(i), GLFW.GLFW_KEY_1 + (i - 1));
         }
