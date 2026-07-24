@@ -32,7 +32,7 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.FluidGeometry;
-import de.skyengine.game.world.lod.LodMesher;
+import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.audio.SoundCategory;
@@ -63,8 +63,6 @@ import de.skyengine.game.world.save.LevelData;
 import de.skyengine.game.world.save.PlayerIO;
 import de.skyengine.game.world.save.WorldSaves;
 import org.lwjgl.opengl.GL11;
-import de.skyengine.graphics.post.PostProcessingSettings;
-import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.utils.Utils;
@@ -122,8 +120,8 @@ public class GameContainer implements IResizeable, IDisposable {
     private static final long DOUBLE_TAP_MS = 300;
     private long lastSpacePressTime = 0;
 
-    private boolean debugChunkBoundingBox = false;
-    private boolean debugChunkWireframe = false;
+    /* F3+X-Kombi während des Haltens benutzt → unterdrückt den Overlay-Toggle beim Loslassen. */
+    private boolean f3ComboUsed = false;
 
     /* F3-Debug-Overlay (FPS/Position/Biome/...), Toggle in handleGlobalHotkeys. */
     private final DebugOverlay debugOverlay = new DebugOverlay();
@@ -549,7 +547,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.guiManager.open(new GuiInventory(this.playerInventory, this.playerRenderer,
                         this.heldItemMeshes, () -> this.playerInventory.get(this.hotbarIndex)));
             }
-            this.handleDebugInput(input);
+            this.handleGameplayHotkeys(input);
             this.handleHotbarInput(input);
             if (input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_PERSPECTIVE))) {
                 this.perspective = this.perspective.next();
@@ -602,7 +600,7 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Wireframe (F6) gilt NUR für die Welt-Geometrie: der Line-Mode ist globaler GL-State und
            würde sonst auch das Fullscreen-Dreieck der Post-Kette (und die GUI-Quads) zu Linien
            machen — dann bliebe der Default-Framebuffer unbeschrieben ("eingefrorenes" Bild). */
-        if (this.debugChunkWireframe) Utils.enableWireframe();
+        if (DebugFlags.wireframe) Utils.enableWireframe();
         if (this.perspective.isFirstPerson()) {
             this.world.render(this.camera, partialTick);
         } else {
@@ -610,7 +608,7 @@ public class GameContainer implements IResizeable, IDisposable {
                     this.playerRenderer.renderThirdPerson(this.player, this.animState, this.camera, partialTick,
                             this.heldItemMeshes, this.playerInventory.get(this.hotbarIndex)));
         }
-        if (this.debugChunkWireframe) Utils.disableWireframe();
+        if (DebugFlags.wireframe) Utils.disableWireframe();
 
         FrameProfiler.cpuStart(FrameProfiler.Cpu.OVL);
 
@@ -1209,7 +1207,8 @@ public class GameContainer implements IResizeable, IDisposable {
         }
     }
 
-    private void handleDebugInput(Input input) {
+    /** Gameplay-Hotkeys ohne offenes GUI: Doppel-Sprung=Fliegen und Gamemode-Wechsel (Keybind). */
+    private void handleGameplayHotkeys(Input input) {
         /* Doppel-Sprungtaste = Fliegen umschalten (toggleFlying prüft den Modus selbst). */
         if (input.isBindPressed(this.settings.key(KeyBindings.JUMP))) {
             long now = System.currentTimeMillis();
@@ -1221,74 +1220,45 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.lastSpacePressTime = now;
             }
         }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_G)) {
+        /* Gamemode durchschalten (Cheat-Feature-Keybind, Default G). */
+        if (input.isBindPressed(this.settings.key(KeyBindings.GAMEMODE))) {
             this.player.setGamemode(this.player.getGamemode().next());
             this.logger.debug("Gamemode: " + this.player.getGamemode());
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F12)) {
-            /* TEMP/Debug (Perf-Messung): koplanare LOD-Seiten-Overlays an/aus. Nicht persistiert;
-               der LodManager remesht bei Wechsel via Epoche alle LOD-Regionen.
-               (Von F5 auf F12 verlegt — F5 ist jetzt der Perspektiven-Wechsel wie in MC.) */
-            LodMesher.EMIT_GRASS_OVERLAY = !LodMesher.EMIT_GRASS_OVERLAY;
-            this.logger.debug("LOD Seiten-Overlay: " + (LodMesher.EMIT_GRASS_OVERLAY ? "an" : "aus"));
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F6)) {
-            /* Nur das Flag: den GL-Line-Mode setzt renderWorld eng um den Welt-Draw (s. dort). */
-            this.debugChunkWireframe = !this.debugChunkWireframe;
-            this.logger.debug("Wireframe: " + this.debugChunkWireframe);
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F7)) {
-            this.debugChunkBoundingBox = !this.debugChunkBoundingBox;
-            this.logger.debug("Chunk Bounding Box: " + this.debugChunkBoundingBox);
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F8)) {
-            /* Über clearAllChunks statt getChunks().clear(): bumpt die Removal-Version,
-               sonst räumt der Renderer die alten Meshes nicht ab (Geistergeometrie). */
-            this.world.getChunkManager().clearAllChunks();
-            this.logger.debug("reload chunks");
-        }
-        /* Post-Processing: F9 schaltet den AA-Modus durch (NONE/FXAA/...), F10 lädt
-           config/postprocessing.json neu (Grading-Tuning ohne Neustart). Nur Laufzeit-
-           Zustand — nichts davon wird in options.json persistiert. */
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F9)) {
-            PostProcessingSettings post = SkyEngine.get().getPostProcessor().getSettings();
-            AntiAliasingMode[] modes = AntiAliasingMode.values();
-            AntiAliasingMode next = modes[(post.getAaMode().ordinal() + 1) % modes.length];
-            post.setAaMode(next);
-            this.logger.debug("Anti-Aliasing: " + next);
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F10)) {
-            SkyEngine.get().getPostProcessor().getSettings().reloadFromFile();
-            this.logger.debug("Post-Processing-Einstellungen neu geladen");
-        }
-        /* Stufenhöhe live justieren (Bild auf/ab) - zum Ausprobieren hoher Sprünge */
-        if (input.isKeyPressed(GLFW.GLFW_KEY_PAGE_UP)) {
-            this.player.stepHeight += 0.5;
-            this.logger.debug("Step height: " + this.player.stepHeight);
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_PAGE_DOWN)) {
-            this.player.stepHeight = Math.max(0, this.player.stepHeight - 0.5);
-            this.logger.debug("Step height: " + this.player.stepHeight);
         }
     }
 
     /**
-     * Hotkeys, die immer wirken (auch bei offenem GUI): Vollbild (F11), GUI-Scale ([ / ]) und
-     * Render-Distanz (- / =). Geänderte Einstellungen werden sofort angewandt und persistiert —
-     * Übergangslösung bis zum editierbaren Optionsmenü.
+     * Hotkeys, die immer wirken (auch bei offenem GUI): Screenshot (Keybind, Default F2),
+     * Debug-Overlay (F3, inkl. F3+X-Kombi-Gerüst) und Vollbild (F11). Alle sonstigen Debug-
+     * Schalter liegen jetzt im GuiDebugScreen (Optionsmenü).
      */
     private void handleGlobalHotkeys(Input input) {
-        /* Laufende Keybind-Aufnahme schluckt ALLE Tasten — sonst macht das Binden von F2
-           gleichzeitig einen Screenshot. */
+        /* Laufende Keybind-Aufnahme schluckt ALLE Tasten — sonst löst das Binden von F2
+           gleichzeitig einen Screenshot aus. */
         if (this.guiManager.capturesKeys()) return;
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F2)) {
+
+        if (input.isBindPressed(this.settings.key(KeyBindings.SCREENSHOT))) {
             /* Nur markieren: der Pixel-Read passiert erst nach dem fertigen Frame (SkyEngine.onRender). */
             this.screenshotRequested = true;
         }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F3)) {
-            this.debugOverlay.toggle();
-            this.logger.debug("Debug-Overlay: " + (this.debugOverlay.isVisible() ? "an" : "aus"));
+
+        /* F3-Overlay + F3+X-Kombi-Gerüst (Minecraft-Stil): wurde während des Haltens eine Kombi
+           benutzt, unterdrückt das den Overlay-Toggle beim Loslassen. Weitere F3+X hier ergänzen. */
+        if (input.isKeyDown(GLFW.GLFW_KEY_F3) && !this.guiManager.isOpen()) {
+            if (input.isKeyPressed(GLFW.GLFW_KEY_H)) {
+                DebugFlags.entityHitboxes = !DebugFlags.entityHitboxes; // Rendering folgt später
+                this.logger.debug("Entity-Hitboxen: " + (DebugFlags.entityHitboxes ? "an" : "aus"));
+                this.f3ComboUsed = true;
+            }
         }
+        if (input.isKeyReleased(GLFW.GLFW_KEY_F3)) {
+            if (!this.f3ComboUsed) {
+                this.debugOverlay.toggle();
+                this.logger.debug("Debug-Overlay: " + (this.debugOverlay.isVisible() ? "an" : "aus"));
+            }
+            this.f3ComboUsed = false;
+        }
+
         if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
             boolean fullscreen = SkyEngine.get().getConfig().isWindowed();
             SkyEngine.get().getMainThreadTasks().add(() ->
@@ -1296,77 +1266,6 @@ public class GameContainer implements IResizeable, IDisposable {
                             ? EngineConfig.WindowMode.BORDERLESS_FULLSCREEN : EngineConfig.WindowMode.WINDOWED));
             this.logger.debug("Toggle Fullscreen");
         }
-
-        /* Bei offenem GuiScreen keine Buchstaben-/Symbol-Hotkeys — sonst tippen Textfelder
-           versehentlich GUI-Scale/Render-Distanz um. F2/F3/F11 (oben) bleiben immer aktiv. */
-        if (this.guiManager.isOpen()) return;
-
-        boolean changed = false;
-        if (input.isKeyPressed(GLFW.GLFW_KEY_LEFT_BRACKET)) {
-            this.settings.guiScalePercent = Math.max(30, this.settings.guiScalePercent - 5);
-            this.guiManager.setScale(this.settings.guiScaleFactor());
-            this.logger.debug("GUI-Größe: " + this.settings.guiScalePercent + " %");
-            changed = true;
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_RIGHT_BRACKET)) {
-            this.settings.guiScalePercent = Math.min(170, this.settings.guiScalePercent + 5);
-            this.guiManager.setScale(this.settings.guiScaleFactor());
-            this.logger.debug("GUI-Größe: " + this.settings.guiScalePercent + " %");
-            changed = true;
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_MINUS)) {
-            this.settings.renderDistance = Math.max(2, this.settings.renderDistance - 1);
-            this.world.getChunkManager().setRenderDistance(this.settings.renderDistance);
-            this.logger.debug("Render-Distanz: " + this.settings.renderDistance);
-            changed = true;
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_EQUAL)) {
-            this.settings.renderDistance = Math.min(32, this.settings.renderDistance + 1);
-            this.world.getChunkManager().setRenderDistance(this.settings.renderDistance);
-            this.logger.debug("Render-Distanz: " + this.settings.renderDistance);
-            changed = true;
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_O)) {
-            this.settings.ambientOcclusion = !this.settings.ambientOcclusion;
-            /* AO steckt im gebackenen Mesh -> alle Chunks progressiv neu meshen
-               (LOD zieht via Epoche im nächsten LodManager-Tick selbst nach) */
-            this.world.getChunkManager().remeshAll();
-            this.logger.debug("Ambient Occlusion: " + (this.settings.ambientOcclusion ? "an" : "aus"));
-            changed = true;
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_K)) {
-            /* Debug: GPU-Cull-Pfad live an/aus (A/B ohne Neustart, nicht persistiert) */
-            de.skyengine.graphics.world.GpuCull.ENABLED = !de.skyengine.graphics.world.GpuCull.ENABLED;
-            this.logger.debug("GPU-Cull: " + (de.skyengine.graphics.world.GpuCull.ENABLED ? "an" : "aus"));
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_J)) {
-            /* Debug: GPU-Occlusion-Verdikte rot zeichnen statt cullen (nicht persistiert) */
-            de.skyengine.graphics.world.GpuCull.DEBUG_TINT = !de.skyengine.graphics.world.GpuCull.DEBUG_TINT;
-            this.logger.debug("GPU-Cull-Debug (rot statt cullen): "
-                    + (de.skyengine.graphics.world.GpuCull.DEBUG_TINT ? "an" : "aus"));
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_H)) {
-            /* Laub-Qualität zyklisch LOW -> MID -> HIGH; steckt im gebackenen Mesh -> Voll-Remesh */
-            GameSettings.LeavesQuality[] values = GameSettings.LeavesQuality.values();
-            this.settings.leavesQuality = values[(this.settings.leavesQuality.ordinal() + 1) % values.length];
-            this.world.getChunkManager().remeshAll();
-            this.logger.debug("Laub-Qualität: " + this.settings.leavesQuality);
-            changed = true;
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_L)) {
-            this.settings.lodEnabled = !this.settings.lodEnabled;
-            /* LodManager liest das Setting im nächsten Tick; farPlane sofort nachziehen */
-            this.camera.setFarPlane(this.computeFarPlane());
-            this.logger.debug("LOD: " + (this.settings.lodEnabled ? "an" : "aus"));
-            changed = true;
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_P)) {
-            /* Debug: Chunk-Loading einfrieren, um in LOD-Gebiete zu fliegen (nicht persistiert) */
-            ChunkManager chunkManager = this.world.getChunkManager();
-            chunkManager.setLoadingPaused(!chunkManager.isLoadingPaused());
-            this.logger.debug("Chunk-Loading " + (chunkManager.isLoadingPaused() ? "pausiert" : "fortgesetzt"));
-        }
-        if (changed) this.settings.save();
     }
 
     /** Sichtweite der Projektion: mit LOD hinter den äußersten Ring gelegt, sonst wie bisher 1500. */

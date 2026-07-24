@@ -31,6 +31,19 @@
     "language": "Language...",
     "resourcepacks": "Resource Packs...",
 
+    "debug": {
+      "button": "Debug...",
+      "title": "Debug Options",
+      "wireframe": "Wireframe",
+      "gpu_cull": "GPU Culling",
+      "gpu_cull_tint": "GPU Cull Debug (red)",
+      "lod_overlay": "LOD Side Overlay",
+      "pause_loading": "Pause Chunk Loading",
+      "aa_mode": "Anti-Aliasing",
+      "reload_chunks": "Reload Chunks",
+      "reload_post": "Reload Postprocessing"
+    },
+
     "video": {
       "button": "Video Settings...",
       "title": "Video Settings",
@@ -99,6 +112,8 @@
     "open_inventory": "Inventory",
     "drop": "Drop Item",
     "toggle_perspective": "Toggle Perspective",
+    "screenshot": "Screenshot",
+    "gamemode": "Cycle Game Mode",
     "hotbar": "Hotbar Slot %s"
   },
 

@@ -25,6 +25,8 @@ public final class KeyBindings {
     public static final String OPEN_INVENTORY = "open_inventory";
     public static final String DROP = "drop";
     public static final String TOGGLE_PERSPECTIVE = "toggle_perspective";
+    public static final String SCREENSHOT = "screenshot";
+    public static final String GAMEMODE = "gamemode";
 
     /** Slot i (1..9) -> "hotbar_i". */
     public static String hotbar(int slot) {
@@ -43,6 +45,8 @@ public final class KeyBindings {
         m.put(OPEN_INVENTORY, GLFW.GLFW_KEY_E);
         m.put(DROP, GLFW.GLFW_KEY_Q);
         m.put(TOGGLE_PERSPECTIVE, GLFW.GLFW_KEY_F5);
+        m.put(SCREENSHOT, GLFW.GLFW_KEY_F2);
+        m.put(GAMEMODE, GLFW.GLFW_KEY_G);
         for (int i = 1; i <= 9; i++) {
             m.put(hotbar(i), GLFW.GLFW_KEY_1 + (i - 1));
         }
