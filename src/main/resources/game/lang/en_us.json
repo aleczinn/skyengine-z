@@ -114,6 +114,7 @@
     "toggle_perspective": "Toggle Perspective",
     "screenshot": "Screenshot",
     "gamemode": "Cycle Game Mode",
+    "pick_block": "Pick Block",
     "hotbar": "Hotbar Slot %s"
   },
 

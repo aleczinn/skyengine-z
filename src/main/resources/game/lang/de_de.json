@@ -122,6 +122,7 @@
     "toggle_perspective": "Perspektive wechseln",
     "screenshot": "Screenshot",
     "gamemode": "Spielmodus wechseln",
+    "pick_block": "Block aufnehmen",
     "hotbar": "Hotbar-Slot %s"
   },
 

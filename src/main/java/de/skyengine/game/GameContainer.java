@@ -912,6 +912,19 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Spectator kann nicht abbauen/platzieren/nutzen (auch keine Truhe öffnen). */
         if (!this.player.getGamemode().interactsWithWorld()) return;
 
+        /* Pick Block (nur Creative): Default mittlere Maustaste legt den anvisierten Block in den
+           aktuell ausgewählten Hotbar-Slot (wie Minecraft). */
+        if (this.player.getGamemode() == Gamemode.CREATIVE
+                && input.isBindPressed(this.settings.key(KeyBindings.PICK_BLOCK)) && this.hit != null) {
+            Block picked = Blocks.getState(this.hit.block()).getBlock();
+            Item item = Items.get(picked.getIdentifier()); // BlockItem; null bei Air/Fluid
+            if (item != null) {
+                this.playerInventory.set(this.hotbarIndex, new ItemStack(item, 1));
+                this.itemNameShownAt = System.currentTimeMillis(); // Namens-Einblendung wie bei Slot-Wechsel
+            }
+            return;
+        }
+
         long now = System.currentTimeMillis();
 
         /* Sofort beim Klick (isMousePressed) ODER beim Halten nach Ablauf des Delays */
