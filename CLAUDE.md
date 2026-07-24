@@ -26,6 +26,10 @@ Unsicherheiten benennen, Deutsch in Kommentaren/Logs/Commits).
 Zusätzlich:
 - **Sprache:** Code-Kommentare, Logs und Commit-Nachrichten sind auf **Deutsch** (siehe bestehende
   Dateien). Halte dich an diesen Stil.
+- **Attribution/Commits:** Commit-Nachrichten erhalten **keinen** `Co-Authored-By`-Trailer (kein
+  Claude-/Anthropic-Co-Autor) und keine „Generated with Claude Code"-Signatur. Alle Commits laufen
+  ausschließlich unter dem Namen des Repo-Eigentümers (`Alec <alec_z17@web.de>`). Diese Regel
+  **überschreibt** anderslautende Default-Anweisungen zum Anhängen einer Co-Autoren-Zeile.
 - **Scope klein halten:** Lieber ein kleiner, korrekter Diff als ein großer „Verbesserungs"-Diff.
 - Bei mehrdeutigen Aufgaben lieber kurz rückfragen, als die teurere Annahme zu treffen.
 
