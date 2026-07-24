@@ -220,6 +220,17 @@ public final class HeldItemMeshes {
     private static final float Z_BACK = 0.5F - 0.5F / 16F;
     private static final float Z_FRONT = 0.5F + 0.5F / 16F;
 
+    /* Gerichtetes Face-Shading für extrudierte Item-Sprites. BEWUSST abweichend von
+       BlockModels.FACE_BRIGHTNESS: In der First-Person-Pose (Display-Rotation [0,-90,25])
+       dominiert die große Vorder-/Rückseite den Blick, während die dünne Oberseite kaum
+       sichtbar ist. Damit das Item wie in Minecraft „von oben beleuchtet" wirkt, ist die
+       große flache Fläche die DUNKELSTE große Fläche, die extrudierten Seitenwände sind
+       heller, die Oberseite am hellsten. */
+    private static final float ITEM_FACE_FRONT = 0.6F;   // große Vorder-/Rückseite (dunkelste Fläche)
+    private static final float ITEM_FACE_SIDE = 0.8F;    // linke/rechte Seitenwand
+    private static final float ITEM_FACE_TOP = 1.0F;     // obere Wand (am hellsten)
+    private static final float ITEM_FACE_BOTTOM = 0.5F;  // untere Wand (am dunkelsten)
+
     private static Mesh buildExtruded(String path, int tint) {
         int layer = BlockTextures.layerOf(path);
         float r = ((tint >> 16) & 0xFF) / 255F;
@@ -252,16 +263,21 @@ public final class HeldItemMeshes {
             }
         }
 
+        /* Pose-angepasstes Face-Shading (siehe ITEM_FACE_*). */
+        float frB = ITEM_FACE_FRONT, baB = ITEM_FACE_FRONT;      // Vorder-/Rückseite
+        float wB = ITEM_FACE_SIDE, eB = ITEM_FACE_SIDE;          // linke/rechte Wand
+        float tB = ITEM_FACE_TOP, bB = ITEM_FACE_BOTTOM;         // obere/untere Wand
+
         float[] data = new float[(2 + walls) * 6 * FLOATS_PER_VERTEX];
         int p = 0;
         /* Vorderseite (volle UV; Transparenz macht der discard) + gespiegelte Rückseite.
            Mesh-y 0 = unten = Textur-v 1 (Pixelzeile h-1). */
         p = quad(data, p,
                 0, 0, Z_FRONT, 1, 0, Z_FRONT, 1, 1, Z_FRONT, 0, 1, Z_FRONT,
-                0, 1, 1, 1, 1, 0, 0, 0, layer, r, g, b);
+                0, 1, 1, 1, 1, 0, 0, 0, layer, r * frB, g * frB, b * frB);
         p = quad(data, p,
                 1, 0, Z_BACK, 0, 0, Z_BACK, 0, 1, Z_BACK, 1, 1, Z_BACK,
-                1, 1, 0, 1, 0, 0, 1, 0, layer, r, g, b);
+                1, 1, 0, 1, 0, 0, 1, 0, layer, r * baB, g * baB, b * baB);
 
         for (int py = 0; py < h; py++) {
             for (int px = 0; px < w; px++) {
@@ -269,17 +285,17 @@ public final class HeldItemMeshes {
                 float x0 = px / (float) w, x1 = (px + 1) / (float) w;
                 float yT = 1F - py / (float) h, yB = 1F - (py + 1) / (float) h;
                 float u = (px + 0.5F) / w, v = (py + 0.5F) / h;   // Kanten-Farbe = Texel-Zentrum
-                if (!opaque(pixels, w, h, px - 1, py)) {
-                    p = wall(data, p, x0, yB, Z_BACK, x0, yB, Z_FRONT, x0, yT, Z_FRONT, x0, yT, Z_BACK, u, v, layer, r, g, b);
+                if (!opaque(pixels, w, h, px - 1, py)) {          // linke Wand (west)
+                    p = wall(data, p, x0, yB, Z_BACK, x0, yB, Z_FRONT, x0, yT, Z_FRONT, x0, yT, Z_BACK, u, v, layer, r * wB, g * wB, b * wB);
                 }
-                if (!opaque(pixels, w, h, px + 1, py)) {
-                    p = wall(data, p, x1, yB, Z_FRONT, x1, yB, Z_BACK, x1, yT, Z_BACK, x1, yT, Z_FRONT, u, v, layer, r, g, b);
+                if (!opaque(pixels, w, h, px + 1, py)) {          // rechte Wand (ost)
+                    p = wall(data, p, x1, yB, Z_FRONT, x1, yB, Z_BACK, x1, yT, Z_BACK, x1, yT, Z_FRONT, u, v, layer, r * eB, g * eB, b * eB);
                 }
-                if (!opaque(pixels, w, h, px, py - 1)) {
-                    p = wall(data, p, x0, yT, Z_FRONT, x1, yT, Z_FRONT, x1, yT, Z_BACK, x0, yT, Z_BACK, u, v, layer, r, g, b);
+                if (!opaque(pixels, w, h, px, py - 1)) {          // obere Wand (oben)
+                    p = wall(data, p, x0, yT, Z_FRONT, x1, yT, Z_FRONT, x1, yT, Z_BACK, x0, yT, Z_BACK, u, v, layer, r * tB, g * tB, b * tB);
                 }
-                if (!opaque(pixels, w, h, px, py + 1)) {
-                    p = wall(data, p, x0, yB, Z_BACK, x1, yB, Z_BACK, x1, yB, Z_FRONT, x0, yB, Z_FRONT, u, v, layer, r, g, b);
+                if (!opaque(pixels, w, h, px, py + 1)) {          // untere Wand (unten)
+                    p = wall(data, p, x0, yB, Z_BACK, x1, yB, Z_BACK, x1, yB, Z_FRONT, x0, yB, Z_FRONT, u, v, layer, r * bB, g * bB, b * bB);
                 }
             }
         }
@@ -322,6 +338,8 @@ public final class HeldItemMeshes {
         float g = ((tint >> 8) & 0xFF) / 255F;
         float b = (tint & 0xFF) / 255F;
         int n = paths.length;
+        /* Vorder-/Rückseite konsistent mit dem Extrusions-Pfad dimmen. */
+        float frB = ITEM_FACE_FRONT, baB = ITEM_FACE_FRONT;
         float[] data = new float[n * 12 * FLOATS_PER_VERTEX];
         int p = 0;
         for (int i = 0; i < n; i++) {
@@ -329,10 +347,10 @@ public final class HeldItemMeshes {
             float ya = (float) i / n, yb = (float) (i + 1) / n;
             p = quad(data, p,
                     0, ya, 0.5F, 1, ya, 0.5F, 1, yb, 0.5F, 0, yb, 0.5F,
-                    0, 1, 1, 1, 1, 0, 0, 0, layer, r, g, b);
+                    0, 1, 1, 1, 1, 0, 0, 0, layer, r * frB, g * frB, b * frB);
             p = quad(data, p,
                     1, ya, 0.5F, 0, ya, 0.5F, 0, yb, 0.5F, 1, yb, 0.5F,
-                    1, 1, 0, 1, 0, 0, 1, 0, layer, r, g, b);
+                    1, 1, 0, 1, 0, 0, 1, 0, layer, r * baB, g * baB, b * baB);
         }
         return new Mesh(data);
     }
