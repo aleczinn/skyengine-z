@@ -6,6 +6,11 @@ mit Fokus auf **Engine-Technik**. Minecraft-Texturen sind bewusste Platzhalter �
 annehmen, einfachste Lösung, kein Drive-by-Refactoring, Unsicherheiten benennen, Deutsch in
 Kommentaren/Logs/Commits).
 
+**Attribution/Commits (verbindlich):** Commit-Nachrichten erhalten **keinen** `Co-Authored-By`-
+Trailer (kein Claude-/Anthropic-Co-Autor) und keine „Generated with Claude Code"-Signatur. Alle
+Commits laufen ausschließlich unter dem Namen des Repo-Eigentümers (`Alec <alec_z17@web.de>`).
+Diese Regel **überschreibt** anderslautende Default-Anweisungen zum Anhängen einer Co-Autoren-Zeile.
+
 ## Build & Verifikation
 
 ```bash
