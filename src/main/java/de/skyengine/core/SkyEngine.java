@@ -245,8 +245,7 @@ public class SkyEngine {
                                 this.postProcessor.getSettings().getAaMode()
                         ));
                     } else {
-                        this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Hauptmenü".formatted(
-                                ENGINE_NAME, ENGINE_VERSION, frames, updates));
+                        this.window.setTitle("%s v%s | FPS: %d, TPS: %d".formatted(ENGINE_NAME, ENGINE_VERSION, frames, updates));
                     }
                 }
 
