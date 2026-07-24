@@ -31,6 +31,7 @@ import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.chunk.ChunkManager;
+import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.FrameProfiler;
@@ -64,6 +65,7 @@ import de.skyengine.game.world.save.PlayerIO;
 import de.skyengine.game.world.save.WorldSaves;
 import org.lwjgl.opengl.GL11;
 import de.skyengine.graphics.post.PostProcessor;
+import de.skyengine.graphics.world.ChunkBorderRenderer;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
@@ -85,6 +87,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private EntityPlayer player;
     private World world;
     private SelectionBoxRenderer selectionBoxRenderer;
+    private ChunkBorderRenderer chunkBorderRenderer;
     private CrackRenderer crackRenderer;
     private GuiManager guiManager;
 
@@ -178,6 +181,7 @@ public class GameContainer implements IResizeable, IDisposable {
         /* world/player sind lazy: sie entstehen erst beim Welt-Eintritt (enterWorld) und
            sterben bei der Rückkehr ins Hauptmenü (exitToTitle). */
         this.selectionBoxRenderer = new SelectionBoxRenderer();
+        this.chunkBorderRenderer = new ChunkBorderRenderer();
         this.crackRenderer = new CrackRenderer();
     }
 
@@ -204,6 +208,7 @@ public class GameContainer implements IResizeable, IDisposable {
         progress.frame(I18n.tr("boot.renderer"), 0.65f);
         this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
         this.selectionBoxRenderer.init();
+        this.chunkBorderRenderer.init();
         this.crackRenderer.init(this.atlas.textures());
         this.blockEntityRenderers.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderers.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
@@ -625,6 +630,14 @@ public class GameContainer implements IResizeable, IDisposable {
             }
         }
 
+        /* Chunk-Grenzen (F3+G) um die nahen Chunks — nach dem Welt-Draw, mit gültiger Kamera. */
+        if (DebugFlags.chunkBorders != 0 && this.world != null) {
+            int ccx = ((int) Math.floor(this.player.x)) >> ChunkSection.SHIFT;
+            int ccz = ((int) Math.floor(this.player.z)) >> ChunkSection.SHIFT;
+            this.chunkBorderRenderer.render(this.camera, this.world.getChunkManager(),
+                    ccx, ccz, DebugFlags.chunkBorders);
+        }
+
         this.renderFluidOverlay();
 
         /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Depth-Clear. */
@@ -721,7 +734,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 || this.player.isDead()
                 || !(held.getItem() instanceof FoodItem food)
                 || this.player.getFoodLevel() >= EntityPlayer.MAX_FOOD
-                || !input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_RIGHT)) {
+                || !input.isBindDown(this.settings.key(KeyBindings.USE))) {
             this.eatingTicks = 0;
             this.animState.clearEating();
             return;
@@ -797,6 +810,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.world.dispose();
         }
         this.selectionBoxRenderer.dispose();
+        if (this.chunkBorderRenderer != null) this.chunkBorderRenderer.dispose();
         if (this.crackRenderer != null) this.crackRenderer.dispose();
         this.playerRenderer.dispose();
         this.heldItemMeshes.dispose();
@@ -846,6 +860,10 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         /* MC-Formel: Schaden pro Tick = speed/hardness/30 (harvestbar) bzw. /100 -> pro Sekunde /1.5 bzw. /5 */
         float perSecond = speed / hardness / (isHarvestable(state, held0) ? 1.5F : 5F);
+
+        /* MC-Malus: Abbau in der Luft (fallend/springend) ist 5x langsamer — sonst gräbt man sich
+           beim Nach-unten-Bauen (dauernd fallend) schneller nach unten als in Minecraft. */
+        if (!this.player.onGround) perSecond /= 5F;
 
         float dt = (now - this.lastMiningMs) / 1000F;
         this.lastMiningMs = now;
@@ -927,23 +945,29 @@ public class GameContainer implements IResizeable, IDisposable {
 
         long now = System.currentTimeMillis();
 
-        /* Sofort beim Klick (isMousePressed) ODER beim Halten nach Ablauf des Delays */
-        boolean breakBlock = input.isMousePressed(GLFW.GLFW_MOUSE_BUTTON_LEFT)
-                || (input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_LEFT) && now - this.lastBreakTime >= INTERACT_DELAY_MS);
+        /* Abbauen/Platzieren sind umbelegbare Keybinds (Default: linke/rechte Maustaste). */
+        int attackCode = this.settings.key(KeyBindings.ATTACK);
+        int useCode = this.settings.key(KeyBindings.USE);
+        boolean attackHeld = input.isBindDown(attackCode);
 
-        boolean placeBlock = input.isMousePressed(GLFW.GLFW_MOUSE_BUTTON_RIGHT)
-                || (input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_RIGHT) && now - this.lastPlaceTime >= INTERACT_DELAY_MS);
+        /* Sofort beim Klick (Flanke) ODER beim Halten nach Ablauf des Delays */
+        boolean breakBlock = input.isBindPressed(attackCode)
+                || (attackHeld && now - this.lastBreakTime >= INTERACT_DELAY_MS);
 
-        /* Survival: zeitbasierter Abbau nach Härte/Tool — läuft jeden Frame, solange die linke
-           Maustaste gehalten wird (der breakBlock-Trigger unten gilt nur für den Instant-Pfad). */
+        boolean placeBlock = input.isBindPressed(useCode)
+                || (input.isBindDown(useCode) && now - this.lastPlaceTime >= INTERACT_DELAY_MS);
+
+        /* Survival: zeitbasierter Abbau nach Härte/Tool — läuft jeden Frame, solange die Abbau-
+           Taste gehalten wird (der breakBlock-Trigger unten gilt nur für den Instant-Pfad). */
         if (!this.player.getGamemode().isInstantBreak()) {
-            this.updateMining(input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_LEFT), breakBlock, now);
+            this.updateMining(attackHeld, breakBlock, now);
         } else {
             this.resetMining();
         }
 
-        /* Arm-Schwung: jeder Abbau-Klick/-Halte-Takt schwingt (auch ins Leere, wie MC). */
-        if (breakBlock) this.animState.swing();
+        /* Arm-Schwung wie MC: ein Klick schwingt immer (auch ins Leere), das Halten wiederholt den
+           Schwung aber nur, wenn tatsächlich ein Block anvisiert ist. */
+        if (input.isBindPressed(attackCode) || (breakBlock && this.hit != null)) this.animState.swing();
 
         if (!breakBlock && !placeBlock) return;
 
@@ -1261,6 +1285,15 @@ public class GameContainer implements IResizeable, IDisposable {
             if (input.isKeyPressed(GLFW.GLFW_KEY_H)) {
                 DebugFlags.entityHitboxes = !DebugFlags.entityHitboxes; // Rendering folgt später
                 this.logger.debug("Entity-Hitboxen: " + (DebugFlags.entityHitboxes ? "an" : "aus"));
+                this.f3ComboUsed = true;
+            }
+            if (input.isKeyPressed(GLFW.GLFW_KEY_G)) {
+                DebugFlags.chunkBorders = (DebugFlags.chunkBorders + 1) % 3;
+                this.logger.debug("Chunk-Grenzen: " + switch (DebugFlags.chunkBorders) {
+                    case 1 -> "Chunk";
+                    case 2 -> "Chunk + Sections";
+                    default -> "aus";
+                });
                 this.f3ComboUsed = true;
             }
         }

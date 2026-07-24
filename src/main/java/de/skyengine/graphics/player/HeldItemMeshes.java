@@ -188,12 +188,12 @@ public final class HeldItemMeshes {
         if (item instanceof BlockItem bi) {
             /* BER-Block ohne statisches Modell (Truhe): eigener Renderer statt Planks-Fallback.
                Greift NUR bei leerem Modell — Blöcke mit echtem Modell (Zaubertisch) unberührt. */
-            BakedQuad[] quads = bi.getBlock().getDefaultState().getModel();
+            BakedQuad[] quads = bi.getBlock().getIconState().getModel();
             if (quads == null || quads.length == 0) {
                 BlockEntityRenderer custom = this.customHeldFor(bi);
                 if (custom != null) return new HeldMesh(null, false, false, custom);
             }
-            Mesh mesh = buildBlock(bi.getBlock().getDefaultState());
+            Mesh mesh = buildBlock(bi.getBlock().getIconState());
             if (mesh != null) return new HeldMesh(mesh, false, false, null);
         }
         return EMPTY;

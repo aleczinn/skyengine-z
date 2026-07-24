@@ -111,6 +111,8 @@
     "sprint": "Sprint",
     "open_inventory": "Inventory",
     "drop": "Drop Item",
+    "attack": "Attack/Destroy",
+    "use": "Use Item/Place Block",
     "toggle_perspective": "Toggle Perspective",
     "screenshot": "Screenshot",
     "gamemode": "Cycle Game Mode",

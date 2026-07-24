@@ -9,6 +9,7 @@ import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.Property;
 
 import java.util.ArrayList;
@@ -345,6 +346,19 @@ public class Block {
 
     public BlockState getDefaultState() {
         return defaultState;
+    }
+
+    /**
+     * State für Icon/Inventar/Hand/Drop-Darstellung: wie der Default-State, aber Pillar/Log-Blöcke
+     * (mit {@link Properties#AXIS}) stehen aufrecht (AXIS=Y). Der Default-State ist sonst AXIS=X
+     * (Enum-Reihenfolge X,Y,Z -> erster State), sodass Stämme liegend gerendert würden. Gleiche
+     * Korrektur wie im Weltgenerator (TreeShapes.verticalLog); Blöcke ohne AXIS bleiben unverändert.
+     */
+    public BlockState getIconState() {
+        if (this.defaultState.getValues().containsKey(Properties.AXIS)) {
+            return this.defaultState.with(Properties.AXIS, Direction.Axis.Y);
+        }
+        return this.defaultState;
     }
 
     @Override

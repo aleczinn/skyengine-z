@@ -119,6 +119,8 @@
     "sprint": "Sprinten",
     "open_inventory": "Inventar",
     "drop": "Item wegwerfen",
+    "attack": "Angreifen/Zerstören",
+    "use": "Benutzen/Platzieren",
     "toggle_perspective": "Perspektive wechseln",
     "screenshot": "Screenshot",
     "gamemode": "Spielmodus wechseln",

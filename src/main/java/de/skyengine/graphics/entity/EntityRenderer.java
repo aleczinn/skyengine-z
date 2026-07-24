@@ -133,7 +133,7 @@ public final class EntityRenderer {
     /** Block-State-ID für ein (Block-)Item, oder -1 wenn das Item keinen Würfel hat. */
     private static int blockStateId(ItemStack stack) {
         if (stack == null || stack.isEmpty() || !(stack.getItem() instanceof BlockItem bi)) return -1;
-        return bi.getBlock().getDefaultState().getId();
+        return bi.getBlock().getIconState().getId();
     }
 
     /** Liefert das gecachte Würfel-Mesh (lazy gebacken) oder null bei leerem Modell. */
