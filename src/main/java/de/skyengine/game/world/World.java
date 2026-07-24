@@ -615,11 +615,19 @@ public class World implements IInitializable, IDisposable {
         if (chunk == null) return;
         int lx = x & ChunkSection.MASK, lz = z & ChunkSection.MASK;
 
-        if (oldType != null) chunk.removeBlockEntity(lx, y, lz);
-        if (newType != null) {
-            BlockEntity be = newType.create(new BlockPos(x, y, z), Blocks.getState(newId));
-            be.setWorld(this);
-            chunk.setBlockEntity(lx, y, lz, be);
+        /* Write-Lock: die BlockEntity-Map ist unsynchronisiert; der Autosave-IO-Thread iteriert
+           sie unter readLock (ChunkSerializer). Ohne writeLock racet diese Struktur-Mutation
+           gegen den Save -> ConcurrentModificationException / torn Save. */
+        chunk.writeLock().lock();
+        try {
+            if (oldType != null) chunk.removeBlockEntity(lx, y, lz);
+            if (newType != null) {
+                BlockEntity be = newType.create(new BlockPos(x, y, z), Blocks.getState(newId));
+                be.setWorld(this);
+                chunk.setBlockEntity(lx, y, lz, be);
+            }
+        } finally {
+            chunk.writeLock().unlock();
         }
     }
 
