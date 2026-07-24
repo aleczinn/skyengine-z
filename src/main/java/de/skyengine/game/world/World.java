@@ -686,7 +686,7 @@ public class World implements IInitializable, IDisposable {
      */
     private void updateNeighbors(int x, int y, int z) {
         this.updateStateAt(x, y, z);
-        for (Direction d : Direction.horizontal()) {
+        for (Direction d : Direction.horizontalValues()) {
             this.updateStateAt(x + d.offsetX(), y, z + d.offsetZ());
         }
         /* Vertikale Nachbarn fürs 6-dir-Connection-System (Pipes/Cables). */

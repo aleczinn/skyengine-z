@@ -40,7 +40,7 @@ public final class CableBlockEntity extends BlockEntity {
         if (this.world == null) return;
 
         /* 1. Aus Nachbarn ziehen, die abgeben können. */
-        for (Direction d : Direction.values()) {
+        for (Direction d : Direction.sharedValues()) {
             EnergyStorage src = neighborEnergy(d);
             if (src == null) continue;
             int room = this.buffer.receive(THROUGHPUT, true);
@@ -49,7 +49,7 @@ public final class CableBlockEntity extends BlockEntity {
         }
 
         /* 2. An Nachbarn abgeben, die aufnehmen können. */
-        for (Direction d : Direction.values()) {
+        for (Direction d : Direction.sharedValues()) {
             if (this.buffer.getEnergy() <= 0) break;
             EnergyStorage sink = neighborEnergy(d);
             if (sink == null) continue;

@@ -68,10 +68,10 @@ public final class FluidBehavior implements BlockBehavior {
            noch erreichen KÖNNTE (unabhängig davon, wohin die Gefälle-Suche real lenkt) - zwei
            Fluids am Reichweiten-Ende erzeugen keinen Cobble. Wasser stößt nur den Tick ruhender
            Lava an, erzeugt den Cobble aber nicht selbst. */
-        for (Direction d : Direction.horizontal()) {
+        for (Direction d : Direction.horizontalValues()) {
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
             if (!canFluidReplace(world.getBlock(nx, y, nz))) continue;
-            for (Direction d2 : Direction.horizontal()) {
+            for (Direction d2 : Direction.horizontalValues()) {
                 if (d2 == d.opposite()) continue;
                 int ox = nx + d2.offsetX(), oz = nz + d2.offsetZ();
                 BlockState os = Blocks.getState(world.getBlock(ox, y, oz));
@@ -99,7 +99,7 @@ public final class FluidBehavior implements BlockBehavior {
                 }
             } else {
                 int best = Integer.MAX_VALUE; // kleinster Levelwert (höchstes Fluid) unter den Stützen
-                for (Direction d : Direction.horizontal()) {
+                for (Direction d : Direction.horizontalValues()) {
                     int nx = x + d.offsetX(), nz = z + d.offsetZ();
                     int ns = world.getBlock(nx, y, nz);
                     if (!isSameFluid(ns, fluid)) continue;
@@ -179,7 +179,7 @@ public final class FluidBehavior implements BlockBehavior {
            darunter) bestimmen und nur in die Richtung(en) mit dem kleinsten Wert fließen. Eine
            bereits gefüllte Säule zählt weiterhin als Loch und hält den Fluss dorthin priorisiert. */
         int slopeFind = info.lava ? 2 : 4;
-        Direction[] dirs = Direction.horizontal();
+        Direction[] dirs = Direction.horizontalValues();
         boolean[] flow = new boolean[dirs.length];
         int[] slope = new int[dirs.length];
         int minSlope = Integer.MAX_VALUE;
@@ -227,7 +227,7 @@ public final class FluidBehavior implements BlockBehavior {
     private static int slopeDistance(World world, int x, int y, int z, Block fluid,
                                      int dist, int maxDist, Direction cameFrom) {
         int min = Integer.MAX_VALUE;
-        for (Direction d : Direction.horizontal()) {
+        for (Direction d : Direction.horizontalValues()) {
             if (d == cameFrom) continue;
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
             int ns = world.getBlock(nx, y, nz);
@@ -242,7 +242,7 @@ public final class FluidBehavior implements BlockBehavior {
     /** Grenzt horizontal (außer cameFrom) das Gegen-Fluid an? Für die Hohlraum-Regel. */
     private static boolean oppositeFluidAdjacent(World world, int x, int y, int z,
                                                  boolean selfLava, Direction cameFrom) {
-        for (Direction d : Direction.horizontal()) {
+        for (Direction d : Direction.horizontalValues()) {
             if (d == cameFrom) continue;
             FluidInfo ni = Blocks.getState(world.getBlock(x + d.offsetX(), y, z + d.offsetZ()))
                     .getBlock().getFluidInfo();
@@ -259,7 +259,7 @@ public final class FluidBehavior implements BlockBehavior {
 
     /** Wasser oben/seitlich angrenzend? (Unten nicht: dort gilt die Stein-Regel im Abfluss.) */
     private static boolean waterAdjacent(World world, int x, int y, int z) {
-        for (Direction d : Direction.values()) {
+        for (Direction d : Direction.sharedValues()) {
             if (d == Direction.DOWN) continue;
             int ns = world.getBlock(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ());
             if (isWater(Blocks.getState(ns))) return true;
@@ -280,7 +280,7 @@ public final class FluidBehavior implements BlockBehavior {
         }
 
         /* Wasser selbst bleibt; benachbarte Lava prompt reagieren lassen. */
-        for (Direction d : Direction.values()) {
+        for (Direction d : Direction.sharedValues()) {
             int nx = x + d.offsetX(), ny = y + d.offsetY(), nz = z + d.offsetZ();
             if (isLava(Blocks.getState(world.getBlock(nx, ny, nz)))) {
                 world.scheduleTickEarlier(nx, ny, nz, 1);
@@ -291,7 +291,7 @@ public final class FluidBehavior implements BlockBehavior {
 
     private int countSourceNeighbors(World world, int x, int y, int z, Block fluid) {
         int count = 0;
-        for (Direction d : Direction.horizontal()) {
+        for (Direction d : Direction.horizontalValues()) {
             int ns = world.getBlock(x + d.offsetX(), y, z + d.offsetZ());
             if (isSameFluid(ns, fluid) && isSource(Blocks.getState(ns))) count++;
         }
@@ -342,7 +342,7 @@ public final class FluidBehavior implements BlockBehavior {
         Block fluid = state.getBlock();
         double own = FluidGeometry.fluidHeight(state);
 
-        for (Direction d : Direction.horizontal()) {
+        for (Direction d : Direction.horizontalValues()) {
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
             int nid = world.getBlock(nx, y, nz);
             double diff = 0;
