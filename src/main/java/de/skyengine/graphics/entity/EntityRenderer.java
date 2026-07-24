@@ -8,7 +8,6 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.chunk.Chunk;
-import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.ItemStack;
@@ -60,7 +59,13 @@ public final class EntityRenderer {
                 new Shader(FRAGMENT, ShaderType.FRAGMENT));
     }
 
-    public void render(ChunkManager chunkManager, Camera camera, float partialTick) {
+    /**
+     * Zeichnet die Entities der übergebenen Chunks. Der Aufrufer reicht nur die Chunks mit
+     * mindestens einer Entity durch (World#chunksWithEntities) — kein Iterieren über ALLE
+     * geladenen Chunks pro Frame. Der READY-Guard bleibt: zwischen zwei Ticks kann ein Chunk
+     * bereits entladen sein, bevor das Reconcile ihn aus der Menge nimmt.
+     */
+    public void render(Iterable<Chunk> chunks, Camera camera, float partialTick) {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Textures", 0);
@@ -69,7 +74,7 @@ public final class EntityRenderer {
 
         Vector3d cam = camera.getPosition();
         FrustumIntersection frustum = camera.getFrustum();
-        for (Chunk chunk : chunkManager.loadedChunks()) {
+        for (Chunk chunk : chunks) {
             if (chunk.status != ChunkStatus.READY) continue;
             List<Entity> entities = chunk.entities();
             for (int i = 0; i < entities.size(); i++) {

@@ -2,9 +2,36 @@
 
 Java-25-Voxel-Engine (LWJGL 3.4.1, OpenGL 4.6, JOML, GSON) — ein eigenständiger Minecraft-Clone
 mit Fokus auf **Engine-Technik**. Minecraft-Texturen sind bewusste Platzhalter — nicht ändern.
-**Die verbindlichen Arbeitsregeln stehen in `.claude/CLAUDE.md` und gelten immer** (fragen statt
-annehmen, einfachste Lösung, kein Drive-by-Refactoring, Unsicherheiten benennen, Deutsch in
-Kommentaren/Logs/Commits).
+**Die verbindlichen Arbeitsregeln stehen im Abschnitt [Arbeitsanweisungen](#arbeitsanweisungen-verbindlich-gelten-immer)
+und gelten immer** (fragen statt annehmen, einfachste Lösung, kein Drive-by-Refactoring,
+Unsicherheiten benennen, Deutsch in Kommentaren/Logs/Commits).
+
+## Arbeitsanweisungen (verbindlich, gelten immer)
+
+1. **Fragen statt annehmen.** Wenn etwas unklar ist, frage nach, bevor du auch nur eine Zeile
+   schreibst. Gehe niemals stillschweigend von bestimmten Absichten, einer bestimmten Architektur
+   oder bestimmten Anforderungen aus.
+2. **Zuerst die einfachste Lösung.** Implementiere immer die einfachste Lösung, die funktionieren
+   könnte. Füge keine Abstraktionen, Konfigurierbarkeit oder Flexibilität hinzu, die nicht
+   ausdrücklich gefordert wurden (kein „für später" vorbauen).
+3. **Fasse nicht zusammenhängenden Code nicht an.** Wenn eine Datei oder Funktion nicht direkt Teil
+   der aktuellen Aufgabe ist, ändere sie nicht — auch wenn du sie verbessern könntest. Kein
+   Drive-by-Refactoring, kein Umformatieren, keine Importsortierung in fremden Dateien.
+4. **Unsicherheiten ausdrücklich benennen.** Wenn du dir bei einem Ansatz oder technischen Detail
+   nicht sicher bist, sage das, bevor du fortfährst. Selbstsicherheit ohne Gewissheit richtet mehr
+   Schaden an als das Eingestehen einer Wissenslücke.
+5. Achte bei der Entwicklung stets auf Wartbarkeit und Performance, sodass neue Anforderungen nicht
+   unnötig komplex implementiert werden.
+
+Zusätzlich:
+- **Sprache:** Code-Kommentare, Logs und Commit-Nachrichten sind auf **Deutsch** (siehe bestehende
+  Dateien). Halte dich an diesen Stil.
+- **Attribution/Commits:** Commit-Nachrichten erhalten **keinen** `Co-Authored-By`-Trailer (kein
+  Claude-/Anthropic-Co-Autor) und keine „Generated with Claude Code"-Signatur. Alle Commits laufen
+  ausschließlich unter dem Namen des Repo-Eigentümers (`Alec <alec_z17@web.de>`). Diese Regel
+  **überschreibt** anderslautende Default-Anweisungen zum Anhängen einer Co-Autoren-Zeile.
+- **Scope klein halten:** Lieber ein kleiner, korrekter Diff als ein großer „Verbesserungs"-Diff.
+- Bei mehrdeutigen Aufgaben lieber kurz rückfragen, als die teurere Annahme zu treffen.
 
 **Attribution/Commits (verbindlich):** Commit-Nachrichten erhalten **keinen** `Co-Authored-By`-
 Trailer (kein Claude-/Anthropic-Co-Autor) und keine „Generated with Claude Code"-Signatur. Alle
@@ -47,6 +74,8 @@ Quelle→Mündung-Flussnetz, Feature-Pass im Scheiben-Modell.
 - `game/world/generator/` — WorldGenerator, generators/ (V2 + RiverNetwork), climate/, biome/,
   feature/ (ChunkDecorator, FeaturePlacer, trees/), debug/ (GeneratorMapExporter)
 - `game/world/lod/` — LodManager, LodConfig, LodMesher, LodDataSource(+World/Generator-Impl)
+- `game/world/save/` — Chunk-Persistenz: WorldStorage (Region-Store + IO-Thread), RegionFile,
+  ChunkSerializer, DataTagIO, PlayerIO (`player.dat`)
 - `game/world/item/`, `game/entity/`, `game/physics/`, `game/GameContainer` (Verdrahtung,
   Interaktion, Mining, Inventar)
 - `graphics/` — world/ (ChunkRenderer, VertexArena, SectionMesh, LodMesh, MappedRing,
@@ -57,6 +86,10 @@ Quelle→Mündung-Flussnetz, Feature-Pass im Scheiben-Modell.
 **Shader sind Inline-GLSL-Strings** in den Renderer-Klassen, keine .glsl-Dateien.
 Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
 `game/models/block/*.json` (Geometrie/Texturen), `game/textures/`.
+
+**Mod-/Content-Strategie:** Daten (JSON) **+** saubere Java-Registrierungs-API via `ContentSource`.
+**Kein** Forge/Fabric-Classloader, **kein** rein deklaratives JSON (JSON kann kein Verhalten
+ausdrücken).
 
 ## Skills — wann welche greift (`.claude/skills/`)
 
@@ -83,7 +116,7 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
 - Rendering: MDI + VertexArena + Frame-Fences, TextureArray mit animierten Sprites,
   Translucent-Sortierung, BlockEntity-Renderer (Chest, EnchantingTable), Reversed-Z,
   Distanz-Fog (auch über LOD) + MSAA-Offscreen-Framebuffer (beides GameSettings)
-- Block-System (Architektur gilt als **reif — kein Rewrite**): ~171 JSON-Blöcke, Archetypen,
+- Block-System (Architektur gilt als **reif — kein Rewrite**): ~175 JSON-Blöcke, Archetypen,
   Behaviors, Verbindungen (Zaun/Pane/Cable), Türen, BlockEntities + Capabilities (Item/Energie)
 - Fluids komplett (Fluss, Reaktionen, Eimer, Schwimmen/Strömung, Unterwasser-Overlay)
 - Weltgen V2: Klima→Höhe/Biome, 3D-Dichte/Höhlen, Worley-Seen, Fluss-Netz Quelle→Mündung
@@ -97,6 +130,13 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
   zahlt sich ab Licht/Schatten aus — Details/Fallen im Skill `mdi-rendering`
 - Mining: MC-Harvest-Regel, 28 Tools (7 Tiers × 4 Typen), Durability, Crack-Overlay,
   Bedrock unzerstörbar; Gamemodes Survival/Creative/Spectator; Item-Entities + Aufsammeln
+- TNT/Explosion: raybasierte Explosion (`Explosion`, MC-ServerExplosion-Modell, hardness als
+  Widerstands-Proxy), `ExplosionBehavior` + `PrimedTntEntity` (Rechtsklick-Zündung, Fuse, Ketten-
+  Zündung), weißer Blink-Shader; JSON-Felder `explosion_power`/`fuse` (`blocks/tnt.json`)
+- Chunk-Persistenz (`game/world/save/`): Region-Format `region/r.<rx>.<rz>.srg` (16×16 Chunks,
+  CRC), Single-Writer-IO-Thread, Autosave alle 1200 Ticks + Save beim Unload/Exit, `player.dat`;
+  optionaler Minecraft-Welt-Import über das eigene Source-Set `src/mcimport/` (`McWorldImporter`,
+  `mapping/BlockMapper`, `block_map.json`, NBT/MCA-Leser) — Nebentool
 - Sound (OpenAL): blockabhängige Schritte/Hit/Break/Place (Sound-Gruppen aus JSON/Tool/
   Archetyp), Musik-Streaming mit Loop, Master-/Musik-Volume (GameSettings); Assets =
   MC-Platzhalter via `scripts/extract-mc-sounds.ps1` — Details im Skill `sound-system`
@@ -106,7 +146,8 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
   Screens: Titel, Pause (ESC — beendet NICHT mehr!), Optionen+Grafik (Live-Apply), Tastenbelegung
   (Rebinding+Reset, Capture schluckt alle Tasten), Weltauswahl/Erstellen/Löschen, Welt-Ladebalken
   (`isInitialLoadComplete`), Boot-Ladebildschirm (gestaffelte Init, Fenster früh), Inventar (E) +
-  Truhe auf gemeinsamer `AbstractContainerScreen`-Basis; GuiScale = Prozent (30–170, 100 % ≈ 3,5×)
+  Truhe auf gemeinsamer `AbstractContainerScreen`-Basis, Todesscreen, Sprachauswahl (i18n,
+  Live-Wechsel), Sound-Optionen; GuiScale = Prozent (30–170, 100 % ≈ 3,5×)
 - Spieler-Rendering (graphics/player): Humanoid-Modell mit Classic-Skin 64×64 (skin.png im
   Spielordner überschreibt Steve), Inventar-Vorschau (folgt Maus), F5-Perspektiven
   (Ego/hinten/vorne mit Kamera-Kollisions-Raycast; Interaktion zielt IMMER vom Auge;
@@ -118,15 +159,16 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
   das war der Textur-Flip-Bug
 - Lifecycle: World/Player lazy (`enterWorld`/`exitToTitle`), `BlockTextureAtlas` + BE-Renderer
   welt-unabhängig (GameContainer, Engine-Lebensdauer); Welt-Metadaten-Persistenz
-  `saves/<ordner>/level.json` (Name/Seed/Daten/Spielerzustand/Inventar — Chunks regenerieren!);
+  `saves/<ordner>/level.json` (Name/Seed/Daten/Spielerzustand/Inventar); Block-Änderungen/Chunks
+  werden über `saves/<ordner>/region/*.srg` + `player.dat` persistiert (siehe Chunk-Persistenz);
   Screen-Klassen heißen `Gui*` (GuiScreen/GuiMainMenu/GuiOptionsMenu/…, MC-Stil);
   Spiel-Root = `%APPDATA%\.skyengine` (`GameDirectory`: config/saves/screenshots, einmalige
   Migration aus dem Arbeitsverzeichnis; debug/ + debug-maps/ bleiben im Projekt)
 
 **Offen / geplant (bekannt, nicht angefangen):**
 - Licht-Merge (`lightning-system`-Branch) + Schatten-Pass — dann amortisiert sich der GPU-Cull-Pfad
-- Chunk-Persistenz (Block-Änderungen speichern — level.json hält nur Metadaten/Spieler/Inventar)
-  und Crafting; Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
+- Crafting (kein Recipe-/Crafting-Menü; `GuiInventory`-Crafting-Bereich noch funktionslos);
+  Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
   (Andockpunkt: `AbstractContainerScreen.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
 - TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert, inkl. Test-Truhe)
@@ -184,4 +226,5 @@ Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
   falsch: melden, nicht stillschweigend „reparieren".
 
 Kein Nachfragen nötig für additive Standard-Arbeit nach Skill-Muster (neuer Block/Behavior/
-Feature, Bugfix mit klarer Ursache) — dort gelten die Arbeitsregeln aus `.claude/CLAUDE.md`.
+Feature, Bugfix mit klarer Ursache) — dort gelten die Arbeitsregeln aus dem Abschnitt
+[Arbeitsanweisungen](#arbeitsanweisungen-verbindlich-gelten-immer).

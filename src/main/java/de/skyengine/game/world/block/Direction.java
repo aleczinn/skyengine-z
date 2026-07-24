@@ -18,6 +18,12 @@ public enum Direction {
 
     private static final Direction[] HORIZONTAL = {NORTH, EAST, SOUTH, WEST};
 
+    /* Geteilte, unveraenderliche Kopien fuer allokationsfreie Read-only-Iteration in heissen
+       Pfaden (Fluid-Tick, Nachbar-Updates). NIEMALS mutieren. horizontal()/values() unten
+       liefern weiterhin defensive Kopien fuer externe Aufrufer. */
+    private static final Direction[] VALUES = values();
+    private static final Direction[] HORIZONTAL_VALUES = {NORTH, EAST, SOUTH, WEST};
+
     private final int faceIndex;
     private final int dx, dy, dz;
     private final Axis axis;
@@ -72,6 +78,22 @@ public enum Direction {
     /** Die vier horizontalen Richtungen in der Reihenfolge N, E, S, W. */
     public static Direction[] horizontal() {
         return HORIZONTAL.clone();
+    }
+
+    /**
+     * Geteiltes, unveraenderliches Array der vier horizontalen Richtungen (N, E, S, W) fuer
+     * allokationsfreie Read-only-Iteration in heissen Pfaden. Das Ergebnis NIEMALS mutieren.
+     */
+    public static Direction[] horizontalValues() {
+        return HORIZONTAL_VALUES;
+    }
+
+    /**
+     * Geteiltes, unveraenderliches Array aller sechs Richtungen fuer allokationsfreie
+     * Read-only-Iteration in heissen Pfaden (vermeidet den values()-Klon). NIEMALS mutieren.
+     */
+    public static Direction[] sharedValues() {
+        return VALUES;
     }
 
     /**

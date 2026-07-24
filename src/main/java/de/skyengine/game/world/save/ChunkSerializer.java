@@ -82,12 +82,38 @@ public final class ChunkSerializer {
     /* --- Serialisieren --- */
 
     /**
-     * Aufrufer hält den Read-Lock des Chunks. Tints werden nur mit {@code storeTints}
-     * geschrieben; {@code scheduledTicks} ist der auf dem Tick-Thread gezogene
-     * Queue-Snapshot des Chunks (null = keine).
+     * Zieht auf dem TICK-THREAD (aus {@link WorldStorage#enqueueSave}) die BlockEntity-Tags dieses
+     * Chunks. {@code be.save()} liest hier den Live-Zustand (z.B. Truhen-Inventar) auf demselben
+     * Thread, der ihn auch über das GUI mutiert — daher kein Race. Der IO-Thread serialisiert
+     * später nur diese Kopie ({@link #serialize}). Kein Lock nötig: die BlockEntity-Map wird
+     * ausschließlich auf dem Tick-Thread strukturell verändert.
+     */
+    public static List<SavedBlockEntity> snapshotBlockEntities(Chunk chunk) {
+        List<SavedBlockEntity> out = new ArrayList<>();
+        for (BlockEntity be : chunk.blockEntities()) {
+            Identifier id = Registries.BLOCK_ENTITY.idOf(be.getType());
+            if (id == null) {
+                LOGGER.warning("BlockEntity ohne Registry-Eintrag wird nicht gespeichert: " + be.getClass().getName());
+                continue;
+            }
+            BlockPos pos = be.getPos();
+            DataTag tag = new DataTag();
+            be.save(tag);
+            out.add(new SavedBlockEntity(packLocalPos(pos.x() & 31, pos.y(), pos.z() & 31), id.toString(), tag));
+        }
+        return out;
+    }
+
+    /**
+     * Aufrufer hält den Read-Lock des Chunks (schützt die Section-Daten). Tints werden nur mit
+     * {@code storeTints} geschrieben; {@code scheduledTicks} ist der auf dem Tick-Thread gezogene
+     * Queue-Snapshot des Chunks (null = keine). {@code blockEntities} sind die auf dem Tick-Thread
+     * vorserialisierten BlockEntity-Tags ({@link #snapshotBlockEntities}); der IO-Thread ruft
+     * {@code be.save()} bewusst NICHT selbst auf (Race mit GUI-Mutationen). null = keine.
      */
     public static byte[] serialize(Chunk chunk, String generatorId, int generatorVersion,
-                                   boolean storeTints, List<SavedTick> scheduledTicks) {
+                                   boolean storeTints, List<SavedTick> scheduledTicks,
+                                   List<SavedBlockEntity> blockEntities) {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(64 * 1024);
             DataOutputStream out = new DataOutputStream(bytes);
@@ -143,23 +169,14 @@ public final class ChunkSerializer {
                 for (int v : chunk.foliageTintCorners) out.writeInt(v);
             }
 
-            /* BlockEntities: Key aus der Welt-Position rekonstruieren (gleiche Packung wie Chunk.beKey). */
-            List<BlockEntity> saveable = new ArrayList<>();
-            for (BlockEntity be : chunk.blockEntities()) {
-                if (Registries.BLOCK_ENTITY.idOf(be.getType()) == null) {
-                    LOGGER.warning("BlockEntity ohne Registry-Eintrag wird nicht gespeichert: " + be.getClass().getName());
-                    continue;
-                }
-                saveable.add(be);
-            }
-            out.writeInt(saveable.size());
-            for (BlockEntity be : saveable) {
-                BlockPos pos = be.getPos();
-                out.writeInt(packLocalPos(pos.x() & 31, pos.y(), pos.z() & 31));
-                out.writeUTF(Registries.BLOCK_ENTITY.idOf(be.getType()).toString());
-                DataTag tag = new DataTag();
-                be.save(tag);
-                DataTagIO.write(tag, out);
+            /* BlockEntities: auf dem Tick-Thread vorserialisiert (snapshotBlockEntities) — hier nur
+               noch die fertigen Tags rausschreiben. Kein be.save() auf dem IO-Thread. */
+            List<SavedBlockEntity> bes = blockEntities == null ? List.of() : blockEntities;
+            out.writeInt(bes.size());
+            for (SavedBlockEntity be : bes) {
+                out.writeInt(be.packedLocalPos());
+                out.writeUTF(be.typeId());
+                DataTagIO.write(be.tag(), out);
             }
 
             /* Scheduled-Ticks (v2): generisch über tickTypeId — s. ScheduledTickTypes. */

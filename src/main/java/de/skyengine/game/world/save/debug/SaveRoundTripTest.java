@@ -75,7 +75,8 @@ public final class SaveRoundTripTest {
 
         /* --- Serialisieren + Kompression/CRC-Round-Trip --- */
         t0 = System.currentTimeMillis();
-        byte[] raw = ChunkSerializer.serialize(chunk, "alpha_v2", 1, true, savedTicks);
+        byte[] raw = ChunkSerializer.serialize(chunk, "alpha_v2", 1, true, savedTicks,
+                ChunkSerializer.snapshotBlockEntities(chunk));
         long serializeMs = System.currentTimeMillis() - t0;
         byte[] compressed = ChunkSerializer.compress(raw);
         int crc = ChunkSerializer.crc32(raw);
@@ -185,7 +186,8 @@ public final class SaveRoundTripTest {
 
         Chunk other = new Chunk(18, -7); // Region (1,-1) — testet die Region-Grenze bei negativen Koordinaten
         generator.generate(other);
-        byte[] payloadB = ChunkSerializer.serialize(other, "alpha_v2", 1, true, null);
+        byte[] payloadB = ChunkSerializer.serialize(other, "alpha_v2", 1, true, null,
+                ChunkSerializer.snapshotBlockEntities(other));
 
         WorldStorage storage = new WorldStorage(dir, null, null, "test", 1, true);
         storage.writeChunk(3, -7, raw);       // Region (0,-1), landet in Sektor 1
