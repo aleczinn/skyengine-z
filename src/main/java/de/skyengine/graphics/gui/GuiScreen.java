@@ -228,6 +228,15 @@ public abstract class GuiScreen {
     }
 
     /**
+     * true: der GuiScreen beansprucht gerade ALLE Maustasten (laufende Keybind-Aufnahme). Sonst
+     * routet der {@link GuiManager} nur links/rechts — die Zusatztasten (Mitte, Maus 4/5) würden
+     * bei Slot-Klicks und Scrollbars ungewollt mitwirken.
+     */
+    public boolean capturesMouse() {
+        return false;
+    }
+
+    /**
      * true: die Szene hinter dem Screen wird geblurt (Pause-Menü + dessen Unterseiten;
      * animiert im {@code MenuBlurPass}). Container-GUIs bleiben bewusst scharf (nur Dim).
      */

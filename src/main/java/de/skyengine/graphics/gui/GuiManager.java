@@ -192,10 +192,14 @@ public final class GuiManager {
         }
         if (!this.screenReady()) return;
 
-        /* Maus: Druck/Loslassen/Ziehen für links/rechts, Scrollen. Nach jedem Handler prüfen: ein
-           mousePressed kann einen neuen (noch nicht layouteten) Screen geöffnet haben — dann NICHT
-           weiter routen (sonst mouseDragged auf null-Felder des neuen Screens). */
-        for (int button : MOUSE_BUTTONS) {
+        /* Maus: Druck/Loslassen/Ziehen, Scrollen. Links/rechts gehen immer an den Screen, die
+           übrigen GLFW-Buttons (Mitte, Maus 4/5, …) nur, wenn er sie ausdrücklich beansprucht
+           (Keybind-Aufnahme) — sonst würden Slot-Klicks/Scrollbars auf Zusatztasten reagieren.
+           Nach jedem Handler prüfen: ein mousePressed kann einen neuen (noch nicht layouteten)
+           Screen geöffnet haben — dann NICHT weiter routen (sonst mouseDragged auf null-Felder
+           des neuen Screens). */
+        for (int button = 0; button <= GLFW.GLFW_MOUSE_BUTTON_LAST; button++) {
+            if (button > GLFW.GLFW_MOUSE_BUTTON_RIGHT && !this.screen.capturesMouse()) continue;
             if (this.input.isMousePressed(button)) {
                 this.screen.mousePressed(this, mx, my, button);
             }
@@ -220,8 +224,6 @@ public final class GuiManager {
     private boolean screenReady() {
         return this.screen != null && !Float.isNaN(this.layoutVW);
     }
-
-    private static final int[] MOUSE_BUTTONS = {GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_MOUSE_BUTTON_RIGHT};
 
     /**
      * Pro Frame nach der Welt: Cursor synchronisieren + ggf. GuiScreen + Hotbar zeichnen.
