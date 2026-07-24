@@ -1221,19 +1221,9 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.lastSpacePressTime = now;
             }
         }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F)) {
-            GameSettings.get().fog = !GameSettings.get().fog;
-            this.logger.debug("Fog: " + GameSettings.get().fog);
-        }
         if (input.isKeyPressed(GLFW.GLFW_KEY_G)) {
             this.player.setGamemode(this.player.getGamemode().next());
             this.logger.debug("Gamemode: " + this.player.getGamemode());
-        }
-        if (input.isKeyPressed(GLFW.GLFW_KEY_F4)) {
-            /* Debug (A/B-Messung): LOD-Höhenquantisierung an/aus. Nicht persistiert;
-               der LodManager remesht bei Wechsel via Epoche alle LOD-Regionen. */
-            LodMesher.QUANTIZE_HEIGHT = !LodMesher.QUANTIZE_HEIGHT;
-            this.logger.debug("LOD Höhenquantisierung: " + (LodMesher.QUANTIZE_HEIGHT ? "an" : "aus"));
         }
         if (input.isKeyPressed(GLFW.GLFW_KEY_F12)) {
             /* TEMP/Debug (Perf-Messung): koplanare LOD-Seiten-Overlays an/aus. Nicht persistiert;
