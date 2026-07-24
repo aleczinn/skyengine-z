@@ -4,6 +4,7 @@ import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
+import de.skyengine.game.world.save.SavedBlockEntity;
 import de.skyengine.game.world.tick.SavedTick;
 
 import java.util.ArrayList;
@@ -63,6 +64,12 @@ public class Chunk {
        (WorldStorage.enqueueSave — einziger Ort!), vom IO-Thread im Read-Lock-Fenster
        gelesen und genullt (happens-before über die Executor-Übergabe). */
     public List<SavedTick> scheduledTickSnapshot;
+
+    /* Zum Save: fertig serialisierte BlockEntity-Tags dieses Chunks, vom Tick-Thread im
+       Enqueue-Moment gezogen (WorldStorage.enqueueSave — einziger Ort!). Der IO-Thread schreibt
+       nur diese Kopie, statt be.save() auf dem Live-Zustand zu lesen (Race mit GUI-Mutationen,
+       z.B. Truhen-Inventar). Vom IO-Thread im Read-Lock-Fenster gelesen und genullt. */
+    public List<SavedBlockEntity> blockEntitySnapshot;
 
     /* Persistenz: seit dem letzten Save verändert (Edits/BlockEntity-Mutationen). Gesetzt auf
        dem Tick-Thread, zurückgesetzt NUR im Save-Job (IO-Thread, im Read-Lock-Fenster) —

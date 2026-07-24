@@ -135,6 +135,9 @@ public class WorldStorage {
      */
     public void enqueueSave(Chunk chunk) {
         chunk.scheduledTickSnapshot = this.world != null ? this.world.snapshotScheduledTicks(chunk) : null;
+        /* BlockEntity-Zustand JETZT (Tick-Thread) vorserialisieren — der IO-Thread darf be.save()
+           nicht auf dem Live-Zustand aufrufen (Race mit GUI-Mutationen, z.B. Truhen-Inventar). */
+        chunk.blockEntitySnapshot = ChunkSerializer.snapshotBlockEntities(chunk);
         try {
             this.ioExecutor.execute(() -> this.saveNow(chunk));
         } catch (RejectedExecutionException e) {
@@ -151,11 +154,13 @@ public class WorldStorage {
         try {
             List<SavedTick> ticks = chunk.scheduledTickSnapshot;
             chunk.scheduledTickSnapshot = null;
+            List<SavedBlockEntity> blockEntities = chunk.blockEntitySnapshot;
+            chunk.blockEntitySnapshot = null;
             if (!chunk.modified) {
                 chunk.saveQueued = false;
                 return;
             }
-            payload = ChunkSerializer.serialize(chunk, this.generatorId, this.generatorVersion, this.storeTints, ticks);
+            payload = ChunkSerializer.serialize(chunk, this.generatorId, this.generatorVersion, this.storeTints, ticks, blockEntities);
             chunk.modified = false;
         } finally {
             chunk.readLock().unlock();

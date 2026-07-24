@@ -175,7 +175,8 @@ public final class McWorldImporter {
 
                     chunk.grassTintCorners = grassTints;
                     chunk.foliageTintCorners = foliageTints;
-                    byte[] payload = ChunkSerializer.serialize(chunk, "minecraft_import", 1, true, null);
+                    byte[] payload = ChunkSerializer.serialize(chunk, "minecraft_import", 1, true, null,
+                            ChunkSerializer.snapshotBlockEntities(chunk));
                     target.write(chunkX & 15, chunkZ & 15, payload);
                     importedChunks.add(Chunk.key(chunkX, chunkZ));
                     chunksImported++;
