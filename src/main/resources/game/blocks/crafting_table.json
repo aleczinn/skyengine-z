@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:crafting_table",
+  "type": "cube",
+  "layer": "opaque",
+  "hardness": 2.5,
+  "tool": "axe",
+  "textures": {
+    "all": "game/textures/block/crafting_table_top.png"
+  }
+}

@@ -39,6 +39,17 @@ public final class Registry<T> {
         return this.entries.get(id);
     }
 
+    /**
+     * Reverse-Lookup: Identifier eines registrierten Werts (oder null). Linearer Scan —
+     * Registries sind klein und der Aufruf selten (z.B. BlockEntity-Typ beim Chunk-Save).
+     */
+    public Identifier idOf(T value) {
+        for (Map.Entry<Identifier, T> entry : this.entries.entrySet()) {
+            if (entry.getValue() == value) return entry.getKey();
+        }
+        return null;
+    }
+
     public boolean contains(Identifier id) {
         return this.entries.containsKey(id);
     }

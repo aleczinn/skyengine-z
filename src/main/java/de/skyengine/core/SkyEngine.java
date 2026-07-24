@@ -22,7 +22,7 @@ import java.util.concurrent.CountDownLatch;
 public class SkyEngine {
 
     public static final String ENGINE_NAME = "SkyEngine";
-    public static final String ENGINE_VERSION = "0.0.8";
+    public static final String ENGINE_VERSION = "0.0.9";
 
     /** The index/token used in an index buffer for primitive restart. */
     public static final int PRIMITIVE_RESTART_INDEX = 0xFFFF;
@@ -245,8 +245,7 @@ public class SkyEngine {
                                 this.postProcessor.getSettings().getAaMode()
                         ));
                     } else {
-                        this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Hauptmenü".formatted(
-                                ENGINE_NAME, ENGINE_VERSION, frames, updates));
+                        this.window.setTitle("%s v%s | FPS: %d, TPS: %d".formatted(ENGINE_NAME, ENGINE_VERSION, frames, updates));
                     }
                 }
 

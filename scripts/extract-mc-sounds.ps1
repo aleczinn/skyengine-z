@@ -56,6 +56,9 @@ $wanted = @(
     # Essen: Kauen + Burp (in MC unter random/ -> bei uns gebuendelt unter eat/)
     @{ pattern = 'minecraft/sounds/random/eat[1-3].ogg';  dest = 'eat' },
     @{ pattern = 'minecraft/sounds/random/burp.ogg';      dest = 'eat' },
+    # TNT-Explosion + Zünd-Zischen (in MC unter random/)
+    @{ pattern = 'minecraft/sounds/random/explode[1-4].ogg'; dest = 'random' },
+    @{ pattern = 'minecraft/sounds/random/fuse.ogg';         dest = 'random' },
     # Klassische Musik-Tracks (im modernen Index nach Songnamen benannt)
     @{ pattern = 'minecraft/sounds/music/game/minecraft.ogg';  dest = 'music' },
     @{ pattern = 'minecraft/sounds/music/game/sweden.ogg';     dest = 'music' },

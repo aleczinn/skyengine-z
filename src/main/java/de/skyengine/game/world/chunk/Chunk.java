@@ -1,12 +1,16 @@
 package de.skyengine.game.world.chunk;
 
 import de.skyengine.game.entity.Entity;
+import de.skyengine.game.entity.FallingBlockEntity;
+import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
+import de.skyengine.game.world.tick.SavedTick;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -48,6 +52,25 @@ public class Chunk {
     /* Unload-Gate: Chunk liegt außerhalb der Unload-Distanz, wartet aber, bis das LOD
        seine Zelle deckt (symmetrisch zum Lade-Gate der LOD-Maske). Nur Tick-Thread. */
     public boolean pendingUnload;
+
+    /* Vom ChunkSerializer beim Laden übergebene Scheduled-Ticks. KEIN Persistenzspeicher,
+       sondern nur ein temporärer Übergabepuffer zwischen Lade-Worker und Tick-Thread:
+       Publikation über das volatile status-Publish des Load-Jobs; der Tick-Thread plant
+       die Einträge ab READY in die ScheduledTickQueue ein und nullt das Feld. */
+    public List<SavedTick> pendingScheduledTicks;
+
+    /* Zum Save: Queue-Snapshot dieses Chunks, vom Tick-Thread im Enqueue-Moment gesetzt
+       (WorldStorage.enqueueSave — einziger Ort!), vom IO-Thread im Read-Lock-Fenster
+       gelesen und genullt (happens-before über die Executor-Übergabe). */
+    public List<SavedTick> scheduledTickSnapshot;
+
+    /* Persistenz: seit dem letzten Save verändert (Edits/BlockEntity-Mutationen). Gesetzt auf
+       dem Tick-Thread, zurückgesetzt NUR im Save-Job (IO-Thread, im Read-Lock-Fenster) —
+       volatile für die Sichtbarkeit zwischen beiden. */
+    public volatile boolean modified;
+    /* true zwischen Einreihen und Abschluss eines Save-Jobs — der Unload wartet darauf
+       (Chunk bleibt bis zum fertigen Save in der Map). Tick-Thread setzt, IO-Thread löscht. */
+    public volatile boolean saveQueued;
 
     /* Schützt die Section-Container (PalettedContainer + sections[]-Allokation) gegen
        gleichzeitige Worker-Mesh-Reads und Render-Thread-Writes. Mesh-Jobs nehmen den
@@ -94,6 +117,14 @@ public class Chunk {
         return this.sections[index];
     }
 
+    /**
+     * Setzt eine komplett aufgebaute Section ein. NUR für den Persistenz-Load-Pfad,
+     * bevor der Chunk per Status-Publish lesbar wird — danach wäre das ein Race.
+     */
+    public void installSection(int index, ChunkSection section) {
+        this.sections[index] = section;
+    }
+
     /* --- BlockEntities --- */
 
     private static int beKey(int x, int y, int z) {
@@ -130,6 +161,33 @@ public class Chunk {
 
     public List<Entity> entities() {
         return this.entities == null ? Collections.emptyList() : this.entities;
+    }
+
+    /**
+     * Wandelt fallende Block-Entities dieses Chunks in echte Blöcke um (vor Unload-/Exit-Save;
+     * Tick-Thread). Beim periodischen Autosave bewusst NICHT aufrufen — live fallender Sand
+     * würde sichtbar in der Luft einrasten. Zellen, die inzwischen belegt sind, bleiben
+     * Entity (geht dann wie Item-Entities bewusst nicht mit ins Save).
+     */
+    public void materializeFallingBlocks() {
+        if (this.entities == null || this.entities.isEmpty()) return;
+        this.writeLock().lock();
+        try {
+            for (Iterator<Entity> it = this.entities.iterator(); it.hasNext(); ) {
+                Entity entity = it.next();
+                if (!(entity instanceof FallingBlockEntity falling) || entity.isRemoved()) continue;
+                int lx = ((int) Math.floor(entity.x)) & ChunkSection.MASK;
+                int y = (int) Math.floor(entity.y);
+                int lz = ((int) Math.floor(entity.z)) & ChunkSection.MASK;
+                if (y >= 0 && y < HEIGHT && Blocks.canFallInto(this.getBlock(lx, y, lz))) {
+                    this.setBlock(lx, y, lz, falling.getBlockId());
+                    this.modified = true;
+                    it.remove();
+                }
+            }
+        } finally {
+            this.writeLock().unlock();
+        }
     }
 
     /**

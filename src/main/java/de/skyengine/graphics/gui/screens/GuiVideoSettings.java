@@ -10,6 +10,7 @@ import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.CycleButton;
 import de.skyengine.graphics.gui.widget.Slider;
+import de.skyengine.graphics.gui.widget.Spacer;
 
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
@@ -110,7 +111,7 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
         content.add(new HStack(4, fog, vegetation));
         content.add(new HStack(4, lod, lodDistance));
         content.add(new HStack(4, bobbing, damageTilt));
-        content.add(vsync);
+        content.add(new HStack(4, vsync, new Spacer(CELL_W, CELL_H)));
     }
 
     /** AO/Laub stecken im gebackenen Mesh -> Voll-Remesh (nur mit Welt möglich). */

@@ -21,6 +21,12 @@ public class BlockDefinition {
     public boolean replaceable = false; // Platzieren in diese Zelle ersetzt den Block (Gras/Farn, wie MC — kein Drop)
     public boolean facing = false;      // horizontale Ausrichtung zum Spieler (Truhe, Ofen) via HorizontalFacingBehavior
 
+    /* Explosion (TNT): explosion_power = Sprengkraft (null = nicht explosiv; MC-TNT = 4;
+       ~60 Block Reichweite ≈ 45). explosion_fuse = Zünddauer in Ticks (default 80 = 4 s bei 20 TPS).
+       Verdrahtet über ExplosionBehavior in ArchetypeBlockFactory. */
+    public Float explosion_power;
+    public Integer explosion_fuse;
+
     /* Vegetations-Tint (siehe Tints): "grass" | "foliage". tint_faces schränkt optional auf
        einzelne Faces ein (up/down/north/south/west/east); null = alle Quads (inkl. Cross).
        textures.overlay definiert zusätzlich getintete Seiten-Overlay-Quads (Grasblock). */

@@ -8,22 +8,20 @@
     "yes": "Yes",
     "no": "No",
     "on": "ON",
-    "off": "OFF"
-  },
-
-  "menu": {
+    "off": "OFF",
     "singleplayer": "Singleplayer",
     "multiplayer": "Multiplayer",
-    "options": "Options",
+    "options": "Options ...",
     "quit": "Quit Game",
-    "copyright": "Copyright"
-  },
-
-  "pause": {
-    "title": "Game Menu",
-    "resume": "Back to Game",
-    "options": "Options",
-    "quit_to_title": "Save and Quit to Title"
+    "menu": {
+      "copyright": "Copyright"
+    },
+    "pause": {
+      "title": "Game Menu",
+      "resume": "Back to Game",
+      "options": "Options ...",
+      "quit_to_title": "Save and Quit to Title"
+    }
   },
 
   "options": {

@@ -54,6 +54,7 @@ public final class SoundManager implements IDisposable {
     private static final float FALL_GAIN = 0.5F;
     private static final float EAT_GAIN = 0.75F;
     private static final float BURP_GAIN = 0.25F; // bewusst dezenter als MCs 0.5 (User-Wunsch)
+    private static final float EXPLOSION_GAIN = 1.0F;
 
     private final Logger logger = LogManager.getLogger(SoundManager.class.getName());
 
@@ -81,6 +82,8 @@ public final class SoundManager implements IDisposable {
     private int[] fallBigVariants;   // damage/fallbig.ogg
     private int[] eatVariants;       // eat/eat1..3
     private int[] burpVariants;      // eat/burp.ogg
+    private int[] explosionVariants; // random/explode1..4
+    private int[] fuseVariants;      // random/fuse.ogg
 
     /* Wiederverwendet fürs Listener-Update (keine Frame-Allokationen). */
     private final Vector3d direction = new Vector3d();
@@ -151,8 +154,11 @@ public final class SoundManager implements IDisposable {
         this.fallBigVariants = this.loadVariants("damage", "fallbig");
         this.eatVariants = this.loadVariants("eat", "eat");
         this.burpVariants = this.loadVariants("eat", "burp");
+        this.explosionVariants = this.loadVariants("random", "explode");
+        this.fuseVariants = this.loadVariants("random", "fuse");
         loaded += count(this.uiClickVariants) + count(this.hurtVariants) + count(this.fallSmallVariants)
-                + count(this.fallBigVariants) + count(this.eatVariants) + count(this.burpVariants);
+                + count(this.fallBigVariants) + count(this.eatVariants) + count(this.burpVariants)
+                + count(this.explosionVariants) + count(this.fuseVariants);
 
         this.enabled = true;
         String deviceName = ALC10.alcGetString(this.device, ALC10.ALC_DEVICE_SPECIFIER);
@@ -269,6 +275,16 @@ public final class SoundManager implements IDisposable {
     /** Rülpser nach abgeschlossenem Essen. */
     public void playBurp() {
         this.play(this.burpVariants, SoundCategory.PLAYER, BURP_GAIN, 1.0F, true, false, 0, 0, 0);
+    }
+
+    /** Explosions-Sound (TNT) — positional an der Detonationsstelle. Stumm ohne Asset. */
+    public void playExplosion(double x, double y, double z) {
+        this.play(this.explosionVariants, SoundCategory.BLOCKS, EXPLOSION_GAIN, 1.0F, true, true, x, y, z);
+    }
+
+    /** Zünd-/Fuse-Zischen (TNT) — positional beim Zünden, fester Pitch. Stumm ohne Asset. */
+    public void playFuse(double x, double y, double z) {
+        this.play(this.fuseVariants, SoundCategory.BLOCKS, 1.0F, 1.0F, false, true, x, y, z);
     }
 
     /** Zufällige Variante + optional ±10 % Zufalls-Pitch auf einer freien Pool-Source. */
@@ -401,7 +417,8 @@ public final class SoundManager implements IDisposable {
         unique.addAll(this.digBuffers.values());
         unique.addAll(this.placeBuffers.values());
         for (int[] loose : new int[][]{this.uiClickVariants, this.hurtVariants, this.fallSmallVariants,
-                this.fallBigVariants, this.eatVariants, this.burpVariants}) {
+                this.fallBigVariants, this.eatVariants, this.burpVariants, this.explosionVariants,
+                this.fuseVariants}) {
             if (loose != null) unique.add(loose);
         }
         for (int[] variants : unique) {

@@ -1,0 +1,12 @@
+{
+  "id": "skyengine:lilac",
+  "archetype": "tall_cross",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": false,
+  "replaceable": true,
+  "icon_item": "game/textures/block/lilac_top.png",
+  "textures": {
+    "all": "game/textures/block/lilac_bottom.png"
+  }
+}

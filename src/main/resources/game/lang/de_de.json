@@ -8,7 +8,20 @@
     "yes": "Ja",
     "no": "Nein",
     "on": "AN",
-    "off": "AUS"
+    "off": "AUS",
+    "singleplayer": "Einzelspieler",
+    "multiplayer": "Mehrspieler",
+    "options": "Optionen ...",
+    "quit": "Spiel beenden",
+    "menu": {
+      "copyright": ""
+    },
+    "pause": {
+      "title": "Spielmenü",
+      "resume": "Zurück zum Spiel",
+      "options": "Optionen ...",
+      "quit_to_title": "Speichern und zurück zum Hauptmenü"
+    }
   },
 
   "menu": {
@@ -19,13 +32,6 @@
     "copyright": "Copyright"
   },
 
-  "pause": {
-    "title": "Spielmenü",
-    "resume": "Zurück zum Spiel",
-    "options": "Optionen",
-    "quit_to_title": "Speichern und zurück zum Hauptmenü"
-  },
-
   "options": {
     "title": "Optionen",
     "fov": "FOV: %d",
@@ -34,7 +40,7 @@
     "resourcepacks": "Ressourcenpakete...",
 
     "video": {
-      "button": "Grafik...",
+      "button": "Grafik ...",
       "title": "Grafik",
       "render_distance": "Render-Distanz: %d",
       "simulation_distance": "Simulations-Distanz: %d",

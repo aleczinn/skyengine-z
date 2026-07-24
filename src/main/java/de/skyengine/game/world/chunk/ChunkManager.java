@@ -4,6 +4,7 @@ import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
 import de.skyengine.game.world.lod.LodManager;
+import de.skyengine.game.world.save.WorldStorage;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -37,6 +38,10 @@ public class ChunkManager {
 
     /* Unload-Gate: sichtbare Chunks erst entladen, wenn das LOD ihre Zelle deckt. null = Gate aus. */
     private LodManager lodManager;
+
+    /* Chunk-Persistenz: Lade-Quelle (statt Generierung) + Save-Ziel beim Unload. Von World
+       nach der Konstruktion gesetzt; null-tolerant (Tools/Tests ohne Persistenz). */
+    private WorldStorage storage;
 
     /* Debug: friert Laden/Generieren/Unload ein (Remeshes von Spieler-Edits laufen weiter).
        volatile nur der Sichtbarkeit halber — gelesen wird auf dem Tick-/Render-Thread. */
@@ -298,8 +303,16 @@ public class ChunkManager {
                 chunk.status = ChunkStatus.GENERATING;
                 Chunk finalChunk = chunk;
                 this.submitLoadTask(() -> {
-                    this.generator.generate(finalChunk);
-                    finalChunk.status = ChunkStatus.GENERATED;
+                    /* Persistenz zuerst: gespeicherte Chunks waren beim Save schon dekoriert
+                       (nur READY-Chunks sind editierbar) -> DECORATED überspringt die
+                       Doppel-Dekoration (gleiches Muster wie remeshAll). Befüllt wird vor dem
+                       Status-Publish — exakt der Vertrag des Generators. */
+                    if (this.storage != null && this.storage.loadChunk(finalChunk)) {
+                        finalChunk.status = ChunkStatus.DECORATED;
+                    } else {
+                        this.generator.generate(finalChunk);
+                        finalChunk.status = ChunkStatus.GENERATED;
+                    }
                 });
             }
 
@@ -379,6 +392,17 @@ public class ChunkManager {
             ChunkStatus status = chunk.status;
             if (status == ChunkStatus.READY || status == ChunkStatus.DECORATED
                     || status == ChunkStatus.GENERATED || status == ChunkStatus.NEW) {
+                /* Save-Gate: modifizierte Chunks bleiben in der Map, bis der IO-Thread den
+                   Save abgeschlossen hat (saveQueued-Protokoll). Löst zugleich die
+                   Unload/Reload-Race — kommt der Spieler zurück, ist der Chunk noch da. */
+                if (this.storage != null && (chunk.modified || chunk.saveQueued)) {
+                    if (!chunk.saveQueued) {
+                        chunk.materializeFallingBlocks();
+                        chunk.saveQueued = true;
+                        this.storage.enqueueSave(chunk);
+                    }
+                    continue;
+                }
                 /* Sichtbare Chunks (alle Sections auf dem Schirm) erst entfernen, wenn das
                    hochgeladene LOD-Mesh die Zelle deckt — sonst reißt ein Loch auf, bis der
                    Region-Remesh durch ist. Nicht (voll) hochgeladene Chunks waren nie in
@@ -414,6 +438,17 @@ public class ChunkManager {
      * Entfernung nicht und die alten Meshes blieben als Geistergeometrie stehen.
      */
     public void clearAllChunks() {
+        /* Modifizierte Chunks vorm Verwerfen sichern (F8-Reload wäre sonst Datenverlust).
+           Der Save-Job hält seine eigene Chunk-Referenz — das Entfernen aus der Map direkt
+           danach ist unkritisch, der Snapshot läuft unter dem Chunk-Read-Lock. */
+        if (this.storage != null) {
+            for (Chunk chunk : this.chunks.values()) {
+                if (chunk.modified && !chunk.saveQueued) {
+                    chunk.saveQueued = true;
+                    this.storage.enqueueSave(chunk);
+                }
+            }
+        }
         this.chunks.clear();
         this.chunkRemovalVersion++;
         this.initialLoadComplete = false; // alles lädt neu → LOD wartet wieder auf das echte Terrain
@@ -543,6 +578,11 @@ public class ChunkManager {
 
     public void setLodManager(LodManager lodManager) {
         this.lodManager = lodManager;
+    }
+
+    /** Chunk-Persistenz-Anbindung (von World nach der Konstruktion gesetzt). */
+    public void setStorage(WorldStorage storage) {
+        this.storage = storage;
     }
 
     public void dispose() {

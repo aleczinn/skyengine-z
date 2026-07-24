@@ -1,5 +1,6 @@
 package de.skyengine.game.world;
 
+import de.skyengine.audio.SoundManager;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.IDisposable;
 import de.skyengine.core.io.IInitializable;
@@ -7,6 +8,7 @@ import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.entity.ItemEntity;
+import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
@@ -20,16 +22,26 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.core.file.GameDirectory;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
 import de.skyengine.game.world.generator.feature.trees.BiomeTreeFeature;
 import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
+import de.skyengine.game.world.generator.generators.VoidWorldGenerator;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.save.LevelData;
+import de.skyengine.game.world.save.WorldStorage;
+import de.skyengine.utils.logging.LogManager;
+import de.skyengine.utils.logging.Logger;
 import de.skyengine.game.world.lod.LodBlockAppearance;
+import de.skyengine.game.world.lod.LodDataSource;
 import de.skyengine.game.world.lod.LodManager;
+import de.skyengine.game.world.lod.StorageLodDataSource;
 import de.skyengine.game.world.lod.WorldLodDataSource;
+import de.skyengine.game.world.tick.SavedTick;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
+import de.skyengine.game.world.tick.ScheduledTickTypes;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.graphics.FrameProfiler;
@@ -37,6 +49,7 @@ import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.entity.EntityRenderer;
 import de.skyengine.graphics.world.ChunkRenderer;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -45,10 +58,16 @@ import java.util.function.Consumer;
 
 public class World implements IInitializable, IDisposable {
 
+    private final Logger logger = LogManager.getLogger(World.class.getName());
+
     private final String name;
 
     private final WorldGenerator generator;
     private final ChunkManager chunkManager;
+    /* Chunk-Persistenz (Region-Dateien + eigener IO-Thread); Flush in dispose(). */
+    private final WorldStorage storage;
+    /* worldType "imported" — steuert u.a. die LOD-Datenquelle (Storage statt Generator). */
+    private final boolean imported;
     private final ChunkRenderer chunkRenderer;
     /* Heightmap-LOD jenseits der Render-Distanz; erst in init() erzeugt (braucht gebackene Modelle) */
     private LodManager lodManager;
@@ -57,6 +76,8 @@ public class World implements IInitializable, IDisposable {
     private final BlockTextureAtlas atlas;
     private final BlockEntityRenderDispatcher blockEntityRenderer;
     private final EntityRenderer entityRenderer = new EntityRenderer();
+    /* Engine-Lebensdauer (GameContainer): für Sounds aus der Welt-Logik (z.B. TNT-Explosion). Nullable. */
+    private SoundManager soundManager;
 
     /** Reentranzsicherer Puffer: Spawns aus einem laufenden Tick werden erst danach in den Chunk übernommen. */
     private final List<Entity> pendingEntities = new ArrayList<>();
@@ -80,24 +101,63 @@ public class World implements IInitializable, IDisposable {
     /** Verzögerung, mit der geplante Ticks außerhalb der Simulations-Distanz erneut vorgemerkt werden. */
     private static final int OUT_OF_SIM_RESCHEDULE = 20;
 
+    /** Autosave-Intervall für modifizierte Chunks in Ticks (60 s bei 20 TPS). */
+    private static final int AUTOSAVE_INTERVAL = 1200;
+
     /** Nur Chunks in diesem Radius (in Chunks) um den Spieler ticken (Random/Scheduled/Entities). */
     private int simulationDistance = 10;
     /* Spieler-Chunk des laufenden Ticks - Basis für isSimulated(). */
     private int playerChunkX, playerChunkZ;
 
-    public World(String name, int seed, BlockTextureAtlas atlas, BlockEntityRenderDispatcher blockEntityRenderer) {
-        this.name = name;
+    public World(String dirName, LevelData level, BlockTextureAtlas atlas, BlockEntityRenderDispatcher blockEntityRenderer) {
+        this.name = dirName;
         this.atlas = atlas;
         this.blockEntityRenderer = blockEntityRenderer;
-        this.generator = new AlphaWorldGeneratorV2(seed);
-        /* Feature-Pass (Dekoration): biome-abhaengige Baeume (featureId 0) */
-        this.chunkManager = new ChunkManager(this.generator,
-                new ChunkDecorator(this.generator, List.of(new BiomeTreeFeature())));
+
+        /* Generator nach worldType: importierte Welten (MC-Import) kommen komplett aus den
+           Region-Dateien und bekommen den Void-Generator ohne Features. */
+        boolean imported = "imported".equals(level.worldType);
+        this.imported = imported;
+        if (imported) {
+            this.generator = new VoidWorldGenerator(level.seed);
+            this.chunkManager = new ChunkManager(this.generator,
+                    new ChunkDecorator(this.generator, List.of()));
+        } else {
+            this.generator = new AlphaWorldGeneratorV2(level.seed);
+            /* Feature-Pass (Dekoration): biome-abhaengige Baeume (featureId 0) */
+            this.chunkManager = new ChunkManager(this.generator,
+                    new ChunkDecorator(this.generator, List.of(new BiomeTreeFeature())));
+            if (level.generatorVersion != null && level.generatorVersion != AlphaWorldGeneratorV2.VERSION) {
+                this.logger.warning("Welt wurde mit Generator-Version " + level.generatorVersion
+                        + " erstellt, Engine hat Version " + AlphaWorldGeneratorV2.VERSION
+                        + " — ungespeicherte Gegenden können sich ändern (Nähte möglich)");
+            }
+        }
         this.chunkRenderer = new ChunkRenderer(this.chunkManager);
+
+        /* Chunk-Persistenz: Snapshots liegen in saves/<dir>/region; generierte Welten
+           speichern nur modifizierte Chunks (Tints werden beim Laden neu berechnet),
+           importierte alle (Tints im Payload). */
+        String generatorId = level.generator != null ? level.generator : (imported ? "minecraft_import" : "alpha_v2");
+        int generatorVersion = level.generatorVersion != null ? level.generatorVersion
+                : (imported ? 1 : AlphaWorldGeneratorV2.VERSION);
+        this.storage = new WorldStorage(new File(GameDirectory.resolve("saves"), dirName + "/region"),
+                this, this.generator, generatorId, generatorVersion, imported);
+        this.chunkManager.setStorage(this.storage);
     }
 
     public String getName() {
         return name;
+    }
+
+    /** Injiziert der GameContainer nach der Welt-Erzeugung; erlaubt Sounds aus der Welt-Logik. */
+    public void setSoundManager(SoundManager soundManager) {
+        this.soundManager = soundManager;
+    }
+
+    /** SoundManager der Welt oder {@code null} (dann bleiben Welt-Sounds stumm). */
+    public SoundManager getSoundManager() {
+        return this.soundManager;
     }
 
     public BlockEntityRenderDispatcher getBlockEntityRenderDispatcher() {
@@ -107,10 +167,14 @@ public class World implements IInitializable, IDisposable {
     @Override
     public void init() {
         this.chunkRenderer.init(this.atlas);
-        /* LOD: abstrahierte Datenquelle (nah: echte Chunkdaten, fern: Generator-Noise) +
-           Block-Darstellung aus den gebackenen Modellen — erst nach dem Registry-Bake. */
-        this.lodManager = new LodManager(new WorldLodDataSource(this.chunkManager, this.generator),
-                new LodBlockAppearance(), this.chunkManager);
+        /* LOD: abstrahierte Datenquelle + Block-Darstellung aus den gebackenen Modellen —
+           erst nach dem Registry-Bake. Importierte Welten sampeln die Region-Snapshots
+           (der Void-Generator kennt kein Terrain), generierte wie bisher Chunkdaten +
+           Generator-Noise. */
+        LodDataSource lodSource = this.imported
+                ? new StorageLodDataSource(this.storage)
+                : new WorldLodDataSource(this.chunkManager, this.generator);
+        this.lodManager = new LodManager(lodSource, new LodBlockAppearance(), this.chunkManager);
         this.chunkRenderer.setLodManager(this.lodManager);
         this.chunkManager.setLodManager(this.lodManager); // Unload-Gate: erst entladen, wenn LOD deckt
         /* BlockEntity-Renderer werden beim Boot registriert/initialisiert (GameContainer). */
@@ -124,10 +188,78 @@ public class World implements IInitializable, IDisposable {
         this.playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
         this.chunkManager.update(player);
         this.lodManager.update(player);
+        this.restorePendingScheduledTicks();
         this.tickScheduled();
         this.tickRandomBlocks();
         this.tickBlockEntities();
         this.tickEntities();
+        /* Autosave: modifizierte Chunks periodisch wegschreiben (asynchron, IO-Thread).
+           Fallende Blöcke werden hier bewusst NICHT materialisiert (würden sichtbar
+           in der Luft einrasten) — sie landen ohnehin binnen Sekunden als Block-Edit. */
+        if (this.gameTime % AUTOSAVE_INTERVAL == 0) {
+            this.saveModifiedChunks(false);
+        }
+    }
+
+    /**
+     * Plant die beim Chunk-Load übergebenen Scheduled-Ticks ein (sonst stünde z.B. frisch
+     * geladenes Wasser für immer). Erst ab READY — vorher würde der Tick feuern, bevor
+     * {@code setBlockRaw} schreiben kann (nur READY-Chunks sind editierbar), und die
+     * Ausbreitung verpuffte still. Tick-Thread (ScheduledTickQueue ist nicht threadsicher);
+     * das volatile status ist der Publikationspunkt und wird VOR dem Feld gelesen.
+     */
+    private void restorePendingScheduledTicks() {
+        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+            if (chunk.status != ChunkStatus.READY) continue;
+            List<SavedTick> pending = chunk.pendingScheduledTicks;
+            if (pending == null) continue;
+            for (SavedTick tick : pending) {
+                /* Unbekannte Typen filtert schon der Serializer — defensiver Zweitcheck. */
+                ScheduledTickTypes.ScheduledTickRestorer restorer = ScheduledTickTypes.get(tick.type());
+                if (restorer != null) restorer.restore(this, tick.x(), tick.y(), tick.z(), tick.remainingTicks());
+            }
+            chunk.pendingScheduledTicks = null;
+        }
+    }
+
+    /**
+     * Sammelt die anstehenden Scheduled-Ticks des Chunks für die Persistenz (Typ "block" —
+     * alles in der Queue dispatcht über Block.scheduledTick). Künftige Systeme mit eigenen
+     * Datenstrukturen hängen sich hier als weitere Quellen an. Nur Tick-Thread; einziger
+     * Aufrufer ist {@code WorldStorage.enqueueSave}. null, wenn nichts ansteht.
+     * Optimierung später (nur Notiz): die ScheduledTickQueue kann optional nach Chunk-Key
+     * gruppieren, statt pro Save die ganze Map zu scannen.
+     */
+    public List<SavedTick> snapshotScheduledTicks(Chunk chunk) {
+        List<SavedTick> ticks = new ArrayList<>();
+        this.scheduledTicks.forEachPending(this.gameTime, (x, y, z, remaining) -> {
+            if ((x >> ChunkSection.SHIFT) != chunk.chunkX || (z >> ChunkSection.SHIFT) != chunk.chunkZ) return;
+            ticks.add(new SavedTick(ScheduledTickTypes.BLOCK, x, y, z, remaining));
+        });
+        return ticks.isEmpty() ? null : ticks;
+    }
+
+    /**
+     * Reiht alle modifizierten Chunks zum Speichern ein (asynchron; Flush garantiert erst
+     * {@code storage.close()} in {@link #dispose()}). {@code materializeFalling} nur beim
+     * Welt-Austritt — s. {@link Chunk#materializeFallingBlocks()}.
+     */
+    public void saveModifiedChunks(boolean materializeFalling) {
+        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+            if (!chunk.modified || chunk.saveQueued) continue;
+            if (materializeFalling) chunk.materializeFallingBlocks();
+            chunk.saveQueued = true;
+            this.storage.enqueueSave(chunk);
+        }
+    }
+
+    /**
+     * Markiert den Chunk als seit dem letzten Save verändert — für Mutationen, die nicht
+     * über {@link #setBlock} laufen (z.B. Truhen-Inventar über das GUI).
+     */
+    public void markChunkModified(int x, int z) {
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk != null && chunk.status == ChunkStatus.READY) chunk.modified = true;
     }
 
     /** Simulations-Distanz in Chunks setzen (min. 2). Chunks außerhalb werden nicht getickt. */
@@ -209,6 +341,17 @@ public class World implements IInitializable, IDisposable {
         FallingBlockEntity entity = new FallingBlockEntity(blockId);
         entity.setPosition(x + 0.5, y, z + 0.5);
         this.spawnEntity(entity);
+    }
+
+    /** Spawnt gezündetes TNT als Entity (Fuse-Countdown + weißer Blink) mit MC-typischem Hüpfer. */
+    public void spawnPrimedTnt(double x, double y, double z, float power, int fuse) {
+        PrimedTntEntity entity = new PrimedTntEntity(power, fuse);
+        entity.setPosition(x, y, z);
+        entity.motionY = 0.2;
+        entity.motionX = (this.random.nextDouble() - 0.5) * 0.02;
+        entity.motionZ = (this.random.nextDouble() - 0.5) * 0.02;
+        this.spawnEntity(entity);
+        if (this.soundManager != null) this.soundManager.playFuse(x, y, z); // Zisch beim Zünden
     }
 
     /** Spawnt ein gedropptes Item mit leichtem Anfangsimpuls (kleiner „Pop"). */
@@ -406,6 +549,9 @@ public class World implements IInitializable, IDisposable {
            Mesh-Jobs dürfen beim Welt-Austritt nicht mehr laufen, wenn Arenen/Meshes sterben —
            sonst arbeiten Alt-Jobs beim direkten Wiedereintritt in die neue Welt hinein. */
         this.chunkManager.dispose();
+        /* NACH den Workern: jetzt schreibt niemand mehr auf Chunks — ausstehende Save-Jobs
+           flushen (bis 10 s) und die Region-Handles schließen. */
+        this.storage.close();
         this.entityRenderer.dispose();
         this.chunkRenderer.dispose();
         /* blockEntityRenderer + atlas NICHT disposen: Engine-Lebensdauer (GameContainer). */
@@ -517,6 +663,9 @@ public class World implements IInitializable, IDisposable {
         if (lx == 0 && lz == ChunkSection.MASK) this.markDirty(cx - 1, cz + 1, sy);
         if (lx == ChunkSection.MASK && lz == 0) this.markDirty(cx + 1, cz - 1, sy);
         if (lx == ChunkSection.MASK && lz == ChunkSection.MASK) this.markDirty(cx + 1, cz + 1, sy);
+
+        /* Persistenz: Chunk ist seit dem letzten Save verändert. */
+        chunk.modified = true;
         return true;
     }
 

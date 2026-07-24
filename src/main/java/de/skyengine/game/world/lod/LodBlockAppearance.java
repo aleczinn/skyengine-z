@@ -73,9 +73,11 @@ public final class LodBlockAppearance {
                     this.sideTintTypes[id] = quad.tintType();
                 }
             }
-            /* Fallbacks: fehlt eine Seite, die andere nehmen; Luft/Cross-Modelle tauchen
-               als Oberflächenblock ohnehin nicht auf. */
-            this.topLayers[id] = top >= 0 ? top : Math.max(side, 0);
+            /* Fallbacks: fehlt eine Seite, die andere nehmen. Blöcke ganz ohne gebackenes
+               Quad (Luft, Cross-Modelle) bleiben -1 — der LodMesher überspringt sie; die
+               frühere 0-Substitution zeichnete Void-Flächen mit dem zufällig ersten
+               Textur-Layer (orange Akazien-Ebene bei importierten Welten). */
+            this.topLayers[id] = top >= 0 ? top : side;
             this.sideLayers[id] = side >= 0 ? side : this.topLayers[id];
 
             /* Alle Seiten-Overlays sind identisch gebacken (BlockModels.overlaySides) —

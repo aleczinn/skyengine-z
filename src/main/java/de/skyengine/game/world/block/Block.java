@@ -231,6 +231,14 @@ public class Block {
         return this.config.tickRandomly();
     }
 
+    /** Die erste Verhaltens-Instanz des gegebenen Typs oder {@code null} (z.B. für die TNT-Kettenreaktion). */
+    public <T extends BlockBehavior> T getBehavior(Class<T> type) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            if (type.isInstance(behavior)) return type.cast(behavior);
+        }
+        return null;
+    }
+
     /**
      * Backt das Modell eines States aus dem datengetriebenen Blockstate-/Modell-System
      * (Phase 3). Wird beim Registry-Bake aufgerufen, nachdem die Modelle geladen sind.
