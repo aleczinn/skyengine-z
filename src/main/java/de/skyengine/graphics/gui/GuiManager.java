@@ -168,46 +168,57 @@ public final class GuiManager {
      * Widget (z.B. Textfeld) die Taste konsumiert hat.
      */
     public void handleInput() {
-        if (this.screen == null) return;
+        /* Ein gerade geöffneter Screen ist noch NICHT initialisiert (init läuft erst im render()).
+           Keine Eingaben an ihn routen, bis sein Layout steht — sonst NPE auf init-Feldern (z.B.
+           GuiSelectWorld.rows), wenn ein mousePressed mitten in der Schleife einen neuen Screen
+           öffnet und derselbe Frame noch ein mouseDragged an ihn schickt. */
+        if (!this.screenReady()) return;
         double mx = this.mouseX(), my = this.mouseY();
 
         /* Tasten: erst der GuiScreen (fokussiertes Widget, Default-ESC), dann die Schließ-Taste. */
         int inventoryKey = GameSettings.get().key(KeyBindings.OPEN_INVENTORY);
         this.input.forEachKeyPressedThisFrame(key -> {
-            if (this.screen == null) return; // GuiScreen wurde von einer vorherigen Taste geschlossen
+            if (!this.screenReady()) return; // Screen geschlossen ODER ein Handler öffnete einen neuen
             if (this.screen.keyPressed(this, key)) return;
             if (key == inventoryKey && this.screen.closesOnInventoryKey()) {
                 this.close();
             }
         });
-        if (this.screen == null) return;
+        if (!this.screenReady()) return;
 
         /* Text-Eingabe (in Frame-Reihenfolge nach den Key-Events unkritisch, s. Input). */
-        for (int i = 0; i < this.input.charCount() && this.screen != null; i++) {
+        for (int i = 0; i < this.input.charCount() && this.screenReady(); i++) {
             this.screen.charTyped(this, this.input.charAt(i));
         }
-        if (this.screen == null) return;
+        if (!this.screenReady()) return;
 
-        /* Maus: Druck/Loslassen/Ziehen für links/rechts, Scrollen. */
+        /* Maus: Druck/Loslassen/Ziehen für links/rechts, Scrollen. Nach jedem Handler prüfen: ein
+           mousePressed kann einen neuen (noch nicht layouteten) Screen geöffnet haben — dann NICHT
+           weiter routen (sonst mouseDragged auf null-Felder des neuen Screens). */
         for (int button : MOUSE_BUTTONS) {
             if (this.input.isMousePressed(button)) {
                 this.screen.mousePressed(this, mx, my, button);
             }
-            if (this.screen == null) return;
+            if (!this.screenReady()) return;
             if (this.input.isMouseReleased(button)) {
                 this.screen.mouseReleased(this, mx, my, button);
             }
-            if (this.screen == null) return;
+            if (!this.screenReady()) return;
             if (this.input.isMouseDown(button)
                     && (this.input.getDeltaMouseX() != 0 || this.input.getDeltaMouseY() != 0)) {
                 this.screen.mouseDragged(this, mx, my, button);
             }
-            if (this.screen == null) return;
+            if (!this.screenReady()) return;
         }
         double scroll = this.input.getScrollY();
         if (scroll != 0) {
             this.screen.mouseScrolled(this, mx, my, scroll);
         }
+    }
+
+    /** true, wenn ein Screen offen UND bereits initialisiert/layoutet ist (init läuft erst im render). */
+    private boolean screenReady() {
+        return this.screen != null && !Float.isNaN(this.layoutVW);
     }
 
     private static final int[] MOUSE_BUTTONS = {GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_MOUSE_BUTTON_RIGHT};
