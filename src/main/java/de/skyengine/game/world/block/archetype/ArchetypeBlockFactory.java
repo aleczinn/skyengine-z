@@ -5,6 +5,7 @@ import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.Tints;
+import de.skyengine.game.world.block.behavior.ExplosionBehavior;
 import de.skyengine.game.world.block.behavior.GravityBehavior;
 import de.skyengine.game.world.block.behavior.HorizontalFacingBehavior;
 import de.skyengine.game.world.block.behavior.SupportBehavior;
@@ -48,6 +49,12 @@ public final class ArchetypeBlockFactory {
         /* Schwerkraft (Sand, Kies) - archetypübergreifendes Flag, hängt das GravityBehavior an. */
         if (def.gravity) {
             builder.behavior(new GravityBehavior());
+        }
+
+        /* Explosion (TNT) - archetypübergreifendes Flag, hängt das ExplosionBehavior mit Sprengkraft an. */
+        if (def.explosion_power != null && def.explosion_power > 0) {
+            int fuse = def.explosion_fuse != null ? def.explosion_fuse : 80;
+            builder.behavior(new ExplosionBehavior(def.explosion_power, fuse));
         }
 
         /* Horizontale Ausrichtung (Truhe, Ofen) - FACING-Property + Platzier-Verhalten zum Spieler. */

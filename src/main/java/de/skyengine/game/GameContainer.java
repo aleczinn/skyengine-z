@@ -232,6 +232,7 @@ public class GameContainer implements IResizeable, IDisposable {
     public void enterWorld(WorldSaves.WorldSave save) {
         this.currentSave = save;
         this.world = new World(save.dirName(), save.level(), this.atlas, this.blockEntityRenderers);
+        this.world.setSoundManager(this.soundManager); // Sounds aus der Welt-Logik (z.B. TNT-Explosion)
         this.world.init();
 
         this.player = new EntityPlayer();
@@ -1140,6 +1141,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.setBlock(9, Blocks.GLASS_PANE);
         this.setBlock(10, Blocks.OAK_DOOR);
         this.setBlock(11, Blocks.ENCHANTING_TABLE);
+        this.setItem(8, "skyengine:tnt");
     }
 
     /** Legt 64 eines Blocks in einen Inventar-Slot (Block-Item über die Identifier-Registry). */
