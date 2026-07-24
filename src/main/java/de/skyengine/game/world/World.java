@@ -52,7 +52,9 @@ import de.skyengine.graphics.world.ChunkRenderer;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Random;
 import java.util.function.Consumer;
 
@@ -83,6 +85,11 @@ public class World implements IInitializable, IDisposable {
     private final List<Entity> pendingEntities = new ArrayList<>();
     /** Zwischenpuffer für Entities, die in diesem Tick ihren Chunk wechseln (Umhängen nach dem Reconcile). */
     private final List<Entity> transferBuffer = new ArrayList<>();
+
+    /** Nur Chunks mit mindestens einer Entity — spart dem Renderer die Iteration über ALLE geladenen
+        Chunks pro Frame (Entities sind selten). Gepflegt in {@link #addToChunk} (add) und
+        {@link #reconcileEntityChunks} (Pruning). Nur auf dem Render/Tick-Thread berührt (identisch). */
+    private final Set<Chunk> chunksWithEntities = new LinkedHashSet<>();
 
     /** Wiederverwendeter Snapshot-Puffer fürs BlockEntity-Ticking (keine Allokation pro Chunk/Tick). */
     private final List<BlockEntity> tickScratch = new ArrayList<>();
@@ -302,9 +309,15 @@ public class World implements IInitializable, IDisposable {
      */
     private void reconcileEntityChunks() {
         this.transferBuffer.clear();
-        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+        for (Iterator<Chunk> ci = this.chunksWithEntities.iterator(); ci.hasNext(); ) {
+            Chunk chunk = ci.next();
+            /* Entladene/ersetzte Chunks austragen: die Map hält dann nicht mehr diese Instanz.
+               Verhindert, dass die Menge entladene Chunks am Leben hält (Leak/Fehlrender). */
+            if (this.chunkManager.getChunk(chunk.chunkX, chunk.chunkZ) != chunk) {
+                ci.remove();
+                continue;
+            }
             List<Entity> list = chunk.entities();
-            if (list.isEmpty()) continue;
             for (Iterator<Entity> it = list.iterator(); it.hasNext(); ) {
                 Entity entity = it.next();
                 if (entity.isRemoved()) {
@@ -318,6 +331,7 @@ public class World implements IInitializable, IDisposable {
                     this.transferBuffer.add(entity);
                 }
             }
+            if (list.isEmpty()) ci.remove(); // keine Entities mehr → aus der Menge nehmen
         }
         for (Entity entity : this.transferBuffer) this.addToChunk(entity);
         this.transferBuffer.clear();
@@ -328,7 +342,10 @@ public class World implements IInitializable, IDisposable {
         int cx = (int) Math.floor(entity.x) >> ChunkSection.SHIFT;
         int cz = (int) Math.floor(entity.z) >> ChunkSection.SHIFT;
         Chunk chunk = this.chunkManager.getChunk(cx, cz);
-        if (chunk != null && chunk.status == ChunkStatus.READY) chunk.addEntity(entity);
+        if (chunk != null && chunk.status == ChunkStatus.READY) {
+            chunk.addEntity(entity);
+            this.chunksWithEntities.add(chunk);
+        }
     }
 
     /** Reiht eine Entity zum Spawnen ein (Übernahme im nächsten {@link #tickEntities}). */
@@ -537,7 +554,7 @@ public class World implements IInitializable, IDisposable {
         this.blockEntityRenderer.render(this.chunkManager, this.lodManager, camera, partialTick);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.BE);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.ENT);
-        this.entityRenderer.render(this.chunkManager, camera, partialTick);
+        this.entityRenderer.render(this.chunksWithEntities, camera, partialTick);
         if (beforeTranslucent != null) beforeTranslucent.run();
         FrameProfiler.cpuStop(FrameProfiler.Cpu.ENT);
         this.chunkRenderer.renderTranslucent(camera);
