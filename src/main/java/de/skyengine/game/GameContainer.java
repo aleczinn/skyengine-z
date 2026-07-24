@@ -545,13 +545,13 @@ public class GameContainer implements IResizeable, IDisposable {
             if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) this.guiManager.open(new GuiIngameMenu());
             /* Inventar-Taste (Default E) öffnet das Spielerinventar; dieselbe Taste schließt es
                wieder (closesOnInventoryKey im GuiManager-Routing). */
-            if (input.isKeyPressed(this.settings.key(KeyBindings.OPEN_INVENTORY))) {
+            if (input.isBindPressed(this.settings.key(KeyBindings.OPEN_INVENTORY))) {
                 this.guiManager.open(new GuiInventory(this.playerInventory, this.playerRenderer,
                         this.heldItemMeshes, () -> this.playerInventory.get(this.hotbarIndex)));
             }
             this.handleDebugInput(input);
             this.handleHotbarInput(input);
-            if (input.isKeyPressed(this.settings.key(KeyBindings.TOGGLE_PERSPECTIVE))) {
+            if (input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_PERSPECTIVE))) {
                 this.perspective = this.perspective.next();
             }
             double sens = this.settings.mouseSensitivity;
@@ -1192,7 +1192,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private void handleHotbarInput(Input input) {
         int before = this.hotbarIndex;
         for (int i = 0; i < 9; i++) {
-            if (input.isKeyPressed(this.settings.key(KeyBindings.hotbar(i + 1)))) {
+            if (input.isBindPressed(this.settings.key(KeyBindings.hotbar(i + 1)))) {
                 this.hotbarIndex = i;
             }
         }
@@ -1211,7 +1211,7 @@ public class GameContainer implements IResizeable, IDisposable {
 
     private void handleDebugInput(Input input) {
         /* Doppel-Sprungtaste = Fliegen umschalten (toggleFlying prüft den Modus selbst). */
-        if (input.isKeyPressed(this.settings.key(KeyBindings.JUMP))) {
+        if (input.isBindPressed(this.settings.key(KeyBindings.JUMP))) {
             long now = System.currentTimeMillis();
             if (now - this.lastSpacePressTime <= DOUBLE_TAP_MS) {
                 this.player.toggleFlying();

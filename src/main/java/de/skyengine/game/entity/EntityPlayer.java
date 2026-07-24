@@ -108,14 +108,14 @@ public class EntityPlayer extends Entity {
         /* Bewegungs-Keys aus den umbelegbaren KeyBindings (Defaults: WASD/Space/Shift/Strg). */
         GameSettings settings = GameSettings.get();
         double forward = 0, strafe = 0;
-        if (input.isKeyDown(settings.key(KeyBindings.FORWARD))) forward += 1;
-        if (input.isKeyDown(settings.key(KeyBindings.BACK))) forward -= 1;
-        if (input.isKeyDown(settings.key(KeyBindings.RIGHT))) strafe += 1;
-        if (input.isKeyDown(settings.key(KeyBindings.LEFT))) strafe -= 1;
+        if (input.isBindDown(settings.key(KeyBindings.FORWARD))) forward += 1;
+        if (input.isBindDown(settings.key(KeyBindings.BACK))) forward -= 1;
+        if (input.isBindDown(settings.key(KeyBindings.RIGHT))) strafe += 1;
+        if (input.isBindDown(settings.key(KeyBindings.LEFT))) strafe -= 1;
 
-        boolean up = input.isKeyDown(settings.key(KeyBindings.JUMP));
-        boolean shift = input.isKeyDown(settings.key(KeyBindings.SNEAK));
-        boolean sprintKey = input.isKeyDown(settings.key(KeyBindings.SPRINT));
+        boolean up = input.isBindDown(settings.key(KeyBindings.JUMP));
+        boolean shift = input.isBindDown(settings.key(KeyBindings.SNEAK));
+        boolean sprintKey = input.isBindDown(settings.key(KeyBindings.SPRINT));
 
         /* Halten- oder Umschalt-Modus (GameSettings): Toggle flippt auf der Druck-Flanke
            (pro Tick erkannt). Sneak-Flanken im Flug ignorieren — Shift ist dort "Sinken",

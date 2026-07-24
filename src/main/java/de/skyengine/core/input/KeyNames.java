@@ -9,6 +9,16 @@ import org.lwjgl.glfw.GLFW;
 public final class KeyNames {
 
     public static String name(int glfwKey) {
+        /* Maustasten (ab Input.MOUSE_OFFSET codiert): 0/1/2 = links/rechts/mitte, sonst Nummer. */
+        if (Input.isMouseBind(glfwKey)) {
+            int button = glfwKey - Input.MOUSE_OFFSET;
+            return switch (button) {
+                case GLFW.GLFW_MOUSE_BUTTON_LEFT -> "Maus links";
+                case GLFW.GLFW_MOUSE_BUTTON_RIGHT -> "Maus rechts";
+                case GLFW.GLFW_MOUSE_BUTTON_MIDDLE -> "Maus mitte";
+                default -> "Maus " + (button + 1);
+            };
+        }
         /* Druckbare Standard-Keys: A-Z, 0-9 und gängige Satzzeichen decken die US-Codes ab. */
         if (glfwKey >= GLFW.GLFW_KEY_A && glfwKey <= GLFW.GLFW_KEY_Z) {
             return String.valueOf((char) ('A' + (glfwKey - GLFW.GLFW_KEY_A)));
