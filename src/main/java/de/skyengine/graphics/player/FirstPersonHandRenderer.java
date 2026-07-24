@@ -2,8 +2,9 @@ package de.skyengine.graphics.player;
 
 import de.skyengine.core.SkyEngine;
 import de.skyengine.game.GameContainer;
+import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.PlayerAnimationState;
-import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.Item;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 
@@ -16,8 +17,10 @@ import org.lwjgl.opengl.GL11;
  * Hand mit der Kamera mit.
  *
  * <p>Transformketten VERBATIM Vanilla-{@code ItemInHandRenderer} (renderPlayerArm bzw.
- * renderArmWithItem + applyItemArm*Transform, side = rechts, equippedProgress = 0) —
- * Werte nicht „vereinfachen", jede Abweichung war in Runde 1 ein sichtbarer Fehler.
+ * renderArmWithItem + applyItemArm*Transform, side = rechts) — Werte nicht „vereinfachen", jede
+ * Abweichung war in Runde 1 ein sichtbarer Fehler. Der equippedProgress (Hand fährt bei jeder
+ * Stapel-Änderung nach unten aus dem Bild) kommt aus {@link PlayerAnimationState}; gezeichnet wird
+ * dessen gemerktes Item, damit beim Wechsel erst das alte herunter- und dann das neue hochfährt.
  */
 public final class FirstPersonHandRenderer {
 
@@ -27,7 +30,7 @@ public final class FirstPersonHandRenderer {
     private final Matrix4f pv = new Matrix4f();
     private final Matrix4f model = new Matrix4f();
 
-    public void render(PlayerRenderer playerRenderer, HeldItemMeshes items, ItemStack held,
+    public void render(PlayerRenderer playerRenderer, HeldItemMeshes items, EntityPlayer player,
                        PlayerAnimationState anim, float aspect, float partialTick, Matrix4f viewEffect) {
         if (SkyEngine.get().getWindow().getProperties().isUseInverseDepth()) {
             this.proj.setPerspective((float) Math.toRadians(HAND_FOV), aspect, 20F, 0.05F, true);
@@ -36,19 +39,29 @@ public final class FirstPersonHandRenderer {
         }
         this.proj.mul(viewEffect, this.pv);
 
+        /* Kamera-Nachlauf (Vanilla submitHandsWithItems): die ganze Hand dreht um 10 % dessen,
+           was der nachziehende Blickwinkel gegenüber dem echten hinterherhinkt — nach Bob/Hurt
+           und vor den Arm-/Item-Transforms. */
+        float lagX = PlayerAnimationState.wrapDegrees(player.pitch - anim.getXBob(partialTick)) * 0.1F;
+        float lagY = PlayerAnimationState.wrapDegrees(player.yaw - anim.getYBob(partialTick)) * 0.1F;
+        this.pv.rotateX((float) Math.toRadians(lagX)).rotateY((float) Math.toRadians(lagY));
+
         GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT); // Hand nie von Welt-Geometrie verdeckt
 
         float sp = anim.getSwingProgress(partialTick);
         float sqrtSp = (float) Math.sqrt(sp);
+        /* Vanilla: equippedProgress schiebt Arm/Item um bis zu 0.6 nach unten aus dem Bild. */
+        float equipDrop = anim.getEquippedProgress(partialTick) * -0.6F;
+        Item handItem = anim.getHandItem();
 
-        if (held == null || held.isEmpty()) {
+        if (handItem == null) {
             /* Vanilla renderPlayerArm (side=1): Arm ragt von rechts unten in den Blick. */
             float f2 = -0.3F * (float) Math.sin(sqrtSp * Math.PI);
             float f3 = 0.4F * (float) Math.sin(sqrtSp * 2 * Math.PI);
             float f4 = -0.4F * (float) Math.sin(sp * Math.PI);
             float f5 = (float) Math.sin(sp * sp * Math.PI);
             float f6 = (float) Math.sin(sqrtSp * Math.PI);
-            this.model.translation(f2 + 0.64000005F, f3 - 0.6F, f4 - 0.71999997F)
+            this.model.translation(f2 + 0.64000005F, f3 - 0.6F + equipDrop, f4 - 0.71999997F)
                     .rotateY((float) Math.toRadians(45F))
                     .rotateY((float) Math.toRadians(f6 * 70F))
                     .rotateZ((float) Math.toRadians(f5 * -20F))
@@ -79,7 +92,7 @@ public final class FirstPersonHandRenderer {
                     .rotateY((float) Math.toRadians(f3 * 90F))
                     .rotateX((float) Math.toRadians(f3 * 10F))
                     .rotateZ((float) Math.toRadians(f3 * 30F))
-                    .translate(0.56F, -0.52F, -0.72F);
+                    .translate(0.56F, -0.52F + equipDrop, -0.72F);
         } else {
             /* Vanilla renderArmWithItem: Swing-Versatz + Arm-Transform + Attack-Rotationen. */
             float f5 = (float) Math.sin(sp * sp * Math.PI);
@@ -87,14 +100,14 @@ public final class FirstPersonHandRenderer {
             float fx = -0.4F * f6;
             float fy = 0.2F * (float) Math.sin(sqrtSp * 2 * Math.PI);
             float fz = -0.2F * (float) Math.sin(sp * Math.PI);
-            this.model.translation(fx + 0.56F, fy - 0.52F, fz - 0.72F)
+            this.model.translation(fx + 0.56F, fy - 0.52F + equipDrop, fz - 0.72F)
                     .rotateY((float) Math.toRadians(45F + f5 * -20F))
                     .rotateZ((float) Math.toRadians(f6 * -20F))
                     .rotateX((float) Math.toRadians(f6 * -80F))
                     .rotateY((float) Math.toRadians(-45F));
         }
         items.bind(this.pv);
-        items.drawFirstPerson(held.getItem(), this.model);
+        items.drawFirstPerson(handItem, this.model);
         items.unbind();
     }
 }
