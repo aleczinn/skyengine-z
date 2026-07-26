@@ -465,12 +465,36 @@ public class Input {
         GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_HIDDEN);
     }
 
+    /*
+     * Zwischenablage: glfwGet/SetClipboardString ist wie fast alles in GLFW Main-Thread-only,
+     * aufgerufen wird es aber vom Render-Thread (Textfeld-Tasten). Deshalb dasselbe Deferral
+     * wie beim Cursor. Beim Lesen brauchen wir das Ergebnis synchron — der Main-Thread hängt
+     * in glfwWaitEvents() und wird von addTaskToMainThread geweckt, wartet also nie auf uns:
+     * kein Deadlock. Kommt binnen 100 ms keine Antwort, liefern wir leer statt zu blockieren.
+     */
     public String getClipboard() {
-        return GLFW.glfwGetClipboardString(this.window.getWindowID());
+        if (this.window == null) return "";
+        java.util.concurrent.CompletableFuture<String> result = new java.util.concurrent.CompletableFuture<>();
+        SkyEngine.get().addTaskToMainThread(() -> {
+            try {
+                String value = GLFW.glfwGetClipboardString(this.window.getWindowID());
+                result.complete(value != null ? value : "");
+            } catch (Exception e) {
+                result.complete("");
+            }
+        });
+        try {
+            return result.get(100, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (Exception e) {
+            this.logger.error("Zwischenablage nicht lesbar (Timeout/Fehler)");
+            return "";
+        }
     }
 
     public void setClipboard(String text) {
-        GLFW.glfwSetClipboardString(this.window.getWindowID(), text);
+        if (this.window == null) return;
+        SkyEngine.get().addTaskToMainThread(
+                () -> GLFW.glfwSetClipboardString(this.window.getWindowID(), text));
     }
 
     public double getMouseX() {
