@@ -16,6 +16,8 @@ public final class CycleButton<T> extends Button {
     private final Function<T, String> labelOf;
     private final Consumer<T> onChange;
     private int index;
+    /** Optionaler Tooltip je Wert (Pendant zu {@link #labelOf}). */
+    private Function<T, String> tooltipOf;
 
     public CycleButton(String name, float w, float h, T[] values, T current,
                        Function<T, String> labelOf, Consumer<T> onChange) {
@@ -36,6 +38,22 @@ public final class CycleButton<T> extends Button {
 
     private void updateLabel() {
         this.setLabel(this.name + ": " + this.labelOf.apply(this.values[this.index]));
+    }
+
+    /**
+     * Tooltip je Wert (Markup erlaubt) — chainbar, damit der ohnehin lange Konstruktor nicht
+     * noch einen Parameter bekommt.
+     */
+    public CycleButton<T> tooltipOf(Function<T, String> tooltipOf) {
+        this.tooltipOf = tooltipOf;
+        return this;
+    }
+
+    @Override
+    public java.util.List<de.skyengine.graphics.gui.text.RichText> tooltip() {
+        if (this.tooltipOf == null) return super.tooltip();
+        return de.skyengine.graphics.gui.text.RichText.parseLines(
+                this.tooltipOf.apply(this.values[this.index]));
     }
 
     @Override

@@ -37,6 +37,9 @@ public final class GuiTextures {
     public Texture textField;
     public Texture textFieldHighlighted;
 
+    /* Icons für quadratische Buttons (IconButton) — Motiv-Ausschnitt macht der IconButton. */
+    public Texture iconImport;
+
     /* Gekachelter Hintergrund für Titel-/Ladebildschirm (32er-Kacheln) */
     public Texture menuBackground;
     /* Optionales Vollbild-Hintergrundbild fürs Hauptmenü (object-cover); null, wenn die
@@ -69,6 +72,9 @@ public final class GuiTextures {
         this.textField = load("game/textures/gui/sprites/widget/text_field.png");
         this.textFieldHighlighted = load("game/textures/gui/sprites/widget/text_field_highlighted.png");
         this.menuBackground = load("game/textures/gui/menu_background.png");
+
+        /* Globus (40×20); der Globus-Kern liegt bei x12..27, y2..17 — Zuschnitt im IconButton. */
+        this.iconImport = load("game/textures/gui/sprites/icon/new_realm.png");
 
         /* Fehlertolerant: Bild + Logo sind optionale User-Assets. Mipmaps + trilinear,
            weil beide beim Zeichnen stark herunterskaliert werden. */
@@ -110,6 +116,7 @@ public final class GuiTextures {
         if (this.sliderHandleHighlighted != null) this.sliderHandleHighlighted.dispose();
         if (this.textField != null) this.textField.dispose();
         if (this.textFieldHighlighted != null) this.textFieldHighlighted.dispose();
+        if (this.iconImport != null) this.iconImport.dispose();
         if (this.menuBackground != null) this.menuBackground.dispose();
         if (this.menuBackgroundImage != null) this.menuBackgroundImage.dispose();
         if (this.logo != null) this.logo.dispose();

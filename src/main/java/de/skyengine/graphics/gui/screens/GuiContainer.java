@@ -7,8 +7,9 @@ import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.Slot;
-import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.gui.StackText;
+import de.skyengine.graphics.gui.Tooltip;
+import de.skyengine.graphics.gui.text.RichText;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -113,22 +114,13 @@ public abstract class GuiContainer extends GuiScreen {
         gui.font().end();
     }
 
-    /* Tooltip-Optik: MC-Original-Farben (Hintergrund 0xF0100010, Rahmen-Gradient
-       0x505000FF -> 0x5028007F) und -Geometrie (Padding 3, 1-px-Ecken-Notch, Rahmen innen). */
-    private static final float TOOLTIP_TEXT = 8;
-    private static final float TOOLTIP_PAD = 3;
-    /** Extra-Abstand nach der Titelzeile (MC-Gap). */
-    private static final float TOOLTIP_TITLE_GAP = 2;
     private static final Color4 TOOLTIP_GRAY = new Color4(0.67f, 0.67f, 0.67f, 1f);
 
-    /** Eine Tooltip-Zeile mit eigener Farbe (Titel weiß, ID grau, später Stats). */
-    protected record TooltipLine(String text, Color4 color) {}
-
     /** Zeilen des Tooltips eines Stacks — Andockpunkt für spätere Stats (Haltbarkeit etc.). */
-    protected List<TooltipLine> tooltipLines(ItemStack stack) {
+    protected List<RichText> tooltipLines(ItemStack stack) {
         return List.of(
-                new TooltipLine(stack.getDisplayName(), Colors.WHITE),
-                new TooltipLine(stack.getItem().getId().toString(), TOOLTIP_GRAY));
+                RichText.plain(stack.getDisplayName(), Colors.WHITE),
+                RichText.plain(stack.getItem().getId().toString(), TOOLTIP_GRAY));
     }
 
     /**
@@ -140,46 +132,7 @@ public abstract class GuiContainer extends GuiScreen {
         if (!this.carried.isEmpty()) return;
         Slot slot = this.slotAt(mouseX, mouseY);
         if (slot == null || slot.get().isEmpty()) return;
-        List<TooltipLine> lines = this.tooltipLines(slot.get());
-        if (lines.isEmpty()) return;
-
-        float vW = gui.vWidth(), vH = gui.vHeight();
-        float lineStep = gui.font().lineHeight(TOOLTIP_TEXT) + 1;
-        float textW = 0;
-        for (TooltipLine line : lines) {
-            textW = Math.max(textW, gui.font().getStringWidth(line.text(), TOOLTIP_TEXT));
-        }
-        float w = textW + TOOLTIP_PAD * 2;
-        float h = lines.size() * lineStep - 1 + TOOLTIP_PAD * 2
-                + (lines.size() > 1 ? TOOLTIP_TITLE_GAP : 0);
-        /* Rechts neben dem Cursor, an den Bildschirmrändern geklemmt (wie MC). */
-        float x = Math.clamp((float) mouseX + 12, 2, Math.max(2, vW - w - 2));
-        float y = Math.clamp((float) mouseY - 12, 2, Math.max(2, vH - h - 2));
-
-        SpriteRenderer sr = gui.sprites();
-        sr.begin(vW, vH);
-        /* Hintergrund mit 1-px-Ecken-Notch: Mittelteil volle Höhe + schmale Randspalten. */
-        sr.drawRect(x + 1, y, w - 2, h, 0.063f, 0f, 0.063f, 0.94f);
-        sr.drawRect(x, y + 1, 1, h - 2, 0.063f, 0f, 0.063f, 0.94f);
-        sr.drawRect(x + w - 1, y + 1, 1, h - 2, 0.063f, 0f, 0.063f, 0.94f);
-        /* Rahmen 1 px INNEN, vertikaler Violett-Gradient (Seiten als zwei Hälften angenähert). */
-        float half = (h - 4) / 2f;
-        sr.drawRect(x + 1, y + 1, w - 2, 1, 0.31f, 0f, 1f, 0.31f);
-        sr.drawRect(x + 1, y + h - 2, w - 2, 1, 0.157f, 0f, 0.5f, 0.31f);
-        sr.drawRect(x + 1, y + 2, 1, half, 0.31f, 0f, 1f, 0.31f);
-        sr.drawRect(x + 1, y + 2 + half, 1, half, 0.157f, 0f, 0.5f, 0.31f);
-        sr.drawRect(x + w - 2, y + 2, 1, half, 0.31f, 0f, 1f, 0.31f);
-        sr.drawRect(x + w - 2, y + 2 + half, 1, half, 0.157f, 0f, 0.5f, 0.31f);
-        sr.end();
-
-        gui.font().begin(vW, vH);
-        float ty = y + TOOLTIP_PAD;
-        for (int i = 0; i < lines.size(); i++) {
-            TooltipLine line = lines.get(i);
-            gui.font().drawStringWithShadow(line.text(), x + TOOLTIP_PAD, ty, TOOLTIP_TEXT, line.color());
-            ty += lineStep + (i == 0 ? TOOLTIP_TITLE_GAP : 0);
-        }
-        gui.font().end();
+        Tooltip.draw(gui, this.tooltipLines(slot.get()), mouseX, mouseY);
     }
 
     @Override

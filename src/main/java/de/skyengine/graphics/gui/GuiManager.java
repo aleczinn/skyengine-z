@@ -256,7 +256,19 @@ public final class GuiManager {
                 this.layoutVW = this.vW;
                 this.layoutVH = this.vH;
             }
-            this.screen.render(this, this.mouseX(), this.mouseY());
+            double mx = this.mouseX(), my = this.mouseY();
+            GuiScreen current = this.screen;
+            current.render(this, mx, my);
+            /* Widget-Tooltips zentral NACH dem Screen: nur hier ist garantiert, dass kein
+               Sprite-/Font-Pass mehr offen ist — und es gilt auch für Screens mit eigenem
+               render()-Override (davon gibt es mehrere).
+               Die Prüfung ist PFLICHT und keine Redundanz: ein Screen darf sich in seinem
+               eigenen render() schließen (GuiWorldLoading tut das, sobald die Welt geladen ist)
+               oder einen anderen öffnen — dann ist this.screen null bzw. der neue Screen noch
+               nicht layoutet. */
+            if (this.screen == current && this.screenReady()) {
+                Tooltip.draw(this, current.tooltipAt(mx, my), mx, my);
+            }
         }
     }
 

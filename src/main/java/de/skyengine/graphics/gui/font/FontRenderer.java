@@ -5,6 +5,8 @@ import de.skyengine.core.file.FileHandle;
 import de.skyengine.core.file.Files;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.color.Color4;
+import de.skyengine.graphics.gui.text.RichText;
+import de.skyengine.graphics.gui.text.Span;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
@@ -39,6 +41,8 @@ public final class FontRenderer {
 
     /** Font-Familie in {@code game/fonts/} — Alternative im Repo: "silkscreen". */
     private static final String FAMILY = "monocraft";
+    /** Scherung für simuliertes Kursiv, wenn kein italic-Schnitt vorliegt (MC-Look). */
+    private static final float ITALIC_SHEAR = 0.2f;
     private static final int MAX_GLYPHS = 2048;
     private static final int FLOATS_PER_VERTEX = 8; // x,y | u,v | r,g,b,a
     private static final int FLOATS_PER_GLYPH = 6 * FLOATS_PER_VERTEX;
@@ -163,6 +167,11 @@ public final class FontRenderer {
 
         float scale = size / FontAtlas.BAKE_PX;
         float baseline = y + atlas.ascent() * scale;
+        /* Kursiv ohne eigenen Font-Schnitt: Scherung um die Grundlinie (macht Minecraft genauso).
+           Liegt eine echte italic.ttf vor, bleibt der Text ungeschert. Bei allen anderen Stilen
+           ist der Faktor 0 -> die Vertices sind bitgleich zu vorher. */
+        float shear = style == FontStyle.ITALIC && this.atlases[FontStyle.ITALIC.ordinal()] == null
+                ? ITALIC_SHEAR : 0f;
         this.xpos.put(0, 0.0F);
         this.ypos.put(0, 0.0F);
 
@@ -173,18 +182,58 @@ public final class FontRenderer {
             if (x1 <= x0) continue; // unsichtbar (z.B. Leerzeichen) — Advance ist schon passiert
             float y0 = baseline + this.quad.y0() * scale;
             float y1 = baseline + this.quad.y1() * scale;
+            /* Versatz pro Ecke: oben (über der Grundlinie) nach rechts, unten nach links. */
+            float topShift = (baseline - y0) * shear;
+            float bottomShift = (baseline - y1) * shear;
 
             if (this.batchGlyphs == MAX_GLYPHS) this.flush();
             float u0 = this.quad.s0(), v0 = this.quad.t0();
             float u1 = this.quad.s1(), v1 = this.quad.t1();
-            this.vertex(x0, y0, u0, v0, r, g, b, a);
-            this.vertex(x0, y1, u0, v1, r, g, b, a);
-            this.vertex(x1, y1, u1, v1, r, g, b, a);
-            this.vertex(x1, y1, u1, v1, r, g, b, a);
-            this.vertex(x1, y0, u1, v0, r, g, b, a);
-            this.vertex(x0, y0, u0, v0, r, g, b, a);
+            this.vertex(x0 + topShift, y0, u0, v0, r, g, b, a);
+            this.vertex(x0 + bottomShift, y1, u0, v1, r, g, b, a);
+            this.vertex(x1 + bottomShift, y1, u1, v1, r, g, b, a);
+            this.vertex(x1 + bottomShift, y1, u1, v1, r, g, b, a);
+            this.vertex(x1 + topShift, y0, u1, v0, r, g, b, a);
+            this.vertex(x0 + topShift, y0, u0, v0, r, g, b, a);
             this.batchGlyphs++;
         }
+    }
+
+    /**
+     * Formatierten Text zeichnen (Segmente aus {@link RichText}). Schatten läuft als eigener
+     * Vorlauf über ALLE Segmente — sonst legt sich der Schatten des nächsten Segments über die
+     * Glyphen des vorherigen.
+     *
+     * @param base Farbe für Segmente ohne eigene Farbe
+     */
+    public void drawRich(RichText text, float x, float y, float size, Color4 base, boolean shadow) {
+        if (!this.available() || text == null || text.isEmpty()) return;
+        if (shadow) {
+            float offset = size / 8.0F;
+            float sx = x + offset;
+            for (Span span : text.spans()) {
+                Color4 c = span.color() != null ? span.color() : base;
+                this.drawString(span.text(), sx, y + offset, size, span.style(),
+                        c.red * 0.25F, c.green * 0.25F, c.blue * 0.25F, c.alpha);
+                sx += this.getStringWidth(span.text(), size, span.style());
+            }
+        }
+        float cx = x;
+        for (Span span : text.spans()) {
+            Color4 c = span.color() != null ? span.color() : base;
+            this.drawString(span.text(), cx, y, size, span.style(), c.red, c.green, c.blue, c.alpha);
+            cx += this.getStringWidth(span.text(), size, span.style());
+        }
+    }
+
+    /** Breite eines formatierten Textes (Segmentbreiten summiert — die Schrift kennt kein Kerning). */
+    public float width(RichText text, float size) {
+        if (!this.available() || text == null) return 0;
+        float width = 0;
+        for (Span span : text.spans()) {
+            width += this.getStringWidth(span.text(), size, span.style());
+        }
+        return width;
     }
 
     private void vertex(float x, float y, float u, float v, float r, float g, float b, float a) {

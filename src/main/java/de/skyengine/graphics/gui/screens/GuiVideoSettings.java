@@ -51,7 +51,9 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
         CycleButton<Integer> msaa = new CycleButton<>(I18n.tr("options.video.msaa"), CELL_W, CELL_H,
                 new Integer[]{0, 2, 4, 8, 16}, this.settings.msaaSamples,
                 v -> v == 0 ? I18n.tr("gui.off") : v + "x",
-                v -> this.settings.msaaSamples = v); // greift beim nächsten Framebuffer-Aufbau (Resize/Neustart)
+                v -> this.settings.msaaSamples = v) // greift beim nächsten Framebuffer-Aufbau (Resize/Neustart)
+                .tooltipOf(v -> I18n.tr("options.video.msaa_hint")
+                        + "\n" + I18n.tr(v == 0 ? "options.video.msaa_off" : "options.video.msaa_on", v));
 
         CycleButton<Integer> aniso = new CycleButton<>(I18n.tr("options.video.anisotropy"), CELL_W, CELL_H,
                 new Integer[]{1, 2, 4, 8, 16}, this.settings.anisotropicFiltering,
@@ -70,7 +72,7 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
                 v -> {
                     this.settings.leavesQuality = v;
                     this.remesh(game);
-                });
+                }).tooltipOf(v -> I18n.tr("options.video.leaves_hint_" + v.name().toLowerCase()));
 
         CycleButton<Boolean> fog = CycleButton.onOff(I18n.tr("options.video.fog"), CELL_W, CELL_H, this.settings.fog,
                 v -> this.settings.fog = v);

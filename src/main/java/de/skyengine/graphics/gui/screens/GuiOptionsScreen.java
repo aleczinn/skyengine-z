@@ -146,6 +146,16 @@ public abstract class GuiOptionsScreen extends GuiScreen {
     }
 
     @Override
+    public java.util.List<de.skyengine.graphics.gui.text.RichText> tooltipAt(double mouseX, double mouseY) {
+        /* Der Scroll-Inhalt liegt außerhalb von leaves — und nur im sichtbaren Bereich. */
+        if (this.inViewport(mouseY)) {
+            var tooltip = tooltipIn(this.rowComponents, mouseX, mouseY);
+            if (tooltip != null) return tooltip;
+        }
+        return super.tooltipAt(mouseX, mouseY);
+    }
+
+    @Override
     public boolean mousePressed(GuiManager gui, double mouseX, double mouseY, int button) {
         double barOffset = this.scrollBar.mousePressed(mouseX, mouseY, this.rows.height(), this.scrollOffset);
         if (barOffset >= 0) {
