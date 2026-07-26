@@ -1,10 +1,6 @@
 package de.skyengine.game.world.generator.feature.trees;
 
-import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
-import de.skyengine.game.world.block.Direction;
-import de.skyengine.game.world.block.state.BlockState;
-import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.feature.FeaturePlacer;
@@ -33,7 +29,7 @@ public final class TreeShapes {
     public static final TreeShape SPRUCE = (placer, x, y, z, rng) -> {
         int height = 7 + rng.nextInt(4);
         if (!fits(y, height + 2)) return;
-        int log = verticalLog(Blocks.SPRUCE_LOG);
+        int log = Blocks.SPRUCE_LOG;
         for (int i = 0; i < height; i++) placer.set(x, y + i, z, log);
 
         /* Blattringe von unten (radius 2) nach oben (radius 1/0), alternierend */
@@ -50,7 +46,7 @@ public final class TreeShapes {
     public static final TreeShape ACACIA = (placer, x, y, z, rng) -> {
         int height = 4 + rng.nextInt(3);
         if (!fits(y, height + 2)) return;
-        int log = verticalLog(Blocks.ACACIA_LOG);
+        int log = Blocks.ACACIA_LOG;
         for (int i = 0; i < height; i++) placer.set(x, y + i, z, log);
         disk(placer, x, y + height, z, 3, Blocks.ACACIA_LEAVES, true);
         disk(placer, x, y + height + 1, z, 2, Blocks.ACACIA_LEAVES, true);
@@ -60,7 +56,7 @@ public final class TreeShapes {
     public static final TreeShape JUNGLE = (placer, x, y, z, rng) -> {
         int height = 8 + rng.nextInt(5);
         if (!fits(y, height + 3)) return;
-        int log = verticalLog(Blocks.JUNGLE_LOG);
+        int log = Blocks.JUNGLE_LOG;
         for (int i = 0; i < height; i++) placer.set(x, y + i, z, log);
         disk(placer, x, y + height - 1, z, 2, Blocks.JUNGLE_LEAVES, true);
         disk(placer, x, y + height, z, 2, Blocks.JUNGLE_LEAVES, true);
@@ -71,7 +67,7 @@ public final class TreeShapes {
     public static final TreeShape REDWOOD = (placer, x, y, z, rng) -> {
         int height = 25 + rng.nextInt(16);
         if (!fits(y, height + 3)) return;
-        int log = verticalLog(Blocks.SPRUCE_LOG);
+        int log = Blocks.SPRUCE_LOG;
         for (int i = 0; i < height; i++) {
             placer.set(x, y + i, z, log);
             placer.set(x + 1, y + i, z, log);
@@ -103,7 +99,7 @@ public final class TreeShapes {
         int dirX = rng.nextInt(3) - 1;
         int dirZ = (dirX == 0) ? (rng.nextBoolean() ? 1 : -1) : 0;
         int lean = 1 + rng.nextInt(2);
-        int log = verticalLog(Blocks.JUNGLE_LOG);
+        int log = Blocks.JUNGLE_LOG;
         int tx = x, tz = z;
         for (int i = 0; i < height; i++) {
             if (i > height / 2 && (tx - x) * dirX + (tz - z) * dirZ < lean) {
@@ -145,8 +141,7 @@ public final class TreeShapes {
     private static void classicTree(FeaturePlacer placer, int x, int y, int z, Random rng,
                                     int log, int leaves, int height) {
         if (!fits(y, height + 2)) return;
-        int vertical = verticalLog(log);
-        for (int i = 0; i < height; i++) placer.set(x, y + i, z, vertical);
+        for (int i = 0; i < height; i++) placer.set(x, y + i, z, log);
 
         int top = y + height;
         disk(placer, x, top - 2, z, 2, leaves, true);
@@ -180,17 +175,6 @@ public final class TreeShapes {
                 placer.setIfAir(cx + dx, y, cz + dz, leaves);
             }
         }
-    }
-
-    /**
-     * AXIS=Y-State eines Log-Blocks: Der Pillar-Default-State ist AXIS=X (Enum-Reihenfolge),
-     * `Blocks.*_LOG` wuerde die Staemme also liegend platzieren. Cube-Logs ohne AXIS-Property
-     * (z.B. oak_log) bleiben unveraendert.
-     */
-    private static int verticalLog(int stateId) {
-        BlockState state = BlockRegistry.getState(stateId);
-        if (!state.getValues().containsKey(Properties.AXIS)) return stateId;
-        return state.with(Properties.AXIS, Direction.Axis.Y).getId();
     }
 
     /** true, wenn Stamm + Krone unter die Weltdecke passen. */

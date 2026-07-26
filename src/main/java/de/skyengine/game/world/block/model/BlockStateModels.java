@@ -101,7 +101,7 @@ public final class BlockStateModels {
             int y = root.has("inventory_y") ? root.get("inventory_y").getAsInt() : 0;
             return ModelLoader.bake(root.get("inventory_model").getAsString(), x, y);
         }
-        return bake(block, block.getIconState());
+        return bake(block, block.getDefaultState());
     }
 
     private static ModelLoader.Baked bakeInternal(Block block, BlockState state) {

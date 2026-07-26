@@ -75,7 +75,21 @@ public class Block {
             this.states.add(state);
             this.stateLookup.put(state.getValues(), state);
         }
-        this.defaultState = this.states.get(0);
+
+        /* Default ist State 0 (= erster Wert jeder Property), sofern der Archetyp nichts anderes
+           deklariert. Erst hier auswerten: with() braucht das fertig gefüllte stateLookup. */
+        BlockState state = this.states.get(0);
+        for (Map.Entry<Property<?>, Object> e : this.config.defaultValues().entrySet()) {
+            if (state.getValues().containsKey(e.getKey())) {
+                state = state.with(castProperty(e.getKey()), e.getValue());
+            }
+        }
+        this.defaultState = state;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Property<Object> castProperty(Property<?> property) {
+        return (Property<Object>) property;
     }
 
     public BlockState getState(Map<Property<?>, Object> values) {
@@ -347,19 +361,6 @@ public class Block {
 
     public BlockState getDefaultState() {
         return defaultState;
-    }
-
-    /**
-     * State für Icon/Inventar/Hand/Drop-Darstellung: wie der Default-State, aber Pillar/Log-Blöcke
-     * (mit {@link Properties#AXIS}) stehen aufrecht (AXIS=Y). Der Default-State ist sonst AXIS=X
-     * (Enum-Reihenfolge X,Y,Z -> erster State), sodass Stämme liegend gerendert würden. Gleiche
-     * Korrektur wie im Weltgenerator (TreeShapes.verticalLog); Blöcke ohne AXIS bleiben unverändert.
-     */
-    public BlockState getIconState() {
-        if (this.defaultState.getValues().containsKey(Properties.AXIS)) {
-            return this.defaultState.with(Properties.AXIS, Direction.Axis.Y);
-        }
-        return this.defaultState;
     }
 
     @Override
