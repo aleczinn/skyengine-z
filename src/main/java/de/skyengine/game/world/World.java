@@ -679,15 +679,15 @@ public class World implements IInitializable, IDisposable {
 
 
         /* An Chunk-Grenzen muss der Nachbar mit-remeshen, sonst bleiben dort falsche Faces */
-        if (lx == 0) this.markDirty(cx - 1, cz, sy);
-        if (lx == ChunkSection.MASK) this.markDirty(cx + 1, cz, sy);
-        if (lz == 0) this.markDirty(cx, cz - 1, sy);
-        if (lz == ChunkSection.MASK) this.markDirty(cx, cz + 1, sy);
+        if (lx == 0) this.markDirtyColumn(cx - 1, cz, sy, y);
+        if (lx == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz, sy, y);
+        if (lz == 0) this.markDirtyColumn(cx, cz - 1, sy, y);
+        if (lz == ChunkSection.MASK) this.markDirtyColumn(cx, cz + 1, sy, y);
         /* Chunk-ECKEN zusätzlich diagonal: dessen Fluid-Eckhöhen sampeln diese Zelle. */
-        if (lx == 0 && lz == 0) this.markDirty(cx - 1, cz - 1, sy);
-        if (lx == 0 && lz == ChunkSection.MASK) this.markDirty(cx - 1, cz + 1, sy);
-        if (lx == ChunkSection.MASK && lz == 0) this.markDirty(cx + 1, cz - 1, sy);
-        if (lx == ChunkSection.MASK && lz == ChunkSection.MASK) this.markDirty(cx + 1, cz + 1, sy);
+        if (lx == 0 && lz == 0) this.markDirtyColumn(cx - 1, cz - 1, sy, y);
+        if (lx == 0 && lz == ChunkSection.MASK) this.markDirtyColumn(cx - 1, cz + 1, sy, y);
+        if (lx == ChunkSection.MASK && lz == 0) this.markDirtyColumn(cx + 1, cz - 1, sy, y);
+        if (lx == ChunkSection.MASK && lz == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz + 1, sy, y);
 
         /* Persistenz: Chunk ist seit dem letzten Save verändert. */
         chunk.modified = true;
@@ -722,6 +722,23 @@ public class World implements IInitializable, IDisposable {
                Kaskade möglich: jeder Kaskadenschritt entfernt einen Block endgültig. */
             boolean removed = updated.getId() == Blocks.AIR;
             this.setBlock(x, y, z, updated.getId(), removed);
+        }
+    }
+
+    /**
+     * Wie {@link #markDirty}, zusätzlich die vertikal angrenzende Section des Nachbar-Chunks:
+     * das AO-Eck-Sample des Meshers greift ±1 auf ALLEN DREI Achsen. Liegt der geänderte Block
+     * an einer Chunk-Randsäule UND an einer Section-Grenze in y, hängt also auch das AO in der
+     * Section darüber/darunter des Nachbarn an ihm — ohne diese Markierung bliebe dort dauerhaft
+     * ein falscher AO-Wert stehen.
+     */
+    private void markDirtyColumn(int cx, int cz, int sectionY, int y) {
+        this.markDirty(cx, cz, sectionY);
+        if ((y & ChunkSection.MASK) == 0 && sectionY > 0) {
+            this.markDirty(cx, cz, sectionY - 1);
+        }
+        if ((y & ChunkSection.MASK) == ChunkSection.MASK && sectionY < Chunk.SECTIONS - 1) {
+            this.markDirty(cx, cz, sectionY + 1);
         }
     }
 
