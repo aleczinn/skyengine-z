@@ -33,20 +33,41 @@ auf Würfeln), muss prüfen, ob der Greedy-Check sie korrekt ablehnt oder korrek
 `uAlongT1[face]` entscheidet, ob u mit Breite oder Höhe des gemergten Quads skaliert
 (erhält Spiegelung/Rotation des Mappings über die Periodizität).
 
-## AO — die drei nicht offensichtlichen Details
+## AO — die nicht offensichtlichen Details
 
-1. **Minecraft-Schema** (`computeAo`): pro Ecke 2 Kanten-Nachbarn + Eck-Nachbar im Layer VOR der
-   Face; 4 Stufen `0.4 + level*0.2`; beide Kanten opak → dunkelste Stufe, Ecke egal.
-2. **Anisotropie-Flip** (`EMIT_FLIPPED`): Ist `ao[1]+ao[3] > ao[0]+ao[2]`, wird die Emissions-
+1. **Minecraft-Schema** (`computeAo`): pro Ecke 2 Kanten-Nachbarn + Eck-Nachbar; 4 Stufen
+   `0.4 + level*0.2`; beide Kanten opak → dunkelste Stufe, Ecke egal.
+2. **Einheits-Face + Bilinear (Teilblöcke).** Die 4 AO-Werte werden immer für das volle
+   1×1-Quadrat berechnet und danach **bilinear** auf die echten Quad-Ecken interpoliert. Ohne das
+   bekäme ein Viertel-Face (oberes Treppen-Element) viermal denselben Wert und eine Slab-Seite den
+   Verlauf der vollen Blockhöhe gestaucht. **Die Interpolation muss in Multiplikationsform
+   `a*(1-u) + b*u` stehen, nicht als `lerp` (`a + (b-a)*t`)** — nur so ist das Ergebnis bei
+   u,v ∈ {0,1} bit-exakt der Eckwert, und genau darauf beruht der `==`-Uniformitätsvergleich des
+   Greedy-Passes. Ein ULP Abweichung schickt flächig alle Zellen in die Einzel-Emission: der
+   Vertexcount explodiert, sichtbar ist nichts.
+3. **Sample-Ebene hängt an „bündig"**, nicht am cullFace: liegt die Quad-Ebene auf der Blockgrenze
+   (Toleranz `FLUSH_EPS`), wird der Layer VOR der Face gesampelt, sonst die Schicht des Blocks
+   SELBST. Letzteres erzeugt das dunkle Band am hinteren Rand einer Treppenstufe und die
+   abgedunkelte Slab-Oberseite — beides wie in Minecraft.
+4. **Anisotropie-Flip** (`EMIT_FLIPPED`): Ist `ao[1]+ao[3] > ao[0]+ao[2]`, wird die Emissions-
    Reihenfolge rotiert, damit die Triangulierungs-Diagonale durch das hellere Eckpaar läuft —
    sonst kippt der Interpolations-Gradient sichtbar. Der Index-Buffer trianguliert IMMER
    0,1,2/2,3,0 über die emittierte Reihenfolge; geflippt wird die Reihenfolge, nicht der Index.
-3. **Shader-Clamp gegen Funkel-Striche:** Kantenparallel gesehene Faces rastern als degenerierte
+5. **Shader-Clamp gegen Funkel-Striche:** Kantenparallel gesehene Faces rastern als degenerierte
    Sliver-Dreiecke, deren Interpolation die AO-Farben ÜBER 1.0 extrapoliert → helle Striche auf
    Augenhöhe. Fix ist `clamp(v_color, 0.0, 1.0)` im Fragment-Shader des ChunkRenderers.
    **Nicht entfernen** — der Bug ist gelöst, war aber teuer zu finden.
 
-AO nur für Quads mit gesetztem `cullFace`; NO_CULL-Quads (Cross, Fluids) bleiben voll hell.
+AO bekommt jedes Quad mit achsenparalleler Richtung — maßgeblich ist `BakedQuad.face()`, **nicht**
+`cullFace()`. `face` ist die geometrische Normalenrichtung und auch dann gesetzt, wenn das Quad
+kein cullFace hat (Slab-Oberseite, Treppen-Trittfläche liegen bei y=0.5 im Blockinneren). Vergeben
+wird sie in `BlockModels.box` aus dem tex/cull-Slot-Index — der ist nach `BoxElement.rotateY/
+rotateX/mirrorY` weiterhin die echte Richtung. `NO_DIRECTION` (= −1) und damit AO-frei bleiben
+Cross-Pflanzen und die nicht-planare Fluid-Geometrie. **`cullFace()` bleibt zuständig für Culling,
+`buildGreedyFaces` und die Tint-Maske** — dort nicht auf `face()` umstellen: der `face < 0`-Check
+in `buildGreedyFaces` ist der Filter „jedes Face eines greedy-fähigen Blocks braucht ein cullface",
+sonst entstehen Löcher.
+
 Das AO-Setting wird 1× pro mesh()-Aufruf gelesen (konsistent pro Section).
 
 ## Vertex-Format (20 Bytes — Grenzen kennen!)

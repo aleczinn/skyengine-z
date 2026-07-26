@@ -67,7 +67,8 @@ public final class BoxElement {
     private static BakedQuad flipU(BakedQuad quad) {
         float[] v = quad.vertices().clone();
         for (int i = 3; i < v.length; i += 5) v[i] = 1.0F - v[i];
-        return new BakedQuad(v, quad.textureLayer(), quad.cullFace(), quad.brightness());
+        return new BakedQuad(v, quad.textureLayer(), quad.cullFace(), quad.face(), quad.brightness(),
+                BakedQuad.WHITE, BakedQuad.TINT_NONE);
     }
 
     /** 90°-Schritte im Uhrzeigersinn um die Y-Achse (von oben gesehen), N->E->S->W. */

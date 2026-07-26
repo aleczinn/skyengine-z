@@ -279,7 +279,8 @@ public class Block {
             BakedQuad q = quads[i];
             boolean hit = mask == -1 || (q.cullFace() >= 0 && (mask & 1 << q.cullFace()) != 0);
             /* Vertex-Array wird geteilt (nie mutiert) — nur Tint-Wert und -Typ ändern sich. */
-            out[i] = hit ? new BakedQuad(q.vertices(), q.textureLayer(), q.cullFace(), q.brightness(), tint, tintType) : q;
+            out[i] = hit ? new BakedQuad(q.vertices(), q.textureLayer(), q.cullFace(), q.face(),
+                    q.brightness(), tint, tintType) : q;
         }
         return out;
     }

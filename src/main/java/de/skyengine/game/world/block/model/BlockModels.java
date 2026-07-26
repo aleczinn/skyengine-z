@@ -114,37 +114,37 @@ public final class BlockModels {
         // top (y+):    u=x, v=z
         if (tex[0] != BakedQuad.NO_FACE) {
             float[] t = uvOr(uv, 0, fx0,fz0,  fx0,fz1,  fx1,fz1,  fx1,fz0);
-            tmp[n++] = quad(tex[0], cull[0], FACE_BRIGHTNESS[0],
+            tmp[n++] = quad(tex[0], cull[0], 0, FACE_BRIGHTNESS[0],
                     fx0,fy1,fz0, t[0],t[1],  fx0,fy1,fz1, t[2],t[3],  fx1,fy1,fz1, t[4],t[5],  fx1,fy1,fz0, t[6],t[7]);
         }
         // bottom (y-): u=x, v=z
         if (tex[1] != BakedQuad.NO_FACE) {
             float[] t = uvOr(uv, 1, fx0,fz0,  fx1,fz0,  fx1,fz1,  fx0,fz1);
-            tmp[n++] = quad(tex[1], cull[1], FACE_BRIGHTNESS[1],
+            tmp[n++] = quad(tex[1], cull[1], 1, FACE_BRIGHTNESS[1],
                     fx0,fy0,fz0, t[0],t[1],  fx1,fy0,fz0, t[2],t[3],  fx1,fy0,fz1, t[4],t[5],  fx0,fy0,fz1, t[6],t[7]);
         }
         // north (z-):  u=1-x, v=1-y
         if (tex[2] != BakedQuad.NO_FACE) {
             float[] t = uvOr(uv, 2, 1-fx1,1-fy0,  1-fx0,1-fy0,  1-fx0,1-fy1,  1-fx1,1-fy1);
-            tmp[n++] = quad(tex[2], cull[2], FACE_BRIGHTNESS[2],
+            tmp[n++] = quad(tex[2], cull[2], 2, FACE_BRIGHTNESS[2],
                     fx1,fy0,fz0, t[0],t[1],  fx0,fy0,fz0, t[2],t[3],  fx0,fy1,fz0, t[4],t[5],  fx1,fy1,fz0, t[6],t[7]);
         }
         // south (z+):  u=x, v=1-y
         if (tex[3] != BakedQuad.NO_FACE) {
             float[] t = uvOr(uv, 3, fx0,1-fy0,  fx1,1-fy0,  fx1,1-fy1,  fx0,1-fy1);
-            tmp[n++] = quad(tex[3], cull[3], FACE_BRIGHTNESS[3],
+            tmp[n++] = quad(tex[3], cull[3], 3, FACE_BRIGHTNESS[3],
                     fx0,fy0,fz1, t[0],t[1],  fx1,fy0,fz1, t[2],t[3],  fx1,fy1,fz1, t[4],t[5],  fx0,fy1,fz1, t[6],t[7]);
         }
         // west (x-):   u=z, v=1-y
         if (tex[4] != BakedQuad.NO_FACE) {
             float[] t = uvOr(uv, 4, fz0,1-fy0,  fz1,1-fy0,  fz1,1-fy1,  fz0,1-fy1);
-            tmp[n++] = quad(tex[4], cull[4], FACE_BRIGHTNESS[4],
+            tmp[n++] = quad(tex[4], cull[4], 4, FACE_BRIGHTNESS[4],
                     fx0,fy0,fz0, t[0],t[1],  fx0,fy0,fz1, t[2],t[3],  fx0,fy1,fz1, t[4],t[5],  fx0,fy1,fz0, t[6],t[7]);
         }
         // east (x+):   u=1-z, v=1-y
         if (tex[5] != BakedQuad.NO_FACE) {
             float[] t = uvOr(uv, 5, 1-fz1,1-fy0,  1-fz0,1-fy0,  1-fz0,1-fy1,  1-fz1,1-fy1);
-            tmp[n++] = quad(tex[5], cull[5], FACE_BRIGHTNESS[5],
+            tmp[n++] = quad(tex[5], cull[5], 5, FACE_BRIGHTNESS[5],
                     fx1,fy0,fz1, t[0],t[1],  fx1,fy0,fz0, t[2],t[3],  fx1,fy1,fz0, t[4],t[5],  fx1,fy1,fz1, t[6],t[7]);
         }
 
@@ -162,8 +162,12 @@ public final class BlockModels {
         return new float[]{a0, a1, b0, b1, c0, c1, d0, d1};
     }
 
-    /** Quad aus 4 Eckpunkten (CCW von außen): A,B,C,D -> Dreiecke (A,B,C),(C,D,A). */
-    private static BakedQuad quad(int textureLayer, int cullFace, float brightness,
+    /**
+     * Quad aus 4 Eckpunkten (CCW von außen): A,B,C,D -> Dreiecke (A,B,C),(C,D,A).
+     *
+     * @param face geometrische Normalenrichtung (auch wenn cullFace == NO_CULL), s. {@link BakedQuad}
+     */
+    private static BakedQuad quad(int textureLayer, int cullFace, int face, float brightness,
                                   float ax, float ay, float az, float au, float av,
                                   float bx, float by, float bz, float bu, float bv,
                                   float cx, float cy, float cz, float cu, float cv,
@@ -172,7 +176,7 @@ public final class BlockModels {
                 ax,ay,az, au,av,  bx,by,bz, bu,bv,  cx,cy,cz, cu,cv,
                 cx,cy,cz, cu,cv,  dx,dy,dz, du,dv,  ax,ay,az, au,av
         };
-        return new BakedQuad(v, textureLayer, cullFace, brightness);
+        return new BakedQuad(v, textureLayer, cullFace, face, brightness, BakedQuad.WHITE, BakedQuad.TINT_NONE);
     }
 
     /** Hängt mehrere Quad-Arrays aneinander. */

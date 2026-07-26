@@ -80,6 +80,12 @@ public class ChunkMesher {
 
     /* Wiederverwendeter AO-Puffer (4 Eckwerte des aktuellen Quads) */
     private final float[] aoCorners = new float[4];
+    /* AO an den 4 Ecken der EINHEITS-Face, Index = v << 1 | u (u/v = Tangenten-Vorzeichen 0/1).
+       Wird bilinear auf die echten Quad-Ecken interpoliert (Teilblöcke), s. computeAo. */
+    private final float[] aoUnit = new float[4];
+
+    /** Toleranz für „Quad-Ebene liegt bündig auf der Blockgrenze" (wie Minecraft). */
+    private static final float FLUSH_EPS = 1.0E-4F;
 
     /* Ambient-Occlusion-Setting, einmal pro mesh()-Aufruf gelesen (konsistent pro Section) */
     private boolean ambientOcclusion = true;
@@ -630,11 +636,12 @@ public class ChunkMesher {
         float g = brightness * ((tint >> 8) & 0xFF) / 255F;
         float b = brightness * (tint & 0xFF) / 255F;
 
-        /* AO nur für Quads, die bündig an einem Nachbarn liegen (cullFace gesetzt) und wenn
-           Ambient Occlusion an ist. NO_CULL-Quads (Cross, Fluids) bleiben unverändert hell. */
+        /* AO für jedes Quad mit achsenparalleler Richtung — auch für Innenflächen von Teilblöcken
+           (Slab-Oberseite, Treppen-Trittfläche), die kein cullFace haben. Quads ohne Richtung
+           (Cross-Pflanzen, nicht-planare Fluid-Geometrie) bleiben unverändert hell. */
         int[] emitOrder = EMIT_NORMAL;
         float[] ao = null;
-        if (this.ambientOcclusion && quad.cullFace() != BakedQuad.NO_CULL) {
+        if (this.ambientOcclusion && quad.face() >= 0) {
             ao = this.aoCorners;
             this.computeAo(quad, x, worldY, z, ao);
             /* Anisotropie-Fix: Diagonale durch das hellere Eckpaar legen, sonst
@@ -679,43 +686,71 @@ public class ChunkMesher {
     }
 
     /**
-     * Ambient Occlusion nach Minecraft-Art: pro Quad-Ecke die zwei Kanten-Nachbarn und der
-     * Eck-Nachbar in der Ebene VOR der Face (also im Nachbar-Layer). 4 Stufen, Ecke voll
-     * eingeschlossen (beide Kanten opak) = dunkelste Stufe.
+     * Ambient Occlusion nach Minecraft-Art ({@code ModelBlockRenderer.AmbientOcclusionFace}):
+     * zuerst die 4 Ecken der EINHEITS-Face (volles 1x1-Quadrat) aus je zwei Kanten-Nachbarn und
+     * dem Eck-Nachbarn, 4 Stufen, Ecke voll eingeschlossen (beide Kanten opak) = dunkelste Stufe.
+     * Diese 4 Werte werden anschließend BILINEAR auf die tatsächlichen Quad-Ecken interpoliert —
+     * nur so bekommen Teilblöcke (Treppenstufe, Slab-Seite) den richtigen Ausschnitt des Verlaufs
+     * statt eines auf die Quad-Größe gestauchten oder vierfach identischen Wertes.
      *
-     * @param out die 4 AO-Werte in der Reihenfolge der eindeutigen Quad-Ecken A,B,C,D
+     * <p>Die Sample-Ebene hängt davon ab, ob das Quad bündig auf der Blockgrenze liegt:
+     * bündig (normales Würfel-Face) -> Nachbar-Layer VOR der Face; nicht bündig (Slab-Oberseite
+     * bei y=0.5, Treppen-Trittfläche) -> die Schicht des Blocks SELBST. Genau das erzeugt in
+     * Minecraft das dunkle Band am hinteren Rand einer Treppenstufe.
+     *
+     * @param quad Quad mit achsenparalleler Richtung ({@code quad.face() >= 0})
+     * @param out  die 4 AO-Werte in der Reihenfolge der eindeutigen Quad-Ecken A,B,C,D
      */
     private void computeAo(BakedQuad quad, int x, int y, int z, float[] out) {
-        int face = quad.cullFace();
-        int ox = FACE_OFFSET[face][0], oy = FACE_OFFSET[face][1], oz = FACE_OFFSET[face][2];
-
-        /* Tangentenachsen der Face-Ebene: 0=x, 1=y, 2=z */
-        int t1, t2;
-        if (oy != 0) { t1 = 0; t2 = 2; }        // top/bottom -> x,z
-        else if (oz != 0) { t1 = 0; t2 = 1; }   // north/south -> x,y
-        else { t1 = 1; t2 = 2; }                // west/east -> y,z
-
+        int face = quad.face();
+        int axisN = AXIS_N[face], t1 = AXIS_T1[face], t2 = AXIS_T2[face];
         float[] verts = quad.vertices();
+
+        /* Bündig? Die Quad-Ebene ist planar, ein Vertex reicht für die Lage entlang der Normalen. */
+        float plane = FACE_OFFSET[face][axisN] > 0 ? 1F : 0F;
+        boolean flush = Math.abs(verts[UNIQUE_VERTS[0] * 5 + axisN] - plane) < FLUSH_EPS;
+
+        /* Basiszelle der 3x3-Nachbarschaft: bündig eine Zelle in Face-Richtung, sonst der Block selbst. */
+        int bx = x, by = y, bz = z;
+        if (flush) {
+            bx += FACE_OFFSET[face][0];
+            by += FACE_OFFSET[face][1];
+            bz += FACE_OFFSET[face][2];
+        }
+
+        /* AO an den 4 Ecken der Einheits-Face; Offsets ausschließlich in den Tangentenachsen. */
+        for (int cv = 0; cv < 2; cv++) {
+            int t = cv == 0 ? -1 : 1;
+            for (int cu = 0; cu < 2; cu++) {
+                int s = cu == 0 ? -1 : 1;
+
+                int s1x = t1 == 0 ? s : 0, s1y = t1 == 1 ? s : 0, s1z = t1 == 2 ? s : 0;
+                int s2x = t2 == 0 ? t : 0, s2y = t2 == 1 ? t : 0, s2z = t2 == 2 ? t : 0;
+
+                boolean side1 = this.occludes(bx + s1x, by + s1y, bz + s1z);
+                boolean side2 = this.occludes(bx + s2x, by + s2y, bz + s2z);
+
+                int level;
+                if (side1 && side2) {
+                    level = 0; // Ecke komplett eingeschlossen, Eck-Block egal
+                } else {
+                    boolean corner = this.occludes(bx + s1x + s2x, by + s1y + s2y, bz + s1z + s2z);
+                    level = 3 - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0);
+                }
+                this.aoUnit[cv << 1 | cu] = 0.4F + level * 0.2F;
+            }
+        }
+
+        /* Bilinear auf die echten Quad-Ecken. Bewusst in Multiplikationsform (nicht lerp()):
+           bei u/v aus {0,1} ist das Ergebnis bit-exakt der Eckwert, was der Uniformitäts-
+           Vergleich des Greedy-Passes (== auf den 4 Werten) zwingend braucht. */
         for (int c = 0; c < 4; c++) {
             int i = UNIQUE_VERTS[c] * 5;
-            /* Vorzeichen der Ecke entlang beider Tangenten (Koordinate 0 -> -1, Koordinate 1 -> +1) */
-            int s = verts[i + t1] >= 0.5F ? 1 : -1;
-            int t = verts[i + t2] >= 0.5F ? 1 : -1;
-
-            int s1x = ox + (t1 == 0 ? s : 0), s1y = oy + (t1 == 1 ? s : 0), s1z = oz + (t1 == 2 ? s : 0);
-            int s2x = ox + (t2 == 0 ? t : 0), s2y = oy + (t2 == 1 ? t : 0), s2z = oz + (t2 == 2 ? t : 0);
-
-            boolean side1 = this.occludes(x + s1x, y + s1y, z + s1z);
-            boolean side2 = this.occludes(x + s2x, y + s2y, z + s2z);
-
-            int level;
-            if (side1 && side2) {
-                level = 0; // Ecke komplett eingeschlossen, Eck-Block egal
-            } else {
-                boolean corner = this.occludes(x + s1x + s2x - ox, y + s1y + s2y - oy, z + s1z + s2z - oz);
-                level = 3 - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0);
-            }
-            out[c] = 0.4F + level * 0.2F;
+            float u = Math.clamp(verts[i + t1], 0F, 1F);
+            float v = Math.clamp(verts[i + t2], 0F, 1F);
+            float a = this.aoUnit[0] * (1F - u) + this.aoUnit[1] * u;
+            float b = this.aoUnit[2] * (1F - u) + this.aoUnit[3] * u;
+            out[c] = a * (1F - v) + b * v;
         }
     }
 
