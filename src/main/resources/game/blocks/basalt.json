@@ -10,7 +10,7 @@
   },
   "variants": {
     "axis=y": { "model": "block/basalt" },
-    "axis=x": { "model": "block/basalt", "x": 90, "y": 90 },
-    "axis=z": { "model": "block/basalt", "x": 90 }
+    "axis=x": { "model": "block/basalt_horizontal", "x": 90, "y": 90 },
+    "axis=z": { "model": "block/basalt_horizontal", "x": 90 }
   }
 }

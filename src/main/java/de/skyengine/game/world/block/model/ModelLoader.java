@@ -36,7 +36,8 @@ public final class ModelLoader {
        abschalten. Kleinschreibung ohne Trennzeichen ist der MC-Feldname (wie cullface). */
     public static final class RawModel { String parent; Map<String, String> textures; List<RawElement> elements; Boolean ambientocclusion; }
     public static final class RawElement { int[] from; int[] to; Map<String, RawFace> faces; boolean mirror; }
-    public static final class RawFace { String texture; String cullface; int[] uv; }
+    /** rotation: MC-Feld, dreht die Textur IN der Face um 0/90/180/270 Grad (Wrapper = optional). */
+    public static final class RawFace { String texture; String cullface; int[] uv; Integer rotation; }
 
     public static void load(File modelsRoot) {
         MODELS.clear();
@@ -152,6 +153,9 @@ public final class ModelLoader {
                    BakedQuad.NO_FACE, BakedQuad.NO_FACE, BakedQuad.NO_FACE};
         int[] c = {BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL,
                    BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL};
+        double bx0 = ModelElements.px(el.from[0]), by0 = ModelElements.px(el.from[1]), bz0 = ModelElements.px(el.from[2]);
+        double bx1 = ModelElements.px(el.to[0]), by1 = ModelElements.px(el.to[1]), bz1 = ModelElements.px(el.to[2]);
+
         float[][] uv = null;
         if (el.faces != null) {
             for (Map.Entry<String, RawFace> e : el.faces.entrySet()) {
@@ -161,15 +165,42 @@ public final class ModelLoader {
                 String path = resolveRef(tex, face.texture);
                 t[idx] = path == null ? 0 : BlockTextures.layerOf(path);
                 c[idx] = face.cullface != null ? faceIndex(face.cullface) : BakedQuad.NO_CULL;
-                if (face.uv != null && face.uv.length == 4) {
-                    if (uv == null) uv = new float[6][];
-                    uv[idx] = cornerUv(idx, face.uv);
-                }
+
+                boolean hasRect = face.uv != null && face.uv.length == 4;
+                int turns = faceRotationTurns(face.rotation, e.getKey());
+                if (!hasRect && turns == 0) continue;
+
+                /* Bei reiner rotation ohne uv-Rechteck erst die Extent-UVs materialisieren —
+                   sonst bliebe die Drehung wirkungslos (cube_bottom_top_horizontal hat kein uv). */
+                float[] corners = hasRect ? cornerUv(idx, face.uv)
+                        : BlockModels.extentUv(idx, (float) bx0, (float) by0, (float) bz0,
+                                                    (float) bx1, (float) by1, (float) bz1);
+                if (uv == null) uv = new float[6][];
+                uv[idx] = turns == 0 ? corners : rotateCornerUv(corners, turns);
             }
         }
-        return new BoxElement(
-                ModelElements.px(el.from[0]), ModelElements.px(el.from[1]), ModelElements.px(el.from[2]),
-                ModelElements.px(el.to[0]), ModelElements.px(el.to[1]), ModelElements.px(el.to[2]), t, c, el.mirror, uv);
+        return new BoxElement(bx0, by0, bz0, bx1, by1, bz1, t, c, el.mirror, uv);
+    }
+
+    /** Wandelt das MC-Feld {@code rotation} in Vierteldrehungen; ungültige Werte werden verworfen. */
+    private static int faceRotationTurns(Integer rotation, String faceName) {
+        if (rotation == null) return 0;
+        if (rotation % 90 != 0) {
+            LOGGER.warning("Face-rotation " + rotation + " (" + faceName + ") ist kein Vielfaches von 90 — ignoriert");
+            return 0;
+        }
+        return Math.floorMod(rotation / 90, 4);
+    }
+
+    /** Dreht die Textur in der Face: Ecke i übernimmt die UV der Ecke i+turns (zyklisch). */
+    private static float[] rotateCornerUv(float[] uv, int turns) {
+        float[] out = new float[8];
+        for (int i = 0; i < 4; i++) {
+            int src = (i + turns) % 4;
+            out[i * 2] = uv[src * 2];
+            out[i * 2 + 1] = uv[src * 2 + 1];
+        }
+        return out;
     }
 
     /**
