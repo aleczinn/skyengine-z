@@ -572,7 +572,8 @@ public class ChunkMesher {
             float[] verts = quad.vertices();
 
             int cornerMask = 0;
-            float u00 = 0F, u10 = 0F;
+            /* UV je geometrischer Ecke, indiziert wie cornerMask: (t1==1) | (t2==1) << 1 */
+            float[] cu = new float[4], cv = new float[4];
             for (int c = 0; c < 4; c++) {
                 int i = UNIQUE_VERTS[c] * 5;
                 if (verts[i + axisN] != plane) return GreedyFaces.NONE;
@@ -580,12 +581,31 @@ public class ChunkMesher {
                 float u = verts[i + 3], v = verts[i + 4];
                 if ((c1 != 0F && c1 != 1F) || (c2 != 0F && c2 != 1F)) return GreedyFaces.NONE;
                 if ((u != 0F && u != 1F) || (v != 0F && v != 1F)) return GreedyFaces.NONE;
-                cornerMask |= 1 << ((c1 == 1F ? 1 : 0) | (c2 == 1F ? 2 : 0));
-                if (c1 == 0F && c2 == 0F) u00 = u;
-                if (c1 == 1F && c2 == 0F) u10 = u;
+                int corner = (c1 == 1F ? 1 : 0) | (c2 == 1F ? 2 : 0);
+                cornerMask |= 1 << corner;
+                cu[corner] = u;
+                cv[corner] = v;
             }
             if (cornerMask != 0b1111) return GreedyFaces.NONE;
-            uAlongT1[face] = u00 != u10;
+
+            /* Separierbarkeit über ALLE vier Ecken prüfen: u muss an genau einer Tangente hängen
+               und v an der anderen. emitGreedyQuad skaliert u mit der Breite ODER der Höhe des
+               gemergten Rechtecks — ein Mapping, das an beiden Achsen hängt, würde dort still
+               falsch kacheln (erst bei w != h sichtbar). Seit die Blockstate-Rotation die UVs
+               mitdreht, ist das der Sicherheitsgurt gegen fehlerhafte Modelle. */
+            boolean uT1 = cu[0] != cu[1];
+            if (uT1) {
+                if (cu[2] != cu[0] || cu[3] != cu[1] || cv[0] != cv[1] || cv[2] != cv[3]
+                        || cv[0] == cv[2]) {
+                    return GreedyFaces.NONE;
+                }
+            } else {
+                if (cu[0] != cu[1] || cu[2] != cu[3] || cu[0] == cu[2]
+                        || cv[0] != cv[2] || cv[1] != cv[3] || cv[0] == cv[1]) {
+                    return GreedyFaces.NONE;
+                }
+            }
+            uAlongT1[face] = uT1;
         }
 
         /* Seiten-Overlays (Grasblock) je Face einsortieren — sie werden pro sichtbarer Zelle
