@@ -1,11 +1,7 @@
 {
   "id": "skyengine:snow",
+  "parent": "preset/cube",
   "sound": "snow",
-  "type": "cube",
-  "layer": "opaque",
   "hardness": 0.2,
-  "tool": "shovel",
-  "textures": {
-    "all": "game/textures/block/snow.png"
-  }
+  "tool": "shovel"
 }

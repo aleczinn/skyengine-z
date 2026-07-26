@@ -1,11 +1,7 @@
 {
   "id": "skyengine:redstone_ore",
-  "type": "cube",
-  "layer": "opaque",
+  "parent": "preset/cube",
   "hardness": 3,
   "tool": "pickaxe",
-  "harvest_tier": "iron",
-  "textures": {
-    "all": "game/textures/block/redstone_ore.png"
-  }
+  "harvest_tier": "iron"
 }

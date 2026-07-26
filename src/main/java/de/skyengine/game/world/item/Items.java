@@ -3,8 +3,11 @@ package de.skyengine.game.world.item;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.content.ContentSource;
+import de.skyengine.game.world.block.content.ContentSources;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.registry.Registries;
+import de.skyengine.game.world.item.json.ItemLoader;
 
 /**
  * Item-Registry-Zugriff + Bootstrap. Jeder Nicht-Luft-Block bekommt automatisch ein
@@ -57,6 +60,10 @@ public final class Items {
         /* Essen (MC-Werte: nutrition in Halb-Icons, saturation). */
         registerFood("skyengine:apple", 4, 2.4F, "game/textures/item/apple.png");
         registerFood("skyengine:bread", 5, 6.0F, "game/textures/item/bread.png");
+
+        /* Datengetriebene Items zuletzt: die Java-Registrierungen oben haben Vorrang, und wir
+           sind weiterhin lange vor dem TextureArray-Bau (ChunkRenderer.init). */
+        for (ContentSource source : ContentSources.all()) ItemLoader.load(source.items());
     }
 
     private static void registerFood(String id, int nutrition, float saturation, String texture) {

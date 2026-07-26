@@ -1,6 +1,7 @@
 package de.skyengine.game.world.block.json;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Identifier;
@@ -12,50 +13,41 @@ import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
-import java.io.File;
-import java.io.FileReader;
-import java.util.Arrays;
-import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 public final class BlockLoader {
 
     private static final Logger LOGGER = LogManager.getLogger(BlockLoader.class.getName());
     private static final Gson GSON = new Gson();
 
-    /** Lädt und registriert alle *.json-Blockdefinitionen aus dem Ordner. */
-    public static void load(File directory) {
-        if (!directory.exists() || !directory.isDirectory()) {
-            LOGGER.warning("Block-Ordner nicht gefunden: " + directory.getAbsolutePath());
-            return;
-        }
-
-        File[] files = directory.listFiles((dir, name) -> name.endsWith(".json"));
-        if (files == null || files.length == 0) {
-            LOGGER.warning("Keine Block-Definitionen in " + directory.getAbsolutePath());
-            return;
-        }
+    /**
+     * Registriert die von {@link BlockJson} aufgelösten Blockdefinitionen. Die Iterations-
+     * reihenfolge der Map ist die alte Dateisortierung und bestimmt die Runtime-State-IDs.
+     */
+    public static List<BlockDefinition> load(Map<String, JsonObject> definitions) {
+        List<BlockDefinition> loaded = new ArrayList<>();
+        if (definitions.isEmpty()) return loaded;
 
         /* Archetypen bereitstellen, bevor Definitionen aufgelöst werden. */
         Archetypes.bootstrap();
 
-        /* Deterministische Reihenfolge -> stabile Runtime-IDs innerhalb einer Version */
-        Arrays.sort(files, Comparator.comparing(File::getName));
-
-        int loaded = 0;
-        for (File file : files) {
-            try (FileReader reader = new FileReader(file)) {
-                BlockDefinition definition = GSON.fromJson(reader, BlockDefinition.class);
+        for (Map.Entry<String, JsonObject> entry : definitions.entrySet()) {
+            try {
+                BlockDefinition definition = GSON.fromJson(entry.getValue(), BlockDefinition.class);
                 if (definition.id == null || definition.id.isBlank()) {
-                    LOGGER.error("Block-Definition ohne 'id': " + file.getName());
+                    LOGGER.error("Block-Definition ohne 'id': " + entry.getKey());
                     continue;
                 }
                 register(definition);
-                loaded++;
+                loaded.add(definition);
             } catch (Exception e) {
-                LOGGER.error("Fehlerhafte Block-Definition: " + file.getName(), e);
+                LOGGER.error("Fehlerhafte Block-Definition: " + entry.getKey(), e);
             }
         }
-        LOGGER.info(loaded + " Block-Definitionen geladen");
+        LOGGER.info(loaded.size() + " Block-Definitionen geladen");
+        return loaded;
     }
 
     private static void register(BlockDefinition definition) {

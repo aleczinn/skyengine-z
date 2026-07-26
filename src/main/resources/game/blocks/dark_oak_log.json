@@ -1,16 +1,6 @@
 {
   "id": "skyengine:dark_oak_log",
-  "archetype": "pillar",
-  "layer": "opaque",
+  "parent": "preset/pillar",
   "hardness": 2,
-  "tool": "axe",
-  "textures": {
-    "side": "game/textures/block/dark_oak_log.png",
-    "top": "game/textures/block/dark_oak_log_top.png"
-  },
-  "variants": {
-    "axis=y": { "model": "block/dark_oak_log" },
-    "axis=x": { "model": "block/dark_oak_log_horizontal", "x": 90, "y": 90 },
-    "axis=z": { "model": "block/dark_oak_log_horizontal", "x": 90 }
-  }
+  "tool": "axe"
 }

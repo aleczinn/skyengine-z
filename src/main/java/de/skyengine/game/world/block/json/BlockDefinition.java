@@ -39,6 +39,10 @@ public class BlockDefinition {
     public String[] place_on;
     public boolean place_on_full_top = false;
 
+    /* Archetyp "attached": erlaubte Trägerflächen (floor/wall/ceiling); null = alle drei.
+       Die Fackel lässt floor+wall zu, ein Hebel später zusätzlich ceiling. */
+    public String[] attach_faces;
+
     /* Survival-Mining: hardness (null -> 0 = instant, -1 = unzerstörbar wie Bedrock),
        tool = effektive Tool-Klasse (pickaxe/axe/shovel/sword; null = Hand reicht, droppt immer),
        harvest_tier = Mindest-Material für Drops (wood/stone/copper/iron/diamond/netherite). */
@@ -58,12 +62,35 @@ public class BlockDefinition {
 
     public Map<String, String> textures = new HashMap<>();
 
+    /* Modell-"Rumpf": der Name des Geometrie-Modells, in das die textures-Map oben eingesetzt
+       wird (z.B. "block/cube_all"). Daraus entsteht beim Laden ein Modell namens block/<id> —
+       genau der Name, den variants/multipart und der Auto-Default ohnehin erwarten. Damit
+       erübrigt sich eine eigene models/-Datei, die nur parent + textures wiederholt. */
+    public String model;
+
+    /* Mehrere Rümpfe je Block: Suffix -> Rumpf, erzeugt block/<id><suffix>. Treppen brauchen
+       "" / "_inner" / "_outer", Zäune "_post" / "_side" / "_inventory". "model" ist die
+       Kurzform für den Suffix "". */
+    public Map<String, String> models;
+
     /* Pfostenmaße in 0..16-Pixeln. Bei Connecting-Blöcken (fence/pane) liefert
        die x-Breite die Kollisions-Balkenbreite und ist daher Pflicht. */
     public ModelElements.ModelBox post;
 
     /* Optionaler BlockEntityType-Identifier (z.B. "skyengine:furnace") für „lebende" Blöcke. */
     public String block_entity;
+
+    /* Selbst deklarierte Properties (Name -> Werte + Default). Kommen NACH den Properties des
+       Archetyps in die Liste, damit bestehende Blöcke ihre State-Reihenfolge behalten.
+       Achtung: jede Property multipliziert die State-Zahl des Blocks. */
+    public Map<String, PropertyDef> properties;
+
+    /** values: erlaubte Werte (Strings); default: Startwert (sonst gilt der erste Wert). */
+    public static final class PropertyDef {
+        public String[] values;
+        @com.google.gson.annotations.SerializedName("default")
+        public String defaultValue;   // 'default' ist ein Java-Schlüsselwort
+    }
 
     /* Optionaler Kollisions-Override (getrennt vom Modell). Ersetzt die Archetyp-Default-Shape. */
     public CollisionDef collision;

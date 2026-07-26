@@ -1,0 +1,192 @@
+{
+  "_comment": "Preset: Treppe. Die 40 Varianten aus facing x half x shape stehen hier EINMAL.",
+  "type": "stairs",
+  "layer": "opaque",
+  "vars": {
+    "texture": "${id}"
+  },
+  "models": {
+    "": "block/stairs",
+    "_inner": "block/inner_stairs",
+    "_outer": "block/outer_stairs"
+  },
+  "textures": {
+    "top": "game/textures/block/${texture}.png",
+    "bottom": "game/textures/block/${texture}.png",
+    "side": "game/textures/block/${texture}.png"
+  },
+  "inventory_model": "block/${id}",
+  "inventory_y": 0,
+  "variants": {
+    "facing=east,half=bottom,shape=straight": {
+      "model": "block/${id}"
+    },
+    "facing=west,half=bottom,shape=straight": {
+      "model": "block/${id}",
+      "y": 180
+    },
+    "facing=south,half=bottom,shape=straight": {
+      "model": "block/${id}",
+      "y": 90
+    },
+    "facing=north,half=bottom,shape=straight": {
+      "model": "block/${id}",
+      "y": 270
+    },
+    "facing=east,half=bottom,shape=outer_right": {
+      "model": "block/${id}_outer"
+    },
+    "facing=west,half=bottom,shape=outer_right": {
+      "model": "block/${id}_outer",
+      "y": 180
+    },
+    "facing=south,half=bottom,shape=outer_right": {
+      "model": "block/${id}_outer",
+      "y": 90
+    },
+    "facing=north,half=bottom,shape=outer_right": {
+      "model": "block/${id}_outer",
+      "y": 270
+    },
+    "facing=east,half=bottom,shape=outer_left": {
+      "model": "block/${id}_outer",
+      "y": 270
+    },
+    "facing=west,half=bottom,shape=outer_left": {
+      "model": "block/${id}_outer",
+      "y": 90
+    },
+    "facing=south,half=bottom,shape=outer_left": {
+      "model": "block/${id}_outer"
+    },
+    "facing=north,half=bottom,shape=outer_left": {
+      "model": "block/${id}_outer",
+      "y": 180
+    },
+    "facing=east,half=bottom,shape=inner_right": {
+      "model": "block/${id}_inner"
+    },
+    "facing=west,half=bottom,shape=inner_right": {
+      "model": "block/${id}_inner",
+      "y": 180
+    },
+    "facing=south,half=bottom,shape=inner_right": {
+      "model": "block/${id}_inner",
+      "y": 90
+    },
+    "facing=north,half=bottom,shape=inner_right": {
+      "model": "block/${id}_inner",
+      "y": 270
+    },
+    "facing=east,half=bottom,shape=inner_left": {
+      "model": "block/${id}_inner",
+      "y": 270
+    },
+    "facing=west,half=bottom,shape=inner_left": {
+      "model": "block/${id}_inner",
+      "y": 90
+    },
+    "facing=south,half=bottom,shape=inner_left": {
+      "model": "block/${id}_inner"
+    },
+    "facing=north,half=bottom,shape=inner_left": {
+      "model": "block/${id}_inner",
+      "y": 180
+    },
+    "facing=east,half=top,shape=straight": {
+      "model": "block/${id}",
+      "x": 180
+    },
+    "facing=west,half=top,shape=straight": {
+      "model": "block/${id}",
+      "x": 180,
+      "y": 180
+    },
+    "facing=south,half=top,shape=straight": {
+      "model": "block/${id}",
+      "x": 180,
+      "y": 90
+    },
+    "facing=north,half=top,shape=straight": {
+      "model": "block/${id}",
+      "x": 180,
+      "y": 270
+    },
+    "facing=east,half=top,shape=outer_right": {
+      "model": "block/${id}_outer",
+      "x": 180,
+      "y": 90
+    },
+    "facing=west,half=top,shape=outer_right": {
+      "model": "block/${id}_outer",
+      "x": 180,
+      "y": 270
+    },
+    "facing=south,half=top,shape=outer_right": {
+      "model": "block/${id}_outer",
+      "x": 180,
+      "y": 180
+    },
+    "facing=north,half=top,shape=outer_right": {
+      "model": "block/${id}_outer",
+      "x": 180
+    },
+    "facing=east,half=top,shape=outer_left": {
+      "model": "block/${id}_outer",
+      "x": 180
+    },
+    "facing=west,half=top,shape=outer_left": {
+      "model": "block/${id}_outer",
+      "x": 180,
+      "y": 180
+    },
+    "facing=south,half=top,shape=outer_left": {
+      "model": "block/${id}_outer",
+      "x": 180,
+      "y": 90
+    },
+    "facing=north,half=top,shape=outer_left": {
+      "model": "block/${id}_outer",
+      "x": 180,
+      "y": 270
+    },
+    "facing=east,half=top,shape=inner_right": {
+      "model": "block/${id}_inner",
+      "x": 180,
+      "y": 90
+    },
+    "facing=west,half=top,shape=inner_right": {
+      "model": "block/${id}_inner",
+      "x": 180,
+      "y": 270
+    },
+    "facing=south,half=top,shape=inner_right": {
+      "model": "block/${id}_inner",
+      "x": 180,
+      "y": 180
+    },
+    "facing=north,half=top,shape=inner_right": {
+      "model": "block/${id}_inner",
+      "x": 180
+    },
+    "facing=east,half=top,shape=inner_left": {
+      "model": "block/${id}_inner",
+      "x": 180
+    },
+    "facing=west,half=top,shape=inner_left": {
+      "model": "block/${id}_inner",
+      "x": 180,
+      "y": 180
+    },
+    "facing=south,half=top,shape=inner_left": {
+      "model": "block/${id}_inner",
+      "x": 180,
+      "y": 90
+    },
+    "facing=north,half=top,shape=inner_left": {
+      "model": "block/${id}_inner",
+      "x": 180,
+      "y": 270
+    }
+  }
+}

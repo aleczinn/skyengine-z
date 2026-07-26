@@ -1315,6 +1315,18 @@ public class GameContainer implements IResizeable, IDisposable {
         this.setBlock(10, Blocks.OAK_DOOR);
         this.setBlock(11, Blocks.ENCHANTING_TABLE);
         this.setItem(8, "skyengine:tnt");
+
+        /* TEMP: Fackel (Boden + Wand) und die datengetriebenen Material-Items aus game/items/.
+           Ohne Crafting/Creative-Menü ist das bislang der einzige Weg, sie in die Hand zu bekommen. */
+        this.setItem(12, "skyengine:torch", 64);
+        String[] materials = {
+                "iron_ingot", "gold_ingot", "copper_ingot", "diamond", "emerald",
+                "coal", "charcoal", "redstone", "lapis_lazuli",
+                "stick", "brick", "clay_ball", "flint", "leather", "paper",
+        };
+        for (int i = 0; i < materials.length; i++) {
+            this.setItem(13 + i, "skyengine:" + materials[i], 64);
+        }
     }
 
     /** Legt 64 eines Blocks in einen Inventar-Slot (Block-Item über die Identifier-Registry). */

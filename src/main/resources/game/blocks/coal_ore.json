@@ -1,10 +1,6 @@
 {
   "id": "skyengine:coal_ore",
-  "type": "cube",
-  "layer": "opaque",
+  "parent": "preset/cube",
   "hardness": 3,
-  "tool": "pickaxe",
-  "textures": {
-    "all": "game/textures/block/coal_ore.png"
-  }
+  "tool": "pickaxe"
 }

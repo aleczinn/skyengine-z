@@ -1,13 +1,6 @@
 {
   "id": "skyengine:fern",
-  "type": "cross",
-  "layer": "cutout",
-  "opaque": false,
-  "solid": false,
+  "parent": "preset/cross",
   "replaceable": true,
-  "icon_item": "game/textures/block/fern.png",
-  "tint": "grass",
-  "textures": {
-    "all": "game/textures/block/fern.png"
-  }
+  "tint": "grass"
 }

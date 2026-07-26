@@ -1,23 +1,9 @@
 {
   "id": "skyengine:jungle_fence",
-  "type": "fence",
-  "layer": "cutout",
+  "parent": "preset/fence",
+  "vars": {
+    "texture": "jungle_planks"
+  },
   "hardness": 2,
-  "tool": "axe",
-  "opaque": false,
-  "textures": {
-    "all": "game/textures/block/jungle_planks.png"
-  },
-  "post": {
-    "from": [6, 0, 6],
-    "to": [10, 16, 10]
-  },
-  "inventory_model": "block/jungle_fence_inventory",
-  "multipart": [
-    { "apply": { "model": "block/jungle_fence_post" } },
-    { "when": { "north": "true" }, "apply": { "model": "block/jungle_fence_side" } },
-    { "when": { "east": "true" },  "apply": { "model": "block/jungle_fence_side", "y": 90 } },
-    { "when": { "south": "true" }, "apply": { "model": "block/jungle_fence_side", "y": 180 } },
-    { "when": { "west": "true" },  "apply": { "model": "block/jungle_fence_side", "y": 270 } }
-  ]
+  "tool": "axe"
 }

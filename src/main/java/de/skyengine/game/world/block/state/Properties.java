@@ -40,6 +40,13 @@ public final class Properties {
     /** Türanschlag links/rechts. */
     public static final Property<DoorHinge> HINGE = Property.ofEnum("hinge", DoorHinge.class);
 
+    /**
+     * Trägerfläche für hängende Blöcke (Fackel, später Hebel/Knopf). Zusammen mit
+     * {@link #FACING} wie in Vanilla: bei WALL gibt FACING die Richtung an, in die der Block
+     * vom Träger weg zeigt; bei FLOOR/CEILING ist FACING bedeutungslos.
+     */
+    public static final Property<AttachFace> ATTACH = Property.ofEnum("face", AttachFace.class);
+
     private static List<Integer> levels() {
         List<Integer> list = new ArrayList<>(16);
         for (int i = 0; i < 16; i++) list.add(i);

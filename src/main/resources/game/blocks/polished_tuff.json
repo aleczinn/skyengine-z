@@ -1,10 +1,6 @@
 {
   "id": "skyengine:polished_tuff",
-  "type": "cube",
-  "layer": "opaque",
+  "parent": "preset/cube",
   "hardness": 1.5,
-  "tool": "pickaxe",
-  "textures": {
-    "all": "game/textures/block/polished_tuff.png"
-  }
+  "tool": "pickaxe"
 }

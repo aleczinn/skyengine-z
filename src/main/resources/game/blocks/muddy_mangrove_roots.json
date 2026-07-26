@@ -1,12 +1,9 @@
 {
   "id": "skyengine:muddy_mangrove_roots",
-  "type": "cube",
-  "layer": "opaque",
+  "parent": "preset/cube_bottom_top",
+  "vars": {
+    "bottom": "muddy_mangrove_roots_top"
+  },
   "hardness": 0.7,
-  "tool": "axe",
-  "textures": {
-    "top": "game/textures/block/muddy_mangrove_roots_top.png",
-    "bottom": "game/textures/block/muddy_mangrove_roots_top.png",
-    "side": "game/textures/block/muddy_mangrove_roots_side.png"
-  }
+  "tool": "axe"
 }

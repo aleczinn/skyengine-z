@@ -1,17 +1,7 @@
 {
   "id": "skyengine:acacia_log",
-  "archetype": "pillar",
-  "layer": "opaque",
+  "parent": "preset/pillar",
   "no_lod_surface": true,
   "hardness": 2,
-  "tool": "axe",
-  "textures": {
-    "side": "game/textures/block/acacia_log.png",
-    "top": "game/textures/block/acacia_log_top.png"
-  },
-  "variants": {
-    "axis=y": { "model": "block/acacia_log" },
-    "axis=x": { "model": "block/acacia_log_horizontal", "x": 90, "y": 90 },
-    "axis=z": { "model": "block/acacia_log_horizontal", "x": 90 }
-  }
+  "tool": "axe"
 }

@@ -1,10 +1,6 @@
 {
   "id": "skyengine:brown_terracotta",
-  "type": "cube",
-  "layer": "opaque",
+  "parent": "preset/cube",
   "hardness": 1.5,
-  "tool": "pickaxe",
-  "textures": {
-    "all": "game/textures/block/brown_terracotta.png"
-  }
+  "tool": "pickaxe"
 }

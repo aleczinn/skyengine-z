@@ -1,6 +1,5 @@
 package de.skyengine.game.world.block.model;
 
-import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -11,8 +10,6 @@ import de.skyengine.game.world.block.state.Property;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
-import java.io.File;
-import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -31,29 +28,21 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class BlockStateModels {
 
     private static final Logger LOGGER = LogManager.getLogger(BlockStateModels.class.getName());
-    private static final Gson GSON = new Gson();
 
     private static final Map<String, JsonObject> STATES = new HashMap<>();
     private static final Map<Integer, ModelLoader.Baked> CACHE = new ConcurrentHashMap<>();
     private static final ModelLoader.Baked EMPTY = new ModelLoader.Baked(new BakedQuad[0], new AABB[0]);
 
-    public static void load(File dir) {
+    /**
+     * Übernimmt die von {@link de.skyengine.game.world.block.json.BlockJson} aufgelösten
+     * Dokumente — dieselben Instanzen, die auch der {@code BlockLoader} als DTO liest. Die
+     * Render-Sektion ({@code variants}/{@code multipart}/{@code icon_*}) steckt in denselben
+     * Dateien, sieht also automatisch dieselbe parent-Vererbung.
+     */
+    public static void load(Map<String, JsonObject> definitions) {
         STATES.clear();
         CACHE.clear();
-        if (dir == null || !dir.isDirectory()) {
-            LOGGER.warning("Block-Ordner nicht gefunden: " + dir);
-            return;
-        }
-        File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
-        if (files == null) return;
-        for (File f : files) {
-            String name = f.getName().substring(0, f.getName().length() - ".json".length());
-            try (FileReader r = new FileReader(f)) {
-                STATES.put(name, GSON.fromJson(r, JsonObject.class));
-            } catch (Exception e) {
-                LOGGER.error("Blockstate fehlerhaft: " + name, e);
-            }
-        }
+        STATES.putAll(definitions);
         LOGGER.info(STATES.size() + " Blockstates geladen");
     }
 

@@ -1,15 +1,20 @@
 {
   "id": "skyengine:spruce_slab",
-  "type": "slab",
-  "layer": "opaque",
+  "parent": "preset/slab",
+  "vars": {
+    "texture": "spruce_planks"
+  },
   "hardness": 2,
   "tool": "axe",
-  "textures": {
-    "all": "game/textures/block/spruce_planks.png"
-  },
   "variants": {
-    "type=bottom": { "model": "block/spruce_slab" },
-    "type=top":    { "model": "block/spruce_slab_top" },
-    "type=double": { "model": "block/spruce_planks" }
+    "type=bottom": {
+      "model": "block/spruce_slab"
+    },
+    "type=top": {
+      "model": "block/spruce_slab_top"
+    },
+    "type=double": {
+      "model": "block/spruce_planks"
+    }
   }
 }

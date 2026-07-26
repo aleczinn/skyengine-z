@@ -1,16 +1,9 @@
 {
   "id": "skyengine:polished_basalt",
-  "archetype": "pillar",
-  "layer": "opaque",
-  "hardness": 1.5,
-  "tool": "pickaxe",
-  "textures": {
-    "side": "game/textures/block/polished_basalt_side.png",
-    "top": "game/textures/block/polished_basalt_top.png"
+  "parent": "preset/pillar",
+  "vars": {
+    "side": "polished_basalt_side"
   },
-  "variants": {
-    "axis=y": { "model": "block/polished_basalt" },
-    "axis=x": { "model": "block/polished_basalt_horizontal", "x": 90, "y": 90 },
-    "axis=z": { "model": "block/polished_basalt_horizontal", "x": 90 }
-  }
+  "hardness": 1.5,
+  "tool": "pickaxe"
 }

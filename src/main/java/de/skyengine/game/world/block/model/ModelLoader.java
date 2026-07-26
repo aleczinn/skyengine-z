@@ -3,6 +3,8 @@ package de.skyengine.game.world.block.model;
 import com.google.gson.Gson;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.BlockTextures;
+import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.json.BlockDefinition;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -10,6 +12,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -34,8 +37,18 @@ public final class ModelLoader {
        ambientocclusion: MC-Modellfeld, Default true. Bewusst der Wrapper Boolean — bei einem
        primitiven boolean liefert GSON für ein FEHLENDES Feld false und würde AO überall
        abschalten. Kleinschreibung ohne Trennzeichen ist der MC-Feldname (wie cullface). */
-    public static final class RawModel { String parent; Map<String, String> textures; List<RawElement> elements; Boolean ambientocclusion; }
-    public static final class RawElement { int[] from; int[] to; Map<String, RawFace> faces; boolean mirror; }
+    public static final class RawModel { String parent; Map<String, String> textures; List<RawElement> elements; Boolean ambientocclusion; Map<String, RawDisplay> display; }
+    /** MC-Display-Sektion je Kontext (gui, firstperson_righthand, ...): rotation/translation/scale. */
+    public static final class RawDisplay { float[] rotation; float[] translation; float[] scale; }
+    /* from/to bewusst float: MC-Modelle nutzen Halbpixel (Wandfackel 3.5/19.5) und Werte
+       ausserhalb 0..16 (Ueberstaende). Ganzzahlige Bestandsmodelle parsen unveraendert. */
+    public static final class RawElement { float[] from; float[] to; Map<String, RawFace> faces; boolean mirror; RawRotation rotation; }
+    /**
+     * MC-Elementrotation um eine beliebige Achse mit beliebigem Winkel (Fackel: z/-22.5).
+     * origin in 0..16-Pixeln, axis = x|y|z, angle in Grad, rescale = Aufblähen auf die alte
+     * Kantenlänge (1/cos).
+     */
+    public static final class RawRotation { float[] origin; String axis; float angle; boolean rescale; }
     /** rotation: MC-Feld, dreht die Textur IN der Face um 0/90/180/270 Grad (Wrapper = optional). */
     public static final class RawFace { String texture; String cullface; int[] uv; Integer rotation; }
 
@@ -68,8 +81,74 @@ public final class ModelLoader {
         }
     }
 
+    /**
+     * Erzeugt aus den Blockdefinitionen die "virtuellen" Modelle: je Eintrag von
+     * {@code model}/{@code models} ein synthetischer {@link RawModel} mit dem Rumpf als
+     * {@code parent} und der {@code textures}-Map des Blocks. Der Name ist exakt der, den
+     * variants/multipart bzw. der Auto-Default ohnehin erwarten ({@code block/<id><suffix>}) —
+     * dadurch ändert sich am Bake- und Cache-Pfad nichts, es entfällt nur die Datei.
+     *
+     * <p>MUSS nach {@link #load} laufen (das leert MODELS und CACHE) und vor dem ersten
+     * {@link #bake}. Eine noch vorhandene gleichnamige Datei gewinnt und wird gemeldet — so
+     * bleibt die schrittweise Migration monoton.
+     */
+    public static void registerBlockModels(List<BlockDefinition> definitions) {
+        int created = 0;
+        for (BlockDefinition def : definitions) {
+            Map<String, String> rumps = rumpsOf(def);
+            if (rumps.isEmpty()) continue;
+            String path = Identifier.of(def.id).path();
+            for (Map.Entry<String, String> e : rumps.entrySet()) {
+                String name = "block/" + path + e.getKey();
+                if (MODELS.containsKey(name)) {
+                    LOGGER.warning("Modell-Datei ueberdeckt die Block-Definition: " + name);
+                    continue;
+                }
+                RawModel m = new RawModel();
+                m.parent = e.getValue();
+                m.textures = def.textures;
+                MODELS.put(name, m);
+                created++;
+            }
+        }
+        LOGGER.info(created + " Modelle aus Block-Definitionen erzeugt");
+    }
+
+    /** Suffix -> Rumpf; {@code model} ist die Kurzform für den leeren Suffix. */
+    private static Map<String, String> rumpsOf(BlockDefinition def) {
+        Map<String, String> out = new LinkedHashMap<>();
+        if (def.model != null) out.put("", def.model);
+        if (def.models != null) out.putAll(def.models);
+        return out;
+    }
+
     public static Baked bake(String name, int xDeg, int yDeg) {
         return CACHE.computeIfAbsent(name + "|" + xDeg + "|" + yDeg, k -> bakeUncached(name, xDeg, yDeg));
+    }
+
+    /**
+     * Display-Transform eines Modells für einen Kontext ({@code firstperson_righthand},
+     * {@code thirdperson_righthand}, ...), MC-Format. Rotation in Grad, Translation in Pixeln
+     * (0..16), Scale als Faktor. {@code null} = kein Eintrag, Aufrufer nimmt seinen Default.
+     */
+    public record Display(float[] rotation, float[] translation, float[] scale) {}
+
+    /** Erbt wie in Minecraft über die parent-Kette: der erste Treffer für den Kontext gewinnt. */
+    public static Display display(String modelName, String slot) {
+        RawDisplay raw = collectDisplay(modelName, slot, 0);
+        if (raw == null) return null;
+        return new Display(
+                raw.rotation != null ? raw.rotation : new float[]{0, 0, 0},
+                raw.translation != null ? raw.translation : new float[]{0, 0, 0},
+                raw.scale != null ? raw.scale : new float[]{1, 1, 1});
+    }
+
+    private static RawDisplay collectDisplay(String name, String slot, int depth) {
+        if (depth > 20) return null;
+        RawModel m = MODELS.get(name);
+        if (m == null) return null;
+        if (m.display != null && m.display.get(slot) != null) return m.display.get(slot);
+        return m.parent != null ? collectDisplay(m.parent, slot, depth + 1) : null;
     }
 
     /** Texturlayer eines Modells (für Sonderfälle wie Cross, die nicht aus Boxen bestehen). */
@@ -97,11 +176,20 @@ public final class ModelLoader {
         List<BakedQuad[]> parts = new ArrayList<>();
         List<AABB> boxes = new ArrayList<>();
         for (RawElement el : elements) {
-            BoxElement be = toBox(el, tex).rotateX(xq).rotateY(yq);
-            BakedQuad[] quads = be.bake();
-            if (!ao) stripDirection(quads);
-            parts.add(quads);
-            boxes.add(be.toAABB());
+            if (el.rotation != null) {
+                /* Schräges Element: NICHT über BoxElement drehen — das ist strukturell
+                   achsenparallel. Stattdessen die fertigen Quads affin transformieren; die UVs
+                   hängen ohnehin an den Vertices und wandern damit korrekt mit. */
+                BakedQuad[] quads = rotateQuads(toBox(el, tex).bake(), el.rotation, xq, yq);
+                parts.add(quads);
+                boxes.add(enclosingBox(quads));
+            } else {
+                BoxElement be = toBox(el, tex).rotateX(xq).rotateY(yq);
+                BakedQuad[] quads = be.bake();
+                if (!ao) stripDirection(quads);
+                parts.add(quads);
+                boxes.add(be.toAABB());
+            }
         }
         return new Baked(BlockModels.concat(parts.toArray(new BakedQuad[0][])), boxes.toArray(new AABB[0]));
     }
@@ -119,6 +207,87 @@ public final class ModelLoader {
             quads[i] = new BakedQuad(q.vertices(), q.textureLayer(), q.cullFace(), BakedQuad.NO_DIRECTION,
                     q.brightness(), q.tint(), q.tintType());
         }
+    }
+
+    /**
+     * Dreht die Vertices eines Elements: erst die Elementrotation um {@code origin}, danach die
+     * Blockstate-Rotation x/y in Vierteldrehungen um die Blockmitte (dieselben Formeln wie in
+     * {@link BoxElement}, damit gerade und schräge Elemente desselben Modells zusammenpassen).
+     *
+     * <p>Die Quads verlieren dabei {@code face} UND {@code cullFace}. Beides ist nötig: ein
+     * gekipptes Quad liegt nicht mehr bündig auf der Blockgrenze, also wäre Culling gegen den
+     * Nachbarn falsch, und die AO-Ecksuche des Meshers setzt eine achsenparallele Normale
+     * voraus. Damit landen schräge Quads in derselben Behandlung wie Cross-Quads — der Mesher
+     * gated AO über {@code face() >= 0} und den Greedy-Pass über ein gültiges cullFace.
+     */
+    private static BakedQuad[] rotateQuads(BakedQuad[] quads, RawRotation rot, int xq, int yq) {
+        double ox = rot.origin != null && rot.origin.length == 3 ? ModelElements.px(rot.origin[0]) : 0.5;
+        double oy = rot.origin != null && rot.origin.length == 3 ? ModelElements.px(rot.origin[1]) : 0.5;
+        double oz = rot.origin != null && rot.origin.length == 3 ? ModelElements.px(rot.origin[2]) : 0.5;
+
+        double rad = Math.toRadians(rot.angle);
+        double cos = Math.cos(rad), sin = Math.sin(rad);
+        /* Aufblähen auf die ursprüngliche Kantenlänge (MC rescale), quer zur Drehachse. */
+        double scale = rot.rescale && Math.abs(cos) > 1.0E-4 ? 1.0 / Math.abs(cos) : 1.0;
+        String axisName = rot.axis == null ? "" : rot.axis.toLowerCase();
+        if (!axisName.equals("x") && !axisName.equals("y") && !axisName.equals("z")) {
+            LOGGER.warning("Modell-Rotation ohne gueltige axis (" + rot.axis + ") — als z behandelt");
+        }
+        int axis = switch (axisName) {
+            case "x" -> 0;
+            case "y" -> 1;
+            default -> 2;
+        };
+
+        BakedQuad[] out = new BakedQuad[quads.length];
+        for (int q = 0; q < quads.length; q++) {
+            BakedQuad src = quads[q];
+            float[] v = src.vertices().clone();
+            for (int i = 0; i < v.length; i += 5) {
+                double x = v[i] - ox, y = v[i + 1] - oy, z = v[i + 2] - oz;
+                double nx = x, ny = y, nz = z;
+                switch (axis) {
+                    case 0 -> { ny = y * cos - z * sin; nz = y * sin + z * cos; ny *= scale; nz *= scale; }
+                    case 1 -> { nx = x * cos + z * sin; nz = -x * sin + z * cos; nx *= scale; nz *= scale; }
+                    default -> { nx = x * cos - y * sin; ny = x * sin + y * cos; nx *= scale; ny *= scale; }
+                }
+                double px = nx + ox, py = ny + oy, pz = nz + oz;
+
+                /* Blockstate-Rotation: x-Vierteldrehungen (x,y,z)->(x,z,1-y), danach
+                   y-Vierteldrehungen (x,y,z)->(1-z,y,x) — identisch zu BoxElement. */
+                for (int t = 0; t < Math.floorMod(xq, 4); t++) {
+                    double ty = py;
+                    py = pz;
+                    pz = 1 - ty;
+                }
+                for (int t = 0; t < Math.floorMod(yq, 4); t++) {
+                    double tx = px;
+                    px = 1 - pz;
+                    pz = tx;
+                }
+                v[i] = (float) px;
+                v[i + 1] = (float) py;
+                v[i + 2] = (float) pz;
+            }
+            out[q] = new BakedQuad(v, src.textureLayer(), BakedQuad.NO_CULL, BakedQuad.NO_DIRECTION,
+                    src.brightness(), src.tint(), src.tintType());
+        }
+        return out;
+    }
+
+    /** Umschließende AABB der gedrehten Quads (Kollision bleibt achsenparallel). */
+    private static AABB enclosingBox(BakedQuad[] quads) {
+        double x0 = Double.MAX_VALUE, y0 = Double.MAX_VALUE, z0 = Double.MAX_VALUE;
+        double x1 = -Double.MAX_VALUE, y1 = -Double.MAX_VALUE, z1 = -Double.MAX_VALUE;
+        for (BakedQuad q : quads) {
+            float[] v = q.vertices();
+            for (int i = 0; i < v.length; i += 5) {
+                x0 = Math.min(x0, v[i]);     x1 = Math.max(x1, v[i]);
+                y0 = Math.min(y0, v[i + 1]); y1 = Math.max(y1, v[i + 1]);
+                z0 = Math.min(z0, v[i + 2]); z1 = Math.max(z1, v[i + 2]);
+            }
+        }
+        return new AABB(x0, y0, z0, x1, y1, z1);
     }
 
     private static void collectTextures(String name, Map<String, String> out, int depth) {

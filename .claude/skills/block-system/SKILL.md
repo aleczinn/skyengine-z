@@ -62,8 +62,16 @@ z.B. die untere Türhälfte sich selbst entfernen, bevor die obere existiert.
 
 ## Fallstricke für schwächere Modelle
 
-- Die `textures`-Map in der Block-JSON wird bei Archetyp-Blöcken **nicht** fürs Rendern gelesen —
-  Texturen gehören ins Modell (siehe Skill block-modelle-und-texturen).
+- Die `textures`-Map in der Block-JSON IST die Texturquelle; die Block-JSON nennt mit
+  `model`/`models` nur den Geometrie-Rumpf (seit 2026-07-26 — ältere Notizen behaupten das
+  Gegenteil). Details und die Vorrang-Regel „Datei schlägt Block-Definition" im Skill
+  block-modelle-und-texturen.
+- Presets (`blocks/preset/*.json`, via `parent`) gelten für ALLE Kinder — ein Feld dorthin zu
+  ziehen, das nur ein Teil der Blöcke hatte, ändert die anderen still mit.
+- Eigene Properties aus der JSON (`"properties": {...}`) laufen über `JsonProperties`: Werte sind
+  Strings, Namen werden **interniert** (Property vergleicht per Identität) und Namen, die
+  `Properties` schon belegt (`facing`, `type`, `half`, `axis`, …), werden abgelehnt — sonst
+  griffe `BlockStateCodec` beim Weltladen auf das falsche Property-Objekt zu.
 - `state.with(prop, value)` wirft bei ungültigem Wert (Lookup über die vorgebauten Kombinationen).
 - `Biomes` fängt `Blocks.*`-IDs beim Klassen-Init ein → `Biomes` darf erst NACH
   `Blocks.bootstrap` berührt werden (nie aus einem Generator-Konstruktor; World wird vor dem
@@ -71,9 +79,12 @@ z.B. die untere Türhälfte sich selbst entfernen, bevor die obere existiert.
 
 ## Verifikation
 
-- `./gradlew compileJava`, dann `./gradlew run`: Log zeigt „N Block-Definitionen geladen" und
-  „BlockRegistry gebaked: X Blöcke, Y States" — Y-Sprünge nach Property-Änderungen plausibilisieren.
-- Neuer Block unsichtbar? Fast immer fehlt `game/models/block/<id>.json` (Cube braucht ein Modell).
+- `./gradlew compileJava`, dann `./gradlew saveTest` (fensterlos, bootstrappt die Registry ohne
+  GL): Log zeigt „N Block-Definitionen geladen" und „BlockRegistry gebaked: X Blöcke, Y States" —
+  Y-Sprünge nach Property-Änderungen plausibilisieren. Der Round-Trip prüft zusätzlich, dass
+  Properties die Persistenz überleben (`BlockStateCodec`).
+- Neuer Block unsichtbar? Es fehlt `model`/`models` in der Block-JSON *und* eine gleichnamige
+  Datei `game/models/block/<id>.json` — eines von beidem muss die Geometrie liefern.
 - Warnung „Block nicht gefunden, Fallback auf Luft" beim Start = Blocks.*-Konstante referenziert
   eine nicht (mehr) existierende JSON.
 - Platzierbarkeit/Interaktion nur im laufenden Spiel prüfbar; Startinventar füllt

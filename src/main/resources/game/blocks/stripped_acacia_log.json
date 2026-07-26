@@ -1,16 +1,6 @@
 {
   "id": "skyengine:stripped_acacia_log",
-  "archetype": "pillar",
-  "layer": "opaque",
+  "parent": "preset/pillar",
   "hardness": 2,
-  "tool": "axe",
-  "textures": {
-    "side": "game/textures/block/stripped_acacia_log.png",
-    "top": "game/textures/block/stripped_acacia_log_top.png"
-  },
-  "variants": {
-    "axis=y": { "model": "block/stripped_acacia_log" },
-    "axis=x": { "model": "block/stripped_acacia_log_horizontal", "x": 90, "y": 90 },
-    "axis=z": { "model": "block/stripped_acacia_log_horizontal", "x": 90 }
-  }
+  "tool": "axe"
 }

@@ -1,13 +1,7 @@
 {
   "id": "skyengine:tnt",
-  "type": "cube",
-  "layer": "opaque",
+  "parent": "preset/cube_bottom_top",
   "explosion_power": 100,
   "explosion_fuse": 80,
-  "sound": "grass",
-  "textures": {
-    "top": "game/textures/block/tnt_top.png",
-    "bottom": "game/textures/block/tnt_bottom.png",
-    "side": "game/textures/block/tnt_side.png"
-  }
+  "sound": "grass"
 }

@@ -1,20 +1,38 @@
 {
   "id": "skyengine:carved_pumpkin",
+  "model": "block/cube",
   "archetype": "cube",
   "layer": "opaque",
-  "hardness": 1.0,
+  "hardness": 1,
   "tool": "axe",
   "facing": true,
   "textures": {
     "top": "game/textures/block/pumpkin_top.png",
     "bottom": "game/textures/block/pumpkin_top.png",
     "side": "game/textures/block/pumpkin_side.png",
-    "front": "game/textures/block/carved_pumpkin.png"
+    "front": "game/textures/block/carved_pumpkin.png",
+    "up": "game/textures/block/pumpkin_top.png",
+    "down": "game/textures/block/pumpkin_top.png",
+    "north": "game/textures/block/carved_pumpkin.png",
+    "south": "game/textures/block/pumpkin_side.png",
+    "east": "game/textures/block/pumpkin_side.png",
+    "west": "game/textures/block/pumpkin_side.png"
   },
   "variants": {
-    "facing=north": { "model": "block/carved_pumpkin" },
-    "facing=east":  { "model": "block/carved_pumpkin", "y": 90 },
-    "facing=south": { "model": "block/carved_pumpkin", "y": 180 },
-    "facing=west":  { "model": "block/carved_pumpkin", "y": 270 }
+    "facing=north": {
+      "model": "block/carved_pumpkin"
+    },
+    "facing=east": {
+      "model": "block/carved_pumpkin",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "block/carved_pumpkin",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "block/carved_pumpkin",
+      "y": 270
+    }
   }
 }

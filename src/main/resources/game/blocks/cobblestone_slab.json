@@ -1,15 +1,20 @@
 {
   "id": "skyengine:cobblestone_slab",
-  "type": "slab",
-  "layer": "opaque",
+  "parent": "preset/slab",
+  "vars": {
+    "texture": "cobblestone"
+  },
   "hardness": 2,
   "tool": "pickaxe",
-  "textures": {
-    "all": "game/textures/block/cobblestone.png"
-  },
   "variants": {
-    "type=bottom": { "model": "block/cobblestone_slab" },
-    "type=top":    { "model": "block/cobblestone_slab_top" },
-    "type=double": { "model": "block/cobblestone" }
+    "type=bottom": {
+      "model": "block/cobblestone_slab"
+    },
+    "type=top": {
+      "model": "block/cobblestone_slab_top"
+    },
+    "type=double": {
+      "model": "block/cobblestone"
+    }
   }
 }

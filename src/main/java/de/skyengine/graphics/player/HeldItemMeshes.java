@@ -7,6 +7,7 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.BlockStateModels;
+import de.skyengine.game.world.block.model.ModelLoader;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.Item;
@@ -55,8 +56,9 @@ public final class HeldItemMeshes {
     /** Für BER-Blöcke ohne statisches Modell (Truhe): eigener Renderer statt Planks-Fallback. */
     private BlockEntityRenderDispatcher blockEntityRenderers;
 
-    private record HeldMesh(Mesh mesh, boolean flat, boolean handheld, BlockEntityRenderer custom) {}
-    private static final HeldMesh EMPTY = new HeldMesh(null, false, false, null);
+    /** model = Modellname für die Display-Sektion ({@code block/<id>}); null bei flachen Items. */
+    private record HeldMesh(Mesh mesh, boolean flat, boolean handheld, BlockEntityRenderer custom, String model) {}
+    private static final HeldMesh EMPTY = new HeldMesh(null, false, false, null, null);
 
     private final Map<Item, HeldMesh> cache = new HashMap<>();
     private final Matrix4f transform = new Matrix4f();
@@ -111,7 +113,7 @@ public final class HeldItemMeshes {
             this.transform.translate(1.13F / 16F, 3.2F / 16F, 1.13F / 16F)
                     .rotateXYZ(0F, (float) Math.toRadians(-90), (float) Math.toRadians(25))
                     .scale(0.68F);
-        } else {
+        } else if (!this.applyDisplay(held.model, "firstperson_righthand", 1F / 16F, 1F)) {
             this.transform.rotateXYZ(0F, (float) Math.toRadians(45), 0F).scale(0.40F);
         }
         this.transform.translate(-0.5F, -0.5F, -0.5F);
@@ -142,9 +144,11 @@ public final class HeldItemMeshes {
         if (held.mesh == null) return;
         this.transform.set(base);
         if (!held.flat) {
-            this.transform.translate(0F, 2.5F, 0F)
-                    .rotateXYZ((float) Math.toRadians(75), (float) Math.toRadians(45), 0F)
-                    .scale(16F * 0.375F);
+            if (!this.applyDisplay(held.model, "thirdperson_righthand", 1F, 16F)) {
+                this.transform.translate(0F, 2.5F, 0F)
+                        .rotateXYZ((float) Math.toRadians(75), (float) Math.toRadians(45), 0F)
+                        .scale(16F * 0.375F);
+            }
         } else if (held.handheld) {
             this.transform.translate(0F, 4F, 0.5F)
                     .rotateXYZ(0F, (float) Math.toRadians(-90), (float) Math.toRadians(55))
@@ -165,6 +169,30 @@ public final class HeldItemMeshes {
     }
 
     /**
+     * Wendet die {@code display}-Sektion des Modells an (MC-Reihenfolge: translate, rotate,
+     * scale). {@code false}, wenn das Modell für diesen Kontext nichts liefert — dann bleibt
+     * der hartkodierte Vanilla-Default des Aufrufers stehen.
+     *
+     * @param translationUnit 1/16 wenn {@code base} in Blockeinheiten rechnet (First-Person),
+     *                        1 wenn in Modell-Pixeln (Third-Person)
+     * @param scaleUnit       Gegenstück dazu: 1 bzw. 16, weil das Mesh selbst 0..1 groß ist
+     */
+    private boolean applyDisplay(String model, String slot, float translationUnit, float scaleUnit) {
+        if (model == null) return false;
+        ModelLoader.Display d = ModelLoader.display(model, slot);
+        if (d == null) return false;
+        this.transform
+                .translate(d.translation()[0] * translationUnit,
+                           d.translation()[1] * translationUnit,
+                           d.translation()[2] * translationUnit)
+                .rotateXYZ((float) Math.toRadians(d.rotation()[0]),
+                           (float) Math.toRadians(d.rotation()[1]),
+                           (float) Math.toRadians(d.rotation()[2]))
+                .scale(d.scale()[0] * scaleUnit, d.scale()[1] * scaleUnit, d.scale()[2] * scaleUnit);
+        return true;
+    }
+
+    /**
      * Flaches Icon hat Vorrang (wie das Inventar): Einzel-Pfad → extrudiertes 3D-Sprite,
      * Mehr-Pfad (Tür) → doppelseitiger Quad-Stapel. Sonst Block-Würfel aus dem Default-State.
      */
@@ -180,10 +208,10 @@ public final class HeldItemMeshes {
         }
         boolean handheld = item instanceof ToolItem;
         if (paths != null && paths.length == 1) {
-            return new HeldMesh(buildExtruded(paths[0], tint), true, handheld, null);
+            return new HeldMesh(buildExtruded(paths[0], tint), true, handheld, null, null);
         }
         if (paths != null && paths.length > 1) {
-            return new HeldMesh(buildFlat(paths, tint), true, handheld, null);
+            return new HeldMesh(buildFlat(paths, tint), true, handheld, null, null);
         }
         if (item instanceof BlockItem bi) {
             /* BER-Block ohne statisches Modell (Truhe): eigener Renderer statt Planks-Fallback.
@@ -191,10 +219,12 @@ public final class HeldItemMeshes {
             BakedQuad[] quads = bi.getBlock().getDefaultState().getModel();
             if (quads == null || quads.length == 0) {
                 BlockEntityRenderer custom = this.customHeldFor(bi);
-                if (custom != null) return new HeldMesh(null, false, false, custom);
+                if (custom != null) return new HeldMesh(null, false, false, custom, null);
             }
             Mesh mesh = buildBlock(bi.getBlock().getDefaultState());
-            if (mesh != null) return new HeldMesh(mesh, false, false, null);
+            /* Modellname für die display-Sektion; block/block liefert den Vanilla-Default. */
+            String model = "block/" + bi.getBlock().getIdentifier().path();
+            if (mesh != null) return new HeldMesh(mesh, false, false, null, model);
         }
         return EMPTY;
     }

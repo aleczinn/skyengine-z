@@ -1,12 +1,9 @@
 {
   "id": "skyengine:sandstone",
-  "type": "cube",
-  "layer": "opaque",
+  "parent": "preset/cube_bottom_top",
+  "vars": {
+    "side": "sandstone"
+  },
   "hardness": 0.8,
-  "tool": "pickaxe",
-  "textures": {
-    "top": "game/textures/block/sandstone_top.png",
-    "bottom": "game/textures/block/sandstone_bottom.png",
-    "side": "game/textures/block/sandstone.png"
-  }
+  "tool": "pickaxe"
 }

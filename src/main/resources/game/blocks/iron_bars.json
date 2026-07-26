@@ -1,5 +1,9 @@
 {
   "id": "skyengine:iron_bars",
+  "models": {
+    "_post": "block/pane_post",
+    "_side": "block/pane_side"
+  },
   "type": "pane",
   "layer": "cutout",
   "hardness": 5,
@@ -9,14 +13,57 @@
     "all": "game/textures/block/iron_bars.png"
   },
   "post": {
-    "from": [7, 0, 7],
-    "to": [9, 16, 9]
+    "from": [
+      7,
+      0,
+      7
+    ],
+    "to": [
+      9,
+      16,
+      9
+    ]
   },
   "multipart": [
-    { "apply": { "model": "block/iron_bars_post" } },
-    { "when": { "north": "true" }, "apply": { "model": "block/iron_bars_side" } },
-    { "when": { "east": "true" },  "apply": { "model": "block/iron_bars_side", "y": 90 } },
-    { "when": { "south": "true" }, "apply": { "model": "block/iron_bars_side", "y": 180 } },
-    { "when": { "west": "true" },  "apply": { "model": "block/iron_bars_side", "y": 270 } }
+    {
+      "apply": {
+        "model": "block/iron_bars_post"
+      }
+    },
+    {
+      "when": {
+        "north": "true"
+      },
+      "apply": {
+        "model": "block/iron_bars_side"
+      }
+    },
+    {
+      "when": {
+        "east": "true"
+      },
+      "apply": {
+        "model": "block/iron_bars_side",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "south": "true"
+      },
+      "apply": {
+        "model": "block/iron_bars_side",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "west": "true"
+      },
+      "apply": {
+        "model": "block/iron_bars_side",
+        "y": 270
+      }
+    }
   ]
 }

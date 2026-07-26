@@ -1,15 +1,20 @@
 {
   "id": "skyengine:stone_slab",
-  "type": "slab",
-  "layer": "opaque",
+  "parent": "preset/slab",
+  "vars": {
+    "texture": "stone"
+  },
   "hardness": 2,
   "tool": "pickaxe",
-  "textures": {
-    "all": "game/textures/block/stone.png"
-  },
   "variants": {
-    "type=bottom": { "model": "block/stone_slab" },
-    "type=top":    { "model": "block/stone_slab_top" },
-    "type=double": { "model": "block/stone" }
+    "type=bottom": {
+      "model": "block/stone_slab"
+    },
+    "type=top": {
+      "model": "block/stone_slab_top"
+    },
+    "type=double": {
+      "model": "block/stone"
+    }
   }
 }

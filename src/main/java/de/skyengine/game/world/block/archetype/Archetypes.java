@@ -25,6 +25,7 @@ public final class Archetypes {
         register("pillar", new PillarArchetype());
         register("fluid", new FluidArchetype());
         register("door", new DoorArchetype());
+        register("attached", new AttachedArchetype());
         register("custom", new CustomArchetype());
     }
 

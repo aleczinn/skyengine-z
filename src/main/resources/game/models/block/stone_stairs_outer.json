@@ -1,2 +1,0 @@
-{ "parent": "block/outer_stairs",
-  "textures": { "top": "game/textures/block/stone.png", "bottom": "game/textures/block/stone.png", "side": "game/textures/block/stone.png" } }

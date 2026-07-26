@@ -43,6 +43,22 @@ tasks.register<JavaExec>("mcImport") {
     mainClass = "de.skyengine.mcimport.McWorldImporter"
 }
 
+/* Fensterlose Prüfstände: bootstrappen die Block-Registry ohne GL und melden über den
+   Exit-Code. Damit lassen sich Block-JSON-Änderungen prüfen, ohne das Spiel zu starten. */
+tasks.register<JavaExec>("saveTest") {
+    group = "verification"
+    description = "Serialisiert einen Chunk und vergleicht ihn nach dem Wiederherstellen (Blöcke, Properties, BlockEntities)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "de.skyengine.game.world.save.debug.SaveRoundTripTest"
+}
+
+tasks.register<JavaExec>("mapExport") {
+    group = "verification"
+    description = "Exportiert Weltgen-Debugkarten nach debug-maps/ (Bitstabilität der Generierung)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "de.skyengine.game.world.generator.debug.GeneratorMapExporter"
+}
+
 val lwjglVersion = "3.4.1"
 val jomlVersion = "1.10.9"
 val jomlPrimitivesVersion = "1.10.0"

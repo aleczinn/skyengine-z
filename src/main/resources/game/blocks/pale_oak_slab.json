@@ -1,15 +1,20 @@
 {
   "id": "skyengine:pale_oak_slab",
-  "type": "slab",
-  "layer": "opaque",
+  "parent": "preset/slab",
+  "vars": {
+    "texture": "pale_oak_planks"
+  },
   "hardness": 2,
   "tool": "axe",
-  "textures": {
-    "all": "game/textures/block/pale_oak_planks.png"
-  },
   "variants": {
-    "type=bottom": { "model": "block/pale_oak_slab" },
-    "type=top":    { "model": "block/pale_oak_slab_top" },
-    "type=double": { "model": "block/pale_oak_planks" }
+    "type=bottom": {
+      "model": "block/pale_oak_slab"
+    },
+    "type=top": {
+      "model": "block/pale_oak_slab_top"
+    },
+    "type=double": {
+      "model": "block/pale_oak_planks"
+    }
   }
 }

@@ -1,10 +1,6 @@
 {
   "id": "skyengine:orange_terracotta",
-  "type": "cube",
-  "layer": "opaque",
+  "parent": "preset/cube",
   "hardness": 1.5,
-  "tool": "pickaxe",
-  "textures": {
-    "all": "game/textures/block/orange_terracotta.png"
-  }
+  "tool": "pickaxe"
 }

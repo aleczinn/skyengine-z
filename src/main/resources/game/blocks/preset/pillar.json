@@ -1,0 +1,33 @@
+{
+  "_comment": "Preset: Saeule mit AXIS-Property (Stamm). Liegende Varianten drehen das Horizontal-Modell mit.",
+  "archetype": "pillar",
+  "layer": "opaque",
+  "vars": {
+    "top": "${id}_top",
+    "bottom": "${id}_top",
+    "side": "${id}"
+  },
+  "models": {
+    "": "block/cube_bottom_top",
+    "_horizontal": "block/cube_bottom_top_horizontal"
+  },
+  "textures": {
+    "top": "game/textures/block/${top}.png",
+    "bottom": "game/textures/block/${bottom}.png",
+    "side": "game/textures/block/${side}.png"
+  },
+  "variants": {
+    "axis=y": {
+      "model": "block/${id}"
+    },
+    "axis=x": {
+      "model": "block/${id}_horizontal",
+      "x": 90,
+      "y": 90
+    },
+    "axis=z": {
+      "model": "block/${id}_horizontal",
+      "x": 90
+    }
+  }
+}

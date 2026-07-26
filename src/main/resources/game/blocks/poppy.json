@@ -1,11 +1,4 @@
 {
   "id": "skyengine:poppy",
-  "type": "cross",
-  "layer": "cutout",
-  "opaque": false,
-  "solid": false,
-  "icon_item": "game/textures/block/poppy.png",
-  "textures": {
-    "all": "game/textures/block/poppy.png"
-  }
+  "parent": "preset/cross"
 }

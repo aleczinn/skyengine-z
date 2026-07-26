@@ -48,10 +48,35 @@ Per-Face-`uv` in Modell-JSONs wird unterstützt (MC-Format `[u0,v0,u1,v1]`, Pixe
 (Blending, Glas — wird zuletzt und sortiert gerendert). `opaque`-Default folgt dem Layer;
 `cull_same` cullt Faces zwischen zwei identischen Blöcken (Glas an Glas).
 
-**Häufigste Verwirrung:** Ein Archetyp-Block (cube etc.) liest die `textures`-Map der Block-JSON
-NICHT — nur der `JsonBlock`-Fallback tut das. Textur-Änderungen gehören in
-`game/models/block/<id>.json`. Fehlt die Modell-Datei komplett, ist der Block **unsichtbar**
-(Auto-Default findet nichts, Warnung „Modell fehlt" im Log).
+**Wo Texturen hingehören (2026-07-26 umgebaut — frühere Fassungen dieses Abschnitts sagten das
+Gegenteil):** Die `textures`-Map der **Block-JSON** ist die Texturquelle. Die Block-JSON nennt
+mit `model` (bzw. `models` als Suffix→Rumpf-Map) nur noch den Geometrie-Rumpf; daraus baut
+`ModelLoader.registerBlockModels` ein **virtuelles** Modell `block/<id><suffix>` mit
+`parent = Rumpf` und den Block-Texturen. `game/models/` enthält deshalb nur noch Geometrie
+(`elements`) plus die geteilten Rümpfe `block/block`, `block/cube_all`, `block/cube_bottom_top`,
+`block/cross`.
+
+Daraus folgen drei Regeln:
+- Ein Block braucht **entweder** `model`/`models` **oder** eine gleichnamige Datei
+  `models/block/<id>.json`. Fehlt beides, ist er **unsichtbar** (Warnung „Modell fehlt").
+- Existiert eine Datei UND deklariert der Block `model`, **gewinnt die Datei** — Warnung
+  „Modell-Datei ueberdeckt die Block-Definition", und Textur-Änderungen im Block wirken nicht.
+- `registerBlockModels` läuft in `Blocks.bootstrap` zwingend NACH `ModelLoader.load` (das leert
+  MODELS *und* CACHE) und VOR dem ersten `bake`.
+
+Ausnahme: `tall_cross` (tall_grass, lilac) ist bewusst nicht migriert — `_bottom`/`_top`
+brauchen zwei verschiedene Texturen, ein virtuelles Modell hat aber nur eine `textures`-Map.
+
+**Vererbung:** Block- und Item-JSONs kennen `parent` (Deep-Merge, Arrays werden ersetzt) und
+`${var}`-Platzhalter (eingebaut `${id}`/`${ns}`, dazu ein `vars`-Objekt; nur EINE Ebene).
+Presets liegen in `blocks/preset/` bzw. `items/preset/` und werden nicht registriert.
+**Falle:** ein Feld ins Preset zu ziehen, das nur ein Teil der Kinder hatte, ändert die
+anderen still mit.
+
+**Element-Rotation:** MC-Format `rotation: {origin, axis, angle, rescale}` wird unterstützt
+(Wandfackel −22,5°). Solche Elemente laufen an `BoxElement` vorbei — die fertigen Quads werden
+affin gedreht und verlieren `face` UND `cullFace`, landen also im selben Regime wie Cross-Quads.
+`from`/`to` sind deshalb `float` und dürfen außerhalb 0..16 liegen.
 
 ## Icons & animierte Texturen
 
@@ -64,8 +89,10 @@ NICHT — nur der `JsonBlock`-Fallback tut das. Textur-Änderungen gehören in
 
 ## Verifikation
 
-- `./gradlew run` und Log prüfen: „N Modelle geladen", „N Blockstates geladen", Warnungen
-  „Modell fehlt"/„Textur fehlt"/„Variante fehlt" sind konkrete Fehlerhinweise.
+- `./gradlew saveTest` genügt für alles rund ums Laden — bootstrappt die Registry ohne GL.
+  Log prüfen: „N Modelle geladen", „N Modelle aus Block-Definitionen erzeugt", „N Blockstates
+  geladen"; die Warnungen „Modell fehlt"/„Textur fehlt"/„Variante fehlt"/„Modell-Datei
+  ueberdeckt" müssen **null** Treffer haben.
 - Optik (UV-Rotation, Tint, Layer) ist nur visuell prüfbar — Block ins Startinventar legen
   (`GameContainer.fillStartInventory`), platzieren, aus mehreren Richtungen ansehen.
 - Nach Textur-/Icon-Ergänzungen: Wird der Pfad VOR `ChunkRenderer.init()` registriert?

@@ -17,14 +17,20 @@ import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.entity.Capabilities;
 import de.skyengine.game.world.block.json.BlockDefinition;
 import de.skyengine.game.world.block.registry.Registries;
+import de.skyengine.game.world.block.state.JsonProperties;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.block.state.Property;
 import de.skyengine.game.world.item.ToolTier;
 import de.skyengine.game.world.item.ToolType;
+import de.skyengine.utils.logging.LogManager;
+import de.skyengine.utils.logging.Logger;
 
 import java.util.List;
 
 /** Baut aus einem {@link Archetype} + {@link BlockDefinition} einen fertig konfigurierten Block. */
 public final class ArchetypeBlockFactory {
+
+    private static final Logger LOGGER = LogManager.getLogger(ArchetypeBlockFactory.class.getName());
 
     public static Block create(Archetype archetype, Identifier id, Block.Settings settings, BlockDefinition def) {
         BlockConfig.Builder builder = BlockConfig.builder();
@@ -34,6 +40,12 @@ public final class ArchetypeBlockFactory {
         if (def.block_entity != null) {
             BlockEntityType<?> type = Registries.BLOCK_ENTITY.get(Identifier.of(def.block_entity));
             if (type != null) builder.blockEntity(type);
+        }
+
+        /* Selbst deklarierte Properties. Bewusst NACH archetype.configure: so stehen sie hinter
+           den Archetyp-Properties und die State-Reihenfolge bestehender Blöcke bleibt gleich. */
+        if (def.properties != null) {
+            applyJsonProperties(builder, def);
         }
 
         /* Generisches Connection-System aus JSON (Pipes/Cables ohne eigenen Archetyp). */
@@ -118,6 +130,30 @@ public final class ArchetypeBlockFactory {
             };
         }
         return mask;
+    }
+
+    /** Hängt die {@code properties}-Sektion an; ungültige Einträge werden von JsonProperties gemeldet. */
+    private static void applyJsonProperties(BlockConfig.Builder builder, BlockDefinition def) {
+        for (var entry : def.properties.entrySet()) {
+            BlockDefinition.PropertyDef p = entry.getValue();
+            if (p == null || p.values == null) {
+                LOGGER.error("Property '" + entry.getKey() + "' in " + def.id + " hat kein 'values'");
+                continue;
+            }
+            List<String> values = List.of(p.values);
+            Property<String> property = JsonProperties.of(entry.getKey(), values);
+            if (property == null) continue;   // Grund steht bereits im Log
+
+            builder.property(property);
+            if (p.defaultValue != null) {
+                if (values.contains(p.defaultValue)) {
+                    builder.defaultValue(property, p.defaultValue);
+                } else {
+                    LOGGER.error("Default '" + p.defaultValue + "' ist kein Wert von '"
+                            + entry.getKey() + "' in " + def.id);
+                }
+            }
+        }
     }
 
     private static void applyConnection(BlockConfig.Builder builder, BlockDefinition.ConnectionDef def) {
