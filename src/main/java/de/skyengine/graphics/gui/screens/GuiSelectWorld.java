@@ -14,6 +14,7 @@ import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.GuiComponent;
+import de.skyengine.graphics.gui.widget.IconButton;
 import de.skyengine.graphics.gui.widget.Label;
 import org.lwjgl.glfw.GLFW;
 
@@ -104,6 +105,10 @@ public final class GuiSelectWorld extends GuiScreen {
         boolean has = index >= 0;
         this.play.enabled = has;
         this.delete.enabled = has;
+        /* Ohne Auswahl erklären, warum die Buttons nichts tun (Tooltips gelten auch bei disabled). */
+        String hint = has ? null : I18n.tr("world.select.needs_selection");
+        this.play.tooltip(hint);
+        this.delete.tooltip(hint);
     }
 
     @Override
@@ -134,6 +139,12 @@ public final class GuiSelectWorld extends GuiScreen {
         Button back = new Button(I18n.tr("gui.back"), 130, 20, () -> this.goBack(gui));
 
         this.components.add(title);
+        /* Import oben rechts (eigene Seite) — kollidiert weder mit dem Titel noch mit der Liste. */
+        this.components.add(new IconButton(gui.textures().iconImport, null, 20,
+                () -> gui.open(new GuiImportWorld(this)))
+                .uv(12, 2, 16, 16) // Globus-Kern aus dem 40×20-Sprite
+                .tooltip(I18n.tr("world.import.button") + "<br>" + I18n.tr("world.import.button_hint"))
+                .anchor(Anchor.TOP_RIGHT, 6, 6));
         this.components.add(new VStack(4,
                 new HStack(4, this.play, create),
                 new HStack(4, this.delete, back)
