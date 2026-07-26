@@ -30,8 +30,11 @@ public final class ModelLoader {
     /** Ergebnis des Backens: Render-Quads + Kollisions-/Outline-Boxen (lokale 0..1). */
     public record Baked(BakedQuad[] quads, AABB[] boxes) {}
 
-    /* ---- Gson-DTOs ---- */
-    public static final class RawModel { String parent; Map<String, String> textures; List<RawElement> elements; }
+    /* ---- Gson-DTOs ----
+       ambientocclusion: MC-Modellfeld, Default true. Bewusst der Wrapper Boolean — bei einem
+       primitiven boolean liefert GSON für ein FEHLENDES Feld false und würde AO überall
+       abschalten. Kleinschreibung ohne Trennzeichen ist der MC-Feldname (wie cullface). */
+    public static final class RawModel { String parent; Map<String, String> textures; List<RawElement> elements; Boolean ambientocclusion; }
     public static final class RawElement { int[] from; int[] to; Map<String, RawFace> faces; boolean mirror; }
     public static final class RawFace { String texture; String cullface; int[] uv; }
 
@@ -88,14 +91,33 @@ public final class ModelLoader {
         int xq = Math.floorMod(xDeg / 90, 4);
         int yq = Math.floorMod(yDeg / 90, 4);
 
+        boolean ao = collectAmbientOcclusion(name, 0);
+
         List<BakedQuad[]> parts = new ArrayList<>();
         List<AABB> boxes = new ArrayList<>();
         for (RawElement el : elements) {
             BoxElement be = toBox(el, tex).rotateX(xq).rotateY(yq);
-            parts.add(be.bake());
+            BakedQuad[] quads = be.bake();
+            if (!ao) stripDirection(quads);
+            parts.add(quads);
             boxes.add(be.toAABB());
         }
         return new Baked(BlockModels.concat(parts.toArray(new BakedQuad[0][])), boxes.toArray(new AABB[0]));
+    }
+
+    /**
+     * Nimmt den Quads ihre geometrische Richtung ({@code ambientocclusion: false}) — der Mesher
+     * gated AO über {@code face() >= 0}, damit bleiben sie voll hell. Türen sind der Vanilla-Fall:
+     * in einer Nische wären sonst alle vier Ecken voll eingeschlossen und die Tür durchgehend dunkel.
+     * {@code cullFace} bleibt erhalten, Culling und Greedy-Pass sind also unbeeinflusst.
+     */
+    private static void stripDirection(BakedQuad[] quads) {
+        for (int i = 0; i < quads.length; i++) {
+            BakedQuad q = quads[i];
+            /* Vertex-Array wird geteilt (nie mutiert) — nur die Richtung ändert sich. */
+            quads[i] = new BakedQuad(q.vertices(), q.textureLayer(), q.cullFace(), BakedQuad.NO_DIRECTION,
+                    q.brightness(), q.tint(), q.tintType());
+        }
     }
 
     private static void collectTextures(String name, Map<String, String> out, int depth) {
@@ -113,6 +135,16 @@ public final class ModelLoader {
         if (m.elements != null) return m.elements;
         if (m.parent != null) return collectElements(m.parent, depth + 1);
         return List.of();
+    }
+
+    /** Erbt {@code ambientocclusion} wie in Minecraft: erstes Vorkommen der Kette gewinnt, Default an. */
+    private static boolean collectAmbientOcclusion(String name, int depth) {
+        if (depth > 20) return true;
+        RawModel m = MODELS.get(name);
+        if (m == null) return true;
+        if (m.ambientocclusion != null) return m.ambientocclusion;
+        if (m.parent != null) return collectAmbientOcclusion(m.parent, depth + 1);
+        return true;
     }
 
     private static BoxElement toBox(RawElement el, Map<String, String> tex) {
