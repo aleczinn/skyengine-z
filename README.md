@@ -56,7 +56,9 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
 
 ## Tools
 
-Ab der 0.0.9 kann man Minecraft Welten in das SkyEngine Format konvertieren. Dieses Tool ist auch im GuiWorldSelection implementiert.
+Ab der 0.0.9 kann man Minecraft Welten in das SkyEngine Format konvertieren. Im Spiel geht das über
+Einzelspieler → „Importieren" (oben rechts): dort stehen die Welten aus `%APPDATA%\.minecraft\saves`
+zur Auswahl, der Import läuft im Hintergrund und zeigt Fortschritt + Log an.
 Ansonsten kann man es mit diesem Befehl nutzen:
 
 ```bash

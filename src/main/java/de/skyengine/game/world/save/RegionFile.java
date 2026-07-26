@@ -25,6 +25,14 @@ import java.util.BitSet;
  * seinen Sektoren heraus, wird zuerst eine freie Lücke wiederverwendet (First-Fit), sonst
  * angehängt. Die Datei schrumpft nie (Kompaktierung = späteres Feature), wächst aber auch
  * nicht unbegrenzt. Kein eigenes Locking — der Aufrufer ({@code WorldStorage}) serialisiert.
+ *
+ * <p><b>Batch-Modus</b> ({@link #RegionFile(File, boolean)} mit {@code syncEachWrite=false}):
+ * für das einmalige Massen-Schreiben beim Welt-Import. Die beiden {@code force()} pro Chunk
+ * entfallen (bei 256 Chunks sind das 512 fsyncs pro Datei — der mit Abstand größte Zeitposten),
+ * stattdessen wird einmal beim {@link #close()} geflusht. Damit gilt die oben beschriebene
+ * Pro-Chunk-Crash-Sicherheit NICHT: bricht der Import ab, ist die Datei möglicherweise
+ * inkonsistent — eine abgebrochene Import-Welt wird ohnehin verworfen. Der Spielbetrieb
+ * benutzt weiterhin ausschließlich den Standard-Konstruktor.
  */
 public final class RegionFile implements AutoCloseable {
 
@@ -48,8 +56,15 @@ public final class RegionFile implements AutoCloseable {
     private final int[] entries = new int[CHUNK_ENTRIES];
     /* Belegte Sektoren, beim Öffnen aus dem Header abgeleitet (Sektor 0 = Header selbst). */
     private final BitSet usedSectors = new BitSet();
+    /* false = Batch-Modus: kein fsync je Schreibvorgang, nur einer beim close(). */
+    private final boolean syncEachWrite;
 
     public RegionFile(File path) throws IOException {
+        this(path, true);
+    }
+
+    public RegionFile(File path, boolean syncEachWrite) throws IOException {
+        this.syncEachWrite = syncEachWrite;
         this.file = new RandomAccessFile(path, "rw");
         this.usedSectors.set(0);
         if (this.file.length() == 0) {
@@ -68,7 +83,12 @@ public final class RegionFile implements AutoCloseable {
         header[4] = HEADER_VERSION;
         this.file.seek(0);
         this.file.write(header);
-        this.file.getChannel().force(false);
+        this.sync();
+    }
+
+    /** fsync — im Batch-Modus ein No-Op (dort wird einmal beim close() geflusht). */
+    private void sync() throws IOException {
+        if (this.syncEachWrite) this.file.getChannel().force(false);
     }
 
     private void readHeader(File path) throws IOException {
@@ -182,13 +202,13 @@ public final class RegionFile implements AutoCloseable {
 
         this.file.seek((long) sectorOffset * SECTOR_SIZE);
         this.file.write(block);
-        this.file.getChannel().force(false);
+        this.sync();
 
         /* Commit-Punkt: Header-Eintrag umbiegen. */
         int newEntry = (sectorOffset << 8) | sectorCount;
         this.file.seek(ENTRY_TABLE_OFFSET + (long) idx * 4);
         this.file.writeInt(newEntry);
-        this.file.getChannel().force(false);
+        this.sync();
         this.entries[idx] = newEntry;
 
         /* Belegungs-Map nachziehen: erst jetzt gelten die alten Sektoren als frei. */
@@ -212,6 +232,8 @@ public final class RegionFile implements AutoCloseable {
 
     @Override
     public void close() throws IOException {
+        /* Batch-Modus: der EINE Flush für alles Geschriebene (Daten + Header). */
+        if (!this.syncEachWrite) this.file.getChannel().force(true);
         this.file.close();
     }
 }
