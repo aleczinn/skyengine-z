@@ -165,7 +165,7 @@ v0.0.1
 - Blöcke-System: Grass, Stein; Kreuzblöcke für kurzes Gras, Tulpen; Stufen, Zäune, Custom Modelle wie Zaubertisch
 - Simples Welt-Rendering
 
-![Ingame Screenshot mit Hotbar und Block Rendering](./project/0.0.1_1.png?raw=true)
+![Ingame Screenshot mit Hotbar und Block Rendering](./project/0.0.1_2.png?raw=true)
 
 ![Ingame Screenshot mit hoher Sichtweite im Spectator Modus](./project/0.0.1_1.png?raw=true)
 
