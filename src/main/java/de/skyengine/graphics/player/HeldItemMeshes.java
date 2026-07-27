@@ -221,7 +221,14 @@ public final class HeldItemMeshes {
                 BlockEntityRenderer custom = this.customHeldFor(bi);
                 if (custom != null) return new HeldMesh(null, false, false, custom, null);
             }
-            Mesh mesh = buildBlock(bi.getBlock().getDefaultState());
+            /* Deklariert der Block ein inventory_model (Zaun mit Armen, Glasscheibe), gilt es auch
+               in der Hand — sonst hielte man beim Zaun nur den nackten Pfosten. Dieser Pfad backt
+               frisch aus den Modell-JSONs und läuft damit am Retint in Block.bakeModel vorbei,
+               der Tint muss also explizit angewandt werden (wie im ItemIconRenderer). */
+            ModelLoader.Baked inventory = BlockStateModels.inventoryOverride(bi.getBlock());
+            Mesh mesh = inventory != null
+                    ? buildBlock(bi.getBlock().applyTint(inventory.quads()))
+                    : buildBlock(bi.getBlock().getDefaultState());
             /* Modellname für die display-Sektion; block/block liefert den Vanilla-Default. */
             String model = "block/" + bi.getBlock().getIdentifier().path();
             if (mesh != null) return new HeldMesh(mesh, false, false, null, model);
@@ -402,7 +409,10 @@ public final class HeldItemMeshes {
         }
         BakedQuad[] overlay = state.getOverlay();
         if (overlay.length > 0) quads = BlockModels.concat(quads, overlay);
+        return buildBlock(quads);
+    }
 
+    private static Mesh buildBlock(BakedQuad[] quads) {
         int verts = 0;
         for (BakedQuad q : quads) verts += q.vertices().length / 5;
         if (verts == 0) return null;

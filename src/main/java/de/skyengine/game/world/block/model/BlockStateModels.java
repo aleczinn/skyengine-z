@@ -84,13 +84,21 @@ public final class BlockStateModels {
      * so sieht das Icon aus wie in Minecraft, ohne die Welt-Darstellung zu beeinflussen.
      */
     public static ModelLoader.Baked bakeInventory(Block block) {
+        ModelLoader.Baked override = inventoryOverride(block);
+        return override != null ? override : bake(block, block.getDefaultState());
+    }
+
+    /**
+     * Nur das explizit deklarierte {@code inventory_model}, sonst {@code null}. Für Aufrufer, die
+     * zwischen „Block hat ein eigenes Item-Modell" und „nimm den Default-State" unterscheiden
+     * müssen — die First-/Third-Person-Hand zeigt sonst beim Zaun nur den nackten Pfosten.
+     */
+    public static ModelLoader.Baked inventoryOverride(Block block) {
         JsonObject root = STATES.get(block.getIdentifier().path());
-        if (root != null && root.has("inventory_model")) {
-            int x = root.has("inventory_x") ? root.get("inventory_x").getAsInt() : 0;
-            int y = root.has("inventory_y") ? root.get("inventory_y").getAsInt() : 0;
-            return ModelLoader.bake(root.get("inventory_model").getAsString(), x, y);
-        }
-        return bake(block, block.getDefaultState());
+        if (root == null || !root.has("inventory_model")) return null;
+        int x = root.has("inventory_x") ? root.get("inventory_x").getAsInt() : 0;
+        int y = root.has("inventory_y") ? root.get("inventory_y").getAsInt() : 0;
+        return ModelLoader.bake(root.get("inventory_model").getAsString(), x, y);
     }
 
     private static ModelLoader.Baked bakeInternal(Block block, BlockState state) {
