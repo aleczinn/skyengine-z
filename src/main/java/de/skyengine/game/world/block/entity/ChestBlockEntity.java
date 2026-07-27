@@ -1,5 +1,7 @@
 package de.skyengine.game.world.block.entity;
 
+import de.skyengine.audio.BlockOpenSound;
+import de.skyengine.audio.SoundManager;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -43,12 +45,32 @@ public final class ChestBlockEntity extends BlockEntity {
     }
 
     public void toggle() {
-        this.open = !this.open;
+        this.setOpen(!this.open);
     }
 
-    /** Setzt den Deckel-Zielzustand (z.B. beim Öffnen/Schließen des Truhen-GUI). */
+    /**
+     * Setzt den Deckel-Zielzustand (z.B. beim Öffnen/Schließen des Truhen-GUI) und spielt den
+     * Auf-/Zu-Sound. Der Hook sitzt bewusst HIER und nicht in {@code GuiChest.onClose}: das GUI
+     * lässt sich auf mehreren Wegen schließen (ESC, Inventar-Taste, Todesscreen, Welt verlassen),
+     * die alle hier durchlaufen — und so kann der Sound nicht von der Deckel-Animation abdriften.
+     */
     public void setOpen(boolean open) {
+        if (open == this.open) return;   // nur echte Wechsel klingen
         this.open = open;
+        this.playToggleSound(open);
+    }
+
+    /** Auf-/Zu-Sound aus der Block-Definition; stumm ohne Welt, SoundManager oder Sound-Satz. */
+    private void playToggleSound(boolean open) {
+        if (this.world == null) return;
+        SoundManager sound = this.world.getSoundManager();
+        if (sound == null) return;
+        BlockOpenSound set = Blocks.getState(this.world.getBlock(this.pos.x(), this.pos.y(), this.pos.z()))
+                .getBlock().getOpenSound();
+        if (set == null) return;
+        double x = this.pos.x() + 0.5, y = this.pos.y() + 0.5, z = this.pos.z() + 0.5;
+        if (open) sound.playBlockOpen(set, x, y, z);
+        else sound.playBlockClose(set, x, y, z);
     }
 
     /** Interpolierter Öffnungsgrad [0..1] für flüssige Animation zwischen Ticks. */

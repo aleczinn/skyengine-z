@@ -45,6 +45,7 @@ public final class BlockConfig {
     private final de.skyengine.game.world.item.ToolType toolType;
     private final int harvestLevel;
     private final de.skyengine.audio.BlockSoundGroup soundGroup;
+    private final de.skyengine.audio.BlockOpenSound openSound;
 
     private BlockConfig(Builder b) {
         this.properties = List.copyOf(b.properties);
@@ -69,6 +70,7 @@ public final class BlockConfig {
         this.toolType = b.toolType;
         this.harvestLevel = b.harvestLevel;
         this.soundGroup = b.soundGroup;
+        this.openSound = b.openSound;
     }
 
     public List<Property<?>> properties() {
@@ -194,6 +196,11 @@ public final class BlockConfig {
         return soundGroup;
     }
 
+    /** Auf-/Zu-Sound (Tür, Truhe) oder {@code null} — der Normalfall für Blöcke ohne Öffnen. */
+    public de.skyengine.audio.BlockOpenSound openSound() {
+        return openSound;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -221,6 +228,7 @@ public final class BlockConfig {
         private de.skyengine.game.world.item.ToolType toolType;
         private int harvestLevel = 0;
         private de.skyengine.audio.BlockSoundGroup soundGroup = de.skyengine.audio.BlockSoundGroup.STONE;
+        private de.skyengine.audio.BlockOpenSound openSound;
 
         public Builder property(Property<?> p) {
             this.properties.add(p);
@@ -332,6 +340,11 @@ public final class BlockConfig {
 
         public Builder sound(de.skyengine.audio.BlockSoundGroup g) {
             this.soundGroup = g;
+            return this;
+        }
+
+        public Builder openSound(de.skyengine.audio.BlockOpenSound s) {
+            this.openSound = s;
             return this;
         }
 

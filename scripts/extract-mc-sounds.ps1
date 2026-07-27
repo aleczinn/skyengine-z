@@ -59,6 +59,13 @@ $wanted = @(
     # TNT-Explosion + Zünd-Zischen (in MC unter random/)
     @{ pattern = 'minecraft/sounds/random/explode[1-4].ogg'; dest = 'random' },
     @{ pattern = 'minecraft/sounds/random/fuse.ogg';         dest = 'random' },
+    # Auf-/Zu-Sounds (Tuer, Truhe). Jeder Satz braucht einen EIGENEN Zielordner: kopiert wird mit
+    # dem MC-Dateinamen, sonst wuerden wooden_door/open1.ogg und iron_door/open1.ogg kollidieren.
+    # Die Truhen-Muster sind eng gefasst — im selben MC-Ordner liegen *_locked-Varianten.
+    @{ pattern = 'minecraft/sounds/block/wooden_door/*.ogg';    dest = 'door/wood' },
+    @{ pattern = 'minecraft/sounds/block/iron_door/*.ogg';      dest = 'door/iron' },
+    @{ pattern = 'minecraft/sounds/block/chest/open.ogg';       dest = 'chest' },
+    @{ pattern = 'minecraft/sounds/block/chest/close[1-3].ogg'; dest = 'chest' },
     # Klassische Musik-Tracks (im modernen Index nach Songnamen benannt)
     @{ pattern = 'minecraft/sounds/music/game/minecraft.ogg';  dest = 'music' },
     @{ pattern = 'minecraft/sounds/music/game/sweden.ogg';     dest = 'music' },

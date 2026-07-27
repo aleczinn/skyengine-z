@@ -6,6 +6,7 @@
   "tool": "axe",
   "opaque": false,
   "facing": true,
+  "open_sound": "chest",
   "block_entity": "skyengine:chest",
   "collision": {
     "boxes": [

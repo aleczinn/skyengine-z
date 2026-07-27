@@ -1,5 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
+import de.skyengine.audio.BlockOpenSound;
+import de.skyengine.audio.SoundManager;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -42,6 +44,15 @@ public final class DoorBehavior implements BlockBehavior {
         BlockState other = Blocks.getState(world.getBlock(x, otherY, z));
         if (isDoor(other)) {
             world.setBlock(x, otherY, z, other.with(Properties.OPEN, open).getId(), false);
+        }
+
+        /* Ein Sound für beide Hälften, an der angeklickten. Nullbar wie beim TNT-Fuse: ohne
+           SoundManager (Weltgen-Tests) oder ohne Sound-Satz bleibt es einfach still. */
+        SoundManager sound = world.getSoundManager();
+        BlockOpenSound set = state.getBlock().getOpenSound();
+        if (sound != null && set != null) {
+            if (open) sound.playBlockOpen(set, x + 0.5, y + 0.5, z + 0.5);
+            else sound.playBlockClose(set, x + 0.5, y + 0.5, z + 0.5);
         }
         return true;
     }

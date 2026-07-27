@@ -336,6 +336,11 @@ public class Block {
         return this.config.soundGroup();
     }
 
+    /** Auf-/Zu-Sound (Tür, Truhe) oder {@code null}, wenn der Block sich nicht öffnet. */
+    public de.skyengine.audio.BlockOpenSound getOpenSound() {
+        return this.config.openSound();
+    }
+
     /** true = Platzieren in diese Zelle ersetzt den Block (Gras/Farn, wie MC — kein Drop). */
     public boolean isReplaceable() {
         return this.config.replaceable();

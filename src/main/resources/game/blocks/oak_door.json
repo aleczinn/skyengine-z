@@ -8,6 +8,7 @@
   "layer": "cutout",
   "hardness": 3,
   "tool": "axe",
+  "open_sound": "wood_door",
   "opaque": false,
   "solid": false,
   "textures": {

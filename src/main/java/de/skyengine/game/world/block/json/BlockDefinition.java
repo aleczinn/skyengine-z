@@ -54,6 +54,10 @@ public class BlockDefinition {
        null = Ableitung aus tool/archetype (siehe BlockSoundGroup.resolve). */
     public String sound;
 
+    /* Optionaler Auf-/Zu-Sound (wood_door/iron_door/chest) für Tür und Truhe — eigenes Konzept
+       neben "sound" (siehe BlockOpenSound.resolve). null = der Block hat keinen. */
+    public String open_sound;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;

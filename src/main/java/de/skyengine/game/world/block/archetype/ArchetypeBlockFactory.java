@@ -1,5 +1,6 @@
 package de.skyengine.game.world.block.archetype;
 
+import de.skyengine.audio.BlockOpenSound;
 import de.skyengine.audio.BlockSoundGroup;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.Direction;
@@ -115,6 +116,8 @@ public final class ArchetypeBlockFactory {
         /* Sound-Gruppe: explizites JSON-Feld oder Ableitung aus Tool/Archetyp. */
         String archetypeName = def.archetype != null ? def.archetype : def.type;
         builder.sound(BlockSoundGroup.resolve(def.sound, ToolType.byName(def.tool), archetypeName));
+        /* Auf-/Zu-Sound (Tür, Truhe) — eigenes Konzept, null für alles andere. */
+        builder.openSound(BlockOpenSound.resolve(def.open_sound, archetypeName));
 
         builder.replaceable(def.replaceable);
 

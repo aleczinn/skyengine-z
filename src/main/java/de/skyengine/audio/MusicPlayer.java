@@ -33,6 +33,8 @@ final class MusicPlayer {
     private ShortBuffer pcm; // wiederverwendeter Dekodier-Puffer (memAlloc)
     private int channels, sampleRate, format;
     private boolean playing, loop;
+    /** Pausenmenü: Source steht auf AL_PAUSED, update() muss die Finger davon lassen. */
+    private boolean paused;
     private float volume = 1.0F;
 
     /** Startet die Datei (ersetzt laufende Musik). Fehler → Warnung, kein Crash. */
@@ -80,9 +82,29 @@ final class MusicPlayer {
         this.logger.info("Musik gestartet: " + file.getName() + (loop ? " (Loop)" : ""));
     }
 
+    /**
+     * Hält die Musik an, ohne den vorbis-Handle zu schließen ({@link #stop} täte das und die
+     * Musik startete beim Fortsetzen von vorn).
+     */
+    void pause() {
+        if (!this.playing || this.paused || this.source == -1) return;
+        AL10.alSourcePause(this.source);
+        this.paused = true;
+    }
+
+    /** Gegenstück zu {@link #pause}; setzt an derselben Stelle fort. */
+    void resume() {
+        if (!this.paused) return;
+        this.paused = false;
+        if (this.playing && this.source != -1) AL10.alSourcePlay(this.source);
+    }
+
     /** Pro Frame: abgespielte Buffer nachfüllen und wieder anhängen; Underrun neu starten. */
     void update() {
-        if (!this.playing) return;
+        /* Pausiert NICHTS tun: die Underrun-Prüfung unten sieht sonst AL_PAUSED != AL_PLAYING
+           und würde die Musik im nächsten Frame selbst wieder anwerfen. Nachfüllen ist auch
+           nicht nötig — eine pausierte Source verarbeitet keine Buffer. */
+        if (!this.playing || this.paused) return;
 
         int processed = AL10.alGetSourcei(this.source, AL10.AL_BUFFERS_PROCESSED);
         for (int i = 0; i < processed; i++) {
@@ -131,6 +153,7 @@ final class MusicPlayer {
             this.vorbisHandle = 0;
         }
         this.playing = false;
+        this.paused = false;
     }
 
     /** Lautstärke der Musik-Source (wirkt zusätzlich zum Master-Gain des Listeners). */
