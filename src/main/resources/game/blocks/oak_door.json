@@ -1,6 +1,10 @@
 {
   "id": "skyengine:oak_door",
   "archetype": "door",
+  "parts": {
+    "property": "half",
+    "offsets": { "bottom": [0, 0, 0], "top": [0, 1, 0] }
+  },
   "layer": "cutout",
   "hardness": 3,
   "tool": "axe",

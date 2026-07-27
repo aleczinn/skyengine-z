@@ -101,6 +101,20 @@ public class BlockDefinition {
         public ModelElements.ModelBox[] outline;
     }
 
+    /* Mehrteiliger Block (Tür, hohe Pflanze, Bett) — siehe PartsBehavior. */
+    public PartsDef parts;
+
+    /**
+     * property = Name der Teil-Property (z.B. "half"); offsets = Wert -> [dx,dy,dz], genau einer
+     * muss [0,0,0] sein (der Ursprung); relative_to = "facing" rechnet die Offsets in
+     * Blickrichtung (+z vorwärts, +x rechts) statt in Weltachsen.
+     */
+    public static final class PartsDef {
+        public String property;
+        public Map<String, int[]> offsets;
+        public String relative_to;
+    }
+
     /* Optionales generisches Connection-System (Zäune, Pipes, Cables). */
     public ConnectionDef connection;
 

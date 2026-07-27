@@ -9,59 +9,27 @@ import de.skyengine.game.world.block.state.DoorHinge;
 import de.skyengine.game.world.block.state.Properties;
 
 /**
- * Zwei-Block-Tür rein über BlockStates: HALF (bottom/top) + FACING + OPEN + HINGE.
+ * Das Türspezifische an einer Tür: FACING + OPEN + HINGE beim Platzieren und der Rechtsklick,
+ * der beide Hälften gemeinsam öffnet.
  *
- * <ul>
- *   <li>Platzieren setzt den unteren Teil und automatisch den oberen darüber.</li>
- *   <li>Fehlt die jeweils andere Hälfte (z.B. nach Abbau), entfernt sich der Rest selbst
- *       (über das vertikale Nachbar-Update).</li>
- *   <li>Rechtsklick toggelt OPEN für beide Hälften.</li>
- * </ul>
+ * <p>Das Zweiteilige (untere/obere Hälfte setzen, Platzprüfung, Selbstentfernen bei fehlender
+ * Gegenhälfte) steckt NICHT mehr hier, sondern deklarativ in der {@code parts}-Sektion der
+ * Block-JSON → {@link PartsBehavior}.
  *
- * „Ist das eine Tür?" wird über das Vorhandensein der HINGE-Property erkannt — kein instanceof,
+ * <p>„Ist das eine Tür?" wird über das Vorhandensein der HINGE-Property erkannt — kein instanceof,
  * kein Door-spezifischer Code im Engine-Core.
  */
 public final class DoorBehavior implements BlockBehavior {
-
-    /** Tür passt nur, wenn über dem Zielfeld noch Platz für den oberen Teil ist. */
-    @Override
-    public boolean canPlace(PlacementContext ctx, BlockState state) {
-        return ctx.world().getBlock(ctx.x(), ctx.y() + 1, ctx.z()) == Blocks.AIR;
-    }
 
     @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
         /* Tür schließt an der dem Spieler zugewandten (vorderen) Kante an -> Blickrichtung invertiert. */
         Direction facing = Direction.fromYaw(ctx.playerYaw()).opposite();
-        DoorHinge hinge = hinge(ctx, facing);
 
-        /* Nur den unteren State berechnen - der obere Teil kommt in onPlaced (nach der Validierung),
-           damit bei abgelehnter Platzierung kein schwebender Oberteil zurückbleibt. */
+        /* HALF setzt das PartsBehavior (parts-Sektion der Block-JSON); hier nur das Türspezifische. */
         return state.with(Properties.FACING, facing)
-                .with(Properties.HALF, BlockHalf.BOTTOM)
                 .with(Properties.OPEN, false)
-                .with(Properties.HINGE, hinge);
-    }
-
-    /** Setzt den oberen Türteil, nachdem der untere validiert platziert wurde. */
-    @Override
-    public void onPlaced(World world, int x, int y, int z, BlockState state) {
-        if (world.getBlock(x, y + 1, z) == Blocks.AIR) {
-            world.setBlock(x, y + 1, z, state.with(Properties.HALF, BlockHalf.TOP).getId(), false);
-        }
-    }
-
-    @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
-        BlockHalf half = state.get(Properties.HALF);
-        int otherY = half == BlockHalf.BOTTOM ? y + 1 : y - 1;
-        BlockHalf needed = half == BlockHalf.BOTTOM ? BlockHalf.TOP : BlockHalf.BOTTOM;
-
-        BlockState other = Blocks.getState(world.getBlock(x, otherY, z));
-        if (!isDoor(other) || other.get(Properties.HALF) != needed) {
-            return Blocks.getState(Blocks.AIR);   // andere Hälfte weg -> selbst entfernen
-        }
-        return state;
+                .with(Properties.HINGE, hinge(ctx, facing));
     }
 
     @Override

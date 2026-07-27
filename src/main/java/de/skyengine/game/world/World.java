@@ -721,6 +721,11 @@ public class World implements IInitializable, IDisposable {
                reine State-Änderungen (Verbindungen, Treppen) bewusst nicht. Keine Endlos-
                Kaskade möglich: jeder Kaskadenschritt entfernt einen Block endgültig. */
             boolean removed = updated.getId() == Blocks.AIR;
+            /* Ein Block, der sich selbst entfernt, wird abgebaut — also VOR dem Setzen denselben
+               onBreak-Hook laufen lassen wie beim Abbau durch den Spieler. Ohne das verlöre ein
+               so entfernter Block mit BlockEntity still seinen Inhalt. Heute implementiert kein
+               Behavior onBreak; die Reihenfolge schließt die Lücke, bevor das erste es tut. */
+            if (removed) current.getBlock().onBreak(this, x, y, z, current);
             this.setBlock(x, y, z, updated.getId(), removed);
         }
     }

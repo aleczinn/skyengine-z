@@ -8,6 +8,7 @@ import de.skyengine.game.world.block.Tints;
 import de.skyengine.game.world.block.behavior.ExplosionBehavior;
 import de.skyengine.game.world.block.behavior.GravityBehavior;
 import de.skyengine.game.world.block.behavior.HorizontalFacingBehavior;
+import de.skyengine.game.world.block.behavior.PartsBehavior;
 import de.skyengine.game.world.block.behavior.SupportBehavior;
 import de.skyengine.game.world.block.connection.ConnectionBehavior;
 import de.skyengine.game.world.block.connection.ConnectionComponent;
@@ -46,6 +47,12 @@ public final class ArchetypeBlockFactory {
            den Archetyp-Properties und die State-Reihenfolge bestehender Blöcke bleibt gleich. */
         if (def.properties != null) {
             applyJsonProperties(builder, def);
+        }
+
+        /* Mehrteilige Blöcke (Tür, hohe Pflanze, Bett) rein aus der JSON. */
+        if (def.parts != null) {
+            PartsBehavior parts = PartsBehavior.of(def.parts, def.id);
+            if (parts != null) builder.behavior(parts);
         }
 
         /* Generisches Connection-System aus JSON (Pipes/Cables ohne eigenen Archetyp). */

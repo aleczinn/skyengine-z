@@ -134,6 +134,12 @@ ausdrücken).
   `JsonProperties` mit Interning); Element-Rotation mit beliebigem Winkel (MC
   `rotation: {origin, axis, angle, rescale}`); Archetyp `attached` für hängende Blöcke
   (Fackel floor/wall — Hebel/Knopf/Leiter wären damit reines JSON)
+- Mehrteilige Blöcke deklarativ: `parts` (Teil-Property + Offsets, genau ein Ursprung `[0,0,0]`,
+  optional `relative_to: "facing"` für facing-relative Offsets) → `PartsBehavior`. Tür und
+  tall_grass laufen darüber; `DoorBehavior`/`TallPlantBehavior` enthalten nur noch das
+  Blockspezifische (Hinge/Öffnen bzw. Stützregel). `World.updateStateAt` ruft beim
+  Selbst-Entfernen jetzt `onBreak` — heute ein No-op, schließt aber die Lücke für Teile mit
+  BlockEntity
 - Item-System datengetrieben (`game/items/*.json`, `ItemLoader`, `SimpleItem`) neben den weiterhin
   in Java registrierten 28 Tools/Eimern/Foods; `display`-Sektion im Modell-JSON (erbt über
   `parent` bis `block/block`) versorgt die Hand-Transforms der Block-Items
@@ -197,12 +203,10 @@ ausdrücken).
 - TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert, inkl. Test-Truhe,
   Fackel und den 15 Material-Items) — ohne Crafting/Creative-Menü der einzige Weg, sie in die
   Hand zu bekommen; greift nur bei einer **frisch erstellten** Welt
-- Multiblöcke bleiben ad hoc: Tür und tall_grass lösen es je selbst über `Properties.HALF`
-  (`DoorBehavior`/`TallPlantBehavior`), `multiblock/MultiblockPattern` ist ungenutzte
-  Infrastruktur für spätere Controller-Strukturen. Für Betten/Reaktoren fehlt eine deklarative
-  `parts`-Sektion mit facing-relativen Offsets. Ebenfalls offen: `World.updateStateAt` entfernt
-  einen sich selbst zerstörenden Block ohne `onBreak`- und Drop-Pfad (für Tür/tall_grass heute
-  ohne sichtbare Folge, für Teile mit BlockEntity aber ein stiller Inhaltsverlust)
+- Bett/Reaktor: die Mechanik steht (`parts`, s.o.), es fehlen nur noch die Blöcke selbst —
+  ein Bett braucht ein eigenes 3D-Modell + Texturen. `multiblock/MultiblockPattern` bleibt
+  ungenutzte Infrastruktur für Controller-Strukturen (validiert eine Struktur aus FREMDEN
+  Blöcken — ein anderes Problem als ein Block, der mehrere Zellen belegt)
 
 **Bewusst nicht vorhanden (nicht „vergessen" — nicht ungefragt bauen):**
 - **Kein Sky-Rendering** (keine Atmosphäre/Wolken/God-Rays — Clear-Color ist der Himmel)
