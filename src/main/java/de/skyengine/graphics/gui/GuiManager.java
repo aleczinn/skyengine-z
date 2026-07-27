@@ -294,14 +294,12 @@ public final class GuiManager {
         int want = this.screen != null ? 1 : 0;
         if (want != this.lastCursorMode) {
             if (want == 1) {
-                this.input.showCursor();
-                /* Cursor mittig starten (wie MC) — beide Aufrufe laufen deferiert in
-                   Reihenfolge auf dem Main-Thread, centerMouse resettet das Maus-Delta.
-                   Nur wenn der Cursor vorher im Spiel gefangen war (0 -> 1): Beim Spielstart
-                   (Hauptmenü, lastCursorMode == -1) darf die Maus nicht wegspringen. */
-                if (this.lastCursorMode == 0) {
-                    this.input.centerMouse();
-                }
+                /* Cursor mittig starten (wie MC) — Freigeben und Zentrieren MÜSSEN derselbe
+                   Main-Thread-Task sein, sonst sieht man den Zeiger dazwischen kurz an der von
+                   GLFW wiederhergestellten Position. Zentriert wird nur, wenn der Cursor vorher
+                   im Spiel gefangen war (0 -> 1): beim Spielstart (Hauptmenü,
+                   lastCursorMode == -1) darf die Maus nicht wegspringen. */
+                this.input.showCursor(this.lastCursorMode == 0);
             } else {
                 this.input.disableCursor();
             }

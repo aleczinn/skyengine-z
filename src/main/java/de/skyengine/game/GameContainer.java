@@ -630,8 +630,13 @@ public class GameContainer implements IResizeable, IDisposable {
             if (input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_PERSPECTIVE))) {
                 this.perspective = this.perspective.next();
             }
-            double sens = this.settings.mouseSensitivity;
-            this.player.turn(input.getDeltaMouseX() * sens, input.getDeltaMouseY() * sens);
+            /* Blick nur drehen, wenn der Cursor auch PHYSISCH gefangen ist. Der Moduswechsel läuft
+               deferiert auf dem Window-Thread — direkt nach dem Schließen eines GUIs ist er noch
+               frei, und seine Bewegung soll die Kamera nicht mitziehen. */
+            if (input.isCursorGrabbed()) {
+                double sens = this.settings.mouseSensitivity;
+                this.player.turn(input.getDeltaMouseX() * sens, input.getDeltaMouseY() * sens);
+            }
         }
 
         /* TAA-Subpixel-Jitter (0,0 wenn TAA aus) VOR dem Matrix-Update, Kameradaten für
@@ -1505,7 +1510,10 @@ public class GameContainer implements IResizeable, IDisposable {
 
         if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
             boolean fullscreen = SkyEngine.get().getConfig().isWindowed();
-            SkyEngine.get().getMainThreadTasks().add(() ->
+            /* addTaskToMainThread statt getMainThreadTasks().add: nur ersteres weckt den in
+               glfwWaitEvents hängenden Window-Thread. Direkt eingehängt lief der Toggle erst,
+               wenn zufällig das nächste OS-Event eintraf. */
+            SkyEngine.get().addTaskToMainThread(() ->
                     SkyEngine.get().getWindow().setWindowMode(fullscreen
                             ? EngineConfig.WindowMode.BORDERLESS_FULLSCREEN : EngineConfig.WindowMode.WINDOWED));
             this.logger.debug("Toggle Fullscreen");

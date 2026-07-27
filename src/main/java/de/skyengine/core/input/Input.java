@@ -84,10 +84,26 @@ public class Input {
     private final int[] charsTyped = new int[MAX_CHARS_PER_FRAME];
     private int charCount = 0;
 
-    /* Volatile, weil es auch vom Main-Thread (Fullscreen-Toggle) gesetzt wird */
-    private volatile boolean resetMouseDelta = true;
+    /* Teleport-Behandlung, zwei Teile:
+       - warpPending setzt der Window-Thread VOR einem Cursor-Sprung (Modus-/Fenstermodus-Wechsel,
+         Zentrieren). Es ist eine Ankündigung, kein Token.
+       - warpSeq erhöht erst der onCursorPos-Callback, wenn die Position NACH dem Sprung wirklich
+         eingetroffen ist; der Render-Thread merkt sich in seenWarpSeq den quittierten Stand.
+       Die Trennung ist der Kern: der Moduswechsel läuft in einem Main-Thread-Task, die dadurch
+       ausgelöste Cursor-Meldung kommt aber erst im nächsten glfwWaitEvents-Durchlauf. Würde der
+       Zähler schon beim Ausführen des Tasks steigen, quittierte der Render-Thread ihn binnen
+       ~1,4 ms (700 FPS) mit der ALTEN Position — und der echte Sprung käme danach ungeschützt an
+       und riss die Kamera weg. */
+    private volatile boolean warpPending = true;
+    private final AtomicInteger warpSeq = new AtomicInteger(1);
+    private int seenWarpSeq = 0;   // nur Render-Thread
+
+    /* Ist der Cursor PHYSISCH gefangen? Der GuiManager kennt nur seinen eigenen Zustand, der
+       Moduswechsel läuft aber deferiert — dazwischen ist das GUI schon zu, der Cursor aber noch
+       frei, und seine Bewegung darf noch nicht den Blick drehen. */
+    private volatile boolean cursorGrabbed = false;
     /* Erst true, wenn GLFW die erste echte Cursorposition geliefert hat.
-      Vorher darf resetMouseDelta nicht konsumiert werden. */
+      Vorher darf der Warp-Stand nicht als verarbeitet gelten. */
     private volatile boolean cursorInitialized = false;
 
     private final Map<Integer, GameController> controller;
@@ -110,6 +126,7 @@ public class Input {
 
         GLFW.glfwSetCursorEnterCallback(this.window.getWindowID(), this::onCursorEnter);
         GLFW.glfwSetCursorPosCallback(this.window.getWindowID(), this::onCursorPos);
+        GLFW.glfwSetWindowFocusCallback(this.window.getWindowID(), this::onWindowFocus);
         GLFW.glfwSetScrollCallback(this.window.getWindowID(), this::onScroll);
         GLFW.glfwSetMouseButtonCallback(this.window.getWindowID(), this::onMouseButton);
         GLFW.glfwSetKeyCallback(this.window.getWindowID(), this::onKey);
@@ -179,19 +196,47 @@ public class Input {
         this.mouseX = this.rawMouseX;
         this.mouseY = this.rawMouseY;
 
-        /* Cursor wurde repositioniert (erster Frame, Fullscreen-Toggle, etc.) -> Delta dieses Frames verwerfen */
-        if (this.resetMouseDelta || !this.cursorInitialized) {
+        /* Cursor wurde repositioniert (erster Frame, GUI auf/zu, Fullscreen-Toggle) -> Delta
+           dieses Frames verwerfen.
+
+           REIHENFOLGE IST TRAGEND: der Zähler wird NACH der Position gelesen, und der Callback
+           erhöht ihn VOR dem Schreiben der Position. Sieht dieser Frame also eine Position von
+           nach dem Sprung, dann ist über die volatile-Kette zwingend auch der erhöhte Zähler
+           sichtbar -> wir verwerfen. Sieht er umgekehrt die alte Position bei schon erhöhtem
+           Zähler, verwirft er einen harmlosen Frame echter Mausbewegung. Liest man den Zähler VOR
+           der Position, ist die Lücke wieder offen. */
+        int seq = this.warpSeq.get();
+        boolean warped = seq != this.seenWarpSeq || !this.cursorInitialized;
+        if (warped) {
             this.lastMouseX = this.mouseX;
             this.lastMouseY = this.mouseY;
-            /* Flag erst löschen, wenn eine ECHTE Cursorposition bekannt ist -
-               sonst verpufft der Reset auf (0,0) vor dem ersten Callback */
+            /* Erst als verarbeitet markieren, wenn eine ECHTE Cursorposition bekannt ist —
+               sonst verpufft der Reset auf (0,0) vor dem ersten Callback. */
             if (this.cursorInitialized) {
-                this.resetMouseDelta = false;
+                this.seenWarpSeq = seq;
             }
         }
 
-        this.deltaMouseX = this.mouseX - this.lastMouseX;
-        this.deltaMouseY = this.mouseY - this.lastMouseY;
+        double dx = this.mouseX - this.lastMouseX;
+        double dy = this.mouseY - this.lastMouseY;
+
+        /* Sicherheitsnetz gegen Cursor-Sprünge, die keine der angekündigten Quellen war. Ein Delta
+           von mehr als einem Viertel der kürzeren Fensterkante in EINEM Frame ist keine Maus: bei
+           den hier üblichen Bildraten bewegt sich eine reale Maus wenige Pixel. Verworfen, nicht
+           geklemmt — ein halber Sprung wäre genauso falsch, nur unauffälliger. */
+        double limit = Math.min(this.window.getWidth(), this.window.getHeight()) * 0.25;
+        if (!warped && limit > 0 && (Math.abs(dx) > limit || Math.abs(dy) > limit)) {
+            this.logger.warning(String.format(java.util.Locale.ROOT,
+                    "Maus-Sprung verworfen: d=(%.1f, %.1f) limit=%.1f  von (%.1f, %.1f) nach (%.1f, %.1f)  "
+                            + "warpSeq=%d seen=%d pending=%b grabbed=%b",
+                    dx, dy, limit, this.lastMouseX, this.lastMouseY, this.mouseX, this.mouseY,
+                    seq, this.seenWarpSeq, this.warpPending, this.cursorGrabbed));
+            dx = 0;
+            dy = 0;
+        }
+
+        this.deltaMouseX = dx;
+        this.deltaMouseY = dy;
         this.lastMouseX = this.mouseX;
         this.lastMouseY = this.mouseY;
 
@@ -248,7 +293,26 @@ public class Input {
         this.cursorEntered = entered;
     }
 
+    /**
+     * Alt-Tab: während das Fenster den Fokus verliert, gibt GLFW einen gefangenen Cursor frei und
+     * fängt ihn beim Zurückkommen erneut — beides Cursor-Sprünge, die sonst als echte Mausbewegung
+     * durchgingen. Ankündigen wie bei jedem anderen Teleport; verworfen wird bei der ersten
+     * Positionsmeldung danach.
+     */
+    private void onWindowFocus(long window, boolean focused) {
+        this.resetMouseDelta();
+    }
+
     private void onCursorPos(long window, double x, double y) {
+        /* Erste Meldung nach einem angekündigten Teleport: JETZT das Token ausgeben. Zwingend VOR
+           den Positionen — der Render-Thread liest erst die Position und dann den Zähler, sieht er
+           also die gesprungene Position, ist der erhöhte Zähler über die volatile-Kette garantiert
+           mit sichtbar. Callback und Teleport laufen beide auf dem Window-Thread, die Reihenfolge
+           Ankündigung -> Sprung -> Meldung ist damit strikt. */
+        if (this.warpPending) {
+            this.warpPending = false;
+            this.warpSeq.incrementAndGet();
+        }
         this.rawMouseX = x;
         this.rawMouseY = y;
         this.cursorInitialized = true;
@@ -431,33 +495,52 @@ public class Input {
      * via ClipCursor an die Fenstermitte; das Freigeben (CURSOR_NORMAL -> ClipCursor(NULL)) greift nur,
      * wenn es auf dem Message-Thread passiert. Vom Render-Thread aus wird der Cursor zwar sichtbar, bleibt
      * aber mittig „gefangen". Daher über die Main-Thread-Queue deferieren (weckt via glfwPostEmptyEvent),
-     * genau wie der Fullscreen-Toggle. resetMouseDelta() ist volatile und absichtlich Main-Thread-fähig.
+     * genau wie der Fullscreen-Toggle. resetMouseDelta() ist atomar und absichtlich Main-Thread-fähig
+     * — es gehört in jedem dieser Tasks VOR den eigentlichen Sprung.
      */
     public void disableCursor() {
         SkyEngine.get().addTaskToMainThread(() -> {
+            /* VOR dem Moduswechsel: GLFW zentriert den Cursor dabei und feuert onCursorPos
+               synchron — danach wäre der Sprung schon im rawMouse und der Render-Thread könnte
+               ihn als echtes Delta auf den Blick anwenden. */
+            this.resetMouseDelta();
             GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
             if (GLFW.glfwRawMouseMotionSupported()) {
                 GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_RAW_MOUSE_MOTION, GLFW.GLFW_TRUE);
             }
-            this.resetMouseDelta();
+            this.cursorGrabbed = true;
         });
     }
 
     public void showCursor() {
+        this.showCursor(false);
+    }
+
+    /**
+     * Gibt den Cursor frei. {@code center} setzt ihn im <b>selben</b> Main-Thread-Task in die
+     * Fenstermitte — getrennte Tasks wären zwei Weckvorgänge, und dazwischen präsentiert der
+     * Render-Thread Frames: der Zeiger würde erst an der von GLFW wiederhergestellten Position
+     * auftauchen und dann sichtbar in die Mitte hüpfen.
+     *
+     * <p>Die Mitte kommt aus der Framebuffer-Größe, {@code glfwSetCursorPos} will
+     * Content-Area-Koordinaten. Unter Windows mit DPI-Awareness identisch (und
+     * {@code GLFW_SCALE_TO_MONITOR} wird nirgends gesetzt) — fiele das je auseinander, zielte die
+     * "Mitte" daneben.
+     */
+    public void showCursor(boolean center) {
         SkyEngine.get().addTaskToMainThread(() -> {
+            this.resetMouseDelta();   // vor dem Sprung, siehe disableCursor
+            this.cursorGrabbed = false;
             /* Raw-Motion zuerst abschalten, dann Cursor freigeben. */
             if (GLFW.glfwRawMouseMotionSupported()) {
                 GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_RAW_MOUSE_MOTION, GLFW.GLFW_FALSE);
             }
             GLFW.glfwSetInputMode(this.window.getWindowID(), GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
-            this.resetMouseDelta();
-        });
-    }
-
-    public void centerMouse() {
-        SkyEngine.get().addTaskToMainThread(() -> {
-            GLFW.glfwSetCursorPos(this.window.getWindowID(), SkyEngine.get().getWindow().getWidth() / 2D, SkyEngine.get().getWindow().getHeight() / 2D);
-            this.resetMouseDelta();
+            if (center) {
+                GLFW.glfwSetCursorPos(this.window.getWindowID(),
+                        SkyEngine.get().getWindow().getWidth() / 2D,
+                        SkyEngine.get().getWindow().getHeight() / 2D);
+            }
         });
     }
 
@@ -534,10 +617,22 @@ public class Input {
     }
 
     /**
-     * Verwirft das Mouse-Delta des nächsten Frames. Aufrufen, wann immer der
-     * Cursor "teleportiert": Cursor-Modus-Wechsel, Fenstermodus-Wechsel, centerMouse.
+     * true, wenn der Cursor PHYSISCH gefangen ist (Spielmodus). Nicht dasselbe wie „kein GUI
+     * offen": der Moduswechsel läuft deferiert auf dem Window-Thread, dazwischen liegen Frames, in
+     * denen das GUI schon zu, der Cursor aber noch frei ist. Wer Maus-Delta auf den Blick anwendet,
+     * muss zusätzlich hierauf prüfen — sonst dreht die freie Cursorbewegung die Kamera mit.
+     */
+    public boolean isCursorGrabbed() {
+        return this.cursorGrabbed;
+    }
+
+    /**
+     * Kündigt einen Cursor-Sprung an. Aufrufen, wann immer der Cursor "teleportiert":
+     * Cursor-Modus-Wechsel, Fenstermodus-Wechsel, Zentrieren — und zwar <b>VOR</b> dem Sprung.
+     * Verworfen wird das Delta dann bei der ersten Positionsmeldung danach, nicht schon jetzt
+     * (Begründung an {@link #warpPending}).
      */
     public void resetMouseDelta() {
-        this.resetMouseDelta = true;
+        this.warpPending = true;
     }
 }
