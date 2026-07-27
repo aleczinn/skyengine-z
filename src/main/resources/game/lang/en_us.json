@@ -21,6 +21,9 @@
       "resume": "Back to Game",
       "options": "Options ...",
       "quit_to_title": "Save and Quit to Title"
+    },
+    "save": {
+      "saved": "Game saved"
     }
   },
 

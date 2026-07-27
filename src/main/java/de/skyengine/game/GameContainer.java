@@ -46,6 +46,7 @@ import de.skyengine.graphics.gui.screens.GuiChest;
 import de.skyengine.graphics.gui.screens.GuiInventory;
 import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
+import de.skyengine.graphics.gui.SaveToast;
 import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.gui.screens.GuiIngameMenu;
 import de.skyengine.graphics.gui.screens.GuiDeathScreen;
@@ -188,6 +189,14 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /* Aktives Savegame (null im Hauptmenü) — Ziel für saveCurrentWorld beim Austritt/Beenden. */
     private WorldSaves.WorldSave currentSave;
+
+    /** Autosave-Intervall in Ticks (60 s bei 20 TPS). */
+    private static final int AUTOSAVE_INTERVAL = 1200;
+    /* „Spiel gespeichert" erscheint erst, wenn der IO-Thread fertig ist — bis dahin steht das
+       Flag. Gesetzt nur von den beiden sichtbaren Auslösern (Pausenmenü, Autosave), NICHT vom
+       Exit-Save: dort verschwindet die Welt ohnehin. */
+    private final SaveToast saveToast = new SaveToast();
+    private boolean notifyOnSaveDone = false;
 
     public GameContainer() {
         /* Sprache VOR dem ersten Screen/Boot-Frame laden — alle GUI-Texte laufen über I18n. */
@@ -342,13 +351,14 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     public void exitToTitle() {
         this.guiManager.close();
-        this.saveCurrentWorld();
+        this.saveCurrentWorld(true);
         GL11.glFinish();
         this.world.dispose();
         this.world = null;
         this.player = null;
         this.currentSave = null;
         this.hit = null;
+        this.notifyOnSaveDone = false; // sonst quittiert die nächste Welt einen fremden Save
         this.resetMining();
         this.guiManager.open(new GuiMainMenu());
     }
@@ -357,9 +367,14 @@ public class GameContainer implements IResizeable, IDisposable {
      * Speichert die Welt: level.json (nur Welt-Metadaten), player/player.dat
      * (Zustand + Inventar, binäres DataTag) und reiht alle modifizierten Chunks ein
      * (den Flush garantiert storage.close() in world.dispose()).
+     *
+     * <p>{@code materializeFalling} nur beim Welt-Austritt: der periodische Autosave darf
+     * fallende Blöcke nicht materialisieren, sie würden sichtbar in der Luft einrasten.
+     *
+     * @return Anzahl der eingereihten Chunks (0 = nichts zu schreiben oder keine Welt)
      */
-    private void saveCurrentWorld() {
-        if (this.currentSave == null || this.world == null || this.player == null) return;
+    private int saveCurrentWorld(boolean materializeFalling) {
+        if (this.currentSave == null || this.world == null || this.player == null) return 0;
 
         LevelData level = this.currentSave.level();
         level.lastPlayed = System.currentTimeMillis();
@@ -392,9 +407,9 @@ public class GameContainer implements IResizeable, IDisposable {
         tag.putTag("inventory", inventory);
         PlayerIO.write(new File(WorldSaves.dir(this.currentSave.dirName()), "player/player.dat"), tag);
 
-        /* Exit-Save: fallende Blöcke materialisieren und modifizierte Chunks einreihen. */
-        this.world.saveModifiedChunks(true);
-        this.logger.info("Welt gespeichert: " + this.currentSave.dirName());
+        int chunks = this.world.saveModifiedChunks(materializeFalling);
+        this.logger.info("Welt gespeichert: " + this.currentSave.dirName() + " (" + chunks + " Chunks)");
+        return chunks;
     }
 
     /** Stellt das Inventar aus level.json wieder her (unbekannte Item-IDs -> Slot bleibt leer). */
@@ -437,6 +452,13 @@ public class GameContainer implements IResizeable, IDisposable {
 
     public void update(Input input) {
         if (this.world == null || this.player == null) return; // Hauptmenü: nichts zu ticken
+
+        /* Gespeichert-Meldung erst, wenn der IO-Thread durch ist. Bewusst VOR dem Pause-Zweig:
+           das Speichern beim Öffnen des Pausenmenüs läuft ja gerade dann fertig. */
+        if (this.notifyOnSaveDone && !this.world.hasPendingSaves()) {
+            this.notifyOnSaveDone = false;
+            this.saveToast.show();
+        }
 
         /* Der Spieler tickt nicht, wenn das Spiel pausiert. Ausnahme Ladebildschirm: der pausiert
            NICHT (Chunks laden über world.update), aber der Spieler darf nicht in die ungeladene
@@ -489,6 +511,11 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!this.guiManager.pausesGame()) {
             this.world.update(input, this.player);
             this.pickupItems();
+            /* Autosave. Die Modulo-Prüfung gehört IN diesen Zweig: gameTime steht bei Pause
+               still, außerhalb würde sie dann jeden Tick erneut feuern. */
+            if (this.world.getGameTime() % AUTOSAVE_INTERVAL == 0 && this.saveCurrentWorld(false) > 0) {
+                this.notifyOnSaveDone = true; // beim Autosave nur melden, wenn es wirklich etwas gab
+            }
         }
     }
 
@@ -617,8 +644,15 @@ public class GameContainer implements IResizeable, IDisposable {
 
         /* Maus-Blick + Hotbar + Gameplay-Debug nur ohne offenes GUI. */
         if (!guiOpen) {
-            /* ESC öffnet das Pause-Menü (Beenden geht über dessen Button). */
-            if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) this.guiManager.open(new GuiIngameMenu());
+            /* ESC öffnet das Pause-Menü (Beenden geht über dessen Button) und speichert dabei,
+               wie in alten Minecraft-Versionen. Der Hook sitzt HIER und nicht in
+               GuiIngameMenu.init() — das ist kein Öffnen-Hook, es läuft auch bei jeder Fenster-
+               und GuiScale-Änderung erneut (siehe GuiManager.render). */
+            if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) {
+                this.saveCurrentWorld(false);
+                this.notifyOnSaveDone = true; // bewusste Aktion: Quittung auch ohne dreckige Chunks
+                this.guiManager.open(new GuiIngameMenu());
+            }
             /* Inventar-Taste (Default E) öffnet das Spielerinventar; dieselbe Taste schließt es
                wieder (closesOnInventoryKey im GuiManager-Routing). */
             if (input.isBindPressed(this.settings.key(KeyBindings.OPEN_INVENTORY))) {
@@ -795,6 +829,9 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.debugOverlay.isVisible() && this.world != null) {
             this.debugOverlay.render(this.guiManager, this.world, this.player);
         }
+        /* Gespeichert-Meldung NACH dem GuiScreen: sie soll auch über dem abgedunkelten
+           Pausenmenü lesbar sein (im Hud läge sie unter dessen Dim). */
+        if (this.world != null) this.saveToast.render(this.guiManager);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
     }
 
@@ -883,7 +920,7 @@ public class GameContainer implements IResizeable, IDisposable {
     @Override
     public void dispose() {
         this.settings.save();
-        this.saveCurrentWorld(); // Welt-Zustand auch beim direkten Beenden aus dem Spiel sichern
+        this.saveCurrentWorld(true); // Welt-Zustand auch beim direkten Beenden aus dem Spiel sichern
         if (this.world != null) {
             this.world.dispose();
         }

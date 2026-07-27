@@ -21,6 +21,9 @@
       "resume": "Zurück zum Spiel",
       "options": "Optionen ...",
       "quit_to_title": "Speichern und zurück zum Hauptmenü"
+    },
+    "save": {
+      "saved": "Spiel gespeichert"
     }
   },
 

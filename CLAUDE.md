@@ -160,7 +160,10 @@ ausdrücken).
   Widerstands-Proxy), `ExplosionBehavior` + `PrimedTntEntity` (Rechtsklick-Zündung, Fuse, Ketten-
   Zündung), weißer Blink-Shader; JSON-Felder `explosion_power`/`fuse` (`blocks/tnt.json`)
 - Chunk-Persistenz (`game/world/save/`): Region-Format `region/r.<rx>.<rz>.srg` (16×16 Chunks,
-  CRC), Single-Writer-IO-Thread, Autosave alle 1200 Ticks + Save beim Unload/Exit, `player.dat`;
+  CRC), Single-Writer-IO-Thread, `player.dat`; **vollständiger** Autosave (Chunks + level.json +
+  player.dat) alle 1200 Ticks, zusätzlich beim Öffnen des Pausenmenüs (ESC) und beim Unload/Exit.
+  Quittung „Spiel gespeichert" unten rechts (`graphics/gui/SaveToast`), ausgelöst erst, wenn
+  `World.hasPendingSaves()` abgeräumt ist — beim Autosave nur, wenn Chunks dabei waren;
   optionaler Minecraft-Welt-Import über das eigene Source-Set `src/mcimport/` (`McWorldImporter`,
   `mapping/BlockMapper`, `block_map.json`, NBT/MCA-Leser) — Nebentool
 - Sound (OpenAL): blockabhängige Schritte/Hit/Break/Place (Sound-Gruppen aus JSON/Tool/

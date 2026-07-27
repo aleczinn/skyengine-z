@@ -108,9 +108,6 @@ public class World implements IInitializable, IDisposable {
     /** Verzögerung, mit der geplante Ticks außerhalb der Simulations-Distanz erneut vorgemerkt werden. */
     private static final int OUT_OF_SIM_RESCHEDULE = 20;
 
-    /** Autosave-Intervall für modifizierte Chunks in Ticks (60 s bei 20 TPS). */
-    private static final int AUTOSAVE_INTERVAL = 1200;
-
     /** Nur Chunks in diesem Radius (in Chunks) um den Spieler ticken (Random/Scheduled/Entities). */
     private int simulationDistance = 10;
     /* Spieler-Chunk des laufenden Ticks - Basis für isSimulated(). */
@@ -200,12 +197,6 @@ public class World implements IInitializable, IDisposable {
         this.tickRandomBlocks();
         this.tickBlockEntities();
         this.tickEntities();
-        /* Autosave: modifizierte Chunks periodisch wegschreiben (asynchron, IO-Thread).
-           Fallende Blöcke werden hier bewusst NICHT materialisiert (würden sichtbar
-           in der Luft einrasten) — sie landen ohnehin binnen Sekunden als Block-Edit. */
-        if (this.gameTime % AUTOSAVE_INTERVAL == 0) {
-            this.saveModifiedChunks(false);
-        }
     }
 
     /**
@@ -250,14 +241,24 @@ public class World implements IInitializable, IDisposable {
      * Reiht alle modifizierten Chunks zum Speichern ein (asynchron; Flush garantiert erst
      * {@code storage.close()} in {@link #dispose()}). {@code materializeFalling} nur beim
      * Welt-Austritt — s. {@link Chunk#materializeFallingBlocks()}.
+     *
+     * @return Anzahl der eingereihten Chunks (0 = es gab nichts zu tun)
      */
-    public void saveModifiedChunks(boolean materializeFalling) {
+    public int saveModifiedChunks(boolean materializeFalling) {
+        int queued = 0;
         for (Chunk chunk : this.chunkManager.loadedChunks()) {
             if (!chunk.modified || chunk.saveQueued) continue;
             if (materializeFalling) chunk.materializeFallingBlocks();
             chunk.saveQueued = true;
             this.storage.enqueueSave(chunk);
+            queued++;
         }
+        return queued;
+    }
+
+    /** true, solange der IO-Thread noch Chunk-Saves offen hat (Basis der Gespeichert-Meldung). */
+    public boolean hasPendingSaves() {
+        return this.storage.hasPendingSaves();
     }
 
     /**
