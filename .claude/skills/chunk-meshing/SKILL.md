@@ -63,7 +63,11 @@ AO bekommt jedes Quad mit achsenparalleler Richtung — maßgeblich ist `BakedQu
 kein cullFace hat (Slab-Oberseite, Treppen-Trittfläche liegen bei y=0.5 im Blockinneren). Vergeben
 wird sie in `BlockModels.box` aus dem tex/cull-Slot-Index — der ist nach `BoxElement.rotateY/
 rotateX/mirrorY` weiterhin die echte Richtung. `NO_DIRECTION` (= −1) und damit AO-frei bleiben
-Cross-Pflanzen und die nicht-planare Fluid-Geometrie. **`cullFace()` bleibt zuständig für Culling,
+Cross-Pflanzen und die nicht-planare Fluid-Geometrie. **Der deklarative Weg dorthin ist
+`"ambientocclusion": false` im Modell-JSON** (`ModelLoader.stripDirection` entfernt die Richtung,
+`cullFace` bleibt) — der Schalter für „dieser Block soll kein AO" liegt also in den Daten, nicht
+hier im Mesher. Genutzt von Türen, Glasscheiben und Eisengittern, wie in Vanilla; Details im Skill
+`block-modelle-und-texturen`. **`cullFace()` bleibt zuständig für Culling,
 `buildGreedyFaces` und die Tint-Maske** — dort nicht auf `face()` umstellen: der `face < 0`-Check
 in `buildGreedyFaces` ist der Filter „jedes Face eines greedy-fähigen Blocks braucht ein cullface",
 sonst entstehen Löcher.

@@ -63,6 +63,29 @@ achsenparallele Box.
 (Blending, Glas — wird zuletzt und sortiert gerendert). `opaque`-Default folgt dem Layer;
 `cull_same` cullt Faces zwischen zwei identischen Blöcken (Glas an Glas).
 
+`cull_same` gehört an **jeden** Block, dessen Modell Faces mit `cullface` an der Blockgrenze hat und
+der neben seinesgleichen stehen darf — nicht nur an Vollwürfel. `glass_pane` hatte es lange nicht,
+und die End-Flächen der Verbindungsarme (`glass_pane_side` → `north`, `_alt` → `south`) standen
+deshalb an jeder Naht zwischen zwei Scheiben als koplanares Paar sichtbar da (dunkle
+`glass_pane_top`-Streifen, in MC nicht vorhanden). Die Mittelpfosten haben kein `cullface` und
+bleiben davon unberührt — sie sollen ja stehen bleiben.
+
+## `ambientocclusion` im Modell-JSON
+
+MC-Feld, Default `true`, erbt über die `parent`-Kette (erstes Vorkommen gewinnt,
+`ModelLoader.collectAmbientOcclusion`). Bei `false` läuft `stripDirection`: die Quads verlieren ihre
+Richtung (`BakedQuad.face = NO_DIRECTION`), womit das AO-Gate im Mesher nicht mehr greift —
+`cullFace` und alles andere bleiben erhalten. Das DTO-Feld ist bewusst `Boolean` und nicht `boolean`:
+bei einem primitiven Typ liefert GSON für ein fehlendes Feld `false` und schaltet AO überall ab.
+
+**Faustregel (deckt sich mit Vanilla):** Dünne Deko-Geometrie, die im Blockinneren liegt, bekommt
+kein AO — Türen, Glasscheiben, Eisengitter. Grund ist der Nicht-bündig-Pfad der AO-Berechnung: er
+samplet die Nachbarn der **eigenen** Zelle, also Boden, Sims und Mauer ringsum, und dunkelt die
+Scheibe damit sichtbar ab. Vanilla setzt das Feld genau dort (`template_glass_pane_*`,
+`template_bars_*`, `door_*` — in der Client-Jar nachprüfbar). Für ein Modell aus der `models`-Map
+eines Blocks genügt das Feld im **Rumpf**: das virtuelle Modell erbt es über `parent` (so hängen
+die Eisengitter an `pane_post`/`pane_side`). Achtung, damit gilt es für ALLE Kinder des Rumpfs.
+
 **Wo Texturen hingehören (2026-07-26 umgebaut — frühere Fassungen dieses Abschnitts sagten das
 Gegenteil):** Die `textures`-Map der **Block-JSON** ist die Texturquelle. Die Block-JSON nennt
 mit `model` (bzw. `models` als Suffix→Rumpf-Map) nur noch den Geometrie-Rumpf; daraus baut
