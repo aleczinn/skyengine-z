@@ -166,6 +166,11 @@ public class GameContainer implements IResizeable, IDisposable {
     /* Wird per F2 gesetzt und von SkyEngine nach dem fertigen Frame abgeholt. */
     private boolean screenshotRequested = false;
 
+    /* Pausenzustand (Pausenmenü). partialTick friert beim Pausieren auf seinem letzten Wert ein
+       — siehe updatePaused. */
+    private boolean paused = false;
+    private float pausedPartialTick = 0F;
+
     private BlockRaycast.Hit hit = null;
 
     /* Spieler-Inventar (36 Slots: 0..8 Hotbar, 9..35 Hauptinventar). Auswahl per Zahlentasten 1..9. */
@@ -433,13 +438,20 @@ public class GameContainer implements IResizeable, IDisposable {
     public void update(Input input) {
         if (this.world == null || this.player == null) return; // Hauptmenü: nichts zu ticken
 
-        /* Spieler friert nur ein, wenn das Spiel pausiert (prev=current verhindert Kamera-Jitter,
-           sonst interpoliert Camera.follow weiter zwischen zwei Tick-Positionen). Ausnahme
-           Ladebildschirm: pausiert nicht (Chunks laden über world.update), aber der Spieler darf
-           nicht in die ungeladene Welt fallen (ungeladene Chunks kollidieren als Luft). */
-        if (this.guiManager.pausesGame() || this.guiManager.current() instanceof GuiWorldLoading) {
-            this.player.snapPrevToCurrent();
-            this.animState.snapPrev();
+        /* Der Spieler tickt nicht, wenn das Spiel pausiert. Ausnahme Ladebildschirm: der pausiert
+           NICHT (Chunks laden über world.update), aber der Spieler darf nicht in die ungeladene
+           Welt fallen (ungeladene Chunks kollidieren als Luft). */
+        boolean loading = this.guiManager.current() instanceof GuiWorldLoading;
+        if (this.guiManager.pausesGame() || loading) {
+            /* prev=current NUR für den Ladebildschirm: dort läuft partialTick weiter, ohne den
+               Snap würde Camera.follow zwischen zwei Tick-Positionen oszillieren. In der echten
+               Pause erledigt das der eingefrorene partialTick (siehe updatePaused) — und zwar
+               besser: der Snap läuft im Tick VOR dem einfrierenden Frame und würde die Kamera
+               beim Pausieren noch auf die letzte Tick-Position springen lassen. */
+            if (loading) {
+                this.player.snapPrevToCurrent();
+                this.animState.snapPrev();
+            }
             /* Ess-Animation nicht in der Pause weiterwackeln lassen (ihr Kau-Nicken hängt am
                partialTick); das Essen bricht beim Fortsetzen ohnehin ab (Maustaste ist los). */
             this.animState.clearEating();
@@ -544,15 +556,51 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     /**
+     * Pflegt den Pausenzustand und liefert den partialTick, mit dem dieser Frame rendern soll.
+     *
+     * <p><b>Warum das hier zentral passiert:</b> im Pausenmenü tickt die Welt nicht mehr
+     * ({@link #update} überspringt {@code world.update}), der Tick-Akkumulator in
+     * {@code SkyEngine} läuft aber normal weiter — {@code partialTick} sägt also unverändert
+     * 0→1. Jedes System mit {@code prev}/{@code last}-Feldern interpoliert dann 20× pro Sekunde
+     * zwischen zwei eingefrorenen, ungleichen Werten hin und her (sichtbar am zappelnden
+     * Truhendeckel). Friert man stattdessen den partialTick ein, stehen ALLE interpolierten
+     * Systeme gleichzeitig still — Truhe, Verzauberungstisch, Entities, Spieler, Kamera, Hand,
+     * View-Bobbing. Eine neue Animation braucht deshalb <b>keine</b> eigene Pause-Behandlung.
+     * Minecraft löst das identisch ({@code Minecraft.pausePartialTick}).
+     *
+     * <p>Eingefroren wird auf dem Wert des Pausierungs-Frames, nicht auf 1.0 — so gibt es im
+     * Moment des Pausierens keinen sichtbaren Sprung. {@code guiManager.pausesGame()} genügt als
+     * Bedingung: im Hauptmenü ist es false, der Zustand löst sich beim Verlassen der Welt also
+     * von selbst wieder auf.
+     */
+    private float updatePaused(float partialTick) {
+        boolean now = this.guiManager.pausesGame();
+        if (now != this.paused) {
+            this.paused = now;
+            if (now) {
+                this.pausedPartialTick = partialTick;
+                this.soundManager.pauseAll();
+            } else {
+                this.soundManager.resumeAll();
+            }
+        }
+        return now ? this.pausedPartialTick : partialTick;
+    }
+
+    /**
      * Welt-Anteil des Frames (Input/Kamera/Raycast + Welt, 3D-Overlays, Fluid-Tint) — zeichnet
      * in das gebundene Szene-Target (HDR). Die GUI folgt getrennt in {@link #renderGui} NACH
      * der Post-Kette (SkyEngine.onRender), damit HUD/Text nie durch Grading/AA laufen.
      */
-    public void renderWorld(Input input, int width, int height, float partialTick) {
+    public void renderWorld(Input input, int width, int height, float rawPartialTick) {
         this.handleGlobalHotkeys(input);   // immer: Fullscreen, GUI-Scale, Render-Distanz
 
         /* Musik-Streaming läuft auch im Hauptmenü weiter. */
         this.soundManager.update();
+
+        /* Pause: Audio anhalten UND den partialTick einfrieren. Ab hier zählt nur noch dieser
+           Wert — er geht an Kamera, Welt, BlockEntities, Entities und Hand. */
+        final float partialTick = this.updatePaused(rawPartialTick);
 
         /* Menü-Blur: nur mit Welt UND blur-wolligem Screen (Pause + Unterseiten);
            der Pass animiert die Stärke selbst (Ein-/Ausblenden). */

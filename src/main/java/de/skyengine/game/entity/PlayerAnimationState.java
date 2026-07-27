@@ -237,7 +237,11 @@ public final class PlayerAnimationState {
         return this.prevEatWeight + (this.eatWeight - this.prevEatWeight) * partialTick;
     }
 
-    /** Bei Pause/GUI-Standbild: prev = current, damit nichts weiter-interpoliert. */
+    /**
+     * prev = current, damit nichts weiter-interpoliert, solange die Animation nicht tickt. Nur
+     * für den Ladebildschirm — im Pausenmenü friert {@code GameContainer.updatePaused} stattdessen
+     * den partialTick ein.
+     */
     public void snapPrev() {
         this.prevLimbSwing = this.limbSwing;
         this.prevLimbSwingAmount = this.limbSwingAmount;
