@@ -138,11 +138,14 @@ public final class BlockStateModels {
                 boxes.toArray(new AABB[0]));
     }
 
+    /** Gilt für {@code variants} UND für die {@code apply}-Objekte von {@code multipart}. */
     private static ModelLoader.Baked applyVariant(JsonObject v) {
         String model = v.get("model").getAsString();
         int x = v.has("x") ? v.get("x").getAsInt() : 0;
         int y = v.has("y") ? v.get("y").getAsInt() : 0;
-        return ModelLoader.bake(model, x, y);
+        /* uvlock (MC): Geometrie drehen, Textur weltachsenfest lassen — Treppe/Zaun ja, Stamm nie. */
+        boolean uvlock = v.has("uvlock") && v.get("uvlock").getAsBoolean();
+        return ModelLoader.bake(model, x, y, uvlock);
     }
 
     private static JsonObject firstObject(JsonElement e) {

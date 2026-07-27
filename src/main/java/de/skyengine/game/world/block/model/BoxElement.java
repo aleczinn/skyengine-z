@@ -21,7 +21,8 @@ public final class BoxElement {
     /**
      * Optionale explizite Face-UVs (6 Einträge, je {@code null} oder 8 Floats = vier UV-Paare
      * A,B,C,D in 0..1). {@code null}-Einträge fallen auf die aus der Box-Ausdehnung abgeleiteten
-     * UVs zurück. Bei {@link #rotateY} rotieren diese UVs mit der Geometrie mit.
+     * UVs zurück. Bei {@link #rotateY} rotieren diese UVs mit der Geometrie mit — außer der
+     * Aufrufer wirft sie per {@link #withoutFaceUv} weg (uvlock).
      */
     public final float[][] faceUv;
 
@@ -53,6 +54,19 @@ public final class BoxElement {
 
     public AABB toAABB() {
         return new AABB(x0, y0, z0, x1, y1, z1);
+    }
+
+    /**
+     * Verwirft die Face-UVs. {@link #bake} leitet sie dann in {@link BlockModels#box} aus der
+     * AKTUELLEN Box-Ausdehnung ab — nach einer Drehung ist das die gedrehte Box, die Textur liegt
+     * also weltachsenfest. Genau das ist Minecrafts {@code uvlock} (Treppen, Zäune): die Geometrie
+     * dreht sich, die Maserung bleibt stehen.
+     *
+     * <p>Gegenstück zum Default {@link #transformUv}, der die UVs mitdreht (Stämme).
+     */
+    public BoxElement withoutFaceUv() {
+        if (this.faceUv == null) return this;
+        return new BoxElement(x0, y0, z0, x1, y1, z1, tex, cull, mirror, null);
     }
 
     public BakedQuad[] bake() {

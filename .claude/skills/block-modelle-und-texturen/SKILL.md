@@ -42,6 +42,21 @@ ersetzen (tint bleibt Fallback für Icons/Chunks ohne Grid).
 Per-Face-`uv` in Modell-JSONs wird unterstützt (MC-Format `[u0,v0,u1,v1]`, Pixel 0..16) und
 **rotiert bei rotateY mit**; ohne `uv` gilt der Fallback aus der Box-Ausdehnung.
 
+**`uvlock` (Variante/`apply`, MC-Feld):** dreht die Geometrie, lässt die Textur aber
+weltachsenfest — `ModelLoader.bake(name, x, y, uvlock)` wirft nach der Drehung die Face-UVs weg
+(`BoxElement.withoutFaceUv`), sodass `BlockModels.box` sie aus der **gedrehten** Box neu ableitet.
+Die Regel ist kein Geschmack, sondern steht so in Vanilla:
+- **`uvlock: true`** bei Treppen und Zäunen (auch Mauern/Knöpfe/Zauntore) — sonst dreht sich die
+  Maserung der Trittfläche mit der Blickrichtung mit.
+- **nie** bei Säulen/Stämmen (`preset/pillar`), Türen, Panes, `carved_pumpkin`, Fackel — dort
+  **soll** die Textur mitdrehen; das war der Grund für Commit `2be8820`.
+
+Zwei Fallen: der Cache-Key ist `name|x|y|uvlock` (ohne das Flag gewinnt der erste Bake für beide
+Varianten), und `uvlock` ohne Drehung ist ein bewusstes No-op. Explizite `uv`-Rechtecke gehen bei
+uvlock verloren (Warnung „uvlock verwirft die expliziten Face-UVs"); im schrägen Element-Pfad
+(`rotateQuads`, Fackel) wird `uvlock` bewusst ignoriert — für ein gekipptes Quad gibt es keine
+achsenparallele Box.
+
 ## RenderLayer & Sichtbarkeitsregeln
 
 `layer` in der Block-JSON: opaque (Default) / cutout (Alpha-Test, Blätter, Cross) / translucent

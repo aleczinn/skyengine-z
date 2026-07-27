@@ -123,7 +123,17 @@ public final class ModelLoader {
     }
 
     public static Baked bake(String name, int xDeg, int yDeg) {
-        return CACHE.computeIfAbsent(name + "|" + xDeg + "|" + yDeg, k -> bakeUncached(name, xDeg, yDeg));
+        return bake(name, xDeg, yDeg, false);
+    }
+
+    /**
+     * @param uvlock Textur weltachsenfest halten statt sie mitzudrehen (MC-{@code uvlock}:
+     *               Treppen und Zäune ja, Stämme nie). Muss im Cache-Key stehen — sonst gewinnt
+     *               der erste Bake für beide Varianten desselben Modells.
+     */
+    public static Baked bake(String name, int xDeg, int yDeg, boolean uvlock) {
+        return CACHE.computeIfAbsent(name + "|" + xDeg + "|" + yDeg + "|" + uvlock,
+                k -> bakeUncached(name, xDeg, yDeg, uvlock));
     }
 
     /**
@@ -163,7 +173,7 @@ public final class ModelLoader {
         return BlockTextures.layerOf(path);
     }
 
-    private static Baked bakeUncached(String name, int xDeg, int yDeg) {
+    private static Baked bakeUncached(String name, int xDeg, int yDeg, boolean uvlock) {
         Map<String, String> tex = new HashMap<>();
         collectTextures(name, tex, 0);
         List<RawElement> elements = collectElements(name, 0);
@@ -172,6 +182,10 @@ public final class ModelLoader {
         int yq = Math.floorMod(yDeg / 90, 4);
 
         boolean ao = collectAmbientOcclusion(name, 0);
+        /* uvlock ohne Drehung ist ein No-op (wie in MC) — sonst würde eine unrotierte Variante
+           ihre expliziten UVs grundlos verlieren. */
+        boolean lock = uvlock && (xq != 0 || yq != 0);
+        if (lock) warnDroppedUv(name, elements);
 
         List<BakedQuad[]> parts = new ArrayList<>();
         List<AABB> boxes = new ArrayList<>();
@@ -179,12 +193,15 @@ public final class ModelLoader {
             if (el.rotation != null) {
                 /* Schräges Element: NICHT über BoxElement drehen — das ist strukturell
                    achsenparallel. Stattdessen die fertigen Quads affin transformieren; die UVs
-                   hängen ohnehin an den Vertices und wandern damit korrekt mit. */
+                   hängen ohnehin an den Vertices und wandern damit korrekt mit.
+                   uvlock greift hier bewusst NICHT: für ein gekipptes Quad gibt es keine
+                   achsenparallele Box, aus der sich eine weltfeste UV ableiten ließe. */
                 BakedQuad[] quads = rotateQuads(toBox(el, tex).bake(), el.rotation, xq, yq);
                 parts.add(quads);
                 boxes.add(enclosingBox(quads));
             } else {
                 BoxElement be = toBox(el, tex).rotateX(xq).rotateY(yq);
+                if (lock) be = be.withoutFaceUv();
                 BakedQuad[] quads = be.bake();
                 if (!ao) stripDirection(quads);
                 parts.add(quads);
@@ -192,6 +209,24 @@ public final class ModelLoader {
             }
         }
         return new Baked(BlockModels.concat(parts.toArray(new BakedQuad[0][])), boxes.toArray(new AABB[0]));
+    }
+
+    /**
+     * uvlock leitet die UVs aus der gedrehten Box ab und verwirft dabei explizite {@code uv}- bzw.
+     * {@code rotation}-Angaben des Modells. Für die heutigen uvlock-Kunden (Treppe, Zaun) sind
+     * beide gar nicht gesetzt; die Warnung fängt den Tag ab, an dem jemand uvlock auf ein Modell
+     * mit handgesetzten UVs schreibt und sich wundert, warum sie wirkungslos sind.
+     */
+    private static void warnDroppedUv(String name, List<RawElement> elements) {
+        for (RawElement el : elements) {
+            if (el.faces == null) continue;
+            for (RawFace face : el.faces.values()) {
+                if (face.uv != null || face.rotation != null) {
+                    LOGGER.warning("uvlock verwirft die expliziten Face-UVs von Modell " + name);
+                    return;
+                }
+            }
+        }
     }
 
     /**
