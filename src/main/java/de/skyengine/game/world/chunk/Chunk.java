@@ -40,6 +40,17 @@ public class Chunk {
     public int[] grassTintCorners;
     public int[] foliageTintCorners;
 
+    /* Himmelslicht je Zelle (lazy pro Section, lock-frei — siehe LightStorage). Geschrieben vom
+       LIGHTING-Job und von den Edit-Updates der LightEngine, gelesen vom Mesher. */
+    public final de.skyengine.game.world.light.LightStorage light =
+            new de.skyengine.game.world.light.LightStorage();
+
+    /* Heightmap fürs Himmelslicht: Y des höchsten licht-blockierenden Blocks + 1 je Säule
+       (Index (z << 5) | x, 0 = Säule frei). Vom LIGHTING-Job berechnet — publiziert über den
+       volatilen status = LIT wie grassTintCorners über status = GENERATED —, danach nur noch
+       vom Render-Thread gepflegt (setBlock-Edits). */
+    public int[] heightmap;
+
     /* volatile: written by workers, read by render thread */
     public volatile ChunkStatus status = ChunkStatus.NEW;
     private final AtomicInteger dirtySections = new AtomicInteger(0);

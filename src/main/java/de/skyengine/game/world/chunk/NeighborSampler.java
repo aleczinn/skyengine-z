@@ -30,5 +30,31 @@ public final class NeighborSampler {
         return chunk.getBlock(x, y, z);
     }
 
+    /**
+     * Himmelslicht 0..15 mit derselben Nachbar-Auflösung wie {@link #sample}. Abweichende
+     * Randfälle: über der Welt ist voller Himmel (15), unter ihr Dunkelheit (0), und ein
+     * fehlender Nachbar-Chunk gilt als Himmel — sonst bekäme jede Ladekante einen schwarzen
+     * Saum, obwohl der Chunk gleich hell nachgeladen wird.
+     */
+    public static int sampleLight(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east,
+                                  Chunk[] diagonals, int x, int y, int z) {
+        if (y >= Chunk.HEIGHT) return 15;
+        if (y < 0) return 0;
+        int size = ChunkSection.SIZE;
+        if (x < 0 || x >= size) {
+            if (z < 0 || z >= size) { // Diagonal-Ecke über zwei Chunk-Grenzen
+                Chunk c = diagonals[(z < 0 ? 0 : 2) + (x < 0 ? 0 : 1)];
+                return c != null ? c.light.get(x < 0 ? size - 1 : 0, y, z < 0 ? size - 1 : 0) : 15;
+            }
+            Chunk c = x < 0 ? west : east;
+            return c != null ? c.light.get(x < 0 ? size - 1 : 0, y, z) : 15;
+        }
+        if (z < 0 || z >= size) {
+            Chunk c = z < 0 ? north : south;
+            return c != null ? c.light.get(x, y, z < 0 ? size - 1 : 0) : 15;
+        }
+        return chunk.light.get(x, y, z);
+    }
+
     private NeighborSampler() {}
 }

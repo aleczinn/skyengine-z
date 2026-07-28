@@ -16,6 +16,13 @@ gebacken (AO-Toggle bumpt die Epoche); LOD-Wasser rendert transluzent im LOD-TRA
 (unsortiert — großflächige Top-Quads ohne Höhlenwasser-Komplexität), Wände an Fluid-Zellen
 ebenfalls. Gras-Wände tragen ein koplanares getöntes Overlay-Quad (s.u.).
 
+**Himmelslicht im LOD:** `LodMesher.putVertex` schreibt pauschal **15** (voller Himmel) in den
+Licht-Int — LOD-Terrain liegt per Definition auf oder über der Heightmap. Es gibt dort keine
+Lichtdaten und soll auch keine geben: `LodDataSource` liefert nur Höhen + Block-ID, und ein
+Sampling echter Lichtwerte wäre teuer und determinismus-kritisch. Bewusste Folge: in beschatteten
+Fernregionen (Schluchtwände, Nordseiten) ist LOD heller als echtes Terrain — das liegt ≥16 Chunks
+entfernt im Fog-Übergang und ist akzeptiert.
+
 - `LodConfig` (pure Formel): `maxLevel = clamp(ceil(log2(lodMax/RD)), 1, 5)`;
   `levelAt(dist) = clamp(floor(log2(dist/(RD*32))) + 1, 1, maxLevel)`; Zellgröße `2^L` (max 32 —
   Formatgrenze des UV-Fixed-Point). RD/lodMax ändern ⇒ Levelzahl ergibt sich automatisch.

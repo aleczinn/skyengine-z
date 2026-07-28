@@ -3,6 +3,7 @@ package de.skyengine.game.world.chunk;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
+import de.skyengine.game.world.light.LightEngine;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.save.WorldStorage;
 import de.skyengine.utils.logging.LogManager;
@@ -134,6 +135,10 @@ public class ChunkManager {
 
     /* One mesher per worker thread, reused (allocation-free) */
     private final ThreadLocal<ChunkMesher> meshers = ThreadLocal.withInitial(ChunkMesher::new);
+
+    /* Dito für die Licht-Engine: eine Instanz ist NICHT threadsicher (BFS-Queues + 3x3-Kontext
+       als Felder). World hält eine eigene für die Edit-Updates auf dem Render-Thread. */
+    private final ThreadLocal<LightEngine> lightEngines = ThreadLocal.withInitial(LightEngine::new);
 
     public record MeshResult(int chunkX, int sectionY, int chunkZ, ChunkMesher.MeshData data) {}
 
@@ -333,16 +338,53 @@ public class ChunkManager {
                 });
             }
 
-            /* 3. Erst-Mesh: alle 16 Sections, sobald alle 8 Nachbarn dekoriert sind - erst dann
-               stehen die Feature-Scheiben an den Rändern fest (Diagonalen braucht zusätzlich
-               die Fluid-Eckhöhen-Berechnung an Chunk-Ecken).
-               Jede Section als eigener Batch, damit der Upload über Frames verteilt wird. */
+            /* 3. Initial-Lighting: Heightmap + Himmelslicht-Flood, sobald alle 8 Nachbarn
+               dekoriert sind - der Job LIEST Blöcke über die Ränder (schreibt Licht aber nur
+               ins Zentrum). submitLoadTask und nicht submitTask: sonst zählt der Job nicht in
+               pendingLoadTasks, der initialLoadComplete-Fixpunkt feuert zu früh und das LOD
+               startet auf halb belichtetem Terrain. */
             if (chunk.status == ChunkStatus.DECORATED) {
                 Chunk north = this.getAtLeast(cx, cz - 1, ChunkStatus.DECORATED);
                 Chunk south = this.getAtLeast(cx, cz + 1, ChunkStatus.DECORATED);
                 Chunk west = this.getAtLeast(cx - 1, cz, ChunkStatus.DECORATED);
                 Chunk east = this.getAtLeast(cx + 1, cz, ChunkStatus.DECORATED);
                 Chunk[] diagonals = this.getDiagonalsAtLeast(cx, cz, ChunkStatus.DECORATED);
+                if (north == null || south == null || west == null || east == null || diagonals == null) continue;
+
+                chunk.status = ChunkStatus.LIGHTING;
+                Chunk finalChunk = chunk;
+                this.submitLoadTask(() -> {
+                    LightEngine engine = this.lightEngines.get();
+                    lockRead(finalChunk, north, south, west, east, diagonals);
+                    try {
+                        engine.lightInitial(finalChunk, north, south, west, east, diagonals);
+                        /* LIT VOR dem Randaustausch: exchangeBorders seedet nur zu Nachbarn, die
+                           schon LIT sind. Wer von zwei benachbarten Jobs später fertig wird, sieht
+                           den anderen und tauscht BEIDE Richtungen aus - die Job-Reihenfolge wird
+                           damit egal. Setzte man LIT erst danach, könnten sich zwei gleichzeitig
+                           fertige Jobs verpassen: dauerhaft dunkle Naht an der Chunk-Grenze.
+                           Der Preis (das Erst-Mesh darf jetzt schon starten und sieht am Rand
+                           transient altes Licht) ist über die Dirty-Masken abgedeckt.
+                           Innerhalb des try: exchangeBorders liest Nachbar-Blöcke. */
+                        finalChunk.status = ChunkStatus.LIT;
+                        engine.exchangeBorders(finalChunk, north, south, west, east, diagonals);
+                    } finally {
+                        unlockRead(finalChunk, north, south, west, east, diagonals);
+                    }
+                });
+            }
+
+            /* 4. Erst-Mesh: alle 16 Sections, sobald alle 8 Nachbarn belichtet sind - erst dann
+               stehen die Feature-Scheiben an den Rändern fest (Diagonalen braucht zusätzlich
+               die Fluid-Eckhöhen-Berechnung an Chunk-Ecken) UND das Nachbar-Licht steht, das
+               der Mesher fürs Corner-Smoothing sampelt.
+               Jede Section als eigener Batch, damit der Upload über Frames verteilt wird. */
+            if (chunk.status == ChunkStatus.LIT) {
+                Chunk north = this.getAtLeast(cx, cz - 1, ChunkStatus.LIT);
+                Chunk south = this.getAtLeast(cx, cz + 1, ChunkStatus.LIT);
+                Chunk west = this.getAtLeast(cx - 1, cz, ChunkStatus.LIT);
+                Chunk east = this.getAtLeast(cx + 1, cz, ChunkStatus.LIT);
+                Chunk[] diagonals = this.getDiagonalsAtLeast(cx, cz, ChunkStatus.LIT);
                 if (north == null || south == null || west == null || east == null || diagonals == null) continue;
 
                 chunk.status = ChunkStatus.MESHING;
@@ -371,9 +413,9 @@ public class ChunkManager {
             this.logger.debug("Initialer Chunk-Load fertig — LOD-Jobs sind ab jetzt freigegeben");
         }
 
-        /* 4. Unload chunks far outside the render distance.
-           READY, DECORATED und GENERATED dürfen weg - nur laufende Jobs
-           (GENERATING/DECORATING/MESHING) bleiben, bis sie fertig sind,
+        /* 5. Unload chunks far outside the render distance.
+           READY, LIT, DECORATED und GENERATED dürfen weg - nur laufende Jobs
+           (GENERATING/DECORATING/LIGHTING/MESHING) bleiben, bis sie fertig sind,
            sonst arbeiten Worker auf entfernten Chunks. */
         int unloadDist = this.renderDistance + 2;
         /* Notventil: jenseits davon wird bedingungslos entladen — pendingUnload-Chunks können
@@ -390,7 +432,8 @@ public class ChunkManager {
             }
 
             ChunkStatus status = chunk.status;
-            if (status == ChunkStatus.READY || status == ChunkStatus.DECORATED
+            if (status == ChunkStatus.READY || status == ChunkStatus.LIT
+                    || status == ChunkStatus.DECORATED
                     || status == ChunkStatus.GENERATED || status == ChunkStatus.NEW) {
                 /* Save-Gate: modifizierte Chunks bleiben in der Map, bis der IO-Thread den
                    Save abgeschlossen hat (saveQueued-Protokoll). Löst zugleich die
@@ -420,15 +463,16 @@ public class ChunkManager {
     }
 
     /**
-     * Setzt alle fertigen Chunks auf DECORATED zurück (NICHT GENERATED — sonst würden sie
-     * erneut dekoriert und Features doppelt platziert) — der normale Lade-Pfad ({@link #update})
-     * meshed sie dann progressiv neu (Blickrichtungs-Score, Upload-Budget). Für Settings, die
-     * ins gebackene Mesh eingehen (z.B. Smooth Lighting): alte Meshes bleiben sichtbar, bis der
-     * Ersatz hochgeladen ist. Chunks, die gerade GENERATING/DECORATING/MESHING sind, bleiben unberührt.
+     * Setzt alle fertigen Chunks auf LIT zurück (NICHT DECORATED oder GENERATED — sonst würden
+     * sie erneut dekoriert bzw. das unveränderte Licht komplett neu geflutet) — der normale
+     * Lade-Pfad ({@link #update}) meshed sie dann progressiv neu (Blickrichtungs-Score,
+     * Upload-Budget). Für Settings, die ins gebackene Mesh eingehen (z.B. AO, Laub-Qualität):
+     * alte Meshes bleiben sichtbar, bis der Ersatz hochgeladen ist. Chunks, die gerade
+     * GENERATING/DECORATING/LIGHTING/MESHING sind, bleiben unberührt.
      */
     public void remeshAll() {
         for (Chunk chunk : this.chunks.values()) {
-            if (chunk.status == ChunkStatus.READY) chunk.status = ChunkStatus.DECORATED;
+            if (chunk.status == ChunkStatus.READY) chunk.status = ChunkStatus.LIT;
         }
     }
 
@@ -466,14 +510,16 @@ public class ChunkManager {
         for (Chunk chunk : this.chunks.values()) {
             if (chunk.status != ChunkStatus.READY || !chunk.hasDirtySections()) continue;
 
-            /* Mindestens DECORATED: der Dekorator schreibt lock-frei (FeaturePlacer) — ein
-               Remesh-Job dürfte einen DECORATING-Nachbarn nicht lesen (Read-Lock schützt nur
-               gegen setBlockRaw). Ab DECORATED wird nur noch mit Write-Lock geschrieben. */
-            Chunk north = this.getAtLeast(chunk.chunkX, chunk.chunkZ - 1, ChunkStatus.DECORATED);
-            Chunk south = this.getAtLeast(chunk.chunkX, chunk.chunkZ + 1, ChunkStatus.DECORATED);
-            Chunk west = this.getAtLeast(chunk.chunkX - 1, chunk.chunkZ, ChunkStatus.DECORATED);
-            Chunk east = this.getAtLeast(chunk.chunkX + 1, chunk.chunkZ, ChunkStatus.DECORATED);
-            Chunk[] diagonals = this.getDiagonalsAtLeast(chunk.chunkX, chunk.chunkZ, ChunkStatus.DECORATED);
+            /* Mindestens LIT: der Dekorator schreibt lock-frei (FeaturePlacer) — ein Remesh-Job
+               dürfte einen DECORATING-Nachbarn nicht lesen (Read-Lock schützt nur gegen
+               setBlockRaw); ab DECORATED wird nur noch mit Write-Lock geschrieben. LIT statt
+               DECORATED, weil der Mesher zusätzlich Nachbar-LICHT fürs Corner-Smoothing
+               sampelt — ein Nachbar auf DECORATED/LIGHTING hätte noch keins. */
+            Chunk north = this.getAtLeast(chunk.chunkX, chunk.chunkZ - 1, ChunkStatus.LIT);
+            Chunk south = this.getAtLeast(chunk.chunkX, chunk.chunkZ + 1, ChunkStatus.LIT);
+            Chunk west = this.getAtLeast(chunk.chunkX - 1, chunk.chunkZ, ChunkStatus.LIT);
+            Chunk east = this.getAtLeast(chunk.chunkX + 1, chunk.chunkZ, ChunkStatus.LIT);
+            Chunk[] diagonals = this.getDiagonalsAtLeast(chunk.chunkX, chunk.chunkZ, ChunkStatus.LIT);
             /* Nachbarn fehlen (Weltrand): Maske NICHT konsumieren, bleibt für später erhalten */
             if (north == null || south == null || west == null || east == null || diagonals == null) continue;
 

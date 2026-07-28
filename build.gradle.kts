@@ -52,6 +52,13 @@ tasks.register<JavaExec>("saveTest") {
     mainClass = "de.skyengine.game.world.save.debug.SaveRoundTripTest"
 }
 
+tasks.register<JavaExec>("lightTest") {
+    group = "verification"
+    description = "Prüft die Himmelslicht-Ausbreitung an künstlichen Chunks (Heightmap, Säule, Tunnel, Wasser, Chunk-Naht)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "de.skyengine.game.world.light.debug.LightProbe"
+}
+
 tasks.register<JavaExec>("mapExport") {
     group = "verification"
     description = "Exportiert Weltgen-Debugkarten nach debug-maps/ (Bitstabilität der Generierung)"

@@ -253,7 +253,13 @@ public class ChunkRenderer {
 
     /* Gecachte Uniform-Locations des Chunk-Shaders (erspart Map-Lookups im Hot-Path) */
     private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogColor,
-            locDetailFade, locDetailCamSnap;
+            locDetailFade, locDetailCamSnap, locMinLight;
+
+    /* Obergrenze der Grundhelligkeit bei Helligkeit 100 % (Minecraft-Wert). Der Slider
+       skaliert linear darauf; „AUS" schaltet stattdessen auf 1.0 = Fullbright. */
+    private static final float MAX_MIN_LIGHT = 0.09F;
+    /* Zuletzt hochgeladener Wert — Upload nur bei Änderung (wie bei den Fog-Uniforms). */
+    private float lastMinLight = Float.NaN;
 
     /* Zuletzt hochgeladene Fog-Werte: Upload nur bei Änderung (Settings/Clear-Color) —
        die Werte sind pro Frame konstant, ein Re-Upload pro Pass wäre doppelt umsonst. */
@@ -295,6 +301,7 @@ public class ChunkRenderer {
         this.locFogColor = this.shader.getUniformLocation("u_FogColor");
         this.locDetailFade = this.shader.getUniformLocation("u_DetailFade");
         this.locDetailCamSnap = this.shader.getUniformLocation("u_DetailCamSnap");
+        this.locMinLight = this.shader.getUniformLocation("u_MinLight");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
         this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F); // Ausdünnung default aus
@@ -643,6 +650,7 @@ public class ChunkRenderer {
         this.shader.bind();
         this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
         this.setFogUniforms();
+        this.setLightUniforms();
         this.textures.bind(0);
 
         /* GPU-Pfad: Compute-Ergebnisse (Commands/Offsets/Counts) vor den Draws sichtbar machen. */
@@ -1302,8 +1310,13 @@ public class ChunkRenderer {
 
             GL30.glBindVertexArray(this.vaos[i]);
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, arenaBuffer);
-            GL30.glVertexAttribIPointer(0, 4, GL11.GL_UNSIGNED_INT, ChunkMesher.VERTEX_SIZE * Integer.BYTES, 0);
+            int stride = ChunkMesher.VERTEX_SIZE * Integer.BYTES;
+            GL30.glVertexAttribIPointer(0, 4, GL11.GL_UNSIGNED_INT, stride, 0);
             GL20.glEnableVertexAttribArray(0);
+            /* Attribut 1 = der 5. Int (Licht). Ein 5-komponentiges Attribut gibt es nicht,
+               daher ein zweites 1-komponentiges bei Offset 16 — Stride bleibt derselbe. */
+            GL30.glVertexAttribIPointer(1, 1, GL11.GL_UNSIGNED_INT, stride, 16);
+            GL20.glEnableVertexAttribArray(1);
             GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, this.sharedEbo);
             GL30.glBindVertexArray(0);
 
@@ -1354,6 +1367,19 @@ public class ChunkRenderer {
         this.lastFogR = clear.red;
         this.lastFogG = clear.green;
         this.lastFogB = clear.blue;
+    }
+
+    /**
+     * Setzt die Untergrenze des Himmelslichts aus dem Helligkeits-Setting. Reicht EINMAL pro
+     * Frame in {@code renderSolid}: alle Pässe (Cutout, Detail, Translucent, LOD, GPU-Cull-
+     * Phase 2) teilen sich dasselbe Shader-Programm, und Uniform-State bleibt darin erhalten.
+     */
+    private void setLightUniforms() {
+        int brightness = GameSettings.get().brightness;
+        float minLight = brightness <= 0 ? 1.0F : (brightness / 100F) * MAX_MIN_LIGHT;
+        if (minLight == this.lastMinLight) return;
+        this.shader.setUniformf(this.locMinLight, minLight);
+        this.lastMinLight = minLight;
     }
 
     /* ------------------------- Helfer ------------------------- */
@@ -1595,6 +1621,8 @@ public class ChunkRenderer {
     private static final String VERTEX_SOURCE = """
             #version 460 core
             layout(location = 0) in uvec4 a_data;
+            /* 5. Int des Vertex-Formats: Skylight 0..15 in Bits 0-3 (Rest reserviert). */
+            layout(location = 1) in uint a_light;
 
             layout(std430, binding = 0) readonly buffer DrawOffsets {
                 vec4 u_DrawOffsets[];
@@ -1611,6 +1639,7 @@ public class ChunkRenderer {
 
             out vec3 v_texCoord;
             out vec3 v_color;
+            out float v_light;
             out float v_viewDist;
 
             void main() {
@@ -1623,6 +1652,9 @@ public class ChunkRenderer {
 
                 v_texCoord = vec3(uv, layer);
                 v_color = color;
+                /* Skylight 0..1, interpoliert -> weiche Verlaeufe (Smooth Lighting). Muss VOR
+                   dem Ausduennungs-Block stehen, der mit return aussteigt. */
+                v_light = float(a_light & 0xFu) * (1.0 / 15.0);
                 /* Occlusion-Debug (GpuCull.DEBUG_TINT): der Compute markiert Verdeckt-Verdikte
                    ueber baseInstance=1 statt sie zu cullen -> rot tinten. */
                 if (gl_BaseInstance != 0) {
@@ -1659,6 +1691,7 @@ public class ChunkRenderer {
             #version 460 core
             in vec3 v_texCoord;
             in vec3 v_color;
+            in float v_light;
             in float v_viewDist;
 
             uniform sampler2DArray u_Textures;
@@ -1666,16 +1699,26 @@ public class ChunkRenderer {
             uniform vec3 u_FogColor;
             uniform float u_FogStart;
             uniform float u_FogEnd;
+            /* Untergrenze des Himmelslichts (Minecraft-Helligkeitsregler). 1.0 = Fullbright:
+               dann ist das Ergebnis fuer JEDES v_light exakt 1.0, also bit-identisch zum
+               Bild ohne Lichtsystem — deshalb braucht Fullbright weder Shader-Zweig noch Remesh. */
+            uniform float u_MinLight;
 
             out vec4 fragColor;
+
+            /* Minecraft-Helligkeitskurve (lightBrightnessTable): staucht mittlere Licht-Level
+               nach unten. Linear waere der Abfall fast ueberall zu grell. */
+            float lightCurve(float f) { return f / (4.0 - 3.0 * f); }
 
             void main() {
                 vec4 color = texture(u_Textures, v_texCoord);
                 if (color.a < u_AlphaCutoff) discard;
+                float light = lightCurve(clamp(v_light, 0.0, 1.0));
+                light = u_MinLight + (1.0 - u_MinLight) * light;
                 /* Clamp gegen Attribut-EXTRApolation: kantenparallel gesehene Faces rastern als
                    degenerierte Sliver-Dreiecke, deren Interpolation die per-Vertex-AO-Farben
                    ueber 1.0 hinaus extrapoliert -> helle Funkel-Striche auf Augenhoehe. */
-                vec3 lit = color.rgb * clamp(v_color, 0.0, 1.0);
+                vec3 lit = color.rgb * clamp(v_color, 0.0, 1.0) * light;
                 /* Linearer Distanz-Fog Richtung Clear-Color: nimmt dem Horizont den Kontrast
                    (Sub-Pixel-Flimmern des Fernterrains) und versteckt die Far-Plane-Kante. */
                 float fog = clamp((v_viewDist - u_FogStart) / (u_FogEnd - u_FogStart), 0.0, 1.0);

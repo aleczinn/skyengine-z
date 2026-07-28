@@ -90,6 +90,14 @@ public final class BlockState {
         return (this.flags & StateFlags.NO_LOD_SURFACE) != 0;
     }
 
+    /**
+     * Licht-Opazität 0..15: wie viel Himmelslicht dieser Block je Zelle schluckt.
+     * 0 = durchlässig (Glas, Luft), 1 = dämpfend (Wasser, Laub), 15 = opak.
+     */
+    public int getLightOpacity() {
+        return StateFlags.opacity(this.flags);
+    }
+
     public BlockShape getCollisionShape() {
         return this.block.getCollisionShape(this);
     }

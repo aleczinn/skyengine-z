@@ -5,7 +5,11 @@ package de.skyengine.game.world.chunk;
  * vorherigen voraus, Bereichs-Checks laufen über {@link #isAtLeast}.
  */
 public enum ChunkStatus {
-    NEW, GENERATING, GENERATED, DECORATING, DECORATED, MESHING, READY;
+    /* LIGHTING/LIT liegen zwischen DECORATED und MESHING: der Licht-Job liest Blöcke über die
+       Chunk-Ränder (Gate 8× DECORATED) und der Mesher liest Nachbar-LICHT fürs Corner-Smoothing
+       (Gate 8× LIT). Die DECORATED-Lesegrenze in World bleibt davon unberührt — sie liegt
+       darunter. */
+    NEW, GENERATING, GENERATED, DECORATING, DECORATED, LIGHTING, LIT, MESHING, READY;
 
     /** true, wenn dieser Status im Lebenszyklus mindestens {@code other} erreicht hat. */
     public boolean isAtLeast(ChunkStatus other) {

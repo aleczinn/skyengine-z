@@ -46,6 +46,7 @@ public final class BlockConfig {
     private final int harvestLevel;
     private final de.skyengine.audio.BlockSoundGroup soundGroup;
     private final de.skyengine.audio.BlockOpenSound openSound;
+    private final int lightOpacity;
 
     private BlockConfig(Builder b) {
         this.properties = List.copyOf(b.properties);
@@ -71,6 +72,7 @@ public final class BlockConfig {
         this.harvestLevel = b.harvestLevel;
         this.soundGroup = b.soundGroup;
         this.openSound = b.openSound;
+        this.lightOpacity = b.lightOpacity;
     }
 
     public List<Property<?>> properties() {
@@ -201,6 +203,14 @@ public final class BlockConfig {
         return openSound;
     }
 
+    /**
+     * Licht-Opazität 0..15 oder -1 = automatisch (opaker Vollblock 15, sonst 0).
+     * Siehe {@link de.skyengine.game.world.block.Block#getLightOpacity}.
+     */
+    public int lightOpacity() {
+        return lightOpacity;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -229,6 +239,7 @@ public final class BlockConfig {
         private int harvestLevel = 0;
         private de.skyengine.audio.BlockSoundGroup soundGroup = de.skyengine.audio.BlockSoundGroup.STONE;
         private de.skyengine.audio.BlockOpenSound openSound;
+        private int lightOpacity = -1;
 
         public Builder property(Property<?> p) {
             this.properties.add(p);
@@ -345,6 +356,11 @@ public final class BlockConfig {
 
         public Builder openSound(de.skyengine.audio.BlockOpenSound s) {
             this.openSound = s;
+            return this;
+        }
+
+        public Builder lightOpacity(int v) {
+            this.lightOpacity = v;
             return this;
         }
 

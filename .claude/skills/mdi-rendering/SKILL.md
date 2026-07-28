@@ -48,6 +48,12 @@ hält die Bindung für aktuell und die VAOs zeigen aufs alte, zu kleine EBO-Obje
 Gleiches Muster in `VertexArena.grow`. Beim EBO-Upload darf **kein VAO gebunden** sein.
 Nach Arena-Wachstum oder EBO-Neubau bindet `ensureVaoBindings()` neu (vergleicht gecachte Namen).
 
+**Zwei Vertex-Attribute, nicht eines:** Attribut 0 ist das `uvec4` (int0..int3) bei Offset 0,
+Attribut 1 der Licht-Int bei Offset 16 (`glVertexAttribIPointer(1, 1, GL_UNSIGNED_INT, stride, 16)`).
+Ein fünfkomponentiges Attribut gibt es nicht. Die Schleife läuft über **alle** Arena-Slots, LOD
+eingeschlossen — wer einen Slot vergisst, bekommt dort undefiniertes Licht. Der Stride
+(`VERTEX_SIZE * 4`) gilt für beide.
+
 ## Render-Pass-Reihenfolge (Vanilla-Konvention, nicht umsortieren)
 
 `World.render`: `processRemeshes()` → `renderSolid` (OPAQUE + CUTOUT) → BlockEntities → Entities →

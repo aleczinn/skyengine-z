@@ -41,6 +41,7 @@ Zusätzlich:
 ./gradlew build
 
 ./gradlew saveTest      # fensterlos: Block-Registry bootstrappen + Chunk-Round-Trip
+./gradlew lightTest     # fensterlos: Himmelslicht-Ausbreitung (Heightmap, Flood, Naht, Vertex)
 ./gradlew mapExport     # fensterlos: Weltgen-Karten nach debug-maps/
 ```
 
@@ -108,6 +109,7 @@ ausdrücken).
 | `block-modelle-und-texturen` | …Modelle, Blockstates, Texturen, Icons, RenderLayer |
 | `fluid-system` | …Wasser/Lava-Verhalten, -Geometrie, Eimer, Strömung |
 | `lod-system` | …LodManager/LodMesher/LodConfig oder LOD-Anbindung im Renderer |
+| `licht-system` | …Himmelslicht, Licht-Opazität, ChunkStatus, der 5. Vertex-Int, Chunk-Shader |
 | `weltgen-v2` | …Weltgenerierung, Biome, Seen, Flüsse, Features, Noise-Seeds |
 | `vegetation-tint` | …Gras-/Laubfärbung, Tint-Grids, Grasblock-Overlay |
 | `sound-system` | …Sounds/Musik, OpenAL, SoundManager, Block-Sound-Gruppen, Lautstärke-Settings |
@@ -117,7 +119,11 @@ ausdrücken).
 
 **Fertig und stabil:**
 - Chunk-Pipeline mit Nachbar-Gating, Prioritäts-Workern, Edit-Priority-Uploads
-- Meshing: Greedy + Minecraft-AO (inkl. Flip + Shader-Clamp), 16-Byte-Vertices, Index-Buffer
+- Meshing: Greedy + Minecraft-AO (inkl. Flip + Shader-Clamp), 20-Byte-Vertices, Index-Buffer
+- Himmelslicht (nur Sky, kein Blocklicht): `LightStorage` (Nibble je Zelle, lazy + Uniform pro
+  Section) + `LightEngine` (Heightmap, Flood-BFS, Randaustausch, Edit-Updates), Pipeline-Stufen
+  LIGHTING/LIT, Smooth Lighting im Mesher, MC-Lichtkurve + Helligkeits-Slider (AUS = Fullbright)
+  im Chunk-Shader; Licht wird nicht persistiert. Prüfstand `gradlew lightTest`
 - Rendering: MDI + VertexArena + Frame-Fences, TextureArray mit animierten Sprites,
   Translucent-Sortierung, BlockEntity-Renderer (Chest, EnchantingTable), Reversed-Z,
   Distanz-Fog (auch über LOD) + MSAA-Offscreen-Framebuffer (beides GameSettings)
@@ -205,7 +211,9 @@ ausdrücken).
   Migration aus dem Arbeitsverzeichnis; debug/ + debug-maps/ bleiben im Projekt)
 
 **Offen / geplant (bekannt, nicht angefangen):**
-- Licht-Merge (`lightning-system`-Branch) + Schatten-Pass — dann amortisiert sich der GPU-Cull-Pfad
+- Blocklicht (Fackeln/Leuchtblöcke) — die freien Bits 4-31 des Licht-Ints und weitere
+  `LightStorage`-Ebenen sind dafür da; danach Tag-Nacht-Zyklus und Schatten-Pass
+  (`lightning-system`-Branch als Vorlage) — dann amortisiert sich der GPU-Cull-Pfad
 - Crafting (kein Recipe-/Crafting-Menü; `GuiInventory`-Crafting-Bereich noch funktionslos);
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
   (Andockpunkt: `GuiContainer.onSlotClick`)
@@ -221,7 +229,8 @@ ausdrücken).
 
 **Bewusst nicht vorhanden (nicht „vergessen" — nicht ungefragt bauen):**
 - **Kein Sky-Rendering** (keine Atmosphäre/Wolken/God-Rays — Clear-Color ist der Himmel)
-- **Kein Lichtsystem** (keine Block-/Himmelslicht-Propagation; Helligkeit = Face-Brightness × AO)
+- **Kein Blocklicht** (Fackeln leuchten nicht), kein Tag-Nacht-Zyklus, keine Schatten — es gibt
+  ausschließlich Himmelslicht (s. Skill `licht-system`)
 - Keine Mobs, kein Multiplayer, keine Test-Infrastruktur
 
 ## Wiederkehrende Fallen (Kurzliste — Details in den Skills)

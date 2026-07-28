@@ -10,7 +10,6 @@ import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.CycleButton;
 import de.skyengine.graphics.gui.widget.Slider;
-import de.skyengine.graphics.gui.widget.Spacer;
 
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
@@ -107,13 +106,20 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
         CycleButton<Boolean> damageTilt = CycleButton.onOff(I18n.tr("options.video.damage_tilt"), CELL_W, CELL_H,
                 this.settings.damageTilt, v -> this.settings.damageTilt = v);
 
+        /* Wirkt live über u_MinLight im Chunk-Shader -> kein Remesh. Unterste Stufe ist AUS
+           und bedeutet Fullbright (Himmelslicht wirkungslos, Bild wie ohne Lichtsystem). */
+        Slider brightness = new Slider(CELL_W, CELL_H, 0, 100, 5, this.settings.brightness,
+                v -> I18n.tr("options.video.brightness",
+                        (int) v == 0 ? I18n.tr("gui.off") : (int) v + " %"),
+                v -> this.settings.brightness = (int) v, null);
+
         content.add(new HStack(4, render, simulation));
         content.add(new HStack(4, msaa, aniso));
         content.add(new HStack(4, ao, leaves));
         content.add(new HStack(4, fog, vegetation));
         content.add(new HStack(4, lod, lodDistance));
         content.add(new HStack(4, bobbing, damageTilt));
-        content.add(new HStack(4, vsync, new Spacer(CELL_W, CELL_H)));
+        content.add(new HStack(4, vsync, brightness));
     }
 
     /** AO/Laub stecken im gebackenen Mesh -> Voll-Remesh (nur mit Welt möglich). */

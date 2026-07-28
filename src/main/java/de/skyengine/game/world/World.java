@@ -34,6 +34,7 @@ import de.skyengine.game.world.save.LevelData;
 import de.skyengine.game.world.save.WorldStorage;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
+import de.skyengine.game.world.light.LightEngine;
 import de.skyengine.game.world.lod.LodBlockAppearance;
 import de.skyengine.game.world.lod.LodDataSource;
 import de.skyengine.game.world.lod.LodManager;
@@ -101,6 +102,12 @@ public class World implements IInitializable, IDisposable {
     private long gameTime;
     private final Random random = new Random();
     private final ScheduledTickQueue scheduledTicks = new ScheduledTickQueue();
+
+    /* Himmelslicht-Aktualisierung bei Block-Edits. Eigene Engine-Instanz für den
+       Render-/Tick-Thread (die Worker haben ihre ThreadLocals im ChunkManager) — eine Instanz
+       ist nicht threadsicher. lightDiagonals ist ein wiederverwendeter Übergabepuffer. */
+    private final LightEngine lightEngine = new LightEngine();
+    private final Chunk[] lightDiagonals = new Chunk[4];
 
     /** Zufalls-Ticks pro nicht-leerer Section pro Tick (Wachstum, Verfall). 0 = aus. */
     private static final int RANDOM_TICK_SPEED = 3;
@@ -665,6 +672,9 @@ public class World implements IInitializable, IDisposable {
 
         int sy = y >> ChunkSection.SHIFT;
 
+        /* Alter Block VOR dem Write — die Licht-Aktualisierung braucht beide Opazitäten. */
+        int oldBlock = chunk.getBlock(lx, y, lz);
+
         /* Write-Lock: serialisiert gegen laufende Worker-Mesh-Reads desselben Chunks. */
         chunk.writeLock().lock();
         try {
@@ -690,9 +700,36 @@ public class World implements IInitializable, IDisposable {
         if (lx == ChunkSection.MASK && lz == 0) this.markDirtyColumn(cx + 1, cz - 1, sy, y);
         if (lx == ChunkSection.MASK && lz == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz + 1, sy, y);
 
+        /* Himmelslicht nachziehen. Die Markierungen oben decken nur den 1-Block-Ring von
+           Geometrie und AO ab — Licht reicht deutlich weiter (eine gekappte Direkt-Säule
+           verdunkelt bis zum Boden, ein Loch in eine Höhle flutet 15 Blöcke in alle
+           Richtungen, auch über Chunk-Grenzen). Die LightEngine markiert die betroffenen
+           Sections deshalb selbst, inklusive ±1-Ring fürs Corner-Smoothing. */
+        this.updateLight(chunk, cx, cz, lx, y, lz, oldBlock, block);
+
         /* Persistenz: Chunk ist seit dem letzten Save verändert. */
         chunk.modified = true;
         return true;
+    }
+
+    /**
+     * Sammelt das 3×3-Umfeld und lässt die {@link LightEngine} das Himmelslicht nachziehen.
+     * Läuft synchron auf dem Render-/Tick-Thread — dem einzigen Block-Schreiber; Licht-Writes
+     * sind lock-frei (siehe {@code LightStorage}), deshalb sind hier keine Locks nötig. Die
+     * Engine-Instanz gehört exklusiv diesem Thread (die Worker haben ihre ThreadLocals).
+     */
+    private void updateLight(Chunk chunk, int cx, int cz, int lx, int y, int lz, int oldBlock, int newBlock) {
+        Chunk north = this.chunkManager.getChunk(cx, cz - 1);
+        Chunk south = this.chunkManager.getChunk(cx, cz + 1);
+        Chunk west = this.chunkManager.getChunk(cx - 1, cz);
+        Chunk east = this.chunkManager.getChunk(cx + 1, cz);
+        /* Reihenfolge NW, NE, SW, SE — wie ChunkManager.getDiagonalsAtLeast und NeighborSampler. */
+        this.lightDiagonals[0] = this.chunkManager.getChunk(cx - 1, cz - 1);
+        this.lightDiagonals[1] = this.chunkManager.getChunk(cx + 1, cz - 1);
+        this.lightDiagonals[2] = this.chunkManager.getChunk(cx - 1, cz + 1);
+        this.lightDiagonals[3] = this.chunkManager.getChunk(cx + 1, cz + 1);
+        this.lightEngine.onBlockChanged(chunk, north, south, west, east, this.lightDiagonals,
+                lx, y, lz, oldBlock, newBlock);
     }
 
     /**

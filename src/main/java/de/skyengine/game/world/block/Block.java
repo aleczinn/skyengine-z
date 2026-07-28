@@ -113,6 +113,17 @@ public class Block {
         return this.settings.solid;
     }
 
+    /**
+     * Licht-Opazität 0..15 (wie viel Himmelslicht eine Zelle dieses Blocks schluckt). Ohne
+     * {@code light_opacity} in der Block-JSON gilt die Automatik „opaker Vollblock = 15, sonst 0" —
+     * per State, damit eine Doppel-Halbstufe blockt und eine einfache nicht. Explizit gesetzt wird
+     * nur, wo Licht <b>dämpfen</b> statt durchfallen oder hart enden soll (Wasser, Laub: 1).
+     */
+    public int getLightOpacity(BlockState state) {
+        int v = this.config.lightOpacity();
+        return v >= 0 ? v : (this.isOpaqueCube(state) ? 15 : 0);
+    }
+
     public RenderLayer getRenderLayer(BlockState state) {
         return this.settings.renderLayer;
     }

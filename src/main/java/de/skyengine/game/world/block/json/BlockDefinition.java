@@ -17,6 +17,11 @@ public class BlockDefinition {
     public boolean cull_same = false;   // Glas-an-Glas-Culling
     public boolean no_lod_surface = false; // nie als LOD-Terrain-Oberfläche sampeln (Logs)
     public boolean leaves = false;      // Laub: bei LeavesQuality LOW cullt Laub-an-Laub
+    /* Licht-Opazität 0..15: wie viel Himmelslicht eine Zelle schluckt. null = automatisch
+       (opaker Vollblock 15, sonst 0). Explizit nur da, wo Licht DÄMPFEN soll — Wasser und
+       Laub stehen auf 1: ohne das wäre Wasser für Licht Luft (kein Tiefengradient) und eine
+       Baumkrone würde gar keinen Schatten werfen. */
+    public Integer light_opacity;
     public boolean gravity = false;     // fällt nach unten (Sand, Kies) via GravityBehavior
     public boolean replaceable = false; // Platzieren in diese Zelle ersetzt den Block (Gras/Farn, wie MC — kein Drop)
     public boolean facing = false;      // horizontale Ausrichtung zum Spieler (Truhe, Ofen) via HorizontalFacingBehavior

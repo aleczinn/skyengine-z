@@ -62,6 +62,12 @@ public final class GameSettings {
     /* Distanz-Fog Richtung Clear-Color am Sichtweiten-Rand (dämpft Horizont-Flimmern,
        versteckt Far-Plane-Kante und LOD-Übergänge) */
     public boolean fog = true;
+    /* Helligkeit in Prozent (5er-Raster): 0 = AUS = Fullbright — das Himmelslicht bleibt
+       berechnet, wird im Shader aber wirkungslos, das Bild ist bit-identisch zum Zustand ohne
+       Lichtsystem. 5..100 = Minecraft-Helligkeitsregler: hebt Licht 0 auf brightness × 9 %
+       an (Remap über u_MinLight im Chunk-Shader). Wirkt live über ein Uniform — KEIN Remesh,
+       weil das Licht als eigener Kanal im Vertex liegt und nicht in die Farbe multipliziert ist. */
+    public int brightness = 50;
     /* View-Bobbing (Kamera wippt beim Laufen, wie MC) — aus für Motion-Sickness-Empfindliche. */
     public boolean viewBobbing = true;
     /* Kamera-Roll beim Schaden (Hurt-Tilt). */
@@ -159,6 +165,7 @@ public final class GameSettings {
         this.msaaSamples = Math.clamp(this.msaaSamples, 0, 16);
         this.lodMaxDistance = Math.clamp(this.lodMaxDistance, 8, 512);
         this.vegetationDistance = Math.clamp(this.vegetationDistance, 0, 32);
+        this.brightness = Math.clamp((this.brightness + 2) / 5 * 5, 0, 100);
         this.masterVolume = Math.clamp(this.masterVolume, 0, 100);
         if (this.soundVolumes == null) {
             this.soundVolumes = defaultSoundVolumes();

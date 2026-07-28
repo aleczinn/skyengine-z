@@ -113,6 +113,11 @@ public final class ArchetypeBlockFactory {
             builder.harvestLevel(ToolTier.levelByName(def.harvest_tier));
         }
 
+        /* Licht-Opazität: ohne Angabe entscheidet Block.getLightOpacity automatisch per State. */
+        if (def.light_opacity != null) {
+            builder.lightOpacity(Math.clamp(def.light_opacity.intValue(), 0, 15));
+        }
+
         /* Sound-Gruppe: explizites JSON-Feld oder Ableitung aus Tool/Archetyp. */
         String archetypeName = def.archetype != null ? def.archetype : def.type;
         builder.sound(BlockSoundGroup.resolve(def.sound, ToolType.byName(def.tool), archetypeName));

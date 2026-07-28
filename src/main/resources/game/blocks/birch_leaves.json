@@ -4,6 +4,7 @@
   "sound": "grass",
   "layer": "cutout",
   "leaves": true,
+  "light_opacity": 1,
   "hardness": 0.2,
   "opaque": false,
   "tint": "foliage_birch"
