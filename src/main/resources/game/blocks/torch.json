@@ -16,12 +16,7 @@
   "textures": {
     "torch": "game/textures/block/torch.png"
   },
-  "_comment": "Keine Kollision (man laeuft durch), nur eine Umriss-Box fuers Anvisieren.",
-  "collision": {
-    "outline": [
-      { "from": [6, 0, 6], "to": [10, 10, 10] }
-    ]
-  },
+  "_comment": "Keine collision-Sektion: der Archetyp 'attached' liefert die Form ueber Shapes.attached() zustandsabhaengig (Wandfackel steht nicht in der Blockmitte). Ein JSON-Override wuerde das wieder platt machen.",
   "multipart": [
     { "when": { "face": "floor" }, "apply": { "model": "block/torch" } },
     { "when": { "face": "wall", "facing": "east" },  "apply": { "model": "block/torch_wall" } },

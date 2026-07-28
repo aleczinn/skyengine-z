@@ -210,9 +210,10 @@ ausdrücken).
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
   (Andockpunkt: `GuiContainer.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
-- TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert, inkl. Test-Truhe,
-  Fackel und den 15 Material-Items) — ohne Crafting/Creative-Menü der einzige Weg, sie in die
-  Hand zu bekommen; greift nur bei einer **frisch erstellten** Welt
+- TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert, inkl. Test-Truhe
+  und Fackel) — ohne Crafting/Creative-Menü der einzige Weg, sie in die Hand zu bekommen; greift
+  nur bei einer **frisch erstellten** Welt. Die **15 Material-Items liegen dort nicht** (beim
+  Zusammenkürzen der Methode entfallen) und sind damit aktuell unerreichbar
 - Bett/Reaktor: die Mechanik steht (`parts`, s.o.), es fehlen nur noch die Blöcke selbst —
   ein Bett braucht ein eigenes 3D-Modell + Texturen. `multiblock/MultiblockPattern` bleibt
   ungenutzte Infrastruktur für Controller-Strukturen (validiert eine Struktur aus FREMDEN

@@ -3,6 +3,7 @@ package de.skyengine.game.world.block.shape;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.model.BlockStateModels;
+import de.skyengine.game.world.block.state.AttachFace;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.DoorHinge;
 import de.skyengine.game.world.block.state.Properties;
@@ -19,6 +20,17 @@ public final class Shapes {
     private static final BlockShape SLAB_BOTTOM = BlockShape.box(0, 0, 0, 1, 0.5, 1);
     private static final BlockShape SLAB_TOP = BlockShape.box(0, 0.5, 0, 1, 1, 1);
     private static final BlockShape CROSS_OUTLINE = BlockShape.box(0.1, 0.0, 0.1, 0.9, 0.8, 0.9);
+
+    /* Fackel-Umrisse in Pixeln/16 (Vanilla): Boden mittig, Wand an der Trägerseite. */
+    private static final BlockShape TORCH_FLOOR = px(6, 0, 6, 10, 10, 10);
+    private static final BlockShape TORCH_WALL_NORTH = px(5.5, 3, 11, 10.5, 13, 16);
+    private static final BlockShape TORCH_WALL_SOUTH = px(5.5, 3, 0, 10.5, 13, 5);
+    private static final BlockShape TORCH_WALL_WEST = px(11, 3, 5.5, 16, 13, 10.5);
+    private static final BlockShape TORCH_WALL_EAST = px(0, 3, 5.5, 5, 13, 10.5);
+
+    private static BlockShape px(double x0, double y0, double z0, double x1, double y1, double z1) {
+        return BlockShape.box(x0 / 16.0, y0 / 16.0, z0 / 16.0, x1 / 16.0, y1 / 16.0, z1 / 16.0);
+    }
 
     /** Slab: untere/obere Hälfte oder voller Würfel — prozedural, modellunabhängig. */
     public static ShapeProvider slab() {
@@ -87,6 +99,26 @@ public final class Shapes {
             case WEST -> new AABB(0, 0, 0, t, 1, 1);
             case EAST -> new AABB(1 - t, 0, 0, 1, 1, 1);
             default -> new AABB(0, 0, 0, 1, 1, t);
+        };
+    }
+
+    /**
+     * Attached (Fackel): keine Kollision, Umriss je nach Trägerfläche. Boxen verbatim aus Vanillas
+     * {@code TorchBlock}/{@code WallTorchBlock} — bei WALL steht die Fackel an der Trägerseite,
+     * also der FACING-Richtung gegenüber (FACING zeigt vom Träger weg).
+     */
+    public static ShapeProvider attached() {
+        return new ShapeProvider() {
+            @Override public BlockShape collision(BlockState state) { return BlockShape.EMPTY; }
+            @Override public BlockShape outline(BlockState state) {
+                if (state.get(Properties.ATTACH) != AttachFace.WALL) return TORCH_FLOOR;
+                return switch (state.get(Properties.FACING)) {
+                    case NORTH -> TORCH_WALL_NORTH;
+                    case SOUTH -> TORCH_WALL_SOUTH;
+                    case WEST -> TORCH_WALL_WEST;
+                    default -> TORCH_WALL_EAST;
+                };
+            }
         };
     }
 

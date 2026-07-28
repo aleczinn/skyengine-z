@@ -36,13 +36,14 @@ public final class ModelLoader {
     /* ---- Gson-DTOs ----
        ambientocclusion: MC-Modellfeld, Default true. Bewusst der Wrapper Boolean — bei einem
        primitiven boolean liefert GSON für ein FEHLENDES Feld false und würde AO überall
-       abschalten. Kleinschreibung ohne Trennzeichen ist der MC-Feldname (wie cullface). */
+       abschalten. Kleinschreibung ohne Trennzeichen ist der MC-Feldname (wie cullface).
+       Dasselbe gilt für RawElement.shade (Default true, s. fullBright). */
     public static final class RawModel { String parent; Map<String, String> textures; List<RawElement> elements; Boolean ambientocclusion; Map<String, RawDisplay> display; }
     /** MC-Display-Sektion je Kontext (gui, firstperson_righthand, ...): rotation/translation/scale. */
     public static final class RawDisplay { float[] rotation; float[] translation; float[] scale; }
     /* from/to bewusst float: MC-Modelle nutzen Halbpixel (Wandfackel 3.5/19.5) und Werte
        ausserhalb 0..16 (Ueberstaende). Ganzzahlige Bestandsmodelle parsen unveraendert. */
-    public static final class RawElement { float[] from; float[] to; Map<String, RawFace> faces; boolean mirror; RawRotation rotation; }
+    public static final class RawElement { float[] from; float[] to; Map<String, RawFace> faces; boolean mirror; RawRotation rotation; Boolean shade; }
     /**
      * MC-Elementrotation um eine beliebige Achse mit beliebigem Winkel (Fackel: z/-22.5).
      * origin in 0..16-Pixeln, axis = x|y|z, angle in Grad, rescale = Aufblähen auf die alte
@@ -197,6 +198,7 @@ public final class ModelLoader {
                    uvlock greift hier bewusst NICHT: für ein gekipptes Quad gibt es keine
                    achsenparallele Box, aus der sich eine weltfeste UV ableiten ließe. */
                 BakedQuad[] quads = rotateQuads(toBox(el, tex).bake(), el.rotation, xq, yq);
+                if (el.shade == Boolean.FALSE) fullBright(quads);
                 parts.add(quads);
                 boxes.add(enclosingBox(quads));
             } else {
@@ -204,6 +206,7 @@ public final class ModelLoader {
                 if (lock) be = be.withoutFaceUv();
                 BakedQuad[] quads = be.bake();
                 if (!ao) stripDirection(quads);
+                if (el.shade == Boolean.FALSE) fullBright(quads);
                 parts.add(quads);
                 boxes.add(be.toAABB());
             }
@@ -241,6 +244,25 @@ public final class ModelLoader {
             /* Vertex-Array wird geteilt (nie mutiert) — nur die Richtung ändert sich. */
             quads[i] = new BakedQuad(q.vertices(), q.textureLayer(), q.cullFace(), BakedQuad.NO_DIRECTION,
                     q.brightness(), q.tint(), q.tintType());
+        }
+    }
+
+    /**
+     * Nimmt den Quads die richtungsabhängige Flächenhelligkeit ({@code shade: false}). Vanilla
+     * nutzt das für kleine Modelle wie die Fackel: dort ist die Flamme auf allen Seiten gleich
+     * hell, mit {@code FACE_BRIGHTNESS} fiele derselbe Flammentexel je Face unterschiedlich aus
+     * (Oberseite 1.0 gegen Seiten 0.8/0.6) und der weiße Texel würde herausspringen.
+     *
+     * <p>Bewusst getrennt von {@link #stripDirection}: das nimmt {@code face} und schaltet damit
+     * AO ab, hier bleibt {@code face} erhalten. Beides ist unabhängig steuerbar
+     * ({@code shade} je Element, {@code ambientocclusion} je Modell) und darf sich überlagern.
+     */
+    private static void fullBright(BakedQuad[] quads) {
+        for (int i = 0; i < quads.length; i++) {
+            BakedQuad q = quads[i];
+            /* Vertex-Array wird geteilt (nie mutiert) — nur die Helligkeit ändert sich. */
+            quads[i] = new BakedQuad(q.vertices(), q.textureLayer(), q.cullFace(), q.face(),
+                    1.0F, q.tint(), q.tintType());
         }
     }
 

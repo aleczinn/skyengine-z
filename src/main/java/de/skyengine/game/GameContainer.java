@@ -1410,7 +1410,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.setItem(5, "skyengine:chest");
         this.setItem(6, "skyengine:water_bucket");
         this.setItem(7, "skyengine:lava_bucket");
-        this.setItem(8, "skyengine:iron_bars");
+        this.setItem(8, "skyengine:torch", 64);
+        this.setItem(9, "skyengine:iron_bars");
     }
 
     /** Legt 64 eines Blocks in einen Inventar-Slot (Block-Item über die Identifier-Registry). */

@@ -1,29 +1,19 @@
 {
   "parent": "block/block",
-  "_comment": "Verbatim MC template_torch: Stiel-Kappe oben/unten plus zwei gekreuzte Vollflaechen. Kein cullface — die Fackel liegt nicht buendig an der Blockgrenze.",
+  "_comment": "Verbatim MC template_torch (26.2): EIN Element, der 2x10x2-Stiel mit allen sechs Faces. Nur die Unterseite traegt cullface — sie liegt buendig auf der Blockgrenze und verschwindet damit auf einem opaken Traeger. ambientocclusion: false ist NICHT kosmetisch: die Seitenflaechen liegen bei x=7/16 bzw. 9/16, also nicht buendig, und ohne das Flag sampelt ChunkMesher.computeAo die eigene Zelle inklusive des soliden Blocks darunter und dunkelt den Stielfuss ab. shade: false haelt die Flamme auf allen Faces gleich hell (Vanilla) — mit FACE_BRIGHTNESS kaeme derselbe weisse Flammentexel oben mit 1.0 und seitlich mit 0.8/0.6 heraus und wuerde sichtbar herausspringen.",
+  "ambientocclusion": false,
   "elements": [
     {
       "from": [7, 0, 7],
       "to": [9, 10, 9],
+      "shade": false,
       "faces": {
-        "down": { "uv": [7, 13, 9, 15], "texture": "#torch" },
-        "up":   { "uv": [7, 6, 9, 8],   "texture": "#torch" }
-      }
-    },
-    {
-      "from": [7, 0, 0],
-      "to": [9, 16, 16],
-      "faces": {
-        "west": { "uv": [0, 0, 16, 16], "texture": "#torch" },
-        "east": { "uv": [0, 0, 16, 16], "texture": "#torch" }
-      }
-    },
-    {
-      "from": [0, 0, 7],
-      "to": [16, 16, 9],
-      "faces": {
-        "north": { "uv": [0, 0, 16, 16], "texture": "#torch" },
-        "south": { "uv": [0, 0, 16, 16], "texture": "#torch" }
+        "down":  { "uv": [7, 13, 9, 15], "texture": "#torch", "cullface": "down" },
+        "up":    { "uv": [7, 6, 9, 8],   "texture": "#torch" },
+        "north": { "uv": [7, 6, 9, 16],  "texture": "#torch" },
+        "south": { "uv": [7, 6, 9, 16],  "texture": "#torch" },
+        "west":  { "uv": [7, 6, 9, 16],  "texture": "#torch" },
+        "east":  { "uv": [7, 6, 9, 16],  "texture": "#torch" }
       }
     }
   ]
