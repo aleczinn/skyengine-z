@@ -5,6 +5,7 @@ import de.skyengine.core.file.FileType;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.ChestBlockEntity;
+import de.skyengine.game.world.block.state.ChestType;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.gui.ItemIconRenderer;
@@ -44,6 +45,11 @@ public final class ChestRenderer implements BlockEntityRenderer {
     private Mesh lid;
     private Mesh latch;   // Schloss/Henkel vorne (bewegt sich mit dem Deckel)
 
+    /* Doppeltruhen-Hälften: eigene Texturen und Geometrie (15 statt 14 breit). */
+    private Texture textureLeft, textureRight;
+    private Mesh baseLeft, lidLeft, latchLeft;
+    private Mesh baseRight, lidRight, latchRight;
+
     private final Matrix4f model = new Matrix4f();
     private final Matrix4f iconModel = new Matrix4f();
     private final Matrix4f normalRot = new Matrix4f();
@@ -58,6 +64,24 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.base = new Mesh(buildBox(1, 0, 1, 15, 10, 15, 0, 19));   // Korpus (0..10)
         this.lid = new Mesh(buildBox(1, 9, 1, 15, 14, 15, 0, 0));     // Deckel (9..14, MC-Höhe)
         this.latch = new Mesh(buildBox(7, 7, 15, 9, 11, 16, 0, 0));   // Schloss vorne (UV wie Vanilla-Knob)
+
+        /* Doppeltruhe: jede Hälfte ist 15 statt 14 breit und ragt bis an die Blockgrenze zur
+           Partnerhälfte — zusammen ergibt das einen durchgehenden Korpus ohne Naht. Das Schloss
+           ist nur 1 px breit und sitzt AN der Naht; beide Hälften zusammen bilden das mittige
+           2-px-Schloss der Vanilla-Doppeltruhe.
+           Zur Richtung: unsere kanonische Modellfront ist +Z OHNE die 180°-Drehung, die Vanilla
+           anwendet — deshalb ragen die Hälften spiegelbildlich zu Vanillas Zahlen. LEFT hat den
+           Partner bei facing.rotateYCW() (bei SOUTH also -X), reicht also von 0 bis 15. */
+        this.textureLeft = new Texture(new FileHandle("game/textures/entity/chest/normal_left.png", FileType.RESOURCE), false);
+        this.textureRight = new Texture(new FileHandle("game/textures/entity/chest/normal_right.png", FileType.RESOURCE), false);
+
+        this.baseLeft = new Mesh(buildBox(0, 0, 1, 15, 10, 15, 0, 19));
+        this.lidLeft = new Mesh(buildBox(0, 9, 1, 15, 14, 15, 0, 0));
+        this.latchLeft = new Mesh(buildBox(0, 7, 15, 1, 11, 16, 0, 0));
+
+        this.baseRight = new Mesh(buildBox(1, 0, 1, 16, 10, 15, 0, 19));
+        this.lidRight = new Mesh(buildBox(1, 9, 1, 16, 14, 15, 0, 0));
+        this.latchRight = new Mesh(buildBox(15, 7, 15, 16, 11, 16, 0, 0));
     }
 
     @Override
@@ -74,6 +98,29 @@ public final class ChestRenderer implements BlockEntityRenderer {
         Direction facing = chest.getFacing();
         float facingY = (float) Math.atan2(facing.offsetX(), facing.offsetZ());
 
+        /* Einzeltruhe oder eine der beiden Doppeltruhen-Hälften. */
+        ChestType type = chest.getChestType();
+        Texture tex = switch (type) {
+            case LEFT -> this.textureLeft;
+            case RIGHT -> this.textureRight;
+            case SINGLE -> this.texture;
+        };
+        Mesh baseMesh = switch (type) {
+            case LEFT -> this.baseLeft;
+            case RIGHT -> this.baseRight;
+            case SINGLE -> this.base;
+        };
+        Mesh lidMesh = switch (type) {
+            case LEFT -> this.lidLeft;
+            case RIGHT -> this.lidRight;
+            case SINGLE -> this.lid;
+        };
+        Mesh latchMesh = switch (type) {
+            case LEFT -> this.latchLeft;
+            case RIGHT -> this.latchRight;
+            case SINGLE -> this.latch;
+        };
+
         boolean cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
         GL11.glDisable(GL11.GL_CULL_FACE);
 
@@ -84,7 +131,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.setUniformf("u_TopBrightness", 1.0f);
         this.shader.setUniformf("u_ZBrightness", 0.8f);
         this.shader.setUniformf("u_SideBrightness", 0.6f);
-        this.texture.bind(0);
+        tex.bind(0);
 
         /* Normalen nur um die Facing-Achse drehen (ohne Deckel-Klappung), damit das Richtungs-
            Shading weltachsen-fest bleibt und sich beim Öffnen nicht verschiebt. */
@@ -95,7 +142,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.model.translation(ox, oy, oz)
                 .translate(0.5f, 0f, 0.5f).rotateY(facingY).translate(-0.5f, 0f, -0.5f);
         this.shader.setUniformMatrix4f("u_Model", this.model);
-        this.base.render();
+        baseMesh.render();
 
         /* Deckel + Schloss: Facing-Drehung, dann Aufklappen um die hintere Scharnierkante. */
         this.model.translation(ox, oy, oz)
@@ -104,8 +151,8 @@ public final class ChestRenderer implements BlockEntityRenderer {
                 .rotateX(-angle)
                 .translate(0, -HINGE_Y, -HINGE_Z);
         this.shader.setUniformMatrix4f("u_Model", this.model);
-        this.lid.render();
-        this.latch.render();
+        lidMesh.render();
+        latchMesh.render();
 
         this.shader.unbind();
         if (cull) GL11.glEnable(GL11.GL_CULL_FACE);
@@ -184,7 +231,15 @@ public final class ChestRenderer implements BlockEntityRenderer {
         if (this.base != null) this.base.dispose();
         if (this.lid != null) this.lid.dispose();
         if (this.latch != null) this.latch.dispose();
+        if (this.baseLeft != null) this.baseLeft.dispose();
+        if (this.lidLeft != null) this.lidLeft.dispose();
+        if (this.latchLeft != null) this.latchLeft.dispose();
+        if (this.baseRight != null) this.baseRight.dispose();
+        if (this.lidRight != null) this.lidRight.dispose();
+        if (this.latchRight != null) this.latchRight.dispose();
         if (this.texture != null) this.texture.dispose();
+        if (this.textureLeft != null) this.textureLeft.dispose();
+        if (this.textureRight != null) this.textureRight.dispose();
         if (this.shader != null) this.shader.dispose();
     }
 
@@ -200,12 +255,12 @@ public final class ChestRenderer implements BlockEntityRenderer {
 
         /* Lokale Face-Normale je Face; das Richtungs-Shading wird daraus im Shader (weltachsen-fest)
            bestimmt, damit es unabhängig von der Facing-Drehung zu den Nachbarblöcken passt. */
-        quad(buf, i, x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, tu + d + w,     tv,     w, d,  0,  1,  0); // up (+y)
-        quad(buf, i, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, tu + d,         tv,     w, d,  0, -1,  0); // down (-y)
-        quad(buf, i, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, tu + d,         tv + d, w, h,  0,  0, -1); // north (-z)
-        quad(buf, i, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, tu + d + w + d, tv + d, w, h,  0,  0,  1); // south (+z)
-        quad(buf, i, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, tu,             tv + d, d, h, -1,  0,  0); // west (-x)
-        quad(buf, i, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, tu + d + w,     tv + d, d, h,  1,  0,  0); // east (+x)
+        quad(buf, i, x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, tu + d + w,     tv,     w, d,  0,  1,  0, false); // up (+y)
+        quad(buf, i, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, tu + d,         tv,     w, d,  0, -1,  0, false); // down (-y)
+        quad(buf, i, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, tu + d,         tv + d, w, h,  0,  0, -1, true);  // north (-z)
+        quad(buf, i, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, tu + d + w + d, tv + d, w, h,  0,  0,  1, true);  // south (+z)
+        quad(buf, i, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, tu,             tv + d, d, h, -1,  0,  0, false); // west (-x)
+        quad(buf, i, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, tu + d + w,     tv + d, d, h,  1,  0,  0, false); // east (+x)
         return buf;
     }
 
@@ -213,19 +268,30 @@ public final class ChestRenderer implements BlockEntityRenderer {
        b=unten-rechts, c=oben-rechts, d=oben-links. Die Engine-Textur sampelt bottom-up, das
        Vanilla-Box-UV ist aber top-down authored — daher wird IN-PLACE vertikal gespiegelt: dieselbe
        UV-Region [v0..v1], nur Ober-/Unterkante getauscht (Unterkante a/b -> v0, Oberkante c/d -> v1).
-       Wichtig: nicht 1-v komplementieren — das würde die abgetastete Region verschieben. */
+       Wichtig: nicht 1-v komplementieren — das würde die abgetastete Region verschieben.
+
+       {@code flipU} dreht die HORIZONTALE Laufrichtung innerhalb derselben Region um. Nord- und
+       Süd-Face brauchen das: Vanilla wickelt die Box als durchgehendes Band ab, deshalb läuft u auf
+       Vorder- und Rückseite entgegen der x-Richtung der Seitenflächen. Bei der symmetrischen
+       Einzeltruhe ist der Unterschied unsichtbar — bei den Doppeltruhen-Hälften landete dadurch der
+       dunkle Außenrand an der Naht statt außen (in normal_left.png nachgemessen: die Nahtkante ist
+       vorn bei HOHEM u, hinten bei NIEDRIGEM u, während die Seiten- und Deckelflächen zur
+       x-Richtung passen). NICHT über die Eckreihenfolge lösen — das drehte das Winding, auf das
+       der Icon-Pfad mit aktivem Back-Face-Culling angewiesen ist. */
     private static void quad(float[] buf, int[] i,
                              float ax, float ay, float az, float bx, float by, float bz,
                              float cx, float cy, float cz, float dx, float dy, float dz,
-                             int tu, int tv, int tw, int th, float nx, float ny, float nz) {
+                             int tu, int tv, int tw, int th, float nx, float ny, float nz,
+                             boolean flipU) {
         float u0 = tu / (float) TEX, v0 = tv / (float) TEX;
         float u1 = (tu + tw) / (float) TEX, v1 = (tv + th) / (float) TEX;
-        vert(buf, i, ax, ay, az, u0, v0, nx, ny, nz);
-        vert(buf, i, bx, by, bz, u1, v0, nx, ny, nz);
-        vert(buf, i, cx, cy, cz, u1, v1, nx, ny, nz);
-        vert(buf, i, ax, ay, az, u0, v0, nx, ny, nz);
-        vert(buf, i, cx, cy, cz, u1, v1, nx, ny, nz);
-        vert(buf, i, dx, dy, dz, u0, v1, nx, ny, nz);
+        float uL = flipU ? u1 : u0, uR = flipU ? u0 : u1;
+        vert(buf, i, ax, ay, az, uL, v0, nx, ny, nz);
+        vert(buf, i, bx, by, bz, uR, v0, nx, ny, nz);
+        vert(buf, i, cx, cy, cz, uR, v1, nx, ny, nz);
+        vert(buf, i, ax, ay, az, uL, v0, nx, ny, nz);
+        vert(buf, i, cx, cy, cz, uR, v1, nx, ny, nz);
+        vert(buf, i, dx, dy, dz, uL, v1, nx, ny, nz);
     }
 
     private static void vert(float[] buf, int[] i, float x, float y, float z, float u, float v,

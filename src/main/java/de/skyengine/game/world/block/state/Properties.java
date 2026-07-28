@@ -18,6 +18,14 @@ public final class Properties {
     public static final Property<SlabType> SLAB_TYPE =
             Property.ofEnum("type", SlabType.class);
 
+    /**
+     * Rolle in einer Doppeltruhe. Heißt wie in MC "type" und teilt sich den Namen mit
+     * {@link #SLAB_TYPE} — unkritisch, weil Properties per Identität verglichen werden und
+     * {@code BlockStateCodec} beim Dekodieren nur die Properties DES BLOCKS nach Namen durchsucht.
+     */
+    public static final Property<ChestType> CHEST_TYPE =
+            Property.ofEnum("type", ChestType.class);
+
     public static final Property<BlockHalf> HALF =
             Property.ofEnum("half", BlockHalf.class);
 

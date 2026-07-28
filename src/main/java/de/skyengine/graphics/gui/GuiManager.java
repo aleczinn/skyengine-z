@@ -36,9 +36,10 @@ public final class GuiManager {
     private final Hud hud = new Hud();
 
     /* Garantierte virtuelle Mindestfläche: Bei kleinen Fenstern wird der Scale automatisch
-       reduziert (wie MCs Auto-GUI-Scale), damit Menüs/Hotbar IMMER komplett passen — die
-       Screens sind für vH ≈ 206 (720p bei 100 %) gebaut. */
-    private static final float MIN_VW = 340, MIN_VH = 210;
+       reduziert (wie MCs Auto-GUI-Scale), damit Menüs/Hotbar IMMER komplett passen.
+       MIN_VH deckt das höchste Fenster ab — die Doppeltruhe ist mit 222 px das größte;
+       240 ist derselbe Wert, den auch Minecraft garantiert. */
+    private static final float MIN_VW = 340, MIN_VH = 240;
 
     private GuiScreen screen;
     /** Gewünschter Scale aus den Settings — Obergrenze für {@link #effectiveScale}. */

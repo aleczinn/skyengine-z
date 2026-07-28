@@ -16,7 +16,9 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.ChestBlockEntity;
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
+import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.ChestType;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.SlabType;
 import de.skyengine.game.world.item.BlockItem;
@@ -1217,8 +1219,11 @@ public class GameContainer implements IResizeable, IDisposable {
             return true;
         }
 
-        /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). */
-        if (this.tryOpenChest()) return true;
+        /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). Sneaken mit einem Block in
+           der Hand überspringt die Interaktion und platziert stattdessen — wie in MC, und die
+           einzige Möglichkeit, eine Truhe an die Seite einer anderen zu setzen. */
+        boolean placingWhileSneaking = this.player.isSecondaryUseActive() && held.getItem() instanceof BlockItem;
+        if (!placingWhileSneaking && this.tryOpenChest()) return true;
 
         /* Ausgewählter Hotbar-Slot muss einen platzierbaren Block enthalten. */
         if (held.isEmpty() || !(held.getItem() instanceof BlockItem blockItem)) return false;
@@ -1237,7 +1242,7 @@ public class GameContainer implements IResizeable, IDisposable {
         double relHitZ = this.hit.hitZ() - pz;
         BlockState place = block.getPlacementState(this.world, px, py, pz,
                 this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(),
-                relHitX, relHitY, relHitZ, this.player.yaw);
+                relHitX, relHitY, relHitZ, this.player.yaw, this.player.isSecondaryUseActive());
 
         /* place == null: ein Behavior lehnt ab (z.B. Tür ohne Platz). Sonst nicht in den
            eigenen Körper bauen - gegen die ECHTE Kollisionsform testen, damit dünne Blöcke
@@ -1306,14 +1311,38 @@ public class GameContainer implements IResizeable, IDisposable {
         return true;
     }
 
-    /** Rechtsklick auf eine Truhe öffnet ihr GUI (Truhe + Spielerinventar) und öffnet den Deckel. */
+    /**
+     * Rechtsklick auf eine Truhe öffnet ihr GUI (Truhe + Spielerinventar) und öffnet den Deckel.
+     * Bei einer Doppeltruhe kommt die Partnerhälfte dazu: 6 Reihen, beide Deckel.
+     */
     private boolean tryOpenChest() {
-        BlockEntity be = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
+        int x = this.hit.x(), y = this.hit.y(), z = this.hit.z();
+        BlockEntity be = this.world.getBlockEntity(x, y, z);
         if (!(be instanceof ChestBlockEntity chest)) return false;
-        this.guiManager.open(new GuiChest(chest, this.playerInventory));
+
+        BlockState state = Blocks.getState(this.world.getBlock(x, y, z));
+        ChestType type = state.getValues().containsKey(Properties.CHEST_TYPE)
+                ? state.get(Properties.CHEST_TYPE) : ChestType.SINGLE;
+        ChestBlockEntity partner = null;
+        int partnerX = x, partnerZ = z;
+        if (type != ChestType.SINGLE) {
+            Direction toPartner = ChestType.connectedDirection(state.get(Properties.FACING), type);
+            partnerX = x + toPartner.offsetX();
+            partnerZ = z + toPartner.offsetZ();
+            if (this.world.getBlockEntity(partnerX, y, partnerZ) instanceof ChestBlockEntity other) {
+                partner = other;
+            }
+        }
+        /* Reihenfolge wie MC (ChestBlock.getBlockType): die RECHTE Hälfte liefert die oberen
+           drei Reihen. */
+        ChestBlockEntity top = type == ChestType.LEFT && partner != null ? partner : chest;
+        ChestBlockEntity bottom = top == chest ? partner : chest;
+        this.guiManager.open(new GuiChest(top, bottom, this.playerInventory));
+
         /* Persistenz: das GUI mutiert das Truhen-Inventar direkt (kein World-Hook) —
            Über-Approximation "geöffnet = potenziell geändert" kostet einen Chunk-Write. */
-        this.world.markChunkModified(this.hit.x(), this.hit.z());
+        this.world.markChunkModified(x, z);
+        if (partner != null) this.world.markChunkModified(partnerX, partnerZ);
         return true;
     }
 

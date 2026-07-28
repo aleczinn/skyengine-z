@@ -530,6 +530,16 @@ public class EntityPlayer extends Entity {
         return sneaking;
     }
 
+    /**
+     * MCs „secondary use": Sneak-Wunsch OHNE die {@code !flying}-Einschränkung von
+     * {@link #isSneaking()}. Die gilt nur für Bewegung, Augenhöhe und Kanten-Stopp — im Flug
+     * schleicht man nicht, drückt aber sehr wohl die Sneak-Taste. Für Platzierungs-Entscheidungen
+     * (Truhen NICHT verbinden, Interaktion überspringen) ist das hier die richtige Quelle.
+     */
+    public boolean isSecondaryUseActive() {
+        return sneakActive;
+    }
+
     public boolean isNoClip() {
         return noClip;
     }

@@ -6,6 +6,7 @@ import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.ChestType;
 import de.skyengine.game.world.block.state.Properties;
 
 import java.util.Optional;
@@ -55,9 +56,17 @@ public final class ChestBlockEntity extends BlockEntity {
      * die alle hier durchlaufen — und so kann der Sound nicht von der Deckel-Animation abdriften.
      */
     public void setOpen(boolean open) {
+        this.setOpen(open, true);
+    }
+
+    /**
+     * Wie {@link #setOpen(boolean)}, aber optional stumm — die zweite Hälfte einer Doppeltruhe
+     * bewegt ihren Deckel mit, darf aber nicht denselben Sound ein zweites Mal spielen.
+     */
+    public void setOpen(boolean open, boolean sound) {
         if (open == this.open) return;   // nur echte Wechsel klingen
         this.open = open;
-        this.playToggleSound(open);
+        if (sound) this.playToggleSound(open);
     }
 
     /** Auf-/Zu-Sound aus der Block-Definition; stumm ohne Welt, SoundManager oder Sound-Satz. */
@@ -89,6 +98,19 @@ public final class ChestBlockEntity extends BlockEntity {
             return state.get(Properties.FACING);
         }
         return Direction.SOUTH;
+    }
+
+    /**
+     * Rolle in einer Doppeltruhe aus dem BlockState (für den Renderer). Ohne Welt oder Property
+     * eine Einzeltruhe — dasselbe Fallback-Muster wie {@link #getFacing()}.
+     */
+    public ChestType getChestType() {
+        if (this.world == null) return ChestType.SINGLE;
+        BlockState state = Blocks.getState(this.world.getBlock(this.pos.x(), this.pos.y(), this.pos.z()));
+        if (state.getValues().containsKey(Properties.CHEST_TYPE)) {
+            return state.get(Properties.CHEST_TYPE);
+        }
+        return ChestType.SINGLE;
     }
 
     @Override

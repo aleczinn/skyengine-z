@@ -123,6 +123,11 @@ ausdrücken).
   Distanz-Fog (auch über LOD) + MSAA-Offscreen-Framebuffer (beides GameSettings)
 - Block-System (Architektur gilt als **reif — kein Rewrite**): ~176 JSON-Blöcke, Archetypen,
   Behaviors, Verbindungen (Zaun/Pane/Cable), Türen, BlockEntities + Capabilities (Item/Energie)
+- Doppeltruhen mit den MC-Platzierungsregeln: Property `type` (single/left/right) + `ChestBehavior`
+  (Verschmelzen beim Platzieren, Sneaken verhindert es, sneakender Seitenklick verbindet trotzdem;
+  Auftrennen per Nachbar-Update),
+  54-Slot-GUI aus denselben zwei Inventaren, Vanilla-Hälften im `ChestRenderer`
+  (`normal_left/right.png`). Truheninhalt fällt jetzt beim Abbauen heraus (`ChestBehavior.onBreak`)
 - JSON-Vererbung für Blöcke UND Items: `parent` + Deep-Merge + `${var}`-Platzhalter
   (`BlockJson`/`ItemLoader` über `utils/json/JsonMerge`), Presets in `blocks/preset/` bzw.
   `items/preset/`. Die Auflösung passiert EINMAL je Quelle; dieselbe Map geht an beide Leser
@@ -175,8 +180,9 @@ ausdrücken).
   Screens: Titel, Pause (ESC — beendet NICHT mehr!), Optionen+Grafik (Live-Apply), Tastenbelegung
   (Rebinding+Reset, Capture schluckt alle Tasten), Weltauswahl/Erstellen/Löschen, Welt-Ladebalken
   (`isInitialLoadComplete`), Boot-Ladebildschirm (gestaffelte Init, Fenster früh), Inventar (E) +
-  Truhe auf gemeinsamer `AbstractContainerScreen`-Basis, Todesscreen, Sprachauswahl (i18n,
-  Live-Wechsel), Sound-Optionen; GuiScale = Prozent (30–170, 100 % ≈ 3,5×)
+  Truhe auf gemeinsamer `GuiContainer`-Basis, Todesscreen, Sprachauswahl (i18n,
+  Live-Wechsel), Sound-Optionen; GuiScale = Prozent (30–170, 100 % ≈ 3,5×), garantierte virtuelle
+  Mindestfläche 340×240 (deckt das höchste Fenster ab — die Doppeltruhe mit 222 px)
 - Spieler-Rendering (graphics/player): Humanoid-Modell mit Classic-Skin 64×64 (skin.png im
   Spielordner überschreibt Steve), Inventar-Vorschau (folgt Maus), F5-Perspektiven
   (Ego/hinten/vorne mit Kamera-Kollisions-Raycast; Interaktion zielt IMMER vom Auge;
@@ -201,7 +207,7 @@ ausdrücken).
 - Licht-Merge (`lightning-system`-Branch) + Schatten-Pass — dann amortisiert sich der GPU-Cull-Pfad
 - Crafting (kein Recipe-/Crafting-Menü; `GuiInventory`-Crafting-Bereich noch funktionslos);
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
-  (Andockpunkt: `AbstractContainerScreen.onSlotClick`)
+  (Andockpunkt: `GuiContainer.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
 - TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert, inkl. Test-Truhe,
   Fackel und den 15 Material-Items) — ohne Crafting/Creative-Menü der einzige Weg, sie in die

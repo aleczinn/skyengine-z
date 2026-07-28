@@ -47,6 +47,39 @@ z.B. die untere Türhälfte sich selbst entfernen, bevor die obere existiert.
 (4 horizontal + oben/unten für Pipes/Cables), keine Kaskade; Folge-Updates laufen mit
 `updateNeighbors=false`.
 
+## Zwei Blöcke, die zusammengehören (Doppeltruhe)
+
+Es gibt **drei** Muster, und sie lösen verschiedene Probleme — das falsche zu greifen ist der
+häufigste Fehler hier:
+
+- **`parts` / `PartsBehavior`** = EIN Block belegt mehrere Zellen (Tür, hohe Pflanze). Er verlangt
+  in `canPlace`, dass die Geschwisterzellen **Luft** sind, **setzt** sie in `onPlaced` selbst und
+  **löscht sich ersatzlos**, sobald ein Teil fehlt.
+- **`MultiblockPattern`** = rein lesende Musterprüfung über FREMDE Blöcke, setzt nur ein
+  `formed`-Flag am Controller. Kennt keine Rollen und keine Richtungsvarianten.
+- **Doppeltruhe** = zwei **eigenständige** Blöcke mit je eigenem BlockEntity und Inventar, die sich
+  nur über `facing` + `type` (single/left/right) finden. Genau deshalb passt keines der ersten
+  beiden: die Nachbarzelle existiert ja schon (mit Inhalt!), und beim Trennen muss die andere
+  Hälfte **stehen bleiben**.
+
+Der Doppeltruhen-Mechanismus (`ChestBehavior`, nach MCs `ChestBlock`): `onPlace` wählt die eigene
+Rolle, `onNeighborUpdate` rechnet sie neu — Partner weg → `SINGLE`, und eine Einzeltruhe wird zum
+Gegenstück, sobald ein Nachbar mit passendem `facing` **auf sie zeigt**. Das ist der Weg, auf dem
+die ZUERST gesetzte Truhe von der neuen erfährt. Verbunden wird nur mit `type == SINGLE`-Nachbarn,
+sonst entstünden Dreierketten. Dass ein Verschmelzen das Inventar nicht anfasst, liegt an
+`manageBlockEntity` (nächster Abschnitt): reiner State-Wechsel behält die BlockEntity.
+
+`PlacementContext.sneaking` ist MCs „secondary use" und hat **zwei** Rollen (beide am Spiel
+geprüft): beim normalen Platzieren neben einer Truhe **verhindert** es das Verschmelzen — das ist
+der einzige Weg, zwei Einzeltruhen nebeneinander zu stellen. Ein sneakender Klick auf die **Seite**
+einer Truhe verbindet dagegen **trotzdem** und übernimmt deren Ausrichtung. Damit man überhaupt an
+die Seite bauen kann, überspringt der `GameContainer` beim Sneaken mit einem Block in der Hand die
+Rechtsklick-Interaktion — sonst öffnete der Klick nur das GUI.
+
+Die Quelle für „sneakt gerade" ist `EntityPlayer.isSecondaryUseActive()`, **nicht** `isSneaking()`:
+Letzteres ist `!flying && sneakActive` und im Kreativflug immer false — Platzierungsregeln wären
+dort sonst unerreichbar.
+
 ## Ticking & BlockEntities
 
 - Geplante Ticks: `World.scheduleTick` (Dedup pro Position) / `scheduleTickEarlier` (zieht späteren
