@@ -1,0 +1,23 @@
+{
+  "_comment": "Obere/untere Abschlussplatte des Gitter-Pfostens (Vanilla template_bars_post_ends), immer gezeichnet. Die 0.001/15.999 stehen wortgleich in Vanilla und halten die Platten aus der Blockgrenze heraus - laege eine Platte exakt darin, sprenkelte sie gegen den Nachbarblock. Der or-equal-Depth des CUTOUT-Passes rettet das NICHT, er loest nur bit-identische Tiefen auf (so funktionieren die Grasblock-Overlays). Unser u16-Fixed-Point ist mit 1/1024 Block zu grob fuer 0.001 px; ModelElements.pxEdge hebt den Wert deshalb beim Laden auf genau einen Quantisierungsschritt an.",
+  "parent": "block/block",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [7, 0.001, 7],
+      "to": [9, 0.001, 9],
+      "faces": {
+        "down": { "uv": [7, 7, 9, 9], "texture": "#all" },
+        "up":   { "uv": [7, 7, 9, 9], "texture": "#all" }
+      }
+    },
+    {
+      "from": [7, 15.999, 7],
+      "to": [9, 15.999, 9],
+      "faces": {
+        "down": { "uv": [7, 7, 9, 9], "texture": "#all" },
+        "up":   { "uv": [7, 7, 9, 9], "texture": "#all" }
+      }
+    }
+  ]
+}

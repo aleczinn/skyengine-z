@@ -1,5 +1,6 @@
 package de.skyengine.graphics.world;
 
+import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
@@ -329,7 +330,7 @@ public class GpuCull {
     public int addSection(int segKind, int blockX, int blockZ, int originY, int gateSlot,
                           int indexCount, int baseVertex) {
         return this.addDesc(segKind, blockX, blockZ, gateSlot, originY,
-                originY, originY + 32F, 32F, 1F / 256F, indexCount, baseVertex);
+                originY, originY + 32F, 32F, 1F / ChunkMesher.POS_SCALE, indexCount, baseVertex);
     }
 
     public void removeSection(int segKind, int slot) {

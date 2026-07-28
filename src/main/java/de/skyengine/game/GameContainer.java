@@ -1402,50 +1402,15 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private void fillStartInventory() {
-        /* Hotbar (Slots 0-8): Test-Blöcke + die drei Eimer hinten, damit Wasser/Lava direkt
-           testbar sind. Wasser hat kein Block-Item mehr (gehört in den Eimer). */
-        int[] start = {
-                Blocks.GLASS,
-                Blocks.STONE_SLAB,
-                Blocks.SAND,
-                Blocks.COBBLESTONE_STAIRS,
-                Blocks.CACTUS,
-        };
-        for (int i = 0; i < start.length; i++) {
-            Item item = Items.get(Blocks.getState(start[i]).getBlock().getIdentifier());
-            if (item != null) this.playerInventory.set(i, new ItemStack(item, 64));
-        }
-
         this.setItem(0, "skyengine:tuff");
         this.setItem(1, "skyengine:coarse_dirt");
         this.setItem(2, "skyengine:red_mushroom");
-
-        /* TEMP: Essen zum Hunger-Testen (Survival, Rechtsklick halten). */
         this.setItem(3, "skyengine:apple", 16);
         this.setItem(4, "skyengine:bread", 16);
-
-        this.setItem(5, "skyengine:chest"); // TEMP: Truhe zum GUI-Testen direkt in der Hotbar
+        this.setItem(5, "skyengine:chest");
         this.setItem(6, "skyengine:water_bucket");
         this.setItem(7, "skyengine:lava_bucket");
-        this.setItem(8, "skyengine:bucket");
-
-        /* Glasscheibe/Tür + Sand ins Hauptinventar (zum Testen, Truhe befüllen/leeren). */
-        this.setBlock(9, Blocks.GLASS_PANE);
-        this.setBlock(10, Blocks.OAK_DOOR);
-        this.setBlock(11, Blocks.ENCHANTING_TABLE);
-        this.setItem(8, "skyengine:tnt");
-
-        /* TEMP: Fackel (Boden + Wand) und die datengetriebenen Material-Items aus game/items/.
-           Ohne Crafting/Creative-Menü ist das bislang der einzige Weg, sie in die Hand zu bekommen. */
-        this.setItem(12, "skyengine:torch", 64);
-        String[] materials = {
-                "iron_ingot", "gold_ingot", "copper_ingot", "diamond", "emerald",
-                "coal", "charcoal", "redstone", "lapis_lazuli",
-                "stick", "brick", "clay_ball", "flint", "leather", "paper",
-        };
-        for (int i = 0; i < materials.length; i++) {
-            this.setItem(13 + i, "skyengine:" + materials[i], 64);
-        }
+        this.setItem(8, "skyengine:iron_bars");
     }
 
     /** Legt 64 eines Blocks in einen Inventar-Slot (Block-Item über die Identifier-Registry). */

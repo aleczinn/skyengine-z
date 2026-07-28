@@ -78,16 +78,28 @@ Das AO-Setting wird 1× pro mesh()-Aufruf gelesen (konsistent pro Section).
 
 5 Ints pro Vertex (`VERTEX_SIZE = 5`), entpackt im Vertex-Shader des ChunkRenderers:
 ```
-int0: posX | posY << 16   (u16 fixed 8.8, POS_SCALE=256, Bias +1 Block, section-lokal)
+int0: posX | posY << 16   (u16 fixed 6.10, POS_SCALE=1024, Bias +1 Block, section-lokal)
 int1: posZ | u    << 16   (UV fixed 6.10, UV_SCALE=1024, Bias +1)
 int2: v    | layer << 16  (layer = TextureArray-Layer)
 int3: r | g<<8 | b<<16    (Farbe = Helligkeit × AO × Tint)
 int4: reserviert für farbiges Licht (RGB8 + 8 Bit frei) — noch ungenutzt, der Vertex-Shader
       liest weiterhin nur ein uvec4 (int0..int3); Stride wächst automatisch mit VERTEX_SIZE
 ```
-Konsequenzen: Positionen tragen nur ~−1..+254 Blöcke (deshalb packt das LOD relativ zu `yBase`);
-UVs tragen max. ~63 (deshalb Merge-Deckel im LOD; Section-Greedy bleibt ≤ 32 durch die
-Section-Größe). Ein Quad = 4 Vertices (BakedQuad liefert 6 Modell-Vertices A,B,C,C,D,A —
+Konsequenzen: Positionen tragen nur ~−1..+62 Blöcke, UVs max. ~63 (deshalb Merge-Deckel im LOD;
+Section-Greedy bleibt ≤ 32 durch die Section-Größe).
+
+**Position: 6.10, nicht 8.8** — eine Section braucht nur −1..33, die übrigen Bits gehen in die
+Nachkommastellen (1/1024 Block). Der Grund ist Modellgeometrie: MC-Modelle trennen koplanare Flächen
+mit winzigen Offsets, und bei 1/256 war der kleinste darstellbare Versatz (1/16 px) selbst schon
+sichtbar. Vorrechnen muss man diese Offsets im Modell-JSON nicht: `ModelElements.pxEdge` hebt beim
+Laden jeden Wert, der auf eine Blockgrenze rundet ohne exakt darauf zu liegen, auf einen
+Quantisierungsschritt an — Vanilla-Werte wie `0.001` funktionieren dadurch wörtlich. **Das LOD teilt diese Konstante NICHT** (`LodMesher.posScaleFor` führt eigene 256/64) —
+dort zählt Reichweite statt Auflösung, deshalb packt es zusätzlich relativ zu `yBase`.
+Die Skala steht **pro Draw** im Offset-SSBO (`.w`), der Shader hat sie nicht hartkodiert; wer
+`POS_SCALE` ändert, muss nur die Java-Schreiber mitziehen (`ChunkRenderer.writeSegment`, `GpuCull`).
+Sie muss eine **Zweierpotenz** bleiben: nur dann ist `raw * 2^-n` im Shader eine reine
+Exponenten-Verschiebung und zwei Vertices mit gleichem Rohwert landen bitidentisch — worauf die
+koplanaren Gras-Overlays angewiesen sind. Ein Quad = 4 Vertices (BakedQuad liefert 6 Modell-Vertices A,B,C,C,D,A —
 der Mesher emittiert daraus die 4 eindeutigen Ecken via `UNIQUE_VERTS`), Triangulierung über den
 **geteilten Index-Buffer** des Renderers — niemals eigene Indizes pro Section erfinden.
 

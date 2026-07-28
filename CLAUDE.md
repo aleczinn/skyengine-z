@@ -134,7 +134,8 @@ ausdrücken).
   (DTO + Render-Sektion), damit sie nicht auseinanderlaufen können. `oak_stairs.json`: 63 → 9 Zeilen
 - Modell-Konsolidierung: Block-JSON deklariert `model`/`models` (Suffix → Rumpf),
   `ModelLoader.registerBlockModels` erzeugt daraus **virtuelle** Modelle `block/<id><suffix>`.
-  `models/` enthält seither nur noch Geometrie + vier geteilte Rümpfe (264 → 35 Dateien)
+  `models/` enthält seither nur noch Geometrie + geteilte Rümpfe (264 → 41 Dateien; die sechs
+  `bars_*` sind der Rumpf-Satz der Eisengitter, inkl. der Vanilla-`_alt`-Varianten für Süd/West)
 - Deklarierbare Properties je Block (`"properties": {"lit": {"values":[…], "default":…}}`,
   `JsonProperties` mit Interning); Element-Rotation mit beliebigem Winkel (MC
   `rotation: {origin, axis, angle, rescale}`); Archetyp `attached` für hängende Blöcke

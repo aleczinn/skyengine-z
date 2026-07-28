@@ -1158,7 +1158,9 @@ public class ChunkRenderer {
             offs.put(oi, offsetX(mesh, cam));
             offs.put(oi + 1, offsetY(mesh, cam));
             offs.put(oi + 2, offsetZ(mesh, cam));
-            offs.put(oi + 3, 1F / 256F); // .w = Positions-Skala (2^-8 exakt -> bitidentisch)
+            /* .w = Positions-Skala. Zweierpotenz -> in float exakt, die Multiplikation im Shader
+               ist eine reine Exponenten-Verschiebung: gleicher Rohwert gibt bitidentische Position. */
+            offs.put(oi + 3, 1F / ChunkMesher.POS_SCALE);
             n++;
         }
         return n;
@@ -1203,7 +1205,7 @@ public class ChunkRenderer {
             offs.put(oi, offsetX(mesh, cam));
             offs.put(oi + 1, offsetY(mesh, cam));
             offs.put(oi + 2, offsetZ(mesh, cam));
-            offs.put(oi + 3, 1F / 256F);
+            offs.put(oi + 3, 1F / ChunkMesher.POS_SCALE);
             n++;
         }
         return n;
@@ -1585,7 +1587,7 @@ public class ChunkRenderer {
     }
 
     /* Gepacktes Vertex-Format (20 Bytes, siehe ChunkMesher.VERTEX_SIZE):
-       x: posX | posY<<16 (u16 fixed 8.8, Bias +1) — y: posZ | u<<16 (uv fixed 6.10, Bias +1)
+       x: posX | posY<<16 (u16 fixed 6.10, Bias +1) — y: posZ | u<<16 (uv fixed 6.10, Bias +1)
        z: v | layer<<16 — w: rgb8
        (5. Int reserviert für farbiges Licht, vom Shader aktuell ungenutzt — Stride wächst
        automatisch über ChunkMesher.VERTEX_SIZE, a_data liest weiterhin nur die ersten 4 Ints)

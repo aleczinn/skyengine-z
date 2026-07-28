@@ -1,0 +1,34 @@
+{
+  "_comment": "Gitter-Arm nach SUEDEN (Vanilla template_bars_side_alt). Kein Ersatz durch eine y-Drehung von bars_side: die Geometrie waere deckungsgleich, aber die UVs drehen mit und landen auf der gespiegelten Texturhaelfte. Die iron_bars.png ist dort NICHT symmetrisch - Spalte 7 ist hell, Spalte 8 dunkel -, deshalb hat schon Vanilla ein eigenes Modell. BEWUSSTE ABWEICHUNG: Vanillas zweites Element traegt zusaetzlich up/down auf y=0 bzw. y=16, also exakt auf der Blockgrenze; die Platten liefern die Elemente 3/4 ohnehin, und auf der Grenze wuerden sie bei gestapelten Gittern gegen den Nachbarn sprenkeln. Sie fehlen hier absichtlich (wie in bars_side, das ebenfalls nur north deklariert).",
+  "parent": "block/block",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [8, 0, 8], "to": [8, 16, 16],
+      "faces": {
+        "west": { "uv": [8, 0, 0, 16], "texture": "#all" },
+        "east": { "uv": [0, 0, 8, 16], "texture": "#all" }
+      }
+    },
+    {
+      "from": [7, 0, 9], "to": [9, 16, 16],
+      "faces": {
+        "south": { "uv": [7, 0, 9, 16], "texture": "#all", "cullface": "south" }
+      }
+    },
+    {
+      "from": [7, 0.001, 9], "to": [9, 0.001, 16],
+      "faces": {
+        "down": { "uv": [9, 9, 7, 16], "texture": "#all" },
+        "up":   { "uv": [7, 9, 9, 16], "texture": "#all" }
+      }
+    },
+    {
+      "from": [7, 15.999, 9], "to": [9, 15.999, 16],
+      "faces": {
+        "down": { "uv": [9, 9, 7, 16], "texture": "#all" },
+        "up":   { "uv": [7, 9, 9, 16], "texture": "#all" }
+      }
+    }
+  ]
+}

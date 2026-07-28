@@ -99,7 +99,7 @@ public class SectionMesh {
                 Math.max(this.quadCounts[1], this.quadCounts[2]));
     }
 
-    /** Entpackt eine Fixed-Point-Positions-Komponente (u16, 8.8, Bias +1). */
+    /** Entpackt eine Fixed-Point-Positions-Komponente (u16, 6.10, Bias +1). */
     private static float unpackPos(int fixed) {
         return fixed / ChunkMesher.POS_SCALE - 1F;
     }

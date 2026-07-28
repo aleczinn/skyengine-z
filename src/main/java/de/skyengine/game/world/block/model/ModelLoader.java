@@ -357,8 +357,9 @@ public final class ModelLoader {
                    BakedQuad.NO_FACE, BakedQuad.NO_FACE, BakedQuad.NO_FACE};
         int[] c = {BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL,
                    BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL};
-        double bx0 = ModelElements.px(el.from[0]), by0 = ModelElements.px(el.from[1]), bz0 = ModelElements.px(el.from[2]);
-        double bx1 = ModelElements.px(el.to[0]), by1 = ModelElements.px(el.to[1]), bz1 = ModelElements.px(el.to[2]);
+        /* pxEdge statt px: haelt MC-Mini-Offsets wie 0.001/15.999 von der Blockgrenze weg. */
+        double bx0 = ModelElements.pxEdge(el.from[0]), by0 = ModelElements.pxEdge(el.from[1]), bz0 = ModelElements.pxEdge(el.from[2]);
+        double bx1 = ModelElements.pxEdge(el.to[0]), by1 = ModelElements.pxEdge(el.to[1]), bz1 = ModelElements.pxEdge(el.to[2]);
 
         float[][] uv = null;
         if (el.faces != null) {

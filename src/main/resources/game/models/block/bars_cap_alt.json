@@ -1,0 +1,21 @@
+{
+  "_comment": "Halber Pfosten am freien SUED-Ende eines Gitters mit genau einer Verbindung (Vanilla template_bars_cap_alt). Gegenstueck zu bars_cap; eine y-Drehung von bars_cap waere geometrisch deckungsgleich, traefe aber die falsche Texturspalte (bars_cap liegt auf der hellen Spalte 7, dieses Modell auf der dunklen Spalte 8).",
+  "parent": "block/block",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [8, 0, 7], "to": [8, 16, 8],
+      "faces": {
+        "west": { "uv": [8, 0, 9, 16], "texture": "#all" },
+        "east": { "uv": [9, 0, 8, 16], "texture": "#all" }
+      }
+    },
+    {
+      "from": [7, 0, 7], "to": [9, 16, 7],
+      "faces": {
+        "north": { "uv": [7, 0, 9, 16], "texture": "#all" },
+        "south": { "uv": [9, 0, 7, 16], "texture": "#all" }
+      }
+    }
+  ]
+}

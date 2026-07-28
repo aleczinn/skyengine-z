@@ -16,7 +16,7 @@ public class ChunkMesher {
     /**
      * Ints pro Vertex (gepacktes Format, 20 Bytes statt 36):
      * <pre>
-     * int0: posX | posY &lt;&lt; 16     (u16 fixed-point 8.8, Bias +1 Block, section-lokal)
+     * int0: posX | posY &lt;&lt; 16     (u16 fixed-point 6.10, Bias +1 Block, section-lokal)
      * int1: posZ | u    &lt;&lt; 16     (u als u16 fixed-point 6.10, Bias +1)
      * int2: v    | layer &lt;&lt; 16    (v wie u; layer = Texture-Array-Layer)
      * int3: r | g &lt;&lt; 8 | b &lt;&lt; 16  (Farbe = Helligkeit * AO * Tint, je u8)
@@ -28,8 +28,19 @@ public class ChunkMesher {
      */
     public static final int VERTEX_SIZE = 5;
 
-    /** Bias/Skalierung des Positions-Fixed-Points (1/256 Block; Bias fängt Offsets bis -1 ab). */
-    public static final float POS_SCALE = 256F;
+    /**
+     * Bias/Skalierung des Positions-Fixed-Points (1/1024 Block; Bias fängt Offsets bis -1 ab).
+     *
+     * <p>6.10 statt 8.8: Eine Section braucht nur den Bereich −1…33, also 6 Integer-Bits — die
+     * restlichen 10 gehen in die Nachkommastellen. Das kostet KEIN Bit: das Vertex-Layout bleibt
+     * unverändert, nur die Interpretation ändert sich. Nötig, weil MC-Modelle koplanare Flächen mit
+     * winzigen Offsets trennen; bei 1/256 war der kleinste darstellbare Versatz (1/16 px) selbst
+     * schon sichtbar. Größter section-lokaler Wert: (32 + MAX_OFFSET + 1) × 1024 = 35072 von 65535.
+     *
+     * <p>Das LOD teilt diese Konstante bewusst NICHT ({@code LodMesher.posScaleFor}) — dort zählt
+     * die Reichweite, nicht die Auflösung.
+     */
+    public static final float POS_SCALE = 1024F;
     /** Skalierung des UV-Fixed-Points (1/1024; reicht für Greedy-UVs bis 32+). */
     public static final float UV_SCALE = 1024F;
 

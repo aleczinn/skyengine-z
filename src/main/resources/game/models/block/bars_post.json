@@ -1,0 +1,21 @@
+{
+  "_comment": "Gitter-Mittelpfosten (Vanilla template_bars_post): zwei gekreuzte NULL-DICKE Ebenen, keine Box. Nur die beiden nicht-degenerierten Faces je Ebene deklarieren - degenerierte Faces landen sonst als Nullflaechen-Quads im Buffer. Wird laut Multipart nur bei einem freistehenden Gitter gezeichnet.",
+  "parent": "block/block",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [8, 0, 7], "to": [8, 16, 9],
+      "faces": {
+        "west": { "uv": [7, 0, 9, 16], "texture": "#all" },
+        "east": { "uv": [9, 0, 7, 16], "texture": "#all" }
+      }
+    },
+    {
+      "from": [7, 0, 8], "to": [9, 16, 8],
+      "faces": {
+        "north": { "uv": [7, 0, 9, 16], "texture": "#all" },
+        "south": { "uv": [9, 0, 7, 16], "texture": "#all" }
+      }
+    }
+  ]
+}
