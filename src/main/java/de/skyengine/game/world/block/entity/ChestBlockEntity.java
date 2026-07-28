@@ -1,9 +1,12 @@
 package de.skyengine.game.world.block.entity;
 
+import de.skyengine.audio.BlockOpenSound;
+import de.skyengine.audio.SoundManager;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.ChestType;
 import de.skyengine.game.world.block.state.Properties;
 
 import java.util.Optional;
@@ -43,12 +46,40 @@ public final class ChestBlockEntity extends BlockEntity {
     }
 
     public void toggle() {
-        this.open = !this.open;
+        this.setOpen(!this.open);
     }
 
-    /** Setzt den Deckel-Zielzustand (z.B. beim Öffnen/Schließen des Truhen-GUI). */
+    /**
+     * Setzt den Deckel-Zielzustand (z.B. beim Öffnen/Schließen des Truhen-GUI) und spielt den
+     * Auf-/Zu-Sound. Der Hook sitzt bewusst HIER und nicht in {@code GuiChest.onClose}: das GUI
+     * lässt sich auf mehreren Wegen schließen (ESC, Inventar-Taste, Todesscreen, Welt verlassen),
+     * die alle hier durchlaufen — und so kann der Sound nicht von der Deckel-Animation abdriften.
+     */
     public void setOpen(boolean open) {
+        this.setOpen(open, true);
+    }
+
+    /**
+     * Wie {@link #setOpen(boolean)}, aber optional stumm — die zweite Hälfte einer Doppeltruhe
+     * bewegt ihren Deckel mit, darf aber nicht denselben Sound ein zweites Mal spielen.
+     */
+    public void setOpen(boolean open, boolean sound) {
+        if (open == this.open) return;   // nur echte Wechsel klingen
         this.open = open;
+        if (sound) this.playToggleSound(open);
+    }
+
+    /** Auf-/Zu-Sound aus der Block-Definition; stumm ohne Welt, SoundManager oder Sound-Satz. */
+    private void playToggleSound(boolean open) {
+        if (this.world == null) return;
+        SoundManager sound = this.world.getSoundManager();
+        if (sound == null) return;
+        BlockOpenSound set = Blocks.getState(this.world.getBlock(this.pos.x(), this.pos.y(), this.pos.z()))
+                .getBlock().getOpenSound();
+        if (set == null) return;
+        double x = this.pos.x() + 0.5, y = this.pos.y() + 0.5, z = this.pos.z() + 0.5;
+        if (open) sound.playBlockOpen(set, x, y, z);
+        else sound.playBlockClose(set, x, y, z);
     }
 
     /** Interpolierter Öffnungsgrad [0..1] für flüssige Animation zwischen Ticks. */
@@ -67,6 +98,19 @@ public final class ChestBlockEntity extends BlockEntity {
             return state.get(Properties.FACING);
         }
         return Direction.SOUTH;
+    }
+
+    /**
+     * Rolle in einer Doppeltruhe aus dem BlockState (für den Renderer). Ohne Welt oder Property
+     * eine Einzeltruhe — dasselbe Fallback-Muster wie {@link #getFacing()}.
+     */
+    public ChestType getChestType() {
+        if (this.world == null) return ChestType.SINGLE;
+        BlockState state = Blocks.getState(this.world.getBlock(this.pos.x(), this.pos.y(), this.pos.z()));
+        if (state.getValues().containsKey(Properties.CHEST_TYPE)) {
+            return state.get(Properties.CHEST_TYPE);
+        }
+        return ChestType.SINGLE;
     }
 
     @Override

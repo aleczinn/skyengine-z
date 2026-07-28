@@ -1,0 +1,32 @@
+{
+  "id": "skyengine:torch",
+  "archetype": "attached",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": false,
+  "no_lod_surface": true,
+  "attach_faces": ["floor", "wall"],
+  "hardness": 0,
+  "sound": "wood",
+  "icon_item": "game/textures/block/torch.png",
+  "models": {
+    "": "block/template_torch",
+    "_wall": "block/template_torch_wall"
+  },
+  "textures": {
+    "torch": "game/textures/block/torch.png"
+  },
+  "_comment": "Keine Kollision (man laeuft durch), nur eine Umriss-Box fuers Anvisieren.",
+  "collision": {
+    "outline": [
+      { "from": [6, 0, 6], "to": [10, 10, 10] }
+    ]
+  },
+  "multipart": [
+    { "when": { "face": "floor" }, "apply": { "model": "block/torch" } },
+    { "when": { "face": "wall", "facing": "east" },  "apply": { "model": "block/torch_wall" } },
+    { "when": { "face": "wall", "facing": "south" }, "apply": { "model": "block/torch_wall", "y": 90 } },
+    { "when": { "face": "wall", "facing": "west" },  "apply": { "model": "block/torch_wall", "y": 180 } },
+    { "when": { "face": "wall", "facing": "north" }, "apply": { "model": "block/torch_wall", "y": 270 } }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "_comment": "Preset: flache Kreuz-Pflanze ohne Kollision; das Icon ist das Sprite selbst.",
+  "type": "cross",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": false,
+  "vars": {
+    "texture": "${id}"
+  },
+  "model": "block/cross",
+  "textures": {
+    "all": "game/textures/block/${texture}.png"
+  },
+  "icon_item": "game/textures/block/${texture}.png"
+}

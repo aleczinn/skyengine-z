@@ -1,0 +1,34 @@
+{
+  "_comment": "Gitter-Arm nach NORDEN (Vanilla template_bars_side): null-dicke Ebene bei x=8, dazu die Endkappe an der Grenze (nur north, MIT cullface) und zwei waagerechte Kantenplatten. Fuer Sueden/Westen gibt es bars_side_alt - eine y-Drehung dieses Modells waere zwar geometrisch deckungsgleich, wuerde aber die UVs mitdrehen und damit die falsche Texturhaelfte treffen. Zu 0.001/15.999 siehe bars_post_ends.json.",
+  "parent": "block/block",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [8, 0, 0], "to": [8, 16, 8],
+      "faces": {
+        "west": { "uv": [16, 0, 8, 16], "texture": "#all" },
+        "east": { "uv": [8, 0, 16, 16], "texture": "#all" }
+      }
+    },
+    {
+      "from": [7, 0, 0], "to": [9, 16, 7],
+      "faces": {
+        "north": { "uv": [7, 0, 9, 16], "texture": "#all", "cullface": "north" }
+      }
+    },
+    {
+      "from": [7, 0.001, 0], "to": [9, 0.001, 7],
+      "faces": {
+        "down": { "uv": [9, 0, 7, 7], "texture": "#all" },
+        "up":   { "uv": [7, 0, 9, 7], "texture": "#all" }
+      }
+    },
+    {
+      "from": [7, 15.999, 0], "to": [9, 15.999, 7],
+      "faces": {
+        "down": { "uv": [9, 0, 7, 7], "texture": "#all" },
+        "up":   { "uv": [7, 0, 9, 7], "texture": "#all" }
+      }
+    }
+  ]
+}

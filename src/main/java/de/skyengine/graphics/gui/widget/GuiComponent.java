@@ -3,6 +3,9 @@ package de.skyengine.graphics.gui.widget;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.Layoutable;
+import de.skyengine.graphics.gui.text.RichText;
+
+import java.util.List;
 
 /**
  * Basis aller GUI-Widgets (Button, Slider, Label, ...). Koordinaten liegen im virtuellen
@@ -28,6 +31,9 @@ public abstract class GuiComponent implements Layoutable {
     private Anchor anchor;
     private float anchorPadX, anchorPadY;
 
+    /* Optionaler Hover-Tooltip (Zeilen, bereits geparst) — gezeichnet vom GuiManager. */
+    private List<RichText> tooltip;
+
     /** Verankert die Komponente — Layout übernimmt der GuiScreen nach init(). Chainable. */
     public GuiComponent anchor(Anchor anchor) {
         return this.anchor(anchor, 0, 0);
@@ -48,6 +54,27 @@ public abstract class GuiComponent implements Layoutable {
     public void applyAnchor(float vW, float vH) {
         this.layoutAt(this.anchor.resolveX(vW, this.width(), this.anchorPadX),
                 this.anchor.resolveY(vH, this.height(), this.anchorPadY));
+    }
+
+    /**
+     * Hover-Tooltip setzen ({@link RichText}-Markup, {@code \n} trennt Zeilen). Chainbar wie
+     * {@link #anchor(Anchor)}, damit bestehende Konstruktoren unverändert bleiben.
+     */
+    public GuiComponent tooltip(String markup) {
+        this.tooltip = markup == null || markup.isEmpty() ? null : RichText.parseLines(markup);
+        return this;
+    }
+
+    /**
+     * Tooltip-Zeilen unter der Maus oder null. Überschreibbar für Widgets, deren Tooltip vom
+     * aktuellen Wert abhängt (z.B. {@link CycleButton}).
+     */
+    public List<RichText> tooltip() {
+        return this.tooltip;
+    }
+
+    public boolean isHovered() {
+        return this.hovered;
     }
 
     public boolean isMouseOver(double mx, double my) {

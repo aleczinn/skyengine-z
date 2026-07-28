@@ -1,0 +1,21 @@
+{
+  "_comment": "Halber Pfosten am freien NORD-Ende eines Gitters mit GENAU EINER Verbindung (Vanilla template_bars_cap). Fuer Sueden/Westen gibt es bars_cap_alt - dort steht auch, warum eine y-Drehung dieses Modells nicht reicht.",
+  "parent": "block/block",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [8, 0, 8], "to": [8, 16, 9],
+      "faces": {
+        "west": { "uv": [8, 0, 7, 16], "texture": "#all" },
+        "east": { "uv": [7, 0, 8, 16], "texture": "#all" }
+      }
+    },
+    {
+      "from": [7, 0, 9], "to": [9, 16, 9],
+      "faces": {
+        "north": { "uv": [9, 0, 7, 16], "texture": "#all" },
+        "south": { "uv": [7, 0, 9, 16], "texture": "#all" }
+      }
+    }
+  ]
+}

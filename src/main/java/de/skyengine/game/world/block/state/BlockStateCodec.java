@@ -69,7 +69,8 @@ public final class BlockStateCodec {
         return state;
     }
 
-    private static String valueString(Object value) {
+    /** Kanonische Textform eines Property-Werts (wie im gespeicherten State-String). */
+    public static String valueString(Object value) {
         if (value instanceof Boolean b) return b.toString();
         if (value instanceof Enum<?> e) return e.name().toLowerCase();
         return value.toString();

@@ -1,0 +1,28 @@
+{
+  "_comment": "Preset: Halbblock. type=double zeigt auf das Vollblock-Modell der Basistextur.",
+  "type": "slab",
+  "layer": "opaque",
+  "vars": {
+    "texture": "${id}"
+  },
+  "models": {
+    "": "block/slab",
+    "_top": "block/slab_top"
+  },
+  "textures": {
+    "top": "game/textures/block/${texture}.png",
+    "bottom": "game/textures/block/${texture}.png",
+    "side": "game/textures/block/${texture}.png"
+  },
+  "variants": {
+    "type=bottom": {
+      "model": "block/${id}"
+    },
+    "type=top": {
+      "model": "block/${id}_top"
+    },
+    "type=double": {
+      "model": "block/${texture}"
+    }
+  }
+}

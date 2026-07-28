@@ -1,0 +1,16 @@
+{
+  "_comment": "Preset: Vollwuerfel mit eigener Ober-/Unterseite (Grasblock, Sandstein, TNT).",
+  "type": "cube",
+  "layer": "opaque",
+  "vars": {
+    "top": "${id}_top",
+    "bottom": "${id}_bottom",
+    "side": "${id}_side"
+  },
+  "model": "block/cube_bottom_top",
+  "textures": {
+    "top": "game/textures/block/${top}.png",
+    "bottom": "game/textures/block/${bottom}.png",
+    "side": "game/textures/block/${side}.png"
+  }
+}

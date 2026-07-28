@@ -18,6 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Chunk-Store einer Welt: bildet Chunk-Koordinaten auf Region-Dateien
@@ -68,6 +69,10 @@ public class WorldStorage {
         thread.setDaemon(true);
         return thread;
     });
+
+    /* Offene Save-Jobs (eingereiht, aber noch nicht geschrieben) — für die „Spiel gespeichert"-
+       Meldung, die erst erscheinen soll, wenn wirklich alles auf der Platte liegt. */
+    private final AtomicInteger pendingSaves = new AtomicInteger();
 
     public WorldStorage(File regionDir, World world, WorldGenerator generator,
                         String generatorId, int generatorVersion, boolean storeTints) {
@@ -138,14 +143,29 @@ public class WorldStorage {
         /* BlockEntity-Zustand JETZT (Tick-Thread) vorserialisieren — der IO-Thread darf be.save()
            nicht auf dem Live-Zustand aufrufen (Race mit GUI-Mutationen, z.B. Truhen-Inventar). */
         chunk.blockEntitySnapshot = ChunkSerializer.snapshotBlockEntities(chunk);
+        this.pendingSaves.incrementAndGet();
         try {
-            this.ioExecutor.execute(() -> this.saveNow(chunk));
+            /* Das Dekrement gehört ins finally des Jobs, nicht ans Ende von saveNow: saveNow hat
+               einen frühen return (Chunk nicht mehr modified) und einen Fehlerpfad. */
+            this.ioExecutor.execute(() -> {
+                try {
+                    this.saveNow(chunk);
+                } finally {
+                    this.pendingSaves.decrementAndGet();
+                }
+            });
         } catch (RejectedExecutionException e) {
             /* close() lief bereits — darf nur nach dem letzten Trigger passieren. */
+            this.pendingSaves.decrementAndGet();
             chunk.saveQueued = false;
             this.logger.error("Save-Job nach Storage-Close verworfen: Chunk ("
                     + chunk.chunkX + ", " + chunk.chunkZ + ")");
         }
+    }
+
+    /** true, solange noch Save-Jobs eingereiht oder in Arbeit sind (jeder Thread). */
+    public boolean hasPendingSaves() {
+        return this.pendingSaves.get() > 0;
     }
 
     private void saveNow(Chunk chunk) {

@@ -1,0 +1,76 @@
+{
+  "_comment": "Preset: Zaun. Pfosten + vier zuschaltbare Arme; eigenes Icon-Modell mit Ueberstaenden.",
+  "type": "fence",
+  "layer": "cutout",
+  "opaque": false,
+  "vars": {
+    "texture": "${id}"
+  },
+  "models": {
+    "_post": "block/fence_post",
+    "_side": "block/fence_side",
+    "_inventory": "block/fence_inventory"
+  },
+  "textures": {
+    "all": "game/textures/block/${texture}.png"
+  },
+  "post": {
+    "from": [
+      6,
+      0,
+      6
+    ],
+    "to": [
+      10,
+      16,
+      10
+    ]
+  },
+  "inventory_model": "block/${id}_inventory",
+  "multipart": [
+    {
+      "apply": {
+        "model": "block/${id}_post"
+      }
+    },
+    {
+      "when": {
+        "north": "true"
+      },
+      "apply": {
+        "model": "block/${id}_side",
+        "uvlock": true
+      }
+    },
+    {
+      "when": {
+        "east": "true"
+      },
+      "apply": {
+        "model": "block/${id}_side",
+        "uvlock": true,
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "south": "true"
+      },
+      "apply": {
+        "model": "block/${id}_side",
+        "uvlock": true,
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "west": "true"
+      },
+      "apply": {
+        "model": "block/${id}_side",
+        "uvlock": true,
+        "y": 270
+      }
+    }
+  ]
+}

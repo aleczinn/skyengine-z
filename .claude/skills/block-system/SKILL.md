@@ -47,6 +47,39 @@ z.B. die untere Türhälfte sich selbst entfernen, bevor die obere existiert.
 (4 horizontal + oben/unten für Pipes/Cables), keine Kaskade; Folge-Updates laufen mit
 `updateNeighbors=false`.
 
+## Zwei Blöcke, die zusammengehören (Doppeltruhe)
+
+Es gibt **drei** Muster, und sie lösen verschiedene Probleme — das falsche zu greifen ist der
+häufigste Fehler hier:
+
+- **`parts` / `PartsBehavior`** = EIN Block belegt mehrere Zellen (Tür, hohe Pflanze). Er verlangt
+  in `canPlace`, dass die Geschwisterzellen **Luft** sind, **setzt** sie in `onPlaced` selbst und
+  **löscht sich ersatzlos**, sobald ein Teil fehlt.
+- **`MultiblockPattern`** = rein lesende Musterprüfung über FREMDE Blöcke, setzt nur ein
+  `formed`-Flag am Controller. Kennt keine Rollen und keine Richtungsvarianten.
+- **Doppeltruhe** = zwei **eigenständige** Blöcke mit je eigenem BlockEntity und Inventar, die sich
+  nur über `facing` + `type` (single/left/right) finden. Genau deshalb passt keines der ersten
+  beiden: die Nachbarzelle existiert ja schon (mit Inhalt!), und beim Trennen muss die andere
+  Hälfte **stehen bleiben**.
+
+Der Doppeltruhen-Mechanismus (`ChestBehavior`, nach MCs `ChestBlock`): `onPlace` wählt die eigene
+Rolle, `onNeighborUpdate` rechnet sie neu — Partner weg → `SINGLE`, und eine Einzeltruhe wird zum
+Gegenstück, sobald ein Nachbar mit passendem `facing` **auf sie zeigt**. Das ist der Weg, auf dem
+die ZUERST gesetzte Truhe von der neuen erfährt. Verbunden wird nur mit `type == SINGLE`-Nachbarn,
+sonst entstünden Dreierketten. Dass ein Verschmelzen das Inventar nicht anfasst, liegt an
+`manageBlockEntity` (nächster Abschnitt): reiner State-Wechsel behält die BlockEntity.
+
+`PlacementContext.sneaking` ist MCs „secondary use" und hat **zwei** Rollen (beide am Spiel
+geprüft): beim normalen Platzieren neben einer Truhe **verhindert** es das Verschmelzen — das ist
+der einzige Weg, zwei Einzeltruhen nebeneinander zu stellen. Ein sneakender Klick auf die **Seite**
+einer Truhe verbindet dagegen **trotzdem** und übernimmt deren Ausrichtung. Damit man überhaupt an
+die Seite bauen kann, überspringt der `GameContainer` beim Sneaken mit einem Block in der Hand die
+Rechtsklick-Interaktion — sonst öffnete der Klick nur das GUI.
+
+Die Quelle für „sneakt gerade" ist `EntityPlayer.isSecondaryUseActive()`, **nicht** `isSneaking()`:
+Letzteres ist `!flying && sneakActive` und im Kreativflug immer false — Platzierungsregeln wären
+dort sonst unerreichbar.
+
 ## Ticking & BlockEntities
 
 - Geplante Ticks: `World.scheduleTick` (Dedup pro Position) / `scheduleTickEarlier` (zieht späteren
@@ -62,8 +95,16 @@ z.B. die untere Türhälfte sich selbst entfernen, bevor die obere existiert.
 
 ## Fallstricke für schwächere Modelle
 
-- Die `textures`-Map in der Block-JSON wird bei Archetyp-Blöcken **nicht** fürs Rendern gelesen —
-  Texturen gehören ins Modell (siehe Skill block-modelle-und-texturen).
+- Die `textures`-Map in der Block-JSON IST die Texturquelle; die Block-JSON nennt mit
+  `model`/`models` nur den Geometrie-Rumpf (seit 2026-07-26 — ältere Notizen behaupten das
+  Gegenteil). Details und die Vorrang-Regel „Datei schlägt Block-Definition" im Skill
+  block-modelle-und-texturen.
+- Presets (`blocks/preset/*.json`, via `parent`) gelten für ALLE Kinder — ein Feld dorthin zu
+  ziehen, das nur ein Teil der Blöcke hatte, ändert die anderen still mit.
+- Eigene Properties aus der JSON (`"properties": {...}`) laufen über `JsonProperties`: Werte sind
+  Strings, Namen werden **interniert** (Property vergleicht per Identität) und Namen, die
+  `Properties` schon belegt (`facing`, `type`, `half`, `axis`, …), werden abgelehnt — sonst
+  griffe `BlockStateCodec` beim Weltladen auf das falsche Property-Objekt zu.
 - `state.with(prop, value)` wirft bei ungültigem Wert (Lookup über die vorgebauten Kombinationen).
 - `Biomes` fängt `Blocks.*`-IDs beim Klassen-Init ein → `Biomes` darf erst NACH
   `Blocks.bootstrap` berührt werden (nie aus einem Generator-Konstruktor; World wird vor dem
@@ -71,9 +112,12 @@ z.B. die untere Türhälfte sich selbst entfernen, bevor die obere existiert.
 
 ## Verifikation
 
-- `./gradlew compileJava`, dann `./gradlew run`: Log zeigt „N Block-Definitionen geladen" und
-  „BlockRegistry gebaked: X Blöcke, Y States" — Y-Sprünge nach Property-Änderungen plausibilisieren.
-- Neuer Block unsichtbar? Fast immer fehlt `game/models/block/<id>.json` (Cube braucht ein Modell).
+- `./gradlew compileJava`, dann `./gradlew saveTest` (fensterlos, bootstrappt die Registry ohne
+  GL): Log zeigt „N Block-Definitionen geladen" und „BlockRegistry gebaked: X Blöcke, Y States" —
+  Y-Sprünge nach Property-Änderungen plausibilisieren. Der Round-Trip prüft zusätzlich, dass
+  Properties die Persistenz überleben (`BlockStateCodec`).
+- Neuer Block unsichtbar? Es fehlt `model`/`models` in der Block-JSON *und* eine gleichnamige
+  Datei `game/models/block/<id>.json` — eines von beidem muss die Geometrie liefern.
 - Warnung „Block nicht gefunden, Fallback auf Luft" beim Start = Blocks.*-Konstante referenziert
   eine nicht (mehr) existierende JSON.
 - Platzierbarkeit/Interaktion nur im laufenden Spiel prüfbar; Startinventar füllt

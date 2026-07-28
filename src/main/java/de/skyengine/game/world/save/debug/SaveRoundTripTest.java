@@ -61,6 +61,15 @@ public final class SaveRoundTripTest {
         chest.getInventory().set(13, damaged);
         chunk.setBlockEntity(8, 200, 8, chest);
 
+        /* Zweite Truhe als DOPPELTRUHEN-Hälfte: prüft, dass die neue type-Property den
+           State-String übersteht und dass beide Hälften ihr eigenes Inventar behalten. */
+        int leftChestId = decodeId("skyengine:chest[facing=north,type=left]");
+        chunk.setBlock(10, 200, 10, leftChestId);
+        ChestBlockEntity leftChest = (ChestBlockEntity) BlockEntities.CHEST.create(
+                new BlockPos(3 * ChunkSection.SIZE + 10, 200, -7 * ChunkSection.SIZE + 10), Blocks.getState(leftChestId));
+        leftChest.getInventory().set(26, new ItemStack(Items.get(Identifier.of("skyengine:cobblestone")), 5));
+        chunk.setBlockEntity(10, 200, 10, leftChest);
+
         /* Scheduled-Ticks (v2): Quelle mit Rest-Delay = exakt der Fluid-Freeze-Bugfall.
            Dazwischen ein unbekannter Typ und zwei invalide Einträge (falscher Chunk,
            y außerhalb) — sie dürfen den Reststream nicht verwürfeln. */
@@ -129,6 +138,18 @@ public final class SaveRoundTripTest {
             check(slotsOk, "Truhen-Inventar identisch (27 Slots)");
         } else {
             check(false, "Truhen-BlockEntity wiederhergestellt");
+        }
+
+        /* Doppeltruhen-Hälfte: State-String (facing + type) und eigenes Inventar. */
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(10, 200, 10)))
+                        .equals("skyengine:chest[facing=north,type=left]"),
+                "Doppeltruhen-Hälfte behält facing + type");
+        if (restored.getBlockEntity(10, 200, 10) instanceof ChestBlockEntity restoredLeft) {
+            ItemStack stack = restoredLeft.getInventory().get(26);
+            check(!stack.isEmpty() && stack.getCount() == 5,
+                    "Inventar der zweiten Hälfte getrennt wiederhergestellt");
+        } else {
+            check(false, "BlockEntity der zweiten Truhenhälfte wiederhergestellt");
         }
 
         /* Scheduled-Ticks: 2 gültige wiederhergestellt, unbekannter Typ + 2 invalide raus. */

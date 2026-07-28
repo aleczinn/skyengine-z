@@ -9,6 +9,7 @@ import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.Property;
 
 import java.util.ArrayList;
@@ -74,7 +75,21 @@ public class Block {
             this.states.add(state);
             this.stateLookup.put(state.getValues(), state);
         }
-        this.defaultState = this.states.get(0);
+
+        /* Default ist State 0 (= erster Wert jeder Property), sofern der Archetyp nichts anderes
+           deklariert. Erst hier auswerten: with() braucht das fertig gefüllte stateLookup. */
+        BlockState state = this.states.get(0);
+        for (Map.Entry<Property<?>, Object> e : this.config.defaultValues().entrySet()) {
+            if (state.getValues().containsKey(e.getKey())) {
+                state = state.with(castProperty(e.getKey()), e.getValue());
+            }
+        }
+        this.defaultState = state;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Property<Object> castProperty(Property<?> property) {
+        return (Property<Object>) property;
     }
 
     public BlockState getState(Map<Property<?>, Object> values) {
@@ -160,11 +175,13 @@ public class Block {
     public BlockState getPlacementState(de.skyengine.game.world.World world,
                                         int x, int y, int z,
                                         int faceX, int faceY, int faceZ,
-                                        double hitX, double hitY, double hitZ, float playerYaw) {
+                                        double hitX, double hitY, double hitZ, float playerYaw,
+                                        boolean sneaking) {
         BlockState state = this.defaultState;
         if (this.config.behaviors().isEmpty()) return state;
 
-        PlacementContext ctx = new PlacementContext(world, x, y, z, faceX, faceY, faceZ, hitX, hitY, hitZ, playerYaw);
+        PlacementContext ctx = new PlacementContext(world, x, y, z, faceX, faceY, faceZ,
+                hitX, hitY, hitZ, playerYaw, sneaking);
         for (BlockBehavior behavior : this.config.behaviors()) {
             state = behavior.onPlace(ctx, state);
         }
@@ -278,7 +295,8 @@ public class Block {
             BakedQuad q = quads[i];
             boolean hit = mask == -1 || (q.cullFace() >= 0 && (mask & 1 << q.cullFace()) != 0);
             /* Vertex-Array wird geteilt (nie mutiert) — nur Tint-Wert und -Typ ändern sich. */
-            out[i] = hit ? new BakedQuad(q.vertices(), q.textureLayer(), q.cullFace(), q.brightness(), tint, tintType) : q;
+            out[i] = hit ? new BakedQuad(q.vertices(), q.textureLayer(), q.cullFace(), q.face(),
+                    q.brightness(), tint, tintType) : q;
         }
         return out;
     }
@@ -318,6 +336,11 @@ public class Block {
     /** Sound-Gruppe für Schritt-/Abbau-/Platzier-Sounds. */
     public de.skyengine.audio.BlockSoundGroup getSoundGroup() {
         return this.config.soundGroup();
+    }
+
+    /** Auf-/Zu-Sound (Tür, Truhe) oder {@code null}, wenn der Block sich nicht öffnet. */
+    public de.skyengine.audio.BlockOpenSound getOpenSound() {
+        return this.config.openSound();
     }
 
     /** true = Platzieren in diese Zelle ersetzt den Block (Gras/Farn, wie MC — kein Drop). */

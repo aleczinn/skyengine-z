@@ -16,4 +16,7 @@ public interface ContentSource {
     File blocks();
 
     File models();
+
+    /** Ordner der Item-Definitionen; darf fehlen (eine Quelle kann nur Blöcke liefern). */
+    File items();
 }

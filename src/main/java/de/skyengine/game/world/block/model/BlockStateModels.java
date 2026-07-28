@@ -1,6 +1,5 @@
 package de.skyengine.game.world.block.model;
 
-import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -11,8 +10,6 @@ import de.skyengine.game.world.block.state.Property;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
-import java.io.File;
-import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -31,29 +28,21 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class BlockStateModels {
 
     private static final Logger LOGGER = LogManager.getLogger(BlockStateModels.class.getName());
-    private static final Gson GSON = new Gson();
 
     private static final Map<String, JsonObject> STATES = new HashMap<>();
     private static final Map<Integer, ModelLoader.Baked> CACHE = new ConcurrentHashMap<>();
     private static final ModelLoader.Baked EMPTY = new ModelLoader.Baked(new BakedQuad[0], new AABB[0]);
 
-    public static void load(File dir) {
+    /**
+     * Übernimmt die von {@link de.skyengine.game.world.block.json.BlockJson} aufgelösten
+     * Dokumente — dieselben Instanzen, die auch der {@code BlockLoader} als DTO liest. Die
+     * Render-Sektion ({@code variants}/{@code multipart}/{@code icon_*}) steckt in denselben
+     * Dateien, sieht also automatisch dieselbe parent-Vererbung.
+     */
+    public static void load(Map<String, JsonObject> definitions) {
         STATES.clear();
         CACHE.clear();
-        if (dir == null || !dir.isDirectory()) {
-            LOGGER.warning("Block-Ordner nicht gefunden: " + dir);
-            return;
-        }
-        File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
-        if (files == null) return;
-        for (File f : files) {
-            String name = f.getName().substring(0, f.getName().length() - ".json".length());
-            try (FileReader r = new FileReader(f)) {
-                STATES.put(name, GSON.fromJson(r, JsonObject.class));
-            } catch (Exception e) {
-                LOGGER.error("Blockstate fehlerhaft: " + name, e);
-            }
-        }
+        STATES.putAll(definitions);
         LOGGER.info(STATES.size() + " Blockstates geladen");
     }
 
@@ -95,13 +84,21 @@ public final class BlockStateModels {
      * so sieht das Icon aus wie in Minecraft, ohne die Welt-Darstellung zu beeinflussen.
      */
     public static ModelLoader.Baked bakeInventory(Block block) {
+        ModelLoader.Baked override = inventoryOverride(block);
+        return override != null ? override : bake(block, block.getDefaultState());
+    }
+
+    /**
+     * Nur das explizit deklarierte {@code inventory_model}, sonst {@code null}. Für Aufrufer, die
+     * zwischen „Block hat ein eigenes Item-Modell" und „nimm den Default-State" unterscheiden
+     * müssen — die First-/Third-Person-Hand zeigt sonst beim Zaun nur den nackten Pfosten.
+     */
+    public static ModelLoader.Baked inventoryOverride(Block block) {
         JsonObject root = STATES.get(block.getIdentifier().path());
-        if (root != null && root.has("inventory_model")) {
-            int x = root.has("inventory_x") ? root.get("inventory_x").getAsInt() : 0;
-            int y = root.has("inventory_y") ? root.get("inventory_y").getAsInt() : 0;
-            return ModelLoader.bake(root.get("inventory_model").getAsString(), x, y);
-        }
-        return bake(block, block.getDefaultState());
+        if (root == null || !root.has("inventory_model")) return null;
+        int x = root.has("inventory_x") ? root.get("inventory_x").getAsInt() : 0;
+        int y = root.has("inventory_y") ? root.get("inventory_y").getAsInt() : 0;
+        return ModelLoader.bake(root.get("inventory_model").getAsString(), x, y);
     }
 
     private static ModelLoader.Baked bakeInternal(Block block, BlockState state) {
@@ -141,11 +138,14 @@ public final class BlockStateModels {
                 boxes.toArray(new AABB[0]));
     }
 
+    /** Gilt für {@code variants} UND für die {@code apply}-Objekte von {@code multipart}. */
     private static ModelLoader.Baked applyVariant(JsonObject v) {
         String model = v.get("model").getAsString();
         int x = v.has("x") ? v.get("x").getAsInt() : 0;
         int y = v.has("y") ? v.get("y").getAsInt() : 0;
-        return ModelLoader.bake(model, x, y);
+        /* uvlock (MC): Geometrie drehen, Textur weltachsenfest lassen — Treppe/Zaun ja, Stamm nie. */
+        boolean uvlock = v.has("uvlock") && v.get("uvlock").getAsBoolean();
+        return ModelLoader.bake(model, x, y, uvlock);
     }
 
     private static JsonObject firstObject(JsonElement e) {

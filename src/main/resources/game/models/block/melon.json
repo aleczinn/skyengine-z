@@ -1,1 +1,0 @@
-{ "parent": "block/cube_bottom_top", "textures": { "top": "game/textures/block/melon_top.png", "bottom": "game/textures/block/melon_top.png", "side": "game/textures/block/melon_side.png" } }

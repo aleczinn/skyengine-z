@@ -18,6 +18,14 @@ public final class Properties {
     public static final Property<SlabType> SLAB_TYPE =
             Property.ofEnum("type", SlabType.class);
 
+    /**
+     * Rolle in einer Doppeltruhe. Heißt wie in MC "type" und teilt sich den Namen mit
+     * {@link #SLAB_TYPE} — unkritisch, weil Properties per Identität verglichen werden und
+     * {@code BlockStateCodec} beim Dekodieren nur die Properties DES BLOCKS nach Namen durchsucht.
+     */
+    public static final Property<ChestType> CHEST_TYPE =
+            Property.ofEnum("type", ChestType.class);
+
     public static final Property<BlockHalf> HALF =
             Property.ofEnum("half", BlockHalf.class);
 
@@ -39,6 +47,13 @@ public final class Properties {
 
     /** Türanschlag links/rechts. */
     public static final Property<DoorHinge> HINGE = Property.ofEnum("hinge", DoorHinge.class);
+
+    /**
+     * Trägerfläche für hängende Blöcke (Fackel, später Hebel/Knopf). Zusammen mit
+     * {@link #FACING} wie in Vanilla: bei WALL gibt FACING die Richtung an, in die der Block
+     * vom Träger weg zeigt; bei FLOOR/CEILING ist FACING bedeutungslos.
+     */
+    public static final Property<AttachFace> ATTACH = Property.ofEnum("face", AttachFace.class);
 
     private static List<Integer> levels() {
         List<Integer> list = new ArrayList<>(16);

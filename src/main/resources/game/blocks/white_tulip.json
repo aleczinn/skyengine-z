@@ -1,11 +1,4 @@
 {
   "id": "skyengine:white_tulip",
-  "type": "cross",
-  "layer": "cutout",
-  "opaque": false,
-  "solid": false,
-  "icon_item": "game/textures/block/white_tulip.png",
-  "textures": {
-    "all": "game/textures/block/white_tulip.png"
-  }
+  "parent": "preset/cross"
 }

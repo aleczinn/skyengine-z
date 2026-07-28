@@ -436,9 +436,14 @@ public class EntityPlayer extends Entity {
     }
 
     /**
-     * Friert die Tick-Interpolation ein (prev = current), z.B. bei offenem GUI. Ohne das würde
-     * {@code Camera.follow} weiter zwischen zwei verschiedenen Tick-Positionen interpolieren und die
-     * Kamera oszillieren ("jittern"), wenn man die Truhe beim Laufen/Springen öffnet.
+     * Friert die Tick-Interpolation ein (prev = current). Ohne das würde {@code Camera.follow}
+     * weiter zwischen zwei verschiedenen Tick-Positionen interpolieren und die Kamera oszillieren
+     * ("jittern"), solange der Spieler nicht tickt, der partialTick aber weiterläuft.
+     *
+     * <p>Genau zwei Fälle: der <b>Ladebildschirm</b> (pausiert nicht, der Spieler tickt trotzdem
+     * nicht) und der <b>Respawn</b> (Teleport an den Weltspawn). Fürs Pausenmenü braucht es das
+     * NICHT — dort friert {@code GameContainer.updatePaused} den partialTick selbst ein und deckt
+     * damit alle interpolierten Systeme auf einmal ab, nicht nur den Spieler.
      */
     public void snapPrevToCurrent() {
         this.lastX = this.x;
@@ -523,6 +528,16 @@ public class EntityPlayer extends Entity {
 
     public boolean isSneaking() {
         return sneaking;
+    }
+
+    /**
+     * MCs „secondary use": Sneak-Wunsch OHNE die {@code !flying}-Einschränkung von
+     * {@link #isSneaking()}. Die gilt nur für Bewegung, Augenhöhe und Kanten-Stopp — im Flug
+     * schleicht man nicht, drückt aber sehr wohl die Sneak-Taste. Für Platzierungs-Entscheidungen
+     * (Truhen NICHT verbinden, Interaktion überspringen) ist das hier die richtige Quelle.
+     */
+    public boolean isSecondaryUseActive() {
+        return sneakActive;
     }
 
     public boolean isNoClip() {

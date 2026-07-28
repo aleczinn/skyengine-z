@@ -1,8 +1,0 @@
-{
-  "parent": "block/cube_bottom_top",
-  "textures": {
-    "top": "game/textures/block/polished_basalt_top.png",
-    "bottom": "game/textures/block/polished_basalt_top.png",
-    "side": "game/textures/block/polished_basalt_side.png"
-  }
-}

@@ -20,35 +20,43 @@ application {
     )
 }
 
-/* Minecraft-Importer: eigenes SourceSet, Abhängigkeit NUR Importer -> Engine.
-   Die Engine (main) referenziert KEINE Importer-Klasse. */
-sourceSets {
-    create("mcimport") {
-        java.srcDir("src/mcimport/java")
-        compileClasspath += sourceSets.main.get().output + sourceSets.main.get().compileClasspath
-        runtimeClasspath += sourceSets.main.get().output + sourceSets.main.get().runtimeClasspath
-    }
-}
-
+/* Minecraft-Importer liegt im Haupt-SourceSet (de.skyengine.mcimport), damit die Weltauswahl
+   ihn aufrufen kann (GuiImportWorld). Die CLI-Tasks unten bleiben als Kommandozeilen-Weg. */
 tasks.register<JavaExec>("mcAnalyze") {
     group = "application"
     description = "Analysiert eine Minecraft-Welt (1.18+): NBT/MCA-Leser mit Histogramm (M4)"
-    classpath = sourceSets["mcimport"].runtimeClasspath
+    classpath = sourceSets["main"].runtimeClasspath
     mainClass = "de.skyengine.mcimport.McWorldAnalyzer"
 }
 
 tasks.register<JavaExec>("mcMapReport") {
     group = "application"
     description = "Prüft die Block-Mapping-Abdeckung gegen eine Minecraft-Welt (M5)"
-    classpath = sourceSets["mcimport"].runtimeClasspath
+    classpath = sourceSets["main"].runtimeClasspath
     mainClass = "de.skyengine.mcimport.McMappingReport"
 }
 
 tasks.register<JavaExec>("mcImport") {
     group = "application"
     description = "Konvertiert eine Minecraft-Welt (1.18+) in eine SkyEngine-Welt (M6)"
-    classpath = sourceSets["mcimport"].runtimeClasspath
+    classpath = sourceSets["main"].runtimeClasspath
     mainClass = "de.skyengine.mcimport.McWorldImporter"
+}
+
+/* Fensterlose Prüfstände: bootstrappen die Block-Registry ohne GL und melden über den
+   Exit-Code. Damit lassen sich Block-JSON-Änderungen prüfen, ohne das Spiel zu starten. */
+tasks.register<JavaExec>("saveTest") {
+    group = "verification"
+    description = "Serialisiert einen Chunk und vergleicht ihn nach dem Wiederherstellen (Blöcke, Properties, BlockEntities)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "de.skyengine.game.world.save.debug.SaveRoundTripTest"
+}
+
+tasks.register<JavaExec>("mapExport") {
+    group = "verification"
+    description = "Exportiert Weltgen-Debugkarten nach debug-maps/ (Bitstabilität der Generierung)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "de.skyengine.game.world.generator.debug.GeneratorMapExporter"
 }
 
 val lwjglVersion = "3.4.1"

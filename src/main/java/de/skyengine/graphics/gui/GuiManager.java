@@ -36,9 +36,10 @@ public final class GuiManager {
     private final Hud hud = new Hud();
 
     /* Garantierte virtuelle Mindestfläche: Bei kleinen Fenstern wird der Scale automatisch
-       reduziert (wie MCs Auto-GUI-Scale), damit Menüs/Hotbar IMMER komplett passen — die
-       Screens sind für vH ≈ 206 (720p bei 100 %) gebaut. */
-    private static final float MIN_VW = 340, MIN_VH = 210;
+       reduziert (wie MCs Auto-GUI-Scale), damit Menüs/Hotbar IMMER komplett passen.
+       MIN_VH deckt das höchste Fenster ab — die Doppeltruhe ist mit 222 px das größte;
+       240 ist derselbe Wert, den auch Minecraft garantiert. */
+    private static final float MIN_VW = 340, MIN_VH = 240;
 
     private GuiScreen screen;
     /** Gewünschter Scale aus den Settings — Obergrenze für {@link #effectiveScale}. */
@@ -192,10 +193,14 @@ public final class GuiManager {
         }
         if (!this.screenReady()) return;
 
-        /* Maus: Druck/Loslassen/Ziehen für links/rechts, Scrollen. Nach jedem Handler prüfen: ein
-           mousePressed kann einen neuen (noch nicht layouteten) Screen geöffnet haben — dann NICHT
-           weiter routen (sonst mouseDragged auf null-Felder des neuen Screens). */
-        for (int button : MOUSE_BUTTONS) {
+        /* Maus: Druck/Loslassen/Ziehen, Scrollen. Links/rechts gehen immer an den Screen, die
+           übrigen GLFW-Buttons (Mitte, Maus 4/5, …) nur, wenn er sie ausdrücklich beansprucht
+           (Keybind-Aufnahme) — sonst würden Slot-Klicks/Scrollbars auf Zusatztasten reagieren.
+           Nach jedem Handler prüfen: ein mousePressed kann einen neuen (noch nicht layouteten)
+           Screen geöffnet haben — dann NICHT weiter routen (sonst mouseDragged auf null-Felder
+           des neuen Screens). */
+        for (int button = 0; button <= GLFW.GLFW_MOUSE_BUTTON_LAST; button++) {
+            if (button > GLFW.GLFW_MOUSE_BUTTON_RIGHT && !this.screen.capturesMouse()) continue;
             if (this.input.isMousePressed(button)) {
                 this.screen.mousePressed(this, mx, my, button);
             }
@@ -220,8 +225,6 @@ public final class GuiManager {
     private boolean screenReady() {
         return this.screen != null && !Float.isNaN(this.layoutVW);
     }
-
-    private static final int[] MOUSE_BUTTONS = {GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_MOUSE_BUTTON_RIGHT};
 
     /**
      * Pro Frame nach der Welt: Cursor synchronisieren + ggf. GuiScreen + Hotbar zeichnen.
@@ -254,7 +257,19 @@ public final class GuiManager {
                 this.layoutVW = this.vW;
                 this.layoutVH = this.vH;
             }
-            this.screen.render(this, this.mouseX(), this.mouseY());
+            double mx = this.mouseX(), my = this.mouseY();
+            GuiScreen current = this.screen;
+            current.render(this, mx, my);
+            /* Widget-Tooltips zentral NACH dem Screen: nur hier ist garantiert, dass kein
+               Sprite-/Font-Pass mehr offen ist — und es gilt auch für Screens mit eigenem
+               render()-Override (davon gibt es mehrere).
+               Die Prüfung ist PFLICHT und keine Redundanz: ein Screen darf sich in seinem
+               eigenen render() schließen (GuiWorldLoading tut das, sobald die Welt geladen ist)
+               oder einen anderen öffnen — dann ist this.screen null bzw. der neue Screen noch
+               nicht layoutet. */
+            if (this.screen == current && this.screenReady()) {
+                Tooltip.draw(this, current.tooltipAt(mx, my), mx, my);
+            }
         }
     }
 
@@ -280,14 +295,12 @@ public final class GuiManager {
         int want = this.screen != null ? 1 : 0;
         if (want != this.lastCursorMode) {
             if (want == 1) {
-                this.input.showCursor();
-                /* Cursor mittig starten (wie MC) — beide Aufrufe laufen deferiert in
-                   Reihenfolge auf dem Main-Thread, centerMouse resettet das Maus-Delta.
-                   Nur wenn der Cursor vorher im Spiel gefangen war (0 -> 1): Beim Spielstart
-                   (Hauptmenü, lastCursorMode == -1) darf die Maus nicht wegspringen. */
-                if (this.lastCursorMode == 0) {
-                    this.input.centerMouse();
-                }
+                /* Cursor mittig starten (wie MC) — Freigeben und Zentrieren MÜSSEN derselbe
+                   Main-Thread-Task sein, sonst sieht man den Zeiger dazwischen kurz an der von
+                   GLFW wiederhergestellten Position. Zentriert wird nur, wenn der Cursor vorher
+                   im Spiel gefangen war (0 -> 1): beim Spielstart (Hauptmenü,
+                   lastCursorMode == -1) darf die Maus nicht wegspringen. */
+                this.input.showCursor(this.lastCursorMode == 0);
             } else {
                 this.input.disableCursor();
             }

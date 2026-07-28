@@ -3,7 +3,10 @@ package de.skyengine.game.world.block;
 import de.skyengine.game.world.block.content.ContentSource;
 import de.skyengine.game.world.block.content.ContentSources;
 import de.skyengine.game.world.block.content.FileContentSource;
+import com.google.gson.JsonObject;
 import de.skyengine.game.world.block.entity.BlockEntities;
+import de.skyengine.game.world.block.json.BlockDefinition;
+import de.skyengine.game.world.block.json.BlockJson;
 import de.skyengine.game.world.block.json.BlockLoader;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.model.ModelLoader;
@@ -12,6 +15,9 @@ import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 
 /**
  * Bootstrap + bequeme Konstanten. Die ints sind die Default-State-IDs
@@ -96,10 +102,21 @@ public final class Blocks {
         ContentSources.register(new FileContentSource("skyengine", gameDir));
 
         /* Inhalte aus allen Quellen laden (Blöcke, dann Modelle + Blockstates vor dem Bake).
-           Die variants/multipart-Render-Sektion steckt in derselben Block-Datei. */
-        for (ContentSource source : ContentSources.all()) BlockLoader.load(source.blocks());
+           Die variants/multipart-Render-Sektion steckt in derselben Block-Datei — deshalb wird
+           jede Quelle EINMAL aufgelöst (parent-Vererbung + ${var}) und dieselbe Map an beide
+           Leser gegeben; so können Definition und Render-Sektion nicht auseinanderlaufen. */
+        List<LinkedHashMap<String, JsonObject>> blockJson = new ArrayList<>();
+        for (ContentSource source : ContentSources.all()) blockJson.add(BlockJson.load(source.blocks()));
+
+        List<BlockDefinition> definitions = new ArrayList<>();
+        for (LinkedHashMap<String, JsonObject> defs : blockJson) definitions.addAll(BlockLoader.load(defs));
+
+        /* Reihenfolge ist zwingend: ModelLoader.load leert MODELS und CACHE, die virtuellen
+           Modelle aus den Block-Definitionen müssen also danach kommen — und vor dem ersten bake. */
         for (ContentSource source : ContentSources.all()) ModelLoader.load(source.models());
-        for (ContentSource source : ContentSources.all()) BlockStateModels.load(source.blocks());
+        ModelLoader.registerBlockModels(definitions);
+
+        for (LinkedHashMap<String, JsonObject> defs : blockJson) BlockStateModels.load(defs);
 
         BlockRegistry.bake();
         de.skyengine.game.world.item.Items.bootstrap();

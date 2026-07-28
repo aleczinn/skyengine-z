@@ -1,15 +1,20 @@
 {
   "id": "skyengine:birch_slab",
-  "type": "slab",
-  "layer": "opaque",
+  "parent": "preset/slab",
+  "vars": {
+    "texture": "birch_planks"
+  },
   "hardness": 2,
   "tool": "axe",
-  "textures": {
-    "all": "game/textures/block/birch_planks.png"
-  },
   "variants": {
-    "type=bottom": { "model": "block/birch_slab" },
-    "type=top":    { "model": "block/birch_slab_top" },
-    "type=double": { "model": "block/birch_planks" }
+    "type=bottom": {
+      "model": "block/birch_slab"
+    },
+    "type=top": {
+      "model": "block/birch_slab_top"
+    },
+    "type=double": {
+      "model": "block/birch_planks"
+    }
   }
 }

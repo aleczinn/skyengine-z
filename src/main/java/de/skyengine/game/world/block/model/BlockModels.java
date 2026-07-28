@@ -111,41 +111,13 @@ public final class BlockModels {
         BakedQuad[] tmp = new BakedQuad[6];
         int n = 0;
 
-        // top (y+):    u=x, v=z
-        if (tex[0] != BakedQuad.NO_FACE) {
-            float[] t = uvOr(uv, 0, fx0,fz0,  fx0,fz1,  fx1,fz1,  fx1,fz0);
-            tmp[n++] = quad(tex[0], cull[0], FACE_BRIGHTNESS[0],
-                    fx0,fy1,fz0, t[0],t[1],  fx0,fy1,fz1, t[2],t[3],  fx1,fy1,fz1, t[4],t[5],  fx1,fy1,fz0, t[6],t[7]);
-        }
-        // bottom (y-): u=x, v=z
-        if (tex[1] != BakedQuad.NO_FACE) {
-            float[] t = uvOr(uv, 1, fx0,fz0,  fx1,fz0,  fx1,fz1,  fx0,fz1);
-            tmp[n++] = quad(tex[1], cull[1], FACE_BRIGHTNESS[1],
-                    fx0,fy0,fz0, t[0],t[1],  fx1,fy0,fz0, t[2],t[3],  fx1,fy0,fz1, t[4],t[5],  fx0,fy0,fz1, t[6],t[7]);
-        }
-        // north (z-):  u=1-x, v=1-y
-        if (tex[2] != BakedQuad.NO_FACE) {
-            float[] t = uvOr(uv, 2, 1-fx1,1-fy0,  1-fx0,1-fy0,  1-fx0,1-fy1,  1-fx1,1-fy1);
-            tmp[n++] = quad(tex[2], cull[2], FACE_BRIGHTNESS[2],
-                    fx1,fy0,fz0, t[0],t[1],  fx0,fy0,fz0, t[2],t[3],  fx0,fy1,fz0, t[4],t[5],  fx1,fy1,fz0, t[6],t[7]);
-        }
-        // south (z+):  u=x, v=1-y
-        if (tex[3] != BakedQuad.NO_FACE) {
-            float[] t = uvOr(uv, 3, fx0,1-fy0,  fx1,1-fy0,  fx1,1-fy1,  fx0,1-fy1);
-            tmp[n++] = quad(tex[3], cull[3], FACE_BRIGHTNESS[3],
-                    fx0,fy0,fz1, t[0],t[1],  fx1,fy0,fz1, t[2],t[3],  fx1,fy1,fz1, t[4],t[5],  fx0,fy1,fz1, t[6],t[7]);
-        }
-        // west (x-):   u=z, v=1-y
-        if (tex[4] != BakedQuad.NO_FACE) {
-            float[] t = uvOr(uv, 4, fz0,1-fy0,  fz1,1-fy0,  fz1,1-fy1,  fz0,1-fy1);
-            tmp[n++] = quad(tex[4], cull[4], FACE_BRIGHTNESS[4],
-                    fx0,fy0,fz0, t[0],t[1],  fx0,fy0,fz1, t[2],t[3],  fx0,fy1,fz1, t[4],t[5],  fx0,fy1,fz0, t[6],t[7]);
-        }
-        // east (x+):   u=1-z, v=1-y
-        if (tex[5] != BakedQuad.NO_FACE) {
-            float[] t = uvOr(uv, 5, 1-fz1,1-fy0,  1-fz0,1-fy0,  1-fz0,1-fy1,  1-fz1,1-fy1);
-            tmp[n++] = quad(tex[5], cull[5], FACE_BRIGHTNESS[5],
-                    fx1,fy0,fz1, t[0],t[1],  fx1,fy0,fz0, t[2],t[3],  fx1,fy1,fz0, t[4],t[5],  fx1,fy1,fz1, t[6],t[7]);
+        for (int face = 0; face < 6; face++) {
+            if (tex[face] == BakedQuad.NO_FACE) continue;
+            float[] c = faceCorners(face, fx0, fy0, fz0, fx1, fy1, fz1);
+            float[] t = uv != null && uv[face] != null
+                    ? uv[face]
+                    : extentUv(face, fx0, fy0, fz0, fx1, fy1, fz1);
+            tmp[n++] = quad(tex[face], cull[face], face, FACE_BRIGHTNESS[face], c, t);
         }
 
         if (n == 6) return tmp;
@@ -154,25 +126,55 @@ public final class BlockModels {
         return quads;
     }
 
-    /** Liefert {@code uv[face]} falls gesetzt, sonst die Alt-UVs aus der Box-Ausdehnung. */
-    private static float[] uvOr(float[][] uv, int face,
-                                float a0, float a1, float b0, float b1,
-                                float c0, float c1, float d0, float d1) {
-        if (uv != null && uv[face] != null) return uv[face];
-        return new float[]{a0, a1, b0, b1, c0, c1, d0, d1};
+    /**
+     * Die vier Eckpunkte einer Box-Face in der Reihenfolge A,B,C,D (CCW von außen), je 3 Floats.
+     * Bei allen vier Seitenflächen gilt aus Außensicht: A = unten-links, B = unten-rechts,
+     * C = oben-rechts, D = oben-links.
+     */
+    public static float[] faceCorners(int face, float x0, float y0, float z0, float x1, float y1, float z1) {
+        return switch (face) {
+            case 0 -> new float[]{x0,y1,z0,  x0,y1,z1,  x1,y1,z1,  x1,y1,z0}; // top (y+)
+            case 1 -> new float[]{x0,y0,z0,  x1,y0,z0,  x1,y0,z1,  x0,y0,z1}; // bottom (y-)
+            case 2 -> new float[]{x1,y0,z0,  x0,y0,z0,  x0,y1,z0,  x1,y1,z0}; // north (z-)
+            case 3 -> new float[]{x0,y0,z1,  x1,y0,z1,  x1,y1,z1,  x0,y1,z1}; // south (z+)
+            case 4 -> new float[]{x0,y0,z0,  x0,y0,z1,  x0,y1,z1,  x0,y1,z0}; // west (x-)
+            default -> new float[]{x1,y0,z1,  x1,y0,z0,  x1,y1,z0,  x1,y1,z1}; // east (x+)
+        };
     }
 
-    /** Quad aus 4 Eckpunkten (CCW von außen): A,B,C,D -> Dreiecke (A,B,C),(C,D,A). */
-    private static BakedQuad quad(int textureLayer, int cullFace, float brightness,
-                                  float ax, float ay, float az, float au, float av,
-                                  float bx, float by, float bz, float bu, float bv,
-                                  float cx, float cy, float cz, float cu, float cv,
-                                  float dx, float dy, float dz, float du, float dv) {
-        float[] v = {
-                ax,ay,az, au,av,  bx,by,bz, bu,bv,  cx,cy,cz, cu,cv,
-                cx,cy,cz, cu,cv,  dx,dy,dz, du,dv,  ax,ay,az, au,av
+    /**
+     * Die aus der Box-Ausdehnung abgeleiteten UVs einer Face (4 Paare A,B,C,D), damit Texturen
+     * nicht gestreckt werden — eine untere Slab-Seite zeigt so die untere Texturhälfte.
+     * Achsenzuordnung: top/bottom u=x,v=z; north u=1-x; south u=x; west u=z; east u=1-z;
+     * alle Seiten v=1-y (v läuft von oben).
+     */
+    public static float[] extentUv(int face, float x0, float y0, float z0, float x1, float y1, float z1) {
+        return switch (face) {
+            case 0 -> new float[]{x0,z0,  x0,z1,  x1,z1,  x1,z0};
+            case 1 -> new float[]{x0,z0,  x1,z0,  x1,z1,  x0,z1};
+            case 2 -> new float[]{1-x1,1-y0,  1-x0,1-y0,  1-x0,1-y1,  1-x1,1-y1};
+            case 3 -> new float[]{x0,1-y0,  x1,1-y0,  x1,1-y1,  x0,1-y1};
+            case 4 -> new float[]{z0,1-y0,  z1,1-y0,  z1,1-y1,  z0,1-y1};
+            default -> new float[]{1-z1,1-y0,  1-z0,1-y0,  1-z0,1-y1,  1-z1,1-y1};
         };
-        return new BakedQuad(v, textureLayer, cullFace, brightness);
+    }
+
+    /**
+     * Quad aus 4 Eckpunkten (CCW von außen): A,B,C,D -> Dreiecke (A,B,C),(C,D,A).
+     *
+     * @param face geometrische Normalenrichtung (auch wenn cullFace == NO_CULL), s. {@link BakedQuad}
+     */
+    private static BakedQuad quad(int textureLayer, int cullFace, int face, float brightness,
+                                  float[] c, float[] t) {
+        float[] v = {
+                c[0],c[1],c[2],   t[0],t[1],
+                c[3],c[4],c[5],   t[2],t[3],
+                c[6],c[7],c[8],   t[4],t[5],
+                c[6],c[7],c[8],   t[4],t[5],
+                c[9],c[10],c[11], t[6],t[7],
+                c[0],c[1],c[2],   t[0],t[1]
+        };
+        return new BakedQuad(v, textureLayer, cullFace, face, brightness, BakedQuad.WHITE, BakedQuad.TINT_NONE);
     }
 
     /** Hängt mehrere Quad-Arrays aneinander. */

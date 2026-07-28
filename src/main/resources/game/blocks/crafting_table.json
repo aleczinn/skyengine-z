@@ -1,10 +1,17 @@
 {
   "id": "skyengine:crafting_table",
+  "model": "block/cube",
   "type": "cube",
   "layer": "opaque",
   "hardness": 2.5,
   "tool": "axe",
   "textures": {
-    "all": "game/textures/block/crafting_table_top.png"
+    "all": "game/textures/block/crafting_table_top.png",
+    "up": "game/textures/block/crafting_table_top.png",
+    "down": "game/textures/block/oak_planks.png",
+    "north": "game/textures/block/crafting_table_front.png",
+    "west": "game/textures/block/crafting_table_front.png",
+    "south": "game/textures/block/crafting_table_side.png",
+    "east": "game/textures/block/crafting_table_side.png"
   }
 }

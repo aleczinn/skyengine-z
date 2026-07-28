@@ -1,9 +1,5 @@
 {
   "id": "skyengine:bedrock",
-  "type": "cube",
-  "layer": "opaque",
-  "hardness": -1,
-  "textures": {
-    "all": "game/textures/block/bedrock.png"
-  }
+  "parent": "preset/cube",
+  "hardness": -1
 }

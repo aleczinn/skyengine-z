@@ -1,13 +1,10 @@
 {
   "id": "skyengine:acacia_leaves",
+  "parent": "preset/cube",
   "sound": "grass",
-  "type": "cube",
   "layer": "cutout",
   "leaves": true,
   "hardness": 0.2,
   "opaque": false,
-  "tint": "foliage",
-  "textures": {
-    "all": "game/textures/block/acacia_leaves.png"
-  }
+  "tint": "foliage"
 }

@@ -25,6 +25,8 @@ public final class KeyBindings {
     public static final String SPRINT = "sprint";
     public static final String OPEN_INVENTORY = "open_inventory";
     public static final String DROP = "drop";
+    public static final String ATTACK = "attack";
+    public static final String USE = "use";
     public static final String TOGGLE_PERSPECTIVE = "toggle_perspective";
     public static final String SCREENSHOT = "screenshot";
     public static final String GAMEMODE = "gamemode";
@@ -46,6 +48,8 @@ public final class KeyBindings {
         m.put(SPRINT, GLFW.GLFW_KEY_LEFT_CONTROL);
         m.put(OPEN_INVENTORY, GLFW.GLFW_KEY_E);
         m.put(DROP, GLFW.GLFW_KEY_Q);
+        m.put(ATTACK, Input.mouseBind(GLFW.GLFW_MOUSE_BUTTON_LEFT));
+        m.put(USE, Input.mouseBind(GLFW.GLFW_MOUSE_BUTTON_RIGHT));
         m.put(TOGGLE_PERSPECTIVE, GLFW.GLFW_KEY_F5);
         m.put(SCREENSHOT, GLFW.GLFW_KEY_F2);
         m.put(GAMEMODE, GLFW.GLFW_KEY_G);

@@ -181,10 +181,12 @@ public class Window implements IDisposable {
         }
 
         this.config.setWindowMode(mode);
-        this.applyWindowMode(mode, GLFW.glfwGetVideoMode(GLFW.glfwGetPrimaryMonitor()));
 
-        /* Fenstermodus-Wechsel repositioniert den Cursor -> Delta verwerfen */
+        /* Fenstermodus-Wechsel repositioniert den Cursor -> Delta verwerfen. VOR dem Wechsel:
+           die Cursor-Callbacks feuern mittendrin, danach hätte der Render-Thread den Sprung
+           womöglich schon als echtes Delta auf den Blick angewandt. */
         SkyEngine.get().getInput().resetMouseDelta();
+        this.applyWindowMode(mode, GLFW.glfwGetVideoMode(GLFW.glfwGetPrimaryMonitor()));
     }
 
     /**

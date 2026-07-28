@@ -1,10 +1,6 @@
 {
   "id": "skyengine:blue_wool",
+  "parent": "preset/cube",
   "sound": "cloth",
-  "type": "cube",
-  "layer": "opaque",
-  "hardness": 0.8,
-  "textures": {
-    "all": "game/textures/block/blue_wool.png"
-  }
+  "hardness": 0.8
 }

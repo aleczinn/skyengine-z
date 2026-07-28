@@ -1,6 +1,10 @@
 {
   "id": "skyengine:tall_grass",
   "archetype": "tall_cross",
+  "parts": {
+    "property": "half",
+    "offsets": { "bottom": [0, 0, 0], "top": [0, 1, 0] }
+  },
   "layer": "cutout",
   "opaque": false,
   "solid": false,

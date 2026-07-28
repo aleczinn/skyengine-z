@@ -72,6 +72,10 @@ public final class SoundManager implements IDisposable {
     /* Platzier-Sounds: teilen die dig-Arrays laut placeName (GLASS platziert wie Stein). */
     private final EnumMap<BlockSoundGroup, int[]> placeBuffers = new EnumMap<>(BlockSoundGroup.class);
 
+    /* Auf-/Zu-Sounds (Tür, Truhe) — je Satz ein eigener Ordner, kein Buffer-Sharing nötig. */
+    private final EnumMap<BlockOpenSound, int[]> openBuffers = new EnumMap<>(BlockOpenSound.class);
+    private final EnumMap<BlockOpenSound, int[]> closeBuffers = new EnumMap<>(BlockOpenSound.class);
+
     private final MusicPlayer music = new MusicPlayer();
     private final Random random = new Random();
 
@@ -159,6 +163,15 @@ public final class SoundManager implements IDisposable {
         loaded += count(this.uiClickVariants) + count(this.hurtVariants) + count(this.fallSmallVariants)
                 + count(this.fallBigVariants) + count(this.eatVariants) + count(this.burpVariants)
                 + count(this.explosionVariants) + count(this.fuseVariants);
+
+        /* Auf-/Zu-Sounds je Satz aus seinem eigenen Ordner; fehlt einer, bleibt nur er stumm. */
+        for (BlockOpenSound sound : BlockOpenSound.values()) {
+            int[] open = this.loadVariants(sound.folder, "open");
+            int[] close = this.loadVariants(sound.folder, "close");
+            if (open != null) this.openBuffers.put(sound, open);
+            if (close != null) this.closeBuffers.put(sound, close);
+            loaded += count(open) + count(close);
+        }
 
         this.enabled = true;
         String deviceName = ALC10.alcGetString(this.device, ALC10.ALC_DEVICE_SPECIFIER);
@@ -287,6 +300,20 @@ public final class SoundManager implements IDisposable {
         this.play(this.fuseVariants, SoundCategory.BLOCKS, 1.0F, 1.0F, false, true, x, y, z);
     }
 
+    /** Tür/Truhe geht auf — positional an der Block-Position. Lautstärke/Pitch aus dem Satz. */
+    public void playBlockOpen(BlockOpenSound sound, double x, double y, double z) {
+        if (sound == null) return;
+        this.play(this.openBuffers.get(sound), SoundCategory.BLOCKS, sound.gain, 1.0F,
+                sound.pitchJitter, true, x, y, z);
+    }
+
+    /** Tür/Truhe geht zu — Gegenstück zu {@link #playBlockOpen}. */
+    public void playBlockClose(BlockOpenSound sound, double x, double y, double z) {
+        if (sound == null) return;
+        this.play(this.closeBuffers.get(sound), SoundCategory.BLOCKS, sound.gain, 1.0F,
+                sound.pitchJitter, true, x, y, z);
+    }
+
     /** Zufällige Variante + optional ±10 % Zufalls-Pitch auf einer freien Pool-Source. */
     private void play(int[] variants, SoundCategory category, float gain, float pitch, boolean pitchJitter,
                       boolean positional, double x, double y, double z) {
@@ -309,16 +336,52 @@ public final class SoundManager implements IDisposable {
         AL10.alSourcePlay(source);
     }
 
-    /** Round-Robin über den Pool; −1, wenn alle Sources noch spielen. */
+    /**
+     * Round-Robin über den Pool; −1, wenn keine Source frei ist. „Frei" heißt ausdrücklich
+     * STOPPED oder INITIAL und nicht bloß „spielt nicht": eine **pausierte** Source (Pausenmenü)
+     * gehört ihrem Sound weiterhin. Würde man sie neu vergeben, wäre die pausierte Wiedergabe
+     * verloren und {@code alSourcei(src, AL_BUFFER, …)} liefe laut Spec in AL_INVALID_OPERATION.
+     */
     private int acquireSource() {
         for (int i = 0; i < POOL_SIZE; i++) {
             int source = this.pool[(this.poolCursor + i) % POOL_SIZE];
-            if (AL10.alGetSourcei(source, AL10.AL_SOURCE_STATE) != AL10.AL_PLAYING) {
+            int state = AL10.alGetSourcei(source, AL10.AL_SOURCE_STATE);
+            if (state == AL10.AL_STOPPED || state == AL10.AL_INITIAL) {
                 this.poolCursor = (this.poolCursor + i + 1) % POOL_SIZE;
                 return source;
             }
         }
         return -1;
+    }
+
+    /* --- Pause (Pausenmenü) --- */
+
+    /**
+     * Hält alle laufenden Sounds und die Musik an. Nur AL_PLAYING wird pausiert — gestoppte
+     * Sources dürfen nicht angefasst werden, sonst starteten sie beim Fortsetzen von vorn.
+     *
+     * <p>Neue Sounds bleiben möglich: die Klick-Sounds der Pausenmenü-Buttons holen sich eine
+     * der freien Sources (wie in MC).
+     */
+    public void pauseAll() {
+        if (!this.enabled) return;
+        for (int source : this.pool) {
+            if (AL10.alGetSourcei(source, AL10.AL_SOURCE_STATE) == AL10.AL_PLAYING) {
+                AL10.alSourcePause(source);
+            }
+        }
+        this.music.pause();
+    }
+
+    /** Gegenstück zu {@link #pauseAll}: setzt genau die pausierten Sources fort. */
+    public void resumeAll() {
+        if (!this.enabled) return;
+        for (int source : this.pool) {
+            if (AL10.alGetSourcei(source, AL10.AL_SOURCE_STATE) == AL10.AL_PAUSED) {
+                AL10.alSourcePlay(source);
+            }
+        }
+        this.music.resume();
     }
 
     /* --- Musik --- */
@@ -416,6 +479,8 @@ public final class SoundManager implements IDisposable {
         unique.addAll(this.stepBuffers.values());
         unique.addAll(this.digBuffers.values());
         unique.addAll(this.placeBuffers.values());
+        unique.addAll(this.openBuffers.values());
+        unique.addAll(this.closeBuffers.values());
         for (int[] loose : new int[][]{this.uiClickVariants, this.hurtVariants, this.fallSmallVariants,
                 this.fallBigVariants, this.eatVariants, this.burpVariants, this.explosionVariants,
                 this.fuseVariants}) {

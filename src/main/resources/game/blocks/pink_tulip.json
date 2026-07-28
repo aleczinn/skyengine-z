@@ -1,11 +1,4 @@
 {
   "id": "skyengine:pink_tulip",
-  "type": "cross",
-  "layer": "cutout",
-  "opaque": false,
-  "solid": false,
-  "icon_item": "game/textures/block/pink_tulip.png",
-  "textures": {
-    "all": "game/textures/block/pink_tulip.png"
-  }
+  "parent": "preset/cross"
 }

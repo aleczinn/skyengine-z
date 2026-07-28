@@ -108,9 +108,6 @@ public class World implements IInitializable, IDisposable {
     /** Verzögerung, mit der geplante Ticks außerhalb der Simulations-Distanz erneut vorgemerkt werden. */
     private static final int OUT_OF_SIM_RESCHEDULE = 20;
 
-    /** Autosave-Intervall für modifizierte Chunks in Ticks (60 s bei 20 TPS). */
-    private static final int AUTOSAVE_INTERVAL = 1200;
-
     /** Nur Chunks in diesem Radius (in Chunks) um den Spieler ticken (Random/Scheduled/Entities). */
     private int simulationDistance = 10;
     /* Spieler-Chunk des laufenden Ticks - Basis für isSimulated(). */
@@ -200,12 +197,6 @@ public class World implements IInitializable, IDisposable {
         this.tickRandomBlocks();
         this.tickBlockEntities();
         this.tickEntities();
-        /* Autosave: modifizierte Chunks periodisch wegschreiben (asynchron, IO-Thread).
-           Fallende Blöcke werden hier bewusst NICHT materialisiert (würden sichtbar
-           in der Luft einrasten) — sie landen ohnehin binnen Sekunden als Block-Edit. */
-        if (this.gameTime % AUTOSAVE_INTERVAL == 0) {
-            this.saveModifiedChunks(false);
-        }
     }
 
     /**
@@ -250,14 +241,24 @@ public class World implements IInitializable, IDisposable {
      * Reiht alle modifizierten Chunks zum Speichern ein (asynchron; Flush garantiert erst
      * {@code storage.close()} in {@link #dispose()}). {@code materializeFalling} nur beim
      * Welt-Austritt — s. {@link Chunk#materializeFallingBlocks()}.
+     *
+     * @return Anzahl der eingereihten Chunks (0 = es gab nichts zu tun)
      */
-    public void saveModifiedChunks(boolean materializeFalling) {
+    public int saveModifiedChunks(boolean materializeFalling) {
+        int queued = 0;
         for (Chunk chunk : this.chunkManager.loadedChunks()) {
             if (!chunk.modified || chunk.saveQueued) continue;
             if (materializeFalling) chunk.materializeFallingBlocks();
             chunk.saveQueued = true;
             this.storage.enqueueSave(chunk);
+            queued++;
         }
+        return queued;
+    }
+
+    /** true, solange der IO-Thread noch Chunk-Saves offen hat (Basis der Gespeichert-Meldung). */
+    public boolean hasPendingSaves() {
+        return this.storage.hasPendingSaves();
     }
 
     /**
@@ -679,15 +680,15 @@ public class World implements IInitializable, IDisposable {
 
 
         /* An Chunk-Grenzen muss der Nachbar mit-remeshen, sonst bleiben dort falsche Faces */
-        if (lx == 0) this.markDirty(cx - 1, cz, sy);
-        if (lx == ChunkSection.MASK) this.markDirty(cx + 1, cz, sy);
-        if (lz == 0) this.markDirty(cx, cz - 1, sy);
-        if (lz == ChunkSection.MASK) this.markDirty(cx, cz + 1, sy);
+        if (lx == 0) this.markDirtyColumn(cx - 1, cz, sy, y);
+        if (lx == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz, sy, y);
+        if (lz == 0) this.markDirtyColumn(cx, cz - 1, sy, y);
+        if (lz == ChunkSection.MASK) this.markDirtyColumn(cx, cz + 1, sy, y);
         /* Chunk-ECKEN zusätzlich diagonal: dessen Fluid-Eckhöhen sampeln diese Zelle. */
-        if (lx == 0 && lz == 0) this.markDirty(cx - 1, cz - 1, sy);
-        if (lx == 0 && lz == ChunkSection.MASK) this.markDirty(cx - 1, cz + 1, sy);
-        if (lx == ChunkSection.MASK && lz == 0) this.markDirty(cx + 1, cz - 1, sy);
-        if (lx == ChunkSection.MASK && lz == ChunkSection.MASK) this.markDirty(cx + 1, cz + 1, sy);
+        if (lx == 0 && lz == 0) this.markDirtyColumn(cx - 1, cz - 1, sy, y);
+        if (lx == 0 && lz == ChunkSection.MASK) this.markDirtyColumn(cx - 1, cz + 1, sy, y);
+        if (lx == ChunkSection.MASK && lz == 0) this.markDirtyColumn(cx + 1, cz - 1, sy, y);
+        if (lx == ChunkSection.MASK && lz == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz + 1, sy, y);
 
         /* Persistenz: Chunk ist seit dem letzten Save verändert. */
         chunk.modified = true;
@@ -721,7 +722,29 @@ public class World implements IInitializable, IDisposable {
                reine State-Änderungen (Verbindungen, Treppen) bewusst nicht. Keine Endlos-
                Kaskade möglich: jeder Kaskadenschritt entfernt einen Block endgültig. */
             boolean removed = updated.getId() == Blocks.AIR;
+            /* Ein Block, der sich selbst entfernt, wird abgebaut — also VOR dem Setzen denselben
+               onBreak-Hook laufen lassen wie beim Abbau durch den Spieler. Ohne das verlöre ein
+               so entfernter Block mit BlockEntity still seinen Inhalt. Heute implementiert kein
+               Behavior onBreak; die Reihenfolge schließt die Lücke, bevor das erste es tut. */
+            if (removed) current.getBlock().onBreak(this, x, y, z, current);
             this.setBlock(x, y, z, updated.getId(), removed);
+        }
+    }
+
+    /**
+     * Wie {@link #markDirty}, zusätzlich die vertikal angrenzende Section des Nachbar-Chunks:
+     * das AO-Eck-Sample des Meshers greift ±1 auf ALLEN DREI Achsen. Liegt der geänderte Block
+     * an einer Chunk-Randsäule UND an einer Section-Grenze in y, hängt also auch das AO in der
+     * Section darüber/darunter des Nachbarn an ihm — ohne diese Markierung bliebe dort dauerhaft
+     * ein falscher AO-Wert stehen.
+     */
+    private void markDirtyColumn(int cx, int cz, int sectionY, int y) {
+        this.markDirty(cx, cz, sectionY);
+        if ((y & ChunkSection.MASK) == 0 && sectionY > 0) {
+            this.markDirty(cx, cz, sectionY - 1);
+        }
+        if ((y & ChunkSection.MASK) == ChunkSection.MASK && sectionY < Chunk.SECTIONS - 1) {
+            this.markDirty(cx, cz, sectionY + 1);
         }
     }
 

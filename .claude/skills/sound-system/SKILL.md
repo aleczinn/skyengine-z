@@ -29,6 +29,17 @@ description: OpenAL-Audio — SoundManager (Source-Pool, Effekt-Preload), MusicP
   SHOVEL→GRAVEL, Archetyp cross/tall_cross→GRASS, Fallback STONE. Verdrahtung:
   `BlockDefinition.sound` → `ArchetypeBlockFactory` → `BlockConfig.soundGroup` →
   `Block.getSoundGroup()` (Muster wie `hardness`).
+- **`BlockOpenSound`** — Auf-/Zu-Sounds (WOOD_DOOR/IRON_DOOR/CHEST), **bewusst ein eigenes
+  Konzept neben `BlockSoundGroup`**, wie MCs `BlockSetType` neben dem `SoundType`: Eichenbretter
+  und Eichentür klingen beim Abbauen gleich (beide WOOD), aber nur die Tür geht auf. Jeder Satz
+  trägt seinen Ordner **plus Gain und Pitch-Jitter** (Vanilla: Tür 1.0/fest, Truhe 0.5/variabel).
+  Zuordnung `BlockOpenSound.resolve`: JSON-Feld `"open_sound"` gewinnt (unbekannt → Warnung +
+  **null = stumm**, nicht Fallback!), sonst Archetyp `door` → WOOD_DOOR, sonst null. Verdrahtung
+  wie bei `sound`: `BlockDefinition.open_sound` → `ArchetypeBlockFactory` → `BlockConfig.openSound`
+  → `Block.getOpenSound()`. **Regel: ein eigener Ordner je Satz** (`door/wood`, `door/iron`,
+  `chest`) — die Extraktion behält die MC-Dateinamen, `wooden_door/open1.ogg` und
+  `iron_door/open1.ogg` würden sich sonst überschreiben. Eine neue Türart ist damit: Assets,
+  eine Enum-Konstante, eine JSON-Zeile. IRON_DOOR ist vorgeladen, hat aber noch keinen Block.
 - **Lose Spieler-/UI-Sounds** (ohne BlockSoundGroup, via `loadVariants(folder, base)` —
   nummerierte Varianten `<base>1..N.ogg`, sonst Einzeldatei `<base>.ogg`; fehlt beides:
   Warnung + null = stumm): `ui/click`, `damage/hit1-3` (Hurt), `damage/fallsmall`/`fallbig`
@@ -42,6 +53,31 @@ description: OpenAL-Audio — SoundManager (Source-Pool, Effekt-Preload), MusicP
   keinen SoundManager; Fall-„big" ab 4 Schaden) sowie Ess-Sounds in `updateEating`
   (Kauen alle 4 Ticks, Burp beim Abschluss); Hit alle 250 ms in `updateMining`, Break in
   `breakTargetBlock`, Place nach `world.placeBlock` UND in `tryMergeSlab`; `dispose()` am Ende.
+- **Auf/Zu-Hooks liegen NICHT im GameContainer:** Tür in `DoorBehavior.onUse` (hat `World` ⇒
+  `world.getSoundManager()`, nullbar wie beim TNT-Fuse), Truhe in `ChestBlockEntity.setOpen` —
+  und dort mit Absicht statt in `GuiChest.onClose`: `GuiScreen.onClose()` bekommt keinen
+  `GuiManager`, der GUI-Weg bräuchte also eine Signaturänderung quer durch die GUI-Basis und
+  deckte trotzdem weniger ab. Über `setOpen` laufen **alle** Schließwege (ESC, Inventar-Taste,
+  Todesscreen, Welt verlassen), und der Sound kann nicht von der Deckel-Animation abdriften.
+  Die Wächter `if (open == this.open) return;` sorgt dafür, dass nur echte Wechsel klingen.
+
+## Pause (Pausenmenü)
+
+`SoundManager.pauseAll()`/`resumeAll()`, angestoßen an der Flanke in
+`GameContainer.updatePaused` (nicht pro Tick). Drei Dinge, die man dabei falsch machen kann:
+
+- **Nur `AL_PLAYING` pausieren, nur `AL_PAUSED` fortsetzen.** Ein pauschales `alSourcePlayv` über
+  den Pool würde gestoppte Sources **von vorn** neu starten.
+- **`acquireSource` darf pausierte Sources nicht als frei sehen.** „Frei" ist deshalb
+  `AL_STOPPED || AL_INITIAL`, nicht `!= AL_PLAYING` — sonst wird eine pausierte Source neu
+  vergeben, ihre Wiedergabe ist weg und `alSourcei(src, AL_BUFFER, …)` liefert laut Spec
+  `AL_INVALID_OPERATION`. Neue Sounds bleiben in der Pause absichtlich möglich: die
+  Menü-Button-Klicks sollen klingen (wie in MC).
+- **`MusicPlayer` braucht ein `paused`-Flag mit Early-Return in `update()`.** Dessen
+  Underrun-Schutz prüft `SOURCE_STATE != AL_PLAYING` — `AL_PAUSED` erfüllt das, und da
+  `soundManager.update()` unbedingt jeden Frame läuft, würde die Musik sich im nächsten Frame
+  selbst entpausieren (Symptom: Log-Spam „Musik-Underrun"). `stop()` taugt nicht als Pause, es
+  schließt den vorbis-Handle.
 
 ## Threading
 

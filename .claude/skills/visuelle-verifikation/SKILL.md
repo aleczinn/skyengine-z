@@ -8,19 +8,26 @@ description: Wie man Änderungen an dieser Engine ehrlich verifiziert — was oh
 ## Es gibt keine Tests. Diese Stufen existieren stattdessen:
 
 1. **`./gradlew compileJava`** — schneller Pflicht-Check. Beweist NUR Kompilierbarkeit.
-2. **`GeneratorMapExporter`** (`generator/debug/`, eigene `main`, **kein GL/Engine-Start**):
+2. **`./gradlew mapExport`** (`GeneratorMapExporter`, eigene `main`, **kein GL/Engine-Start**):
    Falschfarben-PNGs (Klima, Biome, Höhen, Oberfläche, `section` = echte generate()-Chunks)
-   nach `debug-maps/`; Args `<step> <centerX> <centerZ>`. Der richtige Weg für
-   Weltgen-Änderungen — Sekunden statt Flug. **Bit-Identitäts-Beweis:** Karten vor/nach der
-   Änderung per Hash vergleichen. Aufruf (PATH-Java ist zu alt, Projekt braucht JDK 25;
-   Pfade ggf. prüfen):
-   ```powershell
-   & "$env:USERPROFILE\.jdks\ms-25.0.3\bin\java.exe" -cp "build\classes\java\main;<gson-jar aus ~\.gradle\caches>" `
-     de.skyengine.game.world.generator.debug.GeneratorMapExporter 4 0 0
-   ```
-3. **`./gradlew run`** — alles Sichtbare (Meshing, Rendering, Fluids, LOD, GUI, Tints) ist NUR so
+   nach `debug-maps/`. Der richtige Weg für Weltgen-Änderungen — Sekunden statt Flug.
+   **Bit-Identitäts-Beweis:** Karten vor/nach der Änderung per Hash vergleichen.
+   Für eigene Args (`<step> <centerX> <centerZ>`): `--args="4 0 0"`.
+3. **`./gradlew saveTest`** (`SaveRoundTripTest`, ebenfalls ohne GL): bootstrappt die **komplette
+   Block-/Item-Registry**, generiert einen Chunk, serialisiert und vergleicht ihn. Deckt alles
+   ab, was mit dem Laden von Blöcken, Modellen, Items, Properties und Persistenz zu tun hat —
+   also fast jede JSON-Änderung. Die **Log-Zähler sind das schärfste billige Signal**: Anzahl
+   Block-Definitionen/Modelle/„aus Block-Definitionen erzeugt"/Blockstates/Items, und die
+   Warnungen „Modell fehlt"/„Variante ... fehlt"/„Modell-Datei ueberdeckt"/„Unaufgeloeste
+   Platzhalter" müssen **null** Treffer haben.
+4. **`./gradlew run`** — alles Sichtbare (Meshing, Rendering, Fluids, LOD, GUI, Tints) ist NUR so
    prüfbar. Konsole zeigt FPS/TPS jede Sekunde; der Fenstertitel (im Debug-Modus) Sections
    sichtbar/total, Chunk-Zahl, Spielerposition.
+
+**Für JSON-Massenänderungen** (Presets, Modell-Migration) reichen Zähler nicht: dort einen
+Vorher/Nachher-Vergleich der *effektiv aufgelösten* Daten gegen `git show HEAD:<datei>` fahren
+(gemergte Block-Definition je Block, aufgelöste Texturmap je Modellname). Genau das hat bei der
+Preset-Migration zwei stille Regressionen gefunden, die alle Zähler passiert hatten.
 
 **Ehrlichkeitsregel (verbindlich, aus CLAUDE.md):** Wenn das Fenster nicht lief, die Änderung als
 „kompiliert, visuell ungetestet" ausweisen — niemals als verifiziert. Ein schwächeres Modell
@@ -58,7 +65,10 @@ Durchlauf sofort abbrechen statt weiterzusteuern.
 - Löcher/falsche Faces an Chunk-Grenzen → Nachbar-Gating/Dirty-Masken (chunk-pipeline).
 - Helle Funkel-Striche auf Augenhöhe → AO-Extrapolation, Clamp im Fragment-Shader fehlt (chunk-meshing).
 - Sporadischer Geometrie-Müll → Arena-Free ohne Fence-Schutz (mdi-rendering).
-- Block unsichtbar → fehlende `models/block/<id>.json` (block-modelle-und-texturen).
+- Block unsichtbar → weder `model`/`models` in der Block-JSON noch eine gleichnamige
+  `models/block/<id>.json` (block-modelle-und-texturen).
+- Textur-Änderung im Block wirkt nicht → eine gleichnamige Modell-Datei überdeckt die
+  Block-Definition (Warnung im Log) oder ein Preset-Feld wird vom Kind überschrieben.
 - Falsche Textur auf anderem Block → `layerOf` nach TextureArray-Bau aufgerufen.
 - Schlitze am LOD/L0-Übergang → fehlende Skirts an Masken-Kanten (lod-system).
 - Naht in der Welt nach F8 → Generator-Purity verletzt (weltgen-v2).

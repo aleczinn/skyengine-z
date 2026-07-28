@@ -21,6 +21,9 @@
       "resume": "Back to Game",
       "options": "Options ...",
       "quit_to_title": "Save and Quit to Title"
+    },
+    "save": {
+      "saved": "Game saved"
     }
   },
 
@@ -53,6 +56,12 @@
       "anisotropy": "Anisotropy",
       "ao": "Ambient Occlusion",
       "leaves": "Leaves",
+      "leaves_hint_low": "<b>Leaf quality</b>\n<gray>LOW: leaves are <b>opaque</b> - fastest meshing, fewest quads</>",
+      "leaves_hint_mid": "<b>Leaf quality</b>\n<gray>MID: only the <b>outer faces</b> are drawn - good compromise</>",
+      "leaves_hint_high": "<b>Leaf quality</b>\n<gray>HIGH: every face see-through - best look, <gold>most quads</></>",
+      "msaa_hint": "<b>Anti-aliasing (MSAA)</b>",
+      "msaa_off": "<gray>Off - fastest, hard edges on the horizon</>",
+      "msaa_on": "<gray>%dx samples - smoother edges, costs fill rate.\nApplies on the next framebuffer rebuild</>",
       "fog": "Fog",
       "vegetation_distance": "Vegetation Distance: %s",
       "lod": "LOD (Far View)",
@@ -111,6 +120,8 @@
     "sprint": "Sprint",
     "open_inventory": "Inventory",
     "drop": "Drop Item",
+    "attack": "Attack/Destroy",
+    "use": "Use Item/Place Block",
     "toggle_perspective": "Toggle Perspective",
     "screenshot": "Screenshot",
     "gamemode": "Cycle Game Mode",
@@ -137,7 +148,8 @@
       "seed": "Seed: %s",
       "delete_title": "Delete world?",
       "delete_message": "\"%s\" will be lost forever.",
-      "empty": "No worlds yet - create one!"
+      "empty": "No worlds yet - create one!",
+      "needs_selection": "<gray>Pick a world from the list <b>first</b></>"
     },
     "create": {
       "title": "Create New World",
@@ -145,6 +157,22 @@
       "default_name": "New World",
       "seed": "Seed (blank = random)",
       "create": "Create"
+    },
+    "import": {
+      "button": "<b>Import Minecraft world</b>",
+      "button_hint": "<gray>Converts a world from <aqua>.minecraft/saves</> into the SkyEngine format</>",
+      "title": "Import Minecraft World",
+      "source": "Minecraft world (folder)",
+      "name": "Name in SkyEngine",
+      "start": "Start import",
+      "start_hint": "<gray>Runs in the background - the window stays usable</>",
+      "cancel": "Cancel",
+      "cancel_hint": "<gray>Stops at the next region and <red>discards</> the partial world</>",
+      "cancelling": "Cancel requested - finishing the regions in flight ...",
+      "cancelled": "Import cancelled - the incomplete world was deleted.",
+      "empty": "No Minecraft worlds found in .minecraft/saves",
+      "error_source": "Not a folder: please pick a Minecraft world",
+      "error_name": "Please enter a world name"
     },
     "loading": "Generating world..."
   },

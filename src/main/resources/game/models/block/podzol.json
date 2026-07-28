@@ -1,1 +1,0 @@
-{ "parent": "block/cube_bottom_top", "textures": { "top": "game/textures/block/podzol_top.png", "bottom": "game/textures/block/dirt.png", "side": "game/textures/block/podzol_side.png" } }

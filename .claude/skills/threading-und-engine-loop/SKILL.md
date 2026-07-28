@@ -47,6 +47,30 @@ Niemals blind `GL_LESS`/`GL_LEQUAL` hartkodieren.
 - `partialTick = accumulatedTime / TICK_TIME_NANOS` ist die Interpolationsbasis für Kamera/Entities
   (`Camera.follow(player, partialTick)`). Wer neue bewegte Objekte rendert, interpoliert
   prev→current mit partialTick, sonst ruckelt es bei >20 FPS.
+- **Pause: der partialTick wird zentral eingefroren** (`GameContainer.updatePaused`, aufgerufen
+  ganz oben in `renderWorld` — dem einzigen Verteiler des Werts). Der Loop weiß von Pause nichts:
+  `onUpdate()` läuft weiter 20×/s, nur `world.update()` entfällt. Ohne Einfrieren sägt partialTick
+  also normal 0→1, während die `prev`/`last`-Felder auf zwei **ungleichen** Werten festhängen —
+  Ergebnis ist ein 20-Hz-Ping-Pong (Symptom: zappelnder Truhendeckel, zitternde Item-Entities).
+  **Konsequenz: eine neue interpolierte Animation braucht KEINE eigene Pause-Behandlung.** Die
+  Snaps `player.snapPrevToCurrent`/`animState.snapPrev` greifen deshalb nur noch beim
+  **Ladebildschirm** (der pausiert nicht, dort läuft partialTick zu Recht weiter) und beim
+  Respawn. Sie dort zu entfernen bringt Kamera-Jitter zurück.
+- **Cursor-Teleports (Symptom „der Blick springt beim Schließen einer GUI").** Der wichtigste Punkt
+  daran ist nicht offensichtlich: der Moduswechsel läuft in einem Main-Thread-Task, die dadurch
+  ausgelöste Cursor-Meldung kommt aber erst im **nächsten** `glfwWaitEvents()`-Durchlauf — der
+  Loop verarbeitet Events VOR den Tasks. Wer das Verwerfen an „der Task ist gelaufen" hängt,
+  quittiert es bei 700 FPS binnen ~1,4 ms mit der ALTEN Position, und der echte Sprung kommt danach
+  ungeschützt an. Deshalb: `resetMouseDelta()` **kündigt** nur an (`warpPending`), und erst der
+  erste `onCursorPos`-Callback danach gibt das Token aus (`warpSeq++`) — im Callback **vor** dem
+  Schreiben der Position, in `Input.update()` wird der Zähler **nach** der Position gelesen. Dreht
+  man eine der beiden Reihenfolgen um, ist die Lücke wieder offen.
+  Drei Regeln derselben Familie: mehrere Teleports gehören in **einen** Main-Thread-Task
+  (`showCursor(center)`), sonst hüpft der Zeiger sichtbar; Maus-Delta darf nur auf den Blick, wenn
+  `Input.isCursorGrabbed()` (der GuiManager-Zustand eilt dem physischen Modus voraus); und in
+  `Input.update()` sitzt ein Betrags-Guard mit Log-Ausgabe als letztes Netz. Angekündigt wird
+  jeder Teleport: Cursor-Modus, Fenstermodus und **Fokuswechsel** (`onWindowFocus` — Alt-Tab gibt
+  einen gefangenen Cursor frei und fängt ihn danach neu).
 - Screenshots (F2): nur Flag setzen (`GameContainer.screenshotRequested`); der Pixel-Read passiert
   in `SkyEngine.onRender` NACH `blitToScreen()` und VOR `glfwSwapBuffers` → Ordner `screenshots/`.
 

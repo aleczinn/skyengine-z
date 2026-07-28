@@ -402,13 +402,18 @@ public final class LodMesher {
     }
 
     /**
-     * Positions-Skala der Vertex-Packung je Regionsgröße: 128er packen mit 1/256 (wie
-     * Sections), Superregionen mit 1/64 — der u16-Fixed-Point trägt bei 1/256 nur ~255
+     * Positions-Skala der Vertex-Packung je Regionsgröße: 128er packen mit 1/256,
+     * Superregionen mit 1/64 — der u16-Fixed-Point trägt bei 1/256 nur ~255
      * Blöcke Region-lokale Spanne, bei 1/64 ~1023 (x/z UND y). Muss exakt zum per-Draw
      * .w-Wert des Renderers passen ({@code LodMesh.invPosScale}).
+     *
+     * <p>Die 256 ist hier bewusst eine EIGENE Konstante und nicht mehr {@code ChunkMesher.POS_SCALE}:
+     * Sections brauchen Auflösung (dort inzwischen 1/1024), LOD-Regionen brauchen Reichweite. Mit
+     * 1/1024 käme eine 128er-Region nur noch ~63 Blöcke weit und würde in {@code fixedPos} still
+     * auf 0xFFFF klemmen.
      */
     public static float posScaleFor(int sizeRegions) {
-        return sizeRegions > 1 ? 64F : ChunkMesher.POS_SCALE;
+        return sizeRegions > 1 ? 64F : 256F;
     }
 
     /* ------------------------- Sampling ------------------------- */

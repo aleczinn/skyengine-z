@@ -16,7 +16,9 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.ChestBlockEntity;
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
+import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.ChestType;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.SlabType;
 import de.skyengine.game.world.item.BlockItem;
@@ -31,6 +33,7 @@ import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.chunk.ChunkManager;
+import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.FrameProfiler;
@@ -45,6 +48,7 @@ import de.skyengine.graphics.gui.screens.GuiChest;
 import de.skyengine.graphics.gui.screens.GuiInventory;
 import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
+import de.skyengine.graphics.gui.SaveToast;
 import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.gui.screens.GuiIngameMenu;
 import de.skyengine.graphics.gui.screens.GuiDeathScreen;
@@ -64,6 +68,7 @@ import de.skyengine.game.world.save.PlayerIO;
 import de.skyengine.game.world.save.WorldSaves;
 import org.lwjgl.opengl.GL11;
 import de.skyengine.graphics.post.PostProcessor;
+import de.skyengine.graphics.world.ChunkBorderRenderer;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
@@ -85,6 +90,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private EntityPlayer player;
     private World world;
     private SelectionBoxRenderer selectionBoxRenderer;
+    private ChunkBorderRenderer chunkBorderRenderer;
     private CrackRenderer crackRenderer;
     private GuiManager guiManager;
 
@@ -105,16 +111,28 @@ public class GameContainer implements IResizeable, IDisposable {
     /** Reichweite (Blöcke), in der der Spieler gedroppte Items aufsammelt. */
     private static final double PICKUP_RANGE = 1.4;
 
-    /* Block-Interaktion: sofort beim Klick, beim Halten alle 200ms (= 4 Ticks, wie Minecraft) */
-    private static final long INTERACT_DELAY_MS = 200;
-    private long lastBreakTime = 0;
-    private long lastPlaceTime = 0;
+    /* Interaktions-Takte 1:1 aus Minecraft (Minecraft/MultiPlayerGameMode). Alles zählt TICKS:
+       die Eingabe wird wie dort im Tick verarbeitet, damit Takt und Arm-Schwung (ebenfalls
+       tickbasiert) exakt zusammenpassen. */
+    private static final int RIGHT_CLICK_DELAY = 4;   // Minecraft.startUseItem
+    private static final int DESTROY_DELAY = 5;       // MultiPlayerGameMode: nach jedem Blockbruch
+    private static final int MISS_TIME = 10;          // Minecraft.startAttack: Schlag ins Leere
+    private int rightClickDelay = 0;
+    private int destroyDelay = 0;
+    private int missTime = 0;
 
-    /* Survival-Mining: zeitbasierter Abbau-Fortschritt am aktuellen Ziel-Block (0..1).
-       Zielwechsel oder Loslassen setzt zurück; Creative bricht weiterhin instant. */
+    /* Gepufferte Klick-Flanken (MCs KeyMapping.consumeClick): der Frame sammelt, der Tick leert.
+       isBindPressed gilt nur einen Frame — bei 20 TPS würde der Tick Klicks sonst verschlucken. */
+    private int attackClicks = 0;
+    private int useClicks = 0;
+    private int pickClicks = 0;
+
+    /* Abbau am aktuellen Ziel-Block (MultiPlayerGameMode: destroyProgress/destroyTicks, pro Tick).
+       Zielwechsel oder Loslassen setzt zurück; Creative bricht instant. */
     private int miningX = Integer.MIN_VALUE, miningY, miningZ;
     private float miningProgress = 0F;
-    private long lastMiningMs = 0;
+    private float destroyTicks = 0F;
+    private boolean isDestroying = false;
 
     /* Doppel-Leertaste schaltet das Fliegen um (wie Minecraft): zweiter Tipp binnen 300ms. */
     private static final long DOUBLE_TAP_MS = 300;
@@ -147,11 +165,14 @@ public class GameContainer implements IResizeable, IDisposable {
     /* Laufgeräusche: zurückgelegte Distanz seit dem letzten Schritt (MC-Kadenz ~1.6 Blöcke). */
     private static final double STEP_INTERVAL = 1.6;
     private double stepDistance = 0;
-    /* Periodischer Hit-Sound während des Survival-Abbaus (zeitbasiert, updateMining ist frame-getaktet). */
-    private long lastHitSoundMs = 0;
 
     /* Wird per F2 gesetzt und von SkyEngine nach dem fertigen Frame abgeholt. */
     private boolean screenshotRequested = false;
+
+    /* Pausenzustand (Pausenmenü). partialTick friert beim Pausieren auf seinem letzten Wert ein
+       — siehe updatePaused. */
+    private boolean paused = false;
+    private float pausedPartialTick = 0F;
 
     private BlockRaycast.Hit hit = null;
 
@@ -171,6 +192,14 @@ public class GameContainer implements IResizeable, IDisposable {
     /* Aktives Savegame (null im Hauptmenü) — Ziel für saveCurrentWorld beim Austritt/Beenden. */
     private WorldSaves.WorldSave currentSave;
 
+    /** Autosave-Intervall in Ticks (60 s bei 20 TPS). */
+    private static final int AUTOSAVE_INTERVAL = 1200;
+    /* „Spiel gespeichert" erscheint erst, wenn der IO-Thread fertig ist — bis dahin steht das
+       Flag. Gesetzt nur von den beiden sichtbaren Auslösern (Pausenmenü, Autosave), NICHT vom
+       Exit-Save: dort verschwindet die Welt ohnehin. */
+    private final SaveToast saveToast = new SaveToast();
+    private boolean notifyOnSaveDone = false;
+
     public GameContainer() {
         /* Sprache VOR dem ersten Screen/Boot-Frame laden — alle GUI-Texte laufen über I18n. */
         I18n.load(this.settings.language);
@@ -178,6 +207,7 @@ public class GameContainer implements IResizeable, IDisposable {
         /* world/player sind lazy: sie entstehen erst beim Welt-Eintritt (enterWorld) und
            sterben bei der Rückkehr ins Hauptmenü (exitToTitle). */
         this.selectionBoxRenderer = new SelectionBoxRenderer();
+        this.chunkBorderRenderer = new ChunkBorderRenderer();
         this.crackRenderer = new CrackRenderer();
     }
 
@@ -204,6 +234,7 @@ public class GameContainer implements IResizeable, IDisposable {
         progress.frame(I18n.tr("boot.renderer"), 0.65f);
         this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
         this.selectionBoxRenderer.init();
+        this.chunkBorderRenderer.init();
         this.crackRenderer.init(this.atlas.textures());
         this.blockEntityRenderers.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderers.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
@@ -322,13 +353,14 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     public void exitToTitle() {
         this.guiManager.close();
-        this.saveCurrentWorld();
+        this.saveCurrentWorld(true);
         GL11.glFinish();
         this.world.dispose();
         this.world = null;
         this.player = null;
         this.currentSave = null;
         this.hit = null;
+        this.notifyOnSaveDone = false; // sonst quittiert die nächste Welt einen fremden Save
         this.resetMining();
         this.guiManager.open(new GuiMainMenu());
     }
@@ -337,9 +369,14 @@ public class GameContainer implements IResizeable, IDisposable {
      * Speichert die Welt: level.json (nur Welt-Metadaten), player/player.dat
      * (Zustand + Inventar, binäres DataTag) und reiht alle modifizierten Chunks ein
      * (den Flush garantiert storage.close() in world.dispose()).
+     *
+     * <p>{@code materializeFalling} nur beim Welt-Austritt: der periodische Autosave darf
+     * fallende Blöcke nicht materialisieren, sie würden sichtbar in der Luft einrasten.
+     *
+     * @return Anzahl der eingereihten Chunks (0 = nichts zu schreiben oder keine Welt)
      */
-    private void saveCurrentWorld() {
-        if (this.currentSave == null || this.world == null || this.player == null) return;
+    private int saveCurrentWorld(boolean materializeFalling) {
+        if (this.currentSave == null || this.world == null || this.player == null) return 0;
 
         LevelData level = this.currentSave.level();
         level.lastPlayed = System.currentTimeMillis();
@@ -372,9 +409,9 @@ public class GameContainer implements IResizeable, IDisposable {
         tag.putTag("inventory", inventory);
         PlayerIO.write(new File(WorldSaves.dir(this.currentSave.dirName()), "player/player.dat"), tag);
 
-        /* Exit-Save: fallende Blöcke materialisieren und modifizierte Chunks einreihen. */
-        this.world.saveModifiedChunks(true);
-        this.logger.info("Welt gespeichert: " + this.currentSave.dirName());
+        int chunks = this.world.saveModifiedChunks(materializeFalling);
+        this.logger.info("Welt gespeichert: " + this.currentSave.dirName() + " (" + chunks + " Chunks)");
+        return chunks;
     }
 
     /** Stellt das Inventar aus level.json wieder her (unbekannte Item-IDs -> Slot bleibt leer). */
@@ -418,13 +455,27 @@ public class GameContainer implements IResizeable, IDisposable {
     public void update(Input input) {
         if (this.world == null || this.player == null) return; // Hauptmenü: nichts zu ticken
 
-        /* Spieler friert nur ein, wenn das Spiel pausiert (prev=current verhindert Kamera-Jitter,
-           sonst interpoliert Camera.follow weiter zwischen zwei Tick-Positionen). Ausnahme
-           Ladebildschirm: pausiert nicht (Chunks laden über world.update), aber der Spieler darf
-           nicht in die ungeladene Welt fallen (ungeladene Chunks kollidieren als Luft). */
-        if (this.guiManager.pausesGame() || this.guiManager.current() instanceof GuiWorldLoading) {
-            this.player.snapPrevToCurrent();
-            this.animState.snapPrev();
+        /* Gespeichert-Meldung erst, wenn der IO-Thread durch ist. Bewusst VOR dem Pause-Zweig:
+           das Speichern beim Öffnen des Pausenmenüs läuft ja gerade dann fertig. */
+        if (this.notifyOnSaveDone && !this.world.hasPendingSaves()) {
+            this.notifyOnSaveDone = false;
+            this.saveToast.show();
+        }
+
+        /* Der Spieler tickt nicht, wenn das Spiel pausiert. Ausnahme Ladebildschirm: der pausiert
+           NICHT (Chunks laden über world.update), aber der Spieler darf nicht in die ungeladene
+           Welt fallen (ungeladene Chunks kollidieren als Luft). */
+        boolean loading = this.guiManager.current() instanceof GuiWorldLoading;
+        if (this.guiManager.pausesGame() || loading) {
+            /* prev=current NUR für den Ladebildschirm: dort läuft partialTick weiter, ohne den
+               Snap würde Camera.follow zwischen zwei Tick-Positionen oszillieren. In der echten
+               Pause erledigt das der eingefrorene partialTick (siehe updatePaused) — und zwar
+               besser: der Snap läuft im Tick VOR dem einfrierenden Frame und würde die Kamera
+               beim Pausieren noch auf die letzte Tick-Position springen lassen. */
+            if (loading) {
+                this.player.snapPrevToCurrent();
+                this.animState.snapPrev();
+            }
             /* Ess-Animation nicht in der Pause weiterwackeln lassen (ihr Kau-Nicken hängt am
                partialTick); das Essen bricht beim Fortsetzen ohnehin ab (Maustaste ist los). */
             this.animState.clearEating();
@@ -432,7 +483,22 @@ public class GameContainer implements IResizeable, IDisposable {
             /* Offenes Container-GUI (Inventar/Truhe): Physik läuft weiter (fallen/Strömung),
                aber ohne Tasten — wie in MC gehen die Eingaben ans GUI. */
             this.player.update(this.guiManager.isOpen() ? Input.EMPTY : input, this.world);
+
+            /* Reihenfolge wie Minecraft.tick: erst die Eingabe (Schwung-/Hand-Trigger), dann die
+               Hand-Höhe (ItemInHandRenderer.tick), dann der Entity-Tick mit dem Schwung-Zähler —
+               so wirkt ein Klick noch im selben Tick. Sperre runterzählen wie dort; bei offenem
+               GUI wird die Schlagsperre hochgesetzt (continueAttack löst sie beim Loslassen). */
+            if (this.rightClickDelay > 0) this.rightClickDelay--;
+            if (this.guiManager.isOpen()) {
+                this.missTime = 10000;
+                this.clearInteractionClicks();
+            } else {
+                this.handleBlockInteraction(input);
+                if (this.missTime > 0) this.missTime--;
+            }
+            this.animState.tickHeldItem(this.playerInventory.get(this.hotbarIndex));
             this.animState.tick(this.player);
+
             this.updateStepSounds();
             this.updateHurtSounds();
             this.updateEating(input);
@@ -447,6 +513,11 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!this.guiManager.pausesGame()) {
             this.world.update(input, this.player);
             this.pickupItems();
+            /* Autosave. Die Modulo-Prüfung gehört IN diesen Zweig: gameTime steht bei Pause
+               still, außerhalb würde sie dann jeden Tick erneut feuern. */
+            if (this.world.getGameTime() % AUTOSAVE_INTERVAL == 0 && this.saveCurrentWorld(false) > 0) {
+                this.notifyOnSaveDone = true; // beim Autosave nur melden, wenn es wirklich etwas gab
+            }
         }
     }
 
@@ -514,15 +585,51 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     /**
+     * Pflegt den Pausenzustand und liefert den partialTick, mit dem dieser Frame rendern soll.
+     *
+     * <p><b>Warum das hier zentral passiert:</b> im Pausenmenü tickt die Welt nicht mehr
+     * ({@link #update} überspringt {@code world.update}), der Tick-Akkumulator in
+     * {@code SkyEngine} läuft aber normal weiter — {@code partialTick} sägt also unverändert
+     * 0→1. Jedes System mit {@code prev}/{@code last}-Feldern interpoliert dann 20× pro Sekunde
+     * zwischen zwei eingefrorenen, ungleichen Werten hin und her (sichtbar am zappelnden
+     * Truhendeckel). Friert man stattdessen den partialTick ein, stehen ALLE interpolierten
+     * Systeme gleichzeitig still — Truhe, Verzauberungstisch, Entities, Spieler, Kamera, Hand,
+     * View-Bobbing. Eine neue Animation braucht deshalb <b>keine</b> eigene Pause-Behandlung.
+     * Minecraft löst das identisch ({@code Minecraft.pausePartialTick}).
+     *
+     * <p>Eingefroren wird auf dem Wert des Pausierungs-Frames, nicht auf 1.0 — so gibt es im
+     * Moment des Pausierens keinen sichtbaren Sprung. {@code guiManager.pausesGame()} genügt als
+     * Bedingung: im Hauptmenü ist es false, der Zustand löst sich beim Verlassen der Welt also
+     * von selbst wieder auf.
+     */
+    private float updatePaused(float partialTick) {
+        boolean now = this.guiManager.pausesGame();
+        if (now != this.paused) {
+            this.paused = now;
+            if (now) {
+                this.pausedPartialTick = partialTick;
+                this.soundManager.pauseAll();
+            } else {
+                this.soundManager.resumeAll();
+            }
+        }
+        return now ? this.pausedPartialTick : partialTick;
+    }
+
+    /**
      * Welt-Anteil des Frames (Input/Kamera/Raycast + Welt, 3D-Overlays, Fluid-Tint) — zeichnet
      * in das gebundene Szene-Target (HDR). Die GUI folgt getrennt in {@link #renderGui} NACH
      * der Post-Kette (SkyEngine.onRender), damit HUD/Text nie durch Grading/AA laufen.
      */
-    public void renderWorld(Input input, int width, int height, float partialTick) {
+    public void renderWorld(Input input, int width, int height, float rawPartialTick) {
         this.handleGlobalHotkeys(input);   // immer: Fullscreen, GUI-Scale, Render-Distanz
 
         /* Musik-Streaming läuft auch im Hauptmenü weiter. */
         this.soundManager.update();
+
+        /* Pause: Audio anhalten UND den partialTick einfrieren. Ab hier zählt nur noch dieser
+           Wert — er geht an Kamera, Welt, BlockEntities, Entities und Hand. */
+        final float partialTick = this.updatePaused(rawPartialTick);
 
         /* Menü-Blur: nur mit Welt UND blur-wolligem Screen (Pause + Unterseiten);
            der Pass animiert die Stärke selbst (Ein-/Ausblenden). */
@@ -539,8 +646,15 @@ public class GameContainer implements IResizeable, IDisposable {
 
         /* Maus-Blick + Hotbar + Gameplay-Debug nur ohne offenes GUI. */
         if (!guiOpen) {
-            /* ESC öffnet das Pause-Menü (Beenden geht über dessen Button). */
-            if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) this.guiManager.open(new GuiIngameMenu());
+            /* ESC öffnet das Pause-Menü (Beenden geht über dessen Button) und speichert dabei,
+               wie in alten Minecraft-Versionen. Der Hook sitzt HIER und nicht in
+               GuiIngameMenu.init() — das ist kein Öffnen-Hook, es läuft auch bei jeder Fenster-
+               und GuiScale-Änderung erneut (siehe GuiManager.render). */
+            if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) {
+                this.saveCurrentWorld(false);
+                this.notifyOnSaveDone = true; // bewusste Aktion: Quittung auch ohne dreckige Chunks
+                this.guiManager.open(new GuiIngameMenu());
+            }
             /* Inventar-Taste (Default E) öffnet das Spielerinventar; dieselbe Taste schließt es
                wieder (closesOnInventoryKey im GuiManager-Routing). */
             if (input.isBindPressed(this.settings.key(KeyBindings.OPEN_INVENTORY))) {
@@ -552,8 +666,13 @@ public class GameContainer implements IResizeable, IDisposable {
             if (input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_PERSPECTIVE))) {
                 this.perspective = this.perspective.next();
             }
-            double sens = this.settings.mouseSensitivity;
-            this.player.turn(input.getDeltaMouseX() * sens, input.getDeltaMouseY() * sens);
+            /* Blick nur drehen, wenn der Cursor auch PHYSISCH gefangen ist. Der Moduswechsel läuft
+               deferiert auf dem Window-Thread — direkt nach dem Schließen eines GUIs ist er noch
+               frei, und seine Bewegung soll die Kamera nicht mitziehen. */
+            if (input.isCursorGrabbed()) {
+                double sens = this.settings.mouseSensitivity;
+                this.player.turn(input.getDeltaMouseX() * sens, input.getDeltaMouseY() * sens);
+            }
         }
 
         /* TAA-Subpixel-Jitter (0,0 wenn TAA aus) VOR dem Matrix-Update, Kameradaten für
@@ -594,7 +713,8 @@ public class GameContainer implements IResizeable, IDisposable {
                dann ist die Welt weg und der Rest des Frames darf sie nicht mehr anfassen. */
             if (this.world == null) return;
         } else {
-            this.handleBlockInteraction(input);  // kann ein GUI öffnen
+            /* Nur Klick-Flanken einsammeln — die Interaktion selbst läuft wie in MC im Tick. */
+            this.pollInteractionClicks(input);
         }
 
         /* Wireframe (F6) gilt NUR für die Welt-Geometrie: der Line-Mode ist globaler GL-State und
@@ -625,13 +745,20 @@ public class GameContainer implements IResizeable, IDisposable {
             }
         }
 
+        /* Chunk-Grenzen (F3+G) um die nahen Chunks — nach dem Welt-Draw, mit gültiger Kamera. */
+        if (DebugFlags.chunkBorders != 0 && this.world != null) {
+            int ccx = ((int) Math.floor(this.player.x)) >> ChunkSection.SHIFT;
+            int ccz = ((int) Math.floor(this.player.z)) >> ChunkSection.SHIFT;
+            this.chunkBorderRenderer.render(this.camera, this.world.getChunkManager(),
+                    ccx, ccz, DebugFlags.chunkBorders);
+        }
+
         this.renderFluidOverlay();
 
         /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Depth-Clear. */
         if (this.perspective.isFirstPerson() && this.player.getGamemode() != Gamemode.SPECTATOR) {
-            this.handRenderer.render(this.playerRenderer, this.heldItemMeshes,
-                    this.playerInventory.get(this.hotbarIndex), this.animState,
-                    (float) width / height, partialTick, this.viewEffect);
+            this.handRenderer.render(this.playerRenderer, this.heldItemMeshes, this.player,
+                    this.animState, (float) width / height, partialTick, this.viewEffect);
         }
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
@@ -704,6 +831,9 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.debugOverlay.isVisible() && this.world != null) {
             this.debugOverlay.render(this.guiManager, this.world, this.player);
         }
+        /* Gespeichert-Meldung NACH dem GuiScreen: sie soll auch über dem abgedunkelten
+           Pausenmenü lesbar sein (im Hud läge sie unter dessen Dim). */
+        if (this.world != null) this.saveToast.render(this.guiManager);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
     }
 
@@ -721,7 +851,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 || this.player.isDead()
                 || !(held.getItem() instanceof FoodItem food)
                 || this.player.getFoodLevel() >= EntityPlayer.MAX_FOOD
-                || !input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_RIGHT)) {
+                || !input.isBindDown(this.settings.key(KeyBindings.USE))) {
             this.eatingTicks = 0;
             this.animState.clearEating();
             return;
@@ -792,11 +922,12 @@ public class GameContainer implements IResizeable, IDisposable {
     @Override
     public void dispose() {
         this.settings.save();
-        this.saveCurrentWorld(); // Welt-Zustand auch beim direkten Beenden aus dem Spiel sichern
+        this.saveCurrentWorld(true); // Welt-Zustand auch beim direkten Beenden aus dem Spiel sichern
         if (this.world != null) {
             this.world.dispose();
         }
         this.selectionBoxRenderer.dispose();
+        if (this.chunkBorderRenderer != null) this.chunkBorderRenderer.dispose();
         if (this.crackRenderer != null) this.crackRenderer.dispose();
         this.playerRenderer.dispose();
         this.heldItemMeshes.dispose();
@@ -807,68 +938,110 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     /**
-     * Survival-Mining: akkumuliert Abbau-Fortschritt am Ziel-Block (MC-Formel), solange die
-     * linke Maustaste gehalten wird. Härte 0 = instant (über den Klick-/Halte-Trigger),
-     * Härte &lt; 0 = unzerstörbar (Bedrock). Drops/Abnutzung übernimmt {@link #breakTargetBlock}.
+     * Abbau-Fortschritt pro Tick am anvisierten Block (Vorbild
+     * {@code MultiPlayerGameMode.getDestroyProgress}/{@code Block.getDestroyProgress}):
+     * {@code speed / hardness / (harvestbar ? 30 : 100)}, in der Luft nochmal ein Fünftel.
+     * Härte &lt; 0 (Bedrock) liefert 0 — der Block wird nie fertig.
      */
-    private void updateMining(boolean held, boolean clickTrigger, long now) {
-        if (!held || this.hit == null) {
-            this.resetMining();
+    private float getDestroyProgress(BlockState state) {
+        float hardness = state.getBlock().getHardness();
+        if (hardness < 0F) return 0F;
+        if (hardness == 0F) return 1F;
+
+        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        float speed = 1F;
+        if (held.getItem() instanceof ToolItem tool && tool.getType() == state.getBlock().getToolType()) {
+            speed = tool.getTier().speed();
+        }
+        float perTick = speed / hardness / (isHarvestable(state, held) ? 30F : 100F);
+        /* MC-Malus: Abbau in der Luft (fallend/springend) ist 5x langsamer. */
+        if (!this.player.onGround) perTick /= 5F;
+        return perTick;
+    }
+
+    /**
+     * Beginnt den Abbau am anvisierten Block (Vorbild {@code MultiPlayerGameMode.startDestroyBlock}).
+     * Creative zerstört sofort und sperrt {@link #DESTROY_DELAY} Ticks; Survival setzt den
+     * Fortschritt neu an bzw. bricht sofort, wenn ein Tick schon reicht (Pflanzen, TNT).
+     */
+    private void startDestroyBlock() {
+        BlockState state = Blocks.getState(this.hit.block());
+        if (this.player.getGamemode().isInstantBreak()) {
+            this.breakTargetBlock(state, false);
+            this.destroyDelay = DESTROY_DELAY;
             return;
         }
+        if (!this.isDestroying || !this.sameDestroyTarget()) {
+            if (this.getDestroyProgress(state) >= 1F) {
+                this.breakTargetBlock(state, false);
+            } else {
+                this.isDestroying = true;
+                this.miningX = this.hit.x();
+                this.miningY = this.hit.y();
+                this.miningZ = this.hit.z();
+                this.miningProgress = 0F;
+                this.destroyTicks = 0F;
+            }
+        }
+    }
 
-        /* Zielwechsel -> Fortschritt neu ansetzen */
-        if (this.hit.x() != this.miningX || this.hit.y() != this.miningY || this.hit.z() != this.miningZ) {
-            this.miningX = this.hit.x();
-            this.miningY = this.hit.y();
-            this.miningZ = this.hit.z();
-            this.miningProgress = 0F;
-            this.lastMiningMs = now;
+    /**
+     * Ein Abbau-Tick (Vorbild {@code MultiPlayerGameMode.continueDestroyBlock}). Der Rückgabewert
+     * steuert den Arm-Schwung: {@code true} heißt „es wird gehackt" — auch während der Sperre nach
+     * einem Blockbruch, damit der Arm wie in MC durchschwingt.
+     */
+    private boolean continueDestroyBlock() {
+        if (this.destroyDelay > 0) {
+            this.destroyDelay--;
+            return true;
+        }
+        if (this.player.getGamemode().isInstantBreak()) {
+            this.destroyDelay = DESTROY_DELAY;
+            this.breakTargetBlock(Blocks.getState(this.hit.block()), false);
+            return true;
+        }
+        if (!this.sameDestroyTarget()) {
+            this.startDestroyBlock();
+            return true;
         }
 
         BlockState state = Blocks.getState(this.hit.block());
-        float hardness = state.getBlock().getHardness();
-        if (hardness < 0F) { // Bedrock: unzerstörbar
-            this.miningProgress = 0F;
-            this.lastMiningMs = now;
-            return;
-        }
-
-        if (hardness == 0F) { // instant (Pflanzen, TNT) — mit demselben Klick-/Halte-Takt wie Creative
-            if (clickTrigger) this.breakTargetBlock(state, false, now);
-            return;
-        }
-
-        ItemStack held0 = this.playerInventory.get(this.hotbarIndex);
-        float speed = 1F;
-        if (held0.getItem() instanceof ToolItem tool && tool.getType() == state.getBlock().getToolType()) {
-            speed = tool.getTier().speed();
-        }
-        /* MC-Formel: Schaden pro Tick = speed/hardness/30 (harvestbar) bzw. /100 -> pro Sekunde /1.5 bzw. /5 */
-        float perSecond = speed / hardness / (isHarvestable(state, held0) ? 1.5F : 5F);
-
-        float dt = (now - this.lastMiningMs) / 1000F;
-        this.lastMiningMs = now;
-        this.miningProgress += dt * perSecond;
-        this.animState.swing(); // kontinuierlicher Hack-Schwung während des Abbaus
-
-        /* Periodischer Hit-Sound während des Abbaus (wie MCs Schlag-Takt). */
-        if (now - this.lastHitSoundMs >= 250) {
-            this.lastHitSoundMs = now;
+        this.miningProgress += this.getDestroyProgress(state);
+        if (this.destroyTicks % 4F == 0F) {
             this.soundManager.playHit(state.getBlock().getSoundGroup(),
                     this.miningX + 0.5, this.miningY + 0.5, this.miningZ + 0.5);
         }
+        this.destroyTicks++;
 
         if (this.miningProgress >= 1F) {
-            this.breakTargetBlock(state, true, now);
+            this.isDestroying = false;
+            this.breakTargetBlock(state, true);
+            this.miningProgress = 0F;
+            this.destroyTicks = 0F;
+            this.destroyDelay = DESTROY_DELAY;
         }
+        return true;
+    }
+
+    /** Abbau abgebrochen (Taste los, kein Block im Visier) — wie MC inkl. Ticker-Reset. */
+    private void stopDestroyBlock() {
+        if (this.isDestroying) {
+            this.isDestroying = false;
+            this.miningProgress = 0F;
+            this.animState.resetSwapTicker();
+        }
+    }
+
+    private boolean sameDestroyTarget() {
+        return this.hit != null && this.hit.x() == this.miningX
+                && this.hit.y() == this.miningY && this.hit.z() == this.miningZ;
     }
 
     /**
      * Baut den Ziel-Block ({@code this.hit}) ab: onBreak + AIR setzen, Drop nur bei
      * dropsItems UND passendem Tool (MC-Harvest-Regel), optional Tool-Abnutzung.
      */
-    private void breakTargetBlock(BlockState broken, boolean applyDurability, long now) {
+    private void breakTargetBlock(BlockState broken, boolean applyDurability) {
         this.soundManager.playBreak(broken.getBlock().getSoundGroup(),
                 this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
         broken.getBlock().onBreak(this.world, this.hit.x(), this.hit.y(), this.hit.z(), broken);
@@ -891,7 +1064,6 @@ public class GameContainer implements IResizeable, IDisposable {
             }
         }
 
-        this.lastBreakTime = now;
         this.resetMining();
     }
 
@@ -906,109 +1078,197 @@ public class GameContainer implements IResizeable, IDisposable {
     private void resetMining() {
         this.miningProgress = 0F;
         this.miningX = Integer.MIN_VALUE;
+        this.destroyTicks = 0F;
+        this.isDestroying = false;
     }
 
+    /**
+     * Sammelt die Klick-Flanken im Frame ein (Vorbild {@code KeyMapping.consumeClick}): die
+     * Interaktion läuft wie in MC im Tick, {@code isBindPressed} gilt aber nur einen Frame —
+     * ohne diesen Puffer würde der 20-TPS-Tick Klicks verschlucken.
+     */
+    private void pollInteractionClicks(Input input) {
+        if (input.isBindPressed(this.settings.key(KeyBindings.ATTACK))) this.attackClicks++;
+        if (input.isBindPressed(this.settings.key(KeyBindings.USE))) this.useClicks++;
+        if (input.isBindPressed(this.settings.key(KeyBindings.PICK_BLOCK))) this.pickClicks++;
+    }
+
+    /** Verwirft gepufferte Klicks (offenes GUI, Spectator) — sie dürfen nicht nachträglich feuern. */
+    private void clearInteractionClicks() {
+        this.attackClicks = 0;
+        this.useClicks = 0;
+        this.pickClicks = 0;
+    }
+
+    /**
+     * Block-Interaktion pro Tick, Ablauf verbatim {@code Minecraft.handleKeybinds}: gepufferte
+     * Klicks abarbeiten, dann der Halte-Pfad fürs Benutzen, zum Schluss {@link #continueAttack}.
+     */
     private void handleBlockInteraction(Input input) {
         /* Spectator kann nicht abbauen/platzieren/nutzen (auch keine Truhe öffnen). */
-        if (!this.player.getGamemode().interactsWithWorld()) return;
-
-        /* Pick Block (nur Creative): Default mittlere Maustaste legt den anvisierten Block in den
-           aktuell ausgewählten Hotbar-Slot (wie Minecraft). */
-        if (this.player.getGamemode() == Gamemode.CREATIVE
-                && input.isBindPressed(this.settings.key(KeyBindings.PICK_BLOCK)) && this.hit != null) {
-            Block picked = Blocks.getState(this.hit.block()).getBlock();
-            Item item = Items.get(picked.getIdentifier()); // BlockItem; null bei Air/Fluid
-            if (item != null) {
-                this.playerInventory.set(this.hotbarIndex, new ItemStack(item, 1));
-                this.itemNameShownAt = System.currentTimeMillis(); // Namens-Einblendung wie bei Slot-Wechsel
-            }
+        if (!this.player.getGamemode().interactsWithWorld()) {
+            this.clearInteractionClicks();
             return;
         }
+        boolean usingItem = this.animState.isEating(); // MC: player.isUsingItem()
 
-        long now = System.currentTimeMillis();
-
-        /* Sofort beim Klick (isMousePressed) ODER beim Halten nach Ablauf des Delays */
-        boolean breakBlock = input.isMousePressed(GLFW.GLFW_MOUSE_BUTTON_LEFT)
-                || (input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_LEFT) && now - this.lastBreakTime >= INTERACT_DELAY_MS);
-
-        boolean placeBlock = input.isMousePressed(GLFW.GLFW_MOUSE_BUTTON_RIGHT)
-                || (input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_RIGHT) && now - this.lastPlaceTime >= INTERACT_DELAY_MS);
-
-        /* Survival: zeitbasierter Abbau nach Härte/Tool — läuft jeden Frame, solange die linke
-           Maustaste gehalten wird (der breakBlock-Trigger unten gilt nur für den Instant-Pfad). */
-        if (!this.player.getGamemode().isInstantBreak()) {
-            this.updateMining(input.isMouseDown(GLFW.GLFW_MOUSE_BUTTON_LEFT), breakBlock, now);
+        boolean instantAttack = false;
+        if (usingItem) {
+            this.clearInteractionClicks();
         } else {
-            this.resetMining();
+            while (this.attackClicks > 0) {
+                this.attackClicks--;
+                instantAttack |= this.startAttack();
+            }
+            while (this.useClicks > 0) {
+                this.useClicks--;
+                this.startUseItem();
+            }
+            while (this.pickClicks > 0) {
+                this.pickClicks--;
+                this.pickBlock();
+            }
         }
 
-        /* Arm-Schwung: jeder Abbau-Klick/-Halte-Takt schwingt (auch ins Leere, wie MC). */
-        if (breakBlock) this.animState.swing();
+        if (input.isBindDown(this.settings.key(KeyBindings.USE)) && this.rightClickDelay == 0 && !usingItem) {
+            this.startUseItem();
+        }
 
-        if (!breakBlock && !placeBlock) return;
+        this.continueAttack(!instantAttack && input.isBindDown(this.settings.key(KeyBindings.ATTACK)));
+    }
 
+    /** MC {@code MultiPlayerGameMode.hasMissTime}: im Creative gibt es keine Schlagsperre. */
+    private boolean hasMissTime() {
+        return this.player.getGamemode() != Gamemode.CREATIVE;
+    }
+
+    /**
+     * Ein Angriffs-Klick (Vorbild {@code Minecraft.startAttack}). Rückgabe {@code true}, wenn der
+     * Block sofort zerbrach — dann unterdrückt der Aufrufer den Dauer-Abbau in diesem Tick.
+     * Geschwungen wird IMMER, auch ins Leere.
+     */
+    private boolean startAttack() {
+        if (this.missTime > 0) return false;
+
+        boolean endAttack = false;
+        if (this.hit != null) {
+            this.startDestroyBlock();
+            if (Blocks.getState(this.world.getBlock(this.hit.x(), this.hit.y(), this.hit.z())).isAir()) {
+                endAttack = true;
+            }
+        } else {
+            /* MISS: Sperre (außer Creative) + Ticker-Reset, die Hand sinkt dadurch kurz ab. */
+            if (this.hasMissTime()) this.missTime = MISS_TIME;
+            this.animState.resetSwapTicker();
+        }
+        this.animState.swing();
+        return endAttack;
+    }
+
+    /** Dauer-Abbau pro Tick (Vorbild {@code Minecraft.continueAttack}). */
+    private void continueAttack(boolean down) {
+        if (!down) this.missTime = 0;
+        if (this.missTime > 0 || this.animState.isEating()) return;
+
+        if (down && this.hit != null) {
+            if (this.continueDestroyBlock()) this.animState.swing();
+        } else {
+            this.stopDestroyBlock();
+        }
+    }
+
+    /**
+     * Ein Benutzen-Klick (Vorbild {@code Minecraft.startUseItem}): Sperre IMMER neu setzen, bei
+     * Erfolg schwingen und die Hand nur dann senken, wenn der Stapel sich verändert hat oder der
+     * Spieler unbegrenztes Material hat (Creative) — Tür/Truhe im Survival senken sie also nicht.
+     */
+    private void startUseItem() {
+        if (this.isDestroying) return;
+        this.rightClickDelay = RIGHT_CLICK_DELAY;
+
+        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        Item beforeItem = held.getItem();
+        int beforeCount = held.getCount();
+
+        if (!this.useItemOn()) return;
+
+        this.animState.swing();
+        ItemStack after = this.playerInventory.get(this.hotbarIndex);
+        boolean stackChanged = after.getItem() != beforeItem || after.getCount() != beforeCount;
+        if (beforeItem != null && (stackChanged || this.player.getGamemode() == Gamemode.CREATIVE)) {
+            this.animState.itemUsed();
+        }
+    }
+
+    /**
+     * Die eigentliche Rechtsklick-Aktion auf den anvisierten Block (Vorbild
+     * {@code MultiPlayerGameMode.useItemOn}); {@code true} = etwas ist passiert.
+     */
+    private boolean useItemOn() {
         /* Eimer vor der hit==null-Prüfung: Der LEERE Eimer nutzt einen eigenen fluid-bewussten
            Strahl (Fluids sind im Normal-Raycast unsichtbar) und funktioniert auch ohne this.hit.
            Der gefüllte Eimer platziert wie ein Block über this.hit (siehe handleBucket). */
-        if (placeBlock) {
-            ItemStack held = this.playerInventory.get(this.hotbarIndex);
-            if (held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket, now)) return;
+        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        if (held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket)) return true;
+
+        if (this.hit == null) return false;
+
+        /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
+        BlockState hitState = Blocks.getState(this.hit.block());
+        if (hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(), hitState)) {
+            return true;
         }
 
-        if (hit == null) return;
+        /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). Sneaken mit einem Block in
+           der Hand überspringt die Interaktion und platziert stattdessen — wie in MC, und die
+           einzige Möglichkeit, eine Truhe an die Seite einer anderen zu setzen. */
+        boolean placingWhileSneaking = this.player.isSecondaryUseActive() && held.getItem() instanceof BlockItem;
+        if (!placingWhileSneaking && this.tryOpenChest()) return true;
 
-        if (breakBlock) {
-            /* Instant-Abbau nur im Creative — Survival läuft über updateMining (oben). */
-            if (this.player.getGamemode().isInstantBreak()) {
-                this.breakTargetBlock(Blocks.getState(this.hit.block()), false, now);
-            }
-        } else {
-            /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
-            BlockState hitState = Blocks.getState(this.hit.block());
-            if (hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(), hitState)) {
-                this.markPlaced(now);
-                return;
-            }
+        /* Ausgewählter Hotbar-Slot muss einen platzierbaren Block enthalten. */
+        if (held.isEmpty() || !(held.getItem() instanceof BlockItem blockItem)) return false;
+        Block block = blockItem.getBlock();
 
-            /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). */
-            if (this.tryOpenChest(now)) return;
+        /* Slab auf vorhandene gleiche Slab -> Doppel-Slab */
+        if (this.tryMergeSlab(block)) return true;
 
-            /* Ausgewählter Hotbar-Slot muss einen platzierbaren Block enthalten. */
-            ItemStack selected = this.playerInventory.get(this.hotbarIndex);
-            if (selected.isEmpty() || !(selected.getItem() instanceof BlockItem blockItem)) return;
-            Block block = blockItem.getBlock();
+        /* Platzieren: an der getroffenen Seite (Fluids zählen als Luft, this.hit ignoriert sie). */
+        int[] t = this.placementTarget();
+        if (t == null) return false;
+        int px = t[0], py = t[1], pz = t[2];
 
-            /* Slab auf vorhandene gleiche Slab -> Doppel-Slab */
-            if (this.tryMergeSlab(block, now)) return;
+        double relHitX = this.hit.hitX() - px;
+        double relHitY = this.hit.hitY() - py;
+        double relHitZ = this.hit.hitZ() - pz;
+        BlockState place = block.getPlacementState(this.world, px, py, pz,
+                this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(),
+                relHitX, relHitY, relHitZ, this.player.yaw, this.player.isSecondaryUseActive());
 
-            /* Platzieren: an der getroffenen Seite (Fluids zählen als Luft, this.hit ignoriert sie). */
-            int[] t = this.placementTarget();
-            if (t == null) return;
-            int px = t[0], py = t[1], pz = t[2];
-
-            double relHitX = this.hit.hitX() - px;
-            double relHitY = this.hit.hitY() - py;
-            double relHitZ = this.hit.hitZ() - pz;
-            BlockState place = block.getPlacementState(this.world, px, py, pz,
-                    this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(),
-                    relHitX, relHitY, relHitZ, this.player.yaw);
-
-            /* place == null: ein Behavior lehnt ab (z.B. Tür ohne Platz). Sonst nicht in den
-               eigenen Körper bauen - gegen die ECHTE Kollisionsform testen, damit dünne Blöcke
-               (Panes, Zäune) neben einem platzierbar bleiben. */
-            if (place != null && !this.collidesWithPlayer(place, px, py, pz)
-                    && !this.collidesWithEntities(place, px, py, pz)) {
-                this.world.placeBlock(px, py, pz, place);
-                this.soundManager.playPlace(place.getBlock().getSoundGroup(), px + 0.5, py + 0.5, pz + 0.5);
-                this.markPlaced(now);
-            }
+        /* place == null: ein Behavior lehnt ab (z.B. Tür ohne Platz). Sonst nicht in den
+           eigenen Körper bauen - gegen die ECHTE Kollisionsform testen, damit dünne Blöcke
+           (Panes, Zäune) neben einem platzierbar bleiben. */
+        if (place == null || this.collidesWithPlayer(place, px, py, pz)
+                || this.collidesWithEntities(place, px, py, pz)) {
+            return false;
         }
+        this.world.placeBlock(px, py, pz, place);
+        this.soundManager.playPlace(place.getBlock().getSoundGroup(), px + 0.5, py + 0.5, pz + 0.5);
+        /* Survival verbraucht den Block (Creative baut unbegrenzt, wie MC). */
+        if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
+        return true;
     }
 
-    /** Erfolgreiche Rechtsklick-Aktion: Interakt-Delay neu starten + Arm-Schwung (wie MC). */
-    private void markPlaced(long now) {
-        this.lastPlaceTime = now;
-        this.animState.swing();
+    /**
+     * Pick Block (nur Creative): legt den anvisierten Block in den ausgewählten Hotbar-Slot.
+     */
+    private void pickBlock() {
+        if (this.player.getGamemode() != Gamemode.CREATIVE || this.hit == null) return;
+        Block picked = Blocks.getState(this.hit.block()).getBlock();
+        Item item = Items.get(picked.getIdentifier()); // BlockItem; null bei Air/Fluid
+        if (item != null) {
+            this.playerInventory.set(this.hotbarIndex, new ItemStack(item, 1));
+            this.itemNameShownAt = System.currentTimeMillis(); // Namens-Einblendung wie bei Slot-Wechsel
+        }
     }
 
     /**
@@ -1033,7 +1293,7 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     /** Klick auf eine vorhandene Slab mit derselben Slab-Sorte -> Doppel-Slab. */
-    private boolean tryMergeSlab(Block block, long now) {
+    private boolean tryMergeSlab(Block block) {
         if (!block.getDefaultState().getValues().containsKey(Properties.SLAB_TYPE)) return false;
         BlockState target = Blocks.getState(this.hit.block());
         if (target.getBlock() != block) return false;
@@ -1047,19 +1307,42 @@ public class GameContainer implements IResizeable, IDisposable {
                 target.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId());
         this.soundManager.playPlace(block.getSoundGroup(),
                 this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
-        this.markPlaced(now);
+        if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
         return true;
     }
 
-    /** Rechtsklick auf eine Truhe öffnet ihr GUI (Truhe + Spielerinventar) und öffnet den Deckel. */
-    private boolean tryOpenChest(long now) {
-        BlockEntity be = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
+    /**
+     * Rechtsklick auf eine Truhe öffnet ihr GUI (Truhe + Spielerinventar) und öffnet den Deckel.
+     * Bei einer Doppeltruhe kommt die Partnerhälfte dazu: 6 Reihen, beide Deckel.
+     */
+    private boolean tryOpenChest() {
+        int x = this.hit.x(), y = this.hit.y(), z = this.hit.z();
+        BlockEntity be = this.world.getBlockEntity(x, y, z);
         if (!(be instanceof ChestBlockEntity chest)) return false;
-        this.guiManager.open(new GuiChest(chest, this.playerInventory));
+
+        BlockState state = Blocks.getState(this.world.getBlock(x, y, z));
+        ChestType type = state.getValues().containsKey(Properties.CHEST_TYPE)
+                ? state.get(Properties.CHEST_TYPE) : ChestType.SINGLE;
+        ChestBlockEntity partner = null;
+        int partnerX = x, partnerZ = z;
+        if (type != ChestType.SINGLE) {
+            Direction toPartner = ChestType.connectedDirection(state.get(Properties.FACING), type);
+            partnerX = x + toPartner.offsetX();
+            partnerZ = z + toPartner.offsetZ();
+            if (this.world.getBlockEntity(partnerX, y, partnerZ) instanceof ChestBlockEntity other) {
+                partner = other;
+            }
+        }
+        /* Reihenfolge wie MC (ChestBlock.getBlockType): die RECHTE Hälfte liefert die oberen
+           drei Reihen. */
+        ChestBlockEntity top = type == ChestType.LEFT && partner != null ? partner : chest;
+        ChestBlockEntity bottom = top == chest ? partner : chest;
+        this.guiManager.open(new GuiChest(top, bottom, this.playerInventory));
+
         /* Persistenz: das GUI mutiert das Truhen-Inventar direkt (kein World-Hook) —
            Über-Approximation "geöffnet = potenziell geändert" kostet einen Chunk-Write. */
-        this.world.markChunkModified(this.hit.x(), this.hit.z());
-        this.markPlaced(now);
+        this.world.markChunkModified(x, z);
+        if (partner != null) this.world.markChunkModified(partnerX, partnerZ);
         return true;
     }
 
@@ -1067,7 +1350,7 @@ public class GameContainer implements IResizeable, IDisposable {
      * Eimer-Interaktion: gefüllt platziert eine Fluid-Quelle, leer nimmt eine Quelle auf.
      * Im Survival wird der Eimer getauscht (gefüllt↔leer), im Creative nicht.
      */
-    private boolean handleBucket(BucketItem bucket, long now) {
+    private boolean handleBucket(BucketItem bucket) {
         boolean consume = this.player.getGamemode() == Gamemode.SURVIVAL;
 
         if (bucket.isEmpty()) {
@@ -1083,7 +1366,6 @@ public class GameContainer implements IResizeable, IDisposable {
                 String id = state.getBlock().getFluidInfo().lava ? "skyengine:lava_bucket" : "skyengine:water_bucket";
                 this.consumeHeld(Items.get(Identifier.of(id)));
             }
-            this.markPlaced(now);
             return true;
         }
 
@@ -1098,7 +1380,6 @@ public class GameContainer implements IResizeable, IDisposable {
         this.world.setBlock(t[0], t[1], t[2], source);
         this.world.scheduleTick(t[0], t[1], t[2], 1);
         if (consume) this.consumeHeld(Items.get(Identifier.of("skyengine:bucket")));
-        this.markPlaced(now);
         return true;
     }
 
@@ -1121,38 +1402,15 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private void fillStartInventory() {
-        /* Hotbar (Slots 0-8): Test-Blöcke + die drei Eimer hinten, damit Wasser/Lava direkt
-           testbar sind. Wasser hat kein Block-Item mehr (gehört in den Eimer). */
-        int[] start = {
-                Blocks.GLASS,
-                Blocks.STONE_SLAB,
-                Blocks.SAND,
-                Blocks.COBBLESTONE_STAIRS,
-                Blocks.CACTUS,
-        };
-        for (int i = 0; i < start.length; i++) {
-            Item item = Items.get(Blocks.getState(start[i]).getBlock().getIdentifier());
-            if (item != null) this.playerInventory.set(i, new ItemStack(item, 64));
-        }
-
         this.setItem(0, "skyengine:tuff");
         this.setItem(1, "skyengine:coarse_dirt");
         this.setItem(2, "skyengine:red_mushroom");
-
-        /* TEMP: Essen zum Hunger-Testen (Survival, Rechtsklick halten). */
         this.setItem(3, "skyengine:apple", 16);
         this.setItem(4, "skyengine:bread", 16);
-
-        this.setItem(5, "skyengine:chest"); // TEMP: Truhe zum GUI-Testen direkt in der Hotbar
+        this.setItem(5, "skyengine:chest");
         this.setItem(6, "skyengine:water_bucket");
         this.setItem(7, "skyengine:lava_bucket");
-        this.setItem(8, "skyengine:bucket");
-
-        /* Glasscheibe/Tür + Sand ins Hauptinventar (zum Testen, Truhe befüllen/leeren). */
-        this.setBlock(9, Blocks.GLASS_PANE);
-        this.setBlock(10, Blocks.OAK_DOOR);
-        this.setBlock(11, Blocks.ENCHANTING_TABLE);
-        this.setItem(8, "skyengine:tnt");
+        this.setItem(8, "skyengine:iron_bars");
     }
 
     /** Legt 64 eines Blocks in einen Inventar-Slot (Block-Item über die Identifier-Registry). */
@@ -1263,6 +1521,15 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.logger.debug("Entity-Hitboxen: " + (DebugFlags.entityHitboxes ? "an" : "aus"));
                 this.f3ComboUsed = true;
             }
+            if (input.isKeyPressed(GLFW.GLFW_KEY_G)) {
+                DebugFlags.chunkBorders = (DebugFlags.chunkBorders + 1) % 3;
+                this.logger.debug("Chunk-Grenzen: " + switch (DebugFlags.chunkBorders) {
+                    case 1 -> "Chunk";
+                    case 2 -> "Chunk + Sections";
+                    default -> "aus";
+                });
+                this.f3ComboUsed = true;
+            }
         }
         if (input.isKeyReleased(GLFW.GLFW_KEY_F3)) {
             if (!this.f3ComboUsed) {
@@ -1274,7 +1541,10 @@ public class GameContainer implements IResizeable, IDisposable {
 
         if (input.isKeyPressed(GLFW.GLFW_KEY_F11)) {
             boolean fullscreen = SkyEngine.get().getConfig().isWindowed();
-            SkyEngine.get().getMainThreadTasks().add(() ->
+            /* addTaskToMainThread statt getMainThreadTasks().add: nur ersteres weckt den in
+               glfwWaitEvents hängenden Window-Thread. Direkt eingehängt lief der Toggle erst,
+               wenn zufällig das nächste OS-Event eintraf. */
+            SkyEngine.get().addTaskToMainThread(() ->
                     SkyEngine.get().getWindow().setWindowMode(fullscreen
                             ? EngineConfig.WindowMode.BORDERLESS_FULLSCREEN : EngineConfig.WindowMode.WINDOWED));
             this.logger.debug("Toggle Fullscreen");

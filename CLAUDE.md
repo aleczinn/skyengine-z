@@ -39,12 +39,20 @@ Zusätzlich:
 ./gradlew compileJava   # schneller Pflicht-Check
 ./gradlew run           # Engine starten (einzige Verifikation für alles Sichtbare)
 ./gradlew build
+
+./gradlew saveTest      # fensterlos: Block-Registry bootstrappen + Chunk-Round-Trip
+./gradlew mapExport     # fensterlos: Weltgen-Karten nach debug-maps/
 ```
 
 Es gibt **keine Tests**. „Funktioniert" = kompiliert UND (bei sichtbarem Verhalten) im laufenden
-Fenster geprüft — sonst als „visuell ungetestet" ausweisen. Weltgen lässt sich ohne Fenster über
-`GeneratorMapExporter` (PNG-Karten nach `debug-maps/`) prüfen. Details + Debug-Hotkeys:
+Fenster geprüft — sonst als „visuell ungetestet" ausweisen. Details + Debug-Hotkeys:
 Skill `visuelle-verifikation`.
+
+Ohne Fenster prüfbar sind immerhin: Weltgen über `mapExport` (`GeneratorMapExporter`) und
+**alles rund ums Laden von Blöcken/Modellen/Items** über `saveTest` (`SaveRoundTripTest`
+bootstrappt die komplette Registry ohne GL). Die **Log-Zähler dieses Laufs sind das schärfste
+billige Signal** — Anzahl Block-Definitionen/Modelle/Blockstates/Items, und `Modell fehlt`
+bzw. `Variante ... fehlt` müssen **null** Treffer haben.
 
 ## Architektur in einem Absatz
 
@@ -71,16 +79,18 @@ Quelle→Mündung-Flussnetz, Feature-Pass im Scheiben-Modell.
 - `game/world/lod/` — LodManager, LodConfig, LodMesher, LodDataSource(+World/Generator-Impl)
 - `game/world/save/` — Chunk-Persistenz: WorldStorage (Region-Store + IO-Thread), RegionFile,
   ChunkSerializer, DataTagIO, PlayerIO (`player.dat`)
-- `game/world/item/`, `game/entity/`, `game/physics/`, `game/GameContainer` (Verdrahtung,
-  Interaktion, Mining, Inventar)
+- `game/world/item/` (+ `json/` = ItemLoader/ItemDefinition), `game/entity/`, `game/physics/`,
+  `game/GameContainer` (Verdrahtung, Interaktion, Mining, Inventar)
 - `graphics/` — world/ (ChunkRenderer, VertexArena, SectionMesh, LodMesh, MappedRing,
   SelectionBox-/CrackRenderer), blockentity/, entity/, gui/, shader/, texture/ (TextureArray,
   SpriteAnimations), camera/, framebuffer/
 - `utils/` — Logging, FastNoiseLite/FBM, Profiler
 
 **Shader sind Inline-GLSL-Strings** in den Renderer-Klassen, keine .glsl-Dateien.
-Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon),
-`game/models/block/*.json` (Geometrie/Texturen), `game/textures/`.
+Ressourcen: `game/blocks/*.json` (Definition + variants/inventory_model/icon **+ Texturen**),
+`game/items/*.json` (Material-Items), `game/models/block/*.json` (**nur noch Geometrie**),
+`game/textures/`, `game/lang/*.json`. Presets liegen jeweils im Unterordner `preset/` und
+werden nicht registriert.
 
 **Mod-/Content-Strategie:** Daten (JSON) **+** saubere Java-Registrierungs-API via `ContentSource`.
 **Kein** Forge/Fabric-Classloader, **kein** rein deklaratives JSON (JSON kann kein Verhalten
@@ -111,8 +121,35 @@ ausdrücken).
 - Rendering: MDI + VertexArena + Frame-Fences, TextureArray mit animierten Sprites,
   Translucent-Sortierung, BlockEntity-Renderer (Chest, EnchantingTable), Reversed-Z,
   Distanz-Fog (auch über LOD) + MSAA-Offscreen-Framebuffer (beides GameSettings)
-- Block-System (Architektur gilt als **reif — kein Rewrite**): ~175 JSON-Blöcke, Archetypen,
+- Block-System (Architektur gilt als **reif — kein Rewrite**): ~176 JSON-Blöcke, Archetypen,
   Behaviors, Verbindungen (Zaun/Pane/Cable), Türen, BlockEntities + Capabilities (Item/Energie)
+- Doppeltruhen mit den MC-Platzierungsregeln: Property `type` (single/left/right) + `ChestBehavior`
+  (Verschmelzen beim Platzieren, Sneaken verhindert es, sneakender Seitenklick verbindet trotzdem;
+  Auftrennen per Nachbar-Update),
+  54-Slot-GUI aus denselben zwei Inventaren, Vanilla-Hälften im `ChestRenderer`
+  (`normal_left/right.png`). Truheninhalt fällt jetzt beim Abbauen heraus (`ChestBehavior.onBreak`)
+- JSON-Vererbung für Blöcke UND Items: `parent` + Deep-Merge + `${var}`-Platzhalter
+  (`BlockJson`/`ItemLoader` über `utils/json/JsonMerge`), Presets in `blocks/preset/` bzw.
+  `items/preset/`. Die Auflösung passiert EINMAL je Quelle; dieselbe Map geht an beide Leser
+  (DTO + Render-Sektion), damit sie nicht auseinanderlaufen können. `oak_stairs.json`: 63 → 9 Zeilen
+- Modell-Konsolidierung: Block-JSON deklariert `model`/`models` (Suffix → Rumpf),
+  `ModelLoader.registerBlockModels` erzeugt daraus **virtuelle** Modelle `block/<id><suffix>`.
+  `models/` enthält seither nur noch Geometrie + geteilte Rümpfe (264 → 41 Dateien; die sechs
+  `bars_*` sind der Rumpf-Satz der Eisengitter, inkl. der Vanilla-`_alt`-Varianten für Süd/West)
+- Deklarierbare Properties je Block (`"properties": {"lit": {"values":[…], "default":…}}`,
+  `JsonProperties` mit Interning); Element-Rotation mit beliebigem Winkel (MC
+  `rotation: {origin, axis, angle, rescale}`); Archetyp `attached` für hängende Blöcke
+  (Fackel floor/wall — Hebel/Knopf/Leiter wären damit reines JSON)
+- Mehrteilige Blöcke deklarativ: `parts` (Teil-Property + Offsets, genau ein Ursprung `[0,0,0]`,
+  optional `relative_to: "facing"` für facing-relative Offsets) → `PartsBehavior`. Tür und
+  tall_grass laufen darüber; `DoorBehavior`/`TallPlantBehavior` enthalten nur noch das
+  Blockspezifische (Hinge/Öffnen bzw. Stützregel). `World.updateStateAt` ruft beim
+  Selbst-Entfernen jetzt `onBreak` — heute ein No-op, schließt aber die Lücke für Teile mit
+  BlockEntity
+- Item-System datengetrieben (`game/items/*.json`, `ItemLoader`, `SimpleItem`) neben den weiterhin
+  in Java registrierten 28 Tools/Eimern/Foods; `display`-Sektion im Modell-JSON (erbt über
+  `parent` bis `block/block`) versorgt die Hand-Transforms der Block-Items
+  — **Fackel, Material-Items und die Modell-Migration sind visuell noch ungetestet**
 - Fluids komplett (Fluss, Reaktionen, Eimer, Schwimmen/Strömung, Unterwasser-Overlay)
 - Weltgen V2: Klima→Höhe/Biome, 3D-Dichte/Höhlen, Worley-Seen, Fluss-Netz Quelle→Mündung
   (~2,5 ms/Chunk), Feature-Bäume (Scheiben-Modell), Debug-Karten-Exporter
@@ -129,7 +166,10 @@ ausdrücken).
   Widerstands-Proxy), `ExplosionBehavior` + `PrimedTntEntity` (Rechtsklick-Zündung, Fuse, Ketten-
   Zündung), weißer Blink-Shader; JSON-Felder `explosion_power`/`fuse` (`blocks/tnt.json`)
 - Chunk-Persistenz (`game/world/save/`): Region-Format `region/r.<rx>.<rz>.srg` (16×16 Chunks,
-  CRC), Single-Writer-IO-Thread, Autosave alle 1200 Ticks + Save beim Unload/Exit, `player.dat`;
+  CRC), Single-Writer-IO-Thread, `player.dat`; **vollständiger** Autosave (Chunks + level.json +
+  player.dat) alle 1200 Ticks, zusätzlich beim Öffnen des Pausenmenüs (ESC) und beim Unload/Exit.
+  Quittung „Spiel gespeichert" unten rechts (`graphics/gui/SaveToast`), ausgelöst erst, wenn
+  `World.hasPendingSaves()` abgeräumt ist — beim Autosave nur, wenn Chunks dabei waren;
   optionaler Minecraft-Welt-Import über das eigene Source-Set `src/mcimport/` (`McWorldImporter`,
   `mapping/BlockMapper`, `block_map.json`, NBT/MCA-Leser) — Nebentool
 - Sound (OpenAL): blockabhängige Schritte/Hit/Break/Place (Sound-Gruppen aus JSON/Tool/
@@ -141,14 +181,18 @@ ausdrücken).
   Screens: Titel, Pause (ESC — beendet NICHT mehr!), Optionen+Grafik (Live-Apply), Tastenbelegung
   (Rebinding+Reset, Capture schluckt alle Tasten), Weltauswahl/Erstellen/Löschen, Welt-Ladebalken
   (`isInitialLoadComplete`), Boot-Ladebildschirm (gestaffelte Init, Fenster früh), Inventar (E) +
-  Truhe auf gemeinsamer `AbstractContainerScreen`-Basis, Todesscreen, Sprachauswahl (i18n,
-  Live-Wechsel), Sound-Optionen; GuiScale = Prozent (30–170, 100 % ≈ 3,5×)
+  Truhe auf gemeinsamer `GuiContainer`-Basis, Todesscreen, Sprachauswahl (i18n,
+  Live-Wechsel), Sound-Optionen; GuiScale = Prozent (30–170, 100 % ≈ 3,5×), garantierte virtuelle
+  Mindestfläche 340×240 (deckt das höchste Fenster ab — die Doppeltruhe mit 222 px)
 - Spieler-Rendering (graphics/player): Humanoid-Modell mit Classic-Skin 64×64 (skin.png im
   Spielordner überschreibt Steve), Inventar-Vorschau (folgt Maus), F5-Perspektiven
   (Ego/hinten/vorne mit Kamera-Kollisions-Raycast; Interaktion zielt IMMER vom Auge;
   LOD-Seiten-Debug jetzt F12), prozedurale Animationen (Limb-Swing/Sneak/Arm-Schwung,
   `PlayerAnimationState`), First-Person-Hand mit extrudierten Item-Sprites +
-  Vanilla-Display-Transforms, View-Bobbing + Hurt-Tilt (GameSettings-Toggles).
+  Vanilla-Display-Transforms (bei Block-Items aus der `display`-Sektion des Modells, bei flachen
+  Items weiterhin hartkodiert; der Iso-Würfel im `ItemIconRenderer` bleibt bewusst außen vor —
+  er weicht absichtlich von Vanilla ab und hängt an den `inventory_y`-Kompensationen),
+  View-Bobbing + Hurt-Tilt (GameSettings-Toggles).
   **Konvention:** Modell/Pose vanilla-y-down VERBATIM, Umrechnung NUR in
   `PlayerModel.applyModelSpace` (0.9375-Scale + rotateX(π)) — nie in y-up „spiegeln",
   das war der Textur-Flip-Bug
@@ -164,9 +208,15 @@ ausdrücken).
 - Licht-Merge (`lightning-system`-Branch) + Schatten-Pass — dann amortisiert sich der GPU-Cull-Pfad
 - Crafting (kein Recipe-/Crafting-Menü; `GuiInventory`-Crafting-Bereich noch funktionslos);
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
-  (Andockpunkt: `AbstractContainerScreen.onSlotClick`)
+  (Andockpunkt: `GuiContainer.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
-- TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert, inkl. Test-Truhe)
+- TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert, inkl. Test-Truhe,
+  Fackel und den 15 Material-Items) — ohne Crafting/Creative-Menü der einzige Weg, sie in die
+  Hand zu bekommen; greift nur bei einer **frisch erstellten** Welt
+- Bett/Reaktor: die Mechanik steht (`parts`, s.o.), es fehlen nur noch die Blöcke selbst —
+  ein Bett braucht ein eigenes 3D-Modell + Texturen. `multiblock/MultiblockPattern` bleibt
+  ungenutzte Infrastruktur für Controller-Strukturen (validiert eine Struktur aus FREMDEN
+  Blöcken — ein anderes Problem als ein Block, der mehrere Zellen belegt)
 
 **Bewusst nicht vorhanden (nicht „vergessen" — nicht ungefragt bauen):**
 - **Kein Sky-Rendering** (keine Atmosphäre/Wolken/God-Rays — Clear-Color ist der Himmel)
@@ -179,9 +229,16 @@ ausdrücken).
 - Chunks sind 32er: `ChunkSection.SHIFT/MASK` statt `>>4`/`&15`
 - Chunks unter DECORATED nie lesen (Worker schreiben lock-frei) — Guards in World/processRemeshes
 - Worker-Jobs: `execute` mit `PrioTask`, nie `submit`
-- `BlockTextures.layerOf` nach dem TextureArray-Bau = kaputter Layer-Index
-- Cube-Block ohne `models/block/<id>.json` = unsichtbar; Block-JSON-`textures` ist bei
-  Archetyp-Blöcken wirkungslos
+- `BlockTextures.layerOf` nach dem TextureArray-Bau = kaputter Layer-Index (gilt auch für
+  jede neue Item-Textur: `ItemLoader` meldet sie synchron bei der Registrierung an, nie lazy)
+- Texturen stehen in der **Block-JSON** (`textures`), Geometrie im Modell. Ein Block braucht
+  entweder `model`/`models` ODER eine gleichnamige Datei `models/block/<id>.json` — fehlt
+  beides, ist er unsichtbar. Existiert eine Datei UND deklariert der Block `model`, **gewinnt
+  die Datei** (Warnung „Modell-Datei ueberdeckt die Block-Definition")
+- `ModelLoader.registerBlockModels` MUSS nach `ModelLoader.load` (das leert MODELS *und*
+  CACHE) und vor dem ersten `bake` laufen — Reihenfolge steht in `Blocks.bootstrap`
+- Preset-Felder gelten für ALLE Kinder: ein Feld ins Preset zu ziehen, das nur ein Teil der
+  Blöcke hatte, ändert die anderen still mit (`no_lod_surface` bei Säulen war genau der Fall)
 - Fluid-LEVEL ist invers zu Vanilla (0 = Quelle); Ausbreitung immer im eigenen Takt
 - Seen dürfen nie von Flüssen abhängen (Cache-Rekursion); Generator-Funktionen müssen pur sein
 - Reversed-Z: Depth-Funcs nie hartkodieren, or-equal-Mapping wie im ChunkRenderer
@@ -205,9 +262,10 @@ ausdrücken).
    Fluid-Druck-Bedingung, `seq`-Tiebreaker, neu-vor-alt bei GL-Buffern, or-equal-Depth,
    koplanare Overlays: alles Fixes für real beobachtete, teuer gefundene Bugs. Sieht etwas
    redundant aus → zuständigen Skill lesen, dann fragen — nie einfach löschen.
-5. **An der wirkungslosen Stelle editieren.** `textures` in der Block-JSON (Archetyp-Blöcke),
-   geratene Textur-Layer, fehlende Modell-Datei, hartkodierte Depth-Funcs. Symptom „meine
-   Änderung bewirkt nichts" heißt fast immer: falsche Stelle — nicht mehr Code nachschieben.
+5. **An der wirkungslosen Stelle editieren.** Ein Preset-Feld, das das Kind überschreibt;
+   eine Modelldatei, die die Block-Definition überdeckt; geratene Textur-Layer; hartkodierte
+   Depth-Funcs. Symptom „meine Änderung bewirkt nichts" heißt fast immer: falsche Stelle —
+   nicht mehr Code nachschieben, sondern `gradlew saveTest` laufen lassen und die Warnungen lesen.
 
 **Eskalationsregel — stoppen und den User fragen, wenn eine Änderung:**
 

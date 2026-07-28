@@ -1,2 +1,0 @@
-{ "parent": "block/stairs",
-  "textures": { "top": "game/textures/block/mangrove_planks.png", "bottom": "game/textures/block/mangrove_planks.png", "side": "game/textures/block/mangrove_planks.png" } }

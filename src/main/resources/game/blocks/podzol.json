@@ -1,12 +1,9 @@
 {
   "id": "skyengine:podzol",
-  "type": "cube",
-  "layer": "opaque",
+  "parent": "preset/cube_bottom_top",
+  "vars": {
+    "bottom": "dirt"
+  },
   "hardness": 0.5,
-  "tool": "shovel",
-  "textures": {
-    "top": "game/textures/block/podzol_top.png",
-    "bottom": "game/textures/block/dirt.png",
-    "side": "game/textures/block/podzol_side.png"
-  }
+  "tool": "shovel"
 }

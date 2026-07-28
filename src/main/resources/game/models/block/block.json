@@ -1,2 +1,15 @@
 {
+  "_comment": "Wurzel aller Blockmodelle. Die display-Sektion erbt an JEDES Blockmodell weiter (MC-Verhalten) und liefert damit die Hand-Transforms fuer Block-Items; Werte verbatim aus der Vanilla-block.json. Translation in Pixeln, Rotation in Grad.",
+  "display": {
+    "firstperson_righthand": {
+      "rotation": [0, 45, 0],
+      "translation": [0, 0, 0],
+      "scale": [0.40, 0.40, 0.40]
+    },
+    "thirdperson_righthand": {
+      "rotation": [75, 45, 0],
+      "translation": [0, 2.5, 0],
+      "scale": [0.375, 0.375, 0.375]
+    }
+  }
 }

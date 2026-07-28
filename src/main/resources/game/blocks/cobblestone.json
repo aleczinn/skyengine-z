@@ -1,10 +1,6 @@
 {
   "id": "skyengine:cobblestone",
-  "type": "cube",
-  "layer": "opaque",
+  "parent": "preset/cube",
   "hardness": 2,
-  "tool": "pickaxe",
-  "textures": {
-    "all": "game/textures/block/cobblestone.png"
-  }
+  "tool": "pickaxe"
 }

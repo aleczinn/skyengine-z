@@ -14,5 +14,8 @@ public final class DebugFlags {
     /** Entity-Hitboxen zeichnen — Gerüst (per F3+H umschaltbar); Rendering folgt später. */
     public static volatile boolean entityHitboxes = false;
 
+    /** Chunk-Grenzen (per F3+G): 0 = aus, 1 = ganzer Chunk, 2 = Chunk + nicht-leere Sections. */
+    public static volatile int chunkBorders = 0;
+
     private DebugFlags() {}
 }

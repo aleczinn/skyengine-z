@@ -2,6 +2,7 @@ package de.skyengine.graphics.gui;
 
 import de.skyengine.core.SkyEngine;
 import de.skyengine.graphics.gui.layout.Stack;
+import de.skyengine.graphics.gui.text.RichText;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.GuiComponent;
 import de.skyengine.graphics.texture.Texture;
@@ -141,6 +142,29 @@ public abstract class GuiScreen {
 
     protected static final float MENU_TILE = 32;
 
+    /**
+     * Tooltip-Zeilen des Widgets unter der Maus (null = keiner). Der {@link GuiManager} zeichnet
+     * das Ergebnis nach {@code render()} — dadurch funktionieren Tooltips auch in Screens mit
+     * eigenem render()-Override.
+     *
+     * <p>Bewusst {@code isMouseOver} statt {@code isHovered()}: deaktivierte Widgets haben kein
+     * Hover, sollen aber erklären dürfen, WARUM sie deaktiviert sind. Screens mit Widget-Listen
+     * außerhalb von {@link #leaves} (Scroll-Inhalte) überschreiben diese Methode.
+     */
+    public List<RichText> tooltipAt(double mouseX, double mouseY) {
+        return tooltipIn(this.leaves, mouseX, mouseY);
+    }
+
+    /** Erstes sichtbare Widget der Liste unter der Maus, das einen Tooltip hat. */
+    protected static List<RichText> tooltipIn(List<GuiComponent> components, double mouseX, double mouseY) {
+        for (GuiComponent c : components) {
+            if (!c.visible || !c.isMouseOver(mouseX, mouseY)) continue;
+            List<RichText> tooltip = c.tooltip();
+            if (tooltip != null && !tooltip.isEmpty()) return tooltip;
+        }
+        return null;
+    }
+
     /** Maus-Druck: Fokus-Wechsel + Weitergabe an die Widgets. true = konsumiert. */
     public boolean mousePressed(GuiManager gui, double mouseX, double mouseY, int button) {
         GuiComponent clicked = null;
@@ -224,6 +248,15 @@ public abstract class GuiScreen {
      * auch die sonst immer aktiven Hotkeys (F2/F3/F11) müssen dann pausieren.
      */
     public boolean capturesKeys() {
+        return false;
+    }
+
+    /**
+     * true: der GuiScreen beansprucht gerade ALLE Maustasten (laufende Keybind-Aufnahme). Sonst
+     * routet der {@link GuiManager} nur links/rechts — die Zusatztasten (Mitte, Maus 4/5) würden
+     * bei Slot-Klicks und Scrollbars ungewollt mitwirken.
+     */
+    public boolean capturesMouse() {
         return false;
     }
 

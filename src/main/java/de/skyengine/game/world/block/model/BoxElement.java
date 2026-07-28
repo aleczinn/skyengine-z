@@ -21,7 +21,8 @@ public final class BoxElement {
     /**
      * Optionale explizite Face-UVs (6 Einträge, je {@code null} oder 8 Floats = vier UV-Paare
      * A,B,C,D in 0..1). {@code null}-Einträge fallen auf die aus der Box-Ausdehnung abgeleiteten
-     * UVs zurück. Bei {@link #rotateY} rotieren diese UVs mit der Geometrie mit.
+     * UVs zurück. Bei {@link #rotateY} rotieren diese UVs mit der Geometrie mit — außer der
+     * Aufrufer wirft sie per {@link #withoutFaceUv} weg (uvlock).
      */
     public final float[][] faceUv;
 
@@ -55,6 +56,19 @@ public final class BoxElement {
         return new AABB(x0, y0, z0, x1, y1, z1);
     }
 
+    /**
+     * Verwirft die Face-UVs. {@link #bake} leitet sie dann in {@link BlockModels#box} aus der
+     * AKTUELLEN Box-Ausdehnung ab — nach einer Drehung ist das die gedrehte Box, die Textur liegt
+     * also weltachsenfest. Genau das ist Minecrafts {@code uvlock} (Treppen, Zäune): die Geometrie
+     * dreht sich, die Maserung bleibt stehen.
+     *
+     * <p>Gegenstück zum Default {@link #transformUv}, der die UVs mitdreht (Stämme).
+     */
+    public BoxElement withoutFaceUv() {
+        if (this.faceUv == null) return this;
+        return new BoxElement(x0, y0, z0, x1, y1, z1, tex, cull, mirror, null);
+    }
+
     public BakedQuad[] bake() {
         BakedQuad[] quads = BlockModels.box(x0, y0, z0, x1, y1, z1, tex, cull, faceUv);
         if (this.mirror) {
@@ -67,7 +81,67 @@ public final class BoxElement {
     private static BakedQuad flipU(BakedQuad quad) {
         float[] v = quad.vertices().clone();
         for (int i = 3; i < v.length; i += 5) v[i] = 1.0F - v[i];
-        return new BakedQuad(v, quad.textureLayer(), quad.cullFace(), quad.brightness());
+        return new BakedQuad(v, quad.textureLayer(), quad.cullFace(), quad.face(), quad.brightness(),
+                BakedQuad.WHITE, BakedQuad.TINT_NONE);
+    }
+
+    /** Punkt-Transformation einer Rotation/Spiegelung (lokale 0..1-Koordinaten). */
+    private interface PointTransform {
+        float[] apply(float x, float y, float z);
+    }
+
+    /**
+     * Transportiert die Face-UVs durch eine Transformation: Jede Ecke der Ziel-Face bekommt die UV
+     * derjenigen Quell-Ecke, die durch die Transformation auf sie abgebildet wird — genau wie in
+     * Minecraft, wo die Rotation die Vertex-Positionen dreht und die UVs an ihren Ecken hängen
+     * bleiben. Ohne das würde {@link BlockModels#box} die UVs anschließend aus der (wieder
+     * achsenparallelen) Box neu ableiten und die Drehung damit verschlucken — das ist der Grund,
+     * warum die Maserung liegender Stämme früher quer statt längs lief.
+     *
+     * <p>Nicht gesetzte {@code faceUv}-Einträge werden vorher aus der QUELL-Box materialisiert;
+     * die Reihenfolge ist entscheidend, sonst gäbe es nichts zu transportieren.
+     *
+     * @param srcOfDest je Ziel-Face der Index der Quell-Face (dieselbe Permutation wie tex/cull)
+     */
+    private float[][] transformUv(int[] srcOfDest, PointTransform tf,
+                                  double nx0, double ny0, double nz0, double nx1, double ny1, double nz1) {
+        float[][] out = new float[6][];
+        for (int dest = 0; dest < 6; dest++) {
+            int src = srcOfDest[dest];
+            float[] srcUv = this.faceUv != null && this.faceUv[src] != null
+                    ? this.faceUv[src]
+                    : BlockModels.extentUv(src, (float) x0, (float) y0, (float) z0, (float) x1, (float) y1, (float) z1);
+            float[] srcCorners = BlockModels.faceCorners(src,
+                    (float) x0, (float) y0, (float) z0, (float) x1, (float) y1, (float) z1);
+            float[] destCorners = BlockModels.faceCorners(dest,
+                    (float) nx0, (float) ny0, (float) nz0, (float) nx1, (float) ny1, (float) nz1);
+
+            float[] uv = new float[8];
+            for (int d = 0; d < 4; d++) {
+                int match = -1;
+                for (int s = 0; s < 4 && match < 0; s++) {
+                    float[] p = tf.apply(srcCorners[s * 3], srcCorners[s * 3 + 1], srcCorners[s * 3 + 2]);
+                    if (near(p[0], destCorners[d * 3]) && near(p[1], destCorners[d * 3 + 1])
+                            && near(p[2], destCorners[d * 3 + 2])) {
+                        match = s;
+                    }
+                }
+                if (match < 0) {
+                    /* Kann nur bei einer inkonsistenten Slot-Permutation passieren — laut melden
+                       statt still falsche UVs zu backen. */
+                    throw new IllegalStateException("UV-Transport: Ecke " + d + " der Face " + dest
+                            + " hat keinen Partner in Quell-Face " + src);
+                }
+                uv[d * 2] = srcUv[match * 2];
+                uv[d * 2 + 1] = srcUv[match * 2 + 1];
+            }
+            out[dest] = uv;
+        }
+        return out;
+    }
+
+    private static boolean near(float a, float b) {
+        return Math.abs(a - b) < 1.0E-5F;
     }
 
     /** 90°-Schritte im Uhrzeigersinn um die Y-Achse (von oben gesehen), N->E->S->W. */
@@ -92,30 +166,11 @@ public final class BoxElement {
         nc[5] = rotCullFace(cull[2]); nc[3] = rotCullFace(cull[5]);
         nc[4] = rotCullFace(cull[3]); nc[2] = rotCullFace(cull[4]);
 
-        /* Face-UVs mitdrehen: Seiten wandern wie tex auf den neuen Index (Eckreihenfolge
-         * bleibt identisch); top/bottom bleiben dieselbe Face, ihre Textur rotiert aber 90°
-         * mit – das entspricht einer zyklischen Verschiebung der vier Eck-UVs. */
-        float[][] nuv = null;
-        if (faceUv != null) {
-            nuv = new float[6][];
-            nuv[0] = shiftCornersCW(faceUv[0]);   // top: A,B,C,D -> B,C,D,A
-            nuv[1] = shiftCornersCCW(faceUv[1]);  // bottom: A,B,C,D -> D,A,B,C
-            nuv[5] = faceUv[2]; nuv[3] = faceUv[5]; nuv[4] = faceUv[3]; nuv[2] = faceUv[4];
-        }
+        /* UVs mitdrehen (s. transformUv): (x,y,z) -> (1-z, y, x) */
+        float[][] nuv = transformUv(new int[]{0, 1, 4, 5, 3, 2},
+                (px, py, pz) -> new float[]{1 - pz, py, px}, nx0, y0, nz0, nx1, y1, nz1);
 
         return new BoxElement(nx0, y0, nz0, nx1, y1, nz1, nt, nc, mirror, nuv);
-    }
-
-    /** Verschiebt die vier Eck-UVs A,B,C,D zyklisch zu B,C,D,A (Textur dreht 90° CW). */
-    private static float[] shiftCornersCW(float[] uv) {
-        if (uv == null) return null;
-        return new float[]{uv[2], uv[3], uv[4], uv[5], uv[6], uv[7], uv[0], uv[1]};
-    }
-
-    /** Verschiebt die vier Eck-UVs A,B,C,D zyklisch zu D,A,B,C (Gegenrichtung für die Unterseite). */
-    private static float[] shiftCornersCCW(float[] uv) {
-        if (uv == null) return null;
-        return new float[]{uv[6], uv[7], uv[0], uv[1], uv[2], uv[3], uv[4], uv[5]};
     }
 
     /** Dreht einen Cull-Face-Index um eine CW-Vierteldrehung (N->E->S->W). */
@@ -150,9 +205,11 @@ public final class BoxElement {
         nc[2] = rotCullFaceX(cull[0]); nc[1] = rotCullFaceX(cull[2]);
         nc[3] = rotCullFaceX(cull[1]); nc[0] = rotCullFaceX(cull[3]);
 
-        /* Explizite Face-UVs werden bei X-Rotation verworfen (Fallback auf Extent-UVs).
-         * Nur Blockstate-y nutzt explizite UVs (Glass-Pane/Iron-Bars), dort ist x stets 0. */
-        return new BoxElement(x0, ny0, nz0, x1, ny1, nz1, nt, nc, mirror);
+        /* UVs mitdrehen (s. transformUv): (x,y,z) -> (x, z, 1-y) */
+        float[][] nuv = transformUv(new int[]{3, 2, 0, 1, 4, 5},
+                (px, py, pz) -> new float[]{px, pz, 1 - py}, x0, ny0, nz0, x1, ny1, nz1);
+
+        return new BoxElement(x0, ny0, nz0, x1, ny1, nz1, nt, nc, mirror, nuv);
     }
 
     private static int rotCullFaceX(int face) {
@@ -174,7 +231,12 @@ public final class BoxElement {
         nc[0] = swapTopBottom(cull[1]); nc[1] = swapTopBottom(cull[0]);
         nc[2] = swapTopBottom(cull[2]); nc[3] = swapTopBottom(cull[3]);
         nc[4] = swapTopBottom(cull[4]); nc[5] = swapTopBottom(cull[5]);
-        return new BoxElement(x0, 1 - y1, z0, x1, 1 - y0, z1, nt, nc, mirror);
+
+        /* UVs mitspiegeln (s. transformUv): (x,y,z) -> (x, 1-y, z) */
+        float[][] nuv = transformUv(new int[]{1, 0, 2, 3, 4, 5},
+                (px, py, pz) -> new float[]{px, 1 - py, pz}, x0, 1 - y1, z0, x1, 1 - y0, z1);
+
+        return new BoxElement(x0, 1 - y1, z0, x1, 1 - y0, z1, nt, nc, mirror, nuv);
     }
 
     private static int swapTopBottom(int face) {

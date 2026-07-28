@@ -58,6 +58,12 @@ public final class GuiKeybinds extends GuiScreen {
         return this.capturing() != null;
     }
 
+    /** Während der Aufnahme auch die Zusatz-Maustasten (Mitte, Maus 4/5) annehmen. */
+    @Override
+    public boolean capturesMouse() {
+        return this.capturing() != null;
+    }
+
     @Override
     public void init(GuiManager gui, float vW, float vH) {
         this.components.clear();

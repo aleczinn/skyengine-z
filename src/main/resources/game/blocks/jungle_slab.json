@@ -1,15 +1,20 @@
 {
   "id": "skyengine:jungle_slab",
-  "type": "slab",
-  "layer": "opaque",
+  "parent": "preset/slab",
+  "vars": {
+    "texture": "jungle_planks"
+  },
   "hardness": 2,
   "tool": "axe",
-  "textures": {
-    "all": "game/textures/block/jungle_planks.png"
-  },
   "variants": {
-    "type=bottom": { "model": "block/jungle_slab" },
-    "type=top":    { "model": "block/jungle_slab_top" },
-    "type=double": { "model": "block/jungle_planks" }
+    "type=bottom": {
+      "model": "block/jungle_slab"
+    },
+    "type=top": {
+      "model": "block/jungle_slab_top"
+    },
+    "type=double": {
+      "model": "block/jungle_planks"
+    }
   }
 }

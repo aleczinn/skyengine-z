@@ -1,5 +1,8 @@
 package de.skyengine.game.entity;
 
+import de.skyengine.game.world.item.Item;
+import de.skyengine.game.world.item.ItemStack;
+
 /**
  * Prozeduraler Animations-Zustand des Spielers (MC-Formeln): Gliedmaßen-Schwung aus der
  * Bewegung, weich nachziehender Körper-Yaw, Arm-Schwung beim Abbauen/Platzieren, Hurt-Timer
@@ -10,6 +13,10 @@ package de.skyengine.game.entity;
 public final class PlayerAnimationState {
 
     private static final int SWING_TICKS = 6;   // Dauer eines Arm-Schwungs (wie MC)
+    /* Aufladedauer nach einem Item-Wechsel (Vanilla getItemSwapScale). MC leitet sie aus der
+       Angriffs-/Wechselgeschwindigkeit des Items ab — die gibt es hier nicht, daher fest MCs
+       Wert für die blanke Hand (Angriffsgeschwindigkeit 4,0 => 20/4 Ticks). */
+    private static final int SWAP_TICKS = 5;
     private static final int HURT_TICKS = 10;   // Abklingzeit des Hurt-Kamera-Rolls (wie MC)
 
     /* Gliedmaßen-Schwung: Phase (akkumuliert) + Amplitude 0..1 (geglättet). */
@@ -23,6 +30,27 @@ public final class PlayerAnimationState {
     private boolean swinging;
     private int swingTime;
     private float swingProgress, prevSwingProgress;
+
+    /* Equip-Höhe der First-Person-Hand 0..1 (Vanilla ItemInHandRenderer.mainHandHeight):
+       1 = Hand oben, 0 = ganz unten aus dem Bild. Ändert sich der gehaltene Stapel, fährt sie
+       mit 0.4/Tick runter und erst wieder hoch, wenn sie unten angekommen ist. */
+    private float handHeight, prevHandHeight;
+    /* Der GEZEIGTE Stapel-Inhalt: beim Wechsel noch der alte, bis die Hand unten ist. Vanilla
+       vergleicht ItemStack-Referenzen — unsere Stapel werden IN PLACE mutiert (setCount/setDamage),
+       deshalb ein Inhalts-Snapshot statt eines Referenzvergleichs. */
+    private Item handItem;
+    private int handCount;
+    /* Item des letzten Ticks — nur ein TYP-Wechsel startet die Aufladung neu (Vanilla Player.tick). */
+    private Item lastItem;
+    /* Vanilla getItemSwapScale: nach einem Item-Wechsel lädt die Hand erst wieder auf; die
+       Zielhöhe ist die DRITTE POTENZ davon, deshalb bleibt sie anfangs praktisch unten und kommt
+       dann zügig hoch (ohne das lädt das neue Item sichtbar am unteren Bildrand hoch). */
+    private int swapTicker;
+
+    /* Nachziehender Blickwinkel für den Hand-Nachlauf (Vanilla Player.xBob/yBob): folgt Pitch/Yaw
+       mit 0.5 pro Tick; der Renderer dreht die Hand um 10 % des Rückstands. */
+    private float xBob, prevXBob;
+    private float yBob, prevYBob;
 
     /* Hurt-Timer (dekrementiert pro Tick). */
     private int hurtTime;
@@ -46,14 +74,24 @@ public final class PlayerAnimationState {
         this.prevLimbSwingAmount = this.limbSwingAmount;
         this.prevBodyYaw = this.bodyYaw;
         this.prevSwingProgress = this.swingProgress;
+        this.prevXBob = this.xBob;
+        this.prevYBob = this.yBob;
         this.prevBob = this.bob;
         this.prevWalkDist = this.walkDist;
 
         if (!this.initialized) {
             this.bodyYaw = player.yaw;
             this.prevBodyYaw = player.yaw;
+            this.xBob = player.pitch; this.prevXBob = player.pitch;
+            this.yBob = player.yaw;   this.prevYBob = player.yaw;
             this.initialized = true;
         }
+
+        /* Vanilla Player.tick: der Hand-Blickwinkel zieht mit 0.5/Tick nach. wrapDegrees ist hier
+           nötig (anders als in MC), weil EntityPlayer den Yaw auf [0,360) wickelt — ohne Wrap
+           gäbe jeder Nulldurchgang einen 360°-Ausschlag. */
+        this.xBob += wrapDegrees(player.pitch - this.xBob) * 0.5F;
+        this.yBob += wrapDegrees(player.yaw - this.yBob) * 0.5F;
 
         double dx = player.x - player.lastX;
         double dz = player.z - player.lastZ;
@@ -111,6 +149,58 @@ public final class PlayerAnimationState {
         this.walkDist += horizontal * 0.6F;
     }
 
+    /**
+     * Equip-Animation der First-Person-Hand (Vanilla {@code ItemInHandRenderer.tick}): pro Tick
+     * nach {@link #tick} mit dem aktuell gehaltenen Stapel aufrufen. Solange sich dessen Inhalt
+     * ändert (anderes Item, andere Anzahl, andere Abnutzung), sinkt die Hand; unten angekommen
+     * übernimmt sie den neuen Stapel und fährt wieder hoch. Der Angriffs-Cooldown aus MC 1.9
+     * ({@code getAttackStrengthScale}) fehlt bewusst — es gibt hier keine Angriffsgeschwindigkeit.
+     */
+    public void tickHeldItem(ItemStack held) {
+        this.prevHandHeight = this.handHeight;
+
+        Item item = held.isEmpty() ? null : held.getItem();
+        int count = held.isEmpty() ? 0 : held.getCount();
+
+        /* Vanilla Player.tick: NUR ein Item-TYP-Wechsel startet die Aufladung neu
+           (resetAttackStrengthTicker); Anzahl/Abnutzung tun das nicht. Sonst läuft der Ticker
+           bedingungslos weiter. */
+        if (item != this.lastItem) {
+            this.lastItem = item;
+            this.resetSwapTicker();
+        }
+        this.swapTicker = Math.min(this.swapTicker + 1, SWAP_TICKS);
+
+        /* Swap-Animation: Item oder Anzahl geändert. Die Abnutzung bleibt bewusst außen vor
+           (Vanilla ignoriert Komponenten mit ignoreSwapAnimation) — sonst würde jeder
+           Werkzeugschlag die Hand senken. */
+        boolean same = item == this.handItem && count == this.handCount;
+
+        float swapScale = this.swapTicker / (float) SWAP_TICKS;
+        float target = same ? swapScale * swapScale * swapScale : 0F;
+        this.handHeight += Math.clamp(target - this.handHeight, -0.4F, 0.4F);
+
+        if (same || this.handHeight < 0.1F) {
+            this.handItem = item;
+            this.handCount = count;
+        }
+    }
+
+    /** Vanilla {@code resetAttackStrengthTicker}: die Hand-Aufladung startet neu. */
+    public void resetSwapTicker() {
+        this.swapTicker = 0;
+    }
+
+    /**
+     * Erfolgreiche Item-Benutzung (Vanilla {@code ItemInHandRenderer.itemUsed}): die Hand wird
+     * sofort ganz nach unten gerissen und fährt danach wieder hoch. Beim schnellen Platzieren
+     * bleibt das Item dadurch überwiegend unter der Bildkante — genau wie in Minecraft.
+     * Bewusst nur die aktuelle Höhe (nicht prev), damit die Bewegung interpoliert statt springt.
+     */
+    public void itemUsed() {
+        this.handHeight = 0F;
+    }
+
     /** Markiert einen Arm-Schwung-(Neu-)Start (MC-Guard: erst ab der Hälfte); der Tick führt ihn aus. */
     public void swing() {
         if (!this.swinging || this.swingTime >= SWING_TICKS / 2 || this.swingTime < 0) {
@@ -147,13 +237,20 @@ public final class PlayerAnimationState {
         return this.prevEatWeight + (this.eatWeight - this.prevEatWeight) * partialTick;
     }
 
-    /** Bei Pause/GUI-Standbild: prev = current, damit nichts weiter-interpoliert. */
+    /**
+     * prev = current, damit nichts weiter-interpoliert, solange die Animation nicht tickt. Nur
+     * für den Ladebildschirm — im Pausenmenü friert {@code GameContainer.updatePaused} stattdessen
+     * den partialTick ein.
+     */
     public void snapPrev() {
         this.prevLimbSwing = this.limbSwing;
         this.prevLimbSwingAmount = this.limbSwingAmount;
         this.prevEatWeight = this.eatWeight;
         this.prevBodyYaw = this.bodyYaw;
         this.prevSwingProgress = this.swingProgress;
+        this.prevHandHeight = this.handHeight;
+        this.prevXBob = this.xBob;
+        this.prevYBob = this.yBob;
         this.prevBob = this.bob;
         this.prevWalkDist = this.walkDist;
     }
@@ -167,6 +264,12 @@ public final class PlayerAnimationState {
         this.bodyYaw = 0; this.prevBodyYaw = 0;
         this.swinging = false; this.swingTime = 0;
         this.swingProgress = 0; this.prevSwingProgress = 0;
+        /* Hand unten + kein Item gemerkt -> fährt beim Welt-Eintritt einmal hoch (wie MC). */
+        this.handHeight = 0; this.prevHandHeight = 0;
+        this.handItem = null; this.handCount = 0; this.lastItem = null;
+        this.swapTicker = 0;
+        this.xBob = 0; this.prevXBob = 0;
+        this.yBob = 0; this.prevYBob = 0;
         this.hurtTime = 0;
         this.bob = 0; this.prevBob = 0;
         this.walkDist = 0; this.prevWalkDist = 0;
@@ -189,6 +292,26 @@ public final class PlayerAnimationState {
 
     public float getBodyYaw(float partialTick) {
         return this.prevBodyYaw + wrapDegrees(this.bodyYaw - this.prevBodyYaw) * partialTick;
+    }
+
+    /** Nachziehender Pitch der Hand (Vanilla xBob) — Differenz zum echten Blick = Nachlauf. */
+    public float getXBob(float partialTick) {
+        return this.prevXBob + wrapDegrees(this.xBob - this.prevXBob) * partialTick;
+    }
+
+    /** Nachziehender Yaw der Hand (Vanilla yBob). */
+    public float getYBob(float partialTick) {
+        return this.prevYBob + wrapDegrees(this.yBob - this.prevYBob) * partialTick;
+    }
+
+    /** Vanilla equippedProgress: 0 = Hand in Normalposition, 1 = ganz unten aus dem Bild. */
+    public float getEquippedProgress(float partialTick) {
+        return 1F - (this.prevHandHeight + (this.handHeight - this.prevHandHeight) * partialTick);
+    }
+
+    /** Das aktuell GEZEIGTE Item (beim Wechsel noch das alte); null = leere Hand. */
+    public Item getHandItem() {
+        return this.handItem;
     }
 
     public float getSwingProgress(float partialTick) {

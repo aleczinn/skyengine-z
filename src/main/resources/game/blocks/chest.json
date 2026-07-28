@@ -1,11 +1,11 @@
 {
   "id": "skyengine:chest",
-  "type": "cube",
+  "type": "chest",
   "layer": "opaque",
   "hardness": 2.5,
   "tool": "axe",
   "opaque": false,
-  "facing": true,
+  "open_sound": "chest",
   "block_entity": "skyengine:chest",
   "collision": {
     "boxes": [

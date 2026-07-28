@@ -1,5 +1,6 @@
 package de.skyengine.game.world.block.archetype;
 
+import de.skyengine.audio.BlockOpenSound;
 import de.skyengine.audio.BlockSoundGroup;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.Direction;
@@ -8,6 +9,7 @@ import de.skyengine.game.world.block.Tints;
 import de.skyengine.game.world.block.behavior.ExplosionBehavior;
 import de.skyengine.game.world.block.behavior.GravityBehavior;
 import de.skyengine.game.world.block.behavior.HorizontalFacingBehavior;
+import de.skyengine.game.world.block.behavior.PartsBehavior;
 import de.skyengine.game.world.block.behavior.SupportBehavior;
 import de.skyengine.game.world.block.connection.ConnectionBehavior;
 import de.skyengine.game.world.block.connection.ConnectionComponent;
@@ -17,14 +19,20 @@ import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.entity.Capabilities;
 import de.skyengine.game.world.block.json.BlockDefinition;
 import de.skyengine.game.world.block.registry.Registries;
+import de.skyengine.game.world.block.state.JsonProperties;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.block.state.Property;
 import de.skyengine.game.world.item.ToolTier;
 import de.skyengine.game.world.item.ToolType;
+import de.skyengine.utils.logging.LogManager;
+import de.skyengine.utils.logging.Logger;
 
 import java.util.List;
 
 /** Baut aus einem {@link Archetype} + {@link BlockDefinition} einen fertig konfigurierten Block. */
 public final class ArchetypeBlockFactory {
+
+    private static final Logger LOGGER = LogManager.getLogger(ArchetypeBlockFactory.class.getName());
 
     public static Block create(Archetype archetype, Identifier id, Block.Settings settings, BlockDefinition def) {
         BlockConfig.Builder builder = BlockConfig.builder();
@@ -34,6 +42,18 @@ public final class ArchetypeBlockFactory {
         if (def.block_entity != null) {
             BlockEntityType<?> type = Registries.BLOCK_ENTITY.get(Identifier.of(def.block_entity));
             if (type != null) builder.blockEntity(type);
+        }
+
+        /* Selbst deklarierte Properties. Bewusst NACH archetype.configure: so stehen sie hinter
+           den Archetyp-Properties und die State-Reihenfolge bestehender Blöcke bleibt gleich. */
+        if (def.properties != null) {
+            applyJsonProperties(builder, def);
+        }
+
+        /* Mehrteilige Blöcke (Tür, hohe Pflanze, Bett) rein aus der JSON. */
+        if (def.parts != null) {
+            PartsBehavior parts = PartsBehavior.of(def.parts, def.id);
+            if (parts != null) builder.behavior(parts);
         }
 
         /* Generisches Connection-System aus JSON (Pipes/Cables ohne eigenen Archetyp). */
@@ -96,6 +116,8 @@ public final class ArchetypeBlockFactory {
         /* Sound-Gruppe: explizites JSON-Feld oder Ableitung aus Tool/Archetyp. */
         String archetypeName = def.archetype != null ? def.archetype : def.type;
         builder.sound(BlockSoundGroup.resolve(def.sound, ToolType.byName(def.tool), archetypeName));
+        /* Auf-/Zu-Sound (Tür, Truhe) — eigenes Konzept, null für alles andere. */
+        builder.openSound(BlockOpenSound.resolve(def.open_sound, archetypeName));
 
         builder.replaceable(def.replaceable);
 
@@ -118,6 +140,30 @@ public final class ArchetypeBlockFactory {
             };
         }
         return mask;
+    }
+
+    /** Hängt die {@code properties}-Sektion an; ungültige Einträge werden von JsonProperties gemeldet. */
+    private static void applyJsonProperties(BlockConfig.Builder builder, BlockDefinition def) {
+        for (var entry : def.properties.entrySet()) {
+            BlockDefinition.PropertyDef p = entry.getValue();
+            if (p == null || p.values == null) {
+                LOGGER.error("Property '" + entry.getKey() + "' in " + def.id + " hat kein 'values'");
+                continue;
+            }
+            List<String> values = List.of(p.values);
+            Property<String> property = JsonProperties.of(entry.getKey(), values);
+            if (property == null) continue;   // Grund steht bereits im Log
+
+            builder.property(property);
+            if (p.defaultValue != null) {
+                if (values.contains(p.defaultValue)) {
+                    builder.defaultValue(property, p.defaultValue);
+                } else {
+                    LOGGER.error("Default '" + p.defaultValue + "' ist kein Wert von '"
+                            + entry.getKey() + "' in " + def.id);
+                }
+            }
+        }
     }
 
     private static void applyConnection(BlockConfig.Builder builder, BlockDefinition.ConnectionDef def) {

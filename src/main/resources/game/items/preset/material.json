@@ -1,0 +1,6 @@
+{
+  "_comment": "Preset (nicht registriert): einfaches Material-Item, flaches Sprite, Stapel 64.",
+  "max_stack": 64,
+  "vars": { "texture": "${id}" },
+  "texture": "game/textures/item/${texture}.png"
+}

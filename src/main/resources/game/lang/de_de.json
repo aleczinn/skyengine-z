@@ -21,6 +21,9 @@
       "resume": "Zurück zum Spiel",
       "options": "Optionen ...",
       "quit_to_title": "Speichern und zurück zum Hauptmenü"
+    },
+    "save": {
+      "saved": "Spiel gespeichert"
     }
   },
 
@@ -61,6 +64,12 @@
       "anisotropy": "Anisotropie",
       "ao": "Ambient Occlusion",
       "leaves": "Laub",
+      "leaves_hint_low": "<b>Laub-Qualität</b>\n<gray>LOW: Blätter sind <b>undurchsichtig</b> - schnellstes Meshing, wenigste Quads</>",
+      "leaves_hint_mid": "<b>Laub-Qualität</b>\n<gray>MID: nur die <b>Außenseiten</b> werden gezeichnet - guter Kompromiss</>",
+      "leaves_hint_high": "<b>Laub-Qualität</b>\n<gray>HIGH: alle Flächen durchsichtig - schönster Look, <gold>meiste Quads</></>",
+      "msaa_hint": "<b>Kantenglättung (MSAA)</b>",
+      "msaa_off": "<gray>Aus - schnellste Einstellung, harte Kanten am Horizont</>",
+      "msaa_on": "<gray>%dx Samples - glattere Kanten, kostet Füllrate.\nGreift erst beim nächsten Framebuffer-Aufbau</>",
       "fog": "Nebel",
       "vegetation_distance": "Vegetations-Distanz: %s",
       "lod": "LOD (Fernsicht)",
@@ -119,6 +128,8 @@
     "sprint": "Sprinten",
     "open_inventory": "Inventar",
     "drop": "Item wegwerfen",
+    "attack": "Angreifen/Zerstören",
+    "use": "Benutzen/Platzieren",
     "toggle_perspective": "Perspektive wechseln",
     "screenshot": "Screenshot",
     "gamemode": "Spielmodus wechseln",
@@ -145,7 +156,8 @@
       "seed": "Seed: %s",
       "delete_title": "Welt löschen?",
       "delete_message": "\"%s\" wird unwiderruflich gelöscht.",
-      "empty": "Noch keine Welten - erstelle eine!"
+      "empty": "Noch keine Welten - erstelle eine!",
+      "needs_selection": "<gray>Zuerst eine Welt in der Liste <b>auswählen</b></>"
     },
     "create": {
       "title": "Neue Welt erstellen",
@@ -153,6 +165,22 @@
       "default_name": "Neue Welt",
       "seed": "Seed (leer = zufällig)",
       "create": "Erstellen"
+    },
+    "import": {
+      "button": "<b>Minecraft-Welt importieren</b>",
+      "button_hint": "<gray>Konvertiert eine Welt aus <aqua>.minecraft/saves</> in das SkyEngine-Format</>",
+      "title": "Minecraft-Welt importieren",
+      "source": "Minecraft-Welt (Ordner)",
+      "name": "Name in SkyEngine",
+      "start": "Import starten",
+      "start_hint": "<gray>Läuft im Hintergrund - das Fenster bleibt bedienbar</>",
+      "cancel": "Abbrechen",
+      "cancel_hint": "<gray>Stoppt an der nächsten Region und <red>verwirft</> die halbe Welt</>",
+      "cancelling": "Abbruch angefordert - laufende Regionen werden noch beendet ...",
+      "cancelled": "Import abgebrochen - die unvollständige Welt wurde gelöscht.",
+      "empty": "Keine Minecraft-Welten unter .minecraft/saves gefunden",
+      "error_source": "Kein Ordner: bitte eine Minecraft-Welt auswählen",
+      "error_name": "Bitte einen Weltnamen angeben"
     },
     "loading": "Welt wird generiert..."
   },
@@ -351,6 +379,7 @@
       "tall_grass": "Hohes Gras",
       "terracotta": "Keramik",
       "tnt": "TNT",
+      "torch": "Fackel",
       "tuff": "Tuffstein",
       "tuff_bricks": "Tuffsteinziegel",
       "water": "Wasser",
@@ -366,6 +395,21 @@
     "skyengine": {
       "apple": "Apfel",
       "bread": "Brot",
+      "iron_ingot": "Eisenbarren",
+      "gold_ingot": "Goldbarren",
+      "copper_ingot": "Kupferbarren",
+      "diamond": "Diamant",
+      "emerald": "Smaragd",
+      "coal": "Kohle",
+      "charcoal": "Holzkohle",
+      "redstone": "Redstone",
+      "lapis_lazuli": "Lapislazuli",
+      "stick": "Stock",
+      "brick": "Ziegel",
+      "clay_ball": "Tonklumpen",
+      "flint": "Feuerstein",
+      "leather": "Leder",
+      "paper": "Papier",
       "wooden_pickaxe": "Holzspitzhacke",
       "wooden_axe": "Holzaxt",
       "wooden_shovel": "Holzschaufel",

@@ -1,10 +1,6 @@
 {
   "id": "skyengine:polished_diorite",
-  "type": "cube",
-  "layer": "opaque",
+  "parent": "preset/cube",
   "hardness": 1.5,
-  "tool": "pickaxe",
-  "textures": {
-    "all": "game/textures/block/polished_diorite.png"
-  }
+  "tool": "pickaxe"
 }
