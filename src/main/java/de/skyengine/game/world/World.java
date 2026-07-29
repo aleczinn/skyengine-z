@@ -605,7 +605,7 @@ public class World implements IInitializable, IDisposable {
      * durchgehend 0 — ein früherer Read lieferte also <b>schwarz</b> statt „unbekannt"), und
      * fehlende bzw. noch unbelichtete Chunks liefern <b>15</b> statt 0. Sonst würden Hand und
      * Drops an der Ladekante kurz schwarz aufblitzen, obwohl gleich hell nachgeladen wird —
-     * dieselbe Konvention wie in {@code NeighborSampler.sampleLight}.
+     * dieselbe Konvention wie in {@code NeighborSampler.samplePackedLight}.
      *
      * <p>Kein Lock nötig: {@code LightStorage} ist lock-frei (s. Skill {@code licht-system}).
      */
@@ -618,6 +618,24 @@ public class World implements IInitializable, IDisposable {
             return 15;
         }
         return chunk.light.get(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
+    }
+
+    /**
+     * Blocklicht 0..15 (Fackeln, Lava) an Weltkoordinaten — das Gegenstück zu
+     * {@link #getSkyLight} mit demselben {@link ChunkStatus#LIT}-Gate.
+     *
+     * <p>Ein Unterschied: fehlende oder noch unbelichtete Chunks liefern hier <b>0</b>, nicht 15.
+     * „Unbekannt" heißt beim Himmelslicht „vermutlich hell", beim Blocklicht aber „vermutlich
+     * keine Fackel in der Nähe" — sonst würden Hand und Drops an der Ladekante kurz aufglühen.
+     */
+    public int getBlockLight(int x, int y, int z) {
+        if (y < 0 || y >= Chunk.HEIGHT) return 0;
+
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk == null || !chunk.status.isAtLeast(ChunkStatus.LIT)) {
+            return 0;
+        }
+        return chunk.blockLight.get(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
     }
 
     /** Setzt einen Block (mit Nachbar-Updates für Verbindungen/Treppen-Ecken). */

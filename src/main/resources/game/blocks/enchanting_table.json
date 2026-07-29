@@ -4,6 +4,8 @@
   "layer": "opaque",
   "hardness": 5,
   "tool": "pickaxe",
+  "light_level": 7,
+  "light_color": "#C77DFF",
   "opaque": false,
   "block_entity": "skyengine:enchanting_table",
   "collision": {

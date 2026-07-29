@@ -45,6 +45,12 @@ public class Chunk {
     public final de.skyengine.game.world.light.LightStorage light =
             new de.skyengine.game.world.light.LightStorage();
 
+    /* Blocklicht je Zelle (Fackeln, Lava) — zweite, voellig unabhaengige Ebene neben dem
+       Himmelslicht, mit demselben lock-freien Vertrag. Der Uniform-Default 0 passt exakt:
+       eine Section ohne Leuchtblock materialisiert nie und kostet kein Byte. */
+    public final de.skyengine.game.world.light.LightStorage blockLight =
+            new de.skyengine.game.world.light.LightStorage();
+
     /* Heightmap fürs Himmelslicht: Y des höchsten licht-blockierenden Blocks + 1 je Säule
        (Index (z << 5) | x, 0 = Säule frei). Vom LIGHTING-Job berechnet — publiziert über den
        volatilen status = LIT wie grassTintCorners über status = GENERATED —, danach nur noch

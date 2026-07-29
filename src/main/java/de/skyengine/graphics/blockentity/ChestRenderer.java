@@ -366,7 +366,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
         uniform float u_TopBrightness;
         uniform float u_ZBrightness;
         uniform float u_SideBrightness;
-        /* Himmelslicht der Zelle (ChunkRenderer.skyLightFactor); 1.0 = voll hell bzw. GUI. */
+        /* Licht der Zelle, Himmel + Block (ChunkRenderer.lightFactor); 1.0 = voll hell bzw. GUI. */
         uniform float u_Light;
         out vec4 fragColor;
         void main() {

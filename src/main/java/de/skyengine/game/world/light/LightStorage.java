@@ -7,7 +7,7 @@ import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
- * Himmelslicht-Speicher eines Chunks: pro Section ein lazy materialisiertes Nibble-Array
+ * Licht-Speicher einer Ebene eines Chunks: pro Section ein lazy materialisiertes Nibble-Array
  * (32³ Zellen = 16 KB). Nicht materialisierte Sections haben einen uniformen Wert (0 unter dem
  * Terrain, 15 für Voll-Himmel-Sections darüber) — das ist der Normalfall und der Grund, warum
  * Luft- und Untergrund-Sections nichts kosten. Ohne diesen Kurzschluss läge der Bedarf bei
@@ -20,8 +20,11 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * konvergiert. Kein PalettedContainer-artiges Strukturwachstum, daher kein Lock-Zwang. Hier
  * nachträglich Locks einzuziehen würde die Architektur brechen, nicht absichern.</p>
  *
- * <p>Nur Himmelslicht — Blocklicht (Fackeln) gibt es noch nicht. Ein späterer RGB-Blocklicht-
- * Satz käme als weitere Ebenen daneben, nicht in dieses Nibble-Array.</p>
+ * <p>Es gibt zwei Ebenen, je eine Instanz dieser Klasse pro Chunk ({@code Chunk.light} für das
+ * Himmelslicht, {@code Chunk.blockLight} für Fackeln/Lava) — die Klasse selbst weiß davon nichts.
+ * Ein späterer RGB-Satz käme genauso als weitere Ebenen daneben, nicht in dieses Nibble-Array.
+ * Der Uniform-Wert ist ebenenabhängig: Himmelslicht trägt über dem Terrain 15, Blocklicht
+ * überall 0 — deshalb kosten Sections ohne Leuchtblock nichts.</p>
  */
 public final class LightStorage {
 

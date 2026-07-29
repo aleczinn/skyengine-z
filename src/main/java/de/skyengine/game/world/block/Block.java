@@ -124,6 +124,18 @@ public class Block {
         return v >= 0 ? v : (this.isOpaqueCube(state) ? 15 : 0);
     }
 
+    /**
+     * Eigenleuchten 0..15 (Fackel 14, Lava 15, wie MC); 0 = der Block leuchtet nicht. Quelle ist
+     * {@code light_level} in der Block-JSON. Der {@code state}-Parameter ist heute ungenutzt, hält
+     * aber die Symmetrie zu {@link #getLightOpacity} und die Tür für zustandsabhängiges Leuchten
+     * offen (Vorbild: {@code redstone_ore[lit=true]}).
+     *
+     * <p>Monochrom: {@link BlockConfig#lightColor()} gibt es zwar, wirkt aber noch nicht.
+     */
+    public int getLuminance(BlockState state) {
+        return this.config.lightLevel();
+    }
+
     public RenderLayer getRenderLayer(BlockState state) {
         return this.settings.renderLayer;
     }

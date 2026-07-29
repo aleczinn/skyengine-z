@@ -120,10 +120,15 @@ ausdrücken).
 **Fertig und stabil:**
 - Chunk-Pipeline mit Nachbar-Gating, Prioritäts-Workern, Edit-Priority-Uploads
 - Meshing: Greedy + Minecraft-AO (inkl. Flip + Shader-Clamp), 20-Byte-Vertices, Index-Buffer
-- Himmelslicht (nur Sky, kein Blocklicht): `LightStorage` (Nibble je Zelle, lazy + Uniform pro
-  Section) + `LightEngine` (Heightmap, Flood-BFS, Randaustausch, Edit-Updates), Pipeline-Stufen
-  LIGHTING/LIT, Smooth Lighting im Mesher, MC-Lichtkurve + Helligkeits-Slider (AUS = Fullbright)
-  im Chunk-Shader; Licht wird nicht persistiert. Prüfstand `gradlew lightTest`
+- Licht, zwei Ebenen (monochrom 0..15, kein RGB): Himmelslicht + **Blocklicht** (Leuchtblöcke).
+  Je Ebene ein `LightStorage` am Chunk (Nibble je Zelle, lazy + Uniform pro Section), gemeinsame
+  `LightEngine` (Heightmap, Emitter-Seeding mit Paletten-Vorfilter, Flood-BFS, Randaustausch,
+  Edit-Updates), Pipeline-Stufen LIGHTING/LIT, Smooth Lighting im Mesher (gepackt: Himmel Bits
+  0-3, Block 4-7 im 5. Vertex-Int), im Shader `max(sky, block)` → MC-Lichtkurve +
+  Helligkeits-Slider (AUS = Fullbright). Block-JSON `light_level` (torch 14, enchanting_table 7,
+  lava 15, brown_mushroom 1); `light_color` wird gelesen und abgelegt, wirkt aber noch NICHT.
+  Objekte ohne Vertex-Licht (Truhe, Drops, Hand, Spieler) hängen über `ChunkRenderer.lightFactor`
+  am selben Licht. Licht wird nicht persistiert. Prüfstand `gradlew lightTest`
 - Rendering: MDI + VertexArena + Frame-Fences, TextureArray mit animierten Sprites,
   Translucent-Sortierung, BlockEntity-Renderer (Chest, EnchantingTable), Reversed-Z,
   Distanz-Fog (auch über LOD) + MSAA-Offscreen-Framebuffer (beides GameSettings)
@@ -211,8 +216,9 @@ ausdrücken).
   Migration aus dem Arbeitsverzeichnis; debug/ + debug-maps/ bleiben im Projekt)
 
 **Offen / geplant (bekannt, nicht angefangen):**
-- Blocklicht (Fackeln/Leuchtblöcke) — die freien Bits 4-31 des Licht-Ints und weitere
-  `LightStorage`-Ebenen sind dafür da; danach Tag-Nacht-Zyklus und Schatten-Pass
+- Farbiges (RGB) Blocklicht — `light_color` steht schon in der Block-JSON und liegt in
+  `BlockConfig` bereit, wirkt aber noch nicht; dafür sind die freien Bits 8-31 des Licht-Ints und
+  weitere `LightStorage`-Ebenen da. Danach Tag-Nacht-Zyklus und Schatten-Pass
   (`lightning-system`-Branch als Vorlage) — dann amortisiert sich der GPU-Cull-Pfad
 - Crafting (kein Recipe-/Crafting-Menü; `GuiInventory`-Crafting-Bereich noch funktionslos);
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
@@ -229,8 +235,8 @@ ausdrücken).
 
 **Bewusst nicht vorhanden (nicht „vergessen" — nicht ungefragt bauen):**
 - **Kein Sky-Rendering** (keine Atmosphäre/Wolken/God-Rays — Clear-Color ist der Himmel)
-- **Kein Blocklicht** (Fackeln leuchten nicht), kein Tag-Nacht-Zyklus, keine Schatten — es gibt
-  ausschließlich Himmelslicht (s. Skill `licht-system`)
+- **Kein farbiges Licht** (Blocklicht ist monochrom wie in MC), kein Tag-Nacht-Zyklus, keine
+  Schatten; Entities emittieren kein Licht (kein „Dynamic Lights") — s. Skill `licht-system`
 - Keine Mobs, kein Multiplayer, keine Test-Infrastruktur
 
 ## Wiederkehrende Fallen (Kurzliste — Details in den Skills)

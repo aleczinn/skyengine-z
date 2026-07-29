@@ -964,7 +964,9 @@ public final class LodMesher {
         buf[i++] = pz | (pu << 16);
         buf[i++] = pv | (layer << 16);
         buf[i++] = r | (g << 8) | (b << 16);
-        buf[i++] = 15; // Skylight voll (Bits 0-3); Blocklicht gibt es noch nicht
+        /* Skylight voll (Bits 0-3), Blocklicht 0 (Bits 4-7). Jenseits der Renderdistanz zeigt LOD
+           nur Oberfläche, wo ohnehin der Himmel dominiert — eine Fackel dort unten wäre unsichtbar. */
+        buf[i++] = 15;
         if (translucent) this.viTranslucent = i; else this.viOpaque = i;
     }
 }

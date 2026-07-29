@@ -16,8 +16,8 @@ public interface BlockEntityRenderer {
 
     /**
      * Pro Frame: zeichnet die BlockEntity. {@code partialTick} für flüssige Interpolation,
-     * {@code light} ist der fertige Himmelslicht-Faktor der Zelle
-     * ({@code ChunkRenderer.skyLightFactor}, 1.0 = voll hell bzw. Fullbright) — ohne ihn säße die
+     * {@code light} ist der fertige Licht-Faktor der Zelle (Himmel + Block)
+     * ({@code ChunkRenderer.lightFactor}, 1.0 = voll hell bzw. Fullbright) — ohne ihn säße die
      * Truhe in einer finsteren Höhle als leuchtender Fremdkörper in ihrer Wand.
      */
     void render(BlockEntity be, Camera camera, float partialTick, float light);

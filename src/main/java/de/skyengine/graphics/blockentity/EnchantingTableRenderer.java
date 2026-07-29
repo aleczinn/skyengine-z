@@ -226,8 +226,8 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
         #version 460 core
         in vec2 v_uv;
         uniform sampler2D u_Texture;
-        /* Himmelslicht der Zelle, fertig durch die Kurve gerechnet
-           (ChunkRenderer.skyLightFactor). 1.0 = voll hell bzw. Fullbright. */
+        /* Licht der Zelle (Himmel + Block), fertig durch die Kurve gerechnet
+           (ChunkRenderer.lightFactor). 1.0 = voll hell bzw. Fullbright. */
         uniform float u_Light;
         out vec4 fragColor;
         void main() {

@@ -31,7 +31,7 @@ public final class FirstPersonHandRenderer {
     private final Matrix4f model = new Matrix4f();
 
     /**
-     * @param light Himmelslicht-Faktor der Augenposition ({@code ChunkRenderer.skyLightFactor}) —
+     * @param light Licht-Faktor der Augenposition (Himmel + Block) ({@code ChunkRenderer.lightFactor}) —
      *              Arm und Item dunkeln damit wie die Wand direkt davor ab.
      */
     public void render(PlayerRenderer playerRenderer, HeldItemMeshes items, EntityPlayer player,

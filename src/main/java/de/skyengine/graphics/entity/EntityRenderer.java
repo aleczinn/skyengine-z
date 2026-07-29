@@ -99,12 +99,13 @@ public final class EntityRenderer {
         if (!frustum.testAab(ox - CULL_MARGIN, oy - CULL_MARGIN, oz - CULL_MARGIN,
                 ox + CULL_MARGIN, oy + 1f + CULL_MARGIN, oz + CULL_MARGIN)) return;
 
-        /* Himmelslicht der eigenen Zelle. Der Chunk der Schleife IST der Chunk der Entity
-           (Entities hängen an ihrem Chunk, s. World.tickEntities) — kein World-Lookup nötig. */
-        this.shader.setUniformf("u_Light", ChunkRenderer.skyLightFactor(
-                chunk.light.get((int) Math.floor(e.x) & ChunkSection.MASK,
-                        Math.clamp((int) Math.floor(e.y), 0, Chunk.HEIGHT - 1),
-                        (int) Math.floor(e.z) & ChunkSection.MASK)));
+        /* Licht der eigenen Zelle (Himmel + Block). Der Chunk der Schleife IST der Chunk der
+           Entity (Entities hängen an ihrem Chunk, s. World.tickEntities) — kein World-Lookup. */
+        int lx = (int) Math.floor(e.x) & ChunkSection.MASK;
+        int ly = Math.clamp((int) Math.floor(e.y), 0, Chunk.HEIGHT - 1);
+        int lz = (int) Math.floor(e.z) & ChunkSection.MASK;
+        this.shader.setUniformf("u_Light", ChunkRenderer.lightFactor(
+                chunk.light.get(lx, ly, lz), chunk.blockLight.get(lx, ly, lz)));
 
         if (e instanceof FallingBlockEntity fb) {
             Mesh mesh = this.meshFor(fb.getBlockId());
@@ -254,7 +255,7 @@ public final class EntityRenderer {
         uniform sampler2DArray u_Textures;
         uniform float u_WhiteFlash;   // 0..1: mischt das Fragment Richtung Weiß (TNT-Blink)
         /* Himmelslicht der Entity-Zelle, fertig durch die Kurve gerechnet
-           (ChunkRenderer.skyLightFactor). 1.0 = voll hell bzw. Fullbright. */
+           (ChunkRenderer.lightFactor). 1.0 = voll hell bzw. Fullbright. */
         uniform float u_Light;
         out vec4 fragColor;
         void main() {

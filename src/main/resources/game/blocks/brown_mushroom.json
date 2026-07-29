@@ -1,4 +1,5 @@
 {
   "id": "skyengine:brown_mushroom",
-  "parent": "preset/cross"
+  "parent": "preset/cross",
+  "light_level": 1
 }

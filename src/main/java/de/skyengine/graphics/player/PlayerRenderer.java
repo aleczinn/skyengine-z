@@ -326,7 +326,7 @@ public final class PlayerRenderer implements IDisposable {
         in vec2 v_uv;
         uniform sampler2D u_Texture;
         /* Himmelslicht der Spielerzelle, fertig durch die Kurve gerechnet
-           (ChunkRenderer.skyLightFactor). 1.0 = voll hell, Fullbright ODER GUI-Vorschau. */
+           (ChunkRenderer.lightFactor). 1.0 = voll hell, Fullbright ODER GUI-Vorschau. */
         uniform float u_Light;
         out vec4 fragColor;
         void main() {

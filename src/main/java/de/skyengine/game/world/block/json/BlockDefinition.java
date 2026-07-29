@@ -22,6 +22,13 @@ public class BlockDefinition {
        Laub stehen auf 1: ohne das wäre Wasser für Licht Luft (kein Tiefengradient) und eine
        Baumkrone würde gar keinen Schatten werfen. */
     public Integer light_opacity;
+    /* Eigenleuchten 0..15: wie hell der Block selbst strahlt (Fackel 14, Lava 15, wie MC).
+       null/0 = leuchtet nicht. light_color ist die Farbe dieses Lichts als "#RRGGBB" — sie wird
+       heute nur eingelesen und validiert und wirkt noch NICHT aufs Bild: Blocklicht ist in
+       dieser Phase monochrom wie in Minecraft. Das Feld steht schon hier, damit die RGB-Phase
+       nur noch Speicher und Shader anfassen muss, nicht die ganze Datenkette. */
+    public Integer light_level;
+    public String light_color;
     public boolean gravity = false;     // fällt nach unten (Sand, Kies) via GravityBehavior
     public boolean replaceable = false; // Platzieren in diese Zelle ersetzt den Block (Gras/Farn, wie MC — kein Drop)
     public boolean facing = false;      // horizontale Ausrichtung zum Spieler (Truhe, Ofen) via HorizontalFacingBehavior

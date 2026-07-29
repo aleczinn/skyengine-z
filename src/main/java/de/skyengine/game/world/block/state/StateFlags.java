@@ -26,9 +26,15 @@ public final class StateFlags {
 
     /* Licht-Opazität 0..15 in Bits 10-13: wie viel Himmelslicht der Block je Zelle schluckt
        (0 = durchlässig wie Glas, 1 = dämpfend wie Wasser/Laub, 15 = opak).
-       Bits 14-24 und 26-31 sind frei — dort läge später das Blocklicht (Luminanz). */
+       Bits 18-24 und 26-31 sind frei. */
     private static final int OPACITY_SHIFT = 10;
     private static final int OPACITY_MASK = 0b1111 << OPACITY_SHIFT;
+
+    /* Eigenleuchten (Luminanz) 0..15 in Bits 14-17: wie hell der Block selbst strahlt
+       (0 = leuchtet nicht, Fackel 14, Lava 15). Monochrom — die Lichtfarbe hätte 24 Bit
+       gebraucht und liegt deshalb in BlockConfig, nicht hier. */
+    private static final int LUMINANCE_SHIFT = 14;
+    private static final int LUMINANCE_MASK = 0b1111 << LUMINANCE_SHIFT;
 
     public static int packLayer(int flags, RenderLayer layer) {
         return (flags & ~LAYER_MASK) | (layer.ordinal() << LAYER_SHIFT);
@@ -44,6 +50,14 @@ public final class StateFlags {
 
     public static int opacity(int flags) {
         return (flags & OPACITY_MASK) >>> OPACITY_SHIFT;
+    }
+
+    public static int packLuminance(int flags, int luminance) {
+        return (flags & ~LUMINANCE_MASK) | ((luminance & 0b1111) << LUMINANCE_SHIFT);
+    }
+
+    public static int luminance(int flags) {
+        return (flags & LUMINANCE_MASK) >>> LUMINANCE_SHIFT;
     }
 
     private StateFlags() {}

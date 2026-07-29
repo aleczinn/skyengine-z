@@ -77,6 +77,7 @@ public final class BlockRegistry {
         if (block.isExcludedFromLodSurface()) flags |= StateFlags.NO_LOD_SURFACE;
         if (block.isLeaves()) flags |= StateFlags.LEAVES;
         flags = StateFlags.packOpacity(flags, block.getLightOpacity(state));
+        flags = StateFlags.packLuminance(flags, block.getLuminance(state));
         return StateFlags.packLayer(flags, block.getRenderLayer(state));
     }
 

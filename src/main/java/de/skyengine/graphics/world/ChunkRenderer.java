@@ -1392,21 +1392,25 @@ public class ChunkRenderer {
     }
 
     /**
-     * Himmelslicht-Level 0..15 → Helligkeitsfaktor, <b>exakt dieselbe Kurve wie im
-     * Fragment-Shader</b> (Ambient-Boden vor der Regler-Kurve). Für Objekte ohne gebackenes
-     * Vertex-Licht — Spieler, Item-Drops, Item in der Hand, BlockEntities: dort ist das Licht
-     * pro Draw konstant, also rechnet die CPU den fertigen Faktor und die Renderer brauchen nur
-     * ein skalares Uniform statt vier Kopien derselben GLSL-Kurve.
+     * Licht-Level 0..15 (Himmel und Block, der hellere gewinnt) → Helligkeitsfaktor, <b>exakt
+     * dieselbe Kurve wie im Fragment-Shader</b> (max, dann Lichtkurve, dann Ambient-Boden, dann
+     * Regler-Kurve). Für Objekte ohne gebackenes Vertex-Licht — Spieler, Item-Drops, Item in der
+     * Hand, BlockEntities: dort ist das Licht pro Draw konstant, also rechnet die CPU den fertigen
+     * Faktor und die Renderer brauchen nur ein skalares Uniform statt vier Kopien derselben
+     * GLSL-Kurve.
      *
      * <p>Diese Methode und der Shader müssen zusammen geändert werden — laufen sie auseinander,
      * sitzt eine Truhe sichtbar heller oder dunkler in ihrer Wand als das Terrain daneben.
      *
+     * <p>Dass der Shader das Maximum erst nach der Interpolation bildet und die CPU schon davor,
+     * macht keinen Unterschied: hier sind beide Werte pro Draw konstant.
+     *
      * @return 1.0 bei Fullbright (Regler AUS) und bei Lichtlevel 15
      */
-    public static float skyLightFactor(int skyLevel) {
+    public static float lightFactor(int skyLevel, int blockLevel) {
         int brightness = GameSettings.get().brightness;
         if (brightness <= 0) return 1.0F; // Fullbright
-        float f = Math.clamp(skyLevel, 0, 15) / 15.0F;
+        float f = Math.clamp(Math.max(skyLevel, blockLevel), 0, 15) / 15.0F;
         float light = f / (4.0F - 3.0F * f);
         light = AMBIENT_LIGHT + (1.0F - AMBIENT_LIGHT) * light;
         float inv = 1.0F - light;
@@ -1672,7 +1676,7 @@ public class ChunkRenderer {
 
             out vec3 v_texCoord;
             out vec3 v_color;
-            out float v_light;
+            out vec2 v_light;   // x = Himmelslicht, y = Blocklicht (je 0..1)
             out float v_viewDist;
 
             void main() {
@@ -1685,9 +1689,9 @@ public class ChunkRenderer {
 
                 v_texCoord = vec3(uv, layer);
                 v_color = color;
-                /* Skylight 0..1, interpoliert -> weiche Verlaeufe (Smooth Lighting). Muss VOR
-                   dem Ausduennungs-Block stehen, der mit return aussteigt. */
-                v_light = float(a_light & 0xFu) * (1.0 / 15.0);
+                /* Himmels- und Blocklicht je 0..1, interpoliert -> weiche Verlaeufe (Smooth
+                   Lighting). Muss VOR dem Ausduennungs-Block stehen, der mit return aussteigt. */
+                v_light = vec2(float(a_light & 0xFu), float((a_light >> 4) & 0xFu)) * (1.0 / 15.0);
                 /* Occlusion-Debug (GpuCull.DEBUG_TINT): der Compute markiert Verdeckt-Verdikte
                    ueber baseInstance=1 statt sie zu cullen -> rot tinten. */
                 if (gl_BaseInstance != 0) {
@@ -1724,7 +1728,7 @@ public class ChunkRenderer {
             #version 460 core
             in vec3 v_texCoord;
             in vec3 v_color;
-            in float v_light;
+            in vec2 v_light;    // x = Himmelslicht, y = Blocklicht (je 0..1)
             in float v_viewDist;
 
             uniform sampler2DArray u_Textures;
@@ -1748,7 +1752,9 @@ public class ChunkRenderer {
             void main() {
                 vec4 color = texture(u_Textures, v_texCoord);
                 if (color.a < u_AlphaCutoff) discard;
-                float light = lightCurve(clamp(v_light, 0.0, 1.0));
+                /* Monochrom wie in Minecraft: der hellere der beiden Werte gewinnt. Erst DANACH
+                   die Kurve — die Reihenfolge darunter bleibt unangetastet. */
+                float light = lightCurve(clamp(max(v_light.x, v_light.y), 0.0, 1.0));
                 /* Ambient-Boden ZUERST — er ist der Wert, den der Regler anheben soll. Stuende
                    die Kurve davor, bekaeme sie bei Lichtlevel 0 eine Null herein und gaebe eine
                    Null heraus (1 - 1^4 = 0): der Regler waere in der dunkelsten Hoehle exakt

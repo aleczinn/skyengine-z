@@ -80,7 +80,7 @@ public final class HeldItemMeshes {
     /**
      * Bindet Shader + TextureArray und schaltet Culling aus (Restore in {@link #unbind}).
      *
-     * @param light Himmelslicht-Faktor der Zelle ({@code ChunkRenderer.skyLightFactor}); in der
+     * @param light Licht-Faktor der Zelle (Himmel + Block) ({@code ChunkRenderer.lightFactor}); in der
      *              Inventar-Vorschau <b>1.0</b>, sonst dunkelt die GUI mit der Welt ab. Gilt auch
      *              für den BER-Sonderweg (Truhe in der Hand), s. {@link #heldLight}.
      */
@@ -513,8 +513,8 @@ public final class HeldItemMeshes {
         in vec3 v_texCoord;
         in vec3 v_color;
         uniform sampler2DArray u_Textures;
-        /* Himmelslicht der Zelle, fertig durch die Kurve gerechnet
-           (ChunkRenderer.skyLightFactor). 1.0 = voll hell, Fullbright ODER GUI-Vorschau. */
+        /* Licht der Zelle (Himmel + Block), fertig durch die Kurve gerechnet
+           (ChunkRenderer.lightFactor). 1.0 = voll hell, Fullbright ODER GUI-Vorschau. */
         uniform float u_Light;
         out vec4 fragColor;
         void main() {

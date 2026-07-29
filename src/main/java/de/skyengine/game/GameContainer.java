@@ -726,7 +726,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.world.render(this.camera, partialTick);
         } else {
             /* Licht der Spielerzelle — der Spieler steht IN seinem Block, also die Füße-Zelle. */
-            float playerLight = this.skyLightAt(this.player.x, this.player.y, this.player.z);
+            float playerLight = this.lightAt(this.player.x, this.player.y, this.player.z);
             this.world.render(this.camera, partialTick, () ->
                     this.playerRenderer.renderThirdPerson(this.player, this.animState, this.camera, partialTick,
                             this.heldItemMeshes, this.playerInventory.get(this.hotbarIndex), playerLight));
@@ -762,7 +762,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.perspective.isFirstPerson() && this.player.getGamemode() != Gamemode.SPECTATOR) {
             /* Licht der AUGEN-Zelle (nicht der Füße): die Hand hängt vor dem Gesicht, und in
                einem 1 Block hohen Kriechgang unterscheiden sich beide sichtbar. */
-            float handLight = this.skyLightAt(this.player.x,
+            float handLight = this.lightAt(this.player.x,
                     this.player.y + this.player.getEyeHeight(partialTick), this.player.z);
             this.handRenderer.render(this.playerRenderer, this.heldItemMeshes, this.player,
                     this.animState, (float) width / height, partialTick, this.viewEffect, handLight);
@@ -771,10 +771,11 @@ public class GameContainer implements IResizeable, IDisposable {
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
     }
 
-    /** Himmelslicht-Faktor an einer Weltposition (Kurve wie im Terrain-Shader). */
-    private float skyLightAt(double x, double y, double z) {
-        return ChunkRenderer.skyLightFactor(this.world.getSkyLight(
-                (int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z)));
+    /** Licht-Faktor an einer Weltposition, Himmel und Block (Kurve wie im Terrain-Shader). */
+    private float lightAt(double x, double y, double z) {
+        int bx = (int) Math.floor(x), by = (int) Math.floor(y), bz = (int) Math.floor(z);
+        return ChunkRenderer.lightFactor(this.world.getSkyLight(bx, by, bz),
+                this.world.getBlockLight(bx, by, bz));
     }
 
     /**

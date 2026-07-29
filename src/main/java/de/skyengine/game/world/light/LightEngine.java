@@ -4,6 +4,7 @@ import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.game.world.chunk.palette.PalettedContainer;
 
 import java.util.Arrays;
 
@@ -22,8 +23,12 @@ import java.util.Arrays;
  * Eine Instanz ist NICHT threadsicher — pro Worker-Thread (ThreadLocal) bzw. eine für den
  * Render-Thread verwenden.</p>
  *
- * <p>Es gibt <b>nur Himmelslicht</b>: keine Leuchtblöcke, keine Fackel-Emission. Die
- * Blocklicht-Hälfte des Vorbilds (Luminanz je RGB-Kanal) ist bewusst nicht portiert.</p>
+ * <p><b>Zwei Ebenen:</b> Himmelslicht ({@code chunk.light}) und Blocklicht ({@code chunk.blockLight},
+ * Fackeln/Lava). Beide teilen sich BFS, Dirty-Verwaltung und das 3×3-Umfeld; welche gerade
+ * bearbeitet wird, sagt {@link #skyLayer}. Nur drei Regeln sind ebenenspezifisch: die verlustfreie
+ * Direkt-Säule samt ihrem Decrease-Gegenstück, die Quellen (Heightmap-Spalten vs. Emitter) und der
+ * Randfall über der Welt. Blocklicht ist <b>monochrom</b> (0..15) — farbiges Licht käme als weitere
+ * Ebenen daneben.</p>
  */
 public final class LightEngine {
 
@@ -41,15 +46,25 @@ public final class LightEngine {
     private boolean markDirty;
     /* Dirty-Section-Masken pro 3×3-Chunk (16 Bits) */
     private final int[] dirtyMasks = new int[9];
+    /* Aktive Licht-Ebene: true = Himmelslicht (chunk.light), false = Blocklicht (chunk.blockLight).
+       Zurückgesetzt wird in setContext() und NICHT bloß in einem finally: die Instanz lebt im
+       ThreadLocal weiter, eine geworfene Exception darf die Ebene nicht in den nächsten Job
+       lecken — sonst landete Blocklicht im Himmelslicht-Array. */
+    private boolean skyLayer = true;
 
     private final IntQueue increase = new IntQueue();
     private final IntQueue decrease = new IntQueue();
+    /* Emitter, die eine Unlight-Welle gelöscht hat und die sich selbst wieder speisen. Erst NACH
+       der Welle anzuwenden — Begründung in removeLight. */
+    private final IntQueue reseed = new IntQueue();
 
     /* ------------------------- Öffentliche Einstiege ------------------------- */
 
     /**
      * Initial-Lighting eines Chunks (Worker-Job, Aufrufer hält Read-Locks der 9 Chunks):
-     * Heightmap berechnen, Spalten füllen, Flood ins Dunkle. Schreibt NUR den eigenen Chunk.
+     * Heightmap berechnen, Spalten füllen, Flood ins Dunkle — und anschließend dasselbe für die
+     * Blocklicht-Ebene, dort mit den Leuchtblöcken als Quellen. Schreibt NUR den eigenen Chunk;
+     * was über die Chunkgrenze reichen müsste, holt {@link #exchangeBorders} nach.
      */
     public void lightInitial(Chunk center, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals) {
         this.setContext(center, north, south, west, east, diagonals);
@@ -60,6 +75,12 @@ public final class LightEngine {
             this.initColumns(center, heightmap);
             this.seedColumnEdges(heightmap);
             this.seedWaterColumns(center, heightmap);
+            this.runIncrease();
+
+            /* Zweite Ebene. Kein Gegenstück zu initColumns: Blocklicht startet überall bei 0
+               (Uniform-Default des LightStorage), Quellen sind allein die Emitter. */
+            this.skyLayer = false;
+            this.seedEmitters(center);
             this.runIncrease();
         } finally {
             this.clearContext();
@@ -72,22 +93,31 @@ public final class LightEngine {
      * benachbarten Jobs später fertig wird, sieht den anderen als LIT und tauscht beide
      * Richtungen aus — die Reihenfolge der Jobs ist damit egal. Ohne diese Regel könnten sich
      * zwei gleichzeitig fertige Nachbarn gegenseitig verpassen: dauerhaft dunkle Naht.
-     * Geänderte Sections werden dirty markiert (Remesh konvergiert sichtbar).
+     * Geänderte Sections werden dirty markiert (Remesh konvergiert sichtbar). Gilt für beide
+     * Ebenen — eine Fackel dicht an der Chunkgrenze leuchtet erst dadurch in den Nachbarn hinein.
      */
     public void exchangeBorders(Chunk center, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals) {
         this.setContext(center, north, south, west, east, diagonals);
         this.writeCenterOnly = false;
         this.markDirty = true;
         try {
-            if (isLit(north)) this.seedBorder(0, -1);
-            if (isLit(south)) this.seedBorder(0, 1);
-            if (isLit(west)) this.seedBorder(-1, 0);
-            if (isLit(east)) this.seedBorder(1, 0);
-            this.runIncrease();
+            this.exchangeLayer(north, south, west, east);
+            this.skyLayer = false;
+            this.exchangeLayer(north, south, west, east);
+            /* applyDirty einmal am Ende: die dirtyMasks sammeln über beide Ebenen. */
             this.applyDirty();
         } finally {
             this.clearContext();
         }
+    }
+
+    /** Ein Rand-Durchgang für die gerade aktive Ebene. */
+    private void exchangeLayer(Chunk north, Chunk south, Chunk west, Chunk east) {
+        if (isLit(north)) this.seedBorder(0, -1);
+        if (isLit(south)) this.seedBorder(0, 1);
+        if (isLit(west)) this.seedBorder(-1, 0);
+        if (isLit(east)) this.seedBorder(1, 0);
+        this.runIncrease();
     }
 
     /**
@@ -96,19 +126,53 @@ public final class LightEngine {
      */
     public void onBlockChanged(Chunk center, Chunk north, Chunk south, Chunk west, Chunk east,
                                Chunk[] diagonals, int lx, int y, int lz, int oldId, int newId) {
+        if (center.heightmap == null) return;
         int oldOpacity = BlockRegistry.getState(oldId).getLightOpacity();
         int newOpacity = BlockRegistry.getState(newId).getLightOpacity();
-        if (oldOpacity == newOpacity || center.heightmap == null) return;
+        int oldLuminance = BlockRegistry.getState(oldId).getLuminance();
+        int newLuminance = BlockRegistry.getState(newId).getLuminance();
+        boolean opacityChanged = oldOpacity != newOpacity;
+        /* Die Luminanz-Bedingung ist nicht optional: eine gesetzte Fackel ändert die Opazität
+           NICHT (0 -> 0). Ohne sie löste kein einziger Leuchtblock je ein Update aus. */
+        if (!opacityChanged && oldLuminance == newLuminance) return;
 
         this.setContext(center, north, south, west, east, diagonals);
         this.writeCenterOnly = false;
         this.markDirty = true;
         try {
-            this.updateSkyAt(center, lx, y, lz, newOpacity > oldOpacity);
+            /* Himmelslicht interessiert sich nur für die Opazität. */
+            if (opacityChanged) this.updateSkyAt(center, lx, y, lz, newOpacity > oldOpacity);
+            /* Blocklicht für beides: eine neu gesetzte Wand blockt auch Fackellicht. */
+            this.skyLayer = false;
+            this.updateBlockAt(lx, y, lz, newLuminance);
             this.applyDirty();
         } finally {
             this.clearContext();
         }
+    }
+
+    /**
+     * Blocklicht-Flood nach einem Edit. Braucht — anders als {@link #updateSkyAt} — kein
+     * dunkler/heller-Zweigpaar: es gibt keine Heightmap zu pflegen, und derselbe Ablauf deckt alle
+     * vier Fälle ab (Leuchtblock setzen/abbauen, undurchsichtigen Block setzen/abbauen).
+     */
+    private void updateBlockAt(int lx, int y, int lz, int newLuminance) {
+        /* Alten Beitrag der Zelle abräumen; fremd gespeiste Nachbarn landen als Re-Seeds
+           in der Increase-Queue. */
+        this.removeLight(lx, y, lz);
+
+        if (newLuminance > 0) {
+            this.setLight(lx, y, lz, newLuminance);
+            this.markCell(lx, y, lz);
+            this.increase.push(encode(lx, y, lz, newLuminance));
+        }
+        /* Nachbarn als Quellen anbieten — deckt „Opazität gesunken, Licht darf jetzt herein" ab. */
+        for (int d = 0; d < 6; d++) {
+            int nx = lx + DIR_X[d], ny = y + DIR_Y[d], nz = lz + DIR_Z[d];
+            int level = this.getLight(nx, ny, nz);
+            if (level > 1) this.increase.push(encode(nx, ny, nz, level));
+        }
+        this.runIncrease();
     }
 
     /** Heightmap-Säule + Flood nach einem Edit, siehe {@link #onBlockChanged}. */
@@ -249,6 +313,51 @@ public final class LightEngine {
         }
     }
 
+    /**
+     * Seedet alle Leuchtblöcke des Chunks in den Blocklicht-BFS — das Gegenstück zu
+     * {@link #initColumns} und {@link #seedColumnEdges}, nur eben ohne Heightmap: Quellen sind
+     * die Blöcke selbst.
+     *
+     * <p>Ein Zell-Scan wäre teuer (32768 Zellen je Section). Deshalb zuerst der
+     * <b>Paletten-Vorfilter</b>: kommt in der Palette einer Section gar keine leuchtende State-ID
+     * vor, kann auch keine ihrer Zellen leuchten. In typischem Terrain fallen damit alle 16
+     * Sections heraus, ohne dass eine einzige Zelle gelesen wird.</p>
+     *
+     * <p>Die Palette schrumpft nie — eine gesetzte und wieder abgebaute Fackel hinterlässt also
+     * einen Treffer, der keiner mehr ist. Das kostet einen überflüssigen Scan, sonst nichts.</p>
+     */
+    private void seedEmitters(Chunk chunk) {
+        for (int s = 0; s < Chunk.SECTIONS; s++) {
+            ChunkSection section = chunk.getSection(s);
+            if (section == null || section.isEmpty()) continue;
+            PalettedContainer container = section.container();
+            if (container == null) continue;
+
+            boolean anyEmitter = false;
+            for (int stateId : container.paletteEntries()) {
+                if (stateId != 0 && BlockRegistry.getState(stateId).getLuminance() > 0) {
+                    anyEmitter = true;
+                    break;
+                }
+            }
+            if (!anyEmitter) continue;
+
+            int base = s << ChunkSection.SHIFT;
+            for (int ly = 0; ly < ChunkSection.SIZE; ly++) {
+                for (int lz = 0; lz < ChunkSection.SIZE; lz++) {
+                    for (int lx = 0; lx < ChunkSection.SIZE; lx++) {
+                        int id = section.getBlock(lx, ly, lz);
+                        if (id == 0) continue;
+                        int luminance = BlockRegistry.getState(id).getLuminance();
+                        if (luminance == 0) continue;
+                        this.setLight(lx, base + ly, lz, luminance);
+                        this.increase.push(encode(lx, base + ly, lz, luminance));
+                    }
+                }
+            }
+        }
+    }
+
     /** Seedet beide Seiten einer Chunk-Kante (dx/dz = Richtung zum Nachbarn) in den BFS. */
     private void seedBorder(int dx, int dz) {
         int size = ChunkSection.SIZE;
@@ -258,10 +367,12 @@ public final class LightEngine {
 
         for (int s = 0; s < Chunk.SECTIONS; s++) {
             /* Uniform-Kurzschluss: sind beide Sections uniform gleich, ist an dieser Kante
-               nichts auszutauschen (Standardfall Himmel 15/15 bzw. Untergrund 0/0). */
+               nichts auszutauschen (Standardfall Himmel 15/15 bzw. Untergrund 0/0). Fürs
+               Blocklicht greift er noch häufiger — ohne Leuchtblock in der Nähe sind beide
+               Seiten uniform 0, der ganze Block-Durchgang kostet dann nichts. */
             Chunk neighborChunk = this.chunkAt(ownX0 + dx * size, ownZ0 + dz * size);
-            int ownUniform = this.chunks[4].light.uniformValue(s);
-            int neighborUniform = neighborChunk == null ? 0 : neighborChunk.light.uniformValue(s);
+            int ownUniform = this.storageOf(this.chunks[4]).uniformValue(s);
+            int neighborUniform = neighborChunk == null ? 0 : this.storageOf(neighborChunk).uniformValue(s);
             if (ownUniform >= 0 && ownUniform == neighborUniform) continue;
 
             int yBase = s << ChunkSection.SHIFT;
@@ -301,8 +412,9 @@ public final class LightEngine {
                 if (opacity >= 15) continue;
                 /* Verlustfreie Direkt-Säule: volles Himmelslicht fällt ohne Abschwächung
                    nach unten, solange nichts dämpft (Vanilla). Der Gegenpart steht in
-                   removeLight — beide Hälften gehören zusammen. */
-                int next = (d == DIR_DOWN && level == 15 && opacity == 0)
+                   removeLight — beide Hälften gehören zusammen. Blocklicht kennt die Regel
+                   nicht: eine Fackel leuchtet nach unten genauso weit wie zur Seite. */
+                int next = (this.skyLayer && d == DIR_DOWN && level == 15 && opacity == 0)
                         ? 15 : level - Math.max(1, opacity);
                 if (next <= 0 || next <= this.getLight(nx, ny, nz)) continue;
                 if (!this.writeAllowed(nx, nz)) continue;
@@ -340,15 +452,36 @@ public final class LightEngine {
                 /* Von uns gespeist: schwächer als wir, oder die 15er-Säule direkt darunter
                    (Gegenstück zur verlustfreien Down-Regel in runIncrease). */
                 boolean fedByUs = neighborLevel < level
-                        || (d == DIR_DOWN && level == 15 && neighborLevel == 15);
+                        || (this.skyLayer && d == DIR_DOWN && level == 15 && neighborLevel == 15);
                 if (fedByUs && this.writeAllowed(nx, nz)) {
                     this.setLight(nx, ny, nz, 0);
                     this.markCell(nx, ny, nz);
                     this.decrease.push(encode(nx, ny, nz, neighborLevel));
+                    /* Eine gelöschte Zelle, die selbst leuchtet, ist ihre eigene Quelle und muss
+                       zurückkommen — sonst löschen zwei benachbarte Fackeln einander aus. */
+                    if (!this.skyLayer) {
+                        int lum = this.luminanceAt(nx, ny, nz);
+                        if (lum > 0) this.reseed.push(encode(nx, ny, nz, lum));
+                    }
                 } else {
                     this.increase.push(encode(nx, ny, nz, neighborLevel));
                 }
             }
+        }
+
+        /* Erst JETZT die Emitter zurückholen, nicht schon in der Schleife: sonst kann die Welle
+           dieselbe Zelle ein zweites Mal aus einer stärkeren Richtung erreichen (Fackel 7 neben
+           Lava 15), sie erneut auf 0 setzen und den bereits eingereihten Increase-Eintrag an
+           „getLight != level" scheitern lassen — die Fackel bliebe dauerhaft aus. */
+        while (!this.reseed.isEmpty()) {
+            int entry = this.reseed.poll();
+            int rx = (entry & 0x7F) - 32;
+            int rz = ((entry >> 7) & 0x7F) - 32;
+            int ry = (entry >> 14) & 0x1FF;
+            int lum = (entry >>> 23) & 0xF;
+            this.setLight(rx, ry, rz, lum);
+            this.markCell(rx, ry, rz);
+            this.increase.push(entry);
         }
     }
 
@@ -363,6 +496,8 @@ public final class LightEngine {
         Arrays.fill(this.dirtyMasks, 0);
         this.increase.clear();
         this.decrease.clear();
+        this.reseed.clear();
+        this.skyLayer = true;
     }
 
     private void clearContext() {
@@ -384,18 +519,33 @@ public final class LightEngine {
         return chunk == this.chunks[4] || chunk.status.isAtLeast(ChunkStatus.LIT);
     }
 
+    /** Die Speicher-Ebene, auf der der laufende Aufruf arbeitet. */
+    private LightStorage storageOf(Chunk chunk) {
+        return this.skyLayer ? chunk.light : chunk.blockLight;
+    }
+
     private int getLight(int x, int y, int z) {
-        if (y >= Chunk.HEIGHT) return 15; // über der Welt ist immer voller Himmel
+        /* Über der Welt ist immer voller Himmel — aber kein Blocklicht, sonst strahlte von dort
+           oben Fackellicht herein. */
+        if (y >= Chunk.HEIGHT) return this.skyLayer ? 15 : 0;
         if (y < 0) return 0;
         Chunk chunk = this.chunkAt(x, z);
         if (chunk == null) return 0;
-        return chunk.light.get(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
+        return this.storageOf(chunk).get(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
     }
 
     private void setLight(int x, int y, int z, int value) {
         Chunk chunk = this.chunkAt(x, z);
         if (chunk == null) return;
-        chunk.light.set(x & ChunkSection.MASK, y, z & ChunkSection.MASK, value);
+        this.storageOf(chunk).set(x & ChunkSection.MASK, y, z & ChunkSection.MASK, value);
+    }
+
+    /** Eigenleuchten des Blocks in einer Zelle — Zwilling zu {@link #opacityAt}. */
+    private int luminanceAt(int x, int y, int z) {
+        Chunk chunk = this.chunkAt(x, z);
+        if (chunk == null) return 0;
+        int id = chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
+        return id == 0 ? 0 : BlockRegistry.getState(id).getLuminance();
     }
 
     private int opacityAt(int x, int y, int z) {

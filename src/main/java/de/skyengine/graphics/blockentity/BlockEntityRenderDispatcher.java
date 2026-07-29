@@ -62,10 +62,11 @@ public final class BlockEntityRenderDispatcher {
                 if (!frustum.testAab(ox - CULL_MARGIN, oy - CULL_MARGIN, oz - CULL_MARGIN,
                         ox + 1f + CULL_MARGIN, oy + 1f + CULL_MARGIN, oz + 1f + CULL_MARGIN)) continue;
 
-                /* Himmelslicht der eigenen Zelle — Chunk und BlockPos liegen hier ohnehin vor,
-                   ein World-Lookup wäre überflüssig. */
-                float light = ChunkRenderer.skyLightFactor(chunk.light.get(
-                        pos.x() & ChunkSection.MASK, pos.y(), pos.z() & ChunkSection.MASK));
+                /* Licht der eigenen Zelle (Himmel + Block) — Chunk und BlockPos liegen hier
+                   ohnehin vor, ein World-Lookup wäre überflüssig. */
+                int lx = pos.x() & ChunkSection.MASK, lz = pos.z() & ChunkSection.MASK;
+                float light = ChunkRenderer.lightFactor(chunk.light.get(lx, pos.y(), lz),
+                        chunk.blockLight.get(lx, pos.y(), lz));
                 renderer.render(be, camera, partialTick, light);
             }
         }

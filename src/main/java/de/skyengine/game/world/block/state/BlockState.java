@@ -98,6 +98,14 @@ public final class BlockState {
         return StateFlags.opacity(this.flags);
     }
 
+    /**
+     * Eigenleuchten 0..15: wie hell dieser Block selbst strahlt.
+     * 0 = leuchtet nicht (der Normalfall), Fackel 14, Lava 15.
+     */
+    public int getLuminance() {
+        return StateFlags.luminance(this.flags);
+    }
+
     public BlockShape getCollisionShape() {
         return this.block.getCollisionShape(this);
     }

@@ -47,6 +47,8 @@ public final class BlockConfig {
     private final de.skyengine.audio.BlockSoundGroup soundGroup;
     private final de.skyengine.audio.BlockOpenSound openSound;
     private final int lightOpacity;
+    private final int lightLevel;
+    private final int lightColor;
 
     private BlockConfig(Builder b) {
         this.properties = List.copyOf(b.properties);
@@ -73,6 +75,8 @@ public final class BlockConfig {
         this.soundGroup = b.soundGroup;
         this.openSound = b.openSound;
         this.lightOpacity = b.lightOpacity;
+        this.lightLevel = b.lightLevel;
+        this.lightColor = b.lightColor;
     }
 
     public List<Property<?>> properties() {
@@ -211,6 +215,23 @@ public final class BlockConfig {
         return lightOpacity;
     }
 
+    /**
+     * Eigenleuchten 0..15 (0 = leuchtet nicht, Fackel 14, Lava 15).
+     * Siehe {@link de.skyengine.game.world.block.Block#getLuminance}.
+     */
+    public int lightLevel() {
+        return lightLevel;
+    }
+
+    /**
+     * Farbe des Eigenleuchtens als 0xRRGGBB (Default Weiß). <b>Wirkt noch nicht aufs Bild</b> —
+     * Blocklicht ist derzeit monochrom wie in Minecraft; das Feld ist die Datenhälfte der
+     * späteren RGB-Phase.
+     */
+    public int lightColor() {
+        return lightColor;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -240,6 +261,8 @@ public final class BlockConfig {
         private de.skyengine.audio.BlockSoundGroup soundGroup = de.skyengine.audio.BlockSoundGroup.STONE;
         private de.skyengine.audio.BlockOpenSound openSound;
         private int lightOpacity = -1;
+        private int lightLevel = 0;
+        private int lightColor = 0xFFFFFF;
 
         public Builder property(Property<?> p) {
             this.properties.add(p);
@@ -361,6 +384,16 @@ public final class BlockConfig {
 
         public Builder lightOpacity(int v) {
             this.lightOpacity = v;
+            return this;
+        }
+
+        public Builder lightLevel(int v) {
+            this.lightLevel = v;
+            return this;
+        }
+
+        public Builder lightColor(int rgb) {
+            this.lightColor = rgb;
             return this;
         }
 

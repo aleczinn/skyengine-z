@@ -6,6 +6,8 @@
   "solid": false,
   "no_lod_surface": true,
   "attach_faces": ["floor", "wall"],
+  "light_level": 14,
+  "light_color": "#FFD69B",
   "hardness": 0,
   "sound": "wood",
   "icon_item": "game/textures/block/torch.png",
