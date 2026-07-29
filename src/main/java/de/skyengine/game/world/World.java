@@ -596,6 +596,30 @@ public class World implements IInitializable, IDisposable {
         return chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
     }
 
+    /**
+     * Himmelslicht 0..15 an Weltkoordinaten — für Objekte, die kein gebackenes Vertex-Licht
+     * haben (Spieler, Item-Drops, Item in der Hand, BlockEntities).
+     *
+     * <p>Zwei bewusste Abweichungen von {@link #getBlock}: das Status-Gate liegt bei
+     * {@link ChunkStatus#LIT} statt DECORATED (davor ist der {@code LightStorage} eines Chunks
+     * durchgehend 0 — ein früherer Read lieferte also <b>schwarz</b> statt „unbekannt"), und
+     * fehlende bzw. noch unbelichtete Chunks liefern <b>15</b> statt 0. Sonst würden Hand und
+     * Drops an der Ladekante kurz schwarz aufblitzen, obwohl gleich hell nachgeladen wird —
+     * dieselbe Konvention wie in {@code NeighborSampler.sampleLight}.
+     *
+     * <p>Kein Lock nötig: {@code LightStorage} ist lock-frei (s. Skill {@code licht-system}).
+     */
+    public int getSkyLight(int x, int y, int z) {
+        if (y >= Chunk.HEIGHT) return 15; // über der Welt ist immer voller Himmel
+        if (y < 0) return 0;
+
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk == null || !chunk.status.isAtLeast(ChunkStatus.LIT)) {
+            return 15;
+        }
+        return chunk.light.get(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
+    }
+
     /** Setzt einen Block (mit Nachbar-Updates für Verbindungen/Treppen-Ecken). */
     public void setBlock(int x, int y, int z, int block) {
         this.setBlock(x, y, z, block, true);

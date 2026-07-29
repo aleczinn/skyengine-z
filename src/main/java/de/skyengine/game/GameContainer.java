@@ -28,6 +28,7 @@ import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.item.ToolItem;
+import de.skyengine.graphics.world.ChunkRenderer;
 import de.skyengine.graphics.world.CrackRenderer;
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
@@ -724,9 +725,11 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.perspective.isFirstPerson()) {
             this.world.render(this.camera, partialTick);
         } else {
+            /* Licht der Spielerzelle — der Spieler steht IN seinem Block, also die Füße-Zelle. */
+            float playerLight = this.skyLightAt(this.player.x, this.player.y, this.player.z);
             this.world.render(this.camera, partialTick, () ->
                     this.playerRenderer.renderThirdPerson(this.player, this.animState, this.camera, partialTick,
-                            this.heldItemMeshes, this.playerInventory.get(this.hotbarIndex)));
+                            this.heldItemMeshes, this.playerInventory.get(this.hotbarIndex), playerLight));
         }
         if (DebugFlags.wireframe) Utils.disableWireframe();
 
@@ -757,11 +760,21 @@ public class GameContainer implements IResizeable, IDisposable {
 
         /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Depth-Clear. */
         if (this.perspective.isFirstPerson() && this.player.getGamemode() != Gamemode.SPECTATOR) {
+            /* Licht der AUGEN-Zelle (nicht der Füße): die Hand hängt vor dem Gesicht, und in
+               einem 1 Block hohen Kriechgang unterscheiden sich beide sichtbar. */
+            float handLight = this.skyLightAt(this.player.x,
+                    this.player.y + this.player.getEyeHeight(partialTick), this.player.z);
             this.handRenderer.render(this.playerRenderer, this.heldItemMeshes, this.player,
-                    this.animState, (float) width / height, partialTick, this.viewEffect);
+                    this.animState, (float) width / height, partialTick, this.viewEffect, handLight);
         }
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
+    }
+
+    /** Himmelslicht-Faktor an einer Weltposition (Kurve wie im Terrain-Shader). */
+    private float skyLightAt(double x, double y, double z) {
+        return ChunkRenderer.skyLightFactor(this.world.getSkyLight(
+                (int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z)));
     }
 
     /**

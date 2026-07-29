@@ -85,7 +85,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
     }
 
     @Override
-    public void render(BlockEntity be, Camera camera, float partialTick) {
+    public void render(BlockEntity be, Camera camera, float partialTick, float light) {
         ChestBlockEntity chest = (ChestBlockEntity) be;
         Vector3d cam = camera.getPosition();
         float ox = (float) (chest.getPos().x() - cam.x);
@@ -127,10 +127,12 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Texture", 0);
-        /* Welt-Truhe: normale MC-Helligkeit pro Achse (oben/Nord-Süd/West-Ost). */
-        this.shader.setUniformf("u_TopBrightness", 1.0f);
-        this.shader.setUniformf("u_ZBrightness", 0.8f);
-        this.shader.setUniformf("u_SideBrightness", 0.6f);
+        /* Welt-Truhe: normale MC-Helligkeit pro Achse (oben/Nord-Süd/West-Ost), multipliziert
+           mit dem Himmelslicht der Zelle — dieselbe Kombination wie beim Terrain
+           (FACE_BRIGHTNESS × Licht), damit die Truhe in ihrer Wand nicht heraussticht. */
+        this.shader.setUniformf("u_TopBrightness", 1.0f * light);
+        this.shader.setUniformf("u_ZBrightness", 0.8f * light);
+        this.shader.setUniformf("u_SideBrightness", 0.6f * light);
         tex.bind(0);
 
         /* Normalen nur um die Facing-Achse drehen (ohne Deckel-Klappung), damit das Richtungs-
@@ -206,7 +208,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
      * Wie bei {@link #renderIcon}: KEIN Depth-/Cull-Umschalten (Shader-Rekompilierungs-Warnung).
      */
     @Override
-    public void renderHeld(Matrix4f mvp) {
+    public void renderHeld(Matrix4f mvp, float light) {
         this.iconModel.identity();
 
         this.shader.bind();
@@ -214,10 +216,11 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.setUniformMatrix4f("u_Model", this.iconModel);
         this.normalRot.identity();
         this.shader.setUniformMatrix4f("u_NormalRot", this.normalRot);
-        /* Hand: normale Welt-Helligkeit statt der dunkleren Icon-Schrauben. */
-        this.shader.setUniformf("u_TopBrightness", 1.0f);
-        this.shader.setUniformf("u_ZBrightness", 0.8f);
-        this.shader.setUniformf("u_SideBrightness", 0.6f);
+        /* Hand: normale Welt-Helligkeit statt der dunkleren Icon-Schrauben, mal dem Licht der
+           Zelle. In der Inventar-Vorschau reicht der Aufrufer light = 1.0 durch. */
+        this.shader.setUniformf("u_TopBrightness", 1.0f * light);
+        this.shader.setUniformf("u_ZBrightness", 0.8f * light);
+        this.shader.setUniformf("u_SideBrightness", 0.6f * light);
         this.shader.setUniformi("u_Texture", 0);
         this.texture.bind(0);
         this.base.render();

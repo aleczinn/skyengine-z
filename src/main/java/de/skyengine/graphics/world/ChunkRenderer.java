@@ -1391,6 +1391,30 @@ public class ChunkRenderer {
         this.lastBrightness = gamma;
     }
 
+    /**
+     * Himmelslicht-Level 0..15 → Helligkeitsfaktor, <b>exakt dieselbe Kurve wie im
+     * Fragment-Shader</b> (Ambient-Boden vor der Regler-Kurve). Für Objekte ohne gebackenes
+     * Vertex-Licht — Spieler, Item-Drops, Item in der Hand, BlockEntities: dort ist das Licht
+     * pro Draw konstant, also rechnet die CPU den fertigen Faktor und die Renderer brauchen nur
+     * ein skalares Uniform statt vier Kopien derselben GLSL-Kurve.
+     *
+     * <p>Diese Methode und der Shader müssen zusammen geändert werden — laufen sie auseinander,
+     * sitzt eine Truhe sichtbar heller oder dunkler in ihrer Wand als das Terrain daneben.
+     *
+     * @return 1.0 bei Fullbright (Regler AUS) und bei Lichtlevel 15
+     */
+    public static float skyLightFactor(int skyLevel) {
+        int brightness = GameSettings.get().brightness;
+        if (brightness <= 0) return 1.0F; // Fullbright
+        float f = Math.clamp(skyLevel, 0, 15) / 15.0F;
+        float light = f / (4.0F - 3.0F * f);
+        light = AMBIENT_LIGHT + (1.0F - AMBIENT_LIGHT) * light;
+        float inv = 1.0F - light;
+        float inv2 = inv * inv;
+        float lifted = 1.0F - inv2 * inv2;
+        return light + (lifted - light) * (brightness / 100F); // = mix(light, lifted, brightness)
+    }
+
     /* ------------------------- Helfer ------------------------- */
 
     /** Debug-Label für einen Arena-/VAO-Slot (RenderLayer-Name oder LOD-Pseudo-Layer). */

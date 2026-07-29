@@ -14,8 +14,13 @@ public interface BlockEntityRenderer {
     /** Einmalig mit GL-Kontext: Shader/Textur/Mesh anlegen. */
     default void init() {}
 
-    /** Pro Frame: zeichnet die BlockEntity. {@code partialTick} für flüssige Interpolation. */
-    void render(BlockEntity be, Camera camera, float partialTick);
+    /**
+     * Pro Frame: zeichnet die BlockEntity. {@code partialTick} für flüssige Interpolation,
+     * {@code light} ist der fertige Himmelslicht-Faktor der Zelle
+     * ({@code ChunkRenderer.skyLightFactor}, 1.0 = voll hell bzw. Fullbright) — ohne ihn säße die
+     * Truhe in einer finsteren Höhle als leuchtender Fremdkörper in ihrer Wand.
+     */
+    void render(BlockEntity be, Camera camera, float partialTick, float light);
 
     /**
      * Ob dieser Renderer ein Inventar-Icon liefern kann (BlockEntity-Blöcke wie die Truhe haben ein
@@ -36,8 +41,11 @@ public interface BlockEntityRenderer {
      * 0..1-Blockeinheiten. WICHTIG: kein Depth-/Cull-State anfassen (Reversed-Z-Funcs sind global
      * gesetzt, der Hand-Pass hat Tiefentest an und Culling aus) — nur eigenen Shader/Textur binden
      * und am Ende unbinden; den Aufrufer-State stellt {@code HeldItemMeshes} wieder her.
+     *
+     * <p>{@code light} wie bei {@link #render} — in der Inventar-Vorschau reicht der Aufrufer
+     * hier <b>1.0</b> durch, sonst würde eine GUI mit der Weltbeleuchtung abdunkeln.
      */
-    default void renderHeld(Matrix4f mvp) {}
+    default void renderHeld(Matrix4f mvp, float light) {}
 
     default void dispose() {}
 }
