@@ -126,8 +126,24 @@ public class ChunkMesher {
     private static final int[] AXIS_T1 = {0, 0, 0, 0, 1, 1};
     private static final int[] AXIS_T2 = {2, 2, 1, 1, 2, 2};
 
-    /* Snapshot der Section-Blöcke (ein Palette-Read pro Zelle statt sechs im Greedy-Pass) */
-    private final int[] blockSnapshot = new int[ChunkSection.VOLUME];
+    /* Halo-Snapshot der Section (34³ = Section + 1-Zellen-Rand): deckt exakt die
+       Sampling-Reichweite von Cull, AO und Corner-Licht ab (jede Abfrage liegt ±1 um eine
+       Section-Zelle). Befüllt wird der Rand über den NeighborSampler — die geteilte
+       Auflösungs-Konvention (FluidGeometry!) bleibt Single Source of Truth. Ersetzt bis zu
+       28 Paletten-Reads pro Quad durch Array-Reads; die Opazität wird beim Befüllen gleich
+       mitberechnet. Licht wird LAZY memoisiert (Sentinel -1): der erste Zugriff ist exakt
+       der bisherige NeighborSampler-Aufruf, Wiederholungen (benachbarte Quads teilen sich
+       die Ecksamples) sind Array-Reads — leere Sections zahlen so keinen Vorab-Preis. */
+    private static final int HALO = ChunkSection.SIZE + 2; // 34
+    private final int[] haloBlocks = new int[HALO * HALO * HALO];
+    private final boolean[] haloOpaque = new boolean[HALO * HALO * HALO];
+    private final int[] haloLight = new int[HALO * HALO * HALO];
+    /* Basis-Welt-y der aktuellen Section (sample/occludes rechnen globales y → halo-lokal). */
+    private int sectionBaseY;
+
+    /* isOpaqueCube je State-ID (lazy wie greedyCache): erspart occludes() den Umweg über
+       das BlockState-Objekt (volatile statesById-Load + Pointer-Chase im heißesten Loop). */
+    private boolean[] opaqueCache = new boolean[0];
     /* Merge-Grid einer Slice: 0 = leer/schon emittiert, sonst Merge-Schlüssel */
     private final long[] keyGrid = new long[ChunkSection.SIZE * ChunkSection.SIZE];
     /* Markiert Fluid-Zellen, deren flach-stilles Top-Face der gemergte Wasser-Pass schon
@@ -184,17 +200,27 @@ public class ChunkMesher {
         this.cullLeaves = GameSettings.get().leavesQuality == GameSettings.LeavesQuality.LOW;
 
         int baseY = sectionIndex << ChunkSection.SHIFT;
+        this.sectionBaseY = baseY;
 
-        /* Snapshot der eigenen Section: der Greedy-Pass liest jede Zelle 6x — ein Array-Read
-           ist deutlich billiger als der Paletten-Zugriff. */
-        int[] blocks = this.blockSnapshot;
-        for (int y = 0; y < ChunkSection.SIZE; y++) {
-            for (int z = 0; z < ChunkSection.SIZE; z++) {
-                for (int x = 0; x < ChunkSection.SIZE; x++) {
-                    blocks[snapIndex(x, y, z)] = section.getBlock(x, y, z);
+        /* Halo-Snapshot: Innenbereich direkt aus der Section (wie der frühere blockSnapshot),
+           der 1-Zellen-Rand über den NeighborSampler (vertikale Nachbar-Sections desselben
+           Chunks, Kardinale UND Diagonalen — exakt die bisherige Auflösung). */
+        int[] blocks = this.haloBlocks;
+        boolean[] opaque = this.haloOpaque;
+        int size = ChunkSection.SIZE;
+        for (int y = -1; y <= size; y++) {
+            for (int z = -1; z <= size; z++) {
+                for (int x = -1; x <= size; x++) {
+                    int id = (x | y | z) >= 0 && x < size && y < size && z < size
+                            ? section.getBlock(x, y, z)
+                            : NeighborSampler.sample(chunk, north, south, west, east, diagonals, x, baseY + y, z);
+                    int idx = haloIndex(x, y, z);
+                    blocks[idx] = id;
+                    opaque[idx] = this.opaqueById(id);
                 }
             }
         }
+        Arrays.fill(this.haloLight, -1);
 
         /* Pass 1: Greedy Meshing für opake Full-Cube-Faces */
         this.greedyPass(baseY);
@@ -208,7 +234,7 @@ public class ChunkMesher {
         for (int y = 0; y < ChunkSection.SIZE; y++) {
             for (int z = 0; z < ChunkSection.SIZE; z++) {
                 for (int x = 0; x < ChunkSection.SIZE; x++) {
-                    int stateId = blocks[snapIndex(x, y, z)];
+                    int stateId = blocks[haloIndex(x, y, z)];
                     if (stateId == Blocks.AIR) continue;
                     if (this.greedyFaces(stateId) != GreedyFaces.NONE) continue; // in Pass 1 erledigt
 
@@ -316,7 +342,7 @@ public class ChunkMesher {
                         pos[axisT2] = b;
                         int x = pos[0], y = pos[1], z = pos[2];
 
-                        int stateId = this.blockSnapshot[snapIndex(x, y, z)];
+                        int stateId = this.haloBlocks[haloIndex(x, y, z)];
                         if (stateId == Blocks.AIR) continue;
                         GreedyFaces gf = this.greedyFaces(stateId);
                         if (gf == GreedyFaces.NONE) continue;
@@ -473,7 +499,7 @@ public class ChunkMesher {
             /* Mergefähige flach-stille Tops der Slice einsammeln */
             for (int z = 0; z < size; z++) {
                 for (int x = 0; x < size; x++) {
-                    int stateId = this.blockSnapshot[snapIndex(x, y, z)];
+                    int stateId = this.haloBlocks[haloIndex(x, y, z)];
                     if (stateId == Blocks.AIR) continue;
                     BlockState state = BlockRegistry.getState(stateId);
                     if (!state.isFluid()) continue;
@@ -909,19 +935,62 @@ public class ChunkMesher {
     }
 
     private boolean occludes(int x, int y, int z) {
-        return BlockRegistry.getState(this.sample(x, y, z)).isOpaqueCube();
+        int ly = y - this.sectionBaseY;
+        if (inHalo(x, ly, z)) return this.haloOpaque[haloIndex(x, ly, z)];
+        /* Außerhalb des Halos (nach der Reichweiten-Analyse unerreichbar — defensiv für
+           künftige Aufrufer): der bisherige Live-Pfad. */
+        return BlockRegistry.getState(NeighborSampler.sample(this.chunk, this.north, this.south,
+                this.west, this.east, this.diagonals, x, y, z)).isOpaqueCube();
     }
 
-    /** Block-Sample inkl. Diagonal-Chunks (x/z dürfen -1..32 sein) — geteilte Auflösung, s. {@link NeighborSampler}. */
+    /** Block-Sample inkl. Diagonal-Chunks (x/z dürfen -1..32 sein) — Werte aus dem Halo-Snapshot,
+     *  dessen Rand über den geteilten {@link NeighborSampler} befüllt wurde. */
     private int sample(int x, int y, int z) {
+        int ly = y - this.sectionBaseY;
+        if (inHalo(x, ly, z)) return this.haloBlocks[haloIndex(x, ly, z)];
         return NeighborSampler.sample(this.chunk, this.north, this.south, this.west, this.east,
                 this.diagonals, x, y, z);
     }
 
-    /** Gepacktes Licht-Sample (Himmel Bits 0-3, Block 4-7) mit der Nachbar-Auflösung von {@link #sample}. */
+    /** Gepacktes Licht-Sample (Himmel Bits 0-3, Block 4-7), lazy memoisiert im Halo:
+     *  der erste Zugriff je Zelle ist exakt der bisherige NeighborSampler-Aufruf. */
     private int samplePackedLight(int x, int y, int z) {
+        int ly = y - this.sectionBaseY;
+        if (inHalo(x, ly, z)) {
+            int idx = haloIndex(x, ly, z);
+            int v = this.haloLight[idx];
+            if (v < 0) {
+                v = NeighborSampler.samplePackedLight(this.chunk, this.north, this.south,
+                        this.west, this.east, this.diagonals, x, y, z);
+                this.haloLight[idx] = v;
+            }
+            return v;
+        }
         return NeighborSampler.samplePackedLight(this.chunk, this.north, this.south, this.west, this.east,
                 this.diagonals, x, y, z);
+    }
+
+    /** Halo-Koordinaten: x/z section-lokal -1..32, ly = y - sectionBaseY ebenfalls -1..32. */
+    private static boolean inHalo(int x, int ly, int z) {
+        return x >= -1 && x <= ChunkSection.SIZE && z >= -1 && z <= ChunkSection.SIZE
+                && ly >= -1 && ly <= ChunkSection.SIZE;
+    }
+
+    private static int haloIndex(int x, int y, int z) {
+        return ((y + 1) * HALO + (z + 1)) * HALO + (x + 1);
+    }
+
+    /** isOpaqueCube je State-ID, lazy auf Registry-Größe gewachsen (Muster greedyCache). */
+    private boolean opaqueById(int stateId) {
+        boolean[] cache = this.opaqueCache;
+        if (stateId >= cache.length) {
+            cache = new boolean[BlockRegistry.getStateCount()];
+            for (int i = 0; i < cache.length; i++) {
+                cache[i] = BlockRegistry.getState(i).isOpaqueCube();
+            }
+            this.opaqueCache = cache;
+        }
+        return cache[stateId];
     }
 
     /** Liefert aus 4 Seed-Bits einen Versatz in [-MAX_OFFSET, +MAX_OFFSET]. */
