@@ -45,5 +45,5 @@ bin/
 .DS_Store
 
 ### Engine ###
-debug/
-debug-maps/
+/debug/
+/debug-maps/

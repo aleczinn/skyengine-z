@@ -741,7 +741,9 @@ public class ChunkMesher {
      * <b>Gepacktes</b> Licht an den 4 Quad-Ecken (Reihenfolge A,B,C,D wie {@link #computeAo}):
      * Himmelslicht in Bits 0-3, Blocklicht in Bits 4-7, beide 0..15. Je Kanal das Mittel der vier
      * Zellen im Layer VOR der Face, die die Ecke berühren — opake Zellen zählen nicht mit
-     * (Minecraft-Smooth-Lighting). Quads ohne achsenparallele Richtung (Cross-Pflanzen,
+     * (Minecraft-Smooth-Lighting). Die <b>Diagonale</b> zählt zusätzlich nur, wenn nicht beide
+     * Kanten-Nachbarn massiv sind, sonst leckt eine eingemauerte Lichtquelle über Eck ins Bild.
+     * Quads ohne achsenparallele Richtung (Cross-Pflanzen,
      * nicht-planare Fluid-Geometrie) bekommen flach das Licht der eigenen Zelle.
      *
      * <p>Dass hier schon gepackt wird, hält alles dahinter unverändert: {@link #putVertex},
@@ -773,13 +775,28 @@ public class ChunkMesher {
             int s2x = t2 == 0 ? t : 0, s2y = t2 == 1 ? t : 0, s2z = t2 == 2 ? t : 0;
 
             int skySum = 0, blockSum = 0, count = 0;
+            /* Sind BEIDE Kanten-Nachbarn massiv, führt von dieser Ecke aus kein Weg zur
+               Diagonalen — sie darf dann nicht mitgemittelt werden. Dieselbe Regel wie in
+               computeAo ("side1 && side2 -> Eck-Block egal"), und dort stand sie von Anfang an.
+               Ohne sie leckt eine allseitig eingemauerte Lichtquelle über Eck ins Bild: der
+               Okklusions-Filter prüft nur die Zelle SELBST, nie den Weg dorthin, und jeder
+               Leuchtblock ist selbst nicht-okkludierend ("opaque": false bei Fackel und Lava) —
+               er fällt also nie aus der Mittelung heraus.
+               Die Zellen werden in der Reihenfolge 0,1,2,3 besucht, side1/side2 stehen damit
+               fest, bevor die Diagonale drankommt: der Guard kostet keinen zusätzlichen Sample. */
+            boolean side1 = false, side2 = false;
             for (int cell = 0; cell < 4; cell++) {
+                if (cell == 3 && side1 && side2) break;
                 boolean useS1 = cell == 1 || cell == 3;
                 boolean useS2 = cell == 2 || cell == 3;
                 int cx = fx + (useS1 ? s1x : 0) + (useS2 ? s2x : 0);
                 int cy = fy + (useS1 ? s1y : 0) + (useS2 ? s2y : 0);
                 int cz = fz + (useS1 ? s1z : 0) + (useS2 ? s2z : 0);
-                if (this.occludes(cx, cy, cz)) continue;
+                if (this.occludes(cx, cy, cz)) {
+                    if (cell == 1) side1 = true;
+                    else if (cell == 2) side2 = true;
+                    continue;
+                }
                 int packed = this.samplePackedLight(cx, cy, cz);
                 skySum += packed & 0xF;
                 blockSum += (packed >> 4) & 0xF;

@@ -171,6 +171,31 @@ AO), Quads ohne Richtung (Cross, Fluid-Geometrie) bekommen flach das Licht der e
 > `putVertex`, `emitGreedyQuad` und `emitWaterTop` reichen den einen int unverändert durch und
 > mussten **gar nicht** angefasst werden.
 
+**Der Diagonal-Guard darf nicht weg.** Die vier Zellen sind Basiszelle, zwei Kanten-Nachbarn und
+die **Diagonale**; sind beide Kanten massiv, wird die Diagonale übersprungen — dieselbe Regel wie
+in `computeAo` (`side1 && side2` → Eck-Block egal). Der Okklusions-Filter prüft nämlich nur die
+Zelle selbst, **nie den Weg dorthin**, und `occludes()` nutzt `isOpaqueCube` (das JSON-Feld
+`opaque`), nicht die Licht-Opazität: **jeder Leuchtblock ist selbst nicht-okkludierend**
+(`torch` und `lava` haben beide `"opaque": false`) und fällt damit nie aus der Mittelung heraus.
+
+> Ohne den Guard leckt eine **allseitig eingemauerte** Lichtquelle über Eck ins Bild — gemessen:
+> Blocklicht 7 auf dem Bodenquad davor, an manchen Faces sogar die vollen 14 (dort ist auch die
+> Basiszelle okkludiert, `count == 1`). Der Fehler steckte seit dem Skylight-Commit `170d935` drin
+> und fiel nur nicht auf, weil Himmelslicht ein weiches, monotones Feld ist: die Diagonale hinter
+> einer Wand hatte fast immer denselben Wert wie ihre Nachbarn. Blocklicht setzt erstmals einen
+> 15-gegen-0-Sprung direkt hinter eine massive Wand. Regressionstest: `testWalledInEmitter`.
+
+Warum der Guard **vollständig** ist: sei `E` ein Emitter mit allen 6 Nachbarn massiv. `cell1` und
+`cell2` sind orthogonale Nachbarn von `cell0`. Wäre `E` eine von beiden, grenzte `E` orthogonal an
+die (nicht okkludierte) Basiszelle — dann wäre `E` nicht eingemauert. Bleibt `E == cell3`; dann
+sind `cell1`/`cell2` orthogonale Nachbarn von `E`, also massiv, also greift der Guard. **Immer.**
+
+Minecrafts `blend()`-Semantik (okkludierte Samples durch die Zelle vor der Face ersetzen, Nenner
+immer 4) ist bewusst **nicht** übernommen: in genau dem Zweig, den der Guard betrifft, ist das
+Ergebnis ohnehin identisch (MC ersetzt Seite1/Seite2/Ecke je durch die Zentrumszelle →
+`4 × Zentrum / 4`; hier bleibt `count == 1` mit `cell0` → **ebenfalls Zentrum**). Der Rest wäre
+Drive-by am abgenommenen Himmelslicht.
+
 `NeighborSampler.samplePackedLight` (früher `sampleLight`) liefert denselben gepackten Wert. Die
 Randkonstanten stimmen gepackt unverändert weiter: `15` heißt „Himmel 15, Blocklicht 0" (fehlender
 Nachbar-Chunk darf hell sein, aber nicht glühen), `0` heißt „beides aus". Deshalb braucht es dort
@@ -283,8 +308,15 @@ unangetastet. Das gilt für Blocklicht genauso: die Emitter stehen ja in den Blo
 Luminanzen**, Heightmap-Regel, verlustfreie Direkt-Säule, Tunnel-Gradient (−1/Block, Reichweite 15),
 Versiegeln/Aufbrechen einer Höhle über `onBlockChanged`, Wassersäulen-Abstufung, Chunk-Naht nach
 `exchangeBorders` (für **beide** Ebenen), echtes Generator-Terrain (alle 1024 Säulen müssen an der
-Oberfläche 15 haben), Fackel-Gradient, Fackel setzen/abbauen, den Zwei-Fackel-Re-Seed und beide
-Licht-Kanäle **im gepackten Vertex** des Meshers. Exit 0 = alles korrekt.
+Oberfläche 15 haben), Fackel-Gradient, Fackel setzen/abbauen, den Zwei-Fackel-Re-Seed, den
+Diagonal-Guard (`testWalledInEmitter`) und beide Licht-Kanäle **im gepackten Vertex** des Meshers.
+Exit 0 = alles korrekt.
+
+> `testWalledInEmitter` misst **pro Quad, nicht pro Vertex**, und lässt die sechs Steinflächen aus,
+> die in die Nische hineinschauen: die tragen legitim das Licht der Fackelzelle (14) und sind nie
+> sichtbar. Das Leck sitzt genau auf der **gemeinsamen Ecke** von Nische und Raum — die gehört
+> beiden Seiten, nur die übrigen Ecken des leckenden Bodenquads liegen außerhalb. Wer hier auf
+> Vertex-Ebene filtert, filtert das Signal mit weg.
 
 `./gradlew saveTest` deckt zusätzlich das JSON-Parsing inklusive `light_color` ab (kaputte Farben
 erzeugen Warnungen).
