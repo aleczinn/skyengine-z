@@ -95,6 +95,13 @@ public class World implements IInitializable, IDisposable {
     /** Wiederverwendeter Snapshot-Puffer fürs BlockEntity-Ticking (keine Allokation pro Chunk/Tick). */
     private final List<BlockEntity> tickScratch = new ArrayList<>();
 
+    /* Nachhol-Protokoll für Nachbar-State-Updates an nicht-READY Chunks (F1): updateStateAt
+       parkt die Position hier, processDeferredStateUpdates zieht sie bei READY nach.
+       LinkedHashSet = Dedup + älteste-zuerst fürs Notventil; nur Tick-/Render-Thread. */
+    private static final int MAX_DEFERRED_STATE_UPDATES = 4096;
+    private final LinkedHashSet<Long> deferredStateUpdates = new LinkedHashSet<>();
+    private long[] deferredScratch = new long[0];
+
     /** Der Spieler dieses Ticks (für BlockEntities, die ihn brauchen, z.B. das Zaubertisch-Buch). */
     private EntityPlayer player;
 
@@ -200,6 +207,7 @@ public class World implements IInitializable, IDisposable {
         this.chunkManager.update(player);
         this.lodManager.update(player);
         this.restorePendingScheduledTicks();
+        this.processDeferredStateUpdates();
         this.tickScheduled();
         this.tickRandomBlocks();
         this.tickBlockEntities();
@@ -645,9 +653,15 @@ public class World implements IInitializable, IDisposable {
         return chunk.blockLight.get(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
     }
 
-    /** Setzt einen Block (mit Nachbar-Updates für Verbindungen/Treppen-Ecken). */
-    public void setBlock(int x, int y, int z, int block) {
-        this.setBlock(x, y, z, block, true);
+    /**
+     * Setzt einen Block (mit Nachbar-Updates für Verbindungen/Treppen-Ecken).
+     *
+     * @return true, wenn der Block geschrieben wurde; false, wenn der Zielchunk nicht READY
+     *         ist (Ladefront/Unload) — Aufrufer mit Folgewirkung (placeBlock, Fluids,
+     *         FallingBlock) MÜSSEN das auswerten, sonst gehen Schreibzugriffe still verloren.
+     */
+    public boolean setBlock(int x, int y, int z, int block) {
+        return this.setBlock(x, y, z, block, true);
     }
 
     /**
@@ -655,11 +669,12 @@ public class World implements IInitializable, IDisposable {
      *                        rechnen ihren State neu. false vermeidet Rekursion
      *                        bei den dadurch ausgelösten Folge-Updates.
      */
-    public void setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
+    public boolean setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
         int old = this.getBlock(x, y, z);
-        if (!this.setBlockRaw(x, y, z, block)) return;
+        if (!this.setBlockRaw(x, y, z, block)) return false;
         this.manageBlockEntity(x, y, z, old, block);
         if (updateNeighbors) this.updateNeighbors(x, y, z);
+        return true;
     }
 
     /**
@@ -670,7 +685,10 @@ public class World implements IInitializable, IDisposable {
      * untere Türhälfte selbst, bevor die obere existiert.
      */
     public void placeBlock(int x, int y, int z, BlockState state) {
-        this.setBlock(x, y, z, state.getId(), false);
+        /* Schlägt der Schreibzugriff fehl (Chunk nicht READY), dürfen onPlaced/updateNeighbors
+           NICHT laufen — PartsBehavior setzte sonst Geschwisterteile für einen Ursprung,
+           der nie geschrieben wurde. */
+        if (!this.setBlock(x, y, z, state.getId(), false)) return;
         state.getBlock().onPlaced(this, x, y, z, state);
         this.updateNeighbors(x, y, z);
     }
@@ -799,6 +817,17 @@ public class World implements IInitializable, IDisposable {
     }
 
     private void updateStateAt(int x, int y, int z) {
+        /* Nicht-READY-Zielchunk: setBlockRaw könnte ohnehin nicht schreiben — das Update
+           würde still verlorengehen (Zaun im Nachbarchunk berechnet seine Verbindung dann
+           NIE). Position parken; processDeferredStateUpdates zieht sie nach, sobald der
+           Chunk READY ist. chunk == null ist nur das Unload-Race → verwerfen. */
+        Chunk targetChunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (targetChunk == null) return;
+        if (targetChunk.status != ChunkStatus.READY) {
+            this.deferStateUpdate(x, y, z);
+            return;
+        }
+
         int id = this.getBlock(x, y, z);
         if (id == Blocks.AIR) return;
         BlockState current = Blocks.getState(id);
@@ -814,6 +843,49 @@ public class World implements IInitializable, IDisposable {
                Behavior onBreak; die Reihenfolge schließt die Lücke, bevor das erste es tut. */
             if (removed) current.getBlock().onBreak(this, x, y, z, current);
             this.setBlock(x, y, z, updated.getId(), removed);
+        }
+    }
+
+    /** Merkt ein Nachbar-State-Update für einen (noch) nicht-READY Chunk vor (dedupliziert). */
+    private void deferStateUpdate(int x, int y, int z) {
+        if (this.deferredStateUpdates.size() >= MAX_DEFERRED_STATE_UPDATES) {
+            /* Notventil gegen unbegrenztes Wachstum (z.B. Einträge für nie zurückkehrende
+               Chunks): ältesten Eintrag opfern — der Fall ist konstruiert selten. */
+            Iterator<Long> it = this.deferredStateUpdates.iterator();
+            it.next();
+            it.remove();
+            this.logger.debug("Nachhol-Puffer für Block-Updates voll — ältester Eintrag verworfen");
+        }
+        this.deferredStateUpdates.add(BlockPos.asLong(x, y, z));
+    }
+
+    /**
+     * Zieht vorgemerkte Nachbar-State-Updates nach, deren Chunk inzwischen READY ist
+     * (Gegenstück zu {@link #restorePendingScheduledTicks} für Block-States). Läuft im Tick
+     * direkt nach {@code chunkManager.update()}, damit READY-Übergänge dieses Ticks schon
+     * sichtbar sind. Die Einträge werden in einen Scratch kopiert, weil {@code updateStateAt}
+     * beim Nachziehen neue Deferrals erzeugen kann (Kaskade an die nächste Chunkgrenze).
+     */
+    private void processDeferredStateUpdates() {
+        if (this.deferredStateUpdates.isEmpty()) return;
+
+        int n = this.deferredStateUpdates.size();
+        if (this.deferredScratch.length < n) this.deferredScratch = new long[n * 2];
+        int i = 0;
+        for (long pos : this.deferredStateUpdates) this.deferredScratch[i++] = pos;
+        this.deferredStateUpdates.clear();
+
+        for (int j = 0; j < n; j++) {
+            long pos = this.deferredScratch[j];
+            int x = BlockPos.unpackX(pos), y = BlockPos.unpackY(pos), z = BlockPos.unpackZ(pos);
+            Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+            if (chunk == null || chunk.status != ChunkStatus.READY) {
+                /* Noch nicht dran (auch chunk == null: kann nach einem Unload-Zyklus
+                   zurückkommen) — wieder einreihen, das Set dedupliziert. */
+                this.deferredStateUpdates.add(pos);
+                continue;
+            }
+            this.updateStateAt(x, y, z);
         }
     }
 

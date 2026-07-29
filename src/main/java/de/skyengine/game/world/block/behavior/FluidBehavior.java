@@ -79,7 +79,11 @@ public final class FluidBehavior implements BlockBehavior {
                 if (oi == null || oi.lava == info.lava) continue;
                 if (!hasPressure(state, info) && !hasPressure(os, oi)) continue;
                 if (info.lava) {
-                    world.setBlock(nx, y, nz, Blocks.COBBLESTONE);
+                    /* Nachbarzelle in nicht-READY Chunk: eigenen Tick wiederholen statt die
+                       Hohlraum-Regel still zu verlieren (Takt bleibt der eigene, s. Skill). */
+                    if (!world.setBlock(nx, y, nz, Blocks.COBBLESTONE)) {
+                        world.scheduleTick(x, y, z, info.tickDelay);
+                    }
                 } else {
                     world.scheduleTick(ox, y, oz, oi.tickDelay); // ruhende Lava im eigenen Takt wecken
                 }
@@ -207,8 +211,14 @@ public final class FluidBehavior implements BlockBehavior {
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
             int target = world.getBlock(nx, y, nz); // erneut lesen: Nachbar-Updates können die Zelle geändert haben
             if (!canFluidReplace(target)) continue;
+            /* Zielzelle in nicht-READY Chunk: eigenen Tick wiederholen statt den Fluss
+               endgültig sterben zu lassen (der Folge-Tick fiele sonst auf Luft und wird
+               verworfen). Drop erst NACH erfolgreichem Schreiben — sonst Item-Duplikat. */
+            if (!world.setBlock(nx, y, nz, fluidState(fluid, spreadLevel, false))) {
+                world.scheduleTick(x, y, z, info.tickDelay);
+                continue;
+            }
             if (target != Blocks.AIR) dropBlockItem(world, nx, y, nz, Blocks.getState(target));
-            world.setBlock(nx, y, nz, fluidState(fluid, spreadLevel, false));
             world.scheduleTickEarlier(nx, y, nz, info.tickDelay);
         }
     }
