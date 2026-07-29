@@ -37,6 +37,9 @@ Used texture pack: C-tetra by canna (under CC BY-NC 4.0 licence); downloaded fro
   - Unterstützt bis 5.1 Surround Sound
   - Soundeffekte
   - Musik
+- 🔆 Licht-System
+  - Skylight
+  - Einfaches Blocklicht für Fackel, Lava und Pilze
 - 🔝 Optimizations & Features
   - Frustum Culling
   - Vertex Komprimierung zu 20 bits (x, y, w, h, u, v, skylight + block light)
@@ -106,6 +109,14 @@ Der Fokus liegt auf:
 - Moderne OpenGL-Techniken
 
 ## Screenshots / Changelog
+
+v0.0.10 | Licht-System
+- Skylight
+- Einfaches Blocklicht für Fackeln/Lava
+
+![Skylight](project/0.0.10_skylight.png?raw=true)
+
+![Blocklicht](project/0.0.10_blocklight.png?raw=true)
 
 v0.0.9 | Persistenz der Welt
 - Speichern der Welt
