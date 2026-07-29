@@ -15,7 +15,7 @@ Skylight-Nibble hinein.
 Block-JSON `light_opacity` → `StateFlags` Bits 10-13 → `BlockState.getLightOpacity()` →
 `LightEngine` (Heightmap + BFS) → `Chunk.light` (`LightStorage`, Nibble je Zelle) →
 `ChunkMesher.computeCornerLight` (Smooth Lighting) → int4 des Vertex → Vertex-Attribut 1 →
-`v_light` → Fragment-Shader (`lightCurve` + `u_MinLight`).
+`v_light` → Fragment-Shader (`lightCurve` → Ambient-Boden → Regler-Kurve).
 
 ## Datenhaltung (`game/world/light/LightStorage.java`)
 
@@ -108,17 +108,42 @@ zerreißen die großen Ozean-Quads); er nimmt flach das Licht der Zelle über de
 ```glsl
 float lightCurve(float f) { return f / (4.0 - 3.0 * f); }   // MC-Helligkeitskurve
 float light = lightCurve(clamp(v_light, 0.0, 1.0));
-light = u_MinLight + (1.0 - u_MinLight) * light;
+light = u_MinLight + (1.0 - u_MinLight) * light;            // Ambient-Boden ZUERST
+float inv = 1.0 - light, inv2 = inv * inv;
+light = mix(light, 1.0 - inv2 * inv2, u_Brightness);        // dann die Regler-Kurve
 vec3 lit = color.rgb * clamp(v_color, 0.0, 1.0) * light;
 ```
-`u_MinLight = 1.0` ⇒ `light == 1.0` **exakt**, für jedes `v_light` — das ist Fullbright, ohne
-Shader-Zweig, ohne zweite Programmvariante, ohne Remesh. Es gibt nur **ein** Chunk-Shader-Programm
-(Opaque/Cutout/Detail/Translucent/LOD/GPU-Cull-Phase-2 teilen es sich), deshalb reicht ein Upload
-pro Frame in `renderSolid`.
 
-`GameSettings.brightness`: 0 = AUS = Fullbright, sonst 5..100 % → `u_MinLight = brightness/100 ×
-MAX_MIN_LIGHT` (0,09, Minecraft-Wert). **Kein Remesh** — genau deshalb liegt Licht in int4 und wird
-nicht wie AO/Tint in die Vertexfarbe multipliziert.
+> **Die Reihenfolge ist der ganze Trick — und war einmal falsch herum.** Stünde die Kurve vor dem
+> Boden, bekäme sie bei Lichtlevel 0 eine Null herein und gäbe eine Null heraus (`1 − 1⁴ = 0`).
+> Der Regler wäre dann in der dunkelsten Höhle **mathematisch wirkungslos**, also genau dort, wo
+> man ihn braucht — gemessen an zwei Screenshots derselben Stelle bei 10 % und 100 %: Mittelwert
+> 2,12 in beiden, bit-identisch. Nie tauschen.
+
+`GameSettings.brightness`: 0 = AUS = Fullbright (`u_MinLight = 1.0`, `u_Brightness = 0`), sonst
+5..100 % → `u_MinLight = AMBIENT_LIGHT` (0,04) und `u_Brightness = brightness/100`. Damit gilt
+`light(0) = mix(0.04, 0.1507, Regler)`, der Regler hebt den Boden also mit an — bei Regler 50 %
+läuft die Skala 0 → 0,095 · 4 → 0,260 · 8 → 0,471 · 12 → 0,733 · 15 → 1,000.
+
+**Beide Fixpunkte sind bit-exakt:** bei Skylight 15 liefert `lightCurve` exakt 1.0, der Boden
+rundet `0.04f + 0.96f` auf exakt 1.0 und die Kurve lässt 1.0 stehen — die Oberfläche sieht also
+aus wie ohne Lichtsystem. `u_MinLight = 1.0` ⇒ `light == 1.0` für jedes `v_light`, das ist
+Fullbright, ohne Shader-Zweig, ohne zweite Programmvariante, ohne Remesh. Es gibt nur **ein**
+Chunk-Shader-Programm (Opaque/Cutout/Detail/Translucent/LOD/GPU-Cull-Phase-2 teilen es sich),
+deshalb reicht ein Upload pro Frame in `renderSolid`.
+
+**Kein Remesh** bei Reglerwechsel — genau deshalb liegt Licht in int4 und wird nicht wie AO/Tint
+in die Vertexfarbe multipliziert.
+
+### Dunkle Szenen brauchen 16-Bit-Zwischenpuffer
+
+`PostContext.createPingTargets` legt die Post-Ping-Ziele als **RGBA16F** an, nicht RGBA8. In einer
+Höhle liegen die Werte bei 0,001–0,005 — die 8-Bit-Stufe (1/255 = 0,0039) ist dort *gröber als das
+Signal*, alles kollabiert auf 0/1/2. TAA klemmt die Historie danach auf ein ~1-LSB-Fenster und
+friert das Muster ein statt es zu mitteln, und CAS-Sharpen verstärkt genau diese Sprünge um Faktor
+1,9–2,7 (`amp = sqrt(min/max)` geht bei kleinem Absolut- und großem Relativkontrast gegen 1 — CAS
+schärft am stärksten dort, wo das Signal am kaputtesten ist). Ergebnis waren gesprenkelte
+Tunnelenden. **Nicht auf RGBA8 zurückdrehen.**
 
 ## Was NICHT beleuchtet wird
 
