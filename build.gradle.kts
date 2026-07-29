@@ -59,6 +59,13 @@ tasks.register<JavaExec>("lightTest") {
     mainClass = "de.skyengine.game.world.light.debug.LightProbe"
 }
 
+tasks.register<JavaExec>("meshTest") {
+    group = "verification"
+    description = "Deterministischer Mesher-Zensus (3×3 Generator-Chunks, Quad-Zähler + Byte-Hash) — Bit-Identitäts-Beweis bei Mesher-Umbauten"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "de.skyengine.game.world.chunk.debug.MesherCensus"
+}
+
 tasks.register<JavaExec>("mapExport") {
     group = "verification"
     description = "Exportiert Weltgen-Debugkarten nach debug-maps/ (Bitstabilität der Generierung)"
