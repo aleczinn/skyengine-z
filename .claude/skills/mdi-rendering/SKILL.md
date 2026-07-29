@@ -1,6 +1,6 @@
 ---
 name: mdi-rendering
-description: ChunkRenderer mit MultiDrawIndirect — VertexArena (deferred frees!), MappedRing-Frame-Slots mit Fences, geteilter Quad-EBO, Render-Pass-Reihenfolge, Translucent-Sortierung, GPU-Cull-Pfad (Two-Phase-Hi-Z-Occlusion, Default AN). Lesen vor Änderungen an ChunkRenderer, VertexArena, SectionMesh, LodMesh, MappedRing, GpuCull oder der Draw-Reihenfolge.
+description: ChunkRenderer mit MultiDrawIndirect — VertexArena (deferred frees!), MappedRing-Frame-Slots mit Fences, geteilter Quad-EBO, Render-Pass-Reihenfolge, Translucent-Sortierung, GPU-Cull-Pfad (Two-Phase-Hi-Z-Occlusion, Default AUS). Lesen vor Änderungen an ChunkRenderer, VertexArena, SectionMesh, LodMesh, MappedRing, GpuCull oder der Draw-Reihenfolge.
 ---
 
 # MDI-Rendering (ChunkRenderer & Co.)
@@ -73,13 +73,14 @@ beide Methoden müssen daher immer paarweise pro Frame aufgerufen werden.
   über einem Ozean. Sortierte Daten wandern in frische Arena-Regionen → danach `ensureVaoBindings`.
   LOD-TRANSLUCENT (Wasser-Tops/Fluid-Wände) bewusst unsortiert.
 - **Fog:** beide Pässe setzen `u_FogColor/u_FogStart/u_FogEnd` (`setFogUniforms`, hängt an
-  `GameSettings.fog` + `lodEnabled`); der Offscreen-Framebuffer rendert mit MSAA
-  (`GameSettings.msaaSamples`).
+  `GameSettings.fog` + `lodEnabled`); der Offscreen-Framebuffer ist HDR (RGBA16F) und
+  multisampelt nur im AA-Modus MSAA (`PostProcessingSettings`, s. graphics/post/).
 
-## GPU-Cull-Pfad (GpuCull, Two-Phase-Hi-Z — Default AN)
+## GPU-Cull-Pfad (GpuCull, Two-Phase-Hi-Z — Default AUS)
 
-`GpuCull.ENABLED` (Default **AN**, Hotkey **K** = Live-A/B gegen den CPU-Pfad, der vollständig
-erhalten bleibt): Frustum-Cull für Sections OPAQUE/CUTOUT + Sicht-Gate + LOD-Opaque L1–L5
+`GpuCull.ENABLED` (Default **AUS** — s. Kosten-Realität unten; Live-A/B über den
+GuiDebugScreen, der CPU-Pfad bleibt vollständig erhalten): Frustum-Cull für Sections
+OPAQUE/CUTOUT + Sicht-Gate + LOD-Opaque L1–L5
 läuft als Compute-Pass, der pro Descriptor-Slot Indirect-Commands in GPU-Puffer schreibt
 (plain MDI mit **Null-Commands**, KEIN `glMultiDrawElementsIndirectCount` — dessen
 Count-Lesung stallte die Submission 76–114 ms). Translucent, LOD-Wasser und Kleinvegetation
@@ -113,14 +114,16 @@ Die teuer gefundenen Regeln (NICHT „vereinfachen"):
 **Kosten-Realität (2026-07-19, RTX 4080):** der GPU-Pfad kostet **~0,15–0,2 ms Fixkosten
 pro Frame, auflösungsunabhängig** (Sync-Struktur: Phase-1-Draws → Pyramide → Phase 2 +
 zweiter Draw-Satz) — bei heutigem unbeleuchtetem Content ist er damit LANGSAMER als der
-CPU-Pfad (z.B. 880→750 FPS bei 5120×1440). Default trotzdem AN (User-Entscheidung): der
-Pfad wird ständig mitgetestet und zahlt sich aus, sobald Licht-Merge/Schatten-Pass die
-Frames real verteuern. FPS-Vergleiche IMMER in Frame-Zeiten rechnen, nie in FPS-Differenzen.
+CPU-Pfad (z.B. 880→750 FPS bei 5120×1440) — deshalb Default AUS (User-Entscheidung
+2026-07-29). Der Pfad bleibt erhalten und zahlt sich aus, sobald Licht-Merge/Schatten-Pass
+die Frames real verteuern — dann Default wieder AN. FPS-Vergleiche IMMER in Frame-Zeiten
+rechnen, nie in FPS-Differenzen.
 
 **Verifikation:** Telemetrie „GpuCull-Draws" (DebugMode FULL) zeigt pro Segment
 `Σmin..max (P1+P2)` — bei statischer Kamera muss die **SUMME** konstant sein (`Σn..n`);
-die Phasen-Spannen alleine können Löcher verstecken (Runde-1-Lehre). Hotkey **J** zeichnet
-Verdeckt-Verdikte rot statt zu cullen (Löcher rot ⇒ Verdikt-Bug, Löcher leer ⇒ Mechanik-Bug).
+die Phasen-Spannen alleine können Löcher verstecken (Runde-1-Lehre). Der Occlusion-Debug-Tint
+(GuiDebugScreen) zeichnet Verdeckt-Verdikte rot statt zu cullen (Löcher rot ⇒ Verdikt-Bug,
+Löcher leer ⇒ Mechanik-Bug).
 
 ## Upload-Budgets pro Frame
 

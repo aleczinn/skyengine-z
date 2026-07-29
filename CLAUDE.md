@@ -61,7 +61,7 @@ bzw. `Variante ... fehlt` müssen **null** Treffer haben.
 20-TPS-Tick UND Rendering, `GameContainer` → `World`) und den **Main/Window-Thread** (nur
 GLFW-Events + `mainThreadTasks`). Chunks (32×512×32, 16 Sections à 32³, Palette-komprimiert)
 laufen durch die Status-Pipeline NEW→…→READY auf einem **Chunk-Worker-Pool** (Priority-Queue:
-Edit-Remesh > Load > LOD). Worker meshen Sections (Greedy + AO, gepacktes 16-Byte-Vertex-Format)
+Edit-Remesh > Load > LOD). Worker meshen Sections (Greedy + AO, gepacktes 20-Byte-Vertex-Format)
 und legen Batches in Upload-Queues; der `ChunkRenderer` zeichnet alles per **MultiDrawIndirect**
 aus je einer `VertexArena` pro RenderLayer (OPAQUE/CUTOUT/TRANSLUCENT), plus Heightmap-**LOD**-
 Regionen jenseits der Render-Distanz. Blöcke sind **datengetrieben** (JSON + Archetypen +
@@ -71,8 +71,11 @@ Quelle→Mündung-Flussnetz, Feature-Pass im Scheiben-Modell.
 
 ## Paketstruktur (Kurzfassung)
 
-- `core/` — SkyEngine (Threads/Loop), Window, Input, EngineConfig, Files, settings/
+- `core/` — SkyEngine (Threads/Loop), Window, Input, EngineConfig, file/ (Files, GameDirectory),
+  settings/, i18n/
 - `game/world/chunk/` — Chunk, ChunkSection, palette/, ChunkManager, ChunkMesher, FluidGeometry
+- `game/world/light/` — LightEngine, LightStorage (Himmels- + Blocklicht)
+- `game/world/tick/` — ScheduledTickQueue (geplante Ticks, Fluid-Fluss)
 - `game/world/block/` — Block-System: archetype/, behavior/, state/, model/, json/, entity/
   (BlockEntities + Capabilities), connection/, shape/, registry/, multiblock/, network/
 - `game/world/generator/` — WorldGenerator, generators/ (V2 + RiverNetwork), climate/, biome/,
@@ -82,9 +85,11 @@ Quelle→Mündung-Flussnetz, Feature-Pass im Scheiben-Modell.
   ChunkSerializer, DataTagIO, PlayerIO (`player.dat`)
 - `game/world/item/` (+ `json/` = ItemLoader/ItemDefinition), `game/entity/`, `game/physics/`,
   `game/GameContainer` (Verdrahtung, Interaktion, Mining, Inventar)
-- `graphics/` — world/ (ChunkRenderer, VertexArena, SectionMesh, LodMesh, MappedRing,
-  SelectionBox-/CrackRenderer), blockentity/, entity/, gui/, shader/, texture/ (TextureArray,
-  SpriteAnimations), camera/, framebuffer/
+- `graphics/` — world/ (ChunkRenderer, VertexArena, SectionMesh, LodMesh, MappedRing, GpuCull,
+  SelectionBox-/CrackRenderer), blockentity/, entity/, player/, gui/ (+font/, text/), shader/,
+  texture/ (TextureArray, SpriteAnimations), camera/, framebuffer/, post/ (PostProcessor,
+  Grading/AA-Pässe), color/
+- `mcimport/` — Minecraft-Welt-Importer (liegt im Haupt-SourceSet, s. Chunk-Persistenz)
 - `utils/` — Logging, FastNoiseLite/FBM, Profiler
 
 **Shader sind Inline-GLSL-Strings** in den Renderer-Klassen, keine .glsl-Dateien.
@@ -131,7 +136,16 @@ ausdrücken).
   am selben Licht. Licht wird nicht persistiert. Prüfstand `gradlew lightTest`
 - Rendering: MDI + VertexArena + Frame-Fences, TextureArray mit animierten Sprites,
   Translucent-Sortierung, BlockEntity-Renderer (Chest, EnchantingTable), Reversed-Z,
-  Distanz-Fog (auch über LOD) + MSAA-Offscreen-Framebuffer (beides GameSettings)
+  Distanz-Fog (auch über LOD); Szene rendert in ein HDR-Offscreen-Target (RGBA16F)
+- Post-Processing (`graphics/post/`): `PostProcessor`-Kette Color-Grading (Exposure/Tonemap/
+  Lift/Gain, eigenes JSON `PostProcessingSettings`) → Anti-Aliasing mit Modi
+  NONE/FXAA/TAA/TAA_FXAA/MSAA (MSAA = Multisample-Framebuffer wie früher, alle anderen Modi
+  ohne MSAA mit sample-barer Depth-Textur), dazu MenuBlurPass; läuft in `SkyEngine.onRender`
+  zwischen `resolve()` und GUI
+- Grafik-/Spiel-Settings (GameSettings): renderDistance, simulationDistance,
+  vegetationDistance, `LeavesQuality` (LOW/MID/HIGH inkl. Laub-an-Laub-Culling im Mesher),
+  GraphicsMode, anisotropicFiltering, msaaSamples, fog, Helligkeit, GuiScale,
+  sneakToggle/sprintToggle, `soundVolumes`-Mischpult + audioDevice
 - Block-System (Architektur gilt als **reif — kein Rewrite**): ~176 JSON-Blöcke, Archetypen,
   Behaviors, Verbindungen (Zaun/Pane/Cable), Türen, BlockEntities + Capabilities (Item/Energie)
 - Doppeltruhen mit den MC-Platzierungsregeln: Property `type` (single/left/right) + `ChestBehavior`
@@ -168,9 +182,10 @@ ausdrücken).
   Pop-ins), Skirts, Epoche/Hysterese, eigene Vertex-Arenen, AO, transluzentes LOD-Wasser,
   getönte Gras-Overlay-Wände
 - Vegetations-Tint biome-abhängig (Eck-Grids + bilinear), koplanare Grasblock-Overlays
-- GPU-driven Culling (GpuCull, Default AN, Hotkey K = A/B): Frustum + Sicht-Gate + LOD per
-  Compute, Two-Phase-Hi-Z-Occlusion (Pow2-Viertel-Pyramide); kostet heute ~0,2 ms/Frame,
-  zahlt sich ab Licht/Schatten aus — Details/Fallen im Skill `mdi-rendering`
+- GPU-driven Culling (GpuCull, Default **AUS** — heute langsamer als der CPU-Cull, Umschalten
+  im GuiDebugScreen): Frustum + Sicht-Gate + LOD per Compute, Two-Phase-Hi-Z-Occlusion
+  (Pow2-Viertel-Pyramide); kostet ~0,2 ms/Frame Fixkosten, zahlt sich ab Licht/Schatten aus —
+  dann Default wieder AN. Details/Fallen im Skill `mdi-rendering`
 - Mining: MC-Harvest-Regel, 28 Tools (7 Tiers × 4 Typen), Durability, Crack-Overlay,
   Bedrock unzerstörbar; Gamemodes Survival/Creative/Spectator; Item-Entities + Aufsammeln
 - TNT/Explosion: raybasierte Explosion (`Explosion`, MC-ServerExplosion-Modell, hardness als
@@ -181,10 +196,13 @@ ausdrücken).
   player.dat) alle 1200 Ticks, zusätzlich beim Öffnen des Pausenmenüs (ESC) und beim Unload/Exit.
   Quittung „Spiel gespeichert" unten rechts (`graphics/gui/SaveToast`), ausgelöst erst, wenn
   `World.hasPendingSaves()` abgeräumt ist — beim Autosave nur, wenn Chunks dabei waren;
-  optionaler Minecraft-Welt-Import über das eigene Source-Set `src/mcimport/` (`McWorldImporter`,
-  `mapping/BlockMapper`, `block_map.json`, NBT/MCA-Leser) — Nebentool
+  optionaler Minecraft-Welt-Import über das Paket `de.skyengine.mcimport` im Haupt-SourceSet
+  (`McWorldImporter` als API + `GuiImportWorld`, `mapping/BlockMapper`, `block_map.json`,
+  NBT/MCA-Leser; Gradle-Tasks `mcAnalyze`/`mcMapReport`/`mcImport`) — Nebentool
 - Sound (OpenAL): blockabhängige Schritte/Hit/Break/Place (Sound-Gruppen aus JSON/Tool/
-  Archetyp), Musik-Streaming mit Loop, Master-/Musik-Volume (GameSettings); Assets =
+  Archetyp), Musik-Streaming mit Loop; Lautstärke als **Mischpult** je `SoundCategory`
+  (MUSIC/BLOCKS/PLAYER/… — `GameSettings.soundVolumes`-Map statt eines einzelnen
+  musicVolume) + Master-Volume + Audiogeräte-Auswahl (`audioDevice`); Assets =
   MC-Platzhalter via `scripts/extract-mc-sounds.ps1` — Details im Skill `sound-system`
 - GUI-System komplett (graphics/gui): Widget-Basis (`GuiComponent` + Button/Slider/CycleButton/
   KeybindButton/Label/TextField, 9-Slice), Stack-Layout (VStack/HStack/Anchor), Screen-Basis mit
@@ -193,12 +211,16 @@ ausdrücken).
   (Rebinding+Reset, Capture schluckt alle Tasten), Weltauswahl/Erstellen/Löschen, Welt-Ladebalken
   (`isInitialLoadComplete`), Boot-Ladebildschirm (gestaffelte Init, Fenster früh), Inventar (E) +
   Truhe auf gemeinsamer `GuiContainer`-Basis, Todesscreen, Sprachauswahl (i18n,
-  Live-Wechsel), Sound-Optionen; GuiScale = Prozent (30–170, 100 % ≈ 3,5×), garantierte virtuelle
-  Mindestfläche 340×240 (deckt das höchste Fenster ab — die Doppeltruhe mit 222 px)
+  Live-Wechsel), Sound-Optionen, Grafik-Optionen (`GuiVideoSettings`), MC-Welt-Import
+  (`GuiImportWorld`), Bestätigungsdialog (`GuiConfirm`), Ressourcenpakete-Platzhalter
+  (`GuiResourcePacks`) und der **GuiDebugScreen** (Optionsmenü) mit allen Debug-Schaltern
+  (Wireframe, GpuCull + Tint, LOD-Overlay, Loading einfrieren, Chunks neu laden u.a. — die
+  früheren F-Hotkeys dafür sind weg); GuiScale = Prozent (30–170, 100 % ≈ 3,5×), garantierte
+  virtuelle Mindestfläche 340×240 (deckt das höchste Fenster ab — die Doppeltruhe mit 222 px)
 - Spieler-Rendering (graphics/player): Humanoid-Modell mit Classic-Skin 64×64 (skin.png im
   Spielordner überschreibt Steve), Inventar-Vorschau (folgt Maus), F5-Perspektiven
   (Ego/hinten/vorne mit Kamera-Kollisions-Raycast; Interaktion zielt IMMER vom Auge;
-  LOD-Seiten-Debug jetzt F12), prozedurale Animationen (Limb-Swing/Sneak/Arm-Schwung,
+  LOD-Gras-Overlay-Debug liegt im GuiDebugScreen), prozedurale Animationen (Limb-Swing/Sneak/Arm-Schwung,
   `PlayerAnimationState`), First-Person-Hand mit extrudierten Item-Sprites +
   Vanilla-Display-Transforms (bei Block-Items aus der `display`-Sektion des Modells, bei flachen
   Items weiterhin hartkodiert; der Iso-Würfel im `ItemIconRenderer` bleibt bewusst außen vor —
@@ -224,8 +246,8 @@ ausdrücken).
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
   (Andockpunkt: `GuiContainer.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
-- TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert, inkl. Test-Truhe
-  und Fackel) — ohne Crafting/Creative-Menü der einzige Weg, sie in die Hand zu bekommen; greift
+- Testblöcke in `GameContainer.fillStartInventory` (u.a. Truhe, Fackel, Eimer, iron_bars) —
+  ohne Crafting/Creative-Menü der einzige Weg, sie in die Hand zu bekommen; greift
   nur bei einer **frisch erstellten** Welt. Die **15 Material-Items liegen dort nicht** (beim
   Zusammenkürzen der Methode entfallen) und sind damit aktuell unerreichbar
 - Bett/Reaktor: die Mechanik steht (`parts`, s.o.), es fehlen nur noch die Blöcke selbst —

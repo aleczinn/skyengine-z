@@ -88,7 +88,7 @@ Vorzustände. Die Feature-Listen-Reihenfolge in `World` geht in den Seed ein.
 - **`GeneratorMapExporter` (eigene main, kein GL!)**: schreibt Falschfarben-PNGs nach
   `debug-maps/` — Klima, Biome, Höhen in Sekunden prüfen, args `<step> <centerX> <centerZ>`.
   Das ist der schnellste Weg, Weltgen-Änderungen zu verifizieren.
-- Determinismus-Check: F8 (Chunks neu laden) muss exakt dieselbe Welt ergeben; Nähte an
+- Determinismus-Check: „Chunks neu laden" (GuiDebugScreen) muss exakt dieselbe Welt ergeben; Nähte an
   Chunk-Grenzen = verletzte Purity.
 - Performance: Log „Generierung: X ms/Chunk" alle 256 Chunks (Richtwert ~2,5 ms/Chunk).
 - In-Game-Optik (Flussufer, Seeränder, Schneegrenze) nur visuell.

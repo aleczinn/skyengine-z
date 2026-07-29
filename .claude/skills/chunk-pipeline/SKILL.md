@@ -63,7 +63,8 @@ Offset-Durchlauf ab, sobald der Deckel erreicht ist — der Rest kommt im nächs
 neu bewertet.
 
 **`initialLoadComplete` (Latch):** true, sobald die Lade-Pipeline einmal ihren **Fixpunkt** erreicht
-hat — `loadSubmitsThisTick == 0` UND `pendingLoadTasks == 0`. Reset in `clearAllChunks()` (F8) und
+hat — `loadSubmitsThisTick == 0` UND `pendingLoadTasks == 0`. Reset in `clearAllChunks()`
+(GuiDebugScreen „Chunks neu laden") und
 `setRenderDistance`. Der `LodManager` submittet erst danach (s. Skill `lod-system`).
 **Nicht „alle Chunks READY" als Kriterium nehmen** (real gebaut, LOD blieb für immer aus): die
 äußersten Ringe des Lade-Kreises finden ihre Gating-Nachbarn außerhalb des Kreises nicht und bleiben
@@ -128,6 +129,6 @@ Unload — sonst Pop-in-Loch). Zurück im Radius wird das Flag zurückgesetzt. N
   Endstatus; `chunk.status` ist volatile.)
 - Bei jedem neuen Worker-Job: `execute` mit `PrioTask`? Keine World/Manager-Rückgriffe aus dem Job?
 - Bei Änderungen an setBlock/Meshing: Sind alle 9 Chunks gelockt? Werden Ecken diagonal dirty markiert?
-- Läuft die Engine (`./gradlew run`): F8 lädt alle Chunks neu, Taste P friert Laden/Unload ein
+- Läuft die Engine (`./gradlew run`): der GuiDebugScreen lädt alle Chunks neu bzw. friert Laden/Unload ein
   (Remeshes von Edits laufen weiter) — gut, um Pipeline-Zustände zu inspizieren. Sichtbare
   Löcher/falsche Faces an Chunk-Grenzen sind das typische Symptom verletzter Gating-Regeln.

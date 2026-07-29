@@ -73,7 +73,7 @@ entfernt im Fog-Übergang und ist akzeptiert.
    einem LEEREN Mesh aus — LOD unter dem Spieler kostet nichts. Gegen LOD-Flackern beim Weltstart
    wirkt das Lade-Gate (`ChunkManager.isInitialLoadComplete`, s.o.), nicht die Ring-Geometrie.
    **Unload-Gate (Gegenrichtung):** Der ChunkManager entfernt sichtbare Chunks
-   (`isFullyUploaded()`, bewusst NICHT status==READY — `remeshAll()` setzt READY→DECORATED
+   (`isFullyUploaded()`, bewusst NICHT status==READY — `remeshAll()` setzt READY→LIT
    zurück, während die Meshes sichtbar bleiben) jenseits rd+2 erst, wenn
    `LodManager.coversChunk` bestätigt, dass das HOCHGELADENE Mesh (Bit in `current.mask`
    ungesetzt) die Zelle deckt; bis dahin `chunk.pendingUnload = true` → `computeMask` zählt ihn
@@ -115,7 +115,7 @@ entfernt im Fog-Übergang und ist akzeptiert.
 - An Regionsrand-Kanten wird IMMER eine Wand mit tiefem Skirt emittiert (`BASE_SKIRT << level`,
   Deckel 48) — verdeckt Level-Wechsel und Remesh-Latenz. **Masken-Kanten (geclippter Nachbar =
   L0-Naht) brauchen dieselben Skirts**, sonst blitzen ~1 Block hohe Schlitze durch.
-- Das 16-Byte-Vertexformat trägt nur ~254 Blöcke Y-Spanne → Vertices werden relativ zu `yBase`
+- Das 20-Byte-Vertexformat trägt nur ~254 Blöcke Y-Spanne → Vertices werden relativ zu `yBase`
   (tiefste Geometrie − Skirt − 2) gepackt; der Renderer schiebt per Draw-Offset zurück.
   Der Greedy-Merge ist auf `MAX_MERGE_BLOCKS = 32` je Achse gedeckelt (UV-Fixed-Point 6.10 trägt
   max ~63). Tops mergen **2D** (Breite entlang x, dann Höhe entlang z — wie im ChunkMesher),
@@ -138,7 +138,7 @@ sein — Nachbarregionen sampeln dieselben Randzellen erneut.
 
 ## Verifikation
 
-- Nur visuell (`./gradlew run`): Taste P pausiert Chunk-Loading → in LOD-Gebiete fliegen und
+- Nur visuell (`./gradlew run`): „Loading einfrieren" (GuiDebugScreen) pausiert Chunk-Loading → in LOD-Gebiete fliegen und
   Nähte prüfen (Regionsgrenzen, L0-Übergang, Level-Wechsel). LOD-Toggle-Taste (KeyBindings.LOD)
   und Render-Distanz −/= triggern die Epoche.
 - Nach Mesher-Änderungen gezielt ansehen: Regionsgrenzen im flachen UND steilen Terrain,

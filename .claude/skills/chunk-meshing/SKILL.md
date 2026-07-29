@@ -12,9 +12,10 @@ description: ChunkMesher — Greedy-Meshing-Pass, Ambient Occlusion (inkl. Flip 
 Puffer werden wiederverwendet; der Chunk-Kontext wird am Ende genullt (kein Leak).
 
 - **Pass 1 (Greedy):** nur opake Full-Cube-Faces im OPAQUE-Layer. Slice-weise pro Face-Richtung;
-  Merge-Schlüssel = `stateId << 2 | AO-Quantisierung` (+1, damit 0 = leer bleibt). Zellen mit
-  **uneinheitlichem AO** (Kanten/Ecken) werden einzeln mit per-Vertex-AO emittiert — Greedy merged
-  nur uniform helle Flächen. Texturen kacheln über UV > 1 (GL_REPEAT im TextureArray).
+  Merge-Schlüssel = `stateId << 10 | packedLight << 2 | AO-Quantisierung` (+1, damit 0 = leer
+  bleibt — seit dem Licht steht das gepackte Eck-Licht mit im Schlüssel). Zellen mit
+  **uneinheitlichem AO oder Licht** (Kanten/Ecken) werden einzeln mit per-Vertex-Werten emittiert —
+  Greedy merged nur uniforme Flächen. Texturen kacheln über UV > 1 (GL_REPEAT im TextureArray).
 - **Pass 1.5 (Greedy-Wasser-Tops):** flach-stille Fluid-Quell-Tops (Meeresoberfläche) werden pro
   y-Slice greedy zu großen TRANSLUCENT-Quads gemergt (Kriterium `FluidGeometry.
   isMergeableFlatStillTop`); die Zellen landen in `mergedWaterTop`, damit `FluidGeometry.build`
@@ -81,8 +82,8 @@ Das AO-Setting wird 1× pro mesh()-Aufruf gelesen (konsistent pro Section).
 int0: posX | posY << 16   (u16 fixed 6.10, POS_SCALE=1024, Bias +1 Block, section-lokal)
 int1: posZ | u    << 16   (UV fixed 6.10, UV_SCALE=1024, Bias +1)
 int2: v    | layer << 16  (layer = TextureArray-Layer)
-int3: r | g<<8 | b<<16    (Farbe = Helligkeit × AO × Tint)
-int4: Skylight 0..15 in Bits 0-3 (Bits 4-31 frei für späteres farbiges Blocklicht)
+int3: r | g<<8 | b<<16 | plantHash<<24  (Farbe = Helligkeit × AO × Tint; Bits 24-31 = Pflanzen-Hash für die Vegetations-Ausdünnung)
+int4: Skylight 0..15 in Bits 0-3, Blocklicht 0..15 in Bits 4-7 (Bits 8-31 frei für späteres farbiges Licht)
 ```
 **int4 ist seit dem Himmelslicht belegt** und liegt als **eigenes Vertex-Attribut 1** an
 (`glVertexAttribIPointer(1, 1, GL_UNSIGNED_INT, stride, 16)` in `ChunkRenderer.ensureVaoBindings`);
