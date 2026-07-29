@@ -204,6 +204,11 @@ public class FrameBuffer implements IDisposable {
     /**
      * Sample-bare Szenen-Farbe (RGBA16F): bei MSAA erst nach {@link #resolve()} aktuell.
      */
+    /** GL-Name des (Multisample-)Szene-FBO; 0 = noch nicht erzeugt. */
+    public int getId() {
+        return this.id;
+    }
+
     public int getColorTexture() {
         return this.colorTexture;
     }

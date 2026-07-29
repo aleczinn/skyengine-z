@@ -44,7 +44,9 @@ public final class BlockEntityRenderDispatcher {
         if (this.renderers.isEmpty()) return;
         Vector3d cam = camera.getPosition();
         FrustumIntersection frustum = camera.getFrustum();
-        for (Chunk chunk : chunkManager.loadedChunks()) {
+        /* Nur Chunks, die überhaupt BlockEntities haben (Manager-Buchführung) — der frühere
+           Scan über ALLE geladenen Chunks inkl. Sicht-Gate-Lookup war O(Chunks) pro Frame. */
+        for (Chunk chunk : chunkManager.chunksWithBlockEntities()) {
             if (chunk.status != ChunkStatus.READY) continue;
             /* Sicht-Gate wie im ChunkRenderer-Cull: solange das LOD die Zelle noch zeigt, ist
                der Chunk unsichtbar — seine BlockEntities dürfen nicht über dem LOD schweben. */

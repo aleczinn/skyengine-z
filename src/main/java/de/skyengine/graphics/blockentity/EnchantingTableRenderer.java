@@ -4,6 +4,7 @@ import de.skyengine.core.file.FileHandle;
 import de.skyengine.core.file.FileType;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.EnchantingTableBlockEntity;
+import de.skyengine.graphics.GlState;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
@@ -85,8 +86,8 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
                 .rotateZ(TILT)
                 .scale(1f / 16f);
 
-        boolean cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_CULL_FACE);
+        boolean cull = GlState.isCullFaceEnabled();
+        GlState.disableCullFace();
 
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
@@ -103,7 +104,7 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
         drawPart(this.flipPage2, sinF, 0, 0, f - f * 2f * p2);
 
         this.shader.unbind();
-        if (cull) GL11.glEnable(GL11.GL_CULL_FACE);
+        if (cull) GlState.enableCullFace();
     }
 
     /** Zeichnet ein Buch-Teil: Pivot-Versatz (px) + Drehung um die lokale Y-Achse. */

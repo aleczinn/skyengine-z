@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -34,6 +35,24 @@ public class ChunkManager {
     /* Remesh-Batches (Edits/Fluid) - werden vom Renderer VOR der normalen Queue geleert,
        damit platzierte Blöcke nicht hinter dem Initial-Load warten. */
     private final ConcurrentLinkedQueue<MeshBatch> priorityUploadQueue = new ConcurrentLinkedQueue<>();
+
+    /* Chunks mit dirty Sections (gefüttert von Chunk.markSectionDirty, CAS-dedupliziert):
+       processRemeshes arbeitet nur noch diese Queue ab, statt jeden Frame ALLE Chunks zu
+       scannen (bei rd=16 waren das ~800 CHM-Iterationen pro Frame für typischerweise 0 Treffer). */
+    private final ConcurrentLinkedQueue<Chunk> remeshQueue = new ConcurrentLinkedQueue<>();
+
+    /* BlockEntity-Buchführung: setBlockEntity meldet Chunks hier an (beliebiger Thread), der
+       Render-Thread übernimmt sie in chunksWithBlockEntities und räumt Entladene/Leere aus.
+       Erspart BE-Renderer (pro Frame) und BE-Ticker (pro Tick) den Scan über ALLE Chunks. */
+    private final ConcurrentLinkedQueue<Chunk> blockEntityAnnounceQueue = new ConcurrentLinkedQueue<>();
+    private final LinkedHashSet<Chunk> chunksWithBlockEntities = new LinkedHashSet<>();
+
+    /* Aktualitäts-Sequenz für Mesh-Ergebnisse, vergeben beim Job-SUBMIT (Render-Thread, seriell):
+       ein später submitteter Job hat immer neuere Daten. Der Renderer verwirft in applyBatch
+       Batches, deren Seq nicht neuer ist als das zuletzt angewendete Mesh der Section — sonst
+       überschreibt ein Erst-Mesh aus der langen uploadQueue ein bereits angewendetes
+       Priority-Remesh derselben Section (Dirty-Bit ist dann schon konsumiert → dauerhafte Naht). */
+    private long nextMeshSeq = 1;
 
     private int renderDistance = 16; // in chunks
 
@@ -140,7 +159,7 @@ public class ChunkManager {
        als Felder). World hält eine eigene für die Edit-Updates auf dem Render-Thread. */
     private final ThreadLocal<LightEngine> lightEngines = ThreadLocal.withInitial(LightEngine::new);
 
-    public record MeshResult(int chunkX, int sectionY, int chunkZ, ChunkMesher.MeshData data) {}
+    public record MeshResult(int chunkX, int sectionY, int chunkZ, ChunkMesher.MeshData data, long meshSeq) {}
 
     public record MeshBatch(List<MeshResult> results) {}
 
@@ -300,6 +319,8 @@ public class ChunkManager {
             Chunk chunk = this.chunks.get(key);
             if (chunk == null) {
                 chunk = new Chunk(cx, cz);
+                chunk.remeshQueue = this.remeshQueue; // Dirty-Markierungen melden sich hier an
+                chunk.blockEntityAnnounceQueue = this.blockEntityAnnounceQueue;
                 this.chunks.put(key, chunk);
             }
 
@@ -389,6 +410,7 @@ public class ChunkManager {
 
                 chunk.status = ChunkStatus.MESHING;
                 Chunk finalChunk = chunk;
+                long meshSeq = this.nextMeshSeq++;
                 this.submitLoadTask(() -> {
                     ChunkMesher mesher = this.meshers.get();
                     lockRead(finalChunk, north, south, west, east, diagonals);
@@ -396,7 +418,7 @@ public class ChunkManager {
                         for (int s = 0; s < Chunk.SECTIONS; s++) {
                             ChunkMesher.MeshData mesh = mesher.mesh(finalChunk, s, north, south, west, east, diagonals);
                             this.uploadQueue.add(new MeshBatch(List.of(
-                                    new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh))));
+                                    new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh, meshSeq))));
                         }
                     } finally {
                         unlockRead(finalChunk, north, south, west, east, diagonals);
@@ -494,6 +516,15 @@ public class ChunkManager {
             }
         }
         this.chunks.clear();
+        /* Ausstehende Upload-Batches der alten Chunk-Objekte verwerfen — applyBatch würde sie
+           sonst auf die NEU angelegten Chunks derselben Koordinaten anwenden (alte Geometrie +
+           uploadedSections-Inflation). Noch laufende Worker-Jobs können danach vereinzelt
+           einreihen; diese Nachzügler heilt der Erst-Mesh der neuen Chunks (höhere meshSeq). */
+        this.uploadQueue.clear();
+        this.priorityUploadQueue.clear();
+        this.remeshQueue.clear(); // alte Chunk-Objekte; Neuanlagen melden sich selbst wieder an
+        this.blockEntityAnnounceQueue.clear();
+        this.chunksWithBlockEntities.clear();
         this.chunkRemovalVersion++;
         this.initialLoadComplete = false; // alles lädt neu → LOD wartet wieder auf das echte Terrain
     }
@@ -507,8 +538,25 @@ public class ChunkManager {
      * für dirty Sections sofort an, statt auf den nächsten Tick zu warten.
      */
     public void processRemeshes() {
-        for (Chunk chunk : this.chunks.values()) {
-            if (chunk.status != ChunkStatus.READY || !chunk.hasDirtySections()) continue;
+        /* Nur so viele Polls wie beim Eintritt eingereiht — Requeues (noch nicht READY,
+           Nachbarn fehlen) kommen sonst im selben Frame endlos wieder dran. */
+        int pending = this.remeshQueue.size();
+        for (int i = 0; i < pending; i++) {
+            Chunk chunk = this.remeshQueue.poll();
+            if (chunk == null) break;
+            /* Buchführung ZUERST löschen: eine Markierung ab hier reiht neu ein — sonst
+               ginge ein Mark zwischen Poll und Verarbeitung verloren. */
+            chunk.clearRemeshEnqueued();
+
+            /* Entladene/ersetzte Chunks austragen (die Queue hielte sie sonst am Leben). */
+            if (this.chunks.get(Chunk.key(chunk.chunkX, chunk.chunkZ)) != chunk) continue;
+            if (!chunk.hasDirtySections()) continue;
+            if (chunk.status != ChunkStatus.READY) {
+                /* Markierung vor READY (World.markDirty ab LIT, Licht-Randaustausch):
+                   dranbleiben — der Erst-Mesh konsumiert die Maske nicht. */
+                chunk.enqueueRemesh();
+                continue;
+            }
 
             /* Mindestens LIT: der Dekorator schreibt lock-frei (FeaturePlacer) — ein Remesh-Job
                dürfte einen DECORATING-Nachbarn nicht lesen (Read-Lock schützt nur gegen
@@ -521,11 +569,15 @@ public class ChunkManager {
             Chunk east = this.getAtLeast(chunk.chunkX + 1, chunk.chunkZ, ChunkStatus.LIT);
             Chunk[] diagonals = this.getDiagonalsAtLeast(chunk.chunkX, chunk.chunkZ, ChunkStatus.LIT);
             /* Nachbarn fehlen (Weltrand): Maske NICHT konsumieren, bleibt für später erhalten */
-            if (north == null || south == null || west == null || east == null || diagonals == null) continue;
+            if (north == null || south == null || west == null || east == null || diagonals == null) {
+                chunk.enqueueRemesh();
+                continue;
+            }
 
             int mask = chunk.consumeDirtySections();
             if (mask == 0) continue;
 
+            long meshSeq = this.nextMeshSeq++;
             this.submitTask(PRIO_REMESH, () -> {
                 ChunkMesher mesher = this.meshers.get();
                 List<MeshResult> batch = new ArrayList<>(Integer.bitCount(mask));
@@ -534,11 +586,13 @@ public class ChunkManager {
                     for (int s = 0; s < Chunk.SECTIONS; s++) {
                         if ((mask & (1 << s)) == 0) continue;
                         batch.add(new MeshResult(chunk.chunkX, s, chunk.chunkZ,
-                                mesher.mesh(chunk, s, north, south, west, east, diagonals)));
+                                mesher.mesh(chunk, s, north, south, west, east, diagonals), meshSeq));
                     }
                 } finally {
                     unlockRead(chunk, north, south, west, east, diagonals);
                 }
+                /* Enqueue außerhalb des Locks ist ok: überholen sich zwei Remesh-Jobs derselben
+                   Section hier, verwirft applyBatch den älteren über die meshSeq-Prüfung. */
                 this.priorityUploadQueue.add(new MeshBatch(batch));
             });
         }
@@ -590,6 +644,22 @@ public class ChunkManager {
     }
 
     /** Alle aktuell geladenen Chunks (z.B. fürs BlockEntity-Ticking). */
+    /**
+     * Chunks mit mindestens einem BlockEntity (nur Render-/Tick-Thread): übernimmt zuerst die
+     * Announce-Queue (setBlockEntity läuft auch auf Workern, z.B. beim Chunk-Restore) und räumt
+     * entladene/ersetzte sowie inzwischen BE-leere Chunks aus. Die Menge ist klein — das
+     * removeIf ist billiger als der frühere Scan über ALLE geladenen Chunks.
+     */
+    public java.util.Collection<Chunk> chunksWithBlockEntities() {
+        Chunk announced;
+        while ((announced = this.blockEntityAnnounceQueue.poll()) != null) {
+            this.chunksWithBlockEntities.add(announced);
+        }
+        this.chunksWithBlockEntities.removeIf(chunk ->
+                this.chunks.get(Chunk.key(chunk.chunkX, chunk.chunkZ)) != chunk || chunk.blockEntities().isEmpty());
+        return this.chunksWithBlockEntities;
+    }
+
     public java.util.Collection<Chunk> loadedChunks() {
         return this.chunks.values();
     }

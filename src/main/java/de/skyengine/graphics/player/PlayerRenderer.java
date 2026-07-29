@@ -8,6 +8,7 @@ import de.skyengine.core.io.IDisposable;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.PlayerAnimationState;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.graphics.GlState;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
@@ -146,8 +147,8 @@ public final class PlayerRenderer implements IDisposable {
                 .scale(scale)
                 .rotateY((float) Math.PI - (float) Math.toRadians(bodyYaw)));
 
-        boolean cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_CULL_FACE);
+        boolean cull = GlState.isCullFaceEnabled();
+        GlState.disableCullFace();
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
 
@@ -163,7 +164,7 @@ public final class PlayerRenderer implements IDisposable {
         this.shader.unbind();
         this.drawHeldItem(items, held, this.proj, 1.0f);
 
-        if (cull) GL11.glEnable(GL11.GL_CULL_FACE);
+        if (cull) GlState.enableCullFace();
     }
 
     /**
@@ -183,8 +184,8 @@ public final class PlayerRenderer implements IDisposable {
         PlayerModel.applyModelSpace(this.base.translation(ox, oy, oz)
                 .rotateY((float) Math.PI - (float) Math.toRadians(bodyYaw)));
 
-        boolean cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_CULL_FACE);
+        boolean cull = GlState.isCullFaceEnabled();
+        GlState.disableCullFace();
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Texture", 0);
@@ -193,13 +194,13 @@ public final class PlayerRenderer implements IDisposable {
         this.model.render(this.shader, this.base, this.pose);
         this.shader.unbind();
         this.drawHeldItem(items, held, camera.getProjectionViewMatrix(), light);
-        if (cull) GL11.glEnable(GL11.GL_CULL_FACE);
+        if (cull) GlState.enableCullFace();
     }
 
     /** First-Person-Arm: bindet Skin-Shader + Skin und zeichnet nur den rechten Arm mit Ärmel. */
     public void renderFirstPersonArm(Matrix4f projectionView, Matrix4f armMatrix, float light) {
-        boolean cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_CULL_FACE);
+        boolean cull = GlState.isCullFaceEnabled();
+        GlState.disableCullFace();
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", projectionView);
         this.shader.setUniformi("u_Texture", 0);
@@ -207,7 +208,7 @@ public final class PlayerRenderer implements IDisposable {
         this.skin.bind(0);
         this.model.renderRightArm(this.shader, armMatrix);
         this.shader.unbind();
-        if (cull) GL11.glEnable(GL11.GL_CULL_FACE);
+        if (cull) GlState.enableCullFace();
     }
 
     /**

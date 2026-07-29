@@ -48,7 +48,8 @@ public class GpuCull {
     /**
      * Laufzeit-Schalter (A/B-Vergleich); wirkt nur, wenn die Capabilities vorhanden sind.
      *
-     * <p>DEFAULT AN (Stand 2026-07-19, RTX 4080). Frustum-Teil ist nach der Spike-Diagnose
+     * <p>DEFAULT AUS (User-Entscheidung 2026-07-29, s. Kosten-Realität unten — bei heutigem
+     * unbeleuchtetem Content ist der CPU-Cull schneller). Frustum-Teil ist nach der Spike-Diagnose
      * paritätisch zum CPU-Cull (plain MDI mit Null-Commands + Statistik über den persistent
      * gemappten Read-Ring); die Hi-Z-Occlusion läuft als TWO-PHASE (Roadmap P4): Phase 1
      * zeichnet die Letzte-Frame-Sichtbaren (Vis-Bit pro Descriptor-Slot), daraus wird die
@@ -65,17 +66,17 @@ public class GpuCull {
      * 4 Barriers), nicht die Pyramiden-Arbeit (Pow2-Viertel-Basis + gefaltete Reduktion,
      * 3 Dispatches). Bei heutigem unbeleuchtetem Content spart die Occlusion fast nichts
      * (Early-Z killt verdeckte Pixel ohnehin) — der Pfad ist also HEUTE langsamer als der
-     * CPU-Cull. Default trotzdem AN (User-Entscheidung 2026-07-19): er wird ständig
-     * mitgetestet und zahlt zurück, sobald Licht-Merge/Schatten-Pass die Frames real
-     * verteuern (Schatten-Pass bekommt das Culling gratis).
+     * CPU-Cull, deshalb Default AUS. Der Pfad bleibt vollständig erhalten und zahlt zurück,
+     * sobald Licht-Merge/Schatten-Pass die Frames real verteuern (Schatten-Pass bekommt
+     * das Culling gratis) — dann Default wieder AN stellen.
      *
      * <p>Historie: die Ein-Phasen-Vorstufe hatte einen per Telemetrie BEWIESENEN
      * Selbst-Feedback-Loop — gecullte Objekte fehlten in der Pyramide des Folgeframes und
      * wurden durch ihre eigene Abwesenheit wieder sichtbar (LOD-Ring-Flackern in Linien;
      * Draw-Counts oszillierten op 270..336 / L4 24..83 bei statischer Kamera, mit Debug-Rot
      * perfekt stabil). Die 4-Frame-Streak-Hysterese verschob nur die Periode — deshalb
-     * Two-Phase statt Hysterese. Werkzeuge: Hotkey K = GPU-Pfad an/aus, J = Debug-Rot,
-     * 1-s-Telemetrie „GpuCull-Draws"/„GpuCull-Occlusion" (DebugMode.FULL). */
+     * Two-Phase statt Hysterese. Werkzeuge: GuiDebugScreen (Optionsmenü) schaltet GPU-Pfad
+     * und Debug-Rot, 1-s-Telemetrie „GpuCull-Draws"/„GpuCull-Occlusion" (DebugMode.FULL). */
     public static volatile boolean ENABLED = false;
 
     /** Occlusion-Debug (Hotkey J): Verdeckt-Verdikte werden ROT gezeichnet statt gecullt. */
@@ -617,7 +618,7 @@ public class GpuCull {
      * {@link #dispatchPhase2}; {@code depthTexture} 0 = kein Depth-Texture-Pfad, z.B. MSAA
      * an → Occlusion aus, Phase 2 läuft fail-open). Läuft GPU-seitig pipelined.
      */
-    public void buildPyramid(int depthTexture, int width, int height) {
+    public void buildPyramid(int depthTexture, int width, int height, int sceneFbo) {
         if (!this.isActive()) {
             this.hiZValid = false;
             return;
@@ -632,8 +633,9 @@ public class GpuCull {
         }
 
         /* Guard: Default-Framebuffer = Szene rendert nicht in den FBO, dessen Depth-Textur
-           wir gleich sampeln würden (nur im allerersten Frame beobachtet). */
-        int sceneFbo = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+           wir gleich sampeln würden (nur im allerersten Frame beobachtet). Die FBO-Id kommt
+           vom Aufrufer (Window.getFrameBuffer) — der frühere glGetInteger auf das Binding
+           war ein synchroner Treiber-Roundtrip pro Frame. */
         if (sceneFbo == 0) {
             this.statNoFbo++;
             this.hiZValid = false;

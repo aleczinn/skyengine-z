@@ -300,7 +300,11 @@ public class World implements IInitializable, IDisposable {
             this.pendingEntities.clear();
         }
 
-        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+        /* Nur Chunks mit Entities — dieselbe Menge, die auch der Renderer nutzt; der frühere
+           Voll-Walk über alle geladenen Chunks fand pro Tick fast nur Leere. Spawns landen in
+           pendingEntities (oben geflusht), Chunk-Wechsel hängt erst reconcileEntityChunks um —
+           die Menge ändert sich während der Iteration also nicht. */
+        for (Chunk chunk : this.chunksWithEntities) {
             if (chunk.status != ChunkStatus.READY) continue;
             if (!this.isSimulated(chunk.chunkX, chunk.chunkZ)) continue;
             List<Entity> list = chunk.entities();
@@ -435,17 +439,20 @@ public class World implements IInitializable, IDisposable {
 
     /** Tickt alle tickenden BlockEntities geladener Chunks (Maschinen, Pipes, ...). */
     private void tickBlockEntities() {
-        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+        /* Nur Chunks mit BlockEntities (Manager-Buchführung) statt Scan über alle Chunks. */
+        for (Chunk chunk : this.chunkManager.chunksWithBlockEntities()) {
             if (chunk.status != ChunkStatus.READY) continue;
             if (!this.isSimulated(chunk.chunkX, chunk.chunkZ)) continue;
             var entities = chunk.blockEntities();
             if (entities.isEmpty()) continue;
-            /* Snapshot in den wiederverwendeten Puffer: ein tick() darf Blöcke setzen / die Map verändern. */
+            /* Snapshot in den wiederverwendeten Puffer: ein tick() darf Blöcke setzen / die Map
+               verändern. Nicht-tickende Typen bleiben gleich draußen. */
             this.tickScratch.clear();
-            this.tickScratch.addAll(entities);
+            for (BlockEntity be : entities) {
+                if (be.getType().isTicking()) this.tickScratch.add(be);
+            }
             for (int i = 0; i < this.tickScratch.size(); i++) {
-                BlockEntity be = this.tickScratch.get(i);
-                if (be.getType().isTicking()) be.tick();
+                this.tickScratch.get(i).tick();
             }
         }
     }
@@ -830,7 +837,13 @@ public class World implements IInitializable, IDisposable {
     private void markDirty(int cx, int cz, int sectionY) {
         Chunk chunk = this.chunkManager.getChunk(cx, cz);
 
-        if (chunk != null && chunk.status == ChunkStatus.READY) {
+        /* isAtLeast(LIT) statt == READY: ein Nachbar im MESHING-Fenster (unlockRead vor dem
+           READY-Set weckt genau hier den blockierten Writer) hat sein Mesh bereits aus den
+           Vor-Edit-Daten gebaut — ein verworfener Marker hieße dauerhaft falsche Naht-Faces.
+           Die Dirty-Bits überleben bis READY (der Erst-Mesh-Job konsumiert sie nicht), das
+           Remesh-Gate in processRemeshes verlangt weiterhin READY — schlimmstenfalls also ein
+           redundanter Remesh, exakt wie bei den Markierungen der LightEngine. */
+        if (chunk != null && chunk.status.isAtLeast(ChunkStatus.LIT)) {
             chunk.markSectionDirty(sectionY);
         }
     }

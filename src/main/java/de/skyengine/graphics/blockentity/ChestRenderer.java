@@ -7,6 +7,7 @@ import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.ChestBlockEntity;
 import de.skyengine.game.world.block.state.ChestType;
 import de.skyengine.graphics.GlDebug;
+import de.skyengine.graphics.GlState;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.gui.ItemIconRenderer;
 import de.skyengine.graphics.shader.Shader;
@@ -121,8 +122,8 @@ public final class ChestRenderer implements BlockEntityRenderer {
             case SINGLE -> this.latch;
         };
 
-        boolean cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_CULL_FACE);
+        boolean cull = GlState.isCullFaceEnabled();
+        GlState.disableCullFace();
 
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
@@ -158,7 +159,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
         latchMesh.render();
 
         this.shader.unbind();
-        if (cull) GL11.glEnable(GL11.GL_CULL_FACE);
+        if (cull) GlState.enableCullFace();
     }
 
     @Override

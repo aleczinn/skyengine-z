@@ -14,6 +14,7 @@ import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ToolItem;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.graphics.GlDebug;
+import de.skyengine.graphics.GlState;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.BlockEntityRenderer;
 import de.skyengine.graphics.shader.Shader;
@@ -85,8 +86,8 @@ public final class HeldItemMeshes {
      *              für den BER-Sonderweg (Truhe in der Hand), s. {@link #heldLight}.
      */
     public void bind(Matrix4f projectionView, float light) {
-        this.cullWasEnabled = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_CULL_FACE);
+        this.cullWasEnabled = GlState.isCullFaceEnabled();
+        GlState.disableCullFace();
         this.projView.set(projectionView);
         this.heldLight = light;
         this.shader.bind();
@@ -98,7 +99,7 @@ public final class HeldItemMeshes {
 
     public void unbind() {
         this.shader.unbind();
-        if (this.cullWasEnabled) GL11.glEnable(GL11.GL_CULL_FACE);
+        if (this.cullWasEnabled) GlState.enableCullFace();
     }
 
     /**
@@ -129,9 +130,9 @@ public final class HeldItemMeshes {
         }
         this.transform.translate(-0.5F, -0.5F, -0.5F);
         this.shader.setUniformMatrix4f("u_Model", this.transform);
-        if (!held.flat) GL11.glEnable(GL11.GL_CULL_FACE);   // Block-Würfel: Rückseiten cullen (Glas wie Vanilla)
+        if (!held.flat) GlState.enableCullFace();   // Block-Würfel: Rückseiten cullen (Glas wie Vanilla)
         held.mesh.render();
-        if (!held.flat) GL11.glDisable(GL11.GL_CULL_FACE);
+        if (!held.flat) GlState.disableCullFace();
     }
 
     /**
@@ -170,9 +171,9 @@ public final class HeldItemMeshes {
         }
         this.transform.translate(-0.5F, -0.5F, -0.5F);
         this.shader.setUniformMatrix4f("u_Model", this.transform);
-        if (!held.flat) GL11.glEnable(GL11.GL_CULL_FACE);   // Block-Würfel: Rückseiten cullen (Glas wie Vanilla)
+        if (!held.flat) GlState.enableCullFace();   // Block-Würfel: Rückseiten cullen (Glas wie Vanilla)
         held.mesh.render();
-        if (!held.flat) GL11.glDisable(GL11.GL_CULL_FACE);
+        if (!held.flat) GlState.disableCullFace();
     }
 
     private HeldMesh meshFor(Item item) {

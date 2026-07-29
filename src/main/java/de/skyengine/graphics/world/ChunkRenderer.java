@@ -36,6 +36,7 @@ import org.lwjgl.opengl.GL43;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -90,6 +91,12 @@ public class ChunkRenderer {
 
     /* Teilmenge von visible mit TRANSLUCENT-Layer - nur diese werden back-to-front sortiert */
     private final List<SectionMesh> translucentVisible = new ArrayList<>();
+
+    /* Wiederverwendete Scratch-Puffer für die Translucent-Sortierung (Key-Array statt
+       Comparator: der Lambda-Sort rechnete distanceSq ZWEIMAL pro Vergleich, also
+       ~2·n·log n statt n mal, und allozierte pro Frame — Muster wie SectionMesh.sortTranslucent). */
+    private long[] translucentSortKeys = new long[0];
+    private SectionMesh[] translucentSortScratch = new SectionMesh[0];
 
     /* Alle Meshes mit TRANSLUCENT-Layer (Mitgliedschafts-Hooks in applyBatch/Cleanup):
        im GPU-Cull-Pfad entfällt der große Section-Loop, Translucent bleibt aber CPU
@@ -743,7 +750,7 @@ public class ChunkRenderer {
         if (gpu) {
             var window = SkyEngine.get().getWindow();
             this.gpuCull.buildPyramid(window.getFrameBuffer().getDepthTexture(),
-                    window.getWidth(), window.getHeight());
+                    window.getWidth(), window.getHeight(), window.getFrameBuffer().getId());
             this.gpuCull.dispatchPhase2(this.frameSlot, camera);
             this.gpuCull.barrier();
             this.gpuCull.copyCounts();
@@ -789,8 +796,25 @@ public class ChunkRenderer {
 
         FrameProfiler.cpuStart(FrameProfiler.Cpu.SORT);
 
-        /* Nur die Sections mit Translucent-Layer sortieren, nicht die ganze visible-Liste. */
-        this.translucentVisible.sort((a, b) -> Double.compare(distanceSq(b, cam), distanceSq(a, cam)));
+        /* Nur die Sections mit Translucent-Layer sortieren, nicht die ganze visible-Liste.
+           Key = float-Bits der Distanz (nicht-negativ → Bitmuster ordnungserhaltend) << 32 | Index;
+           aufsteigend sortiert und rückwärts zurückgeschrieben = fern → nah wie zuvor. */
+        int tn = this.translucentVisible.size();
+        if (tn > 1) {
+            if (this.translucentSortKeys.length < tn) {
+                this.translucentSortKeys = new long[tn * 2];
+                this.translucentSortScratch = new SectionMesh[tn * 2];
+            }
+            for (int i = 0; i < tn; i++) {
+                SectionMesh mesh = this.translucentVisible.get(i);
+                this.translucentSortScratch[i] = mesh;
+                this.translucentSortKeys[i] = ((long) Float.floatToIntBits((float) distanceSq(mesh, cam)) << 32) | i;
+            }
+            Arrays.sort(this.translucentSortKeys, 0, tn);
+            for (int i = 0; i < tn; i++) {
+                this.translucentVisible.set(i, this.translucentSortScratch[(int) this.translucentSortKeys[tn - 1 - i]]);
+            }
+        }
 
         /* Per-Quad-Sortierung: nahe Sections zuerst (Liste ist fern -> nah). Sortierte Daten
            wandern in frische Arena-Regionen -> danach ggf. VAO neu binden (Arena-Wachstum). */
@@ -980,9 +1004,18 @@ public class ChunkRenderer {
     /** Wendet einen Mesh-Batch an: alte Section-Regionen freigeben, neue allozieren. */
     private void applyBatch(ChunkManager.MeshBatch batch) {
         for (ChunkManager.MeshResult result : batch.results()) {
-            /* Upload-Bestätigung für die LOD-Maske: erst wenn alle Sections angewendet sind,
-               darf das LOD dort weichen (Chunk kann bei Unload-Race schon fehlen). */
             Chunk chunk = this.chunkManager.getChunks().get(Chunk.key(result.chunkX(), result.chunkZ()));
+
+            /* Aktualitätsprüfung: die uploadQueue (8/Frame) kann viele Sekunden Rückstand
+               haben — ein dort wartendes Erst-Mesh darf ein bereits angewendetes, NEUERES
+               Priority-Remesh derselben Section nicht überschreiben (das Dirty-Bit ist dann
+               schon konsumiert, die falsche Geometrie bliebe bis zum nächsten Edit stehen). */
+            if (chunk != null && !chunk.tryApplyMeshSeq(result.sectionY(), result.meshSeq())) continue;
+
+            /* Upload-Bestätigung für die LOD-Maske: erst wenn alle Sections angewendet sind,
+               darf das LOD dort weichen (Chunk kann bei Unload-Race schon fehlen). Zählt nur
+               tatsächlich angewendete Batches — verworfene Nachzügler würden den Zähler sonst
+               verfrüht sättigen und das LOD risse ein Loch vor dem echten Terrain. */
             if (chunk != null) chunk.markSectionUploaded();
 
             long key = sectionKey(result.chunkX(), result.sectionY(), result.chunkZ());
@@ -1458,8 +1491,42 @@ public class ChunkRenderer {
             mesh.gpuSlotCutout = this.gpuCull.addSection(GpuCull.SEG_CUTOUT, bx, bz, by, col.gateSlot,
                     mesh.indexCount(RenderLayer.CUTOUT), mesh.baseVertex(RenderLayer.CUTOUT));
         }
-        if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) this.translucentMeshes.add(mesh);
-        if (mesh.hasDetail()) this.detailMeshes.add(mesh);
+        if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) {
+            mesh.translucentIdx = this.translucentMeshes.size();
+            this.translucentMeshes.add(mesh);
+        }
+        if (mesh.hasDetail()) {
+            mesh.detailIdx = this.detailMeshes.size();
+            this.detailMeshes.add(mesh);
+        }
+    }
+
+    /* Swap-Remove über den im Mesh gespeicherten Index statt ArrayList.remove(Object):
+       der Referenz-Scan war O(Listengröße) pro Entfernung. Der Index hängt NICHT an
+       hasLayer/hasDetail (dispose() nullt die Regionen vor dem Unregister!), sondern nur
+       an der tatsächlichen Listen-Mitgliedschaft — Semantik wie das frühere ungeguardete
+       remove: enthalten → raus, sonst No-op. Die Listen sind reihenfolge-unabhängig
+       (Translucent wird pro Frame neu distanz-sortiert, Detail pro Frame neu gecullt). */
+    private void translucentListRemove(SectionMesh mesh) {
+        int idx = mesh.translucentIdx;
+        if (idx < 0) return;
+        mesh.translucentIdx = -1;
+        SectionMesh last = this.translucentMeshes.remove(this.translucentMeshes.size() - 1);
+        if (last != mesh) {
+            this.translucentMeshes.set(idx, last);
+            last.translucentIdx = idx;
+        }
+    }
+
+    private void detailListRemove(SectionMesh mesh) {
+        int idx = mesh.detailIdx;
+        if (idx < 0) return;
+        mesh.detailIdx = -1;
+        SectionMesh last = this.detailMeshes.remove(this.detailMeshes.size() - 1);
+        if (last != mesh) {
+            this.detailMeshes.set(idx, last);
+            last.detailIdx = idx;
+        }
     }
 
     private void unregisterSectionMesh(SectionMesh mesh) {
@@ -1467,12 +1534,13 @@ public class ChunkRenderer {
         if (mesh.gpuSlotCutout >= 0) this.gpuCull.removeSection(GpuCull.SEG_CUTOUT, mesh.gpuSlotCutout);
         mesh.gpuSlotOpaque = -1;
         mesh.gpuSlotCutout = -1;
-        /* IMMER entfernen (ungeguardet): dispose() läuft an beiden Aufrufstellen VOR dem
-           Unregister und nullt die Regionen — hasLayer/hasDetail wären dann schon false und
-           das tote Mesh bliebe für immer in den Listen. Der GPU-Cull-Pfad iteriert diese
-           Listen direkt und crashte damit beim Block-Edit (baseVertexDetail auf null-Region). */
-        this.translucentMeshes.remove(mesh);
-        this.detailMeshes.remove(mesh);
+        /* IMMER entfernen (nicht über hasLayer/hasDetail gaten): dispose() läuft an beiden
+           Aufrufstellen VOR dem Unregister und nullt die Regionen — die Flags wären dann schon
+           false und das tote Mesh bliebe für immer in den Listen. Der GPU-Cull-Pfad iteriert
+           diese Listen direkt und crashte damit beim Block-Edit (baseVertexDetail auf
+           null-Region). Die *ListRemove-Helfer gaten nur auf Listen-Mitgliedschaft (Idx). */
+        this.translucentListRemove(mesh);
+        this.detailListRemove(mesh);
         this.columnRemove(mesh);
     }
 
