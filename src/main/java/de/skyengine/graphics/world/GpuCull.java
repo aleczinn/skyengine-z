@@ -23,6 +23,7 @@ import org.lwjgl.opengl.GL44;
 
 import java.nio.IntBuffer;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 
 /**
  * GPU-Cull-Substrat (P3 der GPU-driven-Roadmap): hält pro zeichenbarer Einheit (Section-Layer
@@ -129,6 +130,20 @@ public class GpuCull {
 
     private int version = 1;
     private final int[] appliedVersion = new int[SLOTS];
+
+    /* Change-Log der Descriptor-Mutationen (Eintrag = kind<<28 | slot): der Upload in
+       dispatchPhase1 schreibt nur noch die seit dem letzten Besuch DIESES Frame-Slots
+       geänderten Descriptoren in den Ring (je Slot eigene Log-Position — Slots werden nur
+       alle 3 Frames besucht und Descriptor-Slots sofort wiederverwendet, ein globales
+       Dirty-Set ließe die anderen Slots stale = Geister-Geometrie). Der frühere Voll-Put
+       kopierte bei jeder Mutation den ganzen Spiegel (~600 KB/Frame bei rd=32, bis 3×).
+       Läuft das Log über LOG_LIMIT (oder invalidiert growDescriptors die Ring-Slots),
+       fällt der nächste Besuch je Slot auf den Voll-Upload zurück (fullUpload). */
+    private static final int LOG_LIMIT = 4096;
+    private int[] changeLog = new int[1024];
+    private int logSize;
+    private final int[] logPos = new int[SLOTS];
+    private final boolean[] fullUpload = {true, true, true};
 
     /* GL-Objekte: Descriptor-/Gate-Snapshots (persistent gemappt, CPU->GPU), Command-/Offset-/
        Count-Ausgaben (device-local, GPU-geschrieben). Alles über Slot-Offsets geringt. */
@@ -378,6 +393,7 @@ public class GpuCull {
         m[i + 9] = baseVertex;
         m[i + 10] = gen;                        // Slot-Generation (Vis-Bit-Tag)
         m[i + 11] = 0;
+        this.logChange(kind, slot);
         this.version++;
         return slot;
     }
@@ -385,7 +401,23 @@ public class GpuCull {
     private void clearDesc(int kind, int slot) {
         this.mirror[kind][slot * DESC_INTS + 8] = 0; // indexCount 0 = leerer Slot
         this.freeSlots[kind].add(slot);
+        this.logChange(kind, slot);
         this.version++;
+    }
+
+    /** Descriptor-Mutation ins Change-Log; bei Überlauf Rückfall auf Voll-Upload je Slot. */
+    private void logChange(int kind, int slot) {
+        if (this.logSize == this.changeLog.length) {
+            this.changeLog = Arrays.copyOf(this.changeLog, this.changeLog.length * 2);
+        }
+        this.changeLog[this.logSize++] = kind << 28 | slot;
+        if (this.logSize > LOG_LIMIT) {
+            /* Ab hier ist der Voll-Upload billiger als das Replay (z.B. remeshAll, langes
+               Spielen mit GPU-Pfad AUS — dispatchPhase1 leert das Log dann nie). */
+            Arrays.fill(this.fullUpload, true);
+            this.logSize = 0;
+            Arrays.fill(this.logPos, 0);
+        }
     }
 
     /** Verdoppelt die Descriptor-Kapazität (selten; Ring-Wachstum synchronisiert per glFinish). */
@@ -404,6 +436,11 @@ public class GpuCull {
 
         this.descRing.ensureSlotCapacity(
                 MappedRing.align((long) DESC_KINDS * newCapacity * DESC_INTS * Integer.BYTES));
+        /* Ring-Neuaufbau = alle 3 Slot-Inhalte undefiniert → jeder Slot braucht beim nächsten
+           Besuch einen Voll-Upload (das Change-Log deckt nur inkrementelle Änderungen). */
+        Arrays.fill(this.fullUpload, true);
+        this.logSize = 0;
+        Arrays.fill(this.logPos, 0);
         /* Ausgabepuffer passen nicht mehr (feste Segment-Basen) -> neu anlegen. Wie
            MappedRing.ensureSlotCapacity: glFinish + Neuaufbau (selten, geloggt). */
         GL11.glFinish();
@@ -430,15 +467,37 @@ public class GpuCull {
         if (this.appliedVersion[frameSlot] != this.version) {
             this.appliedVersion[frameSlot] = this.version;
             IntBuffer desc = this.descRing.intView(frameSlot);
-            for (int k = 0; k < DESC_KINDS; k++) {
-                desc.position(k * this.descCapacity * DESC_INTS);
-                desc.put(this.mirror[k], 0, this.mirrorCount[k] * DESC_INTS);
+            if (this.fullUpload[frameSlot]) {
+                this.fullUpload[frameSlot] = false;
+                for (int k = 0; k < DESC_KINDS; k++) {
+                    desc.position(k * this.descCapacity * DESC_INTS);
+                    desc.put(this.mirror[k], 0, this.mirrorCount[k] * DESC_INTS);
+                }
+            } else {
+                /* Replay: nur die seit dem letzten Besuch dieses Slots geänderten
+                   Descriptoren (Duplikate im Log = harmlose Doppel-Writes). */
+                for (int j = this.logPos[frameSlot]; j < this.logSize; j++) {
+                    int entry = this.changeLog[j];
+                    int kind = entry >>> 28;
+                    int slot = entry & 0x0FFFFFFF;
+                    desc.position((kind * this.descCapacity + slot) * DESC_INTS);
+                    desc.put(this.mirror[kind], slot * DESC_INTS, DESC_INTS);
+                }
             }
+            this.logPos[frameSlot] = this.logSize;
             desc.position(0);
+            /* Gate-Spiegel bleibt ein Voll-Put (≤16 KB — nicht log-würdig). */
             IntBuffer gate = this.gateRing.intView(frameSlot);
             gate.position(0);
             gate.put(this.gateMirror, 0, this.gateCount);
             gate.position(0);
+
+            /* Kompaktierung: haben alle Slots aufgeholt, kann das Log neu beginnen. */
+            if (this.logPos[0] == this.logSize && this.logPos[1] == this.logSize
+                    && this.logPos[2] == this.logSize) {
+                this.logSize = 0;
+                Arrays.fill(this.logPos, 0);
+            }
         }
 
         /* Count-Slots BEIDER Phasen nullen (device-local, timeline-geordnet; null-Data = 0). */
