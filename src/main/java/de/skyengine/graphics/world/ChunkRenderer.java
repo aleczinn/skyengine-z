@@ -253,13 +253,15 @@ public class ChunkRenderer {
 
     /* Gecachte Uniform-Locations des Chunk-Shaders (erspart Map-Lookups im Hot-Path) */
     private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogColor,
-            locDetailFade, locDetailCamSnap, locMinLight;
+            locDetailFade, locDetailCamSnap, locMinLight, locBrightness;
 
-    /* Obergrenze der Grundhelligkeit bei Helligkeit 100 % (Minecraft-Wert). Der Slider
-       skaliert linear darauf; „AUS" schaltet stattdessen auf 1.0 = Fullbright. */
-    private static final float MAX_MIN_LIGHT = 0.09F;
-    /* Zuletzt hochgeladener Wert — Upload nur bei Änderung (wie bei den Fog-Uniforms). */
+    /* Grundhelligkeit bei Lichtlevel 0 (Minecraft-Niveau): eine unbeleuchtete Höhle ist nie
+       exakt schwarz. Der Regler hebt genau diesen Wert mit an (0,04 bei 0 % bis 0,15 bei 100 %,
+       s. Fragment-Shader) — deshalb steht der Boden dort VOR der Kurve. */
+    private static final float AMBIENT_LIGHT = 0.04F;
+    /* Zuletzt hochgeladene Werte — Upload nur bei Änderung (wie bei den Fog-Uniforms). */
     private float lastMinLight = Float.NaN;
+    private float lastBrightness = Float.NaN;
 
     /* Zuletzt hochgeladene Fog-Werte: Upload nur bei Änderung (Settings/Clear-Color) —
        die Werte sind pro Frame konstant, ein Re-Upload pro Pass wäre doppelt umsonst. */
@@ -302,6 +304,7 @@ public class ChunkRenderer {
         this.locDetailFade = this.shader.getUniformLocation("u_DetailFade");
         this.locDetailCamSnap = this.shader.getUniformLocation("u_DetailCamSnap");
         this.locMinLight = this.shader.getUniformLocation("u_MinLight");
+        this.locBrightness = this.shader.getUniformLocation("u_Brightness");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
         this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F); // Ausdünnung default aus
@@ -1376,10 +1379,16 @@ public class ChunkRenderer {
      */
     private void setLightUniforms() {
         int brightness = GameSettings.get().brightness;
-        float minLight = brightness <= 0 ? 1.0F : (brightness / 100F) * MAX_MIN_LIGHT;
-        if (minLight == this.lastMinLight) return;
+        /* AUS = Fullbright: minLight 1.0 macht das Ergebnis unabhängig von allem anderen exakt
+           1.0, der Regler-Wert ist dann egal (auf 0 gesetzt, damit der Cache eindeutig bleibt). */
+        boolean fullbright = brightness <= 0;
+        float minLight = fullbright ? 1.0F : AMBIENT_LIGHT;
+        float gamma = fullbright ? 0.0F : brightness / 100F;
+        if (minLight == this.lastMinLight && gamma == this.lastBrightness) return;
         this.shader.setUniformf(this.locMinLight, minLight);
+        this.shader.setUniformf(this.locBrightness, gamma);
         this.lastMinLight = minLight;
+        this.lastBrightness = gamma;
     }
 
     /* ------------------------- Helfer ------------------------- */
@@ -1699,10 +1708,12 @@ public class ChunkRenderer {
             uniform vec3 u_FogColor;
             uniform float u_FogStart;
             uniform float u_FogEnd;
-            /* Untergrenze des Himmelslichts (Minecraft-Helligkeitsregler). 1.0 = Fullbright:
-               dann ist das Ergebnis fuer JEDES v_light exakt 1.0, also bit-identisch zum
-               Bild ohne Lichtsystem — deshalb braucht Fullbright weder Shader-Zweig noch Remesh. */
+            /* Grundhelligkeit bei Lichtlevel 0. 1.0 = Fullbright: dann ist das Ergebnis fuer
+               JEDES v_light exakt 1.0, also bit-identisch zum Bild ohne Lichtsystem — deshalb
+               braucht Fullbright weder Shader-Zweig noch Remesh. */
             uniform float u_MinLight;
+            /* Helligkeitsregler 0..1 (Minecraft-Brightness). */
+            uniform float u_Brightness;
 
             out vec4 fragColor;
 
@@ -1714,7 +1725,20 @@ public class ChunkRenderer {
                 vec4 color = texture(u_Textures, v_texCoord);
                 if (color.a < u_AlphaCutoff) discard;
                 float light = lightCurve(clamp(v_light, 0.0, 1.0));
+                /* Ambient-Boden ZUERST — er ist der Wert, den der Regler anheben soll. Stuende
+                   die Kurve davor, bekaeme sie bei Lichtlevel 0 eine Null herein und gaebe eine
+                   Null heraus (1 - 1^4 = 0): der Regler waere in der dunkelsten Hoehle exakt
+                   wirkungslos, also genau dort, wo man ihn braucht. */
                 light = u_MinLight + (1.0 - u_MinLight) * light;
+                /* Danach die Kurve. Der Regler wirkt als KURVE, nicht als Summand: 1-(1-x)^4
+                   hebt das dunkle Ende kraeftig an und laesst die Fixpunkte 0 und 1 stehen —
+                   Verlaeufe bleiben erhalten und die Oberflaeche (Licht 15) bleibt exakt 1.0.
+                   Ein flacher Boden verschoebe dagegen nur alles gleichmaessig und drueckte die
+                   Abstufungen platt, was Hoehlen als gleichfoermigen Matsch erscheinen laesst.
+                   inv2*inv2 statt pow(): identisches Ergebnis, billiger, keine pow-Randfaelle. */
+                float inv = 1.0 - light;
+                float inv2 = inv * inv;
+                light = mix(light, 1.0 - inv2 * inv2, u_Brightness);
                 /* Clamp gegen Attribut-EXTRApolation: kantenparallel gesehene Faces rastern als
                    degenerierte Sliver-Dreiecke, deren Interpolation die per-Vertex-AO-Farben
                    ueber 1.0 hinaus extrapoliert -> helle Funkel-Striche auf Augenhoehe. */
