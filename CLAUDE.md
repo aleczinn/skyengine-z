@@ -42,6 +42,7 @@ Zusätzlich:
 
 ./gradlew saveTest      # fensterlos: Block-Registry bootstrappen + Chunk-Round-Trip
 ./gradlew lightTest     # fensterlos: Himmelslicht-Ausbreitung (Heightmap, Flood, Naht, Vertex)
+./gradlew meshTest      # fensterlos: deterministischer Mesher-Zensus (Quad-Zähler + Byte-Hash)
 ./gradlew mapExport     # fensterlos: Weltgen-Karten nach debug-maps/
 ```
 

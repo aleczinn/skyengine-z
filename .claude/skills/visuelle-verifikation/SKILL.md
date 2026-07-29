@@ -23,7 +23,11 @@ description: Wie man Änderungen an dieser Engine ehrlich verifiziert — was oh
 4. **`./gradlew lightTest`** (`LightProbe`, ohne GL): Himmels- UND Blocklicht fensterlos —
    Heightmap, Flood, Chunk-Naht, Emitter setzen/abbauen, bis in den gepackten Licht-Int des
    Vertex-Puffers. Der richtige Prüfstand für alles im Skill `licht-system`.
-5. **`./gradlew run`** — alles Sichtbare (Meshing, Rendering, Fluids, LOD, GUI, Tints) ist NUR so
+5. **`./gradlew meshTest`** (`MesherCensus`, ohne GL): deterministischer Mesher-Zensus —
+   3×3 Generator-Chunks (Seed 123), Quad-Zähler je Layer + FNV-Hash über alle Vertex-Daten.
+   Identische `MESH <hash>`-Zeile vor/nach einer Mesher-Änderung = bit-identische Geometrie;
+   explodierende Quad-Zähler = stiller Greedy-Regress (Merge bricht weg).
+6. **`./gradlew run`** — alles Sichtbare (Meshing, Rendering, Fluids, LOD, GUI, Tints) ist NUR so
    prüfbar. Konsole zeigt FPS/TPS jede Sekunde; der Fenstertitel (im Debug-Modus) Sections
    sichtbar/total, Chunk-Zahl, Spielerposition.
 
