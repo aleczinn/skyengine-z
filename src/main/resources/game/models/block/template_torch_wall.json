@@ -1,32 +1,20 @@
 {
   "parent": "block/block",
-  "_comment": "Verbatim MC template_torch_wall: dieselben drei Elemente, aber um -22.5 Grad um z gekippt und an die Wand geschoben. Braucht Fliesskomma- und Ausserhalb-Koordinaten (3.5 / 19.5 / -8).",
+  "_comment": "Verbatim MC template_torch_wall (26.2): dasselbe Element wie template_torch, an die Wand geschoben und um -22.5 Grad um z gekippt. Braucht Fliesskomma-Koordinaten (3.5/13.5) und ragt mit from x = -1 rund ein Pixel in den Traeger — wie in Vanilla. Kein cullface: das gekippte Quad liegt nirgends buendig auf einer Blockgrenze. ModelLoader.rotateQuads rechnet nx = x*cos - y*sin; bei angle -22.5 wandert die Fackelspitze damit nach +x, also vom Traeger weg (facing=east hat in torch.json keine Blockstate-Drehung, der Traeger liegt im Westen). ambientocclusion ist hier redundant — die Rotation nimmt den Quads ohnehin face UND cullFace — und steht nur der Vanilla-Paritaet wegen da. shade: false dagegen wirkt: die Rotation erhaelt die Face-Helligkeit, ohne das Flag waere die Flamme je nach Wandrichtung unterschiedlich hell.",
+  "ambientocclusion": false,
   "elements": [
     {
       "from": [-1, 3.5, 7],
       "to": [1, 13.5, 9],
+      "shade": false,
       "rotation": { "origin": [0, 3.5, 8], "axis": "z", "angle": -22.5 },
       "faces": {
-        "down": { "uv": [7, 13, 9, 15], "texture": "#torch" },
-        "up":   { "uv": [7, 6, 9, 8],   "texture": "#torch" }
-      }
-    },
-    {
-      "from": [-1, 3.5, 0],
-      "to": [1, 19.5, 16],
-      "rotation": { "origin": [0, 3.5, 8], "axis": "z", "angle": -22.5 },
-      "faces": {
-        "west": { "uv": [0, 0, 16, 16], "texture": "#torch" },
-        "east": { "uv": [0, 0, 16, 16], "texture": "#torch" }
-      }
-    },
-    {
-      "from": [-8, 3.5, 7],
-      "to": [8, 19.5, 9],
-      "rotation": { "origin": [0, 3.5, 8], "axis": "z", "angle": -22.5 },
-      "faces": {
-        "north": { "uv": [0, 0, 16, 16], "texture": "#torch" },
-        "south": { "uv": [0, 0, 16, 16], "texture": "#torch" }
+        "down":  { "uv": [7, 13, 9, 15], "texture": "#torch" },
+        "up":    { "uv": [7, 6, 9, 8],   "texture": "#torch" },
+        "north": { "uv": [7, 6, 9, 16],  "texture": "#torch" },
+        "south": { "uv": [7, 6, 9, 16],  "texture": "#torch" },
+        "west":  { "uv": [7, 6, 9, 16],  "texture": "#torch" },
+        "east":  { "uv": [7, 6, 9, 16],  "texture": "#torch" }
       }
     }
   ]

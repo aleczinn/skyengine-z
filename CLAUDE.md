@@ -41,6 +41,7 @@ Zusätzlich:
 ./gradlew build
 
 ./gradlew saveTest      # fensterlos: Block-Registry bootstrappen + Chunk-Round-Trip
+./gradlew lightTest     # fensterlos: Himmelslicht-Ausbreitung (Heightmap, Flood, Naht, Vertex)
 ./gradlew mapExport     # fensterlos: Weltgen-Karten nach debug-maps/
 ```
 
@@ -108,6 +109,7 @@ ausdrücken).
 | `block-modelle-und-texturen` | …Modelle, Blockstates, Texturen, Icons, RenderLayer |
 | `fluid-system` | …Wasser/Lava-Verhalten, -Geometrie, Eimer, Strömung |
 | `lod-system` | …LodManager/LodMesher/LodConfig oder LOD-Anbindung im Renderer |
+| `licht-system` | …Himmelslicht, Licht-Opazität, ChunkStatus, der 5. Vertex-Int, Chunk-Shader |
 | `weltgen-v2` | …Weltgenerierung, Biome, Seen, Flüsse, Features, Noise-Seeds |
 | `vegetation-tint` | …Gras-/Laubfärbung, Tint-Grids, Grasblock-Overlay |
 | `sound-system` | …Sounds/Musik, OpenAL, SoundManager, Block-Sound-Gruppen, Lautstärke-Settings |
@@ -117,7 +119,16 @@ ausdrücken).
 
 **Fertig und stabil:**
 - Chunk-Pipeline mit Nachbar-Gating, Prioritäts-Workern, Edit-Priority-Uploads
-- Meshing: Greedy + Minecraft-AO (inkl. Flip + Shader-Clamp), 16-Byte-Vertices, Index-Buffer
+- Meshing: Greedy + Minecraft-AO (inkl. Flip + Shader-Clamp), 20-Byte-Vertices, Index-Buffer
+- Licht, zwei Ebenen (monochrom 0..15, kein RGB): Himmelslicht + **Blocklicht** (Leuchtblöcke).
+  Je Ebene ein `LightStorage` am Chunk (Nibble je Zelle, lazy + Uniform pro Section), gemeinsame
+  `LightEngine` (Heightmap, Emitter-Seeding mit Paletten-Vorfilter, Flood-BFS, Randaustausch,
+  Edit-Updates), Pipeline-Stufen LIGHTING/LIT, Smooth Lighting im Mesher (gepackt: Himmel Bits
+  0-3, Block 4-7 im 5. Vertex-Int), im Shader `max(sky, block)` → MC-Lichtkurve +
+  Helligkeits-Slider (AUS = Fullbright). Block-JSON `light_level` (torch 14, enchanting_table 7,
+  lava 15, brown_mushroom 1); `light_color` wird gelesen und abgelegt, wirkt aber noch NICHT.
+  Objekte ohne Vertex-Licht (Truhe, Drops, Hand, Spieler) hängen über `ChunkRenderer.lightFactor`
+  am selben Licht. Licht wird nicht persistiert. Prüfstand `gradlew lightTest`
 - Rendering: MDI + VertexArena + Frame-Fences, TextureArray mit animierten Sprites,
   Translucent-Sortierung, BlockEntity-Renderer (Chest, EnchantingTable), Reversed-Z,
   Distanz-Fog (auch über LOD) + MSAA-Offscreen-Framebuffer (beides GameSettings)
@@ -205,14 +216,18 @@ ausdrücken).
   Migration aus dem Arbeitsverzeichnis; debug/ + debug-maps/ bleiben im Projekt)
 
 **Offen / geplant (bekannt, nicht angefangen):**
-- Licht-Merge (`lightning-system`-Branch) + Schatten-Pass — dann amortisiert sich der GPU-Cull-Pfad
+- Farbiges (RGB) Blocklicht — `light_color` steht schon in der Block-JSON und liegt in
+  `BlockConfig` bereit, wirkt aber noch nicht; dafür sind die freien Bits 8-31 des Licht-Ints und
+  weitere `LightStorage`-Ebenen da. Danach Tag-Nacht-Zyklus und Schatten-Pass
+  (`lightning-system`-Branch als Vorlage) — dann amortisiert sich der GPU-Cull-Pfad
 - Crafting (kein Recipe-/Crafting-Menü; `GuiInventory`-Crafting-Bereich noch funktionslos);
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
   (Andockpunkt: `GuiContainer.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
-- TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert, inkl. Test-Truhe,
-  Fackel und den 15 Material-Items) — ohne Crafting/Creative-Menü der einzige Weg, sie in die
-  Hand zu bekommen; greift nur bei einer **frisch erstellten** Welt
+- TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert, inkl. Test-Truhe
+  und Fackel) — ohne Crafting/Creative-Menü der einzige Weg, sie in die Hand zu bekommen; greift
+  nur bei einer **frisch erstellten** Welt. Die **15 Material-Items liegen dort nicht** (beim
+  Zusammenkürzen der Methode entfallen) und sind damit aktuell unerreichbar
 - Bett/Reaktor: die Mechanik steht (`parts`, s.o.), es fehlen nur noch die Blöcke selbst —
   ein Bett braucht ein eigenes 3D-Modell + Texturen. `multiblock/MultiblockPattern` bleibt
   ungenutzte Infrastruktur für Controller-Strukturen (validiert eine Struktur aus FREMDEN
@@ -220,7 +235,8 @@ ausdrücken).
 
 **Bewusst nicht vorhanden (nicht „vergessen" — nicht ungefragt bauen):**
 - **Kein Sky-Rendering** (keine Atmosphäre/Wolken/God-Rays — Clear-Color ist der Himmel)
-- **Kein Lichtsystem** (keine Block-/Himmelslicht-Propagation; Helligkeit = Face-Brightness × AO)
+- **Kein farbiges Licht** (Blocklicht ist monochrom wie in MC), kein Tag-Nacht-Zyklus, keine
+  Schatten; Entities emittieren kein Licht (kein „Dynamic Lights") — s. Skill `licht-system`
 - Keine Mobs, kein Multiplayer, keine Test-Infrastruktur
 
 ## Wiederkehrende Fallen (Kurzliste — Details in den Skills)

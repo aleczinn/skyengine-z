@@ -8,6 +8,7 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.ItemStack;
@@ -16,6 +17,7 @@ import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
 import de.skyengine.graphics.texture.TextureArray;
+import de.skyengine.graphics.world.ChunkRenderer;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
 import org.joml.Vector3d;
@@ -70,6 +72,7 @@ public final class EntityRenderer {
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Textures", 0);
         this.shader.setUniformf("u_WhiteFlash", 0f); // Default: kein Blink (Falling/Item unverändert)
+        this.shader.setUniformf("u_Light", 1.0f);    // Default hell; drawEntity setzt den echten Wert
         this.textures.bind(0);
 
         Vector3d cam = camera.getPosition();
@@ -78,13 +81,13 @@ public final class EntityRenderer {
             if (chunk.status != ChunkStatus.READY) continue;
             List<Entity> entities = chunk.entities();
             for (int i = 0; i < entities.size(); i++) {
-                this.drawEntity(entities.get(i), cam, frustum, partialTick);
+                this.drawEntity(entities.get(i), chunk, cam, frustum, partialTick);
             }
         }
         this.shader.unbind();
     }
 
-    private void drawEntity(Entity e, Vector3d cam, FrustumIntersection frustum, float partialTick) {
+    private void drawEntity(Entity e, Chunk chunk, Vector3d cam, FrustumIntersection frustum, float partialTick) {
         if (e.isRemoved()) return;
 
         float ox = (float) (e.lastX + (e.x - e.lastX) * partialTick - cam.x);
@@ -95,6 +98,14 @@ public final class EntityRenderer {
            Item-Wippe und Tick-Interpolation ab - lieber zu großzügig als sichtbare Entity verlieren. */
         if (!frustum.testAab(ox - CULL_MARGIN, oy - CULL_MARGIN, oz - CULL_MARGIN,
                 ox + CULL_MARGIN, oy + 1f + CULL_MARGIN, oz + CULL_MARGIN)) return;
+
+        /* Licht der eigenen Zelle (Himmel + Block). Der Chunk der Schleife IST der Chunk der
+           Entity (Entities hängen an ihrem Chunk, s. World.tickEntities) — kein World-Lookup. */
+        int lx = (int) Math.floor(e.x) & ChunkSection.MASK;
+        int ly = Math.clamp((int) Math.floor(e.y), 0, Chunk.HEIGHT - 1);
+        int lz = (int) Math.floor(e.z) & ChunkSection.MASK;
+        this.shader.setUniformf("u_Light", ChunkRenderer.lightFactor(
+                chunk.light.get(lx, ly, lz), chunk.blockLight.get(lx, ly, lz)));
 
         if (e instanceof FallingBlockEntity fb) {
             Mesh mesh = this.meshFor(fb.getBlockId());
@@ -243,11 +254,16 @@ public final class EntityRenderer {
         in vec3 v_color;
         uniform sampler2DArray u_Textures;
         uniform float u_WhiteFlash;   // 0..1: mischt das Fragment Richtung Weiß (TNT-Blink)
+        /* Himmelslicht der Entity-Zelle, fertig durch die Kurve gerechnet
+           (ChunkRenderer.lightFactor). 1.0 = voll hell bzw. Fullbright. */
+        uniform float u_Light;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < 0.5) discard;
-            vec3 rgb = mix(c.rgb * v_color, vec3(1.0), u_WhiteFlash);
+            /* Licht VOR dem Blink: eine TNT-Zuendung soll auch in einer finsteren Hoehle
+               rein weiss aufblitzen und nicht mit abgedunkelt werden. */
+            vec3 rgb = mix(c.rgb * v_color * u_Light, vec3(1.0), u_WhiteFlash);
             fragColor = vec4(rgb, c.a);
         }
         """;

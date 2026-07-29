@@ -253,7 +253,15 @@ public class ChunkRenderer {
 
     /* Gecachte Uniform-Locations des Chunk-Shaders (erspart Map-Lookups im Hot-Path) */
     private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogColor,
-            locDetailFade, locDetailCamSnap;
+            locDetailFade, locDetailCamSnap, locMinLight, locBrightness;
+
+    /* Grundhelligkeit bei Lichtlevel 0 (Minecraft-Niveau): eine unbeleuchtete Höhle ist nie
+       exakt schwarz. Der Regler hebt genau diesen Wert mit an (0,04 bei 0 % bis 0,15 bei 100 %,
+       s. Fragment-Shader) — deshalb steht der Boden dort VOR der Kurve. */
+    private static final float AMBIENT_LIGHT = 0.04F;
+    /* Zuletzt hochgeladene Werte — Upload nur bei Änderung (wie bei den Fog-Uniforms). */
+    private float lastMinLight = Float.NaN;
+    private float lastBrightness = Float.NaN;
 
     /* Zuletzt hochgeladene Fog-Werte: Upload nur bei Änderung (Settings/Clear-Color) —
        die Werte sind pro Frame konstant, ein Re-Upload pro Pass wäre doppelt umsonst. */
@@ -295,6 +303,8 @@ public class ChunkRenderer {
         this.locFogColor = this.shader.getUniformLocation("u_FogColor");
         this.locDetailFade = this.shader.getUniformLocation("u_DetailFade");
         this.locDetailCamSnap = this.shader.getUniformLocation("u_DetailCamSnap");
+        this.locMinLight = this.shader.getUniformLocation("u_MinLight");
+        this.locBrightness = this.shader.getUniformLocation("u_Brightness");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
         this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F); // Ausdünnung default aus
@@ -643,6 +653,7 @@ public class ChunkRenderer {
         this.shader.bind();
         this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
         this.setFogUniforms();
+        this.setLightUniforms();
         this.textures.bind(0);
 
         /* GPU-Pfad: Compute-Ergebnisse (Commands/Offsets/Counts) vor den Draws sichtbar machen. */
@@ -1302,8 +1313,13 @@ public class ChunkRenderer {
 
             GL30.glBindVertexArray(this.vaos[i]);
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, arenaBuffer);
-            GL30.glVertexAttribIPointer(0, 4, GL11.GL_UNSIGNED_INT, ChunkMesher.VERTEX_SIZE * Integer.BYTES, 0);
+            int stride = ChunkMesher.VERTEX_SIZE * Integer.BYTES;
+            GL30.glVertexAttribIPointer(0, 4, GL11.GL_UNSIGNED_INT, stride, 0);
             GL20.glEnableVertexAttribArray(0);
+            /* Attribut 1 = der 5. Int (Licht). Ein 5-komponentiges Attribut gibt es nicht,
+               daher ein zweites 1-komponentiges bei Offset 16 — Stride bleibt derselbe. */
+            GL30.glVertexAttribIPointer(1, 1, GL11.GL_UNSIGNED_INT, stride, 16);
+            GL20.glEnableVertexAttribArray(1);
             GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, this.sharedEbo);
             GL30.glBindVertexArray(0);
 
@@ -1354,6 +1370,53 @@ public class ChunkRenderer {
         this.lastFogR = clear.red;
         this.lastFogG = clear.green;
         this.lastFogB = clear.blue;
+    }
+
+    /**
+     * Setzt die Untergrenze des Himmelslichts aus dem Helligkeits-Setting. Reicht EINMAL pro
+     * Frame in {@code renderSolid}: alle Pässe (Cutout, Detail, Translucent, LOD, GPU-Cull-
+     * Phase 2) teilen sich dasselbe Shader-Programm, und Uniform-State bleibt darin erhalten.
+     */
+    private void setLightUniforms() {
+        int brightness = GameSettings.get().brightness;
+        /* AUS = Fullbright: minLight 1.0 macht das Ergebnis unabhängig von allem anderen exakt
+           1.0, der Regler-Wert ist dann egal (auf 0 gesetzt, damit der Cache eindeutig bleibt). */
+        boolean fullbright = brightness <= 0;
+        float minLight = fullbright ? 1.0F : AMBIENT_LIGHT;
+        float gamma = fullbright ? 0.0F : brightness / 100F;
+        if (minLight == this.lastMinLight && gamma == this.lastBrightness) return;
+        this.shader.setUniformf(this.locMinLight, minLight);
+        this.shader.setUniformf(this.locBrightness, gamma);
+        this.lastMinLight = minLight;
+        this.lastBrightness = gamma;
+    }
+
+    /**
+     * Licht-Level 0..15 (Himmel und Block, der hellere gewinnt) → Helligkeitsfaktor, <b>exakt
+     * dieselbe Kurve wie im Fragment-Shader</b> (max, dann Lichtkurve, dann Ambient-Boden, dann
+     * Regler-Kurve). Für Objekte ohne gebackenes Vertex-Licht — Spieler, Item-Drops, Item in der
+     * Hand, BlockEntities: dort ist das Licht pro Draw konstant, also rechnet die CPU den fertigen
+     * Faktor und die Renderer brauchen nur ein skalares Uniform statt vier Kopien derselben
+     * GLSL-Kurve.
+     *
+     * <p>Diese Methode und der Shader müssen zusammen geändert werden — laufen sie auseinander,
+     * sitzt eine Truhe sichtbar heller oder dunkler in ihrer Wand als das Terrain daneben.
+     *
+     * <p>Dass der Shader das Maximum erst nach der Interpolation bildet und die CPU schon davor,
+     * macht keinen Unterschied: hier sind beide Werte pro Draw konstant.
+     *
+     * @return 1.0 bei Fullbright (Regler AUS) und bei Lichtlevel 15
+     */
+    public static float lightFactor(int skyLevel, int blockLevel) {
+        int brightness = GameSettings.get().brightness;
+        if (brightness <= 0) return 1.0F; // Fullbright
+        float f = Math.clamp(Math.max(skyLevel, blockLevel), 0, 15) / 15.0F;
+        float light = f / (4.0F - 3.0F * f);
+        light = AMBIENT_LIGHT + (1.0F - AMBIENT_LIGHT) * light;
+        float inv = 1.0F - light;
+        float inv2 = inv * inv;
+        float lifted = 1.0F - inv2 * inv2;
+        return light + (lifted - light) * (brightness / 100F); // = mix(light, lifted, brightness)
     }
 
     /* ------------------------- Helfer ------------------------- */
@@ -1595,6 +1658,8 @@ public class ChunkRenderer {
     private static final String VERTEX_SOURCE = """
             #version 460 core
             layout(location = 0) in uvec4 a_data;
+            /* 5. Int des Vertex-Formats: Skylight 0..15 in Bits 0-3 (Rest reserviert). */
+            layout(location = 1) in uint a_light;
 
             layout(std430, binding = 0) readonly buffer DrawOffsets {
                 vec4 u_DrawOffsets[];
@@ -1611,6 +1676,7 @@ public class ChunkRenderer {
 
             out vec3 v_texCoord;
             out vec3 v_color;
+            out vec2 v_light;   // x = Himmelslicht, y = Blocklicht (je 0..1)
             out float v_viewDist;
 
             void main() {
@@ -1623,6 +1689,9 @@ public class ChunkRenderer {
 
                 v_texCoord = vec3(uv, layer);
                 v_color = color;
+                /* Himmels- und Blocklicht je 0..1, interpoliert -> weiche Verlaeufe (Smooth
+                   Lighting). Muss VOR dem Ausduennungs-Block stehen, der mit return aussteigt. */
+                v_light = vec2(float(a_light & 0xFu), float((a_light >> 4) & 0xFu)) * (1.0 / 15.0);
                 /* Occlusion-Debug (GpuCull.DEBUG_TINT): der Compute markiert Verdeckt-Verdikte
                    ueber baseInstance=1 statt sie zu cullen -> rot tinten. */
                 if (gl_BaseInstance != 0) {
@@ -1659,6 +1728,7 @@ public class ChunkRenderer {
             #version 460 core
             in vec3 v_texCoord;
             in vec3 v_color;
+            in vec2 v_light;    // x = Himmelslicht, y = Blocklicht (je 0..1)
             in float v_viewDist;
 
             uniform sampler2DArray u_Textures;
@@ -1666,16 +1736,43 @@ public class ChunkRenderer {
             uniform vec3 u_FogColor;
             uniform float u_FogStart;
             uniform float u_FogEnd;
+            /* Grundhelligkeit bei Lichtlevel 0. 1.0 = Fullbright: dann ist das Ergebnis fuer
+               JEDES v_light exakt 1.0, also bit-identisch zum Bild ohne Lichtsystem — deshalb
+               braucht Fullbright weder Shader-Zweig noch Remesh. */
+            uniform float u_MinLight;
+            /* Helligkeitsregler 0..1 (Minecraft-Brightness). */
+            uniform float u_Brightness;
 
             out vec4 fragColor;
+
+            /* Minecraft-Helligkeitskurve (lightBrightnessTable): staucht mittlere Licht-Level
+               nach unten. Linear waere der Abfall fast ueberall zu grell. */
+            float lightCurve(float f) { return f / (4.0 - 3.0 * f); }
 
             void main() {
                 vec4 color = texture(u_Textures, v_texCoord);
                 if (color.a < u_AlphaCutoff) discard;
+                /* Monochrom wie in Minecraft: der hellere der beiden Werte gewinnt. Erst DANACH
+                   die Kurve — die Reihenfolge darunter bleibt unangetastet. */
+                float light = lightCurve(clamp(max(v_light.x, v_light.y), 0.0, 1.0));
+                /* Ambient-Boden ZUERST — er ist der Wert, den der Regler anheben soll. Stuende
+                   die Kurve davor, bekaeme sie bei Lichtlevel 0 eine Null herein und gaebe eine
+                   Null heraus (1 - 1^4 = 0): der Regler waere in der dunkelsten Hoehle exakt
+                   wirkungslos, also genau dort, wo man ihn braucht. */
+                light = u_MinLight + (1.0 - u_MinLight) * light;
+                /* Danach die Kurve. Der Regler wirkt als KURVE, nicht als Summand: 1-(1-x)^4
+                   hebt das dunkle Ende kraeftig an und laesst die Fixpunkte 0 und 1 stehen —
+                   Verlaeufe bleiben erhalten und die Oberflaeche (Licht 15) bleibt exakt 1.0.
+                   Ein flacher Boden verschoebe dagegen nur alles gleichmaessig und drueckte die
+                   Abstufungen platt, was Hoehlen als gleichfoermigen Matsch erscheinen laesst.
+                   inv2*inv2 statt pow(): identisches Ergebnis, billiger, keine pow-Randfaelle. */
+                float inv = 1.0 - light;
+                float inv2 = inv * inv;
+                light = mix(light, 1.0 - inv2 * inv2, u_Brightness);
                 /* Clamp gegen Attribut-EXTRApolation: kantenparallel gesehene Faces rastern als
                    degenerierte Sliver-Dreiecke, deren Interpolation die per-Vertex-AO-Farben
                    ueber 1.0 hinaus extrapoliert -> helle Funkel-Striche auf Augenhoehe. */
-                vec3 lit = color.rgb * clamp(v_color, 0.0, 1.0);
+                vec3 lit = color.rgb * clamp(v_color, 0.0, 1.0) * light;
                 /* Linearer Distanz-Fog Richtung Clear-Color: nimmt dem Horizont den Kontrast
                    (Sub-Pixel-Flimmern des Fernterrains) und versteckt die Far-Plane-Kante. */
                 float fog = clamp((v_viewDist - u_FogStart) / (u_FogEnd - u_FogStart), 0.0, 1.0);

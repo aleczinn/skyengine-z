@@ -945,8 +945,8 @@ public final class LodMesher {
      * Packt einen Vertex ins Chunk-Format (Konstanten aus {@link ChunkMesher}, Bias +1);
      * y wird relativ zu {@link #yBase} gepackt (Renderer addiert yBase im Draw-Offset).
      * Clamp als Sicherheitsnetz gegen Format-Überlauf (wie ChunkMesher.fixedPos).
-     * Der 5. Int ist wie bei {@link ChunkMesher#VERTEX_SIZE} für farbiges Licht reserviert
-     * und wird aktuell nicht befüllt.
+     * Der 5. Int trägt das Licht (s. {@link ChunkMesher#VERTEX_SIZE}); LOD-Terrain liegt per
+     * Definition auf oder über der Heightmap und bekommt deshalb pauschal Voll-Himmel.
      */
     private void putVertex(boolean translucent, float x, float y, float z, float u, float v,
                            int layer, float brightness, int tint) {
@@ -964,7 +964,9 @@ public final class LodMesher {
         buf[i++] = pz | (pu << 16);
         buf[i++] = pv | (layer << 16);
         buf[i++] = r | (g << 8) | (b << 16);
-        buf[i++] = 0; // reserviert für farbiges Licht (Phase Lichtsystem)
+        /* Skylight voll (Bits 0-3), Blocklicht 0 (Bits 4-7). Jenseits der Renderdistanz zeigt LOD
+           nur Oberfläche, wo ohnehin der Himmel dominiert — eine Fackel dort unten wäre unsichtbar. */
+        buf[i++] = 15;
         if (translucent) this.viTranslucent = i; else this.viOpaque = i;
     }
 }

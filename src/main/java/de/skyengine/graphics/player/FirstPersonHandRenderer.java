@@ -30,8 +30,13 @@ public final class FirstPersonHandRenderer {
     private final Matrix4f pv = new Matrix4f();
     private final Matrix4f model = new Matrix4f();
 
+    /**
+     * @param light Licht-Faktor der Augenposition (Himmel + Block) ({@code ChunkRenderer.lightFactor}) —
+     *              Arm und Item dunkeln damit wie die Wand direkt davor ab.
+     */
     public void render(PlayerRenderer playerRenderer, HeldItemMeshes items, EntityPlayer player,
-                       PlayerAnimationState anim, float aspect, float partialTick, Matrix4f viewEffect) {
+                       PlayerAnimationState anim, float aspect, float partialTick, Matrix4f viewEffect,
+                       float light) {
         if (SkyEngine.get().getWindow().getProperties().isUseInverseDepth()) {
             this.proj.setPerspective((float) Math.toRadians(HAND_FOV), aspect, 20F, 0.05F, true);
         } else {
@@ -72,7 +77,7 @@ public final class FirstPersonHandRenderer {
                     .translate(5.6F, 0F, 0F)
                     .scale(1F / 16F)
                     .translate(-5F, 2F, 0F); // Arm-Pivot (Vanilla ModelPart rightArm)
-            playerRenderer.renderFirstPersonArm(this.pv, this.model);
+            playerRenderer.renderFirstPersonArm(this.pv, this.model, light);
             return;
         }
 
@@ -106,7 +111,7 @@ public final class FirstPersonHandRenderer {
                     .rotateX((float) Math.toRadians(f6 * -80F))
                     .rotateY((float) Math.toRadians(-45F));
         }
-        items.bind(this.pv);
+        items.bind(this.pv, light);
         items.drawFirstPerson(handItem, this.model);
         items.unbind();
     }

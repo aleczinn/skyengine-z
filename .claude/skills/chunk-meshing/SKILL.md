@@ -82,9 +82,13 @@ int0: posX | posY << 16   (u16 fixed 6.10, POS_SCALE=1024, Bias +1 Block, sectio
 int1: posZ | u    << 16   (UV fixed 6.10, UV_SCALE=1024, Bias +1)
 int2: v    | layer << 16  (layer = TextureArray-Layer)
 int3: r | g<<8 | b<<16    (Farbe = Helligkeit × AO × Tint)
-int4: reserviert für farbiges Licht (RGB8 + 8 Bit frei) — noch ungenutzt, der Vertex-Shader
-      liest weiterhin nur ein uvec4 (int0..int3); Stride wächst automatisch mit VERTEX_SIZE
+int4: Skylight 0..15 in Bits 0-3 (Bits 4-31 frei für späteres farbiges Blocklicht)
 ```
+**int4 ist seit dem Himmelslicht belegt** und liegt als **eigenes Vertex-Attribut 1** an
+(`glVertexAttribIPointer(1, 1, GL_UNSIGNED_INT, stride, 16)` in `ChunkRenderer.ensureVaoBindings`);
+int0..int3 bleiben das uvec4 von Attribut 0. Licht steht bewusst **getrennt** und wird NICHT wie AO
+und Tint in int3 einmultipliziert: Helligkeitskurve und Helligkeits-Regler laufen im Fragment-Shader,
+sonst wäre jede Helligkeitsänderung ein Voll-Remesh. Details im Skill `licht-system`.
 Konsequenzen: Positionen tragen nur ~−1..+62 Blöcke, UVs max. ~63 (deshalb Merge-Deckel im LOD;
 Section-Greedy bleibt ≤ 32 durch die Section-Größe).
 

@@ -76,7 +76,8 @@
       "lod_distance": "LOD-Distanz: %d",
       "vsync": "VSync",
       "view_bobbing": "Gehbewegung",
-      "damage_tilt": "Schadensneigung"
+      "damage_tilt": "Schadensneigung",
+      "brightness": "Helligkeit: %s"
     },
 
     "sound": {

@@ -16,8 +16,10 @@ import java.nio.ByteBuffer;
  * (dokumentiert): {@link #velocity}/{@link #history} kommen mit TAA (Phase 2), {@link #lut}
  * mit dem LUTPass; {@link #sceneDepth} ist nur bei MSAA=0 belegt.
  *
- * <p>Dazu: zwei LDR-Ping-Pong-Zwischentexturen (RGBA8) für Pass-Verkettung und der
- * gemeinsame Fullscreen-Triangle-Draw (leeres VAO, Positionen aus gl_VertexID).
+ * <p>Dazu: zwei LDR-Ping-Pong-Zwischentexturen (RGBA16F) für Pass-Verkettung und der
+ * gemeinsame Fullscreen-Triangle-Draw (leeres VAO, Positionen aus gl_VertexID). LDR meint hier
+ * den Wertebereich (der Grading-Pass klemmt auf 0..1), nicht die Bit-Tiefe — die 16 Bit sind
+ * für die Auflösung im dunklen Ende nötig, s. {@link #createPingTargets}.
  */
 public final class PostContext implements IDisposable {
 
@@ -69,8 +71,16 @@ public final class PostContext implements IDisposable {
         for (int i = 0; i < 2; i++) {
             this.pingTex[i] = GL11.glGenTextures();
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.pingTex[i]);
-            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, width, height, 0,
-                    GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, (ByteBuffer) null);
+            /* RGBA16F, nicht RGBA8: der Grading-Pass klemmt weiterhin auf 0..1 (LDR bleibt LDR),
+               es geht NICHT um Headroom, sondern um Auflösung im dunklen Ende. In einer Höhle
+               liegen die Werte bei 0,001-0,005 — die 8-Bit-Stufe (1/255 = 0,0039) war dort
+               gröber als das Signal selbst, alles kollabierte auf 0/1/2. TAA klemmte die
+               Historie dann auf ein ~1-LSB-Fenster und fror das Muster ein statt es zu mitteln,
+               und CAS-Sharpen verstärkte genau diese Sprünge um Faktor 1,9-2,7 (amp =
+               sqrt(min/max) geht bei kleinem Absolut- und großem Relativkontrast gegen 1).
+               Das war die Ursache der gesprenkelten Tunnelenden. */
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA16F, width, height, 0,
+                    GL11.GL_RGBA, GL11.GL_FLOAT, (ByteBuffer) null);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
@@ -85,7 +95,7 @@ public final class PostContext implements IDisposable {
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
     }
 
-    /** LDR-Zwischenziel i (0/1) — FBO fürs Schreiben, {@link #pingTexture} fürs Lesen. */
+    /** LDR-Zwischenziel i (0/1), RGBA16F — FBO fürs Schreiben, {@link #pingTexture} fürs Lesen. */
     public int pingFbo(int i) {
         return this.pingFbo[i];
     }

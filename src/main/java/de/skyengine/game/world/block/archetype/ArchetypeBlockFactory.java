@@ -113,6 +113,19 @@ public final class ArchetypeBlockFactory {
             builder.harvestLevel(ToolTier.levelByName(def.harvest_tier));
         }
 
+        /* Licht-Opazität: ohne Angabe entscheidet Block.getLightOpacity automatisch per State. */
+        if (def.light_opacity != null) {
+            builder.lightOpacity(Math.clamp(def.light_opacity.intValue(), 0, 15));
+        }
+
+        /* Eigenleuchten. Die Farbe wird nur geparst und abgelegt — sie wirkt noch nicht. */
+        if (def.light_level != null) {
+            builder.lightLevel(Math.clamp(def.light_level.intValue(), 0, 15));
+        }
+        if (def.light_color != null) {
+            builder.lightColor(parseHexColor(def.light_color, id));
+        }
+
         /* Sound-Gruppe: explizites JSON-Feld oder Ableitung aus Tool/Archetyp. */
         String archetypeName = def.archetype != null ? def.archetype : def.type;
         builder.sound(BlockSoundGroup.resolve(def.sound, ToolType.byName(def.tool), archetypeName));
@@ -122,6 +135,24 @@ public final class ArchetypeBlockFactory {
         builder.replaceable(def.replaceable);
 
         return new Block(id, settings, builder.build());
+    }
+
+    /**
+     * "#RRGGBB" (das {@code #} ist optional) -> 0xRRGGBB. Eine unbrauchbare Angabe ist kein
+     * Abbruchgrund — der Block leuchtet dann eben weiß —, wird aber gemeldet: {@code saveTest}
+     * liest die Warnungen mit.
+     */
+    private static int parseHexColor(String value, Identifier id) {
+        String hex = value.startsWith("#") ? value.substring(1) : value;
+        if (hex.length() == 6) {
+            try {
+                return Integer.parseInt(hex, 16);
+            } catch (NumberFormatException ignored) {
+                /* fällt unten auf Weiß zurück */
+            }
+        }
+        LOGGER.warning("light_color '" + value + "' von " + id + " ist kein #RRGGBB - nehme Weiss");
+        return 0xFFFFFF;
     }
 
     /** up/down/... -> Bitmaske (1 << Face-Index); null/leer = alle Quads (-1). */

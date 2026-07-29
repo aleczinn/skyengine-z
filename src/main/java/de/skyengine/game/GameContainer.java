@@ -28,6 +28,7 @@ import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.item.ToolItem;
+import de.skyengine.graphics.world.ChunkRenderer;
 import de.skyengine.graphics.world.CrackRenderer;
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
@@ -724,9 +725,11 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.perspective.isFirstPerson()) {
             this.world.render(this.camera, partialTick);
         } else {
+            /* Licht der Spielerzelle — der Spieler steht IN seinem Block, also die Füße-Zelle. */
+            float playerLight = this.lightAt(this.player.x, this.player.y, this.player.z);
             this.world.render(this.camera, partialTick, () ->
                     this.playerRenderer.renderThirdPerson(this.player, this.animState, this.camera, partialTick,
-                            this.heldItemMeshes, this.playerInventory.get(this.hotbarIndex)));
+                            this.heldItemMeshes, this.playerInventory.get(this.hotbarIndex), playerLight));
         }
         if (DebugFlags.wireframe) Utils.disableWireframe();
 
@@ -757,11 +760,22 @@ public class GameContainer implements IResizeable, IDisposable {
 
         /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Depth-Clear. */
         if (this.perspective.isFirstPerson() && this.player.getGamemode() != Gamemode.SPECTATOR) {
+            /* Licht der AUGEN-Zelle (nicht der Füße): die Hand hängt vor dem Gesicht, und in
+               einem 1 Block hohen Kriechgang unterscheiden sich beide sichtbar. */
+            float handLight = this.lightAt(this.player.x,
+                    this.player.y + this.player.getEyeHeight(partialTick), this.player.z);
             this.handRenderer.render(this.playerRenderer, this.heldItemMeshes, this.player,
-                    this.animState, (float) width / height, partialTick, this.viewEffect);
+                    this.animState, (float) width / height, partialTick, this.viewEffect, handLight);
         }
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
+    }
+
+    /** Licht-Faktor an einer Weltposition, Himmel und Block (Kurve wie im Terrain-Shader). */
+    private float lightAt(double x, double y, double z) {
+        int bx = (int) Math.floor(x), by = (int) Math.floor(y), bz = (int) Math.floor(z);
+        return ChunkRenderer.lightFactor(this.world.getSkyLight(bx, by, bz),
+                this.world.getBlockLight(bx, by, bz));
     }
 
     /**
@@ -1410,7 +1424,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.setItem(5, "skyengine:chest");
         this.setItem(6, "skyengine:water_bucket");
         this.setItem(7, "skyengine:lava_bucket");
-        this.setItem(8, "skyengine:iron_bars");
+        this.setItem(8, "skyengine:torch", 64);
+        this.setItem(9, "skyengine:iron_bars");
     }
 
     /** Legt 64 eines Blocks in einen Inventar-Slot (Block-Item über die Identifier-Registry). */

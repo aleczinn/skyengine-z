@@ -4,6 +4,8 @@
   "layer": "translucent",
   "opaque": false,
   "solid": false,
+  "light_level": 15,
+  "light_color": "#FF9A33",
   "fluid_spread": 7,
   "drop_off": 2,
   "fluid_tick": 30,

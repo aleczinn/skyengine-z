@@ -5,9 +5,11 @@ import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
+import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.graphics.camera.Camera;
+import de.skyengine.graphics.world.ChunkRenderer;
 import org.joml.FrustumIntersection;
 import org.joml.Vector3d;
 
@@ -60,7 +62,12 @@ public final class BlockEntityRenderDispatcher {
                 if (!frustum.testAab(ox - CULL_MARGIN, oy - CULL_MARGIN, oz - CULL_MARGIN,
                         ox + 1f + CULL_MARGIN, oy + 1f + CULL_MARGIN, oz + 1f + CULL_MARGIN)) continue;
 
-                renderer.render(be, camera, partialTick);
+                /* Licht der eigenen Zelle (Himmel + Block) — Chunk und BlockPos liegen hier
+                   ohnehin vor, ein World-Lookup wäre überflüssig. */
+                int lx = pos.x() & ChunkSection.MASK, lz = pos.z() & ChunkSection.MASK;
+                float light = ChunkRenderer.lightFactor(chunk.light.get(lx, pos.y(), lz),
+                        chunk.blockLight.get(lx, pos.y(), lz));
+                renderer.render(be, camera, partialTick, light);
             }
         }
     }

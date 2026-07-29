@@ -154,10 +154,14 @@ public final class PlayerRenderer implements IDisposable {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", this.proj);
         this.shader.setUniformi("u_Texture", 0);
+        /* GUI: NIE abdunkeln. Der Shader ist derselbe wie im Welt-Pass, deshalb muss die
+           Vorschau ihn explizit auf 1.0 zurücksetzen — sonst erbt sie das Licht des Frames
+           davor und die Inventar-Figur wird in einer Höhle schwarz. */
+        this.shader.setUniformf("u_Light", 1.0f);
         this.skin.bind(0);
         this.model.render(this.shader, this.base, this.pose);
         this.shader.unbind();
-        this.drawHeldItem(items, held, this.proj);
+        this.drawHeldItem(items, held, this.proj, 1.0f);
 
         if (cull) GL11.glEnable(GL11.GL_CULL_FACE);
     }
@@ -168,7 +172,7 @@ public final class PlayerRenderer implements IDisposable {
      */
     public void renderThirdPerson(EntityPlayer player, PlayerAnimationState anim,
                                   Camera camera, float partialTick,
-                                  HeldItemMeshes items, ItemStack held) {
+                                  HeldItemMeshes items, ItemStack held, float light) {
         Vector3d cam = camera.getPosition();
         float ox = (float) (player.lastX + (player.x - player.lastX) * partialTick - cam.x);
         float oy = (float) (player.lastY + (player.y - player.lastY) * partialTick - cam.y);
@@ -184,20 +188,22 @@ public final class PlayerRenderer implements IDisposable {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Texture", 0);
+        this.shader.setUniformf("u_Light", light);
         this.skin.bind(0);
         this.model.render(this.shader, this.base, this.pose);
         this.shader.unbind();
-        this.drawHeldItem(items, held, camera.getProjectionViewMatrix());
+        this.drawHeldItem(items, held, camera.getProjectionViewMatrix(), light);
         if (cull) GL11.glEnable(GL11.GL_CULL_FACE);
     }
 
     /** First-Person-Arm: bindet Skin-Shader + Skin und zeichnet nur den rechten Arm mit Ärmel. */
-    public void renderFirstPersonArm(Matrix4f projectionView, Matrix4f armMatrix) {
+    public void renderFirstPersonArm(Matrix4f projectionView, Matrix4f armMatrix, float light) {
         boolean cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
         GL11.glDisable(GL11.GL_CULL_FACE);
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", projectionView);
         this.shader.setUniformi("u_Texture", 0);
+        this.shader.setUniformf("u_Light", light);
         this.skin.bind(0);
         this.model.renderRightArm(this.shader, armMatrix);
         this.shader.unbind();
@@ -278,7 +284,7 @@ public final class PlayerRenderer implements IDisposable {
      * Arm-Part-Matrix → Handgelenk → rotateX(−90°) → rotateY(180°) → Versatz — der
      * Display-Transform selbst steckt in {@link HeldItemMeshes#drawThirdPerson}.
      */
-    private void drawHeldItem(HeldItemMeshes items, ItemStack held, Matrix4f projectionView) {
+    private void drawHeldItem(HeldItemMeshes items, ItemStack held, Matrix4f projectionView, float light) {
         if (items == null || held == null || held.isEmpty()) return;
         /* Vanilla-Kette: das translate(1, 2, -10) px = (1/16, 0.125, -0.625) Blöcke wandert
            durch das rotateX(-90) effektiv ans Armende — KEIN zusätzlicher Handgelenk-Versatz.
@@ -290,7 +296,7 @@ public final class PlayerRenderer implements IDisposable {
                 .rotateY((float) Math.toRadians(180))
                 .translate(1F, 2F, -10F);
         this.pose.rightArmX -= slimShift;
-        items.bind(projectionView);
+        items.bind(projectionView, light);
         items.drawThirdPerson(held.getItem(), m);
         items.unbind();
     }
@@ -319,11 +325,14 @@ public final class PlayerRenderer implements IDisposable {
         #version 460 core
         in vec2 v_uv;
         uniform sampler2D u_Texture;
+        /* Himmelslicht der Spielerzelle, fertig durch die Kurve gerechnet
+           (ChunkRenderer.lightFactor). 1.0 = voll hell, Fullbright ODER GUI-Vorschau. */
+        uniform float u_Light;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Texture, v_uv);
             if (c.a < 0.5) discard;
-            fragColor = c;
+            fragColor = vec4(c.rgb * u_Light, c.a);
         }
         """;
 }

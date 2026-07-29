@@ -65,6 +65,9 @@ public final class HeldItemMeshes {
     private final Matrix4f projView = new Matrix4f();
     private final Matrix4f mvp = new Matrix4f();
     private boolean cullWasEnabled;
+    /* Licht des laufenden bind()-Abschnitts — der BER-Sonderweg (Truhe) zeichnet mit seinem
+       EIGENEN Shader und braucht den Wert deshalb als Parameter statt als Uniform. */
+    private float heldLight = 1.0F;
 
     public void init(TextureArray textures, BlockEntityRenderDispatcher blockEntityRenderers) {
         this.textures = textures;
@@ -74,14 +77,22 @@ public final class HeldItemMeshes {
                 new Shader(FRAGMENT, ShaderType.FRAGMENT));
     }
 
-    /** Bindet Shader + TextureArray und schaltet Culling aus (Restore in {@link #unbind}). */
-    public void bind(Matrix4f projectionView) {
+    /**
+     * Bindet Shader + TextureArray und schaltet Culling aus (Restore in {@link #unbind}).
+     *
+     * @param light Licht-Faktor der Zelle (Himmel + Block) ({@code ChunkRenderer.lightFactor}); in der
+     *              Inventar-Vorschau <b>1.0</b>, sonst dunkelt die GUI mit der Welt ab. Gilt auch
+     *              für den BER-Sonderweg (Truhe in der Hand), s. {@link #heldLight}.
+     */
+    public void bind(Matrix4f projectionView, float light) {
         this.cullWasEnabled = GL11.glIsEnabled(GL11.GL_CULL_FACE);
         GL11.glDisable(GL11.GL_CULL_FACE);
         this.projView.set(projectionView);
+        this.heldLight = light;
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", projectionView);
         this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformf("u_Light", light);
         this.textures.bind(0);
     }
 
@@ -103,7 +114,7 @@ public final class HeldItemMeshes {
                     .rotateXYZ(0F, (float) Math.toRadians(45), 0F).scale(0.40F)
                     .translate(-0.5F, -0.5F, -0.5F);
             this.projView.mul(this.transform, this.mvp);
-            held.custom.renderHeld(this.mvp);
+            held.custom.renderHeld(this.mvp, this.heldLight);
             this.restoreAfterCustom();
             return;
         }
@@ -137,7 +148,7 @@ public final class HeldItemMeshes {
                     .scale(16F * 0.375F)
                     .translate(-0.5F, -0.5F, -0.5F);
             this.projView.mul(this.transform, this.mvp);
-            held.custom.renderHeld(this.mvp);
+            held.custom.renderHeld(this.mvp, this.heldLight);
             this.restoreAfterCustom();
             return;
         }
@@ -249,6 +260,7 @@ public final class HeldItemMeshes {
     private void restoreAfterCustom() {
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformf("u_Light", this.heldLight);
         this.textures.bind(0);
     }
 
@@ -501,11 +513,14 @@ public final class HeldItemMeshes {
         in vec3 v_texCoord;
         in vec3 v_color;
         uniform sampler2DArray u_Textures;
+        /* Licht der Zelle (Himmel + Block), fertig durch die Kurve gerechnet
+           (ChunkRenderer.lightFactor). 1.0 = voll hell, Fullbright ODER GUI-Vorschau. */
+        uniform float u_Light;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < 0.5) discard;
-            fragColor = vec4(c.rgb * v_color, c.a);
+            fragColor = vec4(c.rgb * v_color * u_Light, c.a);
         }
         """;
 }

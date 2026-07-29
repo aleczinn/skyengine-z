@@ -60,7 +60,7 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
     }
 
     @Override
-    public void render(BlockEntity be, Camera camera, float partialTick) {
+    public void render(BlockEntity be, Camera camera, float partialTick, float light) {
         EnchantingTableBlockEntity table = (EnchantingTableBlockEntity) be;
         Vector3d cam = camera.getPosition();
         float ox = (float) (table.getPos().x() - cam.x);
@@ -91,6 +91,7 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Texture", 0);
+        this.shader.setUniformf("u_Light", light);
         this.texture.bind(0);
 
         drawPart(this.leftLid, 0, 0, -1, (float) Math.PI + f);
@@ -225,11 +226,14 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
         #version 460 core
         in vec2 v_uv;
         uniform sampler2D u_Texture;
+        /* Licht der Zelle (Himmel + Block), fertig durch die Kurve gerechnet
+           (ChunkRenderer.lightFactor). 1.0 = voll hell bzw. Fullbright. */
+        uniform float u_Light;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Texture, v_uv);
             if (c.a < 0.5) discard;
-            fragColor = c;
+            fragColor = vec4(c.rgb * u_Light, c.a);
         }
         """;
 }

@@ -1,6 +1,6 @@
 ---
 name: chunk-pipeline
-description: Chunk-Lebenszyklus NEW→GENERATING→GENERATED→DECORATING→DECORATED→MESHING→READY, Nachbar-Gating, Worker-Prioritäten, Upload-Queues, Dirty-Masken und Locking. Lesen vor Änderungen an ChunkManager, ChunkStatus, World.setBlock, Remesh-Logik oder dem Feature-/Dekorations-Pass.
+description: Chunk-Lebenszyklus NEW→GENERATING→GENERATED→DECORATING→DECORATED→LIGHTING→LIT→MESHING→READY, Nachbar-Gating, Worker-Prioritäten, Upload-Queues, Dirty-Masken und Locking. Lesen vor Änderungen an ChunkManager, ChunkStatus, World.setBlock, Remesh-Logik oder dem Feature-/Dekorations-Pass.
 ---
 
 # Chunk-Pipeline
@@ -15,13 +15,19 @@ description: Chunk-Lebenszyklus NEW→GENERATING→GENERATED→DECORATING→DECO
 
 ## Status-Lattice und Nachbar-Gating (`ChunkManager.update`, 1×/Tick)
 
-`ChunkStatus`: NEW → GENERATING → GENERATED → DECORATING → DECORATED → MESHING → READY.
+`ChunkStatus`: NEW → GENERATING → GENERATED → DECORATING → DECORATED → LIGHTING → LIT → MESHING → READY.
 Checks laufen über `isAtLeast` (ordinal-basiert). Die Übergänge sind **nachbar-gegated**:
 
 - GENERATED → DECORATING erst, wenn **alle 8 Nachbarn** (4 kardinal + 4 diagonal) mindestens
   GENERATED sind (Scheiben-Modell der Features braucht das 3×3-Umfeld).
-- DECORATED → MESHING erst, wenn alle 8 Nachbarn mindestens DECORATED sind (Feature-Scheiben an
-  Rändern + Fluid-Eckhöhen an Chunk-Ecken).
+- DECORATED → LIGHTING erst, wenn alle 8 Nachbarn mindestens DECORATED sind (der Licht-Job liest
+  Blöcke über die Ränder, schreibt Licht aber nur ins Zentrum).
+- LIT → MESHING erst, wenn alle 8 Nachbarn mindestens **LIT** sind (Feature-Scheiben an Rändern,
+  Fluid-Eckhöhen an Chunk-Ecken **und** das Nachbar-Licht fürs Corner-Smoothing des Meshers).
+
+**Der Licht-Job setzt `status = LIT` VOR `exchangeBorders`** — sonst können sich zwei gleichzeitig
+fertige Nachbar-Jobs gegenseitig verpassen und es bleibt eine dauerhaft dunkle Naht an der
+Chunk-Grenze. Details im Skill `licht-system`.
 
 **Der Manager wartet, nie der Job.** `ChunkDecorator` hält bewusst keine ChunkManager/World-Referenz —
 ein Dekorations-Job darf konstruktionsbedingt keine Nachbar-Generierung anstoßen (sonst
@@ -93,13 +99,20 @@ der Section-Grenze, Nachbar-Chunks bei lx/lz an 0/31, **Diagonal-Chunks an Ecken
 `processRemeshes()` läuft 1×/FRAME (aus `World.render`), nicht pro Tick — Edits erscheinen sofort.
 Fehlen Nachbarn (Weltrand), wird die Dirty-Maske NICHT konsumiert (bleibt für später).
 
-`remeshAll()` (z.B. AO-Toggle) setzt READY-Chunks auf **DECORATED zurück — nicht GENERATED**, sonst
-würden Features doppelt platziert. Alte Meshes bleiben sichtbar, bis der Ersatz hochgeladen ist.
+**Licht sprengt diesen Radius.** Eine gekappte Direkt-Säule verdunkelt bis zum Boden, ein Loch in
+eine versiegelte Höhle flutet 15 Blöcke in alle Richtungen — auch über Chunk-Grenzen. Deshalb
+markiert die `LightEngine` betroffene Sections **selbst** (`markCell`/`applyDirty`, inkl. ±1-Ring
+fürs Corner-Smoothing); die Markierung in `setBlockRaw` bleibt zusätzlich für den Fall, dass sich
+nur Geometrie ändert. Die Dirty-Markierung nie auf den 1-Block-Ring reduzieren.
+
+`remeshAll()` (z.B. AO-Toggle) setzt READY-Chunks auf **LIT zurück — nicht DECORATED oder
+GENERATED**: DECORATED würde Features doppelt platzieren, und schon LIGHTING würde das
+unveränderte Licht komplett neu fluten. Alte Meshes bleiben sichtbar, bis der Ersatz hochgeladen ist.
 
 ## Unload
 
-Radius `renderDistance + 2`; nur NEW/GENERATED/DECORATED/READY werden entfernt — Chunks mit
-laufenden Jobs (GENERATING/DECORATING/MESHING) bleiben, bis der Job fertig ist. Die GL-Meshes
+Radius `renderDistance + 2`; nur NEW/GENERATED/DECORATED/LIT/READY werden entfernt — Chunks mit
+laufenden Jobs (GENERATING/DECORATING/LIGHTING/MESHING) bleiben, bis der Job fertig ist. Die GL-Meshes
 entsorgt der Renderer selbst, wenn er den Chunk nicht mehr in der Map findet.
 
 **LOD-Unload-Gate:** Sichtbare Chunks (`isFullyUploaded()` — bewusst nicht status==READY,

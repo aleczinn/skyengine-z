@@ -113,6 +113,29 @@ public class Block {
         return this.settings.solid;
     }
 
+    /**
+     * Licht-Opazität 0..15 (wie viel Himmelslicht eine Zelle dieses Blocks schluckt). Ohne
+     * {@code light_opacity} in der Block-JSON gilt die Automatik „opaker Vollblock = 15, sonst 0" —
+     * per State, damit eine Doppel-Halbstufe blockt und eine einfache nicht. Explizit gesetzt wird
+     * nur, wo Licht <b>dämpfen</b> statt durchfallen oder hart enden soll (Wasser, Laub: 1).
+     */
+    public int getLightOpacity(BlockState state) {
+        int v = this.config.lightOpacity();
+        return v >= 0 ? v : (this.isOpaqueCube(state) ? 15 : 0);
+    }
+
+    /**
+     * Eigenleuchten 0..15 (Fackel 14, Lava 15, wie MC); 0 = der Block leuchtet nicht. Quelle ist
+     * {@code light_level} in der Block-JSON. Der {@code state}-Parameter ist heute ungenutzt, hält
+     * aber die Symmetrie zu {@link #getLightOpacity} und die Tür für zustandsabhängiges Leuchten
+     * offen (Vorbild: {@code redstone_ore[lit=true]}).
+     *
+     * <p>Monochrom: {@link BlockConfig#lightColor()} gibt es zwar, wirkt aber noch nicht.
+     */
+    public int getLuminance(BlockState state) {
+        return this.config.lightLevel();
+    }
+
     public RenderLayer getRenderLayer(BlockState state) {
         return this.settings.renderLayer;
     }
