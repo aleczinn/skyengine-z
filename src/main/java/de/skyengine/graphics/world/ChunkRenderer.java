@@ -33,14 +33,13 @@ import org.lwjgl.opengl.GL32;
 import org.lwjgl.opengl.GL40;
 import org.lwjgl.opengl.GL43;
 
+import de.skyengine.utils.collect.LongObjMap;
+
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Zeichnet alle Chunk-Sections über MultiDrawIndirect: die Geometrie aller Sections liegt
@@ -63,8 +62,9 @@ public class ChunkRenderer {
     private BlockTextureAtlas atlas;
     private TextureArray textures;
 
-    /* sectionKey -> mesh, render thread only */
-    private final Map<Long, SectionMesh> meshes = new HashMap<>();
+    /* sectionKey -> mesh, render thread only. LongObjMap: kein Long-Boxing pro Zugriff,
+       Cleanup-Walk und Frame-Iterationen laufen als flacher Array-Scan. */
+    private final LongObjMap<SectionMesh> meshes = new LongObjMap<>(4096);
 
     /* Cull-Hierarchie: Chunk-Spalten-Index über den Section-Meshes. Erst das Spalten-AABB
        (XZ der Spalte, [minSy,maxSy] der vorhandenen Sections) gegen das Frustum testen, nur
@@ -84,7 +84,7 @@ public class ChunkRenderer {
         }
     }
 
-    private final Map<Long, CullColumn> cullColumns = new HashMap<>();
+    private final LongObjMap<CullColumn> cullColumns = new LongObjMap<>(1024);
 
     /* Pro Frame neu befüllt: alle Sections, die den Frustum-Test bestanden haben */
     private final List<SectionMesh> visible = new ArrayList<>();
@@ -124,7 +124,7 @@ public class ChunkRenderer {
     /* --- Heightmap-LOD: zusätzliche Draws im OPAQUE-Segment (gleiche Arena, gleicher Shader) --- */
 
     /* regionKey -> LOD-Mesh, render thread only. null-Manager = LOD aus (rendert wie bisher). */
-    private final Map<Long, LodMesh> lodMeshes = new HashMap<>();
+    private final LongObjMap<LodMesh> lodMeshes = new LongObjMap<>(1024);
     private final List<LodMesh> visibleLod = new ArrayList<>();
     private LodManager lodManager;
 
@@ -144,7 +144,7 @@ public class ChunkRenderer {
     }
 
     private static final int LOD_TILE_SHIFT = 2; // 4×4 Regionen = 512 Blöcke Kachelkante
-    private final Map<Long, LodTile> lodTiles = new HashMap<>();
+    private final LongObjMap<LodTile> lodTiles = new LongObjMap<>(256);
     private final List<LodMesh> lodOversize = new ArrayList<>();
 
     /* Sichtbare LOD-Regionen mit Translucent-Anteil (pro Frame): im CPU-Pfad aus dem
@@ -420,15 +420,12 @@ public class ChunkRenderer {
         int removalVersion = this.chunkManager.getChunkRemovalVersion();
         if (removalVersion != this.lastChunkRemovalVersion) {
             this.lastChunkRemovalVersion = removalVersion;
-            Iterator<Map.Entry<Long, SectionMesh>> it = this.meshes.entrySet().iterator();
-            while (it.hasNext()) {
-                SectionMesh mesh = it.next().getValue();
-                if (!this.chunkManager.getChunks().containsKey(Chunk.key(mesh.chunkX, mesh.chunkZ))) {
-                    mesh.dispose(this.arenas, this.frameId);
-                    it.remove();
-                    this.unregisterSectionMesh(mesh);
-                }
-            }
+            this.meshes.removeIf((key, mesh) -> {
+                if (this.chunkManager.getChunks().containsKey(Chunk.key(mesh.chunkX, mesh.chunkZ))) return false;
+                mesh.dispose(this.arenas, this.frameId);
+                this.unregisterSectionMesh(mesh);
+                return true;
+            });
         }
 
         /* 3b. Nicht mehr gewünschte LOD-Regionen freigeben (deferred) — analog gegated über
@@ -437,17 +434,13 @@ public class ChunkRenderer {
             this.lastLodDesiredVersion = this.lodManager.getDesiredVersion();
             VertexArena lodOpaqueArena = this.arenas[LOD_OPAQUE];
             VertexArena lodTranslucentArena = this.arenas[LOD_TRANSLUCENT];
-            Iterator<Map.Entry<Long, LodMesh>> lit = this.lodMeshes.entrySet().iterator();
-            while (lit.hasNext()) {
-                Map.Entry<Long, LodMesh> entry = lit.next();
-                if (!this.lodManager.isDesiredKey(entry.getKey())) {
-                    LodMesh mesh = entry.getValue();
-                    mesh.dispose(lodOpaqueArena, lodTranslucentArena, this.frameId);
-                    lit.remove();
-                    this.unregisterLodMesh(mesh);
-                    this.refreshGateForRegion(mesh.rx, mesh.rz, mesh.sizeBlocks / LodMesher.REGION_BLOCKS);
-                }
-            }
+            this.lodMeshes.removeIf((key, mesh) -> {
+                if (this.lodManager.isDesiredKey(key)) return false;
+                mesh.dispose(lodOpaqueArena, lodTranslucentArena, this.frameId);
+                this.unregisterLodMesh(mesh);
+                this.refreshGateForRegion(mesh.rx, mesh.rz, mesh.sizeBlocks / LodMesher.REGION_BLOCKS);
+                return true;
+            });
         }
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.UPLOAD);
@@ -510,7 +503,9 @@ public class ChunkRenderer {
                 this.logger.debug("GPU-Cull-SPIKE dispatch: " + dbgDispatchDauer / 1000 + "us");
             }
         } else {
-        for (CullColumn col : this.cullColumns.values()) {
+        for (int ci = 0, cn = this.cullColumns.tableSize(); ci < cn; ci++) {
+            CullColumn col = this.cullColumns.valueAt(ci);
+            if (col == null) continue;
             /* Sicht-Gate: solange ein hochgeladenes LOD-Mesh die Zelle noch ungeclippt zeigt,
                Chunk-Sections NICHT zeichnen — applyLodResults lief oben im selben Frame, das
                geclippte LOD und der Chunk erscheinen/verschwinden also im SELBEN Frame
@@ -542,7 +537,9 @@ public class ChunkRenderer {
 
         /* 4b. LOD-Regionen: Kachel-AABB zuerst, dann Regionen (nur CPU-Pfad). */
         int tileBlocks = LodMesher.REGION_BLOCKS << LOD_TILE_SHIFT;
-        for (LodTile tile : this.lodTiles.values()) {
+        for (int ti = 0, tn = this.lodTiles.tableSize(); ti < tn; ti++) {
+            LodTile tile = this.lodTiles.valueAt(ti);
+            if (tile == null) continue;
             /* Kachel-AABB zuerst (4×4 Regionen, aggregiertes [minY,maxY]). */
             float tx = (float) (((long) tile.tx << LOD_TILE_SHIFT) * LodMesher.REGION_BLOCKS - cam.x);
             float tz = (float) (((long) tile.tz << LOD_TILE_SHIFT) * LodMesher.REGION_BLOCKS - cam.z);
@@ -1093,7 +1090,9 @@ public class ChunkRenderer {
             long quads = 0;
             long[] lvlRegions = new long[MAX_LOD_LEVELS + 1];
             long[] lvlQuads = new long[MAX_LOD_LEVELS + 1];
-            for (LodMesh mesh : this.lodMeshes.values()) {
+            for (int i = 0, n = this.lodMeshes.tableSize(); i < n; i++) {
+                LodMesh mesh = this.lodMeshes.valueAt(i);
+                if (mesh == null) continue;
                 quads += mesh.quadCount();
                 lvlRegions[mesh.level]++;
                 lvlQuads[mesh.level] += mesh.quadCount();
@@ -1586,8 +1585,12 @@ public class ChunkRenderer {
     }
 
     private CullColumn columnAdd(SectionMesh mesh) {
-        CullColumn col = this.cullColumns.computeIfAbsent(Chunk.key(mesh.chunkX, mesh.chunkZ),
-                k -> new CullColumn(mesh.chunkX, mesh.chunkZ));
+        long key = Chunk.key(mesh.chunkX, mesh.chunkZ);
+        CullColumn col = this.cullColumns.get(key);
+        if (col == null) {
+            col = new CullColumn(mesh.chunkX, mesh.chunkZ);
+            this.cullColumns.put(key, col);
+        }
         if (col.gateSlot < 0) {
             col.gateSlot = this.gpuCull.allocGate(
                     this.lodManager != null && this.lodManager.lodShowsCell(col.chunkX, col.chunkZ));
@@ -1643,9 +1646,12 @@ public class ChunkRenderer {
             this.lodOversize.add(mesh);
             return;
         }
-        LodTile tile = this.lodTiles.computeIfAbsent(
-                LodManager.key(mesh.rx >> LOD_TILE_SHIFT, mesh.rz >> LOD_TILE_SHIFT),
-                k -> new LodTile(mesh.rx >> LOD_TILE_SHIFT, mesh.rz >> LOD_TILE_SHIFT));
+        long tileKey = LodManager.key(mesh.rx >> LOD_TILE_SHIFT, mesh.rz >> LOD_TILE_SHIFT);
+        LodTile tile = this.lodTiles.get(tileKey);
+        if (tile == null) {
+            tile = new LodTile(mesh.rx >> LOD_TILE_SHIFT, mesh.rz >> LOD_TILE_SHIFT);
+            this.lodTiles.put(tileKey, tile);
+        }
         tile.members.add(mesh);
         if (tile.members.size() == 1) {
             tile.minY = mesh.minY;
@@ -1689,11 +1695,15 @@ public class ChunkRenderer {
     }
 
     public void dispose() {
-        for (SectionMesh mesh : this.meshes.values()) mesh.dispose(this.arenas, this.frameId);
+        for (int i = 0, n = this.meshes.tableSize(); i < n; i++) {
+            SectionMesh mesh = this.meshes.valueAt(i);
+            if (mesh != null) mesh.dispose(this.arenas, this.frameId);
+        }
         this.meshes.clear();
         this.cullColumns.clear();
-        for (LodMesh mesh : this.lodMeshes.values()) {
-            mesh.dispose(this.arenas[LOD_OPAQUE], this.arenas[LOD_TRANSLUCENT], this.frameId);
+        for (int i = 0, n = this.lodMeshes.tableSize(); i < n; i++) {
+            LodMesh mesh = this.lodMeshes.valueAt(i);
+            if (mesh != null) mesh.dispose(this.arenas[LOD_OPAQUE], this.arenas[LOD_TRANSLUCENT], this.frameId);
         }
         this.lodMeshes.clear();
         this.lodTiles.clear();
