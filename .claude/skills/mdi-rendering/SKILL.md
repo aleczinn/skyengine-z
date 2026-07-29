@@ -13,10 +13,18 @@ Ein Draw-Call pro Section×Layer skaliert nicht. Stattdessen: **5 `VertexArena`s
 beim Flug hält die Arena also weit mehr als den Steady-State; real beobachtet wuchs OPAQUE bei
 rd=16 sonst von 96 auf 324 MB) plus zwei dedizierte LOD-Arenen (LOD-OPAQUE: Startgröße aus
 `LodMesher.estimateOpaqueArenaBytes`, plus `ensureCapacity`-Vorabvergrößerung bei
-Settings-Wechsel; LOD-TRANSLUCENT 2 MB). Sections/Regionen mieten darin Bereiche
-(First-Fit-Free-List). **Jeder `grow` ist eine GPU-Vollkopie der ganzen Arena im Frame** —
+Settings-Wechsel; LOD-TRANSLUCENT 8 MB — 2 MB wuchsen bei Ozean im Ring sofort).
+Die Vorab-Reservierung ist auf **768 MB je Arena gedeckelt** (`cappedArenaBytes`, Warnlog beim
+Klemmen — bei rd=32 rechnete die Formel sonst ~1,13 GB je für OPAQUE/CUTOUT); `grow`/
+`ensureCapacity` bleiben ungedeckelt, `createBuffer` wirft seit dem Deckel bei
+GL_OUT_OF_MEMORY (Fail-Fast statt stiller Leer-Geometrie). Sections/Regionen mieten Bereiche
+per **Best-Fit** (Größen-Index `freeBySize` parallel zur Offset-Free-List; beide nur über
+addFree/removeFree mutieren, sonst divergieren sie — Regionen werden dabei NIE verschoben,
+GpuCull-baseVertex hängt an stabilen Offsets).
+**Jeder `grow` ist eine GPU-Vollkopie der ganzen Arena im Frame** —
 das war der gemessene Flug-Ruckler (friert auf dem Single-Thread auch Input/Tick ein). Deshalb:
-Startgrößen so, dass es im Normalbetrieb NIE wächst, Grow-Faktor 2 (statt 1,5) und eine
+Startgrößen so, dass es unterhalb des Deckels im Normalbetrieb NIE wächst, Grow-Faktor 2
+(statt 1,5) und eine
 Debug-Logzeile pro Grow (jede davon heißt: Startgrößen passen nicht mehr). Pro Frame wird nur das
 Indirect-Command-Array + ein Offset-SSBO gebaut → **ein `glMultiDrawElementsIndirect` pro
 Segment**; die LOD-Draws sind EIGENE Segmente direkt nach dem jeweiligen Terrain-Segment

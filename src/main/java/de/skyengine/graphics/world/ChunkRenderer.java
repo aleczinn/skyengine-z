@@ -154,6 +154,9 @@ public class ChunkRenderer {
 
     private static final int MAX_LOD_UPLOADS_PER_FRAME = 4;
 
+    /* Deckel für die Vorab-Reservierung je Arena (s. cappedArenaBytes). */
+    private static final long MAX_INITIAL_ARENA_BYTES = 768L << 20;
+
     /* Letzter LOD-Settings-Stand für die Arena-Vorabvergrößerung (s. applyLodResults) */
     private int lastLodRenderDistance = -1, lastLodMaxDistance = -1;
     private boolean lastLodEnabled;
@@ -336,11 +339,11 @@ public class ChunkRenderer {
         int holdRadius = settings.renderDistance + 6;
         long holdChunks = Math.round(Math.PI * holdRadius * holdRadius);
         this.arenas[RenderLayer.OPAQUE.ordinal()] = new VertexArena("VertexArena OPAQUE",
-                Math.max(96L << 20, holdChunks * 256L * 1024));
+                cappedArenaBytes("OPAQUE", Math.max(96L << 20, holdChunks * 256L * 1024)));
         this.arenas[RenderLayer.CUTOUT.ordinal()] = new VertexArena("VertexArena CUTOUT",
-                Math.max(64L << 20, holdChunks * 256L * 1024));
+                cappedArenaBytes("CUTOUT", Math.max(64L << 20, holdChunks * 256L * 1024)));
         this.arenas[RenderLayer.TRANSLUCENT.ordinal()] = new VertexArena("VertexArena TRANSLUCENT",
-                Math.max(8L << 20, holdChunks * 16L * 1024));
+                cappedArenaBytes("TRANSLUCENT", Math.max(8L << 20, holdChunks * 16L * 1024)));
         /* Eigene Arenen für LOD (volle Isolation von Section-Meshes). LOD-OPAQUE (Boden +
            Wände der Clipmap-Ringe) skaliert stark mit lodMaxDistance (bei Default RD=16/
            lodMax=128 real ~190 MB) — Startgröße daher aus der Ring-Konfiguration schätzen,
@@ -351,7 +354,8 @@ public class ChunkRenderer {
             lodOpaqueBytes = Math.max(lodOpaqueBytes,
                     LodMesher.estimateOpaqueArenaBytes(LodConfig.of(settings.renderDistance, settings.lodMaxDistance)));
         }
-        this.arenas[LOD_OPAQUE] = new VertexArena("VertexArena LOD-OPAQUE", lodOpaqueBytes);
+        this.arenas[LOD_OPAQUE] = new VertexArena("VertexArena LOD-OPAQUE",
+                cappedArenaBytes("LOD-OPAQUE", lodOpaqueBytes));
         /* 8 MB statt 2: bei Ozean im Ring wuchs die Arena sonst direkt beim Start (2->4 MB). */
         this.arenas[LOD_TRANSLUCENT] = new VertexArena("VertexArena LOD-TRANSLUCENT", 8L * 1024 * 1024);
 
@@ -375,6 +379,23 @@ public class ChunkRenderer {
                 + " MB (Sections), " + (this.arenas[LOD_OPAQUE].getCapacity() >> 20) + "/"
                 + (this.arenas[LOD_TRANSLUCENT].getCapacity() >> 20) + " MB (LOD), "
                 + SLOTS + " Frame-Slots");
+    }
+
+    /**
+     * VRAM-Deckel für die Vorab-Reservierung einer Arena: bei sehr großen Render-Distanzen
+     * rechnet die (rd+6)-Formel sonst in den Multi-GB-Bereich (rd=32 ≈ 1,13 GB je für OPAQUE
+     * und CUTOUT) — ohne jeden Fallback, wenn der Treiber das nicht mehr hergibt. Der Deckel
+     * betrifft NUR die Startgröße; die Arena wächst bei echtem Bedarf weiter (grow/
+     * ensureCapacity bleiben ungedeckelt, createBuffer wirft jetzt bei GL_OUT_OF_MEMORY).
+     * Jede geklemmte Arena wird geloggt: ab da sind Grow-Ruckler beim Flug wieder möglich.
+     */
+    private long cappedArenaBytes(String label, long wanted) {
+        long capped = Math.min(wanted, MAX_INITIAL_ARENA_BYTES);
+        if (capped < wanted) {
+            this.logger.warning("Arena-Startgroesse " + label + " gedeckelt: " + (wanted >> 20)
+                    + " -> " + (capped >> 20) + " MB — Grows (Frame-Ruckler) sind moeglich");
+        }
+        return capped;
     }
 
     /**
