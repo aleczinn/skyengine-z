@@ -44,7 +44,7 @@ public final class GuiSoundOptions extends GuiOptionsScreen {
         GameContainer game = SkyEngine.get().getGame();
         float wideW = CELL_W * 2 + 4;
 
-        Slider master = new Slider(wideW, CELL_H, 0, 100, 5, this.settings.masterVolume,
+        Slider master = new Slider(wideW, CELL_H, 0, 100, 1, this.settings.masterVolume,
                 v -> I18n.tr("options.sound.master", (int) v),
                 v -> {
                     this.settings.masterVolume = (int) v;
@@ -54,7 +54,7 @@ public final class GuiSoundOptions extends GuiOptionsScreen {
         /* Kanal-Slider in Enum-Reihenfolge, zweispaltig gepaart. */
         List<Slider> channels = new ArrayList<>();
         for (SoundCategory category : SoundCategory.values()) {
-            channels.add(new Slider(CELL_W, CELL_H, 0, 100, 5, this.settings.soundVolume(category),
+            channels.add(new Slider(CELL_W, CELL_H, 0, 100, 1, this.settings.soundVolume(category),
                     v -> I18n.tr(category.translationKey()) + ": " + (int) v + " %",
                     v -> {
                         this.settings.soundVolumes.put(category.name(), (int) v);

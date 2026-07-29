@@ -108,7 +108,7 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
 
         /* Wirkt live über u_MinLight im Chunk-Shader -> kein Remesh. Unterste Stufe ist AUS
            und bedeutet Fullbright (Himmelslicht wirkungslos, Bild wie ohne Lichtsystem). */
-        Slider brightness = new Slider(CELL_W, CELL_H, 0, 100, 5, this.settings.brightness,
+        Slider brightness = new Slider(CELL_W, CELL_H, 0, 100, 1, this.settings.brightness,
                 v -> I18n.tr("options.video.brightness",
                         (int) v == 0 ? I18n.tr("gui.off") : (int) v + " %"),
                 v -> this.settings.brightness = (int) v, null);
