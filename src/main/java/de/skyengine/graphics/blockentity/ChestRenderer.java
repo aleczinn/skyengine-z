@@ -127,12 +127,13 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Texture", 0);
-        /* Welt-Truhe: normale MC-Helligkeit pro Achse (oben/Nord-Süd/West-Ost), multipliziert
-           mit dem Himmelslicht der Zelle — dieselbe Kombination wie beim Terrain
+        /* Welt-Truhe: normale MC-Helligkeit pro Achse (oben/Nord-Süd/West-Ost); das Himmelslicht
+           der Zelle kommt im Shader einmal obendrauf — dieselbe Kombination wie beim Terrain
            (FACE_BRIGHTNESS × Licht), damit die Truhe in ihrer Wand nicht heraussticht. */
-        this.shader.setUniformf("u_TopBrightness", 1.0f * light);
-        this.shader.setUniformf("u_ZBrightness", 0.8f * light);
-        this.shader.setUniformf("u_SideBrightness", 0.6f * light);
+        this.shader.setUniformf("u_TopBrightness", 1.0f);
+        this.shader.setUniformf("u_ZBrightness", 0.8f);
+        this.shader.setUniformf("u_SideBrightness", 0.6f);
+        this.shader.setUniformf("u_Light", light);
         tex.bind(0);
 
         /* Normalen nur um die Facing-Achse drehen (ohne Deckel-Klappung), damit das Richtungs-
@@ -192,6 +193,8 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.setUniformf("u_TopBrightness", ItemIconRenderer.ICON_TOP_BRIGHTNESS);
         this.shader.setUniformf("u_ZBrightness", ItemIconRenderer.ICON_Z_BRIGHTNESS);
         this.shader.setUniformf("u_SideBrightness", ItemIconRenderer.ICON_X_BRIGHTNESS);
+        /* GUI: NIE abdunkeln — derselbe Shader wie im Welt-Pass, also explizit zurücksetzen. */
+        this.shader.setUniformf("u_Light", 1.0f);
         this.shader.setUniformi("u_Texture", 0);
         this.texture.bind(0);
         this.base.render();
@@ -216,11 +219,12 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.setUniformMatrix4f("u_Model", this.iconModel);
         this.normalRot.identity();
         this.shader.setUniformMatrix4f("u_NormalRot", this.normalRot);
-        /* Hand: normale Welt-Helligkeit statt der dunkleren Icon-Schrauben, mal dem Licht der
-           Zelle. In der Inventar-Vorschau reicht der Aufrufer light = 1.0 durch. */
-        this.shader.setUniformf("u_TopBrightness", 1.0f * light);
-        this.shader.setUniformf("u_ZBrightness", 0.8f * light);
-        this.shader.setUniformf("u_SideBrightness", 0.6f * light);
+        /* Hand: normale Welt-Helligkeit statt der dunkleren Icon-Schrauben; das Licht der Zelle
+           kommt im Shader dazu. In der Inventar-Vorschau reicht der Aufrufer light = 1.0 durch. */
+        this.shader.setUniformf("u_TopBrightness", 1.0f);
+        this.shader.setUniformf("u_ZBrightness", 0.8f);
+        this.shader.setUniformf("u_SideBrightness", 0.6f);
+        this.shader.setUniformf("u_Light", light);
         this.shader.setUniformi("u_Texture", 0);
         this.texture.bind(0);
         this.base.render();
@@ -362,18 +366,24 @@ public final class ChestRenderer implements BlockEntityRenderer {
         uniform float u_TopBrightness;
         uniform float u_ZBrightness;
         uniform float u_SideBrightness;
+        /* Himmelslicht der Zelle (ChunkRenderer.skyLightFactor); 1.0 = voll hell bzw. GUI. */
+        uniform float u_Light;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Texture, v_uv);
             if (c.a < 0.5) discard;
             // Richtungs-Shading aus der weltgedrehten Flaechen-Normale. Top/N-S/W-E sind als Uniforms
-            // variabel (Welt: 1.0/0.8/0.6, Icon: eigene Schrauben); Unterseite fix 0.5 (nie sichtbar).
+            // variabel (Welt: 1.0/0.8/0.6, Icon: eigene Schrauben); die Unterseite ist eine Konstante
+            // (0.5 wie FACE_BRIGHTNESS[1]) und an der gekippten Truhe in der HAND sehr wohl sichtbar.
             vec3 n = normalize(v_normal);
             float br = (n.y > 0.5) ? u_TopBrightness
                      : (n.y < -0.5) ? 0.5
                      : (abs(n.z) > 0.5) ? u_ZBrightness
                      : u_SideBrightness;
-            fragColor = vec4(c.rgb * br, c.a);
+            /* Zellenlicht bewusst EINMAL ganz am Ende statt an jede Helligkeit einzeln: so kann
+               keine Flaeche es verpassen. Genau daran ist die Unterseite schon einmal
+               vorbeigelaufen, weil sie als einzige kein Uniform ist. */
+            fragColor = vec4(c.rgb * br * u_Light, c.a);
         }
         """;
 }
