@@ -20,7 +20,12 @@ public enum BlockSoundGroup {
     CLOTH("cloth", "cloth"),
     /** Wie MC: Schritte auf Glas klingen nach Stein, der Bruch nach Glas (random/glass -> dig/glass),
      *  Platzieren wieder nach Stein (Glas klirrt nur beim Zerbrechen). */
-    GLASS("stone", "glass", "stone");
+    GLASS("stone", "glass", "stone"),
+    /** Slimeblock: Bruch/Platzieren aus den grossen, Schritte/Schlaege aus den kleinen
+     *  Schleim-Sounds (MC-Events block.slime_block.*). */
+    SLIME("slime", "slime"),
+    /** Honigblock (MC-Events block.honey_block.*). */
+    HONEY("honey", "honey");
 
     /** Datei-Basisname unter game/sounds/step/ (Varianten 1..N). */
     public final String stepName;

@@ -29,7 +29,10 @@ Write-Output "Verwende Asset-Index: $($indexFile.Name)"
 
 $objects = (Get-Content $indexFile.FullName -Raw | ConvertFrom-Json).objects
 
-# Extraktionsliste: pattern (Index-Klarname, -like-Wildcard) -> Zielunterordner
+# Extraktionsliste: pattern (Index-Klarname, -like-Wildcard) -> Zielunterordner.
+# Optionales 'base': benennt die Treffer in <base>1.ogg, <base>2.ogg ... um. Noetig, wo MCs
+# Dateiname nicht dem Schema entspricht, das der SoundManager erwartet (<basis><N>.ogg je
+# Sound-Gruppe) — z.B. mob/slime/big1.ogg -> dig/slime1.ogg.
 $wanted = @(
     @{ pattern = 'minecraft/sounds/step/stone*.ogg';  dest = 'step' },
     @{ pattern = 'minecraft/sounds/step/wood*.ogg';   dest = 'step' },
@@ -47,6 +50,13 @@ $wanted = @(
     @{ pattern = 'minecraft/sounds/dig/cloth*.ogg';   dest = 'dig' },
     # Glas-Bruch liegt in MC unter random/ -> bei uns einheitlich unter dig/
     @{ pattern = 'minecraft/sounds/random/glass[1-3].ogg'; dest = 'dig' },
+    # Slimeblock: MC nimmt fuer break/place die grossen, fuer step/hit die kleinen Schleim-Sounds
+    # (belegt in assets/minecraft/sounds.json unter block.slime_block.*).
+    @{ pattern = 'minecraft/sounds/mob/slime/big[1-4].ogg';   dest = 'dig';  base = 'slime' },
+    @{ pattern = 'minecraft/sounds/mob/slime/small[1-5].ogg'; dest = 'step'; base = 'slime' },
+    # Honigblock (block.honey_block.*): break/place aus break*, step/hit aus step*.
+    @{ pattern = 'minecraft/sounds/block/honeyblock/break[1-5].ogg'; dest = 'dig';  base = 'honey' },
+    @{ pattern = 'minecraft/sounds/block/honeyblock/step[1-5].ogg';  dest = 'step'; base = 'honey' },
     # UI-Button-Klick (einzelne Datei, keine Varianten)
     @{ pattern = 'minecraft/sounds/random/click.ogg'; dest = 'ui' },
     # Spieler-Schaden (Hurt) + Aufprall bei Fallschaden
@@ -83,7 +93,10 @@ foreach ($entry in $wanted) {
     }
     $destDir = Join-Path $OutDir $entry.dest
     New-Item -ItemType Directory -Force -Path $destDir | Out-Null
-    foreach ($m in $matches) {
+    # Nach Namen sortieren: die Index-Reihenfolge ist beliebig, die Nummerierung bei 'base' waere
+    # sonst von Lauf zu Lauf anders.
+    $index = 0
+    foreach ($m in ($matches | Sort-Object Name)) {
         $hash = $m.Value.hash
         $src = Join-Path $AssetsDir "objects\$($hash.Substring(0, 2))\$hash"
         if (-not (Test-Path $src)) {
@@ -91,7 +104,12 @@ foreach ($entry in $wanted) {
             $missing++
             continue
         }
-        $fileName = Split-Path $m.Name -Leaf
+        $index++
+        if ($entry.base) {
+            $fileName = "$($entry.base)$index.ogg"
+        } else {
+            $fileName = Split-Path $m.Name -Leaf
+        }
         Copy-Item $src (Join-Path $destDir $fileName) -Force
         $copied++
     }
