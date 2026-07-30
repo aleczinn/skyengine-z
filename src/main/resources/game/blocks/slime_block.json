@@ -1,8 +1,8 @@
 {
-  "_comment": "Ohne Abpraller-Behavior (bewusst): wirkt hier nur ueber die Reibung, bremst also statt zu federn.",
   "id": "skyengine:slime_block",
   "parent": "preset/cube",
-  "sound": "cloth",
+  "model": "block/cube_inner_all",
+  "sound": "slime",
   "layer": "translucent",
   "hardness": 0,
   "friction": 0.8,
