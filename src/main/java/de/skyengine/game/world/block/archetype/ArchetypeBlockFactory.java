@@ -118,6 +118,17 @@ public final class ArchetypeBlockFactory {
         builder.resistance(def.resistance != null ? def.resistance
                 : (def.hardness != null ? def.hardness : 0F));
 
+        /* Bewegung: Reibung, Tempo- und Sprungfaktor (Eis, Seelensand, Honig). */
+        if (def.friction != null) {
+            builder.friction(def.friction);
+        }
+        if (def.speed_factor != null) {
+            builder.speedFactor(def.speed_factor);
+        }
+        if (def.jump_factor != null) {
+            builder.jumpFactor(def.jump_factor);
+        }
+
         /* Licht-Opazität: ohne Angabe entscheidet Block.getLightOpacity automatisch per State. */
         if (def.light_opacity != null) {
             builder.lightOpacity(Math.clamp(def.light_opacity.intValue(), 0, 15));

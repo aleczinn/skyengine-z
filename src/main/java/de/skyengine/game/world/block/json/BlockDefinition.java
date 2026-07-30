@@ -68,6 +68,14 @@ public class BlockDefinition {
        Bedrock das automatisch. Gelesen nur vom Explosions-Raycast (Explosion.resistanceOf). */
     public Float resistance;
 
+    /* Bewegung auf/in dem Block (MC-Semantik, gelesen von EntityPlayer.travelWalking):
+       friction = Bodenreibung, Default 0.6 (Eis 0.98, Blaueis 0.989, Slimeblock 0.8) — höher =
+       rutschiger. speed_factor = Faktor auf die Horizontalgeschwindigkeit, Default 1.0
+       (Seelensand/Honig 0.4). jump_factor = Faktor auf die Sprungkraft, Default 1.0 (Honig 0.5). */
+    public Float friction;
+    public Float speed_factor;
+    public Float jump_factor;
+
     /* Optionale Sound-Gruppe (stone/wood/gravel/grass/sand/snow/cloth/glass);
        null = Ableitung aus tool/archetype (siehe BlockSoundGroup.resolve). */
     public String sound;

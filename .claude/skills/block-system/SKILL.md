@@ -93,6 +93,11 @@ dort sonst unerreichbar.
 - Jeder Nicht-Luft-, Nicht-Fluid-Block bekommt automatisch ein `BlockItem` (`Items.bootstrap`).
   Mining: MC-Harvest-Regel in `GameContainer.isHarvestable` (ToolType + Mindest-Tier), Härte < 0 =
   unzerstörbar (Bedrock), Härte 0 = instant.
+- Materialwerte je Block (nie ins Preset — `preset/cube` bedient stone, dirt UND wool): `hardness`,
+  `tool`, `harvest_tier`, `resistance` (Explosion; ohne Feld gilt `hardness`, dadurch erbt Bedrock
+  seine −1 und bleibt Strahlenstopper) sowie `friction`/`speed_factor`/`jump_factor` (Bewegung,
+  Defaults 0.6/1.0/1.0). Die Auflösung von `resistance` passiert in `ArchetypeBlockFactory`, NICHT
+  im `BlockConfig`-Default — sonst ginge der Bedrock-Fallback verloren.
 
 ## Fallstricke für schwächere Modelle
 

@@ -28,6 +28,14 @@ public final class StartInventory {
         set(inventory, 8, "skyengine:torch", 64);
         set(inventory, 9, "skyengine:iron_bars", 1);
         set(inventory, 10, "skyengine:tnt", 64);
+        /* Bewegungs-Testblöcke (friction/speed_factor/jump_factor) — ohne Creative-Menü
+           sonst nicht erreichbar. */
+        set(inventory, 11, "skyengine:ice", 64);
+        set(inventory, 12, "skyengine:blue_ice", 64);
+        set(inventory, 13, "skyengine:soul_sand", 64);
+        set(inventory, 14, "skyengine:honey_block", 64);
+        set(inventory, 15, "skyengine:slime_block", 64);
+        set(inventory, 16, "skyengine:end_stone", 64);
     }
 
     private static void set(SimpleItemStorage inventory, int slot, String itemId, int count) {

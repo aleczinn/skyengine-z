@@ -1,0 +1,12 @@
+{
+  "id": "skyengine:ice",
+  "parent": "preset/cube",
+  "sound": "glass",
+  "layer": "translucent",
+  "hardness": 0.5,
+  "friction": 0.98,
+  "tool": "pickaxe",
+  "opaque": false,
+  "solid": true,
+  "cull_same": true
+}

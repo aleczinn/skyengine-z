@@ -1,0 +1,13 @@
+{
+  "_comment": "In MC nur 12/16 hoch und mit Wandrutschen; hier voller Wuerfel, Wirkung nur ueber speed_factor/jump_factor.",
+  "id": "skyengine:honey_block",
+  "parent": "preset/cube_bottom_top",
+  "sound": "cloth",
+  "layer": "translucent",
+  "hardness": 0,
+  "speed_factor": 0.4,
+  "jump_factor": 0.5,
+  "opaque": false,
+  "solid": true,
+  "cull_same": true
+}

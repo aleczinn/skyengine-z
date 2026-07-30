@@ -1,0 +1,7 @@
+{
+  "id": "skyengine:soul_soil",
+  "parent": "preset/cube",
+  "sound": "sand",
+  "hardness": 0.5,
+  "tool": "shovel"
+}

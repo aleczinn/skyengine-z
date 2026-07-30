@@ -147,8 +147,19 @@ ausdrücken).
   vegetationDistance, `LeavesQuality` (LOW/MID/HIGH inkl. Laub-an-Laub-Culling im Mesher),
   GraphicsMode, anisotropicFiltering, msaaSamples, fog, Helligkeit, GuiScale,
   sneakToggle/sprintToggle, `soundVolumes`-Mischpult + audioDevice
-- Block-System (Architektur gilt als **reif — kein Rewrite**): ~176 JSON-Blöcke, Archetypen,
+- Block-System (Architektur gilt als **reif — kein Rewrite**): ~186 JSON-Blöcke, Archetypen,
   Behaviors, Verbindungen (Zaun/Pane/Cable), Türen, BlockEntities + Capabilities (Item/Energie)
+- Block-Materialwerte in der JSON, alle vanilla-getreu: `hardness` (Abbau, negativ = unzerstörbar),
+  `tool`/`harvest_tier` (Drop-Regel), **`resistance`** (Explosions-Widerstand; fehlt das Feld,
+  gilt `hardness` — es steht deshalb nur bei den ~80 Blöcken, wo MC beide Werte auseinanderzieht:
+  Stein 1.5/6, Obsidian 50/1200, End-Stone 3/9) sowie die Bewegungs-Faktoren **`friction`**
+  (Default 0.6, Eis 0.98, Blaueis 0.989), **`speed_factor`** (Seelensand/Honig 0.4) und
+  **`jump_factor`** (Honig 0.5), ausgewertet in `EntityPlayer.travelWalking` nach der
+  MC-Formel (Beschleunigung skaliert mit `0.6³/friction³`, sonst wäre Eis schnell statt glatt).
+  Dazu die zehn Blöcke, die diese Werte erst sichtbar machen: ice, packed_ice, blue_ice,
+  soul_sand, soul_soil, slime_block, honey_block, end_stone, netherrack, magma_block
+  (Texturen via `scripts/extract-mc-blocks.ps1`). **Kein** Abpraller/Netz-Bremsen/Wandrutschen —
+  die Blöcke wirken ausschließlich über die drei Skalarwerte
 - Doppeltruhen mit den MC-Platzierungsregeln: Property `type` (single/left/right) + `ChestBehavior`
   (Verschmelzen beim Platzieren, Sneaken verhindert es, sneakender Seitenklick verbindet trotzdem;
   Auftrennen per Nachbar-Update),
@@ -196,15 +207,18 @@ ausdrücken).
   `mdi-rendering`
 - Mining: MC-Harvest-Regel, 28 Tools (7 Tiers × 4 Typen), Durability, Crack-Overlay,
   Bedrock unzerstörbar; Gamemodes Survival/Creative/Spectator; Item-Entities + Aufsammeln
-- TNT/Explosion: raybasierte Explosion (`Explosion`, MC-ServerExplosion-Modell, hardness als
-  Widerstands-Proxy — Wasser/Lava tragen dafür hardness 100), `ExplosionBehavior` +
-  `PrimedTntEntity` (Rechtsklick-Zündung, Fuse, Ketten-Zündung), weißer Blink-Shader;
-  JSON-Felder `explosion_power`/`fuse` (`blocks/tnt.json`). **`explosion_power: 100` ist
-  Absicht** (Riesenkrater, ~250k Blöcke) — dafür läuft die Zerstörung als Batch:
+- TNT/Explosion: raybasierte Explosion (`Explosion`, MC-ServerExplosion-Modell), Widerstand aus
+  dem Block-Feld `resistance` (s.u.), `ExplosionBehavior` + `PrimedTntEntity` (Rechtsklick-Zündung,
+  Fuse, Ketten-Zündung), weißer Blink-Shader; JSON-Felder `explosion_power`/`explosion_fuse`
+  (`blocks/tnt.json`, power **4** wie MC-TNT). Die Zerstörung läuft als Batch:
   `World.breakBlocksBatch` (ein Lock/Dirty/Licht-Update je Chunk,
   `LightEngine.onBlocksChanged` = EINE Flutung, Äquivalenz-Beweis im `lightTest`),
-  Raycast mit Chunk-Memo, Priority-Uploads gedeckelt. Explosionen droppen keine Items;
-  nur BlockEntity-Blöcke laufen durch `onBreak` (Truheninhalt)
+  Raycast mit Chunk-Memo, Priority-Uploads gedeckelt. Danach EIN Nachbar-Update-Pass über die
+  Krater-**Schale** (`World.updateBlastShell`) — erst dadurch fallen hängende Blöcke (Fackel,
+  hohe Pflanze, Türhälfte), rieselt Sand nach und fließt Wasser in den Krater
+  (`FluidBehavior.onNeighborUpdate` ist der einzige Weg zu einem Fluid-Tick). Drops wie in MC
+  mit Chance **1/power**, ohne Werkzeug-Regel (Vanilla-Explosionsloot kennt kein Tool);
+  gezündetes Ketten-TNT droppt nicht. Nur BlockEntity-Blöcke laufen durch `onBreak` (Truheninhalt)
 - Chunk-Persistenz (`game/world/save/`): Region-Format `region/r.<rx>.<rz>.srg` (16×16 Chunks,
   CRC), Single-Writer-IO-Thread, `player.dat`; **vollständiger** Autosave (Chunks + level.json +
   player.dat) alle 1200 Ticks, zusätzlich beim Öffnen des Pausenmenüs (ESC) und beim Unload/Exit.
@@ -260,7 +274,7 @@ ausdrücken).
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
   (Andockpunkt: `GuiContainer.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
-- Testblöcke in `game/StartInventory` (u.a. Truhe, Fackel, Eimer, iron_bars) —
+- Testblöcke in `game/StartInventory` (u.a. Truhe, Fackel, Eimer, iron_bars, Eis/Soul-Sand/Honig) —
   ohne Crafting/Creative-Menü der einzige Weg, sie in die Hand zu bekommen; greift
   nur bei einer **frisch erstellten** Welt. Die **15 Material-Items liegen dort nicht** (beim
   Zusammenkürzen der Methode entfallen) und sind damit aktuell unerreichbar

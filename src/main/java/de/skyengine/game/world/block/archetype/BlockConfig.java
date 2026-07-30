@@ -43,6 +43,9 @@ public final class BlockConfig {
     private final boolean placeOnFullTop;
     private final float hardness;
     private final float resistance;
+    private final float friction;
+    private final float speedFactor;
+    private final float jumpFactor;
     private final de.skyengine.game.world.item.ToolType toolType;
     private final int harvestLevel;
     private final de.skyengine.audio.BlockSoundGroup soundGroup;
@@ -72,6 +75,9 @@ public final class BlockConfig {
         this.placeOnFullTop = b.placeOnFullTop;
         this.hardness = b.hardness;
         this.resistance = b.resistance;
+        this.friction = b.friction;
+        this.speedFactor = b.speedFactor;
+        this.jumpFactor = b.jumpFactor;
         this.toolType = b.toolType;
         this.harvestLevel = b.harvestLevel;
         this.soundGroup = b.soundGroup;
@@ -193,6 +199,21 @@ public final class BlockConfig {
         return resistance;
     }
 
+    /** Bodenreibung (MC-Default 0.6; höher = rutschiger, Eis 0.98). */
+    public float friction() {
+        return friction;
+    }
+
+    /** Faktor auf die Horizontalgeschwindigkeit (MC-Default 1.0; Seelensand 0.4). */
+    public float speedFactor() {
+        return speedFactor;
+    }
+
+    /** Faktor auf die Sprungkraft (MC-Default 1.0; Honigblock 0.5). */
+    public float jumpFactor() {
+        return jumpFactor;
+    }
+
     /**
      * Effektive Tool-Klasse oder null (= Hand reicht, droppt immer).
      */
@@ -269,6 +290,9 @@ public final class BlockConfig {
         private boolean placeOnFullTop;
         private float hardness = 0F;
         private float resistance = 0F;
+        private float friction = 0.6F;
+        private float speedFactor = 1.0F;
+        private float jumpFactor = 1.0F;
         private de.skyengine.game.world.item.ToolType toolType;
         private int harvestLevel = 0;
         private de.skyengine.audio.BlockSoundGroup soundGroup = de.skyengine.audio.BlockSoundGroup.STONE;
@@ -377,6 +401,21 @@ public final class BlockConfig {
 
         public Builder resistance(float v) {
             this.resistance = v;
+            return this;
+        }
+
+        public Builder friction(float v) {
+            this.friction = v;
+            return this;
+        }
+
+        public Builder speedFactor(float v) {
+            this.speedFactor = v;
+            return this;
+        }
+
+        public Builder jumpFactor(float v) {
+            this.jumpFactor = v;
             return this;
         }
 

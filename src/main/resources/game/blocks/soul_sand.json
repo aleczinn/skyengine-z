@@ -1,0 +1,9 @@
+{
+  "_comment": "In MC nur 14/16 hoch; hier bewusst ein voller Wuerfel - eine eigene Kollisionshoehe ohne passendes Modell waere nur ein sichtbarer Versatz.",
+  "id": "skyengine:soul_sand",
+  "parent": "preset/cube",
+  "sound": "sand",
+  "hardness": 0.5,
+  "speed_factor": 0.4,
+  "tool": "shovel"
+}
