@@ -2,5 +2,6 @@
   "id": "skyengine:diorite",
   "parent": "preset/cube",
   "hardness": 1.5,
+  "resistance": 6,
   "tool": "pickaxe"
 }

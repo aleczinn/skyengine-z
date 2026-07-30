@@ -42,6 +42,7 @@ public final class BlockConfig {
     private final List<String> placeOn;
     private final boolean placeOnFullTop;
     private final float hardness;
+    private final float resistance;
     private final de.skyengine.game.world.item.ToolType toolType;
     private final int harvestLevel;
     private final de.skyengine.audio.BlockSoundGroup soundGroup;
@@ -70,6 +71,7 @@ public final class BlockConfig {
         this.placeOn = b.placeOn == null ? null : List.copyOf(b.placeOn);
         this.placeOnFullTop = b.placeOnFullTop;
         this.hardness = b.hardness;
+        this.resistance = b.resistance;
         this.toolType = b.toolType;
         this.harvestLevel = b.harvestLevel;
         this.soundGroup = b.soundGroup;
@@ -182,6 +184,16 @@ public final class BlockConfig {
     }
 
     /**
+     * Explosions-Widerstand (MC-Blast-Resistance). Getrennt von der Abbau-Härte, weil beide in
+     * Minecraft fast nirgends übereinstimmen (Obsidian 50/1200, Stein 1.5/6, End-Stone 3/9).
+     * Fehlt das JSON-Feld, setzt {@code ArchetypeBlockFactory} die Härte ein — dadurch bleibt
+     * auch die Konvention „negativ = unzerstörbar" (Bedrock) ohne eigenen Wert erhalten.
+     */
+    public float resistance() {
+        return resistance;
+    }
+
+    /**
      * Effektive Tool-Klasse oder null (= Hand reicht, droppt immer).
      */
     public de.skyengine.game.world.item.ToolType toolType() {
@@ -256,6 +268,7 @@ public final class BlockConfig {
         private List<String> placeOn;
         private boolean placeOnFullTop;
         private float hardness = 0F;
+        private float resistance = 0F;
         private de.skyengine.game.world.item.ToolType toolType;
         private int harvestLevel = 0;
         private de.skyengine.audio.BlockSoundGroup soundGroup = de.skyengine.audio.BlockSoundGroup.STONE;
@@ -361,6 +374,12 @@ public final class BlockConfig {
             this.hardness = v;
             return this;
         }
+
+        public Builder resistance(float v) {
+            this.resistance = v;
+            return this;
+        }
+
 
         public Builder toolType(de.skyengine.game.world.item.ToolType t) {
             this.toolType = t;

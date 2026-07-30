@@ -3,6 +3,7 @@
   "type": "cube",
   "layer": "opaque",
   "hardness": 5,
+  "resistance": 1200,
   "tool": "pickaxe",
   "light_level": 7,
   "light_color": "#C77DFF",

@@ -62,6 +62,12 @@ public class BlockDefinition {
     public String tool;
     public String harvest_tier;
 
+    /* Explosions-Widerstand (MC-Blast-Resistance). null = es gilt hardness — genau deshalb steht
+       das Feld nur bei den Blöcken, bei denen Minecraft beide Werte auseinanderzieht (Stein 1.5/6,
+       Obsidian 50/1200, End-Stone 3/9). Negativ = unzerstörbar; über den hardness-Fallback erbt
+       Bedrock das automatisch. Gelesen nur vom Explosions-Raycast (Explosion.resistanceOf). */
+    public Float resistance;
+
     /* Optionale Sound-Gruppe (stone/wood/gravel/grass/sand/snow/cloth/glass);
        null = Ableitung aus tool/archetype (siehe BlockSoundGroup.resolve). */
     public String sound;

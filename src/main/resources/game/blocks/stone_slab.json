@@ -5,6 +5,7 @@
     "texture": "stone"
   },
   "hardness": 2,
+  "resistance": 6,
   "tool": "pickaxe",
   "variants": {
     "type=bottom": {

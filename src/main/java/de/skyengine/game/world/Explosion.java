@@ -18,12 +18,11 @@ import java.util.concurrent.ThreadLocalRandom;
  * plus den Widerstand des durchquerten Blocks. Jeder Block, den ein Strahl mit Reststärke erreicht,
  * wird zerstört.
  *
- * <p>Als Widerstand dient die vorhandene Abbau-Härte ({@link
- * de.skyengine.game.world.block.Block#getHardness()}); {@code hardness < 0} (Bedrock) ist
- * unzerstörbar und stoppt den Strahl. Es gibt <b>keine</b> Item-Drops (nur Blöcke mit
- * BlockEntity laufen im Batch-Pfad durch {@code onBreak}, damit z.B. Truheninhalt herausfällt).
- * Getroffene Blöcke, die selbst explosiv sind (Kettenreaktion), werden nicht entfernt, sondern
- * gezündet.
+ * <p>Als Widerstand dient {@link de.skyengine.game.world.block.Block#getResistance()} (JSON-Feld
+ * {@code resistance}, ohne Angabe die Abbau-Härte); ein negativer Wert (Bedrock) ist unzerstörbar
+ * und stoppt den Strahl. Es gibt <b>keine</b> Item-Drops (nur Blöcke mit BlockEntity laufen im
+ * Batch-Pfad durch {@code onBreak}, damit z.B. Truheninhalt herausfällt). Getroffene Blöcke, die
+ * selbst explosiv sind (Kettenreaktion), werden nicht entfernt, sondern gezündet.
  *
  * <p>Läuft ausschließlich auf dem Tick-Thread (einziger Aufrufer ist {@code PrimedTntEntity.tick}
  * über {@code World.tickEntities}). Die Massen-Zerstörung läuft über
@@ -107,9 +106,9 @@ public final class Explosion {
             int id = world.getBlockMemo(bx, by, bz, memo);
             float resistance = 0.0F;
             if (id != Blocks.AIR) {
-                float hardness = resistanceOf(id);
-                if (hardness < 0.0F) break; // unzerstörbar (Bedrock): Strahl wird geschluckt
-                resistance = hardness;
+                float own = resistanceOf(id);
+                if (own < 0.0F) break; // unzerstörbar (Bedrock): Strahl wird geschluckt
+                resistance = own;
             }
             strength -= (resistance + 0.3F) * 0.3F;
 
@@ -149,13 +148,13 @@ public final class Explosion {
         world.breakBlocksBatch(positions, count);
     }
 
-    /** Explosions-Widerstand (Abbau-Härte) je State-ID, lazy gewachsen (Muster ChunkMesher.opaqueById). */
+    /** Explosions-Widerstand je State-ID, lazy gewachsen (Muster ChunkMesher.opaqueById). */
     private static float resistanceOf(int stateId) {
         float[] cache = resistanceById;
         if (stateId >= cache.length) {
             cache = new float[BlockRegistry.getStateCount()];
             for (int i = 0; i < cache.length; i++) {
-                cache[i] = BlockRegistry.getState(i).getBlock().getHardness();
+                cache[i] = BlockRegistry.getState(i).getBlock().getResistance();
             }
             resistanceById = cache;
         }

@@ -346,6 +346,11 @@ public class Block {
         return this.config.hardness();
     }
 
+    /** Explosions-Widerstand (MC-Blast-Resistance); ohne JSON-Feld gilt die Härte. */
+    public float getResistance() {
+        return this.config.resistance();
+    }
+
     /** Effektive Tool-Klasse oder null (= Hand reicht, droppt immer). */
     public de.skyengine.game.world.item.ToolType getToolType() {
         return this.config.toolType();

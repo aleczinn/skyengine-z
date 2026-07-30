@@ -1,6 +1,7 @@
 {
   "id": "skyengine:red_terracotta",
   "parent": "preset/cube",
-  "hardness": 1.5,
+  "hardness": 1.25,
+  "resistance": 4.2,
   "tool": "pickaxe"
 }

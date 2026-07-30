@@ -5,5 +5,6 @@
     "texture": "cobblestone"
   },
   "hardness": 2,
+  "resistance": 6,
   "tool": "pickaxe"
 }

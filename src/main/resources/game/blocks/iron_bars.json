@@ -11,6 +11,7 @@
   "type": "pane",
   "layer": "cutout",
   "hardness": 5,
+  "resistance": 6,
   "tool": "pickaxe",
   "opaque": false,
   "cull_same": true,

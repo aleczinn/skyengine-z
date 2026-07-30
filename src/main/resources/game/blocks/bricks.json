@@ -2,5 +2,6 @@
   "id": "skyengine:bricks",
   "parent": "preset/cube",
   "hardness": 2,
+  "resistance": 6,
   "tool": "pickaxe"
 }
