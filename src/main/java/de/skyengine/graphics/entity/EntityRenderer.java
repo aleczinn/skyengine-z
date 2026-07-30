@@ -5,6 +5,7 @@ import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.chunk.Chunk;
@@ -55,7 +56,10 @@ public final class EntityRenderer {
 
     private final Matrix4f model = new Matrix4f();
 
-    private int locProjectionView, locWhiteFlash, locLight, locModel;
+    private int locProjectionView, locWhiteFlash, locLight, locModel, locAlphaCutoff;
+    /** Alpha-Test-Schwellen wie im ChunkRenderer: harter Cutout bzw. praktisch aus fürs Blending. */
+    private static final float CUTOUT_ALPHA = 0.5f;
+    private static final float TRANSLUCENT_ALPHA = 0.001f;
 
     public void init(TextureArray textures) {
         this.textures = textures;
@@ -68,6 +72,7 @@ public final class EntityRenderer {
         this.locWhiteFlash = this.shader.getUniformLocation("u_WhiteFlash");
         this.locLight = this.shader.getUniformLocation("u_Light");
         this.locModel = this.shader.getUniformLocation("u_Model");
+        this.locAlphaCutoff = this.shader.getUniformLocation("u_AlphaCutoff");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
         this.shader.unbind();
@@ -84,6 +89,7 @@ public final class EntityRenderer {
         this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
         this.shader.setUniformf(this.locWhiteFlash, 0f); // Default: kein Blink (Falling/Item unverändert)
         this.shader.setUniformf(this.locLight, 1.0f);    // Default hell; drawEntity setzt den echten Wert
+        this.shader.setUniformf(this.locAlphaCutoff, CUTOUT_ALPHA); // drawMesh senkt ihn für Transluzentes
         this.textures.bind(0);
 
         Vector3d cam = camera.getPosition();
@@ -124,7 +130,7 @@ public final class EntityRenderer {
             /* Voller Würfel: Modell liegt in 0..1, Entity-x/z sind Zentrum, y der Fußpunkt. */
             this.model.translation(ox - 0.5f, oy, oz - 0.5f);
             this.shader.setUniformMatrix4f(this.locModel, this.model);
-            mesh.render();
+            this.drawMesh(mesh, fb.getBlockId());
         } else if (e instanceof PrimedTntEntity tnt) {
             Mesh mesh = this.meshFor(Blocks.TNT);
             if (mesh == null) return;
@@ -132,7 +138,7 @@ public final class EntityRenderer {
             this.shader.setUniformf(this.locWhiteFlash, tnt.whiteFlash(partialTick));
             this.model.translation(ox - 0.5f, oy, oz - 0.5f);
             this.shader.setUniformMatrix4f(this.locModel, this.model);
-            mesh.render();
+            this.drawMesh(mesh, Blocks.TNT);
             this.shader.setUniformf(this.locWhiteFlash, 0f); // zurücksetzen für folgende Entities
         } else if (e instanceof ItemEntity item) {
             int id = blockStateId(item.getStack());
@@ -148,7 +154,31 @@ public final class EntityRenderer {
                     .scale(ITEM_SCALE)
                     .translate(-0.5f, -0.5f, -0.5f);
             this.shader.setUniformMatrix4f(this.locModel, this.model);
-            mesh.render();
+            this.drawMesh(mesh, id);
+        }
+    }
+
+    /**
+     * Zeichnet das Würfel-Mesh mit dem Zustand, den sein RenderLayer braucht: transluzente Blöcke
+     * (Slime, Honig, Eis, Glas) mit Blending und praktisch ohne Alpha-Test, alles andere als
+     * harter Cutout — dieselbe Aufteilung wie die drei Passes des {@code ChunkRenderer}. Ohne das
+     * läge ein gedroppter Slimeblock deckend in der Welt, weil seine Textur mit Alpha ≈ 0,7 am
+     * 0,5-Test vorbeikommt.
+     *
+     * <p>Die Pass-Reihenfolge stimmt bereits: Entities zeichnet {@code World.render} VOR
+     * {@code ChunkRenderer.renderTranslucent}, ein durchscheinender Drop blendet also gegen die
+     * fertige opake Welt, und Wasser kommt danach korrekt darüber.
+     */
+    private void drawMesh(Mesh mesh, int stateId) {
+        boolean translucent = Blocks.getState(stateId).getRenderLayer() == RenderLayer.TRANSLUCENT;
+        if (translucent) {
+            GL11.glEnable(GL11.GL_BLEND);
+            this.shader.setUniformf(this.locAlphaCutoff, TRANSLUCENT_ALPHA);
+        }
+        mesh.render();
+        if (translucent) {
+            GL11.glDisable(GL11.GL_BLEND);
+            this.shader.setUniformf(this.locAlphaCutoff, CUTOUT_ALPHA);
         }
     }
 
@@ -272,10 +302,13 @@ public final class EntityRenderer {
         /* Himmelslicht der Entity-Zelle, fertig durch die Kurve gerechnet
            (ChunkRenderer.lightFactor). 1.0 = voll hell bzw. Fullbright. */
         uniform float u_Light;
+        /* Wie im ChunkRenderer: 0.5 = harter Cutout, 0.001 = praktisch aus, damit ein
+           transluzenter Block (Slime, Honig, Eis, Glas) sein Alpha ins Blending bringt. */
+        uniform float u_AlphaCutoff;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
-            if (c.a < 0.5) discard;
+            if (c.a < u_AlphaCutoff) discard;
             /* Licht VOR dem Blink: eine TNT-Zuendung soll auch in einer finsteren Hoehle
                rein weiss aufblitzen und nicht mit abgedunkelt werden. */
             vec3 rgb = mix(c.rgb * v_color * u_Light, vec3(1.0), u_WhiteFlash);
