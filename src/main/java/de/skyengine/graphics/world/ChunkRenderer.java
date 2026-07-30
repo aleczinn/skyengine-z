@@ -157,6 +157,10 @@ public class ChunkRenderer {
     /* Deckel für die Vorab-Reservierung je Arena (s. cappedArenaBytes). */
     private static final long MAX_INITIAL_ARENA_BYTES = 768L << 20;
 
+    /* Weicher Deckel der Priority-Uploads (Edit-Remeshes): Einzel-Edits liegen weit darunter,
+       Explosions-Wellen verteilen sich über wenige Frames (s. renderSolid Schritt 2a). */
+    private static final int MAX_PRIORITY_UPLOADS_PER_FRAME = 24;
+
     /* Letzter LOD-Settings-Stand für die Arena-Vorabvergrößerung (s. applyLodResults) */
     private int lastLodRenderDistance = -1, lastLodMaxDistance = -1;
     private boolean lastLodEnabled;
@@ -417,11 +421,17 @@ public class ChunkRenderer {
 
         FrameProfiler.cpuStart(FrameProfiler.Cpu.UPLOAD);
 
-        /* 2a. Prioritäts-Batches (Edit-/Fluid-Remeshes) immer zuerst und vollständig —
-           das Volumen ist klein und der Spieler soll seine Änderung sofort sehen. */
+        /* 2a. Prioritäts-Batches (Edit-/Fluid-Remeshes) immer zuerst; weich gedeckelt:
+           bei Einzel-Edits bleibt die Änderung sofort sichtbar (weit unter dem Deckel),
+           aber eine Explosion (dutzende Chunk-Batches auf einmal) verteilt ihre Uploads
+           über wenige Frames statt hunderte GL-Calls + Arena-Allocs in EINEM Frame zu
+           machen. Überholen bleibt korrekt (meshSeq-Prüfung in applyBatch). */
         ChunkManager.MeshBatch batch;
-        while ((batch = this.chunkManager.getPriorityUploadQueue().poll()) != null) {
+        int priorityUploads = 0;
+        while (priorityUploads < MAX_PRIORITY_UPLOADS_PER_FRAME
+                && (batch = this.chunkManager.getPriorityUploadQueue().poll()) != null) {
             this.applyBatch(batch);
+            priorityUploads++;
         }
 
         /* 2b. Normale Upload-Queue (Initial-Load), gedeckelt pro Frame */

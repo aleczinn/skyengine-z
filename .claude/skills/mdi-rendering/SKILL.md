@@ -135,7 +135,9 @@ Löcher leer ⇒ Mechanik-Bug).
 
 ## Upload-Budgets pro Frame
 
-Priority-Queue (Edits) komplett; Initial-Load max. 8 Batches; LOD max. 4 Ergebnisse.
+Priority-Queue (Edits) max. 24 Batches (weicher Deckel — Einzel-Edits bleiben sofort sichtbar,
+Explosions-Wellen verteilen sich über wenige Frames; Überholen deckt die meshSeq-Prüfung ab);
+Initial-Load max. 8 Batches; LOD max. 4 Ergebnisse.
 LOD-Ergebnisse, die nicht mehr gewünscht sind, MÜSSEN verworfen werden (`lodManager.acceptResult`)
 — sonst Arena-Leak beim Upload↔Unload-Race.
 

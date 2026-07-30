@@ -1,12 +1,14 @@
 package de.skyengine.game.world;
 
 import de.skyengine.game.world.block.BlockPos;
+import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.behavior.ExplosionBehavior;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.utils.collect.LongIntMap;
+import de.skyengine.utils.logging.LogManager;
+import de.skyengine.utils.logging.Logger;
 
-import java.util.HashSet;
-import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -18,15 +20,19 @@ import java.util.concurrent.ThreadLocalRandom;
  *
  * <p>Als Widerstand dient die vorhandene Abbau-Härte ({@link
  * de.skyengine.game.world.block.Block#getHardness()}); {@code hardness < 0} (Bedrock) ist
- * unzerstörbar und stoppt den Strahl. Es gibt <b>keine</b> Item-Drops. Getroffene Blöcke, die
- * selbst explosiv sind (Kettenreaktion), werden nicht entfernt, sondern gezündet.
+ * unzerstörbar und stoppt den Strahl. Es gibt <b>keine</b> Item-Drops (nur Blöcke mit
+ * BlockEntity laufen im Batch-Pfad durch {@code onBreak}, damit z.B. Truheninhalt herausfällt).
+ * Getroffene Blöcke, die selbst explosiv sind (Kettenreaktion), werden nicht entfernt, sondern
+ * gezündet.
  *
- * <p>Läuft ausschließlich auf dem Tick-Thread (aus {@link ExplosionBehavior#scheduledTick}), wo
- * {@code world.setBlock} unter Write-Lock sicher ist. Die Massen-Zerstörung nutzt {@code
- * setBlock(..., false)} — das ändert nur das Section-Array und markiert die Section dirty; das
- * Remesh läuft ohnehin gebatcht einmal pro Frame (kein Remesh pro Block, keine Nachbar-Kaskade).
+ * <p>Läuft ausschließlich auf dem Tick-Thread (einziger Aufrufer ist {@code PrimedTntEntity.tick}
+ * über {@code World.tickEntities}). Die Massen-Zerstörung läuft über
+ * {@link World#breakBlocksBatch} — ein Write-Lock, ein Dirty-CAS und ein Licht-Update pro
+ * betroffenem Chunk statt pro Block; das Remesh ist ohnehin pro Frame gebatcht.
  */
 public final class Explosion {
+
+    private static final Logger LOGGER = LogManager.getLogger(Explosion.class.getName());
 
     /** Schrittweite entlang eines Strahls in Blöcken (MC: 0.3). */
     private static final float STEP = 0.3F;
@@ -34,6 +40,11 @@ public final class Explosion {
     private static final float STEP_DECAY = 0.225F;
     /** Obergrenze der Gitter-Unterteilung — deckelt die Kosten sehr großer Explosionen. */
     private static final int MAX_SUBDIVISIONS = 96;
+
+    /* Explosions-Widerstand je State-ID (lazy auf Registry-Größe gewachsen): der Raycast macht
+       bei großen Explosionen Millionen Abfragen — der Weg über getState().getBlock().getHardness()
+       wäre zwei Objekt-Dereferenzierungen pro Schritt. */
+    private static float[] resistanceById = new float[0];
 
     private Explosion() {
     }
@@ -43,10 +54,15 @@ public final class Explosion {
      * Reichweite ≈ {@code power · 1,3} Blöcke (variiert mit Block-Widerstand).
      */
     public static void explode(World world, double cx, double cy, double cz, float power) {
+        long start = System.nanoTime();
         int n = subdivisions(power);
         int max = n - 1;
-        Set<BlockPos> toBlow = new HashSet<>();
+        /* Getroffene Zellen dedupliziert als Long-Key -> State-ID (der Raycast hat die ID ohnehin
+           gelesen — applyBlast muss sie dann nicht erneut auflösen). Kein HashSet<BlockPos>:
+           das waren bei großen Explosionen Millionen transiente Records. */
+        LongIntMap toBlow = new LongIntMap(4096);
         ThreadLocalRandom rnd = ThreadLocalRandom.current();
+        World.ChunkMemo memo = new World.ChunkMemo();
 
         /* Nur die Randpunkte des n³-Würfels ergeben Strahlrichtungen (die Oberfläche einer Kugel). */
         for (int i = 0; i < n; i++) {
@@ -62,19 +78,25 @@ public final class Explosion {
                     dy /= len;
                     dz /= len;
 
-                    castRay(world, cx, cy, cz, dx, dy, dz, power * (0.7F + rnd.nextFloat() * 0.6F), toBlow);
+                    castRay(world, cx, cy, cz, dx, dy, dz,
+                            power * (0.7F + rnd.nextFloat() * 0.6F), toBlow, memo);
                 }
             }
         }
 
+        int blocks = toBlow.size();
         applyBlast(world, toBlow, rnd);
+        /* Eine Zeile Messbarkeit — Explosionen waren der gemeldete Lag-Spike. */
+        LOGGER.debug("Explosion: power=" + power + ", " + blocks + " Bloecke, "
+                + (System.nanoTime() - start) / 1_000_000 + " ms");
     }
 
     /** Ein einzelner Strahl: läuft in {@link #STEP}-Schritten, bis die Stärke aufgezehrt ist. */
     private static void castRay(World world, double px, double py, double pz,
-                                double dx, double dy, double dz, float strength, Set<BlockPos> toBlow) {
-        /* Zuletzt aufgenommene Zelle — spart Allokationen, wenn mehrere Schritte in derselben liegen
-           (STEP < 1). Der Stärkeverlust wird trotzdem in JEDEM Schritt gerechnet (wie MC). */
+                                double dx, double dy, double dz, float strength,
+                                LongIntMap toBlow, World.ChunkMemo memo) {
+        /* Zuletzt aufgenommene Zelle — spart die Map-Zugriffe, wenn mehrere Schritte in derselben
+           liegen (STEP < 1). Der Stärkeverlust wird trotzdem in JEDEM Schritt gerechnet (wie MC). */
         int lastX = Integer.MIN_VALUE, lastY = 0, lastZ = 0;
 
         while (strength > 0.0F) {
@@ -82,10 +104,10 @@ public final class Explosion {
             int by = (int) Math.floor(py);
             int bz = (int) Math.floor(pz);
 
-            int id = world.getBlock(bx, by, bz);
+            int id = world.getBlockMemo(bx, by, bz, memo);
             float resistance = 0.0F;
             if (id != Blocks.AIR) {
-                float hardness = Blocks.getState(id).getBlock().getHardness();
+                float hardness = resistanceOf(id);
                 if (hardness < 0.0F) break; // unzerstörbar (Bedrock): Strahl wird geschluckt
                 resistance = hardness;
             }
@@ -95,7 +117,7 @@ public final class Explosion {
                 lastX = bx;
                 lastY = by;
                 lastZ = bz;
-                toBlow.add(new BlockPos(bx, by, bz));
+                toBlow.put(BlockPos.asLong(bx, by, bz), id);
             }
 
             px += dx * STEP;
@@ -105,22 +127,39 @@ public final class Explosion {
         }
     }
 
-    /** Zerstört alle getroffenen Blöcke; explosive Blöcke werden stattdessen als Primed-Entity gezündet (Kettenreaktion). */
-    private static void applyBlast(World world, Set<BlockPos> toBlow, ThreadLocalRandom rnd) {
-        for (BlockPos pos : toBlow) {
-            int id = world.getBlock(pos.x(), pos.y(), pos.z());
-            if (id == Blocks.AIR) continue;
-            BlockState state = Blocks.getState(id);
+    /** Zerstört alle getroffenen Blöcke im Batch; explosive Blöcke werden als Primed-Entity gezündet (Kettenreaktion). */
+    private static void applyBlast(World world, LongIntMap toBlow, ThreadLocalRandom rnd) {
+        long[] positions = new long[toBlow.size()];
+        int count = 0;
+        for (int i = 0, n = toBlow.tableSize(); i < n; i++) {
+            if (!toBlow.usedAt(i)) continue;
+            long pos = toBlow.keyAt(i);
+            positions[count++] = pos;
+
+            BlockState state = Blocks.getState(toBlow.valueAt(i));
             ExplosionBehavior explosive = state.getBlock().getBehavior(ExplosionBehavior.class);
             if (explosive != null) {
-                /* Getroffenes TNT als gestaffelte Primed-Entity zünden (randomisierter Kurz-Fuse, wie MC). */
-                world.setBlock(pos.x(), pos.y(), pos.z(), Blocks.AIR, false);
+                /* Getroffenes TNT als gestaffelte Primed-Entity zünden (randomisierter Kurz-Fuse,
+                   wie MC). Der Block selbst fällt mit in den Batch. */
                 int chainFuse = explosive.fuse() / 8 + rnd.nextInt(explosive.fuse() / 8 + 1);
-                world.spawnPrimedTnt(pos.x() + 0.5, pos.y(), pos.z() + 0.5, explosive.power(), chainFuse);
-            } else {
-                world.setBlock(pos.x(), pos.y(), pos.z(), Blocks.AIR, false);
+                world.spawnPrimedTnt(BlockPos.unpackX(pos) + 0.5, BlockPos.unpackY(pos),
+                        BlockPos.unpackZ(pos) + 0.5, explosive.power(), chainFuse);
             }
         }
+        world.breakBlocksBatch(positions, count);
+    }
+
+    /** Explosions-Widerstand (Abbau-Härte) je State-ID, lazy gewachsen (Muster ChunkMesher.opaqueById). */
+    private static float resistanceOf(int stateId) {
+        float[] cache = resistanceById;
+        if (stateId >= cache.length) {
+            cache = new float[BlockRegistry.getStateCount()];
+            for (int i = 0; i < cache.length; i++) {
+                cache[i] = BlockRegistry.getState(i).getBlock().getHardness();
+            }
+            resistanceById = cache;
+        }
+        return cache[stateId];
     }
 
     /**

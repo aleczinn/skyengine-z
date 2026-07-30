@@ -58,12 +58,90 @@ public final class LightProbe {
         testTorchSeam();
         testWalledInEmitter();
         testMesherVertices();
+        testBatchEquivalence();
 
         System.out.println(errors == 0 ? "LICHT OK" : "LICHT FEHLGESCHLAGEN: " + errors + " Fehler");
         System.exit(errors == 0 ? 0 : 1);
     }
 
     /* ------------------------------------------------------------------ */
+
+    /**
+     * Aequivalenz-Beweis fuer den Batch-Pfad (onBlocksChanged, Explosionen): dieselbe
+     * Edit-Liste einmal sequenziell ueber onBlockChanged, einmal als Batch — der komplette
+     * Licht-Endzustand BEIDER Ebenen muss identisch sein (das BFS konvergiert gegen den
+     * eindeutigen Fixpunkt, Reihenfolge/Gruppierung duerfen nichts aendern).
+     */
+    private static void testBatchEquivalence() {
+        System.out.println("== Batch-Aequivalenz (onBlocksChanged) ==");
+        Chunk seq = buildBatchScenario();
+        Chunk batch = buildBatchScenario();
+
+        /* Edit-Liste: Krater (Kugel r=4 in die Oberflaeche), neue Wand in der Luft,
+           Fackel abbauen, Fackel neu setzen — deckt alle vier updateBlockAt-Faelle
+           plus beide Heightmap-Zweige ab. */
+        java.util.List<int[]> edits = new java.util.ArrayList<>(); // {lx, y, lz, newId}
+        for (int dy = -4; dy <= 4; dy++) {
+            for (int dz = -4; dz <= 4; dz++) {
+                for (int dx = -4; dx <= 4; dx++) {
+                    if (dx * dx + dy * dy + dz * dz > 16) continue;
+                    edits.add(new int[]{16 + dx, 99 + dy, 16 + dz, AIR});
+                }
+            }
+        }
+        for (int y = 101; y <= 106; y++) edits.add(new int[]{8, y, 8, STONE}); // neue Wand
+        edits.add(new int[]{24, 50, 24, AIR});   // Fackel im Stollen abbauen
+        edits.add(new int[]{20, 50, 24, TORCH}); // neue Fackel weiter hinten
+
+        /* Sequenziell: exakt der setBlockRaw-Ablauf (alte ID lesen, schreiben, updaten). */
+        LightEngine seqEngine = new LightEngine();
+        Chunk[] none = new Chunk[4];
+        for (int[] e : edits) {
+            int old = seq.getBlock(e[0], e[1], e[2]);
+            seq.setBlock(e[0], e[1], e[2], e[3]);
+            seqEngine.onBlockChanged(seq, null, null, null, null, none, e[0], e[1], e[2], old, e[3]);
+        }
+
+        /* Batch: erst ALLE Writes (Alt-IDs snapshotten), dann ein onBlocksChanged. */
+        int[] packed = new int[edits.size()];
+        int[] olds = new int[edits.size()];
+        for (int i = 0; i < edits.size(); i++) {
+            int[] e = edits.get(i);
+            olds[i] = batch.getBlock(e[0], e[1], e[2]);
+            batch.setBlock(e[0], e[1], e[2], e[3]);
+            packed[i] = (e[0] & 31) | ((e[2] & 31) << 5) | ((e[1] & 511) << 10);
+        }
+        new LightEngine().onBlocksChanged(batch, null, null, null, null, none, packed, olds, packed.length);
+
+        int skyDiff = 0, blockDiff = 0, heightDiff = 0;
+        for (int z = 0; z < SIZE; z++) {
+            for (int x = 0; x < SIZE; x++) {
+                if (seq.heightmap[idx(x, z)] != batch.heightmap[idx(x, z)]) heightDiff++;
+                for (int y = 0; y < 140; y++) {
+                    if (seq.light.get(x, y, z) != batch.light.get(x, y, z)) skyDiff++;
+                    if (seq.blockLight.get(x, y, z) != batch.blockLight.get(x, y, z)) blockDiff++;
+                }
+            }
+        }
+        System.out.println("  " + edits.size() + " Edits, Abweichungen: Himmel " + skyDiff
+                + ", Block " + blockDiff + ", Heightmap " + heightDiff);
+        check(heightDiff == 0, "Heightmap: Batch == sequenziell");
+        check(skyDiff == 0, "Himmelslicht: Batch == sequenziell");
+        check(blockDiff == 0, "Blocklicht: Batch == sequenziell");
+    }
+
+    /** Deterministisches Szenario fuer den Batch-Test: Terrain + Stollen + zwei Fackeln. */
+    private static Chunk buildBatchScenario() {
+        Chunk chunk = new Chunk(0, 0);
+        fillLayer(chunk, 0, 100, STONE);
+        /* Stollen bei y = 50 mit zwei Fackeln (eine wird im Test abgebaut). */
+        for (int x = 6; x <= 26; x++) chunk.setBlock(x, 50, 24, AIR);
+        chunk.setBlock(24, 50, 24, TORCH);
+        chunk.setBlock(10, 50, 24, TORCH);
+        light(chunk);
+        chunk.status = ChunkStatus.READY;
+        return chunk;
+    }
 
     /** Heightmap-Regel + verlustfreie 15er-Saeule + harter Schnitt unter einem Blocker. */
     private static void testHeightmapAndColumn() {

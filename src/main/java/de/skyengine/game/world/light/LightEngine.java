@@ -152,6 +152,121 @@ public final class LightEngine {
     }
 
     /**
+     * Batch-Variante von {@link #onBlockChanged} für Massen-Edits (Explosionen): setContext,
+     * BFS-Durchläufe und applyDirty laufen EINMAL für alle Edits eines Zentrums-Chunks statt
+     * pro Block — der Einzel-Pfad flutete dasselbe Kratervolumen n-fach neu. Der Aufrufer hat
+     * die Blöcke bereits geschrieben (neue IDs stehen im Chunk) und liefert je Edit die
+     * chunk-lokale Position (gepackt lx | lz&lt;&lt;5 | y&lt;&lt;10) plus die alte Block-ID.
+     *
+     * <p>Äquivalenz zum Einzel-Pfad: das BFS konvergiert gegen den eindeutigen Fixpunkt der
+     * Licht-Gleichung (Quellen = Heightmap-Säulen, Ränder, Emitter) — Reihenfolge und
+     * Gruppierung der Edits ändern den Endzustand nicht. Multi-Seed ist durch den
+     * Staleness-Check in runIncrease und die reseed-Queue in removeLight bereits abgedeckt.
+     * Nachgewiesen wird die Äquivalenz im LightProbe-Batch-Test (sequenziell == Batch).</p>
+     *
+     * <p>Ablauf je Ebene wie im Einzel-Pfad, nur zusammengefasst: Himmel = je Edit removeLight
+     * + Nachbar-Quellen, danach je EINDEUTIGER Säule die Heightmap EINMAL neu bestimmen
+     * (scanColumnDown) und die Direkt-Säule fluten bzw. kappen, dann EIN runIncrease.
+     * Block = je Edit removeLight + Emitter-/Nachbar-Seeds, dann EIN runIncrease.</p>
+     */
+    public void onBlocksChanged(Chunk center, Chunk north, Chunk south, Chunk west, Chunk east,
+                                Chunk[] diagonals, int[] packedPos, int[] oldIds, int count) {
+        if (center.heightmap == null || count == 0) return;
+
+        this.setContext(center, north, south, west, east, diagonals);
+        this.writeCenterOnly = false;
+        this.markDirty = true;
+        try {
+            int[] heightmap = center.heightmap;
+
+            /* --- Himmelslicht: erst alle Abrisse, dann die Säulen, dann EIN Flood. --- */
+            boolean anySky = false;
+            for (int i = 0; i < count; i++) {
+                int pos = packedPos[i];
+                int lx = pos & 31, lz = (pos >> 5) & 31, y = (pos >> 10) & 511;
+                int oldOpacity = BlockRegistry.getState(oldIds[i]).getLightOpacity();
+                int newOpacity = this.opacityAt(lx, y, lz); // neue ID steht schon im Chunk
+                if (oldOpacity == newOpacity) continue;
+                anySky = true;
+                this.removeLight(lx, y, lz);
+                for (int d = 0; d < 6; d++) {
+                    int nx = lx + DIR_X[d], ny = y + DIR_Y[d], nz = lz + DIR_Z[d];
+                    if (ny < 0 || ny >= Chunk.HEIGHT) continue;
+                    int level = this.getLight(nx, ny, nz);
+                    if (level > 1) this.increase.push(encode(nx, ny, nz, level));
+                }
+            }
+            if (anySky) {
+                /* Heightmap je Säule EINMAL neu (Dedup über ein 32x32-Bitfeld): geöffnete
+                   Säulen bekommen ihre 15er-Direktzellen NACH den removeLights geseedet —
+                   sonst würde der Staleness-Check die frischen 15er gleich wieder verwerfen. */
+                long[] columnSeen = new long[ChunkSection.SIZE];
+                for (int i = 0; i < count; i++) {
+                    int pos = packedPos[i];
+                    int lx = pos & 31, lz = (pos >> 5) & 31;
+                    int oldOpacity = BlockRegistry.getState(oldIds[i]).getLightOpacity();
+                    int newOpacity = this.opacityAt(lx, (pos >> 10) & 511, lz);
+                    if (oldOpacity == newOpacity) continue;
+                    if ((columnSeen[lz] & (1L << lx)) != 0) continue;
+                    columnSeen[lz] |= 1L << lx;
+
+                    int hIdx = (lz << ChunkSection.SHIFT) | lx;
+                    int oldHeight = heightmap[hIdx];
+                    int newHeight = scanColumnDown(center, lx, lz, Chunk.HEIGHT - 1);
+                    if (newHeight == oldHeight) continue;
+                    heightmap[hIdx] = newHeight;
+                    if (newHeight < oldHeight) {
+                        /* Säule geöffnet: Direkt-Himmel bis zum neuen Blocker fluten. */
+                        for (int yy = oldHeight - 1; yy >= newHeight; yy--) {
+                            this.setLight(lx, yy, lz, 15);
+                            this.markCell(lx, yy, lz);
+                            this.increase.push(encode(lx, yy, lz, 15));
+                        }
+                    } else if (newHeight >= 2) {
+                        /* Neuer höchster Blocker: die Zelle darunter kollabiert die alte
+                           15er-Säule über die Down-Regel (wie der Einzel-Pfad). */
+                        this.removeLight(lx, newHeight - 2, lz);
+                    }
+                }
+                this.runIncrease();
+            }
+
+            /* --- Blocklicht: derselbe Ablauf wie updateBlockAt, nur gesammelt. --- */
+            this.skyLayer = false;
+            boolean anyBlock = false;
+            for (int i = 0; i < count; i++) {
+                int pos = packedPos[i];
+                int lx = pos & 31, lz = (pos >> 5) & 31, y = (pos >> 10) & 511;
+                int oldId = oldIds[i];
+                int newId = center.getBlock(lx, y, lz);
+                int oldOpacity = BlockRegistry.getState(oldId).getLightOpacity();
+                int newOpacity = BlockRegistry.getState(newId).getLightOpacity();
+                int oldLuminance = BlockRegistry.getState(oldId).getLuminance();
+                int newLuminance = BlockRegistry.getState(newId).getLuminance();
+                if (oldOpacity == newOpacity && oldLuminance == newLuminance) continue;
+                anyBlock = true;
+                this.removeLight(lx, y, lz);
+                if (newLuminance > 0) {
+                    this.setLight(lx, y, lz, newLuminance);
+                    this.markCell(lx, y, lz);
+                    this.increase.push(encode(lx, y, lz, newLuminance));
+                }
+                for (int d = 0; d < 6; d++) {
+                    int nx = lx + DIR_X[d], ny = y + DIR_Y[d], nz = lz + DIR_Z[d];
+                    if (ny < 0 || ny >= Chunk.HEIGHT) continue;
+                    int level = this.getLight(nx, ny, nz);
+                    if (level > 1) this.increase.push(encode(nx, ny, nz, level));
+                }
+            }
+            if (anyBlock) this.runIncrease();
+
+            this.applyDirty();
+        } finally {
+            this.clearContext();
+        }
+    }
+
+    /**
      * Blocklicht-Flood nach einem Edit. Braucht — anders als {@link #updateSkyAt} — kein
      * dunkler/heller-Zweigpaar: es gibt keine Heightmap zu pflegen, und derselbe Ablauf deckt alle
      * vier Fälle ab (Leuchtblock setzen/abbauen, undurchsichtigen Block setzen/abbauen).

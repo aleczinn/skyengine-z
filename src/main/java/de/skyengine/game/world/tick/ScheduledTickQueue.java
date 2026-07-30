@@ -1,7 +1,8 @@
 package de.skyengine.game.world.tick;
 
-import java.util.HashMap;
-import java.util.Map;
+import de.skyengine.game.world.block.BlockPos;
+import de.skyengine.utils.collect.LongLongMap;
+
 import java.util.PriorityQueue;
 
 /**
@@ -39,13 +40,17 @@ public final class ScheduledTickQueue {
         int c = Long.compare(a.triggerTime, b.triggerTime);
         return c != 0 ? c : Long.compare(a.seq, b.seq);
     });
-    /** Position -> maßgebliche (früheste) eingeplante Trigger-Zeit. Ältere Queue-Entries sind Karteileichen. */
-    private final Map<Long, Long> scheduledTime = new HashMap<>();
+    /* Position -> maßgebliche (früheste) eingeplante Trigger-Zeit. Ältere Queue-Entries sind
+       Karteileichen. LongLongMap statt HashMap<Long,Long>: bei fließendem Wasser laufen hier
+       hunderte Zugriffe pro Tick — das doppelte Boxing (Key UND Value) entfällt. */
+    private final LongLongMap scheduledTime = new LongLongMap(256);
+    /** Sentinel für „keine Zeit vorgemerkt" — gameTime ist nie negativ. */
+    private static final long NO_TIME = Long.MIN_VALUE;
     private long seqCounter;
 
     /** Merkt einen Tick zur {@code triggerTime} vor. false, wenn an der Position bereits einer ansteht (first-wins). */
     public boolean schedule(int x, int y, int z, long triggerTime) {
-        long key = pack(x, y, z);
+        long key = BlockPos.asLong(x, y, z);
         if (this.scheduledTime.containsKey(key)) return false;
         this.scheduledTime.put(key, triggerTime);
         this.queue.add(new Entry(x, y, z, triggerTime, this.seqCounter++));
@@ -58,16 +63,16 @@ public final class ScheduledTickQueue {
      * passiert nichts. false, wenn nichts geändert wurde.
      */
     public boolean scheduleEarlier(int x, int y, int z, long triggerTime) {
-        long key = pack(x, y, z);
-        Long cur = this.scheduledTime.get(key);
-        if (cur != null && cur <= triggerTime) return false;
+        long key = BlockPos.asLong(x, y, z);
+        long cur = this.scheduledTime.getOrDefault(key, NO_TIME);
+        if (cur != NO_TIME && cur <= triggerTime) return false;
         this.scheduledTime.put(key, triggerTime);
         this.queue.add(new Entry(x, y, z, triggerTime, this.seqCounter++));
         return true;
     }
 
     public boolean isScheduled(int x, int y, int z) {
-        return this.scheduledTime.containsKey(pack(x, y, z));
+        return this.scheduledTime.containsKey(BlockPos.asLong(x, y, z));
     }
 
     /**
@@ -80,10 +85,10 @@ public final class ScheduledTickQueue {
         Entry e;
         while ((e = this.queue.peek()) != null && e.triggerTime <= now && e.seq < cutoff) {
             this.queue.poll();
-            long key = pack(e.x, e.y, e.z);
-            Long cur = this.scheduledTime.get(key);
+            long key = BlockPos.asLong(e.x, e.y, e.z);
+            long cur = this.scheduledTime.getOrDefault(key, NO_TIME);
             /* Karteileiche überspringen: durch scheduleEarlier vorgezogen oder bereits abgearbeitet. */
-            if (cur == null || cur != e.triggerTime) continue;
+            if (cur != e.triggerTime) continue;
             this.scheduledTime.remove(key);
             consumer.run(e.x, e.y, e.z);
         }
@@ -102,24 +107,16 @@ public final class ScheduledTickQueue {
      * (früher als der nächste Tick geht nicht). Nur Tick-Thread.
      */
     public void forEachPending(long now, PendingConsumer consumer) {
-        for (Map.Entry<Long, Long> entry : this.scheduledTime.entrySet()) {
-            long key = entry.getKey();
-            /* Entpacken mit Vorzeichen-Erweiterung: x liegt in den obersten 26 Bit
-               (arithm. Long-Shift erweitert), z braucht die explizite 26-Bit-Erweiterung. */
-            int x = (int) (key >> 38);
-            int z = ((int) ((key >> 12) & 0x3FFFFFF) << 6) >> 6;
-            int y = (int) (key & 0xFFF);
-            int remaining = (int) Math.max(1, entry.getValue() - now);
-            consumer.accept(x, y, z, remaining);
+        for (int i = 0, n = this.scheduledTime.tableSize(); i < n; i++) {
+            if (!this.scheduledTime.usedAt(i)) continue;
+            long key = this.scheduledTime.keyAt(i);
+            int remaining = (int) Math.max(1, this.scheduledTime.valueAt(i) - now);
+            consumer.accept(BlockPos.unpackX(key), BlockPos.unpackY(key), BlockPos.unpackZ(key), remaining);
         }
     }
 
+    /** Länge der PriorityQueue — INKLUSIVE Karteileichen (nur Telemetrie, keine echte Tick-Zahl). */
     public int size() {
         return this.queue.size();
-    }
-
-    /* 26 Bit x | 26 Bit z | 12 Bit y - für Dedup eindeutig bei praktischen Weltgrößen. */
-    private static long pack(int x, int y, int z) {
-        return ((long) (x & 0x3FFFFFF) << 38) | ((long) (z & 0x3FFFFFF) << 12) | (y & 0xFFF);
     }
 }

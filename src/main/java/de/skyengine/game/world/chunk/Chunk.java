@@ -246,6 +246,17 @@ public class Chunk {
         return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
     }
 
+    /* Announce „dieser Chunk bringt gespeicherte Scheduled-Ticks mit": der Load-Worker
+       (ChunkSerializer.deserialize) meldet den Chunk an, World.restorePendingScheduledTicks
+       pollt nur noch die Queue statt jeden Tick alle Chunks zu scannen. Vom ChunkManager
+       beim Anlegen gesetzt; null in Tools/Tests. */
+    ConcurrentLinkedQueue<Chunk> tickRestoreQueue;
+
+    public void announceTickRestore() {
+        ConcurrentLinkedQueue<Chunk> queue = this.tickRestoreQueue;
+        if (queue != null && this.pendingScheduledTicks != null) queue.add(this);
+    }
+
     /* Remesh-Anmeldung: markSectionDirty reiht den Chunk beim Manager ein (einmalig,
        CAS-geschützt gegen Doppel-Einträge — Markierungen kommen vom Render-Thread UND von
        Worker-Threads wie dem Licht-Randaustausch), statt dass processRemeshes jeden Frame
@@ -254,7 +265,18 @@ public class Chunk {
     private final AtomicBoolean remeshEnqueued = new AtomicBoolean(false);
 
     public void markSectionDirty(int sectionIndex) {
-        this.dirtySections.getAndUpdate(m -> m | (1 << sectionIndex));
+        this.markSectionsDirty(1 << sectionIndex);
+    }
+
+    /** Mehrere Sections auf einmal dirty markieren (Massen-Edits: EIN CAS statt n).
+     *  Expliziter CAS-Loop statt getAndUpdate — das capturing Lambda allozierte pro Aufruf. */
+    public void markSectionsDirty(int mask) {
+        if (mask == 0) return;
+        int prev;
+        do {
+            prev = this.dirtySections.get();
+            if ((prev | mask) == prev) break; // schon gesetzt
+        } while (!this.dirtySections.compareAndSet(prev, prev | mask));
         this.enqueueRemesh();
     }
 

@@ -47,6 +47,11 @@ public class ChunkManager {
     private final ConcurrentLinkedQueue<Chunk> blockEntityAnnounceQueue = new ConcurrentLinkedQueue<>();
     private final LinkedHashSet<Chunk> chunksWithBlockEntities = new LinkedHashSet<>();
 
+    /* Chunks mit beim Laden mitgebrachten Scheduled-Ticks (Announce vom Load-Worker über
+       Chunk.announceTickRestore): World.restorePendingScheduledTicks pollt nur diese Queue
+       statt jeden Tick alle Chunks zu scannen (im Steady-State null Treffer). */
+    private final ConcurrentLinkedQueue<Chunk> tickRestoreQueue = new ConcurrentLinkedQueue<>();
+
     /* Aktualitäts-Sequenz für Mesh-Ergebnisse, vergeben beim Job-SUBMIT (Render-Thread, seriell):
        ein später submitteter Job hat immer neuere Daten. Der Renderer verwirft in applyBatch
        Batches, deren Seq nicht neuer ist als das zuletzt angewendete Mesh der Section — sonst
@@ -321,6 +326,7 @@ public class ChunkManager {
                 chunk = new Chunk(cx, cz);
                 chunk.remeshQueue = this.remeshQueue; // Dirty-Markierungen melden sich hier an
                 chunk.blockEntityAnnounceQueue = this.blockEntityAnnounceQueue;
+                chunk.tickRestoreQueue = this.tickRestoreQueue;
                 this.chunks.put(key, chunk);
             }
 
@@ -524,6 +530,7 @@ public class ChunkManager {
         this.priorityUploadQueue.clear();
         this.remeshQueue.clear(); // alte Chunk-Objekte; Neuanlagen melden sich selbst wieder an
         this.blockEntityAnnounceQueue.clear();
+        this.tickRestoreQueue.clear();
         this.chunksWithBlockEntities.clear();
         this.chunkRemovalVersion++;
         this.initialLoadComplete = false; // alles lädt neu → LOD wartet wieder auf das echte Terrain
@@ -658,6 +665,20 @@ public class ChunkManager {
         this.chunksWithBlockEntities.removeIf(chunk ->
                 this.chunks.get(Chunk.key(chunk.chunkX, chunk.chunkZ)) != chunk || chunk.blockEntities().isEmpty());
         return this.chunksWithBlockEntities;
+    }
+
+    /* Tick-Restore-Queue (nur Tick-Thread konsumiert; Producer ist der Load-Worker). */
+
+    public int tickRestorePending() {
+        return this.tickRestoreQueue.size();
+    }
+
+    public Chunk pollTickRestore() {
+        return this.tickRestoreQueue.poll();
+    }
+
+    public void requeueTickRestore(Chunk chunk) {
+        this.tickRestoreQueue.add(chunk);
     }
 
     public java.util.Collection<Chunk> loadedChunks() {
