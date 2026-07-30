@@ -27,6 +27,7 @@ public final class StartInventory {
         set(inventory, 7, "skyengine:lava_bucket", 1);
         set(inventory, 8, "skyengine:torch", 64);
         set(inventory, 9, "skyengine:iron_bars", 1);
+        set(inventory, 10, "skyengine:tnt", 64);
     }
 
     private static void set(SimpleItemStorage inventory, int slot, String itemId, int count) {
