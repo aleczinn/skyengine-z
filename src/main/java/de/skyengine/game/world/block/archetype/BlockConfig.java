@@ -46,6 +46,8 @@ public final class BlockConfig {
     private final float friction;
     private final float speedFactor;
     private final float jumpFactor;
+    private final float bounciness;
+    private final float fallDamageFactor;
     private final de.skyengine.game.world.item.ToolType toolType;
     private final int harvestLevel;
     private final de.skyengine.audio.BlockSoundGroup soundGroup;
@@ -78,6 +80,8 @@ public final class BlockConfig {
         this.friction = b.friction;
         this.speedFactor = b.speedFactor;
         this.jumpFactor = b.jumpFactor;
+        this.bounciness = b.bounciness;
+        this.fallDamageFactor = b.fallDamageFactor;
         this.toolType = b.toolType;
         this.harvestLevel = b.harvestLevel;
         this.soundGroup = b.soundGroup;
@@ -214,6 +218,16 @@ public final class BlockConfig {
         return jumpFactor;
     }
 
+    /** Anteil der Aufprallgeschwindigkeit, der beim Landen umgekehrt wird (0 = kein Abprallen). */
+    public float bounciness() {
+        return bounciness;
+    }
+
+    /** Multiplikator auf den Fallschaden (1.0 = normal, 0 = immun wie Slimeblock). */
+    public float fallDamageFactor() {
+        return fallDamageFactor;
+    }
+
     /**
      * Effektive Tool-Klasse oder null (= Hand reicht, droppt immer).
      */
@@ -293,6 +307,8 @@ public final class BlockConfig {
         private float friction = 0.6F;
         private float speedFactor = 1.0F;
         private float jumpFactor = 1.0F;
+        private float bounciness = 0F;
+        private float fallDamageFactor = 1.0F;
         private de.skyengine.game.world.item.ToolType toolType;
         private int harvestLevel = 0;
         private de.skyengine.audio.BlockSoundGroup soundGroup = de.skyengine.audio.BlockSoundGroup.STONE;
@@ -416,6 +432,16 @@ public final class BlockConfig {
 
         public Builder jumpFactor(float v) {
             this.jumpFactor = v;
+            return this;
+        }
+
+        public Builder bounciness(float v) {
+            this.bounciness = v;
+            return this;
+        }
+
+        public Builder fallDamageFactor(float v) {
+            this.fallDamageFactor = v;
             return this;
         }
 

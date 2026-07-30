@@ -366,6 +366,16 @@ public class Block {
         return this.config.jumpFactor();
     }
 
+    /** Anteil der Aufprallgeschwindigkeit, der beim Landen umgekehrt wird (0 = kein Abprallen). */
+    public float getBounciness() {
+        return this.config.bounciness();
+    }
+
+    /** Multiplikator auf den Fallschaden (1.0 = normal, 0 = immun wie Slimeblock). */
+    public float getFallDamageFactor() {
+        return this.config.fallDamageFactor();
+    }
+
     /** Effektive Tool-Klasse oder null (= Hand reicht, droppt immer). */
     public de.skyengine.game.world.item.ToolType getToolType() {
         return this.config.toolType();

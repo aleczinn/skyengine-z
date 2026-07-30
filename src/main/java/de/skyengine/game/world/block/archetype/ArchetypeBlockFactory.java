@@ -128,6 +128,12 @@ public final class ArchetypeBlockFactory {
         if (def.jump_factor != null) {
             builder.jumpFactor(def.jump_factor);
         }
+        if (def.bounciness != null) {
+            builder.bounciness(def.bounciness);
+        }
+        if (def.fall_damage_factor != null) {
+            builder.fallDamageFactor(def.fall_damage_factor);
+        }
 
         /* Licht-Opazität: ohne Angabe entscheidet Block.getLightOpacity automatisch per State. */
         if (def.light_opacity != null) {

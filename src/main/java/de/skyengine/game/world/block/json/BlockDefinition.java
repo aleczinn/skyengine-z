@@ -76,7 +76,17 @@ public class BlockDefinition {
     public Float speed_factor;
     public Float jump_factor;
 
-    /* Optionale Sound-Gruppe (stone/wood/gravel/grass/sand/snow/cloth/glass);
+    /* Landung auf dem Block (MC-Semantik, ausgewertet in Entity.move bzw.
+       EntityPlayer.updateFallDamage):
+       bounciness = Anteil der Aufprallgeschwindigkeit, der umgekehrt wird. Default 0 = normales
+       Landen; Slimeblock 1.0 (in MC federt auch das Bett mit 0.66). Nicht-Lebewesen federn
+       zusätzlich gedämpft (Entity.bounceDamping), Sneaken unterdrückt den Bounce ganz.
+       fall_damage_factor = Multiplikator auf den Fallschaden NACH Abzug der 3-Block-Schwelle
+       (wie MCs calculateFallDamage). Default 1.0; Slimeblock 0 (immun), Honigblock 0.2. */
+    public Float bounciness;
+    public Float fall_damage_factor;
+
+    /* Optionale Sound-Gruppe (stone/wood/gravel/grass/sand/snow/cloth/glass/slime/honey);
        null = Ableitung aus tool/archetype (siehe BlockSoundGroup.resolve). */
     public String sound;
 

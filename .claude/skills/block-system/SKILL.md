@@ -96,8 +96,13 @@ dort sonst unerreichbar.
 - Materialwerte je Block (nie ins Preset — `preset/cube` bedient stone, dirt UND wool): `hardness`,
   `tool`, `harvest_tier`, `resistance` (Explosion; ohne Feld gilt `hardness`, dadurch erbt Bedrock
   seine −1 und bleibt Strahlenstopper) sowie `friction`/`speed_factor`/`jump_factor` (Bewegung,
-  Defaults 0.6/1.0/1.0). Die Auflösung von `resistance` passiert in `ArchetypeBlockFactory`, NICHT
-  im `BlockConfig`-Default — sonst ginge der Bedrock-Fallback verloren.
+  Defaults 0.6/1.0/1.0) und `bounciness`/`fall_damage_factor` (Landung, Defaults 0/1.0). Die
+  Auflösung von `resistance` passiert in `ArchetypeBlockFactory`, NICHT im `BlockConfig`-Default —
+  sonst ginge der Bedrock-Fallback verloren.
+- Entity↔Block-Werte werden **nie** über `Block.getBehavior(Class)` gelesen: das ist eine lineare
+  Schleife mit `Class.isInstance` und damit die falsche Ebene für einen Pro-Tick-Pro-Entity-Pfad.
+  Muster ist `Blocks.getState(id).getBlock().getX()` (Array-Index + Feld-Read) — so machen es die
+  Strömung (`Entity.pushOutOfFluids`), die Reibung und der Abpraller (`Entity.move`).
 
 ## Fallstricke für schwächere Modelle
 

@@ -230,8 +230,10 @@ public class EntityPlayer extends Entity {
 
     /**
      * Fallhöhe akkumulieren und auf der Landungs-Flanke als Schaden anwenden (MC-Regel:
-     * Schaden in HP = Fallhöhe − 3 Blöcke). Fliegen, Fluid-Kontakt oder Aufwärtsbewegung
-     * setzen die Fallhöhe zurück (Wasser-Landung ist damit immer schadensfrei).
+     * Schaden in HP = Fallhöhe − 3 Blöcke, danach mal dem {@code fall_damage_factor} des
+     * gelandeten Blocks — Slimeblock 0, Honigblock 0,2; Reihenfolge wie MCs
+     * {@code calculateFallDamage}, also Schwelle zuerst). Fliegen, Fluid-Kontakt oder
+     * Aufwärtsbewegung setzen die Fallhöhe zurück (Wasser-Landung ist damit immer schadensfrei).
      */
     private void updateFallDamage(World world, boolean wasOnGround) {
         if (this.flying || this.isTouchingFluid(world)) {
@@ -246,7 +248,8 @@ public class EntityPlayer extends Entity {
         }
         if (this.onGround) {
             if (!wasOnGround) {
-                float damage = this.fallDistance - FALL_DAMAGE_THRESHOLD;
+                float damage = (this.fallDistance - FALL_DAMAGE_THRESHOLD)
+                        * this.blockAt(world, this.y - 0.5000001).getFallDamageFactor();
                 if (damage > 0 && this.damage(damage)) {
                     this.fallDamageTaken = damage;
                 }
@@ -382,9 +385,20 @@ public class EntityPlayer extends Entity {
         return own != 1.0F ? own : this.blockAt(world, this.y - 0.5000001).getJumpFactor();
     }
 
-    private de.skyengine.game.world.block.Block blockAt(World world, double atY) {
-        return de.skyengine.game.world.block.Blocks.getState(world.getBlock(
-                (int) Math.floor(this.x), (int) Math.floor(atY), (int) Math.floor(this.z))).getBlock();
+    /** Der Spieler ist MCs „Lebewesen" und federt deshalb ungedämpft (Drops/TNT: 0,8). */
+    @Override
+    protected double bounceDamping() {
+        return 1.0;
+    }
+
+    /**
+     * MCs {@code isSuppressingBounce}: Sneaken verhindert den Abpraller. Es verhindert
+     * <b>nicht</b> die Fallschaden-Dämpfung — auf einem Slimeblock landet man auch sneakend
+     * unverletzt.
+     */
+    @Override
+    protected boolean isSuppressingBounce() {
+        return this.isSneaking();
     }
 
     /**

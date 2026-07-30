@@ -156,10 +156,19 @@ ausdrücken).
   (Default 0.6, Eis 0.98, Blaueis 0.989), **`speed_factor`** (Seelensand/Honig 0.4) und
   **`jump_factor`** (Honig 0.5), ausgewertet in `EntityPlayer.travelWalking` nach der
   MC-Formel (Beschleunigung skaliert mit `0.6³/friction³`, sonst wäre Eis schnell statt glatt).
+  Dazu die Landungs-Werte **`bounciness`** (Slime 1.0) und **`fall_damage_factor`** (Slime 0,
+  Honig 0.2): der Abpraller sitzt in `Entity.move` an genau der Stelle, an der sonst `motionY`
+  genullt würde — MCs `Block.updateEntityAfterFallOn` — und gilt damit auch für Drops und
+  gezündetes TNT (gedämpft mit 0.8, `Entity.bounceDamping`; der Spieler federt voll). Sneaken
+  unterdrückt nur den Abpraller, nicht die Schadens-Immunität. Der Fallschaden-Faktor greift in
+  `EntityPlayer.updateFallDamage` NACH der 3-Block-Schwelle (wie MCs `calculateFallDamage`).
   Dazu die zehn Blöcke, die diese Werte erst sichtbar machen: ice, packed_ice, blue_ice,
   soul_sand, soul_soil, slime_block, honey_block, end_stone, netherrack, magma_block
-  (Texturen via `scripts/extract-mc-blocks.ps1`). **Kein** Abpraller/Netz-Bremsen/Wandrutschen —
-  die Blöcke wirken ausschließlich über die drei Skalarwerte
+  (Texturen via `scripts/extract-mc-blocks.ps1`); Slime/Honig haben das Vanilla-Innenwürfel-Modell
+  (`models/block/cube_inner_all`/`_bottom_top`, Innenwürfel **zuerst** — der Translucent-Pass
+  schreibt Tiefe und die Sortierung ist gedrosselt) und eigene Sound-Gruppen SLIME/HONEY.
+  Kollisionshöhen vanilla-getreu (Honig 15/16 + 1 px eingerückt, Seelensand 14/16) bei vollem
+  Modell. **Kein** Netz-Bremsen und **kein** Honig-Wandrutschen
 - Doppeltruhen mit den MC-Platzierungsregeln: Property `type` (single/left/right) + `ChestBehavior`
   (Verschmelzen beim Platzieren, Sneaken verhindert es, sneakender Seitenklick verbindet trotzdem;
   Auftrennen per Nachbar-Update),

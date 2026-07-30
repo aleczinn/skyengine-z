@@ -6,6 +6,8 @@
   "layer": "translucent",
   "hardness": 0,
   "friction": 0.8,
+  "bounciness": 1.0,
+  "fall_damage_factor": 0,
   "opaque": false,
   "solid": true,
   "cull_same": true

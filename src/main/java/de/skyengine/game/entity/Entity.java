@@ -149,16 +149,53 @@ public abstract class Entity {
         /* Nach dem Auto-Step: ein vollständig erklommenes Hindernis zählt nicht als Kollision. */
         this.horizontalCollision = nx != origDx || nz != origDz;
 
-        /* Motion auf blockierten Achsen nullen (gegen Wand laufen, auf Boden landen) */
-        if (origDx != nx) this.motionX = 0;
-        if (origDy != ny) this.motionY = 0;
-        if (origDz != nz) this.motionZ = 0;
-        if (stepped) this.motionY = 0; // nicht durch den Step nach oben "schießen"
-
-        /* Position aus der BoundingBox zurücklesen */
+        /* Position aus der BoundingBox zurücklesen — VOR der Motion-Behandlung, weil der
+           Abprall-Test den Block unter den Füßen an der NEUEN Position braucht. */
         this.x = (this.boundingBox.minX + this.boundingBox.maxX) / 2.0;
         this.y = this.boundingBox.minY;
         this.z = (this.boundingBox.minZ + this.boundingBox.maxZ) / 2.0;
+
+        /* Motion auf blockierten Achsen nullen (gegen Wand laufen, auf Boden landen) */
+        if (origDx != nx) this.motionX = 0;
+        if (origDy != ny) this.motionY = this.landingMotionY(world, origDy);
+        if (origDz != nz) this.motionZ = 0;
+        if (stepped) this.motionY = 0; // nicht durch den Step nach oben "schießen"
+    }
+
+    /**
+     * Neue vertikale Motion nach einem Aufprall. Normalfall 0; auf einem federnden Block
+     * (JSON-Feld {@code bounciness}, Slimeblock 1.0) wird die Aufprallgeschwindigkeit stattdessen
+     * umgekehrt. Das ist strukturell dieselbe Stelle wie Minecrafts {@code
+     * Block.updateEntityAfterFallOn}, dessen Default-Implementierung ebenfalls nur {@code motionY}
+     * nullt und die {@code SlimeBlock} durch den Abpraller ersetzt.
+     *
+     * <p>Der Block wird direkt über die State-Tabelle gelesen und nicht über {@code getBehavior} —
+     * das hier ist ein Pro-Tick-Pro-Entity-Pfad, dieselbe Überlegung wie bei der Strömung.
+     */
+    private double landingMotionY(World world, double origDy) {
+        if (origDy >= 0 || this.isSuppressingBounce()) return 0; // Deckenstoß / Sneak: nie federn
+        double bounciness = this.blockAt(world, this.y - 0.5000001).getBounciness();
+        if (bounciness <= 0) return 0;
+        return -this.motionY * bounciness * this.bounceDamping();
+    }
+
+    /**
+     * Dämpfung des Abprallers. Minecraft unterscheidet nur Lebewesen (voll) von allem anderen
+     * (0,8) — Drops und gezündetes TNT hüpfen also sichtbar schwächer als der Spieler.
+     */
+    protected double bounceDamping() {
+        return 0.8;
+    }
+
+    /** Ob der Abpraller unterdrückt wird (MCs {@code isSuppressingBounce}: Spieler im Sneak). */
+    protected boolean isSuppressingBounce() {
+        return false;
+    }
+
+    /** Block an der eigenen XZ-Spalte auf der Höhe {@code atY} (Luft außerhalb geladener Chunks). */
+    protected de.skyengine.game.world.block.Block blockAt(World world, double atY) {
+        return Blocks.getState(world.getBlock(
+                (int) Math.floor(this.x), (int) Math.floor(atY), (int) Math.floor(this.z))).getBlock();
     }
 
     /**
