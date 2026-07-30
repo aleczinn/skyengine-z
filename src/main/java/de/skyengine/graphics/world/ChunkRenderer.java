@@ -1704,8 +1704,9 @@ public class ChunkRenderer {
         return cx * cx + cy * cy + cz * cz;
     }
 
+    /** Section-Key im geteilten 26/26/12-Layout ({@code BlockPos.asLong}; y = sectionY 0..15). */
     private static long sectionKey(int x, int y, int z) {
-        return ((long) (x & 0x3FFFFFF) << 38) | ((long) (z & 0x3FFFFFF) << 12) | (y & 0xFFF);
+        return de.skyengine.game.world.block.BlockPos.asLong(x, y, z);
     }
 
     public void dispose() {

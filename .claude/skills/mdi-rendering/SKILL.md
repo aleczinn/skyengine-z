@@ -88,11 +88,19 @@ beide Methoden müssen daher immer paarweise pro Frame aufgerufen werden.
 
 `GpuCull.ENABLED` (Default **AUS** — s. Kosten-Realität unten; Live-A/B über den
 GuiDebugScreen, der CPU-Pfad bleibt vollständig erhalten): Frustum-Cull für Sections
-OPAQUE/CUTOUT + Sicht-Gate + LOD-Opaque L1–L5
+OPAQUE/CUTOUT + Sicht-Gate + LOD-Opaque (**alle Level in EINEM Segment** — die früheren
+per-Level-Segmente besuchten jeden LOD-Slot K-mal pro Phase und submitteten K×mirrorCount
+Commands; nach dem Merge wird jeder Slot pro Phase genau einmal besucht)
 läuft als Compute-Pass, der pro Descriptor-Slot Indirect-Commands in GPU-Puffer schreibt
 (plain MDI mit **Null-Commands**, KEIN `glMultiDrawElementsIndirectCount` — dessen
 Count-Lesung stallte die Submission 76–114 ms). Translucent, LOD-Wasser und Kleinvegetation
 bleiben bewusst CPU (Sortierung/Ausdünnung braucht CPU-Reihenfolge).
+
+**Single-Phase-Fallback:** ist kein Hi-Z möglich (AA-Modus MSAA = keine sample-bare
+Depth-Textur, erster Frame ohne Szene-FBO), läuft EIN Durchlauf (u_Phase=2), der alle
+Frustum-Sichtbaren zeichnet und die Vis-Bits fail-open setzt — Phase 2 samt Barrier/Draws
+entfällt. Der Fallback ist zulässig, weil dabei GAR keine Occlusion stattfindet (die
+Ein-Phasen-Falle unten betrifft nur Hi-Z-Culling).
 
 **Two-Phase-Occlusion** (die EINZIGE flackerfreie Struktur — Ein-Phasen-Hi-Z hatte einen
 bewiesenen Selbst-Feedback-Loop): Phase 1 zeichnet die Letzte-Frame-Sichtbaren (Vis-Bit

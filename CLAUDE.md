@@ -190,8 +190,14 @@ ausdrücken).
 - Mining: MC-Harvest-Regel, 28 Tools (7 Tiers × 4 Typen), Durability, Crack-Overlay,
   Bedrock unzerstörbar; Gamemodes Survival/Creative/Spectator; Item-Entities + Aufsammeln
 - TNT/Explosion: raybasierte Explosion (`Explosion`, MC-ServerExplosion-Modell, hardness als
-  Widerstands-Proxy), `ExplosionBehavior` + `PrimedTntEntity` (Rechtsklick-Zündung, Fuse, Ketten-
-  Zündung), weißer Blink-Shader; JSON-Felder `explosion_power`/`fuse` (`blocks/tnt.json`)
+  Widerstands-Proxy — Wasser/Lava tragen dafür hardness 100), `ExplosionBehavior` +
+  `PrimedTntEntity` (Rechtsklick-Zündung, Fuse, Ketten-Zündung), weißer Blink-Shader;
+  JSON-Felder `explosion_power`/`fuse` (`blocks/tnt.json`). **`explosion_power: 100` ist
+  Absicht** (Riesenkrater, ~250k Blöcke) — dafür läuft die Zerstörung als Batch:
+  `World.breakBlocksBatch` (ein Lock/Dirty/Licht-Update je Chunk,
+  `LightEngine.onBlocksChanged` = EINE Flutung, Äquivalenz-Beweis im `lightTest`),
+  Raycast mit Chunk-Memo, Priority-Uploads gedeckelt. Explosionen droppen keine Items;
+  nur BlockEntity-Blöcke laufen durch `onBreak` (Truheninhalt)
 - Chunk-Persistenz (`game/world/save/`): Region-Format `region/r.<rx>.<rz>.srg` (16×16 Chunks,
   CRC), Single-Writer-IO-Thread, `player.dat`; **vollständiger** Autosave (Chunks + level.json +
   player.dat) alle 1200 Ticks, zusätzlich beim Öffnen des Pausenmenüs (ESC) und beim Unload/Exit.
@@ -247,7 +253,7 @@ ausdrücken).
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
   (Andockpunkt: `GuiContainer.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
-- Testblöcke in `GameContainer.fillStartInventory` (u.a. Truhe, Fackel, Eimer, iron_bars) —
+- Testblöcke in `game/StartInventory` (u.a. Truhe, Fackel, Eimer, iron_bars) —
   ohne Crafting/Creative-Menü der einzige Weg, sie in die Hand zu bekommen; greift
   nur bei einer **frisch erstellten** Welt. Die **15 Material-Items liegen dort nicht** (beim
   Zusammenkürzen der Methode entfallen) und sind damit aktuell unerreichbar

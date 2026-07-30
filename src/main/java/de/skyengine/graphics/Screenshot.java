@@ -14,8 +14,9 @@ import java.time.format.DateTimeFormatter;
 
 /**
  * Speichert den aktuell präsentierten Frame als PNG. Muss im Render-Thread (aktiver GL-Kontext)
- * und NACH {@code blitToScreen()} aufgerufen werden: Der Offscreen-FBO ist multisampled und damit
- * für {@code glReadPixels} ungeeignet — gelesen wird der bereits aufgelöste Default-Framebuffer (0).
+ * und NACH Resolve + Post-Kette + GUI aufgerufen werden (s. SkyEngine.onRender): Der Offscreen-FBO
+ * kann multisampled sein und ist für {@code glReadPixels} ungeeignet — gelesen wird der bereits
+ * fertige Default-Framebuffer (0).
  */
 public final class Screenshot {
 

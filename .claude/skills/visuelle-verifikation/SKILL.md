@@ -62,7 +62,7 @@ Wireframe, GpuCull an/aus + Occlusion-Debug-Tint, LOD-Gras-Overlay, Chunk-Loadin
 Grafik-Optionen (`GuiVideoSettings`, Live-Apply). Die früheren Hotkeys F6/F7/F8/P/N/V/−/=/[/]
 existieren nicht mehr.
 
-Startinventar für Test-Blöcke: `GameContainer.fillStartInventory` (dort neue Blöcke zum
+Startinventar für Test-Blöcke: `game/StartInventory` (dort neue Blöcke zum
 visuellen Testen eintragen; greift nur bei frisch erstellten Welten).
 
 ## Automatisiertes Prüfen mit laufendem Fenster

@@ -314,7 +314,7 @@ public class GameContainer implements IResizeable, IDisposable {
         } else if (!save.level().inventory.isEmpty()) {
             this.loadInventory(save.level().inventory);
         } else {
-            this.fillStartInventory();
+            StartInventory.fill(this.playerInventory);
         }
         this.animState.reset();
         this.perspective = CameraPerspective.FIRST_PERSON;
@@ -1413,34 +1413,6 @@ public class GameContainer implements IResizeable, IDisposable {
         for (int i = 0; i < this.playerInventory.size(); i++) {
             this.playerInventory.set(i, ItemStack.EMPTY);
         }
-    }
-
-    private void fillStartInventory() {
-        this.setItem(0, "skyengine:tuff");
-        this.setItem(1, "skyengine:coarse_dirt");
-        this.setItem(2, "skyengine:red_mushroom");
-        this.setItem(3, "skyengine:apple", 16);
-        this.setItem(4, "skyengine:bread", 16);
-        this.setItem(5, "skyengine:chest");
-        this.setItem(6, "skyengine:water_bucket");
-        this.setItem(7, "skyengine:lava_bucket");
-        this.setItem(8, "skyengine:torch", 64);
-        this.setItem(9, "skyengine:iron_bars");
-    }
-
-    /** Legt 64 eines Blocks in einen Inventar-Slot (Block-Item über die Identifier-Registry). */
-    private void setBlock(int slot, int block) {
-        Item item = Items.get(Blocks.getState(block).getBlock().getIdentifier());
-        if (item != null) this.playerInventory.set(slot, new ItemStack(item, 64));
-    }
-
-    private void setItem(int slot, String itemId) {
-        this.setItem(slot, itemId, 1);
-    }
-
-    private void setItem(int slot, String itemId, int count) {
-        Item item = Items.get(Identifier.of(itemId));
-        if (item != null) this.playerInventory.set(slot, new ItemStack(item, count));
     }
 
     /** Eine Zelle ist überbaubar, wenn sie leer ist, ein Fluid enthält (Wasser/Lava)
