@@ -26,9 +26,7 @@ import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Zeichnet die Welt-Entities ({@link FallingBlockEntity}, {@link ItemEntity}) im Welt-Pass nach dem
@@ -49,16 +47,30 @@ public final class EntityRenderer {
     private ShaderProgram shader;
     private TextureArray textures;
 
-    /** Würfel-Mesh je Block-State-ID (Wert null = kein/leeres Modell -> nicht zeichnen). */
-    private final Map<Integer, Mesh> cache = new HashMap<>();
+    /** Würfel-Mesh je Block-State-ID; NO_MESH = bekannt-leeres Modell (LongObjMap verbietet
+     *  null-Werte, und der Sentinel erspart das frühere containsKey+get-Doppel mit Boxing). */
+    private final de.skyengine.utils.collect.LongObjMap<Object> cache =
+            new de.skyengine.utils.collect.LongObjMap<>(64);
+    private static final Object NO_MESH = new Object();
 
     private final Matrix4f model = new Matrix4f();
+
+    private int locProjectionView, locWhiteFlash, locLight, locModel;
 
     public void init(TextureArray textures) {
         this.textures = textures;
         this.shader = new ShaderProgram(
                 new Shader(VERTEX, ShaderType.VERTEX),
                 new Shader(FRAGMENT, ShaderType.FRAGMENT));
+        /* Uniform-Locations cachen — die String-Overloads liefen pro Entity pro Frame über
+           die HashMap; u_Textures ist konstant Unit 0. */
+        this.locProjectionView = this.shader.getUniformLocation("u_ProjectionView");
+        this.locWhiteFlash = this.shader.getUniformLocation("u_WhiteFlash");
+        this.locLight = this.shader.getUniformLocation("u_Light");
+        this.locModel = this.shader.getUniformLocation("u_Model");
+        this.shader.bind();
+        this.shader.setUniformi("u_Textures", 0);
+        this.shader.unbind();
     }
 
     /**
@@ -69,10 +81,9 @@ public final class EntityRenderer {
      */
     public void render(Iterable<Chunk> chunks, Camera camera, float partialTick) {
         this.shader.bind();
-        this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
-        this.shader.setUniformi("u_Textures", 0);
-        this.shader.setUniformf("u_WhiteFlash", 0f); // Default: kein Blink (Falling/Item unverändert)
-        this.shader.setUniformf("u_Light", 1.0f);    // Default hell; drawEntity setzt den echten Wert
+        this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
+        this.shader.setUniformf(this.locWhiteFlash, 0f); // Default: kein Blink (Falling/Item unverändert)
+        this.shader.setUniformf(this.locLight, 1.0f);    // Default hell; drawEntity setzt den echten Wert
         this.textures.bind(0);
 
         Vector3d cam = camera.getPosition();
@@ -104,7 +115,7 @@ public final class EntityRenderer {
         int lx = (int) Math.floor(e.x) & ChunkSection.MASK;
         int ly = Math.clamp((int) Math.floor(e.y), 0, Chunk.HEIGHT - 1);
         int lz = (int) Math.floor(e.z) & ChunkSection.MASK;
-        this.shader.setUniformf("u_Light", ChunkRenderer.lightFactor(
+        this.shader.setUniformf(this.locLight, ChunkRenderer.lightFactor(
                 chunk.light.get(lx, ly, lz), chunk.blockLight.get(lx, ly, lz)));
 
         if (e instanceof FallingBlockEntity fb) {
@@ -112,17 +123,17 @@ public final class EntityRenderer {
             if (mesh == null) return;
             /* Voller Würfel: Modell liegt in 0..1, Entity-x/z sind Zentrum, y der Fußpunkt. */
             this.model.translation(ox - 0.5f, oy, oz - 0.5f);
-            this.shader.setUniformMatrix4f("u_Model", this.model);
+            this.shader.setUniformMatrix4f(this.locModel, this.model);
             mesh.render();
         } else if (e instanceof PrimedTntEntity tnt) {
             Mesh mesh = this.meshFor(Blocks.TNT);
             if (mesh == null) return;
             /* Voller TNT-Würfel wie FallingBlock, zusätzlich weißer Blink über u_WhiteFlash. */
-            this.shader.setUniformf("u_WhiteFlash", tnt.whiteFlash(partialTick));
+            this.shader.setUniformf(this.locWhiteFlash, tnt.whiteFlash(partialTick));
             this.model.translation(ox - 0.5f, oy, oz - 0.5f);
-            this.shader.setUniformMatrix4f("u_Model", this.model);
+            this.shader.setUniformMatrix4f(this.locModel, this.model);
             mesh.render();
-            this.shader.setUniformf("u_WhiteFlash", 0f); // zurücksetzen für folgende Entities
+            this.shader.setUniformf(this.locWhiteFlash, 0f); // zurücksetzen für folgende Entities
         } else if (e instanceof ItemEntity item) {
             int id = blockStateId(item.getStack());
             if (id < 0) return;
@@ -136,7 +147,7 @@ public final class EntityRenderer {
                     .rotateY(a * 0.1f)
                     .scale(ITEM_SCALE)
                     .translate(-0.5f, -0.5f, -0.5f);
-            this.shader.setUniformMatrix4f("u_Model", this.model);
+            this.shader.setUniformMatrix4f(this.locModel, this.model);
             mesh.render();
         }
     }
@@ -149,9 +160,10 @@ public final class EntityRenderer {
 
     /** Liefert das gecachte Würfel-Mesh (lazy gebacken) oder null bei leerem Modell. */
     private Mesh meshFor(int stateId) {
-        if (this.cache.containsKey(stateId)) return this.cache.get(stateId);
+        Object cached = this.cache.get(stateId);
+        if (cached != null) return cached == NO_MESH ? null : (Mesh) cached;
         Mesh mesh = build(stateId);
-        this.cache.put(stateId, mesh);
+        this.cache.put(stateId, mesh == null ? NO_MESH : mesh);
         return mesh;
     }
 
@@ -194,7 +206,10 @@ public final class EntityRenderer {
     }
 
     public void dispose() {
-        for (Mesh m : this.cache.values()) if (m != null) m.dispose();
+        for (int i = 0, n = this.cache.tableSize(); i < n; i++) {
+            Object cached = this.cache.valueAt(i);
+            if (cached != null && cached != NO_MESH) ((Mesh) cached).dispose();
+        }
         this.cache.clear();
         if (this.shader != null) this.shader.dispose();
     }
