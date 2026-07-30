@@ -35,7 +35,9 @@ public final class ExplosionBehavior implements BlockBehavior {
 
     @Override
     public boolean onUse(World world, int x, int y, int z, BlockState state) {
-        world.setBlock(x, y, z, Blocks.AIR, false);                   // TNT wird zur Entity
+        /* Nachbar-Ring an (3-arg-setBlock): das TNT verschwindet wie bei einem normalen Abbau,
+           also muss z.B. eine Fackel darauf mitfallen statt schweben zu bleiben. */
+        world.setBlock(x, y, z, Blocks.AIR);                          // TNT wird zur Entity
         world.spawnPrimedTnt(x + 0.5, y, z + 0.5, this.power, this.fuse);
         return true;
     }

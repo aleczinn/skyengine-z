@@ -901,10 +901,11 @@ public class World implements IInitializable, IDisposable {
     /**
      * Zerstört viele Blöcke als Batch (Explosion): gruppiert nach Chunk, EIN Write-Lock,
      * EIN Dirty-CAS und EIN Licht-Update ({@link LightEngine#onBlocksChanged}) pro Chunk statt
-     * pro Block. Semantik je Zelle wie {@code setBlock(x, y, z, AIR, false)} — zusätzlich läuft
-     * für Blöcke mit BlockEntity vorher {@code onBreak} (Truheninhalt fiel bei Explosionen
-     * sonst still weg). Zellen in nicht-READY-Chunks werden wie bei setBlockRaw verworfen.
-     * Nur Tick-Thread.
+     * pro Block. Semantik je Zelle wie {@code setBlock(x, y, z, AIR)} — zusätzlich läuft für
+     * Blöcke mit BlockEntity vorher {@code onBreak} (Truheninhalt fiel bei Explosionen sonst
+     * still weg). Die Nachbar-Updates laufen nicht pro Zelle, sondern zum Schluss EINMAL über die
+     * Krater-Schale ({@link #updateBlastShell}). Zellen in nicht-READY-Chunks werden wie bei
+     * setBlockRaw verworfen. Nur Tick-Thread.
      *
      * @param positions Welt-Positionen als {@link BlockPos#asLong}-Keys
      */
@@ -1006,6 +1007,73 @@ public class World implements IInitializable, IDisposable {
             this.lightDiagonals[3] = this.chunkManager.getChunk(cx + 1, cz + 1);
             this.lightEngine.onBlocksChanged(chunk, north, south, west, east, this.lightDiagonals,
                     group.packedPos, group.oldIds, group.count);
+        }
+
+        this.updateBlastShell(groups);
+    }
+
+    /* Markierungen für die Schalen-Map in updateBlastShell. */
+    private static final int BLAST_DESTROYED = 1;
+    private static final int BLAST_SHELL = 2;
+
+    /**
+     * Pass 3 der Massen-Zerstörung: Nachbar-State-Updates auf der <b>Krater-Schale</b>. Die Writes
+     * oben laufen wie {@code setBlock(..., updateNeighbors=false)} — ohne diesen Pass erführen
+     * hängende Blöcke (Fackel, hohe Pflanze, Türhälfte) nie vom Stützverlust, Sand/Kies bliebe
+     * schweben, und vor allem plante nie jemand einen Fluid-Tick: {@code
+     * FluidBehavior.onNeighborUpdate} ist der EINZIGE Weg dorthin (Fluids ticken nicht zufällig),
+     * also flösse Wasser nie in den Krater nach.
+     *
+     * <p>Besucht werden nur die Zellen, die an eine zerstörte grenzen und selbst nicht zerstört
+     * wurden: die zerstörten sind jetzt Luft, und {@link #updateStateAt} steigt bei Luft ohnehin
+     * sofort aus. Läuft NACH allen Writes aller Chunks — sonst entschiede ein Behavior anhand von
+     * Blöcken, die im selben Batch gleich verschwinden.
+     */
+    private void updateBlastShell(de.skyengine.utils.collect.LongObjMap<BreakBatchGroup> groups) {
+        de.skyengine.utils.collect.LongIntMap cells = new de.skyengine.utils.collect.LongIntMap(256);
+
+        /* Runde 1: alle tatsächlich zerstörten Zellen markieren (nicht die Eingabe-Positionen —
+           verworfene Zellen aus nicht-READY Chunks und Luft stehen nicht in den Gruppen). */
+        for (int gi = 0, gn = groups.tableSize(); gi < gn; gi++) {
+            BreakBatchGroup group = groups.valueAt(gi);
+            if (group == null || group.chunk == null) continue;
+            int baseX = group.chunk.chunkX << ChunkSection.SHIFT;
+            int baseZ = group.chunk.chunkZ << ChunkSection.SHIFT;
+            for (int i = 0; i < group.count; i++) {
+                int packed = group.packedPos[i];
+                cells.put(BlockPos.asLong(baseX + (packed & 31), (packed >> 10) & 511,
+                        baseZ + ((packed >> 5) & 31)), BLAST_DESTROYED);
+            }
+        }
+
+        /* Runde 2: die 6 Achsen-Nachbarn einsammeln, die nicht selbst zerstört wurden. Iteriert
+           über die Gruppen, nicht über die Map — die wächst hier ja gerade. */
+        for (int gi = 0, gn = groups.tableSize(); gi < gn; gi++) {
+            BreakBatchGroup group = groups.valueAt(gi);
+            if (group == null || group.chunk == null) continue;
+            int baseX = group.chunk.chunkX << ChunkSection.SHIFT;
+            int baseZ = group.chunk.chunkZ << ChunkSection.SHIFT;
+            for (int i = 0; i < group.count; i++) {
+                int packed = group.packedPos[i];
+                int x = baseX + (packed & 31);
+                int y = (packed >> 10) & 511;
+                int z = baseZ + ((packed >> 5) & 31);
+                for (Direction d : Direction.sharedValues()) {
+                    int ny = y + d.offsetY();
+                    if (ny < 0 || ny >= Chunk.HEIGHT) continue;
+                    long key = BlockPos.asLong(x + d.offsetX(), ny, z + d.offsetZ());
+                    if (!cells.containsKey(key)) cells.put(key, BLAST_SHELL);
+                }
+            }
+        }
+
+        /* Runde 3: nur die Schale aktualisieren. Selbst-Entfernungen kaskadieren dabei über den
+           Einzelpfad (setBlock mit Ring) weiter — das terminiert, weil jeder Schritt einen Block
+           endgültig entfernt. */
+        for (int i = 0, n = cells.tableSize(); i < n; i++) {
+            if (!cells.usedAt(i) || cells.valueAt(i) != BLAST_SHELL) continue;
+            long pos = cells.keyAt(i);
+            this.updateStateAt(BlockPos.unpackX(pos), BlockPos.unpackY(pos), BlockPos.unpackZ(pos));
         }
     }
 
