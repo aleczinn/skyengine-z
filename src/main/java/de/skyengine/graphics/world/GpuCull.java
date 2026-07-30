@@ -83,13 +83,18 @@ public class GpuCull {
     /** Occlusion-Debug (Hotkey J): Verdeckt-Verdikte werden ROT gezeichnet statt gecullt. */
     public static volatile boolean DEBUG_TINT = false;
 
-    /* Segmente in Draw-Reihenfolge: Sections OPAQUE, Sections CUTOUT, LOD-Opaque L1..L5.
+    /* Segmente in Draw-Reihenfolge: Sections OPAQUE, Sections CUTOUT, LOD-Opaque (ALLE Level
+       in EINEM Segment). Früher gab es je Level ein eigenes Segment — dadurch besuchte der
+       Compute jeden LOD-Slot K-mal pro Phase und jedes Level-Segment submittete die VOLLE
+       LOD-Descriptor-Zahl (bei Default-Settings ~20k überflüssige Null-Commands pro Frame,
+       bei lodMax=256 ~105k — der Kern der GPU-Pfad-Fixkosten). Der Level steckt weiterhin
+       im Descriptor (ipos.z), wird aber für nichts mehr gebraucht.
        Translucent (Sections + LOD) bleibt bewusst CPU (Sortierung bzw. Kleinstmengen). */
     public static final int SEG_OPAQUE = 0;
     public static final int SEG_CUTOUT = 1;
-    public static final int SEG_LOD_BASE = 2;           // + (level - 1), Level 1..5
+    public static final int SEG_LOD = 2;
     public static final int MAX_LOD_LEVELS = 5;
-    public static final int SEGMENTS = SEG_LOD_BASE + MAX_LOD_LEVELS;
+    public static final int SEGMENTS = 3;
 
     private static final int SLOTS = 3;                 // muss zu den ChunkRenderer-Fences passen
     private static final int DESC_INTS = 12;            // ivec4 + vec4 + uvec4 (48 Bytes, std430)
@@ -99,8 +104,8 @@ public class GpuCull {
        des Treibers erfüllen (bis 256) — 28-Byte-Schritte wären ab Slot 1 GL_INVALID_VALUE. */
     private static final int COUNT_SLOT_BYTES = MappedRing.ALIGNMENT;
 
-    /* Descriptor-Arrays: 0 = Sections OPAQUE, 1 = Sections CUTOUT, 2 = LOD (alle Level gemischt,
-       der Compute filtert per Level-Uniform in die per-Level-Segmente). */
+    /* Descriptor-Arrays: 0 = Sections OPAQUE, 1 = Sections CUTOUT, 2 = LOD (alle Level gemischt
+       — seit dem Segment-Merge 1:1 das LOD-Segment, kein Level-Filter mehr). */
     private static final int DESC_KINDS = 3;
     private static final int DESC_LOD = 2;
 
@@ -121,7 +126,6 @@ public class GpuCull {
        registriertes Mesh das „verdeckt"-Verdikt seines Vorgängers (1-Frame-Löcher bei
        jedem LOD-Remesh); Gen-Mismatch zählt als sichtbar. */
     private int[][] slotGen = new int[DESC_KINDS][];
-    private final int[] lodLevelCount = new int[MAX_LOD_LEVELS + 1];
 
     /* Sicht-Gate: 1 uint pro Chunk-Spalte (1 = von LOD verdeckt, Sections nicht zeichnen). */
     private int[] gateMirror = new int[4096];
@@ -356,26 +360,32 @@ public class GpuCull {
     /** Registriert eine LOD-Region (Level 1..5; Superregionen tragen ihre eigene posScale). */
     public int addLod(int level, int blockX, int blockZ, int yBase, float minY, float maxY,
                       float sizeBlocks, float invPosScale, int indexCount, int baseVertex) {
-        this.lodLevelCount[level]++;
+        this.lodTotalCount++;
         return this.addDesc(DESC_LOD, blockX, blockZ, level, yBase,
                 minY, maxY, sizeBlocks, invPosScale, indexCount, baseVertex);
     }
 
     public void removeLod(int level, int slot) {
-        this.lodLevelCount[level]--;
+        this.lodTotalCount--;
         this.clearDesc(DESC_LOD, slot);
     }
 
-    /** Obergrenze der Draws eines LOD-Levels (für maxDrawCount/Dispatch-Skip). */
-    public int lodLevelCount(int level) {
-        return this.lodLevelCount[level];
+    /** true, wenn überhaupt LOD-Descriptoren registriert sind (Skip fürs LOD-Segment). */
+    public boolean hasLod() {
+        return this.lodTotalCount > 0;
     }
+
+    private int lodTotalCount;
 
     private int addDesc(int kind, int ix, int iz, int izArg, int iw,
                         float b0, float b1, float b2, float b3, int indexCount, int baseVertex) {
         Integer free = this.freeSlots[kind].poll();
-        int slot = free != null ? free : this.mirrorCount[kind]++;
+        int slot = free != null ? free : this.mirrorCount[kind];
         if (slot >= this.descCapacity) this.growDescriptors();
+        /* max-Regel statt ++: der Trim in clearDesc kann den High-Water-Mark gesenkt haben,
+           während höhere Slots noch in der Freelist stehen — ein solcher Slot muss den Mark
+           wieder anheben, sonst läge er außerhalb der Dispatch-/Draw-Range. */
+        if (slot >= this.mirrorCount[kind]) this.mirrorCount[kind] = slot + 1;
 
         int[] m = this.mirror[kind];
         int i = slot * DESC_INTS;
@@ -402,6 +412,13 @@ public class GpuCull {
         this.mirror[kind][slot * DESC_INTS + 8] = 0; // indexCount 0 = leerer Slot
         this.freeSlots[kind].add(slot);
         this.logChange(kind, slot);
+        /* High-Water-Mark trimmen: freie Slots am Ende abziehen — sonst decken Dispatch und
+           Draws für immer den größten je gesehenen Stand (Null-Command-Fetches nach jedem
+           Flug). Slots unterhalb des Marks bleiben normal in der Freelist; ein später
+           wiederverwendeter Slot OBERHALB hebt den Mark über die max-Regel in addDesc. */
+        int m = this.mirrorCount[kind];
+        while (m > 0 && this.mirror[kind][(m - 1) * DESC_INTS + 8] == 0) m--;
+        this.mirrorCount[kind] = m;
         this.version++;
     }
 
@@ -462,7 +479,7 @@ public class GpuCull {
      * Phase-1-Command-Bereich kompaktieren. Aufruf VOR den Phase-1-Draws; der Aufrufer setzt
      * danach die Memory-Barrier. NUR diese Phase kopiert den Snapshot und cleart die Counts.
      */
-    public void dispatchPhase1(int frameSlot, Camera camera) {
+    public void dispatchPhase1(int frameSlot, Camera camera, boolean singlePhase) {
         this.lastDispatchSlot = frameSlot;
         if (this.appliedVersion[frameSlot] != this.version) {
             this.appliedVersion[frameSlot] = this.version;
@@ -522,7 +539,10 @@ public class GpuCull {
         GL20.glUniform3i(this.locCamBlock, cbx, cby, cbz);
         this.compute.setUniformVector3f(this.locCamFrac,
                 (float) (cam.x - cbx), (float) (cam.y - cby), (float) (cam.z - cbz));
-        this.compute.setUniformi(this.locPhase, 0);
+        /* singlePhase (kein Hi-Z verfügbar: MSAA-Modus, erster Frame): u_Phase=2 zeichnet alle
+           Frustum-Sichtbaren direkt im Phase-1-Bereich und setzt die Vis-Bits fail-open —
+           Phase 2 samt Barrier und zweitem Draw-Satz entfällt komplett (halber Pfad). */
+        this.compute.setUniformi(this.locPhase, singlePhase ? 2 : 0);
 
         /* Descriptor-Zahlen für Phase 2 einfrieren (beide Phasen bearbeiten dieselben Ranges). */
         this.phase1Version = this.version;
@@ -561,14 +581,14 @@ public class GpuCull {
         this.compute.setUniformi(this.locCullOcclusion, occlusion ? 1 : 0);
         this.compute.setUniformi(this.locCullDebug, DEBUG_TINT ? 1 : 0);
         if (occlusion) {
-            GL13.glActiveTexture(GL13.GL_TEXTURE2);
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.hiZTexture);
-            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            /* Unit 2 trägt die Pyramide bereits: buildPyramid bindet sie dort und setzt nur
+               die AKTIVE Unit auf 0 zurück — das frühere ActiveTexture/Bind-Trio war redundant. */
             this.compute.setUniformi(this.locCullHiZMips, this.hiZMips);
             this.compute.setUniformMatrix4f(this.locCullViewProj, camera.getProjectionViewMatrix());
         }
 
-        this.bindOutputs(frameSlot);
+        /* Kein bindOutputs: die Bindings 4-9 stehen seit Phase 1 unverändert — die Draws
+           dazwischen fassen nur Binding 0 an. */
         this.dispatchAllKinds(frameSlot, 1);
         this.compute.unbind();
     }
@@ -591,10 +611,10 @@ public class GpuCull {
         /* Sections: OPAQUE + CUTOUT (Level-Filter -1 = Sicht-Gate aktiv). */
         this.dispatchKind(frameSlot, SEG_OPAQUE, 0, this.phase1Count[0], -1, phase);
         this.dispatchKind(frameSlot, SEG_CUTOUT, 1, this.phase1Count[1], -1, phase);
-        /* LOD: ein Dispatch pro Level in ein eigenes Segment (per-Level-GPU-Queries + Skip). */
-        for (int level = 1; level <= MAX_LOD_LEVELS; level++) {
-            if (this.lodLevelCount[level] == 0) continue;
-            this.dispatchKind(frameSlot, SEG_LOD_BASE + level - 1, DESC_LOD, this.phase1Count[DESC_LOD], level, phase);
+        /* LOD gemergt: EIN Dispatch für alle Level (-2 = kein Filter, kein Sicht-Gate) —
+           jeder Slot wird pro Phase genau einmal besucht. */
+        if (this.lodTotalCount > 0) {
+            this.dispatchKind(frameSlot, SEG_LOD, DESC_LOD, this.phase1Count[DESC_LOD], -2, phase);
         }
     }
 
@@ -615,10 +635,10 @@ public class GpuCull {
         GL43.glDispatchCompute((count + 255) / 256, 1, 1);
     }
 
-    /** Nach den Dispatches einer Phase, vor deren Draws: Commands/Offsets sichtbar machen. */
+    /** Nach den Dispatches einer Phase, vor deren Draws: Commands/Offsets sichtbar machen.
+     *  (Kein GL_BUFFER_UPDATE_BARRIER_BIT — client-seitig schreibt hier niemand.) */
     public void barrier() {
-        GL42.glMemoryBarrier(GL43.GL_COMMAND_BARRIER_BIT | GL43.GL_SHADER_STORAGE_BARRIER_BIT
-                | GL42.GL_BUFFER_UPDATE_BARRIER_BIT);
+        GL42.glMemoryBarrier(GL43.GL_COMMAND_BARRIER_BIT | GL43.GL_SHADER_STORAGE_BARRIER_BIT);
     }
 
     /**
@@ -793,14 +813,14 @@ public class GpuCull {
 
     /**
      * Draw-Zahl des Segments für das normale glMultiDrawElementsIndirect: Slot = Descriptor-
-     * Index (keine Kompaktierung), also die volle Descriptor-Zahl der jeweiligen Art —
-     * gecullte/fremde Slots tragen Null-Commands. Die LOD-Level-Segmente spannen alle
-     * LOD-Descriptoren (Löcher sind Null-Commands des jeweils anderen Levels).
+     * Index (keine Kompaktierung), gecullte Slots tragen Null-Commands. Liefert bewusst die
+     * in Phase 1 EINGEFRORENE Zahl — Draws und Dispatches decken damit exakt dieselben
+     * Slot-Ranges, auch wenn zwischendurch (unerwartet) mutiert würde.
      */
     public int drawCount(int segment) {
-        if (segment == SEG_OPAQUE) return this.mirrorCount[0];
-        if (segment == SEG_CUTOUT) return this.mirrorCount[1];
-        return this.mirrorCount[DESC_LOD];
+        if (segment == SEG_OPAQUE) return this.phase1Count[0];
+        if (segment == SEG_CUTOUT) return this.phase1Count[1];
+        return this.phase1Count[DESC_LOD];
     }
 
     /**
@@ -946,15 +966,14 @@ public class GpuCull {
                 uint ci = uint(u_CmdBase) + i * 5u;
                 DrawDesc d = u_Descs[i];
 
-                /* zulaessig = lebt und gehoert zu diesem Dispatch (Level bzw. Gate offen). */
+                /* zulaessig = lebt und (bei Sections) Sicht-Gate offen. u_LevelFilter:
+                   -1 = Sections (ipos.z ist der Gate-Slot), -2 = LOD-Segment (gemergt, kein
+                   Filter — ipos.z traegt das Level nur noch informativ). Jeder Slot wird
+                   damit pro Phase genau EINMAL besucht. */
                 bool zulaessig = d.draw.x != 0u;
-                if (zulaessig) {
-                    if (u_LevelFilter >= 0) {
-                        zulaessig = d.ipos.z == u_LevelFilter;
-                    } else {
-                        /* Spalte von LOD verdeckt (atomarer Swap wie im CPU-Pfad) */
-                        zulaessig = u_Hidden[d.ipos.z] == 0u;
-                    }
+                if (zulaessig && u_LevelFilter == -1) {
+                    /* Spalte von LOD verdeckt (atomarer Swap wie im CPU-Pfad) */
+                    zulaessig = u_Hidden[d.ipos.z] == 0u;
                 }
 
                 /* Kamerarelatives AABB: XZ über exakte int-Differenz (Welt-Koordinaten als int,
@@ -962,9 +981,13 @@ public class GpuCull {
                 float camY = float(u_CamBlock.y) + u_CamFrac.y;
                 float ox = float(d.ipos.x - u_CamBlock.x) - u_CamFrac.x;
                 float oz = float(d.ipos.y - u_CamBlock.z) - u_CamFrac.z;
-                /* Offset IMMER schreiben (beide Phasen teilen den Bereich, Wert ist pro Slot
-                   deterministisch — auch fuer gecullte Slots harmlos, Command ist dann null). */
-                u_Offs[uint(u_OffBase) + i] = vec4(ox, float(d.ipos.w) - camY, oz, d.bounds.w);
+                /* Offset nur in Phase 0/2 schreiben (Phase 1 teilt den Bereich und liest ihn
+                   nicht — die Draws lesen den Phase-0-Stand; der Write war die Haelfte aller
+                   Offset-Stores). Phase 0/2 schreiben weiterhin ALLE Slots, auch gecullte —
+                   sonst laesen die Draws stale Offsets. */
+                if (u_Phase != 1) {
+                    u_Offs[uint(u_OffBase) + i] = vec4(ox, float(d.ipos.w) - camY, oz, d.bounds.w);
+                }
 
                 vec3 mn = vec3(ox, d.bounds.x - camY, oz);
                 vec3 mx = vec3(ox + d.bounds.z, d.bounds.y - camY, oz + d.bounds.z);
@@ -989,13 +1012,20 @@ public class GpuCull {
                 if (u_Phase == 0) {
                     /* Phase 0: Letzte-Frame-Sichtbare zeichnen (kein Hi-Z, kein Vis-Write). */
                     zeichnen = imFrustum && letzteSichtbar;
+                } else if (u_Phase == 2) {
+                    /* Single-Phase-Fallback (kein Hi-Z verfuegbar: MSAA/erster Frame): alle
+                       Frustum-Sichtbaren direkt zeichnen, Vis-Bit fail-open sichtbar setzen —
+                       der naechste Two-Phase-Frame startet damit korrekt ueber Phase 0. */
+                    if (zulaessig) u_Vis[si] = (gen << 24) | 1u;
+                    zeichnen = imFrustum;
                 } else {
                     /* Phase 1: Verdeckungstest gegen die Same-Frame-Pyramide. Vis-Write NUR
-                       fuer zulaessige Invocations — die per-Level-LOD-Dispatches besuchen
-                       jeden LOD-Slot mehrfach, ein level-fremder Write wuerde das echte
-                       Verdikt ueberschreiben. visBit=0 NUR bei echtem bestandenem Verdikt,
-                       alles andere fail-open sichtbar (Frustum-Rueckkehrer kommen so ueber
-                       Phase 0 herein, kein Nachzuegler-Burst beim Umschauen). */
+                       fuer zulaessige Invocations — seit dem LOD-Segment-Merge wird jeder
+                       Slot zwar nur noch einmal besucht, der Guard bleibt aber als
+                       Defensiv-Regel (Sections: gate-geschlossene Slots schreiben kein
+                       Verdikt). visBit=0 NUR bei echtem bestandenem Verdikt, alles andere
+                       fail-open sichtbar (Frustum-Rueckkehrer kommen so ueber Phase 0
+                       herein, kein Nachzuegler-Burst beim Umschauen). */
                     bool verdeckt = imFrustum && u_OcclusionEnabled != 0 && istVerdeckt(mn, mx);
                     if (zulaessig) u_Vis[si] = (gen << 24) | (verdeckt ? 0u : 1u);
                     zeichnen = imFrustum && !letzteSichtbar && (!verdeckt || u_CullDebug != 0);

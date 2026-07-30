@@ -483,6 +483,15 @@ public class ChunkRenderer {
         FrameProfiler.cpuStart(FrameProfiler.Cpu.CULL);
 
         boolean gpu = this.gpuCull.isActive();
+        /* Single-Phase-Entscheid VOR dem Dispatch: ohne sample-bare Depth-Textur (MSAA-Modus)
+           oder ohne Szene-FBO gibt es keine Hi-Z-Pyramide — dann alles in EINEM Durchlauf
+           zeichnen, statt Phase 2 (Dispatches + Barrier + zweiter Draw-Satz) für ein
+           identisches Ergebnis mitzubezahlen. */
+        boolean gpuSinglePhase = false;
+        if (gpu) {
+            var sceneFb = SkyEngine.get().getWindow().getFrameBuffer();
+            gpuSinglePhase = sceneFb.getDepthTexture() == 0 || sceneFb.getId() == 0;
+        }
         this.visible.clear();
         this.translucentVisible.clear();
         this.visibleLodTranslucent.clear();
@@ -526,13 +535,7 @@ public class ChunkRenderer {
                 if (!frustum.testAab(ox, oy, oz, ox + size, oy + size, oz + size)) continue;
                 this.visibleDetail.add(mesh);
             }
-            /* TEMP (P4-Spike-Diagnose) */
-            long dbgDispatch = System.nanoTime();
-            this.gpuCull.dispatchPhase1(this.frameSlot, camera);
-            long dbgDispatchDauer = System.nanoTime() - dbgDispatch;
-            if (dbgDispatchDauer > 5_000_000L) {
-                this.logger.debug("GPU-Cull-SPIKE dispatch: " + dbgDispatchDauer / 1000 + "us");
-            }
+            this.gpuCull.dispatchPhase1(this.frameSlot, camera, gpuSinglePhase);
         } else {
         for (int ci = 0, cn = this.cullColumns.tableSize(); ci < cn; ci++) {
             CullColumn col = this.cullColumns.valueAt(ci);
@@ -681,10 +684,6 @@ public class ChunkRenderer {
         /* 7. Render-Pässe: opaque & cutout (Alpha-Test bei 0.5) — je EIN Draw-Call.
            u_Textures ist einmalig gesetzt (init); Fog lädt nur bei Wertänderung hoch. */
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GLSUB);
-        /* TEMP (P4-Spike-Diagnose): feinkörnige Zeitmessung im GPU-Pfad — wird nach der
-           Ursachen-Klärung wieder entfernt. */
-        long dbgT0 = gpu ? System.nanoTime() : 0L;
-        long dbgBarrier = 0, dbgSolid = 0, dbgLod = 0;
         this.shader.bind();
         this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
         this.setFogUniforms();
@@ -694,7 +693,6 @@ public class ChunkRenderer {
         /* GPU-Pfad: Compute-Ergebnisse (Commands/Offsets/Counts) vor den Draws sichtbar machen. */
         if (gpu) {
             this.gpuCull.barrier();
-            dbgBarrier = System.nanoTime();
         }
 
         this.shader.setUniformf(this.locAlphaCutoff, 0.5F);
@@ -705,17 +703,13 @@ public class ChunkRenderer {
             this.drawSegment(RenderLayer.OPAQUE.ordinal(), cmdOpaque, offOpaque, nOpaque);
         }
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.SOLID);
-        if (gpu) dbgSolid = System.nanoTime();
         if (gpu) {
-            /* Immer per Level (eigene Count-Segmente): per-Level-GPU-Queries bleiben möglich,
-               leere Level werden über den CPU-bekannten Descriptor-Zähler übersprungen. */
-            for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
-                if (this.gpuCull.lodLevelCount(l) == 0) continue;
-                FrameProfiler.gpuBegin(LOD_LEVEL_GPU[l]);
-                this.drawLodSegmentGpu(LOD_OPAQUE, GpuCull.SEG_LOD_BASE + l - 1, 0);
-                FrameProfiler.gpuEnd(LOD_LEVEL_GPU[l]);
+            /* LOD gemergt: EIN Draw für alle Level (früher K Draws mit je der vollen
+               LOD-Descriptor-Zahl). Die per-Level-GPU-Queries gibt es damit im GPU-Pfad
+               nicht mehr — per-Level-Zahlen liefert weiterhin die LodManager-Statistik. */
+            if (this.gpuCull.hasLod()) {
+                this.drawLodSegmentGpu(LOD_OPAQUE, GpuCull.SEG_LOD, 0);
             }
-            dbgLod = System.nanoTime();
         } else if (lodSplit) {
             for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
                 if (this.lodLvlN[l] == 0) continue;
@@ -775,13 +769,12 @@ public class ChunkRenderer {
            gegen diese Same-Frame-Pyramide und zeichnet Nachzügler sofort — die Pyramide ist
            damit am Frame-Ende immer vollständig, der Selbst-Feedback-Loop des Ein-Phasen-
            Hi-Z (LOD-Ring-Flackern in Linien) ist strukturell weg. */
-        if (gpu) {
+        if (gpu && !gpuSinglePhase) {
             var window = SkyEngine.get().getWindow();
             this.gpuCull.buildPyramid(window.getFrameBuffer().getDepthTexture(),
                     window.getWidth(), window.getHeight(), window.getFrameBuffer().getId());
             this.gpuCull.dispatchPhase2(this.frameSlot, camera);
             this.gpuCull.barrier();
-            this.gpuCull.copyCounts();
             /* buildPyramid/dispatchPhase2 haben Programm + Unit-2-Binding verstellt — Draw-
                State wiederherstellen (PV/Fog/Cutoff sind Programm-State und bleiben gültig).
                Keine FrameProfiler-GPU-Queries: die Query-Objekte sind 1× pro Frame-Slot und
@@ -789,25 +782,16 @@ public class ChunkRenderer {
             this.shader.bind();
             this.textures.bind(0);
             this.drawSegmentGpu(RenderLayer.OPAQUE.ordinal(), GpuCull.SEG_OPAQUE, 1);
-            for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
-                if (this.gpuCull.lodLevelCount(l) == 0) continue;
-                this.drawLodSegmentGpu(LOD_OPAQUE, GpuCull.SEG_LOD_BASE + l - 1, 1);
+            if (this.gpuCull.hasLod()) {
+                this.drawLodSegmentGpu(LOD_OPAQUE, GpuCull.SEG_LOD, 1);
             }
             GL11.glDepthFunc(properties.orEqualDepthFunc());
             this.drawSegmentGpu(RenderLayer.CUTOUT.ordinal(), GpuCull.SEG_CUTOUT, 1);
             GL11.glDepthFunc(properties.baseDepthFunc());
         }
-
-        /* TEMP (P4-Spike-Diagnose): Aufschlüsselung loggen, wenn die Submission stallt. */
-        if (gpu) {
-            long dbgEnd = System.nanoTime();
-            if (dbgEnd - dbgT0 > 5_000_000L) {
-                this.logger.debug("GPU-Cull-SPIKE glsub: gesamt=%dus vorlauf+barrier=%dus solid=%dus lod=%dus cutout+detail=%dus"
-                        .formatted((dbgEnd - dbgT0) / 1000, (dbgBarrier - dbgT0) / 1000,
-                                (dbgSolid - dbgBarrier) / 1000, (dbgLod - dbgSolid) / 1000,
-                                (dbgEnd - dbgLod) / 1000));
-            }
-        }
+        /* Counts beider Phasen in den Read-Ring kopieren (Fenstertitel + Σ-Telemetrie);
+           im Single-Phase-Fall stehen im Phase-2-Bereich schlicht Nullen. */
+        if (gpu) this.gpuCull.copyCounts();
 
         this.shader.unbind();
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GLSUB);
@@ -998,11 +982,10 @@ public class ChunkRenderer {
         this.appendPhaseRange(sb, GpuCull.SEG_OPAQUE);
         sb.append(" | cut ");
         this.appendPhaseRange(sb, GpuCull.SEG_CUTOUT);
-        for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
-            int s = GpuCull.SEG_LOD_BASE + l - 1;
-            if (this.gpuDrawMax[s] == 0 && this.gpuDrawMax[GpuCull.SEGMENTS + s] == 0) continue;
-            sb.append(" | L").append(l).append(' ');
-            this.appendPhaseRange(sb, s);
+        if (this.gpuDrawMax[GpuCull.SEG_LOD] != 0
+                || this.gpuDrawMax[GpuCull.SEGMENTS + GpuCull.SEG_LOD] != 0) {
+            sb.append(" | lod ");
+            this.appendPhaseRange(sb, GpuCull.SEG_LOD);
         }
         this.gpuDrawStatsValid = false;
         if (telemetrie != null) sb.append(" | ").append(telemetrie);
