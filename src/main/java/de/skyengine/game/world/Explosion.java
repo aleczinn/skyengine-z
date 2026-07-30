@@ -5,6 +5,9 @@ import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.behavior.ExplosionBehavior;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.item.Item;
+import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.Items;
 import de.skyengine.utils.collect.LongIntMap;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -20,9 +23,9 @@ import java.util.concurrent.ThreadLocalRandom;
  *
  * <p>Als Widerstand dient {@link de.skyengine.game.world.block.Block#getResistance()} (JSON-Feld
  * {@code resistance}, ohne Angabe die Abbau-Härte); ein negativer Wert (Bedrock) ist unzerstörbar
- * und stoppt den Strahl. Es gibt <b>keine</b> Item-Drops (nur Blöcke mit BlockEntity laufen im
- * Batch-Pfad durch {@code onBreak}, damit z.B. Truheninhalt herausfällt). Getroffene Blöcke, die
- * selbst explosiv sind (Kettenreaktion), werden nicht entfernt, sondern gezündet.
+ * und stoppt den Strahl. Getroffene Blöcke, die selbst explosiv sind (Kettenreaktion), werden
+ * nicht entfernt, sondern gezündet. Blöcke mit BlockEntity laufen im Batch-Pfad durch
+ * {@code onBreak}, damit z.B. Truheninhalt herausfällt.
  *
  * <p>Läuft ausschließlich auf dem Tick-Thread (einziger Aufrufer ist {@code PrimedTntEntity.tick}
  * über {@code World.tickEntities}). Die Massen-Zerstörung läuft über
@@ -84,7 +87,7 @@ public final class Explosion {
         }
 
         int blocks = toBlow.size();
-        applyBlast(world, toBlow, rnd);
+        applyBlast(world, toBlow, rnd, power);
         /* Eine Zeile Messbarkeit — Explosionen waren der gemeldete Lag-Spike. */
         LOGGER.debug("Explosion: power=" + power + ", " + blocks + " Bloecke, "
                 + (System.nanoTime() - start) / 1_000_000 + " ms");
@@ -126,8 +129,16 @@ public final class Explosion {
         }
     }
 
-    /** Zerstört alle getroffenen Blöcke im Batch; explosive Blöcke werden als Primed-Entity gezündet (Kettenreaktion). */
-    private static void applyBlast(World world, LongIntMap toBlow, ThreadLocalRandom rnd) {
+    /**
+     * Zerstört alle getroffenen Blöcke im Batch; explosive Blöcke werden als Primed-Entity gezündet
+     * (Kettenreaktion) und droppen deshalb kein Item. Alle übrigen droppen mit Wahrscheinlichkeit
+     * {@code 1/power} (MC: {@code survives_explosion} bzw. {@code explosion_decay} in den
+     * Loot-Tables). Die Werkzeug-Regel gilt dabei bewusst NICHT — Vanilla-Explosionsloot kennt
+     * kein Werkzeug, gesprengter Stein droppt also auch ohne Spitzhacke. Mangels Loot-Tables
+     * droppt jeder Block sich selbst, genau wie im normalen Abbaupfad.
+     */
+    private static void applyBlast(World world, LongIntMap toBlow, ThreadLocalRandom rnd, float power) {
+        float dropChance = power > 1.0F ? 1.0F / power : 1.0F;
         long[] positions = new long[toBlow.size()];
         int count = 0;
         for (int i = 0, n = toBlow.tableSize(); i < n; i++) {
@@ -146,6 +157,22 @@ public final class Explosion {
             }
         }
         world.breakBlocksBatch(positions, count);
+
+        /* Drops erst NACH der Zerstörung, damit die Item-Entities nicht kurz in noch stehenden
+           Blöcken sitzen (Reihenfolge wie GameContainer.breakTargetBlock). Zellen, die
+           breakBlocksBatch an der Ladefront verworfen hat, droppen dabei trotzdem — seltener
+           Sonderfall, für den sich ein Rückkanal aus dem Batch nicht lohnt. */
+        for (int i = 0, n = toBlow.tableSize(); i < n; i++) {
+            if (!toBlow.usedAt(i)) continue;
+            if (rnd.nextFloat() >= dropChance) continue;
+            BlockState state = Blocks.getState(toBlow.valueAt(i));
+            if (state.getBlock().getBehavior(ExplosionBehavior.class) != null) continue;
+            Item drop = Items.get(state.getBlock().getIdentifier());
+            if (drop == null) continue;
+            long pos = toBlow.keyAt(i);
+            world.spawnItem(BlockPos.unpackX(pos) + 0.5, BlockPos.unpackY(pos) + 0.5,
+                    BlockPos.unpackZ(pos) + 0.5, new ItemStack(drop, 1));
+        }
     }
 
     /** Explosions-Widerstand je State-ID, lazy gewachsen (Muster ChunkMesher.opaqueById). */
