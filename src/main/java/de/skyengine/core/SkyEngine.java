@@ -228,6 +228,7 @@ public class SkyEngine {
                             ? this.game.getWorld().getChunkRenderer().gpuCullStatsLineAndReset() : null;
                     if (gpuCullLine != null) System.out.println(gpuCullLine);
                 }
+                de.skyengine.graphics.world.CullBench.tick(this.game);
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
                     /* Ohne Welt (Hauptmenü) gibt es keine Chunk-/Spieler-Werte für den Titel. */
                     if (this.game.getWorld() != null && this.game.getPlayer() != null) {

@@ -114,9 +114,12 @@ Die teuer gefundenen Regeln (NICHT „vereinfachen"):
   Szenen-Depth): Pow2 ⇒ alle Halbierungen exakt. Der frühere Odd-Size-Verlust der letzten
   Mip-Spalte/Zeile ließ Himmel aus der MIN-Reduktion fallen ⇒ falsche Culls an
   Silhouetten/Horizont (die LOD-Loch-Linien!).
-- **Szene-FBO wird während des Pyramiden-Baus ABGEBUNDEN** — das Depth-Attachment eines
-  GEBUNDENEN FBO zu sampeln ist Feedback-UB (war das Küsten-Flackern). Nie „den Unbind
-  sparen".
+- **Depth-Sichtbarkeit vor dem Pyramiden-Bau herstellen.** Historisch per Abbinden des
+  Szene-FBO (das Depth-Attachment eines GEBUNDENEN FBO zu sampeln ist Feedback-UB — das war
+  das Küsten-Flackern). Seit 2026-07-30 stattdessen **`glTextureBarrier()`** bei gebundenem
+  FBO: der Compute rendert nicht und schreibt das Attachment nicht, die Feedback-Regel greift
+  also nicht — gemessen −28 µs/Frame, Draw-Count-Telemetrie und Pixelvergleich unverändert.
+  Was NICHT geht: die Ordnung ganz weglassen (als Sonde geprüft, bringt ohnehin ~0).
 - **Null-Command-Hygiene:** JEDE Compute-Invocation beider Phasen schreibt Command ODER
   Null-Command in ihre Phasen-Range — sonst zeichnen stale Ring-Slot-Inhalte Geister.
 - **Vis-Write nur aus ZULÄSSIGEN Invocations** — die per-Level-LOD-Dispatches besuchen jeden
@@ -127,13 +130,47 @@ Die teuer gefundenen Regeln (NICHT „vereinfachen"):
 - Phase-2-Draws OHNE FrameProfiler-GPU-Queries (1 Query-Objekt pro Slot/Section — ein
   zweites Begin überschriebe die Phase-1-Messung).
 
-**Kosten-Realität (2026-07-19, RTX 4080):** der GPU-Pfad kostet **~0,15–0,2 ms Fixkosten
-pro Frame, auflösungsunabhängig** (Sync-Struktur: Phase-1-Draws → Pyramide → Phase 2 +
-zweiter Draw-Satz) — bei heutigem unbeleuchtetem Content ist er damit LANGSAMER als der
-CPU-Pfad (z.B. 880→750 FPS bei 5120×1440) — deshalb Default AUS (User-Entscheidung
-2026-07-29). Der Pfad bleibt erhalten und zahlt sich aus, sobald Licht-Merge/Schatten-Pass
-die Frames real verteuern — dann Default wieder AN. FPS-Vergleiche IMMER in Frame-Zeiten
-rechnen, nie in FPS-Differenzen.
+**Kosten-Realität — GEMESSEN 2026-07-30 (RTX 4080, 2560×1440, rd16/lodMax128, feste Pose,
+Messstand `CullBench`):** die frühere These „Fixkosten des GPU-Pfads" war zu grob. Die Kosten
+liegen fast vollständig in der **Hi-Z-Occlusion**, nicht im Compute-Substrat:
+
+| Konfiguration | frame | Δ zum CPU-Pfad |
+|---|---|---|
+| CPU-Cull | 1231 µs | – |
+| GPU-Cull, nur Compute-Frustum (`FRUSTUM_ONLY`) | 1266 µs | **+35 µs** |
+| GPU-Cull + Hi-Z (Two-Phase) | 1400 µs | **+169 µs** |
+
+Der Hi-Z-Aufschlag steckt vollständig in den gemessenen Sektionen (`hiz` 59, `cull2` 19,
+`solid2` 7 µs; die unvermessene GPU-Zeit wächst nur um ~31 µs) — es sind KEINE geheimen
+Pipeline-Blasen. **Die entscheidende Zahl:** `solid`+`cut` (die Rasterarbeit) beträgt in ALLEN
+drei Konfigurationen 156 µs. Die Occlusion spart also nichts, weil Early-Z verdeckte Fragmente
+ohnehin verwirft. Und selbst im besten Fall ist der Nutzen durch diese 156 µs **gedeckelt**,
+während Hi-Z 85 µs kostet — es müsste über 55 % der Rasterarbeit wegcullen, um sich zu tragen.
+Deshalb **`FRUSTUM_ONLY` Default AN** (Hi-Z aus), im GuiDebugScreen getrennt schaltbar. Mit
+Licht/Schatten steigen die Fragmentkosten und damit die Decke — dann neu messen.
+
+**Vier falsifizierte Hebel dieser Runde — nicht wiederholen:**
+1. **Command-Kompaktierung**: Sonde mit 8000 zusätzlichen toten Descriptoren ergab ~8,5 ns pro
+   Null-Command. Die ~3.700 echten Null-Commands sind ~30 µs, nicht der Posten.
+2. **Phase-2-Draws hinter den Entity-Pass** (damit die Barrier-Drain hinter echter Arbeit
+   liegt): kostete 22 µs MEHR. BE-/Entity-Pass sind hier <10 µs — nichts zu verstecken.
+3. **`textureGather` im Copy-Pass** statt 25–30 `texelFetch` je Thread: `hiz` blieb bei 59–60 µs.
+   Der Pass ist nicht fetch-instruktionsgebunden.
+4. **Copy + erste Reduce-Stufe verschmelzen** (Mips 0–4 in einem Dispatch, ein Dispatch und eine
+   Barrier weniger): ~1 µs. Die Dispatch-ZAHL ist auf dieser Hardware nicht der Kostentreiber.
+
+Was der Copy-Pass tatsächlich kostet (Sonde mit Stride 4, also 1/16 der Lesungen): `hiz`
+59 → 36 µs. Die Depth-Lesungen sind also ~24 µs, die restlichen ~35 µs sind Fixkosten der
+Pyramidenkette, die sich mit keinem der oben genannten Mittel senken ließen. Die Lesungen
+selbst sind nicht reduzierbar: ein konservatives MIN braucht JEDEN Texel des Footprints —
+eine Teilmenge liefert ein zu NAHES Minimum und cullt dann sichtbare Geometrie weg.
+
+**Messlehre (teuer gelernt):** ohne FIXIERTE Spielerpose sind Läufe wertlos — der Spieler
+fällt beim Laden, der Autosave schreibt die Landeposition zurück, und derselbe CPU-Pfad maß
+in zwei Läufen 795 gegen 909 FPS. Ebenso muss man auf den fertigen LOD-Ring warten
+(Chunks fertig ≠ LOD fertig: sonst misst man 375 statt 3346 Regionen). Beides erledigt
+`CullBench` (`-Dskyengine.cullbench=<Weltordner>`, dazu `-Dskyengine.window=BxH`).
+FPS-Vergleiche IMMER in Frame-Zeiten rechnen, nie in FPS-Differenzen.
 
 **Verifikation:** Telemetrie „GpuCull-Draws" (DebugMode FULL) zeigt pro Segment
 `Σmin..max (P1+P2)` — bei statischer Kamera muss die **SUMME** konstant sein (`Σn..n`);

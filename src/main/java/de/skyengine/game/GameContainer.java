@@ -1544,6 +1544,11 @@ public class GameContainer implements IResizeable, IDisposable {
         return (Math.max(this.settings.lodMaxDistance, this.settings.renderDistance) + 8) * 32.0F;
     }
 
+    /** Screenshot programmatisch anfordern (Messstand: Bildvergleich der Cull-Pfade). */
+    public void requestScreenshot() {
+        this.screenshotRequested = true;
+    }
+
     /** Holt eine angeforderte Screenshot-Aufnahme ab und setzt das Flag zurück. */
     public boolean consumeScreenshotRequest() {
         boolean requested = this.screenshotRequested;

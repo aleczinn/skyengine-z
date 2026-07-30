@@ -12,6 +12,7 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.lod.LodConfig;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.LodMesher;
+import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.camera.Camera;
@@ -170,6 +171,9 @@ public class ChunkRenderer {
        (gemessen ~250 µs/Frame gespart im Steady-State). -1 = beim ersten Frame laufen. */
     private int lastChunkRemovalVersion = -1;
     private int lastLodDesiredVersion = -1;
+
+    /* Letzter Zustand von gpuCull.isActive() — Flanke schaltet refreshAllGates (s. renderSolid). */
+    private boolean lastGpuActive;
 
     /* Fence-Diagnose (nur bei aktivem FrameProfiler gefüllt, s. beginFrame) */
     private long syncFrames, syncSignaled, syncWaitNs, syncWaitMaxNs;
@@ -483,6 +487,12 @@ public class ChunkRenderer {
         FrameProfiler.cpuStart(FrameProfiler.Cpu.CULL);
 
         boolean gpu = this.gpuCull.isActive();
+        /* Pflicht-Begleitfix zum Gate-Gating in refreshGateForRegion: solange der GPU-Pfad aus
+           war, sind LOD-Wechsel nicht ins Sicht-Gate gewandert. Beim Einschalten deshalb alle
+           Spalten-Gates einmal neu setzen — sonst zeigt der erste GPU-Frame Sections, die das
+           LOD noch deckt (Doppelbild), oder verbirgt welche, die es nicht mehr deckt (Loch). */
+        if (gpu && !this.lastGpuActive) this.refreshAllGates();
+        this.lastGpuActive = gpu;
         /* Single-Phase-Entscheid VOR dem Dispatch: ohne sample-bare Depth-Textur (MSAA-Modus)
            oder ohne Szene-FBO gibt es keine Hi-Z-Pyramide — dann alles in EINEM Durchlauf
            zeichnen, statt Phase 2 (Dispatches + Barrier + zweiter Draw-Satz) für ein
@@ -490,7 +500,8 @@ public class ChunkRenderer {
         boolean gpuSinglePhase = false;
         if (gpu) {
             var sceneFb = SkyEngine.get().getWindow().getFrameBuffer();
-            gpuSinglePhase = sceneFb.getDepthTexture() == 0 || sceneFb.getId() == 0;
+            gpuSinglePhase = GpuCull.FRUSTUM_ONLY
+                    || sceneFb.getDepthTexture() == 0 || sceneFb.getId() == 0;
         }
         this.visible.clear();
         this.translucentVisible.clear();
@@ -499,7 +510,7 @@ public class ChunkRenderer {
         this.totalSections = this.meshes.size();
 
         int opaqueDraws = 0, cutoutDraws = 0;
-        boolean lodSplit = FrameProfiler.isEnabled();
+        boolean lodSplit = DebugFlags.lodLevelSplit && FrameProfiler.isEnabled();
         this.visibleLod.clear();
         if (lodSplit) {
             for (int l = 1; l <= MAX_LOD_LEVELS; l++) this.visibleLodByLevel[l].clear();
@@ -535,7 +546,9 @@ public class ChunkRenderer {
                 if (!frustum.testAab(ox, oy, oz, ox + size, oy + size, oz + size)) continue;
                 this.visibleDetail.add(mesh);
             }
+            FrameProfiler.gpuBegin(FrameProfiler.Gpu.CULL_P1);
             this.gpuCull.dispatchPhase1(this.frameSlot, camera, gpuSinglePhase);
+            FrameProfiler.gpuEnd(FrameProfiler.Gpu.CULL_P1);
         } else {
         for (int ci = 0, cn = this.cullColumns.tableSize(); ci < cn; ci++) {
             CullColumn col = this.cullColumns.valueAt(ci);
@@ -771,30 +784,58 @@ public class ChunkRenderer {
            Hi-Z (LOD-Ring-Flackern in Linien) ist strukturell weg. */
         if (gpu && !gpuSinglePhase) {
             var window = SkyEngine.get().getWindow();
+            FrameProfiler.gpuBegin(FrameProfiler.Gpu.HIZ);
             this.gpuCull.buildPyramid(window.getFrameBuffer().getDepthTexture(),
                     window.getWidth(), window.getHeight(), window.getFrameBuffer().getId());
+            FrameProfiler.gpuEnd(FrameProfiler.Gpu.HIZ);
+            FrameProfiler.gpuBegin(FrameProfiler.Gpu.CULL_P2);
             this.gpuCull.dispatchPhase2(this.frameSlot, camera);
-            this.gpuCull.barrier();
-            /* buildPyramid/dispatchPhase2 haben Programm + Unit-2-Binding verstellt — Draw-
-               State wiederherstellen (PV/Fog/Cutoff sind Programm-State und bleiben gültig).
-               Keine FrameProfiler-GPU-Queries: die Query-Objekte sind 1× pro Frame-Slot und
-               Section vergeben, ein zweites Begin würde die Phase-1-Messung überschreiben. */
-            this.shader.bind();
-            this.textures.bind(0);
-            this.drawSegmentGpu(RenderLayer.OPAQUE.ordinal(), GpuCull.SEG_OPAQUE, 1);
-            if (this.gpuCull.hasLod()) {
-                this.drawLodSegmentGpu(LOD_OPAQUE, GpuCull.SEG_LOD, 1);
-            }
-            GL11.glDepthFunc(properties.orEqualDepthFunc());
-            this.drawSegmentGpu(RenderLayer.CUTOUT.ordinal(), GpuCull.SEG_CUTOUT, 1);
-            GL11.glDepthFunc(properties.baseDepthFunc());
+            FrameProfiler.gpuEnd(FrameProfiler.Gpu.CULL_P2);
+            this.drawPhase2();
+        } else if (gpu) {
+            /* Single-Phase: keine zweite Phase — Counts sofort kopieren. */
+            this.gpuCull.copyCounts();
         }
-        /* Counts beider Phasen in den Read-Ring kopieren (Fenstertitel + Σ-Telemetrie);
-           im Single-Phase-Fall stehen im Phase-2-Bereich schlicht Nullen. */
-        if (gpu) this.gpuCull.copyCounts();
 
         this.shader.unbind();
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GLSUB);
+    }
+
+    /**
+     * Two-Phase-Occlusion, zweiter Draw-Satz: Barrier + die Nachzügler (in diesem Frame sichtbar
+     * geworden, in Phase 1 nicht gezeichnet). Läuft innerhalb der GLSUB-Sektion des Aufrufers.
+     *
+     * <p>Gemessen und VERWORFEN: diese Draws hinter den Entity-Pass zu verschieben (damit die
+     * Barrier-Drain hinter echter Arbeit liegt) kostete 22 µs MEHR statt weniger — BlockEntity-
+     * und Entity-Pass sind hier &lt;10 µs, es gibt nichts, wohinter sich Latenz verstecken ließe,
+     * nur zusätzliche State-Wechsel. Erst wenn diese Pässe real teuer werden, lohnt ein neuer
+     * Versuch. */
+    private void drawPhase2() {
+        this.gpuCull.barrier();
+        /* buildPyramid/dispatchPhase2 und der Entity-Pass haben Programm + Texturbindung
+           verstellt — Draw-State wiederherstellen (PV/Fog/Cutoff sind Programm-State und
+           bleiben gültig). Eigene Query-Sektionen: mit den Phase-1-Sektionen zu teilen hätte
+           deren Messung überschrieben (1 Query-Objekt je Sektion und Slot). */
+        this.shader.bind();
+        this.textures.bind(0);
+        EngineProperties properties = SkyEngine.get().getWindow().getProperties();
+        GL11.glDepthFunc(properties.baseDepthFunc());
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.SOLID_P2);
+        this.drawSegmentGpu(RenderLayer.OPAQUE.ordinal(), GpuCull.SEG_OPAQUE, 1);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.SOLID_P2);
+        if (this.gpuCull.hasLod()) {
+            FrameProfiler.gpuBegin(FrameProfiler.Gpu.LOD_P2);
+            this.drawLodSegmentGpu(LOD_OPAQUE, GpuCull.SEG_LOD, 1);
+            FrameProfiler.gpuEnd(FrameProfiler.Gpu.LOD_P2);
+        }
+        GL11.glDepthFunc(properties.orEqualDepthFunc());
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.CUTOUT_P2);
+        this.drawSegmentGpu(RenderLayer.CUTOUT.ordinal(), GpuCull.SEG_CUTOUT, 1);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.CUTOUT_P2);
+        GL11.glDepthFunc(properties.baseDepthFunc());
+        /* Counts beider Phasen in den Read-Ring kopieren (Fenstertitel + Σ-Telemetrie). */
+        this.gpuCull.copyCounts();
+        this.shader.unbind();
     }
 
     /**
@@ -956,6 +997,11 @@ public class ChunkRenderer {
      * wie oft war der 3 Frames alte Fence beim Eintreffen schon signalisiert, und wie
      * lange hat das echte Warten im Schnitt/Maximum gedauert.
      */
+    /** Zahl hochgeladener LOD-Regionen — Stabilitätssignal für den Messstand (CullBench). */
+    public int getLodRegionCount() {
+        return this.lodMeshes.size();
+    }
+
     public String syncStatsLineAndReset() {
         if (this.syncFrames == 0) return null;
         long waitedFrames = this.syncFrames - this.syncSignaled;
@@ -989,6 +1035,7 @@ public class ChunkRenderer {
         }
         this.gpuDrawStatsValid = false;
         if (telemetrie != null) sb.append(" | ").append(telemetrie);
+        sb.append('\n').append(this.gpuCull.descStatsLine());
         return sb.toString();
     }
 
@@ -1583,7 +1630,21 @@ public class ChunkRenderer {
      * Mesh-Wechsel/-Abbau der Region, damit GPU- und CPU-Pfad denselben atomaren
      * Swap zeigen (applyLodResults läuft im selben Frame VOR Cull/Dispatch).
      */
+    /** Alle Spalten-Gates neu aus dem LOD-Zustand setzen (nach dem Einschalten des GPU-Pfads). */
+    private void refreshAllGates() {
+        for (int ci = 0, cn = this.cullColumns.tableSize(); ci < cn; ci++) {
+            CullColumn col = this.cullColumns.valueAt(ci);
+            if (col == null || col.gateSlot < 0) continue;
+            this.gpuCull.setGate(col.gateSlot,
+                    this.lodManager != null && this.lodManager.lodShowsCell(col.chunkX, col.chunkZ));
+        }
+    }
+
     private void refreshGateForRegion(int rx, int rz, int sizeRegions) {
+        /* Das Sicht-Gate ist reine GPU-Pfad-Infrastruktur — der CPU-Pfad fragt lodShowsCell
+           direkt ab (s. renderSolid). Bei ausgeschaltetem GPU-Cull ist die Schleife also
+           komplett umsonst; beim LOD-Umschalten waren das ~54.000 Hash-Lookups in EINEM Frame. */
+        if (!this.gpuCull.isActive()) return;
         int chunksPerRegion = LodMesher.REGION_BLOCKS / ChunkSection.SIZE;
         int c0x = rx * chunksPerRegion, c0z = rz * chunksPerRegion;
         int span = sizeRegions * chunksPerRegion;

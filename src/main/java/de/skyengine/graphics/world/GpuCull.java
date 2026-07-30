@@ -20,6 +20,7 @@ import org.lwjgl.opengl.GL31;
 import org.lwjgl.opengl.GL42;
 import org.lwjgl.opengl.GL43;
 import org.lwjgl.opengl.GL44;
+import org.lwjgl.opengl.GL45;
 
 import java.nio.IntBuffer;
 import java.util.ArrayDeque;
@@ -80,8 +81,27 @@ public class GpuCull {
      * und Debug-Rot, 1-s-Telemetrie „GpuCull-Draws"/„GpuCull-Occlusion" (DebugMode.FULL). */
     public static volatile boolean ENABLED = false;
 
-    /** Occlusion-Debug (Hotkey J): Verdeckt-Verdikte werden ROT gezeichnet statt gecullt. */
+    /** Occlusion-Debug: Verdeckt-Verdikte werden ROT gezeichnet statt gecullt (GuiDebugScreen). */
     public static volatile boolean DEBUG_TINT = false;
+
+    /**
+     * Hi-Z-Occlusion abschalten und NUR das Compute-Frustum fahren (Single-Phase, {@code
+     * u_Phase=2}). Der Pfad existierte bisher nur als unfreiwilliger Fallback (MSAA/erster
+     * Frame); als Schalter trennt er die Kosten des Compute-Substrats von denen der
+     * Occlusion-Maschinerie — Pyramide, Phase-2-Dispatches und der zweite Draw-Satz entfallen
+     * komplett, also die halbe Sync-Struktur des Frames.
+     *
+     * <p>DEFAULT AN (Hi-Z also AUS) nach Messung 2026-07-30, 2560x1440, rd16/lodMax128, feste
+     * Pose, RTX 4080: CPU-Cull 980 µs/Frame, GPU-Frustum 1003 µs (+23), GPU-Frustum+Hi-Z
+     * 1143 µs (+163). Das Compute-Substrat ist also praktisch gratis, die Occlusion kostet
+     * ~140 µs und spart bei heutigem, unbeleuchtetem Content fast nichts (Early-Z verwirft
+     * verdeckte Fragmente ohnehin). Wieder einschalten, sobald Fragmente teuer werden
+     * (Licht/Schatten) — Schalter liegt im GuiDebugScreen.
+     */
+    public static volatile boolean FRUSTUM_ONLY = true;
+
+
+
 
     /* Segmente in Draw-Reihenfolge: Sections OPAQUE, Sections CUTOUT, LOD-Opaque (ALLE Level
        in EINEM Segment). Früher gab es je Level ein eigenes Segment — dadurch besuchte der
@@ -248,6 +268,7 @@ public class GpuCull {
 
         this.createOutputBuffers();
         this.logger.info("GPU-Cull: Substrat aktiv (Descriptor-Kapazität " + this.descCapacity + ")");
+
     }
 
     /** Legt Command-/Offset-/Count-Puffer passend zur aktuellen Descriptor-Kapazität an. */
@@ -720,12 +741,12 @@ public class GpuCull {
             this.hiZValid = false;
             return;
         }
-        /* Szene-FBO für den Bau ABBINDEN: das Depth-Attachment eines GEBUNDENEN FBO zu
-           sampeln ist Feedback-UB (war die Ursache des Küsten-Flackerns) — nach dem Unbind
-           ist das direkte Sampeln definiert und die ausstehenden Depth-Writes sind sichtbar.
-           Ersetzt den früheren Voll-Blit in eine Depth-Kopie (~0,1 ms Bandbreite bei 5120er
-           Breite). Am Ende wird das Szene-FBO wieder gebunden. */
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
+        /* Depth-Writes des Opaque-Passes gegenüber den folgenden Texture-Fetches ordnen.
+           Historisch lief das über Abbinden des Szene-FBO (das Depth-Attachment eines
+           GEBUNDENEN FBO zu sampeln ist Feedback-UB — die Ursache des Küsten-Flackerns);
+           glTextureBarrier erreicht dasselbe ohne Render-Target-Wechsel und ist gemessen
+           28 µs/Frame billiger. Weglassen darf man die Ordnung NICHT. */
+        GL45.glTextureBarrier();
 
         /* Basis-Mip (Pow2, ~Viertel-Auflösung): konservatives Footprint-MIN direkt aus dem
            Szenen-Depth — jeder Basis-Texel deckt seinen exakten Pixel-Bereich lückenlos ab. */
@@ -755,7 +776,6 @@ public class GpuCull {
         }
         this.hiZReduce.unbind();
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, sceneFbo);
         GL42.glMemoryBarrier(GL43.GL_TEXTURE_FETCH_BARRIER_BIT);
         this.hiZValid = true;
     }
@@ -821,6 +841,17 @@ public class GpuCull {
         if (segment == SEG_OPAQUE) return this.phase1Count[0];
         if (segment == SEG_CUTOUT) return this.phase1Count[1];
         return this.phase1Count[DESC_LOD];
+    }
+
+    /**
+     * Descriptor-Hochwasserstand je Art für die Telemetrie: er bestimmt sowohl die
+     * Dispatch-Range als auch {@link #drawCount} (inkl. aller Null-Commands). Driftet er weit
+     * über die Zahl lebender Slots, arbeitet der Pfad an der Slot-Verwaltung statt an der Szene.
+     */
+    public String descStatsLine() {
+        return "GpuCull-Descs: op %d, cut %d, lod %d (Kapazitaet %d, Gates %d)".formatted(
+                this.mirrorCount[0], this.mirrorCount[1], this.mirrorCount[DESC_LOD],
+                this.descCapacity, this.gateCount);
     }
 
     /**

@@ -9,7 +9,16 @@ public class DesktopLauncher {
     public static void main(String[] args) {
         EngineConfig config = new EngineConfig();
 
-        config.setWindowSize(1280, 720);
+        /* Fenstergröße optional per -Dskyengine.window=BREITExHOEHE (Messläufe brauchen eine
+           feste, vergleichbare Auflösung — z.B. 5120x1440). Ohne die Property: 1280x720. */
+        int breite = 1280, hoehe = 720;
+        String fenster = System.getProperty("skyengine.window");
+        if (fenster != null && fenster.matches("\\d+x\\d+")) {
+            String[] teile = fenster.split("x");
+            breite = Integer.parseInt(teile[0]);
+            hoehe = Integer.parseInt(teile[1]);
+        }
+        config.setWindowSize(breite, hoehe);
         config.setWindowMinSizeLimit(640, 360);
         config.setWindowIcon(
                 "./src/main/resources/engine/logo/skyengine-logo-big-128.png",

@@ -48,6 +48,11 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
         CycleButton<Boolean> gpuCullTint = CycleButton.onOff(I18n.tr("options.debug.gpu_cull_tint"), CELL_W, CELL_H,
                 GpuCull.DEBUG_TINT, v -> GpuCull.DEBUG_TINT = v);
 
+        /* Hi-Z getrennt schaltbar: gemessen kostet die Occlusion deutlich mehr, als sie bei
+           heutigem Content spart — das reine Compute-Frustum ist dagegen fast gratis. */
+        CycleButton<Boolean> gpuCullHiZ = CycleButton.onOff(I18n.tr("options.debug.gpu_cull_hiz"), CELL_W, CELL_H,
+                !GpuCull.FRUSTUM_ONLY, v -> GpuCull.FRUSTUM_ONLY = !v);
+
         CycleButton<Boolean> lodOverlay = CycleButton.onOff(I18n.tr("options.debug.lod_overlay"), CELL_W, CELL_H,
                 LodMesher.EMIT_GRASS_OVERLAY, v -> LodMesher.EMIT_GRASS_OVERLAY = v);
 
@@ -68,8 +73,9 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
                 () -> SkyEngine.get().getPostProcessor().getSettings().reloadFromFile());
 
         content.add(new HStack(4, wireframe, gpuCull));
-        content.add(new HStack(4, gpuCullTint, lodOverlay));
-        content.add(new HStack(4, pauseLoading, aa));
-        content.add(new HStack(4, reloadChunks, reloadPost));
+        content.add(new HStack(4, gpuCullHiZ, gpuCullTint));
+        content.add(new HStack(4, lodOverlay, pauseLoading));
+        content.add(new HStack(4, aa, reloadChunks));
+        content.add(new HStack(4, reloadPost));
     }
 }

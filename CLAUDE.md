@@ -183,10 +183,17 @@ ausdrücken).
   Pop-ins), Skirts, Epoche/Hysterese, eigene Vertex-Arenen, AO, transluzentes LOD-Wasser,
   getönte Gras-Overlay-Wände
 - Vegetations-Tint biome-abhängig (Eck-Grids + bilinear), koplanare Grasblock-Overlays
-- GPU-driven Culling (GpuCull, Default **AUS** — heute langsamer als der CPU-Cull, Umschalten
-  im GuiDebugScreen): Frustum + Sicht-Gate + LOD per Compute, Two-Phase-Hi-Z-Occlusion
-  (Pow2-Viertel-Pyramide); kostet ~0,2 ms/Frame Fixkosten, zahlt sich ab Licht/Schatten aus —
-  dann Default wieder AN. Details/Fallen im Skill `mdi-rendering`
+- GPU-driven Culling (GpuCull, Default **AUS**, Umschalten im GuiDebugScreen): Frustum +
+  Sicht-Gate + LOD per Compute, Two-Phase-Hi-Z-Occlusion (Pow2-Viertel-Pyramide).
+  **Gemessen 2026-07-30:** das Compute-Frustum kostet nur +35 µs/Frame gegenüber dem CPU-Cull,
+  die Hi-Z-Occlusion obendrauf +134 µs — und spart nichts: die Rasterarbeit (`solid`+`cut`)
+  bleibt in allen Konfigurationen bei 156 µs, weil Early-Z verdeckte Fragmente ohnehin
+  verwirft. 156 µs sind zugleich die Obergrenze des möglichen Nutzens, Hi-Z kostet 85 µs.
+  Deshalb `FRUSTUM_ONLY` Default AN (Hi-Z aus), beides getrennt schaltbar; Hi-Z wieder an,
+  sobald Fragmente teuer werden (Licht/Schatten heben die Decke). Messstand: `./gradlew run
+  -Dskyengine.cullbench=<Weltordner> [-Dskyengine.window=BxH]` (`CullBench`, feste Pose +
+  eingefrorenes Laden, sonst sind Läufe nicht vergleichbar). Details/Fallen im Skill
+  `mdi-rendering`
 - Mining: MC-Harvest-Regel, 28 Tools (7 Tiers × 4 Typen), Durability, Crack-Overlay,
   Bedrock unzerstörbar; Gamemodes Survival/Creative/Spectator; Item-Entities + Aufsammeln
 - TNT/Explosion: raybasierte Explosion (`Explosion`, MC-ServerExplosion-Modell, hardness als
