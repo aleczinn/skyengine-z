@@ -538,12 +538,16 @@ public class GameContainer implements IResizeable, IDisposable {
             double dz = item.z - pz;
             if (dx * dx + dy * dy + dz * dz > PICKUP_RANGE * PICKUP_RANGE) return;
 
+            int before = item.getStack().getCount();
             ItemStack remaining = this.playerInventory.insert(item.getStack());
             if (remaining.isEmpty()) {
                 item.remove();
             } else {
                 item.getStack().setCount(remaining.getCount());
             }
+            /* Nur bei echter Aufnahme klingeln: bei vollem Inventar gibt insert() den ganzen
+               Stapel zurück, und der Sound liefe sonst jeden Tick. */
+            if (remaining.getCount() < before) this.soundManager.playPickup();
         });
     }
 

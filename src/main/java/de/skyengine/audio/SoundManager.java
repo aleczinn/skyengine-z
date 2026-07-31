@@ -55,6 +55,9 @@ public final class SoundManager implements IDisposable {
     private static final float EAT_GAIN = 0.75F;
     private static final float BURP_GAIN = 0.25F; // bewusst dezenter als MCs 0.5 (User-Wunsch)
     private static final float EXPLOSION_GAIN = 1.0F;
+    /* Aufsammeln: MC-Werte aus Player.take — leise, hoher Pitch mit weiter Streuung. */
+    private static final float PICKUP_GAIN = 0.2F;
+    private static final float PICKUP_PITCH = 2.0F, PICKUP_PITCH_SPREAD = 0.7F;
 
     private final Logger logger = LogManager.getLogger(SoundManager.class.getName());
 
@@ -88,6 +91,7 @@ public final class SoundManager implements IDisposable {
     private int[] burpVariants;      // eat/burp.ogg
     private int[] explosionVariants; // random/explode1..4
     private int[] fuseVariants;      // random/fuse.ogg
+    private int[] pickupVariants;    // random/pop.ogg
 
     /* Wiederverwendet fürs Listener-Update (keine Frame-Allokationen). */
     private final Vector3d direction = new Vector3d();
@@ -160,9 +164,10 @@ public final class SoundManager implements IDisposable {
         this.burpVariants = this.loadVariants("eat", "burp");
         this.explosionVariants = this.loadVariants("random", "explode");
         this.fuseVariants = this.loadVariants("random", "fuse");
+        this.pickupVariants = this.loadVariants("random", "pop");
         loaded += count(this.uiClickVariants) + count(this.hurtVariants) + count(this.fallSmallVariants)
                 + count(this.fallBigVariants) + count(this.eatVariants) + count(this.burpVariants)
-                + count(this.explosionVariants) + count(this.fuseVariants);
+                + count(this.explosionVariants) + count(this.fuseVariants) + count(this.pickupVariants);
 
         /* Auf-/Zu-Sounds je Satz aus seinem eigenen Ordner; fehlt einer, bleibt nur er stumm. */
         for (BlockOpenSound sound : BlockOpenSound.values()) {
@@ -288,6 +293,17 @@ public final class SoundManager implements IDisposable {
     /** Rülpser nach abgeschlossenem Essen. */
     public void playBurp() {
         this.play(this.burpVariants, SoundCategory.PLAYER, BURP_GAIN, 1.0F, true, false, 0, 0, 0);
+    }
+
+    /**
+     * Item aufgesammelt — nicht-positional (der Aufsammel-Radius ist gut einen Block groß, da
+     * wäre positional unhörbar). Der Pitch wird nach MCs {@code Player.take} hier gewürfelt:
+     * die Streuung ist mit ±70 % viel weiter als der ±10 %-Jitter von {@link #play}.
+     */
+    public void playPickup() {
+        float pitch = ((this.random.nextFloat() - this.random.nextFloat()) * PICKUP_PITCH_SPREAD + 1.0F)
+                * PICKUP_PITCH;
+        this.play(this.pickupVariants, SoundCategory.PLAYER, PICKUP_GAIN, pitch, false, false, 0, 0, 0);
     }
 
     /** Explosions-Sound (TNT) — positional an der Detonationsstelle. Stumm ohne Asset. */
@@ -483,7 +499,7 @@ public final class SoundManager implements IDisposable {
         unique.addAll(this.closeBuffers.values());
         for (int[] loose : new int[][]{this.uiClickVariants, this.hurtVariants, this.fallSmallVariants,
                 this.fallBigVariants, this.eatVariants, this.burpVariants, this.explosionVariants,
-                this.fuseVariants}) {
+                this.fuseVariants, this.pickupVariants}) {
             if (loose != null) unique.add(loose);
         }
         for (int[] variants : unique) {
