@@ -438,6 +438,40 @@ public class World implements IInitializable, IDisposable {
         this.spawnEntity(entity);
     }
 
+    /** Wurfstärke und Aufsammel-Sperre eines Spieler-Drops (MC {@code Player.drop}). */
+    private static final double THROW_SPEED = 0.3;
+    private static final int THROW_PICKUP_DELAY = 40;
+
+    /**
+     * Wirft ein Item vom Spieler weg (Vorbild MC {@code Player.drop}): aus Augenhöhe in
+     * Blickrichtung, mit leichter Streuung, danach {@value #THROW_PICKUP_DELAY} Ticks lang nicht
+     * aufsammelbar — sonst hätte man es sofort wieder in der Hand.
+     */
+    public void throwItem(EntityPlayer player, ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return;
+        ItemEntity entity = new ItemEntity(stack);
+        entity.setPosition(player.x, player.y + player.getEyeHeight(1F) - 0.3, player.z);
+        entity.setPickupDelay(THROW_PICKUP_DELAY);
+
+        /* Blickrichtung in DIESER Engine-Konvention (siehe Camera.getDirection): x = +sin(yaw),
+           z = -cos(yaw) — MCs Formel hat dort die umgekehrten Vorzeichen. */
+        double yaw = Math.toRadians(player.yaw);
+        double pitch = Math.toRadians(player.pitch);
+        double cosPitch = Math.cos(pitch);
+        entity.motionX = cosPitch * Math.sin(yaw) * THROW_SPEED;
+        entity.motionY = -Math.sin(pitch) * THROW_SPEED + 0.1;
+        entity.motionZ = -cosPitch * Math.cos(yaw) * THROW_SPEED;
+
+        /* Streuung wie in MC, damit ein ganzer Stapel nicht als Strich fliegt. */
+        double angle = this.random.nextDouble() * Math.PI * 2.0;
+        double radius = this.random.nextDouble() * 0.02;
+        entity.motionX += Math.cos(angle) * radius;
+        entity.motionY += (this.random.nextDouble() - this.random.nextDouble()) * 0.1;
+        entity.motionZ += Math.sin(angle) * radius;
+
+        this.spawnEntity(entity);
+    }
+
     /**
      * Wendet {@code action} auf alle Entities im {@code chunkRadius}-Umfeld um (x,z) an
      * (z.B. fürs Aufsammeln). {@code action} darf das removed-Flag setzen, aber die Listen nicht

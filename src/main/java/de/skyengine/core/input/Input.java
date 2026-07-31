@@ -371,6 +371,11 @@ public class Input {
         return key >= 0 && key < KEY_COUNT && this.keyStates[key] == InputState.RELEASED;
     }
 
+    /** Ist eine der beiden STRG-Tasten gehalten (Modifier für Stapel-Aktionen)? */
+    public boolean isCtrlDown() {
+        return this.isKeyDown(GLFW.GLFW_KEY_LEFT_CONTROL) || this.isKeyDown(GLFW.GLFW_KEY_RIGHT_CONTROL);
+    }
+
     /* --- Keybinds (Taste ODER Maustaste) ---
        Ein Bind-Code ist ein GLFW-Key-Code, oder — ab MOUSE_OFFSET — eine Maustaste
        (Code = MOUSE_OFFSET + GLFW-Mouse-Button). GLFW-Keys reichen nur bis ~348, der Offset
