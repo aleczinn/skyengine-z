@@ -9,8 +9,11 @@ import java.util.function.Consumer;
 /**
  * Ein in der Welt liegendes/aufsammelbares Item (Block-Drop). Fällt mit Schwerkraft, bleibt am
  * Boden liegen und wird vom Spieler aufgesammelt (siehe {@code GameContainer}). {@link #age} treibt
- * im Renderer die Dreh-/Wippe-Animation; {@link #pickupDelay} verhindert sofortiges Aufsammeln nach
- * dem Drop.
+ * im Renderer die Dreh-/Wippe-Animation und begrenzt die Lebensdauer; {@link #pickupDelay}
+ * verhindert sofortiges Aufsammeln nach dem Drop.
+ *
+ * <p>Benachbarte gleiche Stapel verschmelzen pro Tick ({@link #mergeNearby}), damit aus einer
+ * Explosion keine Wolke einzelner Entities stehen bleibt.
  */
 public class ItemEntity extends Entity {
 
@@ -18,6 +21,8 @@ public class ItemEntity extends Entity {
     private static final double DRAG_Y = 0.98;
     private static final double GROUND_FRICTION = 0.6;
     private static final double AIR_FRICTION = 0.98;
+    /** Lebensdauer eines Drops in Ticks (MC: 6000 = 5 Minuten). */
+    private static final int DESPAWN_TICKS = 6000;
     /** Horizontaler Suchradius fürs Verschmelzen (MC bläht die Hitbox um 0,5 auf). */
     private static final double MERGE_RADIUS = 0.5;
     /** Wiederverwendete Suchbox — sonst fiele pro Item und Tick eine AABB an. */
@@ -55,6 +60,12 @@ public class ItemEntity extends Entity {
     public void tick(World world) {
         super.update();
         this.age++;
+        /* Nach 5 Minuten verschwindet der Drop (wie MC). Ausserhalb der Simulations-Distanz wird
+           gar nicht getickt, dort altert er also nicht weiter — auch das ist MC-Verhalten. */
+        if (this.age >= DESPAWN_TICKS) {
+            this.remove();
+            return;
+        }
         if (this.pickupDelay > 0) this.pickupDelay--;
 
         /* Strömung zieht das Item mit (Lava: nur Push - Items verbrennen bei uns nicht). */
