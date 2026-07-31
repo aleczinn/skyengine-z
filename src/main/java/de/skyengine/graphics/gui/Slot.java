@@ -13,12 +13,15 @@ public final class Slot {
     public final int index;
     public final int x;
     public final int y;
+    /** Bereich für Quickmove/Shift-Klick — siehe {@link SlotGroup}. */
+    public final SlotGroup group;
 
-    public Slot(ItemStorage storage, int index, int x, int y) {
+    public Slot(ItemStorage storage, int index, int x, int y, SlotGroup group) {
         this.storage = storage;
         this.index = index;
         this.x = x;
         this.y = y;
+        this.group = group;
     }
 
     public ItemStack get() {

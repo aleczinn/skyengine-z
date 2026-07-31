@@ -4,6 +4,8 @@ import de.skyengine.core.SkyEngine;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.GameContainer;
+import de.skyengine.game.Gamemode;
+import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.graphics.color.Color4;
@@ -11,12 +13,14 @@ import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.Slot;
+import de.skyengine.graphics.gui.SlotGroup;
 import de.skyengine.graphics.gui.StackText;
 import de.skyengine.graphics.gui.Tooltip;
 import de.skyengine.graphics.gui.text.RichText;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -62,11 +66,84 @@ public abstract class GuiContainer extends GuiScreen {
         return true;
     }
 
+    /* --- Quickmove (Shift-Klick, Mausrad) --- */
+
+    /**
+     * Zielreihenfolge eines Quickmove aus {@code from} (Vorbild MC
+     * {@code AbstractContainerMenu.quickMoveStack}). Ein Screen ohne {@link SlotGroup#CONTAINER}
+     * (das reine Spielerinventar) schiebt zwischen Hauptinventar und Hotbar hin und her.
+     *
+     * <p>Aus dem Container heraus läuft die Liste RÜCKWÄRTS und die Hotbar zuerst — das ist MCs
+     * {@code moveItemStackTo(..., reverseDirection = true)}.
+     */
+    protected List<Slot> quickMoveTargets(SlotGroup from) {
+        if (from == SlotGroup.CONTAINER) {
+            List<Slot> targets = new ArrayList<>(this.slotsOf(SlotGroup.HOTBAR));
+            targets.addAll(this.slotsOf(SlotGroup.INVENTORY));
+            Collections.reverse(targets);
+            return targets;
+        }
+        List<Slot> container = this.slotsOf(SlotGroup.CONTAINER);
+        if (!container.isEmpty()) return container;
+        return this.slotsOf(from == SlotGroup.HOTBAR ? SlotGroup.INVENTORY : SlotGroup.HOTBAR);
+    }
+
+    /** Alle Slots einer Gruppe in Layout-Reihenfolge. */
+    protected List<Slot> slotsOf(SlotGroup group) {
+        List<Slot> out = new ArrayList<>();
+        for (Slot s : this.slots) {
+            if (s.group == group) out.add(s);
+        }
+        return out;
+    }
+
+    /**
+     * Schiebt bis zu {@code amount} Items aus {@code from} in den anderen Bereich; liefert die
+     * tatsächlich verschobene Menge. Der Quellslot wird geleert, sobald nichts mehr übrig ist.
+     */
+    protected int quickMove(Slot from, int amount) {
+        ItemStack stack = from.get();
+        if (stack.isEmpty() || amount <= 0) return 0;
+        ItemStack moving = stack.split(amount);
+        int wanted = moving.getCount();
+
+        this.moveInto(moving, this.quickMoveTargets(from.group));
+
+        /* Nicht untergebrachten Rest zurücklegen — split hat ihn schon abgezogen. */
+        if (!moving.isEmpty()) stack.setCount(stack.getCount() + moving.getCount());
+        if (stack.isEmpty()) from.set(ItemStack.EMPTY);
+        return wanted - moving.getCount();
+    }
+
+    /**
+     * Verteilt {@code stack} auf {@code targets} (Vorbild MC {@code moveItemStackTo}): erst in
+     * gleiche Stapel auffüllen, dann in leere Slots. Beide Pässe sehen die GANZE Liste — sonst
+     * belegt ein Item einen leeren Slot, obwohl weiter hinten noch ein passender Teilstapel
+     * Platz hätte. {@code stack} wird dabei heruntergezählt.
+     */
+    protected void moveInto(ItemStack stack, List<Slot> targets) {
+        for (Slot target : targets) {
+            if (stack.isEmpty()) return;
+            ItemStack existing = target.get();
+            if (!existing.canStackWith(stack)) continue;
+            int space = existing.getMaxStackSize() - existing.getCount();
+            if (space <= 0) continue;
+            existing.setCount(existing.getCount() + stack.split(space).getCount());
+        }
+        for (Slot target : targets) {
+            if (stack.isEmpty()) return;
+            if (!target.get().isEmpty()) continue;
+            target.set(stack.split(stack.getMaxStackSize()));
+        }
+    }
+
+    /* --- Klicks --- */
+
     @Override
     public boolean mousePressed(GuiManager gui, double mouseX, double mouseY, int button) {
         Slot slot = this.slotAt(mouseX, mouseY);
         if (slot != null) {
-            this.onSlotClick(slot, button);
+            this.onSlotClick(slot, button, SkyEngine.get().getInput().isShiftDown());
             return true;
         }
         /* Klick neben das Fenster wirft den getragenen Stapel aus: links alles, rechts einzeln. */
@@ -111,10 +188,17 @@ public abstract class GuiContainer extends GuiScreen {
     }
 
     /**
-     * Klick auf einen Slot: klassische Carried-Tauschlogik (aufnehmen, ablegen, stapeln,
-     * tauschen). {@code button} wird aktuell ignoriert (Rechtsklick-Halbieren folgt in Phase 2).
+     * Klick auf einen Slot (Vorbild MC {@code AbstractContainerMenu.doClick}): Shift schiebt in
+     * den anderen Bereich, links nimmt/legt den ganzen Stapel, rechts halbiert bzw. legt genau
+     * ein Item ab, die Mitte klont im Creative.
      */
-    protected void onSlotClick(Slot slot, int button) {
+    protected void onSlotClick(Slot slot, int button, boolean shift) {
+        if (shift) {
+            ItemStack stack = slot.get();
+            if (!stack.isEmpty()) this.quickMove(slot, stack.getCount());
+            return;
+        }
+
         ItemStack slotStack = slot.get();
         if (this.carried.isEmpty()) {
             this.carried = slotStack;
