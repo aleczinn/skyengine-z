@@ -193,9 +193,20 @@ public abstract class GuiContainer extends GuiScreen {
      * ein Item ab, die Mitte klont im Creative.
      */
     protected void onSlotClick(Slot slot, int button, boolean shift) {
+        if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
+            this.cloneInCreative(slot);
+            return;
+        }
+        /* Maus 4/5 kommen wegen capturesMouse() mit an — sie dürfen NICHT wie ein Linksklick wirken. */
+        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT && button != GLFW.GLFW_MOUSE_BUTTON_RIGHT) return;
+
         if (shift) {
             ItemStack stack = slot.get();
             if (!stack.isEmpty()) this.quickMove(slot, stack.getCount());
+            return;
+        }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+            this.rightClick(slot);
             return;
         }
 
@@ -216,6 +227,48 @@ public abstract class GuiContainer extends GuiScreen {
             slot.set(this.carried);
             this.carried = slotStack;
         }
+    }
+
+    /** Rechtsklick: mit leerer Hand die Hälfte aufnehmen (aufgerundet), sonst 1 Item ablegen. */
+    private void rightClick(Slot slot) {
+        ItemStack slotStack = slot.get();
+        if (this.carried.isEmpty()) {
+            if (slotStack.isEmpty()) return;
+            this.carried = slotStack.split((slotStack.getCount() + 1) / 2);
+            if (slotStack.isEmpty()) slot.set(ItemStack.EMPTY);
+            return;
+        }
+        if (slotStack.isEmpty()) {
+            slot.set(this.carried.split(1));
+        } else if (slotStack.canStackWith(this.carried)
+                && slotStack.getCount() < slotStack.getMaxStackSize()) {
+            slotStack.setCount(slotStack.getCount() + this.carried.split(1).getCount());
+        } else {
+            /* Fremder Stapel: wie beim Linksklick tauschen. */
+            slot.set(this.carried);
+            this.carried = slotStack;
+            return;
+        }
+        if (this.carried.isEmpty()) this.carried = ItemStack.EMPTY;
+    }
+
+    /** Mittelklick im Creative: voller Stapel in die Hand (MC {@code ClickType.CLONE}). */
+    private void cloneInCreative(Slot slot) {
+        if (!this.carried.isEmpty() || slot.get().isEmpty()) return;
+        EntityPlayer player = SkyEngine.get().getGame().getPlayer();
+        if (player == null || player.getGamemode() != Gamemode.CREATIVE) return;
+        this.carried = slot.get().copy();
+        this.carried.setCount(this.carried.getMaxStackSize());
+    }
+
+    /**
+     * Container-Screens beanspruchen alle Maustasten — sonst filtert der {@link GuiManager} den
+     * Mittelklick (Klonen im Creative) weg. Maus 4/5 kommen dadurch mit an und werden in
+     * {@link #onSlotClick} ausdrücklich verworfen.
+     */
+    @Override
+    public boolean capturesMouse() {
+        return true;
     }
 
     /** Hover-Highlight des Slots unter der Maus (im Sprite-Pass der Subklasse aufrufen). */
