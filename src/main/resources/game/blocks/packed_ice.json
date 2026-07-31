@@ -1,0 +1,8 @@
+{
+  "id": "skyengine:packed_ice",
+  "parent": "preset/cube",
+  "sound": "glass",
+  "hardness": 0.5,
+  "friction": 0.98,
+  "tool": "pickaxe"
+}

@@ -2,6 +2,7 @@
   "id": "skyengine:obsidian",
   "parent": "preset/cube",
   "hardness": 50,
+  "resistance": 1200,
   "tool": "pickaxe",
   "harvest_tier": "diamond"
 }

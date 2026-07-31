@@ -1,0 +1,11 @@
+{
+  "_comment": "MC-Texturname ist nur 'magma' (und animiert - der .png.mcmeta-Sidecar liegt daneben).",
+  "id": "skyengine:magma_block",
+  "parent": "preset/cube",
+  "vars": {
+    "texture": "magma"
+  },
+  "hardness": 0.5,
+  "light_level": 3,
+  "tool": "pickaxe"
+}

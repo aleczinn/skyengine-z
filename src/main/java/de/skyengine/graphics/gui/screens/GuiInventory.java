@@ -53,6 +53,11 @@ public final class GuiInventory extends GuiContainer {
     }
 
     @Override
+    protected boolean isInsideWindow(double mx, double my) {
+        return mx >= this.guiX && mx < this.guiX + W && my >= this.guiY && my < this.guiY + H;
+    }
+
+    @Override
     public void render(GuiManager gui, double mouseX, double mouseY) {
         float vW = gui.vWidth(), vH = gui.vHeight();
         SpriteRenderer sr = gui.sprites();

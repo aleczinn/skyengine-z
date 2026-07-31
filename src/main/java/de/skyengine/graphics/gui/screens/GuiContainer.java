@@ -1,5 +1,9 @@
 package de.skyengine.graphics.gui.screens;
 
+import de.skyengine.core.SkyEngine;
+import de.skyengine.core.settings.GameSettings;
+import de.skyengine.core.settings.KeyBindings;
+import de.skyengine.game.GameContainer;
 import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.graphics.color.Color4;
@@ -48,12 +52,62 @@ public abstract class GuiContainer extends GuiScreen {
         return null;
     }
 
+    /**
+     * Liegt (mx,my) im Fenster-Rechteck des Screens? Vorbild MC
+     * {@code AbstractContainerScreen.hasClickedOutside} — nur ein Klick DANEBEN wirft den
+     * getragenen Stapel aus, auf dem Fensterhintergrund passiert nichts. Default: alles „drin"
+     * (= wirft nie), damit ein neuer Container-Screen nichts Unerwartetes tut.
+     */
+    protected boolean isInsideWindow(double mx, double my) {
+        return true;
+    }
+
     @Override
     public boolean mousePressed(GuiManager gui, double mouseX, double mouseY, int button) {
         Slot slot = this.slotAt(mouseX, mouseY);
-        if (slot == null) return false;
-        this.onSlotClick(slot, button);
+        if (slot != null) {
+            this.onSlotClick(slot, button);
+            return true;
+        }
+        /* Klick neben das Fenster wirft den getragenen Stapel aus: links alles, rechts einzeln. */
+        if (!this.carried.isEmpty() && !this.isInsideWindow(mouseX, mouseY)) {
+            this.throwFromCarried(button == GLFW.GLFW_MOUSE_BUTTON_RIGHT ? 1 : this.carried.getCount());
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Drop-Taste (Default Q) wie in Minecraft: mit belegtem Cursor wirft sie von IHM, sonst vom
+     * Slot unter der Maus — mit STRG jeweils den ganzen Stapel. Die Mausposition kommt aus dem
+     * {@link GuiManager}, {@code keyPressed} bekommt sie nicht übergeben.
+     */
+    @Override
+    public boolean keyPressed(GuiManager gui, int key) {
+        if (super.keyPressed(gui, key)) return true;   // fokussiertes Widget + Default-ESC zuerst
+        if (key != GameSettings.get().key(KeyBindings.DROP)) return false;
+
+        boolean fullStack = SkyEngine.get().getInput().isCtrlDown();
+        if (!this.carried.isEmpty()) {
+            this.throwFromCarried(fullStack ? this.carried.getCount() : 1);
+            return true;
+        }
+        Slot slot = this.slotAt(gui.mouseX(), gui.mouseY());
+        if (slot != null && !slot.get().isEmpty()) {
+            throwOut(slot.storage.extract(slot.index, fullStack ? slot.get().getCount() : 1));
+        }
         return true;
+    }
+
+    /** Wirft {@code amount} vom getragenen Stapel aus. */
+    private void throwFromCarried(int amount) {
+        throwOut(this.carried.split(amount));
+        if (this.carried.isEmpty()) this.carried = ItemStack.EMPTY;
+    }
+
+    /** Wirft einen Stapel in die Welt (ohne Welt — Hauptmenü — passiert nichts). */
+    private static void throwOut(ItemStack stack) {
+        if (!stack.isEmpty()) SkyEngine.get().getGame().dropFromGui(stack);
     }
 
     /**
@@ -138,11 +192,18 @@ public abstract class GuiContainer extends GuiScreen {
     @Override
     public void onClose() {
         if (this.carried.isEmpty()) return;
-        ItemStack rest = this.carried;
-        for (ItemStorage storage : this.returnCarriedTo) {
-            rest = storage.insert(rest);
-            if (rest.isEmpty()) break;
+        GameContainer game = SkyEngine.get().getGame();
+        if (game.getWorld() != null) {
+            game.dropFromGui(this.carried);  // wie in MC: der getragene Stapel fliegt raus
+        } else {
+            /* Ohne Welt gibt es kein Wurfziel (Screen-Wechsel Richtung Hauptmenü) — dann
+               zurücklegen, notfalls verworfen (alle Ziele voll). */
+            ItemStack rest = this.carried;
+            for (ItemStorage storage : this.returnCarriedTo) {
+                rest = storage.insert(rest);
+                if (rest.isEmpty()) break;
+            }
         }
-        this.carried = ItemStack.EMPTY; // notfalls verworfen (alle Ziele voll)
+        this.carried = ItemStack.EMPTY;
     }
 }

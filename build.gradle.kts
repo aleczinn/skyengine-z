@@ -20,6 +20,15 @@ application {
     )
 }
 
+/* Messstand-Durchreichung: `./gradlew run -Dskyengine.cullbench=<Weltordner>` lädt die Welt
+   automatisch, friert das Chunk-Loading ein und schaltet CPU-/GPU-Cull im festen Takt um
+   (s. graphics/world/CullBench). Ohne die Property unverändertes Startverhalten. */
+tasks.named<JavaExec>("run") {
+    for (schluessel in listOf("skyengine.cullbench", "skyengine.window")) {
+        System.getProperty(schluessel)?.let { systemProperty(schluessel, it) }
+    }
+}
+
 /* Minecraft-Importer liegt im Haupt-SourceSet (de.skyengine.mcimport), damit die Weltauswahl
    ihn aufrufen kann (GuiImportWorld). Die CLI-Tasks unten bleiben als Kommandozeilen-Weg. */
 tasks.register<JavaExec>("mcAnalyze") {
@@ -57,6 +66,13 @@ tasks.register<JavaExec>("lightTest") {
     description = "Prüft die Himmelslicht-Ausbreitung an künstlichen Chunks (Heightmap, Säule, Tunnel, Wasser, Chunk-Naht)"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass = "de.skyengine.game.world.light.debug.LightProbe"
+}
+
+tasks.register<JavaExec>("meshTest") {
+    group = "verification"
+    description = "Deterministischer Mesher-Zensus (3×3 Generator-Chunks, Quad-Zähler + Byte-Hash) — Bit-Identitäts-Beweis bei Mesher-Umbauten"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "de.skyengine.game.world.chunk.debug.MesherCensus"
 }
 
 tasks.register<JavaExec>("mapExport") {

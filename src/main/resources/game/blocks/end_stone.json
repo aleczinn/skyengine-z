@@ -1,0 +1,7 @@
+{
+  "id": "skyengine:end_stone",
+  "parent": "preset/cube",
+  "hardness": 3,
+  "resistance": 9,
+  "tool": "pickaxe"
+}

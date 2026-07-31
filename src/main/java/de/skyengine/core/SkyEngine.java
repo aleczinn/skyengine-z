@@ -96,7 +96,7 @@ public class SkyEngine {
            (Clip-Control, ClearDepth, Primitive-Restart, Blend-Func) wird einmalig in launch()
            gesetzt statt pro Frame. */
         GL11.glEnable(GL11.GL_DEPTH_TEST);
-        GL11.glEnable(GL11.GL_CULL_FACE);
+        de.skyengine.graphics.GlState.forceCullFaceEnabled();
         GL11.glDepthFunc(this.window.getProperties().baseDepthFunc());
 
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
@@ -228,6 +228,7 @@ public class SkyEngine {
                             ? this.game.getWorld().getChunkRenderer().gpuCullStatsLineAndReset() : null;
                     if (gpuCullLine != null) System.out.println(gpuCullLine);
                 }
+                de.skyengine.graphics.world.CullBench.tick(this.game);
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
                     /* Ohne Welt (Hauptmenü) gibt es keine Chunk-/Spieler-Werte für den Titel. */
                     if (this.game.getWorld() != null && this.game.getPlayer() != null) {

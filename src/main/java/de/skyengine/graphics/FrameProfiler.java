@@ -22,7 +22,11 @@ public final class FrameProfiler {
 
     /** Disjunkte GPU-Abschnitte (Reihenfolge = Ausgabe-Reihenfolge). Das LOD-Opaque-Segment
         wird pro LOD-Level einzeln gemessen (Mess-Gate für den Superregionen-Merge) —
-        Level ohne sichtbare Regionen zeigen 0. */
+        Level ohne sichtbare Regionen zeigen 0.
+        Die GPU-Cull-Sektionen (cull1/hiz/cull2 + die Phase-2-Draws) sind EIGENE Enum-Werte
+        und damit eigene Query-Objekte je Slot: die Phase-2-Draws überschreiben so nicht mehr
+        die Phase-1-Messung von solid/cut (der Grund, warum sie früher unvermessen blieben).
+        Ohne sie war die dokumentierte Fixkosten-These des GPU-Pfads nicht nachprüfbar. */
     public enum Gpu {
         SOLID("solid"),
         LOD_O_L1("lodO1"),
@@ -31,6 +35,12 @@ public final class FrameProfiler {
         LOD_O_L4("lodO4"),
         LOD_O_L5("lodO5"),
         CUTOUT("cut"),
+        CULL_P1("cull1"),          // Compute-Dispatches Phase 1
+        HIZ("hiz"),                // Depth-Pyramide (Copy + Reduce)
+        CULL_P2("cull2"),          // Compute-Dispatches Phase 2
+        SOLID_P2("solid2"),        // Nachzügler-Draws OPAQUE
+        LOD_P2("lodO2p"),          // Nachzügler-Draws LOD-Opaque
+        CUTOUT_P2("cut2"),         // Nachzügler-Draws CUTOUT
         TRANSLUCENT("trans"),
         LOD_TRANSLUCENT("lodT"),
         BLIT("blit");

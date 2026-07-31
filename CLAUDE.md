@@ -42,6 +42,7 @@ Zusätzlich:
 
 ./gradlew saveTest      # fensterlos: Block-Registry bootstrappen + Chunk-Round-Trip
 ./gradlew lightTest     # fensterlos: Himmelslicht-Ausbreitung (Heightmap, Flood, Naht, Vertex)
+./gradlew meshTest      # fensterlos: deterministischer Mesher-Zensus (Quad-Zähler + Byte-Hash)
 ./gradlew mapExport     # fensterlos: Weltgen-Karten nach debug-maps/
 ```
 
@@ -61,7 +62,7 @@ bzw. `Variante ... fehlt` müssen **null** Treffer haben.
 20-TPS-Tick UND Rendering, `GameContainer` → `World`) und den **Main/Window-Thread** (nur
 GLFW-Events + `mainThreadTasks`). Chunks (32×512×32, 16 Sections à 32³, Palette-komprimiert)
 laufen durch die Status-Pipeline NEW→…→READY auf einem **Chunk-Worker-Pool** (Priority-Queue:
-Edit-Remesh > Load > LOD). Worker meshen Sections (Greedy + AO, gepacktes 16-Byte-Vertex-Format)
+Edit-Remesh > Load > LOD). Worker meshen Sections (Greedy + AO, gepacktes 20-Byte-Vertex-Format)
 und legen Batches in Upload-Queues; der `ChunkRenderer` zeichnet alles per **MultiDrawIndirect**
 aus je einer `VertexArena` pro RenderLayer (OPAQUE/CUTOUT/TRANSLUCENT), plus Heightmap-**LOD**-
 Regionen jenseits der Render-Distanz. Blöcke sind **datengetrieben** (JSON + Archetypen +
@@ -71,8 +72,11 @@ Quelle→Mündung-Flussnetz, Feature-Pass im Scheiben-Modell.
 
 ## Paketstruktur (Kurzfassung)
 
-- `core/` — SkyEngine (Threads/Loop), Window, Input, EngineConfig, Files, settings/
+- `core/` — SkyEngine (Threads/Loop), Window, Input, EngineConfig, file/ (Files, GameDirectory),
+  settings/, i18n/
 - `game/world/chunk/` — Chunk, ChunkSection, palette/, ChunkManager, ChunkMesher, FluidGeometry
+- `game/world/light/` — LightEngine, LightStorage (Himmels- + Blocklicht)
+- `game/world/tick/` — ScheduledTickQueue (geplante Ticks, Fluid-Fluss)
 - `game/world/block/` — Block-System: archetype/, behavior/, state/, model/, json/, entity/
   (BlockEntities + Capabilities), connection/, shape/, registry/, multiblock/, network/
 - `game/world/generator/` — WorldGenerator, generators/ (V2 + RiverNetwork), climate/, biome/,
@@ -82,9 +86,11 @@ Quelle→Mündung-Flussnetz, Feature-Pass im Scheiben-Modell.
   ChunkSerializer, DataTagIO, PlayerIO (`player.dat`)
 - `game/world/item/` (+ `json/` = ItemLoader/ItemDefinition), `game/entity/`, `game/physics/`,
   `game/GameContainer` (Verdrahtung, Interaktion, Mining, Inventar)
-- `graphics/` — world/ (ChunkRenderer, VertexArena, SectionMesh, LodMesh, MappedRing,
-  SelectionBox-/CrackRenderer), blockentity/, entity/, gui/, shader/, texture/ (TextureArray,
-  SpriteAnimations), camera/, framebuffer/
+- `graphics/` — world/ (ChunkRenderer, VertexArena, SectionMesh, LodMesh, MappedRing, GpuCull,
+  SelectionBox-/CrackRenderer), blockentity/, entity/, player/, gui/ (+font/, text/), shader/,
+  texture/ (TextureArray, SpriteAnimations), camera/, framebuffer/, post/ (PostProcessor,
+  Grading/AA-Pässe), color/
+- `mcimport/` — Minecraft-Welt-Importer (liegt im Haupt-SourceSet, s. Chunk-Persistenz)
 - `utils/` — Logging, FastNoiseLite/FBM, Profiler
 
 **Shader sind Inline-GLSL-Strings** in den Renderer-Klassen, keine .glsl-Dateien.
@@ -131,9 +137,38 @@ ausdrücken).
   am selben Licht. Licht wird nicht persistiert. Prüfstand `gradlew lightTest`
 - Rendering: MDI + VertexArena + Frame-Fences, TextureArray mit animierten Sprites,
   Translucent-Sortierung, BlockEntity-Renderer (Chest, EnchantingTable), Reversed-Z,
-  Distanz-Fog (auch über LOD) + MSAA-Offscreen-Framebuffer (beides GameSettings)
-- Block-System (Architektur gilt als **reif — kein Rewrite**): ~176 JSON-Blöcke, Archetypen,
+  Distanz-Fog (auch über LOD); Szene rendert in ein HDR-Offscreen-Target (RGBA16F)
+- Post-Processing (`graphics/post/`): `PostProcessor`-Kette Color-Grading (Exposure/Tonemap/
+  Lift/Gain, eigenes JSON `PostProcessingSettings`) → Anti-Aliasing mit Modi
+  NONE/FXAA/TAA/TAA_FXAA/MSAA (MSAA = Multisample-Framebuffer wie früher, alle anderen Modi
+  ohne MSAA mit sample-barer Depth-Textur), dazu MenuBlurPass; läuft in `SkyEngine.onRender`
+  zwischen `resolve()` und GUI
+- Grafik-/Spiel-Settings (GameSettings): renderDistance, simulationDistance,
+  vegetationDistance, `LeavesQuality` (LOW/MID/HIGH inkl. Laub-an-Laub-Culling im Mesher),
+  GraphicsMode, anisotropicFiltering, msaaSamples, fog, Helligkeit, GuiScale,
+  sneakToggle/sprintToggle, `soundVolumes`-Mischpult + audioDevice
+- Block-System (Architektur gilt als **reif — kein Rewrite**): ~186 JSON-Blöcke, Archetypen,
   Behaviors, Verbindungen (Zaun/Pane/Cable), Türen, BlockEntities + Capabilities (Item/Energie)
+- Block-Materialwerte in der JSON, alle vanilla-getreu: `hardness` (Abbau, negativ = unzerstörbar),
+  `tool`/`harvest_tier` (Drop-Regel), **`resistance`** (Explosions-Widerstand; fehlt das Feld,
+  gilt `hardness` — es steht deshalb nur bei den ~80 Blöcken, wo MC beide Werte auseinanderzieht:
+  Stein 1.5/6, Obsidian 50/1200, End-Stone 3/9) sowie die Bewegungs-Faktoren **`friction`**
+  (Default 0.6, Eis 0.98, Blaueis 0.989), **`speed_factor`** (Seelensand/Honig 0.4) und
+  **`jump_factor`** (Honig 0.5), ausgewertet in `EntityPlayer.travelWalking` nach der
+  MC-Formel (Beschleunigung skaliert mit `0.6³/friction³`, sonst wäre Eis schnell statt glatt).
+  Dazu die Landungs-Werte **`bounciness`** (Slime 1.0) und **`fall_damage_factor`** (Slime 0,
+  Honig 0.2): der Abpraller sitzt in `Entity.move` an genau der Stelle, an der sonst `motionY`
+  genullt würde — MCs `Block.updateEntityAfterFallOn` — und gilt damit auch für Drops und
+  gezündetes TNT (gedämpft mit 0.8, `Entity.bounceDamping`; der Spieler federt voll). Sneaken
+  unterdrückt nur den Abpraller, nicht die Schadens-Immunität. Der Fallschaden-Faktor greift in
+  `EntityPlayer.updateFallDamage` NACH der 3-Block-Schwelle (wie MCs `calculateFallDamage`).
+  Dazu die zehn Blöcke, die diese Werte erst sichtbar machen: ice, packed_ice, blue_ice,
+  soul_sand, soul_soil, slime_block, honey_block, end_stone, netherrack, magma_block
+  (Texturen via `scripts/extract-mc-blocks.ps1`); Slime/Honig haben das Vanilla-Innenwürfel-Modell
+  (`models/block/cube_inner_all`/`_bottom_top`, Innenwürfel **zuerst** — der Translucent-Pass
+  schreibt Tiefe und die Sortierung ist gedrosselt) und eigene Sound-Gruppen SLIME/HONEY.
+  Kollisionshöhen vanilla-getreu (Honig 15/16 + 1 px eingerückt, Seelensand 14/16) bei vollem
+  Modell. **Kein** Netz-Bremsen und **kein** Honig-Wandrutschen
 - Doppeltruhen mit den MC-Platzierungsregeln: Property `type` (single/left/right) + `ChestBehavior`
   (Verschmelzen beim Platzieren, Sneaken verhindert es, sneakender Seitenklick verbindet trotzdem;
   Auftrennen per Nachbar-Update),
@@ -168,23 +203,43 @@ ausdrücken).
   Pop-ins), Skirts, Epoche/Hysterese, eigene Vertex-Arenen, AO, transluzentes LOD-Wasser,
   getönte Gras-Overlay-Wände
 - Vegetations-Tint biome-abhängig (Eck-Grids + bilinear), koplanare Grasblock-Overlays
-- GPU-driven Culling (GpuCull, Default AN, Hotkey K = A/B): Frustum + Sicht-Gate + LOD per
-  Compute, Two-Phase-Hi-Z-Occlusion (Pow2-Viertel-Pyramide); kostet heute ~0,2 ms/Frame,
-  zahlt sich ab Licht/Schatten aus — Details/Fallen im Skill `mdi-rendering`
+- GPU-driven Culling (GpuCull, Default **AUS**, Umschalten im GuiDebugScreen): Frustum +
+  Sicht-Gate + LOD per Compute, Two-Phase-Hi-Z-Occlusion (Pow2-Viertel-Pyramide).
+  **Gemessen 2026-07-30:** das Compute-Frustum kostet nur +35 µs/Frame gegenüber dem CPU-Cull,
+  die Hi-Z-Occlusion obendrauf +134 µs — und spart nichts: die Rasterarbeit (`solid`+`cut`)
+  bleibt in allen Konfigurationen bei 156 µs, weil Early-Z verdeckte Fragmente ohnehin
+  verwirft. 156 µs sind zugleich die Obergrenze des möglichen Nutzens, Hi-Z kostet 85 µs.
+  Deshalb `FRUSTUM_ONLY` Default AN (Hi-Z aus), beides getrennt schaltbar; Hi-Z wieder an,
+  sobald Fragmente teuer werden (Licht/Schatten heben die Decke). Messstand: `./gradlew run
+  -Dskyengine.cullbench=<Weltordner> [-Dskyengine.window=BxH]` (`CullBench`, feste Pose +
+  eingefrorenes Laden, sonst sind Läufe nicht vergleichbar). Details/Fallen im Skill
+  `mdi-rendering`
 - Mining: MC-Harvest-Regel, 28 Tools (7 Tiers × 4 Typen), Durability, Crack-Overlay,
   Bedrock unzerstörbar; Gamemodes Survival/Creative/Spectator; Item-Entities + Aufsammeln
-- TNT/Explosion: raybasierte Explosion (`Explosion`, MC-ServerExplosion-Modell, hardness als
-  Widerstands-Proxy), `ExplosionBehavior` + `PrimedTntEntity` (Rechtsklick-Zündung, Fuse, Ketten-
-  Zündung), weißer Blink-Shader; JSON-Felder `explosion_power`/`fuse` (`blocks/tnt.json`)
+- TNT/Explosion: raybasierte Explosion (`Explosion`, MC-ServerExplosion-Modell), Widerstand aus
+  dem Block-Feld `resistance` (s.u.), `ExplosionBehavior` + `PrimedTntEntity` (Rechtsklick-Zündung,
+  Fuse, Ketten-Zündung), weißer Blink-Shader; JSON-Felder `explosion_power`/`explosion_fuse`
+  (`blocks/tnt.json`, power **4** wie MC-TNT). Die Zerstörung läuft als Batch:
+  `World.breakBlocksBatch` (ein Lock/Dirty/Licht-Update je Chunk,
+  `LightEngine.onBlocksChanged` = EINE Flutung, Äquivalenz-Beweis im `lightTest`),
+  Raycast mit Chunk-Memo, Priority-Uploads gedeckelt. Danach EIN Nachbar-Update-Pass über die
+  Krater-**Schale** (`World.updateBlastShell`) — erst dadurch fallen hängende Blöcke (Fackel,
+  hohe Pflanze, Türhälfte), rieselt Sand nach und fließt Wasser in den Krater
+  (`FluidBehavior.onNeighborUpdate` ist der einzige Weg zu einem Fluid-Tick). Drops wie in MC
+  mit Chance **1/power**, ohne Werkzeug-Regel (Vanilla-Explosionsloot kennt kein Tool);
+  gezündetes Ketten-TNT droppt nicht. Nur BlockEntity-Blöcke laufen durch `onBreak` (Truheninhalt)
 - Chunk-Persistenz (`game/world/save/`): Region-Format `region/r.<rx>.<rz>.srg` (16×16 Chunks,
   CRC), Single-Writer-IO-Thread, `player.dat`; **vollständiger** Autosave (Chunks + level.json +
   player.dat) alle 1200 Ticks, zusätzlich beim Öffnen des Pausenmenüs (ESC) und beim Unload/Exit.
   Quittung „Spiel gespeichert" unten rechts (`graphics/gui/SaveToast`), ausgelöst erst, wenn
   `World.hasPendingSaves()` abgeräumt ist — beim Autosave nur, wenn Chunks dabei waren;
-  optionaler Minecraft-Welt-Import über das eigene Source-Set `src/mcimport/` (`McWorldImporter`,
-  `mapping/BlockMapper`, `block_map.json`, NBT/MCA-Leser) — Nebentool
+  optionaler Minecraft-Welt-Import über das Paket `de.skyengine.mcimport` im Haupt-SourceSet
+  (`McWorldImporter` als API + `GuiImportWorld`, `mapping/BlockMapper`, `block_map.json`,
+  NBT/MCA-Leser; Gradle-Tasks `mcAnalyze`/`mcMapReport`/`mcImport`) — Nebentool
 - Sound (OpenAL): blockabhängige Schritte/Hit/Break/Place (Sound-Gruppen aus JSON/Tool/
-  Archetyp), Musik-Streaming mit Loop, Master-/Musik-Volume (GameSettings); Assets =
+  Archetyp), Musik-Streaming mit Loop; Lautstärke als **Mischpult** je `SoundCategory`
+  (MUSIC/BLOCKS/PLAYER/… — `GameSettings.soundVolumes`-Map statt eines einzelnen
+  musicVolume) + Master-Volume + Audiogeräte-Auswahl (`audioDevice`); Assets =
   MC-Platzhalter via `scripts/extract-mc-sounds.ps1` — Details im Skill `sound-system`
 - GUI-System komplett (graphics/gui): Widget-Basis (`GuiComponent` + Button/Slider/CycleButton/
   KeybindButton/Label/TextField, 9-Slice), Stack-Layout (VStack/HStack/Anchor), Screen-Basis mit
@@ -193,12 +248,16 @@ ausdrücken).
   (Rebinding+Reset, Capture schluckt alle Tasten), Weltauswahl/Erstellen/Löschen, Welt-Ladebalken
   (`isInitialLoadComplete`), Boot-Ladebildschirm (gestaffelte Init, Fenster früh), Inventar (E) +
   Truhe auf gemeinsamer `GuiContainer`-Basis, Todesscreen, Sprachauswahl (i18n,
-  Live-Wechsel), Sound-Optionen; GuiScale = Prozent (30–170, 100 % ≈ 3,5×), garantierte virtuelle
-  Mindestfläche 340×240 (deckt das höchste Fenster ab — die Doppeltruhe mit 222 px)
+  Live-Wechsel), Sound-Optionen, Grafik-Optionen (`GuiVideoSettings`), MC-Welt-Import
+  (`GuiImportWorld`), Bestätigungsdialog (`GuiConfirm`), Ressourcenpakete-Platzhalter
+  (`GuiResourcePacks`) und der **GuiDebugScreen** (Optionsmenü) mit allen Debug-Schaltern
+  (Wireframe, GpuCull + Tint, LOD-Overlay, Loading einfrieren, Chunks neu laden u.a. — die
+  früheren F-Hotkeys dafür sind weg); GuiScale = Prozent (30–170, 100 % ≈ 3,5×), garantierte
+  virtuelle Mindestfläche 340×240 (deckt das höchste Fenster ab — die Doppeltruhe mit 222 px)
 - Spieler-Rendering (graphics/player): Humanoid-Modell mit Classic-Skin 64×64 (skin.png im
   Spielordner überschreibt Steve), Inventar-Vorschau (folgt Maus), F5-Perspektiven
   (Ego/hinten/vorne mit Kamera-Kollisions-Raycast; Interaktion zielt IMMER vom Auge;
-  LOD-Seiten-Debug jetzt F12), prozedurale Animationen (Limb-Swing/Sneak/Arm-Schwung,
+  LOD-Gras-Overlay-Debug liegt im GuiDebugScreen), prozedurale Animationen (Limb-Swing/Sneak/Arm-Schwung,
   `PlayerAnimationState`), First-Person-Hand mit extrudierten Item-Sprites +
   Vanilla-Display-Transforms (bei Block-Items aus der `display`-Sektion des Modells, bei flachen
   Items weiterhin hartkodiert; der Iso-Würfel im `ItemIconRenderer` bleibt bewusst außen vor —
@@ -224,8 +283,8 @@ ausdrücken).
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
   (Andockpunkt: `GuiContainer.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
-- TEMP-Testblöcke in `GameContainer.fillStartInventory` (als solche markiert, inkl. Test-Truhe
-  und Fackel) — ohne Crafting/Creative-Menü der einzige Weg, sie in die Hand zu bekommen; greift
+- Testblöcke in `game/StartInventory` (u.a. Truhe, Fackel, Eimer, iron_bars, Eis/Soul-Sand/Honig) —
+  ohne Crafting/Creative-Menü der einzige Weg, sie in die Hand zu bekommen; greift
   nur bei einer **frisch erstellten** Welt. Die **15 Material-Items liegen dort nicht** (beim
   Zusammenkürzen der Methode entfallen) und sind damit aktuell unerreichbar
 - Bett/Reaktor: die Mechanik steht (`parts`, s.o.), es fehlen nur noch die Blöcke selbst —

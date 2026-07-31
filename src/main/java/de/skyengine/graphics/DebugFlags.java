@@ -17,5 +17,14 @@ public final class DebugFlags {
     /** Chunk-Grenzen (per F3+G): 0 = aus, 1 = ganzer Chunk, 2 = Chunk + nicht-leere Sections. */
     public static volatile int chunkBorders = 0;
 
+    /**
+     * LOD-Opaque im CPU-Pfad pro Level in eigene Sub-Draws aufteilen (Mess-Gate für die
+     * per-Level-GPU-Queries lodO1..lodO5). Hing früher direkt an {@code FrameProfiler
+     * .isEnabled()} — dadurch zeichnete der CPU-Pfad unter DebugMode.FULL bis zu 5 Sub-Draws,
+     * der GPU-Pfad (gemergtes LOD-Segment) nur einen: jeder CPU-vs-GPU-Vergleich war
+     * dadurch verzerrt. Jetzt eigener Schalter, Default AUS.
+     */
+    public static volatile boolean lodLevelSplit = false;
+
     private DebugFlags() {}
 }

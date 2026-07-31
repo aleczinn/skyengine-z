@@ -20,7 +20,14 @@ description: Wie man Änderungen an dieser Engine ehrlich verifiziert — was oh
    Block-Definitionen/Modelle/„aus Block-Definitionen erzeugt"/Blockstates/Items, und die
    Warnungen „Modell fehlt"/„Variante ... fehlt"/„Modell-Datei ueberdeckt"/„Unaufgeloeste
    Platzhalter" müssen **null** Treffer haben.
-4. **`./gradlew run`** — alles Sichtbare (Meshing, Rendering, Fluids, LOD, GUI, Tints) ist NUR so
+4. **`./gradlew lightTest`** (`LightProbe`, ohne GL): Himmels- UND Blocklicht fensterlos —
+   Heightmap, Flood, Chunk-Naht, Emitter setzen/abbauen, bis in den gepackten Licht-Int des
+   Vertex-Puffers. Der richtige Prüfstand für alles im Skill `licht-system`.
+5. **`./gradlew meshTest`** (`MesherCensus`, ohne GL): deterministischer Mesher-Zensus —
+   3×3 Generator-Chunks (Seed 123), Quad-Zähler je Layer + FNV-Hash über alle Vertex-Daten.
+   Identische `MESH <hash>`-Zeile vor/nach einer Mesher-Änderung = bit-identische Geometrie;
+   explodierende Quad-Zähler = stiller Greedy-Regress (Merge bricht weg).
+6. **`./gradlew run`** — alles Sichtbare (Meshing, Rendering, Fluids, LOD, GUI, Tints) ist NUR so
    prüfbar. Konsole zeigt FPS/TPS jede Sekunde; der Fenstertitel (im Debug-Modus) Sections
    sichtbar/total, Chunk-Zahl, Spielerposition.
 
@@ -34,26 +41,33 @@ Preset-Migration zwei stille Regressionen gefunden, die alle Zähler passiert ha
 neigt dazu, „kompiliert" mit „funktioniert" zu verwechseln; bei Renderern mit Fences,
 Race-Fenstern und GL-State ist das die teuerste Verwechslung im Projekt.
 
-## Debug-Hotkeys (in GameContainer verdrahtet)
+## Hotkeys & Debug-Schalter (Stand 2026-07-29)
+
+Verdrahtete Tasten (KeyBindings bzw. GameContainer):
 
 | Taste | Wirkung |
 |---|---|
-| F2 | Screenshot nach `screenshots/` (nach fertigem Frame gelesen) |
-| F6 / F7 | Wireframe / Chunk-Bounding-Box |
-| F8 | Alle Chunks verwerfen und neu laden (Determinismus-Check!) |
-| P | Chunk-Loading/-Unload einfrieren (Edit-Remeshes laufen weiter; friert auch LOD-Desired ein) |
+| F2 | Screenshot nach `%APPDATA%\.skyengine\screenshots\` (aus dem fertigen Default-Framebuffer inkl. GUI, vor dem Present) |
+| F3 | Debug-Overlay; **F3+H** Hitboxen, **F3+G** Chunk-Grenzen |
+| F5 | Perspektive (Ego/hinten/vorne) |
 | G | Gamemode durchschalten (Survival/Creative/Spectator) |
-| N | Distanz-Fog an/aus |
-| V | NoClip (nur im Flugmodus wirksam); Doppel-Leertaste = Fliegen togglen |
-| − / = | Render-Distanz; [ / ] GUI-Scale; F11 Fullscreen |
-| KeyBindings.AMBIENT_OCCLUSION / .LOD | AO-Toggle (remeshAll) / LOD-Toggle (Epoche) |
+| E / Q | Inventar / Item droppen |
+| F11 | Fullscreen |
+| ESC | Pausenmenü (löst auch einen Save aus) |
 
-Startinventar für Test-Blöcke: `GameContainer.fillStartInventory` (dort neue Blöcke zum
-visuellen Testen eintragen; der TEMP-Block dort ist genau dieses Muster).
+**Alle übrigen Debug-Schalter liegen im `GuiDebugScreen` (Optionsmenü), NICHT auf Tasten:**
+Wireframe, GpuCull an/aus + Occlusion-Debug-Tint, LOD-Gras-Overlay, Chunk-Loading einfrieren
+(Edit-Remeshes laufen weiter), alle Chunks neu laden (Determinismus-Check; LOD-Neuaufbau geht
+über den LOD-Toggle in den Grafik-Optionen). AO/LOD/Render-Distanz/Fog/AA schalten die
+Grafik-Optionen (`GuiVideoSettings`, Live-Apply). Die früheren Hotkeys F6/F7/F8/P/N/V/−/=/[/]
+existieren nicht mehr.
+
+Startinventar für Test-Blöcke: `game/StartInventory` (dort neue Blöcke zum
+visuellen Testen eintragen; greift nur bei frisch erstellten Welten).
 
 ## Automatisiertes Prüfen mit laufendem Fenster
 
-Screenshots lassen sich per F2 auslösen und aus `screenshots/` lesen; Fenster-Screenshots/
+Screenshots lassen sich per F2 auslösen und aus `%APPDATA%\.skyengine\screenshots\` lesen; Fenster-Screenshots/
 Input-Injection von außen (PowerShell) müssen das Fenster **case-sensitiv** über den Titel
 `SkyEngine v*` matchen — ein laxer Match trifft sonst das IntelliJ-Fenster mit dem Projektnamen.
 Wichtig: Der User übernimmt das Engine-Fenster manchmal selbst, auch mitten in einem
@@ -71,4 +85,4 @@ Durchlauf sofort abbrechen statt weiterzusteuern.
   Block-Definition (Warnung im Log) oder ein Preset-Feld wird vom Kind überschrieben.
 - Falsche Textur auf anderem Block → `layerOf` nach TextureArray-Bau aufgerufen.
 - Schlitze am LOD/L0-Übergang → fehlende Skirts an Masken-Kanten (lod-system).
-- Naht in der Welt nach F8 → Generator-Purity verletzt (weltgen-v2).
+- Naht in der Welt nach „Chunks neu laden" → Generator-Purity verletzt (weltgen-v2).

@@ -95,6 +95,13 @@ public class World implements IInitializable, IDisposable {
     /** Wiederverwendeter Snapshot-Puffer fürs BlockEntity-Ticking (keine Allokation pro Chunk/Tick). */
     private final List<BlockEntity> tickScratch = new ArrayList<>();
 
+    /* Nachhol-Protokoll für Nachbar-State-Updates an nicht-READY Chunks (F1): updateStateAt
+       parkt die Position hier, processDeferredStateUpdates zieht sie bei READY nach.
+       LinkedHashSet = Dedup + älteste-zuerst fürs Notventil; nur Tick-/Render-Thread. */
+    private static final int MAX_DEFERRED_STATE_UPDATES = 4096;
+    private final LinkedHashSet<Long> deferredStateUpdates = new LinkedHashSet<>();
+    private long[] deferredScratch = new long[0];
+
     /** Der Spieler dieses Ticks (für BlockEntities, die ihn brauchen, z.B. das Zaubertisch-Buch). */
     private EntityPlayer player;
 
@@ -109,8 +116,14 @@ public class World implements IInitializable, IDisposable {
     private final LightEngine lightEngine = new LightEngine();
     private final Chunk[] lightDiagonals = new Chunk[4];
 
-    /** Zufalls-Ticks pro nicht-leerer Section pro Tick (Wachstum, Verfall). 0 = aus. */
-    private static final int RANDOM_TICK_SPEED = 3;
+    /** Zufalls-Ticks pro nicht-leerer Section pro Tick (Wachstum, Verfall). 0 = aus.
+     *  24 = MC-Parität: Vanilla zieht 3 je 16³-Subchunk, unsere Sections sind 32³
+     *  (= 8 Subchunks) — der alte Wert 3 ließ Pflanzen ~8x langsamer wachsen. */
+    private static final int RANDOM_TICK_SPEED = 24;
+
+    /* Eigener Generator für die Zufalls-Ticks: ~75k Ziehungen/s — java.util.Random wäre
+       ein CAS-Loop pro nextInt. this.random bleibt für die seltenen Nutzer (Drops/Spawns). */
+    private final java.util.SplittableRandom randomTick = new java.util.SplittableRandom();
 
     /** Verzögerung, mit der geplante Ticks außerhalb der Simulations-Distanz erneut vorgemerkt werden. */
     private static final int OUT_OF_SIM_RESCHEDULE = 20;
@@ -200,6 +213,7 @@ public class World implements IInitializable, IDisposable {
         this.chunkManager.update(player);
         this.lodManager.update(player);
         this.restorePendingScheduledTicks();
+        this.processDeferredStateUpdates();
         this.tickScheduled();
         this.tickRandomBlocks();
         this.tickBlockEntities();
@@ -210,15 +224,24 @@ public class World implements IInitializable, IDisposable {
      * Plant die beim Chunk-Load übergebenen Scheduled-Ticks ein (sonst stünde z.B. frisch
      * geladenes Wasser für immer). Erst ab READY — vorher würde der Tick feuern, bevor
      * {@code setBlockRaw} schreiben kann (nur READY-Chunks sind editierbar), und die
-     * Ausbreitung verpuffte still. Tick-Thread (ScheduledTickQueue ist nicht threadsicher);
-     * das volatile status ist der Publikationspunkt und wird VOR dem Feld gelesen.
+     * Ausbreitung verpuffte still. Arbeitet die Announce-Queue des Managers ab (der
+     * Load-Worker meldet Chunks mit mitgebrachten Ticks an) — der frühere Voll-Walk
+     * scannte jeden Tick ALLE Chunks für im Steady-State null Treffer.
      */
     private void restorePendingScheduledTicks() {
-        for (Chunk chunk : this.chunkManager.loadedChunks()) {
-            if (chunk.status != ChunkStatus.READY) continue;
-            List<SavedTick> pending = chunk.pendingScheduledTicks;
-            if (pending == null) continue;
-            for (SavedTick tick : pending) {
+        int pending = this.chunkManager.tickRestorePending();
+        for (int i = 0; i < pending; i++) {
+            Chunk chunk = this.chunkManager.pollTickRestore();
+            if (chunk == null) break;
+            /* Entladene/ersetzte Chunks austragen. */
+            if (this.chunkManager.getChunk(chunk.chunkX, chunk.chunkZ) != chunk) continue;
+            if (chunk.status != ChunkStatus.READY) {
+                this.chunkManager.requeueTickRestore(chunk); // noch nicht dran — später erneut
+                continue;
+            }
+            List<SavedTick> ticks = chunk.pendingScheduledTicks;
+            if (ticks == null) continue;
+            for (SavedTick tick : ticks) {
                 /* Unbekannte Typen filtert schon der Serializer — defensiver Zweitcheck. */
                 ScheduledTickTypes.ScheduledTickRestorer restorer = ScheduledTickTypes.get(tick.type());
                 if (restorer != null) restorer.restore(this, tick.x(), tick.y(), tick.z(), tick.remainingTicks());
@@ -227,21 +250,35 @@ public class World implements IInitializable, IDisposable {
         }
     }
 
+    /* Ein-Tick-Index für die Save-Snapshots: EIN forEachPending-Durchlauf je Tick gruppiert
+       alle anstehenden Ticks nach Chunk-Key. Vorher scannte JEDER enqueueSave die ganze
+       Queue — beim Autosave O(zu speichernde Chunks × offene Ticks) in einem einzigen
+       Tick-Slot (der gemessene Kandidat für den Save-Ruckler). */
+    private long tickSnapshotIndexTime = -1;
+    private final de.skyengine.utils.collect.LongObjMap<List<SavedTick>> tickSnapshotIndex =
+            new de.skyengine.utils.collect.LongObjMap<>(64);
+
     /**
      * Sammelt die anstehenden Scheduled-Ticks des Chunks für die Persistenz (Typ "block" —
      * alles in der Queue dispatcht über Block.scheduledTick). Künftige Systeme mit eigenen
      * Datenstrukturen hängen sich hier als weitere Quellen an. Nur Tick-Thread; einziger
      * Aufrufer ist {@code WorldStorage.enqueueSave}. null, wenn nichts ansteht.
-     * Optimierung später (nur Notiz): die ScheduledTickQueue kann optional nach Chunk-Key
-     * gruppieren, statt pro Save die ganze Map zu scannen.
      */
     public List<SavedTick> snapshotScheduledTicks(Chunk chunk) {
-        List<SavedTick> ticks = new ArrayList<>();
-        this.scheduledTicks.forEachPending(this.gameTime, (x, y, z, remaining) -> {
-            if ((x >> ChunkSection.SHIFT) != chunk.chunkX || (z >> ChunkSection.SHIFT) != chunk.chunkZ) return;
-            ticks.add(new SavedTick(ScheduledTickTypes.BLOCK, x, y, z, remaining));
-        });
-        return ticks.isEmpty() ? null : ticks;
+        if (this.tickSnapshotIndexTime != this.gameTime) {
+            this.tickSnapshotIndexTime = this.gameTime;
+            this.tickSnapshotIndex.clear();
+            this.scheduledTicks.forEachPending(this.gameTime, (x, y, z, remaining) -> {
+                long key = Chunk.key(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+                List<SavedTick> list = this.tickSnapshotIndex.get(key);
+                if (list == null) {
+                    list = new ArrayList<>();
+                    this.tickSnapshotIndex.put(key, list);
+                }
+                list.add(new SavedTick(ScheduledTickTypes.BLOCK, x, y, z, remaining));
+            });
+        }
+        return this.tickSnapshotIndex.get(Chunk.key(chunk.chunkX, chunk.chunkZ));
     }
 
     /**
@@ -300,7 +337,11 @@ public class World implements IInitializable, IDisposable {
             this.pendingEntities.clear();
         }
 
-        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+        /* Nur Chunks mit Entities — dieselbe Menge, die auch der Renderer nutzt; der frühere
+           Voll-Walk über alle geladenen Chunks fand pro Tick fast nur Leere. Spawns landen in
+           pendingEntities (oben geflusht), Chunk-Wechsel hängt erst reconcileEntityChunks um —
+           die Menge ändert sich während der Iteration also nicht. */
+        for (Chunk chunk : this.chunksWithEntities) {
             if (chunk.status != ChunkStatus.READY) continue;
             if (!this.isSimulated(chunk.chunkX, chunk.chunkZ)) continue;
             List<Entity> list = chunk.entities();
@@ -369,6 +410,10 @@ public class World implements IInitializable, IDisposable {
     }
 
     /** Spawnt gezündetes TNT als Entity (Fuse-Countdown + weißer Blink) mit MC-typischem Hüpfer. */
+    /* Fuse-Sound-Deckel: eine TNT-Kette spawnt hunderte Entities im selben Tick — ein
+       Zisch pro Tick reicht, sonst gibt es einen OpenAL-Play-Sturm. */
+    private long lastFuseSoundTick = Long.MIN_VALUE;
+
     public void spawnPrimedTnt(double x, double y, double z, float power, int fuse) {
         PrimedTntEntity entity = new PrimedTntEntity(power, fuse);
         entity.setPosition(x, y, z);
@@ -376,7 +421,10 @@ public class World implements IInitializable, IDisposable {
         entity.motionX = (this.random.nextDouble() - 0.5) * 0.02;
         entity.motionZ = (this.random.nextDouble() - 0.5) * 0.02;
         this.spawnEntity(entity);
-        if (this.soundManager != null) this.soundManager.playFuse(x, y, z); // Zisch beim Zünden
+        if (this.soundManager != null && this.gameTime != this.lastFuseSoundTick) {
+            this.lastFuseSoundTick = this.gameTime;
+            this.soundManager.playFuse(x, y, z); // Zisch beim Zünden
+        }
     }
 
     /** Spawnt ein gedropptes Item mit leichtem Anfangsimpuls (kleiner „Pop"). */
@@ -387,6 +435,40 @@ public class World implements IInitializable, IDisposable {
         entity.motionX = (this.random.nextDouble() - 0.5) * 0.1;
         entity.motionY = 0.2;
         entity.motionZ = (this.random.nextDouble() - 0.5) * 0.1;
+        this.spawnEntity(entity);
+    }
+
+    /** Wurfstärke und Aufsammel-Sperre eines Spieler-Drops (MC {@code Player.drop}). */
+    private static final double THROW_SPEED = 0.3;
+    private static final int THROW_PICKUP_DELAY = 40;
+
+    /**
+     * Wirft ein Item vom Spieler weg (Vorbild MC {@code Player.drop}): aus Augenhöhe in
+     * Blickrichtung, mit leichter Streuung, danach {@value #THROW_PICKUP_DELAY} Ticks lang nicht
+     * aufsammelbar — sonst hätte man es sofort wieder in der Hand.
+     */
+    public void throwItem(EntityPlayer player, ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return;
+        ItemEntity entity = new ItemEntity(stack);
+        entity.setPosition(player.x, player.y + player.getEyeHeight(1F) - 0.3, player.z);
+        entity.setPickupDelay(THROW_PICKUP_DELAY);
+
+        /* Blickrichtung in DIESER Engine-Konvention (siehe Camera.getDirection): x = +sin(yaw),
+           z = -cos(yaw) — MCs Formel hat dort die umgekehrten Vorzeichen. */
+        double yaw = Math.toRadians(player.yaw);
+        double pitch = Math.toRadians(player.pitch);
+        double cosPitch = Math.cos(pitch);
+        entity.motionX = cosPitch * Math.sin(yaw) * THROW_SPEED;
+        entity.motionY = -Math.sin(pitch) * THROW_SPEED + 0.1;
+        entity.motionZ = -cosPitch * Math.cos(yaw) * THROW_SPEED;
+
+        /* Streuung wie in MC, damit ein ganzer Stapel nicht als Strich fliegt. */
+        double angle = this.random.nextDouble() * Math.PI * 2.0;
+        double radius = this.random.nextDouble() * 0.02;
+        entity.motionX += Math.cos(angle) * radius;
+        entity.motionY += (this.random.nextDouble() - this.random.nextDouble()) * 0.1;
+        entity.motionZ += Math.sin(angle) * radius;
+
         this.spawnEntity(entity);
     }
 
@@ -435,17 +517,20 @@ public class World implements IInitializable, IDisposable {
 
     /** Tickt alle tickenden BlockEntities geladener Chunks (Maschinen, Pipes, ...). */
     private void tickBlockEntities() {
-        for (Chunk chunk : this.chunkManager.loadedChunks()) {
+        /* Nur Chunks mit BlockEntities (Manager-Buchführung) statt Scan über alle Chunks. */
+        for (Chunk chunk : this.chunkManager.chunksWithBlockEntities()) {
             if (chunk.status != ChunkStatus.READY) continue;
             if (!this.isSimulated(chunk.chunkX, chunk.chunkZ)) continue;
             var entities = chunk.blockEntities();
             if (entities.isEmpty()) continue;
-            /* Snapshot in den wiederverwendeten Puffer: ein tick() darf Blöcke setzen / die Map verändern. */
+            /* Snapshot in den wiederverwendeten Puffer: ein tick() darf Blöcke setzen / die Map
+               verändern. Nicht-tickende Typen bleiben gleich draußen. */
             this.tickScratch.clear();
-            this.tickScratch.addAll(entities);
+            for (BlockEntity be : entities) {
+                if (be.getType().isTicking()) this.tickScratch.add(be);
+            }
             for (int i = 0; i < this.tickScratch.size(); i++) {
-                BlockEntity be = this.tickScratch.get(i);
-                if (be.getType().isTicking()) be.tick();
+                this.tickScratch.get(i).tick();
             }
         }
     }
@@ -504,24 +589,33 @@ public class World implements IInitializable, IDisposable {
      */
     private void tickRandomBlocks() {
         if (RANDOM_TICK_SPEED <= 0 || !BlockRegistry.hasRandomTickBlocks()) return;
-        for (Chunk chunk : this.chunkManager.loadedChunks()) {
-            if (chunk.status != ChunkStatus.READY) continue;
-            if (!this.isSimulated(chunk.chunkX, chunk.chunkZ)) continue;
-            int baseX = chunk.chunkX << ChunkSection.SHIFT;
-            int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
-            for (int si = 0; si < Chunk.SECTIONS; si++) {
-                ChunkSection section = chunk.getSection(si);
-                if (section == null || section.isEmpty()) continue;
-                int baseY = si << ChunkSection.SHIFT;
-                for (int n = 0; n < RANDOM_TICK_SPEED; n++) {
-                    int lx = this.random.nextInt(ChunkSection.SIZE);
-                    int ly = this.random.nextInt(ChunkSection.SIZE);
-                    int lz = this.random.nextInt(ChunkSection.SIZE);
-                    int id = section.getBlock(lx, ly, lz);
-                    if (id == Blocks.AIR) continue;
-                    BlockState state = Blocks.getState(id);
-                    if (!state.ticksRandomly()) continue;
-                    state.getBlock().randomTick(this, baseX + lx, baseY + ly, baseZ + lz, state);
+        /* Radius-Loop über die Simulations-Distanz statt Voll-Walk über ALLE geladenen
+           Chunks: der Walk skalierte mit renderDistance, relevant ist nur der Sim-Kreis
+           (Kreis-Kriterium identisch zu isSimulated). */
+        int r = this.simulationDistance;
+        for (int dz = -r; dz <= r; dz++) {
+            for (int dx = -r; dx <= r; dx++) {
+                if (dx * dx + dz * dz > r * r) continue;
+                Chunk chunk = this.chunkManager.getChunk(this.playerChunkX + dx, this.playerChunkZ + dz);
+                if (chunk == null || chunk.status != ChunkStatus.READY) continue;
+                int baseX = chunk.chunkX << ChunkSection.SHIFT;
+                int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
+                for (int si = 0; si < Chunk.SECTIONS; si++) {
+                    ChunkSection section = chunk.getSection(si);
+                    if (section == null || section.isEmpty()) continue;
+                    int baseY = si << ChunkSection.SHIFT;
+                    for (int n = 0; n < RANDOM_TICK_SPEED; n++) {
+                        /* Ein Draw für alle drei Achsen (15 Bit reichen für 3x 5 Bit). */
+                        int bits = this.randomTick.nextInt(1 << 15);
+                        int lx = bits & ChunkSection.MASK;
+                        int ly = (bits >> 5) & ChunkSection.MASK;
+                        int lz = (bits >> 10) & ChunkSection.MASK;
+                        int id = section.getBlock(lx, ly, lz);
+                        if (id == Blocks.AIR) continue;
+                        BlockState state = Blocks.getState(id);
+                        if (!state.ticksRandomly()) continue;
+                        state.getBlock().randomTick(this, baseX + lx, baseY + ly, baseZ + lz, state);
+                    }
                 }
             }
         }
@@ -596,6 +690,30 @@ public class World implements IInitializable, IDisposable {
         return chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
     }
 
+    /** Aufrufer-gehaltener Ein-Eintrag-Chunk-Cache für getBlock-Serien (Explosions-Raycast). */
+    static final class ChunkMemo {
+        private int cx = Integer.MIN_VALUE, cz;
+        private Chunk chunk; // null = fehlt/nicht lesbar (Semantik wie getBlock)
+    }
+
+    /**
+     * Wie {@link #getBlock}, aber mit Last-Chunk-Memo: Explosions-Strahlen laufen räumlich
+     * kohärent — der CHM-Lookup pro Schritt (Millionen pro Explosion) war der teuerste
+     * Einzelposten des Raycasts. Semantik identisch zu getBlock (unter DECORATED = Luft).
+     */
+    int getBlockMemo(int x, int y, int z, ChunkMemo memo) {
+        if (y < 0 || y >= Chunk.HEIGHT) return Blocks.AIR;
+        int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+        if (cx != memo.cx || cz != memo.cz) {
+            memo.cx = cx;
+            memo.cz = cz;
+            Chunk chunk = this.chunkManager.getChunk(cx, cz);
+            memo.chunk = chunk != null && chunk.status.isAtLeast(ChunkStatus.DECORATED) ? chunk : null;
+        }
+        return memo.chunk == null ? Blocks.AIR
+                : memo.chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
+    }
+
     /**
      * Himmelslicht 0..15 an Weltkoordinaten — für Objekte, die kein gebackenes Vertex-Licht
      * haben (Spieler, Item-Drops, Item in der Hand, BlockEntities).
@@ -638,9 +756,15 @@ public class World implements IInitializable, IDisposable {
         return chunk.blockLight.get(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
     }
 
-    /** Setzt einen Block (mit Nachbar-Updates für Verbindungen/Treppen-Ecken). */
-    public void setBlock(int x, int y, int z, int block) {
-        this.setBlock(x, y, z, block, true);
+    /**
+     * Setzt einen Block (mit Nachbar-Updates für Verbindungen/Treppen-Ecken).
+     *
+     * @return true, wenn der Block geschrieben wurde; false, wenn der Zielchunk nicht READY
+     *         ist (Ladefront/Unload) — Aufrufer mit Folgewirkung (placeBlock, Fluids,
+     *         FallingBlock) MÜSSEN das auswerten, sonst gehen Schreibzugriffe still verloren.
+     */
+    public boolean setBlock(int x, int y, int z, int block) {
+        return this.setBlock(x, y, z, block, true);
     }
 
     /**
@@ -648,11 +772,12 @@ public class World implements IInitializable, IDisposable {
      *                        rechnen ihren State neu. false vermeidet Rekursion
      *                        bei den dadurch ausgelösten Folge-Updates.
      */
-    public void setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
+    public boolean setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
         int old = this.getBlock(x, y, z);
-        if (!this.setBlockRaw(x, y, z, block)) return;
+        if (!this.setBlockRaw(x, y, z, block)) return false;
         this.manageBlockEntity(x, y, z, old, block);
         if (updateNeighbors) this.updateNeighbors(x, y, z);
+        return true;
     }
 
     /**
@@ -663,7 +788,10 @@ public class World implements IInitializable, IDisposable {
      * untere Türhälfte selbst, bevor die obere existiert.
      */
     public void placeBlock(int x, int y, int z, BlockState state) {
-        this.setBlock(x, y, z, state.getId(), false);
+        /* Schlägt der Schreibzugriff fehl (Chunk nicht READY), dürfen onPlaced/updateNeighbors
+           NICHT laufen — PartsBehavior setzte sonst Geschwisterteile für einen Ursprung,
+           der nie geschrieben wurde. */
+        if (!this.setBlock(x, y, z, state.getId(), false)) return;
         state.getBlock().onPlaced(this, x, y, z, state);
         this.updateNeighbors(x, y, z);
     }
@@ -774,6 +902,215 @@ public class World implements IInitializable, IDisposable {
                 lx, y, lz, oldBlock, newBlock);
     }
 
+    /* ------------------- Massen-Zerstörung (Explosion) ------------------- */
+
+    /** Zellen eines Chunks im Batch-Pfad (gepackte Lokalpositionen + Alt-IDs + Dirty-Masken). */
+    private static final class BreakBatchGroup {
+        final Chunk chunk; // null = Chunk nicht editierbar (Ladefront) — Zellen verwerfen
+        int[] packedPos = new int[64];
+        int[] oldIds = new int[64];
+        int count;
+        int ownMask;
+        final int[] borderMasks = new int[8]; // N,S,W,E,NW,NE,SW,SE
+
+        BreakBatchGroup(Chunk chunk) {
+            this.chunk = chunk;
+        }
+
+        void add(int packed, int oldId) {
+            if (this.count == this.packedPos.length) {
+                this.packedPos = java.util.Arrays.copyOf(this.packedPos, this.count * 2);
+                this.oldIds = java.util.Arrays.copyOf(this.oldIds, this.count * 2);
+            }
+            this.packedPos[this.count] = packed;
+            this.oldIds[this.count] = oldId;
+            this.count++;
+        }
+    }
+
+    /* Randnachbar-Offsets für borderMasks (Index-Reihenfolge N,S,W,E,NW,NE,SW,SE). */
+    private static final int[] BORDER_DX = {0, 0, -1, 1, -1, 1, -1, 1};
+    private static final int[] BORDER_DZ = {-1, 1, 0, 0, -1, -1, 1, 1};
+
+    /**
+     * Zerstört viele Blöcke als Batch (Explosion): gruppiert nach Chunk, EIN Write-Lock,
+     * EIN Dirty-CAS und EIN Licht-Update ({@link LightEngine#onBlocksChanged}) pro Chunk statt
+     * pro Block. Semantik je Zelle wie {@code setBlock(x, y, z, AIR)} — zusätzlich läuft für
+     * Blöcke mit BlockEntity vorher {@code onBreak} (Truheninhalt fiel bei Explosionen sonst
+     * still weg). Die Nachbar-Updates laufen nicht pro Zelle, sondern zum Schluss EINMAL über die
+     * Krater-Schale ({@link #updateBlastShell}). Zellen in nicht-READY-Chunks werden wie bei
+     * setBlockRaw verworfen. Nur Tick-Thread.
+     *
+     * @param positions Welt-Positionen als {@link BlockPos#asLong}-Keys
+     */
+    public void breakBlocksBatch(long[] positions, int count) {
+        de.skyengine.utils.collect.LongObjMap<BreakBatchGroup> groups =
+                new de.skyengine.utils.collect.LongObjMap<>(64);
+
+        /* Pass 1: gruppieren, Alt-IDs lesen (dieser Thread ist der einzige Block-Schreiber)
+           und onBreak für BlockEntity-Blöcke VOR dem Write laufen lassen (Muster
+           updateStateAt-Selbstentfernung). */
+        for (int i = 0; i < count; i++) {
+            long pos = positions[i];
+            int x = BlockPos.unpackX(pos), y = BlockPos.unpackY(pos), z = BlockPos.unpackZ(pos);
+            if (y < 0 || y >= Chunk.HEIGHT) continue;
+            int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+            long chunkKey = Chunk.key(cx, cz);
+            BreakBatchGroup group = groups.get(chunkKey);
+            if (group == null) {
+                Chunk chunk = this.chunkManager.getChunk(cx, cz);
+                group = new BreakBatchGroup(chunk != null && chunk.status == ChunkStatus.READY ? chunk : null);
+                groups.put(chunkKey, group);
+            }
+            if (group.chunk == null) continue;
+
+            int lx = x & ChunkSection.MASK, lz = z & ChunkSection.MASK;
+            int oldId = group.chunk.getBlock(lx, y, lz);
+            if (oldId == Blocks.AIR) continue;
+            BlockState oldState = Blocks.getState(oldId);
+            if (oldState.getBlock().getBlockEntityType() != null) {
+                oldState.getBlock().onBreak(this, x, y, z, oldState);
+            }
+            group.add((lx & 31) | ((lz & 31) << 5) | ((y & 511) << 10), oldId);
+
+            /* Dirty-Masken akkumulieren: eigene Section + vertikale Grenzen (wie setBlockRaw),
+               Randspalten zusätzlich für die 4 Kardinal- und 4 Diagonal-Nachbarn
+               (Regeln aus setBlockRaw/markDirtyColumn, hier als Union über alle Zellen). */
+            int sy = y >> ChunkSection.SHIFT;
+            int columnMask = 1 << sy;
+            if ((y & ChunkSection.MASK) == 0 && sy > 0) columnMask |= 1 << (sy - 1);
+            if ((y & ChunkSection.MASK) == ChunkSection.MASK && sy < Chunk.SECTIONS - 1) columnMask |= 1 << (sy + 1);
+            group.ownMask |= columnMask;
+            boolean west = lx == 0, east = lx == ChunkSection.MASK;
+            boolean north = lz == 0, south = lz == ChunkSection.MASK;
+            if (north) group.borderMasks[0] |= columnMask;
+            if (south) group.borderMasks[1] |= columnMask;
+            if (west) group.borderMasks[2] |= columnMask;
+            if (east) group.borderMasks[3] |= columnMask;
+            if (west && north) group.borderMasks[4] |= columnMask;
+            if (east && north) group.borderMasks[5] |= columnMask;
+            if (west && south) group.borderMasks[6] |= columnMask;
+            if (east && south) group.borderMasks[7] |= columnMask;
+        }
+
+        /* Pass 2 je Chunk: Writes unter EINEM Lock, dann Dirty/BE/Licht. */
+        for (int gi = 0, gn = groups.tableSize(); gi < gn; gi++) {
+            BreakBatchGroup group = groups.valueAt(gi);
+            if (group == null || group.chunk == null || group.count == 0) continue;
+            Chunk chunk = group.chunk;
+
+            chunk.writeLock().lock();
+            try {
+                for (int i = 0; i < group.count; i++) {
+                    int packed = group.packedPos[i];
+                    chunk.setBlock(packed & 31, (packed >> 10) & 511, (packed >> 5) & 31, Blocks.AIR);
+                }
+            } finally {
+                chunk.writeLock().unlock();
+            }
+            chunk.markSectionsDirty(group.ownMask);
+            chunk.modified = true;
+
+            /* Rand-Remeshes der Nachbarn (Union; Filter wie markDirty: ab LIT). */
+            for (int b = 0; b < 8; b++) {
+                if (group.borderMasks[b] == 0) continue;
+                Chunk neighbor = this.chunkManager.getChunk(chunk.chunkX + BORDER_DX[b], chunk.chunkZ + BORDER_DZ[b]);
+                if (neighbor != null && neighbor.status.isAtLeast(ChunkStatus.LIT)) {
+                    neighbor.markSectionsDirty(group.borderMasks[b]);
+                }
+            }
+
+            /* BlockEntities abräumen (macht intern den eigenen Write-Lock). */
+            for (int i = 0; i < group.count; i++) {
+                if (Blocks.getState(group.oldIds[i]).getBlock().getBlockEntityType() == null) continue;
+                int packed = group.packedPos[i];
+                int x = (chunk.chunkX << ChunkSection.SHIFT) + (packed & 31);
+                int z = (chunk.chunkZ << ChunkSection.SHIFT) + ((packed >> 5) & 31);
+                this.manageBlockEntity(x, (packed >> 10) & 511, z, group.oldIds[i], Blocks.AIR);
+            }
+
+            /* EIN Licht-Update für alle Zellen dieses Chunks (statt n Einzel-Flutungen). */
+            int cx = chunk.chunkX, cz = chunk.chunkZ;
+            Chunk north = this.chunkManager.getChunk(cx, cz - 1);
+            Chunk south = this.chunkManager.getChunk(cx, cz + 1);
+            Chunk west = this.chunkManager.getChunk(cx - 1, cz);
+            Chunk east = this.chunkManager.getChunk(cx + 1, cz);
+            this.lightDiagonals[0] = this.chunkManager.getChunk(cx - 1, cz - 1);
+            this.lightDiagonals[1] = this.chunkManager.getChunk(cx + 1, cz - 1);
+            this.lightDiagonals[2] = this.chunkManager.getChunk(cx - 1, cz + 1);
+            this.lightDiagonals[3] = this.chunkManager.getChunk(cx + 1, cz + 1);
+            this.lightEngine.onBlocksChanged(chunk, north, south, west, east, this.lightDiagonals,
+                    group.packedPos, group.oldIds, group.count);
+        }
+
+        this.updateBlastShell(groups);
+    }
+
+    /* Markierungen für die Schalen-Map in updateBlastShell. */
+    private static final int BLAST_DESTROYED = 1;
+    private static final int BLAST_SHELL = 2;
+
+    /**
+     * Pass 3 der Massen-Zerstörung: Nachbar-State-Updates auf der <b>Krater-Schale</b>. Die Writes
+     * oben laufen wie {@code setBlock(..., updateNeighbors=false)} — ohne diesen Pass erführen
+     * hängende Blöcke (Fackel, hohe Pflanze, Türhälfte) nie vom Stützverlust, Sand/Kies bliebe
+     * schweben, und vor allem plante nie jemand einen Fluid-Tick: {@code
+     * FluidBehavior.onNeighborUpdate} ist der EINZIGE Weg dorthin (Fluids ticken nicht zufällig),
+     * also flösse Wasser nie in den Krater nach.
+     *
+     * <p>Besucht werden nur die Zellen, die an eine zerstörte grenzen und selbst nicht zerstört
+     * wurden: die zerstörten sind jetzt Luft, und {@link #updateStateAt} steigt bei Luft ohnehin
+     * sofort aus. Läuft NACH allen Writes aller Chunks — sonst entschiede ein Behavior anhand von
+     * Blöcken, die im selben Batch gleich verschwinden.
+     */
+    private void updateBlastShell(de.skyengine.utils.collect.LongObjMap<BreakBatchGroup> groups) {
+        de.skyengine.utils.collect.LongIntMap cells = new de.skyengine.utils.collect.LongIntMap(256);
+
+        /* Runde 1: alle tatsächlich zerstörten Zellen markieren (nicht die Eingabe-Positionen —
+           verworfene Zellen aus nicht-READY Chunks und Luft stehen nicht in den Gruppen). */
+        for (int gi = 0, gn = groups.tableSize(); gi < gn; gi++) {
+            BreakBatchGroup group = groups.valueAt(gi);
+            if (group == null || group.chunk == null) continue;
+            int baseX = group.chunk.chunkX << ChunkSection.SHIFT;
+            int baseZ = group.chunk.chunkZ << ChunkSection.SHIFT;
+            for (int i = 0; i < group.count; i++) {
+                int packed = group.packedPos[i];
+                cells.put(BlockPos.asLong(baseX + (packed & 31), (packed >> 10) & 511,
+                        baseZ + ((packed >> 5) & 31)), BLAST_DESTROYED);
+            }
+        }
+
+        /* Runde 2: die 6 Achsen-Nachbarn einsammeln, die nicht selbst zerstört wurden. Iteriert
+           über die Gruppen, nicht über die Map — die wächst hier ja gerade. */
+        for (int gi = 0, gn = groups.tableSize(); gi < gn; gi++) {
+            BreakBatchGroup group = groups.valueAt(gi);
+            if (group == null || group.chunk == null) continue;
+            int baseX = group.chunk.chunkX << ChunkSection.SHIFT;
+            int baseZ = group.chunk.chunkZ << ChunkSection.SHIFT;
+            for (int i = 0; i < group.count; i++) {
+                int packed = group.packedPos[i];
+                int x = baseX + (packed & 31);
+                int y = (packed >> 10) & 511;
+                int z = baseZ + ((packed >> 5) & 31);
+                for (Direction d : Direction.sharedValues()) {
+                    int ny = y + d.offsetY();
+                    if (ny < 0 || ny >= Chunk.HEIGHT) continue;
+                    long key = BlockPos.asLong(x + d.offsetX(), ny, z + d.offsetZ());
+                    if (!cells.containsKey(key)) cells.put(key, BLAST_SHELL);
+                }
+            }
+        }
+
+        /* Runde 3: nur die Schale aktualisieren. Selbst-Entfernungen kaskadieren dabei über den
+           Einzelpfad (setBlock mit Ring) weiter — das terminiert, weil jeder Schritt einen Block
+           endgültig entfernt. */
+        for (int i = 0, n = cells.tableSize(); i < n; i++) {
+            if (!cells.usedAt(i) || cells.valueAt(i) != BLAST_SHELL) continue;
+            long pos = cells.keyAt(i);
+            this.updateStateAt(BlockPos.unpackX(pos), BlockPos.unpackY(pos), BlockPos.unpackZ(pos));
+        }
+    }
+
     /**
      * Lässt den geänderten Block und seine 4 horizontalen Nachbarn ihren State
      * neu berechnen (Verbindungen, Treppen-Ecken). Reine State-Änderungen bleiben
@@ -792,6 +1129,17 @@ public class World implements IInitializable, IDisposable {
     }
 
     private void updateStateAt(int x, int y, int z) {
+        /* Nicht-READY-Zielchunk: setBlockRaw könnte ohnehin nicht schreiben — das Update
+           würde still verlorengehen (Zaun im Nachbarchunk berechnet seine Verbindung dann
+           NIE). Position parken; processDeferredStateUpdates zieht sie nach, sobald der
+           Chunk READY ist. chunk == null ist nur das Unload-Race → verwerfen. */
+        Chunk targetChunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (targetChunk == null) return;
+        if (targetChunk.status != ChunkStatus.READY) {
+            this.deferStateUpdate(x, y, z);
+            return;
+        }
+
         int id = this.getBlock(x, y, z);
         if (id == Blocks.AIR) return;
         BlockState current = Blocks.getState(id);
@@ -807,6 +1155,49 @@ public class World implements IInitializable, IDisposable {
                Behavior onBreak; die Reihenfolge schließt die Lücke, bevor das erste es tut. */
             if (removed) current.getBlock().onBreak(this, x, y, z, current);
             this.setBlock(x, y, z, updated.getId(), removed);
+        }
+    }
+
+    /** Merkt ein Nachbar-State-Update für einen (noch) nicht-READY Chunk vor (dedupliziert). */
+    private void deferStateUpdate(int x, int y, int z) {
+        if (this.deferredStateUpdates.size() >= MAX_DEFERRED_STATE_UPDATES) {
+            /* Notventil gegen unbegrenztes Wachstum (z.B. Einträge für nie zurückkehrende
+               Chunks): ältesten Eintrag opfern — der Fall ist konstruiert selten. */
+            Iterator<Long> it = this.deferredStateUpdates.iterator();
+            it.next();
+            it.remove();
+            this.logger.debug("Nachhol-Puffer für Block-Updates voll — ältester Eintrag verworfen");
+        }
+        this.deferredStateUpdates.add(BlockPos.asLong(x, y, z));
+    }
+
+    /**
+     * Zieht vorgemerkte Nachbar-State-Updates nach, deren Chunk inzwischen READY ist
+     * (Gegenstück zu {@link #restorePendingScheduledTicks} für Block-States). Läuft im Tick
+     * direkt nach {@code chunkManager.update()}, damit READY-Übergänge dieses Ticks schon
+     * sichtbar sind. Die Einträge werden in einen Scratch kopiert, weil {@code updateStateAt}
+     * beim Nachziehen neue Deferrals erzeugen kann (Kaskade an die nächste Chunkgrenze).
+     */
+    private void processDeferredStateUpdates() {
+        if (this.deferredStateUpdates.isEmpty()) return;
+
+        int n = this.deferredStateUpdates.size();
+        if (this.deferredScratch.length < n) this.deferredScratch = new long[n * 2];
+        int i = 0;
+        for (long pos : this.deferredStateUpdates) this.deferredScratch[i++] = pos;
+        this.deferredStateUpdates.clear();
+
+        for (int j = 0; j < n; j++) {
+            long pos = this.deferredScratch[j];
+            int x = BlockPos.unpackX(pos), y = BlockPos.unpackY(pos), z = BlockPos.unpackZ(pos);
+            Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+            if (chunk == null || chunk.status != ChunkStatus.READY) {
+                /* Noch nicht dran (auch chunk == null: kann nach einem Unload-Zyklus
+                   zurückkommen) — wieder einreihen, das Set dedupliziert. */
+                this.deferredStateUpdates.add(pos);
+                continue;
+            }
+            this.updateStateAt(x, y, z);
         }
     }
 
@@ -830,7 +1221,13 @@ public class World implements IInitializable, IDisposable {
     private void markDirty(int cx, int cz, int sectionY) {
         Chunk chunk = this.chunkManager.getChunk(cx, cz);
 
-        if (chunk != null && chunk.status == ChunkStatus.READY) {
+        /* isAtLeast(LIT) statt == READY: ein Nachbar im MESHING-Fenster (unlockRead vor dem
+           READY-Set weckt genau hier den blockierten Writer) hat sein Mesh bereits aus den
+           Vor-Edit-Daten gebaut — ein verworfener Marker hieße dauerhaft falsche Naht-Faces.
+           Die Dirty-Bits überleben bis READY (der Erst-Mesh-Job konsumiert sie nicht), das
+           Remesh-Gate in processRemeshes verlangt weiterhin READY — schlimmstenfalls also ein
+           redundanter Remesh, exakt wie bei den Markierungen der LightEngine. */
+        if (chunk != null && chunk.status.isAtLeast(ChunkStatus.LIT)) {
             chunk.markSectionDirty(sectionY);
         }
     }

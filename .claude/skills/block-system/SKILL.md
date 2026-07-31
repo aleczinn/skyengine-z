@@ -28,7 +28,8 @@ niemals ein Property doppelt definieren.
 - `BlockLoader` sortiert die JSON-Dateien nach Namen → **stabile IDs nur innerhalb einer Version**.
   IDs NIE persistieren (Kommentar an `BlockState.id`); dafür gibt es `BlockStateCodec`.
 - Beim Bake werden Hot-Path-`StateFlags` gepackt (opaqueCube, solid, layer, fluid, randomOffset,
-  cullSame, ticksRandomly, hasBlockEntity, noLodSurface — Block-JSON `"no_lod_surface": true`
+  cullSame, ticksRandomly, hasBlockEntity, noLodSurface, leaves; dazu Licht-Opazität in Bits
+  10-13 und Luminanz in Bits 14-17 — s. Skill `licht-system`. `"no_lod_surface": true`
   schließt einen Block als LOD-Terrain-Oberfläche aus, gesetzt auf den Weltgen-Logs) und Modelle
   gebacken. Nach dem Bake ist die Registry eingefroren (`register` wirft).
 - `statesById` ist volatile: gebaut auf dem Render-Thread, gelesen von Worker-Threads.
@@ -92,6 +93,16 @@ dort sonst unerreichbar.
 - Jeder Nicht-Luft-, Nicht-Fluid-Block bekommt automatisch ein `BlockItem` (`Items.bootstrap`).
   Mining: MC-Harvest-Regel in `GameContainer.isHarvestable` (ToolType + Mindest-Tier), Härte < 0 =
   unzerstörbar (Bedrock), Härte 0 = instant.
+- Materialwerte je Block (nie ins Preset — `preset/cube` bedient stone, dirt UND wool): `hardness`,
+  `tool`, `harvest_tier`, `resistance` (Explosion; ohne Feld gilt `hardness`, dadurch erbt Bedrock
+  seine −1 und bleibt Strahlenstopper) sowie `friction`/`speed_factor`/`jump_factor` (Bewegung,
+  Defaults 0.6/1.0/1.0) und `bounciness`/`fall_damage_factor` (Landung, Defaults 0/1.0). Die
+  Auflösung von `resistance` passiert in `ArchetypeBlockFactory`, NICHT im `BlockConfig`-Default —
+  sonst ginge der Bedrock-Fallback verloren.
+- Entity↔Block-Werte werden **nie** über `Block.getBehavior(Class)` gelesen: das ist eine lineare
+  Schleife mit `Class.isInstance` und damit die falsche Ebene für einen Pro-Tick-Pro-Entity-Pfad.
+  Muster ist `Blocks.getState(id).getBlock().getX()` (Array-Index + Feld-Read) — so machen es die
+  Strömung (`Entity.pushOutOfFluids`), die Reibung und der Abpraller (`Entity.move`).
 
 ## Fallstricke für schwächere Modelle
 

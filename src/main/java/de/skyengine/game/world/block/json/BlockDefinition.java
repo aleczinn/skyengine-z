@@ -62,7 +62,31 @@ public class BlockDefinition {
     public String tool;
     public String harvest_tier;
 
-    /* Optionale Sound-Gruppe (stone/wood/gravel/grass/sand/snow/cloth/glass);
+    /* Explosions-Widerstand (MC-Blast-Resistance). null = es gilt hardness — genau deshalb steht
+       das Feld nur bei den Blöcken, bei denen Minecraft beide Werte auseinanderzieht (Stein 1.5/6,
+       Obsidian 50/1200, End-Stone 3/9). Negativ = unzerstörbar; über den hardness-Fallback erbt
+       Bedrock das automatisch. Gelesen nur vom Explosions-Raycast (Explosion.resistanceOf). */
+    public Float resistance;
+
+    /* Bewegung auf/in dem Block (MC-Semantik, gelesen von EntityPlayer.travelWalking):
+       friction = Bodenreibung, Default 0.6 (Eis 0.98, Blaueis 0.989, Slimeblock 0.8) — höher =
+       rutschiger. speed_factor = Faktor auf die Horizontalgeschwindigkeit, Default 1.0
+       (Seelensand/Honig 0.4). jump_factor = Faktor auf die Sprungkraft, Default 1.0 (Honig 0.5). */
+    public Float friction;
+    public Float speed_factor;
+    public Float jump_factor;
+
+    /* Landung auf dem Block (MC-Semantik, ausgewertet in Entity.move bzw.
+       EntityPlayer.updateFallDamage):
+       bounciness = Anteil der Aufprallgeschwindigkeit, der umgekehrt wird. Default 0 = normales
+       Landen; Slimeblock 1.0 (in MC federt auch das Bett mit 0.66). Nicht-Lebewesen federn
+       zusätzlich gedämpft (Entity.bounceDamping), Sneaken unterdrückt den Bounce ganz.
+       fall_damage_factor = Multiplikator auf den Fallschaden NACH Abzug der 3-Block-Schwelle
+       (wie MCs calculateFallDamage). Default 1.0; Slimeblock 0 (immun), Honigblock 0.2. */
+    public Float bounciness;
+    public Float fall_damage_factor;
+
+    /* Optionale Sound-Gruppe (stone/wood/gravel/grass/sand/snow/cloth/glass/slime/honey);
        null = Ableitung aus tool/archetype (siehe BlockSoundGroup.resolve). */
     public String sound;
 

@@ -109,9 +109,12 @@ brauchen keinerlei Synchronisation.
   („1.19"→119-Falle). Moderne Musik heißt nach Songs (`minecraft.ogg`/`sweden.ogg`), nicht
   `calm1.ogg`; die step/dig-Pfade sind unverändert. Die Sounds sind MC-Platzhalter wie die
   Texturen.
-- **Settings:** `masterVolume` = Listener-Gain (wirkt global inkl. Musik), `musicVolume` =
-  Musik-Source-Gain (effektiv master × music, wie MC). Beide 0..100 in `options.json`,
-  sanitize-Clamp in GameSettings, Anwendung in `GameContainer.applySettings` (/100F).
+- **Settings:** `masterVolume` = Listener-Gain (wirkt global) plus ein **Mischpult je
+  `SoundCategory`** (MUSIC/WEATHER/BLOCKS/HOSTILE/FRIENDLY/PLAYER/AMBIENT/UI):
+  `GameSettings.soundVolumes` (Map, 0..100 in `options.json`) → `SoundManager.categoryGains`
+  (effektiv master × category, wie MC). Dazu `audioDevice` (Ausgabegeräte-Auswahl,
+  `GuiSoundOptions`). Ein einzelnes `musicVolume` existiert nicht mehr.
+- **TNT:** `playExplosion()` / `playFuse()` sind eigene lose Effekt-Sounds (Explosion/Lunte).
 
 ## Verifikation
 

@@ -72,7 +72,8 @@ Niemals blind `GL_LESS`/`GL_LEQUAL` hartkodieren.
   jeder Teleport: Cursor-Modus, Fenstermodus und **Fokuswechsel** (`onWindowFocus` — Alt-Tab gibt
   einen gefangenen Cursor frei und fängt ihn danach neu).
 - Screenshots (F2): nur Flag setzen (`GameContainer.screenshotRequested`); der Pixel-Read passiert
-  in `SkyEngine.onRender` NACH `blitToScreen()` und VOR `glfwSwapBuffers` → Ordner `screenshots/`.
+  in `SkyEngine.onRender` NACH Resolve + Post-Kette + GUI und VOR `glfwSwapBuffers` →
+  Ordner `%APPDATA%\.skyengine\screenshots\` (`GameDirectory`).
 
 ## Verifikation
 

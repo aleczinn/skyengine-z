@@ -14,7 +14,7 @@ import java.util.TreeMap;
 
 /**
  * Große, device-lokale Vertex-Arena für Section-Meshes eines RenderLayers.
- * Sections mieten {@link Region}en (First-Fit-Free-List) statt eigener VBOs — dadurch kann
+ * Sections mieten {@link Region}en (Best-Fit über einen Größen-Index) statt eigener VBOs — dadurch kann
  * der ChunkRenderer alle Sections eines Layers mit EINEM MultiDrawIndirect-Call zeichnen
  * (baseVertex = {@link Region#vertexOffset()}).
  *
@@ -59,8 +59,13 @@ public final class VertexArena {
     private int buffer;
     private long capacity;
 
-    /* Free-List: Offset -> Größe (Bytes), zusammenhängend koalesziert */
+    /* Free-List: Offset -> Größe (Bytes), zusammenhängend koalesziert. Parallel dazu ein
+       Größen-Index (Größe -> Offsets) für Best-Fit in O(log n) — der frühere First-Fit
+       scannte die Liste linear ab Offset 0 bei JEDEM alloc (Section-Uploads + Translucent-
+       Sorts) und wuchs mit der Fragmentierung. Beide Strukturen werden ausschließlich über
+       addFree/removeFree mutiert, damit sie nie divergieren. */
     private final TreeMap<Long, Long> freeList = new TreeMap<>();
+    private final TreeMap<Long, java.util.TreeSet<Long>> freeBySize = new TreeMap<>();
     private final ArrayDeque<PendingFree> pendingFrees = new ArrayDeque<>();
 
     private long usedBytes = 0;
@@ -77,7 +82,7 @@ public final class VertexArena {
         GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, 0);
         GlDebug.labelBuffer(this.stagingBuffer, name + " Staging");
         this.createBuffer(initialCapacity);
-        this.freeList.put(0L, initialCapacity);
+        this.addFree(0L, initialCapacity);
     }
 
     /** GL-Buffer-Name — der Renderer bindet ihn als Vertex-Quelle im VAO (nach Wachstum neu!). */
@@ -100,19 +105,20 @@ public final class VertexArena {
     public Region alloc(int[] meshData) {
         long size = (long) meshData.length * Integer.BYTES;
 
-        Long offset = this.findFirstFit(size);
+        Long offset = this.findBestFit(size);
         if (offset == null) {
             /* Faktor 2 statt 1,5: jeder Grow ist eine GPU-Vollkopie der ganzen Arena (= der
                gemessene Frame-Spike beim Flug) — der größere Faktor halbiert die Anzahl der
                Kopien bis zum Ziel. Die Startgrößen sind ohnehin so gewählt, dass es im
                Normalbetrieb gar nicht erst wächst (ChunkRenderer.init). */
             this.grow(Math.max(this.capacity * 2, this.capacity + size));
-            offset = this.findFirstFit(size);
+            offset = this.findBestFit(size);
         }
 
-        long blockSize = this.freeList.remove(offset);
+        long blockSize = this.freeList.get(offset);
+        this.removeFree(offset, blockSize);
         if (blockSize > size) {
-            this.freeList.put(offset + size, blockSize - size);
+            this.addFree(offset + size, blockSize - size);
         }
         this.usedBytes += size;
 
@@ -153,27 +159,40 @@ public final class VertexArena {
         if (target > this.capacity) this.grow(target);
     }
 
-    private Long findFirstFit(long size) {
-        for (Map.Entry<Long, Long> entry : this.freeList.entrySet()) {
-            if (entry.getValue() >= size) return entry.getKey();
-        }
-        return null;
+    /** Best-Fit: kleinster freier Block, der passt; bei gleicher Größe der niedrigste Offset. */
+    private Long findBestFit(long size) {
+        Map.Entry<Long, java.util.TreeSet<Long>> entry = this.freeBySize.ceilingEntry(size);
+        return entry == null ? null : entry.getValue().first();
     }
 
     /** Fügt einen freien Bereich ein und verschmilzt ihn mit direkten Nachbarn. */
     private void insertCoalescing(long offset, long size) {
         Map.Entry<Long, Long> prev = this.freeList.floorEntry(offset);
         if (prev != null && prev.getKey() + prev.getValue() == offset) {
-            offset = prev.getKey();
+            this.removeFree(prev.getKey(), prev.getValue());
             size += prev.getValue();
-            this.freeList.remove(prev.getKey());
+            offset = prev.getKey();
         }
         Long nextSize = this.freeList.get(offset + size);
         if (nextSize != null) {
-            this.freeList.remove(offset + size);
+            this.removeFree(offset + size, nextSize);
             size += nextSize;
         }
+        this.addFree(offset, size);
+    }
+
+    /* Die EINZIGEN Mutationspunkte von freeList + freeBySize (sonst divergieren die Indizes). */
+
+    private void addFree(long offset, long size) {
         this.freeList.put(offset, size);
+        this.freeBySize.computeIfAbsent(size, s -> new java.util.TreeSet<>()).add(offset);
+    }
+
+    private void removeFree(long offset, long size) {
+        this.freeList.remove(offset);
+        java.util.TreeSet<Long> offsets = this.freeBySize.get(size);
+        offsets.remove(offset);
+        if (offsets.isEmpty()) this.freeBySize.remove(size);
     }
 
     /**
@@ -209,6 +228,14 @@ public final class VertexArena {
         this.buffer = GL15.glGenBuffers();
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.buffer);
         GL44.glBufferStorage(GL15.GL_ARRAY_BUFFER, size, STORAGE_FLAGS);
+        /* Fail-Fast statt stiller Folgefehler (Muster MappedRing.create): schlägt die
+           Allokation fehl (GL_OUT_OF_MEMORY bei großen Render-Distanzen), liefen alle
+           glCopyBufferSubData ins Leere und die Geometrie fehlte einfach. */
+        int error = org.lwjgl.opengl.GL11.glGetError();
+        if (error != 0) {
+            throw new IllegalStateException("VertexArena " + this.name + ": glBufferStorage("
+                    + (size >> 20) + " MB) fehlgeschlagen (GL-Fehler 0x" + Integer.toHexString(error) + ")");
+        }
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
         this.capacity = size;
         GlDebug.labelBuffer(this.buffer, this.name + " (" + (size >> 20) + " MB)");
@@ -218,6 +245,7 @@ public final class VertexArena {
         GL15.glDeleteBuffers(this.buffer);
         GL15.glDeleteBuffers(this.stagingBuffer);
         this.freeList.clear();
+        this.freeBySize.clear();
         this.pendingFrees.clear();
     }
 }

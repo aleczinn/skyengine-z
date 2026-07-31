@@ -4,6 +4,7 @@ import de.skyengine.core.file.FileHandle;
 import de.skyengine.core.file.FileType;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.EnchantingTableBlockEntity;
+import de.skyengine.graphics.GlState;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
@@ -57,7 +58,18 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
         this.rightPages = new Mesh(buildBox(0, -4, -0.01f, 5, 8, 1f, 12, 10));
         this.flipPage1 = new Mesh(buildBox(0, -4, 0, 5, 8, 0.005f, 24, 10));
         this.flipPage2 = new Mesh(buildBox(0, -4, 0, 5, 8, 0.005f, 24, 10));
+
+        /* Uniform-Locations einmalig cachen (Muster ChunkRenderer) — der String-Weg machte
+           pro Tisch pro Frame ~9 HashMap-Lookups; u_Texture ist konstant Unit 0. */
+        this.locProjectionView = this.shader.getUniformLocation("u_ProjectionView");
+        this.locLight = this.shader.getUniformLocation("u_Light");
+        this.locModel = this.shader.getUniformLocation("u_Model");
+        this.shader.bind();
+        this.shader.setUniformi("u_Texture", 0);
+        this.shader.unbind();
     }
+
+    private int locProjectionView, locLight, locModel;
 
     @Override
     public void render(BlockEntity be, Camera camera, float partialTick, float light) {
@@ -85,13 +97,12 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
                 .rotateZ(TILT)
                 .scale(1f / 16f);
 
-        boolean cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_CULL_FACE);
+        boolean cull = GlState.isCullFaceEnabled();
+        GlState.disableCullFace();
 
         this.shader.bind();
-        this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
-        this.shader.setUniformi("u_Texture", 0);
-        this.shader.setUniformf("u_Light", light);
+        this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
+        this.shader.setUniformf(this.locLight, light);
         this.texture.bind(0);
 
         drawPart(this.leftLid, 0, 0, -1, (float) Math.PI + f);
@@ -103,13 +114,13 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
         drawPart(this.flipPage2, sinF, 0, 0, f - f * 2f * p2);
 
         this.shader.unbind();
-        if (cull) GL11.glEnable(GL11.GL_CULL_FACE);
+        if (cull) GlState.enableCullFace();
     }
 
     /** Zeichnet ein Buch-Teil: Pivot-Versatz (px) + Drehung um die lokale Y-Achse. */
     private void drawPart(Mesh mesh, float pivotX, float pivotY, float pivotZ, float yRot) {
         this.part.set(this.base).translate(pivotX, pivotY, pivotZ).rotateY(yRot);
-        this.shader.setUniformMatrix4f("u_Model", this.part);
+        this.shader.setUniformMatrix4f(this.locModel, this.part);
         mesh.render();
     }
 

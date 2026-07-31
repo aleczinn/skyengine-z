@@ -26,7 +26,10 @@ public class EntityPlayer extends Entity {
     private static final double STRAFE_FACTOR = 1.2;
     private static final double SNEAK_FACTOR = 0.3;
 
-    private static final double GROUND_FRICTION = 0.546;
+    /* Reibung des Blocks unter den Füßen; MC-Default 0.6, höher = rutschiger (Eis 0.98).
+       Zusammen mit AIR_DRAG_HORIZONTAL ergibt der Default die früher hier stehende Konstante
+       GROUND_FRICTION = 0.546 — auf normalem Boden ändert sich also nichts. */
+    private static final double DEFAULT_FRICTION = 0.6;
     private static final double AIR_DRAG_HORIZONTAL = 0.91;
     private static final double AIR_DRAG_VERTICAL = 0.98;
 
@@ -227,8 +230,10 @@ public class EntityPlayer extends Entity {
 
     /**
      * Fallhöhe akkumulieren und auf der Landungs-Flanke als Schaden anwenden (MC-Regel:
-     * Schaden in HP = Fallhöhe − 3 Blöcke). Fliegen, Fluid-Kontakt oder Aufwärtsbewegung
-     * setzen die Fallhöhe zurück (Wasser-Landung ist damit immer schadensfrei).
+     * Schaden in HP = Fallhöhe − 3 Blöcke, danach mal dem {@code fall_damage_factor} des
+     * gelandeten Blocks — Slimeblock 0, Honigblock 0,2; Reihenfolge wie MCs
+     * {@code calculateFallDamage}, also Schwelle zuerst). Fliegen, Fluid-Kontakt oder
+     * Aufwärtsbewegung setzen die Fallhöhe zurück (Wasser-Landung ist damit immer schadensfrei).
      */
     private void updateFallDamage(World world, boolean wasOnGround) {
         if (this.flying || this.isTouchingFluid(world)) {
@@ -243,7 +248,8 @@ public class EntityPlayer extends Entity {
         }
         if (this.onGround) {
             if (!wasOnGround) {
-                float damage = this.fallDistance - FALL_DAMAGE_THRESHOLD;
+                float damage = (this.fallDistance - FALL_DAMAGE_THRESHOLD)
+                        * this.blockAt(world, this.y - 0.5000001).getFallDamageFactor();
                 if (damage > 0 && this.damage(damage)) {
                     this.fallDamageTaken = damage;
                 }
@@ -305,8 +311,10 @@ public class EntityPlayer extends Entity {
      * Reihenfolge wie Minecraft: Beschleunigen -> Bewegen -> Reibung & Gravitation.
      */
     private void travelWalking(World world, double forward, double strafe, boolean jump) {
+        double blockFriction = this.onGround ? this.frictionBelow(world) : DEFAULT_FRICTION;
+
         if (jump && this.onGround) {
-            this.motionY = JUMP_POWER;
+            this.motionY = JUMP_POWER * this.jumpFactor(world);
             if (this.gamemode == Gamemode.SURVIVAL) {
                 this.exhaustion += this.sprinting ? EXHAUSTION_SPRINT_JUMP : EXHAUSTION_JUMP;
             }
@@ -318,6 +326,13 @@ public class EntityPlayer extends Entity {
         }
 
         double accel = (this.onGround ? WALK_ACCEL : AIR_ACCEL) * (this.sprinting ? SPRINT_FACTOR : 1.0);
+        /* MC-Kopplung Beschleunigung <-> Reibung (getFrictionInfluencedSpeed): je rutschiger der
+           Boden, desto träger die Beschleunigung — sonst wäre Eis nicht glatt, sondern einfach
+           schnell. Auf normalem Boden (0.6) ist der Faktor exakt 1. */
+        if (this.onGround) {
+            accel *= (DEFAULT_FRICTION * DEFAULT_FRICTION * DEFAULT_FRICTION)
+                    / (blockFriction * blockFriction * blockFriction);
+        }
         this.moveRelative(strafe, forward, accel);
 
         double dx = this.motionX;
@@ -334,13 +349,56 @@ public class EntityPlayer extends Entity {
 
         this.move(world, dx, dy, dz);
 
+        /* Tempo-Faktor des Blocks (Seelensand/Honig bremsen) — wie MC am Ende von Entity.move. */
+        double speedFactor = this.speedFactor(world);
+        if (speedFactor != 1.0) {
+            this.motionX *= speedFactor;
+            this.motionZ *= speedFactor;
+        }
+
         /* Gravitation & Reibung NACH dem Bewegen */
         this.motionY -= GRAVITY;
         this.motionY *= AIR_DRAG_VERTICAL;
 
-        double friction = this.onGround ? GROUND_FRICTION : AIR_DRAG_HORIZONTAL;
+        double friction = this.onGround ? blockFriction * AIR_DRAG_HORIZONTAL : AIR_DRAG_HORIZONTAL;
         this.motionX *= friction;
         this.motionZ *= friction;
+    }
+
+    /** Reibung des Blocks unter den Füßen (MC: eine halbe Zelle unter der Fußposition). */
+    private double frictionBelow(World world) {
+        return this.blockAt(world, this.y - 0.5000001).getFriction();
+    }
+
+    /**
+     * Tempo-Faktor: erst der Block an der Fußposition, sonst der darunter (MC
+     * {@code Entity.getBlockSpeedFactor} — so bremst Seelensand auch, wenn man knapp darüber steht).
+     */
+    private double speedFactor(World world) {
+        float own = this.blockAt(world, this.y).getSpeedFactor();
+        return own != 1.0F ? own : this.blockAt(world, this.y - 0.5000001).getSpeedFactor();
+    }
+
+    /** Sprung-Faktor, gleiche Auswahlregel wie {@link #speedFactor} (MC {@code getBlockJumpFactor}). */
+    private double jumpFactor(World world) {
+        float own = this.blockAt(world, this.y).getJumpFactor();
+        return own != 1.0F ? own : this.blockAt(world, this.y - 0.5000001).getJumpFactor();
+    }
+
+    /** Der Spieler ist MCs „Lebewesen" und federt deshalb ungedämpft (Drops/TNT: 0,8). */
+    @Override
+    protected double bounceDamping() {
+        return 1.0;
+    }
+
+    /**
+     * MCs {@code isSuppressingBounce}: Sneaken verhindert den Abpraller. Es verhindert
+     * <b>nicht</b> die Fallschaden-Dämpfung — auf einem Slimeblock landet man auch sneakend
+     * unverletzt.
+     */
+    @Override
+    protected boolean isSuppressingBounce() {
+        return this.isSneaking();
     }
 
     /**

@@ -37,6 +37,11 @@ public class ItemEntity extends Entity {
         return this.pickupDelay;
     }
 
+    /** Sperre bis zum Aufsammeln in Ticks (MC: 40 beim Spieler-Wurf, sonst bleibt der Default). */
+    public void setPickupDelay(int ticks) {
+        this.pickupDelay = Math.max(0, ticks);
+    }
+
     @Override
     public void tick(World world) {
         super.update();

@@ -41,14 +41,26 @@ public class SelectionBoxRenderer {
         GL30.glBindVertexArray(0);
     }
 
+    /* Outline-Cache: die Silhouette hängt NUR an der BlockShape (die Blockposition geht als
+       Uniform in den Shader) — ShapeOutline.build allozierte sonst pro Frame ein
+       verschachteltes boolean[][][]-Gitter plus Arrays, solange irgendein Block anvisiert ist.
+       Shapes sind pro State gebakte, geteilte Instanzen → Identitätsvergleich reicht. */
+    private BlockShape lastOutline;
+    private float[] lastEdges;
+
     /** blockX/Y/Z aus dem Raycast-Hit, camera-relativ wie die Chunks. */
     public void render(Camera camera, int blockX, int blockY, int blockZ, BlockShape outline) {
-        AABB[] localBoxes = outline.isEmpty() ? BlockShape.FULL_CUBE.boxes() : outline.boxes();
+        BlockShape effective = outline.isEmpty() ? BlockShape.FULL_CUBE : outline;
 
         /* Zusammengefasste Silhouette der Vereinigung (eine Kontur statt Box-für-Box).
            Kein Welt-Inflate: die Kanten liegen exakt auf den Blockgrenzen — der Tiefen-Bias
            (glPolygonOffset, s.u.) sorgt für die Sichtbarkeit gegen koplanare Flächen. */
-        float[] edges = ShapeOutline.build(localBoxes, 0f);
+        boolean outlineChanged = effective != this.lastOutline;
+        if (outlineChanged) {
+            this.lastOutline = effective;
+            this.lastEdges = ShapeOutline.build(effective.boxes(), 0f);
+        }
+        float[] edges = this.lastEdges;
         if (edges.length == 0) return;
 
         Vector3d cam = camera.getPosition();
@@ -77,7 +89,8 @@ public class SelectionBoxRenderer {
         EngineProperties properties = SkyEngine.get().getWindow().getProperties();
         GL11.glDepthFunc(properties.orEqualDepthFunc());
 
-        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, edges, GL15.GL_DYNAMIC_DRAW);
+        /* Upload nur bei Shape-Wechsel — der VBO-Inhalt bleibt sonst frame-stabil. */
+        if (outlineChanged) GL15.glBufferData(GL15.GL_ARRAY_BUFFER, edges, GL15.GL_DYNAMIC_DRAW);
         GL11.glDrawArrays(GL11.GL_LINES, 0, edges.length / 3);
 
         GL11.glDepthFunc(properties.baseDepthFunc());

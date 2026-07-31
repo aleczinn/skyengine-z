@@ -37,6 +37,11 @@ public final class DebugOverlay {
 
     private boolean visible;
 
+    /* Biome-Cache: biomeAt ist ein voller Klima-Noise-Sample — das Ergebnis ändert sich
+       nur beim Blockwechsel, nicht pro Frame. */
+    private int lastBiomeX = Integer.MIN_VALUE, lastBiomeZ;
+    private String lastBiomeName = "";
+
     public void toggle() {
         this.visible = !this.visible;
     }
@@ -67,7 +72,12 @@ public final class DebugOverlay {
                 bx >> ChunkSection.SHIFT, bz >> ChunkSection.SHIFT));
         lines.add(String.format(Locale.ROOT, "Facing: %s (yaw %.1f / pitch %.1f)",
                 I18n.tr(FACING[facing]), player.yaw, player.pitch));
-        lines.add("Biome: " + world.biomeAt(bx, bz).name);
+        if (bx != this.lastBiomeX || bz != this.lastBiomeZ) {
+            this.lastBiomeX = bx;
+            this.lastBiomeZ = bz;
+            this.lastBiomeName = world.biomeAt(bx, bz).name;
+        }
+        lines.add("Biome: " + this.lastBiomeName);
         lines.add("Sections: %d/%d  Chunks: %d".formatted(
                 world.getChunkRenderer().getRenderedSections(),
                 world.getChunkRenderer().getTotalSections(),

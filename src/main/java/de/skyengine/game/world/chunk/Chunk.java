@@ -14,6 +14,8 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -106,6 +108,21 @@ public class Chunk {
         this.chunkZ = chunkZ;
     }
 
+    /* Zuletzt angewendete Mesh-Sequenz je Section (nur Render-Thread, via applyBatch).
+       Verhindert, dass ein älterer Batch (Erst-Mesh hinter einem Priority-Remesh in der
+       Upload-FIFO) ein bereits angewendetes neueres Mesh derselben Section überschreibt. */
+    private final long[] appliedMeshSeq = new long[SECTIONS];
+
+    /**
+     * true, wenn {@code meshSeq} neuer ist als das zuletzt angewendete Mesh dieser Section —
+     * dann wird die Sequenz übernommen. false = Batch ist veraltet und muss verworfen werden.
+     */
+    public boolean tryApplyMeshSeq(int sectionY, long meshSeq) {
+        if (meshSeq <= this.appliedMeshSeq[sectionY]) return false;
+        this.appliedMeshSeq[sectionY] = meshSeq;
+        return true;
+    }
+
     /** Renderer meldet einen angewendeten Section-Upload (Remesh-Batches sättigen harmlos). */
     public void markSectionUploaded() {
         this.uploadedSections++;
@@ -159,9 +176,17 @@ public class Chunk {
         return this.blockEntities == null ? null : this.blockEntities.get(beKey(x, y, z));
     }
 
+    /* Anmeldung „dieser Chunk hat BlockEntities": setBlockEntity meldet den Chunk beim Manager
+       an (auch vom Worker beim Chunk-Restore!), der daraus seine chunksWithBlockEntities-Menge
+       pflegt — BE-Renderer und -Ticker iterieren dann nur noch diese statt ALLER Chunks.
+       Vom ChunkManager beim Anlegen gesetzt; null in Tools/Tests. */
+    ConcurrentLinkedQueue<Chunk> blockEntityAnnounceQueue;
+
     public void setBlockEntity(int x, int y, int z, BlockEntity entity) {
         if (this.blockEntities == null) this.blockEntities = new HashMap<>();
         this.blockEntities.put(beKey(x, y, z), entity);
+        ConcurrentLinkedQueue<Chunk> queue = this.blockEntityAnnounceQueue;
+        if (queue != null) queue.add(this);
     }
 
     public void removeBlockEntity(int x, int y, int z) {
@@ -221,8 +246,49 @@ public class Chunk {
         return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
     }
 
+    /* Announce „dieser Chunk bringt gespeicherte Scheduled-Ticks mit": der Load-Worker
+       (ChunkSerializer.deserialize) meldet den Chunk an, World.restorePendingScheduledTicks
+       pollt nur noch die Queue statt jeden Tick alle Chunks zu scannen. Vom ChunkManager
+       beim Anlegen gesetzt; null in Tools/Tests. */
+    ConcurrentLinkedQueue<Chunk> tickRestoreQueue;
+
+    public void announceTickRestore() {
+        ConcurrentLinkedQueue<Chunk> queue = this.tickRestoreQueue;
+        if (queue != null && this.pendingScheduledTicks != null) queue.add(this);
+    }
+
+    /* Remesh-Anmeldung: markSectionDirty reiht den Chunk beim Manager ein (einmalig,
+       CAS-geschützt gegen Doppel-Einträge — Markierungen kommen vom Render-Thread UND von
+       Worker-Threads wie dem Licht-Randaustausch), statt dass processRemeshes jeden Frame
+       ALLE Chunks scannt. Vom ChunkManager beim Anlegen gesetzt; null in Tools/Tests. */
+    ConcurrentLinkedQueue<Chunk> remeshQueue;
+    private final AtomicBoolean remeshEnqueued = new AtomicBoolean(false);
+
     public void markSectionDirty(int sectionIndex) {
-        this.dirtySections.getAndUpdate(m -> m | (1 << sectionIndex));
+        this.markSectionsDirty(1 << sectionIndex);
+    }
+
+    /** Mehrere Sections auf einmal dirty markieren (Massen-Edits: EIN CAS statt n).
+     *  Expliziter CAS-Loop statt getAndUpdate — das capturing Lambda allozierte pro Aufruf. */
+    public void markSectionsDirty(int mask) {
+        if (mask == 0) return;
+        int prev;
+        do {
+            prev = this.dirtySections.get();
+            if ((prev | mask) == prev) break; // schon gesetzt
+        } while (!this.dirtySections.compareAndSet(prev, prev | mask));
+        this.enqueueRemesh();
+    }
+
+    /** In die Remesh-Queue einreihen, falls nicht schon eingereiht. */
+    void enqueueRemesh() {
+        ConcurrentLinkedQueue<Chunk> queue = this.remeshQueue;
+        if (queue != null && this.remeshEnqueued.compareAndSet(false, true)) queue.add(this);
+    }
+
+    /** Buchführung nach dem Poll austragen — ab jetzt reihen neue Markierungen wieder ein. */
+    void clearRemeshEnqueued() {
+        this.remeshEnqueued.set(false);
     }
 
     public boolean hasDirtySections() {

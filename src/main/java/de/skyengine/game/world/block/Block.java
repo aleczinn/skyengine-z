@@ -346,6 +346,36 @@ public class Block {
         return this.config.hardness();
     }
 
+    /** Explosions-Widerstand (MC-Blast-Resistance); ohne JSON-Feld gilt die Härte. */
+    public float getResistance() {
+        return this.config.resistance();
+    }
+
+    /** Bodenreibung (MC-Default 0.6; höher = rutschiger, Eis 0.98). */
+    public float getFriction() {
+        return this.config.friction();
+    }
+
+    /** Faktor auf die Horizontalgeschwindigkeit (MC-Default 1.0; Seelensand 0.4). */
+    public float getSpeedFactor() {
+        return this.config.speedFactor();
+    }
+
+    /** Faktor auf die Sprungkraft (MC-Default 1.0; Honigblock 0.5). */
+    public float getJumpFactor() {
+        return this.config.jumpFactor();
+    }
+
+    /** Anteil der Aufprallgeschwindigkeit, der beim Landen umgekehrt wird (0 = kein Abprallen). */
+    public float getBounciness() {
+        return this.config.bounciness();
+    }
+
+    /** Multiplikator auf den Fallschaden (1.0 = normal, 0 = immun wie Slimeblock). */
+    public float getFallDamageFactor() {
+        return this.config.fallDamageFactor();
+    }
+
     /** Effektive Tool-Klasse oder null (= Hand reicht, droppt immer). */
     public de.skyengine.game.world.item.ToolType getToolType() {
         return this.config.toolType();

@@ -1,7 +1,7 @@
 {
   "id": "skyengine:tnt",
   "parent": "preset/cube_bottom_top",
-  "explosion_power": 100,
+  "explosion_power": 4,
   "explosion_fuse": 80,
   "sound": "grass"
 }

@@ -51,7 +51,9 @@ public class FallingBlockEntity extends Entity {
             /* Zielzelle frei oder Fluid -> wieder Block werden (verdrängt das Fluid wie in MC);
                sonst (z.B. dort steht inzwischen etwas Festes) als Item droppen. */
             if (Blocks.canFallInto(world.getBlock(bx, by, bz))) {
-                world.setBlock(bx, by, bz, this.blockId);
+                /* Zielchunk nicht READY (Ladefront/Chunkgrenze): liegen bleiben und im
+                   nächsten Tick erneut versuchen — der Block verschwand sonst ersatzlos. */
+                if (!world.setBlock(bx, by, bz, this.blockId)) return;
             } else {
                 this.dropAsItem(world, bx, by, bz);
             }

@@ -29,6 +29,11 @@ final class MappedRing {
     private long slotSize;
     private int buffer;
     private ByteBuffer mapped;
+    /* Gecachte Slot-Sichten: memIntBuffer/memFloatBuffer allozieren pro Aufruf ein neues
+       NIO-Buffer-Objekt (6 Stück pro Frame über alle Ringe). Invalidiert in create();
+       Aufrufer mit relativen puts (GpuCull) setzen die Position selbst zurück. */
+    private IntBuffer[] intViews;
+    private FloatBuffer[] floatViews;
 
     MappedRing(String name, int slots, long initialSlotSize) {
         this.name = name;
@@ -70,17 +75,31 @@ final class MappedRing {
         if (this.mapped == null) {
             throw new IllegalStateException("MappedRing: persistentes Mapping fehlgeschlagen (" + newSlotSize * this.slots + " Bytes)");
         }
+        this.intViews = new IntBuffer[this.slots];
+        this.floatViews = new FloatBuffer[this.slots];
         GlDebug.labelBuffer(this.buffer, this.name);
     }
 
-    /** Int-Sicht auf einen Slot (Index 0 = Slot-Anfang). */
+    /** Int-Sicht auf einen Slot (Index 0 = Slot-Anfang), gecacht bis zum nächsten create(). */
     IntBuffer intView(int slot) {
-        return MemoryUtil.memIntBuffer(MemoryUtil.memAddress(this.mapped) + this.slotOffset(slot), (int) (this.slotSize / Integer.BYTES));
+        IntBuffer view = this.intViews[slot];
+        if (view == null) {
+            view = MemoryUtil.memIntBuffer(MemoryUtil.memAddress(this.mapped) + this.slotOffset(slot),
+                    (int) (this.slotSize / Integer.BYTES));
+            this.intViews[slot] = view;
+        }
+        return view;
     }
 
-    /** Float-Sicht auf einen Slot (Index 0 = Slot-Anfang). */
+    /** Float-Sicht auf einen Slot (Index 0 = Slot-Anfang), gecacht bis zum nächsten create(). */
     FloatBuffer floatView(int slot) {
-        return MemoryUtil.memFloatBuffer(MemoryUtil.memAddress(this.mapped) + this.slotOffset(slot), (int) (this.slotSize / Float.BYTES));
+        FloatBuffer view = this.floatViews[slot];
+        if (view == null) {
+            view = MemoryUtil.memFloatBuffer(MemoryUtil.memAddress(this.mapped) + this.slotOffset(slot),
+                    (int) (this.slotSize / Float.BYTES));
+            this.floatViews[slot] = view;
+        }
+        return view;
     }
 
     void dispose() {

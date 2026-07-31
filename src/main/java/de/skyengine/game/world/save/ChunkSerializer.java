@@ -352,6 +352,9 @@ public final class ChunkSerializer {
                 ticks.add(new SavedTick(type, x, y, z, Math.max(1, remaining)));
             }
             chunk.pendingScheduledTicks = ticks == null || ticks.isEmpty() ? null : ticks;
+            /* Beim Manager anmelden: World.restorePendingScheduledTicks pollt nur noch die
+               Announce-Queue (kein Voll-Walk mehr). No-op ohne Manager (Tools/Tests). */
+            chunk.announceTickRestore();
         }
     }
 

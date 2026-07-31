@@ -59,6 +59,11 @@ public final class GuiChest extends GuiContainer {
     }
 
     @Override
+    protected boolean isInsideWindow(double mx, double my) {
+        return mx >= this.guiX && mx < this.guiX + W && my >= this.guiY && my < this.guiY + this.height;
+    }
+
+    @Override
     public void init(GuiManager gui, float vW, float vH) {
         this.guiX = (vW - W) / 2f;
         this.guiY = (vH - this.height) / 2f;

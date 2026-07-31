@@ -1,0 +1,26 @@
+{
+  "_comment": "Verbatim MC block/honey_block. Zwei Vanilla-Eigenheiten, die NICHT 'aufgeraeumt' werden duerfen: (1) der Innenwuerfel ist 1..15, nicht 3..13 wie beim Slimeblock; (2) die Aussenhuelle traegt auf ALLEN sechs Faces die Bottom-Textur - nur der Innenwuerfel bekommt echtes top/bottom/side. Nur die Aussenfaces tragen cullface. Innenwuerfel zuerst wie bei cube_inner_all (Tiefe wird im Translucent-Pass geschrieben, Sortierung ist gedrosselt) - Vanilla listet hier den Aussenwuerfel zuerst, das waere bei uns fragil.",
+  "parent": "block/block",
+  "elements": [
+    { "from": [1, 1, 1], "to": [15, 15, 15],
+      "faces": {
+        "down":  { "texture": "#bottom" },
+        "up":    { "texture": "#top" },
+        "north": { "texture": "#side" },
+        "south": { "texture": "#side" },
+        "west":  { "texture": "#side" },
+        "east":  { "texture": "#side" }
+      }
+    },
+    { "from": [0, 0, 0], "to": [16, 16, 16],
+      "faces": {
+        "down":  { "texture": "#bottom", "cullface": "down" },
+        "up":    { "texture": "#bottom", "cullface": "up" },
+        "north": { "texture": "#bottom", "cullface": "north" },
+        "south": { "texture": "#bottom", "cullface": "south" },
+        "west":  { "texture": "#bottom", "cullface": "west" },
+        "east":  { "texture": "#bottom", "cullface": "east" }
+      }
+    }
+  ]
+}

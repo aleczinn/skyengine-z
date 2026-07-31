@@ -42,6 +42,12 @@ public final class BlockConfig {
     private final List<String> placeOn;
     private final boolean placeOnFullTop;
     private final float hardness;
+    private final float resistance;
+    private final float friction;
+    private final float speedFactor;
+    private final float jumpFactor;
+    private final float bounciness;
+    private final float fallDamageFactor;
     private final de.skyengine.game.world.item.ToolType toolType;
     private final int harvestLevel;
     private final de.skyengine.audio.BlockSoundGroup soundGroup;
@@ -70,6 +76,12 @@ public final class BlockConfig {
         this.placeOn = b.placeOn == null ? null : List.copyOf(b.placeOn);
         this.placeOnFullTop = b.placeOnFullTop;
         this.hardness = b.hardness;
+        this.resistance = b.resistance;
+        this.friction = b.friction;
+        this.speedFactor = b.speedFactor;
+        this.jumpFactor = b.jumpFactor;
+        this.bounciness = b.bounciness;
+        this.fallDamageFactor = b.fallDamageFactor;
         this.toolType = b.toolType;
         this.harvestLevel = b.harvestLevel;
         this.soundGroup = b.soundGroup;
@@ -182,6 +194,41 @@ public final class BlockConfig {
     }
 
     /**
+     * Explosions-Widerstand (MC-Blast-Resistance). Getrennt von der Abbau-Härte, weil beide in
+     * Minecraft fast nirgends übereinstimmen (Obsidian 50/1200, Stein 1.5/6, End-Stone 3/9).
+     * Fehlt das JSON-Feld, setzt {@code ArchetypeBlockFactory} die Härte ein — dadurch bleibt
+     * auch die Konvention „negativ = unzerstörbar" (Bedrock) ohne eigenen Wert erhalten.
+     */
+    public float resistance() {
+        return resistance;
+    }
+
+    /** Bodenreibung (MC-Default 0.6; höher = rutschiger, Eis 0.98). */
+    public float friction() {
+        return friction;
+    }
+
+    /** Faktor auf die Horizontalgeschwindigkeit (MC-Default 1.0; Seelensand 0.4). */
+    public float speedFactor() {
+        return speedFactor;
+    }
+
+    /** Faktor auf die Sprungkraft (MC-Default 1.0; Honigblock 0.5). */
+    public float jumpFactor() {
+        return jumpFactor;
+    }
+
+    /** Anteil der Aufprallgeschwindigkeit, der beim Landen umgekehrt wird (0 = kein Abprallen). */
+    public float bounciness() {
+        return bounciness;
+    }
+
+    /** Multiplikator auf den Fallschaden (1.0 = normal, 0 = immun wie Slimeblock). */
+    public float fallDamageFactor() {
+        return fallDamageFactor;
+    }
+
+    /**
      * Effektive Tool-Klasse oder null (= Hand reicht, droppt immer).
      */
     public de.skyengine.game.world.item.ToolType toolType() {
@@ -256,6 +303,12 @@ public final class BlockConfig {
         private List<String> placeOn;
         private boolean placeOnFullTop;
         private float hardness = 0F;
+        private float resistance = 0F;
+        private float friction = 0.6F;
+        private float speedFactor = 1.0F;
+        private float jumpFactor = 1.0F;
+        private float bounciness = 0F;
+        private float fallDamageFactor = 1.0F;
         private de.skyengine.game.world.item.ToolType toolType;
         private int harvestLevel = 0;
         private de.skyengine.audio.BlockSoundGroup soundGroup = de.skyengine.audio.BlockSoundGroup.STONE;
@@ -361,6 +414,37 @@ public final class BlockConfig {
             this.hardness = v;
             return this;
         }
+
+        public Builder resistance(float v) {
+            this.resistance = v;
+            return this;
+        }
+
+        public Builder friction(float v) {
+            this.friction = v;
+            return this;
+        }
+
+        public Builder speedFactor(float v) {
+            this.speedFactor = v;
+            return this;
+        }
+
+        public Builder jumpFactor(float v) {
+            this.jumpFactor = v;
+            return this;
+        }
+
+        public Builder bounciness(float v) {
+            this.bounciness = v;
+            return this;
+        }
+
+        public Builder fallDamageFactor(float v) {
+            this.fallDamageFactor = v;
+            return this;
+        }
+
 
         public Builder toolType(de.skyengine.game.world.item.ToolType t) {
             this.toolType = t;

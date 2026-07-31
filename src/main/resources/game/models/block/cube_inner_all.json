@@ -1,0 +1,26 @@
+{
+  "_comment": "Verbatim MC block/slime_block: transluzente Aussenhuelle 0..16 plus ein eingerueckter Innenwuerfel 3..13 aus derselben Textur - die doppelte Transluzenz laesst den Kern satter wirken. Nur die Aussenfaces tragen cullface (der Innenwuerfel darf nie gecullt werden). Der Innenwuerfel steht ABSICHTLICH zuerst: unser Translucent-Pass schreibt Tiefe, und die Per-Quad-Sortierung ist gedrosselt - in dieser Reihenfolge stimmt schon der unsortierte Puffer fuer jeden Blickwinkel. Keine expliziten uv: extentUv leitet fuer eine 3..13-Box exakt Vanillas [3,3,13,13] ab.",
+  "parent": "block/block",
+  "elements": [
+    { "from": [3, 3, 3], "to": [13, 13, 13],
+      "faces": {
+        "down":  { "texture": "#all" },
+        "up":    { "texture": "#all" },
+        "north": { "texture": "#all" },
+        "south": { "texture": "#all" },
+        "west":  { "texture": "#all" },
+        "east":  { "texture": "#all" }
+      }
+    },
+    { "from": [0, 0, 0], "to": [16, 16, 16],
+      "faces": {
+        "down":  { "texture": "#all", "cullface": "down" },
+        "up":    { "texture": "#all", "cullface": "up" },
+        "north": { "texture": "#all", "cullface": "north" },
+        "south": { "texture": "#all", "cullface": "south" },
+        "west":  { "texture": "#all", "cullface": "west" },
+        "east":  { "texture": "#all", "cullface": "east" }
+      }
+    }
+  ]
+}

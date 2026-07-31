@@ -2,5 +2,6 @@
   "id": "skyengine:dark_oak_planks",
   "parent": "preset/cube",
   "hardness": 2,
+  "resistance": 3,
   "tool": "axe"
 }

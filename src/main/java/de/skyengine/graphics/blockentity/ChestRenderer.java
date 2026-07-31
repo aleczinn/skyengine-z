@@ -7,6 +7,7 @@ import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.ChestBlockEntity;
 import de.skyengine.game.world.block.state.ChestType;
 import de.skyengine.graphics.GlDebug;
+import de.skyengine.graphics.GlState;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.gui.ItemIconRenderer;
 import de.skyengine.graphics.shader.Shader;
@@ -82,7 +83,25 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.baseRight = new Mesh(buildBox(1, 0, 1, 16, 10, 15, 0, 19));
         this.lidRight = new Mesh(buildBox(1, 9, 1, 16, 14, 15, 0, 0));
         this.latchRight = new Mesh(buildBox(15, 7, 15, 16, 11, 16, 0, 0));
+
+        /* Uniform-Locations einmalig cachen (Muster ChunkRenderer) — der String-Weg machte
+           pro Truhe pro Frame ~9 HashMap-Lookups. Die Helligkeiten werden weiterhin pro
+           render() gesetzt: die Icon-/Hand-Pfade unten überschreiben sie mit eigenen Werten.
+           Nur u_Texture (immer Unit 0, in allen Pfaden) ist einmalig gesetzt. */
+        this.locProjectionView = this.shader.getUniformLocation("u_ProjectionView");
+        this.locLight = this.shader.getUniformLocation("u_Light");
+        this.locNormalRot = this.shader.getUniformLocation("u_NormalRot");
+        this.locModel = this.shader.getUniformLocation("u_Model");
+        this.locTopBrightness = this.shader.getUniformLocation("u_TopBrightness");
+        this.locZBrightness = this.shader.getUniformLocation("u_ZBrightness");
+        this.locSideBrightness = this.shader.getUniformLocation("u_SideBrightness");
+        this.shader.bind();
+        this.shader.setUniformi("u_Texture", 0);
+        this.shader.unbind();
     }
+
+    private int locProjectionView, locLight, locNormalRot, locModel,
+            locTopBrightness, locZBrightness, locSideBrightness;
 
     @Override
     public void render(BlockEntity be, Camera camera, float partialTick, float light) {
@@ -121,30 +140,30 @@ public final class ChestRenderer implements BlockEntityRenderer {
             case SINGLE -> this.latch;
         };
 
-        boolean cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_CULL_FACE);
+        boolean cull = GlState.isCullFaceEnabled();
+        GlState.disableCullFace();
 
         this.shader.bind();
-        this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
-        this.shader.setUniformi("u_Texture", 0);
         /* Welt-Truhe: normale MC-Helligkeit pro Achse (oben/Nord-Süd/West-Ost); das Himmelslicht
            der Zelle kommt im Shader einmal obendrauf — dieselbe Kombination wie beim Terrain
-           (FACE_BRIGHTNESS × Licht), damit die Truhe in ihrer Wand nicht heraussticht. */
-        this.shader.setUniformf("u_TopBrightness", 1.0f);
-        this.shader.setUniformf("u_ZBrightness", 0.8f);
-        this.shader.setUniformf("u_SideBrightness", 0.6f);
-        this.shader.setUniformf("u_Light", light);
+           (FACE_BRIGHTNESS × Licht). Pro render() gesetzt, weil die Icon-/Hand-Pfade dieselben
+           Uniforms mit eigenen Werten überschreiben. */
+        this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
+        this.shader.setUniformf(this.locTopBrightness, 1.0f);
+        this.shader.setUniformf(this.locZBrightness, 0.8f);
+        this.shader.setUniformf(this.locSideBrightness, 0.6f);
+        this.shader.setUniformf(this.locLight, light);
         tex.bind(0);
 
         /* Normalen nur um die Facing-Achse drehen (ohne Deckel-Klappung), damit das Richtungs-
            Shading weltachsen-fest bleibt und sich beim Öffnen nicht verschiebt. */
         this.normalRot.identity().rotateY(facingY);
-        this.shader.setUniformMatrix4f("u_NormalRot", this.normalRot);
+        this.shader.setUniformMatrix4f(this.locNormalRot, this.normalRot);
 
         /* Korpus: nur Facing-Drehung um die vertikale Blockmitte (0.5, *, 0.5). */
         this.model.translation(ox, oy, oz)
                 .translate(0.5f, 0f, 0.5f).rotateY(facingY).translate(-0.5f, 0f, -0.5f);
-        this.shader.setUniformMatrix4f("u_Model", this.model);
+        this.shader.setUniformMatrix4f(this.locModel, this.model);
         baseMesh.render();
 
         /* Deckel + Schloss: Facing-Drehung, dann Aufklappen um die hintere Scharnierkante. */
@@ -153,12 +172,12 @@ public final class ChestRenderer implements BlockEntityRenderer {
                 .translate(0, HINGE_Y, HINGE_Z)
                 .rotateX(-angle)
                 .translate(0, -HINGE_Y, -HINGE_Z);
-        this.shader.setUniformMatrix4f("u_Model", this.model);
+        this.shader.setUniformMatrix4f(this.locModel, this.model);
         lidMesh.render();
         latchMesh.render();
 
         this.shader.unbind();
-        if (cull) GL11.glEnable(GL11.GL_CULL_FACE);
+        if (cull) GlState.enableCullFace();
     }
 
     @Override

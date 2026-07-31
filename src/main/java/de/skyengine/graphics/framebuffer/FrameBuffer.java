@@ -178,32 +178,13 @@ public class FrameBuffer implements IDisposable {
     }
 
     /**
-     * Copy the content of this framebuffer to the default framebuffer (screen).
-     * Bei MSAA über das Resolve-FBO: ein MS-Resolve-Blit verlangt IDENTISCHE Formate
-     * (RGBA16F-MS → RGBA8-Backbuffer wäre INVALID_OPERATION); der Non-MS-Blit
-     * Float → Fixed-Point ist dagegen erlaubt (Konvertierung).
-     */
-    public void blitToScreen() {
-        int width = this.config.getWindowWidth(), height = this.config.getWindowHeight();
-        int source = this.id;
-        if (this.samples > 0) {
-            this.resolve();
-            source = this.resolveFbo;
-        }
-
-        if (this.properties.isUseDirectStateAccess()) {
-            ARBDirectStateAccess.glBlitNamedFramebuffer(source, 0, 0, 0, width, height, 0, 0, width, height, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
-        } else {
-            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
-            GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, source);
-            GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
-            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
-        }
-    }
-
-    /**
      * Sample-bare Szenen-Farbe (RGBA16F): bei MSAA erst nach {@link #resolve()} aktuell.
      */
+    /** GL-Name des (Multisample-)Szene-FBO; 0 = noch nicht erzeugt. */
+    public int getId() {
+        return this.id;
+    }
+
     public int getColorTexture() {
         return this.colorTexture;
     }

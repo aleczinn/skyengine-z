@@ -112,6 +112,28 @@ public final class ArchetypeBlockFactory {
         if (def.harvest_tier != null) {
             builder.harvestLevel(ToolTier.levelByName(def.harvest_tier));
         }
+        /* Explosions-Widerstand: ohne eigenes Feld gilt die Härte (MC-Semantik). Die Auflösung
+           passiert HIER und nicht im BlockConfig-Default, damit Bedrock (hardness -1) den Wert
+           -1 erbt und damit unzerstörbar bleibt, ohne ihn doppelt in der JSON zu führen. */
+        builder.resistance(def.resistance != null ? def.resistance
+                : (def.hardness != null ? def.hardness : 0F));
+
+        /* Bewegung: Reibung, Tempo- und Sprungfaktor (Eis, Seelensand, Honig). */
+        if (def.friction != null) {
+            builder.friction(def.friction);
+        }
+        if (def.speed_factor != null) {
+            builder.speedFactor(def.speed_factor);
+        }
+        if (def.jump_factor != null) {
+            builder.jumpFactor(def.jump_factor);
+        }
+        if (def.bounciness != null) {
+            builder.bounciness(def.bounciness);
+        }
+        if (def.fall_damage_factor != null) {
+            builder.fallDamageFactor(def.fall_damage_factor);
+        }
 
         /* Licht-Opazität: ohne Angabe entscheidet Block.getLightOpacity automatisch per State. */
         if (def.light_opacity != null) {

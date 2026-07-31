@@ -44,24 +44,18 @@ public final class SimpleItemStorage implements ItemStorage {
             slot.setCount(slot.getCount() + moved);
             remaining.setCount(remaining.getCount() - moved);
         }
-        /* 2) In leere Slots ablegen. */
+        /* 2) In leere Slots ablegen (split zieht selbst ab und erhält die Abnutzung). */
         for (int i = 0; i < this.slots.length && !remaining.isEmpty(); i++) {
             if (!this.slots[i].isEmpty()) continue;
-            int moved = Math.min(remaining.getMaxStackSize(), remaining.getCount());
-            this.slots[i] = new ItemStack(remaining.getItem(), moved);
-            remaining.setCount(remaining.getCount() - moved);
+            this.slots[i] = remaining.split(remaining.getMaxStackSize());
         }
         return remaining.isEmpty() ? ItemStack.EMPTY : remaining;
     }
 
     @Override
     public ItemStack extract(int slot, int amount) {
-        ItemStack s = this.slots[slot];
-        if (s.isEmpty() || amount <= 0) return ItemStack.EMPTY;
-        int removed = Math.min(amount, s.getCount());
-        ItemStack out = new ItemStack(s.getItem(), removed);
-        s.setCount(s.getCount() - removed);
-        if (s.getCount() <= 0) this.slots[slot] = ItemStack.EMPTY;
+        ItemStack out = this.slots[slot].split(amount);
+        if (this.slots[slot].isEmpty()) this.slots[slot] = ItemStack.EMPTY;
         return out;
     }
 

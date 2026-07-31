@@ -8,12 +8,14 @@ import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.model.ModelLoader;
+import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ToolItem;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.graphics.GlDebug;
+import de.skyengine.graphics.GlState;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.BlockEntityRenderer;
 import de.skyengine.graphics.shader.Shader;
@@ -56,15 +58,24 @@ public final class HeldItemMeshes {
     /** Für BER-Blöcke ohne statisches Modell (Truhe): eigener Renderer statt Planks-Fallback. */
     private BlockEntityRenderDispatcher blockEntityRenderers;
 
-    /** model = Modellname für die Display-Sektion ({@code block/<id>}); null bei flachen Items. */
-    private record HeldMesh(Mesh mesh, boolean flat, boolean handheld, BlockEntityRenderer custom, String model) {}
-    private static final HeldMesh EMPTY = new HeldMesh(null, false, false, null, null);
+    /**
+     * model = Modellname für die Display-Sektion ({@code block/<id>}); null bei flachen Items.
+     * translucent = der Block liegt im TRANSLUCENT-Layer (Slime, Honig, Eis, Glas) und braucht
+     * beim Zeichnen Blending statt des harten Cutout-Tests — flache Item-Sprites nie.
+     */
+    private record HeldMesh(Mesh mesh, boolean flat, boolean handheld, BlockEntityRenderer custom,
+                            String model, boolean translucent) {}
+    private static final HeldMesh EMPTY = new HeldMesh(null, false, false, null, null, false);
 
     private final Map<Item, HeldMesh> cache = new HashMap<>();
     private final Matrix4f transform = new Matrix4f();
     private final Matrix4f projView = new Matrix4f();
     private final Matrix4f mvp = new Matrix4f();
     private boolean cullWasEnabled;
+    private boolean blendWasEnabled;
+    /** Alpha-Test-Schwellen wie im ChunkRenderer: harter Cutout bzw. praktisch aus fürs Blending. */
+    private static final float CUTOUT_ALPHA = 0.5F;
+    private static final float TRANSLUCENT_ALPHA = 0.001F;
     /* Licht des laufenden bind()-Abschnitts — der BER-Sonderweg (Truhe) zeichnet mit seinem
        EIGENEN Shader und braucht den Wert deshalb als Parameter statt als Uniform. */
     private float heldLight = 1.0F;
@@ -85,20 +96,49 @@ public final class HeldItemMeshes {
      *              für den BER-Sonderweg (Truhe in der Hand), s. {@link #heldLight}.
      */
     public void bind(Matrix4f projectionView, float light) {
-        this.cullWasEnabled = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_CULL_FACE);
+        this.cullWasEnabled = GlState.isCullFaceEnabled();
+        /* Blend-Zustand des Aufrufers merken statt ihn am Ende hart abzuschalten: die
+           Inventar-Vorschau zeichnet mitten in der GUI, die Blending braucht. */
+        this.blendWasEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
+        GlState.disableCullFace();
         this.projView.set(projectionView);
         this.heldLight = light;
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", projectionView);
         this.shader.setUniformi("u_Textures", 0);
         this.shader.setUniformf("u_Light", light);
+        this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);
         this.textures.bind(0);
     }
 
     public void unbind() {
         this.shader.unbind();
-        if (this.cullWasEnabled) GL11.glEnable(GL11.GL_CULL_FACE);
+        if (this.cullWasEnabled) GlState.enableCullFace();
+        if (this.blendWasEnabled) {
+            GL11.glEnable(GL11.GL_BLEND);
+        } else {
+            GL11.glDisable(GL11.GL_BLEND);
+        }
+    }
+
+    /**
+     * Zeichnet das Mesh mit dem Zustand, den sein RenderLayer braucht: transluzente Blöcke mit
+     * Blending und praktisch ohne Alpha-Test, alles andere als harter Cutout — dieselbe
+     * Aufteilung wie die drei Passes des {@code ChunkRenderer}. Ohne das wären Slime, Honig und
+     * Eis in der Hand deckend, weil ihre Textur mit Alpha ≈ 0,7 am 0,5-Test vorbeikommt.
+     */
+    private void drawMesh(HeldMesh held) {
+        if (held.translucent) {
+            GL11.glEnable(GL11.GL_BLEND);
+            this.shader.setUniformf("u_AlphaCutoff", TRANSLUCENT_ALPHA);
+        }
+        if (!held.flat) GlState.enableCullFace();   // Block-Würfel: Rückseiten cullen (Glas wie Vanilla)
+        held.mesh.render();
+        if (!held.flat) GlState.disableCullFace();
+        if (held.translucent) {
+            GL11.glDisable(GL11.GL_BLEND);
+            this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);
+        }
     }
 
     /**
@@ -129,9 +169,7 @@ public final class HeldItemMeshes {
         }
         this.transform.translate(-0.5F, -0.5F, -0.5F);
         this.shader.setUniformMatrix4f("u_Model", this.transform);
-        if (!held.flat) GL11.glEnable(GL11.GL_CULL_FACE);   // Block-Würfel: Rückseiten cullen (Glas wie Vanilla)
-        held.mesh.render();
-        if (!held.flat) GL11.glDisable(GL11.GL_CULL_FACE);
+        this.drawMesh(held);
     }
 
     /**
@@ -170,9 +208,7 @@ public final class HeldItemMeshes {
         }
         this.transform.translate(-0.5F, -0.5F, -0.5F);
         this.shader.setUniformMatrix4f("u_Model", this.transform);
-        if (!held.flat) GL11.glEnable(GL11.GL_CULL_FACE);   // Block-Würfel: Rückseiten cullen (Glas wie Vanilla)
-        held.mesh.render();
-        if (!held.flat) GL11.glDisable(GL11.GL_CULL_FACE);
+        this.drawMesh(held);
     }
 
     private HeldMesh meshFor(Item item) {
@@ -218,11 +254,13 @@ public final class HeldItemMeshes {
             paths = new String[]{item.getIconTexture()};
         }
         boolean handheld = item instanceof ToolItem;
+        /* Flache Sprites bleiben immer beim Cutout-Test: sie sind ausgestanzte Icons, kein
+           transluzentes Material — ein Blend-Pfad wuerde dort nur weiche Kanten erzeugen. */
         if (paths != null && paths.length == 1) {
-            return new HeldMesh(buildExtruded(paths[0], tint), true, handheld, null, null);
+            return new HeldMesh(buildExtruded(paths[0], tint), true, handheld, null, null, false);
         }
         if (paths != null && paths.length > 1) {
-            return new HeldMesh(buildFlat(paths, tint), true, handheld, null, null);
+            return new HeldMesh(buildFlat(paths, tint), true, handheld, null, null, false);
         }
         if (item instanceof BlockItem bi) {
             /* BER-Block ohne statisches Modell (Truhe): eigener Renderer statt Planks-Fallback.
@@ -230,7 +268,7 @@ public final class HeldItemMeshes {
             BakedQuad[] quads = bi.getBlock().getDefaultState().getModel();
             if (quads == null || quads.length == 0) {
                 BlockEntityRenderer custom = this.customHeldFor(bi);
-                if (custom != null) return new HeldMesh(null, false, false, custom, null);
+                if (custom != null) return new HeldMesh(null, false, false, custom, null, false);
             }
             /* Deklariert der Block ein inventory_model (Zaun mit Armen, Glasscheibe), gilt es auch
                in der Hand — sonst hielte man beim Zaun nur den nackten Pfosten. Dieser Pfad backt
@@ -242,7 +280,9 @@ public final class HeldItemMeshes {
                     : buildBlock(bi.getBlock().getDefaultState());
             /* Modellname für die display-Sektion; block/block liefert den Vanilla-Default. */
             String model = "block/" + bi.getBlock().getIdentifier().path();
-            if (mesh != null) return new HeldMesh(mesh, false, false, null, model);
+            boolean translucent =
+                    bi.getBlock().getDefaultState().getRenderLayer() == RenderLayer.TRANSLUCENT;
+            if (mesh != null) return new HeldMesh(mesh, false, false, null, model, translucent);
         }
         return EMPTY;
     }
@@ -261,6 +301,7 @@ public final class HeldItemMeshes {
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
         this.shader.setUniformf("u_Light", this.heldLight);
+        this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);
         this.textures.bind(0);
     }
 
@@ -516,10 +557,13 @@ public final class HeldItemMeshes {
         /* Licht der Zelle (Himmel + Block), fertig durch die Kurve gerechnet
            (ChunkRenderer.lightFactor). 1.0 = voll hell, Fullbright ODER GUI-Vorschau. */
         uniform float u_Light;
+        /* Wie im ChunkRenderer: 0.5 = harter Cutout (Sprites, Laub, Fackel), 0.001 = praktisch
+           aus, damit ein transluzenter Block sein echtes Alpha ins Blending bringt. */
+        uniform float u_AlphaCutoff;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
-            if (c.a < 0.5) discard;
+            if (c.a < u_AlphaCutoff) discard;
             fragColor = vec4(c.rgb * v_color * u_Light, c.a);
         }
         """;

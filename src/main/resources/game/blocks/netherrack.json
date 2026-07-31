@@ -1,0 +1,6 @@
+{
+  "id": "skyengine:netherrack",
+  "parent": "preset/cube",
+  "hardness": 0.4,
+  "tool": "pickaxe"
+}

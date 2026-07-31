@@ -5,6 +5,7 @@
     "texture": "acacia_planks"
   },
   "hardness": 2,
+  "resistance": 3,
   "tool": "axe",
   "variants": {
     "type=bottom": {

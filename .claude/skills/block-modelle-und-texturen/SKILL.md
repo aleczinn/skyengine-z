@@ -73,6 +73,18 @@ Drehung"-Vereinfachung die Textur prüfen**, nicht die Geometrie.
 (Blending, Glas — wird zuletzt und sortiert gerendert). `opaque`-Default folgt dem Layer;
 `cull_same` cullt Faces zwischen zwei identischen Blöcken (Glas an Glas).
 
+**Der Layer gilt auch außerhalb des Chunk-Renderers.** Ein Block wird an vier Stellen gezeichnet,
+und jede braucht ihn: `ChunkRenderer` (drei Passes), `ItemIconRenderer` (Icon), `HeldItemMeshes`
+(Hand + 3rd Person + Inventar-Puppe) und `EntityRenderer` (Drops, fallende Blöcke, TNT). Die
+letzten beiden hatten den Layer lange gar nicht und zeichneten alles mit einem festen Cutout bei
+0,5 — transluzente Blöcke kamen dort **deckend** heraus, weil ihre Textur Alpha ≈ 0,7 hat und den
+Test überlebt (`slime_block.png` 180/255, `ice.png` 190, `honey_block_side.png` 189). Der Fix ist
+in beiden Renderern derselbe wie im Welt-Pass: `u_AlphaCutoff` als Uniform (0,5 Cutout / 0,001
+transluzent) plus `glEnable(GL_BLEND)` um den Draw. **Wer einen neuen Renderer für Block-Geometrie
+baut, muss das mitbringen** — der Shader schreibt das Alpha ohnehin korrekt, ohne Blending wertet
+es nur niemand aus. Merke: Blend-Zustand des Aufrufers retten (`glIsEnabled`), nicht hart
+abschalten; die Inventar-Puppe zeichnet mitten in der GUI, die Blending braucht.
+
 `cull_same` gehört an **jeden** Block, dessen Modell Faces mit `cullface` an der Blockgrenze hat und
 der neben seinesgleichen stehen darf — nicht nur an Vollwürfel. Es ist unser Gegenstück zu MCs
 `Block.skipRendering` und derselbe Fehler ist hier schon **zweimal** passiert: bei `glass_pane` die

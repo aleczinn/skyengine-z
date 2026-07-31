@@ -9,13 +9,12 @@ import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
+import de.skyengine.utils.collect.LongIntMap;
+import de.skyengine.utils.collect.LongObjMap;
+
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -69,12 +68,14 @@ public class LodManager {
     /* Eine Mesher-Instanz pro Worker-Thread (wiederverwendete Puffer, wie ChunkMesher) */
     private final ThreadLocal<LodMesher> meshers = ThreadLocal.withInitial(LodMesher::new);
 
-    /* Soll-Zustand: regionKey -> Level. Nur auf dem Tick-/Render-Thread. */
-    private final Map<Long, Integer> desired = new HashMap<>();
+    /* Soll-Zustand: regionKey -> Level. Nur auf dem Tick-/Render-Thread. Boxing-freie
+       Long-Maps: der submitPass-Scan läuft jeden Tick über ALLE Einträge (~3400 bei
+       lodMax=128, quadratisch wachsend) und lodShowsCell ist der heißeste Reader pro Frame. */
+    private final LongIntMap desired = new LongIntMap(4096);
     /* Ist-Zustand der hochgeladenen Regionen (Bookkeeping für Resubmit-Entscheidungen) */
-    private final Map<Long, Current> current = new HashMap<>();
-    /* Bereits submittete, noch nicht abgeholte Jobs (gegen Doppel-Submits) */
-    private final Set<Long> inflight = new HashSet<>();
+    private final LongObjMap<Current> current = new LongObjMap<>(4096);
+    /* Bereits submittete, noch nicht abgeholte Jobs (gegen Doppel-Submits; Long-Set) */
+    private final LongIntMap inflight = new LongIntMap(64);
     /* Worker -> Render-Thread */
     private final ConcurrentLinkedQueue<LodMeshResult> results = new ConcurrentLinkedQueue<>();
 
@@ -212,7 +213,7 @@ public class LodManager {
         }
 
         /* Bookkeeping nicht mehr gewünschter Regionen aufräumen (Meshes räumt der Renderer ab) */
-        this.current.keySet().removeIf(k -> !this.desired.containsKey(k));
+        this.current.removeIf((k, v) -> !this.desired.containsKey(k));
 
         StringBuilder sb = new StringBuilder("LOD-Regionen: ");
         for (int l = 1; l < counts.length; l++) {
@@ -250,10 +251,12 @@ public class LodManager {
         double nearReal = (this.config.renderDistance() + 2) * 32.0 + LodMesher.HALF_DIAG;
 
         List<Candidate> candidates = null;
-        for (Map.Entry<Long, Integer> e : this.desired.entrySet()) {
-            long key = e.getKey();
-            int level = e.getValue();
-            if (this.inflight.contains(key)) continue;
+        /* Cursor-Iteration statt entrySet: kein Long-/Integer-Unboxing je Eintrag. */
+        for (int idx = 0, n = this.desired.tableSize(); idx < n; idx++) {
+            if (!this.desired.usedAt(idx)) continue;
+            long key = this.desired.keyAt(idx);
+            int level = this.desired.valueAt(idx);
+            if (this.inflight.containsKey(key)) continue;
 
             int rx = (int) (key >> 32), rz = (int) key;
             double cx = (rx + 0.5) * LodMesher.REGION_BLOCKS - (this.pcx * 32 + 16);
@@ -292,7 +295,7 @@ public class LodManager {
         int submits = Math.min(MAX_SUBMITS_PER_TICK, candidates.size());
         for (int i = 0; i < submits; i++) {
             Candidate cand = candidates.get(i);
-            this.inflight.add(cand.key);
+            this.inflight.put(cand.key, 1);
 
             int rx = (int) (cand.key >> 32), rz = (int) cand.key;
             int level = cand.level, jobEpoch = this.epoch;
@@ -320,8 +323,8 @@ public class LodManager {
      */
     public boolean acceptResult(LodMeshResult result) {
         long key = key(result.rx(), result.rz());
-        Integer want = this.desired.get(key);
-        if (want == null || want != result.level() || result.epoch() != this.epoch) return false;
+        int want = this.desired.getOrDefault(key, -1); // -1 = nicht gewünscht (Level sind >= 1)
+        if (want != result.level() || result.epoch() != this.epoch) return false;
         this.current.put(key, new Current(result.level(), result.sizeRegions(), result.epoch(), result.mask()));
         return true;
     }

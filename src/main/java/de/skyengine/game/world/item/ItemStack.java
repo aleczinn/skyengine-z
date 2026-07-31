@@ -66,6 +66,19 @@ public final class ItemStack {
         return copy;
     }
 
+    /**
+     * Nimmt bis zu {@code amount} von diesem Stapel ab und liefert sie als eigenen Stapel
+     * (Vorbild MC {@code ItemStack.split}). Über {@link #copy()} bleibt die Abnutzung erhalten.
+     * Der {@link #isEmpty()}-Guard schützt zugleich das geteilte {@link #EMPTY} vor Mutation.
+     */
+    public ItemStack split(int amount) {
+        if (this.isEmpty() || amount <= 0) return EMPTY;
+        ItemStack out = this.copy();
+        out.setCount(Math.min(amount, this.count));
+        this.count -= out.getCount();
+        return out;
+    }
+
     /* --- Persistenz (DataTag) --- */
 
     public DataTag save() {

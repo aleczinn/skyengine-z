@@ -1,0 +1,13 @@
+{
+  "_comment": "Kollision nur 14/16 hoch wie in MC (man sinkt sichtbar ein); das Modell bleibt ein voller Wuerfel - in Vanilla ebenso.",
+  "id": "skyengine:soul_sand",
+  "parent": "preset/cube",
+  "sound": "sand",
+  "hardness": 0.5,
+  "speed_factor": 0.4,
+  "tool": "shovel",
+  "collision": {
+    "boxes":   [ { "from": [0, 0, 0], "to": [16, 14, 16] } ],
+    "outline": [ { "from": [0, 0, 0], "to": [16, 16, 16] } ]
+  }
+}

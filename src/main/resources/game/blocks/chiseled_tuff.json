@@ -6,5 +6,6 @@
     "side": "chiseled_tuff"
   },
   "hardness": 1.5,
+  "resistance": 6,
   "tool": "pickaxe"
 }
