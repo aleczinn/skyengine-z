@@ -8,6 +8,7 @@ import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.Label;
+import de.skyengine.graphics.gui.GuiText;
 
 /**
  * Todesscreen (Survival): rotes Overlay über der weiterlaufenden Welt (pausiert NICHT, wie MC),
@@ -30,7 +31,7 @@ public final class GuiDeathScreen extends GuiScreen {
     public void init(GuiManager gui, float vW, float vH) {
         this.components.clear();
 
-        Label title = new Label(I18n.tr("death.title"), 20).measure(gui);
+        Label title = new Label(I18n.tr("death.title"), GuiText.LARGE).measure(gui);
         Button respawn = new Button(I18n.tr("death.respawn"), () -> SkyEngine.get().getGame().respawnPlayer());
         Button toTitle = new Button(I18n.tr("death.main_menu"), () -> SkyEngine.get().getGame().exitToTitle());
 

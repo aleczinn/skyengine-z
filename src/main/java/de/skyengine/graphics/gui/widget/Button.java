@@ -2,6 +2,7 @@ package de.skyengine.graphics.gui.widget;
 
 import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.gui.GuiManager;
+import de.skyengine.graphics.gui.GuiText;
 import de.skyengine.graphics.gui.font.FontRenderer;
 import de.skyengine.graphics.texture.Texture;
 import org.lwjgl.glfw.GLFW;
@@ -17,7 +18,7 @@ public class Button extends GuiComponent {
 
     public static final float DEFAULT_WIDTH = 200;
     public static final float DEFAULT_HEIGHT = 20;
-    protected static final float TEXT_SIZE = 10;
+    protected static final float TEXT_SIZE = GuiText.NORMAL;
 
     private static final Color4 TEXT_COLOR = new Color4(1f, 1f, 1f, 1f);
     private static final Color4 TEXT_DISABLED = new Color4(0.63f, 0.63f, 0.63f, 1f);

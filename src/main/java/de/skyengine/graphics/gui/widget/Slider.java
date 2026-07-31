@@ -1,6 +1,7 @@
 package de.skyengine.graphics.gui.widget;
 
 import de.skyengine.graphics.gui.GuiManager;
+import de.skyengine.graphics.gui.GuiText;
 import de.skyengine.graphics.texture.Texture;
 import org.lwjgl.glfw.GLFW;
 
@@ -15,7 +16,7 @@ import java.util.function.DoubleFunction;
 public final class Slider extends GuiComponent {
 
     private static final float HANDLE_W = 8;
-    private static final float TEXT_SIZE = 10;
+    private static final float TEXT_SIZE = GuiText.NORMAL;
 
     private final double min, max, step;
     private double value;

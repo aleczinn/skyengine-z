@@ -11,6 +11,7 @@ import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.Label;
 import de.skyengine.graphics.gui.widget.TextField;
+import de.skyengine.graphics.gui.GuiText;
 
 import java.util.Random;
 
@@ -34,10 +35,10 @@ public final class GuiCreateWorld extends GuiScreen {
         String prevSeed = this.seed != null ? this.seed.getText() : "";
         this.components.clear();
 
-        Label title = new Label(I18n.tr("world.create.title"), 14).measure(gui);
-        Label nameLabel = new Label(I18n.tr("world.create.name"), 9).measure(gui);
+        Label title = new Label(I18n.tr("world.create.title"), GuiText.TITLE).measure(gui);
+        Label nameLabel = new Label(I18n.tr("world.create.name"), GuiText.NORMAL).measure(gui);
         this.name = new TextField(200, 20, 32, null).text(prevName);
-        Label seedLabel = new Label(I18n.tr("world.create.seed"), 9).measure(gui);
+        Label seedLabel = new Label(I18n.tr("world.create.seed"), GuiText.NORMAL).measure(gui);
         this.seed = new TextField(200, 20, 32, null).text(prevSeed);
 
         Button create = new Button(I18n.tr("world.create.create"), 98, 20, () -> {

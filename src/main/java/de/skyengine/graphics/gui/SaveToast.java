@@ -16,7 +16,7 @@ import de.skyengine.graphics.gui.font.FontRenderer;
  */
 public final class SaveToast {
 
-    private static final float TEXT_SIZE = 8.0F;
+    private static final float TEXT_SIZE = GuiText.SMALL;
     private static final float MARGIN = 4.0F;
     /** Volle Deckkraft, danach lineares Ausblenden (gleiche Kurve wie der Hotbar-Itemname). */
     private static final long HOLD_MS = 2000, FADE_MS = 500;

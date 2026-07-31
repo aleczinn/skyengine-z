@@ -8,6 +8,7 @@ import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.Label;
+import de.skyengine.graphics.gui.GuiText;
 
 /**
  * Generische Ja/Nein-Abfrage („Welt wirklich löschen?"). „Ja" führt die Aktion aus und kehrt
@@ -40,8 +41,8 @@ public final class GuiConfirm extends GuiScreen {
     public void init(GuiManager gui, float vW, float vH) {
         this.components.clear();
 
-        Label titleLabel = new Label(this.title, 14).measure(gui);
-        Label messageLabel = new Label(this.message, 10).measure(gui);
+        Label titleLabel = new Label(this.title, GuiText.TITLE).measure(gui);
+        Label messageLabel = new Label(this.message, GuiText.NORMAL).measure(gui);
         Button yes = new Button(I18n.tr("gui.yes"), 100, 20, () -> {
             this.onConfirm.run();
             this.goBack(gui);

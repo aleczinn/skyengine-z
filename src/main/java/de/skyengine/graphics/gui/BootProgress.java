@@ -47,9 +47,9 @@ public final class BootProgress {
         this.gui.font().begin(vW, vH);
         String title = SkyEngine.ENGINE_NAME;
         this.gui.font().drawStringWithShadow(title,
-                (vW - this.gui.font().getStringWidth(title, 20)) / 2f, vH / 2f - 40, 20, Colors.WHITE);
+                (vW - this.gui.font().getStringWidth(title, GuiText.LARGE)) / 2f, vH / 2f - 40, GuiText.LARGE, Colors.WHITE);
         this.gui.font().drawStringWithShadow(stage,
-                (vW - this.gui.font().getStringWidth(stage, 10)) / 2f, vH / 2f - 12, 10, Colors.WHITE);
+                (vW - this.gui.font().getStringWidth(stage, GuiText.NORMAL)) / 2f, vH / 2f - 12, GuiText.NORMAL, Colors.WHITE);
         this.gui.font().end();
 
         GLFW.glfwSwapBuffers(window.getWindowID());

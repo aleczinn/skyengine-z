@@ -12,6 +12,7 @@ import de.skyengine.graphics.gui.widget.GuiComponent;
 import de.skyengine.graphics.gui.widget.Label;
 import de.skyengine.graphics.gui.widget.Spacer;
 import de.skyengine.utils.logging.LogManager;
+import de.skyengine.graphics.gui.GuiText;
 
 import java.io.File;
 import java.io.IOException;
@@ -42,15 +43,15 @@ public final class GuiResourcePacks extends GuiOptionsScreen {
         /* Ordner + Zips als Kandidaten anzeigen (Laden folgt mit dem Pack-System). */
         File[] entries = dir.listFiles(f -> f.isDirectory() || f.getName().toLowerCase().endsWith(".zip"));
         if (entries == null || entries.length == 0) {
-            content.add(new Label(I18n.tr("resourcepacks.none"), 9).measure(gui));
+            content.add(new Label(I18n.tr("resourcepacks.none"), GuiText.NORMAL).measure(gui));
         } else {
             for (File entry : entries) {
-                content.add(new Label("- " + entry.getName(), 9).measure(gui));
+                content.add(new Label("- " + entry.getName(), GuiText.NORMAL).measure(gui));
             }
         }
         content.add(new Spacer(0, 4));
-        content.add(new Label(I18n.tr("resourcepacks.folder", dir.getPath()), 8, HINT_COLOR, true).measure(gui));
-        content.add(new Label(I18n.tr("resourcepacks.placeholder"), 8, HINT_COLOR, true).measure(gui));
+        content.add(new Label(I18n.tr("resourcepacks.folder", dir.getPath()), GuiText.SMALL, HINT_COLOR, true).measure(gui));
+        content.add(new Label(I18n.tr("resourcepacks.placeholder"), GuiText.SMALL, HINT_COLOR, true).measure(gui));
     }
 
     @Override

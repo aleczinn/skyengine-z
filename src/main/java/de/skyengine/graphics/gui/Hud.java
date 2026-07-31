@@ -21,7 +21,7 @@ public final class Hud {
     private static final float SEL_W = 24, SEL_H = 23;
     private static final float CROSS = 8;
     private static final float ICON = 16;
-    private static final float NAME_TEXT = 10;
+    private static final float NAME_TEXT = GuiText.NORMAL;
     /* Vitals-Reihe: 9×9-Icons im 8er-Raster, direkt über der Hotbar (MC-Layout). */
     private static final float VITAL = 9, VITAL_STEP = 8;
 

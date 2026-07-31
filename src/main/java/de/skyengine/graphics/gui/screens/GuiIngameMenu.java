@@ -8,6 +8,7 @@ import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.Label;
+import de.skyengine.graphics.gui.GuiText;
 
 /**
  * Pause-Menü (ESC im Spiel): pausiert die Welt, solange es offen ist.
@@ -33,7 +34,7 @@ public final class GuiIngameMenu extends GuiScreen {
     public void init(GuiManager gui, float vW, float vH) {
         this.components.clear();
 
-        Label title = new Label(I18n.tr("gui.pause.title"), 14).measure(gui);
+        Label title = new Label(I18n.tr("gui.pause.title"), GuiText.TITLE).measure(gui);
         Button resume = new Button(I18n.tr("gui.pause.resume"), gui::close);
         Button options = new Button(I18n.tr("gui.options"), () -> gui.open(new GuiOptionsMenu(this)));
         Button toTitle = new Button(I18n.tr("gui.pause.quit_to_title"), () -> SkyEngine.get().getGame().exitToTitle());

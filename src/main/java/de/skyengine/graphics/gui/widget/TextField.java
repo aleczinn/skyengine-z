@@ -5,6 +5,7 @@ import de.skyengine.core.input.Input;
 import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
+import de.skyengine.graphics.gui.GuiText;
 import de.skyengine.graphics.texture.Texture;
 import org.lwjgl.glfw.GLFW;
 
@@ -34,8 +35,9 @@ import java.util.function.IntPredicate;
  */
 public final class TextField extends GuiComponent {
 
-    private static final float TEXT_SIZE = 10;
-    private static final float PAD = 4;
+    private static final float TEXT_SIZE = GuiText.NORMAL;
+    /** Innenabstand; ohne eigenen Rahmen reicht 1 px, sonst muss der 9-Slice-Rand (3) drunter. */
+    private static final float PAD = 4, PAD_BORDERLESS = 1;
     private static final Color4 PLACEHOLDER = new Color4(0.55f, 0.55f, 0.55f, 1f);
     /** Auswahl-Hintergrund (MC-Blau) — liegt im Sprite-Pass, also garantiert hinter dem Text. */
     private static final float SEL_R = 0.13f, SEL_G = 0.24f, SEL_B = 0.62f;
@@ -46,6 +48,8 @@ public final class TextField extends GuiComponent {
     private final int maxLength;
     private final IntPredicate filter; // null = alle druckbaren Zeichen
     private String placeholder = "";
+    /** true: kein eigener Hintergrund — das Feld liegt über einem bereits gemalten Kasten. */
+    private boolean borderless;
     private int caret;
     /** Selektions-Anker: Auswahl ist {@code [min(anchor,caret), max(anchor,caret))}. */
     private int anchor;
@@ -65,6 +69,21 @@ public final class TextField extends GuiComponent {
     public TextField placeholder(String placeholder) {
         this.placeholder = placeholder;
         return this;
+    }
+
+    /**
+     * Zeichnet ohne eigenen Rahmen — für Felder, die über einem schon in die Textur gemalten
+     * Kasten liegen (Creative-Suche). Editieren, Caret und Selektion bleiben unverändert; nur
+     * der 9-Slice entfällt und der Innenabstand schrumpft auf {@link #PAD_BORDERLESS}.
+     */
+    public TextField borderless() {
+        this.borderless = true;
+        return this;
+    }
+
+    /** Innenabstand des aktuellen Modus (der 9-Slice-Rand fehlt im randlosen Fall). */
+    private float pad() {
+        return this.borderless ? PAD_BORDERLESS : PAD;
     }
 
     public TextField text(String value) {
@@ -300,7 +319,7 @@ public final class TextField extends GuiComponent {
      */
     private int caretAt(double mx) {
         var font = SkyEngine.get().getGame().getGuiManager().font();
-        float local = (float) (mx - (this.x + PAD)) + this.viewOffset;
+        float local = (float) (mx - (this.x + this.pad())) + this.viewOffset;
         if (local <= 0) return 0;
         float acc = 0;
         for (int i = 0; i < this.text.length(); i++) {
@@ -314,7 +333,7 @@ public final class TextField extends GuiComponent {
     /* --- Rendering --- */
 
     private float innerWidth() {
-        return this.w - 2 * PAD;
+        return this.w - 2 * this.pad();
     }
 
     private float prefixWidth(GuiManager gui, int index) {
@@ -340,48 +359,65 @@ public final class TextField extends GuiComponent {
         this.tickRepeat();
         this.clampView(gui);
 
-        Texture tex = (this.focused || this.hovered)
-                ? gui.textures().textFieldHighlighted : gui.textures().textField;
-        gui.sprites().drawNineSlice(tex, this.x, this.y, this.w, this.h, 3);
+        /* Im randlosen Modus entfällt NUR der 9-Slice — Caret und Selektion unten müssen
+           weiterlaufen, und tickRepeat/clampView haben hier ihren einzigen Aufrufpunkt. */
+        if (!this.borderless) {
+            Texture tex = (this.focused || this.hovered)
+                    ? gui.textures().textFieldHighlighted : gui.textures().textField;
+            gui.sprites().drawNineSlice(tex, this.x, this.y, this.w, this.h, 3);
+        }
+
+        float pad = this.pad();
+        /* Auswahl/Caret sitzen am Textband, damit sie ohne Rahmen nicht am Feldrand kleben. */
+        float bandY = this.textTop(gui);
+        float bandH = gui.font().lineHeight(TEXT_SIZE);
 
         /* Auswahl-Box (Sprite-Pass = hinter dem Text), auf das Feldinnere geklammert. */
         if (this.focused && this.hasSelection()) {
-            float left = Math.max(this.x + PAD + this.prefixWidth(gui, this.selStart()) - this.viewOffset,
-                    this.x + PAD);
-            float right = Math.min(this.x + PAD + this.prefixWidth(gui, this.selEnd()) - this.viewOffset,
-                    this.x + this.w - PAD);
+            float left = Math.max(this.x + pad + this.prefixWidth(gui, this.selStart()) - this.viewOffset,
+                    this.x + pad);
+            float right = Math.min(this.x + pad + this.prefixWidth(gui, this.selEnd()) - this.viewOffset,
+                    this.x + this.w - pad);
             if (right > left) {
-                gui.sprites().drawRect(left, this.y + 3, right - left, this.h - 6, SEL_R, SEL_G, SEL_B, 1f);
+                gui.sprites().drawRect(left, bandY, right - left, bandH, SEL_R, SEL_G, SEL_B, 1f);
             }
         }
 
         /* Caret als 1-px-Rect im Sprite-Pass (zeitbasiertes Blinken, kein Tick nötig). */
         if (this.focused && (System.currentTimeMillis() / 500) % 2 == 0) {
-            float cx = this.x + PAD + this.prefixWidth(gui, this.caret) - this.viewOffset;
-            if (cx >= this.x + PAD && cx <= this.x + this.w - PAD) {
-                gui.sprites().drawRect(cx, this.y + 4, 1, this.h - 8, 1f, 1f, 1f, 1f);
+            float cx = this.x + pad + this.prefixWidth(gui, this.caret) - this.viewOffset;
+            if (cx >= this.x + pad && cx <= this.x + this.w - pad) {
+                gui.sprites().drawRect(cx, bandY + 1, 1, bandH - 2, 1f, 1f, 1f, 1f);
             }
         }
     }
 
+    /** Obere Kante des Textbands (vertikal im Feld zentriert). */
+    private float textTop(GuiManager gui) {
+        return this.y + (this.h - gui.font().lineHeight(TEXT_SIZE)) / 2f;
+    }
+
     @Override
     public void renderText(GuiManager gui, double mx, double my) {
-        float ty = this.y + (this.h - gui.font().lineHeight(TEXT_SIZE)) / 2f;
+        float pad = this.pad();
+        float ty = this.textTop(gui);
         if (this.text.isEmpty() && !this.focused) {
-            gui.font().drawString(this.placeholder, this.x + PAD, ty, TEXT_SIZE, PLACEHOLDER);
+            gui.font().drawString(this.placeholder, this.x + pad, ty, TEXT_SIZE, PLACEHOLDER);
             return;
         }
         String value = this.text.toString();
-        float tx = this.x + PAD - this.viewOffset;
+        float tx = this.x + pad - this.viewOffset;
         if (gui.font().getStringWidth(value, TEXT_SIZE) <= this.innerWidth()) {
             gui.font().drawStringWithShadow(value, tx, ty, TEXT_SIZE, Colors.WHITE);
             return;
         }
         /* Zu langer Text: eigenes begin/end-Paar INNERHALB des Scissors, weil der FontRenderer
            erst bei end() flusht (sonst würde das Clipping den ganzen Screen-Text treffen bzw.
-           gar nicht wirken). Danach den Screen-Pass wieder öffnen, wie er vorgefunden wurde. */
+           gar nicht wirken). Danach den Screen-Pass wieder öffnen, wie er vorgefunden wurde.
+           Der Zuschnitt richtet sich nach dem Innenabstand: die frühere feste 2-px-Einrückung
+           ließ von einem 12 px hohen Feld nur 8 px übrig und hätte den Text beschnitten. */
         gui.font().end();
-        gui.enableScissor(this.x + 2, this.y + 2, this.w - 4, this.h - 4);
+        gui.enableScissor(this.x + pad, this.y, this.w - 2 * pad, this.h);
         gui.font().begin(gui.vWidth(), gui.vHeight());
         gui.font().drawStringWithShadow(value, tx, ty, TEXT_SIZE, Colors.WHITE);
         gui.font().end();
