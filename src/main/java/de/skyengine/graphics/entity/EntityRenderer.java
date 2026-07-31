@@ -56,6 +56,19 @@ public final class EntityRenderer {
     /* Stapel-Optik wie MC: Streuung je Kopie, dazu der feste z-Schritt der Sprite-Schichten. */
     private static final float COPY_SPREAD = 0.15f;
     private static final float COPY_LAYER_STEP = 0.09375f;
+
+    /* Boden-Animation, Werte aus MCs ItemEntityRenderer. */
+    private static final float BOB_SPEED = 0.1f;       // MC: (age + partialTick) / 10
+    private static final float BOB_AMPLITUDE = 0.1f;   // MC: sin(...) * 0.1 + 0.1
+    private static final float SPIN_SPEED = 0.05f;     // MC: (age + partialTick) / 20
+    /**
+     * Höhe der Modellmitte über dem Fußpunkt der Entity, ohne die Wippe. Setzt sich in MC aus dem
+     * Entity-Versatz {@code 0.25 · scale} und der {@code ground}-Translation des Item-Modells
+     * zusammen — und ergibt für BEIDE Fälle denselben Wert, weil MCs Transforms so gebaut sind:
+     * {@code item/block} 3/16 + 0.25·0.25, {@code item/generated} 2/16 + 0.25·0.5. Ohne diesen
+     * Versatz steckt das Modell im Boden, weil es um seine Mitte zentriert gezeichnet wird.
+     */
+    private static final float GROUND_LIFT = 0.25f;
     /** Konservativer Rand fürs Frustum-Culling (deckt Würfel, Item-Wippe, Interpolation ab). */
     private static final float CULL_MARGIN = 1.0f;
 
@@ -169,14 +182,20 @@ public final class EntityRenderer {
      * Block-Items sind Mini-Blockmodelle (Maßstab wie MCs {@code item/block}-ground), alles
      * andere ein extrudiertes Sprite wie in der Hand (MC {@code item/generated}, ground-Maßstab
      * 0,5) — ohne diesen zweiten Zweig lägen Apfel, Werkzeug und Eimer unsichtbar am Boden.
+     *
+     * <p>{@code oy} ist der FUSSPUNKT der Entity ({@code Entity.updateBoundingBox} setzt
+     * {@code minY = y}), das Modell wird aber um seine Mitte zentriert — die Höhe muss das
+     * ausgleichen, sonst steckt es im Boden. Siehe {@link #GROUND_LIFT}.
      */
     private void drawItem(ItemEntity item, float ox, float oy, float oz, float partialTick) {
         ItemStack stack = item.getStack();
         if (stack == null || stack.isEmpty()) return;
 
         float a = item.getAge() + partialTick;
-        float bob = (float) Math.sin(a * 0.1f) * 0.05f + 0.1f;
-        float spin = a * 0.1f;
+        /* Wippe schwingt um GROUND_LIFT nach oben, nie darunter — sonst taucht das Modell in den
+           Boden (es wird um seine Mitte zentriert gezeichnet, s. GROUND_LIFT). */
+        float lift = GROUND_LIFT + (float) Math.sin(a * BOB_SPEED) * BOB_AMPLITUDE + BOB_AMPLITUDE;
+        float spin = a * SPIN_SPEED;
 
         int copies = renderedCopies(stack.getCount());
         int id = blockStateId(stack);
@@ -185,7 +204,7 @@ public final class EntityRenderer {
             if (mesh == null) return;
             /* Seed = State-ID: derselbe Block sieht überall gleich aus (wie MC, dort Item-ID). */
             this.copyRandom.setSeed(id);
-            this.drawCopies(mesh, id, copies, ox, oy + bob, oz, spin, ITEM_SCALE, false);
+            this.drawCopies(mesh, id, copies, ox, oy + lift, oz, spin, ITEM_SCALE, false);
             return;
         }
 
@@ -195,7 +214,7 @@ public final class EntityRenderer {
         /* Wie in HeldItemMeshes ohne Culling: das Sprite ist 1 px dick und dreht sich frei,
            da darf keine Wand wegen ihrer Winding-Richtung verschwinden. */
         GlState.disableCullFace();
-        this.drawCopies(sprite, -1, copies, ox, oy + bob, oz, spin, FLAT_ITEM_SCALE, true);
+        this.drawCopies(sprite, -1, copies, ox, oy + lift, oz, spin, FLAT_ITEM_SCALE, true);
         GlState.enableCullFace();
     }
 
