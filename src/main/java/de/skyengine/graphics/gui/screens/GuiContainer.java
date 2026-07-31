@@ -101,13 +101,16 @@ public abstract class GuiContainer extends GuiScreen {
      * {@code AbstractContainerMenu.quickMoveStack}). Ein Screen ohne {@link SlotGroup#CONTAINER}
      * (das reine Spielerinventar) schiebt zwischen Hauptinventar und Hotbar hin und her.
      *
-     * <p>Aus dem Container heraus läuft die Liste RÜCKWÄRTS und die Hotbar zuerst — das ist MCs
-     * {@code moveItemStackTo(..., reverseDirection = true)}.
+     * <p>Aus dem Container heraus läuft die Liste RÜCKWÄRTS — das ist MCs
+     * {@code moveItemStackTo(..., reverseDirection = true)} über die Spieler-Slots, die dort in
+     * der Reihenfolge [Hauptinventar, Hotbar] liegen. Rückwärts heißt damit: Hotbar von RECHTS
+     * nach links zuerst (Slot 8, dann 7, …), erst danach das Hauptinventar von unten rechts nach
+     * oben links. Die Grundreihenfolge muss deshalb Hauptinventar VOR Hotbar sein.
      */
     protected List<Slot> quickMoveTargets(SlotGroup from) {
         if (from == SlotGroup.CONTAINER) {
-            List<Slot> targets = new ArrayList<>(this.slotsOf(SlotGroup.HOTBAR));
-            targets.addAll(this.slotsOf(SlotGroup.INVENTORY));
+            List<Slot> targets = new ArrayList<>(this.slotsOf(SlotGroup.INVENTORY));
+            targets.addAll(this.slotsOf(SlotGroup.HOTBAR));
             Collections.reverse(targets);
             return targets;
         }
