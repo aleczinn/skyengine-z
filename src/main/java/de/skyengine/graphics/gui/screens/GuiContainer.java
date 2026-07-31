@@ -44,6 +44,29 @@ public abstract class GuiContainer extends GuiScreen {
     private Slot lastClickSlot;
     private long lastClickTime;
 
+    /**
+     * Was ein laufender Zug mit den berührten Slots macht. Der Modus wird beim DRÜCKEN festgelegt
+     * — nur dadurch kollidieren die Mouse-Tweaks-Gesten nicht mit dem Vanilla-Verteilen.
+     */
+    protected enum DragMode {
+        /** Kein Zug aktiv. */
+        NONE,
+        /** Shift+Links: jeder berührte Slot wandert sofort ins andere Inventar. */
+        QUICK_MOVE,
+        /** Links mit belegtem Cursor: Vanilla — Slots sammeln, beim Loslassen gleichmäßig teilen. */
+        DISTRIBUTE,
+        /** Links mit leerem Cursor: passende Items aus den berührten Slots einsammeln. */
+        COLLECT,
+        /** Rechts mit belegtem Cursor: je berührtem Slot sofort ein Item. */
+        PLACE_ONE
+    }
+
+    private DragMode dragMode = DragMode.NONE;
+    private int dragButton = -1;
+    private Slot dragStartSlot;
+    private Slot lastDragSlot;
+    private final List<Slot> dragSlots = new ArrayList<>();
+
     protected GuiContainer(ItemStorage... returnCarriedTo) {
         super(null);
         this.returnCarriedTo = returnCarriedTo;
@@ -154,7 +177,7 @@ public abstract class GuiContainer extends GuiScreen {
                 this.lastClickSlot = null;   // Dreifachklick darf nicht erneut auslösen
                 return true;
             }
-            this.onSlotClick(slot, button, shift);
+            this.beginDrag(slot, button, shift);
             return true;
         }
         /* Klick neben das Fenster wirft den getragenen Stapel aus: links alles, rechts einzeln. */
@@ -163,6 +186,197 @@ public abstract class GuiContainer extends GuiScreen {
             return true;
         }
         return false;
+    }
+
+    /* --- Ziehen (Vanilla-Verteilen + Mouse Tweaks) --- */
+
+    /**
+     * Legt beim Drücken den Zug-Modus fest und führt die sofort wirkenden Gesten gleich aus.
+     * Einzig {@link DragMode#DISTRIBUTE} kann nicht sofort wirken — die Anteile hängen davon ab,
+     * wie viele Slots am Ende berührt wurden.
+     */
+    private void beginDrag(Slot slot, int button, boolean shift) {
+        this.endDrag();
+        this.dragButton = button;
+        this.dragStartSlot = slot;
+
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && shift) {
+            this.dragMode = DragMode.QUICK_MOVE;
+            this.dragSlots.add(slot);
+            this.onSlotClick(slot, button, true);
+        } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && !this.carried.isEmpty()) {
+            this.dragMode = DragMode.DISTRIBUTE;
+            if (this.canDistributeTo(slot)) this.dragSlots.add(slot);
+        } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            /* Leerer Cursor: der Klick nimmt auf, das Ziehen sammelt weiter ein (Mouse Tweaks). */
+            this.onSlotClick(slot, button, false);
+            this.dragMode = DragMode.COLLECT;
+        } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && !this.carried.isEmpty()) {
+            this.dragMode = DragMode.PLACE_ONE;
+            this.lastDragSlot = slot;
+            this.onSlotClick(slot, button, false);   // legt genau ein Item ab
+        } else {
+            this.onSlotClick(slot, button, shift);
+        }
+    }
+
+    @Override
+    public void mouseDragged(GuiManager gui, double mouseX, double mouseY, int button) {
+        super.mouseDragged(gui, mouseX, mouseY, button);
+        if (this.dragMode == DragMode.NONE || button != this.dragButton) return;
+        Slot slot = this.slotAt(mouseX, mouseY);
+        if (slot == null) {
+            this.lastDragSlot = null;   // Slot verlassen: erneutes Betreten darf wieder ablegen
+            return;
+        }
+        switch (this.dragMode) {
+            case QUICK_MOVE -> {
+                /* Nur die Seite des ersten Slots abräumen — sonst schöbe ein Zug quer über das
+                   GUI die eben verschobenen Items sofort wieder zurück. */
+                if (this.dragSlots.contains(slot) || !this.sameQuickMoveSide(this.dragStartSlot, slot)) return;
+                this.dragSlots.add(slot);
+                ItemStack stack = slot.get();
+                if (!stack.isEmpty()) this.quickMove(slot, stack.getCount());
+            }
+            case DISTRIBUTE -> {
+                if (!this.dragSlots.contains(slot) && this.canDistributeTo(slot)) this.dragSlots.add(slot);
+            }
+            case COLLECT -> this.collectFrom(slot);
+            case PLACE_ONE -> {
+                if (slot == this.lastDragSlot) return;
+                this.lastDragSlot = slot;
+                this.placeOne(slot);
+            }
+            default -> { }
+        }
+    }
+
+    @Override
+    public void mouseReleased(GuiManager gui, double mouseX, double mouseY, int button) {
+        super.mouseReleased(gui, mouseX, mouseY, button);
+        if (this.dragMode == DragMode.NONE || button != this.dragButton) return;
+        if (this.dragMode == DragMode.DISTRIBUTE) {
+            if (this.dragSlots.size() > 1) {
+                this.applyDistribute();
+            } else {
+                /* Kein echter Zug: wie ein normaler Linksklick behandeln (so macht es MC auch) —
+                   sonst würde ein simpler Klick auf einen fremden Stapel nicht mehr tauschen. */
+                this.onSlotClick(this.dragStartSlot, GLFW.GLFW_MOUSE_BUTTON_LEFT, false);
+            }
+        }
+        this.endDrag();
+    }
+
+    private void endDrag() {
+        this.dragMode = DragMode.NONE;
+        this.dragButton = -1;
+        this.dragStartSlot = null;
+        this.lastDragSlot = null;
+        this.dragSlots.clear();
+    }
+
+    /**
+     * Gehören beide Slots zur selben Zug-Seite? Im Container-GUI zählen Hauptinventar und Hotbar
+     * als eine Seite — sie haben dasselbe Quickmove-Ziel (den Container).
+     */
+    private boolean sameQuickMoveSide(Slot a, Slot b) {
+        if (a.group == b.group) return true;
+        return !this.slotsOf(SlotGroup.CONTAINER).isEmpty()
+                && a.group != SlotGroup.CONTAINER && b.group != SlotGroup.CONTAINER;
+    }
+
+    /** Legt genau ein Item ab; anders als der Rechtsklick tauscht es NIE (Zug über fremde Stapel). */
+    private void placeOne(Slot slot) {
+        if (this.carried.isEmpty() || !this.canDistributeTo(slot)) return;
+        ItemStack existing = slot.get();
+        if (existing.isEmpty()) {
+            slot.set(this.carried.split(1));
+        } else {
+            existing.setCount(existing.getCount() + this.carried.split(1).getCount());
+        }
+        if (this.carried.isEmpty()) this.carried = ItemStack.EMPTY;
+    }
+
+    /** Kann der getragene Stapel in diesem Slot überhaupt landen? (MC {@code canItemQuickReplace}) */
+    private boolean canDistributeTo(Slot slot) {
+        ItemStack existing = slot.get();
+        return existing.isEmpty()
+                || (existing.canStackWith(this.carried) && existing.getCount() < existing.getMaxStackSize());
+    }
+
+    /** Zieht passende Items aus {@code slot} in die Hand (Mouse-Tweaks-LMB-Zug). */
+    private void collectFrom(Slot slot) {
+        if (this.carried.isEmpty()) return;
+        int space = this.carried.getMaxStackSize() - this.carried.getCount();
+        if (space <= 0) return;
+        ItemStack stack = slot.get();
+        if (!stack.canStackWith(this.carried)) return;
+        this.carried.setCount(this.carried.getCount() + stack.split(space).getCount());
+        if (stack.isEmpty()) slot.set(ItemStack.EMPTY);
+    }
+
+    /**
+     * Anteil, den {@code slot} beim Verteilen bekommt. {@code carriedCount} wird übergeben, weil
+     * die Anwendung den Stand VOR der ersten Mutation braucht — sonst schrumpft der Anteil
+     * mitten in der Schleife und Vorschau und Ergebnis liefen auseinander.
+     */
+    private int dragShare(Slot slot, int carriedCount) {
+        ItemStack existing = slot.get();
+        int space = existing.isEmpty()
+                ? this.carried.getMaxStackSize()
+                : existing.getMaxStackSize() - existing.getCount();
+        return Math.min(carriedCount / this.dragSlots.size(), space);
+    }
+
+    /** Vorschau-Menge für {@code slot} während eines laufenden Verteil-Zugs (0 = nicht betroffen). */
+    protected int dragPreview(Slot slot) {
+        if (this.dragMode != DragMode.DISTRIBUTE || !this.dragSlots.contains(slot)) return 0;
+        return this.dragShare(slot, this.carried.getCount());
+    }
+
+    private void applyDistribute() {
+        int carriedCount = this.carried.getCount();
+        for (Slot slot : this.dragSlots) {
+            int give = this.dragShare(slot, carriedCount);
+            if (give <= 0) continue;
+            ItemStack existing = slot.get();
+            if (existing.isEmpty()) {
+                slot.set(this.carried.split(give));
+            } else {
+                existing.setCount(existing.getCount() + this.carried.split(give).getCount());
+            }
+        }
+        if (this.carried.isEmpty()) this.carried = ItemStack.EMPTY;
+    }
+
+    /**
+     * Mausrad über einem Slot (Mouse-Tweaks-Wheel-Tweak): hoch schiebt ein Item ins andere
+     * Inventar, runter holt eins zurück. Über einem leeren Slot tut „runter" nichts — ohne Item
+     * fehlt der Typ als Referenz.
+     */
+    @Override
+    public boolean mouseScrolled(GuiManager gui, double mouseX, double mouseY, double amount) {
+        Slot slot = this.slotAt(mouseX, mouseY);
+        if (slot == null || !this.carried.isEmpty()) return false;
+        if (amount > 0) {
+            this.quickMove(slot, 1);
+        } else {
+            this.pullOne(slot);
+        }
+        return true;
+    }
+
+    /** Holt ein passendes Item aus dem anderen Bereich in {@code slot} zurück. */
+    private void pullOne(Slot slot) {
+        ItemStack target = slot.get();
+        if (target.isEmpty() || target.getCount() >= target.getMaxStackSize()) return;
+        for (Slot source : this.quickMoveTargets(slot.group)) {
+            ItemStack stack = source.get();
+            if (!stack.canStackWith(target)) continue;
+            target.setCount(target.getCount() + stack.split(1).getCount());
+            if (stack.isEmpty()) source.set(ItemStack.EMPTY);
+            return;
+        }
     }
 
     /**
@@ -240,7 +454,7 @@ public abstract class GuiContainer extends GuiScreen {
             if (space <= 0) return;   // greift auch für Werkzeuge (Stapelgröße 1)
             ItemStack stack = s.get();
             if (!stack.canStackWith(this.carried)) continue;
-            if (stack.getCount() >= stack.getMaxStackSize() != fromFullStacks) continue;
+            if ((stack.getCount() >= stack.getMaxStackSize()) != fromFullStacks) continue;
             this.carried.setCount(this.carried.getCount() + stack.split(space).getCount());
             if (stack.isEmpty()) s.set(ItemStack.EMPTY);
         }
@@ -349,16 +563,22 @@ public abstract class GuiContainer extends GuiScreen {
         }
     }
 
-    /** Alle Slot-Icons + den getragenen Stapel am Cursor zeichnen (Icon-Pass + Zahlen-Pass). */
+    /**
+     * Alle Slot-Icons + den getragenen Stapel am Cursor zeichnen (Icon-Pass + Zahlen-Pass).
+     * Während eines Verteil-Zugs zeigen die betroffenen Slots schon ihren Anteil und der Cursor
+     * nur noch den Rest — wie in Minecraft.
+     */
     protected void drawSlotIcons(GuiManager gui, double mouseX, double mouseY) {
         float vW = gui.vWidth(), vH = gui.vHeight();
+        ItemStack carriedShown = this.carriedAfterDrag();
+
         gui.icons().begin(vW, vH);
         for (Slot s : this.slots) {
-            ItemStack st = s.get();
+            ItemStack st = this.stackShownIn(s);
             if (!st.isEmpty()) gui.icons().drawIcon(st, s.x + SLOT / 2f, s.y + SLOT / 2f, SLOT, vH);
         }
-        if (!this.carried.isEmpty()) {
-            gui.icons().drawIcon(this.carried, (float) mouseX, (float) mouseY, SLOT, vH);
+        if (!carriedShown.isEmpty()) {
+            gui.icons().drawIcon(carriedShown, (float) mouseX, (float) mouseY, SLOT, vH);
         }
         gui.icons().end();
 
@@ -366,13 +586,35 @@ public abstract class GuiContainer extends GuiScreen {
            unten rechts im Slot wie in Minecraft. */
         gui.font().begin(vW, vH);
         for (Slot s : this.slots) {
-            StackText.draw(gui, s.get(), s.x, s.y, SLOT);
+            StackText.draw(gui, this.stackShownIn(s), s.x, s.y, SLOT);
         }
-        if (!this.carried.isEmpty()) {
-            StackText.draw(gui, this.carried,
+        if (!carriedShown.isEmpty()) {
+            StackText.draw(gui, carriedShown,
                     (float) mouseX - SLOT / 2f, (float) mouseY - SLOT / 2f, SLOT);
         }
         gui.font().end();
+    }
+
+    /** Was in diesem Slot zu sehen ist — inklusive der Vorschau eines laufenden Verteil-Zugs. */
+    private ItemStack stackShownIn(Slot slot) {
+        int extra = this.dragPreview(slot);
+        ItemStack actual = slot.get();
+        if (extra <= 0) return actual;
+        ItemStack preview = (actual.isEmpty() ? this.carried : actual).copy();
+        preview.setCount((actual.isEmpty() ? 0 : actual.getCount()) + extra);
+        return preview;
+    }
+
+    /** Der getragene Stapel abzüglich dessen, was ein laufender Verteil-Zug schon vergibt. */
+    private ItemStack carriedAfterDrag() {
+        if (this.dragMode != DragMode.DISTRIBUTE || this.dragSlots.isEmpty()) return this.carried;
+        int carriedCount = this.carried.getCount();
+        int given = 0;
+        for (Slot s : this.dragSlots) given += this.dragShare(s, carriedCount);
+        if (given >= carriedCount) return ItemStack.EMPTY;
+        ItemStack rest = this.carried.copy();
+        rest.setCount(carriedCount - given);
+        return rest;
     }
 
     private static final Color4 TOOLTIP_GRAY = new Color4(0.67f, 0.67f, 0.67f, 1f);
