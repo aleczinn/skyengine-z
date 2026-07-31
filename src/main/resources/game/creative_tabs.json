@@ -1,0 +1,15 @@
+{
+  "_comment": "Reiter des Creative-Inventars. Reihenfolge = Anzeigereihenfolge. type: items (Default) | search | inventory. Welcher Block/welches Item in welchem Tab landet, steht in dessen eigener JSON unter 'creative_tab' (String oder Liste).",
+  "tabs": [
+    { "id": "building_blocks", "icon": "skyengine:bricks" },
+    { "id": "colored_blocks",  "icon": "skyengine:white_wool" },
+    { "id": "natural",         "icon": "skyengine:grass_block" },
+    { "id": "functional",      "icon": "skyengine:torch" },
+    { "id": "tools",           "icon": "skyengine:iron_pickaxe" },
+    { "id": "food",            "icon": "skyengine:apple" },
+    { "id": "ingredients",     "icon": "skyengine:iron_ingot" },
+    { "id": "misc",            "icon": "skyengine:flint" },
+    { "id": "search",          "icon": "skyengine:flint", "type": "search" },
+    { "id": "inventory",       "icon": "skyengine:chest", "type": "inventory" }
+  ]
+}

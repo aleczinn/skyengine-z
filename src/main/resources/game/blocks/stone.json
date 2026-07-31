@@ -1,5 +1,6 @@
 {
   "id": "skyengine:stone",
+  "creative_tab": ["building_blocks", "natural"],
   "parent": "preset/cube",
   "hardness": 1.5,
   "resistance": 6,

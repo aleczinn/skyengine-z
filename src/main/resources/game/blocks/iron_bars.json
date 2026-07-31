@@ -1,5 +1,6 @@
 {
   "id": "skyengine:iron_bars",
+  "creative_tab": "building_blocks",
   "models": {
     "_post": "block/bars_post",
     "_post_ends": "block/bars_post_ends",

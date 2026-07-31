@@ -1,5 +1,6 @@
 {
   "id": "skyengine:light_blue_wool",
+  "creative_tab": "colored_blocks",
   "parent": "preset/cube",
   "sound": "cloth",
   "hardness": 0.8

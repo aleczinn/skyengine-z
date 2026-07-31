@@ -62,8 +62,10 @@ Wireframe, GpuCull an/aus + Occlusion-Debug-Tint, LOD-Gras-Overlay, Chunk-Loadin
 Grafik-Optionen (`GuiVideoSettings`, Live-Apply). Die früheren Hotkeys F6/F7/F8/P/N/V/−/=/[/]
 existieren nicht mehr.
 
-Startinventar für Test-Blöcke: `game/StartInventory` (dort neue Blöcke zum
-visuellen Testen eintragen; greift nur bei frisch erstellten Welten).
+Test-Blöcke holt man sich über das **Creative-Inventar**: G (Creative) → E. Das frühere
+`game/StartInventory` ist entfallen — neue Welten starten leer. Ein neuer Block ist dort
+automatisch dabei, sobald seine JSON ein `creative_tab` hat; ohne das Feld landet er im
+Sammel-Reiter „Sonstiges" und `gradlew saveTest` meldet ihn per Warnung.
 
 ## Automatisiertes Prüfen mit laufendem Fenster
 

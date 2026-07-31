@@ -1,5 +1,6 @@
 {
   "id": "skyengine:torch",
+  "creative_tab": "functional",
   "archetype": "attached",
   "layer": "cutout",
   "opaque": false,

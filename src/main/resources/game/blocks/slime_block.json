@@ -1,5 +1,6 @@
 {
   "id": "skyengine:slime_block",
+  "creative_tab": "functional",
   "parent": "preset/cube",
   "model": "block/cube_inner_all",
   "sound": "slime",

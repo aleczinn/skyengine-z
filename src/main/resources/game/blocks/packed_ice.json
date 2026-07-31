@@ -1,5 +1,6 @@
 {
   "id": "skyengine:packed_ice",
+  "creative_tab": "natural",
   "parent": "preset/cube",
   "sound": "glass",
   "hardness": 0.5,

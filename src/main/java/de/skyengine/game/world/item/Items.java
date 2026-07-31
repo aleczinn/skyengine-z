@@ -46,6 +46,7 @@ public final class Items {
                 if (!Registries.ITEM.contains(id)) {
                     Registries.ITEM.register(id, new ToolItem(id, type, tier, texture));
                 }
+                CreativeTabs.assign(id, "tools");
                 BlockTextures.layerOf(texture); // vor dem TextureArray-Bau registrieren
             }
         }
@@ -64,6 +65,11 @@ public final class Items {
         /* Datengetriebene Items zuletzt: die Java-Registrierungen oben haben Vorrang, und wir
            sind weiterhin lange vor dem TextureArray-Bau (ChunkRenderer.init). */
         for (ContentSource source : ContentSources.all()) ItemLoader.load(source.items());
+
+        /* Creative-Tabs erst hier: build() läuft über die fertige Item-Registry und legt damit
+           die Reihenfolge innerhalb der Tabs fest. */
+        for (ContentSource source : ContentSources.all()) CreativeTabs.loadDefinitions(source.creativeTabs());
+        CreativeTabs.build();
     }
 
     private static void registerFood(String id, int nutrition, float saturation, String texture) {
@@ -71,6 +77,7 @@ public final class Items {
         if (!Registries.ITEM.contains(i)) {
             Registries.ITEM.register(i, new FoodItem(i, nutrition, saturation, texture));
         }
+        CreativeTabs.assign(i, "food");
         /* Item-Textur in den Block-Atlas aufnehmen (vor dem TextureArray-Bau, wie bei den Eimern). */
         BlockTextures.layerOf(texture);
     }
@@ -80,6 +87,7 @@ public final class Items {
         if (!Registries.ITEM.contains(i)) {
             Registries.ITEM.register(i, new BucketItem(i, fluid, texture, maxStackSize));
         }
+        CreativeTabs.assign(i, "tools");
         /* Item-Textur in den Block-Atlas aufnehmen (vor dem TextureArray-Bau in ChunkRenderer.init). */
         BlockTextures.layerOf(texture);
     }

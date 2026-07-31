@@ -1,6 +1,22 @@
 {
   "name": "English (US)",
 
+  "creative": {
+    "delete": "Destroy Item",
+    "tab": {
+      "building_blocks": "Building Blocks",
+      "colored_blocks": "Colored Blocks",
+      "natural": "Natural Blocks",
+      "functional": "Functional Blocks",
+      "tools": "Tools & Utilities",
+      "food": "Food & Drinks",
+      "ingredients": "Ingredients",
+      "misc": "Miscellaneous",
+      "search": "Search",
+      "inventory": "Inventory"
+    }
+  },
+
   "gui": {
     "done": "Done",
     "cancel": "Cancel",
@@ -40,9 +56,9 @@
       "wireframe": "Wireframe",
       "gpu_cull": "GPU Culling",
       "gpu_cull_tint": "GPU Cull Debug (red)",
-      "gpu_cull_hiz": "GPU Cull: Hi-Z Occlusion",
+      "gpu_cull_hiz": "Hi-Z Occlusion",
       "lod_overlay": "LOD Side Overlay",
-      "pause_loading": "Pause Chunk Loading",
+      "pause_loading": "Pause Loading",
       "aa_mode": "Anti-Aliasing",
       "reload_chunks": "Reload Chunks",
       "reload_post": "Reload Postprocessing"

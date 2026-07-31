@@ -1,5 +1,6 @@
 {
   "id": "skyengine:enchanting_table",
+  "creative_tab": "functional",
   "type": "cube",
   "layer": "opaque",
   "hardness": 5,

@@ -1,5 +1,6 @@
 {
   "id": "skyengine:iron_ore",
+  "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 3,
   "tool": "pickaxe",

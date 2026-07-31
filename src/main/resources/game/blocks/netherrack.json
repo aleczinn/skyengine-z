@@ -1,5 +1,6 @@
 {
   "id": "skyengine:netherrack",
+  "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 0.4,
   "tool": "pickaxe"

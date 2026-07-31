@@ -1,5 +1,6 @@
 {
   "id": "skyengine:mushroom_stem",
+  "creative_tab": "natural",
   "parent": "preset/cube_bottom_top",
   "vars": {
     "top": "mushroom_block_inside",

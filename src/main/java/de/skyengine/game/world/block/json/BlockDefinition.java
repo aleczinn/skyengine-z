@@ -155,6 +155,13 @@ public class BlockDefinition {
         public String relative_to;
     }
 
+    /* Creative-Tab(s) dieses Blocks: ein String ODER eine Liste von Strings (ein Block darf in
+       mehreren Tabs stehen, z.B. stone in building_blocks UND natural). Vererbbar über die
+       Presets — Achtung: ein Kind ERSETZT den Preset-Wert vollständig (JsonMerge ersetzt
+       Arrays/Primitiven, es hängt nicht an), wer den Preset-Tab behalten will, muss ihn mit
+       auflisten. Fehlt das Feld, landet der Block im Sammel-Tab "misc" (mit Warnung). */
+    public com.google.gson.JsonElement creative_tab;
+
     /* Optionales generisches Connection-System (Zäune, Pipes, Cables). */
     public ConnectionDef connection;
 

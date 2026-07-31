@@ -1,5 +1,6 @@
 {
   "id": "skyengine:crafting_table",
+  "creative_tab": "functional",
   "model": "block/cube",
   "type": "cube",
   "layer": "opaque",

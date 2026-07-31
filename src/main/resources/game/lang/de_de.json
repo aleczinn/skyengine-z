@@ -1,6 +1,22 @@
 {
   "name": "Deutsch (Deutschland)",
 
+  "creative": {
+    "delete": "Gegenstand löschen",
+    "tab": {
+      "building_blocks": "Baublöcke",
+      "colored_blocks": "Farbige Blöcke",
+      "natural": "Naturblöcke",
+      "functional": "Funktionsblöcke",
+      "tools": "Werkzeuge & Hilfsmittel",
+      "food": "Nahrung",
+      "ingredients": "Materialien",
+      "misc": "Sonstiges",
+      "search": "Suchen",
+      "inventory": "Inventar"
+    }
+  },
+
   "gui": {
     "done": "Fertig",
     "cancel": "Abbrechen",
@@ -48,9 +64,9 @@
       "wireframe": "Wireframe",
       "gpu_cull": "GPU-Culling",
       "gpu_cull_tint": "GPU-Cull Debug (rot)",
-      "gpu_cull_hiz": "GPU-Cull: Hi-Z-Occlusion",
+      "gpu_cull_hiz": "Hi-Z-Occlusion",
       "lod_overlay": "LOD-Seiten-Overlay",
-      "pause_loading": "Chunk-Laden pausieren",
+      "pause_loading": "Laden pausieren",
       "aa_mode": "Anti-Aliasing",
       "reload_chunks": "Chunks neu laden",
       "reload_post": "Postprocessing neu laden"

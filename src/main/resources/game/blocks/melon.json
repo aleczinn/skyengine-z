@@ -1,5 +1,6 @@
 {
   "id": "skyengine:melon",
+  "creative_tab": "natural",
   "parent": "preset/cube_bottom_top",
   "vars": {
     "bottom": "melon_top"

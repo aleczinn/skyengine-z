@@ -1,5 +1,6 @@
 {
   "id": "skyengine:oak_door",
+  "creative_tab": "functional",
   "archetype": "door",
   "parts": {
     "property": "half",

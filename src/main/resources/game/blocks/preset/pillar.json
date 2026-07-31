@@ -1,5 +1,6 @@
 {
   "_comment": "Preset: Saeule mit AXIS-Property (Stamm). Liegende Varianten drehen das Horizontal-Modell mit.",
+  "creative_tab": "building_blocks",
   "archetype": "pillar",
   "layer": "opaque",
   "vars": {

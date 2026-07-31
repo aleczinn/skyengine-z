@@ -1,5 +1,6 @@
 {
   "id": "skyengine:chest",
+  "creative_tab": "functional",
   "type": "chest",
   "layer": "opaque",
   "hardness": 2.5,

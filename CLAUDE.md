@@ -241,13 +241,27 @@ ausdrücken).
   (MUSIC/BLOCKS/PLAYER/… — `GameSettings.soundVolumes`-Map statt eines einzelnen
   musicVolume) + Master-Volume + Audiogeräte-Auswahl (`audioDevice`); Assets =
   MC-Platzhalter via `scripts/extract-mc-sounds.ps1` — Details im Skill `sound-system`
-- GUI-System komplett (graphics/gui): Widget-Basis (`GuiComponent` + Button/Slider/CycleButton/
-  KeybindButton/Label/TextField, 9-Slice), Stack-Layout (VStack/HStack/Anchor), Screen-Basis mit
+- GUI-System komplett (graphics/gui): **Schriftgrößen zentral in `GuiText`** (SMALL 10 /
+  NORMAL 12 / TITLE 16 / LARGE 22 / HERO 32) — die einzige Stellschraube, 21 Dateien hängen
+  daran. Achtung: der Font ist **monospace** (Breite = 0,5 × Größe × Zeichen), Hochdrehen kostet
+  proportional Platz und es gibt **kein Clipping**; feste Widget-Breiten und die hartkodierten
+  Textzeilen-Offsets in `GuiSelectWorld`/`GuiImportWorld` müssen mitwachsen.
+  Widget-Basis (`GuiComponent` + Button/Slider/CycleButton/
+  KeybindButton/Label/TextField, 9-Slice; `TextField.borderless()` für Felder über einem schon
+  gemalten Kasten), Stack-Layout (VStack/HStack/Anchor), Screen-Basis mit
   parent-Navigation + vollem Event-Routing (Maus/Drag/Scroll/Keys/Char via SPSC-Queue);
   Screens: Titel, Pause (ESC — beendet NICHT mehr!), Optionen+Grafik (Live-Apply), Tastenbelegung
   (Rebinding+Reset, Capture schluckt alle Tasten), Weltauswahl/Erstellen/Löschen, Welt-Ladebalken
   (`isInitialLoadComplete`), Boot-Ladebildschirm (gestaffelte Init, Fenster früh), Inventar (E) +
-  Truhe auf gemeinsamer `GuiContainer`-Basis, Todesscreen, Sprachauswahl (i18n,
+  Truhe auf gemeinsamer `GuiContainer`-Basis, **Creative-Inventar** (`GuiCreativeInventory`,
+  im Creative statt `GuiInventory`: zwei Reiter-Reihen über und unter dem Fenster mit
+  Item-Icons + Tooltips (Spalten 0-4 linksbündig, 5-6 rechtsbündig wie MC — dadurch schließen
+  erster und letzter Reiter bündig mit den Fensterkanten ab; Suche oben rechts, Survival-
+  Inventar unten rechts angeheftet), Seiten-Blättern,
+  9×5-Liste mit Scroller, Such-Reiter, Survival-Reiter mit Lösch-Slot; Reiter stehen in
+  `game/creative_tabs.json`, die Zuordnung im Feld `creative_tab` der Block-/Item-JSONs —
+  vererbbar über die Presets, ungetaggte Items landen sichtbar im Sammel-Reiter `misc`,
+  Prüfstand `gradlew saveTest`), Todesscreen, Sprachauswahl (i18n,
   Live-Wechsel), Sound-Optionen, Grafik-Optionen (`GuiVideoSettings`), MC-Welt-Import
   (`GuiImportWorld`), Bestätigungsdialog (`GuiConfirm`), Ressourcenpakete-Platzhalter
   (`GuiResourcePacks`) und der **GuiDebugScreen** (Optionsmenü) mit allen Debug-Schaltern
@@ -283,10 +297,9 @@ ausdrücken).
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
   (Andockpunkt: `GuiContainer.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
-- Testblöcke in `game/StartInventory` (u.a. Truhe, Fackel, Eimer, iron_bars, Eis/Soul-Sand/Honig) —
-  ohne Crafting/Creative-Menü der einzige Weg, sie in die Hand zu bekommen; greift
-  nur bei einer **frisch erstellten** Welt. Die **15 Material-Items liegen dort nicht** (beim
-  Zusammenkürzen der Methode entfallen) und sind damit aktuell unerreichbar
+- Creative-Inventar-Feinschliff: Hotbar-Speicher (MCs C + 1-9) fehlt bewusst; ein Shift-Klick auf
+  einen Hotbar-Slot im Item-Reiter löscht das Item NICHT (in MC schon) — Löschen geht über die
+  Item-Liste bzw. den Lösch-Slot im Survival-Reiter
 - Bett/Reaktor: die Mechanik steht (`parts`, s.o.), es fehlen nur noch die Blöcke selbst —
   ein Bett braucht ein eigenes 3D-Modell + Texturen. `multiblock/MultiblockPattern` bleibt
   ungenutzte Infrastruktur für Controller-Strukturen (validiert eine Struktur aus FREMDEN
