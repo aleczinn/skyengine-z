@@ -577,9 +577,6 @@ public abstract class GuiContainer extends GuiScreen {
             ItemStack st = this.stackShownIn(s);
             if (!st.isEmpty()) gui.icons().drawIcon(st, s.x + SLOT / 2f, s.y + SLOT / 2f, SLOT, vH);
         }
-        if (!carriedShown.isEmpty()) {
-            gui.icons().drawIcon(carriedShown, (float) mouseX, (float) mouseY, SLOT, vH);
-        }
         gui.icons().end();
 
         /* Stack-Zahlen NACH dem Icon-Pass (Depth aus -> Text liegt über den 3D-Icons),
@@ -588,10 +585,19 @@ public abstract class GuiContainer extends GuiScreen {
         for (Slot s : this.slots) {
             StackText.draw(gui, this.stackShownIn(s), s.x, s.y, SLOT);
         }
-        if (!carriedShown.isEmpty()) {
-            StackText.draw(gui, carriedShown,
-                    (float) mouseX - SLOT / 2f, (float) mouseY - SLOT / 2f, SLOT);
-        }
+        gui.font().end();
+
+        /* Der getragene Stapel GANZ zum Schluss in eigenen Pässen (Muster wie Tooltip): er hängt
+           am Cursor über bis zu vier Nachbarslots, und deren Stack-Zahlen liefen ohne Tiefentest
+           sonst quer über sein Icon. */
+        if (carriedShown.isEmpty()) return;
+        gui.icons().begin(vW, vH);
+        gui.icons().drawIcon(carriedShown, (float) mouseX, (float) mouseY, SLOT, vH);
+        gui.icons().end();
+
+        gui.font().begin(vW, vH);
+        StackText.draw(gui, carriedShown,
+                (float) mouseX - SLOT / 2f, (float) mouseY - SLOT / 2f, SLOT);
         gui.font().end();
     }
 
