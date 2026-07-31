@@ -39,6 +39,11 @@ public abstract class GuiContainer extends GuiScreen {
     /** Ziele fürs Zurücklegen des getragenen Stapels beim Schließen (in Reihenfolge). */
     private final ItemStorage[] returnCarriedTo;
 
+    /** Zeitfenster für den Doppelklick (wie in {@code GuiSelectWorld}). */
+    private static final long DOUBLE_CLICK_MS = 400;
+    private Slot lastClickSlot;
+    private long lastClickTime;
+
     protected GuiContainer(ItemStorage... returnCarriedTo) {
         super(null);
         this.returnCarriedTo = returnCarriedTo;
@@ -143,7 +148,13 @@ public abstract class GuiContainer extends GuiScreen {
     public boolean mousePressed(GuiManager gui, double mouseX, double mouseY, int button) {
         Slot slot = this.slotAt(mouseX, mouseY);
         if (slot != null) {
-            this.onSlotClick(slot, button, SkyEngine.get().getInput().isShiftDown());
+            boolean shift = SkyEngine.get().getInput().isShiftDown();
+            if (this.isDoubleClick(slot, button, shift)) {
+                this.collectMatching();
+                this.lastClickSlot = null;   // Dreifachklick darf nicht erneut auslösen
+                return true;
+            }
+            this.onSlotClick(slot, button, shift);
             return true;
         }
         /* Klick neben das Fenster wirft den getragenen Stapel aus: links alles, rechts einzeln. */
@@ -155,14 +166,24 @@ public abstract class GuiContainer extends GuiScreen {
     }
 
     /**
-     * Drop-Taste (Default Q) wie in Minecraft: mit belegtem Cursor wirft sie von IHM, sonst vom
-     * Slot unter der Maus — mit STRG jeweils den ganzen Stapel. Die Mausposition kommt aus dem
-     * {@link GuiManager}, {@code keyPressed} bekommt sie nicht übergeben.
+     * Tasten im Container-GUI: Zahlentasten 1-9 tauschen den Slot unter der Maus mit dem
+     * zugehörigen Hotbar-Slot (MC {@code ClickType.SWAP}), die Drop-Taste (Default Q) wirft mit
+     * belegtem Cursor von IHM, sonst vom Slot unter der Maus — mit STRG jeweils den ganzen
+     * Stapel. Die Mausposition kommt aus dem {@link GuiManager}, {@code keyPressed} bekommt sie
+     * nicht übergeben.
      */
     @Override
     public boolean keyPressed(GuiManager gui, int key) {
         if (super.keyPressed(gui, key)) return true;   // fokussiertes Widget + Default-ESC zuerst
-        if (key != GameSettings.get().key(KeyBindings.DROP)) return false;
+        GameSettings settings = GameSettings.get();
+
+        for (int i = 0; i < 9; i++) {
+            if (key != settings.key(KeyBindings.hotbar(i + 1))) continue;
+            Slot hovered = this.slotAt(gui.mouseX(), gui.mouseY());
+            if (hovered != null) this.swapWithHotbar(hovered, i);
+            return true;
+        }
+        if (key != settings.key(KeyBindings.DROP)) return false;
 
         boolean fullStack = SkyEngine.get().getInput().isCtrlDown();
         if (!this.carried.isEmpty()) {
@@ -174,6 +195,55 @@ public abstract class GuiContainer extends GuiScreen {
             throwOut(slot.storage.extract(slot.index, fullStack ? slot.get().getCount() : 1));
         }
         return true;
+    }
+
+    /**
+     * Zweiter Linksklick auf denselben Slot im Zeitfenster, mit belegtem Cursor. Der erste Klick
+     * hat den Stapel aufgenommen — deshalb muss diese Prüfung VOR {@link #onSlotClick} laufen,
+     * sonst legt der zweite Klick ihn einfach wieder ab.
+     */
+    private boolean isDoubleClick(Slot slot, int button, boolean shift) {
+        long now = System.currentTimeMillis();
+        boolean doubleClick = button == GLFW.GLFW_MOUSE_BUTTON_LEFT && !shift
+                && slot == this.lastClickSlot && now - this.lastClickTime <= DOUBLE_CLICK_MS
+                && !this.carried.isEmpty();
+        this.lastClickSlot = slot;
+        this.lastClickTime = now;
+        return doubleClick;
+    }
+
+    /** Tauscht {@code slot} mit dem Hotbar-Slot {@code hotbarIndex} (MC {@code ClickType.SWAP}). */
+    private void swapWithHotbar(Slot slot, int hotbarIndex) {
+        for (Slot hotbar : this.slots) {
+            if (hotbar.group != SlotGroup.HOTBAR || hotbar.index != hotbarIndex) continue;
+            if (hotbar == slot) return;
+            ItemStack previous = hotbar.get();
+            hotbar.set(slot.get());
+            slot.set(previous);
+            return;
+        }
+    }
+
+    /**
+     * Doppelklick: alle passenden Items aus dem GUI in die Hand ziehen (MC
+     * {@code ClickType.PICKUP_ALL}) — erst aus Teilstapeln, dann aus vollen.
+     */
+    private void collectMatching() {
+        if (this.carried.isEmpty()) return;
+        this.collectPass(false);
+        this.collectPass(true);
+    }
+
+    private void collectPass(boolean fromFullStacks) {
+        for (Slot s : this.slots) {
+            int space = this.carried.getMaxStackSize() - this.carried.getCount();
+            if (space <= 0) return;   // greift auch für Werkzeuge (Stapelgröße 1)
+            ItemStack stack = s.get();
+            if (!stack.canStackWith(this.carried)) continue;
+            if (stack.getCount() >= stack.getMaxStackSize() != fromFullStacks) continue;
+            this.carried.setCount(this.carried.getCount() + stack.split(space).getCount());
+            if (stack.isEmpty()) s.set(ItemStack.EMPTY);
+        }
     }
 
     /** Wirft {@code amount} vom getragenen Stapel aus. */
