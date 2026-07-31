@@ -1,8 +1,5 @@
 package de.skyengine.graphics.player;
 
-import de.skyengine.core.file.FileHandle;
-import de.skyengine.core.file.FileType;
-import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
@@ -15,6 +12,7 @@ import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ToolItem;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.graphics.GlDebug;
+import de.skyengine.graphics.ItemSpriteBuilder;
 import de.skyengine.graphics.GlState;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.BlockEntityRenderer;
@@ -27,11 +25,7 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
-import org.lwjgl.stb.STBImage;
-import org.lwjgl.system.MemoryStack;
 
-import java.nio.ByteBuffer;
-import java.nio.IntBuffer;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -43,15 +37,16 @@ import java.util.Map;
  * Die Positionierung übernehmen {@link #drawFirstPerson}/{@link #drawThirdPerson} mit den
  * Vanilla-Display-Transforms (item/generated, item/handheld, block.json).
  *
- * <p>Bake-Vorlagen: {@code ItemIconRenderer.bakeFlat} (Pfad-Auflösung) und
- * {@code EntityRenderer.build} (Block-Quads); Shader = Kopie EntityRenderer (sampler2DArray).
- * Die Texturpfade sind dieselben wie bei den Icons — {@code BlockTextures.layerOf} liefert
- * damit nur bereits registrierte Layer. Culling wird in {@link #bind} deaktiviert
+ * <p>Die Sprite-Geometrie kommt aus {@link de.skyengine.graphics.ItemSpriteBuilder} (geteilt mit
+ * den gedroppten Items im {@code EntityRenderer}); hier stehen nur noch die pose-abhängigen
+ * Face-Helligkeiten. Bake-Vorlage für die Block-Quads: {@code EntityRenderer.build}; Shader =
+ * Kopie EntityRenderer (sampler2DArray). Culling wird in {@link #bind} deaktiviert
  * (Item-Windings gemischt, Items rotieren frei).
  */
 public final class HeldItemMeshes {
 
-    private static final int FLOATS_PER_VERTEX = 9;   // pos3 + texCoord3(u,v,layer) + rgb3
+    /** pos3 + texCoord3(u,v,layer) + rgb3 — muss zu {@link ItemSpriteBuilder#FLOATS_PER_VERTEX} passen. */
+    private static final int FLOATS_PER_VERTEX = ItemSpriteBuilder.FLOATS_PER_VERTEX;
 
     private ShaderProgram shader;
     private TextureArray textures;
@@ -305,150 +300,27 @@ public final class HeldItemMeshes {
         this.textures.bind(0);
     }
 
-    /* --- Sprite-Extrusion (MC ItemModelGenerator): 0..1 in x/y, 1 px dick um z=0.5 --- */
+    /* --- Sprite-Extrusion: Geometrie kommt aus ItemSpriteBuilder, hier nur die Pose-Helligkeiten --- */
 
-    private static final float Z_BACK = 0.5F - 0.5F / 16F;
-    private static final float Z_FRONT = 0.5F + 0.5F / 16F;
-
-    /* Gerichtetes Face-Shading für extrudierte Item-Sprites. BEWUSST abweichend von
+    /* Gerichtetes Face-Shading fuer extrudierte Item-Sprites. BEWUSST abweichend von
        BlockModels.FACE_BRIGHTNESS: In der First-Person-Pose (Display-Rotation [0,-90,25])
-       dominiert die große Vorder-/Rückseite den Blick, während die dünne Oberseite kaum
-       sichtbar ist. Damit das Item wie in Minecraft „von oben beleuchtet" wirkt, ist die
-       große flache Fläche die DUNKELSTE große Fläche, die extrudierten Seitenwände sind
+       dominiert die grosse Vorder-/Rueckseite den Blick, waehrend die duenne Oberseite kaum
+       sichtbar ist. Damit das Item wie in Minecraft "von oben beleuchtet" wirkt, ist die
+       grosse flache Flaeche die DUNKELSTE grosse Flaeche, die extrudierten Seitenwaende sind
        heller, die Oberseite am hellsten. */
-    private static final float ITEM_FACE_FRONT = 0.6F;   // große Vorder-/Rückseite (dunkelste Fläche)
+    private static final float ITEM_FACE_FRONT = 0.6F;   // grosse Vorder-/Rueckseite (dunkelste Flaeche)
     private static final float ITEM_FACE_SIDE = 0.8F;    // linke/rechte Seitenwand
     private static final float ITEM_FACE_TOP = 1.0F;     // obere Wand (am hellsten)
     private static final float ITEM_FACE_BOTTOM = 0.5F;  // untere Wand (am dunkelsten)
 
     private static Mesh buildExtruded(String path, int tint) {
-        int layer = BlockTextures.layerOf(path);
-        float r = ((tint >> 16) & 0xFF) / 255F;
-        float g = ((tint >> 8) & 0xFF) / 255F;
-        float b = (tint & 0xFF) / 255F;
-
-        FileHandle file = new FileHandle(path, FileType.RESOURCE);
-        int w, h;
-        ByteBuffer pixels;
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            IntBuffer wB = stack.mallocInt(1), hB = stack.mallocInt(1), cB = stack.mallocInt(1);
-            pixels = file.exists() ? STBImage.stbi_load(file.path(), wB, hB, cB, 4) : null;
-            if (pixels == null) {
-                /* PNG nicht lesbar -> flaches doppelseitiges Quad als Fallback. */
-                return buildFlat(new String[]{path}, tint);
-            }
-            w = wB.get(0);
-            h = hB.get(0);
-        }
-
-        /* Wände zählen (ein Quad je Alpha-Kante), dann exakt allokieren. */
-        int walls = 0;
-        for (int py = 0; py < h; py++) {
-            for (int px = 0; px < w; px++) {
-                if (!opaque(pixels, w, h, px, py)) continue;
-                if (!opaque(pixels, w, h, px - 1, py)) walls++;
-                if (!opaque(pixels, w, h, px + 1, py)) walls++;
-                if (!opaque(pixels, w, h, px, py - 1)) walls++;
-                if (!opaque(pixels, w, h, px, py + 1)) walls++;
-            }
-        }
-
-        /* Pose-angepasstes Face-Shading (siehe ITEM_FACE_*). */
-        float frB = ITEM_FACE_FRONT, baB = ITEM_FACE_FRONT;      // Vorder-/Rückseite
-        float wB = ITEM_FACE_SIDE, eB = ITEM_FACE_SIDE;          // linke/rechte Wand
-        float tB = ITEM_FACE_TOP, bB = ITEM_FACE_BOTTOM;         // obere/untere Wand
-
-        float[] data = new float[(2 + walls) * 6 * FLOATS_PER_VERTEX];
-        int p = 0;
-        /* Vorderseite (volle UV; Transparenz macht der discard) + gespiegelte Rückseite.
-           Mesh-y 0 = unten = Textur-v 1 (Pixelzeile h-1). */
-        p = quad(data, p,
-                0, 0, Z_FRONT, 1, 0, Z_FRONT, 1, 1, Z_FRONT, 0, 1, Z_FRONT,
-                0, 1, 1, 1, 1, 0, 0, 0, layer, r * frB, g * frB, b * frB);
-        p = quad(data, p,
-                1, 0, Z_BACK, 0, 0, Z_BACK, 0, 1, Z_BACK, 1, 1, Z_BACK,
-                1, 1, 0, 1, 0, 0, 1, 0, layer, r * baB, g * baB, b * baB);
-
-        for (int py = 0; py < h; py++) {
-            for (int px = 0; px < w; px++) {
-                if (!opaque(pixels, w, h, px, py)) continue;
-                float x0 = px / (float) w, x1 = (px + 1) / (float) w;
-                float yT = 1F - py / (float) h, yB = 1F - (py + 1) / (float) h;
-                float u = (px + 0.5F) / w, v = (py + 0.5F) / h;   // Kanten-Farbe = Texel-Zentrum
-                if (!opaque(pixels, w, h, px - 1, py)) {          // linke Wand (west)
-                    p = wall(data, p, x0, yB, Z_BACK, x0, yB, Z_FRONT, x0, yT, Z_FRONT, x0, yT, Z_BACK, u, v, layer, r * wB, g * wB, b * wB);
-                }
-                if (!opaque(pixels, w, h, px + 1, py)) {          // rechte Wand (ost)
-                    p = wall(data, p, x1, yB, Z_FRONT, x1, yB, Z_BACK, x1, yT, Z_BACK, x1, yT, Z_FRONT, u, v, layer, r * eB, g * eB, b * eB);
-                }
-                if (!opaque(pixels, w, h, px, py - 1)) {          // obere Wand (oben)
-                    p = wall(data, p, x0, yT, Z_FRONT, x1, yT, Z_FRONT, x1, yT, Z_BACK, x0, yT, Z_BACK, u, v, layer, r * tB, g * tB, b * tB);
-                }
-                if (!opaque(pixels, w, h, px, py + 1)) {          // untere Wand (unten)
-                    p = wall(data, p, x0, yB, Z_BACK, x1, yB, Z_BACK, x1, yB, Z_FRONT, x0, yB, Z_FRONT, u, v, layer, r * bB, g * bB, b * bB);
-                }
-            }
-        }
-        STBImage.stbi_image_free(pixels);
-        return new Mesh(data);
+        return new Mesh(ItemSpriteBuilder.extrude(path, tint,
+                ITEM_FACE_FRONT, ITEM_FACE_SIDE, ITEM_FACE_TOP, ITEM_FACE_BOTTOM));
     }
 
-    private static boolean opaque(ByteBuffer pixels, int w, int h, int px, int py) {
-        if (px < 0 || py < 0 || px >= w || py >= h) return false;
-        return (pixels.get((py * w + px) * 4 + 3) & 0xFF) > 0;
-    }
-
-    /** Quad mit per-Vertex-UV (Front/Rückseite). */
-    private static int quad(float[] d, int p,
-                            float ax, float ay, float az, float bx, float by, float bz,
-                            float cx, float cy, float cz, float dx, float dy, float dz,
-                            float au, float av, float bu, float bv, float cu, float cv, float du, float dv,
-                            int layer, float r, float g, float b) {
-        p = vert(d, p, ax, ay, az, au, av, layer, r, g, b);
-        p = vert(d, p, bx, by, bz, bu, bv, layer, r, g, b);
-        p = vert(d, p, cx, cy, cz, cu, cv, layer, r, g, b);
-        p = vert(d, p, ax, ay, az, au, av, layer, r, g, b);
-        p = vert(d, p, cx, cy, cz, cu, cv, layer, r, g, b);
-        p = vert(d, p, dx, dy, dz, du, dv, layer, r, g, b);
-        return p;
-    }
-
-    /** Seitenwand-Quad mit konstantem UV (Texel-Zentrum der Kante). */
-    private static int wall(float[] d, int p,
-                            float ax, float ay, float az, float bx, float by, float bz,
-                            float cx, float cy, float cz, float dx, float dy, float dz,
-                            float u, float v, int layer, float r, float g, float b) {
-        return quad(d, p, ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz,
-                u, v, u, v, u, v, u, v, layer, r, g, b);
-    }
-
-    /** Quad-Stapel x/y 0..1 bei z=0.5, jede Lage vorder- UND rückseitig (Tür = 2 Lagen). */
+    /** Quad-Stapel x/y 0..1 bei z=0.5, jede Lage vorder- UND rueckseitig (Tuer = 2 Lagen). */
     private static Mesh buildFlat(String[] paths, int tint) {
-        float r = ((tint >> 16) & 0xFF) / 255F;
-        float g = ((tint >> 8) & 0xFF) / 255F;
-        float b = (tint & 0xFF) / 255F;
-        int n = paths.length;
-        /* Vorder-/Rückseite konsistent mit dem Extrusions-Pfad dimmen. */
-        float frB = ITEM_FACE_FRONT, baB = ITEM_FACE_FRONT;
-        float[] data = new float[n * 12 * FLOATS_PER_VERTEX];
-        int p = 0;
-        for (int i = 0; i < n; i++) {
-            int layer = BlockTextures.layerOf(paths[i]);
-            float ya = (float) i / n, yb = (float) (i + 1) / n;
-            p = quad(data, p,
-                    0, ya, 0.5F, 1, ya, 0.5F, 1, yb, 0.5F, 0, yb, 0.5F,
-                    0, 1, 1, 1, 1, 0, 0, 0, layer, r * frB, g * frB, b * frB);
-            p = quad(data, p,
-                    1, ya, 0.5F, 0, ya, 0.5F, 0, yb, 0.5F, 1, yb, 0.5F,
-                    1, 1, 0, 1, 0, 0, 1, 0, layer, r * baB, g * baB, b * baB);
-        }
-        return new Mesh(data);
-    }
-
-    private static int vert(float[] d, int p, float x, float y, float z, float u, float v, int layer, float r, float g, float b) {
-        d[p++] = x; d[p++] = y; d[p++] = z; d[p++] = u; d[p++] = v; d[p++] = layer;
-        d[p++] = r; d[p++] = g; d[p++] = b;
-        return p;
+        return new Mesh(ItemSpriteBuilder.flat(paths, tint, ITEM_FACE_FRONT));
     }
 
     /** Backt die Quads des States in ein interleaved Mesh (Kopie EntityRenderer.build). */
