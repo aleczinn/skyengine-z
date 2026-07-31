@@ -12,7 +12,10 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.item.BlockItem;
+import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.graphics.GlState;
+import de.skyengine.graphics.ItemSpriteBuilder;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
@@ -27,7 +30,9 @@ import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Zeichnet die Welt-Entities ({@link FallingBlockEntity}, {@link ItemEntity}) im Welt-Pass nach dem
@@ -42,6 +47,11 @@ public final class EntityRenderer {
 
     private static final int FLOATS_PER_VERTEX = 9;   // pos3 + texCoord3(u,v,layer) + rgb3 (brightness × fester Tint)
     private static final float ITEM_SCALE = 0.25f;
+    /** MC {@code item/generated} ground-Scale — flache Sprites liegen doppelt so groß da wie Blöcke. */
+    private static final float FLAT_ITEM_SCALE = 0.5f;
+    /* Face-Helligkeiten des extrudierten Sprites nach Block-Konvention (oben hell, unten dunkel). */
+    private static final float FLAT_FACE_FRONT = 0.8f, FLAT_FACE_SIDE = 0.6f;
+    private static final float FLAT_FACE_TOP = 1.0f, FLAT_FACE_BOTTOM = 0.5f;
     /** Konservativer Rand fürs Frustum-Culling (deckt Würfel, Item-Wippe, Interpolation ab). */
     private static final float CULL_MARGIN = 1.0f;
 
@@ -53,6 +63,9 @@ public final class EntityRenderer {
     private final de.skyengine.utils.collect.LongObjMap<Object> cache =
             new de.skyengine.utils.collect.LongObjMap<>(64);
     private static final Object NO_MESH = new Object();
+
+    /** Extrudierte Sprites der Nicht-Block-Items (Apfel, Werkzeug, Eimer, Material-Items). */
+    private final Map<Item, Object> sprites = new HashMap<>();
 
     private final Matrix4f model = new Matrix4f();
 
@@ -141,21 +154,51 @@ public final class EntityRenderer {
             this.drawMesh(mesh, Blocks.TNT);
             this.shader.setUniformf(this.locWhiteFlash, 0f); // zurücksetzen für folgende Entities
         } else if (e instanceof ItemEntity item) {
-            int id = blockStateId(item.getStack());
-            if (id < 0) return;
+            this.drawItem(item, ox, oy, oz, partialTick);
+        }
+    }
+
+    /**
+     * Gedropptes Item: kleiner, um Y rotierender und sanft wippender Körper über dem Boden.
+     * Block-Items sind Mini-Blockmodelle (Maßstab wie MCs {@code item/block}-ground), alles
+     * andere ein extrudiertes Sprite wie in der Hand (MC {@code item/generated}, ground-Maßstab
+     * 0,5) — ohne diesen zweiten Zweig lägen Apfel, Werkzeug und Eimer unsichtbar am Boden.
+     */
+    private void drawItem(ItemEntity item, float ox, float oy, float oz, float partialTick) {
+        ItemStack stack = item.getStack();
+        if (stack == null || stack.isEmpty()) return;
+
+        float a = item.getAge() + partialTick;
+        float bob = (float) Math.sin(a * 0.1f) * 0.05f + 0.1f;
+        float spin = a * 0.1f;
+
+        int id = blockStateId(stack);
+        if (id >= 0) {
             Mesh mesh = this.meshFor(id);
             if (mesh == null) return;
-            /* Kleiner, um Y rotierender und sanft wippender Würfel über dem Boden. */
-            float a = item.getAge() + partialTick;
-            float bob = (float) Math.sin(a * 0.1f) * 0.05f + 0.1f;
             this.model.identity()
                     .translate(ox, oy + bob, oz)
-                    .rotateY(a * 0.1f)
+                    .rotateY(spin)
                     .scale(ITEM_SCALE)
                     .translate(-0.5f, -0.5f, -0.5f);
             this.shader.setUniformMatrix4f(this.locModel, this.model);
             this.drawMesh(mesh, id);
+            return;
         }
+
+        Mesh sprite = this.spriteFor(stack.getItem());
+        if (sprite == null) return;
+        this.model.identity()
+                .translate(ox, oy + bob, oz)
+                .rotateY(spin)
+                .scale(FLAT_ITEM_SCALE)
+                .translate(-0.5f, -0.5f, -0.5f);
+        this.shader.setUniformMatrix4f(this.locModel, this.model);
+        /* Wie in HeldItemMeshes ohne Culling: das Sprite ist 1 px dick und dreht sich frei,
+           da darf keine Wand wegen ihrer Winding-Richtung verschwinden. */
+        GlState.disableCullFace();
+        sprite.render();
+        GlState.enableCullFace();
     }
 
     /**
@@ -186,6 +229,21 @@ public final class EntityRenderer {
     private static int blockStateId(ItemStack stack) {
         if (stack == null || stack.isEmpty() || !(stack.getItem() instanceof BlockItem bi)) return -1;
         return bi.getBlock().getDefaultState().getId();
+    }
+
+    /**
+     * Extrudiertes Sprite eines Nicht-Block-Items (lazy gebacken), oder null ohne Icon-Textur.
+     * Helligkeiten nach Block-Konvention statt der First-Person-Werte aus {@code HeldItemMeshes} —
+     * das Item liegt hier am Boden und dreht sich, die große Fläche darf nicht die dunkelste sein.
+     */
+    private Mesh spriteFor(Item item) {
+        Object cached = this.sprites.get(item);
+        if (cached != null) return cached == NO_MESH ? null : (Mesh) cached;
+        String path = item.getIconTexture();
+        Mesh mesh = path == null ? null : new Mesh(ItemSpriteBuilder.extrude(path, 0xFFFFFF,
+                FLAT_FACE_FRONT, FLAT_FACE_SIDE, FLAT_FACE_TOP, FLAT_FACE_BOTTOM));
+        this.sprites.put(item, mesh == null ? NO_MESH : mesh);
+        return mesh;
     }
 
     /** Liefert das gecachte Würfel-Mesh (lazy gebacken) oder null bei leerem Modell. */
@@ -241,6 +299,10 @@ public final class EntityRenderer {
             if (cached != null && cached != NO_MESH) ((Mesh) cached).dispose();
         }
         this.cache.clear();
+        for (Object cached : this.sprites.values()) {
+            if (cached != NO_MESH) ((Mesh) cached).dispose();
+        }
+        this.sprites.clear();
         if (this.shader != null) this.shader.dispose();
     }
 
