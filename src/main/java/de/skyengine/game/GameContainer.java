@@ -1177,9 +1177,15 @@ public class GameContainer implements IResizeable, IDisposable {
         this.animState.swing();
     }
 
-    /** Wirft einen Stapel aus einem offenen Container-GUI in die Welt ({@code GuiContainer}). */
+    /**
+     * Wirft einen Stapel aus einem offenen Container-GUI in die Welt ({@code GuiContainer}):
+     * Drop-Taste im GUI, Klick neben das Fenster und das Auswerfen beim Schließen laufen alle
+     * hier durch. Geschwungen wird wie beim normalen Drop — sonst fehlt dem Wurf das Feedback.
+     */
     public void dropFromGui(ItemStack stack) {
-        if (this.world != null && this.player != null) this.world.throwItem(this.player, stack);
+        if (this.world == null || this.player == null) return;
+        this.world.throwItem(this.player, stack);
+        this.animState.swing();
     }
 
     /** MC {@code MultiPlayerGameMode.hasMissTime}: im Creative gibt es keine Schlagsperre. */
