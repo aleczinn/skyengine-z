@@ -32,7 +32,8 @@ Als Texturen wurden die offiziellen Minecraft Texturen aus der 1.21 genutzt. Zus
   - Texturen / Formen zeichnen 
   - Font Rendering (TTF -> Texture Atlas -> Zeichnen)
   - HUD mit Hotbar
-  - GuiScreens darunter Boot Splash Screen mit Ladebalken, Hauptmenü, Pause Menü, Optionen + Gui Komponenten wie Button, Slider etc. 
+  - GuiScreens darunter Boot Splash Screen mit Ladebalken, Hauptmenü, Pause Menü, Optionen + Gui Komponenten wie Button, Slider etc.
+  - Kreatives Inventar mit Tabs für Block/Items
 - 🎶 Audio System
   - Unterstützt bis 5.1 Surround Sound
   - Soundeffekte
@@ -109,6 +110,16 @@ Der Fokus liegt auf:
 - Moderne OpenGL-Techniken
 
 ## Screenshots / Changelog
+
+v0.0.11 | Verbesserungen + Bugfixes
+- Block Physik für z. B. Friction, Jump-/Speed Faktor -> Neue Blöcke Slime block, Soulsand, Eis etc.
+- Inventar im Kreativmodus mit Tabs für Blöcke/Items
+- Maus/Tastatur Shortcuts zum besseren Nutzen des Inventares (Inspiriert am Minecraft Mod Inventory Tweaks)
+- Item Rendering bei gedroppten Blöcken/Items inkl. Stacking bei gleichem Typ
+- Items können nun vom Spieler gedroppt werden
+- Diverse kleiner Fehler (Rendering, Alpha in HeldItemRenderer)
+
+![Gedroppte Items rendern](project/0.0.11_dropped-item-rendering.png?raw=true)
 
 v0.0.10 | Licht-System
 - Skylight
