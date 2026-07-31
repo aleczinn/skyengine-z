@@ -35,11 +35,10 @@ public final class PlayerAnimationState {
        1 = Hand oben, 0 = ganz unten aus dem Bild. Ändert sich der gehaltene Stapel, fährt sie
        mit 0.4/Tick runter und erst wieder hoch, wenn sie unten angekommen ist. */
     private float handHeight, prevHandHeight;
-    /* Der GEZEIGTE Stapel-Inhalt: beim Wechsel noch der alte, bis die Hand unten ist. Vanilla
-       vergleicht ItemStack-Referenzen — unsere Stapel werden IN PLACE mutiert (setCount/setDamage),
-       deshalb ein Inhalts-Snapshot statt eines Referenzvergleichs. */
+    /* Das GEZEIGTE Item: beim Wechsel noch das alte, bis die Hand unten ist. Vanilla vergleicht
+       ItemStack-Referenzen — unsere Stapel werden IN PLACE mutiert (setCount/setDamage), ein
+       Referenzvergleich wäre hier also immer „gleich". Der Typ-Snapshot bildet dasselbe ab. */
     private Item handItem;
-    private int handCount;
     /* Item des letzten Ticks — nur ein TYP-Wechsel startet die Aufladung neu (Vanilla Player.tick). */
     private Item lastItem;
     /* Vanilla getItemSwapScale: nach einem Item-Wechsel lädt die Hand erst wieder auf; die
@@ -151,16 +150,15 @@ public final class PlayerAnimationState {
 
     /**
      * Equip-Animation der First-Person-Hand (Vanilla {@code ItemInHandRenderer.tick}): pro Tick
-     * nach {@link #tick} mit dem aktuell gehaltenen Stapel aufrufen. Solange sich dessen Inhalt
-     * ändert (anderes Item, andere Anzahl, andere Abnutzung), sinkt die Hand; unten angekommen
-     * übernimmt sie den neuen Stapel und fährt wieder hoch. Der Angriffs-Cooldown aus MC 1.9
+     * nach {@link #tick} mit dem aktuell gehaltenen Stapel aufrufen. Solange ein anderes Item in
+     * der Hand liegt, sinkt sie; unten angekommen übernimmt sie das neue Item und fährt wieder
+     * hoch. Anzahl und Abnutzung lösen das NICHT aus (s.u.). Der Angriffs-Cooldown aus MC 1.9
      * ({@code getAttackStrengthScale}) fehlt bewusst — es gibt hier keine Angriffsgeschwindigkeit.
      */
     public void tickHeldItem(ItemStack held) {
         this.prevHandHeight = this.handHeight;
 
         Item item = held.isEmpty() ? null : held.getItem();
-        int count = held.isEmpty() ? 0 : held.getCount();
 
         /* Vanilla Player.tick: NUR ein Item-TYP-Wechsel startet die Aufladung neu
            (resetAttackStrengthTicker); Anzahl/Abnutzung tun das nicht. Sonst läuft der Ticker
@@ -171,10 +169,12 @@ public final class PlayerAnimationState {
         }
         this.swapTicker = Math.min(this.swapTicker + 1, SWAP_TICKS);
 
-        /* Swap-Animation: Item oder Anzahl geändert. Die Abnutzung bleibt bewusst außen vor
-           (Vanilla ignoriert Komponenten mit ignoreSwapAnimation) — sonst würde jeder
-           Werkzeugschlag die Hand senken. */
-        boolean same = item == this.handItem && count == this.handCount;
+        /* Swap-Animation NUR beim Typ-Wechsel. Anzahl und Abnutzung bleiben außen vor: Vanilla
+           vergleicht die Stapel-REFERENZ, und ein Teil-Drop oder ein Aufsammeln mutiert denselben
+           Stapel — die Hand sinkt dort also gar nicht. Zählte die Anzahl mit, verschluckte die
+           Absenkung genau den Schwung, den das Wegwerfen auslöst (beide dauern 6 Ticks). Das
+           gewollte Absenken beim Platzieren kommt aus dem expliziten itemUsed(). */
+        boolean same = item == this.handItem;
 
         float swapScale = this.swapTicker / (float) SWAP_TICKS;
         float target = same ? swapScale * swapScale * swapScale : 0F;
@@ -182,7 +182,6 @@ public final class PlayerAnimationState {
 
         if (same || this.handHeight < 0.1F) {
             this.handItem = item;
-            this.handCount = count;
         }
     }
 
@@ -266,7 +265,7 @@ public final class PlayerAnimationState {
         this.swingProgress = 0; this.prevSwingProgress = 0;
         /* Hand unten + kein Item gemerkt -> fährt beim Welt-Eintritt einmal hoch (wie MC). */
         this.handHeight = 0; this.prevHandHeight = 0;
-        this.handItem = null; this.handCount = 0; this.lastItem = null;
+        this.handItem = null; this.lastItem = null;
         this.swapTicker = 0;
         this.xBob = 0; this.prevXBob = 0;
         this.yBob = 0; this.prevYBob = 0;

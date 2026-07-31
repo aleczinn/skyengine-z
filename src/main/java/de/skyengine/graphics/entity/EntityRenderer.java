@@ -12,7 +12,10 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.item.BlockItem;
+import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.graphics.GlState;
+import de.skyengine.graphics.ItemSpriteBuilder;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
@@ -27,7 +30,10 @@ import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Random;
 
 /**
  * Zeichnet die Welt-Entities ({@link FallingBlockEntity}, {@link ItemEntity}) im Welt-Pass nach dem
@@ -42,6 +48,27 @@ public final class EntityRenderer {
 
     private static final int FLOATS_PER_VERTEX = 9;   // pos3 + texCoord3(u,v,layer) + rgb3 (brightness × fester Tint)
     private static final float ITEM_SCALE = 0.25f;
+    /** MC {@code item/generated} ground-Scale — flache Sprites liegen doppelt so groß da wie Blöcke. */
+    private static final float FLAT_ITEM_SCALE = 0.5f;
+    /* Face-Helligkeiten des extrudierten Sprites nach Block-Konvention (oben hell, unten dunkel). */
+    private static final float FLAT_FACE_FRONT = 0.8f, FLAT_FACE_SIDE = 0.6f;
+    private static final float FLAT_FACE_TOP = 1.0f, FLAT_FACE_BOTTOM = 0.5f;
+    /* Stapel-Optik wie MC: Streuung je Kopie, dazu der feste z-Schritt der Sprite-Schichten. */
+    private static final float COPY_SPREAD = 0.15f;
+    private static final float COPY_LAYER_STEP = 0.09375f;
+
+    /* Boden-Animation, Werte aus MCs ItemEntityRenderer. */
+    private static final float BOB_SPEED = 0.1f;       // MC: (age + partialTick) / 10
+    private static final float BOB_AMPLITUDE = 0.1f;   // MC: sin(...) * 0.1 + 0.1
+    private static final float SPIN_SPEED = 0.05f;     // MC: (age + partialTick) / 20
+    /**
+     * Höhe der Modellmitte über dem Fußpunkt der Entity, ohne die Wippe. Setzt sich in MC aus dem
+     * Entity-Versatz {@code 0.25 · scale} und der {@code ground}-Translation des Item-Modells
+     * zusammen — und ergibt für BEIDE Fälle denselben Wert, weil MCs Transforms so gebaut sind:
+     * {@code item/block} 3/16 + 0.25·0.25, {@code item/generated} 2/16 + 0.25·0.5. Ohne diesen
+     * Versatz steckt das Modell im Boden, weil es um seine Mitte zentriert gezeichnet wird.
+     */
+    private static final float GROUND_LIFT = 0.25f;
     /** Konservativer Rand fürs Frustum-Culling (deckt Würfel, Item-Wippe, Interpolation ab). */
     private static final float CULL_MARGIN = 1.0f;
 
@@ -54,7 +81,12 @@ public final class EntityRenderer {
             new de.skyengine.utils.collect.LongObjMap<>(64);
     private static final Object NO_MESH = new Object();
 
+    /** Extrudierte Sprites der Nicht-Block-Items (Apfel, Werkzeug, Eimer, Material-Items). */
+    private final Map<Item, Object> sprites = new HashMap<>();
+
     private final Matrix4f model = new Matrix4f();
+    /** Wiederverwendet, vor jeder Kopien-Schleife neu geseedet — die Versätze sind deterministisch. */
+    private final Random copyRandom = new Random();
 
     private int locProjectionView, locWhiteFlash, locLight, locModel, locAlphaCutoff;
     /** Alpha-Test-Schwellen wie im ChunkRenderer: harter Cutout bzw. praktisch aus fürs Blending. */
@@ -141,20 +173,104 @@ public final class EntityRenderer {
             this.drawMesh(mesh, Blocks.TNT);
             this.shader.setUniformf(this.locWhiteFlash, 0f); // zurücksetzen für folgende Entities
         } else if (e instanceof ItemEntity item) {
-            int id = blockStateId(item.getStack());
-            if (id < 0) return;
+            this.drawItem(item, ox, oy, oz, partialTick);
+        }
+    }
+
+    /**
+     * Gedropptes Item: kleiner, um Y rotierender und sanft wippender Körper über dem Boden.
+     * Block-Items sind Mini-Blockmodelle (Maßstab wie MCs {@code item/block}-ground), alles
+     * andere ein extrudiertes Sprite wie in der Hand (MC {@code item/generated}, ground-Maßstab
+     * 0,5) — ohne diesen zweiten Zweig lägen Apfel, Werkzeug und Eimer unsichtbar am Boden.
+     *
+     * <p>{@code oy} ist der FUSSPUNKT der Entity ({@code Entity.updateBoundingBox} setzt
+     * {@code minY = y}), das Modell wird aber um seine Mitte zentriert — die Höhe muss das
+     * ausgleichen, sonst steckt es im Boden. Siehe {@link #GROUND_LIFT}.
+     */
+    private void drawItem(ItemEntity item, float ox, float oy, float oz, float partialTick) {
+        ItemStack stack = item.getStack();
+        if (stack == null || stack.isEmpty()) return;
+
+        float a = item.getAge() + partialTick;
+        /* Wippe schwingt um GROUND_LIFT nach oben, nie darunter — sonst taucht das Modell in den
+           Boden (es wird um seine Mitte zentriert gezeichnet, s. GROUND_LIFT). */
+        float lift = GROUND_LIFT + (float) Math.sin(a * BOB_SPEED) * BOB_AMPLITUDE + BOB_AMPLITUDE;
+        float spin = a * SPIN_SPEED;
+
+        int copies = renderedCopies(stack.getCount());
+        int id = blockStateId(stack);
+        if (id >= 0) {
             Mesh mesh = this.meshFor(id);
             if (mesh == null) return;
-            /* Kleiner, um Y rotierender und sanft wippender Würfel über dem Boden. */
-            float a = item.getAge() + partialTick;
-            float bob = (float) Math.sin(a * 0.1f) * 0.05f + 0.1f;
+            /* Seed = State-ID: derselbe Block sieht überall gleich aus (wie MC, dort Item-ID). */
+            this.copyRandom.setSeed(id);
+            this.drawCopies(mesh, id, copies, ox, oy + lift, oz, spin, ITEM_SCALE, false);
+            return;
+        }
+
+        Mesh sprite = this.spriteFor(stack.getItem());
+        if (sprite == null) return;
+        this.copyRandom.setSeed(stack.getItem().getId().hashCode());
+        /* Wie in HeldItemMeshes ohne Culling: das Sprite ist 1 px dick und dreht sich frei,
+           da darf keine Wand wegen ihrer Winding-Richtung verschwinden. */
+        GlState.disableCullFace();
+        this.drawCopies(sprite, -1, copies, ox, oy + lift, oz, spin, FLAT_ITEM_SCALE, true);
+        GlState.enableCullFace();
+    }
+
+    /**
+     * Wie viele Kopien ein Stapel dieser Größe zeigt (MC {@code ItemEntityRenderer
+     * .getRenderedAmount}) — daher springt die Optik bei 2, 17, 33 und 49.
+     */
+    private static int renderedCopies(int count) {
+        if (count <= 1) return 1;
+        if (count <= 16) return 2;
+        if (count <= 32) return 3;
+        if (count <= 48) return 4;
+        return 5;
+    }
+
+    /**
+     * Zeichnet {@code copies} Exemplare mit MCs Versätzen. Die Versätze sitzen in der Matrix-Kette
+     * NACH der Drehung und VOR der Skalierung — sie sind Welt-Einheiten und dürfen nicht
+     * mitverkleinert werden. Flache Sprites versetzen nur in x/y und schichten sich zusätzlich in
+     * z, Würfel streuen in alle drei Achsen.
+     *
+     * <p>{@code stateId} < 0 heißt „flaches Sprite": dann entfällt die RenderLayer-Abfrage, und
+     * gezeichnet wird ohne den Blend-Umschalter von {@link #drawMesh}.
+     */
+    private void drawCopies(Mesh mesh, int stateId, int copies, float ox, float oy, float oz,
+                            float spin, float scale, boolean flat) {
+        boolean translucent = stateId >= 0
+                && Blocks.getState(stateId).getRenderLayer() == RenderLayer.TRANSLUCENT;
+        /* Blend EINMAL um die ganze Schleife, nicht je Kopie. */
+        if (translucent) {
+            GL11.glEnable(GL11.GL_BLEND);
+            this.shader.setUniformf(this.locAlphaCutoff, TRANSLUCENT_ALPHA);
+        }
+        /* Der Sprite-Stapel wächst nach hinten; die Vorab-Verschiebung hält ihn mittig. */
+        float layerZ = flat ? -COPY_LAYER_STEP * (copies - 1) * 0.5f : 0f;
+        for (int i = 0; i < copies; i++) {
+            float dx = 0f, dy = 0f, dz = layerZ;
+            if (i > 0) {
+                float spread = flat ? COPY_SPREAD * 0.5f : COPY_SPREAD;
+                dx += (this.copyRandom.nextFloat() * 2f - 1f) * spread;
+                dy += (this.copyRandom.nextFloat() * 2f - 1f) * spread;
+                if (!flat) dz += (this.copyRandom.nextFloat() * 2f - 1f) * spread;
+            }
             this.model.identity()
-                    .translate(ox, oy + bob, oz)
-                    .rotateY(a * 0.1f)
-                    .scale(ITEM_SCALE)
+                    .translate(ox, oy, oz)
+                    .rotateY(spin)
+                    .translate(dx, dy, dz)
+                    .scale(scale)
                     .translate(-0.5f, -0.5f, -0.5f);
             this.shader.setUniformMatrix4f(this.locModel, this.model);
-            this.drawMesh(mesh, id);
+            mesh.render();
+            layerZ += flat ? COPY_LAYER_STEP : 0f;
+        }
+        if (translucent) {
+            GL11.glDisable(GL11.GL_BLEND);
+            this.shader.setUniformf(this.locAlphaCutoff, CUTOUT_ALPHA);
         }
     }
 
@@ -186,6 +302,21 @@ public final class EntityRenderer {
     private static int blockStateId(ItemStack stack) {
         if (stack == null || stack.isEmpty() || !(stack.getItem() instanceof BlockItem bi)) return -1;
         return bi.getBlock().getDefaultState().getId();
+    }
+
+    /**
+     * Extrudiertes Sprite eines Nicht-Block-Items (lazy gebacken), oder null ohne Icon-Textur.
+     * Helligkeiten nach Block-Konvention statt der First-Person-Werte aus {@code HeldItemMeshes} —
+     * das Item liegt hier am Boden und dreht sich, die große Fläche darf nicht die dunkelste sein.
+     */
+    private Mesh spriteFor(Item item) {
+        Object cached = this.sprites.get(item);
+        if (cached != null) return cached == NO_MESH ? null : (Mesh) cached;
+        String path = item.getIconTexture();
+        Mesh mesh = path == null ? null : new Mesh(ItemSpriteBuilder.extrude(path, 0xFFFFFF,
+                FLAT_FACE_FRONT, FLAT_FACE_SIDE, FLAT_FACE_TOP, FLAT_FACE_BOTTOM));
+        this.sprites.put(item, mesh == null ? NO_MESH : mesh);
+        return mesh;
     }
 
     /** Liefert das gecachte Würfel-Mesh (lazy gebacken) oder null bei leerem Modell. */
@@ -241,6 +372,10 @@ public final class EntityRenderer {
             if (cached != null && cached != NO_MESH) ((Mesh) cached).dispose();
         }
         this.cache.clear();
+        for (Object cached : this.sprites.values()) {
+            if (cached != NO_MESH) ((Mesh) cached).dispose();
+        }
+        this.sprites.clear();
         if (this.shader != null) this.shader.dispose();
     }
 

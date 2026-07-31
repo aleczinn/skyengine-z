@@ -538,12 +538,16 @@ public class GameContainer implements IResizeable, IDisposable {
             double dz = item.z - pz;
             if (dx * dx + dy * dy + dz * dz > PICKUP_RANGE * PICKUP_RANGE) return;
 
+            int before = item.getStack().getCount();
             ItemStack remaining = this.playerInventory.insert(item.getStack());
             if (remaining.isEmpty()) {
                 item.remove();
             } else {
                 item.getStack().setCount(remaining.getCount());
             }
+            /* Nur bei echter Aufnahme klingeln: bei vollem Inventar gibt insert() den ganzen
+               Stapel zurück, und der Sound liefe sonst jeden Tick. */
+            if (remaining.getCount() < before) this.soundManager.playPickup();
         });
     }
 
@@ -1173,9 +1177,15 @@ public class GameContainer implements IResizeable, IDisposable {
         this.animState.swing();
     }
 
-    /** Wirft einen Stapel aus einem offenen Container-GUI in die Welt ({@code GuiContainer}). */
+    /**
+     * Wirft einen Stapel aus einem offenen Container-GUI in die Welt ({@code GuiContainer}):
+     * Drop-Taste im GUI, Klick neben das Fenster und das Auswerfen beim Schließen laufen alle
+     * hier durch. Geschwungen wird wie beim normalen Drop — sonst fehlt dem Wurf das Feedback.
+     */
     public void dropFromGui(ItemStack stack) {
-        if (this.world != null && this.player != null) this.world.throwItem(this.player, stack);
+        if (this.world == null || this.player == null) return;
+        this.world.throwItem(this.player, stack);
+        this.animState.swing();
     }
 
     /** MC {@code MultiPlayerGameMode.hasMissTime}: im Creative gibt es keine Schlagsperre. */

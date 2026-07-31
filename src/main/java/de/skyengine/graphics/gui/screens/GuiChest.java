@@ -4,6 +4,7 @@ import de.skyengine.game.world.block.entity.ChestBlockEntity;
 import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.Slot;
+import de.skyengine.graphics.gui.SlotGroup;
 import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.texture.Texture;
 
@@ -77,16 +78,19 @@ public final class GuiChest extends GuiContainer {
             ItemStorage storage = r < 3 ? this.chestInv : this.partnerInv;
             int base = (r % 3) * COLS;
             for (int c = 0; c < COLS; c++) {
-                this.slots.add(new Slot(storage, base + c, gx + 8 + c * STEP, gy + 18 + r * STEP));
+                this.slots.add(new Slot(storage, base + c, gx + 8 + c * STEP, gy + 18 + r * STEP,
+                        SlotGroup.CONTAINER));
             }
         }
         /* Spieler-Hauptinventar (Indizes 9..35). */
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < COLS; c++)
-                this.slots.add(new Slot(this.playerInv, COLS + r * COLS + c, gx + 8 + c * STEP, gy + playerY + r * STEP));
+                this.slots.add(new Slot(this.playerInv, COLS + r * COLS + c, gx + 8 + c * STEP,
+                        gy + playerY + r * STEP, SlotGroup.INVENTORY));
         /* Hotbar (Indizes 0..8). */
         for (int c = 0; c < COLS; c++)
-            this.slots.add(new Slot(this.playerInv, c, gx + 8 + c * STEP, gy + playerY + 58));
+            this.slots.add(new Slot(this.playerInv, c, gx + 8 + c * STEP, gy + playerY + 58,
+                    SlotGroup.HOTBAR));
     }
 
     @Override

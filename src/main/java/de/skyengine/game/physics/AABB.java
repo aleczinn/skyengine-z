@@ -33,6 +33,17 @@ public class AABB {
         return this;
     }
 
+    /** Bläht die Box in alle Richtungen auf (Suchbereich, z.B. für das Verschmelzen von Drops). */
+    public AABB inflate(double dx, double dy, double dz) {
+        this.minX -= dx;
+        this.minY -= dy;
+        this.minZ -= dz;
+        this.maxX += dx;
+        this.maxY += dy;
+        this.maxZ += dz;
+        return this;
+    }
+
     /**
      * Erweitert die Box in Bewegungsrichtung (Broadphase für swept collision).
      * Deckt damit den KOMPLETTEN Bewegungsweg eines Ticks ab - kein Tunneling,

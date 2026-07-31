@@ -376,6 +376,11 @@ public class Input {
         return this.isKeyDown(GLFW.GLFW_KEY_LEFT_CONTROL) || this.isKeyDown(GLFW.GLFW_KEY_RIGHT_CONTROL);
     }
 
+    /** Ist eine der beiden UMSCHALT-Tasten gehalten? Der Modifier, NICHT der Sneak-Keybind. */
+    public boolean isShiftDown() {
+        return this.isKeyDown(GLFW.GLFW_KEY_LEFT_SHIFT) || this.isKeyDown(GLFW.GLFW_KEY_RIGHT_SHIFT);
+    }
+
     /* --- Keybinds (Taste ODER Maustaste) ---
        Ein Bind-Code ist ein GLFW-Key-Code, oder — ab MOUSE_OFFSET — eine Maustaste
        (Code = MOUSE_OFFSET + GLFW-Mouse-Button). GLFW-Keys reichen nur bis ~348, der Offset

@@ -4,6 +4,7 @@ import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.Slot;
+import de.skyengine.graphics.gui.SlotGroup;
 import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.player.HeldItemMeshes;
 import de.skyengine.graphics.player.PlayerRenderer;
@@ -46,10 +47,11 @@ public final class GuiInventory extends GuiContainer {
         /* Hauptinventar (Indizes 9..35). */
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < COLS; c++)
-                this.slots.add(new Slot(this.playerInv, COLS + r * COLS + c, gx + 8 + c * STEP, gy + 84 + r * STEP));
+                this.slots.add(new Slot(this.playerInv, COLS + r * COLS + c, gx + 8 + c * STEP,
+                        gy + 84 + r * STEP, SlotGroup.INVENTORY));
         /* Hotbar (Indizes 0..8). */
         for (int c = 0; c < COLS; c++)
-            this.slots.add(new Slot(this.playerInv, c, gx + 8 + c * STEP, gy + 142));
+            this.slots.add(new Slot(this.playerInv, c, gx + 8 + c * STEP, gy + 142, SlotGroup.HOTBAR));
     }
 
     @Override
