@@ -33,6 +33,7 @@ import org.lwjgl.opengl.GL30;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 /**
  * Zeichnet die Welt-Entities ({@link FallingBlockEntity}, {@link ItemEntity}) im Welt-Pass nach dem
@@ -52,6 +53,9 @@ public final class EntityRenderer {
     /* Face-Helligkeiten des extrudierten Sprites nach Block-Konvention (oben hell, unten dunkel). */
     private static final float FLAT_FACE_FRONT = 0.8f, FLAT_FACE_SIDE = 0.6f;
     private static final float FLAT_FACE_TOP = 1.0f, FLAT_FACE_BOTTOM = 0.5f;
+    /* Stapel-Optik wie MC: Streuung je Kopie, dazu der feste z-Schritt der Sprite-Schichten. */
+    private static final float COPY_SPREAD = 0.15f;
+    private static final float COPY_LAYER_STEP = 0.09375f;
     /** Konservativer Rand fürs Frustum-Culling (deckt Würfel, Item-Wippe, Interpolation ab). */
     private static final float CULL_MARGIN = 1.0f;
 
@@ -68,6 +72,8 @@ public final class EntityRenderer {
     private final Map<Item, Object> sprites = new HashMap<>();
 
     private final Matrix4f model = new Matrix4f();
+    /** Wiederverwendet, vor jeder Kopien-Schleife neu geseedet — die Versätze sind deterministisch. */
+    private final Random copyRandom = new Random();
 
     private int locProjectionView, locWhiteFlash, locLight, locModel, locAlphaCutoff;
     /** Alpha-Test-Schwellen wie im ChunkRenderer: harter Cutout bzw. praktisch aus fürs Blending. */
@@ -172,33 +178,81 @@ public final class EntityRenderer {
         float bob = (float) Math.sin(a * 0.1f) * 0.05f + 0.1f;
         float spin = a * 0.1f;
 
+        int copies = renderedCopies(stack.getCount());
         int id = blockStateId(stack);
         if (id >= 0) {
             Mesh mesh = this.meshFor(id);
             if (mesh == null) return;
-            this.model.identity()
-                    .translate(ox, oy + bob, oz)
-                    .rotateY(spin)
-                    .scale(ITEM_SCALE)
-                    .translate(-0.5f, -0.5f, -0.5f);
-            this.shader.setUniformMatrix4f(this.locModel, this.model);
-            this.drawMesh(mesh, id);
+            /* Seed = State-ID: derselbe Block sieht überall gleich aus (wie MC, dort Item-ID). */
+            this.copyRandom.setSeed(id);
+            this.drawCopies(mesh, id, copies, ox, oy + bob, oz, spin, ITEM_SCALE, false);
             return;
         }
 
         Mesh sprite = this.spriteFor(stack.getItem());
         if (sprite == null) return;
-        this.model.identity()
-                .translate(ox, oy + bob, oz)
-                .rotateY(spin)
-                .scale(FLAT_ITEM_SCALE)
-                .translate(-0.5f, -0.5f, -0.5f);
-        this.shader.setUniformMatrix4f(this.locModel, this.model);
+        this.copyRandom.setSeed(stack.getItem().getId().hashCode());
         /* Wie in HeldItemMeshes ohne Culling: das Sprite ist 1 px dick und dreht sich frei,
            da darf keine Wand wegen ihrer Winding-Richtung verschwinden. */
         GlState.disableCullFace();
-        sprite.render();
+        this.drawCopies(sprite, -1, copies, ox, oy + bob, oz, spin, FLAT_ITEM_SCALE, true);
         GlState.enableCullFace();
+    }
+
+    /**
+     * Wie viele Kopien ein Stapel dieser Größe zeigt (MC {@code ItemEntityRenderer
+     * .getRenderedAmount}) — daher springt die Optik bei 2, 17, 33 und 49.
+     */
+    private static int renderedCopies(int count) {
+        if (count <= 1) return 1;
+        if (count <= 16) return 2;
+        if (count <= 32) return 3;
+        if (count <= 48) return 4;
+        return 5;
+    }
+
+    /**
+     * Zeichnet {@code copies} Exemplare mit MCs Versätzen. Die Versätze sitzen in der Matrix-Kette
+     * NACH der Drehung und VOR der Skalierung — sie sind Welt-Einheiten und dürfen nicht
+     * mitverkleinert werden. Flache Sprites versetzen nur in x/y und schichten sich zusätzlich in
+     * z, Würfel streuen in alle drei Achsen.
+     *
+     * <p>{@code stateId} < 0 heißt „flaches Sprite": dann entfällt die RenderLayer-Abfrage, und
+     * gezeichnet wird ohne den Blend-Umschalter von {@link #drawMesh}.
+     */
+    private void drawCopies(Mesh mesh, int stateId, int copies, float ox, float oy, float oz,
+                            float spin, float scale, boolean flat) {
+        boolean translucent = stateId >= 0
+                && Blocks.getState(stateId).getRenderLayer() == RenderLayer.TRANSLUCENT;
+        /* Blend EINMAL um die ganze Schleife, nicht je Kopie. */
+        if (translucent) {
+            GL11.glEnable(GL11.GL_BLEND);
+            this.shader.setUniformf(this.locAlphaCutoff, TRANSLUCENT_ALPHA);
+        }
+        /* Der Sprite-Stapel wächst nach hinten; die Vorab-Verschiebung hält ihn mittig. */
+        float layerZ = flat ? -COPY_LAYER_STEP * (copies - 1) * 0.5f : 0f;
+        for (int i = 0; i < copies; i++) {
+            float dx = 0f, dy = 0f, dz = layerZ;
+            if (i > 0) {
+                float spread = flat ? COPY_SPREAD * 0.5f : COPY_SPREAD;
+                dx += (this.copyRandom.nextFloat() * 2f - 1f) * spread;
+                dy += (this.copyRandom.nextFloat() * 2f - 1f) * spread;
+                if (!flat) dz += (this.copyRandom.nextFloat() * 2f - 1f) * spread;
+            }
+            this.model.identity()
+                    .translate(ox, oy, oz)
+                    .rotateY(spin)
+                    .translate(dx, dy, dz)
+                    .scale(scale)
+                    .translate(-0.5f, -0.5f, -0.5f);
+            this.shader.setUniformMatrix4f(this.locModel, this.model);
+            mesh.render();
+            layerZ += flat ? COPY_LAYER_STEP : 0f;
+        }
+        if (translucent) {
+            GL11.glDisable(GL11.GL_BLEND);
+            this.shader.setUniformf(this.locAlphaCutoff, CUTOUT_ALPHA);
+        }
     }
 
     /**
