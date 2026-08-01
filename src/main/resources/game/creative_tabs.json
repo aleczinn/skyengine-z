@@ -73,6 +73,13 @@
       ]
     },
     {
+      "id": "redstone_blocks",
+      "icon": "skyengine:redstone",
+      "items": [
+        "redstone"
+      ]
+    },
+    {
       "id": "tools",
       "icon": "skyengine:iron_pickaxe",
       "items": [
