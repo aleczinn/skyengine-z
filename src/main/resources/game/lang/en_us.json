@@ -46,7 +46,8 @@
   "options": {
     "title": "Options",
     "fov": "FOV: %d",
-    "gui_scale": "GUI Scale: %d %%",
+    "gui_scale": "GUI Scale",
+    "gui_scale_auto": "Auto",
     "language": "Language...",
     "resourcepacks": "Resource Packs...",
 

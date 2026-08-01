@@ -42,17 +42,17 @@ public final class GuiManager {
     private static final float MIN_VW = 340, MIN_VH = 240;
 
     private GuiScreen screen;
-    /** Gewünschter Scale aus den Settings — Obergrenze für {@link #effectiveScale}. */
-    private float scale = 3.5f;
-    /** Tatsächlich angewandter Scale (Wunschwert, geklemmt auf die Mindest-vW/vH). */
-    private float effectiveScale = 3.5f;
+    /** Gewünschter Faktor aus den Settings; 0 = automatisch. Obergrenze für {@link #effectiveScale}. */
+    private int scale = 0;
+    /** Tatsächlich angewandter Faktor (Wunsch, geklemmt auf die Mindest-vW/vH). Immer ganzzahlig. */
+    private float effectiveScale = 1;
     private float vW, vH;
 
     /* Für welche vW/vH der offene GuiScreen zuletzt layoutet wurde (NaN = init steht aus). */
     private float layoutVW = Float.NaN, layoutVH = Float.NaN;
 
-    /* Fensterhöhe in Pixeln (für die virtuell->Pixel-Umrechnung des Scissors, y-Flip). */
-    private int screenHpx;
+    /* Fenstergröße in Pixeln (Scissor-Umrechnung mit y-Flip; Breite für maxScale()). */
+    private int screenWpx, screenHpx;
 
     private int lastCursorMode = -1; // -1 = unbekannt, 0 = disabled, 1 = normal
 
@@ -102,8 +102,33 @@ public final class GuiManager {
         return this.vH;
     }
 
-    public void setScale(float scale) {
-        this.scale = Math.max(1f, scale);
+    /** Gewünschter GUI-Faktor; 0 = automatisch (größter, der ins Fenster passt). */
+    public void setScale(int level) {
+        this.scale = Math.max(0, level);
+    }
+
+    /**
+     * Größter Faktor, bei dem die virtuelle Fläche noch {@code MIN_VW×MIN_VH} erreicht.
+     * Abgerundet — aufrunden würde die garantierte Mindestfläche unterschreiten.
+     */
+    public static int maxScaleFor(float screenW, float screenH) {
+        return Math.max(1, (int) Math.floor(Math.min(screenW / MIN_VW, screenH / MIN_VH)));
+    }
+
+    /**
+     * Wunsch-Faktor (0 = automatisch) + Fenstergröße → tatsächlich angewandter Faktor.
+     * GANZZAHLIG wie in Minecraft: nur dann ist 1 virtueller Pixel = N ganze Gerätepixel. Bei
+     * gebrochenem Faktor fällt jede Texelkante mitten in ein Pixel — eine 1 px breite Linie
+     * wird mal 3, mal 4 px breit und ein 16-px-Item-Sprite ragt in seinen Slotrahmen.
+     */
+    public static int resolveScale(int level, float screenW, float screenH) {
+        int max = maxScaleFor(screenW, screenH);
+        return level <= 0 ? max : Math.min(level, max);
+    }
+
+    /** Größter im aktuellen Fenster mögliche Faktor — Obergrenze der Auswahl im Optionsmenü. */
+    public int maxScale() {
+        return maxScaleFor(this.screenWpx, this.screenHpx);
     }
 
     public boolean isOpen() {
@@ -235,18 +260,11 @@ public final class GuiManager {
     public void render(int screenW, int screenH, SimpleItemStorage hotbarInv, int selectedSlot,
                        boolean showHotbar, boolean crosshair, float itemNameAlpha, EntityPlayer player) {
         this.syncCursor();
+        this.screenWpx = screenW;
         this.screenHpx = screenH;
-        /* Auto-Scale: bei kleinen Fenstern den Scale reduzieren, damit die virtuelle Fläche
-           nie unter MIN_VW×MIN_VH fällt (UI schrumpft mit, statt abgeschnitten zu werden).
-
-           GANZZAHLIG wie in Minecraft: nur dann ist 1 virtueller Pixel = N ganze Gerätepixel.
-           Bei gebrochenem Scale (110 % = 3,85) fällt jede Texelkante mitten in ein Pixel — eine
-           1 px breite Linie wird mal 3, mal 4 px breit und ein 16-px-Item-Sprite ragt in seinen
-           Slotrahmen. Die Asymmetrie ist Absicht: der WUNSCH wird gerundet (3,85 -> 4), die
-           FENSTERGRENZE abgerundet — sonst fiele die garantierte Mindestfläche. */
-        float limit = Math.min(screenW / MIN_VW, screenH / MIN_VH);
-        int wanted = Math.max(1, Math.round(this.scale));
-        this.effectiveScale = Math.min(wanted, Math.max(1, (int) Math.floor(limit)));
+        /* Auto-Scale: bei kleinen Fenstern den Faktor reduzieren, damit die virtuelle Fläche
+           nie unter MIN_VW×MIN_VH fällt (UI schrumpft mit, statt abgeschnitten zu werden). */
+        this.effectiveScale = resolveScale(this.scale, screenW, screenH);
         this.vW = screenW / this.effectiveScale;
         this.vH = screenH / this.effectiveScale;
 

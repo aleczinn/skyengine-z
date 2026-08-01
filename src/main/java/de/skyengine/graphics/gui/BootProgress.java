@@ -34,7 +34,10 @@ public final class BootProgress {
         GL11.glClearColor(0.06f, 0.06f, 0.06f, 1f);
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
 
-        float scale = GameSettings.get().guiScaleFactor();
+        /* Dieselbe Auflösung wie im GuiManager — inklusive Deckelung durch die Fenstergröße.
+           Vorher nahm der Ladebildschirm den Wunschwert ungeklemmt und konnte dadurch unter
+           die garantierte Mindestfläche rutschen. */
+        float scale = GuiManager.resolveScale(GameSettings.get().guiScaleLevel, w, h);
         float vW = w / scale, vH = h / scale;
 
         SpriteRenderer sprites = this.gui.sprites();

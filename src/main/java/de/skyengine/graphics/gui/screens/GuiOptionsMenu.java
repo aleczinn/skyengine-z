@@ -9,6 +9,7 @@ import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
+import de.skyengine.graphics.gui.widget.CycleButton;
 import de.skyengine.graphics.gui.widget.Slider;
 import de.skyengine.graphics.gui.widget.Spacer;
 
@@ -46,12 +47,22 @@ public final class GuiOptionsMenu extends GuiOptionsScreen {
                     game.getCamera().setFov((int) v);
                 }, null);
 
-        /* GUI-Größe erst beim Loslassen anwenden: setScale layoutet den GuiScreen neu
-           und würde einen laufenden Drag abbrechen. */
-        Slider guiScale = new Slider(CELL_W, CELL_H, 30, 170, 5, this.settings.guiScalePercent,
-                v -> I18n.tr("options.gui_scale", (int) v),
-                v -> this.settings.guiScalePercent = (int) v,
-                () -> gui.setScale(this.settings.guiScaleFactor()));
+        /* Nur ganzzahlige Faktoren, und nur die, die ins aktuelle Fenster passen — Prozent
+           wären eine Lüge: Zwischenstufen kann die GUI gar nicht darstellen (Texel-Raster mit
+           GL_NEAREST). 0 = automatisch. Die Liste wird bei jedem Layout neu gebaut, wächst
+           also beim Vergrößern des Fensters mit. */
+        int maxScale = gui.maxScale();
+        Integer[] levels = new Integer[maxScale + 1];
+        for (int i = 0; i <= maxScale; i++) levels[i] = i;
+        /* Startwert klemmen: CycleButton sucht den Index per equals und fiele bei einem nicht
+           gelisteten Wert kommentarlos auf den ERSTEN zurück — die Anzeige löge dann. */
+        CycleButton<Integer> guiScale = new CycleButton<>(I18n.tr("options.gui_scale"), CELL_W, CELL_H,
+                levels, Math.min(this.settings.guiScaleLevel, maxScale),
+                v -> v == 0 ? I18n.tr("options.gui_scale_auto") : v + "x",
+                v -> {
+                    this.settings.guiScaleLevel = v;
+                    gui.setScale(v);
+                });
 
         /* Die "..." stehen in den Sprachdateien (drei Punkte — der Font-Atlas hat kein U+2026). */
         Button sound = new Button(I18n.tr("options.sound.button"), CELL_W, CELL_H, () -> gui.open(new GuiSoundOptions(this)));

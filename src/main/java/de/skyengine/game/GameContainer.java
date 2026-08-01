@@ -438,7 +438,7 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         this.camera.setFov(this.settings.fov);
         this.camera.setFarPlane(this.computeFarPlane());
-        this.guiManager.setScale(this.settings.guiScaleFactor());
+        this.guiManager.setScale(this.settings.guiScaleLevel);
         /* Über das Window setzen, damit dessen Zustand (config.isVSync) authoritativ bleibt -
            der FPS-Limiter im gameLoop liest window.isVSync(). Läuft auf dem Render-Thread,
            wo der GL-Kontext aktiv ist (glfwSwapInterval gehört dorthin, nicht auf den Main-Thread). */
