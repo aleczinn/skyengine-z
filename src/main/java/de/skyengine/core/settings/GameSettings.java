@@ -42,7 +42,7 @@ public final class GameSettings {
 
     /* GUI-Größe in Prozent (30..170, 5er-Schritte): 100 % = Referenz-Look (Faktor 3.5). Ersetzt
        das alte guiScale-Feld (1..100 -> 1.0..6.0); alte options.json fallen auf 100 % zurück. */
-    public int guiScalePercent = 100;
+    public int guiScalePercent = 110;
     public int renderDistance = 16;   // in Chunks
     public int simulationDistance = 10; // in Chunks; nur Chunks in diesem Radius ticken (wie MC)
     public int fov = 75;
