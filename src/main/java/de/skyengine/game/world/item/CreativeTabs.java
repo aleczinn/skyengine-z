@@ -335,6 +335,22 @@ public final class CreativeTabs {
             }
         }
 
+        /* Grundmenge des Such-Reiters: alle Reiter nacheinander in Anzeigereihenfolge statt in
+           Registry-Reihenfolge (die ist alphabetisch nach Dateiname und wirkt zusammengewürfelt).
+           Ein Item in mehreren Reitern erscheint nur an seiner ERSTEN Stelle. */
+        ALL.clear();
+        Set<Identifier> listed = new HashSet<>();
+        for (List<Item> content : CONTENTS.values()) {
+            for (Item item : content) {
+                if (listed.add(item.getId())) ALL.add(item);
+            }
+        }
+        /* Sicherheitsnetz: aus der Suche darf nichts verschwinden, auch wenn ein Item wider
+           Erwarten in keinem Reiter landet. */
+        for (Item item : Registries.ITEM.values()) {
+            if (listed.add(item.getId())) ALL.add(item);
+        }
+
         StringBuilder counts = new StringBuilder();
         for (Map.Entry<String, List<Item>> e : CONTENTS.entrySet()) {
             if (!counts.isEmpty()) counts.append(", ");
@@ -361,7 +377,10 @@ public final class CreativeTabs {
         return Collections.unmodifiableList(TABS_OF_ITEM.getOrDefault(id, List.of()));
     }
 
-    /** Alle registrierten Items in Registry-Reihenfolge — Grundmenge des Such-Tabs. */
+    /**
+     * Alle registrierten Items — Grundmenge des Such-Tabs. Reihenfolge: die Reiter nacheinander
+     * in Anzeigereihenfolge, jedes Item genau einmal (an seiner ersten Stelle).
+     */
     public static List<Item> all() {
         return Collections.unmodifiableList(ALL);
     }

@@ -127,7 +127,8 @@ public final class GuiCreativeInventory extends GuiContainer {
        Mitte 88.5 + 1, Boden 48 − 1 und Scale 30 × 43/70. */
     private static final float PREVIEW_X = 89.5f, PREVIEW_FEET_Y = 47, PREVIEW_SCALE = 18;
 
-    /* Gewählter Reiter und Reiter-Seite überleben das Schließen (wie MC). */
+    /* Nur die Reiter-SEITE überlebt das Schließen. Der gewählte Reiter nicht: aufgemacht wird
+       immer der Such-Reiter (siehe Konstruktor). */
     private static String selectedTabId;
     private static int tabPage;
 
@@ -175,7 +176,13 @@ public final class GuiCreativeInventory extends GuiContainer {
         }
         this.pageCount = Math.max(1, (this.pageTabs.size() + PAGE_SLOTS - 1) / PAGE_SLOTS);
 
-        if (this.findTab(selectedTabId) == null) {
+        /* Immer mit der Suche aufmachen — das Suchfeld ist dadurch sofort tippbereit
+           (init fokussiert es beim Such-Reiter). Bewusste Folge: geschlossen wird mit ESC,
+           weil ein "e" ins Suchfeld läuft; in Minecraft ist das genauso. */
+        CreativeTab search = this.pinned(CreativeTab.Type.SEARCH);
+        if (search != null) {
+            selectedTabId = search.id();
+        } else if (this.findTab(selectedTabId) == null) {
             selectedTabId = this.pageTabs.isEmpty()
                     ? (this.pinnedTabs.isEmpty() ? null : this.pinnedTabs.getFirst().id())
                     : this.pageTabs.getFirst().id();
@@ -531,25 +538,28 @@ public final class GuiCreativeInventory extends GuiContainer {
     }
 
     /**
-     * Klick auf einen Listen-Slot. Mit belegter Hand ist die Liste der Mülleimer, mit leerer Hand
-     * gibt sie einen vollen Stapel — Shift legt ihn direkt ins Inventar. Der Klick wird
-     * vollständig hier behandelt, also nie an {@code beginDrag}/Doppelklick weitergereicht.
+     * Klick auf einen Listen-Slot. Mit leerer Hand kommt EIN Item in die Hand, ein weiterer Klick
+     * auf dasselbe Item stapelt hoch — Rechtsklick zählt entsprechend herunter (wie in MC).
+     * Bei einem fremden Item bleibt die Liste der Mülleimer und leert die Hand. Shift legt
+     * stattdessen einen vollen Stapel ins Inventar. Der Klick wird vollständig hier behandelt,
+     * also nie an {@code beginDrag}/Doppelklick weitergereicht.
      */
     private void clickList(Slot slot, int button) {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT && button != GLFW.GLFW_MOUSE_BUTTON_RIGHT
                 && button != GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
             return;   // Maus 4/5 kommen wegen capturesMouse() mit an
         }
+        boolean right = button == GLFW.GLFW_MOUSE_BUTTON_RIGHT;
         ItemStack stack = slot.get();
         if (!this.carried.isEmpty()) {
-            /* Dasselbe Item nochmal anklicken stapelt in der Hand hoch (Stück für Stück).
-               Bei jedem anderen Klick bleibt die Liste der Mülleimer und leert die Hand. */
-            if (!stack.isEmpty() && this.carried.getItem() == stack.getItem()
-                    && this.carried.getCount() < this.carried.getMaxStackSize()) {
-                this.carried.setCount(this.carried.getCount() + 1);
-            } else {
+            /* Rechts und links unterscheiden sich nur im Vorzeichen. */
+            if (stack.isEmpty() || this.carried.getItem() != stack.getItem()) {
                 this.carried = ItemStack.EMPTY;
+                return;
             }
+            int count = this.carried.getCount() + (right ? -1 : 1);
+            if (count <= 0) this.carried = ItemStack.EMPTY;
+            else if (count <= this.carried.getMaxStackSize()) this.carried.setCount(count);
             return;
         }
         if (stack.isEmpty()) return;

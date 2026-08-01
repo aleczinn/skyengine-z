@@ -332,9 +332,13 @@ ausdrücken).
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
   (Andockpunkt: `GuiContainer.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
-- Creative-Inventar-Feinschliff: Hotbar-Speicher (MCs C + 1-9) fehlt bewusst; ein Shift-Klick auf
-  einen Hotbar-Slot im Item-Reiter löscht das Item NICHT (in MC schon) — Löschen geht über die
-  Item-Liste bzw. den Lösch-Slot im Survival-Reiter
+- Creative-Inventar-Feinschliff: Hotbar-Speicher (MCs C + 1-9) fehlt bewusst; der reservierte
+  Reiter-Platz (Spalte 5 beider Reihen) ist dafür schon frei gehalten. Klick-Verhalten der
+  Item-Liste ist bewusst NICHT ganz MC: Linksklick gibt **1** Item und stapelt bei weiteren
+  Klicks hoch, Rechtsklick zählt herunter, ein fremdes Item leert die Hand (die Liste ist der
+  Mülleimer); Bulk gibt es über Shift-Klick und die Tasten 1-9. Aufgemacht wird **immer** der
+  Such-Reiter mit fokussiertem Feld — deshalb schließt **ESC**, nicht E (das „e" läuft ins
+  Suchfeld, wie in MC)
 - Bett/Reaktor: die Mechanik steht (`parts`, s.o.), es fehlen nur noch die Blöcke selbst —
   ein Bett braucht ein eigenes 3D-Modell + Texturen. `multiblock/MultiblockPattern` bleibt
   ungenutzte Infrastruktur für Controller-Strukturen (validiert eine Struktur aus FREMDEN
