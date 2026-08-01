@@ -364,14 +364,18 @@ public final class GuiCreativeInventory extends GuiContainer {
 
     @Override
     public void init(GuiManager gui, float vW, float vH) {
-        this.guiX = (vW - W) / 2f;
+        /* Auf ganze virtuelle Pixel runden: mit ganzzahligem GUI-Scale liegt damit ALLES, was
+           von guiX/guiY abhängt (Fenster, Reiter, Reiter-Icons, Pager), exakt auf
+           Gerätepixel-Grenzen. Vorher rundeten nur die Slots — die Reiter-Icons saßen dadurch
+           auf halben Pixeln. */
+        this.guiX = Math.round((vW - W) / 2f);
         /* Zentriert wird die GESAMTE Anordnung, nicht nur das Fenster: die Reiter ragen oben und
            unten je 28 px hinaus, mit sichtbarer Seiten-Leiste oben nochmal 24 px mehr. Ohne die
            Leiste ist das Ergebnis rechnerisch identisch zu (vH − H)/2; mit ihr liefe die Leiste
            bei der garantierten Mindesthöhe (GuiManager.MIN_VH = 240) sonst aus dem Bild. */
         float topExtra = -TAB_TOP_DY + (this.pagerVisible() ? PAGER_H + PAGER_GAP : 0);
         float bottomExtra = TAB_H - 4;
-        this.guiY = (vH - (topExtra + H + bottomExtra)) / 2f + topExtra;
+        this.guiY = Math.round((vH - (topExtra + H + bottomExtra)) / 2f + topExtra);
 
         this.prevPage = new Button("<", PAGER_H, PAGER_H, () -> this.turnPage(-1));
         this.nextPage = new Button(">", PAGER_H, PAGER_H, () -> this.turnPage(1));
@@ -437,6 +441,21 @@ public final class GuiCreativeInventory extends GuiContainer {
         List<Slot> inventory = this.slotsOf(SlotGroup.INVENTORY);
         if (inventory.isEmpty()) return List.of();
         return from == SlotGroup.HOTBAR ? inventory : this.slotsOf(SlotGroup.HOTBAR);
+    }
+
+    /**
+     * Shift-Klick auf einen eigenen Slot, während ein Item-Reiter offen ist: der Stapel wandert
+     * zurück ins Kreativmenü — verschwindet also, wie in MC. Das ist der schnelle Weg, die
+     * Leiste aufzuräumen. Im Survival-Reiter gilt die geerbte Logik (Inventar ↔ Hotbar).
+     */
+    @Override
+    protected int quickMove(Slot from, int amount) {
+        if (this.hasList() && from.group != SlotGroup.CONTAINER) {
+            int removed = from.get().getCount();
+            from.set(ItemStack.EMPTY);
+            return removed;
+        }
+        return super.quickMove(from, amount);
     }
 
     /* --- Eingabe --- */
@@ -521,18 +540,26 @@ public final class GuiCreativeInventory extends GuiContainer {
                 && button != GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
             return;   // Maus 4/5 kommen wegen capturesMouse() mit an
         }
+        ItemStack stack = slot.get();
         if (!this.carried.isEmpty()) {
-            this.carried = ItemStack.EMPTY;
+            /* Dasselbe Item nochmal anklicken stapelt in der Hand hoch (Stück für Stück).
+               Bei jedem anderen Klick bleibt die Liste der Mülleimer und leert die Hand. */
+            if (!stack.isEmpty() && this.carried.getItem() == stack.getItem()
+                    && this.carried.getCount() < this.carried.getMaxStackSize()) {
+                this.carried.setCount(this.carried.getCount() + 1);
+            } else {
+                this.carried = ItemStack.EMPTY;
+            }
             return;
         }
-        ItemStack stack = slot.get();
         if (stack.isEmpty()) return;
 
-        ItemStack full = new ItemStack(stack.getItem(), stack.getMaxStackSize());
         if (SkyEngine.get().getInput().isShiftDown()) {
-            this.playerInv.insert(full);   // Rest verfällt: Nachschub gibt es unbegrenzt
+            /* Shift bleibt der Bulk-Weg: voller Stapel direkt ins Inventar, Rest verfällt
+               (Nachschub gibt es unbegrenzt). Ohne Shift kommt genau EIN Item in die Hand. */
+            this.playerInv.insert(new ItemStack(stack.getItem(), stack.getMaxStackSize()));
         } else {
-            this.carried = full;
+            this.carried = new ItemStack(stack.getItem(), 1);
         }
     }
 

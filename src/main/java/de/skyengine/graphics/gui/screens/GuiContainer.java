@@ -8,6 +8,7 @@ import de.skyengine.game.Gamemode;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
@@ -32,6 +33,14 @@ import java.util.List;
 public abstract class GuiContainer extends GuiScreen {
 
     protected static final int COLS = 9, SLOT = 16, STEP = 18;
+
+    /**
+     * Erweiterung der Trefferfläche nach allen Seiten. Ohne sie bleiben bei Raster 18 und
+     * Slotgröße 16 zwei Pixel tote Zone zwischen zwei Slots, in denen ein Ablegen ins Leere
+     * geht. Mit 1 grenzen die Flächen lückenlos aneinander (und überlappen nicht) — MC macht
+     * es in {@code isHovering} genauso.
+     */
+    protected static final int HIT_PAD = 1;
 
     protected final List<Slot> slots = new ArrayList<>();
     protected ItemStack carried = ItemStack.EMPTY;
@@ -79,7 +88,7 @@ public abstract class GuiContainer extends GuiScreen {
 
     protected Slot slotAt(double mx, double my) {
         for (Slot s : this.slots) {
-            if (s.contains(mx, my, SLOT)) return s;
+            if (s.contains(mx, my, SLOT, HIT_PAD)) return s;
         }
         return null;
     }
@@ -560,9 +569,39 @@ public abstract class GuiContainer extends GuiScreen {
 
     /** Hover-Highlight des Slots unter der Maus (im Sprite-Pass der Subklasse aufrufen). */
     protected void drawSlotHover(GuiManager gui, double mouseX, double mouseY) {
+        if (DebugFlags.guiSlotBounds) this.drawSlotBounds(gui);
         Slot hover = this.slotAt(mouseX, mouseY);
         if (hover != null) {
+            /* Das Highlight bleibt die 16×16-Innenfläche (wie MC) — nur die TREFFERfläche
+               ist um HIT_PAD größer. */
             gui.sprites().drawRect(hover.x, hover.y, SLOT, SLOT, 1f, 1f, 1f, 0.35f);
+        }
+    }
+
+    /**
+     * Debug: malt jede TREFFERfläche in einer eigenen Farbe. Bleibt irgendwo ein grauer Spalt
+     * sichtbar, ist dort eine tote Zone, in der ein Ablegen ins Leere ginge.
+     */
+    private void drawSlotBounds(GuiManager gui) {
+        int size = SLOT + 2 * HIT_PAD;
+        for (int i = 0; i < this.slots.size(); i++) {
+            Slot s = this.slots.get(i);
+            /* Goldener Schnitt als Farbton-Schritt: benachbarte Slots landen dadurch weit
+               auseinander im Farbkreis und sind sicher unterscheidbar. */
+            float hue = (i * 0.618034f) % 1f;
+            float h6 = hue * 6f;
+            int sector = (int) h6;
+            float f = h6 - sector;
+            float r, g, b;
+            switch (sector) {
+                case 0 -> { r = 1; g = f; b = 0; }
+                case 1 -> { r = 1 - f; g = 1; b = 0; }
+                case 2 -> { r = 0; g = 1; b = f; }
+                case 3 -> { r = 0; g = 1 - f; b = 1; }
+                case 4 -> { r = f; g = 0; b = 1; }
+                default -> { r = 1; g = 0; b = 1 - f; }
+            }
+            gui.sprites().drawRect(s.x - HIT_PAD, s.y - HIT_PAD, size, size, r, g, b, 0.45f);
         }
     }
 

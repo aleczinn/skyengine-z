@@ -237,9 +237,16 @@ public final class GuiManager {
         this.syncCursor();
         this.screenHpx = screenH;
         /* Auto-Scale: bei kleinen Fenstern den Scale reduzieren, damit die virtuelle Fläche
-           nie unter MIN_VW×MIN_VH fällt (UI schrumpft mit, statt abgeschnitten zu werden). */
-        this.effectiveScale = Math.max(1f, Math.min(this.scale,
-                Math.min(screenW / MIN_VW, screenH / MIN_VH)));
+           nie unter MIN_VW×MIN_VH fällt (UI schrumpft mit, statt abgeschnitten zu werden).
+
+           GANZZAHLIG wie in Minecraft: nur dann ist 1 virtueller Pixel = N ganze Gerätepixel.
+           Bei gebrochenem Scale (110 % = 3,85) fällt jede Texelkante mitten in ein Pixel — eine
+           1 px breite Linie wird mal 3, mal 4 px breit und ein 16-px-Item-Sprite ragt in seinen
+           Slotrahmen. Die Asymmetrie ist Absicht: der WUNSCH wird gerundet (3,85 -> 4), die
+           FENSTERGRENZE abgerundet — sonst fiele die garantierte Mindestfläche. */
+        float limit = Math.min(screenW / MIN_VW, screenH / MIN_VH);
+        int wanted = Math.max(1, Math.round(this.scale));
+        this.effectiveScale = Math.min(wanted, Math.max(1, (int) Math.floor(limit)));
         this.vW = screenW / this.effectiveScale;
         this.vH = screenH / this.effectiveScale;
 

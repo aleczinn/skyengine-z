@@ -31,8 +31,12 @@ public final class Hud {
         GuiTextures tex = gui.textures();
         float vW = gui.vWidth(), vH = gui.vHeight();
 
-        float hx = (vW - HOTBAR_W) / 2f;
-        float hy = vH - HOTBAR_H - 2f;
+        /* Auf ganze virtuelle Pixel runden: der GUI-Scale ist ganzzahlig, damit liegt jede
+           ganzzahlige virtuelle Koordinate exakt auf einer Gerätepixel-Grenze. Ohne das Runden
+           säße die Hotbar auf halben Pixeln (vW = screenW/scale ist gebrochen) und ihre Icons
+           würden in die Slotrahmen bluten. */
+        float hx = Math.round((vW - HOTBAR_W) / 2f);
+        float hy = Math.round(vH - HOTBAR_H - 2f);
 
         sr.begin(vW, vH);
         if (drawCrosshair)  {

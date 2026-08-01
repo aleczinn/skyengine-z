@@ -68,6 +68,7 @@
       "lod_overlay": "LOD-Seiten-Overlay",
       "pause_loading": "Chunk-Laden pausieren",
       "aa_mode": "Anti-Aliasing",
+      "gui_slots": "GUI-Slot-Flächen",
       "reload_chunks": "Chunks neu laden",
       "reload_post": "Postprocessing neu laden"
     },

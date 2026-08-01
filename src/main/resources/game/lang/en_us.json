@@ -60,6 +60,7 @@
       "lod_overlay": "LOD Side Overlay",
       "pause_loading": "Pause Chunk Loading",
       "aa_mode": "Anti-Aliasing",
+      "gui_slots": "GUI Slot Bounds",
       "reload_chunks": "Reload Chunks",
       "reload_post": "Reload Postprocessing"
     },

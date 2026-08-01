@@ -285,9 +285,21 @@ ausdrücken).
   Live-Wechsel), Sound-Optionen, Grafik-Optionen (`GuiVideoSettings`), MC-Welt-Import
   (`GuiImportWorld`), Bestätigungsdialog (`GuiConfirm`), Ressourcenpakete-Platzhalter
   (`GuiResourcePacks`) und der **GuiDebugScreen** (Optionsmenü) mit allen Debug-Schaltern
-  (Wireframe, GpuCull + Tint, LOD-Overlay, Loading einfrieren, Chunks neu laden u.a. — die
-  früheren F-Hotkeys dafür sind weg); GuiScale = Prozent (30–170, 100 % ≈ 3,5×), garantierte
-  virtuelle Mindestfläche 340×240 (deckt das höchste Fenster ab — die Doppeltruhe mit 222 px)
+  (Wireframe, GpuCull + Tint, LOD-Overlay, Loading einfrieren, Chunks neu laden, **GUI-Slot-
+  Flächen** u.a. — die früheren F-Hotkeys dafür sind weg); GuiScale = Prozent (30–170,
+  100 % ≈ 3,5×), garantierte virtuelle Mindestfläche 340×240 (deckt das höchste Fenster ab —
+  die Doppeltruhe mit 222 px). **Der `effectiveScale` ist GANZZAHLIG** (`GuiManager.render`):
+  nur so ist 1 virtueller Pixel = N ganze Gerätepixel. Bei gebrochenem Scale wurde eine
+  1-Texel-Linie mal 3, mal 4 px breit und 16-px-Sprites ragten in ihren Slotrahmen (gemessen).
+  Der **Wunsch** wird gerundet, die **Fenstergrenze** abgerundet — sonst fiele die
+  Mindestfläche. Abnahmetest: Lauflängen-Histogramm der Linienbreiten im Screenshot muss
+  genau EINE Breite zeigen. Deshalb müssen GUI-Positionen auf **ganze virtuelle Pixel**
+  gerundet werden (`Hud`, `GuiCreativeInventory.init`, Container-Slots).
+  Slot-Trefferflächen sind um `GuiContainer.HIT_PAD = 1` erweitert, damit bei Raster 18 /
+  Größe 16 keine tote Zone zwischen zwei Slots bleibt (MC macht das in `isHovering` genauso);
+  der Hover-Kasten bleibt 16×16. Icon-Größe im Slot: `ItemIconRenderer.ICON_SCALE = 0.625`
+  = MCs `gui`-Display-Scale — der Iso-Würfel ist projiziert `1.5731 ×` seiner Kante hoch,
+  mehr als 0.635 ragt oben/unten aus dem Slot
 - Spieler-Rendering (graphics/player): Humanoid-Modell mit Classic-Skin 64×64 (skin.png im
   Spielordner überschreibt Steve), Inventar-Vorschau (folgt Maus), F5-Perspektiven
   (Ego/hinten/vorne mit Kamera-Kollisions-Raycast; Interaktion zielt IMMER vom Auge;
