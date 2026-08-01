@@ -271,8 +271,17 @@ ausdrücken).
   braun→rot→…→rosa). `CreativeTabs.build()` sortiert nur diese **Anzeigeliste**; die
   Registry-Reihenfolge (alphabetisch nach Dateiname) bleibt unangetastet, weil an ihr die
   Runtime-State-IDs und damit die Weltspeicher hängen — Blöcke umzubenennen wäre der falsche
-  Weg. Nicht gelistete Items hängen stabil hinten an und werden beim Start namentlich gemeldet,
-  Prüfstand `gradlew saveTest`), Todesscreen, Sprachauswahl (i18n,
+  Weg. Für die regelmäßigen Familien gibt es **Achsen-Expansion** (`axes`: `wood`/`color`/`tier`):
+  `"{color}_wool"` expandiert die Achse als INNERE Schleife (16 Wollen am Stück),
+  `{"for":"wood","items":[…]}` als ÄUSSERE (erst alles für Eiche, dann Fichte). Expansionen
+  ohne Block werden still übersprungen (es gibt keinen `stripped_oak_log`); Unregelmäßiges
+  (`bricks`, `terracotta`, `glass_pane`, `iron_bars`, `smooth_basalt`) bleibt bewusst explizit.
+  Nicht gelistete Items hängen stabil hinten an; drei Warnungen decken den Rest ab (Item
+  ungelistet / wörtliche ID ohne Item / Muster ohne EINEN Treffer = Tippfehler),
+  Prüfstand `gradlew saveTest`. Der Item-Tooltip im Creative zeigt unter dem Namen die Reiter
+  in `Colors.BLUE` (`CreativeTabs.tabsOf`, Override von `tooltipLines` nur im Creative-Screen —
+  im Survival-Inventar und in der Truhe soll die Zeile NICHT stehen)),
+  Todesscreen, Sprachauswahl (i18n,
   Live-Wechsel), Sound-Optionen, Grafik-Optionen (`GuiVideoSettings`), MC-Welt-Import
   (`GuiImportWorld`), Bestätigungsdialog (`GuiConfirm`), Ressourcenpakete-Platzhalter
   (`GuiResourcePacks`) und der **GuiDebugScreen** (Optionsmenü) mit allen Debug-Schaltern

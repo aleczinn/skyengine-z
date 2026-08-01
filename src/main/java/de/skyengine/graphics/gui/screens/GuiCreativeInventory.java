@@ -795,6 +795,31 @@ public final class GuiCreativeInventory extends GuiContainer {
     }
 
     /**
+     * Wie in MC stehen im Creative unter dem Itemnamen die Reiter, in denen der Block steckt —
+     * mehrere, wenn er mehrfach zugeordnet ist ({@code stone} steht in „Baublöcke" UND
+     * „Natürliche Blöcke").
+     *
+     * <p>Der Override sitzt bewusst HIER und nicht in {@link GuiContainer}: im Survival-Inventar
+     * und in der Truhe hätte die Zeile nichts zu suchen. Er deckt trotzdem beide Slot-Sorten
+     * dieses Screens ab (Item-Liste und die angehefteten Survival-Slots), weil beide über
+     * dieselbe Slot-Liste und dasselbe {@code drawTooltip} laufen.
+     */
+    @Override
+    protected List<RichText> tooltipLines(ItemStack stack) {
+        List<CreativeTab> tabs = CreativeTabs.tabsOf(stack.getItem().getId());
+        if (tabs.isEmpty()) return super.tooltipLines(stack);
+
+        /* super liefert unveränderlich (Name, ID) — Kopie ist Pflicht. Eingefügt wird direkt
+           unter dem Namen, damit die graue ID wie in MC die letzte Zeile bleibt. */
+        List<RichText> lines = new ArrayList<>(super.tooltipLines(stack));
+        int at = 1;
+        for (CreativeTab tab : tabs) {
+            lines.add(at++, RichText.plain(I18n.tr(tab.translationKey()), Colors.BLUE));
+        }
+        return lines;
+    }
+
+    /**
      * Im Creative verschwindet der getragene Stapel — er wird NICHT in die Welt geworfen.
      */
     @Override

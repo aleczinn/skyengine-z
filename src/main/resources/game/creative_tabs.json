@@ -1,18 +1,23 @@
 {
-  "_comment": "Reiter des Creative-Inventars. Reihenfolge = Anzeigereihenfolge. type: items (Default) | search | inventory. Welcher Block/welches Item in welchem Tab landet, steht in dessen eigener JSON unter 'creative_tab' (String oder Liste). 'items' gibt die Reihenfolge INNERHALB des Reiters vor (Namespace optional); was hier fehlt, haengt hinten an und wird beim Start als Warnung gemeldet.",
+  "_comment": "Reiter des Creative-Inventars. Reihenfolge der Reiter = Anzeigereihenfolge. type: items (Default) | search | inventory. Welcher Block/welches Item in welchem Tab landet, steht in dessen eigener JSON unter 'creative_tab' (String oder Liste). 'items' gibt die Reihenfolge INNERHALB des Reiters vor; was dort fehlt, haengt hinten an und wird beim Start als Warnung gemeldet.",
+  "_comment_items": "Ein Eintrag ist entweder eine ID (Namespace optional) oder eine Gruppe {\"for\": \"<achse>\", \"items\": [...]}. Ein {achse}-Platzhalter in einer ID expandiert ueber alle Achsenwerte (Achse als INNERE Schleife: '{color}_wool' = alle 16 Wollen am Stueck). Eine Gruppe legt die Achse dagegen als AEUSSERE Schleife darum (erst alles fuer oak, dann fuer spruce, ...) - das ergibt MCs 'Familie zuerst'. Expansionen ohne passenden Block werden still uebersprungen (es gibt z.B. keinen stripped_oak_log); ein Muster, das GAR NICHTS trifft, meldet sich als Warnung.",
+
+  "axes": {
+    "wood": ["oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "mangrove", "pale_oak"],
+    "color": ["white", "light_gray", "gray", "black", "brown", "red", "orange", "yellow",
+              "lime", "green", "cyan", "light_blue", "blue", "purple", "magenta", "pink"],
+    "tier": ["wooden", "stone", "copper", "iron", "golden", "diamond", "netherite"]
+  },
+
   "tabs": [
     {
       "id": "building_blocks",
       "icon": "skyengine:bricks",
       "items": [
-        "oak_log", "oak_planks", "oak_stairs", "oak_slab", "oak_fence",
-        "spruce_log", "stripped_spruce_log", "spruce_planks", "spruce_stairs", "spruce_slab", "spruce_fence",
-        "birch_log", "stripped_birch_log", "birch_planks", "birch_stairs", "birch_slab", "birch_fence",
-        "jungle_log", "stripped_jungle_log", "jungle_planks", "jungle_stairs", "jungle_slab", "jungle_fence",
-        "acacia_log", "stripped_acacia_log", "acacia_planks", "acacia_stairs", "acacia_slab", "acacia_fence",
-        "dark_oak_log", "stripped_dark_oak_log", "dark_oak_planks", "dark_oak_stairs", "dark_oak_slab", "dark_oak_fence",
-        "mangrove_log", "stripped_mangrove_log", "mangrove_planks", "mangrove_stairs", "mangrove_slab", "mangrove_fence",
-        "pale_oak_log", "stripped_pale_oak_log", "pale_oak_planks", "pale_oak_stairs", "pale_oak_slab", "pale_oak_fence",
+        { "for": "wood", "items": [
+            "{wood}_log", "stripped_{wood}_log", "{wood}_planks",
+            "{wood}_stairs", "{wood}_slab", "{wood}_fence"
+        ]},
 
         "stone", "stone_stairs", "stone_slab",
         "cobblestone", "cobblestone_stairs", "cobblestone_slab",
@@ -30,18 +35,8 @@
     },
     {
       "id": "colored_blocks",
-      "icon": "skyengine:white_wool",
-      "items": [
-        "white_wool", "light_gray_wool", "gray_wool", "black_wool",
-        "brown_wool", "red_wool", "orange_wool", "yellow_wool",
-        "lime_wool", "green_wool", "cyan_wool", "light_blue_wool",
-        "blue_wool", "purple_wool", "magenta_wool", "pink_wool",
-
-        "white_terracotta", "light_gray_terracotta", "gray_terracotta", "black_terracotta",
-        "brown_terracotta", "red_terracotta", "orange_terracotta", "yellow_terracotta",
-        "lime_terracotta", "green_terracotta", "cyan_terracotta", "light_blue_terracotta",
-        "blue_terracotta", "purple_terracotta", "magenta_terracotta", "pink_terracotta"
-      ]
+      "icon": "skyengine:cyan_wool",
+      "items": ["{color}_wool", "{color}_terracotta"]
     },
     {
       "id": "natural",
@@ -58,8 +53,7 @@
 
         "ice", "packed_ice", "blue_ice", "snow",
 
-        "oak_leaves", "spruce_leaves", "birch_leaves", "jungle_leaves",
-        "acacia_leaves", "dark_oak_leaves", "mangrove_leaves", "pale_oak_leaves",
+        "{wood}_leaves",
 
         "short_grass", "fern", "tall_grass", "dead_bush",
         "dandelion", "poppy", "azure_bluet", "red_tulip", "orange_tulip",
@@ -82,13 +76,9 @@
       "id": "tools",
       "icon": "skyengine:iron_pickaxe",
       "items": [
-        "wooden_pickaxe", "wooden_axe", "wooden_shovel", "wooden_sword",
-        "stone_pickaxe", "stone_axe", "stone_shovel", "stone_sword",
-        "copper_pickaxe", "copper_axe", "copper_shovel", "copper_sword",
-        "iron_pickaxe", "iron_axe", "iron_shovel", "iron_sword",
-        "golden_pickaxe", "golden_axe", "golden_shovel", "golden_sword",
-        "diamond_pickaxe", "diamond_axe", "diamond_shovel", "diamond_sword",
-        "netherite_pickaxe", "netherite_axe", "netherite_shovel", "netherite_sword",
+        { "for": "tier", "items": [
+            "{tier}_pickaxe", "{tier}_axe", "{tier}_shovel", "{tier}_sword"
+        ]},
         "bucket", "water_bucket", "lava_bucket"
       ]
     },
