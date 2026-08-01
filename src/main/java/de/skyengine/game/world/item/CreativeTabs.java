@@ -11,9 +11,13 @@ import java.io.File;
 import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Reiter des Creative-Inventars und ihr Inhalt. Die Tabs selbst stehen in
@@ -23,10 +27,16 @@ import java.util.Map;
  *
  * <p><b>Reihenfolge-Invariante:</b> {@link #assign} puffert nur {@code Identifier -> Tab-IDs};
  * die eigentlichen Listen entstehen erst in {@link #build()} durch einen Lauf über
- * {@code Registries.ITEM.values()}. Damit ist „Reihenfolge im Tab = Registry-Reihenfolge"
- * deterministisch, ohne dass irgendwo sortiert werden müsste — und die Zuordnung darf schon
- * gemeldet werden, bevor das zugehörige Item überhaupt existiert (Blöcke melden sich beim
- * Laden, ihr BlockItem entsteht erst später mit derselben {@link Identifier}).
+ * {@code Registries.ITEM.values()}. Die Zuordnung darf deshalb schon gemeldet werden, bevor das
+ * zugehörige Item überhaupt existiert (Blöcke melden sich beim Laden, ihr BlockItem entsteht erst
+ * später mit derselben {@link Identifier}).
+ *
+ * <p><b>Anzeigereihenfolge:</b> Ein Tab darf in der JSON unter {@code items} eine kuratierte
+ * Reihenfolge vorgeben — dasselbe Prinzip wie Minecrafts handgeschriebene Tab-Listen. Die
+ * Registry-Reihenfolge (= alphabetisch nach Dateiname) ist damit nur noch der <b>Fallback</b>:
+ * nicht gelistete Items hängen stabil hinten dran und werden beim Bauen aufgezählt. Sortiert wird
+ * ausschließlich diese Anzeigeliste — die Registry selbst bleibt unangetastet, weil an ihrer
+ * Reihenfolge die Runtime-State-IDs und damit die Weltspeicher hängen.
  *
  * <p>Items ohne Zuordnung landen im Sammel-Tab {@value #FALLBACK} und werden beim Bauen
  * aufgezählt — ein stilles Verschlucken wäre im Spiel nicht auffindbar. Die Warnung erscheint
@@ -41,6 +51,8 @@ public final class CreativeTabs {
     public static final String FALLBACK = "misc";
 
     private static final LinkedHashMap<String, CreativeTab> TABS = new LinkedHashMap<>();
+    /** Kuratierte Anzeigereihenfolge je Tab-ID (leer/fehlend = Registry-Reihenfolge). */
+    private static final Map<String, List<Identifier>> ORDER = new LinkedHashMap<>();
     private static final Map<Identifier, List<String>> PENDING = new LinkedHashMap<>();
     private static final LinkedHashMap<String, List<Item>> CONTENTS = new LinkedHashMap<>();
     private static final List<Item> ALL = new ArrayList<>();
@@ -54,6 +66,8 @@ public final class CreativeTabs {
         String id;
         String icon;
         String type;
+        /** Anzeigereihenfolge; Namespace optional ("oak_log" == "skyengine:oak_log"). */
+        List<String> items;
     }
 
     /** Lädt die Tab-Definitionen einer Inhaltsquelle; die Datei ist optional. */
@@ -74,6 +88,14 @@ public final class CreativeTabs {
                         ? Identifier.of(def.icon) : null;
                 /* put statt add: eine spätere Quelle darf einen gleichnamigen Tab ersetzen. */
                 TABS.put(def.id, new CreativeTab(def.id, icon, CreativeTab.Type.of(def.type)));
+
+                if (def.items != null) {
+                    List<Identifier> order = new ArrayList<>(def.items.size());
+                    for (String entry : def.items) {
+                        if (entry != null && !entry.isBlank()) order.add(Identifier.of(entry));
+                    }
+                    ORDER.put(def.id, order);
+                }
             }
         } catch (Exception e) {
             LOGGER.error("creative_tabs.json fehlerhaft: " + file.getPath(), e);
@@ -138,6 +160,33 @@ public final class CreativeTabs {
             if (fallback != null) fallback.add(item);
         }
 
+        List<String> unlisted = new ArrayList<>();
+        List<String> unmatched = new ArrayList<>();
+        for (Map.Entry<String, List<Item>> entry : CONTENTS.entrySet()) {
+            List<Identifier> order = ORDER.get(entry.getKey());
+            if (order == null || order.isEmpty()) continue;
+
+            Map<Identifier, Integer> rank = new HashMap<>();
+            /* putIfAbsent: eine doppelt gelistete ID zählt an ihrer ERSTEN Stelle. */
+            for (int i = 0; i < order.size(); i++) rank.putIfAbsent(order.get(i), i);
+
+            /* List.sort ist stabil — nicht gelistete Items behalten untereinander die
+               Registry-Reihenfolge und landen geschlossen am Ende, statt still zwischen
+               die kuratierten zu rutschen. */
+            List<Item> content = entry.getValue();
+            content.sort(Comparator.comparingInt(
+                    (Item item) -> rank.getOrDefault(item.getId(), Integer.MAX_VALUE)));
+
+            Set<Identifier> present = new HashSet<>();
+            for (Item item : content) {
+                present.add(item.getId());
+                if (!rank.containsKey(item.getId())) unlisted.add(entry.getKey() + "/" + item.getId());
+            }
+            for (Identifier id : order) {
+                if (!present.contains(id)) unmatched.add(entry.getKey() + "/" + id);
+            }
+        }
+
         if (!unknownTabs.isEmpty()) {
             LOGGER.warning(unknownTabs.size() + " Zuordnungen auf unbekannte Creative-Tabs: "
                     + String.join(", ", unknownTabs));
@@ -145,6 +194,14 @@ public final class CreativeTabs {
         if (!untagged.isEmpty()) {
             LOGGER.warning(untagged.size() + " Items ohne creative_tab (landen in '" + FALLBACK
                     + "'): " + String.join(", ", untagged));
+        }
+        if (!unlisted.isEmpty()) {
+            LOGGER.warning(unlisted.size() + " Items nicht in der Reihenfolge der creative_tabs.json"
+                    + " (haengen hinten an): " + String.join(", ", unlisted));
+        }
+        if (!unmatched.isEmpty()) {
+            LOGGER.warning(unmatched.size() + " IDs in der creative_tabs.json ohne passendes Item"
+                    + " im Reiter: " + String.join(", ", unmatched));
         }
 
         StringBuilder counts = new StringBuilder();

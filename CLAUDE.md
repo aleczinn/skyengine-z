@@ -263,7 +263,15 @@ ausdrücken).
   Inventar unten rechts angeheftet), Seiten-Blättern,
   9×5-Liste mit Scroller, Such-Reiter, Survival-Reiter mit Lösch-Slot; Reiter stehen in
   `game/creative_tabs.json`, die Zuordnung im Feld `creative_tab` der Block-/Item-JSONs —
-  vererbbar über die Presets, ungetaggte Items landen sichtbar im Sammel-Reiter `misc`,
+  vererbbar über die Presets, ungetaggte Items landen sichtbar im Sammel-Reiter `misc`.
+  Die **Reihenfolge INNERHALB eines Reiters** steht ebenfalls in `creative_tabs.json`
+  (Feld `items` je Reiter, Namespace optional) — kuratiert wie MCs `CreativeModeTabs`,
+  Familie-zuerst (erst die Eichen-Familie komplett, dann Fichte …) bzw. Typ-zuerst bei den
+  farbigen Blöcken (16× Wolle, dann 16× Terrakotta, Farbfolge weiß→hellgrau→grau→schwarz→
+  braun→rot→…→rosa). `CreativeTabs.build()` sortiert nur diese **Anzeigeliste**; die
+  Registry-Reihenfolge (alphabetisch nach Dateiname) bleibt unangetastet, weil an ihr die
+  Runtime-State-IDs und damit die Weltspeicher hängen — Blöcke umzubenennen wäre der falsche
+  Weg. Nicht gelistete Items hängen stabil hinten an und werden beim Start namentlich gemeldet,
   Prüfstand `gradlew saveTest`), Todesscreen, Sprachauswahl (i18n,
   Live-Wechsel), Sound-Optionen, Grafik-Optionen (`GuiVideoSettings`), MC-Welt-Import
   (`GuiImportWorld`), Bestätigungsdialog (`GuiConfirm`), Ressourcenpakete-Platzhalter
