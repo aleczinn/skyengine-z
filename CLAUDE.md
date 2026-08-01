@@ -245,10 +245,15 @@ ausdrücken).
   COMPACT 9 / NORMAL 10 / MEDIUM 12 / TITLE 14 / LARGE 20 / HERO 32) — die einzige Stellschraube,
   21 Dateien hängen daran. Die acht Stufen sind die gewachsene Abstufung der GUI und **bewusst
   nicht zusammengelegt**: ein Einebnen auf wenige Größen zerstört die Hierarchie. Achtung: der
-  Font ist **monospace** (Breite = 0,5 × Größe × Zeichen), Hochdrehen kostet proportional Platz
-  und es gibt **kein Clipping** — der 200-px-Standard-Button verträgt höchstens `NORMAL = 11`
-  („Speichern und zurück zum Hauptmenü" = 34 Zeichen); feste Widget-Breiten und die
+  Font ist **monospace** (Breite ≈ 0,5 × Größe × Zeichen — seit `FontRenderer.SPACE_ADVANCE`
+  eine Obergrenze, weil das Leerzeichen schmaler gezeichnet wird), Hochdrehen kostet proportional
+  Platz und es gibt **kein Clipping** — der 200-px-Standard-Button verträgt höchstens
+  `NORMAL = 11` („Speichern und zurück zum Hauptmenü" = 34 Zeichen); feste Widget-Breiten und die
   hartkodierten Textzeilen-Offsets in `GuiSelectWorld`/`GuiImportWorld` müssten sonst mitwachsen.
+  **Wortlücken** stellt `FontRenderer.SPACE_ADVANCE` ein (0.65 = MC-Verhältnis): Monocraft ist
+  echt monospace, das Leerzeichen wäre sonst so breit wie ein „M". Mess- und Zeichenpfad teilen
+  sich dafür `advanceOf` — der Zeichenpfad führt den Stift seither selbst, statt sich auf die
+  `xpos`-Rückschreibung von `stbtt_GetPackedQuad` zu verlassen.
   Widget-Basis (`GuiComponent` + Button/Slider/CycleButton/
   KeybindButton/Label/TextField, 9-Slice; `TextField.borderless()` für Felder über einem schon
   gemalten Kasten), Stack-Layout (VStack/HStack/Anchor), Screen-Basis mit

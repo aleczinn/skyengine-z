@@ -6,8 +6,11 @@ package de.skyengine.graphics.gui;
  * {@link de.skyengine.graphics.gui.font.FontRenderer}); die GUI-Skalierung kommt separat aus dem
  * {@link GuiManager} obendrauf.
  *
- * <p><b>Der Font ist MONOSPACE:</b> die Breite eines Textes ist exakt
- * {@code 0,5 × Größe × Zeichenzahl}. 20 % größere Schrift kostet also 20 % mehr Platz — und es
+ * <p><b>Der Font ist MONOSPACE:</b> die Breite eines Textes ist
+ * {@code 0,5 × Größe × Zeichenzahl}. Seit {@code FontRenderer.SPACE_ADVANCE} das Leerzeichen
+ * schmaler zeichnet, ist das eine <b>Obergrenze</b> statt einer exakten Formel — Texte mit
+ * Leerzeichen fallen etwas kürzer aus, Abschätzungen für feste Widget-Breiten bleiben damit
+ * gültig (nur konservativer). 20 % größere Schrift kostet 20 % mehr Platz — und es
  * gibt nirgends ein Clipping. Wer hier hochdreht, muss die fest gesetzten Widget-Breiten
  * (Buttons, Listenspalten, {@code Tooltip.MAX_WIDTH}) mit prüfen, sonst laufen Beschriftungen
  * einfach heraus. Ebenso die Screens mit hartkodierten Textzeilen-Offsets
