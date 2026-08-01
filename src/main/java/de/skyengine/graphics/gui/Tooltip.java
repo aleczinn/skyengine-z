@@ -25,10 +25,7 @@ public final class Tooltip {
     /** Extra-Abstand nach der Titelzeile (MC-Gap). */
     private static final float TITLE_GAP = 2;
     /** Ab hier wird an Wortgrenzen umgebrochen (MC nutzt 170). */
-    /* Umbruchbreite. Mitgewachsen mit GuiText.NORMAL: der Font ist monospace, 180 px fassten
-       bei Größe 8 noch 45 Zeichen, bei 12 nur noch 30 — 220 hält die Zeilen wieder lesbar lang
-       und passt weiterhin in die garantierte Mindestbreite (GuiManager.MIN_VW = 340). */
-    private static final float MAX_WIDTH = 220;
+    private static final float MAX_WIDTH = 180;
 
     public static void draw(GuiManager gui, List<RichText> lines, double mouseX, double mouseY) {
         if (lines == null || lines.isEmpty()) return;

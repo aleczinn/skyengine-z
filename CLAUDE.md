@@ -241,11 +241,14 @@ ausdrücken).
   (MUSIC/BLOCKS/PLAYER/… — `GameSettings.soundVolumes`-Map statt eines einzelnen
   musicVolume) + Master-Volume + Audiogeräte-Auswahl (`audioDevice`); Assets =
   MC-Platzhalter via `scripts/extract-mc-sounds.ps1` — Details im Skill `sound-system`
-- GUI-System komplett (graphics/gui): **Schriftgrößen zentral in `GuiText`** (SMALL 10 /
-  NORMAL 12 / TITLE 16 / LARGE 22 / HERO 32) — die einzige Stellschraube, 21 Dateien hängen
-  daran. Achtung: der Font ist **monospace** (Breite = 0,5 × Größe × Zeichen), Hochdrehen kostet
-  proportional Platz und es gibt **kein Clipping**; feste Widget-Breiten und die hartkodierten
-  Textzeilen-Offsets in `GuiSelectWorld`/`GuiImportWorld` müssen mitwachsen.
+- GUI-System komplett (graphics/gui): **Schriftgrößen zentral in `GuiText`** (TINY 7 / SMALL 8 /
+  COMPACT 9 / NORMAL 10 / MEDIUM 12 / TITLE 14 / LARGE 20 / HERO 32) — die einzige Stellschraube,
+  21 Dateien hängen daran. Die acht Stufen sind die gewachsene Abstufung der GUI und **bewusst
+  nicht zusammengelegt**: ein Einebnen auf wenige Größen zerstört die Hierarchie. Achtung: der
+  Font ist **monospace** (Breite = 0,5 × Größe × Zeichen), Hochdrehen kostet proportional Platz
+  und es gibt **kein Clipping** — der 200-px-Standard-Button verträgt höchstens `NORMAL = 11`
+  („Speichern und zurück zum Hauptmenü" = 34 Zeichen); feste Widget-Breiten und die
+  hartkodierten Textzeilen-Offsets in `GuiSelectWorld`/`GuiImportWorld` müssten sonst mitwachsen.
   Widget-Basis (`GuiComponent` + Button/Slider/CycleButton/
   KeybindButton/Label/TextField, 9-Slice; `TextField.borderless()` für Felder über einem schon
   gemalten Kasten), Stack-Layout (VStack/HStack/Anchor), Screen-Basis mit

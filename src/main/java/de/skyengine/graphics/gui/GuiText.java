@@ -15,17 +15,26 @@ package de.skyengine.graphics.gui;
  */
 public final class GuiText {
 
-    /** Nebentext: Untertitel in Listen, Log-Ausgaben, Versions-/Copyright-Zeile. */
-    public static final float SMALL = 10;
+    /** Dichte Nebenzeilen: Untertitel der MC-Import-Liste. */
+    public static final float TINY = 7;
 
-    /** Fließtext: Buttons, Slider, Labels, Textfelder, Tooltips, HUD, Fenstertitel. */
-    public static final float NORMAL = 12;
+    /** Nebentext: Tooltips, Listen-Untertitel, Hinweise, Versions-/Copyright-Zeile. */
+    public static final float SMALL = 8;
+
+    /** Formular-Beschriftungen und Listen-Einträge. */
+    public static final float COMPACT = 9;
+
+    /** Fließtext: Buttons, Slider, Textfelder, HUD, Debug-Overlay. */
+    public static final float NORMAL = 10;
+
+    /** Hervorgehoben: Stapelzahlen im Slot, Ladehinweis. */
+    public static final float MEDIUM = 12;
 
     /** Screen-Titel. */
-    public static final float TITLE = 16;
+    public static final float TITLE = 14;
 
     /** Großer Titel: Todesbildschirm, Boot-Screen. */
-    public static final float LARGE = 22;
+    public static final float LARGE = 20;
 
     /** Hauptmenü-Schriftzug, wenn kein Logo vorliegt. */
     public static final float HERO = 32;

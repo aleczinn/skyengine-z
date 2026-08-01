@@ -36,9 +36,9 @@ public final class GuiCreateWorld extends GuiScreen {
         this.components.clear();
 
         Label title = new Label(I18n.tr("world.create.title"), GuiText.TITLE).measure(gui);
-        Label nameLabel = new Label(I18n.tr("world.create.name"), GuiText.NORMAL).measure(gui);
+        Label nameLabel = new Label(I18n.tr("world.create.name"), GuiText.COMPACT).measure(gui);
         this.name = new TextField(200, 20, 32, null).text(prevName);
-        Label seedLabel = new Label(I18n.tr("world.create.seed"), GuiText.NORMAL).measure(gui);
+        Label seedLabel = new Label(I18n.tr("world.create.seed"), GuiText.COMPACT).measure(gui);
         this.seed = new TextField(200, 20, 32, null).text(prevSeed);
 
         Button create = new Button(I18n.tr("world.create.create"), 98, 20, () -> {

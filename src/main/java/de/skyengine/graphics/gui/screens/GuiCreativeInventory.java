@@ -41,8 +41,9 @@ import java.util.function.Supplier;
  * <p>Drei Reiter-Arten: normale Item-Reiter, der Such-Reiter (Textfeld über allen Items) und der
  * Survival-Reiter, der das echte Spielerinventar samt Lösch-Slot zeigt. Die beiden Sonder-Reiter
  * sind ANGEHEFTET — Suche oben rechts, Survival-Inventar unten rechts, wie in Minecraft — und
- * damit auf jeder Seite erreichbar. Die übrigen 12 Plätze nehmen die normalen Reiter auf; passen
- * die nicht auf eine Seite, erscheint über der oberen Reihe eine Blätter-Leiste.
+ * damit auf jeder Seite erreichbar. Die Spalte links daneben bleibt in beiden Reihen FREI
+ * (reserviert für künftige Sonder-Reiter), sodass 10 Plätze je Seite für die normalen Reiter
+ * bleiben; passen die nicht auf eine Seite, erscheint über der oberen Reihe eine Blätter-Leiste.
  *
  * <p>Die Item-Liste ist ein synthetisches, unveränderliches {@link ItemStorage}: {@code get}
  * liefert für jeden Zugriff einen frischen Einzel-Stapel, {@code set}/{@code insert}/{@code extract}
@@ -63,10 +64,14 @@ public final class GuiCreativeInventory extends GuiContainer {
     private static final int W = 195, H = 136;
     private static final float TEX = 256f;
 
-    /** Item-Liste: 9×5 Slots ab (9,18) im Fenster. */
+    /**
+     * Item-Liste: 9×5 Slots ab (9,18) im Fenster.
+     */
     private static final int LIST_COLS = 9, LIST_ROWS = 5, LIST_SIZE = LIST_COLS * LIST_ROWS;
     private static final int LIST_X = 9, LIST_Y = 18;
-    /** Hotbar-Reihe (beide Reiter-Arten) bzw. Hauptinventar im Survival-Reiter. */
+    /**
+     * Hotbar-Reihe (beide Reiter-Arten) bzw. Hauptinventar im Survival-Reiter.
+     */
     private static final int HOTBAR_Y = 112, INV_Y = 54;
 
     /* Scroller: Schiene aus dem Sheet vermessen (x 175, y 18..127), Sprite 12×15. */
@@ -74,23 +79,29 @@ public final class GuiCreativeInventory extends GuiContainer {
     private static final int SCROLLER_W = 12, SCROLLER_H = 15;
     private static final int SCROLL_TRAVEL = RAIL_H - SCROLLER_H;
 
-    /** Lösch-Slot im Survival-Reiter (Innenfläche; der Rahmen sitzt bei 172,111). */
+    /**
+     * Lösch-Slot im Survival-Reiter (Innenfläche; der Rahmen sitzt bei 172,111).
+     */
     private static final int DELETE_X = 173, DELETE_Y = 112;
 
     /* Reiter: zwei Reihen à 7 Spalten, Sprite 26×32 mit Abstand 27, ragt 4 px ins Fenster.
        Plätze werden über einen flachen Index 0..13 adressiert: 0..6 oben, 7..13 unten. */
     private static final int TAB_W = 26, TAB_H = 32, TAB_PITCH = 27;
     private static final int TAB_COLS = 7;
-    /** Spalten 0..4 sitzen linksbündig, 5 und 6 rechtsbündig (siehe {@link #tabX}). */
+    /**
+     * Spalten 0..4 sitzen linksbündig, 5 und 6 rechtsbündig (siehe {@link #tabX}).
+     */
     private static final int TAB_LEFT_COLS = 5;
     private static final int TAB_SLOTS = TAB_COLS * 2;
     private static final int TAB_TOP_DY = -28;
 
     /* Angeheftete Sonder-Reiter: Suche oben rechts, Survival-Inventar unten rechts (wie MC).
-       Was übrig bleibt, sind die 12 blätterbaren Plätze der beiden linken Spaltenblöcke. */
+       Spalte 5 bleibt in BEIDEN Reihen bewusst FREI — reserviert für künftige Sonder-Reiter
+       (z.B. Hotbar-Speicher). Belegbar sind damit nur die Spalten 0..4 je Reihe, macht 10
+       blätterbare Plätze je Seite. */
     private static final int SLOT_SEARCH = TAB_COLS - 1;
     private static final int SLOT_INVENTORY = 2 * TAB_COLS - 1;
-    private static final int PAGE_SLOTS = 2 * (TAB_COLS - 1);
+    private static final int PAGE_SLOTS = 2 * TAB_LEFT_COLS;
 
     /* Höhe der Reiter-Symbole, gemessen als Mitte der SICHTBAREN Innenfläche des Sprites:
        oben liegt sie bei y 5..27 (Mitte 16), unten bei y 4..24 (Mitte 14) — je 4 px des
@@ -99,11 +110,15 @@ public final class GuiCreativeInventory extends GuiContainer {
     private static final float TAB_ICON_Y_TOP = 16;
     private static final float TAB_ICON_Y_BOTTOM = 14;
 
-    /** Seiten-Leiste über der oberen Reiter-Reihe (nur sichtbar, wenn es mehr als eine gibt). */
+    /**
+     * Seiten-Leiste über der oberen Reiter-Reihe (nur sichtbar, wenn es mehr als eine gibt).
+     */
     private static final int PAGER_H = 20, PAGER_GAP = 4;
     private static final float PAGER_TEXT_SIZE = GuiText.NORMAL;
 
-    /** Suchfeld exakt über dem im Sheet gemalten Kasten (x 80..169, y 4..15). */
+    /**
+     * Suchfeld exakt über dem im Sheet gemalten Kasten (x 80..169, y 4..15).
+     */
     private static final int SEARCH_X = 80, SEARCH_Y = 4, SEARCH_W = 90, SEARCH_H = 12;
 
     /* Spieler-Vorschau des Survival-Reiters. Die schwarze Fläche steht im Sheet bei x 73..104,
@@ -111,9 +126,6 @@ public final class GuiCreativeInventory extends GuiContainer {
        Fläche 49×70 und der Aufruf lautet (Mitte + 1.5, Boden − 2, Scale 30) — hier also
        Mitte 88.5 + 1, Boden 48 − 1 und Scale 30 × 43/70. */
     private static final float PREVIEW_X = 89.5f, PREVIEW_FEET_Y = 47, PREVIEW_SCALE = 18;
-
-    private static final Color4 TITLE_COLOR = new Color4(0.25f, 0.25f, 0.25f, 1f);
-    private static final float TITLE_SIZE = GuiText.NORMAL;
 
     /* Gewählter Reiter und Reiter-Seite überleben das Schließen (wie MC). */
     private static String selectedTabId;
@@ -124,13 +136,17 @@ public final class GuiCreativeInventory extends GuiContainer {
     private final HeldItemMeshes heldItemMeshes;
     private final Supplier<ItemStack> heldItem;
 
-    /** Normale Item-Reiter (blätterbar) und die angehefteten Sonder-Reiter. */
+    /**
+     * Normale Item-Reiter (blätterbar) und die angehefteten Sonder-Reiter.
+     */
     private final List<CreativeTab> pageTabs = new ArrayList<>();
     private final List<CreativeTab> pinnedTabs = new ArrayList<>();
     private final int pageCount;
 
     private final CreativeList list = new CreativeList();
-    /** Aktuell angezeigte Items (Reiter-Inhalt bzw. Suchergebnis). */
+    /**
+     * Aktuell angezeigte Items (Reiter-Inhalt bzw. Suchergebnis).
+     */
     private List<Item> contents = List.of();
     private int rowOffset;
     private boolean scrollDragging;
@@ -188,8 +204,9 @@ public final class GuiCreativeInventory extends GuiContainer {
     /**
      * Reiter auf Platz {@code slot} (0..6 obere Reihe, 7..13 untere); null = Platz leer.
      *
-     * <p>Die rechte Spalte gehört den angehefteten Sonder-Reitern. Die normalen Reiter füllen
-     * erst die obere Reihe komplett (6 Plätze), der Rest fällt in die untere.
+     * <p>Die beiden rechten Spalten sind tabu: 6 gehört den angehefteten Sonder-Reitern, 5 ist
+     * für später reserviert. Die normalen Reiter füllen erst die obere Reihe komplett
+     * (5 Plätze), der Rest fällt in die untere.
      *
      * <p>Bekannte Lücke (erst ab 13 Reitern erreichbar): blättert man auf eine Seite, auf der
      * der gewählte Reiter nicht liegt, verschmilzt kein Reiter mit der Fensterkante.
@@ -199,16 +216,19 @@ public final class GuiCreativeInventory extends GuiContainer {
         if (slot == SLOT_INVENTORY) return this.pinned(CreativeTab.Type.INVENTORY);
 
         int col = slot % TAB_COLS;
-        if (col >= TAB_COLS - 1) return null;
+        /* Spalte 5 ist reserviert, Spalte 6 gehört den Sonder-Reitern (oben schon abgefangen). */
+        if (col >= TAB_LEFT_COLS) return null;
 
         List<CreativeTab> page = this.currentPageTabs();
-        int topCount = Math.min(page.size(), TAB_COLS - 1);   // obere Reihe zuerst voll
+        int topCount = Math.min(page.size(), TAB_LEFT_COLS);   // obere Reihe zuerst voll
         boolean top = slot < TAB_COLS;
         int i = top ? col : topCount + col;
         return i < (top ? topCount : page.size()) ? page.get(i) : null;
     }
 
-    /** Die normalen Reiter der aktuellen Seite (höchstens {@link #PAGE_SLOTS}). */
+    /**
+     * Die normalen Reiter der aktuellen Seite (höchstens {@link #PAGE_SLOTS}).
+     */
     private List<CreativeTab> currentPageTabs() {
         int from = tabPage * PAGE_SLOTS;
         if (from >= this.pageTabs.size()) return List.of();
@@ -289,7 +309,9 @@ public final class GuiCreativeInventory extends GuiContainer {
         this.rowOffset = Math.clamp(this.rowOffset, 0, this.maxRowOffset());
     }
 
-    /** Suchtreffer über Anzeigename ODER Identifier (leere Eingabe = alles). */
+    /**
+     * Suchtreffer über Anzeigename ODER Identifier (leere Eingabe = alles).
+     */
     private static List<Item> filter(String query) {
         String q = query.trim().toLowerCase(Locale.ROOT);
         if (q.isEmpty()) return CreativeTabs.all();
@@ -395,7 +417,9 @@ public final class GuiCreativeInventory extends GuiContainer {
         }
     }
 
-    /** Fenster INKLUSIVE beider Reiter-Reihen — sonst würde ein Reiter-Klick den Stapel auswerfen. */
+    /**
+     * Fenster INKLUSIVE beider Reiter-Reihen — sonst würde ein Reiter-Klick den Stapel auswerfen.
+     */
     @Override
     protected boolean isInsideWindow(double mx, double my) {
         return mx >= this.guiX && mx < this.guiX + W
@@ -531,7 +555,9 @@ public final class GuiCreativeInventory extends GuiContainer {
         super.mouseReleased(gui, mouseX, mouseY, button);
     }
 
-    /** Mausrad scrollt die Liste; im Survival-Reiter bleibt das geerbte Rad-Quickmove. */
+    /**
+     * Mausrad scrollt die Liste; im Survival-Reiter bleibt das geerbte Rad-Quickmove.
+     */
     @Override
     public boolean mouseScrolled(GuiManager gui, double mouseX, double mouseY, double amount) {
         int max = this.maxRowOffset();
@@ -641,8 +667,7 @@ public final class GuiCreativeInventory extends GuiContainer {
         /* Auch der Such-Reiter trägt seine Beschriftung — sie steht links neben dem gemalten
            Eingabekasten (MC-Optik). Nur der Survival-Reiter bleibt ohne Titel. */
         if (tab.type() != CreativeTab.Type.INVENTORY) {
-            gui.font().drawString(I18n.tr(tab.translationKey()),
-                    this.guiX + 8, this.guiY + 6, TITLE_SIZE, TITLE_COLOR);
+            gui.font().drawString(I18n.tr(tab.translationKey()), this.guiX + 8, this.guiY + 4.5F, GuiText.NORMAL, Colors.DARK_GRAY);
         }
         if (this.searchField != null && this.searchField.visible) {
             this.searchField.renderText(gui, mouseX, mouseY);
@@ -662,7 +687,9 @@ public final class GuiCreativeInventory extends GuiContainer {
         };
     }
 
-    /** Zeichnet entweder alle NICHT gewählten Reiter oder nur den gewählten. */
+    /**
+     * Zeichnet entweder alle NICHT gewählten Reiter oder nur den gewählten.
+     */
     private void drawTabs(GuiManager gui, boolean selectedPass) {
         for (int slot = 0; slot < TAB_SLOTS; slot++) {
             CreativeTab tab = this.tabAt(slot);
@@ -670,34 +697,32 @@ public final class GuiCreativeInventory extends GuiContainer {
             boolean isSelected = tab.id().equals(selectedTabId);
             if (isSelected != selectedPass) continue;
 
-            gui.sprites().drawSprite(this.tabSprite(gui, slot, isSelected),
-                    this.tabX(slot), this.tabY(slot), TAB_W, TAB_H);
+            gui.sprites().drawSprite(this.tabSprite(gui, slot, isSelected), this.tabX(slot), this.tabY(slot), TAB_W, TAB_H);
 
             /* Der Such-Reiter hat kein Item als Symbol — dieses Projekt kennt keinen Kompass. */
             if (tab.type() == CreativeTab.Type.SEARCH) {
-                gui.sprites().drawSprite(gui.textures().iconSearch,
-                        this.tabX(slot) + 7, this.tabIconCenterY(slot) - 6, 12, 12);
+                gui.sprites().drawSprite(gui.textures().iconSearch, this.tabX(slot) + 7, this.tabIconCenterY(slot) - 6, 12, 12);
             }
         }
     }
 
-    /** Sprite eines Reiters: Reihe entscheidet über oben/unten, die SPALTE über die Randform. */
+    /**
+     * Sprite eines Reiters: Reihe entscheidet über oben/unten, die SPALTE über die Randform.
+     */
     private Texture tabSprite(GuiManager gui, int slot, boolean selected) {
         GuiTextures t = gui.textures();
         int col = slot % TAB_COLS;
         if (isTopRow(slot)) {
             if (!selected) return t.creativeTabTopUnselected;
-            return col == 0 ? t.creativeTabTopSelectedLeft
-                    : col == TAB_COLS - 1 ? t.creativeTabTopSelectedRight
-                    : t.creativeTabTopSelectedMid;
+            return col == 0 ? t.creativeTabTopSelectedLeft : col == TAB_COLS - 1 ? t.creativeTabTopSelectedRight : t.creativeTabTopSelectedMid;
         }
         if (!selected) return t.creativeTabBottomUnselected;
-        return col == 0 ? t.creativeTabBottomSelectedLeft
-                : col == TAB_COLS - 1 ? t.creativeTabBottomSelectedRight
-                : t.creativeTabBottomSelectedMid;
+        return col == 0 ? t.creativeTabBottomSelectedLeft : col == TAB_COLS - 1 ? t.creativeTabBottomSelectedRight : t.creativeTabBottomSelectedMid;
     }
 
-    /** Mitte der sichtbaren Reiter-Fläche; Feinjustierung über {@link #TAB_ICON_Y_TOP}. */
+    /**
+     * Mitte der sichtbaren Reiter-Fläche; Feinjustierung über {@link #TAB_ICON_Y_TOP}.
+     */
     private float tabIconCenterY(int slot) {
         return this.tabY(slot) + (isTopRow(slot) ? TAB_ICON_Y_TOP : TAB_ICON_Y_BOTTOM);
     }
@@ -709,8 +734,7 @@ public final class GuiCreativeInventory extends GuiContainer {
             if (tab == null || tab.type() == CreativeTab.Type.SEARCH || tab.icon() == null) continue;
             Item icon = Items.get(tab.icon());
             if (icon == null) continue;
-            gui.icons().drawIcon(new ItemStack(icon, 1), this.tabX(slot) + TAB_W / 2f,
-                    this.tabIconCenterY(slot), SLOT, vH);
+            gui.icons().drawIcon(new ItemStack(icon, 1), this.tabX(slot) + TAB_W / 2f, this.tabIconCenterY(slot), SLOT, vH);
         }
         gui.icons().end();
     }
@@ -731,7 +755,9 @@ public final class GuiCreativeInventory extends GuiContainer {
         this.nextPage.renderBackground(gui, mx, my);
     }
 
-    /** Button-Beschriftungen + Seitenzahl im Font-Pass (Text auf der Welt -> mit Schatten). */
+    /**
+     * Button-Beschriftungen + Seitenzahl im Font-Pass (Text auf der Welt -> mit Schatten).
+     */
     private void drawPagerText(GuiManager gui, double mx, double my) {
         if (!this.pagerVisible()) return;
         this.prevPage.renderText(gui, mx, my);
@@ -747,11 +773,12 @@ public final class GuiCreativeInventory extends GuiContainer {
         int max = this.maxRowOffset();
         Texture sprite = max > 0 ? gui.textures().creativeScroller : gui.textures().creativeScrollerDisabled;
         float t = max > 0 ? (float) this.rowOffset / max : 0f;
-        gui.sprites().drawSprite(sprite, this.guiX + RAIL_X, this.guiY + RAIL_Y + t * SCROLL_TRAVEL,
-                SCROLLER_W, SCROLLER_H);
+        gui.sprites().drawSprite(sprite, this.guiX + RAIL_X, this.guiY + RAIL_Y + t * SCROLL_TRAVEL, SCROLLER_W, SCROLLER_H);
     }
 
-    /** Reiter- und Lösch-Slot-Tooltips; die Slot-Tooltips zeichnet {@code drawTooltip}. */
+    /**
+     * Reiter- und Lösch-Slot-Tooltips; die Slot-Tooltips zeichnet {@code drawTooltip}.
+     */
     @Override
     public List<RichText> tooltipAt(double mouseX, double mouseY) {
         if (!this.carried.isEmpty()) return null;
@@ -767,7 +794,9 @@ public final class GuiCreativeInventory extends GuiContainer {
         return null;
     }
 
-    /** Im Creative verschwindet der getragene Stapel — er wird NICHT in die Welt geworfen. */
+    /**
+     * Im Creative verschwindet der getragene Stapel — er wird NICHT in die Welt geworfen.
+     */
     @Override
     public void onClose() {
         this.carried = ItemStack.EMPTY;

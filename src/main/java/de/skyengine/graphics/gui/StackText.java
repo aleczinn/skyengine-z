@@ -10,7 +10,7 @@ import de.skyengine.graphics.color.Colors;
  */
 public final class StackText {
 
-    private static final float SIZE = GuiText.NORMAL;
+    private static final float SIZE = GuiText.MEDIUM;
 
     public static void draw(GuiManager gui, ItemStack stack, float slotX, float slotY, float slotSize) {
         if (stack.isEmpty() || stack.getCount() <= 1) return;

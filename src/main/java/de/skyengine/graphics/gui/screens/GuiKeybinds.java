@@ -86,14 +86,12 @@ public final class GuiKeybinds extends GuiScreen {
         this.listTop = 6 + GuiText.TITLE + 6;
         this.listBottom = vH - 32;
 
-        /* Zeilen: [Aktions-Label 132 | Keybind-Button 96 | Reset 50] — Breiten an GuiText.NORMAL
-           gemessen (monospace, 6 px/Zeichen): längste Beschriftung „Perspektive wechseln" = 120,
-           längster Tastenname „Feststelltaste" = 84. */
+        /* Zeilen: [Aktions-Label 110 | Keybind-Button 70 | Reset 50] */
         this.rows = new VStack(ROW_GAP);
         for (String action : KeyBindings.orderedActions()) {
             Label name = new Label(KeyBindings.label(action), GuiText.NORMAL).measure(gui);
-            name.w = 132; // feste Spaltenbreite statt Textbreite (bündige Spalten)
-            KeybindButton key = new KeybindButton(action, 96, 20);
+            name.w = 110; // feste Spaltenbreite statt Textbreite (bündige Spalten)
+            KeybindButton key = new KeybindButton(action, 70, 20);
             Button reset = new Button(I18n.tr("options.keybinds.reset"), 50, 20, () -> {
                 GameSettings.get().keyBindings.put(action, KeyBindings.defaults().get(action));
                 key.refresh();

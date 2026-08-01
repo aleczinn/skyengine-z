@@ -65,7 +65,7 @@ public final class GuiWorldLoading extends GuiScreen {
         String text = I18n.tr("world.loading");
         gui.font().begin(vW, vH);
         gui.font().drawStringWithShadow(text,
-                (vW - gui.font().getStringWidth(text, GuiText.NORMAL)) / 2f, vH / 2f - 12, GuiText.NORMAL, Colors.WHITE);
+                (vW - gui.font().getStringWidth(text, GuiText.MEDIUM)) / 2f, vH / 2f - 12, GuiText.MEDIUM, Colors.WHITE);
         gui.font().end();
     }
 }

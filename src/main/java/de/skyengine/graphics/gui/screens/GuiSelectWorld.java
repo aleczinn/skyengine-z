@@ -29,10 +29,8 @@ import java.util.List;
  */
 public final class GuiSelectWorld extends GuiScreen {
 
-    /* Höhe/Schrittweite mitgewachsen mit GuiText: Name (NORMAL) auf y+3 und Untertitel (SMALL)
-       auf y+17 brauchen zusammen 27 px, 28 waren zu knapp. SCROLL_STEP = ENTRY_H + ROW_GAP. */
-    private static final float ENTRY_W = 260, ENTRY_H = 32, ROW_GAP = 2;
-    private static final float SCROLL_STEP = 34;
+    private static final float ENTRY_W = 260, ENTRY_H = 28, ROW_GAP = 2;
+    private static final float SCROLL_STEP = 30;
     /** Zeitfenster für Doppelklick-Laden (Klick auf den bereits selektierten Eintrag). */
     private static final long DOUBLE_CLICK_MS = 400;
     private static final Color4 SUBTITLE = new Color4(0.65f, 0.65f, 0.65f, 1f);
@@ -84,7 +82,7 @@ public final class GuiSelectWorld extends GuiScreen {
         @Override
         public void renderText(GuiManager gui, double mx, double my) {
             gui.font().drawStringWithShadow(this.name, this.x + 4, this.y + 3, GuiText.NORMAL, Colors.WHITE);
-            gui.font().drawString(this.subtitle, this.x + 4, this.y + 17, GuiText.SMALL, SUBTITLE);
+            gui.font().drawString(this.subtitle, this.x + 4, this.y + 15, GuiText.SMALL, SUBTITLE);
         }
 
         @Override

@@ -41,10 +41,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  */
 public final class GuiImportWorld extends GuiScreen {
 
-    /* Wie in GuiSelectWorld mit GuiText mitgewachsen: Name (NORMAL) auf y+2, Untertitel (SMALL)
-       auf y+16. SCROLL_STEP = ENTRY_H + ROW_GAP (vorher standen 30 gegen 24+2). */
-    private static final float ENTRY_H = 30, ROW_GAP = 2;
-    private static final float SCROLL_STEP = 32;
+    private static final float ENTRY_H = 24, ROW_GAP = 2;
+    private static final float SCROLL_STEP = 30;
     private static final float LOG_SIZE = GuiText.SMALL;
     private static final Color4 SUBTITLE = new Color4(0.65f, 0.65f, 0.65f, 1f);
 
@@ -115,8 +113,8 @@ public final class GuiImportWorld extends GuiScreen {
 
         @Override
         public void renderText(GuiManager gui, double mx, double my) {
-            gui.font().drawStringWithShadow(this.name, this.x + 4, this.y + 2, GuiText.NORMAL, Colors.WHITE);
-            gui.font().drawString(this.subtitle, this.x + 4, this.y + 16, GuiText.SMALL, SUBTITLE);
+            gui.font().drawStringWithShadow(this.name, this.x + 4, this.y + 2, GuiText.COMPACT, Colors.WHITE);
+            gui.font().drawString(this.subtitle, this.x + 4, this.y + 13, GuiText.TINY, SUBTITLE);
         }
 
         @Override
@@ -190,7 +188,7 @@ public final class GuiImportWorld extends GuiScreen {
         this.components.clear();
         this.entries.clear();
 
-        Label title = new Label(I18n.tr("world.import.title"), GuiText.NORMAL).measure(gui);
+        Label title = new Label(I18n.tr("world.import.title"), GuiText.MEDIUM).measure(gui);
         title.layoutAt((vW - title.width()) / 2f, 6);
         this.components.add(title);
 
@@ -243,7 +241,7 @@ public final class GuiImportWorld extends GuiScreen {
             this.rows.add(entry);
         }
         if (this.saves.isEmpty()) {
-            Label empty = new Label(I18n.tr("world.import.empty"), GuiText.SMALL, SUBTITLE, false).measure(gui);
+            Label empty = new Label(I18n.tr("world.import.empty"), GuiText.TINY, SUBTITLE, false).measure(gui);
             this.entries.add(empty);
             this.rows.add(empty);
         }

@@ -626,13 +626,9 @@ public abstract class GuiContainer extends GuiScreen {
         return rest;
     }
 
-    private static final Color4 TOOLTIP_GRAY = new Color4(0.67f, 0.67f, 0.67f, 1f);
-
     /** Zeilen des Tooltips eines Stacks — Andockpunkt für spätere Stats (Haltbarkeit etc.). */
     protected List<RichText> tooltipLines(ItemStack stack) {
-        return List.of(
-                RichText.plain(stack.getDisplayName(), Colors.WHITE),
-                RichText.plain(stack.getItem().getId().toString(), TOOLTIP_GRAY));
+        return List.of(RichText.plain(stack.getDisplayName(), Colors.WHITE), RichText.plain(stack.getItem().getId().toString(), Colors.DARK_GRAY));
     }
 
     /**
