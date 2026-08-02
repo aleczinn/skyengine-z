@@ -85,7 +85,7 @@ public final class SaveRoundTripTest {
            movedState als Codec-String) — Save/Load mitten im Schub muss die Bewegung
            unverändert fortsetzen können. */
         String pistonState = "skyengine:piston[extended=true,facing=up]";
-        String headState = "skyengine:piston_head[facing=down,type=sticky]";
+        String headState = "skyengine:piston_head[facing=down,short=false,type=sticky]";
         chunk.setBlock(15, 200, 15, decodeId(pistonState));
         chunk.setBlock(16, 200, 16, decodeId(headState));
         int movingId = decodeId("skyengine:moving_piston");

@@ -97,6 +97,14 @@ public final class Properties {
     /** Kopf-Variante des Kolbens (normal/klebrig) — Namensteilung mit "type" wie CHEST_TYPE. */
     public static final Property<PistonType> PISTON_TYPE = Property.ofEnum("type", PistonType.class);
 
+    /**
+     * Kolben-Kopf mit kurzem Arm (12 statt 16 px, ohne den 4-px-Überstand in die Basis-Zelle).
+     * Der MATERIALISIERTE Kopf ist immer lang (short=false) — der Renderer wählt während der
+     * Animation die kurze Variante, solange der Kopf in Basisnähe ist, sonst ragte der
+     * Überstand hinten aus der Basis (MC-Parität).
+     */
+    public static final Property<Boolean> SHORT = Property.ofBoolean("short");
+
     /** Staub-Verbindungs-Property zur horizontalen Richtung. */
     public static Property<RedstoneSide> wireSide(Direction direction) {
         return switch (direction) {

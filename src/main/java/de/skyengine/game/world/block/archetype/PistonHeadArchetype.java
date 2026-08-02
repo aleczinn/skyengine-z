@@ -17,6 +17,9 @@ public final class PistonHeadArchetype implements Archetype {
     public void configure(BlockConfig.Builder cfg, BlockDefinition def) {
         cfg.property(Properties.FACING_ALL)
                 .property(Properties.PISTON_TYPE)
+                /* SHORT ist eine reine Render-Variante für die Animation (Arm ohne Überstand);
+                   der materialisierte Kopf bleibt immer short=false (Default). */
+                .property(Properties.SHORT)
                 .defaultValue(Properties.FACING_ALL, Direction.NORTH)
                 .behavior(new de.skyengine.game.world.block.behavior.PistonHeadBehavior())
                 .shapes(Shapes.pistonHead())

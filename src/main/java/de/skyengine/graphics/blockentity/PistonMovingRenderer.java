@@ -32,6 +32,11 @@ import org.lwjgl.opengl.GL30;
  *
  * <p>Der Dispatcher-Cull-Margin von 1.0 deckt den maximalen Versatz von genau 1 Block ab;
  * das Licht kommt (wie bei allen BE-Renderern) aus der BE-Zelle.
+ *
+ * <p><b>Standbilder sind gewollt:</b> bei offenem Pausenmenü tickt die Welt nicht, gerendert
+ * wird weiter — eine laufende Animation steht dann still und läuft nach dem Schließen zu Ende.
+ * Dasselbe gilt außerhalb der Simulations-Distanz (der Dispatcher rendert ohne Tick-Gate) —
+ * konsistent mit dem Einfrieren der Fluid- und Redstone-Ticks dort.
  */
 public final class PistonMovingRenderer implements BlockEntityRenderer {
 
@@ -85,25 +90,54 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
         Direction f = moving.getFacing();
 
         if (moving.isSource() && !moving.isExtending()) {
-            this.drawState(moving.getMovedStateId(), baseX, baseY, baseZ);
-            this.drawState(this.headStateFor(moving),
+            /* Basis statisch in AUSGEFAHRENER Optik (12 px + Aussparung, wie Vanilla) — der
+               Vollwürfel entsteht erst bei der Materialisierung. Mit dem eingefahrenen
+               movedState stünde hier dessen Holzfront und ergäbe zusammen mit dem gleitenden
+               Kopf die „doppelte Platte". */
+            this.drawState(extendedVariantOf(moving.getMovedStateId()), baseX, baseY, baseZ);
+            this.drawState(this.headStateFor(moving, back),
                     baseX + f.offsetX() * back, baseY + f.offsetY() * back, baseZ + f.offsetZ() * back);
         } else {
             Direction d = moving.isExtending() ? f : f.opposite();
-            this.drawState(moving.getMovedStateId(),
+            this.drawState(withShortIfHead(moving, back),
                     baseX - d.offsetX() * back, baseY - d.offsetY() * back, baseZ - d.offsetZ() * back);
         }
         this.shader.unbind();
     }
 
+    /**
+     * MC-Short-Formel: kurzer Arm (ohne den 4-px-Überstand), solange der Kopf in Basisnähe
+     * gleitet — sonst ragte der Überstand hinten aus der Basis. Erst wenn die Platte fast an
+     * der Kopf-Zelle ist ({@code back < 0.25}), verschwindet der lange Arm sauber in der
+     * Basis-Aussparung.
+     */
+    private static boolean shortArm(boolean extending, float back) {
+        return extending != (back < 0.25f);
+    }
+
     /** Der zum eingezogenen Basis-State passende Kopf (für die Rückzieh-Optik). */
-    private int headStateFor(PistonMovingBlockEntity moving) {
+    private int headStateFor(PistonMovingBlockEntity moving, float back) {
         boolean sticky = Blocks.getState(moving.getMovedStateId()).getBlock()
                 == Blocks.getState(Blocks.STICKY_PISTON).getBlock();
         return Blocks.getState(Blocks.PISTON_HEAD)
                 .with(Properties.FACING_ALL, moving.getFacing())
                 .with(Properties.PISTON_TYPE, sticky ? PistonType.STICKY : PistonType.NORMAL)
+                .with(Properties.SHORT, shortArm(false, back))
                 .getId();
+    }
+
+    /** Basis-State in ausgefahrener Optik; States ohne EXTENDED bleiben unverändert (defensiv). */
+    private static int extendedVariantOf(int movedStateId) {
+        var state = Blocks.getState(movedStateId);
+        if (!state.getValues().containsKey(Properties.EXTENDED)) return movedStateId;
+        return state.with(Properties.EXTENDED, true).getId();
+    }
+
+    /** Gleitet ein Kopf-State (Extend-Source), bekommt er die Short-Formel; alles andere unverändert. */
+    private static int withShortIfHead(PistonMovingBlockEntity moving, float back) {
+        var state = Blocks.getState(moving.getMovedStateId());
+        if (!state.getValues().containsKey(Properties.SHORT)) return moving.getMovedStateId();
+        return state.with(Properties.SHORT, shortArm(moving.isExtending(), back)).getId();
     }
 
     private void drawState(int stateId, float ox, float oy, float oz) {
