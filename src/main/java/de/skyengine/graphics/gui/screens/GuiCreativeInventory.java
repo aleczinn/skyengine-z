@@ -250,7 +250,27 @@ public final class GuiCreativeInventory extends GuiContainer {
     }
 
     private void selectTab(CreativeTab tab) {
-        if (tab == null || tab.id().equals(selectedTabId)) return;
+        if (tab == null) return;
+        boolean search = tab.type() == CreativeTab.Type.SEARCH;
+        boolean same = tab.id().equals(selectedTabId);
+
+        /* Ein Klick auf die Lupe leert das Suchfeld — auch dann, wenn der Such-Reiter schon offen
+           ist. Das ist der schnellste Weg, eine Eingabe komplett zurückzunehmen. lastQuery MUSS
+           mitgehen: render() erkennt eine Änderung nur über den Vergleich mit diesem Feld. */
+        if (search && this.searchField != null) {
+            this.searchField.text("");
+            this.searchField.setFocused(true);
+            this.lastQuery = "";
+        }
+        if (same) {
+            if (search) {
+                /* Nach dem Leeren steht wieder die volle Liste — sonst bliebe der Scroll-Stand
+                   des kurzen Suchergebnisses stehen und spränge mitten hinein. */
+                this.rowOffset = 0;
+                this.refreshContents();
+            }
+            return;
+        }
         selectedTabId = tab.id();
         this.rowOffset = 0;
         this.scrollDragging = false;
