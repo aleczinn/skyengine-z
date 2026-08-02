@@ -144,6 +144,40 @@ public final class Shapes {
         };
     }
 
+    /* Hebel-Umrisse verbatim aus MCs LeverBlock (px/16): enge Box um den SOCKEL, der
+       gekippte Griff bleibt draußen — die modellabgeleitete Box wäre durch ihn aufgebläht.
+       Bei WALL gilt dieselbe Konvention wie bei den TORCH_WALL_*-Boxen oben: FACING zeigt
+       vom Träger weg, die Box klebt an der Trägerseite. */
+    private static final BlockShape LEVER_FLOOR_Z = px(5, 0, 4, 11, 10, 12);
+    private static final BlockShape LEVER_FLOOR_X = px(4, 0, 5, 12, 10, 11);
+    private static final BlockShape LEVER_CEILING_Z = px(5, 6, 4, 11, 16, 12);
+    private static final BlockShape LEVER_CEILING_X = px(4, 6, 5, 12, 16, 11);
+    private static final BlockShape LEVER_WALL_NORTH = px(5, 4, 10, 11, 12, 16);
+    private static final BlockShape LEVER_WALL_SOUTH = px(5, 4, 0, 11, 12, 6);
+    private static final BlockShape LEVER_WALL_WEST = px(10, 4, 5, 16, 12, 11);
+    private static final BlockShape LEVER_WALL_EAST = px(0, 4, 5, 6, 12, 11);
+
+    /** Hebel: keine Kollision, feste Sockel-Box je Trägerfläche und Ausrichtung (Vanilla). */
+    public static ShapeProvider lever() {
+        return new ShapeProvider() {
+            @Override public BlockShape collision(BlockState state) { return BlockShape.EMPTY; }
+            @Override public BlockShape outline(BlockState state) {
+                Direction facing = state.get(Properties.FACING);
+                boolean zAxis = facing == Direction.NORTH || facing == Direction.SOUTH;
+                return switch (state.get(Properties.ATTACH)) {
+                    case FLOOR -> zAxis ? LEVER_FLOOR_Z : LEVER_FLOOR_X;
+                    case CEILING -> zAxis ? LEVER_CEILING_Z : LEVER_CEILING_X;
+                    case WALL -> switch (facing) {
+                        case NORTH -> LEVER_WALL_NORTH;
+                        case SOUTH -> LEVER_WALL_SOUTH;
+                        case WEST -> LEVER_WALL_WEST;
+                        default -> LEVER_WALL_EAST;
+                    };
+                };
+            }
+        };
+    }
+
     /**
      * Keine Kollision, Umriss aus den Modell-Boxen (Knopf, Druckplatte, Staub): man läuft
      * durch den Block hindurch, kann ihn aber anvisieren — und der Umriss folgt automatisch

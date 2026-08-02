@@ -23,7 +23,9 @@ public final class LeverArchetype implements Archetype {
                 .property(Properties.POWERED)
                 .behavior(new AttachBehavior(EnumSet.allOf(AttachFace.class)))
                 .behavior(new LeverBehavior())
-                .shapes(Shapes.outlineOnly())
+                /* Feste MC-Sockel-Boxen statt outlineOnly(): die modellabgeleitete Box
+                   wäre durch den 45-Grad-Griff aufgebläht. */
+                .shapes(Shapes.lever())
                 .opaque(state -> false);
     }
 }
