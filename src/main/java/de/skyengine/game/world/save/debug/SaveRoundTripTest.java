@@ -76,8 +76,10 @@ public final class SaveRoundTripTest {
            Clock Save/Load übersteht. */
         String repeaterState = "skyengine:repeater[delay=3,facing=north,powered=true]";
         String wireState = "skyengine:redstone_wire[east=side,north=none,power=13,south=up,west=none]";
+        String plateState = "skyengine:light_weighted_pressure_plate[power=7]";
         chunk.setBlock(12, 200, 12, decodeId(repeaterState));
         chunk.setBlock(13, 200, 13, decodeId(wireState));
+        chunk.setBlock(14, 200, 14, decodeId(plateState));
         int repeaterX = 3 * ChunkSection.SIZE + 12, repeaterZ = -7 * ChunkSection.SIZE + 12;
 
         /* Scheduled-Ticks (v2): Quelle mit Rest-Delay = exakt der Fluid-Freeze-Bugfall.
@@ -169,6 +171,8 @@ public final class SaveRoundTripTest {
                 "Verstärker-State (delay/facing/powered) übersteht den Round-Trip");
         check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(13, 200, 13))).equals(wireState),
                 "Staub-State (Verbindungen + power) übersteht den Round-Trip");
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(14, 200, 14))).equals(plateState),
+                "Wägeplatten-State (power 0-15) übersteht den Round-Trip");
 
         /* Alt-Format: ein Tür-String OHNE das neue powered-Property muss auf den
            Default powered=false fallen (Codec-Toleranz — alte Welten bleiben ladbar). */

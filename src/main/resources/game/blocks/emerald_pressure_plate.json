@@ -1,0 +1,10 @@
+{
+  "_comment": "Eigener Block (kein Vanilla): reagiert NUR auf passive Mobs. Filter reserviert wie bei der Diamantplatte (keine Mobs in der Engine).",
+  "id": "skyengine:emerald_pressure_plate",
+  "parent": "preset/pressure_plate",
+  "press_ticks": 20,
+  "sound": "stone",
+  "tool": "pickaxe",
+  "sensor": { "entity_filter": ["passive_mob"] },
+  "vars": { "texture": "emerald_block" }
+}
