@@ -94,6 +94,10 @@ public final class ArchetypeBlockFactory {
             builder.stickyGroup(def.sticky_group);
         }
 
+        /* Trichter-Transferrate (Ticks Pause + Items je Transfer) - die schnelleren Stufen
+           (golden/diamond/netherite_hopper) sind reine Daten. */
+        builder.hopperTransfer(def.hopper_cooldown, def.hopper_amount);
+
         /* Horizontale Ausrichtung (Truhe, Ofen) - FACING-Property + Platzier-Verhalten zum Spieler. */
         if (def.facing) {
             builder.property(Properties.FACING);

@@ -137,6 +137,11 @@ public class BlockDefinition {
        null = nicht klebrig. */
     public String sticky_group;
 
+    /* Archetyp "hopper": Ticks Pause je Transfer (MC 8 = 2,5 Items/s) und Items je
+       Transfer. Die schnelleren Trichter-Stufen sind reine Daten. */
+    public int hopper_cooldown = 8;
+    public int hopper_amount = 1;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;

@@ -100,6 +100,23 @@ public final class SaveRoundTripTest {
         chunk.setBlockEntity(17, 200, 17, moving);
         int repeaterX = 3 * ChunkSection.SIZE + 12, repeaterZ = -7 * ChunkSection.SIZE + 12;
 
+        /* Trichter: State (facing + enabled) + BE mit Inventar UND Rest-Cooldown — der
+           Transfer-Takt muss Save/Load überstehen. Der Cooldown wird über load() gesetzt
+           (ein leeres inventory-Tag lässt die Slots in Ruhe). */
+        String hopperState = "skyengine:hopper[enabled=false,facing=west]";
+        chunk.setBlock(18, 200, 18, decodeId(hopperState));
+        de.skyengine.game.world.block.entity.HopperBlockEntity hopper =
+                (de.skyengine.game.world.block.entity.HopperBlockEntity)
+                        BlockEntities.HOPPER.create(
+                                new BlockPos(3 * ChunkSection.SIZE + 18, 200, -7 * ChunkSection.SIZE + 18),
+                                Blocks.getState(decodeId(hopperState)));
+        hopper.getInventory().set(2, new ItemStack(Items.get(Identifier.of("skyengine:redstone")), 17));
+        de.skyengine.game.world.block.entity.DataTag hopperCooldownTag =
+                new de.skyengine.game.world.block.entity.DataTag();
+        hopperCooldownTag.putInt("cooldown", 5);
+        hopper.load(hopperCooldownTag);
+        chunk.setBlockEntity(18, 200, 18, hopper);
+
         /* Scheduled-Ticks (v2): Quelle mit Rest-Delay = exakt der Fluid-Freeze-Bugfall.
            Dazwischen ein unbekannter Typ und zwei invalide Einträge (falscher Chunk,
            y außerhalb) — sie dürfen den Reststream nicht verwürfeln. Dazu der offene
@@ -216,6 +233,20 @@ public final class SaveRoundTripTest {
         fallbackMoving.load(brokenTag);
         check(fallbackMoving.getMovedStateId() == Blocks.AIR,
                 "Unbekannter movedState fällt beim Laden auf Luft (kein Crash)");
+
+        /* Trichter-Round-Trip: State + Inventar + Rest-Cooldown. */
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(18, 200, 18))).equals(hopperState),
+                "Trichter-State (facing + enabled) übersteht den Round-Trip");
+        if (restored.getBlockEntity(18, 200, 18) instanceof
+                de.skyengine.game.world.block.entity.HopperBlockEntity restoredHopper) {
+            ItemStack hopperStack = restoredHopper.getInventory().get(2);
+            check(!hopperStack.isEmpty() && hopperStack.getCount() == 17,
+                    "Trichter-Inventar (5 Slots) übersteht den Round-Trip");
+            check(restoredHopper.getCooldown() == 5,
+                    "Trichter-Cooldown übersteht den Round-Trip (Transfer-Takt läuft weiter)");
+        } else {
+            check(false, "Trichter-BlockEntity wiederhergestellt");
+        }
 
         /* Alt-Format: ein Tür-String OHNE das neue powered-Property muss auf den
            Default powered=false fallen (Codec-Toleranz — alte Welten bleiben ladbar). */

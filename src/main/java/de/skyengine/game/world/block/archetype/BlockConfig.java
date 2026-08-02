@@ -45,6 +45,8 @@ public final class BlockConfig {
     private final float resistance;
     private final de.skyengine.game.world.block.PistonReaction pistonReaction;
     private final String stickyGroup;
+    private final int hopperCooldown;
+    private final int hopperAmount;
     private final float friction;
     private final float speedFactor;
     private final float jumpFactor;
@@ -81,6 +83,8 @@ public final class BlockConfig {
         this.resistance = b.resistance;
         this.pistonReaction = b.pistonReaction;
         this.stickyGroup = b.stickyGroup;
+        this.hopperCooldown = b.hopperCooldown;
+        this.hopperAmount = b.hopperAmount;
         this.friction = b.friction;
         this.speedFactor = b.speedFactor;
         this.jumpFactor = b.jumpFactor;
@@ -207,6 +211,16 @@ public final class BlockConfig {
         return stickyGroup;
     }
 
+    /** Trichter: Ticks Pause je Transfer. */
+    public int hopperCooldown() {
+        return hopperCooldown;
+    }
+
+    /** Trichter: Items je Transfer. */
+    public int hopperAmount() {
+        return hopperAmount;
+    }
+
     /**
      * Explosions-Widerstand (MC-Blast-Resistance). Getrennt von der Abbau-Härte, weil beide in
      * Minecraft fast nirgends übereinstimmen (Obsidian 50/1200, Stein 1.5/6, End-Stone 3/9).
@@ -321,6 +335,8 @@ public final class BlockConfig {
         private de.skyengine.game.world.block.PistonReaction pistonReaction =
                 de.skyengine.game.world.block.PistonReaction.NORMAL;
         private String stickyGroup;
+        private int hopperCooldown = 8;
+        private int hopperAmount = 1;
         private float friction = 0.6F;
         private float speedFactor = 1.0F;
         private float jumpFactor = 1.0F;
@@ -439,6 +455,12 @@ public final class BlockConfig {
 
         public Builder stickyGroup(String group) {
             this.stickyGroup = group;
+            return this;
+        }
+
+        public Builder hopperTransfer(int cooldownTicks, int amount) {
+            this.hopperCooldown = Math.max(1, cooldownTicks);
+            this.hopperAmount = Math.max(1, amount);
             return this;
         }
 

@@ -14,6 +14,7 @@ public final class BlockEntities {
     public static BlockEntityType<ChestBlockEntity> CHEST;
     public static BlockEntityType<EnchantingTableBlockEntity> ENCHANTING_TABLE;
     public static BlockEntityType<PistonMovingBlockEntity> PISTON_MOVING;
+    public static BlockEntityType<HopperBlockEntity> HOPPER;
 
     private static boolean registered;
 
@@ -32,6 +33,9 @@ public final class BlockEntities {
 
         PISTON_MOVING = Registries.BLOCK_ENTITY.register(Identifier.of("piston_moving"),
                 new BlockEntityType<>((type, pos, state) -> new PistonMovingBlockEntity(type, pos), true));
+
+        HOPPER = Registries.BLOCK_ENTITY.register(Identifier.of("hopper"),
+                new BlockEntityType<>((type, pos, state) -> new HopperBlockEntity(type, pos), true));
     }
 
     private BlockEntities() {}

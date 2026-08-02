@@ -179,6 +179,16 @@ public class Block {
         return this.config.stickyGroup();
     }
 
+    /** Trichter: Ticks Pause je Transfer ({@code hopper_cooldown}, MC 8 = 2,5 Items/s). */
+    public int getHopperCooldown() {
+        return this.config.hopperCooldown();
+    }
+
+    /** Trichter: Items je Transfer ({@code hopper_amount}). */
+    public int getHopperAmount() {
+        return this.config.hopperAmount();
+    }
+
     /** true: Wasser/Lava — Geometrie kommt dynamisch aus dem Mesher (kein gebackenes Modell). */
     public boolean isFluid() {
         return this.config.fluidInfo() != null;
