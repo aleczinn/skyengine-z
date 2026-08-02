@@ -39,6 +39,7 @@ public final class Archetypes {
         register("sticky_piston", new PistonArchetype(true));
         register("piston_head", new PistonHeadArchetype());
         register("moving_piston", new MovingPistonArchetype());
+        register("observer", new ObserverArchetype());
         register("custom", new CustomArchetype());
     }
 

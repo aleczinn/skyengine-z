@@ -1,0 +1,34 @@
+{
+  "_comment": "Beobachter: 2-Tick-Puls bei Blockaenderung vor dem Gesicht (facing zeigt zum beobachteten Block, beim Platzieren vom Spieler weg). Varianten verbatim aus MC 26.2. MC-Werte: Haerte 3, Spitzhacke.",
+  "id": "skyengine:observer",
+  "creative_tab": "redstone_blocks",
+  "archetype": "observer",
+  "hardness": 3,
+  "sound": "stone",
+  "tool": "pickaxe",
+  "models": {
+    "": "block/template_observer",
+    "_on": "block/template_observer_on"
+  },
+  "textures": {
+    "front": "game/textures/block/observer_front.png",
+    "back": "game/textures/block/observer_back.png",
+    "back_on": "game/textures/block/observer_back_on.png",
+    "side": "game/textures/block/observer_side.png",
+    "top": "game/textures/block/observer_top.png"
+  },
+  "variants": {
+    "facing=north,powered=false": { "model": "block/${id}" },
+    "facing=east,powered=false":  { "model": "block/${id}", "y": 90 },
+    "facing=south,powered=false": { "model": "block/${id}", "y": 180 },
+    "facing=west,powered=false":  { "model": "block/${id}", "y": 270 },
+    "facing=up,powered=false":    { "model": "block/${id}", "x": 270 },
+    "facing=down,powered=false":  { "model": "block/${id}", "x": 90 },
+    "facing=north,powered=true":  { "model": "block/${id}_on" },
+    "facing=east,powered=true":   { "model": "block/${id}_on", "y": 90 },
+    "facing=south,powered=true":  { "model": "block/${id}_on", "y": 180 },
+    "facing=west,powered=true":   { "model": "block/${id}_on", "y": 270 },
+    "facing=up,powered=true":     { "model": "block/${id}_on", "x": 270 },
+    "facing=down,powered=true":   { "model": "block/${id}_on", "x": 90 }
+  }
+}
