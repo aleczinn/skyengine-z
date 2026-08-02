@@ -1301,7 +1301,8 @@ public class GameContainer implements IResizeable, IDisposable {
         double relHitZ = this.hit.hitZ() - pz;
         BlockState place = block.getPlacementState(this.world, px, py, pz,
                 this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(),
-                relHitX, relHitY, relHitZ, this.player.yaw, this.player.isSecondaryUseActive());
+                relHitX, relHitY, relHitZ, this.player.yaw, this.player.pitch,
+                this.player.isSecondaryUseActive());
 
         /* place == null: ein Behavior lehnt ab (z.B. Tür ohne Platz). Sonst nicht in den
            eigenen Körper bauen - gegen die ECHTE Kollisionsform testen, damit dünne Blöcke

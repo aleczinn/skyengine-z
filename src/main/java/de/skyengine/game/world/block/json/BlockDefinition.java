@@ -127,6 +127,11 @@ public class BlockDefinition {
        Achtung: die Drop-Pfade laufen über Items.forBlock, das places_block rückwärts auflöst. */
     public boolean no_item = false;
 
+    /* Kolben-Reaktion: "normal" (schiebbar, Default), "destroy" (zerbricht mit Drop —
+       Fackeln, Staub, Pflanzen) oder "block" (stoppt den Kolben — Obsidian). Härte < 0 und
+       BlockEntity-Blöcke sind automatisch "block" (Override in Block.getPistonReaction). */
+    public String piston_reaction;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;

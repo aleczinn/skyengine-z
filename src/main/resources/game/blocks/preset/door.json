@@ -1,4 +1,5 @@
 {
+  "piston_reaction": "destroy",
   "_comment": "Preset (nicht registriert): zweiteilige Tuer. Die 32 Varianten aus facing x half x hinge x open stehen hier EINMAL. Texturen heissen <id>_bottom.png / <id>_top.png, das Item-Sprite <id>.png.",
   "creative_tab": "functional",
   "archetype": "door",

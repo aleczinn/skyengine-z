@@ -83,6 +83,20 @@ public final class Properties {
     public static final Property<RedstoneSide> WIRE_SOUTH = Property.ofEnum("south", RedstoneSide.class);
     public static final Property<RedstoneSide> WIRE_WEST = Property.ofEnum("west", RedstoneSide.class);
 
+    /**
+     * Volle 6-Richtungs-Ausrichtung (Kolben; später Beobachter/Trichter). Teilt sich den
+     * Namen mit dem horizontalen {@link #FACING} — unkritisch aus demselben Grund wie bei
+     * CHEST_TYPE (Identitäts-Vergleich, Codec sucht nur in den Properties DES Blocks).
+     * Erster Enum-Wert (UP) wäre der Default — Archetypen setzen defaultValue(NORTH).
+     */
+    public static final Property<Direction> FACING_ALL = Property.ofEnum("facing", Direction.class);
+
+    /** Kolben ausgefahren? */
+    public static final Property<Boolean> EXTENDED = Property.ofBoolean("extended");
+
+    /** Kopf-Variante des Kolbens (normal/klebrig) — Namensteilung mit "type" wie CHEST_TYPE. */
+    public static final Property<PistonType> PISTON_TYPE = Property.ofEnum("type", PistonType.class);
+
     /** Staub-Verbindungs-Property zur horizontalen Richtung. */
     public static Property<RedstoneSide> wireSide(Direction direction) {
         return switch (direction) {

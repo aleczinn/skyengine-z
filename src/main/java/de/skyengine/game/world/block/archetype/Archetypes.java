@@ -35,6 +35,10 @@ public final class Archetypes {
         register("redstone_wire", new RedstoneWireArchetype());
         register("redstone_torch", new RedstoneTorchArchetype());
         register("repeater", new RepeaterArchetype());
+        register("piston", new PistonArchetype(false));
+        register("sticky_piston", new PistonArchetype(true));
+        register("piston_head", new PistonHeadArchetype());
+        register("moving_piston", new MovingPistonArchetype());
         register("custom", new CustomArchetype());
     }
 

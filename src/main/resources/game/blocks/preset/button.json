@@ -1,4 +1,5 @@
 {
+  "piston_reaction": "destroy",
   "_comment": "Preset (nicht registriert): Knopf. Die 24 Varianten aus face x facing x powered stehen hier EINMAL, aus MC 26.2 (stone_button.json); einzige Abweichung: ohne uvlock, weil der Engine-Loader dabei die expliziten Face-UVs verwerfen wuerde - so behaelt der Knopf an der Wand seine Knopf-UVs. Kinder setzen vars.texture (stone/oak_planks) und press_ticks. facing zeigt vom Traeger WEG (AttachBehavior); die Rotationen sind MCs Werte fuer dieselbe Konvention.",
   "creative_tab": "redstone_blocks",
   "archetype": "button",

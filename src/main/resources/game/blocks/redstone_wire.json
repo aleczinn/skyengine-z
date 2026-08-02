@@ -1,6 +1,7 @@
 {
   "_comment": "Redstone-Staub: 1296 States (4x none/side/up x power 0-15). Rendering laeuft NICHT ueber variants/multipart, sondern ueber den ModelGenerator des Archetyps (81 Geometrie-Kombos + power-Tint) - die models-Eintraege hier erzeugen nur die virtuellen Teilmodelle mit aufgeloesten Texturen, aus denen der Generator komponiert. KEIN eigenes Block-Item (no_item): wie in MC platziert das Material-Item skyengine:redstone (places_block) den Staub und ist auch der Drop (Items.forBlock).",
   "id": "skyengine:redstone_wire",
+  "piston_reaction": "destroy",
   "archetype": "redstone_wire",
   "layer": "cutout",
   "opaque": false,

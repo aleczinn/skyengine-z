@@ -80,6 +80,7 @@
       "items": [
         "redstone", "redstone_torch", "redstone_block",
         "repeater",
+        "piston", "sticky_piston",
         "lever",
         "stone_button", "oak_button",
         "stone_pressure_plate", "oak_pressure_plate",

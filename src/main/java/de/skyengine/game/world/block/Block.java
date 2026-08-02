@@ -163,6 +163,17 @@ public class Block {
         return this.settings.noItem;
     }
 
+    /**
+     * Kolben-Reaktion dieses Blocks. Automatik-Overrides VOR dem JSON-Wert: unzerstörbare
+     * Blöcke (Härte &lt; 0 — Bedrock, moving_piston) und BlockEntity-Blöcke (Truhe,
+     * Zaubertisch — ihr Inhalt kann nicht mitreisen) blockieren immer.
+     */
+    public PistonReaction getPistonReaction() {
+        if (this.config.hardness() < 0) return PistonReaction.BLOCK;
+        if (this.config.blockEntityType() != null) return PistonReaction.BLOCK;
+        return this.config.pistonReaction();
+    }
+
     /** true: Wasser/Lava — Geometrie kommt dynamisch aus dem Mesher (kein gebackenes Modell). */
     public boolean isFluid() {
         return this.config.fluidInfo() != null;
@@ -207,12 +218,12 @@ public class Block {
                                         int x, int y, int z,
                                         int faceX, int faceY, int faceZ,
                                         double hitX, double hitY, double hitZ, float playerYaw,
-                                        boolean sneaking) {
+                                        float playerPitch, boolean sneaking) {
         BlockState state = this.defaultState;
         if (this.config.behaviors().isEmpty()) return state;
 
         PlacementContext ctx = new PlacementContext(world, x, y, z, faceX, faceY, faceZ,
-                hitX, hitY, hitZ, playerYaw, sneaking);
+                hitX, hitY, hitZ, playerYaw, playerPitch, sneaking);
         for (BlockBehavior behavior : this.config.behaviors()) {
             state = behavior.onPlace(ctx, state);
         }

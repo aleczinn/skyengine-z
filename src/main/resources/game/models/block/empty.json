@@ -1,0 +1,4 @@
+{
+  "_comment": "Leere Geometrie fuer Bloecke ohne statisches Mesh (moving_piston - gerendert wird die BlockEntity). Existiert nur, damit der Auto-Default-Bake nicht 'Modell fehlt' warnt.",
+  "elements": []
+}

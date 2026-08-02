@@ -1,6 +1,7 @@
 {
   "_comment": "Verstaerker. ACHTUNG Konvention: unser facing = AUSGANGSRICHTUNG (Blickrichtung beim Platzieren), Vanillas facing zeigt zum Eingang - die y-Rotationen unten sind deshalb gegenueber MC invertiert gemappt (unser north = MC south = y 0). Kein locked-Property (kommt mit der Komparator-Etappe). MC-Werte: Haerte 0, sofort abbaubar.",
   "id": "skyengine:repeater",
+  "piston_reaction": "destroy",
   "creative_tab": "redstone_blocks",
   "archetype": "repeater",
   "layer": "cutout",

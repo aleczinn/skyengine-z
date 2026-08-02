@@ -1,5 +1,6 @@
 {
   "id": "skyengine:tall_grass",
+  "piston_reaction": "destroy",
   "creative_tab": "natural",
   "archetype": "tall_cross",
   "parts": {

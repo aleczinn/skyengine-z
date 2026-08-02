@@ -83,6 +83,12 @@ public final class ArchetypeBlockFactory {
             builder.behavior(new ConstantPowerBehavior(Math.min(15, def.redstone_power)));
         }
 
+        /* Kolben-Reaktion (normal/destroy/block) - archetypübergreifend; Auto-Overrides für
+           Härte < 0 und BlockEntity-Blöcke macht Block.getPistonReaction. */
+        if (def.piston_reaction != null) {
+            builder.pistonReaction(de.skyengine.game.world.block.PistonReaction.byName(def.piston_reaction));
+        }
+
         /* Horizontale Ausrichtung (Truhe, Ofen) - FACING-Property + Platzier-Verhalten zum Spieler. */
         if (def.facing) {
             builder.property(Properties.FACING);
