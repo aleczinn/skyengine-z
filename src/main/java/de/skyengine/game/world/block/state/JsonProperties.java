@@ -33,7 +33,7 @@ public final class JsonProperties {
     private static final Set<String> RESERVED = Set.of(
             "facing", "type", "half", "shape", "axis", "level", "falling", "open", "hinge",
             "north", "east", "south", "west", "up", "down",
-            "face", "powered", "power", "delay", "lit", "extended", "short");
+            "face", "powered", "power", "delay", "lit", "extended", "short", "mode", "locked", "enabled");
 
     /** {@code null}, wenn der Name reserviert oder die Werteliste unbrauchbar ist (wird geloggt). */
     public static Property<String> of(String name, List<String> values) {

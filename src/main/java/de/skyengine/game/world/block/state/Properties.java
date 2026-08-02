@@ -97,6 +97,9 @@ public final class Properties {
     /** Kopf-Variante des Kolbens (normal/klebrig) — Namensteilung mit "type" wie CHEST_TYPE. */
     public static final Property<PistonType> PISTON_TYPE = Property.ofEnum("type", PistonType.class);
 
+    /** Komparator-Modus (compare/subtract) — Namensteilung "mode" gibt es sonst nicht. */
+    public static final Property<ComparatorMode> MODE = Property.ofEnum("mode", ComparatorMode.class);
+
     /**
      * Kolben-Kopf mit kurzem Arm (12 statt 16 px, ohne den 4-px-Überstand in die Basis-Zelle).
      * Der MATERIALISIERTE Kopf ist immer lang (short=false) — der Renderer wählt während der

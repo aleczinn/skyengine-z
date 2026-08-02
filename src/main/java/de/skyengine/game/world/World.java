@@ -674,6 +674,30 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
+     * Benachrichtigt Komparatoren, die den Container an (x,y,z) messen (direkt daneben oder
+     * durch einen opaken Block hindurch) — Container-Mutationen erzeugen keine
+     * Nachbar-Updates, deshalb rufen Hopper nach Transfers und Container-GUIs beim
+     * Schließen hier an (MCs updateNeighbourForOutputSignal).
+     */
+    public void updateComparatorOutputs(int x, int y, int z) {
+        for (Direction d : Direction.horizontalValues()) {
+            int nx = x + d.offsetX(), nz = z + d.offsetZ();
+            BlockState neighbor = Blocks.getState(this.getBlock(nx, y, nz));
+            if (neighbor.getValues().containsKey(
+                    de.skyengine.game.world.block.state.Properties.MODE)) {
+                this.updateStateAt(nx, y, nz);
+            } else if (neighbor.isOpaqueCube()) {
+                int fx = nx + d.offsetX(), fz = nz + d.offsetZ();
+                BlockState far = Blocks.getState(this.getBlock(fx, y, fz));
+                if (far.getValues().containsKey(
+                        de.skyengine.game.world.block.state.Properties.MODE)) {
+                    this.updateStateAt(fx, y, fz);
+                }
+            }
+        }
+    }
+
+    /**
      * true, wenn die Zelle beschreibbar ist (y im Weltbereich, Chunk geladen und READY).
      * Für Vorab-Validierungen von Mehr-Zellen-Operationen (Kolben-Schub): erst ALLE Zellen
      * prüfen, dann schreiben — sonst hinterließe ein halb fehlgeschlagener setBlock-Lauf

@@ -90,5 +90,19 @@ public final class RedstonePower {
                 && state.getValues().containsKey(Properties.WIRE_NORTH);
     }
 
+    /**
+     * Gilt der Block als Quelle für die SEITEN-Eingänge eines Komparators bzw. fürs
+     * Repeater-Locking? Wie MC nur „echte" Redstone-Komponenten: Staub, Verstärker
+     * (DELAY), Komparator (MODE) und der Redstone-Block (konstante Quelle).
+     */
+    public static boolean isSideInputSource(BlockState state) {
+        if (isWire(state)) return true;
+        if (state.getValues().containsKey(Properties.DELAY)) return true;
+        if (state.getValues().containsKey(Properties.MODE)) return true;
+        /* Redstone-Block: konstante Quelle ohne Properties, verbindet sich mit Staub. */
+        return state.getValues().isEmpty()
+                && state.getBlock().connectsRedstoneWire(state, de.skyengine.game.world.block.Direction.NORTH);
+    }
+
     private RedstonePower() {}
 }

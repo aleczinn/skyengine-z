@@ -40,6 +40,7 @@ public final class Archetypes {
         register("piston_head", new PistonHeadArchetype());
         register("moving_piston", new MovingPistonArchetype());
         register("observer", new ObserverArchetype());
+        register("comparator", new ComparatorArchetype());
         register("custom", new CustomArchetype());
     }
 

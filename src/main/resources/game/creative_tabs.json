@@ -79,7 +79,7 @@
       "icon": "skyengine:redstone",
       "items": [
         "redstone", "redstone_torch", "redstone_block",
-        "repeater",
+        "repeater", "comparator",
         "piston", "sticky_piston", "observer",
         "lever",
         "stone_button", "oak_button",
