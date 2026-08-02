@@ -68,7 +68,9 @@
       "id": "functional",
       "icon": "skyengine:torch",
       "items": [
-        "crafting_table", "chest", "enchanting_table", "oak_door",
+        "crafting_table", "chest", "enchanting_table",
+        "{wood}_door", "iron_door",
+        "{wood}_trapdoor", "iron_trapdoor",
         "torch", "tnt", "slime_block", "honey_block"
       ]
     },

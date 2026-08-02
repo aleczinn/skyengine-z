@@ -1,0 +1,44 @@
+{
+  "_comment": "Preset (nicht registriert): einteilige Falltuer. Die 16 Varianten aus facing x half x open stehen hier EINMAL, verbatim aus Vanillas Blockstate: geschlossen wird NICHT gedreht (die Platte ist symmetrisch), nur die offene Variante dreht sich per y.",
+  "creative_tab": "functional",
+  "archetype": "trapdoor",
+  "layer": "cutout",
+  "hardness": 3,
+  "tool": "axe",
+  "open_sound": "wood_door",
+  "opaque": false,
+  "solid": false,
+  "vars": {
+    "texture": "${id}"
+  },
+  "models": {
+    "_bottom": "block/trapdoor_bottom",
+    "_top": "block/trapdoor_top",
+    "_open": "block/trapdoor_open"
+  },
+  "textures": {
+    "texture": "game/textures/block/${texture}.png"
+  },
+  "inventory_model": "block/${id}_bottom",
+  "variants": {
+    "facing=north,half=bottom,open=false": { "model": "block/${id}_bottom" },
+    "facing=north,half=bottom,open=true":  { "model": "block/${id}_open" },
+    "facing=north,half=top,open=false":    { "model": "block/${id}_top" },
+    "facing=north,half=top,open=true":     { "model": "block/${id}_open" },
+
+    "facing=east,half=bottom,open=false":  { "model": "block/${id}_bottom" },
+    "facing=east,half=bottom,open=true":   { "model": "block/${id}_open", "y": 90 },
+    "facing=east,half=top,open=false":     { "model": "block/${id}_top" },
+    "facing=east,half=top,open=true":      { "model": "block/${id}_open", "y": 90 },
+
+    "facing=south,half=bottom,open=false": { "model": "block/${id}_bottom" },
+    "facing=south,half=bottom,open=true":  { "model": "block/${id}_open", "y": 180 },
+    "facing=south,half=top,open=false":    { "model": "block/${id}_top" },
+    "facing=south,half=top,open=true":     { "model": "block/${id}_open", "y": 180 },
+
+    "facing=west,half=bottom,open=false":  { "model": "block/${id}_bottom" },
+    "facing=west,half=bottom,open=true":   { "model": "block/${id}_open", "y": 270 },
+    "facing=west,half=top,open=false":     { "model": "block/${id}_top" },
+    "facing=west,half=top,open=true":      { "model": "block/${id}_open", "y": 270 }
+  }
+}

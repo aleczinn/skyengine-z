@@ -1,0 +1,67 @@
+{
+  "_comment": "Preset (nicht registriert): zweiteilige Tuer. Die 32 Varianten aus facing x half x hinge x open stehen hier EINMAL. Texturen heissen <id>_bottom.png / <id>_top.png, das Item-Sprite <id>.png.",
+  "creative_tab": "functional",
+  "archetype": "door",
+  "parts": {
+    "property": "half",
+    "offsets": { "bottom": [0, 0, 0], "top": [0, 1, 0] }
+  },
+  "layer": "cutout",
+  "hardness": 3,
+  "tool": "axe",
+  "open_sound": "wood_door",
+  "opaque": false,
+  "solid": false,
+  "place_on_full_top": true,
+  "vars": {
+    "texture": "${id}"
+  },
+  "models": {
+    "_bottom": "block/door_bottom",
+    "_bottom_rh": "block/door_bottom_rh",
+    "_top": "block/door_top",
+    "_top_rh": "block/door_top_rh"
+  },
+  "textures": {
+    "bottom": "game/textures/block/${texture}_bottom.png",
+    "top": "game/textures/block/${texture}_top.png"
+  },
+  "icon_item": "game/textures/item/${id}.png",
+  "variants": {
+    "facing=north,half=bottom,hinge=left,open=false":  { "model": "block/${id}_bottom" },
+    "facing=north,half=bottom,hinge=left,open=true":   { "model": "block/${id}_bottom", "y": 90 },
+    "facing=north,half=bottom,hinge=right,open=false": { "model": "block/${id}_bottom_rh" },
+    "facing=north,half=bottom,hinge=right,open=true":  { "model": "block/${id}_bottom_rh", "y": 270 },
+    "facing=north,half=top,hinge=left,open=false":     { "model": "block/${id}_top" },
+    "facing=north,half=top,hinge=left,open=true":      { "model": "block/${id}_top", "y": 90 },
+    "facing=north,half=top,hinge=right,open=false":    { "model": "block/${id}_top_rh" },
+    "facing=north,half=top,hinge=right,open=true":     { "model": "block/${id}_top_rh", "y": 270 },
+
+    "facing=east,half=bottom,hinge=left,open=false":   { "model": "block/${id}_bottom", "y": 90 },
+    "facing=east,half=bottom,hinge=left,open=true":    { "model": "block/${id}_bottom", "y": 180 },
+    "facing=east,half=bottom,hinge=right,open=false":  { "model": "block/${id}_bottom_rh", "y": 90 },
+    "facing=east,half=bottom,hinge=right,open=true":   { "model": "block/${id}_bottom_rh" },
+    "facing=east,half=top,hinge=left,open=false":      { "model": "block/${id}_top", "y": 90 },
+    "facing=east,half=top,hinge=left,open=true":       { "model": "block/${id}_top", "y": 180 },
+    "facing=east,half=top,hinge=right,open=false":     { "model": "block/${id}_top_rh", "y": 90 },
+    "facing=east,half=top,hinge=right,open=true":      { "model": "block/${id}_top_rh" },
+
+    "facing=south,half=bottom,hinge=left,open=false":  { "model": "block/${id}_bottom", "y": 180 },
+    "facing=south,half=bottom,hinge=left,open=true":   { "model": "block/${id}_bottom", "y": 270 },
+    "facing=south,half=bottom,hinge=right,open=false": { "model": "block/${id}_bottom_rh", "y": 180 },
+    "facing=south,half=bottom,hinge=right,open=true":  { "model": "block/${id}_bottom_rh", "y": 90 },
+    "facing=south,half=top,hinge=left,open=false":     { "model": "block/${id}_top", "y": 180 },
+    "facing=south,half=top,hinge=left,open=true":      { "model": "block/${id}_top", "y": 270 },
+    "facing=south,half=top,hinge=right,open=false":    { "model": "block/${id}_top_rh", "y": 180 },
+    "facing=south,half=top,hinge=right,open=true":     { "model": "block/${id}_top_rh", "y": 90 },
+
+    "facing=west,half=bottom,hinge=left,open=false":   { "model": "block/${id}_bottom", "y": 270 },
+    "facing=west,half=bottom,hinge=left,open=true":    { "model": "block/${id}_bottom" },
+    "facing=west,half=bottom,hinge=right,open=false":  { "model": "block/${id}_bottom_rh", "y": 270 },
+    "facing=west,half=bottom,hinge=right,open=true":   { "model": "block/${id}_bottom_rh", "y": 180 },
+    "facing=west,half=top,hinge=left,open=false":      { "model": "block/${id}_top", "y": 270 },
+    "facing=west,half=top,hinge=left,open=true":       { "model": "block/${id}_top" },
+    "facing=west,half=top,hinge=right,open=false":     { "model": "block/${id}_top_rh", "y": 270 },
+    "facing=west,half=top,hinge=right,open=true":      { "model": "block/${id}_top_rh", "y": 180 }
+  }
+}

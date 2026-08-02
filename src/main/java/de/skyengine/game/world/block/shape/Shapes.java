@@ -4,6 +4,7 @@ import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.state.AttachFace;
+import de.skyengine.game.world.block.state.BlockHalf;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.DoorHinge;
 import de.skyengine.game.world.block.state.Properties;
@@ -27,6 +28,11 @@ public final class Shapes {
     private static final BlockShape TORCH_WALL_SOUTH = px(5.5, 3, 0, 10.5, 13, 5);
     private static final BlockShape TORCH_WALL_WEST = px(11, 3, 5.5, 16, 13, 10.5);
     private static final BlockShape TORCH_WALL_EAST = px(0, 3, 5.5, 5, 13, 10.5);
+
+    /* Falltür geschlossen: 3px-Platte unten bzw. oben (Vanilla-Maße). Offen ist sie ein
+       senkrechtes 3px-Panel und benutzt dieselbe slab(Direction)-Hilfe wie die Tür. */
+    private static final BlockShape TRAPDOOR_BOTTOM = px(0, 0, 0, 16, 3, 16);
+    private static final BlockShape TRAPDOOR_TOP = px(0, 13, 0, 16, 16, 16);
 
     private static BlockShape px(double x0, double y0, double z0, double x1, double y1, double z1) {
         return BlockShape.box(x0 / 16.0, y0 / 16.0, z0 / 16.0, x1 / 16.0, y1 / 16.0, z1 / 16.0);
@@ -99,6 +105,22 @@ public final class Shapes {
             case WEST -> new AABB(0, 0, 0, t, 1, 1);
             case EAST -> new AABB(1 - t, 0, 0, 1, 1, 1);
             default -> new AABB(0, 0, 0, 1, 1, t);
+        };
+    }
+
+    /**
+     * Falltür: geschlossen eine waagerechte 3px-Platte (unten oder oben je HALF), offen ein
+     * senkrechtes 3px-Panel an der FACING-GEGENÜBERLIEGENDEN Kante — sie hängt am Block, an den
+     * sie gesetzt wurde, und FACING zeigt von dort weg. Das deckt sich mit Vanillas
+     * {@code TrapDoorBlock} (facing=north -> Panel bei z 13..16) und mit der Modell-Rotation
+     * der Blockstate-Varianten.
+     */
+    public static ShapeProvider trapdoor() {
+        return state -> {
+            if (state.get(Properties.OPEN)) {
+                return new BlockShape(new AABB[]{ slab(state.get(Properties.FACING).opposite()) });
+            }
+            return state.get(Properties.HALF) == BlockHalf.BOTTOM ? TRAPDOOR_BOTTOM : TRAPDOOR_TOP;
         };
     }
 

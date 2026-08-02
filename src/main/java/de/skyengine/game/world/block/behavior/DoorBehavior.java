@@ -23,6 +23,16 @@ import de.skyengine.game.world.block.state.Properties;
  */
 public final class DoorBehavior implements BlockBehavior {
 
+    /**
+     * Ob ein Rechtsklick die Tür öffnet. Die Eisentür kann das in Minecraft NICHT — sie braucht
+     * ein Signal. Kommt aus dem Block-JSON-Feld {@code hand_openable}.
+     */
+    private final boolean handOpenable;
+
+    public DoorBehavior(boolean handOpenable) {
+        this.handOpenable = handOpenable;
+    }
+
     @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
         /* Tür schließt an der dem Spieler zugewandten (vorderen) Kante an -> Blickrichtung invertiert. */
@@ -36,6 +46,9 @@ public final class DoorBehavior implements BlockBehavior {
 
     @Override
     public boolean onUse(World world, int x, int y, int z, BlockState state) {
+        /* false = Klick NICHT verbraucht, der Aufrufer platziert dann normal weiter. */
+        if (!this.handOpenable) return false;
+
         boolean open = !state.get(Properties.OPEN);
         BlockHalf half = state.get(Properties.HALF);
         int otherY = half == BlockHalf.BOTTOM ? y + 1 : y - 1;

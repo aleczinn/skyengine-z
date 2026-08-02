@@ -94,6 +94,10 @@ public class BlockDefinition {
        neben "sound" (siehe BlockOpenSound.resolve). null = der Block hat keinen. */
     public String open_sound;
 
+    /* Archetyp "door": lässt sich die Tür von Hand öffnen? Die Eisentür kann das in MC NICHT,
+       sie braucht ein Signal. Default true. */
+    public boolean hand_openable = true;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;

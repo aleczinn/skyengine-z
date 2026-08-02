@@ -1,0 +1,18 @@
+{
+  "_comment": "Wie door_top, nur gespiegelt (rechter Anschlag).",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [0, 0, 0], "to": [16, 16, 3],
+      "mirror": true,
+      "faces": {
+        "north": { "texture": "#top" },
+        "south": { "texture": "#top" },
+        "west":  { "texture": "#top" },
+        "east":  { "texture": "#top" },
+        "up":    { "texture": "#top" },
+        "down":  { "texture": "#top" }
+      }
+    }
+  ]
+}

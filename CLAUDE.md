@@ -147,8 +147,18 @@ ausdrücken).
   vegetationDistance, `LeavesQuality` (LOW/MID/HIGH inkl. Laub-an-Laub-Culling im Mesher),
   GraphicsMode, anisotropicFiltering, msaaSamples, fog, Helligkeit, GuiScale,
   sneakToggle/sprintToggle, `soundVolumes`-Mischpult + audioDevice
-- Block-System (Architektur gilt als **reif — kein Rewrite**): ~186 JSON-Blöcke, Archetypen,
-  Behaviors, Verbindungen (Zaun/Pane/Cable), Türen, BlockEntities + Capabilities (Item/Energie)
+- Block-System (Architektur gilt als **reif — kein Rewrite**): ~203 JSON-Blöcke, Archetypen,
+  Behaviors, Verbindungen (Zaun/Pane/Cable), BlockEntities + Capabilities (Item/Energie).
+  **Türen in allen 8 Holzsorten + Eisen** über `blocks/preset/door.json`: die 32 Varianten
+  (facing × half × hinge × open) stehen dort EINMAL, die Rümpfe `models/block/door_*.json`
+  ziehen ihre Textur per `#bottom`/`#top` aus der Block-JSON. Ein Kind ist damit zwei Zeilen.
+  Die Eisentür setzt `"hand_openable": false` (JSON-Feld → `DoorArchetype` → `DoorBehavior`):
+  Rechtsklick tut nichts, sie braucht ein Signal — das es noch **nicht** gibt, sie ist also
+  bewusst vorerst ohne Funktion. **Falltüren** analog über `preset/trapdoor.json` +
+  Archetyp `trapdoor` (FACING/HALF/OPEN, EINTEILIG — kein `parts`, kein HINGE, 16 States),
+  `Shapes.trapdoor()`, `TrapdoorBehavior`; Geometrie und alle 16 Varianten verbatim aus MC
+  (geschlossen wird NICHT gedreht, nur die offene Variante). Auch hier eine Eisenvariante
+  ohne Handbedienung
 - Block-Materialwerte in der JSON, alle vanilla-getreu: `hardness` (Abbau, negativ = unzerstörbar),
   `tool`/`harvest_tier` (Drop-Regel), **`resistance`** (Explosions-Widerstand; fehlt das Feld,
   gilt `hardness` — es steht deshalb nur bei den ~80 Blöcken, wo MC beide Werte auseinanderzieht:
