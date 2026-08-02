@@ -1283,6 +1283,7 @@ public class GameContainer implements IResizeable, IDisposable {
         boolean placingWhileSneaking = this.player.isSecondaryUseActive()
                 && held.getItem() != null && held.getItem().getPlacedBlock() != null;
         if (!placingWhileSneaking && this.tryOpenChest()) return true;
+        if (!placingWhileSneaking && this.tryOpenHopper()) return true;
 
         /* Ausgewählter Hotbar-Slot muss einen platzierbaren Block enthalten — neben BlockItems
            auch Material-Items mit places_block (Redstone-Staub). */
@@ -1405,6 +1406,17 @@ public class GameContainer implements IResizeable, IDisposable {
            Über-Approximation "geöffnet = potenziell geändert" kostet einen Chunk-Write. */
         this.world.markChunkModified(x, z);
         if (partner != null) this.world.markChunkModified(partnerX, partnerZ);
+        return true;
+    }
+
+    /** Rechtsklick auf einen Trichter öffnet sein GUI (5 Slots + Spielerinventar). */
+    private boolean tryOpenHopper() {
+        int x = this.hit.x(), y = this.hit.y(), z = this.hit.z();
+        BlockEntity be = this.world.getBlockEntity(x, y, z);
+        if (!(be instanceof de.skyengine.game.world.block.entity.HopperBlockEntity hopper)) return false;
+        this.guiManager.open(new de.skyengine.graphics.gui.screens.GuiHopper(hopper, this.playerInventory));
+        /* Persistenz wie bei der Truhe: geöffnet = potenziell geändert. */
+        this.world.markChunkModified(x, z);
         return true;
     }
 

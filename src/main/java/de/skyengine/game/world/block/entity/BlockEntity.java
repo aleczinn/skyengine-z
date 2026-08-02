@@ -27,6 +27,11 @@ public abstract class BlockEntity {
         this.world = world;
     }
 
+    /** Welt, in der die BlockEntity liegt (null vor dem Einhängen in einen Chunk). */
+    public final World getWorld() {
+        return this.world;
+    }
+
     public final BlockEntityType<?> getType() {
         return type;
     }
