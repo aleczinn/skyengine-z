@@ -9,6 +9,7 @@ import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.item.CreativeTabs;
 import de.skyengine.game.world.item.FoodItem;
 import de.skyengine.game.world.item.Item;
+import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.item.SimpleItem;
 import de.skyengine.utils.json.JsonMerge;
 import de.skyengine.utils.logging.LogManager;
@@ -77,11 +78,22 @@ public final class ItemLoader {
             return false;
         }
 
+        /* Optionaler Ziel-Block (places_block): Blöcke sind zu diesem Zeitpunkt längst
+           registriert (Items.bootstrap läuft nach dem Block-Bake). */
+        de.skyengine.game.world.block.Block placedBlock = null;
+        if (def.places_block != null && !def.places_block.isBlank()) {
+            placedBlock = Registries.BLOCK.get(Identifier.of(def.places_block));
+            if (placedBlock == null) {
+                LOGGER.warning("places_block unbekannt bei " + id + ": " + def.places_block);
+            }
+        }
+
         int maxStack = def.max_stack != null ? def.max_stack : Item.DEFAULT_MAX_STACK;
         Item item = def.food != null
                 ? new FoodItem(id, def.food.nutrition, def.food.saturation, def.texture)
-                : new SimpleItem(id, maxStack, def.texture);
+                : new SimpleItem(id, maxStack, def.texture, placedBlock);
         Registries.ITEM.register(id, item);
+        if (placedBlock != null) Items.registerPlacer(placedBlock.getIdentifier(), item);
         CreativeTabs.assign(id, CreativeTabs.parse(def.creative_tab));
 
         /* SOFORT anmelden — siehe Klassenkommentar. */

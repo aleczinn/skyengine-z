@@ -106,6 +106,11 @@ public class BlockDefinition {
        archetypübergreifend via ConstantPowerBehavior. 0 = keine Quelle. */
     public int redstone_power = 0;
 
+    /* true: KEIN Auto-BlockItem für diesen Block — ein Material-Item mit "places_block"
+       übernimmt stattdessen (Redstone-Staub: das Item skyengine:redstone platziert den Block).
+       Achtung: die Drop-Pfade laufen über Items.forBlock, das places_block rückwärts auflöst. */
+    public boolean no_item = false;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;

@@ -78,7 +78,7 @@
       "id": "redstone_blocks",
       "icon": "skyengine:redstone",
       "items": [
-        "redstone", "redstone_wire", "redstone_torch", "redstone_block",
+        "redstone", "redstone_torch", "redstone_block",
         "repeater",
         "lever",
         "stone_button", "oak_button",

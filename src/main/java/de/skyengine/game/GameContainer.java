@@ -1074,7 +1074,7 @@ public class GameContainer implements IResizeable, IDisposable {
         ItemStack held = this.playerInventory.get(this.hotbarIndex);
         /* Drops nur im Survival UND nur, wenn Tool-Klasse + Tier passen. */
         if (this.player.getGamemode().dropsItems() && isHarvestable(broken, held)) {
-            Item drop = Items.get(broken.getBlock().getIdentifier());
+            Item drop = Items.forBlock(broken.getBlock()); // löst auch places_block-Items auf (Staub)
             if (drop != null) {
                 this.world.spawnItem(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5, new ItemStack(drop, 1));
             }
@@ -1278,12 +1278,15 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). Sneaken mit einem Block in
            der Hand überspringt die Interaktion und platziert stattdessen — wie in MC, und die
            einzige Möglichkeit, eine Truhe an die Seite einer anderen zu setzen. */
-        boolean placingWhileSneaking = this.player.isSecondaryUseActive() && held.getItem() instanceof BlockItem;
+        boolean placingWhileSneaking = this.player.isSecondaryUseActive()
+                && held.getItem() != null && held.getItem().getPlacedBlock() != null;
         if (!placingWhileSneaking && this.tryOpenChest()) return true;
 
-        /* Ausgewählter Hotbar-Slot muss einen platzierbaren Block enthalten. */
-        if (held.isEmpty() || !(held.getItem() instanceof BlockItem blockItem)) return false;
-        Block block = blockItem.getBlock();
+        /* Ausgewählter Hotbar-Slot muss einen platzierbaren Block enthalten — neben BlockItems
+           auch Material-Items mit places_block (Redstone-Staub). */
+        if (held.isEmpty()) return false;
+        Block block = held.getItem().getPlacedBlock();
+        if (block == null) return false;
 
         /* Slab auf vorhandene gleiche Slab -> Doppel-Slab */
         if (this.tryMergeSlab(block)) return true;
@@ -1320,7 +1323,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private void pickBlock() {
         if (this.player.getGamemode() != Gamemode.CREATIVE || this.hit == null) return;
         Block picked = Blocks.getState(this.hit.block()).getBlock();
-        Item item = Items.get(picked.getIdentifier()); // BlockItem; null bei Air/Fluid
+        Item item = Items.forBlock(picked); // BlockItem bzw. places_block-Item (Staub); null bei Air/Fluid
         if (item != null) {
             this.playerInventory.set(this.hotbarIndex, new ItemStack(item, 1));
             this.itemNameShownAt = System.currentTimeMillis(); // Namens-Einblendung wie bei Slot-Wechsel

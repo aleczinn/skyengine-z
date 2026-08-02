@@ -17,6 +17,11 @@ public final class BlockItem extends Item {
     }
 
     @Override
+    public Block getPlacedBlock() {
+        return block;
+    }
+
+    @Override
     public String translationKey() {
         return "block." + this.getId().namespace() + "." + this.getId().path();
     }

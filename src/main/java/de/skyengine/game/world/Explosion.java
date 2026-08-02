@@ -167,7 +167,7 @@ public final class Explosion {
             if (rnd.nextFloat() >= dropChance) continue;
             BlockState state = Blocks.getState(toBlow.valueAt(i));
             if (state.getBlock().getBehavior(ExplosionBehavior.class) != null) continue;
-            Item drop = Items.get(state.getBlock().getIdentifier());
+            Item drop = Items.forBlock(state.getBlock()); // löst auch places_block-Items auf (Staub)
             if (drop == null) continue;
             long pos = toBlow.keyAt(i);
             world.spawnItem(BlockPos.unpackX(pos) + 0.5, BlockPos.unpackY(pos) + 0.5,

@@ -158,6 +158,11 @@ public class Block {
         return this.settings.leaves;
     }
 
+    /** true: kein Auto-BlockItem — ein Material-Item mit {@code places_block} übernimmt (Staub). */
+    public boolean hasNoItem() {
+        return this.settings.noItem;
+    }
+
     /** true: Wasser/Lava — Geometrie kommt dynamisch aus dem Mesher (kein gebackenes Modell). */
     public boolean isFluid() {
         return this.config.fluidInfo() != null;
@@ -474,6 +479,7 @@ public class Block {
         boolean cullSame = false;
         boolean noLodSurface = false;
         boolean leaves = false;
+        boolean noItem = false;
         RenderLayer renderLayer = RenderLayer.OPAQUE;
 
         public static Settings create() {
@@ -509,6 +515,11 @@ public class Block {
 
         public Settings noLodSurface(boolean noLodSurface) {
             this.noLodSurface = noLodSurface;
+            return this;
+        }
+
+        public Settings noItem(boolean noItem) {
+            this.noItem = noItem;
             return this;
         }
 
