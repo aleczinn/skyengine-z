@@ -70,9 +70,20 @@ public final class SaveRoundTripTest {
         leftChest.getInventory().set(26, new ItemStack(Items.get(Identifier.of("skyengine:cobblestone")), 5));
         chunk.setBlockEntity(10, 200, 10, leftChest);
 
+        /* Redstone: Verstärker + Staub mit vollem Property-Satz. Der Momentanzustand einer
+           Clock liegt KOMPLETT in diesen State-Strings (Sektions-Palette); der laufende
+           Delay steckt im Scheduled-Tick unten — zusammen ist das der Beweis, dass eine
+           Clock Save/Load übersteht. */
+        String repeaterState = "skyengine:repeater[delay=3,facing=north,powered=true]";
+        String wireState = "skyengine:redstone_wire[east=side,north=none,power=13,south=up,west=none]";
+        chunk.setBlock(12, 200, 12, decodeId(repeaterState));
+        chunk.setBlock(13, 200, 13, decodeId(wireState));
+        int repeaterX = 3 * ChunkSection.SIZE + 12, repeaterZ = -7 * ChunkSection.SIZE + 12;
+
         /* Scheduled-Ticks (v2): Quelle mit Rest-Delay = exakt der Fluid-Freeze-Bugfall.
            Dazwischen ein unbekannter Typ und zwei invalide Einträge (falscher Chunk,
-           y außerhalb) — sie dürfen den Reststream nicht verwürfeln. */
+           y außerhalb) — sie dürfen den Reststream nicht verwürfeln. Dazu der offene
+           Verstärker-Tick der Clock. */
         int sourceX = 3 * ChunkSection.SIZE + 7, sourceZ = -7 * ChunkSection.SIZE + 7;
         int flowX = 3 * ChunkSection.SIZE + 5, flowZ = -7 * ChunkSection.SIZE + 5;
         List<SavedTick> savedTicks = List.of(
@@ -80,7 +91,8 @@ public final class SaveRoundTripTest {
                 new SavedTick("future_test_type", sourceX, 210, sourceZ, 9),
                 new SavedTick(ScheduledTickTypes.BLOCK, flowX, 200, flowZ, 1),
                 new SavedTick(ScheduledTickTypes.BLOCK, sourceX + 32, 200, sourceZ, 4),
-                new SavedTick(ScheduledTickTypes.BLOCK, sourceX, 600, sourceZ, 4));
+                new SavedTick(ScheduledTickTypes.BLOCK, sourceX, 600, sourceZ, 4),
+                new SavedTick(ScheduledTickTypes.BLOCK, repeaterX, 200, repeaterZ, 5));
 
         /* --- Serialisieren + Kompression/CRC-Round-Trip --- */
         t0 = System.currentTimeMillis();
@@ -152,17 +164,32 @@ public final class SaveRoundTripTest {
             check(false, "BlockEntity der zweiten Truhenhälfte wiederhergestellt");
         }
 
-        /* Scheduled-Ticks: 2 gültige wiederhergestellt, unbekannter Typ + 2 invalide raus. */
+        /* Redstone-Zustand: State-Strings müssen den Round-Trip unverändert überstehen. */
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(12, 200, 12))).equals(repeaterState),
+                "Verstärker-State (delay/facing/powered) übersteht den Round-Trip");
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(13, 200, 13))).equals(wireState),
+                "Staub-State (Verbindungen + power) übersteht den Round-Trip");
+
+        /* Alt-Format: ein Tür-String OHNE das neue powered-Property muss auf den
+           Default powered=false fallen (Codec-Toleranz — alte Welten bleiben ladbar). */
+        BlockState oldDoor = BlockStateCodec.decode("skyengine:iron_door[facing=north,half=bottom,hinge=left,open=false]");
+        check(oldDoor != null && !oldDoor.get(de.skyengine.game.world.block.state.Properties.POWERED),
+                "Alt-Tür-String ohne powered dekodiert auf powered=false");
+
+        /* Scheduled-Ticks: 3 gültige wiederhergestellt, unbekannter Typ + 2 invalide raus. */
         List<SavedTick> restoredTicks = restored.pendingScheduledTicks;
-        check(restoredTicks != null && restoredTicks.size() == 2,
-                "2 gültige Ticks wiederhergestellt (unbekannter Typ + 2 invalide übersprungen)");
-        if (restoredTicks != null && restoredTicks.size() == 2) {
+        check(restoredTicks != null && restoredTicks.size() == 3,
+                "3 gültige Ticks wiederhergestellt (unbekannter Typ + 2 invalide übersprungen)");
+        if (restoredTicks != null && restoredTicks.size() == 3) {
             SavedTick first = restoredTicks.get(0);
             SavedTick second = restoredTicks.get(1);
+            SavedTick third = restoredTicks.get(2);
             check(first.x() == sourceX && first.y() == 200 && first.z() == sourceZ && first.remainingTicks() == 3,
                     "Quelle-Tick (VOR dem unbekannten Eintrag) korrekt");
             check(second.x() == flowX && second.z() == flowZ && second.remainingTicks() == 1,
                     "Fluss-Tick (NACH dem unbekannten Eintrag) korrekt — Stream intakt");
+            check(third.x() == repeaterX && third.z() == repeaterZ && third.remainingTicks() == 5,
+                    "Verstärker-Tick mit Rest-Delay wiederhergestellt (Clock läuft nach dem Laden weiter)");
 
             /* Restore-Pipeline (wie World.restorePendingScheduledTicks): Queue -> drainDue feuert. */
             ScheduledTickQueue queue = new ScheduledTickQueue();
