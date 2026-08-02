@@ -24,14 +24,22 @@ import de.skyengine.game.world.redstone.RedstonePower;
  * {@code extended=true}. Danach gezielte Nachbar-Ringe. Die BEs materialisieren nach
  * 2 Ticks selbst ({@link PistonMovingBlockEntity}).
  *
- * <p><b>Ablauf Retract:</b> die Basis selbst wird zur Source-BE (transportiert ihren
- * eingefahrenen State, der Arm gleitet rein optisch zurück), die Kopf-Zelle wird sofort
- * frei; ein klebriger Kolben zieht zusätzlich den Block vor dem Kopf als Moving-BE nach.
+ * <p><b>Ablauf Retract:</b> die Source-BE sitzt an der KOPF-Zelle (transportiert den
+ * Pull-Block des klebrigen Kolbens oder Luft; der zurückgleitende Arm ist reine
+ * Renderer-Optik). Die Basis bleibt während der Animation ein echter
+ * {@code piston[extended=true]}-Block im Chunk-Mesh — als BE-gerenderter Würfel (flaches
+ * Zell-Licht ohne AO/Smooth-Lighting) blitzte sie sichtbar auf — und wird erst vom
+ * finish der BE eingefahren.
  *
  * <p><b>Flicker-Regel:</b> laufende Bewegungen werden nie abgebrochen — trifft ein Tick auf
  * eine busy Kopf-/Basis-Zelle, verpufft er; die Source-BE plant nach der Materialisierung
  * genau EINEN Re-Evaluations-Tick auf die Basis. Signal wie MC über die 5 Seiten ohne die
  * Blickrichtung, ohne Quasi-Connectivity.
+ *
+ * <p><b>Timing:</b> Flanke → 1 Game-Tick Reaktions-Delay (Scheduler-Minimum) → 2 Game-Ticks
+ * Animation → Materialisierung = 3 Game-Ticks (1,5 Redstone-Ticks), ≈ MC. MCs
+ * Halbtick-Tricks (Block-Events/Update-Reihenfolge INNERHALB eines Ticks) existieren im
+ * deterministischen Redstone dieser Engine bewusst nicht.
  */
 public final class PistonBehavior implements BlockBehavior {
 
@@ -102,7 +110,7 @@ public final class PistonBehavior implements BlockBehavior {
             int sx = BlockPos.unpackX(src), sy = BlockPos.unpackY(src), sz = BlockPos.unpackZ(src);
             int movedId = world.getBlock(sx, sy, sz);
             spawnMoving(world, sx + f.offsetX(), sy + f.offsetY(), sz + f.offsetZ(),
-                    movedId, f, true, false);
+                    movedId, f, true, false, this.sticky);
         }
 
         /* Kopf-Zelle = Source-BE mit dem piston_head-State, Basis sofort ausgefahren. */
@@ -110,7 +118,7 @@ public final class PistonBehavior implements BlockBehavior {
         BlockState head = Blocks.getState(Blocks.PISTON_HEAD)
                 .with(Properties.FACING_ALL, f)
                 .with(Properties.PISTON_TYPE, this.sticky ? PistonType.STICKY : PistonType.NORMAL);
-        spawnMoving(world, hx, hy, hz, head.getId(), f, true, true);
+        spawnMoving(world, hx, hy, hz, head.getId(), f, true, true, this.sticky);
         world.setBlock(x, y, z, state.with(Properties.EXTENDED, true).getId(), false);
 
         world.updateNeighbors(x, y, z);
@@ -138,33 +146,34 @@ public final class PistonBehavior implements BlockBehavior {
             return;
         }
 
-        /* Basis wird selbst zur Source-BE — der zurückgleitende Arm ist reine Optik. */
-        int retractedId = state.with(Properties.EXTENDED, false).getId();
-        spawnMoving(world, x, y, z, retractedId, f, false, true);
-
+        /* Die Source-BE sitzt an der KOPF-Zelle; die Basis bleibt während der Animation ein
+           echter piston[extended=true]-Block. Bewusst so: als BE-gerenderter Würfel (flaches
+           Zell-Licht, kein AO/Smooth-Lighting) blitzte die Basis beim Einfahren sichtbar
+           auf — im Chunk-Mesh bleibt sie durchgehend korrekt beleuchtet. Erst das finish
+           der BE fährt sie ein. Transportiert wird der Pull-Block (sticky) oder Luft
+           (der zurückgleitende Arm ist reine Renderer-Optik). */
         long pull = this.sticky
                 ? PistonResolver.resolvePull(world, hx + f.offsetX(), hy + f.offsetY(), hz + f.offsetZ())
                 : PistonResolver.NO_PULL;
+        int movedId = Blocks.AIR;
         if (pull != PistonResolver.NO_PULL) {
             int px = BlockPos.unpackX(pull), py = BlockPos.unpackY(pull), pz = BlockPos.unpackZ(pull);
-            int movedId = world.getBlock(px, py, pz);
-            spawnMoving(world, hx, hy, hz, movedId, f, false, false);
+            movedId = world.getBlock(px, py, pz);
+            spawnMoving(world, hx, hy, hz, movedId, f, false, true, this.sticky);
             world.setBlock(px, py, pz, Blocks.AIR, false);
             world.updateNeighbors(px, py, pz);
         } else {
-            /* Kopf-Zelle sofort frei — begehbar, ohne 2 Ticks Phantom-Kollision. */
-            world.setBlock(hx, hy, hz, Blocks.AIR, false);
+            spawnMoving(world, hx, hy, hz, Blocks.AIR, f, false, true, this.sticky);
         }
-        world.updateNeighbors(x, y, z);
         world.updateNeighbors(hx, hy, hz);
     }
 
     /** Setzt einen moving_piston und konfiguriert die frisch angelegte BE. */
-    private static void spawnMoving(World world, int x, int y, int z,
-                                    int movedStateId, Direction facing, boolean extending, boolean source) {
+    private static void spawnMoving(World world, int x, int y, int z, int movedStateId,
+                                    Direction facing, boolean extending, boolean source, boolean sticky) {
         world.setBlock(x, y, z, Blocks.MOVING_PISTON, false);
         if (world.getBlockEntity(x, y, z) instanceof PistonMovingBlockEntity be) {
-            be.configure(movedStateId, facing, extending, source);
+            be.configure(movedStateId, facing, extending, source, sticky);
         }
     }
 
@@ -185,6 +194,9 @@ public final class PistonBehavior implements BlockBehavior {
                 && world.getBlockEntity(hx, hy, hz) instanceof PistonMovingBlockEntity mb
                 && mb.isSource() && mb.getFacing() == f;
         if (matchingHead || matchingMoving) {
+            /* Bei einer laufenden Animation transportiert die BE ggf. einen Pull-Block —
+               dessen onBreak (MovingPistonBehavior) droppt ihn, statt ihn zu verschlucken. */
+            if (matchingMoving) head.getBlock().onBreak(world, hx, hy, hz, head);
             world.setBlock(hx, hy, hz, Blocks.AIR, true);
         }
     }

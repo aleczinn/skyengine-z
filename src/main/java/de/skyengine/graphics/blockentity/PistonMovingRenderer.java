@@ -26,9 +26,10 @@ import org.lwjgl.opengl.GL30;
  * States, kamerarelativ um {@code (1 − progress)} entgegen der Bewegungsrichtung versetzt
  * (Muster {@code EntityRenderer}-FallingBlock, Daten-Bau über {@link BlockStateMesh}).
  *
- * <p>Sonderfall Retract-Source (Basis zieht den Arm ein): der Basis-State steht STATISCH in
- * seiner Zelle — sonst wäre die Basis 2 Ticks unsichtbar — und zusätzlich gleitet der
- * passende {@code piston_head} von der Kopf-Zelle zurück.
+ * <p>Sonderfall Retract-Source (BE an der KOPF-Zelle): die Basis bleibt Chunk-gemesht
+ * (korrektes AO/Smooth-Licht — als BE-gerenderter Würfel blitzte sie sichtbar auf);
+ * hier gleiten nur der passende {@code piston_head} zurück zur Basis und ggf. der
+ * Pull-Block des klebrigen Kolbens nach.
  *
  * <p>Der Dispatcher-Cull-Margin von 1.0 deckt den maximalen Versatz von genau 1 Block ab;
  * das Licht kommt (wie bei allen BE-Renderern) aus der BE-Zelle.
@@ -90,13 +91,16 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
         Direction f = moving.getFacing();
 
         if (moving.isSource() && !moving.isExtending()) {
-            /* Basis statisch in AUSGEFAHRENER Optik (12 px + Aussparung, wie Vanilla) — der
-               Vollwürfel entsteht erst bei der Materialisierung. Mit dem eingefahrenen
-               movedState stünde hier dessen Holzfront und ergäbe zusammen mit dem gleitenden
-               Kopf die „doppelte Platte". */
-            this.drawState(extendedVariantOf(moving.getMovedStateId()), baseX, baseY, baseZ);
+            /* Retract: die BE sitzt an der KOPF-Zelle — die Basis bleibt Chunk-gemesht
+               (korrektes AO/Smooth-Licht; als BE-Würfel blitzte sie auf). Hier gleiten nur
+               der Arm zurück zur Basis und ggf. der Pull-Block des klebrigen Kolbens nach. */
+            float in = 1.0f - back;
             this.drawState(this.headStateFor(moving, back),
-                    baseX + f.offsetX() * back, baseY + f.offsetY() * back, baseZ + f.offsetZ() * back);
+                    baseX - f.offsetX() * in, baseY - f.offsetY() * in, baseZ - f.offsetZ() * in);
+            if (moving.getMovedStateId() != Blocks.AIR) {
+                this.drawState(moving.getMovedStateId(),
+                        baseX + f.offsetX() * back, baseY + f.offsetY() * back, baseZ + f.offsetZ() * back);
+            }
         } else {
             Direction d = moving.isExtending() ? f : f.opposite();
             this.drawState(withShortIfHead(moving, back),
@@ -115,22 +119,13 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
         return extending != (back < 0.25f);
     }
 
-    /** Der zum eingezogenen Basis-State passende Kopf (für die Rückzieh-Optik). */
+    /** Der zum Quell-Kolben passende Kopf (für die Rückzieh-Optik; Typ aus dem BE-Feld). */
     private int headStateFor(PistonMovingBlockEntity moving, float back) {
-        boolean sticky = Blocks.getState(moving.getMovedStateId()).getBlock()
-                == Blocks.getState(Blocks.STICKY_PISTON).getBlock();
         return Blocks.getState(Blocks.PISTON_HEAD)
                 .with(Properties.FACING_ALL, moving.getFacing())
-                .with(Properties.PISTON_TYPE, sticky ? PistonType.STICKY : PistonType.NORMAL)
+                .with(Properties.PISTON_TYPE, moving.isSticky() ? PistonType.STICKY : PistonType.NORMAL)
                 .with(Properties.SHORT, shortArm(false, back))
                 .getId();
-    }
-
-    /** Basis-State in ausgefahrener Optik; States ohne EXTENDED bleiben unverändert (defensiv). */
-    private static int extendedVariantOf(int movedStateId) {
-        var state = Blocks.getState(movedStateId);
-        if (!state.getValues().containsKey(Properties.EXTENDED)) return movedStateId;
-        return state.with(Properties.EXTENDED, true).getId();
     }
 
     /** Gleitet ein Kopf-State (Extend-Source), bekommt er die Short-Formel; alles andere unverändert. */

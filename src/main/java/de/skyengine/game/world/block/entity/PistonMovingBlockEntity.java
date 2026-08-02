@@ -30,6 +30,8 @@ public final class PistonMovingBlockEntity extends BlockEntity {
     private Direction facing = Direction.NORTH;
     private boolean extending = true;
     private boolean isSource;
+    /** Klebriger Quell-Kolben? Nur fürs Rendering des Rückzieh-Arms relevant. */
+    private boolean sticky;
     private float progress;
     private float lastProgress;
 
@@ -38,11 +40,13 @@ public final class PistonMovingBlockEntity extends BlockEntity {
     }
 
     /** Konfiguration direkt nach dem setBlock (der Kolben-Code holt sich die frische BE). */
-    public void configure(int movedStateId, Direction facing, boolean extending, boolean isSource) {
+    public void configure(int movedStateId, Direction facing, boolean extending, boolean isSource,
+                          boolean sticky) {
         this.movedStateId = movedStateId;
         this.facing = facing;
         this.extending = extending;
         this.isSource = isSource;
+        this.sticky = sticky;
         this.progress = 0f;
         this.lastProgress = 0f;
         this.markDirty();
@@ -62,6 +66,10 @@ public final class PistonMovingBlockEntity extends BlockEntity {
 
     public boolean isSource() {
         return this.isSource;
+    }
+
+    public boolean isSticky() {
+        return this.sticky;
     }
 
     /** Interpolierter Fortschritt 0..1 für den Renderer. */
@@ -99,10 +107,21 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         if (!this.world.setBlock(x, y, z, this.movedStateId, false)) return;
         this.world.updateNeighbors(x, y, z);
         if (this.isSource) {
+            /* Source-BEs sitzen einheitlich an der KOPF-Zelle, die Basis liegt dahinter. */
             Direction f = this.facing;
-            int bx = this.extending ? x - f.offsetX() : x;
-            int by = this.extending ? y - f.offsetY() : y;
-            int bz = this.extending ? z - f.offsetZ() : z;
+            int bx = x - f.offsetX(), by = y - f.offsetY(), bz = z - f.offsetZ();
+            if (!this.extending) {
+                /* Retract: die Basis blieb während der Animation ein echter
+                   piston[extended=true]-Block (Chunk-Licht statt BE-Flat-Licht — sonst
+                   blitzte der ganze Würfel auf) und wird erst JETZT eingefahren. */
+                BlockState base = Blocks.getState(this.world.getBlock(bx, by, bz));
+                if (base.getValues().containsKey(de.skyengine.game.world.block.state.Properties.EXTENDED)
+                        && base.get(de.skyengine.game.world.block.state.Properties.EXTENDED)
+                        && base.get(de.skyengine.game.world.block.state.Properties.FACING_ALL) == f) {
+                    this.world.setBlock(bx, by, bz,
+                            base.with(de.skyengine.game.world.block.state.Properties.EXTENDED, false).getId(), true);
+                }
+            }
             this.world.scheduleTick(bx, by, bz, 1);
         }
     }
@@ -132,6 +151,7 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         tag.putInt("facing", this.facing.ordinal());
         tag.putBoolean("extending", this.extending);
         tag.putBoolean("source", this.isSource);
+        tag.putBoolean("sticky", this.sticky);
         tag.putDouble("progress", this.progress);
     }
 
@@ -144,6 +164,7 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         this.facing = dirs[Math.clamp(ordinal, 0, dirs.length - 1)];
         this.extending = tag.getBoolean("extending", true);
         this.isSource = tag.getBoolean("source", false);
+        this.sticky = tag.getBoolean("sticky", false);
         this.progress = (float) tag.getDouble("progress", 0.0);
         this.lastProgress = this.progress;
     }

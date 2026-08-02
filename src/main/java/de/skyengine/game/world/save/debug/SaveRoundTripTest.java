@@ -96,7 +96,7 @@ public final class SaveRoundTripTest {
                                 new BlockPos(3 * ChunkSection.SIZE + 17, 200, -7 * ChunkSection.SIZE + 17),
                                 Blocks.getState(movingId));
         moving.configure(decodeId("skyengine:stone"),
-                de.skyengine.game.world.block.Direction.EAST, true, false);
+                de.skyengine.game.world.block.Direction.EAST, true, false, true);
         chunk.setBlockEntity(17, 200, 17, moving);
         int repeaterX = 3 * ChunkSection.SIZE + 12, repeaterZ = -7 * ChunkSection.SIZE + 12;
 
@@ -201,8 +201,9 @@ public final class SaveRoundTripTest {
                 de.skyengine.game.world.block.entity.PistonMovingBlockEntity restoredMoving) {
             check(restoredMoving.getMovedStateId() == decodeId("skyengine:stone")
                             && restoredMoving.getFacing() == de.skyengine.game.world.block.Direction.EAST
-                            && restoredMoving.isExtending() && !restoredMoving.isSource(),
-                    "Moving-BE (movedState/facing/extending) übersteht den Round-Trip");
+                            && restoredMoving.isExtending() && !restoredMoving.isSource()
+                            && restoredMoving.isSticky(),
+                    "Moving-BE (movedState/facing/extending/sticky) übersteht den Round-Trip");
         } else {
             check(false, "Moving-BE wiederhergestellt");
         }
