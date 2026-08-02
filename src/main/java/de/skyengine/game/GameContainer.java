@@ -242,6 +242,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.crackRenderer.init(this.atlas.textures());
         this.blockEntityRenderers.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderers.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
+        this.blockEntityRenderers.register(BlockEntities.PISTON_MOVING,
+                new de.skyengine.graphics.blockentity.PistonMovingRenderer(this.atlas.textures()));
         this.blockEntityRenderers.init();
         this.playerRenderer.init();
         this.heldItemMeshes.init(this.atlas.textures(), this.blockEntityRenderers);
