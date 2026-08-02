@@ -1,0 +1,10 @@
+{
+  "_comment": "Konstante Signalquelle: schwaches Dauersignal 15 in alle Richtungen, KEIN starkes (Vanilla). MC-Werte: Haerte 5, Resistance 6, Spitzhacke.",
+  "id": "skyengine:redstone_block",
+  "parent": "preset/cube",
+  "creative_tab": "redstone_blocks",
+  "hardness": 5,
+  "resistance": 6,
+  "tool": "pickaxe",
+  "redstone_power": 15
+}

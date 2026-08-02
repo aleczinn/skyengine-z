@@ -31,6 +31,7 @@ public final class Archetypes {
         register("button", new ButtonArchetype());
         register("pressure_plate", new PressurePlateArchetype());
         register("lever", new LeverArchetype());
+        register("redstone_lamp", new RedstoneLampArchetype());
         register("custom", new CustomArchetype());
     }
 

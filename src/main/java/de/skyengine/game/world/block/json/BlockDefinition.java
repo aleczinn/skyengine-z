@@ -102,6 +102,10 @@ public class BlockDefinition {
        Holz-Knopf 30, Platten 20). Steht in MCs Java-Code, nicht in den Assets — daher hier. */
     public int press_ticks = 20;
 
+    /* Konstante Redstone-Quelle (Redstone-Block 15): schwaches Dauersignal in alle Richtungen,
+       archetypübergreifend via ConstantPowerBehavior. 0 = keine Quelle. */
+    public int redstone_power = 0;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;

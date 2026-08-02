@@ -126,13 +126,16 @@ public class Block {
 
     /**
      * Eigenleuchten 0..15 (Fackel 14, Lava 15, wie MC); 0 = der Block leuchtet nicht. Quelle ist
-     * {@code light_level} in der Block-JSON. Der {@code state}-Parameter ist heute ungenutzt, hält
-     * aber die Symmetrie zu {@link #getLightOpacity} und die Tür für zustandsabhängiges Leuchten
-     * offen (Vorbild: {@code redstone_ore[lit=true]}).
+     * {@code light_level} in der Block-JSON. Zustandsabhängig über LIT: trägt der State die
+     * Property und ist sie false, leuchtet der Block nicht (Redstone-Lampe, Redstone-Fackel).
+     * Gebacken pro State in die Flags (Bits 14-17), der Licht-Edit-Pfad reagiert damit
+     * automatisch auf lit-Wechsel.
      *
      * <p>Monochrom: {@link BlockConfig#lightColor()} gibt es zwar, wirkt aber noch nicht.
      */
     public int getLuminance(BlockState state) {
+        Object lit = state.getValues().get(Properties.LIT);
+        if (lit != null && !(Boolean) lit) return 0;
         return this.config.lightLevel();
     }
 

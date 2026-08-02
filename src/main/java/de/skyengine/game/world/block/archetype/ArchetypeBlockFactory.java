@@ -6,6 +6,7 @@ import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.Tints;
+import de.skyengine.game.world.block.behavior.ConstantPowerBehavior;
 import de.skyengine.game.world.block.behavior.ExplosionBehavior;
 import de.skyengine.game.world.block.behavior.GravityBehavior;
 import de.skyengine.game.world.block.behavior.HorizontalFacingBehavior;
@@ -75,6 +76,11 @@ public final class ArchetypeBlockFactory {
         if (def.explosion_power != null && def.explosion_power > 0) {
             int fuse = def.explosion_fuse != null ? def.explosion_fuse : 80;
             builder.behavior(new ExplosionBehavior(def.explosion_power, fuse));
+        }
+
+        /* Konstante Redstone-Quelle (Redstone-Block) - archetypübergreifend. */
+        if (def.redstone_power > 0) {
+            builder.behavior(new ConstantPowerBehavior(Math.min(15, def.redstone_power)));
         }
 
         /* Horizontale Ausrichtung (Truhe, Ofen) - FACING-Property + Platzier-Verhalten zum Spieler. */
