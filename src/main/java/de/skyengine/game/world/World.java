@@ -1133,8 +1133,13 @@ public class World implements IInitializable, IDisposable {
      * ein Ring ohne Kaskade; entfernt sich ein Block dabei selbst (z.B. Tall Grass
      * nach Stützverlust), löst diese Entfernung einen Folge-Ring aus, damit
      * abhängige Blöcke (Tür-/Pflanzen-Oberhälfte) mitbenachrichtigt werden.
+     *
+     * <p>Public für Redstone-Quellen, die einen FREMDEN Block stark powern (Knopf →
+     * Trägerblock, Fackel → Block darüber, Verstärker → Block davor): dessen Nachbarn
+     * erfahren die Signaländerung nur über einen zweiten Ring um das starke Ziel —
+     * genau zwei Ringe, weiterhin keine Kaskade.</p>
      */
-    private void updateNeighbors(int x, int y, int z) {
+    public void updateNeighbors(int x, int y, int z) {
         this.updateStateAt(x, y, z);
         for (Direction d : Direction.horizontalValues()) {
             this.updateStateAt(x + d.offsetX(), y, z + d.offsetZ());
@@ -1142,6 +1147,16 @@ public class World implements IInitializable, IDisposable {
         /* Vertikale Nachbarn fürs 6-dir-Connection-System (Pipes/Cables). */
         this.updateStateAt(x, y + 1, z);
         this.updateStateAt(x, y - 1, z);
+    }
+
+    /**
+     * Lässt genau EINE Zelle ihren State neu berechnen (schmaler Wrapper um
+     * {@link #updateStateAt}) — für die gezielte Empfänger-Benachrichtigung des
+     * Staub-Netzes, das seine Betroffenen selbst dedupliziert statt ganze Ringe
+     * zu feuern.
+     */
+    public void updateBlockStateAt(int x, int y, int z) {
+        this.updateStateAt(x, y, z);
     }
 
     private void updateStateAt(int x, int y, int z) {

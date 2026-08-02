@@ -115,12 +115,39 @@ public final class BlockStateModels {
 
     private static ModelLoader.Baked bakeVariant(JsonObject variants, BlockState state) {
         String key = variantKey(state);
-        JsonElement v = variants.has(key) ? variants.get(key) : variants.get("");
+        JsonElement v = variants.has(key) ? variants.get(key) : null;
+        if (v == null) v = partialMatch(variants, state);
+        if (v == null) v = variants.get("");
         if (v == null) {
             LOGGER.warning("Variante '" + key + "' fehlt für " + state.getBlock().getIdentifier());
             return EMPTY;
         }
         return applyVariant(firstObject(v));
+    }
+
+    /**
+     * MC-Semantik: Variant-Keys nennen nur die RELEVANTEN Properties — {@code "facing=north,
+     * open=false"} trifft auch States, die zusätzlich {@code powered} tragen. Nur so überleben
+     * die Preset-Blockstates (Tür, Falltür) das Hinzufügen neuer Properties. Der exakte Voll-Key
+     * gewinnt weiterhin zuerst (Aufrufer); hier zählt der erste Treffer in JSON-Reihenfolge —
+     * Keys müssen sich wie in MC gegenseitig ausschließen.
+     */
+    private static JsonElement partialMatch(JsonObject variants, BlockState state) {
+        for (Map.Entry<String, JsonElement> e : variants.entrySet()) {
+            if (e.getKey().isEmpty()) continue;
+            if (matchesKey(e.getKey(), state)) return e.getValue();
+        }
+        return null;
+    }
+
+    private static boolean matchesKey(String key, BlockState state) {
+        for (String pair : key.split(",")) {
+            int eq = pair.indexOf('=');
+            if (eq < 0) return false;
+            String actual = propByName(state, pair.substring(0, eq));
+            if (!pair.substring(eq + 1).equals(actual)) return false;
+        }
+        return true;
     }
 
     private static ModelLoader.Baked bakeMultipart(JsonArray parts, BlockState state) {

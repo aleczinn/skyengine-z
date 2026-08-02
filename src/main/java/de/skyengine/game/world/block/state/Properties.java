@@ -55,6 +55,45 @@ public final class Properties {
      */
     public static final Property<AttachFace> ATTACH = Property.ofEnum("face", AttachFace.class);
 
+    /**
+     * Gibt der Block gerade ein Redstone-Signal ab bzw. hat er eines gespeichert
+     * (Knopf, Druckplatte, Hebel, Verstärker; Tür/Falltür als Flanken-Speicher)?
+     * Die Signalstärke selbst läuft über die weak-/strongPower-Hooks in
+     * {@code BlockBehavior}, die Abfragen über {@code RedstonePower}.
+     */
+    public static final Property<Boolean> POWERED = Property.ofBoolean("powered");
+
+    /** Signalstärke des Redstone-Staubs 0..15 (0 = stromlos). */
+    public static final Property<Integer> POWER = Property.of("power", levels());
+
+    /** Verstärker-Verzögerung in Redstone-Ticks (1..4 = 2..8 Game-Ticks). */
+    public static final Property<Integer> DELAY = Property.of("delay", List.of(1, 2, 3, 4));
+
+    /** Leuchtet gerade (Redstone-Lampe, Redstone-Fackel)? Steuert auch die Luminanz. */
+    public static final Property<Boolean> LIT = Property.ofBoolean("lit");
+
+    /*
+     * Staub-Verbindungen (none/side/up je Himmelsrichtung). Die Namen kollidieren BEWUSST
+     * mit den Boolean-Connection-Properties oben — unkritisch aus demselben Grund wie bei
+     * CHEST_TYPE: Properties werden per Identität verglichen und der BlockStateCodec sucht
+     * beim Dekodieren nur in den Properties DES Blocks.
+     */
+    public static final Property<RedstoneSide> WIRE_NORTH = Property.ofEnum("north", RedstoneSide.class);
+    public static final Property<RedstoneSide> WIRE_EAST = Property.ofEnum("east", RedstoneSide.class);
+    public static final Property<RedstoneSide> WIRE_SOUTH = Property.ofEnum("south", RedstoneSide.class);
+    public static final Property<RedstoneSide> WIRE_WEST = Property.ofEnum("west", RedstoneSide.class);
+
+    /** Staub-Verbindungs-Property zur horizontalen Richtung. */
+    public static Property<RedstoneSide> wireSide(Direction direction) {
+        return switch (direction) {
+            case NORTH -> WIRE_NORTH;
+            case EAST -> WIRE_EAST;
+            case SOUTH -> WIRE_SOUTH;
+            case WEST -> WIRE_WEST;
+            default -> throw new IllegalArgumentException("Staub verbindet nur horizontal: " + direction);
+        };
+    }
+
     private static List<Integer> levels() {
         List<Integer> list = new ArrayList<>(16);
         for (int i = 0; i < 16; i++) list.add(i);

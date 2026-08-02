@@ -252,6 +252,39 @@ public class Block {
         }
     }
 
+    /** Entity-BoundingBox überlappt die Zelle (aus {@code Entity.move}). Delegiert; Default: nichts. */
+    public void onEntityInside(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.onEntityInside(world, x, y, z, state);
+        }
+    }
+
+    /** Schwaches Redstone-Signal Richtung {@code side} (Konvention s. {@code BlockBehavior.weakPower}). Max über die Behaviors. */
+    public int getWeakPower(de.skyengine.game.world.World world, int x, int y, int z, BlockState state, Direction side) {
+        int power = 0;
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            power = Math.max(power, behavior.weakPower(world, x, y, z, state, side));
+        }
+        return power;
+    }
+
+    /** Starkes Redstone-Signal Richtung {@code side} (leitet durch opake Blöcke). Max über die Behaviors. */
+    public int getStrongPower(de.skyengine.game.world.World world, int x, int y, int z, BlockState state, Direction side) {
+        int power = 0;
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            power = Math.max(power, behavior.strongPower(world, x, y, z, state, side));
+        }
+        return power;
+    }
+
+    /** Verbindet sich Redstone-Staub aus Richtung {@code side} mit diesem Block? OR über die Behaviors. */
+    public boolean connectsRedstoneWire(BlockState state, Direction side) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            if (behavior.connectsRedstoneWire(state, side)) return true;
+        }
+        return false;
+    }
+
     /** Geplanter Tick (Fluss, Fall, ...), von {@code World.scheduleTick} ausgelöst. Delegiert; Default: nichts. */
     public void scheduledTick(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {

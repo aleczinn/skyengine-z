@@ -1,6 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 
 /**
@@ -43,11 +44,57 @@ public interface BlockBehavior {
     default void onBreak(World world, int x, int y, int z, BlockState state) {
     }
 
-    /** Geplanter Tick (von {@code World.scheduleTick} ausgelöst): Fluss-Ausbreitung, Fallprüfung, ... Default: nichts. */
+    /**
+     * Eine Entity-BoundingBox überlappt die Blockzelle (jeden Bewegungs-Tick, aus
+     * {@code Entity.move}) — Druckplatte, später Seelensand-Bremse o.ä. Default: nichts.
+     */
+    default void onEntityInside(World world, int x, int y, int z, BlockState state) {
+    }
+
+    /**
+     * Geplanter Tick (von {@code World.scheduleTick} ausgelöst): Fluss-Ausbreitung, Fallprüfung, ...
+     * Default: nichts.
+     *
+     * <p><b>Konvention „tolerantes Feuern":</b> es gibt kein Abbestellen geplanter Ticks — wird
+     * ein Block abgebaut und die Zelle neu bebaut, feuert der alte Tick am Nachfolger. Jede
+     * Implementierung muss deshalb ihren State selbst validieren (z.B. {@code if (!state.get(
+     * Properties.POWERED)) return;}) statt sich auf die Planung zu verlassen.</p>
+     */
     default void scheduledTick(World world, int x, int y, int z, BlockState state) {
     }
 
     /** Zufalls-Tick (nur wenn der Block ticksRandomly meldet): Wachstum, Verfall, ... Default: nichts. */
     default void randomTick(World world, int x, int y, int z, BlockState state) {
+    }
+
+    /* --- Redstone (Abfragen laufen über RedstonePower, nie direkt über die Hooks) --- */
+
+    /**
+     * Schwaches Redstone-Signal 0..15, das dieser Block in Richtung {@code side} abgibt.
+     * Konvention: {@code side} zeigt VOM Block ZUM Empfänger (Signalflussrichtung) —
+     * ein Knopf an der Nordwand powert seinen Träger also mit {@code side == NORTH}.
+     * Schwach heißt: wirkt auf direkte Nachbarn, wird aber von opaken Blöcken NICHT
+     * weitergeleitet. Default 0.
+     */
+    default int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
+        return 0;
+    }
+
+    /**
+     * Starkes Redstone-Signal 0..15 in Richtung {@code side} (Konvention wie
+     * {@link #weakPower}). Nur starke Signale machen einen opaken Block selbst zur
+     * Quelle (Leitung durch Wände — Hebel am Block schaltet die Tür dahinter). Default 0.
+     */
+    default int strongPower(World world, int x, int y, int z, BlockState state, Direction side) {
+        return 0;
+    }
+
+    /**
+     * Verbindet sich Redstone-Staub optisch/logisch mit diesem Block, wenn er aus
+     * Richtung {@code side} auf ihn schaut? (Hebel, Fackel, Verstärker-Enden, Staub
+     * selbst.) Default false — Staub läuft an dem Block vorbei.
+     */
+    default boolean connectsRedstoneWire(BlockState state, Direction side) {
+        return false;
     }
 }
