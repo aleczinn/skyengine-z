@@ -13,13 +13,13 @@ import de.skyengine.game.world.redstone.RedstonePower;
  * Platzieren), Eingang ist die Gegenseite — Vanillas facing zeigt genau andersherum, die
  * Blockstate-Rotationen in der JSON sind entsprechend gemappt.
  *
- * <p>Timing als <b>Puls-Latch</b> über den vorhandenen Scheduler: eine Eingangsflanke plant
- * einen Tick nach {@code delay × 2} Game-Ticks. Beim Einschalten wird die Flanke gelatcht
- * (unabhängig vom aktuellen Eingang — kurze Pulse werden wie in Vanilla auf die
- * Verzögerungslänge gestreckt) und sofort der Aus-Check nachgeplant; ausgeschaltet wird
- * nur, wenn der Eingang wirklich weg ist. Kein Locking (kommt mit der Komparator-Etappe,
- * die die Seiteneingang-Unterscheidung ohnehin braucht — ein späteres locked-Property ist
- * dank Codec-Toleranz save-kompatibel additiv).
+ * <p>Timing über den vorhandenen Scheduler, jede Flanke plant ihren EIGENEN Tick nach
+ * {@code delay × 2} Game-Ticks (Vanilla-Logik): die Ein-Flanke schaltet verzögert ein —
+ * ist der Puls beim Feuern schon wieder weg, wird das Aus sofort nachgeplant (kurze Pulse
+ * werden so auf die Verzögerungslänge gestreckt); sonst plant die Aus-Flanke selbst über
+ * {@code onNeighborUpdate}. Kein Locking (kommt mit der Komparator-Etappe, die die
+ * Seiteneingang-Unterscheidung ohnehin braucht — ein späteres locked-Property ist dank
+ * Codec-Toleranz save-kompatibel additiv).
  */
 public final class RepeaterBehavior implements BlockBehavior {
 
@@ -49,14 +49,19 @@ public final class RepeaterBehavior implements BlockBehavior {
     @Override
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
         boolean powered = state.get(Properties.POWERED);
-        if (!powered) {
-            /* Flanke latchen: einschalten auch, wenn der Puls schon wieder weg ist —
-               Vanilla streckt kurze Pulse auf die Verzögerungslänge. Der Aus-Check
-               folgt sofort im eigenen Takt. */
-            switchOutput(world, x, y, z, state, true);
-            world.scheduleTick(x, y, z, state.get(Properties.DELAY) * 2);
-        } else if (!hasInput(world, x, y, z, state)) {
+        boolean input = hasInput(world, x, y, z, state);
+        if (powered && !input) {
             switchOutput(world, x, y, z, state, false);
+        } else if (!powered) {
+            switchOutput(world, x, y, z, state, true);
+            /* NUR bei schon wieder totem Eingang (kurzer Puls) das Aus sofort nachplanen —
+               Vanillas Puls-Streckung. Bei stehendem Eingang plant die AUS-Flanke selbst
+               (onNeighborUpdate). Ein unbedingter Kontroll-Tick hier wäre falsch: er stünde
+               beim Abfallen des Eingangs noch aus, blockierte per Dedup den echten Aus-Tick
+               und schaltete beim Feuern sofort — die Verzögerung hinge dann an der EIN-
+               statt an der AUS-Flanke (gemessen: Staub vor und hinter dem Verstärker
+               gingen gleichzeitig aus). */
+            if (!input) world.scheduleTick(x, y, z, state.get(Properties.DELAY) * 2);
         }
     }
 
