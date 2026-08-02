@@ -26,7 +26,11 @@ public final class ScheduledTickTypes {
     private static final Map<String, ScheduledTickRestorer> TYPES = new HashMap<>();
 
     static {
-        register(BLOCK, (world, x, y, z, remaining) -> world.scheduleTick(x, y, z, remaining));
+        /* scheduleTickEarlier statt scheduleTick: liegt für die Position noch ein stale
+           Live-Eintrag in der Queue (Chunk war entladen und wird wiederbetreten), gewinnt
+           sonst per first-wins der Live-Eintrag und der gespeicherte Rest-Delay wäre
+           verworfen. So gewinnt der frühere von beiden — für Clocks der korrekte. */
+        register(BLOCK, (world, x, y, z, remaining) -> world.scheduleTickEarlier(x, y, z, remaining));
     }
 
     /** Registriert einen Tick-Typ. Doppelte IDs werfen — nichts darf fremde Typen still überschreiben. */

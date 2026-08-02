@@ -541,9 +541,15 @@ public class World implements IInitializable, IDisposable {
      * Merkt einen geplanten Tick für die Position vor. Nach {@code delayTicks} Ticks (min. 1)
      * ruft der Block dort {@link de.skyengine.game.world.block.Block#scheduledTick} auf. Pro
      * Position ist nur ein Tick gleichzeitig vorgemerkt (Dedup). Basis für Fluss/Fall.
+     *
+     * <p>Markiert den Chunk zusätzlich als modified: ein anstehender Tick ist Zustand, der
+     * gespeichert werden muss — sonst verlöre eine Clock (Verstärker-Loop), die seit dem
+     * letzten Save keinen Block geschrieben hat, beim Beenden ihren Rest-Delay und stünde
+     * nach dem Neuladen still.</p>
      */
     public void scheduleTick(int x, int y, int z, int delayTicks) {
         this.scheduledTicks.schedule(x, y, z, this.gameTime + Math.max(1, delayTicks));
+        this.markChunkModified(x, z);
     }
 
     /**
@@ -553,6 +559,7 @@ public class World implements IInitializable, IDisposable {
      */
     public void scheduleTickEarlier(int x, int y, int z, int delayTicks) {
         this.scheduledTicks.scheduleEarlier(x, y, z, this.gameTime + Math.max(1, delayTicks));
+        this.markChunkModified(x, z);
     }
 
     /** true, wenn an der Position bereits ein geplanter Tick aussteht. */
@@ -570,10 +577,19 @@ public class World implements IInitializable, IDisposable {
      * Simulations-Distanz wird der Tick nicht ausgeführt, sondern erneut vorgemerkt - der Fluss
      * friert dort ein und läuft weiter, sobald der Spieler zurückkommt. (Während des Drains neu
      * geplante Einträge verarbeitet drainDue erst im nächsten Tick -> keine Endlosschleife.)
+     *
+     * <p>Ticks ENTLADENER Chunks werden dagegen verworfen: ihr Rest-Delay liegt im Save
+     * (scheduleTick markiert den Chunk als modified, der Unload-Pfad speichert ihn), und beim
+     * Wiederladen stellt {@link #restorePendingScheduledTicks} sie wieder her. Ohne das Verwerfen
+     * wüchse die Queue über die Sitzung unbegrenzt und re-schedulte alle 20 Ticks jede je
+     * entladene Position.</p>
      */
     private void tickScheduled() {
         this.scheduledTicks.drainDue(this.gameTime, (x, y, z) -> {
-            if (!this.isSimulated(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT)) {
+            int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+            Chunk chunk = this.chunkManager.getChunk(cx, cz);
+            if (chunk == null) return;
+            if (chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
                 this.scheduledTicks.schedule(x, y, z, this.gameTime + OUT_OF_SIM_RESCHEDULE);
                 return;
             }
