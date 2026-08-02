@@ -137,6 +137,9 @@ public final class PistonMovingBlockEntity extends BlockEntity {
      * (Slime-Werfer). Honig launcht wie in MC nicht.
      */
     private void pushEntities(float delta) {
+        /* Der nicht-klebrige Rückzieh-Arm transportiert nur Luft (reine Renderer-Optik) —
+           seine unsichtbare Box darf niemanden Richtung Kolben schieben. */
+        if (this.movedStateId == Blocks.AIR) return;
         Direction d = this.extending ? this.facing : this.facing.opposite();
         double back = 1.0 - this.progress;
         double bx = this.pos.x() - d.offsetX() * back;
