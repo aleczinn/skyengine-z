@@ -74,7 +74,7 @@ public final class SaveRoundTripTest {
            Clock liegt KOMPLETT in diesen State-Strings (Sektions-Palette); der laufende
            Delay steckt im Scheduled-Tick unten — zusammen ist das der Beweis, dass eine
            Clock Save/Load übersteht. */
-        String repeaterState = "skyengine:repeater[delay=3,facing=north,powered=true]";
+        String repeaterState = "skyengine:repeater[delay=3,facing=north,locked=true,powered=true]";
         String wireState = "skyengine:redstone_wire[east=side,north=none,power=13,south=up,west=none]";
         String plateState = "skyengine:light_weighted_pressure_plate[power=7]";
         chunk.setBlock(12, 200, 12, decodeId(repeaterState));

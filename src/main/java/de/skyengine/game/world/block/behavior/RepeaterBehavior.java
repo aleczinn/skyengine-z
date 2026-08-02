@@ -39,15 +39,41 @@ public final class RepeaterBehavior implements BlockBehavior {
 
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
-        if (hasInput(world, x, y, z, state) != state.get(Properties.POWERED)
+        /* Locking (MC): eine seitliche Diode (Verstärker/Komparator), die auf uns zeigt und
+           Signal führt, friert den Ausgang ein — solange gesperrt, werden Eingangs-Flanken
+           ignoriert. Beim Entsperren wird der Zustand frisch bewertet. */
+        boolean locked = isLocked(world, x, y, z, state);
+        if (locked != state.get(Properties.LOCKED)) {
+            state = state.with(Properties.LOCKED, locked);
+        }
+        if (!locked && hasInput(world, x, y, z, state) != state.get(Properties.POWERED)
                 && !world.isTickScheduled(x, y, z)) {
             world.scheduleTick(x, y, z, state.get(Properties.DELAY) * 2);
         }
         return state;
     }
 
+    /** Gesperrt, wenn links oder rechts eine Diode mit Signal auf diesen Verstärker zeigt. */
+    private static boolean isLocked(World world, int x, int y, int z, BlockState state) {
+        Direction out = state.get(Properties.FACING);
+        return isLockingSide(world, x, y, z, out.rotateYCW())
+                || isLockingSide(world, x, y, z, out.rotateYCCW());
+    }
+
+    private static boolean isLockingSide(World world, int x, int y, int z, Direction side) {
+        int sx = x + side.offsetX(), sz = z + side.offsetZ();
+        BlockState neighbor = Blocks.getState(world.getBlock(sx, y, sz));
+        boolean diode = neighbor.getValues().containsKey(Properties.DELAY)
+                || neighbor.getValues().containsKey(Properties.MODE);
+        if (!diode) return false;
+        /* Die Diode muss mit ihrem AUSGANG auf uns zeigen und Signal führen. */
+        if (neighbor.get(Properties.FACING) != side.opposite()) return false;
+        return neighbor.getBlock().getWeakPower(world, sx, y, sz, neighbor, side.opposite()) > 0;
+    }
+
     @Override
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+        if (state.get(Properties.LOCKED)) return;   // gesperrt: Ausgang eingefroren
         boolean powered = state.get(Properties.POWERED);
         boolean input = hasInput(world, x, y, z, state);
         if (powered && !input) {

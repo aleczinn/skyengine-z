@@ -20,6 +20,8 @@ public final class RepeaterArchetype implements Archetype {
         cfg.property(Properties.FACING)
                 .property(Properties.DELAY)
                 .property(Properties.POWERED)
+                /* LOCKED: 32 -> 64 States; alte Saves laden über den Codec-Default locked=false. */
+                .property(Properties.LOCKED)
                 .behavior(new RepeaterBehavior())
                 .shapes(new ShapeProvider() {
                     @Override public BlockShape collision(BlockState state) { return PLATE; }

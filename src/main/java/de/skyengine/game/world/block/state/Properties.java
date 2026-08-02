@@ -100,6 +100,9 @@ public final class Properties {
     /** Komparator-Modus (compare/subtract) — Namensteilung "mode" gibt es sonst nicht. */
     public static final Property<ComparatorMode> MODE = Property.ofEnum("mode", ComparatorMode.class);
 
+    /** Verstärker gesperrt (seitliche Diode mit Signal hält den Ausgang eingefroren). */
+    public static final Property<Boolean> LOCKED = Property.ofBoolean("locked");
+
     /**
      * Kolben-Kopf mit kurzem Arm (12 statt 16 px, ohne den 4-px-Überstand in die Basis-Zelle).
      * Der MATERIALISIERTE Kopf ist immer lang (short=false) — der Renderer wählt während der
