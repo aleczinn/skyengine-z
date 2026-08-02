@@ -99,8 +99,24 @@ public class BlockDefinition {
     public boolean hand_openable = true;
 
     /* Archetyp "button"/"pressure_plate": Ticks bis zur Selbst-Rücksetzung (MC: Stein-Knopf 20,
-       Holz-Knopf 30, Platten 20). Steht in MCs Java-Code, nicht in den Assets — daher hier. */
+       Holz-Knopf 30, Platten 20, Wägeplatten 10). Steht in MCs Java-Code, nicht in den Assets. */
     public int press_ticks = 20;
+
+    /* Archetyp "pressure_plate": Sensor-Konfiguration. null = alle Entities, binäres Signal. */
+    public SensorDef sensor;
+
+    /** Entity-Filter + Signalformel einer Sensor-Platte (Namen: EntityFilters). */
+    public static final class SensorDef {
+        /* ODER-verknüpfte Filter-Namen (all/player/item/tnt/falling_block/mob/hostile_mob/
+           passive_mob + Modding-Registrierungen). null/leer = alle. */
+        public String[] entity_filter;
+        /* Signal erst ab N passenden Entities. */
+        public int min_count = 1;
+        /* "binary" (an/aus, POWERED, 2 States) oder "count" (Wägeplatte, POWER 0-15, 16 States). */
+        public String signal_mode = "binary";
+        /* Nur "count": Entities je Signalstufe (Gold 1, Eisen 10; Signal = ceil(n/x), max 15). */
+        public int entities_per_signal = 1;
+    }
 
     /* Konstante Redstone-Quelle (Redstone-Block 15): schwaches Dauersignal in alle Richtungen,
        archetypübergreifend via ConstantPowerBehavior. 0 = keine Quelle. */

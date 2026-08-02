@@ -47,8 +47,10 @@ public interface BlockBehavior {
     /**
      * Eine Entity-BoundingBox überlappt die Blockzelle (jeden Bewegungs-Tick, aus
      * {@code Entity.move}) — Druckplatte, später Seelensand-Bremse o.ä. Default: nichts.
+     * {@code entity} ist die auslösende Entity (für Filter/Zählung der Sensor-Platten).
      */
-    default void onEntityInside(World world, int x, int y, int z, BlockState state) {
+    default void onEntityInside(World world, int x, int y, int z, BlockState state,
+                                de.skyengine.game.entity.Entity entity) {
     }
 
     /**

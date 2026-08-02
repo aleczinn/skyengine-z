@@ -185,7 +185,7 @@ public abstract class Entity {
                     int id = world.getBlock(bx, by, bz);
                     if (id == Blocks.AIR) continue;
                     var state = Blocks.getState(id);
-                    state.getBlock().onEntityInside(world, bx, by, bz, state);
+                    state.getBlock().onEntityInside(world, bx, by, bz, state, this);
                 }
             }
         }

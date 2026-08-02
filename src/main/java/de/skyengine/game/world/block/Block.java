@@ -261,9 +261,10 @@ public class Block {
     }
 
     /** Entity-BoundingBox überlappt die Zelle (aus {@code Entity.move}). Delegiert; Default: nichts. */
-    public void onEntityInside(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+    public void onEntityInside(de.skyengine.game.world.World world, int x, int y, int z, BlockState state,
+                               de.skyengine.game.entity.Entity entity) {
         for (BlockBehavior behavior : this.config.behaviors()) {
-            behavior.onEntityInside(world, x, y, z, state);
+            behavior.onEntityInside(world, x, y, z, state, entity);
         }
     }
 
