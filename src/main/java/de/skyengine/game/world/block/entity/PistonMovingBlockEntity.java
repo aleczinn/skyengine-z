@@ -130,6 +130,11 @@ public final class PistonMovingBlockEntity extends BlockEntity {
      * Schiebt Entities vor dem gleitenden Block her: alle, deren BoundingBox die aktuelle
      * Block-Box schneidet, werden per {@code Entity.move} (mit Kollision) um das Tick-Delta
      * in Bewegungsrichtung versetzt.
+     *
+     * <p><b>Slime-Launcher</b> (MC): ist der bewegte Block ein Slime (sticky_group "slime"),
+     * bekommt die Entity zusätzlich die Kolben-Geschwindigkeit als Motion auf der
+     * Bewegungsachse — sie behält den Impuls nach dem Stopp und fliegt weiter
+     * (Slime-Werfer). Honig launcht wie in MC nicht.
      */
     private void pushEntities(float delta) {
         Direction d = this.extending ? this.facing : this.facing.opposite();
@@ -138,9 +143,17 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         double by = this.pos.y() - d.offsetY() * back;
         double bz = this.pos.z() - d.offsetZ() * back;
         AABB box = new AABB(bx, by, bz, bx + 1, by + 1, bz + 1);
+        boolean launch = "slime".equals(Blocks.getState(this.movedStateId).getBlock().getStickyGroup());
         this.world.forEachEntityNearby(this.pos.x() + 0.5, this.pos.z() + 0.5, 1, entity -> {
             if (entity.isRemoved() || !entity.getBoundingBox().intersects(box)) return;
             entity.move(this.world, d.offsetX() * delta, d.offsetY() * delta, d.offsetZ() * delta);
+            if (launch) {
+                /* Kolben-Geschwindigkeit = STEP Blöcke/Tick; nur die Bewegungsachse wird
+                   ersetzt (MC-Semantik), Quer-Motion bleibt erhalten. */
+                if (d.offsetX() != 0) entity.motionX = d.offsetX() * STEP;
+                if (d.offsetY() != 0) entity.motionY = d.offsetY() * STEP;
+                if (d.offsetZ() != 0) entity.motionZ = d.offsetZ() * STEP;
+            }
         });
     }
 
