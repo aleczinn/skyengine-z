@@ -30,6 +30,7 @@ public final class Archetypes {
         register("attached", new AttachedArchetype());
         register("button", new ButtonArchetype());
         register("pressure_plate", new PressurePlateArchetype());
+        register("lever", new LeverArchetype());
         register("custom", new CustomArchetype());
     }
 
