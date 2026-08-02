@@ -1,0 +1,37 @@
+{
+  "_comment": "Redstone-Fackel (Inverter): aus, sobald der Traegerblock Signal fuehrt, mit 1 Redstone-Tick Verzoegerung (RedstoneTorchBehavior). Multipart wie torch.json, um lit erweitert. light_level 7 wirkt nur bei lit=true.",
+  "id": "skyengine:redstone_torch",
+  "creative_tab": "redstone_blocks",
+  "archetype": "redstone_torch",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": false,
+  "no_lod_surface": true,
+  "attach_faces": ["floor", "wall"],
+  "light_level": 7,
+  "hardness": 0,
+  "sound": "wood",
+  "icon_item": "game/textures/block/redstone_torch.png",
+  "models": {
+    "": "block/template_torch",
+    "_off": "block/template_torch_off",
+    "_wall": "block/template_torch_wall",
+    "_wall_off": "block/template_torch_wall_off"
+  },
+  "textures": {
+    "torch": "game/textures/block/redstone_torch.png",
+    "torch_off": "game/textures/block/redstone_torch_off.png"
+  },
+  "multipart": [
+    { "when": { "face": "floor", "lit": "true" },  "apply": { "model": "block/redstone_torch" } },
+    { "when": { "face": "floor", "lit": "false" }, "apply": { "model": "block/redstone_torch_off" } },
+    { "when": { "face": "wall", "lit": "true",  "facing": "east" },  "apply": { "model": "block/redstone_torch_wall" } },
+    { "when": { "face": "wall", "lit": "true",  "facing": "south" }, "apply": { "model": "block/redstone_torch_wall", "y": 90 } },
+    { "when": { "face": "wall", "lit": "true",  "facing": "west" },  "apply": { "model": "block/redstone_torch_wall", "y": 180 } },
+    { "when": { "face": "wall", "lit": "true",  "facing": "north" }, "apply": { "model": "block/redstone_torch_wall", "y": 270 } },
+    { "when": { "face": "wall", "lit": "false", "facing": "east" },  "apply": { "model": "block/redstone_torch_wall_off" } },
+    { "when": { "face": "wall", "lit": "false", "facing": "south" }, "apply": { "model": "block/redstone_torch_wall_off", "y": 90 } },
+    { "when": { "face": "wall", "lit": "false", "facing": "west" },  "apply": { "model": "block/redstone_torch_wall_off", "y": 180 } },
+    { "when": { "face": "wall", "lit": "false", "facing": "north" }, "apply": { "model": "block/redstone_torch_wall_off", "y": 270 } }
+  ]
+}

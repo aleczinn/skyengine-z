@@ -33,6 +33,7 @@ public final class Archetypes {
         register("lever", new LeverArchetype());
         register("redstone_lamp", new RedstoneLampArchetype());
         register("redstone_wire", new RedstoneWireArchetype());
+        register("redstone_torch", new RedstoneTorchArchetype());
         register("custom", new CustomArchetype());
     }
 
