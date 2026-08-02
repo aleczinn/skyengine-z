@@ -78,7 +78,7 @@
       "id": "redstone_blocks",
       "icon": "skyengine:redstone",
       "items": [
-        "redstone", "redstone_block",
+        "redstone", "redstone_wire", "redstone_block",
         "lever",
         "stone_button", "oak_button",
         "stone_pressure_plate", "oak_pressure_plate",

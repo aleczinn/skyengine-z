@@ -1189,6 +1189,17 @@ public class World implements IInitializable, IDisposable {
         }
     }
 
+    /**
+     * Merkt ein Block-Update für den NÄCHSTEN Tick vor (öffentliche Sicht auf das
+     * Nachhol-Protokoll). Für Fälle, in denen ein Empfänger erst NACH einer laufenden
+     * Entfernung neu rechnen darf — der Staub-Abbau nutzt das als Post-Removal-2-Ring
+     * (Vanillas onRemove-Äquivalent): eine Tür hinter einem stark gespeisten Block sähe
+     * den Staub sonst beim Re-Check noch stehen.
+     */
+    public void deferBlockUpdate(int x, int y, int z) {
+        this.deferStateUpdate(x, y, z);
+    }
+
     /** Merkt ein Nachbar-State-Update für einen (noch) nicht-READY Chunk vor (dedupliziert). */
     private void deferStateUpdate(int x, int y, int z) {
         if (this.deferredStateUpdates.size() >= MAX_DEFERRED_STATE_UPDATES) {

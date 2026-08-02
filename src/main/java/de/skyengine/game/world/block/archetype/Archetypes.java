@@ -32,6 +32,7 @@ public final class Archetypes {
         register("pressure_plate", new PressurePlateArchetype());
         register("lever", new LeverArchetype());
         register("redstone_lamp", new RedstoneLampArchetype());
+        register("redstone_wire", new RedstoneWireArchetype());
         register("custom", new CustomArchetype());
     }
 

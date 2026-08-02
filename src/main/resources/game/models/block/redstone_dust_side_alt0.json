@@ -1,0 +1,14 @@
+{
+  "_comment": "MC redstone_dust_side_alt0 (26.2, Parent aufgeloest, Overlay weggelassen): Suedhaelfte-Streifen mit line0.",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [0, 0.25, 8], "to": [16, 0.25, 16],
+      "shade": false,
+      "faces": {
+        "up":   { "uv": [0, 8, 16, 16], "texture": "#line0" },
+        "down": { "uv": [0, 16, 16, 8], "texture": "#line0" }
+      }
+    }
+  ]
+}

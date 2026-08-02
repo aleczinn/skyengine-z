@@ -1,0 +1,14 @@
+{
+  "_comment": "MC redstone_dust_dot (26.2) ohne das Overlay-Element (redstone_dust_overlay.png ist in Vanilla vollstaendig transparent, nur ein Resource-Pack-Haken - der Loader kennt ohnehin kein tintindex-Feld, das Overlay MUESSTE aber ungetintet bleiben). Flache Doppel-Face bei y=0.25px.",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [0, 0.25, 0], "to": [16, 0.25, 16],
+      "shade": false,
+      "faces": {
+        "up":   { "uv": [0, 0, 16, 16], "texture": "#dot" },
+        "down": { "uv": [0, 16, 16, 0], "texture": "#dot" }
+      }
+    }
+  ]
+}
