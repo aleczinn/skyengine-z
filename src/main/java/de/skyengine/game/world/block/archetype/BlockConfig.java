@@ -44,6 +44,7 @@ public final class BlockConfig {
     private final float hardness;
     private final float resistance;
     private final de.skyengine.game.world.block.PistonReaction pistonReaction;
+    private final String stickyGroup;
     private final float friction;
     private final float speedFactor;
     private final float jumpFactor;
@@ -79,6 +80,7 @@ public final class BlockConfig {
         this.hardness = b.hardness;
         this.resistance = b.resistance;
         this.pistonReaction = b.pistonReaction;
+        this.stickyGroup = b.stickyGroup;
         this.friction = b.friction;
         this.speedFactor = b.speedFactor;
         this.jumpFactor = b.jumpFactor;
@@ -200,6 +202,11 @@ public final class BlockConfig {
         return pistonReaction;
     }
 
+    /** Klebe-Gruppe fürs Kolben-Schieben (null = nicht klebrig). */
+    public String stickyGroup() {
+        return stickyGroup;
+    }
+
     /**
      * Explosions-Widerstand (MC-Blast-Resistance). Getrennt von der Abbau-Härte, weil beide in
      * Minecraft fast nirgends übereinstimmen (Obsidian 50/1200, Stein 1.5/6, End-Stone 3/9).
@@ -313,6 +320,7 @@ public final class BlockConfig {
         private float resistance = 0F;
         private de.skyengine.game.world.block.PistonReaction pistonReaction =
                 de.skyengine.game.world.block.PistonReaction.NORMAL;
+        private String stickyGroup;
         private float friction = 0.6F;
         private float speedFactor = 1.0F;
         private float jumpFactor = 1.0F;
@@ -426,6 +434,11 @@ public final class BlockConfig {
 
         public Builder pistonReaction(de.skyengine.game.world.block.PistonReaction reaction) {
             this.pistonReaction = reaction;
+            return this;
+        }
+
+        public Builder stickyGroup(String group) {
+            this.stickyGroup = group;
             return this;
         }
 

@@ -17,12 +17,15 @@ import de.skyengine.game.world.redstone.RedstonePower;
 /**
  * Kolben-Basis: Platzierung (schaut den Spieler an) und die Schub-Zustandsmaschine.
  *
- * <p><b>Ablauf Extend</b> (scheduledTick): {@link PistonResolver} liefert die Kette (max. 12);
- * alle Writes mit {@code updateNeighbors=false} in Reihenfolge fern → nah — jede Zielzelle
- * wird ein {@code moving_piston} mit dem transportierten State, die Kopf-Zelle die
- * Source-BE mit dem {@code piston_head}-State, die Basis geht sofort auf
- * {@code extended=true}. Danach gezielte Nachbar-Ringe. Die BEs materialisieren nach
- * 2 Ticks selbst ({@link PistonMovingBlockEntity}).
+ * <p><b>Ablauf Extend</b> (scheduledTick): {@link PistonResolver} liefert die STRUKTUR
+ * (max. 12 — inkl. Slime-/Honig-Verkettung über {@code sticky_group}). Alle Quell-States
+ * werden VOR den Writes ge-snapshottet — bei Verzweigungen können Ziele beliebige andere
+ * Quellzellen überschreiben, mit dem Snapshot ist die Schreib-Reihenfolge irrelevant.
+ * Jede Zielzelle wird ein {@code moving_piston} mit dem transportierten State, Quellzellen
+ * ohne Ziel-Rolle werden geräumt, die Kopf-Zelle wird die Source-BE mit dem
+ * {@code piston_head}-State, die Basis geht sofort auf {@code extended=true}. Danach
+ * gezielte Nachbar-Ringe. Die BEs materialisieren nach 2 Ticks selbst
+ * ({@link PistonMovingBlockEntity}).
  *
  * <p><b>Ablauf Retract:</b> die Source-BE sitzt an der KOPF-Zelle (transportiert den
  * Pull-Block des klebrigen Kolbens oder Luft; der zurückgleitende Arm ist reine
@@ -105,15 +108,39 @@ public final class PistonBehavior implements BlockBehavior {
             if (drop != null) world.spawnItem(dx + 0.5, dy + 0.5, dz + 0.5, new ItemStack(drop, 1));
         }
 
-        /* Kette fern -> nah: das Ziel jeder Quelle ist frei bzw. gerade geräumt. */
-        for (long src : result.moves()) {
-            int sx = BlockPos.unpackX(src), sy = BlockPos.unpackY(src), sz = BlockPos.unpackZ(src);
-            int movedId = world.getBlock(sx, sy, sz);
-            spawnMoving(world, sx + f.offsetX(), sy + f.offsetY(), sz + f.offsetZ(),
-                    movedId, f, true, false, this.sticky);
+        /* Snapshot ALLER Quell-States VOR den Writes — bei verzweigten Slime-Strukturen
+           können Ziele beliebige andere Quellzellen überschreiben, mit dem Snapshot ist
+           die Schreib-Reihenfolge irrelevant. */
+        long[] moves = result.moves();
+        int[] movedIds = new int[moves.length];
+        for (int i = 0; i < moves.length; i++) {
+            movedIds[i] = world.getBlock(BlockPos.unpackX(moves[i]),
+                    BlockPos.unpackY(moves[i]), BlockPos.unpackZ(moves[i]));
         }
 
-        /* Kopf-Zelle = Source-BE mit dem piston_head-State, Basis sofort ausgefahren. */
+        /* 1) Alle Ziele als Moving-BEs, 2) Quellzellen ohne Ziel-Rolle räumen (bei
+           Verzweigungen gibt es mehrere Ketten-Enden). */
+        java.util.HashSet<Long> targets = new java.util.HashSet<>();
+        java.util.LinkedHashSet<Long> notify = new java.util.LinkedHashSet<>();
+        for (int i = 0; i < moves.length; i++) {
+            int tx = BlockPos.unpackX(moves[i]) + f.offsetX();
+            int ty = BlockPos.unpackY(moves[i]) + f.offsetY();
+            int tz = BlockPos.unpackZ(moves[i]) + f.offsetZ();
+            spawnMoving(world, tx, ty, tz, movedIds[i], f, true, false, this.sticky);
+            long t = BlockPos.asLong(tx, ty, tz);
+            targets.add(t);
+            notify.add(t);
+        }
+        for (long src : moves) {
+            if (targets.contains(src)) continue;
+            world.setBlock(BlockPos.unpackX(src), BlockPos.unpackY(src), BlockPos.unpackZ(src),
+                    Blocks.AIR, false);
+            notify.add(src);
+        }
+
+        /* Kopf-Zelle = Source-BE mit dem piston_head-State, Basis sofort ausgefahren.
+           (H ist nie Ziel — Ziele liegen mindestens bei Basis+2f — und wurde als Quelle
+           gerade geräumt.) */
         int hx = x + f.offsetX(), hy = y + f.offsetY(), hz = z + f.offsetZ();
         BlockState head = Blocks.getState(Blocks.PISTON_HEAD)
                 .with(Properties.FACING_ALL, f)
@@ -123,10 +150,8 @@ public final class PistonBehavior implements BlockBehavior {
 
         world.updateNeighbors(x, y, z);
         world.updateNeighbors(hx, hy, hz);
-        for (int i = result.moves().length - 1; i >= 0; i--) {
-            long src = result.moves()[i];
-            world.updateNeighbors(BlockPos.unpackX(src) + f.offsetX(),
-                    BlockPos.unpackY(src) + f.offsetY(), BlockPos.unpackZ(src) + f.offsetZ());
+        for (long pos : notify) {
+            world.updateNeighbors(BlockPos.unpackX(pos), BlockPos.unpackY(pos), BlockPos.unpackZ(pos));
         }
     }
 
@@ -150,22 +175,54 @@ public final class PistonBehavior implements BlockBehavior {
            echter piston[extended=true]-Block. Bewusst so: als BE-gerenderter Würfel (flaches
            Zell-Licht, kein AO/Smooth-Lighting) blitzte die Basis beim Einfahren sichtbar
            auf — im Chunk-Mesh bleibt sie durchgehend korrekt beleuchtet. Erst das finish
-           der BE fährt sie ein. Transportiert wird der Pull-Block (sticky) oder Luft
-           (der zurückgleitende Arm ist reine Renderer-Optik). */
-        long pull = this.sticky
-                ? PistonResolver.resolvePull(world, hx + f.offsetX(), hy + f.offsetY(), hz + f.offsetZ())
-                : PistonResolver.NO_PULL;
-        int movedId = Blocks.AIR;
-        if (pull != PistonResolver.NO_PULL) {
-            int px = BlockPos.unpackX(pull), py = BlockPos.unpackY(pull), pz = BlockPos.unpackZ(pull);
-            movedId = world.getBlock(px, py, pz);
-            spawnMoving(world, hx, hy, hz, movedId, f, false, true, this.sticky);
-            world.setBlock(px, py, pz, Blocks.AIR, false);
-            world.updateNeighbors(px, py, pz);
-        } else {
-            spawnMoving(world, hx, hy, hz, Blocks.AIR, f, false, true, this.sticky);
+           der BE fährt sie ein.
+
+           Klebriger Kolben: die GANZE angeklebte Struktur (MC-Resolver) wandert Richtung
+           Piston — blockiert/leer heißt nur „nichts ziehen", der Arm fährt trotzdem ein.
+           Der Block direkt vor dem Kopf reist in der Source-BE (sein Ziel IST die
+           Kopf-Zelle), der Rest als normale Moving-BEs; Snapshot wie beim Ausfahren. */
+        PistonResolver.Result pull = this.sticky
+                ? PistonResolver.resolveRetract(world, x, y, z, f)
+                : null;
+        long[] moves = pull != null && !pull.blocked() ? pull.moves() : new long[0];
+        int[] movedIds = new int[moves.length];
+        for (int i = 0; i < moves.length; i++) {
+            movedIds[i] = world.getBlock(BlockPos.unpackX(moves[i]),
+                    BlockPos.unpackY(moves[i]), BlockPos.unpackZ(moves[i]));
         }
-        world.updateNeighbors(hx, hy, hz);
+
+        long headPos = BlockPos.asLong(hx, hy, hz);
+        long frontPos = BlockPos.asLong(hx + f.offsetX(), hy + f.offsetY(), hz + f.offsetZ());
+        int sourceMoved = Blocks.AIR;
+        for (int i = 0; i < moves.length; i++) {
+            if (moves[i] == frontPos) sourceMoved = movedIds[i];
+        }
+        spawnMoving(world, hx, hy, hz, sourceMoved, f, false, true, this.sticky);
+
+        java.util.HashSet<Long> targets = new java.util.HashSet<>();
+        java.util.LinkedHashSet<Long> notify = new java.util.LinkedHashSet<>();
+        targets.add(headPos);
+        notify.add(headPos);
+        Direction toPiston = f.opposite();
+        for (int i = 0; i < moves.length; i++) {
+            if (moves[i] == frontPos) continue;   // reist in der Source-BE
+            int tx = BlockPos.unpackX(moves[i]) + toPiston.offsetX();
+            int ty = BlockPos.unpackY(moves[i]) + toPiston.offsetY();
+            int tz = BlockPos.unpackZ(moves[i]) + toPiston.offsetZ();
+            spawnMoving(world, tx, ty, tz, movedIds[i], f, false, false, this.sticky);
+            long t = BlockPos.asLong(tx, ty, tz);
+            targets.add(t);
+            notify.add(t);
+        }
+        for (long src : moves) {
+            if (targets.contains(src)) continue;
+            world.setBlock(BlockPos.unpackX(src), BlockPos.unpackY(src), BlockPos.unpackZ(src),
+                    Blocks.AIR, false);
+            notify.add(src);
+        }
+        for (long pos : notify) {
+            world.updateNeighbors(BlockPos.unpackX(pos), BlockPos.unpackY(pos), BlockPos.unpackZ(pos));
+        }
     }
 
     /** Setzt einen moving_piston und konfiguriert die frisch angelegte BE. */

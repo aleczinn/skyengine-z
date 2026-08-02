@@ -89,6 +89,11 @@ public final class ArchetypeBlockFactory {
             builder.pistonReaction(de.skyengine.game.world.block.PistonReaction.byName(def.piston_reaction));
         }
 
+        /* Klebe-Gruppe (Slime/Honig): klebrige Blöcke ziehen beim Kolben-Schub Nachbarn mit. */
+        if (def.sticky_group != null && !def.sticky_group.isBlank()) {
+            builder.stickyGroup(def.sticky_group);
+        }
+
         /* Horizontale Ausrichtung (Truhe, Ofen) - FACING-Property + Platzier-Verhalten zum Spieler. */
         if (def.facing) {
             builder.property(Properties.FACING);

@@ -132,6 +132,11 @@ public class BlockDefinition {
        BlockEntity-Blöcke sind automatisch "block" (Override in Block.getPistonReaction). */
     public String piston_reaction;
 
+    /* Klebe-Gruppe fürs Kolben-Schieben (Slime "slime", Honig "honey"): klebrige Blöcke
+       ziehen bewegliche Nachbarn mit; VERSCHIEDENE Gruppen kleben nicht aneinander (MC).
+       null = nicht klebrig. */
+    public String sticky_group;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;

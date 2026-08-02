@@ -174,6 +174,11 @@ public class Block {
         return this.config.pistonReaction();
     }
 
+    /** Klebe-Gruppe fürs Kolben-Schieben ({@code sticky_group}: Slime/Honig) oder null. */
+    public String getStickyGroup() {
+        return this.config.stickyGroup();
+    }
+
     /** true: Wasser/Lava — Geometrie kommt dynamisch aus dem Mesher (kein gebackenes Modell). */
     public boolean isFluid() {
         return this.config.fluidInfo() != null;
