@@ -1,5 +1,6 @@
 {
   "id": "skyengine:tall_grass",
+  "creative_tab": "natural",
   "archetype": "tall_cross",
   "parts": {
     "property": "half",

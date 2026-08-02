@@ -1,5 +1,6 @@
 {
   "_comment": "Preset: flache Kreuz-Pflanze ohne Kollision; das Icon ist das Sprite selbst.",
+  "creative_tab": "natural",
   "type": "cross",
   "layer": "cutout",
   "opaque": false,

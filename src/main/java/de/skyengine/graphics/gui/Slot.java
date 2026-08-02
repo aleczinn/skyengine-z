@@ -32,8 +32,14 @@ public final class Slot {
         this.storage.set(this.index, stack);
     }
 
-    /** true, wenn (px, py) innerhalb der 16×16-Innenfläche dieses Slots liegt. */
-    public boolean contains(double px, double py, int size) {
-        return px >= this.x && px < this.x + size && py >= this.y && py < this.y + size;
+    /**
+     * true, wenn (px, py) in der Trefferfläche liegt: die {@code size}×{@code size}-Innenfläche,
+     * um {@code pad} nach allen Seiten erweitert. Bei Rasterabstand 18 und Größe 16 schließt
+     * {@code pad = 1} die 2 px breite tote Zone zwischen zwei Slots — die Flächen grenzen dann
+     * lückenlos aneinander, ohne sich zu überlappen (MC macht es in {@code isHovering} genauso).
+     */
+    public boolean contains(double px, double py, int size, int pad) {
+        return px >= this.x - pad && px < this.x + size + pad
+                && py >= this.y - pad && py < this.y + size + pad;
     }
 }

@@ -9,6 +9,7 @@ import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.GuiComponent;
 import de.skyengine.graphics.gui.widget.Label;
+import de.skyengine.graphics.gui.GuiText;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -68,7 +69,7 @@ public abstract class GuiOptionsScreen extends GuiScreen {
         this.components.clear();
         this.rowComponents.clear();
 
-        Label title = new Label(this.title(), 14).measure(gui);
+        Label title = new Label(this.title(), GuiText.TITLE).measure(gui);
         this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
         this.components.add(this.buildFooter(gui).anchor(Anchor.BOTTOM_CENTER, 0, 4));
 

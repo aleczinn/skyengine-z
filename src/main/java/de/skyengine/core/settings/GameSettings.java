@@ -40,9 +40,14 @@ public final class GameSettings {
      */
     public enum LeavesQuality { LOW, MID, HIGH }
 
-    /* GUI-Größe in Prozent (30..170, 5er-Schritte): 100 % = Referenz-Look (Faktor 3.5). Ersetzt
-       das alte guiScale-Feld (1..100 -> 1.0..6.0); alte options.json fallen auf 100 % zurück. */
-    public int guiScalePercent = 100;
+    /* GUI-Größe als GANZZAHLIGER Faktor: 0 = automatisch (größter Faktor, der ins Fenster
+       passt), sonst 1..MAX_GUI_SCALE. Zwischenstufen gibt es nicht und können es nicht geben:
+       GUI-Grafik ist ein Texel-Raster mit GL_NEAREST, eine 1 Texel breite Linie muss also auf
+       eine ganze Zahl Gerätepixel fallen (bei Faktor 3.85 wurde sie mal 3, mal 4 px breit).
+       Der Feldname darf NICHT 'guiScale' sein: alte options.json tragen noch ein gleichnamiges
+       Feld mit ganz anderer Bedeutung (1..100 -> 1.0..6.0), das GSON sonst einlesen würde.
+       Ersetzt guiScalePercent; alte Dateien landen über den Default bei automatisch. */
+    public int guiScaleLevel = 0;
     public int renderDistance = 16;   // in Chunks
     public int simulationDistance = 10; // in Chunks; nur Chunks in diesem Radius ticken (wie MC)
     public int fov = 75;
@@ -130,10 +135,9 @@ public final class GameSettings {
         }
     }
 
-    /** Pixel-Skalierungsfaktor der GUI aus {@link #guiScalePercent} (100 % = Faktor 3.5). */
-    public float guiScaleFactor() {
-        return 3.5f * Math.clamp(this.guiScalePercent, 30, 170) / 100.0f;
-    }
+    /** Obergrenze für {@link #guiScaleLevel}; der tatsächliche Faktor wird zusätzlich von der
+        Fenstergröße gedeckelt (siehe {@code GuiManager.resolveScale}). */
+    public static final int MAX_GUI_SCALE = 6;
 
     /** Gebundener Key einer Aktion (Fallback: Default-Belegung). */
     public int key(String action) {
@@ -156,8 +160,8 @@ public final class GameSettings {
     }
 
     private void sanitize() {
-        /* 5er-Raster + Grenzen (alte options.json ohne das Feld landet über den GSON-Default bei 100) */
-        this.guiScalePercent = Math.clamp((this.guiScalePercent + 2) / 5 * 5, 30, 170);
+        /* 0 = automatisch (alte options.json ohne das Feld landen über den GSON-Default dort) */
+        this.guiScaleLevel = Math.clamp(this.guiScaleLevel, 0, MAX_GUI_SCALE);
         this.renderDistance = Math.clamp(this.renderDistance, 2, 32);
         this.simulationDistance = Math.clamp(this.simulationDistance, 2, 32);
         this.fov = Math.clamp(this.fov, 30, 120);

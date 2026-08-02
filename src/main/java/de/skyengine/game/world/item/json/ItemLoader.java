@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.registry.Registries;
+import de.skyengine.game.world.item.CreativeTabs;
 import de.skyengine.game.world.item.FoodItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.SimpleItem;
@@ -81,6 +82,7 @@ public final class ItemLoader {
                 ? new FoodItem(id, def.food.nutrition, def.food.saturation, def.texture)
                 : new SimpleItem(id, maxStack, def.texture);
         Registries.ITEM.register(id, item);
+        CreativeTabs.assign(id, CreativeTabs.parse(def.creative_tab));
 
         /* SOFORT anmelden — siehe Klassenkommentar. */
         BlockTextures.layerOf(def.texture);

@@ -1,5 +1,6 @@
 {
   "id": "skyengine:soul_soil",
+  "creative_tab": "natural",
   "parent": "preset/cube",
   "sound": "sand",
   "hardness": 0.5,

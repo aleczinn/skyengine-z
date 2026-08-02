@@ -1,0 +1,10 @@
+{
+  "_comment": "Laesst sich wie in Minecraft NICHT von Hand oeffnen - sie braucht ein Signal (Druckplatte/Knopf, Etappe 3). Bis dahin bewusst ohne Funktion.",
+  "id": "skyengine:iron_door",
+  "parent": "preset/door",
+  "hardness": 5,
+  "resistance": 5,
+  "tool": "pickaxe",
+  "open_sound": "iron_door",
+  "hand_openable": false
+}

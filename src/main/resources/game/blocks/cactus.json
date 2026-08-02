@@ -1,5 +1,6 @@
 {
   "id": "skyengine:cactus",
+  "creative_tab": "natural",
   "sound": "cloth",
   "type": "custom",
   "layer": "cutout",

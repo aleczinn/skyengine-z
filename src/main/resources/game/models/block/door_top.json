@@ -1,0 +1,17 @@
+{
+  "_comment": "Rumpf: obere Tuerhaelfte. Textur ueber den Schluessel 'top' (virtuelles Modell block/<id>_top).",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [0, 0, 0], "to": [16, 16, 3],
+      "faces": {
+        "north": { "texture": "#top" },
+        "south": { "texture": "#top" },
+        "west":  { "texture": "#top" },
+        "east":  { "texture": "#top" },
+        "up":    { "texture": "#top" },
+        "down":  { "texture": "#top" }
+      }
+    }
+  ]
+}

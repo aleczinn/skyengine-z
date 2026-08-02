@@ -14,6 +14,11 @@ public class ItemDefinition {
     /** Essbar (MC-Werte): nutrition in Halb-Icons, saturation als unsichtbare Sättigung. */
     public FoodDef food;
 
+    /* Creative-Tab(s): ein String ODER eine Liste von Strings. Vererbbar über die Presets; ein
+       Kind ERSETZT den Preset-Wert vollständig. Fehlt das Feld, landet das Item im Sammel-Tab
+       "misc" (mit Warnung). Siehe de.skyengine.game.world.item.CreativeTabs. */
+    public com.google.gson.JsonElement creative_tab;
+
     /** nutrition/saturation wie in {@link de.skyengine.game.world.item.FoodItem}. */
     public static final class FoodDef {
         public int nutrition;

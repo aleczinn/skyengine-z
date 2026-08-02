@@ -26,5 +26,11 @@ public final class DebugFlags {
      */
     public static volatile boolean lodLevelSplit = false;
 
+    /**
+     * Trefferflächen der Inventar-Slots einfärben (jeder Slot eine eigene Farbe). Macht tote
+     * Zonen zwischen den Slots sichtbar — dort ginge ein Ablegen ins Leere.
+     */
+    public static volatile boolean guiSlotBounds = false;
+
     private DebugFlags() {}
 }

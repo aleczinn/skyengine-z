@@ -46,6 +46,7 @@ import de.skyengine.graphics.blockentity.ChestRenderer;
 import de.skyengine.graphics.blockentity.EnchantingTableRenderer;
 import de.skyengine.graphics.gui.BootProgress;
 import de.skyengine.graphics.gui.screens.GuiChest;
+import de.skyengine.graphics.gui.screens.GuiCreativeInventory;
 import de.skyengine.graphics.gui.screens.GuiInventory;
 import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
@@ -81,6 +82,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.io.File;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /* Kein IInitializable mehr: der Boot läuft zweistufig über initBoot()/initStaged() (Ladebildschirm). */
 public class GameContainer implements IResizeable, IDisposable {
@@ -314,8 +316,6 @@ public class GameContainer implements IResizeable, IDisposable {
             this.hotbarIndex = Math.clamp(playerTag.getInt("selectedSlot", 0), 0, 8);
         } else if (!save.level().inventory.isEmpty()) {
             this.loadInventory(save.level().inventory);
-        } else {
-            StartInventory.fill(this.playerInventory);
         }
         this.animState.reset();
         this.perspective = CameraPerspective.FIRST_PERSON;
@@ -438,7 +438,7 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         this.camera.setFov(this.settings.fov);
         this.camera.setFarPlane(this.computeFarPlane());
-        this.guiManager.setScale(this.settings.guiScaleFactor());
+        this.guiManager.setScale(this.settings.guiScaleLevel);
         /* Über das Window setzen, damit dessen Zustand (config.isVSync) authoritativ bleibt -
            der FPS-Limiter im gameLoop liest window.isVSync(). Läuft auf dem Render-Thread,
            wo der GL-Kontext aktiv ist (glfwSwapInterval gehört dorthin, nicht auf den Main-Thread). */
@@ -662,10 +662,15 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.guiManager.open(new GuiIngameMenu());
             }
             /* Inventar-Taste (Default E) öffnet das Spielerinventar; dieselbe Taste schließt es
-               wieder (closesOnInventoryKey im GuiManager-Routing). */
+               wieder (closesOnInventoryKey im GuiManager-Routing). Im Creative tritt das
+               Creative-Inventar mit seinen Reitern an dessen Stelle (wie in MC). */
             if (input.isBindPressed(this.settings.key(KeyBindings.OPEN_INVENTORY))) {
-                this.guiManager.open(new GuiInventory(this.playerInventory, this.playerRenderer,
-                        this.heldItemMeshes, () -> this.playerInventory.get(this.hotbarIndex)));
+                Supplier<ItemStack> held = () -> this.playerInventory.get(this.hotbarIndex);
+                this.guiManager.open(this.player.getGamemode() == Gamemode.CREATIVE
+                        ? new GuiCreativeInventory(this.playerInventory, this.playerRenderer,
+                                this.heldItemMeshes, held)
+                        : new GuiInventory(this.playerInventory, this.playerRenderer,
+                                this.heldItemMeshes, held));
             }
             this.handleGameplayHotkeys(input);
             this.handleHotbarInput(input);

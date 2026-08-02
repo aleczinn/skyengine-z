@@ -1,5 +1,6 @@
 {
   "id": "skyengine:bedrock",
+  "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": -1
 }

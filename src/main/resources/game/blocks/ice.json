@@ -1,5 +1,6 @@
 {
   "id": "skyengine:ice",
+  "creative_tab": "natural",
   "parent": "preset/cube",
   "sound": "glass",
   "layer": "translucent",

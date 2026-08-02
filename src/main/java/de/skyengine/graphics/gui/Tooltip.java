@@ -20,7 +20,7 @@ import java.util.List;
  */
 public final class Tooltip {
 
-    private static final float TEXT_SIZE = 8;
+    private static final float TEXT_SIZE = GuiText.NORMAL;
     private static final float PAD = 3;
     /** Extra-Abstand nach der Titelzeile (MC-Gap). */
     private static final float TITLE_GAP = 2;

@@ -1,5 +1,6 @@
 {
   "id": "skyengine:spruce_leaves",
+  "creative_tab": "natural",
   "parent": "preset/cube",
   "sound": "grass",
   "layer": "cutout",

@@ -1,5 +1,6 @@
 {
   "id": "skyengine:obsidian",
+  "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 50,
   "resistance": 1200,

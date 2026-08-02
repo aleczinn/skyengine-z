@@ -48,7 +48,14 @@ public final class ItemIconRenderer {
        bleibt (Truhe: 270° Vorrotation, Treppe: inventory_y=270 -> netto 45° wie zuvor). */
     private static final float ROT_X = 30f;
     private static final float ROT_Y = 135f;
-    private static final float ICON_SCALE = 0.66f; // Würfelkante als Anteil der Slot-Pixelgröße
+    /**
+     * Würfelkante als Anteil der Slot-Pixelgröße — 0.625 ist MCs {@code gui}-Display-Scale und
+     * KEIN frei wählbarer Geschmackswert: unter Rx(30)·Ry(135) ist ein Einheitswürfel
+     * {@code 2·(0.5·cos30 + √½·sin30) = 1.5731} hoch, das Icon also {@code 0.625 · 1.5731 =
+     * 0.983 × Slot} — es passt gerade noch hinein. Der frühere Wert 0.66 ergab 1.038 und ließ
+     * jeden Block oben und unten ~0,3 px über den Slotrahmen ragen.
+     */
+    private static final float ICON_SCALE = 0.625f;
 
     /* Pro-Achsen-Helligkeit NUR im Icon (Stell-Schrauben für den Iso-Look, kleiner = dunkler). In der
        Iso-Ansicht sichtbar sind genau drei Flächengruppen: oben, X-Achse (West/Ost) und Z-Achse

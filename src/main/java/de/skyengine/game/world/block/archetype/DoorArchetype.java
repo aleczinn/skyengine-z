@@ -18,7 +18,7 @@ public final class DoorArchetype implements Archetype {
                 .property(Properties.HALF)
                 .property(Properties.OPEN)
                 .property(Properties.HINGE)
-                .behavior(new DoorBehavior())
+                .behavior(new DoorBehavior(def.hand_openable))
                 .shapes(Shapes.door())
                 .opaque(state -> false);
     }

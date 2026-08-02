@@ -1,5 +1,6 @@
 {
   "id": "skyengine:dirt_path",
+  "creative_tab": "natural",
   "type": "cube",
   "layer": "opaque",
   "opaque": false,

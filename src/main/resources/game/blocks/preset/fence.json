@@ -1,5 +1,6 @@
 {
   "_comment": "Preset: Zaun. Pfosten + vier zuschaltbare Arme; eigenes Icon-Modell mit Ueberstaenden.",
+  "creative_tab": "building_blocks",
   "type": "fence",
   "layer": "cutout",
   "opaque": false,

@@ -1,4 +1,5 @@
 {
   "id": "skyengine:redstone",
-  "parent": "preset/material"
+  "parent": "preset/material",
+  "creative_tab": ["ingredients", "redstone_blocks"]
 }

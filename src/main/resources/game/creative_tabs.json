@@ -1,0 +1,113 @@
+{
+  "_comment": "Reiter des Creative-Inventars. Reihenfolge der Reiter = Anzeigereihenfolge. type: items (Default) | search | inventory. Welcher Block/welches Item in welchem Tab landet, steht in dessen eigener JSON unter 'creative_tab' (String oder Liste). 'items' gibt die Reihenfolge INNERHALB des Reiters vor; was dort fehlt, haengt hinten an und wird beim Start als Warnung gemeldet.",
+  "_comment_items": "Ein Eintrag ist entweder eine ID (Namespace optional) oder eine Gruppe {\"for\": \"<achse>\", \"items\": [...]}. Ein {achse}-Platzhalter in einer ID expandiert ueber alle Achsenwerte (Achse als INNERE Schleife: '{color}_wool' = alle 16 Wollen am Stueck). Eine Gruppe legt die Achse dagegen als AEUSSERE Schleife darum (erst alles fuer oak, dann fuer spruce, ...) - das ergibt MCs 'Familie zuerst'. Expansionen ohne passenden Block werden still uebersprungen (es gibt z.B. keinen stripped_oak_log); ein Muster, das GAR NICHTS trifft, meldet sich als Warnung.",
+
+  "axes": {
+    "wood": ["oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "mangrove", "pale_oak"],
+    "color": ["white", "light_gray", "gray", "black", "brown", "red", "orange", "yellow",
+              "lime", "green", "cyan", "light_blue", "blue", "purple", "magenta", "pink"],
+    "tier": ["wooden", "stone", "copper", "iron", "golden", "diamond", "netherite"]
+  },
+
+  "tabs": [
+    {
+      "id": "building_blocks",
+      "icon": "skyengine:bricks",
+      "items": [
+        { "for": "wood", "items": [
+            "{wood}_log", "stripped_{wood}_log", "{wood}_planks",
+            "{wood}_stairs", "{wood}_slab", "{wood}_fence"
+        ]},
+
+        "stone", "stone_stairs", "stone_slab",
+        "cobblestone", "cobblestone_stairs", "cobblestone_slab",
+        "stone_bricks", "mossy_stone_bricks", "cracked_stone_bricks", "chiseled_stone_bricks",
+        "granite", "polished_granite",
+        "diorite", "polished_diorite",
+        "andesite", "polished_andesite",
+        "tuff", "polished_tuff", "chiseled_tuff", "tuff_bricks", "chiseled_tuff_bricks",
+        "smooth_basalt", "polished_basalt",
+        "sandstone", "chiseled_sandstone", "cut_sandstone",
+        "red_sandstone", "chiseled_red_sandstone", "cut_red_sandstone",
+        "bricks", "mud_bricks", "packed_mud", "terracotta",
+        "glass", "glass_pane", "iron_bars"
+      ]
+    },
+    {
+      "id": "colored_blocks",
+      "icon": "skyengine:cyan_wool",
+      "items": ["{color}_wool", "{color}_terracotta"]
+    },
+    {
+      "id": "natural",
+      "icon": "skyengine:grass_block",
+      "items": [
+        "grass_block", "podzol", "dirt_path", "dirt", "coarse_dirt", "rooted_dirt",
+        "mud", "muddy_mangrove_roots", "clay", "gravel", "sand",
+
+        "stone", "netherrack", "basalt", "end_stone", "obsidian", "magma_block",
+        "soul_sand", "soul_soil", "bedrock",
+
+        "coal_ore", "iron_ore", "copper_ore", "gold_ore",
+        "redstone_ore", "emerald_ore", "lapis_ore", "diamond_ore",
+
+        "ice", "packed_ice", "blue_ice", "snow",
+
+        "{wood}_leaves",
+
+        "short_grass", "fern", "tall_grass", "dead_bush",
+        "dandelion", "poppy", "azure_bluet", "red_tulip", "orange_tulip",
+        "white_tulip", "pink_tulip", "cornflower", "lilac",
+
+        "brown_mushroom", "red_mushroom", "brown_mushroom_block", "red_mushroom_block", "mushroom_stem",
+
+        "pumpkin", "carved_pumpkin", "melon", "cactus"
+      ]
+    },
+    {
+      "id": "functional",
+      "icon": "skyengine:torch",
+      "items": [
+        "crafting_table", "chest", "enchanting_table",
+        "{wood}_door", "iron_door",
+        "{wood}_trapdoor", "iron_trapdoor",
+        "torch", "tnt", "slime_block", "honey_block"
+      ]
+    },
+    {
+      "id": "redstone_blocks",
+      "icon": "skyengine:redstone",
+      "items": [
+        "redstone"
+      ]
+    },
+    {
+      "id": "tools",
+      "icon": "skyengine:iron_pickaxe",
+      "items": [
+        { "for": "tier", "items": [
+            "{tier}_pickaxe", "{tier}_axe", "{tier}_shovel", "{tier}_sword"
+        ]},
+        "bucket", "water_bucket", "lava_bucket"
+      ]
+    },
+    {
+      "id": "food",
+      "icon": "skyengine:apple",
+      "items": ["apple", "bread"]
+    },
+    {
+      "id": "ingredients",
+      "icon": "skyengine:iron_ingot",
+      "items": [
+        "stick", "coal", "charcoal",
+        "iron_ingot", "copper_ingot", "gold_ingot",
+        "diamond", "emerald", "lapis_lazuli", "redstone",
+        "flint", "clay_ball", "brick", "paper", "leather"
+      ]
+    },
+    { "id": "misc",      "icon": "skyengine:flint" },
+    { "id": "search",    "icon": "skyengine:flint", "type": "search" },
+    { "id": "inventory", "icon": "skyengine:chest", "type": "inventory" }
+  ]
+}

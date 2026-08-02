@@ -39,6 +39,27 @@ public final class GuiTextures {
 
     /* Icons für quadratische Buttons (IconButton) — Motiv-Ausschnitt macht der IconButton. */
     public Texture iconImport;
+    /** Lupe (12×12) als Icon des Such-Reiters — dieses Projekt hat kein Kompass-Item. */
+    public Texture iconSearch;
+
+    /* Creative-Inventar: die drei Fenster-Sheets (256×256, Fenster 195×136) ... */
+    public Texture creativeTabItems;
+    public Texture creativeTabSearch;
+    public Texture creativeTabInventory;
+    /* ... die Reiter-Sprites beider Reihen (26×32). MC liefert je sieben Varianten, aber die
+       sieben "unselected" sind byte-identisch und von den "selected" unterscheiden sich nur die
+       Randspalten 1 (links) und 7 (rechts) von der Mitte — deshalb nur vier Texturen je Reihe. */
+    public Texture creativeTabTopUnselected;
+    public Texture creativeTabTopSelectedLeft;
+    public Texture creativeTabTopSelectedMid;
+    public Texture creativeTabTopSelectedRight;
+    public Texture creativeTabBottomUnselected;
+    public Texture creativeTabBottomSelectedLeft;
+    public Texture creativeTabBottomSelectedMid;
+    public Texture creativeTabBottomSelectedRight;
+    /* ... und der Scroller (12×15; die Schiene ist ins Fenster-Sheet gemalt). */
+    public Texture creativeScroller;
+    public Texture creativeScrollerDisabled;
 
     /* Gekachelter Hintergrund für Titel-/Ladebildschirm (32er-Kacheln) */
     public Texture menuBackground;
@@ -75,6 +96,24 @@ public final class GuiTextures {
 
         /* Globus (40×20); der Globus-Kern liegt bei x12..27, y2..17 — Zuschnitt im IconButton. */
         this.iconImport = load("game/textures/gui/sprites/icon/new_realm.png");
+        this.iconSearch = load("game/textures/gui/sprites/icon/search.png");
+
+        String creative = "game/textures/gui/container/creative_inventory/";
+        this.creativeTabItems = load(creative + "tab_items.png");
+        this.creativeTabSearch = load(creative + "tab_item_search.png");
+        this.creativeTabInventory = load(creative + "tab_inventory.png");
+
+        String tabs = "game/textures/gui/sprites/container/creative_inventory/";
+        this.creativeTabTopUnselected = load(tabs + "tab_top_unselected_1.png");
+        this.creativeTabTopSelectedLeft = load(tabs + "tab_top_selected_1.png");
+        this.creativeTabTopSelectedMid = load(tabs + "tab_top_selected_2.png");
+        this.creativeTabTopSelectedRight = load(tabs + "tab_top_selected_7.png");
+        this.creativeTabBottomUnselected = load(tabs + "tab_bottom_unselected_1.png");
+        this.creativeTabBottomSelectedLeft = load(tabs + "tab_bottom_selected_1.png");
+        this.creativeTabBottomSelectedMid = load(tabs + "tab_bottom_selected_2.png");
+        this.creativeTabBottomSelectedRight = load(tabs + "tab_bottom_selected_7.png");
+        this.creativeScroller = load(tabs + "scroller.png");
+        this.creativeScrollerDisabled = load(tabs + "scroller_disabled.png");
 
         /* Fehlertolerant: Bild + Logo sind optionale User-Assets. Mipmaps + trilinear,
            weil beide beim Zeichnen stark herunterskaliert werden. */
@@ -117,6 +156,20 @@ public final class GuiTextures {
         if (this.textField != null) this.textField.dispose();
         if (this.textFieldHighlighted != null) this.textFieldHighlighted.dispose();
         if (this.iconImport != null) this.iconImport.dispose();
+        if (this.iconSearch != null) this.iconSearch.dispose();
+        if (this.creativeTabItems != null) this.creativeTabItems.dispose();
+        if (this.creativeTabSearch != null) this.creativeTabSearch.dispose();
+        if (this.creativeTabInventory != null) this.creativeTabInventory.dispose();
+        if (this.creativeTabTopUnselected != null) this.creativeTabTopUnselected.dispose();
+        if (this.creativeTabTopSelectedLeft != null) this.creativeTabTopSelectedLeft.dispose();
+        if (this.creativeTabTopSelectedMid != null) this.creativeTabTopSelectedMid.dispose();
+        if (this.creativeTabTopSelectedRight != null) this.creativeTabTopSelectedRight.dispose();
+        if (this.creativeTabBottomUnselected != null) this.creativeTabBottomUnselected.dispose();
+        if (this.creativeTabBottomSelectedLeft != null) this.creativeTabBottomSelectedLeft.dispose();
+        if (this.creativeTabBottomSelectedMid != null) this.creativeTabBottomSelectedMid.dispose();
+        if (this.creativeTabBottomSelectedRight != null) this.creativeTabBottomSelectedRight.dispose();
+        if (this.creativeScroller != null) this.creativeScroller.dispose();
+        if (this.creativeScrollerDisabled != null) this.creativeScrollerDisabled.dispose();
         if (this.menuBackground != null) this.menuBackground.dispose();
         if (this.menuBackgroundImage != null) this.menuBackgroundImage.dispose();
         if (this.logo != null) this.logo.dispose();

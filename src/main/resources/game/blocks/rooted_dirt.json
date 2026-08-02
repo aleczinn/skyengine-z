@@ -1,5 +1,6 @@
 {
   "id": "skyengine:rooted_dirt",
+  "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 0.5,
   "tool": "shovel"

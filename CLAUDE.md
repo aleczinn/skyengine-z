@@ -147,8 +147,18 @@ ausdrücken).
   vegetationDistance, `LeavesQuality` (LOW/MID/HIGH inkl. Laub-an-Laub-Culling im Mesher),
   GraphicsMode, anisotropicFiltering, msaaSamples, fog, Helligkeit, GuiScale,
   sneakToggle/sprintToggle, `soundVolumes`-Mischpult + audioDevice
-- Block-System (Architektur gilt als **reif — kein Rewrite**): ~186 JSON-Blöcke, Archetypen,
-  Behaviors, Verbindungen (Zaun/Pane/Cable), Türen, BlockEntities + Capabilities (Item/Energie)
+- Block-System (Architektur gilt als **reif — kein Rewrite**): ~203 JSON-Blöcke, Archetypen,
+  Behaviors, Verbindungen (Zaun/Pane/Cable), BlockEntities + Capabilities (Item/Energie).
+  **Türen in allen 8 Holzsorten + Eisen** über `blocks/preset/door.json`: die 32 Varianten
+  (facing × half × hinge × open) stehen dort EINMAL, die Rümpfe `models/block/door_*.json`
+  ziehen ihre Textur per `#bottom`/`#top` aus der Block-JSON. Ein Kind ist damit zwei Zeilen.
+  Die Eisentür setzt `"hand_openable": false` (JSON-Feld → `DoorArchetype` → `DoorBehavior`):
+  Rechtsklick tut nichts, sie braucht ein Signal — das es noch **nicht** gibt, sie ist also
+  bewusst vorerst ohne Funktion. **Falltüren** analog über `preset/trapdoor.json` +
+  Archetyp `trapdoor` (FACING/HALF/OPEN, EINTEILIG — kein `parts`, kein HINGE, 16 States),
+  `Shapes.trapdoor()`, `TrapdoorBehavior`; Geometrie und alle 16 Varianten verbatim aus MC
+  (geschlossen wird NICHT gedreht, nur die offene Variante). Auch hier eine Eisenvariante
+  ohne Handbedienung
 - Block-Materialwerte in der JSON, alle vanilla-getreu: `hardness` (Abbau, negativ = unzerstörbar),
   `tool`/`harvest_tier` (Drop-Regel), **`resistance`** (Explosions-Widerstand; fehlt das Feld,
   gilt `hardness` — es steht deshalb nur bei den ~80 Blöcken, wo MC beide Werte auseinanderzieht:
@@ -241,19 +251,73 @@ ausdrücken).
   (MUSIC/BLOCKS/PLAYER/… — `GameSettings.soundVolumes`-Map statt eines einzelnen
   musicVolume) + Master-Volume + Audiogeräte-Auswahl (`audioDevice`); Assets =
   MC-Platzhalter via `scripts/extract-mc-sounds.ps1` — Details im Skill `sound-system`
-- GUI-System komplett (graphics/gui): Widget-Basis (`GuiComponent` + Button/Slider/CycleButton/
-  KeybindButton/Label/TextField, 9-Slice), Stack-Layout (VStack/HStack/Anchor), Screen-Basis mit
+- GUI-System komplett (graphics/gui): **Schriftgrößen zentral in `GuiText`** (TINY 7 / SMALL 8 /
+  COMPACT 9 / NORMAL 10 / MEDIUM 12 / TITLE 14 / LARGE 20 / HERO 32) — die einzige Stellschraube,
+  21 Dateien hängen daran. Die acht Stufen sind die gewachsene Abstufung der GUI und **bewusst
+  nicht zusammengelegt**: ein Einebnen auf wenige Größen zerstört die Hierarchie. Achtung: der
+  Font ist **monospace** (Breite ≈ 0,5 × Größe × Zeichen — seit `FontRenderer.SPACE_ADVANCE`
+  eine Obergrenze, weil das Leerzeichen schmaler gezeichnet wird), Hochdrehen kostet proportional
+  Platz und es gibt **kein Clipping** — der 200-px-Standard-Button verträgt höchstens
+  `NORMAL = 11` („Speichern und zurück zum Hauptmenü" = 34 Zeichen); feste Widget-Breiten und die
+  hartkodierten Textzeilen-Offsets in `GuiSelectWorld`/`GuiImportWorld` müssten sonst mitwachsen.
+  **Wortlücken** stellt `FontRenderer.SPACE_ADVANCE` ein (0.65 = MC-Verhältnis): Monocraft ist
+  echt monospace, das Leerzeichen wäre sonst so breit wie ein „M". Mess- und Zeichenpfad teilen
+  sich dafür `advanceOf` — der Zeichenpfad führt den Stift seither selbst, statt sich auf die
+  `xpos`-Rückschreibung von `stbtt_GetPackedQuad` zu verlassen.
+  Widget-Basis (`GuiComponent` + Button/Slider/CycleButton/
+  KeybindButton/Label/TextField, 9-Slice; `TextField.borderless()` für Felder über einem schon
+  gemalten Kasten), Stack-Layout (VStack/HStack/Anchor), Screen-Basis mit
   parent-Navigation + vollem Event-Routing (Maus/Drag/Scroll/Keys/Char via SPSC-Queue);
   Screens: Titel, Pause (ESC — beendet NICHT mehr!), Optionen+Grafik (Live-Apply), Tastenbelegung
   (Rebinding+Reset, Capture schluckt alle Tasten), Weltauswahl/Erstellen/Löschen, Welt-Ladebalken
   (`isInitialLoadComplete`), Boot-Ladebildschirm (gestaffelte Init, Fenster früh), Inventar (E) +
-  Truhe auf gemeinsamer `GuiContainer`-Basis, Todesscreen, Sprachauswahl (i18n,
+  Truhe auf gemeinsamer `GuiContainer`-Basis, **Creative-Inventar** (`GuiCreativeInventory`,
+  im Creative statt `GuiInventory`: zwei Reiter-Reihen über und unter dem Fenster mit
+  Item-Icons + Tooltips (Spalten 0-4 linksbündig, 5-6 rechtsbündig wie MC — dadurch schließen
+  erster und letzter Reiter bündig mit den Fensterkanten ab; Suche oben rechts, Survival-
+  Inventar unten rechts angeheftet), Seiten-Blättern,
+  9×5-Liste mit Scroller, Such-Reiter, Survival-Reiter mit Lösch-Slot; Reiter stehen in
+  `game/creative_tabs.json`, die Zuordnung im Feld `creative_tab` der Block-/Item-JSONs —
+  vererbbar über die Presets, ungetaggte Items landen sichtbar im Sammel-Reiter `misc`.
+  Die **Reihenfolge INNERHALB eines Reiters** steht ebenfalls in `creative_tabs.json`
+  (Feld `items` je Reiter, Namespace optional) — kuratiert wie MCs `CreativeModeTabs`,
+  Familie-zuerst (erst die Eichen-Familie komplett, dann Fichte …) bzw. Typ-zuerst bei den
+  farbigen Blöcken (16× Wolle, dann 16× Terrakotta, Farbfolge weiß→hellgrau→grau→schwarz→
+  braun→rot→…→rosa). `CreativeTabs.build()` sortiert nur diese **Anzeigeliste**; die
+  Registry-Reihenfolge (alphabetisch nach Dateiname) bleibt unangetastet, weil an ihr die
+  Runtime-State-IDs und damit die Weltspeicher hängen — Blöcke umzubenennen wäre der falsche
+  Weg. Für die regelmäßigen Familien gibt es **Achsen-Expansion** (`axes`: `wood`/`color`/`tier`):
+  `"{color}_wool"` expandiert die Achse als INNERE Schleife (16 Wollen am Stück),
+  `{"for":"wood","items":[…]}` als ÄUSSERE (erst alles für Eiche, dann Fichte). Expansionen
+  ohne Block werden still übersprungen (es gibt keinen `stripped_oak_log`); Unregelmäßiges
+  (`bricks`, `terracotta`, `glass_pane`, `iron_bars`, `smooth_basalt`) bleibt bewusst explizit.
+  Nicht gelistete Items hängen stabil hinten an; drei Warnungen decken den Rest ab (Item
+  ungelistet / wörtliche ID ohne Item / Muster ohne EINEN Treffer = Tippfehler),
+  Prüfstand `gradlew saveTest`. Der Item-Tooltip im Creative zeigt unter dem Namen die Reiter
+  in `Colors.BLUE` (`CreativeTabs.tabsOf`, Override von `tooltipLines` nur im Creative-Screen —
+  im Survival-Inventar und in der Truhe soll die Zeile NICHT stehen)),
+  Todesscreen, Sprachauswahl (i18n,
   Live-Wechsel), Sound-Optionen, Grafik-Optionen (`GuiVideoSettings`), MC-Welt-Import
   (`GuiImportWorld`), Bestätigungsdialog (`GuiConfirm`), Ressourcenpakete-Platzhalter
   (`GuiResourcePacks`) und der **GuiDebugScreen** (Optionsmenü) mit allen Debug-Schaltern
-  (Wireframe, GpuCull + Tint, LOD-Overlay, Loading einfrieren, Chunks neu laden u.a. — die
-  früheren F-Hotkeys dafür sind weg); GuiScale = Prozent (30–170, 100 % ≈ 3,5×), garantierte
-  virtuelle Mindestfläche 340×240 (deckt das höchste Fenster ab — die Doppeltruhe mit 222 px)
+  (Wireframe, GpuCull + Tint, LOD-Overlay, Loading einfrieren, Chunks neu laden, **GUI-Slot-
+  Flächen** u.a. — die früheren F-Hotkeys dafür sind weg); **GuiScale = ganzzahliger Faktor**
+  (`GameSettings.guiScaleLevel`, 0 = automatisch, sonst 1..6), garantierte virtuelle
+  Mindestfläche 340×240 (deckt das höchste Fenster ab — die Doppeltruhe mit 222 px).
+  Zwischenstufen kann es NICHT geben: nur bei ganzzahligem Faktor ist 1 virtueller Pixel = N
+  ganze Gerätepixel. Bei 3,85 wurde eine 1-Texel-Linie mal 3, mal 4 px breit und 16-px-Sprites
+  ragten in ihre Slotrahmen (gemessen) — deshalb ist die frühere Prozent-Einstellung weg.
+  Auflösung Wunsch+Fenstergröße → Faktor an EINER Stelle: `GuiManager.resolveScale`
+  (auch von `BootProgress` genutzt), Obergrenze `maxScaleFor` = abgerundet, sonst fiele die
+  Mindestfläche. Das Optionsmenü bietet nur Faktoren an, die ins Fenster passen.
+  Abnahmetest: Lauflängen-Histogramm der Linienbreiten im Screenshot muss genau EINE Breite
+  zeigen. Deshalb müssen GUI-Positionen auf **ganze virtuelle Pixel** gerundet werden
+  (`Hud`, `GuiCreativeInventory.init`, Container-Slots).
+  Slot-Trefferflächen sind um `GuiContainer.HIT_PAD = 1` erweitert, damit bei Raster 18 /
+  Größe 16 keine tote Zone zwischen zwei Slots bleibt (MC macht das in `isHovering` genauso);
+  der Hover-Kasten bleibt 16×16. Icon-Größe im Slot: `ItemIconRenderer.ICON_SCALE = 0.625`
+  = MCs `gui`-Display-Scale — der Iso-Würfel ist projiziert `1.5731 ×` seiner Kante hoch,
+  mehr als 0.635 ragt oben/unten aus dem Slot
 - Spieler-Rendering (graphics/player): Humanoid-Modell mit Classic-Skin 64×64 (skin.png im
   Spielordner überschreibt Steve), Inventar-Vorschau (folgt Maus), F5-Perspektiven
   (Ego/hinten/vorne mit Kamera-Kollisions-Raycast; Interaktion zielt IMMER vom Auge;
@@ -283,10 +347,13 @@ ausdrücken).
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
   (Andockpunkt: `GuiContainer.onSlotClick`)
 - Controller-Support: `Input.isControllerButton*`/`getControllerAxis` sind TODO-Stubs
-- Testblöcke in `game/StartInventory` (u.a. Truhe, Fackel, Eimer, iron_bars, Eis/Soul-Sand/Honig) —
-  ohne Crafting/Creative-Menü der einzige Weg, sie in die Hand zu bekommen; greift
-  nur bei einer **frisch erstellten** Welt. Die **15 Material-Items liegen dort nicht** (beim
-  Zusammenkürzen der Methode entfallen) und sind damit aktuell unerreichbar
+- Creative-Inventar-Feinschliff: Hotbar-Speicher (MCs C + 1-9) fehlt bewusst; der reservierte
+  Reiter-Platz (Spalte 5 beider Reihen) ist dafür schon frei gehalten. Klick-Verhalten der
+  Item-Liste ist bewusst NICHT ganz MC: Linksklick gibt **1** Item und stapelt bei weiteren
+  Klicks hoch, Rechtsklick zählt herunter, ein fremdes Item leert die Hand (die Liste ist der
+  Mülleimer); Bulk gibt es über Shift-Klick und die Tasten 1-9. Aufgemacht wird **immer** der
+  Such-Reiter mit fokussiertem Feld — deshalb schließt **ESC**, nicht E (das „e" läuft ins
+  Suchfeld, wie in MC)
 - Bett/Reaktor: die Mechanik steht (`parts`, s.o.), es fehlen nur noch die Blöcke selbst —
   ein Bett braucht ein eigenes 3D-Modell + Texturen. `multiblock/MultiblockPattern` bleibt
   ungenutzte Infrastruktur für Controller-Strukturen (validiert eine Struktur aus FREMDEN

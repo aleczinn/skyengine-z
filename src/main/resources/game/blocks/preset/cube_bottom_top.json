@@ -1,5 +1,6 @@
 {
   "_comment": "Preset: Vollwuerfel mit eigener Ober-/Unterseite (Grasblock, Sandstein, TNT).",
+  "creative_tab": "building_blocks",
   "type": "cube",
   "layer": "opaque",
   "vars": {

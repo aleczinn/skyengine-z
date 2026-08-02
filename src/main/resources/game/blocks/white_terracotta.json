@@ -1,5 +1,6 @@
 {
   "id": "skyengine:white_terracotta",
+  "creative_tab": "colored_blocks",
   "parent": "preset/cube",
   "hardness": 1.25,
   "resistance": 4.2,

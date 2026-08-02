@@ -16,6 +16,7 @@ import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.GuiComponent;
 import de.skyengine.graphics.gui.widget.IconButton;
 import de.skyengine.graphics.gui.widget.Label;
+import de.skyengine.graphics.gui.GuiText;
 import org.lwjgl.glfw.GLFW;
 
 import java.text.SimpleDateFormat;
@@ -80,8 +81,8 @@ public final class GuiSelectWorld extends GuiScreen {
 
         @Override
         public void renderText(GuiManager gui, double mx, double my) {
-            gui.font().drawStringWithShadow(this.name, this.x + 4, this.y + 3, 10, Colors.WHITE);
-            gui.font().drawString(this.subtitle, this.x + 4, this.y + 15, 8, SUBTITLE);
+            gui.font().drawStringWithShadow(this.name, this.x + 4, this.y + 3, GuiText.NORMAL, Colors.WHITE);
+            gui.font().drawString(this.subtitle, this.x + 4, this.y + 15, GuiText.SMALL, SUBTITLE);
         }
 
         @Override
@@ -118,7 +119,7 @@ public final class GuiSelectWorld extends GuiScreen {
         this.saves = WorldSaves.list();
         if (this.selected >= this.saves.size()) this.selected = -1;
 
-        Label title = new Label(I18n.tr("world.select.title"), 14).measure(gui);
+        Label title = new Label(I18n.tr("world.select.title"), GuiText.TITLE).measure(gui);
         title.layoutAt((vW - title.width()) / 2f, 6);
 
         this.play = new Button(I18n.tr("world.select.play"), 130, 20, () -> {
@@ -152,7 +153,7 @@ public final class GuiSelectWorld extends GuiScreen {
 
         this.select(this.selected);
 
-        this.listTop = 6 + 14 + 6;
+        this.listTop = 6 + GuiText.TITLE + 6;
         this.listBottom = vH - 56;
 
         this.rows = new VStack(ROW_GAP);
@@ -162,7 +163,7 @@ public final class GuiSelectWorld extends GuiScreen {
             this.rows.add(entry);
         }
         if (this.saves.isEmpty()) {
-            Label empty = new Label(I18n.tr("world.select.empty"), 10, SUBTITLE, false).measure(gui);
+            Label empty = new Label(I18n.tr("world.select.empty"), GuiText.NORMAL, SUBTITLE, false).measure(gui);
             this.entries.add(empty);
             this.rows.add(empty);
         }

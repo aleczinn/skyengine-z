@@ -20,7 +20,7 @@ import java.util.Locale;
  */
 public final class DebugOverlay {
 
-    private static final float TEXT_SIZE = 10.0F;
+    private static final float TEXT_SIZE = GuiText.NORMAL;
     private static final float MARGIN = 2.5F;
 
     /** 8 Himmelsrichtungen (i18n-Keys), Index = round(yaw/45) % 8; yaw 0 blickt Richtung -Z. */

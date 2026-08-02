@@ -10,6 +10,7 @@ import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.SpriteRenderer;
+import de.skyengine.graphics.gui.GuiText;
 
 /**
  * Welt-Ladebildschirm nach dem Eintritt: Balken ≈ READY-Chunks / Lade-Kreis; schließt sich,
@@ -64,7 +65,7 @@ public final class GuiWorldLoading extends GuiScreen {
         String text = I18n.tr("world.loading");
         gui.font().begin(vW, vH);
         gui.font().drawStringWithShadow(text,
-                (vW - gui.font().getStringWidth(text, 12)) / 2f, vH / 2f - 12, 12, Colors.WHITE);
+                (vW - gui.font().getStringWidth(text, GuiText.MEDIUM)) / 2f, vH / 2f - 12, GuiText.MEDIUM, Colors.WHITE);
         gui.font().end();
     }
 }

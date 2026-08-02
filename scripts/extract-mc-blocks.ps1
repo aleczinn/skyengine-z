@@ -46,7 +46,24 @@ $wanted = @(
     'end_stone.png',
     'netherrack.png',
     'magma.png',
-    'magma.png.mcmeta'
+    'magma.png.mcmeta',
+
+    # Tueren: je Sorte eine obere und eine untere Haelfte. Die Item-Sprites liegen bereits
+    # unter textures/item/ und kommen aus extract-mc-items.ps1.
+    'oak_door_bottom.png', 'oak_door_top.png',
+    'spruce_door_bottom.png', 'spruce_door_top.png',
+    'birch_door_bottom.png', 'birch_door_top.png',
+    'jungle_door_bottom.png', 'jungle_door_top.png',
+    'acacia_door_bottom.png', 'acacia_door_top.png',
+    'dark_oak_door_bottom.png', 'dark_oak_door_top.png',
+    'mangrove_door_bottom.png', 'mangrove_door_top.png',
+    'pale_oak_door_bottom.png', 'pale_oak_door_top.png',
+    'iron_door_bottom.png', 'iron_door_top.png',
+
+    # Falltueren: je Sorte EINE Textur, die alle drei Modellrumpfe teilen.
+    'oak_trapdoor.png', 'spruce_trapdoor.png', 'birch_trapdoor.png', 'jungle_trapdoor.png',
+    'acacia_trapdoor.png', 'dark_oak_trapdoor.png', 'mangrove_trapdoor.png',
+    'pale_oak_trapdoor.png', 'iron_trapdoor.png'
 )
 
 $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $jar))

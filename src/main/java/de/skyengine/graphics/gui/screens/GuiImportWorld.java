@@ -5,6 +5,7 @@ import de.skyengine.game.world.save.WorldSaves;
 import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
+import de.skyengine.graphics.gui.GuiText;
 import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.ScrollBar;
 import de.skyengine.graphics.gui.text.RichText;
@@ -42,7 +43,7 @@ public final class GuiImportWorld extends GuiScreen {
 
     private static final float ENTRY_H = 24, ROW_GAP = 2;
     private static final float SCROLL_STEP = 30;
-    private static final float LOG_SIZE = 8;
+    private static final float LOG_SIZE = GuiText.SMALL;
     private static final Color4 SUBTITLE = new Color4(0.65f, 0.65f, 0.65f, 1f);
 
     /* Layout (virtueller Raum, min. 340×210). */
@@ -112,8 +113,8 @@ public final class GuiImportWorld extends GuiScreen {
 
         @Override
         public void renderText(GuiManager gui, double mx, double my) {
-            gui.font().drawStringWithShadow(this.name, this.x + 4, this.y + 2, 9, Colors.WHITE);
-            gui.font().drawString(this.subtitle, this.x + 4, this.y + 13, 7, SUBTITLE);
+            gui.font().drawStringWithShadow(this.name, this.x + 4, this.y + 2, GuiText.COMPACT, Colors.WHITE);
+            gui.font().drawString(this.subtitle, this.x + 4, this.y + 13, GuiText.TINY, SUBTITLE);
         }
 
         @Override
@@ -187,7 +188,7 @@ public final class GuiImportWorld extends GuiScreen {
         this.components.clear();
         this.entries.clear();
 
-        Label title = new Label(I18n.tr("world.import.title"), 12).measure(gui);
+        Label title = new Label(I18n.tr("world.import.title"), GuiText.MEDIUM).measure(gui);
         title.layoutAt((vW - title.width()) / 2f, 6);
         this.components.add(title);
 
@@ -198,9 +199,9 @@ public final class GuiImportWorld extends GuiScreen {
         this.source = new TextField(fieldW, 18, 256, null).text(this.sourcePath);
         this.name = new TextField(fieldW, 18, 32, null).text(this.worldName);
         VStack fields = new VStack(2,
-                new Label(I18n.tr("world.import.source"), 8).measure(gui),
+                new Label(I18n.tr("world.import.source"), GuiText.SMALL).measure(gui),
                 this.source,
-                new Label(I18n.tr("world.import.name"), 8).measure(gui),
+                new Label(I18n.tr("world.import.name"), GuiText.SMALL).measure(gui),
                 this.name).align(VStack.Align.LEFT);
         fields.layoutAt(fieldsX, TOP);
         this.components.add(fields);
@@ -240,7 +241,7 @@ public final class GuiImportWorld extends GuiScreen {
             this.rows.add(entry);
         }
         if (this.saves.isEmpty()) {
-            Label empty = new Label(I18n.tr("world.import.empty"), 7, SUBTITLE, false).measure(gui);
+            Label empty = new Label(I18n.tr("world.import.empty"), GuiText.TINY, SUBTITLE, false).measure(gui);
             this.entries.add(empty);
             this.rows.add(empty);
         }

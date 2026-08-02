@@ -1,0 +1,10 @@
+{
+  "_comment": "Wie die Eisentuer: laesst sich NICHT von Hand oeffnen, sie braucht ein Signal (Etappe 3).",
+  "id": "skyengine:iron_trapdoor",
+  "parent": "preset/trapdoor",
+  "hardness": 5,
+  "resistance": 5,
+  "tool": "pickaxe",
+  "open_sound": "iron_door",
+  "hand_openable": false
+}

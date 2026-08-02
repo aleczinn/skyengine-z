@@ -43,6 +43,14 @@ public final class FontRenderer {
     private static final String FAMILY = "monocraft";
     /** Scherung für simuliertes Kursiv, wenn kein italic-Schnitt vorliegt (MC-Look). */
     private static final float ITALIC_SHEAR = 0.2f;
+    /**
+     * Vorschub des Leerzeichens als Anteil des Font-Werts — die Stellschraube für die Wortlücken.
+     * 1.0 = unverändert: Monocraft ist monospace, das Leerzeichen ist dort also so breit wie ein
+     * 'M' (bei Größe 10 rund 5,3 virtuelle Pixel, während zwischen zwei Buchstaben nur 1 Pixel
+     * Luft liegt). 0.65 entspricht Minecrafts Verhältnis (Leerzeichen 4 px, Buchstabe 6 px).
+     * Kleiner = engere Wortlücken.
+     */
+    private static final float SPACE_ADVANCE = 0.65f;
     private static final int MAX_GLYPHS = 2048;
     private static final int FLOATS_PER_VERTEX = 8; // x,y | u,v | r,g,b,a
     private static final int FLOATS_PER_GLYPH = 6 * FLOATS_PER_VERTEX;
@@ -175,11 +183,19 @@ public final class FontRenderer {
         this.xpos.put(0, 0.0F);
         this.ypos.put(0, 0.0F);
 
+        float pen = 0f;
         for (int i = 0; i < text.length(); i++) {
-            atlas.getQuad(text.charAt(i), this.xpos, this.ypos, this.quad);
+            char c = text.charAt(i);
+            /* Den Stift SELBST führen: stbtt_GetPackedQuad schreibt seinen eigenen Vorschub nach
+               xpos zurück, wir wollen aber den aus advanceOf. Durch das Neusetzen vor jedem Glyph
+               kann die Zeichnung gar nicht von getStringWidth abweichen. */
+            this.xpos.put(0, pen);
+            atlas.getQuad(c, this.xpos, this.ypos, this.quad);
+            pen += this.advanceOf(atlas, c);
+
             float x0 = x + this.quad.x0() * scale;
             float x1 = x + this.quad.x1() * scale;
-            if (x1 <= x0) continue; // unsichtbar (z.B. Leerzeichen) — Advance ist schon passiert
+            if (x1 <= x0) continue; // unsichtbar (z.B. Leerzeichen) — der Vorschub ist schon drin
             float y0 = baseline + this.quad.y0() * scale;
             float y1 = baseline + this.quad.y1() * scale;
             /* Versatz pro Ecke: oben (über der Grundlinie) nach rechts, unten nach links. */
@@ -249,9 +265,19 @@ public final class FontRenderer {
         FontAtlas atlas = this.atlasFor(style);
         float width = 0;
         for (int i = 0; i < text.length(); i++) {
-            width += atlas.advance(text.charAt(i));
+            width += this.advanceOf(atlas, text.charAt(i));
         }
         return width * (size / FontAtlas.BAKE_PX);
+    }
+
+    /**
+     * Vorschub eines Zeichens in Bake-Einheiten — die EINZIGE Stelle, die {@link #SPACE_ADVANCE}
+     * anwendet. Messung ({@link #getStringWidth}) und Zeichnung benutzen sie gemeinsam, damit
+     * Layout und Rendering nicht auseinanderlaufen können.
+     */
+    private float advanceOf(FontAtlas atlas, char c) {
+        float advance = atlas.advance(c);
+        return c == ' ' ? advance * SPACE_ADVANCE : advance;
     }
 
     /** Zeilenhöhe (ascent − descent + lineGap) bei gegebener Zielgröße. */

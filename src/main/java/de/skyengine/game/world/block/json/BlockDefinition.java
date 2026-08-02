@@ -94,6 +94,10 @@ public class BlockDefinition {
        neben "sound" (siehe BlockOpenSound.resolve). null = der Block hat keinen. */
     public String open_sound;
 
+    /* Archetyp "door": lässt sich die Tür von Hand öffnen? Die Eisentür kann das in MC NICHT,
+       sie braucht ein Signal. Default true. */
+    public boolean hand_openable = true;
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;
@@ -154,6 +158,13 @@ public class BlockDefinition {
         public Map<String, int[]> offsets;
         public String relative_to;
     }
+
+    /* Creative-Tab(s) dieses Blocks: ein String ODER eine Liste von Strings (ein Block darf in
+       mehreren Tabs stehen, z.B. stone in building_blocks UND natural). Vererbbar über die
+       Presets — Achtung: ein Kind ERSETZT den Preset-Wert vollständig (JsonMerge ersetzt
+       Arrays/Primitiven, es hängt nicht an), wer den Preset-Tab behalten will, muss ihn mit
+       auflisten. Fehlt das Feld, landet der Block im Sammel-Tab "misc" (mit Warnung). */
+    public com.google.gson.JsonElement creative_tab;
 
     /* Optionales generisches Connection-System (Zäune, Pipes, Cables). */
     public ConnectionDef connection;

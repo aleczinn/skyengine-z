@@ -1,5 +1,6 @@
 {
   "id": "skyengine:muddy_mangrove_roots",
+  "creative_tab": "natural",
   "parent": "preset/cube_bottom_top",
   "vars": {
     "bottom": "muddy_mangrove_roots_top"

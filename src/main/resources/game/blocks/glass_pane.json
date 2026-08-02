@@ -1,5 +1,6 @@
 {
   "id": "skyengine:glass_pane",
+  "creative_tab": "building_blocks",
   "sound": "glass",
   "type": "pane",
   "layer": "translucent",

@@ -9,6 +9,7 @@ import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.*;
+import de.skyengine.graphics.gui.GuiText;
 
 /**
  * Hauptmenü (Startbildschirm): gekachelter Menü-Hintergrund, Titel, Einzelspieler / Optionen /
@@ -34,15 +35,15 @@ public final class GuiMainMenu extends GuiScreen {
         /* Logo-Bild, wenn vorhanden — sonst Text-Titel als Fallback. */
         GuiComponent title = gui.textures().logo != null
                 ? new Image(gui.textures().logo, 256)
-                : new Label(SkyEngine.ENGINE_NAME, 32).measure(gui);
+                : new Label(SkyEngine.ENGINE_NAME, GuiText.HERO).measure(gui);
         Button singleplayer = new Button(I18n.tr("gui.singleplayer"), () -> gui.open(new GuiSelectWorld(this)));
         Button multiplayer = new Button(I18n.tr("gui.multiplayer"), null);
         /* Nebeneinander wie in MC: 98 + 4 + 98 = 200 = Breite des Einzelspieler-Buttons. */
         Button options = new Button(I18n.tr("gui.options"), 98, 20, () -> gui.open(new GuiOptionsMenu(this)));
         Button quit = new Button(I18n.tr("gui.quit"), 98, 20, () -> SkyEngine.get().shutdown());
 
-        Label version = new Label(SkyEngine.ENGINE_NAME + " v" + SkyEngine.ENGINE_VERSION, 8, VERSION_COLOR, true).measure(gui);
-        Label copyright = new Label(I18n.tr("gui.menu.copyright"), 8, VERSION_COLOR, true).measure(gui);
+        Label version = new Label(SkyEngine.ENGINE_NAME + " v" + SkyEngine.ENGINE_VERSION, GuiText.SMALL, VERSION_COLOR, true).measure(gui);
+        Label copyright = new Label(I18n.tr("gui.menu.copyright"), GuiText.SMALL, VERSION_COLOR, true).measure(gui);
 
         /* Logo fest oben (wie die Menü-Titel), Buttons bleiben mittig. */
         this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));

@@ -14,6 +14,7 @@ import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.GuiComponent;
 import de.skyengine.graphics.gui.widget.KeybindButton;
 import de.skyengine.graphics.gui.widget.Label;
+import de.skyengine.graphics.gui.GuiText;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -70,7 +71,7 @@ public final class GuiKeybinds extends GuiScreen {
         this.rowComponents.clear();
         this.keyButtons.clear();
 
-        Label title = new Label(I18n.tr("options.keybinds.title"), 14).measure(gui);
+        Label title = new Label(I18n.tr("options.keybinds.title"), GuiText.TITLE).measure(gui);
         title.layoutAt((vW - title.width()) / 2f, 6);
 
         Button resetAll = new Button(I18n.tr("options.keybinds.reset_all"), 150, 20, () -> {
@@ -82,13 +83,13 @@ public final class GuiKeybinds extends GuiScreen {
         this.components.add(title);
         this.components.add(new HStack(6, resetAll, done).anchor(Anchor.BOTTOM_CENTER, 0, 6));
 
-        this.listTop = 6 + 14 + 6;
+        this.listTop = 6 + GuiText.TITLE + 6;
         this.listBottom = vH - 32;
 
         /* Zeilen: [Aktions-Label 110 | Keybind-Button 70 | Reset 50] */
         this.rows = new VStack(ROW_GAP);
         for (String action : KeyBindings.orderedActions()) {
-            Label name = new Label(KeyBindings.label(action), 10).measure(gui);
+            Label name = new Label(KeyBindings.label(action), GuiText.NORMAL).measure(gui);
             name.w = 110; // feste Spaltenbreite statt Textbreite (bündige Spalten)
             KeybindButton key = new KeybindButton(action, 70, 20);
             Button reset = new Button(I18n.tr("options.keybinds.reset"), 50, 20, () -> {
