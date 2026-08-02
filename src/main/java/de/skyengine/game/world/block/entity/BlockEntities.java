@@ -13,6 +13,7 @@ public final class BlockEntities {
     public static BlockEntityType<CableBlockEntity> ENERGY_CABLE;
     public static BlockEntityType<ChestBlockEntity> CHEST;
     public static BlockEntityType<EnchantingTableBlockEntity> ENCHANTING_TABLE;
+    public static BlockEntityType<PistonMovingBlockEntity> PISTON_MOVING;
 
     private static boolean registered;
 
@@ -28,6 +29,9 @@ public final class BlockEntities {
 
         ENCHANTING_TABLE = Registries.BLOCK_ENTITY.register(Identifier.of("enchanting_table"),
                 new BlockEntityType<>((type, pos, state) -> new EnchantingTableBlockEntity(type, pos), true));
+
+        PISTON_MOVING = Registries.BLOCK_ENTITY.register(Identifier.of("piston_moving"),
+                new BlockEntityType<>((type, pos, state) -> new PistonMovingBlockEntity(type, pos), true));
     }
 
     private BlockEntities() {}

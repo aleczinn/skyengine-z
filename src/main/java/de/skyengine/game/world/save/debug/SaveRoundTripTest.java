@@ -80,6 +80,24 @@ public final class SaveRoundTripTest {
         chunk.setBlock(12, 200, 12, decodeId(repeaterState));
         chunk.setBlock(13, 200, 13, decodeId(wireState));
         chunk.setBlock(14, 200, 14, decodeId(plateState));
+
+        /* Kolben: 6-Wege-Facing + der bewegte Block mitten in der Animation (Moving-BE mit
+           movedState als Codec-String) — Save/Load mitten im Schub muss die Bewegung
+           unverändert fortsetzen können. */
+        String pistonState = "skyengine:piston[extended=true,facing=up]";
+        String headState = "skyengine:piston_head[facing=down,type=sticky]";
+        chunk.setBlock(15, 200, 15, decodeId(pistonState));
+        chunk.setBlock(16, 200, 16, decodeId(headState));
+        int movingId = decodeId("skyengine:moving_piston");
+        chunk.setBlock(17, 200, 17, movingId);
+        de.skyengine.game.world.block.entity.PistonMovingBlockEntity moving =
+                (de.skyengine.game.world.block.entity.PistonMovingBlockEntity)
+                        BlockEntities.PISTON_MOVING.create(
+                                new BlockPos(3 * ChunkSection.SIZE + 17, 200, -7 * ChunkSection.SIZE + 17),
+                                Blocks.getState(movingId));
+        moving.configure(decodeId("skyengine:stone"),
+                de.skyengine.game.world.block.Direction.EAST, true, false);
+        chunk.setBlockEntity(17, 200, 17, moving);
         int repeaterX = 3 * ChunkSection.SIZE + 12, repeaterZ = -7 * ChunkSection.SIZE + 12;
 
         /* Scheduled-Ticks (v2): Quelle mit Rest-Delay = exakt der Fluid-Freeze-Bugfall.
@@ -173,6 +191,30 @@ public final class SaveRoundTripTest {
                 "Staub-State (Verbindungen + power) übersteht den Round-Trip");
         check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(14, 200, 14))).equals(plateState),
                 "Wägeplatten-State (power 0-15) übersteht den Round-Trip");
+
+        /* Kolben-Round-Trip: States + Moving-BE (Animation überlebt Save/Load). */
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(15, 200, 15))).equals(pistonState),
+                "Kolben-State (6-Wege-Facing + extended) übersteht den Round-Trip");
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(16, 200, 16))).equals(headState),
+                "Kolbenkopf-State (facing + type) übersteht den Round-Trip");
+        if (restored.getBlockEntity(17, 200, 17) instanceof
+                de.skyengine.game.world.block.entity.PistonMovingBlockEntity restoredMoving) {
+            check(restoredMoving.getMovedStateId() == decodeId("skyengine:stone")
+                            && restoredMoving.getFacing() == de.skyengine.game.world.block.Direction.EAST
+                            && restoredMoving.isExtending() && !restoredMoving.isSource(),
+                    "Moving-BE (movedState/facing/extending) übersteht den Round-Trip");
+        } else {
+            check(false, "Moving-BE wiederhergestellt");
+        }
+        de.skyengine.game.world.block.entity.DataTag brokenTag =
+                new de.skyengine.game.world.block.entity.DataTag();
+        brokenTag.putString("state", "skyengine:gibtsnicht[kaputt=ja]");
+        de.skyengine.game.world.block.entity.PistonMovingBlockEntity fallbackMoving =
+                (de.skyengine.game.world.block.entity.PistonMovingBlockEntity)
+                        BlockEntities.PISTON_MOVING.create(new BlockPos(0, 0, 0), Blocks.getState(Blocks.AIR));
+        fallbackMoving.load(brokenTag);
+        check(fallbackMoving.getMovedStateId() == Blocks.AIR,
+                "Unbekannter movedState fällt beim Laden auf Luft (kein Crash)");
 
         /* Alt-Format: ein Tür-String OHNE das neue powered-Property muss auf den
            Default powered=false fallen (Codec-Toleranz — alte Welten bleiben ladbar). */

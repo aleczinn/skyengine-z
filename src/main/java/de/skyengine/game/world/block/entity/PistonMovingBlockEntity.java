@@ -1,0 +1,150 @@
+package de.skyengine.game.world.block.entity;
+
+import de.skyengine.game.entity.Entity;
+import de.skyengine.game.physics.AABB;
+import de.skyengine.game.world.block.BlockPos;
+import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.BlockStateCodec;
+
+/**
+ * Der bewegte Block eines Kolben-Schubs (MCs Block 36): hält den transportierten State und
+ * gleitet ihn in 2 Game-Ticks (progress +0.5/Tick) in die eigene Zelle. Am Ende wird der
+ * State materialisiert; die BE räumt {@code manageBlockEntity} beim setBlock automatisch ab.
+ *
+ * <p>Das Engine-Off-by-one (eine im scheduledTick von Tick T angelegte BE bekommt noch in T
+ * ihr erstes tick()) wird von MCs Struktur „finalisieren erst, wenn lastProgress bereits 1
+ * war" absorbiert — es bleiben exakt 2 sichtbare Animations-Ticks.
+ *
+ * <p>{@code isSource} markiert die Arm-BE des auslösenden Kolbens (Extend: an der Kopf-Zelle,
+ * Retract: an der Basis-Zelle) — nur sie plant nach der Materialisierung den einen
+ * Re-Evaluations-Tick auf die Basis (Flicker-Regel: laufende Bewegungen werden nie
+ * abgebrochen, danach wird frisch entschieden).
+ */
+public final class PistonMovingBlockEntity extends BlockEntity {
+
+    private static final float STEP = 0.5f;
+
+    private int movedStateId = Blocks.AIR;
+    private Direction facing = Direction.NORTH;
+    private boolean extending = true;
+    private boolean isSource;
+    private float progress;
+    private float lastProgress;
+
+    public PistonMovingBlockEntity(BlockEntityType<?> type, BlockPos pos) {
+        super(type, pos);
+    }
+
+    /** Konfiguration direkt nach dem setBlock (der Kolben-Code holt sich die frische BE). */
+    public void configure(int movedStateId, Direction facing, boolean extending, boolean isSource) {
+        this.movedStateId = movedStateId;
+        this.facing = facing;
+        this.extending = extending;
+        this.isSource = isSource;
+        this.progress = 0f;
+        this.lastProgress = 0f;
+        this.markDirty();
+    }
+
+    public int getMovedStateId() {
+        return this.movedStateId;
+    }
+
+    public Direction getFacing() {
+        return this.facing;
+    }
+
+    public boolean isExtending() {
+        return this.extending;
+    }
+
+    public boolean isSource() {
+        return this.isSource;
+    }
+
+    /** Interpolierter Fortschritt 0..1 für den Renderer. */
+    public float getProgress(float partialTick) {
+        return this.lastProgress + (this.progress - this.lastProgress) * partialTick;
+    }
+
+    @Override
+    public void tick() {
+        if (this.world == null) return;
+        int x = this.pos.x(), y = this.pos.y(), z = this.pos.z();
+        /* Waisen-Regel: passt der Block der Zelle nicht mehr zu uns (inkonsistenter Save,
+           weggesprengte Zelle), verschwindet die BE ersatzlos — materialisieren würde
+           einen fremden Block überschreiben. */
+        if (this.world.getBlock(x, y, z) != Blocks.MOVING_PISTON) {
+            this.world.removeBlockEntity(x, y, z);
+            return;
+        }
+
+        this.lastProgress = this.progress;
+        if (this.lastProgress >= 1.0f) {
+            this.finish(x, y, z);
+            return;
+        }
+        this.progress = Math.min(1.0f, this.progress + STEP);
+        this.pushEntities(this.progress - this.lastProgress);
+        this.markDirty();
+    }
+
+    /** Materialisiert den transportierten State und plant (nur als Source) die Re-Evaluation. */
+    private void finish(int x, int y, int z) {
+        /* setBlock räumt die BE über manageBlockEntity ab (bewegte Blöcke haben nie einen
+           BE-Typ — BlockEntity-Blöcke sind piston_reaction=block). false = Chunk gerade
+           nicht READY, dann versucht es der nächste Tick erneut. */
+        if (!this.world.setBlock(x, y, z, this.movedStateId, false)) return;
+        this.world.updateNeighbors(x, y, z);
+        if (this.isSource) {
+            Direction f = this.facing;
+            int bx = this.extending ? x - f.offsetX() : x;
+            int by = this.extending ? y - f.offsetY() : y;
+            int bz = this.extending ? z - f.offsetZ() : z;
+            this.world.scheduleTick(bx, by, bz, 1);
+        }
+    }
+
+    /**
+     * Schiebt Entities vor dem gleitenden Block her: alle, deren BoundingBox die aktuelle
+     * Block-Box schneidet, werden per {@code Entity.move} (mit Kollision) um das Tick-Delta
+     * in Bewegungsrichtung versetzt.
+     */
+    private void pushEntities(float delta) {
+        Direction d = this.extending ? this.facing : this.facing.opposite();
+        double back = 1.0 - this.progress;
+        double bx = this.pos.x() - d.offsetX() * back;
+        double by = this.pos.y() - d.offsetY() * back;
+        double bz = this.pos.z() - d.offsetZ() * back;
+        AABB box = new AABB(bx, by, bz, bx + 1, by + 1, bz + 1);
+        this.world.forEachEntityNearby(this.pos.x() + 0.5, this.pos.z() + 0.5, 1, entity -> {
+            if (entity.isRemoved() || !entity.getBoundingBox().intersects(box)) return;
+            entity.move(this.world, d.offsetX() * delta, d.offsetY() * delta, d.offsetZ() * delta);
+        });
+    }
+
+    @Override
+    public void save(DataTag tag) {
+        /* State als Codec-String, nie als Runtime-ID — die ist flüchtig. */
+        tag.putString("state", BlockStateCodec.encode(Blocks.getState(this.movedStateId)));
+        tag.putInt("facing", this.facing.ordinal());
+        tag.putBoolean("extending", this.extending);
+        tag.putBoolean("source", this.isSource);
+        tag.putDouble("progress", this.progress);
+    }
+
+    @Override
+    public void load(DataTag tag) {
+        BlockState state = BlockStateCodec.decode(tag.getString("state", ""));
+        this.movedStateId = state != null ? state.getId() : Blocks.AIR;
+        int ordinal = tag.getInt("facing", Direction.NORTH.ordinal());
+        Direction[] dirs = Direction.values();
+        this.facing = dirs[Math.clamp(ordinal, 0, dirs.length - 1)];
+        this.extending = tag.getBoolean("extending", true);
+        this.isSource = tag.getBoolean("source", false);
+        this.progress = (float) tag.getDouble("progress", 0.0);
+        this.lastProgress = this.progress;
+    }
+}

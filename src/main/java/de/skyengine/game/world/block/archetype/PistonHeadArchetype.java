@@ -7,9 +7,9 @@ import de.skyengine.game.world.block.state.Properties;
 
 /**
  * Kolben-Kopf (technischer Block, {@code no_item}): {@code facing} (6) × {@code type}
- * (normal/sticky) = 12 States. Existiert nur vor einer ausgefahrenen Basis; die
- * Konsistenz-Regeln (Selbstabbau ohne Basis, Basis-Abbau beim Kopf-Abbau) kommen im
- * Mechanik-Commit als PistonHeadBehavior.
+ * (normal/sticky) = 12 States. Existiert nur vor einer ausgefahrenen Basis — die
+ * Konsistenz-Regeln (Selbstabbau ohne Basis, Basis-Abbau beim Kopf-Abbau) macht das
+ * {@link de.skyengine.game.world.block.behavior.PistonHeadBehavior}.
  */
 public final class PistonHeadArchetype implements Archetype {
 
@@ -18,6 +18,7 @@ public final class PistonHeadArchetype implements Archetype {
         cfg.property(Properties.FACING_ALL)
                 .property(Properties.PISTON_TYPE)
                 .defaultValue(Properties.FACING_ALL, Direction.NORTH)
+                .behavior(new de.skyengine.game.world.block.behavior.PistonHeadBehavior())
                 .shapes(Shapes.pistonHead())
                 .opaque(state -> false);
     }

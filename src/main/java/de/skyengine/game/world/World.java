@@ -656,6 +656,35 @@ public class World implements IInitializable, IDisposable {
         return chunk.getBlockEntity(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
     }
 
+    /**
+     * Entfernt eine VERWAISTE BlockEntity (der Block der Zelle passt nicht mehr zu ihr —
+     * z.B. eine geladene Piston-Moving-BE auf einer inzwischen anderen Zelle).
+     * {@code manageBlockEntity} räumt nur bei Typwechsel über setBlock auf; Waisen aus
+     * inkonsistenten Saves erreicht das nie.
+     */
+    public void removeBlockEntity(int x, int y, int z) {
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk == null) return;
+        chunk.writeLock().lock();
+        try {
+            chunk.removeBlockEntity(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
+        } finally {
+            chunk.writeLock().unlock();
+        }
+    }
+
+    /**
+     * true, wenn die Zelle beschreibbar ist (y im Weltbereich, Chunk geladen und READY).
+     * Für Vorab-Validierungen von Mehr-Zellen-Operationen (Kolben-Schub): erst ALLE Zellen
+     * prüfen, dann schreiben — sonst hinterließe ein halb fehlgeschlagener setBlock-Lauf
+     * Duplikate an der Ladefront.
+     */
+    public boolean isPositionEditable(int x, int y, int z) {
+        if (y < 0 || y >= Chunk.HEIGHT) return false;
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        return chunk != null && chunk.status == ChunkStatus.READY;
+    }
+
     public void render(Camera camera, float partialTick) {
         this.render(camera, partialTick, null);
     }

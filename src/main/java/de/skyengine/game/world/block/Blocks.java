@@ -33,6 +33,7 @@ public final class Blocks {
     public static int OAK_LEAVES;
     public static int GLASS;
     public static int TNT;
+    public static int PISTON, STICKY_PISTON, PISTON_HEAD, MOVING_PISTON;
     public static int FERN, SHORT_GRASS, ORANGE_TULIP;
 
     public static int STONE_SLAB, COBBLESTONE_SLAB;
@@ -163,6 +164,11 @@ public final class Blocks {
         WATER = idOf("skyengine:water");
         LAVA = idOf("skyengine:lava");
         OBSIDIAN = idOf("skyengine:obsidian");
+
+        PISTON = idOf("skyengine:piston");
+        STICKY_PISTON = idOf("skyengine:sticky_piston");
+        PISTON_HEAD = idOf("skyengine:piston_head");
+        MOVING_PISTON = idOf("skyengine:moving_piston");
 
         DIORITE = idOf("skyengine:diorite");
         ANDESITE = idOf("skyengine:andesite");

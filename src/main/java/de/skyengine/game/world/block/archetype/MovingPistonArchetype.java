@@ -16,7 +16,8 @@ public final class MovingPistonArchetype implements Archetype {
 
     @Override
     public void configure(BlockConfig.Builder cfg, BlockDefinition def) {
-        cfg.shapes(new ShapeProvider() {
+        cfg.behavior(new de.skyengine.game.world.block.behavior.MovingPistonBehavior())
+                .shapes(new ShapeProvider() {
                     @Override public BlockShape collision(BlockState state) { return BlockShape.FULL_CUBE; }
                     @Override public BlockShape outline(BlockState state) { return BlockShape.EMPTY; }
                 })
