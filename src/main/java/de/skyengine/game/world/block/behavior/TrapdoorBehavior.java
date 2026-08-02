@@ -7,6 +7,7 @@ import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockHalf;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.redstone.RedstonePower;
 
 /**
  * Das Falltürspezifische: Ausrichtung beim Platzieren und der Rechtsklick, der sie auf- und
@@ -46,15 +47,31 @@ public final class TrapdoorBehavior implements BlockBehavior {
 
         boolean open = !state.get(Properties.OPEN);
         world.setBlock(x, y, z, state.with(Properties.OPEN, open).getId(), false);
+        playOpenSound(world, x, y, z, state, open);
+        return true;
+    }
 
-        /* Nullbar wie bei der Tür: ohne SoundManager (Weltgen-Tests) bleibt es still. */
+    /**
+     * Redstone-Empfänger wie die Tür: OPEN folgt der Signal-Flanke (POWERED = Speicher),
+     * Handbedienung bleibt dazwischen unberührt. Einteilig, daher einfacher.
+     */
+    @Override
+    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+        boolean powered = RedstonePower.isReceiving(world, x, y, z);
+        if (powered == state.get(Properties.POWERED)) return state;
+
+        if (powered != state.get(Properties.OPEN)) playOpenSound(world, x, y, z, state, powered);
+        return state.with(Properties.OPEN, powered).with(Properties.POWERED, powered);
+    }
+
+    /** Nullbar wie bei der Tür: ohne SoundManager (Weltgen-Tests) bleibt es still. */
+    private static void playOpenSound(World world, int x, int y, int z, BlockState state, boolean open) {
         SoundManager sound = world.getSoundManager();
         BlockOpenSound set = state.getBlock().getOpenSound();
         if (sound != null && set != null) {
             if (open) sound.playBlockOpen(set, x + 0.5, y + 0.5, z + 0.5);
             else sound.playBlockClose(set, x + 0.5, y + 0.5, z + 0.5);
         }
-        return true;
     }
 
     /** Getroffene Seiten-Normale -> horizontale Richtung (Fallback NORTH), wie in AttachBehavior. */

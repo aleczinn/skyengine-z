@@ -18,6 +18,9 @@ public final class DoorArchetype implements Archetype {
                 .property(Properties.HALF)
                 .property(Properties.OPEN)
                 .property(Properties.HINGE)
+                /* POWERED = Flanken-Speicher fürs Redstone-Signal (64 States statt 32; alte
+                   Saves ohne die Property laden über den Codec-Default powered=false). */
+                .property(Properties.POWERED)
                 .behavior(new DoorBehavior(def.hand_openable))
                 .shapes(Shapes.door())
                 .opaque(state -> false);
