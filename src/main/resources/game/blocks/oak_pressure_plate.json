@@ -1,0 +1,8 @@
+{
+  "id": "skyengine:oak_pressure_plate",
+  "parent": "preset/pressure_plate",
+  "press_ticks": 20,
+  "sound": "wood",
+  "tool": "axe",
+  "vars": { "texture": "oak_planks" }
+}

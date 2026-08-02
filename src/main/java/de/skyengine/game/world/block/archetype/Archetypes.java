@@ -28,6 +28,8 @@ public final class Archetypes {
         register("trapdoor", new TrapdoorArchetype());
         register("chest", new ChestArchetype());
         register("attached", new AttachedArchetype());
+        register("button", new ButtonArchetype());
+        register("pressure_plate", new PressurePlateArchetype());
         register("custom", new CustomArchetype());
     }
 

@@ -94,9 +94,13 @@ public class BlockDefinition {
        neben "sound" (siehe BlockOpenSound.resolve). null = der Block hat keinen. */
     public String open_sound;
 
-    /* Archetyp "door": lässt sich die Tür von Hand öffnen? Die Eisentür kann das in MC NICHT,
-       sie braucht ein Signal. Default true. */
+    /* Archetyp "door"/"trapdoor": lässt sich die Tür von Hand öffnen? Die Eisenvarianten können
+       das in MC NICHT, sie brauchen ein Signal. Default true. */
     public boolean hand_openable = true;
+
+    /* Archetyp "button"/"pressure_plate": Ticks bis zur Selbst-Rücksetzung (MC: Stein-Knopf 20,
+       Holz-Knopf 30, Platten 20). Steht in MCs Java-Code, nicht in den Assets — daher hier. */
+    public int press_ticks = 20;
 
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */

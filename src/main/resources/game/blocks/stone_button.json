@@ -1,0 +1,7 @@
+{
+  "id": "skyengine:stone_button",
+  "parent": "preset/button",
+  "press_ticks": 20,
+  "sound": "stone",
+  "vars": { "texture": "stone" }
+}

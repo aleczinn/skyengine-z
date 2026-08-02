@@ -1,0 +1,23 @@
+{
+  "_comment": "Preset (nicht registriert): Druckplatte. Nur powered=false/true (2 States); Traeger via place_on_full_top (SupportBehavior). Kinder setzen vars.texture und ggf. Sound/Tool.",
+  "creative_tab": "redstone_blocks",
+  "archetype": "pressure_plate",
+  "opaque": false,
+  "solid": false,
+  "hardness": 0.5,
+  "place_on_full_top": true,
+  "vars": {
+    "texture": "${id}"
+  },
+  "models": {
+    "": "block/pressure_plate_up",
+    "_down": "block/pressure_plate_down"
+  },
+  "textures": {
+    "texture": "game/textures/block/${texture}.png"
+  },
+  "variants": {
+    "powered=false": { "model": "block/${id}" },
+    "powered=true":  { "model": "block/${id}_down" }
+  }
+}

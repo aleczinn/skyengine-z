@@ -144,6 +144,19 @@ public final class Shapes {
         };
     }
 
+    /**
+     * Keine Kollision, Umriss aus den Modell-Boxen (Knopf, Druckplatte, Staub): man läuft
+     * durch den Block hindurch, kann ihn aber anvisieren — und der Umriss folgt automatisch
+     * dem zustandsabhängigen Modell (gedrückt/ungedrückt).
+     */
+    public static ShapeProvider outlineOnly() {
+        ShapeProvider derived = modelDerived();
+        return new ShapeProvider() {
+            @Override public BlockShape collision(BlockState state) { return BlockShape.EMPTY; }
+            @Override public BlockShape outline(BlockState state) { return derived.outline(state); }
+        };
+    }
+
     /** Cross (Gras/Blumen): keine Kollision, kleine Umriss-Box. */
     public static ShapeProvider cross() {
         return new ShapeProvider() {

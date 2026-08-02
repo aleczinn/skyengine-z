@@ -160,6 +160,35 @@ public abstract class Entity {
         if (origDy != ny) this.motionY = this.landingMotionY(world, origDy);
         if (origDz != nz) this.motionZ = 0;
         if (stepped) this.motionY = 0; // nicht durch den Step nach oben "schießen"
+
+        this.checkInsideBlocks(world);
+    }
+
+    /**
+     * Meldet jeder Blockzelle, die die finale BoundingBox überlappt, dass eine Entity in ihr
+     * steckt ({@code Block.onEntityInside} — Druckplatte). Läuft am Ende jedes move()-Aufrufs,
+     * also auch im Stand, weil die Physik jeden Tick bewegt (ggf. um 0) und die Druckplatte die
+     * Berührung als Lebenszeichen wertet. Im NoClip (Spectator) bewusst nicht — dort steigt
+     * move() vorher aus. Das Epsilon hält exakt bündige Boxen aus der Nachbarzelle heraus.
+     */
+    private void checkInsideBlocks(World world) {
+        final double eps = 1.0E-7;
+        int minX = (int) Math.floor(this.boundingBox.minX);
+        int minY = (int) Math.floor(this.boundingBox.minY);
+        int minZ = (int) Math.floor(this.boundingBox.minZ);
+        int maxX = (int) Math.floor(this.boundingBox.maxX - eps);
+        int maxY = (int) Math.floor(this.boundingBox.maxY - eps);
+        int maxZ = (int) Math.floor(this.boundingBox.maxZ - eps);
+        for (int bx = minX; bx <= maxX; bx++) {
+            for (int by = minY; by <= maxY; by++) {
+                for (int bz = minZ; bz <= maxZ; bz++) {
+                    int id = world.getBlock(bx, by, bz);
+                    if (id == Blocks.AIR) continue;
+                    var state = Blocks.getState(id);
+                    state.getBlock().onEntityInside(world, bx, by, bz, state);
+                }
+            }
+        }
     }
 
     /**

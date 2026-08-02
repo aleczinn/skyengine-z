@@ -1,0 +1,9 @@
+{
+  "_comment": "MC: die Stein-Druckplatte droppt nur mit Spitzhacke.",
+  "id": "skyengine:stone_pressure_plate",
+  "parent": "preset/pressure_plate",
+  "press_ticks": 20,
+  "sound": "stone",
+  "tool": "pickaxe",
+  "vars": { "texture": "stone" }
+}

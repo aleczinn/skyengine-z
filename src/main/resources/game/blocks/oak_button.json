@@ -1,0 +1,8 @@
+{
+  "id": "skyengine:oak_button",
+  "parent": "preset/button",
+  "press_ticks": 30,
+  "sound": "wood",
+  "tool": "axe",
+  "vars": { "texture": "oak_planks" }
+}
