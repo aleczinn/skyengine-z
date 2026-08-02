@@ -1,0 +1,68 @@
+{
+  "_comment": "Verstaerker. ACHTUNG Konvention: unser facing = AUSGANGSRICHTUNG (Blickrichtung beim Platzieren), Vanillas facing zeigt zum Eingang - die y-Rotationen unten sind deshalb gegenueber MC invertiert gemappt (unser north = MC south = y 0). Kein locked-Property (kommt mit der Komparator-Etappe). MC-Werte: Haerte 0, sofort abbaubar.",
+  "id": "skyengine:repeater",
+  "creative_tab": "redstone_blocks",
+  "archetype": "repeater",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": false,
+  "no_lod_surface": true,
+  "hardness": 0,
+  "sound": "stone",
+  "place_on_full_top": true,
+  "icon_item": "game/textures/item/repeater.png",
+  "models": {
+    "_1tick": "block/template_repeater_1tick",
+    "_1tick_on": "block/template_repeater_1tick_on",
+    "_2tick": "block/template_repeater_2tick",
+    "_2tick_on": "block/template_repeater_2tick_on",
+    "_3tick": "block/template_repeater_3tick",
+    "_3tick_on": "block/template_repeater_3tick_on",
+    "_4tick": "block/template_repeater_4tick",
+    "_4tick_on": "block/template_repeater_4tick_on"
+  },
+  "textures": {
+    "slab": "game/textures/block/smooth_stone.png",
+    "top": "game/textures/block/repeater.png",
+    "top_on": "game/textures/block/repeater_on.png",
+    "unlit": "game/textures/block/redstone_torch_off.png",
+    "lit": "game/textures/block/redstone_torch.png"
+  },
+  "variants": {
+    "delay=1,facing=north,powered=false": { "model": "block/repeater_1tick" },
+    "delay=1,facing=east,powered=false":  { "model": "block/repeater_1tick", "y": 90 },
+    "delay=1,facing=south,powered=false": { "model": "block/repeater_1tick", "y": 180 },
+    "delay=1,facing=west,powered=false":  { "model": "block/repeater_1tick", "y": 270 },
+    "delay=1,facing=north,powered=true":  { "model": "block/repeater_1tick_on" },
+    "delay=1,facing=east,powered=true":   { "model": "block/repeater_1tick_on", "y": 90 },
+    "delay=1,facing=south,powered=true":  { "model": "block/repeater_1tick_on", "y": 180 },
+    "delay=1,facing=west,powered=true":   { "model": "block/repeater_1tick_on", "y": 270 },
+
+    "delay=2,facing=north,powered=false": { "model": "block/repeater_2tick" },
+    "delay=2,facing=east,powered=false":  { "model": "block/repeater_2tick", "y": 90 },
+    "delay=2,facing=south,powered=false": { "model": "block/repeater_2tick", "y": 180 },
+    "delay=2,facing=west,powered=false":  { "model": "block/repeater_2tick", "y": 270 },
+    "delay=2,facing=north,powered=true":  { "model": "block/repeater_2tick_on" },
+    "delay=2,facing=east,powered=true":   { "model": "block/repeater_2tick_on", "y": 90 },
+    "delay=2,facing=south,powered=true":  { "model": "block/repeater_2tick_on", "y": 180 },
+    "delay=2,facing=west,powered=true":   { "model": "block/repeater_2tick_on", "y": 270 },
+
+    "delay=3,facing=north,powered=false": { "model": "block/repeater_3tick" },
+    "delay=3,facing=east,powered=false":  { "model": "block/repeater_3tick", "y": 90 },
+    "delay=3,facing=south,powered=false": { "model": "block/repeater_3tick", "y": 180 },
+    "delay=3,facing=west,powered=false":  { "model": "block/repeater_3tick", "y": 270 },
+    "delay=3,facing=north,powered=true":  { "model": "block/repeater_3tick_on" },
+    "delay=3,facing=east,powered=true":   { "model": "block/repeater_3tick_on", "y": 90 },
+    "delay=3,facing=south,powered=true":  { "model": "block/repeater_3tick_on", "y": 180 },
+    "delay=3,facing=west,powered=true":   { "model": "block/repeater_3tick_on", "y": 270 },
+
+    "delay=4,facing=north,powered=false": { "model": "block/repeater_4tick" },
+    "delay=4,facing=east,powered=false":  { "model": "block/repeater_4tick", "y": 90 },
+    "delay=4,facing=south,powered=false": { "model": "block/repeater_4tick", "y": 180 },
+    "delay=4,facing=west,powered=false":  { "model": "block/repeater_4tick", "y": 270 },
+    "delay=4,facing=north,powered=true":  { "model": "block/repeater_4tick_on" },
+    "delay=4,facing=east,powered=true":   { "model": "block/repeater_4tick_on", "y": 90 },
+    "delay=4,facing=south,powered=true":  { "model": "block/repeater_4tick_on", "y": 180 },
+    "delay=4,facing=west,powered=true":   { "model": "block/repeater_4tick_on", "y": 270 }
+  }
+}

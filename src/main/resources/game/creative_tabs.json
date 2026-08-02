@@ -79,6 +79,7 @@
       "icon": "skyengine:redstone",
       "items": [
         "redstone", "redstone_wire", "redstone_torch", "redstone_block",
+        "repeater",
         "lever",
         "stone_button", "oak_button",
         "stone_pressure_plate", "oak_pressure_plate",

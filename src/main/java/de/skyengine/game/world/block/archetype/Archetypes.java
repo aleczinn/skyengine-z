@@ -34,6 +34,7 @@ public final class Archetypes {
         register("redstone_lamp", new RedstoneLampArchetype());
         register("redstone_wire", new RedstoneWireArchetype());
         register("redstone_torch", new RedstoneTorchArchetype());
+        register("repeater", new RepeaterArchetype());
         register("custom", new CustomArchetype());
     }
 
