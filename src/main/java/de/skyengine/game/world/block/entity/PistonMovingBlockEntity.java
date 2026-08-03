@@ -17,10 +17,10 @@ import de.skyengine.game.world.block.state.BlockStateCodec;
  * ihr erstes tick()) wird von MCs Struktur „finalisieren erst, wenn lastProgress bereits 1
  * war" absorbiert — es bleiben exakt 2 sichtbare Animations-Ticks.
  *
- * <p>{@code isSource} markiert die Arm-BE des auslösenden Kolbens (Extend: an der Kopf-Zelle,
- * Retract: an der Basis-Zelle) — nur sie plant nach der Materialisierung den einen
- * Re-Evaluations-Tick auf die Basis (Flicker-Regel: laufende Bewegungen werden nie
- * abgebrochen, danach wird frisch entschieden).
+ * <p>{@code isSource} markiert die Arm-BE des auslösenden Kolbens (sitzt einheitlich an der
+ * KOPF-Zelle) — nur sie reiht nach der Materialisierung den Re-Check als Block-Event auf die
+ * Basis ein (Flicker-Regel: laufende Bewegungen werden nie abgebrochen — bei einer
+ * Gegenflanke aber per {@link #finishNow} sofort vollendet, danach wird frisch entschieden).
  */
 public final class PistonMovingBlockEntity extends BlockEntity {
 
@@ -99,7 +99,20 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         this.markDirty();
     }
 
-    /** Materialisiert den transportierten State und plant (nur als Source) die Re-Evaluation. */
+    /**
+     * Fast-Forward von außen (Kolben-Gegenflanke, s. {@code PistonBehavior.evaluate}): vollendet
+     * die Bewegung sofort, statt sie abzubrechen. Waisen-Schutz wie in {@link #tick}; nach dem
+     * finish räumt setBlock die BE ab — ein späterer tick() derselben Instanz griffe ins Leere
+     * und würde sich über die Waisen-Regel selbst entfernen.
+     */
+    public void finishNow() {
+        if (this.world == null) return;
+        int x = this.pos.x(), y = this.pos.y(), z = this.pos.z();
+        if (this.world.getBlock(x, y, z) != Blocks.MOVING_PISTON) return;
+        this.finish(x, y, z);
+    }
+
+    /** Materialisiert den transportierten State und reiht (nur als Source) den Re-Check ein. */
     private void finish(int x, int y, int z) {
         /* setBlock räumt die BE über manageBlockEntity ab (bewegte Blöcke haben nie einen
            BE-Typ — BlockEntity-Blöcke sind piston_reaction=block). false = Chunk gerade
@@ -122,7 +135,9 @@ public final class PistonMovingBlockEntity extends BlockEntity {
                             base.with(de.skyengine.game.world.block.state.Properties.EXTENDED, false).getId(), true);
                 }
             }
-            this.world.scheduleTick(bx, by, bz, 1);
+            /* Re-Check als Block-Event: läuft noch im SELBEN Tick (Drain B) und kann nicht
+               im First-wins-Dedup des Tick-Schedulers hängen bleiben. */
+            this.world.enqueueBlockEvent(bx, by, bz);
         }
     }
 

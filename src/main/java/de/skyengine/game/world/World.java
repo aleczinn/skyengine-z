@@ -102,6 +102,14 @@ public class World implements IInitializable, IDisposable {
     private final LinkedHashSet<Long> deferredStateUpdates = new LinkedHashSet<>();
     private long[] deferredScratch = new long[0];
 
+    /* Block-Event-Queue (MCs Block-Events, heute nur Kolben): 0-Tick-Reaktion mit zwei
+       Drain-Punkten pro Tick — Drain A nach tickScheduled (Flanken aus Redstone-Ticks),
+       Drain B nach tickEntities (Re-Checks aus dem BE-finish). Events aus Drain A laufen
+       noch in Drain B desselben Ticks, Events aus Drain B im nächsten Tick (max. 2 Wellen
+       pro Tick = Terminierungsgarantie). LinkedHashSet = Dedup pro Position + FIFO. */
+    private final LinkedHashSet<Long> blockEvents = new LinkedHashSet<>();
+    private long[] blockEventScratch = new long[0];
+
     /** Der Spieler dieses Ticks (für BlockEntities, die ihn brauchen, z.B. das Zaubertisch-Buch). */
     private EntityPlayer player;
 
@@ -215,9 +223,11 @@ public class World implements IInitializable, IDisposable {
         this.restorePendingScheduledTicks();
         this.processDeferredStateUpdates();
         this.tickScheduled();
+        this.processBlockEvents(); // Drain A: Flanken aus den Redstone-Ticks, noch VOR der BE-Phase
         this.tickRandomBlocks();
         this.tickBlockEntities();
         this.tickEntities();
+        this.processBlockEvents(); // Drain B: Re-Checks aus dem BE-finish, noch im selben Tick
     }
 
     /**
@@ -1251,6 +1261,45 @@ public class World implements IInitializable, IDisposable {
      */
     public void deferBlockUpdate(int x, int y, int z) {
         this.deferStateUpdate(x, y, z);
+    }
+
+    /**
+     * Reiht ein Block-Event für dieselbe Tick-Runde ein (MCs Block-Event-Äquivalent, heute nur
+     * Kolben): der Block dort bekommt beim nächsten Drain-Punkt {@code onBlockEvent} — im
+     * SELBEN Game-Tick wie die auslösende Flanke, aber außerhalb der Nachbar-Update-Kaskade
+     * (der Ort für schwere Multi-Block-Aktionen). Dedupliziert pro Position; „tolerantes
+     * Feuern" wie beim Tick-Scheduler: der Empfänger validiert seinen State selbst.
+     */
+    public void enqueueBlockEvent(int x, int y, int z) {
+        this.blockEvents.add(BlockPos.asLong(x, y, z));
+    }
+
+    /**
+     * Drained die beim Aufruf vorhandenen Block-Events (Snapshot — währenddessen neu
+     * eingereihte laufen erst am nächsten Drain-Punkt). Nicht simulierbare Positionen werden
+     * als geplanter Tick geparkt: der persistiert im Save und kommt nach dem Laden wieder.
+     */
+    private void processBlockEvents() {
+        if (this.blockEvents.isEmpty()) return;
+
+        int n = this.blockEvents.size();
+        if (this.blockEventScratch.length < n) this.blockEventScratch = new long[n * 2];
+        int i = 0;
+        for (long pos : this.blockEvents) this.blockEventScratch[i++] = pos;
+        this.blockEvents.clear();
+
+        for (int j = 0; j < n; j++) {
+            long pos = this.blockEventScratch[j];
+            int x = BlockPos.unpackX(pos), y = BlockPos.unpackY(pos), z = BlockPos.unpackZ(pos);
+            int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+            Chunk chunk = this.chunkManager.getChunk(cx, cz);
+            if (chunk == null || chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
+                this.scheduleTickEarlier(x, y, z, 1);
+                continue;
+            }
+            BlockState state = Blocks.getState(this.getBlock(x, y, z));
+            state.getBlock().onBlockEvent(this, x, y, z, state);
+        }
     }
 
     /** Merkt ein Nachbar-State-Update für einen (noch) nicht-READY Chunk vor (dedupliziert). */

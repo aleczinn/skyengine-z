@@ -34,15 +34,18 @@ import de.skyengine.game.world.redstone.RedstonePower;
  * Zell-Licht ohne AO/Smooth-Lighting) blitzte sie sichtbar auf — und wird erst vom
  * finish der BE eingefahren.
  *
- * <p><b>Flicker-Regel:</b> laufende Bewegungen werden nie abgebrochen — trifft ein Tick auf
- * eine busy Kopf-/Basis-Zelle, verpufft er; die Source-BE plant nach der Materialisierung
- * genau EINEN Re-Evaluations-Tick auf die Basis. Signal wie MC über die 5 Seiten ohne die
- * Blickrichtung, ohne Quasi-Connectivity.
+ * <p><b>Flicker-Regel:</b> laufende Bewegungen werden nie ABGEBROCHEN — die eigene laufende
+ * Bewegung wird bei einer Gegenflanke aber sofort VOLLENDET (Fast-Forward, MCs
+ * {@code clearPistonTileEntity}) und danach frisch entschieden; fremde Animationen werden
+ * weiter gepollt. Signal wie MC über die 5 Seiten ohne die Blickrichtung, ohne
+ * Quasi-Connectivity.
  *
- * <p><b>Timing:</b> Flanke → 1 Game-Tick Reaktions-Delay (Scheduler-Minimum) → 2 Game-Ticks
- * Animation → Materialisierung = 3 Game-Ticks (1,5 Redstone-Ticks), ≈ MC. MCs
- * Halbtick-Tricks (Block-Events/Update-Reihenfolge INNERHALB eines Ticks) existieren im
- * deterministischen Redstone dieser Engine bewusst nicht.
+ * <p><b>Timing (MC-Parität):</b> Flanken laufen als Block-Event ({@code World.enqueueBlockEvent})
+ * im SELBEN Game-Tick — 0 Ticks Reaktion wie MCs Block-Events — gefolgt von 2 Game-Ticks
+ * Animation. Der finish der Source-BE reiht den Re-Check ebenfalls als Block-Event ein
+ * (Drain B desselben Ticks): eine 2on/2off-Observer-Clock treibt den Kolben damit im
+ * 4-Tick-Rhythmus wie MC. Der Tick-Scheduler bleibt nur Fallback für nicht simulierte
+ * Chunks und fremde Animationen (persistiert im Save).
  */
 public final class PistonBehavior implements BlockBehavior {
 
@@ -71,16 +74,52 @@ public final class PistonBehavior implements BlockBehavior {
 
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
-        boolean want = hasSignal(world, x, y, z, state.get(Properties.FACING_ALL));
-        if (want != state.get(Properties.EXTENDED) && !world.isTickScheduled(x, y, z)) {
-            world.scheduleTick(x, y, z, 1);
+        Direction f = state.get(Properties.FACING_ALL);
+        boolean want = hasSignal(world, x, y, z, f);
+        /* Effektiver Zustand statt EXTENDED: der Basis-State bleibt beim Retract bis zum
+           finish auf true und würde die AN-Flanke während des Einfahrens verschlucken. */
+        PistonMovingBlockEntity own = ownSourceMoving(world, x, y, z, f);
+        boolean effectiveExtended = own != null ? own.isExtending() : state.get(Properties.EXTENDED);
+        if (want != effectiveExtended) {
+            world.enqueueBlockEvent(x, y, z);
         }
         return state;
     }
 
     @Override
+    public void onBlockEvent(World world, int x, int y, int z, BlockState state) {
+        this.evaluate(world, x, y, z, state);
+    }
+
+    /** Fallback-Pfad (nicht simulierter Chunk, fremde Animation) — gleiche Logik wie das Event. */
+    @Override
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+        this.evaluate(world, x, y, z, state);
+    }
+
+    private void evaluate(World world, int x, int y, int z, BlockState state) {
         Direction f = state.get(Properties.FACING_ALL);
+
+        /* Fast-Forward: die EIGENE laufende Bewegung sofort vollenden (nie abbrechen), dann
+           nach dem AKTUELLEN Signalstand frisch entscheiden. Beim sticky-Extend zusätzlich
+           die Fracht-BE direkt vor dem Kopf mit-vollenden: sonst sähe resolveRetract dort
+           noch MOVING und der Rückzug ließe den eben geschobenen Block stehen. */
+        PistonMovingBlockEntity own = ownSourceMoving(world, x, y, z, f);
+        if (own != null) {
+            boolean wasExtending = own.isExtending();
+            own.finishNow();
+            if (this.sticky && wasExtending) {
+                int cx = x + 2 * f.offsetX(), cy = y + 2 * f.offsetY(), cz = z + 2 * f.offsetZ();
+                if (world.getBlockEntity(cx, cy, cz) instanceof PistonMovingBlockEntity cargo
+                        && cargo.getFacing() == f && cargo.isExtending() && !cargo.isSource()) {
+                    cargo.finishNow();
+                }
+            }
+            /* finish flippt ggf. EXTENDED — frisch lesen (defensiv: Zelle könnte ersetzt sein). */
+            state = Blocks.getState(world.getBlock(x, y, z));
+            if (!state.getValues().containsKey(Properties.EXTENDED)) return;
+        }
+
         boolean want = hasSignal(world, x, y, z, f);
         boolean extended = state.get(Properties.EXTENDED);
         if (want && !extended) {
@@ -90,12 +129,22 @@ public final class PistonBehavior implements BlockBehavior {
         }
     }
 
+    /** Die eigene Source-Moving-BE an der Kopf-Zelle (Extend wie Retract sitzen dort), sonst null. */
+    private static PistonMovingBlockEntity ownSourceMoving(World world, int x, int y, int z, Direction f) {
+        int hx = x + f.offsetX(), hy = y + f.offsetY(), hz = z + f.offsetZ();
+        BlockState head = Blocks.getState(world.getBlock(hx, hy, hz));
+        if (head.getBlock().getBlockEntityType() != BlockEntities.PISTON_MOVING) return null;
+        return world.getBlockEntity(hx, hy, hz) instanceof PistonMovingBlockEntity be
+                && be.isSource() && be.getFacing() == f ? be : null;
+    }
+
     private void extend(World world, int x, int y, int z, BlockState state, Direction f) {
         PistonResolver.Result result = PistonResolver.resolveExtend(world, x, y, z, f);
         if (result.blocked()) {
             /* Fremde Animation im Weg: pollen — ihr Ende erzeugt bei konstantem Signal
-               kein Nachbar-Update mehr, das uns wecken würde. */
-            if (result.blockedByMoving()) world.scheduleTick(x, y, z, 2);
+               kein Nachbar-Update mehr, das uns wecken würde. scheduleTickEarlier, damit
+               der Poll nicht im First-wins-Dedup der Queue hängen bleibt. */
+            if (result.blockedByMoving()) world.scheduleTickEarlier(x, y, z, 1);
             return;
         }
         /* Erst nach dem Blocked-Check: nur eine tatsächlich startende Bewegung klingt. */
@@ -163,8 +212,9 @@ public final class PistonBehavior implements BlockBehavior {
         int hx = x + f.offsetX(), hy = y + f.offsetY(), hz = z + f.offsetZ();
         BlockState head = Blocks.getState(world.getBlock(hx, hy, hz));
         if (head.getBlock().getBlockEntityType() == BlockEntities.PISTON_MOVING) {
-            /* Busy (eigene Extend-Animation oder fremder Schub): pollen statt abbrechen. */
-            world.scheduleTick(x, y, z, 2);
+            /* Busy = FREMDER Schub über die Kopf-Zelle (die eigene Animation hat evaluate
+               schon fast-geforwardet): pollen statt abbrechen. */
+            world.scheduleTickEarlier(x, y, z, 1);
             return;
         }
         boolean validHead = head.getValues().containsKey(Properties.PISTON_TYPE)

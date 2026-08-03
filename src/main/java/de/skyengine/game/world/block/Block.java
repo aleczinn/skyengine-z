@@ -297,6 +297,13 @@ public class Block {
         }
     }
 
+    /** Block-Event-Dispatch (s. {@code World.enqueueBlockEvent}). Delegiert; Default: nichts. */
+    public void onBlockEvent(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.onBlockEvent(world, x, y, z, state);
+        }
+    }
+
     /** Drop-Ersatz beim Spieler-Abbau (s. {@code BlockBehavior.getDropOverride}); erster Treffer gewinnt. */
     public de.skyengine.game.world.item.ItemStack getDropOverride(de.skyengine.game.world.World world,
                                                                   int x, int y, int z, BlockState state) {
