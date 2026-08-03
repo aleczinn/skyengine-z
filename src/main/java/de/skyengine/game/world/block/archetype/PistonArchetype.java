@@ -26,6 +26,8 @@ public final class PistonArchetype implements Archetype {
                 .defaultValue(Properties.FACING_ALL, Direction.NORTH)
                 .behavior(new PistonBehavior(this.sticky))
                 .shapes(Shapes.piston())
-                .opaque(state -> !state.get(Properties.EXTENDED));
+                .opaque(state -> !state.get(Properties.EXTENDED))
+                /* Auch ausgefahren verschatten: sonst springt die AO am Boden beim Schalten. */
+                .aoOccluder(state -> true);
     }
 }

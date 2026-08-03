@@ -29,6 +29,7 @@ public final class BlockConfig {
     private final ShapeProvider shapeProvider;
     private final ModelGenerator modelGenerator;
     private final Predicate<BlockState> opaquePredicate;
+    private final Predicate<BlockState> aoOccluderPredicate;
     private final boolean randomOffset;
     private final boolean replaceable;
     private final String connectionGroup;
@@ -67,6 +68,7 @@ public final class BlockConfig {
         this.shapeProvider = b.shapeProvider;
         this.modelGenerator = b.modelGenerator;
         this.opaquePredicate = b.opaquePredicate;
+        this.aoOccluderPredicate = b.aoOccluderPredicate;
         this.randomOffset = b.randomOffset;
         this.replaceable = b.replaceable;
         this.connectionGroup = b.connectionGroup;
@@ -126,6 +128,11 @@ public final class BlockConfig {
 
     public Predicate<BlockState> opaquePredicate() {
         return opaquePredicate;
+    }
+
+    /** AO-/Ecklicht-Verschattung im Mesher; null = Automatik „wie opaque". */
+    public Predicate<BlockState> aoOccluderPredicate() {
+        return aoOccluderPredicate;
     }
 
     public boolean randomOffset() {
@@ -318,6 +325,7 @@ public final class BlockConfig {
         private ShapeProvider shapeProvider;
         private ModelGenerator modelGenerator;
         private Predicate<BlockState> opaquePredicate;
+        private Predicate<BlockState> aoOccluderPredicate;
         private boolean randomOffset;
         private boolean replaceable;
         private String connectionGroup;
@@ -380,6 +388,12 @@ public final class BlockConfig {
 
         public Builder opaque(Predicate<BlockState> p) {
             this.opaquePredicate = p;
+            return this;
+        }
+
+        /** AO-/Ecklicht-Verschattung getrennt vom Culling (ausgefahrene Kolben-Basis). */
+        public Builder aoOccluder(Predicate<BlockState> p) {
+            this.aoOccluderPredicate = p;
             return this;
         }
 

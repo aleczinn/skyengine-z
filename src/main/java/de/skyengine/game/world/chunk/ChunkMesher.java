@@ -136,14 +136,16 @@ public class ChunkMesher {
        die Ecksamples) sind Array-Reads — leere Sections zahlen so keinen Vorab-Preis. */
     private static final int HALO = ChunkSection.SIZE + 2; // 34
     private final int[] haloBlocks = new int[HALO * HALO * HALO];
-    private final boolean[] haloOpaque = new boolean[HALO * HALO * HALO];
+    /* AO-/Ecklicht-Verschattung (AO_OCCLUDER-Flag, i.d.R. = opak) — NUR von occludes()
+       gelesen; Culling und Greedy fragen weiterhin isOpaqueCube. */
+    private final boolean[] haloOccluder = new boolean[HALO * HALO * HALO];
     private final int[] haloLight = new int[HALO * HALO * HALO];
     /* Basis-Welt-y der aktuellen Section (sample/occludes rechnen globales y → halo-lokal). */
     private int sectionBaseY;
 
-    /* isOpaqueCube je State-ID (lazy wie greedyCache): erspart occludes() den Umweg über
+    /* occludesAo je State-ID (lazy wie greedyCache): erspart occludes() den Umweg über
        das BlockState-Objekt (volatile statesById-Load + Pointer-Chase im heißesten Loop). */
-    private boolean[] opaqueCache = new boolean[0];
+    private boolean[] occluderCache = new boolean[0];
     /* Merge-Grid einer Slice: 0 = leer/schon emittiert, sonst Merge-Schlüssel */
     private final long[] keyGrid = new long[ChunkSection.SIZE * ChunkSection.SIZE];
     /* Markiert Fluid-Zellen, deren flach-stilles Top-Face der gemergte Wasser-Pass schon
@@ -206,7 +208,7 @@ public class ChunkMesher {
            der 1-Zellen-Rand über den NeighborSampler (vertikale Nachbar-Sections desselben
            Chunks, Kardinale UND Diagonalen — exakt die bisherige Auflösung). */
         int[] blocks = this.haloBlocks;
-        boolean[] opaque = this.haloOpaque;
+        boolean[] occluder = this.haloOccluder;
         int size = ChunkSection.SIZE;
         for (int y = -1; y <= size; y++) {
             for (int z = -1; z <= size; z++) {
@@ -216,7 +218,7 @@ public class ChunkMesher {
                             : NeighborSampler.sample(chunk, north, south, west, east, diagonals, x, baseY + y, z);
                     int idx = haloIndex(x, y, z);
                     blocks[idx] = id;
-                    opaque[idx] = this.opaqueById(id);
+                    occluder[idx] = this.occluderById(id);
                 }
             }
         }
@@ -936,11 +938,11 @@ public class ChunkMesher {
 
     private boolean occludes(int x, int y, int z) {
         int ly = y - this.sectionBaseY;
-        if (inHalo(x, ly, z)) return this.haloOpaque[haloIndex(x, ly, z)];
+        if (inHalo(x, ly, z)) return this.haloOccluder[haloIndex(x, ly, z)];
         /* Außerhalb des Halos (nach der Reichweiten-Analyse unerreichbar — defensiv für
            künftige Aufrufer): der bisherige Live-Pfad. */
         return BlockRegistry.getState(NeighborSampler.sample(this.chunk, this.north, this.south,
-                this.west, this.east, this.diagonals, x, y, z)).isOpaqueCube();
+                this.west, this.east, this.diagonals, x, y, z)).occludesAo();
     }
 
     /** Block-Sample inkl. Diagonal-Chunks (x/z dürfen -1..32 sein) — Werte aus dem Halo-Snapshot,
@@ -980,15 +982,15 @@ public class ChunkMesher {
         return ((y + 1) * HALO + (z + 1)) * HALO + (x + 1);
     }
 
-    /** isOpaqueCube je State-ID, lazy auf Registry-Größe gewachsen (Muster greedyCache). */
-    private boolean opaqueById(int stateId) {
-        boolean[] cache = this.opaqueCache;
+    /** occludesAo je State-ID, lazy auf Registry-Größe gewachsen (Muster greedyCache). */
+    private boolean occluderById(int stateId) {
+        boolean[] cache = this.occluderCache;
         if (stateId >= cache.length) {
             cache = new boolean[BlockRegistry.getStateCount()];
             for (int i = 0; i < cache.length; i++) {
-                cache[i] = BlockRegistry.getState(i).isOpaqueCube();
+                cache[i] = BlockRegistry.getState(i).occludesAo();
             }
-            this.opaqueCache = cache;
+            this.occluderCache = cache;
         }
         return cache[stateId];
     }

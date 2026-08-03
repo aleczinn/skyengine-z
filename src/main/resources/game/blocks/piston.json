@@ -4,6 +4,7 @@
   "creative_tab": "redstone_blocks",
   "archetype": "piston",
   "hardness": 1.5,
+  "light_opacity": 15,
   "sound": "stone",
   "models": {
     "": "block/template_piston",

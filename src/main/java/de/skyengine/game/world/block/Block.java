@@ -109,6 +109,17 @@ public class Block {
                 : this.settings.opaque;
     }
 
+    /**
+     * Wirft AO/verschattet Ecklicht im Mesher — getrennt vom Culling ({@link #isOpaqueCube}),
+     * damit die ausgefahrene Kolben-Basis weiter verschattet, ohne Nachbarflächen zu cullen.
+     * Ohne Prädikat gilt die Automatik „wie opaque".
+     */
+    public boolean occludesAo(BlockState state) {
+        return this.config.aoOccluderPredicate() != null
+                ? this.config.aoOccluderPredicate().test(state)
+                : this.isOpaqueCube(state);
+    }
+
     public boolean isSolid(BlockState state) {
         return this.settings.solid;
     }

@@ -53,6 +53,11 @@ public final class BlockState {
         return (this.flags & StateFlags.OPAQUE_CUBE) != 0;
     }
 
+    /** Wirft AO/verschattet Ecklicht im Mesher (Default = opaker Vollwürfel). */
+    public boolean occludesAo() {
+        return (this.flags & StateFlags.AO_OCCLUDER) != 0;
+    }
+
     public boolean isSolid() {
         return (this.flags & StateFlags.SOLID) != 0;
     }
