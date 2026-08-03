@@ -15,8 +15,9 @@ import de.skyengine.game.world.item.Items;
 /**
  * Kolben-Kopf: existiert nur vor einer passenden ausgefahrenen Basis (oder deren laufender
  * Animation). Fehlt die, entfernt er sich selbst — dropfrei, er hat kein Item. Baut der
- * Spieler den KOPF ab, verschwindet die Basis mit und droppt ihr Kolben-Item (kein
- * Doppel-Drop: setBlock ruft kein onBreak, und beim Selbstabbau passt die Basis nie).
+ * Spieler den KOPF ab, verschwindet die Basis mit; ihr Kolben-Item kommt über
+ * {@link #getDropOverride} aus dem Gamemode-geprüften Abbau-Pfad (Creative droppt nichts,
+ * kein Doppel-Drop: setBlock ruft kein onBreak, und beim Selbstabbau passt die Basis nie).
  */
 public final class PistonHeadBehavior implements BlockBehavior {
 
@@ -34,17 +35,30 @@ public final class PistonHeadBehavior implements BlockBehavior {
 
     @Override
     public void onBreak(World world, int x, int y, int z, BlockState state) {
+        if (!hasMatchingBase(world, x, y, z, state)) return;
         Direction f = state.get(Properties.FACING_ALL);
-        int bx = x - f.offsetX(), by = y - f.offsetY(), bz = z - f.offsetZ();
-        BlockState base = Blocks.getState(world.getBlock(bx, by, bz));
-        boolean matching = base.getValues().containsKey(Properties.EXTENDED)
-                && base.get(Properties.EXTENDED)
-                && base.get(Properties.FACING_ALL) == f;
-        if (!matching) return;
+        world.setBlock(x - f.offsetX(), y - f.offsetY(), z - f.offsetZ(), Blocks.AIR, true);
+    }
 
-        world.setBlock(bx, by, bz, Blocks.AIR, true);
+    /**
+     * Der Kopf droppt das Item seiner Basis (Kopf selbst ist no_item) — aber nur, wenn die
+     * Basis auch wirklich mit-entfernt wird (gleiche Prüfung wie {@link #onBreak}, das Override
+     * wird VOR onBreak abgefragt und sieht denselben Weltzustand), sonst Dupe.
+     */
+    @Override
+    public ItemStack getDropOverride(World world, int x, int y, int z, BlockState state) {
+        if (!hasMatchingBase(world, x, y, z, state)) return null;
         Item item = Items.get(Identifier.of(state.get(Properties.PISTON_TYPE) == PistonType.STICKY
                 ? "skyengine:sticky_piston" : "skyengine:piston"));
-        if (item != null) world.spawnItem(bx + 0.5, by + 0.5, bz + 0.5, new ItemStack(item, 1));
+        return item != null ? new ItemStack(item, 1) : null;
+    }
+
+    /** Passende ausgefahrene Basis hinter dem Kopf? (Nur die wird beim Kopf-Abbau entfernt.) */
+    private static boolean hasMatchingBase(World world, int x, int y, int z, BlockState state) {
+        Direction f = state.get(Properties.FACING_ALL);
+        BlockState base = Blocks.getState(world.getBlock(x - f.offsetX(), y - f.offsetY(), z - f.offsetZ()));
+        return base.getValues().containsKey(Properties.EXTENDED)
+                && base.get(Properties.EXTENDED)
+                && base.get(Properties.FACING_ALL) == f;
     }
 }

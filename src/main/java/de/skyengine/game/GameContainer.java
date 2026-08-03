@@ -1070,15 +1070,22 @@ public class GameContainer implements IResizeable, IDisposable {
     private void breakTargetBlock(BlockState broken, boolean applyDurability) {
         this.soundManager.playBreak(broken.getBlock().getSoundGroup(),
                 this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
+        /* Drop-Ersatz VOR onBreak/setBlock abfragen — solange Nachbar-States/BlockEntity lesbar sind. */
+        ItemStack overrideDrop = broken.getBlock().getDropOverride(this.world,
+                this.hit.x(), this.hit.y(), this.hit.z(), broken);
         broken.getBlock().onBreak(this.world, this.hit.x(), this.hit.y(), this.hit.z(), broken);
         this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(), Blocks.AIR);
 
         ItemStack held = this.playerInventory.get(this.hotbarIndex);
         /* Drops nur im Survival UND nur, wenn Tool-Klasse + Tier passen. */
         if (this.player.getGamemode().dropsItems() && isHarvestable(broken, held)) {
-            Item drop = Items.forBlock(broken.getBlock()); // löst auch places_block-Items auf (Staub)
-            if (drop != null) {
-                this.world.spawnItem(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5, new ItemStack(drop, 1));
+            if (overrideDrop != null) {
+                this.world.spawnItem(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5, overrideDrop);
+            } else {
+                Item drop = Items.forBlock(broken.getBlock()); // löst auch places_block-Items auf (Staub)
+                if (drop != null) {
+                    this.world.spawnItem(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5, new ItemStack(drop, 1));
+                }
             }
         }
 

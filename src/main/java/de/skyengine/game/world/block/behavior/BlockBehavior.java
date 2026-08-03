@@ -40,8 +40,20 @@ public interface BlockBehavior {
         return false;
     }
 
-    /** Abbau-Hook VOR dem Entfernen (Drops, andere Hälfte aufräumen, ...). Default: nichts. */
+    /** Abbau-Hook VOR dem Entfernen (andere Hälfte aufräumen, Inventar leeren, ...). Default: nichts. */
     default void onBreak(World world, int x, int y, int z, BlockState state) {
+    }
+
+    /**
+     * Ersetzt beim Spieler-Abbau das Standard-Drop-Item ({@code Items.forBlock}) — z.B. droppt
+     * der Kolben-Kopf das Item seiner Basis. Wird VOR {@link #onBreak} abgefragt (BlockEntity
+     * noch lesbar) und läuft ausschließlich über den Gamemode-geprüften Pfad im GameContainer;
+     * Behaviors dürfen Block-Drops deshalb NIE selbst spawnen ({@code onBreak} kennt keinen
+     * Gamemode — Creative würde droppen). null = Standard-Drop.
+     */
+    default de.skyengine.game.world.item.ItemStack getDropOverride(World world, int x, int y, int z,
+                                                                   BlockState state) {
+        return null;
     }
 
     /**
