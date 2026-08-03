@@ -99,14 +99,19 @@ public final class PistonBehavior implements BlockBehavior {
 
     private void evaluate(World world, int x, int y, int z, BlockState state) {
         Direction f = state.get(Properties.FACING_ALL);
+        boolean want = hasSignal(world, x, y, z, f);
 
-        /* Fast-Forward: die EIGENE laufende Bewegung sofort vollenden (nie abbrechen), dann
-           nach dem AKTUELLEN Signalstand frisch entscheiden. Beim sticky-Extend zusätzlich
-           die Fracht-BE direkt vor dem Kopf mit-vollenden: sonst sähe resolveRetract dort
-           noch MOVING und der Rückzug ließe den eben geschobenen Block stehen. */
+        /* Fast-Forward NUR bei echter Gegenflanke: die EIGENE laufende Bewegung sofort
+           vollenden (nie abbrechen), dann frisch entscheiden. Läuft sie schon in die
+           gewünschte Richtung, ist nichts zu tun — der Re-Check aus dem finish (Drain B,
+           selber Tick) würde sonst die gerade gestartete Gegenbewegung sofort vollenden:
+           kein einziger gerenderter Frame, das Einfahren wäre ein Sprung. Beim sticky-Extend
+           zusätzlich die Fracht-BE direkt vor dem Kopf mit-vollenden: sonst sähe
+           resolveRetract dort noch MOVING und der Rückzug ließe den Block stehen. */
         PistonMovingBlockEntity own = ownSourceMoving(world, x, y, z, f);
         if (own != null) {
             boolean wasExtending = own.isExtending();
+            if (want == wasExtending) return;
             own.finishNow();
             if (this.sticky && wasExtending) {
                 int cx = x + 2 * f.offsetX(), cy = y + 2 * f.offsetY(), cz = z + 2 * f.offsetZ();
@@ -120,7 +125,6 @@ public final class PistonBehavior implements BlockBehavior {
             if (!state.getValues().containsKey(Properties.EXTENDED)) return;
         }
 
-        boolean want = hasSignal(world, x, y, z, f);
         boolean extended = state.get(Properties.EXTENDED);
         if (want && !extended) {
             this.extend(world, x, y, z, state, f);
