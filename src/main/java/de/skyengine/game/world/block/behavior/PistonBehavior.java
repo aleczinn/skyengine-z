@@ -98,6 +98,10 @@ public final class PistonBehavior implements BlockBehavior {
             if (result.blockedByMoving()) world.scheduleTick(x, y, z, 2);
             return;
         }
+        /* Erst nach dem Blocked-Check: nur eine tatsächlich startende Bewegung klingt. */
+        if (world.getSoundManager() != null) {
+            world.getSoundManager().playPistonExtend(x + 0.5, y + 0.5, z + 0.5);
+        }
 
         /* Destroy-Zelle: Drop + onBreak; überschrieben wird sie gleich vom äußersten Ziel-Write. */
         for (long pos : result.destroys()) {
@@ -169,6 +173,9 @@ public final class PistonBehavior implements BlockBehavior {
             /* Kopf verloren (weggesprengt/inkonsistent): heilen statt animieren. */
             world.setBlock(x, y, z, state.with(Properties.EXTENDED, false).getId(), true);
             return;
+        }
+        if (world.getSoundManager() != null) {
+            world.getSoundManager().playPistonContract(x + 0.5, y + 0.5, z + 0.5);
         }
 
         /* Die Source-BE sitzt an der KOPF-Zelle; die Basis bleibt während der Animation ein

@@ -58,6 +58,8 @@ public final class SoundManager implements IDisposable {
     /* Aufsammeln: MC-Werte aus Player.take — leise, hoher Pitch mit weiter Streuung. */
     private static final float PICKUP_GAIN = 0.2F;
     private static final float PICKUP_PITCH = 2.0F, PICKUP_PITCH_SPREAD = 0.7F;
+    /* Kolben (MC: block.piston.extend/contract mit Gain 0.5). */
+    private static final float PISTON_GAIN = 0.5F;
 
     private final Logger logger = LogManager.getLogger(SoundManager.class.getName());
 
@@ -92,6 +94,8 @@ public final class SoundManager implements IDisposable {
     private int[] explosionVariants; // random/explode1..4
     private int[] fuseVariants;      // random/fuse.ogg
     private int[] pickupVariants;    // random/pop.ogg
+    private int[] pistonOutVariants; // piston/out.ogg (Ausfahren)
+    private int[] pistonInVariants;  // piston/in.ogg (Einfahren)
 
     /* Wiederverwendet fürs Listener-Update (keine Frame-Allokationen). */
     private final Vector3d direction = new Vector3d();
@@ -165,9 +169,12 @@ public final class SoundManager implements IDisposable {
         this.explosionVariants = this.loadVariants("random", "explode");
         this.fuseVariants = this.loadVariants("random", "fuse");
         this.pickupVariants = this.loadVariants("random", "pop");
+        this.pistonOutVariants = this.loadVariants("piston", "out");
+        this.pistonInVariants = this.loadVariants("piston", "in");
         loaded += count(this.uiClickVariants) + count(this.hurtVariants) + count(this.fallSmallVariants)
                 + count(this.fallBigVariants) + count(this.eatVariants) + count(this.burpVariants)
-                + count(this.explosionVariants) + count(this.fuseVariants) + count(this.pickupVariants);
+                + count(this.explosionVariants) + count(this.fuseVariants) + count(this.pickupVariants)
+                + count(this.pistonOutVariants) + count(this.pistonInVariants);
 
         /* Auf-/Zu-Sounds je Satz aus seinem eigenen Ordner; fehlt einer, bleibt nur er stumm. */
         for (BlockOpenSound sound : BlockOpenSound.values()) {
@@ -314,6 +321,21 @@ public final class SoundManager implements IDisposable {
     /** Zünd-/Fuse-Zischen (TNT) — positional beim Zünden, fester Pitch. Stumm ohne Asset. */
     public void playFuse(double x, double y, double z) {
         this.play(this.fuseVariants, SoundCategory.BLOCKS, 1.0F, 1.0F, false, true, x, y, z);
+    }
+
+    /** Kolben fährt aus — positional an der Basis; MC-Pitch 0,6 ± Streuung. Stumm ohne Asset. */
+    public void playPistonExtend(double x, double y, double z) {
+        this.play(this.pistonOutVariants, SoundCategory.BLOCKS, PISTON_GAIN, this.pistonPitch(), false, true, x, y, z);
+    }
+
+    /** Kolben fährt ein — Gegenstück zu {@link #playPistonExtend}. */
+    public void playPistonContract(double x, double y, double z) {
+        this.play(this.pistonInVariants, SoundCategory.BLOCKS, PISTON_GAIN, this.pistonPitch(), false, true, x, y, z);
+    }
+
+    /** MC-Formel {@code 0.6 + rand*0.25} — tiefer Basis-Pitch mit eigener Streuung statt ±10 %-Jitter. */
+    private float pistonPitch() {
+        return 0.6F + this.random.nextFloat() * 0.25F;
     }
 
     /** Tür/Truhe geht auf — positional an der Block-Position. Lautstärke/Pitch aus dem Satz. */
@@ -499,7 +521,7 @@ public final class SoundManager implements IDisposable {
         unique.addAll(this.closeBuffers.values());
         for (int[] loose : new int[][]{this.uiClickVariants, this.hurtVariants, this.fallSmallVariants,
                 this.fallBigVariants, this.eatVariants, this.burpVariants, this.explosionVariants,
-                this.fuseVariants, this.pickupVariants}) {
+                this.fuseVariants, this.pickupVariants, this.pistonOutVariants, this.pistonInVariants}) {
             if (loose != null) unique.add(loose);
         }
         for (int[] variants : unique) {

@@ -71,6 +71,9 @@ $wanted = @(
     @{ pattern = 'minecraft/sounds/random/fuse.ogg';         dest = 'random' },
     # Item aufsammeln (entity.item.pickup -> random/pop, einzelne Datei)
     @{ pattern = 'minecraft/sounds/random/pop.ogg';          dest = 'random' },
+    # Kolben aus-/einfahren (block.piston.extend/contract, je eine Datei)
+    @{ pattern = 'minecraft/sounds/tile/piston/out.ogg';     dest = 'piston' },
+    @{ pattern = 'minecraft/sounds/tile/piston/in.ogg';      dest = 'piston' },
     # Auf-/Zu-Sounds (Tuer, Truhe). Jeder Satz braucht einen EIGENEN Zielordner: kopiert wird mit
     # dem MC-Dateinamen, sonst wuerden wooden_door/open1.ogg und iron_door/open1.ogg kollidieren.
     # Die Truhen-Muster sind eng gefasst — im selben MC-Ordner liegen *_locked-Varianten.
