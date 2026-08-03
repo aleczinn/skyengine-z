@@ -439,7 +439,10 @@ public final class ModelLoader {
         float u0 = rect[0] / 16f, v0 = rect[1] / 16f, u1 = rect[2] / 16f, v1 = rect[3] / 16f;
         return switch (face) {
             case 0 -> new float[]{u0, v0,  u0, v1,  u1, v1,  u1, v0}; // top:    A,B,C,D
-            case 1 -> new float[]{u0, v0,  u1, v0,  u1, v1,  u0, v1}; // bottom:  A,B,C,D
+            /* bottom: v läuft rückwärts (v=1-z), s. BlockModels.extentUv — die Eckreihenfolge
+               A,B,C,D ist damit ein ZYKLISCHER Versatz von Vanillas 0,1,2,3 (vorher eine
+               Umkehrung), weshalb rotateCornerUv hier in dieselbe Richtung dreht wie in MC. */
+            case 1 -> new float[]{u0, v1,  u1, v1,  u1, v0,  u0, v0}; // bottom: A,B,C,D
             default -> new float[]{u0, v1,  u1, v1,  u1, v0,  u0, v0}; // Seiten (v0=oben)
         };
     }

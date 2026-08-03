@@ -145,13 +145,20 @@ public final class BlockModels {
     /**
      * Die aus der Box-Ausdehnung abgeleiteten UVs einer Face (4 Paare A,B,C,D), damit Texturen
      * nicht gestreckt werden — eine untere Slab-Seite zeigt so die untere Texturhälfte.
-     * Achsenzuordnung: top/bottom u=x,v=z; north u=1-x; south u=x; west u=z; east u=1-z;
-     * alle Seiten v=1-y (v läuft von oben).
+     * Achsenzuordnung: top/bottom u=x; top v=z, bottom v=1-z; north u=1-x; south u=x; west u=z;
+     * east u=1-z; alle Seiten v=1-y (v läuft von oben).
+     *
+     * <p>Die Unterseite läuft in v RÜCKWÄRTS (v=1-z) — das ist Minecrafts Konvention
+     * ({@code BlockElement.uvsByFace(DOWN)} = {@code from.x, 16-to.z, to.x, 16-from.z}) und nicht
+     * verhandelbar, weil alle Modell-JSONs verbatim aus Vanilla stammen und ihre expliziten
+     * {@code uv}/{@code rotation}-Werte darauf ausgelegt sind: {@code template_piston} dreht
+     * seine down-Face um 180°, damit das Holzband der Seitentextur an der PLATTEN-Seite landet —
+     * mit v=z landete es hinten.
      */
     public static float[] extentUv(int face, float x0, float y0, float z0, float x1, float y1, float z1) {
         return switch (face) {
             case 0 -> new float[]{x0,z0,  x0,z1,  x1,z1,  x1,z0};
-            case 1 -> new float[]{x0,z0,  x1,z0,  x1,z1,  x0,z1};
+            case 1 -> new float[]{x0,1-z0,  x1,1-z0,  x1,1-z1,  x0,1-z1};
             case 2 -> new float[]{1-x1,1-y0,  1-x0,1-y0,  1-x0,1-y1,  1-x1,1-y1};
             case 3 -> new float[]{x0,1-y0,  x1,1-y0,  x1,1-y1,  x0,1-y1};
             case 4 -> new float[]{z0,1-y0,  z1,1-y0,  z1,1-y1,  z0,1-y1};
