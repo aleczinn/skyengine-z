@@ -109,6 +109,7 @@ public final class PistonBehavior implements BlockBehavior {
            zusätzlich die Fracht-BE direkt vor dem Kopf mit-vollenden: sonst sähe
            resolveRetract dort noch MOVING und der Rückzug ließe den Block stehen. */
         PistonMovingBlockEntity own = ownSourceMoving(world, x, y, z, f);
+        boolean dropCargo = false;
         if (own != null) {
             boolean wasExtending = own.isExtending();
             if (want == wasExtending) return;
@@ -117,6 +118,7 @@ public final class PistonBehavior implements BlockBehavior {
                 int cx = x + 2 * f.offsetX(), cy = y + 2 * f.offsetY(), cz = z + 2 * f.offsetZ();
                 if (world.getBlockEntity(cx, cy, cz) instanceof PistonMovingBlockEntity cargo
                         && cargo.getFacing() == f && cargo.isExtending() && !cargo.isSource()) {
+                    dropCargo = isTooEarlyToPull(world, cargo);
                     cargo.finishNow();
                 }
             }
@@ -129,8 +131,44 @@ public final class PistonBehavior implements BlockBehavior {
         if (want && !extended) {
             this.extend(world, x, y, z, state, f);
         } else if (!want && extended) {
-            this.retract(world, x, y, z, state, f);
+            this.retract(world, x, y, z, state, f, dropCargo);
         }
+    }
+
+    /**
+     * MCs Drop-Regel: kam die Gegenflanke früh genug, lässt ein klebriger Kolben die Fracht
+     * LIEGEN statt sie zurückzuziehen. Das ist der bekannte Block-Dropper aus kurzen Pulsen
+     * (Beobachter, 1-Tick-Repeater-Puls) und Grundlage realer Maschinen.
+     *
+     * <p>Vanilla ({@code PistonBaseBlock.checkIfExtend}) schickt dafür statt TRIGGER_CONTRACT ein
+     * TRIGGER_DROP, sobald {@code getProgress(0) < 0.5 || gameTime == lastTicked}; in
+     * {@code triggerEvent} überspringt dieser Typ den ganzen Zieh-Zweig. Die dritte Klausel
+     * {@code !isHandlingTick} hat hier keine Entsprechung — wir haben keinen Pfad, der Kolben
+     * ausserhalb des Ticks schaltet.
+     *
+     * <p><b>Die Schwelle ist bei uns 1.0, nicht Vanillas 0.5 — das ist Absicht</b> und darf nicht
+     * „zurück auf MC" korrigiert werden. Vanilla puffert frisch angelegte BlockEntities
+     * ({@code pendingBlockEntityTickers}), sie ticken erst im Folge-Tick; unsere ticken schon im
+     * Anlege-Tick (das „Off-by-one", das {@link PistonMovingBlockEntity} in seiner Animation
+     * absorbiert). Unser Fortschritt steht beim Gegenflanken-Check deshalb genau eine Stufe
+     * weiter als Vanillas {@code progressO}. Für einen Puls ab Tick T:
+     *
+     * <pre>
+     * Puls-Ende  Vanilla progressO  unser lastProgress   Ergebnis
+     * T+1        0                  0                    Drop
+     * T+2        0                  0.5                  Drop     (Beobachter-Puls!)
+     * T+3        0.5                BE ist schon fertig   Rückzug
+     * </pre>
+     *
+     * Mit 0.5 fiel genau die Zeile T+2 heraus — und das ist die häufigste von allen, weil ein
+     * Beobachter exakt 2 Ticks pulst ({@code ObserverBehavior}: {@code scheduleTick(…, 2)}).
+     * Ab T+3 gibt es gar keine Fracht-BE mehr, der Rückzug läuft also ohnehin normal.
+     *
+     * <p>Die zweite Klausel ist nicht redundant: sie fängt die Gegenflanke, die uns über den
+     * ZWEITEN Block-Event-Drain erreicht, also nach dem Animations-Tick desselben Ticks.
+     */
+    private static boolean isTooEarlyToPull(World world, PistonMovingBlockEntity cargo) {
+        return cargo.getProgress(0.0f) < 1.0f || cargo.getLastTicked() == world.getGameTime();
     }
 
     /** Die eigene Source-Moving-BE an der Kopf-Zelle (Extend wie Retract sitzen dort), sonst null. */
@@ -212,7 +250,8 @@ public final class PistonBehavior implements BlockBehavior {
         }
     }
 
-    private void retract(World world, int x, int y, int z, BlockState state, Direction f) {
+    private void retract(World world, int x, int y, int z, BlockState state, Direction f,
+                         boolean dropCargo) {
         int hx = x + f.offsetX(), hy = y + f.offsetY(), hz = z + f.offsetZ();
         BlockState head = Blocks.getState(world.getBlock(hx, hy, hz));
         if (head.getBlock().getBlockEntityType() == BlockEntities.PISTON_MOVING) {
@@ -240,9 +279,11 @@ public final class PistonBehavior implements BlockBehavior {
 
            Klebriger Kolben: die GANZE angeklebte Struktur (MC-Resolver) wandert Richtung
            Piston — blockiert/leer heißt nur „nichts ziehen", der Arm fährt trotzdem ein.
+           Dasselbe gilt bei dropCargo (zu kurzer Puls, s. isTooEarlyToPull): der Rückzug
+           läuft ganz normal, nur eben ohne Fracht.
            Der Block direkt vor dem Kopf reist in der Source-BE (sein Ziel IST die
            Kopf-Zelle), der Rest als normale Moving-BEs; Snapshot wie beim Ausfahren. */
-        PistonResolver.Result pull = this.sticky
+        PistonResolver.Result pull = this.sticky && !dropCargo
                 ? PistonResolver.resolveRetract(world, x, y, z, f)
                 : null;
         long[] moves = pull != null && !pull.blocked() ? pull.moves() : new long[0];

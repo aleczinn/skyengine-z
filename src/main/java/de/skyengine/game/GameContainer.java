@@ -23,6 +23,7 @@ import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.SlabType;
 import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.BucketItem;
+import de.skyengine.game.world.item.FlintAndSteelItem;
 import de.skyengine.game.world.item.FoodItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
@@ -1285,6 +1286,11 @@ public class GameContainer implements IResizeable, IDisposable {
         boolean placingWhileSneaking = this.player.isSecondaryUseActive()
                 && held.getItem() != null && held.getItem().getPlacedBlock() != null;
 
+        /* Feuerzeug: der einzige Zündweg für TNT, der über die Hand läuft. Steht VOR der
+           Block-Interaktion und bewusst NICHT hinter dem Sneak-Gate — in MC überspringt Sneaken
+           nur `useWithoutItem`, `useItemOn` läuft trotzdem. */
+        if (held.getItem() instanceof FlintAndSteelItem && this.tryIgnite(held)) return true;
+
         /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
         BlockState hitState = Blocks.getState(this.hit.block());
         if (!placingWhileSneaking
@@ -1435,6 +1441,37 @@ public class GameContainer implements IResizeable, IDisposable {
      * Eimer-Interaktion: gefüllt platziert eine Fluid-Quelle, leer nimmt eine Quelle auf.
      * Im Survival wird der Eimer getauscht (gefüllt↔leer), im Creative nicht.
      */
+    /**
+     * Feuerzeug auf einen Block: zündet ihn, wenn er sprengbar ist (TNT), und verschleißt dabei.
+     *
+     * <p>Entspricht MCs {@code TntBlock.useItemOn} — nur dass dort der Block das Item prüft und
+     * hier der Aufrufer das Behavior sucht, weil {@code Item} keinen Interaktions-Hook hat. Alles
+     * andere als TNT lässt das Feuerzeug durchfallen: es gibt hier weder Feuer noch Kerzen noch
+     * Lagerfeuer, also bleibt kein zweiter Zündweg übrig.
+     *
+     * <p>Verschleiß nur im Survival (MCs {@code hurtAndBreak} überspringt Spieler mit
+     * unbegrenzten Materialien) und nach demselben Muster wie die Werkzeug-Abnutzung im
+     * Abbau-Pfad.
+     */
+    private boolean tryIgnite(ItemStack held) {
+        BlockState state = Blocks.getState(this.hit.block());
+        de.skyengine.game.world.block.behavior.ExplosionBehavior explosive =
+                state.getBlock().getBehavior(de.skyengine.game.world.block.behavior.ExplosionBehavior.class);
+        if (explosive == null) return false;
+
+        if (this.world.getSoundManager() != null) {
+            this.world.getSoundManager().playIgnite(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
+        }
+        explosive.prime(this.world, this.hit.x(), this.hit.y(), this.hit.z());
+        if (this.player.getGamemode() == Gamemode.SURVIVAL) {
+            held.setDamage(held.getDamage() + 1);
+            if (held.getDamage() >= FlintAndSteelItem.DURABILITY) {
+                this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
+            }
+        }
+        return true;
+    }
+
     private boolean handleBucket(BucketItem bucket) {
         boolean consume = this.player.getGamemode() == Gamemode.SURVIVAL;
 

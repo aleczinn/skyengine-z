@@ -115,12 +115,14 @@ public final class ArchetypeBlockFactory {
             builder.overlayTexture(overlay);
         }
 
-        /* Stütz-/Platzierungsregeln (Cactus nur auf Sand, Tür nur auf voller Oberseite). */
-        if (def.place_on != null || def.place_on_full_top) {
+        /* Stütz-/Platzierungsregeln (Cactus nur auf Sand, Tür nur auf voller Oberseite,
+           Druckplatte auch auf einem Zaunpfosten). */
+        if (def.place_on != null || def.place_on_full_top || def.place_on_center_top) {
             List<String> placeOn = def.place_on == null ? null : List.of(def.place_on);
             builder.placeOn(placeOn);
             builder.placeOnFullTop(def.place_on_full_top);
-            builder.behavior(new SupportBehavior(placeOn, def.place_on_full_top));
+            builder.behavior(new SupportBehavior(placeOn, def.place_on_full_top,
+                    def.place_on_center_top));
         }
 
         /* Survival-Mining: Härte + effektive Tool-Klasse + Mindest-Tier für Drops. */

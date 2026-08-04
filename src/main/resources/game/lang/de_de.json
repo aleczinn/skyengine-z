@@ -518,7 +518,8 @@
       "netherite_sword": "Netheritschwert",
       "bucket": "Eimer",
       "water_bucket": "Wassereimer",
-      "lava_bucket": "Lavaeimer"
+      "lava_bucket": "Lavaeimer",
+      "flint_and_steel": "Feuerzeug"
     }
   }
 }

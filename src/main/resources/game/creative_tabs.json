@@ -98,7 +98,8 @@
         { "for": "tier", "items": [
             "{tier}_pickaxe", "{tier}_axe", "{tier}_shovel", "{tier}_sword"
         ]},
-        "bucket", "water_bucket", "lava_bucket"
+        "bucket", "water_bucket", "lava_bucket",
+        "flint_and_steel"
       ]
     },
     {

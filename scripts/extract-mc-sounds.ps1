@@ -71,6 +71,8 @@ $wanted = @(
     @{ pattern = 'minecraft/sounds/random/fuse.ogg';         dest = 'random' },
     # Redstone-Fackel brennt durch (block.redstone_torch.burnout -> random/fizz)
     @{ pattern = 'minecraft/sounds/random/fizz.ogg';         dest = 'random' },
+    # Feuerzeug zuendet (item.flintandsteel.use -> fire/ignite, einzelne Datei)
+    @{ pattern = 'minecraft/sounds/fire/ignite.ogg';         dest = 'random' },
     # Item aufsammeln (entity.item.pickup -> random/pop, einzelne Datei)
     @{ pattern = 'minecraft/sounds/random/pop.ogg';          dest = 'random' },
     # Kolben aus-/einfahren (block.piston.extend/contract, je eine Datei)

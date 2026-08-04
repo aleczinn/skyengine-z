@@ -34,6 +34,12 @@ public final class PistonMovingBlockEntity extends BlockEntity {
     private boolean sticky;
     private float progress;
     private float lastProgress;
+    /**
+     * Weltzeit des letzten {@link #tick} (MCs {@code lastTicked}), transient — nach einem Reload
+     * zählt einzig der wiederhergestellte {@code progress}. Nur die Drop-Regel liest das Feld,
+     * s. {@code PistonBehavior.evaluate}.
+     */
+    private long lastTicked = -1L;
 
     public PistonMovingBlockEntity(BlockEntityType<?> type, BlockPos pos) {
         super(type, pos);
@@ -72,6 +78,11 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         return this.sticky;
     }
 
+    /** Weltzeit des letzten Animations-Ticks, {@code -1} solange noch keiner lief. */
+    public long getLastTicked() {
+        return this.lastTicked;
+    }
+
     /** Interpolierter Fortschritt 0..1 für den Renderer. */
     public float getProgress(float partialTick) {
         return this.lastProgress + (this.progress - this.lastProgress) * partialTick;
@@ -89,6 +100,7 @@ public final class PistonMovingBlockEntity extends BlockEntity {
             return;
         }
 
+        this.lastTicked = this.world.getGameTime();
         this.lastProgress = this.progress;
         if (this.lastProgress >= 1.0f) {
             this.finish(x, y, z);
@@ -156,6 +168,18 @@ public final class PistonMovingBlockEntity extends BlockEntity {
      * bekommt die Entity zusätzlich die Kolben-Geschwindigkeit als Motion auf der
      * Bewegungsachse — sie behält den Impuls nach dem Stopp und fliegt weiter
      * (Slime-Werfer). Honig launcht wie in MC nicht.
+     *
+     * <p><b>Der Spieler braucht einen eigenen Durchgang.</b> {@code forEachEntityNearby} läuft
+     * über die Entity-Listen der Chunks, und dort steht der Spieler nie — er hängt als
+     * Sonderfall am GameContainer. Ohne diesen zweiten Aufruf schiebt der Kolben Drops und
+     * gezündetes TNT, aber niemals den Spieler.
+     *
+     * <p>Vereinfachung gegenüber MC (bewusst): Vanilla nimmt die echte Kollisionsform des
+     * transportierten Blocks, fegt sie über {@code PistonMath.getMovementArea} und berechnet je
+     * Entity die nötige Schubweite; wir nehmen eine feste 1×1×1-Box, die mit dem Fortschritt
+     * wandert, und schieben starr um das Tick-Delta. Für Vollblöcke — und nur die schiebt ein
+     * Kolben interessant — ist das dasselbe Ergebnis. MCs Honig-Mitzieher
+     * ({@code moveStuckEntities}) fehlt entsprechend ganz.
      */
     private void pushEntities(float delta) {
         /* Der nicht-klebrige Rückzieh-Arm transportiert nur Luft (reine Renderer-Optik) —
@@ -168,17 +192,30 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         double bz = this.pos.z() - d.offsetZ() * back;
         AABB box = new AABB(bx, by, bz, bx + 1, by + 1, bz + 1);
         boolean launch = "slime".equals(Blocks.getState(this.movedStateId).getBlock().getStickyGroup());
-        this.world.forEachEntityNearby(this.pos.x() + 0.5, this.pos.z() + 0.5, 1, entity -> {
-            if (entity.isRemoved() || !entity.getBoundingBox().intersects(box)) return;
-            entity.move(this.world, d.offsetX() * delta, d.offsetY() * delta, d.offsetZ() * delta);
-            if (launch) {
-                /* Kolben-Geschwindigkeit = STEP Blöcke/Tick; nur die Bewegungsachse wird
-                   ersetzt (MC-Semantik), Quer-Motion bleibt erhalten. */
-                if (d.offsetX() != 0) entity.motionX = d.offsetX() * STEP;
-                if (d.offsetY() != 0) entity.motionY = d.offsetY() * STEP;
-                if (d.offsetZ() != 0) entity.motionZ = d.offsetZ() * STEP;
-            }
-        });
+        this.world.forEachEntityNearby(this.pos.x() + 0.5, this.pos.z() + 0.5, 1,
+                entity -> this.pushOne(entity, box, d, delta, launch));
+        Entity player = this.world.getNearestPlayer(this.pos.x() + 0.5, this.pos.y() + 0.5,
+                this.pos.z() + 0.5, 4.0);
+        if (player != null) this.pushOne(player, box, d, delta, launch);
+    }
+
+    /** Eine einzelne Entity aus der Block-Box herausschieben; {@code launch} = Slime-Impuls. */
+    private void pushOne(Entity entity, AABB box, Direction d, float delta, boolean launch) {
+        if (entity.isRemoved() || !entity.getBoundingBox().intersects(box)) return;
+        entity.move(this.world, d.offsetX() * delta, d.offsetY() * delta, d.offsetZ() * delta);
+        if (launch) {
+            /* Kolben-Geschwindigkeit = STEP Blöcke/Tick; nur die Bewegungsachse wird
+               ersetzt (MC-Semantik), Quer-Motion bleibt erhalten.
+
+               MC nimmt hier den ServerPlayer aus — aber NUR ihn, und nur, damit der Server die
+               Bewegung nicht überschreibt, die der Client sich selbst schon gegeben hat:
+               clientseitig ist der eigene Spieler eine LocalPlayer und bekommt den Impuls sehr
+               wohl (sonst gäbe es keine Slime-Werfer). Ohne Client/Server-Trennung ist „Spieler
+               kriegt den Impuls" also das MC-äquivalente Verhalten. */
+            if (d.offsetX() != 0) entity.motionX = d.offsetX() * STEP;
+            if (d.offsetY() != 0) entity.motionY = d.offsetY() * STEP;
+            if (d.offsetZ() != 0) entity.motionZ = d.offsetZ() * STEP;
+        }
     }
 
     @Override

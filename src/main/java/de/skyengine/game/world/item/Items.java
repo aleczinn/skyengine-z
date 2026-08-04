@@ -68,6 +68,17 @@ public final class Items {
         registerBucket("skyengine:water_bucket", water, "game/textures/item/water_bucket.png", 1);
         registerBucket("skyengine:lava_bucket", lava, "game/textures/item/lava_bucket.png", 1);
 
+        /* Feuerzeug: einziger Zünder für TNT (s. GameContainer). Textur wie oben vor dem
+           TextureArray-Bau anmelden, sonst zeigt das Icon auf einen Layer außerhalb des Arrays. */
+        Identifier flintAndSteel = Identifier.of("skyengine:flint_and_steel");
+        String flintAndSteelTexture = "game/textures/item/flint_and_steel.png";
+        if (!Registries.ITEM.contains(flintAndSteel)) {
+            Registries.ITEM.register(flintAndSteel,
+                    new FlintAndSteelItem(flintAndSteel, flintAndSteelTexture));
+        }
+        CreativeTabs.assign(flintAndSteel, "tools");
+        BlockTextures.layerOf(flintAndSteelTexture);
+
         /* Essen (MC-Werte: nutrition in Halb-Icons, saturation). */
         registerFood("skyengine:apple", 4, 2.4F, "game/textures/item/apple.png");
         registerFood("skyengine:bread", 5, 6.0F, "game/textures/item/bread.png");

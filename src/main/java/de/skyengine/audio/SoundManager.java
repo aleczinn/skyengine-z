@@ -103,6 +103,7 @@ public final class SoundManager implements IDisposable {
     private int[] explosionVariants; // random/explode1..4
     private int[] fuseVariants;      // random/fuse.ogg
     private int[] fizzVariants;      // random/fizz.ogg (Fackel brennt durch)
+    private int[] igniteVariants;    // random/ignite.ogg (Feuerzeug, in MC fire/ignite)
     private int[] pickupVariants;    // random/pop.ogg
     private int[] pistonOutVariants; // piston/out.ogg (Ausfahren)
     private int[] pistonInVariants;  // piston/in.ogg (Einfahren)
@@ -179,13 +180,14 @@ public final class SoundManager implements IDisposable {
         this.explosionVariants = this.loadVariants("random", "explode");
         this.fuseVariants = this.loadVariants("random", "fuse");
         this.fizzVariants = this.loadVariants("random", "fizz");
+        this.igniteVariants = this.loadVariants("random", "ignite");
         this.pickupVariants = this.loadVariants("random", "pop");
         this.pistonOutVariants = this.loadVariants("piston", "out");
         this.pistonInVariants = this.loadVariants("piston", "in");
         loaded += count(this.uiClickVariants) + count(this.hurtVariants) + count(this.fallSmallVariants)
                 + count(this.fallBigVariants) + count(this.eatVariants) + count(this.burpVariants)
                 + count(this.explosionVariants) + count(this.fuseVariants) + count(this.fizzVariants)
-                + count(this.pickupVariants)
+                + count(this.igniteVariants) + count(this.pickupVariants)
                 + count(this.pistonOutVariants) + count(this.pistonInVariants);
 
         /* Auf-/Zu-Sounds je Satz aus seinem eigenen Ordner; fehlt einer, bleibt nur er stumm. */
@@ -359,6 +361,16 @@ public final class SoundManager implements IDisposable {
     public void playFizz(double x, double y, double z) {
         float pitch = 1.8f + this.random.nextFloat() * (3.4f - 1.8f);
         this.play(this.fizzVariants, SoundCategory.BLOCKS, FIZZ_GAIN, pitch, false, true, x, y, z);
+    }
+
+    /**
+     * Feuerzeug schlägt Funken — positional am gezündeten Block. MC-Werte für
+     * {@code item.flintandsteel.use}: Gain 1,0 und Pitch {@code rand * 0.4 + 0.8}.
+     * Stumm, solange das Asset fehlt.
+     */
+    public void playIgnite(double x, double y, double z) {
+        float pitch = this.random.nextFloat() * 0.4f + 0.8f;
+        this.play(this.igniteVariants, SoundCategory.BLOCKS, 1.0F, pitch, false, true, x, y, z);
     }
 
     /** Tür/Truhe geht auf — positional an der Block-Position. Lautstärke/Pitch aus dem Satz. */

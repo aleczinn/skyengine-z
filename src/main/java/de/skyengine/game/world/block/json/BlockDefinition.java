@@ -50,6 +50,10 @@ public class BlockDefinition {
        tragende Oberseite (Vollblock, Top-Slab, kopfüber-Treppe). Beides gesetzt = beides. */
     public String[] place_on;
     public boolean place_on_full_top = false;
+    /* Schwächere Variante von place_on_full_top (MCs canSupportCenter): es genügt, dass die
+       MITTE der Oberseite trägt. Nur die Druckplatte nutzt das — dadurch steht sie auf einem
+       Zaunpfosten, was mit place_on_full_top nicht ginge. */
+    public boolean place_on_center_top = false;
 
     /* Archetyp "attached": erlaubte Trägerflächen (floor/wall/ceiling); null = alle drei.
        Die Fackel lässt floor+wall zu, ein Hebel später zusätzlich ceiling. */

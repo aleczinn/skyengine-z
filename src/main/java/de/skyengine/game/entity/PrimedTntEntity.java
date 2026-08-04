@@ -41,6 +41,13 @@ public class PrimedTntEntity extends Entity {
         this.motionX *= friction;
         this.motionZ *= friction;
 
+        /* Strömung trägt gezündetes TNT mit — MCs PrimedTnt.tick ruft dafür am Ende
+           updateFluidInteraction(), und das macht ausschließlich diesen Push (kein Auftrieb,
+           keine eigene Wasser-Physik). Reihenfolge wie dort: erst bewegen und dämpfen, dann
+           schieben, damit der Schub im nächsten Tick wirkt. */
+        this.applyFluidPush(world, false, WATER_PUSH);
+        this.applyFluidPush(world, true, LAVA_PUSH);
+
         if (--this.fuse <= 0) {
             if (world.getSoundManager() != null) {
                 world.getSoundManager().playExplosion(this.x, this.y + 0.5, this.z);

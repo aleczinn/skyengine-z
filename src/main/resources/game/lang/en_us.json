@@ -510,7 +510,8 @@
       "netherite_sword": "Netherite Sword",
       "bucket": "Bucket",
       "water_bucket": "Water Bucket",
-      "lava_bucket": "Lava Bucket"
+      "lava_bucket": "Lava Bucket",
+      "flint_and_steel": "Flint and Steel"
     }
   }
 }
