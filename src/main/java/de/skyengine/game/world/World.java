@@ -224,6 +224,7 @@ public class World implements IInitializable, IDisposable {
         this.chunkManager.update(player);
         this.lodManager.update(player);
         this.restorePendingScheduledTicks();
+        this.processReadyChunks();
         this.processDeferredStateUpdates();
         this.tickScheduled();
         this.processBlockEvents(); // Drain A: Flanken aus den Redstone-Ticks, noch VOR der BE-Phase
@@ -260,6 +261,35 @@ public class World implements IInitializable, IDisposable {
                 if (restorer != null) restorer.restore(this, tick.x(), tick.y(), tick.z(), tick.remainingTicks());
             }
             chunk.pendingScheduledTicks = null;
+        }
+    }
+
+    /**
+     * Nimmt frisch READY gewordene Chunks entgegen und stellt darin den transienten
+     * Vergleichs-Zustand wieder her, den kein Save mitbringt — heute nur der Beobachter.
+     *
+     * <p>Läuft VOR {@link #processDeferredStateUpdates} und {@link #tickScheduled}: der
+     * Anfangszustand muss stehen, bevor das erste Nachbar-Update oder ein aus dem Save
+     * restaurierter Puls-Tick den Block erreicht. Sonst verschluckt der Beobachter genau die
+     * Flanke, mit der eine Clock weiterlaufen wollte.
+     *
+     * <p>Aufbau wie {@link #restorePendingScheduledTicks}: größen-begrenztes Poll (ein Requeue
+     * darf im selben Tick nicht erneut drankommen), Identitätscheck gegen die Chunk-Map,
+     * Requeue solange der Chunk noch nicht READY ist.
+     */
+    private void processReadyChunks() {
+        int pending = this.chunkManager.readyAnnouncePending();
+        for (int i = 0; i < pending; i++) {
+            Chunk chunk = this.chunkManager.pollReadyAnnounce();
+            if (chunk == null) break;
+            if (this.chunkManager.getChunk(chunk.chunkX, chunk.chunkZ) != chunk) continue;
+            if (chunk.status != ChunkStatus.READY) {
+                this.chunkManager.requeueReadyAnnounce(chunk);
+                continue;
+            }
+            if (chunk.loadSeeded) continue;   // remeshAll macht Chunks ein zweites Mal READY
+            chunk.loadSeeded = true;
+            de.skyengine.game.world.block.behavior.ObserverBehavior.seedLoadedChunk(this, chunk);
         }
     }
 

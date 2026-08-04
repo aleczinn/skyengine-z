@@ -100,6 +100,13 @@ public final class SaveRoundTripTest {
         chunk.setBlockEntity(17, 200, 17, moving);
         int repeaterX = 3 * ChunkSection.SIZE + 12, repeaterZ = -7 * ChunkSection.SIZE + 12;
 
+        /* Beobachter mit offenem Puls-Tick: POWERED liegt im State, der Rest-Delay in den
+           Ticks — nur zusammen laeuft eine Beobachter-Clock nach dem Laden weiter. Die
+           Vergleichsbasis der Aenderungserkennung ist bewusst NICHT persistiert, die stellt
+           ObserverBehavior.seedLoadedChunk beim READY-Werden des Chunks wieder her. */
+        int observerX = 3 * ChunkSection.SIZE + 19, observerZ = -7 * ChunkSection.SIZE + 19;
+        chunk.setBlock(19, 200, 19, decodeId("skyengine:observer[facing=east,powered=true]"));
+
         /* Trichter: State (facing + enabled) + BE mit Inventar UND Rest-Cooldown — der
            Transfer-Takt muss Save/Load überstehen. Der Cooldown wird über load() gesetzt
            (ein leeres inventory-Tag lässt die Slots in Ruhe). */
@@ -129,7 +136,8 @@ public final class SaveRoundTripTest {
                 new SavedTick(ScheduledTickTypes.BLOCK, flowX, 200, flowZ, 1),
                 new SavedTick(ScheduledTickTypes.BLOCK, sourceX + 32, 200, sourceZ, 4),
                 new SavedTick(ScheduledTickTypes.BLOCK, sourceX, 600, sourceZ, 4),
-                new SavedTick(ScheduledTickTypes.BLOCK, repeaterX, 200, repeaterZ, 5));
+                new SavedTick(ScheduledTickTypes.BLOCK, repeaterX, 200, repeaterZ, 5),
+                new SavedTick(ScheduledTickTypes.BLOCK, observerX, 200, observerZ, 2));
 
         /* --- Serialisieren + Kompression/CRC-Round-Trip --- */
         t0 = System.currentTimeMillis();
@@ -256,12 +264,18 @@ public final class SaveRoundTripTest {
 
         /* Scheduled-Ticks: 3 gültige wiederhergestellt, unbekannter Typ + 2 invalide raus. */
         List<SavedTick> restoredTicks = restored.pendingScheduledTicks;
-        check(restoredTicks != null && restoredTicks.size() == 3,
-                "3 gültige Ticks wiederhergestellt (unbekannter Typ + 2 invalide übersprungen)");
-        if (restoredTicks != null && restoredTicks.size() == 3) {
+        check(restoredTicks != null && restoredTicks.size() == 4,
+                "4 gültige Ticks wiederhergestellt (unbekannter Typ + 2 invalide übersprungen)");
+        if (restoredTicks != null && restoredTicks.size() == 4) {
             SavedTick first = restoredTicks.get(0);
             SavedTick second = restoredTicks.get(1);
             SavedTick third = restoredTicks.get(2);
+            SavedTick fourth = restoredTicks.get(3);
+            check(fourth.x() == observerX && fourth.z() == observerZ && fourth.remainingTicks() == 2,
+                    "Beobachter-Puls-Tick mit Rest-Delay wiederhergestellt");
+            check(Blocks.getState(restored.getBlock(19, 200, 19))
+                            .get(de.skyengine.game.world.block.state.Properties.POWERED),
+                    "Beobachter behält POWERED über den Round-Trip");
             check(first.x() == sourceX && first.y() == 200 && first.z() == sourceZ && first.remainingTicks() == 3,
                     "Quelle-Tick (VOR dem unbekannten Eintrag) korrekt");
             check(second.x() == flowX && second.z() == flowZ && second.remainingTicks() == 1,

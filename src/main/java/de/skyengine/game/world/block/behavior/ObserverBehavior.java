@@ -1,10 +1,14 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.chunk.palette.PalettedContainer;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -90,6 +94,70 @@ public final class ObserverBehavior implements BlockBehavior {
     @Override
     public void onBreak(World world, int x, int y, int z, BlockState state) {
         this.observed.remove(key(x, y, z));
+    }
+
+    /**
+     * Stellt nach dem Laden eines Chunks die Vergleichsbasis aller darin stehenden Beobachter
+     * wieder her — ohne Puls und ohne geplanten Tick.
+     *
+     * <p>Die Map ist transient, nach dem Laden also leer. Ohne diesen Durchlauf frisst der
+     * Erstkontakt-Zweig in {@link #onNeighborUpdate} genau EINE echte Flanke je Beobachter und
+     * Ladevorgang: ein einzelner Beobachter ignoriert die erste Änderung, und eine Clock reißt
+     * ab, weil der Partner den restaurierten Puls stumm wegsteckt.
+     *
+     * <p>Der laufende Zustand kommt derweil aus Quellen, die den Save überleben — {@code POWERED}
+     * steht im BlockState, der Rest-Delay des 2-Tick-Pulses in den gespeicherten Ticks. Hier wird
+     * NUR die Vergleichsbasis nachgezogen, damit die Clock in ihrer Phase weiterläuft, statt
+     * einen bereits gelaufenen Schritt zu wiederholen.
+     *
+     * <p>Aufrufzeitpunkt ist bewusst „Chunk wurde READY" ({@code World.processReadyChunks}): das
+     * Gate des Mesh-Jobs garantiert alle 8 Nachbarn auf mindestens LIT, erst dann liefert
+     * {@code World.getBlock} über die Chunk-Grenze echte Daten. Früher gelesen, merkte sich ein
+     * Beobachter an der Kante still Luft — und löste beim nächsten Update einen Phantom-Puls aus.
+     *
+     * <p>Kosten: Ein Zell-Scan wäre teuer (32768 je Section), deshalb wie
+     * {@code LightEngine.seedEmitters} zuerst der Paletten-Vorfilter. In normalem Gelände fällt
+     * jede Section heraus, ohne dass eine einzige Zelle gelesen wird.
+     */
+    public static void seedLoadedChunk(World world, Chunk chunk) {
+        int originX = chunk.chunkX << ChunkSection.SHIFT;
+        int originZ = chunk.chunkZ << ChunkSection.SHIFT;
+
+        for (int s = 0; s < Chunk.SECTIONS; s++) {
+            ChunkSection section = chunk.getSection(s);
+            if (section == null || section.isEmpty()) continue;
+            PalettedContainer container = section.container();
+            if (container == null) continue;
+
+            boolean anyObserver = false;
+            for (int stateId : container.paletteEntries()) {
+                if (stateId != 0 && behaviorOf(stateId) != null) {
+                    anyObserver = true;
+                    break;
+                }
+            }
+            if (!anyObserver) continue;
+
+            int base = s << ChunkSection.SHIFT;
+            for (int ly = 0; ly < ChunkSection.SIZE; ly++) {
+                for (int lz = 0; lz < ChunkSection.SIZE; lz++) {
+                    for (int lx = 0; lx < ChunkSection.SIZE; lx++) {
+                        int id = section.getBlock(lx, ly, lz);
+                        if (id == 0) continue;
+                        ObserverBehavior behavior = behaviorOf(id);
+                        if (behavior == null) continue;
+                        int x = originX + lx, y = base + ly, z = originZ + lz;
+                        behavior.observed.put(key(x, y, z),
+                                watchedState(world, x, y, z, BlockRegistry.getState(id)));
+                    }
+                }
+            }
+        }
+    }
+
+    /** Die Behavior-Instanz hinter einer State-ID, oder null wenn das kein Beobachter ist. */
+    private static ObserverBehavior behaviorOf(int stateId) {
+        return BlockRegistry.getState(stateId).getBlock().getBehavior(ObserverBehavior.class);
     }
 
     /* --- Ausgang: 15 stark UND schwach, nur aus der Rückseite --- */

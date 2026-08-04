@@ -52,6 +52,13 @@ public class ChunkManager {
        statt jeden Tick alle Chunks zu scannen (im Steady-State null Treffer). */
     private final ConcurrentLinkedQueue<Chunk> tickRestoreQueue = new ConcurrentLinkedQueue<>();
 
+    /* Frisch READY gewordene Chunks (Announce vom Mesh-Worker). World.processReadyChunks holt
+       sie ab, damit Blöcke mit transientem Vergleichs-Zustand ihre Basis wiederherstellen können
+       — heute nur der Beobachter, dessen Map keinen Weltwechsel überlebt. Bewusst hier und nicht
+       früher: das Gate des Mesh-Jobs garantiert alle 8 Nachbarn auf mindestens LIT, erst dann
+       liest World.getBlock über die Chunk-Grenze echte Daten statt still Luft. */
+    private final ConcurrentLinkedQueue<Chunk> readyAnnounceQueue = new ConcurrentLinkedQueue<>();
+
     /* Aktualitäts-Sequenz für Mesh-Ergebnisse, vergeben beim Job-SUBMIT (Render-Thread, seriell):
        ein später submitteter Job hat immer neuere Daten. Der Renderer verwirft in applyBatch
        Batches, deren Seq nicht neuer ist als das zuletzt angewendete Mesh der Section — sonst
@@ -430,6 +437,7 @@ public class ChunkManager {
                         unlockRead(finalChunk, north, south, west, east, diagonals);
                     }
                     finalChunk.status = ChunkStatus.READY;
+                    this.readyAnnounceQueue.add(finalChunk);
                 });
             }
         }
@@ -531,6 +539,7 @@ public class ChunkManager {
         this.remeshQueue.clear(); // alte Chunk-Objekte; Neuanlagen melden sich selbst wieder an
         this.blockEntityAnnounceQueue.clear();
         this.tickRestoreQueue.clear();
+        this.readyAnnounceQueue.clear();
         this.chunksWithBlockEntities.clear();
         this.chunkRemovalVersion++;
         this.initialLoadComplete = false; // alles lädt neu → LOD wartet wieder auf das echte Terrain
@@ -675,6 +684,19 @@ public class ChunkManager {
 
     public Chunk pollTickRestore() {
         return this.tickRestoreQueue.poll();
+    }
+
+    /** Anzahl gemeldeter READY-Chunks (Poll-Deckel gegen Endlos-Requeue im selben Tick). */
+    public int readyAnnouncePending() {
+        return this.readyAnnounceQueue.size();
+    }
+
+    public Chunk pollReadyAnnounce() {
+        return this.readyAnnounceQueue.poll();
+    }
+
+    public void requeueReadyAnnounce(Chunk chunk) {
+        this.readyAnnounceQueue.add(chunk);
     }
 
     public void requeueTickRestore(Chunk chunk) {
