@@ -40,7 +40,12 @@ import java.util.Random;
  */
 public final class SoundManager implements IDisposable {
 
-    private static final int POOL_SIZE = 12;
+    /* 12 waren zu wenig, seit es Redstone-Maschinen gibt: der Kolben-Sound ist mit 0,65-0,92 s
+       (0,552-s-Datei, gestreckt durch den MC-Pitch 0.6) der längste Effekt der Engine, und eine
+       Kolbentür feuert ALLE ihre Kolben im selben Tick. Vier Kolben bei vier Schaltvorgängen pro
+       Sekunde belegen rechnerisch schon ~13 Sources — Schritte und Abbaugeräusche kommen obendrauf,
+       und über den Pool hinaus fällt der Sound still weg. OpenAL Soft trägt 256 Mono-Sources. */
+    private static final int POOL_SIZE = 64;
     private static final int MAX_VARIANTS = 8; // Varianten 1..N je Gruppe, solange die Datei existiert
 
     /* Lautstärke/Pitch-Konventionen wie Minecraft. */
@@ -62,6 +67,8 @@ public final class SoundManager implements IDisposable {
     private static final float PISTON_GAIN = 0.5F;
 
     private final Logger logger = LogManager.getLogger(SoundManager.class.getName());
+    /** Erschöpfter Pool wird nur einmal gemeldet — sonst spammt jede Maschine das Log voll. */
+    private boolean poolExhaustedReported;
 
     private boolean enabled;
     private long device, context;
@@ -357,7 +364,16 @@ public final class SoundManager implements IDisposable {
                       boolean positional, double x, double y, double z) {
         if (!this.enabled || variants == null) return;
         int source = this.acquireSource();
-        if (source == -1) return; // Pool voll: Sound verwerfen statt laufende zu stehlen
+        if (source == -1) {
+            /* Sound verwerfen statt eine laufende Source zu stehlen. EINMAL melden: still
+               verworfen war diese Fehlerklasse unsichtbar — genau daran fehlte der Kolben-Sound. */
+            if (!this.poolExhaustedReported) {
+                this.poolExhaustedReported = true;
+                this.logger.warning("Sound-Pool erschoepft (" + POOL_SIZE
+                        + " Sources belegt) — Sounds fallen aus. Wird nur einmal gemeldet.");
+            }
+            return;
+        }
 
         AL10.alSourcei(source, AL10.AL_BUFFER, variants[this.random.nextInt(variants.length)]);
         AL10.alSourcef(source, AL10.AL_GAIN, gain * this.categoryGains[category.ordinal()]);
