@@ -120,12 +120,12 @@ public final class ComparatorBehavior implements BlockBehavior {
         return RedstonePower.emittedSignal(world, sx, y, sz, side.opposite(), false);
     }
 
+    /* Zweiter Ring um die Zelle vor dem Ausgang — bedingungslos wie MCs
+       DiodeBlock.updateNeighborsInFront, auch wenn dort Luft steht (s. RepeaterBehavior). */
     private static void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
         int tx = x + out.offsetX(), tz = z + out.offsetZ();
-        if (Blocks.getState(world.getBlock(tx, y, tz)).isOpaqueCube()) {
-            world.updateNeighbors(tx, y, tz);
-        }
+        world.updateNeighbors(tx, y, tz);
     }
 
     /* --- Ausgang: POWER, schwach UND stark, nur in FACING-Richtung --- */

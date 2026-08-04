@@ -140,31 +140,34 @@ public final class RedstoneWireNetwork {
             }
         }
 
-        /* 4) Empfänger EINMAL benachrichtigen: 6 Nachbarn jeder geänderten Zelle, für stark
-           gespeiste opake Ziele zusätzlich DEREN 6 Nachbarn. Staub-Zellen sind ausgenommen
-           (direkte Netz-Nachbarn sind Teil der Komponente und schon konsistent). */
+        /* 4) Empfänger EINMAL benachrichtigen. Reichweite wie MCs
+           RedStoneWireBlock.updatePowerStrength: dort wird der 6-Ring nicht nur um die geänderte
+           Zelle gefeuert, sondern auch um JEDEN ihrer 6 Nachbarn — die Vereinigung ist ein
+           Diamant mit Radius 2. Der frühere Sonderfall „zusätzlich der Ring um stark gespeiste
+           OPAKE Ziele" ist darin vollständig enthalten (solche Ziele sind direkte Nachbarn) und
+           entfällt deshalb; die Opazitäts-Bedingung war zugleich der Grund, warum ein Kolben,
+           der über Quasi-Konnektivität an einer LUFT-Zelle hängt, nie geweckt wurde.
+           Staub-Zellen sind ausgenommen (direkte Netz-Nachbarn sind Teil der Komponente und
+           schon konsistent). */
         LinkedHashSet<Long> notify = new LinkedHashSet<>();
         for (long cell : changed) {
             int cx = BlockPos.unpackX(cell), cy = BlockPos.unpackY(cell), cz = BlockPos.unpackZ(cell);
-            BlockState state = Blocks.getState(world.getBlock(cx, cy, cz));
+            addRing(notify, cx, cy, cz);
             for (Direction d : Direction.values()) {
-                notify.add(BlockPos.asLong(cx + d.offsetX(), cy + d.offsetY(), cz + d.offsetZ()));
-            }
-            if (!RedstonePower.isWire(state)) continue;
-            for (Direction d : Direction.values()) {
-                if (d == Direction.UP) continue;
-                if (d != Direction.DOWN && !state.get(Properties.wireSide(d)).isConnected()) continue;
-                int tx = cx + d.offsetX(), ty = cy + d.offsetY(), tz = cz + d.offsetZ();
-                if (!Blocks.getState(world.getBlock(tx, ty, tz)).isOpaqueCube()) continue;
-                for (Direction nd : Direction.values()) {
-                    notify.add(BlockPos.asLong(tx + nd.offsetX(), ty + nd.offsetY(), tz + nd.offsetZ()));
-                }
+                addRing(notify, cx + d.offsetX(), cy + d.offsetY(), cz + d.offsetZ());
             }
         }
         for (long pos : notify) {
             int nx = BlockPos.unpackX(pos), ny = BlockPos.unpackY(pos), nz = BlockPos.unpackZ(pos);
             if (RedstonePower.isWire(Blocks.getState(world.getBlock(nx, ny, nz)))) continue;
             world.updateBlockStateAt(nx, ny, nz);
+        }
+    }
+
+    /** Die 6 direkten Nachbarn von (x,y,z) in die Empfänger-Menge legen. */
+    private static void addRing(LinkedHashSet<Long> notify, int x, int y, int z) {
+        for (Direction d : Direction.values()) {
+            notify.add(BlockPos.asLong(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ()));
         }
     }
 

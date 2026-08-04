@@ -270,6 +270,14 @@ public class Block {
         }
     }
 
+    /** Von einem Kolben an dieser Zelle abgesetzt — s. {@link BlockBehavior#onMovedByPiston}. */
+    public void onMovedByPiston(de.skyengine.game.world.World world, int x, int y, int z,
+                                BlockState state, Direction moveDirection) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.onMovedByPiston(world, x, y, z, state, moveDirection);
+        }
+    }
+
     /**
      * Recompute des eigenen States nach einer Nachbaränderung (Verbindungen,
      * Treppen-Ecken). Delegiert an die Behaviors; Default: unverändert.

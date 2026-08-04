@@ -33,7 +33,10 @@ public final class RepeaterBehavior implements BlockBehavior {
     @Override
     public boolean onUse(World world, int x, int y, int z, BlockState state) {
         int delay = state.get(Properties.DELAY) % 4 + 1;
-        world.setBlock(x, y, z, state.with(Properties.DELAY, delay).getId(), false);
+        /* MIT Nachbar-Update (MCs Flag 3): die Verzoegerung steckt im State, ein danebenstehender
+           Beobachter erkennt die Aenderung nur, wenn er geweckt wird. Nebenbei bewertet der
+           Verstaerker sich dabei selbst neu (Locking + Tick mit der neuen Verzoegerung). */
+        world.setBlock(x, y, z, state.with(Properties.DELAY, delay).getId(), true);
         return true;
     }
 
@@ -93,12 +96,13 @@ public final class RepeaterBehavior implements BlockBehavior {
 
     private static void switchOutput(World world, int x, int y, int z, BlockState state, boolean powered) {
         world.setBlock(x, y, z, state.with(Properties.POWERED, powered).getId(), true);
-        /* Starkes Ziel vor dem Ausgang: dessen Nachbarn erfahren die Flanke nur so. */
+        /* Zweiter Ring um die Zelle vor dem Ausgang: dessen Nachbarn erfahren die Flanke nur so.
+           Bedingungslos wie MCs DiodeBlock.updateNeighborsInFront — auch wenn dort LUFT steht.
+           Sonst bliebe ein Kolben, der ueber Quasi-Konnektivitaet an genau dieser Luftzelle
+           haengt, unbenachrichtigt (s. PistonBehavior.hasSignal). */
         Direction out = state.get(Properties.FACING);
         int tx = x + out.offsetX(), tz = z + out.offsetZ();
-        if (Blocks.getState(world.getBlock(tx, y, tz)).isOpaqueCube()) {
-            world.updateNeighbors(tx, y, tz);
-        }
+        world.updateNeighbors(tx, y, tz);
     }
 
     /** Signal am Eingang (Gegenseite von FACING)? */

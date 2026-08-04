@@ -37,8 +37,8 @@ import de.skyengine.game.world.redstone.RedstonePower;
  * <p><b>Flicker-Regel:</b> laufende Bewegungen werden nie ABGEBROCHEN — die eigene laufende
  * Bewegung wird bei einer Gegenflanke aber sofort VOLLENDET (Fast-Forward, MCs
  * {@code clearPistonTileEntity}) und danach frisch entschieden; fremde Animationen werden
- * weiter gepollt. Signal wie MC über die 5 Seiten ohne die Blickrichtung, ohne
- * Quasi-Connectivity.
+ * weiter gepollt. Signal wie MC über die 5 Seiten ohne die Blickrichtung, dazu
+ * Quasi-Konnektivität über die Zelle darüber (s. {@link #hasSignal}).
  *
  * <p><b>Timing (MC-Parität):</b> Flanken laufen als Block-Event ({@code World.enqueueBlockEvent})
  * im SELBEN Game-Tick — 0 Ticks Reaktion wie MCs Block-Events — gefolgt von 2 Game-Ticks
@@ -281,6 +281,13 @@ public final class PistonBehavior implements BlockBehavior {
                     Blocks.AIR, false);
             notify.add(src);
         }
+        /* Die BASIS-Zelle gehört mit in den Ring — wie beim Ausfahren (s. dort). Sie ändert
+           beim Einfahren zwar erst im finish ihren State, aber die Nachbarn müssen JETZT
+           erfahren, dass hier etwas passiert: in einer Kolbentür hängt der untere Kolben über
+           Quasi-Konnektivität an der Zelle des oberen und bekäme sonst gar keinen Weckruf —
+           er fuhr dadurch zwei Ticks später ein als der obere. MC benachrichtigt an dieser
+           Stelle ebenfalls (die Basis wird dort sogar selbst zum moving_piston). */
+        notify.add(BlockPos.asLong(x, y, z));
         for (long pos : notify) {
             world.updateNeighbors(BlockPos.unpackX(pos), BlockPos.unpackY(pos), BlockPos.unpackZ(pos));
         }
@@ -319,15 +326,30 @@ public final class PistonBehavior implements BlockBehavior {
         }
     }
 
-    /** Signal aus einer der 5 Seiten ohne die Blickrichtung (MC, ohne Quasi-Connectivity). */
+    /**
+     * Signal aus einer der 5 Seiten ohne die Blickrichtung — PLUS Quasi-Konnektivitaet
+     * (MCs {@code PistonBaseBlock.getNeighborSignal}): der Kolben gilt auch dann als gespeist,
+     * wenn die Zelle DARUEBER Signal bekommt, unabhaengig davon, ob dort ein Block oder Luft
+     * steht. Darauf beruhen BUD-Powering, 2-hohe Kolbentueren und Flugmaschinen.
+     *
+     * <p>In der oberen Runde bleibt DOWN ausgespart: dieser Nachbar der oberen Zelle ist der
+     * Kolben selbst, er wuerde sich sonst ueber seinen eigenen Ausgang selbst speisen.
+     */
     private static boolean hasSignal(World world, int x, int y, int z, Direction facing) {
         for (Direction d : Direction.values()) {
             if (d == facing) continue;
-            if (RedstonePower.emittedSignal(world, x + d.offsetX(), y + d.offsetY(), z + d.offsetZ(),
-                    d.opposite(), false) > 0) {
-                return true;
-            }
+            if (emitsInto(world, x, y, z, d)) return true;
+        }
+        for (Direction d : Direction.values()) {
+            if (d == Direction.DOWN) continue;
+            if (emitsInto(world, x, y + 1, z, d)) return true;
         }
         return false;
+    }
+
+    /** Speist der Nachbar in Richtung {@code d} Signal in die Zelle (x,y,z)? */
+    private static boolean emitsInto(World world, int x, int y, int z, Direction d) {
+        return RedstonePower.emittedSignal(world, x + d.offsetX(), y + d.offsetY(), z + d.offsetZ(),
+                d.opposite(), false) > 0;
     }
 }

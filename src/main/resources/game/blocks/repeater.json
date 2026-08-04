@@ -35,7 +35,8 @@
     "top": "game/textures/block/repeater.png",
     "top_on": "game/textures/block/repeater_on.png",
     "unlit": "game/textures/block/redstone_torch_off.png",
-    "lit": "game/textures/block/redstone_torch.png"
+    "lit": "game/textures/block/redstone_torch.png",
+    "lock": "game/textures/block/bedrock.png"
   },
   "variants": {
     "delay=1,facing=north,locked=false,powered=false": {

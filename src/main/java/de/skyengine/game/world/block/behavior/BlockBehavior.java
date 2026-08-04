@@ -30,6 +30,19 @@ public interface BlockBehavior {
     default void onPlaced(World world, int x, int y, int z, BlockState state) {
     }
 
+    /**
+     * Der Block wurde soeben von einem Kolben an dieser Zelle ABGESETZT (MCs
+     * {@code movedByPiston}-Flag). Läuft NACH dem Schreiben, aber VOR dem Nachbar-Ring, damit
+     * dessen Selbst-Update den neuen Zustand schon sieht. Bewusst getrennt von
+     * {@link #onPlaced}: Verschieben ist kein Platzieren — eine Tür z.B. darf dabei nicht
+     * ihre zweite Hälfte nachsetzen.
+     *
+     * @param moveDirection Richtung, in die der Block bewegt wurde (Quellzelle = Position
+     *                      minus diese Richtung).
+     */
+    default void onMovedByPiston(World world, int x, int y, int z, BlockState state, Direction moveDirection) {
+    }
+
     /** Nach Nachbaränderung: liefert den ggf. angepassten State (Verbindungen, Ecken). */
     default BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
         return state;

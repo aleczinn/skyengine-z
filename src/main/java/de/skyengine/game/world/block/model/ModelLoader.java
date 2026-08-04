@@ -12,9 +12,11 @@ import java.io.File;
 import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Lädt Block-Modelle (Minecraft-Stil) aus {@code game/models/} mit {@code parent}-
@@ -29,6 +31,9 @@ public final class ModelLoader {
 
     private static final Map<String, RawModel> MODELS = new HashMap<>();
     private static final Map<String, Baked> CACHE = new HashMap<>();
+
+    /** Schon gemeldete "Modell #ref"-Paare — die Warnung soll je Fundstelle einmal kommen. */
+    private static final Set<String> WARNED_REFS = new HashSet<>();
 
     /** Ergebnis des Backens: Render-Quads + Kollisions-/Outline-Boxen (lokale 0..1). */
     public record Baked(BakedQuad[] quads, AABB[] boxes) {}
@@ -197,12 +202,12 @@ public final class ModelLoader {
                    hängen ohnehin an den Vertices und wandern damit korrekt mit.
                    uvlock greift hier bewusst NICHT: für ein gekipptes Quad gibt es keine
                    achsenparallele Box, aus der sich eine weltfeste UV ableiten ließe. */
-                BakedQuad[] quads = rotateQuads(toBox(el, tex).bake(), el.rotation, xq, yq);
+                BakedQuad[] quads = rotateQuads(toBox(name, el, tex).bake(), el.rotation, xq, yq);
                 if (el.shade == Boolean.FALSE) fullBright(quads);
                 parts.add(quads);
                 boxes.add(enclosingBox(quads));
             } else {
-                BoxElement be = toBox(el, tex).rotateX(xq).rotateY(yq);
+                BoxElement be = toBox(name, el, tex).rotateX(xq).rotateY(yq);
                 if (lock) be = be.withoutFaceUv();
                 BakedQuad[] quads = be.bake();
                 if (!ao) stripDirection(quads);
@@ -374,7 +379,7 @@ public final class ModelLoader {
         return true;
     }
 
-    private static BoxElement toBox(RawElement el, Map<String, String> tex) {
+    private static BoxElement toBox(String modelName, RawElement el, Map<String, String> tex) {
         int[] t = {BakedQuad.NO_FACE, BakedQuad.NO_FACE, BakedQuad.NO_FACE,
                    BakedQuad.NO_FACE, BakedQuad.NO_FACE, BakedQuad.NO_FACE};
         int[] c = {BakedQuad.NO_CULL, BakedQuad.NO_CULL, BakedQuad.NO_CULL,
@@ -390,6 +395,16 @@ public final class ModelLoader {
                 if (idx < 0) continue;
                 RawFace face = e.getValue();
                 String path = resolveRef(tex, face.texture);
+                if (path == null) {
+                    /* Layer 0 ist eine gueltige Textur (die zuerst registrierte) — ohne
+                       Meldung sieht ein nicht aufgeloester Ref wie eine willkuerliche
+                       Fremdtextur aus statt wie ein Fehler. Genau so blieb der #lock-Ref
+                       der gesperrten Verstaerker-Modelle lange unentdeckt. Einmal je
+                       Modell+Ref, sonst spammt jede Rotationsvariante dieselbe Zeile. */
+                    if (WARNED_REFS.add(modelName + " " + face.texture)) {
+                        LOGGER.warning("Textur-Ref " + face.texture + " nicht aufloesbar in Modell " + modelName);
+                    }
+                }
                 t[idx] = path == null ? 0 : BlockTextures.layerOf(path);
                 c[idx] = face.cullface != null ? faceIndex(face.cullface) : BakedQuad.NO_CULL;
 

@@ -104,9 +104,12 @@ public class World implements IInitializable, IDisposable {
 
     /* Block-Event-Queue (MCs Block-Events, heute nur Kolben): 0-Tick-Reaktion mit zwei
        Drain-Punkten pro Tick — Drain A nach tickScheduled (Flanken aus Redstone-Ticks),
-       Drain B nach tickEntities (Re-Checks aus dem BE-finish). Events aus Drain A laufen
-       noch in Drain B desselben Ticks, Events aus Drain B im nächsten Tick (max. 2 Wellen
-       pro Tick = Terminierungsgarantie). LinkedHashSet = Dedup pro Position + FIFO. */
+       Drain B nach tickEntities (Re-Checks aus dem BE-finish). Jeder Drain-Punkt läuft in
+       Wellen, BIS die Queue leer ist (MCs ServerLevel.runBlockEvents) — eine Kaskade wird
+       also im selben Durchgang fertig. Das ist der Unterschied zwischen „zwei gestapelte
+       Kolben fahren gleichzeitig" und „der zweite hinkt einen Tick" (s. processBlockEvents).
+       LinkedHashSet = Dedup pro Position + FIFO. */
+    private static final int MAX_BLOCK_EVENT_WAVES = 64;
     private final LinkedHashSet<Long> blockEvents = new LinkedHashSet<>();
     private long[] blockEventScratch = new long[0];
 
@@ -1213,6 +1216,48 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
+     * Der Ring um diese Zelle UND um jeden ihrer 6 Nachbarn (= Diamant mit Radius 2).
+     *
+     * <p>Genau die Reichweite, die Minecraft den beiden „lauten" Redstone-Quellen gibt
+     * ({@code RedstoneTorchBlock.notifyNeighbors}, {@code RedStoneWireBlock.updatePowerStrength}).
+     * Sie ist die Voraussetzung dafür, dass Quasi-Konnektivität am Kolben praktisch nutzbar ist:
+     * eine Quelle, die die Zelle ÜBER dem Kolben speist, ist selbst kein Nachbar des Kolbens —
+     * ohne den zweiten Ring bliebe er stehen. Hebel/Knopf/Dioden bleiben bewusst schmaler,
+     * auch das ist MC-getreu.
+     *
+     * <p>Das Staub-Netz baut sich dieselbe Menge selbst zusammen, weil es über eine ganze
+     * Komponente hinweg deduplizieren muss (s. {@code RedstoneWireNetwork}).
+     */
+    public void updateNeighborsWide(int x, int y, int z) {
+        this.forEachWide(x, y, z, this::updateStateAt);
+    }
+
+    /**
+     * Derselbe Diamant, aber aufgeschoben auf den nächsten Tick — für {@code onBreak}, das VOR
+     * dem Entfernen läuft (s. {@link #deferBlockUpdate}). Ohne das bliebe ein Kolben, der über
+     * Quasi-Konnektivität an einer abgebauten Fackel hing, ausgefahren stehen.
+     */
+    public void deferBlockUpdatesWide(int x, int y, int z) {
+        this.forEachWide(x, y, z, this::deferBlockUpdate);
+    }
+
+    /** Alle Zellen mit Manhattan-Abstand <= 2 — jede genau einmal. */
+    private void forEachWide(int x, int y, int z, CellAction action) {
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = -2 + Math.abs(dx); dy <= 2 - Math.abs(dx); dy++) {
+                int rest = 2 - Math.abs(dx) - Math.abs(dy);
+                for (int dz = -rest; dz <= rest; dz++) {
+                    action.run(x + dx, y + dy, z + dz);
+                }
+            }
+        }
+    }
+
+    private interface CellAction {
+        void run(int x, int y, int z);
+    }
+
+    /**
      * Lässt genau EINE Zelle ihren State neu berechnen (schmaler Wrapper um
      * {@link #updateStateAt}) — für die gezielte Empfänger-Benachrichtigung des
      * Staub-Netzes, das seine Betroffenen selbst dedupliziert statt ganze Ringe
@@ -1275,30 +1320,51 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
-     * Drained die beim Aufruf vorhandenen Block-Events (Snapshot — währenddessen neu
-     * eingereihte laufen erst am nächsten Drain-Punkt). Nicht simulierbare Positionen werden
-     * als geplanter Tick geparkt: der persistiert im Save und kommt nach dem Laden wieder.
+     * Drained Block-Events in Wellen, bis die Queue leer ist (MCs {@code runBlockEvents}).
+     * Der Snapshot je Welle schützt nur die Iteration; was während einer Welle dazukommt,
+     * läuft in der NÄCHSTEN Welle desselben Drain-Punkts.
+     *
+     * <p>Warum das wichtig ist: löst ein Kolben beim Ausfahren über seinen Nachbar-Ring einen
+     * zweiten Kolben aus (2-hohe Kolbentür — der untere hängt an der Quasi-Konnektivität),
+     * dann muss dessen Bewegung noch VOR {@code tickBlockEntities} beginnen. Sonst verpasst er
+     * den Animationsschritt dieses Ticks und wird dauerhaft einen Tick später fertig — der
+     * Versatz pflanzt sich über den Re-Check aus dem BE-finish in jeden Zyklus fort.
+     *
+     * <p>Terminierung: die Empfänger validieren ihren Zustand selbst und tun nichts mehr, wenn
+     * er schon passt ({@code PistonBehavior.evaluate}), eine Kaskade läuft also aus. Der Deckel
+     * {@link #MAX_BLOCK_EVENT_WAVES} ist nur die Notbremse gegen einen unbekannten Zyklus; der
+     * Rest bleibt liegen und läuft am nächsten Drain-Punkt.
+     *
+     * <p>Nicht simulierbare Positionen werden als geplanter Tick geparkt: der persistiert im
+     * Save und kommt nach dem Laden wieder.
      */
     private void processBlockEvents() {
-        if (this.blockEvents.isEmpty()) return;
-
-        int n = this.blockEvents.size();
-        if (this.blockEventScratch.length < n) this.blockEventScratch = new long[n * 2];
-        int i = 0;
-        for (long pos : this.blockEvents) this.blockEventScratch[i++] = pos;
-        this.blockEvents.clear();
-
-        for (int j = 0; j < n; j++) {
-            long pos = this.blockEventScratch[j];
-            int x = BlockPos.unpackX(pos), y = BlockPos.unpackY(pos), z = BlockPos.unpackZ(pos);
-            int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
-            Chunk chunk = this.chunkManager.getChunk(cx, cz);
-            if (chunk == null || chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
-                this.scheduleTickEarlier(x, y, z, 1);
-                continue;
+        int welle = 0;
+        while (!this.blockEvents.isEmpty()) {
+            if (++welle > MAX_BLOCK_EVENT_WAVES) {
+                this.logger.warning("Block-Events terminieren nicht (" + MAX_BLOCK_EVENT_WAVES
+                        + " Wellen, " + this.blockEvents.size() + " offen) — Rest auf den naechsten Drain");
+                return;
             }
-            BlockState state = Blocks.getState(this.getBlock(x, y, z));
-            state.getBlock().onBlockEvent(this, x, y, z, state);
+
+            int n = this.blockEvents.size();
+            if (this.blockEventScratch.length < n) this.blockEventScratch = new long[n * 2];
+            int i = 0;
+            for (long pos : this.blockEvents) this.blockEventScratch[i++] = pos;
+            this.blockEvents.clear();
+
+            for (int j = 0; j < n; j++) {
+                long pos = this.blockEventScratch[j];
+                int x = BlockPos.unpackX(pos), y = BlockPos.unpackY(pos), z = BlockPos.unpackZ(pos);
+                int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+                Chunk chunk = this.chunkManager.getChunk(cx, cz);
+                if (chunk == null || chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
+                    this.scheduleTickEarlier(x, y, z, 1);
+                    continue;
+                }
+                BlockState state = Blocks.getState(this.getBlock(x, y, z));
+                state.getBlock().onBlockEvent(this, x, y, z, state);
+            }
         }
     }
 

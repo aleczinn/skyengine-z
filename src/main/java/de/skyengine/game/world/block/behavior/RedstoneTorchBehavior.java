@@ -29,9 +29,24 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
         /* Tolerantes Feuern: neu prüfen — hat sich das Signal zurückgedreht, passiert nichts. */
         boolean lit = shouldBeLit(world, x, y, z, state);
         if (lit == state.get(Properties.LIT)) return;
-        world.setBlock(x, y, z, state.with(Properties.LIT, lit).getId(), true);
-        /* Starkes Ziel oben: dessen Nachbarn erfahren die Flanke nur über den zweiten Ring. */
-        world.updateNeighbors(x, y + 1, z);
+        world.setBlock(x, y, z, state.with(Properties.LIT, lit).getId(), false);
+        world.updateNeighborsWide(x, y, z);
+    }
+
+    /* Die Fackel ist neben dem Staub die zweite Quelle, der MC den vollen Radius-2-Diamanten
+       gibt (RedstoneTorchBlock.notifyNeighbors — bei Platzieren, Abbauen und jeder Flanke).
+       Er deckt das starke Ziel oben ab UND einen Kolben, der über Quasi-Konnektivität an einer
+       Nachbarzelle der Fackel hängt (der ist selbst kein Nachbar der Fackel). */
+
+    @Override
+    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+        world.updateNeighborsWide(x, y, z);
+    }
+
+    @Override
+    public void onBreak(World world, int x, int y, int z, BlockState state) {
+        /* onBreak läuft VOR dem Entfernen — aufschieben, sonst läse der Ring die Fackel noch. */
+        world.deferBlockUpdatesWide(x, y, z);
     }
 
     /** An, solange der Trägerblock KEIN Signal in die Fackel speist (Inverter). */

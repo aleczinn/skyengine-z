@@ -118,6 +118,12 @@ public final class PistonMovingBlockEntity extends BlockEntity {
            BE-Typ — BlockEntity-Blöcke sind piston_reaction=block). false = Chunk gerade
            nicht READY, dann versucht es der nächste Tick erneut. */
         if (!this.world.setBlock(x, y, z, this.movedStateId, false)) return;
+        /* VOR dem Nachbar-Ring: dessen erster Schritt ist updateStateAt auf diese Zelle selbst,
+           und genau der soll den frisch abgesetzten Zustand schon kennen (ein verschobener
+           Beobachter pulst dadurch, statt stumm anzukommen). */
+        Direction moveDirection = this.extending ? this.facing : this.facing.opposite();
+        BlockState placed = Blocks.getState(this.movedStateId);
+        placed.getBlock().onMovedByPiston(this.world, x, y, z, placed, moveDirection);
         this.world.updateNeighbors(x, y, z);
         if (this.isSource) {
             /* Source-BEs sitzen einheitlich an der KOPF-Zelle, die Basis liegt dahinter. */

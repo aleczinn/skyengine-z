@@ -69,6 +69,24 @@ public final class ObserverBehavior implements BlockBehavior {
         world.updateNeighbors(x + back.offsetX(), y + back.offsetY(), z + back.offsetZ());
     }
 
+    /**
+     * Von einem Kolben verschoben: In MC pulst ein bewegter Beobachter — genau darauf beruhen
+     * Flugmaschinen. Hier fehlt ihm an der neuen Zelle sonst jede Vorgeschichte
+     * ({@code last == null} in {@link #onNeighborUpdate}) und er bliebe stumm.
+     *
+     * <p>Der Eintrag der Quellzelle muss dabei weg: Kolben räumen ihre Quellen ohne
+     * {@code onBreak}, der Eintrag bliebe also liegen — bei einer Flugmaschine wächst die Map
+     * sonst nicht nur endlos, sie vergleicht beim zyklischen Zurückkehren auf eine früher
+     * besetzte Zelle auch gegen einen veralteten Wert.
+     */
+    @Override
+    public void onMovedByPiston(World world, int x, int y, int z, BlockState state, Direction moveDirection) {
+        this.observed.remove(key(x - moveDirection.offsetX(), y - moveDirection.offsetY(),
+                z - moveDirection.offsetZ()));
+        this.observed.put(key(x, y, z), watchedState(world, x, y, z, state));
+        if (!world.isTickScheduled(x, y, z)) world.scheduleTick(x, y, z, 2);
+    }
+
     @Override
     public void onBreak(World world, int x, int y, int z, BlockState state) {
         this.observed.remove(key(x, y, z));
