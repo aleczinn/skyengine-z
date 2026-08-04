@@ -117,10 +117,18 @@ public final class RedstoneWireNetwork {
             RedstoneSide east = sideShape(world, cx, cy, cz, Direction.EAST);
             RedstoneSide s = sideShape(world, cx, cy, cz, Direction.SOUTH);
             RedstoneSide w = sideShape(world, cx, cy, cz, Direction.WEST);
-            /* MC-Normalisierung: ganz ohne Verbindung bleibt es der Punkt; eine einzelne
-               Verbindung wird zur durchgehenden Linie (Gegenseite als SIDE aufgefüllt). */
+            /* MC-Normalisierung (RedStoneWireBlock.getConnectionState, gegen 26.2 verifiziert):
+               eine einzelne Verbindung wird zur durchgehenden Linie (Gegenseite als SIDE
+               aufgefüllt), ein Staub ohne jede Verbindung wird zum KREUZ und speist damit alle
+               vier Nachbarn.
+
+               Die Punkt-Form überlebt nur, wenn der Staub schon vorher ein Punkt war — Vanillas
+               `if (wasDot && isDot(neu)) return neu;`. Genau daran hing der Unterschied: die
+               frühere Abkürzung „nur auffüllen, wenn es überhaupt eine Verbindung gibt" liess
+               jeden isolierten Staub zum Punkt kollabieren, und ein Punkt speist horizontal
+               nichts. Punkt und Kreuz sind reine Property-Kombinationen, keine eigene Property. */
             boolean cn = n.isConnected(), ce = east.isConnected(), cs = s.isConnected(), cw = w.isConnected();
-            if (cn || ce || cs || cw) {
+            if (!(isDot(current) && !cn && !ce && !cs && !cw)) {
                 boolean noNS = !cn && !cs, noEW = !ce && !cw;
                 if (!cw && noNS) w = RedstoneSide.SIDE;
                 if (!ce && noNS) east = RedstoneSide.SIDE;
@@ -162,6 +170,38 @@ public final class RedstoneWireNetwork {
             if (RedstonePower.isWire(Blocks.getState(world.getBlock(nx, ny, nz)))) continue;
             world.updateBlockStateAt(nx, ny, nz);
         }
+    }
+
+    /** Punkt-Form: keine einzige Seite verbunden (speist horizontal nichts). */
+    public static boolean isDot(BlockState state) {
+        for (Direction d : Direction.horizontalValues()) {
+            if (state.get(Properties.wireSide(d)).isConnected()) return false;
+        }
+        return true;
+    }
+
+    /** Kreuz-Form: alle vier Seiten auf SIDE (speist alle vier Nachbarn). */
+    public static boolean isCross(BlockState state) {
+        for (Direction d : Direction.horizontalValues()) {
+            if (state.get(Properties.wireSide(d)) != RedstoneSide.SIDE) return false;
+        }
+        return true;
+    }
+
+    /** Der Kreuz-State zu einem gegebenen Staub-State (Vanillas {@code crossState}). */
+    public static BlockState toCross(BlockState state) {
+        for (Direction d : Direction.horizontalValues()) {
+            state = state.with(Properties.wireSide(d), RedstoneSide.SIDE);
+        }
+        return state;
+    }
+
+    /** Der Punkt-State zu einem gegebenen Staub-State. */
+    public static BlockState toDot(BlockState state) {
+        for (Direction d : Direction.horizontalValues()) {
+            state = state.with(Properties.wireSide(d), RedstoneSide.NONE);
+        }
+        return state;
     }
 
     /** Die 6 direkten Nachbarn von (x,y,z) in die Empfänger-Menge legen. */

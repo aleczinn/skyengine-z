@@ -19,9 +19,43 @@ import de.skyengine.game.world.redstone.RedstoneWireNetwork;
  */
 public final class RedstoneWireBehavior implements BlockBehavior {
 
+    /**
+     * Frisch platzierter Staub ist ein KREUZ (Vanillas {@code crossState} in
+     * {@code getStateForPlacement}) — ohne Nachbarn speist er damit alle vier Seiten. Der
+     * Property-Default wäre sonst überall NONE, also der Punkt, und der speist horizontal nichts.
+     * Die Normalisierung im Netz baut die Form danach an die Nachbarschaft an.
+     */
+    @Override
+    public BlockState onPlace(PlacementContext ctx, BlockState state) {
+        return RedstoneWireNetwork.toCross(state);
+    }
+
     @Override
     public void onPlaced(World world, int x, int y, int z, BlockState state) {
         RedstoneWireNetwork.update(world, x, y, z);
+    }
+
+    /**
+     * Rechtsklick schaltet zwischen Kreuz und Punkt um (MCs {@code useWithoutItem}) — nur, wenn
+     * der Staub gerade genau eines von beiden ist; eine Linie oder Ecke bleibt unberührt. Der
+     * Punkt speist horizontal nichts, das Kreuz alle vier Nachbarn.
+     */
+    @Override
+    public boolean onUse(World world, int x, int y, int z, BlockState state) {
+        BlockState umgeschaltet;
+        if (RedstoneWireNetwork.isCross(state)) {
+            umgeschaltet = RedstoneWireNetwork.toDot(state);
+        } else if (RedstoneWireNetwork.isDot(state)) {
+            umgeschaltet = RedstoneWireNetwork.toCross(state);
+        } else {
+            return false;
+        }
+        world.setBlock(x, y, z, umgeschaltet.getId(), false);
+        /* Das Netz schreibt die endgültige Form selbst und benachrichtigt die Empfänger — der
+           Umschalter ändert ja, wen dieser Staub speist. */
+        RedstoneWireNetwork.update(world, x, y, z);
+        world.updateNeighbors(x, y, z);
+        return true;
     }
 
     @Override

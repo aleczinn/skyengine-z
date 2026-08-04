@@ -1278,17 +1278,21 @@ public class GameContainer implements IResizeable, IDisposable {
 
         if (this.hit == null) return false;
 
+        /* Sneaken mit einem Block in der Hand überspringt JEDE Block-Interaktion und platziert
+           stattdessen — MCs Regel (`!isSecondaryUseActive() || leere Hand`). Das ist die einzige
+           Möglichkeit, eine Truhe an die Seite einer anderen zu setzen oder auf einem Redstone-
+           Staub zu bauen, statt ihn umzuschalten. */
+        boolean placingWhileSneaking = this.player.isSecondaryUseActive()
+                && held.getItem() != null && held.getItem().getPlacedBlock() != null;
+
         /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
         BlockState hitState = Blocks.getState(this.hit.block());
-        if (hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(), hitState)) {
+        if (!placingWhileSneaking
+                && hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(), hitState)) {
             return true;
         }
 
-        /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). Sneaken mit einem Block in
-           der Hand überspringt die Interaktion und platziert stattdessen — wie in MC, und die
-           einzige Möglichkeit, eine Truhe an die Seite einer anderen zu setzen. */
-        boolean placingWhileSneaking = this.player.isSecondaryUseActive()
-                && held.getItem() != null && held.getItem().getPlacedBlock() != null;
+        /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). */
         if (!placingWhileSneaking && this.tryOpenChest()) return true;
         if (!placingWhileSneaking && this.tryOpenHopper()) return true;
 
