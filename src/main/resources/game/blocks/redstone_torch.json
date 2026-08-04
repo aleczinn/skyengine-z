@@ -14,9 +14,9 @@
   "sound": "wood",
   "icon_item": "game/textures/block/redstone_torch.png",
   "models": {
-    "": "block/template_torch",
+    "": "block/template_redstone_torch",
     "_off": "block/template_torch_off",
-    "_wall": "block/template_torch_wall",
+    "_wall": "block/template_redstone_torch_wall",
     "_wall_off": "block/template_torch_wall_off"
   },
   "textures": {

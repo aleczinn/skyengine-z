@@ -1,0 +1,16 @@
+{
+  "_comment": "Verbatim MC thin_block (26.2). Zwischenglied fuer FLACHE Bloecke (Druckplatte, Falltuer, Teppich, Schnee): sie erben sonst die Hand-Transforms von block/block, und dessen First-Person-Translation ist [0,0,0] — ein 1-3 px hoher Block klebt damit am unteren Rand des Hand-Ankers und sitzt sichtbar zu tief. Vanilla hebt ihn hier um 4.2 px an (dritte Person zusaetzlich 2 px in z). Werte verbatim; firstperson_lefthand weggelassen, HeldItemMeshes fragt nur die *_righthand-Slots ab.",
+  "parent": "block/block",
+  "display": {
+    "firstperson_righthand": {
+      "rotation": [0, 45, 0],
+      "translation": [0, 4.2, 0],
+      "scale": [0.40, 0.40, 0.40]
+    },
+    "thirdperson_righthand": {
+      "rotation": [75, 45, 0],
+      "translation": [0, 2.5, 2],
+      "scale": [0.375, 0.375, 0.375]
+    }
+  }
+}

@@ -1,6 +1,6 @@
 {
   "_comment": "Rumpf: aufgeklappte Falltuer, senkrecht an der Suedkante (z 13..16). Die Blockstate-Varianten drehen sie per y in die vier Richtungen. Geometrie und UVs verbatim aus Vanillas template_orientable_trapdoor_open.",
-  "parent": "block/block",
+  "parent": "block/thin_block",
   "elements": [
     {
       "from": [0, 0, 13], "to": [16, 16, 16],

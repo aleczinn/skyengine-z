@@ -1,4 +1,5 @@
 {
+  "parent": "block/thin_block",
   "_comment": "MC pressure_plate_down (26.2): wie _up, aber nur 0.5 px hoch (gedrueckt). Einzige Abweichung: die Seiten-UVs enden bei 16 statt MCs 15.5 - der Model-Loader kennt nur ganzzahlige UVs (RawFace.uv int[]), und der halbe Pixel ist auf einer 0.5-px-Kante unsichtbar.",
   "elements": [
     {

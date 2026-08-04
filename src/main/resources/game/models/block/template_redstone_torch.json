@@ -1,0 +1,56 @@
+{
+  "parent": "block/block",
+  "_comment": "Verbatim MC template_redstone_torch (26.2). Unterschied zu template_torch: die sechs zusaetzlichen Elemente sind der Leucht-Halo — ein 3x3-px-Kaefig um die Flammenspitze, je Element genau EINE Face und Dicke 0 (from == to in einer Achse). Sie sampeln denselben #torch-Sprite, nur den roten Glow-Rand im Texel-Bereich x 5-10 / y 5-8; eine eigene Glow-Textur gibt es in MC nicht. Kein cullface: die Quads liegen frei in der Zelle. shade: false haelt sie unabhaengig von der Face-Richtung gleich hell. Dieselben Halos stecken schon in den template_repeater_*_on-Modellen — deshalb glueht der Verstaerker und die freistehende Fackel bisher nicht.",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [7, 0, 7],
+      "to": [9, 10, 9],
+      "shade": false,
+      "faces": {
+        "down":  { "uv": [7, 13, 9, 15], "texture": "#torch", "cullface": "down" },
+        "up":    { "uv": [7, 6, 9, 8],   "texture": "#torch" },
+        "north": { "uv": [7, 6, 9, 16],  "texture": "#torch" },
+        "east":  { "uv": [7, 6, 9, 16],  "texture": "#torch" },
+        "south": { "uv": [7, 6, 9, 16],  "texture": "#torch" },
+        "west":  { "uv": [7, 6, 9, 16],  "texture": "#torch" }
+      }
+    },
+    {
+      "from": [6.5, 7.5, 6.5],
+      "to": [9.5, 7.5, 9.5],
+      "shade": false,
+      "faces": { "up": { "uv": [8, 5, 9, 6], "texture": "#torch" } }
+    },
+    {
+      "from": [6.5, 10.5, 6.5],
+      "to": [9.5, 10.5, 9.5],
+      "shade": false,
+      "faces": { "down": { "uv": [7, 5, 8, 6], "texture": "#torch" } }
+    },
+    {
+      "from": [6.5, 7.5, 6.5],
+      "to": [9.5, 10.5, 6.5],
+      "shade": false,
+      "faces": { "south": { "uv": [9, 6, 10, 7], "texture": "#torch" } }
+    },
+    {
+      "from": [9.5, 7.5, 6.5],
+      "to": [9.5, 10.5, 9.5],
+      "shade": false,
+      "faces": { "west": { "uv": [6, 7, 7, 8], "texture": "#torch" } }
+    },
+    {
+      "from": [6.5, 7.5, 9.5],
+      "to": [9.5, 10.5, 9.5],
+      "shade": false,
+      "faces": { "north": { "uv": [6, 6, 7, 7], "texture": "#torch" } }
+    },
+    {
+      "from": [6.5, 7.5, 6.5],
+      "to": [6.5, 10.5, 9.5],
+      "shade": false,
+      "faces": { "east": { "uv": [9, 7, 10, 8], "texture": "#torch" } }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
-  "_comment": "Verbatim MC pressure_plate_up (26.2): 14x1x14-Platte, 1 px eingerueckt. Parent block/block statt MCs thin_block (das es hier nicht gibt) fuer die Hand-Transforms.",
-  "parent": "block/block",
+  "_comment": "Verbatim MC pressure_plate_up (26.2): 14x1x14-Platte, 1 px eingerueckt. Parent block/thin_block wie in MC — das hebt den flachen Block in der Hand um 4.2 px an.",
+  "parent": "block/thin_block",
   "elements": [
     {
       "from": [1, 0, 1], "to": [15, 1, 15],

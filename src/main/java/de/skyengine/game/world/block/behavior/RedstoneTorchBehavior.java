@@ -15,22 +15,31 @@ import java.util.Map;
  * alle Richtungen außer zum Träger ab, stark nur nach OBEN (deshalb schaltet eine Fackel
  * unter einem Block alles über diesem Block).
  *
- * <p><b>Burnout (MC):</b> Schaltet die Fackel zu oft in zu kurzer Zeit — klassisch die
- * Fackel unter einem Block mit Staub daneben, die sich selbst abschaltet —, brennt sie durch
- * und bleibt {@value #BURNOUT_RECOVERY} Ticks aus. Gezählt werden nur die AUS-Flanken; die
- * AN-Flanke fragt das Protokoll nur ab. Ohne das entsteht eine Endlos-Clock.
+ * <p><b>Burnout (MC):</b> Schaltet die Fackel {@value #BURNOUT_LIMIT} Mal aus innerhalb von
+ * {@value #BURNOUT_WINDOW} Ticks — klassisch die Fackel, deren Staub den eigenen Träger speist —,
+ * brennt sie durch: sie zischt und geht aus. Gezählt werden nur die AUS-Flanken; die AN-Flanke
+ * fragt das Protokoll nur ab.
+ *
+ * <p><b>Und dann bleibt sie aus — von selbst kommt sie NIE zurück.</b> Das ist am Bytecode von
+ * 26.2 verifiziert und der Punkt, an dem eine naive Umsetzung danebenliegt: Vanilla plant beim
+ * Durchbrennen zwar {@code scheduleTick(160)}, aber dieser Eintrag wird von der Tick-Queue
+ * verworfen — die Redstone-Kaskade des Ausschaltens läuft synchron im selben Aufruf und hat für
+ * dieselbe Position längst einen 2-Tick-Eintrag gesetzt. Der feuert, findet die Historie noch
+ * frisch, steigt früh aus und plant NICHTS nach. Danach gibt es keinen Tick mehr.
+ *
+ * <p>Zurück kommt die Fackel deshalb nur über ein <b>Nachbar-Update</b>, und auch dann erst, wenn
+ * seit der letzten Aus-Flanke mehr als {@value #BURNOUT_WINDOW} Ticks vergangen sind (vorher ist
+ * das Zählfenster noch offen). Praktisch heißt das: Block über der Fackel entfernen → sie leuchtet.
  *
  * <p>„Ausgebrannt" braucht keine eigene Property: es ist {@code lit=false} plus die transiente
- * Historie plus der anstehende Erholungs-Tick (der persistiert). Nach einem Reload ist die
- * Historie leer — das ist der harmlose Fall (die Fackel läuft und brennt eben erneut durch),
- * anders als beim Beobachter braucht es hier also kein Seeding.
+ * Historie. Nach einem Reload ist die Historie leer — das ist der harmlose Fall (die Fackel folgt
+ * wieder und brennt eben erneut durch), anders als beim Beobachter braucht es hier kein Seeding.
  */
 public final class RedstoneTorchBehavior implements BlockBehavior {
 
-    /** MC-Zahlen: mehr als {@value} Aus-Flanken im Fenster {@value #BURNOUT_WINDOW} = durchgebrannt. */
+    /** MC-Zahlen ({@code MAX_RECENT_TOGGLES} / {@code RECENT_TOGGLE_TIMER}). */
     private static final int BURNOUT_LIMIT = 8;
     private static final int BURNOUT_WINDOW = 60;
-    private static final int BURNOUT_RECOVERY = 160;
 
     /**
      * Position -> Aus-Flanken im laufenden Fenster. Nur Tick-Thread, deshalb ungesichert
@@ -46,9 +55,12 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
 
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
-        if (shouldBeLit(world, x, y, z, state) != state.get(Properties.LIT)
-                && !world.isTickScheduled(x, y, z)) {
-            world.scheduleTick(x, y, z, 2);
+        if (shouldBeLit(world, x, y, z, state) != state.get(Properties.LIT)) {
+            /* Vorziehen statt „nur wenn gar nichts ansteht": eine ausgebrannte Fackel hat den
+               Erholungs-Tick in der Queue und wäre sonst bis zu 160 Ticks taub — sie muss aber
+               sofort reagieren, wenn sich ihre Lage ändert (Block darüber weg). MC prüft an
+               dieser Stelle nur, ob ein Tick für GENAU DIESEN Tick ansteht. */
+            world.scheduleTickEarlier(x, y, z, 2);
         }
         return state;
     }
@@ -60,13 +72,20 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
         if (lit == state.get(Properties.LIT)) return;
 
         if (lit) {
-            /* AN-Flanke: nur das Protokoll LESEN. Ist die Fackel durchgebrannt, bleibt sie aus —
-               der Erholungs-Tick holt das Einschalten nach. */
+            /* AN-Flanke: das Protokoll nur LESEN. Ist die Fackel ausgebrannt, endet der Tick hier
+               — und mit ihm die Tick-Kette. GENAU DAS ist das dauerhafte Aus: würde hier ein
+               Folge-Tick geplant, käme die Fackel ohne äusseren Anlass zurück und aus dem
+               Durchbrennen würde ein Takt. Zurück holt sie nur ein Nachbar-Update, und auch das
+               erst, wenn das Zählfenster abgelaufen ist. */
             if (this.isBurntOut(world, x, y, z)) return;
         } else if (this.recordToggle(world, x, y, z)) {
-            /* AUS-Flanke hat das Limit gerissen: ausschalten wie sonst auch, aber die Erholung
-               einplanen und die Historie schliessen (sie wird beim Erholungs-Tick verworfen). */
-            world.scheduleTick(x, y, z, BURNOUT_RECOVERY);
+            /* AUS-Flanke hat das Limit gerissen: nur zischen. Vanillas scheduleTick(160) an
+               dieser Stelle ist wirkungslos — die Queue hat für die Position längst den 2-Tick-
+               Eintrag aus der Schalt-Kaskade und verwirft ihn. Bei uns würde er dagegen feuern
+               und die Fackel fälschlich zurückholen, deshalb steht er hier gar nicht erst. */
+            if (world.getSoundManager() != null) {
+                world.getSoundManager().playFizz(x + 0.5, y + 0.5, z + 0.5);
+            }
         }
 
         world.setBlock(x, y, z, state.with(Properties.LIT, lit).getId(), false);
@@ -92,13 +111,20 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
         return ++toggles.count >= BURNOUT_LIMIT;
     }
 
-    /** Ausgebrannt, solange das Limit im noch offenen Fenster gerissen ist. */
+    /**
+     * Ausgebrannt, solange im noch offenen Zählfenster die Schwelle gerissen ist.
+     *
+     * <p>Vanillas Gegenstück ist der Prune-Lauf am Anfang von {@code tick}: er wirft Einträge
+     * weg, die älter als {@value #BURNOUT_WINDOW} Ticks sind — erst danach zählt die Schwelle
+     * nicht mehr und die Fackel darf wieder. Ein Zeitstempel aus der „Zukunft" (Weltwechsel,
+     * s. {@link #recordToggle}) gilt genauso als abgelaufen.
+     */
     private boolean isBurntOut(World world, int x, int y, int z) {
         Toggles toggles = this.recent.get(key(x, y, z));
         if (toggles == null) return false;
         long verstrichen = world.getGameTime() - toggles.windowStart;
         if (verstrichen < 0 || verstrichen > BURNOUT_WINDOW) {
-            this.recent.remove(key(x, y, z));   // Fenster vorbei: Erholung
+            this.recent.remove(key(x, y, z));   // Fenster durch: der Zähler ist wertlos
             return false;
         }
         return toggles.count >= BURNOUT_LIMIT;

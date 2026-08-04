@@ -1,6 +1,6 @@
 {
   "_comment": "Rumpf: geschlossene Falltuer am Boden, 3 px hoch. Geometrie und UVs verbatim aus Vanillas template_orientable_trapdoor_bottom.",
-  "parent": "block/block",
+  "parent": "block/thin_block",
   "elements": [
     {
       "from": [0, 0, 0], "to": [16, 3, 16],
