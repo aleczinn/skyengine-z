@@ -22,6 +22,7 @@ public class Block {
     private final Identifier identifier;
     private final Settings settings;
     private final BlockConfig config;
+    private final boolean reconcileRedstoneOnChunkBoundary;
 
     private final List<Property<?>> properties = new ArrayList<>();
     private final List<BlockState> states = new ArrayList<>();
@@ -41,6 +42,14 @@ public class Block {
         this.identifier = identifier;
         this.settings = settings;
         this.config = config;
+        boolean reconcile = false;
+        for (BlockBehavior behavior : config.behaviors()) {
+            if (behavior.reconcileRedstoneOnChunkBoundary()) {
+                reconcile = true;
+                break;
+            }
+        }
+        this.reconcileRedstoneOnChunkBoundary = reconcile;
 
         this.appendProperties(this.properties);
         for (Property<?> property : config.properties()) {
@@ -354,6 +363,11 @@ public class Block {
             if (behavior.connectsRedstoneWire(state, side)) return true;
         }
         return false;
+    }
+
+    /** Muss dieser Block nach einer geladenen oder entladenen Chunk-Kante sein Signal neu prüfen? */
+    public boolean reconcilesRedstoneOnChunkBoundary() {
+        return this.reconcileRedstoneOnChunkBoundary;
     }
 
     /** Geplanter Tick (Fluss, Fall, ...), von {@code World.scheduleTick} ausgelöst. Delegiert; Default: nichts. */

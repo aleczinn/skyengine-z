@@ -286,18 +286,26 @@ public final class SaveRoundTripTest {
             /* Restore-Pipeline (wie World.restorePendingScheduledTicks): Queue -> drainDue feuert. */
             ScheduledTickQueue queue = new ScheduledTickQueue();
             long now = 1000;
-            for (SavedTick tick : restoredTicks) queue.schedule(tick.x(), tick.y(), tick.z(), now + tick.remainingTicks());
+            for (SavedTick tick : restoredTicks) {
+                Identifier expected = Blocks.getState(restored.getBlock(
+                        tick.x() & ChunkSection.MASK, tick.y(), tick.z() & ChunkSection.MASK))
+                        .getBlock().getIdentifier();
+                queue.schedule(tick.x(), tick.y(), tick.z(), expected, now + tick.remainingTicks());
+            }
             List<String> fired = new ArrayList<>();
-            queue.drainDue(now + 3, (x, y, z) -> fired.add(x + "," + y + "," + z));
+            queue.drainDue(now + 3,
+                    (x, y, z, block, priority, order) -> fired.add(x + "," + y + "," + z));
             check(fired.contains(sourceX + ",200," + sourceZ), "Quelle -> Save -> Load -> Tick FEUERT (Bugfall behoben)");
             check(fired.contains(flowX + ",200," + flowZ), "Fluss-Tick feuert");
         }
 
         /* forEachPending: Vorzeichen-Erweiterung + Überfällig-Klemme. */
         ScheduledTickQueue negQueue = new ScheduledTickQueue();
-        negQueue.schedule(-100, 50, -217, 500);  // triggerTime 500 < now 1000 -> überfällig
+        negQueue.schedule(-100, 50, -217, Identifier.of("skyengine:stone"), 500);
         int[] got = new int[4];
-        negQueue.forEachPending(1000, (x, y, z, rem) -> { got[0] = x; got[1] = y; got[2] = z; got[3] = rem; });
+        negQueue.forEachPending(1000, (x, y, z, block, rem, priority, order) -> {
+            got[0] = x; got[1] = y; got[2] = z; got[3] = rem;
+        });
         check(got[0] == -100 && got[1] == 50 && got[2] == -217, "forEachPending entpackt negative Koordinaten korrekt");
         check(got[3] == 1, "Überfälliger Tick -> Rest-Delay 1");
 

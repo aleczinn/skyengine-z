@@ -29,6 +29,11 @@ import de.skyengine.game.world.redstone.RedstonePower;
  */
 public final class ExplosionBehavior implements BlockBehavior {
 
+    @Override
+    public boolean reconcileRedstoneOnChunkBoundary() {
+        return true;
+    }
+
     private final float power;
     private final int fuse;
 

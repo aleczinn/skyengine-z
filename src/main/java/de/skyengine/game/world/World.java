@@ -14,8 +14,10 @@ import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.BlockEntityType;
+import de.skyengine.game.world.block.behavior.WorldScopedPositionMap;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.chunk.Chunk;
@@ -23,6 +25,7 @@ import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.core.file.GameDirectory;
+import de.skyengine.game.world.debug.SimulationTelemetry;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
@@ -40,6 +43,8 @@ import de.skyengine.game.world.lod.LodDataSource;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.StorageLodDataSource;
 import de.skyengine.game.world.lod.WorldLodDataSource;
+import de.skyengine.game.world.redstone.RedstonePower;
+import de.skyengine.game.world.redstone.RedstoneWireNetwork;
 import de.skyengine.game.world.tick.SavedTick;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
 import de.skyengine.game.world.tick.ScheduledTickTypes;
@@ -49,12 +54,18 @@ import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.entity.EntityRenderer;
 import de.skyengine.graphics.world.ChunkRenderer;
+import de.skyengine.utils.collect.LongIntMap;
+import de.skyengine.utils.collect.LongObjMap;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.Random;
 import java.util.function.Consumer;
@@ -94,24 +105,44 @@ public class World implements IInitializable, IDisposable {
 
     /** Wiederverwendeter Snapshot-Puffer fürs BlockEntity-Ticking (keine Allokation pro Chunk/Tick). */
     private final List<BlockEntity> tickScratch = new ArrayList<>();
+    /** READY-Meldungen werden vor zustandsändernden Load-Reconciliations nach Koordinate sortiert. */
+    private final List<Chunk> readyChunkScratch = new ArrayList<>();
+    /** Reguläre Unloads werden vor dem Redstone-Kantenabgleich nach Koordinate sortiert. */
+    private final List<Long> unloadedChunkScratch = new ArrayList<>();
+    /** Koordinaten dieses Unload-Batches, die nicht schon wieder einem Ersatz-Chunk gehören. */
+    private final LongIntMap unloadedChunkKeys = new LongIntMap(64);
 
-    /* Nachhol-Protokoll für Nachbar-State-Updates an nicht-READY Chunks (F1): updateStateAt
-       parkt die Position hier, processDeferredStateUpdates zieht sie bei READY nach.
-       LinkedHashSet = Dedup + älteste-zuerst fürs Notventil; nur Tick-/Render-Thread. */
+    /* Nachhol-Protokoll für Block-State-Updates. Die FIFO enthält ausschließlich Updates für
+       den nächsten Tick; nicht-READY Ziele liegen separat am konkreten Chunk-Objekt. Dadurch
+       werden unfertige Chunks nicht jeden Tick erneut gescannt und ein entladener/ersetzter
+       Chunk kann keine Altlast auf seinen Nachfolger übertragen. Nur Tick-/Render-Thread. */
     private static final int MAX_DEFERRED_STATE_UPDATES = 4096;
-    private final LinkedHashSet<Long> deferredStateUpdates = new LinkedHashSet<>();
+    private static final int MAX_DEFERRED_STATE_UPDATES_PER_TICK = 512;
+    private final LinkedHashMap<Long, Chunk> deferredStateUpdates = new LinkedHashMap<>();
+    private final LongObjMap<DeferredChunkUpdates> parkedStateUpdates = new LongObjMap<>(32);
+    private int parkedStateUpdateCount;
+    private int deferredPruneRemovalVersion;
     private long[] deferredScratch = new long[0];
+    private Chunk[] deferredChunkScratch = new Chunk[0];
 
     /* Block-Event-Queue (MCs Block-Events, heute nur Kolben): 0-Tick-Reaktion mit zwei
        Drain-Punkten pro Tick — Drain A nach tickScheduled (Flanken aus Redstone-Ticks),
        Drain B nach tickEntities (Re-Checks aus dem BE-finish). Jeder Drain-Punkt läuft in
-       Wellen, BIS die Queue leer ist (MCs ServerLevel.runBlockEvents) — eine Kaskade wird
-       also im selben Durchgang fertig. Das ist der Unterschied zwischen „zwei gestapelte
+       Wellen, normalerweise BIS die Queue leer ist (MCs ServerLevel.runBlockEvents) — eine
+       Kaskade wird also im selben Durchgang fertig. Das ist der Unterschied zwischen „zwei gestapelte
        Kolben fahren gleichzeitig" und „der zweite hinkt einen Tick" (s. processBlockEvents).
-       LinkedHashSet = Dedup pro Position + FIFO. */
+       LinkedHashMap = Dedup pro Position + FIFO + stabile Block-Bindung für den Save-Fallback.
+       Queue- und Tick-Deckel halten Extremmatrizen aus dem Render-/Tick-Thread heraus; Überlauf
+       wechselt in den persistenten Tick-Fallback. */
     private static final int MAX_BLOCK_EVENT_WAVES = 64;
-    private final LinkedHashSet<Long> blockEvents = new LinkedHashSet<>();
+    private static final int MAX_BLOCK_EVENTS = 4096;
+    private static final int MAX_BLOCK_EVENTS_PER_TICK = 4096;
+    private static final int BLOCK_EVENT_TICK_PRIORITY = Integer.MAX_VALUE;
+    private final LinkedHashMap<Long, Identifier> blockEvents = new LinkedHashMap<>();
     private long[] blockEventScratch = new long[0];
+    private long blockEventBudgetGameTime = Long.MIN_VALUE;
+    private int blockEventsProcessedThisTick;
+    private long blockEventRevision;
 
     /** Der Spieler dieses Ticks (für BlockEntities, die ihn brauchen, z.B. das Zaubertisch-Buch). */
     private EntityPlayer player;
@@ -120,6 +151,14 @@ public class World implements IInitializable, IDisposable {
     private long gameTime;
     private final Random random = new Random();
     private final ScheduledTickQueue scheduledTicks = new ScheduledTickQueue();
+    private final SimulationTelemetry simulationTelemetry = new SimulationTelemetry();
+    /** Debug-Reload: vor dem Clear müssen ältere Saves fertig sein; danach warten neue Loads. */
+    private boolean chunkReloadRequested;
+    private boolean chunkReloadWaitingForSaves;
+    /** Weltgebundene Behavior-Speicher, die nach Chunk-Entfernungen ihre Objektidentitäten prüfen. */
+    private final Set<WorldScopedPositionMap<?>> transientPositionStates =
+            java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+    private int transientStateRemovalVersion;
 
     /* Himmelslicht-Aktualisierung bei Block-Edits. Eigene Engine-Instanz für den
        Render-/Tick-Thread (die Worker haben ihre ThreadLocals im ChunkManager) — eine Instanz
@@ -138,6 +177,8 @@ public class World implements IInitializable, IDisposable {
 
     /** Verzögerung, mit der geplante Ticks außerhalb der Simulations-Distanz erneut vorgemerkt werden. */
     private static final int OUT_OF_SIM_RESCHEDULE = 20;
+    /** Notfallbudget gegen einen einzelnen Tick mit massenhaft gleichzeitig fälligen Block-Ticks. */
+    private static final int MAX_SCHEDULED_TICKS_PER_TICK = 4096;
 
     /** Nur Chunks in diesem Radius (in Chunks) um den Spieler ticken (Random/Scheduled/Entities). */
     private int simulationDistance = 10;
@@ -217,12 +258,20 @@ public class World implements IInitializable, IDisposable {
     }
 
     public void update(Input input, EntityPlayer player) {
+        this.simulationTelemetry.setEnabled(FrameProfiler.isEnabled());
+        this.simulationTelemetry.beginTick();
         this.gameTime++;
         this.player = player;
         this.playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
+        if (this.processChunkReload()) {
+            this.simulationTelemetry.endTick();
+            return;
+        }
         this.chunkManager.update(player);
+        this.pruneTransientPositionStates();
         this.lodManager.update(player);
+        this.processUnloadedChunkBoundaries();
         this.restorePendingScheduledTicks();
         this.processReadyChunks();
         this.processDeferredStateUpdates();
@@ -232,6 +281,7 @@ public class World implements IInitializable, IDisposable {
         this.tickBlockEntities();
         this.tickEntities();
         this.processBlockEvents(); // Drain B: Re-Checks aus dem BE-finish, noch im selben Tick
+        this.simulationTelemetry.endTick();
     }
 
     /**
@@ -258,15 +308,15 @@ public class World implements IInitializable, IDisposable {
             for (SavedTick tick : ticks) {
                 /* Unbekannte Typen filtert schon der Serializer — defensiver Zweitcheck. */
                 ScheduledTickTypes.ScheduledTickRestorer restorer = ScheduledTickTypes.get(tick.type());
-                if (restorer != null) restorer.restore(this, tick.x(), tick.y(), tick.z(), tick.remainingTicks());
+                if (restorer != null) restorer.restore(this, tick);
             }
             chunk.pendingScheduledTicks = null;
         }
     }
 
     /**
-     * Nimmt frisch READY gewordene Chunks entgegen und stellt darin den transienten
-     * Vergleichs-Zustand wieder her, den kein Save mitbringt — heute nur der Beobachter.
+     * Nimmt READY-Meldungen entgegen: beim ersten READY wird der transiente Beobachterzustand
+     * initialisiert; jede Meldung gleicht außerdem inzwischen sichtbare Redstone-Kanten ab.
      *
      * <p>Läuft VOR {@link #processDeferredStateUpdates} und {@link #tickScheduled}: der
      * Anfangszustand muss stehen, bevor das erste Nachbar-Update oder ein aus dem Save
@@ -279,6 +329,7 @@ public class World implements IInitializable, IDisposable {
      */
     private void processReadyChunks() {
         int pending = this.chunkManager.readyAnnouncePending();
+        this.readyChunkScratch.clear();
         for (int i = 0; i < pending; i++) {
             Chunk chunk = this.chunkManager.pollReadyAnnounce();
             if (chunk == null) break;
@@ -287,9 +338,150 @@ public class World implements IInitializable, IDisposable {
                 this.chunkManager.requeueReadyAnnounce(chunk);
                 continue;
             }
-            if (chunk.loadSeeded) continue;   // remeshAll macht Chunks ein zweites Mal READY
+            this.readyChunkScratch.add(chunk);
+        }
+
+        /* Worker-Abschlussreihenfolge ist nicht deterministisch. Beobachter-Seeding und der
+           zustandsändernde Kantenabgleich laufen deshalb stabil nach Chunkkoordinate. */
+        if (this.readyChunkScratch.isEmpty()) return;
+        this.readyChunkScratch.sort(Comparator
+                .comparingInt((Chunk chunk) -> chunk.chunkX)
+                .thenComparingInt(chunk -> chunk.chunkZ));
+        LongIntMap reconciledWires = new LongIntMap(1024);
+        Chunk previous = null;
+        for (Chunk chunk : this.readyChunkScratch) {
+            if (chunk == previous) continue;
+            previous = chunk;
+            if (!chunk.loadSeeded) {
+                de.skyengine.game.world.block.behavior.ObserverBehavior.seedLoadedChunk(this, chunk);
+            }
+            this.releaseParkedStateUpdates(chunk);
+            this.reconcilePendingOpenBoundaries(chunk, reconciledWires);
+            this.reconcileReadyChunkBoundaries(chunk, reconciledWires);
             chunk.loadSeeded = true;
-            de.skyengine.game.world.block.behavior.ObserverBehavior.seedLoadedChunk(this, chunk);
+        }
+    }
+
+    /**
+     * Gleicht Redstone in einem Zwei-Zellen-Band beiderseits jeder neu sichtbaren Chunk-Kante ab.
+     * Zwei Zellen sind für stark gespeiste Vollblöcke und Quasi-Konnektivität erforderlich.
+     * Beim Erstladen läuft eine Kante erst, sobald eine Seite bereits initialisiert und beide
+     * Seiten READY sind; spätere READY-Meldungen dürfen den idempotenten Abgleich wiederholen.
+     */
+    private void reconcileReadyChunkBoundaries(Chunk chunk,
+                                                LongIntMap reconciledWires) {
+        for (Direction direction : Direction.horizontalValues()) {
+            Chunk neighbor = this.chunkManager.getChunk(
+                    chunk.chunkX + direction.offsetX(), chunk.chunkZ + direction.offsetZ());
+            if (neighbor == null || neighbor.status != ChunkStatus.READY || !neighbor.loadSeeded) continue;
+            this.reconcileRedstoneBoundaryBand(chunk, direction, reconciledWires);
+            this.reconcileRedstoneBoundaryBand(neighbor, direction.opposite(), reconciledWires);
+        }
+    }
+
+    /** Entfernte Chunks sind bereits aus der Map; verbleibende Nachbarn sehen daher korrekt Luft. */
+    private void processUnloadedChunkBoundaries() {
+        int pending = this.chunkManager.unloadAnnouncePending();
+        if (pending == 0) return;
+        this.unloadedChunkScratch.clear();
+        for (int i = 0; i < pending; i++) {
+            Long key = this.chunkManager.pollUnloadAnnounce();
+            if (key == null) break;
+            this.unloadedChunkScratch.add(key);
+        }
+        this.unloadedChunkScratch.sort(Comparator
+                .comparingInt((Long key) -> (int) (key >> 32))
+                .thenComparingInt(Long::intValue));
+
+        this.unloadedChunkKeys.clear();
+        LongIntMap reconciledWires = new LongIntMap(1024);
+        for (long key : this.unloadedChunkScratch) {
+            int chunkX = (int) (key >> 32);
+            int chunkZ = (int) key;
+            /* Der Koordinate ist vor dem Abgleich schon wieder ein neuer Chunk zugeordnet:
+               dessen READY-Reconciliation übernimmt, die alte Unload-Meldung ist überholt. */
+            if (this.chunkManager.getChunk(chunkX, chunkZ) != null) continue;
+            this.unloadedChunkKeys.put(key, 1);
+            for (Direction direction : Direction.horizontalValues()) {
+                Chunk neighbor = this.chunkManager.getChunk(
+                        chunkX + direction.offsetX(), chunkZ + direction.offsetZ());
+                if (neighbor == null) continue;
+                if (neighbor.status != ChunkStatus.READY) {
+                    neighbor.pendingRedstoneBoundaryMask |= 1 << direction.opposite().faceIndex();
+                    continue;
+                }
+                this.reconcileRedstoneBoundaryBand(neighbor, direction.opposite(), reconciledWires);
+            }
+        }
+
+        /* Der Save-Snapshot des entfernten Chunks ist jetzt autoritativ. Lang laufende Ticks
+           dürfen weder bis zu ihrer Zielzeit Speicher belegen noch beim Reload mit ihrem
+           eingefrorenen Rest-Delay kollidieren. Ein Batch-Scan vermeidet O(Unloads × Queue). */
+        int removedTicks = this.scheduledTicks.removeChunks(this.unloadedChunkKeys);
+        this.simulationTelemetry.recordScheduledDroppedUnloaded(removedTicks);
+        int eventsBefore = this.blockEvents.size();
+        this.blockEvents.entrySet().removeIf(event -> {
+            long pos = event.getKey();
+            return this.unloadedChunkKeys.containsKey(Chunk.key(
+                    BlockPos.unpackX(pos) >> ChunkSection.SHIFT,
+                    BlockPos.unpackZ(pos) >> ChunkSection.SHIFT));
+        });
+        if (this.blockEvents.size() != eventsBefore) this.blockEventRevision++;
+    }
+
+    private void reconcilePendingOpenBoundaries(Chunk chunk, LongIntMap reconciledWires) {
+        int mask = chunk.pendingRedstoneBoundaryMask;
+        chunk.pendingRedstoneBoundaryMask = 0;
+        if (mask == 0) return;
+        for (Direction direction : Direction.horizontalValues()) {
+            if ((mask & (1 << direction.faceIndex())) == 0) continue;
+            /* Wurde die Lücke inzwischen neu belegt, übernimmt der normale Load-Seam-Abgleich. */
+            if (this.chunkManager.getChunk(chunk.chunkX + direction.offsetX(),
+                    chunk.chunkZ + direction.offsetZ()) == null) {
+                this.reconcileRedstoneBoundaryBand(chunk, direction, reconciledWires);
+            }
+        }
+    }
+
+    /** Scannt nur die zwei innersten Zelllagen einer Chunk-Seite, nie das volle Volumen. */
+    private void reconcileRedstoneBoundaryBand(Chunk chunk, Direction side,
+                                                LongIntMap reconciledWires) {
+        int originX = chunk.chunkX << ChunkSection.SHIFT;
+        int originZ = chunk.chunkZ << ChunkSection.SHIFT;
+        boolean xAxis = side.axis() == Direction.Axis.X;
+        for (int sectionY = 0; sectionY < Chunk.SECTIONS; sectionY++) {
+            ChunkSection section = chunk.getSection(sectionY);
+            if (section == null || section.isEmpty()) continue;
+
+            int baseY = sectionY << ChunkSection.SHIFT;
+            for (int localY = 0; localY < ChunkSection.SIZE; localY++) {
+                int y = baseY + localY;
+                for (int lateral = 0; lateral < ChunkSection.SIZE; lateral++) {
+                    for (int depth = 0; depth < 2; depth++) {
+                        int localX = xAxis
+                                ? (side == Direction.WEST ? depth : ChunkSection.MASK - depth)
+                                : lateral;
+                        int localZ = xAxis
+                                ? lateral
+                                : (side == Direction.NORTH ? depth : ChunkSection.MASK - depth);
+                        int stateId = section.getBlock(localX, localY, localZ);
+                        if (stateId != Blocks.AIR) {
+                            this.reconcileRedstoneCell(originX + localX, y, originZ + localZ,
+                                    stateId, reconciledWires);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void reconcileRedstoneCell(int x, int y, int z, int stateId,
+                                       LongIntMap reconciledWires) {
+        BlockState state = Blocks.getState(stateId);
+        if (RedstonePower.isWire(state)) {
+            RedstoneWireNetwork.updateOncePerComponent(this, x, y, z, reconciledWires);
+        } else if (state.getBlock().reconcilesRedstoneOnChunkBoundary()) {
+            this.updateStateAt(x, y, z);
         }
     }
 
@@ -298,30 +490,53 @@ public class World implements IInitializable, IDisposable {
        Queue — beim Autosave O(zu speichernde Chunks × offene Ticks) in einem einzigen
        Tick-Slot (der gemessene Kandidat für den Save-Ruckler). */
     private long tickSnapshotIndexTime = -1;
+    private long tickSnapshotIndexRevision = -1;
+    private long tickSnapshotBlockEventRevision = -1;
     private final de.skyengine.utils.collect.LongObjMap<List<SavedTick>> tickSnapshotIndex =
             new de.skyengine.utils.collect.LongObjMap<>(64);
 
     /**
-     * Sammelt die anstehenden Scheduled-Ticks des Chunks für die Persistenz (Typ "block" —
-     * alles in der Queue dispatcht über Block.scheduledTick). Künftige Systeme mit eigenen
-     * Datenstrukturen hängen sich hier als weitere Quellen an. Nur Tick-Thread; einziger
-     * Aufrufer ist {@code WorldStorage.enqueueSave}. null, wenn nichts ansteht.
+     * Sammelt die anstehenden Scheduled-Ticks und wartenden Block-Events des Chunks für die
+     * Persistenz. Beide werden als Typ "block" wiederhergestellt und dispatchen tolerant über
+     * {@code Block.scheduledTick}; Block-Events liegen dabei nach normalen Ticks desselben
+     * Folgeticks. Nur Tick-Thread; einziger Aufrufer ist {@code WorldStorage.enqueueSave}.
+     * {@code null}, wenn nichts ansteht.
      */
     public List<SavedTick> snapshotScheduledTicks(Chunk chunk) {
-        if (this.tickSnapshotIndexTime != this.gameTime) {
+        long queueRevision = this.scheduledTicks.revision();
+        if (this.tickSnapshotIndexTime != this.gameTime
+                || this.tickSnapshotIndexRevision != queueRevision
+                || this.tickSnapshotBlockEventRevision != this.blockEventRevision) {
             this.tickSnapshotIndexTime = this.gameTime;
+            this.tickSnapshotIndexRevision = queueRevision;
+            this.tickSnapshotBlockEventRevision = this.blockEventRevision;
             this.tickSnapshotIndex.clear();
-            this.scheduledTicks.forEachPending(this.gameTime, (x, y, z, remaining) -> {
-                long key = Chunk.key(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
-                List<SavedTick> list = this.tickSnapshotIndex.get(key);
-                if (list == null) {
-                    list = new ArrayList<>();
-                    this.tickSnapshotIndex.put(key, list);
-                }
-                list.add(new SavedTick(ScheduledTickTypes.BLOCK, x, y, z, remaining));
+            this.scheduledTicks.forEachPending(this.gameTime,
+                    (x, y, z, expectedBlock, remaining, priority, subOrder) -> {
+                this.appendTickSnapshot(x, y, z, expectedBlock, remaining, priority, subOrder);
             });
+            long blockEventOrder = 0;
+            for (Map.Entry<Long, Identifier> event : this.blockEvents.entrySet()) {
+                long pos = event.getKey();
+                this.appendTickSnapshot(BlockPos.unpackX(pos), BlockPos.unpackY(pos), BlockPos.unpackZ(pos),
+                        event.getValue(), 1, BLOCK_EVENT_TICK_PRIORITY, blockEventOrder++);
+            }
         }
-        return this.tickSnapshotIndex.get(Chunk.key(chunk.chunkX, chunk.chunkZ));
+        List<SavedTick> result = this.tickSnapshotIndex.get(Chunk.key(chunk.chunkX, chunk.chunkZ));
+        if (result != null) result.sort(SavedTick.ORDER);
+        return result;
+    }
+
+    private void appendTickSnapshot(int x, int y, int z, Identifier expectedBlock,
+                                    int remaining, int priority, long subOrder) {
+        long key = Chunk.key(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        List<SavedTick> list = this.tickSnapshotIndex.get(key);
+        if (list == null) {
+            list = new ArrayList<>();
+            this.tickSnapshotIndex.put(key, list);
+        }
+        list.add(new SavedTick(ScheduledTickTypes.BLOCK, expectedBlock.toString(),
+                x, y, z, remaining, priority, subOrder));
     }
 
     /**
@@ -334,7 +549,7 @@ public class World implements IInitializable, IDisposable {
     public int saveModifiedChunks(boolean materializeFalling) {
         int queued = 0;
         for (Chunk chunk : this.chunkManager.loadedChunks()) {
-            if (!chunk.modified || chunk.saveQueued) continue;
+            if (!chunk.isModified() || chunk.saveQueued) continue;
             if (materializeFalling) chunk.materializeFallingBlocks();
             chunk.saveQueued = true;
             this.storage.enqueueSave(chunk);
@@ -349,12 +564,48 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
+     * Lädt alle Chunks autoritativ aus ihren Persistenz-Snapshots neu. Der Manager zieht beim
+     * Clear die Snapshots modifizierter Chunks synchron; erst danach dürfen die Runtime-Tick-
+     * Queues verschwinden. Neue Load-Jobs starten erst, wenn die asynchronen Writes fertig sind,
+     * damit sie nicht den vorherigen Plattenstand lesen.
+     */
+    public void reloadAllChunks() {
+        this.chunkReloadRequested = true;
+        /* Ohne älteren Save kann der Button den synchronen Snapshot/Clear sofort ausführen.
+           Das hält die bisherige unmittelbare Debug-Aktion bei und vereinfacht Headless-Tests. */
+        if (!this.storage.hasPendingSaves()) this.beginChunkReload();
+    }
+
+    /** @return true, solange Welt-Simulation und neue Loads für die Reload-Barriere pausieren. */
+    private boolean processChunkReload() {
+        if (this.chunkReloadRequested) {
+            if (this.storage.hasPendingSaves()) return true;
+            this.beginChunkReload();
+        }
+        if (!this.chunkReloadWaitingForSaves) return false;
+        if (this.storage.hasPendingSaves()) return true;
+        this.chunkReloadWaitingForSaves = false;
+        return false;
+    }
+
+    private void beginChunkReload() {
+        this.chunkReloadRequested = false;
+        this.chunkManager.clearAllChunks();
+        this.scheduledTicks.clear();
+        if (!this.blockEvents.isEmpty()) {
+            this.blockEvents.clear();
+            this.blockEventRevision++;
+        }
+        this.chunkReloadWaitingForSaves = this.storage.hasPendingSaves();
+    }
+
+    /**
      * Markiert den Chunk als seit dem letzten Save verändert — für Mutationen, die nicht
      * über {@link #setBlock} laufen (z.B. Truhen-Inventar über das GUI).
      */
     public void markChunkModified(int x, int z) {
         Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
-        if (chunk != null && chunk.status == ChunkStatus.READY) chunk.modified = true;
+        if (chunk != null && chunk.status == ChunkStatus.READY) chunk.markModified();
     }
 
     /** Simulations-Distanz in Chunks setzen (min. 2). Chunks außerhalb werden nicht getickt. */
@@ -583,7 +834,8 @@ public class World implements IInitializable, IDisposable {
     /**
      * Merkt einen geplanten Tick für die Position vor. Nach {@code delayTicks} Ticks (min. 1)
      * ruft der Block dort {@link de.skyengine.game.world.block.Block#scheduledTick} auf. Pro
-     * Position ist nur ein Tick gleichzeitig vorgemerkt (Dedup). Basis für Fluss/Fall.
+     * Position und erwartetem Blocktyp ist nur ein Tick gleichzeitig vorgemerkt (Dedup).
+     * Basis für Fluss/Fall.
      *
      * <p>Markiert den Chunk zusätzlich als modified: ein anstehender Tick ist Zustand, der
      * gespeichert werden muss — sonst verlöre eine Clock (Verstärker-Loop), die seit dem
@@ -591,8 +843,11 @@ public class World implements IInitializable, IDisposable {
      * nach dem Neuladen still.</p>
      */
     public void scheduleTick(int x, int y, int z, int delayTicks) {
-        this.scheduledTicks.schedule(x, y, z, this.gameTime + Math.max(1, delayTicks));
-        this.markChunkModified(x, z);
+        Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
+        boolean accepted = this.scheduledTicks.schedule(x, y, z, expectedBlock,
+                this.gameTime + Math.max(1, delayTicks));
+        this.simulationTelemetry.recordScheduledRequest(accepted);
+        if (accepted) this.markChunkModified(x, z);
     }
 
     /**
@@ -601,18 +856,50 @@ public class World implements IInitializable, IDisposable {
      * die einen regulären Fluss-Tick überholen müssen.
      */
     public void scheduleTickEarlier(int x, int y, int z, int delayTicks) {
-        this.scheduledTicks.scheduleEarlier(x, y, z, this.gameTime + Math.max(1, delayTicks));
-        this.markChunkModified(x, z);
+        Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
+        boolean accepted = this.scheduledTicks.scheduleEarlier(x, y, z, expectedBlock,
+                this.gameTime + Math.max(1, delayTicks));
+        this.simulationTelemetry.recordScheduledRequest(accepted);
+        if (accepted) this.markChunkModified(x, z);
     }
 
     /** true, wenn an der Position bereits ein geplanter Tick aussteht. */
     public boolean isTickScheduled(int x, int y, int z) {
-        return this.scheduledTicks.isScheduled(x, y, z);
+        Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
+        return this.scheduledTicks.isScheduled(x, y, z, expectedBlock);
+    }
+
+    /** Stellt einen persistierten Blocktick mit seiner urspruenglichen Reihenfolge wieder her. */
+    public void restoreScheduledBlockTick(SavedTick tick) {
+        Identifier expectedBlock = tick.expectedBlock() == null
+                ? Blocks.getState(this.getBlock(tick.x(), tick.y(), tick.z())).getBlock().getIdentifier()
+                : Identifier.of(tick.expectedBlock());
+        boolean accepted = this.scheduledTicks.scheduleRestored(tick.x(), tick.y(), tick.z(), expectedBlock,
+                this.gameTime + Math.max(1, tick.remainingTicks()), tick.priority(), tick.subOrder());
+        this.simulationTelemetry.recordScheduledRequest(accepted);
+        this.markChunkModified(tick.x(), tick.z());
     }
 
     /** Aktuelle Spielzeit in Ticks (20 TPS). */
     public long getGameTime() {
         return this.gameTime;
+    }
+
+    /** Diagnosezaehler dieser Welt; standardmaessig nur im Full-Debug-Modus aktiv. */
+    public SimulationTelemetry getSimulationTelemetry() {
+        return this.simulationTelemetry;
+    }
+
+    /** Registriert einen globalen Behavior-Speicher bei seiner ersten Benutzung in dieser Welt. */
+    public void registerTransientPositionState(WorldScopedPositionMap<?> state) {
+        this.transientPositionStates.add(state);
+    }
+
+    private void pruneTransientPositionStates() {
+        int removalVersion = this.chunkManager.getChunkRemovalVersion();
+        if (removalVersion == this.transientStateRemovalVersion) return;
+        for (WorldScopedPositionMap<?> state : this.transientPositionStates) state.prune(this);
+        this.transientStateRemovalVersion = removalVersion;
     }
 
     /**
@@ -628,17 +915,37 @@ public class World implements IInitializable, IDisposable {
      * entladene Position.</p>
      */
     private void tickScheduled() {
-        this.scheduledTicks.drainDue(this.gameTime, (x, y, z) -> {
-            int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
-            Chunk chunk = this.chunkManager.getChunk(cx, cz);
-            if (chunk == null) return;
-            if (chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
-                this.scheduledTicks.schedule(x, y, z, this.gameTime + OUT_OF_SIM_RESCHEDULE);
-                return;
-            }
-            BlockState state = Blocks.getState(this.getBlock(x, y, z));
-            if (!state.isAir()) state.getBlock().scheduledTick(this, x, y, z, state);
-        });
+        this.scheduledTicks.drainDue(this.gameTime, MAX_SCHEDULED_TICKS_PER_TICK,
+                (x, y, z, expectedBlock, priority, subOrder) -> {
+                    this.simulationTelemetry.recordScheduledDue();
+                    int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+                    Chunk chunk = this.chunkManager.getChunk(cx, cz);
+                    if (chunk == null) {
+                        this.simulationTelemetry.recordScheduledDroppedUnloaded();
+                        return;
+                    }
+                    /* drainDue hat den Eintrag bereits entfernt. War er in einem früheren
+                       Snapshot gespeichert, muss auch Ausführung, Skip oder Re-Schedule eine
+                       neue Save-Epoch erzeugen — selbst während eines LIT/Remesh-Zustands. */
+                    chunk.markModified();
+                    if (chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
+                        this.scheduledTicks.scheduleRestored(x, y, z, expectedBlock,
+                                this.gameTime + OUT_OF_SIM_RESCHEDULE, priority, subOrder);
+                        this.simulationTelemetry.recordScheduledRescheduled();
+                        return;
+                    }
+                    BlockState state = Blocks.getState(this.getBlock(x, y, z));
+                    if (!state.getBlock().getIdentifier().equals(expectedBlock)) {
+                        this.simulationTelemetry.recordScheduledSkippedWrongBlock();
+                        return;
+                    }
+                    if (state.isAir()) {
+                        this.simulationTelemetry.recordScheduledSkippedAir();
+                        return;
+                    }
+                    this.simulationTelemetry.recordScheduledExecuted();
+                    state.getBlock().scheduledTick(this, x, y, z, state);
+                });
     }
 
     /**
@@ -990,7 +1297,7 @@ public class World implements IInitializable, IDisposable {
         this.updateLight(chunk, cx, cz, lx, y, lz, oldBlock, block);
 
         /* Persistenz: Chunk ist seit dem letzten Save verändert. */
-        chunk.modified = true;
+        chunk.markModified();
         return true;
     }
 
@@ -1121,7 +1428,7 @@ public class World implements IInitializable, IDisposable {
                 chunk.writeLock().unlock();
             }
             chunk.markSectionsDirty(group.ownMask);
-            chunk.modified = true;
+            chunk.markModified();
 
             /* Rand-Remeshes der Nachbarn (Union; Filter wie markDirty: ab LIT). */
             for (int b = 0; b < 8; b++) {
@@ -1301,11 +1608,11 @@ public class World implements IInitializable, IDisposable {
         /* Nicht-READY-Zielchunk: setBlockRaw könnte ohnehin nicht schreiben — das Update
            würde still verlorengehen (Zaun im Nachbarchunk berechnet seine Verbindung dann
            NIE). Position parken; processDeferredStateUpdates zieht sie nach, sobald der
-           Chunk READY ist. chunk == null ist nur das Unload-Race → verwerfen. */
+           konkrete Chunk-Objekt READY ist. chunk == null ist nur das Unload-Race → verwerfen. */
         Chunk targetChunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
         if (targetChunk == null) return;
         if (targetChunk.status != ChunkStatus.READY) {
-            this.deferStateUpdate(x, y, z);
+            this.parkStateUpdate(targetChunk, BlockPos.asLong(x, y, z));
             return;
         }
 
@@ -1335,7 +1642,12 @@ public class World implements IInitializable, IDisposable {
      * den Staub sonst beim Re-Check noch stehen.
      */
     public void deferBlockUpdate(int x, int y, int z) {
-        this.deferStateUpdate(x, y, z);
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk == null) {
+            this.simulationTelemetry.recordDeferredDropped();
+            return;
+        }
+        this.enqueueDeferredStateUpdate(BlockPos.asLong(x, y, z), chunk);
     }
 
     /**
@@ -1343,16 +1655,31 @@ public class World implements IInitializable, IDisposable {
      * Kolben): der Block dort bekommt beim nächsten Drain-Punkt {@code onBlockEvent} — im
      * SELBEN Game-Tick wie die auslösende Flanke, aber außerhalb der Nachbar-Update-Kaskade
      * (der Ort für schwere Multi-Block-Aktionen). Dedupliziert pro Position; „tolerantes
-     * Feuern" wie beim Tick-Scheduler: der Empfänger validiert seinen State selbst.
+     * Feuern" wie beim Tick-Scheduler: der Empfänger validiert seinen State selbst. Wartende
+     * Events werden im Chunk-Snapshot an den Blocktyp beim Einreihen gebunden; bei ausgeschöpftem
+     * Queue-Deckel wechselt der Kolben-Recheck direkt auf den nächsten Tick.
      */
     public void enqueueBlockEvent(int x, int y, int z) {
-        this.blockEvents.add(BlockPos.asLong(x, y, z));
+        long position = BlockPos.asLong(x, y, z);
+        if (this.blockEvents.containsKey(position)) return;
+        if (this.blockEvents.size() >= MAX_BLOCK_EVENTS) {
+            /* Heute sind Block-Events ausschließlich Kolben-Rechecks; deren scheduledTick
+               delegiert an dieselbe evaluate-Logik und persistiert zusätzlich im Chunk-Save. */
+            this.simulationTelemetry.recordBlockEventBudgetHit();
+            this.scheduleTickEarlier(x, y, z, 1);
+            return;
+        }
+        Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
+        this.blockEvents.put(position, expectedBlock);
+        this.blockEventRevision++;
+        this.markChunkModified(x, z);
     }
 
     /**
-     * Drained Block-Events in Wellen, bis die Queue leer ist (MCs {@code runBlockEvents}).
-     * Der Snapshot je Welle schützt nur die Iteration; was während einer Welle dazukommt,
-     * läuft in der NÄCHSTEN Welle desselben Drain-Punkts.
+     * Drained Block-Events in Wellen, bis die Queue leer oder das gemeinsame Tick-Budget
+     * ausgeschöpft ist (MCs {@code runBlockEvents}). Der Snapshot je Welle schützt nur die
+     * Iteration; was während einer Welle dazukommt, läuft in der NÄCHSTEN Welle desselben
+     * Drain-Punkts. Der Budget-Rest bleibt FIFO-stabil bis zum nächsten Game-Tick liegen.
      *
      * <p>Warum das wichtig ist: löst ein Kolben beim Ausfahren über seinen Nachbar-Ring einen
      * zweiten Kolben aus (2-hohe Kolbentür — der untere hängt an der Quasi-Konnektivität),
@@ -1362,26 +1689,47 @@ public class World implements IInitializable, IDisposable {
      *
      * <p>Terminierung: die Empfänger validieren ihren Zustand selbst und tun nichts mehr, wenn
      * er schon passt ({@code PistonBehavior.evaluate}), eine Kaskade läuft also aus. Der Deckel
-     * {@link #MAX_BLOCK_EVENT_WAVES} ist nur die Notbremse gegen einen unbekannten Zyklus; der
-     * Rest bleibt liegen und läuft am nächsten Drain-Punkt.
+     * {@link #MAX_BLOCK_EVENT_WAVES} ist die Notbremse gegen einen unbekannten Zyklus;
+     * {@link #MAX_BLOCK_EVENTS_PER_TICK} begrenzt unabhängig davon die Gesamtarbeit beider
+     * Drain-Punkte. Der Rest bleibt liegen und läuft am nächsten zulässigen Drain.
      *
      * <p>Nicht simulierbare Positionen werden als geplanter Tick geparkt: der persistiert im
      * Save und kommt nach dem Laden wieder.
      */
     private void processBlockEvents() {
+        if (this.blockEventBudgetGameTime != this.gameTime) {
+            this.blockEventBudgetGameTime = this.gameTime;
+            this.blockEventsProcessedThisTick = 0;
+        }
+        int remainingBudget = MAX_BLOCK_EVENTS_PER_TICK - this.blockEventsProcessedThisTick;
+        if (remainingBudget <= 0) {
+            if (!this.blockEvents.isEmpty()) this.simulationTelemetry.recordBlockEventBudgetHit();
+            return;
+        }
+
         int welle = 0;
-        while (!this.blockEvents.isEmpty()) {
+        while (!this.blockEvents.isEmpty() && remainingBudget > 0) {
             if (++welle > MAX_BLOCK_EVENT_WAVES) {
+                this.simulationTelemetry.recordBlockEventWaveLimitHit();
                 this.logger.warning("Block-Events terminieren nicht (" + MAX_BLOCK_EVENT_WAVES
                         + " Wellen, " + this.blockEvents.size() + " offen) — Rest auf den naechsten Drain");
                 return;
             }
 
-            int n = this.blockEvents.size();
+            int n = Math.min(this.blockEvents.size(), remainingBudget);
+            this.simulationTelemetry.recordBlockEventWave(n);
             if (this.blockEventScratch.length < n) this.blockEventScratch = new long[n * 2];
             int i = 0;
-            for (long pos : this.blockEvents) this.blockEventScratch[i++] = pos;
-            this.blockEvents.clear();
+            Iterator<Map.Entry<Long, Identifier>> iterator = this.blockEvents.entrySet().iterator();
+            while (i < n && iterator.hasNext()) {
+                long pos = iterator.next().getKey();
+                this.blockEventScratch[i++] = pos;
+                iterator.remove();
+                this.markChunkModified(BlockPos.unpackX(pos), BlockPos.unpackZ(pos));
+            }
+            this.blockEventRevision++;
+            this.blockEventsProcessedThisTick += n;
+            remainingBudget -= n;
 
             for (int j = 0; j < n; j++) {
                 long pos = this.blockEventScratch[j];
@@ -1396,48 +1744,130 @@ public class World implements IInitializable, IDisposable {
                 state.getBlock().onBlockEvent(this, x, y, z, state);
             }
         }
+        if (!this.blockEvents.isEmpty() && remainingBudget == 0) {
+            this.simulationTelemetry.recordBlockEventBudgetHit();
+        }
     }
 
-    /** Merkt ein Nachbar-State-Update für einen (noch) nicht-READY Chunk vor (dedupliziert). */
-    private void deferStateUpdate(int x, int y, int z) {
+    /** Merkt ein State-Update für den nächsten Tick vor (dedupliziert, FIFO). */
+    private void enqueueDeferredStateUpdate(long pos, Chunk chunk) {
+        Chunk previous = this.deferredStateUpdates.get(pos);
+        if (previous == chunk) return;
+        if (previous != null) {
+            /* Dieselbe Koordinate gehört inzwischen einem Ersatz-Chunk: der aktuelle Anlass
+               ersetzt den alten, ohne die stabile FIFO-Position unnötig zu verschieben. */
+            this.deferredStateUpdates.put(pos, chunk);
+            return;
+        }
         if (this.deferredStateUpdates.size() >= MAX_DEFERRED_STATE_UPDATES) {
-            /* Notventil gegen unbegrenztes Wachstum (z.B. Einträge für nie zurückkehrende
-               Chunks): ältesten Eintrag opfern — der Fall ist konstruiert selten. */
-            Iterator<Long> it = this.deferredStateUpdates.iterator();
+            /* Notventil gegen einen Erzeuger, der schneller einreiht als das Tick-Budget
+               abarbeiten kann: den ältesten Eintrag deterministisch opfern. */
+            Iterator<Map.Entry<Long, Chunk>> it = this.deferredStateUpdates.entrySet().iterator();
             it.next();
             it.remove();
+            this.simulationTelemetry.recordDeferredDropped();
             this.logger.debug("Nachhol-Puffer für Block-Updates voll — ältester Eintrag verworfen");
         }
-        this.deferredStateUpdates.add(BlockPos.asLong(x, y, z));
+        this.deferredStateUpdates.put(pos, chunk);
     }
 
     /**
-     * Zieht vorgemerkte Nachbar-State-Updates nach, deren Chunk inzwischen READY ist
-     * (Gegenstück zu {@link #restorePendingScheduledTicks} für Block-States). Läuft im Tick
-     * direkt nach {@code chunkManager.update()}, damit READY-Übergänge dieses Ticks schon
-     * sichtbar sind. Die Einträge werden in einen Scratch kopiert, weil {@code updateStateAt}
-     * beim Nachziehen neue Deferrals erzeugen kann (Kaskade an die nächste Chunkgrenze).
+     * Parkt ein Update am aktuell geladenen, aber noch nicht editierbaren Chunk-Objekt.
+     * Der globale Deckel verhindert Speicherwachstum, ohne READY-ferne Chunks pro Tick zu scannen.
+     */
+    private void parkStateUpdate(Chunk chunk, long pos) {
+        long key = Chunk.key(chunk.chunkX, chunk.chunkZ);
+        DeferredChunkUpdates pending = this.parkedStateUpdates.get(key);
+        if (pending != null && pending.chunk != chunk) {
+            this.parkedStateUpdateCount -= pending.positions.size();
+            this.parkedStateUpdates.remove(key);
+            pending = null;
+        }
+        if (pending != null && pending.positions.contains(pos)) return;
+        if (this.parkedStateUpdateCount >= MAX_DEFERRED_STATE_UPDATES) {
+            this.simulationTelemetry.recordDeferredDropped();
+            this.logger.debug("Geparkter Nachhol-Puffer für Block-Updates voll — neuer Eintrag verworfen");
+            return;
+        }
+        if (pending == null) {
+            pending = new DeferredChunkUpdates(chunk);
+            this.parkedStateUpdates.put(key, pending);
+        }
+        pending.positions.add(pos);
+        this.parkedStateUpdateCount++;
+        this.simulationTelemetry.recordDeferredRequeued();
+    }
+
+    /** Gibt nur Updates frei, die zum identischen Chunk-Objekt gehören; Ersatz-Chunks erben nichts. */
+    private void releaseParkedStateUpdates(Chunk chunk) {
+        DeferredChunkUpdates pending = this.parkedStateUpdates.remove(Chunk.key(chunk.chunkX, chunk.chunkZ));
+        if (pending == null) return;
+        this.parkedStateUpdateCount -= pending.positions.size();
+        if (pending.chunk != chunk) return;
+        for (long pos : pending.positions) this.enqueueDeferredStateUpdate(pos, chunk);
+    }
+
+    /** Entfernt Gruppen entladener Chunks nur dann, wenn sich die Chunk-Map tatsächlich geändert hat. */
+    private void pruneParkedStateUpdates() {
+        int removalVersion = this.chunkManager.getChunkRemovalVersion();
+        if (removalVersion == this.deferredPruneRemovalVersion) return;
+        this.parkedStateUpdates.removeIf((key, pending) -> {
+            int chunkX = (int) (key >> 32);
+            int chunkZ = (int) key;
+            if (this.chunkManager.getChunk(chunkX, chunkZ) == pending.chunk) return false;
+            this.parkedStateUpdateCount -= pending.positions.size();
+            return true;
+        });
+        this.deferredPruneRemovalVersion = removalVersion;
+    }
+
+    /**
+     * Arbeitet die FIFO für den nächsten Tick mit festem Budget ab. Nicht-READY Ziele werden
+     * einmalig am Chunk geparkt und erst durch dessen sortierte READY-Meldung freigegeben.
+     * Vor der Runde werden die Positionen entfernt, damit während der Verarbeitung erzeugte
+     * Updates garantiert erst im nächsten Tick laufen.
      */
     private void processDeferredStateUpdates() {
+        this.pruneParkedStateUpdates();
         if (this.deferredStateUpdates.isEmpty()) return;
 
-        int n = this.deferredStateUpdates.size();
-        if (this.deferredScratch.length < n) this.deferredScratch = new long[n * 2];
+        int n = Math.min(this.deferredStateUpdates.size(), MAX_DEFERRED_STATE_UPDATES_PER_TICK);
+        this.simulationTelemetry.recordDeferredProcessed(n);
+        if (this.deferredScratch.length < n) {
+            this.deferredScratch = new long[n * 2];
+            this.deferredChunkScratch = new Chunk[n * 2];
+        }
         int i = 0;
-        for (long pos : this.deferredStateUpdates) this.deferredScratch[i++] = pos;
-        this.deferredStateUpdates.clear();
+        Iterator<Map.Entry<Long, Chunk>> iterator = this.deferredStateUpdates.entrySet().iterator();
+        while (i < n && iterator.hasNext()) {
+            Map.Entry<Long, Chunk> entry = iterator.next();
+            this.deferredScratch[i] = entry.getKey();
+            this.deferredChunkScratch[i++] = entry.getValue();
+            iterator.remove();
+        }
 
         for (int j = 0; j < n; j++) {
             long pos = this.deferredScratch[j];
             int x = BlockPos.unpackX(pos), y = BlockPos.unpackY(pos), z = BlockPos.unpackZ(pos);
             Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
-            if (chunk == null || chunk.status != ChunkStatus.READY) {
-                /* Noch nicht dran (auch chunk == null: kann nach einem Unload-Zyklus
-                   zurückkommen) — wieder einreihen, das Set dedupliziert. */
-                this.deferredStateUpdates.add(pos);
+            if (chunk != this.deferredChunkScratch[j]) {
+                this.simulationTelemetry.recordDeferredDropped();
+                continue;
+            }
+            if (chunk.status != ChunkStatus.READY) {
+                this.parkStateUpdate(chunk, pos);
                 continue;
             }
             this.updateStateAt(x, y, z);
+        }
+    }
+
+    private static final class DeferredChunkUpdates {
+        private final Chunk chunk;
+        private final LinkedHashSet<Long> positions = new LinkedHashSet<>();
+
+        private DeferredChunkUpdates(Chunk chunk) {
+            this.chunk = chunk;
         }
     }
 

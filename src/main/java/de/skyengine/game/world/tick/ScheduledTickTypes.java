@@ -11,14 +11,14 @@ import java.util.Map;
  * (= Dispatch über {@code Block.scheduledTick} an der Position — dort laufen Fluide,
  * fallender Sand und verzögerte Block-Reaktionen). Künftige Systeme mit EIGENEM Dispatch
  * (BlockEntity-Ticks, Maschinen, Redstone) registrieren eigene IDs — das Save-Format
- * (payloadVersion 2) nimmt sie ohne Formatänderung auf.
+ * (payloadVersion 3) nimmt sie ohne Formatänderung auf.
  */
 public final class ScheduledTickTypes {
 
     /** Stellt einen geladenen Tick im jeweiligen System wieder her (Tick-Thread). */
     @FunctionalInterface
     public interface ScheduledTickRestorer {
-        void restore(World world, int x, int y, int z, int remainingTicks);
+        void restore(World world, SavedTick tick);
     }
 
     public static final String BLOCK = "block";
@@ -26,11 +26,9 @@ public final class ScheduledTickTypes {
     private static final Map<String, ScheduledTickRestorer> TYPES = new HashMap<>();
 
     static {
-        /* scheduleTickEarlier statt scheduleTick: liegt für die Position noch ein stale
-           Live-Eintrag in der Queue (Chunk war entladen und wird wiederbetreten), gewinnt
-           sonst per first-wins der Live-Eintrag und der gespeicherte Rest-Delay wäre
-           verworfen. So gewinnt der frühere von beiden — für Clocks der korrekte. */
-        register(BLOCK, (world, x, y, z, remaining) -> world.scheduleTickEarlier(x, y, z, remaining));
+        /* Der Restorer erhält Zielidentität, Priorität und persistente Suborder. Liegt noch
+           ein Live-Eintrag für denselben Block vor, gewinnt weiterhin der frühere Tick. */
+        register(BLOCK, World::restoreScheduledBlockTick);
     }
 
     /** Registriert einen Tick-Typ. Doppelte IDs werfen — nichts darf fremde Typen still überschreiben. */

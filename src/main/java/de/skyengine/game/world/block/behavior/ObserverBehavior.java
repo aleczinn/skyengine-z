@@ -26,8 +26,10 @@ import java.util.Map;
  */
 public final class ObserverBehavior implements BlockBehavior {
 
-    /** Position -> zuletzt beobachtete State-ID. Nur Tick-Thread, deshalb ungesichert. */
-    private final Map<Long, Integer> observed = new HashMap<>();
+    /** Welt- und Chunk-gebundene Vergleichsbasis; die Diagnose-Sicht bleibt sondierbar. */
+    private final WorldScopedPositionMap<Integer> observedByWorld = new WorldScopedPositionMap<>();
+    @SuppressWarnings("FieldMayBeFinal") // Referenz wechselt mit der aktiven Welt (Headless-Diagnose).
+    private Map<Long, ?> observed = new HashMap<>();
 
     @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
@@ -45,14 +47,13 @@ public final class ObserverBehavior implements BlockBehavior {
     @Override
     public void onPlaced(World world, int x, int y, int z, BlockState state) {
         /* Initialen Zustand merken — die erste echte Änderung soll pulsen, nicht das Platzieren. */
-        this.observed.put(key(x, y, z), watchedState(world, x, y, z, state));
+        this.remember(world, x, y, z, watchedState(world, x, y, z, state));
     }
 
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
-        long key = key(x, y, z);
         int watched = watchedState(world, x, y, z, state);
-        Integer last = this.observed.put(key, watched);
+        Integer last = this.remember(world, x, y, z, watched);
         if (last != null && last != watched && !world.isTickScheduled(x, y, z)) {
             world.scheduleTick(x, y, z, 2);
         }
@@ -85,15 +86,15 @@ public final class ObserverBehavior implements BlockBehavior {
      */
     @Override
     public void onMovedByPiston(World world, int x, int y, int z, BlockState state, Direction moveDirection) {
-        this.observed.remove(key(x - moveDirection.offsetX(), y - moveDirection.offsetY(),
-                z - moveDirection.offsetZ()));
-        this.observed.put(key(x, y, z), watchedState(world, x, y, z, state));
+        this.forget(world, x - moveDirection.offsetX(), y - moveDirection.offsetY(),
+                z - moveDirection.offsetZ());
+        this.remember(world, x, y, z, watchedState(world, x, y, z, state));
         if (!world.isTickScheduled(x, y, z)) world.scheduleTick(x, y, z, 2);
     }
 
     @Override
     public void onBreak(World world, int x, int y, int z, BlockState state) {
-        this.observed.remove(key(x, y, z));
+        this.forget(world, x, y, z);
     }
 
     /**
@@ -147,7 +148,7 @@ public final class ObserverBehavior implements BlockBehavior {
                         ObserverBehavior behavior = behaviorOf(id);
                         if (behavior == null) continue;
                         int x = originX + lx, y = base + ly, z = originZ + lz;
-                        behavior.observed.put(key(x, y, z),
+                        behavior.remember(world, x, y, z,
                                 watchedState(world, x, y, z, BlockRegistry.getState(id)));
                     }
                 }
@@ -183,7 +184,13 @@ public final class ObserverBehavior implements BlockBehavior {
         return world.getBlock(x + f.offsetX(), y + f.offsetY(), z + f.offsetZ());
     }
 
-    private static long key(int x, int y, int z) {
-        return de.skyengine.game.world.block.BlockPos.asLong(x, y, z);
+    private Integer remember(World world, int x, int y, int z, int stateId) {
+        this.observed = this.observedByWorld.diagnosticEntries(world);
+        return this.observedByWorld.put(world, x, y, z, stateId);
+    }
+
+    private void forget(World world, int x, int y, int z) {
+        this.observed = this.observedByWorld.diagnosticEntries(world);
+        this.observedByWorld.remove(world, x, y, z);
     }
 }

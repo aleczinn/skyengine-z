@@ -14,6 +14,11 @@ import de.skyengine.game.world.redstone.RedstonePower;
 public final class LampBehavior implements BlockBehavior {
 
     @Override
+    public boolean reconcileRedstoneOnChunkBoundary() {
+        return true;
+    }
+
+    @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
         boolean powered = RedstonePower.isReceiving(world, x, y, z);
         boolean lit = state.get(Properties.LIT);

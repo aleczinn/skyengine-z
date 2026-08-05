@@ -74,6 +74,10 @@ public class WorldStorage {
        Meldung, die erst erscheinen soll, wenn wirklich alles auf der Platte liegt. */
     private final AtomicInteger pendingSaves = new AtomicInteger();
 
+    /** Vollstaendig vom Live-Chunk entkoppelter Stand eines Enqueue-Zeitpunkts. */
+    private record SaveSnapshot(Chunk data, long epoch, List<SavedTick> ticks,
+                                List<SavedBlockEntity> blockEntities) {}
+
     public WorldStorage(File regionDir, World world, WorldGenerator generator,
                         String generatorId, int generatorVersion, boolean storeTints) {
         this.regionDir = regionDir;
@@ -130,26 +134,23 @@ public class WorldStorage {
      * Reiht einen Save des Chunks ein. NUR Tick-Thread (Unload, Autosave, Exit, F8) —
      * hier wird auch der Scheduled-Tick-Snapshot gezogen (die Queue ist tick-thread-only);
      * dadurch sind ALLE Enqueue-Orte automatisch korrekt. Der Aufrufer hat
-     * {@code saveQueued} bereits gesetzt; der Job snapshottet die Blöcke unter dem
-     * Read-Lock, schreibt off-Lock und löscht die Flags. Schreibfehler setzen
-     * {@code modified} zurück — der nächste Trigger versucht es erneut.
-     *
-     * <p>Tick- und Block-Snapshot können minimal auseinanderliegen: ein dazwischen
-     * gefeuerter Tick ist doppelt im Save und feuert nach dem Laden einmal ins Leere —
-     * Ticks sind Zustands-Neubewertungen, das ist harmlos.
+     * {@code saveQueued} bereits gesetzt. Dieser Aufruf kopiert Blockdaten, Tints,
+     * BlockEntities und Scheduled-Ticks unter einem Read-Lock in einen unveränderlichen
+     * Snapshot. Serialisierung, Kompression und Datei-IO laufen danach ausschließlich auf
+     * dem IO-Thread. Erst ein erfolgreicher Write bestätigt exakt die Snapshot-Epoch.
      */
     public void enqueueSave(Chunk chunk) {
-        chunk.scheduledTickSnapshot = this.world != null ? this.world.snapshotScheduledTicks(chunk) : null;
-        /* BlockEntity-Zustand JETZT (Tick-Thread) vorserialisieren — der IO-Thread darf be.save()
-           nicht auf dem Live-Zustand aufrufen (Race mit GUI-Mutationen, z.B. Truhen-Inventar). */
-        chunk.blockEntitySnapshot = ChunkSerializer.snapshotBlockEntities(chunk);
+        SaveSnapshot snapshot = this.captureSnapshot(chunk);
+        if (snapshot == null) {
+            chunk.saveQueued = false;
+            return;
+        }
         this.pendingSaves.incrementAndGet();
         try {
-            /* Das Dekrement gehört ins finally des Jobs, nicht ans Ende von saveNow: saveNow hat
-               einen frühen return (Chunk nicht mehr modified) und einen Fehlerpfad. */
+            /* Das Dekrement gehört ins finally des Jobs, damit auch der Fehlerpfad erfasst ist. */
             this.ioExecutor.execute(() -> {
                 try {
-                    this.saveNow(chunk);
+                    this.saveNow(chunk, snapshot);
                 } finally {
                     this.pendingSaves.decrementAndGet();
                 }
@@ -168,27 +169,27 @@ public class WorldStorage {
         return this.pendingSaves.get() > 0;
     }
 
-    private void saveNow(Chunk chunk) {
-        byte[] payload;
+    private SaveSnapshot captureSnapshot(Chunk chunk) {
         chunk.readLock().lock();
         try {
-            List<SavedTick> ticks = chunk.scheduledTickSnapshot;
-            chunk.scheduledTickSnapshot = null;
-            List<SavedBlockEntity> blockEntities = chunk.blockEntitySnapshot;
-            chunk.blockEntitySnapshot = null;
-            if (!chunk.modified) {
-                chunk.saveQueued = false;
-                return;
-            }
-            payload = ChunkSerializer.serialize(chunk, this.generatorId, this.generatorVersion, this.storeTints, ticks, blockEntities);
-            chunk.modified = false;
+            if (!chunk.isModified()) return null;
+            List<SavedTick> ticks = this.world == null ? null : this.world.snapshotScheduledTicks(chunk);
+            if (ticks != null) ticks = List.copyOf(ticks);
+            List<SavedBlockEntity> blockEntities = List.copyOf(ChunkSerializer.snapshotBlockEntities(chunk));
+            Chunk data = ChunkSerializer.snapshotChunkData(chunk);
+            return new SaveSnapshot(data, chunk.modificationEpoch(), ticks, blockEntities);
         } finally {
             chunk.readLock().unlock();
         }
+    }
+
+    private void saveNow(Chunk chunk, SaveSnapshot snapshot) {
         try {
+            byte[] payload = ChunkSerializer.serialize(snapshot.data(), this.generatorId,
+                    this.generatorVersion, this.storeTints, snapshot.ticks(), snapshot.blockEntities());
             this.writeChunk(chunk.chunkX, chunk.chunkZ, payload);
+            chunk.markSaved(snapshot.epoch());
         } catch (Exception e) {
-            chunk.modified = true;
             this.logger.error("Chunk (" + chunk.chunkX + ", " + chunk.chunkZ
                     + ") konnte nicht gespeichert werden", e);
         } finally {
@@ -255,7 +256,7 @@ public class WorldStorage {
             return region;
         } catch (IOException e) {
             if (create) {
-                /* Schreibpfad: loggen, der Save schlägt fehl und bleibt über modified erhalten. */
+                /* Schreibpfad: loggen; ohne Epoch-Bestätigung bleibt der Chunk dirty. */
                 this.logger.error("Region-Datei (" + rx + ", " + rz + ") nicht öffnbar", e);
             } else {
                 this.logger.warning("Region-Datei (" + rx + ", " + rz + ") nicht lesbar — Chunks werden regeneriert", e);

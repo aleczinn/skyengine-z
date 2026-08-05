@@ -4,7 +4,6 @@ import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
-import de.skyengine.game.world.save.SavedBlockEntity;
 import de.skyengine.game.world.tick.SavedTick;
 
 import java.util.ArrayList;
@@ -79,32 +78,24 @@ public class Chunk {
        die Einträge ab READY in die ScheduledTickQueue ein und nullt das Feld. */
     public List<SavedTick> pendingScheduledTicks;
 
-    /* Zum Save: Queue-Snapshot dieses Chunks, vom Tick-Thread im Enqueue-Moment gesetzt
-       (WorldStorage.enqueueSave — einziger Ort!), vom IO-Thread im Read-Lock-Fenster
-       gelesen und genullt (happens-before über die Executor-Übergabe). */
-    public List<SavedTick> scheduledTickSnapshot;
-
-    /* Zum Save: fertig serialisierte BlockEntity-Tags dieses Chunks, vom Tick-Thread im
-       Enqueue-Moment gezogen (WorldStorage.enqueueSave — einziger Ort!). Der IO-Thread schreibt
-       nur diese Kopie, statt be.save() auf dem Live-Zustand zu lesen (Race mit GUI-Mutationen,
-       z.B. Truhen-Inventar). Vom IO-Thread im Read-Lock-Fenster gelesen und genullt. */
-    public List<SavedBlockEntity> blockEntitySnapshot;
-
-    /* Persistenz: seit dem letzten Save verändert (Edits/BlockEntity-Mutationen). Gesetzt auf
-       dem Tick-Thread, zurückgesetzt NUR im Save-Job (IO-Thread, im Read-Lock-Fenster) —
-       volatile für die Sichtbarkeit zwischen beiden. */
-    public volatile boolean modified;
+    /* Der Tick-/Render-Thread erhoeht die Mutationsepoch. Der IO-Thread bestaetigt nach einem
+       erfolgreichen Write nur die Epoch seines Snapshots. Spaetere Mutationen bleiben dirty. */
+    private volatile long modificationEpoch;
+    private volatile long savedEpoch;
     /* true zwischen Einreihen und Abschluss eines Save-Jobs — der Unload wartet darauf
        (Chunk bleibt bis zum fertigen Save in der Map). Tick-Thread setzt, IO-Thread löscht. */
     public volatile boolean saveQueued;
 
-    /* true, sobald World.processReadyChunks diesen Chunk einmal bearbeitet hat. Nötig, weil
-       remeshAll (Grafik-Settings) READY-Chunks auf LIT zurücksetzt und sie danach ein ZWEITES
-       Mal READY werden — ein erneuter Durchlauf würde den Vergleichs-Zustand eines Beobachters
-       mitten im Betrieb neu setzen und dabei eine anstehende Flanke verschlucken. Ein neu
-       geladener Chunk ist ein neues Objekt, das Flag setzt sich also von selbst zurück.
-       Nur Tick-Thread. */
+    /* true, sobald World.processReadyChunks den transienten Beobachter-Zustand initialisiert hat.
+       Redstone-Kanten werden bei späteren READY-Meldungen erneut abgeglichen, dieses Flag
+       verhindert dabei ausschließlich ein erneutes Observer-Seeding nach remeshAll. Ein neu
+       geladener Chunk ist ein neues Objekt und startet automatisch false. Nur Tick-Thread. */
     public boolean loadSeeded;
+
+    /* Beim Unload eines Nachbarn vorgemerkte offene Redstone-Kanten (Direction.faceIndex-Bits).
+       Nicht-READY-Chunks sind noch nicht editierbar; World arbeitet die Maske beim nächsten
+       READY auf dem Tick-Thread ab. Ein neues Chunk-Objekt startet automatisch leer. */
+    public int pendingRedstoneBoundaryMask;
 
     /* Schützt die Section-Container (PalettedContainer + sections[]-Allokation) gegen
        gleichzeitige Worker-Mesh-Reads und Render-Thread-Writes. Mesh-Jobs nehmen den
@@ -238,7 +229,7 @@ public class Chunk {
                 int lz = ((int) Math.floor(entity.z)) & ChunkSection.MASK;
                 if (y >= 0 && y < HEIGHT && Blocks.canFallInto(this.getBlock(lx, y, lz))) {
                     this.setBlock(lx, y, lz, falling.getBlockId());
-                    this.modified = true;
+                    this.markModified();
                     it.remove();
                 }
             }
@@ -308,6 +299,25 @@ public class Chunk {
      */
     public int consumeDirtySections() {
         return this.dirtySections.getAndSet(0);
+    }
+
+    /** Markiert eine persistente Mutation. Nur der Tick-/Render-Thread darf diese Methode aufrufen. */
+    public void markModified() {
+        this.modificationEpoch++;
+    }
+
+    public boolean isModified() {
+        return this.modificationEpoch != this.savedEpoch;
+    }
+
+    /** Epoch, die ein unter dem Read-Lock gezogener Save-Snapshot repraesentiert. */
+    public long modificationEpoch() {
+        return this.modificationEpoch;
+    }
+
+    /** Bestaetigt nur den tatsaechlich geschriebenen Stand; neuere Mutationen bleiben dirty. */
+    public void markSaved(long snapshotEpoch) {
+        if (snapshotEpoch > this.savedEpoch) this.savedEpoch = snapshotEpoch;
     }
 
     /** Read-Lock für Worker-Mesh-Reads (mehrere Reader gleichzeitig erlaubt). */

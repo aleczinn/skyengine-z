@@ -24,6 +24,11 @@ import de.skyengine.game.world.redstone.RedstonePower;
  */
 public final class DoorBehavior implements BlockBehavior {
 
+    @Override
+    public boolean reconcileRedstoneOnChunkBoundary() {
+        return true;
+    }
+
     /**
      * Ob ein Rechtsklick die Tür öffnet. Die Eisentür kann das in Minecraft NICHT — sie braucht
      * ein Signal. Kommt aus dem Block-JSON-Feld {@code hand_openable}.

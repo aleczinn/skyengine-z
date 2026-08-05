@@ -221,6 +221,9 @@ public class SkyEngine {
                 String profilerLine = FrameProfiler.statusLineAndReset();
                 if (profilerLine != null) {
                     System.out.println(profilerLine);
+                    String simulationLine = this.game.getWorld() != null
+                            ? this.game.getWorld().getSimulationTelemetry().statusLineAndReset() : null;
+                    if (simulationLine != null) System.out.println(simulationLine);
                     String syncLine = this.game.getWorld() != null
                             ? this.game.getWorld().getChunkRenderer().syncStatsLineAndReset() : null;
                     if (syncLine != null) System.out.println(syncLine);

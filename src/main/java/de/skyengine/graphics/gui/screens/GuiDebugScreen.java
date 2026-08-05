@@ -70,7 +70,7 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
                 AntiAliasingMode.values(), post.getAaMode(), Enum::name, post::setAaMode);
 
         Button reloadChunks = new Button(I18n.tr("options.debug.reload_chunks"), CELL_W, CELL_H, () -> {
-            if (game.getWorld() != null) game.getWorld().getChunkManager().clearAllChunks();
+            if (game.getWorld() != null) game.getWorld().reloadAllChunks();
         });
         Button reloadPost = new Button(I18n.tr("options.debug.reload_post"), CELL_W, CELL_H,
                 () -> SkyEngine.get().getPostProcessor().getSettings().reloadFromFile());

@@ -52,12 +52,15 @@ public class ChunkManager {
        statt jeden Tick alle Chunks zu scannen (im Steady-State null Treffer). */
     private final ConcurrentLinkedQueue<Chunk> tickRestoreQueue = new ConcurrentLinkedQueue<>();
 
-    /* Frisch READY gewordene Chunks (Announce vom Mesh-Worker). World.processReadyChunks holt
-       sie ab, damit Blöcke mit transientem Vergleichs-Zustand ihre Basis wiederherstellen können
-       — heute nur der Beobachter, dessen Map keinen Weltwechsel überlebt. Bewusst hier und nicht
-       früher: das Gate des Mesh-Jobs garantiert alle 8 Nachbarn auf mindestens LIT, erst dann
-       liest World.getBlock über die Chunk-Grenze echte Daten statt still Luft. */
+    /* READY gewordene Chunks (Announce vom Mesh-Worker). World.processReadyChunks initialisiert
+       beim ersten Mal transiente Zustände und gleicht bei jeder Meldung Redstone-Kanten ab.
+       Bewusst hier und nicht früher: erst jetzt ist der Chunk selbst editierbar; Nachbarn sind
+       durch das Mesh-Gate mindestens LIT und damit sicher lesbar. */
     private final ConcurrentLinkedQueue<Chunk> readyAnnounceQueue = new ConcurrentLinkedQueue<>();
+
+    /* Tick-Thread -> World: Koordinaten regulär entladener Chunks. Erst NACH dem Entfernen
+       kann der verbleibende Nachbar Redstone an der nun offenen Kante korrekt neu berechnen. */
+    private final ConcurrentLinkedQueue<Long> unloadAnnounceQueue = new ConcurrentLinkedQueue<>();
 
     /* Aktualitäts-Sequenz für Mesh-Ergebnisse, vergeben beim Job-SUBMIT (Render-Thread, seriell):
        ein später submitteter Job hat immer neuere Daten. Der Renderer verwirft in applyBatch
@@ -474,7 +477,7 @@ public class ChunkManager {
                 /* Save-Gate: modifizierte Chunks bleiben in der Map, bis der IO-Thread den
                    Save abgeschlossen hat (saveQueued-Protokoll). Löst zugleich die
                    Unload/Reload-Race — kommt der Spieler zurück, ist der Chunk noch da. */
-                if (this.storage != null && (chunk.modified || chunk.saveQueued)) {
+                if (this.storage != null && (chunk.isModified() || chunk.saveQueued)) {
                     if (!chunk.saveQueued) {
                         chunk.materializeFallingBlocks();
                         chunk.saveQueued = true;
@@ -492,6 +495,7 @@ public class ChunkManager {
                     continue;
                 }
                 it.remove();
+                this.unloadAnnounceQueue.add(Chunk.key(chunk.chunkX, chunk.chunkZ));
                 /* Renderer disposes the GL meshes when it notices the chunk is gone */
                 this.chunkRemovalVersion++;
             }
@@ -523,7 +527,7 @@ public class ChunkManager {
            danach ist unkritisch, der Snapshot läuft unter dem Chunk-Read-Lock. */
         if (this.storage != null) {
             for (Chunk chunk : this.chunks.values()) {
-                if (chunk.modified && !chunk.saveQueued) {
+                if (chunk.isModified() && !chunk.saveQueued) {
                     chunk.saveQueued = true;
                     this.storage.enqueueSave(chunk);
                 }
@@ -540,6 +544,7 @@ public class ChunkManager {
         this.blockEntityAnnounceQueue.clear();
         this.tickRestoreQueue.clear();
         this.readyAnnounceQueue.clear();
+        this.unloadAnnounceQueue.clear();
         this.chunksWithBlockEntities.clear();
         this.chunkRemovalVersion++;
         this.initialLoadComplete = false; // alles lädt neu → LOD wartet wieder auf das echte Terrain
@@ -697,6 +702,14 @@ public class ChunkManager {
 
     public void requeueReadyAnnounce(Chunk chunk) {
         this.readyAnnounceQueue.add(chunk);
+    }
+
+    public int unloadAnnouncePending() {
+        return this.unloadAnnounceQueue.size();
+    }
+
+    public Long pollUnloadAnnounce() {
+        return this.unloadAnnounceQueue.poll();
     }
 
     public void requeueTickRestore(Chunk chunk) {

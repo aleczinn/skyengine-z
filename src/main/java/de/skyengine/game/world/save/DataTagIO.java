@@ -17,6 +17,9 @@ import java.util.Map;
  */
 public final class DataTagIO {
 
+    private static final int MAX_DEPTH = 64;
+    private static final int MAX_ENTRIES_PER_TAG = 4096;
+
     private static final byte TYPE_END = 0;
     private static final byte TYPE_INT = 1;
     private static final byte TYPE_LONG = 2;
@@ -46,10 +49,21 @@ public final class DataTagIO {
     }
 
     public static DataTag read(DataInput in) throws IOException {
+        return read(in, 0);
+    }
+
+    private static DataTag read(DataInput in, int depth) throws IOException {
+        if (depth > MAX_DEPTH) {
+            throw new IOException("DataTag-Verschachtelung tiefer als " + MAX_DEPTH);
+        }
         DataTag tag = new DataTag();
+        int entries = 0;
         while (true) {
             byte type = in.readByte();
             if (type == TYPE_END) return tag;
+            if (++entries > MAX_ENTRIES_PER_TAG) {
+                throw new IOException("DataTag enthält mehr als " + MAX_ENTRIES_PER_TAG + " Einträge");
+            }
             String key = in.readUTF();
             switch (type) {
                 case TYPE_INT -> tag.putInt(key, in.readInt());
@@ -57,7 +71,7 @@ public final class DataTagIO {
                 case TYPE_DOUBLE -> tag.putDouble(key, in.readDouble());
                 case TYPE_BOOLEAN -> tag.putBoolean(key, in.readBoolean());
                 case TYPE_STRING -> tag.putString(key, in.readUTF());
-                case TYPE_TAG -> tag.putTag(key, read(in));
+                case TYPE_TAG -> tag.putTag(key, read(in, depth + 1));
                 default -> throw new IOException("Unbekannter DataTag-Typ " + type
                         + " bei Key '" + key + "' — Datei aus neuerer Version?");
             }

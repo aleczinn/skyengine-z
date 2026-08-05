@@ -107,4 +107,15 @@ dependencies {
     implementation("org.joml", "joml", jomlVersion)
     implementation("org.joml", "joml-primitives", jomlPrimitivesVersion)
     implementation("com.google.code.gson:gson:2.14.0")
+
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.test {
+    useJUnitPlatform()
+}
+
+tasks.named("check") {
+    dependsOn("saveTest", "lightTest", "meshTest")
 }
