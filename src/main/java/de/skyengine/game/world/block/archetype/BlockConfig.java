@@ -30,6 +30,7 @@ public final class BlockConfig {
     private final ModelGenerator modelGenerator;
     private final Predicate<BlockState> opaquePredicate;
     private final Predicate<BlockState> aoOccluderPredicate;
+    private final Predicate<BlockState> redstoneConductorPredicate;
     private final boolean randomOffset;
     private final boolean replaceable;
     private final String connectionGroup;
@@ -69,6 +70,7 @@ public final class BlockConfig {
         this.modelGenerator = b.modelGenerator;
         this.opaquePredicate = b.opaquePredicate;
         this.aoOccluderPredicate = b.aoOccluderPredicate;
+        this.redstoneConductorPredicate = b.redstoneConductorPredicate;
         this.randomOffset = b.randomOffset;
         this.replaceable = b.replaceable;
         this.connectionGroup = b.connectionGroup;
@@ -133,6 +135,11 @@ public final class BlockConfig {
     /** AO-/Ecklicht-Verschattung im Mesher; null = Automatik „wie opaque". */
     public Predicate<BlockState> aoOccluderPredicate() {
         return aoOccluderPredicate;
+    }
+
+    /** Redstone-Leitfähigkeit; null = Automatik „wie opaque“. */
+    public Predicate<BlockState> redstoneConductorPredicate() {
+        return redstoneConductorPredicate;
     }
 
     public boolean randomOffset() {
@@ -326,6 +333,7 @@ public final class BlockConfig {
         private ModelGenerator modelGenerator;
         private Predicate<BlockState> opaquePredicate;
         private Predicate<BlockState> aoOccluderPredicate;
+        private Predicate<BlockState> redstoneConductorPredicate;
         private boolean randomOffset;
         private boolean replaceable;
         private String connectionGroup;
@@ -394,6 +402,12 @@ public final class BlockConfig {
         /** AO-/Ecklicht-Verschattung getrennt vom Culling (ausgefahrene Kolben-Basis). */
         public Builder aoOccluder(Predicate<BlockState> p) {
             this.aoOccluderPredicate = p;
+            return this;
+        }
+
+        /** Redstone-Leitfähigkeit getrennt von Rendering und Licht. */
+        public Builder redstoneConductor(Predicate<BlockState> p) {
+            this.redstoneConductorPredicate = p;
             return this;
         }
 

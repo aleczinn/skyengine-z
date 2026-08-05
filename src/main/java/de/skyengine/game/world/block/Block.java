@@ -129,6 +129,17 @@ public class Block {
                 : this.isOpaqueCube(state);
     }
 
+    /**
+     * Leitet stark empfangenes Redstone-Signal an seine Nachbarn weiter. Diese Gameplay-
+     * Eigenschaft ist in Java Edition ausdrücklich nicht mit visueller Opazität identisch:
+     * ein Beobachter ist ein opaker Vollwürfel, aber kein Redstone-Leiter.
+     */
+    public boolean isRedstoneConductor(BlockState state) {
+        return this.config.redstoneConductorPredicate() != null
+                ? this.config.redstoneConductorPredicate().test(state)
+                : this.isOpaqueCube(state);
+    }
+
     public boolean isSolid(BlockState state) {
         return this.settings.solid;
     }

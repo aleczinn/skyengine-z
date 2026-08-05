@@ -241,18 +241,18 @@ public final class RedstoneWireNetwork {
 
     /**
      * Netz-Nachbarn einer Staub-Zelle in fester Reihenfolge: je Himmelsrichtung gleiche Ebene,
-     * +1-Diagonale (nur wenn der Block ÜBER der eigenen Zelle nicht opak ist — Vanilla-
-     * Kletterregel) und −1-Diagonale (nur wenn die Nachbarzelle selbst nicht opak ist).
+     * +1-Diagonale (nur wenn der Block ÜBER der eigenen Zelle kein Redstone-Leiter ist —
+     * Vanilla-Kletterregel) und −1-Diagonale (nur wenn die Nachbarzelle kein Leiter ist).
      * {@code Long.MIN_VALUE} = kein Draht an der Stelle.
      */
     private static void wireNeighbors(World world, int x, int y, int z, long[] out) {
-        boolean aboveOpen = !Blocks.getState(world.getBlock(x, y + 1, z)).isOpaqueCube();
+        boolean aboveOpen = !Blocks.getState(world.getBlock(x, y + 1, z)).isRedstoneConductor();
         int i = 0;
         for (Direction d : Direction.horizontalValues()) {
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
             out[i++] = wireAt(world, nx, y, nz);
             out[i++] = aboveOpen ? wireAt(world, nx, y + 1, nz) : Long.MIN_VALUE;
-            boolean sideOpen = !Blocks.getState(world.getBlock(nx, y, nz)).isOpaqueCube();
+            boolean sideOpen = !Blocks.getState(world.getBlock(nx, y, nz)).isRedstoneConductor();
             out[i++] = sideOpen ? wireAt(world, nx, y - 1, nz) : Long.MIN_VALUE;
         }
     }
@@ -290,14 +290,14 @@ public final class RedstoneWireNetwork {
     /** Verbindungsform zu einer horizontalen Seite: UP (hochgezogen) &gt; SIDE &gt; NONE. */
     private static RedstoneSide sideShape(World world, int x, int y, int z, Direction d) {
         int nx = x + d.offsetX(), nz = z + d.offsetZ();
-        boolean aboveOpen = !Blocks.getState(world.getBlock(x, y + 1, z)).isOpaqueCube();
+        boolean aboveOpen = !Blocks.getState(world.getBlock(x, y + 1, z)).isRedstoneConductor();
         if (aboveOpen && RedstonePower.isWire(Blocks.getState(world.getBlock(nx, y + 1, nz)))) {
             return RedstoneSide.UP;
         }
         BlockState neighbor = Blocks.getState(world.getBlock(nx, y, nz));
         if (RedstonePower.isWire(neighbor)) return RedstoneSide.SIDE;
         if (neighbor.getBlock().connectsRedstoneWire(neighbor, d.opposite())) return RedstoneSide.SIDE;
-        if (!neighbor.isOpaqueCube()
+        if (!neighbor.isRedstoneConductor()
                 && RedstonePower.isWire(Blocks.getState(world.getBlock(nx, y - 1, nz)))) {
             return RedstoneSide.SIDE;
         }

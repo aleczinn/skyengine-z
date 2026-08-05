@@ -91,7 +91,7 @@ public final class ComparatorBehavior implements BlockBehavior {
     private static int rearInput(World world, int x, int y, int z, Direction back) {
         int bx = x + back.offsetX(), by = y + back.offsetY(), bz = z + back.offsetZ();
         int container = containerSignal(world, bx, by, bz);
-        if (container < 0 && Blocks.getState(world.getBlock(bx, by, bz)).isOpaqueCube()) {
+        if (container < 0 && Blocks.getState(world.getBlock(bx, by, bz)).isRedstoneConductor()) {
             /* Durch EINEN opaken Block hindurch messen (MC). */
             container = containerSignal(world, bx + back.offsetX(), by + back.offsetY(), bz + back.offsetZ());
         }

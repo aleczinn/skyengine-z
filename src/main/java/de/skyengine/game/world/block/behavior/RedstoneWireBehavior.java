@@ -13,7 +13,7 @@ import de.skyengine.game.world.redstone.RedstoneWireNetwork;
  * aber nicht selbst) plus die Power-Hooks für Nicht-Staub-Empfänger.
  *
  * <p>Signalabgabe (schwach UND stark, Vanilla): nach UNTEN immer, horizontal nur in
- * verbundene Richtungen, nach OBEN nie. „Stark" heißt: ein opaker Block, in den der Staub
+ * verbundene Richtungen, nach OBEN nie. „Stark" heißt: ein leitender Block, in den der Staub
  * einspeist, aktiviert seinerseits Nachbarn (Tür hinter der Wand) — dass darüber kein
  * Staub-zu-Staub-Signal läuft, verhindert der ignoreWire-Pfad in {@code RedstonePower}.
  */
@@ -79,7 +79,7 @@ public final class RedstoneWireBehavior implements BlockBehavior {
            Positionen im NÄCHSTEN Tick — also nach dem Entfernen. */
         for (Direction d : strongTargets(state)) {
             int tx = x + d.offsetX(), ty = y + d.offsetY(), tz = z + d.offsetZ();
-            if (!Blocks.getState(world.getBlock(tx, ty, tz)).isOpaqueCube()) continue;
+            if (!Blocks.getState(world.getBlock(tx, ty, tz)).isRedstoneConductor()) continue;
             for (Direction n : Direction.values()) {
                 world.deferBlockUpdate(tx + n.offsetX(), ty + n.offsetY(), tz + n.offsetZ());
             }

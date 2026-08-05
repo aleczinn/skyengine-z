@@ -2,8 +2,10 @@ package de.skyengine.game.world.redstone;
 
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.BlockPos;
+import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.BlockStateCodec;
 import de.skyengine.game.world.block.state.Properties;
@@ -21,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class RedstoneWireNetworkTest {
@@ -86,6 +89,53 @@ final class RedstoneWireNetworkTest {
         assertEquals(16, RedstoneWireNetwork.notificationInitialCapacity(0));
         assertEquals(4_096, RedstoneWireNetwork.notificationInitialCapacity(4_096));
         assertEquals(16_384, RedstoneWireNetwork.notificationInitialCapacity(Integer.MAX_VALUE));
+    }
+
+    @Test
+    void separatesRedstoneConductionFromVisualOpacity() {
+        assertTrue(state("stone").isRedstoneConductor());
+        assertFalse(state("glass").isRedstoneConductor());
+        assertFalse(state("observer").isRedstoneConductor());
+        assertFalse(state("hopper").isRedstoneConductor());
+        assertFalse(state("stone_slab").with(Properties.SLAB_TYPE,
+                de.skyengine.game.world.block.state.SlabType.BOTTOM).isRedstoneConductor());
+        assertTrue(state("stone_slab").with(Properties.SLAB_TYPE,
+                de.skyengine.game.world.block.state.SlabType.DOUBLE).isRedstoneConductor());
+    }
+
+    @Test
+    void opaqueObserverAboveLowerWireDoesNotCutUpwardConnection() {
+        TestWorld world = steppedWireWorld(state("observer"));
+
+        RedstoneWireNetwork.update(world, 0, 64, 0);
+
+        assertEquals(14, Blocks.getState(world.getBlock(1, 65, 0)).get(Properties.POWER));
+    }
+
+    @Test
+    void conductiveBlockAboveLowerWireCutsUpwardConnection() {
+        TestWorld world = steppedWireWorld(state("stone"));
+
+        RedstoneWireNetwork.update(world, 0, 64, 0);
+
+        assertEquals(0, Blocks.getState(world.getBlock(1, 65, 0)).get(Properties.POWER));
+    }
+
+    private static TestWorld steppedWireWorld(BlockState blockAboveLowerWire) {
+        TestWorld world = new TestWorld();
+        BlockState wire = wireState();
+        world.put(-1, 64, 0, state("redstone_block").getId());
+        world.put(0, 64, 0, wire.getId());
+        world.put(0, 65, 0, blockAboveLowerWire.getId());
+        world.put(1, 64, 0, state("stone").getId());
+        world.put(1, 65, 0, wire.getId());
+        return world;
+    }
+
+    private static BlockState state(String path) {
+        var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
+        if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
+        return block.getDefaultState();
     }
 
     private static BlockState wireState() {

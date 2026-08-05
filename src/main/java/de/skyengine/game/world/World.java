@@ -1036,7 +1036,7 @@ public class World implements IInitializable, IDisposable {
             if (neighbor.getValues().containsKey(
                     de.skyengine.game.world.block.state.Properties.MODE)) {
                 this.updateStateAt(nx, y, nz);
-            } else if (neighbor.isOpaqueCube()) {
+            } else if (neighbor.isRedstoneConductor()) {
                 int fx = nx + d.offsetX(), fz = nz + d.offsetZ();
                 BlockState far = Blocks.getState(this.getBlock(fx, y, fz));
                 if (far.getValues().containsKey(
