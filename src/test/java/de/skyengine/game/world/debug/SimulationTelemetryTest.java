@@ -38,6 +38,7 @@ final class SimulationTelemetryTest {
         telemetry.recordScheduledDue();
         telemetry.recordScheduledExecuted();
         telemetry.recordBlockEventWave(7);
+        telemetry.recordBlockEventBudgetHit();
         telemetry.recordDeferredProcessed(5);
         telemetry.recordDeferredRequeued();
         telemetry.recordDeferredDropped();
@@ -54,12 +55,14 @@ final class SimulationTelemetryTest {
         assertEquals(1, snapshot.scheduledAccepted());
         assertEquals(1, snapshot.scheduledDeduplicated());
         assertEquals(7, snapshot.blockEventsProcessed());
+        assertEquals(1, snapshot.blockEventBudgetHits());
         assertEquals(1, snapshot.deferredDropped());
 
         String line = telemetry.statusLineAndReset();
         assertNotNull(line);
         assertTrue(line.contains("largest=300@12,64,-8"));
         assertTrue(line.contains("sched accepted=1 dedup=1 due=1 maxDuePerTick=1 run=1"));
+        assertTrue(line.contains("events waves=1 processed=7 waveLimit=0 budget=1"));
         assertTrue(line.contains("deferred processed=5 requeued=1 dropped=1"));
         assertEquals(0, telemetry.snapshot().ticks());
         assertTrue(telemetry.isEnabled());

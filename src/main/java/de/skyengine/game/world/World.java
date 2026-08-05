@@ -126,13 +126,18 @@ public class World implements IInitializable, IDisposable {
     /* Block-Event-Queue (MCs Block-Events, heute nur Kolben): 0-Tick-Reaktion mit zwei
        Drain-Punkten pro Tick — Drain A nach tickScheduled (Flanken aus Redstone-Ticks),
        Drain B nach tickEntities (Re-Checks aus dem BE-finish). Jeder Drain-Punkt läuft in
-       Wellen, BIS die Queue leer ist (MCs ServerLevel.runBlockEvents) — eine Kaskade wird
-       also im selben Durchgang fertig. Das ist der Unterschied zwischen „zwei gestapelte
+       Wellen, normalerweise BIS die Queue leer ist (MCs ServerLevel.runBlockEvents) — eine
+       Kaskade wird also im selben Durchgang fertig. Das ist der Unterschied zwischen „zwei gestapelte
        Kolben fahren gleichzeitig" und „der zweite hinkt einen Tick" (s. processBlockEvents).
-       LinkedHashSet = Dedup pro Position + FIFO. */
+       LinkedHashSet = Dedup pro Position + FIFO. Queue- und Tick-Deckel halten Extremmatrizen
+       aus dem Render-/Tick-Thread heraus; Überlauf wechselt in den persistenten Tick-Fallback. */
     private static final int MAX_BLOCK_EVENT_WAVES = 64;
+    private static final int MAX_BLOCK_EVENTS = 4096;
+    private static final int MAX_BLOCK_EVENTS_PER_TICK = 4096;
     private final LinkedHashSet<Long> blockEvents = new LinkedHashSet<>();
     private long[] blockEventScratch = new long[0];
+    private long blockEventBudgetGameTime = Long.MIN_VALUE;
+    private int blockEventsProcessedThisTick;
 
     /** Der Spieler dieses Ticks (für BlockEntities, die ihn brauchen, z.B. das Zaubertisch-Buch). */
     private EntityPlayer player;
@@ -1567,16 +1572,27 @@ public class World implements IInitializable, IDisposable {
      * Kolben): der Block dort bekommt beim nächsten Drain-Punkt {@code onBlockEvent} — im
      * SELBEN Game-Tick wie die auslösende Flanke, aber außerhalb der Nachbar-Update-Kaskade
      * (der Ort für schwere Multi-Block-Aktionen). Dedupliziert pro Position; „tolerantes
-     * Feuern" wie beim Tick-Scheduler: der Empfänger validiert seinen State selbst.
+     * Feuern" wie beim Tick-Scheduler: der Empfänger validiert seinen State selbst. Nur bei
+     * ausgeschöpftem Queue-Deckel wechselt der Kolben-Recheck verlustfrei auf den nächsten Tick.
      */
     public void enqueueBlockEvent(int x, int y, int z) {
-        this.blockEvents.add(BlockPos.asLong(x, y, z));
+        long position = BlockPos.asLong(x, y, z);
+        if (this.blockEvents.contains(position)) return;
+        if (this.blockEvents.size() >= MAX_BLOCK_EVENTS) {
+            /* Heute sind Block-Events ausschließlich Kolben-Rechecks; deren scheduledTick
+               delegiert an dieselbe evaluate-Logik und persistiert zusätzlich im Chunk-Save. */
+            this.simulationTelemetry.recordBlockEventBudgetHit();
+            this.scheduleTickEarlier(x, y, z, 1);
+            return;
+        }
+        this.blockEvents.add(position);
     }
 
     /**
-     * Drained Block-Events in Wellen, bis die Queue leer ist (MCs {@code runBlockEvents}).
-     * Der Snapshot je Welle schützt nur die Iteration; was während einer Welle dazukommt,
-     * läuft in der NÄCHSTEN Welle desselben Drain-Punkts.
+     * Drained Block-Events in Wellen, bis die Queue leer oder das gemeinsame Tick-Budget
+     * ausgeschöpft ist (MCs {@code runBlockEvents}). Der Snapshot je Welle schützt nur die
+     * Iteration; was während einer Welle dazukommt, läuft in der NÄCHSTEN Welle desselben
+     * Drain-Punkts. Der Budget-Rest bleibt FIFO-stabil bis zum nächsten Game-Tick liegen.
      *
      * <p>Warum das wichtig ist: löst ein Kolben beim Ausfahren über seinen Nachbar-Ring einen
      * zweiten Kolben aus (2-hohe Kolbentür — der untere hängt an der Quasi-Konnektivität),
@@ -1586,15 +1602,26 @@ public class World implements IInitializable, IDisposable {
      *
      * <p>Terminierung: die Empfänger validieren ihren Zustand selbst und tun nichts mehr, wenn
      * er schon passt ({@code PistonBehavior.evaluate}), eine Kaskade läuft also aus. Der Deckel
-     * {@link #MAX_BLOCK_EVENT_WAVES} ist nur die Notbremse gegen einen unbekannten Zyklus; der
-     * Rest bleibt liegen und läuft am nächsten Drain-Punkt.
+     * {@link #MAX_BLOCK_EVENT_WAVES} ist die Notbremse gegen einen unbekannten Zyklus;
+     * {@link #MAX_BLOCK_EVENTS_PER_TICK} begrenzt unabhängig davon die Gesamtarbeit beider
+     * Drain-Punkte. Der Rest bleibt liegen und läuft am nächsten zulässigen Drain.
      *
      * <p>Nicht simulierbare Positionen werden als geplanter Tick geparkt: der persistiert im
      * Save und kommt nach dem Laden wieder.
      */
     private void processBlockEvents() {
+        if (this.blockEventBudgetGameTime != this.gameTime) {
+            this.blockEventBudgetGameTime = this.gameTime;
+            this.blockEventsProcessedThisTick = 0;
+        }
+        int remainingBudget = MAX_BLOCK_EVENTS_PER_TICK - this.blockEventsProcessedThisTick;
+        if (remainingBudget <= 0) {
+            if (!this.blockEvents.isEmpty()) this.simulationTelemetry.recordBlockEventBudgetHit();
+            return;
+        }
+
         int welle = 0;
-        while (!this.blockEvents.isEmpty()) {
+        while (!this.blockEvents.isEmpty() && remainingBudget > 0) {
             if (++welle > MAX_BLOCK_EVENT_WAVES) {
                 this.simulationTelemetry.recordBlockEventWaveLimitHit();
                 this.logger.warning("Block-Events terminieren nicht (" + MAX_BLOCK_EVENT_WAVES
@@ -1602,12 +1629,17 @@ public class World implements IInitializable, IDisposable {
                 return;
             }
 
-            int n = this.blockEvents.size();
+            int n = Math.min(this.blockEvents.size(), remainingBudget);
             this.simulationTelemetry.recordBlockEventWave(n);
             if (this.blockEventScratch.length < n) this.blockEventScratch = new long[n * 2];
             int i = 0;
-            for (long pos : this.blockEvents) this.blockEventScratch[i++] = pos;
-            this.blockEvents.clear();
+            Iterator<Long> iterator = this.blockEvents.iterator();
+            while (i < n && iterator.hasNext()) {
+                this.blockEventScratch[i++] = iterator.next();
+                iterator.remove();
+            }
+            this.blockEventsProcessedThisTick += n;
+            remainingBudget -= n;
 
             for (int j = 0; j < n; j++) {
                 long pos = this.blockEventScratch[j];
@@ -1621,6 +1653,9 @@ public class World implements IInitializable, IDisposable {
                 BlockState state = Blocks.getState(this.getBlock(x, y, z));
                 state.getBlock().onBlockEvent(this, x, y, z, state);
             }
+        }
+        if (!this.blockEvents.isEmpty() && remainingBudget == 0) {
+            this.simulationTelemetry.recordBlockEventBudgetHit();
         }
     }
 

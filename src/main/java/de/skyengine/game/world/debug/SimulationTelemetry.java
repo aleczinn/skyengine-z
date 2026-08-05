@@ -41,6 +41,7 @@ public final class SimulationTelemetry {
             long blockEventWaves,
             long blockEventsProcessed,
             long blockEventWaveLimitHits,
+            long blockEventBudgetHits,
             long deferredProcessed,
             long deferredRequeued,
             long deferredDropped) {}
@@ -75,6 +76,7 @@ public final class SimulationTelemetry {
     private long blockEventWaves;
     private long blockEventsProcessed;
     private long blockEventWaveLimitHits;
+    private long blockEventBudgetHits;
     private long deferredProcessed;
     private long deferredRequeued;
     private long deferredDropped;
@@ -180,6 +182,10 @@ public final class SimulationTelemetry {
         if (this.enabled) this.blockEventWaveLimitHits++;
     }
 
+    public void recordBlockEventBudgetHit() {
+        if (this.enabled) this.blockEventBudgetHits++;
+    }
+
     public void recordDeferredProcessed(int count) {
         if (this.enabled) this.deferredProcessed += count;
     }
@@ -202,7 +208,8 @@ public final class SimulationTelemetry {
                 this.maxScheduledDuePerTick, this.scheduledExecuted, this.scheduledRescheduled,
                 this.scheduledDroppedUnloaded, this.scheduledSkippedWrongBlock,
                 this.scheduledSkippedAir, this.blockEventWaves, this.blockEventsProcessed,
-                this.blockEventWaveLimitHits, this.deferredProcessed, this.deferredRequeued,
+                this.blockEventWaveLimitHits, this.blockEventBudgetHits,
+                this.deferredProcessed, this.deferredRequeued,
                 this.deferredDropped);
     }
 
@@ -233,7 +240,8 @@ public final class SimulationTelemetry {
                 + " air=" + this.scheduledSkippedAir
                 + " | events waves=" + this.blockEventWaves
                 + " processed=" + this.blockEventsProcessed
-                + " capped=" + this.blockEventWaveLimitHits
+                + " waveLimit=" + this.blockEventWaveLimitHits
+                + " budget=" + this.blockEventBudgetHits
                 + " | deferred processed=" + this.deferredProcessed
                 + " requeued=" + this.deferredRequeued
                 + " dropped=" + this.deferredDropped;
@@ -274,6 +282,7 @@ public final class SimulationTelemetry {
         this.blockEventWaves = 0;
         this.blockEventsProcessed = 0;
         this.blockEventWaveLimitHits = 0;
+        this.blockEventBudgetHits = 0;
         this.deferredProcessed = 0;
         this.deferredRequeued = 0;
         this.deferredDropped = 0;
