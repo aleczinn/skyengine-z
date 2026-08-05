@@ -64,6 +64,39 @@ final class WorldScheduledTickPersistenceTest {
         assertEquals(20, rescheduled.getFirst().remainingTicks());
     }
 
+    @Test
+    void deduplicatedTickRequestsDoNotCreateSaveWork() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = readyPistonChunk();
+        world.install(chunk);
+        world.scheduleTick(3, 64, 4, 5);
+        chunk.markSaved(chunk.modificationEpoch());
+
+        world.scheduleTick(3, 64, 4, 2);
+        world.scheduleTickEarlier(3, 64, 4, 8);
+
+        assertFalse(chunk.isModified(), "abgelehnte Queue-Anträge dürfen keine Save-Epoch erzeugen");
+        List<SavedTick> pending = world.snapshotScheduledTicks(chunk);
+        assertEquals(1, pending.size());
+        assertEquals(5, pending.getFirst().remainingTicks());
+    }
+
+    @Test
+    void acceptedEarlierTickRequestStillCreatesSaveWork() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = readyPistonChunk();
+        world.install(chunk);
+        world.scheduleTick(3, 64, 4, 8);
+        chunk.markSaved(chunk.modificationEpoch());
+
+        world.scheduleTickEarlier(3, 64, 4, 2);
+
+        assertTrue(chunk.isModified(), "ein echtes Vorziehen verändert den persistenten Tick-Zustand");
+        List<SavedTick> pending = world.snapshotScheduledTicks(chunk);
+        assertEquals(1, pending.size());
+        assertEquals(2, pending.getFirst().remainingTicks());
+    }
+
     private static Chunk readyPistonChunk() {
         Chunk chunk = new Chunk(0, 0);
         chunk.status = ChunkStatus.READY;

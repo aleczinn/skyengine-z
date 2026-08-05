@@ -786,7 +786,7 @@ public class World implements IInitializable, IDisposable {
         boolean accepted = this.scheduledTicks.schedule(x, y, z, expectedBlock,
                 this.gameTime + Math.max(1, delayTicks));
         this.simulationTelemetry.recordScheduledRequest(accepted);
-        this.markChunkModified(x, z);
+        if (accepted) this.markChunkModified(x, z);
     }
 
     /**
@@ -799,7 +799,7 @@ public class World implements IInitializable, IDisposable {
         boolean accepted = this.scheduledTicks.scheduleEarlier(x, y, z, expectedBlock,
                 this.gameTime + Math.max(1, delayTicks));
         this.simulationTelemetry.recordScheduledRequest(accepted);
-        this.markChunkModified(x, z);
+        if (accepted) this.markChunkModified(x, z);
     }
 
     /** true, wenn an der Position bereits ein geplanter Tick aussteht. */
