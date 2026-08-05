@@ -129,15 +129,18 @@ public class World implements IInitializable, IDisposable {
        Wellen, normalerweise BIS die Queue leer ist (MCs ServerLevel.runBlockEvents) — eine
        Kaskade wird also im selben Durchgang fertig. Das ist der Unterschied zwischen „zwei gestapelte
        Kolben fahren gleichzeitig" und „der zweite hinkt einen Tick" (s. processBlockEvents).
-       LinkedHashSet = Dedup pro Position + FIFO. Queue- und Tick-Deckel halten Extremmatrizen
-       aus dem Render-/Tick-Thread heraus; Überlauf wechselt in den persistenten Tick-Fallback. */
+       LinkedHashMap = Dedup pro Position + FIFO + stabile Block-Bindung für den Save-Fallback.
+       Queue- und Tick-Deckel halten Extremmatrizen aus dem Render-/Tick-Thread heraus; Überlauf
+       wechselt in den persistenten Tick-Fallback. */
     private static final int MAX_BLOCK_EVENT_WAVES = 64;
     private static final int MAX_BLOCK_EVENTS = 4096;
     private static final int MAX_BLOCK_EVENTS_PER_TICK = 4096;
-    private final LinkedHashSet<Long> blockEvents = new LinkedHashSet<>();
+    private static final int BLOCK_EVENT_TICK_PRIORITY = Integer.MAX_VALUE;
+    private final LinkedHashMap<Long, Identifier> blockEvents = new LinkedHashMap<>();
     private long[] blockEventScratch = new long[0];
     private long blockEventBudgetGameTime = Long.MIN_VALUE;
     private int blockEventsProcessedThisTick;
+    private long blockEventRevision;
 
     /** Der Spieler dieses Ticks (für BlockEntities, die ihn brauchen, z.B. das Zaubertisch-Buch). */
     private EntityPlayer player;
@@ -463,37 +466,52 @@ public class World implements IInitializable, IDisposable {
        Tick-Slot (der gemessene Kandidat für den Save-Ruckler). */
     private long tickSnapshotIndexTime = -1;
     private long tickSnapshotIndexRevision = -1;
+    private long tickSnapshotBlockEventRevision = -1;
     private final de.skyengine.utils.collect.LongObjMap<List<SavedTick>> tickSnapshotIndex =
             new de.skyengine.utils.collect.LongObjMap<>(64);
 
     /**
-     * Sammelt die anstehenden Scheduled-Ticks des Chunks für die Persistenz (Typ "block" —
-     * alles in der Queue dispatcht über Block.scheduledTick). Künftige Systeme mit eigenen
-     * Datenstrukturen hängen sich hier als weitere Quellen an. Nur Tick-Thread; einziger
-     * Aufrufer ist {@code WorldStorage.enqueueSave}. null, wenn nichts ansteht.
+     * Sammelt die anstehenden Scheduled-Ticks und wartenden Block-Events des Chunks für die
+     * Persistenz. Beide werden als Typ "block" wiederhergestellt und dispatchen tolerant über
+     * {@code Block.scheduledTick}; Block-Events liegen dabei nach normalen Ticks desselben
+     * Folgeticks. Nur Tick-Thread; einziger Aufrufer ist {@code WorldStorage.enqueueSave}.
+     * {@code null}, wenn nichts ansteht.
      */
     public List<SavedTick> snapshotScheduledTicks(Chunk chunk) {
         long queueRevision = this.scheduledTicks.revision();
         if (this.tickSnapshotIndexTime != this.gameTime
-                || this.tickSnapshotIndexRevision != queueRevision) {
+                || this.tickSnapshotIndexRevision != queueRevision
+                || this.tickSnapshotBlockEventRevision != this.blockEventRevision) {
             this.tickSnapshotIndexTime = this.gameTime;
             this.tickSnapshotIndexRevision = queueRevision;
+            this.tickSnapshotBlockEventRevision = this.blockEventRevision;
             this.tickSnapshotIndex.clear();
             this.scheduledTicks.forEachPending(this.gameTime,
                     (x, y, z, expectedBlock, remaining, priority, subOrder) -> {
-                long key = Chunk.key(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
-                List<SavedTick> list = this.tickSnapshotIndex.get(key);
-                if (list == null) {
-                    list = new ArrayList<>();
-                    this.tickSnapshotIndex.put(key, list);
-                }
-                list.add(new SavedTick(ScheduledTickTypes.BLOCK, expectedBlock.toString(),
-                        x, y, z, remaining, priority, subOrder));
+                this.appendTickSnapshot(x, y, z, expectedBlock, remaining, priority, subOrder);
             });
+            long blockEventOrder = 0;
+            for (Map.Entry<Long, Identifier> event : this.blockEvents.entrySet()) {
+                long pos = event.getKey();
+                this.appendTickSnapshot(BlockPos.unpackX(pos), BlockPos.unpackY(pos), BlockPos.unpackZ(pos),
+                        event.getValue(), 1, BLOCK_EVENT_TICK_PRIORITY, blockEventOrder++);
+            }
         }
         List<SavedTick> result = this.tickSnapshotIndex.get(Chunk.key(chunk.chunkX, chunk.chunkZ));
         if (result != null) result.sort(SavedTick.ORDER);
         return result;
+    }
+
+    private void appendTickSnapshot(int x, int y, int z, Identifier expectedBlock,
+                                    int remaining, int priority, long subOrder) {
+        long key = Chunk.key(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        List<SavedTick> list = this.tickSnapshotIndex.get(key);
+        if (list == null) {
+            list = new ArrayList<>();
+            this.tickSnapshotIndex.put(key, list);
+        }
+        list.add(new SavedTick(ScheduledTickTypes.BLOCK, expectedBlock.toString(),
+                x, y, z, remaining, priority, subOrder));
     }
 
     /**
@@ -1572,12 +1590,13 @@ public class World implements IInitializable, IDisposable {
      * Kolben): der Block dort bekommt beim nächsten Drain-Punkt {@code onBlockEvent} — im
      * SELBEN Game-Tick wie die auslösende Flanke, aber außerhalb der Nachbar-Update-Kaskade
      * (der Ort für schwere Multi-Block-Aktionen). Dedupliziert pro Position; „tolerantes
-     * Feuern" wie beim Tick-Scheduler: der Empfänger validiert seinen State selbst. Nur bei
-     * ausgeschöpftem Queue-Deckel wechselt der Kolben-Recheck verlustfrei auf den nächsten Tick.
+     * Feuern" wie beim Tick-Scheduler: der Empfänger validiert seinen State selbst. Wartende
+     * Events werden im Chunk-Snapshot an den Blocktyp beim Einreihen gebunden; bei ausgeschöpftem
+     * Queue-Deckel wechselt der Kolben-Recheck direkt auf den nächsten Tick.
      */
     public void enqueueBlockEvent(int x, int y, int z) {
         long position = BlockPos.asLong(x, y, z);
-        if (this.blockEvents.contains(position)) return;
+        if (this.blockEvents.containsKey(position)) return;
         if (this.blockEvents.size() >= MAX_BLOCK_EVENTS) {
             /* Heute sind Block-Events ausschließlich Kolben-Rechecks; deren scheduledTick
                delegiert an dieselbe evaluate-Logik und persistiert zusätzlich im Chunk-Save. */
@@ -1585,7 +1604,10 @@ public class World implements IInitializable, IDisposable {
             this.scheduleTickEarlier(x, y, z, 1);
             return;
         }
-        this.blockEvents.add(position);
+        Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
+        this.blockEvents.put(position, expectedBlock);
+        this.blockEventRevision++;
+        this.markChunkModified(x, z);
     }
 
     /**
@@ -1633,11 +1655,14 @@ public class World implements IInitializable, IDisposable {
             this.simulationTelemetry.recordBlockEventWave(n);
             if (this.blockEventScratch.length < n) this.blockEventScratch = new long[n * 2];
             int i = 0;
-            Iterator<Long> iterator = this.blockEvents.iterator();
+            Iterator<Map.Entry<Long, Identifier>> iterator = this.blockEvents.entrySet().iterator();
             while (i < n && iterator.hasNext()) {
-                this.blockEventScratch[i++] = iterator.next();
+                long pos = iterator.next().getKey();
+                this.blockEventScratch[i++] = pos;
                 iterator.remove();
+                this.markChunkModified(BlockPos.unpackX(pos), BlockPos.unpackZ(pos));
             }
+            this.blockEventRevision++;
             this.blockEventsProcessedThisTick += n;
             remainingBudget -= n;
 

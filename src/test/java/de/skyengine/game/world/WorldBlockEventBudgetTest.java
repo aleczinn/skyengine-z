@@ -1,15 +1,24 @@
 package de.skyengine.game.world;
 
+import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.game.world.chunk.ChunkManager;
+import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.game.world.save.ChunkSerializer;
 import de.skyengine.game.world.save.LevelData;
+import de.skyengine.game.world.tick.SavedTick;
 import de.skyengine.test.BlocksTestBootstrap;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.Set;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class WorldBlockEventBudgetTest {
@@ -46,9 +55,42 @@ final class WorldBlockEventBudgetTest {
         assertEquals(0, world.blockEventCount());
     }
 
+    @Test
+    void pendingEventSurvivesSaveAndItsRemovalInvalidatesTheSnapshot() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = new Chunk(0, 0);
+        chunk.status = ChunkStatus.READY;
+        chunk.setBlock(3, 64, 4, Blocks.PISTON);
+        world.install(chunk);
+        chunk.markSaved(chunk.modificationEpoch());
+
+        world.enqueueBlockEvent(3, 64, 4);
+        assertTrue(chunk.isModified(), "ein wartendes Event ist persistenter Chunk-Zustand");
+        List<SavedTick> saved = world.snapshotScheduledTicks(chunk);
+        assertEquals(1, saved.size());
+        SavedTick event = saved.getFirst();
+        assertEquals("skyengine:piston", event.expectedBlock());
+        assertEquals(1, event.remainingTicks());
+        assertEquals(Integer.MAX_VALUE, event.priority());
+        byte[] payload = ChunkSerializer.serialize(chunk, "test", 1, false, saved, List.of());
+        Chunk restored = new Chunk(0, 0);
+        ChunkSerializer.deserialize(restored, payload, null);
+        assertEquals(saved, restored.pendingScheduledTicks);
+
+        /* Simuliert den erfolgreichen IO-Abschluss genau dieses Event-Snapshots. */
+        chunk.markSaved(chunk.modificationEpoch());
+        assertFalse(chunk.isModified());
+        world.processBlockEvents();
+
+        assertEquals(0, world.blockEventCount());
+        assertTrue(chunk.isModified(), "auch das Entfernen des gespeicherten Events muss gespeichert werden");
+        assertNull(world.snapshotScheduledTicks(chunk));
+    }
+
     private static final class TestWorld extends World {
         private static final Field BLOCK_EVENTS_FIELD;
         private static final Field GAME_TIME_FIELD;
+        private static final Field CHUNKS_FIELD;
         private static final Method PROCESS_BLOCK_EVENTS;
 
         static {
@@ -57,6 +99,8 @@ final class WorldBlockEventBudgetTest {
                 BLOCK_EVENTS_FIELD.setAccessible(true);
                 GAME_TIME_FIELD = World.class.getDeclaredField("gameTime");
                 GAME_TIME_FIELD.setAccessible(true);
+                CHUNKS_FIELD = ChunkManager.class.getDeclaredField("chunks");
+                CHUNKS_FIELD.setAccessible(true);
                 PROCESS_BLOCK_EVENTS = World.class.getDeclaredMethod("processBlockEvents");
                 PROCESS_BLOCK_EVENTS.setAccessible(true);
             } catch (ReflectiveOperationException e) {
@@ -69,7 +113,16 @@ final class WorldBlockEventBudgetTest {
         }
 
         int blockEventCount() throws IllegalAccessException {
-            return ((Set<?>) BLOCK_EVENTS_FIELD.get(this)).size();
+            return ((Map<?, ?>) BLOCK_EVENTS_FIELD.get(this)).size();
+        }
+
+        @SuppressWarnings("unchecked")
+        void install(Chunk chunk) throws ReflectiveOperationException {
+            Field managerField = World.class.getDeclaredField("chunkManager");
+            managerField.setAccessible(true);
+            ChunkManager manager = (ChunkManager) managerField.get(this);
+            ((Map<Long, Chunk>) CHUNKS_FIELD.get(manager))
+                    .put(Chunk.key(chunk.chunkX, chunk.chunkZ), chunk);
         }
 
         void advanceGameTime() throws IllegalAccessException {
