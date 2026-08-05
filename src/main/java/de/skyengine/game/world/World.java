@@ -54,13 +54,16 @@ import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.entity.EntityRenderer;
 import de.skyengine.graphics.world.ChunkRenderer;
 import de.skyengine.utils.collect.LongIntMap;
+import de.skyengine.utils.collect.LongObjMap;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.Random;
 import java.util.function.Consumer;
@@ -105,12 +108,18 @@ public class World implements IInitializable, IDisposable {
     /** Reguläre Unloads werden vor dem Redstone-Kantenabgleich nach Koordinate sortiert. */
     private final List<Long> unloadedChunkScratch = new ArrayList<>();
 
-    /* Nachhol-Protokoll für Nachbar-State-Updates an nicht-READY Chunks (F1): updateStateAt
-       parkt die Position hier, processDeferredStateUpdates zieht sie bei READY nach.
-       LinkedHashSet = Dedup + älteste-zuerst fürs Notventil; nur Tick-/Render-Thread. */
+    /* Nachhol-Protokoll für Block-State-Updates. Die FIFO enthält ausschließlich Updates für
+       den nächsten Tick; nicht-READY Ziele liegen separat am konkreten Chunk-Objekt. Dadurch
+       werden unfertige Chunks nicht jeden Tick erneut gescannt und ein entladener/ersetzter
+       Chunk kann keine Altlast auf seinen Nachfolger übertragen. Nur Tick-/Render-Thread. */
     private static final int MAX_DEFERRED_STATE_UPDATES = 4096;
-    private final LinkedHashSet<Long> deferredStateUpdates = new LinkedHashSet<>();
+    private static final int MAX_DEFERRED_STATE_UPDATES_PER_TICK = 512;
+    private final LinkedHashMap<Long, Chunk> deferredStateUpdates = new LinkedHashMap<>();
+    private final LongObjMap<DeferredChunkUpdates> parkedStateUpdates = new LongObjMap<>(32);
+    private int parkedStateUpdateCount;
+    private int deferredPruneRemovalVersion;
     private long[] deferredScratch = new long[0];
+    private Chunk[] deferredChunkScratch = new Chunk[0];
 
     /* Block-Event-Queue (MCs Block-Events, heute nur Kolben): 0-Tick-Reaktion mit zwei
        Drain-Punkten pro Tick — Drain A nach tickScheduled (Flanken aus Redstone-Ticks),
@@ -320,6 +329,7 @@ public class World implements IInitializable, IDisposable {
             if (!chunk.loadSeeded) {
                 de.skyengine.game.world.block.behavior.ObserverBehavior.seedLoadedChunk(this, chunk);
             }
+            this.releaseParkedStateUpdates(chunk);
             this.reconcilePendingOpenBoundaries(chunk, reconciledWires);
             this.reconcileReadyChunkBoundaries(chunk, reconciledWires);
             chunk.loadSeeded = true;
@@ -1488,11 +1498,11 @@ public class World implements IInitializable, IDisposable {
         /* Nicht-READY-Zielchunk: setBlockRaw könnte ohnehin nicht schreiben — das Update
            würde still verlorengehen (Zaun im Nachbarchunk berechnet seine Verbindung dann
            NIE). Position parken; processDeferredStateUpdates zieht sie nach, sobald der
-           Chunk READY ist. chunk == null ist nur das Unload-Race → verwerfen. */
+           konkrete Chunk-Objekt READY ist. chunk == null ist nur das Unload-Race → verwerfen. */
         Chunk targetChunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
         if (targetChunk == null) return;
         if (targetChunk.status != ChunkStatus.READY) {
-            this.deferStateUpdate(x, y, z);
+            this.parkStateUpdate(targetChunk, BlockPos.asLong(x, y, z));
             return;
         }
 
@@ -1522,7 +1532,12 @@ public class World implements IInitializable, IDisposable {
      * den Staub sonst beim Re-Check noch stehen.
      */
     public void deferBlockUpdate(int x, int y, int z) {
-        this.deferStateUpdate(x, y, z);
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk == null) {
+            this.simulationTelemetry.recordDeferredDropped();
+            return;
+        }
+        this.enqueueDeferredStateUpdate(BlockPos.asLong(x, y, z), chunk);
     }
 
     /**
@@ -1587,49 +1602,125 @@ public class World implements IInitializable, IDisposable {
         }
     }
 
-    /** Merkt ein Nachbar-State-Update für einen (noch) nicht-READY Chunk vor (dedupliziert). */
-    private void deferStateUpdate(int x, int y, int z) {
+    /** Merkt ein State-Update für den nächsten Tick vor (dedupliziert, FIFO). */
+    private void enqueueDeferredStateUpdate(long pos, Chunk chunk) {
+        Chunk previous = this.deferredStateUpdates.get(pos);
+        if (previous == chunk) return;
+        if (previous != null) {
+            /* Dieselbe Koordinate gehört inzwischen einem Ersatz-Chunk: der aktuelle Anlass
+               ersetzt den alten, ohne die stabile FIFO-Position unnötig zu verschieben. */
+            this.deferredStateUpdates.put(pos, chunk);
+            return;
+        }
         if (this.deferredStateUpdates.size() >= MAX_DEFERRED_STATE_UPDATES) {
-            /* Notventil gegen unbegrenztes Wachstum (z.B. Einträge für nie zurückkehrende
-               Chunks): ältesten Eintrag opfern — der Fall ist konstruiert selten. */
-            Iterator<Long> it = this.deferredStateUpdates.iterator();
+            /* Notventil gegen einen Erzeuger, der schneller einreiht als das Tick-Budget
+               abarbeiten kann: den ältesten Eintrag deterministisch opfern. */
+            Iterator<Map.Entry<Long, Chunk>> it = this.deferredStateUpdates.entrySet().iterator();
             it.next();
             it.remove();
             this.simulationTelemetry.recordDeferredDropped();
             this.logger.debug("Nachhol-Puffer für Block-Updates voll — ältester Eintrag verworfen");
         }
-        this.deferredStateUpdates.add(BlockPos.asLong(x, y, z));
+        this.deferredStateUpdates.put(pos, chunk);
     }
 
     /**
-     * Zieht vorgemerkte Nachbar-State-Updates nach, deren Chunk inzwischen READY ist
-     * (Gegenstück zu {@link #restorePendingScheduledTicks} für Block-States). Läuft im Tick
-     * direkt nach {@code chunkManager.update()}, damit READY-Übergänge dieses Ticks schon
-     * sichtbar sind. Die Einträge werden in einen Scratch kopiert, weil {@code updateStateAt}
-     * beim Nachziehen neue Deferrals erzeugen kann (Kaskade an die nächste Chunkgrenze).
+     * Parkt ein Update am aktuell geladenen, aber noch nicht editierbaren Chunk-Objekt.
+     * Der globale Deckel verhindert Speicherwachstum, ohne READY-ferne Chunks pro Tick zu scannen.
+     */
+    private void parkStateUpdate(Chunk chunk, long pos) {
+        long key = Chunk.key(chunk.chunkX, chunk.chunkZ);
+        DeferredChunkUpdates pending = this.parkedStateUpdates.get(key);
+        if (pending != null && pending.chunk != chunk) {
+            this.parkedStateUpdateCount -= pending.positions.size();
+            this.parkedStateUpdates.remove(key);
+            pending = null;
+        }
+        if (pending != null && pending.positions.contains(pos)) return;
+        if (this.parkedStateUpdateCount >= MAX_DEFERRED_STATE_UPDATES) {
+            this.simulationTelemetry.recordDeferredDropped();
+            this.logger.debug("Geparkter Nachhol-Puffer für Block-Updates voll — neuer Eintrag verworfen");
+            return;
+        }
+        if (pending == null) {
+            pending = new DeferredChunkUpdates(chunk);
+            this.parkedStateUpdates.put(key, pending);
+        }
+        pending.positions.add(pos);
+        this.parkedStateUpdateCount++;
+        this.simulationTelemetry.recordDeferredRequeued();
+    }
+
+    /** Gibt nur Updates frei, die zum identischen Chunk-Objekt gehören; Ersatz-Chunks erben nichts. */
+    private void releaseParkedStateUpdates(Chunk chunk) {
+        DeferredChunkUpdates pending = this.parkedStateUpdates.remove(Chunk.key(chunk.chunkX, chunk.chunkZ));
+        if (pending == null) return;
+        this.parkedStateUpdateCount -= pending.positions.size();
+        if (pending.chunk != chunk) return;
+        for (long pos : pending.positions) this.enqueueDeferredStateUpdate(pos, chunk);
+    }
+
+    /** Entfernt Gruppen entladener Chunks nur dann, wenn sich die Chunk-Map tatsächlich geändert hat. */
+    private void pruneParkedStateUpdates() {
+        int removalVersion = this.chunkManager.getChunkRemovalVersion();
+        if (removalVersion == this.deferredPruneRemovalVersion) return;
+        this.parkedStateUpdates.removeIf((key, pending) -> {
+            int chunkX = (int) (key >> 32);
+            int chunkZ = (int) key;
+            if (this.chunkManager.getChunk(chunkX, chunkZ) == pending.chunk) return false;
+            this.parkedStateUpdateCount -= pending.positions.size();
+            return true;
+        });
+        this.deferredPruneRemovalVersion = removalVersion;
+    }
+
+    /**
+     * Arbeitet die FIFO für den nächsten Tick mit festem Budget ab. Nicht-READY Ziele werden
+     * einmalig am Chunk geparkt und erst durch dessen sortierte READY-Meldung freigegeben.
+     * Vor der Runde werden die Positionen entfernt, damit während der Verarbeitung erzeugte
+     * Updates garantiert erst im nächsten Tick laufen.
      */
     private void processDeferredStateUpdates() {
+        this.pruneParkedStateUpdates();
         if (this.deferredStateUpdates.isEmpty()) return;
 
-        int n = this.deferredStateUpdates.size();
+        int n = Math.min(this.deferredStateUpdates.size(), MAX_DEFERRED_STATE_UPDATES_PER_TICK);
         this.simulationTelemetry.recordDeferredProcessed(n);
-        if (this.deferredScratch.length < n) this.deferredScratch = new long[n * 2];
+        if (this.deferredScratch.length < n) {
+            this.deferredScratch = new long[n * 2];
+            this.deferredChunkScratch = new Chunk[n * 2];
+        }
         int i = 0;
-        for (long pos : this.deferredStateUpdates) this.deferredScratch[i++] = pos;
-        this.deferredStateUpdates.clear();
+        Iterator<Map.Entry<Long, Chunk>> iterator = this.deferredStateUpdates.entrySet().iterator();
+        while (i < n && iterator.hasNext()) {
+            Map.Entry<Long, Chunk> entry = iterator.next();
+            this.deferredScratch[i] = entry.getKey();
+            this.deferredChunkScratch[i++] = entry.getValue();
+            iterator.remove();
+        }
 
         for (int j = 0; j < n; j++) {
             long pos = this.deferredScratch[j];
             int x = BlockPos.unpackX(pos), y = BlockPos.unpackY(pos), z = BlockPos.unpackZ(pos);
             Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
-            if (chunk == null || chunk.status != ChunkStatus.READY) {
-                /* Noch nicht dran (auch chunk == null: kann nach einem Unload-Zyklus
-                   zurückkommen) — wieder einreihen, das Set dedupliziert. */
-                this.deferredStateUpdates.add(pos);
-                this.simulationTelemetry.recordDeferredRequeued();
+            if (chunk != this.deferredChunkScratch[j]) {
+                this.simulationTelemetry.recordDeferredDropped();
+                continue;
+            }
+            if (chunk.status != ChunkStatus.READY) {
+                this.parkStateUpdate(chunk, pos);
                 continue;
             }
             this.updateStateAt(x, y, z);
+        }
+    }
+
+    private static final class DeferredChunkUpdates {
+        private final Chunk chunk;
+        private final LinkedHashSet<Long> positions = new LinkedHashSet<>();
+
+        private DeferredChunkUpdates(Chunk chunk) {
+            this.chunk = chunk;
         }
     }
 
