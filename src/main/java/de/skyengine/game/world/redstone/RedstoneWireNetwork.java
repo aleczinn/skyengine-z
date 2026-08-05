@@ -29,6 +29,9 @@ import java.util.Arrays;
  */
 public final class RedstoneWireNetwork {
 
+    /** Verhindert, dass eine einzelne dichte Matrix schon vor dem Deduplizieren riesig reserviert. */
+    private static final int MAX_INITIAL_NOTIFICATION_CAPACITY = 16_384;
+
     /**
      * Reentrancy-Guard pro Thread und Welt: Empfänger-Benachrichtigungen dürfen kein zweites
      * Netz derselben Welt starten. Unabhängige Welten auf verschiedenen Threads dürfen sich
@@ -160,8 +163,9 @@ public final class RedstoneWireNetwork {
         /* 4) Empfänger EINMAL in stabiler Einfügereihenfolge benachrichtigen. Der Ring um
            jede geänderte Zelle und deren sechs Nachbarn ergibt den MC-Radius-2-Diamanten;
            Staub selbst ist schon durch den vollständigen Netz-Fixpunkt konsistent. */
-        LongIntMap notifySet = new LongIntMap(Math.max(16, changed.size() * 8));
-        LongBuffer notify = new LongBuffer(Math.max(16, changed.size() * 8));
+        int notificationCapacity = notificationInitialCapacity(changed.size());
+        LongIntMap notifySet = new LongIntMap(notificationCapacity);
+        LongBuffer notify = new LongBuffer(notificationCapacity);
         for (int i = 0; i < changed.size(); i++) {
             long cell = changed.get(i);
             int cx = BlockPos.unpackX(cell), cy = BlockPos.unpackY(cell), cz = BlockPos.unpackZ(cell);
@@ -181,6 +185,16 @@ public final class RedstoneWireNetwork {
         }
         world.getSimulationTelemetry().recordWireSolve(telemetryStart, ox, oy, oz,
                 power.size(), changed.size(), receivers, false);
+    }
+
+    /**
+     * Startkapazität, kein Inhaltsdeckel. Die frühere Schätzung {@code changed * 8}
+     * überreservierte bei dichten Matrizen massiv, weil sich deren Radius-2-Mengen fast
+     * vollständig überlappen. Set und Puffer wachsen weiterhin verlustfrei, wenn eine dünne
+     * Struktur tatsächlich mehr eindeutige Empfänger erzeugt.
+     */
+    static int notificationInitialCapacity(int changedCells) {
+        return Math.max(16, Math.min(changedCells, MAX_INITIAL_NOTIFICATION_CAPACITY));
     }
 
     /** Punkt-Form: keine einzige Seite verbunden (speist horizontal nichts). */

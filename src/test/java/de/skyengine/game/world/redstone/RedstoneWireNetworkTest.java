@@ -20,6 +20,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class RedstoneWireNetworkTest {
@@ -78,6 +79,13 @@ final class RedstoneWireNetworkTest {
             releaseFirstSolver.countDown();
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void notificationBuffersBoundOnlyTheirInitialReservation() {
+        assertEquals(16, RedstoneWireNetwork.notificationInitialCapacity(0));
+        assertEquals(4_096, RedstoneWireNetwork.notificationInitialCapacity(4_096));
+        assertEquals(16_384, RedstoneWireNetwork.notificationInitialCapacity(Integer.MAX_VALUE));
     }
 
     private static BlockState wireState() {
