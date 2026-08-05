@@ -45,8 +45,12 @@ public final class RedstoneWireNetwork {
 
     /** Berechnet die Komponente um (x,y,z) neu und benachrichtigt betroffene Empfänger. */
     public static void update(World world, int x, int y, int z) {
-        if (active) return;
+        if (active) {
+            world.getSimulationTelemetry().recordSuppressedWireWake();
+            return;
+        }
         if (!RedstonePower.isWire(Blocks.getState(world.getBlock(x, y, z)))) return;
+        world.getSimulationTelemetry().recordWireWake();
         active = true;
         try {
             run(world, x, y, z);
@@ -56,6 +60,7 @@ public final class RedstoneWireNetwork {
     }
 
     private static void run(World world, int ox, int oy, int oz) {
+        long telemetryStart = world.getSimulationTelemetry().beginRedstoneTiming();
         /* 1) Komponenten-BFS über die Staub-Zellen (feste Nachbar-Reihenfolge). */
         LinkedHashMap<Long, Integer> power = new LinkedHashMap<>();
         ArrayDeque<Long> queue = new ArrayDeque<>();
@@ -165,11 +170,15 @@ public final class RedstoneWireNetwork {
                 addRing(notify, cx + d.offsetX(), cy + d.offsetY(), cz + d.offsetZ());
             }
         }
+        int receivers = 0;
         for (long pos : notify) {
             int nx = BlockPos.unpackX(pos), ny = BlockPos.unpackY(pos), nz = BlockPos.unpackZ(pos);
             if (RedstonePower.isWire(Blocks.getState(world.getBlock(nx, ny, nz)))) continue;
             world.updateBlockStateAt(nx, ny, nz);
+            receivers++;
         }
+        world.getSimulationTelemetry().recordWireSolve(telemetryStart, ox, oy, oz,
+                power.size(), changed.size(), receivers, capped);
     }
 
     /** Punkt-Form: keine einzige Seite verbunden (speist horizontal nichts). */

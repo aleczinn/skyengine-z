@@ -23,6 +23,7 @@ import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.core.file.GameDirectory;
+import de.skyengine.game.world.debug.SimulationTelemetry;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
@@ -120,6 +121,7 @@ public class World implements IInitializable, IDisposable {
     private long gameTime;
     private final Random random = new Random();
     private final ScheduledTickQueue scheduledTicks = new ScheduledTickQueue();
+    private final SimulationTelemetry simulationTelemetry = new SimulationTelemetry();
 
     /* Himmelslicht-Aktualisierung bei Block-Edits. Eigene Engine-Instanz für den
        Render-/Tick-Thread (die Worker haben ihre ThreadLocals im ChunkManager) — eine Instanz
@@ -217,6 +219,8 @@ public class World implements IInitializable, IDisposable {
     }
 
     public void update(Input input, EntityPlayer player) {
+        this.simulationTelemetry.setEnabled(FrameProfiler.isEnabled());
+        this.simulationTelemetry.beginTick();
         this.gameTime++;
         this.player = player;
         this.playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
@@ -232,6 +236,7 @@ public class World implements IInitializable, IDisposable {
         this.tickBlockEntities();
         this.tickEntities();
         this.processBlockEvents(); // Drain B: Re-Checks aus dem BE-finish, noch im selben Tick
+        this.simulationTelemetry.endTick();
     }
 
     /**
@@ -591,7 +596,9 @@ public class World implements IInitializable, IDisposable {
      * nach dem Neuladen still.</p>
      */
     public void scheduleTick(int x, int y, int z, int delayTicks) {
-        this.scheduledTicks.schedule(x, y, z, this.gameTime + Math.max(1, delayTicks));
+        boolean accepted = this.scheduledTicks.schedule(x, y, z,
+                this.gameTime + Math.max(1, delayTicks));
+        this.simulationTelemetry.recordScheduledRequest(accepted);
         this.markChunkModified(x, z);
     }
 
@@ -601,7 +608,9 @@ public class World implements IInitializable, IDisposable {
      * die einen regulären Fluss-Tick überholen müssen.
      */
     public void scheduleTickEarlier(int x, int y, int z, int delayTicks) {
-        this.scheduledTicks.scheduleEarlier(x, y, z, this.gameTime + Math.max(1, delayTicks));
+        boolean accepted = this.scheduledTicks.scheduleEarlier(x, y, z,
+                this.gameTime + Math.max(1, delayTicks));
+        this.simulationTelemetry.recordScheduledRequest(accepted);
         this.markChunkModified(x, z);
     }
 
@@ -613,6 +622,11 @@ public class World implements IInitializable, IDisposable {
     /** Aktuelle Spielzeit in Ticks (20 TPS). */
     public long getGameTime() {
         return this.gameTime;
+    }
+
+    /** Diagnosezaehler dieser Welt; standardmaessig nur im Full-Debug-Modus aktiv. */
+    public SimulationTelemetry getSimulationTelemetry() {
+        return this.simulationTelemetry;
     }
 
     /**
@@ -629,15 +643,25 @@ public class World implements IInitializable, IDisposable {
      */
     private void tickScheduled() {
         this.scheduledTicks.drainDue(this.gameTime, (x, y, z) -> {
+            this.simulationTelemetry.recordScheduledDue();
             int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
             Chunk chunk = this.chunkManager.getChunk(cx, cz);
-            if (chunk == null) return;
+            if (chunk == null) {
+                this.simulationTelemetry.recordScheduledDroppedUnloaded();
+                return;
+            }
             if (chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
                 this.scheduledTicks.schedule(x, y, z, this.gameTime + OUT_OF_SIM_RESCHEDULE);
+                this.simulationTelemetry.recordScheduledRescheduled();
                 return;
             }
             BlockState state = Blocks.getState(this.getBlock(x, y, z));
-            if (!state.isAir()) state.getBlock().scheduledTick(this, x, y, z, state);
+            if (state.isAir()) {
+                this.simulationTelemetry.recordScheduledSkippedAir();
+                return;
+            }
+            this.simulationTelemetry.recordScheduledExecuted();
+            state.getBlock().scheduledTick(this, x, y, z, state);
         });
     }
 
@@ -1372,12 +1396,14 @@ public class World implements IInitializable, IDisposable {
         int welle = 0;
         while (!this.blockEvents.isEmpty()) {
             if (++welle > MAX_BLOCK_EVENT_WAVES) {
+                this.simulationTelemetry.recordBlockEventWaveLimitHit();
                 this.logger.warning("Block-Events terminieren nicht (" + MAX_BLOCK_EVENT_WAVES
                         + " Wellen, " + this.blockEvents.size() + " offen) — Rest auf den naechsten Drain");
                 return;
             }
 
             int n = this.blockEvents.size();
+            this.simulationTelemetry.recordBlockEventWave(n);
             if (this.blockEventScratch.length < n) this.blockEventScratch = new long[n * 2];
             int i = 0;
             for (long pos : this.blockEvents) this.blockEventScratch[i++] = pos;
@@ -1406,6 +1432,7 @@ public class World implements IInitializable, IDisposable {
             Iterator<Long> it = this.deferredStateUpdates.iterator();
             it.next();
             it.remove();
+            this.simulationTelemetry.recordDeferredDropped();
             this.logger.debug("Nachhol-Puffer für Block-Updates voll — ältester Eintrag verworfen");
         }
         this.deferredStateUpdates.add(BlockPos.asLong(x, y, z));
@@ -1422,6 +1449,7 @@ public class World implements IInitializable, IDisposable {
         if (this.deferredStateUpdates.isEmpty()) return;
 
         int n = this.deferredStateUpdates.size();
+        this.simulationTelemetry.recordDeferredProcessed(n);
         if (this.deferredScratch.length < n) this.deferredScratch = new long[n * 2];
         int i = 0;
         for (long pos : this.deferredStateUpdates) this.deferredScratch[i++] = pos;
@@ -1435,6 +1463,7 @@ public class World implements IInitializable, IDisposable {
                 /* Noch nicht dran (auch chunk == null: kann nach einem Unload-Zyklus
                    zurückkommen) — wieder einreihen, das Set dedupliziert. */
                 this.deferredStateUpdates.add(pos);
+                this.simulationTelemetry.recordDeferredRequeued();
                 continue;
             }
             this.updateStateAt(x, y, z);
