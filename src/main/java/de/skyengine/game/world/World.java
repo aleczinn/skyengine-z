@@ -17,6 +17,7 @@ import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.BlockEntityType;
+import de.skyengine.game.world.block.behavior.WorldScopedPositionMap;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.chunk.Chunk;
@@ -60,6 +61,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -140,6 +142,10 @@ public class World implements IInitializable, IDisposable {
     private final Random random = new Random();
     private final ScheduledTickQueue scheduledTicks = new ScheduledTickQueue();
     private final SimulationTelemetry simulationTelemetry = new SimulationTelemetry();
+    /** Weltgebundene Behavior-Speicher, die nach Chunk-Entfernungen ihre Objektidentitäten prüfen. */
+    private final Set<WorldScopedPositionMap<?>> transientPositionStates =
+            java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+    private int transientStateRemovalVersion;
 
     /* Himmelslicht-Aktualisierung bei Block-Edits. Eigene Engine-Instanz für den
        Render-/Tick-Thread (die Worker haben ihre ThreadLocals im ChunkManager) — eine Instanz
@@ -244,6 +250,7 @@ public class World implements IInitializable, IDisposable {
         this.playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
         this.chunkManager.update(player);
+        this.pruneTransientPositionStates();
         this.lodManager.update(player);
         this.processUnloadedChunkBoundaries();
         this.restorePendingScheduledTicks();
@@ -795,6 +802,18 @@ public class World implements IInitializable, IDisposable {
     /** Diagnosezaehler dieser Welt; standardmaessig nur im Full-Debug-Modus aktiv. */
     public SimulationTelemetry getSimulationTelemetry() {
         return this.simulationTelemetry;
+    }
+
+    /** Registriert einen globalen Behavior-Speicher bei seiner ersten Benutzung in dieser Welt. */
+    public void registerTransientPositionState(WorldScopedPositionMap<?> state) {
+        this.transientPositionStates.add(state);
+    }
+
+    private void pruneTransientPositionStates() {
+        int removalVersion = this.chunkManager.getChunkRemovalVersion();
+        if (removalVersion == this.transientStateRemovalVersion) return;
+        for (WorldScopedPositionMap<?> state : this.transientPositionStates) state.prune(this);
+        this.transientStateRemovalVersion = removalVersion;
     }
 
     /**

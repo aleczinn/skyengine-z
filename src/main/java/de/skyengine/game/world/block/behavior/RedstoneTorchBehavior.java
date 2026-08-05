@@ -46,11 +46,10 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
     private static final int BURNOUT_LIMIT = 8;
     private static final int BURNOUT_WINDOW = 60;
 
-    /**
-     * Position -> Aus-Flanken im laufenden Fenster. Nur Tick-Thread, deshalb ungesichert
-     * (Muster {@code PressurePlateBehavior.touches}). Transient und bewusst nicht persistiert.
-     */
-    private final Map<Long, Toggles> recent = new HashMap<>();
+    /** Welt- und Chunk-gebundene Aus-Flanken; transient und bewusst nicht persistiert. */
+    private final WorldScopedPositionMap<Toggles> recentByWorld = new WorldScopedPositionMap<>();
+    @SuppressWarnings("FieldMayBeFinal") // Referenz wechselt mit der aktiven Welt (Headless-Diagnose).
+    private Map<Long, ?> recent = new HashMap<>();
 
     /** Zähler mit Fensterbeginn. Mutable wie {@code PressurePlateBehavior.Touch}. */
     private static final class Toggles {
@@ -100,14 +99,14 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
     /**
      * Trägt eine Aus-Flanke ein; {@code true}, wenn die Fackel damit durchbrennt.
      *
-     * <p>Zeitbasis ist {@code world.getGameTime()}. Die wird NICHT persistiert und startet in
-     * jeder Welt wieder bei 0, die Behavior-Instanz lebt aber über Weltwechsel hinweg — ein
-     * Zeitstempel aus der „Zukunft" muss deshalb genauso als veraltet gelten wie ein zu alter,
-     * sonst schlösse sich das Fenster nach einem Weltwechsel nie wieder.
+     * <p>Zeitbasis ist {@code world.getGameTime()}. Die wird NICHT persistiert; der transiente
+     * Speicher ist deshalb pro Welt getrennt. Der defensive Zukunfts-Check bleibt für Tests und
+     * Werkzeuge erhalten, die die Spielzeit derselben Welt gezielt zurücksetzen.
      */
     private boolean recordToggle(World world, int x, int y, int z) {
         long now = world.getGameTime();
-        Toggles toggles = this.recent.computeIfAbsent(key(x, y, z), k -> new Toggles());
+        this.recent = this.recentByWorld.diagnosticEntries(world);
+        Toggles toggles = this.recentByWorld.computeIfAbsent(world, x, y, z, Toggles::new);
         long verstrichen = now - toggles.windowStart;
         if (verstrichen < 0 || verstrichen > BURNOUT_WINDOW) {
             toggles.windowStart = now;
@@ -125,18 +124,15 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
      * s. {@link #recordToggle}) gilt genauso als abgelaufen.
      */
     private boolean isBurntOut(World world, int x, int y, int z) {
-        Toggles toggles = this.recent.get(key(x, y, z));
+        this.recent = this.recentByWorld.diagnosticEntries(world);
+        Toggles toggles = this.recentByWorld.get(world, x, y, z);
         if (toggles == null) return false;
         long verstrichen = world.getGameTime() - toggles.windowStart;
         if (verstrichen < 0 || verstrichen > BURNOUT_WINDOW) {
-            this.recent.remove(key(x, y, z));   // Fenster durch: der Zähler ist wertlos
+            this.recentByWorld.remove(world, x, y, z);   // Fenster durch: der Zähler ist wertlos
             return false;
         }
         return toggles.count >= BURNOUT_LIMIT;
-    }
-
-    private static long key(int x, int y, int z) {
-        return de.skyengine.game.world.block.BlockPos.asLong(x, y, z);
     }
 
     /* Die Fackel ist neben dem Staub die zweite Quelle, der MC den vollen Radius-2-Diamanten
@@ -151,7 +147,8 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
 
     @Override
     public void onBreak(World world, int x, int y, int z, BlockState state) {
-        this.recent.remove(key(x, y, z));   // sonst wächst die Map über die Sitzung
+        this.recent = this.recentByWorld.diagnosticEntries(world);
+        this.recentByWorld.remove(world, x, y, z);   // sonst wächst die Map über die Sitzung
         /* onBreak läuft VOR dem Entfernen — aufschieben, sonst läse der Ring die Fackel noch. */
         world.deferBlockUpdatesWide(x, y, z);
     }

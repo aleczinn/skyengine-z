@@ -6,8 +6,6 @@ import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.function.Predicate;
 
 /**
@@ -40,8 +38,8 @@ public final class PressurePlateBehavior implements BlockBehavior {
     private final int minCount;
     private final int perSignal;
 
-    /** Position -> Berührungszähler. Nur Tick-Thread, deshalb ungesichert. */
-    private final Map<Long, Touch> touches = new HashMap<>();
+    /** Welt- und Chunk-gebundene Berührungszähler. Nur Tick-Thread, deshalb ungesichert. */
+    private final WorldScopedPositionMap<Touch> touches = new WorldScopedPositionMap<>();
 
     public PressurePlateBehavior(int releaseTicks, Predicate<Entity> filter,
                                  boolean counting, int minCount, int perSignal) {
@@ -57,7 +55,7 @@ public final class PressurePlateBehavior implements BlockBehavior {
         if (!this.filter.test(entity)) return;
 
         long now = world.getGameTime();
-        Touch touch = this.touches.computeIfAbsent(key(x, y, z), k -> new Touch());
+        Touch touch = this.touches.computeIfAbsent(world, x, y, z, Touch::new);
         if (touch.time != now) {
             touch.time = now;
             touch.count = 0;
@@ -79,21 +77,21 @@ public final class PressurePlateBehavior implements BlockBehavior {
         int current = signalOf(state);
         if (current == 0) return;   // tolerantes Feuern (z.B. Tick am Nachfolge-Block)
 
-        Touch touch = this.touches.get(key(x, y, z));
+        Touch touch = this.touches.get(world, x, y, z);
         int count = touch != null && world.getGameTime() - touch.time <= 1 ? touch.count : 0;
         int signal = this.signalFor(count);
         if (signal != current) this.applySignal(world, x, y, z, state, signal);
         if (signal > 0) {
             world.scheduleTick(x, y, z, this.releaseTicks);   // steht noch jemand drauf
         } else {
-            this.touches.remove(key(x, y, z));
+            this.touches.remove(world, x, y, z);
         }
     }
 
     @Override
     public void onBreak(World world, int x, int y, int z, BlockState state) {
         /* Sonst bliebe der Eintrag einer gedrückt abgebauten Platte für immer stehen (Leak). */
-        this.touches.remove(key(x, y, z));
+        this.touches.remove(world, x, y, z);
     }
 
     /** Signalstärke für N passende Entities: binär 15, sonst ceil(n/perSignal), gedeckelt 15. */
@@ -136,7 +134,4 @@ public final class PressurePlateBehavior implements BlockBehavior {
         return true;
     }
 
-    private static long key(int x, int y, int z) {
-        return ((long) x & 0x3FFFFFFL) << 38 | ((long) z & 0x3FFFFFFL) << 12 | ((long) y & 0xFFFL);
-    }
 }
