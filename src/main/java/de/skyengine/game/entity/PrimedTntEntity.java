@@ -17,7 +17,12 @@ public class PrimedTntEntity extends Entity {
 
     private static final double GRAVITY = 0.04;
     private static final double DRAG_Y = 0.98;
-    private static final double GROUND_FRICTION = 0.6;
+    /**
+     * Feste Bodenreibung wie in MC ({@code PrimedTnt.tick}: {@code multiply(0.7, -0.5, 0.7)}).
+     * Gezündetes TNT liest <b>absichtlich keinen</b> Block-Reibungswert — es rutscht auf Eis
+     * genauso wie auf Stein. Nur Item-Drops nehmen in Vanilla {@code Block.getFriction()}.
+     */
+    private static final double GROUND_FRICTION = 0.7;
     private static final double AIR_FRICTION = 0.98;
 
     private final float power;

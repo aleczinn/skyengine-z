@@ -249,7 +249,7 @@ public class EntityPlayer extends Entity {
         if (this.onGround) {
             if (!wasOnGround) {
                 float damage = (this.fallDistance - FALL_DAMAGE_THRESHOLD)
-                        * this.blockAt(world, this.y - 0.5000001).getFallDamageFactor();
+                        * this.blockBelow(world).getFallDamageFactor();
                 if (damage > 0 && this.damage(damage)) {
                     this.fallDamageTaken = damage;
                 }
@@ -347,14 +347,9 @@ public class EntityPlayer extends Entity {
             dz = adjusted[1];
         }
 
+        /* Der Tempo-Faktor (Seelensand/Honig) steckt in Entity.move — dort, wo MC ihn auch
+           anwendet, und damit für jede Entität statt nur für den Spieler. */
         this.move(world, dx, dy, dz);
-
-        /* Tempo-Faktor des Blocks (Seelensand/Honig bremsen) — wie MC am Ende von Entity.move. */
-        double speedFactor = this.speedFactor(world);
-        if (speedFactor != 1.0) {
-            this.motionX *= speedFactor;
-            this.motionZ *= speedFactor;
-        }
 
         /* Gravitation & Reibung NACH dem Bewegen */
         this.motionY -= GRAVITY;
@@ -367,22 +362,16 @@ public class EntityPlayer extends Entity {
 
     /** Reibung des Blocks unter den Füßen (MC: eine halbe Zelle unter der Fußposition). */
     private double frictionBelow(World world) {
-        return this.blockAt(world, this.y - 0.5000001).getFriction();
+        return this.blockBelow(world).getFriction();
     }
 
     /**
-     * Tempo-Faktor: erst der Block an der Fußposition, sonst der darunter (MC
-     * {@code Entity.getBlockSpeedFactor} — so bremst Seelensand auch, wenn man knapp darüber steht).
+     * Sprung-Faktor, gleiche Zwei-Stufen-Auswahl wie {@link Entity#speedFactor} (MC
+     * {@code getBlockJumpFactor}). Bleibt beim Spieler — springen tut sonst niemand.
      */
-    private double speedFactor(World world) {
-        float own = this.blockAt(world, this.y).getSpeedFactor();
-        return own != 1.0F ? own : this.blockAt(world, this.y - 0.5000001).getSpeedFactor();
-    }
-
-    /** Sprung-Faktor, gleiche Auswahlregel wie {@link #speedFactor} (MC {@code getBlockJumpFactor}). */
     private double jumpFactor(World world) {
         float own = this.blockAt(world, this.y).getJumpFactor();
-        return own != 1.0F ? own : this.blockAt(world, this.y - 0.5000001).getJumpFactor();
+        return own != 1.0F ? own : this.blockBelow(world).getJumpFactor();
     }
 
     /** Der Spieler ist MCs „Lebewesen" und federt deshalb ungedämpft (Drops/TNT: 0,8). */

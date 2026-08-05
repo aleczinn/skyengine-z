@@ -19,7 +19,6 @@ public class ItemEntity extends Entity {
 
     private static final double GRAVITY = 0.04;
     private static final double DRAG_Y = 0.98;
-    private static final double GROUND_FRICTION = 0.6;
     private static final double AIR_FRICTION = 0.98;
     /** Lebensdauer eines Drops in Ticks (MC: 6000 = 5 Minuten). */
     private static final int DESPAWN_TICKS = 6000;
@@ -84,7 +83,13 @@ public class ItemEntity extends Entity {
         this.move(world, this.motionX, this.motionY, this.motionZ);
         this.motionY *= DRAG_Y;
 
-        double friction = this.onGround ? GROUND_FRICTION : AIR_FRICTION;
+        /* Bodenreibung kommt aus dem Block (MCs ItemEntity.tick multipliziert die Reibung des
+           Blocks unter sich mit dem Luftwiderstand) — deshalb rutscht ein Drop auf Eis weit und
+           auf Stein kaum. Normalboden ergibt 0.6 * 0.98; eine feste Konstante wäre hier schon
+           ohne Eis leicht daneben. */
+        double friction = this.onGround
+                ? this.blockBelow(world).getFriction() * AIR_FRICTION
+                : AIR_FRICTION;
         this.motionX *= friction;
         this.motionZ *= friction;
 
