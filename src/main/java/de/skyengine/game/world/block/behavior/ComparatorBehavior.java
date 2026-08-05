@@ -34,6 +34,11 @@ import de.skyengine.game.world.redstone.RedstonePower;
 public final class ComparatorBehavior implements BlockBehavior {
 
     @Override
+    public boolean reconcileRedstoneOnChunkBoundary() {
+        return true;
+    }
+
+    @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
         return state.with(Properties.FACING, Direction.fromYaw(ctx.playerYaw()))
                 .with(Properties.MODE, ComparatorMode.COMPARE)

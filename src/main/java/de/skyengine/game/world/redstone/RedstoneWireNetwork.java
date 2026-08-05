@@ -34,21 +34,36 @@ public final class RedstoneWireNetwork {
 
     /** Berechnet die Komponente um (x,y,z) neu und benachrichtigt betroffene Empfänger. */
     public static void update(World world, int x, int y, int z) {
+        update(world, x, y, z, null);
+    }
+
+    /**
+     * Wie {@link #update}, überspringt aber Komponenten, die während desselben Chunk-Kanten-
+     * Abgleichs bereits gelöst wurden. Alle gefundenen Staubzellen werden in {@code visited}
+     * eingetragen; dadurch kostet ein langes Netz entlang einer Kante nur einen Solve.
+     */
+    public static void updateOncePerComponent(World world, int x, int y, int z, LongIntMap visited) {
+        update(world, x, y, z, visited);
+    }
+
+    private static void update(World world, int x, int y, int z, LongIntMap visited) {
         if (active) {
             world.getSimulationTelemetry().recordSuppressedWireWake();
             return;
         }
+        long origin = BlockPos.asLong(x, y, z);
+        if (visited != null && visited.containsKey(origin)) return;
         if (!RedstonePower.isWire(Blocks.getState(world.getBlock(x, y, z)))) return;
         world.getSimulationTelemetry().recordWireWake();
         active = true;
         try {
-            run(world, x, y, z);
+            run(world, x, y, z, visited);
         } finally {
             active = false;
         }
     }
 
-    private static void run(World world, int ox, int oy, int oz) {
+    private static void run(World world, int ox, int oy, int oz, LongIntMap visited) {
         long telemetryStart = world.getSimulationTelemetry().beginRedstoneTiming();
         /* 1) Komponenten-BFS über die Staub-Zellen (feste Nachbar-Reihenfolge). */
         LongIntMap power = new LongIntMap(1024);
@@ -56,6 +71,7 @@ public final class RedstoneWireNetwork {
         long[] neighbors = new long[12];
         long origin = BlockPos.asLong(ox, oy, oz);
         power.put(origin, 0);
+        if (visited != null) visited.put(origin, 1);
         cells.add(origin);
         for (int cursor = 0; cursor < cells.size(); cursor++) {
             long cell = cells.get(cursor);
@@ -64,6 +80,7 @@ public final class RedstoneWireNetwork {
             for (long neighbor : neighbors) {
                 if (neighbor == Long.MIN_VALUE || power.containsKey(neighbor)) continue;
                 power.put(neighbor, 0);
+                if (visited != null) visited.put(neighbor, 1);
                 cells.add(neighbor);
             }
         }

@@ -19,6 +19,11 @@ import de.skyengine.game.world.redstone.RedstonePower;
 public final class HopperBehavior implements BlockBehavior {
 
     @Override
+    public boolean reconcileRedstoneOnChunkBoundary() {
+        return true;
+    }
+
+    @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
         Direction facing = ctx.faceY() != 0 ? Direction.DOWN
                 : horizontalOf(ctx.faceX(), ctx.faceZ()).opposite();

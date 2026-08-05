@@ -20,6 +20,11 @@ import de.skyengine.game.world.redstone.RedstonePower;
  */
 public final class TrapdoorBehavior implements BlockBehavior {
 
+    @Override
+    public boolean reconcileRedstoneOnChunkBoundary() {
+        return true;
+    }
+
     /** Wie bei der Tür: die Eisen-Falltür lässt sich nicht von Hand öffnen. */
     private final boolean handOpenable;
 

@@ -37,6 +37,11 @@ import java.util.Map;
  */
 public final class RedstoneTorchBehavior implements BlockBehavior {
 
+    @Override
+    public boolean reconcileRedstoneOnChunkBoundary() {
+        return true;
+    }
+
     /** MC-Zahlen ({@code MAX_RECENT_TOGGLES} / {@code RECENT_TOGGLE_TIMER}). */
     private static final int BURNOUT_LIMIT = 8;
     private static final int BURNOUT_WINDOW = 60;

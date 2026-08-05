@@ -82,10 +82,9 @@ public interface BlockBehavior {
      * Geplanter Tick (von {@code World.scheduleTick} ausgelöst): Fluss-Ausbreitung, Fallprüfung, ...
      * Default: nichts.
      *
-     * <p><b>Konvention „tolerantes Feuern":</b> es gibt kein Abbestellen geplanter Ticks — wird
-     * ein Block abgebaut und die Zelle neu bebaut, feuert der alte Tick am Nachfolger. Jede
-     * Implementierung muss deshalb ihren State selbst validieren (z.B. {@code if (!state.get(
-     * Properties.POWERED)) return;}) statt sich auf die Planung zu verlassen.</p>
+     * <p><b>Konvention „tolerantes Feuern":</b> der Scheduler bindet einen Tick an den Blocktyp
+     * und verwirft ihn nach einem Typwechsel. Zustände desselben Blocks können sich bis zum
+     * Feuern aber ändern; jede Implementierung validiert deshalb weiterhin ihren State.</p>
      */
     default void scheduledTick(World world, int x, int y, int z, BlockState state) {
     }
@@ -130,6 +129,16 @@ public interface BlockBehavior {
      * selbst.) Default false — Staub läuft an dem Block vorbei.
      */
     default boolean connectsRedstoneWire(BlockState state, Direction side) {
+        return false;
+    }
+
+    /**
+     * true für Redstone-Empfänger, deren gespeicherter Zustand beim Laden oder Entladen eines
+     * Nachbar-Chunks einmal gegen die veränderte Kante abgeglichen werden muss.
+     * Quellen und Beobachter bleiben false: ihre Zustände sind persistiert bzw. werden
+     * separat ohne Phantomflanke initialisiert.
+     */
+    default boolean reconcileRedstoneOnChunkBoundary() {
         return false;
     }
 }

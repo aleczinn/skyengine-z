@@ -42,6 +42,8 @@ import de.skyengine.game.world.lod.LodDataSource;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.StorageLodDataSource;
 import de.skyengine.game.world.lod.WorldLodDataSource;
+import de.skyengine.game.world.redstone.RedstonePower;
+import de.skyengine.game.world.redstone.RedstoneWireNetwork;
 import de.skyengine.game.world.tick.SavedTick;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
 import de.skyengine.game.world.tick.ScheduledTickTypes;
@@ -51,9 +53,11 @@ import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.entity.EntityRenderer;
 import de.skyengine.graphics.world.ChunkRenderer;
+import de.skyengine.utils.collect.LongIntMap;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -96,6 +100,10 @@ public class World implements IInitializable, IDisposable {
 
     /** Wiederverwendeter Snapshot-Puffer fürs BlockEntity-Ticking (keine Allokation pro Chunk/Tick). */
     private final List<BlockEntity> tickScratch = new ArrayList<>();
+    /** READY-Meldungen werden vor zustandsändernden Load-Reconciliations nach Koordinate sortiert. */
+    private final List<Chunk> readyChunkScratch = new ArrayList<>();
+    /** Reguläre Unloads werden vor dem Redstone-Kantenabgleich nach Koordinate sortiert. */
+    private final List<Long> unloadedChunkScratch = new ArrayList<>();
 
     /* Nachhol-Protokoll für Nachbar-State-Updates an nicht-READY Chunks (F1): updateStateAt
        parkt die Position hier, processDeferredStateUpdates zieht sie bei READY nach.
@@ -228,6 +236,7 @@ public class World implements IInitializable, IDisposable {
         this.playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
         this.chunkManager.update(player);
         this.lodManager.update(player);
+        this.processUnloadedChunkBoundaries();
         this.restorePendingScheduledTicks();
         this.processReadyChunks();
         this.processDeferredStateUpdates();
@@ -271,8 +280,8 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
-     * Nimmt frisch READY gewordene Chunks entgegen und stellt darin den transienten
-     * Vergleichs-Zustand wieder her, den kein Save mitbringt — heute nur der Beobachter.
+     * Nimmt READY-Meldungen entgegen: beim ersten READY wird der transiente Beobachterzustand
+     * initialisiert; jede Meldung gleicht außerdem inzwischen sichtbare Redstone-Kanten ab.
      *
      * <p>Läuft VOR {@link #processDeferredStateUpdates} und {@link #tickScheduled}: der
      * Anfangszustand muss stehen, bevor das erste Nachbar-Update oder ein aus dem Save
@@ -285,6 +294,7 @@ public class World implements IInitializable, IDisposable {
      */
     private void processReadyChunks() {
         int pending = this.chunkManager.readyAnnouncePending();
+        this.readyChunkScratch.clear();
         for (int i = 0; i < pending; i++) {
             Chunk chunk = this.chunkManager.pollReadyAnnounce();
             if (chunk == null) break;
@@ -293,9 +303,133 @@ public class World implements IInitializable, IDisposable {
                 this.chunkManager.requeueReadyAnnounce(chunk);
                 continue;
             }
-            if (chunk.loadSeeded) continue;   // remeshAll macht Chunks ein zweites Mal READY
+            this.readyChunkScratch.add(chunk);
+        }
+
+        /* Worker-Abschlussreihenfolge ist nicht deterministisch. Beobachter-Seeding und der
+           zustandsändernde Kantenabgleich laufen deshalb stabil nach Chunkkoordinate. */
+        if (this.readyChunkScratch.isEmpty()) return;
+        this.readyChunkScratch.sort(Comparator
+                .comparingInt((Chunk chunk) -> chunk.chunkX)
+                .thenComparingInt(chunk -> chunk.chunkZ));
+        LongIntMap reconciledWires = new LongIntMap(1024);
+        Chunk previous = null;
+        for (Chunk chunk : this.readyChunkScratch) {
+            if (chunk == previous) continue;
+            previous = chunk;
+            if (!chunk.loadSeeded) {
+                de.skyengine.game.world.block.behavior.ObserverBehavior.seedLoadedChunk(this, chunk);
+            }
+            this.reconcilePendingOpenBoundaries(chunk, reconciledWires);
+            this.reconcileReadyChunkBoundaries(chunk, reconciledWires);
             chunk.loadSeeded = true;
-            de.skyengine.game.world.block.behavior.ObserverBehavior.seedLoadedChunk(this, chunk);
+        }
+    }
+
+    /**
+     * Gleicht Redstone in einem Zwei-Zellen-Band beiderseits jeder neu sichtbaren Chunk-Kante ab.
+     * Zwei Zellen sind für stark gespeiste Vollblöcke und Quasi-Konnektivität erforderlich.
+     * Beim Erstladen läuft eine Kante erst, sobald eine Seite bereits initialisiert und beide
+     * Seiten READY sind; spätere READY-Meldungen dürfen den idempotenten Abgleich wiederholen.
+     */
+    private void reconcileReadyChunkBoundaries(Chunk chunk,
+                                                LongIntMap reconciledWires) {
+        for (Direction direction : Direction.horizontalValues()) {
+            Chunk neighbor = this.chunkManager.getChunk(
+                    chunk.chunkX + direction.offsetX(), chunk.chunkZ + direction.offsetZ());
+            if (neighbor == null || neighbor.status != ChunkStatus.READY || !neighbor.loadSeeded) continue;
+            this.reconcileRedstoneBoundaryBand(chunk, direction, reconciledWires);
+            this.reconcileRedstoneBoundaryBand(neighbor, direction.opposite(), reconciledWires);
+        }
+    }
+
+    /** Entfernte Chunks sind bereits aus der Map; verbleibende Nachbarn sehen daher korrekt Luft. */
+    private void processUnloadedChunkBoundaries() {
+        int pending = this.chunkManager.unloadAnnouncePending();
+        if (pending == 0) return;
+        this.unloadedChunkScratch.clear();
+        for (int i = 0; i < pending; i++) {
+            Long key = this.chunkManager.pollUnloadAnnounce();
+            if (key == null) break;
+            this.unloadedChunkScratch.add(key);
+        }
+        this.unloadedChunkScratch.sort(Comparator
+                .comparingInt((Long key) -> (int) (key >> 32))
+                .thenComparingInt(Long::intValue));
+
+        LongIntMap reconciledWires = new LongIntMap(1024);
+        for (long key : this.unloadedChunkScratch) {
+            int chunkX = (int) (key >> 32);
+            int chunkZ = (int) key;
+            /* Der Koordinate ist vor dem Abgleich schon wieder ein neuer Chunk zugeordnet:
+               dessen READY-Reconciliation übernimmt, die alte Unload-Meldung ist überholt. */
+            if (this.chunkManager.getChunk(chunkX, chunkZ) != null) continue;
+            for (Direction direction : Direction.horizontalValues()) {
+                Chunk neighbor = this.chunkManager.getChunk(
+                        chunkX + direction.offsetX(), chunkZ + direction.offsetZ());
+                if (neighbor == null) continue;
+                if (neighbor.status != ChunkStatus.READY) {
+                    neighbor.pendingRedstoneBoundaryMask |= 1 << direction.opposite().faceIndex();
+                    continue;
+                }
+                this.reconcileRedstoneBoundaryBand(neighbor, direction.opposite(), reconciledWires);
+            }
+        }
+    }
+
+    private void reconcilePendingOpenBoundaries(Chunk chunk, LongIntMap reconciledWires) {
+        int mask = chunk.pendingRedstoneBoundaryMask;
+        chunk.pendingRedstoneBoundaryMask = 0;
+        if (mask == 0) return;
+        for (Direction direction : Direction.horizontalValues()) {
+            if ((mask & (1 << direction.faceIndex())) == 0) continue;
+            /* Wurde die Lücke inzwischen neu belegt, übernimmt der normale Load-Seam-Abgleich. */
+            if (this.chunkManager.getChunk(chunk.chunkX + direction.offsetX(),
+                    chunk.chunkZ + direction.offsetZ()) == null) {
+                this.reconcileRedstoneBoundaryBand(chunk, direction, reconciledWires);
+            }
+        }
+    }
+
+    /** Scannt nur die zwei innersten Zelllagen einer Chunk-Seite, nie das volle Volumen. */
+    private void reconcileRedstoneBoundaryBand(Chunk chunk, Direction side,
+                                                LongIntMap reconciledWires) {
+        int originX = chunk.chunkX << ChunkSection.SHIFT;
+        int originZ = chunk.chunkZ << ChunkSection.SHIFT;
+        boolean xAxis = side.axis() == Direction.Axis.X;
+        for (int sectionY = 0; sectionY < Chunk.SECTIONS; sectionY++) {
+            ChunkSection section = chunk.getSection(sectionY);
+            if (section == null || section.isEmpty()) continue;
+
+            int baseY = sectionY << ChunkSection.SHIFT;
+            for (int localY = 0; localY < ChunkSection.SIZE; localY++) {
+                int y = baseY + localY;
+                for (int lateral = 0; lateral < ChunkSection.SIZE; lateral++) {
+                    for (int depth = 0; depth < 2; depth++) {
+                        int localX = xAxis
+                                ? (side == Direction.WEST ? depth : ChunkSection.MASK - depth)
+                                : lateral;
+                        int localZ = xAxis
+                                ? lateral
+                                : (side == Direction.NORTH ? depth : ChunkSection.MASK - depth);
+                        int stateId = section.getBlock(localX, localY, localZ);
+                        if (stateId != Blocks.AIR) {
+                            this.reconcileRedstoneCell(originX + localX, y, originZ + localZ,
+                                    stateId, reconciledWires);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void reconcileRedstoneCell(int x, int y, int z, int stateId,
+                                       LongIntMap reconciledWires) {
+        BlockState state = Blocks.getState(stateId);
+        if (RedstonePower.isWire(state)) {
+            RedstoneWireNetwork.updateOncePerComponent(this, x, y, z, reconciledWires);
+        } else if (state.getBlock().reconcilesRedstoneOnChunkBoundary()) {
+            this.updateStateAt(x, y, z);
         }
     }
 

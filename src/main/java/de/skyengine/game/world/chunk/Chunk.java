@@ -86,13 +86,16 @@ public class Chunk {
        (Chunk bleibt bis zum fertigen Save in der Map). Tick-Thread setzt, IO-Thread löscht. */
     public volatile boolean saveQueued;
 
-    /* true, sobald World.processReadyChunks diesen Chunk einmal bearbeitet hat. Nötig, weil
-       remeshAll (Grafik-Settings) READY-Chunks auf LIT zurücksetzt und sie danach ein ZWEITES
-       Mal READY werden — ein erneuter Durchlauf würde den Vergleichs-Zustand eines Beobachters
-       mitten im Betrieb neu setzen und dabei eine anstehende Flanke verschlucken. Ein neu
-       geladener Chunk ist ein neues Objekt, das Flag setzt sich also von selbst zurück.
-       Nur Tick-Thread. */
+    /* true, sobald World.processReadyChunks den transienten Beobachter-Zustand initialisiert hat.
+       Redstone-Kanten werden bei späteren READY-Meldungen erneut abgeglichen, dieses Flag
+       verhindert dabei ausschließlich ein erneutes Observer-Seeding nach remeshAll. Ein neu
+       geladener Chunk ist ein neues Objekt und startet automatisch false. Nur Tick-Thread. */
     public boolean loadSeeded;
+
+    /* Beim Unload eines Nachbarn vorgemerkte offene Redstone-Kanten (Direction.faceIndex-Bits).
+       Nicht-READY-Chunks sind noch nicht editierbar; World arbeitet die Maske beim nächsten
+       READY auf dem Tick-Thread ab. Ein neues Chunk-Objekt startet automatisch leer. */
+    public int pendingRedstoneBoundaryMask;
 
     /* Schützt die Section-Container (PalettedContainer + sections[]-Allokation) gegen
        gleichzeitige Worker-Mesh-Reads und Render-Thread-Writes. Mesh-Jobs nehmen den

@@ -49,6 +49,11 @@ import de.skyengine.game.world.redstone.RedstonePower;
  */
 public final class PistonBehavior implements BlockBehavior {
 
+    @Override
+    public boolean reconcileRedstoneOnChunkBoundary() {
+        return true;
+    }
+
     private final boolean sticky;
 
     public PistonBehavior(boolean sticky) {

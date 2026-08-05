@@ -24,6 +24,11 @@ import de.skyengine.game.world.redstone.RedstonePower;
 public final class RepeaterBehavior implements BlockBehavior {
 
     @Override
+    public boolean reconcileRedstoneOnChunkBoundary() {
+        return true;
+    }
+
+    @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
         return state.with(Properties.FACING, Direction.fromYaw(ctx.playerYaw()))
                 .with(Properties.DELAY, 1)

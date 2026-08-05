@@ -19,6 +19,11 @@ import de.skyengine.game.world.redstone.RedstoneWireNetwork;
  */
 public final class RedstoneWireBehavior implements BlockBehavior {
 
+    @Override
+    public boolean reconcileRedstoneOnChunkBoundary() {
+        return true;
+    }
+
     /**
      * Frisch platzierter Staub ist ein KREUZ (Vanillas {@code crossState} in
      * {@code getStateForPlacement}) — ohne Nachbarn speist er damit alle vier Seiten. Der
