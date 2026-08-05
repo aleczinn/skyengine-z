@@ -1,0 +1,231 @@
+package de.skyengine.game.world.block.entity;
+
+import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.BlockPos;
+import de.skyengine.game.world.block.BlockRegistry;
+import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.Items;
+import de.skyengine.game.world.save.LevelData;
+import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.game.world.chunk.ChunkManager;
+import de.skyengine.test.BlocksTestBootstrap;
+import de.skyengine.utils.collect.LongIntMap;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Field;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+final class HopperBlockEntityTest {
+
+    @BeforeAll
+    static void bootstrapBlocks() {
+        BlocksTestBootstrap.ensureBootstrapped();
+    }
+
+    @Test
+    void emptyTargetGetsEightTicksBeforeItsOwnTickAndThenCountsDown() {
+        TestWorld world = new TestWorld();
+        HopperBlockEntity source = world.addHopper(0, Direction.EAST);
+        HopperBlockEntity target = world.addHopper(1, Direction.DOWN);
+        source.getInventory().set(0, stone(1));
+        world.gameTime = 1;
+
+        source.tick();
+
+        assertEquals(8, source.getCooldown());
+        assertEquals(8, target.getCooldown());
+        assertTrue(source.getInventory().get(0).isEmpty());
+        assertEquals(1, target.getInventory().get(0).getCount());
+
+        target.tick();
+        assertEquals(7, target.getCooldown());
+        assertTrue(world.changedX.contains(0));
+        assertTrue(world.changedX.contains(1));
+    }
+
+    @Test
+    void targetThatAlreadyTickedGetsSevenTickPhaseCorrection() {
+        TestWorld world = new TestWorld();
+        HopperBlockEntity source = world.addHopper(0, Direction.EAST);
+        HopperBlockEntity target = world.addHopper(1, Direction.DOWN);
+        source.getInventory().set(0, stone(1));
+        world.gameTime = 1;
+
+        target.tick();
+        source.tick();
+
+        assertEquals(7, target.getCooldown());
+    }
+
+    @Test
+    void normalHopperMovesOneItemEveryEightGameTicks() {
+        TestWorld world = new TestWorld();
+        HopperBlockEntity source = world.addHopper(0, Direction.EAST);
+        HopperBlockEntity target = world.addHopper(1, Direction.DOWN);
+        source.getInventory().set(0, stone(2));
+
+        world.gameTime = 1;
+        source.tick();
+        assertEquals(1, target.getInventory().get(0).getCount());
+
+        for (int tick = 2; tick <= 8; tick++) {
+            world.gameTime = tick;
+            source.tick();
+            assertEquals(1, target.getInventory().get(0).getCount(),
+                    "vor Ablauf von acht Ticks darf kein zweites Item wandern");
+        }
+
+        world.gameTime = 9;
+        source.tick();
+        assertEquals(2, target.getInventory().get(0).getCount());
+    }
+
+    @Test
+    void hopperEnabledChangeIsVisibleToWatchingObserver() {
+        TestWorld world = new TestWorld();
+        BlockState hopper = state("hopper")
+                .with(Properties.FACING_ALL, Direction.DOWN)
+                .with(Properties.ENABLED, true);
+        BlockState observer = state("observer")
+                .with(Properties.FACING_ALL, Direction.WEST)
+                .with(Properties.POWERED, false);
+        world.putBlock(0, hopper);
+        world.putBlock(1, observer);
+        world.putBlock(-1, state("redstone_block"));
+        observer.getBlock().onPlaced(world, 1, 64, 0, observer);
+
+        BlockState disabled = hopper.getBlock().getStateForNeighborUpdate(world, 0, 64, 0, hopper);
+        assertFalse(disabled.get(Properties.ENABLED));
+        world.putBlock(0, disabled);
+        disabled.getBlock().onStateChangedByNeighborUpdate(world, 0, 64, 0, hopper, disabled);
+
+        assertEquals(1, world.observerNotifications);
+        assertEquals(1, world.scheduledTicks);
+        assertEquals(2, world.lastScheduledDelay);
+    }
+
+    private static ItemStack stone(int count) {
+        return new ItemStack(Items.get(Identifier.of("skyengine:stone")), count);
+    }
+
+    private static BlockState state(String path) {
+        var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
+        if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
+        return block.getDefaultState();
+    }
+
+    private static final class TestWorld extends World {
+        private static final Field CHUNKS_FIELD;
+
+        static {
+            try {
+                CHUNKS_FIELD = ChunkManager.class.getDeclaredField("chunks");
+                CHUNKS_FIELD.setAccessible(true);
+            } catch (ReflectiveOperationException e) {
+                throw new ExceptionInInitializerError(e);
+            }
+        }
+
+        private final LongIntMap blocks = new LongIntMap(16);
+        private final Map<Long, BlockEntity> blockEntities = new HashMap<>();
+        private final Set<Integer> changedX = new HashSet<>();
+        private long gameTime;
+        private int observerNotifications;
+        private int scheduledTicks;
+        private int lastScheduledDelay;
+
+        TestWorld() {
+            super("__hopper_test", level(), null, null);
+            try {
+                Field managerField = World.class.getDeclaredField("chunkManager");
+                managerField.setAccessible(true);
+                ChunkManager manager = (ChunkManager) managerField.get(this);
+                @SuppressWarnings("unchecked")
+                Map<Long, Chunk> chunks = (Map<Long, Chunk>) CHUNKS_FIELD.get(manager);
+                chunks.put(Chunk.key(0, 0), new Chunk(0, 0));
+                chunks.put(Chunk.key(-1, 0), new Chunk(-1, 0));
+            } catch (ReflectiveOperationException e) {
+                throw new AssertionError("Test-Chunks konnten nicht installiert werden", e);
+            }
+        }
+
+        HopperBlockEntity addHopper(int x, Direction facing) {
+            BlockState state = state("hopper")
+                    .with(Properties.FACING_ALL, facing)
+                    .with(Properties.ENABLED, true);
+            putBlock(x, state);
+            HopperBlockEntity hopper = new HopperBlockEntity(
+                    BlockEntities.HOPPER, new BlockPos(x, 64, 0));
+            hopper.setWorld(this);
+            this.blockEntities.put(BlockPos.asLong(x, 64, 0), hopper);
+            return hopper;
+        }
+
+        void putBlock(int x, BlockState state) {
+            this.blocks.put(BlockPos.asLong(x, 64, 0), state.getId());
+        }
+
+        @Override
+        public int getBlock(int x, int y, int z) {
+            return this.blocks.getOrDefault(BlockPos.asLong(x, y, z), Blocks.AIR);
+        }
+
+        @Override
+        public BlockEntity getBlockEntity(int x, int y, int z) {
+            return this.blockEntities.get(BlockPos.asLong(x, y, z));
+        }
+
+        @Override
+        public long getGameTime() {
+            return this.gameTime;
+        }
+
+        @Override
+        public void markChunkModified(int x, int z) {
+            this.changedX.add(x);
+        }
+
+        @Override
+        public void updateComparatorOutputs(int x, int y, int z) {
+        }
+
+        @Override
+        public void updateBlockStateAt(int x, int y, int z) {
+            this.observerNotifications++;
+            BlockState observer = Blocks.getState(this.getBlock(x, y, z));
+            observer.getBlock().getStateForNeighborUpdate(this, x, y, z, observer);
+        }
+
+        @Override
+        public boolean isTickScheduled(int x, int y, int z) {
+            return false;
+        }
+
+        @Override
+        public void scheduleTick(int x, int y, int z, int delayTicks) {
+            this.scheduledTicks++;
+            this.lastScheduledDelay = delayTicks;
+        }
+
+        private static LevelData level() {
+            LevelData level = new LevelData();
+            level.name = "hopper-test";
+            level.seed = 1;
+            level.worldType = "imported";
+            return level;
+        }
+    }
+}

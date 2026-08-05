@@ -310,6 +310,15 @@ public class Block {
         return state;
     }
 
+    /** Nach einem durch Nachbar-Update geschriebenen State-Wechsel. */
+    public void onStateChangedByNeighborUpdate(de.skyengine.game.world.World world,
+                                               int x, int y, int z,
+                                               BlockState oldState, BlockState newState) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.onStateChangedByNeighborUpdate(world, x, y, z, oldState, newState);
+        }
+    }
+
     /** Rechtsklick-Interaktion. Delegiert an die Behaviors; true = verbraucht. */
     public boolean onUse(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {
@@ -359,7 +368,7 @@ public class Block {
         return power;
     }
 
-    /** Starkes Redstone-Signal Richtung {@code side} (leitet durch opake Blöcke). Max über die Behaviors. */
+    /** Starkes Redstone-Signal Richtung {@code side} (leitet durch Redstone-Leiter). Max über die Behaviors. */
     public int getStrongPower(de.skyengine.game.world.World world, int x, int y, int z, BlockState state, Direction side) {
         int power = 0;
         for (BlockBehavior behavior : this.config.behaviors()) {

@@ -31,6 +31,24 @@ public final class ObserverBehavior implements BlockBehavior {
     @SuppressWarnings("FieldMayBeFinal") // Referenz wechselt mit der aktiven Welt (Headless-Diagnose).
     private Map<Long, ?> observed = new HashMap<>();
 
+    /**
+     * Weckt ausschließlich Beobachter, deren Vorderseite auf die geänderte Zelle zeigt.
+     * Ersatz für Vanillas gerichtetes Shape-Update, das der allgemeine Pull-Update-Pfad der
+     * Engine nicht als Auslöserinformation transportiert.
+     */
+    public static void notifyWatching(World world, int x, int y, int z) {
+        for (Direction direction : Direction.sharedValues()) {
+            int ox = x + direction.offsetX();
+            int oy = y + direction.offsetY();
+            int oz = z + direction.offsetZ();
+            BlockState observer = Blocks.getState(world.getBlock(ox, oy, oz));
+            if (behaviorOf(observer.getId()) == null) continue;
+            if (observer.get(Properties.FACING_ALL) == direction.opposite()) {
+                world.updateBlockStateAt(ox, oy, oz);
+            }
+        }
+    }
+
     @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
         return state.with(Properties.FACING_ALL, lookDirection(ctx))

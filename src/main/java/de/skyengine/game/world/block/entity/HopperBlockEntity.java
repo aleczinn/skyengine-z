@@ -33,6 +33,8 @@ public final class HopperBlockEntity extends BlockEntity {
     private final SimpleItemStorage inventory = new SimpleItemStorage(SLOTS);
     /** Rest-Ticks bis zum nächsten Transferversuch (persistiert — der Takt überlebt Save/Load). */
     private int cooldown;
+    /** Letzter eigener BE-Tick; Vanillas Phasenausgleich für Hopperketten. Nicht persistiert. */
+    private long tickedGameTime;
 
     public HopperBlockEntity(BlockEntityType<?> type, BlockPos pos) {
         super(type, pos);
@@ -50,6 +52,7 @@ public final class HopperBlockEntity extends BlockEntity {
     @Override
     public void tick() {
         if (this.world == null) return;
+        this.tickedGameTime = this.world.getGameTime();
         if (this.cooldown > 0) {
             this.cooldown--;
             if (this.cooldown > 0) return;
@@ -74,8 +77,10 @@ public final class HopperBlockEntity extends BlockEntity {
         int tx = this.pos.x() + facing.offsetX();
         int ty = this.pos.y() + facing.offsetY();
         int tz = this.pos.z() + facing.offsetZ();
-        ItemStorage target = this.storageAt(tx, ty, tz, facing.opposite());
+        BlockEntity targetEntity = this.world.getBlockEntity(tx, ty, tz);
+        ItemStorage target = storageOf(targetEntity, facing.opposite());
         if (target == null) return false;
+        boolean targetWasEmpty = isEmpty(target);
 
         for (int i = 0; i < this.inventory.size(); i++) {
             if (this.inventory.get(i).isEmpty()) continue;
@@ -87,6 +92,10 @@ public final class HopperBlockEntity extends BlockEntity {
                 continue;
             }
             if (!leftover.isEmpty()) this.restore(i, leftover);
+            targetEntity.setChanged();
+            if (targetWasEmpty && targetEntity instanceof HopperBlockEntity targetHopper) {
+                targetHopper.receiveCooldownFrom(this);
+            }
             this.world.updateComparatorOutputs(this.pos.x(), this.pos.y(), this.pos.z());
             this.world.updateComparatorOutputs(tx, ty, tz);
             return true;
@@ -97,7 +106,8 @@ public final class HopperBlockEntity extends BlockEntity {
     /** Zieht aus dem Container über der Öffnung nach — ohne Container: ItemEntities einsaugen. */
     private boolean pullIn(int amount) {
         int x = this.pos.x(), y = this.pos.y(), z = this.pos.z();
-        ItemStorage source = this.storageAt(x, y + 1, z, Direction.DOWN);
+        BlockEntity sourceEntity = this.world.getBlockEntity(x, y + 1, z);
+        ItemStorage source = storageOf(sourceEntity, Direction.DOWN);
         if (source != null) {
             for (int i = 0; i < source.size(); i++) {
                 if (source.get(i).isEmpty()) continue;
@@ -108,6 +118,7 @@ public final class HopperBlockEntity extends BlockEntity {
                     continue;
                 }
                 if (!leftover.isEmpty()) restoreInto(source, i, leftover);
+                sourceEntity.setChanged();
                 this.world.updateComparatorOutputs(x, y + 1, z);
                 this.world.updateComparatorOutputs(x, y, z);
                 return true;
@@ -162,10 +173,26 @@ public final class HopperBlockEntity extends BlockEntity {
     }
 
     /** Item-Storage-Capability eines Nachbar-BlockEntities oder null. */
-    private ItemStorage storageAt(int x, int y, int z, Direction side) {
-        BlockEntity be = this.world.getBlockEntity(x, y, z);
-        if (be == null || be == this) return null;
-        return be.getCapability(Capabilities.ITEM_STORAGE, side).orElse(null);
+    private ItemStorage storageOf(BlockEntity entity, Direction side) {
+        if (entity == null || entity == this) return null;
+        return entity.getCapability(Capabilities.ITEM_STORAGE, side).orElse(null);
+    }
+
+    private static boolean isEmpty(ItemStorage storage) {
+        for (int i = 0; i < storage.size(); i++) {
+            if (!storage.get(i).isEmpty()) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Vanillas {@code tryMoveInItem}: Ein leerer Zielhopper erhält 8 Ticks Cooldown, oder 7,
+     * wenn er in diesem Spieltick bereits vor bzw. gleichzeitig mit der Quelle getickt hat.
+     */
+    private void receiveCooldownFrom(HopperBlockEntity source) {
+        if (this.cooldown > 8) return;
+        int phaseOffset = this.tickedGameTime >= source.tickedGameTime ? 1 : 0;
+        this.cooldown = 8 - phaseOffset;
     }
 
     @Override

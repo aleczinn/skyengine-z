@@ -47,6 +47,18 @@ public final class HopperBehavior implements BlockBehavior {
         return state;
     }
 
+    /**
+     * Der ENABLED-Wechsel ist eine echte Blockstate-Änderung. Vanillas Shape-Update macht
+     * sie für einen auf den Trichter gerichteten Beobachter sichtbar.
+     */
+    @Override
+    public void onStateChangedByNeighborUpdate(World world, int x, int y, int z,
+                                               BlockState oldState, BlockState newState) {
+        if (oldState.get(Properties.ENABLED) != newState.get(Properties.ENABLED)) {
+            ObserverBehavior.notifyWatching(world, x, y, z);
+        }
+    }
+
     /** Beim Abbauen fällt der Inhalt heraus (dasselbe Muster wie die Truhe). */
     @Override
     public void onBreak(World world, int x, int y, int z, BlockState state) {

@@ -1630,7 +1630,10 @@ public class World implements IInitializable, IDisposable {
                so entfernter Block mit BlockEntity still seinen Inhalt. Heute implementiert kein
                Behavior onBreak; die Reihenfolge schließt die Lücke, bevor das erste es tut. */
             if (removed) current.getBlock().onBreak(this, x, y, z, current);
-            this.setBlock(x, y, z, updated.getId(), removed);
+            if (this.setBlock(x, y, z, updated.getId(), removed) && !removed) {
+                updated.getBlock().onStateChangedByNeighborUpdate(
+                        this, x, y, z, current, updated);
+            }
         }
     }
 

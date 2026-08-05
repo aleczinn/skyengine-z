@@ -48,6 +48,14 @@ public interface BlockBehavior {
         return state;
     }
 
+    /**
+     * Seiteneffekt NACHDEM ein {@link #onNeighborUpdate}-Ergebnis geschrieben wurde. Der Hook
+     * ist nur für State-Wechsel gedacht, die selbst weitere Shape-Updates auslösen müssen.
+     */
+    default void onStateChangedByNeighborUpdate(World world, int x, int y, int z,
+                                                BlockState oldState, BlockState newState) {
+    }
+
     /** Rechtsklick auf den Block. true = verbraucht (kein Platzieren). Default: ignoriert. */
     default boolean onUse(World world, int x, int y, int z, BlockState state) {
         return false;
@@ -107,7 +115,7 @@ public interface BlockBehavior {
      * Schwaches Redstone-Signal 0..15, das dieser Block in Richtung {@code side} abgibt.
      * Konvention: {@code side} zeigt VOM Block ZUM Empfänger (Signalflussrichtung) —
      * ein Knopf an der Nordwand powert seinen Träger also mit {@code side == NORTH}.
-     * Schwach heißt: wirkt auf direkte Nachbarn, wird aber von opaken Blöcken NICHT
+     * Schwach heißt: wirkt auf direkte Nachbarn, wird aber von Redstone-Leitern NICHT
      * weitergeleitet. Default 0.
      */
     default int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
@@ -116,7 +124,7 @@ public interface BlockBehavior {
 
     /**
      * Starkes Redstone-Signal 0..15 in Richtung {@code side} (Konvention wie
-     * {@link #weakPower}). Nur starke Signale machen einen opaken Block selbst zur
+     * {@link #weakPower}). Nur starke Signale machen einen leitenden Block selbst zur
      * Quelle (Leitung durch Wände — Hebel am Block schaltet die Tür dahinter). Default 0.
      */
     default int strongPower(World world, int x, int y, int z, BlockState state, Direction side) {
