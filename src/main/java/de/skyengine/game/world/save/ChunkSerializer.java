@@ -57,8 +57,9 @@ import java.util.zip.Inflater;
  * int   tickCount, tickCount × { UTF tickTypeId, int x, int y, int z, int remainingTicks }
  * </pre>
  *
- * <p>Threading: {@link #serialize} verlangt, dass der Aufrufer den Read-Lock des Chunks
- * hält; {@link #deserialize} darf nur auf einem Chunk laufen, der noch nicht per
+ * <p>Threading: {@link #serialize} verlangt unveränderliche Eingabedaten — entweder hält der
+ * Aufrufer den Read-Lock eines Live-Chunks oder übergibt den von {@link #snapshotChunkData}
+ * erzeugten detached Snapshot. {@link #deserialize} darf nur auf einem Chunk laufen, der noch nicht per
  * Status-Publish lesbar ist (Load-Job vor dem Setzen von DECORATED).
  */
 public final class ChunkSerializer {
@@ -105,7 +106,30 @@ public final class ChunkSerializer {
     }
 
     /**
-     * Aufrufer hält den Read-Lock des Chunks (schützt die Section-Daten). Tints werden nur mit
+     * Kopiert alle vom Chunk-Payload benoetigten Block- und Tintdaten. Der Aufrufer muss den
+     * Read-Lock des Quellchunks halten. Der Rueckgabewert teilt weder Paletten-/Bit-Arrays noch
+     * Tint-Arrays mit dem Live-Chunk und kann deshalb spaeter auf dem IO-Thread serialisiert werden.
+     */
+    public static Chunk snapshotChunkData(Chunk source) {
+        Chunk snapshot = new Chunk(source.chunkX, source.chunkZ);
+        for (int s = 0; s < Chunk.SECTIONS; s++) {
+            ChunkSection section = source.getSection(s);
+            if (section == null || section.isEmpty()) continue;
+            PalettedContainer container = section.container();
+            int[] palette = container.paletteEntries();
+            BitStorage storage = container.storage();
+            BitStorage storageCopy = storage == null ? null
+                    : new BitStorage(storage.bitsPerEntry(), storage.size(), storage.raw().clone());
+            snapshot.installSection(s, new ChunkSection(new PalettedContainer(
+                    ChunkSection.VOLUME, palette, palette.length, storageCopy, container.nonAir())));
+        }
+        snapshot.grassTintCorners = source.grassTintCorners == null ? null : source.grassTintCorners.clone();
+        snapshot.foliageTintCorners = source.foliageTintCorners == null ? null : source.foliageTintCorners.clone();
+        return snapshot;
+    }
+
+    /**
+     * Die Chunkdaten dürfen während des Aufrufs nicht mutieren. Tints werden nur mit
      * {@code storeTints} geschrieben; {@code scheduledTicks} ist der auf dem Tick-Thread gezogene
      * Queue-Snapshot des Chunks (null = keine). {@code blockEntities} sind die auf dem Tick-Thread
      * vorserialisierten BlockEntity-Tags ({@link #snapshotBlockEntities}); der IO-Thread ruft

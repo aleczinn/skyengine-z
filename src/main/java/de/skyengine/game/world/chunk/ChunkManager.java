@@ -474,7 +474,7 @@ public class ChunkManager {
                 /* Save-Gate: modifizierte Chunks bleiben in der Map, bis der IO-Thread den
                    Save abgeschlossen hat (saveQueued-Protokoll). Löst zugleich die
                    Unload/Reload-Race — kommt der Spieler zurück, ist der Chunk noch da. */
-                if (this.storage != null && (chunk.modified || chunk.saveQueued)) {
+                if (this.storage != null && (chunk.isModified() || chunk.saveQueued)) {
                     if (!chunk.saveQueued) {
                         chunk.materializeFallingBlocks();
                         chunk.saveQueued = true;
@@ -523,7 +523,7 @@ public class ChunkManager {
            danach ist unkritisch, der Snapshot läuft unter dem Chunk-Read-Lock. */
         if (this.storage != null) {
             for (Chunk chunk : this.chunks.values()) {
-                if (chunk.modified && !chunk.saveQueued) {
+                if (chunk.isModified() && !chunk.saveQueued) {
                     chunk.saveQueued = true;
                     this.storage.enqueueSave(chunk);
                 }

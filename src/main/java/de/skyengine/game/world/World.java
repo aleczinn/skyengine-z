@@ -339,7 +339,7 @@ public class World implements IInitializable, IDisposable {
     public int saveModifiedChunks(boolean materializeFalling) {
         int queued = 0;
         for (Chunk chunk : this.chunkManager.loadedChunks()) {
-            if (!chunk.modified || chunk.saveQueued) continue;
+            if (!chunk.isModified() || chunk.saveQueued) continue;
             if (materializeFalling) chunk.materializeFallingBlocks();
             chunk.saveQueued = true;
             this.storage.enqueueSave(chunk);
@@ -359,7 +359,7 @@ public class World implements IInitializable, IDisposable {
      */
     public void markChunkModified(int x, int z) {
         Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
-        if (chunk != null && chunk.status == ChunkStatus.READY) chunk.modified = true;
+        if (chunk != null && chunk.status == ChunkStatus.READY) chunk.markModified();
     }
 
     /** Simulations-Distanz in Chunks setzen (min. 2). Chunks außerhalb werden nicht getickt. */
@@ -1014,7 +1014,7 @@ public class World implements IInitializable, IDisposable {
         this.updateLight(chunk, cx, cz, lx, y, lz, oldBlock, block);
 
         /* Persistenz: Chunk ist seit dem letzten Save verändert. */
-        chunk.modified = true;
+        chunk.markModified();
         return true;
     }
 
@@ -1145,7 +1145,7 @@ public class World implements IInitializable, IDisposable {
                 chunk.writeLock().unlock();
             }
             chunk.markSectionsDirty(group.ownMask);
-            chunk.modified = true;
+            chunk.markModified();
 
             /* Rand-Remeshes der Nachbarn (Union; Filter wie markDirty: ab LIT). */
             for (int b = 0; b < 8; b++) {
