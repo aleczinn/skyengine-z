@@ -42,10 +42,10 @@ import java.util.zip.Inflater;
  * {@link BlockStateCodec} persistiert (Runtime-IDs sind flüchtig!), dedupliziert über eine
  * chunk-weite Palette; die Section-Bit-Daten ({@link BitStorage}) werden roh übernommen.
  *
- * <p>Payload-Format v2 (unkomprimiert; Kompression/CRC über {@link #compress}/{@link #crc32},
+ * <p>Payload-Format v3 (unkomprimiert; Kompression/CRC über {@link #compress}/{@link #crc32},
  * CRC immer über den ROHEN Payload — Kompressionswechsel ändern die Prüfsumme nicht):
  * <pre>
- * byte  payloadVersion = 2                      (v1 bleibt lesbar, nur ohne Tick-Abschnitt)
+ * byte  payloadVersion = 3                      (v1/v2 bleiben lesbar)
  * UTF   generatorId, int generatorVersion      (Provenienz — strikt getrennt von payloadVersion)
  * int   paletteCount, paletteCount × UTF        (chunk-weite State-Strings)
  * 16 ×  Section: byte mode
@@ -54,7 +54,9 @@ import java.util.zip.Inflater;
  *           byte bitsPerEntry, int nonAir, int longCount, longCount × long
  * byte  hasStoredTints; wenn 1: 2 × 33*33 int (grass, foliage)
  * int   beCount, beCount × { int packedLocalPos, UTF typeId, DataTag binär }
- * int   tickCount, tickCount × { UTF tickTypeId, int x, int y, int z, int remainingTicks }
+ * int   tickCount, tickCount × { UTF tickTypeId, UTF expectedBlockId,
+ *                                 int x, int y, int z, int remainingTicks,
+ *                                 int priority, long subOrder }
  * </pre>
  *
  * <p>Threading: {@link #serialize} verlangt unveränderliche Eingabedaten — entweder hält der
@@ -64,9 +66,9 @@ import java.util.zip.Inflater;
  */
 public final class ChunkSerializer {
 
-    /* v2: generischer Scheduled-Tick-Abschnitt (tickTypeId + absolute Position + Rest-Delay).
-       v1-Payloads bleiben lesbar, haben aber keine Ticks. */
-    public static final byte PAYLOAD_VERSION = 2;
+    /* v3: stabile Zielidentität + Priorität + Suborder. v2 bleibt lesbar, hat aber nur Typ,
+       Position und Rest-Delay; v1 hat keinen Tick-Abschnitt. */
+    public static final byte PAYLOAD_VERSION = 3;
 
     private static final Logger LOGGER = LogManager.getLogger(ChunkSerializer.class.getName());
 
@@ -79,6 +81,7 @@ public final class ChunkSerializer {
     /* Einmal-pro-String-Warnung über alle Chunks hinweg (sonst Log-Flut bei großen Welten). */
     private static final Set<String> warnedStates = ConcurrentHashMap.newKeySet();
     private static final Set<String> warnedTickTypes = ConcurrentHashMap.newKeySet();
+    private static final Set<String> warnedTickTargets = ConcurrentHashMap.newKeySet();
 
     /* --- Serialisieren --- */
 
@@ -203,15 +206,18 @@ public final class ChunkSerializer {
                 DataTagIO.write(be.tag(), out);
             }
 
-            /* Scheduled-Ticks (v2): generisch über tickTypeId — s. ScheduledTickTypes. */
+            /* Scheduled-Ticks (v3): Typ, stabile Zielidentität und Reihenfolge. */
             out.writeInt(scheduledTicks == null ? 0 : scheduledTicks.size());
             if (scheduledTicks != null) {
                 for (SavedTick tick : scheduledTicks) {
                     out.writeUTF(tick.type());
+                    out.writeUTF(tick.expectedBlock() == null ? "" : tick.expectedBlock());
                     out.writeInt(tick.x());
                     out.writeInt(tick.y());
                     out.writeInt(tick.z());
                     out.writeInt(tick.remainingTicks());
+                    out.writeInt(tick.priority());
+                    out.writeLong(tick.subOrder());
                 }
             }
 
@@ -344,7 +350,7 @@ public final class ChunkSerializer {
             chunk.setBlockEntity(lx, y, lz, be);
         }
 
-        /* Scheduled-Ticks (ab v2; v1-Saves haben keine — Zustand wie vor dem Fix). */
+        /* Scheduled-Ticks: v2 ohne Zielidentität/Reihenfolge, v3 vollständig; v1 ohne Ticks. */
         if (version >= 2) {
             int tickCount = in.readInt();
             if (tickCount < 0 || tickCount > ChunkSection.VOLUME * Chunk.SECTIONS) {
@@ -353,15 +359,27 @@ public final class ChunkSerializer {
             List<SavedTick> ticks = tickCount == 0 ? null : new ArrayList<>(tickCount);
             for (int i = 0; i < tickCount; i++) {
                 String type = in.readUTF();
+                String expectedBlock = version >= 3 ? in.readUTF() : null;
+                if (expectedBlock != null && expectedBlock.isEmpty()) expectedBlock = null;
                 int x = in.readInt();
                 int y = in.readInt();
                 int z = in.readInt();
                 int remaining = in.readInt();
+                int priority = version >= 3 ? in.readInt() : 0;
+                long subOrder = version >= 3 ? in.readLong() : i;
                 /* Unbekannter Typ (Save aus neuerer Engine): Eintrag überspringen, Stream
                    bleibt intakt (feste Feldbreiten). */
                 if (ScheduledTickTypes.get(type) == null) {
                     if (warnedTickTypes.add(type)) {
                         LOGGER.warning("Unbekannter Tick-Typ in Save-Datei, überspringe: " + type);
+                    }
+                    continue;
+                }
+                if (ScheduledTickTypes.BLOCK.equals(type) && expectedBlock != null
+                        && Registries.BLOCK.get(Identifier.of(expectedBlock)) == null) {
+                    if (warnedTickTargets.add(expectedBlock)) {
+                        LOGGER.warning("Unbekannter erwarteter Block in Save-Datei, Tick wird uebersprungen: "
+                                + expectedBlock);
                     }
                     continue;
                 }
@@ -373,7 +391,13 @@ public final class ChunkSerializer {
                             + ") bei (" + x + ", " + y + ", " + z + ") — übersprungen");
                     continue;
                 }
-                ticks.add(new SavedTick(type, x, y, z, Math.max(1, remaining)));
+                if (subOrder < 0 || subOrder == Long.MAX_VALUE) {
+                    LOGGER.warning("Ungueltige Tick-Suborder " + subOrder + " bei ("
+                            + x + ", " + y + ", " + z + ") - uebersprungen");
+                    continue;
+                }
+                ticks.add(new SavedTick(type, expectedBlock, x, y, z,
+                        Math.max(1, remaining), priority, subOrder));
             }
             chunk.pendingScheduledTicks = ticks == null || ticks.isEmpty() ? null : ticks;
             /* Beim Manager anmelden: World.restorePendingScheduledTicks pollt nur noch die

@@ -14,6 +14,7 @@ import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.shape.BlockShape;
@@ -263,7 +264,7 @@ public class World implements IInitializable, IDisposable {
             for (SavedTick tick : ticks) {
                 /* Unbekannte Typen filtert schon der Serializer — defensiver Zweitcheck. */
                 ScheduledTickTypes.ScheduledTickRestorer restorer = ScheduledTickTypes.get(tick.type());
-                if (restorer != null) restorer.restore(this, tick.x(), tick.y(), tick.z(), tick.remainingTicks());
+                if (restorer != null) restorer.restore(this, tick);
             }
             chunk.pendingScheduledTicks = null;
         }
@@ -303,6 +304,7 @@ public class World implements IInitializable, IDisposable {
        Queue — beim Autosave O(zu speichernde Chunks × offene Ticks) in einem einzigen
        Tick-Slot (der gemessene Kandidat für den Save-Ruckler). */
     private long tickSnapshotIndexTime = -1;
+    private long tickSnapshotIndexRevision = -1;
     private final de.skyengine.utils.collect.LongObjMap<List<SavedTick>> tickSnapshotIndex =
             new de.skyengine.utils.collect.LongObjMap<>(64);
 
@@ -313,20 +315,27 @@ public class World implements IInitializable, IDisposable {
      * Aufrufer ist {@code WorldStorage.enqueueSave}. null, wenn nichts ansteht.
      */
     public List<SavedTick> snapshotScheduledTicks(Chunk chunk) {
-        if (this.tickSnapshotIndexTime != this.gameTime) {
+        long queueRevision = this.scheduledTicks.revision();
+        if (this.tickSnapshotIndexTime != this.gameTime
+                || this.tickSnapshotIndexRevision != queueRevision) {
             this.tickSnapshotIndexTime = this.gameTime;
+            this.tickSnapshotIndexRevision = queueRevision;
             this.tickSnapshotIndex.clear();
-            this.scheduledTicks.forEachPending(this.gameTime, (x, y, z, remaining) -> {
+            this.scheduledTicks.forEachPending(this.gameTime,
+                    (x, y, z, expectedBlock, remaining, priority, subOrder) -> {
                 long key = Chunk.key(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
                 List<SavedTick> list = this.tickSnapshotIndex.get(key);
                 if (list == null) {
                     list = new ArrayList<>();
                     this.tickSnapshotIndex.put(key, list);
                 }
-                list.add(new SavedTick(ScheduledTickTypes.BLOCK, x, y, z, remaining));
+                list.add(new SavedTick(ScheduledTickTypes.BLOCK, expectedBlock.toString(),
+                        x, y, z, remaining, priority, subOrder));
             });
         }
-        return this.tickSnapshotIndex.get(Chunk.key(chunk.chunkX, chunk.chunkZ));
+        List<SavedTick> result = this.tickSnapshotIndex.get(Chunk.key(chunk.chunkX, chunk.chunkZ));
+        if (result != null) result.sort(SavedTick.ORDER);
+        return result;
     }
 
     /**
@@ -588,7 +597,8 @@ public class World implements IInitializable, IDisposable {
     /**
      * Merkt einen geplanten Tick für die Position vor. Nach {@code delayTicks} Ticks (min. 1)
      * ruft der Block dort {@link de.skyengine.game.world.block.Block#scheduledTick} auf. Pro
-     * Position ist nur ein Tick gleichzeitig vorgemerkt (Dedup). Basis für Fluss/Fall.
+     * Position und erwartetem Blocktyp ist nur ein Tick gleichzeitig vorgemerkt (Dedup).
+     * Basis für Fluss/Fall.
      *
      * <p>Markiert den Chunk zusätzlich als modified: ein anstehender Tick ist Zustand, der
      * gespeichert werden muss — sonst verlöre eine Clock (Verstärker-Loop), die seit dem
@@ -596,7 +606,8 @@ public class World implements IInitializable, IDisposable {
      * nach dem Neuladen still.</p>
      */
     public void scheduleTick(int x, int y, int z, int delayTicks) {
-        boolean accepted = this.scheduledTicks.schedule(x, y, z,
+        Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
+        boolean accepted = this.scheduledTicks.schedule(x, y, z, expectedBlock,
                 this.gameTime + Math.max(1, delayTicks));
         this.simulationTelemetry.recordScheduledRequest(accepted);
         this.markChunkModified(x, z);
@@ -608,7 +619,8 @@ public class World implements IInitializable, IDisposable {
      * die einen regulären Fluss-Tick überholen müssen.
      */
     public void scheduleTickEarlier(int x, int y, int z, int delayTicks) {
-        boolean accepted = this.scheduledTicks.scheduleEarlier(x, y, z,
+        Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
+        boolean accepted = this.scheduledTicks.scheduleEarlier(x, y, z, expectedBlock,
                 this.gameTime + Math.max(1, delayTicks));
         this.simulationTelemetry.recordScheduledRequest(accepted);
         this.markChunkModified(x, z);
@@ -616,7 +628,19 @@ public class World implements IInitializable, IDisposable {
 
     /** true, wenn an der Position bereits ein geplanter Tick aussteht. */
     public boolean isTickScheduled(int x, int y, int z) {
-        return this.scheduledTicks.isScheduled(x, y, z);
+        Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
+        return this.scheduledTicks.isScheduled(x, y, z, expectedBlock);
+    }
+
+    /** Stellt einen persistierten Blocktick mit seiner urspruenglichen Reihenfolge wieder her. */
+    public void restoreScheduledBlockTick(SavedTick tick) {
+        Identifier expectedBlock = tick.expectedBlock() == null
+                ? Blocks.getState(this.getBlock(tick.x(), tick.y(), tick.z())).getBlock().getIdentifier()
+                : Identifier.of(tick.expectedBlock());
+        boolean accepted = this.scheduledTicks.scheduleRestored(tick.x(), tick.y(), tick.z(), expectedBlock,
+                this.gameTime + Math.max(1, tick.remainingTicks()), tick.priority(), tick.subOrder());
+        this.simulationTelemetry.recordScheduledRequest(accepted);
+        this.markChunkModified(tick.x(), tick.z());
     }
 
     /** Aktuelle Spielzeit in Ticks (20 TPS). */
@@ -642,7 +666,7 @@ public class World implements IInitializable, IDisposable {
      * entladene Position.</p>
      */
     private void tickScheduled() {
-        this.scheduledTicks.drainDue(this.gameTime, (x, y, z) -> {
+        this.scheduledTicks.drainDue(this.gameTime, (x, y, z, expectedBlock, priority, subOrder) -> {
             this.simulationTelemetry.recordScheduledDue();
             int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
             Chunk chunk = this.chunkManager.getChunk(cx, cz);
@@ -651,11 +675,16 @@ public class World implements IInitializable, IDisposable {
                 return;
             }
             if (chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
-                this.scheduledTicks.schedule(x, y, z, this.gameTime + OUT_OF_SIM_RESCHEDULE);
+                this.scheduledTicks.scheduleRestored(x, y, z, expectedBlock,
+                        this.gameTime + OUT_OF_SIM_RESCHEDULE, priority, subOrder);
                 this.simulationTelemetry.recordScheduledRescheduled();
                 return;
             }
             BlockState state = Blocks.getState(this.getBlock(x, y, z));
+            if (!state.getBlock().getIdentifier().equals(expectedBlock)) {
+                this.simulationTelemetry.recordScheduledSkippedWrongBlock();
+                return;
+            }
             if (state.isAir()) {
                 this.simulationTelemetry.recordScheduledSkippedAir();
                 return;

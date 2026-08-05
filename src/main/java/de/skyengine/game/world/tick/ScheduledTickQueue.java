@@ -1,128 +1,174 @@
 package de.skyengine.game.world.tick;
 
 import de.skyengine.game.world.block.BlockPos;
+import de.skyengine.game.world.block.Identifier;
 import de.skyengine.utils.collect.LongLongMap;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.PriorityQueue;
 
 /**
- * Deferred Block-Ticks, geordnet nach Ziel-Tick (dann FIFO). Pro Position ist nur EIN Tick
- * gleichzeitig vorgemerkt (Dedup) - wie in Minecraft. Bewusst entkoppelt von der World
- * (kennt nur Koordinaten + Zeit), damit die Reihenfolge-Logik isoliert testbar bleibt.
- *
- * <p>Basis für zeitbasierte Mechaniken (Flüssigkeits-Ausbreitung, fallender Sand,
- * verzögerte Reaktionen, Redstone-Delays). Verbraucher schedulen sich i.d.R. selbst neu
- * (Kaskade über Re-Scheduling statt synchroner Nachbar-Kaskade).
- *
- * <p>Der Dedup ist TYPUNABHÄNGIG: die Position ist der ganze Schlüssel. Zwei Systeme, die
- * an derselben Zelle gleichzeitig Ticks bräuchten, schlössen sich aus — praktisch tritt das
- * nicht auf (Fluid und Redstone-Bauteil teilen sich nie eine Zelle: Wasser verdrängt das
- * Bauteil über den Support-Verlust). Bei einem künftigen System mit eigenem Takt an fremden
- * Positionen (Pistons?) hier neu bewerten.
+ * Deferred Block-Ticks, geordnet nach Zielzeit, Prioritaet und persistenter Suborder.
+ * Dedupliziert wird pro Position UND erwartetem Blocktyp. Ein nach Blockersetzung geplanter
+ * Tick wird deshalb nicht von einem alten Tick des Vorgaengerblocks blockiert.
  */
 public final class ScheduledTickQueue {
 
-    /** Callback für einen fälligen Tick an Weltkoordinaten. */
     @FunctionalInterface
     public interface DueConsumer {
-        void run(int x, int y, int z);
+        void run(int x, int y, int z, Identifier expectedBlock, int priority, long subOrder);
+    }
+
+    @FunctionalInterface
+    public interface PendingConsumer {
+        void accept(int x, int y, int z, Identifier expectedBlock, int remainingTicks,
+                    int priority, long subOrder);
     }
 
     private static final class Entry {
         final int x, y, z;
+        final long position;
+        final Identifier expectedBlock;
         final long triggerTime;
-        final long seq;
+        final int priority;
+        final long subOrder;
+        final long sequence;
 
-        Entry(int x, int y, int z, long triggerTime, long seq) {
+        Entry(int x, int y, int z, Identifier expectedBlock, long triggerTime,
+              int priority, long subOrder, long sequence) {
             this.x = x;
             this.y = y;
             this.z = z;
+            this.position = BlockPos.asLong(x, y, z);
+            this.expectedBlock = expectedBlock;
             this.triggerTime = triggerTime;
-            this.seq = seq;
+            this.priority = priority;
+            this.subOrder = subOrder;
+            this.sequence = sequence;
         }
+    }
+
+    /** Primitive Positionsindizes je Blocktyp: Zeit plus eindeutige Runtime-Sequenz. */
+    private static final class TypeIndex {
+        final LongLongMap times = new LongLongMap(64);
+        final LongLongMap sequences = new LongLongMap(64);
     }
 
     private final PriorityQueue<Entry> queue = new PriorityQueue<>((a, b) -> {
         int c = Long.compare(a.triggerTime, b.triggerTime);
-        return c != 0 ? c : Long.compare(a.seq, b.seq);
+        if (c != 0) return c;
+        c = Integer.compare(a.priority, b.priority);
+        if (c != 0) return c;
+        c = Long.compare(a.subOrder, b.subOrder);
+        if (c != 0) return c;
+        c = Long.compareUnsigned(a.position, b.position);
+        if (c != 0) return c;
+        c = a.expectedBlock.namespace().compareTo(b.expectedBlock.namespace());
+        if (c == 0) c = a.expectedBlock.path().compareTo(b.expectedBlock.path());
+        return c != 0 ? c : Long.compare(a.sequence, b.sequence);
     });
-    /* Position -> maßgebliche (früheste) eingeplante Trigger-Zeit. Ältere Queue-Entries sind
-       Karteileichen. LongLongMap statt HashMap<Long,Long>: bei fließendem Wasser laufen hier
-       hunderte Zugriffe pro Tick — das doppelte Boxing (Key UND Value) entfällt. */
-    private final LongLongMap scheduledTime = new LongLongMap(256);
-    /** Sentinel für „keine Zeit vorgemerkt" — gameTime ist nie negativ. */
-    private static final long NO_TIME = Long.MIN_VALUE;
-    private long seqCounter;
+    private final Map<Identifier, TypeIndex> scheduled = new HashMap<>();
+    private static final long NO_VALUE = Long.MIN_VALUE;
+    private long sequenceCounter;
+    private long subOrderCounter;
+    private long revision;
 
-    /** Merkt einen Tick zur {@code triggerTime} vor. false, wenn an der Position bereits einer ansteht (first-wins). */
-    public boolean schedule(int x, int y, int z, long triggerTime) {
-        long key = BlockPos.asLong(x, y, z);
-        if (this.scheduledTime.containsKey(key)) return false;
-        this.scheduledTime.put(key, triggerTime);
-        this.queue.add(new Entry(x, y, z, triggerTime, this.seqCounter++));
+    public boolean schedule(int x, int y, int z, Identifier expectedBlock, long triggerTime) {
+        return this.schedule(x, y, z, expectedBlock, triggerTime, 0);
+    }
+
+    public boolean schedule(int x, int y, int z, Identifier expectedBlock, long triggerTime, int priority) {
+        TypeIndex index = this.scheduled.computeIfAbsent(expectedBlock, ignored -> new TypeIndex());
+        long position = BlockPos.asLong(x, y, z);
+        if (index.times.containsKey(position)) return false;
+        return this.add(index, x, y, z, expectedBlock, triggerTime, priority, this.subOrderCounter++);
+    }
+
+    public boolean scheduleEarlier(int x, int y, int z, Identifier expectedBlock, long triggerTime) {
+        return this.scheduleEarlier(x, y, z, expectedBlock, triggerTime, 0);
+    }
+
+    public boolean scheduleEarlier(int x, int y, int z, Identifier expectedBlock,
+                                   long triggerTime, int priority) {
+        TypeIndex index = this.scheduled.computeIfAbsent(expectedBlock, ignored -> new TypeIndex());
+        long position = BlockPos.asLong(x, y, z);
+        long current = index.times.getOrDefault(position, NO_VALUE);
+        if (current != NO_VALUE && current <= triggerTime) return false;
+        return this.add(index, x, y, z, expectedBlock, triggerTime, priority, this.subOrderCounter++);
+    }
+
+    /** Wiederherstellung oder Parken mit erhaltener persistenter Reihenfolge. */
+    public boolean scheduleRestored(int x, int y, int z, Identifier expectedBlock,
+                                    long triggerTime, int priority, long subOrder) {
+        if (subOrder < 0 || subOrder == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("Ungueltige Tick-Suborder: " + subOrder);
+        }
+        if (subOrder >= this.subOrderCounter) this.subOrderCounter = subOrder + 1;
+        TypeIndex index = this.scheduled.computeIfAbsent(expectedBlock, ignored -> new TypeIndex());
+        long position = BlockPos.asLong(x, y, z);
+        long current = index.times.getOrDefault(position, NO_VALUE);
+        if (current != NO_VALUE && current <= triggerTime) return false;
+        return this.add(index, x, y, z, expectedBlock, triggerTime, priority, subOrder);
+    }
+
+    private boolean add(TypeIndex index, int x, int y, int z, Identifier expectedBlock,
+                        long triggerTime, int priority, long subOrder) {
+        long position = BlockPos.asLong(x, y, z);
+        long sequence = this.sequenceCounter++;
+        index.times.put(position, triggerTime);
+        index.sequences.put(position, sequence);
+        this.queue.add(new Entry(x, y, z, expectedBlock, triggerTime, priority, subOrder, sequence));
+        this.revision++;
         return true;
     }
 
-    /**
-     * Plant einen Tick vor; ein bereits anstehender <em>späterer</em> Tick wird auf diese frühere Zeit
-     * vorgezogen (der alte Entry wird zur Karteileiche). Gibt es schon einen gleich frühen/früheren,
-     * passiert nichts. false, wenn nichts geändert wurde.
-     */
-    public boolean scheduleEarlier(int x, int y, int z, long triggerTime) {
-        long key = BlockPos.asLong(x, y, z);
-        long cur = this.scheduledTime.getOrDefault(key, NO_TIME);
-        if (cur != NO_TIME && cur <= triggerTime) return false;
-        this.scheduledTime.put(key, triggerTime);
-        this.queue.add(new Entry(x, y, z, triggerTime, this.seqCounter++));
-        return true;
+    public boolean isScheduled(int x, int y, int z, Identifier expectedBlock) {
+        TypeIndex index = this.scheduled.get(expectedBlock);
+        return index != null && index.times.containsKey(BlockPos.asLong(x, y, z));
     }
 
-    public boolean isScheduled(int x, int y, int z) {
-        return this.scheduledTime.containsKey(BlockPos.asLong(x, y, z));
-    }
-
-    /**
-     * Führt alle bis einschließlich {@code now} fälligen Ticks in zeitlicher Reihenfolge aus.
-     * Während des Laufs neu geplante Ticks (z.B. Re-Scheduling durch den Consumer) werden erst
-     * im nächsten Lauf berücksichtigt - das garantiert Termination auch bei Delay 0.
-     */
+    /** Neu eingeplante Ticks aus dem Consumer laufen erst im naechsten Drain. */
     public void drainDue(long now, DueConsumer consumer) {
-        long cutoff = this.seqCounter;
-        Entry e;
-        while ((e = this.queue.peek()) != null && e.triggerTime <= now && e.seq < cutoff) {
+        long cutoff = this.sequenceCounter;
+        Entry entry;
+        while ((entry = this.queue.peek()) != null
+                && entry.triggerTime <= now && entry.sequence < cutoff) {
             this.queue.poll();
-            long key = BlockPos.asLong(e.x, e.y, e.z);
-            long cur = this.scheduledTime.getOrDefault(key, NO_TIME);
-            /* Karteileiche überspringen: durch scheduleEarlier vorgezogen oder bereits abgearbeitet. */
-            if (cur != e.triggerTime) continue;
-            this.scheduledTime.remove(key);
-            consumer.run(e.x, e.y, e.z);
+            TypeIndex index = this.scheduled.get(entry.expectedBlock);
+            if (index == null) continue;
+            long currentTime = index.times.getOrDefault(entry.position, NO_VALUE);
+            long currentSequence = index.sequences.getOrDefault(entry.position, NO_VALUE);
+            if (currentTime != entry.triggerTime || currentSequence != entry.sequence) continue;
+            index.times.remove(entry.position);
+            index.sequences.remove(entry.position);
+            if (index.times.isEmpty()) this.scheduled.remove(entry.expectedBlock);
+            this.revision++;
+            consumer.run(entry.x, entry.y, entry.z, entry.expectedBlock, entry.priority, entry.subOrder);
         }
     }
 
-    /** Callback für einen anstehenden Tick (Weltkoordinaten + Rest-Delay ab now, min. 1). */
-    @FunctionalInterface
-    public interface PendingConsumer {
-        void accept(int x, int y, int z, int remainingTicks);
-    }
-
-    /**
-     * Meldet alle anstehenden Ticks (Reihenfolge unspezifiziert) — Basis für die
-     * Chunk-Persistenz. Iteriert die scheduledTime-Map (die Wahrheit OHNE die
-     * Karteileichen der PriorityQueue). Bereits fällige Ticks melden Rest-Delay 1
-     * (früher als der nächste Tick geht nicht). Nur Tick-Thread.
-     */
+    /** Meldet nur die jeweils massgeblichen Eintraege; Reihenfolge ist unspezifiziert. */
     public void forEachPending(long now, PendingConsumer consumer) {
-        for (int i = 0, n = this.scheduledTime.tableSize(); i < n; i++) {
-            if (!this.scheduledTime.usedAt(i)) continue;
-            long key = this.scheduledTime.keyAt(i);
-            int remaining = (int) Math.max(1, this.scheduledTime.valueAt(i) - now);
-            consumer.accept(BlockPos.unpackX(key), BlockPos.unpackY(key), BlockPos.unpackZ(key), remaining);
+        for (Entry entry : this.queue) {
+            TypeIndex index = this.scheduled.get(entry.expectedBlock);
+            if (index == null) continue;
+            if (index.times.getOrDefault(entry.position, NO_VALUE) != entry.triggerTime
+                    || index.sequences.getOrDefault(entry.position, NO_VALUE) != entry.sequence) continue;
+            long remainingLong = entry.triggerTime <= now ? 1 : entry.triggerTime - now;
+            int remaining = (int) Math.min(Integer.MAX_VALUE, remainingLong);
+            consumer.accept(entry.x, entry.y, entry.z, entry.expectedBlock, remaining,
+                    entry.priority, entry.subOrder);
         }
     }
 
-    /** Länge der PriorityQueue — INKLUSIVE Karteileichen (nur Telemetrie, keine echte Tick-Zahl). */
+    /** PriorityQueue-Laenge inklusive veralteter Eintraege; nur Telemetrie. */
     public int size() {
         return this.queue.size();
+    }
+
+    /** Aendert sich bei jeder logischen Queue-Mutation; invalidiert Save-Snapshot-Indizes. */
+    public long revision() {
+        return this.revision;
     }
 }

@@ -36,6 +36,7 @@ public final class SimulationTelemetry {
             long scheduledExecuted,
             long scheduledRescheduled,
             long scheduledDroppedUnloaded,
+            long scheduledSkippedWrongBlock,
             long scheduledSkippedAir,
             long blockEventWaves,
             long blockEventsProcessed,
@@ -69,6 +70,7 @@ public final class SimulationTelemetry {
     private long scheduledExecuted;
     private long scheduledRescheduled;
     private long scheduledDroppedUnloaded;
+    private long scheduledSkippedWrongBlock;
     private long scheduledSkippedAir;
     private long blockEventWaves;
     private long blockEventsProcessed;
@@ -160,6 +162,10 @@ public final class SimulationTelemetry {
         if (this.enabled) this.scheduledDroppedUnloaded++;
     }
 
+    public void recordScheduledSkippedWrongBlock() {
+        if (this.enabled) this.scheduledSkippedWrongBlock++;
+    }
+
     public void recordScheduledSkippedAir() {
         if (this.enabled) this.scheduledSkippedAir++;
     }
@@ -194,7 +200,7 @@ public final class SimulationTelemetry {
                 this.slowestWireNanos, this.slowestWireX, this.slowestWireY, this.slowestWireZ,
                 this.scheduledAccepted, this.scheduledDeduplicated, this.scheduledDue,
                 this.maxScheduledDuePerTick, this.scheduledExecuted, this.scheduledRescheduled,
-                this.scheduledDroppedUnloaded,
+                this.scheduledDroppedUnloaded, this.scheduledSkippedWrongBlock,
                 this.scheduledSkippedAir, this.blockEventWaves, this.blockEventsProcessed,
                 this.blockEventWaveLimitHits, this.deferredProcessed, this.deferredRequeued,
                 this.deferredDropped);
@@ -223,6 +229,7 @@ public final class SimulationTelemetry {
                 + " run=" + this.scheduledExecuted
                 + " parked=" + this.scheduledRescheduled
                 + " unloaded=" + this.scheduledDroppedUnloaded
+                + " wrongBlock=" + this.scheduledSkippedWrongBlock
                 + " air=" + this.scheduledSkippedAir
                 + " | events waves=" + this.blockEventWaves
                 + " processed=" + this.blockEventsProcessed
@@ -262,6 +269,7 @@ public final class SimulationTelemetry {
         this.scheduledExecuted = 0;
         this.scheduledRescheduled = 0;
         this.scheduledDroppedUnloaded = 0;
+        this.scheduledSkippedWrongBlock = 0;
         this.scheduledSkippedAir = 0;
         this.blockEventWaves = 0;
         this.blockEventsProcessed = 0;
