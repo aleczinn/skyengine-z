@@ -863,6 +863,10 @@ public class World implements IInitializable, IDisposable {
                         this.simulationTelemetry.recordScheduledDroppedUnloaded();
                         return;
                     }
+                    /* drainDue hat den Eintrag bereits entfernt. War er in einem früheren
+                       Snapshot gespeichert, muss auch Ausführung, Skip oder Re-Schedule eine
+                       neue Save-Epoch erzeugen — selbst während eines LIT/Remesh-Zustands. */
+                    chunk.markModified();
                     if (chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
                         this.scheduledTicks.scheduleRestored(x, y, z, expectedBlock,
                                 this.gameTime + OUT_OF_SIM_RESCHEDULE, priority, subOrder);
