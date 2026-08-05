@@ -29,8 +29,12 @@ import java.util.Arrays;
  */
 public final class RedstoneWireNetwork {
 
-    /** Reentrancy-Guard (nur Tick-Thread): Empfänger-Benachrichtigungen dürfen kein zweites Netz starten. */
-    private static boolean active;
+    /**
+     * Reentrancy-Guard pro Thread und Welt: Empfänger-Benachrichtigungen dürfen kein zweites
+     * Netz derselben Welt starten. Unabhängige Welten auf verschiedenen Threads dürfen sich
+     * dagegen nicht gegenseitig unterdrücken (parallele Tests, spätere Server-Nutzung).
+     */
+    private static final ThreadLocal<World> ACTIVE_WORLD = new ThreadLocal<>();
 
     /** Berechnet die Komponente um (x,y,z) neu und benachrichtigt betroffene Empfänger. */
     public static void update(World world, int x, int y, int z) {
@@ -47,7 +51,8 @@ public final class RedstoneWireNetwork {
     }
 
     private static void update(World world, int x, int y, int z, LongIntMap visited) {
-        if (active) {
+        World previousActiveWorld = ACTIVE_WORLD.get();
+        if (previousActiveWorld == world) {
             world.getSimulationTelemetry().recordSuppressedWireWake();
             return;
         }
@@ -55,11 +60,15 @@ public final class RedstoneWireNetwork {
         if (visited != null && visited.containsKey(origin)) return;
         if (!RedstonePower.isWire(Blocks.getState(world.getBlock(x, y, z)))) return;
         world.getSimulationTelemetry().recordWireWake();
-        active = true;
+        ACTIVE_WORLD.set(world);
         try {
             run(world, x, y, z, visited);
         } finally {
-            active = false;
+            if (previousActiveWorld == null) {
+                ACTIVE_WORLD.remove();
+            } else {
+                ACTIVE_WORLD.set(previousActiveWorld);
+            }
         }
     }
 
