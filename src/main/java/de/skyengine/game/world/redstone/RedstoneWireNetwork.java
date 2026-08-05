@@ -7,15 +7,9 @@ import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.RedstoneSide;
-import de.skyengine.utils.logging.LogManager;
-import de.skyengine.utils.logging.Logger;
+import de.skyengine.utils.collect.LongIntMap;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
+import java.util.Arrays;
 
 /**
  * Deterministische Staub-Signalausbreitung: statt MCs Update-Reihenfolge wird bei jedem
@@ -34,11 +28,6 @@ import java.util.Map;
  * Einschränkung: Redstone lebt praktisch in der Simulations-Distanz.
  */
 public final class RedstoneWireNetwork {
-
-    private static final Logger LOGGER = LogManager.getLogger(RedstoneWireNetwork.class.getName());
-
-    /** Kappe der Komponenten-Größe: darüber bleibt der Rest stale bis zum nächsten Weckruf. */
-    private static final int MAX_CELLS = 1024;
 
     /** Reentrancy-Guard (nur Tick-Thread): Empfänger-Benachrichtigungen dürfen kein zweites Netz starten. */
     private static boolean active;
@@ -62,48 +51,44 @@ public final class RedstoneWireNetwork {
     private static void run(World world, int ox, int oy, int oz) {
         long telemetryStart = world.getSimulationTelemetry().beginRedstoneTiming();
         /* 1) Komponenten-BFS über die Staub-Zellen (feste Nachbar-Reihenfolge). */
-        LinkedHashMap<Long, Integer> power = new LinkedHashMap<>();
-        ArrayDeque<Long> queue = new ArrayDeque<>();
+        LongIntMap power = new LongIntMap(1024);
+        LongBuffer cells = new LongBuffer(1024);
+        long[] neighbors = new long[12];
         long origin = BlockPos.asLong(ox, oy, oz);
         power.put(origin, 0);
-        queue.add(origin);
-        boolean capped = false;
-        while (!queue.isEmpty()) {
-            long cell = queue.poll();
+        cells.add(origin);
+        for (int cursor = 0; cursor < cells.size(); cursor++) {
+            long cell = cells.get(cursor);
             int cx = BlockPos.unpackX(cell), cy = BlockPos.unpackY(cell), cz = BlockPos.unpackZ(cell);
-            for (long neighbor : wireNeighbors(world, cx, cy, cz)) {
+            wireNeighbors(world, cx, cy, cz, neighbors);
+            for (long neighbor : neighbors) {
                 if (neighbor == Long.MIN_VALUE || power.containsKey(neighbor)) continue;
-                if (power.size() >= MAX_CELLS) { capped = true; break; }
                 power.put(neighbor, 0);
-                queue.add(neighbor);
+                cells.add(neighbor);
             }
-        }
-        if (capped) {
-            LOGGER.warning("Staub-Netz bei (" + ox + ", " + oy + ", " + oz + ") überschreitet "
-                    + MAX_CELLS + " Zellen — Rest bleibt bis zum nächsten Weckruf unverändert");
         }
 
         /* 2) Externe Quellen je Zelle + Relaxation als Bucket-BFS von 15 abwärts. */
-        @SuppressWarnings("unchecked")
-        ArrayDeque<Long>[] buckets = new ArrayDeque[16];
-        for (int i = 0; i <= 15; i++) buckets[i] = new ArrayDeque<>();
-        for (Map.Entry<Long, Integer> e : power.entrySet()) {
-            long cell = e.getKey();
+        LongBuffer[] buckets = new LongBuffer[16];
+        for (int i = 0; i <= 15; i++) buckets[i] = new LongBuffer(16);
+        for (int i = 0; i < cells.size(); i++) {
+            long cell = cells.get(i);
             int extern = RedstonePower.receivedPowerIgnoringWire(world,
                     BlockPos.unpackX(cell), BlockPos.unpackY(cell), BlockPos.unpackZ(cell));
-            e.setValue(extern);
+            power.put(cell, extern);
             if (extern > 0) buckets[extern].add(cell);
         }
         for (int level = 15; level > 1; level--) {
-            ArrayDeque<Long> bucket = buckets[level];
-            while (!bucket.isEmpty()) {
-                long cell = bucket.poll();
-                if (power.get(cell) != level) continue;   // veralteter Eintrag
+            LongBuffer bucket = buckets[level];
+            for (int cursor = 0; cursor < bucket.size(); cursor++) {
+                long cell = bucket.get(cursor);
+                if (power.getOrDefault(cell, -1) != level) continue;   // veralteter Eintrag
                 int cx = BlockPos.unpackX(cell), cy = BlockPos.unpackY(cell), cz = BlockPos.unpackZ(cell);
-                for (long neighbor : wireNeighbors(world, cx, cy, cz)) {
+                wireNeighbors(world, cx, cy, cz, neighbors);
+                for (long neighbor : neighbors) {
                     if (neighbor == Long.MIN_VALUE) continue;
-                    Integer current = power.get(neighbor);
-                    if (current == null || current >= level - 1) continue;   // nicht in der Komponente / schon heller
+                    int current = power.getOrDefault(neighbor, -1);
+                    if (current < 0 || current >= level - 1) continue;   // nicht im Netz / schon heller
                     power.put(neighbor, level - 1);
                     buckets[level - 1].add(neighbor);
                 }
@@ -111,27 +96,20 @@ public final class RedstoneWireNetwork {
         }
 
         /* 3) Verbindungsform + neuen State je Zelle schreiben (Einfüge- = BFS-Reihenfolge). */
-        List<Long> changed = new ArrayList<>();
-        for (Map.Entry<Long, Integer> e : power.entrySet()) {
-            long cell = e.getKey();
+        LongBuffer changed = new LongBuffer(Math.min(1024, cells.size()));
+        for (int i = 0; i < cells.size(); i++) {
+            long cell = cells.get(i);
             int cx = BlockPos.unpackX(cell), cy = BlockPos.unpackY(cell), cz = BlockPos.unpackZ(cell);
             BlockState current = Blocks.getState(world.getBlock(cx, cy, cz));
-            if (!RedstonePower.isWire(current)) continue;   // Rennen mit einem Abbau — Zelle überspringen
+            if (!RedstonePower.isWire(current)) continue;
 
             RedstoneSide n = sideShape(world, cx, cy, cz, Direction.NORTH);
             RedstoneSide east = sideShape(world, cx, cy, cz, Direction.EAST);
             RedstoneSide s = sideShape(world, cx, cy, cz, Direction.SOUTH);
             RedstoneSide w = sideShape(world, cx, cy, cz, Direction.WEST);
-            /* MC-Normalisierung (RedStoneWireBlock.getConnectionState, gegen 26.2 verifiziert):
-               eine einzelne Verbindung wird zur durchgehenden Linie (Gegenseite als SIDE
-               aufgefüllt), ein Staub ohne jede Verbindung wird zum KREUZ und speist damit alle
-               vier Nachbarn.
-
-               Die Punkt-Form überlebt nur, wenn der Staub schon vorher ein Punkt war — Vanillas
-               `if (wasDot && isDot(neu)) return neu;`. Genau daran hing der Unterschied: die
-               frühere Abkürzung „nur auffüllen, wenn es überhaupt eine Verbindung gibt" liess
-               jeden isolierten Staub zum Punkt kollabieren, und ein Punkt speist horizontal
-               nichts. Punkt und Kreuz sind reine Property-Kombinationen, keine eigene Property. */
+            /* MC-Normalisierung: eine einzelne Verbindung wird zur durchgehenden Linie,
+               ein verbindungsloser Staub zum Kreuz. Nur ein bewusst gesetzter Punkt bleibt
+               ohne Verbindungen ein Punkt. */
             boolean cn = n.isConnected(), ce = east.isConnected(), cs = s.isConnected(), cw = w.isConnected();
             if (!(isDot(current) && !cn && !ce && !cs && !cw)) {
                 boolean noNS = !cn && !cs, noEW = !ce && !cw;
@@ -146,39 +124,37 @@ public final class RedstoneWireNetwork {
                     .with(Properties.WIRE_EAST, east)
                     .with(Properties.WIRE_SOUTH, s)
                     .with(Properties.WIRE_WEST, w)
-                    .with(Properties.POWER, e.getValue());
+                    .with(Properties.POWER, power.getOrDefault(cell, 0));
             if (updated != current) {
                 world.setBlock(cx, cy, cz, updated.getId(), false);
                 changed.add(cell);
             }
         }
 
-        /* 4) Empfänger EINMAL benachrichtigen. Reichweite wie MCs
-           RedStoneWireBlock.updatePowerStrength: dort wird der 6-Ring nicht nur um die geänderte
-           Zelle gefeuert, sondern auch um JEDEN ihrer 6 Nachbarn — die Vereinigung ist ein
-           Diamant mit Radius 2. Der frühere Sonderfall „zusätzlich der Ring um stark gespeiste
-           OPAKE Ziele" ist darin vollständig enthalten (solche Ziele sind direkte Nachbarn) und
-           entfällt deshalb; die Opazitäts-Bedingung war zugleich der Grund, warum ein Kolben,
-           der über Quasi-Konnektivität an einer LUFT-Zelle hängt, nie geweckt wurde.
-           Staub-Zellen sind ausgenommen (direkte Netz-Nachbarn sind Teil der Komponente und
-           schon konsistent). */
-        LinkedHashSet<Long> notify = new LinkedHashSet<>();
-        for (long cell : changed) {
+        /* 4) Empfänger EINMAL in stabiler Einfügereihenfolge benachrichtigen. Der Ring um
+           jede geänderte Zelle und deren sechs Nachbarn ergibt den MC-Radius-2-Diamanten;
+           Staub selbst ist schon durch den vollständigen Netz-Fixpunkt konsistent. */
+        LongIntMap notifySet = new LongIntMap(Math.max(16, changed.size() * 8));
+        LongBuffer notify = new LongBuffer(Math.max(16, changed.size() * 8));
+        for (int i = 0; i < changed.size(); i++) {
+            long cell = changed.get(i);
             int cx = BlockPos.unpackX(cell), cy = BlockPos.unpackY(cell), cz = BlockPos.unpackZ(cell);
-            addRing(notify, cx, cy, cz);
+            addRing(notifySet, notify, cx, cy, cz);
             for (Direction d : Direction.values()) {
-                addRing(notify, cx + d.offsetX(), cy + d.offsetY(), cz + d.offsetZ());
+                addRing(notifySet, notify,
+                        cx + d.offsetX(), cy + d.offsetY(), cz + d.offsetZ());
             }
         }
         int receivers = 0;
-        for (long pos : notify) {
+        for (int i = 0; i < notify.size(); i++) {
+            long pos = notify.get(i);
             int nx = BlockPos.unpackX(pos), ny = BlockPos.unpackY(pos), nz = BlockPos.unpackZ(pos);
             if (RedstonePower.isWire(Blocks.getState(world.getBlock(nx, ny, nz)))) continue;
             world.updateBlockStateAt(nx, ny, nz);
             receivers++;
         }
         world.getSimulationTelemetry().recordWireSolve(telemetryStart, ox, oy, oz,
-                power.size(), changed.size(), receivers, capped);
+                power.size(), changed.size(), receivers, false);
     }
 
     /** Punkt-Form: keine einzige Seite verbunden (speist horizontal nichts). */
@@ -214,9 +190,12 @@ public final class RedstoneWireNetwork {
     }
 
     /** Die 6 direkten Nachbarn von (x,y,z) in die Empfänger-Menge legen. */
-    private static void addRing(LinkedHashSet<Long> notify, int x, int y, int z) {
+    private static void addRing(LongIntMap notifySet, LongBuffer notify, int x, int y, int z) {
         for (Direction d : Direction.values()) {
-            notify.add(BlockPos.asLong(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ()));
+            long pos = BlockPos.asLong(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ());
+            if (notifySet.containsKey(pos)) continue;
+            notifySet.put(pos, 1);
+            notify.add(pos);
         }
     }
 
@@ -226,8 +205,7 @@ public final class RedstoneWireNetwork {
      * Kletterregel) und −1-Diagonale (nur wenn die Nachbarzelle selbst nicht opak ist).
      * {@code Long.MIN_VALUE} = kein Draht an der Stelle.
      */
-    private static long[] wireNeighbors(World world, int x, int y, int z) {
-        long[] out = new long[12];
+    private static void wireNeighbors(World world, int x, int y, int z, long[] out) {
         boolean aboveOpen = !Blocks.getState(world.getBlock(x, y + 1, z)).isOpaqueCube();
         int i = 0;
         for (Direction d : Direction.horizontalValues()) {
@@ -237,7 +215,31 @@ public final class RedstoneWireNetwork {
             boolean sideOpen = !Blocks.getState(world.getBlock(nx, y, nz)).isOpaqueCube();
             out[i++] = sideOpen ? wireAt(world, nx, y - 1, nz) : Long.MIN_VALUE;
         }
-        return out;
+    }
+
+    /** Primitive, wachsender Puffer; bewahrt die deterministische BFS-/Benachrichtigungsfolge. */
+    private static final class LongBuffer {
+        private long[] values;
+        private int size;
+
+        LongBuffer(int initialCapacity) {
+            this.values = new long[Math.max(1, initialCapacity)];
+        }
+
+        void add(long value) {
+            if (this.size == this.values.length) {
+                this.values = Arrays.copyOf(this.values, this.values.length << 1);
+            }
+            this.values[this.size++] = value;
+        }
+
+        long get(int index) {
+            return this.values[index];
+        }
+
+        int size() {
+            return this.size;
+        }
     }
 
     private static long wireAt(World world, int x, int y, int z) {
