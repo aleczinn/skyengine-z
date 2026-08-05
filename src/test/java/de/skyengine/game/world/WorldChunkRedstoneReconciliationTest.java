@@ -8,6 +8,8 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.game.world.redstone.RedstoneWireNetwork;
+import de.skyengine.game.world.save.ChunkSerializer;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.test.BlocksTestBootstrap;
 import org.junit.jupiter.api.BeforeAll;
@@ -15,9 +17,11 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -75,6 +79,83 @@ final class WorldChunkRedstoneReconciliationTest {
         assertEquals(0, Blocks.getState(west.getBlock(ChunkSection.MASK, 64, 8))
                 .get(Properties.POWER));
         assertEquals(0, west.pendingRedstoneBoundaryMask);
+    }
+
+    @Test
+    void largePersistedWireMatrixRecoversAfterPartialUnloadAndRestart() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk west = readyChunk(0, 0);
+        Chunk east = readyChunk(1, 0);
+        world.install(west);
+        world.install(east);
+        west.loadSeeded = true;
+        east.loadSeeded = true;
+
+        int wire = id("skyengine:redstone_wire[east=none,north=none,power=0,south=none,west=none]");
+        int redstoneBlock = id("skyengine:redstone_block");
+        int width = ChunkSection.SIZE + 8;
+        for (int z = 0; z < ChunkSection.SIZE; z++) {
+            for (int x = 0; x < width; x++) {
+                Chunk chunk = x < ChunkSection.SIZE ? west : east;
+                chunk.setBlock(x & ChunkSection.MASK, 64, z, wire);
+            }
+            /* Eine Quellenlinie an der Naht speist auch die acht Spalten im Ostchunk. */
+            west.setBlock(ChunkSection.MASK, 63, z, redstoneBlock);
+        }
+        RedstoneWireNetwork.update(world, 0, 64, 0);
+        assertTrue(Blocks.getState(world.getBlock(width - 1, 64, ChunkSection.MASK))
+                .get(Properties.POWER) > 0);
+
+        int[] stable = captureMatrix(world, width);
+        byte[] westPayload = serialize(west);
+        byte[] eastPayload = serialize(east);
+
+        /* Partiell geladen: ohne den Quellen-Chunk muss die verbleibende Komponente ausgehen. */
+        world.unload(west);
+        world.processUnloadedChunkBoundaries();
+        for (int z = 0; z < ChunkSection.SIZE; z++) {
+            for (int x = ChunkSection.SIZE; x < width; x++) {
+                assertEquals(0, Blocks.getState(world.getBlock(x, 64, z)).get(Properties.POWER));
+            }
+        }
+
+        /* Derselbe Chunk kommt aus seinem Save zurück; READY-Publish muss die ganze Matrix heilen. */
+        Chunk restoredWest = deserialize(0, 0, westPayload, world);
+        world.install(restoredWest);
+        world.manager.requeueReadyAnnounce(restoredWest);
+        world.processReadyChunks();
+        assertArrayEquals(stable, captureMatrix(world, width));
+
+        /* Vollständiger Neustart: beide Seiten aus Payloads, Meldung absichtlich in Gegenrichtung. */
+        TestWorld restarted = new TestWorld();
+        Chunk restartedWest = deserialize(0, 0, westPayload, restarted);
+        Chunk restartedEast = deserialize(1, 0, eastPayload, restarted);
+        restarted.install(restartedWest);
+        restarted.install(restartedEast);
+        restarted.manager.requeueReadyAnnounce(restartedEast);
+        restarted.manager.requeueReadyAnnounce(restartedWest);
+        restarted.processReadyChunks();
+        assertArrayEquals(stable, captureMatrix(restarted, width));
+    }
+
+    private static byte[] serialize(Chunk chunk) {
+        return ChunkSerializer.serialize(chunk, "test", 1, false, List.of(), List.of());
+    }
+
+    private static Chunk deserialize(int chunkX, int chunkZ, byte[] payload, World world) throws Exception {
+        Chunk chunk = new Chunk(chunkX, chunkZ);
+        ChunkSerializer.deserialize(chunk, payload, world);
+        chunk.status = ChunkStatus.READY;
+        return chunk;
+    }
+
+    private static int[] captureMatrix(World world, int width) {
+        int[] states = new int[width * ChunkSection.SIZE];
+        int i = 0;
+        for (int z = 0; z < ChunkSection.SIZE; z++) {
+            for (int x = 0; x < width; x++) states[i++] = world.getBlock(x, 64, z);
+        }
+        return states;
     }
 
     private static Chunk readyChunk(int x, int z) {
