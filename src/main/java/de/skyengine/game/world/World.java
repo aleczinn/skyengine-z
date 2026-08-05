@@ -164,6 +164,8 @@ public class World implements IInitializable, IDisposable {
 
     /** Verzögerung, mit der geplante Ticks außerhalb der Simulations-Distanz erneut vorgemerkt werden. */
     private static final int OUT_OF_SIM_RESCHEDULE = 20;
+    /** Notfallbudget gegen einen einzelnen Tick mit massenhaft gleichzeitig fälligen Block-Ticks. */
+    private static final int MAX_SCHEDULED_TICKS_PER_TICK = 4096;
 
     /** Nur Chunks in diesem Radius (in Chunks) um den Spieler ticken (Random/Scheduled/Entities). */
     private int simulationDistance = 10;
@@ -829,32 +831,33 @@ public class World implements IInitializable, IDisposable {
      * entladene Position.</p>
      */
     private void tickScheduled() {
-        this.scheduledTicks.drainDue(this.gameTime, (x, y, z, expectedBlock, priority, subOrder) -> {
-            this.simulationTelemetry.recordScheduledDue();
-            int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
-            Chunk chunk = this.chunkManager.getChunk(cx, cz);
-            if (chunk == null) {
-                this.simulationTelemetry.recordScheduledDroppedUnloaded();
-                return;
-            }
-            if (chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
-                this.scheduledTicks.scheduleRestored(x, y, z, expectedBlock,
-                        this.gameTime + OUT_OF_SIM_RESCHEDULE, priority, subOrder);
-                this.simulationTelemetry.recordScheduledRescheduled();
-                return;
-            }
-            BlockState state = Blocks.getState(this.getBlock(x, y, z));
-            if (!state.getBlock().getIdentifier().equals(expectedBlock)) {
-                this.simulationTelemetry.recordScheduledSkippedWrongBlock();
-                return;
-            }
-            if (state.isAir()) {
-                this.simulationTelemetry.recordScheduledSkippedAir();
-                return;
-            }
-            this.simulationTelemetry.recordScheduledExecuted();
-            state.getBlock().scheduledTick(this, x, y, z, state);
-        });
+        this.scheduledTicks.drainDue(this.gameTime, MAX_SCHEDULED_TICKS_PER_TICK,
+                (x, y, z, expectedBlock, priority, subOrder) -> {
+                    this.simulationTelemetry.recordScheduledDue();
+                    int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+                    Chunk chunk = this.chunkManager.getChunk(cx, cz);
+                    if (chunk == null) {
+                        this.simulationTelemetry.recordScheduledDroppedUnloaded();
+                        return;
+                    }
+                    if (chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
+                        this.scheduledTicks.scheduleRestored(x, y, z, expectedBlock,
+                                this.gameTime + OUT_OF_SIM_RESCHEDULE, priority, subOrder);
+                        this.simulationTelemetry.recordScheduledRescheduled();
+                        return;
+                    }
+                    BlockState state = Blocks.getState(this.getBlock(x, y, z));
+                    if (!state.getBlock().getIdentifier().equals(expectedBlock)) {
+                        this.simulationTelemetry.recordScheduledSkippedWrongBlock();
+                        return;
+                    }
+                    if (state.isAir()) {
+                        this.simulationTelemetry.recordScheduledSkippedAir();
+                        return;
+                    }
+                    this.simulationTelemetry.recordScheduledExecuted();
+                    state.getBlock().scheduledTick(this, x, y, z, state);
+                });
     }
 
     /**

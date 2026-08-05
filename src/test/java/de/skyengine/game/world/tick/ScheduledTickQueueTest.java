@@ -117,4 +117,37 @@ final class ScheduledTickQueueTest {
         queue.drainDue(10, (x, y, z, block, priority, order) -> due.add(x));
         assertEquals(List.of(1, 1), due);
     }
+
+    @Test
+    void repeatedEarlierSchedulingCompactsSupersededFarFutureEntries() {
+        ScheduledTickQueue queue = new ScheduledTickQueue();
+        queue.schedule(1, 64, 1, STONE, 10_000);
+
+        for (int trigger = 9_999; trigger >= 1; trigger--) {
+            assertTrue(queue.scheduleEarlier(1, 64, 1, STONE, trigger));
+        }
+
+        /* Ein logischer Tick plus höchstens der kleine Kompaktierungs-Slack, nicht 10.000. */
+        assertTrue(queue.size() <= 257, "Physische Queue zu groß: " + queue.size());
+        List<Integer> fired = new ArrayList<>();
+        queue.drainDue(1, (x, y, z, block, priority, order) -> fired.add(x));
+        assertEquals(List.of(1), fired);
+    }
+
+    @Test
+    void boundedDrainKeepsDeterministicRemainderForFollowingTicks() {
+        ScheduledTickQueue queue = new ScheduledTickQueue();
+        for (int x = 0; x < 10; x++) queue.schedule(x, 64, 0, STONE, 1);
+
+        List<Integer> fired = new ArrayList<>();
+        assertEquals(4, queue.drainDue(1, 4,
+                (x, y, z, block, priority, order) -> fired.add(x)));
+        assertEquals(List.of(0, 1, 2, 3), fired);
+
+        assertEquals(4, queue.drainDue(1, 4,
+                (x, y, z, block, priority, order) -> fired.add(x)));
+        assertEquals(2, queue.drainDue(1, 4,
+                (x, y, z, block, priority, order) -> fired.add(x)));
+        assertEquals(List.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), fired);
+    }
 }

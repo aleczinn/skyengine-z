@@ -15,6 +15,9 @@ import java.util.PriorityQueue;
  */
 public final class ScheduledTickQueue {
 
+    /** Kleine Queues werden nicht wegen einzelner veralteter Vorzieh-Einträge neu geheapified. */
+    private static final int STALE_COMPACTION_SLACK = 256;
+
     @FunctionalInterface
     public interface DueConsumer {
         void run(int x, int y, int z, Identifier expectedBlock, int priority, long subOrder);
@@ -73,6 +76,7 @@ public final class ScheduledTickQueue {
     private long sequenceCounter;
     private long subOrderCounter;
     private long revision;
+    private int logicalSize;
 
     public boolean schedule(int x, int y, int z, Identifier expectedBlock, long triggerTime) {
         return this.schedule(x, y, z, expectedBlock, triggerTime, 0);
@@ -115,11 +119,14 @@ public final class ScheduledTickQueue {
     private boolean add(TypeIndex index, int x, int y, int z, Identifier expectedBlock,
                         long triggerTime, int priority, long subOrder) {
         long position = BlockPos.asLong(x, y, z);
+        boolean replacing = index.times.containsKey(position);
         long sequence = this.sequenceCounter++;
         index.times.put(position, triggerTime);
         index.sequences.put(position, sequence);
         this.queue.add(new Entry(x, y, z, expectedBlock, triggerTime, priority, subOrder, sequence));
+        if (!replacing) this.logicalSize++;
         this.revision++;
+        this.compactStaleEntriesIfNeeded();
         return true;
     }
 
@@ -130,9 +137,21 @@ public final class ScheduledTickQueue {
 
     /** Neu eingeplante Ticks aus dem Consumer laufen erst im naechsten Drain. */
     public void drainDue(long now, DueConsumer consumer) {
+        this.drainDue(now, Integer.MAX_VALUE, consumer);
+    }
+
+    /**
+     * Wie {@link #drainDue(long, DueConsumer)}, aber mit einem Deckel für logisch fällige Ticks.
+     * Veraltete Queue-Einträge zählen nicht gegen das Budget.
+     *
+     * @return Anzahl an den Consumer übergebener Ticks
+     */
+    public int drainDue(long now, int maxTicks, DueConsumer consumer) {
+        if (maxTicks < 0) throw new IllegalArgumentException("Negatives Tick-Budget: " + maxTicks);
         long cutoff = this.sequenceCounter;
+        int drained = 0;
         Entry entry;
-        while ((entry = this.queue.peek()) != null
+        while (drained < maxTicks && (entry = this.queue.peek()) != null
                 && entry.triggerTime <= now && entry.sequence < cutoff) {
             this.queue.poll();
             TypeIndex index = this.scheduled.get(entry.expectedBlock);
@@ -143,9 +162,23 @@ public final class ScheduledTickQueue {
             index.times.remove(entry.position);
             index.sequences.remove(entry.position);
             if (index.times.isEmpty()) this.scheduled.remove(entry.expectedBlock);
+            this.logicalSize--;
             this.revision++;
             consumer.run(entry.x, entry.y, entry.z, entry.expectedBlock, entry.priority, entry.subOrder);
+            drained++;
         }
+        return drained;
+    }
+
+    /** Entfernt ersetzte Fern-Ticks, bevor ihre alte Zielzeit die PriorityQueue erreicht. */
+    private void compactStaleEntriesIfNeeded() {
+        if (this.queue.size() <= this.logicalSize * 2 + STALE_COMPACTION_SLACK) return;
+        this.queue.removeIf(entry -> {
+            TypeIndex index = this.scheduled.get(entry.expectedBlock);
+            return index == null
+                    || index.times.getOrDefault(entry.position, NO_VALUE) != entry.triggerTime
+                    || index.sequences.getOrDefault(entry.position, NO_VALUE) != entry.sequence;
+        });
     }
 
     /** Meldet nur die jeweils massgeblichen Eintraege; Reihenfolge ist unspezifiziert. */
