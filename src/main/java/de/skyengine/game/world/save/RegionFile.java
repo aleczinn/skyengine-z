@@ -49,9 +49,6 @@ public final class RegionFile implements AutoCloseable {
     private static final byte COMPRESSION_DEFLATE = 1;
     /* Obergrenze der Sektoranzahl pro Chunk (8 Bit im Header-Eintrag). */
     private static final int MAX_SECTORS_PER_CHUNK = 255;
-    /* Sanity-Deckel gegen korrupte Längenfelder (Chunk-Payload roh ist real < 20 MB). */
-    private static final int MAX_RAW_LENGTH = 64 * 1024 * 1024;
-
     private final RandomAccessFile file;
     private final int[] entries = new int[CHUNK_ENTRIES];
     /* Belegte Sektoren, beim Öffnen aus dem Header abgeleitet (Sektor 0 = Header selbst). */
@@ -140,7 +137,7 @@ public final class RegionFile implements AutoCloseable {
             throw new IOException("Korruptes Längenfeld (compressed=" + compressedLength
                     + ", Sektoren=" + sectorCount + ")");
         }
-        if (rawLength <= 0 || rawLength > MAX_RAW_LENGTH) {
+        if (rawLength <= 0 || rawLength > ChunkSerializer.MAX_RAW_LENGTH) {
             throw new IOException("Korruptes Längenfeld (raw=" + rawLength + ")");
         }
         if (compression != COMPRESSION_DEFLATE) {

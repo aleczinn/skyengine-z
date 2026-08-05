@@ -77,6 +77,8 @@ public final class ChunkSerializer {
     private static final byte SECTION_BITS = 2;
 
     private static final int TINT_GRID_SIZE = 33 * 33;
+    /** Gemeinsamer Dekompressionsdeckel für RegionFile und direkte Werkzeug-Aufrufe. */
+    static final int MAX_RAW_LENGTH = 64 * 1024 * 1024;
 
     /* Einmal-pro-String-Warnung über alle Chunks hinweg (sonst Log-Flut bei großen Welten). */
     private static final Set<String> warnedStates = ConcurrentHashMap.newKeySet();
@@ -297,7 +299,15 @@ public final class ChunkSerializer {
                         throw new IOException("Ungültige Bitbreite " + bitsPerEntry);
                     }
                     int nonAir = in.readInt();
+                    if (nonAir < 0 || nonAir > ChunkSection.VOLUME) {
+                        throw new IOException("Ungültige Non-Air-Anzahl " + nonAir);
+                    }
                     int longCount = in.readInt();
+                    int expectedLongCount = (int) (((long) ChunkSection.VOLUME * bitsPerEntry + 63) / 64);
+                    if (longCount != expectedLongCount) {
+                        throw new IOException("Ungültige BitStorage-Länge " + longCount
+                                + " statt " + expectedLongCount);
+                    }
                     long[] data = new long[longCount];
                     for (int i = 0; i < longCount; i++) data[i] = in.readLong();
 
@@ -329,6 +339,9 @@ public final class ChunkSerializer {
 
         /* BlockEntities. */
         int beCount = in.readInt();
+        if (beCount < 0 || beCount > ChunkSection.VOLUME * Chunk.SECTIONS) {
+            throw new IOException("Ungültige BlockEntity-Anzahl " + beCount);
+        }
         for (int i = 0; i < beCount; i++) {
             int packed = in.readInt();
             String typeId = in.readUTF();
@@ -437,6 +450,9 @@ public final class ChunkSerializer {
     }
 
     public static byte[] decompress(byte[] compressed, int rawLength) throws IOException {
+        if (rawLength <= 0 || rawLength > MAX_RAW_LENGTH) {
+            throw new IOException("Ungültige Dekompressionsgröße " + rawLength);
+        }
         Inflater inflater = new Inflater();
         try {
             inflater.setInput(compressed);

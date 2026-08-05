@@ -9,12 +9,15 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class ChunkSerializerTest {
 
@@ -73,5 +76,63 @@ final class ChunkSerializerTest {
         assertEquals(5, tick.remainingTicks());
         assertEquals(0, tick.priority());
         assertEquals(0, tick.subOrder());
+    }
+
+    @Test
+    void corruptCollectionLengthsFailBeforeAllocationOrIteration() throws Exception {
+        assertThrows(IOException.class, () -> ChunkSerializer.deserialize(
+                new Chunk(0, 0), payloadWithLongCount(Integer.MAX_VALUE), null));
+        assertThrows(IOException.class, () -> ChunkSerializer.deserialize(
+                new Chunk(0, 0), payloadWithBlockEntityCount(-1), null));
+        assertThrows(IOException.class, () -> ChunkSerializer.decompress(
+                new byte[]{1}, 64 * 1024 * 1024 + 1));
+    }
+
+    @Test
+    void excessiveDataTagNestingFailsAsIOException() throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            for (int i = 0; i < 65; i++) {
+                out.writeByte(6); // TYPE_TAG
+                out.writeUTF("nested");
+            }
+            for (int i = 0; i <= 65; i++) out.writeByte(0); // TYPE_END
+        }
+
+        assertThrows(IOException.class, () -> DataTagIO.read(
+                new DataInputStream(new java.io.ByteArrayInputStream(bytes.toByteArray()))));
+    }
+
+    private static byte[] payloadWithLongCount(int longCount) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            writeHeader(out, 1);
+            out.writeUTF("skyengine:stone");
+            out.writeByte(2); // SECTION_BITS
+            out.writeInt(1);
+            out.writeInt(0);
+            out.writeByte(1);
+            out.writeInt(1);
+            out.writeInt(longCount);
+        }
+        return bytes.toByteArray();
+    }
+
+    private static byte[] payloadWithBlockEntityCount(int beCount) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            writeHeader(out, 0);
+            for (int section = 0; section < Chunk.SECTIONS; section++) out.writeByte(0);
+            out.writeByte(0);
+            out.writeInt(beCount);
+        }
+        return bytes.toByteArray();
+    }
+
+    private static void writeHeader(DataOutputStream out, int paletteCount) throws IOException {
+        out.writeByte(ChunkSerializer.PAYLOAD_VERSION);
+        out.writeUTF("test");
+        out.writeInt(1);
+        out.writeInt(paletteCount);
     }
 }
