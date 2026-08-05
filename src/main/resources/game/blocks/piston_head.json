@@ -1,0 +1,51 @@
+{
+  "_comment": "Kolben-Kopf (technisch, kein Item): existiert nur vor einer ausgefahrenen Basis. piston_reaction=block, damit kein fremder Kolben den Arm wegschiebt. short = Render-Variante ohne Arm-Ueberstand (Animation in Basisnaehe); der materialisierte Kopf ist immer short=false.",
+  "id": "skyengine:piston_head",
+  "archetype": "piston_head",
+  "no_item": true,
+  "opaque": false,
+  "solid": false,
+  "no_lod_surface": true,
+  "hardness": 1.5,
+  "sound": "stone",
+  "piston_reaction": "block",
+  "models": {
+    "": "block/template_piston_head",
+    "_sticky": "block/template_piston_head_sticky",
+    "_short": "block/template_piston_head_short",
+    "_short_sticky": "block/template_piston_head_short_sticky"
+  },
+  "textures": {
+    "platform": "game/textures/block/piston_top.png",
+    "platform_sticky": "game/textures/block/piston_top_sticky.png",
+    "side": "game/textures/block/piston_side.png",
+    "unsticky": "game/textures/block/piston_top.png"
+  },
+  "variants": {
+    "facing=north,short=false,type=normal": { "model": "block/${id}" },
+    "facing=east,short=false,type=normal":  { "model": "block/${id}", "y": 90 },
+    "facing=south,short=false,type=normal": { "model": "block/${id}", "y": 180 },
+    "facing=west,short=false,type=normal":  { "model": "block/${id}", "y": 270 },
+    "facing=up,short=false,type=normal":    { "model": "block/${id}", "x": 270 },
+    "facing=down,short=false,type=normal":  { "model": "block/${id}", "x": 90 },
+    "facing=north,short=false,type=sticky": { "model": "block/${id}_sticky" },
+    "facing=east,short=false,type=sticky":  { "model": "block/${id}_sticky", "y": 90 },
+    "facing=south,short=false,type=sticky": { "model": "block/${id}_sticky", "y": 180 },
+    "facing=west,short=false,type=sticky":  { "model": "block/${id}_sticky", "y": 270 },
+    "facing=up,short=false,type=sticky":    { "model": "block/${id}_sticky", "x": 270 },
+    "facing=down,short=false,type=sticky":  { "model": "block/${id}_sticky", "x": 90 },
+
+    "facing=north,short=true,type=normal": { "model": "block/${id}_short" },
+    "facing=east,short=true,type=normal":  { "model": "block/${id}_short", "y": 90 },
+    "facing=south,short=true,type=normal": { "model": "block/${id}_short", "y": 180 },
+    "facing=west,short=true,type=normal":  { "model": "block/${id}_short", "y": 270 },
+    "facing=up,short=true,type=normal":    { "model": "block/${id}_short", "x": 270 },
+    "facing=down,short=true,type=normal":  { "model": "block/${id}_short", "x": 90 },
+    "facing=north,short=true,type=sticky": { "model": "block/${id}_short_sticky" },
+    "facing=east,short=true,type=sticky":  { "model": "block/${id}_short_sticky", "y": 90 },
+    "facing=south,short=true,type=sticky": { "model": "block/${id}_short_sticky", "y": 180 },
+    "facing=west,short=true,type=sticky":  { "model": "block/${id}_short_sticky", "y": 270 },
+    "facing=up,short=true,type=sticky":    { "model": "block/${id}_short_sticky", "x": 270 },
+    "facing=down,short=true,type=sticky":  { "model": "block/${id}_short_sticky", "x": 90 }
+  }
+}

@@ -16,13 +16,23 @@ import de.skyengine.game.world.item.json.ItemLoader;
  */
 public final class Items {
 
+    /**
+     * Rückwärts-Zuordnung Block → platzierendes Item für Blöcke OHNE Auto-BlockItem
+     * ({@code no_item} + fremdes Item mit {@code places_block}). Gefüllt vom
+     * {@link ItemLoader}; Abfrage über {@link #forBlock}.
+     */
+    private static final java.util.Map<Identifier, Item> PLACER_BY_BLOCK = new java.util.HashMap<>();
+
     public static void bootstrap() {
+        PLACER_BY_BLOCK.clear();
         for (Block block : Registries.BLOCK.values()) {
             if (block.isAir()) continue;
             /* Fluids (Wasser/Lava) bekommen kein Block-Item — sie werden nur über Eimer gehandhabt. */
             if (block.isFluid()) continue;
             Identifier id = block.getIdentifier();
-            if (!Registries.ITEM.contains(id)) {
+            /* no_item: ein Material-Item mit places_block übernimmt (Redstone-Staub) —
+               nur die Registrierung überspringen, die Icon-Anmeldung unten bleibt. */
+            if (!block.hasNoItem() && !Registries.ITEM.contains(id)) {
                 Registries.ITEM.register(id, new BlockItem(block));
             }
 
@@ -57,6 +67,17 @@ public final class Items {
         registerBucket("skyengine:bucket", null, "game/textures/item/bucket.png", 16);
         registerBucket("skyengine:water_bucket", water, "game/textures/item/water_bucket.png", 1);
         registerBucket("skyengine:lava_bucket", lava, "game/textures/item/lava_bucket.png", 1);
+
+        /* Feuerzeug: einziger Zünder für TNT (s. GameContainer). Textur wie oben vor dem
+           TextureArray-Bau anmelden, sonst zeigt das Icon auf einen Layer außerhalb des Arrays. */
+        Identifier flintAndSteel = Identifier.of("skyengine:flint_and_steel");
+        String flintAndSteelTexture = "game/textures/item/flint_and_steel.png";
+        if (!Registries.ITEM.contains(flintAndSteel)) {
+            Registries.ITEM.register(flintAndSteel,
+                    new FlintAndSteelItem(flintAndSteel, flintAndSteelTexture));
+        }
+        CreativeTabs.assign(flintAndSteel, "tools");
+        BlockTextures.layerOf(flintAndSteelTexture);
 
         /* Essen (MC-Werte: nutrition in Halb-Icons, saturation). */
         registerFood("skyengine:apple", 4, 2.4F, "game/textures/item/apple.png");
@@ -94,6 +115,22 @@ public final class Items {
 
     public static Item get(Identifier id) {
         return Registries.ITEM.get(id);
+    }
+
+    /** Merkt das platzierende Item eines no_item-Blocks vor (Aufrufer: ItemLoader). */
+    public static void registerPlacer(Identifier blockId, Item item) {
+        PLACER_BY_BLOCK.putIfAbsent(blockId, item);
+    }
+
+    /**
+     * Das Item zu einem Block — für Drops und Pick-Block. Normalfall ist das gleichnamige
+     * Auto-BlockItem; für no_item-Blöcke (Staub) löst die places_block-Rückwärts-Zuordnung
+     * auf. null, wenn es keins gibt (dann droppt nichts, wie bisher).
+     */
+    public static Item forBlock(Block block) {
+        Item placer = PLACER_BY_BLOCK.get(block.getIdentifier());
+        if (placer != null) return placer;
+        return Registries.ITEM.get(block.getIdentifier());
     }
 
     private Items() {}

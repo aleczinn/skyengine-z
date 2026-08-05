@@ -1,0 +1,36 @@
+{
+  "_comment": "Kolben-Basis. Varianten verbatim aus MC 26.2 (Stirn zeigt im Modell nach Norden; up=x270, down=x90). MC-Werte: Haerte 1.5.",
+  "id": "skyengine:piston",
+  "creative_tab": "redstone_blocks",
+  "archetype": "piston",
+  "hardness": 1.5,
+  "light_opacity": 15,
+  "sound": "stone",
+  "models": {
+    "": "block/template_piston",
+    "_base": "block/template_piston_base",
+    "_inventory": "block/cube_bottom_top"
+  },
+  "inventory_model": "block/${id}_inventory",
+  "textures": {
+    "platform": "game/textures/block/piston_top.png",
+    "bottom": "game/textures/block/piston_bottom.png",
+    "side": "game/textures/block/piston_side.png",
+    "inside": "game/textures/block/piston_inner.png",
+    "top": "game/textures/block/piston_top.png"
+  },
+  "variants": {
+    "extended=false,facing=north": { "model": "block/${id}" },
+    "extended=false,facing=east":  { "model": "block/${id}", "y": 90 },
+    "extended=false,facing=south": { "model": "block/${id}", "y": 180 },
+    "extended=false,facing=west":  { "model": "block/${id}", "y": 270 },
+    "extended=false,facing=up":    { "model": "block/${id}", "x": 270 },
+    "extended=false,facing=down":  { "model": "block/${id}", "x": 90 },
+    "extended=true,facing=north":  { "model": "block/${id}_base" },
+    "extended=true,facing=east":   { "model": "block/${id}_base", "y": 90 },
+    "extended=true,facing=south":  { "model": "block/${id}_base", "y": 180 },
+    "extended=true,facing=west":   { "model": "block/${id}_base", "y": 270 },
+    "extended=true,facing=up":     { "model": "block/${id}_base", "x": 270 },
+    "extended=true,facing=down":   { "model": "block/${id}_base", "x": 90 }
+  }
+}

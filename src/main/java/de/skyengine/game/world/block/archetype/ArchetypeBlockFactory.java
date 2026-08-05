@@ -6,6 +6,7 @@ import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.Tints;
+import de.skyengine.game.world.block.behavior.ConstantPowerBehavior;
 import de.skyengine.game.world.block.behavior.ExplosionBehavior;
 import de.skyengine.game.world.block.behavior.GravityBehavior;
 import de.skyengine.game.world.block.behavior.HorizontalFacingBehavior;
@@ -77,6 +78,26 @@ public final class ArchetypeBlockFactory {
             builder.behavior(new ExplosionBehavior(def.explosion_power, fuse));
         }
 
+        /* Konstante Redstone-Quelle (Redstone-Block) - archetypübergreifend. */
+        if (def.redstone_power > 0) {
+            builder.behavior(new ConstantPowerBehavior(Math.min(15, def.redstone_power)));
+        }
+
+        /* Kolben-Reaktion (normal/destroy/block) - archetypübergreifend; Auto-Overrides für
+           Härte < 0 und BlockEntity-Blöcke macht Block.getPistonReaction. */
+        if (def.piston_reaction != null) {
+            builder.pistonReaction(de.skyengine.game.world.block.PistonReaction.byName(def.piston_reaction));
+        }
+
+        /* Klebe-Gruppe (Slime/Honig): klebrige Blöcke ziehen beim Kolben-Schub Nachbarn mit. */
+        if (def.sticky_group != null && !def.sticky_group.isBlank()) {
+            builder.stickyGroup(def.sticky_group);
+        }
+
+        /* Trichter-Transferrate (Ticks Pause + Items je Transfer) - die schnelleren Stufen
+           (golden/diamond/netherite_hopper) sind reine Daten. */
+        builder.hopperTransfer(def.hopper_cooldown, def.hopper_amount);
+
         /* Horizontale Ausrichtung (Truhe, Ofen) - FACING-Property + Platzier-Verhalten zum Spieler. */
         if (def.facing) {
             builder.property(Properties.FACING);
@@ -94,12 +115,14 @@ public final class ArchetypeBlockFactory {
             builder.overlayTexture(overlay);
         }
 
-        /* Stütz-/Platzierungsregeln (Cactus nur auf Sand, Tür nur auf voller Oberseite). */
-        if (def.place_on != null || def.place_on_full_top) {
+        /* Stütz-/Platzierungsregeln (Cactus nur auf Sand, Tür nur auf voller Oberseite,
+           Druckplatte auch auf einem Zaunpfosten). */
+        if (def.place_on != null || def.place_on_full_top || def.place_on_center_top) {
             List<String> placeOn = def.place_on == null ? null : List.of(def.place_on);
             builder.placeOn(placeOn);
             builder.placeOnFullTop(def.place_on_full_top);
-            builder.behavior(new SupportBehavior(placeOn, def.place_on_full_top));
+            builder.behavior(new SupportBehavior(placeOn, def.place_on_full_top,
+                    def.place_on_center_top));
         }
 
         /* Survival-Mining: Härte + effektive Tool-Klasse + Mindest-Tier für Drops. */

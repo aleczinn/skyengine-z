@@ -40,7 +40,12 @@ import java.util.Random;
  */
 public final class SoundManager implements IDisposable {
 
-    private static final int POOL_SIZE = 12;
+    /* 12 waren zu wenig, seit es Redstone-Maschinen gibt: der Kolben-Sound ist mit 0,65-0,92 s
+       (0,552-s-Datei, gestreckt durch den MC-Pitch 0.6) der längste Effekt der Engine, und eine
+       Kolbentür feuert ALLE ihre Kolben im selben Tick. Vier Kolben bei vier Schaltvorgängen pro
+       Sekunde belegen rechnerisch schon ~13 Sources — Schritte und Abbaugeräusche kommen obendrauf,
+       und über den Pool hinaus fällt der Sound still weg. OpenAL Soft trägt 256 Mono-Sources. */
+    private static final int POOL_SIZE = 64;
     private static final int MAX_VARIANTS = 8; // Varianten 1..N je Gruppe, solange die Datei existiert
 
     /* Lautstärke/Pitch-Konventionen wie Minecraft. */
@@ -58,8 +63,14 @@ public final class SoundManager implements IDisposable {
     /* Aufsammeln: MC-Werte aus Player.take — leise, hoher Pitch mit weiter Streuung. */
     private static final float PICKUP_GAIN = 0.2F;
     private static final float PICKUP_PITCH = 2.0F, PICKUP_PITCH_SPREAD = 0.7F;
+    /* Kolben (MC: block.piston.extend/contract mit Gain 0.5). */
+    private static final float PISTON_GAIN = 0.5F;
+    /* Durchgebrannte Redstone-Fackel (MC: block.redstone_torch.burnout mit Gain 0.5). */
+    private static final float FIZZ_GAIN = 0.5F;
 
     private final Logger logger = LogManager.getLogger(SoundManager.class.getName());
+    /** Erschöpfter Pool wird nur einmal gemeldet — sonst spammt jede Maschine das Log voll. */
+    private boolean poolExhaustedReported;
 
     private boolean enabled;
     private long device, context;
@@ -91,7 +102,11 @@ public final class SoundManager implements IDisposable {
     private int[] burpVariants;      // eat/burp.ogg
     private int[] explosionVariants; // random/explode1..4
     private int[] fuseVariants;      // random/fuse.ogg
+    private int[] fizzVariants;      // random/fizz.ogg (Fackel brennt durch)
+    private int[] igniteVariants;    // random/ignite.ogg (Feuerzeug, in MC fire/ignite)
     private int[] pickupVariants;    // random/pop.ogg
+    private int[] pistonOutVariants; // piston/out.ogg (Ausfahren)
+    private int[] pistonInVariants;  // piston/in.ogg (Einfahren)
 
     /* Wiederverwendet fürs Listener-Update (keine Frame-Allokationen). */
     private final Vector3d direction = new Vector3d();
@@ -164,10 +179,16 @@ public final class SoundManager implements IDisposable {
         this.burpVariants = this.loadVariants("eat", "burp");
         this.explosionVariants = this.loadVariants("random", "explode");
         this.fuseVariants = this.loadVariants("random", "fuse");
+        this.fizzVariants = this.loadVariants("random", "fizz");
+        this.igniteVariants = this.loadVariants("random", "ignite");
         this.pickupVariants = this.loadVariants("random", "pop");
+        this.pistonOutVariants = this.loadVariants("piston", "out");
+        this.pistonInVariants = this.loadVariants("piston", "in");
         loaded += count(this.uiClickVariants) + count(this.hurtVariants) + count(this.fallSmallVariants)
                 + count(this.fallBigVariants) + count(this.eatVariants) + count(this.burpVariants)
-                + count(this.explosionVariants) + count(this.fuseVariants) + count(this.pickupVariants);
+                + count(this.explosionVariants) + count(this.fuseVariants) + count(this.fizzVariants)
+                + count(this.igniteVariants) + count(this.pickupVariants)
+                + count(this.pistonOutVariants) + count(this.pistonInVariants);
 
         /* Auf-/Zu-Sounds je Satz aus seinem eigenen Ordner; fehlt einer, bleibt nur er stumm. */
         for (BlockOpenSound sound : BlockOpenSound.values()) {
@@ -316,6 +337,42 @@ public final class SoundManager implements IDisposable {
         this.play(this.fuseVariants, SoundCategory.BLOCKS, 1.0F, 1.0F, false, true, x, y, z);
     }
 
+    /** Kolben fährt aus — positional an der Basis; MC-Pitch 0,6 ± Streuung. Stumm ohne Asset. */
+    public void playPistonExtend(double x, double y, double z) {
+        this.play(this.pistonOutVariants, SoundCategory.BLOCKS, PISTON_GAIN, this.pistonPitch(), false, true, x, y, z);
+    }
+
+    /** Kolben fährt ein — Gegenstück zu {@link #playPistonExtend}. */
+    public void playPistonContract(double x, double y, double z) {
+        this.play(this.pistonInVariants, SoundCategory.BLOCKS, PISTON_GAIN, this.pistonPitch(), false, true, x, y, z);
+    }
+
+    /** MC-Formel {@code 0.6 + rand*0.25} — tiefer Basis-Pitch mit eigener Streuung statt ±10 %-Jitter. */
+    private float pistonPitch() {
+        return 0.6F + this.random.nextFloat() * 0.25F;
+    }
+
+    /**
+     * Redstone-Fackel brennt durch — kurzes Zischen, positional am Block.
+     * MC-Werte für {@code block.redstone_torch.burnout}: Gain 0,5 und der hohe Pitch
+     * {@code 2.6 + (rand − rand) * 0.8}; die weite Streuung geht über den ±10-%-Jitter hinaus,
+     * deshalb eine eigene Formel wie beim Kolben. Stumm, solange das Asset fehlt.
+     */
+    public void playFizz(double x, double y, double z) {
+        float pitch = 1.8f + this.random.nextFloat() * (3.4f - 1.8f);
+        this.play(this.fizzVariants, SoundCategory.BLOCKS, FIZZ_GAIN, pitch, false, true, x, y, z);
+    }
+
+    /**
+     * Feuerzeug schlägt Funken — positional am gezündeten Block. MC-Werte für
+     * {@code item.flintandsteel.use}: Gain 1,0 und Pitch {@code rand * 0.4 + 0.8}.
+     * Stumm, solange das Asset fehlt.
+     */
+    public void playIgnite(double x, double y, double z) {
+        float pitch = this.random.nextFloat() * 0.4f + 0.8f;
+        this.play(this.igniteVariants, SoundCategory.BLOCKS, 1.0F, pitch, false, true, x, y, z);
+    }
+
     /** Tür/Truhe geht auf — positional an der Block-Position. Lautstärke/Pitch aus dem Satz. */
     public void playBlockOpen(BlockOpenSound sound, double x, double y, double z) {
         if (sound == null) return;
@@ -335,7 +392,16 @@ public final class SoundManager implements IDisposable {
                       boolean positional, double x, double y, double z) {
         if (!this.enabled || variants == null) return;
         int source = this.acquireSource();
-        if (source == -1) return; // Pool voll: Sound verwerfen statt laufende zu stehlen
+        if (source == -1) {
+            /* Sound verwerfen statt eine laufende Source zu stehlen. EINMAL melden: still
+               verworfen war diese Fehlerklasse unsichtbar — genau daran fehlte der Kolben-Sound. */
+            if (!this.poolExhaustedReported) {
+                this.poolExhaustedReported = true;
+                this.logger.warning("Sound-Pool erschoepft (" + POOL_SIZE
+                        + " Sources belegt) — Sounds fallen aus. Wird nur einmal gemeldet.");
+            }
+            return;
+        }
 
         AL10.alSourcei(source, AL10.AL_BUFFER, variants[this.random.nextInt(variants.length)]);
         AL10.alSourcef(source, AL10.AL_GAIN, gain * this.categoryGains[category.ordinal()]);
@@ -499,7 +565,7 @@ public final class SoundManager implements IDisposable {
         unique.addAll(this.closeBuffers.values());
         for (int[] loose : new int[][]{this.uiClickVariants, this.hurtVariants, this.fallSmallVariants,
                 this.fallBigVariants, this.eatVariants, this.burpVariants, this.explosionVariants,
-                this.fuseVariants, this.pickupVariants}) {
+                this.fuseVariants, this.fizzVariants, this.pickupVariants, this.pistonOutVariants, this.pistonInVariants}) {
             if (loose != null) unique.add(loose);
         }
         for (int[] variants : unique) {

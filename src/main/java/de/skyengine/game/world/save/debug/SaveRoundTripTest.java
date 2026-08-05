@@ -70,9 +70,64 @@ public final class SaveRoundTripTest {
         leftChest.getInventory().set(26, new ItemStack(Items.get(Identifier.of("skyengine:cobblestone")), 5));
         chunk.setBlockEntity(10, 200, 10, leftChest);
 
+        /* Redstone: Verstärker + Staub mit vollem Property-Satz. Der Momentanzustand einer
+           Clock liegt KOMPLETT in diesen State-Strings (Sektions-Palette); der laufende
+           Delay steckt im Scheduled-Tick unten — zusammen ist das der Beweis, dass eine
+           Clock Save/Load übersteht. */
+        String repeaterState = "skyengine:repeater[delay=3,facing=north,locked=true,powered=true]";
+        String wireState = "skyengine:redstone_wire[east=side,north=none,power=13,south=up,west=none]";
+        String plateState = "skyengine:light_weighted_pressure_plate[power=7]";
+        chunk.setBlock(12, 200, 12, decodeId(repeaterState));
+        chunk.setBlock(13, 200, 13, decodeId(wireState));
+        chunk.setBlock(14, 200, 14, decodeId(plateState));
+
+        /* Kolben: 6-Wege-Facing + der bewegte Block mitten in der Animation (Moving-BE mit
+           movedState als Codec-String) — Save/Load mitten im Schub muss die Bewegung
+           unverändert fortsetzen können. */
+        String pistonState = "skyengine:piston[extended=true,facing=up]";
+        String headState = "skyengine:piston_head[facing=down,short=false,type=sticky]";
+        chunk.setBlock(15, 200, 15, decodeId(pistonState));
+        chunk.setBlock(16, 200, 16, decodeId(headState));
+        int movingId = decodeId("skyengine:moving_piston");
+        chunk.setBlock(17, 200, 17, movingId);
+        de.skyengine.game.world.block.entity.PistonMovingBlockEntity moving =
+                (de.skyengine.game.world.block.entity.PistonMovingBlockEntity)
+                        BlockEntities.PISTON_MOVING.create(
+                                new BlockPos(3 * ChunkSection.SIZE + 17, 200, -7 * ChunkSection.SIZE + 17),
+                                Blocks.getState(movingId));
+        moving.configure(decodeId("skyengine:stone"),
+                de.skyengine.game.world.block.Direction.EAST, true, false, true);
+        chunk.setBlockEntity(17, 200, 17, moving);
+        int repeaterX = 3 * ChunkSection.SIZE + 12, repeaterZ = -7 * ChunkSection.SIZE + 12;
+
+        /* Beobachter mit offenem Puls-Tick: POWERED liegt im State, der Rest-Delay in den
+           Ticks — nur zusammen laeuft eine Beobachter-Clock nach dem Laden weiter. Die
+           Vergleichsbasis der Aenderungserkennung ist bewusst NICHT persistiert, die stellt
+           ObserverBehavior.seedLoadedChunk beim READY-Werden des Chunks wieder her. */
+        int observerX = 3 * ChunkSection.SIZE + 19, observerZ = -7 * ChunkSection.SIZE + 19;
+        chunk.setBlock(19, 200, 19, decodeId("skyengine:observer[facing=east,powered=true]"));
+
+        /* Trichter: State (facing + enabled) + BE mit Inventar UND Rest-Cooldown — der
+           Transfer-Takt muss Save/Load überstehen. Der Cooldown wird über load() gesetzt
+           (ein leeres inventory-Tag lässt die Slots in Ruhe). */
+        String hopperState = "skyengine:hopper[enabled=false,facing=west]";
+        chunk.setBlock(18, 200, 18, decodeId(hopperState));
+        de.skyengine.game.world.block.entity.HopperBlockEntity hopper =
+                (de.skyengine.game.world.block.entity.HopperBlockEntity)
+                        BlockEntities.HOPPER.create(
+                                new BlockPos(3 * ChunkSection.SIZE + 18, 200, -7 * ChunkSection.SIZE + 18),
+                                Blocks.getState(decodeId(hopperState)));
+        hopper.getInventory().set(2, new ItemStack(Items.get(Identifier.of("skyengine:redstone")), 17));
+        de.skyengine.game.world.block.entity.DataTag hopperCooldownTag =
+                new de.skyengine.game.world.block.entity.DataTag();
+        hopperCooldownTag.putInt("cooldown", 5);
+        hopper.load(hopperCooldownTag);
+        chunk.setBlockEntity(18, 200, 18, hopper);
+
         /* Scheduled-Ticks (v2): Quelle mit Rest-Delay = exakt der Fluid-Freeze-Bugfall.
            Dazwischen ein unbekannter Typ und zwei invalide Einträge (falscher Chunk,
-           y außerhalb) — sie dürfen den Reststream nicht verwürfeln. */
+           y außerhalb) — sie dürfen den Reststream nicht verwürfeln. Dazu der offene
+           Verstärker-Tick der Clock. */
         int sourceX = 3 * ChunkSection.SIZE + 7, sourceZ = -7 * ChunkSection.SIZE + 7;
         int flowX = 3 * ChunkSection.SIZE + 5, flowZ = -7 * ChunkSection.SIZE + 5;
         List<SavedTick> savedTicks = List.of(
@@ -80,7 +135,9 @@ public final class SaveRoundTripTest {
                 new SavedTick("future_test_type", sourceX, 210, sourceZ, 9),
                 new SavedTick(ScheduledTickTypes.BLOCK, flowX, 200, flowZ, 1),
                 new SavedTick(ScheduledTickTypes.BLOCK, sourceX + 32, 200, sourceZ, 4),
-                new SavedTick(ScheduledTickTypes.BLOCK, sourceX, 600, sourceZ, 4));
+                new SavedTick(ScheduledTickTypes.BLOCK, sourceX, 600, sourceZ, 4),
+                new SavedTick(ScheduledTickTypes.BLOCK, repeaterX, 200, repeaterZ, 5),
+                new SavedTick(ScheduledTickTypes.BLOCK, observerX, 200, observerZ, 2));
 
         /* --- Serialisieren + Kompression/CRC-Round-Trip --- */
         t0 = System.currentTimeMillis();
@@ -152,17 +209,79 @@ public final class SaveRoundTripTest {
             check(false, "BlockEntity der zweiten Truhenhälfte wiederhergestellt");
         }
 
-        /* Scheduled-Ticks: 2 gültige wiederhergestellt, unbekannter Typ + 2 invalide raus. */
+        /* Redstone-Zustand: State-Strings müssen den Round-Trip unverändert überstehen. */
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(12, 200, 12))).equals(repeaterState),
+                "Verstärker-State (delay/facing/powered) übersteht den Round-Trip");
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(13, 200, 13))).equals(wireState),
+                "Staub-State (Verbindungen + power) übersteht den Round-Trip");
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(14, 200, 14))).equals(plateState),
+                "Wägeplatten-State (power 0-15) übersteht den Round-Trip");
+
+        /* Kolben-Round-Trip: States + Moving-BE (Animation überlebt Save/Load). */
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(15, 200, 15))).equals(pistonState),
+                "Kolben-State (6-Wege-Facing + extended) übersteht den Round-Trip");
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(16, 200, 16))).equals(headState),
+                "Kolbenkopf-State (facing + type) übersteht den Round-Trip");
+        if (restored.getBlockEntity(17, 200, 17) instanceof
+                de.skyengine.game.world.block.entity.PistonMovingBlockEntity restoredMoving) {
+            check(restoredMoving.getMovedStateId() == decodeId("skyengine:stone")
+                            && restoredMoving.getFacing() == de.skyengine.game.world.block.Direction.EAST
+                            && restoredMoving.isExtending() && !restoredMoving.isSource()
+                            && restoredMoving.isSticky(),
+                    "Moving-BE (movedState/facing/extending/sticky) übersteht den Round-Trip");
+        } else {
+            check(false, "Moving-BE wiederhergestellt");
+        }
+        de.skyengine.game.world.block.entity.DataTag brokenTag =
+                new de.skyengine.game.world.block.entity.DataTag();
+        brokenTag.putString("state", "skyengine:gibtsnicht[kaputt=ja]");
+        de.skyengine.game.world.block.entity.PistonMovingBlockEntity fallbackMoving =
+                (de.skyengine.game.world.block.entity.PistonMovingBlockEntity)
+                        BlockEntities.PISTON_MOVING.create(new BlockPos(0, 0, 0), Blocks.getState(Blocks.AIR));
+        fallbackMoving.load(brokenTag);
+        check(fallbackMoving.getMovedStateId() == Blocks.AIR,
+                "Unbekannter movedState fällt beim Laden auf Luft (kein Crash)");
+
+        /* Trichter-Round-Trip: State + Inventar + Rest-Cooldown. */
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(18, 200, 18))).equals(hopperState),
+                "Trichter-State (facing + enabled) übersteht den Round-Trip");
+        if (restored.getBlockEntity(18, 200, 18) instanceof
+                de.skyengine.game.world.block.entity.HopperBlockEntity restoredHopper) {
+            ItemStack hopperStack = restoredHopper.getInventory().get(2);
+            check(!hopperStack.isEmpty() && hopperStack.getCount() == 17,
+                    "Trichter-Inventar (5 Slots) übersteht den Round-Trip");
+            check(restoredHopper.getCooldown() == 5,
+                    "Trichter-Cooldown übersteht den Round-Trip (Transfer-Takt läuft weiter)");
+        } else {
+            check(false, "Trichter-BlockEntity wiederhergestellt");
+        }
+
+        /* Alt-Format: ein Tür-String OHNE das neue powered-Property muss auf den
+           Default powered=false fallen (Codec-Toleranz — alte Welten bleiben ladbar). */
+        BlockState oldDoor = BlockStateCodec.decode("skyengine:iron_door[facing=north,half=bottom,hinge=left,open=false]");
+        check(oldDoor != null && !oldDoor.get(de.skyengine.game.world.block.state.Properties.POWERED),
+                "Alt-Tür-String ohne powered dekodiert auf powered=false");
+
+        /* Scheduled-Ticks: 3 gültige wiederhergestellt, unbekannter Typ + 2 invalide raus. */
         List<SavedTick> restoredTicks = restored.pendingScheduledTicks;
-        check(restoredTicks != null && restoredTicks.size() == 2,
-                "2 gültige Ticks wiederhergestellt (unbekannter Typ + 2 invalide übersprungen)");
-        if (restoredTicks != null && restoredTicks.size() == 2) {
+        check(restoredTicks != null && restoredTicks.size() == 4,
+                "4 gültige Ticks wiederhergestellt (unbekannter Typ + 2 invalide übersprungen)");
+        if (restoredTicks != null && restoredTicks.size() == 4) {
             SavedTick first = restoredTicks.get(0);
             SavedTick second = restoredTicks.get(1);
+            SavedTick third = restoredTicks.get(2);
+            SavedTick fourth = restoredTicks.get(3);
+            check(fourth.x() == observerX && fourth.z() == observerZ && fourth.remainingTicks() == 2,
+                    "Beobachter-Puls-Tick mit Rest-Delay wiederhergestellt");
+            check(Blocks.getState(restored.getBlock(19, 200, 19))
+                            .get(de.skyengine.game.world.block.state.Properties.POWERED),
+                    "Beobachter behält POWERED über den Round-Trip");
             check(first.x() == sourceX && first.y() == 200 && first.z() == sourceZ && first.remainingTicks() == 3,
                     "Quelle-Tick (VOR dem unbekannten Eintrag) korrekt");
             check(second.x() == flowX && second.z() == flowZ && second.remainingTicks() == 1,
                     "Fluss-Tick (NACH dem unbekannten Eintrag) korrekt — Stream intakt");
+            check(third.x() == repeaterX && third.z() == repeaterZ && third.remainingTicks() == 5,
+                    "Verstärker-Tick mit Rest-Delay wiederhergestellt (Clock läuft nach dem Laden weiter)");
 
             /* Restore-Pipeline (wie World.restorePendingScheduledTicks): Queue -> drainDue feuert. */
             ScheduledTickQueue queue = new ScheduledTickQueue();

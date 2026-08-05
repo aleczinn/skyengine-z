@@ -23,6 +23,7 @@ import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.SlabType;
 import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.BucketItem;
+import de.skyengine.game.world.item.FlintAndSteelItem;
 import de.skyengine.game.world.item.FoodItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
@@ -242,6 +243,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.crackRenderer.init(this.atlas.textures());
         this.blockEntityRenderers.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderers.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
+        this.blockEntityRenderers.register(BlockEntities.PISTON_MOVING,
+                new de.skyengine.graphics.blockentity.PistonMovingRenderer(this.atlas.textures()));
         this.blockEntityRenderers.init();
         this.playerRenderer.init();
         this.heldItemMeshes.init(this.atlas.textures(), this.blockEntityRenderers);
@@ -1068,15 +1071,22 @@ public class GameContainer implements IResizeable, IDisposable {
     private void breakTargetBlock(BlockState broken, boolean applyDurability) {
         this.soundManager.playBreak(broken.getBlock().getSoundGroup(),
                 this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
+        /* Drop-Ersatz VOR onBreak/setBlock abfragen — solange Nachbar-States/BlockEntity lesbar sind. */
+        ItemStack overrideDrop = broken.getBlock().getDropOverride(this.world,
+                this.hit.x(), this.hit.y(), this.hit.z(), broken);
         broken.getBlock().onBreak(this.world, this.hit.x(), this.hit.y(), this.hit.z(), broken);
         this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(), Blocks.AIR);
 
         ItemStack held = this.playerInventory.get(this.hotbarIndex);
         /* Drops nur im Survival UND nur, wenn Tool-Klasse + Tier passen. */
         if (this.player.getGamemode().dropsItems() && isHarvestable(broken, held)) {
-            Item drop = Items.get(broken.getBlock().getIdentifier());
-            if (drop != null) {
-                this.world.spawnItem(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5, new ItemStack(drop, 1));
+            if (overrideDrop != null) {
+                this.world.spawnItem(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5, overrideDrop);
+            } else {
+                Item drop = Items.forBlock(broken.getBlock()); // löst auch places_block-Items auf (Staub)
+                if (drop != null) {
+                    this.world.spawnItem(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5, new ItemStack(drop, 1));
+                }
             }
         }
 
@@ -1269,21 +1279,34 @@ public class GameContainer implements IResizeable, IDisposable {
 
         if (this.hit == null) return false;
 
+        /* Sneaken mit einem Block in der Hand überspringt JEDE Block-Interaktion und platziert
+           stattdessen — MCs Regel (`!isSecondaryUseActive() || leere Hand`). Das ist die einzige
+           Möglichkeit, eine Truhe an die Seite einer anderen zu setzen oder auf einem Redstone-
+           Staub zu bauen, statt ihn umzuschalten. */
+        boolean placingWhileSneaking = this.player.isSecondaryUseActive()
+                && held.getItem() != null && held.getItem().getPlacedBlock() != null;
+
+        /* Feuerzeug: der einzige Zündweg für TNT, der über die Hand läuft. Steht VOR der
+           Block-Interaktion und bewusst NICHT hinter dem Sneak-Gate — in MC überspringt Sneaken
+           nur `useWithoutItem`, `useItemOn` läuft trotzdem. */
+        if (held.getItem() instanceof FlintAndSteelItem && this.tryIgnite(held)) return true;
+
         /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
         BlockState hitState = Blocks.getState(this.hit.block());
-        if (hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(), hitState)) {
+        if (!placingWhileSneaking
+                && hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(), hitState)) {
             return true;
         }
 
-        /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). Sneaken mit einem Block in
-           der Hand überspringt die Interaktion und platziert stattdessen — wie in MC, und die
-           einzige Möglichkeit, eine Truhe an die Seite einer anderen zu setzen. */
-        boolean placingWhileSneaking = this.player.isSecondaryUseActive() && held.getItem() instanceof BlockItem;
+        /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). */
         if (!placingWhileSneaking && this.tryOpenChest()) return true;
+        if (!placingWhileSneaking && this.tryOpenHopper()) return true;
 
-        /* Ausgewählter Hotbar-Slot muss einen platzierbaren Block enthalten. */
-        if (held.isEmpty() || !(held.getItem() instanceof BlockItem blockItem)) return false;
-        Block block = blockItem.getBlock();
+        /* Ausgewählter Hotbar-Slot muss einen platzierbaren Block enthalten — neben BlockItems
+           auch Material-Items mit places_block (Redstone-Staub). */
+        if (held.isEmpty()) return false;
+        Block block = held.getItem().getPlacedBlock();
+        if (block == null) return false;
 
         /* Slab auf vorhandene gleiche Slab -> Doppel-Slab */
         if (this.tryMergeSlab(block)) return true;
@@ -1298,7 +1321,8 @@ public class GameContainer implements IResizeable, IDisposable {
         double relHitZ = this.hit.hitZ() - pz;
         BlockState place = block.getPlacementState(this.world, px, py, pz,
                 this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(),
-                relHitX, relHitY, relHitZ, this.player.yaw, this.player.isSecondaryUseActive());
+                relHitX, relHitY, relHitZ, this.player.yaw, this.player.pitch,
+                this.player.isSecondaryUseActive());
 
         /* place == null: ein Behavior lehnt ab (z.B. Tür ohne Platz). Sonst nicht in den
            eigenen Körper bauen - gegen die ECHTE Kollisionsform testen, damit dünne Blöcke
@@ -1320,7 +1344,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private void pickBlock() {
         if (this.player.getGamemode() != Gamemode.CREATIVE || this.hit == null) return;
         Block picked = Blocks.getState(this.hit.block()).getBlock();
-        Item item = Items.get(picked.getIdentifier()); // BlockItem; null bei Air/Fluid
+        Item item = Items.forBlock(picked); // BlockItem bzw. places_block-Item (Staub); null bei Air/Fluid
         if (item != null) {
             this.playerInventory.set(this.hotbarIndex, new ItemStack(item, 1));
             this.itemNameShownAt = System.currentTimeMillis(); // Namens-Einblendung wie bei Slot-Wechsel
@@ -1402,10 +1426,52 @@ public class GameContainer implements IResizeable, IDisposable {
         return true;
     }
 
+    /** Rechtsklick auf einen Trichter öffnet sein GUI (5 Slots + Spielerinventar). */
+    private boolean tryOpenHopper() {
+        int x = this.hit.x(), y = this.hit.y(), z = this.hit.z();
+        BlockEntity be = this.world.getBlockEntity(x, y, z);
+        if (!(be instanceof de.skyengine.game.world.block.entity.HopperBlockEntity hopper)) return false;
+        this.guiManager.open(new de.skyengine.graphics.gui.screens.GuiHopper(hopper, this.playerInventory));
+        /* Persistenz wie bei der Truhe: geöffnet = potenziell geändert. */
+        this.world.markChunkModified(x, z);
+        return true;
+    }
+
     /**
      * Eimer-Interaktion: gefüllt platziert eine Fluid-Quelle, leer nimmt eine Quelle auf.
      * Im Survival wird der Eimer getauscht (gefüllt↔leer), im Creative nicht.
      */
+    /**
+     * Feuerzeug auf einen Block: zündet ihn, wenn er sprengbar ist (TNT), und verschleißt dabei.
+     *
+     * <p>Entspricht MCs {@code TntBlock.useItemOn} — nur dass dort der Block das Item prüft und
+     * hier der Aufrufer das Behavior sucht, weil {@code Item} keinen Interaktions-Hook hat. Alles
+     * andere als TNT lässt das Feuerzeug durchfallen: es gibt hier weder Feuer noch Kerzen noch
+     * Lagerfeuer, also bleibt kein zweiter Zündweg übrig.
+     *
+     * <p>Verschleiß nur im Survival (MCs {@code hurtAndBreak} überspringt Spieler mit
+     * unbegrenzten Materialien) und nach demselben Muster wie die Werkzeug-Abnutzung im
+     * Abbau-Pfad.
+     */
+    private boolean tryIgnite(ItemStack held) {
+        BlockState state = Blocks.getState(this.hit.block());
+        de.skyengine.game.world.block.behavior.ExplosionBehavior explosive =
+                state.getBlock().getBehavior(de.skyengine.game.world.block.behavior.ExplosionBehavior.class);
+        if (explosive == null) return false;
+
+        if (this.world.getSoundManager() != null) {
+            this.world.getSoundManager().playIgnite(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
+        }
+        explosive.prime(this.world, this.hit.x(), this.hit.y(), this.hit.z());
+        if (this.player.getGamemode() == Gamemode.SURVIVAL) {
+            held.setDamage(held.getDamage() + 1);
+            if (held.getDamage() >= FlintAndSteelItem.DURABILITY) {
+                this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
+            }
+        }
+        return true;
+    }
+
     private boolean handleBucket(BucketItem bucket) {
         boolean consume = this.player.getGamemode() == Gamemode.SURVIVAL;
 

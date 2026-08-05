@@ -18,6 +18,9 @@ public final class StateFlags {
     public static final int TICKS_RANDOMLY   = 1 << 7; // Phase 1.1 (Bit 5-6 sind der Layer)
     public static final int FLUID            = 1 << 8; // Wasser/Lava: dynamische Geometrie im Mesher
     public static final int NO_LOD_SURFACE   = 1 << 9; // nie als LOD-Terrain-Oberfläche (Logs)
+    /* Wirft AO/verschattet Ecklicht im Mesher. Default = OPAQUE_CUBE; getrennt, damit ein
+       Nicht-Vollwürfel (ausgefahrene Kolben-Basis) verschatten kann, ohne Nachbarn zu cullen. */
+    public static final int AO_OCCLUDER      = 1 << 18;
     public static final int LEAVES           = 1 << 25; // Laub (LeavesQuality-LOW-Culling)
 
     /* Render-Layer in 2 Bits (Bit 5-6). */
@@ -26,7 +29,7 @@ public final class StateFlags {
 
     /* Licht-Opazität 0..15 in Bits 10-13: wie viel Himmelslicht der Block je Zelle schluckt
        (0 = durchlässig wie Glas, 1 = dämpfend wie Wasser/Laub, 15 = opak).
-       Bits 18-24 und 26-31 sind frei. */
+       Bits 19-24 und 26-31 sind frei. */
     private static final int OPACITY_SHIFT = 10;
     private static final int OPACITY_MASK = 0b1111 << OPACITY_SHIFT;
 

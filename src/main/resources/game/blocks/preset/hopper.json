@@ -1,0 +1,38 @@
+{
+  "_comment": "Preset (nicht registriert): Trichter. facing = Auslaufrichtung (MC), down-Default; enabled=false bei Redstone-Signal. Transferrate hopper_cooldown/hopper_amount (MC 8/1 = 2,5 Items/s) - die schnelleren Stufen ueberschreiben nur den Cooldown. facing=up ist toter State (wie die ceiling-Fackel) und zeigt das down-Modell. MC-Werte: Haerte 3, Widerstand 4.8, Spitzhacke; Metal-Sound-Gruppe gibt es nicht, deshalb stone.",
+  "creative_tab": "redstone_blocks",
+  "archetype": "hopper",
+  "block_entity": "skyengine:hopper",
+  "hardness": 3,
+  "resistance": 4.8,
+  "tool": "pickaxe",
+  "sound": "stone",
+  "opaque": false,
+  "hopper_cooldown": 8,
+  "hopper_amount": 1,
+  "icon_item": "game/textures/item/${id}.png",
+  "models": {
+    "": "block/template_hopper",
+    "_side": "block/template_hopper_side"
+  },
+  "textures": {
+    "top": "game/textures/block/${id}_top.png",
+    "side": "game/textures/block/${id}_outside.png",
+    "inside": "game/textures/block/${id}_inside.png"
+  },
+  "collision": {
+    "boxes": [
+      { "from": [0, 10, 0], "to": [16, 16, 16] },
+      { "from": [4, 4, 4], "to": [12, 10, 12] },
+      { "from": [6, 0, 6], "to": [10, 4, 10] }
+    ]
+  },
+  "variants": {
+    "facing=down":  { "model": "block/${id}" },
+    "facing=up":    { "model": "block/${id}" },
+    "facing=north": { "model": "block/${id}_side" },
+    "facing=east":  { "model": "block/${id}_side", "y": 90 },
+    "facing=south": { "model": "block/${id}_side", "y": 180 },
+    "facing=west":  { "model": "block/${id}_side", "y": 270 }
+  }
+}

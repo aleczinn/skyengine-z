@@ -3,6 +3,7 @@
   "id": "skyengine:honey_block",
   "creative_tab": "functional",
   "parent": "preset/cube_bottom_top",
+  "sticky_group": "honey",
   "model": "block/cube_inner_bottom_top",
   "sound": "honey",
   "layer": "translucent",

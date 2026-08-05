@@ -78,7 +78,17 @@
       "id": "redstone_blocks",
       "icon": "skyengine:redstone",
       "items": [
-        "redstone"
+        "redstone", "redstone_torch", "redstone_block",
+        "repeater", "comparator",
+        "piston", "sticky_piston", "observer",
+        "hopper", "golden_hopper", "diamond_hopper", "netherite_hopper",
+        "lever",
+        "stone_button", "oak_button",
+        "stone_pressure_plate", "oak_pressure_plate",
+        "light_weighted_pressure_plate", "heavy_weighted_pressure_plate",
+        "obsidian_pressure_plate", "diamond_pressure_plate", "emerald_pressure_plate",
+        "copper_pressure_plate", "netherite_pressure_plate",
+        "redstone_lamp"
       ]
     },
     {
@@ -88,7 +98,8 @@
         { "for": "tier", "items": [
             "{tier}_pickaxe", "{tier}_axe", "{tier}_shovel", "{tier}_sword"
         ]},
-        "bucket", "water_bucket", "lava_bucket"
+        "bucket", "water_bucket", "lava_bucket",
+        "flint_and_steel"
       ]
     },
     {

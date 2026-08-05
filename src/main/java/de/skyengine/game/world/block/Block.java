@@ -109,6 +109,17 @@ public class Block {
                 : this.settings.opaque;
     }
 
+    /**
+     * Wirft AO/verschattet Ecklicht im Mesher — getrennt vom Culling ({@link #isOpaqueCube}),
+     * damit die ausgefahrene Kolben-Basis weiter verschattet, ohne Nachbarflächen zu cullen.
+     * Ohne Prädikat gilt die Automatik „wie opaque".
+     */
+    public boolean occludesAo(BlockState state) {
+        return this.config.aoOccluderPredicate() != null
+                ? this.config.aoOccluderPredicate().test(state)
+                : this.isOpaqueCube(state);
+    }
+
     public boolean isSolid(BlockState state) {
         return this.settings.solid;
     }
@@ -126,13 +137,16 @@ public class Block {
 
     /**
      * Eigenleuchten 0..15 (Fackel 14, Lava 15, wie MC); 0 = der Block leuchtet nicht. Quelle ist
-     * {@code light_level} in der Block-JSON. Der {@code state}-Parameter ist heute ungenutzt, hält
-     * aber die Symmetrie zu {@link #getLightOpacity} und die Tür für zustandsabhängiges Leuchten
-     * offen (Vorbild: {@code redstone_ore[lit=true]}).
+     * {@code light_level} in der Block-JSON. Zustandsabhängig über LIT: trägt der State die
+     * Property und ist sie false, leuchtet der Block nicht (Redstone-Lampe, Redstone-Fackel).
+     * Gebacken pro State in die Flags (Bits 14-17), der Licht-Edit-Pfad reagiert damit
+     * automatisch auf lit-Wechsel.
      *
      * <p>Monochrom: {@link BlockConfig#lightColor()} gibt es zwar, wirkt aber noch nicht.
      */
     public int getLuminance(BlockState state) {
+        Object lit = state.getValues().get(Properties.LIT);
+        if (lit != null && !(Boolean) lit) return 0;
         return this.config.lightLevel();
     }
 
@@ -153,6 +167,37 @@ public class Block {
     /** true: Laub — bei LeavesQuality LOW cullen Laub-Faces gegen JEDES Nachbar-Laub. */
     public boolean isLeaves() {
         return this.settings.leaves;
+    }
+
+    /** true: kein Auto-BlockItem — ein Material-Item mit {@code places_block} übernimmt (Staub). */
+    public boolean hasNoItem() {
+        return this.settings.noItem;
+    }
+
+    /**
+     * Kolben-Reaktion dieses Blocks. Automatik-Overrides VOR dem JSON-Wert: unzerstörbare
+     * Blöcke (Härte &lt; 0 — Bedrock, moving_piston) und BlockEntity-Blöcke (Truhe,
+     * Zaubertisch — ihr Inhalt kann nicht mitreisen) blockieren immer.
+     */
+    public PistonReaction getPistonReaction() {
+        if (this.config.hardness() < 0) return PistonReaction.BLOCK;
+        if (this.config.blockEntityType() != null) return PistonReaction.BLOCK;
+        return this.config.pistonReaction();
+    }
+
+    /** Klebe-Gruppe fürs Kolben-Schieben ({@code sticky_group}: Slime/Honig) oder null. */
+    public String getStickyGroup() {
+        return this.config.stickyGroup();
+    }
+
+    /** Trichter: Ticks Pause je Transfer ({@code hopper_cooldown}, MC 8 = 2,5 Items/s). */
+    public int getHopperCooldown() {
+        return this.config.hopperCooldown();
+    }
+
+    /** Trichter: Items je Transfer ({@code hopper_amount}). */
+    public int getHopperAmount() {
+        return this.config.hopperAmount();
     }
 
     /** true: Wasser/Lava — Geometrie kommt dynamisch aus dem Mesher (kein gebackenes Modell). */
@@ -199,12 +244,12 @@ public class Block {
                                         int x, int y, int z,
                                         int faceX, int faceY, int faceZ,
                                         double hitX, double hitY, double hitZ, float playerYaw,
-                                        boolean sneaking) {
+                                        float playerPitch, boolean sneaking) {
         BlockState state = this.defaultState;
         if (this.config.behaviors().isEmpty()) return state;
 
         PlacementContext ctx = new PlacementContext(world, x, y, z, faceX, faceY, faceZ,
-                hitX, hitY, hitZ, playerYaw, sneaking);
+                hitX, hitY, hitZ, playerYaw, playerPitch, sneaking);
         for (BlockBehavior behavior : this.config.behaviors()) {
             state = behavior.onPlace(ctx, state);
         }
@@ -222,6 +267,14 @@ public class Block {
     public void onPlaced(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             behavior.onPlaced(world, x, y, z, state);
+        }
+    }
+
+    /** Von einem Kolben an dieser Zelle abgesetzt — s. {@link BlockBehavior#onMovedByPiston}. */
+    public void onMovedByPiston(de.skyengine.game.world.World world, int x, int y, int z,
+                                BlockState state, Direction moveDirection) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.onMovedByPiston(world, x, y, z, state, moveDirection);
         }
     }
 
@@ -250,6 +303,57 @@ public class Block {
         for (BlockBehavior behavior : this.config.behaviors()) {
             behavior.onBreak(world, x, y, z, state);
         }
+    }
+
+    /** Block-Event-Dispatch (s. {@code World.enqueueBlockEvent}). Delegiert; Default: nichts. */
+    public void onBlockEvent(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.onBlockEvent(world, x, y, z, state);
+        }
+    }
+
+    /** Drop-Ersatz beim Spieler-Abbau (s. {@code BlockBehavior.getDropOverride}); erster Treffer gewinnt. */
+    public de.skyengine.game.world.item.ItemStack getDropOverride(de.skyengine.game.world.World world,
+                                                                  int x, int y, int z, BlockState state) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            de.skyengine.game.world.item.ItemStack drop = behavior.getDropOverride(world, x, y, z, state);
+            if (drop != null) return drop;
+        }
+        return null;
+    }
+
+    /** Entity-BoundingBox überlappt die Zelle (aus {@code Entity.move}). Delegiert; Default: nichts. */
+    public void onEntityInside(de.skyengine.game.world.World world, int x, int y, int z, BlockState state,
+                               de.skyengine.game.entity.Entity entity) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.onEntityInside(world, x, y, z, state, entity);
+        }
+    }
+
+    /** Schwaches Redstone-Signal Richtung {@code side} (Konvention s. {@code BlockBehavior.weakPower}). Max über die Behaviors. */
+    public int getWeakPower(de.skyengine.game.world.World world, int x, int y, int z, BlockState state, Direction side) {
+        int power = 0;
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            power = Math.max(power, behavior.weakPower(world, x, y, z, state, side));
+        }
+        return power;
+    }
+
+    /** Starkes Redstone-Signal Richtung {@code side} (leitet durch opake Blöcke). Max über die Behaviors. */
+    public int getStrongPower(de.skyengine.game.world.World world, int x, int y, int z, BlockState state, Direction side) {
+        int power = 0;
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            power = Math.max(power, behavior.strongPower(world, x, y, z, state, side));
+        }
+        return power;
+    }
+
+    /** Verbindet sich Redstone-Staub aus Richtung {@code side} mit diesem Block? OR über die Behaviors. */
+    public boolean connectsRedstoneWire(BlockState state, Direction side) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            if (behavior.connectsRedstoneWire(state, side)) return true;
+        }
+        return false;
     }
 
     /** Geplanter Tick (Fluss, Fall, ...), von {@code World.scheduleTick} ausgelöst. Delegiert; Default: nichts. */
@@ -438,6 +542,7 @@ public class Block {
         boolean cullSame = false;
         boolean noLodSurface = false;
         boolean leaves = false;
+        boolean noItem = false;
         RenderLayer renderLayer = RenderLayer.OPAQUE;
 
         public static Settings create() {
@@ -473,6 +578,11 @@ public class Block {
 
         public Settings noLodSurface(boolean noLodSurface) {
             this.noLodSurface = noLodSurface;
+            return this;
+        }
+
+        public Settings noItem(boolean noItem) {
+            this.noItem = noItem;
             return this;
         }
 

@@ -29,6 +29,7 @@ public final class BlockConfig {
     private final ShapeProvider shapeProvider;
     private final ModelGenerator modelGenerator;
     private final Predicate<BlockState> opaquePredicate;
+    private final Predicate<BlockState> aoOccluderPredicate;
     private final boolean randomOffset;
     private final boolean replaceable;
     private final String connectionGroup;
@@ -43,6 +44,10 @@ public final class BlockConfig {
     private final boolean placeOnFullTop;
     private final float hardness;
     private final float resistance;
+    private final de.skyengine.game.world.block.PistonReaction pistonReaction;
+    private final String stickyGroup;
+    private final int hopperCooldown;
+    private final int hopperAmount;
     private final float friction;
     private final float speedFactor;
     private final float jumpFactor;
@@ -63,6 +68,7 @@ public final class BlockConfig {
         this.shapeProvider = b.shapeProvider;
         this.modelGenerator = b.modelGenerator;
         this.opaquePredicate = b.opaquePredicate;
+        this.aoOccluderPredicate = b.aoOccluderPredicate;
         this.randomOffset = b.randomOffset;
         this.replaceable = b.replaceable;
         this.connectionGroup = b.connectionGroup;
@@ -77,6 +83,10 @@ public final class BlockConfig {
         this.placeOnFullTop = b.placeOnFullTop;
         this.hardness = b.hardness;
         this.resistance = b.resistance;
+        this.pistonReaction = b.pistonReaction;
+        this.stickyGroup = b.stickyGroup;
+        this.hopperCooldown = b.hopperCooldown;
+        this.hopperAmount = b.hopperAmount;
         this.friction = b.friction;
         this.speedFactor = b.speedFactor;
         this.jumpFactor = b.jumpFactor;
@@ -118,6 +128,11 @@ public final class BlockConfig {
 
     public Predicate<BlockState> opaquePredicate() {
         return opaquePredicate;
+    }
+
+    /** AO-/Ecklicht-Verschattung im Mesher; null = Automatik „wie opaque". */
+    public Predicate<BlockState> aoOccluderPredicate() {
+        return aoOccluderPredicate;
     }
 
     public boolean randomOffset() {
@@ -191,6 +206,26 @@ public final class BlockConfig {
      */
     public float hardness() {
         return hardness;
+    }
+
+    /** Kolben-Reaktion aus der JSON (Overrides für Härte/BlockEntity macht Block.getPistonReaction). */
+    public de.skyengine.game.world.block.PistonReaction pistonReaction() {
+        return pistonReaction;
+    }
+
+    /** Klebe-Gruppe fürs Kolben-Schieben (null = nicht klebrig). */
+    public String stickyGroup() {
+        return stickyGroup;
+    }
+
+    /** Trichter: Ticks Pause je Transfer. */
+    public int hopperCooldown() {
+        return hopperCooldown;
+    }
+
+    /** Trichter: Items je Transfer. */
+    public int hopperAmount() {
+        return hopperAmount;
     }
 
     /**
@@ -290,6 +325,7 @@ public final class BlockConfig {
         private ShapeProvider shapeProvider;
         private ModelGenerator modelGenerator;
         private Predicate<BlockState> opaquePredicate;
+        private Predicate<BlockState> aoOccluderPredicate;
         private boolean randomOffset;
         private boolean replaceable;
         private String connectionGroup;
@@ -304,6 +340,11 @@ public final class BlockConfig {
         private boolean placeOnFullTop;
         private float hardness = 0F;
         private float resistance = 0F;
+        private de.skyengine.game.world.block.PistonReaction pistonReaction =
+                de.skyengine.game.world.block.PistonReaction.NORMAL;
+        private String stickyGroup;
+        private int hopperCooldown = 8;
+        private int hopperAmount = 1;
         private float friction = 0.6F;
         private float speedFactor = 1.0F;
         private float jumpFactor = 1.0F;
@@ -347,6 +388,12 @@ public final class BlockConfig {
 
         public Builder opaque(Predicate<BlockState> p) {
             this.opaquePredicate = p;
+            return this;
+        }
+
+        /** AO-/Ecklicht-Verschattung getrennt vom Culling (ausgefahrene Kolben-Basis). */
+        public Builder aoOccluder(Predicate<BlockState> p) {
+            this.aoOccluderPredicate = p;
             return this;
         }
 
@@ -412,6 +459,22 @@ public final class BlockConfig {
 
         public Builder hardness(float v) {
             this.hardness = v;
+            return this;
+        }
+
+        public Builder pistonReaction(de.skyengine.game.world.block.PistonReaction reaction) {
+            this.pistonReaction = reaction;
+            return this;
+        }
+
+        public Builder stickyGroup(String group) {
+            this.stickyGroup = group;
+            return this;
+        }
+
+        public Builder hopperTransfer(int cooldownTicks, int amount) {
+            this.hopperCooldown = Math.max(1, cooldownTicks);
+            this.hopperAmount = Math.max(1, amount);
             return this;
         }
 

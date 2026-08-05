@@ -12,6 +12,7 @@ import de.skyengine.graphics.texture.TextureFilter;
 public final class GuiTextures {
 
     public Texture chestBackground;
+    public Texture hopperBackground;
     public Texture inventoryBackground;
     public Texture hotbar;
     public Texture hotbarSelection;
@@ -71,6 +72,7 @@ public final class GuiTextures {
 
     public void init() {
         this.chestBackground = load("game/textures/gui/container/generic_54.png");
+        this.hopperBackground = load("game/textures/gui/container/hopper.png");
         this.inventoryBackground = load("game/textures/gui/container/inventory.png");
         this.hotbar = load("game/textures/gui/sprites/hud/hotbar.png");
         this.hotbarSelection = load("game/textures/gui/sprites/hud/hotbar_selection.png");
@@ -136,6 +138,7 @@ public final class GuiTextures {
 
     public void dispose() {
         if (this.chestBackground != null) this.chestBackground.dispose();
+        if (this.hopperBackground != null) this.hopperBackground.dispose();
         if (this.inventoryBackground != null) this.inventoryBackground.dispose();
         if (this.hotbar != null) this.hotbar.dispose();
         if (this.hotbarSelection != null) this.hotbarSelection.dispose();

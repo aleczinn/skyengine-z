@@ -1,0 +1,49 @@
+{
+  "_comment": "Hebel: Umschalter ohne Selbst-Ruecksetzung. Varianten verbatim aus MC 26.2 - inkl. des Vanilla-Namensdrehers: powered=false zeigt das _on-Modell (Griff oben) und umgekehrt.",
+  "id": "skyengine:lever",
+  "piston_reaction": "destroy",
+  "creative_tab": "redstone_blocks",
+  "archetype": "lever",
+  "opaque": false,
+  "solid": false,
+  "no_lod_surface": true,
+  "hardness": 0.5,
+  "sound": "stone",
+  "icon_item": "game/textures/block/lever.png",
+  "models": {
+    "": "block/template_lever",
+    "_on": "block/template_lever_on"
+  },
+  "textures": {
+    "base": "game/textures/block/cobblestone.png",
+    "lever": "game/textures/block/lever.png"
+  },
+  "variants": {
+    "face=floor,facing=north,powered=false":   { "model": "block/lever_on" },
+    "face=floor,facing=north,powered=true":    { "model": "block/lever" },
+    "face=floor,facing=east,powered=false":    { "model": "block/lever_on", "y": 90 },
+    "face=floor,facing=east,powered=true":     { "model": "block/lever", "y": 90 },
+    "face=floor,facing=south,powered=false":   { "model": "block/lever_on", "y": 180 },
+    "face=floor,facing=south,powered=true":    { "model": "block/lever", "y": 180 },
+    "face=floor,facing=west,powered=false":    { "model": "block/lever_on", "y": 270 },
+    "face=floor,facing=west,powered=true":     { "model": "block/lever", "y": 270 },
+
+    "face=wall,facing=north,powered=false":    { "model": "block/lever_on", "x": 90 },
+    "face=wall,facing=north,powered=true":     { "model": "block/lever", "x": 90 },
+    "face=wall,facing=east,powered=false":     { "model": "block/lever_on", "x": 90, "y": 90 },
+    "face=wall,facing=east,powered=true":      { "model": "block/lever", "x": 90, "y": 90 },
+    "face=wall,facing=south,powered=false":    { "model": "block/lever_on", "x": 90, "y": 180 },
+    "face=wall,facing=south,powered=true":     { "model": "block/lever", "x": 90, "y": 180 },
+    "face=wall,facing=west,powered=false":     { "model": "block/lever_on", "x": 90, "y": 270 },
+    "face=wall,facing=west,powered=true":      { "model": "block/lever", "x": 90, "y": 270 },
+
+    "face=ceiling,facing=south,powered=false": { "model": "block/lever_on", "x": 180 },
+    "face=ceiling,facing=south,powered=true":  { "model": "block/lever", "x": 180 },
+    "face=ceiling,facing=west,powered=false":  { "model": "block/lever_on", "x": 180, "y": 90 },
+    "face=ceiling,facing=west,powered=true":   { "model": "block/lever", "x": 180, "y": 90 },
+    "face=ceiling,facing=north,powered=false": { "model": "block/lever_on", "x": 180, "y": 180 },
+    "face=ceiling,facing=north,powered=true":  { "model": "block/lever", "x": 180, "y": 180 },
+    "face=ceiling,facing=east,powered=false":  { "model": "block/lever_on", "x": 180, "y": 270 },
+    "face=ceiling,facing=east,powered=true":   { "model": "block/lever", "x": 180, "y": 270 }
+  }
+}

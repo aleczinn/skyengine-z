@@ -160,6 +160,44 @@ public abstract class Entity {
         if (origDy != ny) this.motionY = this.landingMotionY(world, origDy);
         if (origDz != nz) this.motionZ = 0;
         if (stepped) this.motionY = 0; // nicht durch den Step nach oben "schießen"
+
+        /* Tempo-Faktor des Blocks (Seelensand/Honig bremsen) — MC wendet ihn am Ende von
+           Entity.move an, für jede Entität und ohne nach dem Auslöser der Bewegung zu
+           unterscheiden (auch ein Kolben-Schub wird gebremst). Auf normalem Boden ist er 1.0. */
+        double speedFactor = this.speedFactor(world);
+        if (speedFactor != 1.0) {
+            this.motionX *= speedFactor;
+            this.motionZ *= speedFactor;
+        }
+
+        this.checkInsideBlocks(world);
+    }
+
+    /**
+     * Meldet jeder Blockzelle, die die finale BoundingBox überlappt, dass eine Entity in ihr
+     * steckt ({@code Block.onEntityInside} — Druckplatte). Läuft am Ende jedes move()-Aufrufs,
+     * also auch im Stand, weil die Physik jeden Tick bewegt (ggf. um 0) und die Druckplatte die
+     * Berührung als Lebenszeichen wertet. Im NoClip (Spectator) bewusst nicht — dort steigt
+     * move() vorher aus. Das Epsilon hält exakt bündige Boxen aus der Nachbarzelle heraus.
+     */
+    private void checkInsideBlocks(World world) {
+        final double eps = 1.0E-7;
+        int minX = (int) Math.floor(this.boundingBox.minX);
+        int minY = (int) Math.floor(this.boundingBox.minY);
+        int minZ = (int) Math.floor(this.boundingBox.minZ);
+        int maxX = (int) Math.floor(this.boundingBox.maxX - eps);
+        int maxY = (int) Math.floor(this.boundingBox.maxY - eps);
+        int maxZ = (int) Math.floor(this.boundingBox.maxZ - eps);
+        for (int bx = minX; bx <= maxX; bx++) {
+            for (int by = minY; by <= maxY; by++) {
+                for (int bz = minZ; bz <= maxZ; bz++) {
+                    int id = world.getBlock(bx, by, bz);
+                    if (id == Blocks.AIR) continue;
+                    var state = Blocks.getState(id);
+                    state.getBlock().onEntityInside(world, bx, by, bz, state, this);
+                }
+            }
+        }
     }
 
     /**
@@ -174,7 +212,7 @@ public abstract class Entity {
      */
     private double landingMotionY(World world, double origDy) {
         if (origDy >= 0 || this.isSuppressingBounce()) return 0; // Deckenstoß / Sneak: nie federn
-        double bounciness = this.blockAt(world, this.y - 0.5000001).getBounciness();
+        double bounciness = this.blockBelow(world).getBounciness();
         if (bounciness <= 0) return 0;
         return -this.motionY * bounciness * this.bounceDamping();
     }
@@ -196,6 +234,25 @@ public abstract class Entity {
     protected de.skyengine.game.world.block.Block blockAt(World world, double atY) {
         return Blocks.getState(world.getBlock(
                 (int) Math.floor(this.x), (int) Math.floor(atY), (int) Math.floor(this.z))).getBlock();
+    }
+
+    /**
+     * Der Block, der die Bewegung trägt — MCs {@code getBlockPosBelowThatAffectsMyMovement}
+     * ({@code getOnPos(0.500001f)}). Eine halbe Zelle unter der Fußhöhe, damit auch der Block
+     * unter einer knapp darüber schwebenden Box zählt.
+     */
+    protected de.skyengine.game.world.block.Block blockBelow(World world) {
+        return this.blockAt(world, this.y - 0.5000001);
+    }
+
+    /**
+     * Tempo-Faktor des Blocks: erst der an der Fußposition, sonst der darunter (MC
+     * {@code Entity.getBlockSpeedFactor} — so bremst Seelensand auch, wenn man knapp darüber
+     * steht). Gilt für ALLE Entitäten, deshalb sitzt er hier und nicht am Spieler.
+     */
+    protected double speedFactor(World world) {
+        float own = this.blockAt(world, this.y).getSpeedFactor();
+        return own != 1.0F ? own : this.blockBelow(world).getSpeedFactor();
     }
 
     /**

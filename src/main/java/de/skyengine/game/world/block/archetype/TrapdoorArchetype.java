@@ -17,6 +17,8 @@ public final class TrapdoorArchetype implements Archetype {
         cfg.property(Properties.FACING)
                 .property(Properties.HALF)
                 .property(Properties.OPEN)
+                /* POWERED = Flanken-Speicher fürs Redstone-Signal (32 States statt 16). */
+                .property(Properties.POWERED)
                 .behavior(new TrapdoorBehavior(def.hand_openable))
                 .shapes(Shapes.trapdoor())
                 .opaque(state -> false);

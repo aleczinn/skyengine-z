@@ -50,6 +50,16 @@ public class Item {
         return null;
     }
 
+    /**
+     * Der Block, den ein Rechtsklick mit diesem Item platziert, oder {@code null} (nicht
+     * platzierbar). {@code BlockItem} liefert seinen Block; ein Material-Item kann über das
+     * JSON-Feld {@code places_block} einen fremden Block platzieren (Redstone-Staub) —
+     * der Platzierungspfad in {@code GameContainer} fragt nur noch diese Methode.
+     */
+    public de.skyengine.game.world.block.Block getPlacedBlock() {
+        return null;
+    }
+
     @Override
     public String toString() {
         return id.toString();

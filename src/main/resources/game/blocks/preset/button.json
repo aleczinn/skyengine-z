@@ -1,0 +1,49 @@
+{
+  "piston_reaction": "destroy",
+  "_comment": "Preset (nicht registriert): Knopf. Die 24 Varianten aus face x facing x powered stehen hier EINMAL, aus MC 26.2 (stone_button.json); einzige Abweichung: ohne uvlock, weil der Engine-Loader dabei die expliziten Face-UVs verwerfen wuerde - so behaelt der Knopf an der Wand seine Knopf-UVs. Kinder setzen vars.texture (stone/oak_planks) und press_ticks. facing zeigt vom Traeger WEG (AttachBehavior); die Rotationen sind MCs Werte fuer dieselbe Konvention.",
+  "creative_tab": "redstone_blocks",
+  "archetype": "button",
+  "opaque": false,
+  "solid": false,
+  "hardness": 0.5,
+  "vars": {
+    "texture": "${id}"
+  },
+  "models": {
+    "": "block/button",
+    "_pressed": "block/button_pressed",
+    "_inventory": "block/button_inventory"
+  },
+  "textures": {
+    "texture": "game/textures/block/${texture}.png"
+  },
+  "inventory_model": "block/${id}_inventory",
+  "variants": {
+    "face=floor,facing=north,powered=false":   { "model": "block/${id}" },
+    "face=floor,facing=north,powered=true":    { "model": "block/${id}_pressed" },
+    "face=floor,facing=east,powered=false":    { "model": "block/${id}", "y": 90 },
+    "face=floor,facing=east,powered=true":     { "model": "block/${id}_pressed", "y": 90 },
+    "face=floor,facing=south,powered=false":   { "model": "block/${id}", "y": 180 },
+    "face=floor,facing=south,powered=true":    { "model": "block/${id}_pressed", "y": 180 },
+    "face=floor,facing=west,powered=false":    { "model": "block/${id}", "y": 270 },
+    "face=floor,facing=west,powered=true":     { "model": "block/${id}_pressed", "y": 270 },
+
+    "face=wall,facing=north,powered=false":    { "model": "block/${id}", "x": 90 },
+    "face=wall,facing=north,powered=true":     { "model": "block/${id}_pressed", "x": 90 },
+    "face=wall,facing=east,powered=false":     { "model": "block/${id}", "x": 90, "y": 90 },
+    "face=wall,facing=east,powered=true":      { "model": "block/${id}_pressed", "x": 90, "y": 90 },
+    "face=wall,facing=south,powered=false":    { "model": "block/${id}", "x": 90, "y": 180 },
+    "face=wall,facing=south,powered=true":     { "model": "block/${id}_pressed", "x": 90, "y": 180 },
+    "face=wall,facing=west,powered=false":     { "model": "block/${id}", "x": 90, "y": 270 },
+    "face=wall,facing=west,powered=true":      { "model": "block/${id}_pressed", "x": 90, "y": 270 },
+
+    "face=ceiling,facing=south,powered=false": { "model": "block/${id}", "x": 180 },
+    "face=ceiling,facing=south,powered=true":  { "model": "block/${id}_pressed", "x": 180 },
+    "face=ceiling,facing=west,powered=false":  { "model": "block/${id}", "x": 180, "y": 90 },
+    "face=ceiling,facing=west,powered=true":   { "model": "block/${id}_pressed", "x": 180, "y": 90 },
+    "face=ceiling,facing=north,powered=false": { "model": "block/${id}", "x": 180, "y": 180 },
+    "face=ceiling,facing=north,powered=true":  { "model": "block/${id}_pressed", "x": 180, "y": 180 },
+    "face=ceiling,facing=east,powered=false":  { "model": "block/${id}", "x": 180, "y": 270 },
+    "face=ceiling,facing=east,powered=true":   { "model": "block/${id}_pressed", "x": 180, "y": 270 }
+  }
+}

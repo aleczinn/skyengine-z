@@ -11,8 +11,14 @@ import java.util.PriorityQueue;
  * (kennt nur Koordinaten + Zeit), damit die Reihenfolge-Logik isoliert testbar bleibt.
  *
  * <p>Basis für zeitbasierte Mechaniken (Flüssigkeits-Ausbreitung, fallender Sand,
- * verzögerte Reaktionen). Verbraucher schedulen sich i.d.R. selbst neu (Kaskade über
- * Re-Scheduling statt synchroner Nachbar-Kaskade).
+ * verzögerte Reaktionen, Redstone-Delays). Verbraucher schedulen sich i.d.R. selbst neu
+ * (Kaskade über Re-Scheduling statt synchroner Nachbar-Kaskade).
+ *
+ * <p>Der Dedup ist TYPUNABHÄNGIG: die Position ist der ganze Schlüssel. Zwei Systeme, die
+ * an derselben Zelle gleichzeitig Ticks bräuchten, schlössen sich aus — praktisch tritt das
+ * nicht auf (Fluid und Redstone-Bauteil teilen sich nie eine Zelle: Wasser verdrängt das
+ * Bauteil über den Support-Verlust). Bei einem künftigen System mit eigenem Takt an fremden
+ * Positionen (Pistons?) hier neu bewerten.
  */
 public final class ScheduledTickQueue {
 

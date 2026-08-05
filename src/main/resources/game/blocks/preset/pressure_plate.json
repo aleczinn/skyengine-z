@@ -1,0 +1,24 @@
+{
+  "piston_reaction": "destroy",
+  "_comment": "Preset (nicht registriert): Druckplatte. Nur powered=false/true (2 States); Traeger via place_on_center_top (SupportBehavior) — MCs canSupportCenter, deshalb steht sie auch auf einem Zaunpfosten, anders als Tuer/Diode/Staub mit place_on_full_top. Kinder setzen vars.texture und ggf. Sound/Tool.",
+  "creative_tab": "redstone_blocks",
+  "archetype": "pressure_plate",
+  "opaque": false,
+  "solid": false,
+  "hardness": 0.5,
+  "place_on_center_top": true,
+  "vars": {
+    "texture": "${id}"
+  },
+  "models": {
+    "": "block/pressure_plate_up",
+    "_down": "block/pressure_plate_down"
+  },
+  "textures": {
+    "texture": "game/textures/block/${texture}.png"
+  },
+  "variants": {
+    "powered=false": { "model": "block/${id}" },
+    "powered=true":  { "model": "block/${id}_down" }
+  }
+}

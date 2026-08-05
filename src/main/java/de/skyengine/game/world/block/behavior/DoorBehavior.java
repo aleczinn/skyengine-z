@@ -9,6 +9,7 @@ import de.skyengine.game.world.block.state.BlockHalf;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.DoorHinge;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.redstone.RedstonePower;
 
 /**
  * Das Türspezifische an einer Tür: FACING + OPEN + HINGE beim Platzieren und der Rechtsklick,
@@ -59,15 +60,46 @@ public final class DoorBehavior implements BlockBehavior {
             world.setBlock(x, otherY, z, other.with(Properties.OPEN, open).getId(), false);
         }
 
-        /* Ein Sound für beide Hälften, an der angeklickten. Nullbar wie beim TNT-Fuse: ohne
-           SoundManager (Weltgen-Tests) oder ohne Sound-Satz bleibt es einfach still. */
+        playOpenSound(world, x, y, z, state, open);
+        return true;
+    }
+
+    /**
+     * Redstone-Empfänger: OPEN folgt der Signal-<b>Flanke</b> (POWERED = Speicher des letzten
+     * Signalzustands). Nur bei einer Flanke wird geschaltet — eine von Hand geöffnete Tür bleibt
+     * offen, bis das nächste Signal kommt bzw. geht (Vanilla-Verhalten, gilt auch für die
+     * Eisentür: {@code handOpenable} blockt nur den Rechtsklick). Beide Hälften zählen als
+     * Empfänger, die andere Hälfte zieht ohne Kaskade mit.
+     */
+    @Override
+    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+        BlockHalf half = state.get(Properties.HALF);
+        int otherY = half == BlockHalf.BOTTOM ? y + 1 : y - 1;
+        boolean powered = RedstonePower.isReceiving(world, x, y, z)
+                || RedstonePower.isReceiving(world, x, otherY, z);
+        if (powered == state.get(Properties.POWERED)) return state;
+
+        boolean changesOpen = powered != state.get(Properties.OPEN);
+        BlockState other = Blocks.getState(world.getBlock(x, otherY, z));
+        if (isDoor(other)) {
+            world.setBlock(x, otherY, z,
+                    other.with(Properties.OPEN, powered).with(Properties.POWERED, powered).getId(), false);
+        }
+        if (changesOpen) playOpenSound(world, x, y, z, state, powered);
+        return state.with(Properties.OPEN, powered).with(Properties.POWERED, powered);
+    }
+
+    /**
+     * Nullbar wie beim TNT-Fuse: ohne SoundManager (Weltgen-Tests) oder ohne Sound-Satz
+     * bleibt es einfach still. Ein Sound für beide Hälften, an der auslösenden.
+     */
+    private static void playOpenSound(World world, int x, int y, int z, BlockState state, boolean open) {
         SoundManager sound = world.getSoundManager();
         BlockOpenSound set = state.getBlock().getOpenSound();
         if (sound != null && set != null) {
             if (open) sound.playBlockOpen(set, x + 0.5, y + 0.5, z + 0.5);
             else sound.playBlockClose(set, x + 0.5, y + 0.5, z + 0.5);
         }
-        return true;
     }
 
     /** Türerkennung ohne instanceof: ein Block ist eine Tür, wenn sein State HINGE trägt. */

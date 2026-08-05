@@ -1,0 +1,17 @@
+{
+  "_comment": "Verbatim MC pressure_plate_up (26.2): 14x1x14-Platte, 1 px eingerueckt. Parent block/thin_block wie in MC — das hebt den flachen Block in der Hand um 4.2 px an.",
+  "parent": "block/thin_block",
+  "elements": [
+    {
+      "from": [1, 0, 1], "to": [15, 1, 15],
+      "faces": {
+        "down":  { "uv": [1, 1, 15, 15], "texture": "#texture", "cullface": "down" },
+        "up":    { "uv": [1, 1, 15, 15], "texture": "#texture" },
+        "north": { "uv": [1, 15, 15, 16], "texture": "#texture" },
+        "south": { "uv": [1, 15, 15, 16], "texture": "#texture" },
+        "west":  { "uv": [1, 15, 15, 16], "texture": "#texture" },
+        "east":  { "uv": [1, 15, 15, 16], "texture": "#texture" }
+      }
+    }
+  ]
+}

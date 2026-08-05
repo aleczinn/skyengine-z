@@ -319,9 +319,9 @@ public final class FluidBehavior implements BlockBehavior {
         return !s.isFluid() && !s.isSolid() && s.getCollisionShape().isEmpty();
     }
 
-    /** Droppt das Item des weggespülten Blocks (Pflanze), falls eines registriert ist. */
+    /** Droppt das Item des weggespülten Blocks (Pflanze, Staub), falls eines registriert ist. */
     private static void dropBlockItem(World world, int x, int y, int z, BlockState state) {
-        Item item = Items.get(state.getBlock().getIdentifier());
+        Item item = Items.forBlock(state.getBlock()); // löst auch places_block-Items auf (Staub)
         if (item != null) world.spawnItem(x + 0.5, y + 0.5, z + 0.5, new ItemStack(item, 1));
     }
 

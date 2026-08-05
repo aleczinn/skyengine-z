@@ -28,6 +28,20 @@ public final class Archetypes {
         register("trapdoor", new TrapdoorArchetype());
         register("chest", new ChestArchetype());
         register("attached", new AttachedArchetype());
+        register("button", new ButtonArchetype());
+        register("pressure_plate", new PressurePlateArchetype());
+        register("lever", new LeverArchetype());
+        register("redstone_lamp", new RedstoneLampArchetype());
+        register("redstone_wire", new RedstoneWireArchetype());
+        register("redstone_torch", new RedstoneTorchArchetype());
+        register("repeater", new RepeaterArchetype());
+        register("piston", new PistonArchetype(false));
+        register("sticky_piston", new PistonArchetype(true));
+        register("piston_head", new PistonHeadArchetype());
+        register("moving_piston", new MovingPistonArchetype());
+        register("observer", new ObserverArchetype());
+        register("hopper", new HopperArchetype());
+        register("comparator", new ComparatorArchetype());
         register("custom", new CustomArchetype());
     }
 

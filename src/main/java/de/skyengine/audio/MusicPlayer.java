@@ -35,6 +35,10 @@ final class MusicPlayer {
     private boolean playing, loop;
     /** Pausenmenü: Source steht auf AL_PAUSED, update() muss die Finger davon lassen. */
     private boolean paused;
+    /** Stream liefert keine Samples mehr (EOF ohne Loop): nur noch auslaufen lassen, nie neu starten. */
+    private boolean exhausted;
+    /** Aufeinanderfolgende erfolglose Underrun-Neustarts — Deckel gegen Endlos-Spam. */
+    private int restartAttempts;
     private float volume = 1.0F;
 
     /** Startet die Datei (ersetzt laufende Musik). Fehler → Warnung, kein Crash. */
@@ -110,17 +114,38 @@ final class MusicPlayer {
         for (int i = 0; i < processed; i++) {
             int buffer = AL10.alSourceUnqueueBuffers(this.source);
             if (!this.fillAndQueue(buffer)) {
-                /* Datei zu Ende (ohne Loop): Buffer auslaufen lassen, dann stoppen. */
-                if (AL10.alGetSourcei(this.source, AL10.AL_BUFFERS_QUEUED) == 0) {
-                    this.stop();
-                    return;
+                /* Datei zu Ende (ohne Loop) oder Stream defekt: nur noch auslaufen lassen. */
+                if (!this.exhausted && this.loop) {
+                    this.logger.warning("Musik-Stream liefert trotz Loop keine Daten mehr — Musik läuft aus.");
                 }
+                this.exhausted = true;
             }
         }
+        if (this.exhausted && AL10.alGetSourcei(this.source, AL10.AL_BUFFERS_QUEUED) == 0) {
+            this.stop();
+            return;
+        }
 
-        /* Underrun (z.B. langer Ladehänger): Source ist ausgelaufen, obwohl Daten anliegen. */
-        if (AL10.alGetSourcei(this.source, AL10.AL_SOURCE_STATE) != AL10.AL_PLAYING
-                && AL10.alGetSourcei(this.source, AL10.AL_BUFFERS_QUEUED) > 0) {
+        int state = AL10.alGetSourcei(this.source, AL10.AL_SOURCE_STATE);
+        if (state == AL10.AL_PLAYING) {
+            this.restartAttempts = 0;
+            return;
+        }
+
+        /* Underrun (z.B. langer Ladehänger): Source ist ausgelaufen, obwohl frische Daten anliegen.
+           AL_BUFFERS_QUEUED zählt auch schon abgespielte Buffer mit — erst queued − processed sagt,
+           ob wirklich etwas abzuspielen ist. Greift alSourcePlay wiederholt nicht (z.B. nach
+           Gerätewechsel), einmalig warnen und aufgeben statt jeden Frame zu spammen. */
+        int pending = AL10.alGetSourcei(this.source, AL10.AL_BUFFERS_QUEUED)
+                - AL10.alGetSourcei(this.source, AL10.AL_BUFFERS_PROCESSED);
+        if (!this.exhausted && pending > 0) {
+            if (this.restartAttempts >= 3) {
+                this.logger.warning("Musik-Underrun nicht behebbar (Source-State " + state
+                        + ", AL-Fehler " + AL10.alGetError() + ") — Musik gestoppt.");
+                this.stop();
+                return;
+            }
+            this.restartAttempts++;
             this.logger.debug("Musik-Underrun — Wiedergabe fortgesetzt.");
             AL10.alSourcePlay(this.source);
         }
@@ -154,6 +179,8 @@ final class MusicPlayer {
         }
         this.playing = false;
         this.paused = false;
+        this.exhausted = false;
+        this.restartAttempts = 0;
     }
 
     /** Lautstärke der Musik-Source (wirkt zusätzlich zum Master-Gain des Listeners). */

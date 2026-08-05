@@ -69,8 +69,15 @@ $wanted = @(
     # TNT-Explosion + Zünd-Zischen (in MC unter random/)
     @{ pattern = 'minecraft/sounds/random/explode[1-4].ogg'; dest = 'random' },
     @{ pattern = 'minecraft/sounds/random/fuse.ogg';         dest = 'random' },
+    # Redstone-Fackel brennt durch (block.redstone_torch.burnout -> random/fizz)
+    @{ pattern = 'minecraft/sounds/random/fizz.ogg';         dest = 'random' },
+    # Feuerzeug zuendet (item.flintandsteel.use -> fire/ignite, einzelne Datei)
+    @{ pattern = 'minecraft/sounds/fire/ignite.ogg';         dest = 'random' },
     # Item aufsammeln (entity.item.pickup -> random/pop, einzelne Datei)
     @{ pattern = 'minecraft/sounds/random/pop.ogg';          dest = 'random' },
+    # Kolben aus-/einfahren (block.piston.extend/contract, je eine Datei)
+    @{ pattern = 'minecraft/sounds/tile/piston/out.ogg';     dest = 'piston' },
+    @{ pattern = 'minecraft/sounds/tile/piston/in.ogg';      dest = 'piston' },
     # Auf-/Zu-Sounds (Tuer, Truhe). Jeder Satz braucht einen EIGENEN Zielordner: kopiert wird mit
     # dem MC-Dateinamen, sonst wuerden wooden_door/open1.ogg und iron_door/open1.ogg kollidieren.
     # Die Truhen-Muster sind eng gefasst — im selben MC-Ordner liegen *_locked-Varianten.

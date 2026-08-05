@@ -1,0 +1,7 @@
+{
+  "_comment": "Wie cube_all, aber ueber den Schluessel 'on' texturiert - fuer die An-Variante von lit-Bloecken (Redstone-Lampe; spaeter redstone_ore). Die textures-Map eines Blocks ist EINE Map fuer alle seine Ruempfe, deshalb braucht die zweite Textur einen zweiten Schluessel.",
+  "parent": "block/cube",
+  "textures": {
+    "down": "#on", "up": "#on", "north": "#on", "south": "#on", "west": "#on", "east": "#on"
+  }
+}

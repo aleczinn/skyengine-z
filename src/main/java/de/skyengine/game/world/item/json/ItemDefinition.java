@@ -14,6 +14,11 @@ public class ItemDefinition {
     /** Essbar (MC-Werte): nutrition in Halb-Icons, saturation als unsichtbare Sättigung. */
     public FoodDef food;
 
+    /* Block-Identifier, den ein Rechtsklick mit diesem Item platziert (Redstone-Staub:
+       "skyengine:redstone_wire"). Der Block trägt dann "no_item": true — das Item hier
+       übernimmt Platzieren, Drop und Pick-Block (Items.forBlock). null = nicht platzierbar. */
+    public String places_block;
+
     /* Creative-Tab(s): ein String ODER eine Liste von Strings. Vererbbar über die Presets; ein
        Kind ERSETZT den Preset-Wert vollständig. Fehlt das Feld, landet das Item im Sammel-Tab
        "misc" (mit Warnung). Siehe de.skyengine.game.world.item.CreativeTabs. */

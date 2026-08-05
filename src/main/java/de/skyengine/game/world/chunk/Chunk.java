@@ -98,6 +98,14 @@ public class Chunk {
        (Chunk bleibt bis zum fertigen Save in der Map). Tick-Thread setzt, IO-Thread löscht. */
     public volatile boolean saveQueued;
 
+    /* true, sobald World.processReadyChunks diesen Chunk einmal bearbeitet hat. Nötig, weil
+       remeshAll (Grafik-Settings) READY-Chunks auf LIT zurücksetzt und sie danach ein ZWEITES
+       Mal READY werden — ein erneuter Durchlauf würde den Vergleichs-Zustand eines Beobachters
+       mitten im Betrieb neu setzen und dabei eine anstehende Flanke verschlucken. Ein neu
+       geladener Chunk ist ein neues Objekt, das Flag setzt sich also von selbst zurück.
+       Nur Tick-Thread. */
+    public boolean loadSeeded;
+
     /* Schützt die Section-Container (PalettedContainer + sections[]-Allokation) gegen
        gleichzeitige Worker-Mesh-Reads und Render-Thread-Writes. Mesh-Jobs nehmen den
        Read-Lock, World.setBlockRaw den Write-Lock. */

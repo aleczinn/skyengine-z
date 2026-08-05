@@ -1,0 +1,20 @@
+{
+  "parent": "block/block",
+  "_comment": "Kopie von template_torch mit dem Textur-Schluessel 'torch_off' - die textures-Map eines Blocks ist EINE Map fuer alle Ruempfe, die Aus-Variante der Redstone-Fackel braucht deshalb einen eigenen Schluessel (gleiches Muster wie cube_all_on).",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [7, 0, 7],
+      "to": [9, 10, 9],
+      "shade": false,
+      "faces": {
+        "down":  { "uv": [7, 13, 9, 15], "texture": "#torch_off", "cullface": "down" },
+        "up":    { "uv": [7, 6, 9, 8],   "texture": "#torch_off" },
+        "north": { "uv": [7, 6, 9, 16],  "texture": "#torch_off" },
+        "south": { "uv": [7, 6, 9, 16],  "texture": "#torch_off" },
+        "west":  { "uv": [7, 6, 9, 16],  "texture": "#torch_off" },
+        "east":  { "uv": [7, 6, 9, 16],  "texture": "#torch_off" }
+      }
+    }
+  ]
+}

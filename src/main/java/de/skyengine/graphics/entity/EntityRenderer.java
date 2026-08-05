@@ -328,42 +328,10 @@ public final class EntityRenderer {
         return mesh;
     }
 
-    /** Backt die Quads des States in ein interleaved Mesh [x,y,z,u,v,layer,r,g,b]. */
+    /** Backt die Quads des States in ein interleaved Mesh (Daten-Bau geteilt in {@code BlockStateMesh}). */
     private static Mesh build(int stateId) {
-        BakedQuad[] quads = Blocks.getState(stateId).getModel();
-        if (quads == null || quads.length == 0) return null;
-        /* Seiten-Overlay (Grasblock) anhängen wie beim Inventar-Icon — sonst bleiben die
-           Gras-Seitenstreifen des Drops grau. */
-        BakedQuad[] overlay = Blocks.getState(stateId).getOverlay();
-        if (overlay.length > 0) quads = BlockModels.concat(quads, overlay);
-
-        int verts = 0;
-        for (BakedQuad q : quads) verts += q.vertices().length / 5;
-        if (verts == 0) return null;
-
-        float[] data = new float[verts * FLOATS_PER_VERTEX];
-        int p = 0;
-        for (BakedQuad q : quads) {
-            float[] v = q.vertices();
-            int n = v.length / 5;
-            /* Fester Fallback-Tint aus dem Quad (kein Biome-Grid — Drops wie Inventar-Icons). */
-            int tint = q.tint();
-            float r = q.brightness() * ((tint >> 16) & 0xFF) / 255F;
-            float g = q.brightness() * ((tint >> 8) & 0xFF) / 255F;
-            float b = q.brightness() * (tint & 0xFF) / 255F;
-            for (int i = 0; i < n; i++) {
-                data[p++] = v[i * 5];
-                data[p++] = v[i * 5 + 1];
-                data[p++] = v[i * 5 + 2];
-                data[p++] = v[i * 5 + 3];
-                data[p++] = v[i * 5 + 4];
-                data[p++] = q.textureLayer();
-                data[p++] = r;
-                data[p++] = g;
-                data[p++] = b;
-            }
-        }
-        return new Mesh(data);
+        float[] data = de.skyengine.graphics.BlockStateMesh.interleave(stateId);
+        return data == null ? null : new Mesh(data);
     }
 
     public void dispose() {

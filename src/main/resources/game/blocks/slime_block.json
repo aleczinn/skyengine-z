@@ -2,6 +2,7 @@
   "id": "skyengine:slime_block",
   "creative_tab": "functional",
   "parent": "preset/cube",
+  "sticky_group": "slime",
   "model": "block/cube_inner_all",
   "sound": "slime",
   "layer": "translucent",

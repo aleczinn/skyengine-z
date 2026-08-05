@@ -1,5 +1,6 @@
 {
   "id": "skyengine:lilac",
+  "piston_reaction": "destroy",
   "creative_tab": "natural",
   "archetype": "tall_cross",
   "parts": {

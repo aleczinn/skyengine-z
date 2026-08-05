@@ -1,0 +1,17 @@
+{
+  "parent": "block/thin_block",
+  "_comment": "MC pressure_plate_down (26.2): wie _up, aber nur 0.5 px hoch (gedrueckt). Einzige Abweichung: die Seiten-UVs enden bei 16 statt MCs 15.5 - der Model-Loader kennt nur ganzzahlige UVs (RawFace.uv int[]), und der halbe Pixel ist auf einer 0.5-px-Kante unsichtbar.",
+  "elements": [
+    {
+      "from": [1, 0, 1], "to": [15, 0.5, 15],
+      "faces": {
+        "down":  { "uv": [1, 1, 15, 15], "texture": "#texture", "cullface": "down" },
+        "up":    { "uv": [1, 1, 15, 15], "texture": "#texture" },
+        "north": { "uv": [1, 15, 15, 16], "texture": "#texture" },
+        "south": { "uv": [1, 15, 15, 16], "texture": "#texture" },
+        "west":  { "uv": [1, 15, 15, 16], "texture": "#texture" },
+        "east":  { "uv": [1, 15, 15, 16], "texture": "#texture" }
+      }
+    }
+  ]
+}
