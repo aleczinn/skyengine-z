@@ -3,6 +3,9 @@ package de.skyengine.game.world.block.shape;
 import de.skyengine.game.physics.AABB;
 import org.joml.Vector3d;
 
+import java.util.NavigableSet;
+import java.util.TreeSet;
+
 /**
  * Eine Kollisions-/Umriss-Form eines BlockStates: eine Menge achsenparalleler
  * Boxen in LOKALEN Blockkoordinaten (0..1). Wird für Entity-Kollision,
@@ -14,9 +17,11 @@ public final class BlockShape {
     public static final BlockShape FULL_CUBE = new BlockShape(new AABB[]{new AABB(0, 0, 0, 1, 1, 1)});
 
     private final AABB[] boxes;
+    private final boolean fullCube;
 
     public BlockShape(AABB[] boxes) {
         this.boxes = boxes;
+        this.fullCube = coversUnitCube(boxes);
     }
 
     public static BlockShape box(double x0, double y0, double z0, double x1, double y1, double z1) {
@@ -29,6 +34,59 @@ public final class BlockShape {
 
     public boolean isEmpty() {
         return boxes.length == 0;
+    }
+
+    /** true, wenn die Kollisionsform den ganzen Blockraum 0..1 belegt. */
+    public boolean isFullCube() {
+        return this.fullCube;
+    }
+
+    /**
+     * Prüft auch zusammengesetzte Formen. Vanillas {@code isCollisionShapeFullBlock}
+     * betrachtet die Vereinigung aller Teilboxen, nicht nur eine einzelne Vollwürfel-Box.
+     */
+    private static boolean coversUnitCube(AABB[] boxes) {
+        if (boxes.length == 0) return false;
+        NavigableSet<Double> xs = boundaries(boxes, 0);
+        NavigableSet<Double> ys = boundaries(boxes, 1);
+        NavigableSet<Double> zs = boundaries(boxes, 2);
+        Double[] xa = xs.toArray(Double[]::new);
+        Double[] ya = ys.toArray(Double[]::new);
+        Double[] za = zs.toArray(Double[]::new);
+
+        for (int xi = 0; xi < xa.length - 1; xi++) {
+            double x = (xa[xi] + xa[xi + 1]) * 0.5;
+            for (int yi = 0; yi < ya.length - 1; yi++) {
+                double y = (ya[yi] + ya[yi + 1]) * 0.5;
+                for (int zi = 0; zi < za.length - 1; zi++) {
+                    double z = (za[zi] + za[zi + 1]) * 0.5;
+                    boolean covered = false;
+                    for (AABB box : boxes) {
+                        if (box.minX <= x && box.maxX >= x
+                                && box.minY <= y && box.maxY >= y
+                                && box.minZ <= z && box.maxZ >= z) {
+                            covered = true;
+                            break;
+                        }
+                    }
+                    if (!covered) return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static NavigableSet<Double> boundaries(AABB[] boxes, int axis) {
+        NavigableSet<Double> values = new TreeSet<>();
+        values.add(0.0);
+        values.add(1.0);
+        for (AABB box : boxes) {
+            double min = axis == 0 ? box.minX : axis == 1 ? box.minY : box.minZ;
+            double max = axis == 0 ? box.maxX : axis == 1 ? box.maxY : box.maxZ;
+            if (min > 0 && min < 1) values.add(min);
+            if (max > 0 && max < 1) values.add(max);
+        }
+        return values;
     }
 
     /** Treffer eines Strahls: Distanz t entlang dir + Normale der getroffenen Fläche. */

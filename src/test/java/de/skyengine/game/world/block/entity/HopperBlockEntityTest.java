@@ -1,6 +1,8 @@
 package de.skyengine.game.world.block.entity;
 
 import de.skyengine.game.world.World;
+import de.skyengine.game.entity.Entity;
+import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
@@ -8,6 +10,7 @@ import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.block.state.SlabType;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.save.LevelData;
@@ -19,10 +22,13 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -117,6 +123,53 @@ final class HopperBlockEntityTest {
         assertEquals(2, world.lastScheduledDelay);
     }
 
+    @Test
+    void suctionStartsAtElevenSixteenthsInsideHopper() {
+        TestWorld world = new TestWorld();
+        HopperBlockEntity hopper = world.addHopper(0, Direction.DOWN);
+        ItemEntity tooLow = world.addItem(0.5, 64.4, 0.5);
+
+        world.gameTime = 1;
+        hopper.tick();
+
+        assertFalse(tooLow.isRemoved());
+        assertTrue(hopper.getInventory().get(0).isEmpty());
+
+        ItemEntity inRange = world.addItem(0.5, 64.5, 0.5);
+        world.gameTime = 2;
+        hopper.tick();
+        assertTrue(inRange.isRemoved());
+        assertEquals(1, hopper.getInventory().get(0).getCount());
+    }
+
+    @Test
+    void fullCollisionBlockAbovePreventsItemEntitySuction() {
+        TestWorld world = new TestWorld();
+        HopperBlockEntity hopper = world.addHopper(0, Direction.DOWN);
+        world.putBlock(0, 65, 0, state("stone"));
+        ItemEntity item = world.addItem(0.5, 65.0, 0.5);
+
+        world.gameTime = 1;
+        hopper.tick();
+
+        assertFalse(item.isRemoved());
+        assertTrue(hopper.getInventory().get(0).isEmpty());
+    }
+
+    @Test
+    void partialCollisionBlockAboveDoesNotPreventItemEntitySuction() {
+        TestWorld world = new TestWorld();
+        HopperBlockEntity hopper = world.addHopper(0, Direction.DOWN);
+        world.putBlock(0, 65, 0, state("stone_slab").with(Properties.SLAB_TYPE, SlabType.BOTTOM));
+        ItemEntity item = world.addItem(0.5, 65.5, 0.5);
+
+        world.gameTime = 1;
+        hopper.tick();
+
+        assertTrue(item.isRemoved());
+        assertEquals(1, hopper.getInventory().get(0).getCount());
+    }
+
     private static ItemStack stone(int count) {
         return new ItemStack(Items.get(Identifier.of("skyengine:stone")), count);
     }
@@ -141,6 +194,7 @@ final class HopperBlockEntityTest {
 
         private final LongIntMap blocks = new LongIntMap(16);
         private final Map<Long, BlockEntity> blockEntities = new HashMap<>();
+        private final List<Entity> entities = new ArrayList<>();
         private final Set<Integer> changedX = new HashSet<>();
         private long gameTime;
         private int observerNotifications;
@@ -178,6 +232,17 @@ final class HopperBlockEntityTest {
             this.blocks.put(BlockPos.asLong(x, 64, 0), state.getId());
         }
 
+        void putBlock(int x, int y, int z, BlockState state) {
+            this.blocks.put(BlockPos.asLong(x, y, z), state.getId());
+        }
+
+        ItemEntity addItem(double x, double y, double z) {
+            ItemEntity item = new ItemEntity(stone(1));
+            item.setPosition(x, y, z);
+            this.entities.add(item);
+            return item;
+        }
+
         @Override
         public int getBlock(int x, int y, int z) {
             return this.blocks.getOrDefault(BlockPos.asLong(x, y, z), Blocks.AIR);
@@ -200,6 +265,11 @@ final class HopperBlockEntityTest {
 
         @Override
         public void updateComparatorOutputs(int x, int y, int z) {
+        }
+
+        @Override
+        public void forEachEntityNearby(double x, double z, int chunkRadius, Consumer<Entity> action) {
+            for (Entity entity : this.entities) action.accept(entity);
         }
 
         @Override

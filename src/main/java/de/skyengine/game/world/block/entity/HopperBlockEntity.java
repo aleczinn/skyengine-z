@@ -29,6 +29,8 @@ import java.util.Optional;
 public final class HopperBlockEntity extends BlockEntity {
 
     public static final int SLOTS = 5;
+    /** Vanillas Hopper.SUCK_AABB: volle Breite, von 11/16 im Hopper bis zwei Blöcke hoch. */
+    private static final double SUCTION_MIN_Y = 11.0 / 16.0;
 
     private final SimpleItemStorage inventory = new SimpleItemStorage(SLOTS);
     /** Rest-Ticks bis zum nächsten Transferversuch (persistiert — der Takt überlebt Save/Load). */
@@ -125,6 +127,8 @@ public final class HopperBlockEntity extends BlockEntity {
             }
             return false;
         }
+        BlockState above = Blocks.getState(this.world.getBlock(x, y + 1, z));
+        if (above.getCollisionShape().isFullCube()) return false;
         return this.suckItems();
     }
 
@@ -135,7 +139,7 @@ public final class HopperBlockEntity extends BlockEntity {
      */
     private boolean suckItems() {
         int x = this.pos.x(), y = this.pos.y(), z = this.pos.z();
-        AABB suction = new AABB(x, y + 0.5, z, x + 1, y + 2, z + 1);
+        AABB suction = new AABB(x, y + SUCTION_MIN_Y, z, x + 1, y + 2, z + 1);
         boolean[] moved = {false};
         this.world.forEachEntityNearby(x + 0.5, z + 0.5, 1, entity -> {
             if (moved[0]) return;   // ein Transfer pro Takt, wie Push/Pull
