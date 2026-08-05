@@ -1,6 +1,8 @@
 package de.skyengine.game.world.tick;
 
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.utils.collect.LongIntMap;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -149,5 +151,21 @@ final class ScheduledTickQueueTest {
         assertEquals(2, queue.drainDue(1, 4,
                 (x, y, z, block, priority, order) -> fired.add(x)));
         assertEquals(List.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), fired);
+    }
+
+    @Test
+    void chunkBatchRemovalDropsLogicalAndStaleEntriesOnlyInTargetChunks() {
+        ScheduledTickQueue queue = new ScheduledTickQueue();
+        queue.schedule(3, 64, 4, STONE, 100);
+        queue.scheduleEarlier(3, 64, 4, STONE, 80);
+        queue.schedule(35, 64, 4, DIRT, 100);
+        LongIntMap chunks = new LongIntMap(1);
+        chunks.put(Chunk.key(0, 0), 1);
+
+        assertEquals(1, queue.removeChunks(chunks));
+
+        assertFalse(queue.isScheduled(3, 64, 4, STONE));
+        assertTrue(queue.isScheduled(35, 64, 4, DIRT));
+        assertEquals(1, queue.size(), "auch der veraltete Heap-Eintrag muss verschwinden");
     }
 }

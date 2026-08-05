@@ -109,6 +109,8 @@ public class World implements IInitializable, IDisposable {
     private final List<Chunk> readyChunkScratch = new ArrayList<>();
     /** Reguläre Unloads werden vor dem Redstone-Kantenabgleich nach Koordinate sortiert. */
     private final List<Long> unloadedChunkScratch = new ArrayList<>();
+    /** Koordinaten dieses Unload-Batches, die nicht schon wieder einem Ersatz-Chunk gehören. */
+    private final LongIntMap unloadedChunkKeys = new LongIntMap(64);
 
     /* Nachhol-Protokoll für Block-State-Updates. Die FIFO enthält ausschließlich Updates für
        den nächsten Tick; nicht-READY Ziele liegen separat am konkreten Chunk-Objekt. Dadurch
@@ -384,6 +386,7 @@ public class World implements IInitializable, IDisposable {
                 .comparingInt((Long key) -> (int) (key >> 32))
                 .thenComparingInt(Long::intValue));
 
+        this.unloadedChunkKeys.clear();
         LongIntMap reconciledWires = new LongIntMap(1024);
         for (long key : this.unloadedChunkScratch) {
             int chunkX = (int) (key >> 32);
@@ -391,6 +394,7 @@ public class World implements IInitializable, IDisposable {
             /* Der Koordinate ist vor dem Abgleich schon wieder ein neuer Chunk zugeordnet:
                dessen READY-Reconciliation übernimmt, die alte Unload-Meldung ist überholt. */
             if (this.chunkManager.getChunk(chunkX, chunkZ) != null) continue;
+            this.unloadedChunkKeys.put(key, 1);
             for (Direction direction : Direction.horizontalValues()) {
                 Chunk neighbor = this.chunkManager.getChunk(
                         chunkX + direction.offsetX(), chunkZ + direction.offsetZ());
@@ -402,6 +406,22 @@ public class World implements IInitializable, IDisposable {
                 this.reconcileRedstoneBoundaryBand(neighbor, direction.opposite(), reconciledWires);
             }
         }
+
+        /* Der Save-Snapshot des entfernten Chunks ist jetzt autoritativ. Lang laufende Ticks
+           dürfen weder bis zu ihrer Zielzeit Speicher belegen noch beim Reload mit ihrem
+           eingefrorenen Rest-Delay kollidieren. Ein Batch-Scan vermeidet O(Unloads × Queue). */
+        int removedTicks = this.scheduledTicks.removeChunks(this.unloadedChunkKeys);
+        for (int i = 0; i < removedTicks; i++) {
+            this.simulationTelemetry.recordScheduledDroppedUnloaded();
+        }
+        int eventsBefore = this.blockEvents.size();
+        this.blockEvents.entrySet().removeIf(event -> {
+            long pos = event.getKey();
+            return this.unloadedChunkKeys.containsKey(Chunk.key(
+                    BlockPos.unpackX(pos) >> ChunkSection.SHIFT,
+                    BlockPos.unpackZ(pos) >> ChunkSection.SHIFT));
+        });
+        if (this.blockEvents.size() != eventsBefore) this.blockEventRevision++;
     }
 
     private void reconcilePendingOpenBoundaries(Chunk chunk, LongIntMap reconciledWires) {

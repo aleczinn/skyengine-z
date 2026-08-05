@@ -2,9 +2,13 @@ package de.skyengine.game.world.tick;
 
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.utils.collect.LongIntMap;
 import de.skyengine.utils.collect.LongLongMap;
 
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.PriorityQueue;
 
@@ -133,6 +137,38 @@ public final class ScheduledTickQueue {
     public boolean isScheduled(int x, int y, int z, Identifier expectedBlock) {
         TypeIndex index = this.scheduled.get(expectedBlock);
         return index != null && index.times.containsKey(BlockPos.asLong(x, y, z));
+    }
+
+    /**
+     * Entfernt alle Runtime-Einträge regulär entladener Chunks in einem Queue-Durchlauf.
+     * Deren persistierter Snapshot bleibt die autoritative Quelle für einen späteren Reload.
+     * Auch veraltete Heap-Einträge vorgezogener Ticks werden physisch ausgetragen.
+     *
+     * @return Anzahl entfernter logischer Ticks
+     */
+    public int removeChunks(LongIntMap chunkKeys) {
+        if (chunkKeys.isEmpty() || this.queue.isEmpty()) return 0;
+        int removed = 0;
+        Iterator<Entry> iterator = this.queue.iterator();
+        while (iterator.hasNext()) {
+            Entry entry = iterator.next();
+            long chunkKey = Chunk.key(entry.x >> ChunkSection.SHIFT, entry.z >> ChunkSection.SHIFT);
+            if (!chunkKeys.containsKey(chunkKey)) continue;
+            iterator.remove();
+
+            TypeIndex index = this.scheduled.get(entry.expectedBlock);
+            if (index == null) continue;
+            if (index.times.getOrDefault(entry.position, NO_VALUE) != entry.triggerTime
+                    || index.sequences.getOrDefault(entry.position, NO_VALUE) != entry.sequence) continue;
+            index.times.remove(entry.position);
+            index.sequences.remove(entry.position);
+            removed++;
+        }
+        if (removed == 0) return 0;
+        this.scheduled.entrySet().removeIf(entry -> entry.getValue().times.isEmpty());
+        this.logicalSize -= removed;
+        this.revision += removed;
+        return removed;
     }
 
     /** Neu eingeplante Ticks aus dem Consumer laufen erst im naechsten Drain. */

@@ -14,6 +14,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -97,6 +98,28 @@ final class WorldScheduledTickPersistenceTest {
         assertEquals(2, pending.getFirst().remainingTicks());
     }
 
+    @Test
+    void unloadedChunkDropsRuntimeTicksAndEventsButKeepsLoadedNeighbors() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk unloaded = readyPistonChunk();
+        Chunk neighbor = new Chunk(1, 0);
+        neighbor.status = ChunkStatus.READY;
+        neighbor.setBlock(3, 64, 4, Blocks.PISTON);
+        world.install(unloaded);
+        world.install(neighbor);
+        world.scheduleTick(3, 64, 4, 100);
+        world.enqueueBlockEvent(3, 64, 4);
+        world.scheduleTick(35, 64, 4, 100);
+
+        assertEquals(2, world.snapshotScheduledTicks(unloaded).size());
+        world.unload(unloaded);
+        world.processUnloadedChunks();
+
+        assertNull(world.snapshotScheduledTicks(unloaded));
+        assertEquals(1, world.snapshotScheduledTicks(neighbor).size());
+        assertTrue(world.isTickScheduled(35, 64, 4));
+    }
+
     private static Chunk readyPistonChunk() {
         Chunk chunk = new Chunk(0, 0);
         chunk.status = ChunkStatus.READY;
@@ -108,7 +131,9 @@ final class WorldScheduledTickPersistenceTest {
         private static final Field CHUNKS_FIELD;
         private static final Field CHUNK_MANAGER_FIELD;
         private static final Field GAME_TIME_FIELD;
+        private static final Field UNLOAD_QUEUE_FIELD;
         private static final Method TICK_SCHEDULED;
+        private static final Method PROCESS_UNLOADED;
 
         static {
             try {
@@ -118,8 +143,12 @@ final class WorldScheduledTickPersistenceTest {
                 CHUNK_MANAGER_FIELD.setAccessible(true);
                 GAME_TIME_FIELD = World.class.getDeclaredField("gameTime");
                 GAME_TIME_FIELD.setAccessible(true);
+                UNLOAD_QUEUE_FIELD = ChunkManager.class.getDeclaredField("unloadAnnounceQueue");
+                UNLOAD_QUEUE_FIELD.setAccessible(true);
                 TICK_SCHEDULED = World.class.getDeclaredMethod("tickScheduled");
                 TICK_SCHEDULED.setAccessible(true);
+                PROCESS_UNLOADED = World.class.getDeclaredMethod("processUnloadedChunkBoundaries");
+                PROCESS_UNLOADED.setAccessible(true);
             } catch (ReflectiveOperationException e) {
                 throw new ExceptionInInitializerError(e);
             }
@@ -142,6 +171,18 @@ final class WorldScheduledTickPersistenceTest {
 
         void tickScheduled() throws ReflectiveOperationException {
             TICK_SCHEDULED.invoke(this);
+        }
+
+        @SuppressWarnings("unchecked")
+        void unload(Chunk chunk) throws IllegalAccessException {
+            ChunkManager manager = (ChunkManager) CHUNK_MANAGER_FIELD.get(this);
+            ((Map<Long, Chunk>) CHUNKS_FIELD.get(manager)).remove(Chunk.key(chunk.chunkX, chunk.chunkZ));
+            ((ConcurrentLinkedQueue<Long>) UNLOAD_QUEUE_FIELD.get(manager))
+                    .add(Chunk.key(chunk.chunkX, chunk.chunkZ));
+        }
+
+        void processUnloadedChunks() throws ReflectiveOperationException {
+            PROCESS_UNLOADED.invoke(this);
         }
 
         private static LevelData level() {
