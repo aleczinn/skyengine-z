@@ -171,6 +171,15 @@ public final class ScheduledTickQueue {
         return removed;
     }
 
+    /** Verwirft den vollständigen Runtime-Stand, z.B. vor einem autoritativen Chunk-Reload. */
+    public void clear() {
+        if (this.logicalSize == 0 && this.queue.isEmpty()) return;
+        this.queue.clear();
+        this.scheduled.clear();
+        this.logicalSize = 0;
+        this.revision++;
+    }
+
     /** Neu eingeplante Ticks aus dem Consumer laufen erst im naechsten Drain. */
     public void drainDue(long now, DueConsumer consumer) {
         this.drainDue(now, Integer.MAX_VALUE, consumer);

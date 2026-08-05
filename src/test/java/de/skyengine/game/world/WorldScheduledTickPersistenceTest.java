@@ -120,6 +120,23 @@ final class WorldScheduledTickPersistenceTest {
         assertTrue(world.isTickScheduled(35, 64, 4));
     }
 
+    @Test
+    void authoritativeChunkReloadClearsRuntimeSchedulerState() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = readyPistonChunk();
+        world.install(chunk);
+        world.scheduleTick(3, 64, 4, 100);
+        world.enqueueBlockEvent(3, 64, 4);
+        assertEquals(2, world.snapshotScheduledTicks(chunk).size());
+        /* Simuliert einen bereits geschriebenen Snapshot, damit der Test kein Welt-IO anstößt. */
+        chunk.markSaved(chunk.modificationEpoch());
+
+        world.reloadAllChunks();
+
+        assertNull(world.loadedChunk(0, 0));
+        assertNull(world.snapshotScheduledTicks(chunk));
+    }
+
     private static Chunk readyPistonChunk() {
         Chunk chunk = new Chunk(0, 0);
         chunk.status = ChunkStatus.READY;
@@ -183,6 +200,11 @@ final class WorldScheduledTickPersistenceTest {
 
         void processUnloadedChunks() throws ReflectiveOperationException {
             PROCESS_UNLOADED.invoke(this);
+        }
+
+        Chunk loadedChunk(int chunkX, int chunkZ) throws IllegalAccessException {
+            ChunkManager manager = (ChunkManager) CHUNK_MANAGER_FIELD.get(this);
+            return manager.getChunk(chunkX, chunkZ);
         }
 
         private static LevelData level() {

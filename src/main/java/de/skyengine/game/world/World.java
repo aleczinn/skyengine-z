@@ -152,6 +152,9 @@ public class World implements IInitializable, IDisposable {
     private final Random random = new Random();
     private final ScheduledTickQueue scheduledTicks = new ScheduledTickQueue();
     private final SimulationTelemetry simulationTelemetry = new SimulationTelemetry();
+    /** Debug-Reload: vor dem Clear müssen ältere Saves fertig sein; danach warten neue Loads. */
+    private boolean chunkReloadRequested;
+    private boolean chunkReloadWaitingForSaves;
     /** Weltgebundene Behavior-Speicher, die nach Chunk-Entfernungen ihre Objektidentitäten prüfen. */
     private final Set<WorldScopedPositionMap<?>> transientPositionStates =
             java.util.Collections.newSetFromMap(new IdentityHashMap<>());
@@ -261,6 +264,10 @@ public class World implements IInitializable, IDisposable {
         this.player = player;
         this.playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
+        if (this.processChunkReload()) {
+            this.simulationTelemetry.endTick();
+            return;
+        }
         this.chunkManager.update(player);
         this.pruneTransientPositionStates();
         this.lodManager.update(player);
@@ -556,6 +563,42 @@ public class World implements IInitializable, IDisposable {
     /** true, solange der IO-Thread noch Chunk-Saves offen hat (Basis der Gespeichert-Meldung). */
     public boolean hasPendingSaves() {
         return this.storage.hasPendingSaves();
+    }
+
+    /**
+     * Lädt alle Chunks autoritativ aus ihren Persistenz-Snapshots neu. Der Manager zieht beim
+     * Clear die Snapshots modifizierter Chunks synchron; erst danach dürfen die Runtime-Tick-
+     * Queues verschwinden. Neue Load-Jobs starten erst, wenn die asynchronen Writes fertig sind,
+     * damit sie nicht den vorherigen Plattenstand lesen.
+     */
+    public void reloadAllChunks() {
+        this.chunkReloadRequested = true;
+        /* Ohne älteren Save kann der Button den synchronen Snapshot/Clear sofort ausführen.
+           Das hält die bisherige unmittelbare Debug-Aktion bei und vereinfacht Headless-Tests. */
+        if (!this.storage.hasPendingSaves()) this.beginChunkReload();
+    }
+
+    /** @return true, solange Welt-Simulation und neue Loads für die Reload-Barriere pausieren. */
+    private boolean processChunkReload() {
+        if (this.chunkReloadRequested) {
+            if (this.storage.hasPendingSaves()) return true;
+            this.beginChunkReload();
+        }
+        if (!this.chunkReloadWaitingForSaves) return false;
+        if (this.storage.hasPendingSaves()) return true;
+        this.chunkReloadWaitingForSaves = false;
+        return false;
+    }
+
+    private void beginChunkReload() {
+        this.chunkReloadRequested = false;
+        this.chunkManager.clearAllChunks();
+        this.scheduledTicks.clear();
+        if (!this.blockEvents.isEmpty()) {
+            this.blockEvents.clear();
+            this.blockEventRevision++;
+        }
+        this.chunkReloadWaitingForSaves = this.storage.hasPendingSaves();
     }
 
     /**
