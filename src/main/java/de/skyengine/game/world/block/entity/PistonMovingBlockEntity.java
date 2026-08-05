@@ -26,6 +26,17 @@ public final class PistonMovingBlockEntity extends BlockEntity {
 
     private static final float STEP = 0.5f;
 
+    /**
+     * Impuls, den ein geschobener Slime-Block seinen Passagieren mitgibt (Slime-Werfer).
+     *
+     * <p><b>Nicht mit {@link #STEP} verwechseln</b> — genau das war hier zuerst falsch: Vanilla
+     * setzt in {@code moveCollidedEntities} den reinen Richtungsvektor ({@code Direction.getStepY()}
+     * = ±1, per {@code i2d} direkt in die Delta-Movement-Komponente, ohne jede Multiplikation),
+     * nicht die Animationsgeschwindigkeit des Kolbens. Der Unterschied ist Faktor 2 auf die
+     * Geschwindigkeit und damit Faktor 4 auf die Wurfhöhe.
+     */
+    private static final double LAUNCH_SPEED = 1.0;
+
     private int movedStateId = Blocks.AIR;
     private Direction facing = Direction.NORTH;
     private boolean extending = true;
@@ -165,9 +176,9 @@ public final class PistonMovingBlockEntity extends BlockEntity {
      * in Bewegungsrichtung versetzt.
      *
      * <p><b>Slime-Launcher</b> (MC): ist der bewegte Block ein Slime (sticky_group "slime"),
-     * bekommt die Entity zusätzlich die Kolben-Geschwindigkeit als Motion auf der
-     * Bewegungsachse — sie behält den Impuls nach dem Stopp und fliegt weiter
-     * (Slime-Werfer). Honig launcht wie in MC nicht.
+     * bekommt die Entity zusätzlich {@link #LAUNCH_SPEED} als Motion auf der Bewegungsachse —
+     * sie behält den Impuls nach dem Stopp und fliegt weiter (Slime-Werfer). Honig launcht wie
+     * in MC nicht.
      *
      * <p><b>Der Spieler braucht einen eigenen Durchgang.</b> {@code forEachEntityNearby} läuft
      * über die Entity-Listen der Chunks, und dort steht der Spieler nie — er hängt als
@@ -204,17 +215,17 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         if (entity.isRemoved() || !entity.getBoundingBox().intersects(box)) return;
         entity.move(this.world, d.offsetX() * delta, d.offsetY() * delta, d.offsetZ() * delta);
         if (launch) {
-            /* Kolben-Geschwindigkeit = STEP Blöcke/Tick; nur die Bewegungsachse wird
-               ersetzt (MC-Semantik), Quer-Motion bleibt erhalten.
+            /* Nur die Bewegungsachse wird ersetzt (MC-Semantik), Quer-Motion bleibt erhalten.
+               Zur Größe des Impulses s. LAUNCH_SPEED — er ist NICHT die Kolbengeschwindigkeit.
 
                MC nimmt hier den ServerPlayer aus — aber NUR ihn, und nur, damit der Server die
                Bewegung nicht überschreibt, die der Client sich selbst schon gegeben hat:
                clientseitig ist der eigene Spieler eine LocalPlayer und bekommt den Impuls sehr
                wohl (sonst gäbe es keine Slime-Werfer). Ohne Client/Server-Trennung ist „Spieler
                kriegt den Impuls" also das MC-äquivalente Verhalten. */
-            if (d.offsetX() != 0) entity.motionX = d.offsetX() * STEP;
-            if (d.offsetY() != 0) entity.motionY = d.offsetY() * STEP;
-            if (d.offsetZ() != 0) entity.motionZ = d.offsetZ() * STEP;
+            if (d.offsetX() != 0) entity.motionX = d.offsetX() * LAUNCH_SPEED;
+            if (d.offsetY() != 0) entity.motionY = d.offsetY() * LAUNCH_SPEED;
+            if (d.offsetZ() != 0) entity.motionZ = d.offsetZ() * LAUNCH_SPEED;
         }
     }
 
