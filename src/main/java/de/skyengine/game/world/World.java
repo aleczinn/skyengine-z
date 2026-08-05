@@ -418,9 +418,7 @@ public class World implements IInitializable, IDisposable {
            dürfen weder bis zu ihrer Zielzeit Speicher belegen noch beim Reload mit ihrem
            eingefrorenen Rest-Delay kollidieren. Ein Batch-Scan vermeidet O(Unloads × Queue). */
         int removedTicks = this.scheduledTicks.removeChunks(this.unloadedChunkKeys);
-        for (int i = 0; i < removedTicks; i++) {
-            this.simulationTelemetry.recordScheduledDroppedUnloaded();
-        }
+        this.simulationTelemetry.recordScheduledDroppedUnloaded(removedTicks);
         int eventsBefore = this.blockEvents.size();
         this.blockEvents.entrySet().removeIf(event -> {
             long pos = event.getKey();

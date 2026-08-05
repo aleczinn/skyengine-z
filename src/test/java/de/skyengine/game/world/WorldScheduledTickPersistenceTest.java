@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -137,10 +139,73 @@ final class WorldScheduledTickPersistenceTest {
         assertNull(world.snapshotScheduledTicks(chunk));
     }
 
+    @Test
+    void largePartialUnloadAndRestorePreservesEveryScheduledTick() throws Exception {
+        TestWorld world = new TestWorld();
+        List<Chunk> chunks = new ArrayList<>();
+        Map<Long, List<SavedTick>> persisted = new HashMap<>();
+        int chunkCount = 32;
+        int ticksPerChunk = 256;
+
+        for (int chunkX = 0; chunkX < chunkCount; chunkX++) {
+            Chunk chunk = tickMatrixChunk(chunkX);
+            chunks.add(chunk);
+            world.install(chunk);
+            for (int i = 0; i < ticksPerChunk; i++) {
+                int x = (chunkX << 5) + (i & 31);
+                int z = i >> 5;
+                world.scheduleTick(x, 64, z, 20 + i % 181);
+            }
+        }
+        for (Chunk chunk : chunks) {
+            List<SavedTick> snapshot = List.copyOf(world.snapshotScheduledTicks(chunk));
+            assertEquals(ticksPerChunk, snapshot.size());
+            persisted.put(Chunk.key(chunk.chunkX, chunk.chunkZ), snapshot);
+            chunk.markSaved(chunk.modificationEpoch());
+        }
+
+        for (Chunk chunk : chunks) {
+            if ((chunk.chunkX & 1) == 0) world.unload(chunk);
+        }
+        world.processUnloadedChunks();
+
+        for (Chunk chunk : chunks) {
+            List<SavedTick> current = world.snapshotScheduledTicks(chunk);
+            if ((chunk.chunkX & 1) == 0) {
+                assertNull(current);
+            } else {
+                assertEquals(persisted.get(Chunk.key(chunk.chunkX, chunk.chunkZ)), current);
+            }
+        }
+
+        List<Chunk> restored = new ArrayList<>();
+        for (int chunkX = 0; chunkX < chunkCount; chunkX += 2) {
+            Chunk chunk = tickMatrixChunk(chunkX);
+            restored.add(chunk);
+            world.install(chunk);
+            for (SavedTick tick : persisted.get(Chunk.key(chunkX, 0))) {
+                world.restoreScheduledBlockTick(tick);
+            }
+        }
+        for (Chunk chunk : restored) {
+            assertEquals(persisted.get(Chunk.key(chunk.chunkX, chunk.chunkZ)),
+                    world.snapshotScheduledTicks(chunk));
+        }
+    }
+
     private static Chunk readyPistonChunk() {
         Chunk chunk = new Chunk(0, 0);
         chunk.status = ChunkStatus.READY;
         chunk.setBlock(3, 64, 4, Blocks.PISTON);
+        return chunk;
+    }
+
+    private static Chunk tickMatrixChunk(int chunkX) {
+        Chunk chunk = new Chunk(chunkX, 0);
+        chunk.status = ChunkStatus.READY;
+        for (int i = 0; i < 256; i++) {
+            chunk.setBlock(i & 31, 64, i >> 5, Blocks.PISTON);
+        }
         return chunk;
     }
 

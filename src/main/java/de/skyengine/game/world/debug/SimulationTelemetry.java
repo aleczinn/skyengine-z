@@ -161,7 +161,11 @@ public final class SimulationTelemetry {
     }
 
     public void recordScheduledDroppedUnloaded() {
-        if (this.enabled) this.scheduledDroppedUnloaded++;
+        this.recordScheduledDroppedUnloaded(1);
+    }
+
+    public void recordScheduledDroppedUnloaded(int count) {
+        if (this.enabled) this.scheduledDroppedUnloaded += count;
     }
 
     public void recordScheduledSkippedWrongBlock() {
