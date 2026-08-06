@@ -78,7 +78,7 @@ public final class ComparatorBehavior implements BlockBehavior {
         ComparatorMode next = state.get(Properties.MODE) == ComparatorMode.COMPARE
                 ? ComparatorMode.SUBTRACT : ComparatorMode.COMPARE;
         BlockState toggled = state.with(Properties.MODE, next);
-        world.setBlock(x, y, z, toggled.getId(), false);
+        world.setBlockWithShapeUpdates(x, y, z, toggled.getId());
         SoundManager sound = world.getSoundManager();
         if (sound != null) {
             sound.playComparatorClick(next == ComparatorMode.SUBTRACT,
@@ -122,7 +122,7 @@ public final class ComparatorBehavior implements BlockBehavior {
         boolean shouldPower = shouldTurnOn(world, x, y, z, state);
         if (state.get(Properties.POWERED) != shouldPower) {
             state = state.with(Properties.POWERED, shouldPower);
-            world.setBlock(x, y, z, state.getId(), false);
+            world.setBlockWithShapeUpdates(x, y, z, state.getId());
         }
         notifyStrongTarget(world, x, y, z, state);
     }

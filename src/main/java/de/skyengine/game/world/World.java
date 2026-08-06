@@ -1363,6 +1363,20 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
+     * Schreibt einen State mit Vanillas Block-Flag 2: keine allgemeinen Neighbor-Updates,
+     * aber die gerichteten Shape-Updates des State-Wechsels bleiben aktiv. Observer hängen
+     * genau an diesem Pfad; {@code setBlock(..., false)} wäre deshalb nicht gleichbedeutend.
+     */
+    public boolean setBlockWithShapeUpdates(int x, int y, int z, int block) {
+        if (!this.setBlock(x, y, z, block, false)) return false;
+        for (Direction direction : Direction.shapeUpdateValues()) {
+            this.updateShapeStateAt(x + direction.offsetX(), y + direction.offsetY(),
+                    z + direction.offsetZ(), direction.opposite());
+        }
+        return true;
+    }
+
+    /**
      * Platziert einen fertig berechneten Placement-State: setzt den Block (ohne Kaskade),
      * lässt den Block etwaige Mehrteil-Logik anwenden (z.B. obere Türhälfte über
      * {@link de.skyengine.game.world.block.Block#onPlaced}) und löst ERST DANACH die

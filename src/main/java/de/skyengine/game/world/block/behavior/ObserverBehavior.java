@@ -66,9 +66,10 @@ public final class ObserverBehavior implements BlockBehavior {
     @Override
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
         boolean powered = state.get(Properties.POWERED);
-        /* Vanilla-Flag 2: der POWERED-State wird geschrieben, ohne einen allgemeinen oder
-           gerichteten Shape-Ring um den Observer selbst auszuloesen. */
-        world.setBlock(x, y, z, state.with(Properties.POWERED, !powered).getId(), false);
+        /* Vanilla-Flag 2: kein allgemeiner Nachbarring; der gerichtete Shape-Ring bleibt
+           erhalten und macht die Flanke insbesondere fuer einen zweiten Observer sichtbar. */
+        world.setBlockWithShapeUpdates(
+                x, y, z, state.with(Properties.POWERED, !powered).getId());
         this.notifyStrongTarget(world, x, y, z, state);
         if (!powered) world.scheduleTick(x, y, z, 2);   // Puls-Ende nach 2 Ticks
     }
@@ -106,7 +107,7 @@ public final class ObserverBehavior implements BlockBehavior {
                nicht mit dem Block verschoben. Vanilla setzt einen so angekommenen aktiven
                Observer deshalb sofort aus und verteilt die fallende Ausgangsflanke. */
             BlockState unpowered = state.with(Properties.POWERED, false);
-            world.setBlock(x, y, z, unpowered.getId(), false);
+            world.setBlockWithShapeUpdates(x, y, z, unpowered.getId());
             this.notifyStrongTarget(world, x, y, z, unpowered);
             return;
         }

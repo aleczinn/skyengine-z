@@ -115,6 +115,26 @@ final class ObserverBehaviorTest {
     }
 
     @Test
+    void pulseStateWriteStillReachesAnObserverThroughShapeUpdates() {
+        TestWorld world = new TestWorld();
+        BlockState changedObserver = state("observer")
+                .with(Properties.FACING_ALL, Direction.WEST)
+                .with(Properties.POWERED, false);
+        BlockState watchingObserver = state("observer")
+                .with(Properties.FACING_ALL, Direction.EAST)
+                .with(Properties.POWERED, false);
+        world.put(0, watchingObserver);
+        world.put(1, changedObserver);
+
+        changedObserver.getBlock().scheduledTick(world, 1, 64, 0, changedObserver);
+
+        assertEquals(2, world.scheduledTicks,
+                "Abschalt-Tick des geaenderten und Puls-Tick des beobachtenden Observers muessen anstehen");
+        assertEquals(2, world.lastDelay);
+        assertEquals(false, world.lastSetBlockUpdates);
+    }
+
+    @Test
     void removingPoweredPulseNotifiesStrongTargetOnlyWhileOffTickIsPending() {
         BlockState observer = state("observer")
                 .with(Properties.FACING_ALL, Direction.WEST)

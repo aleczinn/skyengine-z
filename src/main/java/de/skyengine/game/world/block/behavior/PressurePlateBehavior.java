@@ -108,7 +108,7 @@ public final class PressurePlateBehavior implements BlockBehavior {
                 ? state.with(Properties.POWER, signal)
                 : state.with(Properties.POWERED, signal > 0);
         /* Vanilla-Flag 2; die beiden allgemeinen Ringe folgen explizit. */
-        world.setBlock(x, y, z, updated.getId(), false);
+        world.setBlockWithShapeUpdates(x, y, z, updated.getId());
         this.notifyNeighbors(world, x, y, z);
     }
 

@@ -41,6 +41,6 @@ public final class LampBehavior implements BlockBehavior {
         /* Tolerantes Feuern: erneut pruefen — kam das Signal zurueck, bleibt sie an. */
         if (!state.get(Properties.LIT) || RedstonePower.isReceiving(world, x, y, z)) return;
         /* Niemand liest den Lampen-State — kein Nachbar-Ring noetig, Licht/Mesh macht setBlock. */
-        world.setBlock(x, y, z, state.with(Properties.LIT, false).getId(), false);
+        world.setBlockWithShapeUpdates(x, y, z, state.with(Properties.LIT, false).getId());
     }
 }

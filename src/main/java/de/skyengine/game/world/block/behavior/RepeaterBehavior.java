@@ -135,7 +135,8 @@ public final class RepeaterBehavior implements BlockBehavior {
     }
 
     private static void switchOutput(World world, int x, int y, int z, BlockState state, boolean powered) {
-        world.setBlock(x, y, z, state.with(Properties.POWERED, powered).getId(), false);
+        world.setBlockWithShapeUpdates(
+                x, y, z, state.with(Properties.POWERED, powered).getId());
         /* Exakter DiodeBlock.updateNeighborsInFront-Pfad: Ausgangszelle plus ihre fünf vom
            Repeater wegführenden Nachbarn, ausschließlich als allgemeine Updates. */
         notifyStrongTarget(world, x, y, z, state);

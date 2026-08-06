@@ -149,7 +149,7 @@ public final class RedstoneWireNetwork {
                 return;
             }
 
-            world.setBlock(this.x, this.y, this.z, updated.getId(), false);
+            world.setBlockWithShapeUpdates(this.x, this.y, this.z, updated.getId());
             List<WirePos> notificationCenters = notificationCenters(this.x, this.y, this.z);
             /* Vanillas Collector verarbeitet zuerst das zuerst hinzugefügte Multi-Update.
                Stack deshalb rückwärts befüllen. */
