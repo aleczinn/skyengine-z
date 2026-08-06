@@ -2149,7 +2149,8 @@ public class World implements IInitializable, IDisposable {
         for (int x = x0 - 1; x <= x1 + 1; x++) {
             for (int z = z0 - 1; z <= z1 + 1; z++) {
                 for (int y = y0 - 1; y <= y1 + 1; y++) {
-                    if (this.getBlock(x, y, z) != Blocks.MOVING_PISTON) continue;
+                    if (Blocks.getState(this.getBlock(x, y, z)).getBlock()
+                            != Blocks.getState(Blocks.MOVING_PISTON).getBlock()) continue;
                     if (this.getBlockEntity(x, y, z) instanceof PistonMovingBlockEntity moving) {
                         moving.appendCollisionBoxes(boxes);
                     }

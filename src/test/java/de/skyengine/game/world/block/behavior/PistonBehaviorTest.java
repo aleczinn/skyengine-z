@@ -118,7 +118,15 @@ final class PistonBehaviorTest {
 
         piston.getBlock().onBlockEvent(world, 0, 64, 0, piston, 1, 5);
 
-        assertEquals(Blocks.MOVING_PISTON, world.getBlock(0, 64, 0));
+        BlockState movingState = Blocks.getState(world.getBlock(0, 64, 0));
+        assertEquals(Blocks.getState(Blocks.MOVING_PISTON).getBlock(), movingState.getBlock());
+        assertTrue(movingState.get(Properties.RETRACTING_SOURCE));
+        assertEquals(Direction.EAST, movingState.get(Properties.FACING_ALL));
+        assertEquals(PistonType.NORMAL, movingState.get(Properties.PISTON_TYPE));
+        assertTrue(movingState.getModel().length > 0,
+                "die stationaere Basis muss aus dem Chunk-Mesh statt ein zweites Mal aus dem BE-Renderer kommen");
+        assertEquals(0, Blocks.getState(Blocks.MOVING_PISTON).getModel().length,
+                "normale Fracht- und Extend-States duerfen keine statische Renderhuelle erhalten");
         PistonMovingBlockEntity source = (PistonMovingBlockEntity) world.getBlockEntity(0, 64, 0);
         assertTrue(source.isSource());
         assertFalse(source.isExtending());
@@ -237,7 +245,8 @@ final class PistonBehaviorTest {
             long pos = BlockPos.asLong(x, y, z);
             this.blocks.put(pos, block);
             this.blockEntities.remove(pos);
-            if (block == Blocks.MOVING_PISTON) {
+            if (Blocks.getState(block).getBlock()
+                    == Blocks.getState(Blocks.MOVING_PISTON).getBlock()) {
                 PistonMovingBlockEntity moving = new PistonMovingBlockEntity(
                         BlockEntities.PISTON_MOVING, new BlockPos(x, y, z));
                 moving.setWorld(this);

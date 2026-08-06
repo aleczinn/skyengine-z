@@ -146,7 +146,7 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         /* Waisen-Regel: passt der Block der Zelle nicht mehr zu uns (inkonsistenter Save,
            weggesprengte Zelle), verschwindet die BE ersatzlos — materialisieren würde
            einen fremden Block überschreiben. */
-        if (this.world.getBlock(x, y, z) != Blocks.MOVING_PISTON) {
+        if (!isMovingPiston(this.world.getBlock(x, y, z))) {
             this.world.removeBlockEntity(x, y, z);
             return;
         }
@@ -175,8 +175,13 @@ public final class PistonMovingBlockEntity extends BlockEntity {
     public void finishNow() {
         if (this.world == null) return;
         int x = this.pos.x(), y = this.pos.y(), z = this.pos.z();
-        if (this.world.getBlock(x, y, z) != Blocks.MOVING_PISTON) return;
+        if (!isMovingPiston(this.world.getBlock(x, y, z))) return;
         this.finish(x, y, z);
+    }
+
+    private static boolean isMovingPiston(int stateId) {
+        return Blocks.getState(stateId).getBlock()
+                == Blocks.getState(Blocks.MOVING_PISTON).getBlock();
     }
 
     /** Materialisiert den transportierten State und reiht (nur als Source) den Re-Check ein. */

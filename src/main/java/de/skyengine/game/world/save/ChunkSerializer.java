@@ -10,9 +10,12 @@ import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.entity.ComparatorBlockEntity;
 import de.skyengine.game.world.block.entity.DataTag;
+import de.skyengine.game.world.block.entity.PistonMovingBlockEntity;
 import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.BlockStateCodec;
+import de.skyengine.game.world.block.state.PistonType;
+import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.palette.BitStorage;
@@ -429,6 +432,20 @@ public final class ChunkSerializer {
                     (chunk.chunkZ << ChunkSection.SHIFT) + lz);
             BlockEntity be = type.create(pos, Blocks.getState(chunk.getBlock(lx, y, lz)));
             be.load(tag);
+            /* Alte Saves hatten nur einen einzigen, stets unsichtbaren moving_piston-State.
+               Seit der Vanilla-konformen Source-Position trägt ein einfahrender Source-State
+               die stationäre Basis im Chunk-Mesh. Aus den bereits persistenten BE-Daten lässt
+               sich diese reine Render-Variante verlustfrei nachtragen. */
+            if (be instanceof PistonMovingBlockEntity moving
+                    && moving.isSource() && !moving.isExtending()) {
+                int renderState = Blocks.getState(Blocks.MOVING_PISTON)
+                        .with(Properties.FACING_ALL, moving.getFacing())
+                        .with(Properties.PISTON_TYPE,
+                                moving.isSticky() ? PistonType.STICKY : PistonType.NORMAL)
+                        .with(Properties.RETRACTING_SOURCE, true)
+                        .getId();
+                chunk.setBlock(lx, y, lz, renderState);
+            }
             if (world != null) be.setWorld(world);
             chunk.setBlockEntity(lx, y, lz, be);
             explicitBlockEntityPositions.add(packed);

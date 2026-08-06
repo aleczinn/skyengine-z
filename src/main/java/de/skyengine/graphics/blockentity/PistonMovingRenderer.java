@@ -26,9 +26,10 @@ import org.lwjgl.opengl.GL30;
  * States, kamerarelativ um {@code (1 − progress)} entgegen der Bewegungsrichtung versetzt
  * (Muster {@code EntityRenderer}-FallingBlock, Daten-Bau über {@link BlockStateMesh}).
  *
- * <p>Sonderfall Retract-Source (BE an der BASIS-Zelle wie Vanilla): rendert die ausgefahrene
- * Basis stationär und lässt den passenden {@code piston_head} aus der Kopfzelle zurückgleiten.
- * Gezogene Fracht besitzt eine eigene Moving-BE.
+ * <p>Sonderfall Retract-Source (BE an der BASIS-Zelle wie Vanilla): lässt nur den passenden
+ * {@code piston_head} aus der Kopfzelle zurückgleiten. Die stationäre ausgefahrene Basis steckt
+ * als Render-Hülle im Moving-Piston-State und bleibt dadurch im AO-/Smooth-Lighting des
+ * Chunk-Meshes; der frühere zweite BE-Draw derselben Basis verursachte den Helligkeitsblitz.
  *
  * <p>Der Dispatcher-Cull-Margin von 1.0 deckt den maximalen Versatz von genau 1 Block ab;
  * das Licht kommt (wie bei allen BE-Renderern) aus der BE-Zelle.
@@ -93,9 +94,6 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
         if (moving.isSource() && !moving.isExtending()) {
             this.drawState(this.headStateFor(moving, progress),
                     baseX + f.offsetX() * back, baseY + f.offsetY() * back, baseZ + f.offsetZ() * back);
-            int extendedBase = Blocks.getState(moving.getMovedStateId())
-                    .with(Properties.EXTENDED, true).getId();
-            this.drawState(extendedBase, baseX, baseY, baseZ);
         } else {
             Direction d = moving.isExtending() ? f : f.opposite();
             this.drawState(withShortIfHead(moving, progress),

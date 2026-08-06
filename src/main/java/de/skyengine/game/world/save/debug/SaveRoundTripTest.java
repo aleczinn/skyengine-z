@@ -98,6 +98,18 @@ public final class SaveRoundTripTest {
         moving.configure(decodeId("skyengine:stone"),
                 de.skyengine.game.world.block.Direction.EAST, true, false, true);
         chunk.setBlockEntity(17, 200, 17, moving);
+        int retractMovingId = decodeId(
+                "skyengine:moving_piston[facing=east,retracting_source=true,type=normal]");
+        chunk.setBlock(22, 200, 22, retractMovingId);
+        de.skyengine.game.world.block.entity.PistonMovingBlockEntity retractMoving =
+                (de.skyengine.game.world.block.entity.PistonMovingBlockEntity)
+                        BlockEntities.PISTON_MOVING.create(
+                                new BlockPos(3 * ChunkSection.SIZE + 22, 200,
+                                        -7 * ChunkSection.SIZE + 22),
+                                Blocks.getState(retractMovingId));
+        retractMoving.configure(decodeId("skyengine:piston[extended=false,facing=east]"),
+                de.skyengine.game.world.block.Direction.EAST, false, true, false);
+        chunk.setBlockEntity(22, 200, 22, retractMoving);
         int repeaterX = 3 * ChunkSection.SIZE + 12, repeaterZ = -7 * ChunkSection.SIZE + 12;
 
         /* Beobachter mit offenem Puls-Tick: POWERED liegt im State, der Rest-Delay in den
@@ -241,6 +253,17 @@ public final class SaveRoundTripTest {
                     "Moving-BE (movedState/facing/extending/sticky) übersteht den Round-Trip");
         } else {
             check(false, "Moving-BE wiederhergestellt");
+        }
+        if (restored.getBlockEntity(22, 200, 22) instanceof
+                de.skyengine.game.world.block.entity.PistonMovingBlockEntity restoredRetract) {
+            BlockState restoredRenderState = Blocks.getState(restored.getBlock(22, 200, 22));
+            check(restoredRetract.isSource() && !restoredRetract.isExtending()
+                            && restoredRenderState.get(
+                            de.skyengine.game.world.block.state.Properties.RETRACTING_SOURCE)
+                            && restoredRenderState.getModel().length > 0,
+                    "Einfahrende Source-BE behaelt ihre beleuchtete Chunk-Mesh-Renderhuelle");
+        } else {
+            check(false, "Einfahrende Source-BE wiederhergestellt");
         }
         de.skyengine.game.world.block.entity.DataTag brokenTag =
                 new de.skyengine.game.world.block.entity.DataTag();

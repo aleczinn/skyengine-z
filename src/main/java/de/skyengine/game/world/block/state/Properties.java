@@ -117,6 +117,15 @@ public final class Properties {
      */
     public static final Property<Boolean> SHORT = Property.ofBoolean("short");
 
+    /**
+     * Reine Render-Variante des technischen Moving-Piston-Blocks: Beim Einfahren sitzt Vanillas
+     * Source-BE in der Basiszelle. Das Chunk-Mesh zeichnet dort weiterhin die ausgefahrene Basis,
+     * damit sie beim Wechsel vom statischen Block zum BE-Renderer weder doppelt noch anders
+     * beleuchtet erscheint. Logik und Kollision bleiben vollständig in der BlockEntity.
+     */
+    public static final Property<Boolean> RETRACTING_SOURCE =
+            Property.ofBoolean("retracting_source");
+
     /** Staub-Verbindungs-Property zur horizontalen Richtung. */
     public static Property<RedstoneSide> wireSide(Direction direction) {
         return switch (direction) {

@@ -370,7 +370,12 @@ public final class PistonBehavior implements BlockBehavior {
     /** Setzt einen moving_piston und konfiguriert die frisch angelegte BE. */
     private static void spawnMoving(World world, int x, int y, int z, int movedStateId,
                                     Direction facing, boolean extending, boolean source, boolean sticky) {
-        world.setBlock(x, y, z, Blocks.MOVING_PISTON, false);
+        int movingState = Blocks.getState(Blocks.MOVING_PISTON)
+                .with(Properties.FACING_ALL, facing)
+                .with(Properties.PISTON_TYPE, sticky ? PistonType.STICKY : PistonType.NORMAL)
+                .with(Properties.RETRACTING_SOURCE, source && !extending)
+                .getId();
+        world.setBlock(x, y, z, movingState, false);
         if (world.getBlockEntity(x, y, z) instanceof PistonMovingBlockEntity be) {
             be.configure(movedStateId, facing, extending, source, sticky);
         }
