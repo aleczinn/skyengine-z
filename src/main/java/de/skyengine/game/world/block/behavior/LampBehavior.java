@@ -18,6 +18,13 @@ public final class LampBehavior implements BlockBehavior {
         return true;
     }
 
+    /** Vanilla RedstoneLampBlock#getStateForPlacement: kein beobachtbarer dunkler Zwischenstate. */
+    @Override
+    public BlockState onPlace(PlacementContext ctx, BlockState state) {
+        return state.with(Properties.LIT,
+                RedstonePower.isReceiving(ctx.world(), ctx.x(), ctx.y(), ctx.z()));
+    }
+
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
         boolean powered = RedstonePower.isReceiving(world, x, y, z);
