@@ -77,9 +77,11 @@ public final class ObserverBehavior implements BlockBehavior {
      * Flanke verteilen. Ein kuenstlich POWERED gesetzter Observer ohne Tick tut das bewusst nicht.
      */
     @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
-        if (state.get(Properties.POWERED) && world.isTickScheduled(x, y, z)) {
-            this.notifyStrongTarget(world, x, y, z, state.with(Properties.POWERED, false));
+    public void onRemoved(World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
+        if (oldState.get(Properties.POWERED) && world.isTickScheduled(
+                x, y, z, oldState.getBlock().getIdentifier())) {
+            this.notifyStrongTarget(world, x, y, z, oldState.with(Properties.POWERED, false));
         }
     }
 

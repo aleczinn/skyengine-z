@@ -72,7 +72,8 @@ public final class RedstoneWireBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
+    public void onRemoved(World world, int x, int y, int z,
+                          BlockState state, BlockState newState) {
         /* Post-Removal-2-Ring (Vanillas onRemove): Empfänger HINTER einem stark gespeisten
            Block (Tür an der Rückseite der Wand, 2 Zellen entfernt) stehen nicht im normalen
            Abbau-Ring und erführen vom Entfernen nie. deferBlockUpdate re-evaluiert die

@@ -93,7 +93,7 @@ final class RepeaterBehaviorTest {
         BlockState repeater = repeater(false);
 
         repeater.getBlock().onPlaced(world, 3, 64, 4, repeater);
-        repeater.getBlock().onBreak(world, 3, 64, 4, repeater);
+        repeater.getBlock().onRemoved(world, 3, 64, 4, repeater, Blocks.getState(Blocks.AIR));
 
         assertEquals(2, world.neighborUpdates);
         assertEquals(4, world.lastNeighborX);

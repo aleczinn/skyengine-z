@@ -241,7 +241,7 @@ final class ComparatorBehaviorTest {
                 .with(Properties.POWERED, false);
 
         comparator.getBlock().onPlaced(world, 3, 64, 4, comparator);
-        comparator.getBlock().onBreak(world, 3, 64, 4, comparator);
+        comparator.getBlock().onRemoved(world, 3, 64, 4, comparator, Blocks.getState(Blocks.AIR));
 
         assertEquals(2, world.neighborUpdates);
     }

@@ -106,14 +106,14 @@ final class ObserverBehaviorTest {
         TestWorld pulsing = new TestWorld();
         pulsing.tickScheduled = true;
 
-        observer.getBlock().onBreak(pulsing, 1, 64, 0, observer);
+        observer.getBlock().onRemoved(pulsing, 1, 64, 0, observer, Blocks.getState(Blocks.AIR));
 
         assertEquals(1, pulsing.neighborUpdates);
         assertEquals(2, pulsing.lastNeighborX,
                 "FACING=WEST gibt das Signal nach EAST in den Ausgangsblock ab");
 
         TestWorld artificial = new TestWorld();
-        observer.getBlock().onBreak(artificial, 1, 64, 0, observer);
+        observer.getBlock().onRemoved(artificial, 1, 64, 0, observer, Blocks.getState(Blocks.AIR));
         assertEquals(0, artificial.neighborUpdates,
                 "Vanilla benachrichtigt ohne ausstehenden Abschalt-Tick nicht extra");
     }
@@ -202,6 +202,11 @@ final class ObserverBehaviorTest {
 
         @Override
         public boolean isTickScheduled(int x, int y, int z) {
+            return this.tickScheduled;
+        }
+
+        @Override
+        public boolean isTickScheduled(int x, int y, int z, Identifier expectedBlock) {
             return this.tickScheduled;
         }
 

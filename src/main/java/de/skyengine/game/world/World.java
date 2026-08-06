@@ -977,6 +977,11 @@ public class World implements IInitializable, IDisposable {
     /** true, wenn an der Position bereits ein geplanter Tick aussteht. */
     public boolean isTickScheduled(int x, int y, int z) {
         Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
+        return this.isTickScheduled(x, y, z, expectedBlock);
+    }
+
+    /** Tick-Abfrage fuer einen expliziten alten Blocktyp, insbesondere nach dessen Entfernung. */
+    public boolean isTickScheduled(int x, int y, int z, Identifier expectedBlock) {
         return this.scheduledTicks.isScheduled(x, y, z, expectedBlock);
     }
 
@@ -1348,6 +1353,11 @@ public class World implements IInitializable, IDisposable {
         if (old == block) return false;
         if (!this.setBlockRaw(x, y, z, block)) return false;
         this.manageBlockEntity(x, y, z, old, block);
+        BlockState oldState = Blocks.getState(old);
+        BlockState newState = Blocks.getState(block);
+        if (oldState.getBlock() != newState.getBlock()) {
+            oldState.getBlock().onRemoved(this, x, y, z, oldState, newState);
+        }
         if (updateNeighbors) this.updateNeighbors(x, y, z);
         return true;
     }
@@ -1613,6 +1623,22 @@ public class World implements IInitializable, IDisposable {
             this.lightDiagonals[3] = this.chunkManager.getChunk(cx + 1, cz + 1);
             this.lightEngine.onBlocksChanged(chunk, north, south, west, east, this.lightDiagonals,
                     group.packedPos, group.oldIds, group.count);
+        }
+
+        /* Erst nachdem ALLE Batch-Writes sichtbar sind: Vanilla-Post-Removal-Hooks duerfen
+           auch ueber Chunkgrenzen keinen noch nicht abgearbeiteten Altblock beobachten. */
+        for (int gi = 0, gn = groups.tableSize(); gi < gn; gi++) {
+            BreakBatchGroup group = groups.valueAt(gi);
+            if (group == null || group.chunk == null) continue;
+            int baseX = group.chunk.chunkX << ChunkSection.SHIFT;
+            int baseZ = group.chunk.chunkZ << ChunkSection.SHIFT;
+            for (int i = 0; i < group.count; i++) {
+                int packed = group.packedPos[i];
+                BlockState oldState = Blocks.getState(group.oldIds[i]);
+                oldState.getBlock().onRemoved(this,
+                        baseX + (packed & 31), (packed >> 10) & 511,
+                        baseZ + ((packed >> 5) & 31), oldState, Blocks.getState(Blocks.AIR));
+            }
         }
 
         this.updateBlastShell(groups);

@@ -32,6 +32,14 @@ public final class LeverBehavior implements BlockBehavior {
     }
 
     @Override
+    public void onRemoved(World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
+        if (oldState.get(Properties.POWERED)) {
+            ButtonBehavior.notifyStrongTarget(world, x, y, z, oldState);
+        }
+    }
+
+    @Override
     public int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
         return state.get(Properties.POWERED) ? 15 : 0;
     }

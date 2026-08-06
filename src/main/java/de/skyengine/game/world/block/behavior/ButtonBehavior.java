@@ -52,6 +52,12 @@ public final class ButtonBehavior implements BlockBehavior {
         notifyStrongTarget(world, x, y, z, state);
     }
 
+    @Override
+    public void onRemoved(World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
+        if (oldState.get(Properties.POWERED)) notifyStrongTarget(world, x, y, z, oldState);
+    }
+
     /* --- Redstone: gedrückt = 15 in alle Richtungen (schwach), stark nur in den Träger --- */
 
     @Override

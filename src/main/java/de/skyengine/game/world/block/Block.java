@@ -390,6 +390,14 @@ public class Block {
         }
     }
 
+    /** Post-Removal-Dispatch, nachdem die Welt bereits den Nachfolgezustand enthaelt. */
+    public void onRemoved(de.skyengine.game.world.World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.onRemoved(world, x, y, z, oldState, newState);
+        }
+    }
+
     /** Block-Event-Dispatch (s. {@code World.enqueueBlockEvent}). Delegiert; Default: nichts. */
     public void onBlockEvent(de.skyengine.game.world.World world, int x, int y, int z, BlockState state,
                              int eventId, int eventParam) {

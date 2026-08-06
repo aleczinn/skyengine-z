@@ -89,9 +89,10 @@ public final class PressurePlateBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
-        /* Sonst bliebe der Eintrag einer gedrückt abgebauten Platte für immer stehen (Leak). */
+    public void onRemoved(World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
         this.touches.remove(world, x, y, z);
+        if (signalOf(oldState) > 0) world.updateNeighbors(x, y - 1, z);
     }
 
     /** Signalstärke für N passende Entities: binär 15, sonst ceil(n/perSignal), gedeckelt 15. */

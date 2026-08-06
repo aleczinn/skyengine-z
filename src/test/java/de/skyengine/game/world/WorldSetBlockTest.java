@@ -1,7 +1,10 @@
 package de.skyengine.game.world;
 
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.BlockStateCodec;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkStatus;
@@ -12,6 +15,8 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -49,6 +54,48 @@ final class WorldSetBlockTest {
         }, Direction.shapeUpdateValues());
     }
 
+    @Test
+    void poweredControlsNotifyTheirStrongTargetAfterRemoval() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = new Chunk(0, 0);
+        chunk.status = ChunkStatus.READY;
+        chunk.setBlock(1, 64, 1, id("skyengine:lever[face=wall,facing=east,powered=true]"));
+        chunk.setBlock(3, 64, 1, id("skyengine:oak_button[face=wall,facing=east,powered=true]"));
+        chunk.setBlock(5, 64, 1, id("skyengine:oak_pressure_plate[powered=true]"));
+        chunk.setBlock(7, 64, 1, id("skyengine:lever[face=wall,facing=east,powered=false]"));
+        world.install(chunk);
+
+        world.setBlock(1, 64, 1, Blocks.AIR, false);
+        world.setBlock(3, 64, 1, Blocks.AIR, false);
+        world.setBlock(5, 64, 1, Blocks.AIR, false);
+        world.setBlock(7, 64, 1, Blocks.AIR, false);
+
+        assertEquals(List.of(
+                BlockPos.asLong(0, 64, 1),
+                BlockPos.asLong(2, 64, 1),
+                BlockPos.asLong(5, 63, 1)), world.updatedPositions);
+    }
+
+    @Test
+    void batchRemovalRunsPostRemovalHooksAfterAirWrite() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = new Chunk(0, 0);
+        chunk.status = ChunkStatus.READY;
+        chunk.setBlock(1, 64, 1, id("skyengine:lever[face=wall,facing=east,powered=true]"));
+        world.install(chunk);
+
+        world.breakBlocksBatch(new long[]{BlockPos.asLong(1, 64, 1)}, 1);
+
+        assertEquals(Blocks.AIR, chunk.getBlock(1, 64, 1));
+        assertEquals(List.of(BlockPos.asLong(0, 64, 1)), world.updatedPositions);
+    }
+
+    private static int id(String encoded) {
+        BlockState state = BlockStateCodec.decode(encoded);
+        if (state == null) throw new IllegalStateException("Test-State fehlt: " + encoded);
+        return state.getId();
+    }
+
     private static final class TestWorld extends World {
         private static final Field CHUNKS_FIELD;
 
@@ -63,6 +110,7 @@ final class WorldSetBlockTest {
 
         private final ChunkManager manager;
         private int neighborUpdates;
+        private final List<Long> updatedPositions = new ArrayList<>();
 
         TestWorld() throws ReflectiveOperationException {
             super("__set_block_test", level(), null, null);
@@ -80,6 +128,7 @@ final class WorldSetBlockTest {
         @Override
         public void updateNeighbors(int x, int y, int z) {
             this.neighborUpdates++;
+            this.updatedPositions.add(BlockPos.asLong(x, y, z));
         }
 
         private static LevelData level() {

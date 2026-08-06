@@ -138,11 +138,11 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
+    public void onRemoved(World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
         this.recent = this.recentByWorld.diagnosticEntries(world);
-        this.recentByWorld.remove(world, x, y, z);   // sonst wächst die Map über die Sitzung
-        /* onBreak läuft VOR dem Entfernen — aufschieben, sonst läse der Ring die Fackel noch. */
-        world.deferBlockUpdatesWide(x, y, z);
+        this.recentByWorld.remove(world, x, y, z);
+        world.updateNeighborsWide(x, y, z);
     }
 
     /** An, solange der Trägerblock KEIN Signal in die Fackel speist (Inverter). */

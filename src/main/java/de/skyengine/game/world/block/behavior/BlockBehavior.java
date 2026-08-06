@@ -76,6 +76,15 @@ public interface BlockBehavior {
     }
 
     /**
+     * Seiteneffekt NACH einem Blocktypwechsel, wenn die alte Zelle bereits ersetzt ist.
+     * Entspricht Vanillas {@code affectNeighborsAfterRemoval}; Redstone-Ausgaenge muessen hier
+     * die fallende Flanke verteilen, damit ihre Empfaenger nicht mehr den alten Block lesen.
+     */
+    default void onRemoved(World world, int x, int y, int z,
+                           BlockState oldState, BlockState newState) {
+    }
+
+    /**
      * Ersetzt beim Spieler-Abbau das Standard-Drop-Item ({@code Items.forBlock}) — z.B. droppt
      * der Kolben-Kopf das Item seiner Basis. Wird VOR {@link #onBreak} abgefragt (BlockEntity
      * noch lesbar) und läuft ausschließlich über den Gamemode-geprüften Pfad im GameContainer;

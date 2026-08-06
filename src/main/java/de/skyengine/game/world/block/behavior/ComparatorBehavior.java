@@ -68,8 +68,9 @@ public final class ComparatorBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
-        notifyStrongTarget(world, x, y, z, state);
+    public void onRemoved(World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
+        notifyStrongTarget(world, x, y, z, oldState);
     }
 
     @Override
