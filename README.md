@@ -116,6 +116,8 @@ v0.0.12 | Redstone
 - Diverse Redstone Blöcke wie Redstone, Verstärker, Observer, Komparator, (Klebriger) Piston, Redstone-Fackel und und und
 - Möglich: Schleim-Flugmaschinen, TNT-Kanonen
 
+![Redstone Test's](project/0.0.12_redstone-1.png?raw=true)
+
 v0.0.11 | Verbesserungen + Bugfixes
 - Block Physik für z. B. Friction, Jump-/Speed Faktor -> Neue Blöcke Slime block, Soulsand, Eis etc.
 - Inventar im Kreativmodus mit Tabs für Blöcke/Items
