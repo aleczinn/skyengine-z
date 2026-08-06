@@ -25,7 +25,7 @@ final class ScheduledTickQueueTest {
         queue.schedule(7, 8, 9, STONE, 5);
 
         List<String> fired = new ArrayList<>();
-        queue.drainDue(8, (x, y, z, block, priority, order) -> fired.add(x + "," + y + "," + z));
+        queue.drainDue(8, (x, y, z, block, trigger, priority, order) -> fired.add(x + "," + y + "," + z));
 
         assertEquals(List.of("4,5,6", "7,8,9", "1,2,3"), fired);
     }
@@ -37,7 +37,7 @@ final class ScheduledTickQueueTest {
         queue.schedule(4, 5, 6, STONE, 5, TickPriority.HIGH.value());
 
         List<Integer> fired = new ArrayList<>();
-        queue.drainDue(5, (x, y, z, block, priority, order) -> fired.add(x));
+        queue.drainDue(5, (x, y, z, block, trigger, priority, order) -> fired.add(x));
 
         assertEquals(List.of(4, 1), fired);
     }
@@ -52,10 +52,10 @@ final class ScheduledTickQueueTest {
         assertTrue(queue.scheduleEarlier(-20, 64, 33, STONE, 4));
 
         List<Integer> firedAtX = new ArrayList<>();
-        queue.drainDue(3, (x, y, z, block, priority, order) -> firedAtX.add(x));
+        queue.drainDue(3, (x, y, z, block, trigger, priority, order) -> firedAtX.add(x));
         assertTrue(firedAtX.isEmpty());
 
-        queue.drainDue(4, (x, y, z, block, priority, order) -> firedAtX.add(x));
+        queue.drainDue(4, (x, y, z, block, trigger, priority, order) -> firedAtX.add(x));
         assertEquals(List.of(-20), firedAtX);
         assertFalse(queue.isScheduled(-20, 64, 33, STONE));
     }
@@ -66,13 +66,13 @@ final class ScheduledTickQueueTest {
         queue.schedule(0, 10, 0, STONE, 1);
 
         List<Integer> fired = new ArrayList<>();
-        queue.drainDue(1, (x, y, z, block, priority, order) -> {
+        queue.drainDue(1, (x, y, z, block, trigger, priority, order) -> {
             fired.add(x);
             queue.schedule(1, 10, 0, STONE, 1);
         });
         assertEquals(List.of(0), fired);
 
-        queue.drainDue(1, (x, y, z, block, priority, order) -> fired.add(x));
+        queue.drainDue(1, (x, y, z, block, trigger, priority, order) -> fired.add(x));
         assertEquals(List.of(0, 1), fired);
     }
 
@@ -84,7 +84,7 @@ final class ScheduledTickQueueTest {
         queue.schedule(2, 64, 0, STONE, 2);
 
         List<Boolean> observations = new ArrayList<>();
-        queue.drainDue(1, (x, y, z, block, priority, order) -> {
+        queue.drainDue(1, (x, y, z, block, trigger, priority, order) -> {
             observations.add(queue.willTickThisTick(x, y, z, block));
             observations.add(queue.willTickThisTick(1, 64, 0, STONE));
             observations.add(queue.willTickThisTick(2, 64, 0, STONE));
@@ -96,7 +96,7 @@ final class ScheduledTickQueueTest {
     }
 
     @Test
-    void pendingSnapshotPreservesNegativeCoordinatesAndClampsOverdueDelay() {
+    void pendingSnapshotPreservesNegativeCoordinatesAndOverdueDelay() {
         ScheduledTickQueue queue = new ScheduledTickQueue();
         queue.schedule(-100, 50, -217, STONE, 3);
 
@@ -104,7 +104,7 @@ final class ScheduledTickQueueTest {
         queue.forEachPending(10, (x, y, z, block, remaining, priority, order) ->
                 pending.add(x + "," + y + "," + z + ":" + remaining));
 
-        assertEquals(List.of("-100,50,-217:1"), pending);
+        assertEquals(List.of("-100,50,-217:-7"), pending);
     }
 
     @Test
@@ -115,7 +115,7 @@ final class ScheduledTickQueueTest {
         assertTrue(queue.schedule(4, 70, 9, DIRT, 5));
 
         List<Identifier> fired = new ArrayList<>();
-        queue.drainDue(5, (x, y, z, block, priority, order) -> fired.add(block));
+        queue.drainDue(5, (x, y, z, block, trigger, priority, order) -> fired.add(block));
         assertEquals(List.of(STONE, DIRT), fired);
     }
 
@@ -126,7 +126,7 @@ final class ScheduledTickQueueTest {
         queue.scheduleRestored(2, 64, 0, DIRT, 5, 0, 10);
 
         List<Identifier> fired = new ArrayList<>();
-        queue.drainDue(5, (x, y, z, block, priority, order) -> fired.add(block));
+        queue.drainDue(5, (x, y, z, block, trigger, priority, order) -> fired.add(block));
 
         assertEquals(List.of(DIRT, STONE), fired);
     }
@@ -138,7 +138,7 @@ final class ScheduledTickQueueTest {
         queue.scheduleEarlier(1, 64, 0, STONE, 5);
 
         List<Integer> due = new ArrayList<>();
-        queue.drainDue(5, (x, y, z, block, priority, order) -> due.add(x));
+        queue.drainDue(5, (x, y, z, block, trigger, priority, order) -> due.add(x));
         assertEquals(List.of(1), due);
 
         assertTrue(queue.schedule(1, 64, 0, STONE, 10));
@@ -147,7 +147,7 @@ final class ScheduledTickQueueTest {
                 pending.add(remaining));
         assertEquals(List.of(5), pending);
 
-        queue.drainDue(10, (x, y, z, block, priority, order) -> due.add(x));
+        queue.drainDue(10, (x, y, z, block, trigger, priority, order) -> due.add(x));
         assertEquals(List.of(1, 1), due);
     }
 
@@ -163,7 +163,7 @@ final class ScheduledTickQueueTest {
         /* Ein logischer Tick plus höchstens der kleine Kompaktierungs-Slack, nicht 10.000. */
         assertTrue(queue.size() <= 257, "Physische Queue zu groß: " + queue.size());
         List<Integer> fired = new ArrayList<>();
-        queue.drainDue(1, (x, y, z, block, priority, order) -> fired.add(x));
+        queue.drainDue(1, (x, y, z, block, trigger, priority, order) -> fired.add(x));
         assertEquals(List.of(1), fired);
     }
 
@@ -174,14 +174,36 @@ final class ScheduledTickQueueTest {
 
         List<Integer> fired = new ArrayList<>();
         assertEquals(4, queue.drainDue(1, 4,
-                (x, y, z, block, priority, order) -> fired.add(x)));
+                (x, y, z, block, trigger, priority, order) -> fired.add(x)));
         assertEquals(List.of(0, 1, 2, 3), fired);
 
         assertEquals(4, queue.drainDue(1, 4,
-                (x, y, z, block, priority, order) -> fired.add(x)));
+                (x, y, z, block, trigger, priority, order) -> fired.add(x)));
         assertEquals(2, queue.drainDue(1, 4,
-                (x, y, z, block, priority, order) -> fired.add(x)));
+                (x, y, z, block, trigger, priority, order) -> fired.add(x)));
         assertEquals(List.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), fired);
+    }
+
+    @Test
+    void nonTickingChunkKeepsOriginalDueTimeWithoutBlockingOthers() {
+        ScheduledTickQueue queue = new ScheduledTickQueue();
+        queue.schedule(1, 64, 0, STONE, 3);
+        queue.schedule(40, 64, 0, STONE, 5);
+        List<Integer> fired = new ArrayList<>();
+
+        queue.drainDue(10, 10, (x, y, z) -> x != 1,
+                (x, y, z, block, trigger, priority, order) -> fired.add(x));
+
+        assertEquals(List.of(40), fired);
+        List<Integer> remaining = new ArrayList<>();
+        queue.forEachPending(10, (x, y, z, block, delay, priority, order) ->
+                remaining.add(delay));
+        assertEquals(List.of(-7), remaining,
+                "der geparkte Tick muss Vanillas ursprüngliche Zielzeit behalten");
+
+        queue.drainDue(10, 10, (x, y, z) -> true,
+                (x, y, z, block, trigger, priority, order) -> fired.add(x));
+        assertEquals(List.of(40, 1), fired);
     }
 
     @Test

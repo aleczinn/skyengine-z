@@ -50,7 +50,7 @@ final class WorldScheduledTickPersistenceTest {
     }
 
     @Test
-    void rescheduledTickMarksChunkModifiedWhileItIsNotReady() throws Exception {
+    void dueTickKeepsOriginalTimeWithoutDirtyingChunkWhileItIsNotReady() throws Exception {
         TestWorld world = new TestWorld();
         Chunk chunk = readyPistonChunk();
         world.install(chunk);
@@ -61,10 +61,11 @@ final class WorldScheduledTickPersistenceTest {
         world.advanceGameTime();
         world.tickScheduled();
 
-        assertTrue(chunk.isModified(), "Re-Schedule während Remesh darf nicht am READY-Gate verloren gehen");
-        List<SavedTick> rescheduled = world.snapshotScheduledTicks(chunk);
-        assertEquals(1, rescheduled.size());
-        assertEquals(20, rescheduled.getFirst().remainingTicks());
+        assertFalse(chunk.isModified(),
+                "Vanilla lässt den Tick unverändert in der Chunk-Queue statt ihn neu zu planen");
+        List<SavedTick> pending = world.snapshotScheduledTicks(chunk);
+        assertEquals(1, pending.size());
+        assertEquals(0, pending.getFirst().remainingTicks());
     }
 
     @Test

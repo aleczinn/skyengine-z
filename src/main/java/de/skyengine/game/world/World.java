@@ -174,8 +174,6 @@ public class World implements IInitializable, IDisposable {
        ein CAS-Loop pro nextInt. this.random bleibt für die seltenen Nutzer (Drops/Spawns). */
     private final java.util.SplittableRandom randomTick = new java.util.SplittableRandom();
 
-    /** Verzögerung, mit der geplante Ticks außerhalb der Simulations-Distanz erneut vorgemerkt werden. */
-    private static final int OUT_OF_SIM_RESCHEDULE = 20;
     /** Notfallbudget gegen einen einzelnen Tick mit massenhaft gleichzeitig fälligen Block-Ticks. */
     /** ServerLevel.MAX_SCHEDULED_TICKS_PER_TICK in Vanilla 26.2. */
     private static final int MAX_SCHEDULED_TICKS_PER_TICK = 65_536;
@@ -956,7 +954,7 @@ public class World implements IInitializable, IDisposable {
                              TickPriority priority) {
         Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
         boolean accepted = this.scheduledTicks.schedule(x, y, z, expectedBlock,
-                this.gameTime + Math.max(1, delayTicks), priority.value());
+                this.gameTime + Math.max(0, delayTicks), priority.value());
         this.simulationTelemetry.recordScheduledRequest(accepted);
         if (accepted) this.markChunkModified(x, z);
     }
@@ -969,7 +967,7 @@ public class World implements IInitializable, IDisposable {
     public void scheduleTickEarlier(int x, int y, int z, int delayTicks) {
         Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
         boolean accepted = this.scheduledTicks.scheduleEarlier(x, y, z, expectedBlock,
-                this.gameTime + Math.max(1, delayTicks));
+                this.gameTime + Math.max(0, delayTicks));
         this.simulationTelemetry.recordScheduledRequest(accepted);
         if (accepted) this.markChunkModified(x, z);
     }
@@ -1000,7 +998,7 @@ public class World implements IInitializable, IDisposable {
                 ? Blocks.getState(this.getBlock(tick.x(), tick.y(), tick.z())).getBlock().getIdentifier()
                 : Identifier.of(tick.expectedBlock());
         boolean accepted = this.scheduledTicks.scheduleRestored(tick.x(), tick.y(), tick.z(), expectedBlock,
-                this.gameTime + Math.max(1, tick.remainingTicks()), tick.priority(), tick.subOrder());
+                this.gameTime + tick.remainingTicks(), tick.priority(), tick.subOrder());
         this.simulationTelemetry.recordScheduledRequest(accepted);
         /* Reiner Load-Pfad: Der Tick ist bereits Bestandteil des autoritativen
            Chunk-Snapshots. Vanilla macht den Chunk beim Unpack ebenfalls nicht erneut
@@ -1061,19 +1059,24 @@ public class World implements IInitializable, IDisposable {
 
     /**
      * Führt alle fälligen geplanten Ticks aus (Fluss-Ausbreitung, Fallprüfung, ...). Außerhalb der
-     * Simulations-Distanz wird der Tick nicht ausgeführt, sondern erneut vorgemerkt - der Fluss
-     * friert dort ein und läuft weiter, sobald der Spieler zurückkommt. (Während des Drains neu
-     * geplante Einträge verarbeitet drainDue erst im nächsten Tick -> keine Endlosschleife.)
+     * Simulations-Distanz bleibt der Tick mit seiner ursprünglichen Zielzeit in der Queue. Sobald
+     * der Chunk wieder tickt, ist er deshalb wie in Vanilla sofort fällig. Während des Drains neu
+     * geplante Einträge verarbeitet drainDue erst im nächsten Tick (keine Endlosschleife).
      *
      * <p>Ticks ENTLADENER Chunks werden dagegen verworfen: ihr Rest-Delay liegt im Save
      * (scheduleTick markiert den Chunk als modified, der Unload-Pfad speichert ihn), und beim
      * Wiederladen stellt {@link #restorePendingScheduledTicks} sie wieder her. Ohne das Verwerfen
-     * wüchse die Queue über die Sitzung unbegrenzt und re-schedulte alle 20 Ticks jede je
-     * entladene Position.</p>
+     * wüchse die Queue über die Sitzung unbegrenzt.</p>
      */
     private void tickScheduled() {
         this.scheduledTicks.drainDue(this.gameTime, MAX_SCHEDULED_TICKS_PER_TICK,
-                (x, y, z, expectedBlock, priority, subOrder) -> {
+                (x, y, z) -> {
+                    int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+                    Chunk chunk = this.chunkManager.getChunk(cx, cz);
+                    return chunk != null && chunk.status == ChunkStatus.READY
+                            && this.isSimulated(cx, cz);
+                },
+                (x, y, z, expectedBlock, triggerTime, priority, subOrder) -> {
                     this.simulationTelemetry.recordScheduledDue();
                     int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
                     Chunk chunk = this.chunkManager.getChunk(cx, cz);
@@ -1085,12 +1088,6 @@ public class World implements IInitializable, IDisposable {
                        Snapshot gespeichert, muss auch Ausführung, Skip oder Re-Schedule eine
                        neue Save-Epoch erzeugen — selbst während eines LIT/Remesh-Zustands. */
                     chunk.markModified();
-                    if (chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
-                        this.scheduledTicks.scheduleRestored(x, y, z, expectedBlock,
-                                this.gameTime + OUT_OF_SIM_RESCHEDULE, priority, subOrder);
-                        this.simulationTelemetry.recordScheduledRescheduled();
-                        return;
-                    }
                     BlockState state = Blocks.getState(this.getBlock(x, y, z));
                     if (!state.getBlock().getIdentifier().equals(expectedBlock)) {
                         this.simulationTelemetry.recordScheduledSkippedWrongBlock();

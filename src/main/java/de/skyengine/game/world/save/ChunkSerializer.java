@@ -482,7 +482,8 @@ public final class ChunkSerializer {
                     continue;
                 }
                 /* Absolute Koordinaten validieren: korrupte Daten dürfen keine Ticks in
-                   fremde Chunks streuen; Rest-Delay < 1 = überfällig -> 1. */
+                   fremde Chunks streuen. Null/negative Restzeiten sind gültige, bereits
+                   fällige Vanilla-Ticks und bleiben für die Lade-Reihenfolge erhalten. */
                 if ((x >> ChunkSection.SHIFT) != chunk.chunkX || (z >> ChunkSection.SHIFT) != chunk.chunkZ
                         || y < 0 || y >= Chunk.HEIGHT) {
                     LOGGER.warning("Tick außerhalb des Chunks (" + chunk.chunkX + ", " + chunk.chunkZ
@@ -495,7 +496,7 @@ public final class ChunkSerializer {
                     continue;
                 }
                 ticks.add(new SavedTick(type, expectedBlock, x, y, z,
-                        Math.max(1, remaining), priority, subOrder));
+                        remaining, priority, subOrder));
             }
             chunk.pendingScheduledTicks = ticks == null || ticks.isEmpty() ? null : ticks;
             /* Beim Manager anmelden: World.restorePendingScheduledTicks pollt nur noch die

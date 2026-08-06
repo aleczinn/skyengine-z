@@ -315,12 +315,12 @@ public final class SaveRoundTripTest {
             }
             List<String> fired = new ArrayList<>();
             queue.drainDue(now + 3,
-                    (x, y, z, block, priority, order) -> fired.add(x + "," + y + "," + z));
+                    (x, y, z, block, trigger, priority, order) -> fired.add(x + "," + y + "," + z));
             check(fired.contains(sourceX + ",200," + sourceZ), "Quelle -> Save -> Load -> Tick FEUERT (Bugfall behoben)");
             check(fired.contains(flowX + ",200," + flowZ), "Fluss-Tick feuert");
         }
 
-        /* forEachPending: Vorzeichen-Erweiterung + Überfällig-Klemme. */
+        /* forEachPending: Vorzeichen-Erweiterung + Vanilla-Restzeit für Überfälliges. */
         ScheduledTickQueue negQueue = new ScheduledTickQueue();
         negQueue.schedule(-100, 50, -217, Identifier.of("skyengine:stone"), 500);
         int[] got = new int[4];
@@ -328,7 +328,7 @@ public final class SaveRoundTripTest {
             got[0] = x; got[1] = y; got[2] = z; got[3] = rem;
         });
         check(got[0] == -100 && got[1] == 50 && got[2] == -217, "forEachPending entpackt negative Koordinaten korrekt");
-        check(got[3] == 1, "Überfälliger Tick -> Rest-Delay 1");
+        check(got[3] == -500, "Überfälliger Tick behält seine negative Restzeit");
 
         /* --- Luft-Fallback: unbekannter State (Block aus dem Spiel entfernt) --- */
         byte[] tampered = raw.clone();
