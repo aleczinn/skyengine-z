@@ -187,6 +187,36 @@ final class HopperBlockEntityTest {
     }
 
     @Test
+    void itemEnteringHopperAfterBlockEntityPhaseTransfersImmediately() {
+        TestWorld world = new TestWorld();
+        HopperBlockEntity hopper = world.addHopper(0, Direction.DOWN);
+        ItemEntity item = world.addItem(0.5, 65.0, 0.5);
+        BlockState state = Blocks.getState(world.getBlock(0, 64, 0));
+
+        state.getBlock().onEntityInside(world, 0, 64, 0, state, item);
+
+        assertTrue(item.isRemoved());
+        assertEquals(1, hopper.getInventory().get(0).getCount());
+        assertEquals(8, hopper.getCooldown());
+    }
+
+    @Test
+    void entityInsidePathRespectsHopperCooldown() {
+        TestWorld world = new TestWorld();
+        HopperBlockEntity hopper = world.addHopper(0, Direction.DOWN);
+        BlockState state = Blocks.getState(world.getBlock(0, 64, 0));
+        ItemEntity first = world.addItem(0.5, 65.0, 0.5);
+        state.getBlock().onEntityInside(world, 0, 64, 0, state, first);
+        assertEquals(8, hopper.getCooldown());
+        ItemEntity item = world.addItem(0.5, 65.0, 0.5);
+
+        state.getBlock().onEntityInside(world, 0, 64, 0, state, item);
+
+        assertFalse(item.isRemoved());
+        assertEquals(1, hopper.getInventory().get(0).getCount());
+    }
+
+    @Test
     void partiallyAbsorbedItemEntityDoesNotStartVanillaCooldown() {
         TestWorld world = new TestWorld();
         HopperBlockEntity hopper = world.addHopper(0, Direction.DOWN);

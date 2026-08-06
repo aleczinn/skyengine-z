@@ -1,5 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
+import de.skyengine.game.entity.Entity;
+import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.BlockEntity;
@@ -54,6 +56,15 @@ public final class HopperBehavior implements BlockBehavior {
             return state.with(Properties.ENABLED, enabled);
         }
         return state;
+    }
+
+    @Override
+    public void onEntityInside(World world, int x, int y, int z, BlockState state, Entity entity) {
+        if (!(entity instanceof ItemEntity item)) return;
+        BlockEntity blockEntity = world.getBlockEntity(x, y, z);
+        if (blockEntity instanceof HopperBlockEntity hopper) {
+            hopper.itemEntityInside(item, state);
+        }
     }
 
     /** Beim Abbauen fällt der Inhalt heraus (dasselbe Muster wie die Truhe). */

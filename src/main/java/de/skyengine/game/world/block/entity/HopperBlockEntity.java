@@ -154,15 +154,43 @@ public final class HopperBlockEntity extends BlockEntity {
             if (fullyConsumed[0]) return;
             if (!(entity instanceof ItemEntity item) || item.isRemoved()) return;
             if (!item.getBoundingBox().intersects(suction)) return;
-            ItemStack remaining = this.inventory.insert(item.getStack());
-            if (remaining.isEmpty()) {
-                item.remove();
-                fullyConsumed[0] = true;
-            } else {
-                item.getStack().setCount(remaining.getCount());
-            }
+            fullyConsumed[0] = this.suckItem(item);
         });
         return fullyConsumed[0];
+    }
+
+    /**
+     * Vanillas zusaetzlicher {@code entityInside}-Pfad: Faellt ein Item erst nach der
+     * BlockEntity-Tickphase in den Trichter, darf es noch im selben Welttick tryMoveItems
+     * ausloesen. Push laeuft dabei wie im regulaeren Hopper-Tick vor der Aufnahme.
+     */
+    public void itemEntityInside(ItemEntity item, BlockState state) {
+        if (this.world == null || item == null || item.isRemoved() || item.getStack().isEmpty()) return;
+        if (this.cooldown > 0 || !state.getValues().containsKey(Properties.ENABLED)
+                || !state.get(Properties.ENABLED)) return;
+        int x = this.pos.x(), y = this.pos.y(), z = this.pos.z();
+        AABB suction = new AABB(x, y + SUCTION_MIN_Y, z, x + 1, y + 2, z + 1);
+        if (!item.getBoundingBox().intersects(suction)) return;
+
+        int amount = state.getBlock().getHopperAmount();
+        boolean pushed = !isEmpty(this.inventory)
+                && this.pushOut(state.get(Properties.FACING_ALL), amount);
+        boolean sucked = !isFull(this.inventory) && this.suckItem(item);
+        if (pushed || sucked) {
+            this.cooldown = state.getBlock().getHopperCooldown();
+            this.setChanged();
+        }
+    }
+
+    /** Historische Vanilla-Rueckgabe: Nur vollstaendige Aufnahme gilt als Erfolg. */
+    private boolean suckItem(ItemEntity item) {
+        ItemStack remaining = this.inventory.insert(item.getStack());
+        if (remaining.isEmpty()) {
+            item.remove();
+            return true;
+        }
+        item.getStack().setCount(remaining.getCount());
+        return false;
     }
 
     /** Bucht einen nicht untergebrachten Rest in den Slot zurück, aus dem er entnommen wurde. */
