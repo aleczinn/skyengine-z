@@ -80,6 +80,21 @@ final class RedstoneTorchBehaviorTest {
         assertEquals(160, world.lastScheduledDelay);
     }
 
+    @Test
+    void neighborUpdateDoesNotScheduleBehindTickAlreadyCollectedThisRound() {
+        TestWorld world = new TestWorld();
+        BlockState torch = state("redstone_torch")
+                .with(Properties.ATTACH, AttachFace.FLOOR)
+                .with(Properties.LIT, true);
+        world.put(0, 64, 0, torch);
+        world.put(0, 63, 0, state("redstone_block"));
+        world.willTickThisTick = true;
+
+        torch.getBlock().getStateForNeighborUpdate(world, 0, 64, 0, torch);
+
+        assertEquals(0, world.scheduledTicks);
+    }
+
     private static BlockState state(String path) {
         var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
@@ -102,6 +117,7 @@ final class RedstoneTorchBehaviorTest {
         private long gameTime;
         private int scheduledTicks;
         private int lastScheduledDelay;
+        private boolean willTickThisTick;
 
         TestWorld() {
             super("__redstone_torch_test", level(), null, null);
@@ -155,6 +171,11 @@ final class RedstoneTorchBehaviorTest {
         public void scheduleTick(int x, int y, int z, int delayTicks) {
             this.scheduledTicks++;
             this.lastScheduledDelay = delayTicks;
+        }
+
+        @Override
+        public boolean willTickThisTick(int x, int y, int z) {
+            return this.willTickThisTick;
         }
 
         private static LevelData level() {

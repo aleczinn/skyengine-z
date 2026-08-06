@@ -54,7 +54,8 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
 
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
-        if (shouldBeLit(world, x, y, z, state) != state.get(Properties.LIT)) {
+        if (shouldBeLit(world, x, y, z, state) != state.get(Properties.LIT)
+                && !world.willTickThisTick(x, y, z)) {
             /* Vanilla plant regulär; ein bereits wartender Burnout-Neustart wird nicht vorgezogen. */
             world.scheduleTick(x, y, z, 2);
         }
