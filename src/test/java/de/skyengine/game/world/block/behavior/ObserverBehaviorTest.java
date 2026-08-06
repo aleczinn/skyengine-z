@@ -98,6 +98,26 @@ final class ObserverBehaviorTest {
         assertEquals(0, backWorld.scheduledTicks);
     }
 
+    @Test
+    void removingPoweredPulseNotifiesStrongTargetOnlyWhileOffTickIsPending() {
+        BlockState observer = state("observer")
+                .with(Properties.FACING_ALL, Direction.WEST)
+                .with(Properties.POWERED, true);
+        TestWorld pulsing = new TestWorld();
+        pulsing.tickScheduled = true;
+
+        observer.getBlock().onBreak(pulsing, 1, 64, 0, observer);
+
+        assertEquals(1, pulsing.neighborUpdates);
+        assertEquals(2, pulsing.lastNeighborX,
+                "FACING=WEST gibt das Signal nach EAST in den Ausgangsblock ab");
+
+        TestWorld artificial = new TestWorld();
+        observer.getBlock().onBreak(artificial, 1, 64, 0, observer);
+        assertEquals(0, artificial.neighborUpdates,
+                "Vanilla benachrichtigt ohne ausstehenden Abschalt-Tick nicht extra");
+    }
+
     private static BlockState state(String path) {
         var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
@@ -119,6 +139,9 @@ final class ObserverBehaviorTest {
         private final LongIntMap blocks = new LongIntMap(8);
         private int scheduledTicks;
         private int lastDelay;
+        private boolean tickScheduled;
+        private int neighborUpdates;
+        private int lastNeighborX;
 
         TestWorld() {
             super("__observer_test", level(), null, null);
@@ -144,13 +167,20 @@ final class ObserverBehaviorTest {
 
         @Override
         public boolean isTickScheduled(int x, int y, int z) {
-            return false;
+            return this.tickScheduled;
         }
 
         @Override
         public void scheduleTick(int x, int y, int z, int delayTicks) {
             this.scheduledTicks++;
             this.lastDelay = delayTicks;
+        }
+
+        @Override
+        public void updateNeighbors(int x, int y, int z) {
+            this.neighborUpdates++;
+            this.lastNeighborX = x;
+            super.updateNeighbors(x, y, z);
         }
 
         private static LevelData level() {

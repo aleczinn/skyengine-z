@@ -71,6 +71,18 @@ public final class ObserverBehavior implements BlockBehavior {
         if (!powered) world.scheduleTick(x, y, z, 2);   // Puls-Ende nach 2 Ticks
     }
 
+    /**
+     * Vanillas {@code affectNeighborsAfterRemoval}: Wird ein aktiver Puls vor seinem geplanten
+     * Abschalt-Tick abgebaut, muss der bisher stark gespeiste Ausgangsblock noch die fallende
+     * Flanke verteilen. Ein kuenstlich POWERED gesetzter Observer ohne Tick tut das bewusst nicht.
+     */
+    @Override
+    public void onBreak(World world, int x, int y, int z, BlockState state) {
+        if (state.get(Properties.POWERED) && world.isTickScheduled(x, y, z)) {
+            this.notifyStrongTarget(world, x, y, z, state.with(Properties.POWERED, false));
+        }
+    }
+
     /** Zweiter Ring um das stark gepowerte Ziel hinter dem Ausgang (Leitung durch den Block). */
     private void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
         Direction back = state.get(Properties.FACING_ALL).opposite();
