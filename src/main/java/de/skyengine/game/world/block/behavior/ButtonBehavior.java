@@ -95,6 +95,7 @@ public final class ButtonBehavior implements BlockBehavior {
      */
     static void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
         Direction d = supportDirection(state);
-        world.updateNeighbors(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ());
+        world.updateGeneralNeighborsAt(x, y, z);
+        world.updateGeneralNeighborsAt(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ());
     }
 }

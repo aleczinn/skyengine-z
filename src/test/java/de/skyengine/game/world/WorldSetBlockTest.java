@@ -71,10 +71,14 @@ final class WorldSetBlockTest {
         world.setBlock(5, 64, 1, Blocks.AIR, false);
         world.setBlock(7, 64, 1, Blocks.AIR, false);
 
-        assertEquals(List.of(
-                BlockPos.asLong(0, 64, 1),
-                BlockPos.asLong(2, 64, 1),
-                BlockPos.asLong(5, 63, 1)), world.updatedPositions);
+        List<Long> expected = new ArrayList<>();
+        appendGeneralRing(expected, 1, 64, 1);
+        appendGeneralRing(expected, 0, 64, 1);
+        appendGeneralRing(expected, 3, 64, 1);
+        appendGeneralRing(expected, 2, 64, 1);
+        appendGeneralRing(expected, 5, 64, 1);
+        appendGeneralRing(expected, 5, 63, 1);
+        assertEquals(expected, world.generalUpdates);
     }
 
     @Test
@@ -132,7 +136,17 @@ final class WorldSetBlockTest {
         world.breakBlocksBatch(new long[]{BlockPos.asLong(1, 64, 1)}, 1);
 
         assertEquals(Blocks.AIR, chunk.getBlock(1, 64, 1));
-        assertEquals(List.of(BlockPos.asLong(0, 64, 1)), world.updatedPositions);
+        List<Long> expected = new ArrayList<>();
+        appendGeneralRing(expected, 1, 64, 1);
+        appendGeneralRing(expected, 0, 64, 1);
+        assertEquals(expected, world.generalUpdates);
+    }
+
+    private static void appendGeneralRing(List<Long> positions, int x, int y, int z) {
+        for (Direction direction : Direction.neighborUpdateValues()) {
+            positions.add(BlockPos.asLong(x + direction.offsetX(),
+                    y + direction.offsetY(), z + direction.offsetZ()));
+        }
     }
 
     private static int id(String encoded) {
