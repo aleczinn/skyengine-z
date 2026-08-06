@@ -37,6 +37,11 @@ public final class RedstoneWireBehavior implements BlockBehavior {
     @Override
     public void onPlaced(World world, int x, int y, int z, BlockState state) {
         RedstoneWireNetwork.update(world, x, y, z);
+        /* RedStoneWireBlock.onPlace: zusaetzlich allgemeine Ringe unter und ueber dem Staub,
+           danach die beiden horizontalen Corner-Wire-Paesse. */
+        world.updateGeneralNeighborsAt(x, y - 1, z);
+        world.updateGeneralNeighborsAt(x, y + 1, z);
+        RedstoneWireNetwork.updateNeighborsOfNeighboringWires(world, x, y, z);
     }
 
     /**
@@ -77,7 +82,7 @@ public final class RedstoneWireBehavior implements BlockBehavior {
            dieser Reihenfolge, nachdem die Welt bereits den Nachfolgezustand enthält. */
         world.updateGeneralNeighborsAroundAdjacentCells(x, y, z);
         RedstoneWireNetwork.updateAfterRemoval(world, x, y, z, state);
-        RedstoneWireNetwork.updateCornersAfterRemoval(world, x, y, z);
+        RedstoneWireNetwork.updateNeighborsOfNeighboringWires(world, x, y, z);
     }
 
     @Override

@@ -39,6 +39,19 @@ final class RedstoneWireBehaviorTest {
     }
 
     @Test
+    void placementNotifiesVerticalCentersImmediately() {
+        TestWorld world = new TestWorld();
+        BlockState wire = RedstoneWireNetwork.toCross(state("redstone_wire"))
+                .with(Properties.POWER, 0);
+        world.put(0, 64, 0, wire);
+
+        wire.getBlock().onPlaced(world, 0, 64, 0, wire);
+
+        assertEquals(12, world.generalUpdates.size());
+        assertEquals(0, world.deferredUpdates);
+    }
+
+    @Test
     void poweredRemovalRunsEvaluatorAndCornerUpdatesWithoutTickDelay() {
         TestWorld world = new TestWorld();
         BlockState wire = RedstoneWireNetwork.toCross(state("redstone_wire"))

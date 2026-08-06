@@ -63,7 +63,7 @@ public final class RedstoneWireNetwork {
     }
 
     /** Vanillas {@code RedStoneWireBlock.updateNeighborsOfNeighboringWires}. */
-    public static void updateCornersAfterRemoval(World world, int x, int y, int z) {
+    public static void updateNeighborsOfNeighboringWires(World world, int x, int y, int z) {
         for (Direction direction : Direction.horizontalValues()) {
             checkCornerChangeAt(world, x + direction.offsetX(), y, z + direction.offsetZ());
         }
