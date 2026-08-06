@@ -171,6 +171,27 @@ final class HopperBlockEntityTest {
     }
 
     @Test
+    void partiallyAbsorbedItemEntityDoesNotStartVanillaCooldown() {
+        TestWorld world = new TestWorld();
+        HopperBlockEntity hopper = world.addHopper(0, Direction.DOWN);
+        hopper.getInventory().set(0, stone(63));
+        for (int slot = 1; slot < HopperBlockEntity.SLOTS; slot++) {
+            hopper.getInventory().set(slot, stone(64));
+        }
+        ItemEntity item = world.addItem(0.5, 65.0, 0.5);
+        item.getStack().setCount(2);
+
+        world.gameTime = 1;
+        hopper.tick();
+
+        assertFalse(item.isRemoved());
+        assertEquals(1, item.getStack().getCount());
+        assertEquals(64, hopper.getInventory().get(0).getCount());
+        assertEquals(0, hopper.getCooldown(),
+                "Vanilla meldet partielle ItemEntity-Aufnahme nicht als erfolgreichen Transfer");
+    }
+
+    @Test
     void doesNotBlockHoppersFlagOverridesFullCollisionBlock() {
         Block exempt = new Block(Identifier.of("skyengine:test_beehive"),
                 Block.Settings.create().doesNotBlockHoppers(true));

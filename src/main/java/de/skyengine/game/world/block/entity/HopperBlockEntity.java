@@ -134,30 +134,28 @@ public final class HopperBlockEntity extends BlockEntity {
     }
 
     /**
-     * Saugt {@link ItemEntity}s über der Öffnung ein (ganze Stapel, wie MC). Die Box reicht
-     * einen Block über den Trichter — dort landen Items, die auf seiner Oberseite liegen.
+     * Saugt {@link ItemEntity}s über der Öffnung ein. Vanillas historische Rückgabe-Quirk ist
+     * wichtig: Eine nur TEILWEISE aufgenommene Entity zählt nicht als erfolgreicher Transfer
+     * und setzt deshalb keinen Hopper-Cooldown; erst vollständiges Aufnehmen liefert true.
      * Vertrag von {@code forEachEntityNearby}: nur removed-Flag setzen, Listen nicht anfassen.
      */
     private boolean suckItems() {
         int x = this.pos.x(), y = this.pos.y(), z = this.pos.z();
         AABB suction = new AABB(x, y + SUCTION_MIN_Y, z, x + 1, y + 2, z + 1);
-        boolean[] moved = {false};
+        boolean[] fullyConsumed = {false};
         this.world.forEachEntityNearby(x + 0.5, z + 0.5, 1, entity -> {
-            if (moved[0]) return;   // ein Transfer pro Takt, wie Push/Pull
+            if (fullyConsumed[0]) return;
             if (!(entity instanceof ItemEntity item) || item.isRemoved()) return;
             if (!item.getBoundingBox().intersects(suction)) return;
-            int before = item.getStack().getCount();
             ItemStack remaining = this.inventory.insert(item.getStack());
             if (remaining.isEmpty()) {
                 item.remove();
+                fullyConsumed[0] = true;
             } else {
                 item.getStack().setCount(remaining.getCount());
             }
-            if (remaining.getCount() < before) {
-                moved[0] = true;
-            }
         });
-        return moved[0];
+        return fullyConsumed[0];
     }
 
     /** Bucht einen nicht untergebrachten Rest in den Slot zurück, aus dem er entnommen wurde. */
