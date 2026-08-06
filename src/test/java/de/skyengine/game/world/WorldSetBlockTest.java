@@ -78,6 +78,22 @@ final class WorldSetBlockTest {
     }
 
     @Test
+    void diodeFrontUpdateExcludesSourceAndUsesOnlySixGeneralUpdates() throws Exception {
+        TestWorld world = new TestWorld();
+
+        world.updateDiodeNeighborsInFront(10, 20, 30, Direction.EAST);
+
+        assertEquals(List.of(
+                BlockPos.asLong(11, 20, 30),
+                BlockPos.asLong(12, 20, 30),
+                BlockPos.asLong(11, 19, 30),
+                BlockPos.asLong(11, 21, 30),
+                BlockPos.asLong(11, 20, 29),
+                BlockPos.asLong(11, 20, 31)
+        ), world.generalUpdates);
+    }
+
+    @Test
     void redstoneTorchKeepsVanillaNestedNeighborOrderAndDuplicates() throws Exception {
         TestWorld world = new TestWorld();
 

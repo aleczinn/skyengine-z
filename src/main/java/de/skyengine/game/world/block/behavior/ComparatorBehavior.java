@@ -78,7 +78,7 @@ public final class ComparatorBehavior implements BlockBehavior {
         ComparatorMode next = state.get(Properties.MODE) == ComparatorMode.COMPARE
                 ? ComparatorMode.SUBTRACT : ComparatorMode.COMPARE;
         BlockState toggled = state.with(Properties.MODE, next);
-        world.setBlock(x, y, z, toggled.getId(), true);
+        world.setBlock(x, y, z, toggled.getId(), false);
         SoundManager sound = world.getSoundManager();
         if (sound != null) {
             sound.playComparatorClick(next == ComparatorMode.SUBTRACT,
@@ -122,7 +122,7 @@ public final class ComparatorBehavior implements BlockBehavior {
         boolean shouldPower = shouldTurnOn(world, x, y, z, state);
         if (state.get(Properties.POWERED) != shouldPower) {
             state = state.with(Properties.POWERED, shouldPower);
-            world.setBlock(x, y, z, state.getId(), true);
+            world.setBlock(x, y, z, state.getId(), false);
         }
         notifyStrongTarget(world, x, y, z, state);
     }
@@ -225,12 +225,10 @@ public final class ComparatorBehavior implements BlockBehavior {
         return RedstonePower.emittedSignal(world, sx, y, sz, side.opposite(), false);
     }
 
-    /* Zweiter Ring um die Zelle vor dem Ausgang — bedingungslos wie MCs
-       DiodeBlock.updateNeighborsInFront, auch wenn dort Luft steht (s. RepeaterBehavior). */
+    /* Exakter allgemeiner Sechser-Pfad von DiodeBlock.updateNeighborsInFront. */
     private static void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
-        int tx = x + out.offsetX(), tz = z + out.offsetZ();
-        world.updateNeighbors(tx, y, tz);
+        world.updateDiodeNeighborsInFront(x, y, z, out);
     }
 
     /* --- Ausgang: POWERED-gated BE-Stärke, schwach UND stark, nur in FACING-Richtung --- */

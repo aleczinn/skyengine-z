@@ -1763,6 +1763,23 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
+     * Vanillas {@code DiodeBlock.updateNeighborsInFront}: zuerst der Ausgangsblock selbst,
+     * danach dessen allgemeine Nachbarn ohne die zur Diode zurueckweisende Seite.
+     */
+    public void updateDiodeNeighborsInFront(int x, int y, int z, Direction output) {
+        int targetX = x + output.offsetX();
+        int targetY = y + output.offsetY();
+        int targetZ = z + output.offsetZ();
+        this.updateGeneralStateAt(targetX, targetY, targetZ);
+        Direction towardDiode = output.opposite();
+        for (Direction direction : Direction.neighborUpdateValues()) {
+            if (direction == towardDiode) continue;
+            this.updateGeneralStateAt(targetX + direction.offsetX(),
+                    targetY + direction.offsetY(), targetZ + direction.offsetZ());
+        }
+    }
+
+    /**
      * Lässt genau EINE Zelle ihren State neu berechnen (schmaler Wrapper um
      * {@link #updateStateAt}) — für die gezielte Empfänger-Benachrichtigung des
      * Staub-Evaluators und anderer gezielter Update-Pfade.

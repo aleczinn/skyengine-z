@@ -46,6 +46,7 @@ final class RepeaterBehaviorTest {
         repeater.getBlock().getStateForNeighborUpdate(world, 0, 64, 0, repeater);
 
         assertEquals(TickPriority.VERY_HIGH, world.scheduledPriority);
+        assertEquals(false, world.lastSetBlockUpdates);
     }
 
     @Test
@@ -120,6 +121,7 @@ final class RepeaterBehaviorTest {
         private int neighborUpdates;
         private int lastNeighborX;
         private int lastNeighborZ;
+        private boolean lastSetBlockUpdates;
 
         TestWorld() {
             super("__repeater_test", level(), null, null);
@@ -135,15 +137,22 @@ final class RepeaterBehaviorTest {
         }
 
         @Override
+        public boolean setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
+            this.blocks.put(BlockPos.asLong(x, y, z), block);
+            this.lastSetBlockUpdates = updateNeighbors;
+            return true;
+        }
+
+        @Override
         public void scheduleTick(int x, int y, int z, int delayTicks, TickPriority priority) {
             this.scheduledPriority = priority;
         }
 
         @Override
-        public void updateNeighbors(int x, int y, int z) {
+        public void updateDiodeNeighborsInFront(int x, int y, int z, Direction output) {
             this.neighborUpdates++;
-            this.lastNeighborX = x;
-            this.lastNeighborZ = z;
+            this.lastNeighborX = x + output.offsetX();
+            this.lastNeighborZ = z + output.offsetZ();
         }
 
         private static LevelData level() {

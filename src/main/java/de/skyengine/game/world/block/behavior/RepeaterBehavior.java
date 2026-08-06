@@ -135,18 +135,16 @@ public final class RepeaterBehavior implements BlockBehavior {
     }
 
     private static void switchOutput(World world, int x, int y, int z, BlockState state, boolean powered) {
-        world.setBlock(x, y, z, state.with(Properties.POWERED, powered).getId(), true);
-        /* Zweiter Ring um die Zelle vor dem Ausgang: dessen Nachbarn erfahren die Flanke nur so.
-           Bedingungslos wie MCs DiodeBlock.updateNeighborsInFront — auch wenn dort LUFT steht.
-           Sonst bliebe ein Kolben, der ueber Quasi-Konnektivitaet an genau dieser Luftzelle
-           haengt, unbenachrichtigt (s. PistonBehavior.hasSignal). */
+        world.setBlock(x, y, z, state.with(Properties.POWERED, powered).getId(), false);
+        /* Exakter DiodeBlock.updateNeighborsInFront-Pfad: Ausgangszelle plus ihre fünf vom
+           Repeater wegführenden Nachbarn, ausschließlich als allgemeine Updates. */
         notifyStrongTarget(world, x, y, z, state);
     }
 
     /** Vanillas DiodeBlock#updateNeighborsInFront fuer Platzierung, Flanke und Entfernung. */
     private static void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
-        world.updateNeighbors(x + out.offsetX(), y, z + out.offsetZ());
+        world.updateDiodeNeighborsInFront(x, y, z, out);
     }
 
     /** Signal am Eingang (Gegenseite von FACING)? */

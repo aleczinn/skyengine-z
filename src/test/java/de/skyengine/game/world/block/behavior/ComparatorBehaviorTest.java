@@ -161,6 +161,7 @@ final class ComparatorBehaviorTest {
         assertEquals(15, blockEntity.getOutputSignal());
         BlockState updated = Blocks.getState(world.getBlock(0, 64, 0));
         assertTrue(updated.get(Properties.POWERED));
+        assertFalse(world.lastSetBlockUpdates);
         assertEquals(15, updated.getBlock().getWeakPower(
                 world, 0, 64, 0, updated, Direction.EAST));
     }
@@ -282,6 +283,7 @@ final class ComparatorBehaviorTest {
         private TickPriority scheduledPriority;
         private int neighborUpdates;
         private int comparatorOutputUpdates;
+        private boolean lastSetBlockUpdates;
         private final Set<Long> comparatorUpdatePositions = new HashSet<>();
 
         TestWorld() {
@@ -312,6 +314,7 @@ final class ComparatorBehaviorTest {
         @Override
         public boolean setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
             this.blocks.put(BlockPos.asLong(x, y, z), block);
+            this.lastSetBlockUpdates = updateNeighbors;
             return true;
         }
 
@@ -326,7 +329,7 @@ final class ComparatorBehaviorTest {
         }
 
         @Override
-        public void updateNeighbors(int x, int y, int z) {
+        public void updateDiodeNeighborsInFront(int x, int y, int z, Direction output) {
             this.neighborUpdates++;
         }
 
