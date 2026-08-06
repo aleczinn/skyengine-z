@@ -82,6 +82,16 @@ public final class ItemFrameEntity extends Entity {
         return !world.hasOverlappingItemFrame(this);
     }
 
+    /**
+     * Vanillas {@code HangingEntity.canCoexist(true)} fuer Item Frames: Nur ein Rahmen mit
+     * derselben Anhefterichtung blockiert diese Flaeche. Rechtwinklig ausgerichtete Rahmen
+     * duerfen selbst dann koexistieren, wenn ihre Bounding-Boxes einander schneiden.
+     */
+    public boolean conflictsWith(ItemFrameEntity other) {
+        return other != this && !other.isRemoved() && other.direction == this.direction
+                && other.boundingBox.intersects(this.boundingBox);
+    }
+
     /** Rechtsklick: erst ein Exemplar einsetzen, danach in acht 45-Grad-Schritten drehen. */
     public boolean interact(World world, ItemStack held, boolean creative) {
         if (this.isRemoved()) return false;

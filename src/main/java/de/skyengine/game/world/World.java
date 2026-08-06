@@ -847,7 +847,7 @@ public class World implements IInitializable, IDisposable {
         this.forEachEntityNearby(frame.x, frame.z, 1, entity -> {
             if (!found[0] && entity != frame && !entity.isRemoved()
                     && entity instanceof ItemFrameEntity other
-                    && other.getBoundingBox().intersects(frame.getBoundingBox())) {
+                    && frame.conflictsWith(other)) {
                 found[0] = true;
             }
         });
