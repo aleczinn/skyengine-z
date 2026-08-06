@@ -228,6 +228,26 @@ final class HopperBlockEntityTest {
     }
 
     @Test
+    void hopperDoesNotProbeSourceSlotsWhenTargetIsFull() {
+        TestWorld world = new TestWorld();
+        HopperBlockEntity source = world.addHopper(0, Direction.EAST);
+        HopperBlockEntity target = world.addHopper(1, Direction.DOWN);
+        source.getInventory().set(0, stone(1));
+        for (int slot = 0; slot < HopperBlockEntity.SLOTS; slot++) {
+            target.getInventory().set(slot, stone(64));
+        }
+        world.modifiedCalls = 0;
+
+        world.gameTime = 1;
+        source.tick();
+
+        assertEquals(0, world.modifiedCalls,
+                "ein volles Ziel darf keinen Quellslot probeweise extrahieren");
+        assertEquals(1, source.getInventory().get(0).getCount());
+        assertEquals(0, source.getCooldown());
+    }
+
+    @Test
     void doesNotBlockHoppersFlagOverridesFullCollisionBlock() {
         Block exempt = new Block(Identifier.of("skyengine:test_beehive"),
                 Block.Settings.create().doesNotBlockHoppers(true));

@@ -85,6 +85,10 @@ public final class HopperBlockEntity extends BlockEntity {
         BlockEntity targetEntity = this.world.getBlockEntity(tx, ty, tz);
         ItemStorage target = storageOf(targetEntity, facing.opposite());
         if (target == null) return false;
+        /* Vanillas ejectItems beendet sich vor dem ersten removeItem, wenn alle von dieser
+           Seite erreichbaren Zielslots voll sind. So wird die Quelle nicht fuer einen
+           garantiert erfolglosen Transfer als geaendert markiert. */
+        if (isFull(target)) return false;
         boolean targetWasEmpty = isEmpty(target);
 
         for (int i = 0; i < this.inventory.size(); i++) {
