@@ -472,7 +472,8 @@ public final class ChunkSerializer {
                     }
                     continue;
                 }
-                if (ScheduledTickTypes.BLOCK.equals(type) && expectedBlock != null
+                if ((ScheduledTickTypes.BLOCK.equals(type) || ScheduledTickTypes.BLOCK_EVENT.equals(type))
+                        && expectedBlock != null
                         && Registries.BLOCK.get(Identifier.of(expectedBlock)) == null) {
                     if (warnedTickTargets.add(expectedBlock)) {
                         LOGGER.warning("Unbekannter erwarteter Block in Save-Datei, Tick wird uebersprungen: "

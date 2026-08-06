@@ -166,7 +166,7 @@ public final class PistonMovingBlockEntity extends BlockEntity {
             }
             /* Re-Check als Block-Event: läuft noch im SELBEN Tick (Drain B) und kann nicht
                im First-wins-Dedup des Tick-Schedulers hängen bleiben. */
-            this.world.enqueueBlockEvent(bx, by, bz);
+            this.world.updateBlockStateAt(bx, by, bz);
         }
     }
 

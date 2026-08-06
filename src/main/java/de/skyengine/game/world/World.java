@@ -133,17 +133,13 @@ public class World implements IInitializable, IDisposable {
        Wellen, normalerweise BIS die Queue leer ist (MCs ServerLevel.runBlockEvents) — eine
        Kaskade wird also im selben Durchgang fertig. Das ist der Unterschied zwischen „zwei gestapelte
        Kolben fahren gleichzeitig" und „der zweite hinkt einen Tick" (s. processBlockEvents).
-       LinkedHashMap = Dedup pro Position + FIFO + stabile Block-Bindung für den Save-Fallback.
-       Queue- und Tick-Deckel halten Extremmatrizen aus dem Render-/Tick-Thread heraus; Überlauf
-       wechselt in den persistenten Tick-Fallback. */
-    private static final int MAX_BLOCK_EVENT_WAVES = 64;
-    private static final int MAX_BLOCK_EVENTS = 4096;
-    private static final int MAX_BLOCK_EVENTS_PER_TICK = 4096;
+       LinkedHashSet = Vanillas vollständige Event-Deduplizierung + FIFO + stabile Block-Bindung.
+       Nicht tickende Chunks wandern mit vollständigen Eventdaten in Vanillas zweite Menge. */
     private static final int BLOCK_EVENT_TICK_PRIORITY = Integer.MAX_VALUE;
-    private final LinkedHashMap<Long, Identifier> blockEvents = new LinkedHashMap<>();
-    private long[] blockEventScratch = new long[0];
+    private final LinkedHashSet<BlockEvent> blockEvents = new LinkedHashSet<>();
+    /** Vanillas blockEventsToReschedule: außerhalb der Simulation unverändert bis zum Folgetick. */
+    private final LinkedHashSet<BlockEvent> blockEventsToReschedule = new LinkedHashSet<>();
     private long blockEventBudgetGameTime = Long.MIN_VALUE;
-    private int blockEventsProcessedThisTick;
     private long blockEventRevision;
 
     /** Der Spieler dieses Ticks (für BlockEntities, die ihn brauchen, z.B. das Zaubertisch-Buch). */
@@ -422,13 +418,21 @@ public class World implements IInitializable, IDisposable {
         int removedTicks = this.scheduledTicks.removeChunks(this.unloadedChunkKeys);
         this.simulationTelemetry.recordScheduledDroppedUnloaded(removedTicks);
         int eventsBefore = this.blockEvents.size();
-        this.blockEvents.entrySet().removeIf(event -> {
-            long pos = event.getKey();
+        this.blockEvents.removeIf(event -> {
+            long pos = event.position();
             return this.unloadedChunkKeys.containsKey(Chunk.key(
                     BlockPos.unpackX(pos) >> ChunkSection.SHIFT,
                     BlockPos.unpackZ(pos) >> ChunkSection.SHIFT));
         });
         if (this.blockEvents.size() != eventsBefore) this.blockEventRevision++;
+        int deferredEventsBefore = this.blockEventsToReschedule.size();
+        this.blockEventsToReschedule.removeIf(event -> {
+            long pos = event.position();
+            return this.unloadedChunkKeys.containsKey(Chunk.key(
+                    BlockPos.unpackX(pos) >> ChunkSection.SHIFT,
+                    BlockPos.unpackZ(pos) >> ChunkSection.SHIFT));
+        });
+        if (this.blockEventsToReschedule.size() != deferredEventsBefore) this.blockEventRevision++;
     }
 
     private void reconcilePendingOpenBoundaries(Chunk chunk, LongIntMap reconciledWires) {
@@ -499,9 +503,10 @@ public class World implements IInitializable, IDisposable {
 
     /**
      * Sammelt die anstehenden Scheduled-Ticks und wartenden Block-Events des Chunks für die
-     * Persistenz. Beide werden als Typ "block" wiederhergestellt und dispatchen tolerant über
-     * {@code Block.scheduledTick}; Block-Events liegen dabei nach normalen Ticks desselben
-     * Folgeticks. Nur Tick-Thread; einziger Aufrufer ist {@code WorldStorage.enqueueSave}.
+     * Persistenz. Normale Ticks verwenden den Typ {@code block}, Block-Events den Typ
+     * {@code block_event} mit Event-ID und Parameter. Block-Events liegen dabei nach normalen
+     * Ticks desselben Folgeticks. Nur Tick-Thread; einziger Aufrufer ist
+     * {@code WorldStorage.enqueueSave}.
      * {@code null}, wenn nichts ansteht.
      */
     public List<SavedTick> snapshotScheduledTicks(Chunk chunk) {
@@ -518,10 +523,17 @@ public class World implements IInitializable, IDisposable {
                 this.appendTickSnapshot(x, y, z, expectedBlock, remaining, priority, subOrder);
             });
             long blockEventOrder = 0;
-            for (Map.Entry<Long, Identifier> event : this.blockEvents.entrySet()) {
-                long pos = event.getKey();
-                this.appendTickSnapshot(BlockPos.unpackX(pos), BlockPos.unpackY(pos), BlockPos.unpackZ(pos),
-                        event.getValue(), 1, BLOCK_EVENT_TICK_PRIORITY, blockEventOrder++);
+            for (BlockEvent event : this.blockEvents) {
+                long pos = event.position();
+                this.appendBlockEventSnapshot(BlockPos.unpackX(pos), BlockPos.unpackY(pos),
+                        BlockPos.unpackZ(pos), event.block(), event.eventId(), event.eventParam(),
+                        blockEventOrder++);
+            }
+            for (BlockEvent event : this.blockEventsToReschedule) {
+                long pos = event.position();
+                this.appendBlockEventSnapshot(BlockPos.unpackX(pos), BlockPos.unpackY(pos),
+                        BlockPos.unpackZ(pos), event.block(), event.eventId(), event.eventParam(),
+                        blockEventOrder++);
             }
         }
         List<SavedTick> result = this.tickSnapshotIndex.get(Chunk.key(chunk.chunkX, chunk.chunkZ));
@@ -539,6 +551,19 @@ public class World implements IInitializable, IDisposable {
         }
         list.add(new SavedTick(ScheduledTickTypes.BLOCK, expectedBlock.toString(),
                 x, y, z, remaining, priority, subOrder));
+    }
+
+    private void appendBlockEventSnapshot(int x, int y, int z, Identifier expectedBlock,
+                                          int eventId, int eventParam, long order) {
+        long key = Chunk.key(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        List<SavedTick> list = this.tickSnapshotIndex.get(key);
+        if (list == null) {
+            list = new ArrayList<>();
+            this.tickSnapshotIndex.put(key, list);
+        }
+        list.add(new SavedTick(ScheduledTickTypes.BLOCK_EVENT, expectedBlock.toString(),
+                x, y, z, 1, BLOCK_EVENT_TICK_PRIORITY,
+                packBlockEventOrder(order, eventId, eventParam)));
     }
 
     /**
@@ -596,6 +621,10 @@ public class World implements IInitializable, IDisposable {
         this.scheduledTicks.clear();
         if (!this.blockEvents.isEmpty()) {
             this.blockEvents.clear();
+            this.blockEventRevision++;
+        }
+        if (!this.blockEventsToReschedule.isEmpty()) {
+            this.blockEventsToReschedule.clear();
             this.blockEventRevision++;
         }
         this.chunkReloadWaitingForSaves = this.storage.hasPendingSaves();
@@ -959,6 +988,30 @@ public class World implements IInitializable, IDisposable {
                 this.gameTime + Math.max(1, tick.remainingTicks()), tick.priority(), tick.subOrder());
         this.simulationTelemetry.recordScheduledRequest(accepted);
         this.markChunkModified(tick.x(), tick.z());
+    }
+
+    /** Stellt Event-ID und Parameter eines persistierten Vanilla-Blockevents wieder her. */
+    public void restoreBlockEvent(SavedTick tick) {
+        Identifier expectedBlock = tick.expectedBlock() == null
+                ? Blocks.getState(this.getBlock(tick.x(), tick.y(), tick.z())).getBlock().getIdentifier()
+                : Identifier.of(tick.expectedBlock());
+        BlockEvent event = new BlockEvent(BlockPos.asLong(tick.x(), tick.y(), tick.z()), expectedBlock,
+                unpackBlockEventId(tick.subOrder()), unpackBlockEventParam(tick.subOrder()));
+        if (!this.blockEvents.add(event)) return;
+        this.blockEventRevision++;
+        this.markChunkModified(tick.x(), tick.z());
+    }
+
+    private static long packBlockEventOrder(long order, int eventId, int eventParam) {
+        return (order << 32) | ((eventId & 0xffffL) << 16) | (eventParam & 0xffffL);
+    }
+
+    private static int unpackBlockEventId(long packed) {
+        return (short) (packed >>> 16);
+    }
+
+    private static int unpackBlockEventParam(long packed) {
+        return (short) packed;
     }
 
     /** Aktuelle Spielzeit in Ticks (20 TPS). */
@@ -1748,32 +1801,28 @@ public class World implements IInitializable, IDisposable {
      * Reiht ein Block-Event für dieselbe Tick-Runde ein (MCs Block-Event-Äquivalent, heute nur
      * Kolben): der Block dort bekommt beim nächsten Drain-Punkt {@code onBlockEvent} — im
      * SELBEN Game-Tick wie die auslösende Flanke, aber außerhalb der Nachbar-Update-Kaskade
-     * (der Ort für schwere Multi-Block-Aktionen). Dedupliziert pro Position; „tolerantes
-     * Feuern" wie beim Tick-Scheduler: der Empfänger validiert seinen State selbst. Wartende
-     * Events werden im Chunk-Snapshot an den Blocktyp beim Einreihen gebunden; bei ausgeschöpftem
-     * Queue-Deckel wechselt der Kolben-Recheck direkt auf den nächsten Tick.
+     * (der Ort für schwere Multi-Block-Aktionen). Dedupliziert wie Vanilla über Position,
+     * Blocktyp, Event-ID und Parameter; „tolerantes Feuern" wie beim Tick-Scheduler: der
+     * Empfänger validiert seinen State selbst. Wartende Events werden im Chunk-Snapshot an den
+     * Blocktyp beim Einreihen gebunden.
      */
     public void enqueueBlockEvent(int x, int y, int z) {
-        long position = BlockPos.asLong(x, y, z);
-        if (this.blockEvents.containsKey(position)) return;
-        if (this.blockEvents.size() >= MAX_BLOCK_EVENTS) {
-            /* Heute sind Block-Events ausschließlich Kolben-Rechecks; deren scheduledTick
-               delegiert an dieselbe evaluate-Logik und persistiert zusätzlich im Chunk-Save. */
-            this.simulationTelemetry.recordBlockEventBudgetHit();
-            this.scheduleTickEarlier(x, y, z, 1);
-            return;
-        }
+        this.enqueueBlockEvent(x, y, z, -1, 0);
+    }
+
+    /** Reiht ein Blockevent mit Vanillas Event-ID und Block-Parameter ein. */
+    public void enqueueBlockEvent(int x, int y, int z, int eventId, int eventParam) {
         Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
-        this.blockEvents.put(position, expectedBlock);
+        BlockEvent event = new BlockEvent(BlockPos.asLong(x, y, z), expectedBlock, eventId, eventParam);
+        if (!this.blockEvents.add(event)) return;
         this.blockEventRevision++;
         this.markChunkModified(x, z);
     }
 
     /**
-     * Drained Block-Events in Wellen, bis die Queue leer oder das gemeinsame Tick-Budget
-     * ausgeschöpft ist (MCs {@code runBlockEvents}). Der Snapshot je Welle schützt nur die
-     * Iteration; was während einer Welle dazukommt, läuft in der NÄCHSTEN Welle desselben
-     * Drain-Punkts. Der Budget-Rest bleibt FIFO-stabil bis zum nächsten Game-Tick liegen.
+     * Drained Block-Events bis die aktive Menge leer ist (MCs {@code runBlockEvents}). Events
+     * außerhalb tickender Chunks wandern unverändert in {@code blockEventsToReschedule} und
+     * werden erst im folgenden Game-Tick wieder aktiv.
      *
      * <p>Warum das wichtig ist: löst ein Kolben beim Ausfahren über seinen Nachbar-Ring einen
      * zweiten Kolben aus (2-hohe Kolbentür — der untere hängt an der Quasi-Konnektivität),
@@ -1781,67 +1830,42 @@ public class World implements IInitializable, IDisposable {
      * den Animationsschritt dieses Ticks und wird dauerhaft einen Tick später fertig — der
      * Versatz pflanzt sich über den Re-Check aus dem BE-finish in jeden Zyklus fort.
      *
-     * <p>Terminierung: die Empfänger validieren ihren Zustand selbst und tun nichts mehr, wenn
-     * er schon passt ({@code PistonBehavior.evaluate}), eine Kaskade läuft also aus. Der Deckel
-     * {@link #MAX_BLOCK_EVENT_WAVES} ist die Notbremse gegen einen unbekannten Zyklus;
-     * {@link #MAX_BLOCK_EVENTS_PER_TICK} begrenzt unabhängig davon die Gesamtarbeit beider
-     * Drain-Punkte. Der Rest bleibt liegen und läuft am nächsten zulässigen Drain.
-     *
-     * <p>Nicht simulierbare Positionen werden als geplanter Tick geparkt: der persistiert im
-     * Save und kommt nach dem Laden wieder.
+     * <p>Terminierung entspricht Vanilla: identische Events werden dedupliziert und Empfänger
+     * verwerfen veraltete Flanken anhand von Event-ID und aktuellem Signal.
      */
     private void processBlockEvents() {
         if (this.blockEventBudgetGameTime != this.gameTime) {
             this.blockEventBudgetGameTime = this.gameTime;
-            this.blockEventsProcessedThisTick = 0;
-        }
-        int remainingBudget = MAX_BLOCK_EVENTS_PER_TICK - this.blockEventsProcessedThisTick;
-        if (remainingBudget <= 0) {
-            if (!this.blockEvents.isEmpty()) this.simulationTelemetry.recordBlockEventBudgetHit();
-            return;
-        }
-
-        int welle = 0;
-        while (!this.blockEvents.isEmpty() && remainingBudget > 0) {
-            if (++welle > MAX_BLOCK_EVENT_WAVES) {
-                this.simulationTelemetry.recordBlockEventWaveLimitHit();
-                this.logger.warning("Block-Events terminieren nicht (" + MAX_BLOCK_EVENT_WAVES
-                        + " Wellen, " + this.blockEvents.size() + " offen) — Rest auf den naechsten Drain");
-                return;
+            if (!this.blockEventsToReschedule.isEmpty()) {
+                this.blockEvents.addAll(this.blockEventsToReschedule);
+                this.blockEventsToReschedule.clear();
+                this.blockEventRevision++;
             }
-
-            int n = Math.min(this.blockEvents.size(), remainingBudget);
-            this.simulationTelemetry.recordBlockEventWave(n);
-            if (this.blockEventScratch.length < n) this.blockEventScratch = new long[n * 2];
-            int i = 0;
-            Iterator<Map.Entry<Long, Identifier>> iterator = this.blockEvents.entrySet().iterator();
-            while (i < n && iterator.hasNext()) {
-                long pos = iterator.next().getKey();
-                this.blockEventScratch[i++] = pos;
-                iterator.remove();
-                this.markChunkModified(BlockPos.unpackX(pos), BlockPos.unpackZ(pos));
-            }
+        }
+        while (!this.blockEvents.isEmpty()) {
+            Iterator<BlockEvent> iterator = this.blockEvents.iterator();
+            BlockEvent event = iterator.next();
+            iterator.remove();
             this.blockEventRevision++;
-            this.blockEventsProcessedThisTick += n;
-            remainingBudget -= n;
-
-            for (int j = 0; j < n; j++) {
-                long pos = this.blockEventScratch[j];
-                int x = BlockPos.unpackX(pos), y = BlockPos.unpackY(pos), z = BlockPos.unpackZ(pos);
-                int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
-                Chunk chunk = this.chunkManager.getChunk(cx, cz);
-                if (chunk == null || chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
-                    this.scheduleTickEarlier(x, y, z, 1);
-                    continue;
-                }
-                BlockState state = Blocks.getState(this.getBlock(x, y, z));
-                state.getBlock().onBlockEvent(this, x, y, z, state);
+            this.simulationTelemetry.recordBlockEventWave(1);
+            long pos = event.position();
+            int x = BlockPos.unpackX(pos), y = BlockPos.unpackY(pos), z = BlockPos.unpackZ(pos);
+            this.markChunkModified(x, z);
+            int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+            Chunk chunk = this.chunkManager.getChunk(cx, cz);
+            if (chunk == null || chunk.status != ChunkStatus.READY || !this.isSimulated(cx, cz)) {
+                if (this.blockEventsToReschedule.add(event)) this.blockEventRevision++;
+                continue;
             }
-        }
-        if (!this.blockEvents.isEmpty() && remainingBudget == 0) {
-            this.simulationTelemetry.recordBlockEventBudgetHit();
+            BlockState state = Blocks.getState(this.getBlock(x, y, z));
+            if (state.getBlock().getIdentifier().equals(event.block())) {
+                state.getBlock().onBlockEvent(
+                        this, x, y, z, state, event.eventId(), event.eventParam());
+            }
         }
     }
+
+    private record BlockEvent(long position, Identifier block, int eventId, int eventParam) {}
 
     /** Merkt ein State-Update für den nächsten Tick vor (dedupliziert, FIFO). */
     private void enqueueDeferredStateUpdate(long pos, Chunk chunk) {

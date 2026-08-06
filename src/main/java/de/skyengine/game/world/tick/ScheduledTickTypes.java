@@ -7,10 +7,9 @@ import java.util.Map;
 
 /**
  * Registry der persistierbaren Tick-Typen: bildet die {@code tickTypeId} aus dem
- * Chunk-Payload auf die Wiederherstellungs-Logik ab. Heute existiert nur {@link #BLOCK}
- * (= Dispatch über {@code Block.scheduledTick} an der Position — dort laufen Fluide,
- * fallender Sand und verzögerte Block-Reaktionen). Künftige Systeme mit EIGENEM Dispatch
- * (BlockEntity-Ticks, Maschinen, Redstone) registrieren eigene IDs — das Save-Format
+ * Chunk-Payload auf die Wiederherstellungs-Logik ab. {@link #BLOCK} dispatcht über
+ * {@code Block.scheduledTick}; {@link #BLOCK_EVENT} stellt Vanillas typisierte Blockevent-Menge
+ * wieder her. Künftige Systeme mit EIGENEM Dispatch registrieren eigene IDs — das Save-Format
  * (payloadVersion 3) nimmt sie ohne Formatänderung auf.
  */
 public final class ScheduledTickTypes {
@@ -22,6 +21,7 @@ public final class ScheduledTickTypes {
     }
 
     public static final String BLOCK = "block";
+    public static final String BLOCK_EVENT = "block_event";
 
     private static final Map<String, ScheduledTickRestorer> TYPES = new HashMap<>();
 
@@ -29,6 +29,7 @@ public final class ScheduledTickTypes {
         /* Der Restorer erhält Zielidentität, Priorität und persistente Suborder. Liegt noch
            ein Live-Eintrag für denselben Block vor, gewinnt weiterhin der frühere Tick. */
         register(BLOCK, World::restoreScheduledBlockTick);
+        register(BLOCK_EVENT, World::restoreBlockEvent);
     }
 
     /** Registriert einen Tick-Typ. Doppelte IDs werfen — nichts darf fremde Typen still überschreiben. */

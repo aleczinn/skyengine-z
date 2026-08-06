@@ -49,6 +49,10 @@ import de.skyengine.game.world.redstone.RedstonePower;
  */
 public final class PistonBehavior implements BlockBehavior {
 
+    private static final int TRIGGER_EXTEND = 0;
+    private static final int TRIGGER_CONTRACT = 1;
+    private static final int TRIGGER_DROP = 2;
+
     @Override
     public boolean reconcileRedstoneOnChunkBoundary() {
         return true;
@@ -86,25 +90,39 @@ public final class PistonBehavior implements BlockBehavior {
         PistonMovingBlockEntity own = ownSourceMoving(world, x, y, z, f);
         boolean effectiveExtended = own != null ? own.isExtending() : state.get(Properties.EXTENDED);
         if (want != effectiveExtended) {
-            world.enqueueBlockEvent(x, y, z);
+            int eventId = want ? TRIGGER_EXTEND : this.retractionEvent(world, x, y, z, f);
+            world.enqueueBlockEvent(x, y, z, eventId, vanillaDirectionId(f));
         }
         return state;
     }
 
     @Override
-    public void onBlockEvent(World world, int x, int y, int z, BlockState state) {
-        this.evaluate(world, x, y, z, state);
+    public void onBlockEvent(World world, int x, int y, int z, BlockState state,
+                             int eventId, int eventParam) {
+        this.evaluate(world, x, y, z, state, eventId);
     }
 
     /** Fallback-Pfad (nicht simulierter Chunk, fremde Animation) — gleiche Logik wie das Event. */
     @Override
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
-        this.evaluate(world, x, y, z, state);
+        this.evaluate(world, x, y, z, state, -1);
     }
 
-    private void evaluate(World world, int x, int y, int z, BlockState state) {
+    private void evaluate(World world, int x, int y, int z, BlockState state, int eventId) {
         Direction f = state.get(Properties.FACING_ALL);
         boolean want = hasSignal(world, x, y, z, f);
+
+        /* Vanilla triggerEvent verwirft eine veraltete Ausfahr-Flanke ohne Signal. Eine
+           Einfahr-/Drop-Flanke bei erneutem Signal wird ebenfalls abgebrochen und hält die
+           Basis ausdrücklich auf extended=true. */
+        if (eventId == TRIGGER_EXTEND && !want) return;
+        if ((eventId == TRIGGER_CONTRACT || eventId == TRIGGER_DROP) && want) {
+            if (!state.get(Properties.EXTENDED)) {
+                world.setBlock(x, y, z, state.with(Properties.EXTENDED, true).getId(), false);
+            }
+            return;
+        }
+        boolean extend = eventId < 0 ? want : eventId == TRIGGER_EXTEND;
 
         /* Fast-Forward NUR bei echter Gegenflanke: die EIGENE laufende Bewegung sofort
            vollenden (nie abbrechen), dann frisch entscheiden. Läuft sie schon in die
@@ -114,16 +132,16 @@ public final class PistonBehavior implements BlockBehavior {
            zusätzlich die Fracht-BE direkt vor dem Kopf mit-vollenden: sonst sähe
            resolveRetract dort noch MOVING und der Rückzug ließe den Block stehen. */
         PistonMovingBlockEntity own = ownSourceMoving(world, x, y, z, f);
-        boolean dropCargo = false;
+        boolean dropCargo = eventId == TRIGGER_DROP;
         if (own != null) {
             boolean wasExtending = own.isExtending();
-            if (want == wasExtending) return;
+            if (extend == wasExtending) return;
             own.finishNow();
             if (this.sticky && wasExtending) {
                 int cx = x + 2 * f.offsetX(), cy = y + 2 * f.offsetY(), cz = z + 2 * f.offsetZ();
                 if (world.getBlockEntity(cx, cy, cz) instanceof PistonMovingBlockEntity cargo
                         && cargo.getFacing() == f && cargo.isExtending() && !cargo.isSource()) {
-                    dropCargo = isTooEarlyToPull(world, cargo);
+                    if (eventId < 0) dropCargo = isTooEarlyToPull(world, cargo);
                     cargo.finishNow();
                 }
             }
@@ -133,11 +151,36 @@ public final class PistonBehavior implements BlockBehavior {
         }
 
         boolean extended = state.get(Properties.EXTENDED);
-        if (want && !extended) {
+        if (extend && !extended) {
             this.extend(world, x, y, z, state, f);
-        } else if (!want && extended) {
+        } else if (!extend && extended) {
             this.retract(world, x, y, z, state, f, dropCargo);
         }
+    }
+
+    /** Vanillas checkIfExtend-Auswahl zwischen normalem Einfahren und TRIGGER_DROP. */
+    private int retractionEvent(World world, int x, int y, int z, Direction facing) {
+        int cx = x + 2 * facing.offsetX();
+        int cy = y + 2 * facing.offsetY();
+        int cz = z + 2 * facing.offsetZ();
+        if (world.getBlockEntity(cx, cy, cz) instanceof PistonMovingBlockEntity cargo
+                && cargo.getFacing() == facing && cargo.isExtending()
+                && isTooEarlyToPull(world, cargo)) {
+            return TRIGGER_DROP;
+        }
+        return TRIGGER_CONTRACT;
+    }
+
+    /** Direction#get3DDataValue: DOWN, UP, NORTH, SOUTH, WEST, EAST. */
+    private static int vanillaDirectionId(Direction direction) {
+        return switch (direction) {
+            case DOWN -> 0;
+            case UP -> 1;
+            case NORTH -> 2;
+            case SOUTH -> 3;
+            case WEST -> 4;
+            case EAST -> 5;
+        };
     }
 
     /**

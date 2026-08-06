@@ -114,9 +114,11 @@ public interface BlockBehavior {
     /**
      * Block-Event (s. {@code World.enqueueBlockEvent}): läuft im SELBEN Game-Tick wie die
      * auslösende Flanke, aber außerhalb der Nachbar-Update-Kaskade — der Ort für schwere
-     * Multi-Block-Aktionen (Kolben). Tolerantes Feuern wie beim Tick-Scheduler. Default: nichts.
+     * Multi-Block-Aktionen (Kolben). {@code eventId} bestimmt die Aktion, {@code eventParam}
+     * trägt blockspezifische Zusatzdaten. Tolerantes Feuern wie beim Tick-Scheduler. Default: nichts.
      */
-    default void onBlockEvent(World world, int x, int y, int z, BlockState state) {
+    default void onBlockEvent(World world, int x, int y, int z, BlockState state,
+                              int eventId, int eventParam) {
     }
 
     /* --- Redstone (Abfragen laufen über RedstonePower, nie direkt über die Hooks) --- */

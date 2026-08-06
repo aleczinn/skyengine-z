@@ -388,9 +388,10 @@ public class Block {
     }
 
     /** Block-Event-Dispatch (s. {@code World.enqueueBlockEvent}). Delegiert; Default: nichts. */
-    public void onBlockEvent(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+    public void onBlockEvent(de.skyengine.game.world.World world, int x, int y, int z, BlockState state,
+                             int eventId, int eventParam) {
         for (BlockBehavior behavior : this.config.behaviors()) {
-            behavior.onBlockEvent(world, x, y, z, state);
+            behavior.onBlockEvent(world, x, y, z, state, eventId, eventParam);
         }
     }
 
