@@ -1640,8 +1640,8 @@ public class World implements IInitializable, IDisposable {
      * ohne den zweiten Ring bliebe er stehen. Hebel/Knopf/Dioden bleiben bewusst schmaler,
      * auch das ist MC-getreu.
      *
-     * <p>Das Staub-Netz baut sich dieselbe Menge selbst zusammen, weil es über eine ganze
-     * Komponente hinweg deduplizieren muss (s. {@code RedstoneWireNetwork}).
+     * <p>Redstone-Staub verwendet diesen Sammelpfad nicht; dessen Vanilla-Evaluator erzeugt
+     * dieselbe Reichweite schrittweise über verschachtelte Nachbar-Updates.
      */
     public void updateNeighborsWide(int x, int y, int z) {
         this.forEachWide(x, y, z, this::updateStateAt);
@@ -1675,8 +1675,7 @@ public class World implements IInitializable, IDisposable {
     /**
      * Lässt genau EINE Zelle ihren State neu berechnen (schmaler Wrapper um
      * {@link #updateStateAt}) — für die gezielte Empfänger-Benachrichtigung des
-     * Staub-Netzes, das seine Betroffenen selbst dedupliziert statt ganze Ringe
-     * zu feuern.
+     * Staub-Evaluators und anderer gezielter Update-Pfade.
      */
     public void updateBlockStateAt(int x, int y, int z) {
         this.updateStateAt(x, y, z);

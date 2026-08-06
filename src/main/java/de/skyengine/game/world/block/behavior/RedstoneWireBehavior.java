@@ -8,9 +8,9 @@ import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.redstone.RedstoneWireNetwork;
 
 /**
- * Redstone-Staub: die Signal-Logik liegt komplett im {@link RedstoneWireNetwork} — dieses
- * Behavior ist nur der Weckruf (Muster FluidBehavior: onNeighborUpdate stößt an, schreibt
- * aber nicht selbst) plus die Power-Hooks für Nicht-Staub-Empfänger.
+ * Redstone-Staub: die Signal-Logik liegt im {@link RedstoneWireNetwork}. Jeder Weckruf berechnet
+ * wie Vanillas DefaultRedstoneWireEvaluator nur die betroffene Zelle; weitere Staubzellen folgen
+ * über die verschachtelte Nachbar-Update-Reihenfolge.
  *
  * <p>Signalabgabe (schwach UND stark, Vanilla): nach UNTEN immer, horizontal nur in
  * verbundene Richtungen, nach OBEN nie. „Stark" heißt: ein leitender Block, in den der Staub
@@ -28,7 +28,7 @@ public final class RedstoneWireBehavior implements BlockBehavior {
      * Frisch platzierter Staub ist ein KREUZ (Vanillas {@code crossState} in
      * {@code getStateForPlacement}) — ohne Nachbarn speist er damit alle vier Seiten. Der
      * Property-Default wäre sonst überall NONE, also der Punkt, und der speist horizontal nichts.
-     * Die Normalisierung im Netz baut die Form danach an die Nachbarschaft an.
+     * Der Evaluator baut die Form danach an die Nachbarschaft an.
      */
     @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
@@ -56,7 +56,7 @@ public final class RedstoneWireBehavior implements BlockBehavior {
             return false;
         }
         world.setBlock(x, y, z, umgeschaltet.getId(), false);
-        /* Das Netz schreibt die endgültige Form selbst und benachrichtigt die Empfänger — der
+        /* Der Evaluator schreibt Form und Signal und benachrichtigt die Empfänger — der
            Umschalter ändert ja, wen dieser Staub speist. */
         RedstoneWireNetwork.update(world, x, y, z);
         world.updateNeighbors(x, y, z);
@@ -65,7 +65,7 @@ public final class RedstoneWireBehavior implements BlockBehavior {
 
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
-        /* State unverändert zurück: das Netz schreibt selbst (auch die eigene Zelle) —
+        /* State unverändert zurück: der Evaluator schreibt selbst (auch die eigene Zelle) —
            so bleibt der Pull-Vertrag von updateStateAt formal erfüllt, kein Doppel-Write. */
         RedstoneWireNetwork.update(world, x, y, z);
         return state;

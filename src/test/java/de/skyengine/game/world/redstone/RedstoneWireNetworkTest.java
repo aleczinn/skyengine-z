@@ -34,13 +34,16 @@ final class RedstoneWireNetworkTest {
     }
 
     @Test
-    void solvesConnectedNetworksBeyondTheFormer1024CellLimit() {
+    void vanillaEvaluatorPropagatesAcrossMoreThan1024ConnectedCells() {
         TestWorld world = new TestWorld();
         BlockState wire = wireState();
 
         int size = 40;
         for (int z = 0; z < size; z++) {
-            for (int x = 0; x < size; x++) world.put(x, 64, z, wire.getId());
+            for (int x = 0; x < size; x++) {
+                world.put(x, 63, z, state("stone").getId());
+                world.put(x, 64, z, wire.getId());
+            }
         }
 
         RedstoneWireNetwork.update(world, 0, 64, 0);
@@ -61,6 +64,8 @@ final class RedstoneWireNetworkTest {
         TestWorld second = new TestWorld();
         BlockState wire = wireState();
         for (TestWorld world : new TestWorld[] {first, second}) {
+            world.put(0, 63, 0, state("stone").getId());
+            world.put(1, 63, 0, state("stone").getId());
             world.put(0, 64, 0, wire.getId());
             world.put(1, 64, 0, wire.getId());
         }
@@ -82,13 +87,6 @@ final class RedstoneWireNetworkTest {
             releaseFirstSolver.countDown();
             executor.shutdownNow();
         }
-    }
-
-    @Test
-    void notificationBuffersBoundOnlyTheirInitialReservation() {
-        assertEquals(16, RedstoneWireNetwork.notificationInitialCapacity(0));
-        assertEquals(4_096, RedstoneWireNetwork.notificationInitialCapacity(4_096));
-        assertEquals(16_384, RedstoneWireNetwork.notificationInitialCapacity(Integer.MAX_VALUE));
     }
 
     @Test
@@ -152,6 +150,8 @@ final class RedstoneWireNetworkTest {
     private static TestWorld steppedWireWorld(BlockState blockAboveLowerWire) {
         TestWorld world = new TestWorld();
         BlockState wire = wireState();
+        world.put(0, 63, 0, state("stone").getId());
+        world.put(1, 64, 0, state("stone").getId());
         world.put(-1, 64, 0, state("redstone_block").getId());
         world.put(0, 64, 0, wire.getId());
         world.put(0, 65, 0, blockAboveLowerWire.getId());
@@ -228,7 +228,10 @@ final class RedstoneWireNetworkTest {
 
         @Override
         public void updateBlockStateAt(int x, int y, int z) {
-            // Empfänger sind für diesen reinen Netz-Skalierungstest nicht relevant.
+            BlockState state = Blocks.getState(this.getBlock(x, y, z));
+            if (!state.isAir()) {
+                state.getBlock().getStateForNeighborUpdate(this, x, y, z, state);
+            }
         }
 
         private static LevelData level() {

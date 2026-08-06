@@ -44,6 +44,8 @@ final class WorldChunkRedstoneReconciliationTest {
         int wire = id("skyengine:redstone_wire[east=none,north=none,power=0,south=none,west=none]");
         west.setBlock(ChunkSection.MASK, 64, 8, wire);
         east.setBlock(0, 64, 8, wire);
+        west.setBlock(ChunkSection.MASK, 63, 8, id("skyengine:stone"));
+        east.setBlock(0, 63, 8, id("skyengine:stone"));
         east.setBlock(1, 64, 8, id("skyengine:redstone_block"));
 
         /* Der Hebel speist den Stein an der Kante stark; die Lampe liegt eine weitere Zelle
@@ -98,6 +100,7 @@ final class WorldChunkRedstoneReconciliationTest {
             for (int x = 0; x < width; x++) {
                 Chunk chunk = x < ChunkSection.SIZE ? west : east;
                 chunk.setBlock(x & ChunkSection.MASK, 64, z, wire);
+                chunk.setBlock(x & ChunkSection.MASK, 63, z, id("skyengine:stone"));
             }
             /* Eine Quellenlinie an der Naht speist auch die acht Spalten im Ostchunk. */
             west.setBlock(ChunkSection.MASK, 63, z, redstoneBlock);
