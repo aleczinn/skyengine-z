@@ -193,6 +193,32 @@ final class WorldScheduledTickPersistenceTest {
         }
     }
 
+    @Test
+    void oneWorldTickExecutesMoreThanOldFourThousandNinetySixLimit() throws Exception {
+        TestWorld world = new TestWorld();
+        List<Chunk> chunks = new ArrayList<>();
+        int scheduled = 0;
+        for (int chunkX = 0; chunkX < 5; chunkX++) {
+            Chunk chunk = new Chunk(chunkX, 0);
+            chunk.status = ChunkStatus.READY;
+            world.install(chunk);
+            chunks.add(chunk);
+            for (int z = 0; z < 32 && scheduled < 5_000; z++) {
+                for (int localX = 0; localX < 32 && scheduled < 5_000; localX++) {
+                    chunk.setBlock(localX, 64, z, Blocks.PISTON);
+                    world.scheduleTick((chunkX << 5) + localX, 64, z, 1);
+                    scheduled++;
+                }
+            }
+        }
+
+        world.advanceGameTime();
+        world.tickScheduled();
+
+        assertEquals(5_000, scheduled);
+        for (Chunk chunk : chunks) assertNull(world.snapshotScheduledTicks(chunk));
+    }
+
     private static Chunk readyPistonChunk() {
         Chunk chunk = new Chunk(0, 0);
         chunk.status = ChunkStatus.READY;

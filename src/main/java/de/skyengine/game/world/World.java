@@ -177,7 +177,8 @@ public class World implements IInitializable, IDisposable {
     /** Verzögerung, mit der geplante Ticks außerhalb der Simulations-Distanz erneut vorgemerkt werden. */
     private static final int OUT_OF_SIM_RESCHEDULE = 20;
     /** Notfallbudget gegen einen einzelnen Tick mit massenhaft gleichzeitig fälligen Block-Ticks. */
-    private static final int MAX_SCHEDULED_TICKS_PER_TICK = 4096;
+    /** ServerLevel.MAX_SCHEDULED_TICKS_PER_TICK in Vanilla 26.2. */
+    private static final int MAX_SCHEDULED_TICKS_PER_TICK = 65_536;
 
     /** Nur Chunks in diesem Radius (in Chunks) um den Spieler ticken (Random/Scheduled/Entities). */
     private int simulationDistance = 10;
