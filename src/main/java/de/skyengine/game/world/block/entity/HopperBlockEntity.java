@@ -22,9 +22,8 @@ import java.util.Optional;
  * dann weder Push noch Pull noch Einsaugen. Der Cooldown zählt trotzdem weiter, damit ein
  * kurzer Puls den Takt nicht verschiebt.
  *
- * <p>Nach jedem Transfer: {@code markDirty} + {@code World.updateComparatorOutputs} für
- * Quelle UND Ziel — Container-Mutationen erzeugen keine Nachbar-Updates, das ist der
- * einzige Weg, auf dem ein messender Komparator davon erfährt.
+ * <p>Inventarmutationen markieren die beteiligten BlockEntities und informieren dadurch
+ * messende Komparatoren unmittelbar.
  */
 public final class HopperBlockEntity extends BlockEntity {
 
@@ -32,7 +31,7 @@ public final class HopperBlockEntity extends BlockEntity {
     /** Vanillas Hopper.SUCK_AABB: volle Breite, von 11/16 im Hopper bis zwei Blöcke hoch. */
     private static final double SUCTION_MIN_Y = 11.0 / 16.0;
 
-    private final SimpleItemStorage inventory = new SimpleItemStorage(SLOTS);
+    private final SimpleItemStorage inventory;
     /** Rest-Ticks bis zum nächsten Transferversuch (persistiert — der Takt überlebt Save/Load). */
     private int cooldown;
     /** Letzter eigener BE-Tick; Vanillas Phasenausgleich für Hopperketten. Nicht persistiert. */
@@ -40,6 +39,7 @@ public final class HopperBlockEntity extends BlockEntity {
 
     public HopperBlockEntity(BlockEntityType<?> type, BlockPos pos) {
         super(type, pos);
+        this.inventory = new SimpleItemStorage(SLOTS, this::setChanged);
     }
 
     public ItemStorage getInventory() {
@@ -70,7 +70,7 @@ public final class HopperBlockEntity extends BlockEntity {
         boolean pulled = this.pullIn(amount);
         if (pushed || pulled) {
             this.cooldown = state.getBlock().getHopperCooldown();
-            this.markDirty();
+            this.setChanged();
         }
     }
 
@@ -94,12 +94,10 @@ public final class HopperBlockEntity extends BlockEntity {
                 continue;
             }
             if (!leftover.isEmpty()) this.restore(i, leftover);
-            targetEntity.setChanged();
+            target.setChanged();
             if (targetWasEmpty && targetEntity instanceof HopperBlockEntity targetHopper) {
                 targetHopper.receiveCooldownFrom(this);
             }
-            this.world.updateComparatorOutputs(this.pos.x(), this.pos.y(), this.pos.z());
-            this.world.updateComparatorOutputs(tx, ty, tz);
             return true;
         }
         return false;
@@ -120,9 +118,7 @@ public final class HopperBlockEntity extends BlockEntity {
                     continue;
                 }
                 if (!leftover.isEmpty()) restoreInto(source, i, leftover);
-                sourceEntity.setChanged();
-                this.world.updateComparatorOutputs(x, y + 1, z);
-                this.world.updateComparatorOutputs(x, y, z);
+                source.setChanged();
                 return true;
             }
             return false;
@@ -159,7 +155,6 @@ public final class HopperBlockEntity extends BlockEntity {
             }
             if (remaining.getCount() < before) {
                 moved[0] = true;
-                this.world.updateComparatorOutputs(x, y, z);
             }
         });
         return moved[0];

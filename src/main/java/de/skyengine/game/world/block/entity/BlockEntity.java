@@ -59,6 +59,9 @@ public abstract class BlockEntity {
     /** Markiert persistente Inventar-/Maschinendaten als geändert. */
     public final void setChanged() {
         this.markDirty();
+        if (this.world != null) {
+            this.world.updateComparatorOutputs(this.pos.x(), this.pos.y(), this.pos.z());
+        }
     }
 
     /** Liefert eine Fähigkeit für eine Seite (oder null), falls vorhanden. Default: leer. */

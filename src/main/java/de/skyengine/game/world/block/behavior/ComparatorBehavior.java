@@ -31,9 +31,8 @@ import de.skyengine.game.world.tick.TickPriority;
  *
  * POWERED im State steuert nur die Optik; die Ausgangsstärke liegt wie in Vanilla persistent
  * in der {@link ComparatorBlockEntity}. Änderungen takten mit 1 Redstone-Tick (2 Game-Ticks).
- * Container-Mutationen erzeugen keine Nachbar-Updates — Hopper und Container-GUIs stoßen
- * {@code World.updateComparatorOutputs} an (Live-Updates bei offenem GUI erst beim
- * Schließen, dokumentierte Vereinfachung).
+ * Container-Mutationen stoßen wie in Vanilla unmittelbar
+ * {@code World.updateComparatorOutputs} an.
  */
 public final class ComparatorBehavior implements BlockBehavior {
 
@@ -187,13 +186,15 @@ public final class ComparatorBehavior implements BlockBehavior {
         if (be == null) return -1;
         ItemStorage storage = be.getCapability(Capabilities.ITEM_STORAGE, null).orElse(null);
         if (storage == null) return -1;
+
         float fullness = 0f;
         boolean any = false;
         for (int i = 0; i < storage.size(); i++) {
             ItemStack stack = storage.get(i);
-            if (stack.isEmpty()) continue;
-            any = true;
-            fullness += (float) stack.getCount() / stack.getMaxStackSize();
+            if (!stack.isEmpty()) {
+                any = true;
+                fullness += (float) stack.getCount() / stack.getMaxStackSize();
+            }
         }
         if (!any) return 0;
         return (int) Math.floor(1 + 14f * (fullness / storage.size()));

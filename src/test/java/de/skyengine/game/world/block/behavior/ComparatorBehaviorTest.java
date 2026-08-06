@@ -9,12 +9,16 @@ import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.PistonReaction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.ComparatorMode;
+import de.skyengine.game.world.block.state.ChestType;
 import de.skyengine.game.world.block.state.BlockStateCodec;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.entity.BlockEntities;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.ComparatorBlockEntity;
+import de.skyengine.game.world.block.entity.ChestBlockEntity;
 import de.skyengine.game.world.block.entity.DataTag;
+import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.game.world.tick.TickPriority;
 import de.skyengine.test.BlocksTestBootstrap;
@@ -23,7 +27,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -175,6 +181,66 @@ final class ComparatorBehaviorTest {
         assertEquals(PistonReaction.DESTROY, state("comparator").getBlock().getPistonReaction());
     }
 
+    @Test
+    void doubleChestUsesAllFiftyFourSlotsForAnalogSignal() {
+        TestWorld world = new TestWorld();
+        BlockState comparator = state("comparator")
+                .with(Properties.FACING, Direction.EAST)
+                .with(Properties.MODE, ComparatorMode.COMPARE)
+                .with(Properties.POWERED, false);
+        BlockState firstState = state("chest")
+                .with(Properties.FACING, Direction.EAST)
+                .with(Properties.CHEST_TYPE, ChestType.LEFT);
+        Direction connected = ChestType.connectedDirection(Direction.EAST, ChestType.LEFT);
+        BlockState secondState = firstState.with(Properties.CHEST_TYPE,
+                ChestType.RIGHT);
+        world.put(-1, 64, 0, firstState);
+        world.put(-1 + connected.offsetX(), 64, connected.offsetZ(), secondState);
+        ChestBlockEntity first = (ChestBlockEntity) world.getBlockEntity(-1, 64, 0);
+        for (int slot = 0; slot < ChestBlockEntity.SLOTS; slot++) {
+            first.getInventory().set(slot, new ItemStack(
+                    Items.get(Identifier.of("skyengine:stone")), 64));
+        }
+
+        assertEquals(8, ComparatorBehavior.computeOutput(world, 0, 64, 0, comparator));
+    }
+
+    @Test
+    void chestInventoryChangeImmediatelyUpdatesComparatorOutputs() {
+        TestWorld world = new TestWorld();
+        world.put(0, 64, 0, state("chest"));
+        ChestBlockEntity chest = (ChestBlockEntity) world.getBlockEntity(0, 64, 0);
+        world.comparatorOutputUpdates = 0;
+
+        chest.getInventory().set(0, new ItemStack(
+                Items.get(Identifier.of("skyengine:stone")), 1));
+
+        assertEquals(1, world.comparatorOutputUpdates);
+    }
+
+    @Test
+    void compoundChestStorageExposesFiftyFourSlotsAndMarksBothHalves() {
+        TestWorld world = new TestWorld();
+        BlockState left = state("chest")
+                .with(Properties.FACING, Direction.EAST)
+                .with(Properties.CHEST_TYPE, ChestType.LEFT);
+        Direction connected = ChestType.connectedDirection(Direction.EAST, ChestType.LEFT);
+        BlockState right = left.with(Properties.CHEST_TYPE, ChestType.RIGHT);
+        world.put(0, 64, 0, left);
+        world.put(connected.offsetX(), 64, connected.offsetZ(), right);
+        ChestBlockEntity chest = (ChestBlockEntity) world.getBlockEntity(0, 64, 0);
+        var combined = chest.getCombinedInventory();
+        world.comparatorUpdatePositions.clear();
+
+        combined.set(0, new ItemStack(Items.get(Identifier.of("skyengine:stone")), 1));
+        combined.setChanged();
+
+        assertEquals(54, combined.size());
+        assertTrue(world.comparatorUpdatePositions.contains(BlockPos.asLong(0, 64, 0)));
+        assertTrue(world.comparatorUpdatePositions.contains(BlockPos.asLong(
+                connected.offsetX(), 64, connected.offsetZ())));
+    }
+
     private static BlockState state(String path) {
         var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
@@ -187,6 +253,8 @@ final class ComparatorBehaviorTest {
         private int itemFrameSignal = -1;
         private TickPriority scheduledPriority;
         private int neighborUpdates;
+        private int comparatorOutputUpdates;
+        private final Set<Long> comparatorUpdatePositions = new HashSet<>();
 
         TestWorld() {
             super("__comparator_test", level(), null, null);
@@ -195,10 +263,9 @@ final class ComparatorBehaviorTest {
         void put(int x, int y, int z, BlockState state) {
             long position = BlockPos.asLong(x, y, z);
             this.blocks.put(position, state.getId());
-            if (state.getBlock().getBlockEntityType() == BlockEntities.COMPARATOR
-                    && !this.blockEntities.containsKey(position)) {
-                ComparatorBlockEntity blockEntity = new ComparatorBlockEntity(
-                        BlockEntities.COMPARATOR, new BlockPos(x, y, z));
+            var type = state.getBlock().getBlockEntityType();
+            if (type != null && !this.blockEntities.containsKey(position)) {
+                BlockEntity blockEntity = type.create(new BlockPos(x, y, z), state);
                 blockEntity.setWorld(this);
                 this.blockEntities.put(position, blockEntity);
             }
@@ -234,6 +301,15 @@ final class ComparatorBehaviorTest {
         public void updateNeighbors(int x, int y, int z) {
             this.neighborUpdates++;
         }
+
+        @Override
+        public void updateComparatorOutputs(int x, int y, int z) {
+            this.comparatorOutputUpdates++;
+            this.comparatorUpdatePositions.add(BlockPos.asLong(x, y, z));
+        }
+
+        @Override
+        public void markChunkModified(int x, int z) {}
 
         private static LevelData level() {
             LevelData level = new LevelData();

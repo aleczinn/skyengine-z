@@ -1474,10 +1474,6 @@ public class GameContainer implements IResizeable, IDisposable {
         ChestBlockEntity bottom = top == chest ? partner : chest;
         this.guiManager.open(new GuiChest(top, bottom, this.playerInventory));
 
-        /* Persistenz: das GUI mutiert das Truhen-Inventar direkt (kein World-Hook) —
-           Über-Approximation "geöffnet = potenziell geändert" kostet einen Chunk-Write. */
-        this.world.markChunkModified(x, z);
-        if (partner != null) this.world.markChunkModified(partnerX, partnerZ);
         return true;
     }
 
@@ -1487,8 +1483,6 @@ public class GameContainer implements IResizeable, IDisposable {
         BlockEntity be = this.world.getBlockEntity(x, y, z);
         if (!(be instanceof de.skyengine.game.world.block.entity.HopperBlockEntity hopper)) return false;
         this.guiManager.open(new de.skyengine.graphics.gui.screens.GuiHopper(hopper, this.playerInventory));
-        /* Persistenz wie bei der Truhe: geöffnet = potenziell geändert. */
-        this.world.markChunkModified(x, z);
         return true;
     }
 
