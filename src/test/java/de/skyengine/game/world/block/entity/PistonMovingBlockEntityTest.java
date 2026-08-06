@@ -74,6 +74,36 @@ final class PistonMovingBlockEntityTest {
         assertEquals(0.6, entity.x, 1.0E-9);
     }
 
+    @Test
+    void dynamicCollisionKeepsMovingSlabAtHalfHeight() {
+        TestWorld world = new TestWorld();
+        PistonMovingBlockEntity moving = world.moving(state("stone_slab"), Direction.EAST);
+        List<AABB> boxes = new ArrayList<>();
+
+        moving.appendCollisionBoxes(boxes);
+
+        assertTrue(!boxes.isEmpty());
+        assertTrue(boxes.stream().allMatch(box -> box.maxY <= 64.5));
+    }
+
+    @Test
+    void retractSourceCollisionContainsBaseAndMovingHead() {
+        TestWorld world = new TestWorld();
+        PistonMovingBlockEntity moving = new PistonMovingBlockEntity(
+                BlockEntities.PISTON_MOVING, new BlockPos(0, 64, 0));
+        moving.setWorld(world);
+        moving.configure(state("piston")
+                        .with(de.skyengine.game.world.block.state.Properties.FACING_ALL, Direction.EAST)
+                        .with(de.skyengine.game.world.block.state.Properties.EXTENDED, false).getId(),
+                Direction.EAST, false, true, false);
+        List<AABB> boxes = new ArrayList<>();
+
+        moving.appendCollisionBoxes(boxes);
+
+        assertTrue(boxes.stream().anyMatch(box -> box.minX < 1.0), "Basisform fehlt");
+        assertTrue(boxes.stream().anyMatch(box -> box.maxX > 1.0), "bewegter Kopf fehlt");
+    }
+
     private static BlockState state(String path) {
         var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);

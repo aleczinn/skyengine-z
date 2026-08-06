@@ -18,6 +18,7 @@ import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.BlockEntityType;
+import de.skyengine.game.world.block.entity.PistonMovingBlockEntity;
 import de.skyengine.game.world.block.behavior.WorldScopedPositionMap;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
@@ -2053,6 +2054,19 @@ public class World implements IInitializable, IDisposable {
                     if (shape.isEmpty()) continue;
                     for (AABB local : shape.boxes()) {
                         boxes.add(local.copy().move(x, y, z));
+                    }
+                }
+            }
+        }
+        /* Moving-Piston-Formen können bis zu eine Zelle aus ihrer technischen BE-Zelle
+           hinausragen. Deshalb separat mit Ein-Zellen-Rand suchen; die Blockform selbst ist
+           leer und kann im normalen Lauf nicht doppelt auftauchen. */
+        for (int x = x0 - 1; x <= x1 + 1; x++) {
+            for (int z = z0 - 1; z <= z1 + 1; z++) {
+                for (int y = y0 - 1; y <= y1 + 1; y++) {
+                    if (this.getBlock(x, y, z) != Blocks.MOVING_PISTON) continue;
+                    if (this.getBlockEntity(x, y, z) instanceof PistonMovingBlockEntity moving) {
+                        moving.appendCollisionBoxes(boxes);
                     }
                 }
             }

@@ -27,12 +27,10 @@ import de.skyengine.game.world.redstone.RedstonePower;
  * gezielte Nachbar-Ringe. Die BEs materialisieren nach 2 Ticks selbst
  * ({@link PistonMovingBlockEntity}).
  *
- * <p><b>Ablauf Retract:</b> die Source-BE sitzt an der KOPF-Zelle (transportiert den
- * Pull-Block des klebrigen Kolbens oder Luft; der zurückgleitende Arm ist reine
- * Renderer-Optik). Die Basis bleibt während der Animation ein echter
- * {@code piston[extended=true]}-Block im Chunk-Mesh — als BE-gerenderter Würfel (flaches
- * Zell-Licht ohne AO/Smooth-Lighting) blitzte sie sichtbar auf — und wird erst vom
- * finish der BE eingefahren.
+ * <p><b>Ablauf Retract:</b> die Source-BE sitzt wie in Vanilla in der BASIS-Zelle und
+ * transportiert den eingefahrenen Kolben-State. Eine getrennte Moving-BE zieht gegebenenfalls
+ * die Fracht in die Kopfzelle; der Renderer ergänzt Kopf und ausgefahrene Basis während der
+ * Animation aus dem Source-State.
  *
  * <p><b>Flicker-Regel:</b> laufende Bewegungen werden nie ABGEBROCHEN — die eigene laufende
  * Bewegung wird bei einer Gegenflanke aber sofort VOLLENDET (Fast-Forward, MCs
@@ -103,16 +101,17 @@ public final class PistonBehavior implements BlockBehavior {
     @Override
     public void onBlockEvent(World world, int x, int y, int z, BlockState state,
                              int eventId, int eventParam) {
-        this.evaluate(world, x, y, z, state, eventId);
+        this.evaluate(world, x, y, z, state, eventId, eventParam);
     }
 
     /** Fallback-Pfad (nicht simulierter Chunk, fremde Animation) — gleiche Logik wie das Event. */
     @Override
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
-        this.evaluate(world, x, y, z, state, -1);
+        this.evaluate(world, x, y, z, state, -1, vanillaDirectionId(state.get(Properties.FACING_ALL)));
     }
 
-    private void evaluate(World world, int x, int y, int z, BlockState state, int eventId) {
+    private void evaluate(World world, int x, int y, int z, BlockState state,
+                          int eventId, int eventParam) {
         Direction f = state.get(Properties.FACING_ALL);
         boolean want = hasSignal(world, x, y, z, f);
 
@@ -158,7 +157,7 @@ public final class PistonBehavior implements BlockBehavior {
         if (extend && !extended) {
             this.extend(world, x, y, z, state, f);
         } else if (!extend && extended) {
-            this.retract(world, x, y, z, state, f, dropCargo);
+            this.retract(world, x, y, z, state, f, dropCargo, vanillaDirectionFromId(eventParam));
         }
     }
 
@@ -187,6 +186,18 @@ public final class PistonBehavior implements BlockBehavior {
         };
     }
 
+    /** Direction#from3DDataValue für den von Vanilla im Blockevent gespeicherten Basis-State. */
+    private static Direction vanillaDirectionFromId(int id) {
+        return switch (Math.floorMod(id, 6)) {
+            case 0 -> Direction.DOWN;
+            case 1 -> Direction.UP;
+            case 2 -> Direction.NORTH;
+            case 3 -> Direction.SOUTH;
+            case 4 -> Direction.WEST;
+            default -> Direction.EAST;
+        };
+    }
+
     /**
      * MCs Drop-Regel: kam die Gegenflanke früh genug, lässt ein klebriger Kolben die Fracht
      * LIEGEN statt sie zurückzuziehen. Das ist der bekannte Block-Dropper aus kurzen Pulsen
@@ -206,7 +217,7 @@ public final class PistonBehavior implements BlockBehavior {
                 || world.isHandlingTick();
     }
 
-    /** Die eigene Source-Moving-BE an der Kopf-Zelle (Extend wie Retract sitzen dort), sonst null. */
+    /** Die eigene laufende Extend-Source an der Kopfzelle; Retract ersetzt bereits die Basis. */
     private static PistonMovingBlockEntity ownSourceMoving(World world, int x, int y, int z, Direction f) {
         int hx = x + f.offsetX(), hy = y + f.offsetY(), hz = z + f.offsetZ();
         BlockState head = Blocks.getState(world.getBlock(hx, hy, hz));
@@ -282,7 +293,7 @@ public final class PistonBehavior implements BlockBehavior {
     }
 
     private void retract(World world, int x, int y, int z, BlockState state, Direction f,
-                         boolean dropCargo) {
+                         boolean dropCargo, Direction storedFacing) {
         int hx = x + f.offsetX(), hy = y + f.offsetY(), hz = z + f.offsetZ();
         BlockState head = Blocks.getState(world.getBlock(hx, hy, hz));
         if (head.getBlock().getBlockEntityType() == BlockEntities.PISTON_MOVING) {
@@ -302,18 +313,16 @@ public final class PistonBehavior implements BlockBehavior {
             world.getSoundManager().playPistonContract(x + 0.5, y + 0.5, z + 0.5);
         }
 
-        /* Die Source-BE sitzt an der KOPF-Zelle; die Basis bleibt während der Animation ein
-           echter piston[extended=true]-Block. Bewusst so: als BE-gerenderter Würfel (flaches
-           Zell-Licht, kein AO/Smooth-Lighting) blitzte die Basis beim Einfahren sichtbar
-           auf — im Chunk-Mesh bleibt sie durchgehend korrekt beleuchtet. Erst das finish
-           der BE fährt sie ein.
+        /* Vanilla ersetzt die BASIS sofort durch den Source-moving_piston. Dessen movedState
+           ist der eingefahrene Piston mit dem Facing aus dem Blockevent-Parameter; Renderer
+           und dynamische Kollisionsform ergänzen währenddessen Basis und gleitenden Kopf.
 
            Klebriger Kolben: die GANZE angeklebte Struktur (MC-Resolver) wandert Richtung
            Piston — blockiert/leer heißt nur „nichts ziehen", der Arm fährt trotzdem ein.
            Dasselbe gilt bei dropCargo (zu kurzer Puls, s. isTooEarlyToPull): der Rückzug
            läuft ganz normal, nur eben ohne Fracht.
-           Der Block direkt vor dem Kopf reist in der Source-BE (sein Ziel IST die
-           Kopf-Zelle), der Rest als normale Moving-BEs; Snapshot wie beim Ausfahren. */
+           Sämtliche Fracht reist in eigenen Moving-BEs; die Source-BE transportiert nur die
+           Kolbenbasis. Snapshot wie beim Ausfahren. */
         PistonResolver.Result pull = this.sticky && !dropCargo
                 ? PistonResolver.resolveRetract(world, x, y, z, f)
                 : null;
@@ -324,21 +333,17 @@ public final class PistonBehavior implements BlockBehavior {
                     BlockPos.unpackY(moves[i]), BlockPos.unpackZ(moves[i]));
         }
 
+        long basePos = BlockPos.asLong(x, y, z);
         long headPos = BlockPos.asLong(hx, hy, hz);
-        long frontPos = BlockPos.asLong(hx + f.offsetX(), hy + f.offsetY(), hz + f.offsetZ());
-        int sourceMoved = Blocks.AIR;
-        for (int i = 0; i < moves.length; i++) {
-            if (moves[i] == frontPos) sourceMoved = movedIds[i];
-        }
-        spawnMoving(world, hx, hy, hz, sourceMoved, f, false, true, this.sticky);
-
+        BlockState retractedBase = state.with(Properties.FACING_ALL, storedFacing)
+                .with(Properties.EXTENDED, false);
+        spawnMoving(world, x, y, z, retractedBase.getId(), f, false, true, this.sticky);
         java.util.HashSet<Long> targets = new java.util.HashSet<>();
         java.util.LinkedHashSet<Long> notify = new java.util.LinkedHashSet<>();
-        targets.add(headPos);
-        notify.add(headPos);
+        targets.add(basePos);
+        notify.add(basePos);
         Direction toPiston = f.opposite();
         for (int i = 0; i < moves.length; i++) {
-            if (moves[i] == frontPos) continue;   // reist in der Source-BE
             int tx = BlockPos.unpackX(moves[i]) + toPiston.offsetX();
             int ty = BlockPos.unpackY(moves[i]) + toPiston.offsetY();
             int tz = BlockPos.unpackZ(moves[i]) + toPiston.offsetZ();
@@ -347,19 +352,16 @@ public final class PistonBehavior implements BlockBehavior {
             targets.add(t);
             notify.add(t);
         }
+        if (!targets.contains(headPos)) {
+            world.setBlock(hx, hy, hz, Blocks.AIR, false);
+            notify.add(headPos);
+        }
         for (long src : moves) {
             if (targets.contains(src)) continue;
             world.setBlock(BlockPos.unpackX(src), BlockPos.unpackY(src), BlockPos.unpackZ(src),
                     Blocks.AIR, false);
             notify.add(src);
         }
-        /* Die BASIS-Zelle gehört mit in den Ring — wie beim Ausfahren (s. dort). Sie ändert
-           beim Einfahren zwar erst im finish ihren State, aber die Nachbarn müssen JETZT
-           erfahren, dass hier etwas passiert: in einer Kolbentür hängt der untere Kolben über
-           Quasi-Konnektivität an der Zelle des oberen und bekäme sonst gar keinen Weckruf —
-           er fuhr dadurch zwei Ticks später ein als der obere. MC benachrichtigt an dieser
-           Stelle ebenfalls (die Basis wird dort sogar selbst zum moving_piston). */
-        notify.add(BlockPos.asLong(x, y, z));
         for (long pos : notify) {
             world.updateNeighbors(BlockPos.unpackX(pos), BlockPos.unpackY(pos), BlockPos.unpackZ(pos));
         }

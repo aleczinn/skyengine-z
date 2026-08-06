@@ -7,6 +7,10 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.BlockStateCodec;
+import de.skyengine.game.world.block.state.PistonType;
+import de.skyengine.game.world.block.state.Properties;
+
+import java.util.List;
 
 /**
  * Der bewegte Block eines Kolben-Schubs (MCs Block 36): hält den transportierten State und
@@ -17,10 +21,9 @@ import de.skyengine.game.world.block.state.BlockStateCodec;
  * ihr erstes tick()) wird von MCs Struktur „finalisieren erst, wenn lastProgress bereits 1
  * war" absorbiert — es bleiben exakt 2 sichtbare Animations-Ticks.
  *
- * <p>{@code isSource} markiert die Arm-BE des auslösenden Kolbens (sitzt einheitlich an der
- * KOPF-Zelle) — nur sie reiht nach der Materialisierung den Re-Check als Block-Event auf die
- * Basis ein (Flicker-Regel: laufende Bewegungen werden nie abgebrochen — bei einer
- * Gegenflanke aber per {@link #finishNow} sofort vollendet, danach wird frisch entschieden).
+ * <p>{@code isSource} markiert die Arm-BE des auslösenden Kolbens: beim Ausfahren sitzt sie
+ * in der Kopfzelle, beim Einfahren wie in Vanilla in der Basiszelle. Nur sie reiht nach der
+ * Materialisierung den Re-Check als Block-Event auf die Basis ein.
  */
 public final class PistonMovingBlockEntity extends BlockEntity {
 
@@ -99,6 +102,43 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         return this.lastProgress + (this.progress - this.lastProgress) * partialTick;
     }
 
+    /**
+     * Fügt Vanillas dynamische Moving-Piston-Kollisionsform in Weltkoordinaten an.
+     * Die technische Blockzelle selbst besitzt absichtlich keine statische Kollisionsform.
+     */
+    public void appendCollisionBoxes(List<AABB> result) {
+        double extended = this.extending ? this.progress - 1.0 : 1.0 - this.progress;
+        if (this.isSource && !this.extending) {
+            BlockState extendedBase = Blocks.getState(this.movedStateId).with(Properties.EXTENDED, true);
+            appendStateBoxes(result, extendedBase, this.pos.x(), this.pos.y(), this.pos.z());
+            BlockState head = Blocks.getState(Blocks.PISTON_HEAD)
+                    .with(Properties.FACING_ALL, this.facing)
+                    .with(Properties.PISTON_TYPE, this.sticky ? PistonType.STICKY : PistonType.NORMAL)
+                    .with(Properties.SHORT, this.progress >= 0.5f);
+            appendStateBoxes(result, head,
+                    this.pos.x() + this.facing.offsetX() * extended,
+                    this.pos.y() + this.facing.offsetY() * extended,
+                    this.pos.z() + this.facing.offsetZ() * extended);
+            return;
+        }
+        BlockState moved = Blocks.getState(this.movedStateId);
+        if (this.isSource && moved.getValues().containsKey(Properties.SHORT)) {
+            moved = moved.with(Properties.SHORT, this.extending
+                    ? this.progress <= 0.5f : this.progress >= 0.5f);
+        }
+        appendStateBoxes(result, moved,
+                this.pos.x() + this.facing.offsetX() * extended,
+                this.pos.y() + this.facing.offsetY() * extended,
+                this.pos.z() + this.facing.offsetZ() * extended);
+    }
+
+    private static void appendStateBoxes(List<AABB> result, BlockState state,
+                                         double x, double y, double z) {
+        for (AABB local : state.getCollisionShape().boxes()) {
+            result.add(local.copy().move(x, y, z));
+        }
+    }
+
     @Override
     public void tick() {
         if (this.world == null) return;
@@ -153,21 +193,10 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         placed.getBlock().onMovedByPiston(this.world, x, y, z, placed, moveDirection);
         this.world.updateNeighbors(x, y, z);
         if (this.isSource) {
-            /* Source-BEs sitzen einheitlich an der KOPF-Zelle, die Basis liegt dahinter. */
             Direction f = this.facing;
-            int bx = x - f.offsetX(), by = y - f.offsetY(), bz = z - f.offsetZ();
-            if (!this.extending) {
-                /* Retract: die Basis blieb während der Animation ein echter
-                   piston[extended=true]-Block (Chunk-Licht statt BE-Flat-Licht — sonst
-                   blitzte der ganze Würfel auf) und wird erst JETZT eingefahren. */
-                BlockState base = Blocks.getState(this.world.getBlock(bx, by, bz));
-                if (base.getValues().containsKey(de.skyengine.game.world.block.state.Properties.EXTENDED)
-                        && base.get(de.skyengine.game.world.block.state.Properties.EXTENDED)
-                        && base.get(de.skyengine.game.world.block.state.Properties.FACING_ALL) == f) {
-                    this.world.setBlock(bx, by, bz,
-                            base.with(de.skyengine.game.world.block.state.Properties.EXTENDED, false).getId(), true);
-                }
-            }
+            int bx = this.extending ? x - f.offsetX() : x;
+            int by = this.extending ? y - f.offsetY() : y;
+            int bz = this.extending ? z - f.offsetZ() : z;
             /* Re-Check als Block-Event: Vanillas Event-Drain ist für diesen Tick bereits
                vorbei, deshalb läuft das Event am Anfang des folgenden Weltticks. */
             this.world.updateBlockStateAt(bx, by, bz);

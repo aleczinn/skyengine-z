@@ -11,6 +11,7 @@ import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.DataTag;
 import de.skyengine.game.world.block.entity.PistonMovingBlockEntity;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.PistonType;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.test.BlocksTestBootstrap;
@@ -22,6 +23,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PistonBehaviorTest {
 
@@ -99,6 +102,50 @@ final class PistonBehaviorTest {
         assertEquals(2, world.eventId);
     }
 
+    @Test
+    void retractSourceOccupiesVanillaBasePosition() {
+        TestWorld world = new TestWorld();
+        BlockState piston = state("piston")
+                .with(Properties.FACING_ALL, Direction.EAST)
+                .with(Properties.EXTENDED, true);
+        world.put(0, 64, 0, piston);
+        world.put(1, 64, 0, state("piston_head")
+                .with(Properties.FACING_ALL, Direction.EAST)
+                .with(Properties.PISTON_TYPE, PistonType.NORMAL));
+
+        piston.getBlock().onBlockEvent(world, 0, 64, 0, piston, 1, 5);
+
+        assertEquals(Blocks.MOVING_PISTON, world.getBlock(0, 64, 0));
+        PistonMovingBlockEntity source = (PistonMovingBlockEntity) world.getBlockEntity(0, 64, 0);
+        assertTrue(source.isSource());
+        assertFalse(source.isExtending());
+        BlockState movedBase = Blocks.getState(source.getMovedStateId());
+        assertEquals(Direction.EAST, movedBase.get(Properties.FACING_ALL));
+        assertFalse(movedBase.get(Properties.EXTENDED));
+        assertEquals(Blocks.AIR, world.getBlock(1, 64, 0));
+    }
+
+    @Test
+    void stickyRetractKeepsCargoSeparateFromSource() {
+        TestWorld world = new TestWorld();
+        BlockState piston = extendedStickyPiston(world);
+        world.put(1, 64, 0, state("piston_head")
+                .with(Properties.FACING_ALL, Direction.EAST)
+                .with(Properties.PISTON_TYPE, PistonType.STICKY));
+        world.put(2, 64, 0, state("stone"));
+
+        piston.getBlock().onBlockEvent(world, 0, 64, 0, piston, 1, 5);
+
+        PistonMovingBlockEntity source = (PistonMovingBlockEntity) world.getBlockEntity(0, 64, 0);
+        PistonMovingBlockEntity cargo = (PistonMovingBlockEntity) world.getBlockEntity(1, 64, 0);
+        assertTrue(source.isSource());
+        assertFalse(cargo.isSource());
+        assertEquals(state("sticky_piston").getBlock(),
+                Blocks.getState(source.getMovedStateId()).getBlock());
+        assertEquals(state("stone").getId(), cargo.getMovedStateId());
+        assertEquals(Blocks.AIR, world.getBlock(2, 64, 0));
+    }
+
     private static BlockState extendedStickyPiston(TestWorld world) {
         BlockState piston = state("sticky_piston")
                 .with(Properties.FACING_ALL, Direction.EAST)
@@ -151,6 +198,28 @@ final class PistonBehaviorTest {
         @Override
         public BlockEntity getBlockEntity(int x, int y, int z) {
             return this.blockEntities.get(BlockPos.asLong(x, y, z));
+        }
+
+        @Override
+        public boolean setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
+            long pos = BlockPos.asLong(x, y, z);
+            this.blocks.put(pos, block);
+            this.blockEntities.remove(pos);
+            if (block == Blocks.MOVING_PISTON) {
+                PistonMovingBlockEntity moving = new PistonMovingBlockEntity(
+                        BlockEntities.PISTON_MOVING, new BlockPos(x, y, z));
+                moving.setWorld(this);
+                this.blockEntities.put(pos, moving);
+            }
+            return true;
+        }
+
+        @Override
+        public void updateNeighbors(int x, int y, int z) {
+        }
+
+        @Override
+        public void markChunkModified(int x, int z) {
         }
 
         @Override

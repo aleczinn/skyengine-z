@@ -55,7 +55,8 @@ public final class PistonResolver {
 
     /**
      * Auflösung eines klebrigen Einzugs: Bewegung Richtung Piston (−facing), Start 2 vor der
-     * Basis; die Kopf-Zelle zählt als frei (sie wird gleichzeitig zur Source-BE).
+     * Basis; die Kopf-Zelle zählt als frei, weil dort gleichzeitig der Kopf verschwindet bzw.
+     * die erste Fracht-Moving-BE entsteht.
      * Blockiert/leer heißt hier nur „nichts ziehen" — das Einfahren selbst läuft immer.
      */
     public static Result resolveRetract(World world, int bx, int by, int bz, Direction facing) {
