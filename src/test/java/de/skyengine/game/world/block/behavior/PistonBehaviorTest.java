@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -144,6 +145,24 @@ final class PistonBehaviorTest {
                 Blocks.getState(source.getMovedStateId()).getBlock());
         assertEquals(state("stone").getId(), cargo.getMovedStateId());
         assertEquals(Blocks.AIR, world.getBlock(2, 64, 0));
+    }
+
+    @Test
+    void slimeBranchesFollowVanillaDirectionEnumOrder() {
+        TestWorld world = new TestWorld();
+        world.put(1, 64, 0, state("slime_block"));
+        world.put(1, 63, 0, state("stone"));
+        world.put(1, 65, 0, state("stone"));
+
+        PistonResolver.Result result = PistonResolver.resolveExtend(
+                world, 0, 64, 0, Direction.EAST);
+
+        assertFalse(result.blocked());
+        assertArrayEquals(new long[] {
+                BlockPos.asLong(1, 64, 0),
+                BlockPos.asLong(1, 63, 0),
+                BlockPos.asLong(1, 65, 0)
+        }, result.moves());
     }
 
     private static BlockState extendedStickyPiston(TestWorld world) {

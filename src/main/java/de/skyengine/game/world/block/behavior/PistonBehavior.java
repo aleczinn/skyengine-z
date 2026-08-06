@@ -410,11 +410,11 @@ public final class PistonBehavior implements BlockBehavior {
      * Kolben selbst, er wuerde sich sonst ueber seinen eigenen Ausgang selbst speisen.
      */
     private static boolean hasSignal(World world, int x, int y, int z, Direction facing) {
-        for (Direction d : Direction.values()) {
+        for (Direction d : Direction.vanillaValues()) {
             if (d == facing) continue;
             if (emitsInto(world, x, y, z, d)) return true;
         }
-        for (Direction d : Direction.values()) {
+        for (Direction d : Direction.vanillaValues()) {
             if (d == Direction.DOWN) continue;
             if (emitsInto(world, x, y + 1, z, d)) return true;
         }

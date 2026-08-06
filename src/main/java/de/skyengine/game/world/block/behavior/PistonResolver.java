@@ -119,7 +119,7 @@ public final class PistonResolver {
                 BlockState state = this.stateAt(pos);
                 String group = state.getBlock().getStickyGroup();
                 if (group == null) continue;
-                for (Direction d : Direction.values()) {
+                for (Direction d : Direction.vanillaValues()) {
                     if (d.axis() == this.moveDir.axis()) continue;
                     long neighbor = offset(pos, d, 1);
                     if (this.toPush.contains(neighbor)) continue;
