@@ -66,7 +66,9 @@ public final class ObserverBehavior implements BlockBehavior {
     @Override
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
         boolean powered = state.get(Properties.POWERED);
-        world.setBlock(x, y, z, state.with(Properties.POWERED, !powered).getId(), true);
+        /* Vanilla-Flag 2: der POWERED-State wird geschrieben, ohne einen allgemeinen oder
+           gerichteten Shape-Ring um den Observer selbst auszuloesen. */
+        world.setBlock(x, y, z, state.with(Properties.POWERED, !powered).getId(), false);
         this.notifyStrongTarget(world, x, y, z, state);
         if (!powered) world.scheduleTick(x, y, z, 2);   // Puls-Ende nach 2 Ticks
     }

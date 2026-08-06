@@ -99,6 +99,22 @@ final class ObserverBehaviorTest {
     }
 
     @Test
+    void pulseStateWriteUsesVanillaFlagTwoWithoutFullNeighborRing() {
+        TestWorld world = new TestWorld();
+        BlockState observer = state("observer")
+                .with(Properties.FACING_ALL, Direction.WEST)
+                .with(Properties.POWERED, false);
+        world.put(1, observer);
+
+        observer.getBlock().scheduledTick(world, 1, 64, 0, observer);
+
+        assertEquals(false, world.lastSetBlockUpdates);
+        assertEquals(1, world.neighborUpdates,
+                "nur der explizite Ausgangsblock darf einen allgemeinen Ring erhalten");
+        assertEquals(2, world.lastNeighborX);
+    }
+
+    @Test
     void removingPoweredPulseNotifiesStrongTargetOnlyWhileOffTickIsPending() {
         BlockState observer = state("observer")
                 .with(Properties.FACING_ALL, Direction.WEST)
@@ -171,6 +187,7 @@ final class ObserverBehaviorTest {
         private boolean tickScheduled;
         private int neighborUpdates;
         private int lastNeighborX;
+        private boolean lastSetBlockUpdates;
 
         TestWorld() {
             super("__observer_test", level(), null, null);
@@ -197,6 +214,7 @@ final class ObserverBehaviorTest {
         @Override
         public boolean setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
             this.blocks.put(BlockPos.asLong(x, y, z), block);
+            this.lastSetBlockUpdates = updateNeighbors;
             return true;
         }
 
