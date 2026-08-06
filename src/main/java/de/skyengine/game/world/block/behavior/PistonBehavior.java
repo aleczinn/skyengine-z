@@ -90,6 +90,11 @@ public final class PistonBehavior implements BlockBehavior {
         PistonMovingBlockEntity own = ownSourceMoving(world, x, y, z, f);
         boolean effectiveExtended = own != null ? own.isExtending() : state.get(Properties.EXTENDED);
         if (want != effectiveExtended) {
+            /* Vanilla prüft PistonStructureResolver bereits in checkIfExtend und reiht ein
+               Extend-Event nur ein, wenn die Struktur in diesem Moment beweglich ist. Im
+               Event wird die Struktur absichtlich erneut aufgelöst, weil vorherige Events
+               desselben Drains die Welt noch verändern können. */
+            if (want && PistonResolver.resolveExtend(world, x, y, z, f).blocked()) return state;
             int eventId = want ? TRIGGER_EXTEND : this.retractionEvent(world, x, y, z, f);
             world.enqueueBlockEvent(x, y, z, eventId, vanillaDirectionId(f));
         }
@@ -230,13 +235,9 @@ public final class PistonBehavior implements BlockBehavior {
 
     private void extend(World world, int x, int y, int z, BlockState state, Direction f) {
         PistonResolver.Result result = PistonResolver.resolveExtend(world, x, y, z, f);
-        if (result.blocked()) {
-            /* Fremde Animation im Weg: pollen — ihr Ende erzeugt bei konstantem Signal
-               kein Nachbar-Update mehr, das uns wecken würde. scheduleTickEarlier, damit
-               der Poll nicht im First-wins-Dedup der Queue hängen bleibt. */
-            if (result.blockedByMoving()) world.scheduleTickEarlier(x, y, z, 1);
-            return;
-        }
+        /* Wie Vanilla: Scheitert die zweite Auflösung beim Ausführen des Events, wird kein
+           künstlicher Poll geplant. Ein späterer Versuch braucht ein echtes Nachbarupdate. */
+        if (result.blocked()) return;
         /* Erst nach dem Blocked-Check: nur eine tatsächlich startende Bewegung klingt. */
         if (world.getSoundManager() != null) {
             world.getSoundManager().playPistonExtend(x + 0.5, y + 0.5, z + 0.5);

@@ -34,8 +34,24 @@ final class PistonBehaviorTest {
 
         piston.getBlock().getStateForNeighborUpdate(world, 0, 64, 0, piston);
 
+        assertEquals(1, world.eventCount);
         assertEquals(0, world.eventId);
         assertEquals(5, world.eventParam);
+    }
+
+    @Test
+    void blockedStructureDoesNotQueueVanillaExtendEvent() {
+        TestWorld world = new TestWorld();
+        BlockState piston = state("piston")
+                .with(Properties.FACING_ALL, Direction.EAST)
+                .with(Properties.EXTENDED, false);
+        world.put(0, 64, 0, piston);
+        world.put(-1, 64, 0, state("redstone_block"));
+        world.put(1, 64, 0, state("obsidian"));
+
+        piston.getBlock().getStateForNeighborUpdate(world, 0, 64, 0, piston);
+
+        assertEquals(0, world.eventCount);
     }
 
     @Test
@@ -48,6 +64,7 @@ final class PistonBehaviorTest {
 
         piston.getBlock().getStateForNeighborUpdate(world, 0, 64, 0, piston);
 
+        assertEquals(1, world.eventCount);
         assertEquals(1, world.eventId);
         assertEquals(5, world.eventParam);
     }
@@ -62,6 +79,7 @@ final class PistonBehaviorTest {
         private final LongIntMap blocks = new LongIntMap(16);
         private int eventId = -1;
         private int eventParam = -1;
+        private int eventCount;
 
         private TestWorld() {
             super("__piston_behavior_test", level(), null, null);
@@ -77,7 +95,13 @@ final class PistonBehaviorTest {
         }
 
         @Override
+        public boolean isPositionEditable(int x, int y, int z) {
+            return true;
+        }
+
+        @Override
         public void enqueueBlockEvent(int x, int y, int z, int eventId, int eventParam) {
+            this.eventCount++;
             this.eventId = eventId;
             this.eventParam = eventParam;
         }
