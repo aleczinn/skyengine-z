@@ -8,6 +8,7 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.BlockEntityType;
+import de.skyengine.game.world.block.entity.ComparatorBlockEntity;
 import de.skyengine.game.world.block.entity.DataTag;
 import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.block.state.BlockState;
@@ -28,6 +29,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -291,9 +294,12 @@ public final class ChunkSerializer {
             throw new IOException("Ungültige Paletten-Größe " + paletteCount);
         }
         int[] palette = new int[paletteCount];
+        int[] legacyComparatorOutputs = new int[paletteCount];
+        java.util.Arrays.fill(legacyComparatorOutputs, -1);
         boolean[] unknown = new boolean[paletteCount];
         for (int i = 0; i < paletteCount; i++) {
             String encoded = in.readUTF();
+            legacyComparatorOutputs[i] = legacyComparatorOutput(encoded);
             BlockState state = BlockStateCodec.decode(encoded);
             if (state == null) {
                 palette[i] = 0;
@@ -306,16 +312,31 @@ public final class ChunkSerializer {
             }
         }
 
+        Map<Integer, Integer> migratedComparatorOutputs = new HashMap<>();
+
         for (int s = 0; s < Chunk.SECTIONS; s++) {
             byte mode = in.readByte();
             switch (mode) {
                 case SECTION_EMPTY -> chunk.installSection(s, null);
                 case SECTION_SINGLE -> {
-                    int stateId = palette[checkIndex(in.readInt(), paletteCount)];
+                    int paletteIndex = checkIndex(in.readInt(), paletteCount);
+                    int stateId = palette[paletteIndex];
                     if (stateId == 0) {
                         chunk.installSection(s, null);
                     } else {
                         chunk.installSection(s, new ChunkSection(new PalettedContainer(ChunkSection.VOLUME, stateId)));
+                        int legacyOutput = legacyComparatorOutputs[paletteIndex];
+                        if (legacyOutput >= 0) {
+                            int baseY = s << ChunkSection.SHIFT;
+                            for (int ly = 0; ly < ChunkSection.SIZE; ly++) {
+                                for (int lz = 0; lz < ChunkSection.SIZE; lz++) {
+                                    for (int lx = 0; lx < ChunkSection.SIZE; lx++) {
+                                        migratedComparatorOutputs.put(
+                                                packLocalPos(lx, baseY + ly, lz), legacyOutput);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 case SECTION_BITS -> {
@@ -324,10 +345,12 @@ public final class ChunkSerializer {
                         throw new IOException("Ungültige Section-Palette (" + localCount + " Einträge)");
                     }
                     int[] local = new int[localCount];
+                    int[] localLegacyOutputs = new int[localCount];
                     boolean anyUnknown = false;
                     for (int i = 0; i < localCount; i++) {
                         int idx = checkIndex(in.readInt(), paletteCount);
                         local[i] = palette[idx];
+                        localLegacyOutputs[i] = legacyComparatorOutputs[idx];
                         anyUnknown |= unknown[idx];
                     }
                     int bitsPerEntry = in.readByte();
@@ -358,6 +381,16 @@ public final class ChunkSerializer {
                     }
                     PalettedContainer container = new PalettedContainer(ChunkSection.VOLUME, local, localCount, storage, nonAir);
                     chunk.installSection(s, nonAir == 0 ? null : new ChunkSection(container));
+                    int baseY = s << ChunkSection.SHIFT;
+                    for (int i = 0; i < ChunkSection.VOLUME; i++) {
+                        int localIndex = storage.get(i);
+                        if (localIndex >= localCount || localLegacyOutputs[localIndex] < 0) continue;
+                        int lx = i & ChunkSection.MASK;
+                        int lz = (i >> ChunkSection.SHIFT) & ChunkSection.MASK;
+                        int ly = i >> (ChunkSection.SHIFT * 2);
+                        migratedComparatorOutputs.put(packLocalPos(lx, baseY + ly, lz),
+                                localLegacyOutputs[localIndex]);
+                    }
                 }
                 default -> throw new IOException("Unbekannter Section-Modus " + mode);
             }
@@ -378,6 +411,7 @@ public final class ChunkSerializer {
         if (beCount < 0 || beCount > ChunkSection.VOLUME * Chunk.SECTIONS) {
             throw new IOException("Ungültige BlockEntity-Anzahl " + beCount);
         }
+        Set<Integer> explicitBlockEntityPositions = new HashSet<>();
         for (int i = 0; i < beCount; i++) {
             int packed = in.readInt();
             String typeId = in.readUTF();
@@ -397,6 +431,20 @@ public final class ChunkSerializer {
             be.load(tag);
             if (world != null) be.setWorld(world);
             chunk.setBlockEntity(lx, y, lz, be);
+            explicitBlockEntityPositions.add(packed);
+        }
+
+        /* Migration und Korruptionsheilung: ältere Saves kennen ggf. einen inzwischen
+           hinzugekommenen BlockEntity-Typ noch nicht (insbesondere Comparatoren vor der
+           OutputSignal-Umstellung). Nur Sections mit passendem Paletteneintrag werden gescannt. */
+        ensureRequiredBlockEntities(chunk, world);
+        for (Map.Entry<Integer, Integer> entry : migratedComparatorOutputs.entrySet()) {
+            if (explicitBlockEntityPositions.contains(entry.getKey())) continue;
+            int packed = entry.getKey();
+            int lx = packed & 31, lz = (packed >> 5) & 31, y = (packed >> 10) & 511;
+            if (chunk.getBlockEntity(lx, y, lz) instanceof ComparatorBlockEntity comparator) {
+                comparator.setOutputSignal(entry.getValue());
+            }
         }
 
         /* Scheduled-Ticks: v2 ohne Zielidentität/Reihenfolge, v3 vollständig; v1 ohne Ticks. */
@@ -491,9 +539,62 @@ public final class ChunkSerializer {
         }
     }
 
+    private static void ensureRequiredBlockEntities(Chunk chunk, World world) {
+        int originX = chunk.chunkX << ChunkSection.SHIFT;
+        int originZ = chunk.chunkZ << ChunkSection.SHIFT;
+        for (int sectionIndex = 0; sectionIndex < Chunk.SECTIONS; sectionIndex++) {
+            ChunkSection section = chunk.getSection(sectionIndex);
+            if (section == null || section.isEmpty() || section.container() == null) continue;
+
+            boolean containsBlockEntityBlock = false;
+            for (int stateId : section.container().paletteEntries()) {
+                if (stateId != 0 && Blocks.getState(stateId).getBlock().getBlockEntityType() != null) {
+                    containsBlockEntityBlock = true;
+                    break;
+                }
+            }
+            if (!containsBlockEntityBlock) continue;
+
+            int baseY = sectionIndex << ChunkSection.SHIFT;
+            for (int ly = 0; ly < ChunkSection.SIZE; ly++) {
+                for (int lz = 0; lz < ChunkSection.SIZE; lz++) {
+                    for (int lx = 0; lx < ChunkSection.SIZE; lx++) {
+                        BlockState state = Blocks.getState(section.getBlock(lx, ly, lz));
+                        BlockEntityType<?> required = state.getBlock().getBlockEntityType();
+                        if (required == null) continue;
+                        BlockEntity current = chunk.getBlockEntity(lx, baseY + ly, lz);
+                        if (current != null && current.getType() == required) continue;
+
+                        BlockPos pos = new BlockPos(originX + lx, baseY + ly, originZ + lz);
+                        BlockEntity created = required.create(pos, state);
+                        if (world != null) created.setWorld(world);
+                        chunk.setBlockEntity(lx, baseY + ly, lz, created);
+                    }
+                }
+            }
+        }
+    }
+
     /* Gleiche Packung wie Chunk.beKey (x | z<<5 | y<<10). */
     private static int packLocalPos(int lx, int y, int lz) {
         return (lx & 31) | ((lz & 31) << 5) | ((y & 511) << 10);
+    }
+
+    /** Liest die bis einschließlich des alten Comparator-State-Modells gespeicherte Stärke. */
+    private static int legacyComparatorOutput(String encoded) {
+        if (!encoded.startsWith("skyengine:comparator[")) return -1;
+        int property = encoded.indexOf("power=");
+        if (property < 0) return -1;
+        int start = property + "power=".length();
+        int end = encoded.indexOf(',', start);
+        if (end < 0) end = encoded.indexOf(']', start);
+        if (end < 0) return -1;
+        try {
+            int value = Integer.parseInt(encoded.substring(start, end));
+            return value >= 0 && value <= 15 ? value : -1;
+        } catch (NumberFormatException ignored) {
+            return -1;
+        }
     }
 
     private static int checkIndex(int index, int paletteCount) throws IOException {

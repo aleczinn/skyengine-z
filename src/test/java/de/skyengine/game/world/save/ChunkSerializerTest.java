@@ -4,6 +4,8 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.entity.ComparatorBlockEntity;
+import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
@@ -23,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ChunkSerializerTest {
 
@@ -106,6 +109,42 @@ final class ChunkSerializerTest {
         assertEquals(5, tick.remainingTicks());
         assertEquals(0, tick.priority());
         assertEquals(0, tick.subOrder());
+    }
+
+    @Test
+    void legacyComparatorPowerMigratesIntoSynthesizedBlockEntity() throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            out.writeByte(2);
+            out.writeUTF("test");
+            out.writeInt(1);
+            out.writeInt(2);
+            out.writeUTF("skyengine:air");
+            out.writeUTF("skyengine:comparator[facing=east,mode=compare,power=7]");
+
+            out.writeByte(2); // SECTION_BITS
+            out.writeInt(2);
+            out.writeInt(0); // air
+            out.writeInt(1); // legacy comparator
+            out.writeByte(1);
+            out.writeInt(1);
+            out.writeInt(512);
+            out.writeLong(1L); // lokale Position 0 -> Palettenindex 1
+            for (int i = 1; i < 512; i++) out.writeLong(0L);
+            for (int section = 1; section < Chunk.SECTIONS; section++) out.writeByte(0);
+            out.writeByte(0); // keine Tints
+            out.writeInt(0);  // alte Saves hatten keine Comparator-BE
+            out.writeInt(0);  // keine Scheduled-Ticks
+        }
+
+        Chunk restored = new Chunk(0, 0);
+        ChunkSerializer.deserialize(restored, bytes.toByteArray(), null);
+
+        assertTrue(Blocks.getState(restored.getBlock(0, 0, 0)).get(Properties.POWERED));
+        ComparatorBlockEntity comparator =
+                (ComparatorBlockEntity) restored.getBlockEntity(0, 0, 0);
+        assertNotNull(comparator);
+        assertEquals(7, comparator.getOutputSignal());
     }
 
     @Test

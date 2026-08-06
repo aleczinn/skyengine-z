@@ -350,6 +350,10 @@ public class World implements IInitializable, IDisposable {
         for (Chunk chunk : this.readyChunkScratch) {
             if (chunk == previous) continue;
             previous = chunk;
+            if (!chunk.loadSeeded) {
+                de.skyengine.game.world.block.behavior.ComparatorBehavior
+                        .reconcileLoadedChunk(this, chunk);
+            }
             this.releaseParkedStateUpdates(chunk);
             this.reconcilePendingOpenBoundaries(chunk, reconciledWires);
             this.reconcileReadyChunkBoundaries(chunk, reconciledWires);

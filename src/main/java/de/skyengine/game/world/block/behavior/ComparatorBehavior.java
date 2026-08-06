@@ -6,10 +6,12 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.Capabilities;
+import de.skyengine.game.world.block.entity.ComparatorBlockEntity;
 import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.ComparatorMode;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.redstone.RedstonePower;
 import de.skyengine.game.world.tick.TickPriority;
@@ -27,13 +29,27 @@ import de.skyengine.game.world.tick.TickPriority;
  *   <li>subtract: Ausgang = max(0, Eingang − stärkste Seite).</li>
  * </ul>
  *
- * Der Ausgangswert liegt als POWER im State (Palette persistiert ihn gratis); Änderungen
- * takten mit 1 Redstone-Tick (2 Game-Ticks) über den Scheduler, tolerant validierend.
+ * POWERED im State steuert nur die Optik; die Ausgangsstärke liegt wie in Vanilla persistent
+ * in der {@link ComparatorBlockEntity}. Änderungen takten mit 1 Redstone-Tick (2 Game-Ticks).
  * Container-Mutationen erzeugen keine Nachbar-Updates — Hopper und Container-GUIs stoßen
  * {@code World.updateComparatorOutputs} an (Live-Updates bei offenem GUI erst beim
  * Schließen, dokumentierte Vereinfachung).
  */
 public final class ComparatorBehavior implements BlockBehavior {
+
+    /**
+     * Initialer Abgleich nach Chunk-Load. Neue Saves besitzen bereits OutputSignal; alte Saves
+     * bekommen beim Deserialisieren erstmals eine ComparatorBlockEntity mit Ausgang 0.
+     */
+    public static void reconcileLoadedChunk(World world, Chunk chunk) {
+        for (BlockEntity blockEntity : chunk.blockEntities()) {
+            if (!(blockEntity instanceof ComparatorBlockEntity)) continue;
+            int x = blockEntity.getPos().x(), y = blockEntity.getPos().y(), z = blockEntity.getPos().z();
+            BlockState state = Blocks.getState(world.getBlock(x, y, z));
+            ComparatorBehavior behavior = state.getBlock().getBehavior(ComparatorBehavior.class);
+            if (behavior != null) behavior.onNeighborUpdate(world, x, y, z, state);
+        }
+    }
 
     @Override
     public boolean reconcileRedstoneOnChunkBoundary() {
@@ -44,7 +60,7 @@ public final class ComparatorBehavior implements BlockBehavior {
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
         return state.with(Properties.FACING, Direction.fromYaw(ctx.playerYaw()))
                 .with(Properties.MODE, ComparatorMode.COMPARE)
-                .with(Properties.POWER, 0);
+                .with(Properties.POWERED, false);
     }
 
     @Override
@@ -52,21 +68,21 @@ public final class ComparatorBehavior implements BlockBehavior {
         ComparatorMode next = state.get(Properties.MODE) == ComparatorMode.COMPARE
                 ? ComparatorMode.SUBTRACT : ComparatorMode.COMPARE;
         BlockState toggled = state.with(Properties.MODE, next);
-        /* Modus-Wechsel ändert sofort auch den Soll-Ausgang mit. */
-        int output = computeOutput(world, x, y, z, toggled);
-        world.setBlock(x, y, z, toggled.with(Properties.POWER, output).getId(), true);
+        world.setBlock(x, y, z, toggled.getId(), true);
         SoundManager sound = world.getSoundManager();
         if (sound != null) {
             sound.playComparatorClick(next == ComparatorMode.SUBTRACT,
                     x + 0.5, y + 0.5, z + 0.5);
         }
-        notifyStrongTarget(world, x, y, z, toggled);
+        refreshOutputState(world, x, y, z, toggled);
         return true;
     }
 
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
-        if (computeOutput(world, x, y, z, state) != state.get(Properties.POWER)
+        int output = computeOutput(world, x, y, z, state);
+        if ((output != outputSignal(world, x, y, z)
+                || state.get(Properties.POWERED) != shouldTurnOn(world, x, y, z, state))
                 && !world.willTickThisTick(x, y, z)) {
             world.scheduleTick(x, y, z, 2,
                     shouldPrioritize(world, x, y, z, state)
@@ -78,15 +94,44 @@ public final class ComparatorBehavior implements BlockBehavior {
     @Override
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
         if (!state.getValues().containsKey(Properties.MODE)) return;   // tolerantes Feuern
+        refreshOutputState(world, x, y, z, state);
+    }
+
+    /** Exakte Reihenfolge von Vanilla ComparatorBlock#refreshOutputState. */
+    private static void refreshOutputState(World world, int x, int y, int z, BlockState state) {
         int output = computeOutput(world, x, y, z, state);
-        boolean changed = output != state.get(Properties.POWER);
-        if (changed) world.setBlock(x, y, z, state.with(Properties.POWER, output).getId(), true);
-        /* Vanilla ComparatorBlock#refreshOutputState benachrichtigt im Compare-Modus auch dann
-           den Ausgang, wenn ein inzwischen zurueckgekehrter Kurzpuls keinen neuen Endwert mehr
-           erzeugt. Subtract unterdrueckt dieses redundante Update dagegen. */
-        if (changed || state.get(Properties.MODE) == ComparatorMode.COMPARE) {
-            notifyStrongTarget(world, x, y, z, state);
+        int oldOutput = outputSignal(world, x, y, z);
+        BlockEntity blockEntity = world.getBlockEntity(x, y, z);
+        if (blockEntity instanceof ComparatorBlockEntity comparator) {
+            comparator.setOutputSignal(output);
         }
+
+        /* Compare benachrichtigt selbst bei unveränderter Stärke; Subtract unterdrückt das. */
+        if (oldOutput == output && state.get(Properties.MODE) != ComparatorMode.COMPARE) return;
+
+        boolean shouldPower = shouldTurnOn(world, x, y, z, state);
+        if (state.get(Properties.POWERED) != shouldPower) {
+            state = state.with(Properties.POWERED, shouldPower);
+            world.setBlock(x, y, z, state.getId(), true);
+        }
+        notifyStrongTarget(world, x, y, z, state);
+    }
+
+    private static int outputSignal(World world, int x, int y, int z) {
+        BlockEntity blockEntity = world.getBlockEntity(x, y, z);
+        return blockEntity instanceof ComparatorBlockEntity comparator
+                ? comparator.getOutputSignal() : 0;
+    }
+
+    /** Vanillas separate POWERED-Bedingung; insbesondere Compare-Gleichstand bleibt an. */
+    private static boolean shouldTurnOn(World world, int x, int y, int z, BlockState state) {
+        Direction out = state.get(Properties.FACING);
+        int rear = rearInput(world, x, y, z, out.opposite());
+        if (rear == 0) return false;
+        int side = Math.max(sideInput(world, x, y, z, out.rotateYCW()),
+                sideInput(world, x, y, z, out.rotateYCCW()));
+        return rear > side
+                || rear == side && state.get(Properties.MODE) == ComparatorMode.COMPARE;
     }
 
     /**
@@ -174,11 +219,12 @@ public final class ComparatorBehavior implements BlockBehavior {
         world.updateNeighbors(tx, y, tz);
     }
 
-    /* --- Ausgang: POWER, schwach UND stark, nur in FACING-Richtung --- */
+    /* --- Ausgang: POWERED-gated BE-Stärke, schwach UND stark, nur in FACING-Richtung --- */
 
     @Override
     public int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
-        return side == state.get(Properties.FACING) ? state.get(Properties.POWER) : 0;
+        return side == state.get(Properties.FACING) && state.get(Properties.POWERED)
+                ? outputSignal(world, x, y, z) : 0;
     }
 
     @Override

@@ -15,6 +15,7 @@ public final class BlockEntities {
     public static BlockEntityType<EnchantingTableBlockEntity> ENCHANTING_TABLE;
     public static BlockEntityType<PistonMovingBlockEntity> PISTON_MOVING;
     public static BlockEntityType<HopperBlockEntity> HOPPER;
+    public static BlockEntityType<ComparatorBlockEntity> COMPARATOR;
 
     private static boolean registered;
 
@@ -36,6 +37,9 @@ public final class BlockEntities {
 
         HOPPER = Registries.BLOCK_ENTITY.register(Identifier.of("hopper"),
                 new BlockEntityType<>((type, pos, state) -> new HopperBlockEntity(type, pos), true));
+
+        COMPARATOR = Registries.BLOCK_ENTITY.register(Identifier.of("comparator"),
+                new BlockEntityType<>((type, pos, state) -> new ComparatorBlockEntity(type, pos), false));
     }
 
     private BlockEntities() {}

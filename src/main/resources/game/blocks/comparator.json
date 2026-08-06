@@ -1,5 +1,5 @@
 {
-  "_comment": "Komparator. Konvention wie repeater: unser facing = AUSGANGSRICHTUNG (MC zeigt zum Eingang, Rotationen invertiert gemappt). Der Ausgangswert liegt als power 0-15 im State; die Optik braucht nur an/aus: die power=0-Voll-Keys treffen exakt, die partiellen facing/mode-Keys fangen power 1-15 ueber den Teilmengen-Match. MC-Werte: Haerte 0.",
+  "_comment": "Komparator. Vanilla-State: facing, mode, powered; OutputSignal liegt in der BlockEntity.",
   "id": "skyengine:comparator",
   "creative_tab": "redstone_blocks",
   "archetype": "comparator",
@@ -8,7 +8,9 @@
   "solid": false,
   "no_lod_surface": true,
   "hardness": 0,
+  "piston_reaction": "destroy",
   "sound": "stone",
+  "block_entity": "skyengine:comparator",
   "place_on_full_top": true,
   "icon_item": "game/textures/item/comparator.png",
   "models": {
@@ -25,22 +27,22 @@
     "lit": "game/textures/block/redstone_torch.png"
   },
   "variants": {
-    "facing=north,mode=compare,power=0":  { "model": "block/${id}" },
-    "facing=east,mode=compare,power=0":   { "model": "block/${id}", "y": 90 },
-    "facing=south,mode=compare,power=0":  { "model": "block/${id}", "y": 180 },
-    "facing=west,mode=compare,power=0":   { "model": "block/${id}", "y": 270 },
-    "facing=north,mode=subtract,power=0": { "model": "block/${id}_subtract" },
-    "facing=east,mode=subtract,power=0":  { "model": "block/${id}_subtract", "y": 90 },
-    "facing=south,mode=subtract,power=0": { "model": "block/${id}_subtract", "y": 180 },
-    "facing=west,mode=subtract,power=0":  { "model": "block/${id}_subtract", "y": 270 },
+    "facing=north,mode=compare,powered=false":  { "model": "block/${id}" },
+    "facing=east,mode=compare,powered=false":   { "model": "block/${id}", "y": 90 },
+    "facing=south,mode=compare,powered=false":  { "model": "block/${id}", "y": 180 },
+    "facing=west,mode=compare,powered=false":   { "model": "block/${id}", "y": 270 },
+    "facing=north,mode=subtract,powered=false": { "model": "block/${id}_subtract" },
+    "facing=east,mode=subtract,powered=false":  { "model": "block/${id}_subtract", "y": 90 },
+    "facing=south,mode=subtract,powered=false": { "model": "block/${id}_subtract", "y": 180 },
+    "facing=west,mode=subtract,powered=false":  { "model": "block/${id}_subtract", "y": 270 },
 
-    "facing=north,mode=compare":  { "model": "block/${id}_on" },
-    "facing=east,mode=compare":   { "model": "block/${id}_on", "y": 90 },
-    "facing=south,mode=compare":  { "model": "block/${id}_on", "y": 180 },
-    "facing=west,mode=compare":   { "model": "block/${id}_on", "y": 270 },
-    "facing=north,mode=subtract": { "model": "block/${id}_on_subtract" },
-    "facing=east,mode=subtract":  { "model": "block/${id}_on_subtract", "y": 90 },
-    "facing=south,mode=subtract": { "model": "block/${id}_on_subtract", "y": 180 },
-    "facing=west,mode=subtract":  { "model": "block/${id}_on_subtract", "y": 270 }
+    "facing=north,mode=compare,powered=true":  { "model": "block/${id}_on" },
+    "facing=east,mode=compare,powered=true":   { "model": "block/${id}_on", "y": 90 },
+    "facing=south,mode=compare,powered=true":  { "model": "block/${id}_on", "y": 180 },
+    "facing=west,mode=compare,powered=true":   { "model": "block/${id}_on", "y": 270 },
+    "facing=north,mode=subtract,powered=true": { "model": "block/${id}_on_subtract" },
+    "facing=east,mode=subtract,powered=true":  { "model": "block/${id}_on_subtract", "y": 90 },
+    "facing=south,mode=subtract,powered=true": { "model": "block/${id}_on_subtract", "y": 180 },
+    "facing=west,mode=subtract,powered=true":  { "model": "block/${id}_on_subtract", "y": 270 }
   }
 }

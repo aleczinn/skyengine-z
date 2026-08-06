@@ -105,6 +105,18 @@ public final class SaveRoundTripTest {
         int observerX = 3 * ChunkSection.SIZE + 19, observerZ = -7 * ChunkSection.SIZE + 19;
         chunk.setBlock(19, 200, 19, decodeId("skyengine:observer[facing=east,powered=true]"));
 
+        /* Comparator: POWERED bleibt im State, die tatsächliche Stärke ausschließlich in der BE. */
+        String comparatorState = "skyengine:comparator[facing=east,mode=compare,powered=true]";
+        int comparatorId = decodeId(comparatorState);
+        chunk.setBlock(20, 200, 20, comparatorId);
+        de.skyengine.game.world.block.entity.ComparatorBlockEntity comparator =
+                (de.skyengine.game.world.block.entity.ComparatorBlockEntity)
+                        BlockEntities.COMPARATOR.create(
+                                new BlockPos(3 * ChunkSection.SIZE + 20, 200,
+                                        -7 * ChunkSection.SIZE + 20), Blocks.getState(comparatorId));
+        comparator.setOutputSignal(11);
+        chunk.setBlockEntity(20, 200, 20, comparator);
+
         /* Trichter: State (facing + enabled) + BE mit Inventar UND Rest-Cooldown — der
            Transfer-Takt muss Save/Load überstehen. Der Cooldown wird über load() gesetzt
            (ein leeres inventory-Tag lässt die Slots in Ruhe). */
@@ -252,6 +264,17 @@ public final class SaveRoundTripTest {
                     "Trichter-Cooldown übersteht den Round-Trip (Transfer-Takt läuft weiter)");
         } else {
             check(false, "Trichter-BlockEntity wiederhergestellt");
+        }
+
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(20, 200, 20)))
+                        .equals(comparatorState),
+                "Comparator-State (facing + mode + powered) übersteht den Round-Trip");
+        if (restored.getBlockEntity(20, 200, 20) instanceof
+                de.skyengine.game.world.block.entity.ComparatorBlockEntity restoredComparator) {
+            check(restoredComparator.getOutputSignal() == 11,
+                    "Comparator-OutputSignal übersteht den BlockEntity-Round-Trip");
+        } else {
+            check(false, "Comparator-BlockEntity wiederhergestellt");
         }
 
         /* Alt-Format: ein Tür-String OHNE das neue powered-Property muss auf den

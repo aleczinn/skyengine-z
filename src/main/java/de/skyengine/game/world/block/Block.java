@@ -212,12 +212,15 @@ public class Block {
     }
 
     /**
-     * Kolben-Reaktion dieses Blocks. Automatik-Overrides VOR dem JSON-Wert: unzerstörbare
-     * Blöcke (Härte &lt; 0 — Bedrock, moving_piston) und BlockEntity-Blöcke (Truhe,
-     * Zaubertisch — ihr Inhalt kann nicht mitreisen) blockieren immer.
+     * Kolben-Reaktion dieses Blocks. Unzerstörbare Blöcke blockieren immer; ein explizites
+     * DESTROY gilt auch für BlockEntity-Blöcke wie den Vanilla-Comparator. Übrige
+     * BlockEntity-Blöcke (Truhe, Zaubertisch — ihr Inhalt kann nicht mitreisen) blockieren.
      */
     public PistonReaction getPistonReaction() {
         if (this.config.hardness() < 0) return PistonReaction.BLOCK;
+        /* Explizites DESTROY muss vor dem generischen BlockEntity-Schutz gewinnen:
+           Vanilla-Comparatoren besitzen eine BE, werden vom Kolben aber trotzdem zerstört. */
+        if (this.config.pistonReaction() == PistonReaction.DESTROY) return PistonReaction.DESTROY;
         if (this.config.blockEntityType() != null) return PistonReaction.BLOCK;
         return this.config.pistonReaction();
     }
