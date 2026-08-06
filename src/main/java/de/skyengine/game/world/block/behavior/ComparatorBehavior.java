@@ -76,7 +76,7 @@ public final class ComparatorBehavior implements BlockBehavior {
     }
 
     /** Soll-Ausgang aus hinterem Eingang (Signal/Container) und den Seiten. */
-    private static int computeOutput(World world, int x, int y, int z, BlockState state) {
+    static int computeOutput(World world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
         int rear = rearInput(world, x, y, z, out.opposite());
         int side = Math.max(sideInput(world, x, y, z, out.rotateYCW()),
@@ -121,6 +121,10 @@ public final class ComparatorBehavior implements BlockBehavior {
     private static int sideInput(World world, int x, int y, int z, Direction side) {
         int sx = x + side.offsetX(), sz = z + side.offsetZ();
         BlockState neighbor = Blocks.getState(world.getBlock(sx, y, sz));
+        /* Vanillas SignalGetter.getControlInputSignal liest Staub direkt aus dessen POWER-
+           Property. Die sichtbare none/side/up-Form ist hier absichtlich irrelevant: sonst
+           bricht die seitliche Rückkopplung einer Subtract-Comparator-Clock ab. */
+        if (RedstonePower.isWire(neighbor)) return neighbor.get(Properties.POWER);
         if (!RedstonePower.isSideInputSource(neighbor)) return 0;
         return RedstonePower.emittedSignal(world, sx, y, sz, side.opposite(), false);
     }
@@ -145,10 +149,14 @@ public final class ComparatorBehavior implements BlockBehavior {
         return weakPower(world, x, y, z, state, side);
     }
 
-    /** Staub verbindet sich nur mit Ein- und Ausgang. */
+    /** Vanilla: anders als beim Repeater verbindet sich Staub an allen vier Comparator-Seiten. */
     @Override
     public boolean connectsRedstoneWire(BlockState state, Direction side) {
-        Direction facing = state.get(Properties.FACING);
-        return side == facing || side == facing.opposite();
+        return side.axis() != Direction.Axis.Y;
+    }
+
+    @Override
+    public boolean isRedstoneSignalSource() {
+        return true;
     }
 }

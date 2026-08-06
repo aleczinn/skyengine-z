@@ -69,6 +69,11 @@ public final class ButtonBehavior implements BlockBehavior {
         return true;
     }
 
+    @Override
+    public boolean isRedstoneSignalSource() {
+        return true;
+    }
+
     /** Richtung vom Knopf ZUM Träger (der stark gepowert wird). */
     static Direction supportDirection(BlockState state) {
         return switch (state.get(Properties.ATTACH)) {

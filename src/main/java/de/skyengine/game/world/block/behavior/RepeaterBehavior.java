@@ -135,4 +135,9 @@ public final class RepeaterBehavior implements BlockBehavior {
         Direction facing = state.get(Properties.FACING);
         return side == facing || side == facing.opposite();
     }
+
+    @Override
+    public boolean isRedstoneSignalSource() {
+        return true;
+    }
 }

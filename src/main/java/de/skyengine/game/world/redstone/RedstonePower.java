@@ -96,12 +96,7 @@ public final class RedstonePower {
      * (DELAY), Komparator (MODE) und der Redstone-Block (konstante Quelle).
      */
     public static boolean isSideInputSource(BlockState state) {
-        if (isWire(state)) return true;
-        if (state.getValues().containsKey(Properties.DELAY)) return true;
-        if (state.getValues().containsKey(Properties.MODE)) return true;
-        /* Redstone-Block: konstante Quelle ohne Properties, verbindet sich mit Staub. */
-        return state.getValues().isEmpty()
-                && state.getBlock().connectsRedstoneWire(state, de.skyengine.game.world.block.Direction.NORTH);
+        return state.getBlock().isRedstoneSignalSource();
     }
 
     private RedstonePower() {}

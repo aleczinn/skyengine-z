@@ -175,4 +175,9 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
     public boolean connectsRedstoneWire(BlockState state, Direction side) {
         return true;
     }
+
+    @Override
+    public boolean isRedstoneSignalSource() {
+        return true;
+    }
 }

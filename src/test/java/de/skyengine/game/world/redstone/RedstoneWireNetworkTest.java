@@ -121,6 +121,34 @@ final class RedstoneWireNetworkTest {
         assertEquals(0, Blocks.getState(world.getBlock(1, 65, 0)).get(Properties.POWER));
     }
 
+    @Test
+    void wireVisuallyConnectsToComparatorSide() {
+        TestWorld world = new TestWorld();
+        world.put(0, 64, 0, wireState().getId());
+        world.put(0, 64, -1, wireState().getId());
+        world.put(1, 64, 0, state("comparator")
+                .with(Properties.FACING, Direction.NORTH).getId());
+
+        RedstoneWireNetwork.update(world, 0, 64, 0);
+
+        assertEquals(de.skyengine.game.world.block.state.RedstoneSide.SIDE,
+                Blocks.getState(world.getBlock(0, 64, 0)).get(Properties.WIRE_EAST));
+    }
+
+    @Test
+    void wireDoesNotVisuallyConnectToRepeaterSide() {
+        TestWorld world = new TestWorld();
+        world.put(0, 64, 0, wireState().getId());
+        world.put(0, 64, -1, wireState().getId());
+        world.put(1, 64, 0, state("repeater")
+                .with(Properties.FACING, Direction.NORTH).getId());
+
+        RedstoneWireNetwork.update(world, 0, 64, 0);
+
+        assertEquals(de.skyengine.game.world.block.state.RedstoneSide.NONE,
+                Blocks.getState(world.getBlock(0, 64, 0)).get(Properties.WIRE_EAST));
+    }
+
     private static TestWorld steppedWireWorld(BlockState blockAboveLowerWire) {
         TestWorld world = new TestWorld();
         BlockState wire = wireState();

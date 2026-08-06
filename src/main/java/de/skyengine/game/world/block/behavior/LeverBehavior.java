@@ -45,4 +45,9 @@ public final class LeverBehavior implements BlockBehavior {
     public boolean connectsRedstoneWire(BlockState state, Direction side) {
         return true;
     }
+
+    @Override
+    public boolean isRedstoneSignalSource() {
+        return true;
+    }
 }

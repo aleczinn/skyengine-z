@@ -1,0 +1,93 @@
+package de.skyengine.game.world.block.behavior;
+
+import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.BlockPos;
+import de.skyengine.game.world.block.BlockRegistry;
+import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.ComparatorMode;
+import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.save.LevelData;
+import de.skyengine.test.BlocksTestBootstrap;
+import de.skyengine.utils.collect.LongIntMap;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+final class ComparatorBehaviorTest {
+
+    @BeforeAll
+    static void bootstrapBlocks() {
+        BlocksTestBootstrap.ensureBootstrapped();
+    }
+
+    @Test
+    void subtractModeReadsSideWirePowerEvenWithoutVisualConnection() {
+        TestWorld world = new TestWorld();
+        BlockState comparator = state("comparator")
+                .with(Properties.FACING, Direction.EAST)
+                .with(Properties.MODE, ComparatorMode.SUBTRACT)
+                .with(Properties.POWER, 0);
+        Direction rear = Direction.WEST;
+        Direction side = Direction.EAST.rotateYCW();
+        world.put(rear.offsetX(), 64, rear.offsetZ(), state("redstone_block"));
+        world.put(side.offsetX(), 64, side.offsetZ(),
+                state("redstone_wire").with(Properties.POWER, 14));
+
+        assertEquals(1, ComparatorBehavior.computeOutput(world, 0, 64, 0, comparator));
+    }
+
+    @Test
+    void subtractModeAcceptsLeverAsSideSignalSource() {
+        TestWorld world = new TestWorld();
+        BlockState comparator = state("comparator")
+                .with(Properties.FACING, Direction.EAST)
+                .with(Properties.MODE, ComparatorMode.SUBTRACT)
+                .with(Properties.POWER, 0);
+        Direction rear = Direction.WEST;
+        Direction side = Direction.EAST.rotateYCW();
+        BlockState lever = state("lever").with(Properties.POWERED, true);
+        world.put(rear.offsetX(), 64, rear.offsetZ(), state("redstone_block"));
+        world.put(side.offsetX(), 64, side.offsetZ(), lever);
+
+        assertTrue(lever.getBlock().isRedstoneSignalSource());
+        assertFalse(state("stone").getBlock().isRedstoneSignalSource());
+        assertEquals(0, ComparatorBehavior.computeOutput(world, 0, 64, 0, comparator));
+    }
+
+    private static BlockState state(String path) {
+        var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
+        if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
+        return block.getDefaultState();
+    }
+
+    private static final class TestWorld extends World {
+        private final LongIntMap blocks = new LongIntMap(16);
+
+        TestWorld() {
+            super("__comparator_test", level(), null, null);
+        }
+
+        void put(int x, int y, int z, BlockState state) {
+            this.blocks.put(BlockPos.asLong(x, y, z), state.getId());
+        }
+
+        @Override
+        public int getBlock(int x, int y, int z) {
+            return this.blocks.getOrDefault(BlockPos.asLong(x, y, z), Blocks.AIR);
+        }
+
+        private static LevelData level() {
+            LevelData level = new LevelData();
+            level.name = "comparator-test";
+            level.seed = 1;
+            level.worldType = "imported";
+            return level;
+        }
+    }
+}

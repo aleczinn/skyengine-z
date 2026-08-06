@@ -141,6 +141,14 @@ public interface BlockBehavior {
     }
 
     /**
+     * Der Block ist selbst eine Redstone-Signalquelle. Vanillas Comparator-Seiteneingang
+     * akzeptiert solche Quellen, aber keine nur indirekt gespeisten leitenden Vollblöcke.
+     */
+    default boolean isRedstoneSignalSource() {
+        return false;
+    }
+
+    /**
      * true für Redstone-Empfänger, deren gespeicherter Zustand beim Laden oder Entladen eines
      * Nachbar-Chunks einmal gegen die veränderte Kante abgeglichen werden muss.
      * Quellen und Beobachter bleiben false: ihre Zustände sind persistiert bzw. werden

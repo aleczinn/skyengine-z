@@ -134,4 +134,9 @@ public final class PressurePlateBehavior implements BlockBehavior {
         return true;
     }
 
+    @Override
+    public boolean isRedstoneSignalSource() {
+        return true;
+    }
+
 }

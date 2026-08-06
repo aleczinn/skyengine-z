@@ -23,6 +23,7 @@ public class Block {
     private final Settings settings;
     private final BlockConfig config;
     private final boolean reconcileRedstoneOnChunkBoundary;
+    private final boolean redstoneSignalSource;
 
     private final List<Property<?>> properties = new ArrayList<>();
     private final List<BlockState> states = new ArrayList<>();
@@ -43,13 +44,15 @@ public class Block {
         this.settings = settings;
         this.config = config;
         boolean reconcile = false;
+        boolean signalSource = false;
         for (BlockBehavior behavior : config.behaviors()) {
             if (behavior.reconcileRedstoneOnChunkBoundary()) {
                 reconcile = true;
-                break;
             }
+            if (behavior.isRedstoneSignalSource()) signalSource = true;
         }
         this.reconcileRedstoneOnChunkBoundary = reconcile;
+        this.redstoneSignalSource = signalSource;
 
         this.appendProperties(this.properties);
         for (Property<?> property : config.properties()) {
@@ -138,6 +141,11 @@ public class Block {
         return this.config.redstoneConductorPredicate() != null
                 ? this.config.redstoneConductorPredicate().test(state)
                 : this.isOpaqueCube(state);
+    }
+
+    /** true, wenn der Block selbst Signal erzeugt statt nur starkes Signal weiterzuleiten. */
+    public boolean isRedstoneSignalSource() {
+        return this.redstoneSignalSource;
     }
 
     public boolean isSolid(BlockState state) {

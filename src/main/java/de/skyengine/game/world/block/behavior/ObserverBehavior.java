@@ -197,6 +197,11 @@ public final class ObserverBehavior implements BlockBehavior {
         return side == state.get(Properties.FACING_ALL).opposite();
     }
 
+    @Override
+    public boolean isRedstoneSignalSource() {
+        return true;
+    }
+
     private static int watchedState(World world, int x, int y, int z, BlockState state) {
         Direction f = state.get(Properties.FACING_ALL);
         return world.getBlock(x + f.offsetX(), y + f.offsetY(), z + f.offsetZ());
