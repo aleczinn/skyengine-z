@@ -317,13 +317,9 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
-     * Nimmt READY-Meldungen entgegen: beim ersten READY wird der transiente Beobachterzustand
-     * initialisiert; jede Meldung gleicht außerdem inzwischen sichtbare Redstone-Kanten ab.
+     * Nimmt READY-Meldungen entgegen und gleicht inzwischen sichtbare Redstone-Kanten ab.
      *
-     * <p>Läuft VOR {@link #processDeferredStateUpdates} und {@link #tickScheduled}: der
-     * Anfangszustand muss stehen, bevor das erste Nachbar-Update oder ein aus dem Save
-     * restaurierter Puls-Tick den Block erreicht. Sonst verschluckt der Beobachter genau die
-     * Flanke, mit der eine Clock weiterlaufen wollte.
+     * <p>Läuft VOR {@link #processDeferredStateUpdates} und {@link #tickScheduled}.
      *
      * <p>Aufbau wie {@link #restorePendingScheduledTicks}: größen-begrenztes Poll (ein Requeue
      * darf im selben Tick nicht erneut drankommen), Identitätscheck gegen die Chunk-Map,
@@ -343,8 +339,8 @@ public class World implements IInitializable, IDisposable {
             this.readyChunkScratch.add(chunk);
         }
 
-        /* Worker-Abschlussreihenfolge ist nicht deterministisch. Beobachter-Seeding und der
-           zustandsändernde Kantenabgleich laufen deshalb stabil nach Chunkkoordinate. */
+        /* Worker-Abschlussreihenfolge ist nicht deterministisch. Der zustandsändernde
+           Kantenabgleich läuft deshalb stabil nach Chunkkoordinate. */
         if (this.readyChunkScratch.isEmpty()) return;
         this.readyChunkScratch.sort(Comparator
                 .comparingInt((Chunk chunk) -> chunk.chunkX)
@@ -354,9 +350,6 @@ public class World implements IInitializable, IDisposable {
         for (Chunk chunk : this.readyChunkScratch) {
             if (chunk == previous) continue;
             previous = chunk;
-            if (!chunk.loadSeeded) {
-                de.skyengine.game.world.block.behavior.ObserverBehavior.seedLoadedChunk(this, chunk);
-            }
             this.releaseParkedStateUpdates(chunk);
             this.reconcilePendingOpenBoundaries(chunk, reconciledWires);
             this.reconcileReadyChunkBoundaries(chunk, reconciledWires);
@@ -1628,12 +1621,9 @@ public class World implements IInitializable, IDisposable {
      */
     public void updateNeighbors(int x, int y, int z) {
         this.updateStateAt(x, y, z);
-        for (Direction d : Direction.horizontalValues()) {
-            this.updateStateAt(x + d.offsetX(), y, z + d.offsetZ());
+        for (Direction d : Direction.shapeUpdateValues()) {
+            this.updateStateAt(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ(), d.opposite());
         }
-        /* Vertikale Nachbarn fürs 6-dir-Connection-System (Pipes/Cables). */
-        this.updateStateAt(x, y + 1, z);
-        this.updateStateAt(x, y - 1, z);
     }
 
     /**
@@ -1689,6 +1679,10 @@ public class World implements IInitializable, IDisposable {
     }
 
     private void updateStateAt(int x, int y, int z) {
+        this.updateStateAt(x, y, z, null);
+    }
+
+    private void updateStateAt(int x, int y, int z, Direction changedDirection) {
         /* Nicht-READY-Zielchunk: setBlockRaw könnte ohnehin nicht schreiben — das Update
            würde still verlorengehen (Zaun im Nachbarchunk berechnet seine Verbindung dann
            NIE). Position parken; processDeferredStateUpdates zieht sie nach, sobald der
@@ -1703,7 +1697,17 @@ public class World implements IInitializable, IDisposable {
         int id = this.getBlock(x, y, z);
         if (id == Blocks.AIR) return;
         BlockState current = Blocks.getState(id);
-        BlockState updated = current.getBlock().getStateForNeighborUpdate(this, x, y, z, current);
+        BlockState updated;
+        if (changedDirection == null) {
+            updated = current.getBlock().getStateForNeighborUpdate(this, x, y, z, current);
+        } else {
+            BlockState neighbor = Blocks.getState(this.getBlock(
+                    x + changedDirection.offsetX(),
+                    y + changedDirection.offsetY(),
+                    z + changedDirection.offsetZ()));
+            updated = current.getBlock().getStateForNeighborUpdate(
+                    this, x, y, z, current, changedDirection, neighbor);
+        }
         if (updated != current) {
             /* Selbst-Entfernen kaskadiert (Tür-/Tall-Grass-Oberhälfte nach Stützverlust),
                reine State-Änderungen (Verbindungen, Treppen) bewusst nicht. Keine Endlos-

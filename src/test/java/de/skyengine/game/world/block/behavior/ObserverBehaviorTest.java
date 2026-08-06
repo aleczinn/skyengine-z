@@ -10,6 +10,7 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
+import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.test.BlocksTestBootstrap;
 import de.skyengine.utils.collect.LongIntMap;
@@ -46,9 +47,55 @@ final class ObserverBehaviorTest {
         connectedFence.getBlock().onStateChangedByNeighborUpdate(
                 world, 0, 64, 0, fence, connectedFence);
 
-        assertEquals(1, world.observerNotifications);
         assertEquals(1, world.scheduledTicks);
         assertEquals(2, world.lastDelay);
+    }
+
+    @Test
+    void frontShapeUpdatePulsesEvenWhenNeighborStateDidNotChange() {
+        TestWorld world = new TestWorld();
+        BlockState stone = state("stone");
+        BlockState observer = state("observer")
+                .with(Properties.FACING_ALL, Direction.WEST)
+                .with(Properties.POWERED, false);
+
+        observer.getBlock().getStateForNeighborUpdate(
+                world, 1, 64, 0, observer, Direction.WEST, stone);
+
+        assertEquals(1, world.scheduledTicks);
+        assertEquals(2, world.lastDelay);
+    }
+
+    @Test
+    void shapeUpdateFromBackDoesNotPulse() {
+        TestWorld world = new TestWorld();
+        BlockState stone = state("stone");
+        BlockState observer = state("observer")
+                .with(Properties.FACING_ALL, Direction.WEST)
+                .with(Properties.POWERED, false);
+
+        observer.getBlock().getStateForNeighborUpdate(
+                world, 1, 64, 0, observer, Direction.EAST, stone);
+
+        assertEquals(0, world.scheduledTicks);
+    }
+
+    @Test
+    void worldNeighborRingCarriesDirectionToObserver() {
+        TestWorld frontWorld = new TestWorld();
+        BlockState observer = state("observer")
+                .with(Properties.FACING_ALL, Direction.WEST)
+                .with(Properties.POWERED, false);
+        frontWorld.put(0, state("stone"));
+        frontWorld.put(1, observer);
+        frontWorld.updateNeighbors(0, 64, 0);
+        assertEquals(1, frontWorld.scheduledTicks);
+
+        TestWorld backWorld = new TestWorld();
+        backWorld.put(1, observer);
+        backWorld.put(2, state("stone"));
+        backWorld.updateNeighbors(2, 64, 0);
+        assertEquals(0, backWorld.scheduledTicks);
     }
 
     private static BlockState state(String path) {
@@ -70,7 +117,6 @@ final class ObserverBehaviorTest {
         }
 
         private final LongIntMap blocks = new LongIntMap(8);
-        private int observerNotifications;
         private int scheduledTicks;
         private int lastDelay;
 
@@ -79,7 +125,9 @@ final class ObserverBehaviorTest {
             try {
                 @SuppressWarnings("unchecked")
                 Map<Long, Chunk> chunks = (Map<Long, Chunk>) CHUNKS_FIELD.get(this.getChunkManager());
-                chunks.put(Chunk.key(0, 0), new Chunk(0, 0));
+                Chunk chunk = new Chunk(0, 0);
+                chunk.status = ChunkStatus.READY;
+                chunks.put(Chunk.key(0, 0), chunk);
             } catch (ReflectiveOperationException e) {
                 throw new AssertionError("Test-Chunk konnte nicht installiert werden", e);
             }
@@ -92,13 +140,6 @@ final class ObserverBehaviorTest {
         @Override
         public int getBlock(int x, int y, int z) {
             return this.blocks.getOrDefault(BlockPos.asLong(x, y, z), Blocks.AIR);
-        }
-
-        @Override
-        public void updateBlockStateAt(int x, int y, int z) {
-            this.observerNotifications++;
-            BlockState observer = Blocks.getState(this.getBlock(x, y, z));
-            observer.getBlock().getStateForNeighborUpdate(this, x, y, z, observer);
         }
 
         @Override

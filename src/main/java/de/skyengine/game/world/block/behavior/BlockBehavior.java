@@ -49,6 +49,16 @@ public interface BlockBehavior {
     }
 
     /**
+     * Gerichtetes Shape-Update eines unmittelbaren Nachbarn. {@code direction} zeigt von
+     * diesem Block zu der Zelle, die das Update ausgelöst hat. Das entspricht der Richtung,
+     * die Vanilla an {@code Block#updateShape} übergibt.
+     */
+    default BlockState onNeighborShapeUpdate(World world, int x, int y, int z, BlockState state,
+                                             Direction direction, BlockState neighborState) {
+        return state;
+    }
+
+    /**
      * Blockeigener Seiteneffekt NACHDEM ein {@link #onNeighborUpdate}-Ergebnis geschrieben wurde.
      * Die allgemeine Observer-Benachrichtigung erfolgt anschließend zentral in {@code Block}.
      */

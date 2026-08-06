@@ -321,8 +321,35 @@ public class Block {
      */
     public BlockState getStateForNeighborUpdate(de.skyengine.game.world.World world,
                                                 int x, int y, int z, BlockState state) {
+        return this.getStateForNeighborUpdate(world, x, y, z, state, null, null);
+    }
+
+    /**
+     * Gerichtete Variante für einen Shape-Update-Auslöser. Die Richtung zeigt vom Empfänger
+     * zum geänderten Nachbarn; der alte ungerichtete Hook bleibt für die übrigen, historisch
+     * zusammengefassten Neighbor-Changed-Verhalten erhalten.
+     */
+    public BlockState getStateForNeighborUpdate(de.skyengine.game.world.World world,
+                                                int x, int y, int z, BlockState state,
+                                                Direction direction, BlockState neighborState) {
+        if (direction != null) {
+            for (BlockBehavior behavior : this.config.behaviors()) {
+                state = behavior.onNeighborShapeUpdate(
+                        world, x, y, z, state, direction, neighborState);
+            }
+        }
         for (BlockBehavior behavior : this.config.behaviors()) {
             state = behavior.onNeighborUpdate(world, x, y, z, state);
+        }
+        return state;
+    }
+
+    /** Nur der gerichtete Shape-Hook, ohne den allgemeinen Neighbor-Changed-Recompute. */
+    public BlockState getStateForShapeUpdate(de.skyengine.game.world.World world,
+                                             int x, int y, int z, BlockState state,
+                                             Direction direction, BlockState neighborState) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            state = behavior.onNeighborShapeUpdate(world, x, y, z, state, direction, neighborState);
         }
         return state;
     }

@@ -33,7 +33,8 @@ import java.util.Map;
  *
  * <p>„Ausgebrannt" braucht keine eigene Property: es ist {@code lit=false} plus die transiente
  * Historie. Nach einem Reload ist die Historie leer — das ist der harmlose Fall (die Fackel folgt
- * wieder und brennt eben erneut durch), anders als beim Beobachter braucht es hier kein Seeding.
+ * wieder und brennt eben erneut durch). Observer benötigen ebenfalls keinen transienten Verlauf:
+ * Vanilla reagiert dort direkt auf gerichtete Shape-Updates.
  */
 public final class RedstoneTorchBehavior implements BlockBehavior {
 

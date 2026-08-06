@@ -101,9 +101,7 @@ public final class SaveRoundTripTest {
         int repeaterX = 3 * ChunkSection.SIZE + 12, repeaterZ = -7 * ChunkSection.SIZE + 12;
 
         /* Beobachter mit offenem Puls-Tick: POWERED liegt im State, der Rest-Delay in den
-           Ticks — nur zusammen laeuft eine Beobachter-Clock nach dem Laden weiter. Die
-           Vergleichsbasis der Aenderungserkennung ist bewusst NICHT persistiert, die stellt
-           ObserverBehavior.seedLoadedChunk beim READY-Werden des Chunks wieder her. */
+           Ticks — nur zusammen laeuft eine Beobachter-Clock nach dem Laden weiter. */
         int observerX = 3 * ChunkSection.SIZE + 19, observerZ = -7 * ChunkSection.SIZE + 19;
         chunk.setBlock(19, 200, 19, decodeId("skyengine:observer[facing=east,powered=true]"));
 

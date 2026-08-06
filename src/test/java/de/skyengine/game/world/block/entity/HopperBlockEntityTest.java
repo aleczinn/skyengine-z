@@ -119,7 +119,6 @@ final class HopperBlockEntityTest {
         world.putBlock(0, disabled);
         disabled.getBlock().onStateChangedByNeighborUpdate(world, 0, 64, 0, hopper, disabled);
 
-        assertEquals(1, world.observerNotifications);
         assertEquals(1, world.scheduledTicks);
         assertEquals(2, world.lastScheduledDelay);
     }
@@ -208,7 +207,6 @@ final class HopperBlockEntityTest {
         private final List<Entity> entities = new ArrayList<>();
         private final Set<Integer> changedX = new HashSet<>();
         private long gameTime;
-        private int observerNotifications;
         private int scheduledTicks;
         private int lastScheduledDelay;
 
@@ -281,13 +279,6 @@ final class HopperBlockEntityTest {
         @Override
         public void forEachEntityNearby(double x, double z, int chunkRadius, Consumer<Entity> action) {
             for (Entity entity : this.entities) action.accept(entity);
-        }
-
-        @Override
-        public void updateBlockStateAt(int x, int y, int z) {
-            this.observerNotifications++;
-            BlockState observer = Blocks.getState(this.getBlock(x, y, z));
-            observer.getBlock().getStateForNeighborUpdate(this, x, y, z, observer);
         }
 
         @Override

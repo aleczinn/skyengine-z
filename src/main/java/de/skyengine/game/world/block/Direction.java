@@ -23,6 +23,8 @@ public enum Direction {
        liefern weiterhin defensive Kopien fuer externe Aufrufer. */
     private static final Direction[] VALUES = values();
     private static final Direction[] HORIZONTAL_VALUES = {NORTH, EAST, SOUTH, WEST};
+    /* Vanillas BlockBehaviour.UPDATE_SHAPE_ORDER. Reihenfolge ist bei Redstone beobachtbar. */
+    private static final Direction[] SHAPE_UPDATE_VALUES = {WEST, EAST, NORTH, SOUTH, DOWN, UP};
 
     private final int faceIndex;
     private final int dx, dy, dz;
@@ -94,6 +96,11 @@ public enum Direction {
      */
     public static Direction[] sharedValues() {
         return VALUES;
+    }
+
+    /** Geteilte Vanilla-Reihenfolge WEST, EAST, NORTH, SOUTH, DOWN, UP. Nicht mutieren. */
+    public static Direction[] shapeUpdateValues() {
+        return SHAPE_UPDATE_VALUES;
     }
 
     /**
