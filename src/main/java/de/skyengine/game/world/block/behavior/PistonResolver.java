@@ -10,7 +10,6 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
@@ -75,8 +74,8 @@ public final class PistonResolver {
         /** Ausfahren? Nur dann dürfen Linien-Enden zerbrechen (destroy). */
         final boolean allowDestroy;
 
-        final LinkedHashSet<Long> toPush = new LinkedHashSet<>();
-        final LinkedHashSet<Long> toDestroy = new LinkedHashSet<>();
+        final List<Long> toPush = new ArrayList<>();
+        final List<Long> toDestroy = new ArrayList<>();
         boolean blockedByMoving;
 
         Structure(World world, Direction moveDir, long basePos, long ignoredPos, boolean allowDestroy) {
@@ -131,8 +130,7 @@ public final class PistonResolver {
                     if (kind != Kind.MOVABLE) continue;
                     if (!sticksTo(group, this.stateAt(neighbor))) continue;
                     if (!this.addBlockLine(neighbor)) return Result.blocked(this.blockedByMoving);
-                    /* Spiegel auffrischen — LinkedHashSet hängt Neuzugänge hinten an, der
-                       Schleifenindex bleibt gültig. */
+                    /* Spiegel nach möglichem Vanilla-Collision-Reorder auffrischen. */
                     ordered.clear();
                     ordered.addAll(this.toPush);
                 }
@@ -180,9 +178,14 @@ public final class PistonResolver {
             }
 
             /* Vorwärts bis zum Linien-Ende. */
+            int addedCount = count;
             for (int j = 1; ; j++) {
                 long next = offset(pos, this.moveDir, j);
-                if (this.toPush.contains(next)) return true;   // Struktur trifft sich selbst
+                int collisionIndex = this.toPush.indexOf(next);
+                if (collisionIndex >= 0) {
+                    reorderListAtCollision(this.toPush, addedCount, collisionIndex);
+                    return true;
+                }
                 Kind nextKind = this.classify(next);
                 switch (nextKind) {
                     case GAP -> {
@@ -202,6 +205,7 @@ public final class PistonResolver {
                     }
                     case MOVABLE -> {
                         this.toPush.add(next);
+                        addedCount++;
                         if (this.toPush.size() > MAX_PUSH) return false;
                     }
                 }
@@ -245,6 +249,17 @@ public final class PistonResolver {
             return Blocks.getState(this.world.getBlock(
                     BlockPos.unpackX(pos), BlockPos.unpackY(pos), BlockPos.unpackZ(pos)));
         }
+    }
+
+    /** Vanillas {@code reorderListAtCollision}: neue Linie vor den kollidierten Rest ziehen. */
+    static void reorderListAtCollision(List<Long> positions, int addedCount, int collisionIndex) {
+        int newLineStart = positions.size() - addedCount;
+        List<Long> reordered = new ArrayList<>(positions.size());
+        reordered.addAll(positions.subList(0, collisionIndex));
+        reordered.addAll(positions.subList(newLineStart, positions.size()));
+        reordered.addAll(positions.subList(collisionIndex, newLineStart));
+        positions.clear();
+        positions.addAll(reordered);
     }
 
     /** MC-Kleberegel: klebrig zieht jeden beweglichen Nachbarn — außer eine FREMDE Klebe-Gruppe. */

@@ -20,6 +20,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -163,6 +165,15 @@ final class PistonBehaviorTest {
                 BlockPos.asLong(1, 63, 0),
                 BlockPos.asLong(1, 65, 0)
         }, result.moves());
+    }
+
+    @Test
+    void collidingStickyLineIsReorderedLikeVanilla() {
+        List<Long> positions = new ArrayList<>(List.of(10L, 20L, 30L, 40L));
+
+        PistonResolver.reorderListAtCollision(positions, 2, 1);
+
+        assertEquals(List.of(10L, 30L, 40L, 20L), positions);
     }
 
     private static BlockState extendedStickyPiston(TestWorld world) {
