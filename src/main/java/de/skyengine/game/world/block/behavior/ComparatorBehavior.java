@@ -228,7 +228,7 @@ public final class ComparatorBehavior implements BlockBehavior {
     /* Exakter allgemeiner Sechser-Pfad von DiodeBlock.updateNeighborsInFront. */
     private static void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
-        world.updateDiodeNeighborsInFront(x, y, z, out);
+        world.updateDirectionalOutputNeighbors(x, y, z, out);
     }
 
     /* --- Ausgang: POWERED-gated BE-Stärke, schwach UND stark, nur in FACING-Richtung --- */

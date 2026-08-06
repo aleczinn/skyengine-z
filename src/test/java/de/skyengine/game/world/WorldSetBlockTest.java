@@ -81,7 +81,7 @@ final class WorldSetBlockTest {
     void diodeFrontUpdateExcludesSourceAndUsesOnlySixGeneralUpdates() throws Exception {
         TestWorld world = new TestWorld();
 
-        world.updateDiodeNeighborsInFront(10, 20, 30, Direction.EAST);
+        world.updateDirectionalOutputNeighbors(10, 20, 30, Direction.EAST);
 
         assertEquals(List.of(
                 BlockPos.asLong(11, 20, 30),

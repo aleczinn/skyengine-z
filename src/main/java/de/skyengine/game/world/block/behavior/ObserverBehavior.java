@@ -90,7 +90,7 @@ public final class ObserverBehavior implements BlockBehavior {
     /** Zweiter Ring um das stark gepowerte Ziel hinter dem Ausgang (Leitung durch den Block). */
     private void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
         Direction back = state.get(Properties.FACING_ALL).opposite();
-        world.updateNeighbors(x + back.offsetX(), y + back.offsetY(), z + back.offsetZ());
+        world.updateDirectionalOutputNeighbors(x, y, z, back);
     }
 
     /**

@@ -149,7 +149,7 @@ final class RepeaterBehaviorTest {
         }
 
         @Override
-        public void updateDiodeNeighborsInFront(int x, int y, int z, Direction output) {
+        public void updateDirectionalOutputNeighbors(int x, int y, int z, Direction output) {
             this.neighborUpdates++;
             this.lastNeighborX = x + output.offsetX();
             this.lastNeighborZ = z + output.offsetZ();

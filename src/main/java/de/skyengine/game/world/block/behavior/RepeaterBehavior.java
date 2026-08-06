@@ -144,7 +144,7 @@ public final class RepeaterBehavior implements BlockBehavior {
     /** Vanillas DiodeBlock#updateNeighborsInFront fuer Platzierung, Flanke und Entfernung. */
     private static void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
-        world.updateDiodeNeighborsInFront(x, y, z, out);
+        world.updateDirectionalOutputNeighbors(x, y, z, out);
     }
 
     /** Signal am Eingang (Gegenseite von FACING)? */

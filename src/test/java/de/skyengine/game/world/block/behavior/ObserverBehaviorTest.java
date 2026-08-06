@@ -235,10 +235,9 @@ final class ObserverBehaviorTest {
         }
 
         @Override
-        public void updateNeighbors(int x, int y, int z) {
+        public void updateDirectionalOutputNeighbors(int x, int y, int z, Direction output) {
             this.neighborUpdates++;
-            this.lastNeighborX = x;
-            super.updateNeighbors(x, y, z);
+            this.lastNeighborX = x + output.offsetX();
         }
 
         private static LevelData level() {

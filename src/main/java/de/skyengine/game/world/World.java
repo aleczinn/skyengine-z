@@ -1763,10 +1763,11 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
-     * Vanillas {@code DiodeBlock.updateNeighborsInFront}: zuerst der Ausgangsblock selbst,
-     * danach dessen allgemeine Nachbarn ohne die zur Diode zurueckweisende Seite.
+     * Gemeinsamer Vanilla-Pfad von {@code DiodeBlock.updateNeighborsInFront} und
+     * {@code ObserverBlock.updateNeighborsInFront}: zuerst der Ausgangsblock selbst, danach
+     * dessen allgemeine Nachbarn ohne die zur Quelle zurueckweisende Seite.
      */
-    public void updateDiodeNeighborsInFront(int x, int y, int z, Direction output) {
+    public void updateDirectionalOutputNeighbors(int x, int y, int z, Direction output) {
         int targetX = x + output.offsetX();
         int targetY = y + output.offsetY();
         int targetZ = z + output.offsetZ();
