@@ -8,6 +8,7 @@ import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.entity.ItemEntity;
+import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.BlockPos;
@@ -358,6 +359,9 @@ public class World implements IInitializable, IDisposable {
             this.releaseParkedStateUpdates(chunk);
             this.reconcilePendingOpenBoundaries(chunk, reconciledWires);
             this.reconcileReadyChunkBoundaries(chunk, reconciledWires);
+            /* Persistente Hanging-Entities wurden bereits vom Load-Worker in den Chunk gelegt.
+               Erst ab READY duerfen Tick und Renderer sie sehen. */
+            if (!chunk.entities().isEmpty()) this.chunksWithEntities.add(chunk);
             chunk.loadSeeded = true;
         }
     }
@@ -696,6 +700,22 @@ public class World implements IInitializable, IDisposable {
         this.pendingEntities.add(entity);
     }
 
+    /**
+     * Platziert ein Item Frame unmittelbar im READY-Chunk. Anders als bewegte Spawns muss es noch
+     * in diesem Interaktionstick fuer Comparator-Abfragen sichtbar sein.
+     */
+    public boolean placeItemFrame(int anchorX, int anchorY, int anchorZ, Direction direction) {
+        if (!this.isPositionEditable(anchorX, anchorY, anchorZ)) return false;
+        ItemFrameEntity frame = new ItemFrameEntity(anchorX, anchorY, anchorZ, direction);
+        if (!frame.survives(this)) return false;
+        Chunk chunk = this.chunkManager.getChunk(anchorX >> ChunkSection.SHIFT, anchorZ >> ChunkSection.SHIFT);
+        chunk.addEntity(frame);
+        chunk.markModified();
+        this.chunksWithEntities.add(chunk);
+        this.updateComparatorOutputs(anchorX, anchorY, anchorZ);
+        return true;
+    }
+
     /** Spawnt einen flüssig fallenden Block an der Blockposition (Fußpunkt = y, zentriert in x/z). */
     public void spawnFallingBlock(int x, int y, int z, int blockId) {
         FallingBlockEntity entity = new FallingBlockEntity(blockId);
@@ -782,6 +802,54 @@ public class World implements IInitializable, IDisposable {
                 for (int i = 0; i < list.size(); i++) action.accept(list.get(i));
             }
         }
+    }
+
+    /** true, wenn ein anderer lebender Rahmen dieselbe Hanging-Flaeche belegt. */
+    public boolean hasOverlappingItemFrame(ItemFrameEntity frame) {
+        final boolean[] found = {false};
+        this.forEachEntityNearby(frame.x, frame.z, 1, entity -> {
+            if (!found[0] && entity != frame && !entity.isRemoved()
+                    && entity instanceof ItemFrameEntity other
+                    && other.getBoundingBox().intersects(frame.getBoundingBox())) {
+                found[0] = true;
+            }
+        });
+        return found[0];
+    }
+
+    /** Naechstes sichtbares Item Frame auf dem Augenstrahl; Blöcke begrenzen maxDistance. */
+    public ItemFrameEntity raycastItemFrame(double ox, double oy, double oz,
+                                             double dx, double dy, double dz, double maxDistance) {
+        final ItemFrameEntity[] closest = {null};
+        final double[] distance = {maxDistance};
+        this.forEachEntityNearby(ox + dx * maxDistance * 0.5,
+                oz + dz * maxDistance * 0.5, 1, entity -> {
+            if (!(entity instanceof ItemFrameEntity frame) || frame.isRemoved()) return;
+            double hit = frame.rayIntersection(ox, oy, oz, dx, dy, dz, distance[0]);
+            if (hit < distance[0]) {
+                distance[0] = hit;
+                closest[0] = frame;
+            }
+        });
+        return closest[0];
+    }
+
+    /**
+     * Vanillas Comparator-Sonderquelle: exakt ein passend ausgerichteter Rahmen in der Zielzelle.
+     * Mehrere passende Rahmen liefern absichtlich kein Signal.
+     */
+    public int getItemFrameAnalogSignal(int x, int y, int z, Direction direction) {
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk == null || chunk.status != ChunkStatus.READY) return -1;
+        ItemFrameEntity match = null;
+        for (Entity entity : chunk.entities()) {
+            if (!(entity instanceof ItemFrameEntity frame) || frame.isRemoved()) continue;
+            if (frame.getAnchorX() != x || frame.getAnchorY() != y || frame.getAnchorZ() != z
+                    || frame.getDirection() != direction) continue;
+            if (match != null) return -1;
+            match = frame;
+        }
+        return match == null ? -1 : match.getAnalogOutput();
     }
 
     /**

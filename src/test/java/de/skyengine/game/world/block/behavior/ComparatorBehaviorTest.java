@@ -60,6 +60,19 @@ final class ComparatorBehaviorTest {
         assertEquals(0, ComparatorBehavior.computeOutput(world, 0, 64, 0, comparator));
     }
 
+    @Test
+    void readsItemFrameThroughExactlyOneConductor() {
+        TestWorld world = new TestWorld();
+        world.itemFrameSignal = 6;
+        BlockState comparator = state("comparator")
+                .with(Properties.FACING, Direction.EAST)
+                .with(Properties.MODE, ComparatorMode.COMPARE)
+                .with(Properties.POWER, 0);
+        world.put(-1, 64, 0, state("stone"));
+
+        assertEquals(6, ComparatorBehavior.computeOutput(world, 0, 64, 0, comparator));
+    }
+
     private static BlockState state(String path) {
         var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
@@ -68,6 +81,7 @@ final class ComparatorBehaviorTest {
 
     private static final class TestWorld extends World {
         private final LongIntMap blocks = new LongIntMap(16);
+        private int itemFrameSignal = -1;
 
         TestWorld() {
             super("__comparator_test", level(), null, null);
@@ -80,6 +94,11 @@ final class ComparatorBehaviorTest {
         @Override
         public int getBlock(int x, int y, int z) {
             return this.blocks.getOrDefault(BlockPos.asLong(x, y, z), Blocks.AIR);
+        }
+
+        @Override
+        public int getItemFrameAnalogSignal(int x, int y, int z, Direction direction) {
+            return this.itemFrameSignal;
         }
 
         private static LevelData level() {

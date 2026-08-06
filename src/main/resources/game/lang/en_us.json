@@ -511,7 +511,8 @@
       "bucket": "Bucket",
       "water_bucket": "Water Bucket",
       "lava_bucket": "Lava Bucket",
-      "flint_and_steel": "Flint and Steel"
+      "flint_and_steel": "Flint and Steel",
+      "item_frame": "Item Frame"
     }
   }
 }

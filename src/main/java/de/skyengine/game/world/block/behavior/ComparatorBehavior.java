@@ -87,16 +87,26 @@ public final class ComparatorBehavior implements BlockBehavior {
         return rear >= side ? rear : 0;
     }
 
-    /** Hinterer Eingang: Container-Messung hat Vorrang vor dem Redstone-Signal (MC). */
+    /** Hinterer Eingang entsprechend Vanilla ComparatorBlock#getInputSignal. */
     private static int rearInput(World world, int x, int y, int z, Direction back) {
         int bx = x + back.offsetX(), by = y + back.offsetY(), bz = z + back.offsetZ();
-        int container = containerSignal(world, bx, by, bz);
-        if (container < 0 && Blocks.getState(world.getBlock(bx, by, bz)).isRedstoneConductor()) {
-            /* Durch EINEN opaken Block hindurch messen (MC). */
-            container = containerSignal(world, bx + back.offsetX(), by + back.offsetY(), bz + back.offsetZ());
+        BlockState directState = Blocks.getState(world.getBlock(bx, by, bz));
+        int signal = RedstonePower.emittedSignal(world, bx, by, bz, back.opposite(), false);
+
+        /* Eine direkte Analogquelle ersetzt das normale Eingangssignal, auch wenn sie 0 liefert. */
+        int directAnalog = containerSignal(world, bx, by, bz);
+        if (directAnalog >= 0) return directAnalog;
+
+        /* Vanilla schaut nur bei Signal < 15 durch genau EINEN leitenden Vollblock. Dort zaehlen
+           eine Analogquelle und exakt ein passend ausgerichtetes Item Frame; der groessere Wert
+           gewinnt gegen das bereits am Vollblock empfangene Redstone-Signal. */
+        if (signal < 15 && directState.isRedstoneConductor()) {
+            int fx = bx + back.offsetX(), fy = by + back.offsetY(), fz = bz + back.offsetZ();
+            int farAnalog = containerSignal(world, fx, fy, fz);
+            int frameAnalog = world.getItemFrameAnalogSignal(fx, fy, fz, back);
+            signal = Math.max(signal, Math.max(farAnalog, frameAnalog));
         }
-        if (container >= 0) return container;
-        return RedstonePower.emittedSignal(world, bx, by, bz, back.opposite(), false);
+        return signal;
     }
 
     /** Füllstands-Signal eines Containers oder −1 (kein Container). */

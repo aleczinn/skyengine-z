@@ -3,6 +3,7 @@ package de.skyengine.game.world;
 import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.ItemEntity;
+import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.Gamemode;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.BlockPos;
@@ -154,6 +155,11 @@ public final class Explosion {
         } else if (entity instanceof ItemEntity) {
             entity.remove();
             return;   // ein vernichtetes Item braucht keinen Rückstoß mehr
+        } else if (entity instanceof ItemFrameEntity frame) {
+            /* Explosionen umgehen Vanillas "erster Treffer entfernt nur den Inhalt" und brechen
+               die Hanging-Entity als Ganzes. Sichtschutz/Distanz wurden oben bereits berechnet. */
+            frame.breakNaturally(world);
+            return;
         }
 
         /* Rückstoß-Richtung: vom Zentrum zur Entität. MC zielt dabei auf die Augen — ausser bei

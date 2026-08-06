@@ -1,7 +1,12 @@
 package de.skyengine.game.world.save;
 
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.entity.ItemFrameEntity;
+import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.tick.SavedTick;
 import de.skyengine.game.world.tick.ScheduledTickTypes;
 import de.skyengine.test.BlocksTestBootstrap;
@@ -44,6 +49,31 @@ final class ChunkSerializerTest {
         assertEquals(Blocks.STONE, restored.getBlock(3, 64, 7));
         assertNotNull(restored.pendingScheduledTicks);
         assertEquals(ticks, restored.pendingScheduledTicks);
+    }
+
+    @Test
+    void itemFramePositionDirectionContentAndRotationRoundTrip() throws Exception {
+        Chunk source = new Chunk(-2, 5);
+        int x = (source.chunkX << 5) + 7;
+        int z = (source.chunkZ << 5) + 11;
+        ItemFrameEntity frame = new ItemFrameEntity(x, 64, z, Direction.WEST);
+        frame.loadContent(new ItemStack(Items.get(Identifier.of("skyengine:diamond")), 1), 6);
+        source.addEntity(frame);
+
+        byte[] payload = ChunkSerializer.serialize(source, "test", 1, false,
+                List.of(), List.of(), ChunkSerializer.snapshotEntities(source));
+        Chunk restored = new Chunk(source.chunkX, source.chunkZ);
+        ChunkSerializer.deserialize(restored, payload, null);
+
+        assertEquals(1, restored.entities().size());
+        ItemFrameEntity loaded = (ItemFrameEntity) restored.entities().getFirst();
+        assertEquals(x, loaded.getAnchorX());
+        assertEquals(64, loaded.getAnchorY());
+        assertEquals(z, loaded.getAnchorZ());
+        assertEquals(Direction.WEST, loaded.getDirection());
+        assertEquals(6, loaded.getRotation());
+        assertEquals(Identifier.of("skyengine:diamond"), loaded.getItem().getItem().getId());
+        assertEquals(7, loaded.getAnalogOutput());
     }
 
     @Test

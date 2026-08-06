@@ -1,5 +1,6 @@
 {
   "_comment": "Preset (nicht registriert): einfaches Material-Item, flaches Sprite, Stapel 64.",
+  "archetype": "item",
   "creative_tab": "ingredients",
   "max_stack": 64,
   "vars": { "texture": "${id}" },

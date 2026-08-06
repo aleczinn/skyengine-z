@@ -1,6 +1,8 @@
 package de.skyengine.game.world.save;
 
 import de.skyengine.game.world.World;
+import de.skyengine.game.entity.Entity;
+import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
@@ -42,10 +44,10 @@ import java.util.zip.Inflater;
  * {@link BlockStateCodec} persistiert (Runtime-IDs sind flüchtig!), dedupliziert über eine
  * chunk-weite Palette; die Section-Bit-Daten ({@link BitStorage}) werden roh übernommen.
  *
- * <p>Payload-Format v3 (unkomprimiert; Kompression/CRC über {@link #compress}/{@link #crc32},
+ * <p>Payload-Format v4 (unkomprimiert; Kompression/CRC über {@link #compress}/{@link #crc32},
  * CRC immer über den ROHEN Payload — Kompressionswechsel ändern die Prüfsumme nicht):
  * <pre>
- * byte  payloadVersion = 3                      (v1/v2 bleiben lesbar)
+ * byte  payloadVersion = 4                      (v1-v3 bleiben lesbar)
  * UTF   generatorId, int generatorVersion      (Provenienz — strikt getrennt von payloadVersion)
  * int   paletteCount, paletteCount × UTF        (chunk-weite State-Strings)
  * 16 ×  Section: byte mode
@@ -57,6 +59,7 @@ import java.util.zip.Inflater;
  * int   tickCount, tickCount × { UTF tickTypeId, UTF expectedBlockId,
  *                                 int x, int y, int z, int remainingTicks,
  *                                 int priority, long subOrder }
+ * int   entityCount, entityCount × { UTF typeId, DataTag binär }
  * </pre>
  *
  * <p>Threading: {@link #serialize} verlangt unveränderliche Eingabedaten — entweder hält der
@@ -66,9 +69,9 @@ import java.util.zip.Inflater;
  */
 public final class ChunkSerializer {
 
-    /* v3: stabile Zielidentität + Priorität + Suborder. v2 bleibt lesbar, hat aber nur Typ,
-       Position und Rest-Delay; v1 hat keinen Tick-Abschnitt. */
-    public static final byte PAYLOAD_VERSION = 3;
+    /* v4: persistente Entities. v3 brachte stabile Tick-Zielidentität/Priorität/Suborder;
+       v2 hat nur Typ, Position und Rest-Delay, v1 keinen Tick-Abschnitt. */
+    public static final byte PAYLOAD_VERSION = 4;
 
     private static final Logger LOGGER = LogManager.getLogger(ChunkSerializer.class.getName());
 
@@ -110,6 +113,23 @@ public final class ChunkSerializer {
         return out;
     }
 
+    /** Zieht nur persistente Entities; bewegte Drops und TNT bleiben bewusst fluechtig. */
+    public static List<SavedEntity> snapshotEntities(Chunk chunk) {
+        List<SavedEntity> out = new ArrayList<>();
+        for (Entity entity : chunk.entities()) {
+            if (!(entity instanceof ItemFrameEntity frame) || frame.isRemoved()) continue;
+            DataTag tag = new DataTag()
+                    .putInt("anchor_x", frame.getAnchorX())
+                    .putInt("anchor_y", frame.getAnchorY())
+                    .putInt("anchor_z", frame.getAnchorZ())
+                    .putString("direction", frame.getDirection().name())
+                    .putInt("rotation", frame.getRotation())
+                    .putTag("item", frame.getItem().save());
+            out.add(new SavedEntity("skyengine:item_frame", tag));
+        }
+        return out;
+    }
+
     /**
      * Kopiert alle vom Chunk-Payload benoetigten Block- und Tintdaten. Der Aufrufer muss den
      * Read-Lock des Quellchunks halten. Der Rueckgabewert teilt weder Paletten-/Bit-Arrays noch
@@ -143,6 +163,14 @@ public final class ChunkSerializer {
     public static byte[] serialize(Chunk chunk, String generatorId, int generatorVersion,
                                    boolean storeTints, List<SavedTick> scheduledTicks,
                                    List<SavedBlockEntity> blockEntities) {
+        return serialize(chunk, generatorId, generatorVersion, storeTints, scheduledTicks,
+                blockEntities, null);
+    }
+
+    public static byte[] serialize(Chunk chunk, String generatorId, int generatorVersion,
+                                   boolean storeTints, List<SavedTick> scheduledTicks,
+                                   List<SavedBlockEntity> blockEntities,
+                                   List<SavedEntity> entities) {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(64 * 1024);
             DataOutputStream out = new DataOutputStream(bytes);
@@ -221,6 +249,14 @@ public final class ChunkSerializer {
                     out.writeInt(tick.priority());
                     out.writeLong(tick.subOrder());
                 }
+            }
+
+            /* Persistente Entities (v4), auf dem Tick-Thread bereits als Tags eingefroren. */
+            List<SavedEntity> savedEntities = entities == null ? List.of() : entities;
+            out.writeInt(savedEntities.size());
+            for (SavedEntity entity : savedEntities) {
+                out.writeUTF(entity.typeId());
+                DataTagIO.write(entity.tag(), out);
             }
 
             return bytes.toByteArray();
@@ -416,6 +452,42 @@ public final class ChunkSerializer {
             /* Beim Manager anmelden: World.restorePendingScheduledTicks pollt nur noch die
                Announce-Queue (kein Voll-Walk mehr). No-op ohne Manager (Tools/Tests). */
             chunk.announceTickRestore();
+        }
+
+        if (version >= 4) {
+            int entityCount = in.readInt();
+            if (entityCount < 0 || entityCount > ChunkSection.VOLUME * Chunk.SECTIONS) {
+                throw new IOException("Ungueltige Entity-Anzahl " + entityCount);
+            }
+            for (int i = 0; i < entityCount; i++) {
+                String typeId = in.readUTF();
+                DataTag tag = DataTagIO.read(in);
+                if (!"skyengine:item_frame".equals(typeId)) {
+                    LOGGER.warning("Unbekannter persistenter Entity-Typ, ueberspringe: " + typeId);
+                    continue;
+                }
+                int x = tag.getInt("anchor_x", Integer.MIN_VALUE);
+                int y = tag.getInt("anchor_y", Integer.MIN_VALUE);
+                int z = tag.getInt("anchor_z", Integer.MIN_VALUE);
+                if ((x >> ChunkSection.SHIFT) != chunk.chunkX || (z >> ChunkSection.SHIFT) != chunk.chunkZ
+                        || y < 0 || y >= Chunk.HEIGHT) {
+                    LOGGER.warning("Item Frame ausserhalb seines Chunks wird uebersprungen: ("
+                            + x + ", " + y + ", " + z + ")");
+                    continue;
+                }
+                de.skyengine.game.world.block.Direction direction;
+                try {
+                    direction = de.skyengine.game.world.block.Direction.valueOf(
+                            tag.getString("direction", "NORTH"));
+                } catch (IllegalArgumentException badDirection) {
+                    LOGGER.warning("Item Frame mit ungueltiger Richtung wird uebersprungen");
+                    continue;
+                }
+                ItemFrameEntity frame = new ItemFrameEntity(x, y, z, direction);
+                frame.loadContent(de.skyengine.game.world.item.ItemStack.load(tag.getTag("item")),
+                        tag.getInt("rotation", 0));
+                chunk.addEntity(frame);
+            }
         }
     }
 
