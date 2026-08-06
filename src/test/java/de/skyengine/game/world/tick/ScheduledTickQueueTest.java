@@ -77,6 +77,25 @@ final class ScheduledTickQueueTest {
     }
 
     @Test
+    void willTickThisTickContainsOnlyUnrunTicksFromCollectedRound() {
+        ScheduledTickQueue queue = new ScheduledTickQueue();
+        queue.schedule(0, 64, 0, STONE, 1);
+        queue.schedule(1, 64, 0, STONE, 1);
+        queue.schedule(2, 64, 0, STONE, 2);
+
+        List<Boolean> observations = new ArrayList<>();
+        queue.drainDue(1, (x, y, z, block, priority, order) -> {
+            observations.add(queue.willTickThisTick(x, y, z, block));
+            observations.add(queue.willTickThisTick(1, 64, 0, STONE));
+            observations.add(queue.willTickThisTick(2, 64, 0, STONE));
+        });
+
+        assertEquals(List.of(false, true, false, false, false, false), observations);
+        assertFalse(queue.willTickThisTick(0, 64, 0, STONE));
+        assertFalse(queue.willTickThisTick(1, 64, 0, STONE));
+    }
+
+    @Test
     void pendingSnapshotPreservesNegativeCoordinatesAndClampsOverdueDelay() {
         ScheduledTickQueue queue = new ScheduledTickQueue();
         queue.schedule(-100, 50, -217, STONE, 3);

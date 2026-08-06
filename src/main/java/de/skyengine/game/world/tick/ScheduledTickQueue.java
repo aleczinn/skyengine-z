@@ -7,6 +7,7 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.utils.collect.LongIntMap;
 import de.skyengine.utils.collect.LongLongMap;
 
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -76,6 +77,11 @@ public final class ScheduledTickQueue {
         return c != 0 ? c : Long.compare(a.sequence, b.sequence);
     });
     private final Map<Identifier, TypeIndex> scheduled = new HashMap<>();
+    /* Vanilla LevelTicks sammelt alle faelligen Ticks vor den Callbacks in toRunThisTick.
+       Der zugehoerige Positionssatz wird erst bei der ersten willTickThisTick-Abfrage
+       aufgebaut und enthaelt nur die noch nicht ausgefuehrten Eintraege der Runde. */
+    private final ArrayDeque<Entry> toRunThisTick = new ArrayDeque<>();
+    private final Map<Identifier, LongIntMap> toRunThisTickSet = new HashMap<>();
     private static final long NO_VALUE = Long.MIN_VALUE;
     private long sequenceCounter;
     private long subOrderCounter;
@@ -140,6 +146,23 @@ public final class ScheduledTickQueue {
     }
 
     /**
+     * Entspricht Vanilla {@code LevelTicks#willTickThisTick}: true nur fuer einen Tick, der
+     * bereits fuer die aktuelle Runde eingesammelt wurde, aber noch nicht ausgefuehrt ist.
+     * Das ist absichtlich etwas anderes als {@link #isScheduled}.
+     */
+    public boolean willTickThisTick(int x, int y, int z, Identifier expectedBlock) {
+        if (this.toRunThisTickSet.isEmpty() && !this.toRunThisTick.isEmpty()) {
+            for (Entry entry : this.toRunThisTick) {
+                this.toRunThisTickSet
+                        .computeIfAbsent(entry.expectedBlock, ignored -> new LongIntMap(16))
+                        .put(entry.position, 1);
+            }
+        }
+        LongIntMap positions = this.toRunThisTickSet.get(expectedBlock);
+        return positions != null && positions.containsKey(BlockPos.asLong(x, y, z));
+    }
+
+    /**
      * Entfernt alle Runtime-Einträge regulär entladener Chunks in einem Queue-Durchlauf.
      * Deren persistierter Snapshot bleibt die autoritative Quelle für einen späteren Reload.
      * Auch veraltete Heap-Einträge vorgezogener Ticks werden physisch ausgetragen.
@@ -193,10 +216,12 @@ public final class ScheduledTickQueue {
      */
     public int drainDue(long now, int maxTicks, DueConsumer consumer) {
         if (maxTicks < 0) throw new IllegalArgumentException("Negatives Tick-Budget: " + maxTicks);
+        if (!this.toRunThisTick.isEmpty()) {
+            throw new IllegalStateException("Scheduled-Tick-Drain darf nicht reentrant laufen");
+        }
         long cutoff = this.sequenceCounter;
-        int drained = 0;
         Entry entry;
-        while (drained < maxTicks && (entry = this.queue.peek()) != null
+        while (this.toRunThisTick.size() < maxTicks && (entry = this.queue.peek()) != null
                 && entry.triggerTime <= now && entry.sequence < cutoff) {
             this.queue.poll();
             TypeIndex index = this.scheduled.get(entry.expectedBlock);
@@ -209,8 +234,23 @@ public final class ScheduledTickQueue {
             if (index.times.isEmpty()) this.scheduled.remove(entry.expectedBlock);
             this.logicalSize--;
             this.revision++;
-            consumer.run(entry.x, entry.y, entry.z, entry.expectedBlock, entry.priority, entry.subOrder);
-            drained++;
+            this.toRunThisTick.add(entry);
+        }
+
+        int drained = this.toRunThisTick.size();
+        try {
+            while ((entry = this.toRunThisTick.poll()) != null) {
+                LongIntMap positions = this.toRunThisTickSet.get(entry.expectedBlock);
+                if (positions != null) {
+                    positions.remove(entry.position);
+                    if (positions.isEmpty()) this.toRunThisTickSet.remove(entry.expectedBlock);
+                }
+                consumer.run(entry.x, entry.y, entry.z, entry.expectedBlock,
+                        entry.priority, entry.subOrder);
+            }
+        } finally {
+            this.toRunThisTick.clear();
+            this.toRunThisTickSet.clear();
         }
         return drained;
     }

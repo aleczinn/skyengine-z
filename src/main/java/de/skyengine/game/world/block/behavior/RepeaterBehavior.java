@@ -56,7 +56,7 @@ public final class RepeaterBehavior implements BlockBehavior {
             state = state.with(Properties.LOCKED, locked);
         }
         if (!locked && hasInput(world, x, y, z, state) != state.get(Properties.POWERED)
-                && !world.isTickScheduled(x, y, z)) {
+                && !world.willTickThisTick(x, y, z)) {
             TickPriority priority;
             if (shouldPrioritize(world, x, y, z, state)) {
                 priority = TickPriority.EXTREMELY_HIGH;

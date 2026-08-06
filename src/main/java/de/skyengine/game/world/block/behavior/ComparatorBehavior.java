@@ -67,7 +67,7 @@ public final class ComparatorBehavior implements BlockBehavior {
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
         if (computeOutput(world, x, y, z, state) != state.get(Properties.POWER)
-                && !world.isTickScheduled(x, y, z)) {
+                && !world.willTickThisTick(x, y, z)) {
             world.scheduleTick(x, y, z, 2,
                     shouldPrioritize(world, x, y, z, state)
                             ? TickPriority.HIGH : TickPriority.NORMAL);

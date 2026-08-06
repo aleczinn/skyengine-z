@@ -944,6 +944,15 @@ public class World implements IInitializable, IDisposable {
         return this.scheduledTicks.isScheduled(x, y, z, expectedBlock);
     }
 
+    /**
+     * Vanilla {@code LevelTicks#willTickThisTick}: der Block ist in der bereits eingesammelten
+     * aktuellen Tick-Runde enthalten und wurde noch nicht ausgefuehrt.
+     */
+    public boolean willTickThisTick(int x, int y, int z) {
+        Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
+        return this.scheduledTicks.willTickThisTick(x, y, z, expectedBlock);
+    }
+
     /** Stellt einen persistierten Blocktick mit seiner urspruenglichen Reihenfolge wieder her. */
     public void restoreScheduledBlockTick(SavedTick tick) {
         Identifier expectedBlock = tick.expectedBlock() == null
