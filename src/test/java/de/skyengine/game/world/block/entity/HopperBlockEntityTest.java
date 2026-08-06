@@ -101,7 +101,7 @@ final class HopperBlockEntityTest {
     }
 
     @Test
-    void hopperEnabledChangeIsVisibleToWatchingObserver() {
+    void genericNeighborStateChangeMakesHopperEnabledVisibleToWatchingObserver() {
         TestWorld world = new TestWorld();
         BlockState hopper = state("hopper")
                 .with(Properties.FACING_ALL, Direction.DOWN)

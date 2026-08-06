@@ -49,8 +49,8 @@ public interface BlockBehavior {
     }
 
     /**
-     * Seiteneffekt NACHDEM ein {@link #onNeighborUpdate}-Ergebnis geschrieben wurde. Der Hook
-     * ist nur für State-Wechsel gedacht, die selbst weitere Shape-Updates auslösen müssen.
+     * Blockeigener Seiteneffekt NACHDEM ein {@link #onNeighborUpdate}-Ergebnis geschrieben wurde.
+     * Die allgemeine Observer-Benachrichtigung erfolgt anschließend zentral in {@code Block}.
      */
     default void onStateChangedByNeighborUpdate(World world, int x, int y, int z,
                                                 BlockState oldState, BlockState newState) {

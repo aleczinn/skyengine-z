@@ -3,6 +3,7 @@ package de.skyengine.game.world.block;
 import de.skyengine.game.world.block.archetype.BlockConfig;
 import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.block.behavior.BlockBehavior;
+import de.skyengine.game.world.block.behavior.ObserverBehavior;
 import de.skyengine.game.world.block.behavior.PlacementContext;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
@@ -326,13 +327,19 @@ public class Block {
         return state;
     }
 
-    /** Nach einem durch Nachbar-Update geschriebenen State-Wechsel. */
+    /**
+     * Nach einem durch Nachbar-Update geschriebenen State-Wechsel. Neben den blockeigenen
+     * Seiteneffekten erhalten gerichtete Observer den Shape-/State-Wechsel der beobachteten
+     * Zelle. Das muss zentral passieren: {@code World.updateStateAt} schreibt reine
+     * State-Änderungen absichtlich ohne einen weiteren allgemeinen Nachbarring.
+     */
     public void onStateChangedByNeighborUpdate(de.skyengine.game.world.World world,
                                                int x, int y, int z,
                                                BlockState oldState, BlockState newState) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             behavior.onStateChangedByNeighborUpdate(world, x, y, z, oldState, newState);
         }
+        ObserverBehavior.notifyWatching(world, x, y, z);
     }
 
     /** Rechtsklick-Interaktion. Delegiert an die Behaviors; true = verbraucht. */
