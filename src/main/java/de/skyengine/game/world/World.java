@@ -1766,6 +1766,20 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
+     * Vanillas {@code updateNeighborsAtExceptFromFacing}: allgemeiner Sechser-Ring ohne die
+     * angegebene Seite. Redstone-Staub nutzt ihn beim manuellen Punkt/Kreuz-Formwechsel an
+     * leitenden Nachbarblöcken; die Rückrichtung zum Staub wird dabei ausgelassen.
+     */
+    public void updateGeneralNeighborsAtExceptFromFacing(int x, int y, int z,
+                                                          Direction excluded) {
+        for (Direction direction : Direction.neighborUpdateValues()) {
+            if (direction == excluded) continue;
+            this.updateGeneralStateAt(x + direction.offsetX(),
+                    y + direction.offsetY(), z + direction.offsetZ());
+        }
+    }
+
+    /**
      * Gemeinsamer Vanilla-Pfad von {@code DiodeBlock.updateNeighborsInFront} und
      * {@code ObserverBlock.updateNeighborsInFront}: zuerst der Ausgangsblock selbst, danach
      * dessen allgemeine Nachbarn ohne die zur Quelle zurueckweisende Seite.

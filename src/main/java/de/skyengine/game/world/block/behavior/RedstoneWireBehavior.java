@@ -51,19 +51,33 @@ public final class RedstoneWireBehavior implements BlockBehavior {
      */
     @Override
     public boolean onUse(World world, int x, int y, int z, BlockState state) {
-        BlockState umgeschaltet;
+        BlockState base;
         if (RedstoneWireNetwork.isCross(state)) {
-            umgeschaltet = RedstoneWireNetwork.toDot(state);
+            base = RedstoneWireNetwork.toDot(state);
         } else if (RedstoneWireNetwork.isDot(state)) {
-            umgeschaltet = RedstoneWireNetwork.toCross(state);
+            base = RedstoneWireNetwork.toCross(state);
         } else {
             return false;
         }
-        world.setBlock(x, y, z, umgeschaltet.getId(), false);
-        /* Der Evaluator schreibt Form und Signal und benachrichtigt die Empfänger — der
-           Umschalter ändert ja, wen dieser Staub speist. */
-        RedstoneWireNetwork.update(world, x, y, z);
-        world.updateNeighbors(x, y, z);
+        BlockState updated = RedstoneWireNetwork.connectionState(world, x, y, z, base);
+        if (updated == state) return false;
+
+        /* Vanilla-Flag 3: normale Block-/Shape-Updates des eigentlichen State-Wechsels. */
+        world.setBlock(x, y, z, updated.getId(), true);
+
+        /* RedStoneWireBlock.updatesOnShapeChange: Nur geänderte Anschlussseiten lösen den
+           zusätzlichen Ring aus, nur wenn die angrenzende Zelle leitend ist, und dort ohne
+           die zum Staub zurückweisende Richtung. */
+        for (Direction direction : Direction.horizontalValues()) {
+            boolean wasConnected = state.get(Properties.wireSide(direction)).isConnected();
+            boolean isConnected = updated.get(Properties.wireSide(direction)).isConnected();
+            if (wasConnected == isConnected) continue;
+            int nx = x + direction.offsetX(), nz = z + direction.offsetZ();
+            if (!de.skyengine.game.world.block.Blocks.getState(
+                    world.getBlock(nx, y, nz)).isRedstoneConductor()) continue;
+            world.updateGeneralNeighborsAtExceptFromFacing(
+                    nx, y, nz, direction.opposite());
+        }
         return true;
     }
 

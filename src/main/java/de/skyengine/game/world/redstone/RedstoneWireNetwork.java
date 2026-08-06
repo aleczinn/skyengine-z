@@ -273,6 +273,11 @@ public final class RedstoneWireNetwork {
         return state;
     }
 
+    /** Vanillas getConnectionState für den manuellen Punkt/Kreuz-Wechsel. */
+    public static BlockState connectionState(World world, int x, int y, int z, BlockState state) {
+        return updateShape(world, x, y, z, state);
+    }
+
     private static RedstoneSide sideShape(World world, int x, int y, int z, Direction direction) {
         int nx = x + direction.offsetX(), nz = z + direction.offsetZ();
         boolean aboveOpen = !Blocks.getState(world.getBlock(x, y + 1, z)).isRedstoneConductor();
