@@ -117,8 +117,12 @@ public final class PistonMovingBlockEntity extends BlockEntity {
             this.finish(x, y, z);
             return;
         }
-        this.progress = Math.min(1.0f, this.progress + STEP);
-        this.pushEntities(this.progress - this.lastProgress);
+        float targetProgress = Math.min(1.0f, this.progress + STEP);
+        /* Vanilla bewegt zuerst kollidierende, dann auf Honig stehende Entities und schreibt
+           den neuen Fortschritt erst danach in die BlockEntity. */
+        this.pushEntities(targetProgress);
+        this.moveStuckEntities(targetProgress);
+        this.progress = targetProgress;
         this.markDirty();
     }
 
@@ -170,63 +174,124 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         }
     }
 
-    /**
-     * Schiebt Entities vor dem gleitenden Block her: alle, deren BoundingBox die aktuelle
-     * Block-Box schneidet, werden per {@code Entity.move} (mit Kollision) um das Tick-Delta
-     * in Bewegungsrichtung versetzt.
-     *
-     * <p><b>Slime-Launcher</b> (MC): ist der bewegte Block ein Slime (sticky_group "slime"),
-     * bekommt die Entity zusätzlich {@link #LAUNCH_SPEED} als Motion auf der Bewegungsachse —
-     * sie behält den Impuls nach dem Stopp und fliegt weiter (Slime-Werfer). Honig launcht wie
-     * in MC nicht.
-     *
-     * <p><b>Der Spieler braucht einen eigenen Durchgang.</b> {@code forEachEntityNearby} läuft
-     * über die Entity-Listen der Chunks, und dort steht der Spieler nie — er hängt als
-     * Sonderfall am GameContainer. Ohne diesen zweiten Aufruf schiebt der Kolben Drops und
-     * gezündetes TNT, aber niemals den Spieler.
-     *
-     * <p>Vereinfachung gegenüber MC (bewusst): Vanilla nimmt die echte Kollisionsform des
-     * transportierten Blocks, fegt sie über {@code PistonMath.getMovementArea} und berechnet je
-     * Entity die nötige Schubweite; wir nehmen eine feste 1×1×1-Box, die mit dem Fortschritt
-     * wandert, und schieben starr um das Tick-Delta. Für Vollblöcke — und nur die schiebt ein
-     * Kolben interessant — ist das dasselbe Ergebnis. MCs Honig-Mitzieher
-     * ({@code moveStuckEntities}) fehlt entsprechend ganz.
-     */
-    private void pushEntities(float delta) {
-        /* Der nicht-klebrige Rückzieh-Arm transportiert nur Luft (reine Renderer-Optik) —
-           seine unsichtbare Box darf niemanden Richtung Kolben schieben. */
-        if (this.movedStateId == Blocks.AIR) return;
-        Direction d = this.extending ? this.facing : this.facing.opposite();
-        double back = 1.0 - this.progress;
-        double bx = this.pos.x() - d.offsetX() * back;
-        double by = this.pos.y() - d.offsetY() * back;
-        double bz = this.pos.z() - d.offsetZ() * back;
-        AABB box = new AABB(bx, by, bz, bx + 1, by + 1, bz + 1);
-        boolean launch = "slime".equals(Blocks.getState(this.movedStateId).getBlock().getStickyGroup());
-        this.world.forEachEntityNearby(this.pos.x() + 0.5, this.pos.z() + 0.5, 1,
-                entity -> this.pushOne(entity, box, d, delta, launch));
-        Entity player = this.world.getNearestPlayer(this.pos.x() + 0.5, this.pos.y() + 0.5,
-                this.pos.z() + 0.5, 4.0);
-        if (player != null) this.pushOne(player, box, d, delta, launch);
+    /** Vanillas {@code moveCollidedEntities}: fegt die echte Kollisionsform über das Tick-Delta. */
+    private void pushEntities(float targetProgress) {
+        BlockState moved = Blocks.getState(this.movedStateId);
+        AABB[] localBoxes = moved.getCollisionShape().boxes();
+        if (localBoxes.length == 0) return;
+        Direction movement = this.extending ? this.facing : this.facing.opposite();
+        double delta = targetProgress - this.progress;
+        double extended = this.extending ? this.progress - 1.0 : 1.0 - this.progress;
+        double ox = this.pos.x() + this.facing.offsetX() * extended;
+        double oy = this.pos.y() + this.facing.offsetY() * extended;
+        double oz = this.pos.z() + this.facing.offsetZ() * extended;
+
+        AABB[] movementAreas = new AABB[localBoxes.length];
+        AABB bounds = null;
+        for (int i = 0; i < localBoxes.length; i++) {
+            AABB local = localBoxes[i];
+            AABB current = new AABB(local.minX + ox, local.minY + oy, local.minZ + oz,
+                    local.maxX + ox, local.maxY + oy, local.maxZ + oz);
+            movementAreas[i] = movementArea(current, movement, delta);
+            bounds = bounds == null ? union(current, movementAreas[i]) : union(bounds, movementAreas[i]);
+        }
+        boolean launch = "slime".equals(moved.getBlock().getStickyGroup());
+        AABB searchBounds = bounds;
+        this.forEachPistonEntity(entity ->
+                this.pushOne(entity, searchBounds, movementAreas, movement, delta, launch));
     }
 
-    /** Eine einzelne Entity aus der Block-Box herausschieben; {@code launch} = Slime-Impuls. */
-    private void pushOne(Entity entity, AABB box, Direction d, float delta, boolean launch) {
-        if (entity.isRemoved() || !entity.getBoundingBox().intersects(box)) return;
-        entity.move(this.world, d.offsetX() * delta, d.offsetY() * delta, d.offsetZ() * delta);
-        if (launch) {
-            /* Nur die Bewegungsachse wird ersetzt (MC-Semantik), Quer-Motion bleibt erhalten.
-               Zur Größe des Impulses s. LAUNCH_SPEED — er ist NICHT die Kolbengeschwindigkeit.
+    private void pushOne(Entity entity, AABB searchBounds, AABB[] movementAreas,
+                         Direction movement, double delta, boolean launch) {
+        if (entity.isRemoved() || !entity.getBoundingBox().intersects(searchBounds)) return;
+        /* Vanilla setzt den Slime-Impuls schon für alle Entities in der VoxelShape-Broadphase,
+           noch bevor die einzelnen Teilboxen auf echte Überschneidung geprüft werden. */
+        if (launch) setAxisMotion(entity, movement, LAUNCH_SPEED);
 
-               MC nimmt hier den ServerPlayer aus — aber NUR ihn, und nur, damit der Server die
-               Bewegung nicht überschreibt, die der Client sich selbst schon gegeben hat:
-               clientseitig ist der eigene Spieler eine LocalPlayer und bekommt den Impuls sehr
-               wohl (sonst gäbe es keine Slime-Werfer). Ohne Client/Server-Trennung ist „Spieler
-               kriegt den Impuls" also das MC-äquivalente Verhalten. */
-            if (d.offsetX() != 0) entity.motionX = d.offsetX() * LAUNCH_SPEED;
-            if (d.offsetY() != 0) entity.motionY = d.offsetY() * LAUNCH_SPEED;
-            if (d.offsetZ() != 0) entity.motionZ = d.offsetZ() * LAUNCH_SPEED;
+        double distance = 0.0;
+        AABB entityBox = entity.getBoundingBox();
+        for (AABB area : movementAreas) {
+            if (!area.intersects(entityBox)) continue;
+            distance = Math.max(distance, penetration(area, movement, entityBox));
+            if (distance >= delta) break;
         }
+        if (distance <= 0.0) return;
+        double push = Math.min(distance, delta) + 0.01;
+        entity.move(this.world, movement.offsetX() * push,
+                movement.offsetY() * push, movement.offsetZ() * push);
+    }
+
+    /** Vanillas {@code moveStuckEntities}: nur Honig zieht stehende Entities horizontal mit. */
+    private void moveStuckEntities(float targetProgress) {
+        BlockState moved = Blocks.getState(this.movedStateId);
+        if (!"honey".equals(moved.getBlock().getStickyGroup())) return;
+        Direction movement = this.extending ? this.facing : this.facing.opposite();
+        if (movement.offsetY() != 0) return;
+
+        AABB[] boxes = moved.getCollisionShape().boxes();
+        if (boxes.length == 0) return;
+        double maxY = 0.0;
+        for (AABB box : boxes) maxY = Math.max(maxY, box.maxY);
+        double extended = this.extending ? this.progress - 1.0 : 1.0 - this.progress;
+        double ox = this.pos.x() + this.facing.offsetX() * extended;
+        double oy = this.pos.y() + this.facing.offsetY() * extended;
+        double oz = this.pos.z() + this.facing.offsetZ() * extended;
+        AABB stickyArea = new AABB(ox, oy + maxY, oz, ox + 1.0, oy + 1.500001, oz + 1.0);
+        double delta = targetProgress - this.progress;
+        this.forEachPistonEntity(entity -> {
+            if (entity.isRemoved() || !entity.onGround
+                    || !entity.getBoundingBox().intersects(stickyArea)) return;
+            AABB entityBox = entity.getBoundingBox();
+            boolean supportedByMovingBlock = Math.abs(entityBox.minY - stickyArea.minY) <= 1.0E-6
+                    && entityBox.maxX > stickyArea.minX && entityBox.minX < stickyArea.maxX
+                    && entityBox.maxZ > stickyArea.minZ && entityBox.minZ < stickyArea.maxZ;
+            boolean footPointInside = entity.x >= stickyArea.minX && entity.x <= stickyArea.maxX
+                    && entity.z >= stickyArea.minZ && entity.z <= stickyArea.maxZ;
+            if (!supportedByMovingBlock && !footPointInside) return;
+            entity.move(this.world, movement.offsetX() * delta, 0.0, movement.offsetZ() * delta);
+        });
+    }
+
+    private void forEachPistonEntity(java.util.function.Consumer<Entity> action) {
+        this.world.forEachEntityNearby(this.pos.x() + 0.5, this.pos.z() + 0.5, 1, action);
+        Entity player = this.world.getNearestPlayer(this.pos.x() + 0.5, this.pos.y() + 0.5,
+                this.pos.z() + 0.5, 4.0);
+        if (player != null) action.accept(player);
+    }
+
+    private static AABB movementArea(AABB box, Direction direction, double delta) {
+        if (direction.offsetX() > 0) return new AABB(box.maxX, box.minY, box.minZ,
+                box.maxX + delta, box.maxY, box.maxZ);
+        if (direction.offsetX() < 0) return new AABB(box.minX - delta, box.minY, box.minZ,
+                box.minX, box.maxY, box.maxZ);
+        if (direction.offsetY() > 0) return new AABB(box.minX, box.maxY, box.minZ,
+                box.maxX, box.maxY + delta, box.maxZ);
+        if (direction.offsetY() < 0) return new AABB(box.minX, box.minY - delta, box.minZ,
+                box.maxX, box.minY, box.maxZ);
+        if (direction.offsetZ() > 0) return new AABB(box.minX, box.minY, box.maxZ,
+                box.maxX, box.maxY, box.maxZ + delta);
+        return new AABB(box.minX, box.minY, box.minZ - delta,
+                box.maxX, box.maxY, box.minZ);
+    }
+
+    private static double penetration(AABB movementArea, Direction direction, AABB entity) {
+        if (direction.offsetX() > 0) return movementArea.maxX - entity.minX;
+        if (direction.offsetX() < 0) return entity.maxX - movementArea.minX;
+        if (direction.offsetY() > 0) return movementArea.maxY - entity.minY;
+        if (direction.offsetY() < 0) return entity.maxY - movementArea.minY;
+        if (direction.offsetZ() > 0) return movementArea.maxZ - entity.minZ;
+        return entity.maxZ - movementArea.minZ;
+    }
+
+    private static AABB union(AABB a, AABB b) {
+        return new AABB(Math.min(a.minX, b.minX), Math.min(a.minY, b.minY), Math.min(a.minZ, b.minZ),
+                Math.max(a.maxX, b.maxX), Math.max(a.maxY, b.maxY), Math.max(a.maxZ, b.maxZ));
+    }
+
+    private static void setAxisMotion(Entity entity, Direction direction, double speed) {
+        if (direction.offsetX() != 0) entity.motionX = direction.offsetX() * speed;
+        if (direction.offsetY() != 0) entity.motionY = direction.offsetY() * speed;
+        if (direction.offsetZ() != 0) entity.motionZ = direction.offsetZ() * speed;
     }
 
     @Override
