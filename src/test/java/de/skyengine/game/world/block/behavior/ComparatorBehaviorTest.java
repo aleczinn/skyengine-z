@@ -233,6 +233,20 @@ final class ComparatorBehaviorTest {
     }
 
     @Test
+    void placementAndRemovalNotifyBlockInFrontOfOutput() {
+        TestWorld world = new TestWorld();
+        BlockState comparator = state("comparator")
+                .with(Properties.FACING, Direction.SOUTH)
+                .with(Properties.MODE, ComparatorMode.COMPARE)
+                .with(Properties.POWERED, false);
+
+        comparator.getBlock().onPlaced(world, 3, 64, 4, comparator);
+        comparator.getBlock().onBreak(world, 3, 64, 4, comparator);
+
+        assertEquals(2, world.neighborUpdates);
+    }
+
+    @Test
     void compoundChestStorageExposesFiftyFourSlotsAndMarksBothHalves() {
         TestWorld world = new TestWorld();
         BlockState left = state("chest")

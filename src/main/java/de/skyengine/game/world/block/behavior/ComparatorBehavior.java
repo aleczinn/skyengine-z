@@ -63,6 +63,16 @@ public final class ComparatorBehavior implements BlockBehavior {
     }
 
     @Override
+    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+        notifyStrongTarget(world, x, y, z, state);
+    }
+
+    @Override
+    public void onBreak(World world, int x, int y, int z, BlockState state) {
+        notifyStrongTarget(world, x, y, z, state);
+    }
+
+    @Override
     public boolean onUse(World world, int x, int y, int z, BlockState state) {
         ComparatorMode next = state.get(Properties.MODE) == ComparatorMode.COMPARE
                 ? ComparatorMode.SUBTRACT : ComparatorMode.COMPARE;

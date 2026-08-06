@@ -87,6 +87,19 @@ final class RepeaterBehaviorTest {
         assertTrue(placed.get(Properties.LOCKED));
     }
 
+    @Test
+    void placementAndRemovalNotifyBlockInFrontOfOutput() {
+        TestWorld world = new TestWorld();
+        BlockState repeater = repeater(false);
+
+        repeater.getBlock().onPlaced(world, 3, 64, 4, repeater);
+        repeater.getBlock().onBreak(world, 3, 64, 4, repeater);
+
+        assertEquals(2, world.neighborUpdates);
+        assertEquals(4, world.lastNeighborX);
+        assertEquals(4, world.lastNeighborZ);
+    }
+
     private static BlockState repeater(boolean powered) {
         return state("repeater")
                 .with(Properties.FACING, Direction.EAST)
@@ -104,6 +117,9 @@ final class RepeaterBehaviorTest {
     private static final class TestWorld extends World {
         private final LongIntMap blocks = new LongIntMap(8);
         private TickPriority scheduledPriority;
+        private int neighborUpdates;
+        private int lastNeighborX;
+        private int lastNeighborZ;
 
         TestWorld() {
             super("__repeater_test", level(), null, null);
@@ -121,6 +137,13 @@ final class RepeaterBehaviorTest {
         @Override
         public void scheduleTick(int x, int y, int z, int delayTicks, TickPriority priority) {
             this.scheduledPriority = priority;
+        }
+
+        @Override
+        public void updateNeighbors(int x, int y, int z) {
+            this.neighborUpdates++;
+            this.lastNeighborX = x;
+            this.lastNeighborZ = z;
         }
 
         private static LevelData level() {

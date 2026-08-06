@@ -41,6 +41,16 @@ public final class RepeaterBehavior implements BlockBehavior {
     }
 
     @Override
+    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+        notifyStrongTarget(world, x, y, z, state);
+    }
+
+    @Override
+    public void onBreak(World world, int x, int y, int z, BlockState state) {
+        notifyStrongTarget(world, x, y, z, state);
+    }
+
+    @Override
     public boolean onUse(World world, int x, int y, int z, BlockState state) {
         int delay = state.get(Properties.DELAY) % 4 + 1;
         /* MIT Nachbar-Update (MCs Flag 3): die Verzoegerung steckt im State, ein danebenstehender
@@ -129,9 +139,13 @@ public final class RepeaterBehavior implements BlockBehavior {
            Bedingungslos wie MCs DiodeBlock.updateNeighborsInFront — auch wenn dort LUFT steht.
            Sonst bliebe ein Kolben, der ueber Quasi-Konnektivitaet an genau dieser Luftzelle
            haengt, unbenachrichtigt (s. PistonBehavior.hasSignal). */
+        notifyStrongTarget(world, x, y, z, state);
+    }
+
+    /** Vanillas DiodeBlock#updateNeighborsInFront fuer Platzierung, Flanke und Entfernung. */
+    private static void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
-        int tx = x + out.offsetX(), tz = z + out.offsetZ();
-        world.updateNeighbors(tx, y, tz);
+        world.updateNeighbors(x + out.offsetX(), y, z + out.offsetZ());
     }
 
     /** Signal am Eingang (Gegenseite von FACING)? */
