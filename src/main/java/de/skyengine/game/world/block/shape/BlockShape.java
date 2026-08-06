@@ -1,6 +1,7 @@
 package de.skyengine.game.world.block.shape;
 
 import de.skyengine.game.physics.AABB;
+import de.skyengine.game.world.block.Direction;
 import org.joml.Vector3d;
 
 import java.util.NavigableSet;
@@ -18,10 +19,16 @@ public final class BlockShape {
 
     private final AABB[] boxes;
     private final boolean fullCube;
+    private final int fullFaceMask;
 
     public BlockShape(AABB[] boxes) {
         this.boxes = boxes;
         this.fullCube = coversUnitCube(boxes);
+        int faces = 0;
+        for (Direction direction : Direction.sharedValues()) {
+            if (coversFace(boxes, direction)) faces |= 1 << direction.faceIndex();
+        }
+        this.fullFaceMask = faces;
     }
 
     public static BlockShape box(double x0, double y0, double z0, double x1, double y1, double z1) {
@@ -39,6 +46,16 @@ public final class BlockShape {
     /** true, wenn die Kollisionsform den ganzen Blockraum 0..1 belegt. */
     public boolean isFullCube() {
         return this.fullCube;
+    }
+
+    /**
+     * true, wenn die Vereinigung der Kollisionsboxen die komplette angegebene Blockseite
+     * bedeckt. Entspricht fuer die hier achsenparallelen Shapes Vanillas
+     * {@code isFaceSturdy(..., SupportType.FULL)} und beruecksichtigt auch zusammengesetzte
+     * Flaechen, etwa die Rueckseite einer Treppe.
+     */
+    public boolean isFaceFull(Direction direction) {
+        return (this.fullFaceMask & 1 << direction.faceIndex()) != 0;
     }
 
     /**
@@ -74,6 +91,74 @@ public final class BlockShape {
             }
         }
         return true;
+    }
+
+    private static boolean coversFace(AABB[] boxes, Direction face) {
+        NavigableSet<Double> first = new TreeSet<>();
+        NavigableSet<Double> second = new TreeSet<>();
+        first.add(0.0);
+        first.add(1.0);
+        second.add(0.0);
+        second.add(1.0);
+        int firstAxis = face.axis() == Direction.Axis.X ? 1 : 0;
+        int secondAxis = face.axis() == Direction.Axis.Z ? 1 : 2;
+        if (face.axis() == Direction.Axis.Y) secondAxis = 2;
+
+        boolean hasTouchingBox = false;
+        for (AABB box : boxes) {
+            if (!touchesFace(box, face)) continue;
+            hasTouchingBox = true;
+            addBoundary(first, coordinate(box, firstAxis, false));
+            addBoundary(first, coordinate(box, firstAxis, true));
+            addBoundary(second, coordinate(box, secondAxis, false));
+            addBoundary(second, coordinate(box, secondAxis, true));
+        }
+        if (!hasTouchingBox) return false;
+
+        Double[] firstValues = first.toArray(Double[]::new);
+        Double[] secondValues = second.toArray(Double[]::new);
+        for (int a = 0; a < firstValues.length - 1; a++) {
+            double firstMid = (firstValues[a] + firstValues[a + 1]) * 0.5;
+            for (int b = 0; b < secondValues.length - 1; b++) {
+                double secondMid = (secondValues[b] + secondValues[b + 1]) * 0.5;
+                boolean covered = false;
+                for (AABB box : boxes) {
+                    if (!touchesFace(box, face)) continue;
+                    if (coordinate(box, firstAxis, false) <= firstMid
+                            && coordinate(box, firstAxis, true) >= firstMid
+                            && coordinate(box, secondAxis, false) <= secondMid
+                            && coordinate(box, secondAxis, true) >= secondMid) {
+                        covered = true;
+                        break;
+                    }
+                }
+                if (!covered) return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean touchesFace(AABB box, Direction face) {
+        return switch (face) {
+            case DOWN -> box.minY <= 0;
+            case UP -> box.maxY >= 1;
+            case NORTH -> box.minZ <= 0;
+            case SOUTH -> box.maxZ >= 1;
+            case WEST -> box.minX <= 0;
+            case EAST -> box.maxX >= 1;
+        };
+    }
+
+    private static double coordinate(AABB box, int axis, boolean max) {
+        return switch (axis) {
+            case 0 -> max ? box.maxX : box.minX;
+            case 1 -> max ? box.maxY : box.minY;
+            default -> max ? box.maxZ : box.minZ;
+        };
+    }
+
+    private static void addBoundary(NavigableSet<Double> boundaries, double value) {
+        if (value > 0 && value < 1) boundaries.add(value);
     }
 
     private static NavigableSet<Double> boundaries(AABB[] boxes, int axis) {

@@ -9,6 +9,8 @@ import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.BlockStateCodec;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.block.state.RedstoneSide;
+import de.skyengine.game.world.block.state.SlabType;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.test.BlocksTestBootstrap;
 import de.skyengine.utils.collect.LongIntMap;
@@ -120,6 +122,51 @@ final class RedstoneWireNetworkTest {
     }
 
     @Test
+    void wireDoesNotClimbUnsupportedBottomSlab() {
+        TestWorld world = climbShapeWorld(
+                state("stone_slab").with(Properties.SLAB_TYPE, SlabType.BOTTOM));
+
+        RedstoneWireNetwork.update(world, 0, 64, 0);
+
+        assertEquals(RedstoneSide.NONE,
+                Blocks.getState(world.getBlock(0, 64, 0)).get(Properties.WIRE_EAST));
+    }
+
+    @Test
+    void wireClimbsHopperAndTopSlabWithoutDrawingVerticalSide() {
+        for (BlockState support : new BlockState[]{
+                state("hopper"),
+                state("stone_slab").with(Properties.SLAB_TYPE, SlabType.TOP)
+        }) {
+            TestWorld world = climbShapeWorld(support);
+
+            RedstoneWireNetwork.update(world, 0, 64, 0);
+
+            assertEquals(RedstoneSide.SIDE,
+                    Blocks.getState(world.getBlock(0, 64, 0)).get(Properties.WIRE_EAST));
+        }
+    }
+
+    @Test
+    void wireMayBePlacedOnHopperAndGlassButNotBottomSlab() {
+        TestWorld world = new TestWorld();
+        BlockState wire = wireState();
+        world.put(0, 63, 0, state("hopper").getId());
+
+        assertTrue(wire.getBlock().getPlacementState(
+                world, 0, 64, 0, 0, 1, 0, 0.5, 1, 0.5, 0, 0, false) != null);
+
+        world.put(0, 63, 0, state("glass").getId());
+        assertTrue(wire.getBlock().getPlacementState(
+                world, 0, 64, 0, 0, 1, 0, 0.5, 1, 0.5, 0, 0, false) != null);
+
+        world.put(0, 63, 0,
+                state("stone_slab").with(Properties.SLAB_TYPE, SlabType.BOTTOM).getId());
+        assertTrue(wire.getBlock().getPlacementState(
+                world, 0, 64, 0, 0, 1, 0, 0.5, 1, 0.5, 0, 0, false) == null);
+    }
+
+    @Test
     void wireVisuallyConnectsToComparatorSide() {
         TestWorld world = new TestWorld();
         world.put(0, 64, 0, wireState().getId());
@@ -156,6 +203,17 @@ final class RedstoneWireNetworkTest {
         world.put(0, 64, 0, wire.getId());
         world.put(0, 65, 0, blockAboveLowerWire.getId());
         world.put(1, 64, 0, state("stone").getId());
+        world.put(1, 65, 0, wire.getId());
+        return world;
+    }
+
+    private static TestWorld climbShapeWorld(BlockState support) {
+        TestWorld world = new TestWorld();
+        BlockState wire = wireState();
+        world.put(0, 63, 0, state("stone").getId());
+        world.put(0, 64, 0, wire.getId());
+        world.put(0, 64, -1, wire.getId());
+        world.put(1, 64, 0, support.getId());
         world.put(1, 65, 0, wire.getId());
         return world;
     }

@@ -4,6 +4,8 @@ import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.behavior.SupportBehavior;
+import de.skyengine.game.world.block.behavior.TrapdoorBehavior;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.RedstoneSide;
@@ -231,10 +233,17 @@ public final class RedstoneWireNetwork {
     private static RedstoneSide sideShape(World world, int x, int y, int z, Direction direction) {
         int nx = x + direction.offsetX(), nz = z + direction.offsetZ();
         boolean aboveOpen = !Blocks.getState(world.getBlock(x, y + 1, z)).isRedstoneConductor();
-        if (aboveOpen && RedstonePower.isWire(Blocks.getState(world.getBlock(nx, y + 1, nz)))) {
-            return RedstoneSide.UP;
-        }
         BlockState neighbor = Blocks.getState(world.getBlock(nx, y, nz));
+        boolean mayClimb = neighbor.getBlock().getBehavior(TrapdoorBehavior.class) != null
+                || SupportBehavior.canSupportRedstoneWire(neighbor);
+        if (aboveOpen && mayClimb
+                && RedstonePower.isWire(Blocks.getState(world.getBlock(nx, y + 1, nz)))) {
+            /* Vanilla zeichnet UP nur an einer voll tragenden Seitenflaeche. Bei Hoppern,
+               oberen Slabs und passenden Trapdoors bleibt die Verbindung elektrisch
+               bestehen, wird am unteren Staub aber flach als SIDE dargestellt. */
+            return neighbor.getCollisionShape().isFaceFull(direction.opposite())
+                    ? RedstoneSide.UP : RedstoneSide.SIDE;
+        }
         if (RedstonePower.isWire(neighbor)) return RedstoneSide.SIDE;
         if (neighbor.getBlock().connectsRedstoneWire(neighbor, direction.opposite())) return RedstoneSide.SIDE;
         if (!neighbor.isRedstoneConductor()

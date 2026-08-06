@@ -57,27 +57,40 @@ public final class SupportBehavior implements BlockBehavior {
     @Override
     public boolean canPlace(PlacementContext ctx, BlockState state) {
         if (isUpperHalf(state)) return true;
-        return this.isValidSupport(Blocks.getState(ctx.world().getBlock(ctx.x(), ctx.y() - 1, ctx.z())));
+        return this.isValidSupport(
+                Blocks.getState(ctx.world().getBlock(ctx.x(), ctx.y() - 1, ctx.z())), state);
     }
 
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
         if (isUpperHalf(state)) return state;
-        if (this.isValidSupport(Blocks.getState(world.getBlock(x, y - 1, z)))) return state;
+        if (this.isValidSupport(Blocks.getState(world.getBlock(x, y - 1, z)), state)) return state;
         return Blocks.getState(Blocks.AIR); // Stütze ungültig -> zerbricht (kein Drop)
     }
 
-    private boolean isValidSupport(BlockState support) {
+    private boolean isValidSupport(BlockState support, BlockState supported) {
         if (this.allowedGround != null && !this.allowedGround.contains(support.getBlock().getIdentifier())) {
             return false;
         }
-        if (this.requireFullTop && !hasFullTopFace(support)) return false;
+        if (this.requireFullTop && !hasFullTopFace(support)
+                && !isRedstoneWireOnHopper(supported, support)) return false;
         return !this.requireCenterTop || hasCenterTopFace(support);
+    }
+
+    /** Vanillas einziger Sonderfall fuer Redstone-Staub: Er darf auf einem Hopper liegen. */
+    private static boolean isRedstoneWireOnHopper(BlockState supported, BlockState support) {
+        return supported.getValues().containsKey(Properties.WIRE_NORTH)
+                && support.getBlock().getBehavior(HopperBehavior.class) != null;
     }
 
     /** Volle tragende Oberseite: Vollwürfel oder Kollisionsbox über ganz x/z bis y=1. */
     private static boolean hasFullTopFace(BlockState state) {
-        return hasTopFace(state, 0F, 1F);
+        return state.getCollisionShape().isFaceFull(de.skyengine.game.world.block.Direction.UP);
+    }
+
+    /** Stuetze, auf der Vanilla Redstone-Staub ueberleben laesst: volle Oberseite oder Hopper. */
+    public static boolean canSupportRedstoneWire(BlockState state) {
+        return hasFullTopFace(state) || state.getBlock().getBehavior(HopperBehavior.class) != null;
     }
 
     /**
