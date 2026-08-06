@@ -127,19 +127,17 @@ public class World implements IInitializable, IDisposable {
     private long[] deferredScratch = new long[0];
     private Chunk[] deferredChunkScratch = new Chunk[0];
 
-    /* Block-Event-Queue (MCs Block-Events, heute nur Kolben): 0-Tick-Reaktion mit zwei
-       Drain-Punkten pro Tick — Drain A nach tickScheduled (Flanken aus Redstone-Ticks),
-       Drain B nach tickEntities (Re-Checks aus dem BE-finish). Jeder Drain-Punkt läuft in
-       Wellen, normalerweise BIS die Queue leer ist (MCs ServerLevel.runBlockEvents) — eine
-       Kaskade wird also im selben Durchgang fertig. Das ist der Unterschied zwischen „zwei gestapelte
-       Kolben fahren gleichzeitig" und „der zweite hinkt einen Tick" (s. processBlockEvents).
+    /* Block-Event-Queue (MCs Block-Events, heute nur Kolben): ServerLevel.runBlockEvents läuft
+       genau einmal nach den Block-/Fluidticks und vor Entities/BlockEntities. Innerhalb dieses
+       Drains läuft die Queue BIS sie leer ist; Events aus späteren BE-Ticks warten bis zum
+       nächsten Welttick.
        LinkedHashSet = Vanillas vollständige Event-Deduplizierung + FIFO + stabile Block-Bindung.
        Nicht tickende Chunks wandern mit vollständigen Eventdaten in Vanillas zweite Menge. */
     private static final int BLOCK_EVENT_TICK_PRIORITY = Integer.MAX_VALUE;
     private final LinkedHashSet<BlockEvent> blockEvents = new LinkedHashSet<>();
     /** Vanillas blockEventsToReschedule: außerhalb der Simulation unverändert bis zum Folgetick. */
     private final LinkedHashSet<BlockEvent> blockEventsToReschedule = new LinkedHashSet<>();
-    private long blockEventBudgetGameTime = Long.MIN_VALUE;
+    private long blockEventRescheduleGameTime = Long.MIN_VALUE;
     private long blockEventRevision;
 
     /** Der Spieler dieses Ticks (für BlockEntities, die ihn brauchen, z.B. das Zaubertisch-Buch). */
@@ -285,11 +283,10 @@ public class World implements IInitializable, IDisposable {
         this.processReadyChunks();
         this.processDeferredStateUpdates();
         this.tickScheduled();
-        this.processBlockEvents(); // Drain A: Flanken aus den Redstone-Ticks, noch VOR der BE-Phase
+        this.processBlockEvents(); // Vanillas einziger runBlockEvents-Punkt, VOR der BE-Phase
         this.tickRandomBlocks();
         this.tickBlockEntities();
         this.tickEntities();
-        this.processBlockEvents(); // Drain B: Re-Checks aus dem BE-finish, noch im selben Tick
         this.simulationTelemetry.endTick();
     }
 
@@ -1840,18 +1837,16 @@ public class World implements IInitializable, IDisposable {
      * außerhalb tickender Chunks wandern unverändert in {@code blockEventsToReschedule} und
      * werden erst im folgenden Game-Tick wieder aktiv.
      *
-     * <p>Warum das wichtig ist: löst ein Kolben beim Ausfahren über seinen Nachbar-Ring einen
-     * zweiten Kolben aus (2-hohe Kolbentür — der untere hängt an der Quasi-Konnektivität),
-     * dann muss dessen Bewegung noch VOR {@code tickBlockEntities} beginnen. Sonst verpasst er
-     * den Animationsschritt dieses Ticks und wird dauerhaft einen Tick später fertig — der
-     * Versatz pflanzt sich über den Re-Check aus dem BE-finish in jeden Zyklus fort.
+     * <p>Events, die der Drain selbst erzeugt, laufen noch in demselben Durchgang. Events aus
+     * den nachfolgenden BlockEntity-Ticks bleiben dagegen bis zum nächsten Welttick stehen —
+     * genau wie in {@code ServerLevel.tick}.
      *
      * <p>Terminierung entspricht Vanilla: identische Events werden dedupliziert und Empfänger
      * verwerfen veraltete Flanken anhand von Event-ID und aktuellem Signal.
      */
     private void processBlockEvents() {
-        if (this.blockEventBudgetGameTime != this.gameTime) {
-            this.blockEventBudgetGameTime = this.gameTime;
+        if (this.blockEventRescheduleGameTime != this.gameTime) {
+            this.blockEventRescheduleGameTime = this.gameTime;
             if (!this.blockEventsToReschedule.isEmpty()) {
                 this.blockEvents.addAll(this.blockEventsToReschedule);
                 this.blockEventsToReschedule.clear();

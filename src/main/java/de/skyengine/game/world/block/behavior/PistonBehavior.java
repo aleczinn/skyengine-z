@@ -42,10 +42,9 @@ import de.skyengine.game.world.redstone.RedstonePower;
  *
  * <p><b>Timing (MC-Parität):</b> Flanken laufen als Block-Event ({@code World.enqueueBlockEvent})
  * im SELBEN Game-Tick — 0 Ticks Reaktion wie MCs Block-Events — gefolgt von 2 Game-Ticks
- * Animation. Der finish der Source-BE reiht den Re-Check ebenfalls als Block-Event ein
- * (Drain B desselben Ticks): eine 2on/2off-Observer-Clock treibt den Kolben damit im
- * 4-Tick-Rhythmus wie MC. Der Tick-Scheduler bleibt nur Fallback für nicht simulierte
- * Chunks und fremde Animationen (persistiert im Save).
+ * Animation. Der finish der Source-BE reiht den Re-Check ebenfalls als Block-Event ein; weil
+ * Vanillas einziger Event-Drain dann bereits vorbei ist, läuft dieser im folgenden Welttick.
+ * Der Tick-Scheduler bleibt nur Kompatibilitäts-Fallback für ältere persistierte Zustände.
  */
 public final class PistonBehavior implements BlockBehavior {
 
@@ -131,8 +130,8 @@ public final class PistonBehavior implements BlockBehavior {
 
         /* Fast-Forward NUR bei echter Gegenflanke: die EIGENE laufende Bewegung sofort
            vollenden (nie abbrechen), dann frisch entscheiden. Läuft sie schon in die
-           gewünschte Richtung, ist nichts zu tun — der Re-Check aus dem finish (Drain B,
-           selber Tick) würde sonst die gerade gestartete Gegenbewegung sofort vollenden:
+           gewünschte Richtung, ist nichts zu tun — der Re-Check aus dem finish würde sonst
+           die gerade gestartete Gegenbewegung beim nächsten Event-Drain sofort vollenden:
            kein einziger gerenderter Frame, das Einfahren wäre ein Sprung. Beim sticky-Extend
            zusätzlich die Fracht-BE direkt vor dem Kopf mit-vollenden: sonst sähe
            resolveRetract dort noch MOVING und der Rückzug ließe den Block stehen. */

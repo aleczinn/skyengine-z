@@ -168,8 +168,8 @@ public final class PistonMovingBlockEntity extends BlockEntity {
                             base.with(de.skyengine.game.world.block.state.Properties.EXTENDED, false).getId(), true);
                 }
             }
-            /* Re-Check als Block-Event: läuft noch im SELBEN Tick (Drain B) und kann nicht
-               im First-wins-Dedup des Tick-Schedulers hängen bleiben. */
+            /* Re-Check als Block-Event: Vanillas Event-Drain ist für diesen Tick bereits
+               vorbei, deshalb läuft das Event am Anfang des folgenden Weltticks. */
             this.world.updateBlockStateAt(bx, by, bz);
         }
     }
