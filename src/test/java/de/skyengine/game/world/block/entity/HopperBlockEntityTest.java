@@ -124,6 +124,22 @@ final class HopperBlockEntityTest {
     }
 
     @Test
+    void poweredPlacementStartsEnabledAndLocksInOnPlacedPhase() {
+        TestWorld world = new TestWorld();
+        world.putBlock(-1, state("redstone_block"));
+        BlockState hopper = state("hopper").getBlock().getPlacementState(
+                world, 0, 64, 0, 0, 1, 0, 0.5, 1, 0.5, 0, 0, false);
+
+        assertTrue(hopper.get(Properties.ENABLED),
+                "Vanillas getStateForPlacement schreibt immer enabled=true");
+
+        world.putBlock(0, hopper);
+        hopper.getBlock().onPlaced(world, 0, 64, 0, hopper);
+
+        assertFalse(Blocks.getState(world.getBlock(0, 64, 0)).get(Properties.ENABLED));
+    }
+
+    @Test
     void suctionStartsAtElevenSixteenthsInsideHopper() {
         TestWorld world = new TestWorld();
         HopperBlockEntity hopper = world.addHopper(0, Direction.DOWN);
@@ -276,6 +292,12 @@ final class HopperBlockEntityTest {
         @Override
         public int getBlock(int x, int y, int z) {
             return this.blocks.getOrDefault(BlockPos.asLong(x, y, z), Blocks.AIR);
+        }
+
+        @Override
+        public boolean setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
+            this.blocks.put(BlockPos.asLong(x, y, z), block);
+            return true;
         }
 
         @Override

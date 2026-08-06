@@ -28,7 +28,16 @@ public final class HopperBehavior implements BlockBehavior {
         Direction facing = ctx.faceY() != 0 ? Direction.DOWN
                 : horizontalOf(ctx.faceX(), ctx.faceZ()).opposite();
         return state.with(Properties.FACING_ALL, facing)
-                .with(Properties.ENABLED, !RedstonePower.isReceiving(ctx.world(), ctx.x(), ctx.y(), ctx.z()));
+                .with(Properties.ENABLED, true);
+    }
+
+    @Override
+    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+        /* Vanilla setzt im Placement-State zunaechst enabled=true und fuehrt erst in
+           HopperBlock#onPlace checkPoweredState aus. Flag 2 erzeugt dabei keinen allgemeinen
+           Nachbar-Ring; den regulaeren Placement-Ring startet World direkt im Anschluss. */
+        BlockState checked = this.onNeighborUpdate(world, x, y, z, state);
+        if (checked != state) world.setBlock(x, y, z, checked.getId(), false);
     }
 
     private static Direction horizontalOf(int faceX, int faceZ) {
