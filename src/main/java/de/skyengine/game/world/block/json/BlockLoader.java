@@ -70,6 +70,7 @@ public final class BlockLoader {
                 .cullSame(definition.cull_same)
                 .noLodSurface(definition.no_lod_surface)
                 .leaves(definition.leaves)
+                .doesNotBlockHoppers(definition.does_not_block_hoppers)
                 .noItem(definition.no_item);
 
         Identifier id = Identifier.of(definition.id);

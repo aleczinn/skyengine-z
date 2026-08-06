@@ -128,8 +128,13 @@ public final class HopperBlockEntity extends BlockEntity {
             return false;
         }
         BlockState above = Blocks.getState(this.world.getBlock(x, y + 1, z));
-        if (above.getCollisionShape().isFullCube()) return false;
+        if (blocksItemEntitySuction(above)) return false;
         return this.suckItems();
+    }
+
+    /** Vanilla: volle Kollisionsform blockiert, außer der Block steht in does_not_block_hoppers. */
+    static boolean blocksItemEntitySuction(BlockState above) {
+        return above.getCollisionShape().isFullCube() && !above.getBlock().doesNotBlockHoppers();
     }
 
     /**

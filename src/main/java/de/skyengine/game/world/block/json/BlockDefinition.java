@@ -32,6 +32,10 @@ public class BlockDefinition {
     public boolean gravity = false;     // fällt nach unten (Sand, Kies) via GravityBehavior
     public boolean replaceable = false; // Platzieren in diese Zelle ersetzt den Block (Gras/Farn, wie MC — kein Drop)
     public boolean facing = false;      // horizontale Ausrichtung zum Spieler (Truhe, Ofen) via HorizontalFacingBehavior
+    /* Entspricht der Mitgliedschaft in Vanillas Blocktag does_not_block_hoppers. Ein voller
+       Kollisionsblock mit diesem Flag sperrt die Item-Entity-Saugzone darunter nicht
+       (26.2: der Tag verweist auf #beehives). */
+    public boolean does_not_block_hoppers = false;
 
     /* Explosion (TNT): explosion_power = Sprengkraft (null = nicht explosiv; MC-TNT = 4;
        ~60 Block Reichweite ≈ 45). explosion_fuse = Zünddauer in Ticks (default 80 = 4 s bei 20 TPS).

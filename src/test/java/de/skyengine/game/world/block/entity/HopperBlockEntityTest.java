@@ -3,6 +3,7 @@ package de.skyengine.game.world.block.entity;
 import de.skyengine.game.world.World;
 import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.ItemEntity;
+import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
@@ -168,6 +169,16 @@ final class HopperBlockEntityTest {
 
         assertTrue(item.isRemoved());
         assertEquals(1, hopper.getInventory().get(0).getCount());
+    }
+
+    @Test
+    void doesNotBlockHoppersFlagOverridesFullCollisionBlock() {
+        Block exempt = new Block(Identifier.of("skyengine:test_beehive"),
+                Block.Settings.create().doesNotBlockHoppers(true));
+
+        assertTrue(exempt.getDefaultState().getCollisionShape().isFullCube());
+        assertFalse(HopperBlockEntity.blocksItemEntitySuction(exempt.getDefaultState()));
+        assertTrue(HopperBlockEntity.blocksItemEntitySuction(state("stone")));
     }
 
     private static ItemStack stone(int count) {

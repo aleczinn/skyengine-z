@@ -189,6 +189,14 @@ public class Block {
         return this.settings.leaves;
     }
 
+    /**
+     * Mitgliedschaft in Vanillas Blocktag {@code does_not_block_hoppers}. Solche Blöcke
+     * lassen die Item-Entity-Saugzone eines Hoppers trotz voller Kollisionsform durch.
+     */
+    public boolean doesNotBlockHoppers() {
+        return this.settings.doesNotBlockHoppers;
+    }
+
     /** true: kein Auto-BlockItem — ein Material-Item mit {@code places_block} übernimmt (Staub). */
     public boolean hasNoItem() {
         return this.settings.noItem;
@@ -576,6 +584,7 @@ public class Block {
         boolean cullSame = false;
         boolean noLodSurface = false;
         boolean leaves = false;
+        boolean doesNotBlockHoppers = false;
         boolean noItem = false;
         RenderLayer renderLayer = RenderLayer.OPAQUE;
 
@@ -622,6 +631,11 @@ public class Block {
 
         public Settings leaves(boolean leaves) {
             this.leaves = leaves;
+            return this;
+        }
+
+        public Settings doesNotBlockHoppers(boolean doesNotBlockHoppers) {
+            this.doesNotBlockHoppers = doesNotBlockHoppers;
             return this;
         }
     }
