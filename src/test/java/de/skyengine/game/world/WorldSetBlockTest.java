@@ -81,7 +81,7 @@ final class WorldSetBlockTest {
     void redstoneTorchKeepsVanillaNestedNeighborOrderAndDuplicates() throws Exception {
         TestWorld world = new TestWorld();
 
-        world.updateRedstoneTorchNeighbors(10, 20, 30);
+        world.updateGeneralNeighborsAroundAdjacentCells(10, 20, 30);
 
         List<Long> expected = new ArrayList<>(36);
         Direction[] outerOrder = {

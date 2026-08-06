@@ -165,7 +165,7 @@ final class RedstoneTorchBehaviorTest {
         }
 
         @Override
-        public void updateRedstoneTorchNeighbors(int x, int y, int z) {}
+        public void updateGeneralNeighborsAroundAdjacentCells(int x, int y, int z) {}
 
         @Override
         public void scheduleTick(int x, int y, int z, int delayTicks) {

@@ -50,6 +50,49 @@ public final class RedstoneWireNetwork {
         update(world, x, y, z, visited);
     }
 
+    /**
+     * Vanillas Default-Evaluator-Aufruf nach dem Entfernen eines Staubs. Die Position enthaelt
+     * bereits Luft; der alte State wird nur fuer den Leistungsvergleich verwendet.
+     */
+    public static void updateAfterRemoval(World world, int x, int y, int z, BlockState oldState) {
+        int external = RedstonePower.receivedPowerIgnoringWire(world, x, y, z);
+        int incoming = external == 15 ? 0 : incomingWirePower(world, x, y, z);
+        int target = Math.max(external, Math.max(0, incoming - 1));
+        if (oldState.get(Properties.POWER) == target) return;
+        notifyCentersImmediately(world, notificationCenters(x, y, z));
+    }
+
+    /** Vanillas {@code RedStoneWireBlock.updateNeighborsOfNeighboringWires}. */
+    public static void updateCornersAfterRemoval(World world, int x, int y, int z) {
+        for (Direction direction : Direction.horizontalValues()) {
+            checkCornerChangeAt(world, x + direction.offsetX(), y, z + direction.offsetZ());
+        }
+        for (Direction direction : Direction.horizontalValues()) {
+            int nx = x + direction.offsetX(), nz = z + direction.offsetZ();
+            BlockState neighbor = Blocks.getState(world.getBlock(nx, y, nz));
+            if (neighbor.isRedstoneConductor()) {
+                checkCornerChangeAt(world, nx, y + 1, nz);
+            } else {
+                checkCornerChangeAt(world, nx, y - 1, nz);
+            }
+        }
+    }
+
+    private static void checkCornerChangeAt(World world, int x, int y, int z) {
+        if (!RedstonePower.isWire(Blocks.getState(world.getBlock(x, y, z)))) return;
+        world.updateGeneralNeighborsAt(x, y, z);
+        for (Direction direction : Direction.vanillaValues()) {
+            world.updateGeneralNeighborsAt(x + direction.offsetX(),
+                    y + direction.offsetY(), z + direction.offsetZ());
+        }
+    }
+
+    private static void notifyCentersImmediately(World world, List<WirePos> centers) {
+        for (WirePos center : centers) {
+            world.updateGeneralNeighborsAt(center.x, center.y, center.z);
+        }
+    }
+
     private static void update(World world, int x, int y, int z, LongIntMap visited) {
         if (!RedstonePower.isWire(Blocks.getState(world.getBlock(x, y, z)))) return;
         if (visited != null) visited.put(BlockPos.asLong(x, y, z), 1);

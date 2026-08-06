@@ -1737,22 +1737,28 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
-     * Exakter Benachrichtigungspfad von {@code RedstoneTorchBlock.notifyNeighbors}: Fuer jede
+     * Exakter gemeinsamer Pfad von {@code RedstoneTorchBlock.notifyNeighbors} und der ersten
+     * Phase von {@code RedStoneWireBlock.affectNeighborsAfterRemoval}: Fuer jede
      * der sechs angrenzenden Zellen in {@code Direction.values()}-Reihenfolge startet Vanilla
      * einen eigenen allgemeinen Sechser-Ring in {@code NeighborUpdater.UPDATE_ORDER}. Dadurch
      * wird die Ursprungszelle sechsmal erreicht und weitere Zellen mehrfach. Diese Duplikate und
      * ihre verschachtelte Reihenfolge sind bei Redstone beobachtbar und duerfen nicht zu einem
      * Radius-2-Diamanten zusammengefasst werden. Shape-Updates gehoeren nicht zu diesem Aufruf.
      */
-    public void updateRedstoneTorchNeighbors(int x, int y, int z) {
+    public void updateGeneralNeighborsAroundAdjacentCells(int x, int y, int z) {
         for (Direction outer : Direction.vanillaValues()) {
             int centerX = x + outer.offsetX();
             int centerY = y + outer.offsetY();
             int centerZ = z + outer.offsetZ();
-            for (Direction inner : Direction.neighborUpdateValues()) {
-                this.updateGeneralStateAt(centerX + inner.offsetX(),
-                        centerY + inner.offsetY(), centerZ + inner.offsetZ());
-            }
+            this.updateGeneralNeighborsAt(centerX, centerY, centerZ);
+        }
+    }
+
+    /** Vanillas {@code Level.updateNeighborsAt}: nur allgemeine Updates, keine Shape-Updates. */
+    public void updateGeneralNeighborsAt(int x, int y, int z) {
+        for (Direction direction : Direction.neighborUpdateValues()) {
+            this.updateGeneralStateAt(x + direction.offsetX(),
+                    y + direction.offsetY(), z + direction.offsetZ());
         }
     }
 
@@ -1832,10 +1838,8 @@ public class World implements IInitializable, IDisposable {
 
     /**
      * Merkt ein Block-Update für den NÄCHSTEN Tick vor (öffentliche Sicht auf das
-     * Nachhol-Protokoll). Für Fälle, in denen ein Empfänger erst NACH einer laufenden
-     * Entfernung neu rechnen darf — der Staub-Abbau nutzt das als Post-Removal-2-Ring
-     * (Vanillas onRemove-Äquivalent): eine Tür hinter einem stark gespeisten Block sähe
-     * den Staub sonst beim Re-Check noch stehen.
+     * Nachhol-Protokoll). Reguläre Vanilla-Nachbarupdates laufen unmittelbar; dieser Pfad ist
+     * ausschließlich für explizite Nachhol- und Diagnosefälle bestimmt.
      */
     public void deferBlockUpdate(int x, int y, int z) {
         Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);

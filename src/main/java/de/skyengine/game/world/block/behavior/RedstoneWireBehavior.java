@@ -1,7 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.game.world.World;
-import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
@@ -74,30 +73,11 @@ public final class RedstoneWireBehavior implements BlockBehavior {
     @Override
     public void onRemoved(World world, int x, int y, int z,
                           BlockState state, BlockState newState) {
-        /* Post-Removal-2-Ring (Vanillas onRemove): Empfänger HINTER einem stark gespeisten
-           Block (Tür an der Rückseite der Wand, 2 Zellen entfernt) stehen nicht im normalen
-           Abbau-Ring und erführen vom Entfernen nie. deferBlockUpdate re-evaluiert die
-           Positionen im NÄCHSTEN Tick — also nach dem Entfernen. */
-        for (Direction d : strongTargets(state)) {
-            int tx = x + d.offsetX(), ty = y + d.offsetY(), tz = z + d.offsetZ();
-            if (!Blocks.getState(world.getBlock(tx, ty, tz)).isRedstoneConductor()) continue;
-            for (Direction n : Direction.values()) {
-                world.deferBlockUpdate(tx + n.offsetX(), ty + n.offsetY(), tz + n.offsetZ());
-            }
-        }
-    }
-
-    /** Richtungen, in die dieser State stark einspeist: unten immer, verbundene Seiten dazu. */
-    private static Direction[] strongTargets(BlockState state) {
-        int count = 1;
-        Direction[] targets = new Direction[5];
-        targets[0] = Direction.DOWN;
-        for (Direction d : Direction.horizontalValues()) {
-            if (state.get(Properties.wireSide(d)).isConnected()) targets[count++] = d;
-        }
-        Direction[] out = new Direction[count];
-        System.arraycopy(targets, 0, out, 0, count);
-        return out;
+        /* RedStoneWireBlock.affectNeighborsAfterRemoval: alle Phasen laufen sofort und in
+           dieser Reihenfolge, nachdem die Welt bereits den Nachfolgezustand enthält. */
+        world.updateGeneralNeighborsAroundAdjacentCells(x, y, z);
+        RedstoneWireNetwork.updateAfterRemoval(world, x, y, z, state);
+        RedstoneWireNetwork.updateCornersAfterRemoval(world, x, y, z);
     }
 
     @Override
