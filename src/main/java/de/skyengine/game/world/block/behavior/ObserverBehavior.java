@@ -96,7 +96,17 @@ public final class ObserverBehavior implements BlockBehavior {
      */
     @Override
     public void onMovedByPiston(World world, int x, int y, int z, BlockState state, Direction moveDirection) {
-        if (!world.isTickScheduled(x, y, z)) world.scheduleTick(x, y, z, 2);
+        if (world.isTickScheduled(x, y, z)) return;
+        if (state.get(Properties.POWERED)) {
+            /* ObserverBlock#onPlace: Der Abschalt-Tick bleibt an der alten Position und wird
+               nicht mit dem Block verschoben. Vanilla setzt einen so angekommenen aktiven
+               Observer deshalb sofort aus und verteilt die fallende Ausgangsflanke. */
+            BlockState unpowered = state.with(Properties.POWERED, false);
+            world.setBlock(x, y, z, unpowered.getId(), false);
+            this.notifyStrongTarget(world, x, y, z, unpowered);
+            return;
+        }
+        world.scheduleTick(x, y, z, 2);
     }
 
     /** Die Behavior-Instanz hinter einer State-ID, oder null wenn das kein Beobachter ist. */

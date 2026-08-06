@@ -118,6 +118,35 @@ final class ObserverBehaviorTest {
                 "Vanilla benachrichtigt ohne ausstehenden Abschalt-Tick nicht extra");
     }
 
+    @Test
+    void poweredObserverMovedWithoutItsOldTickTurnsOffImmediately() {
+        TestWorld world = new TestWorld();
+        BlockState powered = state("observer")
+                .with(Properties.FACING_ALL, Direction.WEST)
+                .with(Properties.POWERED, true);
+        world.put(1, powered);
+
+        powered.getBlock().onMovedByPiston(world, 1, 64, 0, powered, Direction.NORTH);
+
+        assertEquals(false, Blocks.getState(world.getBlock(1, 64, 0)).get(Properties.POWERED));
+        assertEquals(0, world.scheduledTicks);
+        assertEquals(1, world.neighborUpdates);
+        assertEquals(2, world.lastNeighborX);
+    }
+
+    @Test
+    void unpoweredMovedObserverStillStartsItsArrivalPulse() {
+        TestWorld world = new TestWorld();
+        BlockState observer = state("observer")
+                .with(Properties.FACING_ALL, Direction.WEST)
+                .with(Properties.POWERED, false);
+
+        observer.getBlock().onMovedByPiston(world, 1, 64, 0, observer, Direction.NORTH);
+
+        assertEquals(1, world.scheduledTicks);
+        assertEquals(2, world.lastDelay);
+    }
+
     private static BlockState state(String path) {
         var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
@@ -163,6 +192,12 @@ final class ObserverBehaviorTest {
         @Override
         public int getBlock(int x, int y, int z) {
             return this.blocks.getOrDefault(BlockPos.asLong(x, y, z), Blocks.AIR);
+        }
+
+        @Override
+        public boolean setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
+            this.blocks.put(BlockPos.asLong(x, y, z), block);
+            return true;
         }
 
         @Override
