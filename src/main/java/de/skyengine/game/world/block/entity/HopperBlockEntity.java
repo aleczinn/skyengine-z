@@ -67,7 +67,10 @@ public final class HopperBlockEntity extends BlockEntity {
 
         int amount = state.getBlock().getHopperAmount();
         boolean pushed = this.pushOut(state.get(Properties.FACING_ALL), amount);
-        boolean pulled = this.pullIn(amount);
+        /* Vanilla prueft inventoryFull NACH dem Push: Ein zuvor voller Hopper darf ausgeben
+           und die so entstandene Luecke im selben Tick wieder fuellen. Bleibt er voll, wird
+           die Quelle gar nicht erst probeweise extrahiert und danach zurueckgebucht. */
+        boolean pulled = !isFull(this.inventory) && this.pullIn(amount);
         if (pushed || pulled) {
             this.cooldown = state.getBlock().getHopperCooldown();
             this.setChanged();
@@ -183,6 +186,14 @@ public final class HopperBlockEntity extends BlockEntity {
     private static boolean isEmpty(ItemStorage storage) {
         for (int i = 0; i < storage.size(); i++) {
             if (!storage.get(i).isEmpty()) return false;
+        }
+        return true;
+    }
+
+    private static boolean isFull(ItemStorage storage) {
+        for (int i = 0; i < storage.size(); i++) {
+            ItemStack stack = storage.get(i);
+            if (stack.isEmpty() || stack.getCount() < stack.getMaxStackSize()) return false;
         }
         return true;
     }

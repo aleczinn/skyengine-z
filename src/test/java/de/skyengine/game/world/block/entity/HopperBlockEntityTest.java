@@ -208,6 +208,26 @@ final class HopperBlockEntityTest {
     }
 
     @Test
+    void fullHopperDoesNotProbeAndMutateContainerAbove() {
+        TestWorld world = new TestWorld();
+        HopperBlockEntity receiver = world.addHopper(0, 64, Direction.DOWN);
+        HopperBlockEntity source = world.addHopper(0, 65, Direction.DOWN);
+        for (int slot = 0; slot < HopperBlockEntity.SLOTS; slot++) {
+            receiver.getInventory().set(slot, stone(64));
+        }
+        source.getInventory().set(0, stone(1));
+        world.modifiedCalls = 0;
+
+        world.gameTime = 1;
+        receiver.tick();
+
+        assertEquals(0, world.modifiedCalls,
+                "ein voller Hopper darf den Quellcontainer nicht probeweise extrahieren");
+        assertEquals(1, source.getInventory().get(0).getCount());
+        assertEquals(0, receiver.getCooldown());
+    }
+
+    @Test
     void doesNotBlockHoppersFlagOverridesFullCollisionBlock() {
         Block exempt = new Block(Identifier.of("skyengine:test_beehive"),
                 Block.Settings.create().doesNotBlockHoppers(true));
@@ -246,6 +266,7 @@ final class HopperBlockEntityTest {
         private long gameTime;
         private int scheduledTicks;
         private int lastScheduledDelay;
+        private int modifiedCalls;
 
         TestWorld() {
             super("__hopper_test", level(), null, null);
@@ -263,14 +284,18 @@ final class HopperBlockEntityTest {
         }
 
         HopperBlockEntity addHopper(int x, Direction facing) {
+            return this.addHopper(x, 64, facing);
+        }
+
+        HopperBlockEntity addHopper(int x, int y, Direction facing) {
             BlockState state = state("hopper")
                     .with(Properties.FACING_ALL, facing)
                     .with(Properties.ENABLED, true);
-            putBlock(x, state);
+            putBlock(x, y, 0, state);
             HopperBlockEntity hopper = new HopperBlockEntity(
-                    BlockEntities.HOPPER, new BlockPos(x, 64, 0));
+                    BlockEntities.HOPPER, new BlockPos(x, y, 0));
             hopper.setWorld(this);
-            this.blockEntities.put(BlockPos.asLong(x, 64, 0), hopper);
+            this.blockEntities.put(BlockPos.asLong(x, y, 0), hopper);
             return hopper;
         }
 
@@ -313,6 +338,7 @@ final class HopperBlockEntityTest {
         @Override
         public void markChunkModified(int x, int z) {
             this.changedX.add(x);
+            this.modifiedCalls++;
         }
 
         @Override
