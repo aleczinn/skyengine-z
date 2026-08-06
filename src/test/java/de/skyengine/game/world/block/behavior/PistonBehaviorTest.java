@@ -171,9 +171,11 @@ final class PistonBehaviorTest {
     void collidingStickyLineIsReorderedLikeVanilla() {
         List<Long> positions = new ArrayList<>(List.of(10L, 20L, 30L, 40L));
 
-        PistonResolver.reorderListAtCollision(positions, 2, 1);
+        int branchingEnd = PistonResolver.reorderListAtCollision(positions, 2, 1);
 
         assertEquals(List.of(10L, 30L, 40L, 20L), positions);
+        assertEquals(3, branchingEnd,
+                "Vanilla verzweigt bis collisionIndex + addedCount inklusive");
     }
 
     private static BlockState extendedStickyPiston(TestWorld world) {
