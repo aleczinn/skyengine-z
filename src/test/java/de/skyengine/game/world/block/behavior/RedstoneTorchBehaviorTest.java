@@ -95,6 +95,23 @@ final class RedstoneTorchBehaviorTest {
         assertEquals(0, world.scheduledTicks);
     }
 
+    @Test
+    void stateChangeUsesFlagThreeUpdatesBeforeTorchSpecificNeighborRings() {
+        TestWorld world = new TestWorld();
+        world.put(0, 64, 0, state("redstone_torch")
+                .with(Properties.ATTACH, AttachFace.FLOOR)
+                .with(Properties.LIT, true));
+        world.put(0, 63, 0, state("redstone_block"));
+
+        world.tickTorch();
+
+        assertFalse(world.torch().get(Properties.LIT));
+        assertTrue(world.lastSetBlockUpdatedNeighbors,
+                "Vanillas Flag 3 muss den direkt angrenzenden Staub aktualisieren");
+        assertEquals(1, world.torchNeighborRings,
+                "der zusaetzliche RedstoneTorchBlock.notifyNeighbors-Pfad darf nicht entfallen");
+    }
+
     private static BlockState state(String path) {
         var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
@@ -118,6 +135,8 @@ final class RedstoneTorchBehaviorTest {
         private int scheduledTicks;
         private int lastScheduledDelay;
         private boolean willTickThisTick;
+        private boolean lastSetBlockUpdatedNeighbors;
+        private int torchNeighborRings;
 
         TestWorld() {
             super("__redstone_torch_test", level(), null, null);
@@ -161,11 +180,14 @@ final class RedstoneTorchBehaviorTest {
         @Override
         public boolean setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
             this.blocks.put(BlockPos.asLong(x, y, z), block);
+            this.lastSetBlockUpdatedNeighbors = updateNeighbors;
             return true;
         }
 
         @Override
-        public void updateGeneralNeighborsAroundAdjacentCells(int x, int y, int z) {}
+        public void updateGeneralNeighborsAroundAdjacentCells(int x, int y, int z) {
+            this.torchNeighborRings++;
+        }
 
         @Override
         public void scheduleTick(int x, int y, int z, int delayTicks) {

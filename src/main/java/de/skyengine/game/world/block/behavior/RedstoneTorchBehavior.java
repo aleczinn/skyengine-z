@@ -79,7 +79,11 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
             world.scheduleTick(x, y, z, RESTART_DELAY);
         }
 
-        world.setBlock(x, y, z, state.with(Properties.LIT, lit).getId(), false);
+        /* Vanilla schreibt die Flanke mit Flag 3: Der direkte General-/Shape-Ring gehoert
+           zusaetzlich zu notifyNeighbors' verschachtelten sechs Nachbarringen. Ohne diesen
+           ersten Ring sieht unmittelbar angrenzender Staub die AUS-Flanke nicht und behaelt
+           seinen gespeicherten POWER-State, bis ihn eine Spieleraktion erneut berechnet. */
+        world.setBlock(x, y, z, state.with(Properties.LIT, lit).getId(), true);
         world.updateGeneralNeighborsAroundAdjacentCells(x, y, z);
     }
 
