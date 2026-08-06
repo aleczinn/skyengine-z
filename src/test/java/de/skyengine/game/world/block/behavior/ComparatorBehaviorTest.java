@@ -90,6 +90,20 @@ final class ComparatorBehaviorTest {
     }
 
     @Test
+    void itemFrameBehindConductorReplacesPowerReceivedByConductor() {
+        TestWorld world = new TestWorld();
+        world.itemFrameSignal = 6;
+        BlockState comparator = state("comparator")
+                .with(Properties.FACING, Direction.EAST)
+                .with(Properties.MODE, ComparatorMode.COMPARE)
+                .with(Properties.POWERED, false);
+        world.put(-1, 64, 0, state("stone"));
+        world.put(-1, 65, 0, state("redstone_block"));
+
+        assertEquals(6, ComparatorBehavior.computeOutput(world, 0, 64, 0, comparator));
+    }
+
+    @Test
     void schedulesHighPriorityWhenDrivingAnotherForwardDiode() {
         TestWorld world = new TestWorld();
         BlockState comparator = state("comparator")

@@ -169,13 +169,15 @@ public final class ComparatorBehavior implements BlockBehavior {
         if (directAnalog >= 0) return directAnalog;
 
         /* Vanilla schaut nur bei Signal < 15 durch genau EINEN leitenden Vollblock. Dort zaehlen
-           eine Analogquelle und exakt ein passend ausgerichtetes Item Frame; der groessere Wert
-           gewinnt gegen das bereits am Vollblock empfangene Redstone-Signal. */
+           eine Analogquelle und exakt ein passend ausgerichtetes Item Frame. Existiert eine
+           solche Quelle, ERSETZT ihr Wert das am Vollblock empfangene Redstone-Signal; nur
+           Analogquelle und Rahmen werden untereinander per Maximum kombiniert. */
         if (signal < 15 && directState.isRedstoneConductor()) {
             int fx = bx + back.offsetX(), fy = by + back.offsetY(), fz = bz + back.offsetZ();
             int farAnalog = containerSignal(world, fx, fy, fz);
             int frameAnalog = world.getItemFrameAnalogSignal(fx, fy, fz, back);
-            signal = Math.max(signal, Math.max(farAnalog, frameAnalog));
+            int analog = Math.max(farAnalog, frameAnalog);
+            if (analog >= 0) signal = analog;
         }
         return signal;
     }
