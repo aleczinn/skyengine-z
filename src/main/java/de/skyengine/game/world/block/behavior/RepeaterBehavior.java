@@ -31,9 +31,13 @@ public final class RepeaterBehavior implements BlockBehavior {
 
     @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
-        return state.with(Properties.FACING, Direction.fromYaw(ctx.playerYaw()))
+        BlockState placed = state.with(Properties.FACING, Direction.fromYaw(ctx.playerYaw()))
                 .with(Properties.DELAY, 1)
                 .with(Properties.POWERED, false);
+        /* RepeaterBlock#getStateForPlacement schreibt LOCKED bereits in den Placement-State.
+           Ein nachtraeglicher Korrektur-State waere fuer Observer und Update-Reihenfolge sichtbar. */
+        return placed.with(Properties.LOCKED,
+                isLocked(ctx.world(), ctx.x(), ctx.y(), ctx.z(), placed));
     }
 
     @Override

@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class RepeaterBehaviorTest {
 
@@ -69,6 +70,21 @@ final class RepeaterBehaviorTest {
         repeater.getBlock().scheduledTick(world, 0, 64, 0, repeater);
 
         assertEquals(TickPriority.VERY_HIGH, world.scheduledPriority);
+    }
+
+    @Test
+    void placementStateIsImmediatelyLockedByPoweredSideDiode() {
+        TestWorld world = new TestWorld();
+        world.put(0, 63, 0, state("stone"));
+        world.put(0, 64, -1, repeater(true).with(Properties.FACING, Direction.SOUTH));
+
+        BlockState placed = state("repeater").getBlock().getPlacementState(
+                world, 0, 64, 0,
+                0, 1, 0,
+                0.5, 0.5, 0.5,
+                90.0f, 0.0f, false);
+
+        assertTrue(placed.get(Properties.LOCKED));
     }
 
     private static BlockState repeater(boolean powered) {
