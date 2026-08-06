@@ -80,7 +80,7 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
         }
 
         world.setBlock(x, y, z, state.with(Properties.LIT, lit).getId(), false);
-        world.updateNeighborsWide(x, y, z);
+        world.updateRedstoneTorchNeighbors(x, y, z);
     }
 
     /**
@@ -127,14 +127,12 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
         }
     }
 
-    /* Die Fackel ist neben dem Staub die zweite Quelle, der MC den vollen Radius-2-Diamanten
-       gibt (RedstoneTorchBlock.notifyNeighbors — bei Platzieren, Abbauen und jeder Flanke).
-       Er deckt das starke Ziel oben ab UND einen Kolben, der über Quasi-Konnektivität an einer
-       Nachbarzelle der Fackel hängt (der ist selbst kein Nachbar der Fackel). */
+    /* Vanilla startet um jede der sechs Nachbarzellen einen eigenen allgemeinen Update-Ring.
+       Das erreicht Radius 2, bewahrt aber die beobachtbaren Duplikate und Reihenfolgen. */
 
     @Override
     public void onPlaced(World world, int x, int y, int z, BlockState state) {
-        world.updateNeighborsWide(x, y, z);
+        world.updateRedstoneTorchNeighbors(x, y, z);
     }
 
     @Override
@@ -142,7 +140,7 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
                           BlockState oldState, BlockState newState) {
         this.recent = this.recentByWorld.diagnosticEntries(world);
         this.recentByWorld.remove(world, x, y, z);
-        world.updateNeighborsWide(x, y, z);
+        world.updateRedstoneTorchNeighbors(x, y, z);
     }
 
     /** An, solange der Trägerblock KEIN Signal in die Fackel speist (Inverter). */

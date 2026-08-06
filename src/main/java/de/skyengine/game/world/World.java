@@ -1737,45 +1737,23 @@ public class World implements IInitializable, IDisposable {
     }
 
     /**
-     * Der Ring um diese Zelle UND um jeden ihrer 6 Nachbarn (= Diamant mit Radius 2).
-     *
-     * <p>Genau die Reichweite, die Minecraft den beiden „lauten" Redstone-Quellen gibt
-     * ({@code RedstoneTorchBlock.notifyNeighbors}, {@code RedStoneWireBlock.updatePowerStrength}).
-     * Sie ist die Voraussetzung dafür, dass Quasi-Konnektivität am Kolben praktisch nutzbar ist:
-     * eine Quelle, die die Zelle ÜBER dem Kolben speist, ist selbst kein Nachbar des Kolbens —
-     * ohne den zweiten Ring bliebe er stehen. Hebel/Knopf/Dioden bleiben bewusst schmaler,
-     * auch das ist MC-getreu.
-     *
-     * <p>Redstone-Staub verwendet diesen Sammelpfad nicht; dessen Vanilla-Evaluator erzeugt
-     * dieselbe Reichweite schrittweise über verschachtelte Nachbar-Updates.
+     * Exakter Benachrichtigungspfad von {@code RedstoneTorchBlock.notifyNeighbors}: Fuer jede
+     * der sechs angrenzenden Zellen in {@code Direction.values()}-Reihenfolge startet Vanilla
+     * einen eigenen allgemeinen Sechser-Ring in {@code NeighborUpdater.UPDATE_ORDER}. Dadurch
+     * wird die Ursprungszelle sechsmal erreicht und weitere Zellen mehrfach. Diese Duplikate und
+     * ihre verschachtelte Reihenfolge sind bei Redstone beobachtbar und duerfen nicht zu einem
+     * Radius-2-Diamanten zusammengefasst werden. Shape-Updates gehoeren nicht zu diesem Aufruf.
      */
-    public void updateNeighborsWide(int x, int y, int z) {
-        this.forEachWide(x, y, z, this::updateStateAt);
-    }
-
-    /**
-     * Derselbe Diamant, aber aufgeschoben auf den nächsten Tick — für {@code onBreak}, das VOR
-     * dem Entfernen läuft (s. {@link #deferBlockUpdate}). Ohne das bliebe ein Kolben, der über
-     * Quasi-Konnektivität an einer abgebauten Fackel hing, ausgefahren stehen.
-     */
-    public void deferBlockUpdatesWide(int x, int y, int z) {
-        this.forEachWide(x, y, z, this::deferBlockUpdate);
-    }
-
-    /** Alle Zellen mit Manhattan-Abstand <= 2 — jede genau einmal. */
-    private void forEachWide(int x, int y, int z, CellAction action) {
-        for (int dx = -2; dx <= 2; dx++) {
-            for (int dy = -2 + Math.abs(dx); dy <= 2 - Math.abs(dx); dy++) {
-                int rest = 2 - Math.abs(dx) - Math.abs(dy);
-                for (int dz = -rest; dz <= rest; dz++) {
-                    action.run(x + dx, y + dy, z + dz);
-                }
+    public void updateRedstoneTorchNeighbors(int x, int y, int z) {
+        for (Direction outer : Direction.vanillaValues()) {
+            int centerX = x + outer.offsetX();
+            int centerY = y + outer.offsetY();
+            int centerZ = z + outer.offsetZ();
+            for (Direction inner : Direction.neighborUpdateValues()) {
+                this.updateGeneralStateAt(centerX + inner.offsetX(),
+                        centerY + inner.offsetY(), centerZ + inner.offsetZ());
             }
         }
-    }
-
-    private interface CellAction {
-        void run(int x, int y, int z);
     }
 
     /**
@@ -1795,7 +1773,7 @@ public class World implements IInitializable, IDisposable {
         this.updateStateAt(x, y, z, changedDirection, UpdateKind.COMBINED);
     }
 
-    private void updateGeneralStateAt(int x, int y, int z) {
+    protected void updateGeneralStateAt(int x, int y, int z) {
         this.updateStateAt(x, y, z, null, UpdateKind.GENERAL);
     }
 

@@ -21,6 +21,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 
 final class WorldSetBlockTest {
 
@@ -77,6 +78,34 @@ final class WorldSetBlockTest {
     }
 
     @Test
+    void redstoneTorchKeepsVanillaNestedNeighborOrderAndDuplicates() throws Exception {
+        TestWorld world = new TestWorld();
+
+        world.updateRedstoneTorchNeighbors(10, 20, 30);
+
+        List<Long> expected = new ArrayList<>(36);
+        Direction[] outerOrder = {
+                Direction.DOWN, Direction.UP, Direction.NORTH,
+                Direction.SOUTH, Direction.WEST, Direction.EAST
+        };
+        Direction[] innerOrder = {
+                Direction.WEST, Direction.EAST, Direction.DOWN,
+                Direction.UP, Direction.NORTH, Direction.SOUTH
+        };
+        for (Direction outer : outerOrder) {
+            for (Direction inner : innerOrder) {
+                expected.add(BlockPos.asLong(10 + outer.offsetX() + inner.offsetX(),
+                        20 + outer.offsetY() + inner.offsetY(),
+                        30 + outer.offsetZ() + inner.offsetZ()));
+            }
+        }
+
+        assertIterableEquals(expected, world.generalUpdates);
+        assertEquals(6, world.generalUpdates.stream()
+                .filter(position -> position == BlockPos.asLong(10, 20, 30)).count());
+    }
+
+    @Test
     void batchRemovalRunsPostRemovalHooksAfterAirWrite() throws Exception {
         TestWorld world = new TestWorld();
         Chunk chunk = new Chunk(0, 0);
@@ -111,6 +140,7 @@ final class WorldSetBlockTest {
         private final ChunkManager manager;
         private int neighborUpdates;
         private final List<Long> updatedPositions = new ArrayList<>();
+        private final List<Long> generalUpdates = new ArrayList<>();
 
         TestWorld() throws ReflectiveOperationException {
             super("__set_block_test", level(), null, null);
@@ -129,6 +159,11 @@ final class WorldSetBlockTest {
         public void updateNeighbors(int x, int y, int z) {
             this.neighborUpdates++;
             this.updatedPositions.add(BlockPos.asLong(x, y, z));
+        }
+
+        @Override
+        protected void updateGeneralStateAt(int x, int y, int z) {
+            this.generalUpdates.add(BlockPos.asLong(x, y, z));
         }
 
         private static LevelData level() {
