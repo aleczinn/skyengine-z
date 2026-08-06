@@ -1002,7 +1002,9 @@ public class World implements IInitializable, IDisposable {
         boolean accepted = this.scheduledTicks.scheduleRestored(tick.x(), tick.y(), tick.z(), expectedBlock,
                 this.gameTime + Math.max(1, tick.remainingTicks()), tick.priority(), tick.subOrder());
         this.simulationTelemetry.recordScheduledRequest(accepted);
-        this.markChunkModified(tick.x(), tick.z());
+        /* Reiner Load-Pfad: Der Tick ist bereits Bestandteil des autoritativen
+           Chunk-Snapshots. Vanilla macht den Chunk beim Unpack ebenfalls nicht erneut
+           unsaved; erst eine spaetere Queue-Mutation erzeugt wieder Save-Arbeit. */
     }
 
     /** Stellt Event-ID und Parameter eines persistierten Vanilla-Blockevents wieder her. */
@@ -1014,7 +1016,8 @@ public class World implements IInitializable, IDisposable {
                 unpackBlockEventId(tick.subOrder()), unpackBlockEventParam(tick.subOrder()));
         if (!this.blockEvents.add(event)) return;
         this.blockEventRevision++;
-        this.markChunkModified(tick.x(), tick.z());
+        /* Wie bei restoreScheduledBlockTick stammt das Event aus dem bereits
+           geschriebenen Chunk-Snapshot und ist deshalb keine neue Weltmutation. */
     }
 
     private static long packBlockEventOrder(long order, int eventId, int eventParam) {

@@ -101,6 +101,36 @@ final class WorldScheduledTickPersistenceTest {
     }
 
     @Test
+    void restoringPersistedTickDoesNotDirtyItsChunkAgain() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = readyPistonChunk();
+        world.install(chunk);
+        chunk.markSaved(chunk.modificationEpoch());
+
+        world.restoreScheduledBlockTick(new SavedTick("block", "skyengine:piston",
+                3, 64, 4, 7, 0, 12));
+
+        assertFalse(chunk.isModified(),
+                "das Unpack eines bereits gespeicherten Ticks darf keine neue Save-Epoch erzeugen");
+        assertEquals(1, world.snapshotScheduledTicks(chunk).size());
+    }
+
+    @Test
+    void restoringPersistedBlockEventDoesNotDirtyItsChunkAgain() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = readyPistonChunk();
+        world.install(chunk);
+        chunk.markSaved(chunk.modificationEpoch());
+
+        world.restoreBlockEvent(new SavedTick("block_event", "skyengine:piston",
+                3, 64, 4, 1, 0, 0));
+
+        assertFalse(chunk.isModified(),
+                "das Unpack eines bereits gespeicherten Blockevents darf keine neue Save-Epoch erzeugen");
+        assertEquals(1, world.snapshotScheduledTicks(chunk).size());
+    }
+
+    @Test
     void unloadedChunkDropsRuntimeTicksAndEventsButKeepsLoadedNeighbors() throws Exception {
         TestWorld world = new TestWorld();
         Chunk unloaded = readyPistonChunk();
