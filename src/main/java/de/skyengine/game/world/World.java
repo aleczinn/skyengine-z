@@ -49,6 +49,7 @@ import de.skyengine.game.world.redstone.RedstoneWireNetwork;
 import de.skyengine.game.world.tick.SavedTick;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
 import de.skyengine.game.world.tick.ScheduledTickTypes;
+import de.skyengine.game.world.tick.TickPriority;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.graphics.FrameProfiler;
@@ -911,9 +912,15 @@ public class World implements IInitializable, IDisposable {
      * nach dem Neuladen still.</p>
      */
     public void scheduleTick(int x, int y, int z, int delayTicks) {
+        this.scheduleTick(x, y, z, delayTicks, TickPriority.NORMAL);
+    }
+
+    /** Plant einen Block-Tick mit Vanillas Prioritaetsreihenfolge innerhalb der Zielzeit. */
+    public void scheduleTick(int x, int y, int z, int delayTicks,
+                             TickPriority priority) {
         Identifier expectedBlock = Blocks.getState(this.getBlock(x, y, z)).getBlock().getIdentifier();
         boolean accepted = this.scheduledTicks.schedule(x, y, z, expectedBlock,
-                this.gameTime + Math.max(1, delayTicks));
+                this.gameTime + Math.max(1, delayTicks), priority.value());
         this.simulationTelemetry.recordScheduledRequest(accepted);
         if (accepted) this.markChunkModified(x, z);
     }

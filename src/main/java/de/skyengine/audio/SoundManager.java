@@ -54,6 +54,10 @@ public final class SoundManager implements IDisposable {
     private static final float DIG_GAIN = 1.0F, DIG_PITCH = 0.8F;
     /* UI-Button-Klick (wie MCs Button-Gain) */
     private static final float UI_CLICK_GAIN = 0.25F;
+    /* block.comparator.click: Gain 0,3; Subtract 0,55, Compare 0,5. */
+    private static final float COMPARATOR_CLICK_GAIN = 0.3F;
+    private static final float COMPARATOR_SUBTRACT_PITCH = 0.55F;
+    private static final float COMPARATOR_COMPARE_PITCH = 0.5F;
     /* Spieler-Sounds (Hurt/Aufprall/Essen) — nicht-positional am Listener, Kanal PLAYER. */
     private static final float HURT_GAIN = 1.0F;
     private static final float FALL_GAIN = 0.5F;
@@ -94,7 +98,8 @@ public final class SoundManager implements IDisposable {
     private final Random random = new Random();
 
     /* Lose Effekt-Sounds ohne BlockSoundGroup (null, solange die Dateien fehlen -> No-Op). */
-    private int[] uiClickVariants;   // ui/click.ogg
+    /* random/click.ogg wird von UI-Buttons und Vanillas Comparator-Klick geteilt. */
+    private int[] uiClickVariants;
     private int[] hurtVariants;      // damage/hit1..3
     private int[] fallSmallVariants; // damage/fallsmall.ogg
     private int[] fallBigVariants;   // damage/fallbig.ogg
@@ -293,6 +298,16 @@ public final class SoundManager implements IDisposable {
     /** UI-Button-Klick — nicht-positional, FESTER Pitch (MC-Klick klingt immer identisch). */
     public void playUiClick() {
         this.play(this.uiClickVariants, SoundCategory.UI, UI_CLICK_GAIN, 1.0F, false, false, 0, 0, 0);
+    }
+
+    /**
+     * Comparator-Moduswechsel wie Vanilla {@code ComparatorBlock#useWithoutItem}: positional,
+     * BLOCKS-Kanal, ohne Zufalls-Jitter. Subtract klingt mit 0,55 etwas hoeher als Compare 0,5.
+     */
+    public void playComparatorClick(boolean subtract, double x, double y, double z) {
+        this.play(this.uiClickVariants, SoundCategory.BLOCKS, COMPARATOR_CLICK_GAIN,
+                subtract ? COMPARATOR_SUBTRACT_PITCH : COMPARATOR_COMPARE_PITCH,
+                false, true, x, y, z);
     }
 
     /** Spieler nimmt Schaden — nicht-positional (eigener Spieler). */

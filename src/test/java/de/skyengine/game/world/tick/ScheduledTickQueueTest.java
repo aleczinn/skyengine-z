@@ -31,6 +31,18 @@ final class ScheduledTickQueueTest {
     }
 
     @Test
+    void drainsSameTimeByVanillaPriorityBeforeSubOrder() {
+        ScheduledTickQueue queue = new ScheduledTickQueue();
+        queue.schedule(1, 2, 3, STONE, 5, TickPriority.NORMAL.value());
+        queue.schedule(4, 5, 6, STONE, 5, TickPriority.HIGH.value());
+
+        List<Integer> fired = new ArrayList<>();
+        queue.drainDue(5, (x, y, z, block, priority, order) -> fired.add(x));
+
+        assertEquals(List.of(4, 1), fired);
+    }
+
+    @Test
     void firstScheduleWinsUnlessExplicitlyMovedEarlier() {
         ScheduledTickQueue queue = new ScheduledTickQueue();
 

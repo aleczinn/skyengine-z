@@ -10,6 +10,7 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.ComparatorMode;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.save.LevelData;
+import de.skyengine.game.world.tick.TickPriority;
 import de.skyengine.test.BlocksTestBootstrap;
 import de.skyengine.utils.collect.LongIntMap;
 import org.junit.jupiter.api.BeforeAll;
@@ -73,6 +74,48 @@ final class ComparatorBehaviorTest {
         assertEquals(6, ComparatorBehavior.computeOutput(world, 0, 64, 0, comparator));
     }
 
+    @Test
+    void schedulesHighPriorityWhenDrivingAnotherForwardDiode() {
+        TestWorld world = new TestWorld();
+        BlockState comparator = state("comparator")
+                .with(Properties.FACING, Direction.EAST)
+                .with(Properties.MODE, ComparatorMode.COMPARE)
+                .with(Properties.POWER, 0);
+        world.put(0, 64, 0, comparator);
+        world.put(-1, 64, 0, state("redstone_block"));
+        world.put(1, 64, 0, state("repeater").with(Properties.FACING, Direction.EAST));
+
+        comparator.getBlock().getStateForNeighborUpdate(world, 0, 64, 0, comparator);
+
+        assertEquals(TickPriority.HIGH, world.scheduledPriority);
+    }
+
+    @Test
+    void compareTickNotifiesOutputEvenWhenPulseReturnedToOldValue() {
+        TestWorld world = new TestWorld();
+        BlockState comparator = state("comparator")
+                .with(Properties.FACING, Direction.EAST)
+                .with(Properties.MODE, ComparatorMode.COMPARE)
+                .with(Properties.POWER, 0);
+
+        comparator.getBlock().scheduledTick(world, 0, 64, 0, comparator);
+
+        assertEquals(1, world.neighborUpdates);
+    }
+
+    @Test
+    void subtractTickSuppressesUnchangedOutputUpdate() {
+        TestWorld world = new TestWorld();
+        BlockState comparator = state("comparator")
+                .with(Properties.FACING, Direction.EAST)
+                .with(Properties.MODE, ComparatorMode.SUBTRACT)
+                .with(Properties.POWER, 0);
+
+        comparator.getBlock().scheduledTick(world, 0, 64, 0, comparator);
+
+        assertEquals(0, world.neighborUpdates);
+    }
+
     private static BlockState state(String path) {
         var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
@@ -82,6 +125,8 @@ final class ComparatorBehaviorTest {
     private static final class TestWorld extends World {
         private final LongIntMap blocks = new LongIntMap(16);
         private int itemFrameSignal = -1;
+        private TickPriority scheduledPriority;
+        private int neighborUpdates;
 
         TestWorld() {
             super("__comparator_test", level(), null, null);
@@ -99,6 +144,16 @@ final class ComparatorBehaviorTest {
         @Override
         public int getItemFrameAnalogSignal(int x, int y, int z, Direction direction) {
             return this.itemFrameSignal;
+        }
+
+        @Override
+        public void scheduleTick(int x, int y, int z, int delayTicks, TickPriority priority) {
+            this.scheduledPriority = priority;
+        }
+
+        @Override
+        public void updateNeighbors(int x, int y, int z) {
+            this.neighborUpdates++;
         }
 
         private static LevelData level() {

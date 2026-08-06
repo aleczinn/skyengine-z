@@ -1,5 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
+import de.skyengine.audio.SoundManager;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -11,6 +12,7 @@ import de.skyengine.game.world.block.state.ComparatorMode;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.redstone.RedstonePower;
+import de.skyengine.game.world.tick.TickPriority;
 
 /**
  * Komparator: variabler Signal-Durchlass mit Container-Messung. Konvention wie der
@@ -53,6 +55,11 @@ public final class ComparatorBehavior implements BlockBehavior {
         /* Modus-Wechsel ändert sofort auch den Soll-Ausgang mit. */
         int output = computeOutput(world, x, y, z, toggled);
         world.setBlock(x, y, z, toggled.with(Properties.POWER, output).getId(), true);
+        SoundManager sound = world.getSoundManager();
+        if (sound != null) {
+            sound.playComparatorClick(next == ComparatorMode.SUBTRACT,
+                    x + 0.5, y + 0.5, z + 0.5);
+        }
         notifyStrongTarget(world, x, y, z, toggled);
         return true;
     }
@@ -61,7 +68,9 @@ public final class ComparatorBehavior implements BlockBehavior {
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
         if (computeOutput(world, x, y, z, state) != state.get(Properties.POWER)
                 && !world.isTickScheduled(x, y, z)) {
-            world.scheduleTick(x, y, z, 2);
+            world.scheduleTick(x, y, z, 2,
+                    shouldPrioritize(world, x, y, z, state)
+                            ? TickPriority.HIGH : TickPriority.NORMAL);
         }
         return state;
     }
@@ -70,9 +79,27 @@ public final class ComparatorBehavior implements BlockBehavior {
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
         if (!state.getValues().containsKey(Properties.MODE)) return;   // tolerantes Feuern
         int output = computeOutput(world, x, y, z, state);
-        if (output == state.get(Properties.POWER)) return;
-        world.setBlock(x, y, z, state.with(Properties.POWER, output).getId(), true);
-        notifyStrongTarget(world, x, y, z, state);
+        boolean changed = output != state.get(Properties.POWER);
+        if (changed) world.setBlock(x, y, z, state.with(Properties.POWER, output).getId(), true);
+        /* Vanilla ComparatorBlock#refreshOutputState benachrichtigt im Compare-Modus auch dann
+           den Ausgang, wenn ein inzwischen zurueckgekehrter Kurzpuls keinen neuen Endwert mehr
+           erzeugt. Subtract unterdrueckt dieses redundante Update dagegen. */
+        if (changed || state.get(Properties.MODE) == ComparatorMode.COMPARE) {
+            notifyStrongTarget(world, x, y, z, state);
+        }
+    }
+
+    /**
+     * Vanilla DiodeBlock#shouldPrioritize, auf die Engine-Konvention FACING=Ausgang uebersetzt:
+     * Eine Diode in der Ausgangszelle priorisiert den Tick, ausser sie zeigt zurueck auf uns.
+     */
+    private static boolean shouldPrioritize(World world, int x, int y, int z, BlockState state) {
+        Direction out = state.get(Properties.FACING);
+        int nx = x + out.offsetX(), nz = z + out.offsetZ();
+        BlockState neighbor = Blocks.getState(world.getBlock(nx, y, nz));
+        boolean diode = neighbor.getValues().containsKey(Properties.DELAY)
+                || neighbor.getValues().containsKey(Properties.MODE);
+        return diode && neighbor.get(Properties.FACING) != out.opposite();
     }
 
     /** Soll-Ausgang aus hinterem Eingang (Signal/Container) und den Seiten. */
