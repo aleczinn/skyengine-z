@@ -1,6 +1,7 @@
 package de.skyengine.game.world;
 
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkStatus;
@@ -13,6 +14,7 @@ import java.lang.reflect.Field;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 final class WorldSetBlockTest {
@@ -33,6 +35,18 @@ final class WorldSetBlockTest {
         assertFalse(world.setBlock(1, 64, 1, Blocks.STONE, true));
         assertEquals(0, world.neighborUpdates);
         assertEquals(Blocks.STONE, chunk.getBlock(1, 64, 1));
+    }
+
+    @Test
+    void vanillaUsesDifferentOrdersForNeighborAndShapeUpdates() {
+        assertArrayEquals(new Direction[] {
+                Direction.WEST, Direction.EAST, Direction.DOWN,
+                Direction.UP, Direction.NORTH, Direction.SOUTH
+        }, Direction.neighborUpdateValues());
+        assertArrayEquals(new Direction[] {
+                Direction.WEST, Direction.EAST, Direction.NORTH,
+                Direction.SOUTH, Direction.DOWN, Direction.UP
+        }, Direction.shapeUpdateValues());
     }
 
     private static final class TestWorld extends World {

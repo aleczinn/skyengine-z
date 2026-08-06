@@ -324,7 +324,7 @@ public class Block {
      */
     public BlockState getStateForNeighborUpdate(de.skyengine.game.world.World world,
                                                 int x, int y, int z, BlockState state) {
-        return this.getStateForNeighborUpdate(world, x, y, z, state, null, null);
+        return this.getStateForGeneralNeighborUpdate(world, x, y, z, state);
     }
 
     /**
@@ -336,11 +336,14 @@ public class Block {
                                                 int x, int y, int z, BlockState state,
                                                 Direction direction, BlockState neighborState) {
         if (direction != null) {
-            for (BlockBehavior behavior : this.config.behaviors()) {
-                state = behavior.onNeighborShapeUpdate(
-                        world, x, y, z, state, direction, neighborState);
-            }
+            state = this.getStateForShapeUpdate(world, x, y, z, state, direction, neighborState);
         }
+        return this.getStateForGeneralNeighborUpdate(world, x, y, z, state);
+    }
+
+    /** Nur der allgemeine {@code neighborChanged}-Hook, ohne gerichtetes Shape-Update. */
+    public BlockState getStateForGeneralNeighborUpdate(de.skyengine.game.world.World world,
+                                                       int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             state = behavior.onNeighborUpdate(world, x, y, z, state);
         }

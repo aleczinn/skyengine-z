@@ -1695,9 +1695,17 @@ public class World implements IInitializable, IDisposable {
      * genau zwei Ringe, weiterhin keine Kaskade.</p>
      */
     public void updateNeighbors(int x, int y, int z) {
+        /* Engine-spezifischer Eigenabgleich fuer Placement-States (z.B. Doppeltruhen). */
         this.updateStateAt(x, y, z);
+
+        /* Vanilla trennt NeighborUpdater.UPDATE_ORDER von BlockBehaviour.UPDATE_SHAPE_ORDER.
+           Die allgemeine Kette wird vollstaendig abgearbeitet, bevor setBlock die Shape-
+           Updates startet. Das ist bei richtungsabhaengigem Redstone beobachtbar. */
+        for (Direction d : Direction.neighborUpdateValues()) {
+            this.updateGeneralStateAt(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ());
+        }
         for (Direction d : Direction.shapeUpdateValues()) {
-            this.updateStateAt(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ(), d.opposite());
+            this.updateShapeStateAt(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ(), d.opposite());
         }
     }
 
@@ -1757,6 +1765,20 @@ public class World implements IInitializable, IDisposable {
     }
 
     private void updateStateAt(int x, int y, int z, Direction changedDirection) {
+        this.updateStateAt(x, y, z, changedDirection, UpdateKind.COMBINED);
+    }
+
+    private void updateGeneralStateAt(int x, int y, int z) {
+        this.updateStateAt(x, y, z, null, UpdateKind.GENERAL);
+    }
+
+    private void updateShapeStateAt(int x, int y, int z, Direction changedDirection) {
+        this.updateStateAt(x, y, z, changedDirection, UpdateKind.SHAPE);
+    }
+
+    private enum UpdateKind { COMBINED, GENERAL, SHAPE }
+
+    private void updateStateAt(int x, int y, int z, Direction changedDirection, UpdateKind kind) {
         /* Nicht-READY-Zielchunk: setBlockRaw könnte ohnehin nicht schreiben — das Update
            würde still verlorengehen (Zaun im Nachbarchunk berechnet seine Verbindung dann
            NIE). Position parken; processDeferredStateUpdates zieht sie nach, sobald der
@@ -1772,15 +1794,19 @@ public class World implements IInitializable, IDisposable {
         if (id == Blocks.AIR) return;
         BlockState current = Blocks.getState(id);
         BlockState updated;
-        if (changedDirection == null) {
-            updated = current.getBlock().getStateForNeighborUpdate(this, x, y, z, current);
+        if (kind == UpdateKind.GENERAL || changedDirection == null) {
+            updated = current.getBlock().getStateForGeneralNeighborUpdate(this, x, y, z, current);
         } else {
             BlockState neighbor = Blocks.getState(this.getBlock(
                     x + changedDirection.offsetX(),
                     y + changedDirection.offsetY(),
                     z + changedDirection.offsetZ()));
-            updated = current.getBlock().getStateForNeighborUpdate(
+            updated = current.getBlock().getStateForShapeUpdate(
                     this, x, y, z, current, changedDirection, neighbor);
+            if (kind == UpdateKind.COMBINED) {
+                updated = current.getBlock().getStateForGeneralNeighborUpdate(
+                        this, x, y, z, updated);
+            }
         }
         if (updated != current) {
             /* Selbst-Entfernen kaskadiert (Tür-/Tall-Grass-Oberhälfte nach Stützverlust),
