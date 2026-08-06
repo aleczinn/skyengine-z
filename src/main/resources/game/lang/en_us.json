@@ -47,6 +47,11 @@
   "options": {
     "title": "Options",
     "fov": "FOV: %d",
+    "fov_scaling": "FOV Axis",
+    "fov_scaling_vertical": "Vertical",
+    "fov_scaling_horizontal": "Horizontal",
+    "fov_scaling_hint_vertical": "The slider is the <gray>vertical</gray> field of view.<br>Wide screens show more at the edges,<br>but distort them heavily (32:9: 140°).",
+    "fov_scaling_hint_horizontal": "The slider means the field of view at <gray>16:9</gray>.<br>The horizontal field of view then stays the<br>same on every screen: less edge distortion,<br>but a tighter vertical view.",
     "gui_scale": "GUI Scale",
     "gui_scale_auto": "Auto",
     "language": "Language...",

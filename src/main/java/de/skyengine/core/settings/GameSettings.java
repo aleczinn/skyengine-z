@@ -40,6 +40,17 @@ public final class GameSettings {
      */
     public enum LeavesQuality { LOW, MID, HIGH }
 
+    /**
+     * Worauf sich der FOV-Regler bezieht. VERTICAL = der Wert IST der vertikale FOV (bisheriges
+     * Verhalten, „Hor+"): der horizontale FOV wächst ungebremst mit dem Seitenverhältnis — auf
+     * 32:9 sind das bei Regler 75 ganze 140°, und bei 70° neben der Blickachse streckt eine
+     * rektilineare Projektion die Fläche um 1/cos³ ≈ 25× (die bekannte Ultrawide-Randverzerrung).
+     * HORIZONTAL = der Wert meint den FOV auf 16:9; der daraus abgeleitete horizontale FOV bleibt
+     * dann auf JEDEM breiteren Seitenverhältnis gleich, der vertikale schrumpft stattdessen
+     * („Vert-"). Bei 16:9 sind beide Modi identisch. Gerechnet wird in {@code Camera.fovYFor}.
+     */
+    public enum FovScaling { VERTICAL, HORIZONTAL }
+
     /* GUI-Größe als GANZZAHLIGER Faktor: 0 = automatisch (größter Faktor, der ins Fenster
        passt), sonst 1..MAX_GUI_SCALE. Zwischenstufen gibt es nicht und können es nicht geben:
        GUI-Grafik ist ein Texel-Raster mit GL_NEAREST, eine 1 Texel breite Linie muss also auf
@@ -51,6 +62,8 @@ public final class GameSettings {
     public int renderDistance = 16;   // in Chunks
     public int simulationDistance = 10; // in Chunks; nur Chunks in diesem Radius ticken (wie MC)
     public int fov = 75;
+    /* Default = bisheriges Verhalten: alte options.json ohne das Feld zeigen exakt dasselbe Bild. */
+    public FovScaling fovScaling = FovScaling.VERTICAL;
     public boolean vsync = false;
     public double mouseSensitivity = 1.0;
     public GraphicsMode graphicsMode = GraphicsMode.FANCY;
@@ -187,6 +200,7 @@ public final class GameSettings {
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;
+        if (this.fovScaling == null) this.fovScaling = FovScaling.VERTICAL;
         if (this.keyBindings == null) {
             this.keyBindings = KeyBindings.defaults();
         } else {

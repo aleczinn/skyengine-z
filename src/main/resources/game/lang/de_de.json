@@ -55,6 +55,11 @@
   "options": {
     "title": "Optionen",
     "fov": "FOV: %d",
+    "fov_scaling": "FOV-Bezug",
+    "fov_scaling_vertical": "Vertikal",
+    "fov_scaling_horizontal": "Horizontal",
+    "fov_scaling_hint_vertical": "Der Regler ist der <gray>senkrechte</gray> Blickwinkel.<br>Breite Bildschirme zeigen mehr am Rand,<br>verzerren dort aber stark (32:9: 140°).",
+    "fov_scaling_hint_horizontal": "Der Regler meint den Blickwinkel bei <gray>16:9</gray>.<br>Der waagerechte Blickwinkel bleibt dann auf<br>jedem Bildschirm gleich: weniger Verzerrung<br>am Rand, dafür senkrecht enger.",
     "gui_scale": "GUI-Größe",
     "gui_scale_auto": "Automatisch",
     "language": "Sprache...",

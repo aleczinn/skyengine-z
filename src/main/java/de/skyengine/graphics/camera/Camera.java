@@ -1,5 +1,6 @@
 package de.skyengine.graphics.camera;
 
+import de.skyengine.core.settings.GameSettings.FovScaling;
 import de.skyengine.game.entity.EntityPlayer;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
@@ -12,7 +13,11 @@ public class Camera {
     private final Vector3d position = new Vector3d();
     private float yaw, pitch;
 
+    /* Referenz-Seitenverhältnis des FOV-Reglers im HORIZONTAL-Modus (16:9). */
+    private static final float REF_ASPECT = 16F / 9F;
+
     private float fov = 75.0F;
+    private FovScaling fovScaling = FovScaling.VERTICAL;
     private float nearPlane = 0.05F;
     private float farPlane = 1500.0F;
 
@@ -74,17 +79,18 @@ public class Camera {
             this.camDelta.set(0F);
         }
 
+        float fovY = fovYFor(this.fov, aspectRatio, this.fovScaling);
         if (this.inverseDepth) {
             /* Reversed-Z: far→0, near→1, Depth-Range [0,1] */
             this.projection.setPerspective(
-                    (float) Math.toRadians(this.fov),
+                    (float) Math.toRadians(fovY),
                     (float) aspectRatio,
                     this.farPlane, this.nearPlane,   // bewusst getauscht!
                     true                              // zZeroToOne
             );
         } else {
             this.projection.setPerspective(
-                    (float) Math.toRadians(this.fov),
+                    (float) Math.toRadians(fovY),
                     (float) aspectRatio,
                     this.nearPlane,
                     this.farPlane
@@ -187,6 +193,28 @@ public class Camera {
 
     public void setFov(float fov) {
         this.fov = fov;
+    }
+
+    /** Bezug des FOV-Reglers (Ultrawide-Politik), s. {@link #fovYFor}. */
+    public void setFovScaling(FovScaling fovScaling) {
+        this.fovScaling = fovScaling;
+    }
+
+    /**
+     * Vertikaler FOV für {@code setPerspective} — JOMLs {@code fovy}-Parameter.
+     *
+     * <p>Im HORIZONTAL-Modus wird {@code fovDeg} als FOV bei 16:9 gelesen, daraus der horizontale
+     * FOV bestimmt und dieser festgenagelt; auf 32:9 schrumpft dadurch der vertikale FOV
+     * (75° → 42°), statt dass der horizontale auf 140° aufreißt und die Bildränder streckt.
+     *
+     * <p>Schmaler als die Referenz bleibt bewusst unverändert: sonst würde ein hochkant gezogenes
+     * Fenster den vertikalen FOV aufblasen (4:3 → 91°) — dieselbe Verzerrung, nur um 90° gedreht.
+     * Bei genau 16:9 ist das Ergebnis in beiden Modi {@code fovDeg}, das Bild also unverändert.
+     */
+    public static float fovYFor(float fovDeg, double aspect, FovScaling mode) {
+        if (mode != FovScaling.HORIZONTAL || aspect <= REF_ASPECT) return fovDeg;
+        double tanHalfH = Math.tan(Math.toRadians(fovDeg) * 0.5) * REF_ASPECT;
+        return (float) Math.toDegrees(2.0 * Math.atan(tanHalfH / aspect));
     }
 
     /** Sichtweite der Projektion (in Blöcken) — mit LOD hinter den äußersten Ring gelegt. */

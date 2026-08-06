@@ -1,7 +1,9 @@
 package de.skyengine.graphics.player;
 
 import de.skyengine.core.SkyEngine;
+import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.GameContainer;
+import de.skyengine.graphics.camera.Camera;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.PlayerAnimationState;
 import de.skyengine.game.world.item.Item;
@@ -11,8 +13,10 @@ import org.lwjgl.opengl.GL11;
 /**
  * First-Person-Hand: rechter Skin-Arm (leere Hand) bzw. gehaltenes Item, gezeichnet am Ende
  * von renderWorld ins HDR-Szene-Target (läuft durch die Post-Kette wie die Welt). Eigene
- * Projektion mit fixem FOV {@value #HAND_FOV} (wie MC, unabhängig vom Kamera-FOV-Setting;
- * Reversed-Z: near/far getauscht wie Camera) + eigener Depth-Clear — die Hand liegt immer
+ * Projektion mit fixem FOV {@value #HAND_FOV} (wie MC, unabhängig vom FOV-Regler — nur dessen
+ * Ultrawide-Bezug zieht die Hand über {@code Camera.fovYFor} mit, sonst wüchse das Item beim
+ * Umschalten gegenüber der Welt; Reversed-Z: near/far getauscht wie Camera) + eigener Depth-Clear
+ * — die Hand liegt immer
  * über der Welt. Die übergebene View-Matrix ist die Bob-/Hurt-Effektmatrix, so wackelt die
  * Hand mit der Kamera mit.
  *
@@ -37,10 +41,14 @@ public final class FirstPersonHandRenderer {
     public void render(PlayerRenderer playerRenderer, HeldItemMeshes items, EntityPlayer player,
                        PlayerAnimationState anim, float aspect, float partialTick, Matrix4f viewEffect,
                        float light) {
+        /* Der feste Hand-FOV läuft durch dieselbe Ultrawide-Politik wie die Welt — sonst bliebe
+           die Hand im HORIZONTAL-Modus breit, während die Welt vertikal enger wird, und das Item
+           sähe gegenüber der Welt geschrumpft aus. */
+        float fovY = Camera.fovYFor(HAND_FOV, aspect, GameSettings.get().fovScaling);
         if (SkyEngine.get().getWindow().getProperties().isUseInverseDepth()) {
-            this.proj.setPerspective((float) Math.toRadians(HAND_FOV), aspect, 20F, 0.05F, true);
+            this.proj.setPerspective((float) Math.toRadians(fovY), aspect, 20F, 0.05F, true);
         } else {
-            this.proj.setPerspective((float) Math.toRadians(HAND_FOV), aspect, 0.05F, 20F);
+            this.proj.setPerspective((float) Math.toRadians(fovY), aspect, 0.05F, 20F);
         }
         this.proj.mul(viewEffect, this.pv);
 

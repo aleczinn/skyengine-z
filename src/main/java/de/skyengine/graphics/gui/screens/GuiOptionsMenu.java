@@ -14,7 +14,8 @@ import de.skyengine.graphics.gui.widget.Slider;
 import de.skyengine.graphics.gui.widget.Spacer;
 
 /**
- * Optionsmenü (Übersicht): nur noch FOV + GUI-Größe direkt, alles andere auf Unterseiten —
+ * Optionsmenü (Übersicht): nur noch FOV (Wert + Bezug) und GUI-Größe direkt, alles andere auf
+ * Unterseiten —
  * {@link GuiSoundOptions} (Lautstärken/Gerät), {@link GuiControls} (Sensitivität/Toggles/
  * Tastenbelegung), {@link GuiVideoSettings} (Grafik inkl. VSync), {@link GuiLanguage} und
  * {@link GuiResourcePacks} (beides Platzhalter). Erreichbar aus Pause- und Titel-Menü;
@@ -47,6 +48,18 @@ public final class GuiOptionsMenu extends GuiOptionsScreen {
                     game.getCamera().setFov((int) v);
                 }, null);
 
+        /* Ultrawide-Politik des FOV-Reglers (s. GameSettings.FovScaling): VERTIKAL ist das
+           bisherige Verhalten, HORIZONTAL nagelt den horizontalen FOV auf den 16:9-Wert fest.
+           Bei 16:9 sind beide identisch, der Umschalter wirkt also erst ab 21:9 sichtbar. */
+        CycleButton<GameSettings.FovScaling> fovScaling = new CycleButton<>(
+                I18n.tr("options.fov_scaling"), CELL_W, CELL_H,
+                GameSettings.FovScaling.values(), this.settings.fovScaling,
+                v -> I18n.tr("options.fov_scaling_" + v.name().toLowerCase()),
+                v -> {
+                    this.settings.fovScaling = v;
+                    game.getCamera().setFovScaling(v);
+                }).tooltipOf(v -> I18n.tr("options.fov_scaling_hint_" + v.name().toLowerCase()));
+
         /* Nur ganzzahlige Faktoren, und nur die, die ins aktuelle Fenster passen — Prozent
            wären eine Lüge: Zwischenstufen kann die GUI gar nicht darstellen (Texel-Raster mit
            GL_NEAREST). 0 = automatisch. Die Liste wird bei jedem Layout neu gebaut, wächst
@@ -72,7 +85,10 @@ public final class GuiOptionsMenu extends GuiOptionsScreen {
         Button packs = new Button(I18n.tr("options.resourcepacks"), CELL_W, CELL_H, () -> gui.open(new GuiResourcePacks(this)));
         Button debug = new Button(I18n.tr("options.debug.button"), CELL_W, CELL_H, () -> gui.open(new GuiDebugScreen(this)));
 
-        content.add(new HStack(4, fov, guiScale));
+        /* Der Spacer hält das zweispaltige Raster — guiScale allein in der Zeile säße sonst
+           linksbündig statt in der Flucht der Spalte darüber. */
+        content.add(new HStack(4, fov, fovScaling));
+        content.add(new HStack(4, guiScale, new Spacer(CELL_W, CELL_H)));
         content.add(new Spacer(0, 8));
         content.add(new HStack(4, graphics, sound));
         content.add(new HStack(4, language, controls));
