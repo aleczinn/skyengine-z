@@ -6,6 +6,7 @@ import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.redstone.RedstonePower;
+import de.skyengine.game.world.tick.TickPriority;
 
 /**
  * Verstärker (Repeater): richtungsgebundene Diode mit einstellbarer Verzögerung.
@@ -56,9 +57,27 @@ public final class RepeaterBehavior implements BlockBehavior {
         }
         if (!locked && hasInput(world, x, y, z, state) != state.get(Properties.POWERED)
                 && !world.isTickScheduled(x, y, z)) {
-            world.scheduleTick(x, y, z, state.get(Properties.DELAY) * 2);
+            TickPriority priority;
+            if (shouldPrioritize(world, x, y, z, state)) {
+                priority = TickPriority.EXTREMELY_HIGH;
+            } else if (state.get(Properties.POWERED)) {
+                priority = TickPriority.VERY_HIGH;
+            } else {
+                priority = TickPriority.HIGH;
+            }
+            world.scheduleTick(x, y, z, state.get(Properties.DELAY) * 2, priority);
         }
         return state;
+    }
+
+    /** Vanilla DiodeBlock#shouldPrioritize, uebersetzt auf FACING=Ausgang. */
+    private static boolean shouldPrioritize(World world, int x, int y, int z, BlockState state) {
+        Direction out = state.get(Properties.FACING);
+        int nx = x + out.offsetX(), nz = z + out.offsetZ();
+        BlockState neighbor = Blocks.getState(world.getBlock(nx, y, nz));
+        boolean diode = neighbor.getValues().containsKey(Properties.DELAY)
+                || neighbor.getValues().containsKey(Properties.MODE);
+        return diode && neighbor.get(Properties.FACING) != out.opposite();
     }
 
     /** Gesperrt, wenn links oder rechts eine Diode mit Signal auf diesen Verstärker zeigt. */
@@ -95,7 +114,8 @@ public final class RepeaterBehavior implements BlockBehavior {
                und schaltete beim Feuern sofort — die Verzögerung hinge dann an der EIN-
                statt an der AUS-Flanke (gemessen: Staub vor und hinter dem Verstärker
                gingen gleichzeitig aus). */
-            if (!input) world.scheduleTick(x, y, z, state.get(Properties.DELAY) * 2);
+            if (!input) world.scheduleTick(x, y, z, state.get(Properties.DELAY) * 2,
+                    TickPriority.VERY_HIGH);
         }
     }
 
