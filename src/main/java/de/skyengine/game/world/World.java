@@ -1341,6 +1341,10 @@ public class World implements IInitializable, IDisposable {
      */
     public boolean setBlock(int x, int y, int z, int block, boolean updateNeighbors) {
         int old = this.getBlock(x, y, z);
+        /* LevelChunk#setBlockState liefert bei identischer BlockState null; Level#setBlock
+           bricht daraufhin ohne Licht-, Save- oder Nachbararbeit ab. Insbesondere darf ein
+           Same-State-Write keinen Observer und keine Redstone-Kaskade vortäuschen. */
+        if (old == block) return false;
         if (!this.setBlockRaw(x, y, z, block)) return false;
         this.manageBlockEntity(x, y, z, old, block);
         if (updateNeighbors) this.updateNeighbors(x, y, z);
