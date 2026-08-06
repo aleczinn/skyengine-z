@@ -6,7 +6,9 @@ import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.ComparatorBlockEntity;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.block.state.BlockStateCodec;
 import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.tick.SavedTick;
@@ -155,6 +157,40 @@ final class ChunkSerializerTest {
                 new Chunk(0, 0), payloadWithBlockEntityCount(-1), null));
         assertThrows(IOException.class, () -> ChunkSerializer.decompress(
                 new byte[]{1}, 64 * 1024 * 1024 + 1));
+    }
+
+    @Test
+    void duplicatedLegacySectionSlotsMayExceedDeduplicatedChunkPalette() throws Exception {
+        final int globalCount = 168;
+        final int localCount = 173;
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            writeHeader(out, globalCount);
+            for (int stateId = 0; stateId < globalCount; stateId++) {
+                out.writeUTF(BlockStateCodec.encode(Blocks.getState(stateId)));
+            }
+
+            out.writeByte(2); // SECTION_BITS
+            out.writeInt(localCount);
+            for (int i = 0; i < localCount; i++) out.writeInt((i + 1) % globalCount);
+            out.writeByte(8);
+            out.writeInt(ChunkSection.VOLUME);
+            int longCount = ChunkSection.VOLUME * 8 / Long.SIZE;
+            out.writeInt(longCount);
+            for (int i = 0; i < longCount; i++) out.writeLong(0L);
+
+            for (int section = 1; section < Chunk.SECTIONS; section++) out.writeByte(0);
+            out.writeByte(0); // keine Tints
+            out.writeInt(0);  // keine BlockEntities
+            out.writeInt(0);  // keine Scheduled-Ticks
+            out.writeInt(0);  // keine Entities
+        }
+
+        Chunk restored = new Chunk(-1, 0);
+        ChunkSerializer.deserialize(restored, bytes.toByteArray(), null);
+
+        assertEquals(1, restored.getBlock(0, 0, 0));
+        assertEquals(localCount, restored.getSection(0).container().paletteEntries().length);
     }
 
     @Test

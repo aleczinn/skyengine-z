@@ -344,7 +344,12 @@ public final class ChunkSerializer {
                 }
                 case SECTION_BITS -> {
                     int localCount = in.readInt();
-                    if (localCount < 1 || localCount > paletteCount) {
+                    /* Die chunkweite Palette dedupliziert State-IDs. Alte lokale Paletten
+                       koennen dagegen unbenutzte oder doppelte Slots enthalten; deshalb darf
+                       localCount groesser als paletteCount sein. Obergrenze ist die Zahl der
+                       Zellen einer Section: mehr Slots koennen keinen gueltigen Zellindex
+                       repraesentieren und waeren nur eine unkontrollierte Allokation. */
+                    if (localCount < 1 || localCount > ChunkSection.VOLUME) {
                         throw new IOException("Ungültige Section-Palette (" + localCount + " Einträge)");
                     }
                     int[] local = new int[localCount];
