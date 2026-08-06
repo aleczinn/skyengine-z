@@ -445,7 +445,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.world.setSimulationDistance(this.settings.simulationDistance);
         }
         this.camera.setFov(this.settings.fov);
-        this.camera.setFovScaling(this.settings.fovScaling);
+        this.camera.setMaxFovX(this.settings.fovMaxHorizontal);
         this.camera.setFarPlane(this.computeFarPlane());
         this.guiManager.setScale(this.settings.guiScaleLevel);
         /* Über das Window setzen, damit dessen Zustand (config.isVSync) authoritativ bleibt -

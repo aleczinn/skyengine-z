@@ -1,6 +1,5 @@
 package de.skyengine.graphics.camera;
 
-import de.skyengine.core.settings.GameSettings.FovScaling;
 import de.skyengine.game.entity.EntityPlayer;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
@@ -13,11 +12,9 @@ public class Camera {
     private final Vector3d position = new Vector3d();
     private float yaw, pitch;
 
-    /* Referenz-Seitenverhältnis des FOV-Reglers im HORIZONTAL-Modus (16:9). */
-    private static final float REF_ASPECT = 16F / 9F;
-
     private float fov = 75.0F;
-    private FovScaling fovScaling = FovScaling.VERTICAL;
+    /* Deckel für den waagerechten Blickwinkel (Grad); 180 = aus. S. fovYFor. */
+    private float maxFovX = 180.0F;
     private float nearPlane = 0.05F;
     private float farPlane = 1500.0F;
 
@@ -79,7 +76,7 @@ public class Camera {
             this.camDelta.set(0F);
         }
 
-        float fovY = fovYFor(this.fov, aspectRatio, this.fovScaling);
+        float fovY = fovYFor(this.fov, aspectRatio, this.maxFovX);
         if (this.inverseDepth) {
             /* Reversed-Z: far→0, near→1, Depth-Range [0,1] */
             this.projection.setPerspective(
@@ -195,26 +192,27 @@ public class Camera {
         this.fov = fov;
     }
 
-    /** Bezug des FOV-Reglers (Ultrawide-Politik), s. {@link #fovYFor}. */
-    public void setFovScaling(FovScaling fovScaling) {
-        this.fovScaling = fovScaling;
+    /** Deckel für den waagerechten Blickwinkel in Grad, 180 = aus — s. {@link #fovYFor}. */
+    public void setMaxFovX(float maxFovXDeg) {
+        this.maxFovX = maxFovXDeg;
     }
 
     /**
-     * Vertikaler FOV für {@code setPerspective} — JOMLs {@code fovy}-Parameter.
+     * Senkrechter FOV für {@code setPerspective} (JOMLs {@code fovy}) unter dem Ultrawide-Deckel.
      *
-     * <p>Im HORIZONTAL-Modus wird {@code fovDeg} als FOV bei 16:9 gelesen, daraus der horizontale
-     * FOV bestimmt und dieser festgenagelt; auf 32:9 schrumpft dadurch der vertikale FOV
-     * (75° → 42°), statt dass der horizontale auf 140° aufreißt und die Bildränder streckt.
+     * <p>{@code fovDeg} ist und bleibt der senkrechte Blickwinkel (MC-Bedeutung des Reglers). Nur
+     * wenn der daraus folgende waagerechte Blickwinkel {@code maxFovXDeg} überschreiten würde,
+     * wird er so weit abgesenkt, dass der waagerechte genau dort liegt — auf 32:9 also z.B.
+     * 90° → 73° für einen Deckel von 140° statt der sonst 150°.
      *
-     * <p>Schmaler als die Referenz bleibt bewusst unverändert: sonst würde ein hochkant gezogenes
-     * Fenster den vertikalen FOV aufblasen (4:3 → 91°) — dieselbe Verzerrung, nur um 90° gedreht.
-     * Bei genau 16:9 ist das Ergebnis in beiden Modi {@code fovDeg}, das Bild also unverändert.
+     * <p>Das {@code min(...)} ist tragend: der Deckel darf den FOV nur senken, nie anheben. Sonst
+     * bliese ein schmales Fenster (4:3) den senkrechten FOV auf — dieselbe Verzerrung, nur um 90°
+     * gedreht. Aus demselben Grund ist 180 = aus (ein rektilinearer FOV erreicht 180° nie).
      */
-    public static float fovYFor(float fovDeg, double aspect, FovScaling mode) {
-        if (mode != FovScaling.HORIZONTAL || aspect <= REF_ASPECT) return fovDeg;
-        double tanHalfH = Math.tan(Math.toRadians(fovDeg) * 0.5) * REF_ASPECT;
-        return (float) Math.toDegrees(2.0 * Math.atan(tanHalfH / aspect));
+    public static float fovYFor(float fovDeg, double aspect, float maxFovXDeg) {
+        if (maxFovXDeg >= 180F) return fovDeg;
+        double tanHalfY = Math.tan(Math.toRadians(maxFovXDeg) * 0.5) / aspect;
+        return Math.min(fovDeg, (float) Math.toDegrees(2.0 * Math.atan(tanHalfY)));
     }
 
     /** Sichtweite der Projektion (in Blöcken) — mit LOD hinter den äußersten Ring gelegt. */

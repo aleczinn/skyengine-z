@@ -40,17 +40,6 @@ public final class GameSettings {
      */
     public enum LeavesQuality { LOW, MID, HIGH }
 
-    /**
-     * Worauf sich der FOV-Regler bezieht. VERTICAL = der Wert IST der vertikale FOV (bisheriges
-     * Verhalten, „Hor+"): der horizontale FOV wächst ungebremst mit dem Seitenverhältnis — auf
-     * 32:9 sind das bei Regler 75 ganze 140°, und bei 70° neben der Blickachse streckt eine
-     * rektilineare Projektion die Fläche um 1/cos³ ≈ 25× (die bekannte Ultrawide-Randverzerrung).
-     * HORIZONTAL = der Wert meint den FOV auf 16:9; der daraus abgeleitete horizontale FOV bleibt
-     * dann auf JEDEM breiteren Seitenverhältnis gleich, der vertikale schrumpft stattdessen
-     * („Vert-"). Bei 16:9 sind beide Modi identisch. Gerechnet wird in {@code Camera.fovYFor}.
-     */
-    public enum FovScaling { VERTICAL, HORIZONTAL }
-
     /* GUI-Größe als GANZZAHLIGER Faktor: 0 = automatisch (größter Faktor, der ins Fenster
        passt), sonst 1..MAX_GUI_SCALE. Zwischenstufen gibt es nicht und können es nicht geben:
        GUI-Grafik ist ein Texel-Raster mit GL_NEAREST, eine 1 Texel breite Linie muss also auf
@@ -62,8 +51,16 @@ public final class GameSettings {
     public int renderDistance = 16;   // in Chunks
     public int simulationDistance = 10; // in Chunks; nur Chunks in diesem Radius ticken (wie MC)
     public int fov = 75;
-    /* Default = bisheriges Verhalten: alte options.json ohne das Feld zeigen exakt dasselbe Bild. */
-    public FovScaling fovScaling = FovScaling.VERTICAL;
+    /* Deckel für den WAAGERECHTEN Blickwinkel in Grad; 180 = aus (Default = bisheriges Bild).
+       Der FOV-Regler darüber ist der SENKRECHTE Blickwinkel (MC-Bedeutung) — der waagerechte
+       wächst daraus ungebremst mit dem Seitenverhältnis: auf 32:9 sind es bei Regler 75 ganze
+       140°, und bei 70° neben der Blickachse streckt eine rektilineare Projektion die Fläche um
+       1/cos³ ≈ 25× (die bekannte Ultrawide-Randverzerrung). Der Deckel senkt in dem Fall den
+       senkrechten FOV so weit ab, dass der waagerechte hier stehen bleibt. Zwei Regler, weil es
+       zwei getrennte Wahrnehmungen sind: senkrecht = Zoom-Gefühl, waagerecht = Randverzerrung.
+       Je schmaler der Bildschirm, desto später greift der Deckel — auf 16:9 erst ab Regler 114
+       (Deckel 140) bzw. 89 (Deckel 120). Gerechnet wird in {@code Camera.fovYFor}. */
+    public int fovMaxHorizontal = 180;
     public boolean vsync = false;
     public double mouseSensitivity = 1.0;
     public GraphicsMode graphicsMode = GraphicsMode.FANCY;
@@ -178,6 +175,7 @@ public final class GameSettings {
         this.renderDistance = Math.clamp(this.renderDistance, 2, 32);
         this.simulationDistance = Math.clamp(this.simulationDistance, 2, 32);
         this.fov = Math.clamp(this.fov, 30, 120);
+        this.fovMaxHorizontal = Math.clamp(this.fovMaxHorizontal, 90, 180);
         this.anisotropicFiltering = Math.clamp(this.anisotropicFiltering, 1, 16);
         this.msaaSamples = Math.clamp(this.msaaSamples, 0, 16);
         this.lodMaxDistance = Math.clamp(this.lodMaxDistance, 8, 512);
@@ -200,7 +198,6 @@ public final class GameSettings {
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;
-        if (this.fovScaling == null) this.fovScaling = FovScaling.VERTICAL;
         if (this.keyBindings == null) {
             this.keyBindings = KeyBindings.defaults();
         } else {

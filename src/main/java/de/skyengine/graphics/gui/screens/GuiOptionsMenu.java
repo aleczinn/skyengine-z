@@ -48,17 +48,17 @@ public final class GuiOptionsMenu extends GuiOptionsScreen {
                     game.getCamera().setFov((int) v);
                 }, null);
 
-        /* Ultrawide-Politik des FOV-Reglers (s. GameSettings.FovScaling): VERTIKAL ist das
-           bisherige Verhalten, HORIZONTAL nagelt den horizontalen FOV auf den 16:9-Wert fest.
-           Bei 16:9 sind beide identisch, der Umschalter wirkt also erst ab 21:9 sichtbar. */
-        CycleButton<GameSettings.FovScaling> fovScaling = new CycleButton<>(
-                I18n.tr("options.fov_scaling"), CELL_W, CELL_H,
-                GameSettings.FovScaling.values(), this.settings.fovScaling,
-                v -> I18n.tr("options.fov_scaling_" + v.name().toLowerCase()),
+        /* Deckel für den waagerechten Blickwinkel (s. GameSettings.fovMaxHorizontal): der zweite
+           Regler für die zweite Wahrnehmung — der FOV-Regler darüber macht den Zoom, dieser hier
+           die Randverzerrung auf breiten Bildschirmen. 180 = aus; je schmaler der Bildschirm,
+           desto später greift er überhaupt. */
+        Slider fovMaxH = new Slider(CELL_W, CELL_H, 90, 180, 5, this.settings.fovMaxHorizontal,
+                v -> v >= 180 ? I18n.tr("options.fov_max_h_off") : I18n.tr("options.fov_max_h", (int) v),
                 v -> {
-                    this.settings.fovScaling = v;
-                    game.getCamera().setFovScaling(v);
-                }).tooltipOf(v -> I18n.tr("options.fov_scaling_hint_" + v.name().toLowerCase()));
+                    this.settings.fovMaxHorizontal = (int) v;
+                    game.getCamera().setMaxFovX((int) v);
+                }, null);
+        fovMaxH.tooltip(I18n.tr("options.fov_max_h_hint"));
 
         /* Nur ganzzahlige Faktoren, und nur die, die ins aktuelle Fenster passen — Prozent
            wären eine Lüge: Zwischenstufen kann die GUI gar nicht darstellen (Texel-Raster mit
@@ -87,7 +87,7 @@ public final class GuiOptionsMenu extends GuiOptionsScreen {
 
         /* Der Spacer hält das zweispaltige Raster — guiScale allein in der Zeile säße sonst
            linksbündig statt in der Flucht der Spalte darüber. */
-        content.add(new HStack(4, fov, fovScaling));
+        content.add(new HStack(4, fov, fovMaxH));
         content.add(new HStack(4, guiScale, new Spacer(CELL_W, CELL_H)));
         content.add(new Spacer(0, 8));
         content.add(new HStack(4, graphics, sound));
