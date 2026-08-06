@@ -194,34 +194,17 @@ public final class PistonBehavior implements BlockBehavior {
      * (Beobachter, 1-Tick-Repeater-Puls) und Grundlage realer Maschinen.
      *
      * <p>Vanilla ({@code PistonBaseBlock.checkIfExtend}) schickt dafür statt TRIGGER_CONTRACT ein
-     * TRIGGER_DROP, sobald {@code getProgress(0) < 0.5 || gameTime == lastTicked}; in
-     * {@code triggerEvent} überspringt dieser Typ den ganzen Zieh-Zweig. Die dritte Klausel
-     * {@code !isHandlingTick} hat hier keine Entsprechung — wir haben keinen Pfad, der Kolben
-     * ausserhalb des Ticks schaltet.
-     *
-     * <p><b>Die Schwelle ist bei uns 1.0, nicht Vanillas 0.5 — das ist Absicht</b> und darf nicht
-     * „zurück auf MC" korrigiert werden. Vanilla puffert frisch angelegte BlockEntities
-     * ({@code pendingBlockEntityTickers}), sie ticken erst im Folge-Tick; unsere ticken schon im
-     * Anlege-Tick (das „Off-by-one", das {@link PistonMovingBlockEntity} in seiner Animation
-     * absorbiert). Unser Fortschritt steht beim Gegenflanken-Check deshalb genau eine Stufe
-     * weiter als Vanillas {@code progressO}. Für einen Puls ab Tick T:
-     *
-     * <pre>
-     * Puls-Ende  Vanilla progressO  unser lastProgress   Ergebnis
-     * T+1        0                  0                    Drop
-     * T+2        0                  0.5                  Drop     (Beobachter-Puls!)
-     * T+3        0.5                BE ist schon fertig   Rückzug
-     * </pre>
-     *
-     * Mit 0.5 fiel genau die Zeile T+2 heraus — und das ist die häufigste von allen, weil ein
-     * Beobachter exakt 2 Ticks pulst ({@code ObserverBehavior}: {@code scheduleTick(…, 2)}).
-     * Ab T+3 gibt es gar keine Fracht-BE mehr, der Rückzug läuft also ohnehin normal.
-     *
-     * <p>Die zweite Klausel ist nicht redundant: sie fängt die Gegenflanke, die uns über den
-     * ZWEITEN Block-Event-Drain erreicht, also nach dem Animations-Tick desselben Ticks.
+     * TRIGGER_DROP, sobald {@code getProgress(0) < 0.5}, die BE in derselben Weltzeit bereits
+     * tickte oder {@code ServerLevel.isHandlingTick()} wahr ist. In {@code triggerEvent}
+     * überspringt dieser Typ den ganzen Zieh-Zweig. Alle drei Klauseln stammen unmittelbar aus
+     * dem Vanilla-26.2-Bytecode; insbesondere darf die Tick-Klausel nicht durch eine höhere
+     * Fortschrittsschwelle angenähert werden, weil Kolben auch außerhalb des Weltticks geschaltet
+     * werden können.
      */
     private static boolean isTooEarlyToPull(World world, PistonMovingBlockEntity cargo) {
-        return cargo.getProgress(0.0f) < 1.0f || cargo.getLastTicked() == world.getGameTime();
+        return cargo.getProgress(0.0f) < 0.5f
+                || cargo.getLastTicked() == world.getGameTime()
+                || world.isHandlingTick();
     }
 
     /** Die eigene Source-Moving-BE an der Kopf-Zelle (Extend wie Retract sitzen dort), sonst null. */

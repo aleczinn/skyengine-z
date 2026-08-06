@@ -147,6 +147,8 @@ public class World implements IInitializable, IDisposable {
 
     /** Spielzeit in Ticks (20 TPS), bei jedem update() erhöht - Basis für geplante Ticks. */
     private long gameTime;
+    /** Vanillas ServerLevel#isHandlingTick; u. a. Teil der Sticky-Piston-Drop-Regel. */
+    private boolean handlingTick;
     private final Random random = new Random();
     private final ScheduledTickQueue scheduledTicks = new ScheduledTickQueue();
     private final SimulationTelemetry simulationTelemetry = new SimulationTelemetry();
@@ -256,6 +258,15 @@ public class World implements IInitializable, IDisposable {
     }
 
     public void update(Input input, EntityPlayer player) {
+        this.handlingTick = true;
+        try {
+            this.updateWhileHandlingTick(input, player);
+        } finally {
+            this.handlingTick = false;
+        }
+    }
+
+    private void updateWhileHandlingTick(Input input, EntityPlayer player) {
         this.simulationTelemetry.setEnabled(FrameProfiler.isEnabled());
         this.simulationTelemetry.beginTick();
         this.gameTime++;
@@ -1017,6 +1028,11 @@ public class World implements IInitializable, IDisposable {
     /** Aktuelle Spielzeit in Ticks (20 TPS). */
     public long getGameTime() {
         return this.gameTime;
+    }
+
+    /** true ausschließlich während des vollständigen Server-Weltticks. */
+    public boolean isHandlingTick() {
+        return this.handlingTick;
     }
 
     /** Diagnosezaehler dieser Welt; standardmaessig nur im Full-Debug-Modus aktiv. */
