@@ -56,6 +56,48 @@ final class MinecartEntityTest {
     }
 
     @Test
+    void cartGainsHeightWhileClimbingAscendingRail() {
+        TestWorld world = new TestWorld();
+        BlockState slope = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+                .with(Properties.RAIL_SHAPE, RailShape.ASCENDING_EAST);
+        world.put(0, 64, 0, slope);
+        world.put(1, 65, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+                .with(Properties.RAIL_SHAPE, RailShape.EAST_WEST));
+        MinecartEntity cart = new MinecartEntity();
+        cart.setPosition(0.25, 64.3125, 0.5);
+        cart.motionX = 0.2;
+
+        cart.tick(world);
+
+        assertTrue(cart.x > 0.25);
+        assertTrue(cart.y > 64.3125);
+        assertTrue(cart.pitch > 0);
+    }
+
+    @Test
+    void cartClimbsOverUpperRailSupportInsteadOfCollidingWithIt() {
+        TestWorld world = new TestWorld() {
+            @Override public List<AABB> getCollisionBoxes(AABB area) {
+                AABB upperSupport = new AABB(1, 64, 0, 2, 65, 1);
+                return area.intersects(upperSupport) ? List.of(upperSupport) : List.of();
+            }
+        };
+        world.put(0, 64, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+                .with(Properties.RAIL_SHAPE, RailShape.ASCENDING_EAST));
+        world.put(1, 64, 0, BlockRegistry.get(Identifier.of("skyengine:stone")).getDefaultState());
+        world.put(1, 65, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+                .with(Properties.RAIL_SHAPE, RailShape.EAST_WEST));
+        MinecartEntity cart = new MinecartEntity();
+        cart.setPosition(0.2, 64.2625, 0.5);
+        cart.motionX = 0.35;
+
+        for (int i = 0; i < 5; i++) cart.tick(world);
+
+        assertTrue(cart.x > 1.0, "Minecart blieb am Stützblock der Steigung hängen");
+        assertTrue(cart.y >= 65.0625);
+    }
+
+    @Test
     void handHitsAccumulateBeforeMinecartBreaks() {
         TestWorld world = new TestWorld();
         MinecartEntity cart = new MinecartEntity();
@@ -73,7 +115,7 @@ final class MinecartEntityTest {
                 .with(Properties.POWERED, powered);
     }
 
-    private static final class TestWorld extends World {
+    private static class TestWorld extends World {
         private final LongIntMap blocks = new LongIntMap(32);
 
         TestWorld() { super("__minecart_test", level(), null, null); }

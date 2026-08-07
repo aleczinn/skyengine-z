@@ -6,6 +6,10 @@ import de.skyengine.game.world.block.behavior.RailBehavior;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.RailShape;
+import de.skyengine.game.physics.AABB;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /** Fahrbares Standard-Minecart mit Vanilla-naher Schienenprojektion und Antriebsschienen-Physik. */
 public final class MinecartEntity extends Entity {
@@ -49,6 +53,7 @@ public final class MinecartEntity extends Entity {
         if (rail != null) {
             this.moveOnRail(world, rail);
         } else {
+            this.pitch = 0;
             this.motionY -= GRAVITY;
             this.motionX = Math.clamp(this.motionX, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
             this.motionZ = Math.clamp(this.motionZ, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
@@ -79,6 +84,7 @@ public final class MinecartEntity extends Entity {
 
         Segment segment = segment(rail.x, rail.y, rail.z, shape);
         double tx = segment.x1 - segment.x0;
+        double ty = segment.y1 - segment.y0;
         double tz = segment.z1 - segment.z0;
         double length = Math.sqrt(tx * tx + tz * tz);
         tx /= length;
@@ -86,7 +92,7 @@ public final class MinecartEntity extends Entity {
 
         double speed = Math.sqrt(this.motionX * this.motionX + this.motionZ * this.motionZ);
         double dot = this.motionX * tx + this.motionZ * tz;
-        if (dot < 0) { tx = -tx; tz = -tz; }
+        if (dot < 0) { tx = -tx; ty = -ty; tz = -tz; }
         double along = speed;
         if (speed < 0.01 && (this.passengerImpulseX != 0 || this.passengerImpulseZ != 0)) {
             along = Math.max(0, this.passengerImpulseX * tx + this.passengerImpulseZ * tz);
@@ -96,6 +102,7 @@ public final class MinecartEntity extends Entity {
         along = Math.clamp(along, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
         this.motionX = tx * along;
         this.motionZ = tz * along;
+        this.pitch = (float) Math.toDegrees(Math.atan2(ty, 1.0));
 
         String id = rail.state.getBlock().getIdentifier().path();
         if ("powered_rail".equals(id)) {
@@ -119,7 +126,9 @@ public final class MinecartEntity extends Entity {
 
         this.motionX = Math.clamp(this.motionX, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
         this.motionZ = Math.clamp(this.motionZ, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
-        this.move(world, this.motionX, 0, this.motionZ);
+        /* Auf Steigungen muss die vertikale Bewegung VOR der horizontalen Blockkollision
+           stattfinden. Mit dy=0 prallte die AABB gegen den Stützblock der oberen Schiene. */
+        this.move(world, this.motionX, ty * along, this.motionZ);
 
         RailPosition after = this.findRail(world);
         if (after != null) this.snapTo(segment(after.x, after.y, after.z,
@@ -142,6 +151,28 @@ public final class MinecartEntity extends Entity {
                     world.getBlock(rail.x, rail.y, rail.z + 1)).isSolid();
             if (northSolid != southSolid) this.motionZ = northSolid ? 0.02 : -0.02;
         }
+    }
+
+    @Override
+    protected List<AABB> collisionBoxes(World world, AABB area) {
+        List<AABB> boxes = super.collisionBoxes(world, area);
+        if (boxes.isEmpty() || this.findRail(world) == null) return boxes;
+        ArrayList<AABB> filtered = null;
+        for (int i = 0; i < boxes.size(); i++) {
+            AABB box = boxes.get(i);
+            int x = (int) Math.floor((box.minX + box.maxX) * 0.5);
+            int yAbove = (int) Math.floor(box.maxY + 1.0E-7);
+            int z = (int) Math.floor((box.minZ + box.maxZ) * 0.5);
+            if (RailBehavior.railAt(world, x, yAbove, z) == null) {
+                if (filtered != null) filtered.add(box);
+                continue;
+            }
+            if (filtered == null) {
+                filtered = new ArrayList<>(boxes.size() - 1);
+                filtered.addAll(boxes.subList(0, i));
+            }
+        }
+        return filtered != null ? filtered : boxes;
     }
 
     private void snapTo(Segment segment) {

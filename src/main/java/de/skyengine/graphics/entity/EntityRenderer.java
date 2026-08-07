@@ -199,7 +199,8 @@ public final class EntityRenderer {
             this.drawItemFrame(frame, ox, oy, oz);
         } else if (e instanceof MinecartEntity minecart) {
             this.model.translation(ox, oy, oz)
-                    .rotateY((float) Math.toRadians(-minecart.yaw));
+                    .rotateY((float) Math.toRadians(-minecart.yaw))
+                    .rotateX((float) Math.toRadians(minecart.pitch));
             float hurt = Math.max(0, minecart.getHurtTime() - partialTick);
             float damage = Math.max(0, minecart.getDamage() - partialTick);
             if (hurt > 0) {
@@ -209,7 +210,9 @@ public final class EntityRenderer {
             this.shader.setUniformMatrix4f(this.locModel, this.model);
             this.minecartTexture.bind(1);
             this.shader.setUniformi(this.locUseEntityTexture, 1);
+            GlState.disableCullFace();
             this.minecartMesh.render();
+            GlState.enableCullFace();
             this.shader.setUniformi(this.locUseEntityTexture, 0);
             this.textures.bind(0);
         } else if (e instanceof ItemEntity item) {
@@ -301,38 +304,56 @@ public final class EntityRenderer {
         return data;
     }
 
-    /** Offener Vanilla-Minecart-Rumpf aus Boden und vier Waenden; Textur ist 64x32. */
+    /** Vanillas fünf ModelPart-Würfel inklusive der originalen 64x32-Box-UV-Belegung. */
     private static float[] buildMinecartMesh() {
         float[] data = new float[5 * 6 * 6 * FLOATS_PER_VERTEX];
         int[] cursor = {0};
-        float layer = 0f; // bei u_EntityTexture wird die Array-Ebene ignoriert
-        minecartBox(data, cursor, -0.625f, 0.02f, -0.5f, 0.625f, 0.12f, 0.5f, layer, 0, 10, 20, 26);
-        minecartBox(data, cursor, -0.625f, 0.10f, -0.5f, 0.625f, 0.60f, -0.42f, layer, 0, 0, 20, 8);
-        minecartBox(data, cursor, -0.625f, 0.10f, 0.42f, 0.625f, 0.60f, 0.5f, layer, 0, 0, 20, 8);
-        minecartBox(data, cursor, -0.625f, 0.10f, -0.42f, -0.545f, 0.60f, 0.42f, layer, 0, 0, 16, 8);
-        minecartBox(data, cursor, 0.545f, 0.10f, -0.42f, 0.625f, 0.60f, 0.42f, layer, 0, 0, 16, 8);
+        minecartCube(data, cursor, -10,-8,-1, 20,16,2, 0,10, 0,4,0, 90,0);
+        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, -9,4,0, 0,90);
+        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 9,4,0, 0,90);
+        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 0,4,-7, 0,180);
+        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 0,4,7, 0,0);
         return data;
     }
 
-    private static void minecartBox(float[] out, int[] at,
-                                    float x0, float y0, float z0, float x1, float y1, float z1,
-                                    float layer, float u0, float v0, float u1, float v1) {
-        minecartQuad(out,at,layer,0.5f,x0,y0,z0,x1,y0,z0,x1,y0,z1,x0,y0,z1,u0,v0,u1,v1);
-        minecartQuad(out,at,layer,1.0f,x0,y1,z1,x1,y1,z1,x1,y1,z0,x0,y1,z0,u0,v0,u1,v1);
-        minecartQuad(out,at,layer,0.8f,x1,y0,z0,x0,y0,z0,x0,y1,z0,x1,y1,z0,u0,v0,u1,v1);
-        minecartQuad(out,at,layer,0.8f,x0,y0,z1,x1,y0,z1,x1,y1,z1,x0,y1,z1,u0,v0,u1,v1);
-        minecartQuad(out,at,layer,0.6f,x0,y0,z0,x0,y0,z1,x0,y1,z1,x0,y1,z0,u0,v0,u1,v1);
-        minecartQuad(out,at,layer,0.6f,x1,y0,z1,x1,y0,z0,x1,y1,z0,x1,y1,z1,u0,v0,u1,v1);
+    private static void minecartCube(float[] out, int[] at,
+                                     float x, float y, float z, float w, float h, float d,
+                                     float u, float v, float px, float py, float pz,
+                                     float rotateX, float rotateY) {
+        float x1=x+w, y1=y+h, z1=z+d;
+        float u1=u+d, u2=u+d+w, u3=u+d+w+w, u4=u+d+w+d, u5=u+d+w+d+w;
+        float v1=v+d, v2=v+d+h;
+        minecartFace(out,at,px,py,pz,rotateX,rotateY,x,y,z,x1,y,z,x1,y,z1,x,y,z1,u1,v,u2,v1);
+        minecartFace(out,at,px,py,pz,rotateX,rotateY,x,y1,z1,x1,y1,z1,x1,y1,z,x,y1,z,u2,v,u3,v1);
+        minecartFace(out,at,px,py,pz,rotateX,rotateY,x,y,z,x,y,z1,x,y1,z1,x,y1,z,u,v1,u1,v2);
+        minecartFace(out,at,px,py,pz,rotateX,rotateY,x1,y,z1,x1,y,z,x1,y1,z,x1,y1,z1,u2,v1,u4,v2);
+        minecartFace(out,at,px,py,pz,rotateX,rotateY,x1,y,z,x,y,z,x,y1,z,x1,y1,z,u1,v1,u2,v2);
+        minecartFace(out,at,px,py,pz,rotateX,rotateY,x,y,z1,x1,y,z1,x1,y1,z1,x,y1,z1,u4,v1,u5,v2);
     }
 
-    private static void minecartQuad(float[] out, int[] at, float layer, float brightness,
+    private static void minecartFace(float[] out, int[] at,
+                                     float px,float py,float pz,float rotateX,float rotateY,
                                      float ax,float ay,float az,float bx,float by,float bz,
                                      float cx,float cy,float cz,float dx,float dy,float dz,
                                      float u0,float v0,float u1,float v1) {
-        u0 /= 64; u1 /= 64; v0 /= 32; v1 /= 32;
-        vertex(out,at,ax,ay,az,u0,v1,layer,brightness); vertex(out,at,bx,by,bz,u1,v1,layer,brightness);
-        vertex(out,at,cx,cy,cz,u1,v0,layer,brightness); vertex(out,at,ax,ay,az,u0,v1,layer,brightness);
-        vertex(out,at,cx,cy,cz,u1,v0,layer,brightness); vertex(out,at,dx,dy,dz,u0,v0,layer,brightness);
+        u0/=64; u1/=64; v0/=32; v1/=32;
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,ax,ay,az,u0,v1);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,bx,by,bz,u1,v1);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,cx,cy,cz,u1,v0);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,ax,ay,az,u0,v1);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,cx,cy,cz,u1,v0);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,dx,dy,dz,u0,v0);
+    }
+
+    private static void minecartVertex(float[] out, int[] at,
+                                       float px,float py,float pz,float rotateX,float rotateY,
+                                       float x,float y,float z,float u,float v) {
+        double rx=Math.toRadians(rotateX), ry=Math.toRadians(rotateY);
+        double cx=Math.cos(rx), sx=Math.sin(rx), cy=Math.cos(ry), sy=Math.sin(ry);
+        double yx=y*cx-z*sx, zx=y*sx+z*cx;
+        double xx=x*cy+zx*sy, zy=-x*sy+zx*cy;
+        vertex(out,at,(float)((xx+px)/16.0),(float)((5-(yx+py))/16.0),
+                (float)((zy+pz)/16.0),u,v,0f,1f);
     }
 
     /**

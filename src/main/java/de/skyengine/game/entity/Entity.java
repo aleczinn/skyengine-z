@@ -265,7 +265,8 @@ public abstract class Entity {
      * die BoundingBox und liefert die tatsächlich zurückgelegte {dx, dy, dz}.
      */
     private double[] collideAxes(World world, double dx, double dy, double dz) {
-        List<AABB> boxes = world.getCollisionBoxes(this.boundingBox.copy().expandTowards(dx, dy, dz));
+        List<AABB> boxes = this.collisionBoxes(world,
+                this.boundingBox.copy().expandTowards(dx, dy, dz));
 
         double cdy = dy;
         for (AABB box : boxes) cdy = box.clipYCollide(this.boundingBox, cdy);
@@ -280,6 +281,11 @@ public abstract class Entity {
         this.boundingBox.move(0, 0, cdz);
 
         return new double[]{cdx, cdy, cdz};
+    }
+
+    /** Kollisionsboxen für die Bewegung; spezialisierte Entities dürfen gezielt filtern. */
+    protected List<AABB> collisionBoxes(World world, AABB area) {
+        return world.getCollisionBoxes(area);
     }
 
     /** true, wenn die Box ein Fluid (lava=true: Lava, sonst Wasser) tatsächlich überlappt. */
