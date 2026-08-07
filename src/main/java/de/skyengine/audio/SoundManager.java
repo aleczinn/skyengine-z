@@ -483,8 +483,9 @@ public final class SoundManager implements IDisposable {
     /* --- Pause (Pausenmenü) --- */
 
     /**
-     * Hält alle laufenden Sounds und die Musik an. Nur AL_PLAYING wird pausiert — gestoppte
-     * Sources dürfen nicht angefasst werden, sonst starteten sie beim Fortsetzen von vorn.
+     * Hält alle laufenden Sounds an — und die Musik nur, wenn {@code pauseMusicInMenus} gesetzt
+     * ist (sonst spielt sie im Menü weiter). Nur AL_PLAYING wird pausiert — gestoppte Sources
+     * dürfen nicht angefasst werden, sonst starteten sie beim Fortsetzen von vorn.
      *
      * <p>Neue Sounds bleiben möglich: die Klick-Sounds der Pausenmenü-Buttons holen sich eine
      * der freien Sources (wie in MC).
@@ -496,7 +497,20 @@ public final class SoundManager implements IDisposable {
                 AL10.alSourcePause(source);
             }
         }
-        this.music.pause();
+        this.applyMusicPause(true);
+    }
+
+    /**
+     * Hält die Musik an oder lässt sie laufen — je nach {@code pauseMusicInMenus}. Wird auch vom
+     * Sound-Optionen-Screen gerufen, wenn der Schalter bei offenem Pausenmenü umgelegt wird.
+     */
+    public void applyMusicPause(boolean gamePaused) {
+        if (!this.enabled) return;
+        if (gamePaused && GameSettings.get().pauseMusicInMenus) {
+            this.music.pause();
+        } else {
+            this.music.resume();
+        }
     }
 
     /** Gegenstück zu {@link #pauseAll}: setzt genau die pausierten Sources fort. */

@@ -20,13 +20,18 @@ import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
 
 /**
  * Musik- & Geräuschoptionen: breiter Gesamtlautstärke-Slider, darunter die acht
- * {@link SoundCategory}-Kanäle zweispaltig, darunter die Wahl des Ausgabegeräts
- * (ALC_SOFT_reopen_device — greift sofort, ohne Neuladen der Sounds).
+ * {@link SoundCategory}-Kanäle zweispaltig, zuletzt die Wahl des Ausgabegeräts
+ * (ALC_SOFT_reopen_device — greift sofort, ohne Neuladen der Sounds) neben dem Schalter,
+ * ob die Musik im Pausenmenü mit anhält.
  */
 public final class GuiSoundOptions extends GuiOptionsScreen {
 
     /** Präfix, das OpenAL-Soft jedem Gerätenamen voranstellt — für die Anzeige unnötig. */
     private static final String DEVICE_PREFIX = "OpenAL Soft on ";
+    /* Der Knopf ist nur noch CELL_W (150 px) breit und teilt sich die Zeile mit dem Musik-Pause-
+       Schalter: bei GuiText.NORMAL (~5 px/Zeichen, monospace) tragen 150 px rund 28 Zeichen,
+       davon gehen "Gerät: " ab. Es gibt kein Clipping — zu lange Namen müssen gekappt werden. */
+    private static final int MAX_DEVICE_CHARS = 18;
 
     private final GameSettings settings = GameSettings.get();
 
@@ -67,7 +72,7 @@ public final class GuiSoundOptions extends GuiOptionsScreen {
         devices.add("");
         devices.addAll(gui.sound().listDevices());
         String current = devices.contains(this.settings.audioDevice) ? this.settings.audioDevice : "";
-        CycleButton<String> device = new CycleButton<>(I18n.tr("options.sound.device"), wideW, CELL_H,
+        CycleButton<String> device = new CycleButton<>(I18n.tr("options.sound.device"), CELL_W, CELL_H,
                 devices.toArray(new String[0]), current,
                 GuiSoundOptions::deviceLabel,
                 v -> {
@@ -75,19 +80,28 @@ public final class GuiSoundOptions extends GuiOptionsScreen {
                     gui.sound().setDevice(v);
                 });
 
+        CycleButton<Boolean> pauseMusic = CycleButton.onOff(I18n.tr("options.sound.pause_music"),
+                CELL_W, CELL_H, this.settings.pauseMusicInMenus,
+                v -> {
+                    this.settings.pauseMusicInMenus = v;
+                    /* Dieser Screen ist aus dem Pausenmenü erreichbar -> sofort wirksam machen,
+                       sonst griffe der Schalter erst beim nächsten Pausieren. */
+                    gui.sound().applyMusicPause(gui.pausesGame());
+                }).tooltipOf(v -> I18n.tr("options.sound.pause_music_hint"));
+
         content.add(master);
         content.add(new HStack(4, channels.get(0), channels.get(1)));
         content.add(new HStack(4, channels.get(2), channels.get(3)));
         content.add(new HStack(4, channels.get(4), channels.get(5)));
         content.add(new HStack(4, channels.get(6), channels.get(7)));
-        content.add(device);
+        content.add(new HStack(4, device, pauseMusic));
     }
 
     /** Anzeigename: Systemstandard-Eintrag, OpenAL-Soft-Präfix weg, Überlänge kappen. */
     private static String deviceLabel(String name) {
         if (name.isEmpty()) return I18n.tr("options.sound.device_default");
         String label = name.startsWith(DEVICE_PREFIX) ? name.substring(DEVICE_PREFIX.length()) : name;
-        return label.length() > 34 ? label.substring(0, 31) + "..." : label;
+        return label.length() > MAX_DEVICE_CHARS ? label.substring(0, MAX_DEVICE_CHARS - 3) + "..." : label;
     }
 
     @Override

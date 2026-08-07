@@ -97,7 +97,9 @@
       "title": "Music & Sounds",
       "master": "Master Volume: %d %%",
       "device": "Device",
-      "device_default": "System Default"
+      "device_default": "System Default",
+      "pause_music": "Pause Music",
+      "pause_music_hint": "<b>Music in the pause menu</b>\n<gray>ON: the music pauses along with the sounds\nOFF: only sounds pause, the music keeps playing</>"
     },
 
     "controls": {

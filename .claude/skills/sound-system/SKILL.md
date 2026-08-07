@@ -97,7 +97,14 @@ zur Laufzeit.
 ## Pause (Pausenmenü)
 
 `SoundManager.pauseAll()`/`resumeAll()`, angestoßen an der Flanke in
-`GameContainer.updatePaused` (nicht pro Tick). Drei Dinge, die man dabei falsch machen kann:
+`GameContainer.updatePaused` (nicht pro Tick). Die **Musik** pausiert dabei nur, wenn das
+Setting `GameSettings.pauseMusicInMenus` gesetzt ist (Default an = altes Verhalten) — sonst
+laufen im Menü nur die Geräusche still, die Musik streamt weiter und schaltet am Liedende
+auch weiter. Gebündelt in `SoundManager.applyMusicPause(boolean gamePaused)`; `GuiSoundOptions`
+ruft dieselbe Methode mit `GuiManager.pausesGame()`, weil der Screen aus dem Pausenmenü
+erreichbar ist und der Schalter dort **sofort** greifen muss.
+
+Drei Dinge, die man dabei falsch machen kann:
 
 - **Nur `AL_PLAYING` pausieren, nur `AL_PAUSED` fortsetzen.** Ein pauschales `alSourcePlayv` über
   den Pool würde gestoppte Sources **von vorn** neu starten.
