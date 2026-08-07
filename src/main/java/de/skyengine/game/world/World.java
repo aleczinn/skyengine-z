@@ -284,6 +284,14 @@ public class World implements IInitializable, IDisposable {
         return this.soundManager;
     }
 
+    public void playDispenserSuccess(int x, int y, int z) {
+        if (this.soundManager != null) this.soundManager.playDispenserSuccess(x + 0.5, y + 0.5, z + 0.5);
+    }
+
+    public void playDispenserFailure(int x, int y, int z) {
+        if (this.soundManager != null) this.soundManager.playDispenserFailure(x + 0.5, y + 0.5, z + 0.5);
+    }
+
     public BlockEntityRenderDispatcher getBlockEntityRenderDispatcher() {
         return blockEntityRenderer;
     }

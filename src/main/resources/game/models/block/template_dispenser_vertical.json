@@ -1,0 +1,6 @@
+{
+  "parent": "block/template_dispenser",
+  "textures": {
+    "front": "#front_vertical"
+  }
+}

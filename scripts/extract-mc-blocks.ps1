@@ -47,6 +47,10 @@ $wanted = @(
     'netherrack.png',
     'magma.png',
     'magma.png.mcmeta',
+    'dispenser_front.png',
+    'dispenser_front_vertical.png',
+    'dropper_front.png',
+    'dropper_front_vertical.png',
 
     # Tueren: je Sorte eine obere und eine untere Haelfte. Die Item-Sprites liegen bereits
     # unter textures/item/ und kommen aus extract-mc-items.ps1.

@@ -1,0 +1,34 @@
+{
+  "id": "skyengine:dropper",
+  "creative_tab": "redstone_blocks",
+  "archetype": "dropper",
+  "block_entity": "skyengine:dropper",
+  "hardness": 3.5,
+  "resistance": 3.5,
+  "tool": "pickaxe",
+  "sound": "stone",
+  "models": {
+    "": "block/template_dispenser",
+    "_vertical": "block/template_dispenser_vertical"
+  },
+  "textures": {
+    "front": "game/textures/block/dropper_front.png",
+    "side": "game/textures/block/furnace_side.png",
+    "top": "game/textures/block/furnace_top.png",
+    "front_vertical": "game/textures/block/dropper_front_vertical.png"
+  },
+  "variants": {
+    "facing=north,triggered=false": { "model": "block/${id}" },
+    "facing=east,triggered=false":  { "model": "block/${id}", "y": 90 },
+    "facing=south,triggered=false": { "model": "block/${id}", "y": 180 },
+    "facing=west,triggered=false":  { "model": "block/${id}", "y": 270 },
+    "facing=up,triggered=false":    { "model": "block/${id}_vertical", "x": 270 },
+    "facing=down,triggered=false":  { "model": "block/${id}_vertical", "x": 90 },
+    "facing=north,triggered=true":  { "model": "block/${id}" },
+    "facing=east,triggered=true":   { "model": "block/${id}", "y": 90 },
+    "facing=south,triggered=true":  { "model": "block/${id}", "y": 180 },
+    "facing=west,triggered=true":   { "model": "block/${id}", "y": 270 },
+    "facing=up,triggered=true":     { "model": "block/${id}_vertical", "x": 270 },
+    "facing=down,triggered=true":   { "model": "block/${id}_vertical", "x": 90 }
+  }
+}

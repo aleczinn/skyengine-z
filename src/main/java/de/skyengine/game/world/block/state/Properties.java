@@ -109,6 +109,9 @@ public final class Properties {
      */
     public static final Property<Boolean> ENABLED = Property.ofBoolean("enabled");
 
+    /** Dispenser/Dropper hat auf eine Redstone-Flanke bereits einen 4-Tick-Tick eingeplant. */
+    public static final Property<Boolean> TRIGGERED = Property.ofBoolean("triggered");
+
     /**
      * Kolben-Kopf mit kurzem Arm (12 statt 16 px, ohne den 4-px-Überstand in die Basis-Zelle).
      * Der MATERIALISIERTE Kopf ist immer lang (short=false) — der Renderer wählt während der

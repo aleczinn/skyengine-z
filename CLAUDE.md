@@ -238,6 +238,10 @@ ausdrücken).
   (`FluidBehavior.onNeighborUpdate` ist der einzige Weg zu einem Fluid-Tick). Drops wie in MC
   mit Chance **1/power**, ohne Werkzeug-Regel (Vanilla-Explosionsloot kennt kein Tool);
   gezündetes Ketten-TNT droppt nicht. Nur BlockEntity-Blöcke laufen durch `onBreak` (Truheninhalt)
+- Dispenser/Dropper: 9-Slot-BlockEntities mit GUI und Persistenz, 4-Tick-Redstone-Flanke inklusive
+  Quasi-Connectivity, gleichverteilte Vanilla-Slotwahl und gerichteter Item-Auswurf. Der Dropper
+  füllt einen Container vor seiner Front, ohne bei vollem Ziel auszuwerfen; der Dispenser besitzt
+  Sonderverhalten für die vorhandenen TNT-, Eimer-, Feuerzeug- und Item-Frame-Mechaniken.
 - Chunk-Persistenz (`game/world/save/`): Region-Format `region/r.<rx>.<rz>.srg` (16×16 Chunks,
   CRC), Single-Writer-IO-Thread, `player.dat`; **vollständiger** Autosave (Chunks + level.json +
   player.dat) alle 1200 Ticks, zusätzlich beim Öffnen des Pausenmenüs (ESC) und beim Unload/Exit.

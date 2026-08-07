@@ -407,6 +407,18 @@ public final class SoundManager implements IDisposable {
         this.play(this.igniteVariants, SoundCategory.BLOCKS, 1.0F, pitch, false, true, x, y, z);
     }
 
+    /** Dispenser/Dropper gibt ein Item aus: Vanillas Level-Event 1000, random/click bei Pitch 1,0. */
+    public void playDispenserSuccess(double x, double y, double z) {
+        this.play(this.uiClickVariants, SoundCategory.BLOCKS, 1.0F, 1.0F,
+                false, true, x, y, z);
+    }
+
+    /** Leerer Dispenser/Dropper: Vanillas Level-Event 1001, derselbe Klick bei Pitch 1,2. */
+    public void playDispenserFailure(double x, double y, double z) {
+        this.play(this.uiClickVariants, SoundCategory.BLOCKS, 1.0F, 1.2F,
+                false, true, x, y, z);
+    }
+
     /** Tür/Truhe geht auf — positional an der Block-Position. Lautstärke/Pitch aus dem Satz. */
     public void playBlockOpen(BlockOpenSound sound, double x, double y, double z) {
         if (sound == null) return;

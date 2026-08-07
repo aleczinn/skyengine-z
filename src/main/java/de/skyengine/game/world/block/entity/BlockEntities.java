@@ -16,6 +16,8 @@ public final class BlockEntities {
     public static BlockEntityType<PistonMovingBlockEntity> PISTON_MOVING;
     public static BlockEntityType<HopperBlockEntity> HOPPER;
     public static BlockEntityType<ComparatorBlockEntity> COMPARATOR;
+    public static BlockEntityType<DispenserBlockEntity> DISPENSER;
+    public static BlockEntityType<DispenserBlockEntity> DROPPER;
 
     private static boolean registered;
 
@@ -40,6 +42,12 @@ public final class BlockEntities {
 
         COMPARATOR = Registries.BLOCK_ENTITY.register(Identifier.of("comparator"),
                 new BlockEntityType<>((type, pos, state) -> new ComparatorBlockEntity(type, pos), false));
+
+        DISPENSER = Registries.BLOCK_ENTITY.register(Identifier.of("dispenser"),
+                new BlockEntityType<>((type, pos, state) -> new DispenserBlockEntity(type, pos), false));
+
+        DROPPER = Registries.BLOCK_ENTITY.register(Identifier.of("dropper"),
+                new BlockEntityType<>((type, pos, state) -> new DispenserBlockEntity(type, pos), false));
     }
 
     private BlockEntities() {}

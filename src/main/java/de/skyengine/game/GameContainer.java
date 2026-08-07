@@ -16,6 +16,7 @@ import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.ChestBlockEntity;
+import de.skyengine.game.world.block.entity.DispenserBlockEntity;
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
@@ -50,6 +51,7 @@ import de.skyengine.graphics.blockentity.ChestRenderer;
 import de.skyengine.graphics.blockentity.EnchantingTableRenderer;
 import de.skyengine.graphics.gui.BootProgress;
 import de.skyengine.graphics.gui.screens.GuiChest;
+import de.skyengine.graphics.gui.screens.GuiDispenser;
 import de.skyengine.graphics.gui.screens.GuiCreativeInventory;
 import de.skyengine.graphics.gui.screens.GuiInventory;
 import de.skyengine.graphics.gui.DebugOverlay;
@@ -1330,6 +1332,7 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). */
         if (!placingWhileSneaking && this.tryOpenChest()) return true;
         if (!placingWhileSneaking && this.tryOpenHopper()) return true;
+        if (!placingWhileSneaking && this.tryOpenDispenser()) return true;
 
         if (held.getItem() instanceof ItemFrameItem && this.tryPlaceItemFrame()) return true;
 
@@ -1490,6 +1493,14 @@ public class GameContainer implements IResizeable, IDisposable {
         BlockEntity be = this.world.getBlockEntity(x, y, z);
         if (!(be instanceof de.skyengine.game.world.block.entity.HopperBlockEntity hopper)) return false;
         this.guiManager.open(new de.skyengine.graphics.gui.screens.GuiHopper(hopper, this.playerInventory));
+        return true;
+    }
+
+    /** Rechtsklick auf Dispenser oder Dropper öffnet das gemeinsame 9-Slot-GUI. */
+    private boolean tryOpenDispenser() {
+        BlockEntity blockEntity = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
+        if (!(blockEntity instanceof DispenserBlockEntity dispenser)) return false;
+        this.guiManager.open(new GuiDispenser(dispenser, this.playerInventory));
         return true;
     }
 

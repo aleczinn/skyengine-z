@@ -42,6 +42,8 @@ public final class Archetypes {
         register("observer", new ObserverArchetype());
         register("hopper", new HopperArchetype());
         register("comparator", new ComparatorArchetype());
+        register("dispenser", new DispenserArchetype(false));
+        register("dropper", new DispenserArchetype(true));
         register("custom", new CustomArchetype());
     }
 
