@@ -370,6 +370,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.guiManager.close();
         this.saveCurrentWorld(true);
         GL11.glFinish();
+        this.soundManager.stopMinecartSounds();
         this.world.dispose();
         this.world = null;
         this.player = null;
@@ -731,6 +732,7 @@ public class GameContainer implements IResizeable, IDisposable {
 
         /* Audio pro Frame: Listener auf die interpolierte Kamera (Streaming läuft oben). */
         this.soundManager.updateListener(this.camera);
+        this.world.updateEntitySounds(partialTick);
 
         this.hit = BlockRaycast.raycast(this.world, this.eyePosition, this.eyeDirection, REACH);
         double entityReach = this.hit == null ? REACH : Math.sqrt(

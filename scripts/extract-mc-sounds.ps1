@@ -78,6 +78,8 @@ $wanted = @(
     # Kolben aus-/einfahren (block.piston.extend/contract, je eine Datei)
     @{ pattern = 'minecraft/sounds/tile/piston/out.ogg';     dest = 'piston' },
     @{ pattern = 'minecraft/sounds/tile/piston/in.ogg';      dest = 'piston' },
+    # Fahrendes Minecart (entity.minecart.riding): äußerer, geschwindigkeitsabhängiger Loop.
+    @{ pattern = 'minecraft/sounds/minecart/base.ogg';        dest = 'minecart' },
     # Auf-/Zu-Sounds (Tuer, Truhe). Jeder Satz braucht einen EIGENEN Zielordner: kopiert wird mit
     # dem MC-Dateinamen, sonst wuerden wooden_door/open1.ogg und iron_door/open1.ogg kollidieren.
     # Die Truhen-Muster sind eng gefasst — im selben MC-Ordner liegen *_locked-Varianten.

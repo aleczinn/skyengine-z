@@ -285,6 +285,25 @@ public class World implements IInitializable, IDisposable {
         return this.soundManager;
     }
 
+    /** Aktualisiert positionsgebundene Entity-Sounds unabhängig vom Frustum-Culling. */
+    public void updateEntitySounds(float partialTick) {
+        if (this.soundManager == null) return;
+        this.soundManager.beginMinecartSounds();
+        for (Chunk chunk : this.chunksWithEntities) {
+            if (chunk.status != ChunkStatus.READY) continue;
+            for (Entity entity : chunk.entities()) {
+                if (!(entity instanceof MinecartEntity minecart) || minecart.isRemoved()) continue;
+                double x = minecart.lastX + (minecart.x - minecart.lastX) * partialTick;
+                double y = minecart.lastY + (minecart.y - minecart.lastY) * partialTick;
+                double z = minecart.lastZ + (minecart.z - minecart.lastZ) * partialTick;
+                double speed = Math.sqrt(minecart.motionX * minecart.motionX
+                        + minecart.motionZ * minecart.motionZ);
+                this.soundManager.updateMinecartSound(minecart, x, y, z, speed);
+            }
+        }
+        this.soundManager.endMinecartSounds();
+    }
+
     public void playDispenserSuccess(int x, int y, int z) {
         if (this.soundManager != null) this.soundManager.playDispenserSuccess(x + 0.5, y + 0.5, z + 0.5);
     }
