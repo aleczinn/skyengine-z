@@ -8,6 +8,7 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.chunk.FluidGeometry;
 
 import java.util.List;
+import java.util.ArrayList;
 
 public abstract class Entity {
 
@@ -37,6 +38,10 @@ public abstract class Entity {
 
     /** Markiert die Entity zum Entfernen; die Welt räumt sie nach dem Tick aus ihrer Liste. */
     protected boolean removed = false;
+
+    /** Universelle Fahrzeug-/Passenger-Beziehung; Liste wird nur bei echten Fahrzeugen angelegt. */
+    private Entity vehicle;
+    private ArrayList<Entity> passengers;
 
     protected final AABB boundingBox = new AABB(0, 0, 0, 0, 0, 0);
 
@@ -82,6 +87,15 @@ public abstract class Entity {
     /** Markiert die Entity zum Entfernen (z.B. fallender Block gelandet, Item aufgesammelt). */
     public void remove() {
         this.removed = true;
+        if (this.vehicle != null) {
+            Entity oldVehicle = this.vehicle;
+            this.vehicle = null;
+            oldVehicle.removePassengerInternal(this);
+        }
+        if (this.passengers != null) {
+            for (Entity passenger : this.passengers) passenger.vehicle = null;
+            this.passengers.clear();
+        }
     }
 
     public boolean isRemoved() {
@@ -99,6 +113,75 @@ public abstract class Entity {
     /** Ob Positions-/Listenänderungen dieser Entity Bestandteil des Chunk-Saves sind. */
     public boolean isPersistent() {
         return false;
+    }
+
+    public Entity getVehicle() {
+        return this.vehicle;
+    }
+
+    public boolean isPassenger() {
+        return this.vehicle != null;
+    }
+
+    public boolean hasPassengers() {
+        return this.passengers != null && !this.passengers.isEmpty();
+    }
+
+    protected Entity getFirstPassenger() {
+        return this.hasPassengers() ? this.passengers.getFirst() : null;
+    }
+
+    /** Beginnt eine universelle Fahrzeugbeziehung; das Fahrzeug entscheidet über seine Kapazität. */
+    public boolean startRiding(Entity target) {
+        if (target == null || target == this || target.isRemoved()) return false;
+        if (this.vehicle == target) return true;
+        if (this.vehicle != null || !target.canAddPassenger(this)) return false;
+        if (target.passengers == null) target.passengers = new ArrayList<>(1);
+        target.passengers.add(this);
+        this.vehicle = target;
+        target.positionPassenger(this);
+        return true;
+    }
+
+    /** Standardkapazität null; Fahrzeuge überschreiben diesen Hook. */
+    protected boolean canAddPassenger(Entity passenger) {
+        return false;
+    }
+
+    public void stopRiding(World world) {
+        Entity oldVehicle = this.vehicle;
+        if (oldVehicle == null) return;
+        this.vehicle = null;
+        oldVehicle.removePassengerInternal(this);
+        oldVehicle.positionDismountedPassenger(this, world);
+    }
+
+    private void removePassengerInternal(Entity passenger) {
+        if (this.passengers != null) this.passengers.remove(passenger);
+    }
+
+    /** Aktualisiert alle Sitzanker; vom Fahrzeug nach seiner eigenen Bewegung aufzurufen. */
+    protected void positionPassengers() {
+        if (this.passengers == null) return;
+        for (int i = 0; i < this.passengers.size(); i++) this.positionPassenger(this.passengers.get(i));
+    }
+
+    /** Standard-Sitzanker über dem Fahrzeug; konkrete Fahrzeuge überschreiben ihn. */
+    protected void positionPassenger(Entity passenger) {
+        passenger.setRidingPosition(this.x, this.y + this.height, this.z);
+    }
+
+    /** Standardausstieg über dem Fahrzeug; konkrete Fahrzeuge dürfen sichere Plätze suchen. */
+    protected void positionDismountedPassenger(Entity passenger, World world) {
+        passenger.setPosition(this.x, this.y + this.height, this.z);
+    }
+
+    /** Positions-Sync ohne den Interpolations-Snapshot zu überschreiben. */
+    protected void setRidingPosition(double x, double y, double z) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.updateBoundingBox();
     }
 
     /**

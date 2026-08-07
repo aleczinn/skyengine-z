@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 
@@ -52,7 +53,14 @@ final class MinecartEntityTest {
         assertTrue(cart.interact(player));
         assertEquals(cart, player.getVehicle());
         assertEquals(cart.x, player.x);
+        assertEquals(cart.y - 0.35, player.y, 1.0E-9);
         assertEquals(cart.z, player.z);
+
+        EntityPlayer second = new EntityPlayer();
+        assertFalse(cart.interact(second));
+        player.stopRiding(new TestWorld());
+        assertNull(player.getVehicle());
+        assertFalse(cart.hasPassengers());
     }
 
     @Test

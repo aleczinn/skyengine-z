@@ -19,7 +19,6 @@ public final class MinecartEntity extends Entity {
     private static final double SLOPE_ACCELERATION = 0.0078125;
     private static final double POWERED_ACCELERATION = 0.06;
 
-    private EntityPlayer passenger;
     private double passengerImpulseX;
     private double passengerImpulseZ;
     private float damage;
@@ -45,8 +44,9 @@ public final class MinecartEntity extends Entity {
         this.update();
         if (this.hurtTime > 0) this.hurtTime--;
         if (this.damage > 0) this.damage = Math.max(0, this.damage - 1);
-        if (this.passenger != null && (this.passenger.isDead() || this.passenger.getVehicle() != this)) {
-            this.passenger = null;
+        Entity passenger = this.getFirstPassenger();
+        if (passenger instanceof EntityPlayer player && player.isDead()) {
+            player.stopRiding(world);
         }
 
         RailPosition rail = this.findRail(world);
@@ -67,7 +67,7 @@ public final class MinecartEntity extends Entity {
         if (this.motionX * this.motionX + this.motionZ * this.motionZ > 1.0E-6) {
             this.yaw = (float) Math.toDegrees(Math.atan2(this.motionX, -this.motionZ));
         }
-        this.syncPassenger();
+        this.positionPassengers();
         world.markChunkModified((int) Math.floor(this.x), (int) Math.floor(this.z));
     }
 
@@ -120,8 +120,8 @@ public final class MinecartEntity extends Entity {
                 else { this.motionX *= 0.5; this.motionZ *= 0.5; }
             }
         } else if ("activator_rail".equals(id) && rail.state.get(Properties.POWERED)
-                && this.passenger != null) {
-            this.passenger.stopRiding(world);
+                && this.getFirstPassenger() != null) {
+            this.getFirstPassenger().stopRiding(world);
         }
 
         this.motionX = Math.clamp(this.motionX, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
@@ -133,8 +133,8 @@ public final class MinecartEntity extends Entity {
         RailPosition after = this.findRail(world);
         if (after != null) this.snapTo(segment(after.x, after.y, after.z,
                 RailBehavior.shape(after.state)));
-        this.motionX *= this.passenger == null ? 0.96 : 0.997;
-        this.motionZ *= this.passenger == null ? 0.96 : 0.997;
+        this.motionX *= this.hasPassengers() ? 0.997 : 0.96;
+        this.motionZ *= this.hasPassengers() ? 0.997 : 0.96;
     }
 
     private void launchFromPoweredRail(World world, RailPosition rail, RailShape shape) {
@@ -198,13 +198,7 @@ public final class MinecartEntity extends Entity {
     }
 
     public boolean interact(EntityPlayer player) {
-        if (this.passenger != null && this.passenger != player) return false;
-        if (player.getVehicle() == this) return true;
-        if (player.getVehicle() != null) return false;
-        this.passenger = player;
-        player.startRiding(this);
-        this.syncPassenger();
-        return true;
+        return player.startRiding(this);
     }
 
     /** Vanilla-Damage-Akkumulator: Zerbruch oberhalb von 40 oder ein erzwungener Werkzeugtreffer. */
@@ -214,7 +208,7 @@ public final class MinecartEntity extends Entity {
         this.damage += 10;
         if (!creative && !efficientTool && this.damage <= 40) return;
         double dropX = this.x, dropY = this.y, dropZ = this.z;
-        if (this.passenger != null) this.passenger.stopRiding(world);
+        if (this.getFirstPassenger() != null) this.getFirstPassenger().stopRiding(world);
         this.remove();
         if (!creative) {
             de.skyengine.game.world.item.Item item = de.skyengine.game.world.item.Items.get(
@@ -231,18 +225,29 @@ public final class MinecartEntity extends Entity {
     public int getHurtDirection() { return this.hurtDirection; }
     public void setHurtDirection(int direction) { this.hurtDirection = direction < 0 ? -1 : 1; }
 
-    public void removePassenger(EntityPlayer player) {
-        if (this.passenger == player) this.passenger = null;
-    }
-
     public void addPassengerImpulse(double x, double z) {
         this.passengerImpulseX = x;
         this.passengerImpulseZ = z;
     }
 
-    private void syncPassenger() {
-        if (this.passenger == null) return;
-        this.passenger.setRidingPosition(this.x, this.y + 0.35, this.z);
+    @Override
+    protected boolean canAddPassenger(Entity passenger) {
+        return !this.hasPassengers();
+    }
+
+    @Override
+    protected void positionPassenger(Entity passenger) {
+        passenger.setRidingPosition(this.x, this.y - 0.35, this.z);
+    }
+
+    @Override
+    protected void positionDismountedPassenger(Entity passenger, World world) {
+        double[][] candidates = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (double[] candidate : candidates) {
+            passenger.setPosition(this.x + candidate[0], this.y, this.z + candidate[1]);
+            if (world.getCollisionBoxes(passenger.getBoundingBox()).isEmpty()) return;
+        }
+        passenger.setPosition(this.x, this.y + 1, this.z);
     }
 
     public double rayIntersection(double ox, double oy, double oz, double dx, double dy, double dz,
@@ -265,16 +270,6 @@ public final class MinecartEntity extends Entity {
             if (near > far) return Double.POSITIVE_INFINITY;
         }
         return near <= maxDistance ? near : Double.POSITIVE_INFINITY;
-    }
-
-    @Override
-    public void remove() {
-        if (this.passenger != null) {
-            EntityPlayer old = this.passenger;
-            this.passenger = null;
-            old.clearVehicle(this);
-        }
-        super.remove();
     }
 
     private static Segment segment(int x, int y, int z, RailShape shape) {
