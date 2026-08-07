@@ -19,9 +19,12 @@ import org.lwjgl.openal.SOFTReopenDevice;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Random;
 
 /**
@@ -100,6 +103,13 @@ public final class SoundManager implements IDisposable {
 
     private final MusicPlayer music = new MusicPlayer();
     private final Random random = new Random();
+
+    /* Playlist: alle Lieder aus game/sounds/music in gemischter Reihenfolge (Shuffle-Bag —
+       erst wenn alle dran waren, wird neu gemischt). */
+    private final List<File> playlist = new ArrayList<>();
+    private int playlistIndex;
+    private boolean playlistActive;
+    private File playlistCurrent; // läuft gerade — damit es nach dem Mischen nicht direkt folgt
 
     /* Lose Effekt-Sounds ohne BlockSoundGroup (null, solange die Dateien fehlen -> No-Op). */
     /* random/click.ogg wird von UI-Buttons, Comparator und Hebel geteilt. */
@@ -502,15 +512,70 @@ public final class SoundManager implements IDisposable {
 
     /* --- Musik --- */
 
-    /** Startet Musik aus {@code game/sounds/<relPath>} (z.B. "music/minecraft.ogg"). */
-    public void playMusic(String relPath, boolean loop) {
+    /**
+     * Startet die Musik-Playlist: alle {@code .ogg}/{@code .wav} aus {@code game/sounds/music}
+     * werden gemischt und nacheinander ohne Pause gespielt; ist die Tasche leer, wird neu
+     * gemischt (Shuffle-Bag — kein Lied wiederholt sich, bevor die anderen dran waren).
+     * Der Ordner ist die einzige Quelle: neue Lieder hineinkopieren genügt.
+     */
+    public void startMusicPlaylist() {
         if (!this.enabled) return;
-        this.music.play(new File(this.soundsDir, relPath), loop);
+
+        File musicDir = new File(this.soundsDir, "music");
+        File[] found = musicDir.listFiles(file -> {
+            String name = file.getName().toLowerCase(Locale.ROOT);
+            return file.isFile() && (name.endsWith(".ogg") || name.endsWith(".wav"));
+        });
+        this.playlist.clear();
+        if (found != null) {
+            Arrays.sort(found, (a, b) -> a.getName().compareTo(b.getName()));
+            Collections.addAll(this.playlist, found);
+        }
+        if (this.playlist.isEmpty()) {
+            this.logger.warning("Keine Musik in " + musicDir.getPath() + " gefunden (.ogg/.wav) — es läuft keine Musik.");
+            this.playlistActive = false;
+            return;
+        }
+
+        this.logger.info("Musik-Playlist: " + this.playlist.size() + " Lied(er) gefunden.");
+        this.playlistCurrent = null;
+        this.playlistIndex = this.playlist.size(); // erzwingt das Mischen in playNextTrack
+        this.playlistActive = true;
+        this.playNextTrack();
     }
 
+    /** Beendet die Musik dauerhaft (die Playlist rückt danach nicht mehr nach). */
     public void stopMusic() {
         if (!this.enabled) return;
+        this.playlistActive = false;
         this.music.stop();
+    }
+
+    /** Spielt den nächsten Eintrag; defekte Dateien fliegen dabei aus der Playlist. */
+    private void playNextTrack() {
+        for (int attempt = this.playlist.size(); attempt > 0; attempt--) {
+            if (this.playlist.isEmpty()) break;
+            if (this.playlistIndex >= this.playlist.size()) this.reshuffle();
+
+            File track = this.playlist.get(this.playlistIndex++);
+            if (this.music.play(track, false)) {
+                this.playlistCurrent = track;
+                return;
+            }
+            /* Nicht abspielbar (Warnung kam aus dem MusicPlayer): raus aus der Playlist. */
+            this.playlist.remove(--this.playlistIndex);
+        }
+        this.playlistActive = false;
+        this.logger.warning("Kein abspielbares Lied in der Playlist — es läuft keine Musik.");
+    }
+
+    /** Neue Runde: mischen und dabei verhindern, dass das eben gespielte Lied direkt folgt. */
+    private void reshuffle() {
+        Collections.shuffle(this.playlist, this.random);
+        if (this.playlist.size() > 1 && this.playlist.get(0).equals(this.playlistCurrent)) {
+            Collections.swap(this.playlist, 0, 1 + this.random.nextInt(this.playlist.size() - 1));
+        }
+        this.playlistIndex = 0;
     }
 
     /* --- Frame-Updates --- */
@@ -530,10 +595,12 @@ public final class SoundManager implements IDisposable {
         AL10.alListenerfv(AL10.AL_ORIENTATION, this.orientation);
     }
 
-    /** Pro Frame: Musik-Streaming nachfüllen. */
+    /** Pro Frame: Musik-Streaming nachfüllen und am Liedende das nächste starten. */
     public void update() {
         if (!this.enabled) return;
         this.music.update();
+        /* Pausiert (Pausenmenü) zählt als „läuft" — dort rückt die Playlist absichtlich nicht vor. */
+        if (this.playlistActive && !this.music.isPlaying()) this.playNextTrack();
     }
 
     /* --- Lautstärke (aus GameSettings, 0..1) --- */

@@ -247,7 +247,10 @@ ausdrücken).
   (`McWorldImporter` als API + `GuiImportWorld`, `mapping/BlockMapper`, `block_map.json`,
   NBT/MCA-Leser; Gradle-Tasks `mcAnalyze`/`mcMapReport`/`mcImport`) — Nebentool
 - Sound (OpenAL): blockabhängige Schritte/Hit/Break/Place (Sound-Gruppen aus JSON/Tool/
-  Archetyp), Musik-Streaming mit Loop; Lautstärke als **Mischpult** je `SoundCategory`
+  Archetyp), Musik als **Playlist**: alles, was in `game/sounds/music` liegt (`.ogg` **und**
+  `.wav` — WAV über `javax.sound.sampled`, kein MP3), wird gemischt und ohne Pause
+  nacheinander gespielt (Shuffle-Bag, Fortschalten in `SoundManager.update()`);
+  Lautstärke als **Mischpult** je `SoundCategory`
   (MUSIC/BLOCKS/PLAYER/… — `GameSettings.soundVolumes`-Map statt eines einzelnen
   musicVolume) + Master-Volume + Audiogeräte-Auswahl (`audioDevice`); Assets =
   MC-Platzhalter via `scripts/extract-mc-sounds.ps1` — Details im Skill `sound-system`

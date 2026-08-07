@@ -3,21 +3,17 @@ package de.skyengine.audio;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import org.lwjgl.openal.AL10;
-import org.lwjgl.stb.STBVorbisInfo;
-import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
 import java.io.File;
-import java.nio.IntBuffer;
 import java.nio.ShortBuffer;
-
-import static org.lwjgl.stb.STBVorbis.*;
+import java.util.Locale;
 
 /**
- * OGG-Musik-Streaming über eine dedizierte, nicht-positionale OpenAL-Source: 3 rotierende
- * Buffer werden pro Frame nachgefüllt ({@link #update()}), bei {@code loop} startet die Datei
- * am Ende von vorn. Stereo bleibt Stereo (Musik wird nicht räumlich abgeschwächt).
- * Alle Aufrufe auf dem Render-Thread (wie der gesamte SoundManager).
+ * Musik-Streaming (.ogg/.wav, s. {@link MusicStream}) über eine dedizierte, nicht-positionale
+ * OpenAL-Source: 3 rotierende Buffer werden pro Frame nachgefüllt ({@link #update()}), bei
+ * {@code loop} startet die Datei am Ende von vorn. Stereo bleibt Stereo (Musik wird nicht
+ * räumlich abgeschwächt). Alle Aufrufe auf dem Render-Thread (wie der gesamte SoundManager).
  */
 final class MusicPlayer {
 
@@ -27,7 +23,7 @@ final class MusicPlayer {
 
     private final Logger logger = LogManager.getLogger(MusicPlayer.class.getName());
 
-    private long vorbisHandle; // stb_vorbis*; 0 = keine Musik offen
+    private MusicStream stream; // null = keine Musik offen
     private int source = -1;
     private int[] buffers;
     private ShortBuffer pcm; // wiederverwendeter Dekodier-Puffer (memAlloc)
@@ -41,26 +37,22 @@ final class MusicPlayer {
     private int restartAttempts;
     private float volume = 1.0F;
 
-    /** Startet die Datei (ersetzt laufende Musik). Fehler → Warnung, kein Crash. */
-    void play(File file, boolean loop) {
+    /**
+     * Startet die Datei (ersetzt laufende Musik). Fehler → Warnung, kein Crash.
+     *
+     * @return true, wenn wirklich Musik läuft — die Playlist überspringt damit defekte Dateien
+     */
+    boolean play(File file, boolean loop) {
         this.stop();
         if (!file.exists()) {
             this.logger.warning("Musik-Datei fehlt: " + file.getPath());
-            return;
+            return false;
         }
 
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            IntBuffer error = stack.mallocInt(1);
-            this.vorbisHandle = stb_vorbis_open_filename(file.getPath(), error, null);
-            if (this.vorbisHandle == 0) {
-                this.logger.warning("Musik konnte nicht geöffnet werden: " + file.getName() + " (stb-Fehler " + error.get(0) + ")");
-                return;
-            }
-            STBVorbisInfo info = STBVorbisInfo.malloc(stack);
-            stb_vorbis_get_info(this.vorbisHandle, info);
-            this.channels = info.channels();
-            this.sampleRate = info.sample_rate();
-        }
+        this.stream = openStream(file);
+        if (this.stream == null) return false; // Warnung kam aus dem Stream
+        this.channels = this.stream.channels();
+        this.sampleRate = this.stream.sampleRate();
         this.format = this.channels == 1 ? AL10.AL_FORMAT_MONO16 : AL10.AL_FORMAT_STEREO16;
         this.loop = loop;
 
@@ -78,16 +70,40 @@ final class MusicPlayer {
             this.pcm = MemoryUtil.memAllocShort(BUFFER_SAMPLES * 2); // reicht für Stereo
         }
 
+        int queued = 0;
         for (int buffer : this.buffers) {
             if (!this.fillAndQueue(buffer)) break; // sehr kurze Datei: weniger Buffer queuen
+            queued++;
+        }
+        /* Kein einziges Sample: die Source liefe nie an und update() käme nie zum exhausted-Zweig
+           — die Playlist bliebe an dieser Datei hängen. Lieber sofort aufgeben. */
+        if (queued == 0) {
+            this.logger.warning("Musik-Datei liefert keine Daten: " + file.getName());
+            this.stop();
+            return false;
         }
         AL10.alSourcePlay(this.source);
         this.playing = true;
         this.logger.info("Musik gestartet: " + file.getName() + (loop ? " (Loop)" : ""));
+        return true;
+    }
+
+    /** Wählt den Dekoder nach Dateiendung; {@code null} = Format unbekannt oder Datei defekt. */
+    private MusicStream openStream(File file) {
+        String name = file.getName().toLowerCase(Locale.ROOT);
+        if (name.endsWith(".ogg")) return VorbisMusicStream.open(file);
+        if (name.endsWith(".wav")) return WavMusicStream.open(file);
+        this.logger.warning("Musik-Format nicht unterstützt (nur .ogg/.wav): " + file.getName());
+        return null;
+    }
+
+    /** Läuft gerade Musik? Pausiert zählt als „läuft" — die Playlist darf dann nicht weiterrücken. */
+    boolean isPlaying() {
+        return this.playing;
     }
 
     /**
-     * Hält die Musik an, ohne den vorbis-Handle zu schließen ({@link #stop} täte das und die
+     * Hält die Musik an, ohne den Dekodier-Stream zu schließen ({@link #stop} täte das und die
      * Musik startete beim Fortsetzen von vorn).
      */
     void pause() {
@@ -154,10 +170,10 @@ final class MusicPlayer {
     /** Dekodiert das nächste Stück in den Buffer und hängt ihn an; false = Datei zu Ende. */
     private boolean fillAndQueue(int buffer) {
         this.pcm.clear().limit(BUFFER_SAMPLES * this.channels);
-        int samples = stb_vorbis_get_samples_short_interleaved(this.vorbisHandle, this.channels, this.pcm);
+        int samples = this.stream.read(this.pcm);
         if (samples == 0 && this.loop) {
-            stb_vorbis_seek_start(this.vorbisHandle);
-            samples = stb_vorbis_get_samples_short_interleaved(this.vorbisHandle, this.channels, this.pcm);
+            this.stream.seekStart();
+            samples = this.stream.read(this.pcm);
         }
         if (samples == 0) return false;
 
@@ -173,9 +189,9 @@ final class MusicPlayer {
             int queued = AL10.alGetSourcei(this.source, AL10.AL_BUFFERS_QUEUED);
             for (int i = 0; i < queued; i++) AL10.alSourceUnqueueBuffers(this.source);
         }
-        if (this.vorbisHandle != 0) {
-            stb_vorbis_close(this.vorbisHandle);
-            this.vorbisHandle = 0;
+        if (this.stream != null) {
+            this.stream.close();
+            this.stream = null;
         }
         this.playing = false;
         this.paused = false;
