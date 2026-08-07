@@ -210,36 +210,106 @@ public final class Explosion {
     }
 
     /**
-     * Freie Sicht zwischen zwei Punkten? Abgetastet in {@link #STEP}-Schritten gegen die
-     * Kollisionsformen — Fluide haben keine und blockieren deshalb von selbst nicht, was MCs
-     * {@code ClipContext.Fluid.NONE} entspricht.
-     *
-     * <p>Gröber als Vanillas exaktes Clipping: der Strahl kann eine Deckung streifen, ohne dass
-     * ein Abtastpunkt hineinfällt. Bei einer vollen Blockdicke von 1 und Schrittweite 0,3 kann
-     * das nicht passieren; nur bei dünnen Formen quer zum Strahl ist die Näherung optimistisch.
+     * Freie Sicht zwischen zwei Punkten mit exaktem Voxel-/Shape-Clipping. Fluide haben keine
+     * Kollisionsform und blockieren deshalb nicht, entsprechend Vanillas
+     * {@code ClipContext.Fluid.NONE}.
      */
-    private static boolean hasLineOfSight(World world, double px, double py, double pz,
-                                          double cx, double cy, double cz, World.ChunkMemo memo) {
+    static boolean hasLineOfSight(World world, double px, double py, double pz,
+                                  double cx, double cy, double cz, World.ChunkMemo memo) {
         double dx = cx - px, dy = cy - py, dz = cz - pz;
-        double len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (len < 1.0E-6) return true;
-        int steps = (int) (len / STEP);
-        dx /= len; dy /= len; dz /= len;
+        if (dx * dx + dy * dy + dz * dz < 1.0E-12) return true;
 
-        for (int i = 1; i <= steps; i++) {
-            double t = i * STEP;
-            double sx = px + dx * t, sy = py + dy * t, sz = pz + dz * t;
-            int bx = (int) Math.floor(sx), by = (int) Math.floor(sy), bz = (int) Math.floor(sz);
-            if (world.getBlockMemo(bx, by, bz, memo) == Blocks.AIR) continue;
-            for (AABB local : world.getCollisionShape(bx, by, bz).boxes()) {
-                if (sx >= bx + local.minX && sx <= bx + local.maxX
-                        && sy >= by + local.minY && sy <= by + local.maxY
-                        && sz >= bz + local.minZ && sz <= bz + local.maxZ) {
-                    return false;
-                }
+        int bx = (int) Math.floor(px), by = (int) Math.floor(py), bz = (int) Math.floor(pz);
+        int endX = (int) Math.floor(cx), endY = (int) Math.floor(cy), endZ = (int) Math.floor(cz);
+        int stepX = Integer.compare(endX, bx);
+        int stepY = Integer.compare(endY, by);
+        int stepZ = Integer.compare(endZ, bz);
+
+        double deltaX = stepX == 0 ? Double.POSITIVE_INFINITY : 1.0 / Math.abs(dx);
+        double deltaY = stepY == 0 ? Double.POSITIVE_INFINITY : 1.0 / Math.abs(dy);
+        double deltaZ = stepZ == 0 ? Double.POSITIVE_INFINITY : 1.0 / Math.abs(dz);
+        double nextX = firstBoundaryTime(px, dx, bx, stepX);
+        double nextY = firstBoundaryTime(py, dy, by, stepY);
+        double nextZ = firstBoundaryTime(pz, dz, bz, stepZ);
+
+        /* Exaktes Voxel-DDA statt Punktproben im Abstand STEP. Duennere Formen wie Falltueren
+           und Zaunpfosten duerfen einen Explosionsstrahl weder zufaellig durchlassen noch
+           faelschlich sperren; Vanilla clippt denselben Strahl ebenfalls gegen die Shapes. */
+        int remaining = Math.abs(endX - bx) + Math.abs(endY - by) + Math.abs(endZ - bz) + 1;
+        while (remaining-- > 0) {
+            if (world.getBlockMemo(bx, by, bz, memo) != Blocks.AIR
+                    && rayHitsShape(world, bx, by, bz, px, py, pz, dx, dy, dz)) {
+                return false;
+            }
+            if (bx == endX && by == endY && bz == endZ) return true;
+
+            double next = Math.min(nextX, Math.min(nextY, nextZ));
+            /* Bei Kanten-/Ecktreffern alle gebundenen Achsen gemeinsam betreten. */
+            if (nextX <= next + 1.0E-12) {
+                bx += stepX;
+                nextX += deltaX;
+            }
+            if (nextY <= next + 1.0E-12) {
+                by += stepY;
+                nextY += deltaY;
+            }
+            if (nextZ <= next + 1.0E-12) {
+                bz += stepZ;
+                nextZ += deltaZ;
             }
         }
         return true;
+    }
+
+    private static double firstBoundaryTime(double start, double delta, int cell, int step) {
+        if (step == 0) return Double.POSITIVE_INFINITY;
+        double boundary = step > 0 ? cell + 1.0 : cell;
+        return (boundary - start) / delta;
+    }
+
+    /** Prueft den gesamten Segmentabschnitt [0,1] exakt gegen jede lokale Kollisionsbox. */
+    private static boolean rayHitsShape(World world, int bx, int by, int bz,
+                                        double px, double py, double pz,
+                                        double dx, double dy, double dz) {
+        for (AABB local : world.getCollisionShape(bx, by, bz).boxes()) {
+            double tMin = 0.0;
+            double tMax = 1.0;
+
+            double min = bx + local.minX, max = bx + local.maxX;
+            if (Math.abs(dx) < 1.0E-12) {
+                if (px < min || px > max) continue;
+            } else {
+                double a = (min - px) / dx, b = (max - px) / dx;
+                if (a > b) { double swap = a; a = b; b = swap; }
+                tMin = Math.max(tMin, a);
+                tMax = Math.min(tMax, b);
+                if (tMax < tMin) continue;
+            }
+
+            min = by + local.minY; max = by + local.maxY;
+            if (Math.abs(dy) < 1.0E-12) {
+                if (py < min || py > max) continue;
+            } else {
+                double a = (min - py) / dy, b = (max - py) / dy;
+                if (a > b) { double swap = a; a = b; b = swap; }
+                tMin = Math.max(tMin, a);
+                tMax = Math.min(tMax, b);
+                if (tMax < tMin) continue;
+            }
+
+            min = bz + local.minZ; max = bz + local.maxZ;
+            if (Math.abs(dz) < 1.0E-12) {
+                if (pz < min || pz > max) continue;
+            } else {
+                double a = (min - pz) / dz, b = (max - pz) / dz;
+                if (a > b) { double swap = a; a = b; b = swap; }
+                tMin = Math.max(tMin, a);
+                tMax = Math.min(tMax, b);
+                if (tMax < tMin) continue;
+            }
+            return true;
+        }
+        return false;
     }
 
     /** Ein einzelner Strahl: läuft in {@link #STEP}-Schritten, bis die Stärke aufgezehrt ist. */

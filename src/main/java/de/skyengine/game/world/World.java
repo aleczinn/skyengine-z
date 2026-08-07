@@ -759,19 +759,19 @@ public class World implements IInitializable, IDisposable {
     }
 
     /** Spawnt gezündetes TNT als Entity (Fuse-Countdown + weißer Blink) mit MC-typischem Hüpfer. */
-    /* Fuse-Sound-Deckel: eine TNT-Kette spawnt hunderte Entities im selben Tick — ein
-       Zisch pro Tick reicht, sonst gibt es einen OpenAL-Play-Sturm. */
-    private long lastFuseSoundTick = Long.MIN_VALUE;
-
     public void spawnPrimedTnt(double x, double y, double z, float power, int fuse) {
         PrimedTntEntity entity = new PrimedTntEntity(power, fuse);
         entity.setPosition(x, y, z);
-        entity.motionY = 0.2;
-        entity.motionX = (this.random.nextDouble() - 0.5) * 0.02;
-        entity.motionZ = (this.random.nextDouble() - 0.5) * 0.02;
+        /* PrimedTnt-Konstruktor in Vanilla: horizontal immer Radius 0.02 auf einem zufaelligen
+           Kreiswinkel (nicht unabhaengige X/Z-Werte in einem Quadrat), Y ist der Floatwert 0.2. */
+        double angle = this.random.nextDouble() * Math.PI * 2.0;
+        entity.motionX = -Math.sin(angle) * 0.02;
+        entity.motionY = 0.20000000298023224;
+        entity.motionZ = -Math.cos(angle) * 0.02;
         this.spawnEntity(entity);
-        if (this.soundManager != null && this.gameTime != this.lastFuseSoundTick) {
-            this.lastFuseSoundTick = this.gameTime;
+        /* Vanilla spielt TNT_PRIMED fuer jede Entity. Gleichzeitige Zuendungen zu deckeln
+           veraendert Kanonen und Kettenreaktionen hoerbar. */
+        if (this.soundManager != null) {
             this.soundManager.playFuse(x, y, z); // Zisch beim Zünden
         }
     }

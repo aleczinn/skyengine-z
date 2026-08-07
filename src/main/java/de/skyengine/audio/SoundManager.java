@@ -67,7 +67,7 @@ public final class SoundManager implements IDisposable {
     private static final float FALL_GAIN = 0.5F;
     private static final float EAT_GAIN = 0.75F;
     private static final float BURP_GAIN = 0.25F; // bewusst dezenter als MCs 0.5 (User-Wunsch)
-    private static final float EXPLOSION_GAIN = 1.0F;
+    private static final float EXPLOSION_GAIN = 4.0F;
     /* Aufsammeln: MC-Werte aus Player.take — leise, hoher Pitch mit weiter Streuung. */
     private static final float PICKUP_GAIN = 0.2F;
     private static final float PICKUP_PITCH = 2.0F, PICKUP_PITCH_SPREAD = 0.7F;
@@ -356,9 +356,14 @@ public final class SoundManager implements IDisposable {
         this.play(this.pickupVariants, SoundCategory.PLAYER, PICKUP_GAIN, pitch, false, false, 0, 0, 0);
     }
 
-    /** Explosions-Sound (TNT) — positional an der Detonationsstelle. Stumm ohne Asset. */
+    /**
+     * Explosions-Sound wie {@code ClientPacketListener#handleExplosion}: Gain 4 und Pitch
+     * {@code (1 + (rand - rand) * 0.2) * 0.7}. Der generische +/-10-%-Jitter waere zu hoch.
+     */
     public void playExplosion(double x, double y, double z) {
-        this.play(this.explosionVariants, SoundCategory.BLOCKS, EXPLOSION_GAIN, 1.0F, true, true, x, y, z);
+        float pitch = (1.0F + (this.random.nextFloat() - this.random.nextFloat()) * 0.2F) * 0.7F;
+        this.play(this.explosionVariants, SoundCategory.BLOCKS, EXPLOSION_GAIN, pitch,
+                false, true, x, y, z);
     }
 
     /** Zünd-/Fuse-Zischen (TNT) — positional beim Zünden, fester Pitch. Stumm ohne Asset. */
