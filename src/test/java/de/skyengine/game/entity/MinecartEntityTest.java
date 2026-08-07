@@ -7,6 +7,7 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.block.state.Property;
 import de.skyengine.game.world.block.state.RailShape;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.game.physics.AABB;
@@ -129,6 +130,55 @@ final class MinecartEntityTest {
     }
 
     @Test
+    void emptyCartKeepsCirclingVanillaPoweredSlopeLoop() {
+        TestWorld world = new TestWorld() {
+            @Override public List<AABB> getCollisionBoxes(AABB area) {
+                java.util.ArrayList<AABB> boxes = new java.util.ArrayList<>();
+                for (int x = 0; x <= 4; x++) {
+                    addIfIntersecting(area, boxes, new AABB(x, 63, 4, x + 1, 64, 5));
+                    addIfIntersecting(area, boxes, new AABB(x, 64, 2, x + 1, 65, 3));
+                }
+                addIfIntersecting(area, boxes, new AABB(0, 63, 3, 1, 64, 4));
+                addIfIntersecting(area, boxes, new AABB(4, 63, 3, 5, 64, 4));
+                addIfIntersecting(area, boxes, new AABB(3, 64, 3, 4, 65, 4));
+                return boxes;
+            }
+
+            private void addIfIntersecting(AABB area, List<AABB> boxes, AABB block) {
+                if (area.intersects(block)) boxes.add(block);
+            }
+        };
+        BlockState normal = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState();
+        BlockState powered = BlockRegistry.get(Identifier.of("skyengine:powered_rail")).getDefaultState()
+                .with(Properties.POWERED, true);
+
+        world.put(0, 64, 4, normal.with(Properties.RAIL_SHAPE, RailShape.NORTH_EAST));
+        for (int x = 1; x <= 3; x++) {
+            world.put(x, 64, 4, powered.with(Properties.STRAIGHT_RAIL_SHAPE, RailShape.EAST_WEST));
+        }
+        world.put(4, 64, 4, normal.with(Properties.RAIL_SHAPE, RailShape.NORTH_WEST));
+        world.put(4, 64, 3, powered.with(Properties.STRAIGHT_RAIL_SHAPE, RailShape.ASCENDING_NORTH));
+        world.put(4, 65, 2, normal.with(Properties.RAIL_SHAPE, RailShape.SOUTH_WEST));
+        for (int x = 1; x <= 3; x++) {
+            BlockState top = x == 2 ? powered : normal;
+            Property<RailShape> shape = x == 2 ? Properties.STRAIGHT_RAIL_SHAPE : Properties.RAIL_SHAPE;
+            world.put(x, 65, 2, top.with(shape, RailShape.EAST_WEST));
+        }
+        world.put(0, 65, 2, normal.with(Properties.RAIL_SHAPE, RailShape.SOUTH_EAST));
+        world.put(0, 64, 3, normal.with(Properties.RAIL_SHAPE, RailShape.ASCENDING_NORTH));
+
+        MinecartEntity cart = new MinecartEntity();
+        cart.setPosition(1.5, 64.0625, 4.5);
+        cart.motionX = -0.2;
+        for (int tick = 0; tick < 1_200; tick++) cart.tick(world);
+
+        double speed = Math.hypot(cart.motionX, cart.motionZ);
+        assertTrue(speed > 0.05, "Cart blieb in einer ausreichend angetriebenen Schleife stehen: speed="
+                + speed + ", pos=" + cart.x + "," + cart.y + "," + cart.z);
+        assertTrue(cart.y > 63.9, "Cart verlor die Schiene und fiel aus der Schleife: y=" + cart.y);
+    }
+
+    @Test
     void cartGainsHeightWhileClimbingAscendingRail() {
         TestWorld world = new TestWorld();
         BlockState slope = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
@@ -145,6 +195,22 @@ final class MinecartEntityTest {
         assertTrue(cart.x > 0.25);
         assertTrue(cart.y > 64.3125);
         assertTrue(cart.pitch > 0);
+    }
+
+    @Test
+    void descendingSlopeAppliesVanillaHeightVelocityCorrection() {
+        TestWorld world = new TestWorld();
+        world.put(0, 64, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+                .with(Properties.RAIL_SHAPE, RailShape.ASCENDING_EAST));
+        MinecartEntity cart = new MinecartEntity();
+        cart.setPosition(0.75, 64.8125, 0.5);
+        cart.motionX = -0.2;
+
+        cart.tick(world);
+
+        assertTrue(-cart.motionX > 0.2,
+                "Bergabfahrt muss trotz Leerwagenreibung Geschwindigkeit gewinnen");
+        assertTrue(cart.y < 64.8125);
     }
 
     @Test

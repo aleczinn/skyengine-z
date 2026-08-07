@@ -148,11 +148,22 @@ public final class MinecartEntity extends Entity {
         this.motionZ = Math.clamp(this.motionZ, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
         /* Auf Steigungen muss die vertikale Bewegung VOR der horizontalen Blockkollision
            stattfinden. Mit dy=0 prallte die AABB gegen den Stützblock der oberen Schiene. */
+        double railYBeforeMove = this.y;
         this.move(world, this.motionX, ty * along, this.motionZ);
 
         RailPosition after = this.findRailAfterMovement(world);
-        if (after != null) this.snapTo(segment(after.x, after.y, after.z,
-                RailBehavior.shape(after.state)));
+        if (after != null) {
+            this.snapTo(segment(after.x, after.y, after.z, RailBehavior.shape(after.state)));
+            /* AbstractMinecart.moveAlongTrack korrigiert nach der zweiten Schienenprojektion
+               die horizontale Geschwindigkeit um 0,05 je zurückgelegtem Höhenblock. Diese
+               diskrete Schienengravitation kommt zusätzlich zum 0,0078125-Steigungsimpuls. */
+            double horizontalSpeed = Math.hypot(this.motionX, this.motionZ);
+            if (horizontalSpeed > 0) {
+                double correctedSpeed = horizontalSpeed + (railYBeforeMove - this.y) * 0.05;
+                this.motionX = this.motionX / horizontalSpeed * correctedSpeed;
+                this.motionZ = this.motionZ / horizontalSpeed * correctedSpeed;
+            }
+        }
         this.motionX *= this.hasPassengers() ? 0.997 : 0.96;
         this.motionZ *= this.hasPassengers() ? 0.997 : 0.96;
     }
