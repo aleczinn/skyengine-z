@@ -110,8 +110,11 @@ public class EntityPlayer extends Entity {
             } else {
                 if (this.getVehicle() instanceof MinecartEntity minecart) {
                     double yawRad = Math.toRadians(this.yaw);
-                    double impulse = input.isBindDown(GameSettings.get().key(KeyBindings.FORWARD)) ? 0.1 : 0;
-                    if (input.isBindDown(GameSettings.get().key(KeyBindings.BACK))) impulse -= 0.05;
+                    /* Vanilla schiebt ein nahezu stehendes Cart mit player.zza > 0 nur um 0,001
+                       pro Tick in Blickrichtung an. Rückwärts- und Seitwärtstasten treiben es
+                       nicht an. Der kleine additive Impuls erzeugt das langsame Anrollen. */
+                    double impulse = input.isBindDown(GameSettings.get().key(KeyBindings.FORWARD))
+                            ? 0.001 : 0;
                     minecart.addPassengerImpulse(Math.sin(yawRad) * impulse,
                             -Math.cos(yawRad) * impulse);
                 }

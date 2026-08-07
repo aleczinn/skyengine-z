@@ -109,6 +109,26 @@ final class MinecartEntityTest {
     }
 
     @Test
+    void passengerImpulseStartsCartGraduallyInEitherRailDirection() {
+        TestWorld world = new TestWorld();
+        world.put(0, 64, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+                .with(Properties.RAIL_SHAPE, RailShape.EAST_WEST));
+
+        MinecartEntity eastbound = new MinecartEntity();
+        eastbound.setPosition(0.5, 64.0625, 0.5);
+        eastbound.addPassengerImpulse(0.001, 0);
+        eastbound.tick(world);
+        assertTrue(eastbound.motionX > 0);
+        assertTrue(eastbound.motionX < 0.002, "Fahrerimpuls darf nicht auf Fahrtempo springen");
+
+        MinecartEntity westbound = new MinecartEntity();
+        westbound.setPosition(0.5, 64.0625, 0.5);
+        westbound.addPassengerImpulse(-0.001, 0);
+        westbound.tick(world);
+        assertTrue(westbound.motionX < 0, "Anrollen muss in beide Schienenrichtungen gehen");
+    }
+
+    @Test
     void cartGainsHeightWhileClimbingAscendingRail() {
         TestWorld world = new TestWorld();
         BlockState slope = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()

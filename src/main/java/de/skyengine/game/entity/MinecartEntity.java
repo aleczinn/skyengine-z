@@ -107,15 +107,18 @@ public final class MinecartEntity extends Entity {
         tx /= length;
         tz /= length;
 
+        double speedSq = this.motionX * this.motionX + this.motionZ * this.motionZ;
+        if (speedSq < 0.01 && (this.passengerImpulseX != 0 || this.passengerImpulseZ != 0)) {
+            this.motionX += this.passengerImpulseX;
+            this.motionZ += this.passengerImpulseZ;
+        }
+        this.passengerImpulseX = 0;
+        this.passengerImpulseZ = 0;
+
         double speed = Math.sqrt(this.motionX * this.motionX + this.motionZ * this.motionZ);
         double dot = this.motionX * tx + this.motionZ * tz;
         if (dot < 0) { tx = -tx; ty = -ty; tz = -tz; }
         double along = speed;
-        if (speed < 0.01 && (this.passengerImpulseX != 0 || this.passengerImpulseZ != 0)) {
-            along = Math.max(0, this.passengerImpulseX * tx + this.passengerImpulseZ * tz);
-        }
-        this.passengerImpulseX = 0;
-        this.passengerImpulseZ = 0;
         along = Math.clamp(along, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
         this.motionX = tx * along;
         this.motionZ = tz * along;
