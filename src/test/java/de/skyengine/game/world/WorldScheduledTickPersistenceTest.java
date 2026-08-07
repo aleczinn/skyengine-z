@@ -50,7 +50,7 @@ final class WorldScheduledTickPersistenceTest {
     }
 
     @Test
-    void rescheduledTickMarksChunkModifiedWhileItIsNotReady() throws Exception {
+    void dueTickKeepsOriginalTimeWithoutDirtyingChunkWhileItIsNotReady() throws Exception {
         TestWorld world = new TestWorld();
         Chunk chunk = readyPistonChunk();
         world.install(chunk);
@@ -61,10 +61,11 @@ final class WorldScheduledTickPersistenceTest {
         world.advanceGameTime();
         world.tickScheduled();
 
-        assertTrue(chunk.isModified(), "Re-Schedule während Remesh darf nicht am READY-Gate verloren gehen");
-        List<SavedTick> rescheduled = world.snapshotScheduledTicks(chunk);
-        assertEquals(1, rescheduled.size());
-        assertEquals(20, rescheduled.getFirst().remainingTicks());
+        assertFalse(chunk.isModified(),
+                "Vanilla lässt den Tick unverändert in der Chunk-Queue statt ihn neu zu planen");
+        List<SavedTick> pending = world.snapshotScheduledTicks(chunk);
+        assertEquals(1, pending.size());
+        assertEquals(0, pending.getFirst().remainingTicks());
     }
 
     @Test
@@ -98,6 +99,36 @@ final class WorldScheduledTickPersistenceTest {
         List<SavedTick> pending = world.snapshotScheduledTicks(chunk);
         assertEquals(1, pending.size());
         assertEquals(2, pending.getFirst().remainingTicks());
+    }
+
+    @Test
+    void restoringPersistedTickDoesNotDirtyItsChunkAgain() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = readyPistonChunk();
+        world.install(chunk);
+        chunk.markSaved(chunk.modificationEpoch());
+
+        world.restoreScheduledBlockTick(new SavedTick("block", "skyengine:piston",
+                3, 64, 4, 7, 0, 12));
+
+        assertFalse(chunk.isModified(),
+                "das Unpack eines bereits gespeicherten Ticks darf keine neue Save-Epoch erzeugen");
+        assertEquals(1, world.snapshotScheduledTicks(chunk).size());
+    }
+
+    @Test
+    void restoringPersistedBlockEventDoesNotDirtyItsChunkAgain() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = readyPistonChunk();
+        world.install(chunk);
+        chunk.markSaved(chunk.modificationEpoch());
+
+        world.restoreBlockEvent(new SavedTick("block_event", "skyengine:piston",
+                3, 64, 4, 1, 0, 0));
+
+        assertFalse(chunk.isModified(),
+                "das Unpack eines bereits gespeicherten Blockevents darf keine neue Save-Epoch erzeugen");
+        assertEquals(1, world.snapshotScheduledTicks(chunk).size());
     }
 
     @Test
@@ -191,6 +222,32 @@ final class WorldScheduledTickPersistenceTest {
             assertEquals(persisted.get(Chunk.key(chunk.chunkX, chunk.chunkZ)),
                     world.snapshotScheduledTicks(chunk));
         }
+    }
+
+    @Test
+    void oneWorldTickExecutesMoreThanOldFourThousandNinetySixLimit() throws Exception {
+        TestWorld world = new TestWorld();
+        List<Chunk> chunks = new ArrayList<>();
+        int scheduled = 0;
+        for (int chunkX = 0; chunkX < 5; chunkX++) {
+            Chunk chunk = new Chunk(chunkX, 0);
+            chunk.status = ChunkStatus.READY;
+            world.install(chunk);
+            chunks.add(chunk);
+            for (int z = 0; z < 32 && scheduled < 5_000; z++) {
+                for (int localX = 0; localX < 32 && scheduled < 5_000; localX++) {
+                    chunk.setBlock(localX, 64, z, Blocks.PISTON);
+                    world.scheduleTick((chunkX << 5) + localX, 64, z, 1);
+                    scheduled++;
+                }
+            }
+        }
+
+        world.advanceGameTime();
+        world.tickScheduled();
+
+        assertEquals(5_000, scheduled);
+        for (Chunk chunk : chunks) assertNull(world.snapshotScheduledTicks(chunk));
     }
 
     private static Chunk readyPistonChunk() {

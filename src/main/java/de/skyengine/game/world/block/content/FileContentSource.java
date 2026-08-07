@@ -18,4 +18,5 @@ public final class FileContentSource implements ContentSource {
     @Override public File models() { return new File(root, "models"); }
     @Override public File items() { return new File(root, "items"); }
     @Override public File creativeTabs() { return new File(root, "creative_tabs.json"); }
+    @Override public File blockLootTables() { return new File(root, "loot_table/blocks"); }
 }

@@ -1,0 +1,7 @@
+{
+  "id": "skyengine:bread",
+  "archetype": "food",
+  "texture": "game/textures/item/bread.png",
+  "creative_tab": "food",
+  "food": { "nutrition": 5, "saturation": 6.0 }
+}

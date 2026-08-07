@@ -7,6 +7,7 @@ import de.skyengine.core.input.Input;
 import de.skyengine.core.io.*;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.ItemEntity;
+import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
@@ -27,8 +28,10 @@ import de.skyengine.game.world.item.FlintAndSteelItem;
 import de.skyengine.game.world.item.FoodItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.ItemFrameItem;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.item.ToolItem;
+import de.skyengine.game.world.loot.LootContext;
 import de.skyengine.graphics.world.ChunkRenderer;
 import de.skyengine.graphics.world.CrackRenderer;
 import de.skyengine.core.i18n.I18n;
@@ -180,6 +183,8 @@ public class GameContainer implements IResizeable, IDisposable {
     private float pausedPartialTick = 0F;
 
     private BlockRaycast.Hit hit = null;
+    /** Entity-Treffer nur, wenn er vor dem naechsten Block auf demselben Augenstrahl liegt. */
+    private ItemFrameEntity itemFrameHit = null;
 
     /* Spieler-Inventar (36 Slots: 0..8 Hotbar, 9..35 Hauptinventar). Auswahl per Zahlentasten 1..9. */
     private final SimpleItemStorage playerInventory = new SimpleItemStorage(36);
@@ -365,6 +370,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.player = null;
         this.currentSave = null;
         this.hit = null;
+        this.itemFrameHit = null;
         this.notifyOnSaveDone = false; // sonst quittiert die nächste Welt einen fremden Save
         this.resetMining();
         this.guiManager.open(new GuiMainMenu());
@@ -393,6 +399,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (level.generatorVersion == null) level.generatorVersion = AlphaWorldGeneratorV2.VERSION;
         level.player = null;
         level.inventory.clear();
+        this.world.saveLootRandomStates(level);
         WorldSaves.save(this.currentSave);
 
         DataTag tag = new DataTag();
@@ -720,6 +727,13 @@ public class GameContainer implements IResizeable, IDisposable {
         this.soundManager.updateListener(this.camera);
 
         this.hit = BlockRaycast.raycast(this.world, this.eyePosition, this.eyeDirection, REACH);
+        double entityReach = this.hit == null ? REACH : Math.sqrt(
+                sq(this.hit.hitX() - this.eyePosition.x)
+                        + sq(this.hit.hitY() - this.eyePosition.y)
+                        + sq(this.hit.hitZ() - this.eyePosition.z));
+        this.itemFrameHit = this.world.raycastItemFrame(this.eyePosition.x, this.eyePosition.y,
+                this.eyePosition.z, this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z,
+                entityReach);
 
         if (guiOpen) {
             this.guiManager.handleInput();       // Schließen + Slot-Klicks (kann den GuiScreen schließen)
@@ -1071,29 +1085,34 @@ public class GameContainer implements IResizeable, IDisposable {
     private void breakTargetBlock(BlockState broken, boolean applyDurability) {
         this.soundManager.playBreak(broken.getBlock().getSoundGroup(),
                 this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
-        /* Drop-Ersatz VOR onBreak/setBlock abfragen — solange Nachbar-States/BlockEntity lesbar sind. */
-        ItemStack overrideDrop = broken.getBlock().getDropOverride(this.world,
-                this.hit.x(), this.hit.y(), this.hit.z(), broken);
+        /* Loot VOR onBreak/setBlock auswerten — solange State und BlockEntity lesbar sind. */
+        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        java.util.ArrayList<ItemStack> drops = new java.util.ArrayList<>(2);
+        if (this.player.getGamemode().dropsItems() && isHarvestable(broken, held)) {
+            var context = new LootContext(this.world,
+                    this.hit.x(), this.hit.y(), this.hit.z(), broken, held,
+                    LootContext.Cause.PLAYER, 0.0F, this.world.random());
+            broken.getBlock().appendDrops(context, (stack, x, y, z) -> drops.add(stack));
+        }
         broken.getBlock().onBreak(this.world, this.hit.x(), this.hit.y(), this.hit.z(), broken);
         this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(), Blocks.AIR);
 
-        ItemStack held = this.playerInventory.get(this.hotbarIndex);
-        /* Drops nur im Survival UND nur, wenn Tool-Klasse + Tier passen. */
-        if (this.player.getGamemode().dropsItems() && isHarvestable(broken, held)) {
-            if (overrideDrop != null) {
-                this.world.spawnItem(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5, overrideDrop);
-            } else {
-                Item drop = Items.forBlock(broken.getBlock()); // löst auch places_block-Items auf (Staub)
-                if (drop != null) {
-                    this.world.spawnItem(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5, new ItemStack(drop, 1));
-                }
-            }
-        }
+        for (ItemStack drop : drops) this.world.spawnItem(this.hit.x() + 0.5,
+                this.hit.y() + 0.5, this.hit.z() + 0.5, drop);
 
         /* Tool-Abnutzung (nur Survival bei Härte > 0): zerbricht bei erreichter Haltbarkeit. */
         if (applyDurability && held.getItem() instanceof ToolItem tool) {
             held.setDamage(held.getDamage() + 1);
             if (held.getDamage() >= tool.getTier().durability()) {
+                this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
+            }
+        } else if (applyDurability && held.getItem() instanceof de.skyengine.game.world.item.ShearsItem
+                && (broken.isLeaves() || broken.getBlock().getIdentifier().path().equals("short_grass")
+                || broken.getBlock().getIdentifier().path().equals("fern")
+                || broken.getBlock().getIdentifier().path().equals("tall_grass")
+                || broken.getBlock().getIdentifier().path().equals("dead_bush"))) {
+            held.setDamage(held.getDamage() + 1);
+            if (held.getDamage() >= de.skyengine.game.world.item.ShearsItem.DURABILITY) {
                 this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
             }
         }
@@ -1217,7 +1236,11 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.missTime > 0) return false;
 
         boolean endAttack = false;
-        if (this.hit != null) {
+        if (this.itemFrameHit != null) {
+            this.itemFrameHit.attack(this.world, this.player.getGamemode() == Gamemode.CREATIVE);
+            this.stopDestroyBlock();
+            endAttack = true;
+        } else if (this.hit != null) {
             this.startDestroyBlock();
             if (Blocks.getState(this.world.getBlock(this.hit.x(), this.hit.y(), this.hit.z())).isAir()) {
                 endAttack = true;
@@ -1236,7 +1259,9 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!down) this.missTime = 0;
         if (this.missTime > 0 || this.animState.isEating()) return;
 
-        if (down && this.hit != null) {
+        if (down && this.itemFrameHit != null) {
+            this.stopDestroyBlock();
+        } else if (down && this.hit != null) {
             if (this.continueDestroyBlock()) this.animState.swing();
         } else {
             this.stopDestroyBlock();
@@ -1275,6 +1300,9 @@ public class GameContainer implements IResizeable, IDisposable {
            Strahl (Fluids sind im Normal-Raycast unsichtbar) und funktioniert auch ohne this.hit.
            Der gefüllte Eimer platziert wie ein Block über this.hit (siehe handleBucket). */
         ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        if (this.itemFrameHit != null
+                && this.itemFrameHit.interact(this.world, held,
+                this.player.getGamemode() == Gamemode.CREATIVE)) return true;
         if (held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket)) return true;
 
         if (this.hit == null) return false;
@@ -1284,7 +1312,8 @@ public class GameContainer implements IResizeable, IDisposable {
            Möglichkeit, eine Truhe an die Seite einer anderen zu setzen oder auf einem Redstone-
            Staub zu bauen, statt ihn umzuschalten. */
         boolean placingWhileSneaking = this.player.isSecondaryUseActive()
-                && held.getItem() != null && held.getItem().getPlacedBlock() != null;
+                && held.getItem() != null
+                && (held.getItem().getPlacedBlock() != null || held.getItem() instanceof ItemFrameItem);
 
         /* Feuerzeug: der einzige Zündweg für TNT, der über die Hand läuft. Steht VOR der
            Block-Interaktion und bewusst NICHT hinter dem Sneak-Gate — in MC überspringt Sneaken
@@ -1301,6 +1330,8 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). */
         if (!placingWhileSneaking && this.tryOpenChest()) return true;
         if (!placingWhileSneaking && this.tryOpenHopper()) return true;
+
+        if (held.getItem() instanceof ItemFrameItem && this.tryPlaceItemFrame()) return true;
 
         /* Ausgewählter Hotbar-Slot muss einen platzierbaren Block enthalten — neben BlockItems
            auch Material-Items mit places_block (Redstone-Staub). */
@@ -1342,13 +1373,44 @@ public class GameContainer implements IResizeable, IDisposable {
      * Pick Block (nur Creative): legt den anvisierten Block in den ausgewählten Hotbar-Slot.
      */
     private void pickBlock() {
-        if (this.player.getGamemode() != Gamemode.CREATIVE || this.hit == null) return;
+        if (this.player.getGamemode() != Gamemode.CREATIVE) return;
+        if (this.itemFrameHit != null) {
+            this.playerInventory.set(this.hotbarIndex, this.itemFrameHit.getPickResult());
+            this.itemNameShownAt = System.currentTimeMillis();
+            return;
+        }
+        if (this.hit == null) return;
         Block picked = Blocks.getState(this.hit.block()).getBlock();
         Item item = Items.forBlock(picked); // BlockItem bzw. places_block-Item (Staub); null bei Air/Fluid
         if (item != null) {
             this.playerInventory.set(this.hotbarIndex, new ItemStack(item, 1));
             this.itemNameShownAt = System.currentTimeMillis(); // Namens-Einblendung wie bei Slot-Wechsel
         }
+    }
+
+    /** ItemFrameItem.useOn: Zielzelle = getroffener Block + getroffene Flaeche, alle sechs Seiten. */
+    private boolean tryPlaceItemFrame() {
+        Direction direction = directionOf(this.hit.faceX(), this.hit.faceY(), this.hit.faceZ());
+        if (direction == null) return false;
+        int x = this.hit.x() + direction.offsetX();
+        int y = this.hit.y() + direction.offsetY();
+        int z = this.hit.z() + direction.offsetZ();
+        if (!this.world.placeItemFrame(x, y, z, direction)) return false;
+        if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
+        return true;
+    }
+
+    private static Direction directionOf(int x, int y, int z) {
+        for (Direction direction : Direction.sharedValues()) {
+            if (direction.offsetX() == x && direction.offsetY() == y && direction.offsetZ() == z) {
+                return direction;
+            }
+        }
+        return null;
+    }
+
+    private static double sq(double value) {
+        return value * value;
     }
 
     /**
@@ -1419,10 +1481,6 @@ public class GameContainer implements IResizeable, IDisposable {
         ChestBlockEntity bottom = top == chest ? partner : chest;
         this.guiManager.open(new GuiChest(top, bottom, this.playerInventory));
 
-        /* Persistenz: das GUI mutiert das Truhen-Inventar direkt (kein World-Hook) —
-           Über-Approximation "geöffnet = potenziell geändert" kostet einen Chunk-Write. */
-        this.world.markChunkModified(x, z);
-        if (partner != null) this.world.markChunkModified(partnerX, partnerZ);
         return true;
     }
 
@@ -1432,8 +1490,6 @@ public class GameContainer implements IResizeable, IDisposable {
         BlockEntity be = this.world.getBlockEntity(x, y, z);
         if (!(be instanceof de.skyengine.game.world.block.entity.HopperBlockEntity hopper)) return false;
         this.guiManager.open(new de.skyengine.graphics.gui.screens.GuiHopper(hopper, this.playerInventory));
-        /* Persistenz wie bei der Truhe: geöffnet = potenziell geändert. */
-        this.world.markChunkModified(x, z);
         return true;
     }
 

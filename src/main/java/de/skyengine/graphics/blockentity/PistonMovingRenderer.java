@@ -26,10 +26,10 @@ import org.lwjgl.opengl.GL30;
  * States, kamerarelativ um {@code (1 − progress)} entgegen der Bewegungsrichtung versetzt
  * (Muster {@code EntityRenderer}-FallingBlock, Daten-Bau über {@link BlockStateMesh}).
  *
- * <p>Sonderfall Retract-Source (BE an der KOPF-Zelle): die Basis bleibt Chunk-gemesht
- * (korrektes AO/Smooth-Licht — als BE-gerenderter Würfel blitzte sie sichtbar auf);
- * hier gleiten nur der passende {@code piston_head} zurück zur Basis und ggf. der
- * Pull-Block des klebrigen Kolbens nach.
+ * <p>Sonderfall Retract-Source (BE an der BASIS-Zelle wie Vanilla): lässt nur den passenden
+ * {@code piston_head} aus der Kopfzelle zurückgleiten. Die stationäre ausgefahrene Basis steckt
+ * als Render-Hülle im Moving-Piston-State und bleibt dadurch im AO-/Smooth-Lighting des
+ * Chunk-Meshes; der frühere zweite BE-Draw derselben Basis verursachte den Helligkeitsblitz.
  *
  * <p>Der Dispatcher-Cull-Margin von 1.0 deckt den maximalen Versatz von genau 1 Block ab;
  * das Licht kommt (wie bei allen BE-Renderern) aus der BE-Zelle.
@@ -87,52 +87,36 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
         float baseX = (float) (pos.x() - cam.x);
         float baseY = (float) (pos.y() - cam.y);
         float baseZ = (float) (pos.z() - cam.z);
-        float back = 1.0f - moving.getProgress(partialTick);
+        float progress = moving.getProgress(partialTick);
+        float back = 1.0f - progress;
         Direction f = moving.getFacing();
 
         if (moving.isSource() && !moving.isExtending()) {
-            /* Retract: die BE sitzt an der KOPF-Zelle — die Basis bleibt Chunk-gemesht
-               (korrektes AO/Smooth-Licht; als BE-Würfel blitzte sie auf). Hier gleiten nur
-               der Arm zurück zur Basis und ggf. der Pull-Block des klebrigen Kolbens nach. */
-            float in = 1.0f - back;
-            this.drawState(this.headStateFor(moving, back),
-                    baseX - f.offsetX() * in, baseY - f.offsetY() * in, baseZ - f.offsetZ() * in);
-            if (moving.getMovedStateId() != Blocks.AIR) {
-                this.drawState(moving.getMovedStateId(),
-                        baseX + f.offsetX() * back, baseY + f.offsetY() * back, baseZ + f.offsetZ() * back);
-            }
+            this.drawState(this.headStateFor(moving, progress),
+                    baseX + f.offsetX() * back, baseY + f.offsetY() * back, baseZ + f.offsetZ() * back);
         } else {
             Direction d = moving.isExtending() ? f : f.opposite();
-            this.drawState(withShortIfHead(moving, back),
+            this.drawState(withShortIfHead(moving, progress),
                     baseX - d.offsetX() * back, baseY - d.offsetY() * back, baseZ - d.offsetZ() * back);
         }
         this.shader.unbind();
     }
 
-    /**
-     * MC-Short-Formel: kurzer Arm (ohne den 4-px-Überstand), solange der Kopf in Basisnähe
-     * gleitet — sonst ragte der Überstand hinten aus der Basis. Erst wenn die Platte fast an
-     * der Kopf-Zelle ist ({@code back < 0.25}), verschwindet der lange Arm sauber in der
-     * Basis-Aussparung.
-     */
-    private static boolean shortArm(boolean extending, float back) {
-        return extending != (back < 0.25f);
-    }
-
-    /** Der zum Quell-Kolben passende Kopf (für die Rückzieh-Optik; Typ aus dem BE-Feld). */
-    private int headStateFor(PistonMovingBlockEntity moving, float back) {
+    /** Der zum Quell-Kolben passende Kopf mit Vanillas 0,5-Short-Schwelle. */
+    private int headStateFor(PistonMovingBlockEntity moving, float progress) {
         return Blocks.getState(Blocks.PISTON_HEAD)
                 .with(Properties.FACING_ALL, moving.getFacing())
                 .with(Properties.PISTON_TYPE, moving.isSticky() ? PistonType.STICKY : PistonType.NORMAL)
-                .with(Properties.SHORT, shortArm(false, back))
+                .with(Properties.SHORT, progress >= 0.5f)
                 .getId();
     }
 
     /** Gleitet ein Kopf-State (Extend-Source), bekommt er die Short-Formel; alles andere unverändert. */
-    private static int withShortIfHead(PistonMovingBlockEntity moving, float back) {
+    private static int withShortIfHead(PistonMovingBlockEntity moving, float progress) {
         var state = Blocks.getState(moving.getMovedStateId());
         if (!state.getValues().containsKey(Properties.SHORT)) return moving.getMovedStateId();
-        return state.with(Properties.SHORT, shortArm(moving.isExtending(), back)).getId();
+        boolean shortHead = moving.isExtending() ? progress <= 0.5f : progress >= 0.5f;
+        return state.with(Properties.SHORT, shortHead).getId();
     }
 
     private void drawState(int stateId, float ox, float oy, float oz) {

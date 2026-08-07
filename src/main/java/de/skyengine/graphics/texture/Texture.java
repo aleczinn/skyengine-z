@@ -63,6 +63,30 @@ public class Texture implements IDisposable {
 		
 		this.unbind();
 	}
+
+	/**
+	 * Erstellt eine RGBA8-Textur aus bereits dekodierten Pixeln. Der Puffer wird nur während
+	 * dieses Aufrufs gelesen und bleibt im Besitz des Aufrufers.
+	 */
+	public Texture(int width, int height, ByteBuffer pixels, boolean useMipMaps) {
+		if (width <= 0 || height <= 0) throw new IllegalArgumentException("Invalid texture size: " + width + "x" + height);
+		if (pixels.remaining() < width * height * 4) {
+			throw new IllegalArgumentException("RGBA buffer too small for " + width + "x" + height);
+		}
+
+		this.textureID = GL11.glGenTextures();
+		this.bind();
+		this.width = width;
+		this.height = height;
+		GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, width, height, 0,
+				GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, pixels);
+
+		if (useMipMaps) GL30.glGenerateMipmap(GL11.GL_TEXTURE_2D);
+		this.unsafeSetFilter(this.minFilter, this.magFilter, true);
+		this.unsafeSetWrap(this.wrapU, this.wrapV, true);
+		this.unsafeSetAnisotropicFilterLevel(this.anisotropicFilterLevel, true);
+		this.unbind();
+	}
 	
 	public void bind() {
 		GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.textureID);

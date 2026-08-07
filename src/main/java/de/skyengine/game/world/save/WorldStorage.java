@@ -76,7 +76,8 @@ public class WorldStorage {
 
     /** Vollstaendig vom Live-Chunk entkoppelter Stand eines Enqueue-Zeitpunkts. */
     private record SaveSnapshot(Chunk data, long epoch, List<SavedTick> ticks,
-                                List<SavedBlockEntity> blockEntities) {}
+                                List<SavedBlockEntity> blockEntities,
+                                List<SavedEntity> entities) {}
 
     public WorldStorage(File regionDir, World world, WorldGenerator generator,
                         String generatorId, int generatorVersion, boolean storeTints) {
@@ -123,6 +124,7 @@ public class WorldStorage {
     private static void clearPartialLoad(Chunk chunk) {
         for (int s = 0; s < Chunk.SECTIONS; s++) chunk.installSection(s, null);
         chunk.blockEntities().clear();
+        chunk.entities().clear();
         chunk.grassTintCorners = null;
         chunk.foliageTintCorners = null;
         chunk.pendingScheduledTicks = null;
@@ -176,8 +178,9 @@ public class WorldStorage {
             List<SavedTick> ticks = this.world == null ? null : this.world.snapshotScheduledTicks(chunk);
             if (ticks != null) ticks = List.copyOf(ticks);
             List<SavedBlockEntity> blockEntities = List.copyOf(ChunkSerializer.snapshotBlockEntities(chunk));
+            List<SavedEntity> entities = List.copyOf(ChunkSerializer.snapshotEntities(chunk));
             Chunk data = ChunkSerializer.snapshotChunkData(chunk);
-            return new SaveSnapshot(data, chunk.modificationEpoch(), ticks, blockEntities);
+            return new SaveSnapshot(data, chunk.modificationEpoch(), ticks, blockEntities, entities);
         } finally {
             chunk.readLock().unlock();
         }
@@ -186,7 +189,8 @@ public class WorldStorage {
     private void saveNow(Chunk chunk, SaveSnapshot snapshot) {
         try {
             byte[] payload = ChunkSerializer.serialize(snapshot.data(), this.generatorId,
-                    this.generatorVersion, this.storeTints, snapshot.ticks(), snapshot.blockEntities());
+                    this.generatorVersion, this.storeTints, snapshot.ticks(), snapshot.blockEntities(),
+                    snapshot.entities());
             this.writeChunk(chunk.chunkX, chunk.chunkZ, payload);
             chunk.markSaved(snapshot.epoch());
         } catch (Exception e) {

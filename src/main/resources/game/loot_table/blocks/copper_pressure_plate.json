@@ -1,0 +1,20 @@
+{
+    "type":  "skyengine:block",
+    "pools":  [
+                  {
+                      "rolls":  1,
+                      "entries":  [
+                                      {
+                                          "type":  "skyengine:item",
+                                          "name":  "skyengine:copper_pressure_plate",
+                                          "conditions":  [
+                                                             {
+                                                                 "condition":  "skyengine:survives_explosion"
+                                                             }
+                                                         ]
+                                      }
+                                  ]
+                  }
+              ],
+    "random_sequence":  "skyengine:blocks/copper_pressure_plate"
+}

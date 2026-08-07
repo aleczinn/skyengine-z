@@ -52,6 +52,12 @@ public final class ButtonBehavior implements BlockBehavior {
         notifyStrongTarget(world, x, y, z, state);
     }
 
+    @Override
+    public void onRemoved(World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
+        if (oldState.get(Properties.POWERED)) notifyStrongTarget(world, x, y, z, oldState);
+    }
+
     /* --- Redstone: gedrückt = 15 in alle Richtungen (schwach), stark nur in den Träger --- */
 
     @Override
@@ -66,6 +72,11 @@ public final class ButtonBehavior implements BlockBehavior {
 
     @Override
     public boolean connectsRedstoneWire(BlockState state, Direction side) {
+        return true;
+    }
+
+    @Override
+    public boolean isRedstoneSignalSource() {
         return true;
     }
 
@@ -84,6 +95,7 @@ public final class ButtonBehavior implements BlockBehavior {
      */
     static void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
         Direction d = supportDirection(state);
-        world.updateNeighbors(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ());
+        world.updateGeneralNeighborsAt(x, y, z);
+        world.updateGeneralNeighborsAt(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ());
     }
 }

@@ -1,6 +1,7 @@
 package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.game.world.block.entity.ChestBlockEntity;
+import de.skyengine.game.world.block.entity.CompoundItemStorage;
 import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.Slot;
@@ -15,8 +16,8 @@ import de.skyengine.graphics.texture.Texture;
  * den Truhendeckel.
  *
  * <p>Dieselbe Klasse bedient die Doppeltruhe: mit zweiter Hälfte werden es 6 Reihen (176×222).
- * Ein kombiniertes Inventar braucht es dafür nicht — jeder {@link Slot} zeigt auf sein eigenes
- * {@link ItemStorage}, die oberen drei Reihen also auf die eine, die unteren auf die andere Hälfte.
+ * Die 54 Slots verwenden wie Vanilla ein gemeinsames {@link CompoundItemStorage}; dadurch meldet
+ * jede GUI-Änderung beide Hälften an Persistenz und Komparatoren.
  */
 public final class GuiChest extends GuiContainer {
 
@@ -27,8 +28,7 @@ public final class GuiChest extends GuiContainer {
 
     private final ChestBlockEntity chest;
     private final ChestBlockEntity partner;
-    private final ItemStorage chestInv;
-    private final ItemStorage partnerInv;
+    private final ItemStorage containerInv;
     private final ItemStorage playerInv;
     private final int rows;
     private final int height;
@@ -44,13 +44,14 @@ public final class GuiChest extends GuiContainer {
      * oberen Reihen — der Aufrufer übergibt dafür die Hälfte, die oben stehen soll.
      */
     public GuiChest(ChestBlockEntity chest, ChestBlockEntity partner, ItemStorage playerInv) {
-        super(partner == null
-                ? new ItemStorage[]{playerInv, chest.getInventory()}
-                : new ItemStorage[]{playerInv, chest.getInventory(), partner.getInventory()});
+        super(playerInv, partner == null
+                ? chest.getInventory()
+                : new CompoundItemStorage(chest.getInventory(), partner.getInventory()));
         this.chest = chest;
         this.partner = partner;
-        this.chestInv = chest.getInventory();
-        this.partnerInv = partner == null ? null : partner.getInventory();
+        this.containerInv = partner == null
+                ? chest.getInventory()
+                : new CompoundItemStorage(chest.getInventory(), partner.getInventory());
         this.playerInv = playerInv;
         this.rows = partner == null ? 3 : 6;
         this.height = partner == null ? H_SINGLE : H_DOUBLE;
@@ -75,10 +76,9 @@ public final class GuiChest extends GuiContainer {
 
         this.slots.clear();
         for (int r = 0; r < this.rows; r++) {
-            ItemStorage storage = r < 3 ? this.chestInv : this.partnerInv;
-            int base = (r % 3) * COLS;
+            int base = r * COLS;
             for (int c = 0; c < COLS; c++) {
-                this.slots.add(new Slot(storage, base + c, gx + 8 + c * STEP, gy + 18 + r * STEP,
+                this.slots.add(new Slot(this.containerInv, base + c, gx + 8 + c * STEP, gy + 18 + r * STEP,
                         SlotGroup.CONTAINER));
             }
         }

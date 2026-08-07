@@ -73,8 +73,6 @@ public record AttachBehavior(Set<AttachFace> allowed) implements BlockBehavior {
         /* Träger weg -> zerbricht und fällt als Item (Vanilla). Der Drop steht bewusst HIER und
            nicht in onBreak: onBreak läuft auch beim Abbau durch den Spieler, und dort droppt
            GameContainer.breakTargetBlock bereits selbst. Muster wie FluidBehavior.dropBlockItem. */
-        Item item = Items.get(state.getBlock().getIdentifier());
-        if (item != null) world.spawnItem(x + 0.5, y + 0.5, z + 0.5, new ItemStack(item, 1));
         return Blocks.getState(Blocks.AIR);
     }
 

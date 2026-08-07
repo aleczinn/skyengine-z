@@ -6,30 +6,38 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
-import de.skyengine.game.world.chunk.Chunk;
-import de.skyengine.game.world.chunk.ChunkSection;
-import de.skyengine.game.world.chunk.palette.PalettedContainer;
-
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Beobachter: feuert einen 2-Tick-Puls (stark, aus der Rückseite), wenn sich der
  * Block-STATE der Zelle vor seinem Gesicht ändert. FACING zeigt zum beobachteten Block
  * (beim Platzieren in Blickrichtung — das Gesicht zeigt vom Spieler weg, wie MC).
  *
- * <p><b>Änderungs-Erkennung ohne gerichteten Hook:</b> {@code onNeighborUpdate} kennt den
- * Auslöser nicht — der Beobachter vergleicht deshalb die beobachtete Zelle mit dem zuletzt
- * gesehenen State (transiente Map, Muster PressurePlate). Erstkontakt (Platzieren,
- * Chunk-Load) speichert nur, OHNE Puls — bewusste Abweichung von MCs
- * Chunk-Load-Feuern.
+ * <p>Wie Vanillas {@code ObserverBlock#updateShape} reagiert er ausschließlich auf ein
+ * gerichtetes Shape-Update aus seiner FACING-Richtung. Es gibt absichtlich keinen Vergleich
+ * des Nachbar-States: Auch ein Update mit identischem State startet in Vanilla einen Puls.
+ * Das Platzieren des Beobachters selbst erzeugt dagegen keinen Puls.
  */
 public final class ObserverBehavior implements BlockBehavior {
 
-    /** Welt- und Chunk-gebundene Vergleichsbasis; die Diagnose-Sicht bleibt sondierbar. */
-    private final WorldScopedPositionMap<Integer> observedByWorld = new WorldScopedPositionMap<>();
-    @SuppressWarnings("FieldMayBeFinal") // Referenz wechselt mit der aktiven Welt (Headless-Diagnose).
-    private Map<Long, ?> observed = new HashMap<>();
+    /**
+     * Weckt ausschließlich Beobachter, deren Vorderseite auf die geänderte Zelle zeigt.
+     * Zentraler Shape-Update-Ersatz für eine State-Änderung, die innerhalb eines laufenden
+     * Nachbar-Recomputes entstanden ist. Nur der passende gerichtete Observer-Hook läuft;
+     * fremde Behaviors werden dabei nicht ein zweites Mal allgemein aktualisiert.
+     */
+    public static void notifyWatching(World world, int x, int y, int z) {
+        for (Direction direction : Direction.shapeUpdateValues()) {
+            int ox = x + direction.offsetX();
+            int oy = y + direction.offsetY();
+            int oz = z + direction.offsetZ();
+            BlockState observer = Blocks.getState(world.getBlock(ox, oy, oz));
+            if (behaviorOf(observer.getId()) == null) continue;
+            Direction towardChanged = direction.opposite();
+            if (observer.get(Properties.FACING_ALL) != towardChanged) continue;
+            observer.getBlock().getStateForShapeUpdate(world, ox, oy, oz, observer,
+                    towardChanged, Blocks.getState(world.getBlock(x, y, z)));
+        }
+    }
 
     @Override
     public BlockState onPlace(PlacementContext ctx, BlockState state) {
@@ -45,16 +53,11 @@ public final class ObserverBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onPlaced(World world, int x, int y, int z, BlockState state) {
-        /* Initialen Zustand merken — die erste echte Änderung soll pulsen, nicht das Platzieren. */
-        this.remember(world, x, y, z, watchedState(world, x, y, z, state));
-    }
-
-    @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
-        int watched = watchedState(world, x, y, z, state);
-        Integer last = this.remember(world, x, y, z, watched);
-        if (last != null && last != watched && !world.isTickScheduled(x, y, z)) {
+    public BlockState onNeighborShapeUpdate(World world, int x, int y, int z, BlockState state,
+                                            Direction direction, BlockState neighborState) {
+        if (direction == state.get(Properties.FACING_ALL)
+                && !state.get(Properties.POWERED)
+                && !world.isTickScheduled(x, y, z)) {
             world.scheduleTick(x, y, z, 2);
         }
         return state;
@@ -63,97 +66,52 @@ public final class ObserverBehavior implements BlockBehavior {
     @Override
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
         boolean powered = state.get(Properties.POWERED);
-        world.setBlock(x, y, z, state.with(Properties.POWERED, !powered).getId(), true);
+        /* Vanilla-Flag 2: kein allgemeiner Nachbarring; der gerichtete Shape-Ring bleibt
+           erhalten und macht die Flanke insbesondere fuer einen zweiten Observer sichtbar. */
+        world.setBlockWithShapeUpdates(
+                x, y, z, state.with(Properties.POWERED, !powered).getId());
         this.notifyStrongTarget(world, x, y, z, state);
         if (!powered) world.scheduleTick(x, y, z, 2);   // Puls-Ende nach 2 Ticks
+    }
+
+    /**
+     * Vanillas {@code affectNeighborsAfterRemoval}: Wird ein aktiver Puls vor seinem geplanten
+     * Abschalt-Tick abgebaut, muss der bisher stark gespeiste Ausgangsblock noch die fallende
+     * Flanke verteilen. Ein kuenstlich POWERED gesetzter Observer ohne Tick tut das bewusst nicht.
+     */
+    @Override
+    public void onRemoved(World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
+        if (oldState.get(Properties.POWERED) && world.isTickScheduled(
+                x, y, z, oldState.getBlock().getIdentifier())) {
+            this.notifyStrongTarget(world, x, y, z, oldState.with(Properties.POWERED, false));
+        }
     }
 
     /** Zweiter Ring um das stark gepowerte Ziel hinter dem Ausgang (Leitung durch den Block). */
     private void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
         Direction back = state.get(Properties.FACING_ALL).opposite();
-        world.updateNeighbors(x + back.offsetX(), y + back.offsetY(), z + back.offsetZ());
+        world.updateDirectionalOutputNeighbors(x, y, z, back);
     }
 
     /**
-     * Von einem Kolben verschoben: In MC pulst ein bewegter Beobachter — genau darauf beruhen
-     * Flugmaschinen. Hier fehlt ihm an der neuen Zelle sonst jede Vorgeschichte
-     * ({@code last == null} in {@link #onNeighborUpdate}) und er bliebe stumm.
-     *
-     * <p>Der Eintrag der Quellzelle muss dabei weg: Kolben räumen ihre Quellen ohne
-     * {@code onBreak}, der Eintrag bliebe also liegen — bei einer Flugmaschine wächst die Map
-     * sonst nicht nur endlos, sie vergleicht beim zyklischen Zurückkehren auf eine früher
-     * besetzte Zelle auch gegen einen veralteten Wert.
+     * Von einem Kolben verschoben: Der Abschluss der Bewegung erzeugt in Vanilla die Shape-
+     * Update-Kette, auf der Observer-Flugmaschinen beruhen. Bis der Moving-Piston-Abschluss
+     * selbst vollständig auf Vanilla-Flags umgestellt ist, bildet dieser Hook die Flanke ab.
      */
     @Override
     public void onMovedByPiston(World world, int x, int y, int z, BlockState state, Direction moveDirection) {
-        this.forget(world, x - moveDirection.offsetX(), y - moveDirection.offsetY(),
-                z - moveDirection.offsetZ());
-        this.remember(world, x, y, z, watchedState(world, x, y, z, state));
-        if (!world.isTickScheduled(x, y, z)) world.scheduleTick(x, y, z, 2);
-    }
-
-    @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
-        this.forget(world, x, y, z);
-    }
-
-    /**
-     * Stellt nach dem Laden eines Chunks die Vergleichsbasis aller darin stehenden Beobachter
-     * wieder her — ohne Puls und ohne geplanten Tick.
-     *
-     * <p>Die Map ist transient, nach dem Laden also leer. Ohne diesen Durchlauf frisst der
-     * Erstkontakt-Zweig in {@link #onNeighborUpdate} genau EINE echte Flanke je Beobachter und
-     * Ladevorgang: ein einzelner Beobachter ignoriert die erste Änderung, und eine Clock reißt
-     * ab, weil der Partner den restaurierten Puls stumm wegsteckt.
-     *
-     * <p>Der laufende Zustand kommt derweil aus Quellen, die den Save überleben — {@code POWERED}
-     * steht im BlockState, der Rest-Delay des 2-Tick-Pulses in den gespeicherten Ticks. Hier wird
-     * NUR die Vergleichsbasis nachgezogen, damit die Clock in ihrer Phase weiterläuft, statt
-     * einen bereits gelaufenen Schritt zu wiederholen.
-     *
-     * <p>Aufrufzeitpunkt ist bewusst „Chunk wurde READY" ({@code World.processReadyChunks}): das
-     * Gate des Mesh-Jobs garantiert alle 8 Nachbarn auf mindestens LIT, erst dann liefert
-     * {@code World.getBlock} über die Chunk-Grenze echte Daten. Früher gelesen, merkte sich ein
-     * Beobachter an der Kante still Luft — und löste beim nächsten Update einen Phantom-Puls aus.
-     *
-     * <p>Kosten: Ein Zell-Scan wäre teuer (32768 je Section), deshalb wie
-     * {@code LightEngine.seedEmitters} zuerst der Paletten-Vorfilter. In normalem Gelände fällt
-     * jede Section heraus, ohne dass eine einzige Zelle gelesen wird.
-     */
-    public static void seedLoadedChunk(World world, Chunk chunk) {
-        int originX = chunk.chunkX << ChunkSection.SHIFT;
-        int originZ = chunk.chunkZ << ChunkSection.SHIFT;
-
-        for (int s = 0; s < Chunk.SECTIONS; s++) {
-            ChunkSection section = chunk.getSection(s);
-            if (section == null || section.isEmpty()) continue;
-            PalettedContainer container = section.container();
-            if (container == null) continue;
-
-            boolean anyObserver = false;
-            for (int stateId : container.paletteEntries()) {
-                if (stateId != 0 && behaviorOf(stateId) != null) {
-                    anyObserver = true;
-                    break;
-                }
-            }
-            if (!anyObserver) continue;
-
-            int base = s << ChunkSection.SHIFT;
-            for (int ly = 0; ly < ChunkSection.SIZE; ly++) {
-                for (int lz = 0; lz < ChunkSection.SIZE; lz++) {
-                    for (int lx = 0; lx < ChunkSection.SIZE; lx++) {
-                        int id = section.getBlock(lx, ly, lz);
-                        if (id == 0) continue;
-                        ObserverBehavior behavior = behaviorOf(id);
-                        if (behavior == null) continue;
-                        int x = originX + lx, y = base + ly, z = originZ + lz;
-                        behavior.remember(world, x, y, z,
-                                watchedState(world, x, y, z, BlockRegistry.getState(id)));
-                    }
-                }
-            }
+        if (world.isTickScheduled(x, y, z)) return;
+        if (state.get(Properties.POWERED)) {
+            /* ObserverBlock#onPlace: Der Abschalt-Tick bleibt an der alten Position und wird
+               nicht mit dem Block verschoben. Vanilla setzt einen so angekommenen aktiven
+               Observer deshalb sofort aus und verteilt die fallende Ausgangsflanke. */
+            BlockState unpowered = state.with(Properties.POWERED, false);
+            world.setBlockWithShapeUpdates(x, y, z, unpowered.getId());
+            this.notifyStrongTarget(world, x, y, z, unpowered);
+            return;
         }
+        world.scheduleTick(x, y, z, 2);
     }
 
     /** Die Behavior-Instanz hinter einer State-ID, oder null wenn das kein Beobachter ist. */
@@ -179,18 +137,9 @@ public final class ObserverBehavior implements BlockBehavior {
         return side == state.get(Properties.FACING_ALL).opposite();
     }
 
-    private static int watchedState(World world, int x, int y, int z, BlockState state) {
-        Direction f = state.get(Properties.FACING_ALL);
-        return world.getBlock(x + f.offsetX(), y + f.offsetY(), z + f.offsetZ());
+    @Override
+    public boolean isRedstoneSignalSource() {
+        return true;
     }
 
-    private Integer remember(World world, int x, int y, int z, int stateId) {
-        this.observed = this.observedByWorld.diagnosticEntries(world);
-        return this.observedByWorld.put(world, x, y, z, stateId);
-    }
-
-    private void forget(World world, int x, int y, int z) {
-        this.observed = this.observedByWorld.diagnosticEntries(world);
-        this.observedByWorld.remove(world, x, y, z);
-    }
 }

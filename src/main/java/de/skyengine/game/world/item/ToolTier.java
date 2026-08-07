@@ -41,6 +41,17 @@ public enum ToolTier {
         return prefix;
     }
 
+    /** JSON-Name bzw. ID-Praefix -> Tier. */
+    public static ToolTier byName(String name) {
+        if (name == null) return null;
+        for (ToolTier tier : values()) {
+            if (tier.name().equalsIgnoreCase(name) || tier.prefix.equalsIgnoreCase(name)
+                    || (tier == WOOD && "wood".equalsIgnoreCase(name))
+                    || (tier == GOLD && "gold".equalsIgnoreCase(name))) return tier;
+        }
+        return null;
+    }
+
     /** Harvest-Level aus dem JSON-Namen ({@code harvest_tier}): "wood"|"stone"|"copper"|"iron"|"diamond"|"netherite". */
     public static int levelByName(String name) {
         return switch (name) {

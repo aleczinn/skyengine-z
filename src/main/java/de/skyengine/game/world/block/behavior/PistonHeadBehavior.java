@@ -11,12 +11,14 @@ import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
+import de.skyengine.game.world.loot.LootContext;
+import de.skyengine.game.world.loot.LootSink;
 
 /**
  * Kolben-Kopf: existiert nur vor einer passenden ausgefahrenen Basis (oder deren laufender
  * Animation). Fehlt die, entfernt er sich selbst — dropfrei, er hat kein Item. Baut der
  * Spieler den KOPF ab, verschwindet die Basis mit; ihr Kolben-Item kommt über
- * {@link #getDropOverride} aus dem Gamemode-geprüften Abbau-Pfad (Creative droppt nichts,
+ * {@link #appendDrops} aus dem Gamemode-geprüften Abbau-Pfad (Creative droppt nichts,
  * kein Doppel-Drop: setBlock ruft kein onBreak, und beim Selbstabbau passt die Basis nie).
  */
 public final class PistonHeadBehavior implements BlockBehavior {
@@ -40,17 +42,14 @@ public final class PistonHeadBehavior implements BlockBehavior {
         world.setBlock(x - f.offsetX(), y - f.offsetY(), z - f.offsetZ(), Blocks.AIR, true);
     }
 
-    /**
-     * Der Kopf droppt das Item seiner Basis (Kopf selbst ist no_item) — aber nur, wenn die
-     * Basis auch wirklich mit-entfernt wird (gleiche Prüfung wie {@link #onBreak}, das Override
-     * wird VOR onBreak abgefragt und sieht denselben Weltzustand), sonst Dupe.
-     */
     @Override
-    public ItemStack getDropOverride(World world, int x, int y, int z, BlockState state) {
-        if (!hasMatchingBase(world, x, y, z, state)) return null;
+    public void appendDrops(LootContext context,
+                            LootSink sink) {
+        BlockState state = context.state();
+        if (!hasMatchingBase(context.world(), context.x(), context.y(), context.z(), state)) return;
         Item item = Items.get(Identifier.of(state.get(Properties.PISTON_TYPE) == PistonType.STICKY
                 ? "skyengine:sticky_piston" : "skyengine:piston"));
-        return item != null ? new ItemStack(item, 1) : null;
+        if (item != null) sink.accept(new ItemStack(item, 1), context.x(), context.y(), context.z());
     }
 
     /** Passende ausgefahrene Basis hinter dem Kopf? (Nur die wird beim Kopf-Abbau entfernt.) */

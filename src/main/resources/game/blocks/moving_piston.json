@@ -1,5 +1,5 @@
 {
-  "_comment": "Bewegter Block (MCs Block 36, technisch, kein Item): kein statisches Modell (block/empty) - gerendert wird die BlockEntity ueber den PistonMovingRenderer. Haerte -1 = unzerstoerbar waehrend der Bewegung (wie MC) und automatisch piston_reaction=block.",
+  "_comment": "Bewegter Block (MCs Block 36, technisch, kein Item): bewegte Teile rendert die BlockEntity. Nur retracting_source=true behaelt die ausgefahrene Basis als Chunk-Mesh-Renderhuelle, damit AO/Licht beim asynchronen Block-BE-Uebergang stabil bleiben. Haerte -1 = unzerstoerbar waehrend der Bewegung (wie MC) und automatisch piston_reaction=block.",
   "id": "skyengine:moving_piston",
   "archetype": "moving_piston",
   "no_item": true,
@@ -9,5 +9,20 @@
   "hardness": -1,
   "sound": "stone",
   "model": "block/empty",
-  "block_entity": "skyengine:piston_moving"
+  "block_entity": "skyengine:piston_moving",
+  "variants": {
+    "retracting_source=true,type=normal,facing=north": { "model": "block/piston_base" },
+    "retracting_source=true,type=normal,facing=east":  { "model": "block/piston_base", "y": 90 },
+    "retracting_source=true,type=normal,facing=south": { "model": "block/piston_base", "y": 180 },
+    "retracting_source=true,type=normal,facing=west":  { "model": "block/piston_base", "y": 270 },
+    "retracting_source=true,type=normal,facing=up":    { "model": "block/piston_base", "x": 270 },
+    "retracting_source=true,type=normal,facing=down":  { "model": "block/piston_base", "x": 90 },
+    "retracting_source=true,type=sticky,facing=north": { "model": "block/sticky_piston_base" },
+    "retracting_source=true,type=sticky,facing=east":  { "model": "block/sticky_piston_base", "y": 90 },
+    "retracting_source=true,type=sticky,facing=south": { "model": "block/sticky_piston_base", "y": 180 },
+    "retracting_source=true,type=sticky,facing=west":  { "model": "block/sticky_piston_base", "y": 270 },
+    "retracting_source=true,type=sticky,facing=up":    { "model": "block/sticky_piston_base", "x": 270 },
+    "retracting_source=true,type=sticky,facing=down":  { "model": "block/sticky_piston_base", "x": 90 },
+    "retracting_source=false": { "model": "block/empty" }
+  }
 }

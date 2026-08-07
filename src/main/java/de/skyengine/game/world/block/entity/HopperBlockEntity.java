@@ -22,20 +22,24 @@ import java.util.Optional;
  * dann weder Push noch Pull noch Einsaugen. Der Cooldown zählt trotzdem weiter, damit ein
  * kurzer Puls den Takt nicht verschiebt.
  *
- * <p>Nach jedem Transfer: {@code markDirty} + {@code World.updateComparatorOutputs} für
- * Quelle UND Ziel — Container-Mutationen erzeugen keine Nachbar-Updates, das ist der
- * einzige Weg, auf dem ein messender Komparator davon erfährt.
+ * <p>Inventarmutationen markieren die beteiligten BlockEntities und informieren dadurch
+ * messende Komparatoren unmittelbar.
  */
 public final class HopperBlockEntity extends BlockEntity {
 
     public static final int SLOTS = 5;
+    /** Vanillas Hopper.SUCK_AABB: volle Breite, von 11/16 im Hopper bis zwei Blöcke hoch. */
+    private static final double SUCTION_MIN_Y = 11.0 / 16.0;
 
-    private final SimpleItemStorage inventory = new SimpleItemStorage(SLOTS);
+    private final SimpleItemStorage inventory;
     /** Rest-Ticks bis zum nächsten Transferversuch (persistiert — der Takt überlebt Save/Load). */
     private int cooldown;
+    /** Letzter eigener BE-Tick; Vanillas Phasenausgleich für Hopperketten. Nicht persistiert. */
+    private long tickedGameTime;
 
     public HopperBlockEntity(BlockEntityType<?> type, BlockPos pos) {
         super(type, pos);
+        this.inventory = new SimpleItemStorage(SLOTS, this::setChanged);
     }
 
     public ItemStorage getInventory() {
@@ -50,6 +54,7 @@ public final class HopperBlockEntity extends BlockEntity {
     @Override
     public void tick() {
         if (this.world == null) return;
+        this.tickedGameTime = this.world.getGameTime();
         if (this.cooldown > 0) {
             this.cooldown--;
             if (this.cooldown > 0) return;
@@ -62,10 +67,13 @@ public final class HopperBlockEntity extends BlockEntity {
 
         int amount = state.getBlock().getHopperAmount();
         boolean pushed = this.pushOut(state.get(Properties.FACING_ALL), amount);
-        boolean pulled = this.pullIn(amount);
+        /* Vanilla prueft inventoryFull NACH dem Push: Ein zuvor voller Hopper darf ausgeben
+           und die so entstandene Luecke im selben Tick wieder fuellen. Bleibt er voll, wird
+           die Quelle gar nicht erst probeweise extrahiert und danach zurueckgebucht. */
+        boolean pulled = !isFull(this.inventory) && this.pullIn(amount);
         if (pushed || pulled) {
             this.cooldown = state.getBlock().getHopperCooldown();
-            this.markDirty();
+            this.setChanged();
         }
     }
 
@@ -74,8 +82,14 @@ public final class HopperBlockEntity extends BlockEntity {
         int tx = this.pos.x() + facing.offsetX();
         int ty = this.pos.y() + facing.offsetY();
         int tz = this.pos.z() + facing.offsetZ();
-        ItemStorage target = this.storageAt(tx, ty, tz, facing.opposite());
+        BlockEntity targetEntity = this.world.getBlockEntity(tx, ty, tz);
+        ItemStorage target = storageOf(targetEntity, facing.opposite());
         if (target == null) return false;
+        /* Vanillas ejectItems beendet sich vor dem ersten removeItem, wenn alle von dieser
+           Seite erreichbaren Zielslots voll sind. So wird die Quelle nicht fuer einen
+           garantiert erfolglosen Transfer als geaendert markiert. */
+        if (isFull(target)) return false;
+        boolean targetWasEmpty = isEmpty(target);
 
         for (int i = 0; i < this.inventory.size(); i++) {
             if (this.inventory.get(i).isEmpty()) continue;
@@ -87,8 +101,10 @@ public final class HopperBlockEntity extends BlockEntity {
                 continue;
             }
             if (!leftover.isEmpty()) this.restore(i, leftover);
-            this.world.updateComparatorOutputs(this.pos.x(), this.pos.y(), this.pos.z());
-            this.world.updateComparatorOutputs(tx, ty, tz);
+            target.setChanged();
+            if (targetWasEmpty && targetEntity instanceof HopperBlockEntity targetHopper) {
+                targetHopper.receiveCooldownFrom(this);
+            }
             return true;
         }
         return false;
@@ -97,7 +113,8 @@ public final class HopperBlockEntity extends BlockEntity {
     /** Zieht aus dem Container über der Öffnung nach — ohne Container: ItemEntities einsaugen. */
     private boolean pullIn(int amount) {
         int x = this.pos.x(), y = this.pos.y(), z = this.pos.z();
-        ItemStorage source = this.storageAt(x, y + 1, z, Direction.DOWN);
+        BlockEntity sourceEntity = this.world.getBlockEntity(x, y + 1, z);
+        ItemStorage source = storageOf(sourceEntity, Direction.DOWN);
         if (source != null) {
             for (int i = 0; i < source.size(); i++) {
                 if (source.get(i).isEmpty()) continue;
@@ -108,41 +125,72 @@ public final class HopperBlockEntity extends BlockEntity {
                     continue;
                 }
                 if (!leftover.isEmpty()) restoreInto(source, i, leftover);
-                this.world.updateComparatorOutputs(x, y + 1, z);
-                this.world.updateComparatorOutputs(x, y, z);
+                source.setChanged();
                 return true;
             }
             return false;
         }
+        BlockState above = Blocks.getState(this.world.getBlock(x, y + 1, z));
+        if (blocksItemEntitySuction(above)) return false;
         return this.suckItems();
     }
 
+    /** Vanilla: volle Kollisionsform blockiert, außer der Block steht in does_not_block_hoppers. */
+    static boolean blocksItemEntitySuction(BlockState above) {
+        return above.getCollisionShape().isFullCube() && !above.getBlock().doesNotBlockHoppers();
+    }
+
     /**
-     * Saugt {@link ItemEntity}s über der Öffnung ein (ganze Stapel, wie MC). Die Box reicht
-     * einen Block über den Trichter — dort landen Items, die auf seiner Oberseite liegen.
+     * Saugt {@link ItemEntity}s über der Öffnung ein. Vanillas historische Rückgabe-Quirk ist
+     * wichtig: Eine nur TEILWEISE aufgenommene Entity zählt nicht als erfolgreicher Transfer
+     * und setzt deshalb keinen Hopper-Cooldown; erst vollständiges Aufnehmen liefert true.
      * Vertrag von {@code forEachEntityNearby}: nur removed-Flag setzen, Listen nicht anfassen.
      */
     private boolean suckItems() {
         int x = this.pos.x(), y = this.pos.y(), z = this.pos.z();
-        AABB suction = new AABB(x, y + 0.5, z, x + 1, y + 2, z + 1);
-        boolean[] moved = {false};
+        AABB suction = new AABB(x, y + SUCTION_MIN_Y, z, x + 1, y + 2, z + 1);
+        boolean[] fullyConsumed = {false};
         this.world.forEachEntityNearby(x + 0.5, z + 0.5, 1, entity -> {
-            if (moved[0]) return;   // ein Transfer pro Takt, wie Push/Pull
+            if (fullyConsumed[0]) return;
             if (!(entity instanceof ItemEntity item) || item.isRemoved()) return;
             if (!item.getBoundingBox().intersects(suction)) return;
-            int before = item.getStack().getCount();
-            ItemStack remaining = this.inventory.insert(item.getStack());
-            if (remaining.isEmpty()) {
-                item.remove();
-            } else {
-                item.getStack().setCount(remaining.getCount());
-            }
-            if (remaining.getCount() < before) {
-                moved[0] = true;
-                this.world.updateComparatorOutputs(x, y, z);
-            }
+            fullyConsumed[0] = this.suckItem(item);
         });
-        return moved[0];
+        return fullyConsumed[0];
+    }
+
+    /**
+     * Vanillas zusaetzlicher {@code entityInside}-Pfad: Faellt ein Item erst nach der
+     * BlockEntity-Tickphase in den Trichter, darf es noch im selben Welttick tryMoveItems
+     * ausloesen. Push laeuft dabei wie im regulaeren Hopper-Tick vor der Aufnahme.
+     */
+    public void itemEntityInside(ItemEntity item, BlockState state) {
+        if (this.world == null || item == null || item.isRemoved() || item.getStack().isEmpty()) return;
+        if (this.cooldown > 0 || !state.getValues().containsKey(Properties.ENABLED)
+                || !state.get(Properties.ENABLED)) return;
+        int x = this.pos.x(), y = this.pos.y(), z = this.pos.z();
+        AABB suction = new AABB(x, y + SUCTION_MIN_Y, z, x + 1, y + 2, z + 1);
+        if (!item.getBoundingBox().intersects(suction)) return;
+
+        int amount = state.getBlock().getHopperAmount();
+        boolean pushed = !isEmpty(this.inventory)
+                && this.pushOut(state.get(Properties.FACING_ALL), amount);
+        boolean sucked = !isFull(this.inventory) && this.suckItem(item);
+        if (pushed || sucked) {
+            this.cooldown = state.getBlock().getHopperCooldown();
+            this.setChanged();
+        }
+    }
+
+    /** Historische Vanilla-Rueckgabe: Nur vollstaendige Aufnahme gilt als Erfolg. */
+    private boolean suckItem(ItemEntity item) {
+        ItemStack remaining = this.inventory.insert(item.getStack());
+        if (remaining.isEmpty()) {
+            item.remove();
+            return true;
+        }
+        item.getStack().setCount(remaining.getCount());
+        return false;
     }
 
     /** Bucht einen nicht untergebrachten Rest in den Slot zurück, aus dem er entnommen wurde. */
@@ -162,10 +210,34 @@ public final class HopperBlockEntity extends BlockEntity {
     }
 
     /** Item-Storage-Capability eines Nachbar-BlockEntities oder null. */
-    private ItemStorage storageAt(int x, int y, int z, Direction side) {
-        BlockEntity be = this.world.getBlockEntity(x, y, z);
-        if (be == null || be == this) return null;
-        return be.getCapability(Capabilities.ITEM_STORAGE, side).orElse(null);
+    private ItemStorage storageOf(BlockEntity entity, Direction side) {
+        if (entity == null || entity == this) return null;
+        return entity.getCapability(Capabilities.ITEM_STORAGE, side).orElse(null);
+    }
+
+    private static boolean isEmpty(ItemStorage storage) {
+        for (int i = 0; i < storage.size(); i++) {
+            if (!storage.get(i).isEmpty()) return false;
+        }
+        return true;
+    }
+
+    private static boolean isFull(ItemStorage storage) {
+        for (int i = 0; i < storage.size(); i++) {
+            ItemStack stack = storage.get(i);
+            if (stack.isEmpty() || stack.getCount() < stack.getMaxStackSize()) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Vanillas {@code tryMoveInItem}: Ein leerer Zielhopper erhält 8 Ticks Cooldown, oder 7,
+     * wenn er in diesem Spieltick bereits vor bzw. gleichzeitig mit der Quelle getickt hat.
+     */
+    private void receiveCooldownFrom(HopperBlockEntity source) {
+        if (this.cooldown > 8) return;
+        int phaseOffset = this.tickedGameTime >= source.tickedGameTime ? 1 : 0;
+        this.cooldown = 8 - phaseOffset;
     }
 
     @Override

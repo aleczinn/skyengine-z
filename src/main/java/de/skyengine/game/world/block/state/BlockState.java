@@ -62,6 +62,11 @@ public final class BlockState {
         return (this.flags & StateFlags.SOLID) != 0;
     }
 
+    /** Leitet stark empfangenes Redstone-Signal weiter (unabhängig von Render-Opazität). */
+    public boolean isRedstoneConductor() {
+        return (this.flags & StateFlags.REDSTONE_CONDUCTOR) != 0;
+    }
+
     public RenderLayer getRenderLayer() {
         return StateFlags.layer(this.flags);
     }

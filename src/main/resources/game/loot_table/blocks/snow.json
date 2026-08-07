@@ -1,0 +1,46 @@
+{
+    "type":  "skyengine:block",
+    "pools":  [
+                  {
+                      "rolls":  1,
+                      "entries":  [
+                                      {
+                                          "type":  "skyengine:alternatives",
+                                          "children":  [
+                                                           {
+                                                               "type":  "skyengine:item",
+                                                               "name":  "skyengine:snow",
+                                                               "conditions":  [
+                                                                                  {
+                                                                                      "condition":  "skyengine:match_tool",
+                                                                                      "predicate":  {
+                                                                                                        "predicates":  {
+                                                                                                                           "skyengine:enchantments":  [
+                                                                                                                                                          {
+                                                                                                                                                              "enchantments":  "skyengine:silk_touch",
+                                                                                                                                                              "levels":  {
+                                                                                                                                                                             "min":  1
+                                                                                                                                                                         }
+                                                                                                                                                          }
+                                                                                                                                                      ]
+                                                                                                                       }
+                                                                                                    }
+                                                                                  }
+                                                                              ]
+                                                           },
+                                                           {
+                                                               "type":  "skyengine:item",
+                                                               "name":  "skyengine:snowball",
+                                                               "conditions":  [
+                                                                                  {
+                                                                                      "condition":  "skyengine:survives_explosion"
+                                                                                  }
+                                                                              ]
+                                                           }
+                                                       ]
+                                      }
+                                  ]
+                  }
+              ],
+    "random_sequence":  "skyengine:blocks/snow"
+}

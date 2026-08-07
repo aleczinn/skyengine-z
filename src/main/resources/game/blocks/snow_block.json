@@ -1,0 +1,9 @@
+{
+  "id": "skyengine:snow_block",
+  "parent": "preset/cube",
+  "creative_tab": "natural",
+  "vars": { "texture": "snow" },
+  "sound": "snow",
+  "hardness": 0.2,
+  "tool": "shovel"
+}

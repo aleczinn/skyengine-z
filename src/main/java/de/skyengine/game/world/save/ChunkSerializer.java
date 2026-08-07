@@ -1,15 +1,21 @@
 package de.skyengine.game.world.save;
 
 import de.skyengine.game.world.World;
+import de.skyengine.game.entity.Entity;
+import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.BlockEntityType;
+import de.skyengine.game.world.block.entity.ComparatorBlockEntity;
 import de.skyengine.game.world.block.entity.DataTag;
+import de.skyengine.game.world.block.entity.PistonMovingBlockEntity;
 import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.BlockStateCodec;
+import de.skyengine.game.world.block.state.PistonType;
+import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.palette.BitStorage;
@@ -26,6 +32,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,10 +50,10 @@ import java.util.zip.Inflater;
  * {@link BlockStateCodec} persistiert (Runtime-IDs sind flüchtig!), dedupliziert über eine
  * chunk-weite Palette; die Section-Bit-Daten ({@link BitStorage}) werden roh übernommen.
  *
- * <p>Payload-Format v3 (unkomprimiert; Kompression/CRC über {@link #compress}/{@link #crc32},
+ * <p>Payload-Format v4 (unkomprimiert; Kompression/CRC über {@link #compress}/{@link #crc32},
  * CRC immer über den ROHEN Payload — Kompressionswechsel ändern die Prüfsumme nicht):
  * <pre>
- * byte  payloadVersion = 3                      (v1/v2 bleiben lesbar)
+ * byte  payloadVersion = 4                      (v1-v3 bleiben lesbar)
  * UTF   generatorId, int generatorVersion      (Provenienz — strikt getrennt von payloadVersion)
  * int   paletteCount, paletteCount × UTF        (chunk-weite State-Strings)
  * 16 ×  Section: byte mode
@@ -57,6 +65,7 @@ import java.util.zip.Inflater;
  * int   tickCount, tickCount × { UTF tickTypeId, UTF expectedBlockId,
  *                                 int x, int y, int z, int remainingTicks,
  *                                 int priority, long subOrder }
+ * int   entityCount, entityCount × { UTF typeId, DataTag binär }
  * </pre>
  *
  * <p>Threading: {@link #serialize} verlangt unveränderliche Eingabedaten — entweder hält der
@@ -66,9 +75,9 @@ import java.util.zip.Inflater;
  */
 public final class ChunkSerializer {
 
-    /* v3: stabile Zielidentität + Priorität + Suborder. v2 bleibt lesbar, hat aber nur Typ,
-       Position und Rest-Delay; v1 hat keinen Tick-Abschnitt. */
-    public static final byte PAYLOAD_VERSION = 3;
+    /* v4: persistente Entities. v3 brachte stabile Tick-Zielidentität/Priorität/Suborder;
+       v2 hat nur Typ, Position und Rest-Delay, v1 keinen Tick-Abschnitt. */
+    public static final byte PAYLOAD_VERSION = 4;
 
     private static final Logger LOGGER = LogManager.getLogger(ChunkSerializer.class.getName());
 
@@ -110,6 +119,23 @@ public final class ChunkSerializer {
         return out;
     }
 
+    /** Zieht nur persistente Entities; bewegte Drops und TNT bleiben bewusst fluechtig. */
+    public static List<SavedEntity> snapshotEntities(Chunk chunk) {
+        List<SavedEntity> out = new ArrayList<>();
+        for (Entity entity : chunk.entities()) {
+            if (!(entity instanceof ItemFrameEntity frame) || frame.isRemoved()) continue;
+            DataTag tag = new DataTag()
+                    .putInt("anchor_x", frame.getAnchorX())
+                    .putInt("anchor_y", frame.getAnchorY())
+                    .putInt("anchor_z", frame.getAnchorZ())
+                    .putString("direction", frame.getDirection().name())
+                    .putInt("rotation", frame.getRotation())
+                    .putTag("item", frame.getItem().save());
+            out.add(new SavedEntity("skyengine:item_frame", tag));
+        }
+        return out;
+    }
+
     /**
      * Kopiert alle vom Chunk-Payload benoetigten Block- und Tintdaten. Der Aufrufer muss den
      * Read-Lock des Quellchunks halten. Der Rueckgabewert teilt weder Paletten-/Bit-Arrays noch
@@ -143,6 +169,14 @@ public final class ChunkSerializer {
     public static byte[] serialize(Chunk chunk, String generatorId, int generatorVersion,
                                    boolean storeTints, List<SavedTick> scheduledTicks,
                                    List<SavedBlockEntity> blockEntities) {
+        return serialize(chunk, generatorId, generatorVersion, storeTints, scheduledTicks,
+                blockEntities, null);
+    }
+
+    public static byte[] serialize(Chunk chunk, String generatorId, int generatorVersion,
+                                   boolean storeTints, List<SavedTick> scheduledTicks,
+                                   List<SavedBlockEntity> blockEntities,
+                                   List<SavedEntity> entities) {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(64 * 1024);
             DataOutputStream out = new DataOutputStream(bytes);
@@ -223,6 +257,14 @@ public final class ChunkSerializer {
                 }
             }
 
+            /* Persistente Entities (v4), auf dem Tick-Thread bereits als Tags eingefroren. */
+            List<SavedEntity> savedEntities = entities == null ? List.of() : entities;
+            out.writeInt(savedEntities.size());
+            for (SavedEntity entity : savedEntities) {
+                out.writeUTF(entity.typeId());
+                DataTagIO.write(entity.tag(), out);
+            }
+
             return bytes.toByteArray();
         } catch (IOException e) {
             /* ByteArrayOutputStream wirft real nie — nur DataTagIO-Fehler landen hier. */
@@ -255,9 +297,12 @@ public final class ChunkSerializer {
             throw new IOException("Ungültige Paletten-Größe " + paletteCount);
         }
         int[] palette = new int[paletteCount];
+        int[] legacyComparatorOutputs = new int[paletteCount];
+        java.util.Arrays.fill(legacyComparatorOutputs, -1);
         boolean[] unknown = new boolean[paletteCount];
         for (int i = 0; i < paletteCount; i++) {
             String encoded = in.readUTF();
+            legacyComparatorOutputs[i] = legacyComparatorOutput(encoded);
             BlockState state = BlockStateCodec.decode(encoded);
             if (state == null) {
                 palette[i] = 0;
@@ -270,28 +315,50 @@ public final class ChunkSerializer {
             }
         }
 
+        Map<Integer, Integer> migratedComparatorOutputs = new HashMap<>();
+
         for (int s = 0; s < Chunk.SECTIONS; s++) {
             byte mode = in.readByte();
             switch (mode) {
                 case SECTION_EMPTY -> chunk.installSection(s, null);
                 case SECTION_SINGLE -> {
-                    int stateId = palette[checkIndex(in.readInt(), paletteCount)];
+                    int paletteIndex = checkIndex(in.readInt(), paletteCount);
+                    int stateId = palette[paletteIndex];
                     if (stateId == 0) {
                         chunk.installSection(s, null);
                     } else {
                         chunk.installSection(s, new ChunkSection(new PalettedContainer(ChunkSection.VOLUME, stateId)));
+                        int legacyOutput = legacyComparatorOutputs[paletteIndex];
+                        if (legacyOutput >= 0) {
+                            int baseY = s << ChunkSection.SHIFT;
+                            for (int ly = 0; ly < ChunkSection.SIZE; ly++) {
+                                for (int lz = 0; lz < ChunkSection.SIZE; lz++) {
+                                    for (int lx = 0; lx < ChunkSection.SIZE; lx++) {
+                                        migratedComparatorOutputs.put(
+                                                packLocalPos(lx, baseY + ly, lz), legacyOutput);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 case SECTION_BITS -> {
                     int localCount = in.readInt();
-                    if (localCount < 1 || localCount > paletteCount) {
+                    /* Die chunkweite Palette dedupliziert State-IDs. Alte lokale Paletten
+                       koennen dagegen unbenutzte oder doppelte Slots enthalten; deshalb darf
+                       localCount groesser als paletteCount sein. Obergrenze ist die Zahl der
+                       Zellen einer Section: mehr Slots koennen keinen gueltigen Zellindex
+                       repraesentieren und waeren nur eine unkontrollierte Allokation. */
+                    if (localCount < 1 || localCount > ChunkSection.VOLUME) {
                         throw new IOException("Ungültige Section-Palette (" + localCount + " Einträge)");
                     }
                     int[] local = new int[localCount];
+                    int[] localLegacyOutputs = new int[localCount];
                     boolean anyUnknown = false;
                     for (int i = 0; i < localCount; i++) {
                         int idx = checkIndex(in.readInt(), paletteCount);
                         local[i] = palette[idx];
+                        localLegacyOutputs[i] = legacyComparatorOutputs[idx];
                         anyUnknown |= unknown[idx];
                     }
                     int bitsPerEntry = in.readByte();
@@ -322,6 +389,16 @@ public final class ChunkSerializer {
                     }
                     PalettedContainer container = new PalettedContainer(ChunkSection.VOLUME, local, localCount, storage, nonAir);
                     chunk.installSection(s, nonAir == 0 ? null : new ChunkSection(container));
+                    int baseY = s << ChunkSection.SHIFT;
+                    for (int i = 0; i < ChunkSection.VOLUME; i++) {
+                        int localIndex = storage.get(i);
+                        if (localIndex >= localCount || localLegacyOutputs[localIndex] < 0) continue;
+                        int lx = i & ChunkSection.MASK;
+                        int lz = (i >> ChunkSection.SHIFT) & ChunkSection.MASK;
+                        int ly = i >> (ChunkSection.SHIFT * 2);
+                        migratedComparatorOutputs.put(packLocalPos(lx, baseY + ly, lz),
+                                localLegacyOutputs[localIndex]);
+                    }
                 }
                 default -> throw new IOException("Unbekannter Section-Modus " + mode);
             }
@@ -342,6 +419,7 @@ public final class ChunkSerializer {
         if (beCount < 0 || beCount > ChunkSection.VOLUME * Chunk.SECTIONS) {
             throw new IOException("Ungültige BlockEntity-Anzahl " + beCount);
         }
+        Set<Integer> explicitBlockEntityPositions = new HashSet<>();
         for (int i = 0; i < beCount; i++) {
             int packed = in.readInt();
             String typeId = in.readUTF();
@@ -359,8 +437,36 @@ public final class ChunkSerializer {
                     (chunk.chunkZ << ChunkSection.SHIFT) + lz);
             BlockEntity be = type.create(pos, Blocks.getState(chunk.getBlock(lx, y, lz)));
             be.load(tag);
+            /* Alte Saves hatten nur einen einzigen, stets unsichtbaren moving_piston-State.
+               Seit der Vanilla-konformen Source-Position trägt ein einfahrender Source-State
+               die stationäre Basis im Chunk-Mesh. Aus den bereits persistenten BE-Daten lässt
+               sich diese reine Render-Variante verlustfrei nachtragen. */
+            if (be instanceof PistonMovingBlockEntity moving
+                    && moving.isSource() && !moving.isExtending()) {
+                int renderState = Blocks.getState(Blocks.MOVING_PISTON)
+                        .with(Properties.FACING_ALL, moving.getFacing())
+                        .with(Properties.PISTON_TYPE,
+                                moving.isSticky() ? PistonType.STICKY : PistonType.NORMAL)
+                        .with(Properties.RETRACTING_SOURCE, true)
+                        .getId();
+                chunk.setBlock(lx, y, lz, renderState);
+            }
             if (world != null) be.setWorld(world);
             chunk.setBlockEntity(lx, y, lz, be);
+            explicitBlockEntityPositions.add(packed);
+        }
+
+        /* Migration und Korruptionsheilung: ältere Saves kennen ggf. einen inzwischen
+           hinzugekommenen BlockEntity-Typ noch nicht (insbesondere Comparatoren vor der
+           OutputSignal-Umstellung). Nur Sections mit passendem Paletteneintrag werden gescannt. */
+        ensureRequiredBlockEntities(chunk, world);
+        for (Map.Entry<Integer, Integer> entry : migratedComparatorOutputs.entrySet()) {
+            if (explicitBlockEntityPositions.contains(entry.getKey())) continue;
+            int packed = entry.getKey();
+            int lx = packed & 31, lz = (packed >> 5) & 31, y = (packed >> 10) & 511;
+            if (chunk.getBlockEntity(lx, y, lz) instanceof ComparatorBlockEntity comparator) {
+                comparator.setOutputSignal(entry.getValue());
+            }
         }
 
         /* Scheduled-Ticks: v2 ohne Zielidentität/Reihenfolge, v3 vollständig; v1 ohne Ticks. */
@@ -388,7 +494,8 @@ public final class ChunkSerializer {
                     }
                     continue;
                 }
-                if (ScheduledTickTypes.BLOCK.equals(type) && expectedBlock != null
+                if ((ScheduledTickTypes.BLOCK.equals(type) || ScheduledTickTypes.BLOCK_EVENT.equals(type))
+                        && expectedBlock != null
                         && Registries.BLOCK.get(Identifier.of(expectedBlock)) == null) {
                     if (warnedTickTargets.add(expectedBlock)) {
                         LOGGER.warning("Unbekannter erwarteter Block in Save-Datei, Tick wird uebersprungen: "
@@ -397,7 +504,8 @@ public final class ChunkSerializer {
                     continue;
                 }
                 /* Absolute Koordinaten validieren: korrupte Daten dürfen keine Ticks in
-                   fremde Chunks streuen; Rest-Delay < 1 = überfällig -> 1. */
+                   fremde Chunks streuen. Null/negative Restzeiten sind gültige, bereits
+                   fällige Vanilla-Ticks und bleiben für die Lade-Reihenfolge erhalten. */
                 if ((x >> ChunkSection.SHIFT) != chunk.chunkX || (z >> ChunkSection.SHIFT) != chunk.chunkZ
                         || y < 0 || y >= Chunk.HEIGHT) {
                     LOGGER.warning("Tick außerhalb des Chunks (" + chunk.chunkX + ", " + chunk.chunkZ
@@ -410,18 +518,107 @@ public final class ChunkSerializer {
                     continue;
                 }
                 ticks.add(new SavedTick(type, expectedBlock, x, y, z,
-                        Math.max(1, remaining), priority, subOrder));
+                        remaining, priority, subOrder));
             }
             chunk.pendingScheduledTicks = ticks == null || ticks.isEmpty() ? null : ticks;
             /* Beim Manager anmelden: World.restorePendingScheduledTicks pollt nur noch die
                Announce-Queue (kein Voll-Walk mehr). No-op ohne Manager (Tools/Tests). */
             chunk.announceTickRestore();
         }
+
+        if (version >= 4) {
+            int entityCount = in.readInt();
+            if (entityCount < 0 || entityCount > ChunkSection.VOLUME * Chunk.SECTIONS) {
+                throw new IOException("Ungueltige Entity-Anzahl " + entityCount);
+            }
+            for (int i = 0; i < entityCount; i++) {
+                String typeId = in.readUTF();
+                DataTag tag = DataTagIO.read(in);
+                if (!"skyengine:item_frame".equals(typeId)) {
+                    LOGGER.warning("Unbekannter persistenter Entity-Typ, ueberspringe: " + typeId);
+                    continue;
+                }
+                int x = tag.getInt("anchor_x", Integer.MIN_VALUE);
+                int y = tag.getInt("anchor_y", Integer.MIN_VALUE);
+                int z = tag.getInt("anchor_z", Integer.MIN_VALUE);
+                if ((x >> ChunkSection.SHIFT) != chunk.chunkX || (z >> ChunkSection.SHIFT) != chunk.chunkZ
+                        || y < 0 || y >= Chunk.HEIGHT) {
+                    LOGGER.warning("Item Frame ausserhalb seines Chunks wird uebersprungen: ("
+                            + x + ", " + y + ", " + z + ")");
+                    continue;
+                }
+                de.skyengine.game.world.block.Direction direction;
+                try {
+                    direction = de.skyengine.game.world.block.Direction.valueOf(
+                            tag.getString("direction", "NORTH"));
+                } catch (IllegalArgumentException badDirection) {
+                    LOGGER.warning("Item Frame mit ungueltiger Richtung wird uebersprungen");
+                    continue;
+                }
+                ItemFrameEntity frame = new ItemFrameEntity(x, y, z, direction);
+                frame.loadContent(de.skyengine.game.world.item.ItemStack.load(tag.getTag("item")),
+                        tag.getInt("rotation", 0));
+                chunk.addEntity(frame);
+            }
+        }
+    }
+
+    private static void ensureRequiredBlockEntities(Chunk chunk, World world) {
+        int originX = chunk.chunkX << ChunkSection.SHIFT;
+        int originZ = chunk.chunkZ << ChunkSection.SHIFT;
+        for (int sectionIndex = 0; sectionIndex < Chunk.SECTIONS; sectionIndex++) {
+            ChunkSection section = chunk.getSection(sectionIndex);
+            if (section == null || section.isEmpty() || section.container() == null) continue;
+
+            boolean containsBlockEntityBlock = false;
+            for (int stateId : section.container().paletteEntries()) {
+                if (stateId != 0 && Blocks.getState(stateId).getBlock().getBlockEntityType() != null) {
+                    containsBlockEntityBlock = true;
+                    break;
+                }
+            }
+            if (!containsBlockEntityBlock) continue;
+
+            int baseY = sectionIndex << ChunkSection.SHIFT;
+            for (int ly = 0; ly < ChunkSection.SIZE; ly++) {
+                for (int lz = 0; lz < ChunkSection.SIZE; lz++) {
+                    for (int lx = 0; lx < ChunkSection.SIZE; lx++) {
+                        BlockState state = Blocks.getState(section.getBlock(lx, ly, lz));
+                        BlockEntityType<?> required = state.getBlock().getBlockEntityType();
+                        if (required == null) continue;
+                        BlockEntity current = chunk.getBlockEntity(lx, baseY + ly, lz);
+                        if (current != null && current.getType() == required) continue;
+
+                        BlockPos pos = new BlockPos(originX + lx, baseY + ly, originZ + lz);
+                        BlockEntity created = required.create(pos, state);
+                        if (world != null) created.setWorld(world);
+                        chunk.setBlockEntity(lx, baseY + ly, lz, created);
+                    }
+                }
+            }
+        }
     }
 
     /* Gleiche Packung wie Chunk.beKey (x | z<<5 | y<<10). */
     private static int packLocalPos(int lx, int y, int lz) {
         return (lx & 31) | ((lz & 31) << 5) | ((y & 511) << 10);
+    }
+
+    /** Liest die bis einschließlich des alten Comparator-State-Modells gespeicherte Stärke. */
+    private static int legacyComparatorOutput(String encoded) {
+        if (!encoded.startsWith("skyengine:comparator[")) return -1;
+        int property = encoded.indexOf("power=");
+        if (property < 0) return -1;
+        int start = property + "power=".length();
+        int end = encoded.indexOf(',', start);
+        if (end < 0) end = encoded.indexOf(']', start);
+        if (end < 0) return -1;
+        try {
+            int value = Integer.parseInt(encoded.substring(start, end));
+            return value >= 0 && value <= 15 ? value : -1;
+        } catch (NumberFormatException ignored) {
+            return -1;
+        }
     }
 
     private static int checkIndex(int index, int paletteCount) throws IOException {

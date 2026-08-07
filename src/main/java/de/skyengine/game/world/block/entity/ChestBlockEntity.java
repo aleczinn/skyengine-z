@@ -20,7 +20,7 @@ public final class ChestBlockEntity extends BlockEntity {
 
     public static final int SLOTS = 27;
 
-    private final SimpleItemStorage inventory = new SimpleItemStorage(SLOTS);
+    private final SimpleItemStorage inventory;
 
     /* Deckel-Animation: Ziel-Zustand + interpolierter Öffnungsgrad (0=zu, 1=offen). */
     private static final float OPEN_STEP = 0.15f;
@@ -30,10 +30,34 @@ public final class ChestBlockEntity extends BlockEntity {
 
     public ChestBlockEntity(BlockEntityType<?> type, BlockPos pos) {
         super(type, pos);
+        this.inventory = new SimpleItemStorage(SLOTS, this::setChanged);
     }
 
     public ItemStorage getInventory() {
         return this.inventory;
+    }
+
+    /**
+     * Vanillas Container-Sicht für Automation und Komparatoren: eine gültige Doppeltruhe
+     * besitzt 54 Slots, geordnet mit der rechten Hälfte zuerst.
+     */
+    public ItemStorage getCombinedInventory() {
+        if (this.world == null) return this.inventory;
+        BlockState state = Blocks.getState(this.world.getBlock(this.pos.x(), this.pos.y(), this.pos.z()));
+        if (!state.getValues().containsKey(Properties.CHEST_TYPE)) return this.inventory;
+        ChestType chestType = state.get(Properties.CHEST_TYPE);
+        if (chestType == ChestType.SINGLE) return this.inventory;
+        Direction connected = ChestType.connectedDirection(state.get(Properties.FACING), chestType);
+        int px = this.pos.x() + connected.offsetX(), pz = this.pos.z() + connected.offsetZ();
+        BlockState partnerState = Blocks.getState(this.world.getBlock(px, this.pos.y(), pz));
+        if (partnerState.getBlock() != state.getBlock()
+                || partnerState.get(Properties.FACING) != state.get(Properties.FACING)
+                || partnerState.get(Properties.CHEST_TYPE) != chestType.opposite()) return this.inventory;
+        BlockEntity partnerEntity = this.world.getBlockEntity(px, this.pos.y(), pz);
+        if (!(partnerEntity instanceof ChestBlockEntity partner)) return this.inventory;
+        return chestType == ChestType.RIGHT
+                ? new CompoundItemStorage(this.inventory, partner.inventory)
+                : new CompoundItemStorage(partner.inventory, this.inventory);
     }
 
     /** Rückt den Öffnungsgrad pro Tick Richtung Ziel (für die Deckel-Animation). */
@@ -117,7 +141,7 @@ public final class ChestBlockEntity extends BlockEntity {
     @SuppressWarnings("unchecked")
     public <C> Optional<C> getCapability(Capability<C> capability, Direction side) {
         if (capability == Capabilities.ITEM_STORAGE) {
-            return Optional.of((C) this.inventory);
+            return Optional.of((C) this.getCombinedInventory());
         }
         return Optional.empty();
     }

@@ -1,0 +1,5 @@
+{
+  "id": "skyengine:jungle_sapling",
+  "parent": "preset/material",
+  "creative_tab": "natural"
+}

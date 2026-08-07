@@ -6,6 +6,7 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
+import de.skyengine.game.world.loot.LootContext;
 
 /**
  * Ein flüssig fallender Block (Sand, Kies). Wird von {@link
@@ -17,7 +18,9 @@ public class FallingBlockEntity extends Entity {
     private static final double GRAVITY = 0.04;     // Beschleunigung pro Tick (wie MC)
     private static final double DRAG_Y = 0.98;
 
-    /** Der fallende State (als gebackene Runtime-ID). */
+    /**
+     * Der fallende State (als gebackene Runtime-ID).
+     */
     private final int blockId;
 
     public FallingBlockEntity(int blockId) {
@@ -63,9 +66,6 @@ public class FallingBlockEntity extends Entity {
 
     private void dropAsItem(World world, int bx, int by, int bz) {
         BlockState state = Blocks.getState(this.blockId);
-        Item item = Items.get(state.getBlock().getIdentifier());
-        if (item != null) {
-            world.spawnItem(bx + 0.5, by + 0.5, bz + 0.5, new ItemStack(item, 1));
-        }
+        world.dropBlockLoot(bx, by, bz, state, LootContext.Cause.SUPPORT);
     }
 }

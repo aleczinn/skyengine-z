@@ -1,5 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
+import de.skyengine.audio.SoundManager;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.AttachFace;
@@ -27,8 +28,20 @@ public final class LeverBehavior implements BlockBehavior {
         boolean powered = !state.get(Properties.POWERED);
         /* true = Nachbar-Update, sonst erführe die Tür nebenan nichts davon. */
         world.setBlock(x, y, z, state.with(Properties.POWERED, powered).getId(), true);
+        SoundManager sound = world.getSoundManager();
+        if (sound != null) {
+            sound.playLeverClick(powered, x + 0.5, y + 0.5, z + 0.5);
+        }
         ButtonBehavior.notifyStrongTarget(world, x, y, z, state);
         return true;
+    }
+
+    @Override
+    public void onRemoved(World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
+        if (oldState.get(Properties.POWERED)) {
+            ButtonBehavior.notifyStrongTarget(world, x, y, z, oldState);
+        }
     }
 
     @Override
@@ -43,6 +56,11 @@ public final class LeverBehavior implements BlockBehavior {
 
     @Override
     public boolean connectsRedstoneWire(BlockState state, Direction side) {
+        return true;
+    }
+
+    @Override
+    public boolean isRedstoneSignalSource() {
         return true;
     }
 }

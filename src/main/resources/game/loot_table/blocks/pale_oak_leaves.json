@@ -1,0 +1,133 @@
+{
+  "type": "skyengine:block",
+  "pools": [
+    {
+      "entries": [
+        {
+          "type": "skyengine:alternatives",
+          "children": [
+            {
+              "type": "skyengine:item",
+              "conditions": [
+                {
+                  "condition": "skyengine:any_of",
+                  "terms": [
+                    {
+                      "condition": "skyengine:match_tool",
+                      "predicate": {
+                        "items": "skyengine:shears"
+                      }
+                    },
+                    {
+                      "condition": "skyengine:match_tool",
+                      "predicate": {
+                        "predicates": {
+                          "skyengine:enchantments": [
+                            {
+                              "enchantments": "skyengine:silk_touch",
+                              "levels": {
+                                "min": 1
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "name": "skyengine:pale_oak_leaves"
+            },
+            {
+              "type": "skyengine:item",
+              "conditions": [
+                {
+                  "condition": "skyengine:survives_explosion"
+                },
+                {
+                  "chances": [
+                    0.05,
+                    0.0625,
+                    0.083333336,
+                    0.1
+                  ],
+                  "condition": "skyengine:table_bonus",
+                  "enchantment": "skyengine:fortune"
+                }
+              ],
+              "name": "skyengine:pale_oak_sapling"
+            }
+          ]
+        }
+      ],
+      "rolls": 1.0
+    },
+    {
+      "conditions": [
+        {
+          "condition": "skyengine:inverted",
+          "term": {
+            "condition": "skyengine:any_of",
+            "terms": [
+              {
+                "condition": "skyengine:match_tool",
+                "predicate": {
+                  "items": "skyengine:shears"
+                }
+              },
+              {
+                "condition": "skyengine:match_tool",
+                "predicate": {
+                  "predicates": {
+                    "skyengine:enchantments": [
+                      {
+                        "enchantments": "skyengine:silk_touch",
+                        "levels": {
+                          "min": 1
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "entries": [
+        {
+          "type": "skyengine:item",
+          "conditions": [
+            {
+              "chances": [
+                0.02,
+                0.022222223,
+                0.025,
+                0.033333335,
+                0.1
+              ],
+              "condition": "skyengine:table_bonus",
+              "enchantment": "skyengine:fortune"
+            }
+          ],
+          "functions": [
+            {
+              "count": {
+                "type": "skyengine:uniform",
+                "max": 2.0,
+                "min": 1.0
+              },
+              "function": "skyengine:set_count"
+            },
+            {
+              "function": "skyengine:explosion_decay"
+            }
+          ],
+          "name": "skyengine:stick"
+        }
+      ],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "skyengine:blocks/pale_oak_leaves"
+}

@@ -1,0 +1,20 @@
+{
+  "type": "skyengine:block",
+  "pools": [
+    {
+      "conditions": [
+        {
+          "condition": "skyengine:survives_explosion"
+        }
+      ],
+      "entries": [
+        {
+          "type": "skyengine:item",
+          "name": "skyengine:iron_bars"
+        }
+      ],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "skyengine:blocks/iron_bars"
+}

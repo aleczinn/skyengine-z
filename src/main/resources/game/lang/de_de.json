@@ -519,7 +519,8 @@
       "bucket": "Eimer",
       "water_bucket": "Wassereimer",
       "lava_bucket": "Lavaeimer",
-      "flint_and_steel": "Feuerzeug"
+      "flint_and_steel": "Feuerzeug",
+      "item_frame": "Gegenstandsrahmen"
     }
   }
 }

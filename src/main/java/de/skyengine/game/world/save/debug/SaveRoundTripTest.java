@@ -98,14 +98,36 @@ public final class SaveRoundTripTest {
         moving.configure(decodeId("skyengine:stone"),
                 de.skyengine.game.world.block.Direction.EAST, true, false, true);
         chunk.setBlockEntity(17, 200, 17, moving);
+        int retractMovingId = decodeId(
+                "skyengine:moving_piston[facing=east,retracting_source=true,type=normal]");
+        chunk.setBlock(22, 200, 22, retractMovingId);
+        de.skyengine.game.world.block.entity.PistonMovingBlockEntity retractMoving =
+                (de.skyengine.game.world.block.entity.PistonMovingBlockEntity)
+                        BlockEntities.PISTON_MOVING.create(
+                                new BlockPos(3 * ChunkSection.SIZE + 22, 200,
+                                        -7 * ChunkSection.SIZE + 22),
+                                Blocks.getState(retractMovingId));
+        retractMoving.configure(decodeId("skyengine:piston[extended=false,facing=east]"),
+                de.skyengine.game.world.block.Direction.EAST, false, true, false);
+        chunk.setBlockEntity(22, 200, 22, retractMoving);
         int repeaterX = 3 * ChunkSection.SIZE + 12, repeaterZ = -7 * ChunkSection.SIZE + 12;
 
         /* Beobachter mit offenem Puls-Tick: POWERED liegt im State, der Rest-Delay in den
-           Ticks — nur zusammen laeuft eine Beobachter-Clock nach dem Laden weiter. Die
-           Vergleichsbasis der Aenderungserkennung ist bewusst NICHT persistiert, die stellt
-           ObserverBehavior.seedLoadedChunk beim READY-Werden des Chunks wieder her. */
+           Ticks — nur zusammen laeuft eine Beobachter-Clock nach dem Laden weiter. */
         int observerX = 3 * ChunkSection.SIZE + 19, observerZ = -7 * ChunkSection.SIZE + 19;
         chunk.setBlock(19, 200, 19, decodeId("skyengine:observer[facing=east,powered=true]"));
+
+        /* Comparator: POWERED bleibt im State, die tatsächliche Stärke ausschließlich in der BE. */
+        String comparatorState = "skyengine:comparator[facing=east,mode=compare,powered=true]";
+        int comparatorId = decodeId(comparatorState);
+        chunk.setBlock(20, 200, 20, comparatorId);
+        de.skyengine.game.world.block.entity.ComparatorBlockEntity comparator =
+                (de.skyengine.game.world.block.entity.ComparatorBlockEntity)
+                        BlockEntities.COMPARATOR.create(
+                                new BlockPos(3 * ChunkSection.SIZE + 20, 200,
+                                        -7 * ChunkSection.SIZE + 20), Blocks.getState(comparatorId));
+        comparator.setOutputSignal(11);
+        chunk.setBlockEntity(20, 200, 20, comparator);
 
         /* Trichter: State (facing + enabled) + BE mit Inventar UND Rest-Cooldown — der
            Transfer-Takt muss Save/Load überstehen. Der Cooldown wird über load() gesetzt
@@ -232,6 +254,17 @@ public final class SaveRoundTripTest {
         } else {
             check(false, "Moving-BE wiederhergestellt");
         }
+        if (restored.getBlockEntity(22, 200, 22) instanceof
+                de.skyengine.game.world.block.entity.PistonMovingBlockEntity restoredRetract) {
+            BlockState restoredRenderState = Blocks.getState(restored.getBlock(22, 200, 22));
+            check(restoredRetract.isSource() && !restoredRetract.isExtending()
+                            && restoredRenderState.get(
+                            de.skyengine.game.world.block.state.Properties.RETRACTING_SOURCE)
+                            && restoredRenderState.getModel().length > 0,
+                    "Einfahrende Source-BE behaelt ihre beleuchtete Chunk-Mesh-Renderhuelle");
+        } else {
+            check(false, "Einfahrende Source-BE wiederhergestellt");
+        }
         de.skyengine.game.world.block.entity.DataTag brokenTag =
                 new de.skyengine.game.world.block.entity.DataTag();
         brokenTag.putString("state", "skyengine:gibtsnicht[kaputt=ja]");
@@ -254,6 +287,17 @@ public final class SaveRoundTripTest {
                     "Trichter-Cooldown übersteht den Round-Trip (Transfer-Takt läuft weiter)");
         } else {
             check(false, "Trichter-BlockEntity wiederhergestellt");
+        }
+
+        check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(20, 200, 20)))
+                        .equals(comparatorState),
+                "Comparator-State (facing + mode + powered) übersteht den Round-Trip");
+        if (restored.getBlockEntity(20, 200, 20) instanceof
+                de.skyengine.game.world.block.entity.ComparatorBlockEntity restoredComparator) {
+            check(restoredComparator.getOutputSignal() == 11,
+                    "Comparator-OutputSignal übersteht den BlockEntity-Round-Trip");
+        } else {
+            check(false, "Comparator-BlockEntity wiederhergestellt");
         }
 
         /* Alt-Format: ein Tür-String OHNE das neue powered-Property muss auf den
@@ -294,12 +338,12 @@ public final class SaveRoundTripTest {
             }
             List<String> fired = new ArrayList<>();
             queue.drainDue(now + 3,
-                    (x, y, z, block, priority, order) -> fired.add(x + "," + y + "," + z));
+                    (x, y, z, block, trigger, priority, order) -> fired.add(x + "," + y + "," + z));
             check(fired.contains(sourceX + ",200," + sourceZ), "Quelle -> Save -> Load -> Tick FEUERT (Bugfall behoben)");
             check(fired.contains(flowX + ",200," + flowZ), "Fluss-Tick feuert");
         }
 
-        /* forEachPending: Vorzeichen-Erweiterung + Überfällig-Klemme. */
+        /* forEachPending: Vorzeichen-Erweiterung + Vanilla-Restzeit für Überfälliges. */
         ScheduledTickQueue negQueue = new ScheduledTickQueue();
         negQueue.schedule(-100, 50, -217, Identifier.of("skyengine:stone"), 500);
         int[] got = new int[4];
@@ -307,7 +351,7 @@ public final class SaveRoundTripTest {
             got[0] = x; got[1] = y; got[2] = z; got[3] = rem;
         });
         check(got[0] == -100 && got[1] == 50 && got[2] == -217, "forEachPending entpackt negative Koordinaten korrekt");
-        check(got[3] == 1, "Überfälliger Tick -> Rest-Delay 1");
+        check(got[3] == -500, "Überfälliger Tick behält seine negative Restzeit");
 
         /* --- Luft-Fallback: unbekannter State (Block aus dem Spiel entfernt) --- */
         byte[] tampered = raw.clone();

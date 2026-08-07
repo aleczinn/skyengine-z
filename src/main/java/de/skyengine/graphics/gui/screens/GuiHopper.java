@@ -11,23 +11,19 @@ import de.skyengine.graphics.texture.Texture;
 /**
  * GUI des Trichters mit der MC-Textur {@code container/hopper.png} (Fenster 176×133):
  * 5 Trichter-Slots in der Mitte, darunter das Spielerinventar. Slot-/Carried-Logik kommt
- * aus {@link GuiContainer}. Beim Schließen werden die Komparatoren am Trichter informiert —
- * Container-Mutationen erzeugen keine Nachbar-Updates (dokumentierte Vereinfachung:
- * Updates bei offenem GUI erst beim Schließen).
+ * aus {@link GuiContainer}. Inhaltsänderungen informieren messende Komparatoren unmittelbar.
  */
 public final class GuiHopper extends GuiContainer {
 
     private static final int W = 176, H = 133;
     private static final float TEX = 256f;
 
-    private final HopperBlockEntity hopper;
     private final ItemStorage hopperInv;
     private final ItemStorage playerInv;
     private float guiX, guiY;
 
     public GuiHopper(HopperBlockEntity hopper, ItemStorage playerInv) {
         super(playerInv, hopper.getInventory());
-        this.hopper = hopper;
         this.hopperInv = hopper.getInventory();
         this.playerInv = playerInv;
     }
@@ -75,13 +71,4 @@ public final class GuiHopper extends GuiContainer {
         this.drawTooltip(gui, mouseX, mouseY);
     }
 
-    @Override
-    public void onClose() {
-        super.onClose(); // getragenen Stapel zurücklegen (Spieler, dann Trichter)
-        /* Messende Komparatoren erfahren von den GUI-Änderungen nur hier. */
-        if (this.hopper.getWorld() != null) {
-            this.hopper.getWorld().updateComparatorOutputs(
-                    this.hopper.getPos().x(), this.hopper.getPos().y(), this.hopper.getPos().z());
-        }
-    }
 }

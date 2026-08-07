@@ -3,12 +3,16 @@ package de.skyengine.game.world.block;
 import de.skyengine.game.world.block.archetype.BlockConfig;
 import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.block.behavior.BlockBehavior;
+import de.skyengine.game.world.block.behavior.ObserverBehavior;
 import de.skyengine.game.world.block.behavior.PlacementContext;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.loot.LootContext;
+import de.skyengine.game.world.loot.LootSink;
+import de.skyengine.game.world.loot.LootTables;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.Property;
 
@@ -23,6 +27,7 @@ public class Block {
     private final Settings settings;
     private final BlockConfig config;
     private final boolean reconcileRedstoneOnChunkBoundary;
+    private final boolean redstoneSignalSource;
 
     private final List<Property<?>> properties = new ArrayList<>();
     private final List<BlockState> states = new ArrayList<>();
@@ -43,13 +48,15 @@ public class Block {
         this.settings = settings;
         this.config = config;
         boolean reconcile = false;
+        boolean signalSource = false;
         for (BlockBehavior behavior : config.behaviors()) {
             if (behavior.reconcileRedstoneOnChunkBoundary()) {
                 reconcile = true;
-                break;
             }
+            if (behavior.isRedstoneSignalSource()) signalSource = true;
         }
         this.reconcileRedstoneOnChunkBoundary = reconcile;
+        this.redstoneSignalSource = signalSource;
 
         this.appendProperties(this.properties);
         for (Property<?> property : config.properties()) {
@@ -129,6 +136,22 @@ public class Block {
                 : this.isOpaqueCube(state);
     }
 
+    /**
+     * Leitet stark empfangenes Redstone-Signal an seine Nachbarn weiter. Diese Gameplay-
+     * Eigenschaft ist in Java Edition ausdrücklich nicht mit visueller Opazität identisch:
+     * ein Beobachter ist ein opaker Vollwürfel, aber kein Redstone-Leiter.
+     */
+    public boolean isRedstoneConductor(BlockState state) {
+        return this.config.redstoneConductorPredicate() != null
+                ? this.config.redstoneConductorPredicate().test(state)
+                : this.isOpaqueCube(state);
+    }
+
+    /** true, wenn der Block selbst Signal erzeugt statt nur starkes Signal weiterzuleiten. */
+    public boolean isRedstoneSignalSource() {
+        return this.redstoneSignalSource;
+    }
+
     public boolean isSolid(BlockState state) {
         return this.settings.solid;
     }
@@ -178,18 +201,29 @@ public class Block {
         return this.settings.leaves;
     }
 
+    /**
+     * Mitgliedschaft in Vanillas Blocktag {@code does_not_block_hoppers}. Solche Blöcke
+     * lassen die Item-Entity-Saugzone eines Hoppers trotz voller Kollisionsform durch.
+     */
+    public boolean doesNotBlockHoppers() {
+        return this.settings.doesNotBlockHoppers;
+    }
+
     /** true: kein Auto-BlockItem — ein Material-Item mit {@code places_block} übernimmt (Staub). */
     public boolean hasNoItem() {
         return this.settings.noItem;
     }
 
     /**
-     * Kolben-Reaktion dieses Blocks. Automatik-Overrides VOR dem JSON-Wert: unzerstörbare
-     * Blöcke (Härte &lt; 0 — Bedrock, moving_piston) und BlockEntity-Blöcke (Truhe,
-     * Zaubertisch — ihr Inhalt kann nicht mitreisen) blockieren immer.
+     * Kolben-Reaktion dieses Blocks. Unzerstörbare Blöcke blockieren immer; ein explizites
+     * DESTROY gilt auch für BlockEntity-Blöcke wie den Vanilla-Comparator. Übrige
+     * BlockEntity-Blöcke (Truhe, Zaubertisch — ihr Inhalt kann nicht mitreisen) blockieren.
      */
     public PistonReaction getPistonReaction() {
         if (this.config.hardness() < 0) return PistonReaction.BLOCK;
+        /* Explizites DESTROY muss vor dem generischen BlockEntity-Schutz gewinnen:
+           Vanilla-Comparatoren besitzen eine BE, werden vom Kolben aber trotzdem zerstört. */
+        if (this.config.pistonReaction() == PistonReaction.DESTROY) return PistonReaction.DESTROY;
         if (this.config.blockEntityType() != null) return PistonReaction.BLOCK;
         return this.config.pistonReaction();
     }
@@ -293,10 +327,55 @@ public class Block {
      */
     public BlockState getStateForNeighborUpdate(de.skyengine.game.world.World world,
                                                 int x, int y, int z, BlockState state) {
+        return this.getStateForGeneralNeighborUpdate(world, x, y, z, state);
+    }
+
+    /**
+     * Gerichtete Variante für einen Shape-Update-Auslöser. Die Richtung zeigt vom Empfänger
+     * zum geänderten Nachbarn; der alte ungerichtete Hook bleibt für die übrigen, historisch
+     * zusammengefassten Neighbor-Changed-Verhalten erhalten.
+     */
+    public BlockState getStateForNeighborUpdate(de.skyengine.game.world.World world,
+                                                int x, int y, int z, BlockState state,
+                                                Direction direction, BlockState neighborState) {
+        if (direction != null) {
+            state = this.getStateForShapeUpdate(world, x, y, z, state, direction, neighborState);
+        }
+        return this.getStateForGeneralNeighborUpdate(world, x, y, z, state);
+    }
+
+    /** Nur der allgemeine {@code neighborChanged}-Hook, ohne gerichtetes Shape-Update. */
+    public BlockState getStateForGeneralNeighborUpdate(de.skyengine.game.world.World world,
+                                                       int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             state = behavior.onNeighborUpdate(world, x, y, z, state);
         }
         return state;
+    }
+
+    /** Nur der gerichtete Shape-Hook, ohne den allgemeinen Neighbor-Changed-Recompute. */
+    public BlockState getStateForShapeUpdate(de.skyengine.game.world.World world,
+                                             int x, int y, int z, BlockState state,
+                                             Direction direction, BlockState neighborState) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            state = behavior.onNeighborShapeUpdate(world, x, y, z, state, direction, neighborState);
+        }
+        return state;
+    }
+
+    /**
+     * Nach einem durch Nachbar-Update geschriebenen State-Wechsel. Neben den blockeigenen
+     * Seiteneffekten erhalten gerichtete Observer den Shape-/State-Wechsel der beobachteten
+     * Zelle. Das muss zentral passieren: {@code World.updateStateAt} schreibt reine
+     * State-Änderungen absichtlich ohne einen weiteren allgemeinen Nachbarring.
+     */
+    public void onStateChangedByNeighborUpdate(de.skyengine.game.world.World world,
+                                               int x, int y, int z,
+                                               BlockState oldState, BlockState newState) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.onStateChangedByNeighborUpdate(world, x, y, z, oldState, newState);
+        }
+        ObserverBehavior.notifyWatching(world, x, y, z);
     }
 
     /** Rechtsklick-Interaktion. Delegiert an die Behaviors; true = verbraucht. */
@@ -314,21 +393,36 @@ public class Block {
         }
     }
 
-    /** Block-Event-Dispatch (s. {@code World.enqueueBlockEvent}). Delegiert; Default: nichts. */
-    public void onBlockEvent(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+    /** Post-Removal-Dispatch, nachdem die Welt bereits den Nachfolgezustand enthaelt. */
+    public void onRemoved(de.skyengine.game.world.World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
         for (BlockBehavior behavior : this.config.behaviors()) {
-            behavior.onBlockEvent(world, x, y, z, state);
+            behavior.onRemoved(world, x, y, z, oldState, newState);
         }
     }
 
-    /** Drop-Ersatz beim Spieler-Abbau (s. {@code BlockBehavior.getDropOverride}); erster Treffer gewinnt. */
-    public de.skyengine.game.world.item.ItemStack getDropOverride(de.skyengine.game.world.World world,
-                                                                  int x, int y, int z, BlockState state) {
+    /** Block-Event-Dispatch (s. {@code World.enqueueBlockEvent}). Delegiert; Default: nichts. */
+    public void onBlockEvent(de.skyengine.game.world.World world, int x, int y, int z, BlockState state,
+                             int eventId, int eventParam) {
         for (BlockBehavior behavior : this.config.behaviors()) {
-            de.skyengine.game.world.item.ItemStack drop = behavior.getDropOverride(world, x, y, z, state);
-            if (drop != null) return drop;
+            behavior.onBlockEvent(world, x, y, z, state, eventId, eventParam);
         }
-        return null;
+    }
+
+    /** Wertet die kompilierte Tabelle aus und hängt danach Behavior-spezifische Drops an. */
+    public void appendDrops(LootContext context,
+                            LootSink sink) {
+        LootTables.generate(context, sink);
+        for (BlockBehavior behavior : this.config.behaviors()) behavior.appendDrops(context, sink);
+    }
+
+    public long canonicalLootPosition(LootContext context) {
+        long own = de.skyengine.game.world.block.BlockPos.asLong(context.x(), context.y(), context.z());
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            long candidate = behavior.canonicalLootPosition(context);
+            if (candidate != own) return candidate;
+        }
+        return own;
     }
 
     /** Entity-BoundingBox überlappt die Zelle (aus {@code Entity.move}). Delegiert; Default: nichts. */
@@ -348,7 +442,7 @@ public class Block {
         return power;
     }
 
-    /** Starkes Redstone-Signal Richtung {@code side} (leitet durch opake Blöcke). Max über die Behaviors. */
+    /** Starkes Redstone-Signal Richtung {@code side} (leitet durch Redstone-Leiter). Max über die Behaviors. */
     public int getStrongPower(de.skyengine.game.world.World world, int x, int y, int z, BlockState state, Direction side) {
         int power = 0;
         for (BlockBehavior behavior : this.config.behaviors()) {
@@ -556,6 +650,7 @@ public class Block {
         boolean cullSame = false;
         boolean noLodSurface = false;
         boolean leaves = false;
+        boolean doesNotBlockHoppers = false;
         boolean noItem = false;
         RenderLayer renderLayer = RenderLayer.OPAQUE;
 
@@ -602,6 +697,11 @@ public class Block {
 
         public Settings leaves(boolean leaves) {
             this.leaves = leaves;
+            return this;
+        }
+
+        public Settings doesNotBlockHoppers(boolean doesNotBlockHoppers) {
+            this.doesNotBlockHoppers = doesNotBlockHoppers;
             return this;
         }
     }

@@ -7,6 +7,7 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.utils.collect.LongIntMap;
 import de.skyengine.utils.collect.LongLongMap;
 
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -24,13 +25,19 @@ public final class ScheduledTickQueue {
 
     @FunctionalInterface
     public interface DueConsumer {
-        void run(int x, int y, int z, Identifier expectedBlock, int priority, long subOrder);
+        void run(int x, int y, int z, Identifier expectedBlock, long triggerTime,
+                 int priority, long subOrder);
     }
 
     @FunctionalInterface
     public interface PendingConsumer {
         void accept(int x, int y, int z, Identifier expectedBlock, int remainingTicks,
                     int priority, long subOrder);
+    }
+
+    @FunctionalInterface
+    public interface TickCheck {
+        boolean test(int x, int y, int z);
     }
 
     private static final class Entry {
@@ -76,6 +83,11 @@ public final class ScheduledTickQueue {
         return c != 0 ? c : Long.compare(a.sequence, b.sequence);
     });
     private final Map<Identifier, TypeIndex> scheduled = new HashMap<>();
+    /* Vanilla LevelTicks sammelt alle faelligen Ticks vor den Callbacks in toRunThisTick.
+       Der zugehoerige Positionssatz wird erst bei der ersten willTickThisTick-Abfrage
+       aufgebaut und enthaelt nur die noch nicht ausgefuehrten Eintraege der Runde. */
+    private final ArrayDeque<Entry> toRunThisTick = new ArrayDeque<>();
+    private final Map<Identifier, LongIntMap> toRunThisTickSet = new HashMap<>();
     private static final long NO_VALUE = Long.MIN_VALUE;
     private long sequenceCounter;
     private long subOrderCounter;
@@ -140,6 +152,23 @@ public final class ScheduledTickQueue {
     }
 
     /**
+     * Entspricht Vanilla {@code LevelTicks#willTickThisTick}: true nur fuer einen Tick, der
+     * bereits fuer die aktuelle Runde eingesammelt wurde, aber noch nicht ausgefuehrt ist.
+     * Das ist absichtlich etwas anderes als {@link #isScheduled}.
+     */
+    public boolean willTickThisTick(int x, int y, int z, Identifier expectedBlock) {
+        if (this.toRunThisTickSet.isEmpty() && !this.toRunThisTick.isEmpty()) {
+            for (Entry entry : this.toRunThisTick) {
+                this.toRunThisTickSet
+                        .computeIfAbsent(entry.expectedBlock, ignored -> new LongIntMap(16))
+                        .put(entry.position, 1);
+            }
+        }
+        LongIntMap positions = this.toRunThisTickSet.get(expectedBlock);
+        return positions != null && positions.containsKey(BlockPos.asLong(x, y, z));
+    }
+
+    /**
      * Entfernt alle Runtime-Einträge regulär entladener Chunks in einem Queue-Durchlauf.
      * Deren persistierter Snapshot bleibt die autoritative Quelle für einen späteren Reload.
      * Auch veraltete Heap-Einträge vorgezogener Ticks werden physisch ausgetragen.
@@ -192,11 +221,22 @@ public final class ScheduledTickQueue {
      * @return Anzahl an den Consumer übergebener Ticks
      */
     public int drainDue(long now, int maxTicks, DueConsumer consumer) {
+        return this.drainDue(now, maxTicks, (x, y, z) -> true, consumer);
+    }
+
+    /**
+     * Vanilla-LevelTicks-Gate: fällige Einträge nicht tickender Chunks bleiben mit ihrer
+     * ursprünglichen Zielzeit in der Queue, während andere fällige Chunks weiterlaufen.
+     */
+    public int drainDue(long now, int maxTicks, TickCheck tickCheck, DueConsumer consumer) {
         if (maxTicks < 0) throw new IllegalArgumentException("Negatives Tick-Budget: " + maxTicks);
+        if (!this.toRunThisTick.isEmpty()) {
+            throw new IllegalStateException("Scheduled-Tick-Drain darf nicht reentrant laufen");
+        }
         long cutoff = this.sequenceCounter;
-        int drained = 0;
+        java.util.ArrayList<Entry> parked = new java.util.ArrayList<>();
         Entry entry;
-        while (drained < maxTicks && (entry = this.queue.peek()) != null
+        while (this.toRunThisTick.size() < maxTicks && (entry = this.queue.peek()) != null
                 && entry.triggerTime <= now && entry.sequence < cutoff) {
             this.queue.poll();
             TypeIndex index = this.scheduled.get(entry.expectedBlock);
@@ -204,13 +244,33 @@ public final class ScheduledTickQueue {
             long currentTime = index.times.getOrDefault(entry.position, NO_VALUE);
             long currentSequence = index.sequences.getOrDefault(entry.position, NO_VALUE);
             if (currentTime != entry.triggerTime || currentSequence != entry.sequence) continue;
+            if (!tickCheck.test(entry.x, entry.y, entry.z)) {
+                parked.add(entry);
+                continue;
+            }
             index.times.remove(entry.position);
             index.sequences.remove(entry.position);
             if (index.times.isEmpty()) this.scheduled.remove(entry.expectedBlock);
             this.logicalSize--;
             this.revision++;
-            consumer.run(entry.x, entry.y, entry.z, entry.expectedBlock, entry.priority, entry.subOrder);
-            drained++;
+            this.toRunThisTick.add(entry);
+        }
+        this.queue.addAll(parked);
+
+        int drained = this.toRunThisTick.size();
+        try {
+            while ((entry = this.toRunThisTick.poll()) != null) {
+                LongIntMap positions = this.toRunThisTickSet.get(entry.expectedBlock);
+                if (positions != null) {
+                    positions.remove(entry.position);
+                    if (positions.isEmpty()) this.toRunThisTickSet.remove(entry.expectedBlock);
+                }
+                consumer.run(entry.x, entry.y, entry.z, entry.expectedBlock,
+                        entry.triggerTime, entry.priority, entry.subOrder);
+            }
+        } finally {
+            this.toRunThisTick.clear();
+            this.toRunThisTickSet.clear();
         }
         return drained;
     }
@@ -233,8 +293,9 @@ public final class ScheduledTickQueue {
             if (index == null) continue;
             if (index.times.getOrDefault(entry.position, NO_VALUE) != entry.triggerTime
                     || index.sequences.getOrDefault(entry.position, NO_VALUE) != entry.sequence) continue;
-            long remainingLong = entry.triggerTime <= now ? 1 : entry.triggerTime - now;
-            int remaining = (int) Math.min(Integer.MAX_VALUE, remainingLong);
+            long remainingLong = entry.triggerTime - now;
+            int remaining = (int) Math.max(Integer.MIN_VALUE,
+                    Math.min(Integer.MAX_VALUE, remainingLong));
             consumer.accept(entry.x, entry.y, entry.z, entry.expectedBlock, remaining,
                     entry.priority, entry.subOrder);
         }

@@ -22,7 +22,14 @@ public enum Direction {
        Pfaden (Fluid-Tick, Nachbar-Updates). NIEMALS mutieren. horizontal()/values() unten
        liefern weiterhin defensive Kopien fuer externe Aufrufer. */
     private static final Direction[] VALUES = values();
+    /* Reihenfolge von net.minecraft.core.Direction.values(). Unsere Enum-Reihenfolge ist wegen
+       historisch persistierter Piston-Ordinals absichtlich anders und darf nicht umsortiert werden. */
+    private static final Direction[] VANILLA_VALUES = {DOWN, UP, NORTH, SOUTH, WEST, EAST};
     private static final Direction[] HORIZONTAL_VALUES = {NORTH, EAST, SOUTH, WEST};
+    /* Vanillas NeighborUpdater.UPDATE_ORDER. Nicht mit UPDATE_SHAPE_ORDER verwechseln. */
+    private static final Direction[] NEIGHBOR_UPDATE_VALUES = {WEST, EAST, DOWN, UP, NORTH, SOUTH};
+    /* Vanillas BlockBehaviour.UPDATE_SHAPE_ORDER. Reihenfolge ist bei Redstone beobachtbar. */
+    private static final Direction[] SHAPE_UPDATE_VALUES = {WEST, EAST, NORTH, SOUTH, DOWN, UP};
 
     private final int faceIndex;
     private final int dx, dy, dz;
@@ -94,6 +101,21 @@ public enum Direction {
      */
     public static Direction[] sharedValues() {
         return VALUES;
+    }
+
+    /** Geteilte Enum-Reihenfolge von Minecraft Java: DOWN, UP, NORTH, SOUTH, WEST, EAST. */
+    public static Direction[] vanillaValues() {
+        return VANILLA_VALUES;
+    }
+
+    /** Geteilte Vanilla-Neighbor-Reihenfolge WEST, EAST, DOWN, UP, NORTH, SOUTH. Nicht mutieren. */
+    public static Direction[] neighborUpdateValues() {
+        return NEIGHBOR_UPDATE_VALUES;
+    }
+
+    /** Geteilte Vanilla-Reihenfolge WEST, EAST, NORTH, SOUTH, DOWN, UP. Nicht mutieren. */
+    public static Direction[] shapeUpdateValues() {
+        return SHAPE_UPDATE_VALUES;
     }
 
     /**

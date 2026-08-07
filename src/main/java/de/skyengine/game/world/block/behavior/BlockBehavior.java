@@ -3,6 +3,8 @@ package de.skyengine.game.world.block.behavior;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.loot.LootContext;
+import de.skyengine.game.world.loot.LootSink;
 
 /**
  * Komponierbares Block-Verhalten (Komposition statt Vererbung). Ein Block kombiniert
@@ -48,6 +50,24 @@ public interface BlockBehavior {
         return state;
     }
 
+    /**
+     * Gerichtetes Shape-Update eines unmittelbaren Nachbarn. {@code direction} zeigt von
+     * diesem Block zu der Zelle, die das Update ausgelöst hat. Das entspricht der Richtung,
+     * die Vanilla an {@code Block#updateShape} übergibt.
+     */
+    default BlockState onNeighborShapeUpdate(World world, int x, int y, int z, BlockState state,
+                                             Direction direction, BlockState neighborState) {
+        return state;
+    }
+
+    /**
+     * Blockeigener Seiteneffekt NACHDEM ein {@link #onNeighborUpdate}-Ergebnis geschrieben wurde.
+     * Die allgemeine Observer-Benachrichtigung erfolgt anschließend zentral in {@code Block}.
+     */
+    default void onStateChangedByNeighborUpdate(World world, int x, int y, int z,
+                                                BlockState oldState, BlockState newState) {
+    }
+
     /** Rechtsklick auf den Block. true = verbraucht (kein Platzieren). Default: ignoriert. */
     default boolean onUse(World world, int x, int y, int z, BlockState state) {
         return false;
@@ -58,15 +78,22 @@ public interface BlockBehavior {
     }
 
     /**
-     * Ersetzt beim Spieler-Abbau das Standard-Drop-Item ({@code Items.forBlock}) — z.B. droppt
-     * der Kolben-Kopf das Item seiner Basis. Wird VOR {@link #onBreak} abgefragt (BlockEntity
-     * noch lesbar) und läuft ausschließlich über den Gamemode-geprüften Pfad im GameContainer;
-     * Behaviors dürfen Block-Drops deshalb NIE selbst spawnen ({@code onBreak} kennt keinen
-     * Gamemode — Creative würde droppen). null = Standard-Drop.
+     * Seiteneffekt NACH einem Blocktypwechsel, wenn die alte Zelle bereits ersetzt ist.
+     * Entspricht Vanillas {@code affectNeighborsAfterRemoval}; Redstone-Ausgaenge muessen hier
+     * die fallende Flanke verteilen, damit ihre Empfaenger nicht mehr den alten Block lesen.
      */
-    default de.skyengine.game.world.item.ItemStack getDropOverride(World world, int x, int y, int z,
-                                                                   BlockState state) {
-        return null;
+    default void onRemoved(World world, int x, int y, int z,
+                           BlockState oldState, BlockState newState) {
+    }
+
+    /** Ergänzt dynamische Drops (Inventarinhalte, Kolbenbasis) zur statischen Loot-Tabelle. */
+    default void appendDrops(LootContext context,
+                             LootSink sink) {
+    }
+
+    /** Kanonischer Drop-Ursprung für Batch-Zerstörung; Standard ist die aktuelle Zelle. */
+    default long canonicalLootPosition(LootContext context) {
+        return de.skyengine.game.world.block.BlockPos.asLong(context.x(), context.y(), context.z());
     }
 
     /**
@@ -96,9 +123,11 @@ public interface BlockBehavior {
     /**
      * Block-Event (s. {@code World.enqueueBlockEvent}): läuft im SELBEN Game-Tick wie die
      * auslösende Flanke, aber außerhalb der Nachbar-Update-Kaskade — der Ort für schwere
-     * Multi-Block-Aktionen (Kolben). Tolerantes Feuern wie beim Tick-Scheduler. Default: nichts.
+     * Multi-Block-Aktionen (Kolben). {@code eventId} bestimmt die Aktion, {@code eventParam}
+     * trägt blockspezifische Zusatzdaten. Tolerantes Feuern wie beim Tick-Scheduler. Default: nichts.
      */
-    default void onBlockEvent(World world, int x, int y, int z, BlockState state) {
+    default void onBlockEvent(World world, int x, int y, int z, BlockState state,
+                              int eventId, int eventParam) {
     }
 
     /* --- Redstone (Abfragen laufen über RedstonePower, nie direkt über die Hooks) --- */
@@ -107,7 +136,7 @@ public interface BlockBehavior {
      * Schwaches Redstone-Signal 0..15, das dieser Block in Richtung {@code side} abgibt.
      * Konvention: {@code side} zeigt VOM Block ZUM Empfänger (Signalflussrichtung) —
      * ein Knopf an der Nordwand powert seinen Träger also mit {@code side == NORTH}.
-     * Schwach heißt: wirkt auf direkte Nachbarn, wird aber von opaken Blöcken NICHT
+     * Schwach heißt: wirkt auf direkte Nachbarn, wird aber von Redstone-Leitern NICHT
      * weitergeleitet. Default 0.
      */
     default int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
@@ -116,7 +145,7 @@ public interface BlockBehavior {
 
     /**
      * Starkes Redstone-Signal 0..15 in Richtung {@code side} (Konvention wie
-     * {@link #weakPower}). Nur starke Signale machen einen opaken Block selbst zur
+     * {@link #weakPower}). Nur starke Signale machen einen leitenden Block selbst zur
      * Quelle (Leitung durch Wände — Hebel am Block schaltet die Tür dahinter). Default 0.
      */
     default int strongPower(World world, int x, int y, int z, BlockState state, Direction side) {
@@ -129,6 +158,14 @@ public interface BlockBehavior {
      * selbst.) Default false — Staub läuft an dem Block vorbei.
      */
     default boolean connectsRedstoneWire(BlockState state, Direction side) {
+        return false;
+    }
+
+    /**
+     * Der Block ist selbst eine Redstone-Signalquelle. Vanillas Comparator-Seiteneingang
+     * akzeptiert solche Quellen, aber keine nur indirekt gespeisten leitenden Vollblöcke.
+     */
+    default boolean isRedstoneSignalSource() {
         return false;
     }
 

@@ -69,6 +69,7 @@ public final class BlockRegistry {
         int flags = 0;
         if (block.isOpaqueCube(state)) flags |= StateFlags.OPAQUE_CUBE;
         if (block.occludesAo(state)) flags |= StateFlags.AO_OCCLUDER;
+        if (block.isRedstoneConductor(state)) flags |= StateFlags.REDSTONE_CONDUCTOR;
         if (block.isSolid(state)) flags |= StateFlags.SOLID;
         if (block.cullsSameBlock()) flags |= StateFlags.CULL_SAME;
         if (block.hasRandomOffset(state)) flags |= StateFlags.RANDOM_OFFSET;

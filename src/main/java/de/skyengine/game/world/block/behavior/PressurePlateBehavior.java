@@ -89,9 +89,10 @@ public final class PressurePlateBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
-        /* Sonst bliebe der Eintrag einer gedrückt abgebauten Platte für immer stehen (Leak). */
+    public void onRemoved(World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
         this.touches.remove(world, x, y, z);
+        if (signalOf(oldState) > 0) this.notifyNeighbors(world, x, y, z);
     }
 
     /** Signalstärke für N passende Entities: binär 15, sonst ceil(n/perSignal), gedeckelt 15. */
@@ -106,9 +107,14 @@ public final class PressurePlateBehavior implements BlockBehavior {
         BlockState updated = this.counting
                 ? state.with(Properties.POWER, signal)
                 : state.with(Properties.POWERED, signal > 0);
-        /* true = Nachbar-Update: nur so erfahren Tür und Staub überhaupt davon. */
-        world.setBlock(x, y, z, updated.getId(), true);
-        world.updateNeighbors(x, y - 1, z);
+        /* Vanilla-Flag 2; die beiden allgemeinen Ringe folgen explizit. */
+        world.setBlockWithShapeUpdates(x, y, z, updated.getId());
+        this.notifyNeighbors(world, x, y, z);
+    }
+
+    private void notifyNeighbors(World world, int x, int y, int z) {
+        world.updateGeneralNeighborsAt(x, y, z);
+        world.updateGeneralNeighborsAt(x, y - 1, z);
     }
 
     private int signalOf(BlockState state) {
@@ -131,6 +137,11 @@ public final class PressurePlateBehavior implements BlockBehavior {
 
     @Override
     public boolean connectsRedstoneWire(BlockState state, Direction side) {
+        return true;
+    }
+
+    @Override
+    public boolean isRedstoneSignalSource() {
         return true;
     }
 

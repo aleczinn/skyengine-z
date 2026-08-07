@@ -22,4 +22,7 @@ public interface ContentSource {
 
     /** Datei mit den Creative-Tab-Definitionen; darf fehlen (dann bringt die Quelle keine Tabs mit). */
     File creativeTabs();
+
+    /** Vanilla-kompatible Block-Loot-Tabellen; darf bei reinen Code-Quellen fehlen. */
+    default File blockLootTables() { return null; }
 }

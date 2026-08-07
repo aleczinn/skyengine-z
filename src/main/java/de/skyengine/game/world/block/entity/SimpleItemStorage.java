@@ -8,9 +8,15 @@ import java.util.Arrays;
 public final class SimpleItemStorage implements ItemStorage {
 
     private final ItemStack[] slots;
+    private final Runnable changeListener;
 
     public SimpleItemStorage(int size) {
+        this(size, () -> {});
+    }
+
+    public SimpleItemStorage(int size, Runnable changeListener) {
         this.slots = new ItemStack[size];
+        this.changeListener = changeListener;
         Arrays.fill(this.slots, ItemStack.EMPTY);
     }
 
@@ -27,6 +33,7 @@ public final class SimpleItemStorage implements ItemStorage {
     @Override
     public void set(int slot, ItemStack stack) {
         this.slots[slot] = stack == null ? ItemStack.EMPTY : stack;
+        this.setChanged();
     }
 
     @Override
@@ -49,6 +56,7 @@ public final class SimpleItemStorage implements ItemStorage {
             if (!this.slots[i].isEmpty()) continue;
             this.slots[i] = remaining.split(remaining.getMaxStackSize());
         }
+        if (remaining.getCount() != stack.getCount()) this.setChanged();
         return remaining.isEmpty() ? ItemStack.EMPTY : remaining;
     }
 
@@ -56,7 +64,13 @@ public final class SimpleItemStorage implements ItemStorage {
     public ItemStack extract(int slot, int amount) {
         ItemStack out = this.slots[slot].split(amount);
         if (this.slots[slot].isEmpty()) this.slots[slot] = ItemStack.EMPTY;
+        if (!out.isEmpty()) this.setChanged();
         return out;
+    }
+
+    @Override
+    public void setChanged() {
+        this.changeListener.run();
     }
 
     /* --- Persistenz: nur belegte Slots schreiben. --- */

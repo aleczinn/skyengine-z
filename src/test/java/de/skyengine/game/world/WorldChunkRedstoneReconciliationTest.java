@@ -1,6 +1,12 @@
 package de.skyengine.game.world;
 
+import de.skyengine.game.entity.ItemFrameEntity;
+import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.entity.BlockEntities;
+import de.skyengine.game.world.block.entity.ComparatorBlockEntity;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.BlockStateCodec;
 import de.skyengine.game.world.block.state.Properties;
@@ -8,6 +14,8 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.redstone.RedstoneWireNetwork;
 import de.skyengine.game.world.save.ChunkSerializer;
 import de.skyengine.game.world.save.LevelData;
@@ -44,6 +52,8 @@ final class WorldChunkRedstoneReconciliationTest {
         int wire = id("skyengine:redstone_wire[east=none,north=none,power=0,south=none,west=none]");
         west.setBlock(ChunkSection.MASK, 64, 8, wire);
         east.setBlock(0, 64, 8, wire);
+        west.setBlock(ChunkSection.MASK, 63, 8, id("skyengine:stone"));
+        east.setBlock(0, 63, 8, id("skyengine:stone"));
         east.setBlock(1, 64, 8, id("skyengine:redstone_block"));
 
         /* Der Hebel speist den Stein an der Kante stark; die Lampe liegt eine weitere Zelle
@@ -98,6 +108,7 @@ final class WorldChunkRedstoneReconciliationTest {
             for (int x = 0; x < width; x++) {
                 Chunk chunk = x < ChunkSection.SIZE ? west : east;
                 chunk.setBlock(x & ChunkSection.MASK, 64, z, wire);
+                chunk.setBlock(x & ChunkSection.MASK, 63, z, id("skyengine:stone"));
             }
             /* Eine Quellenlinie an der Naht speist auch die acht Spalten im Ostchunk. */
             west.setBlock(ChunkSection.MASK, 63, z, redstoneBlock);
@@ -138,6 +149,56 @@ final class WorldChunkRedstoneReconciliationTest {
         assertArrayEquals(stable, captureMatrix(restarted, width));
     }
 
+    @Test
+    void itemFrameAnalogSourceRecoversWhenItsChunkLoadsAfterComparatorChunk() throws Exception {
+        Chunk west = readyChunk(0, 0);
+        Chunk east = readyChunk(1, 0);
+        int comparatorX = ChunkSection.MASK - 1;
+        west.setBlock(comparatorX, 64, 8,
+                id("skyengine:comparator[facing=west,mode=compare,powered=false]"));
+        west.setBlock(comparatorX, 63, 8, id("skyengine:stone"));
+        west.setBlock(ChunkSection.MASK, 64, 8, id("skyengine:stone"));
+        west.setBlockEntity(comparatorX, 64, 8, new ComparatorBlockEntity(
+                BlockEntities.COMPARATOR, new BlockPos(comparatorX, 64, 8)));
+
+        ItemFrameEntity frame = new ItemFrameEntity(ChunkSection.SIZE, 64, 8, Direction.EAST);
+        frame.loadContent(new ItemStack(
+                Items.get(Identifier.of("skyengine:diamond")), 1), 5);
+        east.addEntity(frame);
+
+        byte[] westPayload = serialize(west);
+        byte[] eastPayload = ChunkSerializer.serialize(east, "test", 1, false,
+                List.of(), List.of(), ChunkSerializer.snapshotEntities(east));
+
+        TestWorld restarted = new TestWorld();
+        Chunk restoredWest = deserialize(0, 0, westPayload, restarted);
+        restarted.install(restoredWest);
+        restarted.manager.requeueReadyAnnounce(restoredWest);
+        restarted.processReadyChunks();
+        assertEquals(0, ((ComparatorBlockEntity) restoredWest.getBlockEntity(
+                comparatorX, 64, 8)).getOutputSignal());
+
+        Chunk restoredEast = deserialize(1, 0, eastPayload, restarted);
+        restarted.install(restoredEast);
+        restarted.manager.requeueReadyAnnounce(restoredEast);
+        restarted.processReadyChunks();
+        assertEquals(6, restarted.getItemFrameAnalogSignal(
+                ChunkSection.SIZE, 64, 8, Direction.EAST));
+        assertTrue(restarted.isTickScheduled(comparatorX, 64, 8),
+                "der Zwei-Zellen-Nahtabgleich muss die geladene Frame-Quelle erkennen");
+
+        restarted.advanceGameTime();
+        restarted.tickScheduled();
+        restarted.advanceGameTime();
+        restarted.tickScheduled();
+
+        ComparatorBlockEntity comparator = (ComparatorBlockEntity) restoredWest.getBlockEntity(
+                comparatorX, 64, 8);
+        assertEquals(6, comparator.getOutputSignal());
+        assertTrue(Blocks.getState(restoredWest.getBlock(comparatorX, 64, 8))
+                .get(Properties.POWERED));
+    }
+
     private static byte[] serialize(Chunk chunk) {
         return ChunkSerializer.serialize(chunk, "test", 1, false, List.of(), List.of());
     }
@@ -175,6 +236,8 @@ final class WorldChunkRedstoneReconciliationTest {
         private static final Field UNLOAD_QUEUE_FIELD;
         private static final Method PROCESS_READY;
         private static final Method PROCESS_UNLOADED;
+        private static final Field GAME_TIME_FIELD;
+        private static final Method TICK_SCHEDULED;
 
         static {
             try {
@@ -186,6 +249,10 @@ final class WorldChunkRedstoneReconciliationTest {
                 PROCESS_READY.setAccessible(true);
                 PROCESS_UNLOADED = World.class.getDeclaredMethod("processUnloadedChunkBoundaries");
                 PROCESS_UNLOADED.setAccessible(true);
+                GAME_TIME_FIELD = World.class.getDeclaredField("gameTime");
+                GAME_TIME_FIELD.setAccessible(true);
+                TICK_SCHEDULED = World.class.getDeclaredMethod("tickScheduled");
+                TICK_SCHEDULED.setAccessible(true);
             } catch (ReflectiveOperationException e) {
                 throw new ExceptionInInitializerError(e);
             }
@@ -220,6 +287,14 @@ final class WorldChunkRedstoneReconciliationTest {
 
         void processUnloadedChunkBoundaries() throws ReflectiveOperationException {
             PROCESS_UNLOADED.invoke(this);
+        }
+
+        void advanceGameTime() throws IllegalAccessException {
+            GAME_TIME_FIELD.setLong(this, GAME_TIME_FIELD.getLong(this) + 1);
+        }
+
+        void tickScheduled() throws ReflectiveOperationException {
+            TICK_SCHEDULED.invoke(this);
         }
 
         @Override

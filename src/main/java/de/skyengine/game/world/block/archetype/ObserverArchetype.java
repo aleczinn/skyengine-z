@@ -16,6 +16,7 @@ public final class ObserverArchetype implements Archetype {
         cfg.property(Properties.FACING_ALL)
                 .property(Properties.POWERED)
                 .defaultValue(Properties.FACING_ALL, Direction.NORTH)
+                .redstoneConductor(state -> false)
                 .behavior(new ObserverBehavior());
     }
 }

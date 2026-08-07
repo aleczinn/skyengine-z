@@ -54,12 +54,20 @@ public final class SoundManager implements IDisposable {
     private static final float DIG_GAIN = 1.0F, DIG_PITCH = 0.8F;
     /* UI-Button-Klick (wie MCs Button-Gain) */
     private static final float UI_CLICK_GAIN = 0.25F;
+    /* block.comparator.click: Gain 0,3; Subtract 0,55, Compare 0,5. */
+    private static final float COMPARATOR_CLICK_GAIN = 0.3F;
+    private static final float COMPARATOR_SUBTRACT_PITCH = 0.55F;
+    private static final float COMPARATOR_COMPARE_PITCH = 0.5F;
+    /* block.lever.click: Gain 0,3; eingeschaltet 0,6, ausgeschaltet 0,5. */
+    private static final float LEVER_CLICK_GAIN = 0.3F;
+    private static final float LEVER_ON_PITCH = 0.6F;
+    private static final float LEVER_OFF_PITCH = 0.5F;
     /* Spieler-Sounds (Hurt/Aufprall/Essen) — nicht-positional am Listener, Kanal PLAYER. */
     private static final float HURT_GAIN = 1.0F;
     private static final float FALL_GAIN = 0.5F;
     private static final float EAT_GAIN = 0.75F;
     private static final float BURP_GAIN = 0.25F; // bewusst dezenter als MCs 0.5 (User-Wunsch)
-    private static final float EXPLOSION_GAIN = 1.0F;
+    private static final float EXPLOSION_GAIN = 4.0F;
     /* Aufsammeln: MC-Werte aus Player.take — leise, hoher Pitch mit weiter Streuung. */
     private static final float PICKUP_GAIN = 0.2F;
     private static final float PICKUP_PITCH = 2.0F, PICKUP_PITCH_SPREAD = 0.7F;
@@ -94,7 +102,8 @@ public final class SoundManager implements IDisposable {
     private final Random random = new Random();
 
     /* Lose Effekt-Sounds ohne BlockSoundGroup (null, solange die Dateien fehlen -> No-Op). */
-    private int[] uiClickVariants;   // ui/click.ogg
+    /* random/click.ogg wird von UI-Buttons, Comparator und Hebel geteilt. */
+    private int[] uiClickVariants;
     private int[] hurtVariants;      // damage/hit1..3
     private int[] fallSmallVariants; // damage/fallsmall.ogg
     private int[] fallBigVariants;   // damage/fallbig.ogg
@@ -295,6 +304,26 @@ public final class SoundManager implements IDisposable {
         this.play(this.uiClickVariants, SoundCategory.UI, UI_CLICK_GAIN, 1.0F, false, false, 0, 0, 0);
     }
 
+    /**
+     * Comparator-Moduswechsel wie Vanilla {@code ComparatorBlock#useWithoutItem}: positional,
+     * BLOCKS-Kanal, ohne Zufalls-Jitter. Subtract klingt mit 0,55 etwas hoeher als Compare 0,5.
+     */
+    public void playComparatorClick(boolean subtract, double x, double y, double z) {
+        this.play(this.uiClickVariants, SoundCategory.BLOCKS, COMPARATOR_CLICK_GAIN,
+                subtract ? COMPARATOR_SUBTRACT_PITCH : COMPARATOR_COMPARE_PITCH,
+                false, true, x, y, z);
+    }
+
+    /**
+     * Hebel-Klick wie Vanilla {@code LeverBlock#pull}: positional im BLOCKS-Kanal und ohne
+     * Zufalls-Jitter. Der frisch eingeschaltete Zustand klingt mit 0,6 etwas hoeher als aus.
+     */
+    public void playLeverClick(boolean powered, double x, double y, double z) {
+        this.play(this.uiClickVariants, SoundCategory.BLOCKS, LEVER_CLICK_GAIN,
+                powered ? LEVER_ON_PITCH : LEVER_OFF_PITCH,
+                false, true, x, y, z);
+    }
+
     /** Spieler nimmt Schaden — nicht-positional (eigener Spieler). */
     public void playHurt() {
         this.play(this.hurtVariants, SoundCategory.PLAYER, HURT_GAIN, 1.0F, true, false, 0, 0, 0);
@@ -327,9 +356,14 @@ public final class SoundManager implements IDisposable {
         this.play(this.pickupVariants, SoundCategory.PLAYER, PICKUP_GAIN, pitch, false, false, 0, 0, 0);
     }
 
-    /** Explosions-Sound (TNT) — positional an der Detonationsstelle. Stumm ohne Asset. */
+    /**
+     * Explosions-Sound wie {@code ClientPacketListener#handleExplosion}: Gain 4 und Pitch
+     * {@code (1 + (rand - rand) * 0.2) * 0.7}. Der generische +/-10-%-Jitter waere zu hoch.
+     */
     public void playExplosion(double x, double y, double z) {
-        this.play(this.explosionVariants, SoundCategory.BLOCKS, EXPLOSION_GAIN, 1.0F, true, true, x, y, z);
+        float pitch = (1.0F + (this.random.nextFloat() - this.random.nextFloat()) * 0.2F) * 0.7F;
+        this.play(this.explosionVariants, SoundCategory.BLOCKS, EXPLOSION_GAIN, pitch,
+                false, true, x, y, z);
     }
 
     /** Zünd-/Fuse-Zischen (TNT) — positional beim Zünden, fester Pitch. Stumm ohne Asset. */

@@ -10,6 +10,8 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.ChestType;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.loot.LootContext;
+import de.skyengine.game.world.loot.LootSink;
 
 /**
  * Ausrichtung, Verschmelzen zur Doppeltruhe und Auftrennen — nachgebildet nach MCs
@@ -94,15 +96,17 @@ public final class ChestBehavior implements BlockBehavior {
 
     /** Beim Abbauen fällt der Inhalt heraus (sonst verschwindet er mit der BlockEntity). */
     @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
-        BlockEntity be = world.getBlockEntity(x, y, z);
+    public void appendDrops(LootContext context,
+                            LootSink sink) {
+        World world = context.world();
+        BlockEntity be = world.getBlockEntity(context.x(), context.y(), context.z());
         if (!(be instanceof ChestBlockEntity chest)) return;
         ItemStorage inventory = chest.getInventory();
         for (int slot = 0; slot < inventory.size(); slot++) {
             ItemStack stack = inventory.get(slot);
             if (stack.isEmpty()) continue;
             inventory.set(slot, ItemStack.EMPTY);
-            world.spawnItem(x + 0.5, y + 0.5, z + 0.5, stack);
+            sink.accept(stack, context.x(), context.y(), context.z());
         }
     }
 

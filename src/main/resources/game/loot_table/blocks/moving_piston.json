@@ -1,0 +1,7 @@
+{
+    "type":  "skyengine:block",
+    "pools":  [
+
+              ],
+    "random_sequence":  "skyengine:blocks/moving_piston"
+}

@@ -3,8 +3,11 @@ package de.skyengine.graphics.entity;
 import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.entity.ItemEntity;
+import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.BlockTextures;
+import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
@@ -83,6 +86,9 @@ public final class EntityRenderer {
 
     /** Extrudierte Sprites der Nicht-Block-Items (Apfel, Werkzeug, Eimer, Material-Items). */
     private final Map<Item, Object> sprites = new HashMap<>();
+    /** Rahmenmodell je Anhefterichtung, weil die Engine die Vanilla-Flächenhelligkeit in die
+     * Vertexfarben backt und keine Normalen im Entity-Shader auswertet. */
+    private final Mesh[] itemFrameMeshes = new Mesh[6];
 
     private final Matrix4f model = new Matrix4f();
     /** Wiederverwendet, vor jeder Kopien-Schleife neu geseedet — die Versätze sind deterministisch. */
@@ -95,6 +101,9 @@ public final class EntityRenderer {
 
     public void init(TextureArray textures) {
         this.textures = textures;
+        for (Direction direction : Direction.sharedValues()) {
+            this.itemFrameMeshes[direction.faceIndex()] = new Mesh(buildItemFrameMesh(direction));
+        }
         this.shader = new ShaderProgram(
                 new Shader(VERTEX, ShaderType.VERTEX),
                 new Shader(FRAGMENT, ShaderType.FRAGMENT));
@@ -172,9 +181,162 @@ public final class EntityRenderer {
             this.shader.setUniformMatrix4f(this.locModel, this.model);
             this.drawMesh(mesh, Blocks.TNT);
             this.shader.setUniformf(this.locWhiteFlash, 0f); // zurücksetzen für folgende Entities
+        } else if (e instanceof ItemFrameEntity frame) {
+            this.drawItemFrame(frame, ox, oy, oz);
         } else if (e instanceof ItemEntity item) {
             this.drawItem(item, ox, oy, oz, partialTick);
         }
+    }
+
+    /** Hanging-Modell plus der enthaltene Stack, in 45-Grad-Schritten um die Flaechennormale. */
+    private void drawItemFrame(ItemFrameEntity frame, float ox, float oy, float oz) {
+        GlState.disableCullFace();
+        itemFramePose(this.model, frame.getDirection(), ox, oy, oz);
+        this.model.translate(-0.5f, -0.5f, -0.5f);
+        this.shader.setUniformMatrix4f(this.locModel, this.model);
+        this.itemFrameMeshes[frame.getDirection().faceIndex()].render();
+        GlState.enableCullFace();
+
+        ItemStack stack = frame.getItem();
+        if (stack == null || stack.isEmpty()) return;
+        int stateId = blockStateId(stack);
+        Mesh content = stateId >= 0 ? this.meshFor(stateId) : this.spriteFor(stack.getItem());
+        if (content == null) return;
+
+        itemFramePose(this.model, frame.getDirection(), ox, oy, oz);
+        this.model.translate(0f, 0f, 0.4375f)
+                .rotateZ((float) Math.toRadians(45.0 * frame.getRotation()));
+        if (stateId >= 0) {
+            /* Vanilla: ItemFrameRenderer 0,5 * block/block FIXED 0,5 = effektiv 0,25. */
+            this.model.scale(0.25f);
+        } else {
+            /* item/generated FIXED dreht das Sprite um Y, skaliert aber nicht zusaetzlich. */
+            this.model.rotateY((float) Math.PI).scale(0.5f);
+        }
+        this.model.translate(-0.5f, -0.5f, -0.5f);
+        this.shader.setUniformMatrix4f(this.locModel, this.model);
+        if (stateId >= 0) {
+            this.drawMesh(content, stateId);
+        } else {
+            GlState.disableCullFace();
+            content.render();
+            GlState.enableCullFace();
+        }
+    }
+
+    /** Exakte Pose aus Vanilla 26.2 ItemFrameRenderer.submit. */
+    private static void itemFramePose(Matrix4f matrix, Direction direction,
+                                      float x, float y, float z) {
+        matrix.identity().translate(x, y, z).translate(
+                direction.offsetX() * 0.46875f,
+                direction.offsetY() * 0.46875f,
+                direction.offsetZ() * 0.46875f);
+        switch (direction) {
+            case SOUTH -> matrix.rotateY((float) Math.PI);
+            case NORTH -> { }
+            case EAST -> matrix.rotateY((float) (-Math.PI * 0.5));
+            case WEST -> matrix.rotateY((float) (Math.PI * 0.5));
+            case UP -> matrix.rotateX((float) (-Math.PI * 0.5)).rotateY((float) Math.PI);
+            case DOWN -> matrix.rotateX((float) (Math.PI * 0.5)).rotateY((float) Math.PI);
+        }
+    }
+
+    /** Vanillas template_item_frame inklusive seiner Face-spezifischen Pixel-UVs. */
+    private static float[] buildItemFrameMesh(Direction direction) {
+        float[] data = new float[22 * 6 * FLOATS_PER_VERTEX];
+        int[] cursor = {0};
+        float[] shade = itemFrameFaceBrightness(direction);
+        float back = BlockTextures.layerOf("game/textures/block/item_frame.png");
+        float wood = BlockTextures.layerOf("game/textures/block/birch_planks.png");
+        float p = 1/16f;
+
+        north(data,cursor,shade[2],3*p,3*p,15.5f*p,13*p,13*p,back,3,3,13,13);
+        south(data,cursor,shade[3],3*p,3*p,16*p,13*p,13*p,back,3,3,13,13);
+
+        boxAll(data,cursor,shade,2*p,2*p,15*p,14*p,3*p,16*p,wood,
+                2,0,14,1, 2,15,14,16, 2,13,14,14, 2,13,14,14,
+                15,13,16,14, 0,13,1,14);
+        boxAll(data,cursor,shade,2*p,13*p,15*p,14*p,14*p,16*p,wood,
+                2,0,14,1, 2,15,14,16, 2,2,14,3, 2,2,14,3,
+                15,2,16,3, 0,2,1,3);
+
+        north(data,cursor,shade[2],2*p,3*p,15*p,3*p,13*p,wood,13,3,14,13);
+        south(data,cursor,shade[3],2*p,3*p,16*p,3*p,13*p,wood,2,3,3,13);
+        west(data,cursor,shade[4],2*p,3*p,15*p,13*p,16*p,wood,15,3,16,13);
+        east(data,cursor,shade[5],3*p,3*p,15*p,13*p,16*p,wood,0,3,1,13);
+
+        north(data,cursor,shade[2],13*p,3*p,15*p,14*p,13*p,wood,2,3,3,13);
+        south(data,cursor,shade[3],13*p,3*p,16*p,14*p,13*p,wood,13,3,14,13);
+        west(data,cursor,shade[4],13*p,3*p,15*p,13*p,16*p,wood,15,3,16,13);
+        east(data,cursor,shade[5],14*p,3*p,15*p,13*p,16*p,wood,0,3,1,13);
+        return data;
+    }
+
+    /**
+     * Uebersetzt die lokalen Modellflaechen nach der Item-Frame-Pose in Weltrichtungen. Dadurch
+     * folgen die gebackenen Vertexfarben exakt der Block-Schattierung (oben 1,0, unten 0,5,
+     * Nord/Sued 0,8, West/Ost 0,6), auch bei Boden- und Deckenrahmen.
+     */
+    private static float[] itemFrameFaceBrightness(Direction frameDirection) {
+        Direction localUp;
+        Direction localDown;
+        Direction localWest;
+        Direction localEast;
+        if (frameDirection.axis() == Direction.Axis.Y) {
+            localUp = frameDirection == Direction.UP ? Direction.NORTH : Direction.SOUTH;
+            localDown = localUp.opposite();
+            localWest = Direction.EAST;
+            localEast = Direction.WEST;
+        } else {
+            localUp = Direction.UP;
+            localDown = Direction.DOWN;
+            localWest = frameDirection.rotateYCCW();
+            localEast = frameDirection.rotateYCW();
+        }
+        return new float[] {
+                faceBrightness(localUp), faceBrightness(localDown),
+                faceBrightness(frameDirection), faceBrightness(frameDirection.opposite()),
+                faceBrightness(localWest), faceBrightness(localEast)
+        };
+    }
+
+    private static float faceBrightness(Direction direction) {
+        return BlockModels.FACE_BRIGHTNESS[direction.faceIndex()];
+    }
+
+    private static void boxAll(float[] o,int[] a,float[] s,float x0,float y0,float z0,float x1,float y1,float z1,float l,
+                               float du0,float dv0,float du1,float dv1,float uu0,float uv0,float uu1,float uv1,
+                               float nu0,float nv0,float nu1,float nv1,float su0,float sv0,float su1,float sv1,
+                               float wu0,float wv0,float wu1,float wv1,float eu0,float ev0,float eu1,float ev1) {
+        down(o,a,s[1],x0,y0,z0,x1,z1,l,du0,dv0,du1,dv1); up(o,a,s[0],x0,y1,z0,x1,z1,l,uu0,uv0,uu1,uv1);
+        north(o,a,s[2],x0,y0,z0,x1,y1,l,nu0,nv0,nu1,nv1); south(o,a,s[3],x0,y0,z1,x1,y1,l,su0,sv0,su1,sv1);
+        west(o,a,s[4],x0,y0,z0,y1,z1,l,wu0,wv0,wu1,wv1); east(o,a,s[5],x1,y0,z0,y1,z1,l,eu0,ev0,eu1,ev1);
+    }
+
+    private static void north(float[]o,int[]a,float b,float x0,float y0,float z,float x1,float y1,float l,float u0,float v0,float u1,float v1){quad(o,a,l,b,x1,y0,z,x0,y0,z,x0,y1,z,x1,y1,z,u0,v0,u1,v1);}
+    private static void south(float[]o,int[]a,float b,float x0,float y0,float z,float x1,float y1,float l,float u0,float v0,float u1,float v1){quad(o,a,l,b,x0,y0,z,x1,y0,z,x1,y1,z,x0,y1,z,u0,v0,u1,v1);}
+    private static void up(float[]o,int[]a,float b,float x0,float y,float z0,float x1,float z1,float l,float u0,float v0,float u1,float v1){quad(o,a,l,b,x0,y,z1,x1,y,z1,x1,y,z0,x0,y,z0,u0,v0,u1,v1);}
+    private static void down(float[]o,int[]a,float b,float x0,float y,float z0,float x1,float z1,float l,float u0,float v0,float u1,float v1){quad(o,a,l,b,x0,y,z0,x1,y,z0,x1,y,z1,x0,y,z1,u0,v0,u1,v1);}
+    private static void west(float[]o,int[]a,float b,float x,float y0,float z0,float y1,float z1,float l,float u0,float v0,float u1,float v1){quad(o,a,l,b,x,y0,z0,x,y0,z1,x,y1,z1,x,y1,z0,u0,v0,u1,v1);}
+    private static void east(float[]o,int[]a,float b,float x,float y0,float z0,float y1,float z1,float l,float u0,float v0,float u1,float v1){quad(o,a,l,b,x,y0,z1,x,y0,z0,x,y1,z0,x,y1,z1,u0,v0,u1,v1);}
+
+    private static void quad(float[] out, int[] at, float layer, float brightness,
+                             float ax,float ay,float az,float bx,float by,float bz,
+                             float cx,float cy,float cz,float dx,float dy,float dz,
+                             float u0,float v0,float u1,float v1) {
+        u0/=16;v0/=16;u1/=16;v1/=16;
+        vertex(out,at,ax,ay,az,u0,v1,layer,brightness); vertex(out,at,bx,by,bz,u1,v1,layer,brightness);
+        vertex(out,at,cx,cy,cz,u1,v0,layer,brightness); vertex(out,at,ax,ay,az,u0,v1,layer,brightness);
+        vertex(out,at,cx,cy,cz,u1,v0,layer,brightness); vertex(out,at,dx,dy,dz,u0,v0,layer,brightness);
+    }
+
+    private static void vertex(float[] out, int[] at, float x,float y,float z,
+                               float u,float v,float layer,float brightness) {
+        int i = at[0];
+        out[i++] = x; out[i++] = y; out[i++] = z;
+        out[i++] = u; out[i++] = v; out[i++] = layer;
+        out[i++] = brightness; out[i++] = brightness; out[i++] = brightness;
+        at[0] = i;
     }
 
     /**
@@ -344,6 +506,9 @@ public final class EntityRenderer {
             if (cached != NO_MESH) ((Mesh) cached).dispose();
         }
         this.sprites.clear();
+        for (Mesh itemFrameMesh : this.itemFrameMeshes) {
+            if (itemFrameMesh != null) itemFrameMesh.dispose();
+        }
         if (this.shader != null) this.shader.dispose();
     }
 

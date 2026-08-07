@@ -1,0 +1,7 @@
+{
+  "_comment": "Preset: Werkzeug mit JSON-definiertem Typ und Tier.",
+  "archetype": "tool",
+  "max_stack": 1,
+  "creative_tab": "tools",
+  "texture": "game/textures/item/${id}.png"
+}

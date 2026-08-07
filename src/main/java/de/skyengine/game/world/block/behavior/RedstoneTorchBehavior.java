@@ -6,6 +6,7 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.redstone.RedstonePower;
 
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -20,20 +21,14 @@ import java.util.Map;
  * brennt sie durch: sie zischt und geht aus. Gezählt werden nur die AUS-Flanken; die AN-Flanke
  * fragt das Protokoll nur ab.
  *
- * <p><b>Und dann bleibt sie aus — von selbst kommt sie NIE zurück.</b> Das ist am Bytecode von
- * 26.2 verifiziert und der Punkt, an dem eine naive Umsetzung danebenliegt: Vanilla plant beim
- * Durchbrennen zwar {@code scheduleTick(160)}, aber dieser Eintrag wird von der Tick-Queue
- * verworfen — die Redstone-Kaskade des Ausschaltens läuft synchron im selben Aufruf und hat für
- * dieselbe Position längst einen 2-Tick-Eintrag gesetzt. Der feuert, findet die Historie noch
- * frisch, steigt früh aus und plant NICHTS nach. Danach gibt es keinen Tick mehr.
- *
- * <p>Zurück kommt die Fackel deshalb nur über ein <b>Nachbar-Update</b>, und auch dann erst, wenn
- * seit der letzten Aus-Flanke mehr als {@value #BURNOUT_WINDOW} Ticks vergangen sind (vorher ist
- * das Zählfenster noch offen). Praktisch heißt das: Block über der Fackel entfernen → sie leuchtet.
+ * <p>Beim Durchbrennen plant Vanilla einen Neustart-Tick nach {@value #RESTART_DELAY} Game-Ticks.
+ * Bis dahin bleibt die Fackel aus; beim Tick sind alle Einträge des 60-Tick-Fensters veraltet und
+ * sie schaltet selbstständig wieder ein, sofern ihr Träger nicht gespeist wird.
  *
  * <p>„Ausgebrannt" braucht keine eigene Property: es ist {@code lit=false} plus die transiente
  * Historie. Nach einem Reload ist die Historie leer — das ist der harmlose Fall (die Fackel folgt
- * wieder und brennt eben erneut durch), anders als beim Beobachter braucht es hier kein Seeding.
+ * wieder und brennt eben erneut durch). Observer benötigen ebenfalls keinen transienten Verlauf:
+ * Vanilla reagiert dort direkt auf gerichtete Shape-Updates.
  */
 public final class RedstoneTorchBehavior implements BlockBehavior {
 
@@ -45,26 +40,24 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
     /** MC-Zahlen ({@code MAX_RECENT_TOGGLES} / {@code RECENT_TOGGLE_TIMER}). */
     private static final int BURNOUT_LIMIT = 8;
     private static final int BURNOUT_WINDOW = 60;
+    private static final int RESTART_DELAY = 160;
 
     /** Welt- und Chunk-gebundene Aus-Flanken; transient und bewusst nicht persistiert. */
     private final WorldScopedPositionMap<Toggles> recentByWorld = new WorldScopedPositionMap<>();
     @SuppressWarnings("FieldMayBeFinal") // Referenz wechselt mit der aktiven Welt (Headless-Diagnose).
     private Map<Long, ?> recent = new HashMap<>();
 
-    /** Zähler mit Fensterbeginn. Mutable wie {@code PressurePlateBehavior.Touch}. */
+    /** Einzelne Aus-Flanken im gleitenden Vanilla-Zeitfenster. */
     private static final class Toggles {
-        long windowStart;
-        int count;
+        final ArrayDeque<Long> when = new ArrayDeque<>();
     }
 
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
-        if (shouldBeLit(world, x, y, z, state) != state.get(Properties.LIT)) {
-            /* Vorziehen statt „nur wenn gar nichts ansteht": eine ausgebrannte Fackel hat den
-               Erholungs-Tick in der Queue und wäre sonst bis zu 160 Ticks taub — sie muss aber
-               sofort reagieren, wenn sich ihre Lage ändert (Block darüber weg). MC prüft an
-               dieser Stelle nur, ob ein Tick für GENAU DIESEN Tick ansteht. */
-            world.scheduleTickEarlier(x, y, z, 2);
+        if (shouldBeLit(world, x, y, z, state) != state.get(Properties.LIT)
+                && !world.willTickThisTick(x, y, z)) {
+            /* Vanilla plant regulär; ein bereits wartender Burnout-Neustart wird nicht vorgezogen. */
+            world.scheduleTick(x, y, z, 2);
         }
         return state;
     }
@@ -76,24 +69,22 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
         if (lit == state.get(Properties.LIT)) return;
 
         if (lit) {
-            /* AN-Flanke: das Protokoll nur LESEN. Ist die Fackel ausgebrannt, endet der Tick hier
-               — und mit ihm die Tick-Kette. GENAU DAS ist das dauerhafte Aus: würde hier ein
-               Folge-Tick geplant, käme die Fackel ohne äusseren Anlass zurück und aus dem
-               Durchbrennen würde ein Takt. Zurück holt sie nur ein Nachbar-Update, und auch das
-               erst, wenn das Zählfenster abgelaufen ist. */
+            /* AN-Flanke: das Protokoll nur lesen; der 160-Tick-Neustart kommt später erneut. */
             if (this.isBurntOut(world, x, y, z)) return;
         } else if (this.recordToggle(world, x, y, z)) {
-            /* AUS-Flanke hat das Limit gerissen: nur zischen. Vanillas scheduleTick(160) an
-               dieser Stelle ist wirkungslos — die Queue hat für die Position längst den 2-Tick-
-               Eintrag aus der Schalt-Kaskade und verwirft ihn. Bei uns würde er dagegen feuern
-               und die Fackel fälschlich zurückholen, deshalb steht er hier gar nicht erst. */
+            /* AUS-Flanke hat das Limit gerissen: zischen und selbstständigen Neustart planen. */
             if (world.getSoundManager() != null) {
                 world.getSoundManager().playFizz(x + 0.5, y + 0.5, z + 0.5);
             }
+            world.scheduleTick(x, y, z, RESTART_DELAY);
         }
 
-        world.setBlock(x, y, z, state.with(Properties.LIT, lit).getId(), false);
-        world.updateNeighborsWide(x, y, z);
+        /* Vanilla schreibt die Flanke mit Flag 3: Der direkte General-/Shape-Ring gehoert
+           zusaetzlich zu notifyNeighbors' verschachtelten sechs Nachbarringen. Ohne diesen
+           ersten Ring sieht unmittelbar angrenzender Staub die AUS-Flanke nicht und behaelt
+           seinen gespeicherten POWER-State, bis ihn eine Spieleraktion erneut berechnet. */
+        world.setBlock(x, y, z, state.with(Properties.LIT, lit).getId(), true);
+        world.updateGeneralNeighborsAroundAdjacentCells(x, y, z);
     }
 
     /**
@@ -107,12 +98,9 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
         long now = world.getGameTime();
         this.recent = this.recentByWorld.diagnosticEntries(world);
         Toggles toggles = this.recentByWorld.computeIfAbsent(world, x, y, z, Toggles::new);
-        long verstrichen = now - toggles.windowStart;
-        if (verstrichen < 0 || verstrichen > BURNOUT_WINDOW) {
-            toggles.windowStart = now;
-            toggles.count = 0;
-        }
-        return ++toggles.count >= BURNOUT_LIMIT;
+        prune(toggles, now);
+        toggles.when.addLast(now);
+        return toggles.when.size() >= BURNOUT_LIMIT;
     }
 
     /**
@@ -127,30 +115,36 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
         this.recent = this.recentByWorld.diagnosticEntries(world);
         Toggles toggles = this.recentByWorld.get(world, x, y, z);
         if (toggles == null) return false;
-        long verstrichen = world.getGameTime() - toggles.windowStart;
-        if (verstrichen < 0 || verstrichen > BURNOUT_WINDOW) {
+        prune(toggles, world.getGameTime());
+        if (toggles.when.isEmpty()) {
             this.recentByWorld.remove(world, x, y, z);   // Fenster durch: der Zähler ist wertlos
             return false;
         }
-        return toggles.count >= BURNOUT_LIMIT;
+        return toggles.when.size() >= BURNOUT_LIMIT;
     }
 
-    /* Die Fackel ist neben dem Staub die zweite Quelle, der MC den vollen Radius-2-Diamanten
-       gibt (RedstoneTorchBlock.notifyNeighbors — bei Platzieren, Abbauen und jeder Flanke).
-       Er deckt das starke Ziel oben ab UND einen Kolben, der über Quasi-Konnektivität an einer
-       Nachbarzelle der Fackel hängt (der ist selbst kein Nachbar der Fackel). */
+    private static void prune(Toggles toggles, long now) {
+        while (!toggles.when.isEmpty()) {
+            long age = now - toggles.when.peekFirst();
+            if (age >= 0 && age <= BURNOUT_WINDOW) return;
+            toggles.when.removeFirst();
+        }
+    }
+
+    /* Vanilla startet um jede der sechs Nachbarzellen einen eigenen allgemeinen Update-Ring.
+       Das erreicht Radius 2, bewahrt aber die beobachtbaren Duplikate und Reihenfolgen. */
 
     @Override
     public void onPlaced(World world, int x, int y, int z, BlockState state) {
-        world.updateNeighborsWide(x, y, z);
+        world.updateGeneralNeighborsAroundAdjacentCells(x, y, z);
     }
 
     @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
+    public void onRemoved(World world, int x, int y, int z,
+                          BlockState oldState, BlockState newState) {
         this.recent = this.recentByWorld.diagnosticEntries(world);
-        this.recentByWorld.remove(world, x, y, z);   // sonst wächst die Map über die Sitzung
-        /* onBreak läuft VOR dem Entfernen — aufschieben, sonst läse der Ring die Fackel noch. */
-        world.deferBlockUpdatesWide(x, y, z);
+        this.recentByWorld.remove(world, x, y, z);
+        world.updateGeneralNeighborsAroundAdjacentCells(x, y, z);
     }
 
     /** An, solange der Trägerblock KEIN Signal in die Fackel speist (Inverter). */
@@ -173,6 +167,11 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
 
     @Override
     public boolean connectsRedstoneWire(BlockState state, Direction side) {
+        return true;
+    }
+
+    @Override
+    public boolean isRedstoneSignalSource() {
         return true;
     }
 }

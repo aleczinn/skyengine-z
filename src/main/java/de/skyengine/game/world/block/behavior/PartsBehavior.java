@@ -8,6 +8,7 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.BlockStateCodec;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.Property;
+import de.skyengine.game.world.loot.LootContext;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -140,6 +141,16 @@ public final class PartsBehavior implements BlockBehavior {
             }
         }
         return state;
+    }
+
+    @Override
+    public long canonicalLootPosition(LootContext context) {
+        String self = partOf(context.state());
+        int[] own = self == null ? null : this.offsets.get(self);
+        if (own == null) return de.skyengine.game.world.block.BlockPos.asLong(context.x(), context.y(), context.z());
+        int[] rotated = rotate(own, facingOf(context.state()));
+        return de.skyengine.game.world.block.BlockPos.asLong(
+                context.x() - rotated[0], context.y() - rotated[1], context.z() - rotated[2]);
     }
 
     /**

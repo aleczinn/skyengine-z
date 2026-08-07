@@ -152,6 +152,7 @@ public abstract class GuiContainer extends GuiScreen {
         /* Nicht untergebrachten Rest zurücklegen — split hat ihn schon abgezogen. */
         if (!moving.isEmpty()) stack.setCount(stack.getCount() + moving.getCount());
         if (stack.isEmpty()) from.set(ItemStack.EMPTY);
+        else from.setChanged();
         return wanted - moving.getCount();
     }
 
@@ -169,6 +170,7 @@ public abstract class GuiContainer extends GuiScreen {
             int space = existing.getMaxStackSize() - existing.getCount();
             if (space <= 0) continue;
             existing.setCount(existing.getCount() + stack.split(space).getCount());
+            target.setChanged();
         }
         for (Slot target : targets) {
             if (stack.isEmpty()) return;
@@ -305,6 +307,7 @@ public abstract class GuiContainer extends GuiScreen {
             slot.set(this.carried.split(1));
         } else {
             existing.setCount(existing.getCount() + this.carried.split(1).getCount());
+            slot.setChanged();
         }
         if (this.carried.isEmpty()) this.carried = ItemStack.EMPTY;
     }
@@ -325,6 +328,7 @@ public abstract class GuiContainer extends GuiScreen {
         if (!stack.canStackWith(this.carried)) return;
         this.carried.setCount(this.carried.getCount() + stack.split(space).getCount());
         if (stack.isEmpty()) slot.set(ItemStack.EMPTY);
+        else slot.setChanged();
     }
 
     /**
@@ -356,6 +360,7 @@ public abstract class GuiContainer extends GuiScreen {
                 slot.set(this.carried.split(give));
             } else {
                 existing.setCount(existing.getCount() + this.carried.split(give).getCount());
+                slot.setChanged();
             }
         }
         if (this.carried.isEmpty()) this.carried = ItemStack.EMPTY;
@@ -387,6 +392,8 @@ public abstract class GuiContainer extends GuiScreen {
             if (!stack.canStackWith(target)) continue;
             target.setCount(target.getCount() + stack.split(1).getCount());
             if (stack.isEmpty()) source.set(ItemStack.EMPTY);
+            else source.setChanged();
+            slot.setChanged();
             return;
         }
     }
@@ -419,6 +426,7 @@ public abstract class GuiContainer extends GuiScreen {
         Slot slot = this.slotAt(gui.mouseX(), gui.mouseY());
         if (slot != null && !slot.get().isEmpty()) {
             throwOut(slot.storage.extract(slot.index, fullStack ? slot.get().getCount() : 1));
+            slot.setChanged();
         }
         return true;
     }
@@ -469,6 +477,7 @@ public abstract class GuiContainer extends GuiScreen {
             if ((stack.getCount() >= stack.getMaxStackSize()) != fromFullStacks) continue;
             this.carried.setCount(this.carried.getCount() + stack.split(space).getCount());
             if (stack.isEmpty()) s.set(ItemStack.EMPTY);
+            else s.setChanged();
         }
     }
 
@@ -517,6 +526,7 @@ public abstract class GuiContainer extends GuiScreen {
             int space = slotStack.getMaxStackSize() - slotStack.getCount();
             int move = Math.min(space, this.carried.getCount());
             slotStack.setCount(slotStack.getCount() + move);
+            slot.setChanged();
             this.carried.setCount(this.carried.getCount() - move);
             if (this.carried.getCount() <= 0) this.carried = ItemStack.EMPTY;
         } else {
@@ -532,6 +542,7 @@ public abstract class GuiContainer extends GuiScreen {
             if (slotStack.isEmpty()) return;
             this.carried = slotStack.split((slotStack.getCount() + 1) / 2);
             if (slotStack.isEmpty()) slot.set(ItemStack.EMPTY);
+            else slot.setChanged();
             return;
         }
         if (slotStack.isEmpty()) {
@@ -539,6 +550,7 @@ public abstract class GuiContainer extends GuiScreen {
         } else if (slotStack.canStackWith(this.carried)
                 && slotStack.getCount() < slotStack.getMaxStackSize()) {
             slotStack.setCount(slotStack.getCount() + this.carried.split(1).getCount());
+            slot.setChanged();
         } else {
             /* Fremder Stapel: wie beim Linksklick tauschen. */
             slot.set(this.carried);

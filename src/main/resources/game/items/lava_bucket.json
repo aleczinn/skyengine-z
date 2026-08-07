@@ -1,0 +1,8 @@
+{
+  "id": "skyengine:lava_bucket",
+  "archetype": "bucket",
+  "max_stack": 1,
+  "texture": "game/textures/item/lava_bucket.png",
+  "creative_tab": "tools",
+  "bucket": { "fluid": "skyengine:lava" }
+}

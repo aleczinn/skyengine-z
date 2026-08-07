@@ -1,0 +1,7 @@
+{
+  "id": "skyengine:apple",
+  "archetype": "food",
+  "texture": "game/textures/item/apple.png",
+  "creative_tab": "food",
+  "food": { "nutrition": 4, "saturation": 2.4 }
+}

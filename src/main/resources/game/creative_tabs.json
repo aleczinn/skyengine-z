@@ -51,11 +51,11 @@
         "coal_ore", "iron_ore", "copper_ore", "gold_ore",
         "redstone_ore", "emerald_ore", "lapis_ore", "diamond_ore",
 
-        "ice", "packed_ice", "blue_ice", "snow",
+        "ice", "packed_ice", "blue_ice", "snow", "snow_block", "snowball",
 
-        "{wood}_leaves",
+        "{wood}_leaves", "{wood}_sapling",
 
-        "short_grass", "fern", "tall_grass", "dead_bush",
+        "short_grass", "fern", "tall_grass", "dead_bush", "wheat_seeds",
         "dandelion", "poppy", "azure_bluet", "red_tulip", "orange_tulip",
         "white_tulip", "pink_tulip", "cornflower", "lilac",
 
@@ -68,7 +68,7 @@
       "id": "functional",
       "icon": "skyengine:torch",
       "items": [
-        "crafting_table", "chest", "enchanting_table",
+        "crafting_table", "chest", "enchanting_table", "item_frame",
         "{wood}_door", "iron_door",
         "{wood}_trapdoor", "iron_trapdoor",
         "torch", "tnt", "slime_block", "honey_block"
@@ -78,7 +78,7 @@
       "id": "redstone_blocks",
       "icon": "skyengine:redstone",
       "items": [
-        "redstone", "redstone_torch", "redstone_block",
+        "redstone", "redstone_torch", "redstone_block", "tnt",
         "repeater", "comparator",
         "piston", "sticky_piston", "observer",
         "hopper", "golden_hopper", "diamond_hopper", "netherite_hopper",
@@ -99,19 +99,20 @@
             "{tier}_pickaxe", "{tier}_axe", "{tier}_shovel", "{tier}_sword"
         ]},
         "bucket", "water_bucket", "lava_bucket",
-        "flint_and_steel"
+        "flint_and_steel", "shears"
       ]
     },
     {
       "id": "food",
       "icon": "skyengine:apple",
-      "items": ["apple", "bread"]
+      "items": ["apple", "bread", "melon_slice"]
     },
     {
       "id": "ingredients",
       "icon": "skyengine:iron_ingot",
       "items": [
         "stick", "coal", "charcoal",
+        "raw_iron", "raw_copper", "raw_gold",
         "iron_ingot", "copper_ingot", "gold_ingot",
         "diamond", "emerald", "lapis_lazuli", "redstone",
         "flint", "clay_ball", "brick", "paper", "leather"

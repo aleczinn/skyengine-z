@@ -7,10 +7,9 @@ import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.item.CreativeTabs;
-import de.skyengine.game.world.item.FoodItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.Items;
-import de.skyengine.game.world.item.SimpleItem;
+import de.skyengine.game.world.item.archetype.ItemArchetypes;
 import de.skyengine.utils.json.JsonMerge;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -88,16 +87,16 @@ public final class ItemLoader {
             }
         }
 
-        int maxStack = def.max_stack != null ? def.max_stack : Item.DEFAULT_MAX_STACK;
-        Item item = def.food != null
-                ? new FoodItem(id, def.food.nutrition, def.food.saturation, def.texture)
-                : new SimpleItem(id, maxStack, def.texture, placedBlock);
+        Item item = ItemArchetypes.create(id, def);
         Registries.ITEM.register(id, item);
         if (placedBlock != null) Items.registerPlacer(placedBlock.getIdentifier(), item);
         CreativeTabs.assign(id, CreativeTabs.parse(def.creative_tab));
 
         /* SOFORT anmelden — siehe Klassenkommentar. */
         BlockTextures.layerOf(def.texture);
+        if (def.additional_textures != null) {
+            for (String texture : def.additional_textures) BlockTextures.layerOf(texture);
+        }
         return true;
     }
 

@@ -10,7 +10,6 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
@@ -55,7 +54,8 @@ public final class PistonResolver {
 
     /**
      * Auflösung eines klebrigen Einzugs: Bewegung Richtung Piston (−facing), Start 2 vor der
-     * Basis; die Kopf-Zelle zählt als frei (sie wird gleichzeitig zur Source-BE).
+     * Basis; die Kopf-Zelle zählt als frei, weil dort gleichzeitig der Kopf verschwindet bzw.
+     * die erste Fracht-Moving-BE entsteht.
      * Blockiert/leer heißt hier nur „nichts ziehen" — das Einfahren selbst läuft immer.
      */
     public static Result resolveRetract(World world, int bx, int by, int bz, Direction facing) {
@@ -74,8 +74,8 @@ public final class PistonResolver {
         /** Ausfahren? Nur dann dürfen Linien-Enden zerbrechen (destroy). */
         final boolean allowDestroy;
 
-        final LinkedHashSet<Long> toPush = new LinkedHashSet<>();
-        final LinkedHashSet<Long> toDestroy = new LinkedHashSet<>();
+        final List<Long> toPush = new ArrayList<>();
+        final List<Long> toDestroy = new ArrayList<>();
         boolean blockedByMoving;
 
         Structure(World world, Direction moveDir, long basePos, long ignoredPos, boolean allowDestroy) {
@@ -110,33 +110,29 @@ public final class PistonResolver {
             }
             if (!this.addBlockLine(start)) return Result.blocked(this.blockedByMoving);
 
-            /* Branching: für jeden klebrigen Struktur-Block die 4 Querrichtungen. Die Liste
-               wächst während der Iteration (Index-Schleife über den Spiegel). */
-            List<Long> ordered = new ArrayList<>(this.toPush);
-            for (int i = 0; i < ordered.size(); i++) {
-                long pos = ordered.get(i);
+            /* Vanilla iteriert die mutierbare toPush-Liste direkt. Collision-Reorders
+               verzweigen ihren umgeordneten Prefix bereits rekursiv in addBlockLine. */
+            for (int i = 0; i < this.toPush.size(); i++) {
+                long pos = this.toPush.get(i);
                 BlockState state = this.stateAt(pos);
-                String group = state.getBlock().getStickyGroup();
-                if (group == null) continue;
-                for (Direction d : Direction.values()) {
-                    if (d.axis() == this.moveDir.axis()) continue;
-                    long neighbor = offset(pos, d, 1);
-                    if (this.toPush.contains(neighbor)) continue;
-                    Kind kind = this.classify(neighbor);
-                    /* Nicht anhängbare Quernachbarn (Blocker, destroy, Lücke) bleiben einfach
-                       stehen — nur bewegte Blöcke im Quer-Anhang lassen uns pollen-los
-                       blockieren, weil die Struktur sonst in eine laufende Animation liefe. */
-                    if (kind == Kind.MOVING) return Result.blocked(true);
-                    if (kind != Kind.MOVABLE) continue;
-                    if (!sticksTo(group, this.stateAt(neighbor))) continue;
-                    if (!this.addBlockLine(neighbor)) return Result.blocked(this.blockedByMoving);
-                    /* Spiegel auffrischen — LinkedHashSet hängt Neuzugänge hinten an, der
-                       Schleifenindex bleibt gültig. */
-                    ordered.clear();
-                    ordered.addAll(this.toPush);
+                if (state.getBlock().getStickyGroup() != null && !this.addBranchingBlocks(pos)) {
+                    return Result.blocked(this.blockedByMoving);
                 }
             }
             return this.finish();
+        }
+
+        /** Vanillas addBranchingBlocks, einschließlich Direction.values-Reihenfolge. */
+        boolean addBranchingBlocks(long pos) {
+            String group = this.stateAt(pos).getBlock().getStickyGroup();
+            if (group == null) return true;
+            for (Direction direction : Direction.vanillaValues()) {
+                if (direction.axis() == this.moveDir.axis()) continue;
+                long neighbor = offset(pos, direction, 1);
+                if (!sticksTo(group, this.stateAt(neighbor))) continue;
+                if (!this.addBlockLine(neighbor)) return false;
+            }
+            return true;
         }
 
         /**
@@ -179,9 +175,22 @@ public final class PistonResolver {
             }
 
             /* Vorwärts bis zum Linien-Ende. */
+            int addedCount = count;
             for (int j = 1; ; j++) {
                 long next = offset(pos, this.moveDir, j);
-                if (this.toPush.contains(next)) return true;   // Struktur trifft sich selbst
+                int collisionIndex = this.toPush.indexOf(next);
+                if (collisionIndex >= 0) {
+                    int branchingEnd = reorderListAtCollision(
+                            this.toPush, addedCount, collisionIndex);
+                    /* Historische Vanilla-Eigenheit: Den umgeordneten Prefix sofort erneut
+                       verzweigen, bevor resolve seine äußere Schleife fortsetzt. */
+                    for (int i = 0; i <= branchingEnd; i++) {
+                        long reordered = this.toPush.get(i);
+                        if (this.stateAt(reordered).getBlock().getStickyGroup() != null
+                                && !this.addBranchingBlocks(reordered)) return false;
+                    }
+                    return true;
+                }
                 Kind nextKind = this.classify(next);
                 switch (nextKind) {
                     case GAP -> {
@@ -201,6 +210,7 @@ public final class PistonResolver {
                     }
                     case MOVABLE -> {
                         this.toPush.add(next);
+                        addedCount++;
                         if (this.toPush.size() > MAX_PUSH) return false;
                     }
                 }
@@ -244,6 +254,18 @@ public final class PistonResolver {
             return Blocks.getState(this.world.getBlock(
                     BlockPos.unpackX(pos), BlockPos.unpackY(pos), BlockPos.unpackZ(pos)));
         }
+    }
+
+    /** Vanillas {@code reorderListAtCollision}: neue Linie vor den kollidierten Rest ziehen. */
+    static int reorderListAtCollision(List<Long> positions, int addedCount, int collisionIndex) {
+        int newLineStart = positions.size() - addedCount;
+        List<Long> reordered = new ArrayList<>(positions.size());
+        reordered.addAll(positions.subList(0, collisionIndex));
+        reordered.addAll(positions.subList(newLineStart, positions.size()));
+        reordered.addAll(positions.subList(collisionIndex, newLineStart));
+        positions.clear();
+        positions.addAll(reordered);
+        return collisionIndex + addedCount;
     }
 
     /** MC-Kleberegel: klebrig zieht jeden beweglichen Nachbarn — außer eine FREMDE Klebe-Gruppe. */

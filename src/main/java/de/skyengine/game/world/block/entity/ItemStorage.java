@@ -20,4 +20,7 @@ public interface ItemStorage {
 
     /** Entnimmt bis zu {@code amount} aus einem Slot; liefert den entnommenen Stapel. */
     ItemStack extract(int slot, int amount);
+
+    /** Meldet eine direkte Inhaltsänderung, etwa nach Mutation eines von {@link #get(int)} gelieferten Stacks. */
+    default void setChanged() {}
 }

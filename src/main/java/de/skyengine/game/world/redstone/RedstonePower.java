@@ -11,7 +11,7 @@ import de.skyengine.game.world.block.Blocks;
  *
  * <ul>
  *   <li><b>Schwach</b> ({@code weakPower}): wirkt nur auf direkte Nachbarn.</li>
- *   <li><b>Stark</b> ({@code strongPower}): macht einen OPAKEN Nachbarblock selbst zur
+ *   <li><b>Stark</b> ({@code strongPower}): macht einen LEITENDEN Nachbarblock selbst zur
  *       Quelle — der leitet das Signal als schwaches weiter (Hebel am Block schaltet
  *       die Tür dahinter, Staub aktiviert "durch" den Block, in den er einspeist).</li>
  *   <li>{@code ignoreWire}: überspringt Redstone-Staub als Quelle. Der Staub selbst fragt
@@ -27,7 +27,7 @@ public final class RedstonePower {
 
     /**
      * Signal, das der Block an (x,y,z) in Richtung {@code toward} abgibt: sein eigenes
-     * schwaches Signal, bei opaken Würfeln zusätzlich das stark empfangene (Leitung).
+     * schwaches Signal, bei Redstone-Leitern zusätzlich das stark empfangene.
      */
     public static int emittedSignal(World world, int x, int y, int z, Direction toward, boolean ignoreWire) {
         BlockState state = Blocks.getState(world.getBlock(x, y, z));
@@ -36,7 +36,7 @@ public final class RedstonePower {
 
         int power = state.getBlock().getWeakPower(world, x, y, z, state, toward);
         if (power >= 15) return 15;
-        if (state.isOpaqueCube()) {
+        if (state.isRedstoneConductor()) {
             power = Math.max(power, strongPowerInto(world, x, y, z, ignoreWire));
         }
         return Math.min(15, power);
@@ -96,12 +96,7 @@ public final class RedstonePower {
      * (DELAY), Komparator (MODE) und der Redstone-Block (konstante Quelle).
      */
     public static boolean isSideInputSource(BlockState state) {
-        if (isWire(state)) return true;
-        if (state.getValues().containsKey(Properties.DELAY)) return true;
-        if (state.getValues().containsKey(Properties.MODE)) return true;
-        /* Redstone-Block: konstante Quelle ohne Properties, verbindet sich mit Staub. */
-        return state.getValues().isEmpty()
-                && state.getBlock().connectsRedstoneWire(state, de.skyengine.game.world.block.Direction.NORTH);
+        return state.getBlock().isRedstoneSignalSource();
     }
 
     private RedstonePower() {}

@@ -66,6 +66,18 @@ public final class BlockStateCodec {
                 }
             }
         }
+        /* Save-Migration: bis zum Comparator-BE-Umbau lag die Stärke als power=0..15 im
+           Blockstate. Die Stärke übernimmt ChunkSerializer in OutputSignal; hier bleibt die
+           dazugehörige Vanilla-Optik als powered erhalten. */
+        if (name.equals("power")
+                && state.getBlock().getIdentifier().toString().equals("skyengine:comparator")
+                && state.getValues().containsKey(Properties.POWERED)) {
+            try {
+                return state.with(Properties.POWERED, Integer.parseInt(value) > 0);
+            } catch (NumberFormatException ignored) {
+                return state;
+            }
+        }
         return state;
     }
 

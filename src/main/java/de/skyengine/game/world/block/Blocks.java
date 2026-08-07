@@ -11,6 +11,7 @@ import de.skyengine.game.world.block.json.BlockLoader;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.model.ModelLoader;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.loot.LootTables;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -121,6 +122,7 @@ public final class Blocks {
 
         BlockRegistry.bake();
         de.skyengine.game.world.item.Items.bootstrap();
+        LootTables.bootstrap();
 
         /* Abbau-Riss-Texturen in den Block-Atlas aufnehmen (vor dem TextureArray-Bau in
            ChunkRenderer.init) — der CrackRenderer holt sich die Layer-Indizes später idempotent. */

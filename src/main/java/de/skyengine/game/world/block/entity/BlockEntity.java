@@ -56,6 +56,14 @@ public abstract class BlockEntity {
         if (this.world != null) this.world.markChunkModified(this.pos.x(), this.pos.z());
     }
 
+    /** Markiert persistente Inventar-/Maschinendaten als geändert. */
+    public final void setChanged() {
+        this.markDirty();
+        if (this.world != null) {
+            this.world.updateComparatorOutputs(this.pos.x(), this.pos.y(), this.pos.z());
+        }
+    }
+
     /** Liefert eine Fähigkeit für eine Seite (oder null), falls vorhanden. Default: leer. */
     public <C> Optional<C> getCapability(Capability<C> capability, Direction side) {
         return Optional.empty();

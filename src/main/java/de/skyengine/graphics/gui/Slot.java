@@ -30,6 +30,12 @@ public final class Slot {
 
     public void set(ItemStack stack) {
         this.storage.set(this.index, stack);
+        this.storage.setChanged();
+    }
+
+    /** Meldet eine in-place vorgenommene Änderung am von {@link #get()} gelieferten Stack. */
+    public void setChanged() {
+        this.storage.setChanged();
     }
 
     /**
