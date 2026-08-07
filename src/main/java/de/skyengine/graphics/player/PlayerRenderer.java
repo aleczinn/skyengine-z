@@ -19,12 +19,10 @@ import de.skyengine.utils.logging.Logger;
 import org.joml.Matrix4f;
 import org.joml.Vector3d;
 import org.lwjgl.opengl.GL11;
-import org.lwjgl.stb.STBImage;
-import org.lwjgl.system.MemoryStack;
+import org.lwjgl.system.MemoryUtil;
 
 import java.io.File;
 import java.nio.ByteBuffer;
-import java.nio.IntBuffer;
 
 /**
  * Zeichnet das Spielermodell mit Classic-Skin (64×64): Inventar-Vorschau (Ortho im GUI-Pass,
@@ -61,50 +59,38 @@ public final class PlayerRenderer implements IDisposable {
         this.model.init(this.slim);
     }
 
-    /** Eigener Skin aus dem Spielordner, sonst Default-Steve; nur 64×64 wird akzeptiert. */
+    /** Eigener Skin aus dem Spielordner, sonst Default-Steve; akzeptiert 64×64 und Legacy 64×32. */
     private Texture loadSkin() {
         File custom = GameDirectory.resolve("skin.png");
         if (custom.isFile()) {
             try {
-                Texture texture = new Texture(new FileHandle(custom), false);
-                if (texture.getWidth() == 64 && texture.getHeight() == 64) {
-                    this.slim = detectSlim(custom.getPath());
-                    this.logger.info("Eigener Skin geladen (" + (this.slim ? "slim" : "classic")
-                            + "): " + custom.getAbsolutePath());
-                    return texture;
-                }
-                this.logger.warning("skin.png ist " + texture.getWidth() + "×" + texture.getHeight()
-                        + " — nur 64×64 wird unterstützt, nutze Default-Skin.");
-                texture.dispose();
+                SkinTextureData data = SkinTextureData.load(new FileHandle(custom));
+                this.slim = data.isSlim();
+                this.logger.info("Eigener Skin geladen (" + skinFormat(data) + "): " + custom.getAbsolutePath());
+                return uploadSkin(data);
             } catch (RuntimeException e) {
                 this.logger.warning("skin.png konnte nicht geladen werden (" + e.getMessage()
                         + ") — nutze Default-Skin.");
             }
         }
-        this.slim = false; // Steve ist classic
-        return new Texture(new FileHandle("game/textures/entity/player/steve.png", FileType.RESOURCE), false);
+        SkinTextureData fallback = SkinTextureData.load(
+                new FileHandle("game/textures/entity/player/steve.png", FileType.RESOURCE));
+        this.slim = fallback.isSlim();
+        return uploadSkin(fallback);
     }
 
-    /**
-     * Slim-Heuristik (das Format steht nicht im PNG, MC hält es in Profil-Metadaten):
-     * Die Classic-Arm-Textur belegt Spalten 40..55, slim nur 40..53 — sind die Prüfpunkte
-     * in den Spalten 54/55 alle transparent, ist der Skin slim.
-     */
-    private boolean detectSlim(String path) {
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            IntBuffer w = stack.mallocInt(1), h = stack.mallocInt(1), c = stack.mallocInt(1);
-            ByteBuffer pixels = STBImage.stbi_load(path, w, h, c, 4);
-            if (pixels == null) return false;
-            boolean slim = alpha(pixels, w.get(0), 54, 20) == 0
-                    && alpha(pixels, w.get(0), 55, 20) == 0
-                    && alpha(pixels, w.get(0), 55, 31) == 0;
-            STBImage.stbi_image_free(pixels);
-            return slim;
+    private static String skinFormat(SkinTextureData data) {
+        return data.isLegacy() ? "legacy 64x32, classic" : (data.isSlim() ? "64x64, slim" : "64x64, classic");
+    }
+
+    private static Texture uploadSkin(SkinTextureData data) {
+        ByteBuffer pixels = MemoryUtil.memAlloc(data.rgba().length);
+        try {
+            pixels.put(data.rgba()).flip();
+            return new Texture(SkinTextureData.WIDTH, SkinTextureData.HEIGHT, pixels, false);
+        } finally {
+            MemoryUtil.memFree(pixels);
         }
-    }
-
-    private static int alpha(ByteBuffer pixels, int width, int x, int y) {
-        return pixels.get((y * width + x) * 4 + 3) & 0xFF;
     }
 
     /**

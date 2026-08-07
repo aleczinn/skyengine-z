@@ -318,8 +318,9 @@ ausdrücken).
   der Hover-Kasten bleibt 16×16. Icon-Größe im Slot: `ItemIconRenderer.ICON_SCALE = 0.625`
   = MCs `gui`-Display-Scale — der Iso-Würfel ist projiziert `1.5731 ×` seiner Kante hoch,
   mehr als 0.635 ragt oben/unten aus dem Slot
-- Spieler-Rendering (graphics/player): Humanoid-Modell mit Classic-Skin 64×64 (skin.png im
-  Spielordner überschreibt Steve), Inventar-Vorschau (folgt Maus), F5-Perspektiven
+- Spieler-Rendering (graphics/player): Humanoid-Modell mit Classic-/Slim-Skin 64×64; Legacy
+  64×32 wird nach Vanillas UV-Spiegelung intern auf 64×64 konvertiert (skin.png im Spielordner
+  überschreibt Steve), Inventar-Vorschau (folgt Maus), F5-Perspektiven
   (Ego/hinten/vorne mit Kamera-Kollisions-Raycast; Interaktion zielt IMMER vom Auge;
   LOD-Gras-Overlay-Debug liegt im GuiDebugScreen), prozedurale Animationen (Limb-Swing/Sneak/Arm-Schwung,
   `PlayerAnimationState`), First-Person-Hand mit extrudierten Item-Sprites +
