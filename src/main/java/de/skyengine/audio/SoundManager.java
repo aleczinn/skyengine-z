@@ -131,6 +131,7 @@ public final class SoundManager implements IDisposable {
     private int[] pistonInVariants;  // piston/in.ogg (Einfahren)
     private int[] minecartVariants;   // minecart/base.ogg (fahrendes Minecart)
     private int[] minecartInsideVariants; // minecart/inside.ogg (nur lokaler Insasse)
+    private int[] strongAttackVariants; // entity/player/attack/strong1..6 (Entity-Treffer)
 
     /** Loop-Quellen werden über Entity-Identität geführt und nach jedem Sichtungsdurchlauf bereinigt. */
     private final IdentityHashMap<MinecartEntity, MinecartLoop> minecartLoops = new IdentityHashMap<>();
@@ -215,12 +216,14 @@ public final class SoundManager implements IDisposable {
         this.pistonInVariants = this.loadVariants("piston", "in");
         this.minecartVariants = this.loadVariants("minecart", "base");
         this.minecartInsideVariants = this.loadVariants("minecart", "inside");
+        this.strongAttackVariants = this.loadVariants("player_attack", "strong");
         loaded += count(this.uiClickVariants) + count(this.hurtVariants) + count(this.fallSmallVariants)
                 + count(this.fallBigVariants) + count(this.eatVariants) + count(this.burpVariants)
                 + count(this.explosionVariants) + count(this.fuseVariants) + count(this.fizzVariants)
                 + count(this.igniteVariants) + count(this.pickupVariants)
                 + count(this.pistonOutVariants) + count(this.pistonInVariants)
-                + count(this.minecartVariants) + count(this.minecartInsideVariants);
+                + count(this.minecartVariants) + count(this.minecartInsideVariants)
+                + count(this.strongAttackVariants);
 
         /* Auf-/Zu-Sounds je Satz aus seinem eigenen Ordner; fehlt einer, bleibt nur er stumm. */
         for (BlockOpenSound sound : BlockOpenSound.values()) {
@@ -479,6 +482,12 @@ public final class SoundManager implements IDisposable {
         if (state == AL10.AL_STOPPED || state == AL10.AL_INITIAL) AL10.alSourcePlay(loop.source);
 
         if (localPlayerRiding) this.updateMinecartInsideSound(minecart, horizontalSpeed);
+    }
+
+    /** Voll aufgeladener erfolgreicher Spielerangriff; Minecarts besitzen keinen eigenen Bruchton. */
+    public void playStrongAttack() {
+        this.play(this.strongAttackVariants, SoundCategory.PLAYER, 0.7F, 1.0F,
+                false, false, 0, 0, 0);
     }
 
     /** Vanillas separater {@code entity.minecart.inside}-Loop direkt am Listener. */
@@ -804,7 +813,8 @@ public final class SoundManager implements IDisposable {
         for (int[] loose : new int[][]{this.uiClickVariants, this.hurtVariants, this.fallSmallVariants,
                 this.fallBigVariants, this.eatVariants, this.burpVariants, this.explosionVariants,
                 this.fuseVariants, this.fizzVariants, this.pickupVariants, this.pistonOutVariants,
-                this.pistonInVariants, this.minecartVariants, this.minecartInsideVariants}) {
+                this.pistonInVariants, this.minecartVariants, this.minecartInsideVariants,
+                this.strongAttackVariants}) {
             if (loose != null) unique.add(loose);
         }
         for (int[] variants : unique) {

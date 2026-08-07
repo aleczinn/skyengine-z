@@ -1263,6 +1263,7 @@ public class GameContainer implements IResizeable, IDisposable {
             boolean pickaxe = held.getItem() instanceof ToolItem tool
                     && tool.getType() == de.skyengine.game.world.item.ToolType.PICKAXE;
             minecart.attack(this.world, this.player.getGamemode() == Gamemode.CREATIVE, pickaxe);
+            this.soundManager.playStrongAttack();
             this.stopDestroyBlock();
             endAttack = true;
         } else if (this.itemFrameHit != null) {
