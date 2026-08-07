@@ -73,6 +73,11 @@ public interface BlockBehavior {
         return false;
     }
 
+    /** Rechtsklick mit horizontaler Spieler-Blickrichtung; bestehende Behaviors bleiben kompatibel. */
+    default boolean onUse(World world, int x, int y, int z, BlockState state, float playerYaw) {
+        return this.onUse(world, x, y, z, state);
+    }
+
     /** Abbau-Hook VOR dem Entfernen (andere Hälfte aufräumen, Inventar leeren, ...). Default: nichts. */
     default void onBreak(World world, int x, int y, int z, BlockState state) {
     }

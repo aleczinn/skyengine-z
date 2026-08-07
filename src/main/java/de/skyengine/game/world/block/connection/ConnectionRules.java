@@ -2,6 +2,7 @@ package de.skyengine.game.world.block.connection;
 
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.Capability;
+import de.skyengine.game.world.block.state.Properties;
 
 /** Mitgelieferte {@link ConnectionRule}-Implementierungen. */
 public final class ConnectionRules {
@@ -14,7 +15,12 @@ public final class ConnectionRules {
     public static final ConnectionRule SAME_GROUP_OR_SOLID = (world, x, y, z, dir, self, neighbor) -> {
         if (neighbor.isOpaqueCube()) return true;
         String group = self.getBlock().getConnectionGroup();
-        return group != null && group.equals(neighbor.getBlock().getConnectionGroup());
+        String neighborGroup = neighbor.getBlock().getConnectionGroup();
+        if (group != null && group.equals(neighborGroup)) return true;
+        /* Vanilla: Ein Zaun verbindet nur mit den beiden Pfosten eines quer stehenden Tores. */
+        return "fence".equals(group) && "fence_gate".equals(neighborGroup)
+                && neighbor.getValues().containsKey(Properties.FACING)
+                && neighbor.get(Properties.FACING).axis() != dir.axis();
     };
 
     /**

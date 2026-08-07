@@ -16,7 +16,7 @@
       "items": [
         { "for": "wood", "items": [
             "{wood}_log", "stripped_{wood}_log", "{wood}_planks",
-            "{wood}_stairs", "{wood}_slab", "{wood}_fence"
+            "{wood}_stairs", "{wood}_slab", "{wood}_fence", "{wood}_fence_gate"
         ]},
 
         "stone", "stone_stairs", "stone_slab",

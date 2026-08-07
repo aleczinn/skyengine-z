@@ -83,6 +83,7 @@ $wanted = @(
     # Die Truhen-Muster sind eng gefasst — im selben MC-Ordner liegen *_locked-Varianten.
     @{ pattern = 'minecraft/sounds/block/wooden_door/*.ogg';    dest = 'door/wood' },
     @{ pattern = 'minecraft/sounds/block/iron_door/*.ogg';      dest = 'door/iron' },
+    @{ pattern = 'minecraft/sounds/block/fence_gate/*.ogg';     dest = 'fence_gate' },
     @{ pattern = 'minecraft/sounds/block/chest/open.ogg';       dest = 'chest' },
     @{ pattern = 'minecraft/sounds/block/chest/close[1-3].ogg'; dest = 'chest' },
     # Klassische Musik-Tracks (im modernen Index nach Songnamen benannt)

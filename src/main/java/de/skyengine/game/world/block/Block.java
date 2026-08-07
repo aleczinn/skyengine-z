@@ -386,6 +386,15 @@ public class Block {
         return false;
     }
 
+    /** Rechtsklick-Variante mit Blickrichtung für richtungsabhängige Interaktionen wie Zauntore. */
+    public boolean onUse(de.skyengine.game.world.World world, int x, int y, int z,
+                         BlockState state, float playerYaw) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            if (behavior.onUse(world, x, y, z, state, playerYaw)) return true;
+        }
+        return false;
+    }
+
     /** Abbau-Hook (vor dem Entfernen). Delegiert an die Behaviors; Default: nichts. */
     public void onBreak(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {

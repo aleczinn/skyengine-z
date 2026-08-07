@@ -1325,7 +1325,8 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
         BlockState hitState = Blocks.getState(this.hit.block());
         if (!placingWhileSneaking
-                && hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(), hitState)) {
+                && hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(),
+                        hitState, this.player.yaw)) {
             return true;
         }
 

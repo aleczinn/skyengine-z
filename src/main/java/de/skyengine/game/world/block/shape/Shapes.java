@@ -124,6 +124,27 @@ public final class Shapes {
         };
     }
 
+    /** Zauntor: offen ohne Kollision, geschlossen 1,5 Blöcke hoch; Umriss bleibt blockhoch. */
+    public static ShapeProvider fenceGate() {
+        return new ShapeProvider() {
+            @Override
+            public BlockShape collision(BlockState state) {
+                if (state.get(Properties.OPEN)) return BlockShape.EMPTY;
+                return state.get(Properties.FACING).axis() == Direction.Axis.Z
+                        ? px16(0, 0, 5, 16, 24, 11)
+                        : px16(5, 0, 0, 11, 24, 16);
+            }
+
+            @Override
+            public BlockShape outline(BlockState state) {
+                double top = state.get(Properties.IN_WALL) ? 13 : 16;
+                return state.get(Properties.FACING).axis() == Direction.Axis.Z
+                        ? px16(0, 0, 5, 16, top, 11)
+                        : px16(5, 0, 0, 11, top, 16);
+            }
+        };
+    }
+
     /**
      * Attached (Fackel): keine Kollision, Umriss je nach Trägerfläche. Boxen verbatim aus Vanillas
      * {@code TorchBlock}/{@code WallTorchBlock} — bei WALL steht die Fackel an der Trägerseite,

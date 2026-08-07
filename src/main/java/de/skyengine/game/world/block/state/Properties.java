@@ -112,6 +112,9 @@ public final class Properties {
     /** Dispenser/Dropper hat auf eine Redstone-Flanke bereits einen 4-Tick-Tick eingeplant. */
     public static final Property<Boolean> TRIGGERED = Property.ofBoolean("triggered");
 
+    /** Zauntor steht zwischen Mauern und wird optisch um drei Pixel abgesenkt. */
+    public static final Property<Boolean> IN_WALL = Property.ofBoolean("in_wall");
+
     /**
      * Kolben-Kopf mit kurzem Arm (12 statt 16 px, ohne den 4-px-Überstand in die Basis-Zelle).
      * Der MATERIALISIERTE Kopf ist immer lang (short=false) — der Renderer wählt während der
