@@ -92,6 +92,7 @@ public class EntityPlayer extends Entity {
     /* Augenhöhe wird pro Tick Richtung Zielwert interpoliert (weiche Kamera beim Sneaken) */
     private float eyeHeight = EYE_HEIGHT_STANDING;
     private float lastEyeHeight = EYE_HEIGHT_STANDING;
+    private MinecartEntity vehicle;
 
     public EntityPlayer() {
         this.setSize(0.6F, 1.8F);
@@ -103,6 +104,20 @@ public class EntityPlayer extends Entity {
      */
     public void update(Input input, World world) {
         super.update();
+
+        if (this.vehicle != null) {
+            if (input.isBindDown(GameSettings.get().key(KeyBindings.SNEAK))) {
+                this.stopRiding(world);
+            } else {
+                double yawRad = Math.toRadians(this.yaw);
+                double impulse = input.isBindDown(GameSettings.get().key(KeyBindings.FORWARD)) ? 0.1 : 0;
+                if (input.isBindDown(GameSettings.get().key(KeyBindings.BACK))) impulse -= 0.05;
+                this.vehicle.addPassengerImpulse(Math.sin(yawRad) * impulse,
+                        -Math.cos(yawRad) * impulse);
+                this.setRidingPosition(this.vehicle.x, this.vehicle.y + 0.35, this.vehicle.z);
+                return;
+            }
+        }
 
         /* Tot: keine Steuerung mehr — die Physik läuft weiter (der Körper fällt aus), bis der
            Todesscreen Respawn oder Hauptmenü auslöst. */
@@ -183,6 +198,38 @@ public class EntityPlayer extends Entity {
 
         this.updateFallDamage(world, wasOnGround);
         this.updateHunger(world);
+    }
+
+    public MinecartEntity getVehicle() {
+        return this.vehicle;
+    }
+
+    public void startRiding(MinecartEntity vehicle) {
+        this.vehicle = vehicle;
+    }
+
+    public void stopRiding(World world) {
+        MinecartEntity old = this.vehicle;
+        if (old == null) return;
+        this.vehicle = null;
+        old.removePassenger(this);
+        double[][] candidates = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (double[] candidate : candidates) {
+            this.setPosition(old.x + candidate[0], old.y, old.z + candidate[1]);
+            if (world.getCollisionBoxes(this.boundingBox).isEmpty()) return;
+        }
+        this.setPosition(old.x, old.y + 1, old.z);
+    }
+
+    public void setRidingPosition(double x, double y, double z) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.updateBoundingBox();
+    }
+
+    public void clearVehicle(MinecartEntity expected) {
+        if (this.vehicle == expected) this.vehicle = null;
     }
 
     /**

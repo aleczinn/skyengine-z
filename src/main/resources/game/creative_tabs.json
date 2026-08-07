@@ -71,7 +71,7 @@
         "crafting_table", "chest", "enchanting_table", "item_frame",
         "{wood}_door", "iron_door",
         "{wood}_trapdoor", "iron_trapdoor",
-        "torch", "tnt", "slime_block", "honey_block"
+        "torch", "tnt", "minecart", "slime_block", "honey_block"
       ]
     },
     {
@@ -81,6 +81,7 @@
         "redstone", "redstone_torch", "redstone_block", "tnt",
         "repeater", "comparator",
         "piston", "sticky_piston", "observer", "dispenser", "dropper",
+        "rail", "powered_rail", "detector_rail", "activator_rail", "minecart",
         "hopper", "golden_hopper", "diamond_hopper", "netherite_hopper",
         "lever",
         "stone_button", "oak_button",

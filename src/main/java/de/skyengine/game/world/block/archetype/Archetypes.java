@@ -45,6 +45,7 @@ public final class Archetypes {
         register("comparator", new ComparatorArchetype());
         register("dispenser", new DispenserArchetype(false));
         register("dropper", new DispenserArchetype(true));
+        register("rail", new RailArchetype());
         register("custom", new CustomArchetype());
     }
 

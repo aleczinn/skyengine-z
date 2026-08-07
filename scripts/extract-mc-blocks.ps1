@@ -51,6 +51,14 @@ $wanted = @(
     'dispenser_front_vertical.png',
     'dropper_front.png',
     'dropper_front_vertical.png',
+    'rail.png',
+    'rail_corner.png',
+    'powered_rail.png',
+    'powered_rail_on.png',
+    'detector_rail.png',
+    'detector_rail_on.png',
+    'activator_rail.png',
+    'activator_rail_on.png',
 
     # Tueren: je Sorte eine obere und eine untere Haelfte. Die Item-Sprites liegen bereits
     # unter textures/item/ und kommen aus extract-mc-items.ps1.

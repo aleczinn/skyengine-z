@@ -9,6 +9,7 @@ import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.entity.ItemFrameEntity;
+import de.skyengine.game.entity.MinecartEntity;
 import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.BlockPos;
@@ -762,12 +763,14 @@ public class World implements IInitializable, IDisposable {
                 Entity entity = it.next();
                 if (entity.isRemoved()) {
                     it.remove();
+                    if (entity.isPersistent()) chunk.markModified();
                     continue;
                 }
                 int cx = (int) Math.floor(entity.x) >> ChunkSection.SHIFT;
                 int cz = (int) Math.floor(entity.z) >> ChunkSection.SHIFT;
                 if (cx != chunk.chunkX || cz != chunk.chunkZ) {
                     it.remove();
+                    if (entity.isPersistent()) chunk.markModified();
                     this.transferBuffer.add(entity);
                 }
             }
@@ -784,6 +787,7 @@ public class World implements IInitializable, IDisposable {
         Chunk chunk = this.chunkManager.getChunk(cx, cz);
         if (chunk != null && chunk.status == ChunkStatus.READY) {
             chunk.addEntity(entity);
+            if (entity.isPersistent()) chunk.markModified();
             this.chunksWithEntities.add(chunk);
         }
     }
@@ -791,6 +795,42 @@ public class World implements IInitializable, IDisposable {
     /** Reiht eine Entity zum Spawnen ein (Übernahme im nächsten {@link #tickEntities}). */
     public void spawnEntity(Entity entity) {
         this.pendingEntities.add(entity);
+    }
+
+    /** Setzt ein normales Minecart auf die Schienenposition. */
+    public MinecartEntity spawnMinecart(double x, double y, double z) {
+        MinecartEntity minecart = new MinecartEntity();
+        minecart.setPosition(x, y, z);
+        this.spawnEntity(minecart);
+        return minecart;
+    }
+
+    /** Sensor-Schiene: Minecart-Hitbox im schmalen Erfassungsbereich oberhalb der Schiene. */
+    public boolean hasMinecartAtRail(int x, int y, int z) {
+        AABB sensor = new AABB(x + 0.2, y, z + 0.2, x + 0.8, y + 0.8, z + 0.8);
+        final boolean[] found = {false};
+        this.forEachEntityNearby(x + 0.5, z + 0.5, 1, entity -> {
+            if (!found[0] && entity instanceof MinecartEntity && !entity.isRemoved()
+                    && entity.getBoundingBox().intersects(sensor)) found[0] = true;
+        });
+        return found[0];
+    }
+
+    /** Naechstes Minecart auf dem Augenstrahl; Blöcke begrenzen die Reichweite. */
+    public MinecartEntity raycastMinecart(double ox, double oy, double oz,
+                                           double dx, double dy, double dz, double maxDistance) {
+        final MinecartEntity[] closest = {null};
+        final double[] distance = {maxDistance};
+        this.forEachEntityNearby(ox + dx * maxDistance * 0.5,
+                oz + dz * maxDistance * 0.5, 1, entity -> {
+            if (!(entity instanceof MinecartEntity minecart) || minecart.isRemoved()) return;
+            double hit = minecart.rayIntersection(ox, oy, oz, dx, dy, dz, distance[0]);
+            if (hit < distance[0]) {
+                distance[0] = hit;
+                closest[0] = minecart;
+            }
+        });
+        return closest[0];
     }
 
     /**

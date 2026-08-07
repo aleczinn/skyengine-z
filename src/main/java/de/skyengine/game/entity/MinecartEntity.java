@@ -1,0 +1,267 @@
+package de.skyengine.game.entity;
+
+import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.behavior.RailBehavior;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.block.state.RailShape;
+
+/** Fahrbares Standard-Minecart mit Vanilla-naher Schienenprojektion und Antriebsschienen-Physik. */
+public final class MinecartEntity extends Entity {
+
+    private static final double GRAVITY = 0.04;
+    private static final double MAX_RAIL_SPEED = 0.4;
+    private static final double SLOPE_ACCELERATION = 0.0078125;
+    private static final double POWERED_ACCELERATION = 0.06;
+
+    private EntityPlayer passenger;
+    private double passengerImpulseX;
+    private double passengerImpulseZ;
+    private float damage;
+    private int hurtTime;
+    private int hurtDirection = 1;
+
+    public MinecartEntity() {
+        this.setSize(0.98F, 0.7F);
+    }
+
+    @Override
+    public boolean isCollidable() {
+        return true;
+    }
+
+    @Override
+    public boolean isPersistent() {
+        return true;
+    }
+
+    @Override
+    public void tick(World world) {
+        this.update();
+        if (this.hurtTime > 0) this.hurtTime--;
+        if (this.damage > 0) this.damage = Math.max(0, this.damage - 1);
+        if (this.passenger != null && (this.passenger.isDead() || this.passenger.getVehicle() != this)) {
+            this.passenger = null;
+        }
+
+        RailPosition rail = this.findRail(world);
+        if (rail != null) {
+            this.moveOnRail(world, rail);
+        } else {
+            this.motionY -= GRAVITY;
+            this.motionX = Math.clamp(this.motionX, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
+            this.motionZ = Math.clamp(this.motionZ, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
+            this.move(world, this.motionX, this.motionY, this.motionZ);
+            double drag = this.onGround ? 0.5 : 0.95;
+            this.motionX *= drag;
+            this.motionY *= 0.95;
+            this.motionZ *= drag;
+        }
+
+        if (this.motionX * this.motionX + this.motionZ * this.motionZ > 1.0E-6) {
+            this.yaw = (float) Math.toDegrees(Math.atan2(this.motionX, -this.motionZ));
+        }
+        this.syncPassenger();
+        world.markChunkModified((int) Math.floor(this.x), (int) Math.floor(this.z));
+    }
+
+    private void moveOnRail(World world, RailPosition rail) {
+        RailShape shape = RailBehavior.shape(rail.state);
+        this.motionY = 0;
+        switch (shape) {
+            case ASCENDING_EAST -> this.motionX -= SLOPE_ACCELERATION;
+            case ASCENDING_WEST -> this.motionX += SLOPE_ACCELERATION;
+            case ASCENDING_NORTH -> this.motionZ += SLOPE_ACCELERATION;
+            case ASCENDING_SOUTH -> this.motionZ -= SLOPE_ACCELERATION;
+            default -> { }
+        }
+
+        Segment segment = segment(rail.x, rail.y, rail.z, shape);
+        double tx = segment.x1 - segment.x0;
+        double tz = segment.z1 - segment.z0;
+        double length = Math.sqrt(tx * tx + tz * tz);
+        tx /= length;
+        tz /= length;
+
+        double speed = Math.sqrt(this.motionX * this.motionX + this.motionZ * this.motionZ);
+        double dot = this.motionX * tx + this.motionZ * tz;
+        if (dot < 0) { tx = -tx; tz = -tz; }
+        double along = speed;
+        if (speed < 0.01 && (this.passengerImpulseX != 0 || this.passengerImpulseZ != 0)) {
+            along = Math.max(0, this.passengerImpulseX * tx + this.passengerImpulseZ * tz);
+        }
+        this.passengerImpulseX = 0;
+        this.passengerImpulseZ = 0;
+        along = Math.clamp(along, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
+        this.motionX = tx * along;
+        this.motionZ = tz * along;
+
+        String id = rail.state.getBlock().getIdentifier().path();
+        if ("powered_rail".equals(id)) {
+            if (rail.state.get(Properties.POWERED)) {
+                double poweredSpeed = Math.sqrt(this.motionX * this.motionX + this.motionZ * this.motionZ);
+                if (poweredSpeed > 0.01) {
+                    this.motionX += this.motionX / poweredSpeed * POWERED_ACCELERATION;
+                    this.motionZ += this.motionZ / poweredSpeed * POWERED_ACCELERATION;
+                } else {
+                    this.launchFromPoweredRail(world, rail, shape);
+                }
+            } else {
+                double poweredSpeed = Math.sqrt(this.motionX * this.motionX + this.motionZ * this.motionZ);
+                if (poweredSpeed < 0.03) this.motionX = this.motionZ = 0;
+                else { this.motionX *= 0.5; this.motionZ *= 0.5; }
+            }
+        } else if ("activator_rail".equals(id) && rail.state.get(Properties.POWERED)
+                && this.passenger != null) {
+            this.passenger.stopRiding(world);
+        }
+
+        this.motionX = Math.clamp(this.motionX, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
+        this.motionZ = Math.clamp(this.motionZ, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
+        this.move(world, this.motionX, 0, this.motionZ);
+
+        RailPosition after = this.findRail(world);
+        if (after != null) this.snapTo(segment(after.x, after.y, after.z,
+                RailBehavior.shape(after.state)));
+        this.motionX *= this.passenger == null ? 0.96 : 0.997;
+        this.motionZ *= this.passenger == null ? 0.96 : 0.997;
+    }
+
+    private void launchFromPoweredRail(World world, RailPosition rail, RailShape shape) {
+        if (RailBehavior.axis(shape) == Direction.Axis.X) {
+            boolean westSolid = de.skyengine.game.world.block.Blocks.getState(
+                    world.getBlock(rail.x - 1, rail.y, rail.z)).isSolid();
+            boolean eastSolid = de.skyengine.game.world.block.Blocks.getState(
+                    world.getBlock(rail.x + 1, rail.y, rail.z)).isSolid();
+            if (westSolid != eastSolid) this.motionX = westSolid ? 0.02 : -0.02;
+        } else if (RailBehavior.axis(shape) == Direction.Axis.Z) {
+            boolean northSolid = de.skyengine.game.world.block.Blocks.getState(
+                    world.getBlock(rail.x, rail.y, rail.z - 1)).isSolid();
+            boolean southSolid = de.skyengine.game.world.block.Blocks.getState(
+                    world.getBlock(rail.x, rail.y, rail.z + 1)).isSolid();
+            if (northSolid != southSolid) this.motionZ = northSolid ? 0.02 : -0.02;
+        }
+    }
+
+    private void snapTo(Segment segment) {
+        double dx = segment.x1 - segment.x0;
+        double dz = segment.z1 - segment.z0;
+        double lengthSq = dx * dx + dz * dz;
+        double t = Math.clamp(((this.x - segment.x0) * dx + (this.z - segment.z0) * dz) / lengthSq,
+                0.0, 1.0);
+        this.x = segment.x0 + dx * t;
+        this.y = segment.y0 + (segment.y1 - segment.y0) * t;
+        this.z = segment.z0 + dz * t;
+        this.updateBoundingBox();
+    }
+
+    private RailPosition findRail(World world) {
+        int bx = (int) Math.floor(this.x);
+        int bz = (int) Math.floor(this.z);
+        int by = (int) Math.floor(this.y);
+        BlockState state = RailBehavior.railAt(world, bx, by, bz);
+        if (state != null) return new RailPosition(bx, by, bz, state);
+        state = RailBehavior.railAt(world, bx, by - 1, bz);
+        return state == null ? null : new RailPosition(bx, by - 1, bz, state);
+    }
+
+    public boolean interact(EntityPlayer player) {
+        if (this.passenger != null && this.passenger != player) return false;
+        if (player.getVehicle() == this) return true;
+        if (player.getVehicle() != null) return false;
+        this.passenger = player;
+        player.startRiding(this);
+        this.syncPassenger();
+        return true;
+    }
+
+    /** Vanilla-Damage-Akkumulator: Zerbruch oberhalb von 40 oder ein erzwungener Werkzeugtreffer. */
+    public void attack(World world, boolean creative, boolean efficientTool) {
+        this.hurtDirection = -this.hurtDirection;
+        this.hurtTime = 10;
+        this.damage += 10;
+        if (!creative && !efficientTool && this.damage <= 40) return;
+        double dropX = this.x, dropY = this.y, dropZ = this.z;
+        if (this.passenger != null) this.passenger.stopRiding(world);
+        this.remove();
+        if (!creative) {
+            de.skyengine.game.world.item.Item item = de.skyengine.game.world.item.Items.get(
+                    de.skyengine.game.world.block.Identifier.of("skyengine:minecart"));
+            if (item != null) world.spawnItem(dropX, dropY, dropZ,
+                    new de.skyengine.game.world.item.ItemStack(item, 1));
+        }
+    }
+
+    public float getDamage() { return this.damage; }
+    public void setDamage(float damage) { this.damage = Math.max(0, damage); }
+    public int getHurtTime() { return this.hurtTime; }
+    public void setHurtTime(int hurtTime) { this.hurtTime = Math.max(0, hurtTime); }
+    public int getHurtDirection() { return this.hurtDirection; }
+    public void setHurtDirection(int direction) { this.hurtDirection = direction < 0 ? -1 : 1; }
+
+    public void removePassenger(EntityPlayer player) {
+        if (this.passenger == player) this.passenger = null;
+    }
+
+    public void addPassengerImpulse(double x, double z) {
+        this.passengerImpulseX = x;
+        this.passengerImpulseZ = z;
+    }
+
+    private void syncPassenger() {
+        if (this.passenger == null) return;
+        this.passenger.setRidingPosition(this.x, this.y + 0.35, this.z);
+    }
+
+    public double rayIntersection(double ox, double oy, double oz, double dx, double dy, double dz,
+                                  double maxDistance) {
+        double near = 0.0, far = maxDistance;
+        double[] origins = {ox, oy, oz};
+        double[] directions = {dx, dy, dz};
+        double[] mins = {this.boundingBox.minX, this.boundingBox.minY, this.boundingBox.minZ};
+        double[] maxs = {this.boundingBox.maxX, this.boundingBox.maxY, this.boundingBox.maxZ};
+        for (int axis = 0; axis < 3; axis++) {
+            if (Math.abs(directions[axis]) < 1.0E-9) {
+                if (origins[axis] < mins[axis] || origins[axis] > maxs[axis]) return Double.POSITIVE_INFINITY;
+                continue;
+            }
+            double a = (mins[axis] - origins[axis]) / directions[axis];
+            double b = (maxs[axis] - origins[axis]) / directions[axis];
+            if (a > b) { double swap = a; a = b; b = swap; }
+            near = Math.max(near, a);
+            far = Math.min(far, b);
+            if (near > far) return Double.POSITIVE_INFINITY;
+        }
+        return near <= maxDistance ? near : Double.POSITIVE_INFINITY;
+    }
+
+    @Override
+    public void remove() {
+        if (this.passenger != null) {
+            EntityPlayer old = this.passenger;
+            this.passenger = null;
+            old.clearVehicle(this);
+        }
+        super.remove();
+    }
+
+    private static Segment segment(int x, int y, int z, RailShape shape) {
+        double h = y + 1 / 16.0;
+        return switch (shape) {
+            case NORTH_SOUTH -> new Segment(x + 0.5, h, z, x + 0.5, h, z + 1);
+            case EAST_WEST -> new Segment(x, h, z + 0.5, x + 1, h, z + 0.5);
+            case ASCENDING_EAST -> new Segment(x, h, z + 0.5, x + 1, h + 1, z + 0.5);
+            case ASCENDING_WEST -> new Segment(x, h + 1, z + 0.5, x + 1, h, z + 0.5);
+            case ASCENDING_NORTH -> new Segment(x + 0.5, h + 1, z, x + 0.5, h, z + 1);
+            case ASCENDING_SOUTH -> new Segment(x + 0.5, h, z, x + 0.5, h + 1, z + 1);
+            case SOUTH_EAST -> new Segment(x + 0.5, h, z + 1, x + 1, h, z + 0.5);
+            case SOUTH_WEST -> new Segment(x, h, z + 0.5, x + 0.5, h, z + 1);
+            case NORTH_WEST -> new Segment(x, h, z + 0.5, x + 0.5, h, z);
+            case NORTH_EAST -> new Segment(x + 0.5, h, z, x + 1, h, z + 0.5);
+        };
+    }
+
+    private record RailPosition(int x, int y, int z, BlockState state) {}
+    private record Segment(double x0, double y0, double z0, double x1, double y1, double z1) {}
+}

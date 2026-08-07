@@ -14,6 +14,7 @@ import de.skyengine.game.world.item.FlintAndSteelItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.ItemFrameItem;
+import de.skyengine.game.world.item.MinecartItem;
 import de.skyengine.game.world.item.Items;
 
 import java.util.Optional;
@@ -110,6 +111,26 @@ public final class DispenserBlockEntity extends BlockEntity {
                 this.world.playDispenserFailure(this.pos.x(), this.pos.y(), this.pos.z());
             }
             return placed;
+        }
+        if (item instanceof MinecartItem) {
+            int tx = this.pos.x() + facing.offsetX();
+            int ty = this.pos.y() + facing.offsetY();
+            int tz = this.pos.z() + facing.offsetZ();
+            BlockState rail = de.skyengine.game.world.block.behavior.RailBehavior.railAt(this.world, tx, ty, tz);
+            if (rail == null && Blocks.getState(this.world.getBlock(tx, ty, tz)).isAir()) {
+                rail = de.skyengine.game.world.block.behavior.RailBehavior.railAt(this.world, tx, ty - 1, tz);
+                if (rail != null) ty--;
+            }
+            if (rail == null) {
+                this.world.playDispenserFailure(this.pos.x(), this.pos.y(), this.pos.z());
+                return false;
+            }
+            double offset = de.skyengine.game.world.block.behavior.RailBehavior.shape(rail).isAscending()
+                    ? 0.5625 : 0.0625;
+            this.world.spawnMinecart(tx + 0.5, ty + offset, tz + 0.5);
+            this.inventory.extract(slot, 1);
+            this.world.playDispenserSuccess(this.pos.x(), this.pos.y(), this.pos.z());
+            return true;
         }
 
         this.eject(this.inventory.extract(slot, 1), facing);

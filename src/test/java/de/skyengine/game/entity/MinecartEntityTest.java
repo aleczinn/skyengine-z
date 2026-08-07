@@ -1,0 +1,97 @@
+package de.skyengine.game.entity;
+
+import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.BlockPos;
+import de.skyengine.game.world.block.BlockRegistry;
+import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.block.state.RailShape;
+import de.skyengine.game.world.save.LevelData;
+import de.skyengine.game.physics.AABB;
+import de.skyengine.test.BlocksTestBootstrap;
+import de.skyengine.utils.collect.LongIntMap;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.util.List;
+
+final class MinecartEntityTest {
+
+    @BeforeAll
+    static void bootstrapBlocks() { BlocksTestBootstrap.ensureBootstrapped(); }
+
+    @Test
+    void cartStaysCenteredOnStraightRailAndPoweredRailAccelerates() {
+        TestWorld world = new TestWorld();
+        world.put(0, 64, 0, rail("powered_rail", true));
+        world.put(1, 64, 0, rail("powered_rail", true));
+        MinecartEntity cart = new MinecartEntity();
+        cart.setPosition(0.5, 64.0625, 0.5);
+        cart.motionX = 0.1;
+
+        cart.tick(world);
+
+        assertTrue(cart.x > 0.6);
+        assertEquals(0.5, cart.z, 1.0E-6);
+        assertTrue(cart.motionX > 0.1);
+        assertEquals(0, cart.motionY, 1.0E-9);
+    }
+
+    @Test
+    void playerCanMountAndIsCarriedByCart() {
+        MinecartEntity cart = new MinecartEntity();
+        cart.setPosition(2.5, 64.0625, 3.5);
+        EntityPlayer player = new EntityPlayer();
+        player.setPosition(2, 64, 3);
+
+        assertTrue(cart.interact(player));
+        assertEquals(cart, player.getVehicle());
+        assertEquals(cart.x, player.x);
+        assertEquals(cart.z, player.z);
+    }
+
+    @Test
+    void handHitsAccumulateBeforeMinecartBreaks() {
+        TestWorld world = new TestWorld();
+        MinecartEntity cart = new MinecartEntity();
+        cart.setPosition(0.5, 64, 0.5);
+
+        for (int i = 0; i < 4; i++) cart.attack(world, false, false);
+        assertFalse(cart.isRemoved());
+        cart.attack(world, false, false);
+        assertTrue(cart.isRemoved());
+    }
+
+    private static BlockState rail(String id, boolean powered) {
+        return BlockRegistry.get(Identifier.of("skyengine:" + id)).getDefaultState()
+                .with(Properties.STRAIGHT_RAIL_SHAPE, RailShape.EAST_WEST)
+                .with(Properties.POWERED, powered);
+    }
+
+    private static final class TestWorld extends World {
+        private final LongIntMap blocks = new LongIntMap(32);
+
+        TestWorld() { super("__minecart_test", level(), null, null); }
+        void put(int x, int y, int z, BlockState state) {
+            this.blocks.put(BlockPos.asLong(x, y, z), state.getId());
+        }
+        @Override public int getBlock(int x, int y, int z) {
+            return this.blocks.getOrDefault(BlockPos.asLong(x, y, z), Blocks.AIR);
+        }
+        @Override public void markChunkModified(int x, int z) { }
+        @Override public List<AABB> getCollisionBoxes(AABB area) { return List.of(); }
+
+        private static LevelData level() {
+            LevelData level = new LevelData();
+            level.name = "minecart-test";
+            level.seed = 1;
+            level.worldType = "imported";
+            return level;
+        }
+    }
+}

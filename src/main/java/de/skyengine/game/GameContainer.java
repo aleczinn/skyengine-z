@@ -8,6 +8,7 @@ import de.skyengine.core.io.*;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.entity.ItemFrameEntity;
+import de.skyengine.game.entity.MinecartEntity;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
@@ -30,6 +31,7 @@ import de.skyengine.game.world.item.FoodItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.ItemFrameItem;
+import de.skyengine.game.world.item.MinecartItem;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.item.ToolItem;
 import de.skyengine.game.world.loot.LootContext;
@@ -187,6 +189,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private BlockRaycast.Hit hit = null;
     /** Entity-Treffer nur, wenn er vor dem naechsten Block auf demselben Augenstrahl liegt. */
     private ItemFrameEntity itemFrameHit = null;
+    private MinecartEntity minecartHit = null;
 
     /* Spieler-Inventar (36 Slots: 0..8 Hotbar, 9..35 Hauptinventar). Auswahl per Zahlentasten 1..9. */
     private final SimpleItemStorage playerInventory = new SimpleItemStorage(36);
@@ -373,6 +376,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.currentSave = null;
         this.hit = null;
         this.itemFrameHit = null;
+        this.minecartHit = null;
         this.notifyOnSaveDone = false; // sonst quittiert die nächste Welt einen fremden Save
         this.resetMining();
         this.guiManager.open(new GuiMainMenu());
@@ -734,6 +738,9 @@ public class GameContainer implements IResizeable, IDisposable {
                         + sq(this.hit.hitY() - this.eyePosition.y)
                         + sq(this.hit.hitZ() - this.eyePosition.z));
         this.itemFrameHit = this.world.raycastItemFrame(this.eyePosition.x, this.eyePosition.y,
+                this.eyePosition.z, this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z,
+                entityReach);
+        this.minecartHit = this.world.raycastMinecart(this.eyePosition.x, this.eyePosition.y,
                 this.eyePosition.z, this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z,
                 entityReach);
 
@@ -1238,7 +1245,15 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.missTime > 0) return false;
 
         boolean endAttack = false;
-        if (this.itemFrameHit != null) {
+        if (this.minecartHit != null) {
+            MinecartEntity minecart = this.minecartHit;
+            ItemStack held = this.playerInventory.get(this.hotbarIndex);
+            boolean pickaxe = held.getItem() instanceof ToolItem tool
+                    && tool.getType() == de.skyengine.game.world.item.ToolType.PICKAXE;
+            minecart.attack(this.world, this.player.getGamemode() == Gamemode.CREATIVE, pickaxe);
+            this.stopDestroyBlock();
+            endAttack = true;
+        } else if (this.itemFrameHit != null) {
             this.itemFrameHit.attack(this.world, this.player.getGamemode() == Gamemode.CREATIVE);
             this.stopDestroyBlock();
             endAttack = true;
@@ -1261,7 +1276,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!down) this.missTime = 0;
         if (this.missTime > 0 || this.animState.isEating()) return;
 
-        if (down && this.itemFrameHit != null) {
+        if (down && (this.itemFrameHit != null || this.minecartHit != null)) {
             this.stopDestroyBlock();
         } else if (down && this.hit != null) {
             if (this.continueDestroyBlock()) this.animState.swing();
@@ -1302,12 +1317,15 @@ public class GameContainer implements IResizeable, IDisposable {
            Strahl (Fluids sind im Normal-Raycast unsichtbar) und funktioniert auch ohne this.hit.
            Der gefüllte Eimer platziert wie ein Block über this.hit (siehe handleBucket). */
         ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        if (this.minecartHit != null && this.minecartHit.interact(this.player)) return true;
         if (this.itemFrameHit != null
                 && this.itemFrameHit.interact(this.world, held,
                 this.player.getGamemode() == Gamemode.CREATIVE)) return true;
         if (held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket)) return true;
 
         if (this.hit == null) return false;
+
+        if (held.getItem() instanceof MinecartItem && this.tryPlaceMinecart()) return true;
 
         /* Sneaken mit einem Block in der Hand überspringt JEDE Block-Interaktion und platziert
            stattdessen — MCs Regel (`!isSecondaryUseActive() || leere Hand`). Das ist die einzige
@@ -1378,6 +1396,12 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     private void pickBlock() {
         if (this.player.getGamemode() != Gamemode.CREATIVE) return;
+        if (this.minecartHit != null) {
+            Item item = Items.get(Identifier.of("skyengine:minecart"));
+            if (item != null) this.playerInventory.set(this.hotbarIndex, new ItemStack(item, 1));
+            this.itemNameShownAt = System.currentTimeMillis();
+            return;
+        }
         if (this.itemFrameHit != null) {
             this.playerInventory.set(this.hotbarIndex, this.itemFrameHit.getPickResult());
             this.itemNameShownAt = System.currentTimeMillis();
@@ -1494,6 +1518,18 @@ public class GameContainer implements IResizeable, IDisposable {
         BlockEntity be = this.world.getBlockEntity(x, y, z);
         if (!(be instanceof de.skyengine.game.world.block.entity.HopperBlockEntity hopper)) return false;
         this.guiManager.open(new de.skyengine.graphics.gui.screens.GuiHopper(hopper, this.playerInventory));
+        return true;
+    }
+
+    /** Minecart-Item: nur direkt auf einer Schiene platzieren, Steigungen sitzen einen halben Block höher. */
+    private boolean tryPlaceMinecart() {
+        BlockState rail = Blocks.getState(this.hit.block());
+        if (!rail.getValues().containsKey(Properties.RAIL_SHAPE)
+                && !rail.getValues().containsKey(Properties.STRAIGHT_RAIL_SHAPE)) return false;
+        double yOffset = de.skyengine.game.world.block.behavior.RailBehavior.shape(rail).isAscending()
+                ? 0.5625 : 0.0625;
+        this.world.spawnMinecart(this.hit.x() + 0.5, this.hit.y() + yOffset, this.hit.z() + 0.5);
+        if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
         return true;
     }
 

@@ -426,6 +426,10 @@
       "redstone_torch": "Redstone Torch",
       "redstone_wire": "Redstone Dust",
       "rooted_dirt": "Rooted Dirt",
+      "rail": "Rail",
+      "powered_rail": "Powered Rail",
+      "detector_rail": "Detector Rail",
+      "activator_rail": "Activator Rail",
       "sand": "Sand",
       "sandstone": "Sandstone",
       "short_grass": "Short Grass",
@@ -522,7 +526,8 @@
       "water_bucket": "Water Bucket",
       "lava_bucket": "Lava Bucket",
       "flint_and_steel": "Flint and Steel",
-      "item_frame": "Item Frame"
+      "item_frame": "Item Frame",
+      "minecart": "Minecart"
     }
   }
 }

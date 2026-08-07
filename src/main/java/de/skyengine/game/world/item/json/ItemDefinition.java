@@ -5,7 +5,7 @@ public class ItemDefinition {
 
     public String id;
 
-    /** Fabrikname: item, food, bucket, tool, flint_and_steel oder item_frame. */
+    /** Fabrikname: item, food, bucket, tool, flint_and_steel, item_frame oder minecart. */
     public String archetype;
 
     /** Maximale Stapelgröße; null = Item-Default (64). */

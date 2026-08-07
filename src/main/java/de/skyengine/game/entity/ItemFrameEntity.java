@@ -45,6 +45,9 @@ public final class ItemFrameEntity extends Entity {
     public int getRotation() { return this.rotation; }
 
     @Override
+    public boolean isPersistent() { return true; }
+
+    @Override
     protected void updateBoundingBox() {
         double sx = this.direction.axis() == Direction.Axis.X ? DEPTH : SIZE;
         double sy = this.direction.axis() == Direction.Axis.Y ? DEPTH : SIZE;

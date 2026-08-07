@@ -150,6 +150,9 @@ public class BlockDefinition {
     public int hopper_cooldown = 8;
     public int hopper_amount = 1;
 
+    /* Archetyp "rail": normal, powered, detector oder activator. */
+    public String rail_kind = "normal";
+
     /* Fluid (archetype "fluid"): max. Levelwert, Level-Verlust pro Block und Tick-Takt des
        Flusses. null -> Default je nach Wasser/Lava. textures.still/flow liefern die Sprites. */
     public Integer fluid_spread;

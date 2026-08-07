@@ -434,6 +434,10 @@
       "redstone_torch": "Redstone-Fackel",
       "redstone_wire": "Redstone-Staub",
       "rooted_dirt": "Wurzelerde",
+      "rail": "Schiene",
+      "powered_rail": "Antriebsschiene",
+      "detector_rail": "Sensorschiene",
+      "activator_rail": "Aktivierungsschiene",
       "sand": "Sand",
       "sandstone": "Sandstein",
       "short_grass": "Niedriges Gras",
@@ -530,7 +534,8 @@
       "water_bucket": "Wassereimer",
       "lava_bucket": "Lavaeimer",
       "flint_and_steel": "Feuerzeug",
-      "item_frame": "Gegenstandsrahmen"
+      "item_frame": "Gegenstandsrahmen",
+      "minecart": "Lore"
     }
   }
 }

@@ -8,6 +8,7 @@ import de.skyengine.game.world.item.FlintAndSteelItem;
 import de.skyengine.game.world.item.FoodItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemFrameItem;
+import de.skyengine.game.world.item.MinecartItem;
 import de.skyengine.game.world.item.SimpleItem;
 import de.skyengine.game.world.item.ShearsItem;
 import de.skyengine.game.world.item.ToolItem;
@@ -48,6 +49,7 @@ public final class ItemArchetypes {
         });
         register("flint_and_steel", (id, def) -> new FlintAndSteelItem(id, def.texture));
         register("item_frame", (id, def) -> new ItemFrameItem(id, def.texture));
+        register("minecart", (id, def) -> new MinecartItem(id, def.texture));
         register("shears", (id, def) -> new ShearsItem(id, def.texture));
     }
 

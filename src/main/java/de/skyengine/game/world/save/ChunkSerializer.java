@@ -119,19 +119,32 @@ public final class ChunkSerializer {
         return out;
     }
 
-    /** Zieht nur persistente Entities; bewegte Drops und TNT bleiben bewusst fluechtig. */
+    /** Zieht persistente Entities; bewegte Drops und TNT bleiben bewusst fluechtig. */
     public static List<SavedEntity> snapshotEntities(Chunk chunk) {
         List<SavedEntity> out = new ArrayList<>();
         for (Entity entity : chunk.entities()) {
-            if (!(entity instanceof ItemFrameEntity frame) || frame.isRemoved()) continue;
-            DataTag tag = new DataTag()
-                    .putInt("anchor_x", frame.getAnchorX())
-                    .putInt("anchor_y", frame.getAnchorY())
-                    .putInt("anchor_z", frame.getAnchorZ())
-                    .putString("direction", frame.getDirection().name())
-                    .putInt("rotation", frame.getRotation())
-                    .putTag("item", frame.getItem().save());
-            out.add(new SavedEntity("skyengine:item_frame", tag));
+            if (entity.isRemoved()) continue;
+            if (entity instanceof ItemFrameEntity frame) {
+                DataTag tag = new DataTag()
+                        .putInt("anchor_x", frame.getAnchorX())
+                        .putInt("anchor_y", frame.getAnchorY())
+                        .putInt("anchor_z", frame.getAnchorZ())
+                        .putString("direction", frame.getDirection().name())
+                        .putInt("rotation", frame.getRotation())
+                        .putTag("item", frame.getItem().save());
+                out.add(new SavedEntity("skyengine:item_frame", tag));
+            } else if (entity instanceof de.skyengine.game.entity.MinecartEntity minecart) {
+                DataTag tag = new DataTag()
+                        .putDouble("x", minecart.x).putDouble("y", minecart.y).putDouble("z", minecart.z)
+                        .putDouble("motion_x", minecart.motionX)
+                        .putDouble("motion_y", minecart.motionY)
+                        .putDouble("motion_z", minecart.motionZ)
+                        .putDouble("yaw", minecart.yaw)
+                        .putDouble("damage", minecart.getDamage())
+                        .putInt("hurt_time", minecart.getHurtTime())
+                        .putInt("hurt_direction", minecart.getHurtDirection());
+                out.add(new SavedEntity("skyengine:minecart", tag));
+            }
         }
         return out;
     }
@@ -534,6 +547,30 @@ public final class ChunkSerializer {
             for (int i = 0; i < entityCount; i++) {
                 String typeId = in.readUTF();
                 DataTag tag = DataTagIO.read(in);
+                if ("skyengine:minecart".equals(typeId)) {
+                    double x = tag.getDouble("x", Double.NaN);
+                    double y = tag.getDouble("y", Double.NaN);
+                    double z = tag.getDouble("z", Double.NaN);
+                    if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)
+                            || ((int) Math.floor(x) >> ChunkSection.SHIFT) != chunk.chunkX
+                            || ((int) Math.floor(z) >> ChunkSection.SHIFT) != chunk.chunkZ
+                            || y < -64 || y > Chunk.HEIGHT + 64) {
+                        LOGGER.warning("Minecart ausserhalb seines Chunks wird uebersprungen");
+                        continue;
+                    }
+                    de.skyengine.game.entity.MinecartEntity minecart =
+                            new de.skyengine.game.entity.MinecartEntity();
+                    minecart.setPosition(x, y, z);
+                    minecart.motionX = tag.getDouble("motion_x", 0);
+                    minecart.motionY = tag.getDouble("motion_y", 0);
+                    minecart.motionZ = tag.getDouble("motion_z", 0);
+                    minecart.yaw = (float) tag.getDouble("yaw", 0);
+                    minecart.setDamage((float) tag.getDouble("damage", 0));
+                    minecart.setHurtTime(tag.getInt("hurt_time", 0));
+                    minecart.setHurtDirection(tag.getInt("hurt_direction", 1));
+                    chunk.addEntity(minecart);
+                    continue;
+                }
                 if (!"skyengine:item_frame".equals(typeId)) {
                     LOGGER.warning("Unbekannter persistenter Entity-Typ, ueberspringe: " + typeId);
                     continue;

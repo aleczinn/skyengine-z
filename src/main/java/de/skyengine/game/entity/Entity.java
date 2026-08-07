@@ -96,6 +96,11 @@ public abstract class Entity {
         return false;
     }
 
+    /** Ob Positions-/Listenänderungen dieser Entity Bestandteil des Chunk-Saves sind. */
+    public boolean isPersistent() {
+        return false;
+    }
+
     /**
      * Bewegt die Entity mit Kollision. Achsenweise: erst Y, dann X, dann Z.
      * Tunneling-sicher bei hoher Geschwindigkeit: die Broadphase-Box deckt
