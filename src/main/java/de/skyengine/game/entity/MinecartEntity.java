@@ -130,7 +130,7 @@ public final class MinecartEntity extends Entity {
            stattfinden. Mit dy=0 prallte die AABB gegen den Stützblock der oberen Schiene. */
         this.move(world, this.motionX, ty * along, this.motionZ);
 
-        RailPosition after = this.findRail(world);
+        RailPosition after = this.findRailAfterMovement(world);
         if (after != null) this.snapTo(segment(after.x, after.y, after.z,
                 RailBehavior.shape(after.state)));
         this.motionX *= this.hasPassengers() ? 0.997 : 0.96;
@@ -195,6 +195,21 @@ public final class MinecartEntity extends Entity {
         if (state != null) return new RailPosition(bx, by, bz, state);
         state = RailBehavior.railAt(world, bx, by - 1, bz);
         return state == null ? null : new RailPosition(bx, by - 1, bz, state);
+    }
+
+    /**
+     * Nach einem bestätigten Schienentick darf das Gefälle die Zielschiene knapp unterschreiten:
+     * Die horizontale Reststrecke liegt dann bereits auf der unteren Geraden. Nur dieser Nachlauf
+     * prüft deshalb zusätzlich eine Zelle oberhalb; die normale Suche saugt keine freien Carts an.
+     */
+    private RailPosition findRailAfterMovement(World world) {
+        RailPosition rail = this.findRail(world);
+        if (rail != null) return rail;
+        int bx = (int) Math.floor(this.x);
+        int by = (int) Math.floor(this.y) + 1;
+        int bz = (int) Math.floor(this.z);
+        BlockState state = RailBehavior.railAt(world, bx, by, bz);
+        return state == null ? null : new RailPosition(bx, by, bz, state);
     }
 
     public boolean interact(EntityPlayer player) {

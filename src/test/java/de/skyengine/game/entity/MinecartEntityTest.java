@@ -133,6 +133,34 @@ final class MinecartEntityTest {
     }
 
     @Test
+    void cartDescendsSlopeWithoutEnteringSupportBlocks() {
+        TestWorld world = new TestWorld() {
+            @Override public List<AABB> getCollisionBoxes(AABB area) {
+                List<AABB> supports = List.of(
+                        new AABB(-1, 63, 0, 0, 64, 1),
+                        new AABB(0, 63, 0, 1, 64, 1),
+                        new AABB(1, 64, 0, 2, 65, 1));
+                return supports.stream().filter(area::intersects).toList();
+            }
+        };
+        BlockState straight = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+                .with(Properties.RAIL_SHAPE, RailShape.EAST_WEST);
+        world.put(-1, 64, 0, straight);
+        world.put(0, 64, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+                .with(Properties.RAIL_SHAPE, RailShape.ASCENDING_EAST));
+        world.put(1, 65, 0, straight);
+        MinecartEntity cart = new MinecartEntity();
+        cart.setPosition(1.5, 65.0625, 0.5);
+        cart.motionX = -0.35;
+
+        for (int i = 0; i < 6; i++) cart.tick(world);
+
+        assertTrue(cart.x < 0, "Minecart muss das untere Ende der Steigung erreichen");
+        assertEquals(64.0625, cart.y, 1.0E-6, "x=" + cart.x + ", z=" + cart.z);
+        assertEquals(0.5, cart.z, 1.0E-6);
+    }
+
+    @Test
     void handHitsAccumulateBeforeMinecartBreaks() {
         TestWorld world = new TestWorld();
         MinecartEntity cart = new MinecartEntity();
