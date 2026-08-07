@@ -899,6 +899,14 @@ public class ChunkMesher {
             by += FACE_OFFSET[face][1];
             bz += FACE_OFFSET[face][2];
         }
+        /* Bei einer bündigen Face ist die Zelle direkt davor Vanillas vierter
+           Shade-Brightness-Beitrag. Normalerweise ist das unsichtbar, weil ein opaker
+           Vollwürfel die Face komplett cullt. Nicht-vollständige AO-Okkludierer wie eine
+           ausgefahrene 12/16-Kolbenbasis lassen die Face jedoch teilweise sichtbar: ohne
+           diesen Beitrag blieb die komplette Bodenfläche darunter voll hell, obwohl ihre
+           Kontaktkanten bereits AO bekamen. Innenflächen von Slabs/Treppen dürfen den eigenen
+           Block ausdrücklich nicht als zusätzlichen Okkludierer zählen. */
+        boolean direct = flush && this.occludes(bx, by, bz);
 
         /* AO an den 4 Ecken der Einheits-Face; Offsets ausschließlich in den Tangentenachsen. */
         for (int cv = 0; cv < 2; cv++) {
@@ -917,7 +925,8 @@ public class ChunkMesher {
                     level = 0; // Ecke komplett eingeschlossen, Eck-Block egal
                 } else {
                     boolean corner = this.occludes(bx + s1x + s2x, by + s1y + s2y, bz + s1z + s2z);
-                    level = 3 - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0);
+                    level = Math.max(0, 3 - (direct ? 1 : 0)
+                            - (side1 ? 1 : 0) - (side2 ? 1 : 0) - (corner ? 1 : 0));
                 }
                 this.aoUnit[cv << 1 | cu] = 0.4F + level * 0.2F;
             }
