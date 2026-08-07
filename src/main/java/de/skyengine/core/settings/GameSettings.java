@@ -93,6 +93,8 @@ public final class GameSettings {
     public Map<String, Integer> soundVolumes = defaultSoundVolumes();
     /* OpenAL-Ausgabegerät (voller ALC-Name, "" = Systemstandard). */
     public String audioDevice = "";
+    /* Pausenmenü: true = Musik pausiert mit (wie die Geräusche), false = nur Geräusche pausieren. */
+    public boolean pauseMusicInMenus = true;
     /* Schleichen/Sprinten: false = Taste halten, true = Umschalten (Toggle). */
     public boolean sneakToggle = false;
     public boolean sprintToggle = false;

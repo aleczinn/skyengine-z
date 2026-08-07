@@ -1,6 +1,6 @@
 ---
 name: sound-system
-description: OpenAL-Audio — SoundManager (Source-Pool, Effekt-Preload), MusicPlayer (stb_vorbis-Streaming), BlockSoundGroup-Ableitung, GameContainer-Hooks (Schritte/Hit/Break/Place, Hurt/Fall, Essen), Asset-Extraktion aus Minecraft. Lesen bevor Sounds, Musik, OpenAL, Sound-Gruppen oder Lautstärke-Settings angefasst werden.
+description: OpenAL-Audio — SoundManager (Source-Pool, Effekt-Preload, Musik-Playlist), MusicPlayer (Streaming von .ogg/.wav), BlockSoundGroup-Ableitung, GameContainer-Hooks (Schritte/Hit/Break/Place, Hurt/Fall, Essen), Asset-Extraktion aus Minecraft. Lesen bevor Sounds, Musik, OpenAL, Sound-Gruppen oder Lautstärke-Settings angefasst werden.
 ---
 
 # Sound-System (OpenAL)
@@ -14,9 +14,18 @@ description: OpenAL-Audio — SoundManager (Source-Pool, Effekt-Preload), MusicP
   Font-System, nie Crash).
 - **`OggLoader`** — `stb_vorbis_decode_filename` → PCM → `alBufferData`. Der PCM-Pointer
   kommt aus malloc ⇒ mit `LibCStdlib.free` freigeben, nicht `MemoryUtil.memFree`.
-- **`MusicPlayer`** — Streaming über `stb_vorbis_open_filename` + 3 rotierende AL-Buffer,
-  Refill pro Frame via `AL_BUFFERS_PROCESSED`, Loop via `stb_vorbis_seek_start`,
-  Underrun-Neustart, `AL_SOURCE_RELATIVE` (Musik klebt am Listener).
+- **`MusicPlayer`** — Streaming in 3 rotierende AL-Buffer, Refill pro Frame via
+  `AL_BUFFERS_PROCESSED`, Underrun-Neustart, `AL_SOURCE_RELATIVE` (Musik klebt am Listener).
+  Das Dekodieren steckt hinter **`MusicStream`** (package-private): `VorbisMusicStream`
+  (`stb_vorbis_open_filename`, Loop via `stb_vorbis_seek_start`) und `WavMusicStream`
+  (`javax.sound.sampled`, JDK-Bordmittel — **keine** Fremdbibliothek; setzt auf PCM signed
+  16 Bit LE um, Samplerate bleibt, weil OpenAL jede akzeptiert; `seekStart` = neu öffnen).
+  `play(File, boolean)` liefert **`boolean`**: unbekannte Endung, defekte Datei oder „kein
+  einziger Buffer gefüllt" ⇒ Warnung + `false`, damit die Playlist die Datei überspringen
+  kann statt hängen zu bleiben. **`WavMusicStream.read` schreibt absolut (`put(index, …)`)** —
+  der Vorbis-Pfad lässt die Buffer-Position ebenfalls auf 0 stehen und `fillAndQueue` setzt
+  danach nur noch das Limit; eine verschobene Position ergäbe einen leeren AL-Buffer.
+  MP3 geht bewusst nicht: dafür hat weder das JDK noch LWJGL einen Decoder.
 - **`BlockSoundGroup`** — Enum (STONE/WOOD/GRAVEL/GRASS/SAND/SNOW/CLOTH/GLASS) mit
   Datei-Basisnamen für `step/`, `dig/` und dem Platzieren (`placeName`, zeigt auf eine
   dig-Basis — es gibt keine place-Assets, Default = digName). Sonderfall wie MC: `GLASS`
@@ -46,7 +55,7 @@ description: OpenAL-Audio — SoundManager (Source-Pool, Effekt-Preload), MusicP
   (Aufprall), `eat/eat1-3` (Kauen), `eat/burp`. Play-Methoden `playHurt()`/`playFall(big)`/
   `playEat()`/`playBurp()` — alle Kanal `PLAYER`, nicht-positional, ±10 % Pitch.
 - **Hooks im `GameContainer`:** `soundManager.init()` vor `applySettings()`, danach
-  `playMusic("music/minecraft.ogg", true)`; pro Frame in `renderWorld` nach
+  `startMusicPlaylist()`; pro Frame in `renderWorld` nach
   `camera.update`: `updateListener(camera)` + `update()` (Musik-Refill); pro Tick
   `updateStepSounds()` + `updateHurtSounds()` (pollt `EntityPlayer.consumeHurt()`/
   `consumeFallDamage()` — der Schaden entsteht tief in der Physik, EntityPlayer kennt
@@ -61,10 +70,41 @@ description: OpenAL-Audio — SoundManager (Source-Pool, Effekt-Preload), MusicP
   Todesscreen, Welt verlassen), und der Sound kann nicht von der Deckel-Animation abdriften.
   Die Wächter `if (open == this.open) return;` sorgt dafür, dass nur echte Wechsel klingen.
 
+## Musik-Playlist
+
+Der **Ordner ist die Playlist**: `SoundManager.startMusicPlaylist()` scannt beim Boot
+`game/sounds/music` auf `.ogg`/`.wav` (`listFiles`, wie `ItemLoader`/`I18n` — `soundsDir` liegt
+im Dateisystem unter `Files.RESOURCES_PATH`, nicht im Classpath). Ein Lied dazu heißt: Datei
+hineinkopieren, sonst nichts. Es gibt **keine** Index-/Konfigurationsdatei und keinen Re-Scan
+zur Laufzeit.
+
+- **Shuffle-Bag**, kein Würfeln je Lied: die Liste wird gemischt und einmal komplett
+  durchgespielt, dann neu gemischt (`reshuffle`). Fiele das neue erste Lied auf das eben
+  gespielte, wird es weggetauscht — sonst hört man an der Bag-Grenze doch eine Wiederholung.
+- **Fortschalten** in `SoundManager.update()` (läuft jeden Frame, auch im Hauptmenü):
+  `if (playlistActive && !music.isPlaying()) playNextTrack();`. Das Ende erkennt der
+  `MusicPlayer` selbst (`exhausted && AL_BUFFERS_QUEUED == 0` → `stop()` → `playing = false`),
+  das nächste Lied startet ohne Pause im selben Frame.
+- **`isPlaying()` ist absichtlich true, solange pausiert ist** (`pause()` setzt nur `paused`) —
+  im Pausenmenü darf die Playlist nicht weiterrücken.
+- Liefert `music.play` `false`, fliegt die Datei aus der Liste und der nächste Kandidat wird
+  probiert; die Schleife ist auf die Listenlänge gedeckelt (sonst Endlos-Loop im Frame). Bleibt
+  nichts übrig: `playlistActive = false` + Warnung, nie ein Crash.
+- `stopMusic()` beendet **auch** die Playlist (sonst startete sofort das nächste Lied).
+- Ein einziges Lied im Ordner verhält sich automatisch wie der frühere Loop. Ein
+  `playMusic(relPath, loop)` gibt es nicht mehr.
+
 ## Pause (Pausenmenü)
 
 `SoundManager.pauseAll()`/`resumeAll()`, angestoßen an der Flanke in
-`GameContainer.updatePaused` (nicht pro Tick). Drei Dinge, die man dabei falsch machen kann:
+`GameContainer.updatePaused` (nicht pro Tick). Die **Musik** pausiert dabei nur, wenn das
+Setting `GameSettings.pauseMusicInMenus` gesetzt ist (Default an = altes Verhalten) — sonst
+laufen im Menü nur die Geräusche still, die Musik streamt weiter und schaltet am Liedende
+auch weiter. Gebündelt in `SoundManager.applyMusicPause(boolean gamePaused)`; `GuiSoundOptions`
+ruft dieselbe Methode mit `GuiManager.pausesGame()`, weil der Screen aus dem Pausenmenü
+erreichbar ist und der Schalter dort **sofort** greifen muss.
+
+Drei Dinge, die man dabei falsch machen kann:
 
 - **Nur `AL_PLAYING` pausieren, nur `AL_PAUSED` fortsetzen.** Ein pauschales `alSourcePlayv` über
   den Pool würde gestoppte Sources **von vorn** neu starten.
@@ -120,6 +160,7 @@ brauchen keinerlei Synchronisation.
 
 Nur hörbar im laufenden Fenster (`./gradlew run`): Laufen auf verschiedenen Untergründen
 (Gras/Sand/Holz/Wolle), Block abbauen (Hit-Takt + Bruch), platzieren, Musik im Hintergrund.
-Minimal-Check ohne Lautsprecher: Log-Zeilen „Audio initialisiert: N Effekt-Sounds geladen"
-und „Musik gestartet: …". Ohne extrahierte Sounds startet die Engine stumm mit Warnung —
+Minimal-Check ohne Lautsprecher: Log-Zeilen „Audio initialisiert: N Effekt-Sounds geladen",
+„Musik-Playlist: N Lied(er) gefunden." und „Musik gestartet: …" — Letztere muss über mehrere
+Starts hinweg **wechselnde** Dateinamen zeigen und am Liedende erneut erscheinen. Ohne extrahierte Sounds startet die Engine stumm mit Warnung —
 das ist der beabsichtigte Zustand für Checkouts ohne MC-Installation.

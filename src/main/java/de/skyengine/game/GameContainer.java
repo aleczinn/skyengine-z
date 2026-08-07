@@ -267,7 +267,7 @@ public class GameContainer implements IResizeable, IDisposable {
         progress.frame(I18n.tr("boot.sound"), 0.85f);
         this.soundManager.init();
         this.applySettings();
-        this.soundManager.playMusic("music/minecraft.ogg", true);
+        this.soundManager.startMusicPlaylist();
 
         progress.frame(I18n.tr("boot.done"), 1f);
         /* Start im Hauptmenü — Cursor sichtbar (syncCursor), Welt kommt über den Menü-Flow. */

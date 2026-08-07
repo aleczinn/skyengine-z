@@ -105,7 +105,9 @@
       "title": "Musik & Geräusche",
       "master": "Gesamtlautstärke: %d %%",
       "device": "Gerät",
-      "device_default": "Systemstandard"
+      "device_default": "Systemstandard",
+      "pause_music": "Musik pausieren",
+      "pause_music_hint": "<b>Musik im Pausenmenü</b>\n<gray>AN: die Musik hält mit den Geräuschen an\nAUS: nur die Geräusche pausieren, die Musik läuft weiter</>"
     },
 
     "controls": {
