@@ -767,8 +767,9 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.perspective.isFirstPerson()) {
             this.world.render(this.camera, partialTick);
         } else {
-            /* Licht der Spielerzelle — der Spieler steht IN seinem Block, also die Füße-Zelle. */
-            float playerLight = this.lightAt(this.player.x, this.player.y, this.player.z);
+            /* Am Auge samplen: Der Fußpunkt liegt beim Sitzen im Fahrzeug oder Stützblock. */
+            float playerLight = this.lightAt(this.player.x,
+                    this.player.y + this.player.getEyeHeight(partialTick), this.player.z);
             this.world.render(this.camera, partialTick, () ->
                     this.playerRenderer.renderThirdPerson(this.player, this.animState, this.camera, partialTick,
                             this.heldItemMeshes, this.playerInventory.get(this.hotbarIndex), playerLight));
