@@ -832,6 +832,7 @@ public class World implements IInitializable, IDisposable {
     public MinecartEntity spawnMinecart(double x, double y, double z) {
         MinecartEntity minecart = new MinecartEntity();
         minecart.setPosition(x, y, z);
+        minecart.alignToRail(this);
         this.spawnEntity(minecart);
         return minecart;
     }

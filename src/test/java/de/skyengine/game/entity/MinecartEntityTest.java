@@ -44,6 +44,24 @@ final class MinecartEntityTest {
     }
 
     @Test
+    void freshlyPlacedCartAlignsWithStraightRailAndCurve() {
+        TestWorld world = new TestWorld();
+        MinecartEntity cart = new MinecartEntity();
+
+        BlockState normalRail = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState();
+        world.put(0, 64, 0, normalRail
+                .with(Properties.RAIL_SHAPE, RailShape.EAST_WEST));
+        cart.setPosition(0.5, 64.0625, 0.5);
+        cart.alignToRail(world);
+        assertEquals(90, cart.yaw, 1.0E-6);
+
+        world.put(0, 64, 0, normalRail
+                .with(Properties.RAIL_SHAPE, RailShape.SOUTH_EAST));
+        cart.alignToRail(world);
+        assertEquals(45, cart.yaw, 1.0E-6);
+    }
+
+    @Test
     void playerCanMountAndIsCarriedByCart() {
         MinecartEntity cart = new MinecartEntity();
         cart.setPosition(2.5, 64.0625, 3.5);

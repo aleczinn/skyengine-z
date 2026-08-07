@@ -29,6 +29,23 @@ public final class MinecartEntity extends Entity {
         this.setSize(0.98F, 0.7F);
     }
 
+    /**
+     * Richtet ein frisch erzeugtes, noch stehendes Minecart an der lokalen Schienentangente aus.
+     * Die normale Tick-Rotation benutzt die Bewegung; ohne diesen Initialwert behielt ein neu
+     * platziertes Cart bis zum ersten Anrollen den Entity-Default und stand quer auf Ost-West-
+     * Schienen beziehungsweise gerade in Kurven.
+     */
+    public void alignToRail(World world) {
+        RailPosition rail = this.findRail(world);
+        if (rail == null) return;
+        Segment segment = segment(rail.x, rail.y, rail.z, RailBehavior.shape(rail.state));
+        double dx = segment.x1 - segment.x0;
+        double dy = segment.y1 - segment.y0;
+        double dz = segment.z1 - segment.z0;
+        this.yaw = (float) Math.toDegrees(Math.atan2(dx, -dz));
+        this.pitch = (float) Math.toDegrees(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)));
+    }
+
     @Override
     public boolean isCollidable() {
         return true;
