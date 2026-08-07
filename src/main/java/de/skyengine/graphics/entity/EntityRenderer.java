@@ -199,12 +199,13 @@ public final class EntityRenderer {
             this.drawItemFrame(frame, ox, oy, oz);
         } else if (e instanceof MinecartEntity minecart) {
             this.model.translation(ox, oy, oz)
-                    .rotateY((float) Math.toRadians(-minecart.yaw))
-                    .rotateX((float) Math.toRadians(minecart.pitch));
+                    /* Das Vanilla-Modell zeigt lokal entlang +X; yaw=0 zeigt in der Engine -Z. */
+                    .rotateY((float) Math.toRadians(90 - minecart.yaw))
+                    .rotateZ((float) Math.toRadians(minecart.pitch));
             float hurt = Math.max(0, minecart.getHurtTime() - partialTick);
             float damage = Math.max(0, minecart.getDamage() - partialTick);
             if (hurt > 0) {
-                this.model.rotateX((float) Math.toRadians(
+                this.model.rotateZ((float) Math.toRadians(
                         Math.sin(hurt) * hurt * damage / 10.0 * minecart.getHurtDirection()));
             }
             this.shader.setUniformMatrix4f(this.locModel, this.model);
@@ -310,7 +311,7 @@ public final class EntityRenderer {
         int[] cursor = {0};
         minecartCube(data, cursor, -10,-8,-1, 20,16,2, 0,10, 0,4,0, 90,0);
         minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, -9,4,0, 0,90);
-        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 9,4,0, 0,90);
+        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 9,4,0, 0,-90);
         minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 0,4,-7, 0,180);
         minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 0,4,7, 0,0);
         return data;
