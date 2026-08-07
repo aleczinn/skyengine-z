@@ -1321,9 +1321,13 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.itemFrameHit != null
                 && this.itemFrameHit.interact(this.world, held,
                 this.player.getGamemode() == Gamemode.CREATIVE)) return true;
-        if (held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket)) return true;
-
-        if (this.hit == null) return false;
+        /* Ein leerer Eimer kann eine Fluid-Quelle treffen, obwohl der normale Blockstrahl keinen
+           Treffer hat. Bei einem Blocktreffer kommt er dagegen erst NACH dessen Interaktion:
+           Container öffnen sich in Vanilla mit einem Eimer in der Hand, außer Secondary Use ist
+           aktiv. */
+        if (this.hit == null) {
+            return held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket);
+        }
 
         if (held.getItem() instanceof MinecartItem && this.tryPlaceMinecart()) return true;
 
@@ -1352,6 +1356,8 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!placingWhileSneaking && this.tryOpenChest()) return true;
         if (!placingWhileSneaking && this.tryOpenHopper()) return true;
         if (!placingWhileSneaking && this.tryOpenDispenser()) return true;
+
+        if (held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket)) return true;
 
         if (held.getItem() instanceof ItemFrameItem && this.tryPlaceItemFrame()) return true;
 
