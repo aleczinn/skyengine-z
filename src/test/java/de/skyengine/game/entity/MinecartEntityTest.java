@@ -64,6 +64,33 @@ final class MinecartEntityTest {
     }
 
     @Test
+    void walkingPlayerPushesEmptyMinecartAway() {
+        MinecartEntity cart = new MinecartEntity();
+        cart.setPosition(0.5, 64, 0.5);
+        EntityPlayer player = new EntityPlayer();
+        player.setPosition(0.9, 64, 0.5);
+
+        cart.pushFrom(player);
+
+        assertTrue(cart.motionX < 0, "Minecart muss sich vom Spieler wegbewegen");
+        assertTrue(player.motionX > 0, "Spieler muss den entgegengesetzten Kontaktimpuls erhalten");
+    }
+
+    @Test
+    void passengerDoesNotPushOwnMinecart() {
+        MinecartEntity cart = new MinecartEntity();
+        cart.setPosition(0.5, 64, 0.5);
+        EntityPlayer player = new EntityPlayer();
+        player.setPosition(0.9, 64, 0.5);
+        assertTrue(cart.interact(player));
+
+        cart.pushFrom(player);
+
+        assertEquals(0, cart.motionX, 1.0E-9);
+        assertEquals(0, cart.motionZ, 1.0E-9);
+    }
+
+    @Test
     void cartGainsHeightWhileClimbingAscendingRail() {
         TestWorld world = new TestWorld();
         BlockState slope = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()

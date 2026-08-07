@@ -201,6 +201,29 @@ public final class MinecartEntity extends Entity {
         return player.startRiding(this);
     }
 
+    /**
+     * Horizontaler Entity-Kontakt wie bei Vanillas Entity.push: Der Abstand wird normalisiert,
+     * bei sehr kleinem Abstand begrenzt und als kleiner Gegenimpuls auf beide Entities verteilt.
+     */
+    public void pushFrom(Entity other) {
+        if (other == null || other == this.getFirstPassenger()) return;
+        double dx = other.x - this.x;
+        double dz = other.z - this.z;
+        double largest = Math.max(Math.abs(dx), Math.abs(dz));
+        if (largest < 0.01) return;
+        largest = Math.sqrt(largest);
+        dx /= largest;
+        dz /= largest;
+        double distance = Math.sqrt(dx * dx + dz * dz);
+        if (distance < 1.0E-4) return;
+        dx = dx / distance * Math.min(1.0, 1.0 / distance) * 0.05;
+        dz = dz / distance * Math.min(1.0, 1.0 / distance) * 0.05;
+        this.motionX -= dx;
+        this.motionZ -= dz;
+        other.motionX += dx;
+        other.motionZ += dz;
+    }
+
     /** Vanilla-Damage-Akkumulator: Zerbruch oberhalb von 40 oder ein erzwungener Werkzeugtreffer. */
     public void attack(World world, boolean creative, boolean efficientTool) {
         this.hurtDirection = -this.hurtDirection;

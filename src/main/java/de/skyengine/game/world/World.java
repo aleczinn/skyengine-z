@@ -364,8 +364,20 @@ public class World implements IInitializable, IDisposable {
         this.processBlockEvents(); // Vanillas einziger runBlockEvents-Punkt, VOR der BE-Phase
         this.tickRandomBlocks();
         this.tickBlockEntities();
+        this.pushMinecartsByPlayer(player);
         this.tickEntities();
         this.simulationTelemetry.endTick();
+    }
+
+    /** Minecarts suchen in Vanilla vor ihrer Bewegung Entities in einer um 0,2 verbreiterten Box. */
+    private void pushMinecartsByPlayer(EntityPlayer player) {
+        this.forEachEntityNearby(player.x, player.z, 1, entity -> {
+            if (entity instanceof MinecartEntity minecart
+                    && minecart.getBoundingBox().copy().inflate(0.2, 0, 0.2)
+                    .intersects(player.getBoundingBox())) {
+                minecart.pushFrom(player);
+            }
+        });
     }
 
     /**
