@@ -956,6 +956,15 @@ public class World implements IInitializable, IDisposable {
         }
     }
 
+    /** Iteriert alle Entities in READY-Chunks; der Callback darf die Entity-Listen nicht verändern. */
+    public void forEachLoadedEntity(Consumer<Entity> action) {
+        for (Chunk chunk : this.chunksWithEntities) {
+            if (chunk.status != ChunkStatus.READY) continue;
+            List<Entity> entities = chunk.entities();
+            for (int i = 0; i < entities.size(); i++) action.accept(entities.get(i));
+        }
+    }
+
     /** true, wenn ein anderer lebender Rahmen dieselbe Hanging-Flaeche belegt. */
     public boolean hasOverlappingItemFrame(ItemFrameEntity frame) {
         final boolean[] found = {false};

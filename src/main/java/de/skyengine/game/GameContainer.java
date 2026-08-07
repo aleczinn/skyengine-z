@@ -80,6 +80,7 @@ import org.lwjgl.opengl.GL11;
 import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.graphics.world.ChunkBorderRenderer;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
+import de.skyengine.graphics.entity.EntityHitboxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -102,6 +103,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private World world;
     private SelectionBoxRenderer selectionBoxRenderer;
     private ChunkBorderRenderer chunkBorderRenderer;
+    private EntityHitboxRenderer entityHitboxRenderer;
     private CrackRenderer crackRenderer;
     private GuiManager guiManager;
 
@@ -223,6 +225,7 @@ public class GameContainer implements IResizeable, IDisposable {
            sterben bei der Rückkehr ins Hauptmenü (exitToTitle). */
         this.selectionBoxRenderer = new SelectionBoxRenderer();
         this.chunkBorderRenderer = new ChunkBorderRenderer();
+        this.entityHitboxRenderer = new EntityHitboxRenderer();
         this.crackRenderer = new CrackRenderer();
     }
 
@@ -250,6 +253,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
         this.selectionBoxRenderer.init();
         this.chunkBorderRenderer.init();
+        this.entityHitboxRenderer.init();
         this.crackRenderer.init(this.atlas.textures());
         this.blockEntityRenderers.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderers.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
@@ -794,6 +798,10 @@ public class GameContainer implements IResizeable, IDisposable {
                     ccx, ccz, DebugFlags.chunkBorders);
         }
 
+        if (DebugFlags.entityHitboxes) {
+            this.entityHitboxRenderer.render(this.camera, this.player, this.world, partialTick);
+        }
+
         this.renderFluidOverlay();
 
         /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Depth-Clear. */
@@ -980,6 +988,7 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         this.selectionBoxRenderer.dispose();
         if (this.chunkBorderRenderer != null) this.chunkBorderRenderer.dispose();
+        if (this.entityHitboxRenderer != null) this.entityHitboxRenderer.dispose();
         if (this.crackRenderer != null) this.crackRenderer.dispose();
         this.playerRenderer.dispose();
         this.heldItemMeshes.dispose();
@@ -1723,8 +1732,8 @@ public class GameContainer implements IResizeable, IDisposable {
         /* F3-Overlay + F3+X-Kombi-Gerüst (Minecraft-Stil): wurde während des Haltens eine Kombi
            benutzt, unterdrückt das den Overlay-Toggle beim Loslassen. Weitere F3+X hier ergänzen. */
         if (input.isKeyDown(GLFW.GLFW_KEY_F3) && !this.guiManager.isOpen()) {
-            if (input.isKeyPressed(GLFW.GLFW_KEY_H)) {
-                DebugFlags.entityHitboxes = !DebugFlags.entityHitboxes; // Rendering folgt später
+            if (input.isKeyPressed(GLFW.GLFW_KEY_B)) {
+                DebugFlags.entityHitboxes = !DebugFlags.entityHitboxes;
                 this.logger.debug("Entity-Hitboxen: " + (DebugFlags.entityHitboxes ? "an" : "aus"));
                 this.f3ComboUsed = true;
             }
