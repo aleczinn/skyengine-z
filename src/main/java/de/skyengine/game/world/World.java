@@ -298,7 +298,8 @@ public class World implements IInitializable, IDisposable {
                 double z = minecart.lastZ + (minecart.z - minecart.lastZ) * partialTick;
                 double speed = Math.sqrt(minecart.motionX * minecart.motionX
                         + minecart.motionZ * minecart.motionZ);
-                this.soundManager.updateMinecartSound(minecart, x, y, z, speed);
+                this.soundManager.updateMinecartSound(minecart, x, y, z, speed,
+                        this.player != null && this.player.getVehicle() == minecart);
             }
         }
         this.soundManager.endMinecartSounds();

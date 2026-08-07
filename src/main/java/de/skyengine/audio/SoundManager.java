@@ -130,9 +130,11 @@ public final class SoundManager implements IDisposable {
     private int[] pistonOutVariants; // piston/out.ogg (Ausfahren)
     private int[] pistonInVariants;  // piston/in.ogg (Einfahren)
     private int[] minecartVariants;   // minecart/base.ogg (fahrendes Minecart)
+    private int[] minecartInsideVariants; // minecart/inside.ogg (nur lokaler Insasse)
 
     /** Loop-Quellen werden über Entity-Identität geführt und nach jedem Sichtungsdurchlauf bereinigt. */
     private final IdentityHashMap<MinecartEntity, MinecartLoop> minecartLoops = new IdentityHashMap<>();
+    private final IdentityHashMap<MinecartEntity, MinecartLoop> minecartInsideLoops = new IdentityHashMap<>();
     private int minecartSoundFrame;
 
     /* Wiederverwendet fürs Listener-Update (keine Frame-Allokationen). */
@@ -212,12 +214,13 @@ public final class SoundManager implements IDisposable {
         this.pistonOutVariants = this.loadVariants("piston", "out");
         this.pistonInVariants = this.loadVariants("piston", "in");
         this.minecartVariants = this.loadVariants("minecart", "base");
+        this.minecartInsideVariants = this.loadVariants("minecart", "inside");
         loaded += count(this.uiClickVariants) + count(this.hurtVariants) + count(this.fallSmallVariants)
                 + count(this.fallBigVariants) + count(this.eatVariants) + count(this.burpVariants)
                 + count(this.explosionVariants) + count(this.fuseVariants) + count(this.fizzVariants)
                 + count(this.igniteVariants) + count(this.pickupVariants)
                 + count(this.pistonOutVariants) + count(this.pistonInVariants)
-                + count(this.minecartVariants);
+                + count(this.minecartVariants) + count(this.minecartInsideVariants);
 
         /* Auf-/Zu-Sounds je Satz aus seinem eigenen Ordner; fehlt einer, bleibt nur er stumm. */
         for (BlockOpenSound sound : BlockOpenSound.values()) {
@@ -450,7 +453,7 @@ public final class SoundManager implements IDisposable {
      * Gain 0 gebunden, damit beim erneuten Anrollen kein Sound-Neustart klickt.
      */
     public void updateMinecartSound(MinecartEntity minecart, double x, double y, double z,
-                                    double horizontalSpeed) {
+                                    double horizontalSpeed, boolean localPlayerRiding) {
         if (!this.enabled || this.minecartVariants == null) return;
         MinecartLoop loop = this.minecartLoops.get(minecart);
         if (loop == null) {
@@ -474,12 +477,44 @@ public final class SoundManager implements IDisposable {
         AL10.alSource3f(loop.source, AL10.AL_POSITION, (float) x, (float) y, (float) z);
         int state = AL10.alGetSourcei(loop.source, AL10.AL_SOURCE_STATE);
         if (state == AL10.AL_STOPPED || state == AL10.AL_INITIAL) AL10.alSourcePlay(loop.source);
+
+        if (localPlayerRiding) this.updateMinecartInsideSound(minecart, horizontalSpeed);
+    }
+
+    /** Vanillas separater {@code entity.minecart.inside}-Loop direkt am Listener. */
+    private void updateMinecartInsideSound(MinecartEntity minecart, double horizontalSpeed) {
+        if (this.minecartInsideVariants == null) return;
+        MinecartLoop loop = this.minecartInsideLoops.get(minecart);
+        if (loop == null) {
+            int source = this.acquireSource();
+            if (source == -1) return;
+            AL10.alSourcei(source, AL10.AL_BUFFER, this.minecartInsideVariants[
+                    this.random.nextInt(this.minecartInsideVariants.length)]);
+            AL10.alSourcei(source, AL10.AL_LOOPING, AL10.AL_TRUE);
+            AL10.alSourcei(source, AL10.AL_SOURCE_RELATIVE, AL10.AL_TRUE);
+            AL10.alSource3f(source, AL10.AL_POSITION, 0, 0, 0);
+            AL10.alSourcef(source, AL10.AL_PITCH, 1.0F);
+            loop = new MinecartLoop(source);
+            this.minecartInsideLoops.put(minecart, loop);
+            AL10.alSourcePlay(source);
+        }
+        loop.seenFrame = this.minecartSoundFrame;
+        float volume = (float) (Math.clamp(horizontalSpeed, 0.0, 1.0) * 0.75);
+        AL10.alSourcef(loop.source, AL10.AL_GAIN,
+                volume * this.categoryGains[SoundCategory.BLOCKS.ordinal()]);
+        int state = AL10.alGetSourcei(loop.source, AL10.AL_SOURCE_STATE);
+        if (state == AL10.AL_STOPPED || state == AL10.AL_INITIAL) AL10.alSourcePlay(loop.source);
     }
 
     /** Stoppt Loops von zerstörten Minecarts und solchen aus inzwischen entladenen Chunks. */
     public void endMinecartSounds() {
         if (!this.enabled) return;
-        Iterator<MinecartLoop> loops = this.minecartLoops.values().iterator();
+        this.removeUnseenMinecartLoops(this.minecartLoops);
+        this.removeUnseenMinecartLoops(this.minecartInsideLoops);
+    }
+
+    private void removeUnseenMinecartLoops(IdentityHashMap<MinecartEntity, MinecartLoop> active) {
+        Iterator<MinecartLoop> loops = active.values().iterator();
         while (loops.hasNext()) {
             MinecartLoop loop = loops.next();
             if (loop.seenFrame == this.minecartSoundFrame) continue;
@@ -492,7 +527,9 @@ public final class SoundManager implements IDisposable {
     public void stopMinecartSounds() {
         if (!this.enabled) return;
         for (MinecartLoop loop : this.minecartLoops.values()) this.releaseMinecartLoop(loop);
+        for (MinecartLoop loop : this.minecartInsideLoops.values()) this.releaseMinecartLoop(loop);
         this.minecartLoops.clear();
+        this.minecartInsideLoops.clear();
     }
 
     private void releaseMinecartLoop(MinecartLoop loop) {
@@ -767,7 +804,7 @@ public final class SoundManager implements IDisposable {
         for (int[] loose : new int[][]{this.uiClickVariants, this.hurtVariants, this.fallSmallVariants,
                 this.fallBigVariants, this.eatVariants, this.burpVariants, this.explosionVariants,
                 this.fuseVariants, this.fizzVariants, this.pickupVariants, this.pistonOutVariants,
-                this.pistonInVariants, this.minecartVariants}) {
+                this.pistonInVariants, this.minecartVariants, this.minecartInsideVariants}) {
             if (loose != null) unique.add(loose);
         }
         for (int[] variants : unique) {
