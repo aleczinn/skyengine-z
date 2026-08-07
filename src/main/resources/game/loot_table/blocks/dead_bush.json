@@ -1,0 +1,45 @@
+{
+  "type": "skyengine:block",
+  "pools": [
+    {
+      "entries": [
+        {
+          "type": "skyengine:alternatives",
+          "children": [
+            {
+              "type": "skyengine:item",
+              "conditions": [
+                {
+                  "condition": "skyengine:match_tool",
+                  "predicate": {
+                    "items": "skyengine:shears"
+                  }
+                }
+              ],
+              "name": "skyengine:dead_bush"
+            },
+            {
+              "type": "skyengine:item",
+              "functions": [
+                {
+                  "count": {
+                    "type": "skyengine:uniform",
+                    "max": 2.0,
+                    "min": 0.0
+                  },
+                  "function": "skyengine:set_count"
+                },
+                {
+                  "function": "skyengine:explosion_decay"
+                }
+              ],
+              "name": "skyengine:stick"
+            }
+          ]
+        }
+      ],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "skyengine:blocks/dead_bush"
+}

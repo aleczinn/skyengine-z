@@ -1,0 +1,51 @@
+{
+  "type": "skyengine:block",
+  "pools": [
+    {
+      "entries": [
+        {
+          "type": "skyengine:alternatives",
+          "children": [
+            {
+              "type": "skyengine:item",
+              "conditions": [
+                {
+                  "condition": "skyengine:match_tool",
+                  "predicate": {
+                    "predicates": {
+                      "skyengine:enchantments": [
+                        {
+                          "enchantments": "skyengine:silk_touch",
+                          "levels": {
+                            "min": 1
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "name": "skyengine:gold_ore"
+            },
+            {
+              "type": "skyengine:item",
+              "functions": [
+                {
+                  "enchantment": "skyengine:fortune",
+                  "formula": "skyengine:ore_drops",
+                  "function": "skyengine:apply_bonus"
+                },
+                {
+                  "function": "skyengine:explosion_decay"
+                }
+              ],
+              "name": "skyengine:raw_gold"
+            }
+          ]
+        }
+      ],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "skyengine:blocks/gold_ore"
+}

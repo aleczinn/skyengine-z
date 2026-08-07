@@ -10,6 +10,8 @@ import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.loot.LootContext;
+import de.skyengine.game.world.loot.LootSink;
 import de.skyengine.game.world.redstone.RedstonePower;
 
 /**
@@ -69,15 +71,17 @@ public final class HopperBehavior implements BlockBehavior {
 
     /** Beim Abbauen fällt der Inhalt heraus (dasselbe Muster wie die Truhe). */
     @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
-        BlockEntity be = world.getBlockEntity(x, y, z);
+    public void appendDrops(LootContext context,
+                            LootSink sink) {
+        World world = context.world();
+        BlockEntity be = world.getBlockEntity(context.x(), context.y(), context.z());
         if (!(be instanceof HopperBlockEntity hopper)) return;
         ItemStorage inventory = hopper.getInventory();
         for (int slot = 0; slot < inventory.size(); slot++) {
             ItemStack stack = inventory.get(slot);
             if (stack.isEmpty()) continue;
             inventory.set(slot, ItemStack.EMPTY);
-            world.spawnItem(x + 0.5, y + 0.5, z + 0.5, stack);
+            sink.accept(stack, context.x(), context.y(), context.z());
         }
     }
 }

@@ -3,6 +3,9 @@ package de.skyengine.game.world.item;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.DataTag;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
  * Ein Stapel: {@link Item} + Anzahl. {@link #EMPTY} repräsentiert „nichts" (leerer Slot).
  * Bewusst schlicht (kein NBT pro Stack) - reicht für Truhe/Ofen; erweiterbar.
@@ -15,6 +18,8 @@ public final class ItemStack {
     private int count;
     /** Abnutzung (Tools): 0 = neu; erreicht sie die Tier-Haltbarkeit, zerbricht das Tool. */
     private int damage;
+    /** Nur bei verzauberten Stacks alloziert; Schlüssel sind stabile Registry-IDs. */
+    private Map<Identifier, Integer> enchantments;
 
     public ItemStack(Item item, int count) {
         this.item = item;
@@ -48,7 +53,8 @@ public final class ItemStack {
 
     /** true, wenn beide denselben Item-Typ tragen (stapelbar). */
     public boolean canStackWith(ItemStack other) {
-        return !this.isEmpty() && !other.isEmpty() && this.item == other.item;
+        return !this.isEmpty() && !other.isEmpty() && this.item == other.item
+                && this.damage == other.damage && java.util.Objects.equals(this.enchantments, other.enchantments);
     }
 
     public int getDamage() {
@@ -59,10 +65,34 @@ public final class ItemStack {
         this.damage = Math.max(0, damage);
     }
 
+    public int getEnchantmentLevel(Enchantment enchantment) {
+        return this.enchantments == null ? 0 : this.enchantments.getOrDefault(enchantment.id(), 0);
+    }
+
+    public int getEnchantmentLevel(Identifier id) {
+        Enchantment enchantment = Enchantments.get(id);
+        return enchantment == null ? 0 : getEnchantmentLevel(enchantment);
+    }
+
+    public void setEnchantment(Enchantment enchantment, int level) {
+        if (this.isEmpty()) return;
+        int clamped = Math.max(0, Math.min(level, enchantment.maxLevel()));
+        if (clamped == 0) {
+            if (this.enchantments != null) {
+                this.enchantments.remove(enchantment.id());
+                if (this.enchantments.isEmpty()) this.enchantments = null;
+            }
+            return;
+        }
+        if (this.enchantments == null) this.enchantments = new LinkedHashMap<>(2);
+        this.enchantments.put(enchantment.id(), clamped);
+    }
+
     public ItemStack copy() {
         if (this.isEmpty()) return EMPTY;
         ItemStack copy = new ItemStack(this.item, this.count);
         copy.damage = this.damage;
+        if (this.enchantments != null) copy.enchantments = new LinkedHashMap<>(this.enchantments);
         return copy;
     }
 
@@ -87,6 +117,13 @@ public final class ItemStack {
             tag.putString("id", this.item.getId().toString());
             tag.putInt("count", this.count);
             if (this.damage > 0) tag.putInt("damage", this.damage);
+            if (this.enchantments != null) {
+                DataTag enchantmentTag = new DataTag();
+                for (Map.Entry<Identifier, Integer> entry : this.enchantments.entrySet()) {
+                    enchantmentTag.putInt(entry.getKey().toString(), entry.getValue());
+                }
+                tag.putTag("enchantments", enchantmentTag);
+            }
         }
         return tag;
     }
@@ -99,6 +136,14 @@ public final class ItemStack {
         if (item == null) return EMPTY;
         ItemStack stack = new ItemStack(item, tag.getInt("count", 1));
         stack.damage = tag.getInt("damage", 0);
+        DataTag enchantmentTag = tag.getTag("enchantments");
+        if (enchantmentTag != null) {
+            for (Map.Entry<String, Object> entry : enchantmentTag.raw().entrySet()) {
+                if (!(entry.getValue() instanceof Number number)) continue;
+                Enchantment enchantment = Enchantments.get(Identifier.of(entry.getKey()));
+                if (enchantment != null) stack.setEnchantment(enchantment, number.intValue());
+            }
+        }
         return stack;
     }
 

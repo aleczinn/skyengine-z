@@ -1,0 +1,33 @@
+{
+  "type": "skyengine:block",
+  "pools": [
+    {
+      "entries": [
+        {
+          "type": "skyengine:item",
+          "functions": [
+            {
+              "conditions": [
+                {
+                  "block": "skyengine:spruce_slab",
+                  "condition": "skyengine:block_state_property",
+                  "properties": {
+                    "type": "double"
+                  }
+                }
+              ],
+              "count": 2.0,
+              "function": "skyengine:set_count"
+            },
+            {
+              "function": "skyengine:explosion_decay"
+            }
+          ],
+          "name": "skyengine:spruce_slab"
+        }
+      ],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "skyengine:blocks/spruce_slab"
+}

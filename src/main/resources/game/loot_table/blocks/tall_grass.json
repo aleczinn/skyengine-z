@@ -1,0 +1,130 @@
+{
+  "type": "skyengine:block",
+  "pools": [
+    {
+      "conditions": [
+        {
+          "block": "skyengine:tall_grass",
+          "condition": "skyengine:block_state_property",
+          "properties": {
+            "half": "lower"
+          }
+        },
+        {
+          "condition": "skyengine:location_check",
+          "offsetY": 1,
+          "predicate": {
+            "block": {
+              "blocks": "skyengine:tall_grass",
+              "state": {
+                "half": "upper"
+              }
+            }
+          }
+        }
+      ],
+      "entries": [
+        {
+          "type": "skyengine:alternatives",
+          "children": [
+            {
+              "type": "skyengine:item",
+              "conditions": [
+                {
+                  "condition": "skyengine:match_tool",
+                  "predicate": {
+                    "items": "skyengine:shears"
+                  }
+                }
+              ],
+              "functions": [
+                {
+                  "count": 2.0,
+                  "function": "skyengine:set_count"
+                }
+              ],
+              "name": "skyengine:short_grass"
+            },
+            {
+              "type": "skyengine:item",
+              "conditions": [
+                {
+                  "condition": "skyengine:survives_explosion"
+                },
+                {
+                  "chance": 0.125,
+                  "condition": "skyengine:random_chance"
+                }
+              ],
+              "name": "skyengine:wheat_seeds"
+            }
+          ]
+        }
+      ],
+      "rolls": 1.0
+    },
+    {
+      "conditions": [
+        {
+          "block": "skyengine:tall_grass",
+          "condition": "skyengine:block_state_property",
+          "properties": {
+            "half": "upper"
+          }
+        },
+        {
+          "condition": "skyengine:location_check",
+          "offsetY": -1,
+          "predicate": {
+            "block": {
+              "blocks": "skyengine:tall_grass",
+              "state": {
+                "half": "lower"
+              }
+            }
+          }
+        }
+      ],
+      "entries": [
+        {
+          "type": "skyengine:alternatives",
+          "children": [
+            {
+              "type": "skyengine:item",
+              "conditions": [
+                {
+                  "condition": "skyengine:match_tool",
+                  "predicate": {
+                    "items": "skyengine:shears"
+                  }
+                }
+              ],
+              "functions": [
+                {
+                  "count": 2.0,
+                  "function": "skyengine:set_count"
+                }
+              ],
+              "name": "skyengine:short_grass"
+            },
+            {
+              "type": "skyengine:item",
+              "conditions": [
+                {
+                  "condition": "skyengine:survives_explosion"
+                },
+                {
+                  "chance": 0.125,
+                  "condition": "skyengine:random_chance"
+                }
+              ],
+              "name": "skyengine:wheat_seeds"
+            }
+          ]
+        }
+      ],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "skyengine:blocks/tall_grass"
+}

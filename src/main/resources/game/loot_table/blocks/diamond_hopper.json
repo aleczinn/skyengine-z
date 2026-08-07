@@ -1,0 +1,20 @@
+{
+    "type":  "skyengine:block",
+    "pools":  [
+                  {
+                      "rolls":  1,
+                      "entries":  [
+                                      {
+                                          "type":  "skyengine:item",
+                                          "name":  "skyengine:diamond_hopper",
+                                          "conditions":  [
+                                                             {
+                                                                 "condition":  "skyengine:survives_explosion"
+                                                             }
+                                                         ]
+                                      }
+                                  ]
+                  }
+              ],
+    "random_sequence":  "skyengine:blocks/diamond_hopper"
+}

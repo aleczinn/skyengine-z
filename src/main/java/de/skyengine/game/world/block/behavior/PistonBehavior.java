@@ -12,6 +12,7 @@ import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
+import de.skyengine.game.world.loot.LootContext;
 import de.skyengine.game.world.redstone.RedstonePower;
 
 /**
@@ -240,9 +241,8 @@ public final class PistonBehavior implements BlockBehavior {
         for (long pos : result.destroys()) {
             int dx = BlockPos.unpackX(pos), dy = BlockPos.unpackY(pos), dz = BlockPos.unpackZ(pos);
             BlockState broken = Blocks.getState(world.getBlock(dx, dy, dz));
+            world.dropBlockLoot(dx, dy, dz, broken, LootContext.Cause.PISTON);
             broken.getBlock().onBreak(world, dx, dy, dz, broken);
-            Item drop = Items.forBlock(broken.getBlock());
-            if (drop != null) world.spawnItem(dx + 0.5, dy + 0.5, dz + 0.5, new ItemStack(drop, 1));
         }
 
         /* Snapshot ALLER Quell-States VOR den Writes — bei verzweigten Slime-Strukturen

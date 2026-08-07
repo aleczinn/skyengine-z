@@ -1,0 +1,29 @@
+{
+  "type": "skyengine:block",
+  "pools": [
+    {
+      "conditions": [
+        {
+          "condition": "skyengine:survives_explosion"
+        }
+      ],
+      "entries": [
+        {
+          "type": "skyengine:item",
+          "conditions": [
+            {
+              "block": "skyengine:spruce_door",
+              "condition": "skyengine:block_state_property",
+              "properties": {
+                "half": "lower"
+              }
+            }
+          ],
+          "name": "skyengine:spruce_door"
+        }
+      ],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "skyengine:blocks/spruce_door"
+}

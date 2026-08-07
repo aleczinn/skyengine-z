@@ -14,6 +14,7 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
+import de.skyengine.game.world.loot.LootContext;
 import de.skyengine.utils.collect.LongIntMap;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -357,41 +358,37 @@ public final class Explosion {
      * droppt jeder Block sich selbst, genau wie im normalen Abbaupfad.
      */
     private static void applyBlast(World world, LongIntMap toBlow, ThreadLocalRandom rnd, float power) {
-        float dropChance = power > 1.0F ? 1.0F / power : 1.0F;
         long[] positions = new long[toBlow.size()];
         int count = 0;
         for (int i = 0, n = toBlow.tableSize(); i < n; i++) {
             if (!toBlow.usedAt(i)) continue;
             long pos = toBlow.keyAt(i);
             positions[count++] = pos;
-
-            BlockState state = Blocks.getState(toBlow.valueAt(i));
+        }
+        for (int i = count - 1; i > 0; i--) {
+            int other = world.random().nextInt(i + 1);
+            long swap = positions[i];
+            positions[i] = positions[other];
+            positions[other] = swap;
+        }
+        ExplosionDropCollector drops = new ExplosionDropCollector();
+        world.breakBlocksBatch(positions, count, (pos, state) -> {
             ExplosionBehavior explosive = state.getBlock().getBehavior(ExplosionBehavior.class);
             if (explosive != null) {
-                /* Getroffenes TNT als gestaffelte Primed-Entity zünden (randomisierter Kurz-Fuse,
-                   wie MC). Der Block selbst fällt mit in den Batch. */
                 int chainFuse = explosive.fuse() / 8 + rnd.nextInt(explosive.fuse() / 8 + 1);
                 world.spawnPrimedTnt(BlockPos.unpackX(pos) + 0.5, BlockPos.unpackY(pos),
                         BlockPos.unpackZ(pos) + 0.5, explosive.power(), chainFuse);
+                return;
             }
-        }
-        world.breakBlocksBatch(positions, count);
-
-        /* Drops erst NACH der Zerstörung, damit die Item-Entities nicht kurz in noch stehenden
-           Blöcken sitzen (Reihenfolge wie GameContainer.breakTargetBlock). Zellen, die
-           breakBlocksBatch an der Ladefront verworfen hat, droppen dabei trotzdem — seltener
-           Sonderfall, für den sich ein Rückkanal aus dem Batch nicht lohnt. */
-        for (int i = 0, n = toBlow.tableSize(); i < n; i++) {
-            if (!toBlow.usedAt(i)) continue;
-            if (rnd.nextFloat() >= dropChance) continue;
-            BlockState state = Blocks.getState(toBlow.valueAt(i));
-            if (state.getBlock().getBehavior(ExplosionBehavior.class) != null) continue;
-            Item drop = Items.forBlock(state.getBlock()); // löst auch places_block-Items auf (Staub)
-            if (drop == null) continue;
-            long pos = toBlow.keyAt(i);
-            world.spawnItem(BlockPos.unpackX(pos) + 0.5, BlockPos.unpackY(pos) + 0.5,
-                    BlockPos.unpackZ(pos) + 0.5, new ItemStack(drop, 1));
-        }
+            int x = BlockPos.unpackX(pos), y = BlockPos.unpackY(pos), z = BlockPos.unpackZ(pos);
+            var context = new LootContext(world, x, y, z, state,
+                    ItemStack.EMPTY, LootContext.Cause.EXPLOSION,
+                    world.tntExplosionDropDecay() ? power : 0.0F, world.random());
+            long canonical = state.getBlock().canonicalLootPosition(context);
+            if (canonical != pos && toBlow.containsKey(canonical)) return;
+            state.getBlock().appendDrops(context, drops);
+        });
+        drops.spawn(world);
     }
 
     /** Explosions-Widerstand je State-ID, lazy gewachsen (Muster ChunkMesher.opaqueById). */

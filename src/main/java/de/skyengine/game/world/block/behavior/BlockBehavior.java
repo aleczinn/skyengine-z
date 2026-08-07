@@ -3,6 +3,8 @@ package de.skyengine.game.world.block.behavior;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.loot.LootContext;
+import de.skyengine.game.world.loot.LootSink;
 
 /**
  * Komponierbares Block-Verhalten (Komposition statt Vererbung). Ein Block kombiniert
@@ -84,16 +86,14 @@ public interface BlockBehavior {
                            BlockState oldState, BlockState newState) {
     }
 
-    /**
-     * Ersetzt beim Spieler-Abbau das Standard-Drop-Item ({@code Items.forBlock}) — z.B. droppt
-     * der Kolben-Kopf das Item seiner Basis. Wird VOR {@link #onBreak} abgefragt (BlockEntity
-     * noch lesbar) und läuft ausschließlich über den Gamemode-geprüften Pfad im GameContainer;
-     * Behaviors dürfen Block-Drops deshalb NIE selbst spawnen ({@code onBreak} kennt keinen
-     * Gamemode — Creative würde droppen). null = Standard-Drop.
-     */
-    default de.skyengine.game.world.item.ItemStack getDropOverride(World world, int x, int y, int z,
-                                                                   BlockState state) {
-        return null;
+    /** Ergänzt dynamische Drops (Inventarinhalte, Kolbenbasis) zur statischen Loot-Tabelle. */
+    default void appendDrops(LootContext context,
+                             LootSink sink) {
+    }
+
+    /** Kanonischer Drop-Ursprung für Batch-Zerstörung; Standard ist die aktuelle Zelle. */
+    default long canonicalLootPosition(LootContext context) {
+        return de.skyengine.game.world.block.BlockPos.asLong(context.x(), context.y(), context.z());
     }
 
     /**

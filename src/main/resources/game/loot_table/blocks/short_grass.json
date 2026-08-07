@@ -1,0 +1,51 @@
+{
+  "type": "skyengine:block",
+  "pools": [
+    {
+      "entries": [
+        {
+          "type": "skyengine:alternatives",
+          "children": [
+            {
+              "type": "skyengine:item",
+              "conditions": [
+                {
+                  "condition": "skyengine:match_tool",
+                  "predicate": {
+                    "items": "skyengine:shears"
+                  }
+                }
+              ],
+              "name": "skyengine:short_grass"
+            },
+            {
+              "type": "skyengine:item",
+              "conditions": [
+                {
+                  "chance": 0.125,
+                  "condition": "skyengine:random_chance"
+                }
+              ],
+              "functions": [
+                {
+                  "enchantment": "skyengine:fortune",
+                  "formula": "skyengine:uniform_bonus_count",
+                  "function": "skyengine:apply_bonus",
+                  "parameters": {
+                    "bonusMultiplier": 2
+                  }
+                },
+                {
+                  "function": "skyengine:explosion_decay"
+                }
+              ],
+              "name": "skyengine:wheat_seeds"
+            }
+          ]
+        }
+      ],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "skyengine:blocks/short_grass"
+}

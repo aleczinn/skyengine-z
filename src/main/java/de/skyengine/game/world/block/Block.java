@@ -10,6 +10,9 @@ import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.loot.LootContext;
+import de.skyengine.game.world.loot.LootSink;
+import de.skyengine.game.world.loot.LootTables;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.Property;
 
@@ -406,14 +409,20 @@ public class Block {
         }
     }
 
-    /** Drop-Ersatz beim Spieler-Abbau (s. {@code BlockBehavior.getDropOverride}); erster Treffer gewinnt. */
-    public de.skyengine.game.world.item.ItemStack getDropOverride(de.skyengine.game.world.World world,
-                                                                  int x, int y, int z, BlockState state) {
+    /** Wertet die kompilierte Tabelle aus und hängt danach Behavior-spezifische Drops an. */
+    public void appendDrops(LootContext context,
+                            LootSink sink) {
+        LootTables.generate(context, sink);
+        for (BlockBehavior behavior : this.config.behaviors()) behavior.appendDrops(context, sink);
+    }
+
+    public long canonicalLootPosition(LootContext context) {
+        long own = de.skyengine.game.world.block.BlockPos.asLong(context.x(), context.y(), context.z());
         for (BlockBehavior behavior : this.config.behaviors()) {
-            de.skyengine.game.world.item.ItemStack drop = behavior.getDropOverride(world, x, y, z, state);
-            if (drop != null) return drop;
+            long candidate = behavior.canonicalLootPosition(context);
+            if (candidate != own) return candidate;
         }
-        return null;
+        return own;
     }
 
     /** Entity-BoundingBox überlappt die Zelle (aus {@code Entity.move}). Delegiert; Default: nichts. */

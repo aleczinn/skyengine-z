@@ -31,6 +31,7 @@ import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.ItemFrameItem;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.item.ToolItem;
+import de.skyengine.game.world.loot.LootContext;
 import de.skyengine.graphics.world.ChunkRenderer;
 import de.skyengine.graphics.world.CrackRenderer;
 import de.skyengine.core.i18n.I18n;
@@ -398,6 +399,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (level.generatorVersion == null) level.generatorVersion = AlphaWorldGeneratorV2.VERSION;
         level.player = null;
         level.inventory.clear();
+        this.world.saveLootRandomStates(level);
         WorldSaves.save(this.currentSave);
 
         DataTag tag = new DataTag();
@@ -1083,29 +1085,34 @@ public class GameContainer implements IResizeable, IDisposable {
     private void breakTargetBlock(BlockState broken, boolean applyDurability) {
         this.soundManager.playBreak(broken.getBlock().getSoundGroup(),
                 this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
-        /* Drop-Ersatz VOR onBreak/setBlock abfragen — solange Nachbar-States/BlockEntity lesbar sind. */
-        ItemStack overrideDrop = broken.getBlock().getDropOverride(this.world,
-                this.hit.x(), this.hit.y(), this.hit.z(), broken);
+        /* Loot VOR onBreak/setBlock auswerten — solange State und BlockEntity lesbar sind. */
+        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        java.util.ArrayList<ItemStack> drops = new java.util.ArrayList<>(2);
+        if (this.player.getGamemode().dropsItems() && isHarvestable(broken, held)) {
+            var context = new LootContext(this.world,
+                    this.hit.x(), this.hit.y(), this.hit.z(), broken, held,
+                    LootContext.Cause.PLAYER, 0.0F, this.world.random());
+            broken.getBlock().appendDrops(context, (stack, x, y, z) -> drops.add(stack));
+        }
         broken.getBlock().onBreak(this.world, this.hit.x(), this.hit.y(), this.hit.z(), broken);
         this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(), Blocks.AIR);
 
-        ItemStack held = this.playerInventory.get(this.hotbarIndex);
-        /* Drops nur im Survival UND nur, wenn Tool-Klasse + Tier passen. */
-        if (this.player.getGamemode().dropsItems() && isHarvestable(broken, held)) {
-            if (overrideDrop != null) {
-                this.world.spawnItem(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5, overrideDrop);
-            } else {
-                Item drop = Items.forBlock(broken.getBlock()); // löst auch places_block-Items auf (Staub)
-                if (drop != null) {
-                    this.world.spawnItem(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5, new ItemStack(drop, 1));
-                }
-            }
-        }
+        for (ItemStack drop : drops) this.world.spawnItem(this.hit.x() + 0.5,
+                this.hit.y() + 0.5, this.hit.z() + 0.5, drop);
 
         /* Tool-Abnutzung (nur Survival bei Härte > 0): zerbricht bei erreichter Haltbarkeit. */
         if (applyDurability && held.getItem() instanceof ToolItem tool) {
             held.setDamage(held.getDamage() + 1);
             if (held.getDamage() >= tool.getTier().durability()) {
+                this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
+            }
+        } else if (applyDurability && held.getItem() instanceof de.skyengine.game.world.item.ShearsItem
+                && (broken.isLeaves() || broken.getBlock().getIdentifier().path().equals("short_grass")
+                || broken.getBlock().getIdentifier().path().equals("fern")
+                || broken.getBlock().getIdentifier().path().equals("tall_grass")
+                || broken.getBlock().getIdentifier().path().equals("dead_bush"))) {
+            held.setDamage(held.getDamage() + 1);
+            if (held.getDamage() >= de.skyengine.game.world.item.ShearsItem.DURABILITY) {
                 this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
             }
         }

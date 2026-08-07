@@ -1,0 +1,60 @@
+{
+  "type": "skyengine:block",
+  "pools": [
+    {
+      "entries": [
+        {
+          "type": "skyengine:alternatives",
+          "children": [
+            {
+              "type": "skyengine:item",
+              "conditions": [
+                {
+                  "condition": "skyengine:match_tool",
+                  "predicate": {
+                    "predicates": {
+                      "skyengine:enchantments": [
+                        {
+                          "enchantments": "skyengine:silk_touch",
+                          "levels": {
+                            "min": 1
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "name": "skyengine:brown_mushroom_block"
+            },
+            {
+              "type": "skyengine:item",
+              "functions": [
+                {
+                  "count": {
+                    "type": "skyengine:uniform",
+                    "max": 2.0,
+                    "min": -6.0
+                  },
+                  "function": "skyengine:set_count"
+                },
+                {
+                  "function": "skyengine:limit_count",
+                  "limit": {
+                    "min": 0.0
+                  }
+                },
+                {
+                  "function": "skyengine:explosion_decay"
+                }
+              ],
+              "name": "skyengine:brown_mushroom"
+            }
+          ]
+        }
+      ],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "skyengine:blocks/brown_mushroom_block"
+}

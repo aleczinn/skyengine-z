@@ -11,6 +11,7 @@ import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
+import de.skyengine.game.world.loot.LootContext;
 
 /**
  * Fluss-Verhalten für Wasser/Lava (Minecraft-artig, vereinfacht). Arbeitet über geplante Ticks:
@@ -321,8 +322,7 @@ public final class FluidBehavior implements BlockBehavior {
 
     /** Droppt das Item des weggespülten Blocks (Pflanze, Staub), falls eines registriert ist. */
     private static void dropBlockItem(World world, int x, int y, int z, BlockState state) {
-        Item item = Items.forBlock(state.getBlock()); // löst auch places_block-Items auf (Staub)
-        if (item != null) world.spawnItem(x + 0.5, y + 0.5, z + 0.5, new ItemStack(item, 1));
+        world.dropBlockLoot(x, y, z, state, LootContext.Cause.FLUID);
     }
 
     private static int fluidState(Block fluid, int level, boolean falling) {

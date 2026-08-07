@@ -1,7 +1,9 @@
 package de.skyengine.game.world.save;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Welt-Metadaten für {@code saves/<ordner>/level.json} (GSON-DTO). Chunks liegen in
@@ -29,6 +31,11 @@ public final class LevelData {
     public PlayerData player;
     /** NUR noch Migration, s. {@link #player}. */
     public List<ItemEntry> inventory = new ArrayList<>();
+
+    /** Zustände der benannten Loot-Zufallsfolgen; leer/null bei älteren Welten. */
+    public Map<String, Long> lootRandomStates = new LinkedHashMap<>();
+    /** Vanilla-Gamerule; false/null ist der Standard der aktuellen Java Edition. */
+    public Boolean tntExplosionDropDecay;
 
     public static final class PlayerData {
         public double x, y, z;

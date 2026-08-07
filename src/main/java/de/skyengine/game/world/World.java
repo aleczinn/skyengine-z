@@ -35,6 +35,7 @@ import de.skyengine.game.world.generator.feature.trees.BiomeTreeFeature;
 import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
 import de.skyengine.game.world.generator.generators.VoidWorldGenerator;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.loot.LootContext;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.game.world.save.WorldStorage;
 import de.skyengine.utils.logging.LogManager;
@@ -149,6 +150,48 @@ public class World implements IInitializable, IDisposable {
     /** Vanillas ServerLevel#isHandlingTick; u. a. Teil der Sticky-Piston-Drop-Regel. */
     private boolean handlingTick;
     private final Random random = new Random();
+    /** Weltgebundener RNG für Drops und seltene Gameplay-Ereignisse; nur Tick-Thread. */
+    public Random random() { return this.random; }
+    private final java.util.Map<String, LootRandom> lootRandoms = new java.util.HashMap<>();
+    private final int lootSeed;
+    private boolean tntExplosionDropDecay;
+
+    /** Benannte, weltgebundene Zufallsfolge einer Loot-Tabelle. */
+    public Random lootRandom(String sequence) {
+        return this.lootRandoms.computeIfAbsent(sequence,
+                key -> new LootRandom((((long) this.lootSeed) << 32) ^ key.hashCode(), false));
+    }
+
+    public void saveLootRandomStates(LevelData level) {
+        if (level.lootRandomStates == null) level.lootRandomStates = new java.util.LinkedHashMap<>();
+        level.lootRandomStates.clear();
+        for (java.util.Map.Entry<String, LootRandom> entry : this.lootRandoms.entrySet()) {
+            level.lootRandomStates.put(entry.getKey(), entry.getValue().state());
+        }
+        level.tntExplosionDropDecay = this.tntExplosionDropDecay;
+    }
+
+    public boolean tntExplosionDropDecay() { return this.tntExplosionDropDecay; }
+    public void setTntExplosionDropDecay(boolean enabled) { this.tntExplosionDropDecay = enabled; }
+
+    /** Persistierbarer LCG ohne Synchronisation; Loot läuft ausschließlich im Tick-Thread. */
+    private static final class LootRandom extends Random {
+        private static final long MASK = (1L << 48) - 1;
+        private long state;
+
+        LootRandom(long seed, boolean rawState) {
+            super(0L);
+            this.state = rawState ? seed & MASK : (seed ^ 0x5DEECE66DL) & MASK;
+        }
+
+        @Override
+        protected int next(int bits) {
+            this.state = (this.state * 0x5DEECE66DL + 0xBL) & MASK;
+            return (int) (this.state >>> (48 - bits));
+        }
+
+        long state() { return this.state; }
+    }
     private final ScheduledTickQueue scheduledTicks = new ScheduledTickQueue();
     private final SimulationTelemetry simulationTelemetry = new SimulationTelemetry();
     /** Debug-Reload: vor dem Clear müssen ältere Saves fertig sein; danach warten neue Loads. */
@@ -187,6 +230,13 @@ public class World implements IInitializable, IDisposable {
         this.name = dirName;
         this.atlas = atlas;
         this.blockEntityRenderer = blockEntityRenderer;
+        this.lootSeed = level.seed;
+        this.tntExplosionDropDecay = Boolean.TRUE.equals(level.tntExplosionDropDecay);
+        if (level.lootRandomStates != null) {
+            for (java.util.Map.Entry<String, Long> entry : level.lootRandomStates.entrySet()) {
+                this.lootRandoms.put(entry.getKey(), new LootRandom(entry.getValue(), true));
+            }
+        }
 
         /* Generator nach worldType: importierte Welten (MC-Import) kommen komplett aus den
            Region-Dateien und bekommen den Void-Generator ohne Features. */
@@ -978,6 +1028,12 @@ public class World implements IInitializable, IDisposable {
         return this.isTickScheduled(x, y, z, expectedBlock);
     }
 
+    /** Einheitlicher Drop-Pfad für nicht vom Spieler verursachte Einzelblock-Zerstörung. */
+    public void dropBlockLoot(int x, int y, int z, BlockState state, LootContext.Cause cause) {
+        var context = new LootContext(this, x, y, z, state, ItemStack.EMPTY, cause, 0.0F, this.random);
+        state.getBlock().appendDrops(context, (stack, dropX, dropY, dropZ) -> spawnItem(dropX + 0.5, dropY + 0.5, dropZ + 0.5, stack));
+    }
+
     /** Tick-Abfrage fuer einen expliziten alten Blocktyp, insbesondere nach dessen Entfernung. */
     public boolean isTickScheduled(int x, int y, int z, Identifier expectedBlock) {
         return this.scheduledTicks.isScheduled(x, y, z, expectedBlock);
@@ -1540,6 +1596,16 @@ public class World implements IInitializable, IDisposable {
      * @param positions Welt-Positionen als {@link BlockPos#asLong}-Keys
      */
     public void breakBlocksBatch(long[] positions, int count) {
+        breakBlocksBatch(positions, count, null);
+    }
+
+    /** Empfänger für akzeptierte Batch-Zellen, solange State und BlockEntity existieren. */
+    @FunctionalInterface
+    public interface BatchBreakConsumer {
+        void accept(long position, BlockState state);
+    }
+
+    public void breakBlocksBatch(long[] positions, int count, BatchBreakConsumer beforeBreak) {
         de.skyengine.utils.collect.LongObjMap<BreakBatchGroup> groups =
                 new de.skyengine.utils.collect.LongObjMap<>(64);
 
@@ -1564,6 +1630,7 @@ public class World implements IInitializable, IDisposable {
             int oldId = group.chunk.getBlock(lx, y, lz);
             if (oldId == Blocks.AIR) continue;
             BlockState oldState = Blocks.getState(oldId);
+            if (beforeBreak != null) beforeBreak.accept(pos, oldState);
             if (oldState.getBlock().getBlockEntityType() != null) {
                 oldState.getBlock().onBreak(this, x, y, z, oldState);
             }
@@ -1874,7 +1941,11 @@ public class World implements IInitializable, IDisposable {
                onBreak-Hook laufen lassen wie beim Abbau durch den Spieler. Ohne das verlöre ein
                so entfernter Block mit BlockEntity still seinen Inhalt. Heute implementiert kein
                Behavior onBreak; die Reihenfolge schließt die Lücke, bevor das erste es tut. */
-            if (removed) current.getBlock().onBreak(this, x, y, z, current);
+            if (removed) {
+                this.dropBlockLoot(x, y, z, current,
+                        LootContext.Cause.SUPPORT);
+                current.getBlock().onBreak(this, x, y, z, current);
+            }
             if (this.setBlock(x, y, z, updated.getId(), removed) && !removed) {
                 updated.getBlock().onStateChangedByNeighborUpdate(
                         this, x, y, z, current, updated);

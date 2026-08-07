@@ -24,7 +24,7 @@ public class ItemDefinition {
 
     /* Block-Identifier, den ein Rechtsklick mit diesem Item platziert (Redstone-Staub:
        "skyengine:redstone_wire"). Der Block trägt dann "no_item": true — das Item hier
-       übernimmt Platzieren, Drop und Pick-Block (Items.forBlock). null = nicht platzierbar. */
+       übernimmt Platzieren und Pick-Block (Items.forBlock); Drops kommen aus Loot-Tabellen. */
     public String places_block;
 
     /* Creative-Tab(s): ein String ODER eine Liste von Strings. Vererbbar über die Presets; ein

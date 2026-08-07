@@ -132,7 +132,7 @@ public class BlockDefinition {
 
     /* true: KEIN Auto-BlockItem für diesen Block — ein Material-Item mit "places_block"
        übernimmt stattdessen (Redstone-Staub: das Item skyengine:redstone platziert den Block).
-       Achtung: die Drop-Pfade laufen über Items.forBlock, das places_block rückwärts auflöst. */
+       Pick-Block läuft über Items.forBlock; Drops werden separat durch Loot-Tabellen bestimmt. */
     public boolean no_item = false;
 
     /* Kolben-Reaktion: "normal" (schiebbar, Default), "destroy" (zerbricht mit Drop —
