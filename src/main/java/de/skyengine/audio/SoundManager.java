@@ -58,6 +58,10 @@ public final class SoundManager implements IDisposable {
     private static final float COMPARATOR_CLICK_GAIN = 0.3F;
     private static final float COMPARATOR_SUBTRACT_PITCH = 0.55F;
     private static final float COMPARATOR_COMPARE_PITCH = 0.5F;
+    /* block.lever.click: Gain 0,3; eingeschaltet 0,6, ausgeschaltet 0,5. */
+    private static final float LEVER_CLICK_GAIN = 0.3F;
+    private static final float LEVER_ON_PITCH = 0.6F;
+    private static final float LEVER_OFF_PITCH = 0.5F;
     /* Spieler-Sounds (Hurt/Aufprall/Essen) — nicht-positional am Listener, Kanal PLAYER. */
     private static final float HURT_GAIN = 1.0F;
     private static final float FALL_GAIN = 0.5F;
@@ -98,7 +102,7 @@ public final class SoundManager implements IDisposable {
     private final Random random = new Random();
 
     /* Lose Effekt-Sounds ohne BlockSoundGroup (null, solange die Dateien fehlen -> No-Op). */
-    /* random/click.ogg wird von UI-Buttons und Vanillas Comparator-Klick geteilt. */
+    /* random/click.ogg wird von UI-Buttons, Comparator und Hebel geteilt. */
     private int[] uiClickVariants;
     private int[] hurtVariants;      // damage/hit1..3
     private int[] fallSmallVariants; // damage/fallsmall.ogg
@@ -307,6 +311,16 @@ public final class SoundManager implements IDisposable {
     public void playComparatorClick(boolean subtract, double x, double y, double z) {
         this.play(this.uiClickVariants, SoundCategory.BLOCKS, COMPARATOR_CLICK_GAIN,
                 subtract ? COMPARATOR_SUBTRACT_PITCH : COMPARATOR_COMPARE_PITCH,
+                false, true, x, y, z);
+    }
+
+    /**
+     * Hebel-Klick wie Vanilla {@code LeverBlock#pull}: positional im BLOCKS-Kanal und ohne
+     * Zufalls-Jitter. Der frisch eingeschaltete Zustand klingt mit 0,6 etwas hoeher als aus.
+     */
+    public void playLeverClick(boolean powered, double x, double y, double z) {
+        this.play(this.uiClickVariants, SoundCategory.BLOCKS, LEVER_CLICK_GAIN,
+                powered ? LEVER_ON_PITCH : LEVER_OFF_PITCH,
                 false, true, x, y, z);
     }
 
