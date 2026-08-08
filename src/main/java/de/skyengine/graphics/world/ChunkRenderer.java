@@ -3,7 +3,6 @@ package de.skyengine.graphics.world;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.core.EngineProperties;
 import de.skyengine.core.settings.GameSettings;
-import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
@@ -16,7 +15,6 @@ import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.camera.Camera;
-import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
@@ -270,7 +268,7 @@ public class ChunkRenderer {
     private int totalSections = 0;
 
     /* Gecachte Uniform-Locations des Chunk-Shaders (erspart Map-Lookups im Hot-Path) */
-    private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogColor,
+    private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogEnabled,
             locDetailFade, locDetailCamSnap, locMinLight, locBrightness;
 
     /* Grundhelligkeit bei Lichtlevel 0 (Minecraft-Niveau): eine unbeleuchtete Höhle ist nie
@@ -281,10 +279,10 @@ public class ChunkRenderer {
     private float lastMinLight = Float.NaN;
     private float lastBrightness = Float.NaN;
 
-    /* Zuletzt hochgeladene Fog-Werte: Upload nur bei Änderung (Settings/Clear-Color) —
+    /* Zuletzt hochgeladene Fog-Werte: Upload nur bei Änderung der Settings —
        die Werte sind pro Frame konstant, ein Re-Upload pro Pass wäre doppelt umsonst. */
     private float lastFogStart = Float.NaN, lastFogEnd = Float.NaN;
-    private float lastFogR = -1F, lastFogG = -1F, lastFogB = -1F;
+    private boolean lastFogEnabled;
 
     public ChunkRenderer(ChunkManager chunkManager) {
         this.chunkManager = chunkManager;
@@ -318,7 +316,7 @@ public class ChunkRenderer {
         this.locAlphaCutoff = this.shader.getUniformLocation("u_AlphaCutoff");
         this.locFogStart = this.shader.getUniformLocation("u_FogStart");
         this.locFogEnd = this.shader.getUniformLocation("u_FogEnd");
-        this.locFogColor = this.shader.getUniformLocation("u_FogColor");
+        this.locFogEnabled = this.shader.getUniformLocation("u_FogEnabled");
         this.locDetailFade = this.shader.getUniformLocation("u_DetailFade");
         this.locDetailCamSnap = this.shader.getUniformLocation("u_DetailCamSnap");
         this.locMinLight = this.shader.getUniformLocation("u_MinLight");
@@ -1447,22 +1445,18 @@ public class ChunkRenderer {
             fogStart = 1.0e30F;
             fogEnd = 2.0e30F;
         }
-        Color4 clear = SkyEngine.get().getConfig().getWindowClearColor();
-
-        /* Upload nur bei Änderung — die Werte hängen nur an Settings/Clear-Color, nicht an
+        /* Upload nur bei Änderung — die Werte hängen nur an Settings, nicht an
            der Kamera. Uniform-State bleibt im Programm erhalten. */
         if (fogStart == this.lastFogStart && fogEnd == this.lastFogEnd
-                && clear.red == this.lastFogR && clear.green == this.lastFogG && clear.blue == this.lastFogB) {
+                && settings.fog == this.lastFogEnabled) {
             return;
         }
         this.shader.setUniformf(this.locFogStart, fogStart);
         this.shader.setUniformf(this.locFogEnd, fogEnd);
-        this.shader.setUniformVector3f(this.locFogColor, clear.red, clear.green, clear.blue);
+        this.shader.setUniformf(this.locFogEnabled, settings.fog ? 1F : 0F);
         this.lastFogStart = fogStart;
         this.lastFogEnd = fogEnd;
-        this.lastFogR = clear.red;
-        this.lastFogG = clear.green;
-        this.lastFogB = clear.blue;
+        this.lastFogEnabled = settings.fog;
     }
 
     /**
@@ -1501,9 +1495,15 @@ public class ChunkRenderer {
      * @return 1.0 bei Fullbright (Regler AUS) und bei Lichtlevel 15
      */
     public static float lightFactor(int skyLevel, int blockLevel) {
+        return lightFactor(skyLevel, blockLevel, 1F);
+    }
+
+    public static float lightFactor(int skyLevel, int blockLevel, float skyIntensity) {
         int brightness = GameSettings.get().brightness;
         if (brightness <= 0) return 1.0F; // Fullbright
-        float f = Math.clamp(Math.max(skyLevel, blockLevel), 0, 15) / 15.0F;
+        float sky = Math.clamp(skyLevel, 0, 15) / 15.0F * Math.clamp(skyIntensity, 0F, 1F);
+        float block = Math.clamp(blockLevel, 0, 15) / 15.0F;
+        float f = Math.max(sky, block);
         float light = f / (4.0F - 3.0F * f);
         light = AMBIENT_LIGHT + (1.0F - AMBIENT_LIGHT) * light;
         float inv = 1.0F - light;
@@ -1887,9 +1887,16 @@ public class ChunkRenderer {
 
             uniform sampler2DArray u_Textures;
             uniform float u_AlphaCutoff;
-            uniform vec3 u_FogColor;
             uniform float u_FogStart;
             uniform float u_FogEnd;
+            uniform float u_FogEnabled;
+            layout(std140, binding = 1) uniform Environment {
+                vec4 u_SunDirection;
+                vec4 u_MoonDirection;
+                vec4 u_SkyLightColor;
+                vec4 u_EnvFogColor;
+                vec4 u_SkyTint;
+            };
             /* Grundhelligkeit bei Lichtlevel 0. 1.0 = Fullbright: dann ist das Ergebnis fuer
                JEDES v_light exakt 1.0, also bit-identisch zum Bild ohne Lichtsystem — deshalb
                braucht Fullbright weder Shader-Zweig noch Remesh. */
@@ -1908,7 +1915,9 @@ public class ChunkRenderer {
                 if (color.a < u_AlphaCutoff) discard;
                 /* Monochrom wie in Minecraft: der hellere der beiden Werte gewinnt. Erst DANACH
                    die Kurve — die Reihenfolge darunter bleibt unangetastet. */
-                float light = lightCurve(clamp(max(v_light.x, v_light.y), 0.0, 1.0));
+                float skyLight = v_light.x * u_SunDirection.w;
+                float blockLight = v_light.y;
+                float light = lightCurve(clamp(max(skyLight, blockLight), 0.0, 1.0));
                 /* Ambient-Boden ZUERST — er ist der Wert, den der Regler anheben soll. Stuende
                    die Kurve davor, bekaeme sie bei Lichtlevel 0 eine Null herein und gaebe eine
                    Null heraus (1 - 1^4 = 0): der Regler waere in der dunkelsten Hoehle exakt
@@ -1926,11 +1935,16 @@ public class ChunkRenderer {
                 /* Clamp gegen Attribut-EXTRApolation: kantenparallel gesehene Faces rastern als
                    degenerierte Sliver-Dreiecke, deren Interpolation die per-Vertex-AO-Farben
                    ueber 1.0 hinaus extrapoliert -> helle Funkel-Striche auf Augenhoehe. */
-                vec3 lit = color.rgb * clamp(v_color, 0.0, 1.0) * light;
+                float skyDominance = smoothstep(blockLight, blockLight + 0.05, skyLight);
+                vec3 lightTint = mix(vec3(1.0), u_SkyLightColor.rgb,
+                        skyDominance * (1.0 - u_MinLight));
+                vec3 lit = color.rgb * clamp(v_color, 0.0, 1.0) * light * lightTint;
                 /* Linearer Distanz-Fog Richtung Clear-Color: nimmt dem Horizont den Kontrast
                    (Sub-Pixel-Flimmern des Fernterrains) und versteckt die Far-Plane-Kante. */
-                float fog = clamp((v_viewDist - u_FogStart) / (u_FogEnd - u_FogStart), 0.0, 1.0);
-                fragColor = vec4(mix(lit, u_FogColor, fog), color.a);
+                float edgeFog = clamp((v_viewDist - u_FogStart) / (u_FogEnd - u_FogStart), 0.0, 1.0);
+                float aerialFog = (1.0 - exp(-u_EnvFogColor.w * v_viewDist)) * u_FogEnabled;
+                float fog = 1.0 - (1.0 - edgeFog) * (1.0 - aerialFog);
+                fragColor = vec4(mix(lit, u_EnvFogColor.rgb, fog), color.a);
             }
             """;
 

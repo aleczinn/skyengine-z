@@ -3,7 +3,6 @@ package de.skyengine.game.command;
 import de.skyengine.core.i18n.I18n;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -73,20 +72,12 @@ public final class CommandDispatcher {
         int firstSpace = body.indexOf(' ');
         String name = (firstSpace < 0 ? body : body.substring(0, firstSpace)).toLowerCase(Locale.ROOT);
         Command command = this.commands.get(name);
-        if (command == null || command.usage().isBlank()) return "";
-        if (firstSpace < 0) return " " + command.usage();
-
-        String argumentText = body.substring(firstSpace + 1);
-        boolean trailingSpace = argumentText.endsWith(" ");
-        int supplied = tokens(argumentText).size();
-        if (!trailingSpace && supplied > 0) supplied--;
-        String[] usage = command.usage().trim().split("\\s+");
-        /* Das aktuell getippte Argument belegt bereits seinen Platzhalter. Nach vollstaendigem
-           Argument (Leerzeichen am Ende) beginnt die Vorschau direkt beim naechsten. */
-        int next = trailingSpace ? supplied : supplied + (argumentText.isEmpty() ? 0 : 1);
-        if (next >= usage.length) return "";
-        String remaining = String.join(" ", Arrays.copyOfRange(usage, next, usage.length));
-        return trailingSpace || argumentText.isEmpty() ? remaining : " " + remaining;
+        if (command == null) return "";
+        String argumentText = firstSpace < 0 ? "" : body.substring(firstSpace + 1);
+        boolean trailingSpace = firstSpace >= 0 && input.endsWith(" ");
+        String remaining = command.usage(tokens(argumentText), trailingSpace);
+        if (remaining == null || remaining.isBlank()) return "";
+        return firstSpace >= 0 && trailingSpace ? remaining : " " + remaining;
     }
 
     private static List<String> tokens(String value) {

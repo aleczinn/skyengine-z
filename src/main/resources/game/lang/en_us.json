@@ -168,6 +168,19 @@
       "invalid_amount": "Invalid amount: %s",
       "inventory_full": "The inventory is full.",
       "success": "Added %d × %s to the inventory."
+    },
+    "time": {
+      "usage": "Usage: /time <set|add|query|speed>",
+      "set_usage": "Usage: /time set <clock|ticks|preset>",
+      "add_usage": "Usage: /time add <ticks|duration>",
+      "speed_usage": "Usage: /time speed <0–1000>",
+      "no_world": "No world is loaded.",
+      "invalid": "Invalid time: %s",
+      "invalid_speed": "Invalid time speed: %s",
+      "set_success": "Set time to %s (%d ticks).",
+      "add_success": "Added %.2f ticks. New time: %s.",
+      "speed_success": "Set time speed to %.2f.",
+      "query_success": "Time: %s (%d ticks), day %d, speed %.2f."
     }
   },
 

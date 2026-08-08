@@ -13,7 +13,6 @@ import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.RenderLayer;
-import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
@@ -179,7 +178,8 @@ public final class EntityRenderer {
         int ly = Math.clamp((int) Math.floor(e.y), 0, Chunk.HEIGHT - 1);
         int lz = (int) Math.floor(e.z) & ChunkSection.MASK;
         this.shader.setUniformf(this.locLight, ChunkRenderer.lightFactor(
-                chunk.light.get(lx, ly, lz), chunk.blockLight.get(lx, ly, lz)));
+                chunk.light.get(lx, ly, lz), chunk.blockLight.get(lx, ly, lz),
+                world.getEnvironmentState().skyIntensity));
 
         if (e instanceof FallingBlockEntity fb) {
             Mesh mesh = this.meshFor(fb.getBlockId());

@@ -30,6 +30,8 @@ import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.core.file.GameDirectory;
 import de.skyengine.game.world.debug.SimulationTelemetry;
 import de.skyengine.game.world.generator.WorldGenerator;
+import de.skyengine.game.world.environment.EnvironmentProfile;
+import de.skyengine.game.world.environment.EnvironmentState;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
 import de.skyengine.game.world.generator.feature.trees.BiomeTreeFeature;
@@ -59,6 +61,8 @@ import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.entity.EntityRenderer;
 import de.skyengine.graphics.world.ChunkRenderer;
+import de.skyengine.graphics.world.EnvironmentUbo;
+import de.skyengine.graphics.world.SkyRenderer;
 import de.skyengine.utils.collect.LongIntMap;
 import de.skyengine.utils.collect.LongObjMap;
 
@@ -88,6 +92,10 @@ public class World implements IInitializable, IDisposable {
     /* worldType "imported" — steuert u.a. die LOD-Datenquelle (Storage statt Generator). */
     private final boolean imported;
     private final ChunkRenderer chunkRenderer;
+    private final EnvironmentProfile environmentProfile = EnvironmentProfile.OVERWORLD;
+    private final EnvironmentState environmentState = new EnvironmentState();
+    private final EnvironmentUbo environmentUbo = new EnvironmentUbo();
+    private final SkyRenderer skyRenderer = new SkyRenderer(this.environmentProfile);
     /* Heightmap-LOD jenseits der Render-Distanz; erst in init() erzeugt (braucht gebackene Modelle) */
     private LodManager lodManager;
     /* Engine-Lebensdauer (GameContainer): Atlas + BlockEntity-Renderer überleben Welt-Austritte —
@@ -148,6 +156,9 @@ public class World implements IInitializable, IDisposable {
 
     /** Spielzeit in Ticks (20 TPS), bei jedem update() erhöht - Basis für geplante Ticks. */
     private long gameTime;
+    /** Unabhaengig von gameTime: darf per Command springen oder angehalten werden. */
+    private double dayTime;
+    private double dayTimeSpeed;
     /** Vanillas ServerLevel#isHandlingTick; u. a. Teil der Sticky-Piston-Drop-Regel. */
     private boolean handlingTick;
     private final Random random = new Random();
@@ -233,6 +244,9 @@ public class World implements IInitializable, IDisposable {
         this.blockEntityRenderer = blockEntityRenderer;
         this.lootSeed = level.seed;
         this.tntExplosionDropDecay = Boolean.TRUE.equals(level.tntExplosionDropDecay);
+        this.dayTime = level.dayTime != null && Double.isFinite(level.dayTime) ? level.dayTime : 0.0;
+        this.dayTimeSpeed = level.dayTimeSpeed != null && Double.isFinite(level.dayTimeSpeed)
+                ? Math.clamp(level.dayTimeSpeed, 0.0, 1000.0) : 1.0;
         if (level.lootRandomStates != null) {
             for (java.util.Map.Entry<String, Long> entry : level.lootRandomStates.entrySet()) {
                 this.lootRandoms.put(entry.getKey(), new LootRandom(entry.getValue(), true));
@@ -319,6 +333,8 @@ public class World implements IInitializable, IDisposable {
 
     @Override
     public void init() {
+        this.environmentUbo.create();
+        this.skyRenderer.init();
         this.chunkRenderer.init(this.atlas);
         /* LOD: abstrahierte Datenquelle + Block-Darstellung aus den gebackenen Modellen —
            erst nach dem Registry-Bake. Importierte Welten sampeln die Region-Snapshots
@@ -347,6 +363,7 @@ public class World implements IInitializable, IDisposable {
         this.simulationTelemetry.setEnabled(FrameProfiler.isEnabled());
         this.simulationTelemetry.beginTick();
         this.gameTime++;
+        this.dayTime += this.dayTimeSpeed;
         this.player = player;
         this.playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
@@ -1181,6 +1198,35 @@ public class World implements IInitializable, IDisposable {
         return this.gameTime;
     }
 
+    public double getDayTime() {
+        return this.dayTime;
+    }
+
+    public double getDayTime(float partialTick) {
+        return this.dayTime + partialTick * this.dayTimeSpeed;
+    }
+
+    public void setDayTime(double time) {
+        if (Double.isFinite(time)) this.dayTime = time;
+    }
+
+    public void addDayTime(double ticks) {
+        if (Double.isFinite(ticks)) this.dayTime += ticks;
+    }
+
+    public double getDayTimeSpeed() {
+        return this.dayTimeSpeed;
+    }
+
+    public void setDayTimeSpeed(double speed) {
+        if (Double.isFinite(speed)) this.dayTimeSpeed = Math.clamp(speed, 0.0, 1000.0);
+    }
+
+    public void saveTime(LevelData level) {
+        level.dayTime = this.dayTime;
+        level.dayTimeSpeed = this.dayTimeSpeed;
+    }
+
     /** true ausschließlich während des vollständigen Server-Weltticks. */
     public boolean isHandlingTick() {
         return this.handlingTick;
@@ -1370,9 +1416,16 @@ public class World implements IInitializable, IDisposable {
         FrameProfiler.cpuStop(FrameProfiler.Cpu.REMESH);
         /* Entities VOR dem Translucent-Pass (Vanilla-Reihenfolge): Wasser blendet über
            Items/BlockEntities, statt sie hinter sich unsichtbar zu machen. */
+        Biome cameraBiome = this.biomeAt((int) Math.floor(camera.getPosition().x),
+                (int) Math.floor(camera.getPosition().z));
+        this.environmentState.update(this.environmentProfile, cameraBiome.environment,
+                this.getDayTime(partialTick));
+        this.environmentUbo.update(this.environmentState);
         this.chunkRenderer.renderSolid(camera);
+        this.skyRenderer.render(camera, this.environmentState.dayFraction);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.BE);
-        this.blockEntityRenderer.render(this.chunkManager, this.lodManager, camera, partialTick);
+        this.blockEntityRenderer.render(this.chunkManager, this.lodManager, camera, partialTick,
+                this.environmentState.skyIntensity);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.BE);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.ENT);
         this.entityRenderer.render(this, this.chunksWithEntities, camera, partialTick);
@@ -1391,6 +1444,8 @@ public class World implements IInitializable, IDisposable {
            flushen (bis 10 s) und die Region-Handles schließen. */
         this.storage.close();
         this.entityRenderer.dispose();
+        this.skyRenderer.dispose();
+        this.environmentUbo.dispose();
         this.chunkRenderer.dispose();
         /* blockEntityRenderer + atlas NICHT disposen: Engine-Lebensdauer (GameContainer). */
     }
@@ -2366,6 +2421,10 @@ public class World implements IInitializable, IDisposable {
     /** Biom an Weltposition (pures Generator-Sampling) — z.B. fürs F3-Debug-Overlay. */
     public Biome biomeAt(int x, int z) {
         return this.generator.biomeAt(x, z);
+    }
+
+    public EnvironmentState getEnvironmentState() {
+        return this.environmentState;
     }
 
     public WorldGenerator getGenerator() {

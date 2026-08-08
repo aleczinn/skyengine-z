@@ -42,7 +42,6 @@ import de.skyengine.graphics.world.CrackRenderer;
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
-import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.graphics.DebugFlags;
@@ -420,6 +419,7 @@ public class GameContainer implements IResizeable, IDisposable {
         level.player = null;
         level.inventory.clear();
         this.world.saveLootRandomStates(level);
+        this.world.saveTime(level);
         WorldSaves.save(this.currentSave);
 
         DataTag tag = new DataTag();
@@ -861,7 +861,8 @@ public class GameContainer implements IResizeable, IDisposable {
                     float wx = dx == 0 ? 1F - fx : fx;
                     float light = ChunkRenderer.lightFactor(
                             this.world.getSkyLight(x0 + dx, y0 + dy, z0 + dz),
-                            this.world.getBlockLight(x0 + dx, y0 + dy, z0 + dz));
+                            this.world.getBlockLight(x0 + dx, y0 + dy, z0 + dz),
+                            this.world.getEnvironmentState().skyIntensity);
                     result += light * wx * wy * wz;
                 }
             }
@@ -1825,7 +1826,7 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private void openChat(String initial) {
-        this.guiManager.open(new GuiChat(this.chat, new CommandContext(this.playerInventory),
+        this.guiManager.open(new GuiChat(this.chat, new CommandContext(this.playerInventory, this.world),
                 this.chatHud, initial));
     }
 

@@ -176,6 +176,19 @@
       "invalid_amount": "Ungültige Anzahl: %s",
       "inventory_full": "Das Inventar ist voll.",
       "success": "%d × %s wurde dem Inventar hinzugefügt."
+    },
+    "time": {
+      "usage": "Verwendung: /time <set|add|query|speed>",
+      "set_usage": "Verwendung: /time set <Uhrzeit|Ticks|Preset>",
+      "add_usage": "Verwendung: /time add <Ticks|Dauer>",
+      "speed_usage": "Verwendung: /time speed <0–1000>",
+      "no_world": "Es ist keine Welt geladen.",
+      "invalid": "Ungültige Zeit: %s",
+      "invalid_speed": "Ungültiger Zeitfaktor: %s",
+      "set_success": "Zeit auf %s gesetzt (%d Ticks).",
+      "add_success": "%.2f Ticks addiert. Neue Zeit: %s.",
+      "speed_success": "Zeitfaktor auf %.2f gesetzt.",
+      "query_success": "Zeit: %s (%d Ticks), Tag %d, Faktor %.2f."
     }
   },
 

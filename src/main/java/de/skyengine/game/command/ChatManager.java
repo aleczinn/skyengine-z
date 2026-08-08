@@ -15,6 +15,7 @@ public final class ChatManager {
 
     public ChatManager() {
         this.register(new GiveCommand());
+        this.register(new TimeCommand());
     }
 
     /** Zentraler Erweiterungspunkt fuer spaetere Engine- oder Mod-Befehle. */
