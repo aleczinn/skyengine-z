@@ -30,13 +30,17 @@
         "sandstone", "chiseled_sandstone", "cut_sandstone",
         "red_sandstone", "chiseled_red_sandstone", "cut_red_sandstone",
         "bricks", "mud_bricks", "packed_mud", "terracotta",
-        "glass", "glass_pane", "iron_bars"
+        "iron_bars"
       ]
     },
     {
       "id": "colored_blocks",
       "icon": "skyengine:cyan_wool",
-      "items": ["{color}_wool", "{color}_terracotta"]
+      "items": [
+        "{color}_wool", "{color}_carpet", "{color}_terracotta",
+        "glass", "{color}_stained_glass",
+        "glass_pane", "{color}_stained_glass_pane"
+      ]
     },
     {
       "id": "natural",
@@ -71,6 +75,7 @@
         "crafting_table", "chest", "enchanting_table", "item_frame",
         "{wood}_door", "iron_door",
         "{wood}_trapdoor", "iron_trapdoor",
+        { "for": "color", "items": ["{color}_bed"] },
         "torch", "tnt", "minecart", "slime_block", "honey_block"
       ]
     },

@@ -9,11 +9,14 @@ public final class ConnectionRules {
 
     /**
      * Zaun-/Pane-Regel: verbindet mit Nachbarn derselben Connection-Gruppe
-     * (z.B. alle Zäune) oder mit einem opaken Vollwürfel. Gruppen kommen aus
-     * {@link de.skyengine.game.world.block.Block#getConnectionGroup()}.
+     * (z.B. alle Zäune) oder mit einem Nachbarn mit voller Kollisionsform. Gruppen kommen aus
+     * {@link de.skyengine.game.world.block.Block#getConnectionGroup()}. Bewusst die Kollisionsform
+     * (nicht {@code isOpaqueCube}) — Vanilla entscheidet Pane-/Zaun-Anschluss über die volle Seite,
+     * nicht über Licht-Opazität, sonst verbindet sich z.B. Glas (opaque=false, aber voller Würfel)
+     * nicht mit Glasscheiben.
      */
     public static final ConnectionRule SAME_GROUP_OR_SOLID = (world, x, y, z, dir, self, neighbor) -> {
-        if (neighbor.isOpaqueCube()) return true;
+        if (neighbor.getBlock().getCollisionShape(neighbor).isFullCube()) return true;
         String group = self.getBlock().getConnectionGroup();
         String neighborGroup = neighbor.getBlock().getConnectionGroup();
         if (group != null && group.equals(neighborGroup)) return true;

@@ -1,5 +1,6 @@
 {
   "id": "skyengine:glass",
+  "creative_tab": "colored_blocks",
   "parent": "preset/cube",
   "sound": "glass",
   "layer": "translucent",

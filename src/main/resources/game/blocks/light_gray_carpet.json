@@ -1,0 +1,11 @@
+{
+  "id": "skyengine:light_gray_carpet",
+  "creative_tab": "colored_blocks",
+  "sound": "cloth",
+  "layer": "cutout",
+  "opaque": false,
+  "hardness": 0.1,
+  "model": "block/carpet",
+  "textures": { "all": "game/textures/block/light_gray_wool.png" },
+  "collision": { "boxes": [ { "from": [0, 0, 0], "to": [16, 1, 16] } ] }
+}

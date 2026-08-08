@@ -1,0 +1,9 @@
+{
+  "id": "skyengine:red_stained_glass_pane",
+  "parent": "preset/stained_glass_pane",
+  "textures": {
+    "pane": "game/textures/block/red_stained_glass.png",
+    "edge": "game/textures/block/red_stained_glass_pane_top.png"
+  },
+  "icon_flat": ["game/textures/block/red_stained_glass.png"]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "skyengine:cyan_stained_glass",
+  "creative_tab": "colored_blocks",
+  "parent": "preset/cube",
+  "sound": "glass",
+  "layer": "translucent",
+  "hardness": 0.3,
+  "opaque": false,
+  "cull_same": true
+}

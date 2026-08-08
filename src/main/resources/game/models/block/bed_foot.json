@@ -1,0 +1,36 @@
+{
+  "_comment": "Rumpf: Fuss-Haelfte des Bettes, verbatim aus Vanillas template_bed_foot. Texturschluessel foot_* statt north/east/west/up, s. bed_head.json.",
+  "ambientocclusion": false,
+  "elements": [
+    {
+      "from": [0, 3, 0], "to": [16, 9, 16],
+      "faces": {
+        "down":  { "uv": [0, 0, 16, 16], "texture": "#down" },
+        "up":    { "uv": [0, 0, 16, 16], "texture": "#foot_up" },
+        "south": { "uv": [0, 7, 16, 13], "texture": "#foot_south", "cullface": "south" },
+        "west":  { "uv": [0, 7, 16, 13], "texture": "#foot_west", "cullface": "west" },
+        "east":  { "uv": [0, 7, 16, 13], "texture": "#foot_east", "cullface": "east" }
+      }
+    },
+    {
+      "from": [0, 0, 13], "to": [3, 3, 16],
+      "faces": {
+        "down":  { "uv": [7, 13, 10, 16], "texture": "#foot_west", "cullface": "down" },
+        "north": { "uv": [10, 13, 13, 16], "texture": "#foot_west" },
+        "south": { "uv": [0, 13, 3, 16], "texture": "#foot_south", "cullface": "south" },
+        "west":  { "uv": [13, 13, 16, 16], "texture": "#foot_west", "cullface": "west" },
+        "east":  { "uv": [3, 13, 6, 16], "texture": "#foot_south" }
+      }
+    },
+    {
+      "from": [13, 0, 13], "to": [16, 3, 16],
+      "faces": {
+        "down":  { "uv": [6, 13, 9, 16], "texture": "#foot_east", "cullface": "down" },
+        "north": { "uv": [3, 13, 6, 16], "texture": "#foot_east" },
+        "south": { "uv": [13, 13, 16, 16], "texture": "#foot_south", "cullface": "south" },
+        "west":  { "uv": [10, 13, 13, 16], "texture": "#foot_south" },
+        "east":  { "uv": [0, 13, 3, 16], "texture": "#foot_east", "cullface": "east" }
+      }
+    }
+  ]
+}

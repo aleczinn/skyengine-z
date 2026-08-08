@@ -1,0 +1,34 @@
+{
+  "_comment": "Preset (nicht registriert): zweiteiliges Bett. Kopf/Fuss ueber 'parts' relativ zu 'facing' (der erste Nutzer dieses Modus - siehe PartsBehavior). Kollision niedrig (0-9px), Item-Icon zeigt nur die Kopf-Haelfte (inventory_model).",
+  "creative_tab": "functional",
+  "piston_reaction": "destroy",
+  "facing": true,
+  "properties": {
+    "part": { "values": ["head", "foot"], "default": "foot" }
+  },
+  "parts": {
+    "property": "part",
+    "offsets": { "foot": [0, 0, 0], "head": [0, 0, -1] },
+    "relative_to": "facing"
+  },
+  "layer": "cutout",
+  "hardness": 0.2,
+  "opaque": false,
+  "collision": { "boxes": [ { "from": [0, 0, 0], "to": [16, 9, 16] } ] },
+  "models": { "_head": "block/bed_head", "_foot": "block/bed_foot" },
+  "textures": {
+    "head_north": "game/textures/block/bed_head_north.png",
+    "down": "game/textures/block/bed_down.png"
+  },
+  "inventory_model": "block/${id}_head",
+  "variants": {
+    "facing=north,part=head": { "model": "block/${id}_head" },
+    "facing=north,part=foot": { "model": "block/${id}_foot" },
+    "facing=east,part=head":  { "model": "block/${id}_head", "y": 90 },
+    "facing=east,part=foot":  { "model": "block/${id}_foot", "y": 90 },
+    "facing=south,part=head": { "model": "block/${id}_head", "y": 180 },
+    "facing=south,part=foot": { "model": "block/${id}_foot", "y": 180 },
+    "facing=west,part=head":  { "model": "block/${id}_head", "y": 270 },
+    "facing=west,part=foot":  { "model": "block/${id}_foot", "y": 270 }
+  }
+}
