@@ -221,6 +221,26 @@ final class MinecartEntityTest {
     }
 
     @Test
+    void renderPoseSamplesBothSidesOfSlopeTransition() {
+        TestWorld world = new TestWorld();
+        BlockState rail = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState();
+        world.put(0, 64, 0, rail.with(Properties.RAIL_SHAPE, RailShape.ASCENDING_EAST));
+        world.put(1, 65, 0, rail.with(Properties.RAIL_SHAPE, RailShape.EAST_WEST));
+
+        MinecartEntity cart = new MinecartEntity();
+        cart.setPosition(0.9, 64.9625, 0.5);
+        cart.motionX = 0.2;
+        cart.yaw = 90;
+
+        MinecartEntity.RenderPose pose = cart.renderPose(world, 1.0F);
+
+        assertTrue(pose.offsetY() < -0.05,
+                "Renderzentrum muss am oberen Gefälleübergang beide Schienenhöhen mitteln");
+        assertTrue(pose.pitch() > 0 && pose.pitch() < 45,
+                "Gefälleübergang muss flacher als die volle Steigung gerendert werden");
+    }
+
+    @Test
     void descendingSlopeAppliesVanillaHeightVelocityCorrection() {
         TestWorld world = new TestWorld();
         world.put(0, 64, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()

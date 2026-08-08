@@ -1375,7 +1375,7 @@ public class World implements IInitializable, IDisposable {
         this.blockEntityRenderer.render(this.chunkManager, this.lodManager, camera, partialTick);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.BE);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.ENT);
-        this.entityRenderer.render(this.chunksWithEntities, camera, partialTick);
+        this.entityRenderer.render(this, this.chunksWithEntities, camera, partialTick);
         if (beforeTranslucent != null) beforeTranslucent.run();
         FrameProfiler.cpuStop(FrameProfiler.Cpu.ENT);
         this.chunkRenderer.renderTranslucent(camera);

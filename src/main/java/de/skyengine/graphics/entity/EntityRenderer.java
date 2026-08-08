@@ -9,6 +9,7 @@ import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.entity.MinecartEntity;
 import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.RenderLayer;
@@ -139,7 +140,7 @@ public final class EntityRenderer {
      * geladenen Chunks pro Frame. Der READY-Guard bleibt: zwischen zwei Ticks kann ein Chunk
      * bereits entladen sein, bevor das Reconcile ihn aus der Menge nimmt.
      */
-    public void render(Iterable<Chunk> chunks, Camera camera, float partialTick) {
+    public void render(World world, Iterable<Chunk> chunks, Camera camera, float partialTick) {
         this.shader.bind();
         this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
         this.shader.setUniformf(this.locWhiteFlash, 0f); // Default: kein Blink (Falling/Item unverändert)
@@ -153,13 +154,14 @@ public final class EntityRenderer {
             if (chunk.status != ChunkStatus.READY) continue;
             List<Entity> entities = chunk.entities();
             for (int i = 0; i < entities.size(); i++) {
-                this.drawEntity(entities.get(i), chunk, cam, frustum, partialTick);
+                this.drawEntity(world, entities.get(i), chunk, cam, frustum, partialTick);
             }
         }
         this.shader.unbind();
     }
 
-    private void drawEntity(Entity e, Chunk chunk, Vector3d cam, FrustumIntersection frustum, float partialTick) {
+    private void drawEntity(World world, Entity e, Chunk chunk, Vector3d cam,
+                            FrustumIntersection frustum, float partialTick) {
         if (e.isRemoved()) return;
 
         float ox = (float) (e.lastX + (e.x - e.lastX) * partialTick - cam.x);
@@ -198,12 +200,12 @@ public final class EntityRenderer {
         } else if (e instanceof ItemFrameEntity frame) {
             this.drawItemFrame(frame, ox, oy, oz);
         } else if (e instanceof MinecartEntity minecart) {
-            float renderYaw = minecart.renderYaw(partialTick);
-            float renderPitch = minecart.renderPitch(partialTick);
-            this.model.translation(ox, oy, oz)
+            MinecartEntity.RenderPose pose = minecart.renderPose(world, partialTick);
+            this.model.translation(ox + (float) pose.offsetX(), oy + (float) pose.offsetY(),
+                            oz + (float) pose.offsetZ())
                     /* Das Vanilla-Modell zeigt lokal entlang +X; yaw=0 zeigt in der Engine -Z. */
-                    .rotateY((float) Math.toRadians(90 - renderYaw))
-                    .rotateZ((float) Math.toRadians(renderPitch));
+                    .rotateY((float) Math.toRadians(90 - pose.yaw()))
+                    .rotateZ((float) Math.toRadians(pose.pitch()));
             float hurt = Math.max(0, minecart.getHurtTime() - partialTick);
             float damage = Math.max(0, minecart.getDamage() - partialTick);
             if (hurt > 0) {

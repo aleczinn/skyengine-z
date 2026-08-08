@@ -309,6 +309,86 @@ public final class MinecartEntity extends Entity {
         return this.previousPitch + (this.pitch - this.previousPitch) * partialTick;
     }
 
+    /**
+     * Vanillas alter Minecart-Renderer projiziert die interpolierte Entity-Position auf die Schiene
+     * und tastet zusätzlich je 0,3 Block vor und hinter dem Cart ab. Der gemittelte Höhenversatz
+     * verhindert, dass der Boden an einem Gefälleübergang die Schiene schneidet; dieselben beiden
+     * Punkte liefern die geglättete Renderrotation.
+     */
+    public RenderPose renderPose(World world, float partialTick) {
+        double ix = this.lastX + (this.x - this.lastX) * partialTick;
+        double iy = this.lastY + (this.y - this.lastY) * partialTick;
+        double iz = this.lastZ + (this.z - this.lastZ) * partialTick;
+        RailSample center = projectToRail(world, ix, iy, iz);
+        if (center == null) {
+            return new RenderPose(0, 0, 0, this.renderYaw(partialTick), this.renderPitch(partialTick));
+        }
+
+        double horizontalLength = Math.hypot(center.segment.x1 - center.segment.x0,
+                center.segment.z1 - center.segment.z0);
+        double tx = (center.segment.x1 - center.segment.x0) / horizontalLength;
+        double ty = (center.segment.y1 - center.segment.y0) / horizontalLength;
+        double tz = (center.segment.z1 - center.segment.z0) / horizontalLength;
+        RailSample front = projectToRail(world, ix + tx * 0.3, iy + ty * 0.3, iz + tz * 0.3);
+        RailSample back = projectToRail(world, ix - tx * 0.3, iy - ty * 0.3, iz - tz * 0.3);
+        if (front == null || back == null) {
+            return new RenderPose(center.x - ix, center.y - iy, center.z - iz,
+                    this.renderYaw(partialTick), this.renderPitch(partialTick));
+        }
+
+        double dx = front.x - back.x;
+        double dy = front.y - back.y;
+        double dz = front.z - back.z;
+        double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (length < 1.0E-7) {
+            return new RenderPose(center.x - ix, (front.y + back.y) * 0.5 - iy, center.z - iz,
+                    this.renderYaw(partialTick), this.renderPitch(partialTick));
+        }
+        dx /= length;
+        dy /= length;
+        dz /= length;
+
+        float fallbackYaw = this.renderYaw(partialTick);
+        double forwardX = Math.sin(Math.toRadians(fallbackYaw));
+        double forwardZ = -Math.cos(Math.toRadians(fallbackYaw));
+        if (dx * forwardX + dz * forwardZ < 0) {
+            dx = -dx;
+            dy = -dy;
+            dz = -dz;
+        }
+        float sampledYaw = (float) Math.toDegrees(Math.atan2(dx, -dz));
+        float sampledPitch = (float) (Math.atan(dy) * 73.0);
+        return new RenderPose(center.x - ix, (front.y + back.y) * 0.5 - iy, center.z - iz,
+                sampledYaw, sampledPitch);
+    }
+
+    private static RailSample projectToRail(World world, double x, double y, double z) {
+        int bx = (int) Math.floor(x);
+        int by = (int) Math.floor(y);
+        int bz = (int) Math.floor(z);
+        RailSample closest = null;
+        double closestDistance = Double.POSITIVE_INFINITY;
+        for (int offsetY = -1; offsetY <= 1; offsetY++) {
+            int railY = by + offsetY;
+            BlockState state = RailBehavior.railAt(world, bx, railY, bz);
+            if (state == null) continue;
+            Segment segment = segment(bx, railY, bz, RailBehavior.shape(state));
+            double sx = segment.x1 - segment.x0;
+            double sz = segment.z1 - segment.z0;
+            double t = Math.clamp(((x - segment.x0) * sx + (z - segment.z0) * sz)
+                    / (sx * sx + sz * sz), 0.0, 1.0);
+            double px = segment.x0 + sx * t;
+            double py = segment.y0 + (segment.y1 - segment.y0) * t;
+            double pz = segment.z0 + sz * t;
+            double distance = (px - x) * (px - x) + (py - y) * (py - y) + (pz - z) * (pz - z);
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closest = new RailSample(px, py, pz, segment);
+            }
+        }
+        return closest;
+    }
+
     /** Stellt nach dem Laden beide Render-Snapshots ohne einmaligen Rotationssprung her. */
     public void setRotation(float yaw, float pitch) {
         this.yaw = this.previousYaw = yaw;
@@ -386,5 +466,7 @@ public final class MinecartEntity extends Entity {
     }
 
     private record RailPosition(int x, int y, int z, BlockState state) {}
+    private record RailSample(double x, double y, double z, Segment segment) {}
     private record Segment(double x0, double y0, double z0, double x1, double y1, double z1) {}
+    public record RenderPose(double offsetX, double offsetY, double offsetZ, float yaw, float pitch) {}
 }
