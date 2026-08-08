@@ -9,6 +9,8 @@ import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.entity.MinecartEntity;
+import de.skyengine.game.command.ChatManager;
+import de.skyengine.game.command.CommandContext;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
@@ -52,7 +54,9 @@ import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.ChestRenderer;
 import de.skyengine.graphics.blockentity.EnchantingTableRenderer;
 import de.skyengine.graphics.gui.BootProgress;
+import de.skyengine.graphics.gui.ChatHud;
 import de.skyengine.graphics.gui.screens.GuiChest;
+import de.skyengine.graphics.gui.screens.GuiChat;
 import de.skyengine.graphics.gui.screens.GuiDispenser;
 import de.skyengine.graphics.gui.screens.GuiCreativeInventory;
 import de.skyengine.graphics.gui.screens.GuiInventory;
@@ -198,6 +202,8 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /* Spieler-Inventar (36 Slots: 0..8 Hotbar, 9..35 Hauptinventar). Auswahl per Zahlentasten 1..9. */
     private final SimpleItemStorage playerInventory = new SimpleItemStorage(36);
+    private final ChatManager chat = new ChatManager();
+    private final ChatHud chatHud = new ChatHud();
     private int hotbarIndex = 0;
     /* Spieler-UUID (player.dat, Multiplayer-Vorbereitung): beim Betreten geladen oder neu erzeugt. */
     private UUID playerUuid;
@@ -696,6 +702,13 @@ public class GameContainer implements IResizeable, IDisposable {
                         : new GuiInventory(this.playerInventory, this.playerRenderer,
                                 this.heldItemMeshes, held));
             }
+            /* T oeffnet eine leere Chatzeile; Slash springt wie in Minecraft direkt in einen
+               Befehl. Der Screen pausiert die Welt nicht und blockiert unten die Gameplay-Eingabe. */
+            if (input.isBindPressed(this.settings.key(KeyBindings.OPEN_CHAT))) {
+                this.openChat("");
+            } else if (input.isKeyPressed(GLFW.GLFW_KEY_SLASH)) {
+                this.openChat("/");
+            }
             this.handleGameplayHotkeys(input);
             this.handleHotbarInput(input);
             if (input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_PERSPECTIVE))) {
@@ -923,6 +936,9 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.hotbarIndex, showHotbar && !this.hudHidden,
                 !this.hudHidden && this.perspective.isFirstPerson(),
                 this.hudHidden ? 0F : this.itemNameAlpha(), this.player);
+        if (!this.hudHidden && this.world != null && !this.guiManager.isOpen()) {
+            this.chatHud.render(this.guiManager, this.chat, this.guiManager.vHeight() - 40F, false);
+        }
         if (!this.hudHidden && this.debugOverlay.isVisible() && this.world != null) {
             this.debugOverlay.render(this.guiManager, this.world, this.player);
         }
@@ -1806,6 +1822,11 @@ public class GameContainer implements IResizeable, IDisposable {
                             ? EngineConfig.WindowMode.BORDERLESS_FULLSCREEN : EngineConfig.WindowMode.WINDOWED));
             this.logger.debug("Toggle Fullscreen");
         }
+    }
+
+    private void openChat(String initial) {
+        this.guiManager.open(new GuiChat(this.chat, new CommandContext(this.playerInventory),
+                this.chatHud, initial));
     }
 
     /** Sichtweite der Projektion: mit LOD hinter den äußersten Ring gelegt, sonst wie bisher 1500. */

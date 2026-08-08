@@ -150,6 +150,7 @@
     "sneak": "Schleichen",
     "sprint": "Sprinten",
     "open_inventory": "Inventar",
+    "open_chat": "Chat öffnen",
     "drop": "Item wegwerfen",
     "attack": "Angreifen/Zerstören",
     "use": "Benutzen/Platzieren",
@@ -159,6 +160,23 @@
     "gamemode": "Spielmodus wechseln",
     "pick_block": "Block aufnehmen",
     "hotbar": "Hotbar-Slot %s"
+  },
+
+  "chat": {
+    "prompt": "Befehl eingeben...",
+    "commands_only": "Dieser Chat akzeptiert derzeit nur Befehle.",
+    "empty_command": "Bitte gib einen Befehl ein.",
+    "unknown_command": "Unbekannter Befehl: /%s"
+  },
+
+  "command": {
+    "give": {
+      "usage": "Verwendung: /give <item> [amount]",
+      "unknown_item": "Unbekanntes Item: %s",
+      "invalid_amount": "Ungültige Anzahl: %s",
+      "inventory_full": "Das Inventar ist voll.",
+      "success": "%d × %s wurde dem Inventar hinzugefügt."
+    }
   },
 
   "language": {

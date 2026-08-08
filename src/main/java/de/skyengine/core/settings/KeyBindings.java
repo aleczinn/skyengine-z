@@ -24,6 +24,7 @@ public final class KeyBindings {
     public static final String SNEAK = "sneak";
     public static final String SPRINT = "sprint";
     public static final String OPEN_INVENTORY = "open_inventory";
+    public static final String OPEN_CHAT = "open_chat";
     public static final String DROP = "drop";
     public static final String ATTACK = "attack";
     public static final String USE = "use";
@@ -48,6 +49,7 @@ public final class KeyBindings {
         m.put(SNEAK, GLFW.GLFW_KEY_LEFT_SHIFT);
         m.put(SPRINT, GLFW.GLFW_KEY_LEFT_CONTROL);
         m.put(OPEN_INVENTORY, GLFW.GLFW_KEY_E);
+        m.put(OPEN_CHAT, GLFW.GLFW_KEY_T);
         m.put(DROP, GLFW.GLFW_KEY_Q);
         m.put(ATTACK, Input.mouseBind(GLFW.GLFW_MOUSE_BUTTON_LEFT));
         m.put(USE, Input.mouseBind(GLFW.GLFW_MOUSE_BUTTON_RIGHT));

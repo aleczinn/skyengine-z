@@ -142,6 +142,7 @@
     "sneak": "Sneak",
     "sprint": "Sprint",
     "open_inventory": "Inventory",
+    "open_chat": "Open Chat",
     "drop": "Drop Item",
     "attack": "Attack/Destroy",
     "use": "Use Item/Place Block",
@@ -151,6 +152,23 @@
     "gamemode": "Cycle Game Mode",
     "pick_block": "Pick Block",
     "hotbar": "Hotbar Slot %s"
+  },
+
+  "chat": {
+    "prompt": "Enter command...",
+    "commands_only": "This chat currently accepts commands only.",
+    "empty_command": "Please enter a command.",
+    "unknown_command": "Unknown command: /%s"
+  },
+
+  "command": {
+    "give": {
+      "usage": "Usage: /give <item> [amount]",
+      "unknown_item": "Unknown item: %s",
+      "invalid_amount": "Invalid amount: %s",
+      "inventory_full": "The inventory is full.",
+      "success": "Added %d × %s to the inventory."
+    }
   },
 
   "language": {
