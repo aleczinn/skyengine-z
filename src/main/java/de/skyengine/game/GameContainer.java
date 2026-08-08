@@ -155,6 +155,9 @@ public class GameContainer implements IResizeable, IDisposable {
     /* F3+X-Kombi während des Haltens benutzt → unterdrückt den Overlay-Toggle beim Loslassen. */
     private boolean f3ComboUsed = false;
 
+    /* F1: HUD samt First-Person-Hand ausblenden. Menues bleiben sichtbar. */
+    private boolean hudHidden = false;
+
     /* F3-Debug-Overlay (FPS/Position/Biome/...), Toggle in handleGlobalHotkeys. */
     private final DebugOverlay debugOverlay = new DebugOverlay();
 
@@ -806,7 +809,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.renderFluidOverlay();
 
         /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Depth-Clear. */
-        if (this.perspective.isFirstPerson() && this.player.getGamemode() != Gamemode.SPECTATOR) {
+        if (!this.hudHidden && this.perspective.isFirstPerson()
+                && this.player.getGamemode() != Gamemode.SPECTATOR) {
             /* Licht der AUGEN-Zelle (nicht der Füße): die Hand hängt vor dem Gesicht, und in
                einem 1 Block hohen Kriechgang unterscheiden sich beide sichtbar. */
             float handLight = this.lightAt(this.player.x,
@@ -887,14 +891,17 @@ public class GameContainer implements IResizeable, IDisposable {
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
         /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair);
            Crosshair nur in First Person (in den F5-Ansichten zielt man nicht über die Bildmitte). */
-        this.guiManager.render(width, height, this.world != null ? this.playerInventory : null,
-                this.hotbarIndex, showHotbar, this.perspective.isFirstPerson(), this.itemNameAlpha(), this.player);
-        if (this.debugOverlay.isVisible() && this.world != null) {
+        this.guiManager.render(width, height,
+                this.world != null && !this.hudHidden ? this.playerInventory : null,
+                this.hotbarIndex, showHotbar && !this.hudHidden,
+                !this.hudHidden && this.perspective.isFirstPerson(),
+                this.hudHidden ? 0F : this.itemNameAlpha(), this.player);
+        if (!this.hudHidden && this.debugOverlay.isVisible() && this.world != null) {
             this.debugOverlay.render(this.guiManager, this.world, this.player);
         }
         /* Gespeichert-Meldung NACH dem GuiScreen: sie soll auch über dem abgedunkelten
            Pausenmenü lesbar sein (im Hud läge sie unter dessen Dim). */
-        if (this.world != null) this.saveToast.render(this.guiManager);
+        if (!this.hudHidden && this.world != null) this.saveToast.render(this.guiManager);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
     }
 
@@ -1729,6 +1736,11 @@ public class GameContainer implements IResizeable, IDisposable {
         if (input.isBindPressed(this.settings.key(KeyBindings.SCREENSHOT))) {
             /* Nur markieren: der Pixel-Read passiert erst nach dem fertigen Frame (SkyEngine.onRender). */
             this.screenshotRequested = true;
+        }
+
+        if (this.world != null && input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_HUD))) {
+            this.hudHidden = !this.hudHidden;
+            this.logger.debug("HUD: " + (this.hudHidden ? "aus" : "an"));
         }
 
         /* F3-Overlay + F3+X-Kombi-Gerüst (Minecraft-Stil): wurde während des Haltens eine Kombi

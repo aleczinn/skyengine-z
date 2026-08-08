@@ -153,6 +153,7 @@
     "drop": "Item wegwerfen",
     "attack": "Angreifen/Zerstören",
     "use": "Benutzen/Platzieren",
+    "toggle_hud": "HUD ein-/ausblenden",
     "toggle_perspective": "Perspektive wechseln",
     "screenshot": "Screenshot",
     "gamemode": "Spielmodus wechseln",

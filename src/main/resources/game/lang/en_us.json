@@ -145,6 +145,7 @@
     "drop": "Drop Item",
     "attack": "Attack/Destroy",
     "use": "Use Item/Place Block",
+    "toggle_hud": "Toggle HUD",
     "toggle_perspective": "Toggle Perspective",
     "screenshot": "Screenshot",
     "gamemode": "Cycle Game Mode",
