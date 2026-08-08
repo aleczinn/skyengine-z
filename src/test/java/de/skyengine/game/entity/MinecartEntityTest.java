@@ -103,7 +103,8 @@ final class MinecartEntityTest {
         cart.pushFrom(player);
 
         assertTrue(cart.motionX < 0, "Minecart muss sich vom Spieler wegbewegen");
-        assertTrue(player.motionX > 0, "Spieler muss den entgegengesetzten Kontaktimpuls erhalten");
+        assertEquals(-cart.motionX / 4.0, player.motionX, 1.0E-9,
+                "Vanilla gibt dem Spieler nur ein Viertel des Gegenimpulses");
     }
 
     @Test
@@ -168,7 +169,7 @@ final class MinecartEntityTest {
             world.put(x, 64, 4, powered.with(Properties.STRAIGHT_RAIL_SHAPE, RailShape.EAST_WEST));
         }
         world.put(4, 64, 4, normal.with(Properties.RAIL_SHAPE, RailShape.NORTH_WEST));
-        world.put(4, 64, 3, powered.with(Properties.STRAIGHT_RAIL_SHAPE, RailShape.ASCENDING_NORTH));
+        world.put(4, 64, 3, normal.with(Properties.RAIL_SHAPE, RailShape.ASCENDING_NORTH));
         world.put(4, 65, 2, normal.with(Properties.RAIL_SHAPE, RailShape.SOUTH_WEST));
         for (int x = 1; x <= 3; x++) {
             world.put(x, 65, 2, normal.with(Properties.RAIL_SHAPE, RailShape.EAST_WEST));
@@ -177,10 +178,17 @@ final class MinecartEntityTest {
         world.put(0, 64, 3, normal.with(Properties.RAIL_SHAPE, RailShape.ASCENDING_NORTH));
 
         MinecartEntity empty = new MinecartEntity();
-        empty.setPosition(1.5, 64.0625, 4.5);
-        /* Mehrere Spielerkontakte können das Cart bis zu diesem ausreichenden Anschub aufbauen. */
-        empty.motionX = -0.4;
-        for (int tick = 0; tick < 1_200; tick++) empty.tick(world);
+        /* Start wie im Vergleichsaufbau am Redstoneblock: Das Cart durchfährt vor der ersten
+           Steigung die vollständige dreiteilige Boosterstrecke. */
+        empty.setPosition(3.5, 64.0625, 4.5);
+        EntityPlayer pusher = new EntityPlayer();
+        for (int tick = 0; tick < 1_200; tick++) {
+            if (tick < 5) {
+                pusher.setPosition(empty.x - 0.5, empty.y, empty.z);
+                empty.pushFrom(pusher);
+            }
+            empty.tick(world);
+        }
 
         double emptySpeed = Math.hypot(empty.motionX, empty.motionZ);
         assertTrue(emptySpeed > 0.05,
@@ -190,8 +198,8 @@ final class MinecartEntityTest {
                 "Leeres Cart verlor die Schiene und fiel aus der Schleife: y=" + empty.y);
 
         MinecartEntity occupied = new MinecartEntity();
-        occupied.setPosition(1.5, 64.0625, 4.5);
-        occupied.motionX = -0.4;
+        occupied.setPosition(3.5, 64.0625, 4.5);
+        occupied.motionX = 0.25;
         EntityPlayer passenger = new EntityPlayer();
         assertTrue(occupied.interact(passenger));
         for (int tick = 0; tick < 1_200; tick++) occupied.tick(world);

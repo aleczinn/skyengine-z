@@ -267,19 +267,16 @@ public final class MinecartEntity extends Entity {
         if (other == null || other == this.getFirstPassenger()) return;
         double dx = other.x - this.x;
         double dz = other.z - this.z;
-        double largest = Math.max(Math.abs(dx), Math.abs(dz));
-        if (largest < 0.01) return;
-        largest = Math.sqrt(largest);
-        dx /= largest;
-        dz /= largest;
-        double distance = Math.sqrt(dx * dx + dz * dz);
-        if (distance < 1.0E-4) return;
-        dx = dx / distance * Math.min(1.0, 1.0 / distance) * 0.05;
-        dz = dz / distance * Math.min(1.0, 1.0 / distance) * 0.05;
+        double distanceSq = dx * dx + dz * dz;
+        if (distanceSq < 1.0E-4) return;
+        double distance = Math.sqrt(distanceSq);
+        dx = dx / distance * Math.min(1.0, 1.0 / distance) * 0.1 * 0.5;
+        dz = dz / distance * Math.min(1.0, 1.0 / distance) * 0.1 * 0.5;
         this.motionX -= dx;
         this.motionZ -= dz;
-        other.motionX += dx;
-        other.motionZ += dz;
+        /* AbstractMinecart.push gibt der anderen Entity nur ein Viertel des Gegenimpulses. */
+        other.motionX += dx / 4.0;
+        other.motionZ += dz / 4.0;
     }
 
     /** Vanilla-Damage-Akkumulator: Zerbruch oberhalb von 40 oder ein erzwungener Werkzeugtreffer. */
