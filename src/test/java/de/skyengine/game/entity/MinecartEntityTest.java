@@ -7,7 +7,6 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
-import de.skyengine.game.world.block.state.Property;
 import de.skyengine.game.world.block.state.RailShape;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.game.physics.AABB;
@@ -142,7 +141,7 @@ final class MinecartEntityTest {
     }
 
     @Test
-    void emptyCartKeepsCirclingVanillaPoweredSlopeLoop() {
+    void passengerFrictionKeepsCartMovingWhereEmptyCartStops() {
         TestWorld world = new TestWorld() {
             @Override public List<AABB> getCollisionBoxes(AABB area) {
                 java.util.ArrayList<AABB> boxes = new java.util.ArrayList<>();
@@ -172,24 +171,34 @@ final class MinecartEntityTest {
         world.put(4, 64, 3, powered.with(Properties.STRAIGHT_RAIL_SHAPE, RailShape.ASCENDING_NORTH));
         world.put(4, 65, 2, normal.with(Properties.RAIL_SHAPE, RailShape.SOUTH_WEST));
         for (int x = 1; x <= 3; x++) {
-            BlockState top = x == 2 ? powered : normal;
-            Property<RailShape> shape = x == 2 ? Properties.STRAIGHT_RAIL_SHAPE : Properties.RAIL_SHAPE;
-            world.put(x, 65, 2, top.with(shape, RailShape.EAST_WEST));
+            world.put(x, 65, 2, normal.with(Properties.RAIL_SHAPE, RailShape.EAST_WEST));
         }
         world.put(0, 65, 2, normal.with(Properties.RAIL_SHAPE, RailShape.SOUTH_EAST));
         world.put(0, 64, 3, normal.with(Properties.RAIL_SHAPE, RailShape.ASCENDING_NORTH));
 
-        MinecartEntity cart = new MinecartEntity();
-        cart.setPosition(1.5, 64.0625, 4.5);
+        MinecartEntity empty = new MinecartEntity();
+        empty.setPosition(1.5, 64.0625, 4.5);
         /* Ein einzelner Entity-Kontakt liefert ungefähr diesen Anschub; keine künstliche
            Test-Startgeschwindigkeit verwenden. */
-        cart.motionX = -0.05;
-        for (int tick = 0; tick < 1_200; tick++) cart.tick(world);
+        empty.motionX = -0.05;
+        for (int tick = 0; tick < 1_200; tick++) empty.tick(world);
 
-        double speed = Math.hypot(cart.motionX, cart.motionZ);
-        assertTrue(speed > 0.05, "Cart blieb in einer ausreichend angetriebenen Schleife stehen: speed="
-                + speed + ", pos=" + cart.x + "," + cart.y + "," + cart.z);
-        assertTrue(cart.y > 63.9, "Cart verlor die Schiene und fiel aus der Schleife: y=" + cart.y);
+        double emptySpeed = Math.hypot(empty.motionX, empty.motionZ);
+        assertTrue(emptySpeed < 0.01,
+                "Leeres Cart muss auf dieser Strecke ausrollen: " + emptySpeed);
+
+        MinecartEntity occupied = new MinecartEntity();
+        occupied.setPosition(1.5, 64.0625, 4.5);
+        occupied.motionX = -0.05;
+        EntityPlayer passenger = new EntityPlayer();
+        assertTrue(occupied.interact(passenger));
+        for (int tick = 0; tick < 1_200; tick++) occupied.tick(world);
+
+        double occupiedSpeed = Math.hypot(occupied.motionX, occupied.motionZ);
+        assertTrue(occupiedSpeed > 0.05,
+                "Besetztes Cart verlor entgegen Vanilla den Rundlauf: " + occupiedSpeed);
+        assertTrue(occupied.y > 63.9,
+                "Besetztes Cart verlor die Schiene und fiel aus der Schleife: y=" + occupied.y);
     }
 
     @Test
