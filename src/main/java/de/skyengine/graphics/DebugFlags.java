@@ -11,7 +11,7 @@ public final class DebugFlags {
     /** Welt als Wireframe zeichnen (renderWorld setzt den GL-Line-Mode eng um den Welt-Draw). */
     public static volatile boolean wireframe = false;
 
-    /** Entity-Hitboxen zeichnen — Gerüst (per F3+H umschaltbar); Rendering folgt später. */
+    /** Entity-Hitboxen und Blickrichtungen zeichnen (per F3+B umschaltbar). */
     public static volatile boolean entityHitboxes = false;
 
     /** Chunk-Grenzen (per F3+G): 0 = aus, 1 = ganzer Chunk, 2 = Chunk + nicht-leere Sections. */

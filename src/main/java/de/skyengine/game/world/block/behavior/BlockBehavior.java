@@ -73,6 +73,11 @@ public interface BlockBehavior {
         return false;
     }
 
+    /** Rechtsklick mit horizontaler Spieler-Blickrichtung; bestehende Behaviors bleiben kompatibel. */
+    default boolean onUse(World world, int x, int y, int z, BlockState state, float playerYaw) {
+        return this.onUse(world, x, y, z, state);
+    }
+
     /** Abbau-Hook VOR dem Entfernen (andere Hälfte aufräumen, Inventar leeren, ...). Default: nichts. */
     default void onBreak(World world, int x, int y, int z, BlockState state) {
     }
@@ -94,6 +99,15 @@ public interface BlockBehavior {
     /** Kanonischer Drop-Ursprung für Batch-Zerstörung; Standard ist die aktuelle Zelle. */
     default long canonicalLootPosition(LootContext context) {
         return de.skyengine.game.world.block.BlockPos.asLong(context.x(), context.y(), context.z());
+    }
+
+    /**
+     * Darf dieser Block beim Selbstabbau durch ein Nachbar-/Support-Update Loot erzeugen?
+     * Mehrteilige Blöcke verneinen das: Der vom Spieler bzw. der Explosion getroffene Teil hat
+     * den gemeinsamen Drop bereits ausgewertet, die automatisch entfernte Hälfte ist nur Cleanup.
+     */
+    default boolean dropsWhenUnsupported() {
+        return true;
     }
 
     /**

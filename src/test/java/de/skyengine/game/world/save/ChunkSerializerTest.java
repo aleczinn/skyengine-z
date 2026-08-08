@@ -2,6 +2,7 @@ package de.skyengine.game.world.save;
 
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.entity.ItemFrameEntity;
+import de.skyengine.game.entity.MinecartEntity;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.ComparatorBlockEntity;
@@ -79,6 +80,39 @@ final class ChunkSerializerTest {
         assertEquals(6, loaded.getRotation());
         assertEquals(Identifier.of("skyengine:diamond"), loaded.getItem().getItem().getId());
         assertEquals(7, loaded.getAnalogOutput());
+    }
+
+    @Test
+    void minecartPositionMotionAndRotationRoundTrip() throws Exception {
+        Chunk source = new Chunk(-2, 5);
+        MinecartEntity minecart = new MinecartEntity();
+        minecart.setPosition(-55.25, 70.0625, 171.75);
+        minecart.motionX = 0.21;
+        minecart.motionY = -0.04;
+        minecart.motionZ = -0.12;
+        minecart.yaw = 123.5F;
+        minecart.setDamage(23.0F);
+        minecart.setHurtTime(7);
+        minecart.setHurtDirection(-1);
+        source.addEntity(minecart);
+
+        byte[] payload = ChunkSerializer.serialize(source, "test", 1, false,
+                List.of(), List.of(), ChunkSerializer.snapshotEntities(source));
+        Chunk restored = new Chunk(source.chunkX, source.chunkZ);
+        ChunkSerializer.deserialize(restored, payload, null);
+
+        assertEquals(1, restored.entities().size());
+        MinecartEntity loaded = (MinecartEntity) restored.entities().getFirst();
+        assertEquals(minecart.x, loaded.x);
+        assertEquals(minecart.y, loaded.y);
+        assertEquals(minecart.z, loaded.z);
+        assertEquals(minecart.motionX, loaded.motionX);
+        assertEquals(minecart.motionY, loaded.motionY);
+        assertEquals(minecart.motionZ, loaded.motionZ);
+        assertEquals(minecart.yaw, loaded.yaw);
+        assertEquals(minecart.getDamage(), loaded.getDamage());
+        assertEquals(minecart.getHurtTime(), loaded.getHurtTime());
+        assertEquals(minecart.getHurtDirection(), loaded.getHurtDirection());
     }
 
     @Test

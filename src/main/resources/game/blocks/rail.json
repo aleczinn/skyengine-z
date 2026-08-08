@@ -1,0 +1,16 @@
+{
+  "id": "skyengine:rail", "archetype": "rail", "rail_kind": "normal",
+  "creative_tab": "redstone_blocks", "layer": "cutout", "opaque": false, "solid": false,
+  "no_lod_surface": true, "piston_reaction": "destroy", "place_on_full_top": true,
+  "hardness": 0.7, "tool": "pickaxe", "sound": "stone",
+  "icon_flat": ["game/textures/block/rail.png"],
+  "models": {"":"block/rail_flat", "_corner":"block/rail_flat_corner", "_raised_ne":"block/template_rail_raised_ne", "_raised_sw":"block/template_rail_raised_sw"},
+  "textures": {"rail":"game/textures/block/rail.png", "rail_corner":"game/textures/block/rail_corner.png"},
+  "variants": {
+    "shape=north_south":{"model":"block/rail"}, "shape=east_west":{"model":"block/rail","y":90},
+    "shape=ascending_east":{"model":"block/rail_raised_ne","y":90}, "shape=ascending_west":{"model":"block/rail_raised_sw","y":90},
+    "shape=ascending_north":{"model":"block/rail_raised_ne"}, "shape=ascending_south":{"model":"block/rail_raised_sw"},
+    "shape=south_east":{"model":"block/rail_corner"}, "shape=south_west":{"model":"block/rail_corner","y":90},
+    "shape=north_west":{"model":"block/rail_corner","y":180}, "shape=north_east":{"model":"block/rail_corner","y":270}
+  }
+}

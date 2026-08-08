@@ -142,6 +142,22 @@ final class WorldSetBlockTest {
         assertEquals(expected, world.generalUpdates);
     }
 
+    @Test
+    void missingBedHalfRemovesSiblingWithoutSupportDrop() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = new Chunk(0, 0);
+        chunk.status = ChunkStatus.READY;
+        chunk.setBlock(1, 64, 1, id("skyengine:white_bed[facing=north,part=foot]"));
+        chunk.setBlock(1, 64, 2, id("skyengine:white_bed[facing=north,part=head]"));
+        world.install(chunk);
+
+        world.setBlock(1, 64, 1, Blocks.AIR, false);
+        world.updateBlockStateAt(1, 64, 2);
+
+        assertEquals(Blocks.AIR, chunk.getBlock(1, 64, 2));
+        assertEquals(0, world.lootDrops);
+    }
+
     private static void appendGeneralRing(List<Long> positions, int x, int y, int z) {
         for (Direction direction : Direction.neighborUpdateValues()) {
             positions.add(BlockPos.asLong(x + direction.offsetX(),
@@ -169,6 +185,7 @@ final class WorldSetBlockTest {
 
         private final ChunkManager manager;
         private int neighborUpdates;
+        private int lootDrops;
         private final List<Long> updatedPositions = new ArrayList<>();
         private final List<Long> generalUpdates = new ArrayList<>();
 
@@ -194,6 +211,12 @@ final class WorldSetBlockTest {
         @Override
         protected void updateGeneralStateAt(int x, int y, int z) {
             this.generalUpdates.add(BlockPos.asLong(x, y, z));
+        }
+
+        @Override
+        public void dropBlockLoot(int x, int y, int z, BlockState state,
+                                  de.skyengine.game.world.loot.LootContext.Cause cause) {
+            this.lootDrops++;
         }
 
         private static LevelData level() {

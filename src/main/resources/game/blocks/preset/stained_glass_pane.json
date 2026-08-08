@@ -1,0 +1,30 @@
+{
+  "_comment": "Preset (nicht registriert): bunte Glasscheibe. Rumpf-Modelle sind generisch (models/block/stained_glass_pane_*), Texturen (pane/edge) liefert jede Farbdatei selbst - die Pane-ID entspricht nicht dem Basistexturnamen (Kante hat ein eigenes _pane_top-Asset).",
+  "creative_tab": "colored_blocks",
+  "type": "pane",
+  "layer": "translucent",
+  "hardness": 0.3,
+  "opaque": false,
+  "cull_same": true,
+  "post": { "from": [7, 0, 7], "to": [9, 16, 9] },
+  "models": {
+    "_post": "block/stained_glass_pane_post",
+    "_side": "block/stained_glass_pane_side",
+    "_side_alt": "block/stained_glass_pane_side_alt",
+    "_noside": "block/stained_glass_pane_noside",
+    "_noside_alt": "block/stained_glass_pane_noside_alt"
+  },
+  "multipart": [
+    { "apply": { "model": "block/${id}_post" } },
+
+    { "when": { "north": "true" }, "apply": { "model": "block/${id}_side" } },
+    { "when": { "east": "true" },  "apply": { "model": "block/${id}_side", "y": 90 } },
+    { "when": { "south": "true" }, "apply": { "model": "block/${id}_side_alt" } },
+    { "when": { "west": "true" },  "apply": { "model": "block/${id}_side_alt", "y": 90 } },
+
+    { "when": { "north": "false" }, "apply": { "model": "block/${id}_noside" } },
+    { "when": { "east": "false" },  "apply": { "model": "block/${id}_noside_alt" } },
+    { "when": { "south": "false" }, "apply": { "model": "block/${id}_noside_alt", "y": 90 } },
+    { "when": { "west": "false" },  "apply": { "model": "block/${id}_noside", "y": 270 } }
+  ]
+}

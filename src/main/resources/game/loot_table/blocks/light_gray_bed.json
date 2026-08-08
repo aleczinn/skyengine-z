@@ -1,0 +1,20 @@
+﻿{
+  "type": "skyengine:block",
+  "pools": [
+    {
+      "conditions": [
+        {
+          "condition": "skyengine:survives_explosion"
+        }
+      ],
+      "entries": [
+        {
+          "type": "skyengine:item",
+          "name": "skyengine:light_gray_bed"
+        }
+      ],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "skyengine:blocks/light_gray_bed"
+}

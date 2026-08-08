@@ -1,6 +1,6 @@
 {
   "id": "skyengine:chest",
-  "creative_tab": "functional",
+  "creative_tab": ["functional", "redstone_blocks"],
   "type": "chest",
   "layer": "opaque",
   "hardness": 2.5,

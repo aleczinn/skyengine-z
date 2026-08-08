@@ -1,0 +1,41 @@
+{
+  "_comment": "Preset: Vanilla-Holzzauntor mit facing/open/powered/in_wall. powered ist reine Logik und wird von den partiellen Modellvarianten ignoriert.",
+  "creative_tab": "building_blocks",
+  "archetype": "fence_gate",
+  "layer": "cutout",
+  "hardness": 2,
+  "resistance": 3,
+  "tool": "axe",
+  "sound": "wood",
+  "open_sound": "fence_gate",
+  "opaque": false,
+  "models": {
+    "": "block/fence_gate",
+    "_open": "block/fence_gate_open",
+    "_wall": "block/fence_gate_wall",
+    "_wall_open": "block/fence_gate_wall_open"
+  },
+  "textures": {
+    "texture": "game/textures/block/${texture}.png"
+  },
+  "inventory_model": "block/${id}",
+  "inventory_display_model": "block/${id}",
+  "variants": {
+    "facing=east,in_wall=false,open=false":  { "model": "block/${id}", "uvlock": true, "y": 270 },
+    "facing=east,in_wall=false,open=true":   { "model": "block/${id}_open", "uvlock": true, "y": 270 },
+    "facing=east,in_wall=true,open=false":   { "model": "block/${id}_wall", "uvlock": true, "y": 270 },
+    "facing=east,in_wall=true,open=true":    { "model": "block/${id}_wall_open", "uvlock": true, "y": 270 },
+    "facing=north,in_wall=false,open=false": { "model": "block/${id}", "uvlock": true, "y": 180 },
+    "facing=north,in_wall=false,open=true":  { "model": "block/${id}_open", "uvlock": true, "y": 180 },
+    "facing=north,in_wall=true,open=false":  { "model": "block/${id}_wall", "uvlock": true, "y": 180 },
+    "facing=north,in_wall=true,open=true":   { "model": "block/${id}_wall_open", "uvlock": true, "y": 180 },
+    "facing=south,in_wall=false,open=false": { "model": "block/${id}", "uvlock": true },
+    "facing=south,in_wall=false,open=true":  { "model": "block/${id}_open", "uvlock": true },
+    "facing=south,in_wall=true,open=false":  { "model": "block/${id}_wall", "uvlock": true },
+    "facing=south,in_wall=true,open=true":   { "model": "block/${id}_wall_open", "uvlock": true },
+    "facing=west,in_wall=false,open=false":  { "model": "block/${id}", "uvlock": true, "y": 90 },
+    "facing=west,in_wall=false,open=true":   { "model": "block/${id}_open", "uvlock": true, "y": 90 },
+    "facing=west,in_wall=true,open=false":   { "model": "block/${id}_wall", "uvlock": true, "y": 90 },
+    "facing=west,in_wall=true,open=true":    { "model": "block/${id}_wall_open", "uvlock": true, "y": 90 }
+  }
+}

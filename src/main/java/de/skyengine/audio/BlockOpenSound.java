@@ -20,6 +20,7 @@ public enum BlockOpenSound {
     WOOD_DOOR("door/wood", 1.0F, false),
     /** Registriert und vorgeladen; einen Eisentür-Block gibt es noch nicht. */
     IRON_DOOR("door/iron", 1.0F, false),
+    FENCE_GATE("fence_gate", 1.0F, false),
     CHEST("chest", 0.5F, true);
 
     /** Unterordner unter {@code game/sounds/} mit den open-/close-Varianten. */

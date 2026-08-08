@@ -1,0 +1,43 @@
+{
+  "_comment": "Preset (nicht registriert): zweiteiliges Bett. Kopf/Fuss ueber 'parts' relativ zu 'facing' (der erste Nutzer dieses Modus - siehe PartsBehavior). Kollision niedrig (0-9px); Inventar und Hand nutzen beide Haelften als zusammengesetztes Modell.",
+  "creative_tab": ["colored_blocks", "functional"],
+  "piston_reaction": "destroy",
+  "facing": true,
+  "properties": {
+    "part": { "values": ["head", "foot"], "default": "foot" }
+  },
+  "parts": {
+    "property": "part",
+    "offsets": { "foot": [0, 0, 0], "head": [0, 0, -1] },
+    "relative_to": "facing"
+  },
+  "layer": "cutout",
+  "sound": "wood",
+  "hardness": 0.2,
+  "opaque": false,
+  "collision": { "model": true },
+  "models": {
+    "_head": "block/bed_head",
+    "_foot": "block/bed_foot",
+    "_inventory_display": "block/bed_item"
+  },
+  "textures": {
+    "head_north": "game/textures/block/bed_head_north.png",
+    "down": "game/textures/block/bed_down.png"
+  },
+  "inventory_models": [
+    { "model": "block/${id}_head" },
+    { "model": "block/${id}_foot", "translation": [0, 0, 16] }
+  ],
+  "inventory_display_model": "block/${id}_inventory_display",
+  "variants": {
+    "facing=north,part=head": { "model": "block/${id}_head", "y": 180 },
+    "facing=north,part=foot": { "model": "block/${id}_foot", "y": 180 },
+    "facing=east,part=head":  { "model": "block/${id}_head", "y": 270 },
+    "facing=east,part=foot":  { "model": "block/${id}_foot", "y": 270 },
+    "facing=south,part=head": { "model": "block/${id}_head" },
+    "facing=south,part=foot": { "model": "block/${id}_foot" },
+    "facing=west,part=head":  { "model": "block/${id}_head", "y": 90 },
+    "facing=west,part=foot":  { "model": "block/${id}_foot", "y": 90 }
+  }
+}

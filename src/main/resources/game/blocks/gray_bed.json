@@ -1,0 +1,13 @@
+{
+  "id": "skyengine:gray_bed",
+  "parent": "preset/bed",
+  "textures": {
+    "head_east": "game/textures/block/gray_bed_head_east.png",
+    "head_up": "game/textures/block/gray_bed_head_up.png",
+    "head_west": "game/textures/block/gray_bed_head_west.png",
+    "foot_east": "game/textures/block/gray_bed_foot_east.png",
+    "foot_south": "game/textures/block/gray_bed_foot_south.png",
+    "foot_up": "game/textures/block/gray_bed_foot_up.png",
+    "foot_west": "game/textures/block/gray_bed_foot_west.png"
+  }
+}

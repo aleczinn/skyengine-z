@@ -249,9 +249,23 @@ public final class PlayerRenderer implements IDisposable {
             this.pose.rightArmZRot += (float) (Math.sin(sp * Math.PI) * -0.4);
         }
 
-        if (player.isSneaking()) {
+        if (player.isPassenger()) {
+            this.applyRidingPose();
+        } else if (player.isSneaking()) {
             this.applyCrouchPose();
         }
+    }
+
+    /** Vanilla-Humanoid-Sitzpose: angewinkelte Beine und leicht angehobene Arme. */
+    private void applyRidingPose() {
+        this.pose.rightArmXRot += -(float) Math.PI / 5F;
+        this.pose.leftArmXRot += -(float) Math.PI / 5F;
+        this.pose.rightLegXRot = -1.4137167F;
+        this.pose.leftLegXRot = -1.4137167F;
+        this.pose.rightLegYRot = (float) Math.PI / 10F;
+        this.pose.leftLegYRot = -(float) Math.PI / 10F;
+        this.pose.rightLegZRot = 0.07853982F;
+        this.pose.leftLegZRot = -0.07853982F;
     }
 
     /** Crouch-Pose (Vanilla-Werte verbatim; Arm-Pivot slim-abhängig). */

@@ -1,6 +1,6 @@
 {
   "id": "skyengine:redstone_ore",
-  "creative_tab": "natural",
+  "creative_tab": ["natural", "redstone_blocks"],
   "parent": "preset/cube",
   "hardness": 3,
   "tool": "pickaxe",

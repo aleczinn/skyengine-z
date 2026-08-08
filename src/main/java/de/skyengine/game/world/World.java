@@ -9,6 +9,7 @@ import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.entity.ItemFrameEntity;
+import de.skyengine.game.entity.MinecartEntity;
 import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.BlockPos;
@@ -284,6 +285,34 @@ public class World implements IInitializable, IDisposable {
         return this.soundManager;
     }
 
+    /** Aktualisiert positionsgebundene Entity-Sounds unabhängig vom Frustum-Culling. */
+    public void updateEntitySounds(float partialTick) {
+        if (this.soundManager == null) return;
+        this.soundManager.beginMinecartSounds();
+        for (Chunk chunk : this.chunksWithEntities) {
+            if (chunk.status != ChunkStatus.READY) continue;
+            for (Entity entity : chunk.entities()) {
+                if (!(entity instanceof MinecartEntity minecart) || minecart.isRemoved()) continue;
+                double x = minecart.lastX + (minecart.x - minecart.lastX) * partialTick;
+                double y = minecart.lastY + (minecart.y - minecart.lastY) * partialTick;
+                double z = minecart.lastZ + (minecart.z - minecart.lastZ) * partialTick;
+                double speed = Math.sqrt(minecart.motionX * minecart.motionX
+                        + minecart.motionZ * minecart.motionZ);
+                this.soundManager.updateMinecartSound(minecart, x, y, z, speed,
+                        this.player != null && this.player.getVehicle() == minecart);
+            }
+        }
+        this.soundManager.endMinecartSounds();
+    }
+
+    public void playDispenserSuccess(int x, int y, int z) {
+        if (this.soundManager != null) this.soundManager.playDispenserSuccess(x + 0.5, y + 0.5, z + 0.5);
+    }
+
+    public void playDispenserFailure(int x, int y, int z) {
+        if (this.soundManager != null) this.soundManager.playDispenserFailure(x + 0.5, y + 0.5, z + 0.5);
+    }
+
     public BlockEntityRenderDispatcher getBlockEntityRenderDispatcher() {
         return blockEntityRenderer;
     }
@@ -336,8 +365,20 @@ public class World implements IInitializable, IDisposable {
         this.processBlockEvents(); // Vanillas einziger runBlockEvents-Punkt, VOR der BE-Phase
         this.tickRandomBlocks();
         this.tickBlockEntities();
+        this.pushMinecartsByPlayer(player);
         this.tickEntities();
         this.simulationTelemetry.endTick();
+    }
+
+    /** Minecarts suchen in Vanilla vor ihrer Bewegung Entities in einer um 0,2 verbreiterten Box. */
+    private void pushMinecartsByPlayer(EntityPlayer player) {
+        this.forEachEntityNearby(player.x, player.z, 1, entity -> {
+            if (entity instanceof MinecartEntity minecart
+                    && minecart.getBoundingBox().copy().inflate(0.2, 0, 0.2)
+                    .intersects(player.getBoundingBox())) {
+                minecart.pushFrom(player);
+            }
+        });
     }
 
     /**
@@ -754,12 +795,14 @@ public class World implements IInitializable, IDisposable {
                 Entity entity = it.next();
                 if (entity.isRemoved()) {
                     it.remove();
+                    if (entity.isPersistent()) chunk.markModified();
                     continue;
                 }
                 int cx = (int) Math.floor(entity.x) >> ChunkSection.SHIFT;
                 int cz = (int) Math.floor(entity.z) >> ChunkSection.SHIFT;
                 if (cx != chunk.chunkX || cz != chunk.chunkZ) {
                     it.remove();
+                    if (entity.isPersistent()) chunk.markModified();
                     this.transferBuffer.add(entity);
                 }
             }
@@ -776,6 +819,7 @@ public class World implements IInitializable, IDisposable {
         Chunk chunk = this.chunkManager.getChunk(cx, cz);
         if (chunk != null && chunk.status == ChunkStatus.READY) {
             chunk.addEntity(entity);
+            if (entity.isPersistent()) chunk.markModified();
             this.chunksWithEntities.add(chunk);
         }
     }
@@ -783,6 +827,43 @@ public class World implements IInitializable, IDisposable {
     /** Reiht eine Entity zum Spawnen ein (Übernahme im nächsten {@link #tickEntities}). */
     public void spawnEntity(Entity entity) {
         this.pendingEntities.add(entity);
+    }
+
+    /** Setzt ein normales Minecart auf die Schienenposition. */
+    public MinecartEntity spawnMinecart(double x, double y, double z) {
+        MinecartEntity minecart = new MinecartEntity();
+        minecart.setPosition(x, y, z);
+        minecart.alignToRail(this);
+        this.spawnEntity(minecart);
+        return minecart;
+    }
+
+    /** Sensor-Schiene: Minecart-Hitbox im schmalen Erfassungsbereich oberhalb der Schiene. */
+    public boolean hasMinecartAtRail(int x, int y, int z) {
+        AABB sensor = new AABB(x + 0.2, y, z + 0.2, x + 0.8, y + 0.8, z + 0.8);
+        final boolean[] found = {false};
+        this.forEachEntityNearby(x + 0.5, z + 0.5, 1, entity -> {
+            if (!found[0] && entity instanceof MinecartEntity && !entity.isRemoved()
+                    && entity.getBoundingBox().intersects(sensor)) found[0] = true;
+        });
+        return found[0];
+    }
+
+    /** Naechstes Minecart auf dem Augenstrahl; Blöcke begrenzen die Reichweite. */
+    public MinecartEntity raycastMinecart(double ox, double oy, double oz,
+                                           double dx, double dy, double dz, double maxDistance) {
+        final MinecartEntity[] closest = {null};
+        final double[] distance = {maxDistance};
+        this.forEachEntityNearby(ox + dx * maxDistance * 0.5,
+                oz + dz * maxDistance * 0.5, 1, entity -> {
+            if (!(entity instanceof MinecartEntity minecart) || minecart.isRemoved()) return;
+            double hit = minecart.rayIntersection(ox, oy, oz, dx, dy, dz, distance[0]);
+            if (hit < distance[0]) {
+                distance[0] = hit;
+                closest[0] = minecart;
+            }
+        });
+        return closest[0];
     }
 
     /**
@@ -886,6 +967,15 @@ public class World implements IInitializable, IDisposable {
                 List<Entity> list = chunk.entities();
                 for (int i = 0; i < list.size(); i++) action.accept(list.get(i));
             }
+        }
+    }
+
+    /** Iteriert alle Entities in READY-Chunks; der Callback darf die Entity-Listen nicht verändern. */
+    public void forEachLoadedEntity(Consumer<Entity> action) {
+        for (Chunk chunk : this.chunksWithEntities) {
+            if (chunk.status != ChunkStatus.READY) continue;
+            List<Entity> entities = chunk.entities();
+            for (int i = 0; i < entities.size(); i++) action.accept(entities.get(i));
         }
     }
 
@@ -1285,7 +1375,7 @@ public class World implements IInitializable, IDisposable {
         this.blockEntityRenderer.render(this.chunkManager, this.lodManager, camera, partialTick);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.BE);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.ENT);
-        this.entityRenderer.render(this.chunksWithEntities, camera, partialTick);
+        this.entityRenderer.render(this, this.chunksWithEntities, camera, partialTick);
         if (beforeTranslucent != null) beforeTranslucent.run();
         FrameProfiler.cpuStop(FrameProfiler.Cpu.ENT);
         this.chunkRenderer.renderTranslucent(camera);
@@ -1938,12 +2028,14 @@ public class World implements IInitializable, IDisposable {
                Kaskade möglich: jeder Kaskadenschritt entfernt einen Block endgültig. */
             boolean removed = updated.getId() == Blocks.AIR;
             /* Ein Block, der sich selbst entfernt, wird abgebaut — also VOR dem Setzen denselben
-               onBreak-Hook laufen lassen wie beim Abbau durch den Spieler. Ohne das verlöre ein
-               so entfernter Block mit BlockEntity still seinen Inhalt. Heute implementiert kein
-               Behavior onBreak; die Reihenfolge schließt die Lücke, bevor das erste es tut. */
+               onBreak-Hook laufen lassen wie beim Abbau durch den Spieler. Mehrteilige Blöcke
+               unterdrücken nur den Loot der automatisch aufgeräumten Geschwisterhälfte; der Hook
+               bleibt aktiv, damit BlockEntities und sonstige Seiteneffekte nicht verloren gehen. */
             if (removed) {
-                this.dropBlockLoot(x, y, z, current,
-                        LootContext.Cause.SUPPORT);
+                if (current.getBlock().dropsWhenUnsupported()) {
+                    this.dropBlockLoot(x, y, z, current,
+                            LootContext.Cause.SUPPORT);
+                }
                 current.getBlock().onBreak(this, x, y, z, current);
             }
             if (this.setBlock(x, y, z, updated.getId(), removed) && !removed) {

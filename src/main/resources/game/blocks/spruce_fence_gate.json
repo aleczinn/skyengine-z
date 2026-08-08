@@ -1,0 +1,1 @@
+{ "id": "skyengine:spruce_fence_gate", "parent": "preset/fence_gate", "vars": { "texture": "spruce_planks" } }

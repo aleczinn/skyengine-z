@@ -8,6 +8,7 @@ import de.skyengine.core.io.*;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.entity.ItemFrameEntity;
+import de.skyengine.game.entity.MinecartEntity;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
@@ -16,6 +17,7 @@ import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.ChestBlockEntity;
+import de.skyengine.game.world.block.entity.DispenserBlockEntity;
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
@@ -29,6 +31,7 @@ import de.skyengine.game.world.item.FoodItem;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.ItemFrameItem;
+import de.skyengine.game.world.item.MinecartItem;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.item.ToolItem;
 import de.skyengine.game.world.loot.LootContext;
@@ -50,6 +53,7 @@ import de.skyengine.graphics.blockentity.ChestRenderer;
 import de.skyengine.graphics.blockentity.EnchantingTableRenderer;
 import de.skyengine.graphics.gui.BootProgress;
 import de.skyengine.graphics.gui.screens.GuiChest;
+import de.skyengine.graphics.gui.screens.GuiDispenser;
 import de.skyengine.graphics.gui.screens.GuiCreativeInventory;
 import de.skyengine.graphics.gui.screens.GuiInventory;
 import de.skyengine.graphics.gui.DebugOverlay;
@@ -76,6 +80,7 @@ import org.lwjgl.opengl.GL11;
 import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.graphics.world.ChunkBorderRenderer;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
+import de.skyengine.graphics.entity.EntityHitboxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -98,6 +103,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private World world;
     private SelectionBoxRenderer selectionBoxRenderer;
     private ChunkBorderRenderer chunkBorderRenderer;
+    private EntityHitboxRenderer entityHitboxRenderer;
     private CrackRenderer crackRenderer;
     private GuiManager guiManager;
 
@@ -149,6 +155,9 @@ public class GameContainer implements IResizeable, IDisposable {
     /* F3+X-Kombi während des Haltens benutzt → unterdrückt den Overlay-Toggle beim Loslassen. */
     private boolean f3ComboUsed = false;
 
+    /* F1: HUD samt First-Person-Hand ausblenden. Menues bleiben sichtbar. */
+    private boolean hudHidden = false;
+
     /* F3-Debug-Overlay (FPS/Position/Biome/...), Toggle in handleGlobalHotkeys. */
     private final DebugOverlay debugOverlay = new DebugOverlay();
 
@@ -185,6 +194,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private BlockRaycast.Hit hit = null;
     /** Entity-Treffer nur, wenn er vor dem naechsten Block auf demselben Augenstrahl liegt. */
     private ItemFrameEntity itemFrameHit = null;
+    private MinecartEntity minecartHit = null;
 
     /* Spieler-Inventar (36 Slots: 0..8 Hotbar, 9..35 Hauptinventar). Auswahl per Zahlentasten 1..9. */
     private final SimpleItemStorage playerInventory = new SimpleItemStorage(36);
@@ -218,6 +228,7 @@ public class GameContainer implements IResizeable, IDisposable {
            sterben bei der Rückkehr ins Hauptmenü (exitToTitle). */
         this.selectionBoxRenderer = new SelectionBoxRenderer();
         this.chunkBorderRenderer = new ChunkBorderRenderer();
+        this.entityHitboxRenderer = new EntityHitboxRenderer();
         this.crackRenderer = new CrackRenderer();
     }
 
@@ -245,6 +256,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.camera.setInverseDepth(SkyEngine.get().getWindow().getProperties().isUseInverseDepth());
         this.selectionBoxRenderer.init();
         this.chunkBorderRenderer.init();
+        this.entityHitboxRenderer.init();
         this.crackRenderer.init(this.atlas.textures());
         this.blockEntityRenderers.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderers.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
@@ -365,12 +377,14 @@ public class GameContainer implements IResizeable, IDisposable {
         this.guiManager.close();
         this.saveCurrentWorld(true);
         GL11.glFinish();
+        this.soundManager.stopMinecartSounds();
         this.world.dispose();
         this.world = null;
         this.player = null;
         this.currentSave = null;
         this.hit = null;
         this.itemFrameHit = null;
+        this.minecartHit = null;
         this.notifyOnSaveDone = false; // sonst quittiert die nächste Welt einen fremden Save
         this.resetMining();
         this.guiManager.open(new GuiMainMenu());
@@ -725,6 +739,7 @@ public class GameContainer implements IResizeable, IDisposable {
 
         /* Audio pro Frame: Listener auf die interpolierte Kamera (Streaming läuft oben). */
         this.soundManager.updateListener(this.camera);
+        this.world.updateEntitySounds(partialTick);
 
         this.hit = BlockRaycast.raycast(this.world, this.eyePosition, this.eyeDirection, REACH);
         double entityReach = this.hit == null ? REACH : Math.sqrt(
@@ -732,6 +747,9 @@ public class GameContainer implements IResizeable, IDisposable {
                         + sq(this.hit.hitY() - this.eyePosition.y)
                         + sq(this.hit.hitZ() - this.eyePosition.z));
         this.itemFrameHit = this.world.raycastItemFrame(this.eyePosition.x, this.eyePosition.y,
+                this.eyePosition.z, this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z,
+                entityReach);
+        this.minecartHit = this.world.raycastMinecart(this.eyePosition.x, this.eyePosition.y,
                 this.eyePosition.z, this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z,
                 entityReach);
 
@@ -752,8 +770,9 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.perspective.isFirstPerson()) {
             this.world.render(this.camera, partialTick);
         } else {
-            /* Licht der Spielerzelle — der Spieler steht IN seinem Block, also die Füße-Zelle. */
-            float playerLight = this.lightAt(this.player.x, this.player.y, this.player.z);
+            /* Am Auge samplen: Der Fußpunkt liegt beim Sitzen im Fahrzeug oder Stützblock. */
+            float playerLight = this.lightAt(this.player.x,
+                    this.player.y + this.player.getEyeHeight(partialTick), this.player.z);
             this.world.render(this.camera, partialTick, () ->
                     this.playerRenderer.renderThirdPerson(this.player, this.animState, this.camera, partialTick,
                             this.heldItemMeshes, this.playerInventory.get(this.hotbarIndex), playerLight));
@@ -783,10 +802,15 @@ public class GameContainer implements IResizeable, IDisposable {
                     ccx, ccz, DebugFlags.chunkBorders);
         }
 
+        if (DebugFlags.entityHitboxes) {
+            this.entityHitboxRenderer.render(this.camera, this.player, this.world, partialTick);
+        }
+
         this.renderFluidOverlay();
 
         /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Depth-Clear. */
-        if (this.perspective.isFirstPerson() && this.player.getGamemode() != Gamemode.SPECTATOR) {
+        if (!this.hudHidden && this.perspective.isFirstPerson()
+                && this.player.getGamemode() != Gamemode.SPECTATOR) {
             /* Licht der AUGEN-Zelle (nicht der Füße): die Hand hängt vor dem Gesicht, und in
                einem 1 Block hohen Kriechgang unterscheiden sich beide sichtbar. */
             float handLight = this.lightAt(this.player.x,
@@ -867,14 +891,17 @@ public class GameContainer implements IResizeable, IDisposable {
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
         /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair);
            Crosshair nur in First Person (in den F5-Ansichten zielt man nicht über die Bildmitte). */
-        this.guiManager.render(width, height, this.world != null ? this.playerInventory : null,
-                this.hotbarIndex, showHotbar, this.perspective.isFirstPerson(), this.itemNameAlpha(), this.player);
-        if (this.debugOverlay.isVisible() && this.world != null) {
+        this.guiManager.render(width, height,
+                this.world != null && !this.hudHidden ? this.playerInventory : null,
+                this.hotbarIndex, showHotbar && !this.hudHidden,
+                !this.hudHidden && this.perspective.isFirstPerson(),
+                this.hudHidden ? 0F : this.itemNameAlpha(), this.player);
+        if (!this.hudHidden && this.debugOverlay.isVisible() && this.world != null) {
             this.debugOverlay.render(this.guiManager, this.world, this.player);
         }
         /* Gespeichert-Meldung NACH dem GuiScreen: sie soll auch über dem abgedunkelten
            Pausenmenü lesbar sein (im Hud läge sie unter dessen Dim). */
-        if (this.world != null) this.saveToast.render(this.guiManager);
+        if (!this.hudHidden && this.world != null) this.saveToast.render(this.guiManager);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
     }
 
@@ -969,6 +996,7 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         this.selectionBoxRenderer.dispose();
         if (this.chunkBorderRenderer != null) this.chunkBorderRenderer.dispose();
+        if (this.entityHitboxRenderer != null) this.entityHitboxRenderer.dispose();
         if (this.crackRenderer != null) this.crackRenderer.dispose();
         this.playerRenderer.dispose();
         this.heldItemMeshes.dispose();
@@ -1236,7 +1264,16 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.missTime > 0) return false;
 
         boolean endAttack = false;
-        if (this.itemFrameHit != null) {
+        if (this.minecartHit != null) {
+            MinecartEntity minecart = this.minecartHit;
+            ItemStack held = this.playerInventory.get(this.hotbarIndex);
+            boolean pickaxe = held.getItem() instanceof ToolItem tool
+                    && tool.getType() == de.skyengine.game.world.item.ToolType.PICKAXE;
+            minecart.attack(this.world, this.player.getGamemode() == Gamemode.CREATIVE, pickaxe);
+            this.soundManager.playStrongAttack();
+            this.stopDestroyBlock();
+            endAttack = true;
+        } else if (this.itemFrameHit != null) {
             this.itemFrameHit.attack(this.world, this.player.getGamemode() == Gamemode.CREATIVE);
             this.stopDestroyBlock();
             endAttack = true;
@@ -1259,7 +1296,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!down) this.missTime = 0;
         if (this.missTime > 0 || this.animState.isEating()) return;
 
-        if (down && this.itemFrameHit != null) {
+        if (down && (this.itemFrameHit != null || this.minecartHit != null)) {
             this.stopDestroyBlock();
         } else if (down && this.hit != null) {
             if (this.continueDestroyBlock()) this.animState.swing();
@@ -1300,12 +1337,19 @@ public class GameContainer implements IResizeable, IDisposable {
            Strahl (Fluids sind im Normal-Raycast unsichtbar) und funktioniert auch ohne this.hit.
            Der gefüllte Eimer platziert wie ein Block über this.hit (siehe handleBucket). */
         ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        if (this.minecartHit != null && this.minecartHit.interact(this.player)) return true;
         if (this.itemFrameHit != null
                 && this.itemFrameHit.interact(this.world, held,
                 this.player.getGamemode() == Gamemode.CREATIVE)) return true;
-        if (held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket)) return true;
+        /* Ein leerer Eimer kann eine Fluid-Quelle treffen, obwohl der normale Blockstrahl keinen
+           Treffer hat. Bei einem Blocktreffer kommt er dagegen erst NACH dessen Interaktion:
+           Container öffnen sich in Vanilla mit einem Eimer in der Hand, außer Secondary Use ist
+           aktiv. */
+        if (this.hit == null) {
+            return held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket);
+        }
 
-        if (this.hit == null) return false;
+        if (held.getItem() instanceof MinecartItem && this.tryPlaceMinecart()) return true;
 
         /* Sneaken mit einem Block in der Hand überspringt JEDE Block-Interaktion und platziert
            stattdessen — MCs Regel (`!isSecondaryUseActive() || leere Hand`). Das ist die einzige
@@ -1323,13 +1367,17 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
         BlockState hitState = Blocks.getState(this.hit.block());
         if (!placingWhileSneaking
-                && hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(), hitState)) {
+                && hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(),
+                        hitState, this.player.yaw)) {
             return true;
         }
 
         /* Truhe: Rechtsklick öffnet das Truhen-GUI (Deckel geht auf). */
         if (!placingWhileSneaking && this.tryOpenChest()) return true;
         if (!placingWhileSneaking && this.tryOpenHopper()) return true;
+        if (!placingWhileSneaking && this.tryOpenDispenser()) return true;
+
+        if (held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket)) return true;
 
         if (held.getItem() instanceof ItemFrameItem && this.tryPlaceItemFrame()) return true;
 
@@ -1374,6 +1422,12 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     private void pickBlock() {
         if (this.player.getGamemode() != Gamemode.CREATIVE) return;
+        if (this.minecartHit != null) {
+            Item item = Items.get(Identifier.of("skyengine:minecart"));
+            if (item != null) this.playerInventory.set(this.hotbarIndex, new ItemStack(item, 1));
+            this.itemNameShownAt = System.currentTimeMillis();
+            return;
+        }
         if (this.itemFrameHit != null) {
             this.playerInventory.set(this.hotbarIndex, this.itemFrameHit.getPickResult());
             this.itemNameShownAt = System.currentTimeMillis();
@@ -1490,6 +1544,26 @@ public class GameContainer implements IResizeable, IDisposable {
         BlockEntity be = this.world.getBlockEntity(x, y, z);
         if (!(be instanceof de.skyengine.game.world.block.entity.HopperBlockEntity hopper)) return false;
         this.guiManager.open(new de.skyengine.graphics.gui.screens.GuiHopper(hopper, this.playerInventory));
+        return true;
+    }
+
+    /** Minecart-Item: nur direkt auf einer Schiene platzieren, Steigungen sitzen einen halben Block höher. */
+    private boolean tryPlaceMinecart() {
+        BlockState rail = Blocks.getState(this.hit.block());
+        if (!rail.getValues().containsKey(Properties.RAIL_SHAPE)
+                && !rail.getValues().containsKey(Properties.STRAIGHT_RAIL_SHAPE)) return false;
+        double yOffset = de.skyengine.game.world.block.behavior.RailBehavior.shape(rail).isAscending()
+                ? 0.5625 : 0.0625;
+        this.world.spawnMinecart(this.hit.x() + 0.5, this.hit.y() + yOffset, this.hit.z() + 0.5);
+        if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
+        return true;
+    }
+
+    /** Rechtsklick auf Dispenser oder Dropper öffnet das gemeinsame 9-Slot-GUI. */
+    private boolean tryOpenDispenser() {
+        BlockEntity blockEntity = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
+        if (!(blockEntity instanceof DispenserBlockEntity dispenser)) return false;
+        this.guiManager.open(new GuiDispenser(dispenser, this.playerInventory));
         return true;
     }
 
@@ -1664,11 +1738,16 @@ public class GameContainer implements IResizeable, IDisposable {
             this.screenshotRequested = true;
         }
 
+        if (this.world != null && input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_HUD))) {
+            this.hudHidden = !this.hudHidden;
+            this.logger.debug("HUD: " + (this.hudHidden ? "aus" : "an"));
+        }
+
         /* F3-Overlay + F3+X-Kombi-Gerüst (Minecraft-Stil): wurde während des Haltens eine Kombi
            benutzt, unterdrückt das den Overlay-Toggle beim Loslassen. Weitere F3+X hier ergänzen. */
         if (input.isKeyDown(GLFW.GLFW_KEY_F3) && !this.guiManager.isOpen()) {
-            if (input.isKeyPressed(GLFW.GLFW_KEY_H)) {
-                DebugFlags.entityHitboxes = !DebugFlags.entityHitboxes; // Rendering folgt später
+            if (input.isKeyPressed(GLFW.GLFW_KEY_B)) {
+                DebugFlags.entityHitboxes = !DebugFlags.entityHitboxes;
                 this.logger.debug("Entity-Hitboxen: " + (DebugFlags.entityHitboxes ? "an" : "aus"));
                 this.f3ComboUsed = true;
             }

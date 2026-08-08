@@ -1,4 +1,5 @@
 {
   "id": "skyengine:oak_door",
-  "parent": "preset/door"
+  "parent": "preset/door",
+  "creative_tab": ["functional", "redstone_blocks"]
 }

@@ -21,6 +21,7 @@ public final class Archetypes {
         register("cross", new CrossArchetype());
         register("tall_cross", new TallCrossArchetype());
         register("fence", new FenceArchetype());
+        register("fence_gate", new FenceGateArchetype());
         register("pane", new PaneArchetype());
         register("pillar", new PillarArchetype());
         register("fluid", new FluidArchetype());
@@ -42,6 +43,9 @@ public final class Archetypes {
         register("observer", new ObserverArchetype());
         register("hopper", new HopperArchetype());
         register("comparator", new ComparatorArchetype());
+        register("dispenser", new DispenserArchetype(false));
+        register("dropper", new DispenserArchetype(true));
+        register("rail", new RailArchetype());
         register("custom", new CustomArchetype());
     }
 

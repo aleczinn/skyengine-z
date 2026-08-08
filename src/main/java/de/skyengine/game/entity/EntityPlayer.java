@@ -104,6 +104,24 @@ public class EntityPlayer extends Entity {
     public void update(Input input, World world) {
         super.update();
 
+        if (this.getVehicle() != null) {
+            if (input.isBindDown(GameSettings.get().key(KeyBindings.SNEAK))) {
+                this.stopRiding(world);
+            } else {
+                if (this.getVehicle() instanceof MinecartEntity minecart) {
+                    double yawRad = Math.toRadians(this.yaw);
+                    /* Vanilla schiebt ein nahezu stehendes Cart mit player.zza > 0 nur um 0,001
+                       pro Tick in Blickrichtung an. Rückwärts- und Seitwärtstasten treiben es
+                       nicht an. Der kleine additive Impuls erzeugt das langsame Anrollen. */
+                    double impulse = input.isBindDown(GameSettings.get().key(KeyBindings.FORWARD))
+                            ? 0.001 : 0;
+                    minecart.addPassengerImpulse(Math.sin(yawRad) * impulse,
+                            -Math.cos(yawRad) * impulse);
+                }
+                return;
+            }
+        }
+
         /* Tot: keine Steuerung mehr — die Physik läuft weiter (der Körper fällt aus), bis der
            Todesscreen Respawn oder Hauptmenü auslöst. */
         if (this.isDead()) input = Input.EMPTY;

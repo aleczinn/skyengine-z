@@ -98,10 +98,12 @@ public final class PlayerModel {
                 this.leftArm, this.leftSleeve);
         this.draw(shader, this.part.set(base)
                 .translate(-1.9f, pose.legY, pose.legZ)
-                .rotateX(pose.rightLegXRot), this.rightLeg, this.rightPants);
+                .rotateZ(pose.rightLegZRot).rotateY(pose.rightLegYRot).rotateX(pose.rightLegXRot),
+                this.rightLeg, this.rightPants);
         this.draw(shader, this.part.set(base)
                 .translate(1.9f, pose.legY, pose.legZ)
-                .rotateX(pose.leftLegXRot), this.leftLeg, this.leftPants);
+                .rotateZ(pose.leftLegZRot).rotateY(pose.leftLegYRot).rotateX(pose.leftLegXRot),
+                this.leftLeg, this.leftPants);
     }
 
     /** Rechte-Arm-Matrix (auch Anker fürs Held-Item), Vanilla-Rotationsfolge Z→Y→X. */
@@ -139,7 +141,8 @@ public final class PlayerModel {
         public float bodyXRot, bodyYRot;
         public float rightArmXRot, rightArmYRot, rightArmZRot;
         public float leftArmXRot, leftArmYRot, leftArmZRot;
-        public float rightLegXRot, leftLegXRot;
+        public float rightLegXRot, rightLegYRot, rightLegZRot;
+        public float leftLegXRot, leftLegYRot, leftLegZRot;
         /* Pivots (Vanilla-Defaults; Crouch/Attack verschieben sie). */
         public float headY = 0, bodyY = 0;
         public float rightArmX = -5, rightArmZ = 0, leftArmX = 5, leftArmZ = 0, armY = 2;
@@ -150,7 +153,8 @@ public final class PlayerModel {
             this.bodyXRot = 0; this.bodyYRot = 0;
             this.rightArmXRot = 0; this.rightArmYRot = 0; this.rightArmZRot = 0;
             this.leftArmXRot = 0; this.leftArmYRot = 0; this.leftArmZRot = 0;
-            this.rightLegXRot = 0; this.leftLegXRot = 0;
+            this.rightLegXRot = 0; this.rightLegYRot = 0; this.rightLegZRot = 0;
+            this.leftLegXRot = 0; this.leftLegYRot = 0; this.leftLegZRot = 0;
             this.headY = 0; this.bodyY = 0;
             this.rightArmX = -5; this.rightArmZ = 0; this.leftArmX = 5; this.leftArmZ = 0;
             this.armY = 2;

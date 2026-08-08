@@ -47,6 +47,18 @@ $wanted = @(
     'netherrack.png',
     'magma.png',
     'magma.png.mcmeta',
+    'dispenser_front.png',
+    'dispenser_front_vertical.png',
+    'dropper_front.png',
+    'dropper_front_vertical.png',
+    'rail.png',
+    'rail_corner.png',
+    'powered_rail.png',
+    'powered_rail_on.png',
+    'detector_rail.png',
+    'detector_rail_on.png',
+    'activator_rail.png',
+    'activator_rail_on.png',
 
     # Tueren: je Sorte eine obere und eine untere Haelfte. Die Item-Sprites liegen bereits
     # unter textures/item/ und kommen aus extract-mc-items.ps1.
@@ -65,6 +77,32 @@ $wanted = @(
     'acacia_trapdoor.png', 'dark_oak_trapdoor.png', 'mangrove_trapdoor.png',
     'pale_oak_trapdoor.png', 'iron_trapdoor.png'
 )
+
+# Farb-Achse wie in creative_tabs.json (axes.color) - fuer buntes Glas, Glasscheiben und Betten.
+$colors = @(
+    'white', 'light_gray', 'gray', 'black', 'brown', 'red', 'orange', 'yellow',
+    'lime', 'green', 'cyan', 'light_blue', 'blue', 'purple', 'magenta', 'pink'
+)
+
+foreach ($c in $colors) {
+    # Buntglas: ein Wuerfel-Textur (wie glass.png), plus die Kanten-Textur der Scheibe.
+    $wanted += "${c}_stained_glass.png"
+    $wanted += "${c}_stained_glass_pane_top.png"
+
+    # Bett: 4 farbabhaengige Texturen am Kopf-, 4 am Fussteil (Nordseite des Kopfes und die
+    # Unterseite sind bei allen Farben gleich, s.u.).
+    $wanted += "${c}_bed_head_east.png"
+    $wanted += "${c}_bed_head_up.png"
+    $wanted += "${c}_bed_head_west.png"
+    $wanted += "${c}_bed_foot_east.png"
+    $wanted += "${c}_bed_foot_south.png"
+    $wanted += "${c}_bed_foot_up.png"
+    $wanted += "${c}_bed_foot_west.png"
+}
+
+# Bett: geteilte, nicht farbabhaengige Texturen (Nordseite des Kopfteils, Unterseite beider Teile).
+$wanted += 'bed_head_north.png'
+$wanted += 'bed_down.png'
 
 $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $jar))
 $copied = 0

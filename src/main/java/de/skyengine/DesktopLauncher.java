@@ -30,7 +30,7 @@ public class DesktopLauncher {
         config.setMaximized(false);
         config.setVSync(false);
         config.setDebugMode(EngineConfig.DebugMode.FULL);
-        config.setWindowClearColor(new Color4(0.5F, 0.8F, 1.0F, 1.0F));
+        config.setWindowClearColor(new Color4(0.5059F, 0.6431F, 1.0F, 1.0F));
 
         SkyEngine engine = new SkyEngine(config);
         engine.launch();

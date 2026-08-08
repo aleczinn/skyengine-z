@@ -1,11 +1,15 @@
 package de.skyengine.graphics.entity;
 
+import de.skyengine.core.file.FileHandle;
+import de.skyengine.core.file.FileType;
 import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.entity.ItemFrameEntity;
+import de.skyengine.game.entity.MinecartEntity;
 import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.RenderLayer;
@@ -24,6 +28,7 @@ import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
 import de.skyengine.graphics.texture.TextureArray;
+import de.skyengine.graphics.texture.Texture;
 import de.skyengine.graphics.world.ChunkRenderer;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
@@ -77,6 +82,8 @@ public final class EntityRenderer {
 
     private ShaderProgram shader;
     private TextureArray textures;
+    /** Die Vanilla-Minecart-Textur ist 64x32 und passt deshalb nicht in das 16x16-Block-Array. */
+    private Texture minecartTexture;
 
     /** Würfel-Mesh je Block-State-ID; NO_MESH = bekannt-leeres Modell (LongObjMap verbietet
      *  null-Werte, und der Sentinel erspart das frühere containsKey+get-Doppel mit Boxing). */
@@ -89,12 +96,14 @@ public final class EntityRenderer {
     /** Rahmenmodell je Anhefterichtung, weil die Engine die Vanilla-Flächenhelligkeit in die
      * Vertexfarben backt und keine Normalen im Entity-Shader auswertet. */
     private final Mesh[] itemFrameMeshes = new Mesh[6];
+    private Mesh minecartMesh;
 
     private final Matrix4f model = new Matrix4f();
     /** Wiederverwendet, vor jeder Kopien-Schleife neu geseedet — die Versätze sind deterministisch. */
     private final Random copyRandom = new Random();
 
     private int locProjectionView, locWhiteFlash, locLight, locModel, locAlphaCutoff;
+    private int locUseEntityTexture;
     /** Alpha-Test-Schwellen wie im ChunkRenderer: harter Cutout bzw. praktisch aus fürs Blending. */
     private static final float CUTOUT_ALPHA = 0.5f;
     private static final float TRANSLUCENT_ALPHA = 0.001f;
@@ -104,6 +113,9 @@ public final class EntityRenderer {
         for (Direction direction : Direction.sharedValues()) {
             this.itemFrameMeshes[direction.faceIndex()] = new Mesh(buildItemFrameMesh(direction));
         }
+        this.minecartTexture = new Texture(
+                new FileHandle("game/textures/entity/minecart.png", FileType.RESOURCE), false);
+        this.minecartMesh = new Mesh(buildMinecartMesh());
         this.shader = new ShaderProgram(
                 new Shader(VERTEX, ShaderType.VERTEX),
                 new Shader(FRAGMENT, ShaderType.FRAGMENT));
@@ -114,8 +126,11 @@ public final class EntityRenderer {
         this.locLight = this.shader.getUniformLocation("u_Light");
         this.locModel = this.shader.getUniformLocation("u_Model");
         this.locAlphaCutoff = this.shader.getUniformLocation("u_AlphaCutoff");
+        this.locUseEntityTexture = this.shader.getUniformLocation("u_UseEntityTexture");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformi("u_EntityTexture", 1);
+        this.shader.setUniformi(this.locUseEntityTexture, 0);
         this.shader.unbind();
     }
 
@@ -125,7 +140,7 @@ public final class EntityRenderer {
      * geladenen Chunks pro Frame. Der READY-Guard bleibt: zwischen zwei Ticks kann ein Chunk
      * bereits entladen sein, bevor das Reconcile ihn aus der Menge nimmt.
      */
-    public void render(Iterable<Chunk> chunks, Camera camera, float partialTick) {
+    public void render(World world, Iterable<Chunk> chunks, Camera camera, float partialTick) {
         this.shader.bind();
         this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
         this.shader.setUniformf(this.locWhiteFlash, 0f); // Default: kein Blink (Falling/Item unverändert)
@@ -139,13 +154,14 @@ public final class EntityRenderer {
             if (chunk.status != ChunkStatus.READY) continue;
             List<Entity> entities = chunk.entities();
             for (int i = 0; i < entities.size(); i++) {
-                this.drawEntity(entities.get(i), chunk, cam, frustum, partialTick);
+                this.drawEntity(world, entities.get(i), chunk, cam, frustum, partialTick);
             }
         }
         this.shader.unbind();
     }
 
-    private void drawEntity(Entity e, Chunk chunk, Vector3d cam, FrustumIntersection frustum, float partialTick) {
+    private void drawEntity(World world, Entity e, Chunk chunk, Vector3d cam,
+                            FrustumIntersection frustum, float partialTick) {
         if (e.isRemoved()) return;
 
         float ox = (float) (e.lastX + (e.x - e.lastX) * partialTick - cam.x);
@@ -183,6 +199,27 @@ public final class EntityRenderer {
             this.shader.setUniformf(this.locWhiteFlash, 0f); // zurücksetzen für folgende Entities
         } else if (e instanceof ItemFrameEntity frame) {
             this.drawItemFrame(frame, ox, oy, oz);
+        } else if (e instanceof MinecartEntity minecart) {
+            MinecartEntity.RenderPose pose = minecart.renderPose(world, partialTick);
+            this.model.translation(ox + (float) pose.offsetX(), oy + (float) pose.offsetY(),
+                            oz + (float) pose.offsetZ())
+                    /* Das Vanilla-Modell zeigt lokal entlang +X; yaw=0 zeigt in der Engine -Z. */
+                    .rotateY((float) Math.toRadians(90 - pose.yaw()))
+                    .rotateZ((float) Math.toRadians(pose.pitch()));
+            float hurt = Math.max(0, minecart.getHurtTime() - partialTick);
+            float damage = Math.max(0, minecart.getDamage() - partialTick);
+            if (hurt > 0) {
+                this.model.rotateZ((float) Math.toRadians(
+                        Math.sin(hurt) * hurt * damage / 10.0 * minecart.getHurtDirection()));
+            }
+            this.shader.setUniformMatrix4f(this.locModel, this.model);
+            this.minecartTexture.bind(1);
+            this.shader.setUniformi(this.locUseEntityTexture, 1);
+            GlState.disableCullFace();
+            this.minecartMesh.render();
+            GlState.enableCullFace();
+            this.shader.setUniformi(this.locUseEntityTexture, 0);
+            this.textures.bind(0);
         } else if (e instanceof ItemEntity item) {
             this.drawItem(item, ox, oy, oz, partialTick);
         }
@@ -270,6 +307,62 @@ public final class EntityRenderer {
         west(data,cursor,shade[4],13*p,3*p,15*p,13*p,16*p,wood,15,3,16,13);
         east(data,cursor,shade[5],14*p,3*p,15*p,13*p,16*p,wood,0,3,1,13);
         return data;
+    }
+
+    /** Vanillas fünf ModelPart-Würfel inklusive der originalen 64x32-Box-UV-Belegung. */
+    private static float[] buildMinecartMesh() {
+        float[] data = new float[5 * 6 * 6 * FLOATS_PER_VERTEX];
+        int[] cursor = {0};
+        minecartCube(data, cursor, -10,-8,-1, 20,16,2, 0,10, 0,4,0, 90,0);
+        /* Exakte PartPoses aus MinecartModel.createBodyLayer in Java 26.2. */
+        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, -9,4,0, 0,-90);
+        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 9,4,0, 0,90);
+        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 0,4,-7, 0,180);
+        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 0,4,7, 0,0);
+        return data;
+    }
+
+    private static void minecartCube(float[] out, int[] at,
+                                     float x, float y, float z, float w, float h, float d,
+                                     float u, float v, float px, float py, float pz,
+                                     float rotateX, float rotateY) {
+        float x1=x+w, y1=y+h, z1=z+d;
+        float u1=u+d, u2=u+d+w, u3=u+d+w+w, u4=u+d+w+d, u5=u+d+w+d+w;
+        float v1=v+d, v2=v+d+h;
+        minecartFace(out,at,px,py,pz,rotateX,rotateY,x,y,z,x1,y,z,x1,y,z1,x,y,z1,u1,v,u2,v1);
+        minecartFace(out,at,px,py,pz,rotateX,rotateY,x,y1,z1,x1,y1,z1,x1,y1,z,x,y1,z,u2,v,u3,v1);
+        minecartFace(out,at,px,py,pz,rotateX,rotateY,x,y,z,x,y,z1,x,y1,z1,x,y1,z,u,v1,u1,v2);
+        minecartFace(out,at,px,py,pz,rotateX,rotateY,x1,y,z1,x1,y,z,x1,y1,z,x1,y1,z1,u2,v1,u4,v2);
+        minecartFace(out,at,px,py,pz,rotateX,rotateY,x1,y,z,x,y,z,x,y1,z,x1,y1,z,u1,v1,u2,v2);
+        minecartFace(out,at,px,py,pz,rotateX,rotateY,x,y,z1,x1,y,z1,x1,y1,z1,x,y1,z1,u4,v1,u5,v2);
+    }
+
+    private static void minecartFace(float[] out, int[] at,
+                                     float px,float py,float pz,float rotateX,float rotateY,
+                                     float ax,float ay,float az,float bx,float by,float bz,
+                                     float cx,float cy,float cz,float dx,float dy,float dz,
+                                     float u0,float v0,float u1,float v1) {
+        u0/=64; u1/=64; v0/=32; v1/=32;
+        /* ModelPart.Polygon ordnet die vier UV-Ecken in genau dieser Reihenfolge zu. */
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,ax,ay,az,u1,v0);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,bx,by,bz,u0,v0);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,cx,cy,cz,u0,v1);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,ax,ay,az,u1,v0);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,cx,cy,cz,u0,v1);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,dx,dy,dz,u1,v1);
+    }
+
+    private static void minecartVertex(float[] out, int[] at,
+                                       float px,float py,float pz,float rotateX,float rotateY,
+                                       float x,float y,float z,float u,float v) {
+        double rx=Math.toRadians(rotateX), ry=Math.toRadians(rotateY);
+        double cx=Math.cos(rx), sx=Math.sin(rx), cy=Math.cos(ry), sy=Math.sin(ry);
+        double yx=y*cx-z*sx, zx=y*sx+z*cx;
+        double xx=x*cy+zx*sy, zy=-x*sy+zx*cy;
+        /* Vanilla-Renderer: translateY(0,375) vor scale(-1/16). Das sind exakt 6/16;
+           der frühere Offset 5/16 legte den Cart-Boden direkt auf die Rail-Oberkante. */
+        vertex(out,at,(float)((xx+px)/16.0),(float)((6-(yx+py))/16.0),
+                (float)((zy+pz)/16.0),u,v,0f,1f);
     }
 
     /**
@@ -509,6 +602,8 @@ public final class EntityRenderer {
         for (Mesh itemFrameMesh : this.itemFrameMeshes) {
             if (itemFrameMesh != null) itemFrameMesh.dispose();
         }
+        if (this.minecartMesh != null) this.minecartMesh.dispose();
+        if (this.minecartTexture != null) this.minecartTexture.dispose();
         if (this.shader != null) this.shader.dispose();
     }
 
@@ -566,6 +661,8 @@ public final class EntityRenderer {
         in vec3 v_texCoord;
         in vec3 v_color;
         uniform sampler2DArray u_Textures;
+        uniform sampler2D u_EntityTexture;
+        uniform int u_UseEntityTexture;
         uniform float u_WhiteFlash;   // 0..1: mischt das Fragment Richtung Weiß (TNT-Blink)
         /* Himmelslicht der Entity-Zelle, fertig durch die Kurve gerechnet
            (ChunkRenderer.lightFactor). 1.0 = voll hell bzw. Fullbright. */
@@ -575,7 +672,9 @@ public final class EntityRenderer {
         uniform float u_AlphaCutoff;
         out vec4 fragColor;
         void main() {
-            vec4 c = texture(u_Textures, v_texCoord);
+            vec4 c = u_UseEntityTexture != 0
+                    ? texture(u_EntityTexture, v_texCoord.xy)
+                    : texture(u_Textures, v_texCoord);
             if (c.a < u_AlphaCutoff) discard;
             /* Licht VOR dem Blink: eine TNT-Zuendung soll auch in einer finsteren Hoehle
                rein weiss aufblitzen und nicht mit abgedunkelt werden. */

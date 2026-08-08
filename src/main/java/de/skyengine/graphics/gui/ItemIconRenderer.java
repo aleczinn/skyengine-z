@@ -8,6 +8,7 @@ import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.BlockStateModels;
+import de.skyengine.game.world.block.model.ModelLoader;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.item.BlockItem;
 import de.skyengine.game.world.item.Item;
@@ -140,6 +141,36 @@ public final class ItemIconRenderer {
 
         Mesh mesh = this.cache.computeIfAbsent(stack.getItem(), this::bake);
         if (mesh == null || mesh.count == 0) return;
+        ModelLoader.Display guiDisplay = guiDisplayFor(stack.getItem());
+        if (guiDisplay != null) {
+            /* Minecraft-Display-Kontext "gui": Translation ist in Modellpixeln, die Skalierung
+               bezieht sich auf eine Blockkante. Dadurch darf ein zweiteiliges Bett seine echte
+               Laenge behalten; das generische Composite-Fit wuerde es auf einen halben Block
+               schrumpfen und mit dem allgemeinen Blockwinkel statt der Bettperspektive zeigen. */
+            this.model.identity()
+                    .translate(centerX, cyUp, 0)
+                    .translate(guiDisplay.translation()[0] * slotPixelSize / 16F,
+                               guiDisplay.translation()[1] * slotPixelSize / 16F,
+                               guiDisplay.translation()[2] * slotPixelSize / 16F)
+                    .rotateXYZ((float) Math.toRadians(guiDisplay.rotation()[0]),
+                               (float) Math.toRadians(guiDisplay.rotation()[1]),
+                               (float) Math.toRadians(guiDisplay.rotation()[2]))
+                    .scale(slotPixelSize * guiDisplay.scale()[0],
+                           slotPixelSize * guiDisplay.scale()[1],
+                           slotPixelSize * guiDisplay.scale()[2])
+                    /* Minecraft verschiebt Blockmodelle immer um den festen Modellursprung;
+                       auch ein Composite wird nicht um seine Gesamt-Bounds nachzentriert. */
+                    .translate(-0.5F, -0.5F, -0.5F);
+            this.proj.mul(this.model, this.mvp);
+        } else if (mesh.fit != 1F) {
+            this.model.identity()
+                    .translate(centerX, cyUp, 0)
+                    .scale(s * mesh.fit, s * mesh.fit, s * mesh.fit)
+                    .rotateX((float) Math.toRadians(ROT_X))
+                    .rotateY((float) Math.toRadians(ROT_Y))
+                    .translate(-mesh.centerX, -mesh.centerY, -mesh.centerZ);
+            this.proj.mul(this.model, this.mvp);
+        }
         this.shader.setUniformMatrix4f("u_MVP", this.mvp);
         /* Tiefentest pro Icon: durchdringende Modellteile (Zaun-Balken in den Pfosten) brauchen
            echte Verdeckung. Clear pro Icon -> das zuletzt gezeichnete Cursor-Icon bleibt oben.
@@ -152,6 +183,15 @@ public final class ItemIconRenderer {
         mesh.render();
         GL11.glDepthFunc(properties.baseDepthFunc());
         GL11.glDisable(GL11.GL_DEPTH_TEST);
+    }
+
+    /**
+     * Minecraft-{@code display.gui} des Inventarmodells inklusive Parent-Vererbung. Fehlt der
+     * Kontext, verwendet der Aufrufer weiterhin die bisherige Standard-Blockisometrie.
+     */
+    private static ModelLoader.Display guiDisplayFor(Item item) {
+        if (!(item instanceof BlockItem bi)) return null;
+        return ModelLoader.display(BlockStateModels.inventoryDisplayModel(bi.getBlock()), "gui");
     }
 
     /** Zeichnet ein flaches, kamerazugewandtes Icon (kein Iso-Würfel) zentriert im Slot. */
@@ -279,7 +319,26 @@ public final class ItemIconRenderer {
                 data[p++] = b;
             }
         }
-        return new Mesh(data);
+        float[] bounds = compositeBounds(quads);
+        return new Mesh(data, bounds[0], bounds[1], bounds[2], bounds[3]);
+    }
+
+    /** Zentriert und skaliert nur Modelle, die mehr als eine Blockzelle belegen. */
+    private static float[] compositeBounds(BakedQuad[] quads) {
+        float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, minZ = Float.MAX_VALUE;
+        float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
+        for (BakedQuad quad : quads) {
+            float[] vertices = quad.vertices();
+            for (int i = 0; i < vertices.length; i += 5) {
+                minX = Math.min(minX, vertices[i]);       maxX = Math.max(maxX, vertices[i]);
+                minY = Math.min(minY, vertices[i + 1]);   maxY = Math.max(maxY, vertices[i + 1]);
+                minZ = Math.min(minZ, vertices[i + 2]);   maxZ = Math.max(maxZ, vertices[i + 2]);
+            }
+        }
+        float span = Math.max(maxX - minX, Math.max(maxY - minY, maxZ - minZ));
+        if (span <= 1.001F) return new float[]{0.5F, 0.5F, 0.5F, 1F};
+        return new float[]{(minX + maxX) * 0.5F, (minY + maxY) * 0.5F,
+                (minZ + maxZ) * 0.5F, 1F / span};
     }
 
     /**
@@ -314,9 +373,18 @@ public final class ItemIconRenderer {
 
     private static final class Mesh {
         final int vao, vbo, count;
+        final float centerX, centerY, centerZ, fit;
 
         Mesh(float[] data) {
+            this(data, 0.5F, 0.5F, 0.5F, 1F);
+        }
+
+        Mesh(float[] data, float centerX, float centerY, float centerZ, float fit) {
             this.count = data.length / 9;
+            this.centerX = centerX;
+            this.centerY = centerY;
+            this.centerZ = centerZ;
+            this.fit = fit;
             this.vao = GL30.glGenVertexArrays();
             this.vbo = GL15.glGenBuffers();
             GL30.glBindVertexArray(this.vao);

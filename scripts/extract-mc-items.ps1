@@ -52,7 +52,9 @@ $wanted = @(
     @{ pattern = 'assets/minecraft/textures/item/leather.png';      dest = 'item' },
     @{ pattern = 'assets/minecraft/textures/item/paper.png';        dest = 'item' },
     # Fackel: Blocktextur, wird vom Fackel-Modell (Phase D/E) gebraucht
-    @{ pattern = 'assets/minecraft/textures/block/torch.png';       dest = 'block' }
+    @{ pattern = 'assets/minecraft/textures/block/torch.png';       dest = 'block' },
+    @{ pattern = 'assets/minecraft/textures/item/minecart.png';     dest = 'item' },
+    @{ pattern = 'assets/minecraft/textures/entity/minecart.png';   dest = 'entity' }
 )
 
 $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $jar))

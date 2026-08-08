@@ -95,10 +95,82 @@ public final class BlockStateModels {
      */
     public static ModelLoader.Baked inventoryOverride(Block block) {
         JsonObject root = STATES.get(block.getIdentifier().path());
-        if (root == null || !root.has("inventory_model")) return null;
+        if (root == null) return null;
+        if (root.has("inventory_models")) {
+            List<BakedQuad[]> quads = new ArrayList<>();
+            List<AABB> boxes = new ArrayList<>();
+            for (JsonElement element : root.getAsJsonArray("inventory_models")) {
+                JsonObject part = element.getAsJsonObject();
+                ModelLoader.Baked baked = ModelLoader.bake(
+                        part.get("model").getAsString(),
+                        part.has("x") ? part.get("x").getAsInt() : 0,
+                        part.has("y") ? part.get("y").getAsInt() : 0);
+                float[] translation = part.has("translation")
+                        ? floatArray(part.getAsJsonArray("translation"))
+                        : new float[]{0, 0, 0};
+                ModelLoader.Baked moved = translate(baked,
+                        translation[0] / 16F, translation[1] / 16F, translation[2] / 16F);
+                quads.add(moved.quads());
+                Collections.addAll(boxes, moved.boxes());
+            }
+            return new ModelLoader.Baked(
+                    BlockModels.concat(quads.toArray(new BakedQuad[0][])),
+                    boxes.toArray(new AABB[0]));
+        }
+        if (!root.has("inventory_model")) return null;
         int x = root.has("inventory_x") ? root.get("inventory_x").getAsInt() : 0;
         int y = root.has("inventory_y") ? root.get("inventory_y").getAsInt() : 0;
         return ModelLoader.bake(root.get("inventory_model").getAsString(), x, y);
+    }
+
+    /**
+     * Modell, dessen {@code display}-Sektion fuer das zusammengesetzte Inventarmodell gilt.
+     * Ohne Override bleibt das bisherige gleichnamige Blockmodell der Transform-Ursprung.
+     */
+    public static String inventoryDisplayModel(Block block) {
+        String override = inventoryDisplayOverrideModel(block);
+        if (override != null) return override;
+        return "block/" + block.getIdentifier().path();
+    }
+
+    /**
+     * Explizites Display-Modell fuer Sonder-Items, oder {@code null}. Anders als
+     * {@link #inventoryDisplayModel(Block)} faellt diese Methode nicht auf das normale Blockmodell
+     * zurueck; der GUI-Renderer kann so gezielt nur Sondermodelle (z.B. Betten) behandeln, ohne die
+     * bewusst angepasste Standard-Isometrie aller Block-Icons zu veraendern.
+     */
+    public static String inventoryDisplayOverrideModel(Block block) {
+        JsonObject root = STATES.get(block.getIdentifier().path());
+        return root != null && root.has("inventory_display_model")
+                ? root.get("inventory_display_model").getAsString()
+                : null;
+    }
+
+    private static float[] floatArray(JsonArray values) {
+        if (values.size() != 3) throw new IllegalArgumentException("translation braucht [x,y,z]");
+        return new float[]{values.get(0).getAsFloat(), values.get(1).getAsFloat(), values.get(2).getAsFloat()};
+    }
+
+    private static ModelLoader.Baked translate(ModelLoader.Baked baked, float dx, float dy, float dz) {
+        BakedQuad[] out = new BakedQuad[baked.quads().length];
+        for (int i = 0; i < out.length; i++) {
+            BakedQuad source = baked.quads()[i];
+            float[] vertices = source.vertices().clone();
+            for (int p = 0; p < vertices.length; p += 5) {
+                vertices[p] += dx;
+                vertices[p + 1] += dy;
+                vertices[p + 2] += dz;
+            }
+            out[i] = new BakedQuad(vertices, source.textureLayer(), source.cullFace(), source.face(),
+                    source.brightness(), source.tint(), source.tintType());
+        }
+        AABB[] boxes = new AABB[baked.boxes().length];
+        for (int i = 0; i < boxes.length; i++) {
+            AABB box = baked.boxes()[i];
+            boxes[i] = new AABB(box.minX + dx, box.minY + dy, box.minZ + dz,
+                    box.maxX + dx, box.maxY + dy, box.maxZ + dz);
+        }
+        return new ModelLoader.Baked(out, boxes);
     }
 
     private static ModelLoader.Baked bakeInternal(Block block, BlockState state) {
