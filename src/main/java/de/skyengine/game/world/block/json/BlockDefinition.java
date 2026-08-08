@@ -194,8 +194,9 @@ public class BlockDefinition {
     /* Optionaler Kollisions-Override (getrennt vom Modell). Ersetzt die Archetyp-Default-Shape. */
     public CollisionDef collision;
 
-    /** Kollisions-/Umriss-Boxen in 0..16-Pixeln. outline fällt auf boxes zurück. */
+    /** Kollisions-/Umriss-Boxen in 0..16-Pixeln. model=true leitet beides zustandsabhängig vom Modell ab. */
     public static final class CollisionDef {
+        public boolean model;
         public ModelElements.ModelBox[] boxes;
         public ModelElements.ModelBox[] outline;
     }

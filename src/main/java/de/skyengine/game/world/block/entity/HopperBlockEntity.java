@@ -16,7 +16,7 @@ import java.util.Optional;
  * Nachbar-Container und zieht aus dem Container darüber nach — ohne Container darüber
  * saugt er dort liegende {@link ItemEntity}s ein. Transferrate aus der Block-JSON
  * ({@code hopper_cooldown}/{@code hopper_amount}, MC 8/1 = 2,5 Items/s); die schnelleren
- * Stufen (golden/diamond/netherite_hopper) sind reine Daten.
+ * Stufen (golden/diamond/emerald_hopper) sind reine Daten.
  *
  * <p>Ein Redstone-Signal DEAKTIVIERT den Trichter ({@code enabled=false} im State, wie MC) —
  * dann weder Push noch Pull noch Einsaugen. Der Cooldown zählt trotzdem weiter, damit ein

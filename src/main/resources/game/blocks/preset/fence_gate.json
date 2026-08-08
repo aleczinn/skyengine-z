@@ -19,6 +19,7 @@
     "texture": "game/textures/block/${texture}.png"
   },
   "inventory_model": "block/${id}",
+  "inventory_display_model": "block/${id}",
   "variants": {
     "facing=east,in_wall=false,open=false":  { "model": "block/${id}", "uvlock": true, "y": 270 },
     "facing=east,in_wall=false,open=true":   { "model": "block/${id}_open", "uvlock": true, "y": 270 },

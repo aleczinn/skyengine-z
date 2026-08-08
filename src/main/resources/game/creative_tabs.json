@@ -37,7 +37,7 @@
       "id": "colored_blocks",
       "icon": "skyengine:cyan_wool",
       "items": [
-        "{color}_wool", "{color}_carpet", "{color}_terracotta",
+        "{color}_wool", "{color}_carpet", "{color}_terracotta", "{color}_bed",
         "glass", "{color}_stained_glass",
         "glass_pane", "{color}_stained_glass_pane"
       ]
@@ -83,18 +83,20 @@
       "id": "redstone_blocks",
       "icon": "skyengine:redstone",
       "items": [
-        "redstone", "redstone_torch", "redstone_block", "tnt",
+        "redstone_ore", "redstone", "redstone_torch", "redstone_block",
         "repeater", "comparator",
-        "piston", "sticky_piston", "observer", "dispenser", "dropper",
-        "rail", "powered_rail", "detector_rail", "activator_rail", "minecart",
-        "hopper", "golden_hopper", "diamond_hopper", "netherite_hopper",
         "lever",
         "stone_button", "oak_button",
         "stone_pressure_plate", "oak_pressure_plate",
         "light_weighted_pressure_plate", "heavy_weighted_pressure_plate",
         "obsidian_pressure_plate", "diamond_pressure_plate", "emerald_pressure_plate",
         "copper_pressure_plate", "netherite_pressure_plate",
-        "redstone_lamp"
+        "tnt", "redstone_lamp", "observer",
+        "piston", "sticky_piston", "slime_block", "honey_block",
+        "dispenser", "dropper",
+        "hopper", "golden_hopper", "diamond_hopper", "emerald_hopper", "chest",
+        "iron_door", "oak_door", "iron_trapdoor", "oak_trapdoor", "oak_fence_gate",
+        "powered_rail", "detector_rail", "rail", "activator_rail", "minecart"
       ]
     },
     {

@@ -1,7 +1,0 @@
-{
-  "_comment": "Eigene Stufe (kein MC-Block): schnellste Ausbaustufe (20 Items/s), explosionsresistent wie Netherit-Bloecke.",
-  "id": "skyengine:netherite_hopper",
-  "parent": "preset/hopper",
-  "hopper_cooldown": 1,
-  "resistance": 1200
-}

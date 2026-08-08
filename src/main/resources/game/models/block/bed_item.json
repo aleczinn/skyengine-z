@@ -1,0 +1,20 @@
+{
+  "_comment": "Display-Transforms fuer das echte zweiteilige Bett-Item nach Minecraft 26.2 template_bed. Das zusammengesetzte SkyEngine-Modell ist gegenueber Mojangs Head-z0/Foot-z1-Anordnung bereits um Y=180 Grad gedreht; daher entsprechen hier 160 Grad den 340 Grad des Vanilla-Templates.",
+  "display": {
+    "thirdperson_righthand": {
+      "rotation": [30, 160, 0],
+      "translation": [0, 3, -2],
+      "scale": [0.23, 0.23, 0.23]
+    },
+    "firstperson_righthand": {
+      "rotation": [30, 160, 0],
+      "translation": [0, 3, 0],
+      "scale": [0.375, 0.375, 0.375]
+    },
+    "gui": {
+      "rotation": [30, 160, 0],
+      "translation": [1, 0, 0],
+      "scale": [0.5325, 0.5325, 0.5325]
+    }
+  }
+}

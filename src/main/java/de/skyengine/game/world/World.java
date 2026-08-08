@@ -2028,12 +2028,14 @@ public class World implements IInitializable, IDisposable {
                Kaskade möglich: jeder Kaskadenschritt entfernt einen Block endgültig. */
             boolean removed = updated.getId() == Blocks.AIR;
             /* Ein Block, der sich selbst entfernt, wird abgebaut — also VOR dem Setzen denselben
-               onBreak-Hook laufen lassen wie beim Abbau durch den Spieler. Ohne das verlöre ein
-               so entfernter Block mit BlockEntity still seinen Inhalt. Heute implementiert kein
-               Behavior onBreak; die Reihenfolge schließt die Lücke, bevor das erste es tut. */
+               onBreak-Hook laufen lassen wie beim Abbau durch den Spieler. Mehrteilige Blöcke
+               unterdrücken nur den Loot der automatisch aufgeräumten Geschwisterhälfte; der Hook
+               bleibt aktiv, damit BlockEntities und sonstige Seiteneffekte nicht verloren gehen. */
             if (removed) {
-                this.dropBlockLoot(x, y, z, current,
-                        LootContext.Cause.SUPPORT);
+                if (current.getBlock().dropsWhenUnsupported()) {
+                    this.dropBlockLoot(x, y, z, current,
+                            LootContext.Cause.SUPPORT);
+                }
                 current.getBlock().onBreak(this, x, y, z, current);
             }
             if (this.setBlock(x, y, z, updated.getId(), removed) && !removed) {

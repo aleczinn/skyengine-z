@@ -153,6 +153,12 @@ public final class PartsBehavior implements BlockBehavior {
                 context.x() - rotated[0], context.y() - rotated[1], context.z() - rotated[2]);
     }
 
+    /** Das verschwundene Geschwisterteil besitzt bereits den einzigen gemeinsamen Drop. */
+    @Override
+    public boolean dropsWhenUnsupported() {
+        return false;
+    }
+
     /**
      * Rechnet einen Offset in Weltachsen um. Ohne {@code relative_to: "facing"} bleibt er, wie er
      * ist; sonst zählt {@code +z} als vorwärts in Blickrichtung und {@code +x} als rechts davon.

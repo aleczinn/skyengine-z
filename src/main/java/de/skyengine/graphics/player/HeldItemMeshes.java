@@ -59,8 +59,9 @@ public final class HeldItemMeshes {
      * beim Zeichnen Blending statt des harten Cutout-Tests — flache Item-Sprites nie.
      */
     private record HeldMesh(Mesh mesh, boolean flat, boolean handheld, BlockEntityRenderer custom,
-                            String model, boolean translucent) {}
-    private static final HeldMesh EMPTY = new HeldMesh(null, false, false, null, null, false);
+                            String model, boolean translucent, float pivotX, float pivotY, float pivotZ) {}
+    private static final HeldMesh EMPTY = new HeldMesh(null, false, false, null, null, false,
+            0.5F, 0.5F, 0.5F);
 
     private final Map<Item, HeldMesh> cache = new HashMap<>();
     private final Matrix4f transform = new Matrix4f();
@@ -162,7 +163,7 @@ public final class HeldItemMeshes {
         } else if (!this.applyDisplay(held.model, "firstperson_righthand", 1F / 16F, 1F)) {
             this.transform.rotateXYZ(0F, (float) Math.toRadians(45), 0F).scale(0.40F);
         }
-        this.transform.translate(-0.5F, -0.5F, -0.5F);
+        this.transform.translate(-held.pivotX, -held.pivotY, -held.pivotZ);
         this.shader.setUniformMatrix4f("u_Model", this.transform);
         this.drawMesh(held);
     }
@@ -201,7 +202,7 @@ public final class HeldItemMeshes {
             this.transform.translate(0F, 3F, 1F)
                     .scale(16F * 0.55F);
         }
-        this.transform.translate(-0.5F, -0.5F, -0.5F);
+        this.transform.translate(-held.pivotX, -held.pivotY, -held.pivotZ);
         this.shader.setUniformMatrix4f("u_Model", this.transform);
         this.drawMesh(held);
     }
@@ -252,10 +253,12 @@ public final class HeldItemMeshes {
         /* Flache Sprites bleiben immer beim Cutout-Test: sie sind ausgestanzte Icons, kein
            transluzentes Material — ein Blend-Pfad wuerde dort nur weiche Kanten erzeugen. */
         if (paths != null && paths.length == 1) {
-            return new HeldMesh(buildExtruded(paths[0], tint), true, handheld, null, null, false);
+            return new HeldMesh(buildExtruded(paths[0], tint), true, handheld, null, null, false,
+                    0.5F, 0.5F, 0.5F);
         }
         if (paths != null && paths.length > 1) {
-            return new HeldMesh(buildFlat(paths, tint), true, handheld, null, null, false);
+            return new HeldMesh(buildFlat(paths, tint), true, handheld, null, null, false,
+                    0.5F, 0.5F, 0.5F);
         }
         if (item instanceof BlockItem bi) {
             /* BER-Block ohne statisches Modell (Truhe): eigener Renderer statt Planks-Fallback.
@@ -263,7 +266,8 @@ public final class HeldItemMeshes {
             BakedQuad[] quads = bi.getBlock().getDefaultState().getModel();
             if (quads == null || quads.length == 0) {
                 BlockEntityRenderer custom = this.customHeldFor(bi);
-                if (custom != null) return new HeldMesh(null, false, false, custom, null, false);
+                if (custom != null) return new HeldMesh(null, false, false, custom, null, false,
+                        0.5F, 0.5F, 0.5F);
             }
             /* Deklariert der Block ein inventory_model (Zaun mit Armen, Glasscheibe), gilt es auch
                in der Hand — sonst hielte man beim Zaun nur den nackten Pfosten. Dieser Pfad backt
@@ -274,10 +278,13 @@ public final class HeldItemMeshes {
                     ? buildBlock(bi.getBlock().applyTint(inventory.quads()))
                     : buildBlock(bi.getBlock().getDefaultState());
             /* Modellname für die display-Sektion; block/block liefert den Vanilla-Default. */
-            String model = "block/" + bi.getBlock().getIdentifier().path();
+            String model = BlockStateModels.inventoryDisplayModel(bi.getBlock());
             boolean translucent =
                     bi.getBlock().getDefaultState().getRenderLayer() == RenderLayer.TRANSLUCENT;
-            if (mesh != null) return new HeldMesh(mesh, false, false, null, model, translucent);
+            float[] pivot = inventory != null ? horizontalPivot(inventory.quads())
+                    : new float[]{0.5F, 0.5F, 0.5F};
+            if (mesh != null) return new HeldMesh(mesh, false, false, null, model, translucent,
+                    pivot[0], pivot[1], pivot[2]);
         }
         return EMPTY;
     }
@@ -364,6 +371,25 @@ public final class HeldItemMeshes {
             }
         }
         return new Mesh(data);
+    }
+
+    /** Mehrblock-Items rotieren um die Mitte ihres gesamten Grundrisses. */
+    private static float[] horizontalPivot(BakedQuad[] quads) {
+        float minX = Float.MAX_VALUE, minZ = Float.MAX_VALUE;
+        float maxX = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
+        for (BakedQuad quad : quads) {
+            float[] vertices = quad.vertices();
+            for (int i = 0; i < vertices.length; i += 5) {
+                minX = Math.min(minX, vertices[i]);
+                maxX = Math.max(maxX, vertices[i]);
+                minZ = Math.min(minZ, vertices[i + 2]);
+                maxZ = Math.max(maxZ, vertices[i + 2]);
+            }
+        }
+        if (maxX - minX <= 1.001F && maxZ - minZ <= 1.001F) {
+            return new float[]{0.5F, 0.5F, 0.5F};
+        }
+        return new float[]{(minX + maxX) * 0.5F, 0.5F, (minZ + maxZ) * 0.5F};
     }
 
     public void dispose() {

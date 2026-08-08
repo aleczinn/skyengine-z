@@ -434,6 +434,14 @@ public class Block {
         return own;
     }
 
+    /** Ob ein durch Support-/Nachbarupdates selbst entfernter Block Loot erzeugen darf. */
+    public boolean dropsWhenUnsupported() {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            if (!behavior.dropsWhenUnsupported()) return false;
+        }
+        return true;
+    }
+
     /** Entity-BoundingBox überlappt die Zelle (aus {@code Entity.move}). Delegiert; Default: nichts. */
     public void onEntityInside(de.skyengine.game.world.World world, int x, int y, int z, BlockState state,
                                de.skyengine.game.entity.Entity entity) {

@@ -102,6 +102,15 @@ public interface BlockBehavior {
     }
 
     /**
+     * Darf dieser Block beim Selbstabbau durch ein Nachbar-/Support-Update Loot erzeugen?
+     * Mehrteilige Blöcke verneinen das: Der vom Spieler bzw. der Explosion getroffene Teil hat
+     * den gemeinsamen Drop bereits ausgewertet, die automatisch entfernte Hälfte ist nur Cleanup.
+     */
+    default boolean dropsWhenUnsupported() {
+        return true;
+    }
+
+    /**
      * Eine Entity-BoundingBox überlappt die Blockzelle (jeden Bewegungs-Tick, aus
      * {@code Entity.move}) — Druckplatte, später Seelensand-Bremse o.ä. Default: nichts.
      * {@code entity} ist die auslösende Entity (für Filter/Zählung der Sensor-Platten).

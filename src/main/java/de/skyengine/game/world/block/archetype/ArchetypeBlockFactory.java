@@ -64,7 +64,9 @@ public final class ArchetypeBlockFactory {
 
         /* Kollisions-Override (getrennt vom Modell) ersetzt die Archetyp-Default-Shape. */
         if (def.collision != null) {
-            builder.shapes(de.skyengine.game.world.block.shape.JsonShapeProvider.of(def.collision));
+            builder.shapes(def.collision.model
+                    ? de.skyengine.game.world.block.shape.Shapes.modelDerived()
+                    : de.skyengine.game.world.block.shape.JsonShapeProvider.of(def.collision));
         }
 
         /* Schwerkraft (Sand, Kies) - archetypübergreifendes Flag, hängt das GravityBehavior an. */
@@ -95,7 +97,7 @@ public final class ArchetypeBlockFactory {
         }
 
         /* Trichter-Transferrate (Ticks Pause + Items je Transfer) - die schnelleren Stufen
-           (golden/diamond/netherite_hopper) sind reine Daten. */
+           (golden/diamond/emerald_hopper) sind reine Daten. */
         builder.hopperTransfer(def.hopper_cooldown, def.hopper_amount);
 
         /* Horizontale Ausrichtung (Truhe, Ofen) - FACING-Property + Platzier-Verhalten zum Spieler. */
