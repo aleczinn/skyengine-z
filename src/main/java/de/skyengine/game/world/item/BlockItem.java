@@ -2,6 +2,8 @@ package de.skyengine.game.world.item;
 
 import de.skyengine.game.world.block.Block;
 
+import java.util.Map;
+
 /** Item-Repräsentation eines Blocks (zum Halten, Lagern und später Platzieren). */
 public final class BlockItem extends Item {
 
@@ -24,5 +26,11 @@ public final class BlockItem extends Item {
     @Override
     public String translationKey() {
         return "block." + this.getId().namespace() + "." + this.getId().path();
+    }
+
+    @Override
+    protected void appendTooltipVariables(ItemStack stack, TooltipContext context,
+                                          Map<String, String> variables) {
+        this.block.appendTooltipVariables(stack, context, variables);
     }
 }

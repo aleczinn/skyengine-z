@@ -1,16 +1,26 @@
 package de.skyengine.game.world.block.behavior;
 
+import de.skyengine.game.entity.Entity;
 import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.loot.LootContext;
 import de.skyengine.game.world.loot.LootSink;
+import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.TooltipContext;
+import java.util.Map;
 
 /**
  * Komponierbares Block-Verhalten (Komposition statt Vererbung). Ein Block kombiniert
  * beliebig viele Behaviors; jeder Hook transformiert den State. Default = no-op.
  */
 public interface BlockBehavior {
+
+    /** Benannte Laufzeitwerte für Platzhalter in der Beschreibung des BlockItems. */
+    default void appendTooltipVariables(ItemStack stack, TooltipContext context,
+                                        Map<String, String> variables) {
+    }
 
     /** Beim Platzieren: liefert den anzulegenden State (Facing, Slab-Hälfte, ...). Rein, ohne Welt-Mutation. */
     default BlockState onPlace(PlacementContext ctx, BlockState state) {
@@ -98,7 +108,7 @@ public interface BlockBehavior {
 
     /** Kanonischer Drop-Ursprung für Batch-Zerstörung; Standard ist die aktuelle Zelle. */
     default long canonicalLootPosition(LootContext context) {
-        return de.skyengine.game.world.block.BlockPos.asLong(context.x(), context.y(), context.z());
+        return BlockPos.asLong(context.x(), context.y(), context.z());
     }
 
     /**
@@ -116,7 +126,7 @@ public interface BlockBehavior {
      * {@code entity} ist die auslösende Entity (für Filter/Zählung der Sensor-Platten).
      */
     default void onEntityInside(World world, int x, int y, int z, BlockState state,
-                                de.skyengine.game.entity.Entity entity) {
+                                Entity entity) {
     }
 
     /**

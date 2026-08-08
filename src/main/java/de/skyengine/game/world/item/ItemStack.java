@@ -2,9 +2,11 @@ package de.skyengine.game.world.item;
 
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.DataTag;
+import de.skyengine.graphics.gui.text.RichText;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Ein Stapel: {@link Item} + Anzahl. {@link #EMPTY} repräsentiert „nichts" (leerer Slot).
@@ -51,10 +53,16 @@ public final class ItemStack {
         return this.isEmpty() ? "" : this.item.getDisplayName();
     }
 
+    /** Formatierter Anzeigename; leer bei einem leeren Stack. */
+    public RichText getDisplayNameText() {
+        return this.isEmpty() ? RichText.EMPTY
+                : this.item.getDisplayNameText();
+    }
+
     /** true, wenn beide denselben Item-Typ tragen (stapelbar). */
     public boolean canStackWith(ItemStack other) {
         return !this.isEmpty() && !other.isEmpty() && this.item == other.item
-                && this.damage == other.damage && java.util.Objects.equals(this.enchantments, other.enchantments);
+                && this.damage == other.damage && Objects.equals(this.enchantments, other.enchantments);
     }
 
     public int getDamage() {

@@ -10,7 +10,6 @@ import de.skyengine.game.world.item.CreativeTabs;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
-import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiText;
@@ -866,10 +865,10 @@ public final class GuiCreativeInventory extends GuiContainer {
         List<CreativeTab> tabs = CreativeTabs.tabsOf(stack.getItem().getId());
         if (tabs.isEmpty()) return super.tooltipLines(stack);
 
-        /* super liefert unveränderlich (Name, ID) — Kopie ist Pflicht. Eingefügt wird direkt
-           unter dem Namen, damit die graue ID wie in MC die letzte Zeile bleibt. */
+        /* Die graue ID bleibt unveränderlich die letzte Zeile; Beschreibungen und dynamische
+           Werte aus super stehen vor den Creative-Zuordnungen. */
         List<RichText> lines = new ArrayList<>(super.tooltipLines(stack));
-        int at = 1;
+        int at = Math.max(1, lines.size() - 1);
         for (CreativeTab tab : tabs) {
             lines.add(at++, RichText.plain(I18n.tr(tab.translationKey()), Colors.BLUE));
         }

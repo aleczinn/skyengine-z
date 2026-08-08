@@ -5,6 +5,7 @@ import de.skyengine.core.file.FileHandle;
 import de.skyengine.core.file.Files;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.color.Color4;
+import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.gui.text.RichText;
 import de.skyengine.graphics.gui.text.Span;
 import de.skyengine.graphics.shader.Shader;
@@ -24,7 +25,7 @@ import java.nio.FloatBuffer;
 
 /**
  * Gebatchter Text-Renderer im virtuellen GUI-Koordinatenraum (Ursprung oben links, y nach
- * unten — wie {@link de.skyengine.graphics.gui.SpriteRenderer}). Pro Stil ({@link FontStyle})
+ * unten — wie {@link SpriteRenderer}). Pro Stil ({@link FontStyle})
  * ein {@link FontAtlas}; die Familie ist über {@link #FAMILY} festgelegt.
  *
  * <ul>
@@ -229,15 +230,17 @@ public final class FontRenderer {
             float sx = x + offset;
             for (Span span : text.spans()) {
                 Color4 c = span.color() != null ? span.color() : base;
+                float alpha = span.color() != null ? c.alpha * base.alpha : base.alpha;
                 this.drawString(span.text(), sx, y + offset, size, span.style(),
-                        c.red * 0.25F, c.green * 0.25F, c.blue * 0.25F, c.alpha);
+                        c.red * 0.25F, c.green * 0.25F, c.blue * 0.25F, alpha);
                 sx += this.getStringWidth(span.text(), size, span.style());
             }
         }
         float cx = x;
         for (Span span : text.spans()) {
             Color4 c = span.color() != null ? span.color() : base;
-            this.drawString(span.text(), cx, y, size, span.style(), c.red, c.green, c.blue, c.alpha);
+            float alpha = span.color() != null ? c.alpha * base.alpha : base.alpha;
+            this.drawString(span.text(), cx, y, size, span.style(), c.red, c.green, c.blue, alpha);
             cx += this.getStringWidth(span.text(), size, span.style());
         }
     }

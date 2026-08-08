@@ -32,7 +32,7 @@ public final class Tooltip {
 
         float vW = gui.vWidth(), vH = gui.vHeight();
         lines = wrap(gui, lines, Math.min(MAX_WIDTH, vW - 8));
-        float lineStep = gui.font().lineHeight(TEXT_SIZE) + 1;
+        float lineStep = gui.font().lineHeight(TEXT_SIZE);
         float textW = 0;
         for (RichText line : lines) {
             textW = Math.max(textW, gui.font().width(line, TEXT_SIZE));

@@ -7,6 +7,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Formatierter Text aus HTML-artigem Markup — für Tooltips und Log-Ausgaben, damit einzelne
@@ -17,7 +18,9 @@ import java.util.List;
  *
  * <p><b>Tags:</b> {@code <b>} (fett), {@code <i>} (kursiv), ein Farbname aus
  * {@link TextColors} ({@code <red>}, {@code <gold>}, …) oder {@code <#ff5555>} für freie
- * Hex-Farben. <b>Ein schließendes Tag nimmt immer das zuletzt geöffnete zurück</b> — der Name
+ * Hex-Farben. Zusätzlich funktionieren Minecrafts Legacy-Codes {@code §0} bis {@code §f},
+ * {@code §l} (fett), {@code §o} (kursiv) und {@code §r} (Reset).
+ * <b>Ein schließendes Tag nimmt immer das zuletzt geöffnete zurück</b> — der Name
  * darin wird ignoriert, {@code </>}, {@code </b>} und {@code </red>} sind gleichwertig.
  * Stile und Farben stapeln sich ({@code <b>fett <red>und rot</></>}).
  *
@@ -33,8 +36,7 @@ public final class RichText {
 
     public static final RichText EMPTY = new RichText(List.of());
     /** Zeilen-Trenner im Markup: {@code <br>}, {@code <br/>}, {@code <br />} oder {@code \n}. */
-    private static final java.util.regex.Pattern LINE_BREAK =
-            java.util.regex.Pattern.compile("<br\\s*/?>|\\n");
+    private static final Pattern LINE_BREAK = Pattern.compile("<br\\s*/?>|\\n");
 
     private final List<Span> spans;
 
@@ -69,17 +71,48 @@ public final class RichText {
 
     /** Markup in Spans zerlegen. */
     public static RichText parse(String markup) {
+        return parse(markup, null);
+    }
+
+    /** Markup mit einer Grundfarbe parsen; {@code §r} kehrt zu dieser Farbe zurück. */
+    public static RichText parse(String markup, Color4 baseColor) {
         if (markup == null || markup.isEmpty()) return EMPTY;
-        if (markup.indexOf('<') < 0) return plain(markup);
+        if (markup.indexOf('<') < 0 && markup.indexOf('§') < 0) {
+            return baseColor == null ? plain(markup) : plain(markup, baseColor);
+        }
 
         List<Span> spans = new ArrayList<>();
         Deque<Style> stack = new ArrayDeque<>();
-        Style current = new Style(FontStyle.REGULAR, null);
+        Style base = new Style(FontStyle.REGULAR, baseColor);
+        Style current = base;
         StringBuilder buffer = new StringBuilder();
 
         int i = 0;
         while (i < markup.length()) {
             char c = markup.charAt(i);
+            if (c == '§' && i + 1 < markup.length()) {
+                char code = Character.toLowerCase(markup.charAt(i + 1));
+                Color4 color = TextColors.parseLegacy(code);
+                if (color != null) {
+                    flush(spans, buffer, current);
+                    // Wie Minecraft: ein Farbcode verwirft aktive Legacy-Schriftstile.
+                    current = new Style(FontStyle.REGULAR, color);
+                    i += 2;
+                    continue;
+                }
+                if (code == 'l' || code == 'o' || code == 'r') {
+                    flush(spans, buffer, current);
+                    if (code == 'r') {
+                        current = base;
+                        stack.clear();
+                    } else {
+                        current = new Style(code == 'l' ? FontStyle.BOLD : FontStyle.ITALIC,
+                                current.color());
+                    }
+                    i += 2;
+                    continue;
+                }
+            }
             if (c != '<') {
                 buffer.append(c);
                 i++;
@@ -93,7 +126,7 @@ public final class RichText {
             String tag = markup.substring(i + 1, end);
             if (tag.startsWith("/")) {
                 flush(spans, buffer, current);
-                current = stack.isEmpty() ? new Style(FontStyle.REGULAR, null) : stack.pop();
+                current = stack.isEmpty() ? base : stack.pop();
                 i = end + 1;
                 continue;
             }
@@ -118,19 +151,24 @@ public final class RichText {
      * und nicht als unbekanntes Tag literal im Text landet.
      */
     public static List<RichText> parseLines(String markup) {
+        return parseLines(markup, null);
+    }
+
+    /** Zeilenweises Markup mit einer Grundfarbe für alle Zeilen. */
+    public static List<RichText> parseLines(String markup, Color4 baseColor) {
         if (markup == null || markup.isEmpty()) return List.of();
         String[] parts = LINE_BREAK.split(markup, -1);
-        if (parts.length == 1) return List.of(parse(markup));
+        if (parts.length == 1) return List.of(parse(markup, baseColor));
         List<RichText> lines = new ArrayList<>(parts.length);
         for (String line : parts) {
-            lines.add(parse(line));
+            lines.add(parse(line, baseColor));
         }
         return lines;
     }
 
     /** Markup entfernen — für Ausgaben ohne Formatierung (Konsole/Logdatei). */
     public static String strip(String markup) {
-        if (markup == null || markup.indexOf('<') < 0) return markup;
+        if (markup == null || (markup.indexOf('<') < 0 && markup.indexOf('§') < 0)) return markup;
         StringBuilder out = new StringBuilder(markup.length());
         for (Span span : parse(LINE_BREAK.matcher(markup).replaceAll("\n")).spans()) {
             out.append(span.text());

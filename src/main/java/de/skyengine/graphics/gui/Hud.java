@@ -5,6 +5,7 @@ import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.graphics.color.Color4;
+import de.skyengine.graphics.gui.text.RichText;
 
 /**
  * In-Game-HUD (gezeichnet, wenn kein GuiScreen offen ist): Fadenkreuz + Hotbar mit Auswahlrahmen,
@@ -109,11 +110,11 @@ public final class Hud {
     /** Name des selektierten Items zentriert über {@code base} (Hotbar- bzw. Vitals-Oberkante). */
     private void drawSelectedItemName(GuiManager gui, ItemStack selected, float base, float vW, float vH, float alpha) {
         if (alpha <= 0 || selected.isEmpty()) return;
-        String name = selected.getDisplayName();
-        float x = (vW - gui.font().getStringWidth(name, NAME_TEXT)) / 2f;
+        RichText name = selected.getDisplayNameText();
+        float x = (vW - gui.font().width(name, NAME_TEXT)) / 2f;
         float y = base - gui.font().lineHeight(NAME_TEXT) - 4;
         gui.font().begin(vW, vH);
-        gui.font().drawStringWithShadow(name, x, y, NAME_TEXT, new Color4(1f, 1f, 1f, alpha));
+        gui.font().drawRich(name, x, y, NAME_TEXT, new Color4(1f, 1f, 1f, alpha), true);
         gui.font().end();
     }
 }

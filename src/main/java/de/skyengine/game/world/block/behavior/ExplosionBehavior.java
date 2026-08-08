@@ -1,15 +1,25 @@
 package de.skyengine.game.world.block.behavior;
 
+import de.skyengine.core.i18n.I18n;
+import de.skyengine.game.entity.PrimedTntEntity;
+import de.skyengine.game.world.Explosion;
 import de.skyengine.game.world.World;
+import de.skyengine.game.world.block.archetype.ArchetypeBlockFactory;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.TooltipContext;
 import de.skyengine.game.world.redstone.RedstonePower;
+
+import java.text.NumberFormat;
+import java.util.Map;
+import java.util.Locale;
 
 /**
  * TNT-Verhalten: Der Block bleibt beim Platzieren inert (normaler, stapelbarer Block) und zündet
  * erst auf ein <b>Redstone-Signal</b> — dann verschwindet er und an seiner Stelle spawnt eine
- * {@link de.skyengine.game.entity.PrimedTntEntity} (Fuse-Countdown + weißer Blink), die am Ende
- * über {@link de.skyengine.game.world.Explosion#explode} detoniert.
+ * {@link PrimedTntEntity} (Fuse-Countdown + weißer Blink), die am Ende
+ * über {@link Explosion#explode} detoniert.
  *
  * <p>Die Zündung folgt MCs {@code TntBlock}: {@code neighborChanged} und {@code onPlace} prüfen
  * beide {@code hasNeighborSignal} und zünden <b>sofort</b>, ohne geplanten Tick. Der Platzier-Fall
@@ -24,7 +34,7 @@ import de.skyengine.game.world.redstone.RedstonePower;
  *
  * <p>Sprengkraft ({@code power}) und Zünddauer ({@code fuse}, in Ticks) stammen aus der Block-JSON
  * (Felder {@code explosion_power} / {@code explosion_fuse}) und werden in {@link
- * de.skyengine.game.world.block.archetype.ArchetypeBlockFactory} verdrahtet. Die Getter liefern sie
+ * ArchetypeBlockFactory} verdrahtet. Die Getter liefern sie
  * an die Ketten­reaktion in {@code Explosion}.
  */
 public final class ExplosionBehavior implements BlockBehavior {
@@ -48,6 +58,20 @@ public final class ExplosionBehavior implements BlockBehavior {
 
     public int fuse() {
         return this.fuse;
+    }
+
+    @Override
+    public void appendTooltipVariables(ItemStack stack, TooltipContext context, Map<String, String> variables) {
+        variables.put("fuse_ticks", Integer.toString(this.fuse));
+        variables.put("fuse_seconds", formatSeconds(this.fuse / 20.0));
+    }
+
+    private static String formatSeconds(double seconds) {
+        Locale locale = Locale.forLanguageTag(I18n.code().replace('_', '-'));
+        NumberFormat format = NumberFormat.getNumberInstance(locale);
+        format.setMinimumFractionDigits(0);
+        format.setMaximumFractionDigits(2);
+        return format.format(seconds);
     }
 
     @Override

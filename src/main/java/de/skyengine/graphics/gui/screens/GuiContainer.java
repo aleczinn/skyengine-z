@@ -8,8 +8,8 @@ import de.skyengine.game.Gamemode;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.TooltipContext;
 import de.skyengine.graphics.DebugFlags;
-import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
@@ -677,9 +677,15 @@ public abstract class GuiContainer extends GuiScreen {
         return rest;
     }
 
-    /** Zeilen des Tooltips eines Stacks — Andockpunkt für spätere Stats (Haltbarkeit etc.). */
+    /** Zeilen des Tooltips eines Stacks inklusive statischer und laufzeitberechneter Angaben. */
     protected List<RichText> tooltipLines(ItemStack stack) {
-        return List.of(RichText.plain(stack.getDisplayName(), Colors.WHITE), RichText.plain(stack.getItem().getId().toString(), Colors.DARK_GRAY));
+        List<RichText> lines = new ArrayList<>();
+        lines.add(stack.getDisplayNameText());
+        GameContainer game = SkyEngine.get().getGame();
+        stack.getItem().appendTooltip(stack,
+                new TooltipContext(game.getWorld(), game.getPlayer()), lines);
+        lines.add(RichText.plain(stack.getItem().getId().toString(), Colors.DARK_GRAY));
+        return lines;
     }
 
     /**

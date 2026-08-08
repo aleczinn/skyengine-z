@@ -478,6 +478,13 @@
       "yellow_wool": "Yellow Wool"
     }
   },
+  "description": {
+    "block": {
+      "skyengine": {
+        "tnt": "Can be ignited by fire or redstone. Explodes after §6%fuse_ticks% ticks§r (%fuse_seconds% seconds)."
+      }
+    }
+  },
   "item": {
     "skyengine": {
       "apple": "Apple",

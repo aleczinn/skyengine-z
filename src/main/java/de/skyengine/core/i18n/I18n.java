@@ -69,6 +69,11 @@ public final class I18n {
         return String.format(Locale.ROOT, tr(key), args);
     }
 
+    /** true, wenn der Schlüssel in aktiver Sprache oder Fallback tatsächlich vorhanden ist. */
+    public static boolean has(String key) {
+        return active.containsKey(key) || fallback.containsKey(key);
+    }
+
     /** Alle anlegbaren Sprachen (eine JSON-Datei = eine Sprache), Name immer nativ. */
     public static List<Language> available() {
         List<Language> result = new ArrayList<>();

@@ -1,10 +1,15 @@
 package de.skyengine.game.world.block;
 
+import de.skyengine.audio.BlockOpenSound;
+import de.skyengine.audio.BlockSoundGroup;
+import de.skyengine.game.entity.Entity;
+import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.archetype.BlockConfig;
 import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.block.behavior.BlockBehavior;
 import de.skyengine.game.world.block.behavior.ObserverBehavior;
 import de.skyengine.game.world.block.behavior.PlacementContext;
+import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.BlockStateModels;
@@ -15,6 +20,9 @@ import de.skyengine.game.world.loot.LootSink;
 import de.skyengine.game.world.loot.LootTables;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.Property;
+import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.ToolType;
+import de.skyengine.game.world.item.TooltipContext;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -283,7 +291,7 @@ public class Block {
      * @return der zu platzierende State, oder {@code null} wenn ein Behavior die
      *         Platzierung ablehnt (z.B. Tür ohne Platz für den oberen Teil)
      */
-    public BlockState getPlacementState(de.skyengine.game.world.World world,
+    public BlockState getPlacementState(World world,
                                         int x, int y, int z,
                                         int faceX, int faceY, int faceZ,
                                         double hitX, double hitY, double hitZ, float playerYaw,
@@ -307,14 +315,14 @@ public class Block {
      * Seiteneffekte nach erfolgreicher Platzierung (z.B. den oberen Türteil setzen).
      * Wird erst aufgerufen, nachdem der State validiert und gesetzt wurde.
      */
-    public void onPlaced(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+    public void onPlaced(World world, int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             behavior.onPlaced(world, x, y, z, state);
         }
     }
 
     /** Von einem Kolben an dieser Zelle abgesetzt — s. {@link BlockBehavior#onMovedByPiston}. */
-    public void onMovedByPiston(de.skyengine.game.world.World world, int x, int y, int z,
+    public void onMovedByPiston(World world, int x, int y, int z,
                                 BlockState state, Direction moveDirection) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             behavior.onMovedByPiston(world, x, y, z, state, moveDirection);
@@ -325,7 +333,7 @@ public class Block {
      * Recompute des eigenen States nach einer Nachbaränderung (Verbindungen,
      * Treppen-Ecken). Delegiert an die Behaviors; Default: unverändert.
      */
-    public BlockState getStateForNeighborUpdate(de.skyengine.game.world.World world,
+    public BlockState getStateForNeighborUpdate(World world,
                                                 int x, int y, int z, BlockState state) {
         return this.getStateForGeneralNeighborUpdate(world, x, y, z, state);
     }
@@ -335,7 +343,7 @@ public class Block {
      * zum geänderten Nachbarn; der alte ungerichtete Hook bleibt für die übrigen, historisch
      * zusammengefassten Neighbor-Changed-Verhalten erhalten.
      */
-    public BlockState getStateForNeighborUpdate(de.skyengine.game.world.World world,
+    public BlockState getStateForNeighborUpdate(World world,
                                                 int x, int y, int z, BlockState state,
                                                 Direction direction, BlockState neighborState) {
         if (direction != null) {
@@ -345,7 +353,7 @@ public class Block {
     }
 
     /** Nur der allgemeine {@code neighborChanged}-Hook, ohne gerichtetes Shape-Update. */
-    public BlockState getStateForGeneralNeighborUpdate(de.skyengine.game.world.World world,
+    public BlockState getStateForGeneralNeighborUpdate(World world,
                                                        int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             state = behavior.onNeighborUpdate(world, x, y, z, state);
@@ -354,7 +362,7 @@ public class Block {
     }
 
     /** Nur der gerichtete Shape-Hook, ohne den allgemeinen Neighbor-Changed-Recompute. */
-    public BlockState getStateForShapeUpdate(de.skyengine.game.world.World world,
+    public BlockState getStateForShapeUpdate(World world,
                                              int x, int y, int z, BlockState state,
                                              Direction direction, BlockState neighborState) {
         for (BlockBehavior behavior : this.config.behaviors()) {
@@ -369,7 +377,7 @@ public class Block {
      * Zelle. Das muss zentral passieren: {@code World.updateStateAt} schreibt reine
      * State-Änderungen absichtlich ohne einen weiteren allgemeinen Nachbarring.
      */
-    public void onStateChangedByNeighborUpdate(de.skyengine.game.world.World world,
+    public void onStateChangedByNeighborUpdate(World world,
                                                int x, int y, int z,
                                                BlockState oldState, BlockState newState) {
         for (BlockBehavior behavior : this.config.behaviors()) {
@@ -379,7 +387,7 @@ public class Block {
     }
 
     /** Rechtsklick-Interaktion. Delegiert an die Behaviors; true = verbraucht. */
-    public boolean onUse(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+    public boolean onUse(World world, int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             if (behavior.onUse(world, x, y, z, state)) return true;
         }
@@ -387,7 +395,7 @@ public class Block {
     }
 
     /** Rechtsklick-Variante mit Blickrichtung für richtungsabhängige Interaktionen wie Zauntore. */
-    public boolean onUse(de.skyengine.game.world.World world, int x, int y, int z,
+    public boolean onUse(World world, int x, int y, int z,
                          BlockState state, float playerYaw) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             if (behavior.onUse(world, x, y, z, state, playerYaw)) return true;
@@ -396,14 +404,14 @@ public class Block {
     }
 
     /** Abbau-Hook (vor dem Entfernen). Delegiert an die Behaviors; Default: nichts. */
-    public void onBreak(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+    public void onBreak(World world, int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             behavior.onBreak(world, x, y, z, state);
         }
     }
 
     /** Post-Removal-Dispatch, nachdem die Welt bereits den Nachfolgezustand enthaelt. */
-    public void onRemoved(de.skyengine.game.world.World world, int x, int y, int z,
+    public void onRemoved(World world, int x, int y, int z,
                           BlockState oldState, BlockState newState) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             behavior.onRemoved(world, x, y, z, oldState, newState);
@@ -411,7 +419,7 @@ public class Block {
     }
 
     /** Block-Event-Dispatch (s. {@code World.enqueueBlockEvent}). Delegiert; Default: nichts. */
-    public void onBlockEvent(de.skyengine.game.world.World world, int x, int y, int z, BlockState state,
+    public void onBlockEvent(World world, int x, int y, int z, BlockState state,
                              int eventId, int eventParam) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             behavior.onBlockEvent(world, x, y, z, state, eventId, eventParam);
@@ -426,7 +434,7 @@ public class Block {
     }
 
     public long canonicalLootPosition(LootContext context) {
-        long own = de.skyengine.game.world.block.BlockPos.asLong(context.x(), context.y(), context.z());
+        long own = BlockPos.asLong(context.x(), context.y(), context.z());
         for (BlockBehavior behavior : this.config.behaviors()) {
             long candidate = behavior.canonicalLootPosition(context);
             if (candidate != own) return candidate;
@@ -443,15 +451,15 @@ public class Block {
     }
 
     /** Entity-BoundingBox überlappt die Zelle (aus {@code Entity.move}). Delegiert; Default: nichts. */
-    public void onEntityInside(de.skyengine.game.world.World world, int x, int y, int z, BlockState state,
-                               de.skyengine.game.entity.Entity entity) {
+    public void onEntityInside(World world, int x, int y, int z, BlockState state,
+                               Entity entity) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             behavior.onEntityInside(world, x, y, z, state, entity);
         }
     }
 
     /** Schwaches Redstone-Signal Richtung {@code side} (Konvention s. {@code BlockBehavior.weakPower}). Max über die Behaviors. */
-    public int getWeakPower(de.skyengine.game.world.World world, int x, int y, int z, BlockState state, Direction side) {
+    public int getWeakPower(World world, int x, int y, int z, BlockState state, Direction side) {
         int power = 0;
         for (BlockBehavior behavior : this.config.behaviors()) {
             power = Math.max(power, behavior.weakPower(world, x, y, z, state, side));
@@ -460,7 +468,7 @@ public class Block {
     }
 
     /** Starkes Redstone-Signal Richtung {@code side} (leitet durch Redstone-Leiter). Max über die Behaviors. */
-    public int getStrongPower(de.skyengine.game.world.World world, int x, int y, int z, BlockState state, Direction side) {
+    public int getStrongPower(World world, int x, int y, int z, BlockState state, Direction side) {
         int power = 0;
         for (BlockBehavior behavior : this.config.behaviors()) {
             power = Math.max(power, behavior.strongPower(world, x, y, z, state, side));
@@ -482,14 +490,14 @@ public class Block {
     }
 
     /** Geplanter Tick (Fluss, Fall, ...), von {@code World.scheduleTick} ausgelöst. Delegiert; Default: nichts. */
-    public void scheduledTick(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+    public void scheduledTick(World world, int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             behavior.scheduledTick(world, x, y, z, state);
         }
     }
 
     /** Zufalls-Tick (Wachstum, Verfall, ...). Nur wenn {@link #ticksRandomly()}. Delegiert; Default: nichts. */
-    public void randomTick(de.skyengine.game.world.World world, int x, int y, int z, BlockState state) {
+    public void randomTick(World world, int x, int y, int z, BlockState state) {
         for (BlockBehavior behavior : this.config.behaviors()) {
             behavior.randomTick(world, x, y, z, state);
         }
@@ -506,6 +514,14 @@ public class Block {
             if (type.isInstance(behavior)) return type.cast(behavior);
         }
         return null;
+    }
+
+    /** Benannte Tooltip-Werte des BlockItems, komponiert aus allen Block-Behaviors. */
+    public void appendTooltipVariables(ItemStack stack, TooltipContext context,
+                                       Map<String, String> variables) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.appendTooltipVariables(stack, context, variables);
+        }
     }
 
     /**
@@ -606,7 +622,7 @@ public class Block {
     }
 
     /** Effektive Tool-Klasse oder null (= Hand reicht, droppt immer). */
-    public de.skyengine.game.world.item.ToolType getToolType() {
+    public ToolType getToolType() {
         return this.config.toolType();
     }
 
@@ -616,12 +632,12 @@ public class Block {
     }
 
     /** Sound-Gruppe für Schritt-/Abbau-/Platzier-Sounds. */
-    public de.skyengine.audio.BlockSoundGroup getSoundGroup() {
+    public BlockSoundGroup getSoundGroup() {
         return this.config.soundGroup();
     }
 
     /** Auf-/Zu-Sound (Tür, Truhe) oder {@code null}, wenn der Block sich nicht öffnet. */
-    public de.skyengine.audio.BlockOpenSound getOpenSound() {
+    public BlockOpenSound getOpenSound() {
         return this.config.openSound();
     }
 
@@ -636,7 +652,7 @@ public class Block {
     }
 
     /** BlockEntity-Typ dieses Blocks oder null (kein „lebender" Block). */
-    public de.skyengine.game.world.block.entity.BlockEntityType<?> getBlockEntityType() {
+    public BlockEntityType<?> getBlockEntityType() {
         return this.config.blockEntityType();
     }
 

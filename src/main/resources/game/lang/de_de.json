@@ -486,6 +486,13 @@
       "yellow_wool": "Gelbe Wolle"
     }
   },
+  "description": {
+    "block": {
+      "skyengine": {
+        "tnt": "Kann mit Feuer oder Redstone gezündet werden. Explodiert nach §6%fuse_ticks% Ticks§r (%fuse_seconds% Sekunden)."
+      }
+    }
+  },
   "item": {
     "skyengine": {
       "apple": "Apfel",

@@ -1,7 +1,14 @@
 package de.skyengine.game.world.item;
 
 import de.skyengine.core.i18n.I18n;
+import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.graphics.gui.text.RichText;
+import de.skyengine.graphics.gui.text.TextColors;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Ein registrierbarer Gegenstand. Basisklasse - Blöcke bekommen automatisch ein {@link BlockItem}
@@ -36,9 +43,37 @@ public class Item {
         return "item." + this.id.namespace() + "." + this.id.path();
     }
 
-    /** Übersetzter Anzeigename (I18n prettifiziert ungepflegte Keys aus dem Pfad). */
+    /** Formatierter, übersetzter Anzeigename für Tooltip und HUD. */
+    public RichText getDisplayNameText() {
+        return RichText.parse(I18n.tr(this.translationKey()));
+    }
+
+    /** Sichtbarer Anzeigename ohne Rich-Text-Codes, etwa für Suche und Logs. */
     public String getDisplayName() {
-        return I18n.tr(this.translationKey());
+        return RichText.strip(I18n.tr(this.translationKey()));
+    }
+
+    /** Konventioneller i18n-Key der optionalen Beschreibung. */
+    public String descriptionTranslationKey() {
+        return "description." + this.translationKey();
+    }
+
+    /**
+     * Ergänzt die Zeilen unter dem Namen. Der Default liest die optionale lokalisierte
+     * Beschreibung; Unterklassen dürfen anschließend aktuelle Stack-/Weltwerte anfügen.
+     */
+    public void appendTooltip(ItemStack stack, TooltipContext context, List<RichText> lines) {
+        String key = this.descriptionTranslationKey();
+        if (!I18n.has(key)) return;
+        Map<String, String> variables = new LinkedHashMap<>();
+        this.appendTooltipVariables(stack, context, variables);
+        String description = TooltipTemplate.resolve(I18n.tr(key), variables);
+        lines.addAll(RichText.parseLines(description, TextColors.GRAY));
+    }
+
+    /** Liefert benannte Werte für Platzhalter in der Beschreibung, etwa {@code %energy%}. */
+    protected void appendTooltipVariables(ItemStack stack, TooltipContext context,
+                                          Map<String, String> variables) {
     }
 
     /**
@@ -56,7 +91,7 @@ public class Item {
      * JSON-Feld {@code places_block} einen fremden Block platzieren (Redstone-Staub) —
      * der Platzierungspfad in {@code GameContainer} fragt nur noch diese Methode.
      */
-    public de.skyengine.game.world.block.Block getPlacedBlock() {
+    public Block getPlacedBlock() {
         return null;
     }
 
