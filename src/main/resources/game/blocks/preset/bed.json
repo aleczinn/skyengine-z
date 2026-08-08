@@ -26,8 +26,8 @@
     "down": "game/textures/block/bed_down.png"
   },
   "inventory_models": [
-    { "model": "block/${id}_foot", "y": 180 },
-    { "model": "block/${id}_head", "y": 180, "translation": [0, 0, 16] }
+    { "model": "block/${id}_head" },
+    { "model": "block/${id}_foot", "translation": [0, 0, 16] }
   ],
   "inventory_display_model": "block/${id}_inventory_display",
   "variants": {

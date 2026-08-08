@@ -158,7 +158,9 @@ public final class ItemIconRenderer {
                     .scale(slotPixelSize * guiDisplay.scale()[0],
                            slotPixelSize * guiDisplay.scale()[1],
                            slotPixelSize * guiDisplay.scale()[2])
-                    .translate(-mesh.centerX, -mesh.centerY, -mesh.centerZ);
+                    /* Minecraft verschiebt Blockmodelle immer um den festen Modellursprung;
+                       auch ein Composite wird nicht um seine Gesamt-Bounds nachzentriert. */
+                    .translate(-0.5F, -0.5F, -0.5F);
             this.proj.mul(this.model, this.mvp);
         } else if (mesh.fit != 1F) {
             this.model.identity()
@@ -183,11 +185,13 @@ public final class ItemIconRenderer {
         GL11.glDisable(GL11.GL_DEPTH_TEST);
     }
 
-    /** Eigene GUI-Transformation nur fuer explizit deklarierte Item-Display-Modelle. */
+    /**
+     * Minecraft-{@code display.gui} des Inventarmodells inklusive Parent-Vererbung. Fehlt der
+     * Kontext, verwendet der Aufrufer weiterhin die bisherige Standard-Blockisometrie.
+     */
     private static ModelLoader.Display guiDisplayFor(Item item) {
         if (!(item instanceof BlockItem bi)) return null;
-        String model = BlockStateModels.inventoryDisplayOverrideModel(bi.getBlock());
-        return model != null ? ModelLoader.display(model, "gui") : null;
+        return ModelLoader.display(BlockStateModels.inventoryDisplayModel(bi.getBlock()), "gui");
     }
 
     /** Zeichnet ein flaches, kamerazugewandtes Icon (kein Iso-Würfel) zentriert im Slot. */

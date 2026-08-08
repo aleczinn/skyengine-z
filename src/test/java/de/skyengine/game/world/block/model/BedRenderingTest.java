@@ -48,9 +48,9 @@ final class BedRenderingTest {
         assertEquals(0F, minZ, 0.0001F);
         assertEquals(2F, maxZ, 0.0001F);
         assertTrue(hasTextureInZRange(inventory.quads(),
-                BlockTextures.layerOf("game/textures/block/white_bed_head_up.png"), 1F, 2F));
+                BlockTextures.layerOf("game/textures/block/white_bed_head_up.png"), 0F, 1F));
         assertTrue(hasTextureInZRange(inventory.quads(),
-                BlockTextures.layerOf("game/textures/block/white_bed_foot_up.png"), 0F, 1F));
+                BlockTextures.layerOf("game/textures/block/white_bed_foot_up.png"), 1F, 2F));
         assertTrue(lowVerticesAreOnlyAtOuterEnds(inventory.quads()));
         assertEquals("block/white_bed_inventory_display", BlockStateModels.inventoryDisplayModel(bed));
         assertEquals("block/white_bed_inventory_display",
@@ -58,9 +58,23 @@ final class BedRenderingTest {
         ModelLoader.Display gui = ModelLoader.display(
                 BlockStateModels.inventoryDisplayOverrideModel(bed), "gui");
         assertNotNull(gui);
-        assertArrayEquals(new float[]{30F, 160F, 0F}, gui.rotation());
-        assertArrayEquals(new float[]{1F, 0F, 0F}, gui.translation());
+        assertArrayEquals(new float[]{30F, 340F, 0F}, gui.rotation());
+        assertArrayEquals(new float[]{2F, 3F, 0F}, gui.translation());
         assertArrayEquals(new float[]{0.5325F, 0.5325F, 0.5325F}, gui.scale());
+
+        ModelLoader.Display firstPerson = ModelLoader.display(
+                BlockStateModels.inventoryDisplayOverrideModel(bed), "firstperson_righthand");
+        assertNotNull(firstPerson);
+        assertArrayEquals(new float[]{30F, 340F, 0F}, firstPerson.rotation());
+        assertArrayEquals(new float[]{0F, 3F, 0F}, firstPerson.translation());
+        assertArrayEquals(new float[]{0.375F, 0.375F, 0.375F}, firstPerson.scale());
+
+        ModelLoader.Display thirdPerson = ModelLoader.display(
+                BlockStateModels.inventoryDisplayOverrideModel(bed), "thirdperson_righthand");
+        assertNotNull(thirdPerson);
+        assertArrayEquals(new float[]{30F, 340F, 0F}, thirdPerson.rotation());
+        assertArrayEquals(new float[]{0F, 3F, -2F}, thirdPerson.translation());
+        assertArrayEquals(new float[]{0.23F, 0.23F, 0.23F}, thirdPerson.scale());
         assertEquals(BlockSoundGroup.WOOD, bed.getSoundGroup());
     }
 

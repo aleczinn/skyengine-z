@@ -281,10 +281,10 @@ public final class HeldItemMeshes {
             String model = BlockStateModels.inventoryDisplayModel(bi.getBlock());
             boolean translucent =
                     bi.getBlock().getDefaultState().getRenderLayer() == RenderLayer.TRANSLUCENT;
-            float[] pivot = inventory != null ? horizontalPivot(inventory.quads())
-                    : new float[]{0.5F, 0.5F, 0.5F};
+            /* Minecraft rotiert jedes Block-Item um den festen Modellursprung (8/8/8 px), auch
+               wenn mehrere Teilmodelle ueber die normale Blockzelle hinausragen. */
             if (mesh != null) return new HeldMesh(mesh, false, false, null, model, translucent,
-                    pivot[0], pivot[1], pivot[2]);
+                    0.5F, 0.5F, 0.5F);
         }
         return EMPTY;
     }
@@ -371,25 +371,6 @@ public final class HeldItemMeshes {
             }
         }
         return new Mesh(data);
-    }
-
-    /** Mehrblock-Items rotieren um die Mitte ihres gesamten Grundrisses. */
-    private static float[] horizontalPivot(BakedQuad[] quads) {
-        float minX = Float.MAX_VALUE, minZ = Float.MAX_VALUE;
-        float maxX = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
-        for (BakedQuad quad : quads) {
-            float[] vertices = quad.vertices();
-            for (int i = 0; i < vertices.length; i += 5) {
-                minX = Math.min(minX, vertices[i]);
-                maxX = Math.max(maxX, vertices[i]);
-                minZ = Math.min(minZ, vertices[i + 2]);
-                maxZ = Math.max(maxZ, vertices[i + 2]);
-            }
-        }
-        if (maxX - minX <= 1.001F && maxZ - minZ <= 1.001F) {
-            return new float[]{0.5F, 0.5F, 0.5F};
-        }
-        return new float[]{(minX + maxX) * 0.5F, 0.5F, (minZ + maxZ) * 0.5F};
     }
 
     public void dispose() {
