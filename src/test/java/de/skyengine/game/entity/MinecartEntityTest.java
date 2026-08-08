@@ -141,7 +141,7 @@ final class MinecartEntityTest {
     }
 
     @Test
-    void passengerFrictionKeepsCartMovingWhereEmptyCartStops() {
+    void poweredLoopKeepsSufficientlyPushedEmptyAndOccupiedCartsMoving() {
         TestWorld world = new TestWorld() {
             @Override public List<AABB> getCollisionBoxes(AABB area) {
                 java.util.ArrayList<AABB> boxes = new java.util.ArrayList<>();
@@ -178,18 +178,20 @@ final class MinecartEntityTest {
 
         MinecartEntity empty = new MinecartEntity();
         empty.setPosition(1.5, 64.0625, 4.5);
-        /* Ein einzelner Entity-Kontakt liefert ungefähr diesen Anschub; keine künstliche
-           Test-Startgeschwindigkeit verwenden. */
-        empty.motionX = -0.05;
+        /* Mehrere Spielerkontakte können das Cart bis zu diesem ausreichenden Anschub aufbauen. */
+        empty.motionX = -0.4;
         for (int tick = 0; tick < 1_200; tick++) empty.tick(world);
 
         double emptySpeed = Math.hypot(empty.motionX, empty.motionZ);
-        assertTrue(emptySpeed < 0.01,
-                "Leeres Cart muss auf dieser Strecke ausrollen: " + emptySpeed);
+        assertTrue(emptySpeed > 0.05,
+                "Ausreichend angeschobenes leeres Cart verlor entgegen Vanilla den Rundlauf: "
+                        + emptySpeed + " bei " + empty.x + ", " + empty.y + ", " + empty.z);
+        assertTrue(empty.y > 63.9,
+                "Leeres Cart verlor die Schiene und fiel aus der Schleife: y=" + empty.y);
 
         MinecartEntity occupied = new MinecartEntity();
         occupied.setPosition(1.5, 64.0625, 4.5);
-        occupied.motionX = -0.05;
+        occupied.motionX = -0.4;
         EntityPlayer passenger = new EntityPlayer();
         assertTrue(occupied.interact(passenger));
         for (int tick = 0; tick < 1_200; tick++) occupied.tick(world);
@@ -199,6 +201,24 @@ final class MinecartEntityTest {
                 "Besetztes Cart verlor entgegen Vanilla den Rundlauf: " + occupiedSpeed);
         assertTrue(occupied.y > 63.9,
                 "Besetztes Cart verlor die Schiene und fiel aus der Schleife: y=" + occupied.y);
+    }
+
+    @Test
+    void poweredRailBoostIsAppliedAfterEmptyCartFriction() {
+        TestWorld world = new TestWorld();
+        BlockState powered = BlockRegistry.get(Identifier.of("skyengine:powered_rail"))
+                .getDefaultState()
+                .with(Properties.POWERED, true)
+                .with(Properties.STRAIGHT_RAIL_SHAPE, RailShape.EAST_WEST);
+        world.put(0, 64, 0, powered);
+
+        MinecartEntity cart = new MinecartEntity();
+        cart.setPosition(0.5, 64.0625, 0.5);
+        cart.motionX = 0.4;
+        cart.tick(world);
+
+        assertEquals(0.444, cart.motionX, 1.0E-9,
+                "Vanilla dämpft zuerst mit 0,96 und addiert danach 0,06");
     }
 
     @Test

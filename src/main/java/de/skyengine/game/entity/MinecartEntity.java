@@ -131,23 +131,12 @@ public final class MinecartEntity extends Entity {
         this.pitch = (float) Math.toDegrees(Math.atan2(ty, 1.0));
 
         String id = rail.state.getBlock().getIdentifier().path();
-        if ("powered_rail".equals(id)) {
-            if (rail.state.get(Properties.POWERED)) {
-                double poweredSpeed = Math.sqrt(this.motionX * this.motionX + this.motionZ * this.motionZ);
-                if (poweredSpeed > 0.01) {
-                    this.motionX += this.motionX / poweredSpeed * POWERED_ACCELERATION;
-                    this.motionZ += this.motionZ / poweredSpeed * POWERED_ACCELERATION;
-                } else {
-                    this.launchFromPoweredRail(world, rail, shape);
-                }
-            } else {
-                double poweredSpeed = Math.sqrt(this.motionX * this.motionX + this.motionZ * this.motionZ);
-                if (poweredSpeed < 0.03) this.motionX = this.motionZ = 0;
-                else { this.motionX *= 0.5; this.motionZ *= 0.5; }
-            }
-        } else if ("activator_rail".equals(id) && rail.state.get(Properties.POWERED)
-                && this.getFirstPassenger() != null) {
-            this.getFirstPassenger().stopRiding(world);
+        boolean poweredRail = "powered_rail".equals(id);
+        boolean receivesPower = poweredRail && rail.state.get(Properties.POWERED);
+        if (poweredRail && !receivesPower) {
+            double poweredSpeed = Math.sqrt(this.motionX * this.motionX + this.motionZ * this.motionZ);
+            if (poweredSpeed < 0.03) this.motionX = this.motionZ = 0;
+            else { this.motionX *= 0.5; this.motionZ *= 0.5; }
         }
 
         this.motionX = Math.clamp(this.motionX, -MAX_RAIL_SPEED, MAX_RAIL_SPEED);
@@ -155,7 +144,9 @@ public final class MinecartEntity extends Entity {
         /* Auf Steigungen muss die vertikale Bewegung VOR der horizontalen Blockkollision
            stattfinden. Mit dy=0 prallte die AABB gegen den Stützblock der oberen Schiene. */
         double railYBeforeMove = this.y;
-        this.move(world, this.motionX, ty * along, this.motionZ);
+        double movementFactor = this.hasPassengers() ? 0.75 : 1.0;
+        this.move(world, this.motionX * movementFactor, ty * along * movementFactor,
+                this.motionZ * movementFactor);
 
         RailPosition after = this.findRailAfterMovement(world);
         if (after != null) {
@@ -170,8 +161,23 @@ public final class MinecartEntity extends Entity {
                 this.motionZ = this.motionZ / horizontalSpeed * correctedSpeed;
             }
         }
+        /* Vanilla-Reihenfolge: Erst natürliche Reibung, danach der Impuls einer aktiven
+           Antriebsschiene. So wird deren 0,06-Impuls weder mit 0,96 gedämpft noch vorzeitig auf
+           die Bewegungshöchstgeschwindigkeit von 0,4 gekappt. */
         this.motionX *= this.hasPassengers() ? 0.997 : 0.96;
         this.motionZ *= this.hasPassengers() ? 0.997 : 0.96;
+        if (receivesPower) {
+            double poweredSpeed = Math.hypot(this.motionX, this.motionZ);
+            if (poweredSpeed > 0.01) {
+                this.motionX += this.motionX / poweredSpeed * POWERED_ACCELERATION;
+                this.motionZ += this.motionZ / poweredSpeed * POWERED_ACCELERATION;
+            } else {
+                this.launchFromPoweredRail(world, rail, shape);
+            }
+        } else if ("activator_rail".equals(id) && rail.state.get(Properties.POWERED)
+                && this.getFirstPassenger() != null) {
+            this.getFirstPassenger().stopRiding(world);
+        }
     }
 
     private void launchFromPoweredRail(World world, RailPosition rail, RailShape shape) {
