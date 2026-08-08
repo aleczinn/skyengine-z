@@ -312,9 +312,8 @@ public final class EntityRenderer {
         float[] data = new float[5 * 6 * 6 * FLOATS_PER_VERTEX];
         int[] cursor = {0};
         minecartCube(data, cursor, -10,-8,-1, 20,16,2, 0,10, 0,4,0, 90,0);
-        /* Vanilla MinecartModel: Beide Stirnwände besitzen dieselbe +90°-PartPose. Die
-           gegenüberliegende Position, nicht eine inverse Rotation, erzeugt die Außenseite. */
-        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, -9,4,0, 0,90);
+        /* Exakte PartPoses aus MinecartModel.createBodyLayer in Java 26.2. */
+        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, -9,4,0, 0,-90);
         minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 9,4,0, 0,90);
         minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 0,4,-7, 0,180);
         minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 0,4,7, 0,0);
@@ -342,12 +341,13 @@ public final class EntityRenderer {
                                      float cx,float cy,float cz,float dx,float dy,float dz,
                                      float u0,float v0,float u1,float v1) {
         u0/=64; u1/=64; v0/=32; v1/=32;
-        minecartVertex(out,at,px,py,pz,rotateX,rotateY,ax,ay,az,u0,v1);
-        minecartVertex(out,at,px,py,pz,rotateX,rotateY,bx,by,bz,u1,v1);
-        minecartVertex(out,at,px,py,pz,rotateX,rotateY,cx,cy,cz,u1,v0);
-        minecartVertex(out,at,px,py,pz,rotateX,rotateY,ax,ay,az,u0,v1);
-        minecartVertex(out,at,px,py,pz,rotateX,rotateY,cx,cy,cz,u1,v0);
-        minecartVertex(out,at,px,py,pz,rotateX,rotateY,dx,dy,dz,u0,v0);
+        /* ModelPart.Polygon ordnet die vier UV-Ecken in genau dieser Reihenfolge zu. */
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,ax,ay,az,u1,v0);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,bx,by,bz,u0,v0);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,cx,cy,cz,u0,v1);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,ax,ay,az,u1,v0);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,cx,cy,cz,u0,v1);
+        minecartVertex(out,at,px,py,pz,rotateX,rotateY,dx,dy,dz,u1,v1);
     }
 
     private static void minecartVertex(float[] out, int[] at,
