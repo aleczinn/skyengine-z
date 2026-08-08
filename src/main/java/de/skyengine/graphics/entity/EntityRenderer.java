@@ -312,9 +312,9 @@ public final class EntityRenderer {
         float[] data = new float[5 * 6 * 6 * FLOATS_PER_VERTEX];
         int[] cursor = {0};
         minecartCube(data, cursor, -10,-8,-1, 20,16,2, 0,10, 0,4,0, 90,0);
-        /* Die Stirnwände werden nach außen gespiegelt: Die gepunktete Face-UV gehört auf die
-           Außenseite, die dunkle Seitenfläche in den Innenraum. */
-        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, -9,4,0, 0,-90);
+        /* Vanilla MinecartModel: Beide Stirnwände besitzen dieselbe +90°-PartPose. Die
+           gegenüberliegende Position, nicht eine inverse Rotation, erzeugt die Außenseite. */
+        minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, -9,4,0, 0,90);
         minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 9,4,0, 0,90);
         minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 0,4,-7, 0,180);
         minecartCube(data, cursor, -8,-9,-1, 16,8,2, 0,0, 0,4,7, 0,0);
