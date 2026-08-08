@@ -21,6 +21,8 @@ public final class MinecartEntity extends Entity {
 
     private double passengerImpulseX;
     private double passengerImpulseZ;
+    private float previousYaw;
+    private float previousPitch;
     private float damage;
     private int hurtTime;
     private int hurtDirection = 1;
@@ -44,6 +46,8 @@ public final class MinecartEntity extends Entity {
         double dz = segment.z1 - segment.z0;
         this.yaw = (float) Math.toDegrees(Math.atan2(dx, -dz));
         this.pitch = (float) Math.toDegrees(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)));
+        this.previousYaw = this.yaw;
+        this.previousPitch = this.pitch;
     }
 
     @Override
@@ -58,6 +62,8 @@ public final class MinecartEntity extends Entity {
 
     @Override
     public void tick(World world) {
+        this.previousYaw = this.yaw;
+        this.previousPitch = this.pitch;
         this.update();
         if (this.hurtTime > 0) this.hurtTime--;
         if (this.damage > 0) this.damage = Math.max(0, this.damage - 1);
@@ -293,6 +299,28 @@ public final class MinecartEntity extends Entity {
     public void setHurtTime(int hurtTime) { this.hurtTime = Math.max(0, hurtTime); }
     public int getHurtDirection() { return this.hurtDirection; }
     public void setHurtDirection(int direction) { this.hurtDirection = direction < 0 ? -1 : 1; }
+
+    /** Kürzeste Winkelinterpolation zwischen den beiden Simulationsticks. */
+    public float renderYaw(float partialTick) {
+        return this.previousYaw + wrapDegrees(this.yaw - this.previousYaw) * partialTick;
+    }
+
+    public float renderPitch(float partialTick) {
+        return this.previousPitch + (this.pitch - this.previousPitch) * partialTick;
+    }
+
+    /** Stellt nach dem Laden beide Render-Snapshots ohne einmaligen Rotationssprung her. */
+    public void setRotation(float yaw, float pitch) {
+        this.yaw = this.previousYaw = yaw;
+        this.pitch = this.previousPitch = pitch;
+    }
+
+    private static float wrapDegrees(float angle) {
+        angle %= 360F;
+        if (angle >= 180F) angle -= 360F;
+        if (angle < -180F) angle += 360F;
+        return angle;
+    }
 
     public void addPassengerImpulse(double x, double z) {
         this.passengerImpulseX = x;

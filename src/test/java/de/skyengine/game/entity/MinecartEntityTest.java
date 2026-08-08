@@ -63,6 +63,18 @@ final class MinecartEntityTest {
     }
 
     @Test
+    void renderRotationInterpolatesAcrossTicksAndAngleWrap() {
+        MinecartEntity cart = new MinecartEntity();
+        cart.setRotation(170, 10);
+        cart.yaw = -170;
+        cart.pitch = 30;
+
+        assertEquals(180, cart.renderYaw(0.5F), 1.0E-5,
+                "Interpolation muss am ±180°-Übergang den kurzen Weg nehmen");
+        assertEquals(20, cart.renderPitch(0.5F), 1.0E-5);
+    }
+
+    @Test
     void playerCanMountAndIsCarriedByCart() {
         MinecartEntity cart = new MinecartEntity();
         cart.setPosition(2.5, 64.0625, 3.5);
@@ -169,7 +181,9 @@ final class MinecartEntityTest {
 
         MinecartEntity cart = new MinecartEntity();
         cart.setPosition(1.5, 64.0625, 4.5);
-        cart.motionX = -0.2;
+        /* Ein einzelner Entity-Kontakt liefert ungefähr diesen Anschub; keine künstliche
+           Test-Startgeschwindigkeit verwenden. */
+        cart.motionX = -0.05;
         for (int tick = 0; tick < 1_200; tick++) cart.tick(world);
 
         double speed = Math.hypot(cart.motionX, cart.motionZ);

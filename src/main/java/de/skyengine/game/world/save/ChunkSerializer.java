@@ -564,7 +564,7 @@ public final class ChunkSerializer {
                     minecart.motionX = tag.getDouble("motion_x", 0);
                     minecart.motionY = tag.getDouble("motion_y", 0);
                     minecart.motionZ = tag.getDouble("motion_z", 0);
-                    minecart.yaw = (float) tag.getDouble("yaw", 0);
+                    minecart.setRotation((float) tag.getDouble("yaw", 0), 0);
                     minecart.setDamage((float) tag.getDouble("damage", 0));
                     minecart.setHurtTime(tag.getInt("hurt_time", 0));
                     minecart.setHurtDirection(tag.getInt("hurt_direction", 1));

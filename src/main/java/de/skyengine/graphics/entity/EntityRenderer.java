@@ -198,10 +198,12 @@ public final class EntityRenderer {
         } else if (e instanceof ItemFrameEntity frame) {
             this.drawItemFrame(frame, ox, oy, oz);
         } else if (e instanceof MinecartEntity minecart) {
+            float renderYaw = minecart.renderYaw(partialTick);
+            float renderPitch = minecart.renderPitch(partialTick);
             this.model.translation(ox, oy, oz)
                     /* Das Vanilla-Modell zeigt lokal entlang +X; yaw=0 zeigt in der Engine -Z. */
-                    .rotateY((float) Math.toRadians(90 - minecart.yaw))
-                    .rotateZ((float) Math.toRadians(minecart.pitch));
+                    .rotateY((float) Math.toRadians(90 - renderYaw))
+                    .rotateZ((float) Math.toRadians(renderPitch));
             float hurt = Math.max(0, minecart.getHurtTime() - partialTick);
             float damage = Math.max(0, minecart.getDamage() - partialTick);
             if (hurt > 0) {
