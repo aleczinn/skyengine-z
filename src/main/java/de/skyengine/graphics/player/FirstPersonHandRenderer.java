@@ -77,7 +77,7 @@ public final class FirstPersonHandRenderer {
                     .translate(5.6F, 0F, 0F)
                     .scale(1F / 16F)
                     .translate(-5F, 2F, 0F); // Arm-Pivot (Vanilla ModelPart rightArm)
-            playerRenderer.renderFirstPersonArm(this.pv, this.model, light);
+            playerRenderer.renderFirstPersonArm(this.pv, this.model, light, player.yaw, player.pitch);
             return;
         }
 

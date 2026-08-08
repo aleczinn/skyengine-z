@@ -24,7 +24,7 @@ import org.lwjgl.opengl.GL30;
 public final class PlayerModel {
 
     private static final int TEX = 64;                // Skin ist 64×64
-    private static final int FLOATS_PER_VERTEX = 5;   // pos3 + uv2
+    private static final int FLOATS_PER_VERTEX = 8;   // pos3 + uv2 + normal3
 
     private Mesh head, hat, body, jacket;
     private Mesh rightArm, rightSleeve, leftArm, leftSleeve;
@@ -176,12 +176,18 @@ public final class PlayerModel {
 
         float[] buf = new float[36 * FLOATS_PER_VERTEX];
         int[] i = {0};
-        face(buf, i, x2, y1, z2, x1, y1, z2, x1, y1, z1, x2, y1, z1, u1, va, u2, vb); // down (y1)
-        face(buf, i, x2, y2, z1, x1, y2, z1, x1, y2, z2, x2, y2, z2, u2, vb, u3, va); // up (y2), V invertiert
-        face(buf, i, x1, y1, z1, x1, y1, z2, x1, y2, z2, x1, y2, z1, u0, vb, u1, vc); // west (x1)
-        face(buf, i, x2, y1, z1, x1, y1, z1, x1, y2, z1, x2, y2, z1, u1, vb, u2, vc); // north (z1)
-        face(buf, i, x2, y1, z2, x2, y1, z1, x2, y2, z1, x2, y2, z2, u2, vb, u4, vc); // east (x2)
-        face(buf, i, x1, y1, z2, x2, y1, z2, x2, y2, z2, x1, y2, z2, u4, vb, u5, vc); // south (z2)
+        face(buf, i, x2, y1, z2, x1, y1, z2, x1, y1, z1, x2, y1, z1,
+                u1, va, u2, vb, 0, -1, 0); // down (y1)
+        face(buf, i, x2, y2, z1, x1, y2, z1, x1, y2, z2, x2, y2, z2,
+                u2, vb, u3, va, 0, 1, 0); // up (y2), V invertiert
+        face(buf, i, x1, y1, z1, x1, y1, z2, x1, y2, z2, x1, y2, z1,
+                u0, vb, u1, vc, -1, 0, 0); // west (x1)
+        face(buf, i, x2, y1, z1, x1, y1, z1, x1, y2, z1, x2, y2, z1,
+                u1, vb, u2, vc, 0, 0, -1); // north (z1)
+        face(buf, i, x2, y1, z2, x2, y1, z1, x2, y2, z1, x2, y2, z2,
+                u2, vb, u4, vc, 1, 0, 0); // east (x2)
+        face(buf, i, x1, y1, z2, x2, y1, z2, x2, y2, z2, x1, y2, z2,
+                u4, vb, u5, vc, 0, 0, 1); // south (z2)
         return buf;
     }
 
@@ -190,20 +196,23 @@ public final class PlayerModel {
     private static void face(float[] buf, int[] i,
                              float ax, float ay, float az, float bx, float by, float bz,
                              float cx, float cy, float cz, float dx, float dy, float dz,
-                             float tu1, float tv1, float tu2, float tv2) {
+                             float tu1, float tv1, float tu2, float tv2,
+                             float nx, float ny, float nz) {
         float U1 = tu1 / TEX, V1 = tv1 / TEX;
         float U2 = tu2 / TEX, V2 = tv2 / TEX;
-        vert(buf, i, ax, ay, az, U2, V1);
-        vert(buf, i, bx, by, bz, U1, V1);
-        vert(buf, i, cx, cy, cz, U1, V2);
-        vert(buf, i, ax, ay, az, U2, V1);
-        vert(buf, i, cx, cy, cz, U1, V2);
-        vert(buf, i, dx, dy, dz, U2, V2);
+        vert(buf, i, ax, ay, az, U2, V1, nx, ny, nz);
+        vert(buf, i, bx, by, bz, U1, V1, nx, ny, nz);
+        vert(buf, i, cx, cy, cz, U1, V2, nx, ny, nz);
+        vert(buf, i, ax, ay, az, U2, V1, nx, ny, nz);
+        vert(buf, i, cx, cy, cz, U1, V2, nx, ny, nz);
+        vert(buf, i, dx, dy, dz, U2, V2, nx, ny, nz);
     }
 
-    private static void vert(float[] buf, int[] i, float x, float y, float z, float u, float v) {
+    private static void vert(float[] buf, int[] i, float x, float y, float z, float u, float v,
+                             float nx, float ny, float nz) {
         buf[i[0]++] = x; buf[i[0]++] = y; buf[i[0]++] = z;
         buf[i[0]++] = u; buf[i[0]++] = v;
+        buf[i[0]++] = nx; buf[i[0]++] = ny; buf[i[0]++] = nz;
     }
 
     /* --- kleine VAO/VBO-Hülle (Kopie EnchantingTableRenderer) --- */
@@ -221,8 +230,10 @@ public final class PlayerModel {
             int stride = FLOATS_PER_VERTEX * Float.BYTES;
             GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, stride, 0);
             GL20.glVertexAttribPointer(1, 2, GL11.GL_FLOAT, false, stride, 3 * Float.BYTES);
+            GL20.glVertexAttribPointer(2, 3, GL11.GL_FLOAT, false, stride, 5 * Float.BYTES);
             GL20.glEnableVertexAttribArray(0);
             GL20.glEnableVertexAttribArray(1);
+            GL20.glEnableVertexAttribArray(2);
             GL30.glBindVertexArray(0);
         }
 

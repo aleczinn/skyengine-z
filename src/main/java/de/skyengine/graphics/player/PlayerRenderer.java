@@ -32,7 +32,7 @@ import java.nio.ByteBuffer;
  *
  * <p>Pose-Berechnung VERBATIM Vanilla-HumanoidModel (y-down-Winkel, siehe {@link PlayerModel});
  * Welt-Ausrichtung: {@code rotateY(PI − toRadians(yaw))} + {@link PlayerModel#applyModelSpace}.
- * Shader flach ohne Richtungs-Shading (wie {@code EnchantingTableRenderer}).
+ * Der Shader kombiniert das Zellenlicht mit weltorientiertem Richtungs-Shading der Modellflächen.
  */
 public final class PlayerRenderer implements IDisposable {
 
@@ -46,6 +46,7 @@ public final class PlayerRenderer implements IDisposable {
     private final Matrix4f proj = new Matrix4f();
     private final Matrix4f base = new Matrix4f();
     private final Matrix4f itemMatrix = new Matrix4f();
+    private final Matrix4f normalBasis = new Matrix4f();
 
     /* Skin-Format (slim = 3px-Arme), automatisch aus dem PNG erkannt (loadSkin). */
     private boolean slim;
@@ -141,6 +142,7 @@ public final class PlayerRenderer implements IDisposable {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", this.proj);
         this.shader.setUniformi("u_Texture", 0);
+        this.shader.setUniformMatrix4f("u_NormalBasis", this.normalBasis.identity());
         /* GUI: NIE abdunkeln. Der Shader ist derselbe wie im Welt-Pass, deshalb muss die
            Vorschau ihn explizit auf 1.0 zurücksetzen — sonst erbt sie das Licht des Frames
            davor und die Inventar-Figur wird in einer Höhle schwarz. */
@@ -175,6 +177,7 @@ public final class PlayerRenderer implements IDisposable {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
         this.shader.setUniformi("u_Texture", 0);
+        this.shader.setUniformMatrix4f("u_NormalBasis", this.normalBasis.identity());
         this.shader.setUniformf("u_Light", light);
         this.skin.bind(0);
         this.model.render(this.shader, this.base, this.pose);
@@ -184,12 +187,19 @@ public final class PlayerRenderer implements IDisposable {
     }
 
     /** First-Person-Arm: bindet Skin-Shader + Skin und zeichnet nur den rechten Arm mit Ärmel. */
-    public void renderFirstPersonArm(Matrix4f projectionView, Matrix4f armMatrix, float light) {
+    public void renderFirstPersonArm(Matrix4f projectionView, Matrix4f armMatrix, float light,
+                                     float playerYaw, float playerPitch) {
         boolean cull = GlState.isCullFaceEnabled();
         GlState.disableCullFace();
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", projectionView);
         this.shader.setUniformi("u_Texture", 0);
+        /* Der Arm liegt im Kamera-/Handraum. Für absolutes Weltachsen-Shading dessen Normalen
+           mit der inversen Kamera-Rotation zurück in die Welt drehen. */
+        this.normalBasis.identity()
+                .rotateY((float) Math.toRadians(-playerYaw))
+                .rotateX((float) Math.toRadians(-playerPitch));
+        this.shader.setUniformMatrix4f("u_NormalBasis", this.normalBasis);
         this.shader.setUniformf("u_Light", light);
         this.skin.bind(0);
         this.model.renderRightArm(this.shader, armMatrix);
@@ -313,11 +323,15 @@ public final class PlayerRenderer implements IDisposable {
         #version 460 core
         layout(location = 0) in vec3 a_position;
         layout(location = 1) in vec2 a_uv;
+        layout(location = 2) in vec3 a_normal;
         uniform mat4 u_ProjectionView;
         uniform mat4 u_Model;
+        uniform mat4 u_NormalBasis;
         out vec2 v_uv;
+        out vec3 v_normal;
         void main() {
             v_uv = a_uv;
+            v_normal = mat3(u_NormalBasis * u_Model) * a_normal;
             gl_Position = u_ProjectionView * u_Model * vec4(a_position, 1.0);
         }
         """;
@@ -325,6 +339,7 @@ public final class PlayerRenderer implements IDisposable {
     private static final String FRAGMENT = """
         #version 460 core
         in vec2 v_uv;
+        in vec3 v_normal;
         uniform sampler2D u_Texture;
         /* Himmelslicht der Spielerzelle, fertig durch die Kurve gerechnet
            (ChunkRenderer.lightFactor). 1.0 = voll hell, Fullbright ODER GUI-Vorschau. */
@@ -333,7 +348,14 @@ public final class PlayerRenderer implements IDisposable {
         void main() {
             vec4 c = texture(u_Texture, v_uv);
             if (c.a < 0.5) discard;
-            fragColor = vec4(c.rgb * u_Light, c.a);
+            /* Achsenwerte wie beim Terrain: oben 1.0, unten 0.5, N/S 0.8, O/W 0.6.
+               Quadratische Gewichte interpolieren dazwischen weich, wenn sich Arm/Spieler dreht. */
+            vec3 n = normalize(v_normal);
+            float shade = n.x * n.x * 0.6
+                        + n.z * n.z * 0.8
+                        + max(n.y, 0.0) * max(n.y, 0.0)
+                        + max(-n.y, 0.0) * max(-n.y, 0.0) * 0.5;
+            fragColor = vec4(c.rgb * shade * u_Light, c.a);
         }
         """;
 }

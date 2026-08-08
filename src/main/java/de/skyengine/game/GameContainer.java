@@ -771,8 +771,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.world.render(this.camera, partialTick);
         } else {
             /* Am Auge samplen: Der Fußpunkt liegt beim Sitzen im Fahrzeug oder Stützblock. */
-            float playerLight = this.lightAt(this.player.x,
-                    this.player.y + this.player.getEyeHeight(partialTick), this.player.z);
+            float playerLight = this.playerLightAtEyes(partialTick);
             this.world.render(this.camera, partialTick, () ->
                     this.playerRenderer.renderThirdPerson(this.player, this.animState, this.camera, partialTick,
                             this.heldItemMeshes, this.playerInventory.get(this.hotbarIndex), playerLight));
@@ -813,8 +812,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 && this.player.getGamemode() != Gamemode.SPECTATOR) {
             /* Licht der AUGEN-Zelle (nicht der Füße): die Hand hängt vor dem Gesicht, und in
                einem 1 Block hohen Kriechgang unterscheiden sich beide sichtbar. */
-            float handLight = this.lightAt(this.player.x,
-                    this.player.y + this.player.getEyeHeight(partialTick), this.player.z);
+            float handLight = this.playerLightAtEyes(partialTick);
             this.handRenderer.render(this.playerRenderer, this.heldItemMeshes, this.player,
                     this.animState, (float) width / height, partialTick, this.viewEffect, handLight);
         }
@@ -822,11 +820,40 @@ public class GameContainer implements IResizeable, IDisposable {
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
     }
 
-    /** Licht-Faktor an einer Weltposition, Himmel und Block (Kurve wie im Terrain-Shader). */
+    /** Licht an der interpolierten Augenposition; verhindert 20-TPS-Sprünge beim Rendern. */
+    private float playerLightAtEyes(float partialTick) {
+        double x = this.player.lastX + (this.player.x - this.player.lastX) * partialTick;
+        double y = this.player.lastY + (this.player.y - this.player.lastY) * partialTick
+                + this.player.getEyeHeight(partialTick);
+        double z = this.player.lastZ + (this.player.z - this.player.lastZ) * partialTick;
+        return this.lightAt(x, y, z);
+    }
+
+    /**
+     * Wahrgenommener Licht-Faktor an einer Weltposition. Statt eine einzelne ganzzahlige
+     * Blockzelle zu wählen, werden die acht umliegenden Zellzentren trilinear gemischt. So
+     * bleibt die Minecraft-Lichtkurve erhalten, aber Hand und gehaltenes Item springen beim
+     * Wechsel zwischen den diskreten Lichtleveln nicht mehr in sichtbaren Etappen.
+     */
     private float lightAt(double x, double y, double z) {
-        int bx = (int) Math.floor(x), by = (int) Math.floor(y), bz = (int) Math.floor(z);
-        return ChunkRenderer.lightFactor(this.world.getSkyLight(bx, by, bz),
-                this.world.getBlockLight(bx, by, bz));
+        double gx = x - 0.5, gy = y - 0.5, gz = z - 0.5;
+        int x0 = (int) Math.floor(gx), y0 = (int) Math.floor(gy), z0 = (int) Math.floor(gz);
+        float fx = (float) (gx - x0), fy = (float) (gy - y0), fz = (float) (gz - z0);
+        float result = 0F;
+        for (int dy = 0; dy <= 1; dy++) {
+            float wy = dy == 0 ? 1F - fy : fy;
+            for (int dz = 0; dz <= 1; dz++) {
+                float wz = dz == 0 ? 1F - fz : fz;
+                for (int dx = 0; dx <= 1; dx++) {
+                    float wx = dx == 0 ? 1F - fx : fx;
+                    float light = ChunkRenderer.lightFactor(
+                            this.world.getSkyLight(x0 + dx, y0 + dy, z0 + dz),
+                            this.world.getBlockLight(x0 + dx, y0 + dy, z0 + dz));
+                    result += light * wx * wy * wz;
+                }
+            }
+        }
+        return result;
     }
 
     /**
