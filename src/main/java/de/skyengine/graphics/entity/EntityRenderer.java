@@ -357,7 +357,9 @@ public final class EntityRenderer {
         double cx=Math.cos(rx), sx=Math.sin(rx), cy=Math.cos(ry), sy=Math.sin(ry);
         double yx=y*cx-z*sx, zx=y*sx+z*cx;
         double xx=x*cy+zx*sy, zy=-x*sy+zx*cy;
-        vertex(out,at,(float)((xx+px)/16.0),(float)((5-(yx+py))/16.0),
+        /* Vanilla-Renderer: translateY(0,375) vor scale(-1/16). Das sind exakt 6/16;
+           der frühere Offset 5/16 legte den Cart-Boden direkt auf die Rail-Oberkante. */
+        vertex(out,at,(float)((xx+px)/16.0),(float)((6-(yx+py))/16.0),
                 (float)((zy+pz)/16.0),u,v,0f,1f);
     }
 
