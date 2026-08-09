@@ -7,6 +7,7 @@ import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.post.passes.AntiAliasingPass;
 import de.skyengine.graphics.post.passes.BloomPass;
 import de.skyengine.graphics.post.passes.ColorGradingPass;
+import de.skyengine.graphics.post.passes.FluidFogPass;
 import de.skyengine.graphics.post.passes.MenuBlurPass;
 import org.joml.Vector2f;
 import de.skyengine.utils.logging.LogManager;
@@ -23,7 +24,7 @@ import java.util.List;
 
 /**
  * Besitzer der Post-Processing-Kette: hält {@link PostContext}, Settings-UBO und die
- * geordnete {@link PostPass}-Liste (Bloom → ColorGrading → AntiAliasing). Verkettung:
+ * geordnete {@link PostPass}-Liste (Fluid-Fog → TAA → Bloom → Grading → FXAA/CAS).
  * Eingang des ersten Passes ist die aufgelöste Szene ({@code sceneColor}), inaktive Pässe
  * werden übersprungen, der letzte aktive Pass schreibt in den Default-Framebuffer, alle
  * davor in die HDR-Ping-Pong-Ziele des Contexts. Spätere Pässe (AutoExposure,
@@ -65,6 +66,7 @@ public class PostProcessor implements IDisposable {
     private final PostContext context = new PostContext();
     private final List<PostPass> passes = new ArrayList<>();
     private final MenuBlurPass menuBlur = new MenuBlurPass();
+    private final FluidFogPass fluidFog = new FluidFogPass();
     private PostProcessingSettings settings;
     private int ubo;
 
@@ -86,11 +88,13 @@ public class PostProcessor implements IDisposable {
         this.context.settings = this.settings;
         this.context.create(width, height);
 
-        /* Bloom runs in linear HDR. Color grading performs the HDR-to-display
-           conversion afterwards; anti-aliasing remains display-referred. */
+        /* Photon-Reihenfolge: temporales AA im linearen HDR-Bild, danach Bloom und
+           Film-Transform; FXAA/CAS arbeiten abschliessend display-referred. */
+        this.passes.add(this.fluidFog);
+        this.passes.add(new AntiAliasingPass(AntiAliasingPass.Stage.TEMPORAL));
         this.passes.add(new BloomPass());
         this.passes.add(new ColorGradingPass());
-        this.passes.add(new AntiAliasingPass());
+        this.passes.add(new AntiAliasingPass(AntiAliasingPass.Stage.FINAL));
         /* Menü-Blur als LETZTER Pass: nur aktiv bei offenem Pause-Menü (Stärke > 0) —
            dann übernimmt er automatisch das Default-FBO (Last-Active-Mechanik der Kette). */
         this.passes.add(this.menuBlur);
@@ -106,6 +110,11 @@ public class PostProcessor implements IDisposable {
     /** 1×/Frame (GameContainer): Menü-Blur an/aus — die Stärke blendet zeitbasiert nach. */
     public void setMenuBlur(boolean active) {
         this.menuBlur.setTarget(active);
+    }
+
+    /** 0 = kein Fluid, 1 = Wasser, 2 = Lava; wird pro Welt-Frame aktualisiert. */
+    public void setCameraFluid(int fluid) {
+        this.fluidFog.setFluid(fluid);
     }
 
     /**

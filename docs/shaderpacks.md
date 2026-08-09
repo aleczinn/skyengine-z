@@ -3,7 +3,7 @@
 SkyEngine shader packs are engine-native render-pipeline packages. They deliberately do not
 pretend to be Iris packs: the manifest names semantic engine stages, while GLSL files may use
 relative `#include "..."` directives. This keeps the hot path free of runtime discovery and
-allows later terrain, water and shadow stages to be added without changing the pack loader.
+allows terrain, water, atmosphere and post stages to evolve without changing the pack loader.
 
 External packs live in `%APPDATA%/.skyengine/shaderpacks/<id>/`. The selected pack is stored in
 `%APPDATA%/.skyengine/config/shaders.json`. Pressing **F10** parses all declared files, compiles
@@ -18,8 +18,11 @@ Version 1 of `pack.json` supports:
   "id": "example",
   "name": "Example",
   "programs": {
+    "terrain_vertex": "shaders/terrain.vert",
+    "terrain_fragment": "shaders/terrain.frag",
     "sky_vertex": "shaders/sky.vert",
     "sky_fragment": "shaders/sky.frag",
+    "fluid_fog": "shaders/fluid_fog.frag",
     "bloom_downsample": "shaders/bloom_downsample.frag",
     "bloom_blur": "shaders/bloom_blur.frag",
     "bloom_upsample": "shaders/bloom_upsample.frag",
@@ -30,9 +33,14 @@ Version 1 of `pack.json` supports:
     "atmosphere_scattering": "textures/scattering.dat",
     "moon_noise": "textures/noise.png"
   },
-  "post": ["bloom", "color_grading"]
+  "post": ["fluid_fog", "bloom", "color_grading"]
 }
 ```
+
+The terrain pair owns opaque, cutout, translucent and water shading; `fluid_fog` owns the
+submerged camera look. Sky, terrain, fluid fog, bloom and grading are swapped atomically, so a
+pack can define the complete non-shadowed world look without changing engine code. CSM is not
+part of the version 1 contract yet.
 
 Paths are confined to the pack directory. The current atmosphere volume contract is raw
 `RGB16F`, `32 x 64 x 32`; it is uploaded once per activation. Scene and bloom targets remain

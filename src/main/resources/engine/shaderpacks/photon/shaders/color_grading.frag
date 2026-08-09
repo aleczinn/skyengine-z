@@ -61,8 +61,19 @@ float huePulse(float hue, float center, float width) {
     return 1.0-smoothed;
 }
 
-void main() {
-    vec3 c = max(texture(u_Scene, v_uv).rgb * (0.83 * egcs.x), 0.0);
+vec3 applyDisplayBase(vec3 c) {
+    c = c * lgsh.y + lgsh.x;
+    float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float shadowWeight = 1.0 - smoothstep(0.0, 0.5, luma);
+    float highlightWeight = smoothstep(0.5, 1.0, luma);
+    c *= shadowWeight * lgsh.z
+       + (1.0 - shadowWeight - highlightWeight) * mtdr.x
+       + highlightWeight * lgsh.w;
+    return (c - 0.5) * egcs.z + 0.5 + vbtt.y;
+}
+
+vec3 photonTransform(vec3 scene) {
+    vec3 c = max(scene * (0.83 * egcs.x), 0.0);
     // Runtime white balance remains part of the engine grading contract.  Photon supplies
     // the film transform below, while pack-independent user grading is applied around it.
     c *= vec3(1.0 + 0.15 * vbtt.z, 1.0 + 0.10 * vbtt.w, 1.0 - 0.15 * vbtt.z);
@@ -73,7 +84,7 @@ void main() {
     // after tone mapping and gamut clipping cannot restore chroma which those operations
     // have already compressed. Saturation 1.0 and vibrance 0.0 remain exact identities.
     float sceneLuma = dot(c, LUMA_2020);
-    c = max(mix(vec3(sceneLuma), c, egcs.w), 0.0);
+    c = max(mix(vec3(sceneLuma), c, 0.98 * egcs.w), 0.0);
     float scenePeak = max(c.r, max(c.g, c.b));
     float sceneFloor = min(c.r, min(c.g, c.b));
     float normalizedChroma = (scenePeak - sceneFloor) / max(scenePeak, 1e-5);
@@ -91,18 +102,12 @@ void main() {
     c *= c;
     c = linearToSrgb(clamp(c, 0.0, 1.0));
 
-    // Display-referred engine grading.  These controls used to be silently ignored by the
-    // pack shader, although PostProcessor still uploaded all of them into this UBO.
-    c = c * lgsh.y + lgsh.x;
-    float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    float shadowWeight = 1.0 - smoothstep(0.0, 0.5, luma);
-    float highlightWeight = smoothstep(0.5, 1.0, luma);
-    c *= shadowWeight * lgsh.z
-       + (1.0 - shadowWeight - highlightWeight) * mtdr.x
-       + highlightWeight * lgsh.w;
-    c = (c - 0.5) * egcs.z + 0.5;
-    c += vbtt.y;
-
+    c = applyDisplayBase(c);
     if (egcs.y != 1.0) c = pow(max(c, 0.0), vec3(1.0 / egcs.y));
-    fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+    return clamp(c, 0.0, 1.0);
+}
+
+void main() {
+    vec4 scene = texture(u_Scene, v_uv);
+    fragColor = vec4(photonTransform(scene.rgb), 1.0);
 }

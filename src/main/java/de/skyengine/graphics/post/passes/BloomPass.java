@@ -155,6 +155,7 @@ public final class BloomPass implements PostPass, ShaderPackManager.Participant 
         int accumulated = this.textures[0][LEVELS - 1];
         this.programs.upsample.bind();
         for (int level = LEVELS - 2; level >= 0; level--) {
+            this.programs.upsample.setUniformf("u_AccumulatedLevels", LEVELS - 1F - level);
             drawTo(this.framebuffers[1][level], this.widths[level], this.heights[level]);
             GL13.glActiveTexture(GL13.GL_TEXTURE0); GL11.glBindTexture(GL11.GL_TEXTURE_2D, accumulated);
             GL13.glActiveTexture(GL13.GL_TEXTURE1); GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.textures[0][level]);

@@ -29,16 +29,18 @@ import java.nio.ByteBuffer;
  * blendet sie — geclampt auf die 3×3-Farb-AABB des aktuellen Frames (Ghosting-Schutz;
  * ersetzt den Velocity-Buffer, {@code context.velocity} bleibt der Anschluss für
  * per-Objekt-Motion). Resolve schreibt in die History (Ping-Pong, RGBA16F), ein
- * Copy-/Sharpen-Schritt bringt sie auf den GuiScreen — Sharpen ({@code settings.sharpen})
- * wirkt NUR auf die Ausgabe, nie in die History (Feedback-Artefakte).
+ * Copy-Schritt bringt sie zurück in die HDR-Kette. FXAA und CAS laufen in einer zweiten
+ * Instanz erst nach Bloom und Film-Transform; CAS wirkt nie in die History.
  *
  * <p><b>Voraussetzung:</b> {@code sceneDepth} existiert nur bei msaaSamples=0 — bei
- * TAA + MSAA fällt der Pass mit Log-Hinweis auf FXAA zurück. SMAA wäre ein weiterer
+ * TAA + MSAA fällt die temporale Stufe mit Log-Hinweis auf Copy zurück. SMAA wäre ein weiterer
  * Modus im selben Switch.
  *
- * <p>Läuft display-referred NACH dem Grading (FXAA erwartet LDR-Luma).
+ * <p>Die TEMPORAL-Stufe läuft HDR vor Bloom, die FINAL-Stufe display-referred nach Grading.
  */
 public final class AntiAliasingPass implements PostPass {
+
+    public enum Stage { TEMPORAL, FINAL }
 
     /* FXAA 3.11 Quality (kompakte Standard-Fassung nach dem Referenz-Algorithmus:
        Kantenerkennung über Luma-Kontrast, Kantenrichtung, iterative Endpunktsuche,
@@ -51,8 +53,7 @@ public final class AntiAliasingPass implements PostPass {
 
             uniform sampler2D u_Input;
             uniform vec2 u_InvResolution; // 1/Breite, 1/Hoehe
-            /* 1.0 = pures FXAA; 0.5 als TAA-Vorstufe (BSL halbiert den Subpixel-Anteil
-               unter TAA — die zeitliche Akkumulation uebernimmt das Subpixel-Glaetten). */
+            /* 1.0 = volles FXAA in der finalen display-referred Stufe. */
             uniform float u_SubpixelScale;
 
             const float EDGE_THRESHOLD_MIN = 0.0312;
@@ -351,10 +352,13 @@ public final class AntiAliasingPass implements PostPass {
     private ShaderProgram fxaaProgram;
     private ShaderProgram taaProgram;
     private ShaderProgram copyProgram;
+    private final Stage stage;
 
     /* TAA-History: Ping-Pong (RGBA16F gegen Akkumulations-Quantisierung), Besitz hier. */
     private final int[] historyTex = new int[2];
     private final int[] historyFbo = new int[2];
+    private int workTex;
+    private int workFbo;
     private int historyWrite;
     private boolean historyValid;
     /* Frame-Zaehler des letzten TAA-Resolves: Luecke (NONE/FXAA dazwischen, Resize)
@@ -363,6 +367,10 @@ public final class AntiAliasingPass implements PostPass {
     private boolean warnedNoDepth;
 
     private final Logger logger = LogManager.getLogger(AntiAliasingPass.class.getName());
+
+    public AntiAliasingPass(Stage stage) {
+        this.stage = stage;
+    }
 
     @Override
     public void init(PostContext context) {
@@ -389,48 +397,51 @@ public final class AntiAliasingPass implements PostPass {
         this.copyProgram.setUniformi("u_Input", 0);
         this.copyProgram.unbind();
 
-        this.createHistoryTargets(context.width, context.height);
+        if (this.stage == Stage.TEMPORAL) {
+            this.createHistoryTargets(context.width, context.height);
+        } else {
+            this.createWorkTarget(context.width, context.height);
+        }
     }
 
     @Override
     public void resize(PostContext context) {
-        this.disposeHistoryTargets();
-        this.createHistoryTargets(context.width, context.height);
+        this.disposeTargets();
+        if (this.stage == Stage.TEMPORAL) {
+            this.createHistoryTargets(context.width, context.height);
+        } else {
+            this.createWorkTarget(context.width, context.height);
+        }
         this.historyValid = false;
     }
 
     @Override
     public boolean isActive(PostContext context) {
         AntiAliasingMode mode = context.settings.getAaMode();
-        /* MSAA = Hardware-AA im Szene-Framebuffer (folgt dem Modus, s. FrameBuffer) —
-           kein Post-Pass noetig. */
-        return mode != AntiAliasingMode.NONE && mode != AntiAliasingMode.MSAA;
+        if (this.stage == Stage.TEMPORAL) return context.settings.isTemporalAa();
+        return mode == AntiAliasingMode.FXAA || mode == AntiAliasingMode.TAA_FXAA
+                || context.settings.getSharpen() > 0F;
     }
 
     @Override
     public void execute(PostContext context) {
-        boolean taa = context.settings.isTemporalAa();
-        if (taa && context.sceneDepth == 0) {
-            /* Sicherheitsnetz: der Framebuffer folgt dem AA-Modus (TAA-Modi => MSAA 0 =>
-               Depth-Textur vorhanden) — dieser Zweig greift nur im Uebergangs-Frame
-               eines Moduswechsels. Dann FXAA statt Reprojektion. */
+        if (this.stage == Stage.FINAL) {
+            this.executeFinal(context);
+            return;
+        }
+        if (context.sceneDepth == 0) {
             if (!this.warnedNoDepth) {
-                this.logger.warning("TAA ohne Depth-Textur (Framebuffer noch MSAA?) — FXAA-Fallback");
+                this.logger.warning("TAA ohne Depth-Textur (Framebuffer noch MSAA?) — Copy-Fallback");
                 this.warnedNoDepth = true;
             }
-            taa = false;
-        }
-
-        if (!taa) {
             this.historyValid = false;
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.targetFbo);
-            this.fxaaProgram.bind();
-            this.fxaaProgram.setUniformVector2f("u_InvResolution", 1F / context.width, 1F / context.height);
-            this.fxaaProgram.setUniformf("u_SubpixelScale", 1.0F);
+            this.copyProgram.bind();
+            this.copyProgram.setUniformf("u_Sharpen", 0F);
             GL13.glActiveTexture(GL13.GL_TEXTURE0);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
             context.drawFullscreenTriangle();
-            this.fxaaProgram.unbind();
+            this.copyProgram.unbind();
             return;
         }
 
@@ -442,25 +453,7 @@ public final class AntiAliasingPass implements PostPass {
         int write = this.historyWrite;
         int read = 1 - write;
 
-        /* 1) FXAA-Vorstufe (Modus TAA_FXAA, BSL-Kette): glaettet die Kanten des
-           aktuellen Frames VOR der Akkumulation (weniger Flimmer-Input), Subpixel-Anteil
-           halbiert — exakt BSLs "#ifdef TAA". Ziel: Ping-0-Zwischentextur.
-           Modus TAA laesst sie weg: schaerfer + ein Fullscreen-Pass weniger,
-           dafuer minimal mehr Kantenflimmern in Bewegung. */
-        int current = context.input;
-        if (context.settings.getAaMode() == AntiAliasingMode.TAA_FXAA) {
-            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.pingFbo(0));
-            this.fxaaProgram.bind();
-            this.fxaaProgram.setUniformVector2f("u_InvResolution", 1F / context.width, 1F / context.height);
-            this.fxaaProgram.setUniformf("u_SubpixelScale", 0.5F);
-            GL13.glActiveTexture(GL13.GL_TEXTURE0);
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
-            context.drawFullscreenTriangle();
-            this.fxaaProgram.unbind();
-            current = context.pingTexture(0);
-        }
-
-        /* 2) Resolve -> History-Write (nie direkt der GuiScreen — das Ergebnis muss persistieren) */
+        /* Photon-Reihenfolge: TAA auf der linearen HDR-Szene vor Bloom und Grading. */
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.historyFbo[write]);
         this.taaProgram.bind();
         this.taaProgram.setUniformMatrix4f("u_InvProjView", context.invProjView);
@@ -469,7 +462,7 @@ public final class AntiAliasingPass implements PostPass {
         this.taaProgram.setUniformi("u_HistoryValid", this.historyValid ? 1 : 0);
         this.taaProgram.setUniformf("u_HistoryWeight", context.settings.getTaaHistoryWeight());
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, current); // ggf. FXAA-geglaettetes Current
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
         GL13.glActiveTexture(GL13.GL_TEXTURE1);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.historyTex[read]);
         GL13.glActiveTexture(GL13.GL_TEXTURE2);
@@ -477,11 +470,11 @@ public final class AntiAliasingPass implements PostPass {
         context.drawFullscreenTriangle();
         this.taaProgram.unbind();
 
-        /* 3) Copy/Sharpen (CAS) -> Ziel; History-Slot fuer spaetere Paesse publizieren */
+        /* History in die Post-Kette kopieren; CAS läuft erst nach Grading/FXAA. */
         context.history = this.historyTex[write];
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.targetFbo);
         this.copyProgram.bind();
-        this.copyProgram.setUniformf("u_Sharpen", context.settings.getSharpen());
+        this.copyProgram.setUniformf("u_Sharpen", 0F);
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.historyTex[write]);
         context.drawFullscreenTriangle();
@@ -492,16 +485,44 @@ public final class AntiAliasingPass implements PostPass {
         this.historyWrite = read;
     }
 
+    private void executeFinal(PostContext context) {
+        AntiAliasingMode mode = context.settings.getAaMode();
+        boolean fxaa = mode == AntiAliasingMode.FXAA || mode == AntiAliasingMode.TAA_FXAA;
+        float sharpen = context.settings.getSharpen();
+        int current = context.input;
+
+        if (fxaa) {
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER,
+                    sharpen > 0F ? this.workFbo : context.targetFbo);
+            this.fxaaProgram.bind();
+            this.fxaaProgram.setUniformVector2f("u_InvResolution",
+                    1F / context.width, 1F / context.height);
+            this.fxaaProgram.setUniformf("u_SubpixelScale", 1F);
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
+            context.drawFullscreenTriangle();
+            this.fxaaProgram.unbind();
+            if (sharpen <= 0F) return;
+            current = this.workTex;
+        }
+
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.targetFbo);
+        this.copyProgram.bind();
+        this.copyProgram.setUniformf("u_Sharpen", sharpen);
+        GL13.glActiveTexture(GL13.GL_TEXTURE0);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, current);
+        context.drawFullscreenTriangle();
+        this.copyProgram.unbind();
+        GL13.glActiveTexture(GL13.GL_TEXTURE0);
+    }
+
     private void createHistoryTargets(int width, int height) {
         for (int i = 0; i < 2; i++) {
             this.historyTex[i] = GL11.glGenTextures();
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.historyTex[i]);
-            /* RGB10_A2 statt RGBA16F: LDR-Akkumulation braucht kein Half-Float — 10 Bit/
-               Kanal = 4x Display-Praezision, halbiert aber die History-Bandbreite
-               (8 -> 4 Byte/Pixel; bei 5120x1440 ~60 MB/Frame). Bei sichtbarem Banding
-               (Verlaeufe) zurueck auf RGBA16F. */
-            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGB10_A2, width, height, 0,
-                    GL11.GL_RGBA, GL12.GL_UNSIGNED_INT_2_10_10_10_REV, (ByteBuffer) null);
+            /* TAA läuft vor dem Tonemapping und braucht daher echten HDR-Headroom. */
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA16F, width, height, 0,
+                    GL11.GL_RGBA, GL11.GL_FLOAT, (ByteBuffer) null);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
@@ -525,11 +546,36 @@ public final class AntiAliasingPass implements PostPass {
         }
     }
 
+    private void createWorkTarget(int width, int height) {
+        this.workTex = GL11.glGenTextures();
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.workTex);
+        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA16F, width, height, 0,
+                GL11.GL_RGBA, GL11.GL_FLOAT, (ByteBuffer) null);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+        this.workFbo = GL30.glGenFramebuffers();
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.workFbo);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
+                GL11.GL_TEXTURE_2D, this.workTex, 0);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
+    }
+
+    private void disposeTargets() {
+        this.disposeHistoryTargets();
+        if (this.workFbo != 0) GL30.glDeleteFramebuffers(this.workFbo);
+        if (this.workTex != 0) GL11.glDeleteTextures(this.workTex);
+        this.workFbo = 0;
+        this.workTex = 0;
+    }
+
     @Override
     public void dispose() {
         if (this.fxaaProgram != null) this.fxaaProgram.dispose();
         if (this.taaProgram != null) this.taaProgram.dispose();
         if (this.copyProgram != null) this.copyProgram.dispose();
-        this.disposeHistoryTargets();
+        this.disposeTargets();
     }
 }

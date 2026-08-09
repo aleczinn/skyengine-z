@@ -62,7 +62,7 @@ import de.skyengine.graphics.gui.screens.GuiInventory;
 import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.SaveToast;
-import de.skyengine.graphics.gui.SpriteRenderer;
+import de.skyengine.graphics.post.passes.FluidFogPass;
 import de.skyengine.graphics.gui.screens.GuiIngameMenu;
 import de.skyengine.graphics.gui.screens.GuiDeathScreen;
 import de.skyengine.graphics.gui.screens.GuiMainMenu;
@@ -995,11 +995,10 @@ public class GameContainer implements IResizeable, IDisposable {
         return (ITEM_NAME_HOLD_MS + ITEM_NAME_FADE_MS - since) / (float) ITEM_NAME_FADE_MS;
     }
 
-    /**
-     * Fullscreen-Tint, wenn das Kamera-Auge in einem Fluid steckt (wie Minecraft):
-     * Wasser -> blau/leicht, Lava -> orange/dicht. Gezeichnet zwischen Welt und HUD.
-     */
+    /** Meldet dem pack-gesteuerten Post-Pass das Fluid am Kamera-Auge. */
     private void renderFluidOverlay() {
+        PostProcessor post = SkyEngine.get().getPostProcessor();
+        post.setCameraFluid(FluidFogPass.NONE);
         Vector3d eye = this.camera.getPosition();
         int bx = (int) Math.floor(eye.x);
         int by = (int) Math.floor(eye.y);
@@ -1016,14 +1015,11 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         if (eye.y - by >= height) return;
 
-        SpriteRenderer sr = this.guiManager.sprites();
-        sr.begin(1, 1); // Ortho 0..1 -> Fullscreen-Rect unabhängig vom GUI-Scale
         if (state.getBlock().getFluidInfo().lava) {
-            sr.drawRect(0, 0, 1, 1, 0.6f, 0.1f, 0.0f, 0.8f);    // Lava: dicht, orange-rot
+            post.setCameraFluid(FluidFogPass.LAVA);
         } else {
-            sr.drawRect(0, 0, 1, 1, 0.25f, 0.46f, 0.9f, 0.35f); // Wasser (an 0x4076E6 angelehnt)
+            post.setCameraFluid(FluidFogPass.WATER);
         }
-        sr.end();
     }
 
     @Override

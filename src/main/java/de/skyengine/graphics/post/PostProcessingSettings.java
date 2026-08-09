@@ -18,14 +18,14 @@ import java.io.FileWriter;
  * UBO nur bei Änderung neu hochlädt. Shader werden dafür NIE angefasst.
  *
  * <p>Die JSON ({@code config/postprocessing.json}) liefert nur Defaults und dient dem
- * Entwickler-Tuning (Reload-Hotkey F10); fehlt sie, wird sie einmalig mit Neutral-Defaults
+ * Entwickler-Tuning (Reload-Hotkey F10); fehlt sie, wird sie einmalig mit Photon-Defaults
  * angelegt. Sie wird — anders als options.json — beim Beenden NICHT überschrieben.
  *
- * <p>Alle Defaults sind neutral: die Kette ist dann ein reiner Copy (Look unverändert).
+ * <p>Die Defaults bilden die mitgelieferte Photon-Referenzkonfiguration ab.
  */
 public final class PostProcessingSettings {
 
-    private static final int CURRENT_SCHEMA = 2;
+    private static final int CURRENT_SCHEMA = 4;
 
     private static final Logger LOGGER = LogManager.getLogger(PostProcessingSettings.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -41,7 +41,7 @@ public final class PostProcessingSettings {
      *   <li>{@code NONE} — roh, schärfstes Bild, Kanten flimmern.</li>
      *   <li>{@code FXAA} — billiges Kanten-AA (ein Fullscreen-Pass).</li>
      *   <li>{@code TAA} — zeitliche Akkumulation, scharf + stabil.</li>
-     *   <li>{@code TAA_FXAA} — BSL-Kette (FXAA-Vorstufe vor TAA): ruhigere Kanten,
+     *   <li>{@code TAA_FXAA} — Photon-Kette (TAA vor Tonemap, FXAA danach): ruhige Kanten,
      *       ~+40 % AA-Kosten gegenüber TAA.</li>
      *   <li>{@code MSAA} — Hardware-Multisampling; Sample-Zahl aus GameSettings.msaaSamples
      *       (0 → 4). Teuerster Modus bei hoher Auflösung; der Szene-Framebuffer folgt dem
@@ -69,12 +69,12 @@ public final class PostProcessingSettings {
     private float highlights = 1.0F;
     private float contrast = 1.0F;     // Pivot 0.5
     private float brightness = 0.0F;   // additiv
-    private float saturation = 1.0F;   // 0 = Graustufen, 1 = neutral
+    private float saturation = 1.40F;  // Photon-Referenzwert aus photon_v1.3b.zip.txt
     private float vibrance = 0.0F;     // wirkt v.a. auf schwach gesättigte Farben (≠ Saturation)
     private float gamma = 1.0F;        // Output Transform, zuletzt
 
     /* --- Pipeline-Modi --- */
-    private AntiAliasingMode aaMode = AntiAliasingMode.NONE;
+    private AntiAliasingMode aaMode = AntiAliasingMode.TAA_FXAA;
     private PostDebugMode debugMode = PostDebugMode.NONE;
 
     /* TAA: History-Gewicht (höher = ruhiger/weicher, niedriger = schärfer/flimmriger);
@@ -87,9 +87,9 @@ public final class PostProcessingSettings {
     /* --- Bloom aktiv; Vignette/Sharpen bleiben als spätere Pipeline-Slots reserviert. --- */
     private int schema = CURRENT_SCHEMA;
     private float bloomIntensity = 1.0F;
-    private float bloomThreshold = 0.72F;
+    private float bloomThreshold = 0.0F;
     private float vignette = 0.0F;
-    private float sharpen = 0.0F;
+    private float sharpen = 0.5F;
 
     /* Dirty-Flag: true = UBO muss neu hochgeladen werden (GSON umgeht Setter -> nach dem
        Laden explizit gesetzt). transient hält es aus der JSON raus. */
@@ -119,7 +119,7 @@ public final class PostProcessingSettings {
         return s;
     }
 
-    /** Legt die JSON einmalig mit Neutral-Defaults an (Vorlage fürs Entwickler-Tuning). */
+    /** Legt die JSON einmalig mit Photon-Defaults an (Vorlage fürs Entwickler-Tuning). */
     public void save() {
         this.sanitize();
         try {
@@ -167,11 +167,25 @@ public final class PostProcessingSettings {
     private void sanitize() {
         /* Bloom fields existed before the pass did and were therefore saved as zero.
            Missing schema marks exactly those legacy developer configs. */
-        if (this.schema < CURRENT_SCHEMA) {
+        if (this.schema < 2) {
             this.bloomIntensity = 1.0F;
             this.bloomThreshold = 0.72F;
-            this.schema = CURRENT_SCHEMA;
         }
+        /* Sharpen used to be a dormant setting. Activating the CAS pass made old values such
+           as 0.5 suddenly affect every voxel edge and produced the over-sharp look. Reset it
+           once; users can deliberately enable it again in the shader-pack screen. */
+        if (this.schema < 3) this.sharpen = 0.0F;
+        /* Einmalige Umschaltung bestehender Installationen auf den neuen Standard-Look.
+           Es werden nur Werte gesetzt, die bereits als Spieloptionen vorhanden sind. */
+        if (this.schema < 4) {
+            this.saturation = 1.40F;
+            this.vibrance = 0.0F;
+            this.aaMode = AntiAliasingMode.TAA_FXAA;
+            this.bloomIntensity = 1.0F;
+            this.bloomThreshold = 0.0F;
+            this.sharpen = 0.5F;
+        }
+        this.schema = CURRENT_SCHEMA;
         if (this.tonemapOperator == null) this.tonemapOperator = TonemapOperator.NONE;
         if (this.aaMode == null) this.aaMode = AntiAliasingMode.NONE;
         if (this.debugMode == null) this.debugMode = PostDebugMode.NONE;

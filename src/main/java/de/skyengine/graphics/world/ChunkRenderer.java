@@ -3,7 +3,9 @@ package de.skyengine.graphics.world;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.core.EngineProperties;
 import de.skyengine.core.settings.GameSettings;
+import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.RenderLayer;
+import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkMesher;
@@ -18,6 +20,8 @@ import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
+import de.skyengine.graphics.shaderpack.ShaderPack;
+import de.skyengine.graphics.shaderpack.ShaderPackManager;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.graphics.texture.TextureArray;
 import de.skyengine.utils.logging.LogManager;
@@ -47,7 +51,7 @@ import java.util.List;
  * Indirect-Command-Array (+ Offset-SSBO) aus den sichtbaren Sections gebaut — ein
  * glMultiDrawElementsIndirect-Call pro Layer statt eines Draw-Calls pro Section×Layer.
  */
-public class ChunkRenderer {
+public class ChunkRenderer implements ShaderPackManager.Participant {
 
     private static final int ATMOSPHERE_FOG_UNIT = 7;
 
@@ -59,6 +63,8 @@ public class ChunkRenderer {
 
     private final ChunkManager chunkManager;
     private ShaderProgram shader;
+    private ShaderPackManager shaderPackManager;
+    private long animationStartNanos;
     /* Block-Atlas: gehört dem GameContainer (Engine-Lebensdauer, welt-unabhängig) —
        der Renderer hält nur Referenzen und disposed NICHTS davon. */
     private BlockTextureAtlas atlas;
@@ -273,7 +279,8 @@ public class ChunkRenderer {
 
     /* Gecachte Uniform-Locations des Chunk-Shaders (erspart Map-Lookups im Hot-Path) */
     private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogEnabled,
-            locDetailFade, locDetailCamSnap, locMinLight, locBrightness;
+            locDetailFade, locDetailCamSnap, locMinLight, locBrightness, locTranslucentPass,
+            locCameraPosition, locTime;
 
     /* Grundhelligkeit bei Lichtlevel 0 (Minecraft-Niveau): eine unbeleuchtete Höhle ist nie
        exakt schwarz. Der Regler hebt genau diesen Wert mit an (0,04 bei 0 % bis 0,15 bei 100 %,
@@ -311,10 +318,10 @@ public class ChunkRenderer {
         this.lodOffsetFactor = 0F;          // KEIN Steigungsterm — s. Feld-Kommentar!
         this.lodOffsetUnits = sign * 8F;    // konstanter Bias (ersetzt den Steigungsanteil)
 
-        this.shader = new ShaderProgram(
-                new Shader(VERTEX_SOURCE, ShaderType.VERTEX),
-                new Shader(FRAGMENT_SOURCE, ShaderType.FRAGMENT)
-        );
+        this.shaderPackManager = SkyEngine.get().getShaderPackManager();
+        this.shader = this.compileTerrain(this.shaderPackManager.active());
+        this.shaderPackManager.register(this);
+        this.animationStartNanos = System.nanoTime();
         /* Uniform-Locations einmalig cachen; u_Textures ändert sich nie -> einmal setzen */
         this.locProjectionView = this.shader.getUniformLocation("u_ProjectionView");
         this.locAlphaCutoff = this.shader.getUniformLocation("u_AlphaCutoff");
@@ -325,9 +332,13 @@ public class ChunkRenderer {
         this.locDetailCamSnap = this.shader.getUniformLocation("u_DetailCamSnap");
         this.locMinLight = this.shader.getUniformLocation("u_MinLight");
         this.locBrightness = this.shader.getUniformLocation("u_Brightness");
+        this.locTranslucentPass = this.shader.getUniformLocation("u_TranslucentPass");
+        this.locCameraPosition = this.shader.getUniformLocation("u_CameraPosition");
+        this.locTime = this.shader.getUniformLocation("u_Time");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
         this.shader.setUniformi("u_AtmosphereFog", ATMOSPHERE_FOG_UNIT);
+        this.setWaterLayers(this.shader);
         this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F); // Ausdünnung default aus
         this.shader.unbind();
         /* Atlas kommt von außen (BlockTextureAtlas, einmal beim Boot gebaut) — Welt-Ein-/
@@ -400,6 +411,58 @@ public class ChunkRenderer {
      * ensureCapacity bleiben ungedeckelt, createBuffer wirft jetzt bei GL_OUT_OF_MEMORY).
      * Jede geklemmte Arena wird geloggt: ab da sind Grow-Ruckler beim Flug wieder möglich.
      */
+    @Override
+    public ShaderPackManager.Prepared prepare(ShaderPack pack) {
+        return new PreparedTerrain(this.compileTerrain(pack));
+    }
+
+    @Override
+    public void activate(ShaderPackManager.Prepared prepared) {
+        ShaderProgram next = ((PreparedTerrain) prepared).take();
+        ShaderProgram previous = this.shader;
+        this.shader = next;
+        this.cacheTerrainUniforms();
+        this.lastFogStart = Float.NaN;
+        this.lastFogEnd = Float.NaN;
+        this.lastMinLight = Float.NaN;
+        this.lastBrightness = Float.NaN;
+        if (previous != null) previous.dispose();
+    }
+
+    private ShaderProgram compileTerrain(ShaderPack pack) {
+        ShaderProgram program = new ShaderProgram(
+                new Shader(pack.program("terrain_vertex"), ShaderType.VERTEX),
+                new Shader(pack.program("terrain_fragment"), ShaderType.FRAGMENT));
+        program.bind();
+        program.setUniformi("u_Textures", 0);
+        program.setUniformi("u_AtmosphereFog", ATMOSPHERE_FOG_UNIT);
+        program.setUniformVector2f("u_DetailFade", 0F, 0F);
+        this.setWaterLayers(program);
+        program.unbind();
+        return program;
+    }
+
+    private static void setWaterLayers(ShaderProgram program) {
+        FluidInfo water = Blocks.getState(Blocks.WATER).getBlock().getFluidInfo();
+        program.setUniformf("u_WaterStillLayer", water.stillLayer);
+        program.setUniformf("u_WaterFlowLayer", water.flowLayer);
+    }
+
+    private void cacheTerrainUniforms() {
+        this.locProjectionView = this.shader.getUniformLocation("u_ProjectionView");
+        this.locAlphaCutoff = this.shader.getUniformLocation("u_AlphaCutoff");
+        this.locFogStart = this.shader.getUniformLocation("u_FogStart");
+        this.locFogEnd = this.shader.getUniformLocation("u_FogEnd");
+        this.locFogEnabled = this.shader.getUniformLocation("u_FogEnabled");
+        this.locDetailFade = this.shader.getUniformLocation("u_DetailFade");
+        this.locDetailCamSnap = this.shader.getUniformLocation("u_DetailCamSnap");
+        this.locMinLight = this.shader.getUniformLocation("u_MinLight");
+        this.locBrightness = this.shader.getUniformLocation("u_Brightness");
+        this.locTranslucentPass = this.shader.getUniformLocation("u_TranslucentPass");
+        this.locCameraPosition = this.shader.getUniformLocation("u_CameraPosition");
+        this.locTime = this.shader.getUniformLocation("u_Time");
+    }
+
     private long cappedArenaBytes(String label, long wanted) {
         long capped = Math.min(wanted, MAX_INITIAL_ARENA_BYTES);
         if (capped < wanted) {
@@ -702,6 +765,10 @@ public class ChunkRenderer {
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GLSUB);
         this.shader.bind();
         this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
+        this.shader.setUniformVector3f(this.locCameraPosition,
+                (float) cam.x, (float) cam.y, (float) cam.z);
+        this.shader.setUniformf(this.locTime,
+                (System.nanoTime() - this.animationStartNanos) * 1.0e-9F);
         this.setFogUniforms();
         this.setLightUniforms();
         this.textures.bind(0);
@@ -713,6 +780,7 @@ public class ChunkRenderer {
         }
 
         this.shader.setUniformf(this.locAlphaCutoff, 0.5F);
+        this.shader.setUniformf(this.locTranslucentPass, 0F);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.SOLID);
         if (gpu) {
             this.drawSegmentGpu(RenderLayer.OPAQUE.ordinal(), GpuCull.SEG_OPAQUE, 0);
@@ -910,6 +978,7 @@ public class ChunkRenderer {
 
         GL11.glEnable(GL11.GL_BLEND);
         this.shader.setUniformf(this.locAlphaCutoff, 0.001F);
+        this.shader.setUniformf(this.locTranslucentPass, 1F);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.TRANSLUCENT);
         this.drawSegment(RenderLayer.TRANSLUCENT.ordinal(), this.cmdCursor, this.offCursor, n);
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.TRANSLUCENT);
@@ -1790,6 +1859,7 @@ public class ChunkRenderer {
     }
 
     public void dispose() {
+        if (this.shaderPackManager != null) this.shaderPackManager.unregister(this);
         for (int i = 0, n = this.meshes.tableSize(); i < n; i++) {
             SectionMesh mesh = this.meshes.valueAt(i);
             if (mesh != null) mesh.dispose(this.arenas, this.frameId);
@@ -1820,6 +1890,25 @@ public class ChunkRenderer {
         /* Atlas (textures/animations) NICHT disposen — gehört dem GameContainer und
            überlebt Welt-Austritte (Hauptmenü braucht ihn für Item-Icons). */
         if (this.shader != null) this.shader.dispose();
+    }
+
+    private static final class PreparedTerrain implements ShaderPackManager.Prepared {
+        private ShaderProgram program;
+
+        private PreparedTerrain(ShaderProgram program) {
+            this.program = program;
+        }
+
+        private ShaderProgram take() {
+            ShaderProgram result = this.program;
+            this.program = null;
+            return result;
+        }
+
+        @Override
+        public void dispose() {
+            if (this.program != null) this.program.dispose();
+        }
     }
 
     /* Gepacktes Vertex-Format (20 Bytes, siehe ChunkMesher.VERTEX_SIZE):
@@ -1914,6 +2003,7 @@ public class ChunkRenderer {
             uniform float u_FogStart;
             uniform float u_FogEnd;
             uniform float u_FogEnabled;
+            uniform float u_TranslucentPass;
             layout(std140, binding = 1) uniform Environment {
                 vec4 u_SunDirection;
                 vec4 u_MoonDirection;
@@ -1979,7 +2069,12 @@ public class ChunkRenderer {
                 float atmosphereEnergy = dot(directionalFog, vec3(0.2627, 0.6780, 0.0593));
                 vec3 fogColor = mix(u_EnvFogColor.rgb, directionalFog,
                         smoothstep(0.0001, 0.002, atmosphereEnergy));
-                fragColor = vec4(mix(lit, fogColor, fog), color.a);
+                /* Alpha carries a free material marker through the HDR scene. Opaque/cutout
+                   terrain is graded like the old master renderer near the camera and fades
+                   back to the pack transform together with atmospheric fog. Translucent
+                   geometry must retain its real alpha for blending. */
+                float materialMarker = mix(1.0 - fog, color.a, u_TranslucentPass);
+                fragColor = vec4(mix(lit, fogColor, fog), materialMarker);
             }
             """;
 
