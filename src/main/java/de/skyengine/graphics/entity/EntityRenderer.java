@@ -658,6 +658,7 @@ public final class EntityRenderer {
 
     private static final String FRAGMENT = """
         #version 460 core
+        """ + de.skyengine.graphics.shader.ShaderColorSpace.GLSL + """
         in vec3 v_texCoord;
         in vec3 v_color;
         uniform sampler2DArray u_Textures;
@@ -678,7 +679,8 @@ public final class EntityRenderer {
             if (c.a < u_AlphaCutoff) discard;
             /* Licht VOR dem Blink: eine TNT-Zuendung soll auch in einer finsteren Hoehle
                rein weiss aufblitzen und nicht mit abgedunkelt werden. */
-            vec3 rgb = mix(c.rgb * v_color * u_Light, vec3(1.0), u_WhiteFlash);
+            vec3 rgb = mix(seSrgbToWorking(c.rgb) * v_color * u_Light,
+                    vec3(1.0), u_WhiteFlash);
             fragColor = vec4(rgb, c.a);
         }
         """;

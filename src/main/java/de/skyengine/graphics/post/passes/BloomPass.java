@@ -1,11 +1,14 @@
 package de.skyengine.graphics.post.passes;
 
+import de.skyengine.core.SkyEngine;
 import de.skyengine.graphics.post.PostContext;
 import de.skyengine.graphics.post.PostPass;
 import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
+import de.skyengine.graphics.shaderpack.ShaderPack;
+import de.skyengine.graphics.shaderpack.ShaderPackManager;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
@@ -13,99 +16,65 @@ import org.lwjgl.opengl.GL30;
 
 import java.nio.ByteBuffer;
 
-/**
- * Multi-resolution HDR bloom. Six progressively smaller RGBA16F images provide both the
- * tight glow around a light source and the broad atmospheric veil visible around the moon.
- * The pass deliberately runs before color grading so values above display white survive
- * long enough to generate bloom.
- */
-public final class BloomPass implements PostPass {
-
+/** Photon's threshold-free six-level HDR bloom, exposed as a hot-reloadable pack pass. */
+public final class BloomPass implements PostPass, ShaderPackManager.Participant {
     private static final int LEVELS = 6;
-
-    private static final String DOWNSAMPLE_FRAGMENT = """
-            #version 460 core
-            in vec2 v_uv;
-            out vec4 fragColor;
-            uniform sampler2D u_Input;
-            uniform vec2 u_TexelSize;
-            uniform float u_Threshold;
-            uniform bool u_Prefilter;
-
-            void main() {
-                vec2 d = u_TexelSize * 1.5;
-                vec3 c = texture(u_Input, v_uv).rgb * 4.0;
-                c += texture(u_Input, v_uv + vec2( d.x,  d.y)).rgb;
-                c += texture(u_Input, v_uv + vec2(-d.x,  d.y)).rgb;
-                c += texture(u_Input, v_uv + vec2( d.x, -d.y)).rgb;
-                c += texture(u_Input, v_uv + vec2(-d.x, -d.y)).rgb;
-                c += texture(u_Input, v_uv + vec2(2.0 * d.x, 0.0)).rgb;
-                c += texture(u_Input, v_uv - vec2(2.0 * d.x, 0.0)).rgb;
-                c += texture(u_Input, v_uv + vec2(0.0, 2.0 * d.y)).rgb;
-                c += texture(u_Input, v_uv - vec2(0.0, 2.0 * d.y)).rgb;
-                c /= 12.0;
-
-                if (u_Prefilter) {
-                    float brightness = max(c.r, max(c.g, c.b));
-                    float knee = max(u_Threshold * 0.45, 0.0001);
-                    float soft = clamp((brightness - u_Threshold + knee) / (2.0 * knee), 0.0, 1.0);
-                    float contribution = max(brightness - u_Threshold, 0.0) + soft * soft * knee;
-                    c *= contribution / max(brightness, 0.0001);
-                }
-                fragColor = vec4(c, 1.0);
-            }
-            """;
-
-    private static final String COMPOSITE_FRAGMENT = """
-            #version 460 core
-            in vec2 v_uv;
-            out vec4 fragColor;
-            uniform sampler2D u_Scene;
-            uniform sampler2D u_Bloom0;
-            uniform sampler2D u_Bloom1;
-            uniform sampler2D u_Bloom2;
-            uniform sampler2D u_Bloom3;
-            uniform sampler2D u_Bloom4;
-            uniform sampler2D u_Bloom5;
-            uniform float u_Intensity;
-
-            void main() {
-                vec3 bloom = texture(u_Bloom0, v_uv).rgb * 0.18
-                        + texture(u_Bloom1, v_uv).rgb * 0.18
-                        + texture(u_Bloom2, v_uv).rgb * 0.17
-                        + texture(u_Bloom3, v_uv).rgb * 0.17
-                        + texture(u_Bloom4, v_uv).rgb * 0.16
-                        + texture(u_Bloom5, v_uv).rgb * 0.14;
-                fragColor = vec4(texture(u_Scene, v_uv).rgb + bloom * u_Intensity, 1.0);
-            }
-            """;
-
-    private ShaderProgram downsampleProgram;
-    private ShaderProgram compositeProgram;
-    private final int[] textures = new int[LEVELS];
-    private final int[] framebuffers = new int[LEVELS];
+    private final int[][] textures = new int[2][LEVELS];
+    private final int[][] framebuffers = new int[2][LEVELS];
     private final int[] widths = new int[LEVELS];
     private final int[] heights = new int[LEVELS];
+    private ShaderPackManager manager;
+    private Programs programs;
 
     @Override
     public void init(PostContext context) {
-        this.downsampleProgram = new ShaderProgram(
-                new Shader(PostProcessor.FULLSCREEN_VERTEX_SHADER, ShaderType.VERTEX),
-                new Shader(DOWNSAMPLE_FRAGMENT, ShaderType.FRAGMENT));
-        this.downsampleProgram.bind();
-        this.downsampleProgram.setUniformi("u_Input", 0);
-        this.downsampleProgram.unbind();
-
-        this.compositeProgram = new ShaderProgram(
-                new Shader(PostProcessor.FULLSCREEN_VERTEX_SHADER, ShaderType.VERTEX),
-                new Shader(COMPOSITE_FRAGMENT, ShaderType.FRAGMENT));
-        this.compositeProgram.bind();
-        this.compositeProgram.setUniformi("u_Scene", 0);
-        for (int i = 0; i < LEVELS; i++) {
-            this.compositeProgram.setUniformi("u_Bloom" + i, i + 1);
-        }
-        this.compositeProgram.unbind();
+        this.manager = SkyEngine.get().getShaderPackManager();
+        this.activate(this.prepare(this.manager.active()));
+        this.manager.register(this);
         this.createTargets(context.width, context.height);
+    }
+
+    @Override
+    public ShaderPackManager.Prepared prepare(ShaderPack pack) {
+        ShaderProgram downsample = null;
+        ShaderProgram blur = null;
+        ShaderProgram upsample = null;
+        ShaderProgram composite = null;
+        Programs result;
+        try {
+            downsample = compile(pack.program("bloom_downsample"));
+            blur = compile(pack.program("bloom_blur"));
+            upsample = compile(pack.program("bloom_upsample"));
+            composite = compile(pack.program("bloom_composite"));
+            result = new Programs(downsample, blur, upsample, composite);
+        } catch (RuntimeException e) {
+            if (downsample != null) downsample.dispose();
+            if (blur != null) blur.dispose();
+            if (upsample != null) upsample.dispose();
+            if (composite != null) composite.dispose();
+            throw e;
+        }
+        result.downsample.bind(); result.downsample.setUniformi("u_Input", 0); result.downsample.unbind();
+        result.blur.bind(); result.blur.setUniformi("u_Input", 0); result.blur.unbind();
+        result.upsample.bind();
+        result.upsample.setUniformi("u_Low", 0); result.upsample.setUniformi("u_Source", 1);
+        result.upsample.unbind();
+        result.composite.bind();
+        result.composite.setUniformi("u_Scene", 0); result.composite.setUniformi("u_Bloom", 1);
+        result.composite.unbind();
+        return result;
+    }
+
+    private static ShaderProgram compile(String fragment) {
+        return new ShaderProgram(new Shader(PostProcessor.FULLSCREEN_VERTEX_SHADER, ShaderType.VERTEX),
+                new Shader(fragment, ShaderType.FRAGMENT));
+    }
+
+    @Override
+    public void activate(ShaderPackManager.Prepared prepared) {
+        Programs previous = this.programs;
+        this.programs = (Programs) prepared;
+        if (previous != null) previous.dispose();
     }
 
     @Override
@@ -115,25 +84,28 @@ public final class BloomPass implements PostPass {
     }
 
     private void createTargets(int width, int height) {
-        for (int i = 0; i < LEVELS; i++) {
+        for (int level = 0; level < LEVELS; level++) {
             width = Math.max(1, width / 2);
             height = Math.max(1, height / 2);
-            this.widths[i] = width;
-            this.heights[i] = height;
-
-            this.textures[i] = GL11.glGenTextures();
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.textures[i]);
-            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA16F, width, height, 0,
-                    GL11.GL_RGBA, GL11.GL_FLOAT, (ByteBuffer) null);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
-
-            this.framebuffers[i] = GL30.glGenFramebuffers();
-            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.framebuffers[i]);
-            GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
-                    GL11.GL_TEXTURE_2D, this.textures[i], 0);
+            this.widths[level] = width;
+            this.heights[level] = height;
+            for (int set = 0; set < 2; set++) {
+                this.textures[set][level] = GL11.glGenTextures();
+                GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.textures[set][level]);
+                GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA16F, width, height, 0,
+                        GL11.GL_RGBA, GL11.GL_FLOAT, (ByteBuffer) null);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+                this.framebuffers[set][level] = GL30.glGenFramebuffers();
+                GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.framebuffers[set][level]);
+                GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
+                        GL11.GL_TEXTURE_2D, this.textures[set][level], 0);
+                if (GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER) != GL30.GL_FRAMEBUFFER_COMPLETE) {
+                    throw new IllegalStateException("Bloom framebuffer is incomplete");
+                }
+            }
         }
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
@@ -146,54 +118,81 @@ public final class BloomPass implements PostPass {
 
     @Override
     public void execute(PostContext context) {
-        this.downsampleProgram.bind();
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
         int source = context.input;
         int sourceWidth = context.width;
         int sourceHeight = context.height;
-        for (int i = 0; i < LEVELS; i++) {
-            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.framebuffers[i]);
-            GL11.glViewport(0, 0, this.widths[i], this.heights[i]);
+        this.programs.downsample.bind();
+        for (int level = 0; level < LEVELS; level++) {
+            drawTo(this.framebuffers[0][level], this.widths[level], this.heights[level]);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, source);
-            this.downsampleProgram.setUniformVector2f("u_TexelSize",
-                    1F / sourceWidth, 1F / sourceHeight);
-            this.downsampleProgram.setUniformf("u_Threshold", context.settings.getBloomThreshold());
-            this.downsampleProgram.setUniformi("u_Prefilter", i == 0 ? 1 : 0);
+            this.programs.downsample.setUniformVector2f("u_TexelSize", 1F/sourceWidth, 1F/sourceHeight);
             context.drawFullscreenTriangle();
-            source = this.textures[i];
-            sourceWidth = this.widths[i];
-            sourceHeight = this.heights[i];
+            source = this.textures[0][level];
+            sourceWidth = this.widths[level];
+            sourceHeight = this.heights[level];
         }
-        this.downsampleProgram.unbind();
+        this.programs.downsample.unbind();
 
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.targetFbo);
-        GL11.glViewport(0, 0, context.width, context.height);
-        this.compositeProgram.bind();
-        this.compositeProgram.setUniformf("u_Intensity", context.settings.getBloomIntensity());
-        GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
-        for (int i = 0; i < LEVELS; i++) {
-            GL13.glActiveTexture(GL13.GL_TEXTURE1 + i);
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.textures[i]);
+        this.programs.blur.bind();
+        for (int level = 0; level < LEVELS; level++) {
+            drawTo(this.framebuffers[1][level], this.widths[level], this.heights[level]);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.textures[0][level]);
+            this.programs.blur.setUniformVector2f("u_Direction", 1F/this.widths[level], 0F);
+            context.drawFullscreenTriangle();
+            drawTo(this.framebuffers[0][level], this.widths[level], this.heights[level]);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.textures[1][level]);
+            this.programs.blur.setUniformVector2f("u_Direction", 0F, 1F/this.heights[level]);
+            context.drawFullscreenTriangle();
         }
+        this.programs.blur.unbind();
+
+        int accumulated = this.textures[0][LEVELS - 1];
+        this.programs.upsample.bind();
+        for (int level = LEVELS - 2; level >= 0; level--) {
+            drawTo(this.framebuffers[1][level], this.widths[level], this.heights[level]);
+            GL13.glActiveTexture(GL13.GL_TEXTURE0); GL11.glBindTexture(GL11.GL_TEXTURE_2D, accumulated);
+            GL13.glActiveTexture(GL13.GL_TEXTURE1); GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.textures[0][level]);
+            context.drawFullscreenTriangle();
+            accumulated = this.textures[1][level];
+        }
+        this.programs.upsample.unbind();
+
+        drawTo(context.targetFbo, context.width, context.height);
+        this.programs.composite.bind();
+        this.programs.composite.setUniformf("u_Intensity", context.settings.getBloomIntensity());
+        GL13.glActiveTexture(GL13.GL_TEXTURE0); GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
+        GL13.glActiveTexture(GL13.GL_TEXTURE1); GL11.glBindTexture(GL11.GL_TEXTURE_2D, accumulated);
         context.drawFullscreenTriangle();
-        this.compositeProgram.unbind();
+        this.programs.composite.unbind();
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
     }
 
+    private static void drawTo(int fbo, int width, int height) {
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fbo);
+        GL11.glViewport(0, 0, width, height);
+    }
+
     private void disposeTargets() {
-        for (int i = 0; i < LEVELS; i++) {
-            if (this.framebuffers[i] != 0) GL30.glDeleteFramebuffers(this.framebuffers[i]);
-            if (this.textures[i] != 0) GL11.glDeleteTextures(this.textures[i]);
-            this.framebuffers[i] = 0;
-            this.textures[i] = 0;
+        for (int set = 0; set < 2; set++) for (int level = 0; level < LEVELS; level++) {
+            if (this.framebuffers[set][level] != 0) GL30.glDeleteFramebuffers(this.framebuffers[set][level]);
+            if (this.textures[set][level] != 0) GL11.glDeleteTextures(this.textures[set][level]);
+            this.framebuffers[set][level] = 0;
+            this.textures[set][level] = 0;
         }
     }
 
     @Override
     public void dispose() {
+        if (this.manager != null) this.manager.unregister(this);
         this.disposeTargets();
-        if (this.downsampleProgram != null) this.downsampleProgram.dispose();
-        if (this.compositeProgram != null) this.compositeProgram.dispose();
+        if (this.programs != null) this.programs.dispose();
+    }
+
+    private record Programs(ShaderProgram downsample, ShaderProgram blur, ShaderProgram upsample,
+                            ShaderProgram composite) implements ShaderPackManager.Prepared {
+        @Override public void dispose() {
+            downsample.dispose(); blur.dispose(); upsample.dispose(); composite.dispose();
+        }
     }
 }

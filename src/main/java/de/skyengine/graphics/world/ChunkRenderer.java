@@ -1880,6 +1880,7 @@ public class ChunkRenderer {
 
     private static final String FRAGMENT_SOURCE = """
             #version 460 core
+            """ + de.skyengine.graphics.shader.ShaderColorSpace.GLSL + """
             in vec3 v_texCoord;
             in vec3 v_color;
             in vec2 v_light;    // x = Himmelslicht, y = Blocklicht (je 0..1)
@@ -1938,7 +1939,7 @@ public class ChunkRenderer {
                 float skyDominance = smoothstep(blockLight, blockLight + 0.05, skyLight);
                 vec3 lightTint = mix(vec3(1.0), u_SkyLightColor.rgb,
                         skyDominance * (1.0 - u_MinLight));
-                vec3 lit = color.rgb * clamp(v_color, 0.0, 1.0) * light * lightTint;
+                vec3 lit = seSrgbToWorking(color.rgb) * clamp(v_color, 0.0, 1.0) * light * lightTint;
                 /* Linearer Distanz-Fog Richtung Clear-Color: nimmt dem Horizont den Kontrast
                    (Sub-Pixel-Flimmern des Fernterrains) und versteckt die Far-Plane-Kante. */
                 float edgeFog = clamp((v_viewDist - u_FogStart) / (u_FogEnd - u_FogStart), 0.0, 1.0);

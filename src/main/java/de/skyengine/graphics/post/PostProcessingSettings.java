@@ -25,7 +25,7 @@ import java.io.FileWriter;
  */
 public final class PostProcessingSettings {
 
-    private static final int CURRENT_SCHEMA = 1;
+    private static final int CURRENT_SCHEMA = 2;
 
     private static final Logger LOGGER = LogManager.getLogger(PostProcessingSettings.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -86,7 +86,7 @@ public final class PostProcessingSettings {
 
     /* --- Bloom aktiv; Vignette/Sharpen bleiben als spätere Pipeline-Slots reserviert. --- */
     private int schema = CURRENT_SCHEMA;
-    private float bloomIntensity = 0.58F;
+    private float bloomIntensity = 1.0F;
     private float bloomThreshold = 0.72F;
     private float vignette = 0.0F;
     private float sharpen = 0.0F;
@@ -103,8 +103,9 @@ public final class PostProcessingSettings {
                 if (s != null) {
                     boolean legacy = !json.has("schema");
                     if (legacy) s.schema = 0;
+                    boolean migration = s.schema < CURRENT_SCHEMA;
                     s.sanitize();
-                    if (legacy) s.saveDefaults();
+                    if (migration) s.saveDefaults();
                     s.dirty = true;
                     LOGGER.info("Post-Processing-Einstellungen geladen: " + FILE.getPath());
                     return s;
@@ -166,7 +167,7 @@ public final class PostProcessingSettings {
         /* Bloom fields existed before the pass did and were therefore saved as zero.
            Missing schema marks exactly those legacy developer configs. */
         if (this.schema < CURRENT_SCHEMA) {
-            this.bloomIntensity = 0.58F;
+            this.bloomIntensity = 1.0F;
             this.bloomThreshold = 0.72F;
             this.schema = CURRENT_SCHEMA;
         }

@@ -1782,6 +1782,12 @@ public class GameContainer implements IResizeable, IDisposable {
             this.screenshotRequested = true;
         }
 
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F10)) {
+            SkyEngine.get().getPostProcessor().getSettings().reloadFromFile();
+            SkyEngine.get().getShaderPackManager().requestReload();
+            this.logger.info("Shader-Pack-Reload für die nächste Frame-Grenze angefordert");
+        }
+
         if (this.world != null && input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_HUD))) {
             this.hudHidden = !this.hudHidden;
             this.logger.debug("HUD: " + (this.hudHidden ? "aus" : "an"));

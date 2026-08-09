@@ -73,7 +73,10 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
             if (game.getWorld() != null) game.getWorld().reloadAllChunks();
         });
         Button reloadPost = new Button(I18n.tr("options.debug.reload_post"), CELL_W, CELL_H,
-                () -> SkyEngine.get().getPostProcessor().getSettings().reloadFromFile());
+                () -> {
+                    SkyEngine.get().getPostProcessor().getSettings().reloadFromFile();
+                    SkyEngine.get().getShaderPackManager().requestReload();
+                });
 
         content.add(new HStack(4, wireframe, gpuCull));
         content.add(new HStack(4, gpuCullHiZ, gpuCullTint));

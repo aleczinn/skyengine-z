@@ -95,13 +95,14 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.locTopBrightness = this.shader.getUniformLocation("u_TopBrightness");
         this.locZBrightness = this.shader.getUniformLocation("u_ZBrightness");
         this.locSideBrightness = this.shader.getUniformLocation("u_SideBrightness");
+        this.locDisplayOutput = this.shader.getUniformLocation("u_DisplayOutput");
         this.shader.bind();
         this.shader.setUniformi("u_Texture", 0);
         this.shader.unbind();
     }
 
     private int locProjectionView, locLight, locNormalRot, locModel,
-            locTopBrightness, locZBrightness, locSideBrightness;
+            locTopBrightness, locZBrightness, locSideBrightness, locDisplayOutput;
 
     @Override
     public void render(BlockEntity be, Camera camera, float partialTick, float light) {
@@ -153,6 +154,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.setUniformf(this.locZBrightness, 0.8f);
         this.shader.setUniformf(this.locSideBrightness, 0.6f);
         this.shader.setUniformf(this.locLight, light);
+        this.shader.setUniformi(this.locDisplayOutput, 0);
         tex.bind(0);
 
         /* Normalen nur um die Facing-Achse drehen (ohne Deckel-Klappung), damit das Richtungs-
@@ -214,6 +216,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.setUniformf("u_SideBrightness", ItemIconRenderer.ICON_X_BRIGHTNESS);
         /* GUI: NIE abdunkeln — derselbe Shader wie im Welt-Pass, also explizit zurücksetzen. */
         this.shader.setUniformf("u_Light", 1.0f);
+        this.shader.setUniformi(this.locDisplayOutput, 1);
         this.shader.setUniformi("u_Texture", 0);
         this.texture.bind(0);
         this.base.render();
@@ -230,7 +233,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
      * Wie bei {@link #renderIcon}: KEIN Depth-/Cull-Umschalten (Shader-Rekompilierungs-Warnung).
      */
     @Override
-    public void renderHeld(Matrix4f mvp, float light) {
+    public void renderHeld(Matrix4f mvp, float light, boolean displayOutput) {
         this.iconModel.identity();
 
         this.shader.bind();
@@ -244,6 +247,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.setUniformf("u_ZBrightness", 0.8f);
         this.shader.setUniformf("u_SideBrightness", 0.6f);
         this.shader.setUniformf("u_Light", light);
+        this.shader.setUniformi(this.locDisplayOutput, displayOutput ? 1 : 0);
         this.shader.setUniformi("u_Texture", 0);
         this.texture.bind(0);
         this.base.render();
@@ -379,6 +383,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
 
     private static final String FRAGMENT = """
         #version 460 core
+        """ + de.skyengine.graphics.shader.ShaderColorSpace.GLSL + """
         in vec2 v_uv;
         in vec3 v_normal;
         uniform sampler2D u_Texture;
@@ -387,6 +392,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
         uniform float u_SideBrightness;
         /* Licht der Zelle, Himmel + Block (ChunkRenderer.lightFactor); 1.0 = voll hell bzw. GUI. */
         uniform float u_Light;
+        uniform int u_DisplayOutput;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Texture, v_uv);
@@ -402,7 +408,9 @@ public final class ChestRenderer implements BlockEntityRenderer {
             /* Zellenlicht bewusst EINMAL ganz am Ende statt an jede Helligkeit einzeln: so kann
                keine Flaeche es verpassen. Genau daran ist die Unterseite schon einmal
                vorbeigelaufen, weil sie als einzige kein Uniform ist. */
-            fragColor = vec4(c.rgb * br * u_Light, c.a);
+            vec3 rgb = seSrgbToWorking(c.rgb) * br * u_Light;
+            if (u_DisplayOutput != 0) rgb = seWorkingToSrgb(rgb);
+            fragColor = vec4(rgb, c.a);
         }
         """;
 }
