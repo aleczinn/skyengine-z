@@ -60,8 +60,12 @@ public final class GuiShaderPacks extends GuiOptionsScreen {
                 "options.shaderpacks.exposure", value -> post.setExposure((float) value / 100F));
         Slider saturation = slider(0, 200, post.getSaturation() * 100,
                 "options.shaderpacks.saturation", value -> post.setSaturation((float) value / 100F));
-        Slider vibrance = slider(-100, 100, post.getVibrance() * 100,
-                "options.shaderpacks.vibrance", value -> post.setVibrance((float) value / 100F));
+        /* Intern bleibt Vibrance ein Offset von -1..+1. Im UI ist sie wie Saturation als
+           Faktor dargestellt: 100 % ist neutral, 0 % entsaettigt, 200 % verstaerkt. Das
+           behaelt bestehende Konfigurationsdateien bei und beseitigt die missverstaendliche
+           Anzeige "0 %" fuer den neutralen Standardwert. */
+        Slider vibrance = slider(0, 200, (post.getVibrance() + 1F) * 100F,
+                "options.shaderpacks.vibrance", value -> post.setVibrance((float) value / 100F - 1F));
         Slider contrast = slider(50, 150, post.getContrast() * 100,
                 "options.shaderpacks.contrast", value -> post.setContrast((float) value / 100F));
         Slider gamma = slider(50, 150, post.getGamma() * 100,

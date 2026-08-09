@@ -68,7 +68,18 @@ void main() {
     c *= vec3(1.0 + 0.15 * vbtt.z, 1.0 + 0.10 * vbtt.w, 1.0 - 0.15 * vbtt.z);
     const float midpoint = log2(0.18);
     c = max(exp2(1.0 * (log2(c + 1e-6) - midpoint) + midpoint) - 1e-6, 0.0);
-    c = max(mix(vec3(dot(c, LUMA_2020)), c, 0.98), 0.0);
+
+    // Creative colour controls operate on the scene-referred HDR signal. Applying them
+    // after tone mapping and gamut clipping cannot restore chroma which those operations
+    // have already compressed. Saturation 1.0 and vibrance 0.0 remain exact identities.
+    float sceneLuma = dot(c, LUMA_2020);
+    c = max(mix(vec3(sceneLuma), c, egcs.w), 0.0);
+    float scenePeak = max(c.r, max(c.g, c.b));
+    float sceneFloor = min(c.r, min(c.g, c.b));
+    float normalizedChroma = (scenePeak - sceneFloor) / max(scenePeak, 1e-5);
+    c = max(mix(vec3(sceneLuma), c,
+            1.0 + vbtt.x * (1.0 - clamp(normalizedChroma, 0.0, 1.0))), 0.0);
+
     c = lottes(c);
     c = clamp(c * REC2020_TO_XYZ * XYZ_TO_REC709, 0.0, 1.0);
     c = sqrt(c);
@@ -91,12 +102,6 @@ void main() {
        + highlightWeight * lgsh.w;
     c = (c - 0.5) * egcs.z + 0.5;
     c += vbtt.y;
-
-    luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    c = mix(vec3(luma), c, egcs.w);
-    float chroma = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
-    c = mix(vec3(luma), c,
-            1.0 + vbtt.x * (1.0 - clamp(chroma, 0.0, 1.0)));
 
     if (egcs.y != 1.0) c = pow(max(c, 0.0), vec3(1.0 / egcs.y));
     fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);

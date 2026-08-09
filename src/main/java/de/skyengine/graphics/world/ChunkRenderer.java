@@ -1966,7 +1966,12 @@ public class ChunkRenderer {
                 /* Linearer Distanz-Fog Richtung Clear-Color: nimmt dem Horizont den Kontrast
                    (Sub-Pixel-Flimmern des Fernterrains) und versteckt die Far-Plane-Kante. */
                 float edgeFog = clamp((v_viewDist - u_FogStart) / (u_FogEnd - u_FogStart), 0.0, 1.0);
-                float aerialFog = (1.0 - exp(-u_EnvFogColor.w * v_viewDist)) * u_FogEnabled;
+                /* Aerial perspective is a distance effect, not a full-screen wash. Keep the
+                   foreground and most of the mid-range untouched, then introduce the pack's
+                   atmospheric colour gradually before the edge-fog hides the load boundary. */
+                float aerialOnset = smoothstep(u_FogEnd * 0.20, u_FogEnd * 0.65, v_viewDist);
+                float aerialFog = (1.0 - exp(-u_EnvFogColor.w * v_viewDist))
+                        * aerialOnset * u_FogEnabled;
                 float fog = 1.0 - (1.0 - edgeFog) * (1.0 - aerialFog);
                 vec3 directionalFog = texture(u_AtmosphereFog, normalize(v_viewDirection)).rgb;
                 /* Exact same atmosphere as the active sky pack. The neutral environment fog
