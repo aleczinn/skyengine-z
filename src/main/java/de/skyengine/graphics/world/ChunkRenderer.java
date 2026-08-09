@@ -25,6 +25,7 @@ import de.skyengine.utils.logging.Logger;
 import org.joml.FrustumIntersection;
 import org.joml.Vector3d;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
@@ -48,6 +49,8 @@ import java.util.List;
  */
 public class ChunkRenderer {
 
+    private static final int ATMOSPHERE_FOG_UNIT = 7;
+
     private static final int SLOTS = 3;                 // Frames in flight (Command-/Offset-Ringe)
     private static final int COMMAND_BYTES = 20;        // DrawElementsIndirectCommand (5 uints)
     private static final int OFFSET_BYTES = 16;         // vec4 im std430-SSBO
@@ -60,6 +63,7 @@ public class ChunkRenderer {
        der Renderer hält nur Referenzen und disposed NICHTS davon. */
     private BlockTextureAtlas atlas;
     private TextureArray textures;
+    private int atmosphereFogTexture;
 
     /* sectionKey -> mesh, render thread only. LongObjMap: kein Long-Boxing pro Zugriff,
        Cleanup-Walk und Frame-Iterationen laufen als flacher Array-Scan. */
@@ -323,6 +327,7 @@ public class ChunkRenderer {
         this.locBrightness = this.shader.getUniformLocation("u_Brightness");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformi("u_AtmosphereFog", ATMOSPHERE_FOG_UNIT);
         this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F); // Ausdünnung default aus
         this.shader.unbind();
         /* Atlas kommt von außen (BlockTextureAtlas, einmal beim Boot gebaut) — Welt-Ein-/
@@ -700,6 +705,7 @@ public class ChunkRenderer {
         this.setFogUniforms();
         this.setLightUniforms();
         this.textures.bind(0);
+        this.bindAtmosphereFog();
 
         /* GPU-Pfad: Compute-Ergebnisse (Commands/Offsets/Counts) vor den Draws sichtbar machen. */
         if (gpu) {
@@ -816,6 +822,7 @@ public class ChunkRenderer {
            deren Messung überschrieben (1 Query-Objekt je Sektion und Slot). */
         this.shader.bind();
         this.textures.bind(0);
+        this.bindAtmosphereFog();
         EngineProperties properties = SkyEngine.get().getWindow().getProperties();
         GL11.glDepthFunc(properties.baseDepthFunc());
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.SOLID_P2);
@@ -899,6 +906,7 @@ public class ChunkRenderer {
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GLSUB);
         this.shader.bind();
         this.textures.bind(0);
+        this.bindAtmosphereFog();
 
         GL11.glEnable(GL11.GL_BLEND);
         this.shader.setUniformf(this.locAlphaCutoff, 0.001F);
@@ -1498,6 +1506,17 @@ public class ChunkRenderer {
         return lightFactor(skyLevel, blockLevel, 1F);
     }
 
+    /** Active pack's low-resolution directional atmosphere, owned by {@link SkyRenderer}. */
+    public void setAtmosphereFogTexture(int texture) {
+        this.atmosphereFogTexture = texture;
+    }
+
+    private void bindAtmosphereFog() {
+        GL13.glActiveTexture(GL13.GL_TEXTURE0 + ATMOSPHERE_FOG_UNIT);
+        GL11.glBindTexture(GL13.GL_TEXTURE_CUBE_MAP, this.atmosphereFogTexture);
+        GL13.glActiveTexture(GL13.GL_TEXTURE0);
+    }
+
     public static float lightFactor(int skyLevel, int blockLevel, float skyIntensity) {
         int brightness = GameSettings.get().brightness;
         if (brightness <= 0) return 1.0F; // Fullbright
@@ -1832,6 +1851,7 @@ public class ChunkRenderer {
             out vec3 v_color;
             out vec2 v_light;   // x = Himmelslicht, y = Blocklicht (je 0..1)
             out float v_viewDist;
+            out vec3 v_viewDirection;
 
             void main() {
                 /* Positions-Skala pro Draw aus .w (Sections + normales LOD: 1/256; LOD-
@@ -1857,6 +1877,7 @@ public class ChunkRenderer {
                    Ladekante bleibt verdeckt. Rotationsinvariant, kein "Atmen" beim Umschauen. */
                 vec3 rel = pos + u_DrawOffsets[gl_DrawID].xyz;
                 v_viewDist = length(rel.xz);
+                v_viewDirection = normalize(rel);
 
                 /* Distanz-Ausduennung der Kleinvegetation: der Pflanzen-Hash (Topbyte von
                    int3, pro Pflanze identisch — beide Tall-Grass-Haelften teilen ihn) wird
@@ -1885,8 +1906,10 @@ public class ChunkRenderer {
             in vec3 v_color;
             in vec2 v_light;    // x = Himmelslicht, y = Blocklicht (je 0..1)
             in float v_viewDist;
+            in vec3 v_viewDirection;
 
             uniform sampler2DArray u_Textures;
+            uniform samplerCube u_AtmosphereFog;
             uniform float u_AlphaCutoff;
             uniform float u_FogStart;
             uniform float u_FogEnd;
@@ -1945,7 +1968,13 @@ public class ChunkRenderer {
                 float edgeFog = clamp((v_viewDist - u_FogStart) / (u_FogEnd - u_FogStart), 0.0, 1.0);
                 float aerialFog = (1.0 - exp(-u_EnvFogColor.w * v_viewDist)) * u_FogEnabled;
                 float fog = 1.0 - (1.0 - edgeFog) * (1.0 - aerialFog);
-                fragColor = vec4(mix(lit, u_EnvFogColor.rgb, fog), color.a);
+                vec3 directionalFog = texture(u_AtmosphereFog, normalize(v_viewDirection)).rgb;
+                /* Exact same atmosphere as the active sky pack. The neutral environment fog
+                   remains a safety fallback while a pack is loading or returns black. */
+                float atmosphereEnergy = dot(directionalFog, vec3(0.2627, 0.6780, 0.0593));
+                vec3 fogColor = mix(u_EnvFogColor.rgb, directionalFog,
+                        smoothstep(0.0001, 0.002, atmosphereEnergy));
+                fragColor = vec4(mix(lit, fogColor, fog), color.a);
             }
             """;
 

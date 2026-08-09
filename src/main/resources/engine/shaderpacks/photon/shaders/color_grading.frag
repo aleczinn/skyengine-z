@@ -63,6 +63,9 @@ float huePulse(float hue, float center, float width) {
 
 void main() {
     vec3 c = max(texture(u_Scene, v_uv).rgb * (0.83 * egcs.x), 0.0);
+    // Runtime white balance remains part of the engine grading contract.  Photon supplies
+    // the film transform below, while pack-independent user grading is applied around it.
+    c *= vec3(1.0 + 0.15 * vbtt.z, 1.0 + 0.10 * vbtt.w, 1.0 - 0.15 * vbtt.z);
     const float midpoint = log2(0.18);
     c = max(exp2(1.0 * (log2(c + 1e-6) - midpoint) + midpoint) - 1e-6, 0.0);
     c = max(mix(vec3(dot(c, LUMA_2020)), c, 0.98), 0.0);
@@ -75,5 +78,26 @@ void main() {
     c = hslToRgb(hsl);
     c = gainCurve(c, 1.05);
     c *= c;
-    fragColor = vec4(linearToSrgb(clamp(c, 0.0, 1.0)), 1.0);
+    c = linearToSrgb(clamp(c, 0.0, 1.0));
+
+    // Display-referred engine grading.  These controls used to be silently ignored by the
+    // pack shader, although PostProcessor still uploaded all of them into this UBO.
+    c = c * lgsh.y + lgsh.x;
+    float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float shadowWeight = 1.0 - smoothstep(0.0, 0.5, luma);
+    float highlightWeight = smoothstep(0.5, 1.0, luma);
+    c *= shadowWeight * lgsh.z
+       + (1.0 - shadowWeight - highlightWeight) * mtdr.x
+       + highlightWeight * lgsh.w;
+    c = (c - 0.5) * egcs.z + 0.5;
+    c += vbtt.y;
+
+    luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    c = mix(vec3(luma), c, egcs.w);
+    float chroma = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+    c = mix(vec3(luma), c,
+            1.0 + vbtt.x * (1.0 - clamp(chroma, 0.0, 1.0)));
+
+    if (egcs.y != 1.0) c = pow(max(c, 0.0), vec3(1.0 / egcs.y));
+    fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }

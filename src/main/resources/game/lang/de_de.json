@@ -80,6 +80,14 @@
       "title": "Grafik",
       "render_distance": "Render-Distanz: %d",
       "simulation_distance": "Simulations-Distanz: %d",
+      "aa": "Kantenglättung",
+      "aa_none": "Aus",
+      "aa_fxaa": "FXAA",
+      "aa_taa": "TAA",
+      "aa_taa_fxaa": "TAA + FXAA",
+      "aa_msaa": "MSAA",
+      "msaa_samples": "MSAA-Samples",
+      "msaa_samples_hint": "<b>MSAA-Samples</b>\n<gray>Wird nur im MSAA-Modus verwendet und beim nächsten Framebuffer-Aufbau aktiv.</>",
       "msaa": "MSAA",
       "anisotropy": "Anisotropie",
       "ao": "Ambient Occlusion",
@@ -98,6 +106,20 @@
       "view_bobbing": "Gehbewegung",
       "damage_tilt": "Schadensneigung",
       "brightness": "Helligkeit: %s"
+    },
+
+    "shaderpacks": {
+      "button": "Shaderpakete ...",
+      "title": "Shaderpakete",
+      "pack": "Shaderpaket",
+      "exposure": "Belichtung: %d %%",
+      "saturation": "Sättigung: %d %%",
+      "vibrance": "Dynamik: %d %%",
+      "contrast": "Kontrast: %d %%",
+      "gamma": "Gamma: %d %%",
+      "bloom": "Bloom: %d %%",
+      "bloom_threshold": "Bloom-Schwelle: %d %%",
+      "sharpen": "Schärfen: %d %%"
     },
 
     "sound": {

@@ -105,7 +105,7 @@ public final class PostProcessingSettings {
                     if (legacy) s.schema = 0;
                     boolean migration = s.schema < CURRENT_SCHEMA;
                     s.sanitize();
-                    if (migration) s.saveDefaults();
+                    if (migration) s.save();
                     s.dirty = true;
                     LOGGER.info("Post-Processing-Einstellungen geladen: " + FILE.getPath());
                     return s;
@@ -115,21 +115,22 @@ public final class PostProcessingSettings {
             }
         }
         PostProcessingSettings s = new PostProcessingSettings();
-        s.saveDefaults();
+        s.save();
         return s;
     }
 
     /** Legt die JSON einmalig mit Neutral-Defaults an (Vorlage fürs Entwickler-Tuning). */
-    private void saveDefaults() {
+    public void save() {
+        this.sanitize();
         try {
             File dir = FILE.getParentFile();
             if (dir != null && !dir.exists()) dir.mkdirs();
             try (FileWriter w = new FileWriter(FILE)) {
                 GSON.toJson(this, w);
             }
-            LOGGER.info("Post-Processing-Defaults angelegt: " + FILE.getPath());
+            LOGGER.info("Post-Processing-Einstellungen gespeichert: " + FILE.getPath());
         } catch (Exception e) {
-            LOGGER.error("Post-Processing-Defaults konnten nicht geschrieben werden", e);
+            LOGGER.error("Post-Processing-Einstellungen konnten nicht gespeichert werden", e);
         }
     }
 

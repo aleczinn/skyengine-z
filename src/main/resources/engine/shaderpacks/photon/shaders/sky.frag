@@ -16,6 +16,7 @@ uniform sampler2D u_Noise;
 uniform float u_DayFraction;
 uniform float u_SunIntensity;
 uniform float u_MoonIntensity;
+uniform float u_FogCapture;
 
 const float PI = 3.141592653589793;
 const float TAU = 6.283185307179586;
@@ -216,7 +217,12 @@ void main() {
     vec3 moonTint = pow(vec3(0.75, 0.83, 1.0), vec3(2.2));
 
     vec3 atmosphere = atmosphereFor(ray, sun, false) * sunExposure * sunTint;
-    atmosphere += atmosphereFor(ray, moon, true) * moonExposure * moonTint;
+    // A low moon must not reuse the amber solar-horizon spectrum from the scattering LUT.
+    // Preserve its luminance and spatial halo, but keep lunar scattering neutral/cool.
+    vec3 moonAtmosphere = atmosphereFor(ray, moon, true);
+    float moonAtmosphereLuma = dot(moonAtmosphere, vec3(0.2627, 0.6780, 0.0593));
+    moonAtmosphere = mix(vec3(moonAtmosphereLuma), moonAtmosphere, 0.20) * moonTint;
+    atmosphere += moonAtmosphere * moonExposure;
     float saturationBoost = 0.10 + 0.20 * clamp((exp(-150.0 * sqr(sun.y + 0.07283)) - 0.05) / 0.95, 0.0, 1.0);
     atmosphere = mix(vec3(dot(atmosphere, vec3(0.2627, 0.6780, 0.0593))),
                      atmosphere, 1.0 + saturationBoost);
@@ -229,9 +235,16 @@ void main() {
 
     float starThreshold = 1.0 - 0.025 * smoothstep(-0.2, 0.05, -sun.y);
     celestial += stars(ray, starThreshold) * smoothstep(-0.1, 0.1, ray.y);
+    celestial *= 1.0 - u_FogCapture;
+
+    vec3 transmittance = atmosphereTransmittance(ray.y);
+    vec3 sky = celestial * transmittance + atmosphere;
 
     vec4 moonDisc = drawMoon(ray, moon);
-    celestial = celestial * (1.0 - moonDisc.a) + moonDisc.rgb;
-    vec3 sky = celestial * atmosphereTransmittance(ray.y) + atmosphere;
+    moonDisc *= 1.0 - u_FogCapture;
+    float moonTransmissionLuma = dot(transmittance, vec3(0.2627, 0.6780, 0.0593));
+    vec3 moonTransmittance = mix(vec3(moonTransmissionLuma), transmittance, 0.15)
+                           * vec3(0.92, 0.97, 1.0);
+    sky = sky * (1.0 - moonDisc.a) + moonDisc.rgb * moonTransmittance;
     fragColor = vec4(max(sky * u_SkyTint.rgb, vec3(0.0)), 1.0);
 }

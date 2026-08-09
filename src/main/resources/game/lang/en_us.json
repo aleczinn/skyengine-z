@@ -72,6 +72,14 @@
       "title": "Video Settings",
       "render_distance": "Render Distance: %d",
       "simulation_distance": "Simulation Distance: %d",
+      "aa": "Anti-Aliasing",
+      "aa_none": "Off",
+      "aa_fxaa": "FXAA",
+      "aa_taa": "TAA",
+      "aa_taa_fxaa": "TAA + FXAA",
+      "aa_msaa": "MSAA",
+      "msaa_samples": "MSAA Samples",
+      "msaa_samples_hint": "<b>MSAA samples</b>\n<gray>Used only in MSAA mode and applied on the next framebuffer rebuild.</>",
       "msaa": "MSAA",
       "anisotropy": "Anisotropy",
       "ao": "Ambient Occlusion",
@@ -90,6 +98,20 @@
       "view_bobbing": "View Bobbing",
       "damage_tilt": "Damage Tilt",
       "brightness": "Brightness: %s"
+    },
+
+    "shaderpacks": {
+      "button": "Shader Packs...",
+      "title": "Shader Packs",
+      "pack": "Shader Pack",
+      "exposure": "Exposure: %d %%",
+      "saturation": "Saturation: %d %%",
+      "vibrance": "Vibrance: %d %%",
+      "contrast": "Contrast: %d %%",
+      "gamma": "Gamma: %d %%",
+      "bloom": "Bloom: %d %%",
+      "bloom_threshold": "Bloom Threshold: %d %%",
+      "sharpen": "Sharpen: %d %%"
     },
 
     "sound": {

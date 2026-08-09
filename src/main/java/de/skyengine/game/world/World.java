@@ -336,6 +336,7 @@ public class World implements IInitializable, IDisposable {
         this.environmentUbo.create();
         this.skyRenderer.init();
         this.chunkRenderer.init(this.atlas);
+        this.chunkRenderer.setAtmosphereFogTexture(this.skyRenderer.fogTexture());
         /* LOD: abstrahierte Datenquelle + Block-Darstellung aus den gebackenen Modellen —
            erst nach dem Registry-Bake. Importierte Welten sampeln die Region-Snapshots
            (der Void-Generator kennt kein Terrain), generierte wie bisher Chunkdaten +
@@ -1421,6 +1422,7 @@ public class World implements IInitializable, IDisposable {
         this.environmentState.update(this.environmentProfile, cameraBiome.environment,
                 this.getDayTime(partialTick));
         this.environmentUbo.update(this.environmentState);
+        this.skyRenderer.updateFogCube(this.environmentState.dayFraction);
         this.chunkRenderer.renderSolid(camera);
         this.skyRenderer.render(camera, this.environmentState.dayFraction);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.BE);

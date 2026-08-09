@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "photon",
-  "name": "Photon for SkyEngine",
+  "name": "Vanilla",
   "programs": {
     "sky_vertex": "shaders/sky.vert",
     "sky_fragment": "shaders/sky.frag",

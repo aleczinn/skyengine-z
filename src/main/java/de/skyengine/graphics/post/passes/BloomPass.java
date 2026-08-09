@@ -16,7 +16,7 @@ import org.lwjgl.opengl.GL30;
 
 import java.nio.ByteBuffer;
 
-/** Photon's threshold-free six-level HDR bloom, exposed as a hot-reloadable pack pass. */
+/** Six-level HDR bloom with a first-level brightness prefilter. */
 public final class BloomPass implements PostPass, ShaderPackManager.Participant {
     private static final int LEVELS = 6;
     private final int[][] textures = new int[2][LEVELS];
@@ -127,6 +127,11 @@ public final class BloomPass implements PostPass, ShaderPackManager.Participant 
             drawTo(this.framebuffers[0][level], this.widths[level], this.heights[level]);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, source);
             this.programs.downsample.setUniformVector2f("u_TexelSize", 1F/sourceWidth, 1F/sourceHeight);
+            /* Nur der erste Level trennt Leuchtquellen von der normalen Szene. Würde jeder
+               Level erneut thresholden, verschwänden kleine Highlights; ohne diesen Filter
+               gelangt dagegen das komplette Bild in den Bloom und erzeugt einen Milchschleier. */
+            this.programs.downsample.setUniformf("u_Threshold",
+                    level == 0 ? context.settings.getBloomThreshold() : 0F);
             context.drawFullscreenTriangle();
             source = this.textures[0][level];
             sourceWidth = this.widths[level];
