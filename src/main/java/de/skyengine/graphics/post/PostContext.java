@@ -16,7 +16,7 @@ import java.nio.ByteBuffer;
  * (dokumentiert): {@link #velocity}/{@link #history} kommen mit TAA (Phase 2), {@link #lut}
  * mit dem LUTPass; {@link #sceneDepth} ist nur bei MSAA=0 belegt.
  *
- * <p>Dazu: zwei LDR-Ping-Pong-Zwischentexturen (RGBA16F) für Pass-Verkettung und der
+ * <p>Dazu: zwei HDR-Ping-Pong-Zwischentexturen (RGBA16F) für Pass-Verkettung und der
  * gemeinsame Fullscreen-Triangle-Draw (leeres VAO, Positionen aus gl_VertexID). LDR meint hier
  * den Wertebereich (der Grading-Pass klemmt auf 0..1), nicht die Bit-Tiefe — die 16 Bit sind
  * für die Auflösung im dunklen Ende nötig, s. {@link #createPingTargets}.

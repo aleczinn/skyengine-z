@@ -8,7 +8,7 @@ import de.skyengine.core.io.IDisposable;
  * {@code targetFbo}); der Pass liest seine Eingänge ausschließlich aus dem Context
  * (explizite Inputs/Outputs — RenderGraph-Denke ohne Graph-Overhead).
  *
- * <p>Spätere Pässe (BloomPass, AutoExposurePass, LUTPass — Slot nach Grading/vor AA —,
+ * <p>Spätere Pässe (AutoExposurePass, LUTPass — Slot nach Grading/vor AA —,
  * SSRPass, TAA im AA-Pass) werden nur der Pass-Liste hinzugefügt; die Kette selbst
  * bleibt unangetastet.
  */

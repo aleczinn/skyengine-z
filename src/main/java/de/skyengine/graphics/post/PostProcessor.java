@@ -5,6 +5,7 @@ import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.framebuffer.FrameBuffer;
 import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.post.passes.AntiAliasingPass;
+import de.skyengine.graphics.post.passes.BloomPass;
 import de.skyengine.graphics.post.passes.ColorGradingPass;
 import de.skyengine.graphics.post.passes.MenuBlurPass;
 import org.joml.Vector2f;
@@ -22,10 +23,10 @@ import java.util.List;
 
 /**
  * Besitzer der Post-Processing-Kette: hält {@link PostContext}, Settings-UBO und die
- * geordnete {@link PostPass}-Liste (Phase 1: ColorGrading → AntiAliasing). Verkettung:
+ * geordnete {@link PostPass}-Liste (Bloom → ColorGrading → AntiAliasing). Verkettung:
  * Eingang des ersten Passes ist die aufgelöste Szene ({@code sceneColor}), inaktive Pässe
  * werden übersprungen, der letzte aktive Pass schreibt in den Default-Framebuffer, alle
- * davor in die LDR-Ping-Pong-Ziele des Contexts. Spätere Pässe (Bloom, AutoExposure,
+ * davor in die HDR-Ping-Pong-Ziele des Contexts. Spätere Pässe (AutoExposure,
  * LUT — nach Grading/vor AA —, SSR) werden nur in die Liste eingefügt.
  *
  * <p>Läuft NACH dem Welt-Pass und VOR der GUI — die GUI durchläuft die Kette nie
@@ -85,6 +86,9 @@ public class PostProcessor implements IDisposable {
         this.context.settings = this.settings;
         this.context.create(width, height);
 
+        /* Bloom runs in linear HDR. Color grading performs the HDR-to-display
+           conversion afterwards; anti-aliasing remains display-referred. */
+        this.passes.add(new BloomPass());
         this.passes.add(new ColorGradingPass());
         this.passes.add(new AntiAliasingPass());
         /* Menü-Blur als LETZTER Pass: nur aktiv bei offenem Pause-Menü (Stärke > 0) —

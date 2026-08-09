@@ -267,7 +267,12 @@ public final class SkyRenderer {
                 physicalSky = mix(vec3(skyLuminance), physicalSky, 0.52);
                 float night = 1.0 - smoothstep(-0.18, 0.06, sun.y);
                 float zenith = pow(clamp(elevation, 0.0, 1.0), 0.35);
-                vec3 nightSky = mix(u_NightSky * 1.9, u_NightSky, zenith);
+                vec3 nightSky = mix(u_NightSky * 1.55, u_NightSky, zenith);
+                // Photon keeps a desaturated aerosol veil above distant terrain even at
+                // midnight. This is view-height dependent, not a brighter blue horizon.
+                float nightHorizon = exp(-max(elevation, 0.0) * 4.8);
+                vec3 nightHaze = vec3(0.115, 0.126, 0.148);
+                nightSky = mix(nightSky, nightHaze, nightHorizon * 0.72);
                 float dayVisibility = smoothstep(-0.12, 0.04, sun.y);
                 float noon = smoothstep(0.35, 0.82, sun.y);
 
@@ -406,17 +411,18 @@ public final class SkyRenderer {
                 float moonTexture = clamp(0.54 + 0.32 * coarse
                         + 0.14 * fine - 0.18 * smoothstep(0.62, 0.82, maria), 0.26, 1.0);
                 float edgeGlow = pow(clamp(length(moonUv), 0.0, 1.0), 8.0);
-                vec3 litMoon = vec3(0.82, 0.87, 1.0) * moonShadow
+                vec3 litMoon = vec3(1.34, 1.41, 1.52) * moonShadow
                         * (1.0 + 0.32 * edgeGlow);
                 vec3 darkMoon = vec3(0.020, 0.030, 0.050) * (0.55 + 0.45 * edgeGlow);
                 vec3 moonColor = max(litMoon, darkMoon) * moonTexture * u_MoonIntensity;
                 float moonVisible = moonDisc * smoothstep(-0.08, 0.02, moon.y);
                 sky = mix(sky, moonColor, moonVisible);
                 float moonRadiusUnits = moonDistance / MOON_RADIUS;
-                float moonHalo = (0.24 * exp(-moonRadiusUnits * moonRadiusUnits * 0.13)
-                        + 0.07 * exp(-moonRadiusUnits * 0.34))
+                // Narrow atmospheric aureole; the broad HDR halo is produced by BloomPass.
+                float moonHalo = (0.18 * exp(-moonRadiusUnits * moonRadiusUnits * 0.10)
+                        + 0.045 * exp(-moonRadiusUnits * 0.22))
                         * smoothstep(-0.08, 0.02, moon.y) * (1.0 - moonDisc);
-                sky += vec3(0.48, 0.58, 0.78) * moonHalo * u_MoonIntensity;
+                sky += vec3(0.58, 0.67, 0.84) * moonHalo * u_MoonIntensity;
 
                 float a = u_DayFraction * 6.2831853;
                 vec3 starDir = vec3(cos(a) * direction.x - sin(a) * direction.z, direction.y,
@@ -430,7 +436,9 @@ public final class SkyRenderer {
                 vec3 stars = stableStarField(starCoordinate, starThreshold);
                 stars *= smoothstep(-0.10, 0.10, elevation) * u_SkyTint.w
                         * (1.0 - moonDisc);
-                sky += stars * 0.20;
+                // A squared core retains sub-pixel definition under TAA and stays below the
+                // bloom threshold, matching Photon's crisp stars instead of fuzzy dots.
+                sky += stars * stars * 0.34;
                 fragColor = vec4(max(sky, vec3(0.0)), 1.0);
             }
             """;

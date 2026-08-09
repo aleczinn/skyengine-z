@@ -34,9 +34,11 @@ public final class EnvironmentState {
                 mix(0.56F, 1F, this.daylight),
                 mix(0.66F, 1F, this.daylight),
                 mix(0.92F, 1F, this.daylight));
-        float fogR = mix(profile.nightSkyR() * 1.6F, 0.78F, this.daylight);
-        float fogG = mix(profile.nightSkyG() * 1.6F, 0.84F, this.daylight);
-        float fogB = mix(profile.nightSkyB() * 1.6F, 0.89F, this.daylight);
+        /* Moonlit air is grey-blue rather than the saturated zenith colour. Keeping this
+           separate from nightSky creates the Photon-like veil over distant terrain. */
+        float fogR = mix(0.105F, 0.78F, this.daylight);
+        float fogG = mix(0.116F, 0.84F, this.daylight);
+        float fogB = mix(0.140F, 0.89F, this.daylight);
         float warm = twilight * 0.62F;
         this.fogColor.set(mix(fogR, 0.94F, warm), mix(fogG, 0.48F, warm),
                 mix(fogB, 0.17F, warm)).mul(biome.fogR(), biome.fogG(), biome.fogB());

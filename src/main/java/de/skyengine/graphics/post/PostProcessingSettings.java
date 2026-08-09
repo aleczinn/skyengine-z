@@ -2,6 +2,8 @@ package de.skyengine.graphics.post;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -22,6 +24,8 @@ import java.io.FileWriter;
  * <p>Alle Defaults sind neutral: die Kette ist dann ein reiner Copy (Look unverändert).
  */
 public final class PostProcessingSettings {
+
+    private static final int CURRENT_SCHEMA = 1;
 
     private static final Logger LOGGER = LogManager.getLogger(PostProcessingSettings.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -80,10 +84,10 @@ public final class PostProcessingSettings {
        holt von der zeitlichen Mittelung weggeglättetes Mip-Detail zurück). */
     private float taaMipBias = -0.5F;
 
-    /* --- Reserviert: Pässe existieren noch nicht (Bloom/Vignette/Sharpen kommen später,
-           die Felder sind bereits ladbar/setzbar, werden aber von keinem Pass gelesen) --- */
-    private float bloomIntensity = 0.0F;
-    private float bloomThreshold = 1.0F;
+    /* --- Bloom aktiv; Vignette/Sharpen bleiben als spätere Pipeline-Slots reserviert. --- */
+    private int schema = CURRENT_SCHEMA;
+    private float bloomIntensity = 0.58F;
+    private float bloomThreshold = 0.72F;
     private float vignette = 0.0F;
     private float sharpen = 0.0F;
 
@@ -94,9 +98,13 @@ public final class PostProcessingSettings {
     public static PostProcessingSettings load() {
         if (FILE.exists()) {
             try (FileReader r = new FileReader(FILE)) {
-                PostProcessingSettings s = GSON.fromJson(r, PostProcessingSettings.class);
+                JsonObject json = JsonParser.parseReader(r).getAsJsonObject();
+                PostProcessingSettings s = GSON.fromJson(json, PostProcessingSettings.class);
                 if (s != null) {
+                    boolean legacy = !json.has("schema");
+                    if (legacy) s.schema = 0;
                     s.sanitize();
+                    if (legacy) s.saveDefaults();
                     s.dirty = true;
                     LOGGER.info("Post-Processing-Einstellungen geladen: " + FILE.getPath());
                     return s;
@@ -148,12 +156,20 @@ public final class PostProcessingSettings {
         this.taaMipBias = fresh.taaMipBias;
         this.bloomIntensity = fresh.bloomIntensity;
         this.bloomThreshold = fresh.bloomThreshold;
+        this.schema = fresh.schema;
         this.vignette = fresh.vignette;
         this.sharpen = fresh.sharpen;
         this.dirty = true;
     }
 
     private void sanitize() {
+        /* Bloom fields existed before the pass did and were therefore saved as zero.
+           Missing schema marks exactly those legacy developer configs. */
+        if (this.schema < CURRENT_SCHEMA) {
+            this.bloomIntensity = 0.58F;
+            this.bloomThreshold = 0.72F;
+            this.schema = CURRENT_SCHEMA;
+        }
         if (this.tonemapOperator == null) this.tonemapOperator = TonemapOperator.NONE;
         if (this.aaMode == null) this.aaMode = AntiAliasingMode.NONE;
         if (this.debugMode == null) this.debugMode = PostDebugMode.NONE;
@@ -163,6 +179,8 @@ public final class PostProcessingSettings {
         this.contrast = Math.max(0F, this.contrast);
         this.taaHistoryWeight = Math.clamp(this.taaHistoryWeight, 0F, 0.98F);
         this.taaMipBias = Math.clamp(this.taaMipBias, -2F, 0F);
+        this.bloomIntensity = Math.clamp(this.bloomIntensity, 0F, 4F);
+        this.bloomThreshold = Math.max(0F, this.bloomThreshold);
         this.sharpen = Math.clamp(this.sharpen, 0F, 1F); // CAS-Stärke
     }
 
