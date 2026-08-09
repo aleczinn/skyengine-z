@@ -34,12 +34,12 @@ public final class EnvironmentState {
                 mix(0.56F, 1F, this.daylight),
                 mix(0.66F, 1F, this.daylight),
                 mix(0.92F, 1F, this.daylight));
-        float fogR = mix(profile.nightSkyR() * 1.5F, 0.72F, this.daylight);
-        float fogG = mix(profile.nightSkyG() * 1.5F, 0.83F, this.daylight);
-        float fogB = mix(profile.nightSkyB() * 1.5F, 0.94F, this.daylight);
-        float warm = twilight * 0.52F;
-        this.fogColor.set(mix(fogR, 0.96F, warm), mix(fogG, 0.40F, warm),
-                mix(fogB, 0.12F, warm)).mul(biome.fogR(), biome.fogG(), biome.fogB());
+        float fogR = mix(profile.nightSkyR() * 1.6F, 0.78F, this.daylight);
+        float fogG = mix(profile.nightSkyG() * 1.6F, 0.84F, this.daylight);
+        float fogB = mix(profile.nightSkyB() * 1.6F, 0.89F, this.daylight);
+        float warm = twilight * 0.62F;
+        this.fogColor.set(mix(fogR, 0.94F, warm), mix(fogG, 0.48F, warm),
+                mix(fogB, 0.17F, warm)).mul(biome.fogR(), biome.fogG(), biome.fogB());
         this.skyTint.set(biome.skyR(), biome.skyG(), biome.skyB());
         this.fogDensity = profile.fogDensity() * biome.fogDensityMultiplier();
         this.starIntensity = profile.starIntensity() * this.night;
