@@ -27,17 +27,18 @@ public final class EnvironmentState {
         this.night = DayNightCycle.night(dayTime);
         this.skyIntensity = DayNightCycle.skyIntensity(dayTime);
 
-        float twilight = (1F - smoothstep(0.08F, 0.55F, this.daylight))
-                * smoothstep(0.02F, 0.45F, this.daylight);
+        float sunElevation = this.sunDirection.y;
+        float twilight = (1F - smoothstep(0.02F, 0.40F, Math.abs(sunElevation)))
+                * smoothstep(-0.16F, 0.02F, sunElevation);
         this.skyLightColor.set(
-                mix(0.48F, 1F, this.daylight),
-                mix(0.58F, 1F, this.daylight),
-                mix(0.88F, 1F, this.daylight));
-        float fogR = mix(profile.nightSkyR(), 0.50F, this.daylight);
-        float fogG = mix(profile.nightSkyG(), 0.72F, this.daylight);
-        float fogB = mix(profile.nightSkyB(), 0.96F, this.daylight);
-        float warm = twilight * 0.38F;
-        this.fogColor.set(mix(fogR, 1F, warm), mix(fogG, 0.38F, warm),
+                mix(0.56F, 1F, this.daylight),
+                mix(0.66F, 1F, this.daylight),
+                mix(0.92F, 1F, this.daylight));
+        float fogR = mix(profile.nightSkyR() * 1.5F, 0.72F, this.daylight);
+        float fogG = mix(profile.nightSkyG() * 1.5F, 0.83F, this.daylight);
+        float fogB = mix(profile.nightSkyB() * 1.5F, 0.94F, this.daylight);
+        float warm = twilight * 0.52F;
+        this.fogColor.set(mix(fogR, 0.96F, warm), mix(fogG, 0.40F, warm),
                 mix(fogB, 0.12F, warm)).mul(biome.fogR(), biome.fogG(), biome.fogB());
         this.skyTint.set(biome.skyR(), biome.skyG(), biome.skyB());
         this.fogDensity = profile.fogDensity() * biome.fogDensityMultiplier();

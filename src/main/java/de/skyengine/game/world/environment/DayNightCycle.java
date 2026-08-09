@@ -47,9 +47,9 @@ public final class DayNightCycle {
         return (float) Math.sin(angle);
     }
 
-    /** Sichtbarer Himmelslichtanteil: voller Tag, weiche Daemmerung, Restlicht des Mondes. */
+    /** Sichtbarer Himmelslichtanteil: voller Tag, weiche Daemmerung, blaues Restlicht des Mondes. */
     public static float skyIntensity(double time) {
-        return 0.10F + 0.90F * smoothstep(-0.10F, 0.22F, sunElevation(time));
+        return 0.16F + 0.84F * smoothstep(-0.10F, 0.22F, sunElevation(time));
     }
 
     public static float daylight(double time) {

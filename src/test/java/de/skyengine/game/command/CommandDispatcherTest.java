@@ -91,6 +91,16 @@ final class CommandDispatcherTest {
         assertEquals(500.0, TimeCommand.parseDuration("30m"), 0.000001);
     }
 
+    @Test
+    void timeSpeedCommandHasDirectAutocompleteAndHint() {
+        CommandDispatcher dispatcher = dispatcher();
+        dispatcher.register(new TimeSpeedCommand());
+        CommandContext context = new CommandContext(new SimpleItemStorage(1));
+
+        assertEquals(List.of("/timespeed"), dispatcher.suggest(context, "/times"));
+        assertEquals(" <factor>", dispatcher.hint("/timespeed"));
+    }
+
     private static CommandDispatcher dispatcher() {
         CommandDispatcher dispatcher = new CommandDispatcher();
         dispatcher.register(new GiveCommand());

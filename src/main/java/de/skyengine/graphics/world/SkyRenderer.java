@@ -190,14 +190,21 @@ public final class SkyRenderer {
                 vec3 rayleigh = u_Rayleigh * rayleighPhase * opticalDepth;
                 float mie = u_MieStrength * phaseMie(mu, u_MieG) * opticalDepth;
                 float dayVisibility = smoothstep(-0.12, 0.08, u_SunDirection.y);
-                vec3 scattered = (rayleigh + vec3(mie)) * u_SkyLightColor.rgb;
-                vec3 sky = mix(u_NightSky, scattered, dayVisibility);
-                sky = mix(sky, u_EnvFogColor.rgb, horizon * (0.42 + 0.38 * dayVisibility));
+                float zenith = pow(clamp(elevation, 0.0, 1.0), 0.38);
+                vec3 dayBase = mix(vec3(0.72, 0.84, 0.98), vec3(0.30, 0.58, 0.96), zenith);
+                vec3 daySky = dayBase + (rayleigh * 0.20 + vec3(mie * 0.10)) * u_SkyLightColor.rgb;
+                vec3 nightSky = mix(u_NightSky * 1.65, u_NightSky, zenith);
+                vec3 sky = mix(nightSky, daySky, dayVisibility);
+                sky = mix(sky, u_EnvFogColor.rgb, horizon * (0.22 + 0.28 * dayVisibility));
                 sky *= u_SkyTint.rgb;
-                float twilight = (1.0 - smoothstep(0.08, 0.38, abs(u_SunDirection.y)))
-                        * smoothstep(-0.16, 0.03, u_SunDirection.y);
-                sky += vec3(1.0, 0.18, 0.035) * pow(max(mu, 0.0), 7.0) * twilight * 0.9;
-                sky = mix(sky, u_EnvFogColor.rgb * 0.38,
+                float twilight = (1.0 - smoothstep(0.02, 0.40, abs(u_SunDirection.y)))
+                        * smoothstep(-0.16, 0.02, u_SunDirection.y);
+                float sunsetBand = exp(-abs(elevation) * 4.0);
+                float sunsetForward = 0.18 + 0.82 * pow(max(mu, 0.0), 2.0);
+                float sunset = twilight * sunsetBand * sunsetForward;
+                sky = mix(sky, vec3(1.0, 0.32, 0.055), sunset * 0.72);
+                sky += vec3(1.0, 0.46, 0.12) * twilight * pow(max(mu, 0.0), 18.0) * 0.10;
+                sky = mix(sky, u_EnvFogColor.rgb * 0.48,
                         1.0 - smoothstep(-0.22, 0.0, elevation));
                 fragColor = vec4(max(sky, vec3(0.0)), 1.0);
             }
@@ -237,9 +244,9 @@ public final class SkyRenderer {
                 float elevation = direction.y;
                 float mu = dot(direction, sun);
                 vec3 sky = texture(u_SkyView, vec2(mu * 0.5 + 0.5, elevation * 0.5 + 0.5)).rgb;
-                float sunDisc = smoothstep(0.999965, 0.999992, mu) * smoothstep(-0.06, 0.01, sun.y);
-                float corona = pow(max(mu, 0.0), 480.0) * smoothstep(-0.10, 0.02, sun.y);
-                sky += vec3(1.0, 0.83, 0.58) * (sunDisc * u_SunIntensity + corona * 1.7);
+                float sunDisc = smoothstep(0.999987, 0.999996, mu) * smoothstep(-0.06, 0.01, sun.y);
+                float corona = pow(max(mu, 0.0), 2000.0) * smoothstep(-0.10, 0.02, sun.y);
+                sky += vec3(1.0, 0.86, 0.64) * (sunDisc * u_SunIntensity + corona * 0.85);
 
                 float moonMu = dot(direction, moon);
                 float moonDisc = smoothstep(0.99993, 0.999975, moonMu);
@@ -256,9 +263,9 @@ public final class SkyRenderer {
                 float a = u_DayFraction * 6.2831853;
                 vec3 starDir = vec3(cos(a) * direction.x - sin(a) * direction.z, direction.y,
                                     sin(a) * direction.x + cos(a) * direction.z);
-                vec3 cell = floor(starDir * 520.0);
+                vec3 cell = floor(starDir * 460.0);
                 float random = hash13(cell);
-                float stars = smoothstep(0.99815, 0.99995, random);
+                float stars = smoothstep(0.99915, 0.99998, random);
                 stars *= 0.45 + 0.55 * hash13(cell + 17.0);
                 stars *= smoothstep(-0.08, 0.14, elevation) * u_SkyTint.w * (1.0 - moonDisc);
                 sky += vec3(0.72, 0.82, 1.0) * stars;

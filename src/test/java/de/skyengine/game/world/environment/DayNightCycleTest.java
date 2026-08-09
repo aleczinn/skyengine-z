@@ -31,7 +31,7 @@ final class DayNightCycleTest {
         assertTrue(sun.y > 0.95F);
         assertEquals(-1F, sun.dot(moon), 0.00001F);
         assertEquals(1F, DayNightCycle.skyIntensity(6_000), 0.00001F);
-        assertEquals(0.10F, DayNightCycle.skyIntensity(18_000), 0.00001F);
+        assertEquals(0.16F, DayNightCycle.skyIntensity(18_000), 0.00001F);
         float before = DayNightCycle.skyIntensity(-500);
         float sunrise = DayNightCycle.skyIntensity(0);
         float after = DayNightCycle.skyIntensity(500);

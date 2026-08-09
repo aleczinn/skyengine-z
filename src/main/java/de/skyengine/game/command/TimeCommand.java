@@ -47,7 +47,7 @@ public final class TimeCommand implements Command {
             case "add" -> this.add(world, arguments);
             case "query" -> arguments.size() == 1 ? query(world)
                     : CommandResult.error(I18n.tr("command.time.usage"));
-            case "speed" -> this.speed(world, arguments);
+            case "speed" -> speed(world, arguments);
             default -> CommandResult.error(I18n.tr("command.time.usage"));
         };
     }
@@ -74,8 +74,12 @@ public final class TimeCommand implements Command {
                 DayNightCycle.formatClock(world.getDayTime())));
     }
 
-    private CommandResult speed(World world, List<String> arguments) {
-        if (arguments.size() != 2) return CommandResult.error(I18n.tr("command.time.speed_usage"));
+    static CommandResult speed(World world, List<String> arguments) {
+        return speed(world, arguments, "command.time.speed_usage");
+    }
+
+    static CommandResult speed(World world, List<String> arguments, String usageKey) {
+        if (arguments.size() != 2) return CommandResult.error(I18n.tr(usageKey));
         try {
             double speed = Double.parseDouble(arguments.get(1));
             if (!Double.isFinite(speed) || speed < 0 || speed > 1000) throw new NumberFormatException();

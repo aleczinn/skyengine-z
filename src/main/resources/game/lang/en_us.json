@@ -181,6 +181,9 @@
       "add_success": "Added %.2f ticks. New time: %s.",
       "speed_success": "Set time speed to %.2f.",
       "query_success": "Time: %s (%d ticks), day %d, speed %.2f."
+    },
+    "timespeed": {
+      "usage": "Usage: /timespeed <0–1000>"
     }
   },
 

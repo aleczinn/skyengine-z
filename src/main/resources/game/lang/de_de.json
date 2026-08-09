@@ -189,6 +189,9 @@
       "add_success": "%.2f Ticks addiert. Neue Zeit: %s.",
       "speed_success": "Zeitfaktor auf %.2f gesetzt.",
       "query_success": "Zeit: %s (%d Ticks), Tag %d, Faktor %.2f."
+    },
+    "timespeed": {
+      "usage": "Verwendung: /timespeed <0–1000>"
     }
   },
 
