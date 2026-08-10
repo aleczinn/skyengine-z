@@ -20,9 +20,8 @@ import java.nio.ByteBuffer;
  *   <li><b>MSAA = 0:</b> Color (RGBA16F) und Depth (DEPTH_COMPONENT32F) sind direkt
  *       <b>Texturen</b> — sample-bar für Post-Pässe; {@link #resolve()} ist ein No-op.</li>
  *   <li><b>MSAA &gt; 0:</b> Multisample-Renderbuffer wie früher (Color ebenfalls RGBA16F,
- *       damit HDR-Werte den Resolve überleben) plus ein Resolve-FBO mit RGBA16F-Textur;
- *       {@link #resolve()} blittet MS → Textur. Eine Depth-<b>Textur</b> existiert in
- *       diesem Modus NICHT (depth-lesende Post-Effekte laufen später ohne MSAA).</li>
+ *       damit HDR-Werte den Resolve überleben) plus ein Resolve-FBO mit RGBA16F-Farbe und
+ *       DEPTH_COMPONENT32F; {@link #resolve()} blittet beide Attachments MS → Textur.</li>
  * </ul>
  * RGBA16F speichert heute dieselben [0,1]-Werte wie vorher RGBA8 — der HDR-Headroom wird
  * erst mit dem Licht-Merge real genutzt.
@@ -41,8 +40,13 @@ public class FrameBuffer implements IDisposable {
     private int depthRbo;
     private int resolveFbo;
 
-    /* Sample-bare Ziele: colorTexture ist bei MSAA=0 direktes Attachment, sonst Resolve-Ziel.
-       depthTexture existiert nur bei MSAA=0. */
+    /* Unveränderter Stand direkt vor dem Translucent-Pass. Wasser darf das aktuell
+       gebundene Szene-Attachment nicht gleichzeitig lesen und beschreiben (Feedback-UB). */
+    private int opaqueFbo;
+    private int opaqueColorTexture;
+    private int opaqueDepthTexture;
+
+    /* Sample-bare Ziele: colorTexture ist bei MSAA=0 direktes Attachment, sonst Resolve-Ziel. */
     private int colorTexture;
     private int depthTexture;
 
@@ -109,8 +113,26 @@ public class FrameBuffer implements IDisposable {
                     GL11.GL_LINEAR, width, height);
             GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
                     GL11.GL_TEXTURE_2D, this.colorTexture, 0);
+            this.depthTexture = this.createTexture(GL30.GL_DEPTH_COMPONENT32F, GL11.GL_DEPTH_COMPONENT,
+                    GL11.GL_FLOAT, GL11.GL_NEAREST, width, height);
+            GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT,
+                    GL11.GL_TEXTURE_2D, this.depthTexture, 0);
             this.checkStatus("Resolve");
         }
+
+        /* Opaque-Snapshot für pack-gesteuerte Refraction/SSR. Er existiert in beiden
+           AA-Pfaden; bei MSAA wird beim Blit zugleich auf ein Sample aufgelöst. */
+        this.opaqueFbo = GL30.glGenFramebuffers();
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.opaqueFbo);
+        this.opaqueColorTexture = this.createTexture(GL30.GL_RGBA16F, GL11.GL_RGBA,
+                GL30.GL_HALF_FLOAT, GL11.GL_LINEAR, width, height);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
+                GL11.GL_TEXTURE_2D, this.opaqueColorTexture, 0);
+        this.opaqueDepthTexture = this.createTexture(GL30.GL_DEPTH_COMPONENT32F, GL11.GL_DEPTH_COMPONENT,
+                GL11.GL_FLOAT, GL11.GL_NEAREST, width, height);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT,
+                GL11.GL_TEXTURE_2D, this.opaqueDepthTexture, 0);
+        this.checkStatus("Opaque-Snapshot");
 
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
 
@@ -168,13 +190,34 @@ public class FrameBuffer implements IDisposable {
         int width = this.config.getWindowWidth(), height = this.config.getWindowHeight();
         if (this.properties.isUseDirectStateAccess()) {
             ARBDirectStateAccess.glBlitNamedFramebuffer(this.id, this.resolveFbo,
-                    0, 0, width, height, 0, 0, width, height, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
+                    0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
         } else {
             GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, this.id);
             GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, this.resolveFbo);
-            GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
+            GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
         }
+    }
+
+    /**
+     * Friert Farbe und Tiefe des bislang gerenderten Weltbildes für Wasser-Refraction ein.
+     * Danach ist wieder das Szene-FBO gebunden.
+     */
+    public void captureOpaque() {
+        int width = this.config.getWindowWidth(), height = this.config.getWindowHeight();
+        if (this.properties.isUseDirectStateAccess()) {
+            ARBDirectStateAccess.glBlitNamedFramebuffer(this.id, this.opaqueFbo,
+                    0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
+        } else {
+            GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, this.id);
+            GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, this.opaqueFbo);
+            GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
+        }
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.id);
     }
 
     /**
@@ -196,6 +239,14 @@ public class FrameBuffer implements IDisposable {
         return this.depthTexture;
     }
 
+    public int getOpaqueColorTexture() {
+        return this.opaqueColorTexture;
+    }
+
+    public int getOpaqueDepthTexture() {
+        return this.opaqueDepthTexture;
+    }
+
     /**
      * Aktive MSAA-Sample-Zahl (0 = aus).
      */
@@ -209,17 +260,23 @@ public class FrameBuffer implements IDisposable {
 
         GL30.glDeleteFramebuffers(this.id);
         if (this.resolveFbo != 0) GL30.glDeleteFramebuffers(this.resolveFbo);
+        if (this.opaqueFbo != 0) GL30.glDeleteFramebuffers(this.opaqueFbo);
         if (this.colorRbo != 0 || this.depthRbo != 0) {
             GL30.glDeleteRenderbuffers(new int[]{this.colorRbo, this.depthRbo});
         }
         if (this.colorTexture != 0) GL11.glDeleteTextures(this.colorTexture);
         if (this.depthTexture != 0) GL11.glDeleteTextures(this.depthTexture);
+        if (this.opaqueColorTexture != 0) GL11.glDeleteTextures(this.opaqueColorTexture);
+        if (this.opaqueDepthTexture != 0) GL11.glDeleteTextures(this.opaqueDepthTexture);
 
         this.id = 0;
         this.resolveFbo = 0;
+        this.opaqueFbo = 0;
         this.colorRbo = 0;
         this.depthRbo = 0;
         this.colorTexture = 0;
         this.depthTexture = 0;
+        this.opaqueColorTexture = 0;
+        this.opaqueDepthTexture = 0;
     }
 }

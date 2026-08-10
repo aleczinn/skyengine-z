@@ -9,6 +9,7 @@ import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
 import de.skyengine.graphics.shaderpack.ShaderPack;
 import de.skyengine.graphics.shaderpack.ShaderPackManager;
+import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL30;
@@ -22,6 +23,10 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
     private ShaderPackManager manager;
     private ShaderProgram program;
     private int fluid;
+    private int waterShadowTexture;
+    private int waterNoiseTexture;
+    private final Matrix4f waterLightMatrix = new Matrix4f();
+    private long animationStartNanos = System.nanoTime();
 
     @Override
     public void init(PostContext context) {
@@ -37,6 +42,10 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
                 new Shader(pack.program("fluid_fog"), ShaderType.FRAGMENT));
         candidate.bind();
         candidate.setUniformi("u_Scene", 0);
+        candidate.setUniformi("u_Depth", 1);
+        candidate.setUniformi("u_WaterNoise", 2);
+        candidate.setUniformi("u_WaterShadow", 3);
+        candidate.setUniformi("u_WorldDepth", 4);
         candidate.unbind();
         return new PreparedProgram(candidate);
     }
@@ -52,6 +61,16 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
         this.fluid = Math.clamp(fluid, NONE, LAVA);
     }
 
+    public int fluid() {
+        return this.fluid;
+    }
+
+    public void setWaterLightMap(int shadowTexture, Matrix4f lightMatrix, int noiseTexture) {
+        this.waterShadowTexture = shadowTexture;
+        this.waterNoiseTexture = noiseTexture;
+        this.waterLightMatrix.set(lightMatrix);
+    }
+
     @Override
     public boolean isActive(PostContext context) {
         return this.fluid != NONE;
@@ -61,11 +80,27 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
     public void execute(PostContext context) {
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.targetFbo);
         this.program.bind();
+        this.manager.applySettings(this.program);
         this.program.setUniformi("u_Fluid", this.fluid);
+        this.program.setUniformMatrix4f("u_InvProjectionView", context.invProjView);
+        this.program.setUniformMatrix4f("u_WaterLightProjection", this.waterLightMatrix);
+        this.program.setUniformVector2f("u_Viewport", context.width, context.height);
+        this.program.setUniformf("u_Time", (System.nanoTime() - this.animationStartNanos) * 1.0e-9F);
+        this.program.setUniformf("u_ZeroToOneDepth",
+                SkyEngine.get().getWindow().getProperties().isUseInverseDepth() ? 1F : 0F);
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
+        GL13.glActiveTexture(GL13.GL_TEXTURE1);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.sceneDepth);
+        GL13.glActiveTexture(GL13.GL_TEXTURE2);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.waterNoiseTexture);
+        GL13.glActiveTexture(GL13.GL_TEXTURE3);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.waterShadowTexture);
+        GL13.glActiveTexture(GL13.GL_TEXTURE4);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.worldDepth);
         context.drawFullscreenTriangle();
         this.program.unbind();
+        GL13.glActiveTexture(GL13.GL_TEXTURE0);
     }
 
     @Override

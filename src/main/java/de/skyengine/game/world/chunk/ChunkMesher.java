@@ -227,8 +227,8 @@ public class ChunkMesher {
         /* Pass 1: Greedy Meshing für opake Full-Cube-Faces */
         this.greedyPass(baseY);
 
-        /* Pass 1.5: flach-stille Wasser-Tops (Meeresoberfläche) greedy zu großen TRANSLUCENT-Quads
-           zusammenfassen; markiert die betroffenen Zellen für Pass 2. */
+        /* Pass 1.5: flach-stille Wasser-Tops (Meeresoberfläche) als durchgängiges
+           1-Block-Raster emittieren; markiert die betroffenen Zellen für Pass 2. */
         this.waterTopPass(baseY);
 
         /* Pass 2: alles andere (Fluids, Cross, Slabs, Stairs, ... sowie Cubes mit un-greedy-baren
@@ -480,25 +480,21 @@ public class ChunkMesher {
     }
 
     /**
-     * Pass 1.5: fasst benachbarte, flach-stille Fluid-Quell-Tops (typisch die Meeresoberfläche)
-     * pro y-Slice zu großen Quads zusammen (Textur kachelt über UV &gt; 1, wie im Greedy-Pass) und
-     * emittiert sie in den TRANSLUCENT-Layer. Merge-Schlüssel = State-ID (trennt Wasser/Lava und
-     * unterschiedliche Level automatisch — mergefähig ist ohnehin nur Level 0). Betroffene Zellen
-     * werden in {@link #mergedWaterTop} markiert, damit {@link FluidGeometry#build} ihr Top auslässt.
-     * Boden, Seiten und fließende/schräge Tops bleiben in Pass 2.
+     * Pass 1.5: emittiert flach-stille Fluid-Quell-Tops (typisch die Meeresoberfläche)
+     * auf einem weltweiten 1-Block-Raster. Große Greedy-Quads sind hier absichtlich verboten:
+     * Vertex-Wellen verformen nur deren vier Ecken, wodurch an T-Verbindungen zwischen
+     * unterschiedlich großen Quads offene Nähte und innerhalb eines Quads sichtbare
+     * Dreiecksdiagonalen entstehen. Das feste Raster gibt beiden Seiten jeder Block- und
+     * Chunkkante exakt dieselben Stützpunkte. Betroffene Zellen werden in
+     * {@link #mergedWaterTop} markiert, damit {@link FluidGeometry#build} ihr Top auslässt.
      */
     private void waterTopPass(int baseY) {
         Arrays.fill(this.mergedWaterTop, false);
         VertexBuffer buffer = this.buffers[RenderLayer.TRANSLUCENT.ordinal()];
-        long[] grid = this.keyGrid;
         int size = ChunkSection.SIZE;
 
         for (int y = 0; y < size; y++) {
             int worldY = baseY + y;
-            Arrays.fill(grid, 0L);
-            boolean any = false;
-
-            /* Mergefähige flach-stille Tops der Slice einsammeln */
             for (int z = 0; z < size; z++) {
                 for (int x = 0; x < size; x++) {
                     int stateId = this.haloBlocks[haloIndex(x, y, z)];
@@ -507,37 +503,8 @@ public class ChunkMesher {
                     if (!state.isFluid()) continue;
                     if (!FluidGeometry.isMergeableFlatStillTop(state, this.chunk, this.north, this.south,
                             this.west, this.east, this.diagonals, x, worldY, z)) continue;
-                    grid[z << ChunkSection.SHIFT | x] = ((long) stateId) + 1L; // +1: 0 bleibt „leer"
                     this.mergedWaterTop[snapIndex(x, y, z)] = true;
-                    any = true;
-                }
-            }
-            if (!any) continue;
-
-            /* Mergen: Breite zuerst, dann Höhe (klassisches Greedy, s. greedyPass) */
-            for (int z = 0; z < size; z++) {
-                for (int x = 0; x < size; x++) {
-                    long key = grid[z << ChunkSection.SHIFT | x];
-                    if (key == 0L) continue;
-
-                    int w = 1;
-                    while (x + w < size && grid[z << ChunkSection.SHIFT | (x + w)] == key) w++;
-
-                    int h = 1;
-                    expand:
-                    while (z + h < size) {
-                        for (int i = 0; i < w; i++) {
-                            if (grid[(z + h) << ChunkSection.SHIFT | (x + i)] != key) break expand;
-                        }
-                        h++;
-                    }
-
-                    for (int j = 0; j < h; j++) {
-                        for (int i = 0; i < w; i++) grid[(z + j) << ChunkSection.SHIFT | (x + i)] = 0L;
-                    }
-
-                    this.emitWaterTop(buffer, (int) (key - 1L), x, y, worldY, z, w, h);
-                    x += w - 1;
+                    this.emitWaterTop(buffer, stateId, x, y, worldY, z, 1, 1);
                 }
             }
         }

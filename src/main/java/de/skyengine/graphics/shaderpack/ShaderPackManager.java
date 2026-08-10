@@ -6,6 +6,7 @@ import de.skyengine.core.file.GameDirectory;
 import de.skyengine.core.io.IDisposable;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
+import de.skyengine.graphics.shader.ShaderProgram;
 
 import java.io.File;
 import java.io.FileReader;
@@ -33,18 +34,52 @@ public final class ShaderPackManager implements IDisposable {
     private final List<Participant> participants = new ArrayList<>();
     private final ShaderPackLoader loader = new ShaderPackLoader();
     private ShaderPack active;
+    private Config config;
     private boolean reloadRequested;
     private String requestedPack;
 
     public record PackOption(String id, String name) {}
 
     public void init() {
+        this.config = readConfig();
         this.active = loadConfigured();
         LOGGER.info("Shader-Pack aktiv: " + this.active.manifest().id);
     }
 
     public ShaderPack active() {
         return this.active;
+    }
+
+    public List<ShaderPackManifest.Setting> activeSettings() {
+        return this.active.manifest().settings;
+    }
+
+    public double settingValue(ShaderPackManifest.Setting setting) {
+        Map<String, Double> values = this.config.packSettings.get(this.active.manifest().id);
+        double value = values != null ? values.getOrDefault(setting.key, setting.defaultValue)
+                : setting.defaultValue;
+        return Math.clamp(value, setting.min, setting.max);
+    }
+
+    public void setSettingValue(ShaderPackManifest.Setting setting, double value) {
+        double snapped = setting.min
+                + Math.round((Math.clamp(value, setting.min, setting.max) - setting.min) / setting.step)
+                * setting.step;
+        this.config.packSettings.computeIfAbsent(this.active.manifest().id,
+                ignored -> new LinkedHashMap<>()).put(setting.key,
+                Math.clamp(snapped, setting.min, setting.max));
+    }
+
+    /** Lädt alle vom aktiven Pack deklarierten Optionen in das gerade gebundene Programm. */
+    public void applySettings(ShaderProgram program) {
+        for (ShaderPackManifest.Setting setting : this.active.manifest().settings) {
+            int location = program.getUniformLocation(setting.uniform);
+            if (location >= 0) program.setUniformf(location, (float) this.settingValue(setting));
+        }
+    }
+
+    public void saveSettings() {
+        saveConfig(this.active.manifest().id);
     }
 
     public void register(Participant participant) {
@@ -74,7 +109,7 @@ public final class ShaderPackManager implements IDisposable {
     /** Eingebautes Vanilla-Pack plus valide externe Verzeichnisse, stabil alphabetisch. */
     public List<PackOption> availablePacks() {
         Map<String, PackOption> packs = new LinkedHashMap<>();
-        ShaderPack builtin = this.loader.load("photon");
+        ShaderPack builtin = this.loader.load("vibrant_visuals");
         packs.put(builtin.manifest().id,
                 new PackOption(builtin.manifest().id, builtin.manifest().name));
         Path root = ShaderPack.externalDirectory().toPath();
@@ -135,13 +170,16 @@ public final class ShaderPackManager implements IDisposable {
     }
 
     private ShaderPack loadConfigured() {
-        Config config = readConfig();
+        /* Einmalige interne Alias-Migration nach der Umbenennung des eingebauten Packs.
+           Persistiert wird wie bisher erst bei einer erfolgreichen Auswahl/Speicherung. */
+        if ("photon".equals(this.config.activePack)) this.config.activePack = "vibrant_visuals";
         try {
-            return this.loader.load(config.activePack);
+            return this.loader.load(this.config.activePack);
         } catch (RuntimeException e) {
-            if ("photon".equals(config.activePack)) throw e;
-            LOGGER.error("Shader-Pack '" + config.activePack + "' ist ungültig; Photon-Fallback wird geladen", e);
-            return this.loader.load("photon");
+            if ("vibrant_visuals".equals(this.config.activePack)) throw e;
+            LOGGER.error("Shader-Pack '" + this.config.activePack
+                    + "' ist ungültig; Vibrant-Visuals-Fallback wird geladen", e);
+            return this.loader.load("vibrant_visuals");
         }
     }
 
@@ -149,9 +187,12 @@ public final class ShaderPackManager implements IDisposable {
         if (CONFIG.isFile()) {
             try (FileReader reader = new FileReader(CONFIG)) {
                 Config config = GSON.fromJson(reader, Config.class);
-                if (config != null && config.schema == 1 && config.activePack != null) return config;
+                if (config != null && config.schema == 1 && config.activePack != null) {
+                    if (config.packSettings == null) config.packSettings = new LinkedHashMap<>();
+                    return config;
+                }
             } catch (Exception e) {
-                LOGGER.error("Shader-Konfiguration ist ungültig; Photon wird verwendet", e);
+                LOGGER.error("Shader-Konfiguration ist ungültig; Vibrant Visuals wird verwendet", e);
             }
         }
         Config config = new Config();
@@ -165,13 +206,12 @@ public final class ShaderPackManager implements IDisposable {
         return config;
     }
 
-    private static void saveConfig(String id) {
-        Config config = new Config();
-        config.activePack = id;
+    private void saveConfig(String id) {
+        this.config.activePack = id;
         File parent = CONFIG.getParentFile();
         if (parent != null) parent.mkdirs();
         try (FileWriter writer = new FileWriter(CONFIG)) {
-            GSON.toJson(config, writer);
+            GSON.toJson(this.config, writer);
         } catch (Exception e) {
             LOGGER.error("Shader-Konfiguration konnte nicht gespeichert werden", e);
         }
@@ -185,6 +225,7 @@ public final class ShaderPackManager implements IDisposable {
 
     private static final class Config {
         int schema = 1;
-        String activePack = "photon";
+        String activePack = "vibrant_visuals";
+        Map<String, Map<String, Double>> packSettings = new LinkedHashMap<>();
     }
 }

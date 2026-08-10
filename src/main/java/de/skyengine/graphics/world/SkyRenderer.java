@@ -32,6 +32,7 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
     private static final int SCATTERING_UNIT = 7;
     private static final int NOISE_UNIT = 8;
     private static final int FOG_CUBE_SIZE = 64;
+    private static final int REFLECTION_CUBE_SIZE = 128;
     private static final Vector3f[] FOG_DIRECTIONS = {
             new Vector3f(1, 0, 0), new Vector3f(-1, 0, 0),
             new Vector3f(0, 1, 0), new Vector3f(0, -1, 0),
@@ -47,6 +48,7 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
     private Resources resources;
     private int vao;
     private int fogCube;
+    private int reflectionCube;
     private int fogFramebuffer;
 
     public SkyRenderer(EnvironmentProfile profile) {
@@ -168,6 +170,20 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
                 GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, 3);
             }
 
+            /* Dieselbe packeigene Himmelsfunktion noch einmal ohne Fog-Capture-Maske:
+               Wasserreflexionen enthalten dadurch auch Sonne, Mond und Sterne. */
+            GL11.glViewport(0, 0, REFLECTION_CUBE_SIZE, REFLECTION_CUBE_SIZE);
+            current.program.setUniformf("u_FogCapture", 0F);
+            for (int face = 0; face < 6; face++) {
+                GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
+                        GL13.GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, this.reflectionCube, 0);
+                Matrix4f projectionView = new Matrix4f()
+                        .perspective((float) Math.PI * 0.5F, 1F, 0.1F, 10F)
+                        .lookAt(new Vector3f(), FOG_DIRECTIONS[face], FOG_UP[face]);
+                current.program.setUniformMatrix4f("u_InvProjectionView", projectionView.invert());
+                GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, 3);
+            }
+
             GL30.glBindVertexArray(0);
             current.program.setUniformf("u_FogCapture", 0F);
             current.program.unbind();
@@ -181,6 +197,16 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
 
     public int fogTexture() {
         return this.fogCube;
+    }
+
+    public int reflectionTexture() {
+        return this.reflectionCube;
+    }
+
+    /** Pack-eigene Noise-Textur für Wasserwellen und volumetrische Wasser-Effekte. */
+    public int noiseTexture() {
+        Resources current = this.resources;
+        return current != null ? current.noise : 0;
     }
 
     private void createFogCube() {
@@ -197,8 +223,21 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
         GL11.glTexParameteri(GL13.GL_TEXTURE_CUBE_MAP, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
         GL11.glTexParameteri(GL13.GL_TEXTURE_CUBE_MAP, GL12.GL_TEXTURE_WRAP_R, GL12.GL_CLAMP_TO_EDGE);
         GL11.glBindTexture(GL13.GL_TEXTURE_CUBE_MAP, 0);
+        this.reflectionCube = GL11.glGenTextures();
+        GL11.glBindTexture(GL13.GL_TEXTURE_CUBE_MAP, this.reflectionCube);
+        for (int face = 0; face < 6; face++) {
+            GL11.glTexImage2D(GL13.GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GL30.GL_RGB16F,
+                    REFLECTION_CUBE_SIZE, REFLECTION_CUBE_SIZE, 0, GL11.GL_RGB, GL11.GL_FLOAT, 0L);
+        }
+        GL11.glTexParameteri(GL13.GL_TEXTURE_CUBE_MAP, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL13.GL_TEXTURE_CUBE_MAP, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL13.GL_TEXTURE_CUBE_MAP, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glTexParameteri(GL13.GL_TEXTURE_CUBE_MAP, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glTexParameteri(GL13.GL_TEXTURE_CUBE_MAP, GL12.GL_TEXTURE_WRAP_R, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glBindTexture(GL13.GL_TEXTURE_CUBE_MAP, 0);
         this.fogFramebuffer = GL30.glGenFramebuffers();
         GlDebug.labelTexture(this.fogCube, "Shader-pack atmosphere fog cubemap");
+        GlDebug.labelTexture(this.reflectionCube, "Shader-pack sky reflection cubemap");
     }
 
     private static int loadScattering(ShaderPack pack) {
@@ -272,10 +311,12 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
         if (this.vao != 0) GL30.glDeleteVertexArrays(this.vao);
         if (this.fogFramebuffer != 0) GL30.glDeleteFramebuffers(this.fogFramebuffer);
         if (this.fogCube != 0) GL11.glDeleteTextures(this.fogCube);
+        if (this.reflectionCube != 0) GL11.glDeleteTextures(this.reflectionCube);
         this.resources = null;
         this.vao = 0;
         this.fogFramebuffer = 0;
         this.fogCube = 0;
+        this.reflectionCube = 0;
     }
 
     private static final class Resources implements ShaderPackManager.Prepared {

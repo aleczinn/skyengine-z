@@ -13,9 +13,13 @@ import de.skyengine.graphics.post.PostProcessingSettings;
 import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.shaderpack.ShaderPackManager;
 import de.skyengine.graphics.shaderpack.ShaderPackManager.PackOption;
+import de.skyengine.graphics.shaderpack.ShaderPackManifest;
+import de.skyengine.graphics.gui.widget.GuiComponent;
 
 import java.util.List;
 import java.util.function.DoubleConsumer;
+import java.util.ArrayList;
+import java.util.Locale;
 
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
@@ -83,6 +87,44 @@ public final class GuiShaderPacks extends GuiOptionsScreen {
         content.add(new HStack(4, contrast, gamma));
         content.add(new HStack(4, bloom, threshold));
         content.add(new HStack(4, sharpen));
+
+        /* Diese Zeilen kommen vollständig aus pack.json. Externe Packs erhalten damit
+           eigene Optionen, ohne dass ihre Uniforms in der Engine fest verdrahtet werden. */
+        List<GuiComponent> packSettings = new ArrayList<>();
+        for (ShaderPackManifest.Setting setting : manager.activeSettings()) {
+            String label = I18n.has(setting.label) ? I18n.tr(setting.label) : setting.label;
+            double currentValue = manager.settingValue(setting);
+            GuiComponent component;
+            if ("boolean".equals(setting.type)) {
+                component = CycleButton.onOff(label, CELL_W, CELL_H, currentValue >= 0.5,
+                        value -> manager.setSettingValue(setting, value ? 1.0 : 0.0));
+            } else if ("choice".equals(setting.type)) {
+                Double[] values = setting.values.toArray(Double[]::new);
+                Double currentChoice = setting.values.stream()
+                        .min((a, b) -> Double.compare(Math.abs(a - currentValue),
+                                Math.abs(b - currentValue))).orElse(values[0]);
+                component = new CycleButton<>(label, CELL_W, CELL_H, values, currentChoice,
+                        value -> {
+                            int index = setting.values.indexOf(value);
+                            String option = setting.options.get(index);
+                            return I18n.has(option) ? I18n.tr(option) : option;
+                        }, value -> manager.setSettingValue(setting, value));
+            } else {
+                component = new Slider(CELL_W, CELL_H, setting.min, setting.max, setting.step,
+                        currentValue, value -> setting.step < 0.1
+                                ? String.format(Locale.ROOT, "%s: %.3f", label, value)
+                                : setting.step < 1.0
+                                ? String.format(Locale.ROOT, "%s: %.2f", label, value)
+                                : String.format(Locale.ROOT, "%s: %.0f", label, value),
+                        value -> manager.setSettingValue(setting, value), null);
+            }
+            packSettings.add(component);
+        }
+        for (int i = 0; i < packSettings.size(); i += 2) {
+            content.add(i + 1 < packSettings.size()
+                    ? new HStack(4, packSettings.get(i), packSettings.get(i + 1))
+                    : new HStack(4, packSettings.get(i)));
+        }
     }
 
     private static Slider slider(double min, double max, double value, String key, DoubleConsumer change) {
@@ -93,6 +135,7 @@ public final class GuiShaderPacks extends GuiOptionsScreen {
     @Override
     public void onClose() {
         SkyEngine.get().getPostProcessor().getSettings().save();
+        SkyEngine.get().getShaderPackManager().saveSettings();
         GameSettings.get().save();
     }
 }

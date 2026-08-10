@@ -1,6 +1,7 @@
 package de.skyengine.game.world;
 
 import de.skyengine.audio.SoundManager;
+import de.skyengine.core.SkyEngine;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.IDisposable;
 import de.skyengine.core.io.IInitializable;
@@ -1423,7 +1424,15 @@ public class World implements IInitializable, IDisposable {
                 this.getDayTime(partialTick));
         this.environmentUbo.update(this.environmentState);
         this.skyRenderer.updateFogCube(this.environmentState.dayFraction);
+        this.chunkRenderer.setWaterNoiseTexture(this.skyRenderer.noiseTexture());
+        this.chunkRenderer.setSkyReflectionTexture(this.skyRenderer.reflectionTexture());
         this.chunkRenderer.renderSolid(camera);
+        if (SkyEngine.get().getPostProcessor().isCameraUnderwater()) {
+            this.chunkRenderer.renderWaterOcclusion(this.environmentState.sunDirection);
+        }
+        SkyEngine.get().getPostProcessor().setWaterLightMap(
+                this.chunkRenderer.waterShadowTexture(), this.chunkRenderer.waterShadowMatrix(),
+                this.skyRenderer.noiseTexture());
         this.skyRenderer.render(camera, this.environmentState.dayFraction);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.BE);
         this.blockEntityRenderer.render(this.chunkManager, this.lodManager, camera, partialTick,
@@ -1433,6 +1442,10 @@ public class World implements IInitializable, IDisposable {
         this.entityRenderer.render(this, this.chunksWithEntities, camera, partialTick);
         if (beforeTranslucent != null) beforeTranslucent.run();
         FrameProfiler.cpuStop(FrameProfiler.Cpu.ENT);
+        /* Wasser liest Farbe und Tiefe der fertigen undurchsichtigen Szene. Eine getrennte
+           Kopie ist Pflicht: ein Fragmentshader darf sein aktuelles FBO-Attachment nicht
+           zugleich sampeln (undefiniertes Feedback). */
+        SkyEngine.get().getWindow().getFrameBuffer().captureOpaque();
         this.chunkRenderer.renderTranslucent(camera);
     }
 

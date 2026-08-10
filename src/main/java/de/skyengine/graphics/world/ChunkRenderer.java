@@ -27,8 +27,11 @@ import de.skyengine.graphics.texture.TextureArray;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import org.joml.FrustumIntersection;
+import org.joml.Matrix4f;
 import org.joml.Vector3d;
+import org.joml.Vector3f;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
@@ -54,6 +57,10 @@ import java.util.List;
 public class ChunkRenderer implements ShaderPackManager.Participant {
 
     private static final int ATMOSPHERE_FOG_UNIT = 7;
+    private static final int WATER_NOISE_UNIT = 8;
+    private static final int OPAQUE_COLOR_UNIT = 9;
+    private static final int OPAQUE_DEPTH_UNIT = 10;
+    private static final int SKY_REFLECTION_UNIT = 11;
 
     private static final int SLOTS = 3;                 // Frames in flight (Command-/Offset-Ringe)
     private static final int COMMAND_BYTES = 20;        // DrawElementsIndirectCommand (5 uints)
@@ -63,6 +70,7 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
 
     private final ChunkManager chunkManager;
     private ShaderProgram shader;
+    private ShaderProgram waterShadowShader;
     private ShaderPackManager shaderPackManager;
     private long animationStartNanos;
     /* Block-Atlas: gehört dem GameContainer (Engine-Lebensdauer, welt-unabhängig) —
@@ -70,6 +78,17 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
     private BlockTextureAtlas atlas;
     private TextureArray textures;
     private int atmosphereFogTexture;
+    private int waterNoiseTexture;
+    private int skyReflectionTexture;
+    private static final int WATER_SHADOW_SIZE = 1024;
+    private int waterShadowFbo;
+    private int waterShadowTexture;
+    private final Matrix4f waterShadowMatrix = new Matrix4f();
+    private final Vector3f waterShadowLight = new Vector3f();
+    private final Vector3f waterShadowTarget = new Vector3f();
+    private final Vector3f waterShadowUp = new Vector3f();
+    private long frameCmdOpaque, frameOffOpaque, frameCmdCutout, frameOffCutout;
+    private int frameNOpaque, frameNCutout;
 
     /* sectionKey -> mesh, render thread only. LongObjMap: kein Long-Boxing pro Zugriff,
        Cleanup-Walk und Frame-Iterationen laufen als flacher Array-Scan. */
@@ -320,6 +339,7 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
 
         this.shaderPackManager = SkyEngine.get().getShaderPackManager();
         this.shader = this.compileTerrain(this.shaderPackManager.active());
+        this.waterShadowShader = this.compileWaterShadow(this.shaderPackManager.active());
         this.shaderPackManager.register(this);
         this.animationStartNanos = System.nanoTime();
         /* Uniform-Locations einmalig cachen; u_Textures ändert sich nie -> einmal setzen */
@@ -395,6 +415,7 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
 
         /* GPU-Cull-Substrat (P3): ohne IndirectCount-Capability bleibt alles im CPU-Pfad. */
         this.gpuCull.init(properties.isSourceIndirectDrawCallCountFromBuffer());
+        this.createWaterShadowTarget();
 
         this.logger.info("MDI-Renderer: Arenen " + (this.arenas[0].getCapacity() >> 20) + "/"
                 + (this.arenas[1].getCapacity() >> 20) + "/" + (this.arenas[2].getCapacity() >> 20)
@@ -413,20 +434,31 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
      */
     @Override
     public ShaderPackManager.Prepared prepare(ShaderPack pack) {
-        return new PreparedTerrain(this.compileTerrain(pack));
+        ShaderProgram terrain = this.compileTerrain(pack);
+        try {
+            return new PreparedTerrain(terrain, this.compileWaterShadow(pack));
+        } catch (RuntimeException e) {
+            terrain.dispose();
+            throw e;
+        }
     }
 
     @Override
     public void activate(ShaderPackManager.Prepared prepared) {
-        ShaderProgram next = ((PreparedTerrain) prepared).take();
+        PreparedTerrain nextResources = (PreparedTerrain) prepared;
+        ShaderProgram next = nextResources.takeTerrain();
+        ShaderProgram nextShadow = nextResources.takeShadow();
         ShaderProgram previous = this.shader;
+        ShaderProgram previousShadow = this.waterShadowShader;
         this.shader = next;
+        this.waterShadowShader = nextShadow;
         this.cacheTerrainUniforms();
         this.lastFogStart = Float.NaN;
         this.lastFogEnd = Float.NaN;
         this.lastMinLight = Float.NaN;
         this.lastBrightness = Float.NaN;
         if (previous != null) previous.dispose();
+        if (previousShadow != null) previousShadow.dispose();
     }
 
     private ShaderProgram compileTerrain(ShaderPack pack) {
@@ -436,10 +468,20 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         program.bind();
         program.setUniformi("u_Textures", 0);
         program.setUniformi("u_AtmosphereFog", ATMOSPHERE_FOG_UNIT);
+        program.setUniformi("u_WaterNoise", WATER_NOISE_UNIT);
+        program.setUniformi("u_OpaqueColor", OPAQUE_COLOR_UNIT);
+        program.setUniformi("u_OpaqueDepth", OPAQUE_DEPTH_UNIT);
+        program.setUniformi("u_SkyReflection", SKY_REFLECTION_UNIT);
         program.setUniformVector2f("u_DetailFade", 0F, 0F);
         this.setWaterLayers(program);
         program.unbind();
         return program;
+    }
+
+    private ShaderProgram compileWaterShadow(ShaderPack pack) {
+        return new ShaderProgram(
+                new Shader(pack.program("water_shadow_vertex"), ShaderType.VERTEX),
+                new Shader(pack.program("water_shadow_fragment"), ShaderType.FRAGMENT));
     }
 
     private static void setWaterLayers(ShaderProgram program) {
@@ -747,6 +789,12 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
             offCutout = offLodOpaque + MappedRing.align((long) nLodOpaque * OFFSET_BYTES);
         }
         int nCutout = this.writeSegment(RenderLayer.CUTOUT, this.visible, cmds, offs, cmdCutout, offCutout, cam);
+        this.frameCmdOpaque = cmdOpaque;
+        this.frameOffOpaque = offOpaque;
+        this.frameNOpaque = nOpaque;
+        this.frameCmdCutout = cmdCutout;
+        this.frameOffCutout = offCutout;
+        this.frameNCutout = nCutout;
 
         /* Kleinvegetations-Segment (CUTOUT-Arena, eigener Draw für die Distanz-Ausdünnung).
            Läuft in BEIDEN Cull-Pfaden über den Mapped-Ring (GPU-Descriptor-Integration: P4). */
@@ -764,6 +812,7 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
            u_Textures ist einmalig gesetzt (init); Fog lädt nur bei Wertänderung hoch. */
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GLSUB);
         this.shader.bind();
+        this.shaderPackManager.applySettings(this.shader);
         this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
         this.shader.setUniformVector3f(this.locCameraPosition,
                 (float) cam.x, (float) cam.y, (float) cam.z);
@@ -973,8 +1022,17 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
            die Entity-Renderer binden dort ihre eigenen Texturen. */
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GLSUB);
         this.shader.bind();
+        this.shaderPackManager.applySettings(this.shader);
+        this.shader.setUniformMatrix4f("u_InvProjectionView", camera.getInvProjectionViewMatrix());
+        this.shader.setUniformVector2f("u_Viewport",
+                SkyEngine.get().getWindow().getWidth(), SkyEngine.get().getWindow().getHeight());
+        this.shader.setUniformf("u_ZeroToOneDepth",
+                SkyEngine.get().getWindow().getProperties().isUseInverseDepth() ? 1F : 0F);
+        this.shader.setUniformf("u_CameraUnderwater",
+                SkyEngine.get().getPostProcessor().isCameraUnderwater() ? 1F : 0F);
         this.textures.bind(0);
         this.bindAtmosphereFog();
+        this.bindWaterInputs();
 
         GL11.glEnable(GL11.GL_BLEND);
         this.shader.setUniformf(this.locAlphaCutoff, 0.001F);
@@ -1580,9 +1638,103 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         this.atmosphereFogTexture = texture;
     }
 
+    public void setWaterNoiseTexture(int texture) {
+        this.waterNoiseTexture = texture;
+    }
+
+    public void setSkyReflectionTexture(int texture) {
+        this.skyReflectionTexture = texture;
+    }
+
+    /**
+     * Ein einzelner, pack-gesteuerter Sonnen-Tiefenpass für Unterwasser-Lichtschächte.
+     * Das ist bewusst keine CSM-Kaskade: Die Karte deckt nur den wasserrelevanten Nahbereich
+     * um die Kamera ab und verwendet die bereits geschriebenen MDI-Segmente dieses Frames.
+     */
+    public void renderWaterOcclusion(Vector3f sunDirection) {
+        if (this.waterShadowFbo == 0 || this.waterShadowShader == null) return;
+        float radius = 160F;
+        this.waterShadowLight.set(sunDirection).normalize().mul(radius);
+        this.waterShadowTarget.zero();
+        this.waterShadowUp.set(0F, Math.abs(sunDirection.y) > 0.9F ? 0F : 1F,
+                Math.abs(sunDirection.y) > 0.9F ? 1F : 0F);
+        this.waterShadowMatrix.identity()
+                .ortho(-radius, radius, -radius, radius, 0.1F, radius * 2F, true)
+                .lookAt(this.waterShadowLight, this.waterShadowTarget, this.waterShadowUp);
+
+        var window = SkyEngine.get().getWindow();
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.waterShadowFbo);
+        GL11.glViewport(0, 0, WATER_SHADOW_SIZE, WATER_SHADOW_SIZE);
+        GL11.glDisable(GL11.GL_BLEND);
+        GL11.glEnable(GL11.GL_DEPTH_TEST);
+        GL11.glDepthMask(true);
+        GL11.glDepthFunc(GL11.GL_LESS);
+        GL11.glClearDepth(1.0);
+        GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+        GL11.glColorMask(false, false, false, false);
+        this.waterShadowShader.bind();
+        this.waterShadowShader.setUniformMatrix4f("u_LightProjectionView", this.waterShadowMatrix);
+        this.drawSegment(RenderLayer.OPAQUE.ordinal(), this.frameCmdOpaque,
+                this.frameOffOpaque, this.frameNOpaque);
+        this.drawSegment(RenderLayer.CUTOUT.ordinal(), this.frameCmdCutout,
+                this.frameOffCutout, this.frameNCutout);
+        this.waterShadowShader.unbind();
+        GL11.glColorMask(true, true, true, true);
+        window.getFrameBuffer().bind();
+        GL11.glViewport(0, 0, window.getWidth(), window.getHeight());
+        GL11.glDepthFunc(window.getProperties().baseDepthFunc());
+        GL11.glClearDepth(window.getProperties().isUseInverseDepth() ? 0.0 : 1.0);
+    }
+
+    public int waterShadowTexture() {
+        return this.waterShadowTexture;
+    }
+
+    public Matrix4f waterShadowMatrix() {
+        return this.waterShadowMatrix;
+    }
+
+    private void createWaterShadowTarget() {
+        this.waterShadowTexture = GL11.glGenTextures();
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.waterShadowTexture);
+        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_DEPTH_COMPONENT32F,
+                WATER_SHADOW_SIZE, WATER_SHADOW_SIZE, 0, GL11.GL_DEPTH_COMPONENT,
+                GL11.GL_FLOAT, 0L);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
+
+        this.waterShadowFbo = GL30.glGenFramebuffers();
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.waterShadowFbo);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT,
+                GL11.GL_TEXTURE_2D, this.waterShadowTexture, 0);
+        GL11.glDrawBuffer(GL11.GL_NONE);
+        GL11.glReadBuffer(GL11.GL_NONE);
+        if (GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER) != GL30.GL_FRAMEBUFFER_COMPLETE) {
+            throw new IllegalStateException("Wasser-Sonnenkarte ist unvollständig");
+        }
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
+        GlDebug.labelTexture(this.waterShadowTexture, "Wasser-Sonnenkarte");
+    }
+
     private void bindAtmosphereFog() {
         GL13.glActiveTexture(GL13.GL_TEXTURE0 + ATMOSPHERE_FOG_UNIT);
         GL11.glBindTexture(GL13.GL_TEXTURE_CUBE_MAP, this.atmosphereFogTexture);
+        GL13.glActiveTexture(GL13.GL_TEXTURE0);
+    }
+
+    private void bindWaterInputs() {
+        var frameBuffer = SkyEngine.get().getWindow().getFrameBuffer();
+        GL13.glActiveTexture(GL13.GL_TEXTURE0 + WATER_NOISE_UNIT);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.waterNoiseTexture);
+        GL13.glActiveTexture(GL13.GL_TEXTURE0 + OPAQUE_COLOR_UNIT);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, frameBuffer.getOpaqueColorTexture());
+        GL13.glActiveTexture(GL13.GL_TEXTURE0 + OPAQUE_DEPTH_UNIT);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, frameBuffer.getOpaqueDepthTexture());
+        GL13.glActiveTexture(GL13.GL_TEXTURE0 + SKY_REFLECTION_UNIT);
+        GL11.glBindTexture(GL13.GL_TEXTURE_CUBE_MAP, this.skyReflectionTexture);
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
     }
 
@@ -1882,6 +2034,8 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         }
         for (int vao : this.vaos) GL30.glDeleteVertexArrays(vao);
         if (this.sharedEbo != 0) GL15.glDeleteBuffers(this.sharedEbo);
+        if (this.waterShadowFbo != 0) GL30.glDeleteFramebuffers(this.waterShadowFbo);
+        if (this.waterShadowTexture != 0) GL11.glDeleteTextures(this.waterShadowTexture);
         if (this.commandRing != null) this.commandRing.dispose();
         if (this.offsetRing != null) this.offsetRing.dispose();
         for (VertexArena arena : this.arenas) {
@@ -1890,24 +2044,34 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         /* Atlas (textures/animations) NICHT disposen — gehört dem GameContainer und
            überlebt Welt-Austritte (Hauptmenü braucht ihn für Item-Icons). */
         if (this.shader != null) this.shader.dispose();
+        if (this.waterShadowShader != null) this.waterShadowShader.dispose();
     }
 
     private static final class PreparedTerrain implements ShaderPackManager.Prepared {
-        private ShaderProgram program;
+        private ShaderProgram terrain;
+        private ShaderProgram shadow;
 
-        private PreparedTerrain(ShaderProgram program) {
-            this.program = program;
+        private PreparedTerrain(ShaderProgram terrain, ShaderProgram shadow) {
+            this.terrain = terrain;
+            this.shadow = shadow;
         }
 
-        private ShaderProgram take() {
-            ShaderProgram result = this.program;
-            this.program = null;
+        private ShaderProgram takeTerrain() {
+            ShaderProgram result = this.terrain;
+            this.terrain = null;
+            return result;
+        }
+
+        private ShaderProgram takeShadow() {
+            ShaderProgram result = this.shadow;
+            this.shadow = null;
             return result;
         }
 
         @Override
         public void dispose() {
-            if (this.program != null) this.program.dispose();
+            if (this.terrain != null) this.terrain.dispose();
+            if (this.shadow != null) this.shadow.dispose();
         }
     }
 

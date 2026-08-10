@@ -10,6 +10,7 @@ import de.skyengine.graphics.post.passes.ColorGradingPass;
 import de.skyengine.graphics.post.passes.FluidFogPass;
 import de.skyengine.graphics.post.passes.MenuBlurPass;
 import org.joml.Vector2f;
+import org.joml.Matrix4f;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import org.lwjgl.opengl.GL11;
@@ -117,6 +118,15 @@ public class PostProcessor implements IDisposable {
         this.fluidFog.setFluid(fluid);
     }
 
+    public boolean isCameraUnderwater() {
+        return this.fluidFog.fluid() == FluidFogPass.WATER;
+    }
+
+    /** Sonnen-Tiefenkarte und Pack-Noise für den Photon-Unterwasserpass. */
+    public void setWaterLightMap(int shadowTexture, Matrix4f lightMatrix, int noiseTexture) {
+        this.fluidFog.setWaterLightMap(shadowTexture, lightMatrix, noiseTexture);
+    }
+
     /**
      * NDC-Subpixel-Jitter des Frames für {@link Camera#setJitter} — Halton(2,3)-Sequenz
      * (8 Samples, Pixel-Offset ±0,5 → NDC über die Fenstergröße). Liefert (0,0) und
@@ -173,6 +183,7 @@ public class PostProcessor implements IDisposable {
         this.context.frame++;
         this.context.sceneColor = frameBuffer.getColorTexture();
         this.context.sceneDepth = frameBuffer.getDepthTexture();
+        this.context.worldDepth = frameBuffer.getOpaqueDepthTexture();
 
         if (this.settings.consumeDirty()) this.uploadUbo();
 

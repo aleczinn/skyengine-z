@@ -776,6 +776,10 @@ public class GameContainer implements IResizeable, IDisposable {
             this.pollInteractionClicks(input);
         }
 
+        /* Der Pack braucht den Kamerafluid-Zustand bereits beim Wasser-Pass (Snelliussches
+           Fenster); der Post-Pass verwendet denselben Wert später unverändert. */
+        this.renderFluidOverlay();
+
         /* Wireframe (F6) gilt NUR für die Welt-Geometrie: der Line-Mode ist globaler GL-State und
            würde sonst auch das Fullscreen-Dreieck der Post-Kette (und die GUI-Quads) zu Linien
            machen — dann bliebe der Default-Framebuffer unbeschrieben ("eingefrorenes" Bild). */
@@ -817,8 +821,6 @@ public class GameContainer implements IResizeable, IDisposable {
         if (DebugFlags.entityHitboxes) {
             this.entityHitboxRenderer.render(this.camera, this.player, this.world, partialTick);
         }
-
-        this.renderFluidOverlay();
 
         /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Depth-Clear. */
         if (!this.hudHidden && this.perspective.isFirstPerson()

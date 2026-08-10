@@ -14,7 +14,8 @@ import java.nio.ByteBuffer;
  * Gebündelte Ressourcen der Post-Processing-Kette mit <b>benannten Slots</b> — jeder Pass
  * bezieht Ein-/Ausgänge ausschließlich von hier. Slots, die es noch nicht gibt, sind 0
  * (dokumentiert): {@link #velocity}/{@link #history} kommen mit TAA (Phase 2), {@link #lut}
- * mit dem LUTPass; {@link #sceneDepth} ist nur bei MSAA=0 belegt.
+ * mit dem LUTPass; {@link #sceneDepth} wird bei MSAA zusammen mit der Farbe aufgelöst.
+ * {@link #worldDepth} bleibt vom Depth-Clear des First-Person-Handpasses unberührt.
  *
  * <p>Dazu: zwei HDR-Ping-Pong-Zwischentexturen (RGBA16F) für Pass-Verkettung und der
  * gemeinsame Fullscreen-Triangle-Draw (leeres VAO, Positionen aus gl_VertexID). LDR meint hier
@@ -25,7 +26,8 @@ public final class PostContext implements IDisposable {
 
     /* --- Ressourcen-Slots (Textur-IDs, 0 = aktuell nicht vorhanden) --- */
     public int sceneColor;   // HDR-Szene (RGBA16F), bei MSAA erst nach FrameBuffer.resolve() aktuell
-    public int sceneDepth;   // Szenen-Tiefe (32F, Reversed-Z) — nur bei MSAA=0
+    public int sceneDepth;   // Szenen-Tiefe (32F, Reversed-Z), bei MSAA auf ein Sample aufgelöst
+    public int worldDepth;   // Opaque-Welttiefe vor Wasser und First-Person-Hand
     public int velocity;     // reserviert: per-Objekt-Bewegungsvektoren (TAA nutzt bisher Kamera-Reprojektion)
     public int history;      // TAA-History des Frames (Write-Seite, vom AntiAliasingPass publiziert)
     public int lut;          // reserviert: 3D-LUT (LUTPass, display-referred nach Grading)
