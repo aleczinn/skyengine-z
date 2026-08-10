@@ -1005,6 +1005,7 @@ public class GameContainer implements IResizeable, IDisposable {
         int bx = (int) Math.floor(eye.x);
         int by = (int) Math.floor(eye.y);
         int bz = (int) Math.floor(eye.z);
+        post.setEyeSkylight(this.world.getSkyLight(bx, by, bz) / 15.0F);
         BlockState state = Blocks.getState(this.world.getBlock(bx, by, bz));
         if (!state.isFluid()) return;
 

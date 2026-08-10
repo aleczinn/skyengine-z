@@ -1426,12 +1426,15 @@ public class World implements IInitializable, IDisposable {
         this.skyRenderer.updateFogCube(this.environmentState.dayFraction);
         this.chunkRenderer.setWaterNoiseTexture(this.skyRenderer.noiseTexture());
         this.chunkRenderer.setSkyReflectionTexture(this.skyRenderer.reflectionTexture());
-        this.chunkRenderer.renderSolid(camera);
-        if (SkyEngine.get().getPostProcessor().isCameraUnderwater()) {
-            this.chunkRenderer.renderWaterOcclusion(this.environmentState.sunDirection);
-        }
+        /* Photon richtet die Shadow-Projection nachts auf den Mond statt auf die unter dem
+           Horizont liegende Sonne aus. Beide Richtungen stehen auch den Pack-Shadern im
+           Environment-Block zur Verfuegung. */
+        this.chunkRenderer.renderSolid(camera, this.environmentState.sunDirection.y >= 0F
+                ? this.environmentState.sunDirection : this.environmentState.moonDirection);
         SkyEngine.get().getPostProcessor().setWaterLightMap(
-                this.chunkRenderer.waterShadowTexture(), this.chunkRenderer.waterShadowMatrix(),
+                this.chunkRenderer.waterShadowDepthAll(), this.chunkRenderer.waterShadowDepthSolid(),
+                this.chunkRenderer.waterShadowMatrix(),
+                this.chunkRenderer.waterShadowView(),
                 this.skyRenderer.noiseTexture());
         this.skyRenderer.render(camera, this.environmentState.dayFraction);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.BE);

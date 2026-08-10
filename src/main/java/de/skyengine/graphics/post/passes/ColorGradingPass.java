@@ -29,7 +29,7 @@ public final class ColorGradingPass implements PostPass, ShaderPackManager.Parti
     public ShaderPackManager.Prepared prepare(ShaderPack pack) {
         ShaderProgram candidate = new ShaderProgram(
                 new Shader(PostProcessor.FULLSCREEN_VERTEX_SHADER, ShaderType.VERTEX),
-                new Shader(pack.program("color_grading"), ShaderType.FRAGMENT));
+                new Shader(this.manager.program(pack, "color_grading"), ShaderType.FRAGMENT));
         candidate.bind();
         candidate.setUniformi("u_Scene", 0);
         candidate.unbind();

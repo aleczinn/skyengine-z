@@ -41,8 +41,12 @@ uniform sampler2D u_WaterNoise;
 uniform sampler2D u_OpaqueColor;
 uniform sampler2D u_OpaqueDepth;
 uniform samplerCube u_SkyReflection;
+uniform sampler2D u_ShadowDepthSolid;
+uniform sampler2D u_ShadowDepthAll;
+uniform sampler2D u_ShadowColor;
 uniform mat4 u_ProjectionView;
 uniform mat4 u_InvProjectionView;
+uniform mat4 u_ShadowProjectionView;
 uniform vec2 u_Viewport;
 uniform vec3 u_CameraPosition;
 uniform float u_AlphaCutoff;
@@ -66,6 +70,7 @@ uniform float u_WaterWavePersistence;
 uniform float u_WaterWaveLacunarity;
 uniform float u_WaterHeightVariation;
 uniform float u_WaterParallax;
+uniform float u_WaterDisplacement;
 uniform float u_WaterTexture;
 uniform float u_BiomeWaterColor;
 uniform float u_WaterRefraction;
@@ -84,6 +89,15 @@ uniform float u_WaterAbsorptionR;
 uniform float u_WaterAbsorptionG;
 uniform float u_WaterAbsorptionB;
 uniform float u_WaterScattering;
+uniform float u_Shadows;
+uniform float u_ShadowPcf;
+uniform float u_ShadowColored;
+uniform float u_ShadowVps;
+uniform float u_ShadowPenumbraScale;
+uniform float u_ShadowPcfStepsMin;
+uniform float u_ShadowPcfStepsMax;
+uniform float u_ShadowPcfStepsScale;
+uniform float u_ShadowBlockerSearchRadius;
 
 layout(std140, binding = 1) uniform Environment {
     vec4 u_SunDirection;
@@ -97,6 +111,129 @@ out vec4 fragColor;
 
 float lightCurve(float value) {
     return value / (4.0 - 3.0 * value);
+}
+
+float quarticShadowLength(vec2 value) {
+    vec2 squared = value * value;
+    return sqrt(sqrt(dot(squared, squared)));
+}
+
+vec3 shadowClipPosition(vec3 relativePosition) {
+    vec4 clip = u_ShadowProjectionView * vec4(relativePosition, 1.0);
+    return clip.xyz / clip.w;
+}
+
+float shadowDistortion(vec2 clipPosition) {
+    return quarticShadowLength(clipPosition) * 0.85 + 0.15;
+}
+
+vec3 shadowScreenPosition(vec3 clipPosition) {
+    clipPosition.xy /= shadowDistortion(clipPosition.xy);
+    clipPosition.z *= 0.20;
+    return clipPosition * 0.5 + 0.5;
+}
+
+vec2 vogelDisc(int index, int count, float rotation) {
+    float radius = sqrt((float(index) + 0.5) / float(count));
+    float angle = float(index) * GOLDEN_ANGLE + rotation;
+    return vec2(cos(angle), sin(angle)) * radius;
+}
+
+vec2 distortedShadowUv(vec2 clipPosition) {
+    return clipPosition / shadowDistortion(clipPosition) * 0.5 + 0.5;
+}
+
+float shadowDither() {
+    ivec2 size = textureSize(u_WaterNoise, 0);
+    ivec2 texel = ivec2(gl_FragCoord.xy) % max(size, ivec2(1));
+    return texelFetch(u_WaterNoise, texel, 0).b * TAU;
+}
+
+vec3 photonShadow(vec3 relativePosition, vec3 normal) {
+    if (u_Shadows < 0.5) return vec3(1.0);
+
+    vec3 lightDirection = normalize(u_SunDirection.y >= 0.0
+            ? u_SunDirection.xyz : u_MoonDirection.xyz);
+    float noL = dot(normal, lightDirection);
+    vec3 bias = 0.25 * normal
+            * clamp(0.12 + 0.01 * length(relativePosition), 0.0, 1.0)
+            * (2.0 - clamp(noL, 0.0, 1.0));
+    vec3 clip = shadowClipPosition(relativePosition + bias);
+    vec3 screen = shadowScreenPosition(clip);
+    if (any(lessThan(screen, vec3(0.0))) || any(greaterThan(screen, vec3(1.0)))) {
+        return vec3(1.0);
+    }
+
+    float shadowPixel = 1.0 / float(textureSize(u_ShadowDepthSolid, 0).x);
+    float dither = shadowDither();
+    float penumbra;
+    if (u_ShadowVps > 0.5 && u_ShadowPcf > 0.5) {
+        const int blockerSteps = 3;
+        float searchRadius = (u_ShadowBlockerSearchRadius / 128.0)
+                * (0.5 + 0.5 * smoothstep(0.2, 0.4, lightDirection.y));
+        float depthSum = 0.0;
+        float weightSum = 0.0;
+        for (int index = 0; index < blockerSteps; ++index) {
+            vec2 sampleClip = clip.xy
+                    + vogelDisc(index, blockerSteps, dither) * searchRadius;
+            float depth = texture(u_ShadowDepthAll, distortedShadowUv(sampleClip)).r;
+            float weight = depth <= screen.z ? 1.0 : 0.0;
+            depthSum += depth * weight;
+            weightSum += weight;
+        }
+        if (weightSum == 0.0) return vec3(1.0);
+        float blockerDepth = depthSum / weightSum;
+        penumbra = 16.0 * u_ShadowPenumbraScale * (screen.z - blockerDepth)
+                / max(blockerDepth, 1.0e-5) / 128.0;
+        penumbra = min(max(penumbra, 0.0),
+                u_ShadowBlockerSearchRadius / 128.0);
+    } else {
+        penumbra = sqrt(0.5) * shadowPixel * u_ShadowPenumbraScale;
+    }
+
+    if (u_ShadowPcf < 0.5) {
+        float depthSolid = texture(u_ShadowDepthSolid, screen.xy).r;
+        float visibility = screen.z <= depthSolid + 0.00030 ? 1.0 : 0.0;
+        float depthAll = texture(u_ShadowDepthAll, screen.xy).r;
+        vec3 color = texture(u_ShadowColor, screen.xy).rgb * 4.0;
+        color = mix(vec3(1.0), color, u_ShadowColored
+                * float(depthAll <= screen.z));
+        return visibility * color;
+    }
+
+    float distortion = shadowDistortion(clip.xy);
+    float minFilterRadius = 2.0 * shadowPixel * distortion;
+    float filterRadius = max(penumbra, minFilterRadius);
+    float filterScale = filterRadius / minFilterRadius;
+    int minimumSamples = min(int(u_ShadowPcfStepsMin), int(u_ShadowPcfStepsMax));
+    int maximumSamples = max(int(u_ShadowPcfStepsMin), int(u_ShadowPcfStepsMax));
+    int samples = clamp(int(float(minimumSamples)
+            + u_ShadowPcfStepsScale * filterScale * filterScale),
+            minimumSamples, maximumSamples);
+    float visibility = 0.0;
+    vec3 colorSum = vec3(0.0);
+    for (int index = 0; index < 32; ++index) {
+        if (index >= samples) break;
+        vec2 sampleClip = clip.xy + vogelDisc(index, samples, dither) * filterRadius;
+        vec2 uv = distortedShadowUv(sampleClip);
+        float solidDepth = texture(u_ShadowDepthSolid, uv).r;
+        visibility += screen.z <= solidDepth + 0.00030 ? 1.0 : 0.0;
+        if (index < 4) {
+            float allDepth = texture(u_ShadowDepthAll, uv).r;
+            vec3 color = texture(u_ShadowColor, uv).rgb * 4.0;
+            colorSum += mix(vec3(1.0), color, u_ShadowColored
+                    * float(allDepth <= screen.z));
+        }
+    }
+    visibility /= float(samples);
+    float sharpen = 0.4 * max((minFilterRadius - penumbra) / minFilterRadius, 0.0);
+    visibility = smoothstep(sharpen, 1.0 - sharpen, visibility);
+    vec3 color = colorSum * 0.25;
+
+    float edge = max(max(abs(screen.x * 2.0 - 1.0), abs(screen.y * 2.0 - 1.0)),
+            dot(relativePosition, relativePosition) / (128.0 * 128.0));
+    float distanceFade = smoothstep(0.1, 1.0, pow(edge, 32.0));
+    return mix(visibility * color, vec3(1.0), distanceFade);
 }
 
 float gerstnerWave(vec2 coord, vec2 direction, float time, float noiseValue,
@@ -154,7 +291,7 @@ float waterHeight(vec2 coord, bool flowing) {
 }
 
 vec2 waterParallaxCoord(vec2 coord, vec3 toCamera, bool flowing) {
-    if (u_WaterParallax < 0.5) return coord;
+    if (u_WaterParallax < 0.5 || u_WaterDisplacement < 0.5) return coord;
     vec2 rayStep = toCamera.xz / max(abs(toCamera.y), 0.08) * 0.05;
     float marched = 0.0;
     float height = waterHeight(coord, flowing);
@@ -244,10 +381,12 @@ vec3 screenSpaceReflection(vec3 origin, vec3 direction, vec3 fallback,
     return texture(u_OpaqueColor, hitUv).rgb;
 }
 
-vec3 waterScattering(vec3 background, float distanceThroughWater,
+/* Photon gbuffers_water writes a premultiplied translucent layer: RGB contains
+   surface/scattering energy and A contains the transmission lost to absorption. */
+vec4 waterAbsorptionLayer(float distanceThroughWater,
         float sunFacing, float skylight) {
     vec3 absorption = vec3(u_WaterAbsorptionR, u_WaterAbsorptionG,
-            u_WaterAbsorptionB);
+            u_WaterAbsorptionB) * REC709_TO_XYZ * XYZ_TO_REC2020;
     if (u_BiomeWaterColor > 0.5) {
         const float densityScale = 0.15;
         vec3 biomeColor = max(srgbToWorking(clamp(v_color, 0.0, 1.0)), vec3(0.0001));
@@ -268,9 +407,10 @@ vec3 waterScattering(vec3 background, float distanceThroughWater,
     vec3 scattering = (direct + ambient) * (1.0 - transmittance)
             * scatteringCoefficient / extinction * (1.0 + multipleEnergy);
     float brightnessControl = 1.0 - exp(-0.33 * distanceThroughWater);
-    return background * transmittance
-            + scattering * (1.0 + 6.0 * dot(transmittance, transmittance) / 3.0)
-                    * brightnessControl;
+    vec3 layerScattering = scattering
+            * (1.0 + 6.0 * dot(transmittance, transmittance) / 3.0)
+            * brightnessControl;
+    return vec4(layerScattering, 1.0 - transmittance.r);
 }
 
 void main() {
@@ -293,6 +433,15 @@ void main() {
     bool stillWater = abs(v_texCoord.z - u_WaterStillLayer) < 0.25;
     bool flowingWater = abs(v_texCoord.z - u_WaterFlowLayer) < 0.25;
     bool water = stillWater || flowingWater;
+    if (!water) {
+        vec3 surfaceNormal = normalize(cross(dFdx(v_worldPosition), dFdy(v_worldPosition)));
+        if (dot(surfaceNormal, normalize(-v_relativePosition)) < 0.0) surfaceNormal *= -1.0;
+        vec3 visibility = photonShadow(v_relativePosition, surfaceNormal);
+        float directSky = skyDominance * smoothstep(0.05, 0.40, v_light.x)
+                * u_SunDirection.w;
+        lit *= mix(vec3(1.0), mix(vec3(0.32), vec3(1.0), visibility),
+                directSky * 0.72);
+    }
     float outputAlpha = textureColor.a;
     if (water) {
         vec2 screenUv = gl_FragCoord.xy / u_Viewport;
@@ -351,23 +500,26 @@ void main() {
                 ? reflection / reflectionWeight : skyReflection;
 
         float sunFacing = dot(normalize(-v_relativePosition), normalize(u_SunDirection.xyz));
-        vec3 transmission = waterScattering(background, layerDistance,
+        vec4 absorptionLayer = waterAbsorptionLayer(layerDistance,
                 sunFacing, v_light.x);
         float textureHighlight = pow(clamp(textureColor.r - 0.58, 0.0, 0.42)
                 / 0.42, 3.0);
         float textureMask = u_WaterTexture > 1.5 ? 1.0
                 : (u_WaterTexture > 0.5 ? 1.0 - smoothstep(0.65, 0.95, v_light.x) : 0.0);
-        transmission += u_SkyLightColor.rgb * textureHighlight * textureMask * 0.08;
+        vec3 surfaceLayer = u_SkyLightColor.rgb
+                * textureHighlight * textureMask * 0.08;
         float edgeHighlight = smoothstep(0.0, 0.75, layerDistance)
                 * (1.0 - smoothstep(0.75, 2.5, layerDistance))
                 * u_WaterEdgeHighlight * u_WaterEdgeHighlightIntensity;
-        transmission += u_SkyLightColor.rgb * edgeHighlight * 0.035;
+        surfaceLayer += u_SkyLightColor.rgb * edgeHighlight * 0.035;
         float reflectionsEnabled = max(u_SkyReflections, u_EnvironmentReflections);
-        lit = mix(transmission, reflection,
-                clamp(fresnel * reflectionsEnabled, 0.0, 0.96));
-        /* Der Wasserzweig ist bereits der vollständige Photon-Layer-Composite aus der
-           eingefrorenen Szene; erneutes Alpha-Blending würde den Hintergrund doppelt addieren. */
-        outputAlpha = 1.0;
+        surfaceLayer += reflection * fresnel * reflectionsEnabled;
+        float scalarTransmittance = 1.0 - absorptionLayer.a;
+        vec3 refractionCorrection = (background
+                - texture(u_OpaqueColor, screenUv).rgb) * scalarTransmittance;
+        lit = surfaceLayer + absorptionLayer.rgb + refractionCorrection;
+        /* Photon stores one minus red-channel transmission as layer alpha. */
+        outputAlpha = absorptionLayer.a;
     }
 
     float edgeFog = clamp((v_viewDist - u_FogStart) / max(u_FogEnd - u_FogStart, 0.001),
@@ -380,6 +532,9 @@ void main() {
     float atmosphereEnergy = dot(directionalFog, vec3(0.2627, 0.6780, 0.0593));
     vec3 fogColor = mix(u_EnvFogColor.rgb, directionalFog,
             smoothstep(0.0001, 0.002, atmosphereEnergy));
-    fragColor = vec4(mix(lit, fogColor, fog),
-            water ? outputAlpha : mix(1.0, outputAlpha, u_TranslucentPass));
+    vec3 finalColor = mix(lit, fogColor, fog);
+    float finalAlpha = water ? outputAlpha
+            : mix(1.0, outputAlpha, u_TranslucentPass);
+    if (u_TranslucentPass > 0.5 && !water) finalColor *= finalAlpha;
+    fragColor = vec4(finalColor, finalAlpha);
 }

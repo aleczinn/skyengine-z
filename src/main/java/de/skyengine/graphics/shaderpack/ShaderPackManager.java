@@ -68,11 +68,31 @@ public final class ShaderPackManager implements IDisposable {
         this.config.packSettings.computeIfAbsent(this.active.manifest().id,
                 ignored -> new LinkedHashMap<>()).put(setting.key,
                 Math.clamp(snapped, setting.min, setting.max));
+        if ("define".equals(setting.binding)) this.requestReload();
+    }
+
+    /** Präprozessierte Quelle inklusive der für dieses Pack gespeicherten Compile-Settings. */
+    public String program(ShaderPack pack, String key) {
+        Map<String, String> defines = new LinkedHashMap<>();
+        Map<String, Double> values = this.config.packSettings.get(pack.manifest().id);
+        for (ShaderPackManifest.Setting setting : pack.manifest().settings) {
+            if (!"define".equals(setting.binding)) continue;
+            double value = values != null ? values.getOrDefault(setting.key, setting.defaultValue)
+                    : setting.defaultValue;
+            value = Math.clamp(value, setting.min, setting.max);
+            if ("boolean".equals(setting.type)) {
+                if (value >= 0.5) defines.put(setting.define, null);
+            } else {
+                defines.put(setting.define, Double.toString(value));
+            }
+        }
+        return pack.program(key, defines);
     }
 
     /** Lädt alle vom aktiven Pack deklarierten Optionen in das gerade gebundene Programm. */
     public void applySettings(ShaderProgram program) {
         for (ShaderPackManifest.Setting setting : this.active.manifest().settings) {
+            if (!"uniform".equals(setting.binding)) continue;
             int location = program.getUniformLocation(setting.uniform);
             if (location >= 0) program.setUniformf(location, (float) this.settingValue(setting));
         }

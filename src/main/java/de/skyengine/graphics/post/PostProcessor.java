@@ -122,9 +122,15 @@ public class PostProcessor implements IDisposable {
         return this.fluidFog.fluid() == FluidFogPass.WATER;
     }
 
+    public void setEyeSkylight(float skylight) {
+        this.fluidFog.setEyeSkylight(skylight);
+    }
+
     /** Sonnen-Tiefenkarte und Pack-Noise für den Photon-Unterwasserpass. */
-    public void setWaterLightMap(int shadowTexture, Matrix4f lightMatrix, int noiseTexture) {
-        this.fluidFog.setWaterLightMap(shadowTexture, lightMatrix, noiseTexture);
+    public void setWaterLightMap(int depthAll, int depthSolid, Matrix4f lightMatrix,
+                                 Matrix4f lightView, int noiseTexture) {
+        this.fluidFog.setWaterLightMap(depthAll, depthSolid, lightMatrix, lightView,
+                noiseTexture);
     }
 
     /**
@@ -164,6 +170,8 @@ public class PostProcessor implements IDisposable {
         this.context.invProjView.set(camera.getInvProjectionViewMatrix());
         this.context.prevProjView.set(camera.getPrevProjectionViewMatrix());
         this.context.camDelta.set(camera.getCamDelta());
+        this.context.cameraPosition.set((float) camera.getPosition().x,
+                (float) camera.getPosition().y, (float) camera.getPosition().z);
     }
 
     public void resize(int width, int height) {

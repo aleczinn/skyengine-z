@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 /** Immutable, validated source view of one built-in or external shader pack. */
@@ -30,6 +31,26 @@ public final class ShaderPack {
         String path = this.manifest.programs.get(key);
         if (path == null) throw new IllegalArgumentException("Shader program is not declared: " + key);
         return preprocess(path, new HashSet<>());
+    }
+
+    /** Fügt pack-eigene Compile-Optionen direkt hinter #version ein. */
+    public String program(String key, Map<String, String> defines) {
+        String source = program(key);
+        if (defines == null || defines.isEmpty()) return source;
+        int lineEnd = source.indexOf('\n');
+        if (!source.startsWith("#version") || lineEnd < 0) {
+            throw new IllegalArgumentException("Shader source must start with #version: " + key);
+        }
+        StringBuilder injected = new StringBuilder(source.length() + defines.size() * 32);
+        injected.append(source, 0, lineEnd + 1);
+        for (Map.Entry<String, String> define : defines.entrySet()) {
+            injected.append("#define ").append(define.getKey());
+            if (define.getValue() != null && !define.getValue().isBlank()) {
+                injected.append(' ').append(define.getValue());
+            }
+            injected.append('\n');
+        }
+        return injected.append(source, lineEnd + 1, source.length()).toString();
     }
 
     public InputStream texture(String key) throws IOException {

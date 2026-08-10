@@ -57,6 +57,30 @@ float nvidiaPhase(float nu, float g, float alpha, float angularRadius) {
             (1.0 + alpha * (1.0 + 2.0 * gg) / 3.0));
 }
 
+/* Photon include/utility/phase_functions.glsl + include/sky/sky.glsl.
+   Unlike a binary disc this area light keeps a finite, chromatic forward-scattering
+   shoulder. That shoulder is what Bloom expands into Photon's soft solar edge. */
+float kleinNishinaPhaseArea(float nu, float energy, float angularRadius) {
+    float radius = max(angularRadius, 1.0e-6);
+    float cosRadius = cos(radius);
+    float sinRadius = sin(radius);
+    float mu = nu * cosRadius
+            + sqrt(max(0.0, 1.0 - nu * nu)) * sinRadius;
+    if (nu > cosRadius) mu = 1.0;
+    return energy / (TAU * (energy - energy * mu + 1.0)
+            * log(2.0 * energy + 1.0));
+}
+
+vec3 drawSun(vec3 ray, vec3 sun, vec3 sunColor) {
+    const float energy = 9000.1;
+    float nu = dot(ray, sun);
+    vec3 phase = vec3(
+            kleinNishinaPhaseArea(nu, 0.79 * energy, SUN_RADIUS),
+            kleinNishinaPhaseArea(nu, 1.00 * energy, SUN_RADIUS),
+            kleinNishinaPhaseArea(nu, 1.22 * energy, SUN_RADIUS));
+    return phase * sunColor * (PI / 360.0);
+}
+
 vec2 intersectSphere(vec3 origin, vec3 ray, float radius) {
     float b = dot(origin, ray);
     float d = sqr(b) - dot(origin, origin) + sqr(radius);
@@ -228,10 +252,7 @@ void main() {
                      atmosphere, 1.0 + saturationBoost);
     vec3 celestial = vec3(0.0);
 
-    float centerToEdge = max(SUN_RADIUS - acos(clamp(dot(ray, sun), -1.0, 1.0)), 0.0);
-    vec3 limb = pow(vec3(1.0 - sqr(1.0 - centerToEdge)), 0.5 * vec3(0.429, 0.522, 0.614));
-    float solidAngle = TAU * (1.0 - cos(SUN_RADIUS));
-    celestial += step(0.0, centerToEdge) * limb * vec3(1.051, 0.985, 0.940) / solidAngle;
+    celestial += drawSun(ray, sun, sunExposure * sunTint);
 
     float starThreshold = 1.0 - 0.025 * smoothstep(-0.2, 0.05, -sun.y);
     celestial += stars(ray, starThreshold) * smoothstep(-0.1, 0.1, ray.y);

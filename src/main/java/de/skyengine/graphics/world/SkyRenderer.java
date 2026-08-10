@@ -75,8 +75,8 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
         int noise = 0;
         try {
             program = new ShaderProgram(
-                    new Shader(pack.program("sky_vertex"), ShaderType.VERTEX),
-                    new Shader(pack.program("sky_fragment"), ShaderType.FRAGMENT));
+                    new Shader(this.manager.program(pack, "sky_vertex"), ShaderType.VERTEX),
+                    new Shader(this.manager.program(pack, "sky_fragment"), ShaderType.FRAGMENT));
             scattering = loadScattering(pack);
             noise = loadNoise(pack);
             program.bind();

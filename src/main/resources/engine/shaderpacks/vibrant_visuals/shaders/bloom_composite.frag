@@ -8,7 +8,7 @@ void main() {
     vec4 sceneSample = texture(u_Scene, v_uv);
     vec3 scene = sceneSample.rgb;
     vec3 bloom = texture(u_Bloom, v_uv).rgb;
-    // Bloom is emitted light added to the HDR scene. Mixing towards the blurred image also
-    // removed contrast from every non-emissive pixel and was the source of the milky veil.
-    fragColor = vec4(scene + bloom * (0.12 * u_Intensity), sceneSample.a);
+    // Photon c14_color_grading.fsh: bloom replaces 12 % of the unblurred HDR signal at
+    // intensity 1.0. Besides spreading energy this deliberately softens a hard solar disc.
+    fragColor = vec4(mix(scene, bloom, 0.12 * u_Intensity), sceneSample.a);
 }

@@ -44,6 +44,7 @@ public final class PostContext implements IDisposable {
        Vom TAA-Resolve bewusst NICHT mehr genutzt (BSL-Port: Current wird roh gesampelt —
        jede Resample-Kompensation frisst die Frische des Frames); bleibt als Anschluss
        für künftige Effekte, die den Jitter kennen müssen. */
+    public final Vector3f cameraPosition = new Vector3f();
     public final Vector2f jitterUv = new Vector2f();
 
     /* Frame-Zähler (PostProcessor.render) — Pässe erkennen Aussetzer (History invalid). */
