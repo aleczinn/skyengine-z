@@ -9,6 +9,7 @@ uniform sampler2D u_DepthBack;
 uniform sampler2D u_WaterNoise;
 uniform sampler2D u_ShadowDepthAll;
 uniform sampler2D u_ShadowDepthSolid;
+uniform samplerCube u_AtmosphereFog;
 uniform mat4 u_InvProjectionView;
 uniform mat4 u_ShadowProjectionView;
 uniform mat4 u_ShadowView;
@@ -43,6 +44,91 @@ const mat3 XYZ_TO_REC2020 = mat3(
      1.7166084, -0.3556621, -0.2533601,
     -0.6666829,  1.6164776,  0.0157685,
      0.0176422, -0.0427763,  0.94222867);
+
+float pulse(float value, float center, float width) {
+    float x = abs(value - center) / width;
+    return x > 1.0 ? 0.0 : 1.0 - x * x * (3.0 - 2.0 * x);
+}
+
+vec2 lightSphereIntersection(float mu, float radius, float sphereRadius) {
+    float discriminant = radius * radius * (mu * mu - 1.0)
+            + sphereRadius * sphereRadius;
+    if (discriminant < 0.0) return vec2(-1.0);
+    discriminant = sqrt(discriminant);
+    return vec2(-radius * mu - discriminant, -radius * mu + discriminant);
+}
+
+float chapmanLight(float x, float cosine) {
+    float c = sqrt(0.5 * PI * x);
+    if (cosine >= 0.0) return c / ((c - 1.0) * cosine + 1.0);
+    float sine = sqrt(clamp(1.0 - cosine * cosine, 0.0, 1.0));
+    return c / ((c - 1.0) * cosine - 1.0)
+            + 2.0 * c * exp(x - x * sine) * sqrt(sine);
+}
+
+vec3 lightAtmosphereTransmittance(float mu) {
+    const float planetRadius = 6371000.0;
+    const vec2 scaleHeights = vec2(8400.0, 1250.0);
+    float radius = planetRadius + 10.0;
+    if (lightSphereIntersection(mu, radius, planetRadius).x >= 0.0) return vec3(0.0);
+    vec2 inverseHeight = 1.0 / scaleHeights;
+    vec2 density = exp(radius * -inverseHeight + planetRadius * inverseHeight);
+    vec2 airmass = scaleHeights * density;
+    airmass.x *= chapmanLight(radius * inverseHeight.x, mu);
+    airmass.y *= chapmanLight(radius * inverseHeight.y, mu);
+    mat3 rec709To2020 = REC709_TO_XYZ * XYZ_TO_REC2020;
+    vec3 rayleigh = vec3(8.059375432e-6, 1.671209429e-5, 4.080133294e-5)
+            * rec709To2020;
+    vec3 mie = vec3(1.666442358e-6, 1.812685127e-6, 1.958927896e-6)
+            * rec709To2020;
+    vec3 ozone = vec3(8.304280072e-7, 1.314911970e-6, 5.440679729e-8)
+            * rec709To2020;
+    return clamp(exp(-(rayleigh * airmass.x + mie * airmass.y
+            + ozone * airmass.x)), 0.0, 1.0);
+}
+
+float moonPhaseBrightness(float phase) {
+    return phase == 0.0 ? 1.0 : phase == 1.0 ? 0.875
+            : phase == 2.0 ? 0.75 : phase == 3.0 ? 0.625
+            : phase == 4.0 ? 0.5 : phase == 5.0 ? 0.75
+            : phase == 6.0 ? 0.875 : 1.0;
+}
+
+vec3 photonDirectionalLight() {
+    vec3 sun = normalize(u_SunDirection.xyz);
+    vec3 moon = normalize(u_MoonDirection.xyz);
+    bool night = sun.y < 0.0;
+    vec3 direction = night ? moon : sun;
+    float meFade = sun.y < 0.18 ? 0.37 + 1.2 * max(0.0, -sun.y) : 1.7;
+    float meWeight = pow(clamp(1.0 - meFade * abs(sun.y - 0.18), 0.0, 1.0), 2.0);
+    float sunrise = (sun.x > 0.0 ? 1.0 : 0.0) * meWeight;
+    float sunset = (sun.x < 0.0 ? 1.0 : 0.0) * meWeight;
+    float blueHour = clamp((exp(-190.0 * (sun.y + 0.09604)
+            * (sun.y + 0.09604)) - 0.05) / 0.95, 0.0, 1.0);
+    float sunExposure = 7.0 * (1.0 + 0.5 * (sunrise + sunset) + 40.0 * blueHour);
+    vec3 sunTint = mix(vec3(1.0), vec3(1.05, 0.84, 0.93) * 1.2,
+            pow(pulse(sun.y, 0.17, 0.40), 2.0));
+    sunTint *= mix(vec3(1.0), vec3(0.95, 0.80, 1.0), blueHour);
+    float moonExposure = 0.66 * moonPhaseBrightness(u_MoonDirection.w)
+            * (1.0 + 0.33 / clamp(1.25 * max(-sun.y, 0.1), 0.0, 1.0));
+    vec3 moonTint = pow(vec3(0.75, 0.83, 1.0), vec3(2.2))
+            * REC709_TO_XYZ * XYZ_TO_REC2020;
+    vec3 color = vec3(1.051, 0.985, 0.940)
+            * lightAtmosphereTransmittance(direction.y);
+    float atmosphereBoost = 1.10 + 0.20
+            * exp(-150.0 * (sun.y + 0.07283) * (sun.y + 0.07283));
+    color = mix(vec3(dot(color, vec3(0.2627, 0.6780, 0.0593))),
+            color, atmosphereBoost);
+    color *= night ? moonExposure * moonTint : sunExposure * sunTint;
+    color *= clamp(direction.y / 0.02, 0.0, 1.0);
+    color *= 1.0 - 0.25 * pulse(abs(direction.y), 0.15, 0.11);
+    return color;
+}
+
+vec3 photonAmbientLight() {
+    return texture(u_AtmosphereFog, normalize(vec3(0.0, 1.0, -0.8))).rgb
+            * (2.0 * PI) * 1.13;
+}
 
 vec3 reconstructPosition(vec2 uv, float depth) {
     float ndcZ = mix(depth * 2.0 - 1.0, depth, u_ZeroToOneDepth);
@@ -146,9 +232,9 @@ void main() {
         for (int bounce = 0; bounce < 4; ++bounce) {
             float phase = 0.7 * henyeyGreenstein(lightDotView,
                     0.5 * anisotropy) + 0.3 / (4.0 * PI);
-            vec3 direct = u_SkyLightColor.rgb * u_SunDirection.w * focusedLight
+            vec3 direct = photonDirectionalLight() * focusedLight
                     * phase * lightTransmittance * u_WaterLightShafts;
-            vec3 ambient = u_EnvFogColor.rgb * (1.0 / (4.0 * PI))
+            vec3 ambient = photonAmbientLight() * (1.0 / (4.0 * PI))
                     * skyTransmittance;
             scattering += (direct + ambient) * transmittance * scatteringAmount;
             anisotropy *= 0.5;

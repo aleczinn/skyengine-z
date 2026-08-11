@@ -92,6 +92,14 @@ public class SkyEngine {
         }
 
         this.window.getFrameBuffer().bind();
+        /* Offscreen- und Post-Paesse verwenden eigene Viewports. Die Welt darf nie den
+           zuletzt aktiven Halbaufloesungs-/Shadow-/Cubemap-Viewport erben, auch dann
+           nicht, wenn ein optionaler Restore-Pass beim Packwechsel ausfaellt. */
+        GL11.glViewport(0, 0, this.window.getWidth(), this.window.getHeight());
+        /* GUI-Clipping lebt im globalen GL-State. Ein liegengebliebener Scissor beschneidet
+           sogar glClear und erzeugt dadurch exakt die harten schwarzen Teilframes, die
+           anschließend nur von der unclipped GUI überzeichnet werden. */
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
 
         GL11.glClearColor(
                 this.config.getWindowClearColor().red,

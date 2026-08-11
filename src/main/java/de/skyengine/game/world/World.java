@@ -338,6 +338,8 @@ public class World implements IInitializable, IDisposable {
         this.skyRenderer.init();
         this.chunkRenderer.init(this.atlas);
         this.chunkRenderer.setAtmosphereFogTexture(this.skyRenderer.fogTexture());
+        SkyEngine.get().getPostProcessor().setAtmosphereFogTexture(
+                this.skyRenderer.fogTexture());
         /* LOD: abstrahierte Datenquelle + Block-Darstellung aus den gebackenen Modellen —
            erst nach dem Registry-Bake. Importierte Welten sampeln die Region-Snapshots
            (der Void-Generator kennt kein Terrain), generierte wie bisher Chunkdaten +
@@ -1424,6 +1426,7 @@ public class World implements IInitializable, IDisposable {
                 this.getDayTime(partialTick));
         this.environmentUbo.update(this.environmentState);
         this.skyRenderer.updateFogCube(this.environmentState.dayFraction);
+        this.chunkRenderer.setSkyShBuffer(this.skyRenderer.skyShBuffer());
         this.chunkRenderer.setWaterNoiseTexture(this.skyRenderer.noiseTexture());
         this.chunkRenderer.setSkyReflectionTexture(this.skyRenderer.reflectionTexture());
         /* Photon richtet die Shadow-Projection nachts auf den Mond statt auf die unter dem
@@ -1436,6 +1439,7 @@ public class World implements IInitializable, IDisposable {
                 this.chunkRenderer.waterShadowMatrix(),
                 this.chunkRenderer.waterShadowView(),
                 this.skyRenderer.noiseTexture());
+        this.skyRenderer.setShadowView(this.chunkRenderer.waterShadowView());
         this.skyRenderer.render(camera, this.environmentState.dayFraction);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.BE);
         this.blockEntityRenderer.render(this.chunkManager, this.lodManager, camera, partialTick,

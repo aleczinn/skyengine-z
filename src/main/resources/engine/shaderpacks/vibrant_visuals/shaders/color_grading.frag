@@ -34,10 +34,6 @@ vec3 gainCurve(vec3 x, float k) {
     return mix(a, 1.0-a, step(0.5, x));
 }
 
-vec3 linearToSrgb(vec3 x) {
-    return 1.14374 * (-0.126893 * x + sqrt(max(x, 0.0)));
-}
-
 vec3 rgbToHsl(vec3 c) {
     const vec4 K = vec4(0.0, -1.0/3.0, 2.0/3.0, -1.0);
     vec4 p = mix(vec4(c.bg,K.wz), vec4(c.gb,K.xy), step(c.b,c.g));
@@ -72,8 +68,14 @@ vec3 applyDisplayBase(vec3 c) {
     return (c - 0.5) * egcs.z + 0.5 + vbtt.y;
 }
 
+float photonVignette(vec2 uv) {
+    if (mtdr.w <= 0.0) return 1.0;
+    float shape = 16.0 * (uv.x * uv.y - uv.x) * (uv.x * uv.y - uv.y);
+    return pow(max(shape, 0.0), 0.08 * mtdr.w);
+}
+
 vec3 photonTransform(vec3 scene) {
-    vec3 c = max(scene * (0.83 * egcs.x), 0.0);
+    vec3 c = max(scene * photonVignette(v_uv) * (0.83 * egcs.x), 0.0);
     // Runtime white balance remains part of the engine grading contract.  Photon supplies
     // the film transform below, while pack-independent user grading is applied around it.
     c *= vec3(1.0 + 0.15 * vbtt.z, 1.0 + 0.10 * vbtt.w, 1.0 - 0.15 * vbtt.z);
@@ -100,8 +102,8 @@ vec3 photonTransform(vec3 scene) {
     c = hslToRgb(hsl);
     c = gainCurve(c, 1.05);
     c *= c;
-    c = linearToSrgb(clamp(c, 0.0, 1.0));
 
+    // Photon behaelt c14 in linearem Rec.709. Die Display-EOTF gehoert in final.fsh.
     c = applyDisplayBase(c);
     if (egcs.y != 1.0) c = pow(max(c, 0.0), vec3(1.0 / egcs.y));
     return clamp(c, 0.0, 1.0);

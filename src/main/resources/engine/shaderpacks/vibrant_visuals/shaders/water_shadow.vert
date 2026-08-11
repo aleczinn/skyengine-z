@@ -9,6 +9,7 @@ layout(std430, binding = 0) readonly buffer DrawOffsets {
 uniform mat4 u_LightProjectionView;
 
 out vec3 v_texCoord;
+flat out vec3 v_color;
 
 const float SHADOW_DISTORTION = 0.85;
 const float SHADOW_DEPTH_SCALE = 0.20;
@@ -24,6 +25,8 @@ void main() {
     vec2 uv = vec2(float(a_data.y >> 16), float(a_data.z & 0xFFFFu))
             * (1.0 / 1024.0) - 1.0;
     v_texCoord = vec3(uv, float(a_data.z >> 16));
+    v_color = vec3(float(a_data.w & 0xFFu), float((a_data.w >> 8) & 0xFFu),
+            float((a_data.w >> 16) & 0xFFu)) * (1.0 / 255.0);
     position += u_DrawOffsets[gl_DrawID].xyz;
     vec4 clip = u_LightProjectionView * vec4(position, 1.0);
     vec2 projected = clip.xy / clip.w;

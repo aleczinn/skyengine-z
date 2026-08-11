@@ -1,6 +1,7 @@
 package de.skyengine.graphics.post.passes;
 
 import de.skyengine.core.SkyEngine;
+import de.skyengine.core.settings.GameSettings;
 import de.skyengine.graphics.post.PostContext;
 import de.skyengine.graphics.post.PostPass;
 import de.skyengine.graphics.post.PostProcessor;
@@ -25,12 +26,14 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
     public static final int LAVA = 2;
 
     private ShaderPackManager manager;
+    private ShaderProgram airVolumetricProgram;
     private ShaderProgram volumetricProgram;
     private ShaderProgram compositeProgram;
     private int fluid;
     private int shadowDepthAll;
     private int shadowDepthSolid;
     private int waterNoiseTexture;
+    private int atmosphereFogTexture;
     private int volumetricFbo;
     private int fogTransmittance;
     private int fogScattering;
@@ -52,6 +55,15 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
 
     @Override
     public ShaderPackManager.Prepared prepare(ShaderPack pack) {
+        ShaderProgram airVolumetric = new ShaderProgram(
+                new Shader(PostProcessor.FULLSCREEN_VERTEX_SHADER, ShaderType.VERTEX),
+                new Shader(this.manager.program(pack, "air_vl"), ShaderType.FRAGMENT));
+        airVolumetric.bind();
+        airVolumetric.setUniformi("u_DepthFront", 0);
+        airVolumetric.setUniformi("u_WaterNoise", 2);
+        airVolumetric.setUniformi("u_ShadowDepthSolid", 4);
+        airVolumetric.unbind();
+
         ShaderProgram volumetric = new ShaderProgram(
                 new Shader(PostProcessor.FULLSCREEN_VERTEX_SHADER, ShaderType.VERTEX),
                 new Shader(this.manager.program(pack, "water_vl"), ShaderType.FRAGMENT));
@@ -61,6 +73,7 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
         volumetric.setUniformi("u_WaterNoise", 2);
         volumetric.setUniformi("u_ShadowDepthAll", 3);
         volumetric.setUniformi("u_ShadowDepthSolid", 4);
+        volumetric.setUniformi("u_AtmosphereFog", 5);
         volumetric.unbind();
 
         ShaderProgram composite = new ShaderProgram(
@@ -75,14 +88,16 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
         float scale = 0.5F;
         var resource = pack.manifest().resources.get("water_fog_transmittance");
         if (resource != null) scale = (float) resource.scale;
-        return new PreparedPrograms(volumetric, composite, scale);
+        return new PreparedPrograms(airVolumetric, volumetric, composite, scale);
     }
 
     @Override
     public void activate(ShaderPackManager.Prepared prepared) {
         PreparedPrograms programs = (PreparedPrograms) prepared;
+        ShaderProgram previousAirVolumetric = this.airVolumetricProgram;
         ShaderProgram previousVolumetric = this.volumetricProgram;
         ShaderProgram previousComposite = this.compositeProgram;
+        this.airVolumetricProgram = programs.takeAirVolumetric();
         this.volumetricProgram = programs.takeVolumetric();
         this.compositeProgram = programs.takeComposite();
         float nextScale = programs.scale;
@@ -94,6 +109,7 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
         } else {
             this.volumetricScale = nextScale;
         }
+        if (previousAirVolumetric != null) previousAirVolumetric.dispose();
         if (previousVolumetric != null) previousVolumetric.dispose();
         if (previousComposite != null) previousComposite.dispose();
     }
@@ -110,6 +126,10 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
         this.eyeSkylight = Math.clamp(skylight, 0F, 1F);
     }
 
+    public void setAtmosphereFogTexture(int texture) {
+        this.atmosphereFogTexture = texture;
+    }
+
     public void setWaterLightMap(int depthAll, int depthSolid, Matrix4f lightMatrix,
                                  Matrix4f lightView, int noiseTexture) {
         this.shadowDepthAll = depthAll;
@@ -121,7 +141,8 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
 
     @Override
     public boolean isActive(PostContext context) {
-        return this.fluid != NONE;
+        /* Photon c0_vl also runs in clear air; water and lava merely select other media. */
+        return this.fluid != NONE || this.atmosphereFogTexture != 0;
     }
 
     @Override
@@ -132,7 +153,8 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
 
     @Override
     public void execute(PostContext context) {
-        if (this.fluid == WATER) this.executeVolumetrics(context);
+        if (this.fluid == NONE) this.executeVolumetrics(context, this.airVolumetricProgram);
+        if (this.fluid == WATER) this.executeVolumetrics(context, this.volumetricProgram);
 
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.targetFbo);
         GL11.glViewport(0, 0, context.width, context.height);
@@ -149,28 +171,36 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
     }
 
-    private void executeVolumetrics(PostContext context) {
+    private void executeVolumetrics(PostContext context, ShaderProgram program) {
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.volumetricFbo);
         GL11.glViewport(0, 0, this.fogWidth, this.fogHeight);
         GL11.glClearColor(0F, 0F, 0F, 0F);
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
-        this.volumetricProgram.bind();
-        this.manager.applySettings(this.volumetricProgram);
-        this.volumetricProgram.setUniformMatrix4f("u_InvProjectionView", context.invProjView);
-        this.volumetricProgram.setUniformMatrix4f("u_ShadowProjectionView", this.waterLightMatrix);
-        this.volumetricProgram.setUniformMatrix4f("u_ShadowView", this.waterLightView);
-        this.volumetricProgram.setUniformVector3f("u_CameraPosition",
+        program.bind();
+        this.manager.applySettings(program);
+        program.setUniformMatrix4f("u_InvProjectionView", context.invProjView);
+        program.setUniformMatrix4f("u_ShadowProjectionView", this.waterLightMatrix);
+        program.setUniformMatrix4f("u_ShadowView", this.waterLightView);
+        program.setUniformVector3f("u_CameraPosition",
                 context.cameraPosition.x, context.cameraPosition.y, context.cameraPosition.z);
         /* -shadowProjectionInverse[2].z der klassischen Photon-Orthoprojektion. */
-        this.volumetricProgram.setUniformf("u_ShadowDepthRange", 127.95F);
-        this.volumetricProgram.setUniformf("u_Time",
+        program.setUniformf("u_ShadowDepthRange", 127.95F);
+        program.setUniformf("u_Time",
                 (System.nanoTime() - this.animationStartNanos) * 1.0e-9F);
-        this.volumetricProgram.setUniformf("u_Frame", (float) (context.frame & 4095L));
-        this.volumetricProgram.setUniformf("u_ZeroToOneDepth",
+        program.setUniformf("u_Frame", (float) (context.frame & 4095L));
+        program.setUniformf("u_ZeroToOneDepth",
                 SkyEngine.get().getWindow().getProperties().isUseInverseDepth() ? 1F : 0F);
-        this.volumetricProgram.setUniformf("u_EyeSkylight", this.eyeSkylight);
+        program.setUniformf("u_EyeSkylight", this.eyeSkylight);
+        GameSettings settings = GameSettings.get();
+        float fogEnd = (settings.lodEnabled
+                ? Math.max(settings.renderDistance, settings.lodMaxDistance)
+                : settings.renderDistance) * 32.0F;
+        program.setUniformf("u_FogEnd", fogEnd);
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.sceneDepth);
+        /* Air is composited after translucent geometry. Using the opaque depth preserves
+           Photon's fog-behind-water ordering; underwater uses the nearest scene depth. */
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D,
+                this.fluid == NONE ? context.worldDepth : context.sceneDepth);
         GL13.glActiveTexture(GL13.GL_TEXTURE1);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.worldDepth);
         GL13.glActiveTexture(GL13.GL_TEXTURE2);
@@ -179,8 +209,11 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.shadowDepthAll);
         GL13.glActiveTexture(GL13.GL_TEXTURE4);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.shadowDepthSolid);
+        GL13.glActiveTexture(GL13.GL_TEXTURE5);
+        GL11.glBindTexture(GL13.GL_TEXTURE_CUBE_MAP, this.atmosphereFogTexture);
         context.drawFullscreenTriangle();
-        this.volumetricProgram.unbind();
+        program.unbind();
+        GL13.glActiveTexture(GL13.GL_TEXTURE0);
     }
 
     private void createTargets(int width, int height) {
@@ -229,19 +262,29 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
     public void dispose() {
         if (this.manager != null) this.manager.unregister(this);
         this.disposeTargets();
+        if (this.airVolumetricProgram != null) this.airVolumetricProgram.dispose();
         if (this.volumetricProgram != null) this.volumetricProgram.dispose();
         if (this.compositeProgram != null) this.compositeProgram.dispose();
     }
 
     private static final class PreparedPrograms implements ShaderPackManager.Prepared {
+        private ShaderProgram airVolumetric;
         private ShaderProgram volumetric;
         private ShaderProgram composite;
         private final float scale;
 
-        private PreparedPrograms(ShaderProgram volumetric, ShaderProgram composite, float scale) {
+        private PreparedPrograms(ShaderProgram airVolumetric, ShaderProgram volumetric,
+                                 ShaderProgram composite, float scale) {
+            this.airVolumetric = airVolumetric;
             this.volumetric = volumetric;
             this.composite = composite;
             this.scale = scale;
+        }
+
+        private ShaderProgram takeAirVolumetric() {
+            ShaderProgram result = this.airVolumetric;
+            this.airVolumetric = null;
+            return result;
         }
 
         private ShaderProgram takeVolumetric() {
@@ -258,6 +301,7 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
 
         @Override
         public void dispose() {
+            if (this.airVolumetric != null) this.airVolumetric.dispose();
             if (this.volumetric != null) this.volumetric.dispose();
             if (this.composite != null) this.composite.dispose();
         }

@@ -71,6 +71,17 @@ public final class ShaderPackManager implements IDisposable {
         if ("define".equals(setting.binding)) this.requestReload();
     }
 
+    /** Entfernt alle Overrides des aktiven Packs. Danach liefern settingValue/program
+        wieder ausschliesslich die in pack.json deklarierten Defaultwerte. */
+    public void resetActiveSettings() {
+        Map<String, Double> removed = this.config.packSettings.remove(this.active.manifest().id);
+        if (removed == null || removed.isEmpty()) return;
+        boolean compileSettingChanged = this.active.manifest().settings.stream()
+                .anyMatch(setting -> "define".equals(setting.binding)
+                        && removed.containsKey(setting.key));
+        if (compileSettingChanged) this.requestReload();
+    }
+
     /** Präprozessierte Quelle inklusive der für dieses Pack gespeicherten Compile-Settings. */
     public String program(ShaderPack pack, String key) {
         Map<String, String> defines = new LinkedHashMap<>();

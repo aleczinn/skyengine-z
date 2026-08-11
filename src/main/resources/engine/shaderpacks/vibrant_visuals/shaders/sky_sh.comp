@@ -1,0 +1,116 @@
+#version 460 core
+
+/* Photon d4a_generate_sky_sh.csh, adapted from its 2D sky map to the engine's
+   atmosphere cubemap. Clouds and weather are intentionally absent in this engine,
+   so the cubemap contains exactly the clear-sky radiance Photon projects here. */
+layout(local_size_x = 256) in;
+
+uniform samplerCube u_AtmosphereFog;
+
+layout(std140, binding = 1) uniform Environment {
+    vec4 u_SunDirection;
+};
+
+layout(std430, binding = 3) writeonly buffer SkySphericalHarmonics {
+    vec4 u_SkySh[10];
+};
+
+shared vec3 sharedMemory[256][9];
+
+const float PI = 3.141592653589793;
+const float TAU = 6.283185307179586;
+const float PHI2 = 1.3247179572;
+
+vec2 r2(int n) {
+    const vec2 alpha = 1.0 / vec2(PHI2, PHI2 * PHI2);
+    return fract(vec2(0.5) + float(n) * alpha);
+}
+
+vec3 uniformSphereSample(vec2 hash) {
+    hash.x *= TAU;
+    hash.y = 2.0 * hash.y - 1.0;
+    return vec3(vec2(sin(hash.x), cos(hash.x))
+            * sqrt(max(1.0 - hash.y * hash.y, 0.0)), hash.y);
+}
+
+vec3 uniformHemisphereSample(vec3 axis, vec2 hash) {
+    vec3 direction = uniformSphereSample(hash);
+    return dot(direction, axis) < 0.0 ? -direction : direction;
+}
+
+void shCoefficients(vec3 direction, out float coefficients[9]) {
+    float x = direction.x;
+    float y = direction.y;
+    float z = direction.z;
+    coefficients[0] = 0.2820947918;
+    coefficients[1] = 0.4886025119 * x;
+    coefficients[2] = 0.4886025119 * z;
+    coefficients[3] = 0.4886025119 * y;
+    coefficients[4] = 1.0925484310 * x * y;
+    coefficients[5] = 1.0925484310 * y * z;
+    coefficients[6] = 0.3153915653 * (3.0 * z * z - 1.0);
+    coefficients[7] = 0.7725484040 * x * z;
+    coefficients[8] = 0.3862742020 * (x * x - y * y);
+}
+
+vec3 evaluateIrradiance(vec3 normal) {
+    float coefficients[9];
+    shCoefficients(normal, coefficients);
+    const vec3 kernel = vec3(
+            sqrt(PI) * 0.5,
+            sqrt(3.0 * PI) / 3.0,
+            sqrt(5.0 * PI) * 0.125);
+    const vec3 normalization = sqrt(4.0 * PI / vec3(1.0, 3.0, 5.0));
+    vec3 multiplier = normalization * kernel;
+    vec3 value = sharedMemory[0][0] * coefficients[0] * multiplier.x;
+    for (int band = 1; band < 4; ++band) {
+        value += sharedMemory[0][band] * coefficients[band] * multiplier.y;
+    }
+    for (int band = 4; band < 9; ++band) {
+        value += sharedMemory[0][band] * coefficients[band] * multiplier.z;
+    }
+    return value;
+}
+
+void main() {
+    const uint sampleCount = 256u;
+    uint index = gl_LocalInvocationID.x;
+    float nightBoost = clamp((exp(-25.0 * (u_SunDirection.y + 0.3)
+            * (u_SunDirection.y + 0.3)) - 0.05) / 0.95, 0.0, 1.0);
+    float skylightBoost = 1.0 + 0.5 * nightBoost;
+    vec3 direction = uniformHemisphereSample(vec3(0.0, 1.0, 0.0), r2(int(index)));
+    vec3 radiance = textureLod(u_AtmosphereFog, direction, 0.0).rgb * skylightBoost;
+    float coefficients[9];
+    shCoefficients(direction, coefficients);
+    for (int band = 0; band < 9; ++band) {
+        sharedMemory[index][band] = radiance * coefficients[band]
+                * (TAU / float(sampleCount));
+    }
+    barrier();
+
+#define REDUCE(STRIDE) \
+    if (index < (STRIDE)) { \
+        for (int band = 0; band < 9; ++band) { \
+            sharedMemory[index][band] += sharedMemory[index + (STRIDE)][band]; \
+        } \
+    } \
+    barrier();
+
+    REDUCE(128u)
+    REDUCE(64u)
+    REDUCE(32u)
+    REDUCE(16u)
+    REDUCE(8u)
+    REDUCE(4u)
+    REDUCE(2u)
+    REDUCE(1u)
+
+#undef REDUCE
+
+    if (index == 0u) {
+        for (int band = 0; band < 9; ++band) {
+            u_SkySh[band] = vec4(sharedMemory[0][band], 0.0);
+        }
+        u_SkySh[9] = vec4(evaluateIrradiance(vec3(0.0, 1.0, 0.0)), 0.0);
+    }
+}

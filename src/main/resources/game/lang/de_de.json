@@ -111,6 +111,7 @@
     "shaderpacks": {
       "button": "Shaderpakete ...",
       "title": "Shaderpakete",
+      "reset": "Auf Standardwerte zurücksetzen",
       "pack": "Shaderpaket",
       "exposure": "Belichtung: %d %%",
       "saturation": "Sättigung: %d %%",

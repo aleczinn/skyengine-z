@@ -25,7 +25,7 @@ import java.io.FileWriter;
  */
 public final class PostProcessingSettings {
 
-    private static final int CURRENT_SCHEMA = 4;
+    private static final int CURRENT_SCHEMA = 6;
 
     private static final Logger LOGGER = LogManager.getLogger(PostProcessingSettings.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -74,7 +74,7 @@ public final class PostProcessingSettings {
     private float gamma = 1.0F;        // Output Transform, zuletzt
 
     /* --- Pipeline-Modi --- */
-    private AntiAliasingMode aaMode = AntiAliasingMode.TAA_FXAA;
+    private AntiAliasingMode aaMode = AntiAliasingMode.TAA;
     private PostDebugMode debugMode = PostDebugMode.NONE;
 
     /* TAA: History-Gewicht (höher = ruhiger/weicher, niedriger = schärfer/flimmriger);
@@ -82,13 +82,13 @@ public final class PostProcessingSettings {
     private float taaHistoryWeight = 0.85F;
     /* TAA: LOD-Bias des Block-TextureArrays solange TAA aktiv ist (negativ = schärfer;
        holt von der zeitlichen Mittelung weggeglättetes Mip-Detail zurück). */
-    private float taaMipBias = -0.5F;
+    private float taaMipBias = 0.0F;
 
     /* --- Bloom aktiv; Vignette/Sharpen bleiben als spätere Pipeline-Slots reserviert. --- */
     private int schema = CURRENT_SCHEMA;
     private float bloomIntensity = 1.0F;
     private float bloomThreshold = 0.0F;
-    private float vignette = 0.0F;
+    private float vignette = 1.0F;
     private float sharpen = 0.5F;
 
     /* Dirty-Flag: true = UBO muss neu hochgeladen werden (GSON umgeht Setter -> nach dem
@@ -138,6 +138,16 @@ public final class PostProcessingSettings {
         auf das Objekt (Context/Pässe) bleiben gültig. */
     public void reloadFromFile() {
         PostProcessingSettings fresh = load();
+        this.copyFrom(fresh);
+    }
+
+    /** Setzt alle im Shaderpack-Menue sichtbaren Bildparameter auf die eingebauten
+        Photon-Defaults zurueck, unabhaengig von einer eventuell veraenderten JSON. */
+    public void resetToDefaults() {
+        this.copyFrom(new PostProcessingSettings());
+    }
+
+    private void copyFrom(PostProcessingSettings fresh) {
         this.exposure = fresh.exposure;
         this.temperature = fresh.temperature;
         this.tint = fresh.tint;
@@ -184,6 +194,14 @@ public final class PostProcessingSettings {
             this.bloomIntensity = 1.0F;
             this.bloomThreshold = 0.0F;
             this.sharpen = 0.5F;
+        }
+        /* Photon besitzt nach dem TAA keinen zusaetzlichen FXAA-Pass. */
+        if (this.schema < 5 && this.aaMode == AntiAliasingMode.TAA_FXAA) {
+            this.aaMode = AntiAliasingMode.TAA;
+        }
+        if (this.schema < 6) {
+            this.vignette = 1.0F;
+            this.taaMipBias = 0.0F;
         }
         this.schema = CURRENT_SCHEMA;
         if (this.tonemapOperator == null) this.tonemapOperator = TonemapOperator.NONE;

@@ -9,6 +9,8 @@
     "water_shadow_fragment": "shaders/water_shadow.frag",
     "sky_vertex": "shaders/sky.vert",
     "sky_fragment": "shaders/sky.frag",
+    "sky_sh_compute": "shaders/sky_sh.comp",
+    "air_vl": "shaders/air_vl.frag",
     "water_vl": "shaders/water_vl.frag",
     "fluid_fog": "shaders/fluid_fog.frag",
     "bloom_downsample": "shaders/bloom_downsample.frag",

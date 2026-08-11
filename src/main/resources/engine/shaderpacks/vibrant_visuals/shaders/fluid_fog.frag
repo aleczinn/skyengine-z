@@ -21,7 +21,7 @@ vec4 smoothFilter(sampler2D source, vec2 coordinate) {
 
 void main() {
     vec4 scene = texture(u_Scene, v_uv);
-    if (u_Fluid == 1) {
+    if (u_Fluid == 0 || u_Fluid == 1) {
         vec3 transmittance = smoothFilter(u_FogTransmittance, v_uv).rgb;
         vec3 scattering = smoothFilter(u_FogScattering, v_uv).rgb;
         scene.rgb = scene.rgb * transmittance + scattering;

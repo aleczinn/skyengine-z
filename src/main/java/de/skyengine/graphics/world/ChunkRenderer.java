@@ -66,6 +66,7 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
     private static final int SHADOW_DEPTH_SOLID_UNIT = 12;
     private static final int SHADOW_DEPTH_ALL_UNIT = 13;
     private static final int SHADOW_COLOR_UNIT = 14;
+    private static final int SKY_SH_BINDING = 3;
 
     private static final int SLOTS = 3;                 // Frames in flight (Command-/Offset-Ringe)
     private static final int COMMAND_BYTES = 20;        // DrawElementsIndirectCommand (5 uints)
@@ -85,6 +86,7 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
     private int atmosphereFogTexture;
     private int waterNoiseTexture;
     private int skyReflectionTexture;
+    private int skyShBuffer;
     private static final int DEFAULT_WATER_SHADOW_SIZE = 2048;
     private static final float WATER_SHADOW_DISTANCE = 128F;
     private int waterShadowSize = DEFAULT_WATER_SHADOW_SIZE;
@@ -890,11 +892,20 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
                 + MappedRing.align((long) shadowDraws * COMMAND_BYTES);
         this.shadowOffTranslucent = this.shadowOffDetail
                 + MappedRing.align((long) shadowDraws * OFFSET_BYTES);
+        int shadowNTranslucent = this.writeSegment(RenderLayer.TRANSLUCENT,
+                this.shadowVisible, cmds, offs, this.shadowCmdTranslucent,
+                this.shadowOffTranslucent, cam);
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.WRITE);
 
         /* Photons Schattenkarte entsteht vor dem Terrain-Lighting desselben Frames. */
         this.renderWaterOcclusion();
+        /* In Photon enthaelt shadowtex0 bereits vor dem Deferred-Lighting transparente
+           Blocker. Ohne diesen Draw wurde Wasser erst nach dem Terrain in die Shadowmap
+           geschrieben; farbige Wassertransmission konnte den Meeresboden daher nie
+           erreichen. LOD-Wasser liegt ausserhalb des 128-Block-Nahbereichs. */
+        this.appendWaterToShadow(this.shadowCmdTranslucent,
+                this.shadowOffTranslucent, shadowNTranslucent, 0L, 0L, 0);
 
         /* 7. Render-Pässe: opaque & cutout (Alpha-Test bei 0.5) — je EIN Draw-Call.
            u_Textures ist einmalig gesetzt (init); Fog lädt nur bei Wertänderung hoch. */
@@ -906,11 +917,13 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
                 (float) cam.x, (float) cam.y, (float) cam.z);
         this.shader.setUniformf(this.locTime,
                 (System.nanoTime() - this.animationStartNanos) * 1.0e-9F);
+        this.shader.setUniformf("u_Frame", (float) this.frameId);
         this.shader.setUniformMatrix4f("u_ShadowProjectionView", this.waterShadowMatrix);
         this.setFogUniforms();
         this.setLightUniforms();
         this.textures.bind(0);
         this.bindAtmosphereFog();
+        this.bindSkySh();
         this.bindWaterNoise();
         this.bindShadowInputs();
 
@@ -1031,6 +1044,7 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         this.shader.bind();
         this.textures.bind(0);
         this.bindAtmosphereFog();
+        this.bindSkySh();
         this.bindWaterNoise();
         this.bindShadowInputs();
         EngineProperties properties = SkyEngine.get().getWindow().getProperties();
@@ -1106,16 +1120,13 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         long cmdLodT = this.cmdCursor + MappedRing.align((long) n * COMMAND_BYTES);
         long offLodT = this.offCursor + MappedRing.align((long) n * OFFSET_BYTES);
         int nLodT = this.writeLodTranslucentSegment(cmds, offs, cmdLodT, offLodT, cam);
-        int nShadowT = this.writeSegment(RenderLayer.TRANSLUCENT, this.shadowVisible,
-                cmds, offs, this.shadowCmdTranslucent, this.shadowOffTranslucent, cam);
-
         FrameProfiler.cpuStop(FrameProfiler.Cpu.WRITE);
 
-        /* Photons shadowtex0 enthält auch Wasser, shadowtex1 nur feste Geometrie.
-           Erst hier existiert das Translucent-MDI-Segment; der Frame-Fence folgt weiterhin
-           nach sämtlichen Nutzern dieses Ring-Slots. */
-        this.appendWaterToShadow(this.shadowCmdTranslucent, this.shadowOffTranslucent, nShadowT,
-                cmdLodT, offLodT, nLodT);
+        /* Die Photon-Schattenkarte wird in renderSolid genau einmal vor dem Lighting
+           aufgebaut. Sie darf hier nicht erneut mit den inzwischen kamera-sortierten
+           Translucent-Daten verändert werden: Terrain, Wasser und volumetrischer Nebel
+           müssen innerhalb eines Frames dieselbe Shadow-Map sehen. LOD-Wasser liegt
+           außerhalb des 128-Block-Shadowbereichs und gehört daher nicht hinein. */
 
         /* Gleiches Programm wie renderSolid im selben Frame: u_ProjectionView/Fog/u_Textures
            bleiben als Programm-Uniform-State erhalten (die Entity-/BlockEntity-Pässe dazwischen
@@ -1133,6 +1144,7 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
                 SkyEngine.get().getPostProcessor().isCameraUnderwater() ? 1F : 0F);
         this.textures.bind(0);
         this.bindAtmosphereFog();
+        this.bindSkySh();
         this.bindWaterInputs();
 
         GL11.glEnable(GL11.GL_BLEND);
@@ -1745,6 +1757,10 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         this.atmosphereFogTexture = texture;
     }
 
+    public void setSkyShBuffer(int buffer) {
+        this.skyShBuffer = buffer;
+    }
+
     public void setWaterNoiseTexture(int texture) {
         this.waterNoiseTexture = texture;
     }
@@ -1770,6 +1786,26 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
                 .ortho(-radius, radius, -radius, radius, 0.1F, radius * 2F, false);
         this.waterShadowView.identity()
                 .lookAt(this.waterShadowLight, this.waterShadowTarget, this.waterShadowUp);
+
+        /* Eine frei mit der Kamera gleitende Orthoprojektion verschiebt das komplette
+           Shadow-Raster bei jeder noch so kleinen Bewegung und laesst PCSS auf ruhenden
+           Flaechen kriseln. Die beiden lichtseitigen Achsen werden deshalb auf ganze
+           Shadow-Texel eingerastet. Das entspricht der Stabilisierung, die Minecraft/Iris
+           fuer Photons shadowModelView bereitstellt; die Geometrie bleibt kamera-relativ,
+           die Abtastphase ist aber in der Welt verankert. */
+        double cameraLightX = this.waterShadowView.m00() * camera.x
+                + this.waterShadowView.m10() * camera.y
+                + this.waterShadowView.m20() * camera.z;
+        double cameraLightY = this.waterShadowView.m01() * camera.x
+                + this.waterShadowView.m11() * camera.y
+                + this.waterShadowView.m21() * camera.z;
+        double worldUnitsPerTexel = 2.0 * radius / this.waterShadowSize;
+        float phaseX = (float) (cameraLightX
+                - Math.rint(cameraLightX / worldUnitsPerTexel) * worldUnitsPerTexel);
+        float phaseY = (float) (cameraLightY
+                - Math.rint(cameraLightY / worldUnitsPerTexel) * worldUnitsPerTexel);
+        this.waterShadowView.m30(phaseX);
+        this.waterShadowView.m31(phaseY);
         this.waterShadowProjection.mul(this.waterShadowView, this.waterShadowMatrix);
 
         for (int i = 0, n = this.meshes.tableSize(); i < n; i++) {
@@ -1806,13 +1842,18 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         this.usePhotonShadowClipSpace();
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.waterShadowSolidFbo);
         GL11.glViewport(0, 0, this.waterShadowSize, this.waterShadowSize);
+        /* Der Shadow-Clear muss immer die komplette Karte erfassen. Ein GUI-Scissor aus
+           dem vorherigen Frame wuerde sonst exakt positionsabhaengige, stehenbleibende
+           Schattenstreifen erzeugen. */
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
         GL11.glDisable(GL11.GL_BLEND);
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glDepthMask(true);
         GL11.glDepthFunc(GL11.GL_LESS);
         GL11.glClearDepth(1.0);
+        GL11.glColorMask(true, true, true, true);
+        GL30.glClearBufferfv(GL11.GL_COLOR, 0, new float[]{1F, 1F, 1F, 1F});
         GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
-        GL11.glColorMask(false, false, false, false);
         this.waterShadowShader.bind();
         this.shaderPackManager.applySettings(this.waterShadowShader);
         this.waterShadowShader.setUniformMatrix4f("u_LightProjectionView", this.waterShadowMatrix);
@@ -1832,8 +1873,9 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
                 0, 0, this.waterShadowSize, this.waterShadowSize,
                 GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.waterShadowAllFbo);
-        GL11.glColorMask(true, true, true, true);
-        GL30.glClearBufferfv(GL11.GL_COLOR, 0, new float[]{1F, 1F, 1F, 1F});
+        /* shadowColor wurde im Solid-Pass bereits wie bei Photon beschrieben: Hintergrund
+           weiss, opake Blocker schwarz. Nicht erneut loeschen, sonst werden PCF-Raender
+           durch das spaetere *4 faelschlich selbstleuchtend. */
         GL11.glColorMask(true, true, true, true);
         window.getFrameBuffer().bind();
         this.restoreMainClipSpace();
@@ -1849,6 +1891,7 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         this.usePhotonShadowClipSpace();
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.waterShadowAllFbo);
         GL11.glViewport(0, 0, this.waterShadowSize, this.waterShadowSize);
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
         GL11.glDisable(GL11.GL_BLEND);
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glDepthMask(true);
@@ -1911,7 +1954,11 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         this.waterShadowColor = this.createWaterShadowColor();
         this.waterShadowAllFbo = this.createWaterShadowFbo(
                 this.waterShadowDepthAll, this.waterShadowColor);
-        this.waterShadowSolidFbo = this.createWaterShadowFbo(this.waterShadowDepthSolid, 0);
+        /* Dieselbe Color-Textur darf an beiden FBOs haengen. So schreibt der Solid-Pass
+           opake Transmission (schwarz) einmal zusammen mit shadowtex1; anschliessend wird
+           nur die Tiefe nach shadowtex0 kopiert und Wasser dort ergaenzt. */
+        this.waterShadowSolidFbo = this.createWaterShadowFbo(
+                this.waterShadowDepthSolid, this.waterShadowColor);
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
     }
 
@@ -1980,6 +2027,11 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         GL13.glActiveTexture(GL13.GL_TEXTURE0 + ATMOSPHERE_FOG_UNIT);
         GL11.glBindTexture(GL13.GL_TEXTURE_CUBE_MAP, this.atmosphereFogTexture);
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
+    }
+
+    private void bindSkySh() {
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, SKY_SH_BINDING,
+                this.skyShBuffer);
     }
 
     private void bindWaterInputs() {

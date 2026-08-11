@@ -103,6 +103,7 @@
     "shaderpacks": {
       "button": "Shader Packs...",
       "title": "Shader Packs",
+      "reset": "Reset to Defaults",
       "pack": "Shader Pack",
       "exposure": "Exposure: %d %%",
       "saturation": "Saturation: %d %%",
