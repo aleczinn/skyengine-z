@@ -42,10 +42,10 @@ public final class BloomPass implements PostPass, ShaderPackManager.Participant 
         ShaderProgram composite = null;
         Programs result;
         try {
-            downsample = compile(pack.program("bloom_downsample"));
-            blur = compile(pack.program("bloom_blur"));
-            upsample = compile(pack.program("bloom_upsample"));
-            composite = compile(pack.program("bloom_composite"));
+            downsample = compile(this.manager.program(pack, "bloom_downsample"));
+            blur = compile(this.manager.program(pack, "bloom_blur"));
+            upsample = compile(this.manager.program(pack, "bloom_upsample"));
+            composite = compile(this.manager.program(pack, "bloom_composite"));
             result = new Programs(downsample, blur, upsample, composite);
         } catch (RuntimeException e) {
             if (downsample != null) downsample.dispose();

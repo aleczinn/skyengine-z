@@ -14,9 +14,11 @@ layout(std140, binding = 1) uniform Environment {
 uniform sampler3D u_AtmosphereScattering;
 uniform sampler2D u_Noise;
 uniform float u_DayFraction;
+uniform float u_Time;
 uniform float u_SunIntensity;
 uniform float u_MoonIntensity;
 uniform float u_FogCapture;
+uniform mat4 u_ShadowViewInverse;
 
 const float PI = 3.141592653589793;
 const float TAU = 6.283185307179586;
@@ -36,6 +38,7 @@ const mat3 XYZ_TO_REC2020 = mat3(1.7166084,-0.3556621,-0.2533601, -0.6666829,1.6
 float sqr(float x) { return x * x; }
 float cube(float x) { return x * x * x; }
 float pow1d5(float x) { return x * sqrt(max(x, 0.0)); }
+float dampen(float x) { x = clamp(x, 0.0, 1.0); return x * (2.0 - x); }
 float unitUv(float x, int size) { return (x * float(size - 1) + 0.5) / float(size); }
 
 vec2 intersectSphere(float mu, float r, float radius) {
@@ -55,6 +58,30 @@ float nvidiaPhase(float nu, float g, float alpha, float angularRadius) {
     return ((1.0 - gg) * (1.0 + alpha * mu * mu)) /
            (PI * pow1d5(1.0 + gg - 2.0 * g * mu) * 4.0 *
             (1.0 + alpha * (1.0 + 2.0 * gg) / 3.0));
+}
+
+/* Photon include/utility/phase_functions.glsl + include/sky/sky.glsl.
+   Unlike a binary disc this area light keeps a finite, chromatic forward-scattering
+   shoulder. That shoulder is what Bloom expands into Photon's soft solar edge. */
+float kleinNishinaPhaseArea(float nu, float energy, float angularRadius) {
+    float radius = max(angularRadius, 1.0e-6);
+    float cosRadius = cos(radius);
+    float sinRadius = sin(radius);
+    float mu = nu * cosRadius
+            + sqrt(max(0.0, 1.0 - nu * nu)) * sinRadius;
+    if (nu > cosRadius) mu = 1.0;
+    return energy / (TAU * (energy - energy * mu + 1.0)
+            * log(2.0 * energy + 1.0));
+}
+
+vec3 drawSun(vec3 ray, vec3 sun, vec3 sunColor) {
+    const float energy = 9000.1;
+    float nu = dot(ray, sun);
+    vec3 phase = vec3(
+            kleinNishinaPhaseArea(nu, 0.79 * energy, SUN_RADIUS),
+            kleinNishinaPhaseArea(nu, 1.00 * energy, SUN_RADIUS),
+            kleinNishinaPhaseArea(nu, 1.22 * energy, SUN_RADIUS));
+    return phase * sunColor * (PI / 360.0);
 }
 
 vec2 intersectSphere(vec3 origin, vec3 ray, float radius) {
@@ -132,7 +159,9 @@ vec3 atmosphereFor(vec3 ray, vec3 light, bool moon) {
     vec3 mie = texture(u_AtmosphereScattering, vec3(uv.x * 0.5 + 0.5, uv.yz)).rgb;
     vec3 phase;
     if (moon) {
-        float phaseScale = sqr(1.0 - abs(u_MoonDirection.w * 2.0 - 1.0)) * 0.04 + 0.96;
+        float moonPhase = u_MoonDirection.w / 4.0;
+        moonPhase = moonPhase > 1.0 ? 2.0 - moonPhase : moonPhase;
+        float phaseScale = sqr(1.0 - moonPhase) * 0.04 + 0.96;
         phase = vec3(nvidiaPhase(nu, 0.895 * phaseScale, 1.0, 2.0 * MOON_RADIUS),
                      nvidiaPhase(nu, 0.900 * phaseScale, 1.0, 2.0 * MOON_RADIUS),
                      nvidiaPhase(nu, 0.905 * phaseScale, 1.0, 2.0 * MOON_RADIUS)) * 1.02;
@@ -144,10 +173,10 @@ vec3 atmosphereFor(vec3 ray, vec3 light, bool moon) {
     return rayleigh + mie * phase;
 }
 
-vec3 hash4(vec2 p) {
-    vec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973));
-    p3 += dot(p3, p3.yxz + 33.33);
-    return fract((p3.xxy + p3.yxx) * p3.zyx);
+vec4 hash4(vec2 p) {
+    vec4 p4 = fract(vec4(p.xyxy) * vec4(.1031, .1030, .0973, .1099));
+    p4 += dot(p4, p4.wzxy + 33.33);
+    return fract((p4.xxyz + p4.yzzw) * p4.zywx);
 }
 
 vec3 blackbody(float temperature) {
@@ -158,10 +187,10 @@ vec3 blackbody(float temperature) {
 }
 
 vec3 unstableStar(vec2 coord, float threshold) {
-    vec3 noise = hash4(coord);
+    vec4 noise = hash4(coord);
     float star = clamp((noise.x - threshold) / max(1.0 - threshold, 1e-5), 0.0, 1.0);
     star = star * star; star = star * star; star = star * star; star = star * star;
-    star *= 1.0 - noise.z * cos(u_DayFraction * TAU * 48.0 + noise.y * TAU);
+    star *= 1.0 - noise.z * cos(u_Time * 2.0 + noise.w * TAU);
     return star * blackbody(mix(4500.0, 8500.0, noise.y));
 }
 
@@ -186,15 +215,16 @@ vec4 drawMoon(vec3 ray, vec3 moon) {
     float moonTexture = pow1d5(noise.x) * 0.75 + 0.6 * cube(noise.y) - 0.1 * noise.z;
     float moonDistance = intersectSphere(-moon, ray, MOON_RADIUS).x;
     vec3 normal = normalize(ray * moonDistance - moon);
-    float lightAngle = 0.125 * TAU * round(u_MoonDirection.w * 8.0);
+    float lightAngle = 0.125 * TAU * u_MoonDirection.w;
     vec3 left = normalize(cross(vec3(0,1,0), ray));
     vec3 light = cos(lightAngle) * -ray + sin(lightAngle) * left;
-    float shadow = pow(clamp(dot(normal, light), 0.0, 1.0), 1.5);
+    float shadow = dampen(clamp(dot(normal, light), 0.0, 1.0));
     float edge = dist; edge *= edge; edge *= edge; edge *= edge;
     vec3 lit = vec3(0.75, 0.80, 1.0);
     vec3 glow = vec3(0.70, 0.83, 1.0);
-    vec3 color = max(shadow * lit * (1.0 + 4.0 * edge), 0.5 * glow * (0.1 + 0.1 * edge));
-    color = 10.0 * color * color * (0.2 + 0.8 * moonTexture) * u_MoonIntensity;
+    vec3 color = max(shadow * lit * (1.0 + 4.0 * edge),
+            0.5 * glow * (0.1 + 0.1 * edge)) * (0.2 + 0.8 * moonTexture);
+    color = 10.0 * color * color * u_MoonIntensity;
     return vec4(color, 1.0);
 }
 
@@ -213,38 +243,42 @@ void main() {
     vec3 sunTint = mix(vec3(1.0), vec3(1.05, 0.84, 0.93) * 1.2,
                        sqr(clamp(1.0 - abs(sun.y - 0.17) / 0.40, 0.0, 1.0)));
     sunTint *= mix(vec3(1.0), vec3(0.95, 0.80, 1.0), blueHour);
-    float moonExposure = 0.66 * (1.0 + 0.33 / clamp(1.25 * max(-sun.y, 0.1), 0.0, 1.0));
-    vec3 moonTint = pow(vec3(0.75, 0.83, 1.0), vec3(2.2));
+    float phaseBrightness = u_MoonDirection.w == 0.0 ? 1.0
+            : u_MoonDirection.w == 1.0 ? 0.875
+            : u_MoonDirection.w == 2.0 ? 0.75
+            : u_MoonDirection.w == 3.0 ? 0.625
+            : u_MoonDirection.w == 4.0 ? 0.5
+            : u_MoonDirection.w == 5.0 ? 0.75
+            : u_MoonDirection.w == 6.0 ? 0.875 : 1.0;
+    float moonExposure = 0.66 * phaseBrightness
+            * (1.0 + 0.33 / clamp(1.25 * max(-sun.y, 0.1), 0.0, 1.0));
+    vec3 moonTint = pow(vec3(0.75, 0.83, 1.0), vec3(2.2))
+            * REC709_TO_XYZ * XYZ_TO_REC2020;
 
     vec3 atmosphere = atmosphereFor(ray, sun, false) * sunExposure * sunTint;
-    // A low moon must not reuse the amber solar-horizon spectrum from the scattering LUT.
-    // Preserve its luminance and spatial halo, but keep lunar scattering neutral/cool.
-    vec3 moonAtmosphere = atmosphereFor(ray, moon, true);
-    float moonAtmosphereLuma = dot(moonAtmosphere, vec3(0.2627, 0.6780, 0.0593));
-    moonAtmosphere = mix(vec3(moonAtmosphereLuma), moonAtmosphere, 0.20) * moonTint;
-    atmosphere += moonAtmosphere * moonExposure;
-    float saturationBoost = 0.10 + 0.20 * clamp((exp(-150.0 * sqr(sun.y + 0.07283)) - 0.05) / 0.95, 0.0, 1.0);
+    atmosphere += atmosphereFor(ray, moon, true) * moonExposure * moonTint;
+    float saturationBoost = 0.10 + 0.20
+            * exp(-150.0 * sqr(sun.y + 0.07283));
     atmosphere = mix(vec3(dot(atmosphere, vec3(0.2627, 0.6780, 0.0593))),
                      atmosphere, 1.0 + saturationBoost);
     vec3 celestial = vec3(0.0);
 
-    float centerToEdge = max(SUN_RADIUS - acos(clamp(dot(ray, sun), -1.0, 1.0)), 0.0);
-    vec3 limb = pow(vec3(1.0 - sqr(1.0 - centerToEdge)), 0.5 * vec3(0.429, 0.522, 0.614));
-    float solidAngle = TAU * (1.0 - cos(SUN_RADIUS));
-    celestial += step(0.0, centerToEdge) * limb * vec3(1.051, 0.985, 0.940) / solidAngle;
+    celestial += drawSun(ray, sun, sunExposure * sunTint);
 
+    mat3 starRotation = sun.y >= 0.0
+            ? mat3(u_ShadowViewInverse)
+            : mat3(-u_ShadowViewInverse[0].xyz,
+                    u_ShadowViewInverse[1].xyz,
+                    -u_ShadowViewInverse[2].xyz);
+    vec3 celestialRay = ray * starRotation;
     float starThreshold = 1.0 - 0.025 * smoothstep(-0.2, 0.05, -sun.y);
-    celestial += stars(ray, starThreshold) * smoothstep(-0.1, 0.1, ray.y);
+    celestial += stars(celestialRay, starThreshold) * smoothstep(-0.1, 0.1, ray.y);
+    vec4 moonDisc = drawMoon(ray, moon);
+    celestial = celestial * (1.0 - moonDisc.a) + moonDisc.rgb;
     celestial *= 1.0 - u_FogCapture;
 
-    vec3 transmittance = atmosphereTransmittance(ray.y);
-    vec3 sky = celestial * transmittance + atmosphere;
-
-    vec4 moonDisc = drawMoon(ray, moon);
-    moonDisc *= 1.0 - u_FogCapture;
-    float moonTransmissionLuma = dot(transmittance, vec3(0.2627, 0.6780, 0.0593));
-    vec3 moonTransmittance = mix(vec3(moonTransmissionLuma), transmittance, 0.15)
-                           * vec3(0.92, 0.97, 1.0);
-    sky = sky * (1.0 - moonDisc.a) + moonDisc.rgb * moonTransmittance;
+    // Photon draw_sky(): every celestial body is attenuated by the same atmosphere;
+    // the previous moon-only tint/transmittance caused the visible dark outline.
+    vec3 sky = celestial * atmosphereTransmittance(ray.y) + atmosphere;
     fragColor = vec4(max(sky * u_SkyTint.rgb, vec3(0.0)), 1.0);
 }

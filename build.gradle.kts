@@ -119,3 +119,10 @@ tasks.test {
 tasks.named("check") {
     dependsOn("saveTest", "lightTest", "meshTest")
 }
+
+tasks.register<JavaExec>("shaderTest") {
+    group = "verification"
+    description = "Kompiliert und linkt alle eingebauten Vibrant-Visuals-/Post-Shader in einem versteckten OpenGL-Kontext"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass = "de.skyengine.graphics.post.ShaderCompileSmoke"
+}

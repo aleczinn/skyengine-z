@@ -9,7 +9,10 @@ public final class DayNightCycle {
 
     public static final int DAY_LENGTH = 24_000;
     public static final int TICKS_PER_HOUR = 1_000;
-    private static final float AXIAL_TILT = 0.23F;
+    /** Photons Default aus settings.glsl: {@code sunPathRotation = -35.0}. */
+    private static final float SUN_PATH_ROTATION = (float) Math.toRadians(-35.0);
+    private static final float SUN_PATH_COS = (float) Math.cos(SUN_PATH_ROTATION);
+    private static final float SUN_PATH_SIN = (float) Math.sin(SUN_PATH_ROTATION);
 
     /** Tagesposition 0..24000, auch fuer negative/mehrtaegige Werte korrekt. */
     public static double wrappedTicks(double time) {
@@ -35,7 +38,10 @@ public final class DayNightCycle {
     /** Richtung vom Beobachter zur Sonne; +X ist Osten, +Y oben. */
     public static Vector3f sunDirection(double time, Vector3f dest) {
         double angle = dayFraction(time) * Math.PI * 2.0;
-        return dest.set((float) Math.cos(angle), (float) Math.sin(angle), AXIAL_TILT).normalize();
+        float pathHeight = (float) Math.sin(angle);
+        return dest.set((float) Math.cos(angle),
+                pathHeight * SUN_PATH_COS,
+                pathHeight * SUN_PATH_SIN);
     }
 
     public static Vector3f moonDirection(double time, Vector3f dest) {
@@ -44,7 +50,7 @@ public final class DayNightCycle {
 
     public static float sunElevation(double time) {
         double angle = dayFraction(time) * Math.PI * 2.0;
-        return (float) Math.sin(angle);
+        return (float) Math.sin(angle) * SUN_PATH_COS;
     }
 
     /** Sichtbarer Himmelslichtanteil: voller Tag, weiche Daemmerung, blaues Restlicht des Mondes. */

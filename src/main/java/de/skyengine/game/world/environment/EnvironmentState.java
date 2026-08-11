@@ -45,7 +45,9 @@ public final class EnvironmentState {
         this.starIntensity = profile.starIntensity() * this.night;
 
         long day = (long) Math.floor(dayTime / DayNightCycle.DAY_LENGTH);
-        this.moonPhase = (float) Math.floorMod(day, 8) / 8F;
+        /* Photon/Iris liefert moonPhase als Integer 0..7; der Shader benutzt ihn direkt
+           fuer Scheibenbeleuchtung, Mie-Phase und Phasenhelligkeit. */
+        this.moonPhase = (float) Math.floorMod(day, 8);
     }
 
     private static float mix(float a, float b, float t) {

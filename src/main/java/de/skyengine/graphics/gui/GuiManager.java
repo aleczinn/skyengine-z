@@ -296,6 +296,9 @@ public final class GuiManager {
                 Tooltip.draw(this, current.tooltipAt(mx, my), mx, my);
             }
         }
+        /* OpenGL-State gehoert nicht dem naechsten Frame. Insbesondere darf ein Screen
+           sein Scroll-Scissor niemals an Welt-, Schatten- oder Post-Paesse vererben. */
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
     }
 
     /**

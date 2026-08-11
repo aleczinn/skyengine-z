@@ -122,9 +122,19 @@ public class PostProcessor implements IDisposable {
         return this.fluidFog.fluid() == FluidFogPass.WATER;
     }
 
+    public void setEyeSkylight(float skylight) {
+        this.fluidFog.setEyeSkylight(skylight);
+    }
+
+    public void setAtmosphereFogTexture(int texture) {
+        this.fluidFog.setAtmosphereFogTexture(texture);
+    }
+
     /** Sonnen-Tiefenkarte und Pack-Noise für den Photon-Unterwasserpass. */
-    public void setWaterLightMap(int shadowTexture, Matrix4f lightMatrix, int noiseTexture) {
-        this.fluidFog.setWaterLightMap(shadowTexture, lightMatrix, noiseTexture);
+    public void setWaterLightMap(int depthAll, int depthSolid, Matrix4f lightMatrix,
+                                 Matrix4f lightView, int noiseTexture) {
+        this.fluidFog.setWaterLightMap(depthAll, depthSolid, lightMatrix, lightView,
+                noiseTexture);
     }
 
     /**
@@ -164,6 +174,8 @@ public class PostProcessor implements IDisposable {
         this.context.invProjView.set(camera.getInvProjectionViewMatrix());
         this.context.prevProjView.set(camera.getPrevProjectionViewMatrix());
         this.context.camDelta.set(camera.getCamDelta());
+        this.context.cameraPosition.set((float) camera.getPosition().x,
+                (float) camera.getPosition().y, (float) camera.getPosition().z);
     }
 
     public void resize(int width, int height) {
@@ -191,6 +203,7 @@ public class PostProcessor implements IDisposable {
            GREATER würde das Dreieck bei z=0 verwerfen), kein Blend. */
         GL11.glDisable(GL11.GL_DEPTH_TEST);
         GL11.glDisable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
 
         int input = this.context.sceneColor;
         int ping = 0;
@@ -203,6 +216,11 @@ public class PostProcessor implements IDisposable {
             boolean isLast = pass == last;
             this.context.input = input;
             this.context.targetFbo = isLast ? 0 : this.context.pingFbo(ping);
+            /* Jeder Pass beginnt mit dem vollaufloesenden Vertrags-Viewport. Paesse mit
+               eigenen kleineren Targets setzen ihn anschliessend selbst. So kann ein
+               uebersprungener/neu geladener Pass keinen halben Viewport in TAA, Grading
+               oder den Default-Framebuffer durchsickern lassen. */
+            GL11.glViewport(0, 0, this.context.width, this.context.height);
             pass.execute(this.context);
             if (!isLast) {
                 input = this.context.pingTexture(ping);
@@ -225,7 +243,7 @@ public class PostProcessor implements IDisposable {
             buf.put(this.settings.getLift()).put(this.settings.getGain())
                     .put(this.settings.getShadows()).put(this.settings.getHighlights());
             buf.put(this.settings.getMidtones()).put(this.settings.getTonemapOperator().ordinal())
-                    .put(this.settings.getDebugMode().ordinal()).put(0F);
+                    .put(this.settings.getDebugMode().ordinal()).put(this.settings.getVignette());
             buf.flip();
             GL15.glBindBuffer(GL31.GL_UNIFORM_BUFFER, this.ubo);
             GL15.glBufferSubData(GL31.GL_UNIFORM_BUFFER, 0, buf);

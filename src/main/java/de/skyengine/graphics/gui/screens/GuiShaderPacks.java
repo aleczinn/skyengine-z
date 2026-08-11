@@ -8,6 +8,7 @@ import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.CycleButton;
+import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.Slider;
 import de.skyengine.graphics.post.PostProcessingSettings;
 import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
@@ -34,6 +35,18 @@ public final class GuiShaderPacks extends GuiOptionsScreen {
     @Override
     protected String title() {
         return I18n.tr("options.shaderpacks.title");
+    }
+
+    @Override
+    protected GuiComponent buildFooter(GuiManager gui) {
+        Button reset = new Button(I18n.tr("options.shaderpacks.reset"), 150, 20, () -> {
+            SkyEngine.get().getPostProcessor().getSettings().resetToDefaults();
+            SkyEngine.get().getShaderPackManager().resetActiveSettings();
+            GameSettings.get().msaaSamples = 4;
+            this.init(gui, gui.vWidth(), gui.vHeight());
+        });
+        Button done = new Button(I18n.tr("gui.done"), 150, 20, () -> this.goBack(gui));
+        return new HStack(6, reset, done);
     }
 
     @Override

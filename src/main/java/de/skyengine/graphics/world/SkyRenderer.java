@@ -13,9 +13,11 @@ import de.skyengine.graphics.shaderpack.ShaderPackManager;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL32;
 import org.lwjgl.opengl.GL42;
+import org.lwjgl.opengl.GL43;
 import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
@@ -50,6 +52,10 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
     private int fogCube;
     private int reflectionCube;
     private int fogFramebuffer;
+    /** Photons neun SH-Koeffizienten plus der nach oben ausgewertete Irradiance-Wert. */
+    private int skyShBuffer;
+    private long animationStartNanos;
+    private final Matrix4f celestialRotation = new Matrix4f();
 
     public SkyRenderer(EnvironmentProfile profile) {
         this.profile = profile;
@@ -66,17 +72,22 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
         GlDebug.labelVertexArray(this.vao, "Shader-pack sky VAO");
         GL30.glBindVertexArray(0);
         this.createFogCube();
+        this.createSkyShBuffer();
+        this.animationStartNanos = System.nanoTime();
     }
 
     @Override
     public ShaderPackManager.Prepared prepare(ShaderPack pack) {
         ShaderProgram program = null;
+        ShaderProgram skySh = null;
         int scattering = 0;
         int noise = 0;
         try {
             program = new ShaderProgram(
-                    new Shader(pack.program("sky_vertex"), ShaderType.VERTEX),
-                    new Shader(pack.program("sky_fragment"), ShaderType.FRAGMENT));
+                    new Shader(this.manager.program(pack, "sky_vertex"), ShaderType.VERTEX),
+                    new Shader(this.manager.program(pack, "sky_fragment"), ShaderType.FRAGMENT));
+            skySh = new ShaderProgram(
+                    new Shader(this.manager.program(pack, "sky_sh_compute"), ShaderType.COMPUTE));
             scattering = loadScattering(pack);
             noise = loadNoise(pack);
             program.bind();
@@ -86,9 +97,13 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
             program.setUniformf("u_MoonIntensity", this.profile.moonIntensity());
             program.setUniformf("u_FogCapture", 0F);
             program.unbind();
-            return new Resources(program, scattering, noise);
+            skySh.bind();
+            skySh.setUniformi("u_AtmosphereFog", 0);
+            skySh.unbind();
+            return new Resources(program, skySh, scattering, noise);
         } catch (RuntimeException e) {
             if (program != null) program.dispose();
+            if (skySh != null) skySh.dispose();
             if (scattering != 0) GL11.glDeleteTextures(scattering);
             if (noise != 0) GL11.glDeleteTextures(noise);
             throw e;
@@ -112,6 +127,9 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
         current.program.setUniformMatrix4f("u_InvProjectionView", camera.getInvProjectionViewMatrix());
         current.program.setUniformf("u_FarDepth", inverseDepth ? 0F : 1F);
         current.program.setUniformf("u_DayFraction", dayFraction);
+        current.program.setUniformf("u_Time",
+                (System.nanoTime() - this.animationStartNanos) * 1.0e-9F);
+        current.program.setUniformMatrix4f("u_ShadowViewInverse", this.celestialRotation);
         current.program.setUniformf("u_FogCapture", 0F);
         GL13.glActiveTexture(GL13.GL_TEXTURE0 + SCATTERING_UNIT);
         GL11.glBindTexture(GL12.GL_TEXTURE_3D, current.scattering);
@@ -153,6 +171,9 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
             current.program.bind();
             current.program.setUniformf("u_FarDepth", 1F);
             current.program.setUniformf("u_DayFraction", dayFraction);
+            current.program.setUniformf("u_Time",
+                    (System.nanoTime() - this.animationStartNanos) * 1.0e-9F);
+            current.program.setUniformMatrix4f("u_ShadowViewInverse", this.celestialRotation);
             current.program.setUniformf("u_FogCapture", 1F);
             GL13.glActiveTexture(GL13.GL_TEXTURE0 + SCATTERING_UNIT);
             GL11.glBindTexture(GL12.GL_TEXTURE_3D, current.scattering);
@@ -192,11 +213,21 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
         }
         if (depthTest) GL11.glEnable(GL11.GL_DEPTH_TEST); else GL11.glDisable(GL11.GL_DEPTH_TEST);
         if (blend) GL11.glEnable(GL11.GL_BLEND); else GL11.glDisable(GL11.GL_BLEND);
+        this.updateSkySphericalHarmonics(current);
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
     }
 
     public int fogTexture() {
         return this.fogCube;
+    }
+
+    public int skyShBuffer() {
+        return this.skyShBuffer;
+    }
+
+    /** Photon rotates the star field with Iris' inverse shadow view. */
+    public void setShadowView(Matrix4f shadowView) {
+        this.celestialRotation.set(shadowView).invert();
     }
 
     public int reflectionTexture() {
@@ -238,6 +269,27 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
         this.fogFramebuffer = GL30.glGenFramebuffers();
         GlDebug.labelTexture(this.fogCube, "Shader-pack atmosphere fog cubemap");
         GlDebug.labelTexture(this.reflectionCube, "Shader-pack sky reflection cubemap");
+    }
+
+    private void createSkyShBuffer() {
+        this.skyShBuffer = GL15.glGenBuffers();
+        GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, this.skyShBuffer);
+        GL15.glBufferData(GL43.GL_SHADER_STORAGE_BUFFER, 10L * 4L * Float.BYTES,
+                GL15.GL_DYNAMIC_DRAW);
+        GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
+        GlDebug.labelBuffer(this.skyShBuffer, "Photon sky spherical harmonics");
+    }
+
+    /** Exakt Photons 256-Sample-Hemisphaerenprojektion aus d4a_generate_sky_sh.csh. */
+    private void updateSkySphericalHarmonics(Resources current) {
+        if (this.skyShBuffer == 0 || current.skySh == null) return;
+        current.skySh.bind();
+        GL13.glActiveTexture(GL13.GL_TEXTURE0);
+        GL11.glBindTexture(GL13.GL_TEXTURE_CUBE_MAP, this.fogCube);
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 3, this.skyShBuffer);
+        GL43.glDispatchCompute(1, 1, 1);
+        GL42.glMemoryBarrier(GL43.GL_SHADER_STORAGE_BARRIER_BIT);
+        current.skySh.unbind();
     }
 
     private static int loadScattering(ShaderPack pack) {
@@ -312,20 +364,24 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
         if (this.fogFramebuffer != 0) GL30.glDeleteFramebuffers(this.fogFramebuffer);
         if (this.fogCube != 0) GL11.glDeleteTextures(this.fogCube);
         if (this.reflectionCube != 0) GL11.glDeleteTextures(this.reflectionCube);
+        if (this.skyShBuffer != 0) GL15.glDeleteBuffers(this.skyShBuffer);
         this.resources = null;
         this.vao = 0;
         this.fogFramebuffer = 0;
         this.fogCube = 0;
         this.reflectionCube = 0;
+        this.skyShBuffer = 0;
     }
 
     private static final class Resources implements ShaderPackManager.Prepared {
         private final ShaderProgram program;
+        private final ShaderProgram skySh;
         private final int scattering;
         private final int noise;
 
-        private Resources(ShaderProgram program, int scattering, int noise) {
+        private Resources(ShaderProgram program, ShaderProgram skySh, int scattering, int noise) {
             this.program = program;
+            this.skySh = skySh;
             this.scattering = scattering;
             this.noise = noise;
         }
@@ -333,6 +389,7 @@ public final class SkyRenderer implements ShaderPackManager.Participant {
         @Override
         public void dispose() {
             this.program.dispose();
+            this.skySh.dispose();
             GL11.glDeleteTextures(this.scattering);
             GL11.glDeleteTextures(this.noise);
         }
