@@ -4,6 +4,7 @@ import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
+import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL31;
 import org.lwjgl.opengl.GL44;
@@ -227,11 +228,17 @@ public final class VertexArena {
     private void createBuffer(long size) {
         this.buffer = GL15.glGenBuffers();
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.buffer);
+        int previousError = GL11.glGetError();
+        if (previousError != GL11.GL_NO_ERROR) {
+            throw new IllegalStateException("VertexArena " + this.name
+                    + ": bereits vor glBufferStorage lag GL-Fehler 0x"
+                    + Integer.toHexString(previousError) + " an");
+        }
         GL44.glBufferStorage(GL15.GL_ARRAY_BUFFER, size, STORAGE_FLAGS);
         /* Fail-Fast statt stiller Folgefehler (Muster MappedRing.create): schlägt die
            Allokation fehl (GL_OUT_OF_MEMORY bei großen Render-Distanzen), liefen alle
            glCopyBufferSubData ins Leere und die Geometrie fehlte einfach. */
-        int error = org.lwjgl.opengl.GL11.glGetError();
+        int error = GL11.glGetError();
         if (error != 0) {
             throw new IllegalStateException("VertexArena " + this.name + ": glBufferStorage("
                     + (size >> 20) + " MB) fehlgeschlagen (GL-Fehler 0x" + Integer.toHexString(error) + ")");

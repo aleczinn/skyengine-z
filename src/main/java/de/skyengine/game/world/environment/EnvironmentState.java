@@ -27,33 +27,31 @@ public final class EnvironmentState {
         this.night = DayNightCycle.night(dayTime);
         this.skyIntensity = DayNightCycle.skyIntensity(dayTime);
 
-        float sunElevation = this.sunDirection.y;
-        float twilight = (1F - smoothstep(0.02F, 0.40F, Math.abs(sunElevation)))
-                * smoothstep(-0.16F, 0.02F, sunElevation);
         this.skyLightColor.set(
                 mix(0.56F, 1F, this.daylight),
                 mix(0.66F, 1F, this.daylight),
                 mix(0.92F, 1F, this.daylight));
-        float fogR = mix(profile.nightSkyR() * 1.6F, 0.78F, this.daylight);
-        float fogG = mix(profile.nightSkyG() * 1.6F, 0.84F, this.daylight);
-        float fogB = mix(profile.nightSkyB() * 1.6F, 0.89F, this.daylight);
-        float warm = twilight * 0.62F;
-        this.fogColor.set(mix(fogR, 0.94F, warm), mix(fogG, 0.48F, warm),
-                mix(fogB, 0.17F, warm)).mul(biome.fogR(), biome.fogG(), biome.fogB());
+        /* Moonlit air is grey-blue rather than the saturated zenith colour. Keeping this
+           separate from nightSky creates the Photon-like veil over distant terrain. */
+        float fogR = mix(0.105F, 0.78F, this.daylight);
+        float fogG = mix(0.116F, 0.84F, this.daylight);
+        float fogB = mix(0.140F, 0.89F, this.daylight);
+        /* Directional sunrise/sunset colour belongs to the atmosphere shader. A global warm
+           fog tint coloured even the anti-solar horizon brown and double-counted scattering. */
+        this.fogColor.set(fogR, fogG, fogB)
+                .mul(biome.fogR(), biome.fogG(), biome.fogB());
         this.skyTint.set(biome.skyR(), biome.skyG(), biome.skyB());
         this.fogDensity = profile.fogDensity() * biome.fogDensityMultiplier();
         this.starIntensity = profile.starIntensity() * this.night;
 
         long day = (long) Math.floor(dayTime / DayNightCycle.DAY_LENGTH);
-        this.moonPhase = (float) Math.floorMod(day, 8) / 8F;
+        /* Photon/Iris liefert moonPhase als Integer 0..7; der Shader benutzt ihn direkt
+           fuer Scheibenbeleuchtung, Mie-Phase und Phasenhelligkeit. */
+        this.moonPhase = (float) Math.floorMod(day, 8);
     }
 
     private static float mix(float a, float b, float t) {
         return a + (b - a) * t;
     }
 
-    private static float smoothstep(float edge0, float edge1, float value) {
-        float t = Math.clamp((value - edge0) / (edge1 - edge0), 0F, 1F);
-        return t * t * (3F - 2F * t);
-    }
 }

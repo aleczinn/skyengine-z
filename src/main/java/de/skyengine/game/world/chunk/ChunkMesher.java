@@ -485,7 +485,8 @@ public class ChunkMesher {
      * emittiert sie in den TRANSLUCENT-Layer. Merge-Schlüssel = State-ID (trennt Wasser/Lava und
      * unterschiedliche Level automatisch — mergefähig ist ohnehin nur Level 0). Betroffene Zellen
      * werden in {@link #mergedWaterTop} markiert, damit {@link FluidGeometry#build} ihr Top auslässt.
-     * Boden, Seiten und fließende/schräge Tops bleiben in Pass 2.
+     * Die Photon-Wellen laufen ausschließlich im Fragmentshader: So bleiben diese großen Quads
+     * plan und können weder an T-Verbindungen noch an Chunkgrenzen aufreißen.
      */
     private void waterTopPass(int baseY) {
         Arrays.fill(this.mergedWaterTop, false);

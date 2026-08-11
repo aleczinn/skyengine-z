@@ -158,13 +158,14 @@ public class CrackRenderer {
 
     private static final String FRAGMENT = """
         #version 460 core
+        """ + de.skyengine.graphics.shader.ShaderColorSpace.GLSL + """
         in vec3 v_texCoord;
         uniform sampler2DArray u_Textures;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < 0.1) discard;
-            fragColor = c;
+            fragColor = vec4(seSrgbToWorking(c.rgb), c.a);
         }
         """;
 }

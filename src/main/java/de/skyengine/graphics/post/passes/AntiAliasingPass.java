@@ -29,16 +29,18 @@ import java.nio.ByteBuffer;
  * blendet sie — geclampt auf die 3×3-Farb-AABB des aktuellen Frames (Ghosting-Schutz;
  * ersetzt den Velocity-Buffer, {@code context.velocity} bleibt der Anschluss für
  * per-Objekt-Motion). Resolve schreibt in die History (Ping-Pong, RGBA16F), ein
- * Copy-/Sharpen-Schritt bringt sie auf den GuiScreen — Sharpen ({@code settings.sharpen})
- * wirkt NUR auf die Ausgabe, nie in die History (Feedback-Artefakte).
+ * Copy-Schritt bringt sie zurück in die HDR-Kette. FXAA und CAS laufen in einer zweiten
+ * Instanz erst nach Bloom und Film-Transform; CAS wirkt nie in die History.
  *
  * <p><b>Voraussetzung:</b> {@code sceneDepth} existiert nur bei msaaSamples=0 — bei
- * TAA + MSAA fällt der Pass mit Log-Hinweis auf FXAA zurück. SMAA wäre ein weiterer
+ * TAA + MSAA fällt die temporale Stufe mit Log-Hinweis auf Copy zurück. SMAA wäre ein weiterer
  * Modus im selben Switch.
  *
- * <p>Läuft display-referred NACH dem Grading (FXAA erwartet LDR-Luma).
+ * <p>Die TEMPORAL-Stufe läuft HDR vor Bloom, die FINAL-Stufe display-referred nach Grading.
  */
 public final class AntiAliasingPass implements PostPass {
+
+    public enum Stage { TEMPORAL, FINAL }
 
     /* FXAA 3.11 Quality (kompakte Standard-Fassung nach dem Referenz-Algorithmus:
        Kantenerkennung über Luma-Kontrast, Kantenrichtung, iterative Endpunktsuche,
@@ -51,8 +53,7 @@ public final class AntiAliasingPass implements PostPass {
 
             uniform sampler2D u_Input;
             uniform vec2 u_InvResolution; // 1/Breite, 1/Hoehe
-            /* 1.0 = pures FXAA; 0.5 als TAA-Vorstufe (BSL halbiert den Subpixel-Anteil
-               unter TAA — die zeitliche Akkumulation uebernimmt das Subpixel-Glaetten). */
+            /* 1.0 = volles FXAA in der finalen display-referred Stufe. */
             uniform float u_SubpixelScale;
 
             const float EDGE_THRESHOLD_MIN = 0.0312;
@@ -199,9 +200,6 @@ public final class AntiAliasingPass implements PostPass {
             uniform mat4 u_PrevProjView;    // UNGEJITTERTE PV des Vorframes
             uniform vec3 u_CamDelta;        // camNow - camPrev: P_relPrev = P_relNow + delta
             uniform int u_HistoryValid;     // 0 = erster Frame nach Reset -> nur aktuell
-            /* Standbild-History-Gewicht (settings.taaHistoryWeight, Default 0.9 = BSL);
-               Bewegung senkt es ueber exp(-velocity) bis auf (weight - 0.2) ab. */
-            uniform float u_HistoryWeight;
 
             vec3 rgbToYCoCg(vec3 col) {
                 return vec3(
@@ -219,9 +217,9 @@ public final class AntiAliasingPass implements PostPass {
                harten clamp() die Farbrelation der History (weniger Detail-Abflachung). */
             vec3 clipAabb(vec3 q, vec3 aabbMin, vec3 aabbMax) {
                 vec3 pClip = 0.5 * (aabbMax + aabbMin);
-                vec3 eClip = 0.5 * (aabbMax - aabbMin) + 0.00000001;
+                vec3 eClip = 0.5 * (aabbMax - aabbMin);
                 vec3 vClip = q - pClip;
-                vec3 vUnit = vClip / eClip;
+                vec3 vUnit = vClip / max(eClip, vec3(1.0e-3));
                 vec3 aUnit = abs(vUnit);
                 float maUnit = max(aUnit.x, max(aUnit.y, aUnit.z));
                 return maUnit > 1.0 ? pClip + vClip / maUnit : q;
@@ -236,7 +234,7 @@ public final class AntiAliasingPass implements PostPass {
                 vec2 f2 = f * f;
                 vec2 f3 = f * f2;
 
-                const float c = 0.7;
+                const float c = 0.6;
                 vec2 w0 =        -c  * f3 +  2.0 * c         * f2 - c * f;
                 vec2 w1 =  (2.0 - c) * f3 - (3.0 - c)        * f2         + 1.0;
                 vec2 w2 = -(2.0 - c) * f3 + (3.0 -  2.0 * c) * f2 + c * f;
@@ -254,9 +252,87 @@ public final class AntiAliasingPass implements PostPass {
                 return max(color.rgb / color.a, 0.0);
             }
 
+            vec3 minOf(vec3 a, vec3 b, vec3 c, vec3 d, vec3 e) {
+                return min(a, min(b, min(c, min(d, e))));
+            }
+
+            vec3 maxOf(vec3 a, vec3 b, vec3 c, vec3 d, vec3 e) {
+                return max(a, max(b, max(c, max(d, e))));
+            }
+
+            vec3 reinhard(vec3 color) {
+                return color / (color + 1.0);
+            }
+
+            vec3 reinhardInverse(vec3 color) {
+                return color / (1.0 - color);
+            }
+
+            vec3 closestFragment(ivec2 center, ivec2 size) {
+                ivec2 p0 = clamp(center, ivec2(0), size - 1);
+                ivec2 p1 = clamp(center + ivec2(-2, -2), ivec2(0), size - 1);
+                ivec2 p2 = clamp(center + ivec2( 2, -2), ivec2(0), size - 1);
+                ivec2 p3 = clamp(center + ivec2(-2,  2), ivec2(0), size - 1);
+                ivec2 p4 = clamp(center + ivec2( 2,  2), ivec2(0), size - 1);
+                float d0 = texelFetch(u_Depth, p0, 0).r;
+                float d1 = texelFetch(u_Depth, p1, 0).r;
+                float d2 = texelFetch(u_Depth, p2, 0).r;
+                float d3 = texelFetch(u_Depth, p3, 0).r;
+                float d4 = texelFetch(u_Depth, p4, 0).r;
+                // Photon selects the closest sample; SkyEngine uses reversed-Z.
+                vec3 p = d0 > d1 ? vec3(p0, d0) : vec3(p1, d1);
+                vec3 q = d2 > d3 ? vec3(p2, d2) : vec3(p3, d3);
+                p = p.z > q.z ? p : q;
+                return p.z > d4 ? p : vec3(p4, d4);
+            }
+
+            vec3 neighborhoodClipping(ivec2 texel, ivec2 size, vec3 current,
+                    vec3 history, float distanceFactor) {
+                ivec2 lo = ivec2(0);
+                ivec2 hi = size - 1;
+                vec3 a = texelFetch(u_Current, clamp(texel + ivec2(-1,  1), lo, hi), 0).rgb;
+                vec3 b = texelFetch(u_Current, clamp(texel + ivec2( 0,  1), lo, hi), 0).rgb;
+                vec3 c = texelFetch(u_Current, clamp(texel + ivec2( 1,  1), lo, hi), 0).rgb;
+                vec3 d = texelFetch(u_Current, clamp(texel + ivec2(-1,  0), lo, hi), 0).rgb;
+                vec3 e = current;
+                vec3 f = texelFetch(u_Current, clamp(texel + ivec2( 1,  0), lo, hi), 0).rgb;
+                vec3 g = texelFetch(u_Current, clamp(texel + ivec2(-1, -1), lo, hi), 0).rgb;
+                vec3 h = texelFetch(u_Current, clamp(texel + ivec2( 0, -1), lo, hi), 0).rgb;
+                vec3 i = texelFetch(u_Current, clamp(texel + ivec2( 1, -1), lo, hi), 0).rgb;
+
+                a = rgbToYCoCg(reinhard(a));
+                b = rgbToYCoCg(reinhard(b));
+                c = rgbToYCoCg(reinhard(c));
+                d = rgbToYCoCg(reinhard(d));
+                e = rgbToYCoCg(reinhard(e));
+                f = rgbToYCoCg(reinhard(f));
+                g = rgbToYCoCg(reinhard(g));
+                h = rgbToYCoCg(reinhard(h));
+                i = rgbToYCoCg(reinhard(i));
+
+                vec3 minColor = minOf(b, d, e, f, h);
+                minColor = 0.5 * (minColor + minOf(minColor, a, c, g, i));
+                vec3 maxColor = maxOf(b, d, e, f, h);
+                maxColor = 0.5 * (maxColor + maxOf(maxColor, a, c, g, i));
+
+                vec3 mean = (a + b + c + d + e + f + g + h + i) / 9.0;
+                vec3 meanSquared = (a * a + b * b + c * c + d * d + e * e
+                        + f * f + g * g + h * h + i * i) / 9.0;
+                float gamma = mix(0.75, 1.25,
+                        clamp((distanceFactor - 0.25) / 0.75, 0.0, 1.0));
+                vec3 sigma = sqrt(max(meanSquared - mean * mean, vec3(0.0)));
+                minColor = max(minColor, mean - gamma * sigma);
+                maxColor = min(maxColor, mean + gamma * sigma);
+
+                history = rgbToYCoCg(history);
+                return yCoCgToRgb(clipAabb(history, minColor, maxColor));
+            }
+
             void main() {
                 /* Current ROH lesen — nie resampeln (s. Klassen-Kommentar) */
-                vec3 current = texture(u_Current, v_uv).rgb;
+                ivec2 size = textureSize(u_Current, 0);
+                ivec2 texel = ivec2(gl_FragCoord.xy);
+                vec3 current = texelFetch(u_Current, texel, 0).rgb;
                 if (u_HistoryValid == 0) {
                     fragColor = vec4(current, 1.0);
                     return;
@@ -271,43 +347,43 @@ public final class AntiAliasingPass implements PostPass {
                    d==0 laeuft deshalb durch den normalen Pfad (Fernpunkt reprojiziert korrekt). */
 
                 /* Kamerarelative Reprojektion in die Vorframe-UV */
-                float d = texture(u_Depth, v_uv).r;
-                vec4 rel = u_InvProjView * vec4(v_uv * 2.0 - 1.0, d, 1.0);
+                vec3 closest = closestFragment(texel, size);
+                vec2 closestUv = (closest.xy + 0.5) / vec2(size);
+                vec4 rel = u_InvProjView * vec4(closestUv * 2.0 - 1.0, closest.z, 1.0);
                 vec3 relPos = rel.xyz / rel.w;
                 vec4 prevClip = u_PrevProjView * vec4(relPos + u_CamDelta, 1.0);
                 if (prevClip.w <= 0.0) { // hinter der Vorframe-Kamera
                     fragColor = vec4(current, 1.0);
                     return;
                 }
-                vec2 prevUv = (prevClip.xy / prevClip.w) * 0.5 + 0.5;
+                vec2 reprojectedUv = (prevClip.xy / prevClip.w) * 0.5 + 0.5;
+                vec2 velocity = closestUv - reprojectedUv;
+                vec2 prevUv = v_uv - velocity;
                 if (any(lessThan(prevUv, vec2(0.0))) || any(greaterThan(prevUv, vec2(1.0)))) {
                     fragColor = vec4(current, 1.0); // Disocclusion am Bildrand
                     return;
                 }
 
-                vec2 texSize = vec2(textureSize(u_History, 0));
+                vec2 texSize = vec2(size);
                 vec3 history = sampleHistoryCatmullRom(prevUv, texSize);
 
                 /* 8-Nachbar-AABB in YCoCg + Richtungs-Clip (BSL NeighbourhoodClipping) */
-                vec2 texel = 1.0 / texSize;
-                vec3 minClr = rgbToYCoCg(current);
-                vec3 maxClr = minClr;
-                for (int y = -1; y <= 1; y++) {
-                    for (int x = -1; x <= 1; x++) {
-                        if (x == 0 && y == 0) continue;
-                        vec3 clr = rgbToYCoCg(texture(u_Current, v_uv + vec2(x, y) * texel).rgb);
-                        minClr = min(minClr, clr);
-                        maxClr = max(maxClr, clr);
-                    }
-                }
-                history = yCoCgToRgb(clipAabb(rgbToYCoCg(history), minClr, maxClr));
+                float pixelAge = texelFetch(u_History,
+                        clamp(ivec2(prevUv * texSize), ivec2(0), size - 1), 0).a + 1.0;
+                float distanceFactor = 1.0 - exp2(-0.025 * length(relPos));
+                float alpha = max(1.0 / pixelAge, mix(0.35, 0.10, distanceFactor));
+
+                current = reinhard(current);
+                history = reinhard(history);
+                history = neighborhoodClipping(texel, size, current, history, distanceFactor);
 
                 /* BSL-Blend: Bewegung mischt sofort ~30 % frisches Current dazu (scharf),
                    Standbild akkumuliert mit u_HistoryWeight (Default 0.9). */
-                float velPx = length((v_uv - prevUv) * texSize);
-                float weight = exp(-velPx) * 0.2 + (u_HistoryWeight - 0.2);
-
-                fragColor = vec4(mix(current, history, clamp(weight, 0.0, 0.98)), 1.0);
+                vec2 pixelOffset = 1.0 - abs(2.0 * fract(texSize * prevUv) - 1.0);
+                float offcenter = sqrt(pixelOffset.x * pixelOffset.y) * 0.25 + 0.75;
+                alpha = 1.0 - (1.0 - alpha) * offcenter;
+                vec3 result = reinhardInverse(mix(history, current, alpha));
+                fragColor = vec4(result, pixelAge * offcenter);
             }
             """;
 
@@ -323,26 +399,48 @@ public final class AntiAliasingPass implements PostPass {
             out vec4 fragColor;
 
             uniform sampler2D u_Input;
-            uniform float u_Sharpen; // 0 = reiner Copy, sinnvoll 0..1
+            uniform float u_Sharpen; // UI 0 = aus; Photon-Default 0.5 -> CAS sharpness 0
+            uniform int u_DisplayTransform;
+
+            vec3 displayEotf(vec3 linear) {
+                return 1.14374 * (-0.126893 * linear + sqrt(max(linear, 0.0)));
+            }
+
+            vec3 minOf(vec3 a, vec3 b, vec3 c, vec3 d, vec3 e) {
+                return min(a, min(b, min(c, min(d, e))));
+            }
+
+            vec3 maxOf(vec3 a, vec3 b, vec3 c, vec3 d, vec3 e) {
+                return max(a, max(b, max(c, max(d, e))));
+            }
 
             void main() {
-                vec3 e = texture(u_Input, v_uv).rgb;
-                if (u_Sharpen > 0.0) {
-                    vec3 a = textureOffset(u_Input, v_uv, ivec2(-1, 0)).rgb;
-                    vec3 b = textureOffset(u_Input, v_uv, ivec2( 1, 0)).rgb;
-                    vec3 c = textureOffset(u_Input, v_uv, ivec2( 0,-1)).rgb;
-                    vec3 d = textureOffset(u_Input, v_uv, ivec2( 0, 1)).rgb;
-                    vec3 minRGB = min(min(a, b), min(min(c, d), e));
-                    vec3 maxRGB = max(max(a, b), max(max(c, d), e));
-                    /* CAS-Gewicht: viel Schaerfung wo Kontrast-Spielraum ist, wenig an
-                       bereits harten Kanten (deshalb kein Ringing). */
-                    vec3 amp = sqrt(clamp(min(minRGB, 2.0 - maxRGB) / max(maxRGB, vec3(1e-5)), 0.0, 1.0));
-                    /* Bewusst ueber die offizielle CAS-Grenze (/5) hinaus bis /4: TAA auf
-                       Voxel-Content vertraegt kraeftigeres Nachschaerfen (per-Pixel-adaptiv
-                       bleibt es halo-arm); sharpen 1.0 = deutlich kraeftiger. */
-                    float peak = -1.0 / mix(8.0, 4.0, clamp(u_Sharpen, 0.0, 1.0));
-                    vec3 w = amp * peak;
-                    e = clamp((e + (a + b + c + d) * w) / (4.0 * w + 1.0), 0.0, 1.0);
+                ivec2 texel = ivec2(gl_FragCoord.xy);
+                vec3 e = texelFetch(u_Input, texel, 0).rgb;
+                if (u_DisplayTransform != 0) e = displayEotf(e);
+                if (u_DisplayTransform != 0 && u_Sharpen > 0.0) {
+                    // Photon program/final.fsh, unveraenderter FidelityFX-CAS-Kernel.
+                    vec3 a = displayEotf(texelFetch(u_Input, texel + ivec2(-1, -1), 0).rgb);
+                    vec3 b = displayEotf(texelFetch(u_Input, texel + ivec2( 0, -1), 0).rgb);
+                    vec3 c = displayEotf(texelFetch(u_Input, texel + ivec2( 1, -1), 0).rgb);
+                    vec3 d = displayEotf(texelFetch(u_Input, texel + ivec2(-1,  0), 0).rgb);
+                    vec3 f = displayEotf(texelFetch(u_Input, texel + ivec2( 1,  0), 0).rgb);
+                    vec3 g = displayEotf(texelFetch(u_Input, texel + ivec2(-1,  1), 0).rgb);
+                    vec3 h = displayEotf(texelFetch(u_Input, texel + ivec2( 0,  1), 0).rgb);
+                    vec3 i = displayEotf(texelFetch(u_Input, texel + ivec2( 1,  1), 0).rgb);
+
+                    vec3 minColor = minOf(d, e, f, b, h);
+                    minColor += minOf(minColor, a, c, g, i);
+                    vec3 maxColor = maxOf(d, e, f, b, h);
+                    maxColor += maxOf(maxColor, a, c, g, i);
+
+                    vec3 w = clamp(min(minColor, 2.0 - maxColor)
+                            / max(maxColor, vec3(1e-6)), 0.0, 1.0);
+                    w = 1.0 - (1.0 - w) * (1.0 - w);
+                    float photonSharpness = u_Sharpen * 2.0 - 1.0;
+                    w *= -1.0 / mix(8.0, 5.0, photonSharpness);
+                    e = clamp((b + d + f + h) * w + e, 0.0, 1.0)
+                            / (1.0 + 4.0 * w);
                 }
                 fragColor = vec4(e, 1.0);
             }
@@ -351,10 +449,13 @@ public final class AntiAliasingPass implements PostPass {
     private ShaderProgram fxaaProgram;
     private ShaderProgram taaProgram;
     private ShaderProgram copyProgram;
+    private final Stage stage;
 
     /* TAA-History: Ping-Pong (RGBA16F gegen Akkumulations-Quantisierung), Besitz hier. */
     private final int[] historyTex = new int[2];
     private final int[] historyFbo = new int[2];
+    private int workTex;
+    private int workFbo;
     private int historyWrite;
     private boolean historyValid;
     /* Frame-Zaehler des letzten TAA-Resolves: Luecke (NONE/FXAA dazwischen, Resize)
@@ -363,6 +464,10 @@ public final class AntiAliasingPass implements PostPass {
     private boolean warnedNoDepth;
 
     private final Logger logger = LogManager.getLogger(AntiAliasingPass.class.getName());
+
+    public AntiAliasingPass(Stage stage) {
+        this.stage = stage;
+    }
 
     @Override
     public void init(PostContext context) {
@@ -387,50 +492,56 @@ public final class AntiAliasingPass implements PostPass {
                 new Shader(COPY_FRAGMENT_SHADER, ShaderType.FRAGMENT));
         this.copyProgram.bind();
         this.copyProgram.setUniformi("u_Input", 0);
+        this.copyProgram.setUniformi("u_DisplayTransform", 0);
         this.copyProgram.unbind();
 
-        this.createHistoryTargets(context.width, context.height);
+        if (this.stage == Stage.TEMPORAL) {
+            this.createHistoryTargets(context.width, context.height);
+        } else {
+            this.createWorkTarget(context.width, context.height);
+        }
     }
 
     @Override
     public void resize(PostContext context) {
-        this.disposeHistoryTargets();
-        this.createHistoryTargets(context.width, context.height);
+        this.disposeTargets();
+        if (this.stage == Stage.TEMPORAL) {
+            this.createHistoryTargets(context.width, context.height);
+        } else {
+            this.createWorkTarget(context.width, context.height);
+        }
         this.historyValid = false;
     }
 
     @Override
     public boolean isActive(PostContext context) {
         AntiAliasingMode mode = context.settings.getAaMode();
-        /* MSAA = Hardware-AA im Szene-Framebuffer (folgt dem Modus, s. FrameBuffer) —
-           kein Post-Pass noetig. */
-        return mode != AntiAliasingMode.NONE && mode != AntiAliasingMode.MSAA;
+        if (this.stage == Stage.TEMPORAL) return context.settings.isTemporalAa();
+        /* Photons final pass ist zugleich der lineare-Rec.709 -> sRGB Output-Transform und
+           darf daher selbst ohne FXAA/CAS nie uebersprungen werden. */
+        return true;
     }
 
     @Override
     public void execute(PostContext context) {
-        boolean taa = context.settings.isTemporalAa();
-        if (taa && context.sceneDepth == 0) {
-            /* Sicherheitsnetz: der Framebuffer folgt dem AA-Modus (TAA-Modi => MSAA 0 =>
-               Depth-Textur vorhanden) — dieser Zweig greift nur im Uebergangs-Frame
-               eines Moduswechsels. Dann FXAA statt Reprojektion. */
+        if (this.stage == Stage.FINAL) {
+            this.executeFinal(context);
+            return;
+        }
+        if (context.sceneDepth == 0) {
             if (!this.warnedNoDepth) {
-                this.logger.warning("TAA ohne Depth-Textur (Framebuffer noch MSAA?) — FXAA-Fallback");
+                this.logger.warning("TAA ohne Depth-Textur (Framebuffer noch MSAA?) — Copy-Fallback");
                 this.warnedNoDepth = true;
             }
-            taa = false;
-        }
-
-        if (!taa) {
             this.historyValid = false;
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.targetFbo);
-            this.fxaaProgram.bind();
-            this.fxaaProgram.setUniformVector2f("u_InvResolution", 1F / context.width, 1F / context.height);
-            this.fxaaProgram.setUniformf("u_SubpixelScale", 1.0F);
+            this.copyProgram.bind();
+            this.copyProgram.setUniformf("u_Sharpen", 0F);
+            this.copyProgram.setUniformi("u_DisplayTransform", 0);
             GL13.glActiveTexture(GL13.GL_TEXTURE0);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
             context.drawFullscreenTriangle();
-            this.fxaaProgram.unbind();
+            this.copyProgram.unbind();
             return;
         }
 
@@ -442,34 +553,15 @@ public final class AntiAliasingPass implements PostPass {
         int write = this.historyWrite;
         int read = 1 - write;
 
-        /* 1) FXAA-Vorstufe (Modus TAA_FXAA, BSL-Kette): glaettet die Kanten des
-           aktuellen Frames VOR der Akkumulation (weniger Flimmer-Input), Subpixel-Anteil
-           halbiert — exakt BSLs "#ifdef TAA". Ziel: Ping-0-Zwischentextur.
-           Modus TAA laesst sie weg: schaerfer + ein Fullscreen-Pass weniger,
-           dafuer minimal mehr Kantenflimmern in Bewegung. */
-        int current = context.input;
-        if (context.settings.getAaMode() == AntiAliasingMode.TAA_FXAA) {
-            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.pingFbo(0));
-            this.fxaaProgram.bind();
-            this.fxaaProgram.setUniformVector2f("u_InvResolution", 1F / context.width, 1F / context.height);
-            this.fxaaProgram.setUniformf("u_SubpixelScale", 0.5F);
-            GL13.glActiveTexture(GL13.GL_TEXTURE0);
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
-            context.drawFullscreenTriangle();
-            this.fxaaProgram.unbind();
-            current = context.pingTexture(0);
-        }
-
-        /* 2) Resolve -> History-Write (nie direkt der GuiScreen — das Ergebnis muss persistieren) */
+        /* Photon-Reihenfolge: TAA auf der linearen HDR-Szene vor Bloom und Grading. */
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.historyFbo[write]);
         this.taaProgram.bind();
         this.taaProgram.setUniformMatrix4f("u_InvProjView", context.invProjView);
         this.taaProgram.setUniformMatrix4f("u_PrevProjView", context.prevProjView);
         this.taaProgram.setUniformVector3f("u_CamDelta", context.camDelta);
         this.taaProgram.setUniformi("u_HistoryValid", this.historyValid ? 1 : 0);
-        this.taaProgram.setUniformf("u_HistoryWeight", context.settings.getTaaHistoryWeight());
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, current); // ggf. FXAA-geglaettetes Current
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
         GL13.glActiveTexture(GL13.GL_TEXTURE1);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.historyTex[read]);
         GL13.glActiveTexture(GL13.GL_TEXTURE2);
@@ -477,11 +569,15 @@ public final class AntiAliasingPass implements PostPass {
         context.drawFullscreenTriangle();
         this.taaProgram.unbind();
 
-        /* 3) Copy/Sharpen (CAS) -> Ziel; History-Slot fuer spaetere Paesse publizieren */
+        /* History in die Post-Kette kopieren; CAS läuft erst nach Grading/FXAA. */
         context.history = this.historyTex[write];
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.targetFbo);
         this.copyProgram.bind();
-        this.copyProgram.setUniformf("u_Sharpen", context.settings.getSharpen());
+        this.copyProgram.setUniformf("u_Sharpen", 0F);
+        /* TAA history is still scene-linear Rec.2020 HDR. Applying final.fsh's display
+           EOTF here made Bloom and Lottes consume gamma-encoded values as linear light,
+           producing the washed-out, over-bright image. This copy must be bitwise-linear. */
+        this.copyProgram.setUniformi("u_DisplayTransform", 0);
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.historyTex[write]);
         context.drawFullscreenTriangle();
@@ -492,16 +588,45 @@ public final class AntiAliasingPass implements PostPass {
         this.historyWrite = read;
     }
 
+    private void executeFinal(PostContext context) {
+        AntiAliasingMode mode = context.settings.getAaMode();
+        boolean fxaa = mode == AntiAliasingMode.FXAA || mode == AntiAliasingMode.TAA_FXAA;
+        float sharpen = context.settings.getSharpen();
+        int current = context.input;
+
+        if (fxaa) {
+            /* FXAA runs on linear display-referred Rec.709, but Photon final.fsh still has
+               to apply the display EOTF afterwards. Always keep FXAA off the default FBO. */
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.workFbo);
+            this.fxaaProgram.bind();
+            this.fxaaProgram.setUniformVector2f("u_InvResolution",
+                    1F / context.width, 1F / context.height);
+            this.fxaaProgram.setUniformf("u_SubpixelScale", 1F);
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
+            context.drawFullscreenTriangle();
+            this.fxaaProgram.unbind();
+            current = this.workTex;
+        }
+
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, context.targetFbo);
+        this.copyProgram.bind();
+        this.copyProgram.setUniformf("u_Sharpen", sharpen);
+        this.copyProgram.setUniformi("u_DisplayTransform", 1);
+        GL13.glActiveTexture(GL13.GL_TEXTURE0);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, current);
+        context.drawFullscreenTriangle();
+        this.copyProgram.unbind();
+        GL13.glActiveTexture(GL13.GL_TEXTURE0);
+    }
+
     private void createHistoryTargets(int width, int height) {
         for (int i = 0; i < 2; i++) {
             this.historyTex[i] = GL11.glGenTextures();
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.historyTex[i]);
-            /* RGB10_A2 statt RGBA16F: LDR-Akkumulation braucht kein Half-Float — 10 Bit/
-               Kanal = 4x Display-Praezision, halbiert aber die History-Bandbreite
-               (8 -> 4 Byte/Pixel; bei 5120x1440 ~60 MB/Frame). Bei sichtbarem Banding
-               (Verlaeufe) zurueck auf RGBA16F. */
-            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGB10_A2, width, height, 0,
-                    GL11.GL_RGBA, GL12.GL_UNSIGNED_INT_2_10_10_10_REV, (ByteBuffer) null);
+            /* TAA läuft vor dem Tonemapping und braucht daher echten HDR-Headroom. */
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA16F, width, height, 0,
+                    GL11.GL_RGBA, GL11.GL_FLOAT, (ByteBuffer) null);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
@@ -525,11 +650,36 @@ public final class AntiAliasingPass implements PostPass {
         }
     }
 
+    private void createWorkTarget(int width, int height) {
+        this.workTex = GL11.glGenTextures();
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.workTex);
+        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA16F, width, height, 0,
+                GL11.GL_RGBA, GL11.GL_FLOAT, (ByteBuffer) null);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+        this.workFbo = GL30.glGenFramebuffers();
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.workFbo);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
+                GL11.GL_TEXTURE_2D, this.workTex, 0);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
+    }
+
+    private void disposeTargets() {
+        this.disposeHistoryTargets();
+        if (this.workFbo != 0) GL30.glDeleteFramebuffers(this.workFbo);
+        if (this.workTex != 0) GL11.glDeleteTextures(this.workTex);
+        this.workFbo = 0;
+        this.workTex = 0;
+    }
+
     @Override
     public void dispose() {
         if (this.fxaaProgram != null) this.fxaaProgram.dispose();
         if (this.taaProgram != null) this.taaProgram.dispose();
         if (this.copyProgram != null) this.copyProgram.dispose();
-        this.disposeHistoryTargets();
+        this.disposeTargets();
     }
 }

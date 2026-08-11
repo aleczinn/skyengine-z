@@ -28,7 +28,8 @@ final class DayNightCycleTest {
     void sunAndMoonRemainOppositeAndLightTransitionsSmoothly() {
         Vector3f sun = DayNightCycle.sunDirection(6_000, new Vector3f());
         Vector3f moon = DayNightCycle.moonDirection(6_000, new Vector3f());
-        assertTrue(sun.y > 0.95F);
+        assertEquals((float) Math.cos(Math.toRadians(35.0)), sun.y, 0.00001F);
+        assertEquals((float) -Math.sin(Math.toRadians(35.0)), sun.z, 0.00001F);
         assertEquals(-1F, sun.dot(moon), 0.00001F);
         assertEquals(1F, DayNightCycle.skyIntensity(6_000), 0.00001F);
         assertEquals(0.16F, DayNightCycle.skyIntensity(18_000), 0.00001F);

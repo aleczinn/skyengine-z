@@ -235,6 +235,7 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
 
     private static final String FRAGMENT = """
         #version 460 core
+        """ + de.skyengine.graphics.shader.ShaderColorSpace.GLSL + """
         in vec2 v_uv;
         uniform sampler2D u_Texture;
         /* Licht der Zelle (Himmel + Block), fertig durch die Kurve gerechnet
@@ -244,7 +245,7 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
         void main() {
             vec4 c = texture(u_Texture, v_uv);
             if (c.a < 0.5) discard;
-            fragColor = vec4(c.rgb * u_Light, c.a);
+            fragColor = vec4(seSrgbToWorking(c.rgb) * u_Light, c.a);
         }
         """;
 }

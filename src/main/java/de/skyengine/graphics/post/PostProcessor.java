@@ -5,9 +5,12 @@ import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.framebuffer.FrameBuffer;
 import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.post.passes.AntiAliasingPass;
+import de.skyengine.graphics.post.passes.BloomPass;
 import de.skyengine.graphics.post.passes.ColorGradingPass;
+import de.skyengine.graphics.post.passes.FluidFogPass;
 import de.skyengine.graphics.post.passes.MenuBlurPass;
 import org.joml.Vector2f;
+import org.joml.Matrix4f;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import org.lwjgl.opengl.GL11;
@@ -22,10 +25,10 @@ import java.util.List;
 
 /**
  * Besitzer der Post-Processing-Kette: hält {@link PostContext}, Settings-UBO und die
- * geordnete {@link PostPass}-Liste (Phase 1: ColorGrading → AntiAliasing). Verkettung:
+ * geordnete {@link PostPass}-Liste (Fluid-Fog → TAA → Bloom → Grading → FXAA/CAS).
  * Eingang des ersten Passes ist die aufgelöste Szene ({@code sceneColor}), inaktive Pässe
  * werden übersprungen, der letzte aktive Pass schreibt in den Default-Framebuffer, alle
- * davor in die LDR-Ping-Pong-Ziele des Contexts. Spätere Pässe (Bloom, AutoExposure,
+ * davor in die HDR-Ping-Pong-Ziele des Contexts. Spätere Pässe (AutoExposure,
  * LUT — nach Grading/vor AA —, SSR) werden nur in die Liste eingefügt.
  *
  * <p>Läuft NACH dem Welt-Pass und VOR der GUI — die GUI durchläuft die Kette nie
@@ -64,6 +67,7 @@ public class PostProcessor implements IDisposable {
     private final PostContext context = new PostContext();
     private final List<PostPass> passes = new ArrayList<>();
     private final MenuBlurPass menuBlur = new MenuBlurPass();
+    private final FluidFogPass fluidFog = new FluidFogPass();
     private PostProcessingSettings settings;
     private int ubo;
 
@@ -85,8 +89,13 @@ public class PostProcessor implements IDisposable {
         this.context.settings = this.settings;
         this.context.create(width, height);
 
+        /* Photon-Reihenfolge: temporales AA im linearen HDR-Bild, danach Bloom und
+           Film-Transform; FXAA/CAS arbeiten abschliessend display-referred. */
+        this.passes.add(this.fluidFog);
+        this.passes.add(new AntiAliasingPass(AntiAliasingPass.Stage.TEMPORAL));
+        this.passes.add(new BloomPass());
         this.passes.add(new ColorGradingPass());
-        this.passes.add(new AntiAliasingPass());
+        this.passes.add(new AntiAliasingPass(AntiAliasingPass.Stage.FINAL));
         /* Menü-Blur als LETZTER Pass: nur aktiv bei offenem Pause-Menü (Stärke > 0) —
            dann übernimmt er automatisch das Default-FBO (Last-Active-Mechanik der Kette). */
         this.passes.add(this.menuBlur);
@@ -102,6 +111,30 @@ public class PostProcessor implements IDisposable {
     /** 1×/Frame (GameContainer): Menü-Blur an/aus — die Stärke blendet zeitbasiert nach. */
     public void setMenuBlur(boolean active) {
         this.menuBlur.setTarget(active);
+    }
+
+    /** 0 = kein Fluid, 1 = Wasser, 2 = Lava; wird pro Welt-Frame aktualisiert. */
+    public void setCameraFluid(int fluid) {
+        this.fluidFog.setFluid(fluid);
+    }
+
+    public boolean isCameraUnderwater() {
+        return this.fluidFog.fluid() == FluidFogPass.WATER;
+    }
+
+    public void setEyeSkylight(float skylight) {
+        this.fluidFog.setEyeSkylight(skylight);
+    }
+
+    public void setAtmosphereFogTexture(int texture) {
+        this.fluidFog.setAtmosphereFogTexture(texture);
+    }
+
+    /** Sonnen-Tiefenkarte und Pack-Noise für den Photon-Unterwasserpass. */
+    public void setWaterLightMap(int depthAll, int depthSolid, Matrix4f lightMatrix,
+                                 Matrix4f lightView, int noiseTexture) {
+        this.fluidFog.setWaterLightMap(depthAll, depthSolid, lightMatrix, lightView,
+                noiseTexture);
     }
 
     /**
@@ -141,6 +174,8 @@ public class PostProcessor implements IDisposable {
         this.context.invProjView.set(camera.getInvProjectionViewMatrix());
         this.context.prevProjView.set(camera.getPrevProjectionViewMatrix());
         this.context.camDelta.set(camera.getCamDelta());
+        this.context.cameraPosition.set((float) camera.getPosition().x,
+                (float) camera.getPosition().y, (float) camera.getPosition().z);
     }
 
     public void resize(int width, int height) {
@@ -160,6 +195,7 @@ public class PostProcessor implements IDisposable {
         this.context.frame++;
         this.context.sceneColor = frameBuffer.getColorTexture();
         this.context.sceneDepth = frameBuffer.getDepthTexture();
+        this.context.worldDepth = frameBuffer.getOpaqueDepthTexture();
 
         if (this.settings.consumeDirty()) this.uploadUbo();
 
@@ -167,6 +203,7 @@ public class PostProcessor implements IDisposable {
            GREATER würde das Dreieck bei z=0 verwerfen), kein Blend. */
         GL11.glDisable(GL11.GL_DEPTH_TEST);
         GL11.glDisable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
 
         int input = this.context.sceneColor;
         int ping = 0;
@@ -179,6 +216,11 @@ public class PostProcessor implements IDisposable {
             boolean isLast = pass == last;
             this.context.input = input;
             this.context.targetFbo = isLast ? 0 : this.context.pingFbo(ping);
+            /* Jeder Pass beginnt mit dem vollaufloesenden Vertrags-Viewport. Paesse mit
+               eigenen kleineren Targets setzen ihn anschliessend selbst. So kann ein
+               uebersprungener/neu geladener Pass keinen halben Viewport in TAA, Grading
+               oder den Default-Framebuffer durchsickern lassen. */
+            GL11.glViewport(0, 0, this.context.width, this.context.height);
             pass.execute(this.context);
             if (!isLast) {
                 input = this.context.pingTexture(ping);
@@ -201,7 +243,7 @@ public class PostProcessor implements IDisposable {
             buf.put(this.settings.getLift()).put(this.settings.getGain())
                     .put(this.settings.getShadows()).put(this.settings.getHighlights());
             buf.put(this.settings.getMidtones()).put(this.settings.getTonemapOperator().ordinal())
-                    .put(this.settings.getDebugMode().ordinal()).put(0F);
+                    .put(this.settings.getDebugMode().ordinal()).put(this.settings.getVignette());
             buf.flip();
             GL15.glBindBuffer(GL31.GL_UNIFORM_BUFFER, this.ubo);
             GL15.glBufferSubData(GL31.GL_UNIFORM_BUFFER, 0, buf);

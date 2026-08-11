@@ -1,0 +1,115 @@
+#version 460 core
+in vec2 v_uv;
+out vec4 fragColor;
+uniform sampler2D u_Scene;
+
+layout(std140, binding = 2) uniform u_PostSettings {
+    vec4 egcs;
+    vec4 vbtt;
+    vec4 lgsh;
+    vec4 mtdr;
+};
+
+const mat3 REC2020_TO_XYZ = mat3(
+    0.6369736, 0.1446172, 0.1688585,
+    0.2627066, 0.6779996, 0.0592938,
+    0.0000000, 0.0280728, 1.0608437);
+const mat3 XYZ_TO_REC709 = mat3(
+    3.2406, -1.5372, -0.4986,
+   -0.9689,  1.8758,  0.0415,
+    0.0557, -0.2040,  1.0570);
+const vec3 LUMA_2020 = vec3(0.2627, 0.6780, 0.0593);
+
+vec3 lottes(vec3 x) {
+    const float a = 1.5, d = 0.91, hdrMax = 8.0, midIn = 0.26, midOut = 0.32;
+    const float b = (-pow(midIn,a) + pow(hdrMax,a)*midOut) /
+                    ((pow(hdrMax,a*d)-pow(midIn,a*d))*midOut);
+    const float c = (pow(hdrMax,a*d)*pow(midIn,a)-pow(hdrMax,a)*pow(midIn,a*d)*midOut) /
+                    ((pow(hdrMax,a*d)-pow(midIn,a*d))*midOut);
+    return pow(x, vec3(a)) / (pow(x, vec3(a*d))*b + c);
+}
+
+vec3 gainCurve(vec3 x, float k) {
+    vec3 a = 0.5 * pow(2.0 * mix(x, 1.0-x, step(0.5, x)), vec3(k));
+    return mix(a, 1.0-a, step(0.5, x));
+}
+
+vec3 rgbToHsl(vec3 c) {
+    const vec4 K = vec4(0.0, -1.0/3.0, 2.0/3.0, -1.0);
+    vec4 p = mix(vec4(c.bg,K.wz), vec4(c.gb,K.xy), step(c.b,c.g));
+    vec4 q = mix(vec4(p.xyw,c.r), vec4(c.r,p.yzx), step(p.x,c.r));
+    float d = q.x-min(q.w,q.y);
+    return vec3(abs(q.z+(q.w-q.y)/(6.0*d+1e-6)), d/(q.x+1e-6), q.x);
+}
+
+vec3 hslToRgb(vec3 c) {
+    const vec4 K = vec4(1.0,2.0/3.0,1.0/3.0,3.0);
+    c.yz = clamp(c.yz,0.0,1.0);
+    vec3 p = abs(fract(c.xxx+K.xyz)*6.0-K.www);
+    return c.z*mix(K.xxx,clamp(p-K.xxx,0.0,1.0),c.y);
+}
+
+float huePulse(float hue, float center, float width) {
+    float x = fract((hue*360.0-center+180.0)/360.0)*360.0-180.0;
+    x = abs(x)/width;
+    if (x > 1.0) return 0.0;
+    float smoothed = x*x*(3.0-2.0*x);
+    return 1.0-smoothed;
+}
+
+vec3 applyDisplayBase(vec3 c) {
+    c = c * lgsh.y + lgsh.x;
+    float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float shadowWeight = 1.0 - smoothstep(0.0, 0.5, luma);
+    float highlightWeight = smoothstep(0.5, 1.0, luma);
+    c *= shadowWeight * lgsh.z
+       + (1.0 - shadowWeight - highlightWeight) * mtdr.x
+       + highlightWeight * lgsh.w;
+    return (c - 0.5) * egcs.z + 0.5 + vbtt.y;
+}
+
+float photonVignette(vec2 uv) {
+    if (mtdr.w <= 0.0) return 1.0;
+    float shape = 16.0 * (uv.x * uv.y - uv.x) * (uv.x * uv.y - uv.y);
+    return pow(max(shape, 0.0), 0.08 * mtdr.w);
+}
+
+vec3 photonTransform(vec3 scene) {
+    vec3 c = max(scene * photonVignette(v_uv) * (0.83 * egcs.x), 0.0);
+    // Runtime white balance remains part of the engine grading contract.  Photon supplies
+    // the film transform below, while pack-independent user grading is applied around it.
+    c *= vec3(1.0 + 0.15 * vbtt.z, 1.0 + 0.10 * vbtt.w, 1.0 - 0.15 * vbtt.z);
+    const float midpoint = log2(0.18);
+    c = max(exp2(1.0 * (log2(c + 1e-6) - midpoint) + midpoint) - 1e-6, 0.0);
+
+    // Creative colour controls operate on the scene-referred HDR signal. Applying them
+    // after tone mapping and gamut clipping cannot restore chroma which those operations
+    // have already compressed. Saturation 1.0 and vibrance 0.0 remain exact identities.
+    float sceneLuma = dot(c, LUMA_2020);
+    c = max(mix(vec3(sceneLuma), c, 0.98 * egcs.w), 0.0);
+    float scenePeak = max(c.r, max(c.g, c.b));
+    float sceneFloor = min(c.r, min(c.g, c.b));
+    float normalizedChroma = (scenePeak - sceneFloor) / max(scenePeak, 1e-5);
+    c = max(mix(vec3(sceneLuma), c,
+            1.0 + vbtt.x * (1.0 - clamp(normalizedChroma, 0.0, 1.0))), 0.0);
+
+    c = lottes(c);
+    c = clamp(c * REC2020_TO_XYZ * XYZ_TO_REC709, 0.0, 1.0);
+    c = sqrt(c);
+    vec3 hsl = rgbToHsl(c);
+    float teal = hsl.y < 1e-2 || hsl.z < 1e-2 ? 0.0 : huePulse(hsl.x, 210.0, 20.0);
+    hsl.y *= 1.0 + 0.10 * teal;
+    c = hslToRgb(hsl);
+    c = gainCurve(c, 1.05);
+    c *= c;
+
+    // Photon behaelt c14 in linearem Rec.709. Die Display-EOTF gehoert in final.fsh.
+    c = applyDisplayBase(c);
+    if (egcs.y != 1.0) c = pow(max(c, 0.0), vec3(1.0 / egcs.y));
+    return clamp(c, 0.0, 1.0);
+}
+
+void main() {
+    vec4 scene = texture(u_Scene, v_uv);
+    fragColor = vec4(photonTransform(scene.rgb), 1.0);
+}

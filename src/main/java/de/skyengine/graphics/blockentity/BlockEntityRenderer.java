@@ -45,7 +45,7 @@ public interface BlockEntityRenderer {
      * <p>{@code light} wie bei {@link #render} — in der Inventar-Vorschau reicht der Aufrufer
      * hier <b>1.0</b> durch, sonst würde eine GUI mit der Weltbeleuchtung abdunkeln.
      */
-    default void renderHeld(Matrix4f mvp, float light) {}
+    default void renderHeld(Matrix4f mvp, float light, boolean displayOutput) {}
 
     default void dispose() {}
 }

@@ -206,6 +206,7 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
 
     private static final String FRAGMENT = """
         #version 460 core
+        """ + de.skyengine.graphics.shader.ShaderColorSpace.GLSL + """
         in vec3 v_texCoord;
         in vec3 v_color;
         uniform sampler2DArray u_Textures;
@@ -217,7 +218,7 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < u_AlphaCutoff) discard;
-            fragColor = vec4(c.rgb * v_color * u_Light, c.a);
+            fragColor = vec4(seSrgbToWorking(c.rgb) * v_color * u_Light, c.a);
         }
         """;
 }

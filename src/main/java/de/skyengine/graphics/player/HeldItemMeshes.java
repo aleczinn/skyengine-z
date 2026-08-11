@@ -75,6 +75,7 @@ public final class HeldItemMeshes {
     /* Licht des laufenden bind()-Abschnitts — der BER-Sonderweg (Truhe) zeichnet mit seinem
        EIGENEN Shader und braucht den Wert deshalb als Parameter statt als Uniform. */
     private float heldLight = 1.0F;
+    private boolean displayOutput;
 
     public void init(TextureArray textures, BlockEntityRenderDispatcher blockEntityRenderers) {
         this.textures = textures;
@@ -92,6 +93,10 @@ public final class HeldItemMeshes {
      *              für den BER-Sonderweg (Truhe in der Hand), s. {@link #heldLight}.
      */
     public void bind(Matrix4f projectionView, float light) {
+        this.bind(projectionView, light, false);
+    }
+
+    public void bind(Matrix4f projectionView, float light, boolean displayOutput) {
         this.cullWasEnabled = GlState.isCullFaceEnabled();
         /* Blend-Zustand des Aufrufers merken statt ihn am Ende hart abzuschalten: die
            Inventar-Vorschau zeichnet mitten in der GUI, die Blending braucht. */
@@ -99,10 +104,12 @@ public final class HeldItemMeshes {
         GlState.disableCullFace();
         this.projView.set(projectionView);
         this.heldLight = light;
+        this.displayOutput = displayOutput;
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", projectionView);
         this.shader.setUniformi("u_Textures", 0);
         this.shader.setUniformf("u_Light", light);
+        this.shader.setUniformi("u_DisplayOutput", displayOutput ? 1 : 0);
         this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);
         this.textures.bind(0);
     }
@@ -150,7 +157,7 @@ public final class HeldItemMeshes {
                     .rotateXYZ(0F, (float) Math.toRadians(45), 0F).scale(0.40F)
                     .translate(-0.5F, -0.5F, -0.5F);
             this.projView.mul(this.transform, this.mvp);
-            held.custom.renderHeld(this.mvp, this.heldLight);
+            held.custom.renderHeld(this.mvp, this.heldLight, this.displayOutput);
             this.restoreAfterCustom();
             return;
         }
@@ -182,7 +189,7 @@ public final class HeldItemMeshes {
                     .scale(16F * 0.375F)
                     .translate(-0.5F, -0.5F, -0.5F);
             this.projView.mul(this.transform, this.mvp);
-            held.custom.renderHeld(this.mvp, this.heldLight);
+            held.custom.renderHeld(this.mvp, this.heldLight, this.displayOutput);
             this.restoreAfterCustom();
             return;
         }
@@ -430,6 +437,7 @@ public final class HeldItemMeshes {
 
     private static final String FRAGMENT = """
         #version 460 core
+        """ + de.skyengine.graphics.shader.ShaderColorSpace.GLSL + """
         in vec3 v_texCoord;
         in vec3 v_color;
         uniform sampler2DArray u_Textures;
@@ -439,11 +447,14 @@ public final class HeldItemMeshes {
         /* Wie im ChunkRenderer: 0.5 = harter Cutout (Sprites, Laub, Fackel), 0.001 = praktisch
            aus, damit ein transluzenter Block sein echtes Alpha ins Blending bringt. */
         uniform float u_AlphaCutoff;
+        uniform int u_DisplayOutput;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < u_AlphaCutoff) discard;
-            fragColor = vec4(c.rgb * v_color * u_Light, c.a);
+            vec3 rgb = seSrgbToWorking(c.rgb) * v_color * u_Light;
+            if (u_DisplayOutput != 0) rgb = seWorkingToSrgb(rgb);
+            fragColor = vec4(rgb, c.a);
         }
         """;
 }

@@ -2,6 +2,8 @@ package de.skyengine.graphics.post;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -16,12 +18,14 @@ import java.io.FileWriter;
  * UBO nur bei Änderung neu hochlädt. Shader werden dafür NIE angefasst.
  *
  * <p>Die JSON ({@code config/postprocessing.json}) liefert nur Defaults und dient dem
- * Entwickler-Tuning (Reload-Hotkey F10); fehlt sie, wird sie einmalig mit Neutral-Defaults
+ * Entwickler-Tuning (Reload-Hotkey F10); fehlt sie, wird sie einmalig mit Photon-Defaults
  * angelegt. Sie wird — anders als options.json — beim Beenden NICHT überschrieben.
  *
- * <p>Alle Defaults sind neutral: die Kette ist dann ein reiner Copy (Look unverändert).
+ * <p>Die Defaults bilden die mitgelieferte Photon-Referenzkonfiguration ab.
  */
 public final class PostProcessingSettings {
+
+    private static final int CURRENT_SCHEMA = 6;
 
     private static final Logger LOGGER = LogManager.getLogger(PostProcessingSettings.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -37,7 +41,7 @@ public final class PostProcessingSettings {
      *   <li>{@code NONE} — roh, schärfstes Bild, Kanten flimmern.</li>
      *   <li>{@code FXAA} — billiges Kanten-AA (ein Fullscreen-Pass).</li>
      *   <li>{@code TAA} — zeitliche Akkumulation, scharf + stabil.</li>
-     *   <li>{@code TAA_FXAA} — BSL-Kette (FXAA-Vorstufe vor TAA): ruhigere Kanten,
+     *   <li>{@code TAA_FXAA} — Photon-Kette (TAA vor Tonemap, FXAA danach): ruhige Kanten,
      *       ~+40 % AA-Kosten gegenüber TAA.</li>
      *   <li>{@code MSAA} — Hardware-Multisampling; Sample-Zahl aus GameSettings.msaaSamples
      *       (0 → 4). Teuerster Modus bei hoher Auflösung; der Szene-Framebuffer folgt dem
@@ -65,12 +69,12 @@ public final class PostProcessingSettings {
     private float highlights = 1.0F;
     private float contrast = 1.0F;     // Pivot 0.5
     private float brightness = 0.0F;   // additiv
-    private float saturation = 1.0F;   // 0 = Graustufen, 1 = neutral
+    private float saturation = 1.40F;  // Photon-Referenzwert aus photon_v1.3b.zip.txt
     private float vibrance = 0.0F;     // wirkt v.a. auf schwach gesättigte Farben (≠ Saturation)
     private float gamma = 1.0F;        // Output Transform, zuletzt
 
     /* --- Pipeline-Modi --- */
-    private AntiAliasingMode aaMode = AntiAliasingMode.NONE;
+    private AntiAliasingMode aaMode = AntiAliasingMode.TAA;
     private PostDebugMode debugMode = PostDebugMode.NONE;
 
     /* TAA: History-Gewicht (höher = ruhiger/weicher, niedriger = schärfer/flimmriger);
@@ -78,14 +82,14 @@ public final class PostProcessingSettings {
     private float taaHistoryWeight = 0.85F;
     /* TAA: LOD-Bias des Block-TextureArrays solange TAA aktiv ist (negativ = schärfer;
        holt von der zeitlichen Mittelung weggeglättetes Mip-Detail zurück). */
-    private float taaMipBias = -0.5F;
+    private float taaMipBias = 0.0F;
 
-    /* --- Reserviert: Pässe existieren noch nicht (Bloom/Vignette/Sharpen kommen später,
-           die Felder sind bereits ladbar/setzbar, werden aber von keinem Pass gelesen) --- */
-    private float bloomIntensity = 0.0F;
-    private float bloomThreshold = 1.0F;
-    private float vignette = 0.0F;
-    private float sharpen = 0.0F;
+    /* --- Bloom aktiv; Vignette/Sharpen bleiben als spätere Pipeline-Slots reserviert. --- */
+    private int schema = CURRENT_SCHEMA;
+    private float bloomIntensity = 1.0F;
+    private float bloomThreshold = 0.0F;
+    private float vignette = 1.0F;
+    private float sharpen = 0.5F;
 
     /* Dirty-Flag: true = UBO muss neu hochgeladen werden (GSON umgeht Setter -> nach dem
        Laden explizit gesetzt). transient hält es aus der JSON raus. */
@@ -94,9 +98,14 @@ public final class PostProcessingSettings {
     public static PostProcessingSettings load() {
         if (FILE.exists()) {
             try (FileReader r = new FileReader(FILE)) {
-                PostProcessingSettings s = GSON.fromJson(r, PostProcessingSettings.class);
+                JsonObject json = JsonParser.parseReader(r).getAsJsonObject();
+                PostProcessingSettings s = GSON.fromJson(json, PostProcessingSettings.class);
                 if (s != null) {
+                    boolean legacy = !json.has("schema");
+                    if (legacy) s.schema = 0;
+                    boolean migration = s.schema < CURRENT_SCHEMA;
                     s.sanitize();
+                    if (migration) s.save();
                     s.dirty = true;
                     LOGGER.info("Post-Processing-Einstellungen geladen: " + FILE.getPath());
                     return s;
@@ -106,21 +115,22 @@ public final class PostProcessingSettings {
             }
         }
         PostProcessingSettings s = new PostProcessingSettings();
-        s.saveDefaults();
+        s.save();
         return s;
     }
 
-    /** Legt die JSON einmalig mit Neutral-Defaults an (Vorlage fürs Entwickler-Tuning). */
-    private void saveDefaults() {
+    /** Legt die JSON einmalig mit Photon-Defaults an (Vorlage fürs Entwickler-Tuning). */
+    public void save() {
+        this.sanitize();
         try {
             File dir = FILE.getParentFile();
             if (dir != null && !dir.exists()) dir.mkdirs();
             try (FileWriter w = new FileWriter(FILE)) {
                 GSON.toJson(this, w);
             }
-            LOGGER.info("Post-Processing-Defaults angelegt: " + FILE.getPath());
+            LOGGER.info("Post-Processing-Einstellungen gespeichert: " + FILE.getPath());
         } catch (Exception e) {
-            LOGGER.error("Post-Processing-Defaults konnten nicht geschrieben werden", e);
+            LOGGER.error("Post-Processing-Einstellungen konnten nicht gespeichert werden", e);
         }
     }
 
@@ -128,6 +138,16 @@ public final class PostProcessingSettings {
         auf das Objekt (Context/Pässe) bleiben gültig. */
     public void reloadFromFile() {
         PostProcessingSettings fresh = load();
+        this.copyFrom(fresh);
+    }
+
+    /** Setzt alle im Shaderpack-Menue sichtbaren Bildparameter auf die eingebauten
+        Photon-Defaults zurueck, unabhaengig von einer eventuell veraenderten JSON. */
+    public void resetToDefaults() {
+        this.copyFrom(new PostProcessingSettings());
+    }
+
+    private void copyFrom(PostProcessingSettings fresh) {
         this.exposure = fresh.exposure;
         this.temperature = fresh.temperature;
         this.tint = fresh.tint;
@@ -148,12 +168,42 @@ public final class PostProcessingSettings {
         this.taaMipBias = fresh.taaMipBias;
         this.bloomIntensity = fresh.bloomIntensity;
         this.bloomThreshold = fresh.bloomThreshold;
+        this.schema = fresh.schema;
         this.vignette = fresh.vignette;
         this.sharpen = fresh.sharpen;
         this.dirty = true;
     }
 
     private void sanitize() {
+        /* Bloom fields existed before the pass did and were therefore saved as zero.
+           Missing schema marks exactly those legacy developer configs. */
+        if (this.schema < 2) {
+            this.bloomIntensity = 1.0F;
+            this.bloomThreshold = 0.72F;
+        }
+        /* Sharpen used to be a dormant setting. Activating the CAS pass made old values such
+           as 0.5 suddenly affect every voxel edge and produced the over-sharp look. Reset it
+           once; users can deliberately enable it again in the shader-pack screen. */
+        if (this.schema < 3) this.sharpen = 0.0F;
+        /* Einmalige Umschaltung bestehender Installationen auf den neuen Standard-Look.
+           Es werden nur Werte gesetzt, die bereits als Spieloptionen vorhanden sind. */
+        if (this.schema < 4) {
+            this.saturation = 1.40F;
+            this.vibrance = 0.0F;
+            this.aaMode = AntiAliasingMode.TAA_FXAA;
+            this.bloomIntensity = 1.0F;
+            this.bloomThreshold = 0.0F;
+            this.sharpen = 0.5F;
+        }
+        /* Photon besitzt nach dem TAA keinen zusaetzlichen FXAA-Pass. */
+        if (this.schema < 5 && this.aaMode == AntiAliasingMode.TAA_FXAA) {
+            this.aaMode = AntiAliasingMode.TAA;
+        }
+        if (this.schema < 6) {
+            this.vignette = 1.0F;
+            this.taaMipBias = 0.0F;
+        }
+        this.schema = CURRENT_SCHEMA;
         if (this.tonemapOperator == null) this.tonemapOperator = TonemapOperator.NONE;
         if (this.aaMode == null) this.aaMode = AntiAliasingMode.NONE;
         if (this.debugMode == null) this.debugMode = PostDebugMode.NONE;
@@ -163,6 +213,8 @@ public final class PostProcessingSettings {
         this.contrast = Math.max(0F, this.contrast);
         this.taaHistoryWeight = Math.clamp(this.taaHistoryWeight, 0F, 0.98F);
         this.taaMipBias = Math.clamp(this.taaMipBias, -2F, 0F);
+        this.bloomIntensity = Math.clamp(this.bloomIntensity, 0F, 4F);
+        this.bloomThreshold = Math.max(0F, this.bloomThreshold);
         this.sharpen = Math.clamp(this.sharpen, 0F, 1F); // CAS-Stärke
     }
 
