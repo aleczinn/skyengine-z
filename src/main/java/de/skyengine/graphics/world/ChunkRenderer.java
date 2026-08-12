@@ -16,6 +16,7 @@ import de.skyengine.game.world.lod.LodMesher;
 import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.GlDebug;
+import de.skyengine.graphics.GlState;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
@@ -34,12 +35,16 @@ import org.joml.Vector3f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL32;
+import org.lwjgl.opengl.GL33;
 import org.lwjgl.opengl.GL40;
+import org.lwjgl.opengl.GL42;
 import org.lwjgl.opengl.GL43;
+import org.lwjgl.opengl.GL44;
 import org.lwjgl.opengl.ARBClipControl;
 
 import de.skyengine.utils.collect.LongObjMap;
@@ -88,19 +93,17 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
     private int skyReflectionTexture;
     private int skyShBuffer;
     private static final int DEFAULT_WATER_SHADOW_SIZE = 2048;
-    private static final float WATER_SHADOW_DISTANCE = 128F;
+    private static final float WATER_SHADOW_DISTANCE = PhotonShadowMatrices.SHADOW_DISTANCE;
     private int waterShadowSize = DEFAULT_WATER_SHADOW_SIZE;
     private int waterShadowAllFbo;
     private int waterShadowSolidFbo;
     private int waterShadowDepthAll;
     private int waterShadowDepthSolid;
     private int waterShadowColor;
+    private int shadowCompareSampler;
     private final Matrix4f waterShadowMatrix = new Matrix4f();
     private final Matrix4f waterShadowProjection = new Matrix4f();
     private final Matrix4f waterShadowView = new Matrix4f();
-    private final Vector3f waterShadowLight = new Vector3f();
-    private final Vector3f waterShadowTarget = new Vector3f();
-    private final Vector3f waterShadowUp = new Vector3f();
     /* Eigene, vom Kamera-Frustum unabhaengige Command-Segmente fuer Photons Lichtpass.
        Ein Caster darf nicht verschwinden, nur weil er hinter der Hauptkamera liegt. */
     private long shadowCmdOpaque, shadowOffOpaque, shadowCmdCutout, shadowOffCutout;
@@ -166,6 +169,8 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
        und kein Hin-und-her-Flackern beim Entlanglaufen einer Chunk-Grenze (LOD-Anker-Muster). */
     private static final double DETAIL_ANCHOR_HYSTERESE = 48.0;
     private double detailAnchorX = Double.NaN, detailAnchorZ;
+    /* Pro Frame einmal berechnet und von Haupt- sowie Shadow-Pass gemeinsam genutzt. */
+    private float detailFadeStart, detailFadeInverse, detailCamSnapX, detailCamSnapZ;
 
     /* GPU-Cull-Substrat (P3): Compute-Frustum + Command-Kompaktierung + IndirectCount für
        OPAQUE/CUTOUT/LOD-OPAQUE. CPU-Pfad bleibt vollständig erhalten (Fallback + A/B). */
@@ -512,6 +517,10 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
     private ShaderProgram compileWaterShadow(ShaderPack pack) {
         ShaderProgram program = new ShaderProgram(
                 new Shader(this.shaderPackManager.program(pack, "water_shadow_vertex"), ShaderType.VERTEX),
+                new Shader(this.shaderPackManager.program(pack, "water_shadow_tess_control"),
+                        ShaderType.TESS_CONTROL),
+                new Shader(this.shaderPackManager.program(pack, "water_shadow_tess_evaluation"),
+                        ShaderType.TESS_EVALUATION),
                 new Shader(this.shaderPackManager.program(pack, "water_shadow_fragment"), ShaderType.FRAGMENT));
         program.bind();
         program.setUniformi("u_Textures", 0);
@@ -573,7 +582,7 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
      * folgt separat in {@link #renderTranslucent}, damit Entities dazwischen rendern können
      * (Vanilla-Reihenfolge: Wasser blendet über Entities).
      */
-    public void renderSolid(Camera camera, Vector3f sunDirection) {
+    public void renderSolid(Camera camera, float shadowAngle) {
         /* 0. Texturanimationen vorrücken (Frame-Tausch, kein Re-Mesh) */
         FrameProfiler.cpuStart(FrameProfiler.Cpu.ANIM);
         this.atlas.tick();
@@ -646,11 +655,13 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         Vector3d cam = camera.getPosition();
         int size = ChunkSection.SIZE;
 
+        this.prepareDetailFade(cam);
+
         FrameProfiler.cpuStart(FrameProfiler.Cpu.CULL);
 
         /* Photon erzeugt seine Schatten aus Sicht des Sonnenlichts. Insbesondere duerfen
            Sections hinter oder seitlich neben der Kamera weiterhin Schatten werfen. */
-        this.prepareWaterShadow(sunDirection, cam);
+        this.prepareWaterShadow(shadowAngle, cam);
 
         boolean gpu = this.gpuCull.isActive();
         /* Pflicht-Begleitfix zum Gate-Gating in refreshGateForRegion: solange der GPU-Pfad aus
@@ -871,32 +882,40 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         this.shadowOffOpaque = this.offCursor
                 + MappedRing.align((long) translucentDraws * OFFSET_BYTES)
                 + MappedRing.align((long) lodTDraws * OFFSET_BYTES);
-        this.shadowNOpaque = this.writeSegment(RenderLayer.OPAQUE, this.shadowVisible,
+        this.shadowNOpaque = this.writePatchSegment(RenderLayer.OPAQUE, this.shadowVisible,
                 cmds, offs, this.shadowCmdOpaque, this.shadowOffOpaque, cam);
 
         this.shadowCmdCutout = this.shadowCmdOpaque
                 + MappedRing.align((long) shadowDraws * COMMAND_BYTES);
         this.shadowOffCutout = this.shadowOffOpaque
                 + MappedRing.align((long) shadowDraws * OFFSET_BYTES);
-        this.shadowNCutout = this.writeSegment(RenderLayer.CUTOUT, this.shadowVisible,
+        this.shadowNCutout = this.writePatchSegment(RenderLayer.CUTOUT, this.shadowVisible,
                 cmds, offs, this.shadowCmdCutout, this.shadowOffCutout, cam);
 
         this.shadowCmdDetail = this.shadowCmdCutout
                 + MappedRing.align((long) shadowDraws * COMMAND_BYTES);
         this.shadowOffDetail = this.shadowOffCutout
                 + MappedRing.align((long) shadowDraws * OFFSET_BYTES);
-        this.shadowNDetail = this.writeDetailSegment(this.shadowVisible,
+        this.shadowNDetail = this.writeDetailPatchSegment(this.shadowVisible,
                 cmds, offs, this.shadowCmdDetail, this.shadowOffDetail, cam);
 
         this.shadowCmdTranslucent = this.shadowCmdDetail
                 + MappedRing.align((long) shadowDraws * COMMAND_BYTES);
         this.shadowOffTranslucent = this.shadowOffDetail
                 + MappedRing.align((long) shadowDraws * OFFSET_BYTES);
-        int shadowNTranslucent = this.writeSegment(RenderLayer.TRANSLUCENT,
+        int shadowNTranslucent = this.writePatchSegment(RenderLayer.TRANSLUCENT,
                 this.shadowVisible, cmds, offs, this.shadowCmdTranslucent,
                 this.shadowOffTranslucent, cam);
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.WRITE);
+
+        /* commandRing/offsetRing are persistently and coherently mapped.  Coherent mapping
+           removes the explicit flush, but not the client->server ordering requirement: the
+           GPU may otherwise consume last frame's indirect command with this frame's SSBO
+           offset (or the inverse).  The shadow pass is the first consumer and therefore
+           exposed the race most visibly as camera-dependent blobs, disappearing casters
+           and one-frame black rectangles. */
+        GL42.glMemoryBarrier(GL44.GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
 
         /* Photons Schattenkarte entsteht vor dem Terrain-Lighting desselben Frames. */
         this.renderWaterOcclusion();
@@ -917,8 +936,13 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
                 (float) cam.x, (float) cam.y, (float) cam.z);
         this.shader.setUniformf(this.locTime,
                 (System.nanoTime() - this.animationStartNanos) * 1.0e-9F);
-        this.shader.setUniformf("u_Frame", (float) this.frameId);
+        /* Photon feeds frameCounter as an integer.  Keeping it as float loses the low
+           bits after long sessions and makes the PCSS rotation jump instead of advancing
+           by one deterministic R1 sample. */
+        this.shader.setUniformi("u_Frame", (int) (this.frameId & 0x7FFF_FFFFL));
         this.shader.setUniformMatrix4f("u_ShadowProjectionView", this.waterShadowMatrix);
+        this.shader.setUniformVector2f("u_JitterUv",
+                camera.getJitterX() * 0.5F, camera.getJitterY() * 0.5F);
         this.setFogUniforms();
         this.setLightUniforms();
         this.textures.bind(0);
@@ -965,6 +989,11 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
            statt per glGetInteger (synchroner Treiber-Roundtrip pro Frame). */
         EngineProperties properties = SkyEngine.get().getWindow().getProperties();
         GL11.glDepthFunc(properties.orEqualDepthFunc());
+        /* Photon gbuffers_terrain verwirft Nicht-Solid-Terrain bei alpha < 0.1. Die bisherige
+           0.5-Grenze machte die sichtbaren Grashalme schmaler als ihre ebenfalls mit 0.1
+           gerenderten Schatten-Silhouetten: der ueberstehende Schatten erschien als feine
+           schwarze Outline und als losgeloeste Noise-Flecken an den Kanten. */
+        this.shader.setUniformf(this.locAlphaCutoff, 0.1F);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.CUTOUT);
         if (gpu) {
             this.drawSegmentGpu(RenderLayer.CUTOUT.ordinal(), GpuCull.SEG_CUTOUT, 0);
@@ -975,26 +1004,16 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
            Shader kollabiert ferne Pflanzen deterministisch per Pflanzen-Hash (int3-Topbyte).
            Danach Fade wieder deaktivieren, alle anderen Segmente bleiben unberührt. */
         if (nDetail > 0) {
-            int start = GameSettings.get().vegetationDistance;
-            if (start > 0) {
-                /* Anker nachziehen (Chunk-Zentrum, mit Hysterese — s. Feld-Kommentar). */
-                double dax = cam.x - this.detailAnchorX, daz = cam.z - this.detailAnchorZ;
-                if (Double.isNaN(this.detailAnchorX)
-                        || dax * dax + daz * daz > DETAIL_ANCHOR_HYSTERESE * DETAIL_ANCHOR_HYSTERESE) {
-                    this.detailAnchorX = (Math.floorDiv((int) Math.floor(cam.x), ChunkSection.SIZE)
-                            * ChunkSection.SIZE) + ChunkSection.SIZE / 2.0;
-                    this.detailAnchorZ = (Math.floorDiv((int) Math.floor(cam.z), ChunkSection.SIZE)
-                            * ChunkSection.SIZE) + ChunkSection.SIZE / 2.0;
-                }
-                float startBlocks = start << ChunkSection.SHIFT;
-                this.shader.setUniformVector2f(this.locDetailFade, startBlocks, 1F / (startBlocks * 0.5F));
-                /* Versatz Live-Kamera -> Anker (klein, float-exakt): der Shader rechnet die
-                   Fade-Distanz damit vom Anker statt von der Kamera. */
+            if (this.detailFadeInverse > 0F) {
+                this.shader.setUniformVector2f(this.locDetailFade,
+                        this.detailFadeStart, this.detailFadeInverse);
                 this.shader.setUniformVector2f(this.locDetailCamSnap,
-                        (float) (cam.x - this.detailAnchorX), (float) (cam.z - this.detailAnchorZ));
+                        this.detailCamSnapX, this.detailCamSnapZ);
             }
             this.drawSegment(RenderLayer.CUTOUT.ordinal(), cmdDetail, offDetail, nDetail);
-            if (start > 0) this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F);
+            if (this.detailFadeInverse > 0F) {
+                this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F);
+            }
         }
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.CUTOUT);
         GL11.glDepthFunc(properties.baseDepthFunc());
@@ -1122,6 +1141,10 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         int nLodT = this.writeLodTranslucentSegment(cmds, offs, cmdLodT, offLodT, cam);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.WRITE);
 
+        /* The translucent segment is rewritten after the solid pass (depth sort).  Publish
+           both indirect commands and draw offsets before water consumes them. */
+        GL42.glMemoryBarrier(GL44.GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
+
         /* Die Photon-Schattenkarte wird in renderSolid genau einmal vor dem Lighting
            aufgebaut. Sie darf hier nicht erneut mit den inzwischen kamera-sortierten
            Translucent-Daten verändert werden: Terrain, Wasser und volumetrischer Nebel
@@ -1136,6 +1159,8 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         this.shader.bind();
         this.shaderPackManager.applySettings(this.shader);
         this.shader.setUniformMatrix4f("u_InvProjectionView", camera.getInvProjectionViewMatrix());
+        this.shader.setUniformVector2f("u_JitterUv",
+                camera.getJitterX() * 0.5F, camera.getJitterY() * 0.5F);
         this.shader.setUniformVector2f("u_Viewport",
                 SkyEngine.get().getWindow().getWidth(), SkyEngine.get().getWindow().getHeight());
         this.shader.setUniformf("u_ZeroToOneDepth",
@@ -1521,6 +1546,39 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
     }
 
     /**
+     * Shadow-Variante von {@link #writeSegment}. Der Shadow-Shader bekommt jedes gespeicherte
+     * Quad als Patch mit vier Randvertices. ChunkMesher fasst opake Blockflaechen bis zur
+     * Section-Groesse zusammen; die Tessellation zerlegt sie vor Photons nichtlinearer
+     * Shadow-Projektion wieder in Blockschritte.
+     */
+    private int writePatchSegment(RenderLayer layer, List<SectionMesh> list,
+                                  IntBuffer cmds, FloatBuffer offs,
+                                  long cmdSegBytes, long offSegBytes, Vector3d cam) {
+        int cmdBase = (int) (cmdSegBytes / Integer.BYTES);
+        int offBase = (int) (offSegBytes / Float.BYTES);
+        int n = 0;
+        for (int i = 0; i < list.size(); i++) {
+            SectionMesh mesh = list.get(i);
+            if (!mesh.hasLayer(layer)) continue;
+
+            int ci = cmdBase + n * 5;
+            cmds.put(ci, mesh.vertexCount(layer));
+            cmds.put(ci + 1, 1);
+            cmds.put(ci + 2, mesh.baseVertex(layer));
+            cmds.put(ci + 3, 0);
+            cmds.put(ci + 4, 0);
+
+            int oi = offBase + n * 4;
+            offs.put(oi, offsetX(mesh, cam));
+            offs.put(oi + 1, offsetY(mesh, cam));
+            offs.put(oi + 2, offsetZ(mesh, cam));
+            offs.put(oi + 3, 1F / ChunkMesher.POS_SCALE);
+            n++;
+        }
+        return n;
+    }
+
+    /**
      * LOD-Variante von {@link #drawSegment}: zeichnet mit Polygon-Offset "nach hinten"
      * (s. {@link #lodOffsetFactor}), damit echtes Terrain koplanare LOD-Geometrie immer
      * überdeckt — Zustand wird danach zurückgesetzt.
@@ -1556,6 +1614,33 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
             cmds.put(ci + 2, 0);                        // firstIndex (geteilter EBO ab 0)
             cmds.put(ci + 3, mesh.baseVertexDetail());  // baseVertex = Region in der CUTOUT-Arena
             cmds.put(ci + 4, 0);                        // baseInstance (ungenutzt)
+
+            int oi = offBase + n * 4;
+            offs.put(oi, offsetX(mesh, cam));
+            offs.put(oi + 1, offsetY(mesh, cam));
+            offs.put(oi + 2, offsetZ(mesh, cam));
+            offs.put(oi + 3, 1F / ChunkMesher.POS_SCALE);
+            n++;
+        }
+        return n;
+    }
+
+    /** Shadow-Patch-Variante fuer die separate Kleinvegetations-Region. */
+    private int writeDetailPatchSegment(List<SectionMesh> list, IntBuffer cmds, FloatBuffer offs,
+                                        long cmdSegBytes, long offSegBytes, Vector3d cam) {
+        int cmdBase = (int) (cmdSegBytes / Integer.BYTES);
+        int offBase = (int) (offSegBytes / Float.BYTES);
+        int n = 0;
+        for (int i = 0; i < list.size(); i++) {
+            SectionMesh mesh = list.get(i);
+            if (!mesh.hasDetail()) continue;
+
+            int ci = cmdBase + n * 5;
+            cmds.put(ci, mesh.vertexCountDetail());
+            cmds.put(ci + 1, 1);
+            cmds.put(ci + 2, mesh.baseVertexDetail());
+            cmds.put(ci + 3, 0);
+            cmds.put(ci + 4, 0);
 
             int oi = offBase + n * 4;
             offs.put(oi, offsetX(mesh, cam));
@@ -1610,6 +1695,24 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
                 this.offsetRing.slotOffset(this.frameSlot) + offSegBytes, (long) drawCount * OFFSET_BYTES);
         GL43.glMultiDrawElementsIndirect(GL11.GL_TRIANGLES, GL11.GL_UNSIGNED_INT,
                 this.commandRing.slotOffset(this.frameSlot) + cmdSegBytes, drawCount, 0);
+        GL30.glBindVertexArray(0);
+    }
+
+    /** Zeichnet vier aufeinanderfolgende Quad-Vertices als Tessellation-Patches. */
+    private void drawPatchSegment(int slot, long cmdSegBytes, long offSegBytes, int drawCount) {
+        if (drawCount == 0) return;
+
+        GL30.glBindVertexArray(this.vaos[slot]);
+        GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, this.commandRing.getBuffer());
+        GL30.glBindBufferRange(GL43.GL_SHADER_STORAGE_BUFFER, 0, this.offsetRing.getBuffer(),
+                this.offsetRing.slotOffset(this.frameSlot) + offSegBytes,
+                (long) drawCount * OFFSET_BYTES);
+        GL40.glPatchParameteri(GL40.GL_PATCH_VERTICES, 4);
+        /* DrawArrays ist absichtlich: der normale Quad-EBO enthaelt sechs Indizes pro
+           Quad und kann deshalb keine stabilen Vierer-Patches bilden. */
+        GL43.glMultiDrawArraysIndirect(GL40.GL_PATCHES,
+                this.commandRing.slotOffset(this.frameSlot) + cmdSegBytes,
+                drawCount, COMMAND_BYTES);
         GL30.glBindVertexArray(0);
     }
 
@@ -1769,69 +1872,76 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         this.skyReflectionTexture = texture;
     }
 
+    /**
+     * Berechnet die deterministische Detail-Ausduennung genau einmal pro Frame. Haupt- und
+     * Shadow-Pass muessen dieselbe Sichtbarkeitsentscheidung verwenden; andernfalls werfen
+     * bereits ausgeblendete Grashalme weiterhin Schatten und das Muster aendert sich beim
+     * Nachziehen des Spielerankers.
+     */
+    private void prepareDetailFade(Vector3d camera) {
+        this.detailFadeStart = 0F;
+        this.detailFadeInverse = 0F;
+        this.detailCamSnapX = 0F;
+        this.detailCamSnapZ = 0F;
+
+        int start = GameSettings.get().vegetationDistance;
+        if (start <= 0) return;
+
+        double dax = camera.x - this.detailAnchorX;
+        double daz = camera.z - this.detailAnchorZ;
+        if (Double.isNaN(this.detailAnchorX)
+                || dax * dax + daz * daz > DETAIL_ANCHOR_HYSTERESE * DETAIL_ANCHOR_HYSTERESE) {
+            this.detailAnchorX = (Math.floorDiv((int) Math.floor(camera.x), ChunkSection.SIZE)
+                    * ChunkSection.SIZE) + ChunkSection.SIZE / 2.0;
+            this.detailAnchorZ = (Math.floorDiv((int) Math.floor(camera.z), ChunkSection.SIZE)
+                    * ChunkSection.SIZE) + ChunkSection.SIZE / 2.0;
+        }
+
+        this.detailFadeStart = start << ChunkSection.SHIFT;
+        this.detailFadeInverse = 1F / (this.detailFadeStart * 0.5F);
+        this.detailCamSnapX = (float) (camera.x - this.detailAnchorX);
+        this.detailCamSnapZ = (float) (camera.z - this.detailAnchorZ);
+    }
+
     /** Photons einzelne verzerrte 2048²-Schattenkarte im 128-Block-Nahbereich. */
-    private void prepareWaterShadow(Vector3f sunDirection, Vector3d camera) {
+    private void prepareWaterShadow(float shadowAngle, Vector3d camera) {
         this.shadowVisible.clear();
         if (this.waterShadowSolidFbo == 0 || this.waterShadowShader == null) return;
-        float radius = WATER_SHADOW_DISTANCE;
-        this.waterShadowLight.set(sunDirection).normalize().mul(radius);
-        this.waterShadowTarget.zero();
-        this.waterShadowUp.set(0F, Math.abs(sunDirection.y) > 0.9F ? 0F : 1F,
-                Math.abs(sunDirection.y) > 0.9F ? 1F : 0F);
-        this.waterShadowProjection.identity()
-                /* Photon rasterisiert seine Shadowmap im klassischen OpenGL-Clipraum.
-                   Das ist absichtlich unabhaengig vom Reversed-Z/zero-to-one-Clipraum der
-                   Hauptkamera: SHADOW_DEPTH_SCALE und alle Photon-Sampler erwarten danach
-                   z * 0.5 + 0.5 (belegte Tiefe liegt dadurch um 0.5, nicht bei 0..0.2). */
-                .ortho(-radius, radius, -radius, radius, 0.1F, radius * 2F, false);
-        this.waterShadowView.identity()
-                .lookAt(this.waterShadowLight, this.waterShadowTarget, this.waterShadowUp);
+        /* Exakt Iris ShadowMatrices: feste X/Z/X-Rotationen, Iris' asymmetrischer
+           Tiefenbereich und shadowIntervalSize=2. Ein lookAt oder Shadow-Texel-Snapping
+           erzeugt eine andere Projektionsphase und war die Ursache fuer die mit Kamera-
+           bewegung wandernden PCSS-Muster. */
+        PhotonShadowMatrices.projectionView(shadowAngle, camera,
+                this.waterShadowProjection, this.waterShadowView, this.waterShadowMatrix);
+        /* Iris' ReversedAdvancedShadowCullingFrustum fuehrt vor der extrudierten
+           Kamera-Frustum-Pruefung zwingend einen BoxCuller(shadowDistance) aus. Ohne
+           diesen Test gelangten bei uns alle gerade geladenen Sections in die durch
+           Photon auf 20 % komprimierte Shadow-Z-Achse. Weit entfernte Berge/Chunks
+           wurden dadurch zu grossen, scheinbar zufaelligen Schattenflaechen, deren
+           Auftreten vom Streaming-Zustand und damit von der Spielerposition abhing.
 
-        /* Eine frei mit der Kamera gleitende Orthoprojektion verschiebt das komplette
-           Shadow-Raster bei jeder noch so kleinen Bewegung und laesst PCSS auf ruhenden
-           Flaechen kriseln. Die beiden lichtseitigen Achsen werden deshalb auf ganze
-           Shadow-Texel eingerastet. Das entspricht der Stabilisierung, die Minecraft/Iris
-           fuer Photons shadowModelView bereitstellt; die Geometrie bleibt kamera-relativ,
-           die Abtastphase ist aber in der Welt verankert. */
-        double cameraLightX = this.waterShadowView.m00() * camera.x
-                + this.waterShadowView.m10() * camera.y
-                + this.waterShadowView.m20() * camera.z;
-        double cameraLightY = this.waterShadowView.m01() * camera.x
-                + this.waterShadowView.m11() * camera.y
-                + this.waterShadowView.m21() * camera.z;
-        double worldUnitsPerTexel = 2.0 * radius / this.waterShadowSize;
-        float phaseX = (float) (cameraLightX
-                - Math.rint(cameraLightX / worldUnitsPerTexel) * worldUnitsPerTexel);
-        float phaseY = (float) (cameraLightY
-                - Math.rint(cameraLightY / worldUnitsPerTexel) * worldUnitsPerTexel);
-        this.waterShadowView.m30(phaseX);
-        this.waterShadowView.m31(phaseY);
-        this.waterShadowProjection.mul(this.waterShadowView, this.waterShadowMatrix);
-
+           Der Test unten ist bytecode-identisch zu Iris' BoxCuller: max < camera-D
+           oder min > camera+D auf einer der drei Achsen verwirft die AABB. Die Section-
+           Oberkante ist inklusive ihrer Grenzflaeche SIZE Bloecke vom Ursprung entfernt. */
         for (int i = 0, n = this.meshes.tableSize(); i < n; i++) {
             SectionMesh mesh = this.meshes.valueAt(i);
-            if (mesh == null) continue;
-            float half = ChunkSection.SIZE * 0.5F;
-            float cx = offsetX(mesh, camera) + half;
-            float cy = offsetY(mesh, camera) + half;
-            float cz = offsetZ(mesh, camera) + half;
-            if (this.waterShadowIntersects(cx, cy, cz, half)) this.shadowVisible.add(mesh);
+            if (mesh != null && this.isInsidePhotonShadowDistance(mesh, camera)) {
+                this.shadowVisible.add(mesh);
+            }
         }
     }
 
-    /** AABB/Clip-Test fuer Photons klassische orthografische [-1,1]-Schattenprojektion. */
-    private boolean waterShadowIntersects(float x, float y, float z, float halfExtent) {
-        Matrix4f m = this.waterShadowMatrix;
-        float cx = m.m00() * x + m.m10() * y + m.m20() * z + m.m30();
-        float cy = m.m01() * x + m.m11() * y + m.m21() * z + m.m31();
-        float cz = m.m02() * x + m.m12() * y + m.m22() * z + m.m32();
-        float ex = halfExtent * (Math.abs(m.m00()) + Math.abs(m.m10()) + Math.abs(m.m20()));
-        float ey = halfExtent * (Math.abs(m.m01()) + Math.abs(m.m11()) + Math.abs(m.m21()));
-        float ez = halfExtent * (Math.abs(m.m02()) + Math.abs(m.m12()) + Math.abs(m.m22()));
-        float margin = 0.08F;
-        return cx + ex >= -1F - margin && cx - ex <= 1F + margin
-                && cy + ey >= -1F - margin && cy - ey <= 1F + margin
-                && cz + ez >= -1F - margin && cz - ez <= 1F + margin;
+    private boolean isInsidePhotonShadowDistance(SectionMesh mesh, Vector3d camera) {
+        double minX = (long) mesh.chunkX << ChunkSection.SHIFT;
+        double minY = (long) mesh.sectionY << ChunkSection.SHIFT;
+        double minZ = (long) mesh.chunkZ << ChunkSection.SHIFT;
+        double maxX = minX + ChunkSection.SIZE;
+        double maxY = minY + ChunkSection.SIZE;
+        double maxZ = minZ + ChunkSection.SIZE;
+        double distance = WATER_SHADOW_DISTANCE;
+        return maxX >= camera.x - distance && minX <= camera.x + distance
+                && maxY >= camera.y - distance && minY <= camera.y + distance
+                && maxZ >= camera.z - distance && minZ <= camera.z + distance;
     }
 
     /** Zeichnet die zuvor vorbereitete, kameraunabhaengige Photon-Schattenkarte. */
@@ -1848,23 +1958,40 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         GL11.glDisable(GL11.GL_SCISSOR_TEST);
         GL11.glDisable(GL11.GL_BLEND);
         GL11.glEnable(GL11.GL_DEPTH_TEST);
+        /* Iris ShadowRenderer disables face culling for the whole terrain shadow pass.
+           This is distinct from shaders.properties' `shadow.culling = reversed`, which
+           controls the light frustum.  Rendering only the camera-facing winding made
+           cutout/voxel silhouettes depend on the camera and exposed self-shadow seams. */
+        boolean restoreCull = GlState.isCullFaceEnabled();
+        GlState.disableCullFace();
         GL11.glDepthMask(true);
         GL11.glDepthFunc(GL11.GL_LESS);
         GL11.glClearDepth(1.0);
         GL11.glColorMask(true, true, true, true);
-        GL30.glClearBufferfv(GL11.GL_COLOR, 0, new float[]{1F, 1F, 1F, 1F});
+        /* Photon include/buffers.glsl:
+           shadowcolor0ClearColor = vec4(0).  Weiss ist hier nicht neutral: PCSS liest
+           shadowcolor0 mit Faktor 4.0. An unbelegten Texeln bzw. an Depth-Seams wurde
+           unser weisser Clear dadurch zu den hellen, parallel zur Shadowmap laufenden
+           Streifen auf flachem Terrain und unter Wasser. */
+        GL30.glClearBufferfv(GL11.GL_COLOR, 0, new float[]{0F, 0F, 0F, 0F});
         GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
         this.waterShadowShader.bind();
         this.shaderPackManager.applySettings(this.waterShadowShader);
         this.waterShadowShader.setUniformMatrix4f("u_LightProjectionView", this.waterShadowMatrix);
         this.waterShadowShader.setUniformf("u_WaterOnly", 0F);
+        this.waterShadowShader.setUniformVector2f("u_DetailFade", 0F, 0F);
+        this.waterShadowShader.setUniformVector2f("u_DetailCamSnap",
+                this.detailCamSnapX, this.detailCamSnapZ);
         this.textures.bind(0);
-        this.drawSegment(RenderLayer.OPAQUE.ordinal(), this.shadowCmdOpaque,
+        this.drawPatchSegment(RenderLayer.OPAQUE.ordinal(), this.shadowCmdOpaque,
                 this.shadowOffOpaque, this.shadowNOpaque);
-        this.drawSegment(RenderLayer.CUTOUT.ordinal(), this.shadowCmdCutout,
+        this.drawPatchSegment(RenderLayer.CUTOUT.ordinal(), this.shadowCmdCutout,
                 this.shadowOffCutout, this.shadowNCutout);
-        this.drawSegment(RenderLayer.CUTOUT.ordinal(), this.shadowCmdDetail,
+        this.waterShadowShader.setUniformVector2f("u_DetailFade",
+                this.detailFadeStart, this.detailFadeInverse);
+        this.drawPatchSegment(RenderLayer.CUTOUT.ordinal(), this.shadowCmdDetail,
                 this.shadowOffDetail, this.shadowNDetail);
+        this.waterShadowShader.setUniformVector2f("u_DetailFade", 0F, 0F);
         this.waterShadowShader.unbind();
 
         GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, this.waterShadowSolidFbo);
@@ -1874,9 +2001,10 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
                 GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.waterShadowAllFbo);
         /* shadowColor wurde im Solid-Pass bereits wie bei Photon beschrieben: Hintergrund
-           weiss, opake Blocker schwarz. Nicht erneut loeschen, sonst werden PCF-Raender
-           durch das spaetere *4 faelschlich selbstleuchtend. */
+           und opake Blocker schwarz, nur transluzente Blocker schreiben Transmission.
+           Nicht erneut loeschen, weil beide Depth-Varianten dieselbe Farbkarte teilen. */
         GL11.glColorMask(true, true, true, true);
+        if (restoreCull) GlState.enableCullFace();
         window.getFrameBuffer().bind();
         this.restoreMainClipSpace();
         GL11.glViewport(0, 0, window.getWidth(), window.getHeight());
@@ -1894,6 +2022,8 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         GL11.glDisable(GL11.GL_SCISSOR_TEST);
         GL11.glDisable(GL11.GL_BLEND);
         GL11.glEnable(GL11.GL_DEPTH_TEST);
+        boolean restoreCull = GlState.isCullFaceEnabled();
+        GlState.disableCullFace();
         GL11.glDepthMask(true);
         GL11.glDepthFunc(GL11.GL_LESS);
         GL11.glColorMask(true, true, true, true);
@@ -1901,11 +2031,14 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         this.shaderPackManager.applySettings(this.waterShadowShader);
         this.waterShadowShader.setUniformMatrix4f("u_LightProjectionView", this.waterShadowMatrix);
         this.waterShadowShader.setUniformf("u_WaterOnly", 1F);
+        this.waterShadowShader.setUniformVector2f("u_DetailFade", 0F, 0F);
+        this.waterShadowShader.setUniformVector2f("u_DetailCamSnap",
+                this.detailCamSnapX, this.detailCamSnapZ);
         this.textures.bind(0);
-        this.drawSegment(RenderLayer.TRANSLUCENT.ordinal(), command, offset, count);
-        this.drawLodSegment(LOD_TRANSLUCENT, lodCommand, lodOffset, lodCount);
+        this.drawPatchSegment(RenderLayer.TRANSLUCENT.ordinal(), command, offset, count);
         this.waterShadowShader.unbind();
         GL11.glColorMask(true, true, true, true);
+        if (restoreCull) GlState.enableCullFace();
         window.getFrameBuffer().bind();
         this.restoreMainClipSpace();
         GL11.glViewport(0, 0, window.getWidth(), window.getHeight());
@@ -1949,6 +2082,21 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
     }
 
     private void createWaterShadowTarget() {
+        if (this.shadowCompareSampler == 0) {
+            this.shadowCompareSampler = GL33.glGenSamplers();
+            GL33.glSamplerParameteri(this.shadowCompareSampler,
+                    GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+            GL33.glSamplerParameteri(this.shadowCompareSampler,
+                    GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            GL33.glSamplerParameteri(this.shadowCompareSampler,
+                    GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+            GL33.glSamplerParameteri(this.shadowCompareSampler,
+                    GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+            GL33.glSamplerParameteri(this.shadowCompareSampler,
+                    GL14.GL_TEXTURE_COMPARE_MODE, GL30.GL_COMPARE_REF_TO_TEXTURE);
+            GL33.glSamplerParameteri(this.shadowCompareSampler,
+                    GL14.GL_TEXTURE_COMPARE_FUNC, GL11.GL_LEQUAL);
+        }
         this.waterShadowDepthAll = this.createWaterShadowDepth("Photon shadowtex0");
         this.waterShadowDepthSolid = this.createWaterShadowDepth("Photon shadowtex1");
         this.waterShadowColor = this.createWaterShadowColor();
@@ -2055,10 +2203,15 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
     private void bindShadowInputs() {
         GL13.glActiveTexture(GL13.GL_TEXTURE0 + SHADOW_DEPTH_SOLID_UNIT);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.waterShadowDepthSolid);
+        /* Photon declares shadowtex1 as sampler2DShadow. The compare sampler is bound only
+           to this unit so volumetric passes can still read the same depth texture raw. */
+        GL33.glBindSampler(SHADOW_DEPTH_SOLID_UNIT, this.shadowCompareSampler);
         GL13.glActiveTexture(GL13.GL_TEXTURE0 + SHADOW_DEPTH_ALL_UNIT);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.waterShadowDepthAll);
+        GL33.glBindSampler(SHADOW_DEPTH_ALL_UNIT, 0);
         GL13.glActiveTexture(GL13.GL_TEXTURE0 + SHADOW_COLOR_UNIT);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.waterShadowColor);
+        GL33.glBindSampler(SHADOW_COLOR_UNIT, 0);
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
     }
 
@@ -2359,6 +2512,10 @@ public class ChunkRenderer implements ShaderPackManager.Participant {
         for (int vao : this.vaos) GL30.glDeleteVertexArrays(vao);
         if (this.sharedEbo != 0) GL15.glDeleteBuffers(this.sharedEbo);
         this.disposeWaterShadowTarget();
+        if (this.shadowCompareSampler != 0) {
+            GL33.glDeleteSamplers(this.shadowCompareSampler);
+            this.shadowCompareSampler = 0;
+        }
         if (this.commandRing != null) this.commandRing.dispose();
         if (this.offsetRing != null) this.offsetRing.dispose();
         for (VertexArena arena : this.arenas) {

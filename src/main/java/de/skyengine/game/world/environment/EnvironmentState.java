@@ -15,6 +15,8 @@ public final class EnvironmentState {
     public float daylight;
     public float night;
     public float dayFraction;
+    /** Iris {@code shadowAngle}, bereits auf die aktive Sonne/Mond-Hemisphäre gefaltet. */
+    public float shadowAngle;
     public float fogDensity;
     public float starIntensity;
     public float moonPhase;
@@ -23,6 +25,7 @@ public final class EnvironmentState {
         DayNightCycle.sunDirection(dayTime, this.sunDirection);
         this.moonDirection.set(this.sunDirection).negate();
         this.dayFraction = DayNightCycle.dayFraction(dayTime);
+        this.shadowAngle = DayNightCycle.shadowAngle(dayTime);
         this.daylight = DayNightCycle.daylight(dayTime);
         this.night = DayNightCycle.night(dayTime);
         this.skyIntensity = DayNightCycle.skyIntensity(dayTime);

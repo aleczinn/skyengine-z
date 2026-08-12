@@ -11,6 +11,7 @@ uniform sampler2D u_ShadowDepthAll;
 uniform sampler2D u_ShadowDepthSolid;
 uniform samplerCube u_AtmosphereFog;
 uniform mat4 u_InvProjectionView;
+uniform vec2 u_JitterUv;
 uniform mat4 u_ShadowProjectionView;
 uniform mat4 u_ShadowView;
 uniform vec3 u_CameraPosition;
@@ -131,9 +132,16 @@ vec3 photonAmbientLight() {
 }
 
 vec3 reconstructPosition(vec2 uv, float depth) {
-    float ndcZ = mix(depth * 2.0 - 1.0, depth, u_ZeroToOneDepth);
-    vec4 position = u_InvProjectionView * vec4(uv * 2.0 - 1.0, ndcZ, 1.0);
-    return position.xyz / position.w;
+    /* Infinite reversed-Z represents clear depth as a homogeneous direction
+       (w == 0). Reconstruct that direction from a finite far sample so the
+       normalization below cannot seed NaNs into the volumetric buffer. */
+    float finiteDepth = u_ZeroToOneDepth > 0.5 ? max(depth, 1.0e-6) : depth;
+    float ndcZ = mix(finiteDepth * 2.0 - 1.0, finiteDepth, u_ZeroToOneDepth);
+    vec2 unjitteredNdc = (uv - u_JitterUv) * 2.0 - 1.0;
+    vec4 position = u_InvProjectionView * vec4(unjitteredNdc, ndcZ, 1.0);
+    float safeW = abs(position.w) >= 1.0e-8
+            ? position.w : (position.w < 0.0 ? -1.0e-8 : 1.0e-8);
+    return position.xyz / safeW;
 }
 
 bool isClearDepth(float depth) {
@@ -214,11 +222,22 @@ void main() {
         vec3 shadowScreen = shadowClip * 0.5 + 0.5;
         bool inside = all(greaterThanEqual(shadowScreen, vec3(0.0)))
                 && all(lessThanEqual(shadowScreen, vec3(1.0)));
-        float depthAll = texture(u_ShadowDepthAll, shadowScreen.xy).r;
-        float depthSolid = texture(u_ShadowDepthSolid, shadowScreen.xy).r;
-        float shadow = inside && shadowScreen.z <= depthSolid + 0.00035 ? 1.0 : 0.0;
-        float distanceTraveled = abs(depthAll - shadowScreen.z)
-                * u_ShadowDepthRange / SHADOW_DEPTH_SCALE;
+        float depthAll = shadowScreen.z;
+        float depthSolid = 1.0;
+        float shadow = 1.0;
+        if (inside) {
+            ivec2 shadowSize = textureSize(u_ShadowDepthSolid, 0);
+            ivec2 shadowTexel = clamp(ivec2(shadowScreen.xy * vec2(shadowSize)),
+                    ivec2(0), shadowSize - 1);
+            depthAll = texelFetch(u_ShadowDepthAll, shadowTexel, 0).r;
+            depthSolid = texelFetch(u_ShadowDepthSolid, shadowTexel, 0).r;
+            shadow = step(shadowScreen.z, depthSolid);
+        }
+        /* Ausserhalb der Shadowmap existiert kein Blocker. Photon behandelt diesen
+           Bereich als beleuchtet; 0.0 machte die Kartenkante als wandernde Gerade sichtbar. */
+        float distanceTraveled = inside
+                ? abs(depthAll - shadowScreen.z)
+                * u_ShadowDepthRange / SHADOW_DEPTH_SCALE : 0.0;
         float distanceToSky = min(distanceTraveled * max(lightDirection.y, 0.0),
                 15.0 - 15.0 * u_EyeSkylight + max(-worldPosition.y, 0.0));
         vec3 lightTransmittance = exp(-extinction * distanceTraveled) * shadow;

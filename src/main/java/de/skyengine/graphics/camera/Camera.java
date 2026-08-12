@@ -33,10 +33,9 @@ public class Camera {
     private final Matrix4f prevProjectionView = new Matrix4f();
     /* PV des aktuellen Frames ohne Jitter (wird im nächsten update() zu prev). */
     private final Matrix4f unjitteredProjectionView = new Matrix4f();
-    /* Inverse der aktuellen UNGEJITTERTEN PV — Reprojektion rechnet komplett jitterfrei:
-       im Stillstand ist prevUv == v_uv exakt (velPx == 0), sonst kräuselt Sub-Pixel-Geometrie
-       in der Ferne (Residual-Velocity ≈ Jitter drückte das History-Gewicht). Der Halbpixel-
-       Fehler gegen das gejitterte Depth ist subpixelig und gewollt (Standard-TAA-Praxis). */
+    /* Inverse der aktuellen UNGEJITTERTEN PV. Photons TAA-Resolve verwendet sie bewusst
+       direkt mit den gejitterten Depth-UVs, damit die Subpixel-Samples bei Stillstand in
+       derselben History-Zelle akkumulieren. Physische Post-Effekte entjittern separat. */
     private final Matrix4f invProjectionView = new Matrix4f();
     private final Vector3d prevPosition = new Vector3d();
     /* camNow − camPrev (double-Differenz, dann float): P_relPrev = P_relNow + camDelta. */
@@ -124,7 +123,17 @@ public class Camera {
         this.jitterY = ndcY;
     }
 
-    /** Inverse der aktuellen UNGEJITTERTEN PV — rekonstruiert Depth jitterfrei zu kamerarelativen Positionen. */
+    /** Current post-projection X offset in NDC units. */
+    public float getJitterX() {
+        return this.jitterX;
+    }
+
+    /** Current post-projection Y offset in NDC units. */
+    public float getJitterY() {
+        return this.jitterY;
+    }
+
+    /** Inverse der aktuellen UNGEJITTERTEN PV für TAA und physische Post-Rekonstruktion. */
     public Matrix4f getInvProjectionViewMatrix() {
         return invProjectionView;
     }

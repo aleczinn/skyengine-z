@@ -29,7 +29,7 @@ final class DayNightCycleTest {
         Vector3f sun = DayNightCycle.sunDirection(6_000, new Vector3f());
         Vector3f moon = DayNightCycle.moonDirection(6_000, new Vector3f());
         assertEquals((float) Math.cos(Math.toRadians(35.0)), sun.y, 0.00001F);
-        assertEquals((float) -Math.sin(Math.toRadians(35.0)), sun.z, 0.00001F);
+        assertEquals((float) Math.sin(Math.toRadians(35.0)), sun.z, 0.00001F);
         assertEquals(-1F, sun.dot(moon), 0.00001F);
         assertEquals(1F, DayNightCycle.skyIntensity(6_000), 0.00001F);
         assertEquals(0.16F, DayNightCycle.skyIntensity(18_000), 0.00001F);
@@ -37,6 +37,13 @@ final class DayNightCycleTest {
         float sunrise = DayNightCycle.skyIntensity(0);
         float after = DayNightCycle.skyIntensity(500);
         assertTrue(before < sunrise && sunrise < after);
+    }
+
+    @Test
+    void shadowAngleMatchesIrisDayAndNightHemisphere() {
+        assertEquals(0.25F, DayNightCycle.shadowAngle(6_000), 0.00001F);
+        assertEquals(0.25F, DayNightCycle.shadowAngle(18_000), 0.00001F);
+        assertEquals(0.4654822F, DayNightCycle.shadowAngle(12_000), 0.00001F);
     }
 
     @Test

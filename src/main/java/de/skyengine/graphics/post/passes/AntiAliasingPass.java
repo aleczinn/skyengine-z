@@ -1,5 +1,6 @@
 package de.skyengine.graphics.post.passes;
 
+import de.skyengine.core.SkyEngine;
 import de.skyengine.graphics.post.PostContext;
 import de.skyengine.graphics.post.PostPass;
 import de.skyengine.graphics.post.PostProcessor;
@@ -196,10 +197,12 @@ public final class AntiAliasingPass implements PostPass {
             uniform sampler2D u_Current;    // LDR nach Grading, FXAA-vorgeglaettet (BSL-Kette)
             uniform sampler2D u_History;    // Read-Seite des Ping-Pongs (Vorframe-Resolve)
             uniform sampler2D u_Depth;      // Szene-Depth (32F, Reversed-Z)
-            uniform mat4 u_InvProjView;     // Inverse der UNGEJITTERTEN PV (jitterfrei: Stillstand -> velPx == 0)
+            uniform sampler2D u_HandDepth;  // Szene-Depth direkt nach dem Hand-Pass
+            uniform mat4 u_InvProjView;     // Inverse der UNGEJITTERTEN PV (Photon-Reprojektion)
             uniform mat4 u_PrevProjView;    // UNGEJITTERTE PV des Vorframes
             uniform vec3 u_CamDelta;        // camNow - camPrev: P_relPrev = P_relNow + delta
             uniform int u_HistoryValid;     // 0 = erster Frame nach Reset -> nur aktuell
+            uniform int u_InverseDepth;
 
             vec3 rgbToYCoCg(vec3 col) {
                 return vec3(
@@ -249,7 +252,12 @@ public final class AntiAliasingPass implements PostPass {
                            + vec4(texture(u_History, vec2(tc12.x, tc12.y)).rgb, 1.0) * (w12.x * w12.y)
                            + vec4(texture(u_History, vec2(tc3.x,  tc12.y)).rgb, 1.0) * (w3.x  * w12.y)
                            + vec4(texture(u_History, vec2(tc12.x, tc3.y )).rgb, 1.0) * (w12.x * w3.y );
-                return max(color.rgb / color.a, 0.0);
+                if (abs(color.a) < 1.0e-6 || any(isnan(color)) || any(isinf(color))) {
+                    return vec3(0.0);
+                }
+                vec3 result = color.rgb / color.a;
+                return any(isnan(result)) || any(isinf(result))
+                        ? vec3(0.0) : max(result, 0.0);
             }
 
             vec3 minOf(vec3 a, vec3 b, vec3 c, vec3 d, vec3 e) {
@@ -261,11 +269,14 @@ public final class AntiAliasingPass implements PostPass {
             }
 
             vec3 reinhard(vec3 color) {
+                if (any(isnan(color)) || any(isinf(color))) return vec3(0.0);
+                color = max(color, 0.0);
                 return color / (color + 1.0);
             }
 
             vec3 reinhardInverse(vec3 color) {
-                return color / (1.0 - color);
+                color = clamp(color, vec3(0.0), vec3(1.0 - 1.0e-6));
+                return color / max(1.0 - color, vec3(1.0e-6));
             }
 
             vec3 closestFragment(ivec2 center, ivec2 size) {
@@ -333,6 +344,23 @@ public final class AntiAliasingPass implements PostPass {
                 ivec2 size = textureSize(u_Current, 0);
                 ivec2 texel = ivec2(gl_FragCoord.xy);
                 vec3 current = texelFetch(u_Current, texel, 0).rgb;
+                if (any(isnan(current)) || any(isinf(current))) current = vec3(0.0);
+                vec3 currentHdr = current;
+                float handDepth = texelFetch(u_HandDepth, texel, 0).r;
+                /* FirstPersonHandRenderer clears scene depth before drawing.  The captured
+                   texture therefore contains only the hand/item and clear depth elsewhere. */
+                bool hand = u_InverseDepth != 0
+                        ? handDepth > 1.0e-7
+                        : handDepth < 1.0 - 1.0e-7;
+                /* The hand has no velocity buffer and is rendered after the captured
+                   world depth. Reprojecting it as world geometry produces a large
+                   rectangular history sample whenever water/sky is behind it. Photon
+                   fixes hand depth separately; here the explicit hand-depth snapshot
+                   gives the same hard history rejection. */
+                if (hand) {
+                    fragColor = vec4(current, 1.0);
+                    return;
+                }
                 if (u_HistoryValid == 0) {
                     fragColor = vec4(current, 1.0);
                     return;
@@ -349,14 +377,36 @@ public final class AntiAliasingPass implements PostPass {
                 /* Kamerarelative Reprojektion in die Vorframe-UV */
                 vec3 closest = closestFragment(texel, size);
                 vec2 closestUv = (closest.xy + 0.5) / vec2(size);
-                vec4 rel = u_InvProjView * vec4(closestUv * 2.0 - 1.0, closest.z, 1.0);
-                vec3 relPos = rel.xyz / rel.w;
-                vec4 prevClip = u_PrevProjView * vec4(relPos + u_CamDelta, 1.0);
-                if (prevClip.w <= 0.0) { // hinter der Vorframe-Kamera
+                /* Infinite reversed-Z encodes clear sky as a homogeneous direction
+                   (w==0), not a position.  It must be reprojected with w=0 and without
+                   camera translation.  Dividing it by w (or replacing depth 0 by an
+                   arbitrary finite distance) turns sky/water-edge pixels into huge
+                   coordinates; invalid history UVs were the source of the flickering
+                   black screen rectangle. */
+                /* Photon c4_taa_exposure deliberately feeds the jittered screen sample
+                   straight into the inverse *unjittered* projection.  At a static camera
+                   this yields zero velocity, so the changing sub-pixel locations collect
+                   in the same history pixel.  Removing the current jitter here instead
+                   invents a per-frame velocity equal to the R2 offset and makes PCSS and
+                   alpha-tested vegetation crawl whenever the history is sampled. */
+                vec2 currentNdc = closestUv * 2.0 - 1.0;
+                vec4 rel = u_InvProjView * vec4(currentNdc,
+                        closest.z, 1.0);
+                bool direction = abs(rel.w) < 1.0e-7;
+                vec3 relPos = direction ? normalize(rel.xyz) : rel.xyz / rel.w;
+                vec4 prevClip = direction
+                        ? u_PrevProjView * vec4(rel.xyz, 0.0)
+                        : u_PrevProjView * vec4(relPos + u_CamDelta, 1.0);
+                if (prevClip.w <= 0.0 || any(isnan(prevClip)) || any(isinf(prevClip))) {
+                    // hinter der Vorframe-Kamera oder nicht endlich: History sicher verwerfen
                     fragColor = vec4(current, 1.0);
                     return;
                 }
                 vec2 reprojectedUv = (prevClip.xy / prevClip.w) * 0.5 + 0.5;
+                if (any(isnan(reprojectedUv)) || any(isinf(reprojectedUv))) {
+                    fragColor = vec4(current, 1.0);
+                    return;
+                }
                 vec2 velocity = closestUv - reprojectedUv;
                 vec2 prevUv = v_uv - velocity;
                 if (any(lessThan(prevUv, vec2(0.0))) || any(greaterThan(prevUv, vec2(1.0)))) {
@@ -370,6 +420,8 @@ public final class AntiAliasingPass implements PostPass {
                 /* 8-Nachbar-AABB in YCoCg + Richtungs-Clip (BSL NeighbourhoodClipping) */
                 float pixelAge = texelFetch(u_History,
                         clamp(ivec2(prevUv * texSize), ivec2(0), size - 1), 0).a + 1.0;
+                if (isnan(pixelAge) || isinf(pixelAge)) pixelAge = 1.0;
+                pixelAge = clamp(pixelAge, 1.0, 64.0);
                 float distanceFactor = 1.0 - exp2(-0.025 * length(relPos));
                 float alpha = max(1.0 / pixelAge, mix(0.35, 0.10, distanceFactor));
 
@@ -383,6 +435,7 @@ public final class AntiAliasingPass implements PostPass {
                 float offcenter = sqrt(pixelOffset.x * pixelOffset.y) * 0.25 + 0.75;
                 alpha = 1.0 - (1.0 - alpha) * offcenter;
                 vec3 result = reinhardInverse(mix(history, current, alpha));
+                if (any(isnan(result)) || any(isinf(result))) result = currentHdr;
                 fragColor = vec4(result, pixelAge * offcenter);
             }
             """;
@@ -469,6 +522,11 @@ public final class AntiAliasingPass implements PostPass {
         this.stage = stage;
     }
 
+    /** Discards temporal data after camera-medium changes or other discontinuities. */
+    public void invalidateHistory() {
+        if (this.stage == Stage.TEMPORAL) this.historyValid = false;
+    }
+
     @Override
     public void init(PostContext context) {
         this.fxaaProgram = new ShaderProgram(
@@ -485,6 +543,7 @@ public final class AntiAliasingPass implements PostPass {
         this.taaProgram.setUniformi("u_Current", 0);
         this.taaProgram.setUniformi("u_History", 1);
         this.taaProgram.setUniformi("u_Depth", 2);
+        this.taaProgram.setUniformi("u_HandDepth", 3);
         this.taaProgram.unbind();
 
         this.copyProgram = new ShaderProgram(
@@ -548,6 +607,15 @@ public final class AntiAliasingPass implements PostPass {
         /* Aussetzer erkennen (Modus-Wechsel, Pass uebersprungen): History nur gueltig,
            wenn der letzte Resolve im direkt vorherigen Frame lief. */
         if (context.frame != this.lastTaaFrame + 1) this.historyValid = false;
+        /* A teleport has no valid screen-space correspondence. Letting the old HDR history
+           survive it can turn a rejected/NaN reprojection into a large black rectangle. */
+        float dx = context.camDelta.x;
+        float dy = context.camDelta.y;
+        float dz = context.camDelta.z;
+        if (!Float.isFinite(dx) || !Float.isFinite(dy) || !Float.isFinite(dz)
+                || dx * dx + dy * dy + dz * dz > 64F) {
+            this.historyValid = false;
+        }
         this.lastTaaFrame = context.frame;
 
         int write = this.historyWrite;
@@ -560,12 +628,16 @@ public final class AntiAliasingPass implements PostPass {
         this.taaProgram.setUniformMatrix4f("u_PrevProjView", context.prevProjView);
         this.taaProgram.setUniformVector3f("u_CamDelta", context.camDelta);
         this.taaProgram.setUniformi("u_HistoryValid", this.historyValid ? 1 : 0);
+        this.taaProgram.setUniformi("u_InverseDepth",
+                SkyEngine.get().getWindow().getProperties().isUseInverseDepth() ? 1 : 0);
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
         GL13.glActiveTexture(GL13.GL_TEXTURE1);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.historyTex[read]);
         GL13.glActiveTexture(GL13.GL_TEXTURE2);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.sceneDepth);
+        GL13.glActiveTexture(GL13.GL_TEXTURE3);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.handDepth);
         context.drawFullscreenTriangle();
         this.taaProgram.unbind();
 

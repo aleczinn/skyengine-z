@@ -35,13 +35,43 @@ public final class DayNightCycle {
         return (float) (wrappedTicks(time) / DAY_LENGTH);
     }
 
+    /**
+     * Minecrafts geglätteter Himmelswinkel ({@code Level#getTimeOfDay}). Iris benutzt
+     * diesen Wert als Ausgangspunkt für {@code sunAngle} und {@code shadowAngle}; die rohe
+     * lineare Tagesfraktion ist dafür nicht austauschbar.
+     */
+    public static float skyAngle(double time) {
+        float angle = dayFraction(time) - 0.25F;
+        if (angle < 0F) angle += 1F;
+        if (angle > 1F) angle -= 1F;
+        float original = angle;
+        angle = 1F - ((float) Math.cos(angle * Math.PI) + 1F) * 0.5F;
+        return original + (angle - original) / 3F;
+    }
+
+    /** Exakte Iris-Abbildung von Minecraft {@code skyAngle} auf {@code sunAngle}. */
+    public static float sunAngle(double time) {
+        float skyAngle = skyAngle(time);
+        return skyAngle < 0.75F ? skyAngle + 0.25F : skyAngle - 0.75F;
+    }
+
+    /**
+     * Exakter Iris-Winkel für den ShadowRenderer. Nachts wird die Mondhälfte auf dieselbe
+     * Licht-Hemisphäre wie die Sonne gefaltet; ohne dieses {@code -0.5} zeigt die Shadowmap
+     * in die Gegenrichtung zum Mond.
+     */
+    public static float shadowAngle(double time) {
+        float sunAngle = sunAngle(time);
+        return sunAngle <= 0.5F ? sunAngle : sunAngle - 0.5F;
+    }
+
     /** Richtung vom Beobachter zur Sonne; +X ist Osten, +Y oben. */
     public static Vector3f sunDirection(double time, Vector3f dest) {
-        double angle = dayFraction(time) * Math.PI * 2.0;
+        double angle = sunAngle(time) * Math.PI * 2.0;
         float pathHeight = (float) Math.sin(angle);
         return dest.set((float) Math.cos(angle),
                 pathHeight * SUN_PATH_COS,
-                pathHeight * SUN_PATH_SIN);
+                -pathHeight * SUN_PATH_SIN);
     }
 
     public static Vector3f moonDirection(double time, Vector3f dest) {
@@ -49,7 +79,7 @@ public final class DayNightCycle {
     }
 
     public static float sunElevation(double time) {
-        double angle = dayFraction(time) * Math.PI * 2.0;
+        double angle = sunAngle(time) * Math.PI * 2.0;
         return (float) Math.sin(angle) * SUN_PATH_COS;
     }
 

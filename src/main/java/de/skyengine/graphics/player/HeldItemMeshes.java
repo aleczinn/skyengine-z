@@ -281,9 +281,15 @@ public final class HeldItemMeshes {
                frisch aus den Modell-JSONs und läuft damit am Retint in Block.bakeModel vorbei,
                der Tint muss also explizit angewandt werden (wie im ItemIconRenderer). */
             ModelLoader.Baked inventory = BlockStateModels.inventoryOverride(bi.getBlock());
-            Mesh mesh = inventory != null
-                    ? buildBlock(bi.getBlock().applyTint(inventory.quads()))
-                    : buildBlock(bi.getBlock().getDefaultState());
+            Mesh mesh;
+            if (inventory != null) {
+                BakedQuad[] heldQuads = bi.getBlock().applyTint(inventory.quads());
+                BakedQuad[] overlay = bi.getBlock().getDefaultState().getOverlay();
+                if (overlay.length > 0) heldQuads = BlockModels.concat(heldQuads, overlay);
+                mesh = buildBlock(heldQuads);
+            } else {
+                mesh = buildBlock(bi.getBlock().getDefaultState());
+            }
             /* Modellname für die display-Sektion; block/block liefert den Vanilla-Default. */
             String model = BlockStateModels.inventoryDisplayModel(bi.getBlock());
             boolean translucent =

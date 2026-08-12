@@ -6,33 +6,37 @@ layout(std430, binding = 0) readonly buffer DrawOffsets {
     vec4 u_DrawOffsets[];
 };
 
-uniform mat4 u_LightProjectionView;
+uniform vec2 u_DetailFade;
+uniform vec2 u_DetailCamSnap;
 
-out vec3 v_texCoord;
-flat out vec3 v_color;
-
-const float SHADOW_DISTORTION = 0.85;
-const float SHADOW_DEPTH_SCALE = 0.20;
-
-float quarticLength(vec2 value) {
-    vec2 squared = value * value;
-    return sqrt(sqrt(dot(squared, squared)));
-}
+layout(location = 0) out vec3 vs_position;
+layout(location = 1) out vec3 vs_texCoord;
+layout(location = 2) flat out vec3 vs_color;
+layout(location = 3) flat out float vs_visible;
 
 void main() {
+    vec4 drawOffset = u_DrawOffsets[gl_DrawID];
     vec3 position = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16),
-            float(a_data.y & 0xFFFFu)) * u_DrawOffsets[gl_DrawID].w - 1.0;
+            float(a_data.y & 0xFFFFu)) * drawOffset.w - 1.0;
+    position += drawOffset.xyz;
+
     vec2 uv = vec2(float(a_data.y >> 16), float(a_data.z & 0xFFFFu))
             * (1.0 / 1024.0) - 1.0;
-    v_texCoord = vec3(uv, float(a_data.z >> 16));
-    v_color = vec3(float(a_data.w & 0xFFu), float((a_data.w >> 8) & 0xFFu),
+    vs_position = position;
+    vs_texCoord = vec3(uv, float(a_data.z >> 16));
+    vs_color = vec3(float(a_data.w & 0xFFu), float((a_data.w >> 8) & 0xFFu),
             float((a_data.w >> 16) & 0xFFu)) * (1.0 / 255.0);
-    position += u_DrawOffsets[gl_DrawID].xyz;
-    vec4 clip = u_LightProjectionView * vec4(position, 1.0);
-    vec2 projected = clip.xy / clip.w;
-    float factor = quarticLength(projected) * SHADOW_DISTORTION
-            + (1.0 - SHADOW_DISTORTION);
-    clip.xy /= factor;
-    clip.z *= SHADOW_DEPTH_SCALE;
-    gl_Position = clip;
+    vs_visible = 1.0;
+
+    if (u_DetailFade.y > 0.0) {
+        float sectionDistance = length(drawOffset.xz + vec2(16.0) + u_DetailCamSnap);
+        float density = 1.0 - clamp((sectionDistance - u_DetailFade.x)
+                * u_DetailFade.y, 0.0, 1.0);
+        if (float((a_data.w >> 24) & 0xFFu) > density * 255.0) {
+            vs_visible = 0.0;
+        }
+    }
+
+    /* Die eigentliche Lichtprojektion geschieht erst nach der Unterteilung im TE-Shader. */
+    gl_Position = vec4(position, 1.0);
 }

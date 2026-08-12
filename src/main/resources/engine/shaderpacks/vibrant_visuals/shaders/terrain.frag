@@ -118,6 +118,7 @@ in float v_viewDist;
 in vec3 v_viewDirection;
 in vec3 v_relativePosition;
 in vec3 v_worldPosition;
+flat in vec3 v_surfaceNormal;
 
 uniform sampler2DArray u_Textures;
 uniform samplerCube u_AtmosphereFog;
@@ -125,13 +126,14 @@ uniform sampler2D u_WaterNoise;
 uniform sampler2D u_OpaqueColor;
 uniform sampler2D u_OpaqueDepth;
 uniform samplerCube u_SkyReflection;
-uniform sampler2D u_ShadowDepthSolid;
+uniform sampler2DShadow u_ShadowDepthSolid;
 uniform sampler2D u_ShadowDepthAll;
 uniform sampler2D u_ShadowColor;
 uniform mat4 u_ProjectionView;
 uniform mat4 u_InvProjectionView;
 uniform mat4 u_ShadowProjectionView;
 uniform vec2 u_Viewport;
+uniform vec2 u_JitterUv;
 uniform vec3 u_CameraPosition;
 uniform float u_AlphaCutoff;
 uniform float u_FogStart;
@@ -141,7 +143,7 @@ uniform float u_TranslucentPass;
 uniform float u_MinLight;
 uniform float u_Brightness;
 uniform float u_Time;
-uniform float u_Frame;
+uniform int u_Frame;
 uniform float u_WaterStillLayer;
 uniform float u_WaterFlowLayer;
 uniform float u_ZeroToOneDepth;
@@ -384,31 +386,23 @@ vec2 distortedShadowUv(vec2 clipPosition) {
 }
 
 float shadowDither() {
+    /* Photon pcss.glsl: the blue channel of the 512 px noisetex gives every
+       screen pixel its own Vogel-disc rotation; r1 then advances that phase by
+       the golden-ratio sequence.  A single constant phase makes every pixel hit
+       the same shadow texels and turns PCF edges into the coherent comb/stripe
+       pattern seen on grass and water. */
     ivec2 size = textureSize(u_WaterNoise, 0);
-    ivec2 texel = ivec2(gl_FragCoord.xy) % max(size, ivec2(1));
+    ivec2 texel = ivec2(gl_FragCoord.xy) % size;
     float seed = texelFetch(u_WaterNoise, texel, 0).b;
-    return fract(seed + u_Frame * (1.0 / 1.6180339887));
+    const float rcpPhi = 1.0 / 1.6180339887;
+    return fract(seed + float(u_Frame) * rcpPhi);
 }
 
-/* Photon liest shadowtex1 als hardwaregefilterten sampler2DShadow. Da dieselbe native
-   Depth-Textur in anderen Pack-Paessen auch ungefiltert gebraucht wird, bilden wir den
-   bilinearen LEQUAL-Vergleich hier explizit nach. Ein einzelner NEAREST-Vergleich pro
-   Vogel-Sample war die Ursache der sichtbaren Ringe und des starken Pixelkriselns. */
-float shadowCompareLinear(vec2 uv, float referenceDepth) {
-    ivec2 size = textureSize(u_ShadowDepthSolid, 0);
-    vec2 texelPosition = uv * vec2(size) - 0.5;
-    ivec2 base = ivec2(floor(texelPosition));
-    vec2 weight = fract(texelPosition);
-    ivec2 maximum = size - 1;
-    float s00 = float(referenceDepth <= texelFetch(u_ShadowDepthSolid,
-            clamp(base, ivec2(0), maximum), 0).r);
-    float s10 = float(referenceDepth <= texelFetch(u_ShadowDepthSolid,
-            clamp(base + ivec2(1, 0), ivec2(0), maximum), 0).r);
-    float s01 = float(referenceDepth <= texelFetch(u_ShadowDepthSolid,
-            clamp(base + ivec2(0, 1), ivec2(0), maximum), 0).r);
-    float s11 = float(referenceDepth <= texelFetch(u_ShadowDepthSolid,
-            clamp(base + ivec2(1, 1), ivec2(0), maximum), 0).r);
-    return mix(mix(s00, s10, weight.x), mix(s01, s11, weight.x), weight.y);
+void sampleTranslucentShadow(vec2 uv, out float depth, out vec3 color) {
+    ivec2 size = textureSize(u_ShadowDepthAll, 0);
+    ivec2 texel = clamp(ivec2(uv * vec2(size)), ivec2(0), size - 1);
+    depth = texelFetch(u_ShadowDepthAll, texel, 0).r;
+    color = texelFetch(u_ShadowColor, texel, 0).rgb * 4.0;
 }
 
 vec3 photonShadow(vec3 relativePosition, vec3 normal, float skylight,
@@ -441,6 +435,10 @@ vec3 photonShadow(vec3 relativePosition, vec3 normal, float skylight,
     float dither = shadowDither();
     float penumbra;
     if (u_ShadowVps > 0.5 && u_ShadowPcf > 0.5) {
+        /* Photon uses only three blocker taps for ordinary opaque terrain.  The
+           larger SSS kernel is reserved for translucent/subsurface materials.
+           Applying it to every grass/sand pixel collects unrelated distant
+           blockers and expands them into the large camera-dependent blobs. */
         int blockerSteps = sssAmount > 1.0e-6 ? 12 : 3;
         float searchRadius = (u_ShadowBlockerSearchRadius / 128.0)
                 * (0.5 + 0.5 * linearStep(0.2, 0.4, lightDirection.y));
@@ -463,9 +461,9 @@ vec3 photonShadow(vec3 relativePosition, vec3 normal, float skylight,
             weightSum += weight;
             depthSumSss += max(blockerReference - depth, 0.0);
         }
-        /* -shadowProjectionInverse[2].z for the 0.1..256 Photon shadow
+        /* -shadowProjectionInverse[2].z for Iris' -100.05..156.0 Photon
            orthographic projection. SHADOW_DEPTH_SCALE is 0.2. */
-        sssDepth = 127.95 * depthSumSss / (0.20 * float(blockerSteps));
+        sssDepth = 128.025 * depthSumSss / (0.20 * float(blockerSteps));
         if (noL < 1.0e-3) {
             return mix(vec3(0.0), vec3(distantShadow), distanceFade);
         }
@@ -482,12 +480,13 @@ vec3 photonShadow(vec3 relativePosition, vec3 normal, float skylight,
     }
 
     if (u_ShadowPcf < 0.5) {
-        float visibility = shadowCompareLinear(screen.xy, screen.z);
+        float visibility = texture(u_ShadowDepthSolid, vec3(screen.xy, screen.z));
+        float depthAll;
+        vec3 color;
+        sampleTranslucentShadow(screen.xy, depthAll, color);
+        float coloredWeight = float(depthAll <= screen.z);
         ivec2 size = textureSize(u_ShadowDepthAll, 0);
         ivec2 texel = clamp(ivec2(screen.xy * vec2(size)), ivec2(1), size - 2);
-        float depthAll = texelFetch(u_ShadowDepthAll, texel, 0).r;
-        vec3 color = texelFetch(u_ShadowColor, texel, 0).rgb * 4.0;
-        float coloredWeight = float(depthAll <= screen.z);
         vec3 averageColor = vec3(0.0);
         for (int y = -1; y <= 1; ++y) {
             for (int x = -1; x <= 1; ++x) {
@@ -524,13 +523,12 @@ vec3 photonShadow(vec3 relativePosition, vec3 normal, float skylight,
         vec2 sampleClip = clip.xy
                 + vogelDisc(index, samples, dither * TAU) * filterRadius;
         vec2 uv = distortedShadowUv(sampleClip);
-        visibility += shadowCompareLinear(uv, screen.z);
+        visibility += texture(u_ShadowDepthSolid, vec3(uv, screen.z));
         vec2 translucentUv = distortedShadowUv(translucentClip.xy
                 + vogelDisc(index, samples, dither * TAU) * filterRadius);
-        ivec2 size = textureSize(u_ShadowDepthAll, 0);
-        ivec2 texel = clamp(ivec2(translucentUv * vec2(size)), ivec2(0), size - 1);
-        float allDepth = texelFetch(u_ShadowDepthAll, texel, 0).r;
-        vec3 color = texelFetch(u_ShadowColor, texel, 0).rgb * 4.0;
+        float allDepth;
+        vec3 color;
+        sampleTranslucentShadow(translucentUv, allDepth, color);
         colorSum += mix(vec3(1.0), color, u_ShadowColored
                 * float(allDepth <= translucentScreen.z));
     }
@@ -545,7 +543,8 @@ vec3 photonShadow(vec3 relativePosition, vec3 normal, float skylight,
         if (index >= samples) break;
         vec2 sampleClip = clip.xy
                 + vogelDisc(index, samples, dither * TAU) * filterRadius;
-        visibility += shadowCompareLinear(distortedShadowUv(sampleClip), screen.z);
+        visibility += texture(u_ShadowDepthSolid,
+                vec3(distortedShadowUv(sampleClip), screen.z));
     }
     visibility /= float(samples);
     float sharpen = 0.4 * max((minFilterRadius - penumbra) / minFilterRadius, 0.0);
@@ -643,9 +642,19 @@ vec3 photonWaterNormal(vec3 flatNormal, bool flowing, vec2 coord) {
 }
 
 vec3 reconstructPosition(vec2 uv, float depth) {
-    float ndcZ = mix(depth * 2.0 - 1.0, depth, u_ZeroToOneDepth);
-    vec4 position = u_InvProjectionView * vec4(uv * 2.0 - 1.0, ndcZ, 1.0);
-    return position.xyz / position.w;
+    /* The engine uses an infinite reversed-Z projection. Its clear value (0) is
+       a direction at infinity and therefore produces position.w == 0. Photon
+       normally runs with Minecraft's finite projection, where the clear-depth
+       reconstruction remains finite. Use a point far beyond render distance
+       for that one engine-specific representation; all geometry depths remain
+       bit-for-bit unchanged. */
+    float finiteDepth = u_ZeroToOneDepth > 0.5 ? max(depth, 1.0e-6) : depth;
+    float ndcZ = mix(finiteDepth * 2.0 - 1.0, finiteDepth, u_ZeroToOneDepth);
+    vec2 unjitteredNdc = (uv - u_JitterUv) * 2.0 - 1.0;
+    vec4 position = u_InvProjectionView * vec4(unjitteredNdc, ndcZ, 1.0);
+    float safeW = abs(position.w) >= 1.0e-8
+            ? position.w : (position.w < 0.0 ? -1.0e-8 : 1.0e-8);
+    return position.xyz / safeW;
 }
 
 bool projectPosition(vec3 position, out vec2 uv) {
@@ -752,8 +761,12 @@ void main() {
     bool flowingWater = abs(v_texCoord.z - u_WaterFlowLayer) < 0.25;
     bool water = stillWater || flowingWater;
     if (!water) {
-        vec3 surfaceNormal = normalize(cross(dFdx(v_worldPosition), dFdy(v_worldPosition)));
-        if (dot(surfaceNormal, normalize(-v_relativePosition)) < 0.0) surfaceNormal *= -1.0;
+        vec3 surfaceNormal = v_surfaceNormal;
+        if (dot(surfaceNormal, surfaceNormal) < 0.5) {
+            // Legacy-/LOD-fallback; normal chunk geometry uses the stable mesh value.
+            surfaceNormal = normalize(cross(dFdx(v_worldPosition), dFdy(v_worldPosition)));
+            if (dot(surfaceNormal, normalize(-v_relativePosition)) < 0.0) surfaceNormal *= -1.0;
+        }
         vec3 lightDirection = normalize(u_SunDirection.y >= 0.0
                 ? u_SunDirection.xyz : u_MoonDirection.xyz);
         float noL = max(dot(surfaceNormal, lightDirection), 0.0);
@@ -805,10 +818,10 @@ void main() {
                 texture(u_OpaqueDepth, refractedUv).r);
         if (length(refractedPosition) < length(v_relativePosition)) refractedUv = screenUv;
         vec3 background = texture(u_OpaqueColor, refractedUv).rgb;
-        float causticNoise = caustics(refractedPosition + vec3(u_CameraPosition));
-        float shallowCaustics = exp(-0.12 * layerDistance) * u_WaterCaustics
-                * u_WaterCausticsIntensity;
-        background *= 1.0 + shallowCaustics * max(causticNoise - 0.55, 0.0) * 0.45;
+        /* Photon never modulates the already rendered opaque scene from the water
+           material. Its caustics live in shadow.fsh and are therefore evaluated in
+           light space, not once per greedy water quad. Doing this here made every
+           water-mesh boundary visible as a straight bright stripe. */
 
         vec3 reflectionDirection = reflect(-toCamera, normal);
         /* The sky map already contains Photon's sun/moon discs.  The separate
@@ -924,5 +937,20 @@ void main() {
     float finalAlpha = water ? outputAlpha
             : mix(1.0, outputAlpha, u_TranslucentPass);
     if (u_TranslucentPass > 0.5 && !water) finalColor *= finalAlpha;
+    /* A rejected refraction/SSR ray must not poison the temporal history. Water is
+       premultiplied over an already complete opaque scene, so transparent black is
+       the only correct fallback for an invalid water layer. */
+    bool invalidOutput = any(isnan(finalColor)) || any(isinf(finalColor))
+            || isnan(finalAlpha) || isinf(finalAlpha);
+    if (invalidOutput) {
+        if (water) {
+            finalColor = vec3(0.0);
+            finalAlpha = 0.0;
+        } else {
+            finalColor = max(textureColor.rgb * v_color, vec3(0.0));
+            finalAlpha = clamp(outputAlpha, 0.0, 1.0);
+            if (u_TranslucentPass > 0.5) finalColor *= finalAlpha;
+        }
+    }
     fragColor = vec4(finalColor, finalAlpha);
 }
