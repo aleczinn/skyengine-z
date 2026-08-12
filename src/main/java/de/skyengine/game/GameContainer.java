@@ -795,6 +795,10 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         if (DebugFlags.wireframe) Utils.disableWireframe();
 
+        /* FirstPersonHandRenderer leert gleich den Szene-Depthbuffer. TAA muss jedoch mit
+           der stabilen Welt-/Wassertiefe reprojizieren, nicht mit diesem Hand-Clear. */
+        SkyEngine.get().getWindow().getFrameBuffer().captureWorldDepth();
+
         FrameProfiler.cpuStart(FrameProfiler.Cpu.OVL);
 
         if (this.hit != null && !this.guiManager.isOpen() && this.player.getGamemode().interactsWithWorld()) {
@@ -830,6 +834,10 @@ public class GameContainer implements IResizeable, IDisposable {
             float handLight = this.playerLightAtEyes(partialTick);
             this.handRenderer.render(this.playerRenderer, this.heldItemMeshes, this.player,
                     this.animState, (float) width / height, partialTick, this.viewEffect, handLight);
+            /* Photon behandelt die First-Person-Hand als eigenen Vordergrund-Layer. Die
+               isolierte Tiefe verhindert, dass spaetere Luft-/Fluid-Volumetrics durch Arm
+               und gehaltenes Item scheinen. */
+            SkyEngine.get().getWindow().getFrameBuffer().captureHandDepth();
         }
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);

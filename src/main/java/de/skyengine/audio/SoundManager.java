@@ -681,7 +681,6 @@ public final class SoundManager implements IDisposable {
             this.playlistActive = false;
             return;
         }
-
         this.logger.info("Musik-Playlist: " + this.playlist.size() + " Lied(er) gefunden.");
         this.playlistCurrent = null;
         this.playlistIndex = this.playlist.size(); // erzwingt das Mischen in playNextTrack

@@ -19,6 +19,7 @@ out float v_viewDist;
 out vec3 v_viewDirection;
 out vec3 v_relativePosition;
 out vec3 v_worldPosition;
+flat out vec3 v_surfaceNormal;
 
 void main() {
     vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16),
@@ -33,6 +34,16 @@ void main() {
     v_color = color;
     v_light = vec2(float(a_light & 0xFu), float((a_light >> 4) & 0xFu))
             * (1.0 / 15.0);
+    uint packedNormal = a_light >> 8;
+    if (packedNormal != 0u) {
+        vec3 encodedNormal = vec3(float(packedNormal & 0xFFu),
+                float((packedNormal >> 8) & 0xFFu),
+                float((packedNormal >> 16) & 0xFFu));
+        v_surfaceNormal = normalize(encodedNormal * (2.0 / 255.0) - 1.0);
+    } else {
+        // Legacy-/LOD-vertices do not carry a baked normal yet.
+        v_surfaceNormal = vec3(0.0);
+    }
     if (gl_BaseInstance != 0) {
         v_color = mix(v_color, vec3(1.0, 0.1, 0.1), 0.7);
     }

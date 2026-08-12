@@ -1429,11 +1429,10 @@ public class World implements IInitializable, IDisposable {
         this.chunkRenderer.setSkyShBuffer(this.skyRenderer.skyShBuffer());
         this.chunkRenderer.setWaterNoiseTexture(this.skyRenderer.noiseTexture());
         this.chunkRenderer.setSkyReflectionTexture(this.skyRenderer.reflectionTexture());
-        /* Photon richtet die Shadow-Projection nachts auf den Mond statt auf die unter dem
-           Horizont liegende Sonne aus. Beide Richtungen stehen auch den Pack-Shadern im
-           Environment-Block zur Verfuegung. */
-        this.chunkRenderer.renderSolid(camera, this.environmentState.sunDirection.y >= 0F
-                ? this.environmentState.sunDirection : this.environmentState.moonDirection);
+        /* Iris leitet Sonnen- und Mondphase selbst aus shadowAngle ab. Genau dieser Winkel
+           muss auch in ShadowMatrices eingehen; ein lookAt auf sun/moonDirection ist nicht
+           dieselbe Photon-Projektion. */
+        this.chunkRenderer.renderSolid(camera, this.environmentState.shadowAngle);
         SkyEngine.get().getPostProcessor().setWaterLightMap(
                 this.chunkRenderer.waterShadowDepthAll(), this.chunkRenderer.waterShadowDepthSolid(),
                 this.chunkRenderer.waterShadowMatrix(),

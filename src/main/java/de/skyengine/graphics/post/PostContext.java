@@ -28,6 +28,7 @@ public final class PostContext implements IDisposable {
     public int sceneColor;   // HDR-Szene (RGBA16F), bei MSAA erst nach FrameBuffer.resolve() aktuell
     public int sceneDepth;   // Szenen-Tiefe (32F, Reversed-Z), bei MSAA auf ein Sample aufgelöst
     public int worldDepth;   // Opaque-Welttiefe vor Wasser und First-Person-Hand
+    public int handDepth;    // isolierte First-Person-Hand-/Item-Tiefe; Clear ausserhalb der Hand
     public int velocity;     // reserviert: per-Objekt-Bewegungsvektoren (TAA nutzt bisher Kamera-Reprojektion)
     public int history;      // TAA-History des Frames (Write-Seite, vom AntiAliasingPass publiziert)
     public int lut;          // reserviert: 3D-LUT (LUTPass, display-referred nach Grading)
@@ -37,13 +38,11 @@ public final class PostContext implements IDisposable {
     public int targetFbo;    // Ziel-FBO des aktuellen Passes (0 = Default-Framebuffer/GuiScreen)
 
     /* --- TAA-Kameradaten des Frames (PostProcessor.updateTaaCamera, s. Camera) --- */
-    public final Matrix4f invProjView = new Matrix4f();  // Inverse der UNGEJITTERTEN PV (jitterfreie Reprojektion)
+    public final Matrix4f invProjView = new Matrix4f();  // Inverse der UNGEJITTERTEN PV (Photon-TAA-Basis)
     public final Matrix4f prevProjView = new Matrix4f(); // UNGEJITTERTE PV des Vorframes
     public final Vector3f camDelta = new Vector3f();     // camNow − camPrev (kamerarelativ)
-    /* Aktueller Kamera-Jitter in UV (NDC/2); (0,0) wenn TAA aus (PostProcessor.nextJitter).
-       Vom TAA-Resolve bewusst NICHT mehr genutzt (BSL-Port: Current wird roh gesampelt —
-       jede Resample-Kompensation frisst die Frische des Frames); bleibt als Anschluss
-       für künftige Effekte, die den Jitter kennen müssen. */
+    /* Aktueller Kamera-Jitter in UV (NDC/2); (0,0) wenn TAA aus. Physische Post-Effekte
+       entjittern damit ihre Weltposition. Photons TAA-Resolve darf ihn nicht abziehen. */
     public final Vector3f cameraPosition = new Vector3f();
     public final Vector2f jitterUv = new Vector2f();
 

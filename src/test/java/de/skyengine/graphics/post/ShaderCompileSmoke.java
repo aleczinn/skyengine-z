@@ -19,7 +19,6 @@ import org.lwjgl.opengl.GL11;
 public final class ShaderCompileSmoke {
     private static final String[][] GEOMETRY_PROGRAMS = {
             {"terrain_vertex", "terrain_fragment"},
-            {"water_shadow_vertex", "water_shadow_fragment"},
             {"sky_vertex", "sky_fragment"}
     };
 
@@ -59,6 +58,11 @@ public final class ShaderCompileSmoke {
                         new Shader(pack.program(pair[0]), ShaderType.VERTEX),
                         new Shader(pack.program(pair[1]), ShaderType.FRAGMENT));
             }
+            compile("water_shadow",
+                    new Shader(pack.program("water_shadow_vertex"), ShaderType.VERTEX),
+                    new Shader(pack.program("water_shadow_tess_control"), ShaderType.TESS_CONTROL),
+                    new Shader(pack.program("water_shadow_tess_evaluation"), ShaderType.TESS_EVALUATION),
+                    new Shader(pack.program("water_shadow_fragment"), ShaderType.FRAGMENT));
             compile("sky_sh_compute", new Shader(pack.program("sky_sh_compute"), ShaderType.COMPUTE));
             for (String fragment : FULLSCREEN_PROGRAMS) {
                 compile(fragment,

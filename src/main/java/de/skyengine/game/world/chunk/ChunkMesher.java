@@ -227,8 +227,11 @@ public class ChunkMesher {
         /* Pass 1: Greedy Meshing für opake Full-Cube-Faces */
         this.greedyPass(baseY);
 
-        /* Pass 1.5: flach-stille Wasser-Tops (Meeresoberfläche) greedy zu großen TRANSLUCENT-Quads
-           zusammenfassen; markiert die betroffenen Zellen für Pass 2. */
+        /* Pass 1.5: flach-stille Wasser-Tops (Meeresoberfläche) greedy zu großen
+           TRANSLUCENT-Quads zusammenfassen. Die zusammenhängende Fläche ist wichtig:
+           blockweise koplanare Tops erzeugen durch ihre einzelnen Dreiecks-/Derivative-
+           Phasen genau die geraden Licht- und Schattennähte, die im flachen Wasser sichtbar
+           waren. Bewegte bzw. unterschiedlich hohe Fluid-Tops bleiben im klassischen Pfad. */
         this.waterTopPass(baseY);
 
         /* Pass 2: alles andere (Fluids, Cross, Slabs, Stairs, ... sowie Cubes mit un-greedy-baren
@@ -457,6 +460,7 @@ public class ChunkMesher {
         /* Biome-Tint pro VERTEX aus dem Eck-Grid: gemergte Quads bekommen einen glatten
            Farbverlauf, der Tint bleibt aus dem Merge-Schlüssel raus (Greedy unangetastet). */
         boolean biomeTint = quad.tintType() != BakedQuad.TINT_NONE && this.chunk.grassTintCorners != null;
+        int packedNormal = packNormal(FACE_OFFSET[face][0], FACE_OFFSET[face][1], FACE_OFFSET[face][2]);
 
         buffer.ensure(4 * VERTEX_SIZE);
         float[] p = this.vertPos;
@@ -475,31 +479,24 @@ public class ChunkMesher {
                und erhält Spiegelung/Rotation des Original-Mappings (Periodizität). */
             float u = verts[i + 3] * (uAlongT1 ? w : h);
             float v = verts[i + 4] * (uAlongT1 ? h : w);
-            putVertex(buffer, p[0], p[1], p[2], u, v, quad.textureLayer(), r, g, bl, light);
+            putVertex(buffer, p[0], p[1], p[2], u, v, quad.textureLayer(), r, g, bl,
+                    light, packedNormal);
         }
     }
 
     /**
-     * Pass 1.5: fasst benachbarte, flach-stille Fluid-Quell-Tops (typisch die Meeresoberfläche)
-     * pro y-Slice zu großen Quads zusammen (Textur kachelt über UV &gt; 1, wie im Greedy-Pass) und
-     * emittiert sie in den TRANSLUCENT-Layer. Merge-Schlüssel = State-ID (trennt Wasser/Lava und
-     * unterschiedliche Level automatisch — mergefähig ist ohnehin nur Level 0). Betroffene Zellen
-     * werden in {@link #mergedWaterTop} markiert, damit {@link FluidGeometry#build} ihr Top auslässt.
-     * Die Photon-Wellen laufen ausschließlich im Fragmentshader: So bleiben diese großen Quads
-     * plan und können weder an T-Verbindungen noch an Chunkgrenzen aufreißen.
+     * Emits flat still fluid tops as individual block quads. Photon receives the same block-sized
+     * quads from Minecraft; merging an ocean patch before the non-linear shadow distortion creates
+     * different raster edges at section boundaries. Those holes exposed the sea floor in
+     * shadowtex0 and appeared as long bright lines above and below the water surface.
      */
     private void waterTopPass(int baseY) {
         Arrays.fill(this.mergedWaterTop, false);
         VertexBuffer buffer = this.buffers[RenderLayer.TRANSLUCENT.ordinal()];
-        long[] grid = this.keyGrid;
         int size = ChunkSection.SIZE;
 
         for (int y = 0; y < size; y++) {
             int worldY = baseY + y;
-            Arrays.fill(grid, 0L);
-            boolean any = false;
-
-            /* Mergefähige flach-stille Tops der Slice einsammeln */
             for (int z = 0; z < size; z++) {
                 for (int x = 0; x < size; x++) {
                     int stateId = this.haloBlocks[haloIndex(x, y, z)];
@@ -508,37 +505,8 @@ public class ChunkMesher {
                     if (!state.isFluid()) continue;
                     if (!FluidGeometry.isMergeableFlatStillTop(state, this.chunk, this.north, this.south,
                             this.west, this.east, this.diagonals, x, worldY, z)) continue;
-                    grid[z << ChunkSection.SHIFT | x] = ((long) stateId) + 1L; // +1: 0 bleibt „leer"
                     this.mergedWaterTop[snapIndex(x, y, z)] = true;
-                    any = true;
-                }
-            }
-            if (!any) continue;
-
-            /* Mergen: Breite zuerst, dann Höhe (klassisches Greedy, s. greedyPass) */
-            for (int z = 0; z < size; z++) {
-                for (int x = 0; x < size; x++) {
-                    long key = grid[z << ChunkSection.SHIFT | x];
-                    if (key == 0L) continue;
-
-                    int w = 1;
-                    while (x + w < size && grid[z << ChunkSection.SHIFT | (x + w)] == key) w++;
-
-                    int h = 1;
-                    expand:
-                    while (z + h < size) {
-                        for (int i = 0; i < w; i++) {
-                            if (grid[(z + h) << ChunkSection.SHIFT | (x + i)] != key) break expand;
-                        }
-                        h++;
-                    }
-
-                    for (int j = 0; j < h; j++) {
-                        for (int i = 0; i < w; i++) grid[(z + j) << ChunkSection.SHIFT | (x + i)] = 0L;
-                    }
-
-                    this.emitWaterTop(buffer, (int) (key - 1L), x, y, worldY, z, w, h);
-                    x += w - 1;
+                    this.emitWaterTop(buffer, stateId, x, y, worldY, z, 1, 1);
                 }
             }
         }
@@ -565,12 +533,13 @@ public class ChunkMesher {
         float b = brightness * (tint & 0xFF) / 255F;
         float y = localY + FluidGeometry.SOURCE_HEIGHT;
         int light = this.samplePackedLight(x, worldY + 1, z);
+        int packedNormal = packNormal(0F, 1F, 0F);
 
         buffer.ensure(4 * VERTEX_SIZE);
-        putVertex(buffer, x, y, z, 0F, 0F, layer, r, g, b, light);
-        putVertex(buffer, x, y, z + h, 0F, h, layer, r, g, b, light);
-        putVertex(buffer, x + w, y, z + h, w, h, layer, r, g, b, light);
-        putVertex(buffer, x + w, y, z, w, 0F, layer, r, g, b, light);
+        putVertex(buffer, x, y, z, 0F, 0F, layer, r, g, b, light, packedNormal);
+        putVertex(buffer, x, y, z + h, 0F, h, layer, r, g, b, light, packedNormal);
+        putVertex(buffer, x + w, y, z + h, w, h, layer, r, g, b, light, packedNormal);
+        putVertex(buffer, x + w, y, z, w, 0F, layer, r, g, b, light, packedNormal);
     }
 
     /**
@@ -732,6 +701,7 @@ public class ChunkMesher {
         int[] emitOrder = EMIT_NORMAL;
         float[] ao = null;
         int[] light = this.lightCorners;
+        int packedNormal = packQuadNormal(quad);
         this.computeCornerLight(quad, x, worldY, z, light);
         if (this.ambientOcclusion && quad.face() >= 0) {
             ao = this.aoCorners;
@@ -757,8 +727,38 @@ public class ChunkMesher {
             putVertex(buffer,
                     verts[i] + x + offsetX, verts[i + 1] + localY, verts[i + 2] + z + offsetZ,
                     verts[i + 3], verts[i + 4], layer,
-                    r * aoValue, g * aoValue, b * aoValue, light[corner]);
+                    r * aoValue, g * aoValue, b * aoValue, light[corner], packedNormal);
         }
+    }
+
+    /**
+     * Geometric normal from the baked quad. Unlike a derivative normal, this is independent
+     * of camera jitter and alpha-test coverage. Reverse-wound cross-model quads naturally get
+     * the opposite normal.
+     */
+    private static int packQuadNormal(BakedQuad quad) {
+        int face = quad.face();
+        if (face >= 0) {
+            return packNormal(FACE_OFFSET[face][0], FACE_OFFSET[face][1], FACE_OFFSET[face][2]);
+        }
+        float[] v = quad.vertices();
+        float ax = v[0], ay = v[1], az = v[2];
+        float abx = v[5] - ax, aby = v[6] - ay, abz = v[7] - az;
+        float acx = v[10] - ax, acy = v[11] - ay, acz = v[12] - az;
+        float nx = aby * acz - abz * acy;
+        float ny = abz * acx - abx * acz;
+        float nz = abx * acy - aby * acx;
+        float invLength = 1F / (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
+        if (!Float.isFinite(invLength)) return 0;
+        return packNormal(nx * invLength, ny * invLength, nz * invLength);
+    }
+
+    /** Packs a normalized direction as three UNORM8 values in bits 8..31. */
+    private static int packNormal(float x, float y, float z) {
+        int nx = Math.clamp(Math.round((x * 0.5F + 0.5F) * 255F), 0, 255);
+        int ny = Math.clamp(Math.round((y * 0.5F + 0.5F) * 255F), 0, 255);
+        int nz = Math.clamp(Math.round((z * 0.5F + 0.5F) * 255F), 0, 255);
+        return nx << 8 | ny << 16 | nz << 24;
     }
 
     /** Wirksamer Lichtpegel eines gepackten Werts — dieselbe max-Regel wie im Fragment-Shader. */
@@ -842,7 +842,8 @@ public class ChunkMesher {
      * Licht (Himmel in Bits 0-3, Block in Bits 4-7) aus {@link #computeCornerLight}.
      */
     private void putVertex(VertexBuffer buffer, float px, float py, float pz,
-                                  float u, float v, int layer, float r, float g, float b, int light) {
+                           float u, float v, int layer, float r, float g, float b,
+                           int light, int packedNormal) {
         int xi = fixedPos(px), yi = fixedPos(py), zi = fixedPos(pz);
         int ui = fixedUv(u), vi = fixedUv(v);
         int ri = (int) (r * 255F + 0.5F);
@@ -852,10 +853,11 @@ public class ChunkMesher {
         buffer.data[buffer.count++] = zi | ui << 16;
         buffer.data[buffer.count++] = vi | layer << 16;
         buffer.data[buffer.count++] = ri | gi << 8 | bi << 16 | this.plantHash << 24;
-        /* Skylight in Bits 0-3, Blocklicht in Bits 4-7; 8-31 bleiben für späteres farbiges Licht
-           frei. Bewusst NICHT in int3 einmultipliziert: der Helligkeits-Regler und die Lichtkurve
-           laufen im Shader, sonst wäre jede Helligkeitsänderung ein Voll-Remesh. */
-        buffer.data[buffer.count++] = light;
+        /* Skylight in Bits 0-3, Blocklicht in Bits 4-7, stabile geometrische Normale
+           als drei UNORM8-Werte in Bits 8-31. Licht bleibt bewusst getrennt von int3:
+           Helligkeits-Regler und Lichtkurve laufen im Shader, sonst wäre jede
+           Helligkeitsänderung ein Voll-Remesh. */
+        buffer.data[buffer.count++] = (light & 0xFF) | packedNormal;
     }
 
     private static int fixedPos(float f) {

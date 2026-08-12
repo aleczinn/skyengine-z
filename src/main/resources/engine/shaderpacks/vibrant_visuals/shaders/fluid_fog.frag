@@ -6,7 +6,9 @@ out vec4 fragColor;
 uniform sampler2D u_Scene;
 uniform sampler2D u_FogTransmittance;
 uniform sampler2D u_FogScattering;
+uniform sampler2D u_HandDepth;
 uniform int u_Fluid;
+uniform float u_ZeroToOneDepth;
 
 // Photons quintische Filterkurve fuer das halbauflösende Volumetric-Ziel.
 vec4 smoothFilter(sampler2D source, vec2 coordinate) {
@@ -21,6 +23,13 @@ vec4 smoothFilter(sampler2D source, vec2 coordinate) {
 
 void main() {
     vec4 scene = texture(u_Scene, v_uv);
+    float handDepth = texture(u_HandDepth, v_uv).r;
+    bool hand = u_ZeroToOneDepth > 0.5
+            ? handDepth > 1.0e-7 : handDepth < 1.0 - 1.0e-7;
+    if (hand) {
+        fragColor = scene;
+        return;
+    }
     if (u_Fluid == 0 || u_Fluid == 1) {
         vec3 transmittance = smoothFilter(u_FogTransmittance, v_uv).rgb;
         vec3 scattering = smoothFilter(u_FogScattering, v_uv).rgb;

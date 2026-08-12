@@ -10,6 +10,7 @@ import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
 import de.skyengine.graphics.shaderpack.ShaderPack;
 import de.skyengine.graphics.shaderpack.ShaderPackManager;
+import de.skyengine.graphics.world.PhotonShadowMatrices;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
@@ -83,6 +84,7 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
         composite.setUniformi("u_Scene", 0);
         composite.setUniformi("u_FogTransmittance", 1);
         composite.setUniformi("u_FogScattering", 2);
+        composite.setUniformi("u_HandDepth", 3);
         composite.unbind();
 
         float scale = 0.5F;
@@ -160,12 +162,16 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
         GL11.glViewport(0, 0, context.width, context.height);
         this.compositeProgram.bind();
         this.compositeProgram.setUniformi("u_Fluid", this.fluid);
+        this.compositeProgram.setUniformf("u_ZeroToOneDepth",
+                SkyEngine.get().getWindow().getProperties().isUseInverseDepth() ? 1F : 0F);
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.input);
         GL13.glActiveTexture(GL13.GL_TEXTURE1);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.fogTransmittance);
         GL13.glActiveTexture(GL13.GL_TEXTURE2);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.fogScattering);
+        GL13.glActiveTexture(GL13.GL_TEXTURE3);
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, context.handDepth);
         context.drawFullscreenTriangle();
         this.compositeProgram.unbind();
         GL13.glActiveTexture(GL13.GL_TEXTURE0);
@@ -179,12 +185,13 @@ public final class FluidFogPass implements PostPass, ShaderPackManager.Participa
         program.bind();
         this.manager.applySettings(program);
         program.setUniformMatrix4f("u_InvProjectionView", context.invProjView);
+        program.setUniformVector2f("u_JitterUv", context.jitterUv);
         program.setUniformMatrix4f("u_ShadowProjectionView", this.waterLightMatrix);
         program.setUniformMatrix4f("u_ShadowView", this.waterLightView);
         program.setUniformVector3f("u_CameraPosition",
                 context.cameraPosition.x, context.cameraPosition.y, context.cameraPosition.z);
         /* -shadowProjectionInverse[2].z der klassischen Photon-Orthoprojektion. */
-        program.setUniformf("u_ShadowDepthRange", 127.95F);
+        program.setUniformf("u_ShadowDepthRange", PhotonShadowMatrices.SHADOW_DEPTH_RANGE);
         program.setUniformf("u_Time",
                 (System.nanoTime() - this.animationStartNanos) * 1.0e-9F);
         program.setUniformf("u_Frame", (float) (context.frame & 4095L));

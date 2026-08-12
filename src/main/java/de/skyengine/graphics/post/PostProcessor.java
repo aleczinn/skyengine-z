@@ -68,6 +68,7 @@ public class PostProcessor implements IDisposable {
     private final List<PostPass> passes = new ArrayList<>();
     private final MenuBlurPass menuBlur = new MenuBlurPass();
     private final FluidFogPass fluidFog = new FluidFogPass();
+    private final AntiAliasingPass temporalAa = new AntiAliasingPass(AntiAliasingPass.Stage.TEMPORAL);
     private PostProcessingSettings settings;
     private int ubo;
 
@@ -92,7 +93,7 @@ public class PostProcessor implements IDisposable {
         /* Photon-Reihenfolge: temporales AA im linearen HDR-Bild, danach Bloom und
            Film-Transform; FXAA/CAS arbeiten abschliessend display-referred. */
         this.passes.add(this.fluidFog);
-        this.passes.add(new AntiAliasingPass(AntiAliasingPass.Stage.TEMPORAL));
+        this.passes.add(this.temporalAa);
         this.passes.add(new BloomPass());
         this.passes.add(new ColorGradingPass());
         this.passes.add(new AntiAliasingPass(AntiAliasingPass.Stage.FINAL));
@@ -115,6 +116,7 @@ public class PostProcessor implements IDisposable {
 
     /** 0 = kein Fluid, 1 = Wasser, 2 = Lava; wird pro Welt-Frame aktualisiert. */
     public void setCameraFluid(int fluid) {
+        if (this.fluidFog.fluid() != fluid) this.temporalAa.invalidateHistory();
         this.fluidFog.setFluid(fluid);
     }
 
@@ -138,9 +140,9 @@ public class PostProcessor implements IDisposable {
     }
 
     /**
-     * NDC-Subpixel-Jitter des Frames für {@link Camera#setJitter} — Halton(2,3)-Sequenz
-     * (8 Samples, Pixel-Offset ±0,5 → NDC über die Fenstergröße). Liefert (0,0) und
-     * advanct NICHT, wenn TAA nicht aktiv ist (kein Bild-Wackeln bei NONE/FXAA).
+     * Photon's R2 sub-pixel jitter for {@link Camera#setJitter}. Photon deliberately divides
+     * both axes by the view width and applies a 0.66 scale in clip space. The sequence advances
+     * only while TAA is active, so NONE/FXAA never receive a jittered projection.
      */
     public void nextJitter(Vector2f dest, int width, int height) {
         if (!this.settings.isTemporalAa()) {
@@ -148,24 +150,22 @@ public class PostProcessor implements IDisposable {
             this.context.jitterUv.set(0F, 0F);
             return;
         }
-        this.jitterFrame = (this.jitterFrame + 1) & 7;
-        int i = this.jitterFrame + 1; // Halton-Index 1..8 (Index 0 wäre (0,0) doppelt)
+        this.jitterFrame = (this.jitterFrame + 1) % 720_720;
+        /* Photon c4_taa_exposure: taa_offset *= 0.66 before applying it to gl_Position. */
+        float jitterX = photonR2(1.3247179572F, this.jitterFrame);
+        float jitterY = photonR2(1.7548776662F, this.jitterFrame);
         dest.set(
-                (halton(i, 2) - 0.5F) * 2F / width,
-                (halton(i, 3) - 0.5F) * 2F / height);
-        /* Fürs jitter-kompensierte Current-Sampling im Resolve: UV-Versatz = NDC/2 */
+                jitterX * 0.66F / width,
+                jitterY * 0.66F / width);
+        /* Für physische Post-Rekonstruktion (Nebel/Volumetrics): UV-Versatz = NDC/2.
+           Photons TAA-Resolve verwendet die gejitterte Position dagegen unverändert. */
         this.context.jitterUv.set(dest.x * 0.5F, dest.y * 0.5F);
     }
 
-    /** Radikal-invers zur Basis b — Standard-Jitter-Sequenz (gut verteilte Subpixel). */
-    private static float halton(int index, int base) {
-        float f = 1F, r = 0F;
-        while (index > 0) {
-            f /= base;
-            r += f * (index % base);
-            index /= base;
-        }
-        return r;
+    /** Photon's exact R2 temporal sequence from shaders.properties. */
+    private static float photonR2(float irrational, int frame) {
+        float sequence = irrational * frame + 0.5F;
+        return (sequence - (float) Math.floor(sequence)) * 2F - 1F;
     }
 
     /** Kameradaten des Frames für die TAA-Reprojektion in den Context kopieren —
@@ -194,8 +194,12 @@ public class PostProcessor implements IDisposable {
     public void render(FrameBuffer frameBuffer) {
         this.context.frame++;
         this.context.sceneColor = frameBuffer.getColorTexture();
-        this.context.sceneDepth = frameBuffer.getDepthTexture();
+        /* Der aktive Szene-Depth wurde fuer die First-Person-Hand geleert. Die unmittelbar
+           davor eingefrorene Welt-Tiefe verhindert rechteckige TAA-History-Ausfaelle und
+           kameraabhaengig wechselnde PCSS-Frames. */
+        this.context.sceneDepth = frameBuffer.getWorldDepthTexture();
         this.context.worldDepth = frameBuffer.getOpaqueDepthTexture();
+        this.context.handDepth = frameBuffer.getHandDepthTexture();
 
         if (this.settings.consumeDirty()) this.uploadUbo();
 
