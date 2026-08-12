@@ -13,7 +13,6 @@ import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.RenderLayer;
-import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
@@ -179,7 +178,8 @@ public final class EntityRenderer {
         int ly = Math.clamp((int) Math.floor(e.y), 0, Chunk.HEIGHT - 1);
         int lz = (int) Math.floor(e.z) & ChunkSection.MASK;
         this.shader.setUniformf(this.locLight, ChunkRenderer.lightFactor(
-                chunk.light.get(lx, ly, lz), chunk.blockLight.get(lx, ly, lz)));
+                chunk.light.get(lx, ly, lz), chunk.blockLight.get(lx, ly, lz),
+                world.getEnvironmentState().skyIntensity));
 
         if (e instanceof FallingBlockEntity fb) {
             Mesh mesh = this.meshFor(fb.getBlockId());
@@ -658,6 +658,7 @@ public final class EntityRenderer {
 
     private static final String FRAGMENT = """
         #version 460 core
+        """ + de.skyengine.graphics.shader.ShaderColorSpace.GLSL + """
         in vec3 v_texCoord;
         in vec3 v_color;
         uniform sampler2DArray u_Textures;
@@ -678,7 +679,8 @@ public final class EntityRenderer {
             if (c.a < u_AlphaCutoff) discard;
             /* Licht VOR dem Blink: eine TNT-Zuendung soll auch in einer finsteren Hoehle
                rein weiss aufblitzen und nicht mit abgedunkelt werden. */
-            vec3 rgb = mix(c.rgb * v_color * u_Light, vec3(1.0), u_WhiteFlash);
+            vec3 rgb = mix(seSrgbToWorking(c.rgb) * v_color * u_Light,
+                    vec3(1.0), u_WhiteFlash);
             fragColor = vec4(rgb, c.a);
         }
         """;

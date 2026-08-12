@@ -63,6 +63,44 @@ final class CommandDispatcherTest {
         assertEquals(" [amount]", dispatcher.hint("/give stone"));
     }
 
+    @Test
+    void timeCommandExposesSubcommandsPresetsAndContextualHints() {
+        CommandDispatcher dispatcher = dispatcher();
+        dispatcher.register(new TimeCommand());
+        CommandContext context = new CommandContext(new SimpleItemStorage(1));
+
+        assertTrue(dispatcher.suggest(context, "/time s").contains("/time set"));
+        assertTrue(dispatcher.suggest(context, "/time set n").contains("/time set noon"));
+        assertEquals(" <set|add|query|speed>", dispatcher.hint("/time"));
+        assertEquals(" <time>", dispatcher.hint("/time set"));
+        assertEquals(" <factor>", dispatcher.hint("/time speed"));
+    }
+
+    @Test
+    void timeArgumentsDistinguishClockValuesRawTicksAndDurations() {
+        TimeCommand.ParsedTime clock = TimeCommand.parseSetTime("9");
+        TimeCommand.ParsedTime raw = TimeCommand.parseSetTime("9t");
+        TimeCommand.ParsedTime precise = TimeCommand.parseSetTime("21:30");
+
+        assertTrue(clock.clockTime());
+        assertEquals(3_000.0, clock.ticks());
+        assertFalse(raw.clockTime());
+        assertEquals(9.0, raw.ticks());
+        assertEquals(15_500.0, precise.ticks(), 0.000001);
+        assertEquals(2_000.0, TimeCommand.parseDuration("2h"), 0.000001);
+        assertEquals(500.0, TimeCommand.parseDuration("30m"), 0.000001);
+    }
+
+    @Test
+    void timeSpeedCommandHasDirectAutocompleteAndHint() {
+        CommandDispatcher dispatcher = dispatcher();
+        dispatcher.register(new TimeSpeedCommand());
+        CommandContext context = new CommandContext(new SimpleItemStorage(1));
+
+        assertEquals(List.of("/timespeed"), dispatcher.suggest(context, "/times"));
+        assertEquals(" <factor>", dispatcher.hint("/timespeed"));
+    }
+
     private static CommandDispatcher dispatcher() {
         CommandDispatcher dispatcher = new CommandDispatcher();
         dispatcher.register(new GiveCommand());

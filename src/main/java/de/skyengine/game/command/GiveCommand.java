@@ -25,6 +25,12 @@ public final class GiveCommand implements Command {
     }
 
     @Override
+    public String usage(List<String> arguments, boolean trailingSpace) {
+        if (arguments.isEmpty()) return "<item> [amount]";
+        return arguments.size() == 1 ? "[amount]" : "";
+    }
+
+    @Override
     public CommandResult execute(CommandContext context, List<String> arguments) {
         if (arguments.isEmpty() || arguments.size() > 2) {
             return CommandResult.error(I18n.tr("command.give.usage"));

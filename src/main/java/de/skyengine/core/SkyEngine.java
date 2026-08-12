@@ -8,6 +8,7 @@ import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.Screenshot;
 import de.skyengine.graphics.gui.BootProgress;
 import de.skyengine.graphics.post.PostProcessor;
+import de.skyengine.graphics.shaderpack.ShaderPackManager;
 import de.skyengine.utils.DelayedRunnable;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -22,7 +23,7 @@ import java.util.concurrent.CountDownLatch;
 public class SkyEngine {
 
     public static final String ENGINE_NAME = "SkyEngine";
-    public static final String ENGINE_VERSION = "0.0.12";
+    public static final String ENGINE_VERSION = "0.0.13";
 
     /** The index/token used in an index buffer for primitive restart. */
     public static final int PRIMITIVE_RESTART_INDEX = 0xFFFF;
@@ -44,6 +45,10 @@ public class SkyEngine {
 
     private final GameContainer game;
     private final PostProcessor postProcessor;
+    private final ShaderPackManager shaderPackManager;
+
+    /* Never render a frame after GL/shader bootstrap left the game only partly initialized. */
+    private volatile boolean initializationFailed;
 
     /* Letzte 1-Sekunden-Zählwerte aus dem gameLoop — für On-GuiScreen-Anzeigen (F3). */
     private int currentFps;
@@ -59,6 +64,7 @@ public class SkyEngine {
         this.mainThreadTasks = new ConcurrentLinkedQueue<>();
         this.renderTasks = new ConcurrentLinkedQueue<>();
         this.game = new GameContainer();
+        this.shaderPackManager = new ShaderPackManager();
         this.postProcessor = new PostProcessor(); // GL-Init erst in launch() (Render-Thread)
     }
 
@@ -69,6 +75,10 @@ public class SkyEngine {
     private void onRender(float partialTick) {
         FrameProfiler.newFrame();
         FrameProfiler.cpuStart(FrameProfiler.Cpu.FRAME);
+
+        /* Packwechsel nur an der Frame-Grenze: alle Kandidaten sind vollständig kompiliert,
+           bevor ein Renderer auf die neuen Programme umschaltet. */
+        this.shaderPackManager.reloadIfRequested();
 
         FrameProfiler.cpuStart(FrameProfiler.Cpu.CLEAR);
 
@@ -82,6 +92,14 @@ public class SkyEngine {
         }
 
         this.window.getFrameBuffer().bind();
+        /* Offscreen- und Post-Paesse verwenden eigene Viewports. Die Welt darf nie den
+           zuletzt aktiven Halbaufloesungs-/Shadow-/Cubemap-Viewport erben, auch dann
+           nicht, wenn ein optionaler Restore-Pass beim Packwechsel ausfaellt. */
+        GL11.glViewport(0, 0, this.window.getWidth(), this.window.getHeight());
+        /* GUI-Clipping lebt im globalen GL-State. Ein liegengebliebener Scissor beschneidet
+           sogar glClear und erzeugt dadurch exakt die harten schwarzen Teilframes, die
+           anschließend nur von der unclipped GUI überzeichnet werden. */
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
 
         GL11.glClearColor(
                 this.config.getWindowClearColor().red,
@@ -139,6 +157,7 @@ public class SkyEngine {
 
         this.game.dispose();
         this.postProcessor.dispose();
+        this.shaderPackManager.dispose();
 
         this.drainRunnables();
         GL.setCapabilities(null);
@@ -146,6 +165,7 @@ public class SkyEngine {
 
     private void gameLoop() {
         this.drainRunnables();
+        if (this.initializationFailed) return;
 
         long lastTickTime = System.nanoTime();
         long accumulatedTime = 0;
@@ -284,6 +304,7 @@ public class SkyEngine {
         try {
             CountDownLatch latch = new CountDownLatch(1);
             this.renderTasks.add(new DelayedRunnable(() -> {
+                try {
                 this.window.init();
                 this.window.printDebug();
                 this.input.init();
@@ -303,6 +324,7 @@ public class SkyEngine {
                 }
 
                 // Configure VAOs, Shader, Textures here
+                this.shaderPackManager.init();
                 /* Post VOR dem Framebuffer: der FB liest den AA-Modus aus den
                    Post-Settings (MSAA-Modus => Multisample, sonst Depth-Textur). */
                 this.postProcessor.init(this.window.getWidth(), this.window.getHeight());
@@ -321,6 +343,13 @@ public class SkyEngine {
 
                 this.game.initStaged(new BootProgress(this.game.getGuiManager()));
                 return null;
+                } catch (Exception e) {
+                    this.initializationFailed = true;
+                    this.window.forceClose();
+                    /* Avoid blocking launch() forever when bootstrap fails before showing the window. */
+                    latch.countDown();
+                    throw e;
+                }
             }, "Init", 0));
 
             /* Run logic updates and rendering in a separate thread */
@@ -447,6 +476,10 @@ public class SkyEngine {
 
     public PostProcessor getPostProcessor() {
         return postProcessor;
+    }
+
+    public ShaderPackManager getShaderPackManager() {
+        return shaderPackManager;
     }
 
     public static SkyEngine get() {

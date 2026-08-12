@@ -147,10 +147,11 @@ public final class PlayerRenderer implements IDisposable {
            Vorschau ihn explizit auf 1.0 zurücksetzen — sonst erbt sie das Licht des Frames
            davor und die Inventar-Figur wird in einer Höhle schwarz. */
         this.shader.setUniformf("u_Light", 1.0f);
+        this.shader.setUniformi("u_DisplayOutput", 1);
         this.skin.bind(0);
         this.model.render(this.shader, this.base, this.pose);
         this.shader.unbind();
-        this.drawHeldItem(items, held, this.proj, 1.0f);
+        this.drawHeldItem(items, held, this.proj, 1.0f, true);
 
         if (cull) GlState.enableCullFace();
     }
@@ -179,10 +180,11 @@ public final class PlayerRenderer implements IDisposable {
         this.shader.setUniformi("u_Texture", 0);
         this.shader.setUniformMatrix4f("u_NormalBasis", this.normalBasis.identity());
         this.shader.setUniformf("u_Light", light);
+        this.shader.setUniformi("u_DisplayOutput", 0);
         this.skin.bind(0);
         this.model.render(this.shader, this.base, this.pose);
         this.shader.unbind();
-        this.drawHeldItem(items, held, camera.getProjectionViewMatrix(), light);
+        this.drawHeldItem(items, held, camera.getProjectionViewMatrix(), light, false);
         if (cull) GlState.enableCullFace();
     }
 
@@ -201,6 +203,7 @@ public final class PlayerRenderer implements IDisposable {
                 .rotateX((float) Math.toRadians(-playerPitch));
         this.shader.setUniformMatrix4f("u_NormalBasis", this.normalBasis);
         this.shader.setUniformf("u_Light", light);
+        this.shader.setUniformi("u_DisplayOutput", 0);
         this.skin.bind(0);
         this.model.renderRightArm(this.shader, armMatrix);
         this.shader.unbind();
@@ -295,7 +298,8 @@ public final class PlayerRenderer implements IDisposable {
      * Arm-Part-Matrix → Handgelenk → rotateX(−90°) → rotateY(180°) → Versatz — der
      * Display-Transform selbst steckt in {@link HeldItemMeshes#drawThirdPerson}.
      */
-    private void drawHeldItem(HeldItemMeshes items, ItemStack held, Matrix4f projectionView, float light) {
+    private void drawHeldItem(HeldItemMeshes items, ItemStack held, Matrix4f projectionView,
+                              float light, boolean displayOutput) {
         if (items == null || held == null || held.isEmpty()) return;
         /* Vanilla-Kette: das translate(1, 2, -10) px = (1/16, 0.125, -0.625) Blöcke wandert
            durch das rotateX(-90) effektiv ans Armende — KEIN zusätzlicher Handgelenk-Versatz.
@@ -307,7 +311,7 @@ public final class PlayerRenderer implements IDisposable {
                 .rotateY((float) Math.toRadians(180))
                 .translate(1F, 2F, -10F);
         this.pose.rightArmX -= slimShift;
-        items.bind(projectionView, light);
+        items.bind(projectionView, light, displayOutput);
         items.drawThirdPerson(held.getItem(), m);
         items.unbind();
     }
@@ -338,12 +342,14 @@ public final class PlayerRenderer implements IDisposable {
 
     private static final String FRAGMENT = """
         #version 460 core
+        """ + de.skyengine.graphics.shader.ShaderColorSpace.GLSL + """
         in vec2 v_uv;
         in vec3 v_normal;
         uniform sampler2D u_Texture;
         /* Himmelslicht der Spielerzelle, fertig durch die Kurve gerechnet
            (ChunkRenderer.lightFactor). 1.0 = voll hell, Fullbright ODER GUI-Vorschau. */
         uniform float u_Light;
+        uniform int u_DisplayOutput;
         out vec4 fragColor;
         void main() {
             vec4 c = texture(u_Texture, v_uv);
@@ -355,7 +361,9 @@ public final class PlayerRenderer implements IDisposable {
                         + n.z * n.z * 0.8
                         + max(n.y, 0.0) * max(n.y, 0.0)
                         + max(-n.y, 0.0) * max(-n.y, 0.0) * 0.5;
-            fragColor = vec4(c.rgb * shade * u_Light, c.a);
+            vec3 rgb = seSrgbToWorking(c.rgb) * shade * u_Light;
+            if (u_DisplayOutput != 0) rgb = seWorkingToSrgb(rgb);
+            fragColor = vec4(rgb, c.a);
         }
         """;
 }

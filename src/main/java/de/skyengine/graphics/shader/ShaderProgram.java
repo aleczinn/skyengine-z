@@ -52,12 +52,19 @@ public class ShaderProgram implements IDisposable {
 
         GL20.glLinkProgram(this.programId);
         if (GL20.glGetProgrami(this.programId, GL20.GL_LINK_STATUS) == GL20.GL_FALSE) {
-            this.logger.fatal("ShaderProgram could not be linked!\n" + GL20.glGetProgramInfoLog(this.programId));
+            String log = GL20.glGetProgramInfoLog(this.programId);
+            GL20.glDeleteProgram(this.programId);
+            this.programId = 0;
+            for (Shader shader : this.shaders) shader.dispose();
+            throw new IllegalArgumentException("ShaderProgram could not be linked:\n" + log);
         }
 
         GL20.glValidateProgram(this.programId);
         if (GL20.glGetProgrami(this.programId, GL20.GL_VALIDATE_STATUS) == GL20.GL_FALSE) {
-            this.logger.fatal("ShaderProgram could not be validated!\n" + GL20.glGetProgramInfoLog(this.programId));
+            String log = GL20.glGetProgramInfoLog(this.programId);
+            /* Validation depends on current GL state (notably sampler assignments, which are
+               configured immediately after construction). Linking is the atomic reload gate. */
+            this.logger.debug("ShaderProgram validation deferred until uniforms are bound: " + log);
         }
 
         this.fetchAttributes();

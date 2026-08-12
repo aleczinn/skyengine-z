@@ -20,9 +20,8 @@ import java.nio.ByteBuffer;
  *   <li><b>MSAA = 0:</b> Color (RGBA16F) und Depth (DEPTH_COMPONENT32F) sind direkt
  *       <b>Texturen</b> — sample-bar für Post-Pässe; {@link #resolve()} ist ein No-op.</li>
  *   <li><b>MSAA &gt; 0:</b> Multisample-Renderbuffer wie früher (Color ebenfalls RGBA16F,
- *       damit HDR-Werte den Resolve überleben) plus ein Resolve-FBO mit RGBA16F-Textur;
- *       {@link #resolve()} blittet MS → Textur. Eine Depth-<b>Textur</b> existiert in
- *       diesem Modus NICHT (depth-lesende Post-Effekte laufen später ohne MSAA).</li>
+ *       damit HDR-Werte den Resolve überleben) plus ein Resolve-FBO mit RGBA16F-Farbe und
+ *       DEPTH_COMPONENT32F; {@link #resolve()} blittet beide Attachments MS → Textur.</li>
  * </ul>
  * RGBA16F speichert heute dieselben [0,1]-Werte wie vorher RGBA8 — der HDR-Headroom wird
  * erst mit dem Licht-Merge real genutzt.
@@ -41,8 +40,27 @@ public class FrameBuffer implements IDisposable {
     private int depthRbo;
     private int resolveFbo;
 
-    /* Sample-bare Ziele: colorTexture ist bei MSAA=0 direktes Attachment, sonst Resolve-Ziel.
-       depthTexture existiert nur bei MSAA=0. */
+    /* Unveränderter Stand direkt vor dem Translucent-Pass. Wasser darf das aktuell
+       gebundene Szene-Attachment nicht gleichzeitig lesen und beschreiben (Feedback-UB). */
+    private int opaqueFbo;
+    private int opaqueColorTexture;
+    private int opaqueDepthTexture;
+
+    /* Tiefe der fertig gerenderten Welt VOR dem First-Person-Hand-Pass. Der Hand-Renderer
+       leert absichtlich den Szene-Depthbuffer, damit Arm/Item nie hinter Terrain verschwinden.
+       Diese Kopie verhindert, dass TAA danach fast ueberall nur die Clear-Tiefe und im
+       Handbereich eine bewegte rechteckige Tiefensilhouette reprojiziert. */
+    private int worldDepthFbo;
+    private int worldDepthTexture;
+
+    /* Tiefe ausschliesslich des First-Person-Passes. Der Hand-Renderer leert vor seinem
+       Draw den aktiven Szene-Depthbuffer; eine danach angelegte Kopie ist deshalb eine
+       exakte Hand-/Item-Maske. Photon fuehrt die Hand ebenfalls getrennt und laesst weder
+       Luft- noch Fluid-Nebel durch sie hindurch compositen. */
+    private int handDepthFbo;
+    private int handDepthTexture;
+
+    /* Sample-bare Ziele: colorTexture ist bei MSAA=0 direktes Attachment, sonst Resolve-Ziel. */
     private int colorTexture;
     private int depthTexture;
 
@@ -109,8 +127,49 @@ public class FrameBuffer implements IDisposable {
                     GL11.GL_LINEAR, width, height);
             GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
                     GL11.GL_TEXTURE_2D, this.colorTexture, 0);
+            this.depthTexture = this.createTexture(GL30.GL_DEPTH_COMPONENT32F, GL11.GL_DEPTH_COMPONENT,
+                    GL11.GL_FLOAT, GL11.GL_NEAREST, width, height);
+            GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT,
+                    GL11.GL_TEXTURE_2D, this.depthTexture, 0);
             this.checkStatus("Resolve");
         }
+
+        /* Opaque-Snapshot für pack-gesteuerte Refraction/SSR. Er existiert in beiden
+           AA-Pfaden; bei MSAA wird beim Blit zugleich auf ein Sample aufgelöst. */
+        this.opaqueFbo = GL30.glGenFramebuffers();
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.opaqueFbo);
+        this.opaqueColorTexture = this.createTexture(GL30.GL_RGBA16F, GL11.GL_RGBA,
+                GL30.GL_HALF_FLOAT, GL11.GL_LINEAR, width, height);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
+                GL11.GL_TEXTURE_2D, this.opaqueColorTexture, 0);
+        this.opaqueDepthTexture = this.createTexture(GL30.GL_DEPTH_COMPONENT32F, GL11.GL_DEPTH_COMPONENT,
+                GL11.GL_FLOAT, GL11.GL_NEAREST, width, height);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT,
+                GL11.GL_TEXTURE_2D, this.opaqueDepthTexture, 0);
+        this.checkStatus("Opaque-Snapshot");
+
+        /* Reiner Depth-Snapshot fuer die TAA-Reprojektion. Anders als opaqueDepth enthaelt
+           er auch die bis dahin gerenderte Wasseroberflaeche; anders als depthTexture wird
+           er vom anschliessenden First-Person-Depth-Clear nicht zerstoert. */
+        this.worldDepthFbo = GL30.glGenFramebuffers();
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.worldDepthFbo);
+        this.worldDepthTexture = this.createTexture(GL30.GL_DEPTH_COMPONENT32F,
+                GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, GL11.GL_NEAREST, width, height);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT,
+                GL11.GL_TEXTURE_2D, this.worldDepthTexture, 0);
+        GL11.glDrawBuffer(GL11.GL_NONE);
+        GL11.glReadBuffer(GL11.GL_NONE);
+        this.checkStatus("World-Depth-Snapshot");
+
+        this.handDepthFbo = GL30.glGenFramebuffers();
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.handDepthFbo);
+        this.handDepthTexture = this.createTexture(GL30.GL_DEPTH_COMPONENT32F,
+                GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, GL11.GL_NEAREST, width, height);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT,
+                GL11.GL_TEXTURE_2D, this.handDepthTexture, 0);
+        GL11.glDrawBuffer(GL11.GL_NONE);
+        GL11.glReadBuffer(GL11.GL_NONE);
+        this.checkStatus("Hand-Depth-Snapshot");
 
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
 
@@ -168,13 +227,78 @@ public class FrameBuffer implements IDisposable {
         int width = this.config.getWindowWidth(), height = this.config.getWindowHeight();
         if (this.properties.isUseDirectStateAccess()) {
             ARBDirectStateAccess.glBlitNamedFramebuffer(this.id, this.resolveFbo,
-                    0, 0, width, height, 0, 0, width, height, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
+                    0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
         } else {
             GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, this.id);
             GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, this.resolveFbo);
-            GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
+            GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
         }
+    }
+
+    /**
+     * Friert Farbe und Tiefe des bislang gerenderten Weltbildes für Wasser-Refraction ein.
+     * Danach ist wieder das Szene-FBO gebunden.
+     */
+    public void captureOpaque() {
+        int width = this.config.getWindowWidth(), height = this.config.getWindowHeight();
+        if (this.properties.isUseDirectStateAccess()) {
+            ARBDirectStateAccess.glBlitNamedFramebuffer(this.id, this.opaqueFbo,
+                    0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
+        } else {
+            GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, this.id);
+            GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, this.opaqueFbo);
+            GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
+        }
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.id);
+    }
+
+    /**
+     * Friert die Tiefe der vollstaendigen Welt (einschliesslich Wasser) ein, bevor der
+     * First-Person-Pass den aktiven Depthbuffer leert. Danach ist wieder das Szene-FBO
+     * gebunden. Muss einmal pro Welt-Frame nach {@code World.render} aufgerufen werden.
+     */
+    public void captureWorldDepth() {
+        int width = this.config.getWindowWidth(), height = this.config.getWindowHeight();
+        if (this.properties.isUseDirectStateAccess()) {
+            ARBDirectStateAccess.glBlitNamedFramebuffer(this.id, this.worldDepthFbo,
+                    0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
+        } else {
+            GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, this.id);
+            GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, this.worldDepthFbo);
+            GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
+        }
+        /* Kein First-Person-Draw in diesem Frame bedeutet eine leere Handmaske. Sie wird
+           hier immer initialisiert und nach einem tatsaechlichen Hand-Draw ueberschrieben. */
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.handDepthFbo);
+        GL11.glClearDepth(this.properties.isUseInverseDepth() ? 0.0 : 1.0);
+        GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.id);
+    }
+
+    /**
+     * Kopiert nach dem First-Person-Draw dessen isolierte Tiefe. Da der Hand-Renderer den
+     * Szene-Depthbuffer unmittelbar davor leert, enthaelt diese Textur weder Welt noch Wasser.
+     */
+    public void captureHandDepth() {
+        int width = this.config.getWindowWidth(), height = this.config.getWindowHeight();
+        if (this.properties.isUseDirectStateAccess()) {
+            ARBDirectStateAccess.glBlitNamedFramebuffer(this.id, this.handDepthFbo,
+                    0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
+        } else {
+            GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, this.id);
+            GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, this.handDepthFbo);
+            GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
+        }
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.id);
     }
 
     /**
@@ -196,6 +320,22 @@ public class FrameBuffer implements IDisposable {
         return this.depthTexture;
     }
 
+    public int getOpaqueColorTexture() {
+        return this.opaqueColorTexture;
+    }
+
+    public int getOpaqueDepthTexture() {
+        return this.opaqueDepthTexture;
+    }
+
+    public int getWorldDepthTexture() {
+        return this.worldDepthTexture;
+    }
+
+    public int getHandDepthTexture() {
+        return this.handDepthTexture;
+    }
+
     /**
      * Aktive MSAA-Sample-Zahl (0 = aus).
      */
@@ -209,17 +349,31 @@ public class FrameBuffer implements IDisposable {
 
         GL30.glDeleteFramebuffers(this.id);
         if (this.resolveFbo != 0) GL30.glDeleteFramebuffers(this.resolveFbo);
+        if (this.opaqueFbo != 0) GL30.glDeleteFramebuffers(this.opaqueFbo);
+        if (this.worldDepthFbo != 0) GL30.glDeleteFramebuffers(this.worldDepthFbo);
+        if (this.handDepthFbo != 0) GL30.glDeleteFramebuffers(this.handDepthFbo);
         if (this.colorRbo != 0 || this.depthRbo != 0) {
             GL30.glDeleteRenderbuffers(new int[]{this.colorRbo, this.depthRbo});
         }
         if (this.colorTexture != 0) GL11.glDeleteTextures(this.colorTexture);
         if (this.depthTexture != 0) GL11.glDeleteTextures(this.depthTexture);
+        if (this.opaqueColorTexture != 0) GL11.glDeleteTextures(this.opaqueColorTexture);
+        if (this.opaqueDepthTexture != 0) GL11.glDeleteTextures(this.opaqueDepthTexture);
+        if (this.worldDepthTexture != 0) GL11.glDeleteTextures(this.worldDepthTexture);
+        if (this.handDepthTexture != 0) GL11.glDeleteTextures(this.handDepthTexture);
 
         this.id = 0;
         this.resolveFbo = 0;
+        this.opaqueFbo = 0;
+        this.worldDepthFbo = 0;
+        this.handDepthFbo = 0;
         this.colorRbo = 0;
         this.depthRbo = 0;
         this.colorTexture = 0;
         this.depthTexture = 0;
+        this.opaqueColorTexture = 0;
+        this.opaqueDepthTexture = 0;
+        this.worldDepthTexture = 0;
+        this.handDepthTexture = 0;
     }
 }

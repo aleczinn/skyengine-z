@@ -41,6 +41,8 @@ public final class FrameProfiler {
         SOLID_P2("solid2"),        // Nachzügler-Draws OPAQUE
         LOD_P2("lodO2p"),          // Nachzügler-Draws LOD-Opaque
         CUTOUT_P2("cut2"),         // Nachzügler-Draws CUTOUT
+        SKY_LUT("skyLut"),
+        SKY("sky"),
         TRANSLUCENT("trans"),
         LOD_TRANSLUCENT("lodT"),
         BLIT("blit");

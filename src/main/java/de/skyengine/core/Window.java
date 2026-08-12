@@ -63,11 +63,16 @@ public class Window implements IDisposable {
         GLFW.glfwSetFramebufferSizeCallback(this.windowID, (window, width, height) -> {
             if (width <= 0 || height <= 0) return;
 
-            this.config.setWindowWidth(width);
-            this.config.setWindowHeight(height);
             this.lastResizeNanos = System.nanoTime();
 
             SkyEngine.get().getRenderTasks().add(new DelayedRunnable(() -> {
+                /* Die neue Größe darf erst auf dem Render-Thread sichtbar werden, wenn
+                   Scene-FBO, Post-Targets und Viewport im selben Task umgebaut werden.
+                   Würde der GLFW-Thread die Config vorher ändern, könnte ein Frame den
+                   neuen Viewport auf das alte FBO anwenden (schwarze Teilflächen). Auch
+                   mehrere Win32-Resize-Events bleiben so als konsistente Paare geordnet. */
+                this.config.setWindowWidth(width);
+                this.config.setWindowHeight(height);
                 this.frameBuffer.create();
                 SkyEngine.get().onResize(width, height);
                 GL11.glViewport(0, 0, width, height);

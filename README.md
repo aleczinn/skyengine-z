@@ -41,6 +41,7 @@ Als Texturen wurden die offiziellen Minecraft Texturen aus der 1.21 genutzt. Zus
 - 🔆 Licht-System
   - Skylight
   - Einfaches Blocklicht für Fackel, Lava und Pilze
+  - Himmel mit Sonne, Mond und Sternen (Transmittance-LUT, Multi-Scattering-LUT, kleine Sky-View-LUT bei 256×128, basierend auf Sebastian Hillaire "A Scalable and Production Ready Sky and Atmosphere Rendering Technique")
 - 🔝 Optimizations & Features
   - Frustum Culling
   - Vertex Komprimierung zu 20 bits (x, y, w, h, u, v, skylight + block light)
@@ -111,6 +112,9 @@ Der Fokus liegt auf:
 - Moderne OpenGL-Techniken
 
 ## Screenshots / Changelog
+
+v0.0.13 | Himmel, Sonne, Mond & Sterne
+- SkyRenderer
 
 v0.0.12 | Redstone
 - Diverse Redstone Blöcke wie Redstone, Verstärker, Observer, Komparator, (Klebriger) Piston, Redstone-Fackel und und und

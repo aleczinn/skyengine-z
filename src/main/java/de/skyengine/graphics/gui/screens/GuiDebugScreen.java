@@ -11,8 +11,6 @@ import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.CycleButton;
-import de.skyengine.graphics.post.PostProcessingSettings;
-import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.world.GpuCull;
 
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
@@ -65,20 +63,19 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
         CycleButton<Boolean> guiSlots = CycleButton.onOff(I18n.tr("options.debug.gui_slots"), CELL_W, CELL_H,
                 DebugFlags.guiSlotBounds, v -> DebugFlags.guiSlotBounds = v);
 
-        PostProcessingSettings post = SkyEngine.get().getPostProcessor().getSettings();
-        CycleButton<AntiAliasingMode> aa = new CycleButton<>(I18n.tr("options.debug.aa_mode"), CELL_W, CELL_H,
-                AntiAliasingMode.values(), post.getAaMode(), Enum::name, post::setAaMode);
-
         Button reloadChunks = new Button(I18n.tr("options.debug.reload_chunks"), CELL_W, CELL_H, () -> {
             if (game.getWorld() != null) game.getWorld().reloadAllChunks();
         });
         Button reloadPost = new Button(I18n.tr("options.debug.reload_post"), CELL_W, CELL_H,
-                () -> SkyEngine.get().getPostProcessor().getSettings().reloadFromFile());
+                () -> {
+                    SkyEngine.get().getPostProcessor().getSettings().reloadFromFile();
+                    SkyEngine.get().getShaderPackManager().requestReload();
+                });
 
         content.add(new HStack(4, wireframe, gpuCull));
         content.add(new HStack(4, gpuCullHiZ, gpuCullTint));
         content.add(new HStack(4, lodOverlay, pauseLoading));
-        content.add(new HStack(4, aa, guiSlots));
+        content.add(new HStack(4, guiSlots));
         content.add(new HStack(4, reloadChunks, reloadPost));
     }
 }

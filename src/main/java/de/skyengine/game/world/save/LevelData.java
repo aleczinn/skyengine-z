@@ -36,6 +36,10 @@ public final class LevelData {
     public Map<String, Long> lootRandomStates = new LinkedHashMap<>();
     /** Vanilla-Gamerule; false/null ist der Standard der aktuellen Java Edition. */
     public Boolean tntExplosionDropDecay;
+    /** Tageszeit in Minecraft-Ticks; null bei Alt-Welten = Sonnenaufgang. */
+    public Double dayTime;
+    /** Tageszeit-Ticks pro Spieltick; 0 haelt den Zyklus an, null = 1. */
+    public Double dayTimeSpeed;
 
     public static final class PlayerData {
         public double x, y, z;

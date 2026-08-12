@@ -12,6 +12,11 @@ public interface Command {
         return "";
     }
 
+    /** Noch fehlende Signatur fuer den aktuellen Argumentzustand. */
+    default String usage(List<String> arguments, boolean trailingSpace) {
+        return this.usage();
+    }
+
     CommandResult execute(CommandContext context, List<String> arguments);
 
     /** Vorschlaege fuer das aktuelle (letzte) Argument, ohne den bereits geschriebenen Prefix. */

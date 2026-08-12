@@ -84,6 +84,11 @@ public class SectionMesh {
         return this.quadCounts[layer.ordinal()] * 6;
     }
 
+    /** Vertex-Anzahl der vier aufeinanderfolgenden Vertices je Quad. */
+    public int vertexCount(RenderLayer layer) {
+        return this.quadCounts[layer.ordinal()] * 4;
+    }
+
     public boolean hasDetail() {
         return this.detailRegion != null;
     }
@@ -96,6 +101,11 @@ public class SectionMesh {
     /** Index-Anzahl des Kleinvegetations-Segments (Quads · 6). */
     public int indexCountDetail() {
         return this.detailQuadCount * 6;
+    }
+
+    /** Vertex-Anzahl des Kleinvegetations-Segments fuer den Shadow-Patch-Draw. */
+    public int vertexCountDetail() {
+        return this.detailQuadCount * 4;
     }
 
     /** Größte Quad-Anzahl aller Layer — fürs Sizing des geteilten Index-Buffers. */

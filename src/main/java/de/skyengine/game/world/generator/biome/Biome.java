@@ -1,5 +1,6 @@
 package de.skyengine.game.world.generator.biome;
 
+import de.skyengine.game.world.environment.BiomeEnvironmentModifier;
 import de.skyengine.game.world.generator.feature.trees.TreeShape;
 
 /**
@@ -41,9 +42,18 @@ public final class Biome {
     /* Bodenpflanzen: Basis-Wahrscheinlichkeit pro Spalte (0..1, moduliert vom Dichtefeld) */
     public final float plantDensity;
     public final PlantEntry[] plants;
+    /** Visuelle Umgebungsabweichung; künftig pro Biom frei konfigurierbar. */
+    public final BiomeEnvironmentModifier environment;
 
     Biome(int id, String name, int surfaceBlock, int fillerBlock, int grassTint, int foliageTint,
           int debugColor, float treeChance, TreeEntry[] trees, float plantDensity, PlantEntry[] plants) {
+        this(id, name, surfaceBlock, fillerBlock, grassTint, foliageTint, debugColor, treeChance,
+                trees, plantDensity, plants, BiomeEnvironmentModifier.DEFAULT);
+    }
+
+    Biome(int id, String name, int surfaceBlock, int fillerBlock, int grassTint, int foliageTint,
+          int debugColor, float treeChance, TreeEntry[] trees, float plantDensity, PlantEntry[] plants,
+          BiomeEnvironmentModifier environment) {
         this.id = id;
         this.name = name;
         this.surfaceBlock = surfaceBlock;
@@ -55,5 +65,6 @@ public final class Biome {
         this.trees = trees;
         this.plantDensity = plantDensity;
         this.plants = plants;
+        this.environment = environment;
     }
 }

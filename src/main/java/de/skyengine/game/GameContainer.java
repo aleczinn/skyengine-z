@@ -42,7 +42,6 @@ import de.skyengine.graphics.world.CrackRenderer;
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
-import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.graphics.DebugFlags;
@@ -63,7 +62,7 @@ import de.skyengine.graphics.gui.screens.GuiInventory;
 import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.SaveToast;
-import de.skyengine.graphics.gui.SpriteRenderer;
+import de.skyengine.graphics.post.passes.FluidFogPass;
 import de.skyengine.graphics.gui.screens.GuiIngameMenu;
 import de.skyengine.graphics.gui.screens.GuiDeathScreen;
 import de.skyengine.graphics.gui.screens.GuiMainMenu;
@@ -420,6 +419,7 @@ public class GameContainer implements IResizeable, IDisposable {
         level.player = null;
         level.inventory.clear();
         this.world.saveLootRandomStates(level);
+        this.world.saveTime(level);
         WorldSaves.save(this.currentSave);
 
         DataTag tag = new DataTag();
@@ -776,6 +776,10 @@ public class GameContainer implements IResizeable, IDisposable {
             this.pollInteractionClicks(input);
         }
 
+        /* Der Pack braucht den Kamerafluid-Zustand bereits beim Wasser-Pass (Snelliussches
+           Fenster); der Post-Pass verwendet denselben Wert später unverändert. */
+        this.renderFluidOverlay();
+
         /* Wireframe (F6) gilt NUR für die Welt-Geometrie: der Line-Mode ist globaler GL-State und
            würde sonst auch das Fullscreen-Dreieck der Post-Kette (und die GUI-Quads) zu Linien
            machen — dann bliebe der Default-Framebuffer unbeschrieben ("eingefrorenes" Bild). */
@@ -790,6 +794,10 @@ public class GameContainer implements IResizeable, IDisposable {
                             this.heldItemMeshes, this.playerInventory.get(this.hotbarIndex), playerLight));
         }
         if (DebugFlags.wireframe) Utils.disableWireframe();
+
+        /* FirstPersonHandRenderer leert gleich den Szene-Depthbuffer. TAA muss jedoch mit
+           der stabilen Welt-/Wassertiefe reprojizieren, nicht mit diesem Hand-Clear. */
+        SkyEngine.get().getWindow().getFrameBuffer().captureWorldDepth();
 
         FrameProfiler.cpuStart(FrameProfiler.Cpu.OVL);
 
@@ -818,8 +826,6 @@ public class GameContainer implements IResizeable, IDisposable {
             this.entityHitboxRenderer.render(this.camera, this.player, this.world, partialTick);
         }
 
-        this.renderFluidOverlay();
-
         /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Depth-Clear. */
         if (!this.hudHidden && this.perspective.isFirstPerson()
                 && this.player.getGamemode() != Gamemode.SPECTATOR) {
@@ -828,6 +834,10 @@ public class GameContainer implements IResizeable, IDisposable {
             float handLight = this.playerLightAtEyes(partialTick);
             this.handRenderer.render(this.playerRenderer, this.heldItemMeshes, this.player,
                     this.animState, (float) width / height, partialTick, this.viewEffect, handLight);
+            /* Photon behandelt die First-Person-Hand als eigenen Vordergrund-Layer. Die
+               isolierte Tiefe verhindert, dass spaetere Luft-/Fluid-Volumetrics durch Arm
+               und gehaltenes Item scheinen. */
+            SkyEngine.get().getWindow().getFrameBuffer().captureHandDepth();
         }
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
@@ -861,7 +871,8 @@ public class GameContainer implements IResizeable, IDisposable {
                     float wx = dx == 0 ? 1F - fx : fx;
                     float light = ChunkRenderer.lightFactor(
                             this.world.getSkyLight(x0 + dx, y0 + dy, z0 + dz),
-                            this.world.getBlockLight(x0 + dx, y0 + dy, z0 + dz));
+                            this.world.getBlockLight(x0 + dx, y0 + dy, z0 + dz),
+                            this.world.getEnvironmentState().skyIntensity);
                     result += light * wx * wy * wz;
                 }
             }
@@ -994,15 +1005,15 @@ public class GameContainer implements IResizeable, IDisposable {
         return (ITEM_NAME_HOLD_MS + ITEM_NAME_FADE_MS - since) / (float) ITEM_NAME_FADE_MS;
     }
 
-    /**
-     * Fullscreen-Tint, wenn das Kamera-Auge in einem Fluid steckt (wie Minecraft):
-     * Wasser -> blau/leicht, Lava -> orange/dicht. Gezeichnet zwischen Welt und HUD.
-     */
+    /** Meldet dem pack-gesteuerten Post-Pass das Fluid am Kamera-Auge. */
     private void renderFluidOverlay() {
+        PostProcessor post = SkyEngine.get().getPostProcessor();
+        post.setCameraFluid(FluidFogPass.NONE);
         Vector3d eye = this.camera.getPosition();
         int bx = (int) Math.floor(eye.x);
         int by = (int) Math.floor(eye.y);
         int bz = (int) Math.floor(eye.z);
+        post.setEyeSkylight(this.world.getSkyLight(bx, by, bz) / 15.0F);
         BlockState state = Blocks.getState(this.world.getBlock(bx, by, bz));
         if (!state.isFluid()) return;
 
@@ -1015,14 +1026,11 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         if (eye.y - by >= height) return;
 
-        SpriteRenderer sr = this.guiManager.sprites();
-        sr.begin(1, 1); // Ortho 0..1 -> Fullscreen-Rect unabhängig vom GUI-Scale
         if (state.getBlock().getFluidInfo().lava) {
-            sr.drawRect(0, 0, 1, 1, 0.6f, 0.1f, 0.0f, 0.8f);    // Lava: dicht, orange-rot
+            post.setCameraFluid(FluidFogPass.LAVA);
         } else {
-            sr.drawRect(0, 0, 1, 1, 0.25f, 0.46f, 0.9f, 0.35f); // Wasser (an 0x4076E6 angelehnt)
+            post.setCameraFluid(FluidFogPass.WATER);
         }
-        sr.end();
     }
 
     @Override
@@ -1781,6 +1789,12 @@ public class GameContainer implements IResizeable, IDisposable {
             this.screenshotRequested = true;
         }
 
+        if (input.isKeyPressed(GLFW.GLFW_KEY_F10)) {
+            SkyEngine.get().getPostProcessor().getSettings().reloadFromFile();
+            SkyEngine.get().getShaderPackManager().requestReload();
+            this.logger.info("Shader-Pack-Reload für die nächste Frame-Grenze angefordert");
+        }
+
         if (this.world != null && input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_HUD))) {
             this.hudHidden = !this.hudHidden;
             this.logger.debug("HUD: " + (this.hudHidden ? "aus" : "an"));
@@ -1825,7 +1839,7 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private void openChat(String initial) {
-        this.guiManager.open(new GuiChat(this.chat, new CommandContext(this.playerInventory),
+        this.guiManager.open(new GuiChat(this.chat, new CommandContext(this.playerInventory, this.world),
                 this.chatHud, initial));
     }
 
