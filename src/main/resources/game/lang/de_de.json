@@ -169,7 +169,14 @@
     "unknown_command": "Unbekannter Befehl: /%s",
     "screenshot_saved": "Screenshot gespeichert: ",
     "screenshot_failed": "Screenshot konnte nicht gespeichert werden.",
-    "screenshot_open_failed": "Screenshot konnte nicht im Dateimanager angezeigt werden."
+    "screenshot_open_failed": "Screenshot konnte nicht im Dateimanager angezeigt werden.",
+    "debug": {
+      "entity_hitboxes": "Entity-Hitboxen: %s",
+      "chunk_borders": "Chunk-Grenzen: %s",
+      "wireframe": "Wireframe: %s",
+      "chunk": "Chunk",
+      "chunk_sections": "Chunk + Sections"
+    }
   },
 
   "command": {

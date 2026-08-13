@@ -366,6 +366,17 @@ public class Input {
         return key >= 0 && key < KEY_COUNT && this.keyStates[key] == InputState.PRESSED;
     }
 
+    /**
+     * Verbraucht die Press-Flanke einer Taste, lässt ihren gehaltenen Zustand aber bestehen.
+     * Gedacht für priorisierte Tastenkombinationen: nach erfolgreichem Consume sehen spätere
+     * {@link #isKeyPressed}-/Keybind-Abfragen denselben Tastendruck nicht ein zweites Mal.
+     */
+    public boolean consumeKeyPress(int key) {
+        if (!this.isKeyPressed(key)) return false;
+        this.keyStates[key] = InputState.DOWN;
+        return true;
+    }
+
     /** Returns whether the key <b>was</b> <i>released</i> this frame */
     public boolean isKeyReleased(int key) {
         return key >= 0 && key < KEY_COUNT && this.keyStates[key] == InputState.RELEASED;

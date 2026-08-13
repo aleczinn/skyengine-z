@@ -161,7 +161,14 @@
     "unknown_command": "Unknown command: /%s",
     "screenshot_saved": "Screenshot saved: ",
     "screenshot_failed": "Screenshot could not be saved.",
-    "screenshot_open_failed": "Screenshot could not be shown in the file manager."
+    "screenshot_open_failed": "Screenshot could not be shown in the file manager.",
+    "debug": {
+      "entity_hitboxes": "Entity hitboxes: %s",
+      "chunk_borders": "Chunk borders: %s",
+      "wireframe": "Wireframe: %s",
+      "chunk": "Chunk",
+      "chunk_sections": "Chunk + Sections"
+    }
   },
 
   "command": {

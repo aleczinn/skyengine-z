@@ -8,7 +8,7 @@ package de.skyengine.graphics;
  */
 public final class DebugFlags {
 
-    /** Welt als Wireframe zeichnen (renderWorld setzt den GL-Line-Mode eng um den Welt-Draw). */
+    /** Welt als Wireframe zeichnen (per F3+V oder Debug-Menü umschaltbar). */
     public static volatile boolean wireframe = false;
 
     /** Entity-Hitboxen und Blickrichtungen zeichnen (per F3+B umschaltbar). */

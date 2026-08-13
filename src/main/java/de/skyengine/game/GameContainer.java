@@ -805,7 +805,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.pollInteractionClicks(input);
         }
 
-        /* Wireframe (F6) gilt NUR für die Welt-Geometrie: der Line-Mode ist globaler GL-State und
+        /* Wireframe (F3+V) gilt NUR für die Welt-Geometrie: der Line-Mode ist globaler GL-State und
            würde sonst auch das Fullscreen-Dreieck der Post-Kette (und die GUI-Quads) zu Linien
            machen — dann bliebe der Default-Framebuffer unbeschrieben ("eingefrorenes" Bild). */
         if (DebugFlags.wireframe) Utils.enableWireframe();
@@ -1834,18 +1834,32 @@ public class GameContainer implements IResizeable, IDisposable {
         /* F3-Overlay + F3+X-Kombi-Gerüst (Minecraft-Stil): wurde während des Haltens eine Kombi
            benutzt, unterdrückt das den Overlay-Toggle beim Loslassen. Weitere F3+X hier ergänzen. */
         if (input.isKeyDown(GLFW.GLFW_KEY_F3) && !this.guiManager.isOpen()) {
-            if (input.isKeyPressed(GLFW.GLFW_KEY_B)) {
+            if (input.consumeKeyPress(GLFW.GLFW_KEY_B)) {
                 DebugFlags.entityHitboxes = !DebugFlags.entityHitboxes;
                 this.logger.debug("Entity-Hitboxen: " + (DebugFlags.entityHitboxes ? "an" : "aus"));
+                this.addDebugMessage("chat.debug.entity_hitboxes",
+                        DebugFlags.entityHitboxes ? "gui.on" : "gui.off");
                 this.f3ComboUsed = true;
             }
-            if (input.isKeyPressed(GLFW.GLFW_KEY_G)) {
+            if (input.consumeKeyPress(GLFW.GLFW_KEY_G)) {
                 DebugFlags.chunkBorders = (DebugFlags.chunkBorders + 1) % 3;
                 this.logger.debug("Chunk-Grenzen: " + switch (DebugFlags.chunkBorders) {
                     case 1 -> "Chunk";
                     case 2 -> "Chunk + Sections";
                     default -> "aus";
                 });
+                this.addDebugMessage("chat.debug.chunk_borders", switch (DebugFlags.chunkBorders) {
+                    case 1 -> "chat.debug.chunk";
+                    case 2 -> "chat.debug.chunk_sections";
+                    default -> "gui.off";
+                });
+                this.f3ComboUsed = true;
+            }
+            if (input.consumeKeyPress(GLFW.GLFW_KEY_V)) {
+                DebugFlags.wireframe = !DebugFlags.wireframe;
+                this.logger.debug("Wireframe: " + (DebugFlags.wireframe ? "an" : "aus"));
+                this.addDebugMessage("chat.debug.wireframe",
+                        DebugFlags.wireframe ? "gui.on" : "gui.off");
                 this.f3ComboUsed = true;
             }
         }
@@ -1867,6 +1881,11 @@ public class GameContainer implements IResizeable, IDisposable {
                             ? EngineConfig.WindowMode.BORDERLESS_FULLSCREEN : EngineConfig.WindowMode.WINDOWED));
             this.logger.debug("Toggle Fullscreen");
         }
+    }
+
+    /** Minecraft-artige lokale Statusmeldung für F3-Debug-Kombinationen. */
+    private void addDebugMessage(String messageKey, String valueKey) {
+        this.chat.addMessage("§e" + I18n.tr(messageKey, I18n.tr(valueKey)));
     }
 
     private void openChat(String initial) {
