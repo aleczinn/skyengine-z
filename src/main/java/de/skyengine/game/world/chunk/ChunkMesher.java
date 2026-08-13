@@ -510,8 +510,15 @@ public class ChunkMesher {
                     boolean backward = FluidGeometry.shouldRenderBackwardUpFace(this.chunk, this.north,
                             this.south, this.west, this.east, this.diagonals,
                             x, worldY, z, state.getBlock());
-                    grid[z << ChunkSection.SHIFT | x] = ((((long) stateId) + 1L) << 1)
-                            | (backward ? 1L : 0L);
+                    long key = ((((long) stateId) + 1L) << 1) | (backward ? 1L : 0L);
+                    /* Ein einziges großes Wasser-Quad kann nicht zugleich vor und hinter den
+                       einzelnen Faces eines transparenten Vollblocks sortiert werden. Nur am
+                       direkten Kontakt zu Eis/Glas bekommt die Zelle deshalb einen eindeutigen
+                       oberen Schlüssel und bleibt 1x1; der gesamte offene Rest bleibt greedy. */
+                    if (this.touchesSolidTranslucent(x, worldY, z)) {
+                        key |= ((long) ((z << ChunkSection.SHIFT | x) + 1)) << 32;
+                    }
+                    grid[z << ChunkSection.SHIFT | x] = key;
                     this.mergedWaterTop[snapIndex(x, y, z)] = true;
                     any = true;
                 }
@@ -541,12 +548,26 @@ public class ChunkMesher {
                     }
 
                     boolean backward = (key & 1L) != 0L;
-                    int stateId = (int) ((key >>> 1) - 1L);
+                    int stateId = (int) (((key & 0xFFFFFFFFL) >>> 1) - 1L);
                     this.emitWaterTop(buffer, stateId, backward, x, y, worldY, z, w, h);
                     x += w - 1;
                 }
             }
         }
+    }
+
+    /** Konfliktzone, in der ein Greedy-Top lokal pro Fluidzelle sortierbar bleiben muss. */
+    private boolean touchesSolidTranslucent(int x, int worldY, int z) {
+        return isSolidTranslucent(this.sample(x - 1, worldY, z))
+                || isSolidTranslucent(this.sample(x + 1, worldY, z))
+                || isSolidTranslucent(this.sample(x, worldY, z - 1))
+                || isSolidTranslucent(this.sample(x, worldY, z + 1))
+                || isSolidTranslucent(this.sample(x, worldY + 1, z));
+    }
+
+    private static boolean isSolidTranslucent(int stateId) {
+        BlockState state = BlockRegistry.getState(stateId);
+        return state.isSolid() && !state.isFluid() && state.getRenderLayer() == RenderLayer.TRANSLUCENT;
     }
 
     /**

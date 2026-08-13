@@ -37,6 +37,9 @@ public final class FluidGeometry {
     /** Vanillas LiquidBlockRenderer senkt sichtbare Top-Ecken um 0,001 Block ab. */
     public static final float TOP_RENDER_EPSILON = 0.001F;
 
+    /** Trennt koplanare Fluid- und Glas-/Eis-Seiten um einen Fixed-Point-Schritt. */
+    public static final float TRANSLUCENT_SIDE_EPSILON = 0.001F;
+
     /** Geteiltes Leer-Ergebnis — vermeidet Allokationen für unsichtbare Fluid-Zellen. */
     private static final BakedQuad[] NO_QUADS = new BakedQuad[0];
 
@@ -169,35 +172,43 @@ public final class FluidGeometry {
         /* SEITEN — je gegen Nicht-Fluid und nicht-opaken Nachbarn, mit den beiden Kanten-Eckhöhen. */
         // north (z-): Kante z=0, Ecken h00 (x=0) / h10 (x=1)
         if (sideVisible(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, 0, -1)) {
+            float sideZ = sideInset(chunk, north, south, west, east, diagonals,
+                    x, worldY, z, 0, -1);
             quads.add(quad(flow, BlockModels.FACE_BRIGHTNESS[2], tint,
-                    1, 0, 0, 0, 1,
-                    0, 0, 0, 1, 1,
-                    0, h00, 0, 1, 1 - h00,
-                    1, h10, 0, 0, 1 - h10));
+                    1, 0, sideZ, 0, 1,
+                    0, 0, sideZ, 1, 1,
+                    0, h00, sideZ, 1, 1 - h00,
+                    1, h10, sideZ, 0, 1 - h10));
         }
         // south (z+): Kante z=1, Ecken h01 (x=0) / h11 (x=1)
         if (sideVisible(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, 0, 1)) {
+            float sideZ = 1F - sideInset(chunk, north, south, west, east, diagonals,
+                    x, worldY, z, 0, 1);
             quads.add(quad(flow, BlockModels.FACE_BRIGHTNESS[3], tint,
-                    0, 0, 1, 0, 1,
-                    1, 0, 1, 1, 1,
-                    1, h11, 1, 1, 1 - h11,
-                    0, h01, 1, 0, 1 - h01));
+                    0, 0, sideZ, 0, 1,
+                    1, 0, sideZ, 1, 1,
+                    1, h11, sideZ, 1, 1 - h11,
+                    0, h01, sideZ, 0, 1 - h01));
         }
         // west (x-): Kante x=0, Ecken h00 (z=0) / h01 (z=1)
         if (sideVisible(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, -1, 0)) {
+            float sideX = sideInset(chunk, north, south, west, east, diagonals,
+                    x, worldY, z, -1, 0);
             quads.add(quad(flow, BlockModels.FACE_BRIGHTNESS[4], tint,
-                    0, 0, 0, 0, 1,
-                    0, 0, 1, 1, 1,
-                    0, h01, 1, 1, 1 - h01,
-                    0, h00, 0, 0, 1 - h00));
+                    sideX, 0, 0, 0, 1,
+                    sideX, 0, 1, 1, 1,
+                    sideX, h01, 1, 1, 1 - h01,
+                    sideX, h00, 0, 0, 1 - h00));
         }
         // east (x+): Kante x=1, Ecken h10 (z=0) / h11 (z=1)
         if (sideVisible(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, 1, 0)) {
+            float sideX = 1F - sideInset(chunk, north, south, west, east, diagonals,
+                    x, worldY, z, 1, 0);
             quads.add(quad(flow, BlockModels.FACE_BRIGHTNESS[5], tint,
-                    1, 0, 1, 0, 1,
-                    1, 0, 0, 1, 1,
-                    1, h10, 0, 1, 1 - h10,
-                    1, h11, 1, 0, 1 - h11));
+                    sideX, 0, 1, 0, 1,
+                    sideX, 0, 0, 1, 1,
+                    sideX, h10, 0, 1, 1 - h10,
+                    sideX, h11, 1, 0, 1 - h11));
         }
 
         return quads.toArray(new BakedQuad[0]);
@@ -209,6 +220,15 @@ public final class FluidGeometry {
         int id = sample(chunk, north, south, west, east, diagonals, x + dx, worldY, z + dz);
         if (isSameFluid(id, fluid)) return false;
         return !BlockRegistry.getState(id).isOpaqueCube();
+    }
+
+    private static float sideInset(Chunk chunk, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals,
+                                   int x, int worldY, int z, int dx, int dz) {
+        BlockState neighbor = BlockRegistry.getState(sample(chunk, north, south, west, east, diagonals,
+                x + dx, worldY, z + dz));
+        return neighbor.isSolid() && !neighbor.isFluid()
+                && neighbor.getRenderLayer() == de.skyengine.game.world.block.RenderLayer.TRANSLUCENT
+                ? TRANSLUCENT_SIDE_EPSILON : 0F;
     }
 
     /**

@@ -1,6 +1,8 @@
 package de.skyengine.game.world.chunk;
 
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.BlockRegistry;
+import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
@@ -85,6 +87,23 @@ final class FluidGeometryUnderwaterSurfaceTest {
                 top.textureLayer());
     }
 
+    @Test
+    void sideNextToIceIsInsetIntoWater() {
+        Chunk chunk = chunkWithWater(Blocks.AIR);
+        chunk.setBlock(11, 64, 10, ice());
+
+        BakedQuad east = Arrays.stream(build(chunk))
+                .filter(quad -> allX(quad, 1F - FluidGeometry.TRANSLUCENT_SIDE_EPSILON))
+                .findFirst().orElseThrow();
+        assertTrue(allX(east, 1F - FluidGeometry.TRANSLUCENT_SIDE_EPSILON));
+    }
+
+    @Test
+    void sideNextToAirRemainsOnBlockBoundary() {
+        Chunk chunk = chunkWithWater(Blocks.AIR);
+        assertTrue(Arrays.stream(build(chunk)).anyMatch(quad -> allX(quad, 1F)));
+    }
+
     private static void assertDoubleSidedTop(int above) {
         Chunk chunk = chunkWithWater(above);
         BakedQuad[] tops = Arrays.stream(build(chunk)).filter(FluidGeometryUnderwaterSurfaceTest::isTop)
@@ -117,5 +136,17 @@ final class FluidGeometryUnderwaterSurfaceTest {
         float ux = v[5] - v[0], uz = v[7] - v[2];
         float vx = v[10] - v[0], vz = v[12] - v[2];
         return uz * vx - ux * vz;
+    }
+
+    private static boolean allX(BakedQuad quad, float expected) {
+        float[] vertices = quad.vertices();
+        for (int i = 0; i < vertices.length; i += 5) {
+            if (Math.abs(vertices[i] - expected) > 0.000001F) return false;
+        }
+        return true;
+    }
+
+    private static int ice() {
+        return BlockRegistry.get(Identifier.of("skyengine:ice")).getDefaultState().getId();
     }
 }

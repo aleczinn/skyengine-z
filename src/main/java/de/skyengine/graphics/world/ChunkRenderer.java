@@ -98,6 +98,7 @@ public class ChunkRenderer {
        ~2·n·log n statt n mal, und allozierte pro Frame — Muster wie SectionMesh.sortTranslucent). */
     private long[] translucentSortKeys = new long[0];
     private SectionMesh[] translucentSortScratch = new SectionMesh[0];
+    private final Vector3d translucentSortDirection = new Vector3d();
 
     /* Alle Meshes mit TRANSLUCENT-Layer (Mitgliedschafts-Hooks in applyBatch/Cleanup):
        im GPU-Cull-Pfad entfällt der große Section-Loop, Translucent bleibt aber CPU
@@ -872,9 +873,11 @@ public class ChunkRenderer {
         /* Per-Quad-Sortierung: nahe Sections zuerst (Liste ist fern -> nah). Sortierte Daten
            wandern in frische Arena-Regionen -> danach ggf. VAO neu binden (Arena-Wachstum). */
         VertexArena translucentArena = this.arenas[RenderLayer.TRANSLUCENT.ordinal()];
+        camera.getDirection(this.translucentSortDirection);
         int sortBudget = MAX_TRANSLUCENT_SORTS_PER_FRAME;
         for (int i = this.translucentVisible.size() - 1; i >= 0 && sortBudget > 0; i--) {
-            if (this.translucentVisible.get(i).sortTranslucent(cam, translucentArena, this.frameId)) sortBudget--;
+            if (this.translucentVisible.get(i).sortTranslucent(camera, this.translucentSortDirection,
+                    translucentArena, this.frameId)) sortBudget--;
         }
         this.ensureVaoBindings();
 
