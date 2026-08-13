@@ -76,7 +76,8 @@ Beispiel:
 ## Shortcuts
 ```
 F2      :  Screenshot
-F3 + W  :  Wireframe AN/AUS
+F3 + G  :  Chunk-Wireframe AN/AUS
+F3 + V  :  Wireframe AN/AUS
 F3 + B  :  Entity Hitboxen anzeigen AN/AUS
 ```
 
@@ -118,6 +119,11 @@ Der Fokus liegt auf:
 - Moderne OpenGL-Techniken
 
 ## Screenshots / Changelog
+
+v0.0.13 | Level of Detail Update + Bug Fixes
+- Wasser in LOD Chunks haben jetzt ebenfalls Himmelslicht mit berechnet, um keine von Hell auf Dunkel Kanten in der Ferne zu haben
+- Debug Keys priorisierung implementiert, damit normale Eingaben nicht auch ausgelöst werden
+- F3 + V Debug Key für Wireframe implementiert
 
 v0.0.12 | Redstone
 - Diverse Redstone Blöcke wie Redstone, Verstärker, Observer, Komparator, (Klebriger) Piston, Redstone-Fackel und und und
