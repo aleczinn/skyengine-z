@@ -112,7 +112,7 @@ public final class GuiChat extends GuiScreen {
             Path target = this.chatHud.clickedTarget(gui, this.chat,
                     gui.vHeight() - CHAT_BOTTOM_OFFSET, mouseX, mouseY);
             if (target != null) {
-                CompletableFuture.runAsync(() -> Screenshot.showInFileManager(target.toFile()))
+                CompletableFuture.runAsync(() -> Screenshot.open(target.toFile()))
                         .whenComplete((unused, error) -> {
                             if (error != null) {
                                 SkyEngine.get().addTaskToRenderThread(() ->

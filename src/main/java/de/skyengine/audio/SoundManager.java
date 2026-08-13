@@ -44,7 +44,7 @@ import java.util.Random;
  *   <li>Effekt-Sounds werden beim Init komplett vorgeladen (wenige MB); Musik wird gestreamt.</li>
  * </ul>
  */
-public final class SoundManager implements IDisposable {
+public final class SoundManager implements IDisposable, UnderwaterAudioSink {
 
     /* 12 waren zu wenig, seit es Redstone-Maschinen gibt: der Kolben-Sound ist mit 0,65-0,92 s
        (0,552-s-Datei, gestreckt durch den MC-Pitch 0.6) der längste Effekt der Engine, und eine
@@ -52,7 +52,7 @@ public final class SoundManager implements IDisposable {
        Sekunde belegen rechnerisch schon ~13 Sources — Schritte und Abbaugeräusche kommen obendrauf,
        und über den Pool hinaus fällt der Sound still weg. OpenAL Soft trägt 256 Mono-Sources. */
     private static final int POOL_SIZE = 64;
-    private static final int MAX_VARIANTS = 8; // Varianten 1..N je Gruppe, solange die Datei existiert
+    private static final int MAX_VARIANTS = 32; // u.a. 14 Spieler-Schwimmvarianten
 
     /* Lautstärke/Pitch-Konventionen wie Minecraft. */
     private static final float STEP_GAIN = 0.15F, STEP_PITCH = 1.0F;
@@ -132,6 +132,17 @@ public final class SoundManager implements IDisposable {
     private int[] minecartVariants;   // minecart/base.ogg (fahrendes Minecart)
     private int[] minecartInsideVariants; // minecart/inside.ogg (nur lokaler Insasse)
     private int[] strongAttackVariants; // entity/player/attack/strong1..6 (Entity-Treffer)
+    private int[] underwaterEnterVariants;
+    private int[] underwaterExitVariants;
+    private int[] underwaterLoopVariants;
+    private int[] swimVariants;
+    private int[] splashVariants;
+    private int[] heavySplashVariants;
+    private VariantSet underwaterAdditions;
+    private VariantSet underwaterRareAdditions;
+    private VariantSet underwaterUltraRareAdditions;
+    private int underwaterLoopSource = -1;
+    private float underwaterLoopGain;
 
     /** Loop-Quellen werden über Entity-Identität geführt und nach jedem Sichtungsdurchlauf bereinigt. */
     private final IdentityHashMap<MinecartEntity, MinecartLoop> minecartLoops = new IdentityHashMap<>();
@@ -217,13 +228,34 @@ public final class SoundManager implements IDisposable {
         this.minecartVariants = this.loadVariants("minecart", "base");
         this.minecartInsideVariants = this.loadVariants("minecart", "inside");
         this.strongAttackVariants = this.loadVariants("player_attack", "strong");
+        this.underwaterEnterVariants = this.loadVariants("underwater", "enter");
+        this.underwaterExitVariants = this.loadVariants("underwater", "exit");
+        this.underwaterLoopVariants = this.loadVariants("underwater", "underwater_ambience");
+        this.swimVariants = this.loadNamed("liquid", names("swim", 5, 18));
+        this.splashVariants = this.loadNamed("liquid", new String[]{"splash", "splash2"});
+        this.heavySplashVariants = this.loadNamed("liquid", new String[]{"heavy_splash"});
+        this.underwaterAdditions = this.loadNamedWithGains("underwater/additions",
+                new String[]{"bubbles1", "bubbles2", "bubbles3", "bubbles4", "bubbles5", "bubbles6",
+                        "water1", "water2"},
+                new float[]{1, 1, 1, 1, 1, 1, 1, 1});
+        this.underwaterRareAdditions = this.loadNamedWithGains("underwater/additions/rare",
+                new String[]{"animal1", "bass_whale1", "bass_whale2", "crackles1", "crackles2",
+                        "driplets1", "driplets2", "earth_crack"},
+                new float[]{1F, 0.45F, 0.5F, 0.7F, 1F, 0.5F, 0.5F, 1F});
+        this.underwaterUltraRareAdditions = this.loadNamedWithGains("underwater/additions/ultra_rare",
+                new String[]{"animal2", "dark1", "dark2", "dark3", "dark4"},
+                new float[]{1F, 1F, 0.7F, 1F, 1F});
         loaded += count(this.uiClickVariants) + count(this.hurtVariants) + count(this.fallSmallVariants)
                 + count(this.fallBigVariants) + count(this.eatVariants) + count(this.burpVariants)
                 + count(this.explosionVariants) + count(this.fuseVariants) + count(this.fizzVariants)
                 + count(this.igniteVariants) + count(this.pickupVariants)
                 + count(this.pistonOutVariants) + count(this.pistonInVariants)
                 + count(this.minecartVariants) + count(this.minecartInsideVariants)
-                + count(this.strongAttackVariants);
+                + count(this.strongAttackVariants) + count(this.underwaterEnterVariants)
+                + count(this.underwaterExitVariants) + count(this.underwaterLoopVariants)
+                + count(this.swimVariants) + count(this.splashVariants) + count(this.heavySplashVariants)
+                + count(this.underwaterAdditions) + count(this.underwaterRareAdditions)
+                + count(this.underwaterUltraRareAdditions);
 
         /* Auf-/Zu-Sounds je Satz aus seinem eigenen Ordner; fehlt einer, bleibt nur er stumm. */
         for (BlockOpenSound sound : BlockOpenSound.values()) {
@@ -303,11 +335,117 @@ public final class SoundManager implements IDisposable {
         return variants == null ? 0 : variants.length;
     }
 
+    private static int count(VariantSet variants) {
+        return variants == null ? 0 : variants.buffers.length;
+    }
+
+    private static String[] names(String base, int first, int last) {
+        String[] names = new String[last - first + 1];
+        for (int i = first; i <= last; i++) names[i - first] = base + i;
+        return names;
+    }
+
+    /** Lädt eine explizite Ereignisliste; Lücken entfernen nicht die folgenden Varianten. */
+    private int[] loadNamed(String folder, String[] names) {
+        int[] buffers = new int[names.length];
+        int count = 0;
+        for (String name : names) {
+            File file = new File(this.soundsDir, folder + "/" + name + ".ogg");
+            if (!file.isFile()) continue;
+            int buffer = OggLoader.load(file, true);
+            if (buffer != -1) buffers[count++] = buffer;
+        }
+        if (count == 0) {
+            this.logger.warning(folder + " Unterwasser-Sounds fehlen (scripts/extract-mc-sounds.ps1 ausführen).");
+            return null;
+        }
+        return Arrays.copyOf(buffers, count);
+    }
+
+    private VariantSet loadNamedWithGains(String folder, String[] names, float[] gains) {
+        int[] buffers = new int[names.length];
+        float[] loadedGains = new float[names.length];
+        int count = 0;
+        for (int i = 0; i < names.length; i++) {
+            File file = new File(this.soundsDir, folder + "/" + names[i] + ".ogg");
+            if (!file.isFile()) continue;
+            int buffer = OggLoader.load(file, true);
+            if (buffer == -1) continue;
+            buffers[count] = buffer;
+            loadedGains[count++] = gains[i];
+        }
+        return count == 0 ? null : new VariantSet(Arrays.copyOf(buffers, count), Arrays.copyOf(loadedGains, count));
+    }
+
     /* --- Gameplay-API (No-Ops, solange nicht enabled) --- */
 
     /** Laufgeräusch — nicht-positional am Listener. */
     public void playStep(BlockSoundGroup group) {
         this.play(this.stepBuffers.get(group), SoundCategory.PLAYER, STEP_GAIN, STEP_PITCH, true, false, 0, 0, 0);
+    }
+
+    @Override
+    public void playUnderwaterEnter() {
+        this.play(this.underwaterEnterVariants, SoundCategory.AMBIENT, 0.5F, 1F,
+                false, false, 0, 0, 0);
+    }
+
+    @Override
+    public void playUnderwaterExit() {
+        this.play(this.underwaterExitVariants, SoundCategory.AMBIENT, 0.3F, 1F,
+                false, false, 0, 0, 0);
+    }
+
+    @Override
+    public void playUnderwaterAddition(int rarity) {
+        VariantSet variants = switch (rarity) {
+            case UnderwaterAudioController.ADDITION_RARE -> this.underwaterRareAdditions;
+            case UnderwaterAudioController.ADDITION_ULTRA_RARE -> this.underwaterUltraRareAdditions;
+            default -> this.underwaterAdditions;
+        };
+        this.play(variants, SoundCategory.AMBIENT);
+    }
+
+    @Override
+    public void playSwim(float volume) {
+        /* Entity.playSwimSound: 1 + (rand-rand)*0,4. Die Lautstaerke wurde bereits
+           aus der anisotrop gewichteten Bewegung berechnet und darf nicht nochmals
+           mit der Geschwindigkeit multipliziert werden. */
+        float pitch = 1F + (this.random.nextFloat() - this.random.nextFloat()) * 0.4F;
+        this.play(this.swimVariants, SoundCategory.PLAYER, volume, pitch,
+                false, false, 0, 0, 0);
+    }
+
+    @Override
+    public void playSplash(float speed) {
+        boolean heavy = speed >= 0.25F;
+        float gain = Math.min(1F, Math.max(0.2F, speed * 0.2F));
+        this.play(heavy ? this.heavySplashVariants : this.splashVariants,
+                SoundCategory.PLAYER, gain, 1F, true, false, 0, 0, 0);
+    }
+
+    @Override
+    public void setUnderwaterLoopGain(float gain) {
+        this.underwaterLoopGain = Math.clamp(gain, 0F, 1F);
+        if (!this.enabled || this.underwaterLoopVariants == null) return;
+        if (this.underwaterLoopGain <= 0F) {
+            if (this.underwaterLoopSource != -1) AL10.alSourceStop(this.underwaterLoopSource);
+            this.underwaterLoopSource = -1;
+            return;
+        }
+        if (this.underwaterLoopSource == -1) {
+            int source = this.acquireSource();
+            if (source == -1) return;
+            this.underwaterLoopSource = source;
+            AL10.alSourcei(source, AL10.AL_BUFFER, this.underwaterLoopVariants[0]);
+            AL10.alSourcei(source, AL10.AL_LOOPING, AL10.AL_TRUE);
+            AL10.alSourcei(source, AL10.AL_SOURCE_RELATIVE, AL10.AL_TRUE);
+            AL10.alSource3f(source, AL10.AL_POSITION, 0, 0, 0);
+            AL10.alSourcef(source, AL10.AL_PITCH, 1F);
+            AL10.alSourcePlay(source);
+        }
+        AL10.alSourcef(this.underwaterLoopSource, AL10.AL_GAIN,
+                0.65F * this.underwaterLoopGain * this.categoryGains[SoundCategory.AMBIENT.ordinal()]);
     }
 
     /** Abbau-Schlag während des Minings — gedämpfte Step-Variante an der Block-Position. */
@@ -593,6 +731,13 @@ public final class SoundManager implements IDisposable {
         AL10.alSourcePlay(source);
     }
 
+    private void play(VariantSet variants, SoundCategory category) {
+        if (!this.enabled || variants == null) return;
+        int selected = this.random.nextInt(variants.buffers.length);
+        this.play(new int[]{variants.buffers[selected]}, category, variants.gains[selected], 1F,
+                false, false, 0, 0, 0);
+    }
+
     /**
      * Round-Robin über den Pool; −1, wenn keine Source frei ist. „Frei" heißt ausdrücklich
      * STOPPED oder INITIAL und nicht bloß „spielt nicht": eine **pausierte** Source (Pausenmenü)
@@ -761,6 +906,10 @@ public final class SoundManager implements IDisposable {
         if (!this.enabled) return;
         this.categoryGains[category.ordinal()] = gain;
         if (category == SoundCategory.MUSIC) this.music.setVolume(gain);
+        if (category == SoundCategory.AMBIENT && this.underwaterLoopSource != -1) {
+            AL10.alSourcef(this.underwaterLoopSource, AL10.AL_GAIN,
+                    0.65F * this.underwaterLoopGain * gain);
+        }
     }
 
     /* --- Ausgabegerät --- */
@@ -795,6 +944,7 @@ public final class SoundManager implements IDisposable {
     @Override
     public void dispose() {
         if (this.device == 0) return;
+        this.setUnderwaterLoopGain(0F);
         this.stopMinecartSounds();
         this.music.dispose();
         if (this.pool != null) {
@@ -814,8 +964,14 @@ public final class SoundManager implements IDisposable {
                 this.fallBigVariants, this.eatVariants, this.burpVariants, this.explosionVariants,
                 this.fuseVariants, this.fizzVariants, this.pickupVariants, this.pistonOutVariants,
                 this.pistonInVariants, this.minecartVariants, this.minecartInsideVariants,
-                this.strongAttackVariants}) {
+                this.strongAttackVariants, this.underwaterEnterVariants, this.underwaterExitVariants,
+                this.underwaterLoopVariants, this.swimVariants, this.splashVariants,
+                this.heavySplashVariants}) {
             if (loose != null) unique.add(loose);
+        }
+        for (VariantSet variants : new VariantSet[]{this.underwaterAdditions,
+                this.underwaterRareAdditions, this.underwaterUltraRareAdditions}) {
+            if (variants != null) unique.add(variants.buffers);
         }
         for (int[] variants : unique) {
             for (int buffer : variants) AL10.alDeleteBuffers(buffer);
@@ -835,4 +991,6 @@ public final class SoundManager implements IDisposable {
             this.source = source;
         }
     }
+
+    private record VariantSet(int[] buffers, float[] gains) {}
 }

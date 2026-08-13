@@ -14,7 +14,7 @@ import java.nio.ByteBuffer;
  * Gebündelte Ressourcen der Post-Processing-Kette mit <b>benannten Slots</b> — jeder Pass
  * bezieht Ein-/Ausgänge ausschließlich von hier. Slots, die es noch nicht gibt, sind 0
  * (dokumentiert): {@link #velocity}/{@link #history} kommen mit TAA (Phase 2), {@link #lut}
- * mit dem LUTPass; {@link #sceneDepth} ist nur bei MSAA=0 belegt.
+ * mit dem LUTPass; {@link #sceneDepth} ist bei MSAA nach dem Framebuffer-Resolve belegt.
  *
  * <p>Dazu: zwei LDR-Ping-Pong-Zwischentexturen (RGBA16F) für Pass-Verkettung und der
  * gemeinsame Fullscreen-Triangle-Draw (leeres VAO, Positionen aus gl_VertexID). LDR meint hier
@@ -25,7 +25,7 @@ public final class PostContext implements IDisposable {
 
     /* --- Ressourcen-Slots (Textur-IDs, 0 = aktuell nicht vorhanden) --- */
     public int sceneColor;   // HDR-Szene (RGBA16F), bei MSAA erst nach FrameBuffer.resolve() aktuell
-    public int sceneDepth;   // Szenen-Tiefe (32F, Reversed-Z) — nur bei MSAA=0
+    public int sceneDepth;   // Szenen-Tiefe (32F, Reversed-Z), bei MSAA nach Resolve
     public int velocity;     // reserviert: per-Objekt-Bewegungsvektoren (TAA nutzt bisher Kamera-Reprojektion)
     public int history;      // TAA-History des Frames (Write-Seite, vom AntiAliasingPass publiziert)
     public int lut;          // reserviert: 3D-LUT (LUTPass, display-referred nach Grading)
@@ -43,6 +43,11 @@ public final class PostContext implements IDisposable {
        jede Resample-Kompensation frisst die Frische des Frames); bleibt als Anschluss
        für künftige Effekte, die den Jitter kennen müssen. */
     public final Vector2f jitterUv = new Vector2f();
+
+    /* Kamera-Umgebung fuer szenenweite Post-Effekte. */
+    public boolean underwater;
+    public float waterVision;
+    public boolean reversedDepth;
 
     /* Frame-Zähler (PostProcessor.render) — Pässe erkennen Aussetzer (History invalid). */
     public long frame;

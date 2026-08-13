@@ -636,6 +636,11 @@ public class EntityPlayer extends Entity {
         return this.isInFluid(world, false) || this.isInFluid(world, true);
     }
 
+    /** true, wenn die Spielerbox die echte Wasseroberfläche überlappt (Lava ausgeschlossen). */
+    public boolean isTouchingWater(World world) {
+        return this.isInFluid(world, false);
+    }
+
     /* --- Vitals --- */
 
     /**

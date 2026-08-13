@@ -25,7 +25,7 @@ import java.util.List;
 public final class FluidGeometry {
 
     /** Default-Wasserfarbe (gepackt 0xRRGGBB). Später positions-/biome-abhängig. Auch vom LOD genutzt. */
-    public static final int WATER_TINT = 0x4076E6;
+    public static final int WATER_TINT = 0x3F76E4;
 
     /**
      * Oberkante einer stillen Quelle (Level 0) nach der Formel {@code (8 - level) / 9}
@@ -33,6 +33,9 @@ public final class FluidGeometry {
      * gleiche Pack-Quantisierung wie das echte stille Wasser → koplanar, kein Z-Fighting.
      */
     public static final float SOURCE_HEIGHT = 8F / 9F;
+
+    /** Vanillas LiquidBlockRenderer senkt sichtbare Top-Ecken um 0,001 Block ab. */
+    public static final float TOP_RENDER_EPSILON = 0.001F;
 
     /** Geteiltes Leer-Ergebnis — vermeidet Allokationen für unsichtbare Fluid-Zellen. */
     private static final BakedQuad[] NO_QUADS = new BakedQuad[0];
@@ -80,17 +83,19 @@ public final class FluidGeometry {
 
         List<BakedQuad> quads = new ArrayList<>(6);
 
-        /* Still-Textur nur für eine ruhige, flache Quelle; sonst die Flow-Textur. */
+        /* Die Eckneigung entscheidet NICHT ueber die Textur. Minecraft verwendet oben die
+           Still-Textur genau dann, wenn der tatsaechliche Flow-Vektor null ist. */
         boolean flat = h00 == h10 && h10 == h11 && h11 == h01;
-        boolean stillTop = flat && state.get(Properties.LEVEL) == 0 && !state.get(Properties.FALLING);
-        int topLayer = stillTop ? still : flow;
 
         /* TOP — nur wenn oben kein gleiches Fluid (sonst verdeckt). Bei fließendem Wasser wird die
            Flow-Textur entlang des Gefälles gedreht (UVs um die Mitte rotiert, wie Minecraft), damit
            die Animation sichtbar von der Quelle wegläuft. Flach-stille Quell-Tops (Meeresoberfläche)
            übernimmt der gemergte Wasser-Pass des ChunkMeshers -> hier auslassen. */
         boolean mergedTop = skipMergedTop && flatStillAtSource(state, h00, h10, h11, h01);
-        if (!fluidAbove && !mergedTop) {
+        int above = sample(chunk, north, south, west, east, diagonals, x, worldY + 1, z);
+        boolean fullTopOccluded = BlockRegistry.getState(above).isOpaqueCube()
+                && Math.min(Math.min(h00, h10), Math.min(h11, h01)) >= 1F;
+        if (!fluidAbove && !mergedTop && !fullTopOccluded) {
             /* Fließrichtung wie Vanilla FlowingFluid.getFlow: pro Himmelsrichtung zieht nur
                gleiches Fluid (Level-Differenz) bzw. eine Abfall-Kante (freie Zelle mit gleichem
                Fluid eine Ebene tiefer); solide Nachbarn und leere Zellen tragen nichts bei.
@@ -116,8 +121,10 @@ public final class FluidGeometry {
                 velX += dx * diff;
                 velZ += dz * diff;
             }
+            boolean stillTop = Math.abs(velX) < 1.0e-4f && Math.abs(velZ) < 1.0e-4f;
+            int topLayer = stillTop ? still : flow;
             float[] uv; // u,v je Ecke in Reihenfolge A(0,0) B(0,1) C(1,1) D(1,0)
-            if (stillTop || (Math.abs(velX) < 1.0e-4f && Math.abs(velZ) < 1.0e-4f)) {
+            if (stillTop) {
                 uv = new float[]{0, 0, 0, 1, 1, 1, 1, 0};
             } else {
                 float angle = (float) Math.atan2(velZ, velX) - (float) (Math.PI / 2.0);
@@ -130,11 +137,23 @@ public final class FluidGeometry {
                         0.5f + c - s, 0.5f - c - s
                 };
             }
+            float r00 = h00 - TOP_RENDER_EPSILON;
+            float r10 = h10 - TOP_RENDER_EPSILON;
+            float r11 = h11 - TOP_RENDER_EPSILON;
+            float r01 = h01 - TOP_RENDER_EPSILON;
             quads.add(quad(topLayer, BlockModels.FACE_BRIGHTNESS[0], tint,
-                    0, h00, 0, uv[0], uv[1],
-                    0, h01, 1, uv[2], uv[3],
-                    1, h11, 1, uv[4], uv[5],
-                    1, h10, 0, uv[6], uv[7]));
+                    0, r00, 0, uv[0], uv[1],
+                    0, r01, 1, uv[2], uv[3],
+                    1, r11, 1, uv[4], uv[5],
+                    1, r10, 0, uv[6], uv[7]));
+            if (shouldRenderBackwardUpFace(chunk, north, south, west, east, diagonals,
+                    x, worldY, z, fluid)) {
+                quads.add(quad(topLayer, BlockModels.FACE_BRIGHTNESS[0], tint,
+                        1, r10, 0, uv[6], uv[7],
+                        1, r11, 1, uv[4], uv[5],
+                        0, r01, 1, uv[2], uv[3],
+                        0, r00, 0, uv[0], uv[1]));
+            }
         }
 
         /* BOTTOM — wenn unten weder gleiches Fluid noch ein opaker Block. */
@@ -248,12 +267,13 @@ public final class FluidGeometry {
 
     /**
      * Eigenhöhe einer Fluid-Spalte aus LEVEL/FALLING (ohne Nachbarbetrachtung), nach der
-     * Minecraft-Formel {@code (8 - level) / 9}: Quelle (Level 0) → 8/9, Level 7 → 1/9, fallende
-     * Säule → voller Block. Fluid-unabhängig; Lava wirkt nur „klobiger", weil sie pro Block
+     * Minecraft-Formel {@code amount / 9}: Quelle und fallende Säule haben Amount 8 → 8/9;
+     * horizontales Level 1..7 entspricht Amount 7..1. Voll (1.0) wird eine Zelle erst durch
+     * gleiches Fluid darüber. Fluid-unabhängig; Lava wirkt nur „klobiger", weil sie pro Block
      * 2 Level verliert (dropOff 2: Level 2, 4, 6).
      */
     private static float ownHeight(BlockState s) {
-        if (s.get(Properties.FALLING)) return 1.0f;
+        if (s.get(Properties.FALLING)) return SOURCE_HEIGHT;
         int level = Math.min(s.get(Properties.LEVEL), 7);
         return (8 - level) / 9.0f;
     }
@@ -306,6 +326,20 @@ public final class FluidGeometry {
         float h11 = corner(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, state, 1, 1, false);
         float h01 = corner(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, state, 0, 1, false);
         return flatStillAtSource(state, h00, h10, h11, h01);
+    }
+
+    /** Minecrafts 3x3-Test fuer die von unten sichtbare Rueckseite des Fluid-Tops. */
+    public static boolean shouldRenderBackwardUpFace(Chunk chunk, Chunk north, Chunk south,
+                                                     Chunk west, Chunk east, Chunk[] diagonals,
+                                                     int x, int worldY, int z, Block fluid) {
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                int id = sample(chunk, north, south, west, east, diagonals,
+                        x + dx, worldY + 1, z + dz);
+                if (!isSameFluid(id, fluid) && !BlockRegistry.getState(id).isOpaqueCube()) return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isSameFluid(int id, Block fluid) {

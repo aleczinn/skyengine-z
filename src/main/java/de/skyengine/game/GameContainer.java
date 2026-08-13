@@ -50,6 +50,7 @@ import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.audio.SoundCategory;
 import de.skyengine.audio.SoundManager;
+import de.skyengine.audio.UnderwaterAudioController;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.ChestRenderer;
 import de.skyengine.graphics.blockentity.EnchantingTableRenderer;
@@ -172,6 +173,7 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /* Audio: Effekt-Sounds + Musik (OpenAL, komplett auf dem Render-Thread). */
     private final SoundManager soundManager = new SoundManager();
+    private final UnderwaterAudioController underwaterAudio = new UnderwaterAudioController(this.soundManager);
 
     /* Spielermodell (Skin): Inventar-Vorschau + Third-Person. Welt-unabhängig (Engine-Lebensdauer). */
     private final PlayerRenderer playerRenderer = new PlayerRenderer();
@@ -191,6 +193,7 @@ public class GameContainer implements IResizeable, IDisposable {
     /* Laufgeräusche: zurückgelegte Distanz seit dem letzten Schritt (MC-Kadenz ~1.6 Blöcke). */
     private static final double STEP_INTERVAL = 1.6;
     private double stepDistance = 0;
+    private final WaterVision waterVision = new WaterVision();
 
     /* Wird per F2 gesetzt und von SkyEngine nach dem fertigen Frame abgeholt. */
     private boolean screenshotRequested = false;
@@ -294,6 +297,8 @@ public class GameContainer implements IResizeable, IDisposable {
      * wendet die Welt-Einstellungen an und zeigt den Welt-Ladebildschirm.
      */
     public void enterWorld(WorldSaves.WorldSave save) {
+        this.waterVision.reset();
+        this.underwaterAudio.reset();
         this.currentSave = save;
         this.world = new World(save.dirName(), save.level(), this.atlas, this.blockEntityRenderers);
         this.world.setSoundManager(this.soundManager); // Sounds aus der Welt-Logik (z.B. TNT-Explosion)
@@ -369,6 +374,8 @@ public class GameContainer implements IResizeable, IDisposable {
     public void respawnPlayer() {
         if (this.world == null || this.player == null) return;
         this.guiManager.close();
+        this.waterVision.reset();
+        this.underwaterAudio.reset();
         this.animState.reset();
         this.placeAtWorldSpawn(this.player);
         this.player.motionX = 0;
@@ -389,6 +396,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.saveCurrentWorld(true);
         GL11.glFinish();
         this.soundManager.stopMinecartSounds();
+        this.underwaterAudio.reset();
+        this.waterVision.reset();
         this.world.dispose();
         this.world = null;
         this.player = null;
@@ -536,6 +545,13 @@ public class GameContainer implements IResizeable, IDisposable {
             this.animState.tickHeldItem(this.playerInventory.get(this.hotbarIndex));
             this.animState.tick(this.player);
 
+            boolean eyesUnderwater = this.playerEyesUnderwater();
+            this.waterVision.tick(eyesUnderwater);
+            this.underwaterAudio.tick(eyesUnderwater, this.player.isTouchingWater(this.world),
+                    !this.player.isFlying(),
+                    this.player.x - this.player.lastX,
+                    this.player.y - this.player.lastY,
+                    this.player.z - this.player.lastZ);
             this.updateStepSounds();
             this.updateHurtSounds();
             this.updateEating(input);
@@ -674,11 +690,13 @@ public class GameContainer implements IResizeable, IDisposable {
 
         /* Menü-Blur: nur mit Welt UND blur-wolligem Screen (Pause + Unterseiten);
            der Pass animiert die Stärke selbst (Ein-/Ausblenden). */
-        SkyEngine.get().getPostProcessor().setMenuBlur(
+        PostProcessor post = SkyEngine.get().getPostProcessor();
+        post.setMenuBlur(
                 this.world != null && this.guiManager.blursBackground());
 
         /* Hauptmenü (keine Welt): nur GUI-Eingaben routen, gezeichnet wird in renderGui. */
         if (this.world == null) {
+            post.setUnderwater(false, 0F);
             this.guiManager.handleInput();
             return;
         }
@@ -730,7 +748,6 @@ public class GameContainer implements IResizeable, IDisposable {
 
         /* TAA-Subpixel-Jitter (0,0 wenn TAA aus) VOR dem Matrix-Update, Kameradaten für
            die Reprojektion DANACH in den Post-Context — Reihenfolge ist tragend. */
-        PostProcessor post = SkyEngine.get().getPostProcessor();
         post.nextJitter(this.taaJitter, width, height);
         this.camera.setJitter(this.taaJitter.x, this.taaJitter.y);
 
@@ -754,6 +771,10 @@ public class GameContainer implements IResizeable, IDisposable {
         this.camera.setViewEffect(this.viewEffect);
         this.camera.update((double) width / height);
         post.updateTaaCamera(this.camera);
+        BlockState cameraFluid = this.cameraFluidState();
+        post.setUnderwater(cameraFluid != null
+                        && !cameraFluid.getBlock().getFluidInfo().lava,
+                this.waterVision.factor());
 
         /* Audio pro Frame: Listener auf die interpolierte Kamera (Streaming läuft oben). */
         this.soundManager.updateListener(this.camera);
@@ -775,7 +796,10 @@ public class GameContainer implements IResizeable, IDisposable {
             this.guiManager.handleInput();       // Schließen + Slot-Klicks (kann den GuiScreen schließen)
             /* Ein GuiScreen-Callback (GuiIngameMenu „Hauptmenü") kann exitToTitle() ausgelöst haben —
                dann ist die Welt weg und der Rest des Frames darf sie nicht mehr anfassen. */
-            if (this.world == null) return;
+            if (this.world == null) {
+                post.setUnderwater(false, 0F);
+                return;
+            }
         } else {
             /* Nur Klick-Flanken einsammeln — die Interaktion selbst läuft wie in MC im Tick. */
             this.pollInteractionClicks(input);
@@ -823,9 +847,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.entityHitboxRenderer.render(this.camera, this.player, this.world, partialTick);
         }
 
-        this.renderFluidOverlay();
-
-        /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Depth-Clear. */
+        /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Nah-Depthbereich. */
         if (!this.hudHidden && this.perspective.isFirstPerson()
                 && this.player.getGamemode() != Gamemode.SPECTATOR) {
             /* Licht der AUGEN-Zelle (nicht der Füße): die Hand hängt vor dem Gesicht, und in
@@ -834,6 +856,10 @@ public class GameContainer implements IResizeable, IDisposable {
             this.handRenderer.render(this.playerRenderer, this.heldItemMeshes, this.player,
                     this.animState, (float) width / height, partialTick, this.viewEffect, handLight);
         }
+
+        /* Wasser folgt als Depth-Post-Pass; Lava bleibt ein dichter Overlay und liegt damit
+           ebenfalls ueber First-Person-Hand und gehaltenem Item. */
+        this.renderLavaOverlay();
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
     }
@@ -999,34 +1025,45 @@ public class GameContainer implements IResizeable, IDisposable {
         return (ITEM_NAME_HOLD_MS + ITEM_NAME_FADE_MS - since) / (float) ITEM_NAME_FADE_MS;
     }
 
-    /**
-     * Fullscreen-Tint, wenn das Kamera-Auge in einem Fluid steckt (wie Minecraft):
-     * Wasser -> blau/leicht, Lava -> orange/dicht. Gezeichnet zwischen Welt und HUD.
-     */
-    private void renderFluidOverlay() {
+    /** Liefert das Fluid, dessen echte Oberflaeche die Kamera gerade ueberdeckt. */
+    private BlockState cameraFluidState() {
         Vector3d eye = this.camera.getPosition();
         int bx = (int) Math.floor(eye.x);
         int by = (int) Math.floor(eye.y);
         int bz = (int) Math.floor(eye.z);
         BlockState state = Blocks.getState(this.world.getBlock(bx, by, bz));
-        if (!state.isFluid()) return;
-
-        /* Zelle zählt als voll, wenn darüber dasselbe Fluid steht (wie FluidGeometry),
-           sonst gilt die sichtbare Oberkante aus LEVEL/FALLING. */
-        float height = 1.0f;
         BlockState above = Blocks.getState(this.world.getBlock(bx, by + 1, bz));
-        if (!(above.isFluid() && above.getBlock() == state.getBlock())) {
-            height = FluidGeometry.fluidHeight(state);
-        }
-        if (eye.y - by >= height) return;
+        return isCameraSubmerged(eye.y, by, state, above) ? state : null;
+    }
+
+    /** Tick-Sample am echten Spielerauge; steuert Water Vision und Unterwasser-Audio. */
+    private boolean playerEyesUnderwater() {
+        double eyeY = this.player.y + this.player.getEyeHeight(1F);
+        int bx = (int) Math.floor(this.player.x);
+        int by = (int) Math.floor(eyeY);
+        int bz = (int) Math.floor(this.player.z);
+        BlockState state = Blocks.getState(this.world.getBlock(bx, by, bz));
+        BlockState above = Blocks.getState(this.world.getBlock(bx, by + 1, bz));
+        return isCameraSubmerged(eyeY, by, state, above)
+                && !state.getBlock().getFluidInfo().lava;
+    }
+
+    /** Pure Oberflaechenpruefung, getrennt vom World-Zugriff fuer Regressionstests. */
+    static boolean isCameraSubmerged(double eyeY, int blockY, BlockState state, BlockState above) {
+        if (!state.isFluid()) return false;
+        float height = above.isFluid() && above.getBlock() == state.getBlock()
+                ? 1.0F : FluidGeometry.fluidHeight(state);
+        return eyeY - blockY < height;
+    }
+
+    /** Dichtes Lava-Overlay; Wasser wird vom depth-basierten Post-Pass behandelt. */
+    private void renderLavaOverlay() {
+        BlockState state = this.cameraFluidState();
+        if (state == null || !state.getBlock().getFluidInfo().lava) return;
 
         SpriteRenderer sr = this.guiManager.sprites();
         sr.begin(1, 1); // Ortho 0..1 -> Fullscreen-Rect unabhängig vom GUI-Scale
-        if (state.getBlock().getFluidInfo().lava) {
-            sr.drawRect(0, 0, 1, 1, 0.6f, 0.1f, 0.0f, 0.8f);    // Lava: dicht, orange-rot
-        } else {
-            sr.drawRect(0, 0, 1, 1, 0.25f, 0.46f, 0.9f, 0.35f); // Wasser (an 0x4076E6 angelehnt)
-        }
+        sr.drawRect(0, 0, 1, 1, 0.6f, 0.1f, 0.0f, 0.8f);
         sr.end();
     }
 
@@ -1051,6 +1088,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.guiManager != null) this.guiManager.dispose();
         this.blockEntityRenderers.dispose();
         this.atlas.dispose();
+        this.underwaterAudio.reset();
         this.soundManager.dispose();
     }
 

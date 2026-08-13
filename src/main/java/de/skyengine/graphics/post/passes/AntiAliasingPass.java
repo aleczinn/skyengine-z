@@ -364,6 +364,11 @@ public final class AntiAliasingPass implements PostPass {
 
     private final Logger logger = LogManager.getLogger(AntiAliasingPass.class.getName());
 
+    /** Verwirft TAA-History bei diskontinuierlichen Szeneneffekten (z. B. Wasseroberflaeche). */
+    public void invalidateHistory() {
+        this.historyValid = false;
+    }
+
     @Override
     public void init(PostContext context) {
         this.fxaaProgram = new ShaderProgram(

@@ -3,6 +3,7 @@ package de.skyengine.game.world.lod;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.ChunkMesher;
+import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.test.BlocksTestBootstrap;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import java.util.function.IntUnaryOperator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class LodMesherLightingTest {
 
@@ -28,7 +30,11 @@ final class LodMesherLightingTest {
 
         LodManager.LodMeshResult ocean = mesh(source(Blocks.WATER, 63, x -> 50));
         assertAllEqual(2, horizontalQuadLights(ocean.opaqueData(), ocean.yBase(), 51F));
-        assertAllEqual(15, horizontalQuadLights(ocean.translucentData(), ocean.yBase(), 63F + 8F / 9F));
+        float waterRenderY = 63F + FluidGeometry.SOURCE_HEIGHT - FluidGeometry.TOP_RENDER_EPSILON;
+        assertAllEqual(15, horizontalQuadLights(ocean.translucentData(), ocean.yBase(), waterRenderY));
+        List<Float> windings = horizontalQuadWindings(ocean.translucentData(), ocean.yBase(), waterRenderY);
+        assertTrue(windings.stream().anyMatch(value -> value > 0F));
+        assertTrue(windings.stream().anyMatch(value -> value < 0F));
 
         LodManager.LodMeshResult deepOcean = mesh(source(Blocks.WATER, 80, x -> 50));
         assertAllEqual(0, horizontalQuadLights(deepOcean.opaqueData(), deepOcean.yBase(), 51F));
@@ -132,6 +138,32 @@ final class LodMesherLightingTest {
             }
         }
         return List.of();
+    }
+
+    private static List<Float> horizontalQuadWindings(int[] data, int yBase, float expectedY) {
+        List<Float> result = new ArrayList<>();
+        for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+            boolean horizontal = true;
+            for (int v = 0; v < 4; v++) {
+                if (Math.abs(y(data[q + v * ChunkMesher.VERTEX_SIZE], yBase) - expectedY) > 0.01F) {
+                    horizontal = false;
+                }
+            }
+            if (!horizontal) continue;
+            float ax = x(data, q), az = z(data, q);
+            float bx = x(data, q + ChunkMesher.VERTEX_SIZE), bz = z(data, q + ChunkMesher.VERTEX_SIZE);
+            float cx = x(data, q + 2 * ChunkMesher.VERTEX_SIZE), cz = z(data, q + 2 * ChunkMesher.VERTEX_SIZE);
+            result.add((bz - az) * (cx - ax) - (bx - ax) * (cz - az));
+        }
+        return result;
+    }
+
+    private static float x(int[] data, int offset) {
+        return coordinate(data[offset] & 0xFFFF);
+    }
+
+    private static float z(int[] data, int offset) {
+        return coordinate(data[offset + 1] & 0xFFFF);
     }
 
     private static void assertAllEqual(int expected, List<Integer> values) {

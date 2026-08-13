@@ -5,8 +5,8 @@ package de.skyengine.audio;
  * einem Kanal, dessen Lautstärke (GameSettings.soundVolumes, 0..100) auf den Source-Gain
  * multipliziert wird — zusätzlich zum Master (Listener-Gain).
  *
- * <p>WEATHER/HOSTILE/FRIENDLY/AMBIENT haben noch keine Erzeuger (kein Wetter, keine Mobs) —
- * die Regler existieren schon und greifen, sobald entsprechende Systeme Sounds abspielen.
+ * <p>WEATHER/HOSTILE/FRIENDLY haben noch keine Erzeuger (kein Wetter, keine Mobs). AMBIENT
+ * steuert bereits die Unterwasser-Klangkulisse.
  */
 public enum SoundCategory {
     MUSIC(50),

@@ -66,29 +66,23 @@ public final class Screenshot {
         }
     }
 
-    /**
-     * Zeigt einen Screenshot im Dateimanager. Der Aufrufer führt diese potenziell blockierende
-     * Betriebssystem-Operation außerhalb des Render-Threads aus.
-     */
-    public static void showInFileManager(File screenshot) {
+    /** Öffnet den Screenshot selbst im Standard-Bildbetrachter. */
+    public static void open(File screenshot) {
         try {
+            if (screenshot == null || !screenshot.isFile()) {
+                throw new IOException("Screenshot-Datei existiert nicht");
+            }
             if (!Desktop.isDesktopSupported()) {
                 throw new UnsupportedOperationException("Desktop-API wird nicht unterstützt");
             }
             Desktop desktop = Desktop.getDesktop();
-            if (desktop.isSupported(Desktop.Action.BROWSE_FILE_DIR)) {
-                desktop.browseFileDirectory(screenshot);
-                return;
+            if (!desktop.isSupported(Desktop.Action.OPEN)) {
+                throw new UnsupportedOperationException("Dateien können nicht geöffnet werden");
             }
-            File directory = screenshot.getParentFile();
-            if (directory != null && desktop.isSupported(Desktop.Action.OPEN)) {
-                desktop.open(directory);
-                return;
-            }
-            throw new UnsupportedOperationException("Dateimanager kann nicht geöffnet werden");
+            desktop.open(screenshot);
         } catch (IOException | RuntimeException e) {
-            LOGGER.error("Screenshot konnte nicht im Dateimanager angezeigt werden: "
-                    + screenshot.getAbsolutePath(), e);
+            LOGGER.error("Screenshot konnte nicht im Bildbetrachter geöffnet werden: "
+                    + (screenshot == null ? "<null>" : screenshot.getAbsolutePath()), e);
             throw new IllegalStateException(e);
         }
     }

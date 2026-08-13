@@ -751,18 +751,28 @@ public final class LodMesher {
         /* Fluid-Tops gehen in den Translucent-Puffer (transparente Wasserfläche); alles
            andere bleibt opak. Wände an Fluid-Zellen sind analog transluzent (s. emitWall). */
         boolean fluidTop = this.appearance.isFluid(block);
+        float renderY = fluidTop ? y - FluidGeometry.TOP_RENDER_EPSILON : y;
         if (this.stats != null) {
             if (fluidTop) this.stats.topWater++; else this.stats.topTerrain++;
         }
 
         this.ensureCapacity(fluidTop);
-        this.putVertex(fluidTop, x0, y, z0, 0F, 0F, layer, brightness * ao[0], tint, skyLight);
-        this.putVertex(fluidTop, x0, y, z1, 0F, v, layer, brightness * ao[1], tint, skyLight);
-        this.putVertex(fluidTop, x1, y, z1, u, v, layer, brightness * ao[2], tint, skyLight);
-        this.putVertex(fluidTop, x1, y, z0, u, 0F, layer, brightness * ao[3], tint, skyLight);
+        this.putVertex(fluidTop, x0, renderY, z0, 0F, 0F, layer, brightness * ao[0], tint, skyLight);
+        this.putVertex(fluidTop, x0, renderY, z1, 0F, v, layer, brightness * ao[1], tint, skyLight);
+        this.putVertex(fluidTop, x1, renderY, z1, u, v, layer, brightness * ao[2], tint, skyLight);
+        this.putVertex(fluidTop, x1, renderY, z0, u, 0F, layer, brightness * ao[3], tint, skyLight);
 
-        if (y > this.maxTop) this.maxTop = y;
-        if (y < this.minBottom) this.minBottom = y;
+        if (fluidTop) {
+            /* LOD-Wasseroberflächen wie die Nahgeometrie gezielt doppelseitig backen. */
+            this.ensureCapacity(true);
+            this.putVertex(true, x1, renderY, z0, u, 0F, layer, brightness * ao[3], tint, skyLight);
+            this.putVertex(true, x1, renderY, z1, u, v, layer, brightness * ao[2], tint, skyLight);
+            this.putVertex(true, x0, renderY, z1, 0F, v, layer, brightness * ao[1], tint, skyLight);
+            this.putVertex(true, x0, renderY, z0, 0F, 0F, layer, brightness * ao[0], tint, skyLight);
+        }
+
+        if (renderY > this.maxTop) this.maxTop = renderY;
+        if (renderY < this.minBottom) this.minBottom = renderY;
     }
 
     /**
