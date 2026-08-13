@@ -45,5 +45,6 @@ bin/
 .DS_Store
 
 ### Engine ###
+.gradle-user/
 /debug/
 /debug-maps/
