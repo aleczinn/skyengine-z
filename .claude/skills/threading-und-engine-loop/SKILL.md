@@ -73,7 +73,10 @@ Niemals blind `GL_LESS`/`GL_LEQUAL` hartkodieren.
   einen gefangenen Cursor frei und fängt ihn danach neu).
 - Screenshots (F2): nur Flag setzen (`GameContainer.screenshotRequested`); der Pixel-Read passiert
   in `SkyEngine.onRender` NACH Resolve + Post-Kette + GUI und VOR `glfwSwapBuffers` →
-  Ordner `%APPDATA%\.skyengine\screenshots\` (`GameDirectory`).
+  Ordner `%APPDATA%\.skyengine\screenshots\` (`GameDirectory`). Das Ergebnis wird danach als
+  klickbare Chat-Nachricht eingereiht. Das Öffnen/Markieren im System-Dateimanager läuft bewusst
+  asynchron außerhalb des Render-Threads; nur die eventuelle Fehlermeldung wird wieder über
+  `addTaskToRenderThread` in den Chat gestellt.
 
 ## Verifikation
 

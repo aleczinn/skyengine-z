@@ -1,8 +1,10 @@
 package de.skyengine.graphics.gui.screens;
 
+import de.skyengine.core.SkyEngine;
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.command.ChatManager;
 import de.skyengine.game.command.CommandContext;
+import de.skyengine.graphics.Screenshot;
 import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.gui.ChatHud;
 import de.skyengine.graphics.gui.GuiManager;
@@ -11,7 +13,9 @@ import de.skyengine.graphics.gui.GuiText;
 import de.skyengine.graphics.gui.widget.TextField;
 import org.lwjgl.glfw.GLFW;
 
+import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 /** Nicht pausierender Singleplayer-Chat zur Eingabe und Vervollstaendigung von Befehlen. */
 public final class GuiChat extends GuiScreen {
@@ -100,6 +104,25 @@ public final class GuiChat extends GuiScreen {
             }
         }
         gui.font().end();
+    }
+
+    @Override
+    public boolean mousePressed(GuiManager gui, double mouseX, double mouseY, int button) {
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            Path target = this.chatHud.clickedTarget(gui, this.chat,
+                    gui.vHeight() - CHAT_BOTTOM_OFFSET, mouseX, mouseY);
+            if (target != null) {
+                CompletableFuture.runAsync(() -> Screenshot.showInFileManager(target.toFile()))
+                        .whenComplete((unused, error) -> {
+                            if (error != null) {
+                                SkyEngine.get().addTaskToRenderThread(() ->
+                                        this.chat.addMessage("§c" + I18n.tr("chat.screenshot_open_failed")));
+                            }
+                        });
+                return true;
+            }
+        }
+        return super.mousePressed(gui, mouseX, mouseY, button);
     }
 
     @Override

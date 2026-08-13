@@ -166,7 +166,10 @@
     "prompt": "Befehl eingeben...",
     "commands_only": "Dieser Chat akzeptiert derzeit nur Befehle.",
     "empty_command": "Bitte gib einen Befehl ein.",
-    "unknown_command": "Unbekannter Befehl: /%s"
+    "unknown_command": "Unbekannter Befehl: /%s",
+    "screenshot_saved": "Screenshot gespeichert: ",
+    "screenshot_failed": "Screenshot konnte nicht gespeichert werden.",
+    "screenshot_open_failed": "Screenshot konnte nicht im Dateimanager angezeigt werden."
   },
 
   "command": {

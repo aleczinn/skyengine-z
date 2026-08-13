@@ -27,6 +27,7 @@ public final class LodBlockAppearance {
     private final int[] sideOverlayTints;
     private final int[] sideOverlayTintTypes;
     private final boolean[] fluids;
+    private final boolean[] skyLightAttenuatingFluids;
 
     /** Erst nach BlockRegistry.bake() erzeugen (World.init). */
     public LodBlockAppearance() {
@@ -41,6 +42,7 @@ public final class LodBlockAppearance {
         this.sideOverlayTints = new int[count];
         this.sideOverlayTintTypes = new int[count];
         this.fluids = new boolean[count];
+        this.skyLightAttenuatingFluids = new boolean[count];
 
         for (int id = 0; id < count; id++) {
             BlockState state = BlockRegistry.getState(id);
@@ -51,6 +53,7 @@ public final class LodBlockAppearance {
 
             FluidInfo fluid = state.getBlock().getFluidInfo();
             if (fluid != null) {
+                this.skyLightAttenuatingFluids[id] = !fluid.lava;
                 this.topLayers[id] = fluid.stillLayer;
                 this.sideLayers[id] = fluid.stillLayer;
                 if (!fluid.lava) {
@@ -139,5 +142,10 @@ public final class LodBlockAppearance {
     /** true für Fluide — deren Zell-Top liegt auf der Quellhöhe (8/9) statt auf Höhe+1. */
     public boolean isFluid(int stateId) {
         return this.fluids[stateId];
+    }
+
+    /** true für Wasser-States, deren LOD-Säule Himmelslicht um eine Stufe pro Block dämpft. */
+    public boolean attenuatesSkyLight(int stateId) {
+        return this.skyLightAttenuatingFluids[stateId];
     }
 }

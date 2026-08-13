@@ -64,10 +64,14 @@ import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.SaveToast;
 import de.skyengine.graphics.gui.SpriteRenderer;
+import de.skyengine.graphics.gui.font.FontStyle;
 import de.skyengine.graphics.gui.screens.GuiIngameMenu;
 import de.skyengine.graphics.gui.screens.GuiDeathScreen;
 import de.skyengine.graphics.gui.screens.GuiMainMenu;
 import de.skyengine.graphics.gui.screens.GuiWorldLoading;
+import de.skyengine.graphics.gui.text.RichText;
+import de.skyengine.graphics.gui.text.Span;
+import de.skyengine.graphics.gui.text.TextColors;
 import de.skyengine.game.entity.PlayerAnimationState;
 import de.skyengine.graphics.camera.CameraPerspective;
 import de.skyengine.graphics.player.FirstPersonHandRenderer;
@@ -94,6 +98,7 @@ import org.joml.Vector3d;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.File;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -1735,7 +1740,9 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         /* Mausrad: hoch = vorheriger Slot, runter = nächster (mit Wrap), wie in Minecraft. */
         double scroll = input.getScrollY();
-        if (scroll > 0) {
+        if (this.player.getGamemode() == Gamemode.SPECTATOR && scroll != 0) {
+            this.player.adjustSpectatorFlySpeed(scroll);
+        } else if (scroll > 0) {
             this.hotbarIndex = (this.hotbarIndex + 8) % 9;
         } else if (scroll < 0) {
             this.hotbarIndex = (this.hotbarIndex + 1) % 9;
@@ -1845,6 +1852,18 @@ public class GameContainer implements IResizeable, IDisposable {
         boolean requested = this.screenshotRequested;
         this.screenshotRequested = false;
         return requested;
+    }
+
+    /** Zeigt das Ergebnis des nach dem GUI aufgenommenen F2-Screenshots im Chat an. */
+    public void notifyScreenshotResult(File screenshot) {
+        if (screenshot == null) {
+            this.chat.addMessage("§c" + I18n.tr("chat.screenshot_failed"));
+            return;
+        }
+        RichText message = RichText.of(List.of(
+                new Span(I18n.tr("chat.screenshot_saved"), FontStyle.REGULAR, null),
+                new Span(screenshot.getName(), FontStyle.REGULAR, TextColors.parse("aqua"))));
+        this.chat.addMessage(message, 1, screenshot.toPath());
     }
 
     public Camera getCamera() {

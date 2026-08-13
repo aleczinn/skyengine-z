@@ -2,6 +2,7 @@ package de.skyengine.game.command;
 
 import de.skyengine.graphics.gui.text.RichText;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,8 +35,17 @@ public final class ChatManager {
     }
 
     public void addMessage(String markup) {
+        this.addMessage(RichText.parse(markup), null);
+    }
+
+    /** Fügt formatierten Text mit genau einem anklickbaren Span hinzu. */
+    public void addMessage(RichText text, int clickableSpan, Path target) {
+        this.addMessage(text, new ClickAction(clickableSpan, target.toAbsolutePath().normalize()));
+    }
+
+    private void addMessage(RichText text, ClickAction action) {
         if (this.messages.size() == MAX_MESSAGES) this.messages.removeFirst();
-        this.messages.add(new ChatMessage(RichText.parse(markup), System.currentTimeMillis()));
+        this.messages.add(new ChatMessage(text, System.currentTimeMillis(), action));
     }
 
     public List<String> suggestions(CommandContext context, String input) {
@@ -54,6 +64,10 @@ public final class ChatManager {
         return List.copyOf(this.history);
     }
 
-    public record ChatMessage(RichText text, long createdAtMillis) {
+    public record ChatMessage(RichText text, long createdAtMillis, ClickAction clickAction) {
+    }
+
+    /** Aktion eines einzelnen RichText-Spans; derzeit ausschließlich für Screenshot-Dateien. */
+    public record ClickAction(int spanIndex, Path target) {
     }
 }

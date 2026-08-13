@@ -7,7 +7,9 @@ import org.lwjgl.opengl.GL30;
 import org.lwjgl.stb.STBImageWrite;
 import org.lwjgl.system.MemoryUtil;
 
+import java.awt.Desktop;
 import java.io.File;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -27,8 +29,8 @@ public final class Screenshot {
 
     private Screenshot() {}
 
-    public static void capture(int width, int height) {
-        if (width <= 0 || height <= 0) return;
+    public static File capture(int width, int height) {
+        if (width <= 0 || height <= 0) return null;
 
         /* RGB-Zeilen ohne 4-Byte-Padding lesen, sonst sind die Zeilen bei ungerader Breite verschoben. */
         GL11.glPixelStorei(GL11.GL_PACK_ALIGNMENT, 1);
@@ -39,7 +41,10 @@ public final class Screenshot {
         try {
             GL11.glReadPixels(0, 0, width, height, GL11.GL_RGB, GL11.GL_UNSIGNED_BYTE, pixels);
 
-            if (!DIRECTORY.exists()) DIRECTORY.mkdirs();
+            if (!DIRECTORY.exists() && !DIRECTORY.mkdirs()) {
+                LOGGER.error("Screenshot-Ordner konnte nicht erstellt werden: " + DIRECTORY.getPath());
+                return null;
+            }
             File out = uniqueFile();
 
             /* OpenGL liefert die Pixel von unten nach oben; PNG erwartet oben nach unten. */
@@ -48,11 +53,43 @@ public final class Screenshot {
 
             if (ok) {
                 LOGGER.info("Screenshot gespeichert: " + out.getAbsolutePath());
+                return out;
             } else {
                 LOGGER.error("Screenshot konnte nicht gespeichert werden: " + out.getPath());
+                return null;
             }
+        } catch (RuntimeException e) {
+            LOGGER.error("Screenshot konnte nicht aufgenommen werden", e);
+            return null;
         } finally {
             MemoryUtil.memFree(pixels);
+        }
+    }
+
+    /**
+     * Zeigt einen Screenshot im Dateimanager. Der Aufrufer führt diese potenziell blockierende
+     * Betriebssystem-Operation außerhalb des Render-Threads aus.
+     */
+    public static void showInFileManager(File screenshot) {
+        try {
+            if (!Desktop.isDesktopSupported()) {
+                throw new UnsupportedOperationException("Desktop-API wird nicht unterstützt");
+            }
+            Desktop desktop = Desktop.getDesktop();
+            if (desktop.isSupported(Desktop.Action.BROWSE_FILE_DIR)) {
+                desktop.browseFileDirectory(screenshot);
+                return;
+            }
+            File directory = screenshot.getParentFile();
+            if (directory != null && desktop.isSupported(Desktop.Action.OPEN)) {
+                desktop.open(directory);
+                return;
+            }
+            throw new UnsupportedOperationException("Dateimanager kann nicht geöffnet werden");
+        } catch (IOException | RuntimeException e) {
+            LOGGER.error("Screenshot konnte nicht im Dateimanager angezeigt werden: "
+                    + screenshot.getAbsolutePath(), e);
+            throw new IllegalStateException(e);
         }
     }
 

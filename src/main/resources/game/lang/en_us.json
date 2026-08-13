@@ -158,7 +158,10 @@
     "prompt": "Enter command...",
     "commands_only": "This chat currently accepts commands only.",
     "empty_command": "Please enter a command.",
-    "unknown_command": "Unknown command: /%s"
+    "unknown_command": "Unknown command: /%s",
+    "screenshot_saved": "Screenshot saved: ",
+    "screenshot_failed": "Screenshot could not be saved.",
+    "screenshot_open_failed": "Screenshot could not be shown in the file manager."
   },
 
   "command": {

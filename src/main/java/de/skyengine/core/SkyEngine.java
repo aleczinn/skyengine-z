@@ -22,7 +22,7 @@ import java.util.concurrent.CountDownLatch;
 public class SkyEngine {
 
     public static final String ENGINE_NAME = "SkyEngine";
-    public static final String ENGINE_VERSION = "0.0.12";
+    public static final String ENGINE_VERSION = "0.0.13";
 
     /** The index/token used in an index buffer for primitive restart. */
     public static final int PRIMITIVE_RESTART_INDEX = 0xFFFF;
@@ -116,7 +116,8 @@ public class SkyEngine {
 
         /* Screenshot aus dem fertigen Default-Framebuffer (inkl. GUI), vor dem Present. */
         if (this.game.consumeScreenshotRequest()) {
-            Screenshot.capture(this.window.getWidth(), this.window.getHeight());
+            this.game.notifyScreenshotResult(
+                    Screenshot.capture(this.window.getWidth(), this.window.getHeight()));
         }
 
         /* End-Stempel der GPU-Frame-Spanne: letzter GL-Befehl vor dem Present */
@@ -398,6 +399,14 @@ public class SkyEngine {
     public void addTaskToMainThread(Runnable task) {
         this.mainThreadTasks.add(task);
         GLFW.glfwPostEmptyEvent();
+    }
+
+    /** Reiht eine Aufgabe threadsicher für den nächsten Render-Thread-Durchlauf ein. */
+    public void addTaskToRenderThread(Runnable task) {
+        this.renderTasks.add(new DelayedRunnable(() -> {
+            task.run();
+            return null;
+        }, "Render-Thread-Aufgabe", 0));
     }
 
     /**

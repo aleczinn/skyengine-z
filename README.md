@@ -73,6 +73,13 @@ Beispiel:
 ./gradlew mcImport --args="'C:/Users/useerrr/AppData/Roaming/.minecraft/saves/MeineWelt' 'MeineWelt'"
 ```
 
+## Shortcuts
+```
+F2      :  Screenshot
+F3 + W  :  Wireframe AN/AUS
+F3 + B  :  Entity Hitboxen anzeigen AN/AUS
+```
+
 ## Development
 
 ### Prerequisites

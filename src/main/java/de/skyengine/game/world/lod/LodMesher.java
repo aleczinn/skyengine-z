@@ -280,6 +280,7 @@ public final class LodMesher {
                     continue;
                 }
                 float top = this.topOf(g);
+                int skyLight = this.skyLightAt(this.cell(cx, cz), top);
                 float[] ao;
                 boolean uniform;
                 if (useAo && this.flatAo) {
@@ -299,6 +300,7 @@ public final class LodMesher {
                 if (uniform) {
                     while (cx + w < n && w < maxRun && !this.clipped[cz * n + cx + w]
                             && !this.consumed[cz * n + cx + w] && this.groundCell(cx + w, cz) == g
+                            && this.skyLightAt(this.cell(cx + w, cz), top) == skyLight
                             && (!useAo || this.aoMergeable(cx + w, cz, top, ao[0]))) w++;
 
                     /* Gleiches Sample ⇒ gleiche Oberkante — top gilt auch für die Kandidatenzeile */
@@ -307,6 +309,7 @@ public final class LodMesher {
                         for (int i = 0; i < w; i++) {
                             int j = (cz + h) * n + (cx + i);
                             if (this.clipped[j] || this.consumed[j] || this.groundCell(cx + i, cz + h) != g
+                                    || this.skyLightAt(this.cell(cx + i, cz + h), top) != skyLight
                                     || (useAo && !this.aoMergeable(cx + i, cz + h, top, ao[0]))) {
                                 break expand;
                             }
@@ -319,7 +322,8 @@ public final class LodMesher {
                         for (int dx = 0; dx < w; dx++) this.consumed[(cz + dz) * n + (cx + dx)] = true;
                     }
                 }
-                this.emitTop(LodDataSource.block(g), ao, cx * s, cz * s, (cx + w) * s, (cz + h) * s, top);
+                this.emitTop(LodDataSource.block(g), ao, cx * s, cz * s,
+                        (cx + w) * s, (cz + h) * s, top, skyLight);
                 cx += w;
             }
         }
@@ -362,7 +366,8 @@ public final class LodMesher {
                 for (int dz = 0; dz < h; dz++) {
                     for (int dx = 0; dx < w; dx++) this.consumed[(cz + dz) * n + (cx + dx)] = true;
                 }
-                this.emitTop(block, AO_NONE, cx * s, cz * s, (cx + w) * s, (cz + h) * s, this.topOf(sample));
+                this.emitTop(block, AO_NONE, cx * s, cz * s,
+                        (cx + w) * s, (cz + h) * s, this.topOf(sample), 15);
                 cx += w;
             }
         }
@@ -526,6 +531,26 @@ public final class LodMesher {
                 ? h + FluidGeometry.SOURCE_HEIGHT : h + 1F;
     }
 
+    /**
+     * Analytische Himmelslicht-Näherung für LOD-Geometrie: freie Oberflächen bleiben bei 15,
+     * unter einer Fluid-Oberfläche kostet jeder volle Block Tiefe eine Lichtstufe. Das bildet
+     * insbesondere den sichtbaren Meeresboden ab, ohne Lichtdaten für Fernregionen zu erzeugen.
+     */
+    private int skyLightAt(long surfaceSample, float y) {
+        if (!this.appearance.attenuatesSkyLight(LodDataSource.block(surfaceSample))) return 15;
+        int depth = Math.max(0, (int) Math.ceil(this.topOf(surfaceSample) - y));
+        return Math.clamp(15 - depth, 0, 15);
+    }
+
+    /** Wasseroberfläche, die eine Terrain-Wand von einer ihrer beiden Seiten überdeckt. */
+    private long wallLightSurface(long ownSurface, long neighborSurface) {
+        boolean ownWater = this.appearance.attenuatesSkyLight(LodDataSource.block(ownSurface));
+        boolean neighborWater = this.appearance.attenuatesSkyLight(LodDataSource.block(neighborSurface));
+        if (!ownWater) return neighborWater ? neighborSurface : ownSurface;
+        if (!neighborWater) return ownSurface;
+        return this.topOf(ownSurface) >= this.topOf(neighborSurface) ? ownSurface : neighborSurface;
+    }
+
     /* ------------------------- Wände ------------------------- */
 
     /** Nord-/Süd-Terrain-Wände einer Zellreihe (Boden-Höhen), Runs entlang x. face = 2/3. */
@@ -555,9 +580,12 @@ public final class LodMesher {
                 cx++;
                 continue;
             }
+            long lightSurface = this.wallLightSurface(this.cell(cx, cz), this.cell(cx, cz + dz));
             int run = 1;
             while (cx + run < n && run < maxRun && !this.clipped[cz * n + cx + run]
                     && this.groundCell(cx + run, cz) == sample && this.groundCell(cx + run, cz + dz) == nSample
+                    && this.wallLightSurface(this.cell(cx + run, cz),
+                            this.cell(cx + run, cz + dz)) == lightSurface
                     && this.neighborClipped(cx + run, cz + dz) == nClipped) run++;
 
             if (this.stats != null) this.recordTerrainWall(edge, nClipped, nTop, top);
@@ -567,9 +595,9 @@ public final class LodMesher {
             float z = (dz < 0 ? cz : cz + 1) * s;
             int block = LodDataSource.block(sample);
             if (face == 2) {
-                this.emitWall(block, face, x1, z, x0, z, bottom, top);
+                this.emitWall(block, face, x1, z, x0, z, bottom, top, lightSurface);
             } else {
-                this.emitWall(block, face, x0, z, x1, z, bottom, top);
+                this.emitWall(block, face, x0, z, x1, z, bottom, top, lightSurface);
             }
             cx += run;
         }
@@ -602,9 +630,12 @@ public final class LodMesher {
                 cz++;
                 continue;
             }
+            long lightSurface = this.wallLightSurface(this.cell(cx, cz), this.cell(cx + dx, cz));
             int run = 1;
             while (cz + run < n && run < maxRun && !this.clipped[(cz + run) * n + cx]
                     && this.groundCell(cx, cz + run) == sample && this.groundCell(cx + dx, cz + run) == nSample
+                    && this.wallLightSurface(this.cell(cx, cz + run),
+                            this.cell(cx + dx, cz + run)) == lightSurface
                     && this.neighborClipped(cx + dx, cz + run) == nClipped) run++;
 
             if (this.stats != null) this.recordTerrainWall(edge, nClipped, nTop, top);
@@ -614,9 +645,9 @@ public final class LodMesher {
             float x = (dx < 0 ? cx : cx + 1) * s;
             int block = LodDataSource.block(sample);
             if (face == 4) {
-                this.emitWall(block, face, x, z0, x, z1, bottom, top);
+                this.emitWall(block, face, x, z0, x, z1, bottom, top, lightSurface);
             } else {
-                this.emitWall(block, face, x, z1, x, z0, bottom, top);
+                this.emitWall(block, face, x, z1, x, z0, bottom, top, lightSurface);
             }
             cz += run;
         }
@@ -657,9 +688,9 @@ public final class LodMesher {
             float x0 = cx * s, x1 = (cx + run) * s;
             float z = (dz < 0 ? cz : cz + 1) * s;
             if (face == 2) {
-                this.emitWall(block, face, x1, z, x0, z, nTop, top);
+                this.emitWall(block, face, x1, z, x0, z, nTop, top, sample);
             } else {
-                this.emitWall(block, face, x0, z, x1, z, nTop, top);
+                this.emitWall(block, face, x0, z, x1, z, nTop, top, sample);
             }
             cx += run;
         }
@@ -694,9 +725,9 @@ public final class LodMesher {
             float z0 = cz * s, z1 = (cz + run) * s;
             float x = (dx < 0 ? cx : cx + 1) * s;
             if (face == 4) {
-                this.emitWall(block, face, x, z0, x, z1, nTop, top);
+                this.emitWall(block, face, x, z0, x, z1, nTop, top, sample);
             } else {
-                this.emitWall(block, face, x, z1, x, z0, nTop, top);
+                this.emitWall(block, face, x, z1, x, z0, nTop, top, sample);
             }
             cz += run;
         }
@@ -709,7 +740,8 @@ public final class LodMesher {
      * {@code ao} = 4 Ecken-Multiplikatoren in Emissionsreihenfolge (x0z0, x0z1, x1z1, x1z0);
      * gemergte Runs sind per Merge-Bedingung uniform (alle 4 Werte gleich).
      */
-    private void emitTop(int block, float[] ao, float x0, float z0, float x1, float z1, float y) {
+    private void emitTop(int block, float[] ao, float x0, float z0, float x1, float z1,
+                         float y, int skyLight) {
         int layer = this.appearance.topLayer(block);
         if (layer < 0) return; // Block ohne gebackenes Quad (z.B. Luft) — nichts zu zeichnen
         int tint = this.tintFor(this.appearance.topTint(block), this.appearance.topTintType(block),
@@ -724,10 +756,10 @@ public final class LodMesher {
         }
 
         this.ensureCapacity(fluidTop);
-        this.putVertex(fluidTop, x0, y, z0, 0F, 0F, layer, brightness * ao[0], tint);
-        this.putVertex(fluidTop, x0, y, z1, 0F, v, layer, brightness * ao[1], tint);
-        this.putVertex(fluidTop, x1, y, z1, u, v, layer, brightness * ao[2], tint);
-        this.putVertex(fluidTop, x1, y, z0, u, 0F, layer, brightness * ao[3], tint);
+        this.putVertex(fluidTop, x0, y, z0, 0F, 0F, layer, brightness * ao[0], tint, skyLight);
+        this.putVertex(fluidTop, x0, y, z1, 0F, v, layer, brightness * ao[1], tint, skyLight);
+        this.putVertex(fluidTop, x1, y, z1, u, v, layer, brightness * ao[2], tint, skyLight);
+        this.putVertex(fluidTop, x1, y, z0, u, 0F, layer, brightness * ao[3], tint, skyLight);
 
         if (y > this.maxTop) this.maxTop = y;
         if (y < this.minBottom) this.minBottom = y;
@@ -841,6 +873,11 @@ public final class LodMesher {
             this.stats.seamHeight++;
             return;
         }
+        float top = this.topOf(ga);
+        if (this.skyLightAt(this.cell(ax, az), top) != this.skyLightAt(this.cell(bx, bz), top)) {
+            this.stats.seamLight++;
+            return;
+        }
         if (useAo) {
             float va = aoU[ia], vb = aoU[ib];
             if (Float.isNaN(va) || Float.isNaN(vb) || va != vb) {
@@ -869,7 +906,7 @@ public final class LodMesher {
      * Oberkante (Textur-Oben = Face-Oben, wie BlockModels).
      */
     private void emitWall(int block, int face, float xa, float za, float xb, float zb,
-                          float bottom, float top) {
+                          float bottom, float top, long surfaceSample) {
         if (this.appearance.sideLayer(block) < 0) return; // Block ohne gebackenes Quad
         /* Der UV-Fixed-Point trägt nur ~63 Blöcke v-Spanne — höhere Wände (Klippen,
            Import-Rand über dem Void) in vertikale Segmente teilen, damit die Textur pro
@@ -878,19 +915,21 @@ public final class LodMesher {
         float segTop = top;
         while (segTop > bottom) {
             float segBottom = Math.max(bottom, segTop - MAX_MERGE_BLOCKS);
-            this.emitWallSegment(block, face, xa, za, xb, zb, segBottom, segTop);
+            this.emitWallSegment(block, face, xa, za, xb, zb, segBottom, segTop, surfaceSample);
             segTop = segBottom;
         }
     }
 
     private void emitWallSegment(int block, int face, float xa, float za, float xb, float zb,
-                                 float bottom, float top) {
+                                 float bottom, float top, long surfaceSample) {
         int layer = this.appearance.sideLayer(block);
         int tint = this.tintFor(this.appearance.sideTint(block), this.appearance.sideTintType(block),
                 (xa + xb) * 0.5F, (za + zb) * 0.5F);
         float brightness = BlockModels.FACE_BRIGHTNESS[face];
         float u = Math.abs(xb - xa) + Math.abs(zb - za);
         float v = Math.min(top - bottom, MAX_MERGE_BLOCKS);
+        int bottomSkyLight = this.skyLightAt(surfaceSample, bottom);
+        int topSkyLight = this.skyLightAt(surfaceSample, top);
 
         /* Wände an Fluid-Zellen sind die sichtbare Seite eines Wasserkörpers (z.B. Seeufer-
            Abbruch) und daher ebenfalls transluzent — sonst dominieren sie aus Nähe/niedriger
@@ -910,20 +949,20 @@ public final class LodMesher {
             int overlayTint = this.tintFor(this.appearance.sideOverlayTint(block),
                     this.appearance.sideOverlayTintType(block), (xa + xb) * 0.5F, (za + zb) * 0.5F);
             this.ensureCapacity(false);
-            this.putVertex(false, xa, bottom, za, 0F, v, overlayLayer, brightness, overlayTint);
-            this.putVertex(false, xb, bottom, zb, u, v, overlayLayer, brightness, overlayTint);
-            this.putVertex(false, xb, top, zb, u, 0F, overlayLayer, brightness, overlayTint);
-            this.putVertex(false, xa, top, za, 0F, 0F, overlayLayer, brightness, overlayTint);
+            this.putVertex(false, xa, bottom, za, 0F, v, overlayLayer, brightness, overlayTint, bottomSkyLight);
+            this.putVertex(false, xb, bottom, zb, u, v, overlayLayer, brightness, overlayTint, bottomSkyLight);
+            this.putVertex(false, xb, top, zb, u, 0F, overlayLayer, brightness, overlayTint, topSkyLight);
+            this.putVertex(false, xa, top, za, 0F, 0F, overlayLayer, brightness, overlayTint, topSkyLight);
         }
 
         if (this.stats != null) {
             if (fluidWall) this.stats.wallWater++; else this.stats.wallTerrain++;
         }
         this.ensureCapacity(fluidWall);
-        this.putVertex(fluidWall, xa, bottom, za, 0F, v, layer, brightness, tint);
-        this.putVertex(fluidWall, xb, bottom, zb, u, v, layer, brightness, tint);
-        this.putVertex(fluidWall, xb, top, zb, u, 0F, layer, brightness, tint);
-        this.putVertex(fluidWall, xa, top, za, 0F, 0F, layer, brightness, tint);
+        this.putVertex(fluidWall, xa, bottom, za, 0F, v, layer, brightness, tint, bottomSkyLight);
+        this.putVertex(fluidWall, xb, bottom, zb, u, v, layer, brightness, tint, bottomSkyLight);
+        this.putVertex(fluidWall, xb, top, zb, u, 0F, layer, brightness, tint, topSkyLight);
+        this.putVertex(fluidWall, xa, top, za, 0F, 0F, layer, brightness, tint, topSkyLight);
 
         if (top > this.maxTop) this.maxTop = top;
         if (bottom < this.minBottom) this.minBottom = bottom;
@@ -945,11 +984,11 @@ public final class LodMesher {
      * Packt einen Vertex ins Chunk-Format (Konstanten aus {@link ChunkMesher}, Bias +1);
      * y wird relativ zu {@link #yBase} gepackt (Renderer addiert yBase im Draw-Offset).
      * Clamp als Sicherheitsnetz gegen Format-Überlauf (wie ChunkMesher.fixedPos).
-     * Der 5. Int trägt das Licht (s. {@link ChunkMesher#VERTEX_SIZE}); LOD-Terrain liegt per
-     * Definition auf oder über der Heightmap und bekommt deshalb pauschal Voll-Himmel.
+     * Der 5. Int trägt das Licht (s. {@link ChunkMesher#VERTEX_SIZE}); freie Oberflächen
+     * bekommen Voll-Himmel, Geometrie unter LOD-Wasser die analytische Tiefen-Näherung.
      */
     private void putVertex(boolean translucent, float x, float y, float z, float u, float v,
-                           int layer, float brightness, int tint) {
+                           int layer, float brightness, int tint, int skyLight) {
         int px = (int) ((x + 1F) * this.posScale + 0.5F);
         int py = Math.clamp((int) ((y - this.yBase + 1F) * this.posScale + 0.5F), 0, 0xFFFF);
         int pz = (int) ((z + 1F) * this.posScale + 0.5F);
@@ -964,9 +1003,9 @@ public final class LodMesher {
         buf[i++] = pz | (pu << 16);
         buf[i++] = pv | (layer << 16);
         buf[i++] = r | (g << 8) | (b << 16);
-        /* Skylight voll (Bits 0-3), Blocklicht 0 (Bits 4-7). Jenseits der Renderdistanz zeigt LOD
-           nur Oberfläche, wo ohnehin der Himmel dominiert — eine Fackel dort unten wäre unsichtbar. */
-        buf[i++] = 15;
+        /* Skylight in Bits 0-3, Blocklicht bleibt 0 (Bits 4-7): Fernregionen simulieren keine
+           Lichtausbreitung, nur die deterministische Wasser-Dämpfung der sichtbaren Geometrie. */
+        buf[i++] = Math.clamp(skyLight, 0, 15);
         if (translucent) this.viTranslucent = i; else this.viOpaque = i;
     }
 }
