@@ -695,6 +695,11 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     }
 
     @Override
+    public int lodWorldBottomState() {
+        return Blocks.BEDROCK;
+    }
+
+    @Override
     public LodSurfaces sampleLodSurfaces(int x, int z) {
         Climate smooth = this.climate.sampleSmooth(x, z);
         ColumnSample cs = this.columnFor(x, z, smooth, true);

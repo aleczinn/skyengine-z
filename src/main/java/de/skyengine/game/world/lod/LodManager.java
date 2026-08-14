@@ -16,7 +16,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Verwaltet die blockbasierten Heightmap-LOD-Ringe um den Spieler (Clipmap-Prinzip):
@@ -73,9 +72,10 @@ public class LodManager {
     /* clip = reiner Masken-Diff (Level/Epoche stimmen schon) → höhere Worker-Priorität */
     private record Candidate(long key, int level, int mask, double score, boolean clip) {}
 
+    private record CompletedMesh(LodMeshResult result, long completedNanos) {}
+
     /* Deckelt die Executor-Queue — Jobs sind billig (nur Source-Samples), aber nah-zuerst. */
     private static final int MAX_SUBMITS_PER_TICK = 32;
-    private static final int MAX_NORMAL_BUILDS = Runtime.getRuntime().availableProcessors() < 8 ? 1 : 2;
 
     /* Sichtkegel der Submit-Reihenfolge — gleicher Kegel wie die Chunk-Ladereihenfolge
        (ChunkManager.VIEW_CONE_COS, cos 75°): Regionen im Blickfeld zuerst, sonst ändert ein
@@ -103,11 +103,12 @@ public class LodManager {
     /* Bereits submittete, noch nicht abgeholte Jobs (gegen Doppel-Submits; Long-Set) */
     private final LongIntMap inflight = new LongIntMap(64);
     /* Worker -> Render-Thread */
-    private final ConcurrentLinkedQueue<LodMeshResult> results = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<CompletedMesh> results = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<Long> failedJobs = new ConcurrentLinkedQueue<>();
-    private final AtomicInteger runningNormalBuilds = new AtomicInteger();
     private final TimingWindow meshSamplingTimes = new TimingWindow();
     private final TimingWindow meshGeometryTimes = new TimingWindow();
+    private final TimingWindow resultQueueTimes = new TimingWindow();
+    private final TimingWindow uploadTimes = new TimingWindow();
     private int telemetryTicks;
 
     /* Settings-Epoche: rd-/lodMaxDistance-/LOD-Toggle-/AO-Toggle-Änderung entwertet alle
@@ -205,10 +206,11 @@ public class LodManager {
         if (++this.telemetryTicks >= 600) {
             this.telemetryTicks = 0;
             if (this.source instanceof PersistentLodDataSource persistent) {
-                this.logger.debug(persistent.debugStats() + ", laufende normale Jobs="
-                        + this.runningNormalBuilds.get() + ", Mesh-Sampling="
+                this.logger.debug(persistent.debugStats() + ", " + this.chunkManager.lodWorkerStats()
+                        + ", Mesh-Sampling="
                         + this.meshSamplingTimes.text() + ", Mesh-Geometrie="
-                        + this.meshGeometryTimes.text());
+                        + this.meshGeometryTimes.text() + ", Ergebnis-Queue="
+                        + this.resultQueueTimes.text() + ", Upload=" + this.uploadTimes.text());
             }
         }
     }
@@ -354,10 +356,11 @@ public class LodManager {
         candidates.sort(Comparator.comparingInt((Candidate candidate) -> candidate.clip ? 0 : 1)
                 .thenComparingDouble(Candidate::score));
         int submitted = 0;
+        int normalBudget = Math.min(MAX_SUBMITS_PER_TICK, this.chunkManager.normalLodSubmissionBudget());
         for (int i = 0; i < candidates.size() && submitted < MAX_SUBMITS_PER_TICK; i++) {
             Candidate cand = candidates.get(i);
-            if (!cand.clip && this.runningNormalBuilds.get() >= MAX_NORMAL_BUILDS) continue;
-            if (!cand.clip) this.runningNormalBuilds.incrementAndGet();
+            if (!cand.clip && normalBudget <= 0) continue;
+            if (!cand.clip) normalBudget--;
             this.inflight.put(cand.key, 1);
 
             int rx = (int) (cand.key >> 32), rz = (int) cand.key;
@@ -368,15 +371,14 @@ public class LodManager {
             this.chunkManager.submitLodTask(() -> {
                 try {
                     LodMesher mesher = this.meshers.get();
-                    this.results.add(mesher.mesh(this.source, this.appearance, jobConfig,
-                            level, 1, rx, rz, jobEpoch, mask, jobAx, jobAz));
+                    LodMeshResult result = mesher.mesh(this.source, this.appearance, jobConfig,
+                            level, 1, rx, rz, jobEpoch, mask, jobAx, jobAz);
+                    this.results.add(new CompletedMesh(result, System.nanoTime()));
                     this.meshSamplingTimes.add(mesher.lastSamplingNanos());
                     this.meshGeometryTimes.add(mesher.lastGeometryNanos());
                 } catch (Throwable error) {
                     this.logger.warning("LOD-Mesh fuer Region (" + rx + ", " + rz + ") fehlgeschlagen", error);
                     this.failedJobs.add(cand.key);
-                } finally {
-                    if (!cand.clip) this.runningNormalBuilds.decrementAndGet();
                 }
             }, cand.clip);
             submitted++;
@@ -391,9 +393,17 @@ public class LodManager {
 
     /** Nächstes fertiges Mesh oder null. Entfernt den Job aus dem In-Flight-Set. */
     public LodMeshResult pollResult() {
-        LodMeshResult result = this.results.poll();
-        if (result != null) this.inflight.remove(key(result.rx(), result.rz()));
+        CompletedMesh completed = this.results.poll();
+        if (completed == null) return null;
+        LodMeshResult result = completed.result;
+        this.resultQueueTimes.add(System.nanoTime() - completed.completedNanos);
+        this.inflight.remove(key(result.rx(), result.rz()));
         return result;
+    }
+
+    /** Render-Thread-Telemetrie fuer den Arena-Upload eines akzeptierten Ergebnisses. */
+    public void recordUploadTime(long nanos) {
+        this.uploadTimes.add(nanos);
     }
 
     /**

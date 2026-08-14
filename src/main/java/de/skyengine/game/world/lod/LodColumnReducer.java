@@ -52,10 +52,12 @@ public final class LodColumnReducer {
         int[] selected = new int[segmentCount];
         int[] coverage = new int[segmentCount];
         boolean[] landmark = new boolean[segmentCount];
+        boolean[] terrain = new boolean[segmentCount];
         boolean[] skyOpen = new boolean[segmentCount];
         int[] states = new int[columns.length];
         int[] counts = new int[columns.length];
         int[] landmarkCounts = new int[columns.length];
+        int[] terrainCounts = new int[columns.length];
         int childArea = Math.max(1, parentArea / columns.length);
 
         for (int segment = 0; segment < segmentCount; segment++) {
@@ -75,11 +77,13 @@ public final class LodColumnReducer {
                     states[stateCount] = state;
                     counts[stateCount] = 0;
                     landmarkCounts[stateCount] = 0;
+                    terrainCounts[stateCount] = 0;
                     stateCount++;
                 }
                 int weight = LodColumn.coverage(interval);
                 counts[index] += weight;
                 if (LodColumn.landmark(interval)) landmarkCounts[index] += weight;
+                if (LodColumn.terrain(interval)) terrainCounts[index] += weight;
             }
 
             int landmarkIndex = bestEligibleLandmark(states, landmarkCounts, stateCount, parentArea);
@@ -87,6 +91,7 @@ public final class LodColumnReducer {
                 selected[segment] = states[landmarkIndex];
                 coverage[segment] = counts[landmarkIndex];
                 landmark[segment] = true;
+                terrain[segment] = terrainCounts[landmarkIndex] * 2 >= counts[landmarkIndex];
             } else if (openAir * OPEN_AIR_DIVISOR >= parentArea) {
                 selected[segment] = Blocks.AIR;
                 coverage[segment] = openAir;
@@ -95,6 +100,8 @@ public final class LodColumnReducer {
                 int bestIndex = bestIndex(states, counts, stateCount);
                 selected[segment] = bestIndex < 0 ? Blocks.AIR : states[bestIndex];
                 coverage[segment] = bestIndex < 0 ? 0 : counts[bestIndex];
+                terrain[segment] = bestIndex >= 0
+                        && terrainCounts[bestIndex] * 2 >= counts[bestIndex];
             }
         }
 
@@ -108,15 +115,18 @@ public final class LodColumnReducer {
             int first = segment;
             int maxCoverage = coverage[segment];
             boolean inheritedLandmark = landmark[segment];
+            boolean inheritedTerrain = terrain[segment];
             while (++segment < segmentCount && selected[segment] == state) {
                 maxCoverage = Math.max(maxCoverage, coverage[segment]);
                 inheritedLandmark |= landmark[segment];
+                inheritedTerrain |= terrain[segment];
             }
             int flags = 0;
             if (inheritedLandmark || maxCoverage * LANDMARK_DIVISOR >= parentArea
                     && separatedFromTerrain(selected, first)) {
                 flags |= LodColumn.FLAG_LANDMARK;
             }
+            if (inheritedTerrain) flags |= LodColumn.FLAG_TERRAIN;
             if (segment == segmentCount || skyOpen[segment]) flags |= LodColumn.FLAG_SKY_OPEN;
             runs.add(new Run(state, endpoints[first], endpoints[segment], maxCoverage, flags));
         }
@@ -153,7 +163,10 @@ public final class LodColumnReducer {
             int flags = LodColumn.flags(interval);
             /* Nur die oberste, vom Himmel sichtbare getrennte Silhouette ist eine Landmark.
                Innere Höhlendecken dürfen nicht bis in ferne Level hochvererbt werden. */
-            if (i == intervals.size() - 1 && LodColumn.minY(interval) > 0) {
+            boolean separated = i == 0
+                    || LodColumn.maxY(intervals.get(i - 1)) < LodColumn.minY(interval);
+            if (i == intervals.size() - 1 && LodColumn.minY(interval) > 0 && separated
+                    && !LodColumn.terrain(interval)) {
                 flags |= LodColumn.FLAG_LANDMARK;
             }
             runs.add(new Run(LodColumn.state(interval), LodColumn.minY(interval),

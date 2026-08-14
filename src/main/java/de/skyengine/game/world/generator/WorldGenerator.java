@@ -43,6 +43,11 @@ public abstract class WorldGenerator {
         return new LodSurfaces(this.sampleGroundSurface(x, z), this.sampleSurface(x, z));
     }
 
+    /** Unterste Materialschicht der Generatorwelt; AIR bedeutet, dass kein Weltboden existiert. */
+    public int lodWorldBottomState() {
+        return Blocks.AIR;
+    }
+
     /**
      * Biom an Weltposition — pures Sampling, threadsicher. Default: Ebene (Generatoren ohne
      * Biome, z.B. V1); Biome-Generatoren ueberschreiben das.

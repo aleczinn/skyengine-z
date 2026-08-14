@@ -25,7 +25,7 @@ final class LodCacheStore implements AutoCloseable {
 
     private record Pending(int chunkX, int chunkZ, ChunkLodColumns columns) {}
 
-    private static final int MAGIC = 0x4C4F4434; // LOD4, gewichtete Intervall-Abdeckung
+    private static final int MAGIC = 0x4C4F4435; // LOD5, Terrainhuelle + eigener Weltboden
     private static final int REGION_SHIFT = 4;
     private static final int REGION_MASK = 15;
     private static final int MAX_PENDING = 256;

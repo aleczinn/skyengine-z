@@ -50,6 +50,21 @@ final class ChunkLodColumnsPerformanceTest {
     }
 
     @Test
+    void generatedAlphaColumnsKeepBedrockAsSeparateBottomInterval() {
+        AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(1234);
+        LodFeatureBuffer features = new ChunkDecorator(generator, List.of()).decorateForLod(0, 0);
+
+        LodColumn column = ChunkLodColumns.fromGenerator(generator, features, 0, 0, 5)
+                .get(0, 0, 32);
+
+        assertTrue(column.size() >= 2);
+        assertEquals(Blocks.BEDROCK, LodColumn.state(column.interval(0)));
+        assertEquals(0, LodColumn.minY(column.interval(0)));
+        assertEquals(1, LodColumn.maxY(column.interval(0)));
+        assertTrue(LodColumn.terrain(column.interval(0)));
+    }
+
+    @Test
     void exactProjectionConsumesSingleValueSectionsAsRuns() {
         Chunk chunk = new Chunk(0, 0);
         chunk.installSection(0, new ChunkSection(new PalettedContainer(

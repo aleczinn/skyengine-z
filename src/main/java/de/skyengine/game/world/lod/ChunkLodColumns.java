@@ -34,12 +34,32 @@ public final class ChunkLodColumns {
 
     /** Exakter Snapshot-Pfad: scannt den Chunk einmal und behaelt nur das angeforderte Level. */
     public static ChunkLodColumns fromChunk(Chunk chunk, int requestedLevel) {
+        return fromChunk(chunk, null, requestedLevel);
+    }
+
+    /** Exakter Snapshot mit optionaler natuerlicher Terrainhuelle fuer Generatorwelten. */
+    public static ChunkLodColumns fromChunk(Chunk chunk, WorldGenerator generator, int requestedLevel) {
         checkLevel(requestedLevel);
         LodColumn[] current = new LodColumn[ChunkSection.SIZE * ChunkSection.SIZE];
         for (int z = 0; z < ChunkSection.SIZE; z++) {
             for (int x = 0; x < ChunkSection.SIZE; x++) current[z * ChunkSection.SIZE + x] = scan(chunk, x, z);
         }
         for (int level = 1; level <= requestedLevel; level++) current = reduceLevel(current, level);
+        if (generator != null) {
+            int side = ChunkSection.SIZE >> requestedLevel;
+            int size = 1 << requestedLevel;
+            int coverage = size * size;
+            int baseX = chunk.chunkX << ChunkSection.SHIFT;
+            int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
+            for (int z = 0; z < side; z++) {
+                for (int x = 0; x < side; x++) {
+                    int wx = baseX + (x << requestedLevel) + (size >> 1);
+                    int wz = baseZ + (z << requestedLevel) + (size >> 1);
+                    current[z * side + x] = normalizeNaturalShell(
+                            current[z * side + x], generator, wx, wz, coverage);
+                }
+            }
+        }
         ChunkLodColumns result = new ChunkLodColumns();
         result.levels[requestedLevel] = current;
         return result;
@@ -145,15 +165,103 @@ public final class ChunkLodColumns {
         int groundTop = Math.max(0, Math.min(Chunk.HEIGHT, LodDataSource.height(ground) + 1));
         int surfaceState = LodBlockRules.simplify(LodDataSource.block(surface));
         int surfaceTop = Math.max(groundTop, Math.min(Chunk.HEIGHT, LodDataSource.height(surface) + 1));
-        ArrayList<Long> runs = new ArrayList<>(2);
-        if (groundState != Blocks.AIR && groundTop > 0) {
-            runs.add(LodColumn.pack(groundState, 0, groundTop, 0, coverage));
+        int bottomState = LodBlockRules.simplify(generator.lodWorldBottomState());
+        ArrayList<Long> runs = new ArrayList<>(3);
+        int groundBottom = 0;
+        if (bottomState != Blocks.AIR && groundTop > 0) {
+            runs.add(LodColumn.pack(bottomState, 0, 1, LodColumn.FLAG_TERRAIN, coverage));
+            groundBottom = 1;
+        }
+        if (groundState != Blocks.AIR && groundTop > groundBottom) {
+            runs.add(LodColumn.pack(groundState, groundBottom, groundTop,
+                    LodColumn.FLAG_TERRAIN, coverage));
         }
         if (surfaceState != Blocks.AIR && surfaceTop > groundTop) {
             runs.add(LodColumn.pack(surfaceState, groundTop, surfaceTop,
                     LodColumn.FLAG_SKY_OPEN, coverage));
         }
         return runs.isEmpty() ? LodColumn.EMPTY : new LodColumn(runs.stream().mapToLong(Long::longValue).toArray());
+    }
+
+    /**
+     * Entfernt nur vertikal geschlossene Hoehlen aus der natuerlichen Terrainhuelle. Die aktuell
+     * hoechste feste Oberflaeche unter dem Generatorniveau bleibt massgeblich: eine von oben
+     * offene Grube wird daher nicht wieder aufgefuellt. Getrennte Intervalle darueber bleiben
+     * Landmarken. Existierendes Wasser wird ueber offenen Zellen bis zur Terrainhuelle geschlossen.
+     */
+    static LodColumn normalizeNaturalShell(LodColumn column, WorldGenerator generator,
+                                            int wx, int wz, int coverage) {
+        if (column.size() == 0) return column;
+        WorldGenerator.LodSurfaces surfaces = generator.sampleLodSurfaces(wx, wz);
+        int naturalTop = Math.clamp(LodDataSource.height(surfaces.ground()) + 1, 0, Chunk.HEIGHT);
+        int bottomState = LodBlockRules.simplify(generator.lodWorldBottomState());
+        int shellTop = bottomState == Blocks.AIR ? 0 : 1;
+        int shellState = LodBlockRules.simplify(LodDataSource.block(surfaces.ground()));
+        int fluidState = Blocks.AIR;
+        int fluidTop = 0;
+
+        for (int i = 0; i < column.size(); i++) {
+            long interval = column.interval(i);
+            int state = LodColumn.state(interval);
+            if (Blocks.getState(state).isFluid()) {
+                if (LodColumn.maxY(interval) > fluidTop) {
+                    fluidTop = LodColumn.maxY(interval);
+                    fluidState = state;
+                }
+                continue;
+            }
+            if (LodColumn.minY(interval) >= naturalTop) continue;
+            int top = Math.min(naturalTop, LodColumn.maxY(interval));
+            if (top > shellTop) {
+                shellTop = top;
+                shellState = state;
+            }
+        }
+
+        ArrayList<Long> solids = new ArrayList<>();
+        if (bottomState != Blocks.AIR && shellTop > 0) {
+            solids.add(LodColumn.pack(bottomState, 0, 1, LodColumn.FLAG_TERRAIN, coverage));
+        }
+        int shellBottom = bottomState == Blocks.AIR ? 0 : 1;
+        if (shellState != Blocks.AIR && shellTop > shellBottom) {
+            solids.add(LodColumn.pack(shellState, shellBottom, shellTop,
+                    LodColumn.FLAG_TERRAIN, coverage));
+        }
+
+        for (int i = 0; i < column.size(); i++) {
+            long interval = column.interval(i);
+            int state = LodColumn.state(interval);
+            if (Blocks.getState(state).isFluid() || LodColumn.maxY(interval) <= shellTop) continue;
+            int minY = Math.max(shellTop, LodColumn.minY(interval));
+            int flags = LodColumn.flags(interval);
+            if (minY >= naturalTop || LodColumn.landmark(interval)) {
+                flags = flags & ~LodColumn.FLAG_TERRAIN | LodColumn.FLAG_LANDMARK;
+            } else {
+                flags = flags & ~LodColumn.FLAG_LANDMARK | LodColumn.FLAG_TERRAIN;
+            }
+            solids.add(LodColumn.pack(state, minY, LodColumn.maxY(interval), flags, coverage));
+        }
+        solids.sort(java.util.Comparator.comparingInt(LodColumn::minY));
+
+        ArrayList<Long> normalized = new ArrayList<>(solids.size() + 2);
+        normalized.addAll(solids);
+        if (fluidState != Blocks.AIR && fluidTop > shellTop) {
+            int cursor = shellTop;
+            for (long solid : solids) {
+                int minY = LodColumn.minY(solid), maxY = LodColumn.maxY(solid);
+                if (maxY <= cursor || minY >= fluidTop) continue;
+                if (minY > cursor) normalized.add(LodColumn.pack(fluidState, cursor,
+                        Math.min(minY, fluidTop), 0, coverage));
+                cursor = Math.max(cursor, maxY);
+                if (cursor >= fluidTop) break;
+            }
+            if (cursor < fluidTop) {
+                normalized.add(LodColumn.pack(fluidState, cursor, fluidTop,
+                        LodColumn.FLAG_SKY_OPEN, coverage));
+            }
+        }
+        normalized.sort(java.util.Comparator.comparingInt(LodColumn::minY));
+        return LodColumnReducer.limitIntervals(mergeAdjacent(normalized));
     }
 
     private static LodColumn[] reduceLevel(LodColumn[] children, int level) {
@@ -202,7 +310,8 @@ public final class ChunkLodColumns {
                 if (LodColumn.state(previous) == LodColumn.state(interval)
                         && LodColumn.maxY(previous) == LodColumn.minY(interval)) {
                     merged.set(merged.size() - 1, LodColumn.pack(LodColumn.state(previous),
-                            LodColumn.minY(previous), LodColumn.maxY(interval), LodColumn.FLAG_LANDMARK,
+                            LodColumn.minY(previous), LodColumn.maxY(interval),
+                            LodColumn.flags(previous) | LodColumn.flags(interval),
                             Math.max(LodColumn.coverage(previous), LodColumn.coverage(interval))));
                     continue;
                 }

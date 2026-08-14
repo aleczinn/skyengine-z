@@ -98,7 +98,9 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
     }
 
     @Override public boolean hasColumns() { return true; }
-    @Override public boolean hasWorldBottom() { return !this.imported; }
+    @Override public boolean hasWorldBottom() {
+        return !this.imported && this.generator.lodWorldBottomState() != Blocks.AIR;
+    }
 
     @Override
     public LodColumn sampleColumn(int x, int z, int size) {
@@ -188,7 +190,7 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
         Chunk live = this.chunks.getChunk(cx, cz);
         if (live != null && live.status.isAtLeast(ChunkStatus.DECORATED)) {
             long phaseStarted = System.nanoTime();
-            built = ChunkLodColumns.fromChunk(live, level);
+            built = ChunkLodColumns.fromChunk(live, this.imported ? null : this.generator, level);
             exactNanos = System.nanoTime() - phaseStarted;
         } else {
             Chunk snapshot = new Chunk(cx, cz);
@@ -199,7 +201,7 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
                     ChunkSerializer.deserialize(snapshot, payload, null);
                     storageNanos = System.nanoTime() - phaseStarted;
                     phaseStarted = System.nanoTime();
-                    built = ChunkLodColumns.fromChunk(snapshot, level);
+                    built = ChunkLodColumns.fromChunk(snapshot, this.imported ? null : this.generator, level);
                     exactNanos = System.nanoTime() - phaseStarted;
                 } catch (Exception e) {
                     if (storageNanos == 0) storageNanos = System.nanoTime() - phaseStarted;
@@ -222,7 +224,7 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
             } else {
                 storageNanos = System.nanoTime() - phaseStarted;
                 phaseStarted = System.nanoTime();
-                built = ChunkLodColumns.fromChunk(snapshot, level);
+                built = ChunkLodColumns.fromChunk(snapshot, null, level);
                 exactNanos = System.nanoTime() - phaseStarted;
             }
         }

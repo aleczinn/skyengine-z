@@ -1126,6 +1126,7 @@ public class ChunkRenderer {
         LodManager.LodMeshResult result;
         while (uploads < MAX_LOD_UPLOADS_PER_FRAME && (result = this.lodManager.pollResult()) != null) {
             if (!this.lodManager.acceptResult(result)) continue;
+            long uploadStarted = System.nanoTime();
 
             long key = LodManager.key(result.rx(), result.rz());
             LodMesh old = this.lodMeshes.remove(key);
@@ -1146,6 +1147,7 @@ public class ChunkRenderer {
             /* Sicht-Gate der betroffenen Spalten nachziehen (auch bei leerem Ergebnis —
                die Maske kann Zellen freigegeben haben). */
             this.refreshGateForRegion(result.rx(), result.rz(), result.sizeRegions());
+            this.lodManager.recordUploadTime(System.nanoTime() - uploadStarted);
         }
 
         /* Statistik gelegentlich loggen (Budget-Annahmen verifizierbar halten); per Level

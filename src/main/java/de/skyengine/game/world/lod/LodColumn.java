@@ -11,8 +11,9 @@ public final class LodColumn {
     public static final int MAX_INTERVALS = 4;
     public static final int FLAG_LANDMARK = 1;
     public static final int FLAG_SKY_OPEN = 2;
-    private static final int FLAG_MASK = FLAG_LANDMARK | FLAG_SKY_OPEN;
-    private static final int COVERAGE_SHIFT = 2;
+    public static final int FLAG_TERRAIN = 4;
+    private static final int FLAG_MASK = FLAG_LANDMARK | FLAG_SKY_OPEN | FLAG_TERRAIN;
+    private static final int COVERAGE_SHIFT = 3;
     private static final int COVERAGE_MASK = 0x3FF;
     public static final LodColumn EMPTY = new LodColumn(new long[0]);
 
@@ -78,6 +79,10 @@ public final class LodColumn {
 
     public static boolean landmark(long interval) {
         return (flags(interval) & FLAG_LANDMARK) != 0;
+    }
+
+    public static boolean terrain(long interval) {
+        return (flags(interval) & FLAG_TERRAIN) != 0;
     }
 
     private LodColumn() {

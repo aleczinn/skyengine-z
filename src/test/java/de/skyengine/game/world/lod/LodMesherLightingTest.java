@@ -69,6 +69,33 @@ final class LodMesherLightingTest {
                 verticalQuadLights(result.opaqueData(), result.yBase(), 64F, 51F, 71F));
     }
 
+    @Test
+    void columnPathLightsWallsAndWorldBottomFromTheWaterEnvelope() {
+        LodDataSource columns = new LodDataSource() {
+            @Override public boolean hasColumns() { return true; }
+
+            @Override
+            public LodColumn sampleColumn(int x, int z, int size) {
+                int groundTop = x >= 64 ? 51 : 41;
+                return new LodColumn(new long[]{
+                        LodColumn.pack(Blocks.BEDROCK, 0, 1, LodColumn.FLAG_TERRAIN),
+                        LodColumn.pack(Blocks.STONE, 1, groundTop, LodColumn.FLAG_TERRAIN),
+                        LodColumn.pack(Blocks.WATER, groundTop, 64, LodColumn.FLAG_SKY_OPEN)});
+            }
+
+            @Override
+            public long sampleSurface(int x, int z, int size) {
+                return LodDataSource.pack(Blocks.WATER, 63);
+            }
+        };
+
+        LodManager.LodMeshResult result = mesh(columns);
+
+        assertEquals(List.of(0, 0, 2, 2),
+                verticalQuadLights(result.opaqueData(), result.yBase(), 64F, 41F, 51F));
+        assertAllEqual(0, horizontalQuadLights(result.opaqueData(), result.yBase(), 0F));
+    }
+
     private static LodDataSource source(int surfaceBlock, int surfaceHeight,
                                         IntUnaryOperator groundHeight) {
         return new LodDataSource() {
