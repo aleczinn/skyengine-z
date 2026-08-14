@@ -14,6 +14,28 @@ import de.skyengine.game.world.block.Tints;
  */
 public interface LodDataSource {
 
+    /** true, wenn der Mesher die mehrschichtige Spaltendarstellung verwenden soll. */
+    default boolean hasColumns() {
+        return false;
+    }
+
+    /** Nur normale Generatorwelten besitzen eine garantierte Weltboden-Schicht bei Y=0. */
+    default boolean hasWorldBottom() {
+        return true;
+    }
+
+    /**
+     * Bis zu vier sichtbare Solid-/Fluid-Intervalle der global ausgerichteten Zelle.
+     * Der Default erhält die bisherige Einflächenquelle für Werkzeuge und Tests.
+     */
+    default LodColumn sampleColumn(int x, int z, int size) {
+        long surface = this.sampleSurface(x, z, size);
+        int block = block(surface);
+        if (block == 0) return LodColumn.EMPTY;
+        int top = height(surface) + 1;
+        return new LodColumn(new long[]{LodColumn.pack(block, 0, Math.max(1, top), 0)});
+    }
+
     /**
      * Oberflächen-Sample für eine size×size-Zelle mit Ursprung (x,z) in Weltkoordinaten
      * (size = Zellgröße in Blöcken, Ursprung size-aligned). Ergebnis gepackt via

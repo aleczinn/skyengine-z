@@ -3,7 +3,7 @@ package de.skyengine.game.world.generator.feature.trees;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.generator.biome.Biome;
-import de.skyengine.game.world.generator.feature.FeaturePlacer;
+import de.skyengine.game.world.generator.feature.FeatureContext;
 
 import java.util.Random;
 
@@ -138,7 +138,7 @@ public final class TreeShapes {
     }
 
     /** Eiche/Birke: Stamm + 5x5-Kronenscheiben unter der Spitze, 3x3 oben (Ecken zufaellig). */
-    private static void classicTree(FeaturePlacer placer, int x, int y, int z, Random rng,
+    private static void classicTree(FeatureContext placer, int x, int y, int z, Random rng,
                                     int log, int leaves, int height) {
         if (!fits(y, height + 2)) return;
         for (int i = 0; i < height; i++) placer.set(x, y + i, z, log);
@@ -155,7 +155,7 @@ public final class TreeShapes {
      * 4 Eckbloecke weg (rundere Silhouette). Deterministisch — KEINE RNG-Zuege hier, damit
      * die Zug-Reihenfolge der Formen unabhaengig von bereits gesetzten Bloecken bleibt.
      */
-    private static void disk(FeaturePlacer placer, int cx, int y, int cz, int r, int leaves, boolean withCorners) {
+    private static void disk(FeatureContext placer, int cx, int y, int cz, int r, int leaves, boolean withCorners) {
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
                 if (dx == 0 && dz == 0) continue;
@@ -166,7 +166,7 @@ public final class TreeShapes {
     }
 
     /** Wie {@link #disk}, aber um ein 2x2-Zentrum (Redwood-Stamm). */
-    private static void disk2x2(FeaturePlacer placer, int cx, int y, int cz, int r, int leaves) {
+    private static void disk2x2(FeatureContext placer, int cx, int y, int cz, int r, int leaves) {
         for (int dx = -r; dx <= r + 1; dx++) {
             for (int dz = -r; dz <= r + 1; dz++) {
                 boolean cornerX = dx == -r || dx == r + 1;

@@ -4,7 +4,7 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.feature.Feature;
-import de.skyengine.game.world.generator.feature.FeaturePlacer;
+import de.skyengine.game.world.generator.feature.FeatureContext;
 
 import java.util.Random;
 
@@ -19,7 +19,7 @@ public final class BiomeTreeFeature implements Feature {
     private static final int MAX_ATTEMPTS = 8;
 
     @Override
-    public void place(FeaturePlacer placer) {
+    public void place(FeatureContext placer) {
         Random rng = placer.random();
 
         for (int i = 0; i < MAX_ATTEMPTS; i++) {

@@ -2,6 +2,7 @@
   "id": "skyengine:enchanting_table",
   "creative_tab": "functional",
   "type": "cube",
+  "lod_replacement": "skyengine:obsidian",
   "layer": "opaque",
   "hardness": 5,
   "resistance": 1200,

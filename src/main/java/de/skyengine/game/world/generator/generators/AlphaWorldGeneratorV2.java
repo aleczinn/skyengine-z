@@ -694,6 +694,18 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         return LodDataSource.pack(top, cs.height);
     }
 
+    @Override
+    public LodSurfaces sampleLodSurfaces(int x, int z) {
+        Climate smooth = this.climate.sampleSmooth(x, z);
+        ColumnSample cs = this.columnFor(x, z, smooth, true);
+        int groundBlock = this.surfaceTop(x, z, cs.height,
+                Biomes.lookup(this.climate.sample(x, z, smooth)), cs.uplift, cs.waterLevel);
+        long ground = LodDataSource.pack(groundBlock, cs.height);
+        long surface = cs.height < cs.waterLevel
+                ? LodDataSource.pack(Blocks.WATER, cs.waterLevel) : ground;
+        return new LodSurfaces(ground, surface);
+    }
+
     /**
      * Deckmaterial an (wx, wz) — von generate() UND LOD genutzt (geteilte Logik gegen Naehte).
      * {@code uplift} verschiebt die Stein-/Schneegrenze mit dem regionalen Grundniveau,
