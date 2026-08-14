@@ -780,7 +780,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.soundManager.updateListener(this.camera);
         this.world.updateEntitySounds(partialTick);
 
-        this.hit = BlockRaycast.raycast(this.world, this.eyePosition, this.eyeDirection, REACH);
+        this.hit = BlockRaycast.raycastInteractive(this.world, this.eyePosition, this.eyeDirection, REACH);
         double entityReach = this.hit == null ? REACH : Math.sqrt(
                 sq(this.hit.hitX() - this.eyePosition.x)
                         + sq(this.hit.hitY() - this.eyePosition.y)
@@ -788,9 +788,19 @@ public class GameContainer implements IResizeable, IDisposable {
         this.itemFrameHit = this.world.raycastItemFrame(this.eyePosition.x, this.eyePosition.y,
                 this.eyePosition.z, this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z,
                 entityReach);
+        if (this.itemFrameHit != null && !this.world.isPlayerInteractionReady(
+                this.itemFrameHit.getAnchorX(), this.itemFrameHit.getAnchorY(),
+                this.itemFrameHit.getAnchorZ())) {
+            this.itemFrameHit = null;
+        }
         this.minecartHit = this.world.raycastMinecart(this.eyePosition.x, this.eyePosition.y,
                 this.eyePosition.z, this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z,
                 entityReach);
+        if (this.minecartHit != null && !this.world.isPlayerInteractionReady(
+                (int) Math.floor(this.minecartHit.x), (int) Math.floor(this.minecartHit.y),
+                (int) Math.floor(this.minecartHit.z))) {
+            this.minecartHit = null;
+        }
 
         if (guiOpen) {
             this.guiManager.handleInput();       // Schließen + Slot-Klicks (kann den GuiScreen schließen)
@@ -1122,8 +1132,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private void startDestroyBlock() {
         BlockState state = Blocks.getState(this.hit.block());
         if (this.player.getGamemode().isInstantBreak()) {
-            this.breakTargetBlock(state, false);
-            this.destroyDelay = DESTROY_DELAY;
+            if (this.breakTargetBlock(state, false)) this.destroyDelay = DESTROY_DELAY;
             return;
         }
         if (!this.isDestroying || !this.sameDestroyTarget()) {
@@ -1151,9 +1160,9 @@ public class GameContainer implements IResizeable, IDisposable {
             return true;
         }
         if (this.player.getGamemode().isInstantBreak()) {
-            this.destroyDelay = DESTROY_DELAY;
-            this.breakTargetBlock(Blocks.getState(this.hit.block()), false);
-            return true;
+            boolean broken = this.breakTargetBlock(Blocks.getState(this.hit.block()), false);
+            if (broken) this.destroyDelay = DESTROY_DELAY;
+            return broken;
         }
         if (!this.sameDestroyTarget()) {
             this.startDestroyBlock();
@@ -1170,10 +1179,11 @@ public class GameContainer implements IResizeable, IDisposable {
 
         if (this.miningProgress >= 1F) {
             this.isDestroying = false;
-            this.breakTargetBlock(state, true);
+            boolean broken = this.breakTargetBlock(state, true);
             this.miningProgress = 0F;
             this.destroyTicks = 0F;
-            this.destroyDelay = DESTROY_DELAY;
+            if (broken) this.destroyDelay = DESTROY_DELAY;
+            return broken;
         }
         return true;
     }
@@ -1196,9 +1206,13 @@ public class GameContainer implements IResizeable, IDisposable {
      * Baut den Ziel-Block ({@code this.hit}) ab: onBreak + AIR setzen, Drop nur bei
      * dropsItems UND passendem Tool (MC-Harvest-Regel), optional Tool-Abnutzung.
      */
-    private void breakTargetBlock(BlockState broken, boolean applyDurability) {
-        this.soundManager.playBreak(broken.getBlock().getSoundGroup(),
-                this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
+    private boolean breakTargetBlock(BlockState broken, boolean applyDurability) {
+        if (this.hit == null || !this.world.isPlayerInteractionReady(
+                this.hit.x(), this.hit.y(), this.hit.z())
+                || this.world.getBlock(this.hit.x(), this.hit.y(), this.hit.z()) != broken.getId()) {
+            this.resetMining();
+            return false;
+        }
         /* Loot VOR onBreak/setBlock auswerten — solange State und BlockEntity lesbar sind. */
         ItemStack held = this.playerInventory.get(this.hotbarIndex);
         java.util.ArrayList<ItemStack> drops = new java.util.ArrayList<>(2);
@@ -1209,7 +1223,13 @@ public class GameContainer implements IResizeable, IDisposable {
             broken.getBlock().appendDrops(context, (stack, x, y, z) -> drops.add(stack));
         }
         broken.getBlock().onBreak(this.world, this.hit.x(), this.hit.y(), this.hit.z(), broken);
-        this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(), Blocks.AIR);
+        if (!this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(), Blocks.AIR)) {
+            this.resetMining();
+            return false;
+        }
+
+        this.soundManager.playBreak(broken.getBlock().getSoundGroup(),
+                this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
 
         for (ItemStack drop : drops) this.world.spawnItem(this.hit.x() + 0.5,
                 this.hit.y() + 0.5, this.hit.z() + 0.5, drop);
@@ -1232,6 +1252,7 @@ public class GameContainer implements IResizeable, IDisposable {
         }
 
         this.resetMining();
+        return true;
     }
 
     /** MC-Harvest-Regel: ohne Tool-Anforderung droppt alles; sonst passende Klasse + Mindest-Tier. */
@@ -1496,7 +1517,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 || this.collidesWithEntities(place, px, py, pz)) {
             return false;
         }
-        this.world.placeBlock(px, py, pz, place);
+        if (!this.world.placeBlock(px, py, pz, place)) return false;
         this.soundManager.playPlace(place.getBlock().getSoundGroup(), px + 0.5, py + 0.5, pz + 0.5);
         /* Survival verbraucht den Block (Creative baut unbegrenzt, wie MC). */
         if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
@@ -1535,6 +1556,7 @@ public class GameContainer implements IResizeable, IDisposable {
         int x = this.hit.x() + direction.offsetX();
         int y = this.hit.y() + direction.offsetY();
         int z = this.hit.z() + direction.offsetZ();
+        if (!this.world.isPlayerInteractionReady(x, y, z)) return false;
         if (!this.world.placeItemFrame(x, y, z, direction)) return false;
         if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
         return true;
@@ -1570,7 +1592,8 @@ public class GameContainer implements IResizeable, IDisposable {
         int px = this.hit.x() + this.hit.faceX();
         int py = this.hit.y() + this.hit.faceY();
         int pz = this.hit.z() + this.hit.faceZ();
-        if (!this.isReplaceable(this.world.getBlock(px, py, pz))) return null;
+        if (!this.world.isPlayerInteractionReady(px, py, pz)
+                || !this.isReplaceable(this.world.getBlock(px, py, pz))) return null;
         return new int[]{px, py, pz};
     }
 
@@ -1585,8 +1608,8 @@ public class GameContainer implements IResizeable, IDisposable {
                 || (type == SlabType.TOP && this.hit.faceY() < 0);
         if (!merge) return false;
 
-        this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(),
-                target.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId());
+        if (!this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(),
+                target.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId())) return false;
         this.soundManager.playPlace(block.getSoundGroup(),
                 this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
         if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
@@ -1694,12 +1717,12 @@ public class GameContainer implements IResizeable, IDisposable {
         if (bucket.isEmpty()) {
             /* Aufnehmen: fluid-bewusster Strahl, damit Wasser/Lava als Ziel zählt. Nur eine
                Quelle (LEVEL 0, nicht fallend). */
-            BlockRaycast.Hit fhit = BlockRaycast.raycast(this.world, this.eyePosition,
+            BlockRaycast.Hit fhit = BlockRaycast.raycastInteractive(this.world, this.eyePosition,
                     this.eyeDirection, REACH, true);
             if (fhit == null) return false;
             BlockState state = Blocks.getState(fhit.block());
             if (!state.isFluid() || state.get(Properties.FALLING) || state.get(Properties.LEVEL) != 0) return false;
-            this.world.setBlock(fhit.x(), fhit.y(), fhit.z(), Blocks.AIR);
+            if (!this.world.setBlock(fhit.x(), fhit.y(), fhit.z(), Blocks.AIR)) return false;
             if (consume) {
                 String id = state.getBlock().getFluidInfo().lava ? "skyengine:lava_bucket" : "skyengine:water_bucket";
                 this.consumeHeld(Items.get(Identifier.of(id)));
@@ -1715,7 +1738,7 @@ public class GameContainer implements IResizeable, IDisposable {
         Block fluid = bucket.getFluid();
         int source = fluid.getDefaultState()
                 .with(Properties.LEVEL, 0).with(Properties.FALLING, false).getId();
-        this.world.setBlock(t[0], t[1], t[2], source);
+        if (!this.world.setBlock(t[0], t[1], t[2], source)) return false;
         this.world.scheduleTick(t[0], t[1], t[2], 1);
         if (consume) this.consumeHeld(Items.get(Identifier.of("skyengine:bucket")));
         return true;

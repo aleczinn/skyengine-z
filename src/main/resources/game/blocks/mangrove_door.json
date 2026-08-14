@@ -1,4 +1,5 @@
 {
   "id": "skyengine:mangrove_door",
-  "parent": "preset/door"
+  "parent": "preset/door",
+  "lod_replacement": "skyengine:mangrove_planks"
 }

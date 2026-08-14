@@ -18,7 +18,7 @@ import java.util.Random;
  * Ziel-Chunk gehört während DECORATING exklusiv dem dekorierenden Worker, genau wie
  * während der Terrain-Generierung.
  */
-public final class FeaturePlacer {
+public final class FeaturePlacer implements FeatureContext {
 
     private final Chunk target;
     private final int sourceMinX, sourceMinZ;

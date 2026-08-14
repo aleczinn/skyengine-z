@@ -11,6 +11,7 @@ import de.skyengine.game.world.block.archetype.ArchetypeBlockFactory;
 import de.skyengine.game.world.block.archetype.Archetypes;
 import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.item.CreativeTabs;
+import de.skyengine.game.world.lod.LodBlockRules;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -81,6 +82,7 @@ public final class BlockLoader {
                 ? ArchetypeBlockFactory.create(arch, id, settings, definition)
                 : new JsonBlock(id, settings, definition);
         BlockRegistry.register(block);
+        LodBlockRules.register(id, definition.lod_replacement, definition.lod_ignore);
 
         /* Creative-Tabs: das BlockItem entsteht erst in Items.bootstrap(), trägt dann aber
            dieselbe Identifier — die Zuordnung darf deshalb schon hier gemeldet werden. */

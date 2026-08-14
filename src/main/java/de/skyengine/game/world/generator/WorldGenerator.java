@@ -9,6 +9,8 @@ import de.skyengine.game.world.lod.LodDataSource;
 
 public abstract class WorldGenerator {
 
+    public record LodSurfaces(long ground, long surface) {}
+
     protected final int seed;
 
     public WorldGenerator(int seed) {
@@ -34,6 +36,16 @@ public abstract class WorldGenerator {
      */
     public long sampleGroundSurface(int x, int z) {
         return this.sampleSurface(x, z);
+    }
+
+    /** Gemeinsames LOD-Sample; teure Generatoren können beide Oberflächen in einem Pass liefern. */
+    public LodSurfaces sampleLodSurfaces(int x, int z) {
+        return new LodSurfaces(this.sampleGroundSurface(x, z), this.sampleSurface(x, z));
+    }
+
+    /** Unterste Materialschicht der Generatorwelt; AIR bedeutet, dass kein Weltboden existiert. */
+    public int lodWorldBottomState() {
+        return Blocks.AIR;
     }
 
     /**

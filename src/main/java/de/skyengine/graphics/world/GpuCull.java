@@ -369,9 +369,11 @@ public class GpuCull {
      * @return Descriptor-Slot (für {@link #removeSection})
      */
     public int addSection(int segKind, int blockX, int blockZ, int originY, int gateSlot,
-                          int indexCount, int baseVertex) {
+                          boolean debugConflict, int indexCount, int baseVertex) {
         return this.addDesc(segKind, blockX, blockZ, gateSlot, originY,
-                originY, originY + 32F, 32F, 1F / ChunkMesher.POS_SCALE, indexCount, baseVertex);
+                originY, originY + 32F, 32F, 1F / ChunkMesher.POS_SCALE,
+                descriptorDebug(DrawMetadata.SECTION_SCALE_CODE, debugConflict ? 1 : 0),
+                indexCount, baseVertex);
     }
 
     public void removeSection(int segKind, int slot) {
@@ -380,10 +382,12 @@ public class GpuCull {
 
     /** Registriert eine LOD-Region (Level 1..5; Superregionen tragen ihre eigene posScale). */
     public int addLod(int level, int blockX, int blockZ, int yBase, float minY, float maxY,
-                      float sizeBlocks, float invPosScale, int indexCount, int baseVertex) {
+                      float sizeBlocks, float invPosScale, int posScaleCode, int debugConflictMask,
+                      int indexCount, int baseVertex) {
         this.lodTotalCount++;
         return this.addDesc(DESC_LOD, blockX, blockZ, level, yBase,
-                minY, maxY, sizeBlocks, invPosScale, indexCount, baseVertex);
+                minY, maxY, sizeBlocks, invPosScale,
+                descriptorDebug(posScaleCode, debugConflictMask), indexCount, baseVertex);
     }
 
     public void removeLod(int level, int slot) {
@@ -398,8 +402,34 @@ public class GpuCull {
 
     private int lodTotalCount;
 
+    /** Aktualisiert nur die Debugmaske; Geometrie, Gate und Draw-Daten bleiben unverändert. */
+    public void setLodDebugConflict(int slot, int conflictMask) {
+        this.setDebugConflict(DESC_LOD, slot, conflictMask);
+    }
+
+    /** Markiert einen Section-Draw, falls er trotz LOD-Besitz sichtbar werden sollte. */
+    public void setSectionDebugConflict(int segKind, int slot, boolean conflict) {
+        this.setDebugConflict(segKind, slot, conflict ? 1 : 0);
+    }
+
+    private void setDebugConflict(int kind, int slot, int conflictMask) {
+        if (slot < 0) return;
+        int i = slot * DESC_INTS + 11;
+        int old = this.mirror[kind][i];
+        int value = old & 0xFFFF0000 | conflictMask & 0xFFFF;
+        if (old == value) return;
+        this.mirror[kind][i] = value;
+        this.logChange(kind, slot);
+        this.version++;
+    }
+
+    private static int descriptorDebug(int positionScaleCode, int conflictMask) {
+        return (positionScaleCode & 0xF) << 16 | conflictMask & 0xFFFF;
+    }
+
     private int addDesc(int kind, int ix, int iz, int izArg, int iw,
-                        float b0, float b1, float b2, float b3, int indexCount, int baseVertex) {
+                        float b0, float b1, float b2, float b3, int descriptorDebug,
+                        int indexCount, int baseVertex) {
         Integer free = this.freeSlots[kind].poll();
         int slot = free != null ? free : this.mirrorCount[kind];
         if (slot >= this.descCapacity) this.growDescriptors();
@@ -423,7 +453,7 @@ public class GpuCull {
         m[i + 8] = indexCount;
         m[i + 9] = baseVertex;
         m[i + 10] = gen;                        // Slot-Generation (Vis-Bit-Tag)
-        m[i + 11] = 0;
+        m[i + 11] = descriptorDebug;             // scaleCode<<16 | Debug-Konfliktmaske
         this.logChange(kind, slot);
         this.version++;
         return slot;
@@ -1017,7 +1047,15 @@ public class GpuCull {
                    Offset-Stores). Phase 0/2 schreiben weiterhin ALLE Slots, auch gecullte —
                    sonst laesen die Draws stale Offsets. */
                 if (u_Phase != 1) {
-                    u_Offs[uint(u_OffBase) + i] = vec4(ox, float(d.ipos.w) - camY, oz, d.bounds.w);
+                    /* DrawOffsets.w bleibt ein einzelner float, trägt aber einen exakt
+                       darstellbaren Integer: Level (3 Bit), Konfliktmaske (16 Bit) und
+                       Positionsskalen-Code (4 Bit). Der Vertex-Shader rekonstruiert daraus
+                       exakt 1/1024, 1/127 oder 1/64; der Offset-SSBO bleibt vec4. */
+                    uint drawLevel = u_LevelFilter == -1 ? 0u : uint(d.ipos.z) & 7u;
+                    uint conflictMask = d.draw.w & 0xFFFFu;
+                    uint scaleCode = (d.draw.w >> 16u) & 0xFu;
+                    uint metadata = drawLevel | (conflictMask << 3u) | (scaleCode << 19u);
+                    u_Offs[uint(u_OffBase) + i] = vec4(ox, float(d.ipos.w) - camY, oz, float(metadata));
                 }
 
                 vec3 mn = vec3(ox, d.bounds.x - camY, oz);

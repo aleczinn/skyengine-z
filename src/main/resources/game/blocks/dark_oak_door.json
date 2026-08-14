@@ -1,4 +1,5 @@
 {
   "id": "skyengine:dark_oak_door",
-  "parent": "preset/door"
+  "parent": "preset/door",
+  "lod_replacement": "skyengine:dark_oak_planks"
 }

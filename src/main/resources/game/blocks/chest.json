@@ -2,6 +2,7 @@
   "id": "skyengine:chest",
   "creative_tab": ["functional", "redstone_blocks"],
   "type": "chest",
+  "lod_replacement": "skyengine:oak_planks",
   "layer": "opaque",
   "hardness": 2.5,
   "tool": "axe",

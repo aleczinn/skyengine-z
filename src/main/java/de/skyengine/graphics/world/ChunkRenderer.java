@@ -9,6 +9,7 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.lod.LodConfig;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.LodMesher;
@@ -176,6 +177,10 @@ public class ChunkRenderer {
     /* Letzter Zustand von gpuCull.isActive() — Flanke schaltet refreshAllGates (s. renderSolid). */
     private boolean lastGpuActive;
 
+    /* Flanke des session-lokalen LOD-Farbdebugs: ein Vollabgleich nur beim Umschalten,
+       danach ausschließlich ereignisbasierte Zell-/Region-Updates. */
+    private boolean lastLodLevelColors;
+
     /* Fence-Diagnose (nur bei aktivem FrameProfiler gefüllt, s. beginFrame) */
     private long syncFrames, syncSignaled, syncWaitNs, syncWaitMaxNs;
 
@@ -272,7 +277,7 @@ public class ChunkRenderer {
 
     /* Gecachte Uniform-Locations des Chunk-Shaders (erspart Map-Lookups im Hot-Path) */
     private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogColor,
-            locDetailFade, locDetailCamSnap, locMinLight, locBrightness;
+            locDetailFade, locDetailCamSnap, locMinLight, locBrightness, locLodLevelColors;
 
     /* Grundhelligkeit bei Lichtlevel 0 (Minecraft-Niveau): eine unbeleuchtete Höhle ist nie
        exakt schwarz. Der Regler hebt genau diesen Wert mit an (0,04 bei 0 % bis 0,15 bei 100 %,
@@ -324,6 +329,7 @@ public class ChunkRenderer {
         this.locDetailCamSnap = this.shader.getUniformLocation("u_DetailCamSnap");
         this.locMinLight = this.shader.getUniformLocation("u_MinLight");
         this.locBrightness = this.shader.getUniformLocation("u_Brightness");
+        this.locLodLevelColors = this.shader.getUniformLocation("u_LodLevelColors");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
         this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F); // Ausdünnung default aus
@@ -460,6 +466,7 @@ public class ChunkRenderer {
                 if (this.chunkManager.getChunks().containsKey(Chunk.key(mesh.chunkX, mesh.chunkZ))) return false;
                 mesh.dispose(this.arenas, this.frameId);
                 this.unregisterSectionMesh(mesh);
+                this.refreshLodDebugCell(mesh.chunkX, mesh.chunkZ);
                 return true;
             });
         }
@@ -477,6 +484,14 @@ public class ChunkRenderer {
                 this.refreshGateForRegion(mesh.rx, mesh.rz, mesh.sizeBlocks / LodMesher.REGION_BLOCKS);
                 return true;
             });
+        }
+
+        /* GUI-Schalter kann zwischen zwei Frames wechseln. Nur auf dieser Flanke alle
+           residenten Meshes abgleichen; im laufenden Debugbetrieb pflegen Upload/Unload und
+           LOD-Swaps die betroffenen Zellen ereignisbasiert weiter. */
+        if (DebugFlags.lodLevelColors != this.lastLodLevelColors) {
+            this.lastLodLevelColors = DebugFlags.lodLevelColors;
+            this.refreshAllLodDebugMetadata();
         }
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.UPLOAD);
@@ -700,6 +715,7 @@ public class ChunkRenderer {
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GLSUB);
         this.shader.bind();
         this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
+        this.shader.setUniformi(this.locLodLevelColors, DebugFlags.lodLevelColors ? 1 : 0);
         this.setFogUniforms();
         this.setLightUniforms();
         this.textures.bind(0);
@@ -1096,6 +1112,11 @@ public class ChunkRenderer {
                 this.registerSectionMesh(mesh);
                 this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.maxQuads());
             }
+
+            /* Ein READY-Chunk ist bereits editierbar, auch wenn sein vollständiger Upload und
+               das Clip-Remesh des LOD noch ausstehen. Genau dieses Übergabefenster markiert
+               der Debugmodus pro 32x32-Zelle, ohne einen Regionen-Vollscan pro Frame. */
+            this.refreshLodDebugCell(result.chunkX(), result.chunkZ());
         }
     }
 
@@ -1126,6 +1147,7 @@ public class ChunkRenderer {
         LodManager.LodMeshResult result;
         while (uploads < MAX_LOD_UPLOADS_PER_FRAME && (result = this.lodManager.pollResult()) != null) {
             if (!this.lodManager.acceptResult(result)) continue;
+            long uploadStarted = System.nanoTime();
 
             long key = LodManager.key(result.rx(), result.rz());
             LodMesh old = this.lodMeshes.remove(key);
@@ -1136,8 +1158,8 @@ public class ChunkRenderer {
 
             if (result.opaqueData().length > 0 || result.translucentData().length > 0) {
                 LodMesh mesh = new LodMesh(result.rx(), result.rz(), result.level(), result.sizeRegions(),
-                        result.yBase(), result.opaqueData(), result.translucentData(), result.minY(), result.maxY(),
-                        opaqueArena, translucentArena);
+                        result.mask(), result.yBase(), result.opaqueData(), result.translucentData(),
+                        result.minY(), result.maxY(), opaqueArena, translucentArena);
                 this.lodMeshes.put(key, mesh);
                 this.registerLodMesh(mesh);
                 this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.maxQuads());
@@ -1146,6 +1168,7 @@ public class ChunkRenderer {
             /* Sicht-Gate der betroffenen Spalten nachziehen (auch bei leerem Ergebnis —
                die Maske kann Zellen freigegeben haben). */
             this.refreshGateForRegion(result.rx(), result.rz(), result.sizeRegions());
+            this.lodManager.recordUploadTime(System.nanoTime() - uploadStarted);
         }
 
         /* Statistik gelegentlich loggen (Budget-Annahmen verifizierbar halten); per Level
@@ -1201,7 +1224,7 @@ public class ChunkRenderer {
             offs.put(oi, (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x));
             offs.put(oi + 1, (float) (mesh.yBase - cam.y)); // Vertices sind relativ zu yBase gepackt
             offs.put(oi + 2, (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z));
-            offs.put(oi + 3, mesh.invPosScale); // .w = Positions-Skala (1/256; Superregionen 1/64)
+            offs.put(oi + 3, DrawMetadata.pack(mesh.level, mesh.posScaleCode, mesh.debugConflictMask));
             n++;
         }
         return n;
@@ -1233,7 +1256,7 @@ public class ChunkRenderer {
             offs.put(oi, (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x));
             offs.put(oi + 1, (float) (mesh.yBase - cam.y)); // Vertices sind relativ zu yBase gepackt
             offs.put(oi + 2, (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z));
-            offs.put(oi + 3, mesh.invPosScale); // .w = Positions-Skala (1/256; Superregionen 1/64)
+            offs.put(oi + 3, DrawMetadata.pack(mesh.level, mesh.posScaleCode, mesh.debugConflictMask));
             n++;
         }
         return n;
@@ -1265,9 +1288,10 @@ public class ChunkRenderer {
             offs.put(oi, offsetX(mesh, cam));
             offs.put(oi + 1, offsetY(mesh, cam));
             offs.put(oi + 2, offsetZ(mesh, cam));
-            /* .w = Positions-Skala. Zweierpotenz -> in float exakt, die Multiplikation im Shader
-               ist eine reine Exponenten-Verschiebung: gleicher Rohwert gibt bitidentische Position. */
-            offs.put(oi + 3, 1F / ChunkMesher.POS_SCALE);
+            /* .w = exakt darstellbarer Integer aus L0, Konfliktbit und Skalen-Code. Der
+               Shader rekonstruiert 1/1024; Offset-Record und Draw-Anzahl bleiben unverändert. */
+            offs.put(oi + 3, DrawMetadata.pack(0, DrawMetadata.SECTION_SCALE_CODE,
+                    mesh.debugLodConflict ? 1 : 0));
             n++;
         }
         return n;
@@ -1312,7 +1336,8 @@ public class ChunkRenderer {
             offs.put(oi, offsetX(mesh, cam));
             offs.put(oi + 1, offsetY(mesh, cam));
             offs.put(oi + 2, offsetZ(mesh, cam));
-            offs.put(oi + 3, 1F / ChunkMesher.POS_SCALE);
+            offs.put(oi + 3, DrawMetadata.pack(0, DrawMetadata.SECTION_SCALE_CODE,
+                    mesh.debugLodConflict ? 1 : 0));
             n++;
         }
         return n;
@@ -1543,16 +1568,19 @@ public class ChunkRenderer {
      */
     private void registerSectionMesh(SectionMesh mesh) {
         CullColumn col = this.columnAdd(mesh);
+        boolean debugConflict = DebugFlags.lodLevelColors && this.lodManager != null
+                && this.lodManager.lodShowsCell(mesh.chunkX, mesh.chunkZ);
+        mesh.debugLodConflict = debugConflict;
         int bx = mesh.chunkX << ChunkSection.SHIFT;
         int bz = mesh.chunkZ << ChunkSection.SHIFT;
         int by = mesh.sectionY << ChunkSection.SHIFT;
         if (mesh.hasLayer(RenderLayer.OPAQUE)) {
             mesh.gpuSlotOpaque = this.gpuCull.addSection(GpuCull.SEG_OPAQUE, bx, bz, by, col.gateSlot,
-                    mesh.indexCount(RenderLayer.OPAQUE), mesh.baseVertex(RenderLayer.OPAQUE));
+                    debugConflict, mesh.indexCount(RenderLayer.OPAQUE), mesh.baseVertex(RenderLayer.OPAQUE));
         }
         if (mesh.hasLayer(RenderLayer.CUTOUT)) {
             mesh.gpuSlotCutout = this.gpuCull.addSection(GpuCull.SEG_CUTOUT, bx, bz, by, col.gateSlot,
-                    mesh.indexCount(RenderLayer.CUTOUT), mesh.baseVertex(RenderLayer.CUTOUT));
+                    debugConflict, mesh.indexCount(RenderLayer.CUTOUT), mesh.baseVertex(RenderLayer.CUTOUT));
         }
         if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) {
             mesh.translucentIdx = this.translucentMeshes.size();
@@ -1614,6 +1642,7 @@ public class ChunkRenderer {
             mesh.gpuSlot = this.gpuCull.addLod(mesh.level,
                     mesh.rx * LodMesher.REGION_BLOCKS, mesh.rz * LodMesher.REGION_BLOCKS, mesh.yBase,
                     mesh.minY, mesh.maxY, mesh.sizeBlocks, mesh.invPosScale,
+                    mesh.posScaleCode, mesh.debugConflictMask,
                     mesh.indexCountOpaque(), mesh.baseVertexOpaque());
         }
         if (mesh.hasTranslucent()) this.lodTranslucentMeshes.add(mesh);
@@ -1638,16 +1667,18 @@ public class ChunkRenderer {
         for (int ci = 0, cn = this.cullColumns.tableSize(); ci < cn; ci++) {
             CullColumn col = this.cullColumns.valueAt(ci);
             if (col == null || col.gateSlot < 0) continue;
-            this.gpuCull.setGate(col.gateSlot,
-                    this.lodManager != null && this.lodManager.lodShowsCell(col.chunkX, col.chunkZ));
+            boolean hidden = this.lodManager != null && this.lodManager.lodShowsCell(col.chunkX, col.chunkZ);
+            this.gpuCull.setGate(col.gateSlot, hidden);
+            this.setColumnDebugConflict(col, DebugFlags.lodLevelColors && hidden);
         }
     }
 
     private void refreshGateForRegion(int rx, int rz, int sizeRegions) {
+        this.refreshLodDebugForRegion(rx, rz);
         /* Das Sicht-Gate ist reine GPU-Pfad-Infrastruktur — der CPU-Pfad fragt lodShowsCell
            direkt ab (s. renderSolid). Bei ausgeschaltetem GPU-Cull ist die Schleife also
            komplett umsonst; beim LOD-Umschalten waren das ~54.000 Hash-Lookups in EINEM Frame. */
-        if (!this.gpuCull.isActive()) return;
+        if (!this.gpuCull.isActive() && !DebugFlags.lodLevelColors) return;
         int chunksPerRegion = LodMesher.REGION_BLOCKS / ChunkSection.SIZE;
         int c0x = rx * chunksPerRegion, c0z = rz * chunksPerRegion;
         int span = sizeRegions * chunksPerRegion;
@@ -1655,9 +1686,89 @@ public class ChunkRenderer {
             for (int cx = 0; cx < span; cx++) {
                 CullColumn col = this.cullColumns.get(Chunk.key(c0x + cx, c0z + cz));
                 if (col != null && col.gateSlot >= 0) {
-                    this.gpuCull.setGate(col.gateSlot,
-                            this.lodManager != null && this.lodManager.lodShowsCell(col.chunkX, col.chunkZ));
+                    boolean hidden = this.lodManager != null
+                            && this.lodManager.lodShowsCell(col.chunkX, col.chunkZ);
+                    this.gpuCull.setGate(col.gateSlot, hidden);
+                    this.setColumnDebugConflict(col, DebugFlags.lodLevelColors && hidden);
                 }
+            }
+        }
+    }
+
+    /** Vollabgleich ausschließlich auf der Debug-Schalter-Flanke. */
+    private void refreshAllLodDebugMetadata() {
+        for (int i = 0, n = this.lodMeshes.tableSize(); i < n; i++) {
+            LodMesh mesh = this.lodMeshes.valueAt(i);
+            if (mesh != null) this.refreshLodDebugMesh(mesh);
+        }
+        for (int i = 0, n = this.cullColumns.tableSize(); i < n; i++) {
+            CullColumn col = this.cullColumns.valueAt(i);
+            if (col == null) continue;
+            boolean hidden = this.lodManager != null
+                    && this.lodManager.lodShowsCell(col.chunkX, col.chunkZ);
+            this.setColumnDebugConflict(col, DebugFlags.lodLevelColors && hidden);
+        }
+    }
+
+    /** Aktualisiert genau eine 32x32-Zelle nach L0-Upload oder -Entfernung. */
+    private void refreshLodDebugCell(int chunkX, int chunkZ) {
+        if (!DebugFlags.lodLevelColors) return;
+        int rx = Math.floorDiv(chunkX, 4), rz = Math.floorDiv(chunkZ, 4);
+        LodMesh mesh = this.lodMeshes.get(LodManager.key(rx, rz));
+        if (mesh == null || mesh.sizeBlocks != LodMesher.REGION_BLOCKS) return;
+        int bit = Math.floorMod(chunkZ, 4) * 4 + Math.floorMod(chunkX, 4);
+        int bitMask = 1 << bit;
+        boolean conflict = (mesh.mask & bitMask) == 0 && this.isInteractiveChunk(chunkX, chunkZ);
+        int newMask = conflict ? mesh.debugConflictMask | bitMask : mesh.debugConflictMask & ~bitMask;
+        this.setLodDebugConflict(mesh, newMask);
+    }
+
+    private void refreshLodDebugForRegion(int rx, int rz) {
+        LodMesh mesh = this.lodMeshes.get(LodManager.key(rx, rz));
+        if (mesh != null) this.refreshLodDebugMesh(mesh);
+    }
+
+    private void refreshLodDebugMesh(LodMesh mesh) {
+        int conflictMask = 0;
+        /* Der aktive Pfad hat eine 4x4-Chunk-Maske pro 128er-Region. Der ruhende
+           Superregion-Pfad bekommt seine Level-Farbe, aber keine falsch interpretierte
+           16-Bit-Zellwarnung. */
+        if (DebugFlags.lodLevelColors && mesh.sizeBlocks == LodMesher.REGION_BLOCKS) {
+            int baseCx = mesh.rx * 4, baseCz = mesh.rz * 4;
+            for (int dz = 0; dz < 4; dz++) {
+                for (int dx = 0; dx < 4; dx++) {
+                    int bit = 1 << (dz * 4 + dx);
+                    if ((mesh.mask & bit) == 0 && this.isInteractiveChunk(baseCx + dx, baseCz + dz)) {
+                        conflictMask |= bit;
+                    }
+                }
+            }
+        }
+        this.setLodDebugConflict(mesh, conflictMask);
+    }
+
+    private boolean isInteractiveChunk(int chunkX, int chunkZ) {
+        Chunk chunk = this.chunkManager.getChunk(chunkX, chunkZ);
+        return chunk != null && chunk.status == ChunkStatus.READY && !chunk.pendingUnload;
+    }
+
+    private void setLodDebugConflict(LodMesh mesh, int conflictMask) {
+        conflictMask &= 0xFFFF;
+        if (mesh.debugConflictMask == conflictMask) return;
+        mesh.debugConflictMask = conflictMask;
+        if (mesh.gpuSlot >= 0) this.gpuCull.setLodDebugConflict(mesh.gpuSlot, conflictMask);
+    }
+
+    private void setColumnDebugConflict(CullColumn col, boolean conflict) {
+        for (int sy = col.minSy; sy <= col.maxSy; sy++) {
+            SectionMesh mesh = col.sections[sy];
+            if (mesh == null || mesh.debugLodConflict == conflict) continue;
+            mesh.debugLodConflict = conflict;
+            if (mesh.gpuSlotOpaque >= 0) {
+                this.gpuCull.setSectionDebugConflict(GpuCull.SEG_OPAQUE, mesh.gpuSlotOpaque, conflict);
+            }
+            if (mesh.gpuSlotCutout >= 0) {
+                this.gpuCull.setSectionDebugConflict(GpuCull.SEG_CUTOUT, mesh.gpuSlotCutout, conflict);
             }
         }
     }
@@ -1835,23 +1946,36 @@ public class ChunkRenderer {
             out vec3 v_color;
             out vec2 v_light;   // x = Himmelslicht, y = Blocklicht (je 0..1)
             out float v_viewDist;
+            out vec2 v_debugLocalXZ;
+            flat out uint v_debugLevel;
+            flat out uint v_debugConflictMask;
+            flat out uint v_gpuCullDebug;
 
             void main() {
-                /* Positions-Skala pro Draw aus .w (Sections + normales LOD: 1/256; LOD-
-                   Superregionen: 1/64 -- u16-Fixed-Point traegt sonst nur ~255 Bloecke). */
-                vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16), float(a_data.y & 0xFFFFu)) * u_DrawOffsets[gl_DrawID].w - 1.0;
+                /* .w ist ein exakt als float darstellbarer Integer: Level (3 Bit),
+                   Konfliktmaske (16 Bit), Positionsskalen-Code (4 Bit). Damit bleibt der
+                   bestehende vec4-Offset erhalten und jede bisherige Skala exakt. */
+                uint drawMetadata = uint(u_DrawOffsets[gl_DrawID].w + 0.5);
+                v_debugLevel = drawMetadata & 7u;
+                v_debugConflictMask = (drawMetadata >> 3u) & 0xFFFFu;
+                uint scaleCode = (drawMetadata >> 19u) & 0xFu;
+                float positionScale = scaleCode == 0u ? (1.0 / 1024.0)
+                        : (scaleCode == 1u ? (1.0 / 127.0) : (1.0 / 64.0));
+                vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16), float(a_data.y & 0xFFFFu)) * positionScale - 1.0;
                 vec2 uv = vec2(float(a_data.y >> 16), float(a_data.z & 0xFFFFu)) * (1.0 / 1024.0) - 1.0;
                 float layer = float(a_data.z >> 16);
                 vec3 color = vec3(float(a_data.w & 0xFFu), float((a_data.w >> 8) & 0xFFu), float((a_data.w >> 16) & 0xFFu)) * (1.0 / 255.0);
 
                 v_texCoord = vec3(uv, layer);
                 v_color = color;
+                v_debugLocalXZ = pos.xz;
                 /* Himmels- und Blocklicht je 0..1, interpoliert -> weiche Verlaeufe (Smooth
                    Lighting). Muss VOR dem Ausduennungs-Block stehen, der mit return aussteigt. */
                 v_light = vec2(float(a_light & 0xFu), float((a_light >> 4) & 0xFu)) * (1.0 / 15.0);
                 /* Occlusion-Debug (GpuCull.DEBUG_TINT): der Compute markiert Verdeckt-Verdikte
                    ueber baseInstance=1 statt sie zu cullen -> rot tinten. */
-                if (gl_BaseInstance != 0) {
+                v_gpuCullDebug = gl_BaseInstance != 0 ? 1u : 0u;
+                if (v_gpuCullDebug != 0u) {
                     v_color = mix(v_color, vec3(1.0, 0.1, 0.1), 0.7);
                 }
                 /* Positionen sind kamerarelativ und welt-achsen-ausgerichtet -> length(rel.xz) =
@@ -1887,6 +2011,10 @@ public class ChunkRenderer {
             in vec3 v_color;
             in vec2 v_light;    // x = Himmelslicht, y = Blocklicht (je 0..1)
             in float v_viewDist;
+            in vec2 v_debugLocalXZ;
+            flat in uint v_debugLevel;
+            flat in uint v_debugConflictMask;
+            flat in uint v_gpuCullDebug;
 
             uniform sampler2DArray u_Textures;
             uniform float u_AlphaCutoff;
@@ -1899,12 +2027,23 @@ public class ChunkRenderer {
             uniform float u_MinLight;
             /* Helligkeitsregler 0..1 (Minecraft-Brightness). */
             uniform float u_Brightness;
+            /* Session-lokaler Debugschalter: 0 laesst den bisherigen Farbpfad bitidentisch. */
+            uniform int u_LodLevelColors;
 
             out vec4 fragColor;
 
             /* Minecraft-Helligkeitskurve (lightBrightnessTable): staucht mittlere Licht-Level
                nach unten. Linear waere der Abfall fast ueberall zu grell. */
             float lightCurve(float f) { return f / (4.0 - 3.0 * f); }
+
+            vec3 lodDebugColor(uint level) {
+                if (level == 0u) return vec3(0.25, 1.00, 0.25); // L0 hellgruen
+                if (level == 1u) return vec3(0.00, 0.45, 0.08); // L1 dunkelgruen
+                if (level == 2u) return vec3(1.00, 0.90, 0.05); // L2 gelb
+                if (level == 3u) return vec3(1.00, 0.45, 0.02); // L3 orange
+                if (level == 4u) return vec3(1.00, 0.05, 0.05); // L4 rot
+                return vec3(0.10, 0.30, 1.00);                  // L5 blau
+            }
 
             void main() {
                 vec4 color = texture(u_Textures, v_texCoord);
@@ -1933,7 +2072,29 @@ public class ChunkRenderer {
                 /* Linearer Distanz-Fog Richtung Clear-Color: nimmt dem Horizont den Kontrast
                    (Sub-Pixel-Flimmern des Fernterrains) und versteckt die Far-Plane-Kante. */
                 float fog = clamp((v_viewDist - u_FogStart) / (u_FogEnd - u_FogStart), 0.0, 1.0);
-                fragColor = vec4(mix(lit, u_FogColor, fog), color.a);
+                vec3 finalRgb = mix(lit, u_FogColor, fog);
+                if (u_LodLevelColors != 0) {
+                    uint conflictBit = 0u;
+                    if (v_debugLevel != 0u) {
+                        uvec2 cell = uvec2(clamp(floor(v_debugLocalXZ / 32.0), vec2(0.0), vec2(3.0)));
+                        conflictBit = cell.y * 4u + cell.x;
+                    }
+                    bool conflict = ((v_debugConflictMask >> conflictBit) & 1u) != 0u;
+                    if (conflict) {
+                        /* Magenta-Diagonalstreifen unterscheiden einen Besitzkonflikt klar von
+                           allen sechs Level-Farben und bleiben auf transparentem Wasser lesbar. */
+                        float stripe = mod(floor((v_debugLocalXZ.x + v_debugLocalXZ.y) * 0.25), 2.0);
+                        vec3 warning = mix(vec3(0.35, 0.0, 0.35), vec3(1.0, 0.0, 1.0), stripe);
+                        finalRgb = mix(finalRgb, warning, 0.90);
+                    } else if (v_gpuCullDebug == 0u) {
+                        /* Helligkeitsstruktur der Textur behalten, den Level-Farbton aber auch
+                           nach Distanz-/Unterwassernebel deutlich sichtbar machen. */
+                        float luminance = dot(finalRgb, vec3(0.2126, 0.7152, 0.0722));
+                        vec3 tinted = lodDebugColor(v_debugLevel) * (0.30 + 0.85 * luminance);
+                        finalRgb = mix(finalRgb, tinted, 0.78);
+                    }
+                }
+                fragColor = vec4(finalRgb, color.a);
             }
             """;
 

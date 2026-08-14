@@ -77,6 +77,7 @@ public final class LodMesher {
     /* Boden-Samples (ohne Wasser): für Nicht-Fluid-Zellen identisch mit cells; für
        Fluid-Zellen der feste Boden darunter — Basis für Terrain-Tops/-Wände/AO/yBase. */
     private long[] ground = new long[0];
+    private LodColumn[] columns = new LodColumn[0];
     private boolean[] clipped = new boolean[0];
     /* Merge-Marker der Top-Pässe (2D-Greedy): true = Zelle schon in ein Quad gemerged;
        wird vor Terrain- (3a) und Wasser-Pass (3b) jeweils zurückgesetzt. */
@@ -100,6 +101,7 @@ public final class LodMesher {
     private final float[] aoScratch = new float[4]; // wiederverwendet: P1,P2,P3,P4 pro Top-Quad
     private final float[] aoFlatScratch = new float[4]; // Scratch für cellAoFlat (Merge-Kandidaten)
     private boolean flatAo;                    // Fern-Level: AO pro Zelle abgeflacht (s. mesh)
+    private long lastSamplingNanos, lastGeometryNanos;
 
     /* Optionaler Debug-Statistik-Sink: NUR vom LodQuadCensus gesetzt. In der laufenden Engine
        bleibt dies null (jede Zählung ist per if(stats != null) geguardet → kein Overhead, keine
@@ -172,6 +174,11 @@ public final class LodMesher {
      */
     public LodMeshResult mesh(LodDataSource source, LodBlockAppearance appearance, LodConfig config,
                               int level, int sizeRegions, int rx, int rz, int epoch, int mask, int ax, int az) {
+        this.lastSamplingNanos = 0;
+        this.lastGeometryNanos = 0;
+        if (source.hasColumns()) {
+            return this.meshColumns(source, appearance, config, level, sizeRegions, rx, rz, epoch, mask);
+        }
         int s = config.cellSize(level);
         int regionBlocks = sizeRegions * REGION_BLOCKS;
         int n = regionBlocks / s;
@@ -406,6 +413,357 @@ public final class LodMesher {
         return new LodMeshResult(level, rx, rz, this.sizeRegions, epoch, mask, this.yBase, opaqueData, translucentData, minY, maxY);
     }
 
+    /** Mehrschichtiger Greedy-Pfad für persistente L0-L5-Spalten. */
+    private LodMeshResult meshColumns(LodDataSource source, LodBlockAppearance appearance, LodConfig config,
+                                      int level, int sizeRegions, int rx, int rz, int epoch, int mask) {
+        int s = config.cellSize(level);
+        int n = sizeRegions * REGION_BLOCKS / s;
+        this.stride = n + 2;
+        this.cellCount = n;
+        this.sizeRegions = sizeRegions;
+        this.appearance = appearance;
+        this.source = source;
+        this.edgeSkirt = edgeSkirtOf(level);
+        this.posScale = posScaleFor(sizeRegions);
+        this.emitOverlay = EMIT_GRASS_OVERLAY;
+        this.regionBaseX = rx * REGION_BLOCKS;
+        this.regionBaseZ = rz * REGION_BLOCKS;
+        if (mask == 0xFFFF) {
+            return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, 0,
+                    new int[0], new int[0], 0F, 0F);
+        }
+        int sampleCount = this.stride * this.stride;
+        if (this.columns.length < sampleCount) this.columns = new LodColumn[sampleCount];
+        long samplingStarted = System.nanoTime();
+        int minY = Integer.MAX_VALUE;
+        for (int z = -1; z <= n; z++) {
+            for (int x = -1; x <= n; x++) {
+                LodColumn column = source.sampleColumn(this.regionBaseX + x * s,
+                        this.regionBaseZ + z * s, s);
+                this.columns[(z + 1) * this.stride + x + 1] = column;
+                for (int i = 0; i < column.size(); i++) minY = Math.min(minY, LodColumn.minY(column.interval(i)));
+            }
+        }
+        this.lastSamplingNanos = System.nanoTime() - samplingStarted;
+        long geometryStarted = System.nanoTime();
+        this.yBase = Math.max(0, (minY == Integer.MAX_VALUE ? 0 : minY) - 2);
+        if (this.clipped.length < n * n) this.clipped = new boolean[n * n];
+        if (mask == 0) {
+            Arrays.fill(this.clipped, 0, n * n, false);
+        } else {
+            int cellsPerChunk = 32 / s;
+            for (int z = 0; z < n; z++) for (int x = 0; x < n; x++) {
+                int bit = (z / cellsPerChunk) * 4 + x / cellsPerChunk;
+                this.clipped[z * n + x] = (mask & 1 << bit) != 0;
+            }
+        }
+        if (this.consumed.length < n * n) this.consumed = new boolean[n * n];
+        this.viOpaque = this.viTranslucent = 0;
+        this.minBottom = Float.MAX_VALUE;
+        this.maxTop = -Float.MAX_VALUE;
+        int maxRun = Math.max(1, MAX_MERGE_BLOCKS / s);
+
+        for (int intervalIndex = 0; intervalIndex < LodColumn.MAX_INTERVALS; intervalIndex++) {
+            Arrays.fill(this.consumed, 0, n * n, false);
+            for (int z = 0; z < n; z++) for (int x = 0; x < n;) {
+                int cellIndex = z * n + x;
+                LodColumn column = this.column(x, z);
+                if (this.clipped[cellIndex] || this.consumed[cellIndex] || intervalIndex >= column.size()
+                        || !this.topExposed(column, intervalIndex)) {
+                    x++;
+                    continue;
+                }
+                long interval = column.interval(intervalIndex);
+                int block = LodColumn.state(interval);
+                float top = this.appearance.isFluid(block)
+                        ? LodColumn.maxY(interval) - 1 + FluidGeometry.SOURCE_HEIGHT
+                        : LodColumn.maxY(interval);
+                int skyLight = this.columnSkyLight(column, top);
+                int width = 1;
+                while (x + width < n && width < maxRun
+                        && this.columnFaceMatches(x + width, z, intervalIndex, interval, true, skyLight)) width++;
+                int height = 1;
+                topExpand:
+                while (z + height < n && height < maxRun) {
+                    for (int dx = 0; dx < width; dx++) {
+                        if (!this.columnFaceMatches(x + dx, z + height, intervalIndex,
+                                interval, true, skyLight)) break topExpand;
+                    }
+                    height++;
+                }
+                for (int dz = 0; dz < height; dz++) for (int dx = 0; dx < width; dx++) {
+                    this.consumed[(z + dz) * n + x + dx] = true;
+                }
+                this.emitTop(block, AO_NONE, x * s, z * s, (x + width) * s, (z + height) * s,
+                        top, skyLight);
+                x += width;
+            }
+
+            Arrays.fill(this.consumed, 0, n * n, false);
+            for (int z = 0; z < n; z++) for (int x = 0; x < n;) {
+                int cellIndex = z * n + x;
+                LodColumn column = this.column(x, z);
+                if (this.clipped[cellIndex] || this.consumed[cellIndex] || intervalIndex >= column.size()
+                        || !this.bottomExposed(column, intervalIndex)) {
+                    x++;
+                    continue;
+                }
+                long interval = column.interval(intervalIndex);
+                if (LodColumn.minY(interval) == 0 && !source.hasWorldBottom()) {
+                    x++;
+                    continue;
+                }
+                /* Eine Unterseite sieht den Himmel nie direkt: Bereits das eigene massive
+                   Intervall schirmt sie ab. Seitliche Lichtausbreitung wird im LOD-Pfad
+                   bewusst nicht simuliert, daher bleibt die konservative Näherung 0. */
+                int skyLight = 0;
+                int width = 1;
+                while (x + width < n && width < maxRun
+                        && this.columnFaceMatches(x + width, z, intervalIndex,
+                        interval, false, skyLight)) width++;
+                int height = 1;
+                bottomExpand:
+                while (z + height < n && height < maxRun) {
+                    for (int dx = 0; dx < width; dx++) {
+                        if (!this.columnFaceMatches(x + dx, z + height, intervalIndex,
+                                interval, false, skyLight)) break bottomExpand;
+                    }
+                    height++;
+                }
+                for (int dz = 0; dz < height; dz++) for (int dx = 0; dx < width; dx++) {
+                    this.consumed[(z + dz) * n + x + dx] = true;
+                }
+                this.emitBottom(LodColumn.state(interval), x * s, z * s,
+                        (x + width) * s, (z + height) * s, LodColumn.minY(interval), skyLight);
+                x += width;
+            }
+        }
+
+        for (int z = 0; z < n; z++) {
+            this.columnWallsAlongX(z, -1, 2, s, maxRun);
+            this.columnWallsAlongX(z, 1, 3, s, maxRun);
+        }
+        for (int x = 0; x < n; x++) {
+            this.columnWallsAlongZ(x, -1, 4, s, maxRun);
+            this.columnWallsAlongZ(x, 1, 5, s, maxRun);
+        }
+        this.columnEdgeSkirts(s, maxRun);
+
+        int[] opaque = this.viOpaque == 0 ? new int[0] : Arrays.copyOf(this.outOpaque, this.viOpaque);
+        int[] translucent = this.viTranslucent == 0 ? new int[0]
+                : Arrays.copyOf(this.outTranslucent, this.viTranslucent);
+        boolean empty = this.viOpaque == 0 && this.viTranslucent == 0;
+        this.appearance = null;
+        this.source = null;
+        this.lastGeometryNanos = System.nanoTime() - geometryStarted;
+        return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, this.yBase,
+                opaque, translucent, empty ? 0F : this.minBottom, empty ? 0F : this.maxTop);
+    }
+
+    long lastSamplingNanos() { return this.lastSamplingNanos; }
+    long lastGeometryNanos() { return this.lastGeometryNanos; }
+
+    private boolean columnFaceMatches(int x, int z, int index, long interval,
+                                      boolean top, int skyLight) {
+        int ci = z * this.cellCount + x;
+        if (this.clipped[ci] || this.consumed[ci]) return false;
+        LodColumn column = this.column(x, z);
+        if (index >= column.size() || column.interval(index) != interval
+                || !(top ? this.topExposed(column, index) : this.bottomExposed(column, index))) return false;
+        if (!top) return skyLight == 0;
+        float y = this.appearance.isFluid(LodColumn.state(interval))
+                ? LodColumn.maxY(interval) - 1 + FluidGeometry.SOURCE_HEIGHT
+                : LodColumn.maxY(interval);
+        return this.columnSkyLight(column, y) == skyLight;
+    }
+
+    private boolean topExposed(LodColumn column, int index) {
+        return index + 1 >= column.size()
+                || LodColumn.minY(column.interval(index + 1)) > LodColumn.maxY(column.interval(index))
+                || this.appearance.isTranslucent(LodColumn.state(column.interval(index + 1)));
+    }
+
+    private boolean bottomExposed(LodColumn column, int index) {
+        return index == 0 || LodColumn.maxY(column.interval(index - 1)) < LodColumn.minY(column.interval(index))
+                || this.appearance.isTranslucent(LodColumn.state(column.interval(index - 1)));
+    }
+
+    private int columnSkyLight(LodColumn column, float y) {
+        int depth = 0;
+        for (int i = 0; i < column.size(); i++) {
+            long interval = column.interval(i);
+            if (LodColumn.maxY(interval) <= y
+                    || !this.appearance.attenuatesSkyLight(LodColumn.state(interval))) continue;
+            depth += Math.max(0, LodColumn.maxY(interval) - Math.max((int) Math.floor(y), LodColumn.minY(interval)));
+        }
+        return Math.clamp(15 - depth, 0, 15);
+    }
+
+    private LodColumn column(int x, int z) {
+        return this.columns[(z + 1) * this.stride + x + 1];
+    }
+
+    private record ColumnSide(int block, int minY, int maxY, long lightSurface) {}
+
+    private java.util.List<ColumnSide> visibleSides(LodColumn own, LodColumn neighbor, boolean regionEdge) {
+        java.util.ArrayList<ColumnSide> result = new java.util.ArrayList<>();
+        long skirt = regionEdge ? this.skirtInterval(own) : 0;
+        long lightSurface = this.columnWallLightSurface(own, neighbor);
+        for (int i = 0; i < own.size(); i++) {
+            long interval = own.interval(i);
+            /* Die tiefe Terrain-Basis gehört am Regionsrand dem Skirt. Strukturen und
+               Überhänge darüber werden exakt gegen die Halo-Spalte geprüft. */
+            if ((regionEdge && LodColumn.terrain(interval)) || interval == skirt) continue;
+            int start = LodColumn.minY(interval), end = LodColumn.maxY(interval);
+            for (int j = 0; j < neighbor.size() && start < end; j++) {
+                long cover = neighbor.interval(j);
+                int coverMin = LodColumn.minY(cover), coverMax = LodColumn.maxY(cover);
+                if (coverMax <= start || coverMin >= end) continue;
+                if (!this.appearance.isTranslucent(LodColumn.state(interval))
+                        && this.appearance.isTranslucent(LodColumn.state(cover))) continue;
+                if (coverMin > start) result.add(new ColumnSide(LodColumn.state(interval), start,
+                        Math.min(end, coverMin), lightSurface));
+                start = Math.max(start, coverMax);
+            }
+            if (start < end) result.add(new ColumnSide(LodColumn.state(interval), start, end, lightSurface));
+        }
+        return result;
+    }
+
+    private long columnWallLightSurface(LodColumn own, LodColumn neighbor) {
+        long best = LodDataSource.pack(Blocks.AIR, 0);
+        int top = 0;
+        for (int pass = 0; pass < 2; pass++) {
+            LodColumn column = pass == 0 ? own : neighbor;
+            for (int i = 0; i < column.size(); i++) {
+                long interval = column.interval(i);
+                int state = LodColumn.state(interval);
+                if (!this.appearance.attenuatesSkyLight(state) || LodColumn.maxY(interval) <= top) continue;
+                top = LodColumn.maxY(interval);
+                best = LodDataSource.pack(state, top - 1);
+            }
+        }
+        return best;
+    }
+
+    private void columnWallsAlongX(int z, int dz, int face, int s, int maxRun) {
+        boolean regionEdge = z + dz < 0 || z + dz >= this.cellCount;
+        for (int x = 0; x < this.cellCount;) {
+            if (this.clipped[z * this.cellCount + x]) { x++; continue; }
+            java.util.List<ColumnSide> sides = this.visibleSides(
+                    this.column(x, z), this.column(x, z + dz), regionEdge);
+            if (sides.isEmpty()) { x++; continue; }
+            int run = 1;
+            while (x + run < this.cellCount && run < maxRun
+                    && !this.clipped[z * this.cellCount + x + run]
+                    && sides.equals(this.visibleSides(this.column(x + run, z),
+                    this.column(x + run, z + dz), regionEdge))) run++;
+            float x0 = x * s, x1 = (x + run) * s, zz = (dz < 0 ? z : z + 1) * s;
+            for (ColumnSide side : sides) {
+                if (face == 2) this.emitWall(side.block, face, x1, zz, x0, zz, side.minY, side.maxY,
+                        side.lightSurface);
+                else this.emitWall(side.block, face, x0, zz, x1, zz, side.minY, side.maxY,
+                        side.lightSurface);
+            }
+            x += run;
+        }
+    }
+
+    private void columnWallsAlongZ(int x, int dx, int face, int s, int maxRun) {
+        boolean regionEdge = x + dx < 0 || x + dx >= this.cellCount;
+        for (int z = 0; z < this.cellCount;) {
+            if (this.clipped[z * this.cellCount + x]) { z++; continue; }
+            java.util.List<ColumnSide> sides = this.visibleSides(
+                    this.column(x, z), this.column(x + dx, z), regionEdge);
+            if (sides.isEmpty()) { z++; continue; }
+            int run = 1;
+            while (z + run < this.cellCount && run < maxRun
+                    && !this.clipped[(z + run) * this.cellCount + x]
+                    && sides.equals(this.visibleSides(this.column(x, z + run),
+                    this.column(x + dx, z + run), regionEdge))) run++;
+            float z0 = z * s, z1 = (z + run) * s, xx = (dx < 0 ? x : x + 1) * s;
+            for (ColumnSide side : sides) {
+                if (face == 4) this.emitWall(side.block, face, xx, z0, xx, z1, side.minY, side.maxY,
+                        side.lightSurface);
+                else this.emitWall(side.block, face, xx, z1, xx, z0, side.minY, side.maxY,
+                        side.lightSurface);
+            }
+            z += run;
+        }
+    }
+
+    /** Greedy-Skirts an den vier Regionsrändern verdecken unterschiedliche Nachbar-Level. */
+    private void columnEdgeSkirts(int s, int maxRun) {
+        this.columnEdgeSkirtsX(0, 2, s, maxRun);
+        this.columnEdgeSkirtsX(this.cellCount - 1, 3, s, maxRun);
+        this.columnEdgeSkirtsZ(0, 4, s, maxRun);
+        this.columnEdgeSkirtsZ(this.cellCount - 1, 5, s, maxRun);
+    }
+
+    private long skirtInterval(LodColumn column) {
+        long terrain = 0;
+        long fallback = 0;
+        for (int i = 0; i < column.size(); i++) {
+            long interval = column.interval(i);
+            if (this.appearance.isFluid(LodColumn.state(interval))) continue;
+            if (LodColumn.terrain(interval)) terrain = interval;
+            else if (fallback == 0 && !(LodColumn.landmark(interval) && LodColumn.minY(interval) > 0)) {
+                fallback = interval;
+            }
+        }
+        return terrain != 0 ? terrain : fallback;
+    }
+
+    private void columnEdgeSkirtsX(int z, int face, int s, int maxRun) {
+        for (int x = 0; x < this.cellCount;) {
+            if (this.clipped[z * this.cellCount + x]) { x++; continue; }
+            long interval = this.skirtInterval(this.column(x, z));
+            if (interval == 0) { x++; continue; }
+            int neighborZ = face == 2 ? z - 1 : z + 1;
+            long lightSurface = this.columnWallLightSurface(this.column(x, z), this.column(x, neighborZ));
+            int run = 1;
+            while (x + run < this.cellCount && run < maxRun
+                    && !this.clipped[z * this.cellCount + x + run]
+                    && this.skirtInterval(this.column(x + run, z)) == interval
+                    && this.columnWallLightSurface(this.column(x + run, z),
+                    this.column(x + run, neighborZ)) == lightSurface) run++;
+            float top = LodColumn.maxY(interval);
+            float bottom = Math.max(0F, top - this.edgeSkirt);
+            float x0 = x * s, x1 = (x + run) * s, zz = (face == 2 ? z : z + 1) * s;
+            int block = LodColumn.state(interval);
+            if (face == 2) this.emitWall(block, face, x1, zz, x0, zz, bottom, top,
+                    lightSurface);
+            else this.emitWall(block, face, x0, zz, x1, zz, bottom, top,
+                    lightSurface);
+            x += run;
+        }
+    }
+
+    private void columnEdgeSkirtsZ(int x, int face, int s, int maxRun) {
+        for (int z = 0; z < this.cellCount;) {
+            if (this.clipped[z * this.cellCount + x]) { z++; continue; }
+            long interval = this.skirtInterval(this.column(x, z));
+            if (interval == 0) { z++; continue; }
+            int neighborX = face == 4 ? x - 1 : x + 1;
+            long lightSurface = this.columnWallLightSurface(this.column(x, z), this.column(neighborX, z));
+            int run = 1;
+            while (z + run < this.cellCount && run < maxRun
+                    && !this.clipped[(z + run) * this.cellCount + x]
+                    && this.skirtInterval(this.column(x, z + run)) == interval
+                    && this.columnWallLightSurface(this.column(x, z + run),
+                    this.column(neighborX, z + run)) == lightSurface) run++;
+            float top = LodColumn.maxY(interval);
+            float bottom = Math.max(0F, top - this.edgeSkirt);
+            float z0 = z * s, z1 = (z + run) * s, xx = (face == 4 ? x : x + 1) * s;
+            int block = LodColumn.state(interval);
+            if (face == 4) this.emitWall(block, face, xx, z0, xx, z1, bottom, top,
+                    lightSurface);
+            else this.emitWall(block, face, xx, z1, xx, z0, bottom, top,
+                    lightSurface);
+            z += run;
+        }
+    }
+
     /**
      * Positions-Skala der Vertex-Packung je Regionsgröße: 128er packen mit 1/256,
      * Superregionen mit 1/64 — der u16-Fixed-Point trägt bei 1/256 nur ~255
@@ -418,7 +776,10 @@ public final class LodMesher {
      * auf 0xFFFF klemmen.
      */
     public static float posScaleFor(int sizeRegions) {
-        return sizeRegions > 1 ? 64F : 256F;
+        /* Mehrschichtige Spalten können gleichzeitig Weltboden und hohe Landmarken tragen.
+           1/128 deckt 0..512 vollständig ab und behält 1/128-Block-Präzision; X/Z einer
+           128er-Region benötigen nur die halbe Reichweite. */
+        return sizeRegions > 1 ? 64F : 127F;
     }
 
     /* ------------------------- Sampling ------------------------- */
@@ -750,7 +1111,7 @@ public final class LodMesher {
         float u = x1 - x0, v = z1 - z0;
         /* Fluid-Tops gehen in den Translucent-Puffer (transparente Wasserfläche); alles
            andere bleibt opak. Wände an Fluid-Zellen sind analog transluzent (s. emitWall). */
-        boolean fluidTop = this.appearance.isFluid(block);
+        boolean fluidTop = this.appearance.isTranslucent(block);
         float renderY = fluidTop ? y - FluidGeometry.TOP_RENDER_EPSILON : y;
         if (this.stats != null) {
             if (fluidTop) this.stats.topWater++; else this.stats.topTerrain++;
@@ -773,6 +1134,25 @@ public final class LodMesher {
 
         if (renderY > this.maxTop) this.maxTop = renderY;
         if (renderY < this.minBottom) this.minBottom = renderY;
+    }
+
+    /** Unterseite eines freiliegenden Intervalls, mit derselben 2D-Greedy-Fläche wie das Top. */
+    private void emitBottom(int block, float x0, float z0, float x1, float z1,
+                            float y, int skyLight) {
+        int layer = this.appearance.sideLayer(block);
+        if (layer < 0) return;
+        int tint = this.tintFor(this.appearance.sideTint(block), this.appearance.sideTintType(block),
+                (x0 + x1) * 0.5F, (z0 + z1) * 0.5F);
+        float brightness = BlockModels.FACE_BRIGHTNESS[1];
+        float u = x1 - x0, v = z1 - z0;
+        boolean translucent = this.appearance.isTranslucent(block);
+        this.ensureCapacity(translucent);
+        this.putVertex(translucent, x1, y, z0, u, 0F, layer, brightness, tint, skyLight);
+        this.putVertex(translucent, x1, y, z1, u, v, layer, brightness, tint, skyLight);
+        this.putVertex(translucent, x0, y, z1, 0F, v, layer, brightness, tint, skyLight);
+        this.putVertex(translucent, x0, y, z0, 0F, 0F, layer, brightness, tint, skyLight);
+        if (y > this.maxTop) this.maxTop = y;
+        if (y < this.minBottom) this.minBottom = y;
     }
 
     /**
@@ -945,7 +1325,7 @@ public final class LodMesher {
            Abbruch) und daher ebenfalls transluzent — sonst dominieren sie aus Nähe/niedriger
            Position (nah an oder unter einer LOD-Wasserkante) den Bildschirm als große opake
            Fläche. Wände an festem Terrain bleiben opak. */
-        boolean fluidWall = this.appearance.isFluid(block);
+        boolean fluidWall = this.appearance.isTranslucent(block);
 
         /* Koplanares Seiten-Overlay (getönter Grasrand) ZUERST emittieren: identische Vertices
            im selben Opaque-Draw ⇒ identische Tiefe (GL-Invarianz); die danach emittierte

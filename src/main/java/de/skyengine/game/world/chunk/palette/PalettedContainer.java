@@ -63,6 +63,15 @@ public final class PalettedContainer {
         return this.nonAir == 0;
     }
 
+    public boolean isSingleValue() {
+        return this.storage == null;
+    }
+
+    public int singleValue() {
+        if (this.storage != null) throw new IllegalStateException("Container ist nicht einwertig");
+        return this.palette[0];
+    }
+
     /* Liefert (oder vergibt) den Paletten-Index einer State-ID; vergrößert Palette/Storage.
        Linearer Scan über die (typisch winzige) Palette - allokationsfrei und ohne Boxing. */
     private int idFor(int stateId) {

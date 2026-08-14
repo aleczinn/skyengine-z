@@ -1,4 +1,5 @@
 {
   "id": "skyengine:birch_door",
-  "parent": "preset/door"
+  "parent": "preset/door",
+  "lod_replacement": "skyengine:birch_planks"
 }

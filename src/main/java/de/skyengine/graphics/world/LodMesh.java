@@ -15,9 +15,14 @@ public class LodMesh {
     public final int rx, rz;      // Regionskoordinaten (Ecke, in 128er-Regionen)
     public final int level;       // LOD-Level (Zellgröße 2^level Blöcke)
     /* Footprint: 128 (normal) oder 512 Blöcke (4x4-Superregion) — bestimmt Frustum-AABB,
-       und die per-Draw-Positions-Skala (Superregionen packen mit 1/64 statt 1/256). */
+       und die per-Draw-Positions-Skala (normale Regionen 1/127, Superregionen 1/64). */
     public final int sizeBlocks;
     public final float invPosScale;
+    public final int posScaleCode;
+    /** 16-Bit-Chunkmaske, mit der genau dieses hochgeladene Mesh geclippt wurde. */
+    public final int mask;
+    /** Nur Render-Thread: sichtbare LOD-Zellen, unter denen bereits ein interaktives L0 liegt. */
+    int debugConflictMask;
     /* Y-Basis: Vertices sind relativ dazu gepackt (u16 trägt nur ~254/1023 Blöcke Spanne);
        der Renderer addiert yBase im Draw-Offset. */
     public final int yBase;
@@ -31,13 +36,18 @@ public class LodMesh {
     private final int opaqueQuadCount, translucentQuadCount;
 
     /** Alloziert die Arena-Regionen und lädt die Mesh-Daten hoch. Render-Thread. */
-    public LodMesh(int rx, int rz, int level, int sizeRegions, int yBase, int[] opaqueData, int[] translucentData,
-                   float minY, float maxY, VertexArena opaqueArena, VertexArena translucentArena) {
+    public LodMesh(int rx, int rz, int level, int sizeRegions, int mask, int yBase,
+                   int[] opaqueData, int[] translucentData, float minY, float maxY,
+                   VertexArena opaqueArena, VertexArena translucentArena) {
         this.rx = rx;
         this.rz = rz;
         this.level = level;
         this.sizeBlocks = sizeRegions * LodMesher.REGION_BLOCKS;
-        this.invPosScale = 1F / LodMesher.posScaleFor(sizeRegions);
+        float posScale = LodMesher.posScaleFor(sizeRegions);
+        this.invPosScale = 1F / posScale;
+        this.posScaleCode = sizeRegions > 1
+                ? DrawMetadata.LOD_SUPER_SCALE_CODE : DrawMetadata.LOD_REGION_SCALE_CODE;
+        this.mask = mask & 0xFFFF;
         this.yBase = yBase;
         this.minY = minY;
         this.maxY = maxY;
