@@ -56,6 +56,9 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
         CycleButton<Boolean> lodOverlay = CycleButton.onOff(I18n.tr("options.debug.lod_overlay"), CELL_W, CELL_H,
                 LodMesher.EMIT_GRASS_OVERLAY, v -> LodMesher.EMIT_GRASS_OVERLAY = v);
 
+        CycleButton<Boolean> lodColors = CycleButton.onOff(I18n.tr("options.debug.lod_colors"), CELL_W, CELL_H,
+                DebugFlags.lodLevelColors, v -> DebugFlags.lodLevelColors = v);
+
         boolean paused = game.getWorld() != null && game.getWorld().getChunkManager().isLoadingPaused();
         CycleButton<Boolean> pauseLoading = CycleButton.onOff(I18n.tr("options.debug.pause_loading"), CELL_W, CELL_H,
                 paused, v -> {
@@ -77,8 +80,9 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
 
         content.add(new HStack(4, wireframe, gpuCull));
         content.add(new HStack(4, gpuCullHiZ, gpuCullTint));
-        content.add(new HStack(4, lodOverlay, pauseLoading));
-        content.add(new HStack(4, aa, guiSlots));
+        content.add(new HStack(4, lodOverlay, lodColors));
+        content.add(new HStack(4, pauseLoading, guiSlots));
+        content.add(aa);
         content.add(new HStack(4, reloadChunks, reloadPost));
     }
 }

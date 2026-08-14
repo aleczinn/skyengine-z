@@ -20,6 +20,10 @@ public class SectionMesh {
     /* Descriptor-Slots im GPU-Cull-Substrat (-1 = nicht registriert), gepflegt vom ChunkRenderer. */
     int gpuSlotOpaque = -1, gpuSlotCutout = -1;
 
+    /* Debug: Das LOD-Sicht-Gate beansprucht diese Spalte. Falls der Draw trotzdem sichtbar
+       wird, färbt ihn der gemeinsame Chunk-Shader magenta. Nur Render-Thread. */
+    boolean debugLodConflict;
+
     /* Positionen in den Mitglieds-Listen des ChunkRenderers (-1 = nicht enthalten) für
        Swap-Remove in O(1) — der lineare ArrayList-Scan war beim Cleanup-Walk der Spike
        (Hunderte Removes × Tausende Einträge in einem Frame beim Chunk-Grenzwechsel). */

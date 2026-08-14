@@ -1363,6 +1363,29 @@ public class World implements IInitializable, IDisposable {
         return chunk != null && chunk.status == ChunkStatus.READY;
     }
 
+    /**
+     * Ob der Spieler diese Zelle bereits wirklich sehen und damit sicher anvisieren darf.
+     *
+     * <p>{@link ChunkStatus#READY} bedeutet nur, dass alle initialen Section-Meshes erzeugt und
+     * zum Upload eingereiht wurden. Bis der Renderer sie komplett uebernommen und das LOD-Mesh
+     * passend geclippt hat, kann noch ein sichtbarer LOD-Proxy ueber dem echten Chunk liegen.
+     * In diesem Uebergang duerfen weder Auswahl noch Interaktionen auf die verdeckten L0-Daten
+     * zugreifen.</p>
+     */
+    public boolean isPlayerInteractionReady(int x, int y, int z) {
+        if (y < 0 || y >= Chunk.HEIGHT) return false;
+        int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+        Chunk chunk = this.chunkManager.getChunk(cx, cz);
+        boolean lodShowsCell = this.lodManager != null && this.lodManager.lodShowsCell(cx, cz);
+        return isPlayerInteractionReady(chunk, lodShowsCell);
+    }
+
+    /** Pure Statusmatrix fuer Tests und den oeffentlichen Weltkoordinaten-Pfad oben. */
+    static boolean isPlayerInteractionReady(Chunk chunk, boolean lodShowsCell) {
+        return chunk != null && chunk.status == ChunkStatus.READY && chunk.isFullyUploaded()
+                && !chunk.pendingUnload && !lodShowsCell;
+    }
+
     public void render(Camera camera, float partialTick) {
         this.render(camera, partialTick, null);
     }
@@ -1534,13 +1557,14 @@ public class World implements IInitializable, IDisposable {
      * Nachbar-Updates aus. Das Ordering ist entscheidend - sonst entfernt sich z.B. die
      * untere Türhälfte selbst, bevor die obere existiert.
      */
-    public void placeBlock(int x, int y, int z, BlockState state) {
+    public boolean placeBlock(int x, int y, int z, BlockState state) {
         /* Schlägt der Schreibzugriff fehl (Chunk nicht READY), dürfen onPlaced/updateNeighbors
            NICHT laufen — PartsBehavior setzte sonst Geschwisterteile für einen Ursprung,
            der nie geschrieben wurde. */
-        if (!this.setBlock(x, y, z, state.getId(), false)) return;
+        if (!this.setBlock(x, y, z, state.getId(), false)) return false;
         state.getBlock().onPlaced(this, x, y, z, state);
         this.updateNeighbors(x, y, z);
+        return true;
     }
 
     /**
