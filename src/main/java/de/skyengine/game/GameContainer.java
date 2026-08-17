@@ -218,6 +218,9 @@ public class GameContainer implements IResizeable, IDisposable {
     /* Slot-Wechsel-Zeitpunkt für die Itemnamen-Einblendung über der Hotbar (reine Anzeige). */
     private static final long ITEM_NAME_HOLD_MS = 2000, ITEM_NAME_FADE_MS = 500;
     private long itemNameShownAt = 0;
+    /* Kurzmeldung an derselben HUD-Position (z.B. Spectator-Fluggeschwindigkeit). */
+    private String hudStatusText = "";
+    private long hudStatusShownAt = 0;
     /* Ess-Fortschritt in Ticks (Rechtsklick halten auf ein FoodItem, MC: 32 Ticks = 1,6 s).
        Public: auch Zeitbasis der Ess-Animation (FirstPersonHandRenderer). */
     public static final int EAT_TICKS = 32;
@@ -305,6 +308,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.world.init();
 
         this.player = new EntityPlayer();
+        this.hudStatusText = "";
+        this.hudStatusShownAt = 0;
         this.playerUuid = null;
         /* Spielerzustand: player.dat ist die Quelle; Alt-Saves ohne player.dat werden einmalig
            aus den level.json-Feldern migriert (beim nächsten Speichern genullt). */
@@ -976,7 +981,9 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.world != null && !this.hudHidden ? this.playerInventory : null,
                 this.hotbarIndex, showHotbar && !this.hudHidden,
                 !this.hudHidden && this.perspective.isFirstPerson(),
-                this.hudHidden ? 0F : this.itemNameAlpha(), this.player);
+                this.hudHidden ? 0F : this.itemNameAlpha(),
+                this.hudHidden ? "" : this.hudStatusText,
+                this.hudHidden ? 0F : this.hudStatusAlpha(), this.player);
         if (!this.hudHidden && this.world != null && !this.guiManager.isOpen()) {
             this.chatHud.render(this.guiManager, this.chat, this.guiManager.vHeight() - 40F, false);
         }
@@ -1029,8 +1036,16 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /** Einblend-Alpha des Hotbar-Itemnamens: 2 s voll, dann 0,5 s linear ausblenden. */
     private float itemNameAlpha() {
-        long since = System.currentTimeMillis() - this.itemNameShownAt;
-        if (this.itemNameShownAt == 0 || since >= ITEM_NAME_HOLD_MS + ITEM_NAME_FADE_MS) return 0f;
+        return timedHudAlpha(this.itemNameShownAt);
+    }
+
+    private float hudStatusAlpha() {
+        return timedHudAlpha(this.hudStatusShownAt);
+    }
+
+    private static float timedHudAlpha(long shownAt) {
+        long since = System.currentTimeMillis() - shownAt;
+        if (shownAt == 0 || since >= ITEM_NAME_HOLD_MS + ITEM_NAME_FADE_MS) return 0f;
         if (since <= ITEM_NAME_HOLD_MS) return 1f;
         return (ITEM_NAME_HOLD_MS + ITEM_NAME_FADE_MS - since) / (float) ITEM_NAME_FADE_MS;
     }
@@ -1802,7 +1817,13 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Mausrad: hoch = vorheriger Slot, runter = nächster (mit Wrap), wie in Minecraft. */
         double scroll = input.getScrollY();
         if (this.player.getGamemode() == Gamemode.SPECTATOR && scroll != 0) {
+            float beforeSpeed = this.player.getSpectatorFlySpeed();
             this.player.adjustSpectatorFlySpeed(scroll);
+            float speed = this.player.getSpectatorFlySpeed();
+            if (speed != beforeSpeed) {
+                this.hudStatusText = I18n.tr("gui.hud.spectator_speed", Math.round(speed * 100F));
+                this.hudStatusShownAt = System.currentTimeMillis();
+            }
         } else if (scroll > 0) {
             this.hotbarIndex = (this.hotbarIndex + 8) % 9;
         } else if (scroll < 0) {

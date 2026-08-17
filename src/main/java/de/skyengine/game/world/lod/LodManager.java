@@ -289,6 +289,18 @@ public class LodManager {
         return mask;
     }
 
+    /** Eine fehlende Region, die gerade einen L0-Unload blockiert, ist ebenfalls ein Handoff-Job. */
+    private boolean hasPendingUnload(int rx, int rz) {
+        int baseCx = rx * 4, baseCz = rz * 4;
+        for (int dz = 0; dz < 4; dz++) {
+            for (int dx = 0; dx < 4; dx++) {
+                Chunk chunk = this.chunkManager.getChunk(baseCx + dx, baseCz + dz);
+                if (chunk != null && chunk.pendingUnload) return true;
+            }
+        }
+        return false;
+    }
+
     /** Submittet fehlende/veraltete Regionen nah-zuerst, budgetiert pro Tick. */
     private void submitPass() {
         /* Regionen in dieser Distanz können geladene Chunks enthalten → Masken-Scan nötig */
@@ -328,6 +340,12 @@ public class LodManager {
             boolean needs = c == null || c.level != level || c.epoch != this.epoch;
             boolean clip = false;
             int mask = Integer.MIN_VALUE; // noch nicht berechnet
+            if (needs && this.chunkManager.hasPendingUnloads() && this.hasPendingUnload(rx, rz)) {
+                /* Auch ein kompletter Erst-/Epochen-Build ist dringend, wenn sichtbares L0
+                   auf genau diese Region als atomaren Ersatz wartet. */
+                clip = true;
+                mask = this.computeMask(rx, rz);
+            }
             if (!needs && (c.mask != 0 || distSq < nearReal * nearReal)) {
                 /* Masken-Diff: Chunk fertig geladen oder entladen → Region remeshen.
                    c.mask != 0 fängt den Unload-Fall auch außerhalb der Nahzone.
@@ -414,6 +432,11 @@ public class LodManager {
         long key = key(result.rx(), result.rz());
         int want = this.desired.getOrDefault(key, -1); // -1 = nicht gewünscht (Level sind >= 1)
         if (want != result.level() || result.epoch() != this.epoch) return false;
+        /* Während der Worker mesht, kann der Spieler weitere Chunkgrenzen überqueren.
+           Einen veralteten Maskenstand kurz hochzuladen würde L0 festhalten oder Doppelbilder
+           erzeugen und danach noch einen zweiten Remesh brauchen. Nur der aktuelle Stand darf
+           den atomaren Handoff vollziehen; der Tick submittet den Ersatz unmittelbar neu. */
+        if (result.mask() != this.computeMask(result.rx(), result.rz())) return false;
         this.current.put(key, new Current(result.level(), result.sizeRegions(), result.epoch(), result.mask()));
         return true;
     }

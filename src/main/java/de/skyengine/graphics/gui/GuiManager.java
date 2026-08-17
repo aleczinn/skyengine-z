@@ -258,7 +258,8 @@ public final class GuiManager {
      * GuiScreen und nur, wenn der Aufrufer es will (First Person).
      */
     public void render(int screenW, int screenH, SimpleItemStorage hotbarInv, int selectedSlot,
-                       boolean showHotbar, boolean crosshair, float itemNameAlpha, EntityPlayer player) {
+                       boolean showHotbar, boolean crosshair, float itemNameAlpha,
+                       String hudStatusText, float hudStatusAlpha, EntityPlayer player) {
         this.syncCursor();
         this.screenWpx = screenW;
         this.screenHpx = screenH;
@@ -271,7 +272,8 @@ public final class GuiManager {
         /* HUD ZUERST (wie in Minecraft): ein offener GuiScreen samt Dim liegt ÜBER der Hotbar —
            sonst übermalt die Hotbar z.B. die Footer-Buttons von Scroll-Menüs. */
         if (hotbarInv != null) {
-            this.hud.render(this, hotbarInv, selectedSlot, this.screen == null && crosshair, showHotbar, itemNameAlpha, player);
+            this.hud.render(this, hotbarInv, selectedSlot, this.screen == null && crosshair,
+                    showHotbar, itemNameAlpha, hudStatusText, hudStatusAlpha, player);
         }
         if (this.screen != null) {
             /* Layout beim Öffnen und bei jeder Größen-/Scale-Änderung (statt pro Frame):

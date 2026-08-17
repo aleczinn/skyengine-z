@@ -41,6 +41,9 @@
     },
     "save": {
       "saved": "Spiel gespeichert"
+    },
+    "hud": {
+      "spectator_speed": "Spectator-Geschwindigkeit: %d %%"
     }
   },
 

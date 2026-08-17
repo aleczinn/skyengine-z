@@ -27,7 +27,8 @@ public final class Hud {
     private static final float VITAL = 9, VITAL_STEP = 8;
 
     public void render(GuiManager gui, SimpleItemStorage inv, int selectedSlot, boolean drawCrosshair,
-                       boolean drawHotbar, float itemNameAlpha, EntityPlayer player) {
+                       boolean drawHotbar, float itemNameAlpha, String statusText,
+                       float statusAlpha, EntityPlayer player) {
         SpriteRenderer sr = gui.sprites();
         GuiTextures tex = gui.textures();
         float vW = gui.vWidth(), vH = gui.vHeight();
@@ -72,9 +73,15 @@ public final class Hud {
             }
             gui.font().end();
 
-            /* Im Survival sitzt die Vitals-Reihe über der Hotbar -> Name eine Etage höher. */
-            float nameBase = vitals ? hy - VITAL - 1 : hy;
-            this.drawSelectedItemName(gui, inv.get(selectedSlot), nameBase, vW, vH, itemNameAlpha);
+        }
+
+        /* Im Survival sitzt die Vitals-Reihe über der Hotbar -> Text eine Etage höher.
+           Spectator hat keine sichtbare Hotbar, nutzt aber dieselbe Bezugslinie. */
+        float textBase = drawHotbar && vitals ? hy - VITAL - 1 : hy;
+        if (statusAlpha > 0F && statusText != null && !statusText.isEmpty()) {
+            this.drawCenteredText(gui, RichText.plain(statusText), textBase, vW, vH, statusAlpha);
+        } else if (drawHotbar) {
+            this.drawSelectedItemName(gui, inv.get(selectedSlot), textBase, vW, vH, itemNameAlpha);
         }
     }
 
@@ -110,11 +117,14 @@ public final class Hud {
     /** Name des selektierten Items zentriert über {@code base} (Hotbar- bzw. Vitals-Oberkante). */
     private void drawSelectedItemName(GuiManager gui, ItemStack selected, float base, float vW, float vH, float alpha) {
         if (alpha <= 0 || selected.isEmpty()) return;
-        RichText name = selected.getDisplayNameText();
-        float x = (vW - gui.font().width(name, NAME_TEXT)) / 2f;
+        this.drawCenteredText(gui, selected.getDisplayNameText(), base, vW, vH, alpha);
+    }
+
+    private void drawCenteredText(GuiManager gui, RichText text, float base, float vW, float vH, float alpha) {
+        float x = (vW - gui.font().width(text, NAME_TEXT)) / 2f;
         float y = base - gui.font().lineHeight(NAME_TEXT) - 4;
         gui.font().begin(vW, vH);
-        gui.font().drawRich(name, x, y, NAME_TEXT, new Color4(1f, 1f, 1f, alpha), true);
+        gui.font().drawRich(text, x, y, NAME_TEXT, new Color4(1f, 1f, 1f, alpha), true);
         gui.font().end();
     }
 }

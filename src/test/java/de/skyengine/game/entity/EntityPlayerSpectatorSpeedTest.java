@@ -17,7 +17,7 @@ final class EntityPlayerSpectatorSpeedTest {
         player.adjustSpectatorFlySpeed(-2);
         assertEquals(0.9F, player.getSpectatorFlySpeed(), 0.0001F);
         player.adjustSpectatorFlySpeed(100);
-        assertEquals(4F, player.getSpectatorFlySpeed(), 0.0001F);
+        assertEquals(10F, player.getSpectatorFlySpeed(), 0.0001F);
         player.adjustSpectatorFlySpeed(-100);
         assertEquals(0F, player.getSpectatorFlySpeed(), 0.0001F);
     }

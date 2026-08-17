@@ -38,8 +38,9 @@ public class EntityPlayer extends Entity {
     private static final double FLY_VERTICAL_FACTOR = 0.6;   // Hoch/Runter langsamer als Vorwärts
     private static final double FLY_DRAG = 0.88;
     private static final double FLY_DRAG_Y = 0.6;
-    private static final float SPECTATOR_SPEED_STEP = 0.1F;
-    private static final float SPECTATOR_SPEED_MAX = 4.0F;
+    private static final float SPECTATOR_SPEED_STEP = 0.5F;
+    private static final float SPECTATOR_SPEED_MIN = 1.0F;
+    private static final float SPECTATOR_SPEED_MAX = 10.0F;
 
     /* --- Schwimmen (Fluid) --- */
     private static final double SWIM_ACCEL = 0.02;          // langsame Beschleunigung im Fluid
@@ -584,13 +585,11 @@ public class EntityPlayer extends Entity {
 
     /**
      * Ändert die Spectator-Fluggeschwindigkeit wie in Minecraft per Mausrad:
-     * ein Rastschritt entspricht 10 %, begrenzt auf 0–400 %.
+     * ein Rastschritt entspricht 50 %, begrenzt auf 100–1000 %.
      */
     public void adjustSpectatorFlySpeed(double scroll) {
         if (this.gamemode != Gamemode.SPECTATOR || scroll == 0) return;
-        this.spectatorFlySpeed = Math.clamp(
-                this.spectatorFlySpeed + (float) scroll * SPECTATOR_SPEED_STEP,
-                0F, SPECTATOR_SPEED_MAX);
+        this.spectatorFlySpeed = Math.clamp(this.spectatorFlySpeed + (float) scroll * SPECTATOR_SPEED_STEP, SPECTATOR_SPEED_MIN, SPECTATOR_SPEED_MAX);
     }
 
     public float getSpectatorFlySpeed() {

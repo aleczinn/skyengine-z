@@ -59,12 +59,6 @@ public final class LodMesher {
     private static final int BASE_SKIRT = 16;
     private static final int MAX_SKIRT = 48;
 
-    /* Sicherheitsmarge an Masken-Kanten (nClipped, kein Regionsrand): deckt nur die
-       Sample-Ungenauigkeit/Remesh-Latenz ab, bewusst konstant statt level-/differenzabhängig -
-       der reale Höhenunterschied steckt bereits in min(nTop, top). Deutlich kleiner als jeder
-       edgeSkirtOf(level) (>=16), daher kein neues Überlauf-Risiko in yBase. */
-    private static final float MASK_EDGE_SKIRT = 3F;
-
     /* Face-Indizes wie BlockModels: 0=top, 2=north(-z), 3=south(+z), 4=west(-x), 5=east(+x) */
 
     private static final int QUAD_INTS = 4 * ChunkMesher.VERTEX_SIZE;
@@ -548,6 +542,7 @@ public final class LodMesher {
             this.columnWallsAlongZ(x, 1, 5, s, maxRun);
         }
         this.columnEdgeSkirts(s, maxRun);
+        this.columnMaskSkirts(s, maxRun);
 
         int[] opaque = this.viOpaque == 0 ? new int[0] : Arrays.copyOf(this.outOpaque, this.viOpaque);
         int[] translucent = this.viTranslucent == 0 ? new int[0]
@@ -605,15 +600,16 @@ public final class LodMesher {
 
     private record ColumnSide(int block, int minY, int maxY, long lightSurface) {}
 
-    private java.util.List<ColumnSide> visibleSides(LodColumn own, LodColumn neighbor, boolean regionEdge) {
+    private java.util.List<ColumnSide> visibleSides(LodColumn own, LodColumn neighbor, boolean skirtEdge) {
         java.util.ArrayList<ColumnSide> result = new java.util.ArrayList<>();
-        long skirt = regionEdge ? this.skirtInterval(own) : 0;
+        long skirt = skirtEdge ? this.skirtInterval(own) : 0;
         long lightSurface = this.columnWallLightSurface(own, neighbor);
         for (int i = 0; i < own.size(); i++) {
             long interval = own.interval(i);
-            /* Die tiefe Terrain-Basis gehört am Regionsrand dem Skirt. Strukturen und
-               Überhänge darüber werden exakt gegen die Halo-Spalte geprüft. */
-            if ((regionEdge && LodColumn.terrain(interval)) || interval == skirt) continue;
+            /* Die tiefe Terrain-Basis gehört an Regions- UND dynamischen L0-Maskenrändern
+               dem Skirt. Strukturen und Überhänge darüber werden weiterhin exakt gegen
+               die Halo-Spalte geprüft. */
+            if ((skirtEdge && LodColumn.terrain(interval)) || interval == skirt) continue;
             int start = LodColumn.minY(interval), end = LodColumn.maxY(interval);
             for (int j = 0; j < neighbor.size() && start < end; j++) {
                 long cover = neighbor.interval(j);
@@ -650,14 +646,16 @@ public final class LodMesher {
         boolean regionEdge = z + dz < 0 || z + dz >= this.cellCount;
         for (int x = 0; x < this.cellCount;) {
             if (this.clipped[z * this.cellCount + x]) { x++; continue; }
+            boolean maskEdge = !regionEdge && this.neighborClipped(x, z + dz);
             java.util.List<ColumnSide> sides = this.visibleSides(
-                    this.column(x, z), this.column(x, z + dz), regionEdge);
+                    this.column(x, z), this.column(x, z + dz), regionEdge || maskEdge);
             if (sides.isEmpty()) { x++; continue; }
             int run = 1;
             while (x + run < this.cellCount && run < maxRun
                     && !this.clipped[z * this.cellCount + x + run]
+                    && (!regionEdge && this.neighborClipped(x + run, z + dz)) == maskEdge
                     && sides.equals(this.visibleSides(this.column(x + run, z),
-                    this.column(x + run, z + dz), regionEdge))) run++;
+                    this.column(x + run, z + dz), regionEdge || maskEdge))) run++;
             float x0 = x * s, x1 = (x + run) * s, zz = (dz < 0 ? z : z + 1) * s;
             for (ColumnSide side : sides) {
                 if (face == 2) this.emitWall(side.block, face, x1, zz, x0, zz, side.minY, side.maxY,
@@ -673,14 +671,16 @@ public final class LodMesher {
         boolean regionEdge = x + dx < 0 || x + dx >= this.cellCount;
         for (int z = 0; z < this.cellCount;) {
             if (this.clipped[z * this.cellCount + x]) { z++; continue; }
+            boolean maskEdge = !regionEdge && this.neighborClipped(x + dx, z);
             java.util.List<ColumnSide> sides = this.visibleSides(
-                    this.column(x, z), this.column(x + dx, z), regionEdge);
+                    this.column(x, z), this.column(x + dx, z), regionEdge || maskEdge);
             if (sides.isEmpty()) { z++; continue; }
             int run = 1;
             while (z + run < this.cellCount && run < maxRun
                     && !this.clipped[(z + run) * this.cellCount + x]
+                    && (!regionEdge && this.neighborClipped(x + dx, z + run)) == maskEdge
                     && sides.equals(this.visibleSides(this.column(x, z + run),
-                    this.column(x + dx, z + run), regionEdge))) run++;
+                    this.column(x + dx, z + run), regionEdge || maskEdge))) run++;
             float z0 = z * s, z1 = (z + run) * s, xx = (dx < 0 ? x : x + 1) * s;
             for (ColumnSide side : sides) {
                 if (face == 4) this.emitWall(side.block, face, xx, z0, xx, z1, side.minY, side.maxY,
@@ -698,6 +698,74 @@ public final class LodMesher {
         this.columnEdgeSkirtsX(this.cellCount - 1, 3, s, maxRun);
         this.columnEdgeSkirtsZ(0, 4, s, maxRun);
         this.columnEdgeSkirtsZ(this.cellCount - 1, 5, s, maxRun);
+    }
+
+    /**
+     * Greedy-Skirts an der dynamischen L0↔LOD-Maske. Der echte Nachbarchunk kann von seinem
+     * LOD-Zentrumssample abweichen; deshalb ist auch bei gleicher LOD-Höhe eine tiefe Schürze
+     * nötig. Sie wird nur auf der sichtbaren LOD-Seite der Kante erzeugt.
+     */
+    private void columnMaskSkirts(int s, int maxRun) {
+        for (int z = 0; z < this.cellCount; z++) {
+            if (z > 0) this.columnMaskSkirtsX(z, -1, 2, s, maxRun);
+            if (z + 1 < this.cellCount) this.columnMaskSkirtsX(z, 1, 3, s, maxRun);
+        }
+        for (int x = 0; x < this.cellCount; x++) {
+            if (x > 0) this.columnMaskSkirtsZ(x, -1, 4, s, maxRun);
+            if (x + 1 < this.cellCount) this.columnMaskSkirtsZ(x, 1, 5, s, maxRun);
+        }
+    }
+
+    private void columnMaskSkirtsX(int z, int dz, int face, int s, int maxRun) {
+        for (int x = 0; x < this.cellCount;) {
+            if (this.clipped[z * this.cellCount + x] || !this.neighborClipped(x, z + dz)) {
+                x++;
+                continue;
+            }
+            long interval = this.skirtInterval(this.column(x, z));
+            if (interval == 0) { x++; continue; }
+            long lightSurface = this.columnWallLightSurface(this.column(x, z), this.column(x, z + dz));
+            int run = 1;
+            while (x + run < this.cellCount && run < maxRun
+                    && !this.clipped[z * this.cellCount + x + run]
+                    && this.neighborClipped(x + run, z + dz)
+                    && this.skirtInterval(this.column(x + run, z)) == interval
+                    && this.columnWallLightSurface(this.column(x + run, z),
+                    this.column(x + run, z + dz)) == lightSurface) run++;
+            float top = LodColumn.maxY(interval);
+            float bottom = Math.max(0F, top - this.edgeSkirt);
+            float x0 = x * s, x1 = (x + run) * s, zz = (dz < 0 ? z : z + 1) * s;
+            int block = LodColumn.state(interval);
+            if (face == 2) this.emitWall(block, face, x1, zz, x0, zz, bottom, top, lightSurface);
+            else this.emitWall(block, face, x0, zz, x1, zz, bottom, top, lightSurface);
+            x += run;
+        }
+    }
+
+    private void columnMaskSkirtsZ(int x, int dx, int face, int s, int maxRun) {
+        for (int z = 0; z < this.cellCount;) {
+            if (this.clipped[z * this.cellCount + x] || !this.neighborClipped(x + dx, z)) {
+                z++;
+                continue;
+            }
+            long interval = this.skirtInterval(this.column(x, z));
+            if (interval == 0) { z++; continue; }
+            long lightSurface = this.columnWallLightSurface(this.column(x, z), this.column(x + dx, z));
+            int run = 1;
+            while (z + run < this.cellCount && run < maxRun
+                    && !this.clipped[(z + run) * this.cellCount + x]
+                    && this.neighborClipped(x + dx, z + run)
+                    && this.skirtInterval(this.column(x, z + run)) == interval
+                    && this.columnWallLightSurface(this.column(x, z + run),
+                    this.column(x + dx, z + run)) == lightSurface) run++;
+            float top = LodColumn.maxY(interval);
+            float bottom = Math.max(0F, top - this.edgeSkirt);
+            float z0 = z * s, z1 = (z + run) * s, xx = (dx < 0 ? x : x + 1) * s;
+            int block = LodColumn.state(interval);
+            if (face == 4) this.emitWall(block, face, xx, z0, xx, z1, bottom, top, lightSurface);
+            else this.emitWall(block, face, xx, z1, xx, z0, bottom, top, lightSurface);
+            z += run;
+        }
     }
 
     private long skirtInterval(LodColumn column) {
@@ -932,12 +1000,10 @@ public final class LodMesher {
             long nSample = this.groundCell(cx, cz + dz);
             float top = this.topOf(sample);
             float nTop = this.topOf(nSample);
-            /* Skirt an Regionsrand-Kanten IMMER; an Masken-Kanten (geclippter Nachbar = L0-Naht)
-               nur bei tatsächlichem Höhenunterschied, dafür mit fester MASK_EDGE_SKIRT statt
-               der vollen Regionsrand-Tiefe (der reale Versatz steckt schon in min(nTop, top)). */
+            /* An Regions- und Maskenrändern IMMER ein tiefer Skirt: Zwei gleiche LOD-Samples
+               beweisen nicht, dass die echte L0-Randspalte dieselbe Höhe besitzt. */
             boolean nClipped = this.neighborClipped(cx, cz + dz);
-            boolean maskFlush = nClipped && nTop == top;
-            if ((!edge && !nClipped && nTop >= top) || maskFlush) {
+            if (!edge && !nClipped && nTop >= top) {
                 cx++;
                 continue;
             }
@@ -950,7 +1016,7 @@ public final class LodMesher {
                     && this.neighborClipped(cx + run, cz + dz) == nClipped) run++;
 
             if (this.stats != null) this.recordTerrainWall(edge, nClipped, nTop, top);
-            float skirtDepth = edge ? this.edgeSkirt : (nClipped ? MASK_EDGE_SKIRT : 0F);
+            float skirtDepth = edge || nClipped ? this.edgeSkirt : 0F;
             float bottom = Math.max(0F, Math.min(nTop, top) - skirtDepth);
             float x0 = cx * s, x1 = (cx + run) * s;
             float z = (dz < 0 ? cz : cz + 1) * s;
@@ -982,12 +1048,10 @@ public final class LodMesher {
             long nSample = this.groundCell(cx + dx, cz);
             float top = this.topOf(sample);
             float nTop = this.topOf(nSample);
-            /* Skirt an Regionsrand-Kanten IMMER; an Masken-Kanten (geclippter Nachbar = L0-Naht)
-               nur bei tatsächlichem Höhenunterschied, dafür mit fester MASK_EDGE_SKIRT statt
-               der vollen Regionsrand-Tiefe (der reale Versatz steckt schon in min(nTop, top)). */
+            /* An Regions- und Maskenrändern IMMER ein tiefer Skirt: Zwei gleiche LOD-Samples
+               beweisen nicht, dass die echte L0-Randspalte dieselbe Höhe besitzt. */
             boolean nClipped = this.neighborClipped(cx + dx, cz);
-            boolean maskFlush = nClipped && nTop == top;
-            if ((!edge && !nClipped && nTop >= top) || maskFlush) {
+            if (!edge && !nClipped && nTop >= top) {
                 cz++;
                 continue;
             }
@@ -1000,7 +1064,7 @@ public final class LodMesher {
                     && this.neighborClipped(cx + dx, cz + run) == nClipped) run++;
 
             if (this.stats != null) this.recordTerrainWall(edge, nClipped, nTop, top);
-            float skirtDepth = edge ? this.edgeSkirt : (nClipped ? MASK_EDGE_SKIRT : 0F);
+            float skirtDepth = edge || nClipped ? this.edgeSkirt : 0F;
             float bottom = Math.max(0F, Math.min(nTop, top) - skirtDepth);
             float z0 = cz * s, z1 = (cz + run) * s;
             float x = (dx < 0 ? cx : cx + 1) * s;

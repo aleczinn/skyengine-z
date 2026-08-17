@@ -74,6 +74,9 @@ public class ChunkManager {
 
     /* Unload-Gate: sichtbare Chunks erst entladen, wenn das LOD ihre Zelle deckt. null = Gate aus. */
     private LodManager lodManager;
+    /* Tick-genaue Schnellabfrage für dringende LOD-Handoff-Builds; vermeidet im Normalfall
+       tausende 4×4-Regionsscans im LodManager. */
+    private int pendingUnloadCount;
 
     /* Chunk-Persistenz: Lade-Quelle (statt Generierung) + Save-Ziel beim Unload. Von World
        nach der Konstruktion gesetzt; null-tolerant (Tools/Tests ohne Persistenz). */
@@ -548,9 +551,7 @@ public class ChunkManager {
            (GENERATING/DECORATING/LIGHTING/MESHING) bleiben, bis sie fertig sind,
            sonst arbeiten Worker auf entfernten Chunks. */
         int unloadDist = this.renderDistance + 2;
-        /* Notventil: jenseits davon wird bedingungslos entladen — pendingUnload-Chunks können
-           sich bei schnellem Flug nicht unbegrenzt ansammeln, wenn das LOD hinterherhinkt. */
-        int hardDist = unloadDist + 4;
+        int pendingUnloads = 0;
         Iterator<Map.Entry<Long, Chunk>> it = this.chunks.entrySet().iterator();
         while (it.hasNext()) {
             Chunk chunk = it.next().getValue();
@@ -574,15 +575,17 @@ public class ChunkManager {
                         chunk.saveQueued = true;
                         this.storage.enqueueSave(chunk);
                     }
+                    if (chunk.pendingUnload) pendingUnloads++;
                     continue;
                 }
                 /* Sichtbare Chunks (alle Sections auf dem Schirm) erst entfernen, wenn das
                    hochgeladene LOD-Mesh die Zelle deckt — sonst reißt ein Loch auf, bis der
                    Region-Remesh durch ist. Nicht (voll) hochgeladene Chunks waren nie in
                    einer LOD-Maske geclippt und dürfen sofort weg. */
-                if (chunk.isFullyUploaded() && d2 <= hardDist * hardDist
-                        && this.lodManager != null && !this.lodManager.coversChunk(chunk.chunkX, chunk.chunkZ)) {
+                if (chunk.isFullyUploaded() && this.lodManager != null
+                        && !this.lodManager.coversChunk(chunk.chunkX, chunk.chunkZ)) {
                     chunk.pendingUnload = true; // computeMask behandelt ihn ab jetzt als abwesend
+                    pendingUnloads++;
                     continue;
                 }
                 it.remove();
@@ -590,7 +593,9 @@ public class ChunkManager {
                 /* Renderer disposes the GL meshes when it notices the chunk is gone */
                 this.chunkRemovalVersion++;
             }
+            if (chunk.pendingUnload) pendingUnloads++;
         }
+        this.pendingUnloadCount = pendingUnloads;
     }
 
     /**
@@ -637,6 +642,7 @@ public class ChunkManager {
         this.readyAnnounceQueue.clear();
         this.unloadAnnounceQueue.clear();
         this.chunksWithBlockEntities.clear();
+        this.pendingUnloadCount = 0;
         this.chunkRemovalVersion++;
         this.initialLoadComplete = false; // alles lädt neu → LOD wartet wieder auf das echte Terrain
     }
@@ -809,6 +815,10 @@ public class ChunkManager {
 
     public java.util.Collection<Chunk> loadedChunks() {
         return this.chunks.values();
+    }
+
+    public boolean hasPendingUnloads() {
+        return this.pendingUnloadCount > 0;
     }
 
     public ConcurrentLinkedQueue<MeshBatch> getUploadQueue() {
