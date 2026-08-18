@@ -121,9 +121,13 @@ Der Fokus liegt auf:
 ## Screenshots / Changelog
 
 v0.0.13 | Level of Detail Update + Bug Fixes
+- Strukturen in LOD Chunks
 - Wasser in LOD Chunks haben jetzt ebenfalls Himmelslicht mit berechnet, um keine von Hell auf Dunkel Kanten in der Ferne zu haben
 - Debug Keys priorisierung implementiert, damit normale Eingaben nicht auch ausgelöst werden
 - F3 + V Debug Key für Wireframe implementiert
+- Starke Optimierung der Ladegeschwindigkeit inkl. Gesamthaltelichter Prioritäts-Thread Pool
+
+![Level of Detail mit Strukturen wie Bäume](project/0.0.13_lod-structures.png?raw=true)
 
 v0.0.12 | Redstone
 - Diverse Redstone Blöcke wie Redstone, Verstärker, Observer, Komparator, (Klebriger) Piston, Redstone-Fackel und und und
