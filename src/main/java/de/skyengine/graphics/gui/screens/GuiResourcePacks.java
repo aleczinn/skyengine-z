@@ -1,6 +1,5 @@
 package de.skyengine.graphics.gui.screens;
 
-import de.skyengine.core.SkyEngine;
 import de.skyengine.core.file.GameDirectory;
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.resource.ResourcePack;
@@ -35,13 +34,19 @@ public final class GuiResourcePacks extends GuiOptionsScreen {
     private static final Color4 WHITE = new Color4(1f, 1f, 1f, 1f);
     private static final float NAME_W = 172, SMALL = 34;
 
-    private final List<String> draft = new ArrayList<>(GameSettings.get().resourcePacks);
+    private final List<String> draft;
     private final Map<String, Texture> icons = new HashMap<>();
     private List<ResourcePack> discovered = List.of();
     private String applyError;
 
     public GuiResourcePacks(GuiScreen parent) {
+        this(parent, GameSettings.get().resourcePacks, null);
+    }
+
+    GuiResourcePacks(GuiScreen parent, List<String> draft, String applyError) {
         super(parent);
+        this.draft = new ArrayList<>(draft);
+        this.applyError = applyError;
         this.refresh();
     }
 
@@ -116,8 +121,7 @@ public final class GuiResourcePacks extends GuiOptionsScreen {
         Button refresh = new Button(I18n.tr("resourcepacks.refresh"), 75, 20, () -> { this.refresh(); gui.relayoutCurrent(); });
         Button done = new Button(I18n.tr("gui.done"), 105, 20, () -> {
             if (this.draft.equals(GameSettings.get().resourcePacks)) { this.goBack(gui); return; }
-            this.applyError = SkyEngine.get().getGame().reloadResourcePacks(this.draft);
-            if (this.applyError == null) this.goBack(gui); else gui.relayoutCurrent();
+            gui.open(new GuiResourcePackLoading(this.parent, this.draft));
         });
         return new HStack(5, open, refresh, done);
     }

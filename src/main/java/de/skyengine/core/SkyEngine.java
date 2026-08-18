@@ -197,6 +197,10 @@ public class SkyEngine {
                     Thread.currentThread().interrupt();
                 }
             } else {
+                /* Manche Render-Thread-Aktionen (z.B. Ressourcen-Reload) muessen warten, bis ihr
+                   Zwischenbildschirm mindestens einmal praesentiert wurde. Direkt vor dem Frame
+                   statt pro Tick: funktioniert auch im Hauptmenue und swapt nie waehrend Resize. */
+                this.game.processDeferredGuiActions();
                 float partialTick = (float) accumulatedTime / TICK_TIME_NANOS;
                 this.onRender(partialTick);
                 frames++;

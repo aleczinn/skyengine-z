@@ -244,7 +244,19 @@
     "available": "Available",
     "priority_hint": "Missing files fall through lower packs and finally the defaults.",
     "error": "Loading failed: %s",
-    "open_folder": "Open Pack Folder"
+    "open_folder": "Open Pack Folder",
+    "loading": {
+      "title": "Reloading resources",
+      "prepare": "Checking packs...",
+      "models": "Loading block models...",
+      "textures": "Building textures...",
+      "renderers": "Updating renderers...",
+      "world": "Rebuilding world geometry...",
+      "audio": "Loading sounds...",
+      "interface": "Updating interface...",
+      "rollback": "Restoring previous resources...",
+      "done": "Done"
+    }
   },
 
   "boot": {

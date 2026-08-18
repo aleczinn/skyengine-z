@@ -71,6 +71,7 @@ import de.skyengine.graphics.gui.font.FontStyle;
 import de.skyengine.graphics.gui.screens.GuiIngameMenu;
 import de.skyengine.graphics.gui.screens.GuiDeathScreen;
 import de.skyengine.graphics.gui.screens.GuiMainMenu;
+import de.skyengine.graphics.gui.screens.GuiResourcePackLoading;
 import de.skyengine.graphics.gui.screens.GuiWorldLoading;
 import de.skyengine.graphics.gui.text.RichText;
 import de.skyengine.graphics.gui.text.Span;
@@ -1994,12 +1995,29 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     /**
+     * Startet GUI-Aktionen, die erst nach einem praesentierten Zwischenframe laufen duerfen.
+     * Wird pro Loop (auch im Hauptmenue, wo es keine Welt-Ticks gibt) auf dem Render-Thread
+     * aufgerufen.
+     */
+    public void processDeferredGuiActions() {
+        if (this.guiManager.current() instanceof GuiResourcePackLoading loading
+                && loading.isReadyToReload()) {
+            loading.runReload(this, this.guiManager);
+        }
+    }
+
+    /**
      * Aktiviert eine neue Pack-Reihenfolge auf dem Render-Thread. {@code null} bedeutet Erfolg,
      * andernfalls wird der alte Stack vollstaendig wiederhergestellt und die Meldung geliefert.
      */
     public String reloadResourcePacks(List<String> requested) {
+        return this.reloadResourcePacks(requested, (stage, progress) -> {});
+    }
+
+    public String reloadResourcePacks(List<String> requested, ResourceReloadProgress progress) {
         List<String> next = requested == null ? List.of() : List.copyOf(requested);
         var repository = Resources.repository();
+        progress.frame(I18n.tr("resourcepacks.loading.prepare"), 0.05F);
         repository.refresh();
         for (String name : next) {
             ResourcePack pack = repository.get(name);
@@ -2009,14 +2027,16 @@ public class GameContainer implements IResizeable, IDisposable {
 
         List<String> previous = Resources.get().activePackNames();
         try {
-            this.applyResourceStack(next);
+            this.applyResourceStack(next, progress);
             this.settings.resourcePacks = new ArrayList<>(next);
             this.settings.save();
+            progress.frame(I18n.tr("resourcepacks.loading.done"), 1F);
             return null;
         } catch (Throwable error) {
             this.logger.error("Ressourcenpakete konnten nicht geladen werden; Rollback", error);
             try {
-                this.applyResourceStack(previous);
+                progress.frame(I18n.tr("resourcepacks.loading.rollback"), 0.05F);
+                this.applyResourceStack(previous, progress);
             } catch (Throwable rollback) {
                 this.logger.error("Ressourcenpaket-Rollback fehlgeschlagen", rollback);
             }
@@ -2025,12 +2045,16 @@ public class GameContainer implements IResizeable, IDisposable {
         }
     }
 
-    private void applyResourceStack(List<String> packs) {
+    private void applyResourceStack(List<String> packs, ResourceReloadProgress progress) {
+        progress.frame(I18n.tr("resourcepacks.loading.models"), 0.15F);
         Resources.activate(packs);
         Blocks.reloadVisuals();
+
+        progress.frame(I18n.tr("resourcepacks.loading.textures"), 0.35F);
         this.atlas.reload();
 
         /* Renderer mit eigenem Textur-/Modellcache in sicherer Reihenfolge erneuern. */
+        progress.frame(I18n.tr("resourcepacks.loading.renderers"), 0.58F);
         this.heldItemMeshes.dispose();
         this.playerRenderer.dispose();
         this.blockEntityRenderers.dispose();
@@ -2038,17 +2062,25 @@ public class GameContainer implements IResizeable, IDisposable {
         this.playerRenderer.init();
         this.heldItemMeshes.init(this.atlas.textures(), this.blockEntityRenderers);
         if (this.world != null) {
+            progress.frame(I18n.tr("resourcepacks.loading.world"), 0.70F);
             this.world.reloadEntityRenderer();
             this.world.getChunkManager().remeshAll();
         }
 
+        progress.frame(I18n.tr("resourcepacks.loading.audio"), 0.82F);
         this.soundManager.reloadResources();
         this.applyAudioSettings();
         this.soundManager.startMusicPlaylist();
 
+        progress.frame(I18n.tr("resourcepacks.loading.interface"), 0.92F);
         I18n.load(this.settings.language);
         if (this.guiManager != null) {
             this.guiManager.reloadAssets(this.atlas.textures(), this.blockEntityRenderers);
         }
+    }
+
+    @FunctionalInterface
+    public interface ResourceReloadProgress {
+        void frame(String stage, float progress);
     }
 }
