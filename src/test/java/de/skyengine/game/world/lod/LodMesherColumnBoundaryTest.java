@@ -18,6 +18,34 @@ final class LodMesherColumnBoundaryTest {
     }
 
     @Test
+    void columnMesherRequestsOneBulkWindowInsteadOfThousandsOfLockedSamples() {
+        int[] bulkCalls = {0};
+        LodColumn column = new LodColumn(new long[]{
+                LodColumn.pack(Blocks.STONE, 0, 64, LodColumn.FLAG_TERRAIN)});
+        LodDataSource source = new LodDataSource() {
+            @Override public boolean hasColumns() { return true; }
+            @Override public LodColumn sampleColumn(int x, int z, int size) {
+                throw new AssertionError("Der Spaltenmesher darf nicht auf Einzelzugriffe zurueckfallen");
+            }
+            @Override public void sampleColumns(int startX, int startZ, int size, int width, int height,
+                                                LodColumn[] target, int offset, int stride) {
+                bulkCalls[0]++;
+                for (int z = 0; z < height; z++) for (int x = 0; x < width; x++) {
+                    target[offset + z * stride + x] = column;
+                }
+            }
+            @Override public long sampleSurface(int x, int z, int size) {
+                return LodDataSource.pack(Blocks.STONE, 63);
+            }
+        };
+
+        new LodMesher().mesh(source, new LodBlockAppearance(), LodConfig.of(16, 128),
+                1, 1, 0, 0, 0, 0, 64, 64);
+
+        assertEquals(1, bulkCalls[0]);
+    }
+
+    @Test
     void boundaryLandmarkIsDeterministicFromBothRegionJobOrders() {
         LodDataSource source = new LodDataSource() {
             @Override public boolean hasColumns() { return true; }

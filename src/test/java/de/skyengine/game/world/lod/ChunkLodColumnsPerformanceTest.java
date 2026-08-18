@@ -39,6 +39,30 @@ final class ChunkLodColumnsPerformanceTest {
     }
 
     @Test
+    void oneFineBuildDerivesCoarserLevelsLazilyWithoutGeneratorWork() {
+        CountingGenerator generator = new CountingGenerator();
+        LodFeatureBuffer features = new ChunkDecorator(generator, List.of()).decorateForLod(0, 0);
+
+        ChunkLodColumns columns = ChunkLodColumns.fromGenerator(generator, features, 0, 0, 1);
+
+        assertFalse(columns.hasLevel(0));
+        assertTrue(columns.hasLevel(1));
+        for (int level = 2; level < ChunkLodColumns.LEVELS; level++) {
+            assertFalse(columns.hasLevel(level), "L" + level + " darf nicht vorab gebaut werden");
+        }
+        assertTrue(columns.materializeLevel(5));
+        assertTrue(columns.hasLevel(5));
+        assertEquals(0, generator.generateCalls);
+    }
+
+    @Test
+    void adaptiveCacheUsesLargeBudgetButKeepsSmallHeapSafe() {
+        assertEquals(64L << 20, PersistentLodDataSource.adaptiveCacheBytes(128L << 20));
+        assertEquals(256L << 20, PersistentLodDataSource.adaptiveCacheBytes(1L << 30));
+        assertEquals(512L << 20, PersistentLodDataSource.adaptiveCacheBytes(8L << 30));
+    }
+
+    @Test
     void combinedAlphaSurfaceSampleMatchesTheTwoCanonicalSamples() {
         AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(1234);
         int[][] points = {{0, 0}, {137, -91}, {-1024, 2048}, {8191, 4097}};

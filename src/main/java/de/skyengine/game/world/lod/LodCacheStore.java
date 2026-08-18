@@ -14,9 +14,11 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -25,20 +27,26 @@ final class LodCacheStore implements AutoCloseable {
 
     private record Pending(int chunkX, int chunkZ, ChunkLodColumns columns) {}
 
-    private static final int MAGIC = 0x4C4F4435; // LOD5, Terrainhuelle + eigener Weltboden
+    private static final class RegionPending {
+        final ConcurrentLinkedQueue<Long> chunks = new ConcurrentLinkedQueue<>();
+        final AtomicBoolean queued = new AtomicBoolean();
+    }
+
+    private static final int MAGIC = 0x4C4F4436; // LOD6, hierarchische Level + eigener Weltboden
     private static final int REGION_SHIFT = 4;
     private static final int REGION_MASK = 15;
-    private static final int MAX_PENDING = 256;
+    private static final int MAX_REGION_WRITE_BATCH = 16;
 
     private final Logger logger = LogManager.getLogger(LodCacheStore.class.getName());
     private final File directory;
     private final int fingerprint;
     private final Map<Long, RegionFile> regions = new HashMap<>();
     private final Set<Long> missing = new HashSet<>();
-    private final ArrayBlockingQueue<Long> queue = new ArrayBlockingQueue<>(MAX_PENDING);
+    private final LinkedBlockingQueue<Long> queue = new LinkedBlockingQueue<>();
     private final ConcurrentHashMap<Long, Pending> pending = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, RegionPending> pendingRegions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, ReentrantLock> regionLocks = new ConcurrentHashMap<>();
     private final AtomicLong droppedWrites = new AtomicLong();
-    private final ReentrantLock ioLock = new ReentrantLock();
     private final Thread writer;
     private volatile boolean closing;
 
@@ -53,9 +61,9 @@ final class LodCacheStore implements AutoCloseable {
     }
 
     ChunkLodColumns read(int chunkX, int chunkZ) {
-        /* Cache ist nur eine Beschleunigung: Ein laufender Write darf keinen LOD-Worker
-           festhalten. In dem Fall baut der Worker die ableitbaren Daten direkt neu. */
-        if (!this.ioLock.tryLock()) return null;
+        long regionKey = regionKey(chunkX >> REGION_SHIFT, chunkZ >> REGION_SHIFT);
+        ReentrantLock lock = this.regionLocks.computeIfAbsent(regionKey, ignored -> new ReentrantLock());
+        lock.lock();
         try {
             RegionFile region = region(chunkX >> REGION_SHIFT, chunkZ >> REGION_SHIFT, false);
             if (region == null) return null;
@@ -84,7 +92,7 @@ final class LodCacheStore implements AutoCloseable {
             this.logger.warning("LOD-Cache fuer Chunk (" + chunkX + ", " + chunkZ + ") nicht lesbar", e);
             return null;
         } finally {
-            this.ioLock.unlock();
+            lock.unlock();
         }
     }
 
@@ -95,10 +103,14 @@ final class LodCacheStore implements AutoCloseable {
         Pending replacement = new Pending(chunkX, chunkZ, columns);
         Pending previous = this.pending.put(key, replacement);
         if (previous != null) return;
-        if (!this.queue.offer(key)) {
-            this.pending.remove(key, replacement);
-            this.droppedWrites.incrementAndGet();
-        }
+        long regionKey = regionKey(chunkX >> REGION_SHIFT, chunkZ >> REGION_SHIFT);
+        RegionPending region = this.pendingRegions.computeIfAbsent(regionKey, ignored -> new RegionPending());
+        region.chunks.add(key);
+        this.scheduleRegion(regionKey, region);
+    }
+
+    private void scheduleRegion(long regionKey, RegionPending region) {
+        if (region.queued.compareAndSet(false, true)) this.queue.offer(regionKey);
     }
 
     long droppedWrites() { return this.droppedWrites.get(); }
@@ -107,10 +119,9 @@ final class LodCacheStore implements AutoCloseable {
         try {
             while (!this.closing || !this.queue.isEmpty()) {
                 try {
-                Long key = this.queue.poll(100, TimeUnit.MILLISECONDS);
-                if (key == null) continue;
-                Pending item = this.pending.remove(key);
-                if (item != null) writeNow(item);
+                Long regionKey = this.queue.poll(100, TimeUnit.MILLISECONDS);
+                if (regionKey == null) continue;
+                this.writeRegion(regionKey);
                 } catch (InterruptedException e) {
                     if (!this.closing) Thread.currentThread().interrupt();
                 }
@@ -120,6 +131,27 @@ final class LodCacheStore implements AutoCloseable {
         }
     }
 
+    private void writeRegion(long regionKey) {
+        RegionPending regionPending = this.pendingRegions.get(regionKey);
+        if (regionPending == null) return;
+        ReentrantLock lock = this.regionLocks.computeIfAbsent(regionKey, ignored -> new ReentrantLock());
+        lock.lock();
+        try {
+            Long chunkKey;
+            int writes = 0;
+            while (writes++ < MAX_REGION_WRITE_BATCH
+                    && (chunkKey = regionPending.chunks.poll()) != null) {
+                Pending item = this.pending.remove(chunkKey);
+                if (item != null) this.writeNow(item);
+            }
+        } finally {
+            lock.unlock();
+            regionPending.queued.set(false);
+            if (!regionPending.chunks.isEmpty()) this.scheduleRegion(regionKey, regionPending);
+        }
+    }
+
+    /** Aufgerufen mit bereits gehaltenem Regions-Lock. */
     private void writeNow(Pending item) {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(12 * 1024);
@@ -138,21 +170,16 @@ final class LodCacheStore implements AutoCloseable {
                 }
             }
             out.flush();
-            this.ioLock.lock();
-            try {
-                RegionFile region = region(item.chunkX >> REGION_SHIFT, item.chunkZ >> REGION_SHIFT, true);
-                if (region != null) region.write(item.chunkX & REGION_MASK, item.chunkZ & REGION_MASK,
-                        bytes.toByteArray());
-            } finally {
-                this.ioLock.unlock();
-            }
+            RegionFile region = region(item.chunkX >> REGION_SHIFT, item.chunkZ >> REGION_SHIFT, true);
+            if (region != null) region.write(item.chunkX & REGION_MASK, item.chunkZ & REGION_MASK,
+                    bytes.toByteArray());
         } catch (IOException e) {
             this.logger.warning("LOD-Cache fuer Chunk (" + item.chunkX + ", " + item.chunkZ + ") nicht schreibbar", e);
         }
     }
 
-    private RegionFile region(int rx, int rz, boolean create) {
-        long key = ((long) rx << 32) | (rz & 0xFFFFFFFFL);
+    private synchronized RegionFile region(int rx, int rz, boolean create) {
+        long key = regionKey(rx, rz);
         RegionFile cached = this.regions.get(key);
         if (cached != null) return cached;
         if (!create && this.missing.contains(key)) return null;
@@ -175,6 +202,10 @@ final class LodCacheStore implements AutoCloseable {
         }
     }
 
+    private static long regionKey(int rx, int rz) {
+        return ((long) rx << 32) | (rz & 0xFFFFFFFFL);
+    }
+
     @Override
     public void close() {
         this.closing = true;
@@ -188,6 +219,7 @@ final class LodCacheStore implements AutoCloseable {
                als den Welt-Exit an einem langsamen Datentraeger festzuhalten. */
             this.queue.clear();
             this.pending.clear();
+            this.pendingRegions.clear();
             this.writer.interrupt();
             try {
                 this.writer.join(500);
@@ -196,20 +228,17 @@ final class LodCacheStore implements AutoCloseable {
             }
         }
         this.pending.clear();
+        this.pendingRegions.clear();
         this.queue.clear();
     }
 
-    private void closeRegions() {
-        this.ioLock.lock();
-        try {
+    private synchronized void closeRegions() {
             for (RegionFile region : this.regions.values()) {
                 try { region.close(); }
                 catch (IOException e) { this.logger.warning("LOD-Region konnte nicht geschlossen werden", e); }
             }
             this.regions.clear();
             this.missing.clear();
-        } finally {
-            this.ioLock.unlock();
-        }
+            this.regionLocks.clear();
     }
 }

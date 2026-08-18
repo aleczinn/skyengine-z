@@ -5,10 +5,10 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.lod.LodDataSource;
+import de.skyengine.utils.collect.LongIntMap;
+import de.skyengine.utils.collect.LongLongMap;
 
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Random;
 
 /** Ungefilterte, geordnete Feature-Schreibbefehle genau eines Quell-Chunks. */
@@ -16,8 +16,8 @@ final class LodFeatureTile implements FeatureContext {
 
     private final int sourceMinX, sourceMinZ;
     private final WorldGenerator generator;
-    private Map<Long, Integer> solidHeights = new HashMap<>();
-    private Map<Long, Long> surfaces = new HashMap<>();
+    private LongIntMap solidHeights = new LongIntMap(64);
+    private LongLongMap surfaces = new LongLongMap(64);
     private long[] positions = new long[128];
     private int[] yAndMode = new int[128];
     private int[] states = new int[128];
@@ -55,12 +55,21 @@ final class LodFeatureTile implements FeatureContext {
     @Override public int sourceMinX() { return this.sourceMinX; }
     @Override public int sourceMinZ() { return this.sourceMinZ; }
     @Override public int surfaceHeight(int wx, int wz) {
-        return this.solidHeights.computeIfAbsent(columnKey(wx, wz), ignored ->
-                this.generator.surfaceSolidHeight(wx, wz));
+        long key = columnKey(wx, wz);
+        int cached = this.solidHeights.getOrDefault(key, Integer.MIN_VALUE);
+        if (cached != Integer.MIN_VALUE) return cached;
+        int height = this.generator.surfaceSolidHeight(wx, wz);
+        this.solidHeights.put(key, height);
+        return height;
     }
     @Override public int surfaceBlock(int wx, int wz) {
-        return LodDataSource.block(this.surfaces.computeIfAbsent(columnKey(wx, wz), ignored ->
-                this.generator.sampleSurface(wx, wz)));
+        long key = columnKey(wx, wz);
+        long cached = this.surfaces.getOrDefault(key, Long.MIN_VALUE);
+        if (cached == Long.MIN_VALUE) {
+            cached = this.generator.sampleSurface(wx, wz);
+            this.surfaces.put(key, cached);
+        }
+        return LodDataSource.block(cached);
     }
     @Override public Biome biome(int wx, int wz) { return this.generator.biomeAt(wx, wz); }
 

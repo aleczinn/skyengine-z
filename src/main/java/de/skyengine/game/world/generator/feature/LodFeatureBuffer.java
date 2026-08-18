@@ -5,9 +5,9 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.lod.LodDataSource;
+import de.skyengine.utils.collect.LongIntMap;
+import de.skyengine.utils.collect.LongLongMap;
 
-import java.util.HashMap;
-import java.util.Map;
 
 /** Sparse Feature-Scheibe fuer den Generator-LOD-Pfad; allokiert keine Voxel-Sections. */
 public final class LodFeatureBuffer {
@@ -19,8 +19,8 @@ public final class LodFeatureBuffer {
 
     private final int targetChunkX, targetChunkZ;
     private final WorldGenerator generator;
-    private final Map<Integer, Integer> blocks = new HashMap<>();
-    private final Map<Long, Long> surfaces = new HashMap<>();
+    private final LongIntMap blocks = new LongIntMap(256);
+    private final LongLongMap surfaces = new LongLongMap(64);
 
     LodFeatureBuffer(int targetChunkX, int targetChunkZ, WorldGenerator generator) {
         this.targetChunkX = targetChunkX;
@@ -44,17 +44,25 @@ public final class LodFeatureBuffer {
 
     void apply(LodFeatureTile tile) {
         for (int i = 0; i < tile.size(); i++) {
-            if (tile.ifAir(i)) {
-                this.setIfAir(tile.worldX(i), tile.worldY(i), tile.worldZ(i), tile.state(i));
-            } else {
-                this.set(tile.worldX(i), tile.worldY(i), tile.worldZ(i), tile.state(i));
-            }
+            this.apply(tile, i);
+        }
+    }
+
+    void apply(LodFeatureTile tile, int index) {
+        if (tile.ifAir(index)) {
+            this.setIfAir(tile.worldX(index), tile.worldY(index), tile.worldZ(index), tile.state(index));
+        } else {
+            this.set(tile.worldX(index), tile.worldY(index), tile.worldZ(index), tile.state(index));
         }
     }
 
     public void forEach(BlockConsumer consumer) {
-        this.blocks.forEach((key, state) -> consumer.accept(key & 31, (key >>> 10) & 511,
-                (key >>> 5) & 31, state));
+        for (int i = 0; i < this.blocks.tableSize(); i++) {
+            if (!this.blocks.usedAt(i)) continue;
+            int key = (int) this.blocks.keyAt(i);
+            consumer.accept(key & 31, (key >>> 10) & 511, (key >>> 5) & 31,
+                    this.blocks.valueAt(i));
+        }
     }
 
     private boolean inTarget(int wx, int wz) {
@@ -67,7 +75,12 @@ public final class LodFeatureBuffer {
     }
 
     private long surface(int wx, int wz) {
-        return this.surfaces.computeIfAbsent(columnKey(wx, wz), ignored -> this.generator.sampleSurface(wx, wz));
+        long key = columnKey(wx, wz);
+        long cached = this.surfaces.getOrDefault(key, Long.MIN_VALUE);
+        if (cached != Long.MIN_VALUE) return cached;
+        long surface = this.generator.sampleSurface(wx, wz);
+        this.surfaces.put(key, surface);
+        return surface;
     }
 
     private static long columnKey(int x, int z) {

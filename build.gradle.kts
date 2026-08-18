@@ -75,6 +75,13 @@ tasks.register<JavaExec>("meshTest") {
     mainClass = "de.skyengine.game.world.chunk.debug.MesherCensus"
 }
 
+tasks.register<JavaExec>("lodCensus") {
+    group = "verification"
+    description = "Misst reproduzierbar Surface-Baseline und strukturhaltige LOD-Regionen (Cold/Warm)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "de.skyengine.game.world.lod.LodPerformanceCensus"
+}
+
 tasks.register<JavaExec>("mapExport") {
     group = "verification"
     description = "Exportiert Weltgen-Debugkarten nach debug-maps/ (Bitstabilität der Generierung)"

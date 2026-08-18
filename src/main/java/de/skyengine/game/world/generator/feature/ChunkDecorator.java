@@ -1,6 +1,7 @@
 package de.skyengine.game.world.generator.feature;
 
 import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
 
 import java.util.LinkedHashMap;
@@ -24,7 +25,53 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class ChunkDecorator {
 
-    private static final long LOD_TILE_CACHE_BYTES = 32L << 20;
+    /** Lazily materialisierte, deterministische Feature-Projektion fuer ein Chunk-Rechteck. */
+    public final class LodRegionFeatures {
+        private final int minChunkX, minChunkZ, width, height;
+        private LodFeatureBuffer[] buffers;
+
+        private LodRegionFeatures(int minChunkX, int minChunkZ, int width, int height) {
+            this.minChunkX = minChunkX;
+            this.minChunkZ = minChunkZ;
+            this.width = width;
+            this.height = height;
+        }
+
+        public synchronized LodFeatureBuffer forChunk(int chunkX, int chunkZ) {
+            if (chunkX < this.minChunkX || chunkX >= this.minChunkX + this.width
+                    || chunkZ < this.minChunkZ || chunkZ >= this.minChunkZ + this.height) {
+                return ChunkDecorator.this.decorateForLod(chunkX, chunkZ);
+            }
+            if (this.buffers == null) this.materialize();
+            return this.buffers[(chunkZ - this.minChunkZ) * this.width + chunkX - this.minChunkX];
+        }
+
+        private void materialize() {
+            this.buffers = new LodFeatureBuffer[this.width * this.height];
+            for (int z = 0; z < this.height; z++) {
+                for (int x = 0; x < this.width; x++) {
+                    this.buffers[z * this.width + x] = new LodFeatureBuffer(
+                            this.minChunkX + x, this.minChunkZ + z, ChunkDecorator.this.generator);
+                }
+            }
+            for (int sx = this.minChunkX - 1; sx <= this.minChunkX + this.width; sx++) {
+                for (int sz = this.minChunkZ - 1; sz <= this.minChunkZ + this.height; sz++) {
+                    LodFeatureTile tile = ChunkDecorator.this.lodFeatureTile(sx, sz);
+                    for (int i = 0; i < tile.size(); i++) {
+                        int targetX = tile.worldX(i) >> ChunkSection.SHIFT;
+                        int targetZ = tile.worldZ(i) >> ChunkSection.SHIFT;
+                        if (targetX < this.minChunkX || targetX >= this.minChunkX + this.width
+                                || targetZ < this.minChunkZ || targetZ >= this.minChunkZ + this.height) continue;
+                        this.buffers[(targetZ - this.minChunkZ) * this.width
+                                + targetX - this.minChunkX].apply(tile, i);
+                    }
+                }
+            }
+        }
+    }
+
+    private static final long LOD_TILE_CACHE_BYTES = Math.clamp(
+            Runtime.getRuntime().maxMemory() / 32, 32L << 20, 128L << 20);
 
     private final WorldGenerator generator;
     /* Listen-Index = featureId (geht in den Seed ein) — Reihenfolge nie umsortieren! */
@@ -69,6 +116,11 @@ public final class ChunkDecorator {
             }
         }
         return target;
+    }
+
+    public LodRegionFeatures lodRegion(int minChunkX, int minChunkZ, int width, int height) {
+        if (width <= 0 || height <= 0) throw new IllegalArgumentException("Leere LOD-Feature-Region");
+        return new LodRegionFeatures(minChunkX, minChunkZ, width, height);
     }
 
     /** Verwirft ausschließlich den kurzlebigen LOD-Feature-Cache, nicht echte Chunkdaten. */

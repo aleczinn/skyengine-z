@@ -33,8 +33,10 @@ public class ChunkManager {
     /* Worker -> render thread: Ein Batch wird immer komplett im selben Frame angewendet */
     private final ConcurrentLinkedQueue<MeshBatch> uploadQueue = new ConcurrentLinkedQueue<>();
 
-    /* Remesh-Batches (Edits/Fluid) - werden vom Renderer VOR der normalen Queue geleert,
-       damit platzierte Blöcke nicht hinter dem Initial-Load warten. */
+    /* Spieler-Remeshes werden vor allen sonstigen Remesh-Uploads angewendet. */
+    private final ConcurrentLinkedQueue<MeshBatch> playerUploadQueue = new ConcurrentLinkedQueue<>();
+
+    /* Sonstige Remesh-Batches (TNT/Redstone/Fluid/Licht). */
     private final ConcurrentLinkedQueue<MeshBatch> priorityUploadQueue = new ConcurrentLinkedQueue<>();
 
     /* Chunks mit dirty Sections (gefüttert von Chunk.markSectionDirty, CAS-dedupliziert):
@@ -122,10 +124,12 @@ public class ChunkManager {
        Lade-Queue — hinter bis zu LOAD_QUEUE_LIMIT Lade-Jobs verhungert der Clip sonst
        beim Schnellflug: sichtbare Doppel-Geometrie (LOD über frischen L0-Chunks) in
        Lade-Richtung, festgehaltene pendingUnload-Meshes (Arena-Druck) in Unload-Richtung. */
-    private static final int PRIO_REMESH = 0;
-    private static final int PRIO_LOD_CLIP = 1;
-    private static final int PRIO_LOAD = 2;
-    private static final int PRIO_LOD = 3;
+    private static final int PRIO_PLAYER_REMESH = 0;
+    private static final int PRIO_SYSTEM_REMESH = 1;
+    private static final int PRIO_LOD_CLIP = 2;
+    private static final int PRIO_LOAD = 3;
+    private static final int PRIO_LIGHT = 4;
+    private static final int PRIO_LOD = 5;
 
     private final AtomicLong taskSeq = new AtomicLong();
 
@@ -139,6 +143,11 @@ public class ChunkManager {
     private final AtomicInteger queuedNormalLodTasks = new AtomicInteger();
     private final AtomicInteger activeNormalLodTasks = new AtomicInteger();
     private final TaskTimingWindow normalLodQueueTimes = new TaskTimingWindow();
+    private final AtomicLong evictedLodTasks = new AtomicLong();
+    private final AtomicLong staleQueuedLodTasks = new AtomicLong();
+    private final AtomicLong rejectedLodTasks = new AtomicLong();
+    private final Object lodAdmissionLock = new Object();
+    private volatile int lodScheduleVersion = -1;
 
     /* Lade-Jobs, die update() in DIESEM Tick eingereiht hat (nur Tick-Thread). */
     private int loadSubmitsThisTick;
@@ -191,13 +200,16 @@ public class ChunkManager {
     public record MeshBatch(List<MeshResult> results) {}
 
     public ChunkManager(WorldGenerator generator, ChunkDecorator decorator) {
+        this(generator, decorator, Math.max(2, Runtime.getRuntime().availableProcessors() - 2));
+    }
+
+    ChunkManager(WorldGenerator generator, ChunkDecorator decorator, int threads) {
         this.generator = generator;
         this.decorator = decorator;
-
-        int threads = Math.max(2, Runtime.getRuntime().availableProcessors() - 2);
+        if (threads < 1) throw new IllegalArgumentException("threads muss positiv sein");
         this.workerCount = threads;
-        /* Prioritäts-Queue statt FIFO: Edit-Remeshes (PRIO_REMESH) überholen wartende
-           Generierungs-/Erst-Mesh-Jobs (PRIO_LOAD), ohne einen eigenen Thread zu brauchen. */
+        /* Eine gemeinsame Prioritäts-Queue verteilt die gesamte Kapazität auf die jeweils
+           höchste nicht-leere Arbeitsklasse, ohne einen Worker statisch zu reservieren. */
         this.workers = new ThreadPoolExecutor(threads, threads, 0L, TimeUnit.MILLISECONDS, new PriorityBlockingQueue<>(), r -> {
             Thread t = new Thread(r, "Chunk Worker");
             t.setDaemon(true);
@@ -208,7 +220,7 @@ public class ChunkManager {
 
     private void submitTask(int prio, Runnable job) {
         /* execute statt submit: submit() würde in ein nicht-vergleichbares FutureTask wrappen */
-        this.workers.execute(new PrioTask(prio, this.taskSeq.getAndIncrement(), job));
+        this.workers.execute(PrioTask.foreground(prio, this.taskSeq.getAndIncrement(), job));
     }
 
     private void submitForegroundTask(int prio, Runnable job) {
@@ -230,10 +242,10 @@ public class ChunkManager {
      * also für AUSSTEHENDE Arbeit (wartend + laufend), sonst könnte der Latch auslösen, während
      * Worker noch mitten in einem Chunk stecken.
      */
-    private void submitLoadTask(Runnable job) {
+    private void submitLoadTask(int priority, Runnable job) {
         this.pendingLoadTasks.incrementAndGet();
         this.loadSubmitsThisTick++;
-        this.submitForegroundTask(PRIO_LOAD, () -> {
+        this.submitForegroundTask(priority, () -> {
             try {
                 job.run();
             } finally {
@@ -247,42 +259,104 @@ public class ChunkManager {
      * (verdrängen nie Chunk-Jobs); Clip-Remeshes ({@code clip=true}, reiner Masken-Diff)
      * überholen die Lade-Queue (s. Kommentar an den PRIO_*-Konstanten).
      */
-    public void submitLodTask(Runnable job, boolean clip) {
+    public boolean submitLodTask(Runnable job, boolean clip, LodPriority priority,
+                                 Runnable onDiscard) {
         if (clip) {
-            this.submitForegroundTask(PRIO_LOD_CLIP, job);
-            return;
+            this.queuedForegroundTasks.incrementAndGet();
+            Runnable countedJob = () -> {
+                this.queuedForegroundTasks.decrementAndGet();
+                this.activeForegroundTasks.incrementAndGet();
+                try {
+                    job.run();
+                } finally {
+                    this.activeForegroundTasks.decrementAndGet();
+                }
+            };
+            Runnable discarded = () -> {
+                this.queuedForegroundTasks.decrementAndGet();
+                onDiscard.run();
+            };
+            this.workers.execute(PrioTask.lodClip(this.taskSeq.getAndIncrement(), priority,
+                    countedJob, discarded));
+            return true;
         }
-        long queuedAt = System.nanoTime();
-        this.queuedNormalLodTasks.incrementAndGet();
-        this.submitTask(PRIO_LOD, () -> {
-            this.queuedNormalLodTasks.decrementAndGet();
-            this.activeNormalLodTasks.incrementAndGet();
-            this.normalLodQueueTimes.add(System.nanoTime() - queuedAt);
-            try {
-                job.run();
-            } finally {
-                this.activeNormalLodTasks.decrementAndGet();
+
+        synchronized (this.lodAdmissionLock) {
+            int limit = this.workerCount * 4;
+            while (this.queuedNormalLodTasks.get() + this.activeNormalLodTasks.get() >= limit) {
+                PrioTask worst = this.worstQueuedLod();
+                if (worst == null || compareLodPriorities(priority, worst.lodPriority()) >= 0) {
+                    this.rejectedLodTasks.incrementAndGet();
+                    return false;
+                }
+                if (!this.workers.getQueue().remove(worst)) continue;
+                worst.discard();
+                this.evictedLodTasks.incrementAndGet();
             }
-        });
+
+            long queuedAt = System.nanoTime();
+            this.queuedNormalLodTasks.incrementAndGet();
+            Runnable countedJob = () -> {
+                this.queuedNormalLodTasks.decrementAndGet();
+                this.activeNormalLodTasks.incrementAndGet();
+                this.normalLodQueueTimes.add(System.nanoTime() - queuedAt);
+                try {
+                    job.run();
+                } finally {
+                    this.activeNormalLodTasks.decrementAndGet();
+                }
+            };
+            Runnable discarded = () -> {
+                this.queuedNormalLodTasks.decrementAndGet();
+                onDiscard.run();
+            };
+            this.workers.execute(PrioTask.lod(this.taskSeq.getAndIncrement(), priority,
+                    countedJob, discarded));
+            return true;
+        }
     }
 
     /**
      * Freie Submit-Plaetze fuer normale LOD-Arbeit. Vier Worker-Wellen ueberbruecken den
-     * 50-ms-Tick, ohne die Queue unbeschraenkt wachsen zu lassen. Wartende Vordergrundarbeit
-     * sperrt neue Submits; bereits wartendes LOD bleibt niedriger priorisiert und blockiert sie
-     * daher nicht. Laufende LOD-Jobs werden bewusst nicht abgebrochen.
+     * 50-ms-Tick, ohne die Queue unbeschraenkt wachsen zu lassen. Vordergrundarbeit sperrt die
+     * Einreihung nicht: erst die gemeinsame Prioritaetsqueue entscheidet ueber die Ausfuehrung.
+     * Laufende LOD-Jobs werden bewusst nicht abgebrochen.
      */
     public int normalLodSubmissionBudget() {
-        /* remeshQueue ist bewusst kein Gate: nicht ausfuehrbare Randmarker werden dort
-           dauerhaft wiedereingereiht. Erst ein submitter Remesh-Job zaehlt ueber
-           queuedForegroundTasks als echte Vordergrundarbeit und praemptiert LOD. */
         int outstanding = this.queuedNormalLodTasks.get() + this.activeNormalLodTasks.get();
-        return normalLodSubmissionBudget(this.workerCount, this.queuedForegroundTasks.get(), outstanding);
+        return normalLodSubmissionBudget(this.workerCount, outstanding);
     }
 
-    static int normalLodSubmissionBudget(int workers, int queuedForeground, int normalOutstanding) {
-        if (queuedForeground > 0) return 0;
+    static int normalLodSubmissionBudget(int workers, int normalOutstanding) {
         return Math.max(0, workers * 4 - normalOutstanding);
+    }
+
+    public void updateLodScheduleVersion(int version) {
+        synchronized (this.lodAdmissionLock) {
+            if (version == this.lodScheduleVersion) return;
+            this.lodScheduleVersion = version;
+            Object[] queued = this.workers.getQueue().toArray();
+            for (Object entry : queued) {
+                if (!(entry instanceof PrioTask task) || !task.isLod()
+                        || task.lodPriority().anchorVersion() == version) continue;
+                if (!this.workers.getQueue().remove(task)) continue;
+                task.discard();
+                this.staleQueuedLodTasks.incrementAndGet();
+            }
+        }
+    }
+
+    private PrioTask worstQueuedLod() {
+        PrioTask worst = null;
+        for (Runnable entry : this.workers.getQueue()) {
+            if (!(entry instanceof PrioTask task) || !task.isNormalLod()) continue;
+            if (worst == null || compareLodPriorities(task.lodPriority(), worst.lodPriority()) > 0
+                    || (compareLodPriorities(task.lodPriority(), worst.lodPriority()) == 0
+                    && task.seq() > worst.seq())) {
+                worst = task;
+            }
+        }
+        return worst;
     }
 
     public String lodWorkerStats() {
@@ -290,7 +364,10 @@ public class ChunkManager {
                 + ", Vordergrund=" + this.activeForegroundTasks.get() + "/"
                 + this.queuedForegroundTasks.get() + " aktiv/wartend, normal="
                 + this.activeNormalLodTasks.get() + "/" + this.queuedNormalLodTasks.get()
-                + " aktiv/wartend, Remesh-Marker=" + this.remeshQueue.size()
+                + " aktiv/wartend, Verdraengt=" + this.evictedLodTasks.get()
+                + ", Stale-Queue=" + this.staleQueuedLodTasks.get()
+                + ", Abgelehnt=" + this.rejectedLodTasks.get() + ", Remesh-Marker="
+                + this.remeshQueue.size()
                 + ", Queue-Wartezeit=" + this.normalLodQueueTimes.text();
     }
 
@@ -313,7 +390,42 @@ public class ChunkManager {
 
     /* PriorityBlockingQueue ist nicht stabil — seq hält gleiche Prioritäten in Einreihungs-
        Reihenfolge, sonst würde die Blickrichtungs-Sortierung der Lade-Jobs verwürfelt. */
-    private record PrioTask(int prio, long seq, Runnable job) implements Runnable, Comparable<PrioTask> {
+    public record LodPriority(int anchorVersion, int distanceBand, int level,
+                              int viewTier, double distanceSq) {}
+
+    static int compareLodPriorities(LodPriority a, LodPriority b) {
+        int compare = Integer.compare(a.distanceBand, b.distanceBand);
+        if (compare != 0) return compare;
+        compare = Integer.compare(a.level, b.level);
+        if (compare != 0) return compare;
+        compare = Integer.compare(a.viewTier, b.viewTier);
+        if (compare != 0) return compare;
+        return Double.compare(a.distanceSq, b.distanceSq);
+    }
+
+    private record PrioTask(int prio, long seq, LodPriority lodPriority,
+                            Runnable job, Runnable onDiscard)
+            implements Runnable, Comparable<PrioTask> {
+
+        static PrioTask foreground(int priority, long sequence, Runnable job) {
+            return new PrioTask(priority, sequence, null, job, null);
+        }
+
+        static PrioTask lod(long sequence, LodPriority priority, Runnable job, Runnable onDiscard) {
+            return new PrioTask(PRIO_LOD, sequence, priority, job, onDiscard);
+        }
+
+        static PrioTask lodClip(long sequence, LodPriority priority, Runnable job, Runnable onDiscard) {
+            return new PrioTask(PRIO_LOD_CLIP, sequence, priority, job, onDiscard);
+        }
+
+        boolean isLod() { return this.lodPriority != null; }
+        boolean isNormalLod() { return this.prio == PRIO_LOD; }
+
+        void discard() {
+            if (this.onDiscard != null) this.onDiscard.run();
+        }
+
         @Override
         public void run() {
             this.job.run();
@@ -322,6 +434,10 @@ public class ChunkManager {
         @Override
         public int compareTo(PrioTask o) {
             if (this.prio != o.prio) return Integer.compare(this.prio, o.prio);
+            if (this.isLod() && o.isLod()) {
+                int compare = compareLodPriorities(this.lodPriority, o.lodPriority);
+                if (compare != 0) return compare;
+            }
             return Long.compare(this.seq, o.seq);
         }
     }
@@ -438,7 +554,7 @@ public class ChunkManager {
                 generationSubmits++;
                 chunk.status = ChunkStatus.GENERATING;
                 Chunk finalChunk = chunk;
-                this.submitLoadTask(() -> {
+                this.submitLoadTask(PRIO_LOAD, () -> {
                     /* Persistenz zuerst: gespeicherte Chunks waren beim Save schon dekoriert
                        (nur READY-Chunks sind editierbar) -> DECORATED überspringt die
                        Doppel-Dekoration (gleiches Muster wie remeshAll). Befüllt wird vor dem
@@ -463,7 +579,7 @@ public class ChunkManager {
 
                 chunk.status = ChunkStatus.DECORATING;
                 Chunk finalChunk = chunk;
-                this.submitLoadTask(() -> {
+                this.submitLoadTask(PRIO_LOAD, () -> {
                     this.decorator.decorate(finalChunk);
                     finalChunk.status = ChunkStatus.DECORATED;
                 });
@@ -484,7 +600,7 @@ public class ChunkManager {
 
                 chunk.status = ChunkStatus.LIGHTING;
                 Chunk finalChunk = chunk;
-                this.submitLoadTask(() -> {
+                this.submitLoadTask(PRIO_LIGHT, () -> {
                     LightEngine engine = this.lightEngines.get();
                     lockRead(finalChunk, north, south, west, east, diagonals);
                     try {
@@ -521,7 +637,7 @@ public class ChunkManager {
                 chunk.status = ChunkStatus.MESHING;
                 Chunk finalChunk = chunk;
                 long meshSeq = this.nextMeshSeq++;
-                this.submitLoadTask(() -> {
+                this.submitLoadTask(PRIO_LIGHT, () -> {
                     ChunkMesher mesher = this.meshers.get();
                     lockRead(finalChunk, north, south, west, east, diagonals);
                     try {
@@ -635,6 +751,7 @@ public class ChunkManager {
            uploadedSections-Inflation). Noch laufende Worker-Jobs können danach vereinzelt
            einreihen; diese Nachzügler heilt der Erst-Mesh der neuen Chunks (höhere meshSeq). */
         this.uploadQueue.clear();
+        this.playerUploadQueue.clear();
         this.priorityUploadQueue.clear();
         this.remeshQueue.clear(); // alte Chunk-Objekte; Neuanlagen melden sich selbst wieder an
         this.blockEntityAnnounceQueue.clear();
@@ -692,11 +809,13 @@ public class ChunkManager {
                 continue;
             }
 
-            int mask = chunk.consumeDirtySections();
+            Chunk.DirtySections dirty = chunk.consumeDirtySections();
+            int mask = dirty.mask();
             if (mask == 0) continue;
 
             long meshSeq = this.nextMeshSeq++;
-            this.submitForegroundTask(PRIO_REMESH, () -> {
+            int priority = dirty.player() ? PRIO_PLAYER_REMESH : PRIO_SYSTEM_REMESH;
+            this.submitForegroundTask(priority, () -> {
                 ChunkMesher mesher = this.meshers.get();
                 List<MeshResult> batch = new ArrayList<>(Integer.bitCount(mask));
                 lockRead(chunk, north, south, west, east, diagonals);
@@ -711,7 +830,8 @@ public class ChunkManager {
                 }
                 /* Enqueue außerhalb des Locks ist ok: überholen sich zwei Remesh-Jobs derselben
                    Section hier, verwirft applyBatch den älteren über die meshSeq-Prüfung. */
-                this.priorityUploadQueue.add(new MeshBatch(batch));
+                (dirty.player() ? this.playerUploadQueue : this.priorityUploadQueue)
+                        .add(new MeshBatch(batch));
             });
         }
     }
@@ -823,6 +943,11 @@ public class ChunkManager {
 
     public ConcurrentLinkedQueue<MeshBatch> getUploadQueue() {
         return uploadQueue;
+    }
+
+    /** Direkte Spieler-Edits - vor jeder anderen Upload-Klasse zu leeren. */
+    public ConcurrentLinkedQueue<MeshBatch> getPlayerUploadQueue() {
+        return playerUploadQueue;
     }
 
     /** Remesh-Batches (Edits/Fluid) — vom Renderer vor der normalen Queue zu leeren. */

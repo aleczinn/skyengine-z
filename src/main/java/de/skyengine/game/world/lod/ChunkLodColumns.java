@@ -32,7 +32,7 @@ public final class ChunkLodColumns {
         return result;
     }
 
-    /** Exakter Snapshot-Pfad: scannt den Chunk einmal und behaelt nur das angeforderte Level. */
+    /** Exakter Snapshot-Pfad: scannt den Chunk einmal und materialisiert nur das angeforderte Level. */
     public static ChunkLodColumns fromChunk(Chunk chunk, int requestedLevel) {
         return fromChunk(chunk, null, requestedLevel);
     }
@@ -44,24 +44,28 @@ public final class ChunkLodColumns {
         for (int z = 0; z < ChunkSection.SIZE; z++) {
             for (int x = 0; x < ChunkSection.SIZE; x++) current[z * ChunkSection.SIZE + x] = scan(chunk, x, z);
         }
-        for (int level = 1; level <= requestedLevel; level++) current = reduceLevel(current, level);
+        ChunkLodColumns result = new ChunkLodColumns();
+        int baseX = chunk.chunkX << ChunkSection.SHIFT;
+        int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
+        for (int level = 1; level <= requestedLevel; level++) {
+            current = reduceLevel(current, level);
+        }
+        LodColumn[] stored = current;
         if (generator != null) {
+            stored = current.clone();
             int side = ChunkSection.SIZE >> requestedLevel;
             int size = 1 << requestedLevel;
             int coverage = size * size;
-            int baseX = chunk.chunkX << ChunkSection.SHIFT;
-            int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
             for (int z = 0; z < side; z++) {
                 for (int x = 0; x < side; x++) {
                     int wx = baseX + (x << requestedLevel) + (size >> 1);
                     int wz = baseZ + (z << requestedLevel) + (size >> 1);
-                    current[z * side + x] = normalizeNaturalShell(
+                    stored[z * side + x] = normalizeNaturalShell(
                             current[z * side + x], generator, wx, wz, coverage);
                 }
             }
         }
-        ChunkLodColumns result = new ChunkLodColumns();
-        result.levels[requestedLevel] = current;
+        result.levels[requestedLevel] = stored;
         return result;
     }
 
@@ -77,21 +81,7 @@ public final class ChunkLodColumns {
     static GeneratedBuild buildFromGenerator(WorldGenerator generator, LodFeatureBuffer features,
                                               int chunkX, int chunkZ, int requestedLevel) {
         checkLevel(requestedLevel);
-        long terrainStarted = System.nanoTime();
-        int side = ChunkSection.SIZE >> requestedLevel;
-        int size = 1 << requestedLevel;
-        int cellArea = size * size;
-        LodColumn[] natural = new LodColumn[side * side];
         int baseX = chunkX << ChunkSection.SHIFT, baseZ = chunkZ << ChunkSection.SHIFT;
-        for (int z = 0; z < side; z++) {
-            for (int x = 0; x < side; x++) {
-                int wx = baseX + (x << requestedLevel) + (size >> 1);
-                int wz = baseZ + (z << requestedLevel) + (size >> 1);
-                natural[z * side + x] = naturalColumn(generator, wx, wz, cellArea);
-            }
-        }
-        long terrainNanos = System.nanoTime() - terrainStarted;
-
         long projectionStarted = System.nanoTime();
         @SuppressWarnings("unchecked")
         ArrayList<Long>[] featureRuns = new ArrayList[ChunkSection.SIZE * ChunkSection.SIZE];
@@ -111,14 +101,31 @@ public final class ChunkLodColumns {
             }
         }
         long projectionNanos = System.nanoTime() - projectionStarted;
-        long reductionStarted = System.nanoTime();
-        for (int level = 1; level <= requestedLevel; level++) featureColumns = reduceLevel(featureColumns, level);
-        for (int i = 0; i < natural.length; i++) natural[i] = merge(natural[i], featureColumns[i]);
-
+        long terrainNanos = 0;
+        long reductionNanos = 0;
+        for (int level = 1; level <= requestedLevel; level++) {
+            long reductionStarted = System.nanoTime();
+            featureColumns = reduceLevel(featureColumns, level);
+            reductionNanos += System.nanoTime() - reductionStarted;
+        }
+        long terrainStarted = System.nanoTime();
+        int side = ChunkSection.SIZE >> requestedLevel;
+        int size = 1 << requestedLevel;
+        int cellArea = size * size;
+        LodColumn[] natural = new LodColumn[side * side];
+        for (int z = 0; z < side; z++) {
+            for (int x = 0; x < side; x++) {
+                int wx = baseX + (x << requestedLevel) + (size >> 1);
+                int wz = baseZ + (z << requestedLevel) + (size >> 1);
+                int index = z * side + x;
+                natural[index] = merge(naturalColumn(generator, wx, wz, cellArea),
+                        featureColumns[index]);
+            }
+        }
+        terrainNanos = System.nanoTime() - terrainStarted;
         ChunkLodColumns result = new ChunkLodColumns();
         result.levels[requestedLevel] = natural;
-        return new GeneratedBuild(result, terrainNanos, projectionNanos,
-                System.nanoTime() - reductionStarted);
+        return new GeneratedBuild(result, terrainNanos, projectionNanos, reductionNanos);
     }
 
     public synchronized void merge(ChunkLodColumns other) {
@@ -129,6 +136,24 @@ public final class ChunkLodColumns {
 
     public synchronized boolean hasLevel(int level) {
         return this.levels[level] != null;
+    }
+
+    /**
+     * Leitet ein groberes Level ausschliesslich aus bereits vorhandenen kanonischen Kinddaten ab.
+     * Dadurch kostet ein spaeterer L3-Abruf nach L1 weder Generator- noch Feature-Arbeit.
+     */
+    public synchronized boolean materializeLevel(int level) {
+        checkLevel(level);
+        if (this.levels[level] != null) return true;
+        int source = level - 1;
+        while (source >= 0 && this.levels[source] == null) source--;
+        if (source < 0) return false;
+        LodColumn[] current = this.levels[source];
+        for (int next = source + 1; next <= level; next++) {
+            current = reduceLevel(current, next);
+            this.levels[next] = current;
+        }
+        return true;
     }
 
     public LodColumn get(int localX, int localZ, int size) {

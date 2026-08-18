@@ -193,7 +193,8 @@ public final class LodMesher {
 
         /* Komplett von echtem Terrain bedeckt → nichts zu meshen (spart das Sampling). */
         if (mask == 0xFFFF) {
-            return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, 0, new int[0], new int[0], 0F, 0F);
+            return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, 0,
+                    new int[0], new int[0], 0F, 0F);
         }
 
         if (this.cells.length < this.stride * this.stride) {
@@ -404,7 +405,8 @@ public final class LodMesher {
         float maxY = empty ? 0F : this.maxTop;
         this.appearance = null;
         this.source = null;
-        return new LodMeshResult(level, rx, rz, this.sizeRegions, epoch, mask, this.yBase, opaqueData, translucentData, minY, maxY);
+        return new LodMeshResult(level, rx, rz, this.sizeRegions, epoch, mask, this.yBase,
+                opaqueData, translucentData, minY, maxY);
     }
 
     /** Mehrschichtiger Greedy-Pfad für persistente L0-L5-Spalten. */
@@ -430,12 +432,12 @@ public final class LodMesher {
         if (this.columns.length < sampleCount) this.columns = new LodColumn[sampleCount];
         long samplingStarted = System.nanoTime();
         int minY = Integer.MAX_VALUE;
-        for (int z = -1; z <= n; z++) {
-            for (int x = -1; x <= n; x++) {
-                LodColumn column = source.sampleColumn(this.regionBaseX + x * s,
-                        this.regionBaseZ + z * s, s);
-                this.columns[(z + 1) * this.stride + x + 1] = column;
-                for (int i = 0; i < column.size(); i++) minY = Math.min(minY, LodColumn.minY(column.interval(i)));
+        source.sampleColumns(this.regionBaseX - s, this.regionBaseZ - s, s,
+                this.stride, this.stride, this.columns, 0, this.stride);
+        for (int index = 0; index < sampleCount; index++) {
+            LodColumn column = this.columns[index];
+            for (int i = 0; i < column.size(); i++) {
+                minY = Math.min(minY, LodColumn.minY(column.interval(i)));
             }
         }
         this.lastSamplingNanos = System.nanoTime() - samplingStarted;
@@ -598,10 +600,38 @@ public final class LodMesher {
         return this.columns[(z + 1) * this.stride + x + 1];
     }
 
-    private record ColumnSide(int block, int minY, int maxY, long lightSurface) {}
+    private static final class SideSignature {
+        private static final int CAPACITY = LodColumn.MAX_INTERVALS * (LodColumn.MAX_INTERVALS + 1);
+        final int[] blocks = new int[CAPACITY];
+        final int[] minY = new int[CAPACITY];
+        final int[] maxY = new int[CAPACITY];
+        final long[] lightSurfaces = new long[CAPACITY];
+        int size;
 
-    private java.util.List<ColumnSide> visibleSides(LodColumn own, LodColumn neighbor, boolean skirtEdge) {
-        java.util.ArrayList<ColumnSide> result = new java.util.ArrayList<>();
+        void clear() { this.size = 0; }
+        void add(int block, int minY, int maxY, long lightSurface) {
+            int index = this.size++;
+            this.blocks[index] = block;
+            this.minY[index] = minY;
+            this.maxY[index] = maxY;
+            this.lightSurfaces[index] = lightSurface;
+        }
+        boolean sameAs(SideSignature other) {
+            if (this.size != other.size) return false;
+            for (int i = 0; i < this.size; i++) {
+                if (this.blocks[i] != other.blocks[i] || this.minY[i] != other.minY[i]
+                        || this.maxY[i] != other.maxY[i]
+                        || this.lightSurfaces[i] != other.lightSurfaces[i]) return false;
+            }
+            return true;
+        }
+    }
+
+    private final SideSignature sideSignature = new SideSignature();
+    private final SideSignature candidateSideSignature = new SideSignature();
+
+    private void visibleSides(SideSignature result, LodColumn own, LodColumn neighbor, boolean skirtEdge) {
+        result.clear();
         long skirt = skirtEdge ? this.skirtInterval(own) : 0;
         long lightSurface = this.columnWallLightSurface(own, neighbor);
         for (int i = 0; i < own.size(); i++) {
@@ -617,13 +647,12 @@ public final class LodMesher {
                 if (coverMax <= start || coverMin >= end) continue;
                 if (!this.appearance.isTranslucent(LodColumn.state(interval))
                         && this.appearance.isTranslucent(LodColumn.state(cover))) continue;
-                if (coverMin > start) result.add(new ColumnSide(LodColumn.state(interval), start,
-                        Math.min(end, coverMin), lightSurface));
+                if (coverMin > start) result.add(LodColumn.state(interval), start,
+                        Math.min(end, coverMin), lightSurface);
                 start = Math.max(start, coverMax);
             }
-            if (start < end) result.add(new ColumnSide(LodColumn.state(interval), start, end, lightSurface));
+            if (start < end) result.add(LodColumn.state(interval), start, end, lightSurface);
         }
-        return result;
     }
 
     private long columnWallLightSurface(LodColumn own, LodColumn neighbor) {
@@ -647,21 +676,26 @@ public final class LodMesher {
         for (int x = 0; x < this.cellCount;) {
             if (this.clipped[z * this.cellCount + x]) { x++; continue; }
             boolean maskEdge = !regionEdge && this.neighborClipped(x, z + dz);
-            java.util.List<ColumnSide> sides = this.visibleSides(
-                    this.column(x, z), this.column(x, z + dz), regionEdge || maskEdge);
-            if (sides.isEmpty()) { x++; continue; }
+            this.visibleSides(this.sideSignature, this.column(x, z), this.column(x, z + dz),
+                    regionEdge || maskEdge);
+            if (this.sideSignature.size == 0) { x++; continue; }
             int run = 1;
             while (x + run < this.cellCount && run < maxRun
                     && !this.clipped[z * this.cellCount + x + run]
-                    && (!regionEdge && this.neighborClipped(x + run, z + dz)) == maskEdge
-                    && sides.equals(this.visibleSides(this.column(x + run, z),
-                    this.column(x + run, z + dz), regionEdge || maskEdge))) run++;
+                    && (!regionEdge && this.neighborClipped(x + run, z + dz)) == maskEdge) {
+                this.visibleSides(this.candidateSideSignature, this.column(x + run, z),
+                        this.column(x + run, z + dz), regionEdge || maskEdge);
+                if (!this.sideSignature.sameAs(this.candidateSideSignature)) break;
+                run++;
+            }
             float x0 = x * s, x1 = (x + run) * s, zz = (dz < 0 ? z : z + 1) * s;
-            for (ColumnSide side : sides) {
-                if (face == 2) this.emitWall(side.block, face, x1, zz, x0, zz, side.minY, side.maxY,
-                        side.lightSurface);
-                else this.emitWall(side.block, face, x0, zz, x1, zz, side.minY, side.maxY,
-                        side.lightSurface);
+            for (int i = 0; i < this.sideSignature.size; i++) {
+                if (face == 2) this.emitWall(this.sideSignature.blocks[i], face, x1, zz, x0, zz,
+                        this.sideSignature.minY[i], this.sideSignature.maxY[i],
+                        this.sideSignature.lightSurfaces[i]);
+                else this.emitWall(this.sideSignature.blocks[i], face, x0, zz, x1, zz,
+                        this.sideSignature.minY[i], this.sideSignature.maxY[i],
+                        this.sideSignature.lightSurfaces[i]);
             }
             x += run;
         }
@@ -672,21 +706,26 @@ public final class LodMesher {
         for (int z = 0; z < this.cellCount;) {
             if (this.clipped[z * this.cellCount + x]) { z++; continue; }
             boolean maskEdge = !regionEdge && this.neighborClipped(x + dx, z);
-            java.util.List<ColumnSide> sides = this.visibleSides(
-                    this.column(x, z), this.column(x + dx, z), regionEdge || maskEdge);
-            if (sides.isEmpty()) { z++; continue; }
+            this.visibleSides(this.sideSignature, this.column(x, z), this.column(x + dx, z),
+                    regionEdge || maskEdge);
+            if (this.sideSignature.size == 0) { z++; continue; }
             int run = 1;
             while (z + run < this.cellCount && run < maxRun
                     && !this.clipped[(z + run) * this.cellCount + x]
-                    && (!regionEdge && this.neighborClipped(x + dx, z + run)) == maskEdge
-                    && sides.equals(this.visibleSides(this.column(x, z + run),
-                    this.column(x + dx, z + run), regionEdge || maskEdge))) run++;
+                    && (!regionEdge && this.neighborClipped(x + dx, z + run)) == maskEdge) {
+                this.visibleSides(this.candidateSideSignature, this.column(x, z + run),
+                        this.column(x + dx, z + run), regionEdge || maskEdge);
+                if (!this.sideSignature.sameAs(this.candidateSideSignature)) break;
+                run++;
+            }
             float z0 = z * s, z1 = (z + run) * s, xx = (dx < 0 ? x : x + 1) * s;
-            for (ColumnSide side : sides) {
-                if (face == 4) this.emitWall(side.block, face, xx, z0, xx, z1, side.minY, side.maxY,
-                        side.lightSurface);
-                else this.emitWall(side.block, face, xx, z1, xx, z0, side.minY, side.maxY,
-                        side.lightSurface);
+            for (int i = 0; i < this.sideSignature.size; i++) {
+                if (face == 4) this.emitWall(this.sideSignature.blocks[i], face, xx, z0, xx, z1,
+                        this.sideSignature.minY[i], this.sideSignature.maxY[i],
+                        this.sideSignature.lightSurfaces[i]);
+                else this.emitWall(this.sideSignature.blocks[i], face, xx, z1, xx, z0,
+                        this.sideSignature.minY[i], this.sideSignature.maxY[i],
+                        this.sideSignature.lightSurfaces[i]);
             }
             z += run;
         }

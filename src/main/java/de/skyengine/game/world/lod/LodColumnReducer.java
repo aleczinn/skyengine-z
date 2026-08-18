@@ -16,6 +16,39 @@ public final class LodColumnReducer {
 
     private record Run(int state, int minY, int maxY, int coverage, int flags) {}
 
+    private static final class Scratch {
+        int[] endpoints = new int[34];
+        int[] selected = new int[33];
+        int[] coverage = new int[33];
+        boolean[] landmark = new boolean[33];
+        boolean[] terrain = new boolean[33];
+        boolean[] skyOpen = new boolean[33];
+        int[] states = new int[4];
+        int[] counts = new int[4];
+        int[] landmarkCounts = new int[4];
+        int[] terrainCounts = new int[4];
+
+        void ensure(int columns, int endpoints) {
+            if (this.endpoints.length < endpoints) this.endpoints = new int[endpoints];
+            int segments = endpoints - 1;
+            if (this.selected.length < segments) {
+                this.selected = new int[segments];
+                this.coverage = new int[segments];
+                this.landmark = new boolean[segments];
+                this.terrain = new boolean[segments];
+                this.skyOpen = new boolean[segments];
+            }
+            if (this.states.length < columns) {
+                this.states = new int[columns];
+                this.counts = new int[columns];
+                this.landmarkCounts = new int[columns];
+                this.terrainCounts = new int[columns];
+            }
+        }
+    }
+
+    private static final ThreadLocal<Scratch> SCRATCH = ThreadLocal.withInitial(Scratch::new);
+
     public static LodColumn reduce(LodColumn[] columns) {
         return reduce(columns, columns.length);
     }
@@ -29,7 +62,10 @@ public final class LodColumnReducer {
 
         boolean empty = true;
         int endpointCount = 2;
-        int[] endpoints = new int[2 + columns.length * LodColumn.MAX_INTERVALS * 2];
+        int maxEndpoints = 2 + columns.length * LodColumn.MAX_INTERVALS * 2;
+        Scratch scratch = SCRATCH.get();
+        scratch.ensure(columns.length, maxEndpoints);
+        int[] endpoints = scratch.endpoints;
         endpoints[0] = 0;
         endpoints[1] = WORLD_HEIGHT;
         for (LodColumn column : columns) {
@@ -49,15 +85,20 @@ public final class LodColumnReducer {
         }
 
         int segmentCount = uniqueCount - 1;
-        int[] selected = new int[segmentCount];
-        int[] coverage = new int[segmentCount];
-        boolean[] landmark = new boolean[segmentCount];
-        boolean[] terrain = new boolean[segmentCount];
-        boolean[] skyOpen = new boolean[segmentCount];
-        int[] states = new int[columns.length];
-        int[] counts = new int[columns.length];
-        int[] landmarkCounts = new int[columns.length];
-        int[] terrainCounts = new int[columns.length];
+        int[] selected = scratch.selected;
+        int[] coverage = scratch.coverage;
+        boolean[] landmark = scratch.landmark;
+        boolean[] terrain = scratch.terrain;
+        boolean[] skyOpen = scratch.skyOpen;
+        int[] states = scratch.states;
+        int[] counts = scratch.counts;
+        int[] landmarkCounts = scratch.landmarkCounts;
+        int[] terrainCounts = scratch.terrainCounts;
+        Arrays.fill(selected, 0, segmentCount, Blocks.AIR);
+        Arrays.fill(coverage, 0, segmentCount, 0);
+        Arrays.fill(landmark, 0, segmentCount, false);
+        Arrays.fill(terrain, 0, segmentCount, false);
+        Arrays.fill(skyOpen, 0, segmentCount, false);
         int childArea = Math.max(1, parentArea / columns.length);
 
         for (int segment = 0; segment < segmentCount; segment++) {
@@ -201,7 +242,7 @@ public final class LodColumnReducer {
             Run run = runs.get(i);
             packed[i] = LodColumn.pack(run.state, run.minY, run.maxY, run.flags, run.coverage);
         }
-        return new LodColumn(packed);
+        return LodColumn.owned(packed);
     }
 
     private static boolean separatedFromTerrain(int[] selected, int segment) {

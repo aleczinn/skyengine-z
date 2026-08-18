@@ -8,18 +8,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 final class EntityPlayerSpectatorSpeedTest {
 
     @Test
-    void scrollChangesSpectatorSpeedInTenPercentStepsAndClampsIt() {
+    void scrollChangesSpectatorSpeedInFiftyPercentStepsAndClampsIt() {
         EntityPlayer player = new EntityPlayer();
         player.setGamemode(Gamemode.SPECTATOR);
 
         player.adjustSpectatorFlySpeed(1);
-        assertEquals(1.1F, player.getSpectatorFlySpeed(), 0.0001F);
+        assertEquals(1.5F, player.getSpectatorFlySpeed(), 0.0001F);
         player.adjustSpectatorFlySpeed(-2);
-        assertEquals(0.9F, player.getSpectatorFlySpeed(), 0.0001F);
+        assertEquals(1F, player.getSpectatorFlySpeed(), 0.0001F);
         player.adjustSpectatorFlySpeed(100);
         assertEquals(10F, player.getSpectatorFlySpeed(), 0.0001F);
         player.adjustSpectatorFlySpeed(-100);
-        assertEquals(0F, player.getSpectatorFlySpeed(), 0.0001F);
+        assertEquals(1F, player.getSpectatorFlySpeed(), 0.0001F);
     }
 
     @Test

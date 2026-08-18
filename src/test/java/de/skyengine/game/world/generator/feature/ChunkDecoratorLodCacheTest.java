@@ -33,6 +33,24 @@ final class ChunkDecoratorLodCacheTest {
         assertEquals(12, placements.get(), "9 erste Tiles plus 3 neue Tiles des Nachbarchunks");
     }
 
+    @Test
+    void regionProjectionVisitsEachHaloTileOnlyOnce() {
+        AtomicInteger placements = new AtomicInteger();
+        Feature feature = context -> {
+            placements.incrementAndGet();
+            context.set(context.sourceMinX() + 16, 80, context.sourceMinZ() + 16, 123);
+        };
+        ChunkDecorator decorator = new ChunkDecorator(new FlatGenerator(), List.of(feature));
+        ChunkDecorator.LodRegionFeatures region = decorator.lodRegion(0, 0, 4, 4);
+
+        for (int z = 0; z < 4; z++) for (int x = 0; x < 4; x++) {
+            int[] count = {0};
+            region.forChunk(x, z).forEach((lx, y, lz, block) -> count[0]++);
+            assertEquals(1, count[0]);
+        }
+        assertEquals(36, placements.get(), "4x4 Ziele benoetigen nur das eindeutige 6x6-Halo");
+    }
+
     private static final class FlatGenerator extends WorldGenerator {
         private FlatGenerator() { super(1); }
         @Override public int sampleHeight(int x, int z) { return 64; }

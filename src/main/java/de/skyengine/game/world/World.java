@@ -73,10 +73,22 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Random;
 import java.util.function.Consumer;
+import java.util.function.BooleanSupplier;
 
 public class World implements IInitializable, IDisposable {
 
     private final Logger logger = LogManager.getLogger(World.class.getName());
+    /* Synchronous player action scope. Nested block behavior mutations inherit the origin. */
+    private int playerBlockChangeDepth;
+
+    public boolean runPlayerBlockChange(BooleanSupplier action) {
+        this.playerBlockChangeDepth++;
+        try {
+            return action.getAsBoolean();
+        } finally {
+            this.playerBlockChangeDepth--;
+        }
+    }
 
     private final String name;
 
@@ -1623,23 +1635,24 @@ public class World implements IInitializable, IDisposable {
         } finally {
             chunk.writeLock().unlock();
         }
-        chunk.markSectionDirty(sy);
+        boolean playerChange = this.playerBlockChangeDepth > 0;
+        chunk.markSectionDirty(sy, playerChange);
 
         /* Vertikale Section-Grenzen */
-        if ((y & ChunkSection.MASK) == 0 && sy > 0) chunk.markSectionDirty(sy - 1);
-        if ((y & ChunkSection.MASK) == ChunkSection.MASK && sy < Chunk.SECTIONS - 1) chunk.markSectionDirty(sy + 1);
+        if ((y & ChunkSection.MASK) == 0 && sy > 0) chunk.markSectionDirty(sy - 1, playerChange);
+        if ((y & ChunkSection.MASK) == ChunkSection.MASK && sy < Chunk.SECTIONS - 1) chunk.markSectionDirty(sy + 1, playerChange);
 
 
         /* An Chunk-Grenzen muss der Nachbar mit-remeshen, sonst bleiben dort falsche Faces */
-        if (lx == 0) this.markDirtyColumn(cx - 1, cz, sy, y);
-        if (lx == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz, sy, y);
-        if (lz == 0) this.markDirtyColumn(cx, cz - 1, sy, y);
-        if (lz == ChunkSection.MASK) this.markDirtyColumn(cx, cz + 1, sy, y);
+        if (lx == 0) this.markDirtyColumn(cx - 1, cz, sy, y, playerChange);
+        if (lx == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz, sy, y, playerChange);
+        if (lz == 0) this.markDirtyColumn(cx, cz - 1, sy, y, playerChange);
+        if (lz == ChunkSection.MASK) this.markDirtyColumn(cx, cz + 1, sy, y, playerChange);
         /* Chunk-ECKEN zusätzlich diagonal: dessen Fluid-Eckhöhen sampeln diese Zelle. */
-        if (lx == 0 && lz == 0) this.markDirtyColumn(cx - 1, cz - 1, sy, y);
-        if (lx == 0 && lz == ChunkSection.MASK) this.markDirtyColumn(cx - 1, cz + 1, sy, y);
-        if (lx == ChunkSection.MASK && lz == 0) this.markDirtyColumn(cx + 1, cz - 1, sy, y);
-        if (lx == ChunkSection.MASK && lz == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz + 1, sy, y);
+        if (lx == 0 && lz == 0) this.markDirtyColumn(cx - 1, cz - 1, sy, y, playerChange);
+        if (lx == 0 && lz == ChunkSection.MASK) this.markDirtyColumn(cx - 1, cz + 1, sy, y, playerChange);
+        if (lx == ChunkSection.MASK && lz == 0) this.markDirtyColumn(cx + 1, cz - 1, sy, y, playerChange);
+        if (lx == ChunkSection.MASK && lz == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz + 1, sy, y, playerChange);
 
         /* Himmelslicht nachziehen. Die Markierungen oben decken nur den 1-Block-Ring von
            Geometrie und AO ab — Licht reicht deutlich weiter (eine gekappte Direkt-Säule
@@ -2285,17 +2298,17 @@ public class World implements IInitializable, IDisposable {
      * Section darüber/darunter des Nachbarn an ihm — ohne diese Markierung bliebe dort dauerhaft
      * ein falscher AO-Wert stehen.
      */
-    private void markDirtyColumn(int cx, int cz, int sectionY, int y) {
-        this.markDirty(cx, cz, sectionY);
+    private void markDirtyColumn(int cx, int cz, int sectionY, int y, boolean player) {
+        this.markDirty(cx, cz, sectionY, player);
         if ((y & ChunkSection.MASK) == 0 && sectionY > 0) {
-            this.markDirty(cx, cz, sectionY - 1);
+            this.markDirty(cx, cz, sectionY - 1, player);
         }
         if ((y & ChunkSection.MASK) == ChunkSection.MASK && sectionY < Chunk.SECTIONS - 1) {
-            this.markDirty(cx, cz, sectionY + 1);
+            this.markDirty(cx, cz, sectionY + 1, player);
         }
     }
 
-    private void markDirty(int cx, int cz, int sectionY) {
+    private void markDirty(int cx, int cz, int sectionY, boolean player) {
         Chunk chunk = this.chunkManager.getChunk(cx, cz);
 
         /* isAtLeast(LIT) statt == READY: ein Nachbar im MESHING-Fenster (unlockRead vor dem
@@ -2305,7 +2318,7 @@ public class World implements IInitializable, IDisposable {
            Remesh-Gate in processRemeshes verlangt weiterhin READY — schlimmstenfalls also ein
            redundanter Remesh, exakt wie bei den Markierungen der LightEngine. */
         if (chunk != null && chunk.status.isAtLeast(ChunkStatus.LIT)) {
-            chunk.markSectionDirty(sectionY);
+            chunk.markSectionDirty(sectionY, player);
         }
     }
 

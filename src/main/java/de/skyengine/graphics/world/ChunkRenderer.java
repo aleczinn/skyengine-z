@@ -440,6 +440,11 @@ public class ChunkRenderer {
         ChunkManager.MeshBatch batch;
         int priorityUploads = 0;
         while (priorityUploads < MAX_PRIORITY_UPLOADS_PER_FRAME
+                && (batch = this.chunkManager.getPlayerUploadQueue().poll()) != null) {
+            this.applyBatch(batch);
+            priorityUploads++;
+        }
+        while (priorityUploads < MAX_PRIORITY_UPLOADS_PER_FRAME
                 && (batch = this.chunkManager.getPriorityUploadQueue().poll()) != null) {
             this.applyBatch(batch);
             priorityUploads++;

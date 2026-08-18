@@ -25,7 +25,6 @@ import java.util.concurrent.atomic.AtomicLong;
 /** Einheitliche, bedarfsgesteuerte LOD-Quelle fuer Live-, Speicher- und Generator-Daten. */
 public final class PersistentLodDataSource implements LodDataSource, AutoCloseable {
 
-    private record LevelKey(long chunkKey, int level) {}
     private record GeneratedResult(ChunkLodColumns columns, long featureNanos,
                                    long terrainNanos, long projectionNanos, long reductionNanos) {}
 
@@ -53,7 +52,8 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
         }
     }
 
-    private static final long MAX_CACHE_BYTES = 64L * 1024L * 1024L;
+    private static final long MIB = 1024L * 1024L;
+    private static final long MAX_CACHE_BYTES = adaptiveCacheBytes(Runtime.getRuntime().maxMemory());
 
     private final Logger logger = LogManager.getLogger(PersistentLodDataSource.class.getName());
     private final ChunkManager chunks;
@@ -63,11 +63,15 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
     private final boolean imported;
     private final LodCacheStore disk;
     private final Map<Long, ChunkLodColumns> cache = new LinkedHashMap<>(256, 0.75F, true);
-    private final Map<LevelKey, CompletableFuture<ChunkLodColumns>> builds = new ConcurrentHashMap<>();
+    /* Separat gespeichert, weil ChunkLodColumns durch Lazy-Ableitung/merge nachtraeglich waechst. */
+    private final Map<Long, Long> cacheSizes = new java.util.HashMap<>();
+    private final Map<Long, CompletableFuture<ChunkLodColumns>> builds = new ConcurrentHashMap<>();
     private final Set<Long> invalidated = ConcurrentHashMap.newKeySet();
     private final AtomicLong memoryHits = new AtomicLong();
     private final AtomicLong diskHits = new AtomicLong();
     private final AtomicLong generatedBuilds = new AtomicLong();
+    private final AtomicLong bulkWindows = new AtomicLong();
+    private final AtomicLong bulkChunkLookups = new AtomicLong();
     private final PhaseStats totalTimes = new PhaseStats();
     private final PhaseStats diskTimes = new PhaseStats();
     private final PhaseStats storageTimes = new PhaseStats();
@@ -77,6 +81,10 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
     private final PhaseStats projectionTimes = new PhaseStats();
     private final PhaseStats reductionTimes = new PhaseStats();
     private long cacheBytes;
+
+    static long adaptiveCacheBytes(long maxHeapBytes) {
+        return Math.clamp(maxHeapBytes / 4, 64L * MIB, 512L * MIB);
+    }
 
     public PersistentLodDataSource(ChunkManager chunks, WorldStorage storage,
                                    WorldGenerator generator, ChunkDecorator decorator,
@@ -91,7 +99,8 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
             long key = Chunk.key(cx, cz);
             synchronized (this.cache) {
                 ChunkLodColumns removed = this.cache.remove(key);
-                if (removed != null) this.cacheBytes -= removed.estimatedBytes();
+                Long bytes = this.cacheSizes.remove(key);
+                if (removed != null && bytes != null) this.cacheBytes -= bytes;
             }
             this.invalidated.add(key);
         });
@@ -107,6 +116,40 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
         int level = level(size);
         int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
         return this.columns(cx, cz, level).get(x & ChunkSection.MASK, z & ChunkSection.MASK, size);
+    }
+
+    @Override
+    public void sampleColumns(int startX, int startZ, int size, int width, int height,
+                              LodColumn[] target, int targetOffset, int targetStride) {
+        int level = level(size);
+        int endX = startX + (width - 1) * size;
+        int endZ = startZ + (height - 1) * size;
+        int minCx = startX >> ChunkSection.SHIFT;
+        int minCz = startZ >> ChunkSection.SHIFT;
+        int maxCx = endX >> ChunkSection.SHIFT;
+        int maxCz = endZ >> ChunkSection.SHIFT;
+        int chunksWide = maxCx - minCx + 1;
+        this.bulkWindows.incrementAndGet();
+        this.bulkChunkLookups.addAndGet((long) chunksWide * (maxCz - minCz + 1));
+        ChunkDecorator.LodRegionFeatures features = this.decorator.lodRegion(
+                minCx, minCz, chunksWide, maxCz - minCz + 1);
+        ChunkLodColumns[] window = new ChunkLodColumns[chunksWide * (maxCz - minCz + 1)];
+        for (int cz = minCz; cz <= maxCz; cz++) {
+            for (int cx = minCx; cx <= maxCx; cx++) {
+                window[(cz - minCz) * chunksWide + cx - minCx] = this.columns(cx, cz, level, features);
+            }
+        }
+        for (int z = 0; z < height; z++) {
+            int wz = startZ + z * size;
+            int cz = wz >> ChunkSection.SHIFT;
+            int row = targetOffset + z * targetStride;
+            for (int x = 0; x < width; x++) {
+                int wx = startX + x * size;
+                int cx = wx >> ChunkSection.SHIFT;
+                ChunkLodColumns columns = window[(cz - minCz) * chunksWide + cx - minCx];
+                target[row + x] = columns.get(wx & ChunkSection.MASK, wz & ChunkSection.MASK, size);
+            }
+        }
     }
 
     @Override
@@ -136,6 +179,8 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
         synchronized (this.cache) {
             return "LOD-Cache: RAM-Hits=" + this.memoryHits.get() + ", Disk-Hits=" + this.diskHits.get()
                     + ", Generator-Builds=" + this.generatedBuilds.get()
+                    + ", Bulk=" + this.bulkWindows.get() + "/" + this.bulkChunkLookups.get()
+                    + " Fenster/Chunk-Lookups"
                     + ", Gesamt=" + this.totalTimes.text() + ", Disk=" + this.diskTimes.text()
                     + ", Storage=" + this.storageTimes.text() + ", Exakt=" + this.exactTimes.text()
                     + ", Terrain=" + this.terrainTimes.text() + ", Features=" + this.featureTimes.text()
@@ -145,19 +190,28 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
     }
 
     private ChunkLodColumns columns(int cx, int cz, int level) {
+        return this.columns(cx, cz, level, null);
+    }
+
+    private ChunkLodColumns columns(int cx, int cz, int level,
+                                    ChunkDecorator.LodRegionFeatures regionFeatures) {
         long chunkKey = Chunk.key(cx, cz);
         ChunkLodColumns cached = cached(chunkKey);
-        if (cached != null && cached.hasLevel(level)) {
+        if (cached != null && this.materializeCachedLevel(chunkKey, cached, level)) {
             this.memoryHits.incrementAndGet();
             return cached;
         }
 
-        LevelKey key = new LevelKey(chunkKey, level);
         CompletableFuture<ChunkLodColumns> own = new CompletableFuture<>();
-        CompletableFuture<ChunkLodColumns> active = this.builds.putIfAbsent(key, own);
-        if (active != null) return active.join();
+        CompletableFuture<ChunkLodColumns> active = this.builds.putIfAbsent(chunkKey, own);
+        if (active != null) {
+            ChunkLodColumns result = active.join();
+            if (this.materializeCachedLevel(chunkKey, result, level)) return result;
+            this.builds.remove(chunkKey, active);
+            return this.columns(cx, cz, level, regionFeatures);
+        }
         try {
-            ChunkLodColumns result = this.build(cx, cz, chunkKey, level, cached);
+            ChunkLodColumns result = this.build(cx, cz, chunkKey, level, cached, regionFeatures);
             own.complete(result);
             return result;
         } catch (Throwable error) {
@@ -165,11 +219,12 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
             if (error instanceof RuntimeException runtime) throw runtime;
             throw new CompletionException(error);
         } finally {
-            this.builds.remove(key, own);
+            this.builds.remove(chunkKey, own);
         }
     }
 
-    private ChunkLodColumns build(int cx, int cz, long key, int level, ChunkLodColumns existing) {
+    private ChunkLodColumns build(int cx, int cz, long key, int level, ChunkLodColumns existing,
+                                  ChunkDecorator.LodRegionFeatures regionFeatures) {
         long started = System.nanoTime();
         long diskNanos = 0, storageNanos = 0, exactNanos = 0;
         long terrainNanos = 0, featureNanos = 0, projectionNanos = 0, reductionNanos = 0;
@@ -180,7 +235,7 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
             diskNanos = System.nanoTime() - phaseStarted;
             if (result != null) this.diskHits.incrementAndGet();
         }
-        if (result != null && result.hasLevel(level)) {
+        if (result != null && result.materializeLevel(level)) {
             result = install(key, result);
             this.recordTimes(System.nanoTime() - started, diskNanos, 0, 0, 0, 0, 0, 0);
             return result;
@@ -206,7 +261,7 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
                 } catch (Exception e) {
                     if (storageNanos == 0) storageNanos = System.nanoTime() - phaseStarted;
                     this.logger.warning("LOD-Snapshot fuer Chunk (" + cx + ", " + cz + ") nicht lesbar", e);
-                    GeneratedResult generated = generated(cx, cz, level);
+                    GeneratedResult generated = generated(cx, cz, level, regionFeatures);
                     built = generated.columns;
                     featureNanos = generated.featureNanos;
                     terrainNanos = generated.terrainNanos;
@@ -215,7 +270,7 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
                 }
             } else if (!this.imported) {
                 storageNanos = System.nanoTime() - phaseStarted;
-                GeneratedResult generated = generated(cx, cz, level);
+                GeneratedResult generated = generated(cx, cz, level, regionFeatures);
                 built = generated.columns;
                 featureNanos = generated.featureNanos;
                 terrainNanos = generated.terrainNanos;
@@ -239,10 +294,12 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
         return result;
     }
 
-    private GeneratedResult generated(int cx, int cz, int level) {
+    private GeneratedResult generated(int cx, int cz, int level,
+                                      ChunkDecorator.LodRegionFeatures regionFeatures) {
         this.generatedBuilds.incrementAndGet();
         long featureStarted = System.nanoTime();
-        LodFeatureBuffer features = this.decorator.decorateForLod(cx, cz);
+        LodFeatureBuffer features = regionFeatures == null
+                ? this.decorator.decorateForLod(cx, cz) : regionFeatures.forChunk(cx, cz);
         long featureNanos = System.nanoTime() - featureStarted;
         ChunkLodColumns.GeneratedBuild generated = ChunkLodColumns.buildFromGenerator(
                 this.generator, features, cx, cz, level);
@@ -266,23 +323,38 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
         synchronized (this.cache) { return this.cache.get(key); }
     }
 
+    private boolean materializeCachedLevel(long key, ChunkLodColumns value, int level) {
+        synchronized (this.cache) {
+            if (!value.materializeLevel(level)) return false;
+            if (this.cache.get(key) == value) {
+                long previous = this.cacheSizes.getOrDefault(key, value.estimatedBytes());
+                long current = value.estimatedBytes();
+                this.cacheSizes.put(key, current);
+                this.cacheBytes += current - previous;
+            }
+            return true;
+        }
+    }
+
     private ChunkLodColumns install(long key, ChunkLodColumns value) {
         synchronized (this.cache) {
             ChunkLodColumns previous = this.cache.get(key);
             if (previous != null && previous != value) {
-                this.cacheBytes -= previous.estimatedBytes();
+                this.cacheBytes -= this.cacheSizes.getOrDefault(key, previous.estimatedBytes());
                 previous.merge(value);
                 value = previous;
             } else if (previous != null) {
-                this.cacheBytes -= previous.estimatedBytes();
+                this.cacheBytes -= this.cacheSizes.getOrDefault(key, previous.estimatedBytes());
             }
             this.cache.put(key, value);
-            this.cacheBytes += value.estimatedBytes();
+            long bytes = value.estimatedBytes();
+            this.cacheSizes.put(key, bytes);
+            this.cacheBytes += bytes;
             var iterator = this.cache.entrySet().iterator();
             while (this.cacheBytes > MAX_CACHE_BYTES && iterator.hasNext()) {
-                ChunkLodColumns evicted = iterator.next().getValue();
+                Map.Entry<Long, ChunkLodColumns> entry = iterator.next();
                 iterator.remove();
-                this.cacheBytes -= evicted.estimatedBytes();
+                this.cacheBytes -= this.cacheSizes.remove(entry.getKey());
             }
             return value;
         }
@@ -299,6 +371,7 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
     public void close() {
         synchronized (this.cache) {
             this.cache.clear();
+            this.cacheSizes.clear();
             this.cacheBytes = 0;
         }
         this.decorator.clearLodFeatureCache();

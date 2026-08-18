@@ -1237,8 +1237,12 @@ public class GameContainer implements IResizeable, IDisposable {
                     LootContext.Cause.PLAYER, 0.0F, this.world.random());
             broken.getBlock().appendDrops(context, (stack, x, y, z) -> drops.add(stack));
         }
-        broken.getBlock().onBreak(this.world, this.hit.x(), this.hit.y(), this.hit.z(), broken);
-        if (!this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(), Blocks.AIR)) {
+        int breakX = this.hit.x(), breakY = this.hit.y(), breakZ = this.hit.z();
+        boolean removed = this.world.runPlayerBlockChange(() -> {
+            broken.getBlock().onBreak(this.world, breakX, breakY, breakZ, broken);
+            return this.world.setBlock(breakX, breakY, breakZ, Blocks.AIR);
+        });
+        if (!removed) {
             this.resetMining();
             return false;
         }
@@ -1532,7 +1536,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 || this.collidesWithEntities(place, px, py, pz)) {
             return false;
         }
-        if (!this.world.placeBlock(px, py, pz, place)) return false;
+        if (!this.world.runPlayerBlockChange(() -> this.world.placeBlock(px, py, pz, place))) return false;
         this.soundManager.playPlace(place.getBlock().getSoundGroup(), px + 0.5, py + 0.5, pz + 0.5);
         /* Survival verbraucht den Block (Creative baut unbegrenzt, wie MC). */
         if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
@@ -1623,8 +1627,9 @@ public class GameContainer implements IResizeable, IDisposable {
                 || (type == SlabType.TOP && this.hit.faceY() < 0);
         if (!merge) return false;
 
-        if (!this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(),
-                target.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId())) return false;
+        if (!this.world.runPlayerBlockChange(() -> this.world.setBlock(
+                this.hit.x(), this.hit.y(), this.hit.z(),
+                target.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId()))) return false;
         this.soundManager.playPlace(block.getSoundGroup(),
                 this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
         if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
@@ -1737,7 +1742,8 @@ public class GameContainer implements IResizeable, IDisposable {
             if (fhit == null) return false;
             BlockState state = Blocks.getState(fhit.block());
             if (!state.isFluid() || state.get(Properties.FALLING) || state.get(Properties.LEVEL) != 0) return false;
-            if (!this.world.setBlock(fhit.x(), fhit.y(), fhit.z(), Blocks.AIR)) return false;
+            if (!this.world.runPlayerBlockChange(() ->
+                    this.world.setBlock(fhit.x(), fhit.y(), fhit.z(), Blocks.AIR))) return false;
             if (consume) {
                 String id = state.getBlock().getFluidInfo().lava ? "skyengine:lava_bucket" : "skyengine:water_bucket";
                 this.consumeHeld(Items.get(Identifier.of(id)));
@@ -1753,7 +1759,8 @@ public class GameContainer implements IResizeable, IDisposable {
         Block fluid = bucket.getFluid();
         int source = fluid.getDefaultState()
                 .with(Properties.LEVEL, 0).with(Properties.FALLING, false).getId();
-        if (!this.world.setBlock(t[0], t[1], t[2], source)) return false;
+        if (!this.world.runPlayerBlockChange(() ->
+                this.world.setBlock(t[0], t[1], t[2], source))) return false;
         this.world.scheduleTick(t[0], t[1], t[2], 1);
         if (consume) this.consumeHeld(Items.get(Identifier.of("skyengine:bucket")));
         return true;

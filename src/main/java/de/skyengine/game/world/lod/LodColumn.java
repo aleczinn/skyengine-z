@@ -15,7 +15,7 @@ public final class LodColumn {
     private static final int FLAG_MASK = FLAG_LANDMARK | FLAG_SKY_OPEN | FLAG_TERRAIN;
     private static final int COVERAGE_SHIFT = 3;
     private static final int COVERAGE_MASK = 0x3FF;
-    public static final LodColumn EMPTY = new LodColumn(new long[0]);
+    public static final LodColumn EMPTY = owned(new long[0]);
 
     private final long[] intervals;
 
@@ -24,6 +24,18 @@ public final class LodColumn {
             throw new IllegalArgumentException("Zu viele LOD-Intervalle: " + intervals.length);
         }
         this.intervals = intervals.length == 0 ? intervals : Arrays.copyOf(intervals, intervals.length);
+    }
+
+    /** Fuer frisch erzeugte, danach nicht mehr veraenderte Arrays innerhalb des LOD-Pakets. */
+    static LodColumn owned(long[] intervals) {
+        if (intervals.length > MAX_INTERVALS) {
+            throw new IllegalArgumentException("Zu viele LOD-Intervalle: " + intervals.length);
+        }
+        return new LodColumn(intervals, true);
+    }
+
+    private LodColumn(long[] intervals, boolean owned) {
+        this.intervals = intervals;
     }
 
     public int size() {

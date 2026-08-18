@@ -37,6 +37,20 @@ public interface LodDataSource {
     }
 
     /**
+     * Fuellt ein zusammenhaengendes Spaltenfenster. Implementierungen mit chunkweisem Cache
+     * koennen dadurch ihre Quell-Chunks einmal pro Fenster statt einmal pro Zelle aufloesen.
+     */
+    default void sampleColumns(int startX, int startZ, int size, int width, int height,
+                               LodColumn[] target, int targetOffset, int targetStride) {
+        for (int z = 0; z < height; z++) {
+            int row = targetOffset + z * targetStride;
+            for (int x = 0; x < width; x++) {
+                target[row + x] = this.sampleColumn(startX + x * size, startZ + z * size, size);
+            }
+        }
+    }
+
+    /**
      * Oberflächen-Sample für eine size×size-Zelle mit Ursprung (x,z) in Weltkoordinaten
      * (size = Zellgröße in Blöcken, Ursprung size-aligned). Ergebnis gepackt via
      * {@link #pack}; auslesen mit {@link #block(long)} / {@link #height(long)}.
