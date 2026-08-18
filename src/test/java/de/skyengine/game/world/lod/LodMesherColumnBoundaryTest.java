@@ -97,7 +97,7 @@ final class LodMesherColumnBoundaryTest {
     }
 
     @Test
-    void dynamicL0MaskBoundaryGetsADeepGreedySkirtEvenWhenSamplesAreFlush() {
+    void dynamicL0MaskBoundaryDoesNotCreateABlindDeepSkirtWhenSamplesAreFlush() {
         LodDataSource source = new LodDataSource() {
             @Override public boolean hasColumns() { return true; }
 
@@ -113,14 +113,13 @@ final class LodMesherColumnBoundaryTest {
             }
         };
 
-        /* Chunk (1,0) ist L0 und wird aus dem LOD-Mesh geclippt. Die sichtbare LOD-Zelle
-           westlich davon braucht bei x=32 trotz identischer Samples einen 32 Blöcke tiefen
-           L1-Skirt (64 -> 32). */
+        /* Chunk (1,0) ist L0 und wird aus dem LOD-Mesh geclippt. Identische Randprofile
+           dürfen keinen pauschalen 32-Blöcke-Skirt mehr bis Y=32 erzeugen. */
         LodManager.LodMeshResult result = new LodMesher().mesh(source, new LodBlockAppearance(),
                 LodConfig.of(16, 128), 1, 1, 0, 0, 0, 1 << 1, 64, 64);
 
-        assertEquals(1, countVerticalQuads(result.opaqueData(), result.yBase(), 32F, 32F, 64F),
-                "Der tiefe Masken-Skirt muss vorhanden und entlang der Chunkkante greedy gemergt sein");
+        assertEquals(0, countVerticalQuads(result.opaqueData(), result.yBase(), 32F, 32F, 64F),
+                "Bündige Profile dürfen keine blinde Tiefenschürze erzeugen");
     }
 
     private static int countVerticalQuads(int[] data, int yBase, float expectedX,

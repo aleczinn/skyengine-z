@@ -51,6 +51,20 @@ final class ChunkDecoratorLodCacheTest {
         assertEquals(36, placements.get(), "4x4 Ziele benoetigen nur das eindeutige 6x6-Halo");
     }
 
+    @Test
+    void supportMarkersFollowBlocksThroughSingleAndRegionProjection() {
+        Feature feature = context -> {
+            if (context.sourceMinX() != 0 || context.sourceMinZ() != 0) return;
+            context.markLodSupport(3, 70, 4);
+            context.set(3, 70, 4, 123);
+        };
+        ChunkDecorator decorator = new ChunkDecorator(new FlatGenerator(), List.of(feature));
+
+        assertEquals(1, decorator.decorateForLod(0, 0).isSupport(3, 70, 4) ? 1 : 0);
+        assertEquals(1, decorator.lodRegion(0, 0, 1, 1).forChunk(0, 0)
+                .isSupport(3, 70, 4) ? 1 : 0);
+    }
+
     private static final class FlatGenerator extends WorldGenerator {
         private FlatGenerator() { super(1); }
         @Override public int sampleHeight(int x, int z) { return 64; }

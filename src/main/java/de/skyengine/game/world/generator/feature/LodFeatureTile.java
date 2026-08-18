@@ -21,7 +21,10 @@ final class LodFeatureTile implements FeatureContext {
     private long[] positions = new long[128];
     private int[] yAndMode = new int[128];
     private int[] states = new int[128];
+    private long[] supportPositions = new long[16];
+    private int[] supportY = new int[16];
     private int size;
+    private int supportSize;
     private Random random;
 
     LodFeatureTile(int sourceChunkX, int sourceChunkZ, WorldGenerator generator) {
@@ -38,6 +41,8 @@ final class LodFeatureTile implements FeatureContext {
         this.positions = Arrays.copyOf(this.positions, this.size);
         this.yAndMode = Arrays.copyOf(this.yAndMode, this.size);
         this.states = Arrays.copyOf(this.states, this.size);
+        this.supportPositions = Arrays.copyOf(this.supportPositions, this.supportSize);
+        this.supportY = Arrays.copyOf(this.supportY, this.supportSize);
         this.solidHeights = null;
         this.surfaces = null;
         this.random = null;
@@ -49,7 +54,11 @@ final class LodFeatureTile implements FeatureContext {
     int worldY(int index) { return this.yAndMode[index] >>> 1; }
     boolean ifAir(int index) { return (this.yAndMode[index] & 1) != 0; }
     int state(int index) { return this.states[index]; }
-    long estimatedBytes() { return 64L + 16L * this.size; }
+    int supportSize() { return this.supportSize; }
+    int supportWorldX(int index) { return (int) (this.supportPositions[index] >> 32); }
+    int supportWorldZ(int index) { return (int) this.supportPositions[index]; }
+    int supportWorldY(int index) { return this.supportY[index]; }
+    long estimatedBytes() { return 64L + 16L * this.size + 12L * this.supportSize; }
 
     @Override public Random random() { return this.random; }
     @Override public int sourceMinX() { return this.sourceMinX; }
@@ -72,6 +81,18 @@ final class LodFeatureTile implements FeatureContext {
         return LodDataSource.block(cached);
     }
     @Override public Biome biome(int wx, int wz) { return this.generator.biomeAt(wx, wz); }
+
+    @Override public void markLodSupport(int wx, int wy, int wz) {
+        if (wy < 0 || wy >= Chunk.HEIGHT) return;
+        if (this.supportSize == this.supportPositions.length) {
+            int next = this.supportPositions.length << 1;
+            this.supportPositions = Arrays.copyOf(this.supportPositions, next);
+            this.supportY = Arrays.copyOf(this.supportY, next);
+        }
+        this.supportPositions[this.supportSize] = ((long) wx << 32) | (wz & 0xFFFFFFFFL);
+        this.supportY[this.supportSize] = wy;
+        this.supportSize++;
+    }
 
     @Override public void set(int wx, int wy, int wz, int block) {
         this.add(wx, wy, wz, block, false);

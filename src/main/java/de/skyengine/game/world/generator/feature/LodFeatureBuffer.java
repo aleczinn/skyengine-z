@@ -20,6 +20,7 @@ public final class LodFeatureBuffer {
     private final int targetChunkX, targetChunkZ;
     private final WorldGenerator generator;
     private final LongIntMap blocks = new LongIntMap(256);
+    private final LongIntMap supports = new LongIntMap(16);
     private final LongLongMap surfaces = new LongLongMap(64);
 
     LodFeatureBuffer(int targetChunkX, int targetChunkZ, WorldGenerator generator) {
@@ -46,6 +47,7 @@ public final class LodFeatureBuffer {
         for (int i = 0; i < tile.size(); i++) {
             this.apply(tile, i);
         }
+        for (int i = 0; i < tile.supportSize(); i++) this.applySupport(tile, i);
     }
 
     void apply(LodFeatureTile tile, int index) {
@@ -54,6 +56,17 @@ public final class LodFeatureBuffer {
         } else {
             this.set(tile.worldX(index), tile.worldY(index), tile.worldZ(index), tile.state(index));
         }
+    }
+
+    void applySupport(LodFeatureTile tile, int index) {
+        int wx = tile.supportWorldX(index), wz = tile.supportWorldZ(index);
+        if (!this.inTarget(wx, wz)) return;
+        int wy = tile.supportWorldY(index);
+        this.supports.put(key(wx & ChunkSection.MASK, wy, wz & ChunkSection.MASK), 1);
+    }
+
+    public boolean isSupport(int localX, int y, int localZ) {
+        return this.supports.containsKey(key(localX, y, localZ));
     }
 
     public void forEach(BlockConsumer consumer) {

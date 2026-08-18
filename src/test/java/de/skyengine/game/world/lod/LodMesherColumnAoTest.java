@@ -12,6 +12,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class LodMesherColumnAoTest {
 
@@ -71,6 +72,30 @@ final class LodMesherColumnAoTest {
 
         assertEquals(4, countVerticalQuads(result.opaqueData(), result.yBase(), 64F, 62F, 64F),
                 "Die 128 Blöcke lange Kante besteht aus vier 32er-Runs ohne Overlay-Duplikate");
+    }
+
+    @Test
+    void columnPathBakesContactAoIntoVerticalWalls() {
+        LodDataSource source = columns((x, z) -> terrain(x < 64 ? 64 : 62));
+        LodManager.LodMeshResult result = mesh(source, true);
+
+        List<Integer> colors = colorsOfVerticalQuad(result.opaqueData(), result.yBase(),
+                64F, 62F, 64F);
+        assertFalse(colors.isEmpty());
+        int bottom = brightness(colors.get(0)) + brightness(colors.get(1));
+        int top = brightness(colors.get(2)) + brightness(colors.get(3));
+        assertTrue(bottom < top, "Die Kontaktkante zum tieferen Terrain muss dunkler als die Wandoberkante sein");
+    }
+
+    @Test
+    void disabledAoKeepsVerticalWallsDirectionallyUniform() {
+        LodDataSource source = columns((x, z) -> terrain(x < 64 ? 64 : 62));
+        LodManager.LodMeshResult result = mesh(source, false);
+        List<Integer> colors = colorsOfVerticalQuad(result.opaqueData(), result.yBase(),
+                64F, 62F, 64F);
+
+        assertFalse(colors.isEmpty());
+        assertEquals(1, colors.stream().distinct().count());
     }
 
     private static LodDataSource steppedColumns() {
@@ -156,6 +181,29 @@ final class LodMesherColumnAoTest {
             if (constantX && close(minY, expectedMinY) && close(maxY, expectedMaxY)) matches++;
         }
         return matches;
+    }
+
+    private static List<Integer> colorsOfVerticalQuad(int[] data, int yBase, float expectedX,
+                                                       float expectedMinY, float expectedMaxY) {
+        for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+            float minY = Float.POSITIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
+            boolean constantX = true;
+            List<Integer> colors = new ArrayList<>(4);
+            for (int v = 0; v < 4; v++) {
+                int p = q + v * ChunkMesher.VERTEX_SIZE;
+                constantX &= close(coordinate(data[p] & 0xFFFF), expectedX);
+                float y = coordinate((data[p] >>> 16) & 0xFFFF) + yBase;
+                minY = Math.min(minY, y);
+                maxY = Math.max(maxY, y);
+                colors.add(data[p + 3] & 0xFFFFFF);
+            }
+            if (constantX && close(minY, expectedMinY) && close(maxY, expectedMaxY)) return colors;
+        }
+        return List.of();
+    }
+
+    private static int brightness(int color) {
+        return (color >> 16 & 0xFF) + (color >> 8 & 0xFF) + (color & 0xFF);
     }
 
     private static float coordinate(int packed) {

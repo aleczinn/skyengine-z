@@ -22,11 +22,13 @@ public final class LodColumnReducer {
         int[] coverage = new int[33];
         boolean[] landmark = new boolean[33];
         boolean[] terrain = new boolean[33];
+        boolean[] support = new boolean[33];
         boolean[] skyOpen = new boolean[33];
         int[] states = new int[4];
         int[] counts = new int[4];
         int[] landmarkCounts = new int[4];
         int[] terrainCounts = new int[4];
+        int[] supportCounts = new int[4];
 
         void ensure(int columns, int endpoints) {
             if (this.endpoints.length < endpoints) this.endpoints = new int[endpoints];
@@ -36,6 +38,7 @@ public final class LodColumnReducer {
                 this.coverage = new int[segments];
                 this.landmark = new boolean[segments];
                 this.terrain = new boolean[segments];
+                this.support = new boolean[segments];
                 this.skyOpen = new boolean[segments];
             }
             if (this.states.length < columns) {
@@ -43,6 +46,7 @@ public final class LodColumnReducer {
                 this.counts = new int[columns];
                 this.landmarkCounts = new int[columns];
                 this.terrainCounts = new int[columns];
+                this.supportCounts = new int[columns];
             }
         }
     }
@@ -89,15 +93,18 @@ public final class LodColumnReducer {
         int[] coverage = scratch.coverage;
         boolean[] landmark = scratch.landmark;
         boolean[] terrain = scratch.terrain;
+        boolean[] support = scratch.support;
         boolean[] skyOpen = scratch.skyOpen;
         int[] states = scratch.states;
         int[] counts = scratch.counts;
         int[] landmarkCounts = scratch.landmarkCounts;
         int[] terrainCounts = scratch.terrainCounts;
+        int[] supportCounts = scratch.supportCounts;
         Arrays.fill(selected, 0, segmentCount, Blocks.AIR);
         Arrays.fill(coverage, 0, segmentCount, 0);
         Arrays.fill(landmark, 0, segmentCount, false);
         Arrays.fill(terrain, 0, segmentCount, false);
+        Arrays.fill(support, 0, segmentCount, false);
         Arrays.fill(skyOpen, 0, segmentCount, false);
         int childArea = Math.max(1, parentArea / columns.length);
 
@@ -119,12 +126,14 @@ public final class LodColumnReducer {
                     counts[stateCount] = 0;
                     landmarkCounts[stateCount] = 0;
                     terrainCounts[stateCount] = 0;
+                    supportCounts[stateCount] = 0;
                     stateCount++;
                 }
                 int weight = LodColumn.coverage(interval);
                 counts[index] += weight;
                 if (LodColumn.landmark(interval)) landmarkCounts[index] += weight;
                 if (LodColumn.terrain(interval)) terrainCounts[index] += weight;
+                if (LodColumn.support(interval)) supportCounts[index] += weight;
             }
 
             int landmarkIndex = bestEligibleLandmark(states, landmarkCounts, stateCount, parentArea);
@@ -133,6 +142,7 @@ public final class LodColumnReducer {
                 coverage[segment] = counts[landmarkIndex];
                 landmark[segment] = true;
                 terrain[segment] = terrainCounts[landmarkIndex] * 2 >= counts[landmarkIndex];
+                support[segment] = supportCounts[landmarkIndex] > 0;
             } else if (openAir * OPEN_AIR_DIVISOR >= parentArea) {
                 selected[segment] = Blocks.AIR;
                 coverage[segment] = openAir;
@@ -157,10 +167,12 @@ public final class LodColumnReducer {
             int maxCoverage = coverage[segment];
             boolean inheritedLandmark = landmark[segment];
             boolean inheritedTerrain = terrain[segment];
+            boolean inheritedSupport = support[segment];
             while (++segment < segmentCount && selected[segment] == state) {
                 maxCoverage = Math.max(maxCoverage, coverage[segment]);
                 inheritedLandmark |= landmark[segment];
                 inheritedTerrain |= terrain[segment];
+                inheritedSupport |= support[segment];
             }
             int flags = 0;
             if (inheritedLandmark || maxCoverage * LANDMARK_DIVISOR >= parentArea
@@ -168,6 +180,9 @@ public final class LodColumnReducer {
                 flags |= LodColumn.FLAG_LANDMARK;
             }
             if (inheritedTerrain) flags |= LodColumn.FLAG_TERRAIN;
+            if (inheritedSupport && (flags & LodColumn.FLAG_LANDMARK) != 0) {
+                flags |= LodColumn.FLAG_SUPPORT;
+            }
             if (segment == segmentCount || skyOpen[segment]) flags |= LodColumn.FLAG_SKY_OPEN;
             runs.add(new Run(state, endpoints[first], endpoints[segment], maxCoverage, flags));
         }
@@ -222,8 +237,14 @@ public final class LodColumnReducer {
             Run bottom = runs.getFirst();
             Run top = runs.getLast();
             List<Run> middle = new ArrayList<>(runs.subList(1, runs.size() - 1));
+            /* Die natürliche Terrainhülle ist Teil der unverdrängbaren Außenhülle. Erst wenn
+               alle mittleren Terrain-Runs berücksichtigt sind, dürfen qualifizierte Landmarken
+               und anschließend das größte verbleibende Intervall die freien Slots belegen.
+               Andernfalls kann z.B. Bedrock + drei Baum-Intervalle den massiven Ground-Run
+               vollständig verdrängen und eine formal gültige, aber offene Spalte erzeugen. */
             middle.sort(Comparator
-                    .comparing((Run run) -> (run.flags & LodColumn.FLAG_LANDMARK) == 0)
+                    .comparing((Run run) -> (run.flags & LodColumn.FLAG_TERRAIN) == 0)
+                    .thenComparing((Run run) -> (run.flags & LodColumn.FLAG_LANDMARK) == 0)
                     .thenComparingInt(run -> -(run.maxY - run.minY))
                     .thenComparingInt(Run::minY)
                     .thenComparingInt(Run::state));
