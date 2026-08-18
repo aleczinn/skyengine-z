@@ -1,6 +1,9 @@
 package de.skyengine.game.world.block.model;
 
 import com.google.gson.Gson;
+import de.skyengine.core.resource.ResourceId;
+import de.skyengine.core.resource.ResourceManager;
+import de.skyengine.core.resource.Resources;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
@@ -10,6 +13,8 @@ import de.skyengine.utils.logging.Logger;
 
 import java.io.File;
 import java.io.FileReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -67,6 +72,33 @@ public final class ModelLoader {
         }
         loadDir(modelsRoot, modelsRoot);
         LOGGER.info(MODELS.size() + " Modelle geladen");
+    }
+
+    /**
+     * Laedt den effektiven Modellbestand aus dem Ressourcen-Stack. Gleichnamige Dateien
+     * werden bereits vom ResourceManager nach Pack-Prioritaet aufgeloest.
+     */
+    public static void loadResources() {
+        MODELS.clear();
+        CACHE.clear();
+        try {
+            for (Map.Entry<ResourceId, ResourceManager.Match> entry
+                    : Resources.get().listResolved("models/").entrySet()) {
+                ResourceId id = entry.getKey();
+                if (!id.path().startsWith("models/") || !id.path().endsWith(".json")) continue;
+                String rel = id.path().substring("models/".length(), id.path().length() - ".json".length());
+                try (InputStreamReader reader = new InputStreamReader(entry.getValue().open(), StandardCharsets.UTF_8)) {
+                    String key = id.namespace().equals(ResourceId.DEFAULT_NAMESPACE)
+                            ? rel : id.namespace() + ":" + rel;
+                    MODELS.put(key, GSON.fromJson(reader, RawModel.class));
+                } catch (Exception e) {
+                    throw new IllegalArgumentException("Modell fehlerhaft: " + id, e);
+                }
+            }
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Modelle konnten nicht aufgelistet werden", e);
+        }
+        LOGGER.info(MODELS.size() + " Modelle aus Ressourcen-Stack geladen");
     }
 
     private static void loadDir(File root, File dir) {
@@ -128,6 +160,24 @@ public final class ModelLoader {
         return out;
     }
 
+    /** Akzeptiert sowohl alte {@code block/foo}- als auch Minecraft-artige Namespace-IDs. */
+    private static String modelKey(String name) {
+        ResourceId id = ResourceId.of(name);
+        String path = id.path();
+        if (path.startsWith("models/")) path = path.substring("models/".length());
+        if (path.endsWith(".json")) path = path.substring(0, path.length() - ".json".length());
+        return id.namespace().equals(ResourceId.DEFAULT_NAMESPACE) ? path : id.namespace() + ":" + path;
+    }
+
+    /** Wandelt Modell-Textur-IDs in den vom Ressourcenmanager erwarteten Asset-Pfad um. */
+    private static String texturePath(String name) {
+        ResourceId id = ResourceId.of(name);
+        String path = id.path();
+        if (!path.startsWith("textures/")) path = "textures/" + path;
+        if (!path.endsWith(".png")) path += ".png";
+        return new ResourceId(id.namespace(), path).legacyPath();
+    }
+
     public static Baked bake(String name, int xDeg, int yDeg) {
         return bake(name, xDeg, yDeg, false);
     }
@@ -138,8 +188,9 @@ public final class ModelLoader {
      *               der erste Bake für beide Varianten desselben Modells.
      */
     public static Baked bake(String name, int xDeg, int yDeg, boolean uvlock) {
-        return CACHE.computeIfAbsent(name + "|" + xDeg + "|" + yDeg + "|" + uvlock,
-                k -> bakeUncached(name, xDeg, yDeg, uvlock));
+        String key = modelKey(name);
+        return CACHE.computeIfAbsent(key + "|" + xDeg + "|" + yDeg + "|" + uvlock,
+                k -> bakeUncached(key, xDeg, yDeg, uvlock));
     }
 
     /**
@@ -161,7 +212,7 @@ public final class ModelLoader {
 
     private static RawDisplay collectDisplay(String name, String slot, int depth) {
         if (depth > 20) return null;
-        RawModel m = MODELS.get(name);
+        RawModel m = MODELS.get(modelKey(name));
         if (m == null) return null;
         if (m.display != null && m.display.get(slot) != null) return m.display.get(slot);
         return m.parent != null ? collectDisplay(m.parent, slot, depth + 1) : null;
@@ -176,7 +227,7 @@ public final class ModelLoader {
             LOGGER.warning("Textur '" + key + "' fehlt in Modell " + modelName);
             return 0;
         }
-        return BlockTextures.layerOf(path);
+        return BlockTextures.layerOf(texturePath(path));
     }
 
     private static Baked bakeUncached(String name, int xDeg, int yDeg, boolean uvlock) {
@@ -354,7 +405,7 @@ public final class ModelLoader {
 
     private static void collectTextures(String name, Map<String, String> out, int depth) {
         if (depth > 20) return;
-        RawModel m = MODELS.get(name);
+        RawModel m = MODELS.get(modelKey(name));
         if (m == null) { LOGGER.warning("Modell fehlt: " + name); return; }
         if (m.parent != null) collectTextures(m.parent, out, depth + 1);
         if (m.textures != null) out.putAll(m.textures);
@@ -362,7 +413,7 @@ public final class ModelLoader {
 
     private static List<RawElement> collectElements(String name, int depth) {
         if (depth > 20) return List.of();
-        RawModel m = MODELS.get(name);
+        RawModel m = MODELS.get(modelKey(name));
         if (m == null) return List.of();
         if (m.elements != null) return m.elements;
         if (m.parent != null) return collectElements(m.parent, depth + 1);
@@ -372,7 +423,7 @@ public final class ModelLoader {
     /** Erbt {@code ambientocclusion} wie in Minecraft: erstes Vorkommen der Kette gewinnt, Default an. */
     private static boolean collectAmbientOcclusion(String name, int depth) {
         if (depth > 20) return true;
-        RawModel m = MODELS.get(name);
+        RawModel m = MODELS.get(modelKey(name));
         if (m == null) return true;
         if (m.ambientocclusion != null) return m.ambientocclusion;
         if (m.parent != null) return collectAmbientOcclusion(m.parent, depth + 1);
@@ -405,7 +456,7 @@ public final class ModelLoader {
                         LOGGER.warning("Textur-Ref " + face.texture + " nicht aufloesbar in Modell " + modelName);
                     }
                 }
-                t[idx] = path == null ? 0 : BlockTextures.layerOf(path);
+                t[idx] = path == null ? 0 : BlockTextures.layerOf(texturePath(path));
                 c[idx] = face.cullface != null ? faceIndex(face.cullface) : BakedQuad.NO_CULL;
 
                 boolean hasRect = face.uv != null && face.uv.length == 4;

@@ -27,6 +27,9 @@ import java.util.List;
  */
 public final class Blocks {
 
+    private static List<BlockDefinition> visualDefinitions = List.of();
+    private static LinkedHashMap<String, JsonObject> defaultVisualStates = new LinkedHashMap<>();
+
     private static final Logger LOGGER = LogManager.getLogger(Blocks.class.getName());
 
     public static int AIR, BEDROCK;
@@ -93,6 +96,9 @@ public final class Blocks {
 
     /** Vor world.init() aufrufen! Lädt JSON-Blöcke und baked die Registry. */
     public static void bootstrap(File blockDirectory) {
+        /* Gameplay/Kollision immer gegen den unveraenderten Default aufbauen. */
+        List<String> configuredPacks = de.skyengine.core.resource.Resources.get().activePackNames();
+        if (!configuredPacks.isEmpty()) de.skyengine.core.resource.Resources.activate(List.of());
         /* Luft IMMER zuerst registrieren -> State-ID 0. Chunks sind per Default 0 = leer. */
         BlockRegistry.register(new Block(Identifier.of("skyengine:air"), Block.Settings.create().air()));
 
@@ -115,12 +121,29 @@ public final class Blocks {
 
         /* Reihenfolge ist zwingend: ModelLoader.load leert MODELS und CACHE, die virtuellen
            Modelle aus den Block-Definitionen müssen also danach kommen — und vor dem ersten bake. */
-        for (ContentSource source : ContentSources.all()) ModelLoader.load(source.models());
-        ModelLoader.registerBlockModels(definitions);
+        visualDefinitions = List.copyOf(definitions);
+        ModelLoader.loadResources();
+        ModelLoader.registerBlockModels(visualDefinitions);
 
-        for (LinkedHashMap<String, JsonObject> defs : blockJson) BlockStateModels.load(defs);
+        defaultVisualStates = new LinkedHashMap<>();
+        for (LinkedHashMap<String, JsonObject> defs : blockJson) defaultVisualStates.putAll(defs);
+        BlockStateModels.loadResources(defaultVisualStates);
 
         BlockRegistry.bake();
+        de.skyengine.game.world.block.shape.Shapes.freezeDefaultModelShapes();
+
+        /* Erst jetzt duerfen Packs die reine Darstellung ersetzen. */
+        if (!configuredPacks.isEmpty()) {
+            try {
+                de.skyengine.core.resource.Resources.activate(configuredPacks);
+                reloadVisuals();
+            } catch (RuntimeException e) {
+                de.skyengine.utils.logging.LogManager.getLogger(Blocks.class.getName())
+                        .error("Ressourcenpakete beim Start fehlerhaft; Default bleibt aktiv", e);
+                de.skyengine.core.resource.Resources.activate(List.of());
+                reloadVisuals();
+            }
+        }
         de.skyengine.game.world.item.Items.bootstrap();
         LootTables.bootstrap();
 
@@ -301,6 +324,18 @@ public final class Blocks {
         CACTUS = idOf("skyengine:cactus");
 
         CLAY = idOf("skyengine:clay");
+    }
+
+    /** Laedt nur Modelle/Blockstates neu; Registry, IDs, Regeln und Kollision bleiben bestehen. */
+    public static void reloadVisuals() {
+        ModelLoader.loadResources();
+        ModelLoader.registerBlockModels(visualDefinitions);
+        BlockStateModels.loadResources(defaultVisualStates);
+        for (int id = 0; id < BlockRegistry.getStateCount(); id++) {
+            var state = BlockRegistry.getState(id);
+            state.setModel(state.getBlock().bakeModel(state));
+            state.setOverlay(state.getBlock().bakeOverlay(state));
+        }
     }
 
     private static int idOf(String id) {

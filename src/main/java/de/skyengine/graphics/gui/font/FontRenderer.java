@@ -324,6 +324,21 @@ public final class FontRenderer {
         if (this.quad != null) this.quad.free();
     }
 
+    /** Vollstaendiger Fontwechsel auf dem Render-Thread. */
+    public void reload() {
+        this.dispose();
+        java.util.Arrays.fill(this.atlases, null);
+        this.shader = null;
+        this.vao = this.vbo = 0;
+        this.batch = null;
+        this.xpos = this.ypos = null;
+        this.quad = null;
+        this.batchAtlas = null;
+        this.batchGlyphs = 0;
+        this.drawing = false;
+        this.init();
+    }
+
     private static final String VERTEX = """
             #version 460 core
             layout(location = 0) in vec2 a_position;

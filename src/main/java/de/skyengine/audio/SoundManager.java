@@ -1,7 +1,9 @@
 package de.skyengine.audio;
 
-import de.skyengine.core.file.Files;
+import de.skyengine.core.file.FileHandle;
+import de.skyengine.core.file.FileType;
 import de.skyengine.core.io.IDisposable;
+import de.skyengine.core.resource.Resources;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.entity.MinecartEntity;
 import de.skyengine.graphics.camera.Camera;
@@ -17,7 +19,8 @@ import org.lwjgl.openal.ALUtil;
 import org.lwjgl.openal.EnumerateAllExt;
 import org.lwjgl.openal.SOFTReopenDevice;
 
-import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
@@ -109,10 +112,10 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
 
     /* Playlist: alle Lieder aus game/sounds/music in gemischter Reihenfolge (Shuffle-Bag —
        erst wenn alle dran waren, wird neu gemischt). */
-    private final List<File> playlist = new ArrayList<>();
+    private final List<MusicTrack> playlist = new ArrayList<>();
     private int playlistIndex;
     private boolean playlistActive;
-    private File playlistCurrent; // läuft gerade — damit es nach dem Mischen nicht direkt folgt
+    private MusicTrack playlistCurrent; // laeuft gerade - damit es nach dem Mischen nicht direkt folgt
 
     /* Lose Effekt-Sounds ohne BlockSoundGroup (null, solange die Dateien fehlen -> No-Op). */
     /* random/click.ogg wird von UI-Buttons, Comparator und Hebel geteilt. */
@@ -153,13 +156,15 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
     private final Vector3d direction = new Vector3d();
     private final float[] orientation = new float[6];
 
-    private final File soundsDir = new File(Files.RESOURCES_PATH, "game/sounds");
-
     /** Initialisiert Gerät/Kontext und lädt alle Effekt-Sounds. Nur auf dem Render-Thread. */
     public void init() {
-        if (!this.soundsDir.isDirectory()) {
-            this.logger.warning("Sound-Ordner fehlt (" + this.soundsDir.getPath()
-                    + ") — scripts/extract-mc-sounds.ps1 ausführen. Audio deaktiviert.");
+        try {
+            if (Resources.get().listIds("sounds/").isEmpty()) {
+                this.logger.warning("Keine Sounds im aktiven Ressourcen-Stack - Audio deaktiviert.");
+                return;
+            }
+        } catch (IOException error) {
+            this.logger.warning("Sound-Ressourcen konnten nicht aufgelistet werden: " + error.getMessage());
             return;
         }
 
@@ -271,6 +276,10 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         this.logger.info("Audio initialisiert: " + loaded + " Effekt-Sounds geladen (Gerät: " + deviceName + ")");
     }
 
+    private FileHandle sound(String relativePath) {
+        return new FileHandle("game/sounds/" + relativePath, FileType.RESOURCE);
+    }
+
     /** Lädt die Varianten {@code <baseName>1..N.ogg} einer Gruppe; GLASS teilt sich z.B. die Stein-Steps. */
     private int preload(EnumMap<BlockSoundGroup, int[]> target, BlockSoundGroup group, String folder, String baseName) {
         /* Gruppen mit gleichem Basisnamen (GLASS.step = "stone") teilen sich die AL-Buffer. */
@@ -285,7 +294,7 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         int[] variants = new int[MAX_VARIANTS];
         int count = 0;
         for (int i = 1; i <= MAX_VARIANTS; i++) {
-            File file = new File(this.soundsDir, folder + "/" + baseName + i + ".ogg");
+            FileHandle file = this.sound(folder + "/" + baseName + i + ".ogg");
             if (!file.exists()) break;
             int buffer = OggLoader.load(file, true);
             if (buffer == -1) continue;
@@ -310,14 +319,14 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         int[] variants = new int[MAX_VARIANTS];
         int count = 0;
         for (int i = 1; i <= MAX_VARIANTS; i++) {
-            File file = new File(this.soundsDir, folder + "/" + baseName + i + ".ogg");
+            FileHandle file = this.sound(folder + "/" + baseName + i + ".ogg");
             if (!file.exists()) break;
             int buffer = OggLoader.load(file, true);
             if (buffer == -1) continue;
             variants[count++] = buffer;
         }
         if (count == 0) {
-            File single = new File(this.soundsDir, folder + "/" + baseName + ".ogg");
+            FileHandle single = this.sound(folder + "/" + baseName + ".ogg");
             if (single.exists()) {
                 int buffer = OggLoader.load(single, true);
                 if (buffer != -1) variants[count++] = buffer;
@@ -350,8 +359,8 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         int[] buffers = new int[names.length];
         int count = 0;
         for (String name : names) {
-            File file = new File(this.soundsDir, folder + "/" + name + ".ogg");
-            if (!file.isFile()) continue;
+            FileHandle file = this.sound(folder + "/" + name + ".ogg");
+            if (!file.exists()) continue;
             int buffer = OggLoader.load(file, true);
             if (buffer != -1) buffers[count++] = buffer;
         }
@@ -367,8 +376,8 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         float[] loadedGains = new float[names.length];
         int count = 0;
         for (int i = 0; i < names.length; i++) {
-            File file = new File(this.soundsDir, folder + "/" + names[i] + ".ogg");
-            if (!file.isFile()) continue;
+            FileHandle file = this.sound(folder + "/" + names[i] + ".ogg");
+            if (!file.exists()) continue;
             int buffer = OggLoader.load(file, true);
             if (buffer == -1) continue;
             buffers[count] = buffer;
@@ -811,18 +820,23 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
     public void startMusicPlaylist() {
         if (!this.enabled) return;
 
-        File musicDir = new File(this.soundsDir, "music");
-        File[] found = musicDir.listFiles(file -> {
-            String name = file.getName().toLowerCase(Locale.ROOT);
-            return file.isFile() && (name.endsWith(".ogg") || name.endsWith(".wav"));
-        });
         this.playlist.clear();
-        if (found != null) {
-            Arrays.sort(found, (a, b) -> a.getName().compareTo(b.getName()));
-            Collections.addAll(this.playlist, found);
+        try {
+            var resolved = Resources.get().listResolved("sounds/music/");
+            for (var entry : resolved.entrySet().stream()
+                    .sorted(java.util.Comparator.comparing(entry -> entry.getKey().toString())).toList()) {
+                String name = entry.getKey().toString();
+                String lower = name.toLowerCase(Locale.ROOT);
+                if (!lower.endsWith(".ogg") && !lower.endsWith(".wav")) continue;
+                try (InputStream in = entry.getValue().open()) {
+                    this.playlist.add(new MusicTrack(name, in.readAllBytes()));
+                }
+            }
+        } catch (IOException error) {
+            this.logger.warning("Musik-Ressourcen konnten nicht geladen werden: " + error.getMessage());
         }
         if (this.playlist.isEmpty()) {
-            this.logger.warning("Keine Musik in " + musicDir.getPath() + " gefunden (.ogg/.wav) — es läuft keine Musik.");
+            this.logger.warning("Keine Musik in sounds/music gefunden (.ogg/.wav) - es laeuft keine Musik.");
             this.playlistActive = false;
             return;
         }
@@ -847,7 +861,7 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
             if (this.playlist.isEmpty()) break;
             if (this.playlistIndex >= this.playlist.size()) this.reshuffle();
 
-            File track = this.playlist.get(this.playlistIndex++);
+            MusicTrack track = this.playlist.get(this.playlistIndex++);
             if (this.music.play(track, false)) {
                 this.playlistCurrent = track;
                 return;
@@ -941,6 +955,37 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         }
     }
 
+    /** Baut alle OpenAL-Ressourcen aus dem aktuell aktiven Pack-Stack neu auf. */
+    public void reloadResources() {
+        this.dispose();
+        this.clearLoadedResources();
+        this.init();
+    }
+
+    private void clearLoadedResources() {
+        this.stepBuffers.clear();
+        this.digBuffers.clear();
+        this.placeBuffers.clear();
+        this.openBuffers.clear();
+        this.closeBuffers.clear();
+        this.playlist.clear();
+        this.playlistCurrent = null;
+        this.playlistActive = false;
+        this.pool = null;
+        this.poolCursor = 0;
+        this.poolExhaustedReported = false;
+        this.uiClickVariants = this.hurtVariants = this.fallSmallVariants = this.fallBigVariants = null;
+        this.eatVariants = this.burpVariants = this.explosionVariants = this.fuseVariants = null;
+        this.fizzVariants = this.igniteVariants = this.pickupVariants = null;
+        this.pistonOutVariants = this.pistonInVariants = this.minecartVariants = null;
+        this.minecartInsideVariants = this.strongAttackVariants = null;
+        this.underwaterEnterVariants = this.underwaterExitVariants = this.underwaterLoopVariants = null;
+        this.swimVariants = this.splashVariants = this.heavySplashVariants = null;
+        this.underwaterAdditions = this.underwaterRareAdditions = this.underwaterUltraRareAdditions = null;
+        this.underwaterLoopSource = -1;
+        this.underwaterLoopGain = 0F;
+    }
+
     @Override
     public void dispose() {
         if (this.device == 0) return;
@@ -962,7 +1007,7 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         unique.addAll(this.closeBuffers.values());
         for (int[] loose : new int[][]{this.uiClickVariants, this.hurtVariants, this.fallSmallVariants,
                 this.fallBigVariants, this.eatVariants, this.burpVariants, this.explosionVariants,
-                this.fuseVariants, this.fizzVariants, this.pickupVariants, this.pistonOutVariants,
+                this.fuseVariants, this.fizzVariants, this.igniteVariants, this.pickupVariants, this.pistonOutVariants,
                 this.pistonInVariants, this.minecartVariants, this.minecartInsideVariants,
                 this.strongAttackVariants, this.underwaterEnterVariants, this.underwaterExitVariants,
                 this.underwaterLoopVariants, this.swimVariants, this.splashVariants,
@@ -980,6 +1025,7 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         ALC10.alcDestroyContext(this.context);
         ALC10.alcCloseDevice(this.device);
         this.device = 0;
+        this.context = 0;
         this.enabled = false;
     }
 

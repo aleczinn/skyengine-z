@@ -38,6 +38,7 @@ Als Texturen wurden die offiziellen Minecraft Texturen aus der 1.21 genutzt. Zus
   - Unterstützt bis 5.1 Surround Sound
   - Soundeffekte
   - MusikPlayer + ShuffleBag (Spielt Playlist ab, ohne Doppelungen und fängt anschließend von zufällig von vorne an)
+- Ressourcenpakete aus Ordnern oder ZIPs mit Prioritäts-Stack, Live-Reload, Modellen sowie optionalen Normal-/Material-Maps ([Format und Anleitung](docs/resource-packs.md))
 - 🔆 Licht-System
   - Skylight
   - Einfaches Blocklicht für Fackel, Lava und Pilze
@@ -121,9 +122,13 @@ Der Fokus liegt auf:
 ## Screenshots / Changelog
 
 v0.0.13 | Level of Detail Update + Bug Fixes
+- Strukturen in LOD Chunks
 - Wasser in LOD Chunks haben jetzt ebenfalls Himmelslicht mit berechnet, um keine von Hell auf Dunkel Kanten in der Ferne zu haben
 - Debug Keys priorisierung implementiert, damit normale Eingaben nicht auch ausgelöst werden
 - F3 + V Debug Key für Wireframe implementiert
+- Starke Optimierung der Ladegeschwindigkeit inkl. Gesamthaltelichter Prioritäts-Thread Pool
+
+![Level of Detail mit Strukturen wie Bäume](project/0.0.13_lod-structures.png?raw=true)
 
 v0.0.12 | Redstone
 - Diverse Redstone Blöcke wie Redstone, Verstärker, Observer, Komparator, (Klebriger) Piston, Redstone-Fackel und und und

@@ -246,7 +246,25 @@
     "none": "Keine Pakete gefunden.",
     "folder": "Ordner: %s",
     "placeholder": "Pakete werden noch nicht geladen (Platzhalter).",
-    "open_folder": "Paketordner öffnen"
+    "refresh": "Aktualisieren",
+    "selected": "Ausgewählt (oben gewinnt)",
+    "selected_none": "Nur die Standard-Ressourcen sind aktiv.",
+    "available": "Verfügbar",
+    "priority_hint": "Fehlende Dateien fallen auf niedrigere Pakete und zuletzt auf Standard zurück.",
+    "error": "Laden fehlgeschlagen: %s",
+    "open_folder": "Paketordner öffnen",
+    "loading": {
+      "title": "Ressourcen werden neu geladen",
+      "prepare": "Pakete werden geprüft...",
+      "models": "Blockmodelle werden geladen...",
+      "textures": "Texturen werden aufgebaut...",
+      "renderers": "Renderer werden aktualisiert...",
+      "world": "Weltgeometrie wird erneuert...",
+      "audio": "Sounds werden geladen...",
+      "interface": "Oberfläche wird aktualisiert...",
+      "rollback": "Vorherige Ressourcen werden wiederhergestellt...",
+      "done": "Fertig"
+    }
   },
 
   "boot": {

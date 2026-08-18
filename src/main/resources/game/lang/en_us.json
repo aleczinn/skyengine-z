@@ -238,7 +238,25 @@
     "none": "No packs found.",
     "folder": "Folder: %s",
     "placeholder": "Packs are not loaded yet (placeholder).",
-    "open_folder": "Open Pack Folder"
+    "refresh": "Refresh",
+    "selected": "Selected (top wins)",
+    "selected_none": "Only the default resources are active.",
+    "available": "Available",
+    "priority_hint": "Missing files fall through lower packs and finally the defaults.",
+    "error": "Loading failed: %s",
+    "open_folder": "Open Pack Folder",
+    "loading": {
+      "title": "Reloading resources",
+      "prepare": "Checking packs...",
+      "models": "Loading block models...",
+      "textures": "Building textures...",
+      "renderers": "Updating renderers...",
+      "world": "Rebuilding world geometry...",
+      "audio": "Loading sounds...",
+      "interface": "Updating interface...",
+      "rollback": "Restoring previous resources...",
+      "done": "Done"
+    }
   },
 
   "boot": {

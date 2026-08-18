@@ -1,5 +1,6 @@
 package de.skyengine.core.file;
 
+import de.skyengine.core.resource.Resources;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -11,16 +12,20 @@ public class FileHandle {
 
     private final File file;
     private final FileType type;
+    /** Logischer Legacy-Pfad fuer RESOURCE-Handles (z.B. game/textures/...). */
+    private final String resourcePath;
 
     private final Logger logger = LogManager.getLogger(FileHandle.class.getName());
 
     public FileHandle(String path) {
         this.file = new File(path);
         this.type = FileType.ABSOLUTE;
+        this.resourcePath = null;
     }
 
     public FileHandle(String path, FileType type) {
         this.type = type;
+        this.resourcePath = type == FileType.RESOURCE ? path.replace('\\', '/') : null;
         switch (type) {
             case EXTERNAL -> {
                 this.file = new File(Files.EXTERNAL_PATH, path);
@@ -40,6 +45,7 @@ public class FileHandle {
     public FileHandle(File file) {
         this.file = file;
         this.type = FileType.ABSOLUTE;
+        this.resourcePath = null;
     }
 
     /**
@@ -87,6 +93,7 @@ public class FileHandle {
     }
 
     public boolean exists() {
+        if (this.type == FileType.RESOURCE) return Resources.get().exists(this.resourcePath);
         return this.file.exists();
     }
 
@@ -136,15 +143,11 @@ public class FileHandle {
      */
     public String readString() {
         StringBuilder builder = new StringBuilder();
-        try {
-            FileReader fileReader = new FileReader(this.file);
-            BufferedReader bufferedReader = new BufferedReader(fileReader);
+        try (BufferedReader bufferedReader = new BufferedReader(this.reader())) {
             String line;
             while ((line = bufferedReader.readLine()) != null) {
                 builder.append(line).append('\n');
             }
-            bufferedReader.close();
-            fileReader.close();
         } catch (IOException e) {
             this.logger.fatal("Error reading file.", new RuntimeException(e));
         }
@@ -156,15 +159,11 @@ public class FileHandle {
      */
     public List<String> readList() {
         List<String> list = new ArrayList<>();
-        try {
-            FileReader fileReader = new FileReader(this.file);
-            BufferedReader bufferedReader = new BufferedReader(fileReader);
+        try (BufferedReader bufferedReader = new BufferedReader(this.reader())) {
             String line;
             while ((line = bufferedReader.readLine()) != null) {
                 list.add(line);
             }
-            bufferedReader.close();
-            fileReader.close();
         } catch (IOException e) {
             this.logger.fatal("Error reading file.", new RuntimeException(e));
         }
@@ -177,10 +176,16 @@ public class FileHandle {
      * @throws RuntimeException if the file handle represents a directory, doesn't exist, or could not be read.
      */
     public InputStream read() {
-        if (this.type == FileType.RESOURCE || this.type == FileType.PROJECT && exists()) {
+        if (this.type == FileType.RESOURCE) {
+            try {
+                return Resources.get().open(this.resourcePath);
+            } catch (IOException e) {
+                throw new RuntimeException("File not found: " + this.resourcePath + " (" + type + ")", e);
+            }
+        }
+        if (this.type == FileType.PROJECT && exists()) {
             InputStream stream = FileHandle.class.getResourceAsStream("/" + file.getPath().replace('\\', '/'));
-            if (stream == null) throw new RuntimeException("File not found: " + file + " (" + type + ")");
-            return stream;
+            if (stream != null) return stream;
         }
 
         try {
@@ -241,6 +246,11 @@ public class FileHandle {
 
     public File getFile() {
         return file;
+    }
+
+    /** Logischer Ressourcenpfad oder {@code null} fuer normale Dateien. */
+    public String resourcePath() {
+        return this.resourcePath;
     }
 
     public FileType getType() {

@@ -5,7 +5,6 @@ import de.skyengine.utils.logging.Logger;
 import org.lwjgl.openal.AL10;
 import org.lwjgl.system.MemoryUtil;
 
-import java.io.File;
 import java.nio.ShortBuffer;
 import java.util.Locale;
 
@@ -42,10 +41,10 @@ final class MusicPlayer {
      *
      * @return true, wenn wirklich Musik läuft — die Playlist überspringt damit defekte Dateien
      */
-    boolean play(File file, boolean loop) {
+    boolean play(MusicTrack file, boolean loop) {
         this.stop();
-        if (!file.exists()) {
-            this.logger.warning("Musik-Datei fehlt: " + file.getPath());
+        if (file == null || file.data().length == 0) {
+            this.logger.warning("Musik-Ressource ist leer.");
             return false;
         }
 
@@ -78,22 +77,22 @@ final class MusicPlayer {
         /* Kein einziges Sample: die Source liefe nie an und update() käme nie zum exhausted-Zweig
            — die Playlist bliebe an dieser Datei hängen. Lieber sofort aufgeben. */
         if (queued == 0) {
-            this.logger.warning("Musik-Datei liefert keine Daten: " + file.getName());
+            this.logger.warning("Musik-Datei liefert keine Daten: " + file.name());
             this.stop();
             return false;
         }
         AL10.alSourcePlay(this.source);
         this.playing = true;
-        this.logger.info("Musik gestartet: " + file.getName() + (loop ? " (Loop)" : ""));
+        this.logger.info("Musik gestartet: " + file.name() + (loop ? " (Loop)" : ""));
         return true;
     }
 
     /** Wählt den Dekoder nach Dateiendung; {@code null} = Format unbekannt oder Datei defekt. */
-    private MusicStream openStream(File file) {
-        String name = file.getName().toLowerCase(Locale.ROOT);
+    private MusicStream openStream(MusicTrack file) {
+        String name = file.name().toLowerCase(Locale.ROOT);
         if (name.endsWith(".ogg")) return VorbisMusicStream.open(file);
         if (name.endsWith(".wav")) return WavMusicStream.open(file);
-        this.logger.warning("Musik-Format nicht unterstützt (nur .ogg/.wav): " + file.getName());
+        this.logger.warning("Musik-Format nicht unterstützt (nur .ogg/.wav): " + file.name());
         return null;
     }
 

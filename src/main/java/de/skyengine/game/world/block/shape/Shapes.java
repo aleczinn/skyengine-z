@@ -18,6 +18,10 @@ import java.util.List;
  */
 public final class Shapes {
 
+    private static volatile java.util.Map<Integer, BlockShape> defaultModelShapes = java.util.Map.of();
+    private static final java.util.Map<Integer, BlockShape> capturedModelShapes = new java.util.HashMap<>();
+    private static boolean captureModelShapes = true;
+
     private static final BlockShape SLAB_BOTTOM = BlockShape.box(0, 0, 0, 1, 0.5, 1);
     private static final BlockShape SLAB_TOP = BlockShape.box(0, 0.5, 0, 1, 1, 1);
     private static final BlockShape CROSS_OUTLINE = BlockShape.box(0.1, 0.0, 0.1, 0.9, 0.8, 0.9);
@@ -52,7 +56,32 @@ public final class Shapes {
      * Formen (Treppe) mit exakter Parität zu Phase 3; per JSON-Override ablösbar.
      */
     public static ShapeProvider modelDerived() {
-        return state -> new BlockShape(BlockStateModels.bake(state.getBlock(), state).boxes());
+        return state -> {
+            BlockShape frozen = defaultModelShapes.get(state.getId());
+            if (frozen != null) return frozen;
+            if (captureModelShapes) {
+                BlockShape captured = capturedModelShapes.get(state.getId());
+                if (captured != null) return captured;
+            }
+            BlockShape derived = new BlockShape(BlockStateModels.bake(state.getBlock(), state).boxes());
+            if (captureModelShapes) capturedModelShapes.putIfAbsent(state.getId(), derived);
+            return derived;
+        };
+    }
+
+    /** Friert modellabgeleitete Gameplay-Formen ein, bevor visuelle Packs geladen werden. */
+    public static void freezeDefaultModelShapes() {
+        for (int id = 0; id < de.skyengine.game.world.block.BlockRegistry.getStateCount(); id++) {
+            var state = de.skyengine.game.world.block.BlockRegistry.getState(id);
+            /* Nur Provider, die modelDerived() wirklich verwenden, tragen sich dabei ein.
+               So werden Fluids/Sondermodelle nicht grundlos gebacken und outlineOnly wird
+               korrekt ueber seinen Outline-Aufruf erfasst. */
+            state.getBlock().getCollisionShape(state);
+            state.getBlock().getOutlineShape(state);
+        }
+        defaultModelShapes = java.util.Map.copyOf(capturedModelShapes);
+        capturedModelShapes.clear();
+        captureModelShapes = false;
     }
 
     /**

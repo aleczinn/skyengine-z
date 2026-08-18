@@ -4,11 +4,15 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import de.skyengine.core.file.Files;
+import de.skyengine.core.resource.ResourceId;
+import de.skyengine.core.resource.ResourceManager;
+import de.skyengine.core.resource.Resources;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
 import java.io.File;
-import java.io.FileReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -31,8 +35,6 @@ public final class I18n {
     public static final String FALLBACK_CODE = "en_us";
 
     private static final Logger LOGGER = LogManager.getLogger(I18n.class.getName());
-    private static final File LANG_DIR = new File(Files.RESOURCES_PATH, "game/lang");
-
     private static Map<String, String> active = Map.of();
     private static Map<String, String> fallback = Map.of();
     private static String activeCode = "";
@@ -77,27 +79,36 @@ public final class I18n {
     /** Alle anlegbaren Sprachen (eine JSON-Datei = eine Sprache), Name immer nativ. */
     public static List<Language> available() {
         List<Language> result = new ArrayList<>();
-        File[] files = LANG_DIR.listFiles((dir, name) -> name.endsWith(".json"));
-        if (files != null) {
-            for (File file : files) {
-                String code = file.getName().substring(0, file.getName().length() - ".json".length());
+        try {
+            for (ResourceId id : Resources.get().listIds("lang/")) {
+                if (!id.namespace().equals(ResourceId.DEFAULT_NAMESPACE)
+                        || !id.path().startsWith("lang/") || !id.path().endsWith(".json")) continue;
+                String file = id.path().substring("lang/".length());
+                if (file.contains("/")) continue;
+                String code = file.substring(0, file.length() - ".json".length());
                 String name = readLangFile(code).get("name");
                 result.add(new Language(code, name != null ? name : code));
             }
+        } catch (Exception e) {
+            LOGGER.error("Sprachen konnten nicht aufgelistet werden", e);
         }
+        result.sort(java.util.Comparator.comparing(Language::nativeName, String.CASE_INSENSITIVE_ORDER));
         return result;
     }
 
     private static Map<String, String> readLangFile(String code) {
-        File file = new File(LANG_DIR, code + ".json");
-        try (FileReader reader = new FileReader(file)) {
-            Map<String, String> map = new HashMap<>();
-            flatten("", JsonParser.parseReader(reader).getAsJsonObject(), map);
-            return map;
+        ResourceId id = new ResourceId(ResourceId.DEFAULT_NAMESPACE, "lang/" + code + ".json");
+        Map<String, String> map = new HashMap<>();
+        try {
+            for (ResourceManager.Match match : Resources.get().findStack(id)) {
+                try (var reader = new InputStreamReader(match.open(), StandardCharsets.UTF_8)) {
+                    flatten("", JsonParser.parseReader(reader).getAsJsonObject(), map);
+                }
+            }
         } catch (Exception e) {
-            LOGGER.error("Sprachdatei konnte nicht geladen werden: " + file.getPath(), e);
+            LOGGER.error("Sprachdatei konnte nicht geladen werden: " + id, e);
         }
-        return Map.of();
+        return map;
     }
 
     /** Flacht die verschachtelte Struktur zu Punkt-Keys ab ({@code gui.done} usw.). */

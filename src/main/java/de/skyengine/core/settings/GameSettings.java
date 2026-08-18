@@ -9,6 +9,8 @@ import de.skyengine.utils.logging.Logger;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -100,6 +102,8 @@ public final class GameSettings {
     public boolean sprintToggle = false;
     /* Sprache (Datei-Code unter game/lang/, z. B. de_de / en_us). */
     public String language = "de_de";
+    /** Aktive Ressourcenpakete, hoechste Prioritaet zuerst. */
+    public List<String> resourcePacks = new ArrayList<>();
     public Map<String, Integer> keyBindings = KeyBindings.defaults();
 
     public static GameSettings get() {
@@ -186,6 +190,16 @@ public final class GameSettings {
         }
         if (this.audioDevice == null) this.audioDevice = "";
         if (this.language == null || this.language.isBlank()) this.language = "de_de";
+        if (this.resourcePacks == null) {
+            this.resourcePacks = new ArrayList<>();
+        } else {
+            /* Reihenfolge erhalten, aber leere und doppelte Eintraege entfernen. */
+            java.util.LinkedHashSet<String> unique = new java.util.LinkedHashSet<>();
+            for (String pack : this.resourcePacks) {
+                if (pack != null && !pack.isBlank()) unique.add(pack);
+            }
+            this.resourcePacks = new ArrayList<>(unique);
+        }
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;

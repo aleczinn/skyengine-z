@@ -6,6 +6,7 @@ import de.skyengine.utils.math.MathUtils;
 import org.lwjgl.opengl.*;
 import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryStack;
+import org.lwjgl.system.MemoryUtil;
 
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
@@ -43,7 +44,7 @@ public class Texture implements IDisposable {
 
 		try (MemoryStack stack = MemoryStack.stackPush()) {
 			IntBuffer w = stack.mallocInt(1), h = stack.mallocInt(1), c = stack.mallocInt(1);
-			ByteBuffer pixels = STBImage.stbi_load(file.path(), w, h, c, 4);
+			ByteBuffer pixels = StbImageLoader.load(file, w, h, c, 4);
 			if (pixels == null) throw new RuntimeException("Texture not found: " + file.path());
 
 			this.width = w.get();
@@ -62,6 +63,33 @@ public class Texture implements IDisposable {
 		this.unsafeSetAnisotropicFilterLevel(this.anisotropicFilterLevel, true);
 		
 		this.unbind();
+	}
+
+	/** Erstellt eine Textur aus einem kodierten PNG/JPEG im Speicher (z.B. pack.png aus einem ZIP). */
+	public Texture(byte[] encoded, boolean useMipMaps) {
+		if (encoded == null || encoded.length == 0) throw new IllegalArgumentException("Empty texture data");
+		ByteBuffer input = MemoryUtil.memAlloc(encoded.length);
+		ByteBuffer pixels = null;
+		try (MemoryStack stack = MemoryStack.stackPush()) {
+			input.put(encoded).flip();
+			IntBuffer w = stack.mallocInt(1), h = stack.mallocInt(1), c = stack.mallocInt(1);
+			pixels = STBImage.stbi_load_from_memory(input, w, h, c, 4);
+			if (pixels == null) throw new IllegalArgumentException("Invalid encoded texture");
+			this.textureID = GL11.glGenTextures();
+			this.bind();
+			this.width = w.get(0);
+			this.height = h.get(0);
+			GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, this.width, this.height, 0,
+					GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, pixels);
+			if (useMipMaps) GL30.glGenerateMipmap(GL11.GL_TEXTURE_2D);
+			this.unsafeSetFilter(this.minFilter, this.magFilter, true);
+			this.unsafeSetWrap(this.wrapU, this.wrapV, true);
+			this.unsafeSetAnisotropicFilterLevel(this.anisotropicFilterLevel, true);
+			this.unbind();
+		} finally {
+			if (pixels != null) STBImage.stbi_image_free(pixels);
+			MemoryUtil.memFree(input);
+		}
 	}
 
 	/**

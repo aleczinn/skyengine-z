@@ -3,6 +3,10 @@ package de.skyengine.game.world.block.model;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import de.skyengine.core.resource.ResourceId;
+import de.skyengine.core.resource.ResourceManager;
+import de.skyengine.core.resource.Resources;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.state.BlockState;
@@ -17,6 +21,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -44,6 +50,35 @@ public final class BlockStateModels {
         CACHE.clear();
         STATES.putAll(definitions);
         LOGGER.info(STATES.size() + " Blockstates geladen");
+    }
+
+    /** Default-Rendersektionen plus reine visuelle Pack-Blockstates. */
+    public static void loadResources(Map<String, JsonObject> definitions) {
+        STATES.clear();
+        CACHE.clear();
+        STATES.putAll(definitions);
+        try {
+            for (Map.Entry<ResourceId, ResourceManager.Match> entry
+                    : Resources.get().listResolved("blockstates/").entrySet()) {
+                ResourceId id = entry.getKey();
+                if (!id.namespace().equals(ResourceId.DEFAULT_NAMESPACE)
+                        || !id.path().startsWith("blockstates/") || !id.path().endsWith(".json")) continue;
+                String key = id.path().substring("blockstates/".length(), id.path().length() - ".json".length());
+                try (InputStreamReader reader = new InputStreamReader(entry.getValue().open(), StandardCharsets.UTF_8)) {
+                    STATES.put(key, JsonParser.parseReader(reader).getAsJsonObject());
+                } catch (Exception e) {
+                    throw new IllegalArgumentException("Blockstate fehlerhaft: " + id, e);
+                }
+            }
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Blockstates konnten nicht aufgelistet werden", e);
+        }
+        LOGGER.info(STATES.size() + " Blockstates aus Ressourcen-Stack geladen");
+    }
+
+    /** Cache nach einem visuellen Reload leeren. */
+    public static void clearCache() {
+        CACHE.clear();
     }
 
     public static ModelLoader.Baked bake(Block block, BlockState state) {
