@@ -41,6 +41,9 @@
     },
     "save": {
       "saved": "Game saved"
+    },
+    "hud": {
+      "spectator_speed": "Spectator Speed: %d %%"
     }
   },
 
@@ -60,6 +63,7 @@
       "gpu_cull_tint": "GPU Cull Debug (red)",
       "gpu_cull_hiz": "GPU Cull: Hi-Z Occlusion",
       "lod_overlay": "LOD Side Overlay",
+      "lod_colors": "Color LOD Levels",
       "pause_loading": "Pause Chunk Loading",
       "aa_mode": "Anti-Aliasing",
       "gui_slots": "GUI Slot Bounds",
@@ -158,7 +162,17 @@
     "prompt": "Enter command...",
     "commands_only": "This chat currently accepts commands only.",
     "empty_command": "Please enter a command.",
-    "unknown_command": "Unknown command: /%s"
+    "unknown_command": "Unknown command: /%s",
+    "screenshot_saved": "Screenshot saved: ",
+    "screenshot_failed": "Screenshot could not be saved.",
+    "screenshot_open_failed": "Screenshot could not be shown in the file manager.",
+    "debug": {
+      "entity_hitboxes": "Entity hitboxes: %s",
+      "chunk_borders": "Chunk borders: %s",
+      "wireframe": "Wireframe: %s",
+      "chunk": "Chunk",
+      "chunk_sections": "Chunk + Sections"
+    }
   },
 
   "command": {

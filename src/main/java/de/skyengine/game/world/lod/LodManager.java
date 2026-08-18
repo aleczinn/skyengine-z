@@ -37,6 +37,30 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  */
 public class LodManager {
 
+    private static final class TimingWindow {
+        private final long[] recent = new long[256];
+        private long total, count, max;
+        private int cursor;
+
+        synchronized void add(long nanos) {
+            if (nanos <= 0) return;
+            this.total += nanos;
+            this.count++;
+            this.max = Math.max(this.max, nanos);
+            this.recent[this.cursor++ & (this.recent.length - 1)] = nanos;
+        }
+
+        synchronized String text() {
+            if (this.count == 0) return "-";
+            int length = (int) Math.min(this.count, this.recent.length);
+            long[] sorted = java.util.Arrays.copyOf(this.recent, length);
+            java.util.Arrays.sort(sorted);
+            long p95 = sorted[Math.max(0, (int) Math.ceil(length * 0.95) - 1)];
+            return String.format(java.util.Locale.ROOT, "%.2f/p95 %.2f/max %.2f ms",
+                    this.total / this.count / 1_000_000.0, p95 / 1_000_000.0, this.max / 1_000_000.0);
+        }
+    }
+
     /** Fertiges Regionen-Mesh (Worker → Render-Thread). Leere data = Region komplett geclippt.
         sizeRegions = Footprint in 128er-Regionen (1 = normal, 4 = Superregion). */
     public record LodMeshResult(int level, int rx, int rz, int sizeRegions, int epoch, int mask, int yBase,
@@ -46,7 +70,10 @@ public class LodManager {
     private record Current(int level, int sizeRegions, int epoch, int mask) {}
 
     /* clip = reiner Masken-Diff (Level/Epoche stimmen schon) → höhere Worker-Priorität */
-    private record Candidate(long key, int level, int mask, double score, boolean clip) {}
+    private record Candidate(long key, int level, int mask, int band, int viewTier,
+                             double distanceSq, boolean clip) {}
+
+    private record CompletedMesh(LodMeshResult result, long completedNanos) {}
 
     /* Deckelt die Executor-Queue — Jobs sind billig (nur Source-Samples), aber nah-zuerst. */
     private static final int MAX_SUBMITS_PER_TICK = 32;
@@ -77,11 +104,22 @@ public class LodManager {
     /* Bereits submittete, noch nicht abgeholte Jobs (gegen Doppel-Submits; Long-Set) */
     private final LongIntMap inflight = new LongIntMap(64);
     /* Worker -> Render-Thread */
-    private final ConcurrentLinkedQueue<LodMeshResult> results = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<CompletedMesh> results = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<Long> failedJobs = new ConcurrentLinkedQueue<>();
+    private final TimingWindow meshSamplingTimes = new TimingWindow();
+    private final TimingWindow meshGeometryTimes = new TimingWindow();
+    private final TimingWindow resultQueueTimes = new TimingWindow();
+    private final TimingWindow uploadTimes = new TimingWindow();
+    private final java.util.concurrent.atomic.AtomicLong staleJobs = new java.util.concurrent.atomic.AtomicLong();
+    private int telemetryTicks;
 
     /* Settings-Epoche: rd-/lodMaxDistance-/LOD-Toggle-/AO-Toggle-Änderung entwertet alle
        gebauten Meshes (AO steckt fest im LOD-Mesh, muss also neu gebaut werden) */
-    private int epoch = 0;
+    private volatile int epoch = 0;
+
+    private record Schedule(int anchorX, int anchorZ, int epoch, int desiredVersion,
+                            LodConfig config, boolean enabled) {}
+    private volatile Schedule schedule = new Schedule(0, 0, -1, -1, LodConfig.of(2, 2), false);
 
     /* Version des desired-Sets: bumpt bei JEDEM recomputeDesired — auch bei reiner
        Anker-Bewegung. epoch ist bewusst KEIN Ersatz (bumpt nur bei settingsChanged)!
@@ -119,6 +157,8 @@ public class LodManager {
 
     /** Einmal pro Tick, nach {@code chunkManager.update()}. */
     public void update(EntityPlayer player) {
+        Long failed;
+        while ((failed = this.failedJobs.poll()) != null) this.inflight.remove(failed);
         /* Debug-Pause friert auch das LOD ein (Desired-Set + Masken bleiben stehen, fertige
            Ergebnisse lädt der Renderer weiter hoch). */
         if (this.chunkManager.isLoadingPaused()) return;
@@ -169,6 +209,17 @@ public class LodManager {
            ohne Präemption durch. Und beim Start sind diese Jobs teuer: ohne geladene Chunks fällt
            die WorldLodDataSource pro Zelle auf den Generator-Noise zurück. */
         if (!this.desired.isEmpty() && this.chunkManager.isInitialLoadComplete()) this.submitPass();
+        if (++this.telemetryTicks >= 600) {
+            this.telemetryTicks = 0;
+            if (this.source instanceof PersistentLodDataSource persistent) {
+                this.logger.debug(persistent.debugStats() + ", " + this.chunkManager.lodWorkerStats()
+                        + ", " + this.residencyStats()
+                        + ", Mesh-Sampling="
+                        + this.meshSamplingTimes.text() + ", Mesh-Geometrie="
+                        + this.meshGeometryTimes.text() + ", Ergebnis-Queue="
+                        + this.resultQueueTimes.text() + ", Upload=" + this.uploadTimes.text());
+            }
+        }
     }
 
     /** Baut den Soll-Zustand neu: alle Regionen bis zum äußersten Ring, Level pro Region. */
@@ -176,6 +227,9 @@ public class LodManager {
         this.desiredVersion++;
         this.desired.clear();
         if (!enabled) {
+            this.schedule = new Schedule(this.anchorX, this.anchorZ, this.epoch,
+                    this.desiredVersion, this.config, false);
+            this.chunkManager.updateLodScheduleVersion(this.desiredVersion);
             this.current.clear(); // Renderer räumt die Meshes ab (isDesiredKey == false)
             return;
         }
@@ -214,6 +268,9 @@ public class LodManager {
 
         /* Bookkeeping nicht mehr gewünschter Regionen aufräumen (Meshes räumt der Renderer ab) */
         this.current.removeIf((k, v) -> !this.desired.containsKey(k));
+        this.schedule = new Schedule(this.anchorX, this.anchorZ, this.epoch,
+                this.desiredVersion, this.config, true);
+        this.chunkManager.updateLodScheduleVersion(this.desiredVersion);
 
         StringBuilder sb = new StringBuilder("LOD-Regionen: ");
         for (int l = 1; l < counts.length; l++) {
@@ -245,10 +302,24 @@ public class LodManager {
         return mask;
     }
 
+    /** Eine fehlende Region, die gerade einen L0-Unload blockiert, ist ebenfalls ein Handoff-Job. */
+    private boolean hasPendingUnload(int rx, int rz) {
+        int baseCx = rx * 4, baseCz = rz * 4;
+        for (int dz = 0; dz < 4; dz++) {
+            for (int dx = 0; dx < 4; dx++) {
+                Chunk chunk = this.chunkManager.getChunk(baseCx + dx, baseCz + dz);
+                if (chunk != null && chunk.pendingUnload) return true;
+            }
+        }
+        return false;
+    }
+
     /** Submittet fehlende/veraltete Regionen nah-zuerst, budgetiert pro Tick. */
     private void submitPass() {
         /* Regionen in dieser Distanz können geladene Chunks enthalten → Masken-Scan nötig */
         double nearReal = (this.config.renderDistance() + 2) * 32.0 + LodMesher.HALF_DIAG;
+        double playerX = this.pcx * 32.0 + 16.0;
+        double playerZ = this.pcz * 32.0 + 16.0;
 
         List<Candidate> candidates = null;
         /* Cursor-Iteration statt entrySet: kein Long-/Integer-Unboxing je Eintrag. */
@@ -259,15 +330,22 @@ public class LodManager {
             if (this.inflight.containsKey(key)) continue;
 
             int rx = (int) (key >> 32), rz = (int) key;
-            double cx = (rx + 0.5) * LodMesher.REGION_BLOCKS - (this.pcx * 32 + 16);
-            double cz = (rz + 0.5) * LodMesher.REGION_BLOCKS - (this.pcz * 32 + 16);
+            double cx = (rx + 0.5) * LodMesher.REGION_BLOCKS - playerX;
+            double cz = (rz + 0.5) * LodMesher.REGION_BLOCKS - playerZ;
             double distSq = cx * cx + cz * cz;
 
             Current c = this.current.get(key);
             boolean needs = c == null || c.level != level || c.epoch != this.epoch;
+            boolean validVisual = !needs;
             boolean clip = false;
             int mask = Integer.MIN_VALUE; // noch nicht berechnet
-            if (!needs && (c.mask != 0 || distSq < nearReal * nearReal)) {
+            if (needs && this.chunkManager.hasPendingUnloads() && this.hasPendingUnload(rx, rz)) {
+                /* Auch ein kompletter Erst-/Epochen-Build ist dringend, wenn sichtbares L0
+                   auf genau diese Region als atomaren Ersatz wartet. */
+                clip = true;
+                mask = this.computeMask(rx, rz);
+            }
+            if (validVisual && (c.mask != 0 || distSq < nearReal * nearReal)) {
                 /* Masken-Diff: Chunk fertig geladen oder entladen → Region remeshen.
                    c.mask != 0 fängt den Unload-Fall auch außerhalb der Nahzone.
                    Diese Clip-Remeshes laufen mit erhöhter Priorität (PRIO_LOD_CLIP) —
@@ -277,44 +355,107 @@ public class LodManager {
                 needs = clip = mask != c.mask;
             }
             if (!needs) continue;
+            int band = distanceBand(cx, cz);
 
-            /* Zwei-Stufen-Score wie die Chunk-Ladereihenfolge: Sichtkegel zuerst, innerhalb
-               einer Stufe nach Distanz. Bias = outerRadius > jede Stufe-1-Distanz. Ändert NUR
-               die Reihenfolge — welche Regionen mit welchem Level gebaut werden, bleibt
-               identisch (Anker-/Level-Formel und damit der Determinismus unangetastet). */
+            /* Distanzband ist der primaere LOD-Schluessel: nahe L1-Arbeit ueberholt damit
+               ferne L2/L3-Arbeit, ohne alle Level global zu serialisieren. Innerhalb des
+               Bandes entscheiden Level, Sichtkegel und exakte Distanz. */
             double dist = Math.sqrt(distSq);
             double cos = dist > 0 ? (cx * this.viewX + cz * this.viewZ) / dist : 1.0;
-            double score = (cos >= VIEW_CONE_COS ? 0 : this.config.outerRadiusBlocks()) + dist;
+            int viewTier = cos >= VIEW_CONE_COS ? 0 : 1;
 
             if (candidates == null) candidates = new ArrayList<>();
-            candidates.add(new Candidate(key, level, mask, score, clip));
+            candidates.add(new Candidate(key, level, mask, band, viewTier, distSq, clip));
         }
         if (candidates == null) return;
 
-        candidates.sort(Comparator.comparingDouble(Candidate::score));
-        int submits = Math.min(MAX_SUBMITS_PER_TICK, candidates.size());
-        for (int i = 0; i < submits; i++) {
+        candidates.sort(Comparator.comparingInt((Candidate candidate) -> candidate.clip ? 0 : 1)
+                .thenComparingInt(Candidate::band)
+                .thenComparingInt(Candidate::level)
+                .thenComparingInt(Candidate::viewTier)
+                .thenComparingDouble(Candidate::distanceSq));
+        int attempts = Math.min(MAX_SUBMITS_PER_TICK, candidates.size());
+        for (int i = 0; i < attempts; i++) {
             Candidate cand = candidates.get(i);
             this.inflight.put(cand.key, 1);
 
             int rx = (int) (cand.key >> 32), rz = (int) cand.key;
             int level = cand.level, jobEpoch = this.epoch;
+            int jobDesiredVersion = this.desiredVersion;
             int mask = cand.mask != Integer.MIN_VALUE ? cand.mask : this.computeMask(rx, rz);
             int jobAx = this.anchorX, jobAz = this.anchorZ;
             LodConfig jobConfig = this.config;
-            this.chunkManager.submitLodTask(() -> this.results.add(this.meshers.get().mesh(
-                    this.source, this.appearance, jobConfig, level, 1, rx, rz,
-                    jobEpoch, mask, jobAx, jobAz)), cand.clip);
+            ChunkManager.LodPriority priority = new ChunkManager.LodPriority(jobDesiredVersion,
+                    cand.band, level, cand.viewTier, cand.distanceSq);
+            boolean accepted = this.chunkManager.submitLodTask(() -> {
+                try {
+                    if (!this.jobStillDesired(rx, rz, level, jobEpoch, jobDesiredVersion)) {
+                        this.staleJobs.incrementAndGet();
+                        this.failedJobs.add(cand.key);
+                        return;
+                    }
+                    LodMesher mesher = this.meshers.get();
+                    LodMeshResult result = mesher.mesh(this.source, this.appearance, jobConfig,
+                            level, 1, rx, rz, jobEpoch, mask, jobAx, jobAz);
+                    this.results.add(new CompletedMesh(result, System.nanoTime()));
+                    this.meshSamplingTimes.add(mesher.lastSamplingNanos());
+                    this.meshGeometryTimes.add(mesher.lastGeometryNanos());
+                } catch (Throwable error) {
+                    this.logger.warning("LOD-Mesh fuer Region (" + rx + ", " + rz + ") fehlgeschlagen", error);
+                    this.failedJobs.add(cand.key);
+                }
+            }, cand.clip, priority, () -> this.inflight.remove(cand.key));
+            if (!accepted) this.inflight.remove(cand.key);
         }
+    }
+
+    private String residencyStats() {
+        int exact = 0;
+        for (int i = 0, n = this.current.tableSize(); i < n; i++) {
+            Current value = this.current.valueAt(i);
+            if (value == null) continue;
+            if (value.epoch != this.epoch
+                    || this.desired.getOrDefault(this.current.keyAt(i), -1) != value.level) continue;
+            exact++;
+        }
+        int missing = Math.max(0, this.desired.size() - exact);
+        return "LOD-Resident: Exact=" + exact
+                + ", Fehlend=" + missing + ", Gewuenscht=" + this.desired.size()
+                + ", Inflight=" + this.inflight.size()
+                + ", stale=" + this.staleJobs.get();
+    }
+
+    private boolean jobStillDesired(int rx, int rz, int level, int jobEpoch, int jobDesiredVersion) {
+        if (this.epoch != jobEpoch) return false;
+        Schedule snapshot = this.schedule;
+        if (!snapshot.enabled || snapshot.epoch != jobEpoch
+                || snapshot.desiredVersion != jobDesiredVersion) return false;
+        double cx = (rx + 0.5) * LodMesher.REGION_BLOCKS - snapshot.anchorX;
+        double cz = (rz + 0.5) * LodMesher.REGION_BLOCKS - snapshot.anchorZ;
+        double distance = Math.sqrt(cx * cx + cz * cz);
+        return distance - LodMesher.HALF_DIAG < snapshot.config.outerRadiusBlocks()
+                && snapshot.config.levelAt(distance) == level;
     }
 
     /* ------------------- API für den ChunkRenderer (Render-Thread) ------------------- */
 
+    static int distanceBand(double dx, double dz) {
+        return (int) (Math.sqrt(dx * dx + dz * dz) / LodMesher.REGION_BLOCKS);
+    }
+
     /** Nächstes fertiges Mesh oder null. Entfernt den Job aus dem In-Flight-Set. */
     public LodMeshResult pollResult() {
-        LodMeshResult result = this.results.poll();
-        if (result != null) this.inflight.remove(key(result.rx(), result.rz()));
+        CompletedMesh completed = this.results.poll();
+        if (completed == null) return null;
+        LodMeshResult result = completed.result;
+        this.resultQueueTimes.add(System.nanoTime() - completed.completedNanos);
+        this.inflight.remove(key(result.rx(), result.rz()));
         return result;
+    }
+
+    /** Render-Thread-Telemetrie fuer den Arena-Upload eines akzeptierten Ergebnisses. */
+    public void recordUploadTime(long nanos) {
+        this.uploadTimes.add(nanos);
     }
 
     /**
@@ -325,7 +466,13 @@ public class LodManager {
         long key = key(result.rx(), result.rz());
         int want = this.desired.getOrDefault(key, -1); // -1 = nicht gewünscht (Level sind >= 1)
         if (want != result.level() || result.epoch() != this.epoch) return false;
-        this.current.put(key, new Current(result.level(), result.sizeRegions(), result.epoch(), result.mask()));
+        /* Während der Worker mesht, kann der Spieler weitere Chunkgrenzen überqueren.
+           Einen veralteten Maskenstand kurz hochzuladen würde L0 festhalten oder Doppelbilder
+           erzeugen und danach noch einen zweiten Remesh brauchen. Nur der aktuelle Stand darf
+           den atomaren Handoff vollziehen; der Tick submittet den Ersatz unmittelbar neu. */
+        if (result.mask() != this.computeMask(result.rx(), result.rz())) return false;
+        this.current.put(key, new Current(result.level(), result.sizeRegions(), result.epoch(),
+                result.mask()));
         return true;
     }
 

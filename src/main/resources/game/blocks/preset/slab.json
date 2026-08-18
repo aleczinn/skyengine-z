@@ -2,6 +2,7 @@
   "_comment": "Preset: Halbblock. type=double zeigt auf das Vollblock-Modell der Basistextur.",
   "creative_tab": "building_blocks",
   "type": "slab",
+  "lod_replacement": "skyengine:${texture}",
   "layer": "opaque",
   "vars": {
     "texture": "${id}"

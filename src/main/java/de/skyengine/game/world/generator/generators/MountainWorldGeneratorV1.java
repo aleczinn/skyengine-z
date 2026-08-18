@@ -9,6 +9,11 @@ import de.skyengine.utils.math.FastNoiseLite;
 
 public class MountainWorldGeneratorV1 extends WorldGenerator {
 
+    @Override
+    public int lodWorldBottomState() {
+        return Blocks.BEDROCK;
+    }
+
     /* Meeresspiegel: bis zu dieser Hoehe wird Wasser aufgefuellt */
     private static final int SEA_LEVEL = 64;
     /* Basis-Hoehe der flachen Ebenen */

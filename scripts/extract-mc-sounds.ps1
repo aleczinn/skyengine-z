@@ -80,6 +80,25 @@ $wanted = @(
     @{ pattern = 'minecraft/sounds/tile/piston/in.ogg';      dest = 'piston' },
     # Fahrendes Minecart (entity.minecart.riding): äußerer, geschwindigkeitsabhängiger Loop.
     @{ pattern = 'minecraft/sounds/minecart/base.ogg';        dest = 'minecart' },
+    # Unterwasser-Ambience und Spielerbewegung (Minecraft 26.2 Sound-Events).
+    @{ pattern = 'minecraft/sounds/ambient/underwater/enter*.ogg'; dest = 'underwater' },
+    @{ pattern = 'minecraft/sounds/ambient/underwater/exit*.ogg'; dest = 'underwater' },
+    @{ pattern = 'minecraft/sounds/ambient/underwater/underwater_ambience.ogg'; dest = 'underwater' },
+    @{ pattern = 'minecraft/sounds/ambient/underwater/additions/bubbles*.ogg'; dest = 'underwater/additions' },
+    @{ pattern = 'minecraft/sounds/ambient/underwater/additions/water*.ogg'; dest = 'underwater/additions' },
+    @{ pattern = 'minecraft/sounds/ambient/underwater/additions/animal1.ogg'; dest = 'underwater/additions/rare' },
+    @{ pattern = 'minecraft/sounds/ambient/underwater/additions/bass_whale*.ogg'; dest = 'underwater/additions/rare' },
+    @{ pattern = 'minecraft/sounds/ambient/underwater/additions/crackles*.ogg'; dest = 'underwater/additions/rare' },
+    @{ pattern = 'minecraft/sounds/ambient/underwater/additions/driplets*.ogg'; dest = 'underwater/additions/rare' },
+    @{ pattern = 'minecraft/sounds/ambient/underwater/additions/earth_crack.ogg'; dest = 'underwater/additions/rare' },
+    @{ pattern = 'minecraft/sounds/ambient/underwater/additions/animal2.ogg'; dest = 'underwater/additions/ultra_rare' },
+    @{ pattern = 'minecraft/sounds/ambient/underwater/additions/dark*.ogg'; dest = 'underwater/additions/ultra_rare' },
+    # entity.player.swim verwendet in 26.2 swim5..18, nicht die vier alten Varianten.
+    @{ pattern = 'minecraft/sounds/liquid/swim[5-9].ogg'; dest = 'liquid' },
+    @{ pattern = 'minecraft/sounds/liquid/swim1[0-8].ogg'; dest = 'liquid' },
+    @{ pattern = 'minecraft/sounds/liquid/splash.ogg'; dest = 'liquid' },
+    @{ pattern = 'minecraft/sounds/liquid/splash2.ogg'; dest = 'liquid' },
+    @{ pattern = 'minecraft/sounds/liquid/heavy_splash.ogg'; dest = 'liquid' },
     # Auf-/Zu-Sounds (Tuer, Truhe). Jeder Satz braucht einen EIGENEN Zielordner: kopiert wird mit
     # dem MC-Dateinamen, sonst wuerden wooden_door/open1.ogg und iron_door/open1.ogg kollidieren.
     # Die Truhen-Muster sind eng gefasst — im selben MC-Ordner liegen *_locked-Varianten.

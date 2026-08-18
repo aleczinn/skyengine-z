@@ -21,8 +21,8 @@ import java.nio.ByteBuffer;
  *       <b>Texturen</b> — sample-bar für Post-Pässe; {@link #resolve()} ist ein No-op.</li>
  *   <li><b>MSAA &gt; 0:</b> Multisample-Renderbuffer wie früher (Color ebenfalls RGBA16F,
  *       damit HDR-Werte den Resolve überleben) plus ein Resolve-FBO mit RGBA16F-Textur;
- *       {@link #resolve()} blittet MS → Textur. Eine Depth-<b>Textur</b> existiert in
- *       diesem Modus NICHT (depth-lesende Post-Effekte laufen später ohne MSAA).</li>
+ *       {@link #resolve()} blittet MS → sample-bare Color-/Depth-Texturen. Die aufgelöste
+ *       Tiefe ist ausschließlich für Post-Effekte nach dem Welt-Pass bestimmt.</li>
  * </ul>
  * RGBA16F speichert heute dieselben [0,1]-Werte wie vorher RGBA8 — der HDR-Headroom wird
  * erst mit dem Licht-Merge real genutzt.
@@ -42,9 +42,11 @@ public class FrameBuffer implements IDisposable {
     private int resolveFbo;
 
     /* Sample-bare Ziele: colorTexture ist bei MSAA=0 direktes Attachment, sonst Resolve-Ziel.
-       depthTexture existiert nur bei MSAA=0. */
+       depthTexture existiert nur bei MSAA=0 und ist während des Welt-Passes aktuell. */
     private int colorTexture;
     private int depthTexture;
+    /* Nur bei MSAA: nach resolve() sample-bare Tiefe fuer Post-Effekte. */
+    private int resolvedDepthTexture;
 
     private int samples;
 
@@ -101,7 +103,7 @@ public class FrameBuffer implements IDisposable {
 
         this.checkStatus("Szene");
 
-        /* Resolve-FBO (nur MSAA): Non-MS-RGBA16F-Textur als Blit-Ziel für die Post-Pässe. */
+        /* Resolve-FBO (nur MSAA): Non-MS-Color/-Depth als Blit-Ziele für Post-Pässe. */
         if (this.samples > 0) {
             this.resolveFbo = GL30.glGenFramebuffers();
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.resolveFbo);
@@ -109,6 +111,10 @@ public class FrameBuffer implements IDisposable {
                     GL11.GL_LINEAR, width, height);
             GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
                     GL11.GL_TEXTURE_2D, this.colorTexture, 0);
+            this.resolvedDepthTexture = this.createTexture(GL30.GL_DEPTH_COMPONENT32F,
+                    GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, GL11.GL_NEAREST, width, height);
+            GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT,
+                    GL11.GL_TEXTURE_2D, this.resolvedDepthTexture, 0);
             this.checkStatus("Resolve");
         }
 
@@ -159,8 +165,8 @@ public class FrameBuffer implements IDisposable {
     }
 
     /**
-     * Macht die Szene als {@link #getColorTexture()} sample-bar: bei MSAA Blit MS → Resolve-
-     * Textur, ohne MSAA No-op (Color ist bereits die Textur). Vor den Post-Pässen aufrufen.
+     * Macht Color und Post-Depth sample-bar: bei MSAA Blit MS → Resolve-Texturen, ohne MSAA
+     * No-op. Vor den Post-Pässen aufrufen.
      */
     public void resolve() {
         if (this.samples <= 0) return;
@@ -168,11 +174,13 @@ public class FrameBuffer implements IDisposable {
         int width = this.config.getWindowWidth(), height = this.config.getWindowHeight();
         if (this.properties.isUseDirectStateAccess()) {
             ARBDirectStateAccess.glBlitNamedFramebuffer(this.id, this.resolveFbo,
-                    0, 0, width, height, 0, 0, width, height, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
+                    0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
         } else {
             GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, this.id);
             GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, this.resolveFbo);
-            GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
+            GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
+                    GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
         }
     }
@@ -197,6 +205,15 @@ public class FrameBuffer implements IDisposable {
     }
 
     /**
+     * Sample-bare Szenen-Tiefe fuer Post Processing. Bei MSAA erst nach {@link #resolve()}
+     * aktuell. {@link #getDepthTexture()} bleibt im MSAA-Modus bewusst 0, damit GPU-Cull
+     * waehrend des Welt-Passes keinen Resolve-Depth des Vorframes verwendet.
+     */
+    public int getPostDepthTexture() {
+        return this.samples > 0 ? this.resolvedDepthTexture : this.depthTexture;
+    }
+
+    /**
      * Aktive MSAA-Sample-Zahl (0 = aus).
      */
     public int getSamples() {
@@ -214,6 +231,7 @@ public class FrameBuffer implements IDisposable {
         }
         if (this.colorTexture != 0) GL11.glDeleteTextures(this.colorTexture);
         if (this.depthTexture != 0) GL11.glDeleteTextures(this.depthTexture);
+        if (this.resolvedDepthTexture != 0) GL11.glDeleteTextures(this.resolvedDepthTexture);
 
         this.id = 0;
         this.resolveFbo = 0;
@@ -221,5 +239,6 @@ public class FrameBuffer implements IDisposable {
         this.depthRbo = 0;
         this.colorTexture = 0;
         this.depthTexture = 0;
+        this.resolvedDepthTexture = 0;
     }
 }

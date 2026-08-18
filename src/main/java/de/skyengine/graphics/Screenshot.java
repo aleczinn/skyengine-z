@@ -7,7 +7,9 @@ import org.lwjgl.opengl.GL30;
 import org.lwjgl.stb.STBImageWrite;
 import org.lwjgl.system.MemoryUtil;
 
+import java.awt.Desktop;
 import java.io.File;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -27,8 +29,8 @@ public final class Screenshot {
 
     private Screenshot() {}
 
-    public static void capture(int width, int height) {
-        if (width <= 0 || height <= 0) return;
+    public static File capture(int width, int height) {
+        if (width <= 0 || height <= 0) return null;
 
         /* RGB-Zeilen ohne 4-Byte-Padding lesen, sonst sind die Zeilen bei ungerader Breite verschoben. */
         GL11.glPixelStorei(GL11.GL_PACK_ALIGNMENT, 1);
@@ -39,7 +41,10 @@ public final class Screenshot {
         try {
             GL11.glReadPixels(0, 0, width, height, GL11.GL_RGB, GL11.GL_UNSIGNED_BYTE, pixels);
 
-            if (!DIRECTORY.exists()) DIRECTORY.mkdirs();
+            if (!DIRECTORY.exists() && !DIRECTORY.mkdirs()) {
+                LOGGER.error("Screenshot-Ordner konnte nicht erstellt werden: " + DIRECTORY.getPath());
+                return null;
+            }
             File out = uniqueFile();
 
             /* OpenGL liefert die Pixel von unten nach oben; PNG erwartet oben nach unten. */
@@ -48,11 +53,37 @@ public final class Screenshot {
 
             if (ok) {
                 LOGGER.info("Screenshot gespeichert: " + out.getAbsolutePath());
+                return out;
             } else {
                 LOGGER.error("Screenshot konnte nicht gespeichert werden: " + out.getPath());
+                return null;
             }
+        } catch (RuntimeException e) {
+            LOGGER.error("Screenshot konnte nicht aufgenommen werden", e);
+            return null;
         } finally {
             MemoryUtil.memFree(pixels);
+        }
+    }
+
+    /** Öffnet den Screenshot selbst im Standard-Bildbetrachter. */
+    public static void open(File screenshot) {
+        try {
+            if (screenshot == null || !screenshot.isFile()) {
+                throw new IOException("Screenshot-Datei existiert nicht");
+            }
+            if (!Desktop.isDesktopSupported()) {
+                throw new UnsupportedOperationException("Desktop-API wird nicht unterstützt");
+            }
+            Desktop desktop = Desktop.getDesktop();
+            if (!desktop.isSupported(Desktop.Action.OPEN)) {
+                throw new UnsupportedOperationException("Dateien können nicht geöffnet werden");
+            }
+            desktop.open(screenshot);
+        } catch (IOException | RuntimeException e) {
+            LOGGER.error("Screenshot konnte nicht im Bildbetrachter geöffnet werden: "
+                    + (screenshot == null ? "<null>" : screenshot.getAbsolutePath()), e);
+            throw new IllegalStateException(e);
         }
     }
 

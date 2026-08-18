@@ -3,6 +3,7 @@ package de.skyengine.graphics.world;
 import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.graphics.camera.Camera;
 import org.joml.Vector3d;
 
 import java.util.Arrays;
@@ -18,6 +19,10 @@ public class SectionMesh {
 
     /* Descriptor-Slots im GPU-Cull-Substrat (-1 = nicht registriert), gepflegt vom ChunkRenderer. */
     int gpuSlotOpaque = -1, gpuSlotCutout = -1;
+
+    /* Debug: Das LOD-Sicht-Gate beansprucht diese Spalte. Falls der Draw trotzdem sichtbar
+       wird, färbt ihn der gemeinsame Chunk-Shader magenta. Nur Render-Thread. */
+    boolean debugLodConflict;
 
     /* Positionen in den Mitglieds-Listen des ChunkRenderers (-1 = nicht enthalten) für
        Swap-Remove in O(1) — der lineare ArrayList-Scan war beim Cleanup-Walk der Spike
@@ -42,6 +47,7 @@ public class SectionMesh {
 
     /* Kameraposition (Welt) des letzten Quad-Sorts. NaN = noch nie sortiert. */
     private double lastSortX = Double.NaN, lastSortY, lastSortZ;
+    private float lastSortYaw = Float.NaN, lastSortPitch;
 
     /* Wiederverwendete Sortier-Puffer — nur Render-Thread (sortTranslucent läuft nie parallel). */
     private static long[] sortKeys = new long[1024];
@@ -114,20 +120,25 @@ public class SectionMesh {
      * Blend-Reihenfolge innerhalb einer Section). Die sortierten Daten wandern in eine NEUE
      * Arena-Region (alte wird deferred freigegeben) — in-place schreiben wäre ein Sync-Hazard,
      * weil die GPU die alte Region noch aus Vorframes lesen kann. Sortiert nur, wenn die
-     * Kamera seit dem letzten Sort mehr als 1 Block bewegt wurde. Render-Thread only.
+     * Kamera seit dem letzten Sort relevant bewegt oder gedreht wurde. Render-Thread only.
      *
      * @return true, wenn tatsächlich neu sortiert wurde (fürs Frame-Budget im ChunkRenderer)
      */
-    public boolean sortTranslucent(Vector3d cam, VertexArena arena, long currentFrame) {
+    public boolean sortTranslucent(Camera camera, Vector3d direction, VertexArena arena, long currentFrame) {
         int[] data = this.translucentData;
         if (data == null) return false;
 
+        Vector3d cam = camera.getPosition();
         double mx = cam.x - this.lastSortX, my = cam.y - this.lastSortY, mz = cam.z - this.lastSortZ;
-        /* NaN beim ersten Aufruf: Vergleich ist false -> es wird sortiert. */
-        if (mx * mx + my * my + mz * mz < 1.0) return false;
+        float yawDelta = angleDelta(camera.getYaw(), this.lastSortYaw);
+        float pitchDelta = Math.abs(camera.getPitch() - this.lastSortPitch);
+        /* Kleine Positionsänderungen bleiben gedrosselt; eine sichtbare Rotation sortiert neu. */
+        if (mx * mx + my * my + mz * mz < 0.0625 && yawDelta < 2F && pitchDelta < 2F) return false;
         this.lastSortX = cam.x;
         this.lastSortY = cam.y;
         this.lastSortZ = cam.z;
+        this.lastSortYaw = camera.getYaw();
+        this.lastSortPitch = camera.getPitch();
 
         /* Kamera in Mesh-Koordinaten (section-lokal x/y/z). Ursprung erst in double abziehen,
            dann nach float — innerhalb der Render-Distanz präzise genug. */
@@ -152,9 +163,11 @@ public class SectionMesh {
             float dx = sx * 0.25F - relX;
             float dy = sy * 0.25F - relY;
             float dz = sz * 0.25F - relZ;
-            float distSq = dx * dx + dy * dy + dz * dz;
-            /* Float-Bits sind für nicht-negative Werte monoton -> direkt als Sortierschlüssel. */
-            sortKeys[q] = ((long) Float.floatToIntBits(distSq) << 32) | q;
+            float depth = (float) (dx * direction.x + dy * direction.y + dz * direction.z);
+            /* IEEE-Bits in monotonen unsigned Schlüssel wandeln; q stabilisiert Gleichstände. */
+            int bits = Float.floatToRawIntBits(depth);
+            int ordered = bits ^ ((bits >> 31) & 0x7FFFFFFF);
+            sortKeys[q] = ((long) ordered << 32) | q;
         }
         Arrays.sort(sortKeys, 0, quads);
 
@@ -170,6 +183,11 @@ public class SectionMesh {
         arena.free(this.regions[layer], currentFrame);
         this.regions[layer] = arena.alloc(data);
         return true;
+    }
+
+    private static float angleDelta(float a, float b) {
+        float delta = Math.abs(a - b) % 360F;
+        return delta > 180F ? 360F - delta : delta;
     }
 
     /** Gibt alle Regionen deferred frei. */

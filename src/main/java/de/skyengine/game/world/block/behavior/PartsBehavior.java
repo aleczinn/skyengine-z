@@ -95,7 +95,9 @@ public final class PartsBehavior implements BlockBehavior {
         for (Map.Entry<String, int[]> e : this.offsets.entrySet()) {
             if (e.getKey().equals(this.origin)) continue;
             int[] o = rotate(e.getValue(), facing);
-            if (ctx.world().getBlock(ctx.x() + o[0], ctx.y() + o[1], ctx.z() + o[2]) != Blocks.AIR) {
+            int x = ctx.x() + o[0], y = ctx.y() + o[1], z = ctx.z() + o[2];
+            if (!ctx.world().isPlayerInteractionReady(x, y, z)
+                    || ctx.world().getBlock(x, y, z) != Blocks.AIR) {
                 return false;
             }
         }

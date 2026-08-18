@@ -2,7 +2,9 @@ package de.skyengine.graphics.gui;
 
 import de.skyengine.game.command.ChatManager;
 import de.skyengine.graphics.color.Color4;
+import de.skyengine.graphics.gui.text.Span;
 
+import java.nio.file.Path;
 import java.util.List;
 
 /** Minecraft-artige Chatzeilen links unten, offen dauerhaft und geschlossen kurz sichtbar. */
@@ -44,5 +46,33 @@ public final class ChatHud {
         }
         gui.font().end();
         gui.disableScissor();
+    }
+
+    /** Liefert beim Klick auf den aktiven Span einer sichtbaren Chatzeile dessen Zielpfad. */
+    public Path clickedTarget(GuiManager gui, ChatManager chat, float bottom,
+                              double mouseX, double mouseY) {
+        List<ChatManager.ChatMessage> messages = chat.messages();
+        float lineHeight = gui.font().lineHeight(TEXT_SIZE) + 1F;
+        int drawn = 0;
+        for (int i = messages.size() - 1; i >= 0 && drawn < MAX_VISIBLE; i--) {
+            ChatManager.ChatMessage message = messages.get(i);
+            float y = bottom - (++drawn) * lineHeight;
+            if (mouseY < y || mouseY >= y + lineHeight) continue;
+            ChatManager.ClickAction action = message.clickAction();
+            if (action == null) return null;
+
+            float x = 4F;
+            List<Span> spans = message.text().spans();
+            for (int spanIndex = 0; spanIndex < spans.size(); spanIndex++) {
+                Span span = spans.get(spanIndex);
+                float width = gui.font().getStringWidth(span.text(), TEXT_SIZE, span.style());
+                if (spanIndex == action.spanIndex() && mouseX >= x && mouseX < x + width) {
+                    return action.target();
+                }
+                x += width;
+            }
+            return null;
+        }
+        return null;
     }
 }

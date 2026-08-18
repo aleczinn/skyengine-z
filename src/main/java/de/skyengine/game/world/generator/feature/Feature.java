@@ -5,12 +5,12 @@ package de.skyengine.game.world.generator.feature;
  * Terrain-Generierung platziert wird.
  *
  * <p><b>Vertrag (Scheiben-Modell):</b> Platzierung und Form MÜSSEN eine pure Funktion aus
- * {@link FeaturePlacer#random()} und dem puren Generator-Sampling
- * ({@link FeaturePlacer#surfaceHeight}/{@link FeaturePlacer#surfaceBlock}) sein. Niemals
+ * {@link FeatureContext#random()} und dem puren Generator-Sampling
+ * ({@link FeatureContext#surfaceHeight}/{@link FeatureContext#surfaceBlock}) sein. Niemals
  * Chunk-Blockdaten lesen, um Platzierung oder Form zu entscheiden — dasselbe Feature wird
  * von jedem Chunk, den es schneidet, unabhängig neu berechnet und muss überall identisch
  * ausfallen, sonst divergieren die Scheiben. Schreib-Filter wie
- * {@link FeaturePlacer#setIfAir} sind erlaubt (jede Zelle hat genau einen Besitzer-Chunk,
+ * {@link FeatureContext#setIfAir} sind erlaubt (jede Zelle hat genau einen Besitzer-Chunk,
  * die Anwendungs-Reihenfolge ist fix).
  *
  * <p>Maximaler Overreach: 1 Chunk (32 Blöcke) über die Quell-Chunk-Grenze hinaus — weiter
@@ -19,5 +19,9 @@ package de.skyengine.game.world.generator.feature;
 public interface Feature {
 
     /** Platziert alle Instanzen dieses Features für den Quell-Chunk des Placers. */
-    void place(FeaturePlacer placer);
+    default int cacheVersion() {
+        return 1;
+    }
+
+    void place(FeatureContext placer);
 }

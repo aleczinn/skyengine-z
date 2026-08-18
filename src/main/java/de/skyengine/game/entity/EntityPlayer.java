@@ -38,6 +38,9 @@ public class EntityPlayer extends Entity {
     private static final double FLY_VERTICAL_FACTOR = 0.6;   // Hoch/Runter langsamer als Vorwärts
     private static final double FLY_DRAG = 0.88;
     private static final double FLY_DRAG_Y = 0.6;
+    private static final float SPECTATOR_SPEED_STEP = 0.5F;
+    private static final float SPECTATOR_SPEED_MIN = 1.0F;
+    private static final float SPECTATOR_SPEED_MAX = 10.0F;
 
     /* --- Schwimmen (Fluid) --- */
     private static final double SWIM_ACCEL = 0.02;          // langsame Beschleunigung im Fluid
@@ -63,6 +66,7 @@ public class EntityPlayer extends Entity {
     private boolean sprinting = false;
     private boolean sneaking = false;
     private boolean noClip = false;
+    private float spectatorFlySpeed = 1.0F;
 
     /* MC-Hunger-Konstanten: Erschöpfung pro Aktion, 80-Tick-Takt (4 s) für Regen/Verhungern. */
     private static final float EXHAUSTION_SPRINT_PER_M = 0.1f;
@@ -413,11 +417,13 @@ public class EntityPlayer extends Entity {
      * Sprint verdoppelt die Geschwindigkeit.
      */
     private void travelFlying(World world, double forward, double strafe, boolean up, boolean down) {
-        double accel = FLY_ACCEL * (this.sprinting ? FLY_SPRINT_FACTOR : 1.0);
+        double speedFactor = this.gamemode == Gamemode.SPECTATOR ? this.spectatorFlySpeed : 1.0;
+        double accel = FLY_ACCEL * speedFactor * (this.sprinting ? FLY_SPRINT_FACTOR : 1.0);
         this.moveRelative(strafe, forward, accel);
 
         /* Horizontale Endgeschwindigkeit (accel / (1 - drag)), vertikal davon ein Anteil. */
-        double verticalSpeed = (FLY_ACCEL / (1.0 - FLY_DRAG)) * (this.sprinting ? FLY_SPRINT_FACTOR : 1.0) * FLY_VERTICAL_FACTOR;
+        double verticalSpeed = (FLY_ACCEL / (1.0 - FLY_DRAG)) * speedFactor
+                * (this.sprinting ? FLY_SPRINT_FACTOR : 1.0) * FLY_VERTICAL_FACTOR;
 
         if (up && !down) {
             this.motionY = verticalSpeed;
@@ -556,9 +562,11 @@ public class EntityPlayer extends Entity {
 
     /** Wechselt den Spielmodus und passt Flug/NoClip an dessen Regeln an. */
     public void setGamemode(Gamemode mode) {
+        boolean enteringSpectator = mode == Gamemode.SPECTATOR && this.gamemode != Gamemode.SPECTATOR;
         this.gamemode = mode;
         if (mode.isAlwaysFly()) {
             /* Spectator: dauerhaft fliegen + durch Blöcke fallen. */
+            if (enteringSpectator) this.spectatorFlySpeed = 1.0F;
             this.flying = true;
             this.noClip = true;
             this.motionY = 0;
@@ -573,6 +581,19 @@ public class EntityPlayer extends Entity {
 
     public boolean isFlying() {
         return flying;
+    }
+
+    /**
+     * Ändert die Spectator-Fluggeschwindigkeit wie in Minecraft per Mausrad:
+     * ein Rastschritt entspricht 50 %, begrenzt auf 100–1000 %.
+     */
+    public void adjustSpectatorFlySpeed(double scroll) {
+        if (this.gamemode != Gamemode.SPECTATOR || scroll == 0) return;
+        this.spectatorFlySpeed = Math.clamp(this.spectatorFlySpeed + (float) scroll * SPECTATOR_SPEED_STEP, SPECTATOR_SPEED_MIN, SPECTATOR_SPEED_MAX);
+    }
+
+    public float getSpectatorFlySpeed() {
+        return this.spectatorFlySpeed;
     }
 
     /** Flugzustand direkt setzen (Savegame-Restore) — respektiert die Gamemode-Regeln. */
@@ -612,6 +633,11 @@ public class EntityPlayer extends Entity {
     /** true, wenn der Spieler in Wasser oder Lava steht (z.B. für die Laufgeräusch-Sperre). */
     public boolean isTouchingFluid(World world) {
         return this.isInFluid(world, false) || this.isInFluid(world, true);
+    }
+
+    /** true, wenn die Spielerbox die echte Wasseroberfläche überlappt (Lava ausgeschlossen). */
+    public boolean isTouchingWater(World world) {
+        return this.isInFluid(world, false);
     }
 
     /* --- Vitals --- */

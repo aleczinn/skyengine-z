@@ -50,6 +50,7 @@ import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.audio.SoundCategory;
 import de.skyengine.audio.SoundManager;
+import de.skyengine.audio.UnderwaterAudioController;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.ChestRenderer;
 import de.skyengine.graphics.blockentity.EnchantingTableRenderer;
@@ -64,10 +65,14 @@ import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.SaveToast;
 import de.skyengine.graphics.gui.SpriteRenderer;
+import de.skyengine.graphics.gui.font.FontStyle;
 import de.skyengine.graphics.gui.screens.GuiIngameMenu;
 import de.skyengine.graphics.gui.screens.GuiDeathScreen;
 import de.skyengine.graphics.gui.screens.GuiMainMenu;
 import de.skyengine.graphics.gui.screens.GuiWorldLoading;
+import de.skyengine.graphics.gui.text.RichText;
+import de.skyengine.graphics.gui.text.Span;
+import de.skyengine.graphics.gui.text.TextColors;
 import de.skyengine.game.entity.PlayerAnimationState;
 import de.skyengine.graphics.camera.CameraPerspective;
 import de.skyengine.graphics.player.FirstPersonHandRenderer;
@@ -94,6 +99,7 @@ import org.joml.Vector3d;
 import org.lwjgl.glfw.GLFW;
 
 import java.io.File;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -167,6 +173,7 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /* Audio: Effekt-Sounds + Musik (OpenAL, komplett auf dem Render-Thread). */
     private final SoundManager soundManager = new SoundManager();
+    private final UnderwaterAudioController underwaterAudio = new UnderwaterAudioController(this.soundManager);
 
     /* Spielermodell (Skin): Inventar-Vorschau + Third-Person. Welt-unabhängig (Engine-Lebensdauer). */
     private final PlayerRenderer playerRenderer = new PlayerRenderer();
@@ -186,6 +193,7 @@ public class GameContainer implements IResizeable, IDisposable {
     /* Laufgeräusche: zurückgelegte Distanz seit dem letzten Schritt (MC-Kadenz ~1.6 Blöcke). */
     private static final double STEP_INTERVAL = 1.6;
     private double stepDistance = 0;
+    private final WaterVision waterVision = new WaterVision();
 
     /* Wird per F2 gesetzt und von SkyEngine nach dem fertigen Frame abgeholt. */
     private boolean screenshotRequested = false;
@@ -210,6 +218,9 @@ public class GameContainer implements IResizeable, IDisposable {
     /* Slot-Wechsel-Zeitpunkt für die Itemnamen-Einblendung über der Hotbar (reine Anzeige). */
     private static final long ITEM_NAME_HOLD_MS = 2000, ITEM_NAME_FADE_MS = 500;
     private long itemNameShownAt = 0;
+    /* Kurzmeldung an derselben HUD-Position (z.B. Spectator-Fluggeschwindigkeit). */
+    private String hudStatusText = "";
+    private long hudStatusShownAt = 0;
     /* Ess-Fortschritt in Ticks (Rechtsklick halten auf ein FoodItem, MC: 32 Ticks = 1,6 s).
        Public: auch Zeitbasis der Ess-Animation (FirstPersonHandRenderer). */
     public static final int EAT_TICKS = 32;
@@ -289,12 +300,16 @@ public class GameContainer implements IResizeable, IDisposable {
      * wendet die Welt-Einstellungen an und zeigt den Welt-Ladebildschirm.
      */
     public void enterWorld(WorldSaves.WorldSave save) {
+        this.waterVision.reset();
+        this.underwaterAudio.reset();
         this.currentSave = save;
         this.world = new World(save.dirName(), save.level(), this.atlas, this.blockEntityRenderers);
         this.world.setSoundManager(this.soundManager); // Sounds aus der Welt-Logik (z.B. TNT-Explosion)
         this.world.init();
 
         this.player = new EntityPlayer();
+        this.hudStatusText = "";
+        this.hudStatusShownAt = 0;
         this.playerUuid = null;
         /* Spielerzustand: player.dat ist die Quelle; Alt-Saves ohne player.dat werden einmalig
            aus den level.json-Feldern migriert (beim nächsten Speichern genullt). */
@@ -364,6 +379,8 @@ public class GameContainer implements IResizeable, IDisposable {
     public void respawnPlayer() {
         if (this.world == null || this.player == null) return;
         this.guiManager.close();
+        this.waterVision.reset();
+        this.underwaterAudio.reset();
         this.animState.reset();
         this.placeAtWorldSpawn(this.player);
         this.player.motionX = 0;
@@ -384,6 +401,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.saveCurrentWorld(true);
         GL11.glFinish();
         this.soundManager.stopMinecartSounds();
+        this.underwaterAudio.reset();
+        this.waterVision.reset();
         this.world.dispose();
         this.world = null;
         this.player = null;
@@ -531,6 +550,13 @@ public class GameContainer implements IResizeable, IDisposable {
             this.animState.tickHeldItem(this.playerInventory.get(this.hotbarIndex));
             this.animState.tick(this.player);
 
+            boolean eyesUnderwater = this.playerEyesUnderwater();
+            this.waterVision.tick(eyesUnderwater);
+            this.underwaterAudio.tick(eyesUnderwater, this.player.isTouchingWater(this.world),
+                    !this.player.isFlying(),
+                    this.player.x - this.player.lastX,
+                    this.player.y - this.player.lastY,
+                    this.player.z - this.player.lastZ);
             this.updateStepSounds();
             this.updateHurtSounds();
             this.updateEating(input);
@@ -669,11 +695,13 @@ public class GameContainer implements IResizeable, IDisposable {
 
         /* Menü-Blur: nur mit Welt UND blur-wolligem Screen (Pause + Unterseiten);
            der Pass animiert die Stärke selbst (Ein-/Ausblenden). */
-        SkyEngine.get().getPostProcessor().setMenuBlur(
+        PostProcessor post = SkyEngine.get().getPostProcessor();
+        post.setMenuBlur(
                 this.world != null && this.guiManager.blursBackground());
 
         /* Hauptmenü (keine Welt): nur GUI-Eingaben routen, gezeichnet wird in renderGui. */
         if (this.world == null) {
+            post.setUnderwater(false, 0F);
             this.guiManager.handleInput();
             return;
         }
@@ -725,7 +753,6 @@ public class GameContainer implements IResizeable, IDisposable {
 
         /* TAA-Subpixel-Jitter (0,0 wenn TAA aus) VOR dem Matrix-Update, Kameradaten für
            die Reprojektion DANACH in den Post-Context — Reihenfolge ist tragend. */
-        PostProcessor post = SkyEngine.get().getPostProcessor();
         post.nextJitter(this.taaJitter, width, height);
         this.camera.setJitter(this.taaJitter.x, this.taaJitter.y);
 
@@ -749,12 +776,16 @@ public class GameContainer implements IResizeable, IDisposable {
         this.camera.setViewEffect(this.viewEffect);
         this.camera.update((double) width / height);
         post.updateTaaCamera(this.camera);
+        BlockState cameraFluid = this.cameraFluidState();
+        post.setUnderwater(cameraFluid != null
+                        && !cameraFluid.getBlock().getFluidInfo().lava,
+                this.waterVision.factor());
 
         /* Audio pro Frame: Listener auf die interpolierte Kamera (Streaming läuft oben). */
         this.soundManager.updateListener(this.camera);
         this.world.updateEntitySounds(partialTick);
 
-        this.hit = BlockRaycast.raycast(this.world, this.eyePosition, this.eyeDirection, REACH);
+        this.hit = BlockRaycast.raycastInteractive(this.world, this.eyePosition, this.eyeDirection, REACH);
         double entityReach = this.hit == null ? REACH : Math.sqrt(
                 sq(this.hit.hitX() - this.eyePosition.x)
                         + sq(this.hit.hitY() - this.eyePosition.y)
@@ -762,21 +793,34 @@ public class GameContainer implements IResizeable, IDisposable {
         this.itemFrameHit = this.world.raycastItemFrame(this.eyePosition.x, this.eyePosition.y,
                 this.eyePosition.z, this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z,
                 entityReach);
+        if (this.itemFrameHit != null && !this.world.isPlayerInteractionReady(
+                this.itemFrameHit.getAnchorX(), this.itemFrameHit.getAnchorY(),
+                this.itemFrameHit.getAnchorZ())) {
+            this.itemFrameHit = null;
+        }
         this.minecartHit = this.world.raycastMinecart(this.eyePosition.x, this.eyePosition.y,
                 this.eyePosition.z, this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z,
                 entityReach);
+        if (this.minecartHit != null && !this.world.isPlayerInteractionReady(
+                (int) Math.floor(this.minecartHit.x), (int) Math.floor(this.minecartHit.y),
+                (int) Math.floor(this.minecartHit.z))) {
+            this.minecartHit = null;
+        }
 
         if (guiOpen) {
             this.guiManager.handleInput();       // Schließen + Slot-Klicks (kann den GuiScreen schließen)
             /* Ein GuiScreen-Callback (GuiIngameMenu „Hauptmenü") kann exitToTitle() ausgelöst haben —
                dann ist die Welt weg und der Rest des Frames darf sie nicht mehr anfassen. */
-            if (this.world == null) return;
+            if (this.world == null) {
+                post.setUnderwater(false, 0F);
+                return;
+            }
         } else {
             /* Nur Klick-Flanken einsammeln — die Interaktion selbst läuft wie in MC im Tick. */
             this.pollInteractionClicks(input);
         }
 
-        /* Wireframe (F6) gilt NUR für die Welt-Geometrie: der Line-Mode ist globaler GL-State und
+        /* Wireframe (F3+V) gilt NUR für die Welt-Geometrie: der Line-Mode ist globaler GL-State und
            würde sonst auch das Fullscreen-Dreieck der Post-Kette (und die GUI-Quads) zu Linien
            machen — dann bliebe der Default-Framebuffer unbeschrieben ("eingefrorenes" Bild). */
         if (DebugFlags.wireframe) Utils.enableWireframe();
@@ -818,9 +862,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.entityHitboxRenderer.render(this.camera, this.player, this.world, partialTick);
         }
 
-        this.renderFluidOverlay();
-
-        /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Depth-Clear. */
+        /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Nah-Depthbereich. */
         if (!this.hudHidden && this.perspective.isFirstPerson()
                 && this.player.getGamemode() != Gamemode.SPECTATOR) {
             /* Licht der AUGEN-Zelle (nicht der Füße): die Hand hängt vor dem Gesicht, und in
@@ -829,6 +871,10 @@ public class GameContainer implements IResizeable, IDisposable {
             this.handRenderer.render(this.playerRenderer, this.heldItemMeshes, this.player,
                     this.animState, (float) width / height, partialTick, this.viewEffect, handLight);
         }
+
+        /* Wasser folgt als Depth-Post-Pass; Lava bleibt ein dichter Overlay und liegt damit
+           ebenfalls ueber First-Person-Hand und gehaltenem Item. */
+        this.renderLavaOverlay();
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
     }
@@ -935,7 +981,9 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.world != null && !this.hudHidden ? this.playerInventory : null,
                 this.hotbarIndex, showHotbar && !this.hudHidden,
                 !this.hudHidden && this.perspective.isFirstPerson(),
-                this.hudHidden ? 0F : this.itemNameAlpha(), this.player);
+                this.hudHidden ? 0F : this.itemNameAlpha(),
+                this.hudHidden ? "" : this.hudStatusText,
+                this.hudHidden ? 0F : this.hudStatusAlpha(), this.player);
         if (!this.hudHidden && this.world != null && !this.guiManager.isOpen()) {
             this.chatHud.render(this.guiManager, this.chat, this.guiManager.vHeight() - 40F, false);
         }
@@ -988,40 +1036,59 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /** Einblend-Alpha des Hotbar-Itemnamens: 2 s voll, dann 0,5 s linear ausblenden. */
     private float itemNameAlpha() {
-        long since = System.currentTimeMillis() - this.itemNameShownAt;
-        if (this.itemNameShownAt == 0 || since >= ITEM_NAME_HOLD_MS + ITEM_NAME_FADE_MS) return 0f;
+        return timedHudAlpha(this.itemNameShownAt);
+    }
+
+    private float hudStatusAlpha() {
+        return timedHudAlpha(this.hudStatusShownAt);
+    }
+
+    private static float timedHudAlpha(long shownAt) {
+        long since = System.currentTimeMillis() - shownAt;
+        if (shownAt == 0 || since >= ITEM_NAME_HOLD_MS + ITEM_NAME_FADE_MS) return 0f;
         if (since <= ITEM_NAME_HOLD_MS) return 1f;
         return (ITEM_NAME_HOLD_MS + ITEM_NAME_FADE_MS - since) / (float) ITEM_NAME_FADE_MS;
     }
 
-    /**
-     * Fullscreen-Tint, wenn das Kamera-Auge in einem Fluid steckt (wie Minecraft):
-     * Wasser -> blau/leicht, Lava -> orange/dicht. Gezeichnet zwischen Welt und HUD.
-     */
-    private void renderFluidOverlay() {
+    /** Liefert das Fluid, dessen echte Oberflaeche die Kamera gerade ueberdeckt. */
+    private BlockState cameraFluidState() {
         Vector3d eye = this.camera.getPosition();
         int bx = (int) Math.floor(eye.x);
         int by = (int) Math.floor(eye.y);
         int bz = (int) Math.floor(eye.z);
         BlockState state = Blocks.getState(this.world.getBlock(bx, by, bz));
-        if (!state.isFluid()) return;
-
-        /* Zelle zählt als voll, wenn darüber dasselbe Fluid steht (wie FluidGeometry),
-           sonst gilt die sichtbare Oberkante aus LEVEL/FALLING. */
-        float height = 1.0f;
         BlockState above = Blocks.getState(this.world.getBlock(bx, by + 1, bz));
-        if (!(above.isFluid() && above.getBlock() == state.getBlock())) {
-            height = FluidGeometry.fluidHeight(state);
-        }
-        if (eye.y - by >= height) return;
+        return isCameraSubmerged(eye.y, by, state, above) ? state : null;
+    }
+
+    /** Tick-Sample am echten Spielerauge; steuert Water Vision und Unterwasser-Audio. */
+    private boolean playerEyesUnderwater() {
+        double eyeY = this.player.y + this.player.getEyeHeight(1F);
+        int bx = (int) Math.floor(this.player.x);
+        int by = (int) Math.floor(eyeY);
+        int bz = (int) Math.floor(this.player.z);
+        BlockState state = Blocks.getState(this.world.getBlock(bx, by, bz));
+        BlockState above = Blocks.getState(this.world.getBlock(bx, by + 1, bz));
+        return isCameraSubmerged(eyeY, by, state, above)
+                && !state.getBlock().getFluidInfo().lava;
+    }
+
+    /** Pure Oberflaechenpruefung, getrennt vom World-Zugriff fuer Regressionstests. */
+    static boolean isCameraSubmerged(double eyeY, int blockY, BlockState state, BlockState above) {
+        if (!state.isFluid()) return false;
+        float height = above.isFluid() && above.getBlock() == state.getBlock()
+                ? 1.0F : FluidGeometry.fluidHeight(state);
+        return eyeY - blockY < height;
+    }
+
+    /** Dichtes Lava-Overlay; Wasser wird vom depth-basierten Post-Pass behandelt. */
+    private void renderLavaOverlay() {
+        BlockState state = this.cameraFluidState();
+        if (state == null || !state.getBlock().getFluidInfo().lava) return;
 
         SpriteRenderer sr = this.guiManager.sprites();
         sr.begin(1, 1); // Ortho 0..1 -> Fullscreen-Rect unabhängig vom GUI-Scale
-        if (state.getBlock().getFluidInfo().lava) {
-            sr.drawRect(0, 0, 1, 1, 0.6f, 0.1f, 0.0f, 0.8f);    // Lava: dicht, orange-rot
-        } else {
-            sr.drawRect(0, 0, 1, 1, 0.25f, 0.46f, 0.9f, 0.35f); // Wasser (an 0x4076E6 angelehnt)
-        }
+        sr.drawRect(0, 0, 1, 1, 0.6f, 0.1f, 0.0f, 0.8f);
         sr.end();
     }
 
@@ -1046,6 +1113,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.guiManager != null) this.guiManager.dispose();
         this.blockEntityRenderers.dispose();
         this.atlas.dispose();
+        this.underwaterAudio.reset();
         this.soundManager.dispose();
     }
 
@@ -1079,8 +1147,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private void startDestroyBlock() {
         BlockState state = Blocks.getState(this.hit.block());
         if (this.player.getGamemode().isInstantBreak()) {
-            this.breakTargetBlock(state, false);
-            this.destroyDelay = DESTROY_DELAY;
+            if (this.breakTargetBlock(state, false)) this.destroyDelay = DESTROY_DELAY;
             return;
         }
         if (!this.isDestroying || !this.sameDestroyTarget()) {
@@ -1108,9 +1175,9 @@ public class GameContainer implements IResizeable, IDisposable {
             return true;
         }
         if (this.player.getGamemode().isInstantBreak()) {
-            this.destroyDelay = DESTROY_DELAY;
-            this.breakTargetBlock(Blocks.getState(this.hit.block()), false);
-            return true;
+            boolean broken = this.breakTargetBlock(Blocks.getState(this.hit.block()), false);
+            if (broken) this.destroyDelay = DESTROY_DELAY;
+            return broken;
         }
         if (!this.sameDestroyTarget()) {
             this.startDestroyBlock();
@@ -1127,10 +1194,11 @@ public class GameContainer implements IResizeable, IDisposable {
 
         if (this.miningProgress >= 1F) {
             this.isDestroying = false;
-            this.breakTargetBlock(state, true);
+            boolean broken = this.breakTargetBlock(state, true);
             this.miningProgress = 0F;
             this.destroyTicks = 0F;
-            this.destroyDelay = DESTROY_DELAY;
+            if (broken) this.destroyDelay = DESTROY_DELAY;
+            return broken;
         }
         return true;
     }
@@ -1153,9 +1221,13 @@ public class GameContainer implements IResizeable, IDisposable {
      * Baut den Ziel-Block ({@code this.hit}) ab: onBreak + AIR setzen, Drop nur bei
      * dropsItems UND passendem Tool (MC-Harvest-Regel), optional Tool-Abnutzung.
      */
-    private void breakTargetBlock(BlockState broken, boolean applyDurability) {
-        this.soundManager.playBreak(broken.getBlock().getSoundGroup(),
-                this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
+    private boolean breakTargetBlock(BlockState broken, boolean applyDurability) {
+        if (this.hit == null || !this.world.isPlayerInteractionReady(
+                this.hit.x(), this.hit.y(), this.hit.z())
+                || this.world.getBlock(this.hit.x(), this.hit.y(), this.hit.z()) != broken.getId()) {
+            this.resetMining();
+            return false;
+        }
         /* Loot VOR onBreak/setBlock auswerten — solange State und BlockEntity lesbar sind. */
         ItemStack held = this.playerInventory.get(this.hotbarIndex);
         java.util.ArrayList<ItemStack> drops = new java.util.ArrayList<>(2);
@@ -1165,8 +1237,18 @@ public class GameContainer implements IResizeable, IDisposable {
                     LootContext.Cause.PLAYER, 0.0F, this.world.random());
             broken.getBlock().appendDrops(context, (stack, x, y, z) -> drops.add(stack));
         }
-        broken.getBlock().onBreak(this.world, this.hit.x(), this.hit.y(), this.hit.z(), broken);
-        this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(), Blocks.AIR);
+        int breakX = this.hit.x(), breakY = this.hit.y(), breakZ = this.hit.z();
+        boolean removed = this.world.runPlayerBlockChange(() -> {
+            broken.getBlock().onBreak(this.world, breakX, breakY, breakZ, broken);
+            return this.world.setBlock(breakX, breakY, breakZ, Blocks.AIR);
+        });
+        if (!removed) {
+            this.resetMining();
+            return false;
+        }
+
+        this.soundManager.playBreak(broken.getBlock().getSoundGroup(),
+                this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
 
         for (ItemStack drop : drops) this.world.spawnItem(this.hit.x() + 0.5,
                 this.hit.y() + 0.5, this.hit.z() + 0.5, drop);
@@ -1189,6 +1271,7 @@ public class GameContainer implements IResizeable, IDisposable {
         }
 
         this.resetMining();
+        return true;
     }
 
     /** MC-Harvest-Regel: ohne Tool-Anforderung droppt alles; sonst passende Klasse + Mindest-Tier. */
@@ -1453,7 +1536,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 || this.collidesWithEntities(place, px, py, pz)) {
             return false;
         }
-        this.world.placeBlock(px, py, pz, place);
+        if (!this.world.runPlayerBlockChange(() -> this.world.placeBlock(px, py, pz, place))) return false;
         this.soundManager.playPlace(place.getBlock().getSoundGroup(), px + 0.5, py + 0.5, pz + 0.5);
         /* Survival verbraucht den Block (Creative baut unbegrenzt, wie MC). */
         if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
@@ -1492,6 +1575,7 @@ public class GameContainer implements IResizeable, IDisposable {
         int x = this.hit.x() + direction.offsetX();
         int y = this.hit.y() + direction.offsetY();
         int z = this.hit.z() + direction.offsetZ();
+        if (!this.world.isPlayerInteractionReady(x, y, z)) return false;
         if (!this.world.placeItemFrame(x, y, z, direction)) return false;
         if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
         return true;
@@ -1527,7 +1611,8 @@ public class GameContainer implements IResizeable, IDisposable {
         int px = this.hit.x() + this.hit.faceX();
         int py = this.hit.y() + this.hit.faceY();
         int pz = this.hit.z() + this.hit.faceZ();
-        if (!this.isReplaceable(this.world.getBlock(px, py, pz))) return null;
+        if (!this.world.isPlayerInteractionReady(px, py, pz)
+                || !this.isReplaceable(this.world.getBlock(px, py, pz))) return null;
         return new int[]{px, py, pz};
     }
 
@@ -1542,8 +1627,9 @@ public class GameContainer implements IResizeable, IDisposable {
                 || (type == SlabType.TOP && this.hit.faceY() < 0);
         if (!merge) return false;
 
-        this.world.setBlock(this.hit.x(), this.hit.y(), this.hit.z(),
-                target.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId());
+        if (!this.world.runPlayerBlockChange(() -> this.world.setBlock(
+                this.hit.x(), this.hit.y(), this.hit.z(),
+                target.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId()))) return false;
         this.soundManager.playPlace(block.getSoundGroup(),
                 this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
         if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
@@ -1651,12 +1737,13 @@ public class GameContainer implements IResizeable, IDisposable {
         if (bucket.isEmpty()) {
             /* Aufnehmen: fluid-bewusster Strahl, damit Wasser/Lava als Ziel zählt. Nur eine
                Quelle (LEVEL 0, nicht fallend). */
-            BlockRaycast.Hit fhit = BlockRaycast.raycast(this.world, this.eyePosition,
+            BlockRaycast.Hit fhit = BlockRaycast.raycastInteractive(this.world, this.eyePosition,
                     this.eyeDirection, REACH, true);
             if (fhit == null) return false;
             BlockState state = Blocks.getState(fhit.block());
             if (!state.isFluid() || state.get(Properties.FALLING) || state.get(Properties.LEVEL) != 0) return false;
-            this.world.setBlock(fhit.x(), fhit.y(), fhit.z(), Blocks.AIR);
+            if (!this.world.runPlayerBlockChange(() ->
+                    this.world.setBlock(fhit.x(), fhit.y(), fhit.z(), Blocks.AIR))) return false;
             if (consume) {
                 String id = state.getBlock().getFluidInfo().lava ? "skyengine:lava_bucket" : "skyengine:water_bucket";
                 this.consumeHeld(Items.get(Identifier.of(id)));
@@ -1672,7 +1759,8 @@ public class GameContainer implements IResizeable, IDisposable {
         Block fluid = bucket.getFluid();
         int source = fluid.getDefaultState()
                 .with(Properties.LEVEL, 0).with(Properties.FALLING, false).getId();
-        this.world.setBlock(t[0], t[1], t[2], source);
+        if (!this.world.runPlayerBlockChange(() ->
+                this.world.setBlock(t[0], t[1], t[2], source))) return false;
         this.world.scheduleTick(t[0], t[1], t[2], 1);
         if (consume) this.consumeHeld(Items.get(Identifier.of("skyengine:bucket")));
         return true;
@@ -1735,7 +1823,15 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         /* Mausrad: hoch = vorheriger Slot, runter = nächster (mit Wrap), wie in Minecraft. */
         double scroll = input.getScrollY();
-        if (scroll > 0) {
+        if (this.player.getGamemode() == Gamemode.SPECTATOR && scroll != 0) {
+            float beforeSpeed = this.player.getSpectatorFlySpeed();
+            this.player.adjustSpectatorFlySpeed(scroll);
+            float speed = this.player.getSpectatorFlySpeed();
+            if (speed != beforeSpeed) {
+                this.hudStatusText = I18n.tr("gui.hud.spectator_speed", Math.round(speed * 100F));
+                this.hudStatusShownAt = System.currentTimeMillis();
+            }
+        } else if (scroll > 0) {
             this.hotbarIndex = (this.hotbarIndex + 8) % 9;
         } else if (scroll < 0) {
             this.hotbarIndex = (this.hotbarIndex + 1) % 9;
@@ -1789,18 +1885,32 @@ public class GameContainer implements IResizeable, IDisposable {
         /* F3-Overlay + F3+X-Kombi-Gerüst (Minecraft-Stil): wurde während des Haltens eine Kombi
            benutzt, unterdrückt das den Overlay-Toggle beim Loslassen. Weitere F3+X hier ergänzen. */
         if (input.isKeyDown(GLFW.GLFW_KEY_F3) && !this.guiManager.isOpen()) {
-            if (input.isKeyPressed(GLFW.GLFW_KEY_B)) {
+            if (input.consumeKeyPress(GLFW.GLFW_KEY_B)) {
                 DebugFlags.entityHitboxes = !DebugFlags.entityHitboxes;
                 this.logger.debug("Entity-Hitboxen: " + (DebugFlags.entityHitboxes ? "an" : "aus"));
+                this.addDebugMessage("chat.debug.entity_hitboxes",
+                        DebugFlags.entityHitboxes ? "gui.on" : "gui.off");
                 this.f3ComboUsed = true;
             }
-            if (input.isKeyPressed(GLFW.GLFW_KEY_G)) {
+            if (input.consumeKeyPress(GLFW.GLFW_KEY_G)) {
                 DebugFlags.chunkBorders = (DebugFlags.chunkBorders + 1) % 3;
                 this.logger.debug("Chunk-Grenzen: " + switch (DebugFlags.chunkBorders) {
                     case 1 -> "Chunk";
                     case 2 -> "Chunk + Sections";
                     default -> "aus";
                 });
+                this.addDebugMessage("chat.debug.chunk_borders", switch (DebugFlags.chunkBorders) {
+                    case 1 -> "chat.debug.chunk";
+                    case 2 -> "chat.debug.chunk_sections";
+                    default -> "gui.off";
+                });
+                this.f3ComboUsed = true;
+            }
+            if (input.consumeKeyPress(GLFW.GLFW_KEY_V)) {
+                DebugFlags.wireframe = !DebugFlags.wireframe;
+                this.logger.debug("Wireframe: " + (DebugFlags.wireframe ? "an" : "aus"));
+                this.addDebugMessage("chat.debug.wireframe",
+                        DebugFlags.wireframe ? "gui.on" : "gui.off");
                 this.f3ComboUsed = true;
             }
         }
@@ -1824,6 +1934,11 @@ public class GameContainer implements IResizeable, IDisposable {
         }
     }
 
+    /** Minecraft-artige lokale Statusmeldung für F3-Debug-Kombinationen. */
+    private void addDebugMessage(String messageKey, String valueKey) {
+        this.chat.addMessage("§e" + I18n.tr(messageKey, I18n.tr(valueKey)));
+    }
+
     private void openChat(String initial) {
         this.guiManager.open(new GuiChat(this.chat, new CommandContext(this.playerInventory),
                 this.chatHud, initial));
@@ -1845,6 +1960,18 @@ public class GameContainer implements IResizeable, IDisposable {
         boolean requested = this.screenshotRequested;
         this.screenshotRequested = false;
         return requested;
+    }
+
+    /** Zeigt das Ergebnis des nach dem GUI aufgenommenen F2-Screenshots im Chat an. */
+    public void notifyScreenshotResult(File screenshot) {
+        if (screenshot == null) {
+            this.chat.addMessage("§c" + I18n.tr("chat.screenshot_failed"));
+            return;
+        }
+        RichText message = RichText.of(List.of(
+                new Span(I18n.tr("chat.screenshot_saved"), FontStyle.REGULAR, null),
+                new Span(screenshot.getName(), FontStyle.REGULAR, TextColors.parse("aqua"))));
+        this.chat.addMessage(message, 1, screenshot.toPath());
     }
 
     public Camera getCamera() {

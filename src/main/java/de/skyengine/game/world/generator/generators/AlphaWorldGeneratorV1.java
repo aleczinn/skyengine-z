@@ -8,6 +8,11 @@ import de.skyengine.utils.math.FastNoiseLite;
 
 public class AlphaWorldGeneratorV1 extends WorldGenerator {
 
+    @Override
+    public int lodWorldBottomState() {
+        return Blocks.BEDROCK;
+    }
+
     private final FastNoiseLite noise;
 
     public AlphaWorldGeneratorV1(int seed) {

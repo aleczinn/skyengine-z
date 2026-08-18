@@ -47,7 +47,7 @@ Verdrahtete Tasten (KeyBindings bzw. GameContainer):
 
 | Taste | Wirkung |
 |---|---|
-| F2 | Screenshot nach `%APPDATA%\.skyengine\screenshots\` (aus dem fertigen Default-Framebuffer inkl. GUI, vor dem Present) |
+| F2 | Screenshot nach `%APPDATA%\.skyengine\screenshots\` (aus dem fertigen Default-Framebuffer inkl. GUI, vor dem Present); der Dateiname erscheint anklickbar im Chat und öffnet/markiert die Datei im System-Dateimanager |
 | F3 | Debug-Overlay; **F3+B** Hitboxen, **F3+G** Chunk-Grenzen |
 | F5 | Perspektive (Ego/hinten/vorne) |
 | G | Gamemode durchschalten (Survival/Creative/Spectator) |

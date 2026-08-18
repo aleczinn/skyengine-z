@@ -262,20 +262,32 @@ public class Chunk {
        ALLE Chunks scannt. Vom ChunkManager beim Anlegen gesetzt; null in Tools/Tests. */
     ConcurrentLinkedQueue<Chunk> remeshQueue;
     private final AtomicBoolean remeshEnqueued = new AtomicBoolean(false);
+    private static final int PLAYER_DIRTY_BIT = 1 << 30;
+
+    public record DirtySections(int mask, boolean player) {}
 
     public void markSectionDirty(int sectionIndex) {
-        this.markSectionsDirty(1 << sectionIndex);
+        this.markSectionsDirty(1 << sectionIndex, false);
+    }
+
+    public void markSectionDirty(int sectionIndex, boolean player) {
+        this.markSectionsDirty(1 << sectionIndex, player);
     }
 
     /** Mehrere Sections auf einmal dirty markieren (Massen-Edits: EIN CAS statt n).
      *  Expliziter CAS-Loop statt getAndUpdate — das capturing Lambda allozierte pro Aufruf. */
     public void markSectionsDirty(int mask) {
+        this.markSectionsDirty(mask, false);
+    }
+
+    public void markSectionsDirty(int mask, boolean player) {
         if (mask == 0) return;
+        int marked = mask | (player ? PLAYER_DIRTY_BIT : 0);
         int prev;
         do {
             prev = this.dirtySections.get();
-            if ((prev | mask) == prev) break; // schon gesetzt
-        } while (!this.dirtySections.compareAndSet(prev, prev | mask));
+            if ((prev | marked) == prev) break; // schon gesetzt
+        } while (!this.dirtySections.compareAndSet(prev, prev | marked));
         this.enqueueRemesh();
     }
 
@@ -291,14 +303,15 @@ public class Chunk {
     }
 
     public boolean hasDirtySections() {
-        return this.dirtySections.get() != 0;
+        return (this.dirtySections.get() & ~PLAYER_DIRTY_BIT) != 0;
     }
 
     /**
      * Holt die Maske ab und setzt sie atomar auf 0.
      */
-    public int consumeDirtySections() {
-        return this.dirtySections.getAndSet(0);
+    public DirtySections consumeDirtySections() {
+        int state = this.dirtySections.getAndSet(0);
+        return new DirtySections(state & ~PLAYER_DIRTY_BIT, (state & PLAYER_DIRTY_BIT) != 0);
     }
 
     /** Markiert eine persistente Mutation. Nur der Tick-/Render-Thread darf diese Methode aufrufen. */

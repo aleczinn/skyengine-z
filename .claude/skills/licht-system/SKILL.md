@@ -292,9 +292,9 @@ vorliegt. `getBlockLight` hat dasselbe LIT-Gate wie `getSkyLight`, aber Fallback
 **Die GUI-Pfade setzen hart `1.0F`** (Inventar-Vorschau, Item/Truhe in der Vorschauhand,
 Slot-Icons): sie teilen sich die Shader mit der Welt und würden sonst mit der Höhle abdunkeln.
 
-Item-Icons und LOD-Terrain bleiben außen vor; LOD bekommt pauschal Himmel 15 / Blocklicht 0
-(s. Skill `lod-system`) — jenseits der Renderdistanz zeigt es nur Oberfläche, wo der Himmel
-ohnehin dominiert.
+Item-Icons bleiben außen vor. LOD verwendet kein `LightStorage`: freie Oberflächen bekommen
+Himmel 15, sichtbarer Meeresboden und Unterwasserwände eine analytische Dämpfung um eine Stufe
+pro Block Wassertiefe; Blocklicht bleibt 0 (s. Skill `lod-system`).
 
 ## Persistenz
 

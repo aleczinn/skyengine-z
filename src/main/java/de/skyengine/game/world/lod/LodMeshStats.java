@@ -21,9 +21,8 @@ import java.util.Locale;
  *       Quad-Kante. Das ist die eigentliche Antwort auf „welcher Faktor begrenzt".</li>
  * </ul>
  *
- * <p><b>Licht:</b> Die Engine hat kein Lichtsystem (Helligkeit = feste Face-Brightness × AO);
- * es gibt keinen per-Zelle-Lichtwert, der einen Merge brechen könnte. Eine „Licht"-Kategorie
- * wäre strukturell immer 0 und ist deshalb bewusst nicht vorhanden.
+ * <p><b>Licht:</b> Freie LOD-Oberflächen tragen Skylight 15; Meeresboden-Zellen werden anhand
+ * ihrer Wassertiefe abgedunkelt. Unterschiedliche Tiefen können deshalb einen Merge brechen.
  */
 public final class LodMeshStats {
 
@@ -41,12 +40,14 @@ public final class LodMeshStats {
 
     /* --- Merge-Grenzen im Terrain-Top-Raster (Adjazenzen nach Ursache) ---
        Gezählt wird jede interne +x-/+z-Nachbarschaft der Regionszellen [0,n)² GENAU EINMAL.
-       Priorität der Ursachen bei Mehrfach-Unterschied: Material > Höhe > AO (der „härtere"
+       Priorität der Ursachen bei Mehrfach-Unterschied: Material > Höhe > Licht > AO (der „härtere"
        Grund gewinnt; dokumentiert, damit die Summen eindeutig sind). */
     /** Nachbarblock verschieden (Textur-/Materialnaht). */
     public long seamMaterial;
     /** Gleicher Block, andere Boden-Höhe (Reliefstufe — Quelle der meisten Wände). */
     public long seamHeight;
+    /** Gleicher Block und gleiche Höhe, aber andere Wasser-Tiefenabdunklung. */
+    public long seamLight;
     /** Gleicher Block UND gleiche Höhe, aber AO-Ecken nicht kompatibel (nur bei AO an). */
     public long seamAo;
     /** Nachbar zeigt echtes Terrain (16-Bit-Maske) — extern, kein Greedy-Limiter im engeren Sinn. */
@@ -67,7 +68,8 @@ public final class LodMeshStats {
     public void reset() {
         this.topTerrain = this.topWater = 0;
         this.wallTerrain = this.wallOverlay = this.wallWater = 0;
-        this.seamMaterial = this.seamHeight = this.seamAo = this.seamClipped = this.seamMergeable = 0;
+        this.seamMaterial = this.seamHeight = this.seamLight = this.seamAo = 0;
+        this.seamClipped = this.seamMergeable = 0;
         this.wallRealStep = this.wallEdgeSkirt = this.wallMaskSkirt = 0;
     }
 
@@ -92,19 +94,19 @@ public final class LodMeshStats {
         System.out.printf(Locale.ROOT, "  %-24s %12d%n", "= Gesamt", total);
 
         /* 2. Merge-Grenzen: welcher Faktor blockiert die Top-Zusammenfassung? */
-        long seams = this.seamMaterial + this.seamHeight + this.seamAo + this.seamClipped;
+        long seams = this.seamMaterial + this.seamHeight + this.seamLight
+                + this.seamAo + this.seamClipped;
         long adjacencies = seams + this.seamMergeable;
         System.out.println("Merge-Grenzen Terrain-Tops (blockierte Zell-Adjazenzen nach Ursache):");
         printLine("  Höhe (Reliefstufe)", this.seamHeight, seams);
         printLine("  Material (Blocknaht)", this.seamMaterial, seams);
+        printLine("  Licht (Wassertiefe)", this.seamLight, seams);
         printLine("  AO (Eckwerte)", this.seamAo, seams);
         printLine("  Clip (Chunk-Maske)", this.seamClipped, seams);
         System.out.printf(Locale.ROOT, "  %-24s %12d (%.1f%% aller %d Adjazenzen)%n",
                 "= blockierte Kanten", seams,
                 adjacencies == 0 ? 0.0 : 100.0 * seams / adjacencies, adjacencies);
         System.out.printf(Locale.ROOT, "  %-24s %12d%n", "  mergebar (frei)", this.seamMergeable);
-        System.out.println("  Licht: n/a (Engine hat kein Lichtsystem)");
-
         /* 3. Wände/Skirts */
         System.out.println("Terrain-Wände nach Grund:");
         printLine("  echte Reliefstufe", this.wallRealStep, this.wallTerrain);

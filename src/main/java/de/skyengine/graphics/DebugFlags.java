@@ -8,7 +8,7 @@ package de.skyengine.graphics;
  */
 public final class DebugFlags {
 
-    /** Welt als Wireframe zeichnen (renderWorld setzt den GL-Line-Mode eng um den Welt-Draw). */
+    /** Welt als Wireframe zeichnen (per F3+V oder Debug-Menü umschaltbar). */
     public static volatile boolean wireframe = false;
 
     /** Entity-Hitboxen und Blickrichtungen zeichnen (per F3+B umschaltbar). */
@@ -25,6 +25,13 @@ public final class DebugFlags {
      * dadurch verzerrt. Jetzt eigener Schalter, Default AUS.
      */
     public static volatile boolean lodLevelSplit = false;
+
+    /**
+     * Färbt echte Chunk-Meshes als L0 und Fern-Meshes nach ihrem LOD-Level. Zellen, in denen
+     * ein interaktiver L0-Chunk noch unter einem sichtbaren LOD liegt, werden zusätzlich
+     * magenta markiert. Reiner Shader-/Draw-Metadaten-Debug, kein Remesh.
+     */
+    public static volatile boolean lodLevelColors = false;
 
     /**
      * Trefferflächen der Inventar-Slots einfärben (jeder Slot eine eigene Farbe). Macht tote

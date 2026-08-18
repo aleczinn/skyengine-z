@@ -507,7 +507,18 @@ public class ChunkMesher {
                     if (!state.isFluid()) continue;
                     if (!FluidGeometry.isMergeableFlatStillTop(state, this.chunk, this.north, this.south,
                             this.west, this.east, this.diagonals, x, worldY, z)) continue;
-                    grid[z << ChunkSection.SHIFT | x] = ((long) stateId) + 1L; // +1: 0 bleibt „leer"
+                    boolean backward = FluidGeometry.shouldRenderBackwardUpFace(this.chunk, this.north,
+                            this.south, this.west, this.east, this.diagonals,
+                            x, worldY, z, state.getBlock());
+                    long key = ((((long) stateId) + 1L) << 1) | (backward ? 1L : 0L);
+                    /* Ein einziges großes Wasser-Quad kann nicht zugleich vor und hinter den
+                       einzelnen Faces eines transparenten Vollblocks sortiert werden. Nur am
+                       direkten Kontakt zu Eis/Glas bekommt die Zelle deshalb einen eindeutigen
+                       oberen Schlüssel und bleibt 1x1; der gesamte offene Rest bleibt greedy. */
+                    if (this.touchesSolidTranslucent(x, worldY, z)) {
+                        key |= ((long) ((z << ChunkSection.SHIFT | x) + 1)) << 32;
+                    }
+                    grid[z << ChunkSection.SHIFT | x] = key;
                     this.mergedWaterTop[snapIndex(x, y, z)] = true;
                     any = true;
                 }
@@ -536,11 +547,27 @@ public class ChunkMesher {
                         for (int i = 0; i < w; i++) grid[(z + j) << ChunkSection.SHIFT | (x + i)] = 0L;
                     }
 
-                    this.emitWaterTop(buffer, (int) (key - 1L), x, y, worldY, z, w, h);
+                    boolean backward = (key & 1L) != 0L;
+                    int stateId = (int) (((key & 0xFFFFFFFFL) >>> 1) - 1L);
+                    this.emitWaterTop(buffer, stateId, backward, x, y, worldY, z, w, h);
                     x += w - 1;
                 }
             }
         }
+    }
+
+    /** Konfliktzone, in der ein Greedy-Top lokal pro Fluidzelle sortierbar bleiben muss. */
+    private boolean touchesSolidTranslucent(int x, int worldY, int z) {
+        return isSolidTranslucent(this.sample(x - 1, worldY, z))
+                || isSolidTranslucent(this.sample(x + 1, worldY, z))
+                || isSolidTranslucent(this.sample(x, worldY, z - 1))
+                || isSolidTranslucent(this.sample(x, worldY, z + 1))
+                || isSolidTranslucent(this.sample(x, worldY + 1, z));
+    }
+
+    private static boolean isSolidTranslucent(int stateId) {
+        BlockState state = BlockRegistry.getState(stateId);
+        return state.isSolid() && !state.isFluid() && state.getRenderLayer() == RenderLayer.TRANSLUCENT;
     }
 
     /**
@@ -553,7 +580,8 @@ public class ChunkMesher {
      * 15, und ein Licht-Schlüssel würde die großen Ozean-Quads an jeder Uferschattierung
      * zerreißen.</p>
      */
-    private void emitWaterTop(VertexBuffer buffer, int stateId, int x, int localY, int worldY, int z, int w, int h) {
+    private void emitWaterTop(VertexBuffer buffer, int stateId, boolean backward,
+                              int x, int localY, int worldY, int z, int w, int h) {
         BlockState state = BlockRegistry.getState(stateId);
         FluidInfo info = state.getBlock().getFluidInfo();
         int layer = info.stillLayer;
@@ -562,14 +590,20 @@ public class ChunkMesher {
         float r = brightness * ((tint >> 16) & 0xFF) / 255F;
         float g = brightness * ((tint >> 8) & 0xFF) / 255F;
         float b = brightness * (tint & 0xFF) / 255F;
-        float y = localY + FluidGeometry.SOURCE_HEIGHT;
+        float y = localY + FluidGeometry.SOURCE_HEIGHT - FluidGeometry.TOP_RENDER_EPSILON;
         int light = this.samplePackedLight(x, worldY + 1, z);
 
-        buffer.ensure(4 * VERTEX_SIZE);
+        buffer.ensure((backward ? 8 : 4) * VERTEX_SIZE);
         putVertex(buffer, x, y, z, 0F, 0F, layer, r, g, b, light);
         putVertex(buffer, x, y, z + h, 0F, h, layer, r, g, b, light);
         putVertex(buffer, x + w, y, z + h, w, h, layer, r, g, b, light);
         putVertex(buffer, x + w, y, z, w, 0F, layer, r, g, b, light);
+        if (backward) {
+            putVertex(buffer, x + w, y, z, w, 0F, layer, r, g, b, light);
+            putVertex(buffer, x + w, y, z + h, w, h, layer, r, g, b, light);
+            putVertex(buffer, x, y, z + h, 0F, h, layer, r, g, b, light);
+            putVertex(buffer, x, y, z, 0F, 0F, layer, r, g, b, light);
+        }
     }
 
     /**

@@ -45,8 +45,7 @@ import de.skyengine.game.world.light.LightEngine;
 import de.skyengine.game.world.lod.LodBlockAppearance;
 import de.skyengine.game.world.lod.LodDataSource;
 import de.skyengine.game.world.lod.LodManager;
-import de.skyengine.game.world.lod.StorageLodDataSource;
-import de.skyengine.game.world.lod.WorldLodDataSource;
+import de.skyengine.game.world.lod.PersistentLodDataSource;
 import de.skyengine.game.world.redstone.RedstonePower;
 import de.skyengine.game.world.redstone.RedstoneWireNetwork;
 import de.skyengine.game.world.tick.SavedTick;
@@ -74,22 +73,37 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Random;
 import java.util.function.Consumer;
+import java.util.function.BooleanSupplier;
 
 public class World implements IInitializable, IDisposable {
 
     private final Logger logger = LogManager.getLogger(World.class.getName());
+    /* Synchronous player action scope. Nested block behavior mutations inherit the origin. */
+    private int playerBlockChangeDepth;
+
+    public boolean runPlayerBlockChange(BooleanSupplier action) {
+        this.playerBlockChangeDepth++;
+        try {
+            return action.getAsBoolean();
+        } finally {
+            this.playerBlockChangeDepth--;
+        }
+    }
 
     private final String name;
 
     private final WorldGenerator generator;
+    private final ChunkDecorator decorator;
     private final ChunkManager chunkManager;
     /* Chunk-Persistenz (Region-Dateien + eigener IO-Thread); Flush in dispose(). */
     private final WorldStorage storage;
     /* worldType "imported" — steuert u.a. die LOD-Datenquelle (Storage statt Generator). */
     private final boolean imported;
     private final ChunkRenderer chunkRenderer;
-    /* Heightmap-LOD jenseits der Render-Distanz; erst in init() erzeugt (braucht gebackene Modelle) */
+    /* Mehrschichtiges Spalten-LOD jenseits der Render-Distanz; init() braucht gebackene Modelle. */
     private LodManager lodManager;
+    private PersistentLodDataSource persistentLodSource;
+    private final int generatorVersion;
     /* Engine-Lebensdauer (GameContainer): Atlas + BlockEntity-Renderer überleben Welt-Austritte —
        die Welt hält nur Referenzen und disposed sie NICHT. */
     private final BlockTextureAtlas atlas;
@@ -245,13 +259,13 @@ public class World implements IInitializable, IDisposable {
         this.imported = imported;
         if (imported) {
             this.generator = new VoidWorldGenerator(level.seed);
-            this.chunkManager = new ChunkManager(this.generator,
-                    new ChunkDecorator(this.generator, List.of()));
+            this.decorator = new ChunkDecorator(this.generator, List.of());
+            this.chunkManager = new ChunkManager(this.generator, this.decorator);
         } else {
             this.generator = new AlphaWorldGeneratorV2(level.seed);
             /* Feature-Pass (Dekoration): biome-abhaengige Baeume (featureId 0) */
-            this.chunkManager = new ChunkManager(this.generator,
-                    new ChunkDecorator(this.generator, List.of(new BiomeTreeFeature())));
+            this.decorator = new ChunkDecorator(this.generator, List.of(new BiomeTreeFeature()));
+            this.chunkManager = new ChunkManager(this.generator, this.decorator);
             if (level.generatorVersion != null && level.generatorVersion != AlphaWorldGeneratorV2.VERSION) {
                 this.logger.warning("Welt wurde mit Generator-Version " + level.generatorVersion
                         + " erstellt, Engine hat Version " + AlphaWorldGeneratorV2.VERSION
@@ -264,10 +278,10 @@ public class World implements IInitializable, IDisposable {
            speichern nur modifizierte Chunks (Tints werden beim Laden neu berechnet),
            importierte alle (Tints im Payload). */
         String generatorId = level.generator != null ? level.generator : (imported ? "minecraft_import" : "alpha_v2");
-        int generatorVersion = level.generatorVersion != null ? level.generatorVersion
+        this.generatorVersion = level.generatorVersion != null ? level.generatorVersion
                 : (imported ? 1 : AlphaWorldGeneratorV2.VERSION);
         this.storage = new WorldStorage(new File(GameDirectory.resolve("saves"), dirName + "/region"),
-                this, this.generator, generatorId, generatorVersion, imported);
+                this, this.generator, generatorId, this.generatorVersion, imported);
         this.chunkManager.setStorage(this.storage);
     }
 
@@ -324,9 +338,11 @@ public class World implements IInitializable, IDisposable {
            erst nach dem Registry-Bake. Importierte Welten sampeln die Region-Snapshots
            (der Void-Generator kennt kein Terrain), generierte wie bisher Chunkdaten +
            Generator-Noise. */
-        LodDataSource lodSource = this.imported
-                ? new StorageLodDataSource(this.storage)
-                : new WorldLodDataSource(this.chunkManager, this.generator);
+        this.persistentLodSource = new PersistentLodDataSource(this.chunkManager, this.storage,
+                this.generator, this.decorator, this.imported,
+                new File(GameDirectory.resolve("saves"), this.name + "/lod"),
+                this.imported ? this.generatorVersion : AlphaWorldGeneratorV2.VERSION);
+        LodDataSource lodSource = this.persistentLodSource;
         this.lodManager = new LodManager(lodSource, new LodBlockAppearance(), this.chunkManager);
         this.chunkRenderer.setLodManager(this.lodManager);
         this.chunkManager.setLodManager(this.lodManager); // Unload-Gate: erst entladen, wenn LOD deckt
@@ -1359,6 +1375,29 @@ public class World implements IInitializable, IDisposable {
         return chunk != null && chunk.status == ChunkStatus.READY;
     }
 
+    /**
+     * Ob der Spieler diese Zelle bereits wirklich sehen und damit sicher anvisieren darf.
+     *
+     * <p>{@link ChunkStatus#READY} bedeutet nur, dass alle initialen Section-Meshes erzeugt und
+     * zum Upload eingereiht wurden. Bis der Renderer sie komplett uebernommen und das LOD-Mesh
+     * passend geclippt hat, kann noch ein sichtbarer LOD-Proxy ueber dem echten Chunk liegen.
+     * In diesem Uebergang duerfen weder Auswahl noch Interaktionen auf die verdeckten L0-Daten
+     * zugreifen.</p>
+     */
+    public boolean isPlayerInteractionReady(int x, int y, int z) {
+        if (y < 0 || y >= Chunk.HEIGHT) return false;
+        int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+        Chunk chunk = this.chunkManager.getChunk(cx, cz);
+        boolean lodShowsCell = this.lodManager != null && this.lodManager.lodShowsCell(cx, cz);
+        return isPlayerInteractionReady(chunk, lodShowsCell);
+    }
+
+    /** Pure Statusmatrix fuer Tests und den oeffentlichen Weltkoordinaten-Pfad oben. */
+    static boolean isPlayerInteractionReady(Chunk chunk, boolean lodShowsCell) {
+        return chunk != null && chunk.status == ChunkStatus.READY && chunk.isFullyUploaded()
+                && !chunk.pendingUnload && !lodShowsCell;
+    }
+
     public void render(Camera camera, float partialTick) {
         this.render(camera, partialTick, null);
     }
@@ -1387,6 +1426,7 @@ public class World implements IInitializable, IDisposable {
            Mesh-Jobs dürfen beim Welt-Austritt nicht mehr laufen, wenn Arenen/Meshes sterben —
            sonst arbeiten Alt-Jobs beim direkten Wiedereintritt in die neue Welt hinein. */
         this.chunkManager.dispose();
+        if (this.persistentLodSource != null) this.persistentLodSource.close();
         /* NACH den Workern: jetzt schreibt niemand mehr auf Chunks — ausstehende Save-Jobs
            flushen (bis 10 s) und die Region-Handles schließen. */
         this.storage.close();
@@ -1529,13 +1569,14 @@ public class World implements IInitializable, IDisposable {
      * Nachbar-Updates aus. Das Ordering ist entscheidend - sonst entfernt sich z.B. die
      * untere Türhälfte selbst, bevor die obere existiert.
      */
-    public void placeBlock(int x, int y, int z, BlockState state) {
+    public boolean placeBlock(int x, int y, int z, BlockState state) {
         /* Schlägt der Schreibzugriff fehl (Chunk nicht READY), dürfen onPlaced/updateNeighbors
            NICHT laufen — PartsBehavior setzte sonst Geschwisterteile für einen Ursprung,
            der nie geschrieben wurde. */
-        if (!this.setBlock(x, y, z, state.getId(), false)) return;
+        if (!this.setBlock(x, y, z, state.getId(), false)) return false;
         state.getBlock().onPlaced(this, x, y, z, state);
         this.updateNeighbors(x, y, z);
+        return true;
     }
 
     /**
@@ -1594,23 +1635,24 @@ public class World implements IInitializable, IDisposable {
         } finally {
             chunk.writeLock().unlock();
         }
-        chunk.markSectionDirty(sy);
+        boolean playerChange = this.playerBlockChangeDepth > 0;
+        chunk.markSectionDirty(sy, playerChange);
 
         /* Vertikale Section-Grenzen */
-        if ((y & ChunkSection.MASK) == 0 && sy > 0) chunk.markSectionDirty(sy - 1);
-        if ((y & ChunkSection.MASK) == ChunkSection.MASK && sy < Chunk.SECTIONS - 1) chunk.markSectionDirty(sy + 1);
+        if ((y & ChunkSection.MASK) == 0 && sy > 0) chunk.markSectionDirty(sy - 1, playerChange);
+        if ((y & ChunkSection.MASK) == ChunkSection.MASK && sy < Chunk.SECTIONS - 1) chunk.markSectionDirty(sy + 1, playerChange);
 
 
         /* An Chunk-Grenzen muss der Nachbar mit-remeshen, sonst bleiben dort falsche Faces */
-        if (lx == 0) this.markDirtyColumn(cx - 1, cz, sy, y);
-        if (lx == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz, sy, y);
-        if (lz == 0) this.markDirtyColumn(cx, cz - 1, sy, y);
-        if (lz == ChunkSection.MASK) this.markDirtyColumn(cx, cz + 1, sy, y);
+        if (lx == 0) this.markDirtyColumn(cx - 1, cz, sy, y, playerChange);
+        if (lx == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz, sy, y, playerChange);
+        if (lz == 0) this.markDirtyColumn(cx, cz - 1, sy, y, playerChange);
+        if (lz == ChunkSection.MASK) this.markDirtyColumn(cx, cz + 1, sy, y, playerChange);
         /* Chunk-ECKEN zusätzlich diagonal: dessen Fluid-Eckhöhen sampeln diese Zelle. */
-        if (lx == 0 && lz == 0) this.markDirtyColumn(cx - 1, cz - 1, sy, y);
-        if (lx == 0 && lz == ChunkSection.MASK) this.markDirtyColumn(cx - 1, cz + 1, sy, y);
-        if (lx == ChunkSection.MASK && lz == 0) this.markDirtyColumn(cx + 1, cz - 1, sy, y);
-        if (lx == ChunkSection.MASK && lz == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz + 1, sy, y);
+        if (lx == 0 && lz == 0) this.markDirtyColumn(cx - 1, cz - 1, sy, y, playerChange);
+        if (lx == 0 && lz == ChunkSection.MASK) this.markDirtyColumn(cx - 1, cz + 1, sy, y, playerChange);
+        if (lx == ChunkSection.MASK && lz == 0) this.markDirtyColumn(cx + 1, cz - 1, sy, y, playerChange);
+        if (lx == ChunkSection.MASK && lz == ChunkSection.MASK) this.markDirtyColumn(cx + 1, cz + 1, sy, y, playerChange);
 
         /* Himmelslicht nachziehen. Die Markierungen oben decken nur den 1-Block-Ring von
            Geometrie und AO ab — Licht reicht deutlich weiter (eine gekappte Direkt-Säule
@@ -2256,17 +2298,17 @@ public class World implements IInitializable, IDisposable {
      * Section darüber/darunter des Nachbarn an ihm — ohne diese Markierung bliebe dort dauerhaft
      * ein falscher AO-Wert stehen.
      */
-    private void markDirtyColumn(int cx, int cz, int sectionY, int y) {
-        this.markDirty(cx, cz, sectionY);
+    private void markDirtyColumn(int cx, int cz, int sectionY, int y, boolean player) {
+        this.markDirty(cx, cz, sectionY, player);
         if ((y & ChunkSection.MASK) == 0 && sectionY > 0) {
-            this.markDirty(cx, cz, sectionY - 1);
+            this.markDirty(cx, cz, sectionY - 1, player);
         }
         if ((y & ChunkSection.MASK) == ChunkSection.MASK && sectionY < Chunk.SECTIONS - 1) {
-            this.markDirty(cx, cz, sectionY + 1);
+            this.markDirty(cx, cz, sectionY + 1, player);
         }
     }
 
-    private void markDirty(int cx, int cz, int sectionY) {
+    private void markDirty(int cx, int cz, int sectionY, boolean player) {
         Chunk chunk = this.chunkManager.getChunk(cx, cz);
 
         /* isAtLeast(LIT) statt == READY: ein Nachbar im MESHING-Fenster (unlockRead vor dem
@@ -2276,7 +2318,7 @@ public class World implements IInitializable, IDisposable {
            Remesh-Gate in processRemeshes verlangt weiterhin READY — schlimmstenfalls also ein
            redundanter Remesh, exakt wie bei den Markierungen der LightEngine. */
         if (chunk != null && chunk.status.isAtLeast(ChunkStatus.LIT)) {
-            chunk.markSectionDirty(sectionY);
+            chunk.markSectionDirty(sectionY, player);
         }
     }
 

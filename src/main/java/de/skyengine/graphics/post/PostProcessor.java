@@ -7,6 +7,7 @@ import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.post.passes.AntiAliasingPass;
 import de.skyengine.graphics.post.passes.ColorGradingPass;
 import de.skyengine.graphics.post.passes.MenuBlurPass;
+import de.skyengine.graphics.post.passes.UnderwaterFogPass;
 import org.joml.Vector2f;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -22,7 +23,7 @@ import java.util.List;
 
 /**
  * Besitzer der Post-Processing-Kette: hält {@link PostContext}, Settings-UBO und die
- * geordnete {@link PostPass}-Liste (Phase 1: ColorGrading → AntiAliasing). Verkettung:
+ * geordnete {@link PostPass}-Liste (ColorGrading → UnderwaterFog → AntiAliasing). Verkettung:
  * Eingang des ersten Passes ist die aufgelöste Szene ({@code sceneColor}), inaktive Pässe
  * werden übersprungen, der letzte aktive Pass schreibt in den Default-Framebuffer, alle
  * davor in die LDR-Ping-Pong-Ziele des Contexts. Spätere Pässe (Bloom, AutoExposure,
@@ -64,6 +65,8 @@ public class PostProcessor implements IDisposable {
     private final PostContext context = new PostContext();
     private final List<PostPass> passes = new ArrayList<>();
     private final MenuBlurPass menuBlur = new MenuBlurPass();
+    private final UnderwaterFogPass underwaterFog = new UnderwaterFogPass();
+    private final AntiAliasingPass antiAliasing = new AntiAliasingPass();
     private PostProcessingSettings settings;
     private int ubo;
 
@@ -83,10 +86,13 @@ public class PostProcessor implements IDisposable {
         GL15.glBindBuffer(GL31.GL_UNIFORM_BUFFER, 0);
 
         this.context.settings = this.settings;
+        this.context.reversedDepth = de.skyengine.core.SkyEngine.get().getWindow()
+                .getProperties().isUseInverseDepth();
         this.context.create(width, height);
 
         this.passes.add(new ColorGradingPass());
-        this.passes.add(new AntiAliasingPass());
+        this.passes.add(this.underwaterFog);
+        this.passes.add(this.antiAliasing);
         /* Menü-Blur als LETZTER Pass: nur aktiv bei offenem Pause-Menü (Stärke > 0) —
            dann übernimmt er automatisch das Default-FBO (Last-Active-Mechanik der Kette). */
         this.passes.add(this.menuBlur);
@@ -102,6 +108,14 @@ public class PostProcessor implements IDisposable {
     /** 1×/Frame (GameContainer): Menü-Blur an/aus — die Stärke blendet zeitbasiert nach. */
     public void setMenuBlur(boolean active) {
         this.menuBlur.setTarget(active);
+    }
+
+    /** Aktiviert den Wassernebel und übergibt Minecrafts tickbasierten Water-Vision-Faktor. */
+    public void setUnderwater(boolean underwater, float waterVision) {
+        this.context.waterVision = Math.clamp(waterVision, 0F, 1F);
+        if (this.context.underwater == underwater) return;
+        this.context.underwater = underwater;
+        this.antiAliasing.invalidateHistory();
     }
 
     /**
@@ -159,7 +173,7 @@ public class PostProcessor implements IDisposable {
     public void render(FrameBuffer frameBuffer) {
         this.context.frame++;
         this.context.sceneColor = frameBuffer.getColorTexture();
-        this.context.sceneDepth = frameBuffer.getDepthTexture();
+        this.context.sceneDepth = frameBuffer.getPostDepthTexture();
 
         if (this.settings.consumeDirty()) this.uploadUbo();
 
