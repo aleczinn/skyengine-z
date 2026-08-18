@@ -38,6 +38,7 @@ Als Texturen wurden die offiziellen Minecraft Texturen aus der 1.21 genutzt. Zus
   - Unterstützt bis 5.1 Surround Sound
   - Soundeffekte
   - MusikPlayer + ShuffleBag (Spielt Playlist ab, ohne Doppelungen und fängt anschließend von zufällig von vorne an)
+- Ressourcenpakete aus Ordnern oder ZIPs mit Prioritäts-Stack, Live-Reload, Modellen sowie optionalen Normal-/Material-Maps ([Format und Anleitung](docs/resource-packs.md))
 - 🔆 Licht-System
   - Skylight
   - Einfaches Blocklicht für Fackel, Lava und Pilze

@@ -238,6 +238,12 @@
     "none": "No packs found.",
     "folder": "Folder: %s",
     "placeholder": "Packs are not loaded yet (placeholder).",
+    "refresh": "Refresh",
+    "selected": "Selected (top wins)",
+    "selected_none": "Only the default resources are active.",
+    "available": "Available",
+    "priority_hint": "Missing files fall through lower packs and finally the defaults.",
+    "error": "Loading failed: %s",
     "open_folder": "Open Pack Folder"
   },
 

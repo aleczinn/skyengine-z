@@ -3,6 +3,7 @@ package de.skyengine.graphics;
 import de.skyengine.core.file.FileHandle;
 import de.skyengine.core.file.FileType;
 import de.skyengine.game.world.block.BlockTextures;
+import de.skyengine.graphics.texture.StbImageLoader;
 import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryStack;
 
@@ -55,7 +56,7 @@ public final class ItemSpriteBuilder {
         ByteBuffer pixels;
         try (MemoryStack stack = MemoryStack.stackPush()) {
             IntBuffer wB = stack.mallocInt(1), hB = stack.mallocInt(1), cB = stack.mallocInt(1);
-            pixels = file.exists() ? STBImage.stbi_load(file.path(), wB, hB, cB, 4) : null;
+            pixels = StbImageLoader.load(file, wB, hB, cB, 4);
             if (pixels == null) {
                 return flat(new String[]{path}, tint, front);
             }

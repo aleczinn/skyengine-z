@@ -3,6 +3,8 @@ package de.skyengine.game;
 import de.skyengine.core.EngineConfig;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.core.file.Files;
+import de.skyengine.core.resource.ResourcePack;
+import de.skyengine.core.resource.Resources;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.*;
 import de.skyengine.game.entity.EntityPlayer;
@@ -100,6 +102,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.io.File;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -1988,5 +1991,64 @@ public class GameContainer implements IResizeable, IDisposable {
 
     public GuiManager getGuiManager() {
         return guiManager;
+    }
+
+    /**
+     * Aktiviert eine neue Pack-Reihenfolge auf dem Render-Thread. {@code null} bedeutet Erfolg,
+     * andernfalls wird der alte Stack vollstaendig wiederhergestellt und die Meldung geliefert.
+     */
+    public String reloadResourcePacks(List<String> requested) {
+        List<String> next = requested == null ? List.of() : List.copyOf(requested);
+        var repository = Resources.repository();
+        repository.refresh();
+        for (String name : next) {
+            ResourcePack pack = repository.get(name);
+            if (pack == null) return "Paket nicht gefunden: " + name;
+            if (!pack.valid()) return pack.displayName() + ": " + pack.error();
+        }
+
+        List<String> previous = Resources.get().activePackNames();
+        try {
+            this.applyResourceStack(next);
+            this.settings.resourcePacks = new ArrayList<>(next);
+            this.settings.save();
+            return null;
+        } catch (Throwable error) {
+            this.logger.error("Ressourcenpakete konnten nicht geladen werden; Rollback", error);
+            try {
+                this.applyResourceStack(previous);
+            } catch (Throwable rollback) {
+                this.logger.error("Ressourcenpaket-Rollback fehlgeschlagen", rollback);
+            }
+            String message = error.getMessage();
+            return message == null || message.isBlank() ? error.getClass().getSimpleName() : message;
+        }
+    }
+
+    private void applyResourceStack(List<String> packs) {
+        Resources.activate(packs);
+        Blocks.reloadVisuals();
+        this.atlas.reload();
+
+        /* Renderer mit eigenem Textur-/Modellcache in sicherer Reihenfolge erneuern. */
+        this.heldItemMeshes.dispose();
+        this.playerRenderer.dispose();
+        this.blockEntityRenderers.dispose();
+        this.blockEntityRenderers.init();
+        this.playerRenderer.init();
+        this.heldItemMeshes.init(this.atlas.textures(), this.blockEntityRenderers);
+        if (this.world != null) {
+            this.world.reloadEntityRenderer();
+            this.world.getChunkManager().remeshAll();
+        }
+
+        this.soundManager.reloadResources();
+        this.applyAudioSettings();
+        this.soundManager.startMusicPlaylist();
+
+        I18n.load(this.settings.language);
+        if (this.guiManager != null) {
+            this.guiManager.reloadAssets(this.atlas.textures(), this.blockEntityRenderers);
+        }
     }
 }

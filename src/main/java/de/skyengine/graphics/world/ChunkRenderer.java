@@ -277,7 +277,8 @@ public class ChunkRenderer {
 
     /* Gecachte Uniform-Locations des Chunk-Shaders (erspart Map-Lookups im Hot-Path) */
     private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogColor,
-            locDetailFade, locDetailCamSnap, locMinLight, locBrightness, locLodLevelColors;
+            locDetailFade, locDetailCamSnap, locMinLight, locBrightness, locLodLevelColors,
+            locPbrEnabled;
 
     /* Grundhelligkeit bei Lichtlevel 0 (Minecraft-Niveau): eine unbeleuchtete Höhle ist nie
        exakt schwarz. Der Regler hebt genau diesen Wert mit an (0,04 bei 0 % bis 0,15 bei 100 %,
@@ -330,8 +331,11 @@ public class ChunkRenderer {
         this.locMinLight = this.shader.getUniformLocation("u_MinLight");
         this.locBrightness = this.shader.getUniformLocation("u_Brightness");
         this.locLodLevelColors = this.shader.getUniformLocation("u_LodLevelColors");
+        this.locPbrEnabled = this.shader.getUniformLocation("u_PbrEnabled");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformi("u_NormalTextures", 1);
+        this.shader.setUniformi("u_MaterialTextures", 2);
         this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F); // Ausdünnung default aus
         this.shader.unbind();
         /* Atlas kommt von außen (BlockTextureAtlas, einmal beim Boot gebaut) — Welt-Ein-/
@@ -723,7 +727,7 @@ public class ChunkRenderer {
         this.shader.setUniformi(this.locLodLevelColors, DebugFlags.lodLevelColors ? 1 : 0);
         this.setFogUniforms();
         this.setLightUniforms();
-        this.textures.bind(0);
+        this.bindMaterials();
 
         /* GPU-Pfad: Compute-Ergebnisse (Commands/Offsets/Counts) vor den Draws sichtbar machen. */
         if (gpu) {
@@ -839,7 +843,7 @@ public class ChunkRenderer {
            bleiben gültig). Eigene Query-Sektionen: mit den Phase-1-Sektionen zu teilen hätte
            deren Messung überschrieben (1 Query-Objekt je Sektion und Slot). */
         this.shader.bind();
-        this.textures.bind(0);
+        this.bindMaterials();
         EngineProperties properties = SkyEngine.get().getWindow().getProperties();
         GL11.glDepthFunc(properties.baseDepthFunc());
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.SOLID_P2);
@@ -924,7 +928,7 @@ public class ChunkRenderer {
            die Entity-Renderer binden dort ihre eigenen Texturen. */
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GLSUB);
         this.shader.bind();
-        this.textures.bind(0);
+        this.bindMaterials();
 
         GL11.glEnable(GL11.GL_BLEND);
         this.shader.setUniformf(this.locAlphaCutoff, 0.001F);
@@ -1889,6 +1893,16 @@ public class ChunkRenderer {
         return de.skyengine.game.world.block.BlockPos.asLong(x, y, z);
     }
 
+    private void bindMaterials() {
+        this.textures.bind(0);
+        boolean enabled = this.atlas != null && this.atlas.hasMaterials();
+        this.shader.setUniformi(this.locPbrEnabled, enabled ? 1 : 0);
+        if (enabled) {
+            this.atlas.normals().bind(1);
+            this.atlas.materials().bind(2);
+        }
+    }
+
     public void dispose() {
         for (int i = 0, n = this.meshes.tableSize(); i < n; i++) {
             SectionMesh mesh = this.meshes.valueAt(i);
@@ -1951,6 +1965,7 @@ public class ChunkRenderer {
             out vec3 v_color;
             out vec2 v_light;   // x = Himmelslicht, y = Blocklicht (je 0..1)
             out float v_viewDist;
+            out vec3 v_relPos;
             out vec2 v_debugLocalXZ;
             flat out uint v_debugLevel;
             flat out uint v_debugConflictMask;
@@ -1989,6 +2004,7 @@ public class ChunkRenderer {
                    Ladekante bleibt verdeckt. Rotationsinvariant, kein "Atmen" beim Umschauen. */
                 vec3 rel = pos + u_DrawOffsets[gl_DrawID].xyz;
                 v_viewDist = length(rel.xz);
+                v_relPos = rel;
 
                 /* Distanz-Ausduennung der Kleinvegetation: der Pflanzen-Hash (Topbyte von
                    int3, pro Pflanze identisch — beide Tall-Grass-Haelften teilen ihn) wird
@@ -2016,12 +2032,16 @@ public class ChunkRenderer {
             in vec3 v_color;
             in vec2 v_light;    // x = Himmelslicht, y = Blocklicht (je 0..1)
             in float v_viewDist;
+            in vec3 v_relPos;
             in vec2 v_debugLocalXZ;
             flat in uint v_debugLevel;
             flat in uint v_debugConflictMask;
             flat in uint v_gpuCullDebug;
 
             uniform sampler2DArray u_Textures;
+            uniform sampler2DArray u_NormalTextures;
+            uniform sampler2DArray u_MaterialTextures;
+            uniform int u_PbrEnabled;
             uniform float u_AlphaCutoff;
             uniform vec3 u_FogColor;
             uniform float u_FogStart;
@@ -2040,6 +2060,31 @@ public class ChunkRenderer {
             /* Minecraft-Helligkeitskurve (lightBrightnessTable): staucht mittlere Licht-Level
                nach unten. Linear waere der Abfall fast ueberall zu grell. */
             float lightCurve(float f) { return f / (4.0 - 3.0 * f); }
+
+            mat3 cotangentFrame(vec3 n, vec3 p, vec2 uv) {
+                vec3 dp1 = dFdx(p), dp2 = dFdy(p);
+                vec2 duv1 = dFdx(uv), duv2 = dFdy(uv);
+                vec3 dp2perp = cross(dp2, n);
+                vec3 dp1perp = cross(n, dp1);
+                vec3 t = dp2perp * duv1.x + dp1perp * duv2.x;
+                vec3 b = dp2perp * duv1.y + dp1perp * duv2.y;
+                float invmax = inversesqrt(max(max(dot(t, t), dot(b, b)), 1e-8));
+                return mat3(t * invmax, b * invmax, n);
+            }
+
+            float distributionGGX(vec3 n, vec3 h, float roughness) {
+                float a = roughness * roughness;
+                float a2 = a * a;
+                float nh = max(dot(n, h), 0.0);
+                float d = nh * nh * (a2 - 1.0) + 1.0;
+                return a2 / max(3.14159265 * d * d, 1e-5);
+            }
+
+            float geometrySchlick(float nv, float roughness) {
+                float r = roughness + 1.0;
+                float k = r * r * 0.125;
+                return nv / max(nv * (1.0 - k) + k, 1e-5);
+            }
 
             vec3 lodDebugColor(uint level) {
                 if (level == 0u) return vec3(0.25, 1.00, 0.25); // L0 hellgruen
@@ -2074,6 +2119,39 @@ public class ChunkRenderer {
                    degenerierte Sliver-Dreiecke, deren Interpolation die per-Vertex-AO-Farben
                    ueber 1.0 hinaus extrapoliert -> helle Funkel-Striche auf Augenhoehe. */
                 vec3 lit = color.rgb * clamp(v_color, 0.0, 1.0) * light;
+                if (u_PbrEnabled != 0) {
+                    vec4 normalTex = texture(u_NormalTextures, v_texCoord);
+                    vec4 material = texture(u_MaterialTextures, v_texCoord);
+                    if (normalTex.a > 0.0 || material.a > 0.0) {
+                        vec3 geometric = normalize(cross(dFdx(v_relPos), dFdy(v_relPos)));
+                        if (!gl_FrontFacing) geometric = -geometric;
+                        vec3 n = geometric;
+                        if (normalTex.a > 0.0) {
+                            n = normalize(cotangentFrame(geometric, v_relPos, v_texCoord.xy)
+                                    * (normalTex.rgb * 2.0 - 1.0));
+                        }
+                        float roughness = material.a > 0.0 ? clamp(material.r, 0.04, 1.0) : 1.0;
+                        float metallic = material.a > 0.0 ? material.g : 0.0;
+                        float emission = material.a > 0.0 ? material.b : 0.0;
+                        vec3 l = normalize(vec3(-0.35, 0.80, 0.45));
+                        vec3 v = normalize(-v_relPos);
+                        vec3 h = normalize(l + v);
+                        float nl = max(dot(n, l), 0.0);
+                        float nv = max(dot(n, v), 0.001);
+                        float hv = max(dot(h, v), 0.0);
+                        float skyShare = v_light.x / max(v_light.x + v_light.y, 0.001);
+                        float normalShade = mix(1.0, 0.35 + 0.65 * nl, skyShare);
+                        vec3 albedo = color.rgb * clamp(v_color, 0.0, 1.0);
+                        vec3 f0 = mix(vec3(0.04), albedo, metallic);
+                        vec3 f = f0 + (1.0 - f0) * pow(1.0 - hv, 5.0);
+                        float d = distributionGGX(n, h, roughness);
+                        float g = geometrySchlick(nv, roughness) * geometrySchlick(max(dot(n, l), 0.001), roughness);
+                        vec3 specular = d * g * f / max(4.0 * nv * max(nl, 0.001), 0.001);
+                        lit = albedo * (1.0 - metallic) * light * normalShade
+                                + specular * light * nl * skyShare
+                                + color.rgb * emission;
+                    }
+                }
                 /* Linearer Distanz-Fog Richtung Clear-Color: nimmt dem Horizont den Kontrast
                    (Sub-Pixel-Flimmern des Fernterrains) und versteckt die Far-Plane-Kante. */
                 float fog = clamp((v_viewDist - u_FogStart) / (u_FogEnd - u_FogStart), 0.0, 1.0);

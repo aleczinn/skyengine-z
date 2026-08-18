@@ -3,6 +3,7 @@ package de.skyengine.core;
 import de.skyengine.core.file.Files;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.settings.GameSettings;
+import de.skyengine.core.resource.Resources;
 import de.skyengine.game.GameContainer;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.Screenshot;
@@ -58,6 +59,8 @@ public class SkyEngine {
         this.files = new Files();
         this.mainThreadTasks = new ConcurrentLinkedQueue<>();
         this.renderTasks = new ConcurrentLinkedQueue<>();
+        /* Packs muessen vor GameContainer/I18n/Fonts aktiv sein. */
+        Resources.initialize();
         this.game = new GameContainer();
         this.postProcessor = new PostProcessor(); // GL-Init erst in launch() (Render-Thread)
     }

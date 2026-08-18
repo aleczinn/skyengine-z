@@ -331,6 +331,12 @@ public class World implements IInitializable, IDisposable {
         return blockEntityRenderer;
     }
 
+    /** Pack-Texturen und Modellcaches des Entity-Renderers neu aufbauen. */
+    public void reloadEntityRenderer() {
+        this.entityRenderer.dispose();
+        this.entityRenderer.init(this.atlas.textures());
+    }
+
     @Override
     public void init() {
         this.chunkRenderer.init(this.atlas);

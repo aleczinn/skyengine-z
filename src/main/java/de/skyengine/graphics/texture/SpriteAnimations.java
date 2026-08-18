@@ -2,13 +2,17 @@ package de.skyengine.graphics.texture;
 
 import com.google.gson.Gson;
 import de.skyengine.core.file.Files;
+import de.skyengine.core.file.FileHandle;
+import de.skyengine.core.file.FileType;
+import de.skyengine.core.resource.Resources;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
-import java.io.FileReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
@@ -36,8 +40,8 @@ public final class SpriteAnimations {
     public static SpriteAnimations build(String[] paths, int size) {
         List<AnimatedSprite> list = new ArrayList<>();
         for (int layer = 0; layer < paths.length; layer++) {
-            java.io.File meta = new java.io.File(Files.RESOURCES_PATH + paths[layer] + ".mcmeta");
-            if (!meta.exists()) continue;
+            String meta = paths[layer] + ".mcmeta";
+            if (!Resources.get().exists(meta)) continue;
 
             AnimatedSprite sprite = load(layer, paths[layer], meta, size);
             if (sprite != null) list.add(sprite);
@@ -71,21 +75,22 @@ public final class SpriteAnimations {
         this.sprites.clear();
     }
 
-    private static AnimatedSprite load(int layer, String path, java.io.File metaFile, int size) {
+    private static AnimatedSprite load(int layer, String path, String metaPath, int size) {
         TextureAnimationMeta meta;
-        try (FileReader reader = new FileReader(metaFile)) {
+        try (InputStreamReader reader = new InputStreamReader(Resources.get().open(metaPath), StandardCharsets.UTF_8)) {
             meta = GSON.fromJson(reader, TextureAnimationMeta.class);
         } catch (Exception e) {
-            LOGGER.error("Fehlerhafte .mcmeta: " + metaFile.getName(), e);
+            LOGGER.error("Fehlerhafte .mcmeta: " + metaPath, e);
             return null;
         }
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
             IntBuffer w = stack.mallocInt(1), h = stack.mallocInt(1), c = stack.mallocInt(1);
-            ByteBuffer pixels = STBImage.stbi_load(Files.RESOURCES_PATH + path, w, h, c, 4);
+            ByteBuffer pixels = StbImageLoader.load(new FileHandle(path, FileType.RESOURCE), w, h, c, 4);
 
             int imgW = w.get(0), imgH = h.get(0);
-            if (pixels == null || imgW % size != 0 || imgH % size != 0) {
+            int nativeSize = Math.min(imgW, imgH);
+            if (pixels == null || nativeSize <= 0 || imgW % nativeSize != 0 || imgH % nativeSize != 0) {
                 if (pixels != null) STBImage.stbi_image_free(pixels);
                 LOGGER.warning("Animierte Textur hat falsche Maße (Breite & Höhe Vielfache von " + size + "): " + path);
                 return null;
@@ -94,7 +99,7 @@ public final class SpriteAnimations {
             /* Textur wird als Raster aus size×size-Kacheln gelesen; jede Kachel ist ein Frame.
                Reihenfolge spaltenweise: linke Spalte oben→unten, dann nächste Spalte (16-breit =
                eine Spalte = bisheriges Verhalten). Kacheln werden unverändert übernommen. */
-            int cols = imgW / size, rows = imgH / size;
+            int cols = imgW / nativeSize, rows = imgH / nativeSize;
             int frameCount = cols * rows;
             int rowBytes = size * 4;
             ByteBuffer[] frames = new ByteBuffer[frameCount];
@@ -103,9 +108,16 @@ public final class SpriteAnimations {
                 for (int ry = 0; ry < rows; ry++) {
                     ByteBuffer fb = MemoryUtil.memAlloc(size * size * 4);
                     for (int py = 0; py < size; py++) {
-                        int srcByte = (((ry * size + py) * imgW) + cx * size) * 4;
+                        int sy = py * nativeSize / size;
                         int dstByte = py * rowBytes;
-                        for (int bx = 0; bx < rowBytes; bx++) fb.put(dstByte + bx, pixels.get(srcByte + bx));
+                        for (int px = 0; px < size; px++) {
+                            int sx = px * nativeSize / size;
+                            int srcByte = (((ry * nativeSize + sy) * imgW) + cx * nativeSize + sx) * 4;
+                            int dst = dstByte + px * 4;
+                            for (int channel = 0; channel < 4; channel++) {
+                                fb.put(dst + channel, pixels.get(srcByte + channel));
+                            }
+                        }
                     }
                     frames[f++] = fb;
                 }

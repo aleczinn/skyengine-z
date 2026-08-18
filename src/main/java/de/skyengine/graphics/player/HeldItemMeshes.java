@@ -20,6 +20,7 @@ import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
 import de.skyengine.graphics.texture.TextureArray;
+import de.skyengine.graphics.texture.BlockTextureAtlas;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
@@ -102,9 +103,12 @@ public final class HeldItemMeshes {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", projectionView);
         this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformi("u_NormalTextures", 1);
+        this.shader.setUniformi("u_MaterialTextures", 2);
         this.shader.setUniformf("u_Light", light);
         this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);
         this.textures.bind(0);
+        BlockTextureAtlas.bindOptionalMaterials(this.shader);
     }
 
     public void unbind() {
@@ -305,6 +309,7 @@ public final class HeldItemMeshes {
         this.shader.setUniformf("u_Light", this.heldLight);
         this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);
         this.textures.bind(0);
+        BlockTextureAtlas.bindOptionalMaterials(this.shader);
     }
 
     /* --- Sprite-Extrusion: Geometrie kommt aus ItemSpriteBuilder, hier nur die Pose-Helligkeiten --- */
@@ -421,10 +426,13 @@ public final class HeldItemMeshes {
         uniform mat4 u_Model;
         out vec3 v_texCoord;
         out vec3 v_color;
+        out vec3 v_pos;
         void main() {
             v_texCoord = a_texCoord;
             v_color = a_color;
-            gl_Position = u_ProjectionView * u_Model * vec4(a_position, 1.0);
+            vec4 p = u_Model * vec4(a_position, 1.0);
+            v_pos = p.xyz;
+            gl_Position = u_ProjectionView * p;
         }
         """;
 
@@ -432,7 +440,11 @@ public final class HeldItemMeshes {
         #version 460 core
         in vec3 v_texCoord;
         in vec3 v_color;
+        in vec3 v_pos;
         uniform sampler2DArray u_Textures;
+        uniform sampler2DArray u_NormalTextures;
+        uniform sampler2DArray u_MaterialTextures;
+        uniform int u_PbrEnabled;
         /* Licht der Zelle (Himmel + Block), fertig durch die Kurve gerechnet
            (ChunkRenderer.lightFactor). 1.0 = voll hell, Fullbright ODER GUI-Vorschau. */
         uniform float u_Light;
@@ -440,10 +452,28 @@ public final class HeldItemMeshes {
            aus, damit ein transluzenter Block sein echtes Alpha ins Blending bringt. */
         uniform float u_AlphaCutoff;
         out vec4 fragColor;
+        vec3 materialLight(vec3 albedo) {
+            if (u_PbrEnabled == 0) return albedo;
+            vec4 ntex = texture(u_NormalTextures, v_texCoord);
+            vec4 mat = texture(u_MaterialTextures, v_texCoord);
+            if (ntex.a <= 0.0 && mat.a <= 0.0) return albedo;
+            vec3 gn = normalize(cross(dFdx(v_pos), dFdy(v_pos)));
+            if (!gl_FrontFacing) gn = -gn;
+            vec3 dp1=dFdx(v_pos), dp2=dFdy(v_pos); vec2 du1=dFdx(v_texCoord.xy), du2=dFdy(v_texCoord.xy);
+            vec3 t=cross(dp2,gn)*du1.x+cross(gn,dp1)*du2.x;
+            vec3 b=cross(dp2,gn)*du1.y+cross(gn,dp1)*du2.y;
+            float s=inversesqrt(max(max(dot(t,t),dot(b,b)),1e-8));
+            vec3 n=ntex.a>0.0?normalize(mat3(t*s,b*s,gn)*(ntex.rgb*2.0-1.0)):gn;
+            vec3 l=normalize(vec3(-0.35,0.80,0.45)), v=normalize(-v_pos), h=normalize(l+v);
+            float rough=mat.a>0.0?mat.r:1.0, metal=mat.a>0.0?mat.g:0.0, emit=mat.a>0.0?mat.b:0.0;
+            float diff=0.35+0.65*max(dot(n,l),0.0);
+            float spec=pow(max(dot(n,h),0.0),mix(96.0,2.0,rough))*(1.0-rough);
+            return albedo*(1.0-metal)*diff+mix(vec3(0.04),albedo,metal)*spec+albedo*emit;
+        }
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < u_AlphaCutoff) discard;
-            fragColor = vec4(c.rgb * v_color * u_Light, c.a);
+            fragColor = vec4(materialLight(c.rgb) * v_color * u_Light, c.a);
         }
         """;
 }

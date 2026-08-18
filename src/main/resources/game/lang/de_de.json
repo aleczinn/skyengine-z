@@ -246,6 +246,12 @@
     "none": "Keine Pakete gefunden.",
     "folder": "Ordner: %s",
     "placeholder": "Pakete werden noch nicht geladen (Platzhalter).",
+    "refresh": "Aktualisieren",
+    "selected": "Ausgewählt (oben gewinnt)",
+    "selected_none": "Nur die Standard-Ressourcen sind aktiv.",
+    "available": "Verfügbar",
+    "priority_hint": "Fehlende Dateien fallen auf niedrigere Pakete und zuletzt auf Standard zurück.",
+    "error": "Laden fehlgeschlagen: %s",
     "open_folder": "Paketordner öffnen"
   },
 

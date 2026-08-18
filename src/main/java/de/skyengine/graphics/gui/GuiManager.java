@@ -341,4 +341,15 @@ public final class GuiManager {
         this.font.dispose();
         this.textures.dispose();
     }
+
+    /** Laedt pack-abhaengige GUI-Texturen, Fonts und Blockicons live neu. */
+    public void reloadAssets(TextureArray blockTextures,
+                             BlockEntityRenderDispatcher blockEntityRenderers) {
+        this.icons.dispose();
+        this.textures.dispose();
+        this.font.reload();
+        this.textures.init();
+        this.icons.init(blockTextures, blockEntityRenderers);
+        this.relayoutCurrent();
+    }
 }

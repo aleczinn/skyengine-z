@@ -14,6 +14,7 @@ import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
 import de.skyengine.graphics.texture.TextureArray;
+import de.skyengine.graphics.texture.BlockTextureAtlas;
 import org.joml.Matrix4f;
 import org.joml.Vector3d;
 import org.lwjgl.opengl.GL11;
@@ -69,6 +70,8 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
         this.locAlphaCutoff = this.shader.getUniformLocation("u_AlphaCutoff");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformi("u_NormalTextures", 1);
+        this.shader.setUniformi("u_MaterialTextures", 2);
         this.shader.unbind();
     }
 
@@ -81,6 +84,7 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
         this.shader.setUniformf(this.locLight, light);
         this.shader.setUniformf(this.locAlphaCutoff, CUTOUT_ALPHA);
         this.textures.bind(0);
+        BlockTextureAtlas.bindOptionalMaterials(this.shader);
 
         Vector3d cam = camera.getPosition();
         BlockPos pos = moving.getPos();
@@ -197,10 +201,12 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
         uniform mat4 u_Model;
         out vec3 v_texCoord;
         out vec3 v_color;
+        out vec3 v_pos;
         void main() {
             v_texCoord = a_texCoord;
             v_color = a_color;
-            gl_Position = u_ProjectionView * u_Model * vec4(a_position, 1.0);
+            vec4 p=u_Model*vec4(a_position,1.0);v_pos=p.xyz;
+            gl_Position = u_ProjectionView * p;
         }
         """;
 
@@ -208,16 +214,31 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
         #version 460 core
         in vec3 v_texCoord;
         in vec3 v_color;
+        in vec3 v_pos;
         uniform sampler2DArray u_Textures;
+        uniform sampler2DArray u_NormalTextures;
+        uniform sampler2DArray u_MaterialTextures;
+        uniform int u_PbrEnabled;
         /* Licht der BE-Zelle, fertig durch die Kurve gerechnet (ChunkRenderer.lightFactor). */
         uniform float u_Light;
         /* Wie im ChunkRenderer: 0.5 = harter Cutout, 0.001 = praktisch aus fürs Blending. */
         uniform float u_AlphaCutoff;
         out vec4 fragColor;
+        vec3 materialLight(vec3 a){
+            if(u_PbrEnabled==0)return a;
+            vec4 nt=texture(u_NormalTextures,v_texCoord),m=texture(u_MaterialTextures,v_texCoord);
+            if(nt.a<=0.0&&m.a<=0.0)return a;
+            vec3 gn=normalize(cross(dFdx(v_pos),dFdy(v_pos)));if(!gl_FrontFacing)gn=-gn;
+            vec3 p1=dFdx(v_pos),p2=dFdy(v_pos);vec2 d1=dFdx(v_texCoord.xy),d2=dFdy(v_texCoord.xy);
+            vec3 t=cross(p2,gn)*d1.x+cross(gn,p1)*d2.x,b=cross(p2,gn)*d1.y+cross(gn,p1)*d2.y;float s=inversesqrt(max(max(dot(t,t),dot(b,b)),1e-8));
+            vec3 n=nt.a>0.0?normalize(mat3(t*s,b*s,gn)*(nt.rgb*2.0-1.0)):gn,l=normalize(vec3(-0.35,0.80,0.45)),h=normalize(l+normalize(-v_pos));
+            float r=m.a>0.0?m.r:1.0,me=m.a>0.0?m.g:0.0,e=m.a>0.0?m.b:0.0,d=0.35+0.65*max(dot(n,l),0.0),sp=pow(max(dot(n,h),0.0),mix(96.0,2.0,r))*(1.0-r);
+            return a*(1.0-me)*d+mix(vec3(0.04),a,me)*sp+a*e;
+        }
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < u_AlphaCutoff) discard;
-            fragColor = vec4(c.rgb * v_color * u_Light, c.a);
+            fragColor = vec4(materialLight(c.rgb) * v_color * u_Light, c.a);
         }
         """;
 }

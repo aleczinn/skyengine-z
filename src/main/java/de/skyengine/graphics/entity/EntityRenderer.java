@@ -28,6 +28,7 @@ import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
 import de.skyengine.graphics.texture.TextureArray;
+import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.graphics.texture.Texture;
 import de.skyengine.graphics.world.ChunkRenderer;
 import org.joml.FrustumIntersection;
@@ -129,7 +130,9 @@ public final class EntityRenderer {
         this.locUseEntityTexture = this.shader.getUniformLocation("u_UseEntityTexture");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
-        this.shader.setUniformi("u_EntityTexture", 1);
+        this.shader.setUniformi("u_NormalTextures", 1);
+        this.shader.setUniformi("u_MaterialTextures", 2);
+        this.shader.setUniformi("u_EntityTexture", 3);
         this.shader.setUniformi(this.locUseEntityTexture, 0);
         this.shader.unbind();
     }
@@ -147,6 +150,7 @@ public final class EntityRenderer {
         this.shader.setUniformf(this.locLight, 1.0f);    // Default hell; drawEntity setzt den echten Wert
         this.shader.setUniformf(this.locAlphaCutoff, CUTOUT_ALPHA); // drawMesh senkt ihn für Transluzentes
         this.textures.bind(0);
+        BlockTextureAtlas.bindOptionalMaterials(this.shader);
 
         Vector3d cam = camera.getPosition();
         FrustumIntersection frustum = camera.getFrustum();
@@ -213,13 +217,14 @@ public final class EntityRenderer {
                         Math.sin(hurt) * hurt * damage / 10.0 * minecart.getHurtDirection()));
             }
             this.shader.setUniformMatrix4f(this.locModel, this.model);
-            this.minecartTexture.bind(1);
+            this.minecartTexture.bind(3);
             this.shader.setUniformi(this.locUseEntityTexture, 1);
             GlState.disableCullFace();
             this.minecartMesh.render();
             GlState.enableCullFace();
             this.shader.setUniformi(this.locUseEntityTexture, 0);
             this.textures.bind(0);
+            BlockTextureAtlas.bindOptionalMaterials(this.shader);
         } else if (e instanceof ItemEntity item) {
             this.drawItem(item, ox, oy, oz, partialTick);
         }
@@ -649,10 +654,12 @@ public final class EntityRenderer {
         uniform mat4 u_Model;
         out vec3 v_texCoord;
         out vec3 v_color;
+        out vec3 v_pos;
         void main() {
             v_texCoord = a_texCoord;
             v_color = a_color;
-            gl_Position = u_ProjectionView * u_Model * vec4(a_position, 1.0);
+            vec4 p=u_Model*vec4(a_position,1.0); v_pos=p.xyz;
+            gl_Position = u_ProjectionView * p;
         }
         """;
 
@@ -660,7 +667,11 @@ public final class EntityRenderer {
         #version 460 core
         in vec3 v_texCoord;
         in vec3 v_color;
+        in vec3 v_pos;
         uniform sampler2DArray u_Textures;
+        uniform sampler2DArray u_NormalTextures;
+        uniform sampler2DArray u_MaterialTextures;
+        uniform int u_PbrEnabled;
         uniform sampler2D u_EntityTexture;
         uniform int u_UseEntityTexture;
         uniform float u_WhiteFlash;   // 0..1: mischt das Fragment Richtung Weiß (TNT-Blink)
@@ -671,6 +682,19 @@ public final class EntityRenderer {
            transluzenter Block (Slime, Honig, Eis, Glas) sein Alpha ins Blending bringt. */
         uniform float u_AlphaCutoff;
         out vec4 fragColor;
+        vec3 materialLight(vec3 albedo) {
+            if(u_PbrEnabled==0||u_UseEntityTexture!=0)return albedo;
+            vec4 nt=texture(u_NormalTextures,v_texCoord),m=texture(u_MaterialTextures,v_texCoord);
+            if(nt.a<=0.0&&m.a<=0.0)return albedo;
+            vec3 gn=normalize(cross(dFdx(v_pos),dFdy(v_pos)));if(!gl_FrontFacing)gn=-gn;
+            vec3 p1=dFdx(v_pos),p2=dFdy(v_pos);vec2 d1=dFdx(v_texCoord.xy),d2=dFdy(v_texCoord.xy);
+            vec3 t=cross(p2,gn)*d1.x+cross(gn,p1)*d2.x,b=cross(p2,gn)*d1.y+cross(gn,p1)*d2.y;
+            float s=inversesqrt(max(max(dot(t,t),dot(b,b)),1e-8));vec3 n=nt.a>0.0?normalize(mat3(t*s,b*s,gn)*(nt.rgb*2.0-1.0)):gn;
+            vec3 l=normalize(vec3(-0.35,0.80,0.45)),h=normalize(l+normalize(-v_pos));
+            float r=m.a>0.0?m.r:1.0,metal=m.a>0.0?m.g:0.0,e=m.a>0.0?m.b:0.0;
+            float diff=0.35+0.65*max(dot(n,l),0.0),spec=pow(max(dot(n,h),0.0),mix(96.0,2.0,r))*(1.0-r);
+            return albedo*(1.0-metal)*diff+mix(vec3(0.04),albedo,metal)*spec+albedo*e;
+        }
         void main() {
             vec4 c = u_UseEntityTexture != 0
                     ? texture(u_EntityTexture, v_texCoord.xy)
@@ -678,7 +702,7 @@ public final class EntityRenderer {
             if (c.a < u_AlphaCutoff) discard;
             /* Licht VOR dem Blink: eine TNT-Zuendung soll auch in einer finsteren Hoehle
                rein weiss aufblitzen und nicht mit abgedunkelt werden. */
-            vec3 rgb = mix(c.rgb * v_color * u_Light, vec3(1.0), u_WhiteFlash);
+            vec3 rgb = mix(materialLight(c.rgb) * v_color * u_Light, vec3(1.0), u_WhiteFlash);
             fragColor = vec4(rgb, c.a);
         }
         """;

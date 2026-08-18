@@ -73,7 +73,10 @@ public final class FontAtlas {
         ByteBuffer bitmap = null;
         STBTTPackedchar.Buffer chars = null;
         try {
-            byte[] bytes = java.nio.file.Files.readAllBytes(file.getFile().toPath());
+            byte[] bytes;
+            try (java.io.InputStream in = file.read()) {
+                bytes = in.readAllBytes();
+            }
             ttf = MemoryUtil.memAlloc(bytes.length);
             ttf.put(bytes).flip();
 

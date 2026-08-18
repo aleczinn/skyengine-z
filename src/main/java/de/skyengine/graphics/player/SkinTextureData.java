@@ -1,6 +1,7 @@
 package de.skyengine.graphics.player;
 
 import de.skyengine.core.file.FileHandle;
+import de.skyengine.graphics.texture.StbImageLoader;
 import org.lwjgl.stb.STBImage;
 import org.lwjgl.system.MemoryStack;
 
@@ -27,7 +28,7 @@ final class SkinTextureData {
             IntBuffer width = stack.mallocInt(1);
             IntBuffer height = stack.mallocInt(1);
             IntBuffer channels = stack.mallocInt(1);
-            ByteBuffer pixels = STBImage.stbi_load(file.path(), width, height, channels, CHANNELS);
+            ByteBuffer pixels = StbImageLoader.load(file, width, height, channels, CHANNELS);
             if (pixels == null) {
                 throw new IllegalArgumentException("Skin konnte nicht dekodiert werden: " + file.path());
             }

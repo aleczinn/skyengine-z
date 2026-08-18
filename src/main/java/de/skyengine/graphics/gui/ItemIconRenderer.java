@@ -20,6 +20,7 @@ import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
 import de.skyengine.graphics.texture.TextureArray;
+import de.skyengine.graphics.texture.BlockTextureAtlas;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
@@ -99,7 +100,10 @@ public final class ItemIconRenderer {
         }
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformi("u_NormalTextures", 1);
+        this.shader.setUniformi("u_MaterialTextures", 2);
         this.textures.bind(0);
+        BlockTextureAtlas.bindOptionalMaterials(this.shader);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glDisable(GL11.GL_DEPTH_TEST);
     }
@@ -136,6 +140,7 @@ public final class ItemIconRenderer {
             this.shader.bind();
             this.shader.setUniformi("u_Textures", 0);
             this.textures.bind(0);
+            BlockTextureAtlas.bindOptionalMaterials(this.shader);
             return;
         }
 
@@ -429,9 +434,11 @@ public final class ItemIconRenderer {
         uniform mat4 u_MVP;
         out vec3 v_texCoord;
         out vec3 v_color;
+        out vec3 v_pos;
         void main() {
             v_texCoord = a_texCoord;
             v_color = a_color;
+            v_pos = a_position;
             gl_Position = u_MVP * vec4(a_position, 1.0);
         }
         """;
@@ -440,12 +447,30 @@ public final class ItemIconRenderer {
         #version 460 core
         in vec3 v_texCoord;
         in vec3 v_color;
+        in vec3 v_pos;
         uniform sampler2DArray u_Textures;
+        uniform sampler2DArray u_NormalTextures;
+        uniform sampler2DArray u_MaterialTextures;
+        uniform int u_PbrEnabled;
         out vec4 fragColor;
+        vec3 materialLight(vec3 albedo) {
+            if(u_PbrEnabled==0) return albedo;
+            vec4 nt=texture(u_NormalTextures,v_texCoord), m=texture(u_MaterialTextures,v_texCoord);
+            if(nt.a<=0.0&&m.a<=0.0) return albedo;
+            vec3 gn=normalize(cross(dFdx(v_pos),dFdy(v_pos))); if(!gl_FrontFacing)gn=-gn;
+            vec3 dp1=dFdx(v_pos),dp2=dFdy(v_pos);vec2 d1=dFdx(v_texCoord.xy),d2=dFdy(v_texCoord.xy);
+            vec3 t=cross(dp2,gn)*d1.x+cross(gn,dp1)*d2.x,b=cross(dp2,gn)*d1.y+cross(gn,dp1)*d2.y;
+            float s=inversesqrt(max(max(dot(t,t),dot(b,b)),1e-8));
+            vec3 n=nt.a>0.0?normalize(mat3(t*s,b*s,gn)*(nt.rgb*2.0-1.0)):gn;
+            vec3 l=normalize(vec3(-0.35,0.80,0.45)),h=normalize(l+vec3(0.2,0.3,1.0));
+            float rough=m.a>0.0?m.r:1.0,metal=m.a>0.0?m.g:0.0,emit=m.a>0.0?m.b:0.0;
+            float diff=0.35+0.65*max(dot(n,l),0.0),spec=pow(max(dot(n,h),0.0),mix(96.0,2.0,rough))*(1.0-rough);
+            return albedo*(1.0-metal)*diff+mix(vec3(0.04),albedo,metal)*spec+albedo*emit;
+        }
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < 0.01) discard;
-            fragColor = vec4(c.rgb * v_color, c.a);
+            fragColor = vec4(materialLight(c.rgb) * v_color, c.a);
         }
         """;
 }
