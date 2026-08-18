@@ -102,12 +102,6 @@ public final class LodMesher {
        Verhaltens-/Layout-Änderung). Akkumuliert über alle Regionen eines Zensus-Laufs. */
     private LodMeshStats stats;
 
-    /* TEMP/Debug (Perf-Messung, nicht persistiert): schaltet die koplanaren Seiten-Overlay-Wände
-       (getönter Grasrand) im LOD ab. Default an → unverändertes Verhalten. Umschaltbar per F5
-       (GameContainer); der LodManager bumpt bei Wechsel die Epoche → alle Regionen neu gemesht. */
-    public static volatile boolean EMIT_GRASS_OVERLAY = true;
-    private boolean emitOverlay;               // je mesh()-Aufruf aus dem Flag gekapselt
-
     /* Deckel der Quantisierungs-Stufe. Ohne Deckel quantisiert L4/L5 auf 16/32 Blöcke — im
        Fenster-A/B (Render-Distanz testweise 4, dadurch L4/L5 nah am Spieler) kippt das Terrain
        damit sichtbar in grobe Plateaus/Mesa-Wände. 8 ist die größte Stufe, die bei der
@@ -126,10 +120,9 @@ public final class LodMesher {
         return Math.min(BASE_SKIRT << level, MAX_SKIRT);
     }
 
-    /* Empirisch (gemessen bei RD=16/lodMax=128: ohne Overlay-Wände 1,56, MIT koplanaren
-       Gras-Overlay-Wänden 1,97 Quads je LOD-Zelle — Boden-Top + Wände zu niedrigeren Nachbarn).
-       Der Aufschlag auf 2,25 (~+14 %) deckt wand-reiches (bergiges) Terrain und die erste
-       Füllung ohne Grow ab. */
+    /* Konservative Arena-Schätzung: Terrain-Tops, Relief-/Skirt-Wände sowie zusätzliche
+       Strukturintervalle des Spaltenpfads. Bewusst mit Reserve, damit die erste Füllung
+       ohne stufenweises Arena-Wachstum auskommt. */
     private static final float QUADS_PER_CELL = 2.25F;
 
     /**
@@ -185,7 +178,6 @@ public final class LodMesher {
         /* Positions-Skala der Vertex-Packung — muss zum per-Draw .w des Renderers passen
            (Superregionen packen mit 1/64, s. ChunkRenderer-Shader und posScaleFor). */
         this.posScale = posScaleFor(sizeRegions);
-        this.emitOverlay = EMIT_GRASS_OVERLAY; // einmal kapseln (kein volatile-Read je Wand)
         int baseX = rx * REGION_BLOCKS;
         int baseZ = rz * REGION_BLOCKS;
         this.regionBaseX = baseX;
@@ -421,7 +413,6 @@ public final class LodMesher {
         this.source = source;
         this.edgeSkirt = edgeSkirtOf(level);
         this.posScale = posScaleFor(sizeRegions);
-        this.emitOverlay = EMIT_GRASS_OVERLAY;
         this.regionBaseX = rx * REGION_BLOCKS;
         this.regionBaseZ = rz * REGION_BLOCKS;
         if (mask == 0xFFFF) {
@@ -458,6 +449,10 @@ public final class LodMesher {
         this.minBottom = Float.MAX_VALUE;
         this.maxTop = -Float.MAX_VALUE;
         int maxRun = Math.max(1, MAX_MERGE_BLOCKS / s);
+        boolean useAo = GameSettings.get().ambientOcclusion;
+        /* Gleiche Fernring-Regel wie im kompakten Heightmap-Pfad: im äußersten Ring wird
+           das Eck-AO pro Zelle abgeflacht, um dort große Greedy-Flächen zu behalten. */
+        this.flatAo = level >= config.maxLevel();
 
         for (int intervalIndex = 0; intervalIndex < LodColumn.MAX_INTERVALS; intervalIndex++) {
             Arrays.fill(this.consumed, 0, n * n, false);
@@ -475,22 +470,36 @@ public final class LodMesher {
                         ? LodColumn.maxY(interval) - 1 + FluidGeometry.SOURCE_HEIGHT
                         : LodColumn.maxY(interval);
                 int skyLight = this.columnSkyLight(column, top);
-                int width = 1;
-                while (x + width < n && width < maxRun
-                        && this.columnFaceMatches(x + width, z, intervalIndex, interval, true, skyLight)) width++;
-                int height = 1;
-                topExpand:
-                while (z + height < n && height < maxRun) {
-                    for (int dx = 0; dx < width; dx++) {
-                        if (!this.columnFaceMatches(x + dx, z + height, intervalIndex,
-                                interval, true, skyLight)) break topExpand;
+                boolean shadeAo = useAo && !this.appearance.isFluid(block);
+                float[] ao = AO_NONE;
+                boolean uniform = true;
+                if (shadeAo) {
+                    ao = this.aoScratch;
+                    if (this.flatAo) {
+                        ao[0] = ao[1] = ao[2] = ao[3] = this.columnCellAoFlat(x, z, top);
+                    } else {
+                        this.computeColumnCellAo(x, z, top, ao);
+                        uniform = ao[0] == ao[1] && ao[1] == ao[2] && ao[2] == ao[3];
                     }
-                    height++;
+                }
+                int width = 1, height = 1;
+                if (uniform) {
+                    while (x + width < n && width < maxRun
+                            && this.columnTopFaceMatches(x + width, z, intervalIndex, interval,
+                            skyLight, shadeAo, ao[0])) width++;
+                    topExpand:
+                    while (z + height < n && height < maxRun) {
+                        for (int dx = 0; dx < width; dx++) {
+                            if (!this.columnTopFaceMatches(x + dx, z + height, intervalIndex,
+                                    interval, skyLight, shadeAo, ao[0])) break topExpand;
+                        }
+                        height++;
+                    }
                 }
                 for (int dz = 0; dz < height; dz++) for (int dx = 0; dx < width; dx++) {
                     this.consumed[(z + dz) * n + x + dx] = true;
                 }
-                this.emitTop(block, AO_NONE, x * s, z * s, (x + width) * s, (z + height) * s,
+                this.emitTop(block, ao, x * s, z * s, (x + width) * s, (z + height) * s,
                         top, skyLight);
                 x += width;
             }
@@ -574,6 +583,16 @@ public final class LodMesher {
         return this.columnSkyLight(column, y) == skyLight;
     }
 
+    /** Top-Merge-Kriterium inklusive AO; Bottom-Flächen verwenden weiterhin columnFaceMatches. */
+    private boolean columnTopFaceMatches(int x, int z, int index, long interval,
+                                         int skyLight, boolean useAo, float ao) {
+        if (!this.columnFaceMatches(x, z, index, interval, true, skyLight)) return false;
+        if (!useAo) return true;
+        float top = LodColumn.maxY(interval);
+        return this.flatAo ? this.columnCellAoFlat(x, z, top) == ao
+                : this.columnCellAoUniform(x, z, top, ao);
+    }
+
     private boolean topExposed(LodColumn column, int index) {
         return index + 1 >= column.size()
                 || LodColumn.minY(column.interval(index + 1)) > LodColumn.maxY(column.interval(index))
@@ -598,6 +617,52 @@ public final class LodMesher {
 
     private LodColumn column(int x, int z) {
         return this.columns[(z + 1) * this.stride + x + 1];
+    }
+
+    /**
+     * AO für die vier Ecken einer Spalten-Topfläche. Das bereits bulk-geladene Halo liefert
+     * alle drei Nachbarsamples je Ecke; es entstehen weder Einzelzugriffe noch neue Locks.
+     */
+    private void computeColumnCellAo(int x, int z, float top, float[] out) {
+        out[0] = this.columnCornerAo(top, x - 1, z, x, z - 1, x - 1, z - 1); // NW
+        out[1] = this.columnCornerAo(top, x - 1, z, x, z + 1, x - 1, z + 1); // SW
+        out[2] = this.columnCornerAo(top, x + 1, z, x, z + 1, x + 1, z + 1); // SE
+        out[3] = this.columnCornerAo(top, x + 1, z, x, z - 1, x + 1, z - 1); // NE
+    }
+
+    private float columnCellAoFlat(int x, int z, float top) {
+        this.computeColumnCellAo(x, z, top, this.aoFlatScratch);
+        float avg = (this.aoFlatScratch[0] + this.aoFlatScratch[1]
+                + this.aoFlatScratch[2] + this.aoFlatScratch[3]) * 0.25F;
+        return 0.4F + Math.round((avg - 0.4F) / 0.2F) * 0.2F;
+    }
+
+    private boolean columnCellAoUniform(int x, int z, float top, float value) {
+        return this.columnCornerAo(top, x - 1, z, x, z - 1, x - 1, z - 1) == value
+                && this.columnCornerAo(top, x - 1, z, x, z + 1, x - 1, z + 1) == value
+                && this.columnCornerAo(top, x + 1, z, x, z + 1, x + 1, z + 1) == value
+                && this.columnCornerAo(top, x + 1, z, x, z - 1, x + 1, z - 1) == value;
+    }
+
+    private float columnCornerAo(float top, int edgeXX, int edgeXZ, int edgeZX, int edgeZZ,
+                                 int diagonalX, int diagonalZ) {
+        boolean edgeX = this.columnOccludesAo(edgeXX, edgeXZ, top);
+        boolean edgeZ = this.columnOccludesAo(edgeZX, edgeZZ, top);
+        boolean diagonal = this.columnOccludesAo(diagonalX, diagonalZ, top);
+        return aoBrightness(edgeX, edgeZ, diagonal);
+    }
+
+    /** Prüft die LOD-Blockzelle unmittelbar über der betrachteten Topfläche. */
+    private boolean columnOccludesAo(int x, int z, float top) {
+        int y = (int) Math.floor(top);
+        LodColumn column = this.column(x, z);
+        for (int i = 0; i < column.size(); i++) {
+            long interval = column.interval(i);
+            if (LodColumn.minY(interval) > y) break;
+            if (LodColumn.maxY(interval) > y
+                    && this.appearance.occludesAo(LodColumn.state(interval))) return true;
+        }
+        return false;
     }
 
     private static final class SideSignature {
@@ -1305,7 +1370,13 @@ public final class LodMesher {
         boolean edgeX = this.topOf(this.groundCell(edgeXCx, edgeXCz)) > ownTop;
         boolean edgeZ = this.topOf(this.groundCell(edgeZCx, edgeZCz)) > ownTop;
         boolean diag = this.topOf(this.groundCell(diagCx, diagCz)) > ownTop;
-        int level = 3 - (edgeX ? 1 : 0) - (edgeZ ? 1 : 0) - (diag ? 1 : 0);
+        return aoBrightness(edgeX, edgeZ, diag);
+    }
+
+    /** Minecraft-Regel: zwei belegte Seiten schließen die Ecke unabhängig von der Diagonale. */
+    private static float aoBrightness(boolean edgeX, boolean edgeZ, boolean diagonal) {
+        int level = edgeX && edgeZ ? 0
+                : 3 - (edgeX ? 1 : 0) - (edgeZ ? 1 : 0) - (diagonal ? 1 : 0);
         return 0.4F + level * 0.2F;
     }
 
@@ -1429,24 +1500,6 @@ public final class LodMesher {
            Position (nah an oder unter einer LOD-Wasserkante) den Bildschirm als große opake
            Fläche. Wände an festem Terrain bleiben opak. */
         boolean fluidWall = this.appearance.isTranslucent(block);
-
-        /* Koplanares Seiten-Overlay (getönter Grasrand) ZUERST emittieren: identische Vertices
-           im selben Opaque-Draw ⇒ identische Tiefe (GL-Invarianz); die danach emittierte
-           Basis-Wand verliert den strikten Tiefentest genau dort, wo das Overlay nicht
-           discarded wurde (u_AlphaCutoff 0.5 gilt auch im LOD-OPAQUE-Segment). Gegenstück zur
-           koplanaren Or-Equal-Lösung des ChunkMesher — bewusst OHNE Offset und ohne eigenen
-           Pass; die Reihenfolge Overlay-vor-Basis ist tragend. */
-        int overlayLayer = this.appearance.sideOverlayLayer(block);
-        if (!fluidWall && overlayLayer >= 0 && this.emitOverlay) {
-            if (this.stats != null) this.stats.wallOverlay++;
-            int overlayTint = this.tintFor(this.appearance.sideOverlayTint(block),
-                    this.appearance.sideOverlayTintType(block), (xa + xb) * 0.5F, (za + zb) * 0.5F);
-            this.ensureCapacity(false);
-            this.putVertex(false, xa, bottom, za, 0F, v, overlayLayer, brightness, overlayTint, bottomSkyLight);
-            this.putVertex(false, xb, bottom, zb, u, v, overlayLayer, brightness, overlayTint, bottomSkyLight);
-            this.putVertex(false, xb, top, zb, u, 0F, overlayLayer, brightness, overlayTint, topSkyLight);
-            this.putVertex(false, xa, top, za, 0F, 0F, overlayLayer, brightness, overlayTint, topSkyLight);
-        }
 
         if (this.stats != null) {
             if (fluidWall) this.stats.wallWater++; else this.stats.wallTerrain++;

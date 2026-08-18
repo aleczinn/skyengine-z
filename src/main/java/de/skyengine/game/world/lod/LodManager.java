@@ -137,7 +137,6 @@ public class LodManager {
     private int lastRenderDistance = -1, lastLodMaxDistance = -1;
     private boolean lastEnabled = true;
     private boolean lastAmbientOcclusion = true;
-    private boolean lastGrassOverlay = true; // TEMP/Debug: LodMesher.EMIT_GRASS_OVERLAY
 
     /* Spieler-Chunk (aktuell) — Zentrum der Masken-Scan-Zone */
     private int pcx, pcz;
@@ -168,7 +167,6 @@ public class LodManager {
         int rd = settings.renderDistance;
         int lodMax = settings.lodMaxDistance;
         boolean ao = settings.ambientOcclusion;
-        boolean overlay = LodMesher.EMIT_GRASS_OVERLAY; // TEMP/Debug: remesht bei Wechsel
 
         this.pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.pcz = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
@@ -179,8 +177,7 @@ public class LodManager {
         this.viewZ = -Math.cos(yawRad);
 
         boolean settingsChanged = enabled != this.lastEnabled || rd != this.lastRenderDistance
-                || lodMax != this.lastLodMaxDistance || ao != this.lastAmbientOcclusion
-                || overlay != this.lastGrassOverlay;
+                || lodMax != this.lastLodMaxDistance || ao != this.lastAmbientOcclusion;
         if (settingsChanged) {
             this.epoch++; // alle Meshes entwertet (Ringe verschoben)
             this.config = LodConfig.of(rd, lodMax);
@@ -200,7 +197,6 @@ public class LodManager {
             this.lastRenderDistance = rd;
             this.lastLodMaxDistance = lodMax;
             this.lastAmbientOcclusion = ao;
-            this.lastGrassOverlay = overlay;
         }
 
         /* Echtes Terrain zuerst: LOD-Jobs erst einreihen, wenn der Radius einmal komplett stand.

@@ -8,8 +8,8 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.chunk.FluidGeometry;
 
 /**
- * LOD-Darstellung pro BlockState-ID: Top-Layer, Seiten-Layer und Tint — einmalig nach dem
- * Registry-Bake aus den real gebackenen Modellen aufgelöst (nie Layer raten!). Fluide haben
+ * LOD-Darstellung pro BlockState-ID: Top-/Seiten-Layer, Tint und AO-Okklusion — einmalig nach
+ * dem Registry-Bake aus den real gebackenen Modellen aufgelöst (nie Layer raten!). Fluide haben
  * kein gebackenes Modell und liefern ihre Still-Textur aus der {@link FluidInfo}; Wasser
  * bekommt den {@link FluidGeometry#WATER_TINT} (Texturen sind grau), Lava bleibt neutral.
  * Immutable — wird von den LOD-Worker-Jobs nur gelesen.
@@ -22,11 +22,7 @@ public final class LodBlockAppearance {
     private final int[] sideTints;
     private final int[] topTintTypes;
     private final int[] sideTintTypes;
-    /* Seiten-Overlay (z.B. getönter Grasrand über der Dirt-Seite): Layer/Tint des separat
-       gebackenen Overlay-Quads (state.getOverlay(), nicht im Modell!); Layer -1 = keins. */
-    private final int[] sideOverlayLayers;
-    private final int[] sideOverlayTints;
-    private final int[] sideOverlayTintTypes;
+    private final boolean[] aoOccluders;
     private final boolean[] fluids;
     private final boolean[] translucent;
     private final boolean[] skyLightAttenuatingFluids;
@@ -40,9 +36,7 @@ public final class LodBlockAppearance {
         this.sideTints = new int[count];
         this.topTintTypes = new int[count];
         this.sideTintTypes = new int[count];
-        this.sideOverlayLayers = new int[count];
-        this.sideOverlayTints = new int[count];
-        this.sideOverlayTintTypes = new int[count];
+        this.aoOccluders = new boolean[count];
         this.fluids = new boolean[count];
         this.translucent = new boolean[count];
         this.skyLightAttenuatingFluids = new boolean[count];
@@ -51,7 +45,7 @@ public final class LodBlockAppearance {
             BlockState state = BlockRegistry.getState(id);
             this.topTints[id] = BakedQuad.WHITE;
             this.sideTints[id] = BakedQuad.WHITE;
-            this.sideOverlayLayers[id] = -1;
+            this.aoOccluders[id] = state.occludesAo();
             this.fluids[id] = state.isFluid();
             this.translucent[id] = state.getRenderLayer() == RenderLayer.TRANSLUCENT;
 
@@ -86,17 +80,6 @@ public final class LodBlockAppearance {
                Textur-Layer (orange Akazien-Ebene bei importierten Welten). */
             this.topLayers[id] = top >= 0 ? top : side;
             this.sideLayers[id] = side >= 0 ? side : this.topLayers[id];
-
-            /* Alle Seiten-Overlays sind identisch gebacken (BlockModels.overlaySides) —
-               das erste mit Seiten-Cullface reicht. */
-            for (BakedQuad quad : state.getOverlay()) {
-                if (quad.cullFace() >= 2) {
-                    this.sideOverlayLayers[id] = quad.textureLayer();
-                    this.sideOverlayTints[id] = quad.tint();
-                    this.sideOverlayTintTypes[id] = quad.tintType();
-                    break;
-                }
-            }
         }
     }
 
@@ -128,19 +111,9 @@ public final class LodBlockAppearance {
         return this.sideTintTypes[stateId];
     }
 
-    /** Textur-Layer des Seiten-Overlays (getönter Grasrand); -1 = Block hat kein Overlay. */
-    public int sideOverlayLayer(int stateId) {
-        return this.sideOverlayLayers[stateId];
-    }
-
-    /** Gepackter Multiplikations-Tint 0xRRGGBB des Seiten-Overlays. */
-    public int sideOverlayTint(int stateId) {
-        return this.sideOverlayTints[stateId];
-    }
-
-    /** Biome-Tint-Typ des Seiten-Overlays ({@code BakedQuad.TINT_*}); NONE = fester Tint. */
-    public int sideOverlayTintType(int stateId) {
-        return this.sideOverlayTintTypes[stateId];
+    /** Package-intern: dieselbe AO-Okkludierer-Regel wie der normale ChunkMesher. */
+    boolean occludesAo(int stateId) {
+        return this.aoOccluders[stateId];
     }
 
     /** true für Fluide — deren Zell-Top liegt auf der Quellhöhe (8/9) statt auf Höhe+1. */

@@ -70,7 +70,6 @@
       "gpu_cull": "GPU-Culling",
       "gpu_cull_tint": "GPU-Cull Debug (rot)",
       "gpu_cull_hiz": "GPU-Cull: Hi-Z-Occlusion",
-      "lod_overlay": "LOD-Seiten-Overlay",
       "lod_colors": "LOD-Level einfärben",
       "pause_loading": "Chunk-Laden pausieren",
       "aa_mode": "Anti-Aliasing",

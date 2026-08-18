@@ -33,8 +33,6 @@ public final class LodMeshStats {
     public long topWater;
     /** Opake Terrain-Basiswände (faces 2–5). */
     public long wallTerrain;
-    /** Koplanare Gras-Overlay-Wände (opak, ZUSÄTZLICH zur Basiswand) — reiner Quad-Aufschlag. */
-    public long wallOverlay;
     /** Transluzente Wasser-Wände (Seeufer-/Wasserfall-Kanten). */
     public long wallWater;
 
@@ -67,7 +65,7 @@ public final class LodMeshStats {
     /** Alle Zähler auf 0 — vor jedem Konfigurations-Lauf. */
     public void reset() {
         this.topTerrain = this.topWater = 0;
-        this.wallTerrain = this.wallOverlay = this.wallWater = 0;
+        this.wallTerrain = this.wallWater = 0;
         this.seamMaterial = this.seamHeight = this.seamLight = this.seamAo = 0;
         this.seamClipped = this.seamMergeable = 0;
         this.wallRealStep = this.wallEdgeSkirt = this.wallMaskSkirt = 0;
@@ -76,7 +74,7 @@ public final class LodMeshStats {
     /** Druckt den vollständigen Report für eine (config, AO)-Kombination. */
     public void printReport(LodConfig config, boolean ao) {
         long tops = this.topTerrain + this.topWater;
-        long walls = this.wallTerrain + this.wallOverlay + this.wallWater;
+        long walls = this.wallTerrain + this.wallWater;
         long total = tops + walls;
 
         System.out.printf(Locale.ROOT,
@@ -88,7 +86,6 @@ public final class LodMeshStats {
         printLine("  Top  Terrain (opak)", this.topTerrain, total);
         printLine("  Top  Wasser (transl.)", this.topWater, total);
         printLine("  Seite Terrain-Basis", this.wallTerrain, total);
-        printLine("  Seite Gras-Overlay", this.wallOverlay, total);
         printLine("  Seite Wasser (transl.)", this.wallWater, total);
         printLine("  Bottom", 0, total);
         System.out.printf(Locale.ROOT, "  %-24s %12d%n", "= Gesamt", total);

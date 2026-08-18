@@ -3,8 +3,7 @@ package de.skyengine.graphics;
 /**
  * Transiente Debug-Schalter (nur Session, NICHT in options.json). Vom {@code GuiDebugScreen}
  * und dem Render-/Input-Pfad gelesen/geschrieben. GPU-Cull ({@code GpuCull.ENABLED/DEBUG_TINT})
- * und {@code LodMesher.EMIT_GRASS_OVERLAY} liegen bewusst in ihren Subsystemen; hier nur, was
- * sonst nirgends ein Zuhause hat.
+ * liegt bewusst in seinem Subsystem; hier nur, was sonst nirgends ein Zuhause hat.
  */
 public final class DebugFlags {
 

@@ -62,7 +62,6 @@
       "gpu_cull": "GPU Culling",
       "gpu_cull_tint": "GPU Cull Debug (red)",
       "gpu_cull_hiz": "GPU Cull: Hi-Z Occlusion",
-      "lod_overlay": "LOD Side Overlay",
       "lod_colors": "Color LOD Levels",
       "pause_loading": "Pause Chunk Loading",
       "aa_mode": "Anti-Aliasing",
