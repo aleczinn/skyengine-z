@@ -63,15 +63,60 @@ public class LodManager {
 
     /** Fertiges Regionen-Mesh (Worker → Render-Thread). Leere data = Region komplett geclippt.
         sizeRegions = Footprint in 128er-Regionen (1 = normal, 4 = Superregion). */
-    public record LodMeshResult(int level, int rx, int rz, int sizeRegions, int epoch, int mask, int yBase,
-                                int[] opaqueData, int[] translucentData, float minY, float maxY) {}
+    public record LodClipSnapshot(int centerMask, int northEdge, int southEdge,
+                                  int westEdge, int eastEdge) {
+        static LodClipSnapshot centerOnly(int mask) {
+            return new LodClipSnapshot(mask, 0, 0, 0, 0);
+        }
+
+        boolean hasAnyExactTerrain() {
+            return (this.centerMask | this.northEdge | this.southEdge
+                    | this.westEdge | this.eastEdge) != 0;
+        }
+
+        boolean edgeClipped(int face, int chunkAlongEdge) {
+            int bits = switch (face) {
+                case 2 -> this.northEdge;
+                case 3 -> this.southEdge;
+                case 4 -> this.westEdge;
+                case 5 -> this.eastEdge;
+                default -> 0;
+            };
+            return (bits & (1 << Math.clamp(chunkAlongEdge, 0, 3))) != 0;
+        }
+    }
+
+    /** Der beim Meshen gueltige Levelvertrag mit den vier Nachbarregionen. */
+    public record LodNeighborSnapshot(int northLevel, int southLevel,
+                                      int westLevel, int eastLevel) {
+        static LodNeighborSnapshot sameLevel(int level) {
+            return new LodNeighborSnapshot(level, level, level, level);
+        }
+
+        int level(int face) {
+            return switch (face) {
+                case 2 -> this.northLevel;
+                case 3 -> this.southLevel;
+                case 4 -> this.westLevel;
+                case 5 -> this.eastLevel;
+                default -> throw new IllegalArgumentException("Keine horizontale LOD-Seite: " + face);
+            };
+        }
+    }
+
+    public record LodMeshResult(int level, int rx, int rz, int sizeRegions, int epoch, int mask,
+                                LodClipSnapshot clipSnapshot, LodNeighborSnapshot neighborSnapshot,
+                                int yBase, int[] opaqueData,
+                                int[] translucentData, float minY, float maxY) {}
 
     /* Stand einer hochgeladenen Region: Level + Größe + Settings-Epoche + Chunk-Maske des Meshes */
-    private record Current(int level, int sizeRegions, int epoch, int mask) {}
+    private record Current(int level, int sizeRegions, int epoch, LodClipSnapshot clipSnapshot,
+                           LodNeighborSnapshot neighborSnapshot) {}
 
     /* clip = reiner Masken-Diff (Level/Epoche stimmen schon) → höhere Worker-Priorität */
-    private record Candidate(long key, int level, int mask, int band, int viewTier,
-                             double distanceSq, boolean clip) {}
+    private record Candidate(long key, int level, LodClipSnapshot clipSnapshot,
+                             LodNeighborSnapshot neighborSnapshot, int band, int viewTier,
+                             double distanceSq, boolean urgent) {}
 
     private record CompletedMesh(LodMeshResult result, long completedNanos) {}
 
@@ -298,6 +343,59 @@ public class LodManager {
         return mask;
     }
 
+    /**
+     * Atomarer Sicht-Snapshot der eigenen 4x4 Chunks plus je einer Chunk-Reihe an den vier
+     * Regionskanten. Die Randbits sind noetig, weil eine L0/LOD-Kante exakt auf einer
+     * 128-Block-Regionsgrenze liegen kann und dann in der lokalen 16-Bit-Maske unsichtbar waere.
+     */
+    private LodClipSnapshot computeClipSnapshot(int rx, int rz) {
+        int baseCx = rx * 4, baseCz = rz * 4;
+        int center = this.computeMask(rx, rz);
+        int north = 0, south = 0, west = 0, east = 0;
+        for (int i = 0; i < 4; i++) {
+            if (this.chunkShowsTerrain(baseCx + i, baseCz - 1)) north |= 1 << i;
+            if (this.chunkShowsTerrain(baseCx + i, baseCz + 4)) south |= 1 << i;
+            if (this.chunkShowsTerrain(baseCx - 1, baseCz + i)) west |= 1 << i;
+            if (this.chunkShowsTerrain(baseCx + 4, baseCz + i)) east |= 1 << i;
+        }
+        return new LodClipSnapshot(center, north, south, west, east);
+    }
+
+    /**
+     * Liest den Nahtvertrag aus demselben Desired-Snapshot, der auch die Jobs bestimmt.
+     * Eine Region ausserhalb des Rings wird absichtlich als gleichaufloesend behandelt;
+     * dort endet die Darstellung im Fog und es gibt keinen zweiten LOD-Partner.
+     */
+    private LodNeighborSnapshot computeNeighborSnapshot(int rx, int rz, int ownLevel) {
+        return neighborSnapshot(this.desired, rx, rz, ownLevel);
+    }
+
+    static LodNeighborSnapshot neighborSnapshot(LongIntMap desired, int rx, int rz, int ownLevel) {
+        return new LodNeighborSnapshot(
+                desired.getOrDefault(key(rx, rz - 1), ownLevel),
+                desired.getOrDefault(key(rx, rz + 1), ownLevel),
+                desired.getOrDefault(key(rx - 1, rz), ownLevel),
+                desired.getOrDefault(key(rx + 1, rz), ownLevel));
+    }
+
+    static boolean topologyChanged(LodNeighborSnapshot current,
+                                   LodNeighborSnapshot desired) {
+        return !desired.equals(current);
+    }
+
+    static boolean meshContractMatches(LodClipSnapshot resultClip,
+                                       LodNeighborSnapshot resultNeighbors,
+                                       LodClipSnapshot currentClip,
+                                       LodNeighborSnapshot currentNeighbors) {
+        return resultClip.equals(currentClip) && resultNeighbors.equals(currentNeighbors);
+    }
+
+    private boolean chunkShowsTerrain(int cx, int cz) {
+        Chunk chunk = this.chunkManager.getChunk(cx, cz);
+        return chunk != null && chunk.status == ChunkStatus.READY && chunk.isFullyUploaded()
+                && !chunk.pendingUnload;
+    }
+
     /** Eine fehlende Region, die gerade einen L0-Unload blockiert, ist ebenfalls ein Handoff-Job. */
     private boolean hasPendingUnload(int rx, int rz) {
         int baseCx = rx * 4, baseCz = rz * 4;
@@ -331,24 +429,32 @@ public class LodManager {
             double distSq = cx * cx + cz * cz;
 
             Current c = this.current.get(key);
-            boolean needs = c == null || c.level != level || c.epoch != this.epoch;
-            boolean validVisual = !needs;
-            boolean clip = false;
-            int mask = Integer.MIN_VALUE; // noch nicht berechnet
+            LodNeighborSnapshot neighborSnapshot = this.computeNeighborSnapshot(rx, rz, level);
+            boolean baseNeeds = c == null || c.level != level || c.epoch != this.epoch;
+            boolean topologyNeeds = c != null
+                    && topologyChanged(c.neighborSnapshot, neighborSnapshot);
+            boolean needs = baseNeeds || topologyNeeds;
+            boolean validVisual = !baseNeeds;
+            boolean urgent = topologyNeeds;
+            LodClipSnapshot clipSnapshot = null; // noch nicht berechnet
             if (needs && this.chunkManager.hasPendingUnloads() && this.hasPendingUnload(rx, rz)) {
                 /* Auch ein kompletter Erst-/Epochen-Build ist dringend, wenn sichtbares L0
                    auf genau diese Region als atomaren Ersatz wartet. */
-                clip = true;
-                mask = this.computeMask(rx, rz);
+                urgent = true;
+                clipSnapshot = this.computeClipSnapshot(rx, rz);
             }
-            if (validVisual && (c.mask != 0 || distSq < nearReal * nearReal)) {
+            if (validVisual && (c.clipSnapshot.hasAnyExactTerrain()
+                    || distSq < nearReal * nearReal)) {
                 /* Masken-Diff: Chunk fertig geladen oder entladen → Region remeshen.
-                   c.mask != 0 fängt den Unload-Fall auch außerhalb der Nahzone.
+                   Ein gesetztes Zentrum- oder Randbit fängt den Unload-Fall auch außerhalb
+                   der Nahzone.
                    Diese Clip-Remeshes laufen mit erhöhter Priorität (PRIO_LOD_CLIP) —
                    sonst steht die alte LOD-Geometrie sekundenlang über frisch
                    erschienenen L0-Chunks (hinter der vollen Lade-Queue). */
-                mask = this.computeMask(rx, rz);
-                needs = clip = mask != c.mask;
+                clipSnapshot = this.computeClipSnapshot(rx, rz);
+                boolean clipChanged = !clipSnapshot.equals(c.clipSnapshot);
+                needs |= clipChanged;
+                urgent |= clipChanged;
             }
             if (!needs) continue;
             int band = distanceBand(cx, cz);
@@ -361,11 +467,12 @@ public class LodManager {
             int viewTier = cos >= VIEW_CONE_COS ? 0 : 1;
 
             if (candidates == null) candidates = new ArrayList<>();
-            candidates.add(new Candidate(key, level, mask, band, viewTier, distSq, clip));
+            candidates.add(new Candidate(key, level, clipSnapshot, neighborSnapshot,
+                    band, viewTier, distSq, urgent));
         }
         if (candidates == null) return;
 
-        candidates.sort(Comparator.comparingInt((Candidate candidate) -> candidate.clip ? 0 : 1)
+        candidates.sort(Comparator.comparingInt((Candidate candidate) -> candidate.urgent ? 0 : 1)
                 .thenComparingInt(Candidate::band)
                 .thenComparingInt(Candidate::level)
                 .thenComparingInt(Candidate::viewTier)
@@ -378,7 +485,9 @@ public class LodManager {
             int rx = (int) (cand.key >> 32), rz = (int) cand.key;
             int level = cand.level, jobEpoch = this.epoch;
             int jobDesiredVersion = this.desiredVersion;
-            int mask = cand.mask != Integer.MIN_VALUE ? cand.mask : this.computeMask(rx, rz);
+            LodClipSnapshot clipSnapshot = cand.clipSnapshot != null
+                    ? cand.clipSnapshot : this.computeClipSnapshot(rx, rz);
+            LodNeighborSnapshot neighborSnapshot = cand.neighborSnapshot;
             int jobAx = this.anchorX, jobAz = this.anchorZ;
             LodConfig jobConfig = this.config;
             ChunkManager.LodPriority priority = new ChunkManager.LodPriority(jobDesiredVersion,
@@ -392,7 +501,8 @@ public class LodManager {
                     }
                     LodMesher mesher = this.meshers.get();
                     LodMeshResult result = mesher.mesh(this.source, this.appearance, jobConfig,
-                            level, 1, rx, rz, jobEpoch, mask, jobAx, jobAz);
+                            level, 1, rx, rz, jobEpoch, clipSnapshot, neighborSnapshot,
+                            jobAx, jobAz);
                     this.results.add(new CompletedMesh(result, System.nanoTime()));
                     this.meshSamplingTimes.add(mesher.lastSamplingNanos());
                     this.meshGeometryTimes.add(mesher.lastGeometryNanos());
@@ -400,7 +510,7 @@ public class LodManager {
                     this.logger.warning("LOD-Mesh fuer Region (" + rx + ", " + rz + ") fehlgeschlagen", error);
                     this.failedJobs.add(cand.key);
                 }
-            }, cand.clip, priority, () -> this.inflight.remove(cand.key));
+            }, cand.urgent, priority, () -> this.inflight.remove(cand.key));
             if (!accepted) this.inflight.remove(cand.key);
         }
     }
@@ -466,9 +576,11 @@ public class LodManager {
            Einen veralteten Maskenstand kurz hochzuladen würde L0 festhalten oder Doppelbilder
            erzeugen und danach noch einen zweiten Remesh brauchen. Nur der aktuelle Stand darf
            den atomaren Handoff vollziehen; der Tick submittet den Ersatz unmittelbar neu. */
-        if (result.mask() != this.computeMask(result.rx(), result.rz())) return false;
+        if (!meshContractMatches(result.clipSnapshot(), result.neighborSnapshot(),
+                this.computeClipSnapshot(result.rx(), result.rz()),
+                this.computeNeighborSnapshot(result.rx(), result.rz(), result.level()))) return false;
         this.current.put(key, new Current(result.level(), result.sizeRegions(), result.epoch(),
-                result.mask()));
+                result.clipSnapshot(), result.neighborSnapshot()));
         return true;
     }
 
@@ -495,7 +607,7 @@ public class LodManager {
         Current c = this.current.get(key);
         if (c == null) return false; // erster Upload der Region steht noch aus
         int bit = Math.floorMod(cz, 4) * 4 + Math.floorMod(cx, 4);
-        return (c.mask & (1 << bit)) == 0;
+        return (c.clipSnapshot.centerMask & (1 << bit)) == 0;
     }
 
     /**
@@ -514,6 +626,6 @@ public class LodManager {
         Current c = this.current.get(key(Math.floorDiv(cx, 4), Math.floorDiv(cz, 4)));
         if (c == null) return false;
         int bit = Math.floorMod(cz, 4) * 4 + Math.floorMod(cx, 4);
-        return (c.mask & (1 << bit)) == 0;
+        return (c.clipSnapshot.centerMask & (1 << bit)) == 0;
     }
 }

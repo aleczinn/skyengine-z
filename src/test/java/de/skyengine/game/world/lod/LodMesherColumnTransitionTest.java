@@ -121,7 +121,8 @@ final class LodMesherColumnTransitionTest {
                 LodConfig.of(16, 128), 1, 1, 0, 0, 0, 1 << 1, 64, 64);
 
         assertTrue(hasVerticalSegment(result, 32F, 0F, 1F, 20F, 30F));
-        assertTrue(hasVerticalSegment(result, 32F, 0F, 1F, 40F, 50F));
+        assertFalse(hasVerticalSegment(result, 32F, 0F, 1F, 40F, 50F),
+                "Details auf der exakten L0-Seite gehoeren dem L0-Mesh und duerfen nicht doppeln");
         assertTrue(hasVerticalSegment(result, 32F, 0F, 1F, 60F, 70F));
     }
 
@@ -169,51 +170,37 @@ final class LodMesherColumnTransitionTest {
 
         assertTrue(hasVerticalSegment(result, 32F, 0F, 1F, 64F, 80F),
                 "Die sichtbare Grasschicht muss die Aussenkante definieren");
-        assertFalse(hasVerticalSegment(result, 32F, 0F, 1F, 63F, 80F));
+        assertFalse(hasVerticalSegment(result, 32F, 0F, 1F, 0F, 60F),
+                "Der begrenzte Nahtabschluss darf nicht bis zum Weltboden reichen");
     }
 
     @Test
-    void everyLevelBoundaryHasExactlyOneTransitionOwner() {
+    void bothLevelSidesRecognizeTheSameMeasuredTransition() {
         for (int face = 2; face <= 5; face++) {
             for (int first = 0; first < ChunkLodColumns.LEVELS; first++) {
                 for (int second = 0; second < ChunkLodColumns.LEVELS; second++) {
-                    LodMesher.TransitionOwnership forward =
-                            LodMesher.transitionOwnership(first, second);
-                    LodMesher.TransitionOwnership backward =
-                            LodMesher.transitionOwnership(second, first);
-                    if (first == second) {
-                        assertTrue(forward == LodMesher.TransitionOwnership.REGULAR
-                                && backward == LodMesher.TransitionOwnership.REGULAR,
-                                "Gleiches Level muss regulaer bleiben, Face " + face);
-                    } else {
-                        int owners = (forward == LodMesher.TransitionOwnership.OWNED ? 1 : 0)
-                                + (backward == LodMesher.TransitionOwnership.OWNED ? 1 : 0);
-                        assertTrue(owners == 1, "Grenze braucht genau einen Besitzer, Face " + face
-                                + ", L" + first + "/L" + second);
-                        assertTrue(forward != LodMesher.TransitionOwnership.REGULAR
-                                && backward != LodMesher.TransitionOwnership.REGULAR);
-                    }
+                    boolean expected = first != second;
+                    assertTrue(LodMesher.resolutionTransition(first, second) == expected,
+                            "Vorwaertsvertrag an Face " + face);
+                    assertTrue(LodMesher.resolutionTransition(second, first) == expected,
+                            "Rueckwaertsvertrag an Face " + face);
                 }
             }
         }
-        LodMesher.TransitionOwnership lodSide =
-                LodMesher.maskTransitionOwnership(false, true);
-        LodMesher.TransitionOwnership exactSide =
-                LodMesher.maskTransitionOwnership(true, false);
-        assertTrue(lodSide == LodMesher.TransitionOwnership.OWNED);
-        assertTrue(exactSide == LodMesher.TransitionOwnership.FOREIGN);
+        assertTrue(LodMesher.ownsMaskTransition(false, true));
+        assertFalse(LodMesher.ownsMaskTransition(true, false));
     }
 
     @Test
-    void fourRegionCornersKeepOwnershipOnEveryIncidentEdge() {
+    void fourRegionCornersAgreeOnEveryIncidentTransition() {
         for (int nw = 0; nw < ChunkLodColumns.LEVELS; nw++) {
             for (int ne = 0; ne < ChunkLodColumns.LEVELS; ne++) {
                 for (int sw = 0; sw < ChunkLodColumns.LEVELS; sw++) {
                     for (int se = 0; se < ChunkLodColumns.LEVELS; se++) {
-                        assertOwnerPair(nw, ne);
-                        assertOwnerPair(nw, sw);
-                        assertOwnerPair(ne, se);
-                        assertOwnerPair(sw, se);
+                        assertTransitionPair(nw, ne);
+                        assertTransitionPair(nw, sw);
+                        assertTransitionPair(ne, se);
+                        assertTransitionPair(sw, se);
                     }
                 }
             }
@@ -236,6 +223,90 @@ final class LodMesherColumnTransitionTest {
         assertTrue(stats.transitionMaxCoarseLevel == 2 && stats.transitionMaxFineLevel == 1);
         assertTrue(stats.transitionMaxCoarseSize == 4 && stats.transitionMaxFineSize == 2);
         assertTrue(stats.transitionMaxCoarseTop == 80 && stats.transitionMaxFineTop == 64);
+        assertFalse(hasVerticalSegment(result, 0F, 32F, 34F, 56F, 64F),
+                "Unterhalb beider belegten Terrainhuellen darf kein Blind-Skirt entstehen");
+        assertFalse(hasVerticalSegment(result, 0F, 32F, 34F, 0F, 56F));
+    }
+
+    @Test
+    void l2L3BoundaryIsOwnedByTheActuallyExposedMaterialSide() {
+        LodDataSource source = heightBySize(4, 64, 80);
+        LodBlockAppearance appearance = new LodBlockAppearance();
+        LodConfig config = LodConfig.of(1, 128);
+        LodManager.LodClipSnapshot clip = LodManager.LodClipSnapshot.centerOnly(0);
+
+        LodManager.LodMeshResult westL2 = new LodMesher().mesh(source, appearance, config,
+                2, 1, 0, 0, 0, clip,
+                new LodManager.LodNeighborSnapshot(2, 2, 2, 3), 64, 64);
+        LodManager.LodMeshResult eastL3 = new LodMesher().mesh(source, appearance, config,
+                3, 1, 1, 0, 0, clip,
+                new LodManager.LodNeighborSnapshot(3, 3, 2, 3), 64, 64);
+
+        assertFalse(hasVerticalSegment(westL2, 128F, 0F, 4F, 64F, 80F),
+                "Die niedrigere L2-Seite besitzt keine fremde L3-Wand");
+        assertTrue(hasVerticalSegment(eastL3, 0F, 0F, 4F, 64F, 80F),
+                "Die hoeher belegte L3-Seite muss ihre eigene Aussenwand vollstaendig liefern");
+        for (int y = 64; y < 80; y++) {
+            assertTrue(verticalCoverageCount(eastL3, 0F, 1.5F, y + 0.5F) == 1,
+                    "Jedes L2/L3-Grenzsegment darf genau einmal vorkommen, y=" + y);
+        }
+    }
+
+    @Test
+    void l2L3CoverageIsClosedOnAllFacesInBothHeightDirections() {
+        LodConfig config = LodConfig.of(1, 128);
+        LodBlockAppearance appearance = new LodBlockAppearance();
+        for (int face = 2; face <= 5; face++) {
+            LodManager.LodNeighborSnapshot l3Neighbor = neighborAtFace(3, face, 2);
+            LodManager.LodMeshResult highL3 = new LodMesher().mesh(
+                    heightBySize(4, 64, 80), appearance, config,
+                    3, 1, 0, 0, 0, LodManager.LodClipSnapshot.centerOnly(0),
+                    l3Neighbor, 64, 64);
+            float boundary = face == 2 || face == 4 ? 0F : 128F;
+            assertTrue(hasBoundaryCoverage(highL3, face, boundary, 0F, 4F, 64F, 80F),
+                    "Hoehere L3-Seite muss Face " + face + " schliessen");
+
+            LodManager.LodNeighborSnapshot l2Neighbor = neighborAtFace(2, face, 3);
+            LodManager.LodMeshResult highL2 = new LodMesher().mesh(
+                    heightBySize(4, 80, 64), appearance, config,
+                    2, 1, 0, 0, 0, LodManager.LodClipSnapshot.centerOnly(0),
+                    l2Neighbor, 64, 64);
+            assertTrue(hasBoundaryCoverage(highL2, face, boundary, 0F, 4F, 64F, 80F),
+                    "Hoehere L2-Seite muss Face " + face + " schliessen");
+        }
+    }
+
+    @Test
+    void transitionWallUsesTheRealMaterialAtEveryHeight() {
+        LodDataSource source = new LodDataSource() {
+            @Override public boolean hasColumns() { return true; }
+            @Override public LodColumn sampleColumn(int x, int z, int size) {
+                if (size <= 4) return terrain(64);
+                return new LodColumn(new long[]{
+                        LodColumn.pack(Blocks.STONE, 0, 70, LodColumn.FLAG_TERRAIN),
+                        LodColumn.pack(Blocks.DIRT, 70, 79, LodColumn.FLAG_TERRAIN),
+                        LodColumn.pack(Blocks.GRASS_BLOCK, 79, 80, LodColumn.FLAG_SKY_OPEN)});
+            }
+            @Override public long sampleSurface(int x, int z, int size) {
+                return LodDataSource.pack(size <= 4 ? Blocks.STONE : Blocks.GRASS_BLOCK,
+                        size <= 4 ? 63 : 79);
+            }
+        };
+        LodBlockAppearance appearance = new LodBlockAppearance();
+        LodManager.LodMeshResult result = new LodMesher().mesh(source, appearance,
+                LodConfig.of(1, 128), 3, 1, 1, 0, 0,
+                LodManager.LodClipSnapshot.centerOnly(0),
+                new LodManager.LodNeighborSnapshot(3, 3, 2, 3), 64, 64);
+
+        assertTrue(hasVerticalSegmentWithLayer(result, 0F, 0F, 4F, 64F, 70F,
+                appearance.sideLayer(Blocks.STONE)));
+        assertTrue(hasVerticalSegmentWithLayer(result, 0F, 0F, 4F, 70F, 79F,
+                appearance.sideLayer(Blocks.DIRT)));
+        assertTrue(hasVerticalSegmentWithLayer(result, 0F, 0F, 4F, 79F, 80F,
+                appearance.sideLayer(Blocks.GRASS_BLOCK)));
+        assertFalse(hasVerticalSegmentWithLayer(result, 0F, 0F, 4F, 64F, 79F,
+                appearance.sideLayer(Blocks.GRASS_BLOCK)),
+                "Grass darf niemals als tiefer Skirt vor Stone oder Dirt liegen");
     }
 
     @Test
@@ -288,6 +359,59 @@ final class LodMesherColumnTransitionTest {
         assertTrue(hasHorizontalAt(result, 90F), "Eine freistehende Landmarke braucht weiterhin eine Unterseite");
     }
 
+    @Test
+    void exactChunkAcrossRegionBoundaryGetsMeasuredTransitionWithoutBlindGuard() {
+        LodDataSource source = heightBySize(1, 64, 80);
+        LodManager.LodClipSnapshot clip = new LodManager.LodClipSnapshot(0, 0, 0, 0, 1);
+        LodManager.LodMeshResult result = new LodMesher().mesh(source, new LodBlockAppearance(),
+                LodConfig.of(16, 128), 1, 1, 0, 0, 0, clip, 64, 64);
+
+        assertTrue(hasVerticalSegment(result, 128F, 0F, 1F, 64F, 80F),
+                "Ein L0-Chunk direkt ausserhalb der Region muss im Clip-Halo sichtbar sein");
+        assertFalse(hasVerticalSegment(result, 128F, 0F, 1F, 60F, 64F),
+                "Unter der L0-Oberflaeche besitzt bereits das exakte Chunk-Mesh die Aussenwand");
+    }
+
+    @Test
+    void exactL0OwnsItsWholeExteriorWallWithoutCoplanarLodDuplicate() {
+        LodDataSource source = new LodDataSource() {
+            @Override public boolean hasColumns() { return true; }
+            @Override public LodColumn sampleColumn(int x, int z, int size) {
+                if (size > 1) return terrain(64);
+                return terrain(x >= 128 ? 80 : 72);
+            }
+            @Override public long sampleSurface(int x, int z, int size) {
+                LodColumn column = sampleColumn(x, z, size);
+                return LodDataSource.pack(Blocks.STONE, LodColumn.maxY(column.interval(0)) - 1);
+            }
+        };
+        LodManager.LodClipSnapshot clip = new LodManager.LodClipSnapshot(0, 0, 0, 0, 1);
+        LodManager.LodMeshResult result = new LodMesher().mesh(source, new LodBlockAppearance(),
+                LodConfig.of(16, 128), 1, 1, 0, 0, 0, clip, 64, 64);
+
+        assertFalse(hasVerticalSegment(result, 128F, 0F, 1F, 64F, 80F),
+                "Der exakte L0-Rand rendert gegen den fehlenden Nachbarn bereits die ganze Wand");
+    }
+
+    @Test
+    void exactClipHaloClosesAllFourRegionFaces() {
+        LodDataSource source = heightBySize(1, 64, 80);
+        for (int face = 2; face <= 5; face++) {
+            LodManager.LodClipSnapshot clip = switch (face) {
+                case 2 -> new LodManager.LodClipSnapshot(0, 1, 0, 0, 0);
+                case 3 -> new LodManager.LodClipSnapshot(0, 0, 1, 0, 0);
+                case 4 -> new LodManager.LodClipSnapshot(0, 0, 0, 1, 0);
+                default -> new LodManager.LodClipSnapshot(0, 0, 0, 0, 1);
+            };
+            LodManager.LodMeshResult result = new LodMesher().mesh(source,
+                    new LodBlockAppearance(), LodConfig.of(16, 128),
+                    1, 1, 0, 0, 0, clip, 64, 64);
+            float boundary = face == 2 || face == 4 ? 0F : 128F;
+            assertTrue(hasBoundaryCoverage(result, face, boundary, 0F, 1F, 64F, 80F),
+                    "Clip-Halo muss Face " + face + " lueckenlos schliessen");
+        }
+    }
+
     private static LodDataSource heightBySize(int fineSize, int fineTop, int coarseTop) {
         return new LodDataSource() {
             @Override public boolean hasColumns() { return true; }
@@ -305,13 +429,20 @@ final class LodMesherColumnTransitionTest {
         return new LodColumn(new long[]{LodColumn.pack(Blocks.STONE, 0, top, LodColumn.FLAG_TERRAIN)});
     }
 
-    private static void assertOwnerPair(int first, int second) {
-        if (first == second) return;
-        int owners = (LodMesher.transitionOwnership(first, second)
-                == LodMesher.TransitionOwnership.OWNED ? 1 : 0)
-                + (LodMesher.transitionOwnership(second, first)
-                == LodMesher.TransitionOwnership.OWNED ? 1 : 0);
-        assertTrue(owners == 1);
+    private static LodManager.LodNeighborSnapshot neighborAtFace(int ownLevel,
+                                                                  int face,
+                                                                  int neighborLevel) {
+        return new LodManager.LodNeighborSnapshot(
+                face == 2 ? neighborLevel : ownLevel,
+                face == 3 ? neighborLevel : ownLevel,
+                face == 4 ? neighborLevel : ownLevel,
+                face == 5 ? neighborLevel : ownLevel);
+    }
+
+    private static void assertTransitionPair(int first, int second) {
+        boolean expected = first != second;
+        assertTrue(LodMesher.resolutionTransition(first, second) == expected);
+        assertTrue(LodMesher.resolutionTransition(second, first) == expected);
     }
 
     private static String sample(int x, int z, int size) {
@@ -370,6 +501,7 @@ final class LodMesherColumnTransitionTest {
                                                float minZ, float maxZ,
                                                float minY, float maxY) {
         int[] data = result.opaqueData();
+        List<float[]> intervals = new ArrayList<>();
         for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
             boolean constantX = true;
             float foundMinZ = Float.POSITIVE_INFINITY, foundMaxZ = Float.NEGATIVE_INFINITY;
@@ -384,7 +516,113 @@ final class LodMesherColumnTransitionTest {
                 foundMinY = Math.min(foundMinY, vy); foundMaxY = Math.max(foundMaxY, vy);
             }
             if (constantX && close(foundMinZ, minZ) && close(foundMaxZ, maxZ)
-                    && close(foundMinY, minY) && close(foundMaxY, maxY)) return true;
+                    && foundMaxY > minY && foundMinY < maxY) {
+                intervals.add(new float[]{foundMinY, foundMaxY});
+            }
+        }
+        intervals.sort(java.util.Comparator.comparingDouble(interval -> interval[0]));
+        float covered = minY;
+        for (float[] interval : intervals) {
+            if (interval[1] <= covered + 0.01F) continue;
+            if (interval[0] > covered + 0.01F) return false;
+            covered = Math.max(covered, interval[1]);
+            if (covered >= maxY - 0.01F) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasVerticalSegmentWithLayer(LodManager.LodMeshResult result, float x,
+                                                        float minZ, float maxZ,
+                                                        float minY, float maxY, int layer) {
+        int[] data = result.opaqueData();
+        List<float[]> intervals = new ArrayList<>();
+        for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+            if ((data[q + 2] >>> 16) != layer) continue;
+            boolean constantX = true;
+            float foundMinZ = Float.POSITIVE_INFINITY, foundMaxZ = Float.NEGATIVE_INFINITY;
+            float foundMinY = Float.POSITIVE_INFINITY, foundMaxY = Float.NEGATIVE_INFINITY;
+            for (int v = 0; v < 4; v++) {
+                int p = q + v * ChunkMesher.VERTEX_SIZE;
+                float vx = coordinate(data[p] & 0xFFFF, result.level());
+                float vy = coordinate((data[p] >>> 16) & 0xFFFF, result.level()) + result.yBase();
+                float vz = coordinate(data[p + 1] & 0xFFFF, result.level());
+                constantX &= close(vx, x);
+                foundMinZ = Math.min(foundMinZ, vz); foundMaxZ = Math.max(foundMaxZ, vz);
+                foundMinY = Math.min(foundMinY, vy); foundMaxY = Math.max(foundMaxY, vy);
+            }
+            if (constantX && close(foundMinZ, minZ) && close(foundMaxZ, maxZ)
+                    && foundMaxY > minY && foundMinY < maxY) {
+                intervals.add(new float[]{foundMinY, foundMaxY});
+            }
+        }
+        intervals.sort(java.util.Comparator.comparingDouble(interval -> interval[0]));
+        float covered = minY;
+        for (float[] interval : intervals) {
+            if (interval[1] <= covered + 0.01F) continue;
+            if (interval[0] > covered + 0.01F) return false;
+            covered = Math.max(covered, interval[1]);
+            if (covered >= maxY - 0.01F) return true;
+        }
+        return false;
+    }
+
+    private static int verticalCoverageCount(LodManager.LodMeshResult result, float x,
+                                             float tangent, float y) {
+        int count = 0;
+        int[] data = result.opaqueData();
+        for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+            boolean constantX = true;
+            float minZ = Float.POSITIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
+            float minY = Float.POSITIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
+            for (int v = 0; v < 4; v++) {
+                int p = q + v * ChunkMesher.VERTEX_SIZE;
+                float vx = coordinate(data[p] & 0xFFFF, result.level());
+                float vy = coordinate((data[p] >>> 16) & 0xFFFF, result.level()) + result.yBase();
+                float vz = coordinate(data[p + 1] & 0xFFFF, result.level());
+                constantX &= close(vx, x);
+                minZ = Math.min(minZ, vz); maxZ = Math.max(maxZ, vz);
+                minY = Math.min(minY, vy); maxY = Math.max(maxY, vy);
+            }
+            if (constantX && tangent > minZ + 0.01F && tangent < maxZ - 0.01F
+                    && y > minY + 0.01F && y < maxY - 0.01F) count++;
+        }
+        return count;
+    }
+
+    private static boolean hasBoundaryCoverage(LodManager.LodMeshResult result, int face,
+                                               float boundary, float minT, float maxT,
+                                               float minY, float maxY) {
+        int[] data = result.opaqueData();
+        List<float[]> intervals = new ArrayList<>();
+        for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+            boolean onBoundary = true;
+            float foundMinT = Float.POSITIVE_INFINITY, foundMaxT = Float.NEGATIVE_INFINITY;
+            float foundMinY = Float.POSITIVE_INFINITY, foundMaxY = Float.NEGATIVE_INFINITY;
+            for (int v = 0; v < 4; v++) {
+                int p = q + v * ChunkMesher.VERTEX_SIZE;
+                float x = coordinate(data[p] & 0xFFFF, result.level());
+                float y = coordinate((data[p] >>> 16) & 0xFFFF, result.level()) + result.yBase();
+                float z = coordinate(data[p + 1] & 0xFFFF, result.level());
+                float normal = face == 4 || face == 5 ? x : z;
+                float tangent = face == 4 || face == 5 ? z : x;
+                onBoundary &= close(normal, boundary);
+                foundMinT = Math.min(foundMinT, tangent);
+                foundMaxT = Math.max(foundMaxT, tangent);
+                foundMinY = Math.min(foundMinY, y);
+                foundMaxY = Math.max(foundMaxY, y);
+            }
+            if (onBoundary && close(foundMinT, minT) && close(foundMaxT, maxT)
+                    && foundMaxY > minY && foundMinY < maxY) {
+                intervals.add(new float[]{foundMinY, foundMaxY});
+            }
+        }
+        intervals.sort(java.util.Comparator.comparingDouble(interval -> interval[0]));
+        float covered = minY;
+        for (float[] interval : intervals) {
+            if (interval[1] <= covered + 0.01F) continue;
+            if (interval[0] > covered + 0.01F) return false;
+            covered = Math.max(covered, interval[1]);
+            if (covered >= maxY - 0.01F) return true;
         }
         return false;
     }

@@ -98,6 +98,17 @@ final class LodMesherColumnAoTest {
         assertEquals(1, colors.stream().distinct().count());
     }
 
+    @Test
+    void tallGreedyWallKeepsContactAoInItsOwnVerticalBand() {
+        LodDataSource source = columns((x, z) -> terrain(x < 64 ? 80 : 64));
+        LodManager.LodMeshResult result = mesh(source, true);
+
+        assertTrue(hasVerticalQuad(result.opaqueData(), result.yBase(), 64F, 64F, 65F),
+                "Kontakt-AO am Fuss einer hohen Wand braucht ein eigenes Band");
+        assertFalse(hasVerticalQuad(result.opaqueData(), result.yBase(), 64F, 64F, 80F),
+                "AO darf nicht ueber die gesamte Greedy-Wand interpoliert werden");
+    }
+
     private static LodDataSource steppedColumns() {
         return columns((x, z) -> terrain((x == 62 && z == 64)
                 || (x == 64 && z == 62) ? 65 : 64));
@@ -200,6 +211,23 @@ final class LodMesherColumnAoTest {
             if (constantX && close(minY, expectedMinY) && close(maxY, expectedMaxY)) return colors;
         }
         return List.of();
+    }
+
+    private static boolean hasVerticalQuad(int[] data, int yBase, float expectedX,
+                                           float expectedMinY, float expectedMaxY) {
+        for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+            float minY = Float.POSITIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
+            boolean constantX = true;
+            for (int v = 0; v < 4; v++) {
+                int p = q + v * ChunkMesher.VERTEX_SIZE;
+                constantX &= close(coordinate(data[p] & 0xFFFF), expectedX);
+                float y = coordinate((data[p] >>> 16) & 0xFFFF) + yBase;
+                minY = Math.min(minY, y);
+                maxY = Math.max(maxY, y);
+            }
+            if (constantX && close(minY, expectedMinY) && close(maxY, expectedMaxY)) return true;
+        }
+        return false;
     }
 
     private static int brightness(int color) {

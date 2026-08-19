@@ -6,7 +6,9 @@ import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.FluidGeometry;
+import de.skyengine.game.world.lod.LodManager.LodClipSnapshot;
 import de.skyengine.game.world.lod.LodManager.LodMeshResult;
+import de.skyengine.game.world.lod.LodManager.LodNeighborSnapshot;
 
 import java.util.Arrays;
 
@@ -42,8 +44,6 @@ import java.util.Arrays;
  * ist dort bereits die Höhe), Deckel {@link #MAX_MERGE_BLOCKS} je Achse.
  */
 public final class LodMesher {
-
-    enum TransitionOwnership { REGULAR, OWNED, FOREIGN }
 
     /** Kantenlänge einer LOD-Region in Blöcken (4x4 Chunks, fix über alle Level). */
     public static final int REGION_BLOCKS = 128;
@@ -95,12 +95,14 @@ public final class LodMesher {
     private float posScale;                    // Vertex-Packungs-Skala (s. posScaleFor)
     private LodBlockAppearance appearance;
     private LodDataSource source;              // fuer Biome-Tint-Samples an Quad-Zentren
+    private LodClipSnapshot clipSnapshot = LodClipSnapshot.centerOnly(0);
+    private LodNeighborSnapshot neighborSnapshot = LodNeighborSnapshot.sameLevel(1);
     private boolean columnWorldBottom;
     private int regionBaseX, regionBaseZ;      // Weltkoordinaten-Ursprung der Region
     private float minBottom, maxTop;           // absolut (fürs Frustum-AABB)
     private final float[] aoScratch = new float[4]; // wiederverwendet: P1,P2,P3,P4 pro Top-Quad
     private final float[] aoFlatScratch = new float[4]; // Scratch für cellAoFlat (Merge-Kandidaten)
-    private boolean flatAo;                    // Fern-Level: AO pro Zelle abgeflacht (s. mesh)
+    private boolean flatAo;                    // reservierter Vergleichsmodus; aktuell bewusst aus
     private boolean columnAo;                  // AO für Seiten des Spaltenpfads
     private long lastSamplingNanos, lastGeometryNanos;
 
@@ -168,12 +170,30 @@ public final class LodMesher {
      */
     public LodMeshResult mesh(LodDataSource source, LodBlockAppearance appearance, LodConfig config,
                               int level, int sizeRegions, int rx, int rz, int epoch, int mask, int ax, int az) {
+        return this.mesh(source, appearance, config, level, sizeRegions, rx, rz, epoch,
+                LodClipSnapshot.centerOnly(mask), ax, az);
+    }
+
+    public LodMeshResult mesh(LodDataSource source, LodBlockAppearance appearance, LodConfig config,
+                              int level, int sizeRegions, int rx, int rz, int epoch,
+                              LodClipSnapshot clipSnapshot, int ax, int az) {
+        return this.mesh(source, appearance, config, level, sizeRegions, rx, rz, epoch,
+                clipSnapshot, neighborSnapshotFromAnchor(config, rx, rz, ax, az), ax, az);
+    }
+
+    public LodMeshResult mesh(LodDataSource source, LodBlockAppearance appearance, LodConfig config,
+                              int level, int sizeRegions, int rx, int rz, int epoch,
+                              LodClipSnapshot clipSnapshot, LodNeighborSnapshot neighborSnapshot,
+                              int ax, int az) {
+        int mask = clipSnapshot.centerMask();
+        this.clipSnapshot = clipSnapshot;
+        this.neighborSnapshot = neighborSnapshot;
         this.lastSamplingNanos = 0;
         this.lastGeometryNanos = 0;
         this.columnAo = false;
         if (source.hasColumns()) {
             return this.meshColumns(source, appearance, config, level, sizeRegions, rx, rz,
-                    epoch, mask, ax, az);
+                    epoch, clipSnapshot, neighborSnapshot, ax, az);
         }
         int s = config.cellSize(level);
         int regionBlocks = sizeRegions * REGION_BLOCKS;
@@ -194,7 +214,8 @@ public final class LodMesher {
 
         /* Komplett von echtem Terrain bedeckt → nichts zu meshen (spart das Sampling). */
         if (mask == 0xFFFF) {
-            return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, 0,
+            return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, clipSnapshot,
+                    neighborSnapshot, 0,
                     new int[0], new int[0], 0F, 0F);
         }
 
@@ -256,11 +277,9 @@ public final class LodMesher {
            Live gelesen; der LodManager bumpt bei AO-Toggle die Epoche → alle Regionen neu. */
         boolean useAo = GameSettings.get().ambientOcclusion;
 
-        /* Fern-Level (äußerster Ring + Fern-Band): AO pro Zelle auf EINEN Wert abgeflacht
-           (Mittel der 4 Ecken, auf die AO-Leiter gerastet) — Eck-Varianz blockierte laut
-           Zensus ~40 % der Top-Merge-Kanten; bei 8+-Block-Zellen in Fog-Distanz ist das
-           Hillshading-Detail nicht mehr auflösbar. Innere Ringe bleiben unverändert. */
-        this.flatAo = level >= config.maxLevel();
+        /* AO bleibt auch im Fernring eckgenau. Abflachung erzeugt an Greedy-Grenzen die
+           sichtbaren harten Helligkeitsbaender, die schwerer wiegen als weitere Top-Quads. */
+        this.flatAo = false;
 
         /* Debug: Merge-Grenzen der Terrain-Tops erfassen (ordnungsunabhängig, s. LodMeshStats). */
         if (this.stats != null) this.recordSeams(n, useAo);
@@ -406,14 +425,18 @@ public final class LodMesher {
         float maxY = empty ? 0F : this.maxTop;
         this.appearance = null;
         this.source = null;
-        return new LodMeshResult(level, rx, rz, this.sizeRegions, epoch, mask, this.yBase,
+        return new LodMeshResult(level, rx, rz, this.sizeRegions, epoch, mask, clipSnapshot,
+                neighborSnapshot, this.yBase,
                 opaqueData, translucentData, minY, maxY);
     }
 
     /** Mehrschichtiger Greedy-Pfad für persistente L0-L5-Spalten. */
     private LodMeshResult meshColumns(LodDataSource source, LodBlockAppearance appearance, LodConfig config,
-                                      int level, int sizeRegions, int rx, int rz, int epoch, int mask,
+                                      int level, int sizeRegions, int rx, int rz, int epoch,
+                                      LodClipSnapshot clipSnapshot,
+                                      LodNeighborSnapshot neighborSnapshot,
                                       int ax, int az) {
+        int mask = clipSnapshot.centerMask();
         int s = config.cellSize(level);
         int n = sizeRegions * REGION_BLOCKS / s;
         this.stride = n + 2;
@@ -426,7 +449,8 @@ public final class LodMesher {
         this.regionBaseX = rx * REGION_BLOCKS;
         this.regionBaseZ = rz * REGION_BLOCKS;
         if (mask == 0xFFFF) {
-            return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, 0,
+            return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, clipSnapshot,
+                    neighborSnapshot, 0,
                     new int[0], new int[0], 0F, 0F);
         }
         int sampleCount = this.stride * this.stride;
@@ -462,9 +486,8 @@ public final class LodMesher {
         int maxRun = Math.max(1, MAX_MERGE_BLOCKS / s);
         boolean useAo = GameSettings.get().ambientOcclusion;
         this.columnAo = useAo;
-        /* Gleiche Fernring-Regel wie im kompakten Heightmap-Pfad: im äußersten Ring wird
-           das Eck-AO pro Zelle abgeflacht, um dort große Greedy-Flächen zu behalten. */
-        this.flatAo = level >= config.maxLevel();
+        /* Wie im Heightmap-Pfad bleibt AO auf allen Levels eckgenau. */
+        this.flatAo = false;
 
         for (int intervalIndex = 0; intervalIndex < LodColumn.MAX_INTERVALS; intervalIndex++) {
             Arrays.fill(this.consumed, 0, n * n, false);
@@ -569,7 +592,8 @@ public final class LodMesher {
         this.source = null;
         this.columnWorldBottom = false;
         this.lastGeometryNanos = System.nanoTime() - geometryStarted;
-        return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, this.yBase,
+        return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, clipSnapshot,
+                neighborSnapshot, this.yBase,
                 opaque, translucent, empty ? 0F : this.minBottom, empty ? 0F : this.maxTop);
     }
 
@@ -644,24 +668,20 @@ public final class LodMesher {
         Arrays.fill(this.transitionEdges, 0, 4 * n, false);
 
         for (int i = 0; i < n; i++) {
-            if (transitionOwnership(level,
-                    this.boundaryNeighborLevel(config, 4, i, s, ax, az))
-                    != TransitionOwnership.REGULAR) {
+            if (this.boundaryNeighborClipped(4, i, s) || resolutionTransition(level,
+                    this.boundaryNeighborLevel(config, 4, i, s, ax, az))) {
                 this.transitionEdges[(4 - 2) * n + i] = true;
             }
-            if (transitionOwnership(level,
-                    this.boundaryNeighborLevel(config, 5, i, s, ax, az))
-                    != TransitionOwnership.REGULAR) {
+            if (this.boundaryNeighborClipped(5, i, s) || resolutionTransition(level,
+                    this.boundaryNeighborLevel(config, 5, i, s, ax, az))) {
                 this.transitionEdges[(5 - 2) * n + i] = true;
             }
-            if (transitionOwnership(level,
-                    this.boundaryNeighborLevel(config, 2, i, s, ax, az))
-                    != TransitionOwnership.REGULAR) {
+            if (this.boundaryNeighborClipped(2, i, s) || resolutionTransition(level,
+                    this.boundaryNeighborLevel(config, 2, i, s, ax, az))) {
                 this.transitionEdges[i] = true;
             }
-            if (transitionOwnership(level,
-                    this.boundaryNeighborLevel(config, 3, i, s, ax, az))
-                    != TransitionOwnership.REGULAR) {
+            if (this.boundaryNeighborClipped(3, i, s) || resolutionTransition(level,
+                    this.boundaryNeighborLevel(config, 3, i, s, ax, az))) {
                 this.transitionEdges[n + i] = true;
             }
         }
@@ -672,14 +692,12 @@ public final class LodMesher {
 
     private int boundaryNeighborLevel(LodConfig config, int face, int tangent, int s,
                                       int ax, int az) {
-        int wx = face == 4 ? this.regionBaseX - 1
-                : face == 5 ? this.regionBaseX + this.cellCount * s
-                : this.regionBaseX + tangent * s + (s >> 1);
-        int wz = face == 2 ? this.regionBaseZ - 1
-                : face == 3 ? this.regionBaseZ + this.cellCount * s
-                : this.regionBaseZ + tangent * s + (s >> 1);
-        return neighborLevel(config, Math.floorDiv(wx, REGION_BLOCKS),
-                Math.floorDiv(wz, REGION_BLOCKS), ax, az);
+        return this.neighborSnapshot.level(face);
+    }
+
+    private boolean boundaryNeighborClipped(int face, int tangent, int s) {
+        int chunkAlongEdge = Math.clamp(tangent * s / 32, 0, 3);
+        return this.clipSnapshot.edgeClipped(face, chunkAlongEdge);
     }
 
 
@@ -689,17 +707,13 @@ public final class LodMesher {
         return new TerrainProfile(LodColumn.state(best), LodColumn.maxY(best));
     }
 
-    /** Eine einzige Ownership-Regel fuer Unterdrueckung und Emission derselben Regionskante. */
-    static TransitionOwnership transitionOwnership(int currentLevel, int neighborLevel) {
-        if (currentLevel == neighborLevel) return TransitionOwnership.REGULAR;
-        return currentLevel > neighborLevel
-                ? TransitionOwnership.OWNED : TransitionOwnership.FOREIGN;
+    /** Beide Seiten messen eine Aufloesungsnaht, emittieren aber nur ihre eigene Aussenflaeche. */
+    static boolean resolutionTransition(int currentLevel, int neighborLevel) {
+        return currentLevel != neighborLevel;
     }
 
-    static TransitionOwnership maskTransitionOwnership(boolean currentClipped,
-                                                        boolean neighborClipped) {
-        if (currentClipped == neighborClipped) return TransitionOwnership.REGULAR;
-        return currentClipped ? TransitionOwnership.FOREIGN : TransitionOwnership.OWNED;
+    static boolean ownsMaskTransition(boolean currentClipped, boolean neighborClipped) {
+        return !currentClipped && neighborClipped;
     }
 
     private void replaceClippedBoundaryProxies(LodDataSource source, int s, int n) {
@@ -722,24 +736,26 @@ public final class LodMesher {
                                     int s, int n, int ax, int az) {
         for (int face = 2; face <= 5; face++) for (int i = 0; i < n; i++) {
             int neighbor = this.boundaryNeighborLevel(config, face, i, s, ax, az);
-            if (transitionOwnership(level, neighbor) != TransitionOwnership.OWNED) continue;
-            this.replaceRegionHaloCell(source, face, i, config.cellSize(neighbor), s, n);
+            boolean exactNeighbor = this.boundaryNeighborClipped(face, i, s);
+            if (!exactNeighbor && !resolutionTransition(level, neighbor)) continue;
+            this.replaceRegionHaloCell(source, face, i,
+                    exactNeighbor ? 1 : config.cellSize(neighbor), s, n);
         }
     }
 
     private void replaceRegionHaloCell(LodDataSource source, int face, int i,
-                                       int fineSize, int s, int n) {
+                                       int neighborSize, int s, int n) {
         int x = face == 4 ? -1 : face == 5 ? n : i;
         int z = face == 2 ? -1 : face == 3 ? n : i;
         int wx = this.regionBaseX + x * s;
         int wz = this.regionBaseZ + z * s;
-        int sx = Math.floorDiv(wx + (s >> 1), fineSize) * fineSize;
-        int sz = Math.floorDiv(wz + (s >> 1), fineSize) * fineSize;
-        if (face == 4) sx = this.regionBaseX - fineSize;
+        int sx = Math.floorDiv(wx + (s >> 1), neighborSize) * neighborSize;
+        int sz = Math.floorDiv(wz + (s >> 1), neighborSize) * neighborSize;
+        if (face == 4) sx = this.regionBaseX - neighborSize;
         else if (face == 5) sx = this.regionBaseX + n * s;
-        else if (face == 2) sz = this.regionBaseZ - fineSize;
+        else if (face == 2) sz = this.regionBaseZ - neighborSize;
         else sz = this.regionBaseZ + n * s;
-        this.columns[(z + 1) * this.stride + x + 1] = source.sampleColumn(sx, sz, fineSize);
+        this.columns[(z + 1) * this.stride + x + 1] = source.sampleColumn(sx, sz, neighborSize);
     }
 
     /**
@@ -883,7 +899,9 @@ public final class LodMesher {
     }
 
     private static final class SideSignature {
-        private static final int CAPACITY = LodColumn.MAX_INTERVALS * (LodColumn.MAX_INTERVALS + 1);
+        /* Im schlechtesten Fall wechselt die AO-Signatur in jeder der 512 Hoehenzellen.
+           Die Signatur darf dann keine Flaechen still verwerfen. */
+        private static final int CAPACITY = 512;
         final int[] blocks = new int[CAPACITY];
         final int[] minY = new int[CAPACITY];
         final int[] maxY = new int[CAPACITY];
@@ -893,6 +911,7 @@ public final class LodMesher {
 
         void clear() { this.size = 0; }
         void add(int block, int minY, int maxY, long lightSurface, int ao) {
+            if (this.size >= CAPACITY) return;
             int index = this.size++;
             this.blocks[index] = block;
             this.minY[index] = minY;
@@ -915,11 +934,47 @@ public final class LodMesher {
     private final SideSignature sideSignature = new SideSignature();
     private final SideSignature candidateSideSignature = new SideSignature();
 
+    private static boolean packedAoUniform(int packed) {
+        int first = packed & 3;
+        return ((packed >>> 2) & 3) == first
+                && ((packed >>> 4) & 3) == first
+                && ((packed >>> 6) & 3) == first;
+    }
+
+    /**
+     * Zerlegt hohe Seiten an AO-Wechseln. Nur vollstaendig gleichmaessige, identische
+     * AO-Zeilen duerfen vertikal zusammengefasst werden; andernfalls wuerde Greedy-Meshing
+     * die Kontaktverschattung ueber viele Bloecke interpolieren.
+     */
+    private void addAoSegmentedSide(SideSignature result, int block, int face, int x, int z,
+                                    int minY, int maxY, long lightSurface) {
+        if (minY >= maxY) return;
+        if (!this.columnAo || this.appearance.isTranslucent(block)) {
+            result.add(block, minY, maxY, lightSurface, 0xFF);
+            return;
+        }
+        if (maxY - minY <= 2) {
+            result.add(block, minY, maxY, lightSurface,
+                    this.wallCellAo(face, x, z, minY, maxY, block));
+            return;
+        }
+        int runMin = minY;
+        int runAo = this.wallCellAo(face, x, z, minY, minY + 1, block);
+        for (int y = minY + 1; y < maxY; y++) {
+            int ao = this.wallCellAo(face, x, z, y, y + 1, block);
+            if (ao == runAo && packedAoUniform(ao)) continue;
+            result.add(block, runMin, y, lightSurface, runAo);
+            runMin = y;
+            runAo = ao;
+        }
+        result.add(block, runMin, maxY, lightSurface, runAo);
+    }
+
     private void visibleSides(SideSignature result, LodColumn own, LodColumn neighbor,
                               boolean transitionEdge, int face, int x, int z) {
         result.clear();
-        /* Aufloesungsgrenzen werden tangential im feineren Raster und getrennt nach
-           Terrainhuelle/Details erzeugt. Der grobe Halo darf dieselbe Kante nicht duplizieren. */
+        /* Aufloesungs- und L0-Maskengrenzen werden separat aus den beiden realen Spalten
+           aufgebaut. Das regulaere Halo-Meshing darf dieselbe Kante nicht duplizieren. */
         if (transitionEdge) return;
         long lightSurface = this.columnWallLightSurface(own, neighbor);
         for (int i = 0; i < own.size(); i++) {
@@ -934,14 +989,13 @@ public final class LodMesher {
                         && this.appearance.isTranslucent(LodColumn.state(cover))) continue;
                 if (coverMin > start) {
                     int visibleEnd = Math.min(end, coverMin);
-                    result.add(LodColumn.state(interval), start, visibleEnd, lightSurface,
-                            this.wallCellAo(face, x, z, start, visibleEnd,
-                                    LodColumn.state(interval)));
+                    this.addAoSegmentedSide(result, LodColumn.state(interval), face, x, z,
+                            start, visibleEnd, lightSurface);
                 }
                 start = Math.max(start, coverMax);
             }
-            if (start < end) result.add(LodColumn.state(interval), start, end, lightSurface,
-                    this.wallCellAo(face, x, z, start, end, LodColumn.state(interval)));
+            if (start < end) this.addAoSegmentedSide(result, LodColumn.state(interval), face,
+                    x, z, start, end, lightSurface);
         }
     }
 
@@ -965,8 +1019,8 @@ public final class LodMesher {
         boolean regionEdge = z + dz < 0 || z + dz >= this.cellCount;
         for (int x = 0; x < this.cellCount;) {
             if (this.clipped[z * this.cellCount + x]) { x++; continue; }
-            boolean maskEdge = !regionEdge && maskTransitionOwnership(false,
-                    this.neighborClipped(x, z + dz)) == TransitionOwnership.OWNED;
+            boolean maskEdge = !regionEdge && ownsMaskTransition(false,
+                    this.neighborClipped(x, z + dz));
             boolean transitionEdge = maskEdge || regionEdge
                     && this.transitionEdges[(face - 2) * this.cellCount + x];
             this.visibleSides(this.sideSignature, this.column(x, z), this.column(x, z + dz),
@@ -988,10 +1042,10 @@ public final class LodMesher {
             for (int i = 0; i < this.sideSignature.size; i++) {
                 if (face == 2) this.emitWall(this.sideSignature.blocks[i], face, x1, zz, x0, zz,
                         this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                        this.sideSignature.lightSurfaces[i]);
+                        this.sideSignature.lightSurfaces[i], this.sideSignature.ao[i]);
                 else this.emitWall(this.sideSignature.blocks[i], face, x0, zz, x1, zz,
                         this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                        this.sideSignature.lightSurfaces[i]);
+                        this.sideSignature.lightSurfaces[i], this.sideSignature.ao[i]);
             }
             x += run;
         }
@@ -1001,8 +1055,8 @@ public final class LodMesher {
         boolean regionEdge = x + dx < 0 || x + dx >= this.cellCount;
         for (int z = 0; z < this.cellCount;) {
             if (this.clipped[z * this.cellCount + x]) { z++; continue; }
-            boolean maskEdge = !regionEdge && maskTransitionOwnership(false,
-                    this.neighborClipped(x + dx, z)) == TransitionOwnership.OWNED;
+            boolean maskEdge = !regionEdge && ownsMaskTransition(false,
+                    this.neighborClipped(x + dx, z));
             boolean transitionEdge = maskEdge || regionEdge
                     && this.transitionEdges[(face - 2) * this.cellCount + z];
             this.visibleSides(this.sideSignature, this.column(x, z), this.column(x + dx, z),
@@ -1024,10 +1078,10 @@ public final class LodMesher {
             for (int i = 0; i < this.sideSignature.size; i++) {
                 if (face == 4) this.emitWall(this.sideSignature.blocks[i], face, xx, z0, xx, z1,
                         this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                        this.sideSignature.lightSurfaces[i]);
+                        this.sideSignature.lightSurfaces[i], this.sideSignature.ao[i]);
                 else this.emitWall(this.sideSignature.blocks[i], face, xx, z1, xx, z0,
                         this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                        this.sideSignature.lightSurfaces[i]);
+                        this.sideSignature.lightSurfaces[i], this.sideSignature.ao[i]);
             }
             z += run;
         }
@@ -1042,23 +1096,19 @@ public final class LodMesher {
                                            int s, int n, int ax, int az) {
         for (int z = 0; z < n; z++) for (int x = 0; x < n; x++) {
             if (this.clipped[z * n + x]) continue;
-            if (x > 0 && maskTransitionOwnership(false,
-                    this.clipped[z * n + x - 1]) == TransitionOwnership.OWNED) {
+            if (x > 0 && ownsMaskTransition(false, this.clipped[z * n + x - 1])) {
                 this.emitMeasuredTransition(source, this.column(x, z), 4,
                         x * s, z * s, s, 1, level, 0);
             }
-            if (x + 1 < n && maskTransitionOwnership(false,
-                    this.clipped[z * n + x + 1]) == TransitionOwnership.OWNED) {
+            if (x + 1 < n && ownsMaskTransition(false, this.clipped[z * n + x + 1])) {
                 this.emitMeasuredTransition(source, this.column(x, z), 5,
                         (x + 1) * s, z * s, s, 1, level, 0);
             }
-            if (z > 0 && maskTransitionOwnership(false,
-                    this.clipped[(z - 1) * n + x]) == TransitionOwnership.OWNED) {
+            if (z > 0 && ownsMaskTransition(false, this.clipped[(z - 1) * n + x])) {
                 this.emitMeasuredTransition(source, this.column(x, z), 2,
                         z * s, x * s, s, 1, level, 0);
             }
-            if (z + 1 < n && maskTransitionOwnership(false,
-                    this.clipped[(z + 1) * n + x]) == TransitionOwnership.OWNED) {
+            if (z + 1 < n && ownsMaskTransition(false, this.clipped[(z + 1) * n + x])) {
                 this.emitMeasuredTransition(source, this.column(x, z), 3,
                         (z + 1) * s, x * s, s, 1, level, 0);
             }
@@ -1066,65 +1116,70 @@ public final class LodMesher {
 
         for (int face = 2; face <= 5; face++) for (int i = 0; i < n; i++) {
             int neighbor = this.boundaryNeighborLevel(config, face, i, s, ax, az);
-            if (transitionOwnership(level, neighbor) != TransitionOwnership.OWNED) continue;
+            boolean exactNeighbor = this.boundaryNeighborClipped(face, i, s);
+            if (!exactNeighbor && !resolutionTransition(level, neighbor)) continue;
             int x = face == 4 ? 0 : face == 5 ? n - 1 : i;
             int z = face == 2 ? 0 : face == 3 ? n - 1 : i;
             if (this.clipped[z * n + x]) continue;
             int boundary = face == 4 || face == 2 ? 0 : n * s;
             this.emitMeasuredTransition(source, this.column(x, z), face,
-                    boundary, i * s, s, config.cellSize(neighbor), level, neighbor);
+                    boundary, i * s, s, exactNeighbor ? 1 : config.cellSize(neighbor),
+                    level, exactNeighbor ? 0 : neighbor);
         }
     }
 
     /** boundary = konstante lokale x/z-Koordinate, tangent = Start entlang der Kante. */
-    private void emitMeasuredTransition(LodDataSource source, LodColumn coarseColumn, int face,
-                                        int boundary, int tangent, int length, int fineSize,
-                                        int coarseLevel, int fineLevel) {
-        if (fineSize <= 0) return;
-        int coarseSize = Math.round(this.currentCellSize());
-        int coarseX = face == 4 ? boundary / coarseSize
-                : face == 5 ? boundary / coarseSize - 1
-                : tangent / coarseSize;
-        int coarseZ = face == 2 ? boundary / coarseSize
-                : face == 3 ? boundary / coarseSize - 1
-                : tangent / coarseSize;
-        coarseX = Math.clamp(coarseX, 0, this.cellCount - 1);
-        coarseZ = Math.clamp(coarseZ, 0, this.cellCount - 1);
-        for (int offset = 0; offset < length; offset += fineSize) {
-            int segment = Math.min(fineSize, length - offset);
+    private void emitMeasuredTransition(LodDataSource source, LodColumn ownColumn, int face,
+                                        int boundary, int tangent, int length, int neighborSize,
+                                        int ownLevel, int neighborLevel) {
+        if (neighborSize <= 0) return;
+        int ownSize = Math.round(this.currentCellSize());
+        int segmentSize = Math.min(ownSize, neighborSize);
+        int ownX = face == 4 ? boundary / ownSize
+                : face == 5 ? boundary / ownSize - 1
+                : tangent / ownSize;
+        int ownZ = face == 2 ? boundary / ownSize
+                : face == 3 ? boundary / ownSize - 1
+                : tangent / ownSize;
+        ownX = Math.clamp(ownX, 0, this.cellCount - 1);
+        ownZ = Math.clamp(ownZ, 0, this.cellCount - 1);
+        for (int offset = 0; offset < length; offset += segmentSize) {
+            int segment = Math.min(segmentSize, length - offset);
             int worldBoundary = (face == 4 || face == 5 ? this.regionBaseX : this.regionBaseZ)
                     + boundary;
             int worldTangent = (face == 4 || face == 5 ? this.regionBaseZ : this.regionBaseX)
                     + tangent + offset;
             int sampleX, sampleZ;
             if (face == 4 || face == 5) {
-                sampleX = face == 4 ? worldBoundary - fineSize : worldBoundary;
-                sampleZ = Math.floorDiv(worldTangent, fineSize) * fineSize;
+                sampleX = face == 4 ? worldBoundary - neighborSize : worldBoundary;
+                sampleZ = Math.floorDiv(worldTangent, neighborSize) * neighborSize;
             } else {
-                sampleX = Math.floorDiv(worldTangent, fineSize) * fineSize;
-                sampleZ = face == 2 ? worldBoundary - fineSize : worldBoundary;
+                sampleX = Math.floorDiv(worldTangent, neighborSize) * neighborSize;
+                sampleZ = face == 2 ? worldBoundary - neighborSize : worldBoundary;
             }
-            LodColumn fineColumn = source.sampleColumn(sampleX, sampleZ, fineSize);
+            LodColumn neighborColumn = source.sampleColumn(sampleX, sampleZ, neighborSize);
             int t0 = tangent + offset, t1 = t0 + segment;
-            TerrainProfile coarseTerrain = this.terrainProfile(coarseColumn);
-            TerrainProfile fineTerrain = this.terrainProfile(fineColumn);
-            if (coarseTerrain != null && fineTerrain != null) {
+            TerrainProfile ownTerrain = this.terrainProfile(ownColumn);
+            TerrainProfile neighborTerrain = this.terrainProfile(neighborColumn);
+            if (ownTerrain != null && neighborTerrain != null) {
                 if (this.stats != null) {
                     int transitionX = face == 4 || face == 5
                             ? worldBoundary : worldTangent + (segment >> 1);
                     int transitionZ = face == 2 || face == 3
                             ? worldBoundary : worldTangent + (segment >> 1);
                     this.stats.recordTransition(transitionX, transitionZ, face,
-                            coarseLevel, fineLevel, coarseSize, fineSize,
-                            coarseTerrain.top, fineTerrain.top);
+                            ownLevel, neighborLevel, ownSize, neighborSize,
+                            ownTerrain.top, neighborTerrain.top);
                 }
-                long lightSurface = this.columnWallLightSurface(coarseColumn, fineColumn);
-                if (coarseTerrain.top > fineTerrain.top) {
-                    this.emitTransitionWall(coarseTerrain.state, face, boundary, t0, t1,
-                            fineTerrain.top, coarseTerrain.top, lightSurface);
-                } else if (fineTerrain.top > coarseTerrain.top) {
-                    this.emitTransitionWall(fineTerrain.state, oppositeFace(face), boundary, t0, t1,
-                            coarseTerrain.top, fineTerrain.top, lightSurface);
+                /* Jede Region besitzt nur die wirklich exponierten Intervalle ihrer eigenen
+                   Spalte. Der Nachbar emittiert seine Gegenrichtung selbst. Dadurch gibt es
+                   weder doppelseitige Blind-Skirts noch fremde Oberflaechenmaterialien. */
+                this.visibleSides(this.sideSignature, ownColumn, neighborColumn,
+                        false, face, ownX, ownZ);
+                for (int i = 0; i < this.sideSignature.size; i++) {
+                    this.emitTransitionWall(this.sideSignature.blocks[i], face,
+                            boundary, t0, t1, this.sideSignature.minY[i],
+                            this.sideSignature.maxY[i], this.sideSignature.lightSurfaces[i]);
                 }
             } else {
                 if (this.stats != null) this.stats.transitionProfilesMissing++;
@@ -1132,18 +1187,14 @@ public final class LodMesher {
                    unbrauchbar, schließt ein genau eine feine Zelle breiter Deckel lokal die
                    Naht. Anders als ein Skirt kann er niemals bis zum Weltboden ausufern.
                    Importwelten dürfen dagegen echte leere Spalten enthalten. */
-                if (this.columnWorldBottom && coarseTerrain != null) {
-                    this.emitTransitionSafetyCap(coarseTerrain, face, boundary, t0, t1,
-                            fineSize, true);
-                } else if (this.columnWorldBottom && fineTerrain != null) {
-                    this.emitTransitionSafetyCap(fineTerrain, face, boundary, t0, t1,
-                            fineSize, false);
+                if (this.columnWorldBottom && ownTerrain != null) {
+                    this.emitTransitionSafetyCap(ownTerrain, face, boundary, t0, t1,
+                            segmentSize, true);
+                } else if (this.columnWorldBottom && neighborTerrain != null) {
+                    this.emitTransitionSafetyCap(neighborTerrain, face, boundary, t0, t1,
+                            segmentSize, false);
                 }
             }
-            this.emitTransitionDetails(coarseColumn, fineColumn, face, boundary, t0, t1,
-                    coarseX, coarseZ);
-            this.emitTransitionDetails(fineColumn, coarseColumn, oppositeFace(face),
-                    boundary, t0, t1, coarseX, coarseZ);
         }
     }
 
@@ -1173,63 +1224,41 @@ public final class LodMesher {
     }
 
     /** Emittiert ausschließlich Detailintervalle; Terrain läuft über validierte Außenprofile. */
-    private void emitTransitionDetails(LodColumn own, LodColumn neighbor, int face,
-                                       int boundary, int t0, int t1, int x, int z) {
-        this.visibleTransitionDetails(this.sideSignature, own, neighbor, face, x, z);
-        for (int i = 0; i < this.sideSignature.size; i++) {
-            this.emitTransitionWall(this.sideSignature.blocks[i], face, boundary, t0, t1,
-                    this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                    this.sideSignature.lightSurfaces[i]);
-        }
-    }
-
-    private void visibleTransitionDetails(SideSignature result, LodColumn own, LodColumn neighbor,
-                                          int face, int x, int z) {
-        result.clear();
-        long lightSurface = this.columnWallLightSurface(own, neighbor);
-        for (int i = 0; i < own.size(); i++) {
-            long interval = own.interval(i);
-            int state = LodColumn.state(interval);
-            if (!this.appearance.isFluid(state) && !LodColumn.landmark(interval)) continue;
-            int start = LodColumn.minY(interval), end = LodColumn.maxY(interval);
-            for (int j = 0; j < neighbor.size() && start < end; j++) {
-                long cover = neighbor.interval(j);
-                int coverMin = LodColumn.minY(cover), coverMax = LodColumn.maxY(cover);
-                if (coverMax <= start || coverMin >= end) continue;
-                if (!this.appearance.isTranslucent(state)
-                        && this.appearance.isTranslucent(LodColumn.state(cover))) continue;
-                if (coverMin > start) {
-                    int visibleEnd = Math.min(end, coverMin);
-                    result.add(state, start, visibleEnd, lightSurface,
-                            this.wallCellAo(face, x, z, start, visibleEnd, state));
-                }
-                start = Math.max(start, coverMax);
-            }
-            if (start < end) result.add(state, start, end, lightSurface,
-                    this.wallCellAo(face, x, z, start, end, state));
-        }
-    }
-
     private void emitTransitionWall(int block, int face, int boundary, int t0, int t1,
                                     int minY, int maxY, long lightSurface) {
-        if (face == 2) this.emitWall(block, face, t1, boundary, t0, boundary,
+        if (face == 2) this.emitAoSegmentedWall(block, face, t1, boundary, t0, boundary,
                 minY, maxY, lightSurface);
-        else if (face == 3) this.emitWall(block, face, t0, boundary, t1, boundary,
+        else if (face == 3) this.emitAoSegmentedWall(block, face, t0, boundary, t1, boundary,
                 minY, maxY, lightSurface);
-        else if (face == 4) this.emitWall(block, face, boundary, t0, boundary, t1,
+        else if (face == 4) this.emitAoSegmentedWall(block, face, boundary, t0, boundary, t1,
                 minY, maxY, lightSurface);
-        else this.emitWall(block, face, boundary, t1, boundary, t0,
+        else this.emitAoSegmentedWall(block, face, boundary, t1, boundary, t0,
                 minY, maxY, lightSurface);
     }
 
-    private static int oppositeFace(int face) {
-        return switch (face) {
-            case 2 -> 3;
-            case 3 -> 2;
-            case 4 -> 5;
-            case 5 -> 4;
-            default -> throw new IllegalArgumentException("Keine horizontale LOD-Seite: " + face);
-        };
+    private void emitAoSegmentedWall(int block, int face, float xa, float za,
+                                     float xb, float zb, int minY, int maxY,
+                                     long lightSurface) {
+        if (minY >= maxY) return;
+        if (!this.columnAo || this.appearance.isTranslucent(block)) {
+            this.emitWall(block, face, xa, za, xb, zb, minY, maxY, lightSurface, 0xFF);
+            return;
+        }
+        if (maxY - minY <= 2) {
+            int ao = this.wallGeometryAo(face, xa, za, xb, zb, minY, maxY);
+            this.emitWall(block, face, xa, za, xb, zb, minY, maxY, lightSurface, ao);
+            return;
+        }
+        int runMin = minY;
+        int runAo = this.wallGeometryAo(face, xa, za, xb, zb, minY, minY + 1);
+        for (int y = minY + 1; y < maxY; y++) {
+            int ao = this.wallGeometryAo(face, xa, za, xb, zb, y, y + 1);
+            if (ao == runAo && packedAoUniform(ao)) continue;
+            this.emitWall(block, face, xa, za, xb, zb, runMin, y, lightSurface, runAo);
+            runMin = y;
+            runAo = ao;
+        }
+        this.emitWall(block, face, xa, za, xb, zb, runMin, maxY, lightSurface, runAo);
     }
 
     /**
@@ -1319,6 +1348,16 @@ public final class LodMesher {
         return config.levelAt(Math.sqrt(dx * dx + dz * dz));
     }
 
+    private static LodNeighborSnapshot neighborSnapshotFromAnchor(LodConfig config,
+                                                                  int rx, int rz,
+                                                                  int ax, int az) {
+        return new LodNeighborSnapshot(
+                neighborLevel(config, rx, rz - 1, ax, az),
+                neighborLevel(config, rx, rz + 1, ax, az),
+                neighborLevel(config, rx - 1, rz, ax, az),
+                neighborLevel(config, rx + 1, rz, ax, az));
+    }
+
     private long cell(int cx, int cz) {
         return this.cells[(cz + 1) * this.stride + (cx + 1)];
     }
@@ -1335,7 +1374,14 @@ public final class LodMesher {
      */
     private boolean neighborClipped(int cx, int cz) {
         int n = this.cellCount;
-        if (cx < 0 || cx >= n || cz < 0 || cz >= n) return false;
+        if (cx < 0) return this.boundaryNeighborClipped(4, Math.clamp(cz, 0, n - 1),
+                Math.round(this.currentCellSize()));
+        if (cx >= n) return this.boundaryNeighborClipped(5, Math.clamp(cz, 0, n - 1),
+                Math.round(this.currentCellSize()));
+        if (cz < 0) return this.boundaryNeighborClipped(2, Math.clamp(cx, 0, n - 1),
+                Math.round(this.currentCellSize()));
+        if (cz >= n) return this.boundaryNeighborClipped(3, Math.clamp(cx, 0, n - 1),
+                Math.round(this.currentCellSize()));
         return this.clipped[cz * n + cx];
     }
 
@@ -1768,6 +1814,11 @@ public final class LodMesher {
      */
     private void emitWall(int block, int face, float xa, float za, float xb, float zb,
                           float bottom, float top, long surfaceSample) {
+        this.emitWall(block, face, xa, za, xb, zb, bottom, top, surfaceSample, -1);
+    }
+
+    private void emitWall(int block, int face, float xa, float za, float xb, float zb,
+                          float bottom, float top, long surfaceSample, int packedAo) {
         if (this.appearance.sideLayer(block) < 0) return; // Block ohne gebackenes Quad
         /* Der UV-Fixed-Point trägt nur ~63 Blöcke v-Spanne — höhere Wände (Klippen,
            Import-Rand über dem Void) in vertikale Segmente teilen, damit die Textur pro
@@ -1776,13 +1827,14 @@ public final class LodMesher {
         float segTop = top;
         while (segTop > bottom) {
             float segBottom = Math.max(bottom, segTop - MAX_MERGE_BLOCKS);
-            this.emitWallSegment(block, face, xa, za, xb, zb, segBottom, segTop, surfaceSample);
+            this.emitWallSegment(block, face, xa, za, xb, zb, segBottom, segTop,
+                    surfaceSample, packedAo);
             segTop = segBottom;
         }
     }
 
     private void emitWallSegment(int block, int face, float xa, float za, float xb, float zb,
-                                 float bottom, float top, long surfaceSample) {
+                                 float bottom, float top, long surfaceSample, int packedAo) {
         int layer = this.appearance.sideLayer(block);
         int tint = this.tintFor(this.appearance.sideTint(block), this.appearance.sideTintType(block),
                 (xa + xb) * 0.5F, (za + zb) * 0.5F);
@@ -1797,7 +1849,8 @@ public final class LodMesher {
            Position (nah an oder unter einer LOD-Wasserkante) den Bildschirm als große opake
            Fläche. Wände an festem Terrain bleiben opak. */
         boolean fluidWall = this.appearance.isTranslucent(block);
-        int ao = fluidWall ? 0xFF : this.wallGeometryAo(face, xa, za, xb, zb, bottom, top);
+        int ao = fluidWall ? 0xFF : packedAo >= 0 ? packedAo
+                : this.wallGeometryAo(face, xa, za, xb, zb, bottom, top);
 
         if (this.stats != null) {
             if (fluidWall) this.stats.wallWater++; else this.stats.wallTerrain++;
