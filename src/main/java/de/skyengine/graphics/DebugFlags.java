@@ -38,5 +38,11 @@ public final class DebugFlags {
      */
     public static volatile boolean guiSlotBounds = false;
 
+    /**
+     * Visueller Unterwasser-Nebel. Bleibt als Debug-Hilfe getrennt von Wasserphysik,
+     * Unterwasser-Audio und dem tickbasierten Water-Vision-Verlauf.
+     */
+    public static volatile boolean underwaterEffect = true;
+
     private DebugFlags() {}
 }

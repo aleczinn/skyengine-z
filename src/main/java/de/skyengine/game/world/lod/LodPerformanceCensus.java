@@ -65,7 +65,7 @@ public final class LodPerformanceCensus {
                 "LOD L%d Region 128x128, Median aus %d: Surface-Baseline %.2f ms, Exact cold %.2f ms, Exact warm %.2f ms%n",
                 LEVEL, cold.length, millis(surfaceBaseline[2]), millis(cold[2]), millis(warm[2]));
         System.out.printf(Locale.ROOT,
-                "LOD10-Migration: Save/Live-Neuaufbau median/p95 %.2f/%.2f ms, "
+                "LOD12-Migration: Save/Live-Neuaufbau median/p95 %.2f/%.2f ms, "
                         + "warmer Disk-Cache median/p95 %.2f/%.2f ms, "
                         + "Generator-Neuaufbau median/p95 %.2f/%.2f ms%n",
                 millis(exactMigration[2]), millis(exactMigration[4]),
@@ -101,7 +101,7 @@ public final class LodPerformanceCensus {
         return System.nanoTime() - started;
     }
 
-    /** Misst den zweiten Besuch nach dem einmaligen LOD10-Neuaufbau inklusive Disk-Lesen. */
+    /** Misst den zweiten Besuch nach dem einmaligen LOD12-Neuaufbau inklusive Disk-Lesen. */
     private static long measureDiskWarm(ExactRegionSource source, LodBlockAppearance appearance,
                                         LodConfig config, int epoch) throws IOException {
         Path directory = java.nio.file.Files.createTempDirectory("skyengine-lod10-census-");
@@ -119,7 +119,7 @@ public final class LodPerformanceCensus {
             try (LodCacheStore store = new LodCacheStore(directory.toFile(), 1, 1)) {
                 for (long key : source.chunks.keySet()) {
                     ChunkLodColumns columns = store.read((int) (key >> 32), (int) key);
-                    if (columns == null) throw new IllegalStateException("LOD10-Warmcache fehlt");
+                    if (columns == null) throw new IllegalStateException("LOD12-Warmcache fehlt");
                     loaded.put(key, columns);
                 }
                 new LodMesher().mesh(new CachedRegionSource(source.generator, loaded), appearance, config,

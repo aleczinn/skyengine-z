@@ -7,6 +7,7 @@ import de.skyengine.test.BlocksTestBootstrap;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ChunkMesherWaterGreedyTest {
@@ -31,8 +32,26 @@ final class ChunkMesherWaterGreedyTest {
         float waterY = 1F + FluidGeometry.SOURCE_HEIGHT - FluidGeometry.TOP_RENDER_EPSILON;
         assertTrue(hasHorizontalTop(mesh.translucent, waterY, 7F, 8F, 8F, 9F),
                 "water cell touching ice must remain independently sortable");
+        assertTrue(hasFlaggedHorizontalTop(mesh.translucent, waterY, 7F, 8F, 8F, 9F),
+                "independent flat source top must carry the analytic-height flag");
         assertTrue(hasWideHorizontalTop(mesh.translucent, waterY),
                 "open water must remain greedily merged");
+        assertTrue(hasFlaggedWideHorizontalTop(mesh.translucent, waterY),
+                "greedy flat source top must carry the analytic-height flag");
+    }
+
+    @Test
+    void leavesSlopedFluidGeometryUnmarked() {
+        Chunk chunk = new Chunk(0, 0);
+        chunk.setBlock(8, 1, 8, Blocks.WATER);
+
+        ChunkMesher.MeshData mesh = new ChunkMesher().mesh(chunk, 0,
+                null, null, null, null, new Chunk[4]);
+
+        for (int p = 4; p < mesh.translucent.length; p += ChunkMesher.VERTEX_SIZE) {
+            assertEquals(0, mesh.translucent[p] & ChunkMesher.FLAT_SOURCE_FLUID_TOP,
+                    "a sloped water surface or wall must not be shader-snapped");
+        }
     }
 
     private static boolean hasHorizontalTop(int[] data, float y,
@@ -51,6 +70,41 @@ final class ChunkMesherWaterGreedyTest {
                     && (bounds.maxX - bounds.minX > 1.5F || bounds.maxZ - bounds.minZ > 1.5F)) return true;
         }
         return false;
+    }
+
+    private static boolean hasFlaggedHorizontalTop(int[] data, float y,
+                                                    float minX, float maxX,
+                                                    float minZ, float maxZ) {
+        int stride = 4 * ChunkMesher.VERTEX_SIZE;
+        java.util.List<Bounds> bounds = bounds(data);
+        for (int q = 0; q < data.length; q += stride) {
+            Bounds b = bounds.get(q / stride);
+            if (!near(b.minY, y) || !near(b.maxY, y)
+                    || !near(b.minX, minX) || !near(b.maxX, maxX)
+                    || !near(b.minZ, minZ) || !near(b.maxZ, maxZ)) continue;
+            return quadHasFlag(data, q);
+        }
+        return false;
+    }
+
+    private static boolean hasFlaggedWideHorizontalTop(int[] data, float y) {
+        int stride = 4 * ChunkMesher.VERTEX_SIZE;
+        java.util.List<Bounds> bounds = bounds(data);
+        for (int q = 0; q < data.length; q += stride) {
+            Bounds b = bounds.get(q / stride);
+            if (near(b.minY, y) && near(b.maxY, y)
+                    && (b.maxX - b.minX > 1.5F || b.maxZ - b.minZ > 1.5F)
+                    && quadHasFlag(data, q)) return true;
+        }
+        return false;
+    }
+
+    private static boolean quadHasFlag(int[] data, int offset) {
+        for (int v = 0; v < 4; v++) {
+            int light = data[offset + v * ChunkMesher.VERTEX_SIZE + 4];
+            if ((light & ChunkMesher.FLAT_SOURCE_FLUID_TOP) == 0) return false;
+        }
+        return true;
     }
 
     private static java.util.List<Bounds> bounds(int[] data) {

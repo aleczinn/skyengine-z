@@ -54,7 +54,7 @@ final class LodColumnReducerTest {
     }
 
     @Test
-    void seed187KeepsTerrainAtTheObservedMinus5760Minus10022RegressionCell() {
+    void seed187GeneratorProjectionMatchesTheExactRegressionCell() {
         int wx = -5760, wz = -10022;
         int chunkX = Math.floorDiv(wx, 32), chunkZ = Math.floorDiv(wz, 32);
         AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(187);
@@ -62,12 +62,21 @@ final class LodColumnReducerTest {
         ChunkLodColumns columns = ChunkLodColumns.fromGenerator(generator,
                 decorator.decorateForLod(chunkX, chunkZ), chunkX, chunkZ, 1);
 
+        Chunk exactChunk = new Chunk(chunkX, chunkZ);
+        generator.generate(exactChunk);
+        decorator.decorateForLod(exactChunk);
+        ChunkLodColumns exactColumns = ChunkLodColumns.fromChunk(exactChunk, generator, 1);
+
         LodColumn column = columns.get(Math.floorMod(wx, 32), Math.floorMod(wz, 32), 2);
+        LodColumn exactColumn = exactColumns.get(Math.floorMod(wx, 32), Math.floorMod(wz, 32), 2);
         long terrain = intervalAt(column, 64);
+        long exactTerrain = intervalAt(exactColumn, 64);
         assertTrue(terrain != 0,
                 "Die reale Seed-187-Zelle darf bei L0→L1 nicht auf Bedrockhöhe zusammenfallen");
         assertTrue(LodColumn.terrain(terrain));
-        assertEquals(138, LodColumn.maxY(terrain));
+        assertTrue(exactTerrain != 0);
+        assertEquals(LodColumn.maxY(exactTerrain), LodColumn.maxY(terrain),
+                "Generator and exact L0 projections must reduce to the same terrain shell");
     }
 
     @Test

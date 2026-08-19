@@ -16,6 +16,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -111,6 +113,13 @@ public class Chunk {
        Verhindert, dass ein älterer Batch (Erst-Mesh hinter einem Priority-Remesh in der
        Upload-FIFO) ein bereits angewendetes neueres Mesh derselben Section überschreibt. */
     private final long[] appliedMeshSeq = new long[SECTIONS];
+    /* Vom Renderer publizierte, tatsaechlich emittierte NORTH/SOUTH/WEST/EAST-Faces je
+       Section. Ein Eintrag hat 4*32 ints; pro Randspalte markieren 32 Bits die lokalen
+       Y-Werte. AtomicReferenceArray macht die unveraenderlichen Snapshots fuer LOD-Worker
+       sichtbar, ohne den Blockdaten-Lock mit Render-Uploads zu koppeln. */
+    private final AtomicReferenceArray<int[]> renderedBoundaryFaces =
+            new AtomicReferenceArray<>(SECTIONS);
+    private final AtomicLong boundaryMeshRevision = new AtomicLong();
 
     /**
      * true, wenn {@code meshSeq} neuer ist als das zuletzt angewendete Mesh dieser Section —
@@ -120,6 +129,35 @@ public class Chunk {
         if (meshSeq <= this.appliedMeshSeq[sectionY]) return false;
         this.appliedMeshSeq[sectionY] = meshSeq;
         return true;
+    }
+
+    /**
+     * Wendet Sequenz und Rand-Face-Ownership als einen logischen Section-Upload an. Nur ein
+     * akzeptierter (nicht veralteter) Batch darf den LOD-Vertrag veraendern.
+     */
+    public boolean tryApplyMeshSection(int sectionY, long meshSeq, int[] boundaryFaces) {
+        if (!this.tryApplyMeshSeq(sectionY, meshSeq)) return false;
+        int[] published = boundaryFaces == null
+                ? new int[4 * ChunkSection.SIZE]
+                : boundaryFaces.clone();
+        this.renderedBoundaryFaces.set(sectionY, published);
+        /* Auch bei gleicher Bitmaske koennen Material oder exakte Rand-States gewechselt
+           haben. Jeder akzeptierte Section-Upload invalidiert daher laufende LOD-Stitches. */
+        this.boundaryMeshRevision.incrementAndGet();
+        return true;
+    }
+
+    /** Bitmaske der tatsaechlich gerenderten Rand-Faces fuer eine Section/Tangente. */
+    public int boundaryFaceBits(int sectionY, int face, int tangent) {
+        if (sectionY < 0 || sectionY >= SECTIONS || face < 2 || face > 5
+                || tangent < 0 || tangent >= ChunkSection.SIZE) return 0;
+        int[] ownership = this.renderedBoundaryFaces.get(sectionY);
+        return ownership == null ? 0 : ownership[(face - 2) * ChunkSection.SIZE + tangent];
+    }
+
+    /** Aendert sich bei jedem angewendeten L0-Section-Mesh (States, Material oder Ownership). */
+    public long boundaryMeshRevision() {
+        return this.boundaryMeshRevision.get();
     }
 
     /** Renderer meldet einen angewendeten Section-Upload (Remesh-Batches sättigen harmlos). */

@@ -46,4 +46,17 @@ final class LodManagerNeighborSnapshotTest {
         assertFalse(LodManager.meshContractMatches(clip, built, clip, current));
         assertTrue(LodManager.meshContractMatches(clip, current, clip, current));
     }
+
+    @Test
+    void completedMeshWithStaleL0BoundaryOwnershipIsRejected() {
+        LodManager.LodClipSnapshot built =
+                new LodManager.LodClipSnapshot(1, 0, 0, 0, 0, 41L);
+        LodManager.LodClipSnapshot current =
+                new LodManager.LodClipSnapshot(1, 0, 0, 0, 0, 42L);
+        LodManager.LodNeighborSnapshot neighbors =
+                new LodManager.LodNeighborSnapshot(1, 1, 1, 1);
+
+        assertFalse(LodManager.meshContractMatches(built, neighbors, current, neighbors));
+        assertTrue(LodManager.meshContractMatches(current, neighbors, current, neighbors));
+    }
 }

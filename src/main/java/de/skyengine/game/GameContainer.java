@@ -781,8 +781,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.camera.update((double) width / height);
         post.updateTaaCamera(this.camera);
         BlockState cameraFluid = this.cameraFluidState();
-        post.setUnderwater(cameraFluid != null
-                        && !cameraFluid.getBlock().getFluidInfo().lava,
+        post.setUnderwater(shouldRenderUnderwaterEffect(DebugFlags.underwaterEffect, cameraFluid),
                 this.waterVision.factor());
 
         /* Audio pro Frame: Listener auf die interpolierte Kamera (Streaming läuft oben). */
@@ -883,6 +882,11 @@ public class GameContainer implements IResizeable, IDisposable {
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
     }
 
+    static boolean shouldRenderUnderwaterEffect(boolean enabled, BlockState cameraFluid) {
+        return enabled && cameraFluid != null && cameraFluid.isFluid()
+                && !cameraFluid.getBlock().getFluidInfo().lava;
+    }
+
     /** Licht an der interpolierten Augenposition; verhindert 20-TPS-Sprünge beim Rendern. */
     private float playerLightAtEyes(float partialTick) {
         double x = this.player.lastX + (this.player.x - this.player.lastX) * partialTick;
@@ -910,7 +914,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 for (int dx = 0; dx <= 1; dx++) {
                     float wx = dx == 0 ? 1F - fx : fx;
                     float light = ChunkRenderer.lightFactor(
-                            this.world.getSkyLight(x0 + dx, y0 + dy, z0 + dz),
+                            this.world.getRenderedSkyLight(x0 + dx, y0 + dy, z0 + dz),
                             this.world.getBlockLight(x0 + dx, y0 + dy, z0 + dz));
                     result += light * wx * wy * wz;
                 }
@@ -1060,8 +1064,8 @@ public class GameContainer implements IResizeable, IDisposable {
         int bx = (int) Math.floor(eye.x);
         int by = (int) Math.floor(eye.y);
         int bz = (int) Math.floor(eye.z);
-        BlockState state = Blocks.getState(this.world.getBlock(bx, by, bz));
-        BlockState above = Blocks.getState(this.world.getBlock(bx, by + 1, bz));
+        BlockState state = Blocks.getState(this.world.getRenderedBlock(bx, by, bz));
+        BlockState above = Blocks.getState(this.world.getRenderedBlock(bx, by + 1, bz));
         return isCameraSubmerged(eye.y, by, state, above) ? state : null;
     }
 
@@ -1071,8 +1075,8 @@ public class GameContainer implements IResizeable, IDisposable {
         int bx = (int) Math.floor(this.player.x);
         int by = (int) Math.floor(eyeY);
         int bz = (int) Math.floor(this.player.z);
-        BlockState state = Blocks.getState(this.world.getBlock(bx, by, bz));
-        BlockState above = Blocks.getState(this.world.getBlock(bx, by + 1, bz));
+        BlockState state = Blocks.getState(this.world.getRenderedBlock(bx, by, bz));
+        BlockState above = Blocks.getState(this.world.getRenderedBlock(bx, by + 1, bz));
         return isCameraSubmerged(eyeY, by, state, above)
                 && !state.getBlock().getFluidInfo().lava;
     }

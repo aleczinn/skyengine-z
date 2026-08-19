@@ -66,6 +66,7 @@
       "pause_loading": "Pause Chunk Loading",
       "aa_mode": "Anti-Aliasing",
       "gui_slots": "GUI Slot Bounds",
+      "underwater_effect": "Underwater Effect",
       "reload_chunks": "Reload Chunks",
       "reload_post": "Reload Postprocessing"
     },

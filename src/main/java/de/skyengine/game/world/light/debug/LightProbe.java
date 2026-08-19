@@ -514,13 +514,13 @@ public final class LightProbe {
             int v = mesh.opaque[i] & 0xF;
             min = Math.min(min, v);
             max = Math.max(max, v);
-            freeBits |= mesh.opaque[i] & ~0xFF;
+            freeBits |= mesh.opaque[i] & ~0x1FF;
             count++;
         }
         System.out.println("  " + count + " opake Vertices, Himmelslicht min " + min + " / max " + max);
         check(max == 15, "belichtete Oberflaeche erreicht den Vertex mit Licht 15");
         check(min == 0, "versiegelter Hohlraum erreicht den Vertex mit Licht 0");
-        check(freeBits == 0, "Bits 8-31 des Licht-Ints bleiben frei");
+        check(freeBits == 0, "Bits 9-31 des Licht-/Flag-Ints bleiben reserviert");
 
         /* Zweite Runde mit einer Fackel im Hohlraum: landet auch das BLOCKlicht im Vertex? */
         Chunk lit = new Chunk(0, 0);

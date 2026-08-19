@@ -94,30 +94,28 @@ public final class ChunkLodColumns {
             }
         }
         long projectionNanos = System.nanoTime() - projectionStarted;
-        long terrainNanos = 0;
-        long reductionNanos = 0;
-        for (int level = 1; level <= requestedLevel; level++) {
-            long reductionStarted = System.nanoTime();
-            featureColumns = reduceLevel(featureColumns, level, false);
-            reductionNanos += System.nanoTime() - reductionStarted;
-        }
         long terrainStarted = System.nanoTime();
-        int side = ChunkSection.SIZE >> requestedLevel;
-        int size = 1 << requestedLevel;
-        int cellArea = size * size;
-        LodColumn[] natural = new LodColumn[side * side];
-        for (int z = 0; z < side; z++) {
-            for (int x = 0; x < side; x++) {
-                int wx = baseX + (x << requestedLevel) + (size >> 1);
-                int wz = baseZ + (z << requestedLevel) + (size >> 1);
-                int index = z * side + x;
-                natural[index] = merge(naturalColumn(generator, wx, wz, cellArea),
+        /* Kanonische L0-Projektion: Ein generierter Fern-Chunk beginnt mit denselben 32x32
+           Kindspalten wie ein residenter/gespeicherter Chunk. Erst danach greift exakt
+           derselbe hierarchische Reducer. Das fruehere Mittelpunkt-Sample am angeforderten
+           Level war nicht assoziativ zur Reduktion und machte die Silhouette davon abhaengig,
+           ob derselbe Chunk bereits geladen oder gespeichert worden war. */
+        LodColumn[] current = new LodColumn[ChunkSection.SIZE * ChunkSection.SIZE];
+        for (int z = 0; z < ChunkSection.SIZE; z++) {
+            for (int x = 0; x < ChunkSection.SIZE; x++) {
+                int index = z * ChunkSection.SIZE + x;
+                current[index] = merge(naturalColumn(generator, baseX + x, baseZ + z, 1),
                         featureColumns[index]);
             }
         }
-        terrainNanos = System.nanoTime() - terrainStarted;
+        long terrainNanos = System.nanoTime() - terrainStarted;
+        long reductionStarted = System.nanoTime();
+        for (int level = 1; level <= requestedLevel; level++) {
+            current = reduceLevel(current, level);
+        }
+        long reductionNanos = System.nanoTime() - reductionStarted;
         ChunkLodColumns result = new ChunkLodColumns();
-        result.levels[requestedLevel] = natural;
+        result.levels[requestedLevel] = current;
         return new GeneratedBuild(result, terrainNanos, projectionNanos, reductionNanos);
     }
 

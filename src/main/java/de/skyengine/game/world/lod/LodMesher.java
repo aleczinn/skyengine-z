@@ -4,7 +4,10 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
+import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkMesher;
+import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.game.world.lod.LodManager.LodClipSnapshot;
 import de.skyengine.game.world.lod.LodManager.LodMeshResult;
@@ -504,7 +507,11 @@ public final class LodMesher {
                 float top = this.appearance.isFluid(block)
                         ? LodColumn.maxY(interval) - 1 + FluidGeometry.SOURCE_HEIGHT
                         : LodColumn.maxY(interval);
-                int skyLight = this.columnSkyLight(column, top);
+                /* Wie L0 wird ein Fluid-Top aus der Zelle direkt UEBER dem Fluid beleuchtet.
+                   Das bisherige Sample bei 63+8/9 lag noch innerhalb des Wassers und machte
+                   jede offene LOD-Oberflaeche unnoetig um eine Skylight-Stufe dunkler. */
+                float lightY = this.appearance.isFluid(block) ? LodColumn.maxY(interval) : top;
+                int skyLight = this.columnSkyLight(column, lightY);
                 boolean shadeAo = useAo && !this.appearance.isFluid(block);
                 float[] ao = AO_NONE;
                 boolean uniform = true;
@@ -583,7 +590,9 @@ public final class LodMesher {
             this.columnWallsAlongZ(x, -1, 4, s, maxRun);
             this.columnWallsAlongZ(x, 1, 5, s, maxRun);
         }
-        this.columnMeasuredTransitions(source, config, level, s, n, ax, az);
+        try (LodDataSource.ExactColumnSampler exactSampler = source.openExactColumnSampler()) {
+            this.columnMeasuredTransitions(source, exactSampler, config, level, s, n, ax, az);
+        }
         int[] opaque = this.viOpaque == 0 ? new int[0] : Arrays.copyOf(this.outOpaque, this.viOpaque);
         int[] translucent = this.viTranslucent == 0 ? new int[0]
                 : Arrays.copyOf(this.outTranslucent, this.viTranslucent);
@@ -933,6 +942,9 @@ public final class LodMesher {
 
     private final SideSignature sideSignature = new SideSignature();
     private final SideSignature candidateSideSignature = new SideSignature();
+    private final SideSignature exactTransitionSignature = new SideSignature();
+    private final int[] exactTransitionStates = new int[Chunk.HEIGHT];
+    private final int[] exactRenderedBoundaryFaces = new int[Chunk.SECTIONS];
 
     private static boolean packedAoUniform(int packed) {
         int first = packed & 3;
@@ -985,8 +997,7 @@ public final class LodMesher {
                 long cover = neighbor.interval(j);
                 int coverMin = LodColumn.minY(cover), coverMax = LodColumn.maxY(cover);
                 if (coverMax <= start || coverMin >= end) continue;
-                if (!this.appearance.isTranslucent(LodColumn.state(interval))
-                        && this.appearance.isTranslucent(LodColumn.state(cover))) continue;
+                if (!faceOccludedBy(state, LodColumn.state(cover))) continue;
                 if (coverMin > start) {
                     int visibleEnd = Math.min(end, coverMin);
                     this.addAoSegmentedSide(result, LodColumn.state(interval), face, x, z,
@@ -1088,28 +1099,147 @@ public final class LodMesher {
     }
 
     /**
+     * Dieselbe Face-Culling-Regel wie im exakten Chunk-Mesher. Fluide besitzen ihre eigene
+     * Geometrie und cullen nur gegen dasselbe Fluid oder einen opaken Vollblock; normale
+     * LOD-darstellbare Vollblöcke folgen ChunkMesher.shouldRenderFace.
+     */
+    private static boolean faceOccludedBy(int ownStateId, int neighborStateId) {
+        BlockState own = Blocks.getState(ownStateId);
+        BlockState neighbor = Blocks.getState(neighborStateId);
+        if (own.isFluid()) {
+            return neighbor.isOpaqueCube()
+                    || neighbor.isFluid() && neighbor.getBlock() == own.getBlock();
+        }
+        if (neighbor.isOpaqueCube()) return true;
+        if (neighbor.getBlock() == own.getBlock() && own.cullsSameBlock()) return true;
+        return GameSettings.get().leavesQuality == GameSettings.LeavesQuality.LOW
+                && own.isLeaves() && neighbor.isLeaves();
+    }
+
+    private static int stateAt(LodColumn column, int y) {
+        for (int i = 0; i < column.size(); i++) {
+            long interval = column.interval(i);
+            if (y >= LodColumn.minY(interval) && y < LodColumn.maxY(interval)) {
+                return LodColumn.state(interval);
+            }
+        }
+        return Blocks.AIR;
+    }
+
+    /** Emittiert die grobe Aussenwand blockgenau nur dort, wo die echte L0-Spalte offen ist. */
+    private void visibleSidesAgainstExact(SideSignature result, LodColumn own,
+                                          LodColumn exact, int[] exactStates,
+                                          int[] exactRenderedFaces,
+                                          int face, int x, int z) {
+        result.clear();
+        long lightSurface = this.columnWallLightSurface(own, exact);
+        for (int i = 0; i < own.size(); i++) {
+            long interval = own.interval(i);
+            int state = LodColumn.state(interval);
+            int start = LodColumn.minY(interval), end = LodColumn.maxY(interval);
+            int runStart = -1;
+            for (int y = start; y < end; y++) {
+                int exactState = exactStates[y];
+                boolean l0Owns = boundaryFaceRendered(exactRenderedFaces, y);
+                boolean exactNeedsStitch = !l0Owns
+                        && exactState != Blocks.AIR
+                        && this.appearance.sideLayer(exactState) >= 0
+                        && !faceOccludedBy(exactState, state);
+                boolean visible = !l0Owns && !exactNeedsStitch
+                        && !faceOccludedBy(state, exactState);
+                if (visible && runStart < 0) runStart = y;
+                if (!visible && runStart >= 0) {
+                    this.addAoSegmentedSide(result, state, face, x, z,
+                            runStart, y, lightSurface);
+                    runStart = -1;
+                }
+            }
+            if (runStart >= 0) this.addAoSegmentedSide(result, state, face, x, z,
+                    runStart, end, lightSurface);
+        }
+    }
+
+    /**
+     * Rekonstruiert nur L0-Flaechen, die im tatsaechlich hochgeladenen Chunk-Mesh fehlen und
+     * gegen die grobe Spalte sichtbar sein muessen. States und Ownership bleiben blockgenau.
+     */
+    private void missingExactTransitionSides(SideSignature result, LodColumn exactEnvelope,
+                                             LodColumn coarse, int[] exactStates,
+                                             int[] exactRenderedFaces,
+                                             int face, int x, int z) {
+        result.clear();
+        int exactFace = oppositeFace(face);
+        long lightSurface = this.columnWallLightSurface(exactEnvelope, coarse);
+        int runStart = -1, runState = Blocks.AIR;
+        for (int y = 0; y < Chunk.HEIGHT; y++) {
+            int state = exactStates[y];
+            boolean drawable = state != Blocks.AIR && this.appearance.sideLayer(state) >= 0;
+            boolean missing = drawable
+                    && !faceOccludedBy(state, stateAt(coarse, y))
+                    && !boundaryFaceRendered(exactRenderedFaces, y);
+            if (missing && (runStart < 0 || runState == state)) {
+                if (runStart < 0) {
+                    runStart = y;
+                    runState = state;
+                }
+                continue;
+            }
+            if (runStart >= 0) {
+                this.addAoSegmentedSide(result, runState, exactFace, x, z,
+                        runStart, y, lightSurface);
+                runStart = -1;
+                runState = Blocks.AIR;
+            }
+            if (missing) {
+                runStart = y;
+                runState = state;
+            }
+        }
+        if (runStart >= 0) this.addAoSegmentedSide(result, runState, exactFace, x, z,
+                runStart, Chunk.HEIGHT, lightSurface);
+    }
+
+    private static boolean boundaryFaceRendered(int[] sectionBits, int y) {
+        return y >= 0 && y < Chunk.HEIGHT
+                && (sectionBits[y >> ChunkSection.SHIFT]
+                & (1 << (y & ChunkSection.MASK))) != 0;
+    }
+
+    private static int oppositeFace(int face) {
+        return switch (face) {
+            case 2 -> 3;
+            case 3 -> 2;
+            case 4 -> 5;
+            case 5 -> 4;
+            default -> throw new IllegalArgumentException("Keine horizontale LOD-Seite: " + face);
+        };
+    }
+
+    /**
      * Schließt Auflösungsgrenzen mit der tatsächlichen feineren Randkontur. Terrain wird nur
      * zwischen zwei validen äußeren Höhen verbunden; Fluide und Landmarken werden separat
      * verglichen. So kann eine leere oder beschädigte Feinspalte keine Tiefenwand erzeugen.
      */
-    private void columnMeasuredTransitions(LodDataSource source, LodConfig config, int level,
+    private void columnMeasuredTransitions(LodDataSource source,
+                                           LodDataSource.ExactColumnSampler exactSampler,
+                                           LodConfig config, int level,
                                            int s, int n, int ax, int az) {
         for (int z = 0; z < n; z++) for (int x = 0; x < n; x++) {
             if (this.clipped[z * n + x]) continue;
             if (x > 0 && ownsMaskTransition(false, this.clipped[z * n + x - 1])) {
-                this.emitMeasuredTransition(source, this.column(x, z), 4,
+                this.emitMeasuredTransition(source, exactSampler, this.column(x, z), 4,
                         x * s, z * s, s, 1, level, 0);
             }
             if (x + 1 < n && ownsMaskTransition(false, this.clipped[z * n + x + 1])) {
-                this.emitMeasuredTransition(source, this.column(x, z), 5,
+                this.emitMeasuredTransition(source, exactSampler, this.column(x, z), 5,
                         (x + 1) * s, z * s, s, 1, level, 0);
             }
             if (z > 0 && ownsMaskTransition(false, this.clipped[(z - 1) * n + x])) {
-                this.emitMeasuredTransition(source, this.column(x, z), 2,
+                this.emitMeasuredTransition(source, exactSampler, this.column(x, z), 2,
                         z * s, x * s, s, 1, level, 0);
             }
             if (z + 1 < n && ownsMaskTransition(false, this.clipped[(z + 1) * n + x])) {
-                this.emitMeasuredTransition(source, this.column(x, z), 3,
+                this.emitMeasuredTransition(source, exactSampler, this.column(x, z), 3,
                         (z + 1) * s, x * s, s, 1, level, 0);
             }
         }
@@ -1122,14 +1252,16 @@ public final class LodMesher {
             int z = face == 2 ? 0 : face == 3 ? n - 1 : i;
             if (this.clipped[z * n + x]) continue;
             int boundary = face == 4 || face == 2 ? 0 : n * s;
-            this.emitMeasuredTransition(source, this.column(x, z), face,
+            this.emitMeasuredTransition(source, exactSampler, this.column(x, z), face,
                     boundary, i * s, s, exactNeighbor ? 1 : config.cellSize(neighbor),
                     level, exactNeighbor ? 0 : neighbor);
         }
     }
 
     /** boundary = konstante lokale x/z-Koordinate, tangent = Start entlang der Kante. */
-    private void emitMeasuredTransition(LodDataSource source, LodColumn ownColumn, int face,
+    private void emitMeasuredTransition(LodDataSource source,
+                                        LodDataSource.ExactColumnSampler exactSampler,
+                                        LodColumn ownColumn, int face,
                                         int boundary, int tangent, int length, int neighborSize,
                                         int ownLevel, int neighborLevel) {
         if (neighborSize <= 0) return;
@@ -1158,9 +1290,67 @@ public final class LodMesher {
                 sampleZ = face == 2 ? worldBoundary - neighborSize : worldBoundary;
             }
             LodColumn neighborColumn = source.sampleColumn(sampleX, sampleZ, neighborSize);
+            if (neighborLevel == 0) {
+                boolean exactResident = exactSampler.sampleColumn(sampleX, sampleZ,
+                        this.exactTransitionStates);
+                if (!exactResident) {
+                    throw new IllegalStateException("Exakter L0-Nachbar ist nicht mehr resident bei ("
+                            + sampleX + ", " + sampleZ + ")");
+                }
+                int exactFace = oppositeFace(face);
+                if (!exactSampler.sampleRenderedBoundaryFaces(sampleX, sampleZ, exactFace,
+                        this.exactRenderedBoundaryFaces)) {
+                    throw new IllegalStateException("L0-Rand-Ownership ist nicht mehr verfuegbar bei ("
+                            + sampleX + ", " + sampleZ + "), Face " + exactFace);
+                }
+            }
             int t0 = tangent + offset, t1 = t0 + segment;
             TerrainProfile ownTerrain = this.terrainProfile(ownColumn);
             TerrainProfile neighborTerrain = this.terrainProfile(neighborColumn);
+            if (neighborLevel == 0 && this.columnWorldBottom && neighborTerrain == null) {
+                /* Eine komplett leere residente L0-Spalte ist in einer Generatorwelt kein
+                   valider Vollblock-Snapshot. Sie darf niemals eine Wand bis Y=0 ausloesen. */
+                if (this.stats != null) this.stats.transitionProfilesMissing++;
+                if (ownTerrain != null) {
+                    this.emitTransitionSafetyCap(ownTerrain, face, boundary, t0, t1,
+                            segmentSize, true);
+                }
+                continue;
+            }
+            /* L0 ist die autoritative Vollblockseite. Echte States plus tatsaechliche
+               Mesh-Ownership entscheiden exklusiv fuer jedes Y-Segment; das reduzierte
+               TerrainProfile darf diesen Pfad weder filtern noch in einen Safety-Cap umlenken. */
+            if (neighborLevel == 0) {
+                if (this.stats != null && ownTerrain != null && neighborTerrain != null) {
+                    int transitionX = face == 4 || face == 5
+                            ? worldBoundary : worldTangent + (segment >> 1);
+                    int transitionZ = face == 2 || face == 3
+                            ? worldBoundary : worldTangent + (segment >> 1);
+                    this.stats.recordTransition(transitionX, transitionZ, face,
+                            ownLevel, neighborLevel, ownSize, neighborSize,
+                            ownTerrain.top, neighborTerrain.top);
+                }
+                this.visibleSidesAgainstExact(this.sideSignature, ownColumn, neighborColumn,
+                        this.exactTransitionStates, this.exactRenderedBoundaryFaces,
+                        face, ownX, ownZ);
+                for (int i = 0; i < this.sideSignature.size; i++) {
+                    this.emitTwoSidedTransitionWall(this.sideSignature.blocks[i], face,
+                            boundary, t0, t1, this.sideSignature.minY[i],
+                            this.sideSignature.maxY[i], this.sideSignature.lightSurfaces[i]);
+                }
+                this.missingExactTransitionSides(this.exactTransitionSignature,
+                        neighborColumn, ownColumn, this.exactTransitionStates,
+                        this.exactRenderedBoundaryFaces, face, ownX, ownZ);
+                int exactFace = oppositeFace(face);
+                for (int i = 0; i < this.exactTransitionSignature.size; i++) {
+                    this.emitTwoSidedTransitionWall(this.exactTransitionSignature.blocks[i],
+                            exactFace, boundary, t0, t1,
+                            this.exactTransitionSignature.minY[i],
+                            this.exactTransitionSignature.maxY[i],
+                            this.exactTransitionSignature.lightSurfaces[i]);
+                }
+                continue;
+            }
             if (ownTerrain != null && neighborTerrain != null) {
                 if (this.stats != null) {
                     int transitionX = face == 4 || face == 5
@@ -1233,6 +1423,23 @@ public final class LodMesher {
         else if (face == 4) this.emitAoSegmentedWall(block, face, boundary, t0, boundary, t1,
                 minY, maxY, lightSurface);
         else this.emitAoSegmentedWall(block, face, boundary, t1, boundary, t0,
+                minY, maxY, lightSurface);
+    }
+
+    /**
+     * L0 und LOD sind zwei getrennte, einzeln geclippte Meshes. Ihre Hoehenhuellen duerfen
+     * deshalb an der Uebergangsebene nicht wie die Aussenflaeche eines einzelnen geschlossenen
+     * Volumens behandelt werden: Von der jeweils hoeheren Seite blickt man sonst auf die
+     * Rueckseite des einzigen Stitch-Quads und GL_CULL_FACE oeffnet die Naht. Zwei Quads mit
+     * entgegengesetztem Winding schliessen dieselbe Ebene aus beiden Blickrichtungen; wegen
+     * Backface-Culling pro Blickrichtung weiterhin nur eines der Quads zeichnen, also entsteht
+     * kein koplanares Z-Fighting. Dies gilt bewusst nur fuer L0/LOD-Stitches, nicht fuer normale
+     * Terrainwaende oder LOD/LOD-Aufloesungsgrenzen.
+     */
+    private void emitTwoSidedTransitionWall(int block, int face, int boundary, int t0, int t1,
+                                            int minY, int maxY, long lightSurface) {
+        this.emitTransitionWall(block, face, boundary, t0, t1, minY, maxY, lightSurface);
+        this.emitTransitionWall(block, oppositeFace(face), boundary, t0, t1,
                 minY, maxY, lightSurface);
     }
 
@@ -1620,26 +1827,38 @@ public final class LodMesher {
         float brightness = BlockModels.FACE_BRIGHTNESS[0];
         float u = x1 - x0, v = z1 - z0;
         /* Fluid-Tops gehen in den Translucent-Puffer (transparente Wasserfläche); alles
-           andere bleibt opak. Wände an Fluid-Zellen sind analog transluzent (s. emitWall). */
-        boolean fluidTop = this.appearance.isTranslucent(block);
+           andere bleibt opak. Wände an Fluid-Zellen sind analog transluzent (s. emitWall).
+           Die analytische Höhenmarkierung gilt nur für echte Fluide, nicht pauschal für
+           jeden eventuell transluzenten LOD-Block. */
+        boolean translucent = this.appearance.isTranslucent(block);
+        boolean fluidTop = this.appearance.isFluid(block);
         float renderY = fluidTop ? y - FluidGeometry.TOP_RENDER_EPSILON : y;
+        int vertexFlags = fluidTop ? ChunkMesher.FLAT_SOURCE_FLUID_TOP : 0;
         if (this.stats != null) {
             if (fluidTop) this.stats.topWater++; else this.stats.topTerrain++;
         }
 
-        this.ensureCapacity(fluidTop);
-        this.putVertex(fluidTop, x0, renderY, z0, 0F, 0F, layer, brightness * ao[0], tint, skyLight);
-        this.putVertex(fluidTop, x0, renderY, z1, 0F, v, layer, brightness * ao[1], tint, skyLight);
-        this.putVertex(fluidTop, x1, renderY, z1, u, v, layer, brightness * ao[2], tint, skyLight);
-        this.putVertex(fluidTop, x1, renderY, z0, u, 0F, layer, brightness * ao[3], tint, skyLight);
+        this.ensureCapacity(translucent);
+        this.putVertex(translucent, x0, renderY, z0, 0F, 0F, layer,
+                brightness * ao[0], tint, skyLight, vertexFlags);
+        this.putVertex(translucent, x0, renderY, z1, 0F, v, layer,
+                brightness * ao[1], tint, skyLight, vertexFlags);
+        this.putVertex(translucent, x1, renderY, z1, u, v, layer,
+                brightness * ao[2], tint, skyLight, vertexFlags);
+        this.putVertex(translucent, x1, renderY, z0, u, 0F, layer,
+                brightness * ao[3], tint, skyLight, vertexFlags);
 
-        if (fluidTop) {
+        if (translucent) {
             /* LOD-Wasseroberflächen wie die Nahgeometrie gezielt doppelseitig backen. */
             this.ensureCapacity(true);
-            this.putVertex(true, x1, renderY, z0, u, 0F, layer, brightness * ao[3], tint, skyLight);
-            this.putVertex(true, x1, renderY, z1, u, v, layer, brightness * ao[2], tint, skyLight);
-            this.putVertex(true, x0, renderY, z1, 0F, v, layer, brightness * ao[1], tint, skyLight);
-            this.putVertex(true, x0, renderY, z0, 0F, 0F, layer, brightness * ao[0], tint, skyLight);
+            this.putVertex(true, x1, renderY, z0, u, 0F, layer,
+                    brightness * ao[3], tint, skyLight, vertexFlags);
+            this.putVertex(true, x1, renderY, z1, u, v, layer,
+                    brightness * ao[2], tint, skyLight, vertexFlags);
+            this.putVertex(true, x0, renderY, z1, 0F, v, layer,
+                    brightness * ao[1], tint, skyLight, vertexFlags);
+            this.putVertex(true, x0, renderY, z0, 0F, 0F, layer,
+                    brightness * ao[0], tint, skyLight, vertexFlags);
         }
 
         if (renderY > this.maxTop) this.maxTop = renderY;
@@ -1890,6 +2109,11 @@ public final class LodMesher {
      */
     private void putVertex(boolean translucent, float x, float y, float z, float u, float v,
                            int layer, float brightness, int tint, int skyLight) {
+        this.putVertex(translucent, x, y, z, u, v, layer, brightness, tint, skyLight, 0);
+    }
+
+    private void putVertex(boolean translucent, float x, float y, float z, float u, float v,
+                           int layer, float brightness, int tint, int skyLight, int vertexFlags) {
         int px = (int) ((x + 1F) * this.posScale + 0.5F);
         int py = Math.clamp((int) ((y - this.yBase + 1F) * this.posScale + 0.5F), 0, 0xFFFF);
         int pz = (int) ((z + 1F) * this.posScale + 0.5F);
@@ -1904,9 +2128,10 @@ public final class LodMesher {
         buf[i++] = pz | (pu << 16);
         buf[i++] = pv | (layer << 16);
         buf[i++] = r | (g << 8) | (b << 16);
-        /* Skylight in Bits 0-3, Blocklicht bleibt 0 (Bits 4-7): Fernregionen simulieren keine
-           Lichtausbreitung, nur die deterministische Wasser-Dämpfung der sichtbaren Geometrie. */
-        buf[i++] = Math.clamp(skyLight, 0, 15);
+        /* Skylight in Bits 0-3, Blocklicht bleibt 0 (Bits 4-7), Vertex-Flags beginnen bei Bit 8:
+           Fernregionen simulieren keine Lichtausbreitung, nur die deterministische
+           Wasser-Dämpfung der sichtbaren Geometrie. */
+        buf[i++] = Math.clamp(skyLight, 0, 15) | vertexFlags;
         if (translucent) this.viTranslucent = i; else this.viOpaque = i;
     }
 }

@@ -37,6 +37,9 @@ public final class FluidGeometry {
     /** Vanillas LiquidBlockRenderer senkt sichtbare Top-Ecken um 0,001 Block ab. */
     public static final float TOP_RENDER_EPSILON = 0.001F;
 
+    /** Tatsächlich gerenderte lokale Y-Höhe einer flachen Fluid-Quelloberfläche. */
+    public static final float SOURCE_RENDER_HEIGHT = SOURCE_HEIGHT - TOP_RENDER_EPSILON;
+
     /** Trennt koplanare Fluid- und Glas-/Eis-Seiten um einen Fixed-Point-Schritt. */
     public static final float TRANSLUCENT_SIDE_EPSILON = 0.001F;
 
@@ -324,6 +327,20 @@ public final class FluidGeometry {
 
     private static boolean atSourceHeight(float h) {
         return Math.abs(h - SOURCE_HEIGHT) < SOURCE_EPS;
+    }
+
+    /**
+     * Erkennt ein von {@link #build} erzeugtes, horizontales Quell-Top. Diese Quads tragen
+     * absichtlich keine Face-Richtung, weil sie doppelseitig sein können; deshalb wird die
+     * gemeinsame Y-Ebene aller sechs Dreiecksvertices geprüft. Seiten, Böden und geneigte
+     * Strömungsoberflächen erfüllen die Bedingung nicht.
+     */
+    public static boolean isFlatSourceTop(BakedQuad quad) {
+        float[] vertices = quad.vertices();
+        for (int i = 1; i < vertices.length; i += 5) {
+            if (Math.abs(vertices[i] - SOURCE_RENDER_HEIGHT) >= SOURCE_EPS) return false;
+        }
+        return true;
     }
 
     /**

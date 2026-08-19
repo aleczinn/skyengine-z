@@ -1,6 +1,10 @@
 package de.skyengine.game.world.lod;
 
 import de.skyengine.game.world.block.Tints;
+import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.chunk.Chunk;
+
+import java.util.Arrays;
 
 /**
  * Abstrahierte Oberflächen-Quelle fürs LOD: liefert pro Zelle den obersten sichtbaren Block
@@ -13,6 +17,54 @@ import de.skyengine.game.world.block.Tints;
  * beide dasselbe Ergebnis sehen, schließen die Wände an den Regionsgrenzen lückenlos.
  */
 public interface LodDataSource {
+
+    /**
+     * Kurzlebiger Vollblock-Sampler fuer L0/LOD-Uebergaenge. Anders als {@link LodColumn}
+     * bewahrt er jede Hoehle und jedes Fluid in einer 512 Block hohen Spalte. Der boolesche
+     * Rueckgabewert ist true, wenn die Spalte aus einem aktuell residenten Chunk stammt.
+     * Damit validiert der Mesher, dass ein als sichtbar markierter L0-Nachbar noch zum
+     * Clip-Snapshot gehoert; Backing-Spalten duerfen dagegen aus Savegame/Generator stammen.
+     */
+    interface ExactColumnSampler extends AutoCloseable {
+        boolean sampleColumn(int x, int z, int[] target);
+
+        /**
+         * Liefert fuer die durch {@code x/z} bezeichnete Randspalte die vom sichtbaren
+         * L0-Chunk-Mesh tatsaechlich emittierten Faces. {@code face} ist die L0-seitige
+         * Blickrichtung (2=N, 3=S, 4=W, 5=E), jeder der 16 ints enthaelt die 32 lokalen
+         * Y-Bits einer Section. false bedeutet: kein zum Clip-Vertrag passender L0-Upload.
+         */
+        default boolean sampleRenderedBoundaryFaces(int x, int z, int face, int[] target) {
+            Arrays.fill(target, 0);
+            /* Kompakte Test-/Werkzeugquellen besitzen kein separates L0-Mesh: dort gilt
+               folgerichtig "kein Face bereits gerendert", der Stitcher rekonstruiert es. */
+            return true;
+        }
+
+        @Override
+        default void close() {}
+    }
+
+    /**
+     * Oeffnet einen joblokalen exakten Sampler. Der Default expandiert die vorhandene
+     * Spaltendarstellung und haelt damit kleine Test-/Werkzeugquellen kompatibel. Persistente
+     * Welten ueberschreiben den Pfad mit echten Chunkdaten.
+     */
+    default ExactColumnSampler openExactColumnSampler() {
+        return (x, z, target) -> {
+            if (target.length < Chunk.HEIGHT) {
+                throw new IllegalArgumentException("Exakte LOD-Spalte ist zu klein: " + target.length);
+            }
+            Arrays.fill(target, 0, Chunk.HEIGHT, Blocks.AIR);
+            LodColumn column = this.sampleColumn(x, z, 1);
+            for (int i = 0; i < column.size(); i++) {
+                long interval = column.interval(i);
+                Arrays.fill(target, LodColumn.minY(interval), LodColumn.maxY(interval),
+                        LodColumn.state(interval));
+            }
+            return true;
+        };
+    }
 
     /** true, wenn der Mesher die mehrschichtige Spaltendarstellung verwenden soll. */
     default boolean hasColumns() {

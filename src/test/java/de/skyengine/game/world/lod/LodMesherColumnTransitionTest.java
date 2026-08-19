@@ -1,18 +1,130 @@
 package de.skyengine.game.world.lod;
 
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkMesher;
+import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.generator.WorldGenerator;
+import de.skyengine.game.world.generator.feature.ChunkDecorator;
+import de.skyengine.game.world.generator.feature.trees.BiomeTreeFeature;
+import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
 import de.skyengine.test.BlocksTestBootstrap;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class LodMesherColumnTransitionTest {
+
+    private static final class Seed187Source implements LodDataSource {
+        private final WorldGenerator generator = new AlphaWorldGeneratorV2(187);
+        private final ChunkDecorator decorator = new ChunkDecorator(this.generator,
+                List.of(new BiomeTreeFeature()));
+        private final Map<Long, ChunkLodColumns> columns = new HashMap<>();
+        private final Map<Long, Chunk> exactChunks = new HashMap<>();
+        private final Map<Long, ChunkMesher.MeshData[]> exactMeshes = new HashMap<>();
+
+        @Override public boolean hasColumns() { return true; }
+
+        @Override
+        public LodColumn sampleColumn(int x, int z, int size) {
+            int level = Integer.numberOfTrailingZeros(size);
+            int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+            long key = Chunk.key(cx, cz) ^ ((long) level << 56);
+            ChunkLodColumns chunk = this.columns.computeIfAbsent(key, ignored ->
+                    ChunkLodColumns.fromGenerator(this.generator,
+                            this.decorator.decorateForLod(cx, cz), cx, cz, level));
+            return chunk.get(x & ChunkSection.MASK, z & ChunkSection.MASK, size);
+        }
+
+        @Override
+        public long sampleSurface(int x, int z, int size) {
+            LodColumn column = this.sampleColumn(x, z, size);
+            if (column.size() == 0) return LodDataSource.pack(Blocks.AIR, 0);
+            long top = column.interval(column.size() - 1);
+            return LodDataSource.pack(LodColumn.state(top), LodColumn.maxY(top) - 1);
+        }
+
+        @Override
+        public ExactColumnSampler openExactColumnSampler() {
+            return new ExactColumnSampler() {
+                @Override
+                public boolean sampleColumn(int x, int z, int[] target) {
+                    int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+                    Chunk chunk = exactChunk(cx, cz);
+                    int lx = x & ChunkSection.MASK, lz = z & ChunkSection.MASK;
+                    for (int y = 0; y < Chunk.HEIGHT; y++) {
+                        target[y] = chunk.getBlock(lx, y, lz);
+                    }
+                    return true;
+                }
+
+                @Override
+                public boolean sampleRenderedBoundaryFaces(int x, int z, int face, int[] target) {
+                    java.util.Arrays.fill(target, 0);
+                    int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+                    int lx = x & ChunkSection.MASK, lz = z & ChunkSection.MASK;
+                    int tangent = face == 2 || face == 3 ? lx : lz;
+                    boolean onBoundary = switch (face) {
+                        case 2 -> lz == 0;
+                        case 3 -> lz == ChunkSection.MASK;
+                        case 4 -> lx == 0;
+                        case 5 -> lx == ChunkSection.MASK;
+                        default -> false;
+                    };
+                    if (!onBoundary) return false;
+                    ChunkMesher.MeshData[] meshes = exactMeshes(cx, cz);
+                    int ownershipIndex = (face - 2) * ChunkSection.SIZE + tangent;
+                    for (int sectionY = 0; sectionY < Chunk.SECTIONS; sectionY++) {
+                        target[sectionY] = meshes[sectionY].boundaryFaces()[ownershipIndex];
+                    }
+                    return true;
+                }
+            };
+        }
+
+        private Chunk exactChunk(int cx, int cz) {
+            return this.exactChunks.computeIfAbsent(Chunk.key(cx, cz), ignored -> {
+                Chunk generated = new Chunk(cx, cz);
+                this.generator.generate(generated);
+                this.decorator.decorateForLod(generated);
+                return generated;
+            });
+        }
+
+        private ChunkMesher.MeshData[] exactMeshes(int cx, int cz) {
+            return this.exactMeshes.computeIfAbsent(Chunk.key(cx, cz), ignored -> {
+                Chunk center = this.exactChunk(cx, cz);
+                Chunk north = this.exactChunk(cx, cz - 1);
+                Chunk south = this.exactChunk(cx, cz + 1);
+                Chunk west = this.exactChunk(cx - 1, cz);
+                Chunk east = this.exactChunk(cx + 1, cz);
+                Chunk[] diagonals = {
+                        this.exactChunk(cx - 1, cz - 1), this.exactChunk(cx + 1, cz - 1),
+                        this.exactChunk(cx - 1, cz + 1), this.exactChunk(cx + 1, cz + 1)
+                };
+                ChunkMesher mesher = new ChunkMesher();
+                ChunkMesher.MeshData[] meshes = new ChunkMesher.MeshData[Chunk.SECTIONS];
+                for (int sectionY = 0; sectionY < Chunk.SECTIONS; sectionY++) {
+                    meshes[sectionY] = mesher.mesh(center, sectionY, north, south, west, east,
+                            diagonals);
+                }
+                return meshes;
+            });
+        }
+
+        int terrainTop(int x, int z, int size) {
+            long terrain = ChunkLodColumns.outerTerrainInterval(this.sampleColumn(x, z, size));
+            return terrain == 0 ? 0 : LodColumn.maxY(terrain);
+        }
+    }
 
     @BeforeAll
     static void bootstrapBlocks() {
@@ -28,6 +140,55 @@ final class LodMesherColumnTransitionTest {
         assertTrue(hasHorizontalQuadCovering(result, 31F, 16F, 80F),
                 "Die L1-Randzelle darf vor dem Stitching nicht gemorpht werden");
         assertFalse(hasHorizontalQuadCovering(result, 31F, 16F, 64F));
+    }
+
+    @Test
+    void seed187UnderwaterWestEdgeClosesEveryCoarseHigherBand() {
+        Seed187Source source = new Seed187Source();
+        LodManager.LodClipSnapshot clip = new LodManager.LodClipSnapshot(0, 0, 0, 0xF, 0);
+        LodManager.LodMeshResult result = new LodMesher().mesh(source, new LodBlockAppearance(),
+                LodConfig.of(16, 128), 1, 1, -63, -138, 0, clip,
+                -8512, -17600);
+        int baseZ = -138 * LodMesher.REGION_BLOCKS;
+        int checked = 0;
+        int firstOffset = -1, firstExactTop = 0, firstCoarseTop = 0;
+        for (int offset = 0; offset < LodMesher.REGION_BLOCKS; offset++) {
+            int z = baseZ + offset;
+            int coarseTop = source.terrainTop(-8064, Math.floorDiv(z, 2) * 2, 2);
+            int exactTop = source.terrainTop(-8065, z, 1);
+            if (coarseTop <= exactTop) continue;
+            checked++;
+            if (firstOffset < 0) {
+                firstOffset = offset;
+                firstExactTop = exactTop;
+                firstCoarseTop = coarseTop;
+            }
+            assertTrue(hasBoundaryCoverage(result, 4, 0F, offset, offset + 1F,
+                            exactTop, coarseTop),
+                    "Offene Seed-187-L0/L1-Naht bei Weltposition (-8064," + z
+                            + "), exakt=" + exactTop + ", L1=" + coarseTop);
+        }
+        assertTrue(checked > 0, "Die reale Seed-187-Grenze muss den gemeldeten L1-Hoehenversatz enthalten");
+        assertTrue(verticalCoverageCount(result, 0F, firstOffset + 0.5F,
+                        (firstExactTop + firstCoarseTop) * 0.5F) == 2,
+                "Der L0/L1-Abschluss muss von beiden Blickrichtungen sichtbar sein");
+    }
+
+    @Test
+    void reportedSeed187UnderwaterL0L1BoundariesHaveExactlyOneClosingOwner() {
+        Seed187Source source = new Seed187Source();
+        ReportedSeam[] seams = {
+                new ReportedSeam(true, -8256, -17785),
+                new ReportedSeam(true, -8480, -17514),
+                new ReportedSeam(false, -17504, -8479),
+                new ReportedSeam(false, -17568, -8509),
+                new ReportedSeam(true, -8416, -17608)
+        };
+
+        for (ReportedSeam seam : seams) {
+            assertReportedSeamClosed(source, seam, false);
+            assertReportedSeamClosed(source, seam, true);
+        }
     }
 
     @Test
@@ -121,8 +282,8 @@ final class LodMesherColumnTransitionTest {
                 LodConfig.of(16, 128), 1, 1, 0, 0, 0, 1 << 1, 64, 64);
 
         assertTrue(hasVerticalSegment(result, 32F, 0F, 1F, 20F, 30F));
-        assertFalse(hasVerticalSegment(result, 32F, 0F, 1F, 40F, 50F),
-                "Details auf der exakten L0-Seite gehoeren dem L0-Mesh und duerfen nicht doppeln");
+        assertTrue(hasVerticalSegment(result, 32F, 0F, 1F, 40F, 50F),
+                "Das L0-Detail wurde gegen denselben Block im versteckten Nachbarn gecullt");
         assertTrue(hasVerticalSegment(result, 32F, 0F, 1F, 60F, 70F));
     }
 
@@ -373,7 +534,7 @@ final class LodMesherColumnTransitionTest {
     }
 
     @Test
-    void exactL0OwnsItsWholeExteriorWallWithoutCoplanarLodDuplicate() {
+    void lodReconstructsOnlyTheL0WallCulledByTheHiddenExactNeighbor() {
         LodDataSource source = new LodDataSource() {
             @Override public boolean hasColumns() { return true; }
             @Override public LodColumn sampleColumn(int x, int z, int size) {
@@ -384,13 +545,197 @@ final class LodMesherColumnTransitionTest {
                 LodColumn column = sampleColumn(x, z, size);
                 return LodDataSource.pack(Blocks.STONE, LodColumn.maxY(column.interval(0)) - 1);
             }
+            @Override public ExactColumnSampler openExactColumnSampler() {
+                return exactSampler(this, (x, z, face, y) -> y >= 72 && y < 80);
+            }
+        };
+        LodManager.LodClipSnapshot clip = new LodManager.LodClipSnapshot(0, 0, 0, 0, 1);
+        LodManager.LodMeshResult result = new LodMesher().mesh(source, new LodBlockAppearance(),
+                LodConfig.of(16, 128), 1, 1, 0, 0, 0, clip, 64, 64);
+
+        assertTrue(hasVerticalSegment(result, 128F, 0F, 1F, 64F, 72F),
+                "L0 hat 64..72 gegen den spaeter ausgeblendeten exakten Nachbarn gecullt");
+        assertFalse(hasVerticalSegment(result, 128F, 0F, 1F, 72F, 80F),
+                "72..80 besitzt bereits das echte L0-Mesh und darf nicht koplanar doppeln");
+    }
+
+    @Test
+    void openExactBackingLeavesTheAlreadyRenderedL0WallAlone() {
+        LodDataSource source = new LodDataSource() {
+            @Override public boolean hasColumns() { return true; }
+            @Override public LodColumn sampleColumn(int x, int z, int size) {
+                if (size > 1) return terrain(64);
+                return x >= 128 ? terrain(80) : LodColumn.EMPTY;
+            }
+            @Override public long sampleSurface(int x, int z, int size) {
+                LodColumn column = sampleColumn(x, z, size);
+                return column.size() == 0 ? LodDataSource.pack(Blocks.AIR, 0)
+                        : LodDataSource.pack(Blocks.STONE,
+                        LodColumn.maxY(column.interval(column.size() - 1)) - 1);
+            }
+            @Override public ExactColumnSampler openExactColumnSampler() {
+                return exactSampler(this, (x, z, face, y) -> y >= 64 && y < 80);
+            }
         };
         LodManager.LodClipSnapshot clip = new LodManager.LodClipSnapshot(0, 0, 0, 0, 1);
         LodManager.LodMeshResult result = new LodMesher().mesh(source, new LodBlockAppearance(),
                 LodConfig.of(16, 128), 1, 1, 0, 0, 0, clip, 64, 64);
 
         assertFalse(hasVerticalSegment(result, 128F, 0F, 1F, 64F, 80F),
-                "Der exakte L0-Rand rendert gegen den fehlenden Nachbarn bereits die ganze Wand");
+                "Gegen eine offene Backing-Spalte rendert L0 selbst; das LOD darf nicht doppeln");
+    }
+
+    @Test
+    void hiddenExactWaterNeighborRestoresTheTranslucentL0Boundary() {
+        LodDataSource source = new LodDataSource() {
+            @Override public boolean hasColumns() { return true; }
+            @Override public LodColumn sampleColumn(int x, int z, int size) {
+                if (size > 1) return terrain(60);
+                return new LodColumn(new long[]{
+                        LodColumn.pack(Blocks.STONE, 0, 60, LodColumn.FLAG_TERRAIN),
+                        LodColumn.pack(Blocks.WATER, 60, 64, LodColumn.FLAG_SKY_OPEN)});
+            }
+            @Override public long sampleSurface(int x, int z, int size) {
+                return size > 1 ? LodDataSource.pack(Blocks.STONE, 59)
+                        : LodDataSource.pack(Blocks.WATER, 63);
+            }
+        };
+        LodManager.LodClipSnapshot clip = new LodManager.LodClipSnapshot(0, 0, 0, 0, 1);
+        LodManager.LodMeshResult result = new LodMesher().mesh(source, new LodBlockAppearance(),
+                LodConfig.of(16, 128), 1, 1, 0, 0, 0, clip, 64, 64);
+
+        assertTrue(hasTranslucentVerticalSegment(result, 128F, 0F, 1F, 60F, 64F),
+                "Gegen Wasser im versteckten Nachbarn fehlt sonst die gesamte L0-Wasserwand");
+    }
+
+    @Test
+    void hiddenExactNeighborClosesTheMissingL0BandOnAllRegionFaces() {
+        for (int face = 2; face <= 5; face++) {
+            int testedFace = face;
+            LodDataSource source = new LodDataSource() {
+                @Override public boolean hasColumns() { return true; }
+                @Override public LodColumn sampleColumn(int x, int z, int size) {
+                    if (size > 1) return terrain(64);
+                    boolean visibleExact = switch (testedFace) {
+                        case 2 -> z < 0;
+                        case 3 -> z >= 128;
+                        case 4 -> x < 0;
+                        default -> x >= 128;
+                    };
+                    return terrain(visibleExact ? 80 : 72);
+                }
+                @Override public long sampleSurface(int x, int z, int size) {
+                    LodColumn column = sampleColumn(x, z, size);
+                    return LodDataSource.pack(Blocks.STONE,
+                             LodColumn.maxY(column.interval(0)) - 1);
+                }
+                @Override public ExactColumnSampler openExactColumnSampler() {
+                    return exactSampler(this, (x, z, exactFace, y) -> y >= 72 && y < 80);
+                }
+            };
+            LodManager.LodClipSnapshot clip = switch (face) {
+                case 2 -> new LodManager.LodClipSnapshot(0, 1, 0, 0, 0);
+                case 3 -> new LodManager.LodClipSnapshot(0, 0, 1, 0, 0);
+                case 4 -> new LodManager.LodClipSnapshot(0, 0, 0, 1, 0);
+                default -> new LodManager.LodClipSnapshot(0, 0, 0, 0, 1);
+            };
+            LodManager.LodMeshResult result = new LodMesher().mesh(source,
+                    new LodBlockAppearance(), LodConfig.of(16, 128),
+                    1, 1, 0, 0, 0, clip, 64, 64);
+            float boundary = face == 2 || face == 4 ? 0F : 128F;
+
+            assertTrue(hasBoundaryCoverage(result, oppositeFace(face), boundary,
+                    0F, 1F, 64F, 72F),
+                    "Der gecullte L0-Anteil muss Face " + face + " schliessen");
+            assertFalse(hasBoundaryCoverage(result, oppositeFace(face), boundary,
+                    0F, 1F, 72F, 80F),
+                    "Der bereits von L0 gerenderte Anteil darf an Face " + face + " nicht doppeln");
+        }
+    }
+
+    @Test
+    void hiddenExactNeighborAlsoClosesAnInternalClipBoundary() {
+        LodDataSource source = new LodDataSource() {
+            @Override public boolean hasColumns() { return true; }
+            @Override public LodColumn sampleColumn(int x, int z, int size) {
+                if (size > 1) return terrain(64);
+                return terrain(x >= 32 ? 80 : 72);
+            }
+            @Override public long sampleSurface(int x, int z, int size) {
+                LodColumn column = sampleColumn(x, z, size);
+                return LodDataSource.pack(Blocks.STONE, LodColumn.maxY(column.interval(0)) - 1);
+            }
+            @Override public ExactColumnSampler openExactColumnSampler() {
+                return exactSampler(this, (x, z, face, y) -> y >= 72 && y < 80);
+            }
+        };
+        LodManager.LodMeshResult result = new LodMesher().mesh(source, new LodBlockAppearance(),
+                LodConfig.of(16, 128), 1, 1, 0, 0, 0, 1 << 1, 64, 64);
+
+        assertTrue(hasVerticalSegment(result, 32F, 0F, 1F, 64F, 72F));
+        assertFalse(hasVerticalSegment(result, 32F, 0F, 1F, 72F, 80F));
+    }
+
+    @Test
+    void exactCaveOpeningAtNegativeWorldBoundaryKeepsTheL0L1SeamClosed() {
+        final int boundaryX = -8192;
+        final int caveZ = -17314;
+        LodDataSource source = new LodDataSource() {
+            @Override public boolean hasColumns() { return true; }
+
+            @Override
+            public LodColumn sampleColumn(int x, int z, int size) {
+                /* Die reduzierte size=1-Spalte besitzt absichtlich nur die aeussere Huelle.
+                   Genau diese verlustbehaftete Darstellung hat die Unterwasser-Hoehle zuvor
+                   verdeckt und dadurch die grobe Wand faelschlich gecullt. */
+                return terrain(size == 1 ? 80 : 72);
+            }
+
+            @Override
+            public long sampleSurface(int x, int z, int size) {
+                return LodDataSource.pack(Blocks.STONE, size == 1 ? 79 : 71);
+            }
+
+            @Override
+            public ExactColumnSampler openExactColumnSampler() {
+                return (x, z, target) -> {
+                    java.util.Arrays.fill(target, Blocks.AIR);
+                    java.util.Arrays.fill(target, 0, 80, Blocks.STONE);
+                    if (x >= boundaryX && z == caveZ) {
+                        java.util.Arrays.fill(target, 40, 50, Blocks.AIR);
+                    }
+                    /* Nur die sichtbare Ostseite ist noch L0-resident. Die westliche
+                       Backing-Spalte kommt bereits aus Save/Generator; ihr Inhalt muss die
+                       historische Culling-Entscheidung des L0-Meshes trotzdem rekonstruieren. */
+                    return x >= boundaryX;
+                };
+            }
+        };
+        LodManager.LodClipSnapshot clip = new LodManager.LodClipSnapshot(0, 0, 0, 0, 1 << 2);
+        LodManager.LodMeshResult result = new LodMesher().mesh(source, new LodBlockAppearance(),
+                LodConfig.of(16, 128), 1, 1, -65, -136, 0, clip, 64, 64);
+
+        assertTrue(hasVerticalSegment(result, 128F, 94F, 95F, 40F, 50F),
+                "Die L1-Wand muss die echte Hoehlenoeffnung am L0-Rand schliessen");
+    }
+
+    @Test
+    void staleClipContractRejectsANonResidentExactNeighbor() {
+        LodDataSource source = new LodDataSource() {
+            @Override public boolean hasColumns() { return true; }
+            @Override public LodColumn sampleColumn(int x, int z, int size) { return terrain(72); }
+            @Override public long sampleSurface(int x, int z, int size) {
+                return LodDataSource.pack(Blocks.STONE, 71);
+            }
+            @Override public ExactColumnSampler openExactColumnSampler() {
+                return (x, z, target) -> false;
+            }
+        };
+        LodManager.LodClipSnapshot clip = new LodManager.LodClipSnapshot(0, 0, 0, 0, 1);
+
+        assertThrows(IllegalStateException.class, () -> new LodMesher().mesh(source,
+                new LodBlockAppearance(), LodConfig.of(16, 128),
+                1, 1, 0, 0, 0, clip, 64, 64));
     }
 
     @Test
@@ -437,6 +782,16 @@ final class LodMesherColumnTransitionTest {
                 face == 3 ? neighborLevel : ownLevel,
                 face == 4 ? neighborLevel : ownLevel,
                 face == 5 ? neighborLevel : ownLevel);
+    }
+
+    private static int oppositeFace(int face) {
+        return switch (face) {
+            case 2 -> 3;
+            case 3 -> 2;
+            case 4 -> 5;
+            case 5 -> 4;
+            default -> throw new IllegalArgumentException("face=" + face);
+        };
     }
 
     private static void assertTransitionPair(int first, int second) {
@@ -500,7 +855,18 @@ final class LodMesherColumnTransitionTest {
     private static boolean hasVerticalSegment(LodManager.LodMeshResult result, float x,
                                                float minZ, float maxZ,
                                                float minY, float maxY) {
-        int[] data = result.opaqueData();
+        return hasVerticalSegment(result, result.opaqueData(), x, minZ, maxZ, minY, maxY);
+    }
+
+    private static boolean hasTranslucentVerticalSegment(LodManager.LodMeshResult result, float x,
+                                                          float minZ, float maxZ,
+                                                          float minY, float maxY) {
+        return hasVerticalSegment(result, result.translucentData(), x, minZ, maxZ, minY, maxY);
+    }
+
+    private static boolean hasVerticalSegment(LodManager.LodMeshResult result, int[] data,
+                                               float x, float minZ, float maxZ,
+                                               float minY, float maxY) {
         List<float[]> intervals = new ArrayList<>();
         for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
             boolean constantX = true;
@@ -625,6 +991,172 @@ final class LodMesherColumnTransitionTest {
             if (covered >= maxY - 0.01F) return true;
         }
         return false;
+    }
+
+    private record ReportedSeam(boolean xAxis, int boundary, int tangent) {}
+
+    /**
+     * Prueft die im Spiel gemeldeten Unterwasserstellen gegen denselben Vertrag wie der
+     * Renderer: Ein wirklich vorhandenes L0-Randface besitzt das Segment. Wurde es beim
+     * Chunk-Meshing gegen den spaeter ausgeblendeten Nachbarchunk gecullt, muss stattdessen
+     * das LOD-Uebergangsmesh genau dort eine Flaeche liefern.
+     */
+    private static void assertReportedSeamClosed(Seed187Source source, ReportedSeam seam,
+                                                  boolean exactPositive) {
+        int tangentStart = Math.floorDiv(seam.tangent, ChunkSection.SIZE) * ChunkSection.SIZE;
+        int regionX = seam.xAxis ? seam.boundary : tangentStart;
+        int regionZ = seam.xAxis ? tangentStart : seam.boundary;
+        int rx = Math.floorDiv(regionX, LodMesher.REGION_BLOCKS);
+        int rz = Math.floorDiv(regionZ, LodMesher.REGION_BLOCKS);
+        int baseX = rx * LodMesher.REGION_BLOCKS;
+        int baseZ = rz * LodMesher.REGION_BLOCKS;
+
+        int exactNormal = exactPositive ? seam.boundary : seam.boundary - 1;
+        int exactX = seam.xAxis ? exactNormal : tangentStart;
+        int exactZ = seam.xAxis ? tangentStart : exactNormal;
+        int exactCx = Math.floorDiv(exactX, ChunkSection.SIZE);
+        int exactCz = Math.floorDiv(exactZ, ChunkSection.SIZE);
+        int localChunkX = exactCx - rx * 4;
+        int localChunkZ = exactCz - rz * 4;
+        assertTrue(localChunkX >= 0 && localChunkX < 4 && localChunkZ >= 0 && localChunkZ < 4,
+                "Die gemeldete Naht muss innerhalb ihrer Testregion liegen");
+        int mask = 1 << (localChunkZ * 4 + localChunkX);
+
+        LodManager.LodMeshResult result = new LodMesher().mesh(source,
+                new LodBlockAppearance(), LodConfig.of(16, 128),
+                1, 1, rx, rz, 0, LodManager.LodClipSnapshot.centerOnly(mask),
+                baseX + LodMesher.REGION_BLOCKS / 2,
+                baseZ + LodMesher.REGION_BLOCKS / 2);
+
+        int lodFace = seam.xAxis
+                ? exactPositive ? 5 : 4
+                : exactPositive ? 3 : 2;
+        int exactFace = oppositeFace(lodFace);
+        float localBoundary = seam.boundary - (seam.xAxis ? baseX : baseZ);
+        int checked = 0;
+        int[] exactStates = new int[Chunk.HEIGHT];
+        int[] renderedFaces = new int[Chunk.SECTIONS];
+        try (LodDataSource.ExactColumnSampler sampler = source.openExactColumnSampler()) {
+            for (int tangent = tangentStart; tangent < tangentStart + ChunkSection.SIZE; tangent++) {
+                int sampleX = seam.xAxis ? exactNormal : tangent;
+                int sampleZ = seam.xAxis ? tangent : exactNormal;
+                assertTrue(sampler.sampleColumn(sampleX, sampleZ, exactStates));
+                assertTrue(sampler.sampleRenderedBoundaryFaces(sampleX, sampleZ, exactFace,
+                        renderedFaces));
+
+                int coarseNormal = exactPositive ? seam.boundary - 2 : seam.boundary;
+                int coarseTangent = Math.floorDiv(tangent, 2) * 2;
+                int coarseX = seam.xAxis ? coarseNormal : coarseTangent;
+                int coarseZ = seam.xAxis ? coarseTangent : coarseNormal;
+                LodColumn coarse = source.sampleColumn(coarseX, coarseZ, 2);
+                float localTangent = tangent - (seam.xAxis ? baseZ : baseX) + 0.5F;
+
+                for (int y = 0; y < Chunk.HEIGHT; y++) {
+                    int exactState = exactStates[y];
+                    int coarseState = stateAtForTest(coarse, y);
+                    boolean exactExposed = faceVisibleForTest(exactState, coarseState);
+                    boolean coarseExposed = faceVisibleForTest(coarseState, exactState);
+                    if (!exactExposed && !coarseExposed) continue;
+                    boolean l0Owns = (renderedFaces[y >> ChunkSection.SHIFT]
+                            & (1 << (y & ChunkSection.MASK))) != 0;
+                    if (l0Owns) continue;
+                    checked++;
+                    assertTrue(hasBoundaryCoverageAt(result, localBoundary, localTangent,
+                                    y + 0.5F),
+                            "Offene Seed-187-L0/L1-Naht bei (" + sampleX + "," + y + ","
+                                    + sampleZ + "), LOD-Face=" + lodFace
+                                    + ", exaktPositiv=" + exactPositive);
+                }
+            }
+        }
+        assertTrue(checked > 0, "Der Regressionstest muss mindestens ein vom Stitcher zu "
+                + "uebernehmendes Segment an " + seam + " enthalten");
+    }
+
+    private static int stateAtForTest(LodColumn column, int y) {
+        for (int i = 0; i < column.size(); i++) {
+            long interval = column.interval(i);
+            if (y >= LodColumn.minY(interval) && y < LodColumn.maxY(interval)) {
+                return LodColumn.state(interval);
+            }
+        }
+        return Blocks.AIR;
+    }
+
+    private static boolean faceVisibleForTest(int ownStateId, int neighborStateId) {
+        if (ownStateId == Blocks.AIR) return false;
+        var own = Blocks.getState(ownStateId);
+        var neighbor = Blocks.getState(neighborStateId);
+        if (own.isFluid()) {
+            return !neighbor.isOpaqueCube()
+                    && !(neighbor.isFluid() && neighbor.getBlock() == own.getBlock());
+        }
+        return !neighbor.isOpaqueCube()
+                && !(neighbor.getBlock() == own.getBlock() && own.cullsSameBlock());
+    }
+
+    private static boolean hasBoundaryCoverageAt(LodManager.LodMeshResult result,
+                                                  float boundary, float tangent, float y) {
+        return hasBoundaryCoverageAt(result, result.opaqueData(), boundary, tangent, y)
+                || hasBoundaryCoverageAt(result, result.translucentData(), boundary, tangent, y);
+    }
+
+    private static boolean hasBoundaryCoverageAt(LodManager.LodMeshResult result, int[] data,
+                                                  float boundary, float tangent, float y) {
+        for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+            float minX = Float.POSITIVE_INFINITY, maxX = Float.NEGATIVE_INFINITY;
+            float minY = Float.POSITIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
+            float minZ = Float.POSITIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
+            for (int v = 0; v < 4; v++) {
+                int p = q + v * ChunkMesher.VERTEX_SIZE;
+                float x = coordinate(data[p] & 0xFFFF, result.level());
+                float vertexY = coordinate((data[p] >>> 16) & 0xFFFF, result.level())
+                        + result.yBase();
+                float z = coordinate(data[p + 1] & 0xFFFF, result.level());
+                minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+                minY = Math.min(minY, vertexY); maxY = Math.max(maxY, vertexY);
+                minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+            }
+            boolean onX = close(minX, boundary) && close(maxX, boundary)
+                    && tangent > minZ + 0.01F && tangent < maxZ - 0.01F;
+            boolean onZ = close(minZ, boundary) && close(maxZ, boundary)
+                    && tangent > minX + 0.01F && tangent < maxX - 0.01F;
+            if ((onX || onZ) && y > minY + 0.01F && y < maxY - 0.01F) return true;
+        }
+        return false;
+    }
+
+    @FunctionalInterface
+    private interface BoundaryOwnership {
+        boolean rendered(int x, int z, int face, int y);
+    }
+
+    private static LodDataSource.ExactColumnSampler exactSampler(
+            LodDataSource source, BoundaryOwnership ownership) {
+        return new LodDataSource.ExactColumnSampler() {
+            @Override
+            public boolean sampleColumn(int x, int z, int[] target) {
+                java.util.Arrays.fill(target, Blocks.AIR);
+                LodColumn column = source.sampleColumn(x, z, 1);
+                for (int i = 0; i < column.size(); i++) {
+                    long interval = column.interval(i);
+                    java.util.Arrays.fill(target, LodColumn.minY(interval),
+                            LodColumn.maxY(interval), LodColumn.state(interval));
+                }
+                return true;
+            }
+
+            @Override
+            public boolean sampleRenderedBoundaryFaces(int x, int z, int face, int[] target) {
+                java.util.Arrays.fill(target, 0);
+                for (int y = 0; y < Chunk.HEIGHT; y++) {
+                    if (ownership.rendered(x, z, face, y)) {
+                        target[y >> ChunkSection.SHIFT] |= 1 << (y & ChunkSection.MASK);
+                    }
+                }
+                return true;
+            }
+        };
     }
 
     private static float coordinate(int packed, int level) {

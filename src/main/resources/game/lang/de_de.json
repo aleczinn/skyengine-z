@@ -74,6 +74,7 @@
       "pause_loading": "Chunk-Laden pausieren",
       "aa_mode": "Anti-Aliasing",
       "gui_slots": "GUI-Slot-Flächen",
+      "underwater_effect": "Unterwasser-Effekt",
       "reload_chunks": "Chunks neu laden",
       "reload_post": "Postprocessing neu laden"
     },

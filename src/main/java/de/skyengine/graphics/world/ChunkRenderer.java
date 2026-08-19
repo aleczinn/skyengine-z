@@ -10,6 +10,7 @@ import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.game.world.lod.LodConfig;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.LodMesher;
@@ -1096,7 +1097,8 @@ public class ChunkRenderer {
                haben — ein dort wartendes Erst-Mesh darf ein bereits angewendetes, NEUERES
                Priority-Remesh derselben Section nicht überschreiben (das Dirty-Bit ist dann
                schon konsumiert, die falsche Geometrie bliebe bis zum nächsten Edit stehen). */
-            if (chunk != null && !chunk.tryApplyMeshSeq(result.sectionY(), result.meshSeq())) continue;
+            if (chunk != null && !chunk.tryApplyMeshSection(result.sectionY(), result.meshSeq(),
+                    result.data() == null ? null : result.data().boundaryFaces())) continue;
 
             /* Upload-Bestätigung für die LOD-Maske: erst wenn alle Sections angewendet sind,
                darf das LOD dort weichen (Chunk kann bei Unload-Race schon fehlen). Zählt nur
@@ -1939,14 +1941,17 @@ public class ChunkRenderer {
     /* Gepacktes Vertex-Format (20 Bytes, siehe ChunkMesher.VERTEX_SIZE):
        x: posX | posY<<16 (u16 fixed 6.10, Bias +1) — y: posZ | u<<16 (uv fixed 6.10, Bias +1)
        z: v | layer<<16 — w: rgb8
-       (5. Int reserviert für farbiges Licht, vom Shader aktuell ungenutzt — Stride wächst
-       automatisch über ChunkMesher.VERTEX_SIZE, a_data liest weiterhin nur die ersten 4 Ints)
+       5. Int: Licht in Bits 0-7, Vertex-Flags ab Bit 8 (siehe ChunkMesher) — Stride wächst
+       automatisch über ChunkMesher.VERTEX_SIZE, a_data liest weiterhin nur die ersten 4 Ints
        Section-Origin (kamerarelativ) kommt pro Draw aus dem SSBO, indiziert via gl_DrawID. */
     private static final String VERTEX_SOURCE = """
             #version 460 core
             layout(location = 0) in uvec4 a_data;
-            /* 5. Int des Vertex-Formats: Skylight 0..15 in Bits 0-3 (Rest reserviert). */
+            /* 5. Int: Skylight Bits 0-3, Blocklight 4-7, Vertex-Flags ab Bit 8. */
             layout(location = 1) in uint a_light;
+
+            const uint FLAT_SOURCE_FLUID_TOP = %du;
+            const float SOURCE_FLUID_RENDER_HEIGHT = %s;
 
             layout(std430, binding = 0) readonly buffer DrawOffsets {
                 vec4 u_DrawOffsets[];
@@ -1982,6 +1987,12 @@ public class ChunkRenderer {
                 float positionScale = scaleCode == 0u ? (1.0 / 1024.0)
                         : (scaleCode == 1u ? (1.0 / 127.0) : (1.0 / 64.0));
                 vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16), float(a_data.y & 0xFFFFu)) * positionScale - 1.0;
+                /* Dieselbe Quelloberfläche wird mit drei verschiedenen Fixed-Point-Skalen
+                   gepackt. Ihre fraktionale Y-Komponente deshalb analytisch rekonstruieren;
+                   ganzzahliger Draw-Ursprung + identische Fraktion = exakt koplanar. */
+                if ((a_light & FLAT_SOURCE_FLUID_TOP) != 0u) {
+                    pos.y = floor(pos.y) + SOURCE_FLUID_RENDER_HEIGHT;
+                }
                 vec2 uv = vec2(float(a_data.y >> 16), float(a_data.z & 0xFFFFu)) * (1.0 / 1024.0) - 1.0;
                 float layer = float(a_data.z >> 16);
                 vec3 color = vec3(float(a_data.w & 0xFFu), float((a_data.w >> 8) & 0xFFu), float((a_data.w >> 16) & 0xFFu)) * (1.0 / 255.0);
@@ -2024,7 +2035,8 @@ public class ChunkRenderer {
 
                 gl_Position = u_ProjectionView * vec4(rel, 1.0);
             }
-            """;
+            """.formatted(ChunkMesher.FLAT_SOURCE_FLUID_TOP,
+                    Float.toString(FluidGeometry.SOURCE_RENDER_HEIGHT));
 
     private static final String FRAGMENT_SOURCE = """
             #version 460 core

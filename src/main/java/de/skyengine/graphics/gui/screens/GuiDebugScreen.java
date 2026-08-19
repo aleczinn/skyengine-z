@@ -64,6 +64,10 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
         CycleButton<Boolean> guiSlots = CycleButton.onOff(I18n.tr("options.debug.gui_slots"), CELL_W, CELL_H,
                 DebugFlags.guiSlotBounds, v -> DebugFlags.guiSlotBounds = v);
 
+        CycleButton<Boolean> underwaterEffect = CycleButton.onOff(
+                I18n.tr("options.debug.underwater_effect"), CELL_W, CELL_H,
+                DebugFlags.underwaterEffect, v -> DebugFlags.underwaterEffect = v);
+
         PostProcessingSettings post = SkyEngine.get().getPostProcessor().getSettings();
         CycleButton<AntiAliasingMode> aa = new CycleButton<>(I18n.tr("options.debug.aa_mode"), CELL_W, CELL_H,
                 AntiAliasingMode.values(), post.getAaMode(), Enum::name, post::setAaMode);
@@ -78,6 +82,7 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
         content.add(new HStack(4, gpuCullHiZ, gpuCullTint));
         content.add(lodColors);
         content.add(new HStack(4, pauseLoading, guiSlots));
+        content.add(underwaterEffect);
         content.add(aa);
         content.add(new HStack(4, reloadChunks, reloadPost));
     }

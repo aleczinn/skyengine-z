@@ -89,6 +89,50 @@ final class ChunkLodColumnsPerformanceTest {
     }
 
     @Test
+    void untouchedOceanChunkHasIdenticalGeneratorAndExactLodColumns() {
+        AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(187);
+        int chunkX = Math.floorDiv(-8154, ChunkSection.SIZE);
+        int chunkZ = Math.floorDiv(-17295, ChunkSection.SIZE);
+        assertGeneratorMatchesExact(generator, chunkX, chunkZ);
+    }
+
+    @Test
+    void bedrockDeepOceanChunkHasIdenticalGeneratorAndExactLodColumns() {
+        AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(187);
+        int chunkX = Math.floorDiv(-8559, ChunkSection.SIZE);
+        int chunkZ = Math.floorDiv(-17057, ChunkSection.SIZE);
+        assertGeneratorMatchesExact(generator, chunkX, chunkZ);
+    }
+
+    @Test
+    void reportedLandChunkHasIdenticalGeneratorAndExactLodColumns() {
+        AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(187);
+        int chunkX = Math.floorDiv(-7668, ChunkSection.SIZE);
+        int chunkZ = Math.floorDiv(-18064, ChunkSection.SIZE);
+        assertGeneratorMatchesExact(generator, chunkX, chunkZ);
+    }
+
+    private static void assertGeneratorMatchesExact(AlphaWorldGeneratorV2 generator,
+                                                    int chunkX, int chunkZ) {
+        ChunkDecorator decorator = new ChunkDecorator(generator, List.of());
+        Chunk exactChunk = new Chunk(chunkX, chunkZ);
+        generator.generate(exactChunk);
+
+        for (int level = 1; level <= 3; level++) {
+            ChunkLodColumns generated = ChunkLodColumns.fromGenerator(generator,
+                    decorator.decorateForLod(chunkX, chunkZ), chunkX, chunkZ, level);
+            ChunkLodColumns exact = ChunkLodColumns.fromChunk(exactChunk, generator, level);
+            int size = 1 << level;
+            for (int z = 0; z < ChunkSection.SIZE; z += size) {
+                for (int x = 0; x < ChunkSection.SIZE; x += size) {
+                    assertColumnEquals(exact.get(x, z, size), generated.get(x, z, size),
+                            "chunk " + chunkX + "," + chunkZ + " L" + level + " @ " + x + "," + z);
+                }
+            }
+        }
+    }
+
+    @Test
     void exactProjectionConsumesSingleValueSectionsAsRuns() {
         Chunk chunk = new Chunk(0, 0);
         chunk.installSection(0, new ChunkSection(new PalettedContainer(
@@ -109,5 +153,12 @@ final class ChunkLodColumnsPerformanceTest {
         private CountingGenerator() { super(1234); }
         @Override public int sampleHeight(int x, int z) { return 64; }
         @Override public void generate(Chunk chunk) { this.generateCalls++; }
+    }
+
+    private static void assertColumnEquals(LodColumn expected, LodColumn actual, String message) {
+        assertEquals(expected.size(), actual.size(), message + " interval count");
+        for (int i = 0; i < expected.size(); i++) {
+            assertEquals(expected.interval(i), actual.interval(i), message + " interval " + i);
+        }
     }
 }

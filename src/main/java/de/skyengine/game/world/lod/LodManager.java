@@ -2,6 +2,7 @@ package de.skyengine.game.world.lod;
 
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.entity.EntityPlayer;
+import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
@@ -64,9 +65,14 @@ public class LodManager {
     /** Fertiges Regionen-Mesh (Worker → Render-Thread). Leere data = Region komplett geclippt.
         sizeRegions = Footprint in 128er-Regionen (1 = normal, 4 = Superregion). */
     public record LodClipSnapshot(int centerMask, int northEdge, int southEdge,
-                                  int westEdge, int eastEdge) {
+                                  int westEdge, int eastEdge, long boundaryRevision) {
+        public LodClipSnapshot(int centerMask, int northEdge, int southEdge,
+                               int westEdge, int eastEdge) {
+            this(centerMask, northEdge, southEdge, westEdge, eastEdge, 0L);
+        }
+
         static LodClipSnapshot centerOnly(int mask) {
-            return new LodClipSnapshot(mask, 0, 0, 0, 0);
+            return new LodClipSnapshot(mask, 0, 0, 0, 0, 0L);
         }
 
         boolean hasAnyExactTerrain() {
@@ -358,7 +364,33 @@ public class LodManager {
             if (this.chunkShowsTerrain(baseCx - 1, baseCz + i)) west |= 1 << i;
             if (this.chunkShowsTerrain(baseCx + 4, baseCz + i)) east |= 1 << i;
         }
-        return new LodClipSnapshot(center, north, south, west, east);
+        long boundaryRevision = 0x9E3779B97F4A7C15L;
+        for (int dz = 0; dz < 4; dz++) {
+            for (int dx = 0; dx < 4; dx++) {
+                boundaryRevision = this.mixBoundaryRevision(boundaryRevision,
+                        baseCx + dx, baseCz + dz);
+            }
+        }
+        for (int i = 0; i < 4; i++) {
+            boundaryRevision = this.mixBoundaryRevision(boundaryRevision,
+                    baseCx + i, baseCz - 1);
+            boundaryRevision = this.mixBoundaryRevision(boundaryRevision,
+                    baseCx + i, baseCz + 4);
+            boundaryRevision = this.mixBoundaryRevision(boundaryRevision,
+                    baseCx - 1, baseCz + i);
+            boundaryRevision = this.mixBoundaryRevision(boundaryRevision,
+                    baseCx + 4, baseCz + i);
+        }
+        if ((center | north | south | west | east) == 0) boundaryRevision = 0L;
+        return new LodClipSnapshot(center, north, south, west, east, boundaryRevision);
+    }
+
+    private long mixBoundaryRevision(long hash, int cx, int cz) {
+        Chunk chunk = this.chunkManager.getChunk(cx, cz);
+        if (chunk == null || chunk.status != ChunkStatus.READY || !chunk.isFullyUploaded()
+                || chunk.pendingUnload) return hash;
+        long value = Chunk.key(cx, cz) ^ Long.rotateLeft(chunk.boundaryMeshRevision(), 29);
+        return Long.rotateLeft(hash ^ value, 17) * 0xD6E8FEB86659FD93L;
     }
 
     /**
@@ -627,5 +659,66 @@ public class LodManager {
         if (c == null) return false;
         int bit = Math.floorMod(cz, 4) * 4 + Math.floorMod(cx, 4);
         return (c.clipSnapshot.centerMask & (1 << bit)) == 0;
+    }
+
+    /**
+     * Block-State der Darstellung, die an dieser Position tatsaechlich auf dem Schirm liegt.
+     * {@code -1} bedeutet, dass dort kein hochgeladenes LOD-Mesh sichtbar ist und der Aufrufer
+     * auf die echten Chunkdaten zurueckfallen muss. Diese API ist ausschliesslich fuer visuelle
+     * Samples (Kamerafluid/Licht) bestimmt; Kollisionen und Interaktionen bleiben bei L0.
+     */
+    public int visibleStateAt(int x, int y, int z) {
+        Current visible = this.visibleCurrentAt(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (visible == null) return -1;
+        if (y < 0 || y >= Chunk.HEIGHT) return Blocks.AIR;
+        int size = 1 << visible.level;
+        int cellX = Math.floorDiv(x, size) * size;
+        int cellZ = Math.floorDiv(z, size) * size;
+        return stateAt(this.source.sampleColumn(cellX, cellZ, size), y);
+    }
+
+    /**
+     * Himmelslicht der sichtbaren LOD-Spalte oder {@code -1}, wenn an der Position L0 gilt.
+     * Die Wasserdaempfung ist dieselbe wie beim LOD-Mesh, damit Hand, Spieler und Kamera nicht
+     * mit dem Volllicht-Fallback eines noch ungeladenen Chunks beleuchtet werden.
+     */
+    public int visibleSkyLightAt(int x, int y, int z) {
+        Current visible = this.visibleCurrentAt(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (visible == null) return -1;
+        if (y >= Chunk.HEIGHT) return 15;
+        if (y < 0) return 0;
+        int size = 1 << visible.level;
+        int cellX = Math.floorDiv(x, size) * size;
+        int cellZ = Math.floorDiv(z, size) * size;
+        return skyLightAt(this.source.sampleColumn(cellX, cellZ, size), y, this.appearance);
+    }
+
+    private Current visibleCurrentAt(int cx, int cz) {
+        Current visible = this.current.get(key(Math.floorDiv(cx, 4), Math.floorDiv(cz, 4)));
+        if (visible == null) return null;
+        int bit = Math.floorMod(cz, 4) * 4 + Math.floorMod(cx, 4);
+        return (visible.clipSnapshot.centerMask & (1 << bit)) == 0 ? visible : null;
+    }
+
+    static int stateAt(LodColumn column, int y) {
+        for (int i = 0; i < column.size(); i++) {
+            long interval = column.interval(i);
+            if (y >= LodColumn.minY(interval) && y < LodColumn.maxY(interval)) {
+                return LodColumn.state(interval);
+            }
+        }
+        return Blocks.AIR;
+    }
+
+    static int skyLightAt(LodColumn column, float y, LodBlockAppearance appearance) {
+        int depth = 0;
+        for (int i = 0; i < column.size(); i++) {
+            long interval = column.interval(i);
+            if (LodColumn.maxY(interval) <= y
+                    || !appearance.attenuatesSkyLight(LodColumn.state(interval))) continue;
+            depth += Math.max(0, LodColumn.maxY(interval)
+                    - Math.max((int) Math.floor(y), LodColumn.minY(interval)));
+        }
+        return Math.clamp(15 - depth, 0, 15);
     }
 }
