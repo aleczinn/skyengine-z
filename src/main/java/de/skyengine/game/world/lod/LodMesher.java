@@ -51,6 +51,14 @@ public final class LodMesher {
     /** Kantenlänge einer LOD-Region in Blöcken (4x4 Chunks, fix über alle Level). */
     public static final int REGION_BLOCKS = 128;
 
+    /**
+     * Eigener horizontaler Packungs-Bias für LOD-Geometrie. Auflösungs-Safety-Caps können
+     * an Nord-/Westkanten bis zu eine maximale LOD-Zelle außerhalb der Region liegen. Ohne
+     * diese Reserve würden negative X/Z-Fixed-Point-Werte beim Bit-Packen das benachbarte
+     * u16-Feld überschreiben und Y/Z als 65535 dekodiert werden.
+     */
+    public static final float XZ_POSITION_BIAS = 32F;
+
     /** Halbe Diagonale einer Region — Toleranz für Kreis-Überlappungstests. */
     public static final float HALF_DIAG = 90.6F;
 
@@ -105,7 +113,8 @@ public final class LodMesher {
     private float minBottom, maxTop;           // absolut (fürs Frustum-AABB)
     private final float[] aoScratch = new float[4]; // wiederverwendet: P1,P2,P3,P4 pro Top-Quad
     private final float[] aoFlatScratch = new float[4]; // Scratch für cellAoFlat (Merge-Kandidaten)
-    private boolean flatAo;                    // reservierter Vergleichsmodus; aktuell bewusst aus
+    private boolean flatAo;                    // L2+: uniformes Flächen-AO statt weichem Corner-AO
+    private int aoBandHeight = 1;              // vertikales AO-Raster; L2+ bewusst grob
     private boolean columnAo;                  // AO für Seiten des Spaltenpfads
     private long lastSamplingNanos, lastGeometryNanos;
 
@@ -194,6 +203,11 @@ public final class LodMesher {
         this.lastSamplingNanos = 0;
         this.lastGeometryNanos = 0;
         this.columnAo = false;
+        this.flatAo = level >= 2;
+        /* Vier Level-Zellen pro L2-Band, danach mindestens zwei: L2/L3=16, L4=32,
+           L5=64. Das Raster bleibt global ausgerichtet und erzeugt an realen Klippen
+           wenige große, horizontal gut mergefähige Flächen statt 4-Block-Lamellen. */
+        this.aoBandHeight = this.flatAo ? Math.max(16, config.cellSize(level) * 2) : 1;
         if (source.hasColumns()) {
             return this.meshColumns(source, appearance, config, level, sizeRegions, rx, rz,
                     epoch, clipSnapshot, neighborSnapshot, ax, az);
@@ -280,9 +294,8 @@ public final class LodMesher {
            Live gelesen; der LodManager bumpt bei AO-Toggle die Epoche → alle Regionen neu. */
         boolean useAo = GameSettings.get().ambientOcclusion;
 
-        /* AO bleibt auch im Fernring eckgenau. Abflachung erzeugt an Greedy-Grenzen die
-           sichtbaren harten Helligkeitsbaender, die schwerer wiegen als weitere Top-Quads. */
-        this.flatAo = false;
+        /* L1 bleibt eckgenau. Ab L2 gewinnt uniformes Flächen-AO: keine sichtbare
+           Dreiecksdiagonale und deutlich bessere Greedy-Mergefähigkeit. */
 
         /* Debug: Merge-Grenzen der Terrain-Tops erfassen (ordnungsunabhängig, s. LodMeshStats). */
         if (this.stats != null) this.recordSeams(n, useAo);
@@ -489,8 +502,7 @@ public final class LodMesher {
         int maxRun = Math.max(1, MAX_MERGE_BLOCKS / s);
         boolean useAo = GameSettings.get().ambientOcclusion;
         this.columnAo = useAo;
-        /* Wie im Heightmap-Pfad bleibt AO auf allen Levels eckgenau. */
-        this.flatAo = false;
+        /* flatAo wurde am gemeinsamen mesh()-Eingang ausschließlich aus level bestimmt. */
 
         for (int intervalIndex = 0; intervalIndex < LodColumn.MAX_INTERVALS; intervalIndex++) {
             Arrays.fill(this.consumed, 0, n * n, false);
@@ -817,12 +829,7 @@ public final class LodMesher {
         return false;
     }
 
-    /**
-     * Minecraft-artige AO-Signatur einer einzelnen vertikalen LOD-Zellwand. Die vier
-     * 2-Bit-Werte folgen der Emissionsreihenfolge (A unten, B unten, B oben, A oben).
-     * Sie ist Teil des Greedy-Vergleichs, damit Kontaktverschattung nicht über eine lange
-     * Wand hinweg interpoliert wird.
-     */
+    /** AO einer vertikalen Höhenzeile: L1 eckgenau, L2+ als uniformer Bandwert. */
     private int wallCellAo(int face, int x, int z, int bottom, int top, int block) {
         if (!this.columnAo || this.appearance.isTranslucent(block)) return 0xFF;
         int outsideX = x, outsideZ = z;
@@ -843,7 +850,8 @@ public final class LodMesher {
         int b0 = this.wallCornerAoLevel(outsideX, outsideZ, bottomY, bDx, bDz, -1);
         int b1 = this.wallCornerAoLevel(outsideX, outsideZ, topY, bDx, bDz, 1);
         int a1 = this.wallCornerAoLevel(outsideX, outsideZ, topY, aDx, aDz, 1);
-        return a0 | b0 << 2 | b1 << 4 | a1 << 6;
+        int packed = a0 | b0 << 2 | b1 << 4 | a1 << 6;
+        return this.flatAo ? uniformWallAo(packed) : packed;
     }
 
     private int wallCornerAoLevel(int x, int z, int y, int tangentX, int tangentZ,
@@ -861,7 +869,7 @@ public final class LodMesher {
         return 0.4F + ((packed >>> (corner << 1)) & 3) * 0.2F;
     }
 
-    /** AO an den echten Endpunkten eines ggf. greedy-gemergten Wandsegments. */
+    /** AO an den echten Endpunkten eines horizontal gemergten Wandsegments. */
     private int wallGeometryAo(int face, float xa, float za, float xb, float zb,
                                float bottom, float top) {
         if (!this.columnAo) return 0xFF;
@@ -900,7 +908,8 @@ public final class LodMesher {
                 tangentB_X, tangentB_Z, 1);
         int a1 = this.wallCornerAoLevel(outsideA_X, outsideA_Z, topY,
                 tangentA_X, tangentA_Z, 1);
-        return a0 | b0 << 2 | b1 << 4 | a1 << 6;
+        int packed = a0 | b0 << 2 | b1 << 4 | a1 << 6;
+        return this.flatAo ? uniformWallAo(packed) : packed;
     }
 
     private float currentCellSize() {
@@ -908,19 +917,19 @@ public final class LodMesher {
     }
 
     private static final class SideSignature {
-        /* Im schlechtesten Fall wechselt die AO-Signatur in jeder der 512 Hoehenzellen.
-           Die Signatur darf dann keine Flaechen still verwerfen. */
-        private static final int CAPACITY = 512;
-        final int[] blocks = new int[CAPACITY];
-        final int[] minY = new int[CAPACITY];
-        final int[] maxY = new int[CAPACITY];
-        final long[] lightSurfaces = new long[CAPACITY];
-        final int[] ao = new int[CAPACITY];
+        /* Kleine Normalfälle bleiben allokationsfrei. Falls viele getrennte Struktur-
+           intervalle plus AO-Bänder zusammenkommen, muss die Signatur wachsen: stilles
+           Abschneiden würde echte Wandflächen und damit Himmelsspalten erzeugen. */
+        int[] blocks = new int[16];
+        int[] minY = new int[16];
+        int[] maxY = new int[16];
+        long[] lightSurfaces = new long[16];
+        int[] ao = new int[16];
         int size;
 
         void clear() { this.size = 0; }
         void add(int block, int minY, int maxY, long lightSurface, int ao) {
-            if (this.size >= CAPACITY) return;
+            if (this.size >= this.blocks.length) this.grow();
             int index = this.size++;
             this.blocks[index] = block;
             this.minY[index] = minY;
@@ -928,13 +937,21 @@ public final class LodMesher {
             this.lightSurfaces[index] = lightSurface;
             this.ao[index] = ao;
         }
-        boolean sameAs(SideSignature other) {
+        private void grow() {
+            int capacity = this.blocks.length * 2;
+            this.blocks = Arrays.copyOf(this.blocks, capacity);
+            this.minY = Arrays.copyOf(this.minY, capacity);
+            this.maxY = Arrays.copyOf(this.maxY, capacity);
+            this.lightSurfaces = Arrays.copyOf(this.lightSurfaces, capacity);
+            this.ao = Arrays.copyOf(this.ao, capacity);
+        }
+        boolean sameAs(SideSignature other, boolean compareAo) {
             if (this.size != other.size) return false;
             for (int i = 0; i < this.size; i++) {
                 if (this.blocks[i] != other.blocks[i] || this.minY[i] != other.minY[i]
                         || this.maxY[i] != other.maxY[i]
                         || this.lightSurfaces[i] != other.lightSurfaces[i]
-                        || this.ao[i] != other.ao[i]) return false;
+                        || compareAo && this.ao[i] != other.ao[i]) return false;
             }
             return true;
         }
@@ -946,17 +963,26 @@ public final class LodMesher {
     private final int[] exactTransitionStates = new int[Chunk.HEIGHT];
     private final int[] exactRenderedBoundaryFaces = new int[Chunk.SECTIONS];
 
-    private static boolean packedAoUniform(int packed) {
-        int first = packed & 3;
-        return ((packed >>> 2) & 3) == first
-                && ((packed >>> 4) & 3) == first
-                && ((packed >>> 6) & 3) == first;
+    /**
+     * Reduces per-corner wall AO to one rounded level for the complete height band.
+     * A gradient inside a greedy quad would expose its fixed triangle diagonal.
+     */
+    private static int uniformWallAo(int packed) {
+        int sum = (packed & 3) + ((packed >>> 2) & 3)
+                + ((packed >>> 4) & 3) + ((packed >>> 6) & 3);
+        int level = (sum + 2) / 4;
+        return level * 0x55;
+    }
+
+    /** Nächste global ausgerichtete Grenze des aktuellen L2+-AO-Rasters. */
+    private int nextAoBandBoundary(int y, int maxY) {
+        int next = (Math.floorDiv(y, this.aoBandHeight) + 1) * this.aoBandHeight;
+        return Math.min(maxY, Math.max(y + 1, next));
     }
 
     /**
-     * Zerlegt hohe Seiten an AO-Wechseln. Nur vollstaendig gleichmaessige, identische
-     * AO-Zeilen duerfen vertikal zusammengefasst werden; andernfalls wuerde Greedy-Meshing
-     * die Kontaktverschattung ueber viele Bloecke interpolieren.
+     * L1 behält das weiche Corner-AO. L2+ sampelt nur einmal pro global ausgerichtetem
+     * Level-Rasterband; identische Nachbarbänder dürfen anschließend vertikal mergen.
      */
     private void addAoSegmentedSide(SideSignature result, int block, int face, int x, int z,
                                     int minY, int maxY, long lightSurface) {
@@ -965,19 +991,25 @@ public final class LodMesher {
             result.add(block, minY, maxY, lightSurface, 0xFF);
             return;
         }
-        if (maxY - minY <= 2) {
-            result.add(block, minY, maxY, lightSurface,
-                    this.wallCellAo(face, x, z, minY, maxY, block));
+        if (!this.flatAo) {
+            /* L1-AO ist reine Schattierung: keine zusätzlichen Y-Schnitte und kein AO-
+               Eintrag im Greedy-Vertrag. Nach dem horizontalen Merge werden die vier
+               Corner-Werte an den tatsächlichen Rechteck-Endpunkten neu bestimmt. */
+            result.add(block, minY, maxY, lightSurface, -1);
             return;
         }
         int runMin = minY;
-        int runAo = this.wallCellAo(face, x, z, minY, minY + 1, block);
-        for (int y = minY + 1; y < maxY; y++) {
-            int ao = this.wallCellAo(face, x, z, y, y + 1, block);
-            if (ao == runAo && packedAoUniform(ao)) continue;
-            result.add(block, runMin, y, lightSurface, runAo);
-            runMin = y;
-            runAo = ao;
+        int bandEnd = this.nextAoBandBoundary(minY, maxY);
+        int runAo = this.wallCellAo(face, x, z, minY, bandEnd, block);
+        for (int y = bandEnd; y < maxY;) {
+            int next = this.nextAoBandBoundary(y, maxY);
+            int ao = this.wallCellAo(face, x, z, y, next, block);
+            if (ao != runAo) {
+                result.add(block, runMin, y, lightSurface, runAo);
+                runMin = y;
+                runAo = ao;
+            }
+            y = next;
         }
         result.add(block, runMin, maxY, lightSurface, runAo);
     }
@@ -1046,17 +1078,18 @@ public final class LodMesher {
                 this.visibleSides(this.candidateSideSignature, this.column(x + run, z),
                         this.column(x + run, z + dz), transitionEdge,
                         face, x + run, z);
-                if (!this.sideSignature.sameAs(this.candidateSideSignature)) break;
+                if (!this.sideSignature.sameAs(this.candidateSideSignature,
+                        this.columnAo && this.flatAo)) break;
                 run++;
             }
             float x0 = x * s, x1 = (x + run) * s, zz = (dz < 0 ? z : z + 1) * s;
             for (int i = 0; i < this.sideSignature.size; i++) {
                 if (face == 2) this.emitWall(this.sideSignature.blocks[i], face, x1, zz, x0, zz,
                         this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                        this.sideSignature.lightSurfaces[i], this.sideSignature.ao[i]);
+                        this.sideSignature.lightSurfaces[i], this.flatAo ? this.sideSignature.ao[i] : -1);
                 else this.emitWall(this.sideSignature.blocks[i], face, x0, zz, x1, zz,
                         this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                        this.sideSignature.lightSurfaces[i], this.sideSignature.ao[i]);
+                        this.sideSignature.lightSurfaces[i], this.flatAo ? this.sideSignature.ao[i] : -1);
             }
             x += run;
         }
@@ -1082,17 +1115,18 @@ public final class LodMesher {
                 this.visibleSides(this.candidateSideSignature, this.column(x, z + run),
                         this.column(x + dx, z + run), transitionEdge,
                         face, x, z + run);
-                if (!this.sideSignature.sameAs(this.candidateSideSignature)) break;
+                if (!this.sideSignature.sameAs(this.candidateSideSignature,
+                        this.columnAo && this.flatAo)) break;
                 run++;
             }
             float z0 = z * s, z1 = (z + run) * s, xx = (dx < 0 ? x : x + 1) * s;
             for (int i = 0; i < this.sideSignature.size; i++) {
                 if (face == 4) this.emitWall(this.sideSignature.blocks[i], face, xx, z0, xx, z1,
                         this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                        this.sideSignature.lightSurfaces[i], this.sideSignature.ao[i]);
+                        this.sideSignature.lightSurfaces[i], this.flatAo ? this.sideSignature.ao[i] : -1);
                 else this.emitWall(this.sideSignature.blocks[i], face, xx, z1, xx, z0,
                         this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                        this.sideSignature.lightSurfaces[i], this.sideSignature.ao[i]);
+                        this.sideSignature.lightSurfaces[i], this.flatAo ? this.sideSignature.ao[i] : -1);
             }
             z += run;
         }
@@ -1367,7 +1401,7 @@ public final class LodMesher {
                 this.visibleSides(this.sideSignature, ownColumn, neighborColumn,
                         false, face, ownX, ownZ);
                 for (int i = 0; i < this.sideSignature.size; i++) {
-                    this.emitTransitionWall(this.sideSignature.blocks[i], face,
+                    this.emitTwoSidedTransitionWall(this.sideSignature.blocks[i], face,
                             boundary, t0, t1, this.sideSignature.minY[i],
                             this.sideSignature.maxY[i], this.sideSignature.lightSurfaces[i]);
                 }
@@ -1427,14 +1461,14 @@ public final class LodMesher {
     }
 
     /**
-     * L0 und LOD sind zwei getrennte, einzeln geclippte Meshes. Ihre Hoehenhuellen duerfen
+     * Unterschiedliche Detailstufen sind getrennte, einzeln geclippte Meshes. Ihre Hoehenhuellen duerfen
      * deshalb an der Uebergangsebene nicht wie die Aussenflaeche eines einzelnen geschlossenen
      * Volumens behandelt werden: Von der jeweils hoeheren Seite blickt man sonst auf die
      * Rueckseite des einzigen Stitch-Quads und GL_CULL_FACE oeffnet die Naht. Zwei Quads mit
      * entgegengesetztem Winding schliessen dieselbe Ebene aus beiden Blickrichtungen; wegen
      * Backface-Culling pro Blickrichtung weiterhin nur eines der Quads zeichnen, also entsteht
-     * kein koplanares Z-Fighting. Dies gilt bewusst nur fuer L0/LOD-Stitches, nicht fuer normale
-     * Terrainwaende oder LOD/LOD-Aufloesungsgrenzen.
+     * kein koplanares Z-Fighting. Dies gilt bewusst nur fuer Aufloesungs-Stitches zwischen
+     * L0/LOD oder zwei LOD-Stufen, nicht fuer normale Terrainwaende.
      */
     private void emitTwoSidedTransitionWall(int block, int face, int boundary, int t0, int t1,
                                             int minY, int maxY, long lightSurface) {
@@ -1451,30 +1485,36 @@ public final class LodMesher {
             this.emitWall(block, face, xa, za, xb, zb, minY, maxY, lightSurface, 0xFF);
             return;
         }
-        if (maxY - minY <= 2) {
-            int ao = this.wallGeometryAo(face, xa, za, xb, zb, minY, maxY);
-            this.emitWall(block, face, xa, za, xb, zb, minY, maxY, lightSurface, ao);
+        if (!this.flatAo) {
+            /* Auch Transitionen behalten in L1 exakt ihre AO-unabhängige Basisspanne.
+               emitWallSegment ermittelt mit -1 weiches AO an deren echten vier Ecken. */
+            this.emitWall(block, face, xa, za, xb, zb, minY, maxY, lightSurface, -1);
             return;
         }
         int runMin = minY;
-        int runAo = this.wallGeometryAo(face, xa, za, xb, zb, minY, minY + 1);
-        for (int y = minY + 1; y < maxY; y++) {
-            int ao = this.wallGeometryAo(face, xa, za, xb, zb, y, y + 1);
-            if (ao == runAo && packedAoUniform(ao)) continue;
-            this.emitWall(block, face, xa, za, xb, zb, runMin, y, lightSurface, runAo);
-            runMin = y;
-            runAo = ao;
+        int bandEnd = this.nextAoBandBoundary(minY, maxY);
+        int runAo = this.wallGeometryAo(face, xa, za, xb, zb, minY, bandEnd);
+        for (int y = bandEnd; y < maxY;) {
+            int next = this.nextAoBandBoundary(y, maxY);
+            int ao = this.wallGeometryAo(face, xa, za, xb, zb, y, next);
+            if (ao != runAo) {
+                this.emitWall(block, face, xa, za, xb, zb, runMin, y, lightSurface, runAo);
+                runMin = y;
+                runAo = ao;
+            }
+            y = next;
         }
         this.emitWall(block, face, xa, za, xb, zb, runMin, maxY, lightSurface, runAo);
     }
 
     /**
-     * Positions-Skala der Vertex-Packung je Regionsgröße: 128er packen mit 1/256,
-     * Superregionen mit 1/64 — der u16-Fixed-Point trägt bei 1/256 nur ~255
-     * Blöcke Region-lokale Spanne, bei 1/64 ~1023 (x/z UND y). Muss exakt zum per-Draw
+     * Positions-Skala der Vertex-Packung je Regionsgröße: 128er packen mit 1/127,
+     * Superregionen mit 1/64. Zusammen mit dem getrennten {@link #XZ_POSITION_BIAS}
+     * deckt das u16-Feld die komplette Region plus Transition-Marge ab; Y behält seine
+     * eigene relative Basis. Die Skala muss exakt zum per-Draw
      * .w-Wert des Renderers passen ({@code LodMesh.invPosScale}).
      *
-     * <p>Die 256 ist hier bewusst eine EIGENE Konstante und nicht mehr {@code ChunkMesher.POS_SCALE}:
+     * <p>Die 127 ist hier bewusst eine EIGENE Konstante und nicht mehr {@code ChunkMesher.POS_SCALE}:
      * Sections brauchen Auflösung (dort inzwischen 1/1024), LOD-Regionen brauchen Reichweite. Mit
      * 1/1024 käme eine 128er-Region nur noch ~63 Blöcke weit und würde in {@code fixedPos} still
      * auf 0xFFFF klemmen.
@@ -2101,9 +2141,11 @@ public final class LodMesher {
     }
 
     /**
-     * Packt einen Vertex ins Chunk-Format (Konstanten aus {@link ChunkMesher}, Bias +1);
-     * y wird relativ zu {@link #yBase} gepackt (Renderer addiert yBase im Draw-Offset).
-     * Clamp als Sicherheitsnetz gegen Format-Überlauf (wie ChunkMesher.fixedPos).
+     * Packt einen Vertex ins Chunk-Format (Konstanten aus {@link ChunkMesher}). X/Z verwenden
+     * {@link #XZ_POSITION_BIAS}, damit äußere Safety-Caps mit negativen lokalen Koordinaten
+     * darstellbar bleiben; y verwendet weiterhin Bias +1 und wird relativ zu {@link #yBase}
+     * gepackt (Renderer addiert yBase im Draw-Offset). Jedes u16-Feld wird vor dem Kombinieren
+     * einzeln begrenzt, damit ein Bereichsfehler niemals das Nachbarfeld korrumpiert.
      * Der 5. Int trägt das Licht (s. {@link ChunkMesher#VERTEX_SIZE}); freie Oberflächen
      * bekommen Voll-Himmel, Geometrie unter LOD-Wasser die analytische Tiefen-Näherung.
      */
@@ -2114,24 +2156,28 @@ public final class LodMesher {
 
     private void putVertex(boolean translucent, float x, float y, float z, float u, float v,
                            int layer, float brightness, int tint, int skyLight, int vertexFlags) {
-        int px = (int) ((x + 1F) * this.posScale + 0.5F);
-        int py = Math.clamp((int) ((y - this.yBase + 1F) * this.posScale + 0.5F), 0, 0xFFFF);
-        int pz = (int) ((z + 1F) * this.posScale + 0.5F);
-        int pu = (int) ((u + 1F) * ChunkMesher.UV_SCALE + 0.5F);
-        int pv = (int) ((v + 1F) * ChunkMesher.UV_SCALE + 0.5F);
+        int px = fixedU16(x + XZ_POSITION_BIAS, this.posScale);
+        int py = fixedU16(y - this.yBase + 1F, this.posScale);
+        int pz = fixedU16(z + XZ_POSITION_BIAS, this.posScale);
+        int pu = fixedU16(u + 1F, ChunkMesher.UV_SCALE);
+        int pv = fixedU16(v + 1F, ChunkMesher.UV_SCALE);
         int r = Math.clamp((int) (((tint >> 16) & 0xFF) * brightness + 0.5F), 0, 255);
         int g = Math.clamp((int) (((tint >> 8) & 0xFF) * brightness + 0.5F), 0, 255);
         int b = Math.clamp((int) ((tint & 0xFF) * brightness + 0.5F), 0, 255);
         int[] buf = translucent ? this.outTranslucent : this.outOpaque;
         int i = translucent ? this.viTranslucent : this.viOpaque;
-        buf[i++] = px | (py << 16);
-        buf[i++] = pz | (pu << 16);
-        buf[i++] = pv | (layer << 16);
+        buf[i++] = (px & 0xFFFF) | ((py & 0xFFFF) << 16);
+        buf[i++] = (pz & 0xFFFF) | ((pu & 0xFFFF) << 16);
+        buf[i++] = (pv & 0xFFFF) | ((layer & 0xFFFF) << 16);
         buf[i++] = r | (g << 8) | (b << 16);
         /* Skylight in Bits 0-3, Blocklicht bleibt 0 (Bits 4-7), Vertex-Flags beginnen bei Bit 8:
            Fernregionen simulieren keine Lichtausbreitung, nur die deterministische
            Wasser-Dämpfung der sichtbaren Geometrie. */
         buf[i++] = Math.clamp(skyLight, 0, 15) | vertexFlags;
         if (translucent) this.viTranslucent = i; else this.viOpaque = i;
+    }
+
+    private static int fixedU16(float value, float scale) {
+        return Math.clamp((int) (value * scale + 0.5F), 0, 0xFFFF);
     }
 }

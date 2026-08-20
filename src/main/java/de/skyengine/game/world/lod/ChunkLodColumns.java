@@ -41,15 +41,22 @@ public final class ChunkLodColumns {
     /** Exakter Snapshot mit optionaler natuerlicher Terrainhuelle fuer Generatorwelten. */
     public static ChunkLodColumns fromChunk(Chunk chunk, WorldGenerator generator, int requestedLevel) {
         checkLevel(requestedLevel);
-        int baseX = chunk.chunkX << ChunkSection.SHIFT;
-        int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
+        long[] groundSamples = null;
+        int bottomState = Blocks.AIR;
+        if (generator != null) {
+            groundSamples = new long[ChunkSection.SIZE * ChunkSection.SIZE];
+            long[] surfaceSamples = new long[groundSamples.length];
+            generator.fillLodSurfaces(chunk.chunkX, chunk.chunkZ, groundSamples, surfaceSamples);
+            bottomState = LodBlockRules.simplify(generator.lodWorldBottomState());
+        }
         LodColumn[] current = new LodColumn[ChunkSection.SIZE * ChunkSection.SIZE];
         for (int z = 0; z < ChunkSection.SIZE; z++) {
             for (int x = 0; x < ChunkSection.SIZE; x++) {
                 ArrayList<Long> runs = scanRuns(chunk, x, z);
                 current[z * ChunkSection.SIZE + x] = generator == null
                         ? LodColumnReducer.limitIntervals(runs)
-                        : normalizeNaturalShell(runs, generator, baseX + x, baseZ + z, 1);
+                        : normalizeNaturalShell(runs, bottomState,
+                                groundSamples[z * ChunkSection.SIZE + x], 1);
             }
         }
         ChunkLodColumns result = new ChunkLodColumns();
@@ -72,7 +79,6 @@ public final class ChunkLodColumns {
     static GeneratedBuild buildFromGenerator(WorldGenerator generator, LodFeatureBuffer features,
                                               int chunkX, int chunkZ, int requestedLevel) {
         checkLevel(requestedLevel);
-        int baseX = chunkX << ChunkSection.SHIFT, baseZ = chunkZ << ChunkSection.SHIFT;
         long projectionStarted = System.nanoTime();
         @SuppressWarnings("unchecked")
         ArrayList<Long>[] featureRuns = new ArrayList[ChunkSection.SIZE * ChunkSection.SIZE];
@@ -100,11 +106,17 @@ public final class ChunkLodColumns {
            derselbe hierarchische Reducer. Das fruehere Mittelpunkt-Sample am angeforderten
            Level war nicht assoziativ zur Reduktion und machte die Silhouette davon abhaengig,
            ob derselbe Chunk bereits geladen oder gespeichert worden war. */
-        LodColumn[] current = new LodColumn[ChunkSection.SIZE * ChunkSection.SIZE];
+        int columnCount = ChunkSection.SIZE * ChunkSection.SIZE;
+        long[] groundSamples = new long[columnCount];
+        long[] surfaceSamples = new long[columnCount];
+        generator.fillLodSurfaces(chunkX, chunkZ, groundSamples, surfaceSamples);
+        int bottomState = LodBlockRules.simplify(generator.lodWorldBottomState());
+        LodColumn[] current = new LodColumn[columnCount];
         for (int z = 0; z < ChunkSection.SIZE; z++) {
             for (int x = 0; x < ChunkSection.SIZE; x++) {
                 int index = z * ChunkSection.SIZE + x;
-                current[index] = merge(naturalColumn(generator, baseX + x, baseZ + z, 1),
+                current[index] = merge(naturalColumn(bottomState,
+                                groundSamples[index], surfaceSamples[index], 1),
                         featureColumns[index]);
             }
         }
@@ -173,30 +185,27 @@ public final class ChunkLodColumns {
         return bytes;
     }
 
-    private static LodColumn naturalColumn(WorldGenerator generator, int wx, int wz, int coverage) {
-        WorldGenerator.LodSurfaces surfaces = generator.sampleLodSurfaces(wx, wz);
-        long ground = surfaces.ground();
-        long surface = surfaces.surface();
+    private static LodColumn naturalColumn(int bottomState, long ground, long surface, int coverage) {
         int groundState = LodBlockRules.simplify(LodDataSource.block(ground));
         int groundTop = Math.max(0, Math.min(Chunk.HEIGHT, LodDataSource.height(ground) + 1));
         int surfaceState = LodBlockRules.simplify(LodDataSource.block(surface));
         int surfaceTop = Math.max(groundTop, Math.min(Chunk.HEIGHT, LodDataSource.height(surface) + 1));
-        int bottomState = LodBlockRules.simplify(generator.lodWorldBottomState());
-        ArrayList<Long> runs = new ArrayList<>(3);
         int groundBottom = 0;
-        if (bottomState != Blocks.AIR && groundTop > 0) {
-            runs.add(LodColumn.pack(bottomState, 0, 1, LodColumn.FLAG_TERRAIN, coverage));
-            groundBottom = 1;
-        }
-        if (groundState != Blocks.AIR && groundTop > groundBottom) {
-            runs.add(LodColumn.pack(groundState, groundBottom, groundTop,
-                    LodColumn.FLAG_TERRAIN, coverage));
-        }
-        if (surfaceState != Blocks.AIR && surfaceTop > groundTop) {
-            runs.add(LodColumn.pack(surfaceState, groundTop, surfaceTop,
-                    LodColumn.FLAG_SKY_OPEN, coverage));
-        }
-        return runs.isEmpty() ? LodColumn.EMPTY : new LodColumn(runs.stream().mapToLong(Long::longValue).toArray());
+        boolean hasBottom = bottomState != Blocks.AIR && groundTop > 0;
+        if (hasBottom) groundBottom = 1;
+        boolean hasGround = groundState != Blocks.AIR && groundTop > groundBottom;
+        boolean hasSurface = surfaceState != Blocks.AIR && surfaceTop > groundTop;
+        int count = (hasBottom ? 1 : 0) + (hasGround ? 1 : 0) + (hasSurface ? 1 : 0);
+        if (count == 0) return LodColumn.EMPTY;
+        long[] runs = new long[count];
+        int index = 0;
+        if (hasBottom) runs[index++] = LodColumn.pack(bottomState, 0, 1,
+                LodColumn.FLAG_TERRAIN, coverage);
+        if (hasGround) runs[index++] = LodColumn.pack(groundState, groundBottom, groundTop,
+                LodColumn.FLAG_TERRAIN, coverage);
+        if (hasSurface) runs[index] = LodColumn.pack(surfaceState, groundTop, surfaceTop,
+                LodColumn.FLAG_SKY_OPEN, coverage);
+        return LodColumn.owned(runs);
     }
 
     /**
@@ -210,7 +219,9 @@ public final class ChunkLodColumns {
         if (column.size() == 0) return column;
         ArrayList<Long> intervals = new ArrayList<>(column.size());
         for (int i = 0; i < column.size(); i++) intervals.add(column.interval(i));
-        return normalizeNaturalShell(intervals, generator, wx, wz, coverage);
+        return normalizeNaturalShell(intervals,
+                LodBlockRules.simplify(generator.lodWorldBottomState()),
+                generator.sampleLodSurfaces(wx, wz).ground(), coverage);
     }
 
     /**
@@ -218,14 +229,12 @@ public final class ChunkLodColumns {
      * koennen Materialwechsel und Baumintervalle die natuerliche Huelle nicht schon vor ihrer
      * Terrain-Markierung aus dem Vier-Intervall-Budget verdraengen.
      */
-    private static LodColumn normalizeNaturalShell(List<Long> intervals, WorldGenerator generator,
-                                                    int wx, int wz, int coverage) {
+    private static LodColumn normalizeNaturalShell(List<Long> intervals, int bottomState,
+                                                    long groundSample, int coverage) {
         if (intervals.isEmpty()) return LodColumn.EMPTY;
-        WorldGenerator.LodSurfaces surfaces = generator.sampleLodSurfaces(wx, wz);
-        int naturalTop = Math.clamp(LodDataSource.height(surfaces.ground()) + 1, 0, Chunk.HEIGHT);
-        int bottomState = LodBlockRules.simplify(generator.lodWorldBottomState());
+        int naturalTop = Math.clamp(LodDataSource.height(groundSample) + 1, 0, Chunk.HEIGHT);
         int shellTop = bottomState == Blocks.AIR ? 0 : 1;
-        int shellState = LodBlockRules.simplify(LodDataSource.block(surfaces.ground()));
+        int shellState = LodBlockRules.simplify(LodDataSource.block(groundSample));
         int fluidState = Blocks.AIR;
         int fluidTop = 0;
 

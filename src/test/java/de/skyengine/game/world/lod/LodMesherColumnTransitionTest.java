@@ -1,5 +1,6 @@
 package de.skyengine.game.world.lod;
 
+import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkMesher;
@@ -17,6 +18,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -175,6 +177,48 @@ final class LodMesherColumnTransitionTest {
     }
 
     @Test
+    void reportedSeed187MountainHasNoDiagonalAoGradientOnVerticalQuads() {
+        GameSettings settings = GameSettings.get();
+        boolean previousAo = settings.ambientOcclusion;
+        settings.ambientOcclusion = true;
+        try {
+            int rx = -55, rz = -144;
+            LodManager.LodMeshResult result = new LodMesher().mesh(new Seed187Source(),
+                    new LodBlockAppearance(), LodConfig.of(16, 128), 2, 1, rx, rz, 0,
+                    LodManager.LodClipSnapshot.centerOnly(0),
+                    LodManager.LodNeighborSnapshot.sameLevel(2),
+                    rx * LodMesher.REGION_BLOCKS + LodMesher.REGION_BLOCKS / 2,
+                    rz * LodMesher.REGION_BLOCKS + LodMesher.REGION_BLOCKS / 2);
+
+            assertValidPackedQuads(result.opaqueData());
+
+            int checked = 0;
+            int[] data = result.opaqueData();
+            for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+                int firstY = (data[q] >>> 16) & 0xFFFF;
+                boolean vertical = false;
+                for (int v = 1; v < 4; v++) {
+                    int p = q + v * ChunkMesher.VERTEX_SIZE;
+                    vertical |= ((data[p] >>> 16) & 0xFFFF) != firstY;
+                }
+                if (!vertical) continue;
+                checked++;
+                int firstColor = data[q + 3] & 0xFFFFFF;
+                for (int v = 1; v < 4; v++) {
+                    int color = data[q + v * ChunkMesher.VERTEX_SIZE + 3] & 0xFFFFFF;
+                    assertEquals(firstColor, color,
+                            "Vertikales Seed-187-LOD-Quad enthaelt einen diagonalen AO-Gradienten");
+                }
+            }
+            assertTrue(checked > 1_000, "Die Bergregion muss genuegend vertikale Regression-Quads enthalten");
+            assertTrue(maxVerticalBandsPerCliffRun(data) <= 8,
+                    "Die reale L2-Klippe darf nicht wieder in viele feine AO-Lamellen zerfallen");
+        } finally {
+            settings.ambientOcclusion = previousAo;
+        }
+    }
+
+    @Test
     void reportedSeed187UnderwaterL0L1BoundariesHaveExactlyOneClosingOwner() {
         Seed187Source source = new Seed187Source();
         ReportedSeam[] seams = {
@@ -239,6 +283,34 @@ final class LodMesherColumnTransitionTest {
                 "Generatorwelten brauchen bei einer defekten Feinprobe einen lokalen Abschluss");
         assertTrue(stats.transitionProfilesMissing > 0);
         assertTrue(stats.transitionSafetyCaps > 0);
+    }
+
+    @Test
+    void outerSafetyCapsKeepEveryDirectionInsideItsPackedField() {
+        LodDataSource source = new LodDataSource() {
+            @Override public boolean hasColumns() { return true; }
+            @Override public LodColumn sampleColumn(int x, int z, int size) {
+                return size >= 8 ? LodColumn.EMPTY : terrain(80);
+            }
+            @Override public long sampleSurface(int x, int z, int size) {
+                return size >= 8 ? LodDataSource.pack(Blocks.AIR, 0)
+                        : LodDataSource.pack(Blocks.STONE, 79);
+            }
+        };
+        LodBlockAppearance appearance = new LodBlockAppearance();
+        LodConfig config = LodConfig.of(1, 128);
+
+        for (int face = 2; face <= 5; face++) {
+            LodManager.LodMeshResult result = new LodMesher().mesh(source, appearance, config,
+                    2, 1, 0, 0, 0, LodManager.LodClipSnapshot.centerOnly(0),
+                    neighborAtFace(2, face, 3), 64, 64);
+            float x = face == 4 ? -2F : face == 5 ? 130F : 2F;
+            float z = face == 2 ? -2F : face == 3 ? 130F : 2F;
+
+            assertTrue(hasHorizontalQuadCovering(result, x, z, 80F),
+                    "Das aeussere Safety-Cap fehlt oder wurde beim Packen verzerrt, Face " + face);
+            assertVerticesInside(result, -4F, 132F, 0F, Chunk.HEIGHT);
+        }
     }
 
     @Test
@@ -408,8 +480,10 @@ final class LodMesherColumnTransitionTest {
         assertTrue(hasVerticalSegment(eastL3, 0F, 0F, 4F, 64F, 80F),
                 "Die hoeher belegte L3-Seite muss ihre eigene Aussenwand vollstaendig liefern");
         for (int y = 64; y < 80; y++) {
-            assertTrue(verticalCoverageCount(eastL3, 0F, 1.5F, y + 0.5F) == 1,
-                    "Jedes L2/L3-Grenzsegment darf genau einmal vorkommen, y=" + y);
+            assertTrue(verticalCoverageCount(eastL3, 0F, 1.5F, y + 0.5F) == 2,
+                    "Jedes L2/L3-Grenzsegment braucht beide Windings, y=" + y);
+            assertTrue(verticalWindingMask(eastL3, 0F, 1.5F, y + 0.5F) == 0b11,
+                    "Die L2/L3-Naht muss von beiden Blickrichtungen sichtbar sein, y=" + y);
         }
     }
 
@@ -826,9 +900,9 @@ final class LodMesherColumnTransitionTest {
             boolean horizontal = true;
             for (int v = 0; v < 4; v++) {
                 int p = q + v * ChunkMesher.VERTEX_SIZE;
-                float vx = coordinate(data[p] & 0xFFFF, result.level());
-                float vy = coordinate((data[p] >>> 16) & 0xFFFF, result.level()) + result.yBase();
-                float vz = coordinate(data[p + 1] & 0xFFFF, result.level());
+                float vx = xzCoordinate(data[p] & 0xFFFF);
+                float vy = yCoordinate((data[p] >>> 16) & 0xFFFF) + result.yBase();
+                float vz = xzCoordinate(data[p + 1] & 0xFFFF);
                 horizontal &= close(vy, y);
                 minX = Math.min(minX, vx); maxX = Math.max(maxX, vx);
                 minZ = Math.min(minZ, vz); maxZ = Math.max(maxZ, vz);
@@ -844,7 +918,7 @@ final class LodMesherColumnTransitionTest {
             boolean horizontal = true;
             for (int v = 0; v < 4; v++) {
                 int packed = data[q + v * ChunkMesher.VERTEX_SIZE];
-                horizontal &= close(coordinate((packed >>> 16) & 0xFFFF, result.level())
+                horizontal &= close(yCoordinate((packed >>> 16) & 0xFFFF)
                         + result.yBase(), y);
             }
             if (horizontal) return true;
@@ -874,9 +948,9 @@ final class LodMesherColumnTransitionTest {
             float foundMinY = Float.POSITIVE_INFINITY, foundMaxY = Float.NEGATIVE_INFINITY;
             for (int v = 0; v < 4; v++) {
                 int p = q + v * ChunkMesher.VERTEX_SIZE;
-                float vx = coordinate(data[p] & 0xFFFF, result.level());
-                float vy = coordinate((data[p] >>> 16) & 0xFFFF, result.level()) + result.yBase();
-                float vz = coordinate(data[p + 1] & 0xFFFF, result.level());
+                float vx = xzCoordinate(data[p] & 0xFFFF);
+                float vy = yCoordinate((data[p] >>> 16) & 0xFFFF) + result.yBase();
+                float vz = xzCoordinate(data[p + 1] & 0xFFFF);
                 constantX &= close(vx, x);
                 foundMinZ = Math.min(foundMinZ, vz); foundMaxZ = Math.max(foundMaxZ, vz);
                 foundMinY = Math.min(foundMinY, vy); foundMaxY = Math.max(foundMaxY, vy);
@@ -909,9 +983,9 @@ final class LodMesherColumnTransitionTest {
             float foundMinY = Float.POSITIVE_INFINITY, foundMaxY = Float.NEGATIVE_INFINITY;
             for (int v = 0; v < 4; v++) {
                 int p = q + v * ChunkMesher.VERTEX_SIZE;
-                float vx = coordinate(data[p] & 0xFFFF, result.level());
-                float vy = coordinate((data[p] >>> 16) & 0xFFFF, result.level()) + result.yBase();
-                float vz = coordinate(data[p + 1] & 0xFFFF, result.level());
+                float vx = xzCoordinate(data[p] & 0xFFFF);
+                float vy = yCoordinate((data[p] >>> 16) & 0xFFFF) + result.yBase();
+                float vz = xzCoordinate(data[p + 1] & 0xFFFF);
                 constantX &= close(vx, x);
                 foundMinZ = Math.min(foundMinZ, vz); foundMaxZ = Math.max(foundMaxZ, vz);
                 foundMinY = Math.min(foundMinY, vy); foundMaxY = Math.max(foundMaxY, vy);
@@ -942,9 +1016,9 @@ final class LodMesherColumnTransitionTest {
             float minY = Float.POSITIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
             for (int v = 0; v < 4; v++) {
                 int p = q + v * ChunkMesher.VERTEX_SIZE;
-                float vx = coordinate(data[p] & 0xFFFF, result.level());
-                float vy = coordinate((data[p] >>> 16) & 0xFFFF, result.level()) + result.yBase();
-                float vz = coordinate(data[p + 1] & 0xFFFF, result.level());
+                float vx = xzCoordinate(data[p] & 0xFFFF);
+                float vy = yCoordinate((data[p] >>> 16) & 0xFFFF) + result.yBase();
+                float vz = xzCoordinate(data[p + 1] & 0xFFFF);
                 constantX &= close(vx, x);
                 minZ = Math.min(minZ, vz); maxZ = Math.max(maxZ, vz);
                 minY = Math.min(minY, vy); maxY = Math.max(maxY, vy);
@@ -953,6 +1027,48 @@ final class LodMesherColumnTransitionTest {
                     && y > minY + 0.01F && y < maxY - 0.01F) count++;
         }
         return count;
+    }
+
+    private static int verticalWindingMask(LodManager.LodMeshResult result, float x,
+                                           float tangent, float y) {
+        return verticalWindingMask(result, result.opaqueData(), x, tangent, y)
+                | verticalWindingMask(result, result.translucentData(), x, tangent, y);
+    }
+
+    private static int verticalWindingMask(LodManager.LodMeshResult result, int[] data,
+                                           float x, float tangent, float y) {
+        int mask = 0;
+        for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+            float[] vx = new float[3];
+            float[] vy = new float[3];
+            float[] vz = new float[3];
+            boolean constantX = true;
+            float minZ = Float.POSITIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
+            float minY = Float.POSITIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
+            for (int v = 0; v < 4; v++) {
+                int p = q + v * ChunkMesher.VERTEX_SIZE;
+                float px = xzCoordinate(data[p] & 0xFFFF);
+                float py = yCoordinate((data[p] >>> 16) & 0xFFFF)
+                        + result.yBase();
+                float pz = xzCoordinate(data[p + 1] & 0xFFFF);
+                constantX &= close(px, x);
+                minZ = Math.min(minZ, pz); maxZ = Math.max(maxZ, pz);
+                minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+                if (v < 3) {
+                    vx[v] = px;
+                    vy[v] = py;
+                    vz[v] = pz;
+                }
+            }
+            if (!constantX || tangent <= minZ + 0.01F || tangent >= maxZ - 0.01F
+                    || y <= minY + 0.01F || y >= maxY - 0.01F) continue;
+            float uy = vy[1] - vy[0], uz = vz[1] - vz[0];
+            float vyEdge = vy[2] - vy[0], vzEdge = vz[2] - vz[0];
+            float normalX = uy * vzEdge - uz * vyEdge;
+            if (normalX > 0.0001F) mask |= 0b01;
+            else if (normalX < -0.0001F) mask |= 0b10;
+        }
+        return mask;
     }
 
     private static boolean hasBoundaryCoverage(LodManager.LodMeshResult result, int face,
@@ -966,9 +1082,9 @@ final class LodMesherColumnTransitionTest {
             float foundMinY = Float.POSITIVE_INFINITY, foundMaxY = Float.NEGATIVE_INFINITY;
             for (int v = 0; v < 4; v++) {
                 int p = q + v * ChunkMesher.VERTEX_SIZE;
-                float x = coordinate(data[p] & 0xFFFF, result.level());
-                float y = coordinate((data[p] >>> 16) & 0xFFFF, result.level()) + result.yBase();
-                float z = coordinate(data[p + 1] & 0xFFFF, result.level());
+                float x = xzCoordinate(data[p] & 0xFFFF);
+                float y = yCoordinate((data[p] >>> 16) & 0xFFFF) + result.yBase();
+                float z = xzCoordinate(data[p + 1] & 0xFFFF);
                 float normal = face == 4 || face == 5 ? x : z;
                 float tangent = face == 4 || face == 5 ? z : x;
                 onBoundary &= close(normal, boundary);
@@ -994,6 +1110,102 @@ final class LodMesherColumnTransitionTest {
     }
 
     private record ReportedSeam(boolean xAxis, int boundary, int tangent) {}
+
+    /**
+     * CPU-seitiger Schutz gegen das gemeldete Fehlerbild: Jeder LOD-Quad muss ein echtes,
+     * planares Rechteck bleiben und beide EBO-Dreiecke müssen dieselbe Orientierung haben.
+     * AO liegt in int3; ein versehentlich korrumpiertes Positionsfeld in int0/int1 würde
+     * hier als Clamp-Sentinel, degenerierte Kante oder gegensätzliche Wicklung auffallen.
+     */
+    private static void assertValidPackedQuads(int[] data) {
+        int vertexInts = ChunkMesher.VERTEX_SIZE;
+        int quadInts = 4 * vertexInts;
+        assertEquals(0, data.length % quadInts, "Unvollstaendiger LOD-Quad im Ausgabepuffer");
+        for (int q = 0; q < data.length; q += quadInts) {
+            int[][] p = new int[4][3];
+            for (int v = 0; v < 4; v++) {
+                int base = q + v * vertexInts;
+                p[v][0] = data[base] & 0xFFFF;
+                p[v][1] = data[base] >>> 16;
+                p[v][2] = data[base + 1] & 0xFFFF;
+                for (int axis = 0; axis < 3; axis++) {
+                    assertTrue(p[v][axis] < 0xFFFF,
+                            "LOD-Position wurde bei Quad " + q / quadInts + " geklemmt");
+                }
+            }
+
+            int constantAxes = 0, varyingAxes = 0;
+            for (int axis = 0; axis < 3; axis++) {
+                int first = p[0][axis];
+                boolean constant = true;
+                int second = first;
+                for (int v = 1; v < 4; v++) {
+                    if (p[v][axis] != first) {
+                        constant = false;
+                        second = p[v][axis];
+                    }
+                }
+                if (constant) {
+                    constantAxes++;
+                } else {
+                    varyingAxes++;
+                    for (int v = 0; v < 4; v++) {
+                        assertTrue(p[v][axis] == first || p[v][axis] == second,
+                                "Nicht-rechteckige LOD-Achse bei Quad " + q / quadInts);
+                    }
+                }
+            }
+            assertEquals(1, constantAxes, "LOD-Quad ist nicht planar/achsenparallel");
+            assertEquals(2, varyingAxes, "LOD-Quad ist degeneriert");
+
+            long[] firstNormal = triangleNormal(p[0], p[1], p[2]);
+            long[] secondNormal = triangleNormal(p[2], p[3], p[0]);
+            long firstArea = dot(firstNormal, firstNormal);
+            long secondArea = dot(secondNormal, secondNormal);
+            assertTrue(firstArea > 0 && secondArea > 0,
+                    "Degeneriertes LOD-Dreieck bei Quad " + q / quadInts);
+            assertTrue(dot(firstNormal, secondNormal) > 0,
+                    "Inkonsistente LOD-Dreieckswicklung bei Quad " + q / quadInts);
+        }
+    }
+
+    private static long[] triangleNormal(int[] a, int[] b, int[] c) {
+        long abX = b[0] - a[0], abY = b[1] - a[1], abZ = b[2] - a[2];
+        long acX = c[0] - a[0], acY = c[1] - a[1], acZ = c[2] - a[2];
+        return new long[]{
+                abY * acZ - abZ * acY,
+                abZ * acX - abX * acZ,
+                abX * acY - abY * acX
+        };
+    }
+
+    private static long dot(long[] first, long[] second) {
+        return first[0] * second[0] + first[1] * second[1] + first[2] * second[2];
+    }
+
+    /** Anzahl vertikaler Teilquads auf derselben realen XZ-Wandstrecke und Materiallage. */
+    private static int maxVerticalBandsPerCliffRun(int[] data) {
+        Map<String, Integer> counts = new HashMap<>();
+        int result = 0;
+        for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+            int minX = 0xFFFF, maxX = 0, minY = 0xFFFF, maxY = 0;
+            int minZ = 0xFFFF, maxZ = 0;
+            for (int v = 0; v < 4; v++) {
+                int p = q + v * ChunkMesher.VERTEX_SIZE;
+                int x = data[p] & 0xFFFF;
+                int y = data[p] >>> 16;
+                int z = data[p + 1] & 0xFFFF;
+                minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+                minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+            }
+            if (minY == maxY) continue;
+            int layer = data[q + 2] >>> 16;
+            String key = minX + ":" + maxX + ":" + minZ + ":" + maxZ + ":" + layer;
+            result = Math.max(result, counts.merge(key, 1, Integer::sum));
+        }
+        return result;
+    }
 
     /**
      * Prueft die im Spiel gemeldeten Unterwasserstellen gegen denselben Vertrag wie der
@@ -1109,10 +1321,10 @@ final class LodMesherColumnTransitionTest {
             float minZ = Float.POSITIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
             for (int v = 0; v < 4; v++) {
                 int p = q + v * ChunkMesher.VERTEX_SIZE;
-                float x = coordinate(data[p] & 0xFFFF, result.level());
-                float vertexY = coordinate((data[p] >>> 16) & 0xFFFF, result.level())
+                float x = xzCoordinate(data[p] & 0xFFFF);
+                float vertexY = yCoordinate((data[p] >>> 16) & 0xFFFF)
                         + result.yBase();
-                float z = coordinate(data[p + 1] & 0xFFFF, result.level());
+                float z = xzCoordinate(data[p + 1] & 0xFFFF);
                 minX = Math.min(minX, x); maxX = Math.max(maxX, x);
                 minY = Math.min(minY, vertexY); maxY = Math.max(maxY, vertexY);
                 minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
@@ -1159,7 +1371,29 @@ final class LodMesherColumnTransitionTest {
         };
     }
 
-    private static float coordinate(int packed, int level) {
+    private static void assertVerticesInside(LodManager.LodMeshResult result,
+                                             float minXZ, float maxXZ,
+                                             float minY, float maxY) {
+        for (int[] data : new int[][]{result.opaqueData(), result.translucentData()}) {
+            for (int p = 0; p < data.length; p += ChunkMesher.VERTEX_SIZE) {
+                float x = xzCoordinate(data[p] & 0xFFFF);
+                float y = yCoordinate((data[p] >>> 16) & 0xFFFF) + result.yBase();
+                float z = xzCoordinate(data[p + 1] & 0xFFFF);
+                assertTrue(x >= minXZ - 0.01F && x <= maxXZ + 0.01F,
+                        "X ausserhalb des LOD-Packungsvertrags: " + x);
+                assertTrue(z >= minXZ - 0.01F && z <= maxXZ + 0.01F,
+                        "Z ausserhalb des LOD-Packungsvertrags: " + z);
+                assertTrue(y >= minY - 0.01F && y <= maxY + 0.01F,
+                        "Y ausserhalb des LOD-Packungsvertrags: " + y);
+            }
+        }
+    }
+
+    private static float xzCoordinate(int packed) {
+        return packed / LodMesher.posScaleFor(1) - LodMesher.XZ_POSITION_BIAS;
+    }
+
+    private static float yCoordinate(int packed) {
         return packed / LodMesher.posScaleFor(1) - 1F;
     }
 

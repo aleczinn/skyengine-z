@@ -3,6 +3,7 @@ package de.skyengine.game.world.generator;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Tints;
 import de.skyengine.game.world.chunk.Chunk;
+import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.biome.Biomes;
 import de.skyengine.game.world.lod.LodDataSource;
@@ -41,6 +42,38 @@ public abstract class WorldGenerator {
     /** Gemeinsames LOD-Sample; teure Generatoren können beide Oberflächen in einem Pass liefern. */
     public LodSurfaces sampleLodSurfaces(int x, int z) {
         return new LodSurfaces(this.sampleGroundSurface(x, z), this.sampleSurface(x, z));
+    }
+
+    /**
+     * Befuellt die kanonischen 32x32-L0-Oberflaechen eines Chunks. Der Index ist immer
+     * {@code localZ * 32 + localX}; beide Zielarrays muessen mindestens 1024 Eintraege haben.
+     *
+     * <p>Der Default erhaelt jeden bestehenden und zukuenftigen Generator korrekt, indem er
+     * {@link #sampleLodSurfaces} pro Spalte aufruft. Generatoren mit gemeinsam nutzbaren
+     * Klima-/Noise-Grids koennen die Methode ueberschreiben und den Chunk in einem Bulk-Pass
+     * berechnen, ohne den LOD-Vertrag oder {@link #generate} aufzurufen.
+     */
+    public void fillLodSurfaces(int chunkX, int chunkZ, long[] ground, long[] surface) {
+        requireLodSurfaceCapacity(ground, surface);
+        int baseX = chunkX << ChunkSection.SHIFT;
+        int baseZ = chunkZ << ChunkSection.SHIFT;
+        for (int z = 0; z < ChunkSection.SIZE; z++) {
+            for (int x = 0; x < ChunkSection.SIZE; x++) {
+                LodSurfaces sampled = this.sampleLodSurfaces(baseX + x, baseZ + z);
+                int index = z * ChunkSection.SIZE + x;
+                ground[index] = sampled.ground;
+                surface[index] = sampled.surface;
+            }
+        }
+    }
+
+    /** Gemeinsame Vertragspruefung fuer optimierte Generator-Overrides. */
+    protected static void requireLodSurfaceCapacity(long[] ground, long[] surface) {
+        int required = ChunkSection.SIZE * ChunkSection.SIZE;
+        if (ground == null || surface == null || ground.length < required || surface.length < required) {
+            throw new IllegalArgumentException("LOD-Oberflaechenpuffer muessen mindestens "
+                    + required + " Eintraege besitzen");
+        }
     }
 
     /** Unterste Materialschicht der Generatorwelt; AIR bedeutet, dass kein Weltboden existiert. */

@@ -130,8 +130,8 @@ final class LodMesherColumnBoundaryTest {
             float minY = Float.POSITIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
             for (int v = 0; v < 4; v++) {
                 int packed = data[q + v * ChunkMesher.VERTEX_SIZE];
-                float x = coordinate(packed & 0xFFFF);
-                float y = coordinate((packed >>> 16) & 0xFFFF) + yBase;
+                float x = xzCoordinate(packed & 0xFFFF);
+                float y = yCoordinate((packed >>> 16) & 0xFFFF) + yBase;
                 constantX &= Math.abs(x - expectedX) <= 0.01F;
                 minY = Math.min(minY, y);
                 maxY = Math.max(maxY, y);
@@ -142,7 +142,11 @@ final class LodMesherColumnBoundaryTest {
         return matches;
     }
 
-    private static float coordinate(int packed) {
+    private static float xzCoordinate(int packed) {
+        return packed / LodMesher.posScaleFor(1) - LodMesher.XZ_POSITION_BIAS;
+    }
+
+    private static float yCoordinate(int packed) {
         return packed / LodMesher.posScaleFor(1) - 1F;
     }
 

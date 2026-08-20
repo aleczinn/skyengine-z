@@ -191,7 +191,7 @@ final class LodMesherLightingTest {
             boolean constantX = true;
             for (int v = 0; v < 4; v++) {
                 int p = q + v * ChunkMesher.VERTEX_SIZE;
-                float x = coordinate(data[p] & 0xFFFF);
+                float x = xzCoordinate(data[p] & 0xFFFF);
                 float y = y(data[p], yBase);
                 constantX &= Math.abs(x - expectedX) <= 0.01F;
                 minY = Math.min(minY, y);
@@ -228,11 +228,11 @@ final class LodMesherLightingTest {
     }
 
     private static float x(int[] data, int offset) {
-        return coordinate(data[offset] & 0xFFFF);
+        return xzCoordinate(data[offset] & 0xFFFF);
     }
 
     private static float z(int[] data, int offset) {
-        return coordinate(data[offset + 1] & 0xFFFF);
+        return xzCoordinate(data[offset + 1] & 0xFFFF);
     }
 
     private static void assertAllEqual(int expected, List<Integer> values) {
@@ -240,10 +240,14 @@ final class LodMesherLightingTest {
     }
 
     private static float y(int packedPosition, int yBase) {
-        return coordinate((packedPosition >>> 16) & 0xFFFF) + yBase;
+        return yCoordinate((packedPosition >>> 16) & 0xFFFF) + yBase;
     }
 
-    private static float coordinate(int packed) {
+    private static float xzCoordinate(int packed) {
+        return packed / LodMesher.posScaleFor(1) - LodMesher.XZ_POSITION_BIAS;
+    }
+
+    private static float yCoordinate(int packed) {
         return packed / LodMesher.posScaleFor(1) - 1F;
     }
 }

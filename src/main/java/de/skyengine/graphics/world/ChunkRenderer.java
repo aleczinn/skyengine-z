@@ -1939,7 +1939,9 @@ public class ChunkRenderer {
     }
 
     /* Gepacktes Vertex-Format (20 Bytes, siehe ChunkMesher.VERTEX_SIZE):
-       x: posX | posY<<16 (u16 fixed 6.10, Bias +1) — y: posZ | u<<16 (uv fixed 6.10, Bias +1)
+       x: posX | posY<<16 — y: posZ | u<<16. Section-Positionen nutzen Bias +1;
+       LOD nutzt für X/Z eine 32-Block-Transition-Marge und für Y weiterhin Bias +1.
+       UV ist fixed 6.10 mit Bias +1.
        z: v | layer<<16 — w: rgb8
        5. Int: Licht in Bits 0-7, Vertex-Flags ab Bit 8 (siehe ChunkMesher) — Stride wächst
        automatisch über ChunkMesher.VERTEX_SIZE, a_data liest weiterhin nur die ersten 4 Ints
@@ -1952,6 +1954,7 @@ public class ChunkRenderer {
 
             const uint FLAT_SOURCE_FLUID_TOP = %du;
             const float SOURCE_FLUID_RENDER_HEIGHT = %s;
+            const float LOD_XZ_POSITION_BIAS = %s;
 
             layout(std430, binding = 0) readonly buffer DrawOffsets {
                 vec4 u_DrawOffsets[];
@@ -1986,7 +1989,10 @@ public class ChunkRenderer {
                 uint scaleCode = (drawMetadata >> 19u) & 0xFu;
                 float positionScale = scaleCode == 0u ? (1.0 / 1024.0)
                         : (scaleCode == 1u ? (1.0 / 127.0) : (1.0 / 64.0));
-                vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16), float(a_data.y & 0xFFFFu)) * positionScale - 1.0;
+                vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16),
+                        float(a_data.y & 0xFFFFu)) * positionScale;
+                pos.xz -= scaleCode == 0u ? 1.0 : LOD_XZ_POSITION_BIAS;
+                pos.y -= 1.0;
                 /* Dieselbe Quelloberfläche wird mit drei verschiedenen Fixed-Point-Skalen
                    gepackt. Ihre fraktionale Y-Komponente deshalb analytisch rekonstruieren;
                    ganzzahliger Draw-Ursprung + identische Fraktion = exakt koplanar. */
@@ -2036,7 +2042,8 @@ public class ChunkRenderer {
                 gl_Position = u_ProjectionView * vec4(rel, 1.0);
             }
             """.formatted(ChunkMesher.FLAT_SOURCE_FLUID_TOP,
-                    Float.toString(FluidGeometry.SOURCE_RENDER_HEIGHT));
+                    Float.toString(FluidGeometry.SOURCE_RENDER_HEIGHT),
+                    Float.toString(LodMesher.XZ_POSITION_BIAS));
 
     private static final String FRAGMENT_SOURCE = """
             #version 460 core

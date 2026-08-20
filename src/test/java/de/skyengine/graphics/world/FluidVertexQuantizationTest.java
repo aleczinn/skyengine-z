@@ -46,13 +46,29 @@ final class FluidVertexQuantizationTest {
     }
 
     @Test
-    void integerBoundaryCoordinatesRemainExactAtEveryScale() {
+    void integerVerticalBoundaryCoordinatesRemainExactAtEveryScale() {
         float[] scales = {ChunkMesher.POS_SCALE, LodMesher.posScaleFor(1), LodMesher.posScaleFor(4)};
         for (float scale : scales) {
             for (int coordinate : new int[]{0, 16, 32, 128, 512}) {
                 int packed = Math.round((coordinate + 1F) * scale);
                 assertEquals(coordinate, packed / scale - 1F, 0F,
                         "integer boundary shifted at packing scale " + scale);
+            }
+        }
+    }
+
+    @Test
+    void lodHorizontalBiasPreservesNegativeSafetyCapCoordinates() {
+        float[] scales = {LodMesher.posScaleFor(1), LodMesher.posScaleFor(4)};
+        int[][] coordinates = {{-32, -4, 0, 128, 160}, {-32, -4, 0, 128, 512, 544}};
+        for (int i = 0; i < scales.length; i++) {
+            float scale = scales[i];
+            for (int coordinate : coordinates[i]) {
+                int packed = Math.round((coordinate + LodMesher.XZ_POSITION_BIAS) * scale);
+                assertTrue(packed >= 0 && packed <= 0xFFFF,
+                        "LOD-X/Z passt nicht in u16 bei Skala " + scale + ": " + coordinate);
+                assertEquals(coordinate, packed / scale - LodMesher.XZ_POSITION_BIAS, 0F,
+                        "LOD-X/Z wurde bei Skala " + scale + " verschoben");
             }
         }
     }
@@ -69,6 +85,9 @@ final class FluidVertexQuantizationTest {
                 + ChunkMesher.FLAT_SOURCE_FLUID_TOP + "u;"));
         assertTrue(source.contains("const float SOURCE_FLUID_RENDER_HEIGHT = "
                 + Float.toString(FluidGeometry.SOURCE_RENDER_HEIGHT) + ";"));
+        assertTrue(source.contains("const float LOD_XZ_POSITION_BIAS = "
+                + Float.toString(LodMesher.XZ_POSITION_BIAS) + ";"));
+        assertTrue(source.contains("pos.xz -= scaleCode == 0u ? 1.0 : LOD_XZ_POSITION_BIAS;"));
         assertTrue(source.contains("pos.y = floor(pos.y) + SOURCE_FLUID_RENDER_HEIGHT;"));
     }
 

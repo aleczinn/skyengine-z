@@ -93,4 +93,36 @@ final class AlphaWorldGeneratorV2LodSurfaceTest {
             assertEquals(Blocks.WATER, LodDataSource.block(surfaces.surface()));
         }
     }
+
+    @Test
+    void chunkBulkSamplesAreBitIdenticalToEveryScalarColumn() {
+        AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(187);
+        int[][] chunks = {
+                {Math.floorDiv(-8154, ChunkSection.SIZE), Math.floorDiv(-17295, ChunkSection.SIZE)},
+                {Math.floorDiv(-8559, ChunkSection.SIZE), Math.floorDiv(-17057, ChunkSection.SIZE)},
+                {Math.floorDiv(-7668, ChunkSection.SIZE), Math.floorDiv(-18064, ChunkSection.SIZE)},
+                {Math.floorDiv(-6854, ChunkSection.SIZE), Math.floorDiv(-17942, ChunkSection.SIZE)}
+        };
+        int count = ChunkSection.SIZE * ChunkSection.SIZE;
+
+        for (int[] position : chunks) {
+            long[] ground = new long[count];
+            long[] surface = new long[count];
+            generator.fillLodSurfaces(position[0], position[1], ground, surface);
+            int baseX = position[0] << ChunkSection.SHIFT;
+            int baseZ = position[1] << ChunkSection.SHIFT;
+
+            for (int z = 0; z < ChunkSection.SIZE; z++) {
+                for (int x = 0; x < ChunkSection.SIZE; x++) {
+                    int index = z * ChunkSection.SIZE + x;
+                    WorldGenerator.LodSurfaces expected =
+                            generator.sampleLodSurfaces(baseX + x, baseZ + z);
+                    assertEquals(expected.ground(), ground[index],
+                            "Bulk-Boden @ " + (baseX + x) + "," + (baseZ + z));
+                    assertEquals(expected.surface(), surface[index],
+                            "Bulk-Oberflaeche @ " + (baseX + x) + "," + (baseZ + z));
+                }
+            }
+        }
+    }
 }
