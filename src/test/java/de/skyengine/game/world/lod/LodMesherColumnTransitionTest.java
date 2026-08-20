@@ -219,6 +219,60 @@ final class LodMesherColumnTransitionTest {
     }
 
     @Test
+    void reportedSeed187LevelOneMountainKeepsPackedGeometryValidWithCornerAo() {
+        GameSettings settings = GameSettings.get();
+        boolean previousAo = settings.ambientOcclusion;
+        settings.ambientOcclusion = true;
+        try {
+            int rx = -54, rz = -141;
+            LodManager.LodMeshResult result = new LodMesher().mesh(new Seed187Source(),
+                    new LodBlockAppearance(), LodConfig.of(16, 128), 1, 1, rx, rz, 0,
+                    LodManager.LodClipSnapshot.centerOnly(0),
+                    LodManager.LodNeighborSnapshot.sameLevel(1),
+                    rx * LodMesher.REGION_BLOCKS + LodMesher.REGION_BLOCKS / 2,
+                    rz * LodMesher.REGION_BLOCKS + LodMesher.REGION_BLOCKS / 2);
+
+            assertValidPackedQuads(result.opaqueData());
+            int quads = result.opaqueData().length / (4 * ChunkMesher.VERTEX_SIZE);
+            assertTrue(quads > 1_000,
+                    "Die reale Bergregion muss genuegend L1-AO-Geometrie fuer die Regression enthalten: "
+                            + quads);
+        } finally {
+            settings.ambientOcclusion = previousAo;
+        }
+    }
+
+    @Test
+    void reportedSeed187LevelOneAoOnlySubdividesTheExistingSurface() {
+        GameSettings settings = GameSettings.get();
+        boolean previousAo = settings.ambientOcclusion;
+        try {
+            int rx = -54, rz = -141;
+            LodMesher mesher = new LodMesher();
+            settings.ambientOcclusion = false;
+            LodManager.LodMeshResult withoutAo = mesher.mesh(new Seed187Source(),
+                    new LodBlockAppearance(), LodConfig.of(16, 128), 1, 1, rx, rz, 0,
+                    LodManager.LodClipSnapshot.centerOnly(0),
+                    LodManager.LodNeighborSnapshot.sameLevel(1),
+                    rx * LodMesher.REGION_BLOCKS + LodMesher.REGION_BLOCKS / 2,
+                    rz * LodMesher.REGION_BLOCKS + LodMesher.REGION_BLOCKS / 2);
+            settings.ambientOcclusion = true;
+            LodManager.LodMeshResult withAo = mesher.mesh(new Seed187Source(),
+                    new LodBlockAppearance(), LodConfig.of(16, 128), 1, 1, rx, rz, 0,
+                    LodManager.LodClipSnapshot.centerOnly(0),
+                    LodManager.LodNeighborSnapshot.sameLevel(1),
+                    rx * LodMesher.REGION_BLOCKS + LodMesher.REGION_BLOCKS / 2,
+                    rz * LodMesher.REGION_BLOCKS + LodMesher.REGION_BLOCKS / 2);
+
+            assertEquals(unitSurfaceCoverage(withoutAo.opaqueData(), withoutAo.yBase()),
+                    unitSurfaceCoverage(withAo.opaqueData(), withAo.yBase()),
+                    "L1-AO darf die sichtbare Seed-187-Oberflaeche nur unterteilen");
+        } finally {
+            settings.ambientOcclusion = previousAo;
+        }
+    }
+
+    @Test
     void reportedSeed187UnderwaterL0L1BoundariesHaveExactlyOneClosingOwner() {
         Seed187Source source = new Seed187Source();
         ReportedSeam[] seams = {
@@ -1181,6 +1235,42 @@ final class LodMesherColumnTransitionTest {
 
     private static long dot(long[] first, long[] second) {
         return first[0] * second[0] + first[1] * second[1] + first[2] * second[2];
+    }
+
+    private static Map<Long, Integer> unitSurfaceCoverage(int[] data, int yBase) {
+        Map<Long, Integer> result = new HashMap<>();
+        for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+            int[][] p = new int[4][3];
+            int[] min = {Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE};
+            int[] max = {Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE};
+            for (int v = 0; v < 4; v++) {
+                int base = q + v * ChunkMesher.VERTEX_SIZE;
+                p[v][0] = Math.round(xzCoordinate(data[base] & 0xFFFF));
+                p[v][1] = Math.round(yCoordinate(data[base] >>> 16) + yBase);
+                p[v][2] = Math.round(xzCoordinate(data[base + 1] & 0xFFFF));
+                for (int axis = 0; axis < 3; axis++) {
+                    min[axis] = Math.min(min[axis], p[v][axis]);
+                    max[axis] = Math.max(max[axis], p[v][axis]);
+                }
+            }
+            int axis = min[0] == max[0] ? 0 : min[1] == max[1] ? 1 : 2;
+            long[] normal = triangleNormal(p[0], p[1], p[2]);
+            int sign = normal[axis] > 0 ? 1 : 0;
+            int firstAxis = axis == 0 ? 1 : 0;
+            int secondAxis = axis == 2 ? 1 : 2;
+            int layer = data[q + 2] >>> 16;
+            for (int first = min[firstAxis]; first < max[firstAxis]; first++) {
+                for (int second = min[secondAxis]; second < max[secondAxis]; second++) {
+                    long key = axis | (long) sign << 2
+                            | (long) (min[axis] + 2) << 3
+                            | (long) (first + 2) << 14
+                            | (long) (second + 2) << 25
+                            | (long) layer << 36;
+                    result.merge(key, 1, Integer::sum);
+                }
+            }
+        }
+        return result;
     }
 
     /** Anzahl vertikaler Teilquads auf derselben realen XZ-Wandstrecke und Materiallage. */

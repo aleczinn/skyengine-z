@@ -86,6 +86,9 @@ public final class LodMesher {
        Fluid-Zellen der feste Boden darunter — Basis für Terrain-Tops/-Wände/AO/yBase. */
     private long[] ground = new long[0];
     private LodColumn[] columns = new LodColumn[0];
+    /* Unverändertes L1-Raster für Corner-AO. Das normale Spaltenfenster wird anschließend
+       an L0/LOD- und LOD/LOD-Übergängen absichtlich durch Vergleichs-Proxies überschrieben. */
+    private LodColumn[] levelOneAoColumns = new LodColumn[0];
     private boolean[] clipped = new boolean[0];
     private boolean[] transitionEdges = new boolean[0]; // vier Faces × tangentiale Zellen
     /* Merge-Marker der Top-Pässe (2D-Greedy): true = Zelle schon in ein Quad gemerged;
@@ -116,6 +119,7 @@ public final class LodMesher {
     private boolean flatAo;                    // L2+: uniformes Flächen-AO statt weichem Corner-AO
     private int aoBandHeight = 1;              // vertikales AO-Raster; L2+ bewusst grob
     private boolean columnAo;                  // AO für Seiten des Spaltenpfads
+    private boolean levelOneColumnAo;          // Corner-AO liest das kanonische L1-Raster
     private long lastSamplingNanos, lastGeometryNanos;
 
     /* Optionaler Debug-Statistik-Sink: NUR vom LodQuadCensus gesetzt. In der laufenden Engine
@@ -141,10 +145,10 @@ public final class LodMesher {
         return Math.min(BASE_SKIRT << level, MAX_SKIRT);
     }
 
-    /* Konservative Arena-Schätzung: Terrain-Tops, Relief-/Skirt-Wände sowie zusätzliche
-       Strukturintervalle des Spaltenpfads. Bewusst mit Reserve, damit die erste Füllung
-       ohne stufenweises Arena-Wachstum auskommt. */
-    private static final float QUADS_PER_CELL = 2.25F;
+    /* Konservative Arena-Schätzung: Terrain-Tops, Relief-/Skirt-Wände, zelllokale L1-AO-
+       Wände sowie zusätzliche Strukturintervalle des Spaltenpfads. Bewusst mit Reserve,
+       damit die erste Füllung ohne stufenweises Arena-Wachstum auskommt. */
+    private static final float QUADS_PER_CELL = 3.5F;
 
     /**
      * Schätzt die für die LOD-OPAQUE-Arena nötige Bytemenge aus der Ring-Konfiguration, damit
@@ -203,6 +207,7 @@ public final class LodMesher {
         this.lastSamplingNanos = 0;
         this.lastGeometryNanos = 0;
         this.columnAo = false;
+        this.levelOneColumnAo = false;
         this.flatAo = level >= 2;
         /* Vier Level-Zellen pro L2-Band, danach mindestens zwei: L2/L3=16, L4=32,
            L5=64. Das Raster bleibt global ausgerichtet und erzeugt an realen Klippen
@@ -464,6 +469,8 @@ public final class LodMesher {
         this.posScale = posScaleFor(sizeRegions);
         this.regionBaseX = rx * REGION_BLOCKS;
         this.regionBaseZ = rz * REGION_BLOCKS;
+        boolean useAo = GameSettings.get().ambientOcclusion;
+        this.columnAo = useAo;
         if (mask == 0xFFFF) {
             return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, clipSnapshot,
                     neighborSnapshot, 0,
@@ -475,6 +482,13 @@ public final class LodMesher {
         int minY = Integer.MAX_VALUE;
         source.sampleColumns(this.regionBaseX - s, this.regionBaseZ - s, s,
                 this.stride, this.stride, this.columns, 0, this.stride);
+        if (level == 1 && useAo) {
+            if (this.levelOneAoColumns.length < sampleCount) {
+                this.levelOneAoColumns = new LodColumn[sampleCount];
+            }
+            System.arraycopy(this.columns, 0, this.levelOneAoColumns, 0, sampleCount);
+            this.levelOneColumnAo = true;
+        }
         for (int index = 0; index < sampleCount; index++) {
             LodColumn column = this.columns[index];
             for (int i = 0; i < column.size(); i++) {
@@ -500,8 +514,6 @@ public final class LodMesher {
         this.minBottom = Float.MAX_VALUE;
         this.maxTop = -Float.MAX_VALUE;
         int maxRun = Math.max(1, MAX_MERGE_BLOCKS / s);
-        boolean useAo = GameSettings.get().ambientOcclusion;
-        this.columnAo = useAo;
         /* flatAo wurde am gemeinsamen mesh()-Eingang ausschließlich aus level bestimmt. */
 
         for (int intervalIndex = 0; intervalIndex < LodColumn.MAX_INTERVALS; intervalIndex++) {
@@ -676,12 +688,18 @@ public final class LodMesher {
         return this.columns[(z + 1) * this.stride + x + 1];
     }
 
+    private LodColumn columnForAo(int x, int z) {
+        int index = (z + 1) * this.stride + x + 1;
+        return this.levelOneColumnAo ? this.levelOneAoColumns[index] : this.columns[index];
+    }
+
     private record TerrainProfile(int state, int top) {}
 
     /**
      * Markiert ausschließlich Auflösungsgrenzen und stellt fein aufgelöste Vergleichs-Proxies
-     * für AO und Seitenlicht bereit. Sichtbare grobe Spalten werden hier bewusst nicht
-     * verändert; die Konturen werden später geometrisch miteinander vernäht.
+     * für Geometrie und Seitenlicht bereit. L1-Corner-AO liest weiterhin das zuvor gesicherte
+     * L1-Raster; sichtbare grobe Spalten werden hier bewusst nicht verändert und die Konturen
+     * werden später geometrisch miteinander vernäht.
      */
     private void prepareColumnTransitions(LodDataSource source, LodConfig config, int level,
                                           int ax, int az, int s, int n) {
@@ -819,7 +837,7 @@ public final class LodMesher {
     }
 
     private boolean columnOccludesAoAt(int x, int z, int y) {
-        LodColumn column = this.column(x, z);
+        LodColumn column = this.columnForAo(x, z);
         for (int i = 0; i < column.size(); i++) {
             long interval = column.interval(i);
             if (LodColumn.minY(interval) > y) break;
@@ -960,6 +978,10 @@ public final class LodMesher {
     private final SideSignature sideSignature = new SideSignature();
     private final SideSignature candidateSideSignature = new SideSignature();
     private final SideSignature exactTransitionSignature = new SideSignature();
+    /* Zweidimensionales Greedy-Raster eines L1-Wandlaufs (Tangente x Hoehe).
+       Positive Werte sind uniforme AO-Zellen (+1 wegen 0=verbraucht), negative
+       Werte nichtuniforme Corner-AO-Zellen, die wie im L0 einzeln bleiben. */
+    private int[] levelOneWallGrid = new int[0];
     private final int[] exactTransitionStates = new int[Chunk.HEIGHT];
     private final int[] exactRenderedBoundaryFaces = new int[Chunk.SECTIONS];
 
@@ -974,9 +996,20 @@ public final class LodMesher {
         return level * 0x55;
     }
 
+    private static boolean packedAoUniform(int packed) {
+        int first = packed & 3;
+        return ((packed >>> 2) & 3) == first
+                && ((packed >>> 4) & 3) == first
+                && ((packed >>> 6) & 3) == first;
+    }
+
     /** Nächste global ausgerichtete Grenze des aktuellen L2+-AO-Rasters. */
     private int nextAoBandBoundary(int y, int maxY) {
-        int next = (Math.floorDiv(y, this.aoBandHeight) + 1) * this.aoBandHeight;
+        return nextGridBoundary(y, maxY, this.aoBandHeight);
+    }
+
+    private static int nextGridBoundary(int y, int maxY, int step) {
+        int next = (Math.floorDiv(y, step) + 1) * step;
         return Math.min(maxY, Math.max(y + 1, next));
     }
 
@@ -992,9 +1025,10 @@ public final class LodMesher {
             return;
         }
         if (!this.flatAo) {
-            /* L1-AO ist reine Schattierung: keine zusätzlichen Y-Schnitte und kein AO-
-               Eintrag im Greedy-Vertrag. Nach dem horizontalen Merge werden die vier
-               Corner-Werte an den tatsächlichen Rechteck-Endpunkten neu bestimmt. */
+            /* L1-AO darf die geometrische Seitensignatur nicht zerlegen: sonst unterscheiden
+               sich benachbarte Spalten allein durch ihre AO-Schnittstellen und der horizontale
+               Greedy-Run bricht fast ueberall auseinander. Das eckgenaue Raster wird erst nach
+               dem geometrischen Run in emitLevelOneWallGrid zweidimensional ausgewertet. */
             result.add(block, minY, maxY, lightSurface, -1);
             return;
         }
@@ -1084,12 +1118,18 @@ public final class LodMesher {
             }
             float x0 = x * s, x1 = (x + run) * s, zz = (dz < 0 ? z : z + 1) * s;
             for (int i = 0; i < this.sideSignature.size; i++) {
+                if (this.columnAo && !this.flatAo) {
+                    this.emitLevelOneWallGrid(this.sideSignature.blocks[i], face, x, z,
+                            run, s, true, this.sideSignature.minY[i],
+                            this.sideSignature.maxY[i], this.sideSignature.lightSurfaces[i]);
+                    continue;
+                }
                 if (face == 2) this.emitWall(this.sideSignature.blocks[i], face, x1, zz, x0, zz,
                         this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                        this.sideSignature.lightSurfaces[i], this.flatAo ? this.sideSignature.ao[i] : -1);
+                        this.sideSignature.lightSurfaces[i], this.sideSignature.ao[i]);
                 else this.emitWall(this.sideSignature.blocks[i], face, x0, zz, x1, zz,
                         this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                        this.sideSignature.lightSurfaces[i], this.flatAo ? this.sideSignature.ao[i] : -1);
+                        this.sideSignature.lightSurfaces[i], this.sideSignature.ao[i]);
             }
             x += run;
         }
@@ -1121,14 +1161,106 @@ public final class LodMesher {
             }
             float z0 = z * s, z1 = (z + run) * s, xx = (dx < 0 ? x : x + 1) * s;
             for (int i = 0; i < this.sideSignature.size; i++) {
+                if (this.columnAo && !this.flatAo) {
+                    this.emitLevelOneWallGrid(this.sideSignature.blocks[i], face, x, z,
+                            run, s, false, this.sideSignature.minY[i],
+                            this.sideSignature.maxY[i], this.sideSignature.lightSurfaces[i]);
+                    continue;
+                }
                 if (face == 4) this.emitWall(this.sideSignature.blocks[i], face, xx, z0, xx, z1,
                         this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                        this.sideSignature.lightSurfaces[i], this.flatAo ? this.sideSignature.ao[i] : -1);
+                        this.sideSignature.lightSurfaces[i], this.sideSignature.ao[i]);
                 else this.emitWall(this.sideSignature.blocks[i], face, xx, z1, xx, z0,
                         this.sideSignature.minY[i], this.sideSignature.maxY[i],
-                        this.sideSignature.lightSurfaces[i], this.flatAo ? this.sideSignature.ao[i] : -1);
+                        this.sideSignature.lightSurfaces[i], this.sideSignature.ao[i]);
             }
             z += run;
+        }
+    }
+
+    /**
+     * L1-Corner-AO auf der tatsaechlich sichtbaren Wand. Beide Face-Achsen verwenden dieselbe
+     * Zweier-Aufloesung: tangential die 16x16-L1-Spalten, vertikal ein global ausgerichtetes
+     * 2-Block-Raster. Ungerade echte Intervallgrenzen clippen nur die aeusserste Rasterzelle.
+     * Wie im L0 bleiben Zellen mit vier unterschiedlichen Eckwerten einzeln; nur vollstaendig
+     * uniforme Zellen mit demselben AO-Wert duerfen zweidimensional greedy mergen.
+     */
+    private void emitLevelOneWallGrid(int block, int face, int x, int z, int tangentCells,
+                                      int cellSize, boolean alongX, int minY, int maxY,
+                                      long lightSurface) {
+        if (maxY <= minY || tangentCells <= 0) return;
+        int firstRow = Math.floorDiv(minY, cellSize);
+        int rowCount = Math.floorDiv(maxY - 1, cellSize) - firstRow + 1;
+        int cells = tangentCells * rowCount;
+        if (this.levelOneWallGrid.length < cells) {
+            this.levelOneWallGrid = new int[cells];
+        }
+        for (int row = 0; row < rowCount; row++) {
+            int bottom = Math.max(minY, (firstRow + row) * cellSize);
+            int top = Math.min(maxY, (firstRow + row + 1) * cellSize);
+            int rowOffset = row * tangentCells;
+            for (int tangent = 0; tangent < tangentCells; tangent++) {
+                int sampleX = alongX ? x + tangent : x;
+                int sampleZ = alongX ? z : z + tangent;
+                int ao = this.wallCellAo(face, sampleX, sampleZ, bottom, top, block);
+                this.levelOneWallGrid[rowOffset + tangent] =
+                        packedAoUniform(ao) ? ao + 1 : -(ao + 1);
+            }
+        }
+
+        for (int row = 0; row < rowCount; row++) {
+            for (int tangent = 0; tangent < tangentCells; tangent++) {
+                int index = row * tangentCells + tangent;
+                int key = this.levelOneWallGrid[index];
+                if (key == 0) continue;
+
+                int width = 1, rows = 1;
+                if (key > 0) {
+                    while (tangent + width < tangentCells
+                            && this.levelOneWallGrid[index + width] == key) width++;
+                    expandRows:
+                    while (row + rows < rowCount) {
+                        int candidate = (row + rows) * tangentCells + tangent;
+                        for (int i = 0; i < width; i++) {
+                            if (this.levelOneWallGrid[candidate + i] != key) break expandRows;
+                        }
+                        rows++;
+                    }
+                }
+                for (int dy = 0; dy < rows; dy++) {
+                    Arrays.fill(this.levelOneWallGrid,
+                            (row + dy) * tangentCells + tangent,
+                            (row + dy) * tangentCells + tangent + width, 0);
+                }
+
+                int ao = Math.abs(key) - 1;
+                int bottom = Math.max(minY, (firstRow + row) * cellSize);
+                int top = Math.min(maxY, (firstRow + row + rows) * cellSize);
+                this.emitLevelOneWallCell(block, face, x, z, tangent, width, cellSize,
+                        alongX, bottom, top, lightSurface, ao);
+            }
+        }
+    }
+
+    private void emitLevelOneWallCell(int block, int face, int x, int z,
+                                      int tangent, int width, int cellSize, boolean alongX,
+                                      int minY, int maxY, long lightSurface, int ao) {
+        if (alongX) {
+            float x0 = (x + tangent) * cellSize;
+            float x1 = (x + tangent + width) * cellSize;
+            float zz = (face == 2 ? z : z + 1) * cellSize;
+            if (face == 2) this.emitWall(block, face, x1, zz, x0, zz,
+                    minY, maxY, lightSurface, ao);
+            else this.emitWall(block, face, x0, zz, x1, zz,
+                    minY, maxY, lightSurface, ao);
+        } else {
+            float z0 = (z + tangent) * cellSize;
+            float z1 = (z + tangent + width) * cellSize;
+            float xx = (face == 4 ? x : x + 1) * cellSize;
+            if (face == 4) this.emitWall(block, face, xx, z0, xx, z1,
+                    minY, maxY, lightSurface, ao);
+            else this.emitWall(block, face, xx, z1, xx, z0,
+                    minY, maxY, lightSurface, ao);
         }
     }
 
@@ -1486,9 +1618,28 @@ public final class LodMesher {
             return;
         }
         if (!this.flatAo) {
-            /* Auch Transitionen behalten in L1 exakt ihre AO-unabhängige Basisspanne.
-               emitWallSegment ermittelt mit -1 weiches AO an deren echten vier Ecken. */
-            this.emitWall(block, face, xa, za, xb, zb, minY, maxY, lightSurface, -1);
+            /* Transitionen sind bereits hoechstens eine Zelle des feineren Rasters breit.
+               Vertikal gilt dasselbe globale Zweier-Raster wie bei normalen L1-Waenden:
+               weiches AO bleibt auf eine 2x2-Face-Zelle begrenzt, uniforme Zeilen mergen. */
+            int cellSize = Math.max(1, Math.round(this.currentCellSize()));
+            int runMin = minY;
+            int bandEnd = nextGridBoundary(minY, maxY, cellSize);
+            int runAo = this.wallGeometryAo(face, xa, za, xb, zb, minY, bandEnd);
+            boolean runUniform = packedAoUniform(runAo);
+            for (int y = bandEnd; y < maxY;) {
+                int next = nextGridBoundary(y, maxY, cellSize);
+                int ao = this.wallGeometryAo(face, xa, za, xb, zb, y, next);
+                boolean uniform = packedAoUniform(ao);
+                if (!runUniform || !uniform || ao != runAo) {
+                    this.emitWall(block, face, xa, za, xb, zb, runMin, y,
+                            lightSurface, runAo);
+                    runMin = y;
+                    runAo = ao;
+                    runUniform = uniform;
+                }
+                y = next;
+            }
+            this.emitWall(block, face, xa, za, xb, zb, runMin, maxY, lightSurface, runAo);
             return;
         }
         int runMin = minY;
@@ -1878,27 +2029,52 @@ public final class LodMesher {
             if (fluidTop) this.stats.topWater++; else this.stats.topTerrain++;
         }
 
+        /* Dieselbe AO-Diagonale wie im L0-ChunkMesher: die feste EBO-Diagonale wird durch
+           zyklisches Rotieren der vier Eckvertices auf das hellere Eckpaar gelegt. */
+        boolean flip = ao[1] + ao[3] > ao[0] + ao[2];
         this.ensureCapacity(translucent);
-        this.putVertex(translucent, x0, renderY, z0, 0F, 0F, layer,
-                brightness * ao[0], tint, skyLight, vertexFlags);
-        this.putVertex(translucent, x0, renderY, z1, 0F, v, layer,
-                brightness * ao[1], tint, skyLight, vertexFlags);
-        this.putVertex(translucent, x1, renderY, z1, u, v, layer,
-                brightness * ao[2], tint, skyLight, vertexFlags);
-        this.putVertex(translucent, x1, renderY, z0, u, 0F, layer,
-                brightness * ao[3], tint, skyLight, vertexFlags);
+        if (flip) {
+            this.putVertex(translucent, x0, renderY, z1, 0F, v, layer,
+                    brightness * ao[1], tint, skyLight, vertexFlags);
+            this.putVertex(translucent, x1, renderY, z1, u, v, layer,
+                    brightness * ao[2], tint, skyLight, vertexFlags);
+            this.putVertex(translucent, x1, renderY, z0, u, 0F, layer,
+                    brightness * ao[3], tint, skyLight, vertexFlags);
+            this.putVertex(translucent, x0, renderY, z0, 0F, 0F, layer,
+                    brightness * ao[0], tint, skyLight, vertexFlags);
+        } else {
+            this.putVertex(translucent, x0, renderY, z0, 0F, 0F, layer,
+                    brightness * ao[0], tint, skyLight, vertexFlags);
+            this.putVertex(translucent, x0, renderY, z1, 0F, v, layer,
+                    brightness * ao[1], tint, skyLight, vertexFlags);
+            this.putVertex(translucent, x1, renderY, z1, u, v, layer,
+                    brightness * ao[2], tint, skyLight, vertexFlags);
+            this.putVertex(translucent, x1, renderY, z0, u, 0F, layer,
+                    brightness * ao[3], tint, skyLight, vertexFlags);
+        }
 
         if (translucent) {
             /* LOD-Wasseroberflächen wie die Nahgeometrie gezielt doppelseitig backen. */
             this.ensureCapacity(true);
-            this.putVertex(true, x1, renderY, z0, u, 0F, layer,
-                    brightness * ao[3], tint, skyLight, vertexFlags);
-            this.putVertex(true, x1, renderY, z1, u, v, layer,
-                    brightness * ao[2], tint, skyLight, vertexFlags);
-            this.putVertex(true, x0, renderY, z1, 0F, v, layer,
-                    brightness * ao[1], tint, skyLight, vertexFlags);
-            this.putVertex(true, x0, renderY, z0, 0F, 0F, layer,
-                    brightness * ao[0], tint, skyLight, vertexFlags);
+            if (flip) {
+                this.putVertex(true, x0, renderY, z0, 0F, 0F, layer,
+                        brightness * ao[0], tint, skyLight, vertexFlags);
+                this.putVertex(true, x1, renderY, z0, u, 0F, layer,
+                        brightness * ao[3], tint, skyLight, vertexFlags);
+                this.putVertex(true, x1, renderY, z1, u, v, layer,
+                        brightness * ao[2], tint, skyLight, vertexFlags);
+                this.putVertex(true, x0, renderY, z1, 0F, v, layer,
+                        brightness * ao[1], tint, skyLight, vertexFlags);
+            } else {
+                this.putVertex(true, x1, renderY, z0, u, 0F, layer,
+                        brightness * ao[3], tint, skyLight, vertexFlags);
+                this.putVertex(true, x1, renderY, z1, u, v, layer,
+                        brightness * ao[2], tint, skyLight, vertexFlags);
+                this.putVertex(true, x0, renderY, z1, 0F, v, layer,
+                        brightness * ao[1], tint, skyLight, vertexFlags);
+                this.putVertex(true, x0, renderY, z0, 0F, 0F, layer,
+                        brightness * ao[0], tint, skyLight, vertexFlags);
+            }
         }
 
         if (renderY > this.maxTop) this.maxTop = renderY;
@@ -2114,15 +2290,29 @@ public final class LodMesher {
         if (this.stats != null) {
             if (fluidWall) this.stats.wallWater++; else this.stats.wallTerrain++;
         }
+        int ao0 = ao & 3, ao1 = (ao >>> 2) & 3;
+        int ao2 = (ao >>> 4) & 3, ao3 = (ao >>> 6) & 3;
+        boolean flip = ao1 + ao3 > ao0 + ao2;
         this.ensureCapacity(fluidWall);
-        this.putVertex(fluidWall, xa, bottom, za, 0F, v, layer,
-                brightness * aoFromPacked(ao, 0), tint, bottomSkyLight);
-        this.putVertex(fluidWall, xb, bottom, zb, u, v, layer,
-                brightness * aoFromPacked(ao, 1), tint, bottomSkyLight);
-        this.putVertex(fluidWall, xb, top, zb, u, 0F, layer,
-                brightness * aoFromPacked(ao, 2), tint, topSkyLight);
-        this.putVertex(fluidWall, xa, top, za, 0F, 0F, layer,
-                brightness * aoFromPacked(ao, 3), tint, topSkyLight);
+        if (flip) {
+            this.putVertex(fluidWall, xb, bottom, zb, u, v, layer,
+                    brightness * aoFromPacked(ao, 1), tint, bottomSkyLight);
+            this.putVertex(fluidWall, xb, top, zb, u, 0F, layer,
+                    brightness * aoFromPacked(ao, 2), tint, topSkyLight);
+            this.putVertex(fluidWall, xa, top, za, 0F, 0F, layer,
+                    brightness * aoFromPacked(ao, 3), tint, topSkyLight);
+            this.putVertex(fluidWall, xa, bottom, za, 0F, v, layer,
+                    brightness * aoFromPacked(ao, 0), tint, bottomSkyLight);
+        } else {
+            this.putVertex(fluidWall, xa, bottom, za, 0F, v, layer,
+                    brightness * aoFromPacked(ao, 0), tint, bottomSkyLight);
+            this.putVertex(fluidWall, xb, bottom, zb, u, v, layer,
+                    brightness * aoFromPacked(ao, 1), tint, bottomSkyLight);
+            this.putVertex(fluidWall, xb, top, zb, u, 0F, layer,
+                    brightness * aoFromPacked(ao, 2), tint, topSkyLight);
+            this.putVertex(fluidWall, xa, top, za, 0F, 0F, layer,
+                    brightness * aoFromPacked(ao, 3), tint, topSkyLight);
+        }
 
         if (top > this.maxTop) this.maxTop = top;
         if (bottom < this.minBottom) this.minBottom = bottom;

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -27,7 +28,43 @@ final class LodMesherColumnAoTest {
     void columnPathBakesMinecraftAoIntoExposedTerrainCorners() {
         List<Integer> colors = targetTopColors(steppedColumns(1), true, 1);
 
-        assertEquals(List.of(0x666666, 0xCCCCCC, 0xFFFFFF, 0xCCCCCC), colors);
+        assertEquals(List.of(0xCCCCCC, 0xFFFFFF, 0xCCCCCC, 0x666666), colors);
+    }
+
+    @Test
+    void levelOneAoIgnoresFineReliefHiddenByItsReducedCells() {
+        LodDataSource source = fineReliefWithL1Columns((x, z) -> terrain(64));
+        LodManager.LodMeshResult result = mesh(source, true, 1,
+                LodManager.LodNeighborSnapshot.sameLevel(1),
+                LodManager.LodClipSnapshot.centerOnly(1 << 5));
+
+        List<Integer> colors = colorsOfHorizontalQuadsAt(
+                result.opaqueData(), result.yBase(), 64F);
+        assertFalse(colors.isEmpty());
+        assertEquals(1, colors.stream().distinct().count(),
+                "L0-Unebenheiten unter einer ebenen L1-Wiese duerfen keine AO-Linien erzeugen");
+        assertEquals(0xFFFFFF, colors.getFirst());
+    }
+
+    @Test
+    void levelOneAoStillUsesVisibleReducedHeightDifferences() {
+        LodDataSource source = fineReliefWithL1Columns((x, z) -> terrain(
+                (x == TARGET_X - 2 && z == TARGET_Z)
+                        || (x == TARGET_X && z == TARGET_Z - 2) ? 65 : 64));
+
+        assertEquals(List.of(0xCCCCCC, 0xFFFFFF, 0xCCCCCC, 0x666666),
+                targetTopColors(source, true, 1));
+    }
+
+    @Test
+    void levelOneWallAoIgnoresFineReliefHiddenBelowItsSixteenBySixteenGrid() {
+        ColumnFactory reducedCliff = (x, z) -> terrain(x < 64 ? 80 : 60);
+        LodManager.LodMeshResult clean = mesh(columns(reducedCliff), true, 1);
+        LodManager.LodMeshResult noisyL0 = mesh(
+                fineReliefWithL1Columns(reducedCliff), true, 1);
+
+        assertArrayEquals(clean.opaqueData(), noisyL0.opaqueData(),
+                "L1-Wand-AO darf keine unter dem 16x16-Raster verborgenen L0-Hoehen lesen");
     }
 
     @Test
@@ -112,26 +149,32 @@ final class LodMesherColumnAoTest {
         LodManager.LodMeshResult l2 = mesh(source, true, 2);
 
         List<Integer> l1Colors = colorsOfVerticalQuad(l1.opaqueData(), l1.yBase(),
-                64F, 60F, 64F);
+                64F, 60F, 62F);
+        List<Integer> l1UpperColors = colorsOfVerticalQuad(l1.opaqueData(), l1.yBase(),
+                64F, 62F, 64F);
         List<Integer> l2Colors = colorsOfVerticalQuad(l2.opaqueData(), l2.yBase(),
                 64F, 60F, 64F);
         assertFalse(l1Colors.isEmpty());
+        assertFalse(l1UpperColors.isEmpty());
         assertFalse(l2Colors.isEmpty());
         assertTrue(l1Colors.stream().distinct().count() > 1,
-                "L1 muss das weiche Corner-AO behalten");
+                "L1 muss das weiche Corner-AO lokal an der Kontaktkante behalten");
+        assertEquals(1, l1UpperColors.stream().distinct().count(),
+                "Oberhalb der Kontaktkante darf L1 keinen Wandgradienten fortsetzen");
         assertEquals(1, l2Colors.stream().distinct().count(),
                 "L2 muss pro Rasterband einen uniformen AO-Wert verwenden");
     }
 
     @Test
     void mixedL1L2TransitionUsesTheEmittingLevelsAoMode() {
-        LodManager.LodMeshResult l1Owner = mesh(heightBySize(2, 64, 60), true, 1,
+        LodManager.LodMeshResult l1Owner = mesh(
+                columns((x, z) -> terrain(x < 128 ? 64 : 60)), true, 1,
                 new LodManager.LodNeighborSnapshot(1, 1, 1, 2));
         LodManager.LodMeshResult l2Owner = mesh(heightBySize(2, 60, 64), true, 2,
                 new LodManager.LodNeighborSnapshot(2, 2, 1, 2));
 
         List<Integer> l1Colors = colorsOfVerticalQuad(l1Owner.opaqueData(), l1Owner.yBase(),
-                128F, 60F, 64F);
+                128F, 60F, 62F);
         List<Integer> l2Colors = colorsOfVerticalQuad(l2Owner.opaqueData(), l2Owner.yBase(),
                 0F, 60F, 64F);
         assertFalse(l1Colors.isEmpty(), "Die L1-Seite muss ihre exponierte Transition emittieren");
@@ -143,16 +186,19 @@ final class LodMesherColumnAoTest {
     }
 
     @Test
-    void levelOneTransitionAoDoesNotChangeItsGeometry() {
-        LodDataSource source = heightBySize(2, 64, 60);
+    void levelOneTransitionAoWrapsTheVisibleReducedEdge() {
+        LodDataSource source = columns((x, z) -> terrain(x < 128 ? 64 : 60));
         LodManager.LodNeighborSnapshot neighbors =
                 new LodManager.LodNeighborSnapshot(1, 1, 1, 2);
-        LodManager.LodMeshResult withoutAo = mesh(source, false, 1, neighbors);
         LodManager.LodMeshResult withAo = mesh(source, true, 1, neighbors);
 
-        assertEquals(verticalGeometryAtX(withoutAo.opaqueData(), 128F),
-                verticalGeometryAtX(withAo.opaqueData(), 128F),
-                "Auch eine L1-eigene Transition darf durch AO keine neuen Vertices erhalten");
+        assertFalse(hasVerticalQuad(withAo.opaqueData(), withAo.yBase(), 128F, 60F, 64F),
+                "Corner-AO darf nicht ueber die gesamte L1-Transition gestreckt werden");
+        assertTrue(hasVerticalQuad(withAo.opaqueData(), withAo.yBase(), 128F, 60F, 62F),
+                "Die Kontaktkante braucht eine eigene 2x2-AO-Zelle");
+        assertTrue(colorsOfVerticalQuad(withAo.opaqueData(), withAo.yBase(),
+                        128F, 60F, 62F).stream().distinct().count() > 1,
+                "Die sichtbare L1-Kante muss weiches Corner-AO behalten");
     }
 
     @Test
@@ -167,19 +213,62 @@ final class LodMesherColumnAoTest {
     }
 
     @Test
-    void levelOneAoDoesNotChangeTheWallGeometry() {
+    void levelOneWallAoWrapsTheReducedContactEdgeLikeL0() {
         LodDataSource source = columns((x, z) -> terrain(x < 64 ? 80 : 60));
         LodManager.LodMeshResult withoutAo = mesh(source, false, 1);
         LodManager.LodMeshResult withAo = mesh(source, true, 1);
 
-        assertEquals(verticalGeometryAtX(withoutAo.opaqueData(), 64F),
-                verticalGeometryAtX(withAo.opaqueData(), 64F),
-                "L1-AO darf weder Y-Schnitte noch horizontale Greedy-Grenzen veraendern");
-        List<Integer> colors = colorsOfVerticalQuad(withAo.opaqueData(), withAo.yBase(),
-                64F, 60F, 80F);
-        assertFalse(colors.isEmpty());
-        assertTrue(colors.stream().distinct().count() > 1,
-                "Die unveraenderte L1-Wand muss weiterhin weiches Corner-AO tragen");
+        assertEquals(4, countVerticalQuads(withoutAo.opaqueData(), withoutAo.yBase(),
+                64F, 60F, 80F), "Ohne AO bleibt die 128er-Wand in vier Greedy-Runs");
+        assertEquals(64, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
+                64F, 60F, 62F),
+                "Die weiche Kontaktkante muss aus 64 sichtbaren 2x2-L1-Zellen bestehen");
+        assertEquals(4, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
+                64F, 62F, 80F),
+                "Der uniforme Wandrest muss weiterhin in vier 32er-Runs mergen");
+        assertEquals(0, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
+                64F, 60F, 80F),
+                "AO darf nicht als ein hoher Gradient ueber die komplette Wand laufen");
+
+        assertEquals(List.of(0x5C5C5C, 0x5C5C5C, 0x999999, 0x999999),
+                colorsOfVerticalQuad(withAo.opaqueData(), withAo.yBase(),
+                        64F, 60F, 62F),
+                "Die 2x2-L1-Wandzelle muss dieselben Corner-AO-Stufen wie L0 tragen");
+
+        List<Integer> sharedEdge = colorsOfVerticalVertex(withAo.opaqueData(), withAo.yBase(),
+                64F, 62F, 64F);
+        assertFalse(sharedEdge.isEmpty());
+        assertEquals(1, sharedEdge.stream().distinct().count(),
+                "Kontaktzelle und heller Wandrest muessen an ihrer gemeinsamen Kante nahtlos sein");
+    }
+
+    @Test
+    void levelOneOddHeightClipsOnlyTheOuterTwoByTwoGridCell() {
+        LodDataSource source = columns((x, z) -> terrain(x < 64 ? 66 : 61));
+        LodManager.LodMeshResult withoutAo = mesh(source, false, 1);
+        LodManager.LodMeshResult withAo = mesh(source, true, 1);
+
+        assertEquals(4, countVerticalQuads(withoutAo.opaqueData(), withoutAo.yBase(),
+                64F, 61F, 66F));
+        assertEquals(64, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
+                64F, 61F, 62F),
+                "Nur die ungerade untere Randzelle darf auf einen Block geclippt werden");
+        assertEquals(4, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
+                64F, 62F, 66F),
+                "Alle inneren L1-Zeilen muessen auf dem globalen Zweier-Y-Raster bleiben");
+        assertEquals(0, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
+                64F, 62F, 63F));
+        assertEquals(0, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
+                64F, 63F, 64F),
+                "Innerhalb der Wand darf kein 2x1-AO-Quad mehr entstehen");
+    }
+
+    @Test
+    void levelOneAoKeepsEveryQuadInsideItsMeshingBounds() {
+        LodManager.LodMeshResult result = mesh(
+                columns((x, z) -> terrain(x < 64 ? 112 : 48)), true, 1);
+
+        assertValidQuadBounds(result.opaqueData(), result.yBase());
     }
 
     @Test
@@ -222,12 +311,18 @@ final class LodMesherColumnAoTest {
 
     private static LodManager.LodMeshResult mesh(LodDataSource source, boolean ao, int level,
                                                   LodManager.LodNeighborSnapshot neighbors) {
+        return mesh(source, ao, level, neighbors, LodManager.LodClipSnapshot.centerOnly(0));
+    }
+
+    private static LodManager.LodMeshResult mesh(LodDataSource source, boolean ao, int level,
+                                                  LodManager.LodNeighborSnapshot neighbors,
+                                                  LodManager.LodClipSnapshot clipSnapshot) {
         GameSettings settings = GameSettings.get();
         boolean previousAo = settings.ambientOcclusion;
         settings.ambientOcclusion = ao;
         try {
             return new LodMesher().mesh(source, new LodBlockAppearance(), LodConfig.of(16, 128),
-                    level, 1, 0, 0, 0, LodManager.LodClipSnapshot.centerOnly(0),
+                    level, 1, 0, 0, 0, clipSnapshot,
                     neighbors, 64, 64);
         } finally {
             settings.ambientOcclusion = previousAo;
@@ -330,9 +425,10 @@ final class LodMesherColumnAoTest {
         return false;
     }
 
-    /** Gepackte Geometrie + Licht aller Wände auf einer X-Ebene; RGB wird bewusst ausgelassen. */
-    private static List<List<Integer>> verticalGeometryAtX(int[] data, float expectedX) {
-        List<List<Integer>> result = new ArrayList<>();
+    private static List<Integer> colorsOfVerticalVertex(int[] data, int yBase,
+                                                         float expectedX, float expectedY,
+                                                         float expectedZ) {
+        List<Integer> result = new ArrayList<>();
         for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
             boolean constantX = true;
             for (int v = 0; v < 4; v++) {
@@ -340,17 +436,45 @@ final class LodMesherColumnAoTest {
                 constantX &= close(xzCoordinate(data[p] & 0xFFFF), expectedX);
             }
             if (!constantX) continue;
-            List<Integer> quad = new ArrayList<>(16);
             for (int v = 0; v < 4; v++) {
                 int p = q + v * ChunkMesher.VERTEX_SIZE;
-                quad.add(data[p]);
-                quad.add(data[p + 1]);
-                quad.add(data[p + 2]);
-                quad.add(data[p + 4]);
+                float x = xzCoordinate(data[p] & 0xFFFF);
+                float y = yCoordinate((data[p] >>> 16) & 0xFFFF) + yBase;
+                float z = xzCoordinate(data[p + 1] & 0xFFFF);
+                if (close(x, expectedX) && close(y, expectedY) && close(z, expectedZ)) {
+                    result.add(data[p + 3] & 0xFFFFFF);
+                }
             }
-            result.add(quad);
         }
         return result;
+    }
+
+    private static void assertValidQuadBounds(int[] data, int yBase) {
+        for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+            float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY;
+            float minZ = Float.POSITIVE_INFINITY;
+            float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
+            float maxZ = Float.NEGATIVE_INFINITY;
+            for (int v = 0; v < 4; v++) {
+                int p = q + v * ChunkMesher.VERTEX_SIZE;
+                float x = xzCoordinate(data[p] & 0xFFFF);
+                float y = yCoordinate((data[p] >>> 16) & 0xFFFF) + yBase;
+                float z = xzCoordinate(data[p + 1] & 0xFFFF);
+                assertTrue(x >= 0F && x <= 128F && z >= 0F && z <= 128F,
+                        "AO darf keine X/Z-Position ausserhalb der Region erzeugen");
+                minX = Math.min(minX, x);
+                maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y);
+                maxY = Math.max(maxY, y);
+                minZ = Math.min(minZ, z);
+                maxZ = Math.max(maxZ, z);
+            }
+            float width = Math.max(maxX - minX, maxZ - minZ);
+            float height = maxY - minY;
+            assertTrue(width <= 32.01F && height <= 32.01F,
+                    "Ein AO-Quad darf die Pack-/Greedy-Grenze nicht ueberschreiten");
+            assertTrue(width > 0.01F || height > 0.01F, "Degeneriertes AO-Quad gefunden");
+        }
     }
 
     private static List<Integer> verticalBandEdgesAtX(int[] data, int yBase, float expectedX) {
@@ -419,6 +543,24 @@ final class LodMesherColumnAoTest {
             @Override public long sampleSurface(int x, int z, int size) {
                 int top = size <= fineSize ? fineTop : coarseTop;
                 return LodDataSource.pack(Blocks.STONE, top - 1);
+            }
+        };
+    }
+
+    private static LodDataSource fineReliefWithL1Columns(ColumnFactory levelOne) {
+        return new LodDataSource() {
+            @Override public boolean hasColumns() { return true; }
+            @Override public LodColumn sampleColumn(int x, int z, int size) {
+                if (size == 1) {
+                    int fineTop = 64 + (Math.floorDiv(x, 2) + Math.floorDiv(z, 2) & 1);
+                    return terrain(fineTop);
+                }
+                return levelOne.at(x, z);
+            }
+            @Override public long sampleSurface(int x, int z, int size) {
+                LodColumn column = this.sampleColumn(x, z, size);
+                long top = column.interval(column.size() - 1);
+                return LodDataSource.pack(LodColumn.state(top), LodColumn.maxY(top) - 1);
             }
         };
     }
