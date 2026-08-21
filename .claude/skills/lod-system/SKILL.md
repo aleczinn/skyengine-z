@@ -127,9 +127,26 @@ beschattete Fernregionen (Schluchtwände, Nordseiten) sind heller als echtes Ter
 ## Datenquellen
 
 `LodDataSource` ist die EINZIGE Datenquelle des Meshers (LOD kann Spieleränderungen weder
-überschreiben noch verzögern). `WorldLodDataSource`: Stride ≤ 4 (L1/L2) sampelt echte Chunkdaten
-(Spaltenscan, bewusst ohne Lock — transiente Fehler remeshen sich weg), sonst pure
-Generator-Funktion (`sampleSurface`). Der Spaltenscan akzeptiert nur **opake Vollblöcke ohne
+überschreiben noch verzögern). Verdrahtet ist **ausschließlich `PersistentLodDataSource`**
+(`World.init`); `WorldLodDataSource` und `StorageLodDataSource` haben keinen Aufrufer mehr.
+Sie entscheidet **je Quellchunk, nicht je Level**, in dieser Reihenfolge:
+
+1. **RAM-Cache** — Treffer nur, wenn dort ein Level **≤** dem angeforderten liegt
+   (`materializeLevel` leitet nur zu GRÖBEREN Leveln ab, nie zurück zu feineren).
+2. **LOD-Disk-Cache** (`saves/<welt>/lod/`) — gelesen **nur**, wenn *überhaupt kein* RAM-Eintrag
+   existiert **und** der Chunk nicht invalidiert ist. Er folgt also **nicht** auf einen
+   unbrauchbaren RAM-Treffer: liegt im RAM nur ein grobes Level und wird ein feineres verlangt,
+   wird er **übersprungen** und direkt über 3./4./5. neu gebaut. Invalidiert wird beim Speichern
+   eines Chunks, also bei jeder Spieleränderung.
+3. **residenter Chunk** (≥ DECORATED, bewusst ohne Lock — transiente Fehler remeshen sich weg)
+4. **Savegame-Snapshot**
+5. **Generator** + Feature-Pass
+
+**Einen „generatorreinen" Fernring gibt es also nicht** — auch L3/L4 lesen residente Chunkdaten,
+wenn welche in Reichweite liegen; und jeder Quellchunk wird immer bei voller 32×32-Auflösung
+gebaut und erst danach auf das angeforderte Level hochreduziert (kanonische L0-Projektion,
+`ChunkLodColumns`). Der Spaltenscan
+akzeptiert nur **opake Vollblöcke ohne
 `no_lod_surface`-Flag** (`isOpaqueCube && !isExcludedFromLodSurface`) oder Fluid — LOD ist
 bewusst baum-/vegetationsfrei: Leaves sind `solid=true` und wurden mit dem alten
 `isSolid`-Prädikat zur LOD-Oberfläche (Baumkronen-Klötze in L1/L2), danach die Logs darunter

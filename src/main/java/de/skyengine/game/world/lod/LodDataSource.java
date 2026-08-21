@@ -8,9 +8,25 @@ import java.util.Arrays;
 
 /**
  * Abstrahierte Oberflächen-Quelle fürs LOD: liefert pro Zelle den obersten sichtbaren Block
- * und dessen Höhe. Verdrahtet ist {@link WorldLodDataSource} (nah: echte Chunkdaten, fern:
- * pure Generator-Funktion — s. World.init); später können gespeicherte Welten und Strukturen
- * dieselbe Schnittstelle bedienen, ohne dass Mesher/Manager sich ändern.
+ * und dessen Höhe. Verdrahtet ist ausschließlich {@link PersistentLodDataSource} (s. World.init).
+ * Sie entscheidet je QUELLCHUNK und NICHT je Level, in dieser Reihenfolge:
+ * <ol>
+ *   <li><b>RAM-Cache</b> — zaehlt nur als Treffer, wenn dort ein Level <b>&le;</b> dem
+ *       angeforderten liegt ({@code materializeLevel} leitet ausschliesslich zu GROEBEREN
+ *       Leveln ab, nie zurueck zu feineren).</li>
+ *   <li><b>LOD-Disk-Cache</b> — gelesen NUR, wenn ueberhaupt kein RAM-Eintrag existiert und der
+ *       Chunk nicht invalidiert ist. Er folgt also nicht auf einen unbrauchbaren RAM-Treffer:
+ *       liegt im RAM nur ein grobes Level und wird ein feineres verlangt, wird er UEBERSPRUNGEN
+ *       und direkt ueber 3./4./5. neu gebaut. Invalidiert wird beim Speichern eines Chunks,
+ *       also bei jeder Spieleraenderung.</li>
+ *   <li><b>residenter Chunk</b> (&ge; DECORATED, bewusst ohne Lock — transiente Fehler remeshen
+ *       sich weg)</li>
+ *   <li><b>Savegame-Snapshot</b></li>
+ *   <li><b>Generator</b> + Feature-Pass</li>
+ * </ol>
+ * Einen „generatorreinen" Fernring gibt es deshalb nicht — auch L3/L4 lesen residente Chunkdaten,
+ * wenn welche in Reichweite liegen. {@code WorldLodDataSource} und {@code StorageLodDataSource}
+ * haben seit diesem Umbau keinen Aufrufer mehr und beschreiben NICHT mehr den verdrahteten Pfad.
  *
  * <p>Implementierungen MÜSSEN threadsicher und deterministisch sein: die Worker rufen sie
  * parallel auf, und benachbarte Regionen sampeln dieselben Rand-Zellen erneut — nur wenn
