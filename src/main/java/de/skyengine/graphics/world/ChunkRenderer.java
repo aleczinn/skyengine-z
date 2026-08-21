@@ -238,8 +238,10 @@ public class ChunkRenderer {
     private final int[] vaoArenaBuffer = new int[ARENA_SLOTS];
     private final int[] vaoEbo = new int[ARENA_SLOTS];
 
-    /* Geteilter Quad-Index-Buffer (0,1,2, 2,3,0 je Quad) für alle Sections */
+    /* Dynamischer Quad-Index-Buffer (0,1,2, 2,3,0 je Quad) nur fuer Sections. LOD besitzt
+       einen festen EBO und zerlegt groessere Regionen in sichere baseVertex-Slices. */
     private int sharedEbo = 0;
+    private int lodEbo = 0;
     private int indexCapacityQuads = 0;
     private int maxSeenQuads = 1;
 
@@ -387,6 +389,9 @@ public class ChunkRenderer {
         }
         GL30.glBindVertexArray(0);
 
+        this.lodEbo = createQuadEbo(LodMesh.MAX_QUADS_PER_DRAW,
+                "LOD Quad-EBO (" + LodMesh.MAX_QUADS_PER_DRAW + " Quads)");
+
         /* Initial: 16k Draws je Layer-Segment reichen weit; Ringe wachsen bei Bedarf. */
         this.commandRing = new MappedRing("MDI CommandRing", SLOTS, 3 * MappedRing.align(16384L * COMMAND_BYTES));
         this.offsetRing = new MappedRing("MDI OffsetRing", SLOTS, 3 * MappedRing.align(16384L * OFFSET_BYTES));
@@ -398,7 +403,7 @@ public class ChunkRenderer {
                 + (this.arenas[1].getCapacity() >> 20) + "/" + (this.arenas[2].getCapacity() >> 20)
                 + " MB (Sections), " + (this.arenas[LOD_OPAQUE].getCapacity() >> 20) + "/"
                 + (this.arenas[LOD_TRANSLUCENT].getCapacity() >> 20) + " MB (LOD), "
-                + SLOTS + " Frame-Slots");
+                + SLOTS + " Frame-Slots, LOD-Slices max. " + LodMesh.MAX_QUADS_PER_DRAW + " Quads");
     }
 
     /**
@@ -627,7 +632,7 @@ public class ChunkRenderer {
             this.cullLodMesh(this.lodOversize.get(i), frustum, cam, lodSplit);
         }
         } // Ende CPU-Cull-Pfad
-        int lodDraws = this.visibleLod.size();
+        int lodDraws = countLodOpaqueDraws(this.visibleLod);
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.CULL);
 
@@ -635,13 +640,11 @@ public class ChunkRenderer {
         this.ensureIndexCapacity(this.maxSeenQuads);
         this.ensureVaoBindings();
 
-        /* LOD-Opaque/-Translucent sind jetzt eigene, separat ausgerichtete Segmente (eigene
-           Arenen) statt ans Section-Segment angehängt zu werden — daher pro Segment einzeln
-           aligned. lodDraws ist eine sichere Obergrenze für das LOD-Translucent-Segment
-           (tatsächlich nur der Teil mit hasTranslucent() — exakte Zählung lohnt hier nicht,
-           die Ringe wachsen ohnehin nur bei echtem Bedarf). */
+        /* LOD-Opaque/-Translucent sind eigene, separat ausgerichtete Segmente. Die Kapazitaet
+           zaehlt echte Draw-Slices statt Regionen: ein Mesh oberhalb des festen LOD-EBO-Limits
+           belegt mehrere Commands und Offset-Records. */
         int translucentDraws = this.translucentVisible.size();
-        int lodTDraws = this.visibleLodTranslucent.size();
+        int lodTDraws = countLodTranslucentDraws(this.visibleLodTranslucent);
         int detailDraws = this.visibleDetail.size();
         /* Im Split-Modus ist jedes per-Level-Sub-Segment einzeln aligned (SSBO-Offset-
            Anforderung) -> Kapazität als Summe der aligned Level-Segmente rechnen. */
@@ -650,7 +653,7 @@ public class ChunkRenderer {
             lodCmdCap = 0;
             lodOffCap = 0;
             for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
-                int n = this.visibleLodByLevel[l].size();
+                int n = countLodOpaqueDraws(this.visibleLodByLevel[l]);
                 lodCmdCap += MappedRing.align((long) n * COMMAND_BYTES);
                 lodOffCap += MappedRing.align((long) n * OFFSET_BYTES);
             }
@@ -1173,7 +1176,6 @@ public class ChunkRenderer {
                         result.minY(), result.maxY(), opaqueArena, translucentArena);
                 this.lodMeshes.put(key, mesh);
                 this.registerLodMesh(mesh);
-                this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.maxQuads());
                 uploads++;
             }
             /* Sicht-Gate der betroffenen Spalten nachziehen (auch bei leerem Ergebnis —
@@ -1216,27 +1218,32 @@ public class ChunkRenderer {
      * @return Anzahl geschriebener LOD-Opaque-Draws
      */
     private int writeLodOpaqueSegment(List<LodMesh> list, IntBuffer cmds, FloatBuffer offs,
-                                      long cmdSegBytes, long offSegBytes, Vector3d cam) {
+                                       long cmdSegBytes, long offSegBytes, Vector3d cam) {
         int cmdBase = (int) (cmdSegBytes / Integer.BYTES);
         int offBase = (int) (offSegBytes / Float.BYTES);
         int n = 0;
         for (int i = 0; i < list.size(); i++) {
             LodMesh mesh = list.get(i);
             if (!mesh.hasOpaque()) continue;
+            float ox = (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x);
+            float oy = (float) (mesh.yBase - cam.y);
+            float oz = (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z);
+            float metadata = DrawMetadata.pack(mesh.level, mesh.posScaleCode, mesh.debugConflictMask);
+            for (int draw = 0; draw < mesh.opaqueDrawCount(); draw++) {
+                int ci = cmdBase + n * 5;
+                cmds.put(ci, mesh.indexCountOpaque(draw));        // count
+                cmds.put(ci + 1, 1);                              // instanceCount
+                cmds.put(ci + 2, 0);                              // firstIndex (LOD-EBO ab 0)
+                cmds.put(ci + 3, mesh.baseVertexOpaque(draw));    // Slice-Anfang in Arena-Region
+                cmds.put(ci + 4, 0);                              // baseInstance (ungenutzt)
 
-            int ci = cmdBase + n * 5;
-            cmds.put(ci, mesh.indexCountOpaque());        // count
-            cmds.put(ci + 1, 1);                          // instanceCount
-            cmds.put(ci + 2, 0);                          // firstIndex (geteilter EBO ab 0)
-            cmds.put(ci + 3, mesh.baseVertexOpaque());    // baseVertex = Arena-Region
-            cmds.put(ci + 4, 0);                          // baseInstance (ungenutzt)
-
-            int oi = offBase + n * 4;
-            offs.put(oi, (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x));
-            offs.put(oi + 1, (float) (mesh.yBase - cam.y)); // Vertices sind relativ zu yBase gepackt
-            offs.put(oi + 2, (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z));
-            offs.put(oi + 3, DrawMetadata.pack(mesh.level, mesh.posScaleCode, mesh.debugConflictMask));
-            n++;
+                int oi = offBase + n * 4;
+                offs.put(oi, ox);
+                offs.put(oi + 1, oy);
+                offs.put(oi + 2, oz);
+                offs.put(oi + 3, metadata);
+                n++;
+            }
         }
         return n;
     }
@@ -1255,22 +1262,43 @@ public class ChunkRenderer {
         int n = 0;
         for (int i = 0; i < this.visibleLodTranslucent.size(); i++) {
             LodMesh mesh = this.visibleLodTranslucent.get(i);
+            float ox = (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x);
+            float oy = (float) (mesh.yBase - cam.y);
+            float oz = (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z);
+            float metadata = DrawMetadata.pack(mesh.level, mesh.posScaleCode, mesh.debugConflictMask);
+            for (int draw = 0; draw < mesh.translucentDrawCount(); draw++) {
+                int ci = cmdBase + n * 5;
+                cmds.put(ci, mesh.indexCountTranslucent(draw));        // count
+                cmds.put(ci + 1, 1);                                  // instanceCount
+                cmds.put(ci + 2, 0);                                  // firstIndex (LOD-EBO ab 0)
+                cmds.put(ci + 3, mesh.baseVertexTranslucent(draw));    // Slice-Anfang in Arena-Region
+                cmds.put(ci + 4, 0);                                  // baseInstance (ungenutzt)
 
-            int ci = cmdBase + n * 5;
-            cmds.put(ci, mesh.indexCountTranslucent());        // count
-            cmds.put(ci + 1, 1);                               // instanceCount
-            cmds.put(ci + 2, 0);                               // firstIndex (geteilter EBO ab 0)
-            cmds.put(ci + 3, mesh.baseVertexTranslucent());    // baseVertex = Arena-Region
-            cmds.put(ci + 4, 0);                               // baseInstance (ungenutzt)
-
-            int oi = offBase + n * 4;
-            offs.put(oi, (float) ((long) mesh.rx * LodMesher.REGION_BLOCKS - cam.x));
-            offs.put(oi + 1, (float) (mesh.yBase - cam.y)); // Vertices sind relativ zu yBase gepackt
-            offs.put(oi + 2, (float) ((long) mesh.rz * LodMesher.REGION_BLOCKS - cam.z));
-            offs.put(oi + 3, DrawMetadata.pack(mesh.level, mesh.posScaleCode, mesh.debugConflictMask));
-            n++;
+                int oi = offBase + n * 4;
+                offs.put(oi, ox);
+                offs.put(oi + 1, oy);
+                offs.put(oi + 2, oz);
+                offs.put(oi + 3, metadata);
+                n++;
+            }
         }
         return n;
+    }
+
+    private static int countLodOpaqueDraws(List<LodMesh> meshes) {
+        int draws = 0;
+        for (int i = 0; i < meshes.size(); i++) {
+            draws = Math.addExact(draws, meshes.get(i).opaqueDrawCount());
+        }
+        return draws;
+    }
+
+    private static int countLodTranslucentDraws(List<LodMesh> meshes) {
+        int draws = 0;
+        for (int i = 0; i < meshes.size(); i++) {
+            draws = Math.addExact(draws, meshes.get(i).translucentDrawCount());
+        }
+        return draws;
     }
 
     /**
@@ -1408,8 +1436,23 @@ public class ChunkRenderer {
         if (this.sharedEbo != 0 && quads <= this.indexCapacityQuads) return;
 
         int newCapacity = Math.max(32768, Integer.highestOneBit(Math.max(1, quads - 1)) << 1);
-        int[] indices = new int[newCapacity * 6];
-        for (int q = 0, i = 0; q < newCapacity; q++) {
+        /* Neuen EBO VOR dem Löschen des alten erzeugen (wie VertexArena.grow): solange der
+           alte Name lebt, ist der neue garantiert verschieden — sonst recycelt der Treiber
+           den Namen, ensureVaoBindings hält die Bindung für aktuell und die VAOs zeigen
+           weiter auf das alte, zu kleine EBO-Objekt (Garbage-Indizes hinter dessen Ende). */
+        int oldEbo = this.sharedEbo;
+        this.sharedEbo = createQuadEbo(newCapacity, "Geteilter Quad-EBO (" + newCapacity + " Quads)");
+        if (oldEbo != 0) {
+            GL15.glDeleteBuffers(oldEbo);
+            this.logger.debug("Quad-EBO gewachsen: " + this.indexCapacityQuads + " -> " + newCapacity + " Quads");
+        }
+        this.indexCapacityQuads = newCapacity;
+    }
+
+    /** Erzeugt einen nullbasierten Quad-EBO. Aufruf nur ohne gebundenes VAO. */
+    private static int createQuadEbo(int quads, String label) {
+        int[] indices = new int[Math.multiplyExact(quads, 6)];
+        for (int q = 0, i = 0; q < quads; q++) {
             int v = q * 4;
             indices[i++] = v;
             indices[i++] = v + 1;
@@ -1418,30 +1461,21 @@ public class ChunkRenderer {
             indices[i++] = v + 3;
             indices[i++] = v;
         }
-        /* Neuen EBO VOR dem Löschen des alten erzeugen (wie VertexArena.grow): solange der
-           alte Name lebt, ist der neue garantiert verschieden — sonst recycelt der Treiber
-           den Namen, ensureVaoBindings hält die Bindung für aktuell und die VAOs zeigen
-           weiter auf das alte, zu kleine EBO-Objekt (Garbage-Indizes hinter dessen Ende). */
-        int oldEbo = this.sharedEbo;
-        this.sharedEbo = GL15.glGenBuffers();
-        /* Kein VAO gebunden -> Bindung landet nicht versehentlich in einem VAO */
+        int ebo = GL15.glGenBuffers();
         GL30.glBindVertexArray(0);
-        GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, this.sharedEbo);
+        GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);
         GL15.glBufferData(GL15.GL_ELEMENT_ARRAY_BUFFER, indices, GL15.GL_STATIC_DRAW);
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0);
-        if (oldEbo != 0) {
-            GL15.glDeleteBuffers(oldEbo);
-            this.logger.debug("Quad-EBO gewachsen: " + this.indexCapacityQuads + " -> " + newCapacity + " Quads");
-        }
-        GlDebug.labelBuffer(this.sharedEbo, "Geteilter Quad-EBO (" + newCapacity + " Quads)");
-        this.indexCapacityQuads = newCapacity;
+        GlDebug.labelBuffer(ebo, label);
+        return ebo;
     }
 
     /** Bindet Arena-Buffer + EBO in die Layer-VAOs neu, falls sich einer geändert hat (Wachstum). */
     private void ensureVaoBindings() {
         for (int i = 0; i < this.vaos.length; i++) {
             int arenaBuffer = this.arenas[i].getBuffer();
-            if (this.vaoArenaBuffer[i] == arenaBuffer && this.vaoEbo[i] == this.sharedEbo) continue;
+            int ebo = i == LOD_OPAQUE || i == LOD_TRANSLUCENT ? this.lodEbo : this.sharedEbo;
+            if (this.vaoArenaBuffer[i] == arenaBuffer && this.vaoEbo[i] == ebo) continue;
 
             GL30.glBindVertexArray(this.vaos[i]);
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, arenaBuffer);
@@ -1452,11 +1486,11 @@ public class ChunkRenderer {
                daher ein zweites 1-komponentiges bei Offset 16 — Stride bleibt derselbe. */
             GL30.glVertexAttribIPointer(1, 1, GL11.GL_UNSIGNED_INT, stride, 16);
             GL20.glEnableVertexAttribArray(1);
-            GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, this.sharedEbo);
+            GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);
             GL30.glBindVertexArray(0);
 
             this.vaoArenaBuffer[i] = arenaBuffer;
-            this.vaoEbo[i] = this.sharedEbo;
+            this.vaoEbo[i] = ebo;
         }
     }
 
@@ -1650,19 +1684,23 @@ public class ChunkRenderer {
     private void registerLodMesh(LodMesh mesh) {
         this.lodTileAdd(mesh);
         if (mesh.hasOpaque()) {
-            mesh.gpuSlot = this.gpuCull.addLod(mesh.level,
-                    mesh.rx * LodMesher.REGION_BLOCKS, mesh.rz * LodMesher.REGION_BLOCKS, mesh.yBase,
-                    mesh.minY, mesh.maxY, mesh.sizeBlocks, mesh.invPosScale,
-                    mesh.posScaleCode, mesh.debugConflictMask,
-                    mesh.indexCountOpaque(), mesh.baseVertexOpaque());
+            for (int draw = 0; draw < mesh.opaqueDrawCount(); draw++) {
+                mesh.gpuSlots[draw] = this.gpuCull.addLod(mesh.level,
+                        mesh.rx * LodMesher.REGION_BLOCKS, mesh.rz * LodMesher.REGION_BLOCKS, mesh.yBase,
+                        mesh.minY, mesh.maxY, mesh.sizeBlocks, mesh.invPosScale,
+                        mesh.posScaleCode, mesh.debugConflictMask,
+                        mesh.indexCountOpaque(draw), mesh.baseVertexOpaque(draw));
+            }
         }
         if (mesh.hasTranslucent()) this.lodTranslucentMeshes.add(mesh);
     }
 
     private void unregisterLodMesh(LodMesh mesh) {
-        if (mesh.gpuSlot >= 0) {
-            this.gpuCull.removeLod(mesh.level, mesh.gpuSlot);
-            mesh.gpuSlot = -1;
+        for (int draw = 0; draw < mesh.gpuSlots.length; draw++) {
+            int slot = mesh.gpuSlots[draw];
+            if (slot < 0) continue;
+            this.gpuCull.removeLod(mesh.level, slot);
+            mesh.gpuSlots[draw] = -1;
         }
         if (mesh.hasTranslucent()) this.lodTranslucentMeshes.remove(mesh);
         this.lodTileRemove(mesh);
@@ -1767,7 +1805,9 @@ public class ChunkRenderer {
         conflictMask &= 0xFFFF;
         if (mesh.debugConflictMask == conflictMask) return;
         mesh.debugConflictMask = conflictMask;
-        if (mesh.gpuSlot >= 0) this.gpuCull.setLodDebugConflict(mesh.gpuSlot, conflictMask);
+        for (int slot : mesh.gpuSlots) {
+            if (slot >= 0) this.gpuCull.setLodDebugConflict(slot, conflictMask);
+        }
     }
 
     private void setColumnDebugConflict(CullColumn col, boolean conflict) {
@@ -1928,6 +1968,7 @@ public class ChunkRenderer {
         }
         for (int vao : this.vaos) GL30.glDeleteVertexArrays(vao);
         if (this.sharedEbo != 0) GL15.glDeleteBuffers(this.sharedEbo);
+        if (this.lodEbo != 0) GL15.glDeleteBuffers(this.lodEbo);
         if (this.commandRing != null) this.commandRing.dispose();
         if (this.offsetRing != null) this.offsetRing.dispose();
         for (VertexArena arena : this.arenas) {
