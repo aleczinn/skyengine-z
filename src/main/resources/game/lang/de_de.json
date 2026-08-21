@@ -97,14 +97,24 @@
       "msaa_on": "<gray>%dx Samples - glattere Kanten, kostet Füllrate.\nGreift erst beim nächsten Framebuffer-Aufbau</>",
       "fog": "Nebel",
       "vegetation_distance": "Vegetations-Distanz: %s",
-      "lod": "LOD (Fernsicht)",
-      "lod_distance": "LOD-Distanz: %d",
       "vsync": "VSync",
       "view_bobbing": "Gehbewegung",
       "damage_tilt": "Schadensneigung",
       "brightness": "Helligkeit: %s"
     },
 
+
+    "lod": {
+      "button": "LOD (Fernsicht) ...",
+      "title": "LOD (Fernsicht)",
+      "enabled": "LOD aktiviert",
+      "distance": "LOD-Distanz: %d",
+      "quality": "AO-Qualität",
+      "quality_hint_off": "<b>AO-Qualität (nur LOD)</b>\n<gray>OFF: kein AO in der Ferne - <b>wenigste Quads</b>, flachster Look. Das echte Terrain behält sein AO.</>",
+      "quality_hint_low": "<b>AO-Qualität (nur LOD)</b>\n<gray>LOW: weiches AO nur im nächsten Ring, dahinter flächig - Standard.</>",
+      "quality_hint_mid": "<b>AO-Qualität (nur LOD)</b>\n<gray>MID: weiches AO auch im zweiten Ring - Berge wirken plastischer.</>",
+      "quality_hint_high": "<b>AO-Qualität (nur LOD)</b>\n<gray>HIGH: weiches AO bis zum Horizont - schönster Look, <gold>meiste Quads</></>"
+    },
     "sound": {
       "button": "Musik & Geräusche...",
       "title": "Musik & Geräusche",
