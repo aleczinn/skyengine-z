@@ -10,6 +10,7 @@ import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.CycleButton;
+import de.skyengine.graphics.gui.widget.Spacer;
 import de.skyengine.graphics.post.PostProcessingSettings;
 import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.world.GpuCull;
@@ -61,16 +62,8 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
                     if (game.getWorld() != null) game.getWorld().getChunkManager().setLoadingPaused(v);
                 });
 
-        CycleButton<Boolean> guiSlots = CycleButton.onOff(I18n.tr("options.debug.gui_slots"), CELL_W, CELL_H,
-                DebugFlags.guiSlotBounds, v -> DebugFlags.guiSlotBounds = v);
-
-        CycleButton<Boolean> underwaterEffect = CycleButton.onOff(
-                I18n.tr("options.debug.underwater_effect"), CELL_W, CELL_H,
-                DebugFlags.underwaterEffect, v -> DebugFlags.underwaterEffect = v);
-
-        PostProcessingSettings post = SkyEngine.get().getPostProcessor().getSettings();
-        CycleButton<AntiAliasingMode> aa = new CycleButton<>(I18n.tr("options.debug.aa_mode"), CELL_W, CELL_H,
-                AntiAliasingMode.values(), post.getAaMode(), Enum::name, post::setAaMode);
+        CycleButton<Boolean> guiSlots = CycleButton.onOff(I18n.tr("options.debug.gui_slots"), CELL_W, CELL_H, DebugFlags.guiSlotBounds, v -> DebugFlags.guiSlotBounds = v);
+        CycleButton<Boolean> underwaterEffect = CycleButton.onOff(I18n.tr("options.debug.underwater_effect"), CELL_W, CELL_H, DebugFlags.underwaterEffect, v -> DebugFlags.underwaterEffect = v);
 
         Button reloadChunks = new Button(I18n.tr("options.debug.reload_chunks"), CELL_W, CELL_H, () -> {
             if (game.getWorld() != null) game.getWorld().reloadAllChunks();
@@ -78,12 +71,11 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
         Button reloadPost = new Button(I18n.tr("options.debug.reload_post"), CELL_W, CELL_H,
                 () -> SkyEngine.get().getPostProcessor().getSettings().reloadFromFile());
 
-        content.add(new HStack(4, wireframe, gpuCull));
-        content.add(new HStack(4, gpuCullHiZ, gpuCullTint));
-        content.add(lodColors);
-        content.add(new HStack(4, pauseLoading, guiSlots));
-        content.add(underwaterEffect);
-        content.add(aa);
+        content.add(new HStack(4, wireframe, null));
+        content.add(new HStack(4, gpuCull, gpuCullHiZ));
+        content.add(new HStack(4, gpuCullTint, null));
+        content.add(new HStack(4, underwaterEffect, guiSlots));
         content.add(new HStack(4, reloadChunks, reloadPost));
+        content.add(new HStack(4, pauseLoading, lodColors));
     }
 }

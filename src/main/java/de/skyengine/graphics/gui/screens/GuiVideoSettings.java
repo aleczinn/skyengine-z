@@ -10,6 +10,7 @@ import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.CycleButton;
 import de.skyengine.graphics.gui.widget.Slider;
+import de.skyengine.graphics.post.PostProcessingSettings;
 
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
@@ -113,6 +114,9 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
                         (int) v == 0 ? I18n.tr("gui.off") : (int) v + " %"),
                 v -> this.settings.brightness = (int) v, null);
 
+        PostProcessingSettings post = SkyEngine.get().getPostProcessor().getSettings();
+        CycleButton<PostProcessingSettings.AntiAliasingMode> aa = new CycleButton<>(I18n.tr("options.debug.aa_mode"), CELL_W, CELL_H, PostProcessingSettings.AntiAliasingMode.values(), post.getAaMode(), Enum::name, post::setAaMode);
+
         content.add(new HStack(4, render, simulation));
         content.add(new HStack(4, msaa, aniso));
         content.add(new HStack(4, ao, leaves));
@@ -120,6 +124,7 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
         content.add(new HStack(4, lod, lodDistance));
         content.add(new HStack(4, bobbing, damageTilt));
         content.add(new HStack(4, vsync, brightness));
+        content.add(new HStack(4, aa, null));
     }
 
     /** AO/Laub stecken im gebackenen Mesh -> Voll-Remesh (nur mit Welt möglich). */
