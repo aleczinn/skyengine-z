@@ -1180,8 +1180,8 @@ public final class LodMesher {
 
     /**
      * L1-Corner-AO auf der tatsaechlich sichtbaren Wand. Beide Face-Achsen verwenden dieselbe
-     * Zweier-Aufloesung: tangential die 16x16-L1-Spalten, vertikal ein global ausgerichtetes
-     * 2-Block-Raster. Ungerade echte Intervallgrenzen clippen nur die aeusserste Rasterzelle.
+     * L1-Aufloesung: tangential die 2 Block breiten L1-Spalten, vertikal echte 1-Block-Zellen.
+     * Damit bleibt die vereinbarte 2x1x2-Aufloesung auch an Seitenwaenden erhalten.
      * Wie im L0 bleiben Zellen mit vier unterschiedlichen Eckwerten einzeln; nur vollstaendig
      * uniforme Zellen mit demselben AO-Wert duerfen zweidimensional greedy mergen.
      */
@@ -1189,15 +1189,14 @@ public final class LodMesher {
                                       int cellSize, boolean alongX, int minY, int maxY,
                                       long lightSurface) {
         if (maxY <= minY || tangentCells <= 0) return;
-        int firstRow = Math.floorDiv(minY, cellSize);
-        int rowCount = Math.floorDiv(maxY - 1, cellSize) - firstRow + 1;
+        int rowCount = maxY - minY;
         int cells = tangentCells * rowCount;
         if (this.levelOneWallGrid.length < cells) {
             this.levelOneWallGrid = new int[cells];
         }
         for (int row = 0; row < rowCount; row++) {
-            int bottom = Math.max(minY, (firstRow + row) * cellSize);
-            int top = Math.min(maxY, (firstRow + row + 1) * cellSize);
+            int bottom = minY + row;
+            int top = bottom + 1;
             int rowOffset = row * tangentCells;
             for (int tangent = 0; tangent < tangentCells; tangent++) {
                 int sampleX = alongX ? x + tangent : x;
@@ -1234,8 +1233,8 @@ public final class LodMesher {
                 }
 
                 int ao = Math.abs(key) - 1;
-                int bottom = Math.max(minY, (firstRow + row) * cellSize);
-                int top = Math.min(maxY, (firstRow + row + rows) * cellSize);
+                int bottom = minY + row;
+                int top = bottom + rows;
                 this.emitLevelOneWallCell(block, face, x, z, tangent, width, cellSize,
                         alongX, bottom, top, lightSurface, ao);
             }
@@ -1619,9 +1618,9 @@ public final class LodMesher {
         }
         if (!this.flatAo) {
             /* Transitionen sind bereits hoechstens eine Zelle des feineren Rasters breit.
-               Vertikal gilt dasselbe globale Zweier-Raster wie bei normalen L1-Waenden:
-               weiches AO bleibt auf eine 2x2-Face-Zelle begrenzt, uniforme Zeilen mergen. */
-            int cellSize = Math.max(1, Math.round(this.currentCellSize()));
+               Vertikal gilt dieselbe Ein-Block-Aufloesung wie bei normalen L1-Waenden:
+               weiches AO bleibt auf eine 2x1-Face-Zelle begrenzt, uniforme Zeilen mergen. */
+            int cellSize = 1;
             int runMin = minY;
             int bandEnd = nextGridBoundary(minY, maxY, cellSize);
             int runAo = this.wallGeometryAo(face, xa, za, xb, zb, minY, bandEnd);

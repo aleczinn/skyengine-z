@@ -243,6 +243,44 @@ final class LodMesherColumnTransitionTest {
     }
 
     @Test
+    void reportedSeed187MountainNeighborhoodKeepsEveryPackedQuadValid() {
+        GameSettings settings = GameSettings.get();
+        boolean previousAo = settings.ambientOcclusion;
+        settings.ambientOcclusion = true;
+        try {
+            Seed187Source source = new Seed187Source();
+            LodMesher mesher = new LodMesher();
+            LodConfig config = LodConfig.of(16, 128);
+            int centerRx = -54, centerRz = -141;
+            int anchorX = centerRx * LodMesher.REGION_BLOCKS + LodMesher.REGION_BLOCKS / 2;
+            int anchorZ = centerRz * LodMesher.REGION_BLOCKS + LodMesher.REGION_BLOCKS / 2;
+
+            for (int rz = centerRz - 8; rz <= centerRz + 8; rz++) {
+                for (int rx = centerRx - 8; rx <= centerRx + 8; rx++) {
+                    double dx = (rx + 0.5) * LodMesher.REGION_BLOCKS - anchorX;
+                    double dz = (rz + 0.5) * LodMesher.REGION_BLOCKS - anchorZ;
+                    int level = config.levelAt(Math.sqrt(dx * dx + dz * dz));
+                    settings.ambientOcclusion = false;
+                    LodManager.LodMeshResult withoutAo = mesher.mesh(source,
+                            new LodBlockAppearance(), config, level, 1, rx, rz, 0,
+                            LodManager.LodClipSnapshot.centerOnly(0), anchorX, anchorZ);
+                    settings.ambientOcclusion = true;
+                    LodManager.LodMeshResult withAo = mesher.mesh(source,
+                            new LodBlockAppearance(), config, level, 1, rx, rz, 0,
+                            LodManager.LodClipSnapshot.centerOnly(0), anchorX, anchorZ);
+                    assertValidPackedQuads(withAo.opaqueData());
+                    assertValidPackedQuads(withAo.translucentData());
+                    assertEquals(unitSurfaceCoverage(withoutAo.opaqueData(), withoutAo.yBase()),
+                            unitSurfaceCoverage(withAo.opaqueData(), withAo.yBase()),
+                            "AO veraendert die sichtbare Oberflaeche in Region (" + rx + "," + rz + ")");
+                }
+            }
+        } finally {
+            settings.ambientOcclusion = previousAo;
+        }
+    }
+
+    @Test
     void reportedSeed187LevelOneAoOnlySubdividesTheExistingSurface() {
         GameSettings settings = GameSettings.get();
         boolean previousAo = settings.ambientOcclusion;
@@ -1329,6 +1367,8 @@ final class LodMesherColumnTransitionTest {
                 1, 1, rx, rz, 0, LodManager.LodClipSnapshot.centerOnly(mask),
                 baseX + LodMesher.REGION_BLOCKS / 2,
                 baseZ + LodMesher.REGION_BLOCKS / 2);
+        assertValidPackedQuads(result.opaqueData());
+        assertValidPackedQuads(result.translucentData());
 
         int lodFace = seam.xAxis
                 ? exactPositive ? 5 : 4

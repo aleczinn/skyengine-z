@@ -149,9 +149,9 @@ final class LodMesherColumnAoTest {
         LodManager.LodMeshResult l2 = mesh(source, true, 2);
 
         List<Integer> l1Colors = colorsOfVerticalQuad(l1.opaqueData(), l1.yBase(),
-                64F, 60F, 62F);
+                64F, 60F, 61F);
         List<Integer> l1UpperColors = colorsOfVerticalQuad(l1.opaqueData(), l1.yBase(),
-                64F, 62F, 64F);
+                64F, 61F, 64F);
         List<Integer> l2Colors = colorsOfVerticalQuad(l2.opaqueData(), l2.yBase(),
                 64F, 60F, 64F);
         assertFalse(l1Colors.isEmpty());
@@ -174,7 +174,7 @@ final class LodMesherColumnAoTest {
                 new LodManager.LodNeighborSnapshot(2, 2, 1, 2));
 
         List<Integer> l1Colors = colorsOfVerticalQuad(l1Owner.opaqueData(), l1Owner.yBase(),
-                128F, 60F, 62F);
+                128F, 60F, 61F);
         List<Integer> l2Colors = colorsOfVerticalQuad(l2Owner.opaqueData(), l2Owner.yBase(),
                 0F, 60F, 64F);
         assertFalse(l1Colors.isEmpty(), "Die L1-Seite muss ihre exponierte Transition emittieren");
@@ -194,10 +194,10 @@ final class LodMesherColumnAoTest {
 
         assertFalse(hasVerticalQuad(withAo.opaqueData(), withAo.yBase(), 128F, 60F, 64F),
                 "Corner-AO darf nicht ueber die gesamte L1-Transition gestreckt werden");
-        assertTrue(hasVerticalQuad(withAo.opaqueData(), withAo.yBase(), 128F, 60F, 62F),
-                "Die Kontaktkante braucht eine eigene 2x2-AO-Zelle");
+        assertTrue(hasVerticalQuad(withAo.opaqueData(), withAo.yBase(), 128F, 60F, 61F),
+                "Die Kontaktkante braucht eine eigene 2x1-AO-Zelle");
         assertTrue(colorsOfVerticalQuad(withAo.opaqueData(), withAo.yBase(),
-                        128F, 60F, 62F).stream().distinct().count() > 1,
+                        128F, 60F, 61F).stream().distinct().count() > 1,
                 "Die sichtbare L1-Kante muss weiches Corner-AO behalten");
     }
 
@@ -221,10 +221,10 @@ final class LodMesherColumnAoTest {
         assertEquals(4, countVerticalQuads(withoutAo.opaqueData(), withoutAo.yBase(),
                 64F, 60F, 80F), "Ohne AO bleibt die 128er-Wand in vier Greedy-Runs");
         assertEquals(64, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
-                64F, 60F, 62F),
-                "Die weiche Kontaktkante muss aus 64 sichtbaren 2x2-L1-Zellen bestehen");
+                64F, 60F, 61F),
+                "Die weiche Kontaktkante muss aus 64 sichtbaren 2x1-L1-Zellen bestehen");
         assertEquals(4, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
-                64F, 62F, 80F),
+                64F, 61F, 80F),
                 "Der uniforme Wandrest muss weiterhin in vier 32er-Runs mergen");
         assertEquals(0, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
                 64F, 60F, 80F),
@@ -232,18 +232,18 @@ final class LodMesherColumnAoTest {
 
         assertEquals(List.of(0x5C5C5C, 0x5C5C5C, 0x999999, 0x999999),
                 colorsOfVerticalQuad(withAo.opaqueData(), withAo.yBase(),
-                        64F, 60F, 62F),
-                "Die 2x2-L1-Wandzelle muss dieselben Corner-AO-Stufen wie L0 tragen");
+                        64F, 60F, 61F),
+                "Die 2x1-L1-Wandzelle muss dieselben Corner-AO-Stufen wie L0 tragen");
 
         List<Integer> sharedEdge = colorsOfVerticalVertex(withAo.opaqueData(), withAo.yBase(),
-                64F, 62F, 64F);
+                64F, 61F, 64F);
         assertFalse(sharedEdge.isEmpty());
         assertEquals(1, sharedEdge.stream().distinct().count(),
                 "Kontaktzelle und heller Wandrest muessen an ihrer gemeinsamen Kante nahtlos sein");
     }
 
     @Test
-    void levelOneOddHeightClipsOnlyTheOuterTwoByTwoGridCell() {
+    void levelOneOddHeightKeepsOneBlockVerticalAoCells() {
         LodDataSource source = columns((x, z) -> terrain(x < 64 ? 66 : 61));
         LodManager.LodMeshResult withoutAo = mesh(source, false, 1);
         LodManager.LodMeshResult withAo = mesh(source, true, 1);
@@ -252,15 +252,15 @@ final class LodMesherColumnAoTest {
                 64F, 61F, 66F));
         assertEquals(64, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
                 64F, 61F, 62F),
-                "Nur die ungerade untere Randzelle darf auf einen Block geclippt werden");
+                "Die untere Kontaktkante muss genau eine Blockzeile hoch bleiben");
         assertEquals(4, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
                 64F, 62F, 66F),
-                "Alle inneren L1-Zeilen muessen auf dem globalen Zweier-Y-Raster bleiben");
+                "Uniforme Ein-Block-Zeilen sollen wieder zu hohen Greedy-Quads mergen");
         assertEquals(0, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
                 64F, 62F, 63F));
         assertEquals(0, countVerticalQuads(withAo.opaqueData(), withAo.yBase(),
                 64F, 63F, 64F),
-                "Innerhalb der Wand darf kein 2x1-AO-Quad mehr entstehen");
+                "Innerhalb des uniformen Wandrests darf kein einzelnes 2x1-Quad bleiben");
     }
 
     @Test
