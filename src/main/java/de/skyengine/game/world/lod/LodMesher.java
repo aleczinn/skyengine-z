@@ -147,18 +147,49 @@ public final class LodMesher {
 
     /* Konservative Arena-Schätzung: Terrain-Tops, Relief-/Skirt-Wände, zelllokale L1-AO-
        Wände sowie zusätzliche Strukturintervalle des Spaltenpfads. Bewusst mit Reserve,
-       damit die erste Füllung ohne stufenweises Arena-Wachstum auskommt. */
+       damit die erste Füllung ohne stufenweises Arena-Wachstum auskommt.
+       Gemessen (5 Anker in Seed 187 und 123, radial über den ganzen Ring abgetastet): das
+       über die Ringzellen gewichtete Maximum liegt bei 2,86 opaken Quads/Zelle — 3,5 trägt
+       also rund 22 % Reserve. */
     private static final float QUADS_PER_CELL = 3.5F;
+
+    /* Dasselbe für die LOD-TRANSLUCENT-Arena (Wasseroberflächen und -wände). Wasser-Tops
+       werden doppelseitig gebacken, zählen also doppelt. Dieselbe Messreihe ergab je Level
+       maximal 0,76 / 0,80 / 1,13 / 0,97 Quads/Zelle (L1..L4), über die Ringzellen gewichtet
+       0,84. Der volle Ring im Spiel (Seed 187, rd=16/lodMax=128) belegte allerdings 126 MB
+       = 0,90 Quads/Zelle — die Offline-Stichprobe lag ~12 % zu niedrig. 1,15 trägt darüber
+       dieselbe ~22 %-Reserve wie QUADS_PER_CELL.
+       Ein Ring, der fast nur aus offenem Meer besteht, kann das trotzdem überschreiten; das
+       kostet dann EINEN geloggten Grow statt eines Treppen-Wachstums. Ob die Schätzung noch
+       passt, steht im periodischen LOD-Log als "transl. <belegt>/<Kapazität> MB". */
+    private static final float TRANSLUCENT_QUADS_PER_CELL = 1.15F;
 
     /**
      * Schätzt die für die LOD-OPAQUE-Arena nötige Bytemenge aus der Ring-Konfiguration, damit
      * der {@link de.skyengine.graphics.world.ChunkRenderer} die Arena gleich groß genug anlegt
      * (kein Treppen-Wachstum beim Start → weniger NVIDIA-0x20072-Warnungen; die Arena wächst bei
-     * Bedarf trotzdem weiter). Iteriert das Regionsraster im Außenradius und summiert die Zellen
-     * je Region ((REGION_BLOCKS/2^level)²) über dieselbe pure {@link LodConfig#levelAt}-Formel wie
-     * der Mesher. Skaliert damit automatisch mit renderDistance/lodMaxDistance. Reine Schätzung.
+     * Bedarf trotzdem weiter). Skaliert automatisch mit renderDistance/lodMaxDistance.
      */
     public static long estimateOpaqueArenaBytes(LodConfig config) {
+        return arenaBytes(config, QUADS_PER_CELL);
+    }
+
+    /**
+     * Gegenstück für die LOD-TRANSLUCENT-Arena. Ohne diese Schätzung startete sie auf einem
+     * festen Kleinwert und wuchs bei Küsten-/Ozeanwelten in mehreren Schritten hoch — jeder
+     * Grow eine GPU-Vollkopie der ganzen Arena im Frame.
+     */
+    public static long estimateTranslucentArenaBytes(LodConfig config) {
+        return arenaBytes(config, TRANSLUCENT_QUADS_PER_CELL);
+    }
+
+    /**
+     * Iteriert das Regionsraster im Außenradius und summiert die Zellen je Region
+     * ((REGION_BLOCKS/2^level)²) über dieselbe pure {@link LodConfig#levelAt}-Formel wie der
+     * Mesher. Reine Schätzung — beide Arenen teilen sich die Zellzählung, damit ihre Geometrie
+     * nicht auseinanderlaufen kann.
+     */
+    private static long arenaBytes(LodConfig config, float quadsPerCell) {
         double outer = config.outerRadiusBlocks();
         /* Exakt dieselbe Geometrie wie LodManager.recomputeDesired: der Anker liegt im
            Regionszentrum, Abstände der Regionszentren sind also Vielfache von REGION_BLOCKS;
@@ -173,7 +204,7 @@ public final class LodMesher {
                 cells += (long) cellsPerRow * cellsPerRow;
             }
         }
-        long quads = (long) (cells * QUADS_PER_CELL);
+        long quads = (long) (cells * quadsPerCell);
         return quads * QUAD_INTS * Integer.BYTES;
     }
 

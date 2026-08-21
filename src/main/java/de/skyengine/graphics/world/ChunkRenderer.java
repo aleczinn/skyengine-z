@@ -372,14 +372,19 @@ public class ChunkRenderer {
            statt einer festen Zahl, die entweder VRAM verschwendet oder mehrfach nachwächst.
            Deckel nach unten auf 8 MB (kleine Sichtweiten / LOD aus). Wächst bei Bedarf weiter. */
         long lodOpaqueBytes = 8L * 1024 * 1024;
+        long lodTranslucentBytes = 8L * 1024 * 1024;
         if (settings.lodEnabled) {
-            lodOpaqueBytes = Math.max(lodOpaqueBytes,
-                    LodMesher.estimateOpaqueArenaBytes(LodConfig.of(settings.renderDistance, settings.lodMaxDistance)));
+            LodConfig lodConfig = LodConfig.of(settings.renderDistance, settings.lodMaxDistance);
+            lodOpaqueBytes = Math.max(lodOpaqueBytes, LodMesher.estimateOpaqueArenaBytes(lodConfig));
+            lodTranslucentBytes = Math.max(lodTranslucentBytes,
+                    LodMesher.estimateTranslucentArenaBytes(lodConfig));
         }
         this.arenas[LOD_OPAQUE] = new VertexArena("VertexArena LOD-OPAQUE",
                 cappedArenaBytes("LOD-OPAQUE", lodOpaqueBytes));
-        /* 8 MB statt 2: bei Ozean im Ring wuchs die Arena sonst direkt beim Start (2->4 MB). */
-        this.arenas[LOD_TRANSLUCENT] = new VertexArena("VertexArena LOD-TRANSLUCENT", 8L * 1024 * 1024);
+        /* Wasser wird genauso geschätzt wie das Terrain — der frühere Festwert (8 MB) wuchs bei
+           Küsten-/Ozeanwelten in vier Schritten auf 128 MB hoch, jeder Grow eine GPU-Vollkopie. */
+        this.arenas[LOD_TRANSLUCENT] = new VertexArena("VertexArena LOD-TRANSLUCENT",
+                cappedArenaBytes("LOD-TRANSLUCENT", lodTranslucentBytes));
 
         for (int i = 0; i < this.vaos.length; i++) {
             this.vaos[i] = GL30.glGenVertexArrays();
@@ -1153,8 +1158,9 @@ public class ChunkRenderer {
             this.lastLodRenderDistance = settings.renderDistance;
             this.lastLodMaxDistance = settings.lodMaxDistance;
             if (settings.lodEnabled) {
-                opaqueArena.ensureCapacity(LodMesher.estimateOpaqueArenaBytes(
-                        LodConfig.of(settings.renderDistance, settings.lodMaxDistance)));
+                LodConfig lodConfig = LodConfig.of(settings.renderDistance, settings.lodMaxDistance);
+                opaqueArena.ensureCapacity(LodMesher.estimateOpaqueArenaBytes(lodConfig));
+                translucentArena.ensureCapacity(LodMesher.estimateTranslucentArenaBytes(lodConfig));
             }
         }
         int uploads = 0;
@@ -1197,9 +1203,16 @@ public class ChunkRenderer {
                 lvlRegions[mesh.level]++;
                 lvlQuads[mesh.level] += mesh.quadCount();
             }
+            /* Belegung GEGEN Kapazität je LOD-Arena: die Startgrößen sind so gewählt, dass
+               keine Arena wachsen muss (jeder Grow ist eine GPU-Vollkopie im Frame). Nur an
+               diesen beiden Verhältnissen sieht man rechtzeitig, ob eine Schätzung nicht mehr
+               passt — sonst fällt es erst als Ruckler auf. */
             StringBuilder sb = new StringBuilder("LOD: ").append(this.lodMeshes.size())
-                    .append(" Regionen, ").append(quads).append(" Quads, ")
-                    .append((quads * 4 * ChunkMesher.VERTEX_SIZE * Integer.BYTES) >> 20).append(" MB Arena |");
+                    .append(" Regionen, ").append(quads).append(" Quads, Arena opak ")
+                    .append(this.arenas[LOD_OPAQUE].getUsedBytes() >> 20).append("/")
+                    .append(this.arenas[LOD_OPAQUE].getCapacity() >> 20).append(" MB, transl. ")
+                    .append(this.arenas[LOD_TRANSLUCENT].getUsedBytes() >> 20).append("/")
+                    .append(this.arenas[LOD_TRANSLUCENT].getCapacity() >> 20).append(" MB |");
             for (int l = 1; l <= MAX_LOD_LEVELS; l++) {
                 if (lvlRegions[l] == 0) continue;
                 sb.append(" L").append(l).append("=").append(lvlRegions[l])
