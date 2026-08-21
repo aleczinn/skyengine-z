@@ -70,6 +70,12 @@ public final class LodQuadCensus {
         long[] opaque = new long[levels];
         long[] translucent = new long[levels];
         long[] cells = new long[levels];
+        /* Flächen-Oracle: Merge-Änderungen dürfen die Quad-ZAHL senken, aber niemals die
+           emittierte FLÄCHE verändern. Doppelte oder fehlende Flächen fallen an den
+           Quad-Zählern allein nicht auf — hier schon. */
+        long[] areaUp = new long[levels];
+        long[] areaDown = new long[levels];
+        long[] areaSide = new long[levels];
 
         long start = System.currentTimeMillis();
         /* Level für Level, mit geleertem Cache dazwischen: sonst läge der komplette Ring in
@@ -92,6 +98,8 @@ public final class LodQuadCensus {
                     cells[level] += (long) cellsPerRow * cellsPerRow;
                     opaque[level] += result.opaqueData().length / QUAD_INTS;
                     translucent[level] += result.translucentData().length / QUAD_INTS;
+                    accumulateArea(result.opaqueData(), level, areaUp, areaDown, areaSide);
+                    accumulateArea(result.translucentData(), level, areaUp, areaDown, areaSide);
                 }
             }
         }
@@ -120,8 +128,55 @@ public final class LodQuadCensus {
                 totalCells == 0 ? 0 : (double) totalQ / totalCells,
                 totalQ * 4.0 * ChunkMesher.VERTEX_SIZE * Integer.BYTES / (1024.0 * 1024.0));
 
+        long upAll = 0, downAll = 0, sideAll = 0;
+        for (int l = 1; l < levels; l++) {
+            upAll += areaUp[l];
+            downAll += areaDown[l];
+            sideAll += areaSide[l];
+        }
+        System.out.printf(Locale.ROOT,
+                "Flaeche (Rohwerte, MUSS bei Merge-Aenderungen konstant bleiben): "
+                        + "hoch=%d runter=%d seitlich=%d%n", upAll, downAll, sideAll);
+
         /* Detailreport: Flächentypen, Merge-Grenzen nach Ursache, Skirt-Anteil. */
         stats.printReport(config, ao);
+    }
+
+    /**
+     * Summiert die emittierte Fläche in Blöcken², getrennt nach Ausrichtung: aufwärts (Tops),
+     * abwärts (Bottoms) und senkrecht (Wände). Diese Summen sind die Invariante, an der sich
+     * eine Merge-Änderung messen lassen muss — sie dürfen sich NICHT ändern, während die
+     * Quad-Zahl sinkt.
+     */
+    private static void accumulateArea(int[] data, int level,
+                                       long[] up, long[] down, long[] side) {
+        for (int q = 0; q + QUAD_INTS <= data.length; q += QUAD_INTS) {
+            int minX = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE;
+            int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
+            int minZ = Integer.MAX_VALUE, maxZ = Integer.MIN_VALUE;
+            for (int v = 0; v < 4; v++) {
+                int b = q + v * ChunkMesher.VERTEX_SIZE;
+                int x = data[b] & 0xFFFF, y = data[b] >>> 16, z = data[b + 1] & 0xFFFF;
+                minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+                minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+            }
+            /* Rohwerte reichen: die Skala (1/127) ist für alle Quads dieselbe, die Summe ist
+               damit vergleichbar. Ganzzahlig gehalten, damit der Vergleich exakt bleibt. */
+            long dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+            if (dy == 0) {
+                /* Waagerecht: Normale zeigt hoch oder runter — Wicklung entscheidet. */
+                int b0 = q, b1 = q + ChunkMesher.VERTEX_SIZE, b2 = q + 2 * ChunkMesher.VERTEX_SIZE;
+                long ax = (data[b1] & 0xFFFF) - (data[b0] & 0xFFFF);
+                long az = (data[b1 + 1] & 0xFFFF) - (data[b0 + 1] & 0xFFFF);
+                long bx = (data[b2] & 0xFFFF) - (data[b0] & 0xFFFF);
+                long bz = (data[b2 + 1] & 0xFFFF) - (data[b0 + 1] & 0xFFFF);
+                long ny = az * bx - ax * bz;
+                if (ny >= 0) up[level] += dx * dz; else down[level] += dx * dz;
+            } else {
+                side[level] += (dx + dz) * dy;
+            }
+        }
     }
 
     /**

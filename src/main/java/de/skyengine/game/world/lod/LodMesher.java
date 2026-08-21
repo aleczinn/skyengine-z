@@ -97,6 +97,15 @@ public final class LodMesher {
     /* Merge-Marker der Top-Pässe (2D-Greedy): true = Zelle schon in ein Quad gemerged;
        wird vor Terrain- (3a) und Wasser-Pass (3b) jeweils zurückgesetzt. */
     private boolean[] consumed = new boolean[0];
+
+    /* Spaltenpfad: verbrauchte Flächen je (Zelle, Intervall) als Bitmaske — MAX_INTERVALS = 4
+       Bits reichen. Der Greedy mergt über Intervall-GRENZEN hinweg (dieselbe Oberfläche liegt
+       je nach Schichtung darunter an unterschiedlichen Indizes), deshalb genügt das frühere
+       boolean je Zelle nicht mehr: eine Zelle, die im Durchlauf für Intervall 2 konsumiert
+       wurde, darf im Durchlauf für Intervall 1 nicht erneut emittiert werden. Tops und Bottoms
+       führen getrennt Buch. Das alte boolean[] consumed bleibt dem Heightmap-Fallback. */
+    private byte[] topConsumed = new byte[0];
+    private byte[] bottomConsumed = new byte[0];
     /* Getrennte Ausgabepuffer: Fluid-Top-Quads -> translucent (transparent, eigene Arena/
        eigener Draw-Call im Renderer), alles andere (Terrain-Tops + Wände sowie die nur im
        Heightmap-Fallback verbleibenden Skirts,
@@ -544,7 +553,14 @@ public final class LodMesher {
         this.lastSamplingNanos = System.nanoTime() - samplingStarted;
         long geometryStarted = System.nanoTime();
         this.yBase = Math.max(0, (minY == Integer.MAX_VALUE ? 0 : minY) - 2);
-        if (this.consumed.length < n * n) this.consumed = new boolean[n * n];
+        if (this.topConsumed.length < n * n) {
+            this.topConsumed = new byte[n * n];
+            this.bottomConsumed = new byte[n * n];
+        }
+        /* EINMAL vor der Intervall-Schleife nullen, nicht in ihr: genau das erlaubt, dass eine
+           Zelle in einem früheren Durchlauf für ein anderes Intervall konsumiert wurde. */
+        Arrays.fill(this.topConsumed, 0, n * n, (byte) 0);
+        Arrays.fill(this.bottomConsumed, 0, n * n, (byte) 0);
         this.viOpaque = this.viTranslucent = 0;
         this.minBottom = Float.MAX_VALUE;
         this.maxTop = -Float.MAX_VALUE;
@@ -552,11 +568,12 @@ public final class LodMesher {
         /* flatAo wurde am gemeinsamen mesh()-Eingang ausschließlich aus level bestimmt. */
 
         for (int intervalIndex = 0; intervalIndex < LodColumn.MAX_INTERVALS; intervalIndex++) {
-            Arrays.fill(this.consumed, 0, n * n, false);
             for (int z = 0; z < n; z++) for (int x = 0; x < n;) {
                 int cellIndex = z * n + x;
                 LodColumn column = this.column(x, z);
-                if (this.clipped[cellIndex] || this.consumed[cellIndex] || intervalIndex >= column.size()
+                if (this.clipped[cellIndex]
+                        || (this.topConsumed[cellIndex] & (1 << intervalIndex)) != 0
+                        || intervalIndex >= column.size()
                         || !this.topExposed(column, intervalIndex)) {
                     x++;
                     continue;
@@ -586,30 +603,33 @@ public final class LodMesher {
                 int width = 1, height = 1;
                 if (uniform) {
                     while (x + width < n && width < maxRun
-                            && this.columnTopFaceMatches(x + width, z, intervalIndex, interval,
-                            skyLight, shadeAo, ao[0])) width++;
+                            && this.columnTopFaceMatch(x + width, z, interval,
+                            skyLight, shadeAo, ao[0]) >= 0) width++;
                     topExpand:
                     while (z + height < n && height < maxRun) {
                         for (int dx = 0; dx < width; dx++) {
-                            if (!this.columnTopFaceMatches(x + dx, z + height, intervalIndex,
-                                    interval, skyLight, shadeAo, ao[0])) break topExpand;
+                            if (this.columnTopFaceMatch(x + dx, z + height,
+                                    interval, skyLight, shadeAo, ao[0]) < 0) break topExpand;
                         }
                         height++;
                     }
                 }
-                for (int dz = 0; dz < height; dz++) for (int dx = 0; dx < width; dx++) {
-                    this.consumed[(z + dz) * n + x + dx] = true;
-                }
+                this.consume(this.topConsumed, x, z, width, height, n, interval, true);
                 this.emitTop(block, ao, x * s, z * s, (x + width) * s, (z + height) * s,
                         top, skyLight);
-                x += width;
+                /* NICHT um width springen: verbraucht wird jetzt je (Zelle, Intervall), und
+                   eine uebersprungene Zelle kann an DIESER Intervall-Nummer noch eine eigene,
+                   unemittierte Flaeche haben (ihre passende Flaeche lag an einer anderen
+                   Nummer). Die Maske sorgt selbst dafuer, dass nichts doppelt herauskommt. */
+                x++;
             }
 
-            Arrays.fill(this.consumed, 0, n * n, false);
             for (int z = 0; z < n; z++) for (int x = 0; x < n;) {
                 int cellIndex = z * n + x;
                 LodColumn column = this.column(x, z);
-                if (this.clipped[cellIndex] || this.consumed[cellIndex] || intervalIndex >= column.size()
+                if (this.clipped[cellIndex]
+                        || (this.bottomConsumed[cellIndex] & (1 << intervalIndex)) != 0
+                        || intervalIndex >= column.size()
                         || !this.bottomExposed(column, intervalIndex)) {
                     x++;
                     continue;
@@ -621,23 +641,21 @@ public final class LodMesher {
                 int skyLight = 0;
                 int width = 1;
                 while (x + width < n && width < maxRun
-                        && this.columnFaceMatches(x + width, z, intervalIndex,
-                        interval, false, skyLight)) width++;
+                        && this.columnFaceMatch(x + width, z, interval, false, skyLight) >= 0) width++;
                 int height = 1;
                 bottomExpand:
                 while (z + height < n && height < maxRun) {
                     for (int dx = 0; dx < width; dx++) {
-                        if (!this.columnFaceMatches(x + dx, z + height, intervalIndex,
-                                interval, false, skyLight)) break bottomExpand;
+                        if (this.columnFaceMatch(x + dx, z + height,
+                                interval, false, skyLight) < 0) break bottomExpand;
                     }
                     height++;
                 }
-                for (int dz = 0; dz < height; dz++) for (int dx = 0; dx < width; dx++) {
-                    this.consumed[(z + dz) * n + x + dx] = true;
-                }
+                this.consume(this.bottomConsumed, x, z, width, height, n, interval, false);
                 this.emitBottom(LodColumn.state(interval), x * s, z * s,
                         (x + width) * s, (z + height) * s, LodColumn.minY(interval), skyLight);
-                x += width;
+                x++; // s. Top-Pass: pro (Zelle, Intervall) verbraucht, also nicht springen
+
             }
         }
 
@@ -683,30 +701,63 @@ public final class LodMesher {
                 : LodColumn.minY(a) == LodColumn.minY(b);
     }
 
-    private boolean columnFaceMatches(int x, int z, int index, long interval,
-                                      boolean top, int skyLight) {
+    /**
+     * Sucht in einer Spalte das Intervall mit DERSELBEN Fläche wie {@code seed} — nicht mit
+     * derselben Intervall-Nummer. Wie viele Intervalle unter einer Oberfläche liegen, hängt von
+     * der Schichtung darunter ab ({@code [Stein, Wasser]} vs. {@code [Stein, Sand, Wasser]}),
+     * die Nummer verschiebt sich also, obwohl die sichtbare Fläche identisch ist. Der frühere
+     * Index-Vergleich hat solche Nachbarn nie zusammengeführt.
+     *
+     * <p>Der Treffer ist eindeutig: {@link LodColumn} garantiert von unten nach oben sortierte,
+     * disjunkte Intervalle {@code [minY,maxY)} — damit kommt jedes {@code maxY} (bzw.
+     * {@code minY}) je Spalte höchstens einmal vor. Die Suche ist deshalb auch beim erneuten
+     * Aufruf im Konsum-Schritt deterministisch.
+     */
+    private static int matchingInterval(LodColumn column, long seed, boolean top) {
+        for (int i = 0, size = column.size(); i < size; i++) {
+            if (sameFace(column.interval(i), seed, top)) return i;
+        }
+        return -1;
+    }
+
+    /** Markiert die Fläche eines fertigen Rechtecks als verbraucht (je Zelle das Trefferbit). */
+    private void consume(byte[] mask, int x, int z, int width, int height, int n,
+                         long interval, boolean top) {
+        for (int dz = 0; dz < height; dz++) for (int dx = 0; dx < width; dx++) {
+            int ci = (z + dz) * n + x + dx;
+            int index = matchingInterval(this.column(x + dx, z + dz), interval, top);
+            if (index >= 0) mask[ci] |= (byte) (1 << index);
+        }
+    }
+
+    /** @return Intervall-Index der passenden Fläche in der Nachbarspalte, sonst -1. */
+    private int columnFaceMatch(int x, int z, long interval, boolean top, int skyLight) {
         int ci = z * this.cellCount + x;
-        if (this.clipped[ci] || this.consumed[ci]) return false;
+        if (this.clipped[ci]) return -1;
         LodColumn column = this.column(x, z);
-        if (index >= column.size() || !sameFace(column.interval(index), interval, top)
-                || !(top ? this.topExposed(column, index) : this.bottomExposed(column, index))) return false;
-        if (!top) return skyLight == 0;
+        int index = matchingInterval(column, interval, top);
+        if (index < 0) return -1;
+        byte[] mask = top ? this.topConsumed : this.bottomConsumed;
+        if ((mask[ci] & (1 << index)) != 0) return -1;
+        if (!(top ? this.topExposed(column, index) : this.bottomExposed(column, index))) return -1;
+        if (!top) return skyLight == 0 ? index : -1;
         /* MUSS dieselbe Sample-Höhe verwenden wie die Saatzelle (s. lightY im Top-Pass):
            dort wird ein Fluid-Top aus der Zelle DIREKT ÜBER dem Wasser beleuchtet. Wer hier
            bei maxY-1+SOURCE_HEIGHT sampelt, liegt noch IM Wasser, bekommt eine Stufe weniger
            Skylight und der Vergleich schlägt grundsätzlich fehl — Wasserflächen mergten
            dadurch nie, obwohl sie über weite Strecken identisch sind. */
-        return this.columnSkyLight(column, LodColumn.maxY(interval)) == skyLight;
+        return this.columnSkyLight(column, LodColumn.maxY(interval)) == skyLight ? index : -1;
     }
 
-    /** Top-Merge-Kriterium inklusive AO; Bottom-Flächen verwenden weiterhin columnFaceMatches. */
-    private boolean columnTopFaceMatches(int x, int z, int index, long interval,
-                                         int skyLight, boolean useAo, float ao) {
-        if (!this.columnFaceMatches(x, z, index, interval, true, skyLight)) return false;
-        if (!useAo) return true;
+    /** Top-Merge-Kriterium inklusive AO; Bottom-Flächen verwenden columnFaceMatch direkt. */
+    private int columnTopFaceMatch(int x, int z, long interval,
+                                   int skyLight, boolean useAo, float ao) {
+        int index = this.columnFaceMatch(x, z, interval, true, skyLight);
+        if (index < 0 || !useAo) return index;
         float top = LodColumn.maxY(interval);
-        return this.flatAo ? this.columnCellAoFlat(x, z, top) == ao
+        boolean matches = this.flatAo ? this.columnCellAoFlat(x, z, top) == ao
                 : this.columnCellAoUniform(x, z, top, ao);
+        return matches ? index : -1;
     }
 
     private boolean topExposed(LodColumn column, int index) {
