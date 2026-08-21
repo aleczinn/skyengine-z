@@ -156,7 +156,14 @@ public class ChunkRenderer {
     private final List<LodMesh> visibleLodTranslucent = new ArrayList<>();
     private final List<LodMesh> lodTranslucentMeshes = new ArrayList<>();
 
+    /* Trifft im selben Frame schon ein Section-Upload ein (Initial-Load, Spieler-Remesh oder
+       eine Explosionswelle), bleibt es beim kleinen Budget — sonst landen 24 Priority-Batches,
+       8 Chunk-Batches und 16 LOD-Regionen gemeinsam in einem Frame. Nur in Frames ohne jeden
+       Section-Upload wird aufgeholt; ein LOD-Upload kostet gemessen 0,05 ms (p95 0,04, max 1,4),
+       16 davon bleiben klar unter einem Frame. Die Entscheidung faellt bewusst je FRAME und
+       haengt an keinem Einmal-Latch — so sind Start, Flug und Explosion gleich geschuetzt. */
     private static final int MAX_LOD_UPLOADS_PER_FRAME = 4;
+    private static final int MAX_LOD_UPLOADS_CATCHUP = 16;
 
     /* Deckel für die Vorab-Reservierung je Arena (s. cappedArenaBytes). */
     private static final long MAX_INITIAL_ARENA_BYTES = 768L << 20;
@@ -217,6 +224,12 @@ public class ChunkRenderer {
     private final int[] lodLvlN = new int[MAX_LOD_LEVELS + 1];
 
     private static final int MAX_UPLOADS_PER_FRAME = 8;
+
+    /* Startdiagnose (nur Debug-Log), s. trackInitialUpload: verbleibende Erst-Mesh-Batches
+       des Lade-Fixpunkts; -1 = noch nicht scharf, true = Messung abgeschlossen. */
+    private int initialUploadRemaining = -1;
+    private boolean initialUploadMeasured;
+    private int initialUploadCycle = -1;
 
     /* Deckelt Quad-Sorts pro Frame — bei Kamerabewegung wollen sonst alle sichtbaren
        Translucent-Sections gleichzeitig neu sortieren (Ozean -> Upload-Spike). */
@@ -471,9 +484,12 @@ public class ChunkRenderer {
             this.applyBatch(batch);
             uploads++;
         }
+        this.trackInitialUpload(uploads);
 
-        /* 2c. LOD-Uploads (eigenes Budget) — Meshes landen in der bestehenden OPAQUE-Arena */
-        if (this.lodManager != null) this.applyLodResults();
+        /* 2c. LOD-Uploads (eigenes Budget) — Meshes landen in der bestehenden OPAQUE-Arena.
+           Catch-up nur in Frames OHNE jeglichen Section-Upload: priorityUploads deckt Spieler-
+           UND System-Remeshes ab (die Explosionswelle), uploads den Initial-Load. */
+        if (this.lodManager != null) this.applyLodResults(priorityUploads == 0 && uploads == 0);
 
         /* 3. Meshes entladener Chunks freigeben (Regionen deferred) — nur in Frames, in denen
            der ChunkManager wirklich etwas entfernt hat (Removal-Version), statt jeden Frame
@@ -1142,10 +1158,43 @@ public class ChunkRenderer {
     }
 
     /**
+     * Startdiagnose: misst, wann die beim Lade-Fixpunkt offenen Erst-Mesh-Batches abgearbeitet
+     * sind — das ist der Moment, ab dem das echte Terrain wirklich vollstaendig steht (der
+     * Ladebildschirm schliesst deutlich frueher, naemlich schon am Latch selbst).
+     *
+     * <p>Bewusst NICHT ueber {@code uploadQueue.isEmpty()}: die Queue ist beim Weltstart
+     * zunaechst leer und bekommt nach jeder Spielerbewegung wieder Arbeit — ein Leerlauf-Test
+     * wuerde also mal zu frueh und mal nie ausloesen. Gezaehlt wird stattdessen gegen den
+     * Snapshot aus {@link ChunkManager#initialUploadBacklog()}; die Messung ist einmalig und
+     * setzt fuer den Benchmark einen stehenden Spieler voraus.
+     */
+    private void trackInitialUpload(int applied) {
+        /* Zyklus-Abgleich MUSS vor dem Early-Return stehen: sonst verhindert genau der alte
+           Messzustand sein eigenes Zuruecksetzen und "Chunks neu laden" misst nie wieder. */
+        int cycle = this.chunkManager.loadCycle();
+        if (cycle != this.initialUploadCycle) {
+            this.initialUploadCycle = cycle;
+            this.initialUploadMeasured = false;
+            this.initialUploadRemaining = -1;
+        }
+        if (this.initialUploadMeasured) return;
+        if (this.initialUploadRemaining < 0) {
+            if (!this.chunkManager.isInitialLoadComplete()) return;
+            this.initialUploadRemaining = this.chunkManager.initialUploadBacklog();
+        }
+        this.initialUploadRemaining -= applied;
+        if (this.initialUploadRemaining > 0) return;
+        this.initialUploadMeasured = true;
+        this.logger.debug("L0-Initial-Upload fertig nach "
+                + ((System.nanoTime() - this.chunkManager.loadStartNanos()) / 1_000_000L)
+                + " ms (ab Weltbetreten)");
+    }
+
+    /**
      * Übernimmt fertige LOD-Meshes (Budget pro Frame) in die dedizierten LOD-Arenen. Nicht
      * mehr gewünschte Ergebnisse werden verworfen (Race Upload vs. Unload → sonst Arena-Leak).
      */
-    private void applyLodResults() {
+    private void applyLodResults(boolean frameWithoutSectionUploads) {
         VertexArena opaqueArena = this.arenas[LOD_OPAQUE];
         VertexArena translucentArena = this.arenas[LOD_TRANSLUCENT];
 
@@ -1165,9 +1214,10 @@ public class ChunkRenderer {
                 translucentArena.ensureCapacity(LodMesher.estimateTranslucentArenaBytes(lodConfig));
             }
         }
+        int budget = frameWithoutSectionUploads ? MAX_LOD_UPLOADS_CATCHUP : MAX_LOD_UPLOADS_PER_FRAME;
         int uploads = 0;
         LodManager.LodMeshResult result;
-        while (uploads < MAX_LOD_UPLOADS_PER_FRAME && (result = this.lodManager.pollResult()) != null) {
+        while (uploads < budget && (result = this.lodManager.pollResult()) != null) {
             if (!this.lodManager.acceptResult(result)) continue;
             long uploadStarted = System.nanoTime();
 

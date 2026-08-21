@@ -126,8 +126,31 @@ public class LodManager {
 
     private record CompletedMesh(LodMeshResult result, long completedNanos) {}
 
-    /* Deckelt die Executor-Queue — Jobs sind billig (nur Source-Samples), aber nah-zuerst. */
-    private static final int MAX_SUBMITS_PER_TICK = 32;
+    /**
+     * Deckel fuer DRINGENDE Kandidaten (Clip-/Handoff-Remeshes) je Tick. Bewusst getrennt vom
+     * normalen Budget: {@code submitLodTask(..., clip=true, ...)} reiht direkt ein und laeuft nie
+     * ueber die Admission des ChunkManagers, dringende Jobs zaehlen also gar nicht gegen
+     * {@code workerCount*4}. Haengte ihre Zulassung am normalen Budget, verhungerte bei
+     * gesaettigter LOD-Queue genau der Job, der Doppelgeometrie aufloest oder einen wartenden
+     * L0-Unload freigibt.
+     */
+    private static final int MAX_URGENT_SUBMITS_PER_TICK = 32;
+
+    /** Wie viele dringende Kandidaten dieser Tick einreiht. */
+    static int urgentSubmitCount(int urgentCandidates) {
+        return Math.min(urgentCandidates, MAX_URGENT_SUBMITS_PER_TICK);
+    }
+
+    /**
+     * Wie viele NORMALE Kandidaten dieser Tick zusaetzlich einreiht. Bleibt ein dringender
+     * Ueberhang liegen (mehr als {@link #MAX_URGENT_SUBMITS_PER_TICK}), ist das Ergebnis 0:
+     * normale Jobs wuerden sonst Worker belegen, waehrend Handoffs auf den naechsten Tick warten.
+     * Genau 32 dringende sind noch KEIN Ueberhang.
+     */
+    static int normalSubmitCount(int urgentCandidates, int normalCandidates, int normalBudget) {
+        if (urgentCandidates > MAX_URGENT_SUBMITS_PER_TICK) return 0;
+        return Math.min(normalCandidates, Math.max(0, normalBudget));
+    }
 
     /* Sichtkegel der Submit-Reihenfolge — gleicher Kegel wie die Chunk-Ladereihenfolge
        (ChunkManager.VIEW_CONE_COS, cos 75°): Regionen im Blickfeld zuerst, sonst ändert ein
@@ -163,6 +186,11 @@ public class LodManager {
     private final TimingWindow uploadTimes = new TimingWindow();
     private final java.util.concurrent.atomic.AtomicLong staleJobs = new java.util.concurrent.atomic.AtomicLong();
     private int telemetryTicks;
+
+    /* Startdiagnose (nur Debug-Log): true, sobald der Ring einmal vollstaendig stand. Schaltet
+       zugleich den Telemetrie-Takt von 5 s (Aufbauphase) zurueck auf 30 s (Normalbetrieb). */
+    private boolean ringCompleteLogged;
+    private int ringCompleteCycle = -1;
 
     /* Settings-Epoche: rd-/lodMaxDistance-/LOD-Toggle-/AO-Toggle-Änderung entwertet alle
        gebauten Meshes (AO steckt fest im LOD-Mesh, muss also neu gebaut werden) */
@@ -207,6 +235,15 @@ public class LodManager {
 
     /** Einmal pro Tick, nach {@code chunkManager.update()}. */
     public void update(EntityPlayer player) {
+        /* Zyklus-Abgleich als ERSTE Anweisung — vor jeder Pruefung von ringCompleteLogged
+           (Telemetrie-Takt und reportRingComplete). Laege er dahinter, verhinderte der alte
+           Messzustand sein eigenes Zuruecksetzen. */
+        int loadCycle = this.chunkManager.loadCycle();
+        if (loadCycle != this.ringCompleteCycle) {
+            this.ringCompleteCycle = loadCycle;
+            this.ringCompleteLogged = false;
+            this.telemetryTicks = 0;
+        }
         Long failed;
         while ((failed = this.failedJobs.poll()) != null) this.inflight.remove(failed);
         /* Debug-Pause friert auch das LOD ein (Desired-Set + Masken bleiben stehen, fertige
@@ -253,10 +290,14 @@ public class LodManager {
         /* Echtes Terrain zuerst: LOD-Jobs erst einreihen, wenn der Radius einmal komplett stand.
            PRIO_LOD allein reicht dafür NICHT — die Priorität verhindert nur das Verdrängen in der
            Queue; läuft sie kurz leer, greifen freie Worker sofort einen LOD-Job und ziehen ihn
-           ohne Präemption durch. Und beim Start sind diese Jobs teuer: ohne geladene Chunks fällt
-           die WorldLodDataSource pro Zelle auf den Generator-Noise zurück. */
+           ohne Präemption durch. Und beim Start sind diese Jobs teuer: ohne residente Chunks fällt
+           die PersistentLodDataSource je Quellchunk auf Disk-Cache, Savegame oder Generator
+           zurück — auf jedem Level, nicht nur in den Fernringen. */
         if (!this.desired.isEmpty() && this.chunkManager.isInitialLoadComplete()) this.submitPass();
-        if (++this.telemetryTicks >= 600) {
+        /* Waehrend des Ring-Aufbaus alle 100 Ticks (5 s) statt alle 600 (30 s): ein Aufbau von
+           wenigen Sekunden ist im 30-s-Takt nicht aufloesbar, im Normalbetrieb waere er unnoetig
+           gespraechig. */
+        if (++this.telemetryTicks >= (this.ringCompleteLogged ? 600 : 100)) {
             this.telemetryTicks = 0;
             if (this.source instanceof PersistentLodDataSource persistent) {
                 this.logger.debug(persistent.debugStats() + ", " + this.chunkManager.lodWorkerStats()
@@ -448,6 +489,7 @@ public class LodManager {
         double playerZ = this.pcz * 32.0 + 16.0;
 
         List<Candidate> candidates = null;
+        int urgentCandidates = 0;
         /* Cursor-Iteration statt entrySet: kein Long-/Integer-Unboxing je Eintrag. */
         for (int idx = 0, n = this.desired.tableSize(); idx < n; idx++) {
             if (!this.desired.usedAt(idx)) continue;
@@ -499,19 +541,38 @@ public class LodManager {
             int viewTier = cos >= VIEW_CONE_COS ? 0 : 1;
 
             if (candidates == null) candidates = new ArrayList<>();
+            if (urgent) urgentCandidates++;
             candidates.add(new Candidate(key, level, clipSnapshot, neighborSnapshot,
                     band, viewTier, distSq, urgent));
         }
-        if (candidates == null) return;
+        if (candidates == null) {
+            this.reportRingComplete();
+            return;
+        }
 
         candidates.sort(Comparator.comparingInt((Candidate candidate) -> candidate.urgent ? 0 : 1)
                 .thenComparingInt(Candidate::band)
                 .thenComparingInt(Candidate::level)
                 .thenComparingInt(Candidate::viewTier)
                 .thenComparingDouble(Candidate::distanceSq));
-        int attempts = Math.min(MAX_SUBMITS_PER_TICK, candidates.size());
-        for (int i = 0; i < attempts; i++) {
-            Candidate cand = candidates.get(i);
+        /* ZWEI getrennte Budgets, weil dringende und normale Jobs auf verschiedenen Wegen in den
+           Pool gehen (s. MAX_URGENT_SUBMITS_PER_TICK).
+
+           Normale Jobs deckelt der ChunkManager selbst (workerCount*4 minus laufende/wartende).
+           Frueher stand hier stattdessen ein fester Deckel von 32/Tick fuer ALLES; der war auf
+           Maschinen mit vielen Kernen die eigentliche Bremse des Ring-Aufbaus. Gemessen mit
+           30 Workern und warmem Cache (Seed 187): 30 Worker aktiv, nur 2 Jobs in der
+           Warteschlange, Inflight konstant 32 — der Ring brauchte allein an Nachschub-Latenz
+           3365/32 = 105 Ticks = 5,3 s, voellig unabhaengig von der Rechenleistung. Ohne den
+           festen Deckel faellt derselbe Ring von 6,0 s auf 2,0 s nach dem Lade-Fixpunkt.
+
+           Die Sortierung stellt die Dringenden an den Anfang, die beiden Budgets waehlen daher
+           zwei zusammenhaengende Bereiche aus. */
+        int urgentTake = urgentSubmitCount(urgentCandidates);
+        int normalTake = normalSubmitCount(urgentCandidates, candidates.size() - urgentCandidates,
+                this.chunkManager.normalLodSubmissionBudget());
+        for (int n = 0, total = urgentTake + normalTake; n < total; n++) {
+            Candidate cand = candidates.get(n < urgentTake ? n : urgentCandidates + n - urgentTake);
             this.inflight.put(cand.key, 1);
 
             int rx = (int) (cand.key >> 32), rz = (int) cand.key;
@@ -545,6 +606,20 @@ public class LodManager {
             }, cand.urgent, priority, () -> this.inflight.remove(cand.key));
             if (!accepted) this.inflight.remove(cand.key);
         }
+    }
+
+    /**
+     * Startdiagnose: meldet einmalig, wann der LOD-Ring erstmals vollstaendig stand. Der Test ist
+     * gratis, weil {@code submitPass} ohnehin alle gewuenschten Regionen durchlaeuft: keine
+     * Kandidaten heisst, jede Region hat ein akzeptiertes Mesh mit passendem Level und passender
+     * Epoche — und ein noch nicht abgeholtes Ergebnis haengt bis dahin im In-Flight-Set.
+     */
+    private void reportRingComplete() {
+        if (this.ringCompleteLogged || this.inflight.size() != 0) return;
+        this.ringCompleteLogged = true;
+        this.logger.debug("LOD-Ring vollstaendig nach "
+                + ((System.nanoTime() - this.chunkManager.loadStartNanos()) / 1_000_000L)
+                + " ms (ab Weltbetreten), " + this.desired.size() + " Regionen");
     }
 
     private String residencyStats() {
