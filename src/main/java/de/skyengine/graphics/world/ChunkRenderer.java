@@ -159,9 +159,20 @@ public class ChunkRenderer {
     /* Trifft im selben Frame schon ein Section-Upload ein (Initial-Load, Spieler-Remesh oder
        eine Explosionswelle), bleibt es beim kleinen Budget — sonst landen 24 Priority-Batches,
        8 Chunk-Batches und 16 LOD-Regionen gemeinsam in einem Frame. Nur in Frames ohne jeden
-       Section-Upload wird aufgeholt; ein LOD-Upload kostet gemessen 0,05 ms (p95 0,04, max 1,4),
-       16 davon bleiben klar unter einem Frame. Die Entscheidung faellt bewusst je FRAME und
-       haengt an keinem Einmal-Latch — so sind Start, Flug und Explosion gleich geschuetzt. */
+       Section-Upload wird aufgeholt.
+
+       Warum 16 tragbar sind (gemessen 5120x1440, Seed 187): eine einzelne Region kostet im Mittel
+       0,05 ms, p95 0,03-0,04 ms (LodManager.uploadTimes, Zeit PRO REGION) — 16 davon bleiben klar
+       unter einem Frame. Der Max-Wert derselben Metrik steht bewusst NICHT hier: er schwankte
+       ueber drei Laeufe zwischen 1,4 und 8,5 ms, waehrend Mittel und p95 stabil blieben, ist also
+       ein Ausreisser und kein Kostenmass.
+
+       Dass das Frame-Gate wirkt, zeigt die andere Metrik — der Upload-Span des GANZEN Frames
+       (FrameProfiler.Cpu.UPLOAD): er fiel mit dieser Staffelung von p95 273 / max 1008 us auf
+       p95 28 / max 155 us. Die beiden Metriken nicht verwechseln.
+
+       Die Entscheidung faellt bewusst je FRAME und haengt an keinem Einmal-Latch — so sind Start,
+       Flug und Explosion gleich geschuetzt. */
     private static final int MAX_LOD_UPLOADS_PER_FRAME = 4;
     private static final int MAX_LOD_UPLOADS_CATCHUP = 16;
 
