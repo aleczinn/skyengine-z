@@ -766,7 +766,9 @@ public class ChunkRenderer {
                 FrameProfiler.gpuEnd(LOD_LEVEL_GPU[l]);
             }
         } else {
+            FrameProfiler.gpuBegin(FrameProfiler.Gpu.LOD_OPAQUE);
             this.drawLodSegment(LOD_OPAQUE, cmdLodOpaque, offLodOpaque, nLodOpaque);
+            FrameProfiler.gpuEnd(FrameProfiler.Gpu.LOD_OPAQUE);
         }
 
         /* CUTOUT mit "or-equal"-Depth-Func: die koplanaren Gras-Seiten-Overlays (identische

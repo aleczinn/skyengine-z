@@ -63,6 +63,7 @@
       "gpu_cull_tint": "GPU Cull Debug (red)",
       "gpu_cull_hiz": "GPU Cull: Hi-Z Occlusion",
       "lod_colors": "Color LOD Levels",
+      "lod_split": "Profile LOD per Level",
       "pause_loading": "Pause Chunk Loading",
       "aa_mode": "Anti-Aliasing",
       "gui_slots": "GUI Slot Bounds",

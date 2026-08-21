@@ -56,6 +56,11 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
         CycleButton<Boolean> lodColors = CycleButton.onOff(I18n.tr("options.debug.lod_colors"), CELL_W, CELL_H,
                 DebugFlags.lodLevelColors, v -> DebugFlags.lodLevelColors = v);
 
+        /* Zerlegt den LOD-Opaque-Draw pro Level, damit der FrameProfiler lodO1..lodO5 statt
+           nur lodO ausweist. Kostet zusaetzliche Draws — nur zum Messen einschalten. */
+        CycleButton<Boolean> lodSplit = CycleButton.onOff(I18n.tr("options.debug.lod_split"), CELL_W, CELL_H,
+                DebugFlags.lodLevelSplit, v -> DebugFlags.lodLevelSplit = v);
+
         boolean paused = game.getWorld() != null && game.getWorld().getChunkManager().isLoadingPaused();
         CycleButton<Boolean> pauseLoading = CycleButton.onOff(I18n.tr("options.debug.pause_loading"), CELL_W, CELL_H,
                 paused, v -> {
@@ -77,5 +82,6 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
         content.add(new HStack(4, underwaterEffect, guiSlots));
         content.add(new HStack(4, reloadChunks, reloadPost));
         content.add(new HStack(4, pauseLoading, lodColors));
+        content.add(new HStack(4, lodSplit, null));
     }
 }
