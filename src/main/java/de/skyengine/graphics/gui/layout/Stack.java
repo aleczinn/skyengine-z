@@ -1,9 +1,13 @@
 package de.skyengine.graphics.gui.layout;
 
 import de.skyengine.graphics.gui.widget.GuiComponent;
+import de.skyengine.graphics.gui.widget.Spacer;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
+import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
 
 /**
  * Basis der Layout-Container ({@link VStack}/{@link HStack}): ein {@link GuiComponent}, der
@@ -31,6 +35,9 @@ public abstract class Stack extends GuiComponent {
     protected Stack(float gap, GuiComponent... children) {
         this.gap = gap;
         for (GuiComponent child : children) {
+            if (child == null) {
+                child = new Spacer(CELL_W, CELL_H);
+            }
             this.children.add(child);
         }
     }

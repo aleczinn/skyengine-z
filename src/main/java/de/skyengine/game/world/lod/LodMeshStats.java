@@ -12,9 +12,9 @@ import java.util.Locale;
  *
  * <p>Zwei getrennte Messgrößen — bewusst nicht vermischt:
  * <ul>
- *   <li><b>Flächentyp-Zählung</b> (Felder {@code topXxx}/{@code wallXxx}): die REAL emittierten Quads, gezählt in
- *       {@code emitTop}/{@code emitWall}. Bottom-Quads existieren im LOD nicht (der Mesher
- *       emittiert nur Tops und Wände) → strukturell 0, daher kein Feld.</li>
+ *   <li><b>Flächentyp-Zählung</b> (Felder {@code topXxx}/{@code wallXxx}/{@code bottom}):
+ *       die real emittierten Quads. Bottoms existieren im Spaltenpfad nur am Weltboden und
+ *       unter tatsächlich freistehenden Landmarken.</li>
  *   <li><b>Merge-Grenzen</b> ({@code seam*}): eine ordnungsunabhängige Zählung der Zell-Adjazenzen
  *       im Terrain-Top-Raster nach der URSACHE, warum zwei benachbarte Zellen NICHT in dasselbe
  *       Quad gemergt werden dürfen. Jede blockierte Adjazenz ≈ eine potenziell einsparbare
@@ -33,10 +33,21 @@ public final class LodMeshStats {
     public long topWater;
     /** Opake Terrain-Basiswände (faces 2–5). */
     public long wallTerrain;
-    /** Koplanare Gras-Overlay-Wände (opak, ZUSÄTZLICH zur Basiswand) — reiner Quad-Aufschlag. */
-    public long wallOverlay;
     /** Transluzente Wasser-Wände (Seeufer-/Wasserfall-Kanten). */
     public long wallWater;
+    /** Sichtbare Unterseiten am Weltboden oder unter freistehenden Landmarken. */
+    public long bottom;
+    /** Auflösungssegmente, bei denen mindestens ein äußeres Terrainprofil fehlte. */
+    public long transitionProfilesMissing;
+    /** Lokal begrenzte Deckel, die eine unerwartet fehlende Generator-Spalte schließen. */
+    public long transitionSafetyCaps;
+    /** Validierte, fein unterteilte Aufloesungssegmente und ihr groesster Hoehensprung. */
+    public long transitionSegments;
+    public int transitionMaxDelta;
+    public int transitionMaxX, transitionMaxZ, transitionMaxFace;
+    public int transitionMaxCoarseLevel, transitionMaxFineLevel;
+    public int transitionMaxCoarseSize, transitionMaxFineSize;
+    public int transitionMaxCoarseTop, transitionMaxFineTop;
 
     /* --- Merge-Grenzen im Terrain-Top-Raster (Adjazenzen nach Ursache) ---
        Gezählt wird jede interne +x-/+z-Nachbarschaft der Regionszellen [0,n)² GENAU EINMAL.
@@ -67,7 +78,14 @@ public final class LodMeshStats {
     /** Alle Zähler auf 0 — vor jedem Konfigurations-Lauf. */
     public void reset() {
         this.topTerrain = this.topWater = 0;
-        this.wallTerrain = this.wallOverlay = this.wallWater = 0;
+        this.wallTerrain = this.wallWater = this.bottom = 0;
+        this.transitionProfilesMissing = this.transitionSafetyCaps = 0;
+        this.transitionSegments = 0;
+        this.transitionMaxDelta = 0;
+        this.transitionMaxX = this.transitionMaxZ = this.transitionMaxFace = 0;
+        this.transitionMaxCoarseLevel = this.transitionMaxFineLevel = 0;
+        this.transitionMaxCoarseSize = this.transitionMaxFineSize = 0;
+        this.transitionMaxCoarseTop = this.transitionMaxFineTop = 0;
         this.seamMaterial = this.seamHeight = this.seamLight = this.seamAo = 0;
         this.seamClipped = this.seamMergeable = 0;
         this.wallRealStep = this.wallEdgeSkirt = this.wallMaskSkirt = 0;
@@ -76,8 +94,8 @@ public final class LodMeshStats {
     /** Druckt den vollständigen Report für eine (config, AO)-Kombination. */
     public void printReport(LodConfig config, boolean ao) {
         long tops = this.topTerrain + this.topWater;
-        long walls = this.wallTerrain + this.wallOverlay + this.wallWater;
-        long total = tops + walls;
+        long walls = this.wallTerrain + this.wallWater;
+        long total = tops + walls + this.bottom;
 
         System.out.printf(Locale.ROOT,
                 "%n--- Quad-Statistik rd=%d lodMax=%d AO=%s ---%n",
@@ -88,9 +106,8 @@ public final class LodMeshStats {
         printLine("  Top  Terrain (opak)", this.topTerrain, total);
         printLine("  Top  Wasser (transl.)", this.topWater, total);
         printLine("  Seite Terrain-Basis", this.wallTerrain, total);
-        printLine("  Seite Gras-Overlay", this.wallOverlay, total);
         printLine("  Seite Wasser (transl.)", this.wallWater, total);
-        printLine("  Bottom", 0, total);
+        printLine("  Bottom", this.bottom, total);
         System.out.printf(Locale.ROOT, "  %-24s %12d%n", "= Gesamt", total);
 
         /* 2. Merge-Grenzen: welcher Faktor blockiert die Top-Zusammenfassung? */
@@ -107,11 +124,38 @@ public final class LodMeshStats {
                 "= blockierte Kanten", seams,
                 adjacencies == 0 ? 0.0 : 100.0 * seams / adjacencies, adjacencies);
         System.out.printf(Locale.ROOT, "  %-24s %12d%n", "  mergebar (frei)", this.seamMergeable);
+        System.out.printf(Locale.ROOT, "LOD-Übergänge: fehlende Profile=%d, Sicherheitsdeckel=%d%n",
+                this.transitionProfilesMissing, this.transitionSafetyCaps);
+        System.out.printf(Locale.ROOT,
+                "  Segmente=%d, max Delta=%d bei (%d,%d), Face=%d, L%d/%d, Size=%d/%d, Top=%d/%d%n",
+                this.transitionSegments, this.transitionMaxDelta,
+                this.transitionMaxX, this.transitionMaxZ, this.transitionMaxFace,
+                this.transitionMaxCoarseLevel, this.transitionMaxFineLevel,
+                this.transitionMaxCoarseSize, this.transitionMaxFineSize,
+                this.transitionMaxCoarseTop, this.transitionMaxFineTop);
         /* 3. Wände/Skirts */
         System.out.println("Terrain-Wände nach Grund:");
         printLine("  echte Reliefstufe", this.wallRealStep, this.wallTerrain);
         printLine("  Regionsrand-Skirt", this.wallEdgeSkirt, this.wallTerrain);
         printLine("  Masken-Kanten-Skirt", this.wallMaskSkirt, this.wallTerrain);
+    }
+
+    void recordTransition(int worldX, int worldZ, int face,
+                          int coarseLevel, int fineLevel, int coarseSize, int fineSize,
+                          int coarseTop, int fineTop) {
+        this.transitionSegments++;
+        int delta = Math.abs(coarseTop - fineTop);
+        if (delta <= this.transitionMaxDelta) return;
+        this.transitionMaxDelta = delta;
+        this.transitionMaxX = worldX;
+        this.transitionMaxZ = worldZ;
+        this.transitionMaxFace = face;
+        this.transitionMaxCoarseLevel = coarseLevel;
+        this.transitionMaxFineLevel = fineLevel;
+        this.transitionMaxCoarseSize = coarseSize;
+        this.transitionMaxFineSize = fineSize;
+        this.transitionMaxCoarseTop = coarseTop;
+        this.transitionMaxFineTop = fineTop;
     }
 
     private static void printLine(String label, long value, long total) {

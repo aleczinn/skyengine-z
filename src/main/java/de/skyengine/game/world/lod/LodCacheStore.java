@@ -32,7 +32,7 @@ final class LodCacheStore implements AutoCloseable {
         final AtomicBoolean queued = new AtomicBoolean();
     }
 
-    private static final int MAGIC = 0x4C4F4436; // LOD6, hierarchische Level + eigener Weltboden
+    private static final int MAGIC = 0x4C443132; // LD12, korrekte Bedrock-nahe Terrainhuelle
     private static final int REGION_SHIFT = 4;
     private static final int REGION_MASK = 15;
     private static final int MAX_REGION_WRITE_BATCH = 16;

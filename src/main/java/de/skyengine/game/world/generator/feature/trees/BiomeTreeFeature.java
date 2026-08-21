@@ -19,6 +19,11 @@ public final class BiomeTreeFeature implements Feature {
     private static final int MAX_ATTEMPTS = 8;
 
     @Override
+    public int cacheVersion() {
+        return 2;
+    }
+
+    @Override
     public void place(FeatureContext placer) {
         Random rng = placer.random();
 
@@ -41,7 +46,9 @@ public final class BiomeTreeFeature implements Feature {
             }
 
             TreeShape shape = TreeShapes.pick(biome.trees, rng);
-            shape.place(placer, x, placer.surfaceHeight(x, z) + 1, z, rng);
+            int baseY = placer.surfaceHeight(x, z) + 1;
+            placer.markLodSupport(x, baseY, z);
+            shape.place(placer, x, baseY, z, rng);
         }
     }
 }

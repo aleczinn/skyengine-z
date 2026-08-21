@@ -23,7 +23,7 @@ import de.skyengine.graphics.gui.widget.Spacer;
 public final class GuiOptionsMenu extends GuiOptionsScreen {
 
     /* Breite/Höhe einer Options-Zelle (zweispaltig, MC-Maß). */
-    static final float CELL_W = 150, CELL_H = 20;
+    public static final float CELL_W = 150, CELL_H = 20;
 
     private final GameSettings settings = GameSettings.get();
 

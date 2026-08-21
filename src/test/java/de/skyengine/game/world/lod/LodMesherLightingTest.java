@@ -41,6 +41,19 @@ final class LodMesherLightingTest {
     }
 
     @Test
+    void marksFlatFluidTopsAtNormalAndSuperregionPackingScales() {
+        LodDataSource ocean = source(Blocks.WATER, 63, x -> 50);
+        assertFlatFluidTopFlags(mesh(ocean, 1, 1), 63F + FluidGeometry.SOURCE_RENDER_HEIGHT);
+        assertFlatFluidTopFlags(mesh(ocean, 3, 4), 63F + FluidGeometry.SOURCE_RENDER_HEIGHT);
+
+        LodManager.LodMeshResult dry = mesh(source(Blocks.STONE, 63, x -> 63));
+        for (int p = 4; p < dry.opaqueData().length; p += ChunkMesher.VERTEX_SIZE) {
+            assertEquals(0, dry.opaqueData()[p] & ChunkMesher.FLAT_SOURCE_FLUID_TOP,
+                    "opaque terrain must never be shader-snapped as fluid");
+        }
+    }
+
+    @Test
     void interpolatesSkylightAlongUnderwaterTerrainWalls() {
         LodManager.LodMeshResult ocean = mesh(source(Blocks.WATER, 63, x -> x >= 64 ? 50 : 40));
         List<Integer> lights = verticalQuadLights(ocean.opaqueData(), ocean.yBase(), 64F, 41F, 51F);
@@ -94,6 +107,8 @@ final class LodMesherLightingTest {
         assertEquals(List.of(0, 0, 2, 2),
                 verticalQuadLights(result.opaqueData(), result.yBase(), 64F, 41F, 51F));
         assertAllEqual(0, horizontalQuadLights(result.opaqueData(), result.yBase(), 0F));
+        float waterRenderY = 63F + FluidGeometry.SOURCE_HEIGHT - FluidGeometry.TOP_RENDER_EPSILON;
+        assertAllEqual(15, horizontalQuadLights(result.translucentData(), result.yBase(), waterRenderY));
     }
 
     private static LodDataSource source(int surfaceBlock, int surfaceHeight,
@@ -112,16 +127,43 @@ final class LodMesherLightingTest {
     }
 
     private static LodManager.LodMeshResult mesh(LodDataSource source) {
+        return mesh(source, 1, 1);
+    }
+
+    private static LodManager.LodMeshResult mesh(LodDataSource source, int level, int sizeRegions) {
         GameSettings settings = GameSettings.get();
         boolean previousAo = settings.ambientOcclusion;
         settings.ambientOcclusion = false;
         try {
             LodConfig config = LodConfig.of(16, 128);
             return new LodMesher().mesh(source, new LodBlockAppearance(), config,
-                    1, 1, 0, 0, 0, 0, 64, 64);
+                    level, sizeRegions, 0, 0, 0, 0, 64, 64);
         } finally {
             settings.ambientOcclusion = previousAo;
         }
+    }
+
+    private static void assertFlatFluidTopFlags(LodManager.LodMeshResult result, float expectedY) {
+        int[] data = result.translucentData();
+        float scale = LodMesher.posScaleFor(result.sizeRegions());
+        boolean found = false;
+        for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
+            boolean matches = true;
+            for (int v = 0; v < 4; v++) {
+                int p = q + v * ChunkMesher.VERTEX_SIZE;
+                float y = ((data[p] >>> 16) & 0xFFFF) / scale - 1F + result.yBase();
+                if (Math.abs(y - expectedY) > 0.01F) matches = false;
+            }
+            if (!matches) continue;
+            found = true;
+            for (int v = 0; v < 4; v++) {
+                int lightAndFlags = data[q + v * ChunkMesher.VERTEX_SIZE + 4];
+                assertEquals(ChunkMesher.FLAT_SOURCE_FLUID_TOP,
+                        lightAndFlags & ChunkMesher.FLAT_SOURCE_FLUID_TOP);
+                assertEquals(15, lightAndFlags & 0xF, "fluid-top skylight must be preserved");
+            }
+        }
+        assertTrue(found, "expected a flat LOD fluid top at " + expectedY);
     }
 
     private static List<Integer> horizontalQuadLights(int[] data, int yBase, float expectedY) {
@@ -149,7 +191,7 @@ final class LodMesherLightingTest {
             boolean constantX = true;
             for (int v = 0; v < 4; v++) {
                 int p = q + v * ChunkMesher.VERTEX_SIZE;
-                float x = coordinate(data[p] & 0xFFFF);
+                float x = xzCoordinate(data[p] & 0xFFFF);
                 float y = y(data[p], yBase);
                 constantX &= Math.abs(x - expectedX) <= 0.01F;
                 minY = Math.min(minY, y);
@@ -186,11 +228,11 @@ final class LodMesherLightingTest {
     }
 
     private static float x(int[] data, int offset) {
-        return coordinate(data[offset] & 0xFFFF);
+        return xzCoordinate(data[offset] & 0xFFFF);
     }
 
     private static float z(int[] data, int offset) {
-        return coordinate(data[offset + 1] & 0xFFFF);
+        return xzCoordinate(data[offset + 1] & 0xFFFF);
     }
 
     private static void assertAllEqual(int expected, List<Integer> values) {
@@ -198,10 +240,14 @@ final class LodMesherLightingTest {
     }
 
     private static float y(int packedPosition, int yBase) {
-        return coordinate((packedPosition >>> 16) & 0xFFFF) + yBase;
+        return yCoordinate((packedPosition >>> 16) & 0xFFFF) + yBase;
     }
 
-    private static float coordinate(int packed) {
+    private static float xzCoordinate(int packed) {
+        return packed / LodMesher.posScaleFor(1) - LodMesher.XZ_POSITION_BIAS;
+    }
+
+    private static float yCoordinate(int packed) {
         return packed / LodMesher.posScaleFor(1) - 1F;
     }
 }

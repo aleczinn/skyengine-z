@@ -167,6 +167,19 @@ public class ChunkManager {
        nie mehr remeshen. */
     private volatile boolean initialLoadComplete = false;
 
+    /* Startdiagnose (nur Debug-Log): Nullpunkt aller "nach X ms"-Zeilen. Wird zusammen mit dem
+       Latch zurueckgesetzt, damit "Chunks neu laden" und ein Renderdistanz-Wechsel erneut messen. */
+    private volatile long loadStartNanos = System.nanoTime();
+
+    /* Beim Lade-Fixpunkt noch offene Erst-Mesh-Batches. Zielzahl fuer die Upload-Diagnose des
+       ChunkRenderers; -1 = der Fixpunkt wurde in diesem Durchlauf noch nicht erreicht. */
+    private volatile int initialUploadBacklog = -1;
+
+    /* Zaehlt jeden Neuaufbau des Radius. ChunkRenderer und LodManager haengen ihre eigenen
+       Diagnose-Zustaende daran auf und armen neu, sobald sich der Wert aendert — ohne das
+       blieben ihre Einmal-Latches gesetzt und zwei der drei Stoppuhren feuerten nie wieder. */
+    private volatile int loadCycle;
+
     /* (dx, dz)-Offsets im Kreis, einmal pro renderDistance gebaut; Reihenfolge wird per
        Score (Distanz + Blickrichtung) in update() umsortiert */
     private Offset[] loadOrder;
@@ -377,6 +390,36 @@ public class ChunkManager {
      */
     public boolean isInitialLoadComplete() {
         return this.initialLoadComplete;
+    }
+
+    /** Startdiagnose: Nullpunkt der "nach X ms"-Zeilen (Weltbetreten bzw. letzter Latch-Reset). */
+    public long loadStartNanos() {
+        return this.loadStartNanos;
+    }
+
+    /**
+     * Startdiagnose: Anzahl der beim Lade-Fixpunkt noch offenen Erst-Mesh-Batches, oder -1,
+     * solange der Fixpunkt nicht erreicht ist. Der {@link de.skyengine.graphics.world.ChunkRenderer}
+     * zaehlt gegen diesen Wert herunter, statt die Queue auf leer zu pruefen.
+     */
+    public int initialUploadBacklog() {
+        return this.initialUploadBacklog;
+    }
+
+    /**
+     * Startdiagnose: Zyklusnummer des laufenden Radius-Aufbaus. Aendert sie sich, muessen
+     * ChunkRenderer und LodManager ihre eigenen Messzustaende zuruecksetzen.
+     */
+    public int loadCycle() {
+        return this.loadCycle;
+    }
+
+    /** Setzt Latch und Startdiagnose zurueck — jeder Neuaufbau des Radius misst erneut. */
+    private void resetLoadDiagnostics() {
+        this.initialLoadComplete = false;
+        this.loadStartNanos = System.nanoTime();
+        this.initialUploadBacklog = -1;
+        this.loadCycle++;
     }
 
     /** Debug: pausiert Laden/Generieren/Unload (Remeshes von Spieler-Edits laufen weiter). */
@@ -639,16 +682,24 @@ public class ChunkManager {
                 long meshSeq = this.nextMeshSeq++;
                 this.submitLoadTask(PRIO_LIGHT, () -> {
                     ChunkMesher mesher = this.meshers.get();
+                    List<MeshResult> batch = new ArrayList<>(Chunk.SECTIONS);
                     lockRead(finalChunk, north, south, west, east, diagonals);
                     try {
                         for (int s = 0; s < Chunk.SECTIONS; s++) {
-                            ChunkMesher.MeshData mesh = mesher.mesh(finalChunk, s, north, south, west, east, diagonals);
-                            this.uploadQueue.add(new MeshBatch(List.of(
-                                    new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ, mesh, meshSeq))));
+                            batch.add(new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ,
+                                    mesher.mesh(finalChunk, s, north, south, west, east, diagonals), meshSeq));
                         }
                     } finally {
                         unlockRead(finalChunk, north, south, west, east, diagonals);
                     }
+                    /* EIN Batch je Chunk statt 16 — der Renderer deckelt die Queue auf
+                       MAX_UPLOADS_PER_FRAME EINTRAEGE, nicht auf Sections; je Section ein Eintrag
+                       hiess also 0,5 Chunks pro Frame. Gemessen bei 5120x1440: 5072 offene Batches
+                       beim Lade-Fixpunkt und 2,2 s, in denen der Spieler in einer halb leeren Welt
+                       steht. Enqueue ausserhalb der Read-Locks wie im Remesh-Pfad. Der Chunk wird
+                       damit ausserdem in EINEM Frame vollstaendig — der atomare Swap gegen das LOD
+                       (lodShowsCell) bekommt keinen Zwischenzustand mehr zu sehen. */
+                    this.uploadQueue.add(new MeshBatch(batch));
                     finalChunk.status = ChunkStatus.READY;
                     this.readyAnnounceQueue.add(finalChunk);
                 });
@@ -659,7 +710,20 @@ public class ChunkManager {
            ab jetzt darf das LOD submitten. Nur setzen, nie löschen (s. initialLoadComplete). */
         if (!this.initialLoadComplete && this.loadSubmitsThisTick == 0 && this.pendingLoadTasks.get() == 0) {
             this.initialLoadComplete = true;
-            this.logger.debug("Initialer Chunk-Load fertig — LOD-Jobs sind ab jetzt freigegeben");
+            /* Startdiagnose: genau HIER schliesst auch der Ladebildschirm (GuiWorldLoading haengt
+               am selben Latch). Die drei Werte sind die Vorher/Nachher-Basis fuer Aenderungen an
+               Upload-Granularitaet und Job-Prioritaeten. size() der ConcurrentLinkedQueue ist O(n)
+               und wird deshalb GENAU EINMAL gerufen, nie pro Frame. */
+            int sichtbar = 0;
+            for (Chunk chunk : this.chunks.values()) {
+                if (chunk.isFullyUploaded()) sichtbar++;
+            }
+            this.initialUploadBacklog = this.uploadQueue.size();
+            this.logger.debug("Initialer Chunk-Load fertig nach "
+                    + ((System.nanoTime() - this.loadStartNanos) / 1_000_000L)
+                    + " ms — LOD-Jobs sind ab jetzt freigegeben; " + sichtbar + "/"
+                    + this.chunks.size() + " Chunks sichtbar, " + this.initialUploadBacklog
+                    + " Erst-Mesh-Batches offen");
         }
 
         /* 5. Unload chunks far outside the render distance.
@@ -761,7 +825,7 @@ public class ChunkManager {
         this.chunksWithBlockEntities.clear();
         this.pendingUnloadCount = 0;
         this.chunkRemovalVersion++;
-        this.initialLoadComplete = false; // alles lädt neu → LOD wartet wieder auf das echte Terrain
+        this.resetLoadDiagnostics(); // alles lädt neu → LOD wartet wieder auf das echte Terrain
     }
 
     public int getChunkRemovalVersion() {
@@ -971,7 +1035,7 @@ public class ChunkManager {
         if (clamped == this.renderDistance) return;
         this.renderDistance = clamped;
         /* loadOrder wird beim nächsten update() automatisch neu berechnet */
-        this.initialLoadComplete = false; // größerer Radius → erst die neuen Chunks, dann LOD
+        this.resetLoadDiagnostics(); // größerer Radius → erst die neuen Chunks, dann LOD
     }
 
     public void setLodManager(LodManager lodManager) {

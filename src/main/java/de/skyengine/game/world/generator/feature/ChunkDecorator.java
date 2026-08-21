@@ -65,6 +65,14 @@ public final class ChunkDecorator {
                         this.buffers[(targetZ - this.minChunkZ) * this.width
                                 + targetX - this.minChunkX].apply(tile, i);
                     }
+                    for (int i = 0; i < tile.supportSize(); i++) {
+                        int targetX = tile.supportWorldX(i) >> ChunkSection.SHIFT;
+                        int targetZ = tile.supportWorldZ(i) >> ChunkSection.SHIFT;
+                        if (targetX < this.minChunkX || targetX >= this.minChunkX + this.width
+                                || targetZ < this.minChunkZ || targetZ >= this.minChunkZ + this.height) continue;
+                        this.buffers[(targetZ - this.minChunkZ) * this.width
+                                + targetX - this.minChunkX].applySupport(tile, i);
+                    }
                 }
             }
         }

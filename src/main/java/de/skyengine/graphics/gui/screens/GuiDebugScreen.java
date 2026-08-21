@@ -3,7 +3,6 @@ package de.skyengine.graphics.gui.screens;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.GameContainer;
-import de.skyengine.game.world.lod.LodMesher;
 import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
@@ -11,6 +10,7 @@ import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.CycleButton;
+import de.skyengine.graphics.gui.widget.Spacer;
 import de.skyengine.graphics.post.PostProcessingSettings;
 import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.world.GpuCull;
@@ -20,7 +20,7 @@ import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
 
 /**
  * Debug-Unterseite des Optionsmenüs: transiente Entwickler-Schalter (Wireframe, GPU-Cull,
- * LOD-Seiten-Overlay, AA-Modus) und Aktionen (Chunks/Postprocessing neu laden). Nichts davon
+ * LOD-Level-Farben, AA-Modus) und Aktionen (Chunks/Postprocessing neu laden). Nichts davon
  * wird persistiert — beim Neustart wieder Standard. Welt-abhängige Schalter sind null-geguardet
  * (der Screen ist auch aus dem Titelmenü ohne Welt erreichbar).
  */
@@ -53,11 +53,13 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
         CycleButton<Boolean> gpuCullHiZ = CycleButton.onOff(I18n.tr("options.debug.gpu_cull_hiz"), CELL_W, CELL_H,
                 !GpuCull.FRUSTUM_ONLY, v -> GpuCull.FRUSTUM_ONLY = !v);
 
-        CycleButton<Boolean> lodOverlay = CycleButton.onOff(I18n.tr("options.debug.lod_overlay"), CELL_W, CELL_H,
-                LodMesher.EMIT_GRASS_OVERLAY, v -> LodMesher.EMIT_GRASS_OVERLAY = v);
-
         CycleButton<Boolean> lodColors = CycleButton.onOff(I18n.tr("options.debug.lod_colors"), CELL_W, CELL_H,
                 DebugFlags.lodLevelColors, v -> DebugFlags.lodLevelColors = v);
+
+        /* Zerlegt den LOD-Opaque-Draw pro Level, damit der FrameProfiler lodO1..lodO5 statt
+           nur lodO ausweist. Kostet zusaetzliche Draws — nur zum Messen einschalten. */
+        CycleButton<Boolean> lodSplit = CycleButton.onOff(I18n.tr("options.debug.lod_split"), CELL_W, CELL_H,
+                DebugFlags.lodLevelSplit, v -> DebugFlags.lodLevelSplit = v);
 
         boolean paused = game.getWorld() != null && game.getWorld().getChunkManager().isLoadingPaused();
         CycleButton<Boolean> pauseLoading = CycleButton.onOff(I18n.tr("options.debug.pause_loading"), CELL_W, CELL_H,
@@ -65,12 +67,8 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
                     if (game.getWorld() != null) game.getWorld().getChunkManager().setLoadingPaused(v);
                 });
 
-        CycleButton<Boolean> guiSlots = CycleButton.onOff(I18n.tr("options.debug.gui_slots"), CELL_W, CELL_H,
-                DebugFlags.guiSlotBounds, v -> DebugFlags.guiSlotBounds = v);
-
-        PostProcessingSettings post = SkyEngine.get().getPostProcessor().getSettings();
-        CycleButton<AntiAliasingMode> aa = new CycleButton<>(I18n.tr("options.debug.aa_mode"), CELL_W, CELL_H,
-                AntiAliasingMode.values(), post.getAaMode(), Enum::name, post::setAaMode);
+        CycleButton<Boolean> guiSlots = CycleButton.onOff(I18n.tr("options.debug.gui_slots"), CELL_W, CELL_H, DebugFlags.guiSlotBounds, v -> DebugFlags.guiSlotBounds = v);
+        CycleButton<Boolean> underwaterEffect = CycleButton.onOff(I18n.tr("options.debug.underwater_effect"), CELL_W, CELL_H, DebugFlags.underwaterEffect, v -> DebugFlags.underwaterEffect = v);
 
         Button reloadChunks = new Button(I18n.tr("options.debug.reload_chunks"), CELL_W, CELL_H, () -> {
             if (game.getWorld() != null) game.getWorld().reloadAllChunks();
@@ -78,11 +76,12 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
         Button reloadPost = new Button(I18n.tr("options.debug.reload_post"), CELL_W, CELL_H,
                 () -> SkyEngine.get().getPostProcessor().getSettings().reloadFromFile());
 
-        content.add(new HStack(4, wireframe, gpuCull));
-        content.add(new HStack(4, gpuCullHiZ, gpuCullTint));
-        content.add(new HStack(4, lodOverlay, lodColors));
-        content.add(new HStack(4, pauseLoading, guiSlots));
-        content.add(aa);
+        content.add(new HStack(4, wireframe, null));
+        content.add(new HStack(4, gpuCull, gpuCullHiZ));
+        content.add(new HStack(4, gpuCullTint, null));
+        content.add(new HStack(4, underwaterEffect, guiSlots));
         content.add(new HStack(4, reloadChunks, reloadPost));
+        content.add(new HStack(4, pauseLoading, lodColors));
+        content.add(new HStack(4, lodSplit, null));
     }
 }

@@ -14,6 +14,7 @@ import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
 import java.io.File;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -24,6 +25,8 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /** Einheitliche, bedarfsgesteuerte LOD-Quelle fuer Live-, Speicher- und Generator-Daten. */
 public final class PersistentLodDataSource implements LodDataSource, AutoCloseable {
+
+    private record ExactChunk(Chunk chunk, boolean resident) {}
 
     private record GeneratedResult(ChunkLodColumns columns, long featureNanos,
                                    long terrainNanos, long projectionNanos, long reductionNanos) {}
@@ -109,6 +112,104 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
     @Override public boolean hasColumns() { return true; }
     @Override public boolean hasWorldBottom() {
         return !this.imported && this.generator.lodWorldBottomState() != Blocks.AIR;
+    }
+
+    @Override
+    public ExactColumnSampler openExactColumnSampler() {
+        /* Der Cache lebt nur fuer einen Meshing-Job. Dadurch wird ein Save-/Generator-Chunk an
+           einer langen Naht genau einmal materialisiert, kann aber nie ueber eine spaetere
+           Weltmutation hinweg veralten. */
+        return new ExactColumnSampler() {
+            private final Map<Long, ExactChunk> chunks = new HashMap<>();
+
+            @Override
+            public boolean sampleColumn(int x, int z, int[] target) {
+                if (target.length < Chunk.HEIGHT) {
+                    throw new IllegalArgumentException("Exakte LOD-Spalte ist zu klein: " + target.length);
+                }
+                int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+                ExactChunk exact = this.chunks.computeIfAbsent(Chunk.key(cx, cz),
+                        ignored -> loadExactChunk(cx, cz));
+                Chunk chunk = exact.chunk;
+                chunk.readLock().lock();
+                try {
+                    int lx = x & ChunkSection.MASK, lz = z & ChunkSection.MASK;
+                    for (int y = 0; y < Chunk.HEIGHT; y++) target[y] = chunk.getBlock(lx, y, lz);
+                } finally {
+                    chunk.readLock().unlock();
+                }
+                return exact.resident;
+            }
+
+            @Override
+            public boolean sampleRenderedBoundaryFaces(int x, int z, int face, int[] target) {
+                if (target.length < Chunk.SECTIONS) {
+                    throw new IllegalArgumentException("L0-Randmaske ist zu klein: " + target.length);
+                }
+                java.util.Arrays.fill(target, 0);
+                int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+                ExactChunk exact = this.chunks.computeIfAbsent(Chunk.key(cx, cz),
+                        ignored -> loadExactChunk(cx, cz));
+                Chunk chunk = exact.chunk;
+                if (!exact.resident || !chunk.isFullyUploaded()) return false;
+
+                int lx = x & ChunkSection.MASK, lz = z & ChunkSection.MASK;
+                int tangent;
+                switch (face) {
+                    case 2 -> {
+                        if (lz != 0) return false;
+                        tangent = lx;
+                    }
+                    case 3 -> {
+                        if (lz != ChunkSection.MASK) return false;
+                        tangent = lx;
+                    }
+                    case 4 -> {
+                        if (lx != 0) return false;
+                        tangent = lz;
+                    }
+                    case 5 -> {
+                        if (lx != ChunkSection.MASK) return false;
+                        tangent = lz;
+                    }
+                    default -> throw new IllegalArgumentException(
+                            "Keine horizontale L0-Seite: " + face);
+                }
+                for (int sectionY = 0; sectionY < Chunk.SECTIONS; sectionY++) {
+                    target[sectionY] = chunk.boundaryFaceBits(sectionY, face, tangent);
+                }
+                return true;
+            }
+
+            @Override
+            public void close() {
+                this.chunks.clear();
+            }
+        };
+    }
+
+    private ExactChunk loadExactChunk(int cx, int cz) {
+        Chunk live = this.chunks.getChunk(cx, cz);
+        if (live != null && live.status.isAtLeast(ChunkStatus.DECORATED)) {
+            return new ExactChunk(live, true);
+        }
+
+        Chunk snapshot = new Chunk(cx, cz);
+        byte[] payload = this.storage.readChunk(cx, cz);
+        if (payload != null) {
+            try {
+                ChunkSerializer.deserialize(snapshot, payload, null);
+                return new ExactChunk(snapshot, false);
+            } catch (Exception e) {
+                this.logger.warning("Exakte LOD-Spalte fuer Chunk (" + cx + ", " + cz
+                        + ") nicht aus dem Savegame lesbar", e);
+            }
+        }
+        if (!this.imported) {
+            this.generator.generate(snapshot);
+            this.decorator.decorateForLod(snapshot);
+        }
+        return new ExactChunk(snapshot, false);
     }
 
     @Override

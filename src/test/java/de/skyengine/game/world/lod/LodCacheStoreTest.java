@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -46,6 +47,30 @@ final class LodCacheStoreTest {
                 assertEquals(Blocks.STONE,
                         LodColumn.state(actual.get(0, 0, 1 << level).interval(0)));
             }
+        }
+    }
+
+    @Test
+    void groundedLandmarkFlagSurvivesLod10RoundTrip(@TempDir File directory) {
+        LodColumn[][] levels = new LodColumn[ChunkLodColumns.LEVELS][];
+        levels[1] = new LodColumn[16 * 16];
+        Arrays.fill(levels[1], LodColumn.EMPTY);
+        levels[1][0] = new LodColumn(new long[]{
+                LodColumn.pack(Blocks.STONE, 0, 64, LodColumn.FLAG_TERRAIN, 4),
+                LodColumn.pack(Blocks.OAK_LOG, 64, 80,
+                        LodColumn.FLAG_LANDMARK | LodColumn.FLAG_SUPPORT, 1)});
+        ChunkLodColumns expected = ChunkLodColumns.fromLevels(levels);
+
+        try (LodCacheStore store = new LodCacheStore(directory, 7, 12)) {
+            store.writeLater(0, 0, expected);
+        }
+        try (LodCacheStore store = new LodCacheStore(directory, 7, 12)) {
+            ChunkLodColumns actual = store.read(0, 0);
+            assertNotNull(actual);
+            LodColumn column = actual.get(0, 0, 2);
+            assertTrue(LodColumn.support(column.interval(1)));
+            assertEquals(64, LodColumn.minY(column.interval(1)));
+            assertEquals(80, LodColumn.maxY(column.interval(1)));
         }
     }
 }

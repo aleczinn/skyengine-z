@@ -1455,6 +1455,19 @@ public class World implements IInitializable, IDisposable {
         return chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
     }
 
+    /**
+     * Block der aktuell sichtbaren Welt-Darstellung. Solange ein LOD-Mesh die Zelle ersetzt,
+     * wird dessen Spalte gesampelt; andernfalls gelten die echten Chunkdaten aus
+     * {@link #getBlock}. Nur fuer Kamera- und Render-Effekte verwenden, nie fuer Simulation.
+     */
+    public int getRenderedBlock(int x, int y, int z) {
+        if (this.lodManager != null) {
+            int lodState = this.lodManager.visibleStateAt(x, y, z);
+            if (lodState >= 0) return lodState;
+        }
+        return this.getBlock(x, y, z);
+    }
+
     /** Aufrufer-gehaltener Ein-Eintrag-Chunk-Cache für getBlock-Serien (Explosions-Raycast). */
     static final class ChunkMemo {
         private int cx = Integer.MIN_VALUE, cz;
@@ -1501,6 +1514,15 @@ public class World implements IInitializable, IDisposable {
             return 15;
         }
         return chunk.light.get(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
+    }
+
+    /** Sichtbares Himmelslicht inklusive Wasserdaempfung eines gerade dargestellten LOD-Meshes. */
+    public int getRenderedSkyLight(int x, int y, int z) {
+        if (this.lodManager != null) {
+            int lodLight = this.lodManager.visibleSkyLightAt(x, y, z);
+            if (lodLight >= 0) return lodLight;
+        }
+        return this.getSkyLight(x, y, z);
     }
 
     /**

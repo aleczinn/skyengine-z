@@ -264,6 +264,14 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     }
 
     /**
+     * Gemeinsam von Chunk-Generierung und LOD verwendeter, unveraenderlicher 32x32-Spaltenkontext.
+     * Die interne Ordnung bleibt x-major, weil generate() seine Noise-Spalten so durchlaeuft.
+     */
+    private record TerrainColumns(int[] heights, int[] tops, int[] fillers, int[] waterLevels,
+                                  float[] shapeAmps, float[] uplifts, Biome[] biomes, int maxHeight) {
+    }
+
+    /**
      * Berechnet eine Terrainspalte komplett: Rohhoehe, Fluss- und See-Carving, den lokalen
      * Wasserspiegel (Meer, Fluss oder See) und die 3D-Amplitude. Fluss- und Seebecken
      * daempfen die 3D-Verformung auf 0 — sonst hebt das Shape-Noise die Sohle stellenweise
@@ -628,32 +636,61 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     @Override
     public int surfaceSolidHeight(int x, int z) {
         ColumnSample cs = this.columnFor(x, z, this.climate.sampleSmooth(x, z), true);
+        return this.surfaceSolidHeight(x, z, cs);
+    }
+
+    /**
+     * Variante fuer Aufrufer, die das teure Klima-/Fluss-Sample bereits besitzen. Die
+     * Dichteauswertung bleibt bitidentisch zu {@link #generate(Chunk)} und zur oeffentlichen
+     * {@link #surfaceSolidHeight(int, int)}-Funktion.
+     */
+    private int surfaceSolidHeight(int x, int z, ColumnSample cs) {
         int h2d = cs.height;
         float amp = cs.shapeAmp;
-        if (amp <= 0F) return h2d; // flache Biome/Wasserbecken liegen exakt auf der Heightmap
+        if (amp <= 0F) return Math.max(0, h2d); // flache Biome/Wasserbecken liegen exakt auf der Heightmap
 
         int top = Math.min(Chunk.HEIGHT - 2, h2d + (int) amp + 3);
-        int solidBelow = Math.max(1, h2d - (int) SHAPE_AMP_MAX - 4); // ab hier rein 2D = fest
+        /* generate() wertet nur Y>=1 ueber die Dichte aus; Y=0 ist separat Bedrock. Liegt
+           die garantiert feste 2D-Zone unter Y=1, darf die Oberflaechenprobe deshalb keinen
+           Phantom-Boden bei Y=1 erfinden. Genau das erzeugte unter tiefem Ozean die sichtbare
+           L0/L1-Wand: L0 hatte dort Wasser, L1 dagegen einen vermeintlichen Deckblock. */
+        int guaranteedSolidTop = h2d - (int) SHAPE_AMP_MAX - 4;
+        int scanMin = Math.max(1, guaranteedSolidTop + 1);
+        if (top < scanMin) return Math.max(0, guaranteedSolidTop);
 
         /* Shape-Noise bilinear pro Grid-Layer (identisch zu bilinearColumn in generate) */
         int x0 = Math.floorDiv(x, GRID_XZ) * GRID_XZ;
         int z0 = Math.floorDiv(z, GRID_XZ) * GRID_XZ;
         float fx = (x - x0) / (float) GRID_XZ;
         float fz = (z - z0) / (float) GRID_XZ;
-        int gyMin = solidBelow / GRID_Y;
+        int gyMin = scanMin / GRID_Y;
         int gyMax = top / GRID_Y + 1;
         float[] layers = new float[gyMax - gyMin + 1];
         for (int gy = gyMin; gy <= gyMax; gy++) {
             layers[gy - gyMin] = this.shapeLayer(x0, z0, fx, fz, gy * GRID_Y);
         }
+        return surfaceSolidHeight(h2d, amp, gyMin, layers);
+    }
 
-        for (int y = top; y > solidBelow; y--) {
+    /**
+     * Gemeinsamer Dichte-Scan fuer Einzel- und Bulk-Sampling. {@code firstGridY} gibt an,
+     * welchem absoluten Grid-Layer {@code layers[0]} entspricht.
+     */
+    private static int surfaceSolidHeight(int h2d, float amp, int firstGridY, float[] layers) {
+        if (amp <= 0F) return Math.max(0, h2d);
+        int top = Math.min(Chunk.HEIGHT - 2, h2d + (int) amp + 3);
+        int guaranteedSolidTop = h2d - (int) SHAPE_AMP_MAX - 4;
+        int scanMin = Math.max(1, guaranteedSolidTop + 1);
+        if (top < scanMin) return Math.max(0, guaranteedSolidTop);
+
+        for (int y = top; y >= scanMin; y--) {
             int gy = y / GRID_Y;
             float fy = (y & (GRID_Y - 1)) / (float) GRID_Y;
-            float shape = lerp(layers[gy - gyMin], layers[gy - gyMin + 1], fy);
+            int layer = gy - firstGridY;
+            float shape = lerp(layers[layer], layers[layer + 1], fy);
             if ((h2d - y) + shape * amp > 0F) return y;
         }
-        return solidBelow;
+        return Math.max(0, guaranteedSolidTop);
     }
 
     /** Shape-Noise an einem Grid-Layer, bilinear auf (x,z) — gleiche Mathematik wie generate(). */
@@ -672,12 +709,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
      */
     @Override
     public long sampleSurface(int x, int z) {
-        Climate smooth = this.climate.sampleSmooth(x, z);
-        ColumnSample cs = this.columnFor(x, z, smooth, true);
-        if (cs.height < cs.waterLevel) return LodDataSource.pack(Blocks.WATER, cs.waterLevel);
-        int top = this.surfaceTop(x, z, cs.height, Biomes.lookup(this.climate.sample(x, z, smooth)),
-                cs.uplift, cs.waterLevel);
-        return LodDataSource.pack(top, cs.height);
+        return this.sampleLodSurfaces(x, z).surface();
     }
 
     /**
@@ -687,11 +719,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
      */
     @Override
     public long sampleGroundSurface(int x, int z) {
-        Climate smooth = this.climate.sampleSmooth(x, z);
-        ColumnSample cs = this.columnFor(x, z, smooth, true);
-        int top = this.surfaceTop(x, z, cs.height, Biomes.lookup(this.climate.sample(x, z, smooth)),
-                cs.uplift, cs.waterLevel);
-        return LodDataSource.pack(top, cs.height);
+        return this.sampleLodSurfaces(x, z).ground();
     }
 
     @Override
@@ -703,12 +731,74 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     public LodSurfaces sampleLodSurfaces(int x, int z) {
         Climate smooth = this.climate.sampleSmooth(x, z);
         ColumnSample cs = this.columnFor(x, z, smooth, true);
-        int groundBlock = this.surfaceTop(x, z, cs.height,
-                Biomes.lookup(this.climate.sample(x, z, smooth)), cs.uplift, cs.waterLevel);
-        long ground = LodDataSource.pack(groundBlock, cs.height);
-        long surface = cs.height < cs.waterLevel
+        Biome biome = Biomes.lookup(this.climate.sample(x, z, smooth));
+        int solidHeight = this.surfaceSolidHeight(x, z, cs);
+
+        /* generate() bereitet das Deckmaterial aus der 2D-Hoehe vor. Nur wenn die
+           3D-Verformung einen eigentlich nassen Punkt ueber den Wasserspiegel hebt, wird das
+           Material fuer die reale trockene Hoehe neu bestimmt (s. Ufersaum-Korrektur dort).
+           Genau diese Reihenfolge ist Teil des Generatorvertrags und muss das LOD spiegeln. */
+        int groundBlock = solidHeight == 0
+                ? this.lodWorldBottomState()
+                : this.surfaceTop(x, z, cs.height, biome, cs.uplift, cs.waterLevel);
+        if (solidHeight > 0 && solidHeight >= cs.waterLevel && cs.height < cs.waterLevel) {
+            groundBlock = this.surfaceTop(x, z, solidHeight, biome, cs.uplift, cs.waterLevel);
+        }
+
+        long ground = LodDataSource.pack(groundBlock, solidHeight);
+        long surface = solidHeight < cs.waterLevel
                 ? LodDataSource.pack(Blocks.WATER, cs.waterLevel) : ground;
         return new LodSurfaces(ground, surface);
+    }
+
+    /**
+     * Chunkweiter LOD-Pfad: Klima/Fluesse werden einmal als zusammenhaengender Spaltenkontext
+     * aufgebaut und das 3D-Shape-Noise nur an den gemeinsamen Gitterpunkten ausgewertet.
+     * Die Ausgabe bleibt exakt dieselbe kanonische L0-Projektion wie beim Einzel-Sampling.
+     */
+    @Override
+    public void fillLodSurfaces(int chunkX, int chunkZ, long[] ground, long[] surface) {
+        requireLodSurfaceCapacity(ground, surface);
+        int baseX = chunkX << ChunkSection.SHIFT;
+        int baseZ = chunkZ << ChunkSection.SHIFT;
+        int size = ChunkSection.SIZE;
+        TerrainColumns terrain = this.buildTerrainColumns(baseX, baseZ);
+
+        int yTop = Math.min(Chunk.HEIGHT - 2,
+                terrain.maxHeight + (int) SHAPE_AMP_MAX + 4);
+        int gridsXZ = size / GRID_XZ + 1;
+        int gridsY = yTop / GRID_Y + 2;
+        float[] shapeGrid = this.buildShapeGrid(baseX, baseZ, gridsXZ, gridsY);
+        float[] colShape = new float[gridsY];
+
+        for (int x = 0; x < size; x++) {
+            for (int z = 0; z < size; z++) {
+                int columnIndex = x * size + z;
+                int h2d = terrain.heights[columnIndex];
+                float amp = terrain.shapeAmps[columnIndex];
+                int solidHeight;
+                if (amp <= 0F) {
+                    solidHeight = Math.max(0, h2d);
+                } else {
+                    bilinearColumn(shapeGrid, gridsXZ, gridsY, x, z, colShape);
+                    solidHeight = surfaceSolidHeight(h2d, amp, 0, colShape);
+                }
+
+                int waterLevel = terrain.waterLevels[columnIndex];
+                int groundBlock = solidHeight == 0
+                        ? this.lodWorldBottomState() : terrain.tops[columnIndex];
+                if (solidHeight > 0 && solidHeight >= waterLevel && h2d < waterLevel) {
+                    groundBlock = this.surfaceTop(baseX + x, baseZ + z, solidHeight,
+                            terrain.biomes[columnIndex], terrain.uplifts[columnIndex], waterLevel);
+                }
+
+                int outputIndex = z * size + x;
+                long packedGround = LodDataSource.pack(groundBlock, solidHeight);
+                ground[outputIndex] = packedGround;
+                surface[outputIndex] = solidHeight < waterLevel
+                        ? LodDataSource.pack(Blocks.WATER, waterLevel) : packedGround;
+            }
+        }
     }
 
     /**
@@ -799,41 +889,19 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
         /* 1) Spaltendaten: exakte 2D-Hoehe (Basis der Dichte — haelt flache Biome exakt auf
          *    der Heightmap, LOD-konsistent), Materialien und 3D-Amplitude */
-        int[] heights = new int[size * size];
-        int[] tops = new int[size * size];
-        int[] fillers = new int[size * size];
-        int[] waterLevels = new int[size * size];
-        float[] shapeAmps = new float[size * size];
-        float[] uplifts = new float[size * size];
-        Biome[] biomes = new Biome[size * size];
-        int maxH = 0;
-        for (int x = 0; x < size; x++) {
-            for (int z = 0; z < size; z++) {
-                int wx = baseX + x, wz = baseZ + z;
-                int i = x * size + z;
-
-                Climate smooth = this.climate.sampleSmooth(wx, wz);
-                ColumnSample cs = this.columnFor(wx, wz, smooth, true);
-                int h = cs.height;
-                /* Biome aus dem vorhandenen Smooth-Sample + Dither ableiten — spart die zweite
-                   volle 4-Feld-Klima-Auswertung pro Spalte (bit-identisch zu biomeAt). */
-                Biome biome = Biomes.lookup(this.climate.sample(wx, wz, smooth));
-                heights[i] = h;
-                biomes[i] = biome;
-                waterLevels[i] = cs.waterLevel;
-                uplifts[i] = cs.uplift;
-                tops[i] = this.surfaceTop(wx, wz, h, biome, uplifts[i], cs.waterLevel);
-                fillers[i] = fillerFor(tops[i], biome);
-                shapeAmps[i] = cs.shapeAmp;
-                if (h > maxH) maxH = h;
-            }
-        }
-
+        TerrainColumns terrain = this.buildTerrainColumns(baseX, baseZ);
+        int[] heights = terrain.heights;
+        int[] tops = terrain.tops;
+        int[] fillers = terrain.fillers;
+        int[] waterLevels = terrain.waterLevels;
+        float[] shapeAmps = terrain.shapeAmps;
+        float[] uplifts = terrain.uplifts;
+        Biome[] biomes = terrain.biomes;
         /* 2) 3D-Noise nur an Gitterpunkten (9x9 horizontal, alle 8 Bloecke vertikal) */
-        int yTop = Math.min(Chunk.HEIGHT - 2, maxH + (int) SHAPE_AMP_MAX + 4);
+        int yTop = Math.min(Chunk.HEIGHT - 2, terrain.maxHeight + (int) SHAPE_AMP_MAX + 4);
         int gridsXZ = size / GRID_XZ + 1;                  // 9 Eckpunkte pro Achse
         int gridsY = yTop / GRID_Y + 2;                    // Layer 0..n, deckt yTop+1 ab
-        float[] shapeGrid = new float[gridsY * gridsXZ * gridsXZ];
+        float[] shapeGrid = this.buildShapeGrid(baseX, baseZ, gridsXZ, gridsY);
         float[] cheeseGrid = new float[gridsY * gridsXZ * gridsXZ];
         float[] sp1Grid = new float[gridsY * gridsXZ * gridsXZ];
         float[] sp2Grid = new float[gridsY * gridsXZ * gridsXZ];
@@ -846,8 +914,6 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                 for (int gz = 0; gz < gridsXZ; gz++) {
                     float wz = baseZ + gz * GRID_XZ;
                     int gi = (gy * gridsXZ + gx) * gridsXZ + gz;
-                    /* y*1.5 staucht das Shape-Noise vertikal -> eher horizontale Strukturen */
-                    shapeGrid[gi] = this.shapeNoise.GetNoise(wx, y * 1.5F, wz);
                     cheeseGrid[gi] = this.cheeseNoise.GetNoise(wx, y, wz);
                     sp1Grid[gi] = this.spaghettiNoise1.GetNoise(wx, y, wz);
                     sp2Grid[gi] = this.spaghettiNoise2.GetNoise(wx, y, wz);
@@ -951,6 +1017,58 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         this.buildTintGrids(chunk, baseX, baseZ);
 
         this.trackGenerateTime(System.nanoTime() - start);
+    }
+
+    /** Baut alle von generate() und dem LOD-Bulk-Pfad gemeinsam benoetigten Spaltendaten. */
+    private TerrainColumns buildTerrainColumns(int baseX, int baseZ) {
+        int size = ChunkSection.SIZE;
+        int[] heights = new int[size * size];
+        int[] tops = new int[size * size];
+        int[] fillers = new int[size * size];
+        int[] waterLevels = new int[size * size];
+        float[] shapeAmps = new float[size * size];
+        float[] uplifts = new float[size * size];
+        Biome[] biomes = new Biome[size * size];
+        int maxHeight = 0;
+
+        for (int x = 0; x < size; x++) {
+            for (int z = 0; z < size; z++) {
+                int wx = baseX + x;
+                int wz = baseZ + z;
+                int index = x * size + z;
+                Climate smooth = this.climate.sampleSmooth(wx, wz);
+                ColumnSample cs = this.columnFor(wx, wz, smooth, true);
+                Biome biome = Biomes.lookup(this.climate.sample(wx, wz, smooth));
+                heights[index] = cs.height;
+                biomes[index] = biome;
+                waterLevels[index] = cs.waterLevel;
+                uplifts[index] = cs.uplift;
+                tops[index] = this.surfaceTop(wx, wz, cs.height, biome, cs.uplift, cs.waterLevel);
+                fillers[index] = fillerFor(tops[index], biome);
+                shapeAmps[index] = cs.shapeAmp;
+                if (cs.height > maxHeight) maxHeight = cs.height;
+            }
+        }
+        return new TerrainColumns(heights, tops, fillers, waterLevels,
+                shapeAmps, uplifts, biomes, maxHeight);
+    }
+
+    /** Shape-Noise-Grid mit exakt derselben Punktordnung und Mathematik wie generate(). */
+    private float[] buildShapeGrid(int baseX, int baseZ, int gridsXZ, int gridsY) {
+        float[] result = new float[gridsY * gridsXZ * gridsXZ];
+        for (int gy = 0; gy < gridsY; gy++) {
+            float y = gy * GRID_Y;
+            for (int gx = 0; gx < gridsXZ; gx++) {
+                float wx = baseX + gx * GRID_XZ;
+                for (int gz = 0; gz < gridsXZ; gz++) {
+                    float wz = baseZ + gz * GRID_XZ;
+                    int index = (gy * gridsXZ + gx) * gridsXZ + gz;
+                    /* y*1.5 staucht das Shape-Noise vertikal -> eher horizontale Strukturen */
+                    result[index] = this.shapeNoise.GetNoise(wx, y * 1.5F, wz);
+                }
+            }
+        }
+        return result;
     }
 
     /* Biome-Tint-Glaettung: Biomfarben an einem groben 4-Block-Raster nachschlagen,

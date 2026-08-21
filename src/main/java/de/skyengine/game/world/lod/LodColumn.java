@@ -12,8 +12,10 @@ public final class LodColumn {
     public static final int FLAG_LANDMARK = 1;
     public static final int FLAG_SKY_OPEN = 2;
     public static final int FLAG_TERRAIN = 4;
-    private static final int FLAG_MASK = FLAG_LANDMARK | FLAG_SKY_OPEN | FLAG_TERRAIN;
-    private static final int COVERAGE_SHIFT = 3;
+    /** Geerdetes Landmark-Intervall, dessen Basis bei grober Reduktion am Terrain bleibt. */
+    public static final int FLAG_SUPPORT = 8;
+    private static final int FLAG_MASK = FLAG_LANDMARK | FLAG_SKY_OPEN | FLAG_TERRAIN | FLAG_SUPPORT;
+    private static final int COVERAGE_SHIFT = 4;
     private static final int COVERAGE_MASK = 0x3FF;
     public static final LodColumn EMPTY = owned(new long[0]);
 
@@ -95,6 +97,10 @@ public final class LodColumn {
 
     public static boolean terrain(long interval) {
         return (flags(interval) & FLAG_TERRAIN) != 0;
+    }
+
+    public static boolean support(long interval) {
+        return (flags(interval) & FLAG_SUPPORT) != 0;
     }
 
     private LodColumn() {

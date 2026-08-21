@@ -3,8 +3,7 @@ package de.skyengine.graphics;
 /**
  * Transiente Debug-Schalter (nur Session, NICHT in options.json). Vom {@code GuiDebugScreen}
  * und dem Render-/Input-Pfad gelesen/geschrieben. GPU-Cull ({@code GpuCull.ENABLED/DEBUG_TINT})
- * und {@code LodMesher.EMIT_GRASS_OVERLAY} liegen bewusst in ihren Subsystemen; hier nur, was
- * sonst nirgends ein Zuhause hat.
+ * liegt bewusst in seinem Subsystem; hier nur, was sonst nirgends ein Zuhause hat.
  */
 public final class DebugFlags {
 
@@ -38,6 +37,12 @@ public final class DebugFlags {
      * Zonen zwischen den Slots sichtbar — dort ginge ein Ablegen ins Leere.
      */
     public static volatile boolean guiSlotBounds = false;
+
+    /**
+     * Visueller Unterwasser-Nebel. Bleibt als Debug-Hilfe getrennt von Wasserphysik,
+     * Unterwasser-Audio und dem tickbasierten Water-Vision-Verlauf.
+     */
+    public static volatile boolean underwaterEffect = true;
 
     private DebugFlags() {}
 }

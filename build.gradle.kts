@@ -82,6 +82,14 @@ tasks.register<JavaExec>("lodCensus") {
     mainClass = "de.skyengine.game.world.lod.LodPerformanceCensus"
 }
 
+tasks.register<JavaExec>("lodQuads") {
+    group = "verification"
+    description = "Zählt die LOD-Quads des kompletten Rings pro Level (Spaltenpfad) — Vorher/Nachher-Beleg für Merge-Änderungen"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "de.skyengine.game.world.lod.LodQuadCensus"
+    maxHeapSize = "6g"
+}
+
 tasks.register<JavaExec>("mapExport") {
     group = "verification"
     description = "Exportiert Weltgen-Debugkarten nach debug-maps/ (Bitstabilität der Generierung)"

@@ -39,6 +39,40 @@ final class ChunkLodColumnsPerformanceTest {
     }
 
     @Test
+    void defaultBulkContractSamplesAllCanonicalColumnsInRowMajorOrder() {
+        DefaultBulkGenerator generator = new DefaultBulkGenerator();
+        int count = ChunkSection.SIZE * ChunkSection.SIZE;
+        long[] ground = new long[count];
+        long[] surface = new long[count];
+
+        generator.fillLodSurfaces(-3, 5, ground, surface);
+
+        assertEquals(count, generator.surfaceCalls);
+        int baseX = -3 << ChunkSection.SHIFT;
+        int baseZ = 5 << ChunkSection.SHIFT;
+        for (int z = 0; z < ChunkSection.SIZE; z++) {
+            for (int x = 0; x < ChunkSection.SIZE; x++) {
+                int index = z * ChunkSection.SIZE + x;
+                int height = DefaultBulkGenerator.heightAt(baseX + x, baseZ + z);
+                assertEquals(LodDataSource.pack(Blocks.STONE, height), ground[index]);
+                assertEquals(LodDataSource.pack(Blocks.WATER, height + 1), surface[index]);
+            }
+        }
+    }
+
+    @Test
+    void generatedLodUsesAnOptimizedBulkOverrideWithoutScalarFallback() {
+        OptimizedBulkGenerator generator = new OptimizedBulkGenerator();
+        LodFeatureBuffer features = new ChunkDecorator(generator, List.of()).decorateForLod(2, -7);
+
+        ChunkLodColumns.fromGenerator(generator, features, 2, -7, 4);
+
+        assertEquals(1, generator.bulkCalls);
+        assertEquals(0, generator.scalarCalls);
+        assertEquals(0, generator.generateCalls);
+    }
+
+    @Test
     void oneFineBuildDerivesCoarserLevelsLazilyWithoutGeneratorWork() {
         CountingGenerator generator = new CountingGenerator();
         LodFeatureBuffer features = new ChunkDecorator(generator, List.of()).decorateForLod(0, 0);
@@ -89,6 +123,50 @@ final class ChunkLodColumnsPerformanceTest {
     }
 
     @Test
+    void untouchedOceanChunkHasIdenticalGeneratorAndExactLodColumns() {
+        AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(187);
+        int chunkX = Math.floorDiv(-8154, ChunkSection.SIZE);
+        int chunkZ = Math.floorDiv(-17295, ChunkSection.SIZE);
+        assertGeneratorMatchesExact(generator, chunkX, chunkZ);
+    }
+
+    @Test
+    void bedrockDeepOceanChunkHasIdenticalGeneratorAndExactLodColumns() {
+        AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(187);
+        int chunkX = Math.floorDiv(-8559, ChunkSection.SIZE);
+        int chunkZ = Math.floorDiv(-17057, ChunkSection.SIZE);
+        assertGeneratorMatchesExact(generator, chunkX, chunkZ);
+    }
+
+    @Test
+    void reportedLandChunkHasIdenticalGeneratorAndExactLodColumns() {
+        AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(187);
+        int chunkX = Math.floorDiv(-7668, ChunkSection.SIZE);
+        int chunkZ = Math.floorDiv(-18064, ChunkSection.SIZE);
+        assertGeneratorMatchesExact(generator, chunkX, chunkZ);
+    }
+
+    private static void assertGeneratorMatchesExact(AlphaWorldGeneratorV2 generator,
+                                                    int chunkX, int chunkZ) {
+        ChunkDecorator decorator = new ChunkDecorator(generator, List.of());
+        Chunk exactChunk = new Chunk(chunkX, chunkZ);
+        generator.generate(exactChunk);
+
+        for (int level = 1; level < ChunkLodColumns.LEVELS; level++) {
+            ChunkLodColumns generated = ChunkLodColumns.fromGenerator(generator,
+                    decorator.decorateForLod(chunkX, chunkZ), chunkX, chunkZ, level);
+            ChunkLodColumns exact = ChunkLodColumns.fromChunk(exactChunk, generator, level);
+            int size = 1 << level;
+            for (int z = 0; z < ChunkSection.SIZE; z += size) {
+                for (int x = 0; x < ChunkSection.SIZE; x += size) {
+                    assertColumnEquals(exact.get(x, z, size), generated.get(x, z, size),
+                            "chunk " + chunkX + "," + chunkZ + " L" + level + " @ " + x + "," + z);
+                }
+            }
+        }
+    }
+
+    @Test
     void exactProjectionConsumesSingleValueSectionsAsRuns() {
         Chunk chunk = new Chunk(0, 0);
         chunk.installSection(0, new ChunkSection(new PalettedContainer(
@@ -109,5 +187,60 @@ final class ChunkLodColumnsPerformanceTest {
         private CountingGenerator() { super(1234); }
         @Override public int sampleHeight(int x, int z) { return 64; }
         @Override public void generate(Chunk chunk) { this.generateCalls++; }
+    }
+
+    private static class DefaultBulkGenerator extends WorldGenerator {
+        private int surfaceCalls;
+
+        private DefaultBulkGenerator() { super(1234); }
+        @Override public int sampleHeight(int x, int z) { return heightAt(x, z); }
+        @Override public void generate(Chunk chunk) {}
+
+        @Override
+        public LodSurfaces sampleLodSurfaces(int x, int z) {
+            this.surfaceCalls++;
+            int height = heightAt(x, z);
+            return new LodSurfaces(LodDataSource.pack(Blocks.STONE, height),
+                    LodDataSource.pack(Blocks.WATER, height + 1));
+        }
+
+        private static int heightAt(int x, int z) {
+            return Math.floorMod(x * 31 + z * 17, Chunk.HEIGHT - 1);
+        }
+    }
+
+    private static final class OptimizedBulkGenerator extends WorldGenerator {
+        private int bulkCalls;
+        private int scalarCalls;
+        private int generateCalls;
+
+        private OptimizedBulkGenerator() { super(1234); }
+        @Override public int sampleHeight(int x, int z) { return 64; }
+        @Override public void generate(Chunk chunk) { this.generateCalls++; }
+
+        @Override
+        public LodSurfaces sampleLodSurfaces(int x, int z) {
+            this.scalarCalls++;
+            return new LodSurfaces(LodDataSource.pack(Blocks.GRASS_BLOCK, 64),
+                    LodDataSource.pack(Blocks.GRASS_BLOCK, 64));
+        }
+
+        @Override
+        public void fillLodSurfaces(int chunkX, int chunkZ, long[] ground, long[] surface) {
+            requireLodSurfaceCapacity(ground, surface);
+            this.bulkCalls++;
+            long packed = LodDataSource.pack(Blocks.GRASS_BLOCK, 64);
+            for (int i = 0; i < ChunkSection.SIZE * ChunkSection.SIZE; i++) {
+                ground[i] = packed;
+                surface[i] = packed;
+            }
+        }
+    }
+
+    private static void assertColumnEquals(LodColumn expected, LodColumn actual, String message) {
+        assertEquals(expected.size(), actual.size(), message + " interval count");
+        for (int i = 0; i < expected.size(); i++) {
+            assertEquals(expected.interval(i), actual.interval(i), message + " interval " + i);
+        }
     }
 }

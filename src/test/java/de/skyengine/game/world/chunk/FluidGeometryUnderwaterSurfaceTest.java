@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class FluidGeometryUnderwaterSurfaceTest {
@@ -47,6 +48,22 @@ final class FluidGeometryUnderwaterSurfaceTest {
                 .filter(FluidGeometryUnderwaterSurfaceTest::isTop).findFirst().orElseThrow();
         assertEquals(FluidGeometry.SOURCE_HEIGHT - FluidGeometry.TOP_RENDER_EPSILON,
                 top.vertices()[1], 0.000001F);
+    }
+
+    @Test
+    void classifiesOnlyHorizontalSourceHeightTopsForAnalyticSnapping() {
+        Chunk flat = chunkWithWater(Blocks.AIR);
+        for (int z = 9; z <= 11; z++) {
+            for (int x = 9; x <= 11; x++) flat.setBlock(x, 64, z, Blocks.WATER);
+        }
+        BakedQuad flatTop = Arrays.stream(build(flat))
+                .filter(FluidGeometryUnderwaterSurfaceTest::isTop).findFirst().orElseThrow();
+        assertTrue(FluidGeometry.isFlatSourceTop(flatTop));
+
+        Chunk sloped = chunkWithWater(Blocks.AIR);
+        BakedQuad slopedTop = Arrays.stream(build(sloped))
+                .filter(FluidGeometryUnderwaterSurfaceTest::isTop).findFirst().orElseThrow();
+        assertFalse(FluidGeometry.isFlatSourceTop(slopedTop));
     }
 
     @Test

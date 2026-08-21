@@ -29,6 +29,11 @@ public final class FrameProfiler {
         Ohne sie war die dokumentierte Fixkosten-These des GPU-Pfads nicht nachprüfbar. */
     public enum Gpu {
         SOLID("solid"),
+        /* LOD-Opaque als EIN Draw (Normalfall). Ohne diese Sektion fiel der groesste
+           GPU-Posten des Frames komplett aus der Messung und tauchte nur als Differenz
+           zwischen span und der Summe der Sektionen auf. Im Split-Modus messen
+           stattdessen lodO1..lodO5 — nie beide, GL_TIME_ELAPSED darf nicht verschachteln. */
+        LOD_OPAQUE("lodO"),
         LOD_O_L1("lodO1"),
         LOD_O_L2("lodO2"),
         LOD_O_L3("lodO3"),
