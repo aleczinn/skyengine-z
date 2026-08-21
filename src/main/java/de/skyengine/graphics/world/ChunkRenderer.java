@@ -186,6 +186,7 @@ public class ChunkRenderer {
     /* Letzter LOD-Settings-Stand für die Arena-Vorabvergrößerung (s. applyLodResults) */
     private int lastLodRenderDistance = -1, lastLodMaxDistance = -1;
     private boolean lastLodEnabled;
+    private GameSettings.LodQuality lastLodQuality;
 
     /* Gate für die Cleanup-Walks (Schritte 3/3b): die O(Meshes)-Prüfungen laufen nur noch
        in Frames, in denen sich Chunk-Set bzw. LOD-Desired-Set wirklich geändert haben
@@ -399,7 +400,8 @@ public class ChunkRenderer {
         long lodTranslucentBytes = 8L * 1024 * 1024;
         if (settings.lodEnabled) {
             LodConfig lodConfig = LodConfig.of(settings.renderDistance, settings.lodMaxDistance);
-            lodOpaqueBytes = Math.max(lodOpaqueBytes, LodMesher.estimateOpaqueArenaBytes(lodConfig));
+            lodOpaqueBytes = Math.max(lodOpaqueBytes,
+                    LodMesher.estimateOpaqueArenaBytes(lodConfig, settings.lodQuality));
             lodTranslucentBytes = Math.max(lodTranslucentBytes,
                     LodMesher.estimateTranslucentArenaBytes(lodConfig));
         }
@@ -1214,14 +1216,20 @@ public class ChunkRenderer {
            wächst treppenweise (~9 Grows à 1,5x, jeder mit voller GPU-Kopie — real beobachtet
            8→196 MB). Einmalig auf die Schätzung wachsen statt vieler Schritte. */
         GameSettings settings = GameSettings.get();
+        /* Die Qualitaetsstufe gehoert mit in die Bedingung: sie aendert die Quads/Zelle und
+           damit die Schaetzung (LOW->HIGH sind +38 % Quads). Ohne sie waechse die Arena nach
+           einem Stufenwechsel treppenweise nach — genau der Fall, den dieser Block verhindert. */
         if (settings.lodEnabled != this.lastLodEnabled || settings.renderDistance != this.lastLodRenderDistance
-                || settings.lodMaxDistance != this.lastLodMaxDistance) {
+                || settings.lodMaxDistance != this.lastLodMaxDistance
+                || settings.lodQuality != this.lastLodQuality) {
             this.lastLodEnabled = settings.lodEnabled;
             this.lastLodRenderDistance = settings.renderDistance;
             this.lastLodMaxDistance = settings.lodMaxDistance;
+            this.lastLodQuality = settings.lodQuality;
             if (settings.lodEnabled) {
                 LodConfig lodConfig = LodConfig.of(settings.renderDistance, settings.lodMaxDistance);
-                opaqueArena.ensureCapacity(LodMesher.estimateOpaqueArenaBytes(lodConfig));
+                opaqueArena.ensureCapacity(
+                        LodMesher.estimateOpaqueArenaBytes(lodConfig, settings.lodQuality));
                 translucentArena.ensureCapacity(LodMesher.estimateTranslucentArenaBytes(lodConfig));
             }
         }

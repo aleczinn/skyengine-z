@@ -51,14 +51,20 @@ public final class LodQuadCensus {
         WorldGenerator generator = new AlphaWorldGeneratorV2(SEED);
         LodBlockAppearance appearance = new LodBlockAppearance();
 
-        /* AO=an (realistische Einstellung) fest. */
+        /* AO global an; durchgefahren werden die vier LOD-Qualitaetsstufen. Corner-AO trennt
+           Zellen mit unterschiedlichen Eckwerten und bricht damit Greedy-Merges — der Vergleich
+           beziffert genau diesen Preis je Level. */
         GameSettings.get().ambientOcclusion = true;
-        census(generator, appearance, LodConfig.of(16, 128), true);
+        LodConfig config = LodConfig.of(16, 128);
+        for (GameSettings.LodQuality quality : GameSettings.LodQuality.values()) {
+            GameSettings.get().lodQuality = quality;
+            census(generator, appearance, config, quality);
+        }
     }
 
     /** Mesht alle Regionen des Rings und druckt die Quad-/Vertex-Summen pro Level. */
     private static void census(WorldGenerator generator, LodBlockAppearance appearance,
-                               LodConfig config, boolean ao) {
+                               LodConfig config, GameSettings.LodQuality quality) {
         LodMesher mesher = new LodMesher();
         LodMeshStats stats = new LodMeshStats();
         mesher.setStats(stats); // aktiviert die Quad-Statistik (in-engine null → aus)
@@ -105,8 +111,11 @@ public final class LodQuadCensus {
         }
         long elapsed = System.currentTimeMillis() - start;
 
-        System.out.printf(Locale.ROOT, "%n=== Zensus rd=%d lodMax=%d AO=%s (Seed %d, %d ms) ===%n",
-                config.renderDistance(), config.lodMaxDistance(), ao ? "an" : "aus", SEED, elapsed);
+        System.out.printf(Locale.ROOT,
+                "%n=== Zensus rd=%d lodMax=%d LOD-Qualitaet=%s (Corner-AO bis L%s, Seed %d, %d ms) ===%n",
+                config.renderDistance(), config.lodMaxDistance(), quality,
+                quality.usesAo() ? String.valueOf(Math.min(quality.cornerAoMaxLevel(), 5)) : "-",
+                SEED, elapsed);
         System.out.printf(Locale.ROOT, "%-6s %10s %14s %14s %14s %14s %10s%n",
                 "Level", "Regionen", "OpakQ", "TranslQ", "GesamtQ", "Vertices", "Q/Zelle");
         long totalRegions = 0, totalOpaque = 0, totalTranslucent = 0, totalCells = 0;
@@ -139,7 +148,7 @@ public final class LodQuadCensus {
                         + "hoch=%d runter=%d seitlich=%d%n", upAll, downAll, sideAll);
 
         /* Detailreport: Flächentypen, Merge-Grenzen nach Ursache, Skirt-Anteil. */
-        stats.printReport(config, ao);
+        stats.printReport(config, quality.usesAo());
     }
 
     /**

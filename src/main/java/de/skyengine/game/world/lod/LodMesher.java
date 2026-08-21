@@ -128,7 +128,8 @@ public final class LodMesher {
     private float minBottom, maxTop;           // absolut (fürs Frustum-AABB)
     private final float[] aoScratch = new float[4]; // wiederverwendet: P1,P2,P3,P4 pro Top-Quad
     private final float[] aoFlatScratch = new float[4]; // Scratch für cellAoFlat (Merge-Kandidaten)
-    private boolean flatAo;                    // L2+: uniformes Flächen-AO statt weichem Corner-AO
+    private boolean flatAo;                    // uniformes Flächen-AO statt weichem Corner-AO
+    private boolean lodAo;                     // AO im LOD überhaupt gebacken (Setting + LodQuality)
     private int aoBandHeight = 1;              // vertikales AO-Raster; L2+ bewusst grob
     private boolean columnAo;                  // AO für Seiten des Spaltenpfads
     private boolean levelOneColumnAo;          // Corner-AO liest das kanonische L1-Raster
@@ -165,6 +166,27 @@ public final class LodMesher {
        also rund 22 % Reserve. */
     private static final float QUADS_PER_CELL = 3.5F;
 
+    /**
+     * Quads/Zelle je LOD-Qualitaet. Weiches Corner-AO trennt Zellen mit unterschiedlichen
+     * Eckwerten und bricht damit Greedy-Merges — und zwar umso staerker, je groeber das Level
+     * ist (mehr Relief je Zelle). Gemessen mit {@code gradlew lodQuads}, Seed 123,
+     * rd16/lodMax128, Q/Zelle ueber den ganzen Ring:
+     * OFF 1,694 — LOW 2,079 — MID 2,417 — HIGH 2,870.
+     * Je Level kostet Corner-AO gegenueber flachem AO +48 % (L2), +66 % (L3), +76 % (L4).
+     *
+     * <p>Die Konstanten halten denselben Reserve-Faktor wie der kalibrierte LOW-Wert
+     * (3,5 zu 2,079 = 1,68). Ohne diese Staffelung waere die Arena bei MID/HIGH zu klein und
+     * wuechse zur Laufzeit — jeder Grow ist eine GPU-Vollkopie der ganzen Arena im Frame.
+     */
+    private static float quadsPerCell(GameSettings.LodQuality quality) {
+        return switch (quality) {
+            case OFF -> 2.9F;
+            case LOW -> QUADS_PER_CELL;
+            case MID -> 4.1F;
+            case HIGH -> 4.9F;
+        };
+    }
+
     /* Dasselbe für die LOD-TRANSLUCENT-Arena (Wasseroberflächen und -wände). Wasser-Tops
        werden doppelseitig gebacken, zählen also doppelt.
        Der Wert lag ursprünglich bei 1,15 — damals mergte allerdings KEIN einziges Wasser-Top,
@@ -183,8 +205,8 @@ public final class LodMesher {
      * (kein Treppen-Wachstum beim Start → weniger NVIDIA-0x20072-Warnungen; die Arena wächst bei
      * Bedarf trotzdem weiter). Skaliert automatisch mit renderDistance/lodMaxDistance.
      */
-    public static long estimateOpaqueArenaBytes(LodConfig config) {
-        return arenaBytes(config, QUADS_PER_CELL);
+    public static long estimateOpaqueArenaBytes(LodConfig config, GameSettings.LodQuality quality) {
+        return arenaBytes(config, quadsPerCell(quality));
     }
 
     /**
@@ -252,7 +274,12 @@ public final class LodMesher {
         this.lastGeometryNanos = 0;
         this.columnAo = false;
         this.levelOneColumnAo = false;
-        this.flatAo = level >= 2;
+        /* EINE Lesung je Mesh-Job: AO-Zustand und Corner-AO-Schwelle muessen innerhalb einer
+           Region konsistent sein. Jede Aenderung bumpt ohnehin die Epoche (LodManager), alle
+           Regionen werden also mit demselben Stand neu gebaut. */
+        GameSettings.LodQuality quality = GameSettings.get().lodQuality;
+        this.lodAo = GameSettings.get().ambientOcclusion && quality.usesAo();
+        this.flatAo = level > quality.cornerAoMaxLevel();
         /* Vier Level-Zellen pro L2-Band, danach mindestens zwei: L2/L3=16, L4=32,
            L5=64. Das Raster bleibt global ausgerichtet und erzeugt an realen Klippen
            wenige große, horizontal gut mergefähige Flächen statt 4-Block-Lamellen. */
@@ -341,10 +368,11 @@ public final class LodMesher {
         /* AO aus (Setting): neutral hell (1.0) + frei mergen nach Block+Höhe — exakt wie im
            ChunkMesher (aoIdx 3 = 1.0), damit der Look über die LOD-Grenze konsistent bleibt.
            Live gelesen; der LodManager bumpt bei AO-Toggle die Epoche → alle Regionen neu. */
-        boolean useAo = GameSettings.get().ambientOcclusion;
+        boolean useAo = this.lodAo;
 
-        /* L1 bleibt eckgenau. Ab L2 gewinnt uniformes Flächen-AO: keine sichtbare
-           Dreiecksdiagonale und deutlich bessere Greedy-Mergefähigkeit. */
+        /* Bis zur eingestellten Schwelle bleibt es eckgenau; darüber gewinnt uniformes
+           Flächen-AO: keine sichtbare Dreiecksdiagonale und deutlich bessere
+           Greedy-Mergefähigkeit. */
 
         /* Debug: Merge-Grenzen der Terrain-Tops erfassen (ordnungsunabhängig, s. LodMeshStats). */
         if (this.stats != null) this.recordSeams(n, useAo);
@@ -513,7 +541,7 @@ public final class LodMesher {
         this.posScale = posScaleFor(sizeRegions);
         this.regionBaseX = rx * REGION_BLOCKS;
         this.regionBaseZ = rz * REGION_BLOCKS;
-        boolean useAo = GameSettings.get().ambientOcclusion;
+        boolean useAo = this.lodAo;
         this.columnAo = useAo;
         if (mask == 0xFFFF) {
             return new LodMeshResult(level, rx, rz, sizeRegions, epoch, mask, clipSnapshot,
@@ -526,7 +554,10 @@ public final class LodMesher {
         int minY = Integer.MAX_VALUE;
         source.sampleColumns(this.regionBaseX - s, this.regionBaseZ - s, s,
                 this.stride, this.stride, this.columns, 0, this.stride);
-        if (level == 1 && useAo) {
+        /* Corner-AO liest das KANONISCHE Raster: die Snapshot-Kopie entsteht, bevor
+           replaceClippedBoundaryProxies/replaceRegionHalos Eintraege in this.columns
+           ueberschreiben. Gilt fuer jedes Level, das eckgenaues AO bekommt. */
+        if (!this.flatAo && useAo) {
             if (this.levelOneAoColumns.length < sampleCount) {
                 this.levelOneAoColumns = new LodColumn[sampleCount];
             }

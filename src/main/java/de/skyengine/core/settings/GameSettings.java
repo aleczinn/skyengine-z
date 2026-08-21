@@ -42,6 +42,41 @@ public final class GameSettings {
      */
     public enum LeavesQuality { LOW, MID, HIGH }
 
+    /**
+     * AO-Qualitaet der LOD-Ringe. Weiches Corner-AO trennt Zellen mit unterschiedlichen Eckwerten
+     * und bricht damit Greedy-Merges — jede Stufe hoeher kostet also Quads und GPU-Zeit, waehrend
+     * flaches Flaechen-AO grosse mergefaehige Flaechen erhaelt. Die Stufe steuert, bis zu welchem
+     * LOD-Level Corner-AO gebacken wird; darueber gilt Flaechen-AO.
+     *
+     * <p>{@link #OFF} schaltet AO NUR im LOD ab — das globale {@code ambientOcclusion} und damit
+     * das echte Terrain (L0) bleibt unberuehrt.
+     */
+    public enum LodQuality {
+        /** Kein AO in den LOD-Ringen. */
+        OFF,
+        /** Corner-AO nur auf L1, ab L2 flach (bisheriges Verhalten). */
+        LOW,
+        /** Corner-AO bis einschliesslich L2. */
+        MID,
+        /** Corner-AO auf allen LOD-Leveln. */
+        HIGH;
+
+        /** false = im LOD wird gar kein AO gebacken. */
+        public boolean usesAo() {
+            return this != OFF;
+        }
+
+        /** Hoechstes LOD-Level mit weichem Corner-AO; darueber flaches Flaechen-AO. */
+        public int cornerAoMaxLevel() {
+            return switch (this) {
+                case OFF -> 0;
+                case LOW -> 1;
+                case MID -> 2;
+                case HIGH -> Integer.MAX_VALUE;
+            };
+        }
+    }
+
     /* GUI-Größe als GANZZAHLIGER Faktor: 0 = automatisch (größter Faktor, der ins Fenster
        passt), sonst 1..MAX_GUI_SCALE. Zwischenstufen gibt es nicht und können es nicht geben:
        GUI-Grafik ist ein Texel-Raster mit GL_NEAREST, eine 1 Texel breite Linie muss also auf
@@ -88,6 +123,11 @@ public final class GameSettings {
        renderDistance·2^L, gedeckelt bei lodMaxDistance (rd16/lod128 → L1 16-32, L2 32-64,
        L3 64-128). lodMaxDistance <= renderDistance schaltet das LOD faktisch ab. */
     public int lodMaxDistance = 128;
+
+    /* AO-Qualitaet der LOD-Ringe (s. LodQuality). Default LOW = bisheriges Verhalten, damit
+       bestehende options.json ihre Performance behalten. volatile: die Chunk-Worker lesen das
+       Feld im LodMesher; jede Aenderung bumpt zusaetzlich die LOD-Epoche (LodManager). */
+    public volatile LodQuality lodQuality = LodQuality.LOW;
     /* Gesamtlautstärke 0..100 (wirkt global als OpenAL-Listener-Gain). */
     public int masterVolume = 100;
     /* Kanal-Lautstärken 0..100, Keys = SoundCategory-Namen (ersetzt das alte musicVolume-Feld:
@@ -203,6 +243,7 @@ public final class GameSettings {
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;
+        if (this.lodQuality == null) this.lodQuality = LodQuality.LOW;
         if (this.keyBindings == null) {
             this.keyBindings = KeyBindings.defaults();
         } else {

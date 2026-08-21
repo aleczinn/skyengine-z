@@ -216,6 +216,7 @@ public class LodManager {
     private int lastRenderDistance = -1, lastLodMaxDistance = -1;
     private boolean lastEnabled = true;
     private boolean lastAmbientOcclusion = true;
+    private GameSettings.LodQuality lastLodQuality = GameSettings.LodQuality.LOW;
 
     /* Spieler-Chunk (aktuell) — Zentrum der Masken-Scan-Zone */
     private int pcx, pcz;
@@ -255,6 +256,7 @@ public class LodManager {
         int rd = settings.renderDistance;
         int lodMax = settings.lodMaxDistance;
         boolean ao = settings.ambientOcclusion;
+        GameSettings.LodQuality lodQuality = settings.lodQuality;
 
         this.pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.pcz = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
@@ -264,8 +266,12 @@ public class LodManager {
         this.viewX = Math.sin(yawRad);
         this.viewZ = -Math.cos(yawRad);
 
+        /* Die LOD-Qualitaet MUSS hier mit hinein: AO steckt fest im gebackenen Mesh, ein
+           Stufenwechsel muss deshalb alle vorhandenen Meshes entwerten. Fehlt die Bedingung,
+           wirkt die Umschaltung nur auf neu gebaute Regionen und der Ring ist gemischt. */
         boolean settingsChanged = enabled != this.lastEnabled || rd != this.lastRenderDistance
-                || lodMax != this.lastLodMaxDistance || ao != this.lastAmbientOcclusion;
+                || lodMax != this.lastLodMaxDistance || ao != this.lastAmbientOcclusion
+                || lodQuality != this.lastLodQuality;
         if (settingsChanged) {
             this.epoch++; // alle Meshes entwertet (Ringe verschoben)
             this.config = LodConfig.of(rd, lodMax);
@@ -285,6 +291,7 @@ public class LodManager {
             this.lastRenderDistance = rd;
             this.lastLodMaxDistance = lodMax;
             this.lastAmbientOcclusion = ao;
+            this.lastLodQuality = lodQuality;
         }
 
         /* Echtes Terrain zuerst: LOD-Jobs erst einreihen, wenn der Radius einmal komplett stand.
