@@ -62,7 +62,10 @@ public final class LodMesher {
     /** Halbe Diagonale einer Region — Toleranz für Kreis-Überlappungstests. */
     public static final float HALF_DIAG = 90.6F;
 
-    /* Merge-/UV-Deckel in Blöcken (UV-Fixed-Point 6.10 trägt max ~63; 32 lässt Reserve). */
+    /* Merge-/UV-Deckel in Blöcken (UV-Fixed-Point 6.10 trägt max ~63; 32 lässt Reserve).
+       Ein Anheben auf 56 wurde gemessen: nur -0,53 % Quads im Ring-Zensus, weil der
+       Merge fast immer vorher an Material/Höhe/Licht/AO bricht. Nicht die Testzusagen
+       wert, die diesen Deckel festschreiben. */
     private static final int MAX_MERGE_BLOCKS = 32;
 
     /* Nur für den kompakten Heightmap-Fallback: BASE·2^Level, gedeckelt. Herleitung MAX:
@@ -154,15 +157,16 @@ public final class LodMesher {
     private static final float QUADS_PER_CELL = 3.5F;
 
     /* Dasselbe für die LOD-TRANSLUCENT-Arena (Wasseroberflächen und -wände). Wasser-Tops
-       werden doppelseitig gebacken, zählen also doppelt. Dieselbe Messreihe ergab je Level
-       maximal 0,76 / 0,80 / 1,13 / 0,97 Quads/Zelle (L1..L4), über die Ringzellen gewichtet
-       0,84. Der volle Ring im Spiel (Seed 187, rd=16/lodMax=128) belegte allerdings 126 MB
-       = 0,90 Quads/Zelle — die Offline-Stichprobe lag ~12 % zu niedrig. 1,15 trägt darüber
-       dieselbe ~22 %-Reserve wie QUADS_PER_CELL.
-       Ein Ring, der fast nur aus offenem Meer besteht, kann das trotzdem überschreiten; das
-       kostet dann EINEN geloggten Grow statt eines Treppen-Wachstums. Ob die Schätzung noch
-       passt, steht im periodischen LOD-Log als "transl. <belegt>/<Kapazität> MB". */
-    private static final float TRANSLUCENT_QUADS_PER_CELL = 1.15F;
+       werden doppelseitig gebacken, zählen also doppelt.
+       Der Wert lag ursprünglich bei 1,15 — damals mergte allerdings KEIN einziges Wasser-Top,
+       weil columnFaceMatches die Skylight-Probe auf einer anderen Höhe zog als der Top-Pass.
+       Seit dieser Fix sitzt, fällt der Ring-Zensus von 1,39 Mio. auf 0,13 Mio. transluzente
+       Quads (0,073/Zelle bei Seed 123; im Spiel bei Seed 187 real 9 MB = 0,067/Zelle).
+       0,20 lässt darüber knapp Faktor 3 Reserve für küstenreiche Welten — Wasserfläche allein
+       treibt die Zahl nicht mehr, nur noch die Länge der Küstenlinie.
+       Ob die Schätzung noch passt, steht im periodischen LOD-Log als
+       "transl. <belegt>/<Kapazität> MB"; wird sie zu knapp, kostet das EINEN geloggten Grow. */
+    private static final float TRANSLUCENT_QUADS_PER_CELL = 0.20F;
 
     /**
      * Schätzt die für die LOD-OPAQUE-Arena nötige Bytemenge aus der Ring-Konfiguration, damit
@@ -664,18 +668,35 @@ public final class LodMesher {
     long lastSamplingNanos() { return this.lastSamplingNanos; }
     long lastGeometryNanos() { return this.lastGeometryNanos; }
 
+    /**
+     * Vergleicht zwei Intervalle NUR in den Feldern, die das emittierte Quad bestimmen.
+     * Ein Top-Quad zieht Material und Höhe aus {@code state}/{@code maxY}, ein Bottom-Quad aus
+     * {@code state}/{@code minY} — {@code flags} und vor allem {@code coverage} (die
+     * repräsentierte L0-Fläche, ein Mehrheitsvotum aus dem Reducer) liest der Mesher nirgends.
+     * Der frühere {@code !=}-Vergleich auf den ganzen gepackten Long brach den Merge deshalb an
+     * Unterschieden, die kein einziges Vertex verändern: zwei Meereszellen mit identischer
+     * Oberfläche, aber unterschiedlich tiefem Grund darunter, mergten nie.
+     */
+    private static boolean sameFace(long a, long b, boolean top) {
+        if (LodColumn.state(a) != LodColumn.state(b)) return false;
+        return top ? LodColumn.maxY(a) == LodColumn.maxY(b)
+                : LodColumn.minY(a) == LodColumn.minY(b);
+    }
+
     private boolean columnFaceMatches(int x, int z, int index, long interval,
                                       boolean top, int skyLight) {
         int ci = z * this.cellCount + x;
         if (this.clipped[ci] || this.consumed[ci]) return false;
         LodColumn column = this.column(x, z);
-        if (index >= column.size() || column.interval(index) != interval
+        if (index >= column.size() || !sameFace(column.interval(index), interval, top)
                 || !(top ? this.topExposed(column, index) : this.bottomExposed(column, index))) return false;
         if (!top) return skyLight == 0;
-        float y = this.appearance.isFluid(LodColumn.state(interval))
-                ? LodColumn.maxY(interval) - 1 + FluidGeometry.SOURCE_HEIGHT
-                : LodColumn.maxY(interval);
-        return this.columnSkyLight(column, y) == skyLight;
+        /* MUSS dieselbe Sample-Höhe verwenden wie die Saatzelle (s. lightY im Top-Pass):
+           dort wird ein Fluid-Top aus der Zelle DIREKT ÜBER dem Wasser beleuchtet. Wer hier
+           bei maxY-1+SOURCE_HEIGHT sampelt, liegt noch IM Wasser, bekommt eine Stufe weniger
+           Skylight und der Vergleich schlägt grundsätzlich fehl — Wasserflächen mergten
+           dadurch nie, obwohl sie über weite Strecken identisch sind. */
+        return this.columnSkyLight(column, LodColumn.maxY(interval)) == skyLight;
     }
 
     /** Top-Merge-Kriterium inklusive AO; Bottom-Flächen verwenden weiterhin columnFaceMatches. */
