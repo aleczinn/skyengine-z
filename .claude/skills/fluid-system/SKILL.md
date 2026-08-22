@@ -1,6 +1,6 @@
 ---
 name: fluid-system
-description: Wasser/Lava — FluidBehavior (Scheduled-Tick-Fluss, LEVEL-Konvention INVERS zu Vanilla, Wasser+Lava-Reaktionen mit Druck-Regel) und FluidGeometry (dynamische Eckhöhen-Meshes). Lesen vor JEDER Änderung an Fluid-Verhalten, -Rendering, Eimern oder Schwimm-/Strömungsphysik.
+description: Wasser/Lava — FluidBehavior (Scheduled-Tick-Fluss, LEVEL-Konvention INVERS zu Vanilla, kontaktbasierte Wasser+Lava-Reaktionen) und FluidGeometry (dynamische Eckhöhen-Meshes). Lesen vor JEDER Änderung an Fluid-Verhalten, -Rendering, Eimern oder Schwimm-/Strömungsphysik.
 ---
 
 # Fluid-System (Wasser/Lava)
@@ -19,35 +19,37 @@ description: Wasser/Lava — FluidBehavior (Scheduled-Tick-Fluss, LEVEL-Konventi
 
 ## Fluss-Logik (`behavior/FluidBehavior.scheduledTick`)
 
-Reihenfolge im Tick: 1) Wasser+Lava-Reaktion, 2) Hohlraum-Regel, 3) eigenen Stand aus Nachbarn
+Reihenfolge im Tick: 1) Wasser+Lava-Reaktion, 2) eigenen Stand aus Nachbarn
 ableiten (Quelle bleibt; ohne Stütze/außer Reichweite → Luft; unendliche Wasserquelle bei ≥2
-Quell-Nachbarn + kein Fall nach unten), 4) Abfluss nach unten hat Vorrang (Ausnahme: ≥3
-Quell-Nachbarn breiten sich trotzdem seitwärts aus), 5) horizontale Ausbreitung mit
-**Gefälle-Suche** (minSlope: kürzeste Distanz zu einem „Loch" = nicht-solider Block darunter;
+Quell-Nachbarn + kein Fall nach unten), 3) Abfluss nach unten hat Vorrang (Ausnahme: ≥3
+Quell-Nachbarn breiten sich trotzdem seitwärts aus), 4) horizontale Ausbreitung mit
+**Gefälle-Suche** (minSlope: kürzeste Distanz zu einer tatsächlich abfließbaren Zelle darunter;
 Suchtiefe Wasser 4 / Lava 2; nur Richtungen mit minimalem Wert fließen).
 
 Nicht-offensichtliche Invarianten:
 - Eigenes **fließendes** Fluid zählt in der Gefälle-Suche als passierbar UND als Loch — hält den
   Fluss auf der etablierten Richtung; Quellen blockieren.
+- Nicht-READY Chunks und nicht editierbare Positionen blockieren die Gefälle-Suche; die aktuelle
+  Fluidzelle wird erneut geplant, damit sie nach dem Chunk-Load weiterfließen kann.
 - Eine fallende Säule „stützt" Nachbarn nur dort, wo sie auf festem Boden aufkommt — sonst wird
-  der Wasserfall in der Luft breiter.
+  der Wasserfall in der Luft breiter. Fallende Zustände sind immer `LEVEL 0, FALLING true`.
 - `canFluidReplace`: Luft immer; sonst nur nicht-solide Blöcke ohne Kollisionsform (Pflanzen —
   droppen ihr Item). Andere Fluids NIE ersetzen.
+- Wird horizontale Lava schwächer, hat ihr Folgetick wie in Vanilla mit 75 % Wahrscheinlichkeit
+  den vierfachen Basistakt (120 statt 30 Ticks).
 
-## Wasser+Lava (Absicht, mehrfach abgestimmt — nicht ändern)
+## Wasser+Lava
 
 - **Kontakt synchron** (`onNeighborUpdate`): Lava neben/unter Wasser → Quelle→Obsidian,
-  fließend→Cobblestone; Lava fließt/fällt in Wasser → Stein an der Wasserposition.
+  fließend→Cobblestone; Lava fließt/fällt in Wasser → Stein an der Wasserposition. Jede
+  erfolgreiche Konvertierung spielt genau einmal den positionsgebundenen Extinguish-/Fizz-Sound.
 - **Ausbreitung tickt IMMER im eigenen Takt** (`fluid_tick`) — kein beschleunigtes Ticken neben
   dem Gegen-Fluid, sonst rast Wasser über ein Lavafeld und konvertiert alles instant statt
   sichtbar Ring für Ring.
-- **Hohlraum-Regel mit Druck-Bedingung:** Luftzelle horizontal zwischen Wasser und Lava wird (im
-  Lava-Takt) zu Cobblestone, aber NUR wenn mindestens ein Fluid sie reichweitenmäßig noch
-  erreichen könnte (`hasPressure`: effLevel + dropOff ≤ spread) — unabhängig davon, wohin minSlope
-  real lenkt. Enden BEIDE Fluids mit maximaler Reichweite an der Lücke → kein Cobble.
-  Weder die Druck-Bedingung entfernen noch Reaktionen an bloße Nachbarschaft koppeln.
-- Fluids fließen selbst nie in **Misch-Zellen** (Zellen, die horizontal ans Gegen-Fluid grenzen) —
-  dort erzeugt die Hohlraum-Regel den Cobble.
+- Eine leere Zelle zwischen Wasser und Lava reagiert nicht vorab. Das Fluid, das sie durch die
+  normale Tick- und Gefälle-Logik zuerst erreicht, belegt sie; erst der dadurch entstandene echte
+  Kontakt löst die passende Reaktion aus. So bleibt der Ausgang von Tick-Reihenfolge und
+  Fließrichtung abhängig wie in Minecraft.
 
 ## Geometrie (`chunk/FluidGeometry`) & Physik
 
@@ -59,6 +61,9 @@ Diagonal-Chunks** — sonst klaffen die vier Zellen einer Chunk-Ecke auseinander
 die Flow-Textur entlang der Fließrichtung rotiert (Vanilla `getFlow`-Formel — NICHT aus Eckhöhen
 ableiten, die kippen neben Wänden ins Diagonale). Dieselbe Formel existiert bewusst dupliziert
 Welt-basiert in `FluidBehavior.flowVector` (Entity-Strömung, `Entity`-Push) — beide synchron halten.
+Die offiziellen Flow-Sprites bleiben 32×32-Animationsframes. Minecraft zeigt pro Block nur einen
+effektiven 16×16-Ausschnitt: Top-UVs rotieren mit Radius 0,25 um (0,5/0,5), Seiten verwenden
+U/V 0..0,5. Nicht wieder den ganzen Frame über einen Block spannen oder in 16px-Frames zerlegen.
 Wasser wird per `WATER_TINT 0x4076E6` eingefärbt (Texturen sind grau), Lava neutral.
 **Greedy-Kopplung:** flach-stille Quell-Tops merged der ChunkMesher in einem eigenen Pass 1.5
 greedy zu großen TRANSLUCENT-Quads (`FluidGeometry.isMergeableFlatStillTop` + Markierung in
@@ -66,12 +71,17 @@ greedy zu großen TRANSLUCENT-Quads (`FluidGeometry.isMergeableFlatStillTop` + M
 meshen Fluid-Flächen vollständig greedy und rendern transluzent (s. lod-system).
 Eimer: `BucketItem` + `GameContainer.handleBucket` (leerer Eimer nutzt einen fluid-bewussten
 Raycast; der normale Raycast ignoriert Fluids). Unterwasser-Overlay: `renderFluidOverlay`.
+Oberwelt-Audio läuft über den kosmetischen `BlockBehavior.animateTick`: nur fließendes,
+nicht-fallendes Wasser gluckert; Lava spielt bei freier Oberfläche selten Ambient und Pop. Der
+separate Zufallsgenerator darf die Simulation nicht beeinflussen. Assets: `liquid/water.ogg`,
+`liquid/lava.ogg`, `liquid/lavapop.ogg`; Reaktionen verwenden `random/fizz.ogg`.
 
 ## Verifikation
 
-Fluid-Verhalten ist **nur visuell** verifizierbar (Engine-Fenster nötig). Prüfszenarien nach
-Änderungen: 1) Quelle auf Ebene → symmetrische 7-Block-Ausbreitung, 2) Wasserfall → Säule bleibt
-schmal, Pfütze am Fuß, 3) Wasser trifft Lavasee → Ring-für-Ring-Konvertierung im Lava-Takt (nicht
-instant), 4) Cobble-Generator (Lücke zwischen Quellen) funktioniert, aber zwei Fluids am
-Reichweiten-Ende erzeugen KEINEN Cobble, 5) Eimer nimmt nur Quellen (LEVEL 0, nicht fallend).
-Ohne Fenster: als ungetestet kennzeichnen.
+Automatisierte Kernfälle stehen in `FluidBehaviorSimulationTest`: Reichweite, Kontakt-Reaktionen,
+Quellbildung, Gefälle durch Quellen/Chunk-Grenzen, Fallzustand und Lava-Verzögerung. Zusätzlich
+visuell prüfen: 1) Quelle auf Ebene → symmetrische 7-Block-Ausbreitung, 2) Wasserfall → Säule bleibt
+schmal, Pfütze am Fuß, 3) Wasser trifft Lavasee → sichtbare schrittweise Konvertierung, 4)
+Cobble-Generator reagiert erst bei tatsächlichem Kontakt, 5) Eimer nimmt nur Quellen (LEVEL 0,
+nicht fallend), 6) Wasser-/Lava-Ambience und genau ein Fizz pro Reaktion sind räumlich hörbar.
+Ohne Fenster den visuellen und akustischen Teil als ungetestet kennzeichnen.

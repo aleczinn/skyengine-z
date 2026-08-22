@@ -99,6 +99,10 @@ $wanted = @(
     @{ pattern = 'minecraft/sounds/liquid/splash.ogg'; dest = 'liquid' },
     @{ pattern = 'minecraft/sounds/liquid/splash2.ogg'; dest = 'liquid' },
     @{ pattern = 'minecraft/sounds/liquid/heavy_splash.ogg'; dest = 'liquid' },
+    # Oberwelt-Fluid-Ambience (block.water.ambient, block.lava.ambient/pop).
+    @{ pattern = 'minecraft/sounds/liquid/water.ogg'; dest = 'liquid' },
+    @{ pattern = 'minecraft/sounds/liquid/lava.ogg'; dest = 'liquid' },
+    @{ pattern = 'minecraft/sounds/liquid/lavapop.ogg'; dest = 'liquid' },
     # Auf-/Zu-Sounds (Tuer, Truhe). Jeder Satz braucht einen EIGENEN Zielordner: kopiert wird mit
     # dem MC-Dateinamen, sonst wuerden wooden_door/open1.ogg und iron_door/open1.ogg kollidieren.
     # Die Truhen-Muster sind eng gefasst — im selben MC-Ordner liegen *_locked-Varianten.

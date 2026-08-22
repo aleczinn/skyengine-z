@@ -78,6 +78,9 @@ import java.util.function.BooleanSupplier;
 
 public class World implements IInitializable, IDisposable {
 
+    private static final int ANIMATE_TICK_SAMPLES = 667;
+    private static final int ANIMATE_TICK_RADIUS = 16;
+
     private final Logger logger = LogManager.getLogger(World.class.getName());
     /* Synchronous player action scope. Nested block behavior mutations inherit the origin. */
     private int playerBlockChangeDepth;
@@ -166,6 +169,8 @@ public class World implements IInitializable, IDisposable {
     /** Vanillas ServerLevel#isHandlingTick; u. a. Teil der Sticky-Piston-Drop-Regel. */
     private boolean handlingTick;
     private final Random random = new Random();
+    /* Kosmetische Zufallsfolge getrennt von der Simulation: Audio darf Fluid-Timing nicht ändern. */
+    private final Random animateRandom = new Random();
     /** Weltgebundener RNG für Drops und seltene Gameplay-Ereignisse; nur Tick-Thread. */
     public Random random() { return this.random; }
     private final java.util.Map<String, LootRandom> lootRandoms = new java.util.HashMap<>();
@@ -328,6 +333,22 @@ public class World implements IInitializable, IDisposable {
         if (this.soundManager != null) this.soundManager.playDispenserFailure(x + 0.5, y + 0.5, z + 0.5);
     }
 
+    public void playFluidExtinguish(int x, int y, int z) {
+        if (this.soundManager != null) this.soundManager.playFluidExtinguish(x + 0.5, y + 0.5, z + 0.5);
+    }
+
+    public void playWaterAmbient(int x, int y, int z) {
+        if (this.soundManager != null) this.soundManager.playWaterAmbient(x + 0.5, y + 0.5, z + 0.5);
+    }
+
+    public void playLavaAmbient(int x, int y, int z) {
+        if (this.soundManager != null) this.soundManager.playLavaAmbient(x + 0.5, y + 0.5, z + 0.5);
+    }
+
+    public void playLavaPop(int x, int y, int z) {
+        if (this.soundManager != null) this.soundManager.playLavaPop(x + 0.5, y + 0.5, z + 0.5);
+    }
+
     public BlockEntityRenderDispatcher getBlockEntityRenderDispatcher() {
         return blockEntityRenderer;
     }
@@ -400,6 +421,7 @@ public class World implements IInitializable, IDisposable {
         attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.BLOCK_EVENTS, phase);
         phase = profiler.begin();
         this.tickRandomBlocks();
+        this.tickAnimateBlocks();
         attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.RANDOM_TICKS, phase);
         phase = profiler.begin();
         this.tickBlockEntities();
@@ -1347,6 +1369,28 @@ public class World implements IInitializable, IDisposable {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Minecraft-artige clientseitige Animate-Ticks nahe am Spieler. Sie sind bewusst von den
+     * serverartigen Random-Ticks getrennt: Sounds dürfen Wachstum und Fluid-Timing nicht
+     * beeinflussen. Aktuell nutzt nur FluidBehavior diesen Hook.
+     */
+    private void tickAnimateBlocks() {
+        if (this.soundManager == null || this.player == null) return;
+        int px = (int) Math.floor(this.player.x);
+        int py = (int) Math.floor(this.player.y);
+        int pz = (int) Math.floor(this.player.z);
+        for (int i = 0; i < ANIMATE_TICK_SAMPLES; i++) {
+            int x = px + this.animateRandom.nextInt(ANIMATE_TICK_RADIUS)
+                    - this.animateRandom.nextInt(ANIMATE_TICK_RADIUS);
+            int y = py + this.animateRandom.nextInt(ANIMATE_TICK_RADIUS)
+                    - this.animateRandom.nextInt(ANIMATE_TICK_RADIUS);
+            int z = pz + this.animateRandom.nextInt(ANIMATE_TICK_RADIUS)
+                    - this.animateRandom.nextInt(ANIMATE_TICK_RADIUS);
+            BlockState state = Blocks.getState(this.getBlock(x, y, z));
+            if (state.isFluid()) state.getBlock().animateTick(this, x, y, z, state, this.animateRandom);
         }
     }
 

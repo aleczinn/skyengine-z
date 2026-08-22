@@ -24,6 +24,11 @@ import java.util.List;
  */
 public final class FluidGeometry {
 
+    /* Flow-Sprites besitzen in Minecraft 32x32-Frames, zeigen pro Block aber nur einen
+       16x16-Ausschnitt: oben zentriert/rotiert, an den Seiten die obere linke Hälfte. */
+    private static final float FLOW_TOP_UV_RADIUS = 0.25F;
+    private static final float FLOW_SIDE_UV_SCALE = 0.5F;
+
     /** Default-Wasserfarbe (gepackt 0xRRGGBB). Später positions-/biome-abhängig. Auch vom LOD genutzt. */
     public static final int WATER_TINT = 0x3F76E4;
 
@@ -134,8 +139,8 @@ public final class FluidGeometry {
                 uv = new float[]{0, 0, 0, 1, 1, 1, 1, 0};
             } else {
                 float angle = (float) Math.atan2(velZ, velX) - (float) (Math.PI / 2.0);
-                float s = (float) Math.sin(angle) * 0.5f;
-                float c = (float) Math.cos(angle) * 0.5f;
+                float s = (float) Math.sin(angle) * FLOW_TOP_UV_RADIUS;
+                float c = (float) Math.cos(angle) * FLOW_TOP_UV_RADIUS;
                 uv = new float[]{
                         0.5f - c - s, 0.5f - c + s,
                         0.5f - c + s, 0.5f + c + s,
@@ -178,40 +183,40 @@ public final class FluidGeometry {
             float sideZ = sideInset(chunk, north, south, west, east, diagonals,
                     x, worldY, z, 0, -1);
             quads.add(quad(flow, BlockModels.FACE_BRIGHTNESS[2], tint,
-                    1, 0, sideZ, 0, 1,
-                    0, 0, sideZ, 1, 1,
-                    0, h00, sideZ, 1, 1 - h00,
-                    1, h10, sideZ, 0, 1 - h10));
+                    1, 0, sideZ, 0, FLOW_SIDE_UV_SCALE,
+                    0, 0, sideZ, FLOW_SIDE_UV_SCALE, FLOW_SIDE_UV_SCALE,
+                    0, h00, sideZ, FLOW_SIDE_UV_SCALE, (1 - h00) * FLOW_SIDE_UV_SCALE,
+                    1, h10, sideZ, 0, (1 - h10) * FLOW_SIDE_UV_SCALE));
         }
         // south (z+): Kante z=1, Ecken h01 (x=0) / h11 (x=1)
         if (sideVisible(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, 0, 1)) {
             float sideZ = 1F - sideInset(chunk, north, south, west, east, diagonals,
                     x, worldY, z, 0, 1);
             quads.add(quad(flow, BlockModels.FACE_BRIGHTNESS[3], tint,
-                    0, 0, sideZ, 0, 1,
-                    1, 0, sideZ, 1, 1,
-                    1, h11, sideZ, 1, 1 - h11,
-                    0, h01, sideZ, 0, 1 - h01));
+                    0, 0, sideZ, 0, FLOW_SIDE_UV_SCALE,
+                    1, 0, sideZ, FLOW_SIDE_UV_SCALE, FLOW_SIDE_UV_SCALE,
+                    1, h11, sideZ, FLOW_SIDE_UV_SCALE, (1 - h11) * FLOW_SIDE_UV_SCALE,
+                    0, h01, sideZ, 0, (1 - h01) * FLOW_SIDE_UV_SCALE));
         }
         // west (x-): Kante x=0, Ecken h00 (z=0) / h01 (z=1)
         if (sideVisible(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, -1, 0)) {
             float sideX = sideInset(chunk, north, south, west, east, diagonals,
                     x, worldY, z, -1, 0);
             quads.add(quad(flow, BlockModels.FACE_BRIGHTNESS[4], tint,
-                    sideX, 0, 0, 0, 1,
-                    sideX, 0, 1, 1, 1,
-                    sideX, h01, 1, 1, 1 - h01,
-                    sideX, h00, 0, 0, 1 - h00));
+                    sideX, 0, 0, 0, FLOW_SIDE_UV_SCALE,
+                    sideX, 0, 1, FLOW_SIDE_UV_SCALE, FLOW_SIDE_UV_SCALE,
+                    sideX, h01, 1, FLOW_SIDE_UV_SCALE, (1 - h01) * FLOW_SIDE_UV_SCALE,
+                    sideX, h00, 0, 0, (1 - h00) * FLOW_SIDE_UV_SCALE));
         }
         // east (x+): Kante x=1, Ecken h10 (z=0) / h11 (z=1)
         if (sideVisible(chunk, north, south, west, east, diagonals, x, worldY, z, fluid, 1, 0)) {
             float sideX = 1F - sideInset(chunk, north, south, west, east, diagonals,
                     x, worldY, z, 1, 0);
             quads.add(quad(flow, BlockModels.FACE_BRIGHTNESS[5], tint,
-                    sideX, 0, 1, 0, 1,
-                    sideX, 0, 0, 1, 1,
-                    sideX, h10, 0, 1, 1 - h10,
-                    sideX, h11, 1, 0, 1 - h11));
+                    sideX, 0, 1, 0, FLOW_SIDE_UV_SCALE,
+                    sideX, 0, 0, FLOW_SIDE_UV_SCALE, FLOW_SIDE_UV_SCALE,
+                    sideX, h10, 0, FLOW_SIDE_UV_SCALE, (1 - h10) * FLOW_SIDE_UV_SCALE,
+                    sideX, h11, 1, 0, (1 - h11) * FLOW_SIDE_UV_SCALE));
         }
 
         return quads.toArray(new BakedQuad[0]);
