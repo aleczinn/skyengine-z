@@ -2078,6 +2078,7 @@ public class ChunkRenderer {
             layout(location = 1) in uint a_light;
 
             const uint FLAT_SOURCE_FLUID_TOP = %du;
+            const uint LOD_DENSE_ALPHA = %du;
             const float SOURCE_FLUID_RENDER_HEIGHT = %s;
             const float LOD_XZ_POSITION_BIAS = %s;
 
@@ -2100,6 +2101,7 @@ public class ChunkRenderer {
             out float v_viewDist;
             out vec3 v_relPos;
             out vec2 v_debugLocalXZ;
+            flat out uint v_denseAlpha; // 1 = ohne Alpha-Test zeichnen (dichtes LOD-Laub)
             flat out uint v_debugLevel;
             flat out uint v_debugConflictMask;
             flat out uint v_gpuCullDebug;
@@ -2134,6 +2136,7 @@ public class ChunkRenderer {
                 /* Himmels- und Blocklicht je 0..1, interpoliert -> weiche Verlaeufe (Smooth
                    Lighting). Muss VOR dem Ausduennungs-Block stehen, der mit return aussteigt. */
                 v_light = vec2(float(a_light & 0xFu), float((a_light >> 4) & 0xFu)) * (1.0 / 15.0);
+                v_denseAlpha = (a_light & LOD_DENSE_ALPHA) != 0u ? 1u : 0u;
                 /* Occlusion-Debug (GpuCull.DEBUG_TINT): der Compute markiert Verdeckt-Verdikte
                    ueber baseInstance=1 statt sie zu cullen -> rot tinten. */
                 v_gpuCullDebug = gl_BaseInstance != 0 ? 1u : 0u;
@@ -2167,6 +2170,7 @@ public class ChunkRenderer {
                 gl_Position = u_ProjectionView * vec4(rel, 1.0);
             }
             """.formatted(ChunkMesher.FLAT_SOURCE_FLUID_TOP,
+                    LodMesher.DENSE_ALPHA,
                     Float.toString(FluidGeometry.SOURCE_RENDER_HEIGHT),
                     Float.toString(LodMesher.XZ_POSITION_BIAS));
 
@@ -2178,6 +2182,7 @@ public class ChunkRenderer {
             in float v_viewDist;
             in vec3 v_relPos;
             in vec2 v_debugLocalXZ;
+            flat in uint v_denseAlpha;
             flat in uint v_debugLevel;
             flat in uint v_debugConflictMask;
             flat in uint v_gpuCullDebug;
@@ -2241,7 +2246,12 @@ public class ChunkRenderer {
 
             void main() {
                 vec4 color = texture(u_Textures, v_texCoord);
-                if (color.a < u_AlphaCutoff) discard;
+                /* Dichte LOD-Flaechen (Laub) ueberspringen den Cutout-Test: ihre Alpha-Loecher
+                   loest auf Fern-Distanz niemand auf, und der Discard liess durch die Krone auf
+                   ein Bodenquad blicken, das der Mesher als verdeckt eingespart hatte. Die
+                   transparenten Texel tragen dank TextureArray.bleedAlpha Nachbarfarben. */
+                if (v_denseAlpha == 0u && color.a < u_AlphaCutoff) discard;
+                if (v_denseAlpha != 0u) color.a = 1.0;
                 /* Monochrom wie in Minecraft: der hellere der beiden Werte gewinnt. Erst DANACH
                    die Kurve — die Reihenfolge darunter bleibt unangetastet. */
                 float light = lightCurve(clamp(max(v_light.x, v_light.y), 0.0, 1.0));

@@ -103,6 +103,32 @@ beschattete Fernregionen (Schluchtwände, Nordseiten) sind heller als echtes Ter
 
 ## Optik-Details
 
+- **Dichtes Laub (`LodMesher.DENSE_ALPHA`, Bit 9 des Licht-Ints):** Laub wird im LOD OHNE
+  Alpha-Test gezeichnet — den Discard überspringt der Fragment-Shader für markierte Quads.
+  Grund ist ein sichtbarer Fehler, nicht nur Optik: `topExposed` zählt ausschließlich
+  **TRANSLUCENT**-Nachbarn als durchsichtig. Laub ist `cutout`, liegt also ein Laub-Intervall
+  direkt auf dem Boden-Intervall, spart der Mesher dessen Top-Quad ein — während der
+  Cutout-Discard durch die Krone hindurchblicken ließ. Ergebnis waren **Löcher im Boden** unter
+  Bäumen (reproduzierbar mit „Loading einfrieren" + nah heranfliegen).
+  Das eingesparte Bodenquad ist mit dichtem Laub **korrekt** — `topExposed` deshalb NICHT
+  zusätzlich für Cutout aufweichen, das kostete nur unsichtbare Quads.
+  Dass die transparenten Texel dabei sinnvolle Farben tragen, stellt `TextureArray.bleedAlpha`
+  sicher (läuft über ALLE Blocktexturen, `Fallback.MISSING` ist der Konstruktor-Default).
+  Die Klassifikation sitzt in `LodBlockAppearance.isDense` (= `state.isLeaves()`); gesetzt wird
+  das Flag über ein Feld `quadFlags`, das alle drei `emit*`-Methoden als Erstes belegen.
+  **Nur Shading, keine Geometrie:** kein Zweig hängt am Flag, die Quad-Zahlen des Zensus sind
+  vor und nach der Einführung bitgleich.
+- **Laub verdeckt Laub — im LOD IMMER** (`faceOccludedBy`): bewusst unabhängig von
+  `LeavesQuality`. Die Einstellung ist eine NAHFELD-Optik (durchsichtige Kronen aus der Nähe);
+  im Fern-LOD ist das Kroneninnere nie sichtbar. Vorher hing die Bedingung an
+  `LeavesQuality.LOW`, weshalb bei MID/HIGH **jede** Grenze zwischen zwei Laubzellen eine volle
+  Wand mitten in der Krone bekam. Gemessen: **−15,7 % Seitenflächen** im Ring-Zensus,
+  −3,8 % Quads gesamt; `hoch`/`runter` des Flächen-Oracles blieben dabei **bitgleich** — der
+  Beweis, dass nur Wände betroffen sind. Die Silhouette bleibt, weil `visibleSides` nur gegen
+  ÜBERLAPPENDE Nachbar-Intervalle kürzt und Außenkanten an Luft/Nicht-Laub grenzen.
+  Nebeneffekt: die LOD-Geometrie hängt seither an KEINER Einstellung mehr, die weder in der
+  Settings-Epoche noch im Cache-Fingerprint steht — vorher war ein Umschalten von
+  `LeavesQuality` genau so ein stiller Mischzustand.
 - **Gras-Overlay-Wände:** `LodBlockAppearance` löst neben Top-/Seiten-Layer auch das separat
   gebackene Seiten-Overlay auf (`state.getOverlay()`, liegt NICHT im Modell). `emitWall`
   emittiert es als koplanares Quad mit IDENTISCHEN Vertices **vor** der Basis-Wand im selben

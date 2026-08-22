@@ -25,6 +25,9 @@ public final class LodBlockAppearance {
     private final boolean[] aoOccluders;
     private final boolean[] fluids;
     private final boolean[] translucent;
+    private final boolean[] dense;
+    private final int[] lightOpacity;
+    private final boolean[] skipsAo;
     private final boolean[] skyLightAttenuatingFluids;
 
     /** Erst nach BlockRegistry.bake() erzeugen (World.init). */
@@ -39,6 +42,9 @@ public final class LodBlockAppearance {
         this.aoOccluders = new boolean[count];
         this.fluids = new boolean[count];
         this.translucent = new boolean[count];
+        this.dense = new boolean[count];
+        this.lightOpacity = new int[count];
+        this.skipsAo = new boolean[count];
         this.skyLightAttenuatingFluids = new boolean[count];
 
         for (int id = 0; id < count; id++) {
@@ -48,6 +54,22 @@ public final class LodBlockAppearance {
             this.aoOccluders[id] = state.occludesAo();
             this.fluids[id] = state.isFluid();
             this.translucent[id] = state.getRenderLayer() == RenderLayer.TRANSLUCENT;
+            /* Laub traegt Alpha-Loecher, die auf Fern-Distanz niemand aufloest. Im LOD wird es
+               deshalb als dichtes Volumen gezeichnet (s. LodMesher.DENSE_ALPHA) - ohne das
+               entsteht ein sichtbarer Fehler: topExposed zaehlt nur TRANSLUCENT als
+               durchsichtig, das Bodenquad unter einer Krone wird also eingespart, waehrend der
+               Cutout-Shader durch die Krone hindurchschauen laesst -> Loch im Boden. */
+            this.dense[id] = state.isLeaves();
+            /* Lichtundurchlaessigkeit je Block (JSON light_opacity; Automatik: opaker Vollblock
+               15, sonst 0). Nur die Unterseiten-Beleuchtung nutzt das — Laub 1, Stein 15. */
+            this.lightOpacity[id] = state.getLightOpacity();
+            /* Materialien ohne AO im LOD: Wasser/Lava, Laub, Glas & Buntglas & Eis. Auf einer
+               Baumkrone oder einer Glasflaeche ist Eck-AO aus Fern-Distanz nicht wahrnehmbar,
+               kostet aber jede Merge-Chance — columnTopFaceMatch steigt ohne AO sofort aus,
+               waehrend es mit AO zusaetzlich gleiche Eckwerte verlangt. Wandpfade nahmen
+               TRANSLUCENT ohnehin schon aus; hier kommt Laub dazu und Wasser wird explizit. */
+            this.skipsAo[id] = state.isFluid() || state.isLeaves()
+                    || state.getRenderLayer() == RenderLayer.TRANSLUCENT;
 
             FluidInfo fluid = state.getBlock().getFluidInfo();
             if (fluid != null) {
@@ -119,6 +141,21 @@ public final class LodBlockAppearance {
     /** true für Fluide — deren Zell-Top liegt auf der Quellhöhe (8/9) statt auf Höhe+1. */
     public boolean isFluid(int stateId) {
         return this.fluids[stateId];
+    }
+
+    /** true = auf den EIGENEN Flaechen dieses Blocks wird im LOD kein AO gebacken. */
+    public boolean skipsAo(int stateId) {
+        return this.skipsAo[stateId];
+    }
+
+    /** Lichtundurchlaessigkeit je Block-Zustand (0..15), s. LodMesher.columnBottomSkyLight. */
+    public int lightOpacity(int stateId) {
+        return this.lightOpacity[stateId];
+    }
+
+    /** true = im LOD ohne Alpha-Test als geschlossenes Volumen zeichnen (Laub). */
+    public boolean isDense(int stateId) {
+        return this.dense[stateId];
     }
 
     public boolean isTranslucent(int stateId) {

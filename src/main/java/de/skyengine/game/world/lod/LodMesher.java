@@ -128,8 +128,27 @@ public final class LodMesher {
     private float minBottom, maxTop;           // absolut (fürs Frustum-AABB)
     private final float[] aoScratch = new float[4]; // wiederverwendet: P1,P2,P3,P4 pro Top-Quad
     private final float[] aoFlatScratch = new float[4]; // Scratch für cellAoFlat (Merge-Kandidaten)
+    /**
+     * Vertex-Flag: dieses Quad ohne Alpha-Test als geschlossene Flaeche zeichnen. Liegt in Bit 9
+     * des Licht-Ints, direkt neben {@link ChunkMesher#FLAT_SOURCE_FLUID_TOP} (Bit 8) — das
+     * Vertexformat bleibt unveraendert.
+     *
+     * <p>Gebraucht fuer Laub: seine Textur traegt Alpha-Loecher, die auf Fern-Distanz ohnehin
+     * niemand aufloest, und der Cutout-Discard liess dort durch die Krone auf ein Bodenquad
+     * blicken, das {@code topExposed} als verdeckt eingespart hatte. Dass die transparenten
+     * Texel dabei sinnvolle Farben tragen, stellt {@code TextureArray.bleedAlpha} sicher (laeuft
+     * ueber alle Blocktexturen).
+     */
+    public static final int DENSE_ALPHA = 1 << 9;
+
     private boolean flatAo;                    // uniformes Flächen-AO statt weichem Corner-AO
     private boolean lodAo;                     // AO im LOD überhaupt gebacken (Setting + LodQuality)
+
+    /* Flags des gerade emittierten Quads. Bewusst ein Feld statt eines Parameters: die drei
+       emit*-Methoden rufen putVertex an 28 Stellen: ein durchgereichter Parameter waere reine
+       Schreibarbeit ohne Gewinn. Jede emit*-Methode setzt das Feld als ERSTES, es kann also kein
+       Stand einer vorherigen Flaeche stehenbleiben. */
+    private int quadFlags;
     private int aoBandHeight = 1;              // vertikales AO-Raster; L2+ bewusst grob
     private boolean columnAo;                  // AO für Seiten des Spaltenpfads
     private boolean levelOneColumnAo;          // Corner-AO liest das kanonische L1-Raster
@@ -619,7 +638,9 @@ public final class LodMesher {
                    jede offene LOD-Oberflaeche unnoetig um eine Skylight-Stufe dunkler. */
                 float lightY = this.appearance.isFluid(block) ? LodColumn.maxY(interval) : top;
                 int skyLight = this.columnSkyLight(column, lightY);
-                boolean shadeAo = useAo && !this.appearance.isFluid(block);
+                /* Laub, Glas und Fluide bekommen im LOD gar kein AO (s. skipsAo) — auf ihren
+                   Flaechen ist es aus der Ferne nicht wahrnehmbar, verhindert aber jeden Merge. */
+                boolean shadeAo = useAo && !this.appearance.skipsAo(block);
                 float[] ao = AO_NONE;
                 boolean uniform = true;
                 if (shadeAo) {
@@ -666,10 +687,14 @@ public final class LodMesher {
                     continue;
                 }
                 long interval = column.interval(intervalIndex);
-                /* Eine Unterseite sieht den Himmel nie direkt: Bereits das eigene massive
-                   Intervall schirmt sie ab. Seitliche Lichtausbreitung wird im LOD-Pfad
-                   bewusst nicht simuliert, daher bleibt die konservative Näherung 0. */
-                int skyLight = 0;
+                /* Analytisch wie die Tops, gesampelt an der UNTERKANTE des Intervalls. Die
+                   frühere harte 0 machte jede Unterseite fast schwarz (mal FACE_BRIGHTNESS 0,5),
+                   während dieselbe Krone im L0 hell ist — dort sampelt die Unterseite echtes
+                   Licht, und Laub dämpft mit light_opacity 1 nur eine Stufe je Block.
+                   columnSkyLight zählt ausschließlich attenuierende Intervalle (Fluide), unter
+                   Laub kommt also 15 heraus und unter Wasser die korrekte Tiefendämpfung.
+                   ACHTUNG: columnFaceMatch muss denselben Wert auf DERSELBEN Höhe bilden. */
+                int skyLight = this.columnBottomSkyLight(column, intervalIndex);
                 int width = 1;
                 while (x + width < n && width < maxRun
                         && this.columnFaceMatch(x + width, z, interval, false, skyLight) >= 0) width++;
@@ -771,7 +796,14 @@ public final class LodMesher {
         byte[] mask = top ? this.topConsumed : this.bottomConsumed;
         if ((mask[ci] & (1 << index)) != 0) return -1;
         if (!(top ? this.topExposed(column, index) : this.bottomExposed(column, index))) return -1;
-        if (!top) return skyLight == 0 ? index : -1;
+        /* Kandidat bildet seinen Wert mit DERSELBEN Funktion auf DERSELBEN Höhe wie die
+           Saatzelle (s. Bottom-Pass). Vorher stand hier ein fest verdrahtetes "skyLight == 0" —
+           mit einem echten Wert hätte das jeden Bottom-Merge scheitern lassen und jede Unterseite
+           zu einem 1x1-Quad gemacht. Genau diese Bauart war schon einmal der Grund, warum
+           Wasser-Tops nie mergten (Saat und Kandidat sampelten auf verschiedenen Höhen). */
+        if (!top) {
+            return this.columnBottomSkyLight(column, index) == skyLight ? index : -1;
+        }
         /* MUSS dieselbe Sample-Höhe verwenden wie die Saatzelle (s. lightY im Top-Pass):
            dort wird ein Fluid-Top aus der Zelle DIREKT ÜBER dem Wasser beleuchtet. Wer hier
            bei maxY-1+SOURCE_HEIGHT sampelt, liegt noch IM Wasser, bekommt eine Stufe weniger
@@ -805,6 +837,33 @@ public final class LodMesher {
         return index == 0
                 || LodColumn.maxY(column.interval(index - 1)) < LodColumn.minY(interval)
                 || this.appearance.isTranslucent(LodColumn.state(column.interval(index - 1)));
+    }
+
+    /**
+     * Himmelslicht an der UNTERKANTE eines Intervalls. Anders als {@link #columnSkyLight} (das
+     * bewusst nur die Wasser-Tiefendaempfung sichtbarer Oberflaechen modelliert) summiert das
+     * hier Lichtundurchlaessigkeit MAL Dicke ueber alles Darueberliegende — einschliesslich des
+     * eigenen Intervalls, das die Flaeche ja selbst abschirmt.
+     *
+     * <p>Vorher stand hier eine harte 0. Die ist fuer Terrain richtig (ueber einem Gesteinsboden
+     * liegt Fels), machte aber Laubkronen von unten fast schwarz, obwohl dieselbe Krone im L0
+     * hell ist: Laub traegt {@code light_opacity 1}, daempft also nur eine Stufe je Block, waehrend
+     * ein opaker Vollblock 15 traegt und sofort auf 0 drueckt. Mit der Opazitaet faellt beides
+     * automatisch richtig heraus — und die Wasser-Faelle bleiben unveraendert, weil dort ohnehin
+     * Fels darueber liegt.
+     */
+    private int columnBottomSkyLight(LodColumn column, int index) {
+        int bottom = LodColumn.minY(column.interval(index));
+        int blocked = 0;
+        for (int i = 0; i < column.size(); i++) {
+            long interval = column.interval(i);
+            int top = LodColumn.maxY(interval);
+            if (top <= bottom) continue;
+            int thickness = top - Math.max(bottom, LodColumn.minY(interval));
+            blocked += thickness * this.appearance.lightOpacity(LodColumn.state(interval));
+            if (blocked >= 15) return 0;
+        }
+        return Math.clamp(15 - blocked, 0, 15);
     }
 
     private int columnSkyLight(LodColumn column, float y) {
@@ -983,7 +1042,7 @@ public final class LodMesher {
 
     /** AO einer vertikalen Höhenzeile: L1 eckgenau, L2+ als uniformer Bandwert. */
     private int wallCellAo(int face, int x, int z, int bottom, int top, int block) {
-        if (!this.columnAo || this.appearance.isTranslucent(block)) return 0xFF;
+        if (!this.columnAo || this.appearance.skipsAo(block)) return 0xFF;
         int outsideX = x, outsideZ = z;
         if (face == 2) outsideZ--;
         else if (face == 3) outsideZ++;
@@ -1154,7 +1213,7 @@ public final class LodMesher {
     private void addAoSegmentedSide(SideSignature result, int block, int face, int x, int z,
                                     int minY, int maxY, long lightSurface) {
         if (minY >= maxY) return;
-        if (!this.columnAo || this.appearance.isTranslucent(block)) {
+        if (!this.columnAo || this.appearance.skipsAo(block)) {
             result.add(block, minY, maxY, lightSurface, 0xFF);
             return;
         }
@@ -1411,8 +1470,17 @@ public final class LodMesher {
         }
         if (neighbor.isOpaqueCube()) return true;
         if (neighbor.getBlock() == own.getBlock() && own.cullsSameBlock()) return true;
-        return GameSettings.get().leavesQuality == GameSettings.LeavesQuality.LOW
-                && own.isLeaves() && neighbor.isLeaves();
+        /* Laub verdeckt Laub im LOD IMMER — bewusst unabhaengig von LeavesQuality. Diese
+           Einstellung ist eine NAHFELD-Optik (durchsichtige Kronen aus der Naehe, MC-"Fancy");
+           im Fern-LOD ist das Kroneninnere nie sichtbar, die Waende dort sind reine Kosten.
+           Vorher hing es an LeavesQuality.LOW, weshalb bei MID/HIGH jede Grenze zwischen zwei
+           Laubzellen eine volle Wand mitten in der Krone bekam (in Wireframe-Aufnahmen gut zu
+           sehen). Der Test prueft das FLAG, nicht Blockgleichheit — Birke gegen Eiche cullt
+           also mit. Die Silhouette bleibt unberuehrt: visibleSides kuerzt nur gegen tatsaechlich
+           UEBERLAPPENDE Nachbar-Intervalle, Aussenkanten grenzen an Luft oder Nicht-Laub.
+           Nebeneffekt: die LOD-Geometrie haengt damit nicht mehr an einer Einstellung, die
+           weder in der Settings-Epoche noch im LOD-Cache-Fingerprint steht. */
+        return own.isLeaves() && neighbor.isLeaves();
     }
 
     private static int stateAt(LodColumn column, int y) {
@@ -1746,7 +1814,7 @@ public final class LodMesher {
                                      float xb, float zb, int minY, int maxY,
                                      long lightSurface) {
         if (minY >= maxY) return;
-        if (!this.columnAo || this.appearance.isTranslucent(block)) {
+        if (!this.columnAo || this.appearance.skipsAo(block)) {
             this.emitWall(block, face, xa, za, xb, zb, minY, maxY, lightSurface, 0xFF);
             return;
         }
@@ -2157,6 +2225,7 @@ public final class LodMesher {
         boolean translucent = this.appearance.isTranslucent(block);
         boolean fluidTop = this.appearance.isFluid(block);
         float renderY = fluidTop ? y - FluidGeometry.TOP_RENDER_EPSILON : y;
+        this.quadFlags = this.appearance.isDense(block) ? DENSE_ALPHA : 0;
         int vertexFlags = fluidTop ? ChunkMesher.FLAT_SOURCE_FLUID_TOP : 0;
         if (this.stats != null) {
             if (fluidTop) this.stats.topWater++; else this.stats.topTerrain++;
@@ -2217,6 +2286,7 @@ public final class LodMesher {
     /** Unterseite eines freiliegenden Intervalls, mit derselben 2D-Greedy-Fläche wie das Top. */
     private void emitBottom(int block, float x0, float z0, float x1, float z1,
                             float y, int skyLight) {
+        this.quadFlags = this.appearance.isDense(block) ? DENSE_ALPHA : 0;
         int layer = this.appearance.sideLayer(block);
         if (layer < 0) return;
         int tint = this.tintFor(this.appearance.sideTint(block), this.appearance.sideTintType(block),
@@ -2403,6 +2473,7 @@ public final class LodMesher {
 
     private void emitWallSegment(int block, int face, float xa, float za, float xb, float zb,
                                  float bottom, float top, long surfaceSample, int packedAo) {
+        this.quadFlags = this.appearance.isDense(block) ? DENSE_ALPHA : 0;
         int layer = this.appearance.sideLayer(block);
         int tint = this.tintFor(this.appearance.sideTint(block), this.appearance.sideTintType(block),
                 (xa + xb) * 0.5F, (za + zb) * 0.5F);
@@ -2496,7 +2567,7 @@ public final class LodMesher {
         /* Skylight in Bits 0-3, Blocklicht bleibt 0 (Bits 4-7), Vertex-Flags beginnen bei Bit 8:
            Fernregionen simulieren keine Lichtausbreitung, nur die deterministische
            Wasser-Dämpfung der sichtbaren Geometrie. */
-        buf[i++] = Math.clamp(skyLight, 0, 15) | vertexFlags;
+        buf[i++] = Math.clamp(skyLight, 0, 15) | vertexFlags | this.quadFlags;
         if (translucent) this.viTranslucent = i; else this.viOpaque = i;
     }
 

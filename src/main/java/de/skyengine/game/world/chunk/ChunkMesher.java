@@ -21,8 +21,9 @@ public class ChunkMesher {
      * int2: v    | layer &lt;&lt; 16    (v wie u; layer = Texture-Array-Layer)
      * int3: r | g &lt;&lt; 8 | b &lt;&lt; 16  (Farbe = Helligkeit * AO * Tint, je u8)
      * int4: Skylight 0..15 in Bits 0-3, Blocklicht 0..15 in Bits 4-7,
-     *       {@link #FLAT_SOURCE_FLUID_TOP} in Bit 8 (Bits 9-31 reserviert); liest der
-     *       Vertex-Shader als eigenes Attribut 1
+     *       {@link #FLAT_SOURCE_FLUID_TOP} in Bit 8,
+     *       {@link de.skyengine.game.world.lod.LodMesher#DENSE_ALPHA} in Bit 9 (nur LOD),
+     *       Bits 10-31 reserviert; liest der Vertex-Shader als eigenes Attribut 1
      * </pre>
      * Entpackt wird im Vertex-Shader des ChunkRenderers. Ein Quad = 4 Vertices (A,B,C,D),
      * Triangulierung über den geteilten Index-Buffer (0,1,2, 2,3,0).
