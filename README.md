@@ -80,6 +80,7 @@ F2      :  Screenshot
 F3 + G  :  Chunk-Wireframe AN/AUS
 F3 + V  :  Wireframe AN/AUS
 F3 + B  :  Entity Hitboxen anzeigen AN/AUS
+F3 + P  :  Profiler Gui
 ```
 
 ## Development
@@ -120,6 +121,12 @@ Der Fokus liegt auf:
 - Moderne OpenGL-Techniken
 
 ## Screenshots / Changelog
+
+v0.0.14 | Level of Detail Optimizations
+- Level of Detail hat nun eine eigene GUI in den Grafikeinstellungen
+- Optimierungen am LOD-Meshing
+- LOD-Ambient Occlusion Qualitäten hinzugefügt
+- Profiler hinzugefügt (F3 + P)
 
 v0.0.13 | Level of Detail Update + Bug Fixes
 - Strukturen in LOD Chunks
