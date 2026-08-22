@@ -503,6 +503,13 @@ public class Block {
         }
     }
 
+    /** Kosmetischer Zufalls-Tick nahe am Spieler (Sounds/Partikel), ohne Simulationsmutation. */
+    public void animateTick(World world, int x, int y, int z, BlockState state, java.util.Random random) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            behavior.animateTick(world, x, y, z, state, random);
+        }
+    }
+
     /** true, wenn dieser Block beim Random-Tick berücksichtigt wird (Pflanzen, Gras). */
     public boolean ticksRandomly() {
         return this.config.tickRandomly();

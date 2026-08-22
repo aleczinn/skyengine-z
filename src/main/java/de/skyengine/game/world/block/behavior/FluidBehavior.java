@@ -8,10 +8,9 @@ import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.chunk.FluidGeometry;
-import de.skyengine.game.world.item.Item;
-import de.skyengine.game.world.item.ItemStack;
-import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.loot.LootContext;
+
+import java.util.Random;
 
 /**
  * Fluss-Verhalten für Wasser/Lava (Minecraft-artig, vereinfacht). Arbeitet über geplante Ticks:
@@ -20,11 +19,8 @@ import de.skyengine.game.world.loot.LootContext;
  *   <li>Fließendes Fluid bezieht seinen Stand aus dem höchsten horizontalen Nachbarn (sonst trocknet es).</li>
  *   <li>Fällt nach unten (FALLING) wenn darunter Luft ist; sonst breitet es sich horizontal aus.</li>
  *   <li>Zwei benachbarte Wasserquellen erzeugen dazwischen eine neue Quelle (unendliches Wasser).</li>
- *   <li>Wasser+Lava-Kontakt: Lavaquelle→Obsidian, fließende Lava→Cobblestone, Lava fällt in Wasser→Stein.</li>
- *   <li>Hohlraum-Regel mit Druck-Bedingung: eine Luftzelle, die horizontal Wasser UND Lava berührt,
- *       wird zu Cobblestone - aber nur, wenn mindestens eines der beiden Fluids sie reichweitenmäßig
- *       noch erreichen könnte ("Druck", effLevel + dropOff <= spread). Enden beide Fluids mit
- *       maximaler Reichweite an der Lücke, passiert nichts (Vanilla-"Druck"-Regel).</li>
+ *   <li>Wasser/Lava reagieren erst bei echtem Kontakt: Wasser an Lavaquelle→Obsidian,
+ *       Wasser an fließender Lava→Cobblestone, Lava von oben in Wasser→Stein.</li>
  *   <li>Ersetzbare Blöcke (Pflanzen) werden weggespült und droppen ihr Item.</li>
  * </ul>
  * Parameter (Reichweite, Tick-Takt, Lava-Flag) kommen aus {@link FluidInfo}.
@@ -39,7 +35,18 @@ public final class FluidBehavior implements BlockBehavior {
 
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+        return this.neighborUpdate(world, x, y, z, state);
+    }
+
+    @Override
+    public BlockState onNeighborShapeUpdate(World world, int x, int y, int z, BlockState state,
+                                            Direction direction, BlockState neighborState) {
+        return this.neighborUpdate(world, x, y, z, state);
+    }
+
+    private BlockState neighborUpdate(World world, int x, int y, int z, BlockState state) {
         FluidInfo info = state.getBlock().getFluidInfo();
+        if (info == null) return state; // Shape-Hook kann im selben Update bereits zu Stein konvertieren.
         /* Lava+Wasser reagiert synchron - updateStateAt wendet den zurückgegebenen Fremd-State
            direkt an. Deckt beide Fälle im selben Tick ab (kein sichtbarer Lava-Frame im
            Cobble-Generator): Lava fließt in wasserangrenzende Zelle (eigenes Update direkt nach
@@ -48,10 +55,26 @@ public final class FluidBehavior implements BlockBehavior {
            Gegen-Fluid, sonst rast die Wasserfront über ein Lavafeld und konvertiert alles quasi
            instant statt Ring für Ring (MC-Pacing). */
         if (info.lava && waterAdjacent(world, x, y, z)) {
+            world.playFluidExtinguish(x, y, z);
             return Blocks.getState(isSource(state) ? Blocks.OBSIDIAN : Blocks.COBBLESTONE);
         }
         world.scheduleTickEarlier(x, y, z, info.tickDelay);
         return state;
+    }
+
+    @Override
+    public void animateTick(World world, int x, int y, int z, BlockState state, Random random) {
+        FluidInfo info = state.getBlock().getFluidInfo();
+        if (info == null) return;
+        if (!info.lava) {
+            if (!isSource(state) && !state.get(Properties.FALLING) && random.nextInt(64) == 0) {
+                world.playWaterAmbient(x, y, z);
+            }
+            return;
+        }
+        if (world.getBlock(x, y + 1, z) != Blocks.AIR) return;
+        if (random.nextInt(100) == 0) world.playLavaPop(x, y, z);
+        if (random.nextInt(200) == 0) world.playLavaAmbient(x, y, z);
     }
 
     @Override
@@ -63,43 +86,15 @@ public final class FluidBehavior implements BlockBehavior {
         /* 1) Wasser/Lava-Reaktion hat Vorrang (kann diesen Block ersetzen). */
         if (reaction(world, x, y, z, state, info)) return;
 
-        /* Hohlraum-Regel (Vanilla): eine ersetzbare Zelle zwischen Wasser und Lava wird zu
-           Cobblestone - im LAVA-Takt (tickDelay 30), wie das Minecraft-Generator-Delay.
-           Druck-Bedingung: nur wenn mindestens eines der beiden Fluids die Zelle reichweitenmäßig
-           noch erreichen KÖNNTE (unabhängig davon, wohin die Gefälle-Suche real lenkt) - zwei
-           Fluids am Reichweiten-Ende erzeugen keinen Cobble. Wasser stößt nur den Tick ruhender
-           Lava an, erzeugt den Cobble aber nicht selbst. */
-        for (Direction d : Direction.horizontalValues()) {
-            int nx = x + d.offsetX(), nz = z + d.offsetZ();
-            if (!canFluidReplace(world.getBlock(nx, y, nz))) continue;
-            for (Direction d2 : Direction.horizontalValues()) {
-                if (d2 == d.opposite()) continue;
-                int ox = nx + d2.offsetX(), oz = nz + d2.offsetZ();
-                BlockState os = Blocks.getState(world.getBlock(ox, y, oz));
-                FluidInfo oi = os.getBlock().getFluidInfo();
-                if (oi == null || oi.lava == info.lava) continue;
-                if (!hasPressure(state, info) && !hasPressure(os, oi)) continue;
-                if (info.lava) {
-                    /* Nachbarzelle in nicht-READY Chunk: eigenen Tick wiederholen statt die
-                       Hohlraum-Regel still zu verlieren (Takt bleibt der eigene, s. Skill). */
-                    if (!world.setBlock(nx, y, nz, Blocks.COBBLESTONE)) {
-                        world.scheduleTick(x, y, z, info.tickDelay);
-                    }
-                } else {
-                    world.scheduleTick(ox, y, oz, oi.tickDelay); // ruhende Lava im eigenen Takt wecken
-                }
-                break;
-            }
-        }
-
         boolean source = isSource(state);
 
         /* 2) Eigenen Stand prüfen (Quelle bleibt; fließendes Fluid aus Nachbarn ableiten). */
         if (!source) {
             boolean fedAbove = isSameFluid(world.getBlock(x, y + 1, z), fluid);
             if (fedAbove) {
-                if (!state.get(Properties.FALLING)) {
-                    world.setBlock(x, y, z, fluidState(fluid, 1, true));
+                if (!state.get(Properties.FALLING) || state.get(Properties.LEVEL) != 0) {
+                    this.updateOwnState(world, x, y, z, state,
+                            Blocks.getState(fluidState(fluid, 0, true)), info);
                     return;
                 }
             } else {
@@ -127,7 +122,8 @@ public final class FluidBehavior implements BlockBehavior {
                 boolean noFall = Blocks.isSolid(srcBelow)
                         || (isSameFluid(srcBelow, fluid) && isSource(Blocks.getState(srcBelow)));
                 if (!info.lava && noFall && countSourceNeighbors(world, x, y, z, fluid) >= 2) {
-                    world.setBlock(x, y, z, fluidState(fluid, 0, false));
+                    this.updateOwnState(world, x, y, z, state,
+                            Blocks.getState(fluidState(fluid, 0, false)), info);
                     return;
                 }
 
@@ -141,7 +137,8 @@ public final class FluidBehavior implements BlockBehavior {
                     return;
                 }
                 if (newLevel != state.get(Properties.LEVEL) || state.get(Properties.FALLING)) {
-                    world.setBlock(x, y, z, fluidState(fluid, newLevel, false));
+                    this.updateOwnState(world, x, y, z, state,
+                            Blocks.getState(fluidState(fluid, newLevel, false)), info);
                     return;                                // Folge-Tick durch das Nachbar-Update
                 }
             }
@@ -158,13 +155,15 @@ public final class FluidBehavior implements BlockBehavior {
 
         if (info.lava && isWater(belowState)) {
             /* Lava fließt/fällt in Wasser -> Stein an der Wasserposition (Vanilla). */
-            world.setBlock(x, y - 1, z, Blocks.STONE);
+            if (world.setBlock(x, y - 1, z, Blocks.STONE)) {
+                world.playFluidExtinguish(x, y - 1, z);
+            }
             return;
         }
         if ((belowSameFluid && !belowSameSource) || canFluidReplace(below)) {
             if (canFluidReplace(below)) {       // freier Raum/Pflanze -> als fallende Säule weiter
                 if (below != Blocks.AIR) dropBlockItem(world, x, y - 1, z, belowState);
-                world.setBlock(x, y - 1, z, fluidState(fluid, 1, true));
+                world.setBlock(x, y - 1, z, fluidState(fluid, 0, true));
                 world.scheduleTickEarlier(x, y - 1, z, info.tickDelay);
             }
             /* Vanilla: >=3 horizontale Quell-Nachbarn -> trotz Abfluss zusätzlich seitwärts
@@ -188,22 +187,24 @@ public final class FluidBehavior implements BlockBehavior {
         boolean[] flow = new boolean[dirs.length];
         int[] slope = new int[dirs.length];
         int minSlope = Integer.MAX_VALUE;
+        SlopeSearch search = new SlopeSearch();
         for (int i = 0; i < dirs.length; i++) {
             Direction d = dirs[i];
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
+            if (!world.isPositionEditable(nx, y, nz)) {
+                search.encounteredUnready = true;
+                continue;
+            }
             int ns = world.getBlock(nx, y, nz);
             /* Eigenes fließendes Fluid zählt bei der Gefälle-Suche weiter mit (hält minSlope auf
                der etablierten Fließrichtung, sonst flutet die zweitbeste Richtung die Terrasse),
                wird aber nicht überschrieben. Quellen blockieren (Vanilla canPassThrough). */
             boolean sameFlowing = isSameFluid(ns, fluid) && !isSource(Blocks.getState(ns));
             if (!canFluidReplace(ns) && !sameFlowing) continue; // nicht passierbar
-            /* Misch-Zellen (grenzen horizontal ans Gegen-Fluid) bleiben frei: dort erzeugt die
-               Hohlraum-Regel im Lava-Takt Cobblestone, statt dass das Fluid hineinfließt. */
-            flow[i] = canFluidReplace(ns)
-                    && !oppositeFluidAdjacent(world, nx, y, nz, info.lava, d.opposite());
-            slope[i] = canDescend(world, nx, y, nz)
+            flow[i] = canFluidReplace(ns);
+            slope[i] = canDescend(world, nx, y, nz, fluid, search)
                     ? 0
-                    : slopeDistance(world, nx, y, nz, fluid, 1, slopeFind, d.opposite());
+                    : slopeDistance(world, nx, y, nz, fluid, 1, slopeFind, d.opposite(), search);
             minSlope = Math.min(minSlope, slope[i]);
         }
         for (int i = 0; i < dirs.length; i++) {
@@ -222,50 +223,51 @@ public final class FluidBehavior implements BlockBehavior {
             if (target != Blocks.AIR) dropBlockItem(world, nx, y, nz, Blocks.getState(target));
             world.scheduleTickEarlier(nx, y, nz, info.tickDelay);
         }
+        if (search.encounteredUnready) world.scheduleTick(x, y, z, info.tickDelay);
     }
 
     /**
-     * Loch an dieser Stelle (Minecraft-Definition): der Block direkt darunter ist NICHT solid, das
-     * Fluid kann dort also abfließen. Luft und Fluid sind nicht-solid (zählen als Loch), feste Blöcke
-     * nicht. Eine bereits mit Fluid gefüllte Säule zählt damit weiterhin als Loch und hält den Fluss
-     * dorthin priorisiert - das verhindert flächiges Vollfluten der ebenen Umgebung.
+     * Loch an dieser Stelle (Minecraft-Definition): Das Fluid kann den Block darunter ersetzen.
+     * Eigenes fließendes Fluid zählt ebenfalls, eine Quelle blockiert dagegen die Suche. Vom
+     * Gegen-Fluid ist nur Wasser unter Lava ein gültiges Ziel, weil dort die Stein-Reaktion greift.
      */
-    private static boolean canDescend(World world, int x, int y, int z) {
-        return !Blocks.isSolid(world.getBlock(x, y - 1, z));
+    private static boolean canDescend(World world, int x, int y, int z, Block fluid,
+                                      SlopeSearch search) {
+        if (y <= 0) return false;
+        if (!world.isPositionEditable(x, y - 1, z)) {
+            search.encounteredUnready = true;
+            return false;
+        }
+        BlockState below = Blocks.getState(world.getBlock(x, y - 1, z));
+        if (below.isFluid()) {
+            if (below.getBlock() == fluid) return !isSource(below);
+            FluidInfo info = fluid.getFluidInfo();
+            return info.lava && isWater(below); // Lava darf nur von oben Wasser durch Stein ersetzen
+        }
+        return canFluidReplace(below.getId());
     }
 
     /** Rekursive Gefälle-Suche: kürzeste horizontale Distanz zu einem Abgrund (max. maxDist Schritte). */
     private static int slopeDistance(World world, int x, int y, int z, Block fluid,
-                                     int dist, int maxDist, Direction cameFrom) {
+                                     int dist, int maxDist, Direction cameFrom,
+                                     SlopeSearch search) {
         int min = Integer.MAX_VALUE;
         for (Direction d : Direction.horizontalValues()) {
             if (d == cameFrom) continue;
             int nx = x + d.offsetX(), nz = z + d.offsetZ();
+            if (!world.isPositionEditable(nx, y, nz)) {
+                search.encounteredUnready = true;
+                continue;
+            }
             int ns = world.getBlock(nx, y, nz);
-            if (!canFluidReplace(ns) && !isSameFluid(ns, fluid)) continue; // nicht passierbar (Look-Through durch eigenes Fluid)
-            if (canDescend(world, nx, y, nz)) return dist;                 // Loch gefunden
+            boolean sameFlowing = isSameFluid(ns, fluid) && !isSource(Blocks.getState(ns));
+            if (!canFluidReplace(ns) && !sameFlowing) continue;
+            if (canDescend(world, nx, y, nz, fluid, search)) return dist;
             if (dist >= maxDist) continue;
-            min = Math.min(min, slopeDistance(world, nx, y, nz, fluid, dist + 1, maxDist, d.opposite()));
+            min = Math.min(min, slopeDistance(world, nx, y, nz, fluid,
+                    dist + 1, maxDist, d.opposite(), search));
         }
         return min;
-    }
-
-    /** Grenzt horizontal (außer cameFrom) das Gegen-Fluid an? Für die Hohlraum-Regel. */
-    private static boolean oppositeFluidAdjacent(World world, int x, int y, int z,
-                                                 boolean selfLava, Direction cameFrom) {
-        for (Direction d : Direction.horizontalValues()) {
-            if (d == cameFrom) continue;
-            FluidInfo ni = Blocks.getState(world.getBlock(x + d.offsetX(), y, z + d.offsetZ()))
-                    .getBlock().getFluidInfo();
-            if (ni != null && ni.lava != selfLava) return true;
-        }
-        return false;
-    }
-
-    /** Kann sich dieses Fluid reichweitenmäßig noch einen Block weiter ausbreiten ("Druck")? */
-    private static boolean hasPressure(BlockState s, FluidInfo info) {
-        int eff = (isSource(s) || s.get(Properties.FALLING)) ? 0 : s.get(Properties.LEVEL);
-        return eff + info.dropOff <= info.spread;
     }
 
     /** Wasser oben/seitlich angrenzend? (Unten nicht: dort gilt die Stein-Regel im Abfluss.) */
@@ -284,8 +286,10 @@ public final class FluidBehavior implements BlockBehavior {
         if (info.lava) {
             if (waterAdjacent(world, x, y, z)) {
                 /* Lava-Quelle + Wasser seitlich/oben -> Obsidian; fließende Lava + Wasser -> Cobblestone. */
-                world.setBlock(x, y, z, isSource(state) ? Blocks.OBSIDIAN : Blocks.COBBLESTONE);
-                return true;
+                if (world.setBlock(x, y, z, isSource(state) ? Blocks.OBSIDIAN : Blocks.COBBLESTONE)) {
+                    world.playFluidExtinguish(x, y, z);
+                    return true;
+                }
             }
             return false;
         }
@@ -323,6 +327,23 @@ public final class FluidBehavior implements BlockBehavior {
     /** Droppt das Item des weggespülten Blocks (Pflanze, Staub), falls eines registriert ist. */
     private static void dropBlockItem(World world, int x, int y, int z, BlockState state) {
         world.dropBlockLoot(x, y, z, state, LootContext.Cause.FLUID);
+    }
+
+    /**
+     * Aktualisiert nur den Zustand einer bereits vorhandenen Fluidzelle. Shape-Updates wecken
+     * angrenzende Fluide; der eigene Folgetick wird mit dem zustandsabhängigen Delay geplant,
+     * ohne dass ein allgemeines Eigen-Update ihn wieder auf den Basistakt vorzieht.
+     */
+    private void updateOwnState(World world, int x, int y, int z, BlockState oldState,
+                                BlockState newState, FluidInfo info) {
+        if (!world.setBlockWithShapeUpdates(x, y, z, newState.getId())) return;
+        int delay = info.tickDelay;
+        if (info.lava && !oldState.get(Properties.FALLING) && !newState.get(Properties.FALLING)
+                && newState.get(Properties.LEVEL) > oldState.get(Properties.LEVEL)
+                && world.random().nextInt(4) != 0) {
+            delay *= 4;
+        }
+        world.scheduleTick(x, y, z, delay);
     }
 
     private static int fluidState(Block fluid, int level, boolean falling) {
@@ -382,5 +403,9 @@ public final class FluidBehavior implements BlockBehavior {
     private static boolean isLava(BlockState s) {
         FluidInfo info = s.getBlock().getFluidInfo();
         return info != null && info.lava;
+    }
+
+    private static final class SlopeSearch {
+        private boolean encounteredUnready;
     }
 }

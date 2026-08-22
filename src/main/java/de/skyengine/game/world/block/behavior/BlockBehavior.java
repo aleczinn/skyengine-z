@@ -10,6 +10,7 @@ import de.skyengine.game.world.loot.LootSink;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.TooltipContext;
 import java.util.Map;
+import java.util.Random;
 
 /**
  * Komponierbares Block-Verhalten (Komposition statt Vererbung). Ein Block kombiniert
@@ -142,6 +143,13 @@ public interface BlockBehavior {
 
     /** Zufalls-Tick (nur wenn der Block ticksRandomly meldet): Wachstum, Verfall, ... Default: nichts. */
     default void randomTick(World world, int x, int y, int z, BlockState state) {
+    }
+
+    /**
+     * Clientseitiger Zufalls-/Animations-Tick nahe am Spieler. Darf nur kosmetische Effekte
+     * auslösen (Sounds, später Partikel), niemals persistente Weltzustände verändern.
+     */
+    default void animateTick(World world, int x, int y, int z, BlockState state, Random random) {
     }
 
     /**
