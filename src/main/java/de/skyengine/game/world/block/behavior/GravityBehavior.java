@@ -33,6 +33,7 @@ public final class GravityBehavior implements BlockBehavior {
     @Override
     public void scheduledTick(World world, int x, int y, int z, BlockState state) {
         if (!Blocks.canFallInto(world.getBlock(x, y - 1, z))) return; // Boden erreicht -> liegen bleiben
+        world.particles().fallingDust(x + 0.5, y, z + 0.5, state);
         world.setBlock(x, y, z, Blocks.AIR);                          // Block entfernen ...
         world.spawnFallingBlock(x, y, z, state.getId());              // ... und als Entity flüssig fallen lassen
     }

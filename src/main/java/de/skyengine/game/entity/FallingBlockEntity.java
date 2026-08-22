@@ -50,6 +50,8 @@ public class FallingBlockEntity extends Entity {
             int bx = (int) Math.floor(this.x);
             int by = (int) Math.floor(this.y);
             int bz = (int) Math.floor(this.z);
+            world.particles().landing(this.x, this.y, this.z,
+                    Blocks.getState(this.blockId), 2.0F);
 
             /* Zielzelle frei oder Fluid -> wieder Block werden (verdrängt das Fluid wie in MC);
                sonst (z.B. dort steht inzwischen etwas Festes) als Item droppen. */

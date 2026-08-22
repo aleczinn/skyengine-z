@@ -16,6 +16,7 @@ import de.skyengine.game.command.CommandContext;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
+import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
@@ -38,6 +39,8 @@ import de.skyengine.game.world.item.ItemFrameItem;
 import de.skyengine.game.world.item.MinecartItem;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.item.ToolItem;
+import de.skyengine.game.world.item.BlockItem;
+import de.skyengine.game.world.particle.ParticleSprites;
 import de.skyengine.game.world.loot.LootContext;
 import de.skyengine.graphics.world.ChunkRenderer;
 import de.skyengine.graphics.world.CrackRenderer;
@@ -200,6 +203,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private static final double STEP_INTERVAL = 1.6;
     private double stepDistance = 0;
     private final WaterVision waterVision = new WaterVision();
+    private boolean playerWasInWater;
 
     /* Wird per F2 gesetzt und von SkyEngine nach dem fertigen Frame abgeholt. */
     private boolean screenshotRequested = false;
@@ -271,6 +275,7 @@ public class GameContainer implements IResizeable, IDisposable {
     public void initStaged(BootProgress progress) {
         progress.frame(I18n.tr("boot.blocks"), 0.05f);
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
+        ParticleSprites.bootstrap();
 
         progress.frame(I18n.tr("boot.textures"), 0.45f);
         this.atlas.init();
@@ -307,6 +312,7 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     public void enterWorld(WorldSaves.WorldSave save) {
         this.waterVision.reset();
+        this.playerWasInWater = false;
         this.underwaterAudio.reset();
         this.currentSave = save;
         this.world = new World(save.dirName(), save.level(), this.atlas, this.blockEntityRenderers);
@@ -386,6 +392,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.world == null || this.player == null) return;
         this.guiManager.close();
         this.waterVision.reset();
+        this.playerWasInWater = false;
         this.underwaterAudio.reset();
         this.animState.reset();
         this.placeAtWorldSpawn(this.player);
@@ -542,6 +549,7 @@ public class GameContainer implements IResizeable, IDisposable {
             /* Offenes Container-GUI (Inventar/Truhe): Physik läuft weiter (fallen/Strömung),
                aber ohne Tasten — wie in MC gehen die Eingaben ans GUI. */
             this.player.update(this.guiManager.isOpen() ? Input.EMPTY : input, this.world);
+            this.updateMovementParticles();
 
             /* Reihenfolge wie Minecraft.tick: erst die Eingabe (Schwung-/Hand-Trigger), dann die
                Hand-Höhe (ItemInHandRenderer.tick), dann der Entity-Tick mit dem Schwung-Zähler —
@@ -614,6 +622,63 @@ public class GameContainer implements IResizeable, IDisposable {
                Stapel zurück, und der Sound liefe sonst jeden Tick. */
             if (remaining.getCount() < before) this.soundManager.playPickup();
         });
+    }
+
+    /** Bewegungspartikel aus bereits berechneten Spieler-Flanken; verändert keinerlei Physik. */
+    private void updateMovementParticles() {
+        boolean inWater = this.player.isTouchingWater(this.world);
+        double dx = this.player.x - this.player.lastX;
+        double dy = this.player.y - this.player.lastY;
+        double dz = this.player.z - this.player.lastZ;
+        double speed = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (inWater && !this.playerWasInWater) {
+            this.world.particles().splash(this.player.x, this.player.y + 0.8, this.player.z, speed);
+        } else if (inWater && speed > 0.02) {
+            this.world.particles().swim(this.player.x, this.player.y + 0.8, this.player.z, dx, dy, dz);
+        }
+        this.playerWasInWater = inWater;
+
+        BlockState ground = this.groundStateAtPlayer();
+        if (!inWater && ground != null && this.player.onGround && this.player.isSprinting()
+                && dx * dx + dz * dz > 0.001) {
+            this.world.particles().sprint(this.player.x, this.player.y, this.player.z, ground, dx, dz);
+        }
+        float landing = this.player.consumeLandingDistance();
+        if (landing > 0.5F && ground != null && !inWater) {
+            this.world.particles().landing(this.player.x, this.player.y, this.player.z, ground, landing);
+        }
+    }
+
+    private BlockState groundStateAtPlayer() {
+        int bx = (int) Math.floor(this.player.x);
+        int by = (int) Math.floor(this.player.y - 0.2);
+        int bz = (int) Math.floor(this.player.z);
+        BlockState state = Blocks.getState(this.world.getBlock(bx, by, bz));
+        if (state.isAir() || state.isFluid()) state = Blocks.getState(this.world.getBlock(bx, by - 1, bz));
+        return state.isAir() || state.isFluid() ? null : state;
+    }
+
+    /** Itemkrümel am Gesicht; verwendet denselben TextureArray-Layer wie GUI und World-Items. */
+    private void emitHeldItemParticles(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return;
+        int texture = -1;
+        if (stack.getItem() instanceof BlockItem blockItem) {
+            var quads = blockItem.getBlock().getDefaultState().getModel();
+            if (quads.length > 0) texture = quads[0].textureLayer();
+        } else if (stack.getItem().getIconTexture() != null) {
+            texture = BlockTextures.layerOf(stack.getItem().getIconTexture());
+        }
+        if (texture < 0) return;
+        double yaw = Math.toRadians(this.player.yaw);
+        double pitch = Math.toRadians(this.player.pitch);
+        double cp = Math.cos(pitch);
+        double dirX = cp * Math.sin(yaw);
+        double dirY = -Math.sin(pitch);
+        double dirZ = -cp * Math.cos(yaw);
+        double px = this.player.x + dirX * 0.35;
+        double py = this.player.y + this.player.getEyeHeight(1F) + dirY * 0.35 - 0.1;
+        double pz = this.player.z + dirZ * 0.35;
+        this.world.particles().itemCrumb(texture, px, py, pz, dirX, dirY, dirZ);
     }
 
     /**
@@ -1066,6 +1131,7 @@ public class GameContainer implements IResizeable, IDisposable {
                dann ist das Item in der FP-Animation am Gesicht angekommen; danach 4er-Takt. */
             if (this.eatingTicks > 7 && this.eatingTicks % 4 == 0) {
                 this.soundManager.playEat();
+                this.emitHeldItemParticles(held);
             }
         }
     }
@@ -1225,6 +1291,8 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.destroyTicks % 4F == 0F) {
             this.soundManager.playHit(state.getBlock().getSoundGroup(),
                     this.miningX + 0.5, this.miningY + 0.5, this.miningZ + 0.5);
+            this.world.particles().blockHit(state, this.hit.hitX(), this.hit.hitY(), this.hit.hitZ(),
+                    this.hit.faceX(), this.hit.faceY(), this.hit.faceZ());
         }
         this.destroyTicks++;
 
@@ -1285,6 +1353,7 @@ public class GameContainer implements IResizeable, IDisposable {
 
         this.soundManager.playBreak(broken.getBlock().getSoundGroup(),
                 this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
+        this.world.particles().blockBreak(breakX, breakY, breakZ, broken);
 
         for (ItemStack drop : drops) this.world.spawnItem(this.hit.x() + 0.5,
                 this.hit.y() + 0.5, this.hit.z() + 0.5, drop);
@@ -1293,6 +1362,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (applyDurability && held.getItem() instanceof ToolItem tool) {
             held.setDamage(held.getDamage() + 1);
             if (held.getDamage() >= tool.getTier().durability()) {
+                this.emitHeldItemParticles(held);
                 this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
             }
         } else if (applyDurability && held.getItem() instanceof de.skyengine.game.world.item.ShearsItem
@@ -1302,6 +1372,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 || broken.getBlock().getIdentifier().path().equals("dead_bush"))) {
             held.setDamage(held.getDamage() + 1);
             if (held.getDamage() >= de.skyengine.game.world.item.ShearsItem.DURABILITY) {
+                this.emitHeldItemParticles(held);
                 this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
             }
         }
@@ -1761,6 +1832,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.player.getGamemode() == Gamemode.SURVIVAL) {
             held.setDamage(held.getDamage() + 1);
             if (held.getDamage() >= FlintAndSteelItem.DURABILITY) {
+                this.emitHeldItemParticles(held);
                 this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
             }
         }

@@ -334,6 +334,7 @@ public final class Blocks {
         for (int id = 0; id < BlockRegistry.getStateCount(); id++) {
             var state = BlockRegistry.getState(id);
             state.setModel(state.getBlock().bakeModel(state));
+            state.setParticleSprite(state.getBlock().bakeParticleSprite(state, state.getModel()));
             state.setOverlay(state.getBlock().bakeOverlay(state));
         }
     }

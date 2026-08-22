@@ -40,8 +40,13 @@ public final class ModelLoader {
     /** Schon gemeldete "Modell #ref"-Paare — die Warnung soll je Fundstelle einmal kommen. */
     private static final Set<String> WARNED_REFS = new HashSet<>();
 
-    /** Ergebnis des Backens: Render-Quads + Kollisions-/Outline-Boxen (lokale 0..1). */
-    public record Baked(BakedQuad[] quads, AABB[] boxes) {}
+    /** Ergebnis des Backens: Render-Quads, Form und Minecraft-{@code textures.particle}-Layer. */
+    public record Baked(BakedQuad[] quads, AABB[] boxes, int particleLayer) {
+        /** Kompatibilitätskonstruktor für generierte/Testmodelle ohne deklarierte Partikeltextur. */
+        public Baked(BakedQuad[] quads, AABB[] boxes) {
+            this(quads, boxes, quads.length == 0 ? -1 : quads[0].textureLayer());
+        }
+    }
 
     /* ---- Gson-DTOs ----
        ambientocclusion: MC-Modellfeld, Default true. Bewusst der Wrapper Boolean — bei einem
@@ -267,7 +272,12 @@ public final class ModelLoader {
                 boxes.add(be.toAABB());
             }
         }
-        return new Baked(BlockModels.concat(parts.toArray(new BakedQuad[0][])), boxes.toArray(new AABB[0]));
+        BakedQuad[] quads = BlockModels.concat(parts.toArray(new BakedQuad[0][]));
+        String particlePath = resolveRef(tex, "#particle");
+        int particleLayer = particlePath != null
+                ? BlockTextures.layerOf(texturePath(particlePath))
+                : quads.length == 0 ? -1 : quads[0].textureLayer();
+        return new Baked(quads, boxes.toArray(new AABB[0]), particleLayer);
     }
 
     /**

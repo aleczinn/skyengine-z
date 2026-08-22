@@ -18,7 +18,8 @@
   "textures": {
     "top": "game/textures/block/${id}_top.png",
     "side": "game/textures/block/${id}_outside.png",
-    "inside": "game/textures/block/${id}_inside.png"
+    "inside": "game/textures/block/${id}_inside.png",
+    "particle": "#side"
   },
   "collision": {
     "boxes": [

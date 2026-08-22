@@ -3,6 +3,7 @@ package de.skyengine.game.world.block.state;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.block.model.BakedQuad;
+import de.skyengine.game.world.block.model.BlockParticleSprite;
 import de.skyengine.game.world.block.shape.BlockShape;
 
 import java.util.HashMap;
@@ -18,6 +19,7 @@ public final class BlockState {
     /** Gepackte Hot-Path-Flags, beim Registry-Bake gesetzt (siehe {@link StateFlags}). */
     private int flags;
     private BakedQuad[] model = new BakedQuad[0];
+    private BlockParticleSprite particleSprite = BlockParticleSprite.MISSING;
     /** Getintete Seiten-Overlay-Quads (Grasblock) — der Mesher emittiert sie in den CUTOUT-Layer. */
     private BakedQuad[] overlay = new BakedQuad[0];
 
@@ -156,6 +158,14 @@ public final class BlockState {
 
     public void setModel(BakedQuad[] model) {
         this.model = model;
+    }
+
+    public BlockParticleSprite getParticleSprite() {
+        return this.particleSprite;
+    }
+
+    public void setParticleSprite(BlockParticleSprite particleSprite) {
+        this.particleSprite = particleSprite == null ? BlockParticleSprite.MISSING : particleSprite;
     }
 
     public BakedQuad[] getOverlay() {

@@ -15,7 +15,8 @@
     "_down": "block/pressure_plate_down"
   },
   "textures": {
-    "texture": "game/textures/block/${texture}.png"
+    "texture": "game/textures/block/${texture}.png",
+    "particle": "#texture"
   },
   "variants": {
     "powered=false": { "model": "block/${id}" },

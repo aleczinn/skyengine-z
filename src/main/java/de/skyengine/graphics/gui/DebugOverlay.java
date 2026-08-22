@@ -140,7 +140,7 @@ public final class DebugOverlay {
         sprites.begin(vW, vH);
         if (vW >= 470) {
             float summaryStep = font.lineHeight(GuiText.SMALL) + 0.5F;
-            sprites.drawRect(vW - 155, MARGIN - 1, 154, 4 * summaryStep + 2,
+            sprites.drawRect(vW - 155, MARGIN - 1, 154, 5 * summaryStep + 2,
                     0, 0, 0, 0.55F);
         }
         for (int i = 0; i < panels.size(); i++) {
@@ -268,6 +268,10 @@ public final class DebugOverlay {
         drawSummaryRow(font, "CPU", snapshot.cpu().get(PerformanceProfiler.CpuSection.FRAME), x, y + step, size);
         drawSummaryRow(font, "GPU", snapshot.gpu().get(PerformanceProfiler.GpuSection.FRAME_SPAN), x, y + 2 * step, size);
         drawSummaryRow(font, "Tick", snapshot.tick().get(PerformanceProfiler.TickSection.TOTAL), x, y + 3 * step, size);
+        long active = snapshot.counters().getOrDefault(PerformanceProfiler.Counter.ACTIVE_PARTICLES, 0L);
+        long rejected = snapshot.counters().getOrDefault(PerformanceProfiler.Counter.REJECTED_PARTICLES, 0L);
+        font.drawStringWithShadow("Particles " + active + "  rejected " + rejected,
+                x, y + 4 * step, size, Color4.WHITE);
     }
 
     private static void drawSummaryRow(FontRenderer font, String label, PerformanceProfiler.TimingStats stats,

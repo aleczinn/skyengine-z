@@ -11,6 +11,7 @@ import de.skyengine.game.world.block.behavior.ObserverBehavior;
 import de.skyengine.game.world.block.behavior.PlacementContext;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.model.BakedQuad;
+import de.skyengine.game.world.block.model.BlockParticleSprite;
 import de.skyengine.game.world.block.model.BlockModels;
 import de.skyengine.game.world.block.model.BlockStateModels;
 import de.skyengine.game.world.block.shape.BlockShape;
@@ -552,6 +553,26 @@ public class Block {
                 ? this.config.modelGenerator().bake(state)
                 : BlockStateModels.bake(this, state).quads();
         return this.applyTint(quads);
+    }
+
+    /**
+     * Übernimmt Minecrafts {@code textures.particle} aus dem gewählten State-Modell. Der Tint
+     * stammt von einem tatsächlich gleich texturierten, bereits getinteten Quad; dadurch bleiben
+     * Grasblock-Dirt-Partikel neutral, während Leaves und Gras ihre Biomfarbe behalten.
+     */
+    public BlockParticleSprite bakeParticleSprite(BlockState state, BakedQuad[] bakedQuads) {
+        if (this.isAir() || this.config.fluidInfo() != null || bakedQuads.length == 0) {
+            return BlockParticleSprite.MISSING;
+        }
+        int layer = this.config.modelGenerator() == null
+                ? BlockStateModels.bake(this, state).particleLayer() : -1;
+        if (layer < 0) layer = bakedQuads[0].textureLayer();
+        for (BakedQuad quad : bakedQuads) {
+            if (quad.textureLayer() == layer) {
+                return new BlockParticleSprite(layer, quad.tint(), quad.tintType());
+            }
+        }
+        return new BlockParticleSprite(layer, BakedQuad.WHITE, BakedQuad.TINT_NONE);
     }
 
     /**

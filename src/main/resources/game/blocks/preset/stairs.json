@@ -15,7 +15,8 @@
   "textures": {
     "top": "game/textures/block/${texture}.png",
     "bottom": "game/textures/block/${texture}.png",
-    "side": "game/textures/block/${texture}.png"
+    "side": "game/textures/block/${texture}.png",
+    "particle": "#side"
   },
   "inventory_model": "block/${id}",
   "inventory_y": 0,

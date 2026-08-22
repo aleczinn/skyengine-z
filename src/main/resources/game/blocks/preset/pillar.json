@@ -15,7 +15,8 @@
   "textures": {
     "top": "game/textures/block/${top}.png",
     "bottom": "game/textures/block/${bottom}.png",
-    "side": "game/textures/block/${side}.png"
+    "side": "game/textures/block/${side}.png",
+    "particle": "#side"
   },
   "variants": {
     "axis=y": {

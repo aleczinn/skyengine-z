@@ -82,6 +82,7 @@ public class EntityPlayer extends Entity {
     private float saturation = 5;
     private float exhaustion = 0;
     private float fallDistance = 0;
+    private float landingDistanceThisTick = 0;
     private int foodTimer = 0;
 
     /* Sound-Flanken (der GameContainer pollt sie pro Tick via consume*): Schaden erlitten
@@ -107,6 +108,7 @@ public class EntityPlayer extends Entity {
      */
     public void update(Input input, World world) {
         super.update();
+        this.landingDistanceThisTick = 0;
 
         if (this.getVehicle() != null) {
             if (input.isBindDown(GameSettings.get().key(KeyBindings.SNEAK))) {
@@ -270,6 +272,7 @@ public class EntityPlayer extends Entity {
         }
         if (this.onGround) {
             if (!wasOnGround) {
+                this.landingDistanceThisTick = this.fallDistance;
                 float damage = (this.fallDistance - FALL_DAMAGE_THRESHOLD)
                         * this.blockBelow(world).getFallDamageFactor();
                 if (damage > 0 && this.damage(damage)) {
@@ -666,6 +669,13 @@ public class EntityPlayer extends Entity {
         float taken = this.fallDamageTaken;
         this.fallDamageTaken = 0;
         return taken;
+    }
+
+    /** Liest und löscht die Landungs-Flanke samt tatsächlich gefallener Strecke. */
+    public float consumeLandingDistance() {
+        float distance = this.landingDistanceThisTick;
+        this.landingDistanceThisTick = 0;
+        return distance;
     }
 
     public void heal(float amount) {

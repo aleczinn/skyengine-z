@@ -11,7 +11,8 @@
   },
   "model": "block/cross",
   "textures": {
-    "all": "game/textures/block/${texture}.png"
+    "all": "game/textures/block/${texture}.png",
+    "particle": "#all"
   },
   "icon_item": "game/textures/block/${texture}.png"
 }

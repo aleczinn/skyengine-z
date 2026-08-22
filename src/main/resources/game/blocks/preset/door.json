@@ -25,7 +25,8 @@
   },
   "textures": {
     "bottom": "game/textures/block/${texture}_bottom.png",
-    "top": "game/textures/block/${texture}_top.png"
+    "top": "game/textures/block/${texture}_top.png",
+    "particle": "#bottom"
   },
   "icon_item": "game/textures/item/${id}.png",
   "variants": {
