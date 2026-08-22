@@ -133,6 +133,11 @@ final class LodMesherLightingTest {
     private static LodManager.LodMeshResult mesh(LodDataSource source, int level, int sizeRegions) {
         GameSettings settings = GameSettings.get();
         boolean previousAo = settings.ambientOcclusion;
+        GameSettings.LodQuality previousQuality = settings.lodQuality;
+        /* Diese Tests pruefen den AO-MODUS je Level. Der haengt seit LodQuality an einer
+           Einstellung, die GameSettings.get() aus der echten options.json des Nutzers laedt —
+           ohne dieses Pinnen faellt der Test um, sobald jemand im Spiel MID/HIGH waehlt. */
+        settings.lodQuality = GameSettings.LodQuality.LOW;
         settings.ambientOcclusion = false;
         try {
             LodConfig config = LodConfig.of(16, 128);
@@ -140,6 +145,7 @@ final class LodMesherLightingTest {
                     level, sizeRegions, 0, 0, 0, 0, 64, 64);
         } finally {
             settings.ambientOcclusion = previousAo;
+            settings.lodQuality = previousQuality;
         }
     }
 

@@ -180,6 +180,11 @@ final class LodMesherColumnTransitionTest {
     void reportedSeed187MountainHasNoDiagonalAoGradientOnVerticalQuads() {
         GameSettings settings = GameSettings.get();
         boolean previousAo = settings.ambientOcclusion;
+        GameSettings.LodQuality previousQuality = settings.lodQuality;
+        /* Diese Tests pruefen den AO-MODUS je Level. Der haengt seit LodQuality an einer
+           Einstellung, die GameSettings.get() aus der echten options.json des Nutzers laedt —
+           ohne dieses Pinnen faellt der Test um, sobald jemand im Spiel MID/HIGH waehlt. */
+        settings.lodQuality = GameSettings.LodQuality.LOW;
         settings.ambientOcclusion = true;
         try {
             int rx = -55, rz = -144;
@@ -215,6 +220,7 @@ final class LodMesherColumnTransitionTest {
                     "Die reale L2-Klippe darf nicht wieder in viele feine AO-Lamellen zerfallen");
         } finally {
             settings.ambientOcclusion = previousAo;
+            settings.lodQuality = previousQuality;
         }
     }
 
@@ -222,6 +228,11 @@ final class LodMesherColumnTransitionTest {
     void reportedSeed187LevelOneMountainKeepsPackedGeometryValidWithCornerAo() {
         GameSettings settings = GameSettings.get();
         boolean previousAo = settings.ambientOcclusion;
+        GameSettings.LodQuality previousQuality = settings.lodQuality;
+        /* Diese Tests pruefen den AO-MODUS je Level. Der haengt seit LodQuality an einer
+           Einstellung, die GameSettings.get() aus der echten options.json des Nutzers laedt —
+           ohne dieses Pinnen faellt der Test um, sobald jemand im Spiel MID/HIGH waehlt. */
+        settings.lodQuality = GameSettings.LodQuality.LOW;
         settings.ambientOcclusion = true;
         try {
             int rx = -54, rz = -141;
@@ -239,6 +250,7 @@ final class LodMesherColumnTransitionTest {
                             + quads);
         } finally {
             settings.ambientOcclusion = previousAo;
+            settings.lodQuality = previousQuality;
         }
     }
 
@@ -246,6 +258,11 @@ final class LodMesherColumnTransitionTest {
     void reportedSeed187MountainNeighborhoodKeepsEveryPackedQuadValid() {
         GameSettings settings = GameSettings.get();
         boolean previousAo = settings.ambientOcclusion;
+        GameSettings.LodQuality previousQuality = settings.lodQuality;
+        /* Diese Tests pruefen den AO-MODUS je Level. Der haengt seit LodQuality an einer
+           Einstellung, die GameSettings.get() aus der echten options.json des Nutzers laedt —
+           ohne dieses Pinnen faellt der Test um, sobald jemand im Spiel MID/HIGH waehlt. */
+        settings.lodQuality = GameSettings.LodQuality.LOW;
         settings.ambientOcclusion = true;
         try {
             Seed187Source source = new Seed187Source();
@@ -277,6 +294,7 @@ final class LodMesherColumnTransitionTest {
             }
         } finally {
             settings.ambientOcclusion = previousAo;
+            settings.lodQuality = previousQuality;
         }
     }
 
@@ -284,6 +302,11 @@ final class LodMesherColumnTransitionTest {
     void reportedSeed187LevelOneAoOnlySubdividesTheExistingSurface() {
         GameSettings settings = GameSettings.get();
         boolean previousAo = settings.ambientOcclusion;
+        GameSettings.LodQuality previousQuality = settings.lodQuality;
+        /* Diese Tests pruefen den AO-MODUS je Level. Der haengt seit LodQuality an einer
+           Einstellung, die GameSettings.get() aus der echten options.json des Nutzers laedt —
+           ohne dieses Pinnen faellt der Test um, sobald jemand im Spiel MID/HIGH waehlt. */
+        settings.lodQuality = GameSettings.LodQuality.LOW;
         try {
             int rx = -54, rz = -141;
             LodMesher mesher = new LodMesher();
@@ -307,6 +330,7 @@ final class LodMesherColumnTransitionTest {
                     "L1-AO darf die sichtbare Seed-187-Oberflaeche nur unterteilen");
         } finally {
             settings.ambientOcclusion = previousAo;
+            settings.lodQuality = previousQuality;
         }
     }
 
