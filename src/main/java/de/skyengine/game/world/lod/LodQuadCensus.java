@@ -56,15 +56,15 @@ public final class LodQuadCensus {
            beziffert genau diesen Preis je Level. */
         GameSettings.get().ambientOcclusion = true;
         LodConfig config = LodConfig.of(16, 128);
-        for (GameSettings.LodQuality quality : GameSettings.LodQuality.values()) {
-            GameSettings.get().lodQuality = quality;
+        for (GameSettings.LodAmbientOcclusionQuality quality : GameSettings.LodAmbientOcclusionQuality.values()) {
+            GameSettings.get().lodAmbientOcclusionQuality = quality;
             census(generator, appearance, config, quality);
         }
     }
 
     /** Mesht alle Regionen des Rings und druckt die Quad-/Vertex-Summen pro Level. */
     private static void census(WorldGenerator generator, LodBlockAppearance appearance,
-                               LodConfig config, GameSettings.LodQuality quality) {
+                               LodConfig config, GameSettings.LodAmbientOcclusionQuality quality) {
         LodMesher mesher = new LodMesher();
         LodMeshStats stats = new LodMeshStats();
         mesher.setStats(stats); // aktiviert die Quad-Statistik (in-engine null → aus)

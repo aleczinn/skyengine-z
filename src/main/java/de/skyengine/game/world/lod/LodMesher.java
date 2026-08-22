@@ -197,7 +197,7 @@ public final class LodMesher {
      * (3,5 zu 2,079 = 1,68). Ohne diese Staffelung waere die Arena bei MID/HIGH zu klein und
      * wuechse zur Laufzeit — jeder Grow ist eine GPU-Vollkopie der ganzen Arena im Frame.
      */
-    private static float quadsPerCell(GameSettings.LodQuality quality) {
+    private static float quadsPerCell(GameSettings.LodAmbientOcclusionQuality quality) {
         return switch (quality) {
             case OFF -> 2.9F;
             case LOW -> QUADS_PER_CELL;
@@ -224,7 +224,7 @@ public final class LodMesher {
      * (kein Treppen-Wachstum beim Start → weniger NVIDIA-0x20072-Warnungen; die Arena wächst bei
      * Bedarf trotzdem weiter). Skaliert automatisch mit renderDistance/lodMaxDistance.
      */
-    public static long estimateOpaqueArenaBytes(LodConfig config, GameSettings.LodQuality quality) {
+    public static long estimateOpaqueArenaBytes(LodConfig config, GameSettings.LodAmbientOcclusionQuality quality) {
         return arenaBytes(config, quadsPerCell(quality));
     }
 
@@ -296,9 +296,9 @@ public final class LodMesher {
         /* EINE Lesung je Mesh-Job: AO-Zustand und Corner-AO-Schwelle muessen innerhalb einer
            Region konsistent sein. Jede Aenderung bumpt ohnehin die Epoche (LodManager), alle
            Regionen werden also mit demselben Stand neu gebaut. */
-        GameSettings.LodQuality quality = GameSettings.get().lodQuality;
-        this.lodAo = GameSettings.get().ambientOcclusion && quality.usesAo();
-        this.flatAo = level > quality.cornerAoMaxLevel();
+        GameSettings.LodAmbientOcclusionQuality lodAmbientOcclusionQuality = GameSettings.get().lodAmbientOcclusionQuality;
+        this.lodAo = GameSettings.get().ambientOcclusion && lodAmbientOcclusionQuality.usesAo();
+        this.flatAo = level > lodAmbientOcclusionQuality.cornerAoMaxLevel();
         /* Vier Level-Zellen pro L2-Band, danach mindestens zwei: L2/L3=16, L4=32,
            L5=64. Das Raster bleibt global ausgerichtet und erzeugt an realen Klippen
            wenige große, horizontal gut mergefähige Flächen statt 4-Block-Lamellen. */

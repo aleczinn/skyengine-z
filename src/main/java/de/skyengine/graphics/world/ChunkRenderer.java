@@ -187,7 +187,7 @@ public class ChunkRenderer {
     /* Letzter LOD-Settings-Stand für die Arena-Vorabvergrößerung (s. applyLodResults) */
     private int lastLodRenderDistance = -1, lastLodMaxDistance = -1;
     private boolean lastLodEnabled;
-    private GameSettings.LodQuality lastLodQuality;
+    private GameSettings.LodAmbientOcclusionQuality lastLodAmbientOcclusionQuality;
 
     /* Gate für die Cleanup-Walks (Schritte 3/3b): die O(Meshes)-Prüfungen laufen nur noch
        in Frames, in denen sich Chunk-Set bzw. LOD-Desired-Set wirklich geändert haben
@@ -402,7 +402,7 @@ public class ChunkRenderer {
         if (settings.lodEnabled) {
             LodConfig lodConfig = LodConfig.of(settings.renderDistance, settings.lodMaxDistance);
             lodOpaqueBytes = Math.max(lodOpaqueBytes,
-                    LodMesher.estimateOpaqueArenaBytes(lodConfig, settings.lodQuality));
+                    LodMesher.estimateOpaqueArenaBytes(lodConfig, settings.lodAmbientOcclusionQuality));
             lodTranslucentBytes = Math.max(lodTranslucentBytes,
                     LodMesher.estimateTranslucentArenaBytes(lodConfig));
         }
@@ -1240,15 +1240,15 @@ public class ChunkRenderer {
            einem Stufenwechsel treppenweise nach — genau der Fall, den dieser Block verhindert. */
         if (settings.lodEnabled != this.lastLodEnabled || settings.renderDistance != this.lastLodRenderDistance
                 || settings.lodMaxDistance != this.lastLodMaxDistance
-                || settings.lodQuality != this.lastLodQuality) {
+                || settings.lodAmbientOcclusionQuality != this.lastLodAmbientOcclusionQuality) {
             this.lastLodEnabled = settings.lodEnabled;
             this.lastLodRenderDistance = settings.renderDistance;
             this.lastLodMaxDistance = settings.lodMaxDistance;
-            this.lastLodQuality = settings.lodQuality;
+            this.lastLodAmbientOcclusionQuality = settings.lodAmbientOcclusionQuality;
             if (settings.lodEnabled) {
                 LodConfig lodConfig = LodConfig.of(settings.renderDistance, settings.lodMaxDistance);
                 opaqueArena.ensureCapacity(
-                        LodMesher.estimateOpaqueArenaBytes(lodConfig, settings.lodQuality));
+                        LodMesher.estimateOpaqueArenaBytes(lodConfig, settings.lodAmbientOcclusionQuality));
                 translucentArena.ensureCapacity(LodMesher.estimateTranslucentArenaBytes(lodConfig));
             }
         }

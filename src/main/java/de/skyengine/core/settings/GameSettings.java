@@ -51,7 +51,7 @@ public final class GameSettings {
      * <p>{@link #OFF} schaltet AO NUR im LOD ab — das globale {@code ambientOcclusion} und damit
      * das echte Terrain (L0) bleibt unberuehrt.
      */
-    public enum LodQuality {
+    public enum LodAmbientOcclusionQuality {
         /** Kein AO in den LOD-Ringen. */
         OFF,
         /** Corner-AO nur auf L1, ab L2 flach (bisheriges Verhalten). */
@@ -127,7 +127,7 @@ public final class GameSettings {
     /* AO-Qualitaet der LOD-Ringe (s. LodQuality). Default LOW = bisheriges Verhalten, damit
        bestehende options.json ihre Performance behalten. volatile: die Chunk-Worker lesen das
        Feld im LodMesher; jede Aenderung bumpt zusaetzlich die LOD-Epoche (LodManager). */
-    public volatile LodQuality lodQuality = LodQuality.LOW;
+    public volatile LodAmbientOcclusionQuality lodAmbientOcclusionQuality = LodAmbientOcclusionQuality.MID;
     /* Gesamtlautstärke 0..100 (wirkt global als OpenAL-Listener-Gain). */
     public int masterVolume = 100;
     /* Kanal-Lautstärken 0..100, Keys = SoundCategory-Namen (ersetzt das alte musicVolume-Feld:
@@ -222,8 +222,7 @@ public final class GameSettings {
         } else {
             for (SoundCategory category : SoundCategory.values()) {
                 Integer v = this.soundVolumes.get(category.name());
-                this.soundVolumes.put(category.name(),
-                        Math.clamp(v != null ? v : category.defaultVolume, 0, 100));
+                this.soundVolumes.put(category.name(), Math.clamp(v != null ? v : category.defaultVolume, 0, 100));
             }
             /* Verwaiste Keys (umbenannte/entfernte Kanäle) rauswerfen — Muster keyBindings. */
             this.soundVolumes.keySet().retainAll(defaultSoundVolumes().keySet());
@@ -243,7 +242,7 @@ public final class GameSettings {
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;
-        if (this.lodQuality == null) this.lodQuality = LodQuality.LOW;
+        if (this.lodAmbientOcclusionQuality == null) this.lodAmbientOcclusionQuality = LodAmbientOcclusionQuality.MID;
         if (this.keyBindings == null) {
             this.keyBindings = KeyBindings.defaults();
         } else {
