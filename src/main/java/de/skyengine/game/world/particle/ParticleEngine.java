@@ -4,13 +4,17 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockParticleSprite;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.block.state.RedstoneSide;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.game.world.redstone.RedstoneColors;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.world.ChunkRenderer;
 import org.joml.FrustumIntersection;
@@ -27,6 +31,8 @@ public final class ParticleEngine {
 
     public static final int MAX_PARTICLES = 8192;
     public static final int INSTANCE_FLOATS = 16;
+    private static final int MAX_EXPLOSION_BURSTS = 256;
+    private static final int MAX_EXPLOSION_BLOCK_PARTICLES = 512;
     private static final ParticleType[] TYPES = ParticleType.values();
 
     private final World world;
@@ -35,6 +41,8 @@ public final class ParticleEngine {
     private final double[] prevX = new double[MAX_PARTICLES], prevY = new double[MAX_PARTICLES], prevZ = new double[MAX_PARTICLES];
     private final float[] vx = new float[MAX_PARTICLES], vy = new float[MAX_PARTICLES], vz = new float[MAX_PARTICLES];
     private final float[] size = new float[MAX_PARTICLES], rotation = new float[MAX_PARTICLES];
+    private final float[] rotationVelocity = new float[MAX_PARTICLES];
+    private final float[] aux0 = new float[MAX_PARTICLES], aux1 = new float[MAX_PARTICLES];
     private final float[] u0 = new float[MAX_PARTICLES], v0 = new float[MAX_PARTICLES];
     private final float[] u1 = new float[MAX_PARTICLES], v1 = new float[MAX_PARTICLES];
     private final int[] layer = new int[MAX_PARTICLES], color = new int[MAX_PARTICLES];
@@ -43,6 +51,13 @@ public final class ParticleEngine {
     private final byte[] type = new byte[MAX_PARTICLES], priority = new byte[MAX_PARTICLES];
     private final byte[] translucent = new byte[MAX_PARTICLES];
     private final byte[] onGround = new byte[MAX_PARTICLES];
+    /* 26.2 ClientExplosionTracker: feste Burst-Queue statt Objekte pro Explosion. */
+    private final double[] explosionX = new double[MAX_EXPLOSION_BURSTS];
+    private final double[] explosionY = new double[MAX_EXPLOSION_BURSTS];
+    private final double[] explosionZ = new double[MAX_EXPLOSION_BURSTS];
+    private final float[] explosionRadius = new float[MAX_EXPLOSION_BURSTS];
+    private final int[] explosionWeight = new int[MAX_EXPLOSION_BURSTS];
+    private int explosionBurstCount;
     private int count;
     private int replacementCursor;
     private long spawned;
@@ -70,6 +85,7 @@ public final class ParticleEngine {
     public void clear() {
         this.count = 0;
         this.replacementCursor = 0;
+        this.explosionBurstCount = 0;
     }
 
     public void tick() {
@@ -80,12 +96,22 @@ public final class ParticleEngine {
             this.prevY[i] = this.y[i];
             this.prevZ[i] = this.z[i];
             ParticleType kind = TYPES[this.type[i]];
+            if (kind == ParticleType.EXPLOSION_EMITTER) {
+                this.tickExplosionEmitter(i);
+                continue;
+            }
+            if (kind == ParticleType.FALLING_LEAF) {
+                this.tickFallingLeaf(i);
+                continue;
+            }
             int nextAge = (this.age[i] & 0xFFFF) + 1;
             this.age[i] = (short) nextAge;
-            if (kind == ParticleType.DRIP_HANG && nextAge >= 20) {
-                this.setKind(i, ParticleType.DRIP_FALL);
-                this.vy[i] = -0.01F;
-                continue;
+            if (kind == ParticleType.DRIP_HANG) {
+                this.updateHangingDripColor(i, nextAge);
+                if (nextAge >= 40) {
+                    this.startFallingDrip(i);
+                    continue;
+                }
             }
             if (nextAge >= (this.lifetime[i] & 0xFFFF)) {
                 this.remove(i);
@@ -93,8 +119,7 @@ public final class ParticleEngine {
             }
             if (kind == ParticleType.BUBBLE && this.world != null
                     && !this.isWater(this.x[i], this.y[i], this.z[i])) {
-                this.setKind(i, ParticleType.BUBBLE_POP);
-                this.vx[i] = this.vy[i] = this.vz[i] = 0F;
+                this.remove(i);
                 continue;
             }
 
@@ -103,8 +128,7 @@ public final class ParticleEngine {
                 float oldVy = this.vy[i];
                 this.moveColliding(i);
                 if (kind == ParticleType.DRIP_FALL && oldVy < 0F && this.vy[i] == 0F) {
-                    this.setKind(i, ParticleType.DRIP_LAND);
-                    this.vx[i] = this.vy[i] = this.vz[i] = 0F;
+                    this.landDrip(i);
                     continue;
                 }
             }
@@ -120,18 +144,76 @@ public final class ParticleEngine {
                 this.vx[i] *= 0.7F;
                 this.vz[i] *= 0.7F;
             }
-            if (kind == ParticleType.SMOKE || kind == ParticleType.LARGE_SMOKE) {
-                this.size[i] *= 1.015F;
-                this.alpha[i] = 1F - nextAge / (float) (this.lifetime[i] & 0xFFFF);
+            if (kind == ParticleType.FALLING_DUST) {
+                this.vy[i] = Math.max(this.vy[i], -0.14F);
+                this.rotation[i] = this.onGround[i] != 0 ? 0F
+                        : this.rotation[i] + this.rotationVelocity[i];
             }
-            this.light[i] = this.sampleLight(this.x[i], this.y[i], this.z[i]);
+            if (kind == ParticleType.LAVA
+                    && this.random.nextFloat() > nextAge / (float) (this.lifetime[i] & 0xFFFF)) {
+                this.spawnVanillaSmoke(this.x[i], this.y[i], this.z[i],
+                        this.vx[i], this.vy[i], this.vz[i], 1F, ParticlePriority.AMBIENT);
+            }
+            if (kind != ParticleType.LAVA && kind != ParticleType.EXPLOSION) {
+                this.light[i] = this.sampleLight(this.x[i], this.y[i], this.z[i]);
+            }
         }
+        this.flushExplosionClouds();
+    }
+
+    /** Vanillas EXPLOSION_EMITTER: acht Ticks lang je sechs ortsfeste Explosion-Sprites. */
+    private void tickExplosionEmitter(int index) {
+        int emitterAge = this.age[index] & 0xFFFF;
+        float progress = emitterAge / 8F;
+        double px = this.x[index], py = this.y[index], pz = this.z[index];
+        for (int n = 0; n < 6; n++) {
+            double sx = px + (this.random.nextDouble() - this.random.nextDouble()) * 4.0;
+            double sy = py + (this.random.nextDouble() - this.random.nextDouble()) * 4.0;
+            double sz = pz + (this.random.nextDouble() - this.random.nextDouble()) * 4.0;
+            int gray = Math.clamp((int) ((0.4F + this.random.nextFloat() * 0.6F) * 255F), 0, 255);
+            int child = this.add(ParticleType.EXPLOSION, ParticlePriority.CRITICAL,
+                    sx, sy, sz, 0F, 0F, 0F, -1, gray << 16 | gray << 8 | gray,
+                    1F, 2F * (1F - progress * 0.5F));
+            if (child >= 0) {
+                this.lifetime[child] = (short) (6 + this.random.nextInt(4));
+                this.light[child] = 1F;
+            }
+        }
+        this.age[index] = (short) (emitterAge + 1);
+        if (emitterAge + 1 >= 8) this.remove(index);
+    }
+
+    /** Gemeinsames Verhalten der TINTED_LEAVES- und PALE_OAK_LEAVES-Partikel. */
+    private void tickFallingLeaf(int index) {
+        int nextAge = (this.age[index] & 0xFFFF) + 1;
+        this.age[index] = (short) nextAge;
+        if (nextAge >= 300) {
+            this.remove(index);
+            return;
+        }
+        float progress = Math.min(nextAge / 300F, 1F);
+        float curve = progress * progress;
+        this.vx[index] += (float) (curve * Math.cos(curve * this.aux1[index]) * 10F * 0.0025F);
+        this.vz[index] += (float) (curve * Math.sin(curve * this.aux1[index]) * 10F * 0.0025F);
+        this.vy[index] -= 0.00021F;
+        this.rotationVelocity[index] += this.aux0[index] / 20F;
+        this.rotation[index] += this.rotationVelocity[index] / 20F;
+        float requestedX = this.vx[index], requestedZ = this.vz[index];
+        this.moveColliding(index);
+        if (this.onGround[index] != 0
+                || (nextAge > 1 && requestedX != 0F && this.vx[index] == 0F)
+                || (nextAge > 1 && requestedZ != 0F && this.vz[index] == 0F)) {
+            this.remove(index);
+            return;
+        }
+        this.light[index] = this.sampleLight(this.x[index], this.y[index], this.z[index]);
     }
 
     private void moveColliding(int i) {
         ParticleType kind = TYPES[this.type[i]];
         boolean block = kind == ParticleType.BLOCK;
-        double collisionRadius = kind == ParticleType.FALLING_DUST ? this.size[i] : this.size[i] * 0.35;
+        double collisionRadius = kind == ParticleType.FALLING_DUST ? this.size[i]
+                : kind == ParticleType.POOF ? 0.1 : this.size[i] * 0.35;
         this.onGround[i] = 0;
         double nx = this.x[i] + this.vx[i];
         if (block ? this.blockParticleCollides(nx, this.y[i], this.z[i])
@@ -262,16 +344,19 @@ public final class ParticleEngine {
     }
 
     public void landing(double px, double py, double pz, BlockState ground, float fallDistance) {
-        int amount = scaledAmount(Math.clamp((int) (fallDistance * 12F), 4, 80), false);
+        int fallDamage = Math.max(0, (int) Math.ceil(fallDistance - 3F));
+        if (fallDamage == 0) return;
+        double spread = Math.min(0.2 + fallDamage / 15.0, 2.5);
+        int amount = scaledAmount((int) (150.0 * spread), false);
         BlockParticleSprite sprite = ground.getParticleSprite();
         if (!sprite.isPresent()) return;
         for (int i = 0; i < amount; i++) {
-            double angle = this.random.nextDouble() * Math.PI * 2;
-            double radius = this.random.nextDouble() * 0.45;
             this.spawnBlock(ParticlePriority.NORMAL,
-                    px + Math.cos(angle) * radius, py + 0.02, pz + Math.sin(angle) * radius,
-                    (float) Math.cos(angle) * 0.025F, 0.025F + this.random.nextFloat() * 0.025F,
-                    (float) Math.sin(angle) * 0.025F, sprite, 0.08F,
+                    px, py, pz,
+                    (float) (this.random.nextGaussian() * 0.15),
+                    (float) (this.random.nextGaussian() * 0.15),
+                    (float) (this.random.nextGaussian() * 0.15),
+                    sprite, vanillaQuadSize() * 0.5F,
                     ground.getRenderLayer() == de.skyengine.game.world.block.RenderLayer.TRANSLUCENT);
         }
     }
@@ -279,107 +364,385 @@ public final class ParticleEngine {
     public void sprint(double px, double py, double pz, BlockState ground, double motionX, double motionZ) {
         BlockParticleSprite sprite = ground.getParticleSprite();
         if (!sprite.isPresent()) return;
-        this.spawnBlock(ParticlePriority.AMBIENT, px + jitter(0.35F), py + 0.03,
-                pz + jitter(0.35F), (float) -motionX * 0.25F + jitter(0.01F),
-                0.025F, (float) -motionZ * 0.25F + jitter(0.01F), sprite, 0.08F,
+        this.spawnBlock(ParticlePriority.AMBIENT, px + jitter(0.3F), py + 0.1,
+                pz + jitter(0.3F), (float) (-motionX * 4.0),
+                1.5F, (float) (-motionZ * 4.0), sprite, vanillaQuadSize() * 0.5F,
                 ground.getRenderLayer() == de.skyengine.game.world.block.RenderLayer.TRANSLUCENT);
     }
 
     public void torch(double px, double py, double pz) {
-        this.add(ParticleType.SMOKE, ParticlePriority.AMBIENT, px, py, pz,
-                jitter(0.003F), 0.01F, jitter(0.003F), -1, 0x777777, 0.7F, 0.09F);
-        this.add(ParticleType.FLAME, ParticlePriority.AMBIENT, px, py, pz,
-                jitter(0.002F), 0.004F, jitter(0.002F), -1, 0xFFFFFF, 1F, 0.08F);
+        this.spawnVanillaSmoke(px, py, pz, 0F, 0F, 0F, 1F, ParticlePriority.AMBIENT);
+        this.spawnVanillaFlame(px, py, pz, 0F, 0F, 0F, ParticlePriority.AMBIENT);
     }
 
     public void smoke(double px, double py, double pz, boolean large, ParticlePriority importance) {
-        this.add(large ? ParticleType.LARGE_SMOKE : ParticleType.SMOKE, importance,
-                px, py, pz, jitter(large ? 0.025F : 0.01F),
-                0.02F + this.random.nextFloat() * 0.02F, jitter(large ? 0.025F : 0.01F),
-                -1, large ? 0xEEEEEE : 0x888888, 0.9F, large ? 0.18F : 0.10F);
+        this.spawnVanillaSmoke(px, py, pz, 0F, 0F, 0F,
+                large ? 2.5F : 1F, importance);
+    }
+
+    /** Der dunkle SMOKE-Partikel, den PrimedTnt pro Fuse-Tick mit Nullgeschwindigkeit erzeugt. */
+    public void tntFuseSmoke(double px, double py, double pz) {
+        this.spawnVanillaSmoke(px, py, pz, 0F, 0F, 0F, 1F, ParticlePriority.NORMAL);
+    }
+
+    public void redstoneBurnout(int x, int y, int z) {
+        for (int i = 0; i < 5; i++) {
+            this.spawnVanillaSmoke(x + this.random.nextDouble(), y + this.random.nextDouble(),
+                    z + this.random.nextDouble(), 0F, 0F, 0F, 1F, ParticlePriority.NORMAL);
+        }
     }
 
     public void fluidReaction(double px, double py, double pz) {
         int amount = scaledAmount(8, false);
-        for (int i = 0; i < amount; i++) this.smoke(px + this.random.nextDouble() - 0.5,
-                py + 0.7 + this.random.nextDouble() * 0.3, pz + this.random.nextDouble() - 0.5,
-                true, ParticlePriority.CRITICAL);
+        for (int i = 0; i < amount; i++) {
+            this.spawnVanillaSmoke(px + this.random.nextDouble() - 0.5,
+                    py + 0.7, pz + this.random.nextDouble() - 0.5,
+                    0F, 0F, 0F, 2.5F, ParticlePriority.CRITICAL);
+        }
     }
 
     public void lavaPop(double px, double py, double pz) {
-        this.add(ParticleType.LAVA, ParticlePriority.AMBIENT, px + jitter(0.35F), py,
-                pz + jitter(0.35F), jitter(0.02F), 0.10F + this.random.nextFloat() * 0.08F,
-                jitter(0.02F), -1, 0xFFFFFF, 1F, 0.10F);
+        int index = this.add(ParticleType.LAVA, ParticlePriority.AMBIENT, px, py, pz,
+                0F, 0F, 0F, -1, 0xFFFFFF, 1F, 0.10F);
+        if (index < 0) return;
+        this.setVanillaBaseVelocity(index, 0.8F);
+        this.vy[index] = this.random.nextFloat() * 0.4F + 0.05F;
+        this.size[index] = vanillaQuadSize() * (this.random.nextFloat() * 2F + 0.2F);
+        this.lifetime[index] = (short) Math.max(1,
+                (int) (16F / (this.random.nextFloat() * 0.8F + 0.2F)));
+        this.light[index] = 1F;
     }
 
     public void underwater(double px, double py, double pz) {
-        this.add(ParticleType.UNDERWATER, ParticlePriority.AMBIENT, px, py, pz,
-                jitter(0.005F), jitter(0.005F), jitter(0.005F), -1, 0xFFFFFF, 0.55F, 0.04F);
+        int index = this.add(ParticleType.UNDERWATER, ParticlePriority.AMBIENT,
+                px, py - 0.125, pz, 0F, 0F, 0F, -1, 0xFFFFFF, 1F,
+                vanillaQuadSize() * (this.random.nextFloat() * 0.6F + 0.2F));
+        if (index >= 0) this.lifetime[index] = (short) Math.max(1,
+                (int) (16F / (this.random.nextFloat() * 0.8F + 0.2F)));
     }
 
     public void drip(double px, double py, double pz, boolean lava) {
-        this.add(ParticleType.DRIP_HANG, ParticlePriority.AMBIENT, px, py, pz,
-                0F, 0F, 0F, -1, lava ? 0xFF6A00 : 0x3F76E4, 0.85F, 0.04F);
+        int index = this.add(ParticleType.DRIP_HANG, ParticlePriority.AMBIENT, px, py, pz,
+                0F, 0F, 0F, -1, lava ? 0xFFFF80 : 0x334DFF, 1F,
+                vanillaQuadSize() * 0.02F);
+        if (index >= 0) {
+            this.lifetime[index] = 40;
+            this.aux0[index] = lava ? 1F : 0F;
+        }
+    }
+
+    private void updateHangingDripColor(int index, int dripAge) {
+        if (this.aux0[index] == 0F) {
+            this.color[index] = 0x334DFF;
+            return;
+        }
+        int green = Math.clamp(Math.round(255F * 16F / (dripAge + 16F)), 0, 255);
+        int blue = Math.clamp(Math.round(255F * 4F / (dripAge + 8F)), 0, 255);
+        this.color[index] = 0xFF0000 | green << 8 | blue;
+    }
+
+    private void startFallingDrip(int index) {
+        boolean lava = this.aux0[index] != 0F;
+        this.setKind(index, ParticleType.DRIP_FALL);
+        this.vx[index] = this.vy[index] = this.vz[index] = 0F;
+        this.size[index] = vanillaQuadSize();
+        this.color[index] = lava ? 0xFF4915 : 0x334DFF;
+        this.lifetime[index] = (short) Math.max(1,
+                (int) (64F / (this.random.nextFloat() * 0.8F + 0.2F)));
+    }
+
+    private void landDrip(int index) {
+        boolean lava = this.aux0[index] != 0F;
+        this.setKind(index, ParticleType.DRIP_LAND);
+        this.vx[index] = this.vy[index] = this.vz[index] = 0F;
+        this.size[index] = vanillaQuadSize();
+        this.color[index] = lava ? 0xFF4915 : 0x334DFF;
+        this.lifetime[index] = (short) Math.max(1,
+                (int) (16F / (this.random.nextFloat() * 0.8F + 0.2F)));
     }
 
     public void swim(double px, double py, double pz, double motionX, double motionY, double motionZ) {
-        this.add(ParticleType.BUBBLE, ParticlePriority.AMBIENT,
+        int index = this.add(ParticleType.BUBBLE, ParticlePriority.AMBIENT,
                 px + jitter(0.25F), py + jitter(0.45F), pz + jitter(0.25F),
-                (float) -motionX * 0.15F + jitter(0.01F),
-                (float) -motionY * 0.15F + 0.01F,
-                (float) -motionZ * 0.15F + jitter(0.01F),
-                -1, 0xFFFFFF, 0.75F, 0.05F);
+                (float) -motionX * 0.2F + jitter(0.02F),
+                (float) -motionY * 0.2F + jitter(0.02F),
+                (float) -motionZ * 0.2F + jitter(0.02F),
+                -1, 0xFFFFFF, 1F,
+                vanillaQuadSize() * (this.random.nextFloat() * 0.6F + 0.2F));
+        if (index >= 0) this.lifetime[index] = (short) Math.max(1,
+                (int) (8F / (this.random.nextFloat() * 0.8F + 0.2F)));
     }
 
     public void fallingDust(double px, double py, double pz, BlockState state) {
         BlockParticleSprite sprite = state.getParticleSprite();
         if (!sprite.isPresent()) return;
         int index = this.add(ParticleType.FALLING_DUST, ParticlePriority.AMBIENT,
-                px + jitter(0.3F), py, pz + jitter(0.3F), jitter(0.004F),
-                -0.01F - this.random.nextFloat() * 0.015F, jitter(0.004F),
-                sprite.textureLayer(), darken(this.tintAt(sprite, px, pz), 0.6F), 0.9F, 0.09F);
+                px, py, pz, 0F, 0F, 0F,
+                -1, this.tintAt(sprite, px, pz), 1F,
+                vanillaQuadSize() * 0.67499995F);
         if (index >= 0) {
-            this.rotation[index] = 0F;
-            this.u0[index] = this.random.nextInt(4) * 0.25F;
-            this.v0[index] = this.random.nextInt(4) * 0.25F;
-            this.u1[index] = this.u0[index] + 0.25F;
-            this.v1[index] = this.v0[index] + 0.25F;
+            this.lifetime[index] = (short) Math.max(1,
+                    (int) (32F / (this.random.nextFloat() * 0.8F + 0.2F) * 0.9F));
+            this.rotationVelocity[index] = (this.random.nextFloat() - 0.5F)
+                    * 0.1F * (float) (Math.PI * 2);
         }
     }
 
-    public void splash(double px, double py, double pz, double speed) {
-        int amount = scaledAmount(Math.clamp((int) (8 + speed * 30), 8, 40), false);
+    /** Vanillas Wassereintritt: fuer Spielerbreite 0.6 je 13 Bubble und Splash. */
+    public void splash(double px, double py, double pz,
+                       double motionX, double motionY, double motionZ) {
+        int amount = scaledAmount(13, false);
+        double surfaceY = Math.floor(py) + 1.0;
         for (int i = 0; i < amount; i++) {
-            ParticleType kind = (i & 1) == 0 ? ParticleType.SPLASH : ParticleType.BUBBLE;
-            this.add(kind, ParticlePriority.NORMAL, px + jitter(0.3F), py + jitter(0.15F),
-                    pz + jitter(0.3F), jitter(0.06F), 0.04F + this.random.nextFloat() * 0.08F,
-                    jitter(0.06F), -1, 0xFFFFFF, 0.8F, kind.size);
+            double ox = (this.random.nextDouble() * 2.0 - 1.0) * 0.6;
+            double oz = (this.random.nextDouble() * 2.0 - 1.0) * 0.6;
+            this.spawnBubble(px + ox, surfaceY, pz + oz, motionX,
+                    motionY - this.random.nextDouble() * 0.2, motionZ,
+                    ParticlePriority.NORMAL);
+            this.spawnSplash(px + ox, surfaceY, pz + oz,
+                    motionX, motionY, motionZ, ParticlePriority.NORMAL);
         }
     }
 
-    public void explosion(double px, double py, double pz, float power) {
-        int amount = scaledAmount(Math.clamp((int) (power * 12F), 16, 96), false);
-        for (int i = 0; i < amount; i++) {
-            double dx = this.random.nextDouble() * 2 - 1;
-            double dy = this.random.nextDouble() * 2 - 1;
-            double dz = this.random.nextDouble() * 2 - 1;
-            double length = Math.max(0.001, Math.sqrt(dx * dx + dy * dy + dz * dz));
-            float speed = 0.04F + this.random.nextFloat() * power * 0.02F;
-            this.add(ParticleType.EXPLOSION, ParticlePriority.CRITICAL,
-                    px + dx * 0.5, py + dy * 0.5, pz + dz * 0.5,
-                    (float) (dx / length) * speed, (float) (dy / length) * speed,
-                    (float) (dz / length) * speed, -1, 0xFFFFFF, 1F,
-                    0.35F + this.random.nextFloat() * power * 0.12F);
+    private void spawnBubble(double px, double py, double pz,
+                             double motionX, double motionY, double motionZ,
+                             ParticlePriority importance) {
+        int index = this.add(ParticleType.BUBBLE, importance, px, py, pz,
+                (float) (motionX * 0.2 + jitter(0.02F)),
+                (float) (motionY * 0.2 + jitter(0.02F)),
+                (float) (motionZ * 0.2 + jitter(0.02F)),
+                -1, 0xFFFFFF, 1F,
+                vanillaQuadSize() * (this.random.nextFloat() * 0.6F + 0.2F));
+        if (index >= 0) this.lifetime[index] = (short) Math.max(1,
+                (int) (8F / (this.random.nextFloat() * 0.8F + 0.2F)));
+    }
+
+    private void spawnSplash(double px, double py, double pz,
+                             double motionX, double motionY, double motionZ,
+                             ParticlePriority importance) {
+        int index = this.add(ParticleType.SPLASH, importance, px, py, pz,
+                0F, 0F, 0F, -1, 0xFFFFFF, 1F, vanillaQuadSize());
+        if (index < 0) return;
+        this.setVanillaBaseVelocity(index, 1F);
+        if (motionY == 0.0 && (motionX != 0.0 || motionZ != 0.0)) {
+            this.vx[index] = (float) motionX;
+            this.vy[index] = 0.1F;
+            this.vz[index] = (float) motionZ;
+        }
+        this.lifetime[index] = (short) Math.max(1,
+                (int) (8F / (this.random.nextFloat() * 0.8F + 0.2F)));
+    }
+
+    public void explosion(double px, double py, double pz, float power, int affectedBlocks) {
+        int emitter = this.add(ParticleType.EXPLOSION_EMITTER, ParticlePriority.CRITICAL,
+                px, py, pz, 0F, 0F, 0F, -1, 0xFFFFFF, 0F, 0F);
+        if (emitter >= 0) this.lifetime[emitter] = 8;
+        if (affectedBlocks <= 0
+                || GameSettings.get().particleQuality != GameSettings.ParticleQuality.ALL) return;
+        if (this.explosionBurstCount >= MAX_EXPLOSION_BURSTS) {
+            this.rejected += affectedBlocks;
+            return;
+        }
+        int index = this.explosionBurstCount++;
+        this.explosionX[index] = px;
+        this.explosionY[index] = py;
+        this.explosionZ[index] = pz;
+        this.explosionRadius[index] = Math.max(0F, power);
+        this.explosionWeight[index] = affectedBlocks;
+    }
+
+    /**
+     * Minecraft 26.2s blockzahlgewichtete POOF/SMOKE-Wolke. Pro Tick werden global hoechstens
+     * 512 Kandidaten erzeugt; feste Arrays und lineare Auswahl halten den Hotpath allokationsfrei.
+     */
+    private void flushExplosionClouds() {
+        if (this.explosionBurstCount == 0) return;
+        if (GameSettings.get().particleQuality != GameSettings.ParticleQuality.ALL) {
+            this.explosionBurstCount = 0;
+            return;
+        }
+        long totalWeight = 0;
+        for (int i = 0; i < this.explosionBurstCount; i++) {
+            totalWeight += this.explosionWeight[i];
+        }
+        int attempts = (int) Math.min(totalWeight, MAX_EXPLOSION_BLOCK_PARTICLES);
+        for (int attempt = 0; attempt < attempts; attempt++) {
+            long selected = this.random.nextLong(totalWeight);
+            int burst = 0;
+            while (selected >= this.explosionWeight[burst]) {
+                selected -= this.explosionWeight[burst++];
+            }
+            this.spawnExplosionCloudParticle(burst);
+        }
+        this.explosionBurstCount = 0;
+    }
+
+    private void spawnExplosionCloudParticle(int burst) {
+        double dx = this.random.nextDouble() * 2.0 - 1.0;
+        double dy = this.random.nextDouble() * 2.0 - 1.0;
+        double dz = this.random.nextDouble() * 2.0 - 1.0;
+        double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (length < 1.0E-7) return;
+        dx /= length;
+        dy /= length;
+        dz /= length;
+        double radius = this.explosionRadius[burst];
+        if (radius <= 0.0) return;
+        double distance = Math.cbrt(this.random.nextDouble()) * radius;
+        double ox = dx * distance, oy = dy * distance, oz = dz * distance;
+        double px = this.explosionX[burst] + ox;
+        double py = this.explosionY[burst] + oy;
+        double pz = this.explosionZ[burst] + oz;
+        if (this.world != null && this.world.getBlock((int) Math.floor(px),
+                (int) Math.floor(py), (int) Math.floor(pz)) != Blocks.AIR) return;
+        double speed = (0.5 / (distance / radius + 0.1))
+                * this.random.nextDouble() * this.random.nextDouble() + 0.3;
+        float mx = (float) (dx * speed), my = (float) (dy * speed), mz = (float) (dz * speed);
+        if (this.random.nextBoolean()) {
+            this.spawnExplosionPoof(this.explosionX[burst] + ox * 0.5,
+                    this.explosionY[burst] + oy * 0.5, this.explosionZ[burst] + oz * 0.5,
+                    mx, my, mz);
+        } else {
+            this.spawnVanillaSmoke(px, py, pz, mx, my, mz, 1F, ParticlePriority.CRITICAL);
+        }
+    }
+
+    private void spawnExplosionPoof(double px, double py, double pz,
+                                    float requestedX, float requestedY, float requestedZ) {
+        int gray = Math.clamp((int) ((0.7F + this.random.nextFloat() * 0.3F) * 255F), 0, 255);
+        float quadSize = 0.1F * (this.random.nextFloat() * this.random.nextFloat() * 6F + 1F);
+        int index = this.add(ParticleType.POOF, ParticlePriority.CRITICAL, px, py, pz,
+                requestedX + jitter(0.05F), requestedY + jitter(0.05F),
+                requestedZ + jitter(0.05F), -1, gray << 16 | gray << 8 | gray,
+                1F, quadSize);
+        if (index >= 0) {
+            this.lifetime[index] = (short) ((int) (16F
+                    / (this.random.nextFloat() * 0.8F + 0.2F)) + 2);
         }
     }
 
     public void dispenser(double px, double py, double pz, int dx, int dy, int dz) {
         int amount = scaledAmount(10, false);
-        for (int i = 0; i < amount; i++) this.add(ParticleType.SMOKE, ParticlePriority.NORMAL,
-                px + dx * 0.55 + jitter(0.2F), py + dy * 0.55 + jitter(0.2F),
-                pz + dz * 0.55 + jitter(0.2F), dx * 0.06F + jitter(0.02F),
-                dy * 0.06F + jitter(0.02F), dz * 0.06F + jitter(0.02F),
-                -1, 0x888888, 0.9F, 0.10F);
+        for (int i = 0; i < amount; i++) {
+            this.spawnVanillaSmoke(px + dx * 0.55 + jitter(0.2F),
+                    py + dy * 0.55 + jitter(0.2F), pz + dz * 0.55 + jitter(0.2F),
+                    dx * 0.06F + jitter(0.02F), dy * 0.06F + jitter(0.02F),
+                    dz * 0.06F + jitter(0.02F), 1F, ParticlePriority.NORMAL);
+        }
+    }
+
+    /** Vanillas DUST-Partikel inklusive zufaelliger Helligkeitsvariation und schneller Groessenrampe. */
+    public void redstoneDust(double px, double py, double pz, int rgb, ParticlePriority importance) {
+        int index = this.add(ParticleType.DUST, importance, px, py, pz,
+                0F, 0F, 0F, -1, rgb, 1F, 0.10F);
+        if (index < 0) return;
+        this.setVanillaBaseVelocity(index, 0.1F);
+        float common = this.random.nextFloat() * 0.4F + 0.6F;
+        int r = Math.clamp((int) (((rgb >> 16) & 255) * common
+                * (this.random.nextFloat() * 0.2F + 0.8F)), 0, 255);
+        int g = Math.clamp((int) (((rgb >> 8) & 255) * common
+                * (this.random.nextFloat() * 0.2F + 0.8F)), 0, 255);
+        int b = Math.clamp((int) ((rgb & 255) * common
+                * (this.random.nextFloat() * 0.2F + 0.8F)), 0, 255);
+        this.color[index] = r << 16 | g << 8 | b;
+        this.size[index] = vanillaQuadSize() * 0.75F;
+        this.lifetime[index] = (short) Math.max(1,
+                (int) (8F / (this.random.nextFloat() * 0.8F + 0.2F)));
+    }
+
+    public void redstoneWire(int x, int y, int z, BlockState state) {
+        int power = state.get(Properties.POWER);
+        if (power == 0) return;
+        int rgb = RedstoneColors.forPower(power);
+        for (Direction direction : Direction.horizontalValues()) {
+            RedstoneSide side = state.get(Properties.wireSide(direction));
+            if (side == RedstoneSide.UP) {
+                this.spawnDustAlong(x, y, z, rgb, direction, Direction.UP, -0.5F, 0.5F);
+                this.spawnDustAlong(x, y, z, rgb, Direction.DOWN, direction, 0F, 0.5F);
+            } else if (side == RedstoneSide.SIDE) {
+                this.spawnDustAlong(x, y, z, rgb, Direction.DOWN, direction, 0F, 0.5F);
+            } else {
+                this.spawnDustAlong(x, y, z, rgb, Direction.DOWN, direction, 0F, 0.3F);
+            }
+        }
+    }
+
+    private void spawnDustAlong(int x, int y, int z, int rgb,
+                                Direction fixed, Direction along, float start, float end) {
+        float range = end - start;
+        if (this.random.nextFloat() >= 0.2F * range) return;
+        float distance = start + range * this.random.nextFloat();
+        double px = x + 0.5 + fixed.offsetX() * 0.4375 + along.offsetX() * distance;
+        double py = y + 0.5 + fixed.offsetY() * 0.4375 + along.offsetY() * distance;
+        double pz = z + 0.5 + fixed.offsetZ() * 0.4375 + along.offsetZ() * distance;
+        this.redstoneDust(px, py, pz, rgb, ParticlePriority.AMBIENT);
+    }
+
+    public void fallingLeaf(double px, double py, double pz, BlockState state, boolean paleOak) {
+        BlockParticleSprite blockSprite = state.getParticleSprite();
+        int tint = paleOak || !blockSprite.isPresent() ? 0xFFFFFF
+                : this.tintAt(blockSprite, px, pz);
+        int index = this.add(ParticleType.FALLING_LEAF, ParticlePriority.AMBIENT,
+                px, py, pz, 0F, -0.021F, 0F,
+                ParticleSprites.randomLeaf(paleOak, this.random.nextInt(12)), tint, 1F,
+                this.random.nextBoolean() ? 0.10F : 0.15F);
+        if (index < 0) return;
+        this.lifetime[index] = 300;
+        this.rotation[index] = 0F;
+        this.rotationVelocity[index] = (float) Math.toRadians(this.random.nextBoolean() ? -30 : 30);
+        this.aux0[index] = (float) Math.toRadians(this.random.nextBoolean() ? -5 : 5);
+        this.aux1[index] = (float) Math.toRadians(1000F + this.random.nextFloat() * 3000F);
+    }
+
+    private void spawnVanillaSmoke(double px, double py, double pz,
+                                   float requestedX, float requestedY, float requestedZ,
+                                   float scale, ParticlePriority importance) {
+        ParticleType kind = scale > 1F ? ParticleType.LARGE_SMOKE : ParticleType.SMOKE;
+        int index = this.add(kind, importance, px, py, pz,
+                0F, 0F, 0F, -1, 0, 1F, 0.10F);
+        if (index < 0) return;
+        this.setVanillaBaseVelocity(index, 0.1F);
+        this.vx[index] += requestedX;
+        this.vy[index] += requestedY;
+        this.vz[index] += requestedZ;
+        int gray = Math.clamp((int) (this.random.nextFloat() * 0.3F * 255F), 0, 255);
+        this.color[index] = gray << 16 | gray << 8 | gray;
+        this.size[index] = vanillaQuadSize() * 0.75F * scale;
+        this.lifetime[index] = (short) Math.max(1,
+                (int) (8F / (this.random.nextFloat() * 0.8F + 0.2F) * scale));
+    }
+
+    private void spawnVanillaFlame(double px, double py, double pz,
+                                   float requestedX, float requestedY, float requestedZ,
+                                   ParticlePriority importance) {
+        int index = this.add(ParticleType.FLAME, importance,
+                px + (this.random.nextFloat() - this.random.nextFloat()) * 0.05F,
+                py + (this.random.nextFloat() - this.random.nextFloat()) * 0.05F,
+                pz + (this.random.nextFloat() - this.random.nextFloat()) * 0.05F,
+                0F, 0F, 0F, -1, 0xFFFFFF, 1F, vanillaQuadSize());
+        if (index < 0) return;
+        this.setVanillaBaseVelocity(index, 0.01F);
+        this.vx[index] += requestedX;
+        this.vy[index] += requestedY;
+        this.vz[index] += requestedZ;
+        this.lifetime[index] = (short) (Math.max(1,
+                (int) (8F / (this.random.nextFloat() * 0.8F + 0.2F))) + 4);
+        this.light[index] = 1F;
+    }
+
+    private void setVanillaBaseVelocity(int index, float multiplier) {
+        double mx = (this.random.nextFloat() * 2F - 1F) * 0.4F;
+        double my = (this.random.nextFloat() * 2F - 1F) * 0.4F;
+        double mz = (this.random.nextFloat() * 2F - 1F) * 0.4F;
+        double speed = (this.random.nextFloat() + this.random.nextFloat() + 1F) * 0.15F;
+        double length = Math.max(1.0E-7, Math.sqrt(mx * mx + my * my + mz * mz));
+        this.vx[index] = (float) (mx / length * speed * 0.4F) * multiplier;
+        this.vy[index] = ((float) (my / length * speed * 0.4F) + 0.1F) * multiplier;
+        this.vz[index] = (float) (mz / length * speed * 0.4F) * multiplier;
+    }
+
+    private float vanillaQuadSize() {
+        return 0.1F * (this.random.nextFloat() * 0.5F + 0.5F) * 2F;
     }
 
     public void itemCrumb(int textureLayer, double px, double py, double pz,
@@ -428,6 +791,8 @@ public final class ParticleEngine {
         this.onGround[index] = 0;
         this.size[index] = scale > 0 ? scale : kind.size;
         this.rotation[index] = this.random.nextFloat() * (float) (Math.PI * 2);
+        this.rotationVelocity[index] = 0F;
+        this.aux0[index] = this.aux1[index] = 0F;
         this.layer[index] = textureLayer;
         this.color[index] = rgb;
         this.alpha[index] = opacity;
@@ -439,6 +804,7 @@ public final class ParticleEngine {
                 : kind.minLifetime + this.random.nextInt(kind.maxLifetime - kind.minLifetime + 1);
         this.lifetime[index] = (short) life;
         this.light[index] = kind == ParticleType.FLAME || kind == ParticleType.EXPLOSION
+                || kind == ParticleType.LAVA
                 ? 1F : this.sampleLight(px, py, pz);
         this.spawned++;
         return index;
@@ -451,6 +817,7 @@ public final class ParticleEngine {
         int attempts = Math.min(64, this.count);
         for (int n = 0; n < attempts; n++) {
             int index = (start + n) % this.count;
+            if (TYPES[this.type[index]] == ParticleType.EXPLOSION_EMITTER) continue;
             if (this.priority[index] <= importance.ordinal()) {
                 this.replacementCursor = (index + 1) % this.count;
                 return index;
@@ -533,6 +900,8 @@ public final class ParticleEngine {
         this.prevX[index] = this.prevX[last]; this.prevY[index] = this.prevY[last]; this.prevZ[index] = this.prevZ[last];
         this.vx[index] = this.vx[last]; this.vy[index] = this.vy[last]; this.vz[index] = this.vz[last];
         this.size[index] = this.size[last]; this.rotation[index] = this.rotation[last];
+        this.rotationVelocity[index] = this.rotationVelocity[last];
+        this.aux0[index] = this.aux0[last]; this.aux1[index] = this.aux1[last];
         this.u0[index] = this.u0[last]; this.v0[index] = this.v0[last]; this.u1[index] = this.u1[last]; this.v1[index] = this.v1[last];
         this.layer[index] = this.layer[last]; this.color[index] = this.color[last];
         this.alpha[index] = this.alpha[last]; this.light[index] = this.light[last];
@@ -549,11 +918,12 @@ public final class ParticleEngine {
         int written = 0;
         for (int i = 0; i < this.count; i++) {
             ParticleType kind = TYPES[this.type[i]];
+            if (kind == ParticleType.EXPLOSION_EMITTER) continue;
             if ((this.translucent[i] != 0) != translucent) continue;
             float px = (float) (this.prevX[i] + (this.x[i] - this.prevX[i]) * partialTick - cam.x);
             float py = (float) (this.prevY[i] + (this.y[i] - this.prevY[i]) * partialTick - cam.y);
             float pz = (float) (this.prevZ[i] + (this.z[i] - this.prevZ[i]) * partialTick - cam.z);
-            float scale = this.size[i];
+            float scale = this.renderSize(i, kind, partialTick);
             if (!frustum.testSphere(px, py, pz, scale * 1.5F)) continue;
             int sprite = this.layer[i];
             if (sprite < 0) sprite = ParticleSprites.layer(kind, this.age[i] & 0xFFFF, this.lifetime[i] & 0xFFFF);
@@ -566,5 +936,18 @@ public final class ParticleEngine {
             written++;
         }
         return written;
+    }
+
+    private float renderSize(int index, ParticleType kind, float partialTick) {
+        float base = this.size[index];
+        float progress = ((this.age[index] & 0xFFFF) + partialTick)
+                / Math.max(1F, this.lifetime[index] & 0xFFFF);
+        if (kind == ParticleType.SMOKE || kind == ParticleType.LARGE_SMOKE
+                || kind == ParticleType.DUST || kind == ParticleType.FALLING_DUST) {
+            return base * Math.clamp(progress * 32F, 0F, 1F);
+        }
+        if (kind == ParticleType.LAVA) return base * (1F - progress * progress);
+        if (kind == ParticleType.FLAME) return base * (1F - progress * progress * 0.5F);
+        return base;
     }
 }

@@ -20,6 +20,8 @@ $wanted = @('bubble.png', 'drip_hang.png', 'drip_fall.png', 'drip_land.png',
 0..4 | ForEach-Object { $wanted += "bubble_pop_$_.png" }
 0..3 | ForEach-Object { $wanted += "splash_$_.png" }
 0..15 | ForEach-Object { $wanted += "explosion_$_.png" }
+0..11 | ForEach-Object { $wanted += "leaf_$_.png" }
+0..11 | ForEach-Object { $wanted += "pale_oak_$_.png" }
 
 $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $jar))
 $copied = 0

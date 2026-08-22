@@ -62,11 +62,10 @@ public class PrimedTntEntity extends Entity {
             if (world.getSoundManager() != null) {
                 world.getSoundManager().playExplosion(this.x, explosionY, this.z);
             }
-            world.particles().explosion(this.x, explosionY, this.z, this.power);
-            Explosion.explode(world, this.x, explosionY, this.z, this.power);
+            int affectedBlocks = Explosion.explode(world, this.x, explosionY, this.z, this.power);
+            world.particles().explosion(this.x, explosionY, this.z, this.power, affectedBlocks);
         } else {
-            world.particles().smoke(this.x, this.y + this.height + 0.1, this.z,
-                    false, de.skyengine.game.world.particle.ParticlePriority.NORMAL);
+            world.particles().tntFuseSmoke(this.x, this.y + 0.5, this.z);
             /* updateFluidInteraction() liegt in Vanilla nur auf dem noch nicht detonierten Pfad
                und wirkt nach Bewegung/Daempfung auf den naechsten Tick. */
             this.applyFluidPush(world, false, WATER_PUSH);

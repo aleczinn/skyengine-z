@@ -172,4 +172,163 @@ final class ParticleEngineTest {
             assertTrue(inside, "Partikel darf nicht in der Luecke einer zusammengesetzten Form liegen");
         }
     }
+
+    @Test
+    void tntExplosionUsesInvisibleEightTickEmitterWithFortyEightChildren() {
+        GameSettings.get().particleQuality = GameSettings.ParticleQuality.ALL;
+        ParticleEngine engine = new ParticleEngine(new Random(1234));
+        engine.explosion(0, 1, -3, 4F, 0);
+
+        assertEquals(1, engine.count());
+        Camera camera = new Camera();
+        camera.update(1.0);
+        FloatBuffer instances = FloatBuffer.allocate(ParticleEngine.MAX_PARTICLES
+                * ParticleEngine.INSTANCE_FLOATS);
+        assertEquals(0, engine.writeInstances(instances, camera, 0F, false),
+                "Der Emitter selbst darf kein weisses Billboard zeichnen");
+
+        engine.tick();
+        assertEquals(7, engine.count());
+        instances.clear();
+        int visibleChildren = engine.writeInstances(instances, camera, 0F, false);
+        assertTrue(visibleChildren > 0 && visibleChildren <= 6);
+
+        for (int i = 1; i < 8; i++) engine.tick();
+        assertEquals(49, engine.spawned(), "Ein Emitter plus Vanillas 8 x 6 Explosionen");
+    }
+
+    @Test
+    void minecraft262ExplosionCloudIsGloballyCappedAtFiveHundredTwelveAttempts() {
+        GameSettings.get().particleQuality = GameSettings.ParticleQuality.ALL;
+        ParticleEngine engine = new ParticleEngine(new Random(262));
+        engine.explosion(0, 1, -3, 4F, 400);
+        engine.explosion(2, 1, -3, 4F, 400);
+
+        engine.tick();
+
+        assertEquals(526, engine.count(), "2 Emitter + 12 Explosionen + global 512 POOF/SMOKE");
+        assertEquals(526, engine.spawned());
+    }
+
+    @Test
+    void minecraft262BlockCloudOnlyRunsAtAllQuality() {
+        GameSettings.get().particleQuality = GameSettings.ParticleQuality.DECREASED;
+        ParticleEngine engine = new ParticleEngine(new Random(263));
+        engine.explosion(0, 1, -3, 4F, 200);
+
+        engine.tick();
+
+        assertEquals(7, engine.count(), "Emitter plus sechs zentrale Explosionspartikel");
+    }
+
+    @Test
+    void tntFuseSmokeIsSmallDarkAndInitiallyRises() {
+        GameSettings.get().particleQuality = GameSettings.ParticleQuality.ALL;
+        ParticleEngine engine = new ParticleEngine(new Random(77));
+        engine.tntFuseSmoke(0, 1, -3);
+        engine.tick();
+
+        Camera camera = new Camera();
+        camera.update(1.0);
+        FloatBuffer instances = FloatBuffer.allocate(ParticleEngine.INSTANCE_FLOATS);
+        assertEquals(1, engine.writeInstances(instances, camera, 1F, false));
+        assertTrue(instances.get(1) > 1F);
+        assertTrue(instances.get(3) > 0F && instances.get(3) <= 0.15F);
+        assertTrue(instances.get(10) <= 0.3F);
+        assertTrue(instances.get(11) <= 0.3F);
+        assertTrue(instances.get(12) <= 0.3F);
+    }
+
+    @Test
+    void lavaPopUsesOpaqueMinecraftSpriteAndInitiallyRises() {
+        GameSettings.get().particleQuality = GameSettings.ParticleQuality.ALL;
+        ParticleEngine engine = new ParticleEngine(new Random(264));
+        engine.lavaPop(0, 1, -3);
+
+        Camera camera = new Camera();
+        camera.update(1.0);
+        FloatBuffer instances = FloatBuffer.allocate(ParticleEngine.INSTANCE_FLOATS * 4);
+        assertEquals(1, engine.writeInstances(instances, camera, 0F, false));
+        assertEquals(BlockTextures.layerOf("game/textures/particle/lava.png"),
+                (int) instances.get(9));
+        engine.tick();
+        instances.clear();
+        assertTrue(engine.writeInstances(instances, camera, 1F, false) >= 1);
+        assertTrue(instances.get(1) > 1F);
+    }
+
+    @Test
+    void dustStartsOnGenericSevenAndUsesFastVanillaSizeRamp() {
+        GameSettings.get().particleQuality = GameSettings.ParticleQuality.ALL;
+        ParticleEngine engine = new ParticleEngine(new Random(91));
+        engine.redstoneDust(0, 1, -3, 0xFF0000, ParticlePriority.NORMAL);
+
+        Camera camera = new Camera();
+        camera.update(1.0);
+        FloatBuffer instances = FloatBuffer.allocate(ParticleEngine.INSTANCE_FLOATS);
+        assertEquals(1, engine.writeInstances(instances, camera, 0F, true));
+        assertEquals(BlockTextures.layerOf("game/textures/particle/generic_7.png"),
+                (int) instances.get(9));
+        assertEquals(0F, instances.get(3));
+
+        engine.tick();
+        instances.clear();
+        assertEquals(1, engine.writeInstances(instances, camera, 1F, true));
+        assertTrue(instances.get(3) > 0F);
+        assertEquals(0F, instances.get(11));
+        assertEquals(0F, instances.get(12));
+    }
+
+    @Test
+    void fallingLeafUsesDedicatedSpriteAndSlowRotatingDescent() {
+        GameSettings.get().particleQuality = GameSettings.ParticleQuality.ALL;
+        ParticleEngine engine = new ParticleEngine(new Random(44));
+        engine.fallingLeaf(0, 2, -3, Blocks.getState(Blocks.OAK_LEAVES), false);
+        engine.tick();
+
+        Camera camera = new Camera();
+        camera.update(1.0);
+        FloatBuffer instances = FloatBuffer.allocate(ParticleEngine.INSTANCE_FLOATS);
+        assertEquals(1, engine.writeInstances(instances, camera, 1F, true));
+        assertTrue(instances.get(1) < 2F);
+        assertTrue(instances.get(3) == 0.10F || instances.get(3) == 0.15F);
+        assertTrue(instances.get(4) != 0F);
+        int layer = (int) instances.get(9);
+        int first = BlockTextures.layerOf("game/textures/particle/leaf_0.png");
+        int last = BlockTextures.layerOf("game/textures/particle/leaf_11.png");
+        assertTrue(layer >= Math.min(first, last) && layer <= Math.max(first, last));
+    }
+
+    @Test
+    void waterEntrySpawnsThirteenMatchedBubbleAndSplashPairs() {
+        GameSettings.get().particleQuality = GameSettings.ParticleQuality.ALL;
+        ParticleEngine engine = new ParticleEngine(new Random(52));
+
+        engine.splash(0, 0.4, -3, 0.1, -0.2, 0.05);
+
+        assertEquals(26, engine.count());
+        assertEquals(26, engine.spawned());
+    }
+
+    @Test
+    void hangingDripIsTinyAndSwitchesToFallingSpriteAfterFortyTicks() {
+        GameSettings.get().particleQuality = GameSettings.ParticleQuality.ALL;
+        ParticleEngine engine = new ParticleEngine(new Random(63));
+        engine.drip(0, 2, -3, false);
+
+        Camera camera = new Camera();
+        camera.update(1.0);
+        FloatBuffer instances = FloatBuffer.allocate(ParticleEngine.INSTANCE_FLOATS);
+        assertEquals(1, engine.writeInstances(instances, camera, 0F, true));
+        assertTrue(instances.get(3) >= 0.002F && instances.get(3) <= 0.004F);
+        assertEquals(BlockTextures.layerOf("game/textures/particle/drip_hang.png"),
+                (int) instances.get(9));
+
+        for (int i = 0; i < 40; i++) engine.tick();
+        instances.clear();
+        assertEquals(1, engine.writeInstances(instances, camera, 0F, true));
+        assertEquals(BlockTextures.layerOf("game/textures/particle/drip_fall.png"),
+                (int) instances.get(9));
+        assertTrue(instances.get(3) >= 0.1F && instances.get(3) <= 0.2F);
+    }
 }

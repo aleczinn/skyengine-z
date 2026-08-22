@@ -632,7 +632,7 @@ public class GameContainer implements IResizeable, IDisposable {
         double dz = this.player.z - this.player.lastZ;
         double speed = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (inWater && !this.playerWasInWater) {
-            this.world.particles().splash(this.player.x, this.player.y + 0.8, this.player.z, speed);
+            this.world.particles().splash(this.player.x, this.player.y, this.player.z, dx, dy, dz);
         } else if (inWater && speed > 0.02) {
             this.world.particles().swim(this.player.x, this.player.y + 0.8, this.player.z, dx, dy, dz);
         }
@@ -644,7 +644,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.world.particles().sprint(this.player.x, this.player.y, this.player.z, ground, dx, dz);
         }
         float landing = this.player.consumeLandingDistance();
-        if (landing > 0.5F && ground != null && !inWater) {
+        if (landing > 3F && ground != null && !inWater) {
             this.world.particles().landing(this.player.x, this.player.y, this.player.z, ground, landing);
         }
     }
