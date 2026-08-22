@@ -91,17 +91,48 @@ final class FluidGeometryUnderwaterSurfaceTest {
                 .filter(FluidGeometryUnderwaterSurfaceTest::isTop).findFirst().orElseThrow();
         assertEquals(Blocks.getState(Blocks.WATER).getBlock().getFluidInfo().stillLayer,
                 top.textureLayer());
+        assertUvBounds(top, 0F, 1F, 0F, 1F);
     }
 
     @Test
-    void genuineDropEdgeUsesFlowTexture() {
-        Chunk chunk = chunkWithWater(Blocks.AIR);
-        chunk.setBlock(11, 63, 10, Blocks.WATER); // freie Nachbarzelle mit Wasser darunter
+    void genuineDropEdgeUsesMinecraftFlowTextureFootprintForWaterAndLava() {
+        for (int fluidId : new int[]{Blocks.WATER, Blocks.LAVA}) {
+            Chunk chunk = chunkWithFluid(fluidId, Blocks.AIR);
+            chunk.setBlock(11, 63, 10, fluidId); // freie Nachbarzelle mit Fluid darunter
 
-        BakedQuad top = Arrays.stream(build(chunk))
-                .filter(FluidGeometryUnderwaterSurfaceTest::isTop).findFirst().orElseThrow();
-        assertEquals(Blocks.getState(Blocks.WATER).getBlock().getFluidInfo().flowLayer,
-                top.textureLayer());
+            BakedQuad[] tops = Arrays.stream(build(chunk, Blocks.getState(fluidId)))
+                    .filter(FluidGeometryUnderwaterSurfaceTest::isTop).toArray(BakedQuad[]::new);
+            assertEquals(2, tops.length); // Vorder- und Rückseite verwenden denselben Ausschnitt.
+            for (BakedQuad top : tops) {
+                assertEquals(Blocks.getState(fluidId).getBlock().getFluidInfo().flowLayer,
+                        top.textureLayer());
+                assertFlowTopFootprint(top);
+                assertUvBounds(top, 0.25F, 0.75F, 0.25F, 0.75F);
+            }
+        }
+    }
+
+    @Test
+    void fluidSidesUseHalfOfTheFlowSprite() {
+        Chunk chunk = chunkWithWater(Blocks.AIR);
+        BakedQuad east = Arrays.stream(build(chunk))
+                .filter(quad -> allX(quad, 1F)).findFirst().orElseThrow();
+
+        float[] vertices = east.vertices();
+        for (int i = 0; i < vertices.length; i += 5) {
+            float y = vertices[i + 1];
+            float u = vertices[i + 3];
+            float v = vertices[i + 4];
+            assertTrue(close(u, 0F) || close(u, 0.5F));
+            assertEquals((1F - y) * 0.5F, v, 0.000001F);
+        }
+    }
+
+    @Test
+    void fluidBottomKeepsTheFullStillSprite() {
+        BakedQuad bottom = Arrays.stream(build(chunkWithWater(Blocks.AIR)))
+                .filter(FluidGeometryUnderwaterSurfaceTest::isBottom).findFirst().orElseThrow();
+        assertUvBounds(bottom, 0F, 1F, 0F, 1F);
     }
 
     @Test
@@ -130,15 +161,22 @@ final class FluidGeometryUnderwaterSurfaceTest {
     }
 
     private static Chunk chunkWithWater(int above) {
+        return chunkWithFluid(Blocks.WATER, above);
+    }
+
+    private static Chunk chunkWithFluid(int fluid, int above) {
         Chunk chunk = new Chunk(0, 0);
-        chunk.setBlock(10, 64, 10, Blocks.WATER);
+        chunk.setBlock(10, 64, 10, fluid);
         chunk.setBlock(10, 65, 10, above);
         return chunk;
     }
 
     private static BakedQuad[] build(Chunk chunk) {
-        BlockState water = Blocks.getState(Blocks.WATER);
-        return FluidGeometry.build(water, chunk, null, null, null, null,
+        return build(chunk, Blocks.getState(Blocks.WATER));
+    }
+
+    private static BakedQuad[] build(Chunk chunk, BlockState state) {
+        return FluidGeometry.build(state, chunk, null, null, null, null,
                 new Chunk[4], 10, 64, 10, false);
     }
 
@@ -146,6 +184,53 @@ final class FluidGeometryUnderwaterSurfaceTest {
         float[] v = quad.vertices();
         for (int i = 1; i < v.length; i += 5) if (v[i] <= 0.001F) return false;
         return true;
+    }
+
+    private static boolean isBottom(BakedQuad quad) {
+        float[] vertices = quad.vertices();
+        for (int i = 1; i < vertices.length; i += 5) if (!close(vertices[i], 0F)) return false;
+        return true;
+    }
+
+    private static void assertFlowTopFootprint(BakedQuad quad) {
+        float[] v = quad.vertices();
+        int[] corners = {0, 5, 10, 20};
+        float centerU = 0F, centerV = 0F;
+        for (int corner : corners) {
+            centerU += v[corner + 3];
+            centerV += v[corner + 4];
+        }
+        assertEquals(0.5F, centerU / 4F, 0.000001F);
+        assertEquals(0.5F, centerV / 4F, 0.000001F);
+        assertEquals(0.5F, uvDistance(v, corners[0], corners[1]), 0.000001F);
+        assertEquals(0.5F, uvDistance(v, corners[1], corners[2]), 0.000001F);
+    }
+
+    private static float uvDistance(float[] vertices, int a, int b) {
+        float du = vertices[a + 3] - vertices[b + 3];
+        float dv = vertices[a + 4] - vertices[b + 4];
+        return (float) Math.sqrt(du * du + dv * dv);
+    }
+
+    private static void assertUvBounds(BakedQuad quad, float minU, float maxU,
+                                       float minV, float maxV) {
+        float actualMinU = Float.POSITIVE_INFINITY, actualMaxU = Float.NEGATIVE_INFINITY;
+        float actualMinV = Float.POSITIVE_INFINITY, actualMaxV = Float.NEGATIVE_INFINITY;
+        float[] vertices = quad.vertices();
+        for (int i = 0; i < vertices.length; i += 5) {
+            actualMinU = Math.min(actualMinU, vertices[i + 3]);
+            actualMaxU = Math.max(actualMaxU, vertices[i + 3]);
+            actualMinV = Math.min(actualMinV, vertices[i + 4]);
+            actualMaxV = Math.max(actualMaxV, vertices[i + 4]);
+        }
+        assertEquals(minU, actualMinU, 0.000001F);
+        assertEquals(maxU, actualMaxU, 0.000001F);
+        assertEquals(minV, actualMinV, 0.000001F);
+        assertEquals(maxV, actualMaxV, 0.000001F);
+    }
+
+    private static boolean close(float a, float b) {
+        return Math.abs(a - b) <= 0.000001F;
     }
 
     private static float normalY(BakedQuad quad) {

@@ -61,6 +61,9 @@ Diagonal-Chunks** — sonst klaffen die vier Zellen einer Chunk-Ecke auseinander
 die Flow-Textur entlang der Fließrichtung rotiert (Vanilla `getFlow`-Formel — NICHT aus Eckhöhen
 ableiten, die kippen neben Wänden ins Diagonale). Dieselbe Formel existiert bewusst dupliziert
 Welt-basiert in `FluidBehavior.flowVector` (Entity-Strömung, `Entity`-Push) — beide synchron halten.
+Die offiziellen Flow-Sprites bleiben 32×32-Animationsframes. Minecraft zeigt pro Block nur einen
+effektiven 16×16-Ausschnitt: Top-UVs rotieren mit Radius 0,25 um (0,5/0,5), Seiten verwenden
+U/V 0..0,5. Nicht wieder den ganzen Frame über einen Block spannen oder in 16px-Frames zerlegen.
 Wasser wird per `WATER_TINT 0x4076E6` eingefärbt (Texturen sind grau), Lava neutral.
 **Greedy-Kopplung:** flach-stille Quell-Tops merged der ChunkMesher in einem eigenen Pass 1.5
 greedy zu großen TRANSLUCENT-Quads (`FluidGeometry.isMergeableFlatStillTop` + Markierung in
