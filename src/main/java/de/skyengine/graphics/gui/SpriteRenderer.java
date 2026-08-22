@@ -11,6 +11,8 @@ import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 
+import java.util.List;
+
 /**
  * Zentraler 2D-Overlay-Renderer (ersetzt den alten UIRenderer): zeichnet einfarbige Rechtecke und
  * Texturen/Atlas-Ausschnitte (Sub-Rect-UVs) im GUI-Koordinatenraum. Der Koordinatenraum ist
@@ -21,6 +23,7 @@ public final class SpriteRenderer {
 
     private ShaderProgram shader;
     private int vao, vbo;
+    private int rectBatchVao, rectBatchVbo;
     private final Matrix4f ortho = new Matrix4f();
 
     public void init() {
@@ -48,6 +51,18 @@ public final class SpriteRenderer {
         GL20.glEnableVertexAttribArray(0);
         GL20.glEnableVertexAttribArray(1);
         GL30.glBindVertexArray(0);
+
+        this.rectBatchVao = GL30.glGenVertexArrays();
+        this.rectBatchVbo = GL15.glGenBuffers();
+        GL30.glBindVertexArray(this.rectBatchVao);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.rectBatchVbo);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, 0, GL15.GL_STREAM_DRAW);
+        int batchStride = 6 * Float.BYTES;
+        GL20.glVertexAttribPointer(0, 2, GL11.GL_FLOAT, false, batchStride, 0);
+        GL20.glVertexAttribPointer(2, 4, GL11.GL_FLOAT, false, batchStride, 2 * Float.BYTES);
+        GL20.glEnableVertexAttribArray(0);
+        GL20.glEnableVertexAttribArray(2);
+        GL30.glBindVertexArray(0);
     }
 
     /** Startet einen 2D-Pass im virtuellen Koordinatenraum (vW × vH). */
@@ -58,6 +73,7 @@ public final class SpriteRenderer {
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_Projection", this.ortho);
         this.shader.setUniformi("u_Texture", 0);
+        this.shader.setUniformi("u_UseVertexColor", 0);
     }
 
     public void end() {
@@ -67,9 +83,50 @@ public final class SpriteRenderer {
     }
 
     public void drawRect(float x, float y, float w, float h, float r, float g, float b, float a) {
+        this.shader.setUniformi("u_UseVertexColor", 0);
         this.shader.setUniformi("u_UseTexture", 0);
         this.shader.setUniformVector4f("u_Color", r, g, b, a);
         this.draw(x, y, w, h, 0, 0, 1, 1);
+    }
+
+    /** Viele einfarbige Rechtecke in einem Draw Call; fuer Profiler-Graphen und Raster. */
+    public void drawRects(List<Rect> rects) {
+        if (rects.isEmpty()) return;
+        float[] vertices = new float[rects.size() * 6 * 6];
+        int at = 0;
+        for (Rect rect : rects) {
+            float x0 = rect.x, y0 = rect.y, x1 = rect.x + rect.width, y1 = rect.y + rect.height;
+            at = putVertex(vertices, at, x0, y0, rect);
+            at = putVertex(vertices, at, x0, y1, rect);
+            at = putVertex(vertices, at, x1, y1, rect);
+            at = putVertex(vertices, at, x1, y1, rect);
+            at = putVertex(vertices, at, x1, y0, rect);
+            at = putVertex(vertices, at, x0, y0, rect);
+        }
+        this.shader.setUniformi("u_UseTexture", 0);
+        this.shader.setUniformi("u_UseVertexColor", 1);
+        /* Der Fragmentshader multipliziert Vertex- und Uniformfarbe. drawRect() kann zuvor
+           Schwarz gesetzt haben (Profiler-Hintergrund); ohne Weiss hier wird der ganze Batch
+           dadurch schwarz, obwohl seine Vertices korrekte Farben tragen. */
+        this.shader.setUniformVector4f("u_Color", 1F, 1F, 1F, 1F);
+        this.shader.setUniformVector2f("u_Position", 0, 0);
+        this.shader.setUniformVector2f("u_Size", 1, 1);
+        GL30.glBindVertexArray(this.rectBatchVao);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.rectBatchVbo);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vertices, GL15.GL_STREAM_DRAW);
+        GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, rects.size() * 6);
+        GL30.glBindVertexArray(0);
+        this.shader.setUniformi("u_UseVertexColor", 0);
+    }
+
+    public record Rect(float x, float y, float width, float height,
+                       float red, float green, float blue, float alpha) {}
+
+    private static int putVertex(float[] vertices, int at, float x, float y, Rect rect) {
+        vertices[at++] = x; vertices[at++] = y;
+        vertices[at++] = rect.red; vertices[at++] = rect.green;
+        vertices[at++] = rect.blue; vertices[at++] = rect.alpha;
+        return at;
     }
 
     public void drawSprite(Texture texture, float x, float y, float w, float h) {
@@ -134,6 +191,8 @@ public final class SpriteRenderer {
     public void dispose() {
         GL30.glDeleteVertexArrays(this.vao);
         GL15.glDeleteBuffers(this.vbo);
+        GL30.glDeleteVertexArrays(this.rectBatchVao);
+        GL15.glDeleteBuffers(this.rectBatchVbo);
         if (this.shader != null) this.shader.dispose();
     }
 
@@ -141,28 +200,33 @@ public final class SpriteRenderer {
             #version 460 core
             layout(location = 0) in vec2 a_position;
             layout(location = 1) in vec2 a_uv;
+            layout(location = 2) in vec4 a_color;
             uniform mat4 u_Projection;
             uniform vec2 u_Position;
             uniform vec2 u_Size;
             uniform vec2 u_UV0;
             uniform vec2 u_UV1;
+            uniform int u_UseVertexColor;
             out vec2 v_uv;
+            out vec4 v_color;
             void main() {
                 v_uv = mix(u_UV0, u_UV1, a_uv);
                 vec2 pos = u_Position + a_position * u_Size;
                 gl_Position = u_Projection * vec4(pos, 0.0, 1.0);
+                v_color = u_UseVertexColor == 1 ? a_color : vec4(1.0);
             }
             """;
 
     private static final String FRAGMENT = """
             #version 460 core
             in vec2 v_uv;
+            in vec4 v_color;
             uniform sampler2D u_Texture;
             uniform vec4 u_Color;
             uniform int u_UseTexture;
             out vec4 fragColor;
             void main() {
-                fragColor = u_UseTexture == 1 ? texture(u_Texture, v_uv) * u_Color : u_Color;
+                fragColor = (u_UseTexture == 1 ? texture(u_Texture, v_uv) * u_Color : u_Color) * v_color;
             }
             """;
 }

@@ -6,6 +6,7 @@ import de.skyengine.game.world.generator.feature.ChunkDecorator;
 import de.skyengine.game.world.light.LightEngine;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.save.WorldStorage;
+import de.skyengine.graphics.PerformanceProfiler;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -210,7 +211,11 @@ public class ChunkManager {
 
     public record MeshResult(int chunkX, int sectionY, int chunkZ, ChunkMesher.MeshData data, long meshSeq) {}
 
-    public record MeshBatch(List<MeshResult> results) {}
+    public record MeshBatch(List<MeshResult> results, PerformanceProfiler.AsyncToken enqueuedAt) {
+        public MeshBatch(List<MeshResult> results) {
+            this(results, PerformanceProfiler.get().beginAsync());
+        }
+    }
 
     public ChunkManager(WorldGenerator generator, ChunkDecorator decorator) {
         this(generator, decorator, Math.max(2, Runtime.getRuntime().availableProcessors() - 2));
@@ -237,10 +242,13 @@ public class ChunkManager {
     }
 
     private void submitForegroundTask(int prio, Runnable job) {
+        PerformanceProfiler.AsyncToken queuedAt = PerformanceProfiler.get().beginAsync();
         this.queuedForegroundTasks.incrementAndGet();
         this.submitTask(prio, () -> {
             this.queuedForegroundTasks.decrementAndGet();
             this.activeForegroundTasks.incrementAndGet();
+            PerformanceProfiler.get().recordElapsed(
+                    PerformanceProfiler.WorkerSection.L0_QUEUE_WAIT, 0, queuedAt);
             try {
                 job.run();
             } finally {
@@ -307,12 +315,17 @@ public class ChunkManager {
                 this.evictedLodTasks.incrementAndGet();
             }
 
-            long queuedAt = System.nanoTime();
+            PerformanceProfiler.AsyncToken queuedAt = PerformanceProfiler.get().beginAsync();
             this.queuedNormalLodTasks.incrementAndGet();
             Runnable countedJob = () -> {
                 this.queuedNormalLodTasks.decrementAndGet();
                 this.activeNormalLodTasks.incrementAndGet();
-                this.normalLodQueueTimes.add(System.nanoTime() - queuedAt);
+                if (queuedAt != null) {
+                    long waited = System.nanoTime() - queuedAt.startedNanos();
+                    this.normalLodQueueTimes.add(waited);
+                    PerformanceProfiler.get().record(PerformanceProfiler.WorkerSection.LOD_WORKER_QUEUE,
+                            priority.level(), waited, queuedAt);
+                }
                 try {
                     job.run();
                 } finally {
@@ -539,6 +552,13 @@ public class ChunkManager {
      * Reihenfolge: nah vor fern, in Blickrichtung vor dahinter (Score-Sort).
      */
     public void update(EntityPlayer player) {
+        PerformanceProfiler telemetryProfiler = PerformanceProfiler.get();
+        if (telemetryProfiler.isEnabled()) {
+            telemetryProfiler.set(PerformanceProfiler.Counter.L0_ACTIVE_JOBS, this.activeForegroundTasks.get());
+            telemetryProfiler.set(PerformanceProfiler.Counter.L0_WAITING_JOBS, this.queuedForegroundTasks.get());
+            telemetryProfiler.set(PerformanceProfiler.Counter.LOD_ACTIVE_JOBS, this.activeNormalLodTasks.get());
+            telemetryProfiler.set(PerformanceProfiler.Counter.LOD_WAITING_JOBS, this.queuedNormalLodTasks.get());
+        }
         if (this.loadingPaused) return;
 
         int pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
@@ -602,10 +622,16 @@ public class ChunkManager {
                        (nur READY-Chunks sind editierbar) -> DECORATED überspringt die
                        Doppel-Dekoration (gleiches Muster wie remeshAll). Befüllt wird vor dem
                        Status-Publish — exakt der Vertrag des Generators. */
-                    if (this.storage != null && this.storage.loadChunk(finalChunk)) {
+                    PerformanceProfiler profiler = PerformanceProfiler.get();
+                    long started = profiler.begin();
+                    boolean loaded = this.storage != null && this.storage.loadChunk(finalChunk);
+                    profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_DISK_LOAD, 0, started);
+                    if (loaded) {
                         finalChunk.status = ChunkStatus.DECORATED;
                     } else {
+                        started = profiler.begin();
                         this.generator.generate(finalChunk);
+                        profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_TERRAIN, 0, started);
                         finalChunk.status = ChunkStatus.GENERATED;
                     }
                 });
@@ -623,7 +649,10 @@ public class ChunkManager {
                 chunk.status = ChunkStatus.DECORATING;
                 Chunk finalChunk = chunk;
                 this.submitLoadTask(PRIO_LOAD, () -> {
+                    PerformanceProfiler profiler = PerformanceProfiler.get();
+                    long started = profiler.begin();
                     this.decorator.decorate(finalChunk);
+                    profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_FEATURES, 0, started);
                     finalChunk.status = ChunkStatus.DECORATED;
                 });
             }
@@ -644,6 +673,8 @@ public class ChunkManager {
                 chunk.status = ChunkStatus.LIGHTING;
                 Chunk finalChunk = chunk;
                 this.submitLoadTask(PRIO_LIGHT, () -> {
+                    PerformanceProfiler profiler = PerformanceProfiler.get();
+                    long started = profiler.begin();
                     LightEngine engine = this.lightEngines.get();
                     lockRead(finalChunk, north, south, west, east, diagonals);
                     try {
@@ -661,6 +692,7 @@ public class ChunkManager {
                     } finally {
                         unlockRead(finalChunk, north, south, west, east, diagonals);
                     }
+                    profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_INITIAL_LIGHT, 0, started);
                 });
             }
 
@@ -686,8 +718,11 @@ public class ChunkManager {
                     lockRead(finalChunk, north, south, west, east, diagonals);
                     try {
                         for (int s = 0; s < Chunk.SECTIONS; s++) {
+                            long started = PerformanceProfiler.get().begin();
                             batch.add(new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ,
                                     mesher.mesh(finalChunk, s, north, south, west, east, diagonals), meshSeq));
+                            PerformanceProfiler.get().recordElapsed(
+                                    PerformanceProfiler.WorkerSection.L0_INITIAL_MESH, 0, started);
                         }
                     } finally {
                         unlockRead(finalChunk, north, south, west, east, diagonals);
@@ -886,8 +921,11 @@ public class ChunkManager {
                 try {
                     for (int s = 0; s < Chunk.SECTIONS; s++) {
                         if ((mask & (1 << s)) == 0) continue;
+                        long started = PerformanceProfiler.get().begin();
                         batch.add(new MeshResult(chunk.chunkX, s, chunk.chunkZ,
                                 mesher.mesh(chunk, s, north, south, west, east, diagonals), meshSeq));
+                        PerformanceProfiler.get().recordElapsed(
+                                PerformanceProfiler.WorkerSection.L0_REMESH, 0, started);
                     }
                 } finally {
                     unlockRead(chunk, north, south, west, east, diagonals);

@@ -7,6 +7,7 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.graphics.PerformanceProfiler;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -124,7 +125,8 @@ public class LodManager {
                              LodNeighborSnapshot neighborSnapshot, int band, int viewTier,
                              double distanceSq, boolean urgent) {}
 
-    private record CompletedMesh(LodMeshResult result, long completedNanos) {}
+    private record CompletedMesh(LodMeshResult result, long completedNanos,
+                                 PerformanceProfiler.AsyncToken profileCompletedAt) {}
 
     /**
      * Deckel fuer DRINGENDE Kandidaten (Clip-/Handoff-Remeshes) je Tick. Bewusst getrennt vom
@@ -593,6 +595,8 @@ public class LodManager {
             ChunkManager.LodPriority priority = new ChunkManager.LodPriority(jobDesiredVersion,
                     cand.band, level, cand.viewTier, cand.distanceSq);
             boolean accepted = this.chunkManager.submitLodTask(() -> {
+                PerformanceProfiler profiler = PerformanceProfiler.get();
+                PerformanceProfiler.AsyncToken jobToken = profiler.beginAsync();
                 try {
                     if (!this.jobStillDesired(rx, rz, level, jobEpoch, jobDesiredVersion)) {
                         this.staleJobs.incrementAndGet();
@@ -603,9 +607,16 @@ public class LodManager {
                     LodMeshResult result = mesher.mesh(this.source, this.appearance, jobConfig,
                             level, 1, rx, rz, jobEpoch, clipSnapshot, neighborSnapshot,
                             jobAx, jobAz);
-                    this.results.add(new CompletedMesh(result, System.nanoTime()));
+                    long completedNanos = System.nanoTime();
+                    PerformanceProfiler.AsyncToken completedToken = jobToken == null ? null
+                            : new PerformanceProfiler.AsyncToken(completedNanos, jobToken.generation());
+                    this.results.add(new CompletedMesh(result, completedNanos, completedToken));
                     this.meshSamplingTimes.add(mesher.lastSamplingNanos());
                     this.meshGeometryTimes.add(mesher.lastGeometryNanos());
+                    profiler.record(PerformanceProfiler.WorkerSection.LOD_MESH_SAMPLING,
+                            level, mesher.lastSamplingNanos(), jobToken);
+                    profiler.record(PerformanceProfiler.WorkerSection.LOD_MESH_GEOMETRY,
+                            level, mesher.lastGeometryNanos(), jobToken);
                 } catch (Throwable error) {
                     this.logger.warning("LOD-Mesh fuer Region (" + rx + ", " + rz + ") fehlgeschlagen", error);
                     this.failedJobs.add(cand.key);
@@ -668,14 +679,18 @@ public class LodManager {
         CompletedMesh completed = this.results.poll();
         if (completed == null) return null;
         LodMeshResult result = completed.result;
-        this.resultQueueTimes.add(System.nanoTime() - completed.completedNanos);
+        long queueNanos = System.nanoTime() - completed.completedNanos;
+        this.resultQueueTimes.add(queueNanos);
+        PerformanceProfiler.get().record(PerformanceProfiler.WorkerSection.LOD_RESULT_QUEUE,
+                result.level(), queueNanos, completed.profileCompletedAt);
         this.inflight.remove(key(result.rx(), result.rz()));
         return result;
     }
 
     /** Render-Thread-Telemetrie fuer den Arena-Upload eines akzeptierten Ergebnisses. */
-    public void recordUploadTime(long nanos) {
+    public void recordUploadTime(int level, long nanos) {
         this.uploadTimes.add(nanos);
+        PerformanceProfiler.get().record(PerformanceProfiler.WorkerSection.LOD_GPU_UPLOAD, level, nanos);
     }
 
     /**
@@ -695,6 +710,7 @@ public class LodManager {
                 this.computeNeighborSnapshot(result.rx(), result.rz(), result.level()))) return false;
         this.current.put(key, new Current(result.level(), result.sizeRegions(), result.epoch(),
                 result.clipSnapshot(), result.neighborSnapshot()));
+        PerformanceProfiler.get().add(PerformanceProfiler.Counter.LOD_FINISHED_REGIONS, 1);
         return true;
     }
 

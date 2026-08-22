@@ -16,6 +16,7 @@ import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.LodMesher;
 import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.FrameProfiler;
+import de.skyengine.graphics.PerformanceProfiler;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.color.Color4;
@@ -482,19 +483,19 @@ public class ChunkRenderer {
         int priorityUploads = 0;
         while (priorityUploads < MAX_PRIORITY_UPLOADS_PER_FRAME
                 && (batch = this.chunkManager.getPlayerUploadQueue().poll()) != null) {
-            this.applyBatch(batch);
+            this.applyProfiledBatch(batch);
             priorityUploads++;
         }
         while (priorityUploads < MAX_PRIORITY_UPLOADS_PER_FRAME
                 && (batch = this.chunkManager.getPriorityUploadQueue().poll()) != null) {
-            this.applyBatch(batch);
+            this.applyProfiledBatch(batch);
             priorityUploads++;
         }
 
         /* 2b. Normale Upload-Queue (Initial-Load), gedeckelt pro Frame */
         int uploads = 0;
         while (uploads < MAX_UPLOADS_PER_FRAME && (batch = this.chunkManager.getUploadQueue().poll()) != null) {
-            this.applyBatch(batch);
+            this.applyProfiledBatch(batch);
             uploads++;
         }
         this.trackInitialUpload(uploads);
@@ -1128,6 +1129,24 @@ public class ChunkRenderer {
     /* ------------------------- MDI-Bausteine ------------------------- */
 
     /** Wendet einen Mesh-Batch an: alte Section-Regionen freigeben, neue allozieren. */
+    private void applyProfiledBatch(ChunkManager.MeshBatch batch) {
+        PerformanceProfiler profiler = PerformanceProfiler.get();
+        int sections = Math.max(1, batch.results().size());
+        /* Jede MeshBatch gehoert genau zu einem Chunk. Die komplette Queue-Latenz ist die
+           reale Wartezeit des Batches; durch Sections zu teilen wuerde keine Latenz mehr
+           beschreiben und kleine Batches mit grossen ungleich vergleichbar machen. */
+        profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_UPLOAD_WAIT,
+                0, batch.enqueuedAt());
+        long started = profiler.begin();
+        this.applyBatch(batch);
+        if (started == 0 || !profiler.isEnabled()) return;
+        long elapsed = System.nanoTime() - started;
+        long perSection = elapsed / sections;
+        for (int i = 0; i < sections; i++) {
+            profiler.record(PerformanceProfiler.WorkerSection.L0_UPLOAD, 0, perSection);
+        }
+    }
+
     private void applyBatch(ChunkManager.MeshBatch batch) {
         for (ChunkManager.MeshResult result : batch.results()) {
             Chunk chunk = this.chunkManager.getChunks().get(Chunk.key(result.chunkX(), result.chunkZ()));
@@ -1258,7 +1277,7 @@ public class ChunkRenderer {
             /* Sicht-Gate der betroffenen Spalten nachziehen (auch bei leerem Ergebnis —
                die Maske kann Zellen freigegeben haben). */
             this.refreshGateForRegion(result.rx(), result.rz(), result.sizeRegions());
-            this.lodManager.recordUploadTime(System.nanoTime() - uploadStarted);
+            this.lodManager.recordUploadTime(result.level(), System.nanoTime() - uploadStarted);
         }
 
         /* Statistik gelegentlich loggen (Budget-Annahmen verifizierbar halten); per Level

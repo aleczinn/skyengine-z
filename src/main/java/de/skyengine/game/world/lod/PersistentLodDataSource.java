@@ -10,6 +10,7 @@ import de.skyengine.game.world.generator.feature.ChunkDecorator;
 import de.skyengine.game.world.generator.feature.LodFeatureBuffer;
 import de.skyengine.game.world.save.ChunkSerializer;
 import de.skyengine.game.world.save.WorldStorage;
+import de.skyengine.graphics.PerformanceProfiler;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -296,10 +297,14 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
 
     private ChunkLodColumns columns(int cx, int cz, int level,
                                     ChunkDecorator.LodRegionFeatures regionFeatures) {
+        PerformanceProfiler profiler = PerformanceProfiler.get();
+        PerformanceProfiler.AsyncToken sourceStarted = profiler.beginAsync();
         long chunkKey = Chunk.key(cx, cz);
         ChunkLodColumns cached = cached(chunkKey);
         if (cached != null && this.materializeCachedLevel(chunkKey, cached, level)) {
             this.memoryHits.incrementAndGet();
+            profiler.recordElapsed(PerformanceProfiler.WorkerSection.LOD_SOURCE_CACHE_DISK_SAVE,
+                    level, sourceStarted);
             return cached;
         }
 
@@ -307,12 +312,17 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
         CompletableFuture<ChunkLodColumns> active = this.builds.putIfAbsent(chunkKey, own);
         if (active != null) {
             ChunkLodColumns result = active.join();
-            if (this.materializeCachedLevel(chunkKey, result, level)) return result;
+            if (this.materializeCachedLevel(chunkKey, result, level)) {
+                profiler.recordElapsed(PerformanceProfiler.WorkerSection.LOD_SOURCE_CACHE_DISK_SAVE,
+                        level, sourceStarted);
+                return result;
+            }
             this.builds.remove(chunkKey, active);
             return this.columns(cx, cz, level, regionFeatures);
         }
         try {
-            ChunkLodColumns result = this.build(cx, cz, chunkKey, level, cached, regionFeatures);
+            ChunkLodColumns result = this.build(cx, cz, chunkKey, level, cached, regionFeatures,
+                    sourceStarted);
             own.complete(result);
             return result;
         } catch (Throwable error) {
@@ -325,7 +335,8 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
     }
 
     private ChunkLodColumns build(int cx, int cz, long key, int level, ChunkLodColumns existing,
-                                  ChunkDecorator.LodRegionFeatures regionFeatures) {
+                                  ChunkDecorator.LodRegionFeatures regionFeatures,
+                                  PerformanceProfiler.AsyncToken profileToken) {
         long started = System.nanoTime();
         long diskNanos = 0, storageNanos = 0, exactNanos = 0;
         long terrainNanos = 0, featureNanos = 0, projectionNanos = 0, reductionNanos = 0;
@@ -338,7 +349,8 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
         }
         if (result != null && result.materializeLevel(level)) {
             result = install(key, result);
-            this.recordTimes(System.nanoTime() - started, diskNanos, 0, 0, 0, 0, 0, 0);
+            this.recordTimes(level, profileToken, System.nanoTime() - started,
+                    diskNanos, 0, 0, 0, 0, 0, 0);
             return result;
         }
 
@@ -390,7 +402,8 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
         result = install(key, result);
         this.disk.writeLater(cx, cz, result);
         this.invalidated.remove(key);
-        this.recordTimes(System.nanoTime() - started, diskNanos, storageNanos, exactNanos,
+        this.recordTimes(level, profileToken, System.nanoTime() - started,
+                diskNanos, storageNanos, exactNanos,
                 terrainNanos, featureNanos, projectionNanos, reductionNanos);
         return result;
     }
@@ -408,7 +421,8 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
                 generated.projectionNanos(), generated.reductionNanos());
     }
 
-    private void recordTimes(long total, long disk, long storage, long exact, long terrain,
+    private void recordTimes(int level, PerformanceProfiler.AsyncToken profileToken,
+                             long total, long disk, long storage, long exact, long terrain,
                              long feature, long projection, long reduction) {
         this.totalTimes.add(total);
         this.diskTimes.add(disk);
@@ -418,6 +432,24 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
         this.featureTimes.add(feature);
         this.projectionTimes.add(projection);
         this.reductionTimes.add(reduction);
+        PerformanceProfiler profiler = PerformanceProfiler.get();
+        recordOptional(profiler, PerformanceProfiler.WorkerSection.LOD_SOURCE_CACHE_DISK_SAVE,
+                level, disk + storage + exact, profileToken);
+        recordOptional(profiler, PerformanceProfiler.WorkerSection.LOD_SOURCE_TERRAIN,
+                level, terrain, profileToken);
+        recordOptional(profiler, PerformanceProfiler.WorkerSection.LOD_SOURCE_FEATURES,
+                level, feature, profileToken);
+        recordOptional(profiler, PerformanceProfiler.WorkerSection.LOD_PROJECTION,
+                level, projection, profileToken);
+        recordOptional(profiler, PerformanceProfiler.WorkerSection.LOD_REDUCTION,
+                level, reduction, profileToken);
+    }
+
+    private static void recordOptional(PerformanceProfiler profiler,
+                                       PerformanceProfiler.WorkerSection section,
+                                       int level, long nanos,
+                                       PerformanceProfiler.AsyncToken token) {
+        if (nanos > 0) profiler.record(section, level, nanos, token);
     }
 
     private ChunkLodColumns cached(long key) {

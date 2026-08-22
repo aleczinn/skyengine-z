@@ -143,6 +143,7 @@ public class SkyEngine {
 
         this.game.dispose();
         this.postProcessor.dispose();
+        FrameProfiler.dispose();
 
         this.drainRunnables();
         GL.setCapabilities(null);

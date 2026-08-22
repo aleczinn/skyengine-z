@@ -255,11 +255,13 @@ public final class GuiManager {
      * Pro Frame nach der Welt: Cursor synchronisieren + ggf. GuiScreen + Hotbar zeichnen.
      * Die Hotbar wird IMMER gerendert (auch bei offenem Inventar, wie in Minecraft) und teilt sich die
      * Daten mit dem GuiScreen (gleiches Spielerinventar) -> automatisch synchron. Das Fadenkreuz nur ohne
-     * GuiScreen und nur, wenn der Aufrufer es will (First Person).
+     * GuiScreen und nur, wenn der Aufrufer es will (First Person). {@code beforeScreen} liegt nach dem HUD,
+     * aber unter Dimmer, Widgets und Tooltips eines offenen Screens.
      */
     public void render(int screenW, int screenH, SimpleItemStorage hotbarInv, int selectedSlot,
                        boolean showHotbar, boolean crosshair, float itemNameAlpha,
-                       String hudStatusText, float hudStatusAlpha, EntityPlayer player) {
+                       String hudStatusText, float hudStatusAlpha, EntityPlayer player,
+                       Runnable beforeScreen) {
         this.syncCursor();
         this.screenWpx = screenW;
         this.screenHpx = screenH;
@@ -275,6 +277,7 @@ public final class GuiManager {
             this.hud.render(this, hotbarInv, selectedSlot, this.screen == null && crosshair,
                     showHotbar, itemNameAlpha, hudStatusText, hudStatusAlpha, player);
         }
+        if (beforeScreen != null) beforeScreen.run();
         if (this.screen != null) {
             /* Layout beim Öffnen und bei jeder Größen-/Scale-Änderung (statt pro Frame):
                init baut die Widgets, layout() verankert Stacks + flacht den Baum ab. */

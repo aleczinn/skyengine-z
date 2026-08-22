@@ -55,6 +55,7 @@ import de.skyengine.game.world.tick.TickPriority;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.graphics.FrameProfiler;
+import de.skyengine.graphics.PerformanceProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.entity.EntityRenderer;
 import de.skyengine.graphics.world.ChunkRenderer;
@@ -366,6 +367,9 @@ public class World implements IInitializable, IDisposable {
     }
 
     private void updateWhileHandlingTick(Input input, EntityPlayer player) {
+        PerformanceProfiler profiler = PerformanceProfiler.get();
+        long tickStarted = profiler.begin();
+        long attributed = 0;
         this.simulationTelemetry.setEnabled(FrameProfiler.isEnabled());
         this.simulationTelemetry.beginTick();
         this.gameTime++;
@@ -373,23 +377,51 @@ public class World implements IInitializable, IDisposable {
         this.playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
         if (this.processChunkReload()) {
+            FrameProfiler.reset();
             this.simulationTelemetry.endTick();
             return;
         }
+        long phase = profiler.begin();
         this.chunkManager.update(player);
         this.pruneTransientPositionStates();
         this.lodManager.update(player);
         this.processUnloadedChunkBoundaries();
         this.restorePendingScheduledTicks();
         this.processReadyChunks();
+        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.CHUNK_LOD_MANAGEMENT, phase);
+        phase = profiler.begin();
         this.processDeferredStateUpdates();
+        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.DEFERRED_STATE_UPDATES, phase);
+        phase = profiler.begin();
         this.tickScheduled();
+        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.SCHEDULED_TICKS, phase);
+        phase = profiler.begin();
         this.processBlockEvents(); // Vanillas einziger runBlockEvents-Punkt, VOR der BE-Phase
+        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.BLOCK_EVENTS, phase);
+        phase = profiler.begin();
         this.tickRandomBlocks();
+        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.RANDOM_TICKS, phase);
+        phase = profiler.begin();
         this.tickBlockEntities();
+        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.BLOCK_ENTITY_TICKS, phase);
+        phase = profiler.begin();
         this.pushMinecartsByPlayer(player);
         this.tickEntities();
+        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.ENTITY_TICKS, phase);
         this.simulationTelemetry.endTick();
+        if (tickStarted != 0 && profiler.isEnabled()) {
+            long total = System.nanoTime() - tickStarted;
+            profiler.record(PerformanceProfiler.TickSection.TOTAL, total);
+            profiler.record(PerformanceProfiler.TickSection.REST, Math.max(0, total - attributed));
+        }
+    }
+
+    private static long recordTickPhase(PerformanceProfiler profiler,
+                                        PerformanceProfiler.TickSection section, long started) {
+        if (started == 0 || !profiler.isEnabled()) return 0;
+        long elapsed = System.nanoTime() - started;
+        profiler.record(section, elapsed);
+        return elapsed;
     }
 
     /** Minecarts suchen in Vanilla vor ihrer Bewegung Entities in einer um 0,2 verbreiterten Box. */
@@ -778,6 +810,7 @@ public class World implements IInitializable, IDisposable {
      * Chunk gelaufene umhängen.
      */
     private void tickEntities() {
+        int ticked = 0;
         if (!this.pendingEntities.isEmpty()) {
             for (Entity entity : this.pendingEntities) this.addToChunk(entity);
             this.pendingEntities.clear();
@@ -791,10 +824,14 @@ public class World implements IInitializable, IDisposable {
             if (chunk.status != ChunkStatus.READY) continue;
             if (!this.isSimulated(chunk.chunkX, chunk.chunkZ)) continue;
             List<Entity> list = chunk.entities();
-            for (int i = 0; i < list.size(); i++) list.get(i).tick(this);
+            for (int i = 0; i < list.size(); i++) {
+                list.get(i).tick(this);
+                ticked++;
+            }
         }
 
         this.reconcileEntityChunks();
+        PerformanceProfiler.get().add(PerformanceProfiler.Counter.TICKED_ENTITIES, ticked);
     }
 
     /**
@@ -1076,6 +1113,7 @@ public class World implements IInitializable, IDisposable {
 
     /** Tickt alle tickenden BlockEntities geladener Chunks (Maschinen, Pipes, ...). */
     private void tickBlockEntities() {
+        int ticked = 0;
         /* Nur Chunks mit BlockEntities (Manager-Buchführung) statt Scan über alle Chunks. */
         for (Chunk chunk : this.chunkManager.chunksWithBlockEntities()) {
             if (chunk.status != ChunkStatus.READY) continue;
@@ -1090,8 +1128,10 @@ public class World implements IInitializable, IDisposable {
             }
             for (int i = 0; i < this.tickScratch.size(); i++) {
                 this.tickScratch.get(i).tick();
+                ticked++;
             }
         }
+        PerformanceProfiler.get().add(PerformanceProfiler.Counter.TICKED_BLOCK_ENTITIES, ticked);
     }
 
     /* --- Tick-Scheduler (Phase 1.1): geplante + Zufalls-Ticks --- */
@@ -1266,6 +1306,7 @@ public class World implements IInitializable, IDisposable {
                         return;
                     }
                     this.simulationTelemetry.recordScheduledExecuted();
+                    PerformanceProfiler.get().add(PerformanceProfiler.Counter.EXECUTED_BLOCK_TICKS, 1);
                     state.getBlock().scheduledTick(this, x, y, z, state);
                 });
     }
@@ -1417,11 +1458,15 @@ public class World implements IInitializable, IDisposable {
            Items/BlockEntities, statt sie hinter sich unsichtbar zu machen. */
         this.chunkRenderer.renderSolid(camera);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.BE);
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.BLOCK_ENTITIES);
         this.blockEntityRenderer.render(this.chunkManager, this.lodManager, camera, partialTick);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.BLOCK_ENTITIES);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.BE);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.ENT);
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.ENTITIES);
         this.entityRenderer.render(this, this.chunksWithEntities, camera, partialTick);
         if (beforeTranslucent != null) beforeTranslucent.run();
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.ENTITIES);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.ENT);
         this.chunkRenderer.renderTranslucent(camera);
     }
@@ -1701,6 +1746,8 @@ public class World implements IInitializable, IDisposable {
      * Engine-Instanz gehört exklusiv diesem Thread (die Worker haben ihre ThreadLocals).
      */
     private void updateLight(Chunk chunk, int cx, int cz, int lx, int y, int lz, int oldBlock, int newBlock) {
+        PerformanceProfiler profiler = PerformanceProfiler.get();
+        long started = profiler.begin();
         Chunk north = this.chunkManager.getChunk(cx, cz - 1);
         Chunk south = this.chunkManager.getChunk(cx, cz + 1);
         Chunk west = this.chunkManager.getChunk(cx - 1, cz);
@@ -1712,6 +1759,7 @@ public class World implements IInitializable, IDisposable {
         this.lightDiagonals[3] = this.chunkManager.getChunk(cx + 1, cz + 1);
         this.lightEngine.onBlockChanged(chunk, north, south, west, east, this.lightDiagonals,
                 lx, y, lz, oldBlock, newBlock);
+        profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE, 0, started);
     }
 
     /* ------------------- Massen-Zerstörung (Explosion) ------------------- */
@@ -1853,6 +1901,8 @@ public class World implements IInitializable, IDisposable {
             }
 
             /* EIN Licht-Update für alle Zellen dieses Chunks (statt n Einzel-Flutungen). */
+            PerformanceProfiler profiler = PerformanceProfiler.get();
+            long lightStarted = profiler.begin();
             int cx = chunk.chunkX, cz = chunk.chunkZ;
             Chunk north = this.chunkManager.getChunk(cx, cz - 1);
             Chunk south = this.chunkManager.getChunk(cx, cz + 1);
@@ -1864,6 +1914,7 @@ public class World implements IInitializable, IDisposable {
             this.lightDiagonals[3] = this.chunkManager.getChunk(cx + 1, cz + 1);
             this.lightEngine.onBlocksChanged(chunk, north, south, west, east, this.lightDiagonals,
                     group.packedPos, group.oldIds, group.count);
+            profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE, 0, lightStarted);
         }
 
         /* Erst nachdem ALLE Batch-Writes sichtbar sind: Vanilla-Post-Removal-Hooks duerfen

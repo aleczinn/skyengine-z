@@ -1,275 +1,233 @@
 package de.skyengine.graphics;
 
-import de.skyengine.core.EngineConfig;
-import de.skyengine.core.SkyEngine;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL33;
 
-/**
- * Minimaler Frame-Profiler für die Bottleneck-Suche: misst pro Frame die GPU-Zeit der
- * disjunkten Draw-Abschnitte (GL_TIME_ELAPSED) und die CPU-Zeit ausgewählter Sektionen
- * (System.nanoTime). Nur aktiv bei DebugMode.FULL — sonst sind alle Methoden No-ops.
- *
- * GPU-Queries dürfen NICHT verschachteln (GL-Regel für GL_TIME_ELAPSED) — die Hooks
- * liegen deshalb um die disjunkten drawSegment-/Blit-Aufrufe, nicht um ganze Pässe.
- * Query-Ring mit 3 Sets (passend zum Triple-Buffering des ChunkRenderers): gelesen wird
- * ein Set erst bei seiner Wiederverwendung 3 Frames später — dann ist das Ergebnis
- * garantiert verfügbar und glGetQueryObjectui64 stallt nie.
- *
- * Alle Methoden laufen ausschließlich auf dem Render-Thread (GL-Kontext nötig).
- */
+import java.util.Arrays;
+
+/** Render-Thread-Fassade fuer bestehende CPU-/GPU-Messpunkte. */
 public final class FrameProfiler {
-
-    /** Disjunkte GPU-Abschnitte (Reihenfolge = Ausgabe-Reihenfolge). Das LOD-Opaque-Segment
-        wird pro LOD-Level einzeln gemessen (Mess-Gate für den Superregionen-Merge) —
-        Level ohne sichtbare Regionen zeigen 0.
-        Die GPU-Cull-Sektionen (cull1/hiz/cull2 + die Phase-2-Draws) sind EIGENE Enum-Werte
-        und damit eigene Query-Objekte je Slot: die Phase-2-Draws überschreiben so nicht mehr
-        die Phase-1-Messung von solid/cut (der Grund, warum sie früher unvermessen blieben).
-        Ohne sie war die dokumentierte Fixkosten-These des GPU-Pfads nicht nachprüfbar. */
     public enum Gpu {
-        SOLID("solid"),
-        /* LOD-Opaque als EIN Draw (Normalfall). Ohne diese Sektion fiel der groesste
-           GPU-Posten des Frames komplett aus der Messung und tauchte nur als Differenz
-           zwischen span und der Summe der Sektionen auf. Im Split-Modus messen
-           stattdessen lodO1..lodO5 — nie beide, GL_TIME_ELAPSED darf nicht verschachteln. */
-        LOD_OPAQUE("lodO"),
-        LOD_O_L1("lodO1"),
-        LOD_O_L2("lodO2"),
-        LOD_O_L3("lodO3"),
-        LOD_O_L4("lodO4"),
-        LOD_O_L5("lodO5"),
-        CUTOUT("cut"),
-        CULL_P1("cull1"),          // Compute-Dispatches Phase 1
-        HIZ("hiz"),                // Depth-Pyramide (Copy + Reduce)
-        CULL_P2("cull2"),          // Compute-Dispatches Phase 2
-        SOLID_P2("solid2"),        // Nachzügler-Draws OPAQUE
-        LOD_P2("lodO2p"),          // Nachzügler-Draws LOD-Opaque
-        CUTOUT_P2("cut2"),         // Nachzügler-Draws CUTOUT
-        TRANSLUCENT("trans"),
-        LOD_TRANSLUCENT("lodT"),
-        BLIT("blit");
+        SOLID("solid", PerformanceProfiler.GpuSection.L0_OPAQUE),
+        LOD_OPAQUE("lodO", PerformanceProfiler.GpuSection.LOD_OPAQUE),
+        LOD_O_L1("lodO1", PerformanceProfiler.GpuSection.LOD_OPAQUE),
+        LOD_O_L2("lodO2", PerformanceProfiler.GpuSection.LOD_OPAQUE),
+        LOD_O_L3("lodO3", PerformanceProfiler.GpuSection.LOD_OPAQUE),
+        LOD_O_L4("lodO4", PerformanceProfiler.GpuSection.LOD_OPAQUE),
+        LOD_O_L5("lodO5", PerformanceProfiler.GpuSection.LOD_OPAQUE),
+        CUTOUT("cut", PerformanceProfiler.GpuSection.L0_CUTOUT),
+        CULL_P1("cull1", PerformanceProfiler.GpuSection.CULL_HIZ),
+        HIZ("hiz", PerformanceProfiler.GpuSection.CULL_HIZ),
+        CULL_P2("cull2", PerformanceProfiler.GpuSection.CULL_HIZ),
+        SOLID_P2("solid2", PerformanceProfiler.GpuSection.L0_OPAQUE),
+        LOD_P2("lodO2p", PerformanceProfiler.GpuSection.LOD_OPAQUE),
+        CUTOUT_P2("cut2", PerformanceProfiler.GpuSection.L0_CUTOUT),
+        TRANSLUCENT("trans", PerformanceProfiler.GpuSection.L0_TRANSLUCENT),
+        LOD_TRANSLUCENT("lodT", PerformanceProfiler.GpuSection.LOD_TRANSLUCENT),
+        BLOCK_ENTITIES("blockEntities", PerformanceProfiler.GpuSection.BLOCK_ENTITIES),
+        ENTITIES("entities", PerformanceProfiler.GpuSection.ENTITIES),
+        OVERLAYS("overlays", PerformanceProfiler.GpuSection.HAND_OVERLAYS),
+        GUI("gui", PerformanceProfiler.GpuSection.GUI),
+        BLIT("resolve/post", PerformanceProfiler.GpuSection.POSTPROCESSING);
 
         final String label;
-
-        Gpu(String label) {
-            this.label = label;
-        }
+        final PerformanceProfiler.GpuSection target;
+        Gpu(String label, PerformanceProfiler.GpuSection target) { this.label = label; this.target = target; }
     }
 
-    /**
-     * CPU-Sektionen in Frame-Reihenfolge; FRAME = gesamtes onRender inkl. Swap.
-     * Die Statuszeile weist zusätzlich rest = frame − Σ(übrige) aus, damit
-     * unattributierte Zeit sofort sichtbar bleibt.
-     */
     public enum Cpu {
-        TICK("tick"),       // Summe der onUpdate-Aufrufe eines Loop-Durchlaufs (VOR onRender,
-                            // also NICHT in FRAME enthalten — bleibt aus der rest-Rechnung raus)
-        CLEAR("clear"),     // FBO-Bind + State-Enables + glClear
-        ANIM("anim"),       // Textur-Animationen (glTexSubImage-Uploads)
-        SYNC("sync"),       // Fence-Wait + Arena-Collect (beginFrame) + Fence-Create (endFrame)
-        UPLOAD("upload"),   // Mesh-/LOD-Upload-Queues + Cleanup-Loops
-        CULL("cull"),       // Frustum-Tests + Listenbau
-        WRITE("write"),     // Command-/Offset-Segmente in den MappedRing
-        GLSUB("glsub"),     // GL-Submission: Binds/Uniforms/MDI-Calls beider Chunk-Pässe
-        REMESH("remesh"),   // ChunkManager.processRemeshes
-        BE("be"),           // BlockEntity-Renderer (iteriert alle Chunks)
-        ENT("ent"),         // Entity-Renderer (iteriert alle Chunks)
-        SORT("sort"),       // Translucent: Section-Sort + Quad-Sort-Budget
-        OVL("ovl"),         // Selection-Box + Crack + Fluid-Overlay
-        GUI("gui"),         // GuiManager (HUD inkl. Item-Icons)
-        SWAP("swap"),       // glfwSwapBuffers (kann im Treiber blocken)
-        FRAME("frame");
+        TICK("tick", null), CLEAR("clear", null), ANIM("anim", PerformanceProfiler.CpuSection.UPLOAD),
+        SYNC("sync", PerformanceProfiler.CpuSection.SUBMISSION),
+        UPLOAD("upload", PerformanceProfiler.CpuSection.UPLOAD),
+        CULL("cull", PerformanceProfiler.CpuSection.CULL),
+        WRITE("write", PerformanceProfiler.CpuSection.COMMAND_BUILD),
+        GLSUB("glsub", PerformanceProfiler.CpuSection.SUBMISSION),
+        REMESH("remesh", PerformanceProfiler.CpuSection.UPLOAD),
+        BE("be", PerformanceProfiler.CpuSection.BLOCK_ENTITIES),
+        ENT("ent", PerformanceProfiler.CpuSection.ENTITIES),
+        SORT("sort", PerformanceProfiler.CpuSection.SORT),
+        OVL("ovl", PerformanceProfiler.CpuSection.OVERLAYS),
+        GUI("gui", PerformanceProfiler.CpuSection.GUI),
+        PROFILER_UI("profiler", PerformanceProfiler.CpuSection.PROFILER_UI),
+        SWAP("swap", PerformanceProfiler.CpuSection.SWAP),
+        FRAME("frame", PerformanceProfiler.CpuSection.FRAME);
 
         final String label;
-
-        Cpu(String label) {
-            this.label = label;
-        }
+        final PerformanceProfiler.CpuSection target;
+        Cpu(String label, PerformanceProfiler.CpuSection target) { this.label = label; this.target = target; }
     }
 
-    private static final int SLOTS = 3;
-
-    private static boolean initialized = false;
-    private static boolean enabled = false;
-
-    /* Query-Ring: [slot][sektion]; used markiert, ob im Slot-Frame eine Query lief */
+    private static final int SLOTS = 8;
     private static final int[][] queries = new int[SLOTS][Gpu.values().length];
+    private static final int[][] timestamps = new int[SLOTS][2];
     private static final boolean[][] used = new boolean[SLOTS][Gpu.values().length];
-    private static long frame = 0;
-    private static int slot = 0;
-
-    /* Akkumulatoren seit der letzten Statuszeile (Nanosekunden) */
-    private static final long[] gpuSum = new long[Gpu.values().length];
-    private static final long[] cpuSum = new long[Cpu.values().length];
+    private static final boolean[] pending = new boolean[SLOTS];
+    private static final long[] queryGeneration = new long[SLOTS];
     private static final long[] cpuStart = new long[Cpu.values().length];
-    private static int gpuFrames = 0;   // Frames mit ausgelesenen GPU-Ergebnissen
-    private static int cpuFrames = 0;
+    private static final long[] cpuFrame = new long[Cpu.values().length];
+    private static final long SPIKE_THRESHOLD_NANOS = 25_000_000L;
+    private static boolean glInitialized;
+    private static int activeSlot = -1;
+    private static long lastLoopNanos;
 
-    /* Spike-Erfassung: Werte des LAUFENDEN Loop-Durchlaufs (Tick + Frame) — die 1-s-Mittelwerte
-       verstecken einzelne Ruckler komplett (ein 40-ms-Frame verschwindet im Schnitt über ~60
-       Frames). loopEndSpikeLine() prüft pro Durchlauf gegen den Schwellwert und liefert bei
-       Überschreitung EINE Detailzeile mit den Sektionswerten genau dieses Durchlaufs. */
-    private static final long SPIKE_THRESHOLD_NANOS = 25_000_000L; // 25 ms
-    private static final long[] cpuLoop = new long[Cpu.values().length];
-    private static long maxLoopNanos = 0; // schlechtester Durchlauf seit der letzten Statuszeile
+    private FrameProfiler() {}
 
-    /* GPU-Frame-Spanne: GL_TIMESTAMP-Paar pro Slot (Start in newFrame, Ende vor dem Swap).
-       span − Σ(Busy-Sektionen) = Leerlauf-Blasen in der GPU-Timeline des Frames —
-       unterscheidet „GPU rechnet wirklich" von „GPU wartet (Present/Latenz)". */
-    private static final int[][] tsQueries = new int[SLOTS][2];
-    private static final boolean[] tsUsed = new boolean[SLOTS];
-    private static long spanSum = 0;
-    private static int spanFrames = 0;
-
-    private FrameProfiler() {
+    public static boolean isEnabled() { return PerformanceProfiler.get().isEnabled(); }
+    public static void setEnabled(boolean enabled) {
+        PerformanceProfiler.get().setEnabled(enabled);
+        if (!enabled) { Arrays.fill(cpuStart, 0); Arrays.fill(cpuFrame, 0); }
     }
 
-    /**
-     * Einmal pro Frame am Frame-Anfang aufrufen (Render-Thread): liest die 3 Frames alten
-     * Query-Ergebnisse des wiederverwendeten Slots aus und rotiert den Ring.
-     */
+    /** Frame-Anfang: alte CPU-Werte publizieren, fertige GPU-Sets abholen und freien Slot suchen. */
     public static void newFrame() {
-        if (!initialized) {
-            initialized = true;
-            enabled = SkyEngine.get().getConfig().getDebugMode().equals(EngineConfig.DebugMode.FULL);
-            if (enabled) {
-                for (int s = 0; s < SLOTS; s++) {
-                    for (int q = 0; q < queries[s].length; q++) {
-                        queries[s][q] = GL15.glGenQueries();
-                    }
-                    tsQueries[s][0] = GL15.glGenQueries();
-                    tsQueries[s][1] = GL15.glGenQueries();
-                }
-            }
-        }
-        if (!enabled) return;
-
-        slot = (int) (frame % SLOTS);
-        frame++;
-
-        boolean any = false;
-        for (int q = 0; q < queries[slot].length; q++) {
-            if (!used[slot][q]) continue;
-            gpuSum[q] += GL33.glGetQueryObjectui64(queries[slot][q], GL15.GL_QUERY_RESULT);
-            used[slot][q] = false;
-            any = true;
-        }
-        if (any) gpuFrames++;
-        cpuFrames++;
-
-        /* Timestamp-Spanne des 3 Frames alten Slots lesen, dann den Start-Stempel
-           für diesen Frame setzen (erster GL-Befehl des Frames). */
-        if (tsUsed[slot]) {
-            long t0 = GL33.glGetQueryObjectui64(tsQueries[slot][0], GL15.GL_QUERY_RESULT);
-            long t1 = GL33.glGetQueryObjectui64(tsQueries[slot][1], GL15.GL_QUERY_RESULT);
-            spanSum += t1 - t0;
-            spanFrames++;
-            tsUsed[slot] = false;
-        }
-        GL33.glQueryCounter(tsQueries[slot][0], GL33.GL_TIMESTAMP);
+        PerformanceProfiler profiler = PerformanceProfiler.get();
+        if (!profiler.isEnabled()) { activeSlot = -1; return; }
+        if (!glInitialized) initQueries();
+        flushCpuFrame(profiler);
+        collectAvailable(profiler);
+        activeSlot = findFreeSlot();
+        if (activeSlot >= 0) GL33.glQueryCounter(timestamps[activeSlot][0], GL33.GL_TIMESTAMP);
+        profiler.publishSnapshot();
     }
 
-    /** Direkt vor glfwSwapBuffers aufrufen: setzt den End-Stempel der GPU-Frame-Spanne. */
     public static void gpuFrameEnd() {
-        if (!enabled) return;
-        GL33.glQueryCounter(tsQueries[slot][1], GL33.GL_TIMESTAMP);
-        tsUsed[slot] = true;
-    }
-
-    public static boolean isEnabled() {
-        return enabled;
+        if (!isEnabled() || activeSlot < 0) return;
+        GL33.glQueryCounter(timestamps[activeSlot][1], GL33.GL_TIMESTAMP);
+        queryGeneration[activeSlot] = PerformanceProfiler.get().snapshot().generation();
+        pending[activeSlot] = true;
+        activeSlot = -1;
     }
 
     public static void gpuBegin(Gpu section) {
-        if (!enabled) return;
-        GL15.glBeginQuery(GL33.GL_TIME_ELAPSED, queries[slot][section.ordinal()]);
+        if (!isEnabled() || activeSlot < 0) return;
+        GL15.glBeginQuery(GL33.GL_TIME_ELAPSED, queries[activeSlot][section.ordinal()]);
     }
 
     public static void gpuEnd(Gpu section) {
-        if (!enabled) return;
+        if (!isEnabled() || activeSlot < 0) return;
         GL15.glEndQuery(GL33.GL_TIME_ELAPSED);
-        used[slot][section.ordinal()] = true;
+        used[activeSlot][section.ordinal()] = true;
     }
 
     public static void cpuStart(Cpu section) {
-        if (!enabled) return;
+        if (!isEnabled()) return;
         cpuStart[section.ordinal()] = System.nanoTime();
     }
 
     public static void cpuStop(Cpu section) {
-        if (!enabled) return;
-        long elapsed = System.nanoTime() - cpuStart[section.ordinal()];
-        cpuSum[section.ordinal()] += elapsed;
-        cpuLoop[section.ordinal()] += elapsed;
+        if (!isEnabled()) return;
+        long started = cpuStart[section.ordinal()];
+        if (started == 0) return;
+        cpuFrame[section.ordinal()] += System.nanoTime() - started;
+        cpuStart[section.ordinal()] = 0;
     }
 
-    /**
-     * Einmal pro Loop-Durchlauf am Ende aufrufen (nach onRender bzw. dem Resize-Skip):
-     * prüft Tick+Frame dieses Durchlaufs gegen den Spike-Schwellwert und setzt die
-     * Durchlauf-Werte zurück. Liefert bei Überschreitung eine Detailzeile mit den
-     * Sektionswerten GENAU DIESES Durchlaufs (µs), sonst null.
-     */
     public static String loopEndSpikeLine() {
-        if (!enabled) return null;
-
-        long loop = cpuLoop[Cpu.TICK.ordinal()] + cpuLoop[Cpu.FRAME.ordinal()];
-        if (loop > maxLoopNanos) maxLoopNanos = loop;
-
-        String line = null;
-        if (loop >= SPIKE_THRESHOLD_NANOS) { // µs
-            StringBuilder sb = new StringBuilder("SPIKE[us] loop=").append(loop / 1000);
-            long attributed = 0;
-            for (Cpu c : Cpu.values()) {
-                if (c == Cpu.FRAME) continue;
-                if (c != Cpu.TICK) attributed += cpuLoop[c.ordinal()]; // TICK liegt außerhalb von FRAME
-                sb.append(' ').append(c.label).append('=').append(cpuLoop[c.ordinal()] / 1000);
-            }
-            long frame = cpuLoop[Cpu.FRAME.ordinal()];
-            sb.append(" frame=").append(frame / 1000).append(" rest=").append((frame - attributed) / 1000);
-            line = sb.toString();
-        }
-        java.util.Arrays.fill(cpuLoop, 0L);
-        return line;
+        if (!isEnabled()) return null;
+        long loop = cpuFrame[Cpu.TICK.ordinal()] + cpuFrame[Cpu.FRAME.ordinal()];
+        lastLoopNanos = Math.max(lastLoopNanos, loop);
+        if (loop < SPIKE_THRESHOLD_NANOS) return null;
+        StringBuilder line = new StringBuilder("SPIKE[us] loop=").append(loop / 1_000);
+        for (Cpu section : Cpu.values()) line.append(' ').append(section.label).append('=').append(cpuFrame[section.ordinal()] / 1_000);
+        return line.toString();
     }
 
-    /**
-     * Baut die 1s-Statuszeile (Durchschnitt in µs pro Frame) und setzt die Akkumulatoren
-     * zurück. Gibt null zurück, wenn der Profiler nicht aktiv ist oder noch keine Daten hat.
-     */
+    /** Bestehender Ein-Sekunden-Konsolenvertrag, jetzt aus dem letzten Snapshot. */
     public static String statusLineAndReset() {
-        if (!enabled || cpuFrames == 0) return null;
-
-        StringBuilder sb = new StringBuilder("GPU[us]"); // µs
-        for (Gpu g : Gpu.values()) {
-            long avg = gpuFrames > 0 ? gpuSum[g.ordinal()] / gpuFrames / 1000 : 0;
-            sb.append(' ').append(g.label).append('=').append(avg);
-            gpuSum[g.ordinal()] = 0;
+        if (!isEnabled()) return null;
+        PerformanceProfiler.ProfilerSnapshot snapshot = PerformanceProfiler.get().publishSnapshot();
+        StringBuilder line = new StringBuilder("PROF CPU[ms]");
+        for (PerformanceProfiler.CpuSection section : PerformanceProfiler.CpuSection.values()) {
+            PerformanceProfiler.TimingStats stats = snapshot.cpu().get(section);
+            if (stats != null && stats.samples() > 0) line.append(' ').append(section.name().toLowerCase()).append('=')
+                    .append(String.format(java.util.Locale.ROOT, "%.2f/%.2f/%.2f/%.2f",
+                            stats.currentMillis(), stats.meanMillis(), stats.p95Millis(), stats.maxMillis()));
         }
-        sb.append(" span=").append(spanFrames > 0 ? spanSum / spanFrames / 1000 : 0);
-        spanSum = 0;
-        spanFrames = 0;
-        sb.append(" | CPU[us]"); // µs
-        long attributed = 0;
-        for (Cpu c : Cpu.values()) {
-            if (c == Cpu.FRAME) continue;
-            long avg = cpuSum[c.ordinal()] / cpuFrames / 1000;
-            /* TICK läuft VOR onRender und steckt nicht in FRAME → nicht in rest einrechnen */
-            if (c != Cpu.TICK) attributed += cpuSum[c.ordinal()];
-            sb.append(' ').append(c.label).append('=').append(avg);
-            cpuSum[c.ordinal()] = 0;
-        }
-        long frameAvg = cpuSum[Cpu.FRAME.ordinal()] / cpuFrames / 1000;
-        /* rest = im FRAME enthaltene, aber keiner Sektion zugeordnete Zeit */
-        long restAvg = (cpuSum[Cpu.FRAME.ordinal()] - attributed) / cpuFrames / 1000;
-        sb.append(" | frame=").append(frameAvg).append(" rest=").append(restAvg);
-        /* max = schlechtester Loop-Durchlauf (Tick+Frame) der Sekunde — macht Ausreißer
-           sichtbar, die der Durchschnitt verschluckt */
-        sb.append(" max=").append(maxLoopNanos / 1000);
-        maxLoopNanos = 0;
-        cpuSum[Cpu.FRAME.ordinal()] = 0;
-        gpuFrames = 0;
-        cpuFrames = 0;
-        return sb.toString();
+        line.append(" maxLoop=").append(lastLoopNanos / 1_000_000.0);
+        lastLoopNanos = 0;
+        return line.toString();
     }
+
+    /** Weltwechsel/Reload: Historien entwerten; GL-Abfragen werden beim naechsten Frame verworfen. */
+    public static void reset() {
+        PerformanceProfiler.get().reset();
+        Arrays.fill(cpuStart, 0); Arrays.fill(cpuFrame, 0);
+    }
+
+    /** Gibt Query-Objekte frei; darf nur mit aktuellem GL-Kontext beim Engine-Shutdown laufen. */
+    public static void dispose() {
+        if (!glInitialized) return;
+        for (int slot = 0; slot < SLOTS; slot++) {
+            for (int query : queries[slot]) GL15.glDeleteQueries(query);
+            GL15.glDeleteQueries(timestamps[slot][0]);
+            GL15.glDeleteQueries(timestamps[slot][1]);
+        }
+        glInitialized = false;
+        activeSlot = -1;
+        Arrays.fill(pending, false);
+        for (boolean[] row : used) Arrays.fill(row, false);
+    }
+
+    private static void flushCpuFrame(PerformanceProfiler profiler) {
+        long[] totals = new long[PerformanceProfiler.CpuSection.values().length];
+        long attributed = 0;
+        for (Cpu section : Cpu.values()) {
+            long nanos = cpuFrame[section.ordinal()];
+            if (nanos > 0 && section.target != null) {
+                totals[section.target.ordinal()] += nanos;
+                if (section != Cpu.FRAME) attributed += nanos;
+            }
+        }
+        for (PerformanceProfiler.CpuSection section : PerformanceProfiler.CpuSection.values()) {
+            long nanos = totals[section.ordinal()];
+            if (nanos > 0) profiler.record(section, nanos);
+        }
+        long frame = cpuFrame[Cpu.FRAME.ordinal()];
+        if (frame > 0) profiler.record(PerformanceProfiler.CpuSection.REST, Math.max(0, frame - attributed));
+        Arrays.fill(cpuFrame, 0);
+    }
+
+    private static void initQueries() {
+        for (int slot = 0; slot < SLOTS; slot++) {
+            for (int query = 0; query < Gpu.values().length; query++) queries[slot][query] = GL15.glGenQueries();
+            timestamps[slot][0] = GL15.glGenQueries(); timestamps[slot][1] = GL15.glGenQueries();
+        }
+        glInitialized = true;
+    }
+
+    private static void collectAvailable(PerformanceProfiler profiler) {
+        for (int slot = 0; slot < SLOTS; slot++) {
+            if (!pending[slot] || GL15.glGetQueryObjecti(timestamps[slot][1], GL15.GL_QUERY_RESULT_AVAILABLE) == 0) continue;
+            boolean complete = true;
+            for (int query = 0; query < Gpu.values().length; query++) {
+                if (used[slot][query] && GL15.glGetQueryObjecti(queries[slot][query], GL15.GL_QUERY_RESULT_AVAILABLE) == 0) { complete = false; break; }
+            }
+            if (!complete) continue;
+            boolean currentGeneration = queryGeneration[slot] == profiler.snapshot().generation();
+            long[] totals = new long[PerformanceProfiler.GpuSection.values().length];
+            for (Gpu section : Gpu.values()) {
+                int query = section.ordinal();
+                if (!used[slot][query]) continue;
+                long nanos = GL33.glGetQueryObjectui64(queries[slot][query], GL15.GL_QUERY_RESULT);
+                totals[section.target.ordinal()] += nanos;
+                used[slot][query] = false;
+            }
+            if (currentGeneration) {
+                for (PerformanceProfiler.GpuSection section : PerformanceProfiler.GpuSection.values()) {
+                    long nanos = totals[section.ordinal()];
+                    if (nanos > 0) profiler.record(section, nanos);
+                }
+            }
+            long start = GL33.glGetQueryObjectui64(timestamps[slot][0], GL15.GL_QUERY_RESULT);
+            long end = GL33.glGetQueryObjectui64(timestamps[slot][1], GL15.GL_QUERY_RESULT);
+            if (currentGeneration) profiler.record(PerformanceProfiler.GpuSection.FRAME_SPAN, Math.max(0, end - start));
+            pending[slot] = false;
+        }
+    }
+
+    private static int findFreeSlot() {
+        for (int slot = 0; slot < SLOTS; slot++) if (!pending[slot]) return slot;
+        return -1;
+    }
+
 }

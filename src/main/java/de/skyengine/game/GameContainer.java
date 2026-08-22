@@ -49,6 +49,7 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.FrameProfiler;
+import de.skyengine.graphics.PerformanceProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.audio.SoundCategory;
 import de.skyengine.audio.SoundManager;
@@ -174,6 +175,7 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /* F3-Debug-Overlay (FPS/Position/Biome/...), Toggle in handleGlobalHotkeys. */
     private final DebugOverlay debugOverlay = new DebugOverlay();
+    private final Runnable profilerOverlayPass = this::renderProfilerBelowScreen;
 
     /* Audio: Effekt-Sounds + Musik (OpenAL, komplett auf dem Render-Thread). */
     private final SoundManager soundManager = new SoundManager();
@@ -509,6 +511,8 @@ public class GameContainer implements IResizeable, IDisposable {
 
     public void update(Input input) {
         if (this.world == null || this.player == null) return; // Hauptmenü: nichts zu ticken
+        PerformanceProfiler profiler = PerformanceProfiler.get();
+        long playerLogicStarted = profiler.begin();
 
         /* Gespeichert-Meldung erst, wenn der IO-Thread durch ist. Bewusst VOR dem Pause-Zweig:
            das Speichern beim Öffnen des Pausenmenüs läuft ja gerade dann fertig. */
@@ -573,6 +577,7 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Pause-Menü hält die Welt komplett an (wie MC-Singleplayer); Container-GUIs
            (Truhe) lassen sie weiterticken. */
         if (!this.guiManager.pausesGame()) {
+            profiler.recordElapsed(PerformanceProfiler.TickSection.PLAYER_GAME_LOGIC, playerLogicStarted);
             this.world.update(input, this.player);
             this.pickupItems();
             /* Autosave. Die Modulo-Prüfung gehört IN diesen Zweig: gameTime steht bei Pause
@@ -839,6 +844,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (DebugFlags.wireframe) Utils.disableWireframe();
 
         FrameProfiler.cpuStart(FrameProfiler.Cpu.OVL);
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.OVERLAYS);
 
         if (this.hit != null && !this.guiManager.isOpen() && this.player.getGamemode().interactsWithWorld()) {
             this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z(),
@@ -879,6 +885,7 @@ public class GameContainer implements IResizeable, IDisposable {
            ebenfalls ueber First-Person-Hand und gehaltenem Item. */
         this.renderLavaOverlay();
 
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.OVERLAYS);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
     }
 
@@ -982,7 +989,9 @@ public class GameContainer implements IResizeable, IDisposable {
     public void renderGui(int width, int height) {
         /* Spectator zeigt wie MC keine Hotbar (Crosshair bleibt); ohne Spieler/Welt gibt es keine. */
         boolean showHotbar = this.player != null && this.player.getGamemode() != Gamemode.SPECTATOR;
+        boolean showDebug = !this.hudHidden && this.debugOverlay.isVisible() && this.world != null;
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.GUI);
         /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair);
            Crosshair nur in First Person (in den F5-Ansichten zielt man nicht über die Bildmitte). */
         this.guiManager.render(width, height,
@@ -991,17 +1000,36 @@ public class GameContainer implements IResizeable, IDisposable {
                 !this.hudHidden && this.perspective.isFirstPerson(),
                 this.hudHidden ? 0F : this.itemNameAlpha(),
                 this.hudHidden ? "" : this.hudStatusText,
-                this.hudHidden ? 0F : this.hudStatusAlpha(), this.player);
+                this.hudHidden ? 0F : this.hudStatusAlpha(), this.player,
+                showDebug && FrameProfiler.isEnabled() ? this.profilerOverlayPass : null);
         if (!this.hudHidden && this.world != null && !this.guiManager.isOpen()) {
             this.chatHud.render(this.guiManager, this.chat, this.guiManager.vHeight() - 40F, false);
         }
-        if (!this.hudHidden && this.debugOverlay.isVisible() && this.world != null) {
+        if (showDebug) {
+            if (FrameProfiler.isEnabled()) {
+                FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
+                FrameProfiler.cpuStart(FrameProfiler.Cpu.PROFILER_UI);
+            }
             this.debugOverlay.render(this.guiManager, this.world, this.player);
+            if (FrameProfiler.isEnabled()) {
+                FrameProfiler.cpuStop(FrameProfiler.Cpu.PROFILER_UI);
+                FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
+            }
         }
         /* Gespeichert-Meldung NACH dem GuiScreen: sie soll auch über dem abgedunkelten
            Pausenmenü lesbar sein (im Hud läge sie unter dessen Dim). */
         if (!this.hudHidden && this.world != null) this.saveToast.render(this.guiManager);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.GUI);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
+    }
+
+    /** Profiler unter einem offenen GuiScreen, aber ueber HUD und Welt zeichnen. */
+    private void renderProfilerBelowScreen() {
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.PROFILER_UI);
+        this.debugOverlay.renderProfiler(this.guiManager);
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.PROFILER_UI);
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
     }
 
     /**
@@ -1893,6 +1921,11 @@ public class GameContainer implements IResizeable, IDisposable {
         /* F3-Overlay + F3+X-Kombi-Gerüst (Minecraft-Stil): wurde während des Haltens eine Kombi
            benutzt, unterdrückt das den Overlay-Toggle beim Loslassen. Weitere F3+X hier ergänzen. */
         if (input.isKeyDown(GLFW.GLFW_KEY_F3) && !this.guiManager.isOpen()) {
+            if (input.consumeKeyPress(GLFW.GLFW_KEY_P)) {
+                this.debugOverlay.toggleProfiler();
+                this.logger.debug("Profiler: " + (FrameProfiler.isEnabled() ? "an" : "aus"));
+                this.f3ComboUsed = true;
+            }
             if (input.consumeKeyPress(GLFW.GLFW_KEY_B)) {
                 DebugFlags.entityHitboxes = !DebugFlags.entityHitboxes;
                 this.logger.debug("Entity-Hitboxen: " + (DebugFlags.entityHitboxes ? "an" : "aus"));
