@@ -82,6 +82,10 @@ public final class ObserverBehavior implements BlockBehavior {
     @Override
     public void onRemoved(World world, int x, int y, int z,
                           BlockState oldState, BlockState newState) {
+        /* The scheduled OFF tick stays at the old coordinate while the observer moves.
+           Emitting the falling edge here would retract the piston before the complete
+           slime assembly has materialized and turns the pulse into TRIGGER_DROP. */
+        if (world.isPistonBlockMove()) return;
         if (oldState.get(Properties.POWERED) && world.isTickScheduled(
                 x, y, z, oldState.getBlock().getIdentifier())) {
             this.notifyStrongTarget(world, x, y, z, oldState.with(Properties.POWERED, false));
@@ -95,9 +99,9 @@ public final class ObserverBehavior implements BlockBehavior {
     }
 
     /**
-     * Von einem Kolben verschoben: Der Abschluss der Bewegung erzeugt in Vanilla die Shape-
-     * Update-Kette, auf der Observer-Flugmaschinen beruhen. Bis der Moving-Piston-Abschluss
-     * selbst vollständig auf Vanilla-Flags umgestellt ist, bildet dieser Hook die Flanke ab.
+     * Beim Verschieben bleibt ein geplanter Tick an der alten Position. Nur ein aktiv
+     * ankommender Observer muss deshalb wie in Vanilla sofort ausgeschaltet werden. Den
+     * normalen Ankunftspuls erzeugt der anschließende gerichtete Shape-Pass der Welt.
      */
     @Override
     public void onMovedByPiston(World world, int x, int y, int z, BlockState state, Direction moveDirection) {
@@ -108,10 +112,14 @@ public final class ObserverBehavior implements BlockBehavior {
                Observer deshalb sofort aus und verteilt die fallende Ausgangsflanke. */
             BlockState unpowered = state.with(Properties.POWERED, false);
             world.setBlockWithShapeUpdates(x, y, z, unpowered.getId());
-            this.notifyStrongTarget(world, x, y, z, unpowered);
-            return;
+            /* Vanilla's pending tick was tied to the old coordinate. Once the whole piston
+               group has landed, distribute that falling edge from the former output so the
+               wire which launched the movement can retract the piston normally. */
+            int oldX = x - moveDirection.offsetX();
+            int oldY = y - moveDirection.offsetY();
+            int oldZ = z - moveDirection.offsetZ();
+            this.notifyStrongTarget(world, oldX, oldY, oldZ, unpowered);
         }
-        world.scheduleTick(x, y, z, 2);
     }
 
     /** Die Behavior-Instanz hinter einer State-ID, oder null wenn das kein Beobachter ist. */

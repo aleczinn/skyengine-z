@@ -1,7 +1,7 @@
 {
   "id":"skyengine:detector_rail", "archetype":"rail", "rail_kind":"detector",
   "creative_tab":"redstone_blocks", "layer":"cutout", "opaque":false, "solid":false,
-  "no_lod_surface":true, "piston_reaction":"destroy", "place_on_full_top":true,
+  "no_lod_surface":true, "place_on_full_top":true,
   "hardness":0.7, "tool":"pickaxe", "sound":"stone", "icon_flat":["game/textures/block/detector_rail.png"],
   "models":{"":"block/rail_flat", "_raised_ne":"block/template_rail_raised_ne", "_raised_sw":"block/template_rail_raised_sw", "_on":"block/rail_flat_on", "_on_raised_ne":"block/template_rail_on_raised_ne", "_on_raised_sw":"block/template_rail_on_raised_sw"},
   "textures":{"rail":"game/textures/block/detector_rail.png", "rail_on":"game/textures/block/detector_rail_on.png"},

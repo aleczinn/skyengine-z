@@ -9,7 +9,9 @@ import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.BlockStateCodec;
 import de.skyengine.game.world.block.state.PistonType;
 import de.skyengine.game.world.block.state.Properties;
+import de.skyengine.game.world.block.shape.BlockShape;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -54,6 +56,9 @@ public final class PistonMovingBlockEntity extends BlockEntity {
      * s. {@code PistonBehavior.evaluate}.
      */
     private long lastTicked = -1L;
+    /** All moving cells of one piston action, led by the source moving-piston. */
+    private long groupLeader = Long.MIN_VALUE;
+    private long[] groupMembers = new long[0];
 
     public PistonMovingBlockEntity(BlockEntityType<?> type, BlockPos pos) {
         super(type, pos);
@@ -69,6 +74,12 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         this.sticky = sticky;
         this.progress = 0f;
         this.lastProgress = 0f;
+        this.markDirty();
+    }
+
+    public void configureGroup(long leader, long[] members) {
+        this.groupLeader = leader;
+        this.groupMembers = members.clone();
         this.markDirty();
     }
 
@@ -107,18 +118,29 @@ public final class PistonMovingBlockEntity extends BlockEntity {
      * Die technische Blockzelle selbst besitzt absichtlich keine statische Kollisionsform.
      */
     public void appendCollisionBoxes(List<AABB> result) {
+        this.appendCollisionBoxes(result, this.pos.x(), this.pos.y(), this.pos.z());
+    }
+
+    /** Dynamische Form relativ zur technischen Moving-Piston-Zelle. */
+    public BlockShape getCollisionShape() {
+        List<AABB> result = new ArrayList<>();
+        this.appendCollisionBoxes(result, 0, 0, 0);
+        return result.isEmpty() ? BlockShape.EMPTY : new BlockShape(result.toArray(AABB[]::new));
+    }
+
+    private void appendCollisionBoxes(List<AABB> result, double baseX, double baseY, double baseZ) {
         double extended = this.extending ? this.progress - 1.0 : 1.0 - this.progress;
         if (this.isSource && !this.extending) {
             BlockState extendedBase = Blocks.getState(this.movedStateId).with(Properties.EXTENDED, true);
-            appendStateBoxes(result, extendedBase, this.pos.x(), this.pos.y(), this.pos.z());
+            appendStateBoxes(result, extendedBase, baseX, baseY, baseZ);
             BlockState head = Blocks.getState(Blocks.PISTON_HEAD)
                     .with(Properties.FACING_ALL, this.facing)
                     .with(Properties.PISTON_TYPE, this.sticky ? PistonType.STICKY : PistonType.NORMAL)
                     .with(Properties.SHORT, this.progress >= 0.5f);
             appendStateBoxes(result, head,
-                    this.pos.x() + this.facing.offsetX() * extended,
-                    this.pos.y() + this.facing.offsetY() * extended,
-                    this.pos.z() + this.facing.offsetZ() * extended);
+                    baseX + this.facing.offsetX() * extended,
+                    baseY + this.facing.offsetY() * extended,
+                    baseZ + this.facing.offsetZ() * extended);
             return;
         }
         BlockState moved = Blocks.getState(this.movedStateId);
@@ -127,9 +149,9 @@ public final class PistonMovingBlockEntity extends BlockEntity {
                     ? this.progress <= 0.5f : this.progress >= 0.5f);
         }
         appendStateBoxes(result, moved,
-                this.pos.x() + this.facing.offsetX() * extended,
-                this.pos.y() + this.facing.offsetY() * extended,
-                this.pos.z() + this.facing.offsetZ() * extended);
+                baseX + this.facing.offsetX() * extended,
+                baseY + this.facing.offsetY() * extended,
+                baseZ + this.facing.offsetZ() * extended);
     }
 
     private static void appendStateBoxes(List<AABB> result, BlockState state,
@@ -149,6 +171,18 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         if (!isMovingPiston(this.world.getBlock(x, y, z))) {
             this.world.removeBlockEntity(x, y, z);
             return;
+        }
+
+        if (this.groupMembers.length > 0) {
+            PistonMovingBlockEntity leader = this.groupLeaderEntity();
+            if (leader != null && leader != this) return;
+            if (leader == this) {
+                this.tickGroup();
+                return;
+            }
+            /* Old/incomplete save: never leave a moving-piston orphan frozen forever. */
+            this.groupLeader = Long.MIN_VALUE;
+            this.groupMembers = new long[0];
         }
 
         this.lastTicked = this.world.getGameTime();
@@ -174,9 +208,95 @@ public final class PistonMovingBlockEntity extends BlockEntity {
      */
     public void finishNow() {
         if (this.world == null) return;
+        PistonMovingBlockEntity leader = this.groupLeaderEntity();
+        if (leader != null) {
+            leader.finishGroup();
+            return;
+        }
         int x = this.pos.x(), y = this.pos.y(), z = this.pos.z();
         if (!isMovingPiston(this.world.getBlock(x, y, z))) return;
         this.finish(x, y, z);
+    }
+
+    private PistonMovingBlockEntity groupLeaderEntity() {
+        if (this.world == null || this.groupMembers.length == 0
+                || this.groupLeader == Long.MIN_VALUE) return null;
+        int x = BlockPos.unpackX(this.groupLeader);
+        int y = BlockPos.unpackY(this.groupLeader);
+        int z = BlockPos.unpackZ(this.groupLeader);
+        if (!(this.world.getBlockEntity(x, y, z) instanceof PistonMovingBlockEntity leader)) {
+            return null;
+        }
+        return leader.groupLeader == this.groupLeader ? leader : null;
+    }
+
+    private void tickGroup() {
+        List<PistonMovingBlockEntity> members = this.liveGroupMembers();
+        if (members.isEmpty()) return;
+        long time = this.world.getGameTime();
+        float oldProgress = this.progress;
+        if (oldProgress >= 1.0f) {
+            this.finishGroup();
+            return;
+        }
+        float targetProgress = Math.min(1.0f, oldProgress + STEP);
+        for (PistonMovingBlockEntity member : members) {
+            member.lastTicked = time;
+            member.lastProgress = oldProgress;
+            member.progress = oldProgress;
+            member.pushEntities(targetProgress);
+            member.moveStuckEntities(targetProgress);
+        }
+        for (PistonMovingBlockEntity member : members) {
+            member.progress = targetProgress;
+            member.markDirty();
+        }
+    }
+
+    private List<PistonMovingBlockEntity> liveGroupMembers() {
+        List<PistonMovingBlockEntity> result = new ArrayList<>(this.groupMembers.length);
+        for (long packed : this.groupMembers) {
+            int x = BlockPos.unpackX(packed), y = BlockPos.unpackY(packed), z = BlockPos.unpackZ(packed);
+            if (!isMovingPiston(this.world.getBlock(x, y, z))) continue;
+            if (this.world.getBlockEntity(x, y, z) instanceof PistonMovingBlockEntity member
+                    && member.groupLeader == this.groupLeader) {
+                result.add(member);
+            }
+        }
+        return result;
+    }
+
+    /** Materialize first, then run observer/neighbor logic over the fully landed structure. */
+    private void finishGroup() {
+        List<PistonMovingBlockEntity> members = this.liveGroupMembers();
+        if (members.isEmpty()) return;
+
+        /* Phase 1 is deliberately free of neighbor updates. No observer may see a half-landed
+           slime structure, and no piston counter-edge may finish only one cargo cell. */
+        List<PistonMovingBlockEntity> landed = new ArrayList<>(members.size());
+        for (PistonMovingBlockEntity member : members) {
+            int x = member.pos.x(), y = member.pos.y(), z = member.pos.z();
+            if (member.world.setBlock(x, y, z, member.movedStateId, false)) landed.add(member);
+        }
+
+        /* All old BlockEntity objects remain valid snapshots after setBlock removed them. */
+        for (PistonMovingBlockEntity member : landed) {
+            int x = member.pos.x(), y = member.pos.y(), z = member.pos.z();
+            Direction movement = member.extending ? member.facing : member.facing.opposite();
+            BlockState placed = Blocks.getState(member.movedStateId);
+            placed.getBlock().onMovedByPiston(member.world, x, y, z, placed, movement);
+        }
+        for (PistonMovingBlockEntity member : landed) {
+            member.world.updatePistonMovedBlock(member.pos.x(), member.pos.y(), member.pos.z());
+        }
+        for (PistonMovingBlockEntity member : landed) {
+            if (!member.isSource) continue;
+            Direction f = member.facing;
+            int bx = member.extending ? member.pos.x() - f.offsetX() : member.pos.x();
+            int by = member.extending ? member.pos.y() - f.offsetY() : member.pos.y();
+            int bz = member.extending ? member.pos.z() - f.offsetZ() : member.pos.z();
+            member.world.updateBlockStateAt(bx, by, bz);
+        }
     }
 
     private static boolean isMovingPiston(int stateId) {
@@ -190,13 +310,13 @@ public final class PistonMovingBlockEntity extends BlockEntity {
            BE-Typ — BlockEntity-Blöcke sind piston_reaction=block). false = Chunk gerade
            nicht READY, dann versucht es der nächste Tick erneut. */
         if (!this.world.setBlock(x, y, z, this.movedStateId, false)) return;
-        /* VOR dem Nachbar-Ring: dessen erster Schritt ist updateStateAt auf diese Zelle selbst,
-           und genau der soll den frisch abgesetzten Zustand schon kennen (ein verschobener
-           Beobachter pulst dadurch, statt stumm anzukommen). */
+        /* Powered-Observer verlieren ihren alten Positions-Tick beim Verschieben. Der Hook
+           normalisiert nur diesen Sonderfall; der normale Ankunftspuls entsteht anschliessend
+           aus dem gerichteten eigenen Shape-Pass wie in Vanilla. */
         Direction moveDirection = this.extending ? this.facing : this.facing.opposite();
         BlockState placed = Blocks.getState(this.movedStateId);
         placed.getBlock().onMovedByPiston(this.world, x, y, z, placed, moveDirection);
-        this.world.updateNeighbors(x, y, z);
+        this.world.updatePistonMovedBlock(x, y, z);
         if (this.isSource) {
             Direction f = this.facing;
             int bx = this.extending ? x - f.offsetX() : x;
@@ -337,6 +457,13 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         tag.putBoolean("source", this.isSource);
         tag.putBoolean("sticky", this.sticky);
         tag.putDouble("progress", this.progress);
+        if (this.groupMembers.length > 0) {
+            tag.putLong("groupLeader", this.groupLeader);
+            tag.putInt("groupSize", this.groupMembers.length);
+            for (int i = 0; i < this.groupMembers.length; i++) {
+                tag.putLong("group" + i, this.groupMembers[i]);
+            }
+        }
     }
 
     @Override
@@ -351,5 +478,16 @@ public final class PistonMovingBlockEntity extends BlockEntity {
         this.sticky = tag.getBoolean("sticky", false);
         this.progress = (float) tag.getDouble("progress", 0.0);
         this.lastProgress = this.progress;
+        int groupSize = Math.clamp(tag.getInt("groupSize", 0), 0, 13);
+        if (groupSize > 0) {
+            this.groupLeader = tag.getLong("groupLeader", Long.MIN_VALUE);
+            this.groupMembers = new long[groupSize];
+            for (int i = 0; i < groupSize; i++) {
+                this.groupMembers[i] = tag.getLong("group" + i, Long.MIN_VALUE);
+            }
+        } else {
+            this.groupLeader = Long.MIN_VALUE;
+            this.groupMembers = new long[0];
+        }
     }
 }

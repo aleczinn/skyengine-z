@@ -104,6 +104,18 @@ final class PistonMovingBlockEntityTest {
         assertTrue(boxes.stream().anyMatch(box -> box.maxX > 1.0), "bewegter Kopf fehlt");
     }
 
+    @Test
+    void arrivedMovingFullBlockExposesSupportFaceBeforeMaterialization() {
+        TestWorld world = new TestWorld();
+        PistonMovingBlockEntity moving = world.moving(state("slime_block"), Direction.EAST);
+        DataTag tag = new DataTag();
+        moving.save(tag);
+        tag.putDouble("progress", 1.0);
+        moving.load(tag);
+
+        assertTrue(moving.getCollisionShape().isFaceFull(Direction.UP));
+    }
+
     private static BlockState state(String path) {
         var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
