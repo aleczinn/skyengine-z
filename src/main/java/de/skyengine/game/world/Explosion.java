@@ -61,8 +61,10 @@ public final class Explosion {
     /**
      * Sprengt an der Weltposition (cx, cy, cz) mit der gegebenen {@code power} (MC-TNT = 4).
      * Reichweite ≈ {@code power · 1,3} Blöcke (variiert mit Block-Widerstand).
+     *
+     * @return Anzahl der vom Raycast betroffenen Blöcke für Minecrafts clientseitige Partikelwolke
      */
-    public static void explode(World world, double cx, double cy, double cz, float power) {
+    public static int explode(World world, double cx, double cy, double cz, float power) {
         long start = System.nanoTime();
         int n = subdivisions(power);
         int max = n - 1;
@@ -102,6 +104,7 @@ public final class Explosion {
         /* Eine Zeile Messbarkeit — Explosionen waren der gemeldete Lag-Spike. */
         LOGGER.debug("Explosion: power=" + power + ", " + blocks + " Bloecke, "
                 + (System.nanoTime() - start) / 1_000_000 + " ms");
+        return blocks;
     }
 
     /**

@@ -79,6 +79,12 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
         CycleButton<Boolean> fog = CycleButton.onOff(I18n.tr("options.video.fog"), CELL_W, CELL_H, this.settings.fog,
                 v -> this.settings.fog = v);
 
+        CycleButton<GameSettings.ParticleQuality> particles = new CycleButton<>(
+                I18n.tr("options.video.particles"), CELL_W, CELL_H,
+                GameSettings.ParticleQuality.values(), this.settings.particleQuality,
+                value -> I18n.tr("options.video.particles_" + value.name().toLowerCase()),
+                value -> this.settings.particleQuality = value);
+
         /* Wird pro Frame im ChunkRenderer gelesen (Shader-Fade) -> greift live, kein Remesh. */
         Slider vegetation = new Slider(CELL_W, CELL_H, 0, 32, 1, this.settings.vegetationDistance,
                 v -> I18n.tr("options.video.vegetation_distance",
@@ -116,10 +122,11 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
         content.add(new HStack(4, render, simulation));
         content.add(new HStack(4, msaa, aniso));
         content.add(new HStack(4, ao, leaves));
-        content.add(new HStack(4, fog, vegetation));
+        content.add(new HStack(4, fog, particles));
+        content.add(new HStack(4, vegetation, lod));
         content.add(new HStack(4, bobbing, damageTilt));
         content.add(new HStack(4, vsync, brightness));
-        content.add(new HStack(4, aa, lod));
+        content.add(new HStack(4, aa));
     }
 
     /** AO/Laub stecken im gebackenen Mesh -> Voll-Remesh (nur mit Welt möglich). */

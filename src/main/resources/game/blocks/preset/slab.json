@@ -14,7 +14,8 @@
   "textures": {
     "top": "game/textures/block/${texture}.png",
     "bottom": "game/textures/block/${texture}.png",
-    "side": "game/textures/block/${texture}.png"
+    "side": "game/textures/block/${texture}.png",
+    "particle": "#side"
   },
   "variants": {
     "type=bottom": {

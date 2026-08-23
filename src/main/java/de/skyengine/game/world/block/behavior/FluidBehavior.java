@@ -326,6 +326,7 @@ public final class FluidBehavior implements BlockBehavior {
 
     /** Droppt das Item des weggespülten Blocks (Pflanze, Staub), falls eines registriert ist. */
     private static void dropBlockItem(World world, int x, int y, int z, BlockState state) {
+        world.particles().blockBreak(x, y, z, state);
         world.dropBlockLoot(x, y, z, state, LootContext.Cause.FLUID);
     }
 

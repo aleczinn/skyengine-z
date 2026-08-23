@@ -15,7 +15,8 @@
     "_inventory": "block/button_inventory"
   },
   "textures": {
-    "texture": "game/textures/block/${texture}.png"
+    "texture": "game/textures/block/${texture}.png",
+    "particle": "#texture"
   },
   "inventory_model": "block/${id}_inventory",
   "variants": {

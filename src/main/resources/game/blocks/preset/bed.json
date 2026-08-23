@@ -23,7 +23,8 @@
   },
   "textures": {
     "head_north": "game/textures/block/bed_head_north.png",
-    "down": "game/textures/block/bed_down.png"
+    "down": "game/textures/block/bed_down.png",
+    "particle": "#down"
   },
   "inventory_models": [
     { "model": "block/${id}_head" },

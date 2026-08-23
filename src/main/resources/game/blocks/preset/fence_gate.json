@@ -16,7 +16,8 @@
     "_wall_open": "block/fence_gate_wall_open"
   },
   "textures": {
-    "texture": "game/textures/block/${texture}.png"
+    "texture": "game/textures/block/${texture}.png",
+    "particle": "#texture"
   },
   "inventory_model": "block/${id}",
   "inventory_display_model": "block/${id}",

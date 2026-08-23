@@ -11,6 +11,7 @@ import de.skyengine.game.world.block.shape.ShapeProvider;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.RedstoneSide;
+import de.skyengine.game.world.redstone.RedstoneColors;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -53,8 +54,6 @@ public final class RedstoneWireArchetype implements Archetype {
     private static final class WireModelGenerator implements ModelGenerator {
 
         /** MC-Farbformel je power p (f = p/15): r = 0.6f+0.4 (bzw. 0.3 bei p=0), g/b quadratisch. */
-        private static final int[] COLORS = buildColors();
-
         private final String base;
         private final BakedQuad[][] geometry = new BakedQuad[81][];
 
@@ -74,7 +73,7 @@ public final class RedstoneWireArchetype implements Archetype {
                 geo = buildGeometry(n, e, s, w);
                 this.geometry[key] = geo;
             }
-            int tint = COLORS[state.get(Properties.POWER)];
+            int tint = RedstoneColors.forPower(state.get(Properties.POWER));
             BakedQuad[] out = new BakedQuad[geo.length];
             for (int i = 0; i < geo.length; i++) {
                 BakedQuad q = geo[i];
@@ -103,16 +102,5 @@ public final class RedstoneWireArchetype implements Archetype {
             return BlockModels.concat(parts.toArray(new BakedQuad[0][]));
         }
 
-        private static int[] buildColors() {
-            int[] colors = new int[16];
-            for (int p = 0; p <= 15; p++) {
-                float f = p / 15.0f;
-                float r = f * 0.6f + (p > 0 ? 0.4f : 0.3f);
-                float g = Math.clamp(f * f * 0.7f - 0.5f, 0.0f, 1.0f);
-                float b = Math.clamp(f * f * 0.6f - 0.7f, 0.0f, 1.0f);
-                colors[p] = (int) (r * 255) << 16 | (int) (g * 255) << 8 | (int) (b * 255);
-            }
-            return colors;
-        }
     }
 }

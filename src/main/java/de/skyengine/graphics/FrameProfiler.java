@@ -26,6 +26,8 @@ public final class FrameProfiler {
         LOD_TRANSLUCENT("lodT", PerformanceProfiler.GpuSection.LOD_TRANSLUCENT),
         BLOCK_ENTITIES("blockEntities", PerformanceProfiler.GpuSection.BLOCK_ENTITIES),
         ENTITIES("entities", PerformanceProfiler.GpuSection.ENTITIES),
+        PARTICLES_OPAQUE("particlesO", PerformanceProfiler.GpuSection.PARTICLES),
+        PARTICLES_TRANSLUCENT("particlesT", PerformanceProfiler.GpuSection.PARTICLES),
         OVERLAYS("overlays", PerformanceProfiler.GpuSection.HAND_OVERLAYS),
         GUI("gui", PerformanceProfiler.GpuSection.GUI),
         BLIT("resolve/post", PerformanceProfiler.GpuSection.POSTPROCESSING);
@@ -45,6 +47,7 @@ public final class FrameProfiler {
         REMESH("remesh", PerformanceProfiler.CpuSection.UPLOAD),
         BE("be", PerformanceProfiler.CpuSection.BLOCK_ENTITIES),
         ENT("ent", PerformanceProfiler.CpuSection.ENTITIES),
+        PARTICLES("particles", PerformanceProfiler.CpuSection.PARTICLES),
         SORT("sort", PerformanceProfiler.CpuSection.SORT),
         OVL("ovl", PerformanceProfiler.CpuSection.OVERLAYS),
         GUI("gui", PerformanceProfiler.CpuSection.GUI),

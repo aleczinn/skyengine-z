@@ -242,6 +242,7 @@ public final class PistonBehavior implements BlockBehavior {
             int dx = BlockPos.unpackX(pos), dy = BlockPos.unpackY(pos), dz = BlockPos.unpackZ(pos);
             BlockState broken = Blocks.getState(world.getBlock(dx, dy, dz));
             world.dropBlockLoot(dx, dy, dz, broken, LootContext.Cause.PISTON);
+            world.particles().blockBreak(dx, dy, dz, broken);
             broken.getBlock().onBreak(world, dx, dy, dz, broken);
         }
 

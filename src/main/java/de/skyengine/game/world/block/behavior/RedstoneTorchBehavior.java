@@ -72,6 +72,7 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
             /* AN-Flanke: das Protokoll nur lesen; der 160-Tick-Neustart kommt später erneut. */
             if (this.isBurntOut(world, x, y, z)) return;
         } else if (this.recordToggle(world, x, y, z)) {
+            world.particles().redstoneBurnout(x, y, z);
             /* AUS-Flanke hat das Limit gerissen: zischen und selbstständigen Neustart planen. */
             if (world.getSoundManager() != null) {
                 world.getSoundManager().playFizz(x + 0.5, y + 0.5, z + 0.5);

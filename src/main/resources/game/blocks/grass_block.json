@@ -13,6 +13,7 @@
     "up"
   ],
   "textures": {
-    "overlay": "game/textures/block/grass_block_side_overlay.png"
+    "overlay": "game/textures/block/grass_block_side_overlay.png",
+    "particle": "game/textures/block/dirt.png"
   }
 }

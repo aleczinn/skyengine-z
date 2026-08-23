@@ -148,9 +148,9 @@ public final class BlockStateModels {
                 quads.add(moved.quads());
                 Collections.addAll(boxes, moved.boxes());
             }
-            return new ModelLoader.Baked(
-                    BlockModels.concat(quads.toArray(new BakedQuad[0][])),
-                    boxes.toArray(new AABB[0]));
+            BakedQuad[] combined = BlockModels.concat(quads.toArray(new BakedQuad[0][]));
+            return new ModelLoader.Baked(combined, boxes.toArray(new AABB[0]),
+                    combined.length == 0 ? -1 : combined[0].textureLayer());
         }
         if (!root.has("inventory_model")) return null;
         int x = root.has("inventory_x") ? root.get("inventory_x").getAsInt() : 0;
@@ -205,7 +205,7 @@ public final class BlockStateModels {
             boxes[i] = new AABB(box.minX + dx, box.minY + dy, box.minZ + dz,
                     box.maxX + dx, box.maxY + dy, box.maxZ + dz);
         }
-        return new ModelLoader.Baked(out, boxes);
+        return new ModelLoader.Baked(out, boxes, baked.particleLayer());
     }
 
     private static ModelLoader.Baked bakeInternal(Block block, BlockState state) {
@@ -260,16 +260,18 @@ public final class BlockStateModels {
     private static ModelLoader.Baked bakeMultipart(JsonArray parts, BlockState state) {
         List<BakedQuad[]> quads = new ArrayList<>();
         List<AABB> boxes = new ArrayList<>();
+        int particleLayer = -1;
         for (JsonElement pe : parts) {
             JsonObject part = pe.getAsJsonObject();
             if (part.has("when") && !matches(part.getAsJsonObject("when"), state)) continue;
             ModelLoader.Baked b = applyVariant(firstObject(part.get("apply")));
             quads.add(b.quads());
             Collections.addAll(boxes, b.boxes());
+            if (particleLayer < 0) particleLayer = b.particleLayer();
         }
         return new ModelLoader.Baked(
                 BlockModels.concat(quads.toArray(new BakedQuad[0][])),
-                boxes.toArray(new AABB[0]));
+                boxes.toArray(new AABB[0]), particleLayer);
     }
 
     /** Gilt für {@code variants} UND für die {@code apply}-Objekte von {@code multipart}. */

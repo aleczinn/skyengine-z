@@ -37,6 +37,8 @@ public final class DispenserBlockEntity extends BlockEntity {
     /** Aktiviert genau einen per Vanilla-Reservoir-Auswahl bestimmten belegten Slot. */
     public void activate(Direction facing, boolean dropper) {
         if (this.world == null) return;
+        this.world.particles().dispenser(this.pos.x() + 0.5, this.pos.y() + 0.5,
+                this.pos.z() + 0.5, facing.offsetX(), facing.offsetY(), facing.offsetZ());
         int slot = this.randomSlot();
         if (slot < 0) {
             this.world.playDispenserFailure(this.pos.x(), this.pos.y(), this.pos.z());

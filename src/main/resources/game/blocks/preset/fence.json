@@ -13,7 +13,8 @@
     "_inventory": "block/fence_inventory"
   },
   "textures": {
-    "all": "game/textures/block/${texture}.png"
+    "all": "game/textures/block/${texture}.png",
+    "particle": "#all"
   },
   "post": {
     "from": [

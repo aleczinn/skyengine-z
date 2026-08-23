@@ -17,7 +17,8 @@
     "_open": "block/trapdoor_open"
   },
   "textures": {
-    "texture": "game/textures/block/${texture}.png"
+    "texture": "game/textures/block/${texture}.png",
+    "particle": "#texture"
   },
   "inventory_model": "block/${id}_bottom",
   "variants": {

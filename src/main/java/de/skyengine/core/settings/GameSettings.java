@@ -42,6 +42,28 @@ public final class GameSettings {
      */
     public enum LeavesQuality { LOW, MID, HIGH }
 
+    /** Menge kosmetischer Weltpartikel. Die Caps verhindern ungebremste Burst-Kosten. */
+    public enum ParticleQuality {
+        MINIMAL(2048, 0.25F, 0F, 16F, 32F),
+        DECREASED(4096, 0.5F, 0.5F, 24F, 48F),
+        ALL(8192, 1F, 1F, 32F, 64F);
+
+        public final int capacity;
+        public final float eventRate;
+        public final float ambientRate;
+        public final float ambientDistance;
+        public final float eventDistance;
+
+        ParticleQuality(int capacity, float eventRate, float ambientRate,
+                        float ambientDistance, float eventDistance) {
+            this.capacity = capacity;
+            this.eventRate = eventRate;
+            this.ambientRate = ambientRate;
+            this.ambientDistance = ambientDistance;
+            this.eventDistance = eventDistance;
+        }
+    }
+
     /**
      * AO-Qualitaet der LOD-Ringe. Weiches Corner-AO trennt Zellen mit unterschiedlichen Eckwerten
      * und bricht damit Greedy-Merges — jede Stufe hoeher kostet also Quads und GPU-Zeit, waehrend
@@ -95,6 +117,7 @@ public final class GameSettings {
     public volatile boolean ambientOcclusion = true;
     /* volatile: wird von den Mesher-Worker-Threads gelesen (Zyklus-Hotkey löst Voll-Remesh aus) */
     public volatile LeavesQuality leavesQuality = LeavesQuality.MID;
+    public ParticleQuality particleQuality = ParticleQuality.ALL;
     /* Anisotropes Filtern (1 = aus, 2, 4, 8, 16), wird beim Erzeugen des TextureArrays angewandt */
     public int anisotropicFiltering = 16;
     /* MSAA-Sample-Zahl des Offscreen-Framebuffers (0 = aus, 2, 4, 8, 16), greift beim nächsten
@@ -242,6 +265,7 @@ public final class GameSettings {
         if (this.mouseSensitivity <= 0) this.mouseSensitivity = 1.0;
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;
+        if (this.particleQuality == null) this.particleQuality = ParticleQuality.ALL;
         if (this.lodAmbientOcclusionQuality == null) this.lodAmbientOcclusionQuality = LodAmbientOcclusionQuality.MID;
         if (this.keyBindings == null) {
             this.keyBindings = KeyBindings.defaults();

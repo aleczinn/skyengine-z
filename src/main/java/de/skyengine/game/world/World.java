@@ -23,6 +23,8 @@ import de.skyengine.game.world.block.entity.PistonMovingBlockEntity;
 import de.skyengine.game.world.block.behavior.WorldScopedPositionMap;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
+import de.skyengine.game.world.block.state.AttachFace;
+import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
@@ -46,6 +48,8 @@ import de.skyengine.game.world.lod.LodBlockAppearance;
 import de.skyengine.game.world.lod.LodDataSource;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.PersistentLodDataSource;
+import de.skyengine.game.world.particle.ParticleEngine;
+import de.skyengine.game.world.particle.ParticlePriority;
 import de.skyengine.game.world.redstone.RedstonePower;
 import de.skyengine.game.world.redstone.RedstoneWireNetwork;
 import de.skyengine.game.world.tick.SavedTick;
@@ -58,6 +62,7 @@ import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.PerformanceProfiler;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.entity.EntityRenderer;
+import de.skyengine.graphics.particle.ParticleRenderer;
 import de.skyengine.graphics.world.ChunkRenderer;
 import de.skyengine.utils.collect.LongIntMap;
 import de.skyengine.utils.collect.LongObjMap;
@@ -79,7 +84,8 @@ import java.util.function.BooleanSupplier;
 public class World implements IInitializable, IDisposable {
 
     private static final int ANIMATE_TICK_SAMPLES = 667;
-    private static final int ANIMATE_TICK_RADIUS = 16;
+    private static final int ANIMATE_TICK_NEAR_RADIUS = 16;
+    private static final int ANIMATE_TICK_FAR_RADIUS = 32;
 
     private final Logger logger = LogManager.getLogger(World.class.getName());
     /* Synchronous player action scope. Nested block behavior mutations inherit the origin. */
@@ -113,6 +119,8 @@ public class World implements IInitializable, IDisposable {
     private final BlockTextureAtlas atlas;
     private final BlockEntityRenderDispatcher blockEntityRenderer;
     private final EntityRenderer entityRenderer = new EntityRenderer();
+    private final ParticleEngine particles;
+    private final ParticleRenderer particleRenderer;
     /* Engine-Lebensdauer (GameContainer): für Sounds aus der Welt-Logik (z.B. TNT-Explosion). Nullable. */
     private SoundManager soundManager;
 
@@ -170,7 +178,8 @@ public class World implements IInitializable, IDisposable {
     private boolean handlingTick;
     private final Random random = new Random();
     /* Kosmetische Zufallsfolge getrennt von der Simulation: Audio darf Fluid-Timing nicht ändern. */
-    private final Random animateRandom = new Random();
+    private final Random animateCoordinateRandom = new Random();
+    private final Random animateEffectRandom = new Random();
     /** Weltgebundener RNG für Drops und seltene Gameplay-Ereignisse; nur Tick-Thread. */
     public Random random() { return this.random; }
     private final java.util.Map<String, LootRandom> lootRandoms = new java.util.HashMap<>();
@@ -251,6 +260,8 @@ public class World implements IInitializable, IDisposable {
         this.name = dirName;
         this.atlas = atlas;
         this.blockEntityRenderer = blockEntityRenderer;
+        this.particles = new ParticleEngine(this);
+        this.particleRenderer = new ParticleRenderer(this.particles, atlas.textures());
         this.lootSeed = level.seed;
         this.tntExplosionDropDecay = Boolean.TRUE.equals(level.tntExplosionDropDecay);
         if (level.lootRandomStates != null) {
@@ -305,6 +316,14 @@ public class World implements IInitializable, IDisposable {
         return this.soundManager;
     }
 
+    public ParticleEngine particles() {
+        return this.particles;
+    }
+
+    public EntityPlayer getPlayer() {
+        return this.player;
+    }
+
     /** Aktualisiert positionsgebundene Entity-Sounds unabhängig vom Frustum-Culling. */
     public void updateEntitySounds(float partialTick) {
         if (this.soundManager == null) return;
@@ -334,6 +353,7 @@ public class World implements IInitializable, IDisposable {
     }
 
     public void playFluidExtinguish(int x, int y, int z) {
+        this.particles.fluidReaction(x + 0.5, y + 0.5, z + 0.5);
         if (this.soundManager != null) this.soundManager.playFluidExtinguish(x + 0.5, y + 0.5, z + 0.5);
     }
 
@@ -346,7 +366,11 @@ public class World implements IInitializable, IDisposable {
     }
 
     public void playLavaPop(int x, int y, int z) {
-        if (this.soundManager != null) this.soundManager.playLavaPop(x + 0.5, y + 0.5, z + 0.5);
+        double px = x + this.animateEffectRandom.nextDouble();
+        double py = y + 1.0;
+        double pz = z + this.animateEffectRandom.nextDouble();
+        this.particles.lavaPop(px, py, pz);
+        if (this.soundManager != null) this.soundManager.playLavaPop(px, py, pz);
     }
 
     public BlockEntityRenderDispatcher getBlockEntityRenderDispatcher() {
@@ -357,6 +381,8 @@ public class World implements IInitializable, IDisposable {
     public void reloadEntityRenderer() {
         this.entityRenderer.dispose();
         this.entityRenderer.init(this.atlas.textures());
+        this.particleRenderer.dispose();
+        this.particleRenderer.init();
     }
 
     @Override
@@ -376,6 +402,7 @@ public class World implements IInitializable, IDisposable {
         this.chunkManager.setLodManager(this.lodManager); // Unload-Gate: erst entladen, wenn LOD deckt
         /* BlockEntity-Renderer werden beim Boot registriert/initialisiert (GameContainer). */
         this.entityRenderer.init(this.atlas.textures());
+        this.particleRenderer.init();
     }
 
     public void update(Input input, EntityPlayer player) {
@@ -430,6 +457,11 @@ public class World implements IInitializable, IDisposable {
         this.pushMinecartsByPlayer(player);
         this.tickEntities();
         attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.ENTITY_TICKS, phase);
+        phase = profiler.begin();
+        this.particles.tick();
+        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.PARTICLE_TICKS, phase);
+        profiler.set(PerformanceProfiler.Counter.ACTIVE_PARTICLES, this.particles.count());
+        profiler.set(PerformanceProfiler.Counter.REJECTED_PARTICLES, this.particles.rejected());
         this.simulationTelemetry.endTick();
         if (tickStarted != 0 && profiler.isEnabled()) {
             long total = System.nanoTime() - tickStarted;
@@ -1375,23 +1407,83 @@ public class World implements IInitializable, IDisposable {
     /**
      * Minecraft-artige clientseitige Animate-Ticks nahe am Spieler. Sie sind bewusst von den
      * serverartigen Random-Ticks getrennt: Sounds dürfen Wachstum und Fluid-Timing nicht
-     * beeinflussen. Aktuell nutzt nur FluidBehavior diesen Hook.
+     * beeinflussen. Minecraft 26.2 prüft pro Sample je einen 16er- und 32er-Ring.
      */
     private void tickAnimateBlocks() {
-        if (this.soundManager == null || this.player == null) return;
+        if (this.player == null) return;
         int px = (int) Math.floor(this.player.x);
         int py = (int) Math.floor(this.player.y);
         int pz = (int) Math.floor(this.player.z);
         for (int i = 0; i < ANIMATE_TICK_SAMPLES; i++) {
-            int x = px + this.animateRandom.nextInt(ANIMATE_TICK_RADIUS)
-                    - this.animateRandom.nextInt(ANIMATE_TICK_RADIUS);
-            int y = py + this.animateRandom.nextInt(ANIMATE_TICK_RADIUS)
-                    - this.animateRandom.nextInt(ANIMATE_TICK_RADIUS);
-            int z = pz + this.animateRandom.nextInt(ANIMATE_TICK_RADIUS)
-                    - this.animateRandom.nextInt(ANIMATE_TICK_RADIUS);
-            BlockState state = Blocks.getState(this.getBlock(x, y, z));
-            if (state.isFluid()) state.getBlock().animateTick(this, x, y, z, state, this.animateRandom);
+            this.animateBlockSample(px, py, pz, ANIMATE_TICK_NEAR_RADIUS);
+            this.animateBlockSample(px, py, pz, ANIMATE_TICK_FAR_RADIUS);
         }
+    }
+
+    private void animateBlockSample(int centerX, int centerY, int centerZ, int radius) {
+        int x = centerX + this.animateCoordinateRandom.nextInt(radius)
+                - this.animateCoordinateRandom.nextInt(radius);
+        int y = centerY + this.animateCoordinateRandom.nextInt(radius)
+                - this.animateCoordinateRandom.nextInt(radius);
+        int z = centerZ + this.animateCoordinateRandom.nextInt(radius)
+                - this.animateCoordinateRandom.nextInt(radius);
+        BlockState state = Blocks.getState(this.getBlock(x, y, z));
+        if (state.isAir()) return;
+        state.getBlock().animateTick(this, x, y, z, state, this.animateEffectRandom);
+        if (state.isFluid() && !state.getBlock().getFluidInfo().lava
+                && this.animateEffectRandom.nextInt(10) == 0) {
+            this.particles.underwater(x + this.animateEffectRandom.nextDouble(),
+                    y + this.animateEffectRandom.nextDouble(), z + this.animateEffectRandom.nextDouble());
+        }
+        if (!state.isFluid() && this.getBlock(x, y - 1, z) == Blocks.AIR) {
+            BlockState above = Blocks.getState(this.getBlock(x, y + 1, z));
+            if (above.isFluid() && this.animateEffectRandom.nextInt(10) == 0) {
+                this.particles.drip(x + this.animateEffectRandom.nextDouble(), y - 0.02,
+                        z + this.animateEffectRandom.nextDouble(), above.getBlock().getFluidInfo().lava);
+            }
+        }
+        String id = state.getBlock().getIdentifier().path();
+        if (id.equals("redstone_wire")) {
+            this.particles.redstoneWire(x, y, z, state);
+        } else if (id.equals("redstone_torch") && state.get(Properties.LIT)) {
+            this.animateRedstoneTorch(x, y, z, state);
+        } else if (id.equals("torch")) {
+            this.animateTorch(x, y, z, state);
+        }
+        if (state.isLeaves()) this.animateLeaves(x, y, z, state, id);
+    }
+
+    private void animateTorch(int x, int y, int z, BlockState state) {
+        double px = x + 0.5, py = y + 0.7, pz = z + 0.5;
+        if (state.get(Properties.ATTACH) == AttachFace.WALL) {
+            Direction facing = state.get(Properties.FACING);
+            px += facing.offsetX() * 0.27;
+            py += 0.22;
+            pz += facing.offsetZ() * 0.27;
+        }
+        this.particles.torch(px, py, pz);
+    }
+
+    private void animateRedstoneTorch(int x, int y, int z, BlockState state) {
+        double px = x + 0.5 + (this.animateEffectRandom.nextDouble() - 0.5) * 0.2;
+        double py = y + 0.7 + (this.animateEffectRandom.nextDouble() - 0.5) * 0.2;
+        double pz = z + 0.5 + (this.animateEffectRandom.nextDouble() - 0.5) * 0.2;
+        if (state.get(Properties.ATTACH) == AttachFace.WALL) {
+            Direction facing = state.get(Properties.FACING);
+            px += facing.offsetX() * 0.27;
+            py += 0.22;
+            pz += facing.offsetZ() * 0.27;
+        }
+        this.particles.redstoneDust(px, py, pz, 0xFF0000,
+                ParticlePriority.AMBIENT);
+    }
+
+    private void animateLeaves(int x, int y, int z, BlockState state, String id) {
+        float chance = id.equals("pale_oak_leaves") ? 0.02F : 0.01F;
+        if (this.animateEffectRandom.nextFloat() >= chance
+                || this.getCollisionShape(x, y - 1, z).isFaceFull(Direction.UP)) return;
+        this.particles.fallingLeaf(x + this.animateEffectRandom.nextDouble(), y - 0.05,
+                z + this.animateEffectRandom.nextDouble(), state, id.equals("pale_oak_leaves"));
     }
 
     /**
@@ -1512,7 +1604,17 @@ public class World implements IInitializable, IDisposable {
         if (beforeTranslucent != null) beforeTranslucent.run();
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.ENTITIES);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.ENT);
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.PARTICLES);
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.PARTICLES_OPAQUE);
+        this.particleRenderer.renderOpaque(camera, partialTick);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.PARTICLES_OPAQUE);
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.PARTICLES);
         this.chunkRenderer.renderTranslucent(camera);
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.PARTICLES);
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.PARTICLES_TRANSLUCENT);
+        this.particleRenderer.renderTranslucent(camera, partialTick);
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.PARTICLES_TRANSLUCENT);
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.PARTICLES);
     }
 
     @Override
@@ -1526,6 +1628,7 @@ public class World implements IInitializable, IDisposable {
            flushen (bis 10 s) und die Region-Handles schließen. */
         this.storage.close();
         this.entityRenderer.dispose();
+        this.particleRenderer.dispose();
         this.chunkRenderer.dispose();
         /* blockEntityRenderer + atlas NICHT disposen: Engine-Lebensdauer (GameContainer). */
     }
