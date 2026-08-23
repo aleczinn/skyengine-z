@@ -90,6 +90,8 @@ public class World implements IInitializable, IDisposable {
     private final Logger logger = LogManager.getLogger(World.class.getName());
     /* Synchronous player action scope. Nested block behavior mutations inherit the origin. */
     private int playerBlockChangeDepth;
+    /** True while a piston replaces a complete structure by moving-piston placeholders. */
+    private int pistonBlockMoveDepth;
 
     public boolean runPlayerBlockChange(BooleanSupplier action) {
         this.playerBlockChangeDepth++;
@@ -261,7 +263,8 @@ public class World implements IInitializable, IDisposable {
         this.atlas = atlas;
         this.blockEntityRenderer = blockEntityRenderer;
         this.particles = new ParticleEngine(this);
-        this.particleRenderer = new ParticleRenderer(this.particles, atlas.textures());
+        /* Headless Verhaltens-/Persistenztests erzeugen bewusst eine Welt ohne Renderdaten. */
+        this.particleRenderer = atlas == null ? null : new ParticleRenderer(this.particles, atlas.textures());
         this.lootSeed = level.seed;
         this.tntExplosionDropDecay = Boolean.TRUE.equals(level.tntExplosionDropDecay);
         if (level.lootRandomStates != null) {
@@ -444,19 +447,24 @@ public class World implements IInitializable, IDisposable {
         this.tickScheduled();
         attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.SCHEDULED_TICKS, phase);
         phase = profiler.begin();
-        this.processBlockEvents(); // Vanillas einziger runBlockEvents-Punkt, VOR der BE-Phase
-        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.BLOCK_EVENTS, phase);
-        phase = profiler.begin();
         this.tickRandomBlocks();
         this.tickAnimateBlocks();
         attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.RANDOM_TICKS, phase);
         phase = profiler.begin();
-        this.tickBlockEntities();
-        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.BLOCK_ENTITY_TICKS, phase);
+        /* ServerLevel.tick: Random-/Chunk-Ticks, dann der einzige Blockevent-Drain. */
+        this.processBlockEvents();
+        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.BLOCK_EVENTS, phase);
+        /* Vanilla beendet isHandlingTick unmittelbar NACH runBlockEvents und noch VOR
+           Entity-/BlockEntity-Ticks. Bleibt das Flag waehrend eines Moving-Piston-Finishs
+           wahr, waehlt PistonBaseBlock bei jeder Gegenflanke faelschlich TRIGGER_DROP. */
+        this.handlingTick = false;
         phase = profiler.begin();
         this.pushMinecartsByPlayer(player);
         this.tickEntities();
         attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.ENTITY_TICKS, phase);
+        phase = profiler.begin();
+        this.tickBlockEntities();
+        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.BLOCK_ENTITY_TICKS, phase);
         phase = profiler.begin();
         this.particles.tick();
         attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.PARTICLE_TICKS, phase);
@@ -2242,6 +2250,44 @@ public class World implements IInitializable, IDisposable {
         this.updateStateAt(x, y, z);
     }
 
+    /**
+     * Groups the source-to-moving-piston writes of one piston action. Behaviors use this
+     * scope to distinguish an actual removal from a block that is merely being relocated.
+     */
+    public void runPistonBlockMove(Runnable action) {
+        this.pistonBlockMoveDepth++;
+        try {
+            action.run();
+        } finally {
+            this.pistonBlockMoveDepth--;
+        }
+    }
+
+    public boolean isPistonBlockMove() {
+        return this.pistonBlockMoveDepth > 0;
+    }
+
+    /**
+     * Nachbehandlung eines von einem Kolben materialisierten Blocks. Vanilla berechnet zuerst
+     * dessen eigene gerichtete Nachbarformen und benachrichtigt danach die Umgebung. Der eigene
+     * Shape-Pass ist insbesondere fuer Observer wichtig: ihr Ankunftspuls entsteht aus dem
+     * Update ihrer Vorderseite, nicht aus einem kuenstlichen pauschalen Puls-Hook.
+     */
+    public void updatePistonMovedBlock(int x, int y, int z) {
+        for (Direction direction : Direction.shapeUpdateValues()) {
+            this.updateShapeStateAt(x, y, z, direction);
+            if (this.getBlock(x, y, z) == Blocks.AIR) return;
+        }
+        for (Direction direction : Direction.neighborUpdateValues()) {
+            this.updateGeneralStateAt(x + direction.offsetX(),
+                    y + direction.offsetY(), z + direction.offsetZ());
+        }
+        for (Direction direction : Direction.shapeUpdateValues()) {
+            this.updateShapeStateAt(x + direction.offsetX(), y + direction.offsetY(),
+                    z + direction.offsetZ(), direction.opposite());
+        }
+    }
+
     private void updateStateAt(int x, int y, int z) {
         this.updateStateAt(x, y, z, null);
     }
@@ -2566,6 +2612,8 @@ public class World implements IInitializable, IDisposable {
         for (int x = x0; x <= x1; x++) {
             for (int z = z0; z <= z1; z++) {
                 for (int y = y0; y <= y1; y++) {
+                    if (Blocks.getState(this.getBlock(x, y, z)).getBlock()
+                            == Blocks.getState(Blocks.MOVING_PISTON).getBlock()) continue;
                     BlockShape shape = this.getCollisionShape(x, y, z);
                     if (shape.isEmpty()) continue;
                     for (AABB local : shape.boxes()) {
@@ -2610,6 +2658,10 @@ public class World implements IInitializable, IDisposable {
         }
 
         int id = chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
+        if (Blocks.getState(id).getBlock() == Blocks.getState(Blocks.MOVING_PISTON).getBlock()
+                && this.getBlockEntity(x, y, z) instanceof PistonMovingBlockEntity moving) {
+            return moving.getCollisionShape();
+        }
         return Blocks.getState(id).getCollisionShape();
     }
 

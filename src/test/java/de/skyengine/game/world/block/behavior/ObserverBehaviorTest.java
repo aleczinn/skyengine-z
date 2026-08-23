@@ -21,6 +21,7 @@ import java.lang.reflect.Field;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ObserverBehaviorTest {
 
@@ -171,16 +172,46 @@ final class ObserverBehaviorTest {
     }
 
     @Test
-    void unpoweredMovedObserverStillStartsItsArrivalPulse() {
+    void unpoweredMovedObserverStartsArrivalPulseThroughOwnShapePass() {
         TestWorld world = new TestWorld();
         BlockState observer = state("observer")
                 .with(Properties.FACING_ALL, Direction.WEST)
                 .with(Properties.POWERED, false);
+        world.put(1, observer);
 
         observer.getBlock().onMovedByPiston(world, 1, 64, 0, observer, Direction.NORTH);
+        assertEquals(0, world.scheduledTicks,
+                "der Piston-Hook darf keinen kuenstlichen pauschalen Puls mehr erzeugen");
+
+        world.updatePistonMovedBlock(1, 64, 0);
 
         assertEquals(1, world.scheduledTicks);
         assertEquals(2, world.lastDelay);
+    }
+
+    @Test
+    void movedObserverPulsePowersClockWireAndQueuesPistonExtend() {
+        TestWorld world = new TestWorld();
+        BlockState piston = state("sticky_piston")
+                .with(Properties.FACING_ALL, Direction.SOUTH)
+                .with(Properties.EXTENDED, false);
+        BlockState observer = state("observer")
+                .with(Properties.FACING_ALL, Direction.SOUTH)
+                .with(Properties.POWERED, false);
+        world.put(4, 64, 4, piston);
+        world.put(5, 64, 4, observer);
+        world.put(4, 64, 3, state("stone"));
+        world.put(5, 64, 3, state("stone"));
+        world.put(4, 65, 3, state("redstone_wire"));
+        world.put(5, 65, 3, state("redstone_wire"));
+
+        world.updatePistonMovedBlock(5, 64, 4);
+        observer.getBlock().scheduledTick(world, 5, 64, 4, observer);
+
+        assertEquals(true, Blocks.getState(world.getBlock(5, 64, 4)).get(Properties.POWERED));
+        assertEquals(15, Blocks.getState(world.getBlock(5, 65, 3)).get(Properties.POWER));
+        assertTrue(world.blockEvents >= 1,
+                "der Observer-Puls muss über den Staub ein Extend-Event am Kolben einreihen");
     }
 
     private static BlockState state(String path) {
@@ -208,6 +239,7 @@ final class ObserverBehaviorTest {
         private int neighborUpdates;
         private int lastNeighborX;
         private boolean lastSetBlockUpdates;
+        private int blockEvents;
 
         TestWorld() {
             super("__observer_test", level(), null, null);
@@ -224,6 +256,10 @@ final class ObserverBehaviorTest {
 
         void put(int x, BlockState state) {
             this.blocks.put(BlockPos.asLong(x, 64, 0), state.getId());
+        }
+
+        void put(int x, int y, int z, BlockState state) {
+            this.blocks.put(BlockPos.asLong(x, y, z), state.getId());
         }
 
         @Override
@@ -255,9 +291,15 @@ final class ObserverBehaviorTest {
         }
 
         @Override
+        public void enqueueBlockEvent(int x, int y, int z, int eventId, int eventParam) {
+            this.blockEvents++;
+        }
+
+        @Override
         public void updateDirectionalOutputNeighbors(int x, int y, int z, Direction output) {
             this.neighborUpdates++;
             this.lastNeighborX = x + output.offsetX();
+            super.updateDirectionalOutputNeighbors(x, y, z, output);
         }
 
         private static LevelData level() {

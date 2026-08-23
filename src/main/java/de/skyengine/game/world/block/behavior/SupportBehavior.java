@@ -57,22 +57,28 @@ public final class SupportBehavior implements BlockBehavior {
     @Override
     public boolean canPlace(PlacementContext ctx, BlockState state) {
         if (isUpperHalf(state)) return true;
-        return this.isValidSupport(
+        return this.isValidSupport(ctx.world(), ctx.x(), ctx.y() - 1, ctx.z(),
                 Blocks.getState(ctx.world().getBlock(ctx.x(), ctx.y() - 1, ctx.z())), state);
     }
 
     @Override
     public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
         if (isUpperHalf(state)) return state;
-        if (this.isValidSupport(Blocks.getState(world.getBlock(x, y - 1, z)), state)) return state;
+        if (this.isValidSupport(world, x, y - 1, z,
+                Blocks.getState(world.getBlock(x, y - 1, z)), state)) return state;
         return Blocks.getState(Blocks.AIR); // Stütze ungültig -> zerbricht (kein Drop)
     }
 
-    private boolean isValidSupport(BlockState support, BlockState supported) {
+    private boolean isValidSupport(World world, int supportX, int supportY, int supportZ,
+                                   BlockState support, BlockState supported) {
         if (this.allowedGround != null && !this.allowedGround.contains(support.getBlock().getIdentifier())) {
             return false;
         }
-        if (this.requireFullTop && !hasFullTopFace(support)
+        boolean fullTop = support.getBlock() == Blocks.getState(Blocks.MOVING_PISTON).getBlock()
+                ? world.getCollisionShape(supportX, supportY, supportZ).isFaceFull(
+                        de.skyengine.game.world.block.Direction.UP)
+                : hasFullTopFace(support);
+        if (this.requireFullTop && !fullTop
                 && !isRedstoneWireOnHopper(supported, support)) return false;
         return !this.requireCenterTop || hasCenterTopFace(support);
     }

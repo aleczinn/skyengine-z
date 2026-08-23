@@ -140,15 +140,15 @@ public final class PistonBehavior implements BlockBehavior {
         if (own != null) {
             boolean wasExtending = own.isExtending();
             if (extend == wasExtending) return;
-            own.finishNow();
-            if (this.sticky && wasExtending) {
+            if (eventId < 0 && this.sticky && wasExtending) {
                 int cx = x + 2 * f.offsetX(), cy = y + 2 * f.offsetY(), cz = z + 2 * f.offsetZ();
                 if (world.getBlockEntity(cx, cy, cz) instanceof PistonMovingBlockEntity cargo
                         && cargo.getFacing() == f && cargo.isExtending() && !cargo.isSource()) {
-                    if (eventId < 0) dropCargo = isTooEarlyToPull(world, cargo);
-                    cargo.finishNow();
+                    dropCargo = isTooEarlyToPull(world, cargo);
                 }
             }
+            /* finishNow finalizes the complete movement group, not only the source arm. */
+            own.finishNow();
             /* finish flippt ggf. EXTENDED — frisch lesen (defensiv: Zelle könnte ersetzt sein). */
             state = Blocks.getState(world.getBlock(x, y, z));
             if (!state.getValues().containsKey(Properties.EXTENDED)) return;
@@ -156,9 +156,14 @@ public final class PistonBehavior implements BlockBehavior {
 
         boolean extended = state.get(Properties.EXTENDED);
         if (extend && !extended) {
-            this.extend(world, x, y, z, state, f);
+            BlockState currentState = state;
+            world.runPistonBlockMove(() -> this.extend(world, x, y, z, currentState, f));
         } else if (!extend && extended) {
-            this.retract(world, x, y, z, state, f, dropCargo, vanillaDirectionFromId(eventParam));
+            BlockState currentState = state;
+            boolean currentDropCargo = dropCargo;
+            Direction storedFacing = vanillaDirectionFromId(eventParam);
+            world.runPistonBlockMove(() -> this.retract(
+                    world, x, y, z, currentState, f, currentDropCargo, storedFacing));
         }
     }
 
@@ -251,6 +256,8 @@ public final class PistonBehavior implements BlockBehavior {
            die Schreib-Reihenfolge irrelevant. */
         long[] moves = result.moves();
         int[] movedIds = new int[moves.length];
+        java.util.ArrayList<PistonMovingBlockEntity> group = new java.util.ArrayList<>();
+        java.util.ArrayList<Long> groupPositions = new java.util.ArrayList<>();
         for (int i = 0; i < moves.length; i++) {
             movedIds[i] = world.getBlock(BlockPos.unpackX(moves[i]),
                     BlockPos.unpackY(moves[i]), BlockPos.unpackZ(moves[i]));
@@ -264,8 +271,13 @@ public final class PistonBehavior implements BlockBehavior {
             int tx = BlockPos.unpackX(moves[i]) + f.offsetX();
             int ty = BlockPos.unpackY(moves[i]) + f.offsetY();
             int tz = BlockPos.unpackZ(moves[i]) + f.offsetZ();
-            spawnMoving(world, tx, ty, tz, movedIds[i], f, true, false, this.sticky);
+            PistonMovingBlockEntity moving = spawnMoving(
+                    world, tx, ty, tz, movedIds[i], f, true, false, this.sticky);
             long t = BlockPos.asLong(tx, ty, tz);
+            if (moving != null) {
+                group.add(moving);
+                groupPositions.add(t);
+            }
             targets.add(t);
             notify.add(t);
         }
@@ -283,7 +295,14 @@ public final class PistonBehavior implements BlockBehavior {
         BlockState head = Blocks.getState(Blocks.PISTON_HEAD)
                 .with(Properties.FACING_ALL, f)
                 .with(Properties.PISTON_TYPE, this.sticky ? PistonType.STICKY : PistonType.NORMAL);
-        spawnMoving(world, hx, hy, hz, head.getId(), f, true, true, this.sticky);
+        PistonMovingBlockEntity source = spawnMoving(
+                world, hx, hy, hz, head.getId(), f, true, true, this.sticky);
+        long leader = BlockPos.asLong(hx, hy, hz);
+        if (source != null) {
+            group.add(source);
+            groupPositions.add(leader);
+        }
+        configureGroup(group, groupPositions, leader);
         world.setBlock(x, y, z, state.with(Properties.EXTENDED, true).getId(), false);
 
         world.updateNeighbors(x, y, z);
@@ -338,7 +357,14 @@ public final class PistonBehavior implements BlockBehavior {
         long headPos = BlockPos.asLong(hx, hy, hz);
         BlockState retractedBase = state.with(Properties.FACING_ALL, storedFacing)
                 .with(Properties.EXTENDED, false);
-        spawnMoving(world, x, y, z, retractedBase.getId(), f, false, true, this.sticky);
+        java.util.ArrayList<PistonMovingBlockEntity> group = new java.util.ArrayList<>();
+        java.util.ArrayList<Long> groupPositions = new java.util.ArrayList<>();
+        PistonMovingBlockEntity source = spawnMoving(
+                world, x, y, z, retractedBase.getId(), f, false, true, this.sticky);
+        if (source != null) {
+            group.add(source);
+            groupPositions.add(basePos);
+        }
         java.util.HashSet<Long> targets = new java.util.HashSet<>();
         java.util.LinkedHashSet<Long> notify = new java.util.LinkedHashSet<>();
         targets.add(basePos);
@@ -348,8 +374,13 @@ public final class PistonBehavior implements BlockBehavior {
             int tx = BlockPos.unpackX(moves[i]) + toPiston.offsetX();
             int ty = BlockPos.unpackY(moves[i]) + toPiston.offsetY();
             int tz = BlockPos.unpackZ(moves[i]) + toPiston.offsetZ();
-            spawnMoving(world, tx, ty, tz, movedIds[i], f, false, false, this.sticky);
+            PistonMovingBlockEntity moving = spawnMoving(
+                    world, tx, ty, tz, movedIds[i], f, false, false, this.sticky);
             long t = BlockPos.asLong(tx, ty, tz);
+            if (moving != null) {
+                group.add(moving);
+                groupPositions.add(t);
+            }
             targets.add(t);
             notify.add(t);
         }
@@ -363,14 +394,16 @@ public final class PistonBehavior implements BlockBehavior {
                     Blocks.AIR, false);
             notify.add(src);
         }
+        configureGroup(group, groupPositions, basePos);
         for (long pos : notify) {
             world.updateNeighbors(BlockPos.unpackX(pos), BlockPos.unpackY(pos), BlockPos.unpackZ(pos));
         }
     }
 
     /** Setzt einen moving_piston und konfiguriert die frisch angelegte BE. */
-    private static void spawnMoving(World world, int x, int y, int z, int movedStateId,
-                                    Direction facing, boolean extending, boolean source, boolean sticky) {
+    private static PistonMovingBlockEntity spawnMoving(World world, int x, int y, int z,
+                                    int movedStateId, Direction facing, boolean extending,
+                                    boolean source, boolean sticky) {
         int movingState = Blocks.getState(Blocks.MOVING_PISTON)
                 .with(Properties.FACING_ALL, facing)
                 .with(Properties.PISTON_TYPE, sticky ? PistonType.STICKY : PistonType.NORMAL)
@@ -379,7 +412,16 @@ public final class PistonBehavior implements BlockBehavior {
         world.setBlock(x, y, z, movingState, false);
         if (world.getBlockEntity(x, y, z) instanceof PistonMovingBlockEntity be) {
             be.configure(movedStateId, facing, extending, source, sticky);
+            return be;
         }
+        return null;
+    }
+
+    private static void configureGroup(java.util.List<PistonMovingBlockEntity> blocks,
+                                       java.util.List<Long> positions, long leader) {
+        long[] members = new long[positions.size()];
+        for (int i = 0; i < members.length; i++) members[i] = positions.get(i);
+        for (PistonMovingBlockEntity block : blocks) block.configureGroup(leader, members);
     }
 
     /**
