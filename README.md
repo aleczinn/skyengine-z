@@ -122,6 +122,9 @@ Der Fokus liegt auf:
 
 ## Screenshots / Changelog
 
+v0.0.15 | Partikel-System
+- Partikel-System inkl. Effekte für Explosion, Block Interaktion, Redstone, Wasser, Lava, Laub was von Bäumen fällt und vieles mehr
+
 v0.0.14 | Level of Detail Optimizations
 - Level of Detail hat nun eine eigene GUI in den Grafikeinstellungen
 - Optimierungen am LOD-Meshing
