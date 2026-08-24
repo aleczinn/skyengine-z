@@ -56,6 +56,24 @@ final class DimensionSavesTest {
     }
 
     @Test
+    void createsNetherWithOwnGeneratorPathAndEnvironment(@TempDir Path saveRoot) {
+        LevelData level = new LevelData();
+        level.seed = 24680;
+
+        DimensionSaves.Resolved resolved = DimensionSaves.resolve(
+                saveRoot.toFile(), level, WorldgenRegistries.NETHER);
+        DimensionDefinition definition = WorldgenRegistries.DIMENSIONS.get(WorldgenRegistries.NETHER);
+
+        assertEquals(WorldgenRegistries.NETHER_V1.toString(), resolved.data().generator);
+        assertEquals(saveRoot.resolve("dimensions/voxel_stories/nether").toAbsolutePath().normalize(),
+                resolved.root().toPath().toAbsolutePath().normalize());
+        assertTrue(!definition.lodAllowed());
+        assertTrue(!definition.environment().hasSkylight());
+        assertTrue(definition.environment().forceFog());
+        assertEquals(8.0, definition.environment().coordinateScale());
+    }
+
+    @Test
     void migratesPreviousFlatDimensionDirectory(@TempDir Path saveRoot) throws Exception {
         Path legacy = saveRoot.resolve("dimensions/mining");
         java.nio.file.Files.createDirectories(legacy.resolve("region"));

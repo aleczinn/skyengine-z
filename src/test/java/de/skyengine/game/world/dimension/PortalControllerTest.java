@@ -9,6 +9,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PortalControllerTest {
 
@@ -62,5 +63,19 @@ final class PortalControllerTest {
         assertEquals(mining, travel.targetDimension());
         assertEquals(4, travel.x());
         assertEquals(9, travel.z());
+    }
+
+    @Test
+    void netherPortalUsesLongSurvivalDelayAndReportsProgress() {
+        PortalDefinition portal = WorldgenRegistries.PORTALS.get(
+                Identifier.of("skyengine:nether_portal"));
+        PortalController controller = new PortalController();
+
+        for (int tick = 1; tick < 80; tick++) {
+            assertNull(controller.tickContact(WorldgenRegistries.OVERWORLD, portal, 3, 7));
+        }
+        assertTrue(controller.contactProgress() > 0.95F);
+        assertEquals(WorldgenRegistries.NETHER,
+                controller.tickContact(WorldgenRegistries.OVERWORLD, portal, 3, 7).targetDimension());
     }
 }

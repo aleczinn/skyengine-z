@@ -34,7 +34,8 @@ public final class ParticleSprites {
             case LAVA -> lava;
             case FLAME -> flame;
             case EXPLOSION -> frame(explosion, age, lifetime);
-            case DUST, SMOKE, LARGE_SMOKE, POOF, FALLING_DUST -> frame(genericReverse, age, lifetime);
+            case DUST, PORTAL_BURST, SMOKE, LARGE_SMOKE, POOF, FALLING_DUST -> frame(genericReverse, age, lifetime);
+            case PORTAL -> generic[0];
             case DRIP_HANG -> dripHang;
             case DRIP_FALL -> dripFall;
             case DRIP_LAND -> dripLand;
@@ -47,6 +48,12 @@ public final class ParticleSprites {
         bootstrap();
         int[] sequence = paleOak ? paleOakLeaves : leaves;
         return sequence[Math.floorMod(index, sequence.length)];
+    }
+
+    /** Minecraft waehlt beim Erzeugen eines Portal-Partikels genau ein festes Generic-Sprite. */
+    public static int randomPortal(int index) {
+        bootstrap();
+        return generic[Math.floorMod(index, generic.length)];
     }
 
     private static int frame(int[] sequence, int age, int lifetime) {

@@ -104,6 +104,7 @@ public class World implements IInitializable, IDisposable {
     private final String name;
     private final Identifier dimensionId;
     private final boolean lodAllowed;
+    private final de.skyengine.game.world.dimension.DimensionEnvironment environment;
 
     private final WorldGenerator generator;
     private final ChunkDecorator decorator;
@@ -118,6 +119,7 @@ public class World implements IInitializable, IDisposable {
     private PersistentLodDataSource persistentLodSource;
     private final int generatorVersion;
     private final File lodDirectory;
+    private final de.skyengine.game.world.dimension.PortalIndex portalIndex;
     /* Engine-Lebensdauer (GameContainer): Atlas + BlockEntity-Renderer überleben Welt-Austritte —
        die Welt hält nur Referenzen und disposed sie NICHT. */
     private final BlockTextureAtlas atlas;
@@ -239,7 +241,7 @@ public class World implements IInitializable, IDisposable {
     /* Himmelslicht-Aktualisierung bei Block-Edits. Eigene Engine-Instanz für den
        Render-/Tick-Thread (die Worker haben ihre ThreadLocals im ChunkManager) — eine Instanz
        ist nicht threadsicher. lightDiagonals ist ein wiederverwendeter Übergabepuffer. */
-    private final LightEngine lightEngine = new LightEngine();
+    private final LightEngine lightEngine;
     private final Chunk[] lightDiagonals = new Chunk[4];
 
     /** Zufalls-Ticks pro nicht-leerer Section pro Tick (Wachstum, Verfall). 0 = aus.
@@ -279,6 +281,8 @@ public class World implements IInitializable, IDisposable {
         this.name = dirName;
         this.dimensionId = dimensionId;
         this.lodAllowed = resolved.dimension().lodAllowed();
+        this.environment = resolved.dimension().environment();
+        this.lightEngine = new LightEngine(this.environment.hasSkylight());
         this.atlas = atlas;
         this.blockEntityRenderer = blockEntityRenderer;
         this.particles = new ParticleEngine(this);
@@ -295,7 +299,7 @@ public class World implements IInitializable, IDisposable {
         GenerationSetup setup = resolved.generator().create(resolved.data().seed);
         this.generator = setup.generator();
         this.decorator = new ChunkDecorator(this.generator, setup.features());
-        this.chunkManager = new ChunkManager(this.generator, this.decorator);
+        this.chunkManager = new ChunkManager(this.generator, this.decorator, this.environment.hasSkylight());
         this.imported = setup.storageMode() == GenerationSetup.StorageMode.IMPORTED;
         if (resolved.data().generatorVersion != null
                 && resolved.data().generatorVersion != resolved.generator().version()) {
@@ -306,12 +310,14 @@ public class World implements IInitializable, IDisposable {
         }
         this.chunkRenderer = new ChunkRenderer(this.chunkManager);
         this.chunkRenderer.setLodAllowed(this.lodAllowed);
+        this.chunkRenderer.setEnvironment(this.environment);
 
         /* Chunk-Persistenz: Snapshots liegen in saves/<dir>/region; generierte Welten
            speichern nur modifizierte Chunks (Tints werden beim Laden neu berechnet),
            importierte alle (Tints im Payload). */
         this.generatorVersion = resolved.generator().version();
         this.lodDirectory = resolved.lodDir();
+        this.portalIndex = new de.skyengine.game.world.dimension.PortalIndex(resolved.root());
         this.storage = new WorldStorage(resolved.regionDir(), this, this.generator,
                 resolved.generator().id().toString(), this.generatorVersion, this.imported);
         this.chunkManager.setStorage(this.storage);
@@ -327,6 +333,14 @@ public class World implements IInitializable, IDisposable {
 
     public boolean isLodAllowed() {
         return this.lodAllowed;
+    }
+
+    public de.skyengine.game.world.dimension.DimensionEnvironment getEnvironment() {
+        return this.environment;
+    }
+
+    public de.skyengine.game.world.dimension.PortalIndex getPortalIndex() {
+        return this.portalIndex;
     }
 
     /** Injiziert der GameContainer nach der Welt-Erzeugung; erlaubt Sounds aus der Welt-Logik. */
@@ -1623,7 +1637,8 @@ public class World implements IInitializable, IDisposable {
         this.chunkRenderer.renderSolid(camera);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.BE);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.BLOCK_ENTITIES);
-        this.blockEntityRenderer.render(this.chunkManager, this.lodManager, camera, partialTick);
+        this.blockEntityRenderer.render(this.chunkManager, this.lodManager, camera, partialTick,
+                this.environment.ambientLight());
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.BLOCK_ENTITIES);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.BE);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.ENT);

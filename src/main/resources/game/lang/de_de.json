@@ -219,7 +219,8 @@
   "dimension": {
     "skyengine": {
       "overworld": "Oberwelt",
-      "mining": "Bergbau-Dimension"
+      "mining": "Bergbau-Dimension",
+      "nether": "Nether"
     }
   },
 
@@ -454,6 +455,8 @@
       "mangrove_trapdoor": "Mangrovenholzfalltür",
       "melon": "Melone",
       "mining_portal": "Bergbauportal",
+      "nether_portal": "Netherportal",
+      "glowstone": "Leuchtstein",
       "mossy_stone_bricks": "Bemooste Steinziegel",
       "mud": "Schlamm",
       "mud_bricks": "Schlammziegel",

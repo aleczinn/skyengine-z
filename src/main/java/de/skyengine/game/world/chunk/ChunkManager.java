@@ -207,7 +207,7 @@ public class ChunkManager {
 
     /* Dito für die Licht-Engine: eine Instanz ist NICHT threadsicher (BFS-Queues + 3x3-Kontext
        als Felder). World hält eine eigene für die Edit-Updates auf dem Render-Thread. */
-    private final ThreadLocal<LightEngine> lightEngines = ThreadLocal.withInitial(LightEngine::new);
+    private final ThreadLocal<LightEngine> lightEngines;
 
     public record MeshResult(int chunkX, int sectionY, int chunkZ, ChunkMesher.MeshData data, long meshSeq) {}
 
@@ -218,12 +218,21 @@ public class ChunkManager {
     }
 
     public ChunkManager(WorldGenerator generator, ChunkDecorator decorator) {
-        this(generator, decorator, Math.max(2, Runtime.getRuntime().availableProcessors() - 2));
+        this(generator, decorator, Math.max(2, Runtime.getRuntime().availableProcessors() - 2), true);
     }
 
     ChunkManager(WorldGenerator generator, ChunkDecorator decorator, int threads) {
+        this(generator, decorator, threads, true);
+    }
+
+    public ChunkManager(WorldGenerator generator, ChunkDecorator decorator, boolean hasSkylight) {
+        this(generator, decorator, Math.max(2, Runtime.getRuntime().availableProcessors() - 2), hasSkylight);
+    }
+
+    ChunkManager(WorldGenerator generator, ChunkDecorator decorator, int threads, boolean hasSkylight) {
         this.generator = generator;
         this.decorator = decorator;
+        this.lightEngines = ThreadLocal.withInitial(() -> new LightEngine(hasSkylight));
         if (threads < 1) throw new IllegalArgumentException("threads muss positiv sein");
         this.workerCount = threads;
         /* Eine gemeinsame Prioritäts-Queue verteilt die gesamte Kapazität auf die jeweils

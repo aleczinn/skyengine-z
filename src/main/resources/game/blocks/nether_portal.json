@@ -1,0 +1,24 @@
+{
+  "id": "skyengine:nether_portal",
+  "archetype": "nether_portal",
+  "layer": "translucent",
+  "opaque": false,
+  "solid": false,
+  "cull_same": true,
+  "no_item": true,
+  "no_lod_surface": true,
+  "piston_reaction": "block",
+  "hardness": -1,
+  "light_level": 11,
+  "models": {
+    "_x": "block/template_nether_portal_x"
+  },
+  "textures": {
+    "portal": "game/textures/block/nether_portal.png",
+    "particle": "#portal"
+  },
+  "variants": {
+    "axis=x": { "model": "block/nether_portal_x" },
+    "axis=z": { "model": "block/nether_portal_x", "y": 90 }
+  }
+}

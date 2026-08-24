@@ -40,7 +40,8 @@ public final class BlockEntityRenderDispatcher {
         for (BlockEntityRenderer renderer : this.renderers.values()) renderer.init();
     }
 
-    public void render(ChunkManager chunkManager, LodManager lodManager, Camera camera, float partialTick) {
+    public void render(ChunkManager chunkManager, LodManager lodManager, Camera camera, float partialTick,
+                       float ambientLight) {
         if (this.renderers.isEmpty()) return;
         Vector3d cam = camera.getPosition();
         FrustumIntersection frustum = camera.getFrustum();
@@ -68,7 +69,7 @@ public final class BlockEntityRenderDispatcher {
                    ohnehin vor, ein World-Lookup wäre überflüssig. */
                 int lx = pos.x() & ChunkSection.MASK, lz = pos.z() & ChunkSection.MASK;
                 float light = ChunkRenderer.lightFactor(chunk.light.get(lx, pos.y(), lz),
-                        chunk.blockLight.get(lx, pos.y(), lz));
+                        chunk.blockLight.get(lx, pos.y(), lz), ambientLight);
                 renderer.render(be, camera, partialTick, light);
             }
         }

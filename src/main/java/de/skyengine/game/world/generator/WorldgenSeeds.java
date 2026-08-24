@@ -42,5 +42,13 @@ public final class WorldgenSeeds {
     public static final int RIVER_MEANDER = 24;
     public static final int RIVER_WIDTH = 25;
 
+    /* --- NetherWorldGenerator (26..31) --- */
+    public static final int NETHER_CAVERN = 26;
+    public static final int NETHER_DETAIL = 27;
+    public static final int NETHER_PILLAR = 28;
+    public static final int NETHER_PATCH = 29;
+    public static final int NETHER_BEDROCK = 30;
+    public static final int NETHER_GLOWSTONE = 31;
+
     private WorldgenSeeds() {}
 }

@@ -49,7 +49,7 @@
         "grass_block", "podzol", "dirt_path", "dirt", "coarse_dirt", "rooted_dirt",
         "mud", "muddy_mangrove_roots", "clay", "gravel", "sand",
 
-        "stone", "netherrack", "basalt", "end_stone", "obsidian", "magma_block",
+        "stone", "netherrack", "basalt", "end_stone", "obsidian", "magma_block", "glowstone",
         "soul_sand", "soul_soil", "bedrock",
 
         "coal_ore", "iron_ore", "copper_ore", "gold_ore",

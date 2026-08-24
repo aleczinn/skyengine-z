@@ -32,6 +32,16 @@ import java.util.Arrays;
  */
 public final class LightEngine {
 
+    private final boolean hasSkylight;
+
+    public LightEngine() {
+        this(true);
+    }
+
+    public LightEngine(boolean hasSkylight) {
+        this.hasSkylight = hasSkylight;
+    }
+
     /* Richtungs-Offsets: 0=up, 1=down, 2=north(-z), 3=south(+z), 4=west(-x), 5=east(+x) */
     private static final int[] DIR_X = {0, 0, 0, 0, -1, 1};
     private static final int[] DIR_Y = {1, -1, 0, 0, 0, 0};
@@ -72,10 +82,12 @@ public final class LightEngine {
         this.markDirty = false;
         try {
             int[] heightmap = this.computeHeightmap(center);
-            this.initColumns(center, heightmap);
-            this.seedColumnEdges(heightmap);
-            this.seedWaterColumns(center, heightmap);
-            this.runIncrease();
+            if (this.hasSkylight) {
+                this.initColumns(center, heightmap);
+                this.seedColumnEdges(heightmap);
+                this.seedWaterColumns(center, heightmap);
+                this.runIncrease();
+            }
 
             /* Zweite Ebene. Kein Gegenstück zu initColumns: Blocklicht startet überall bei 0
                (Uniform-Default des LightStorage), Quellen sind allein die Emitter. */
@@ -101,7 +113,7 @@ public final class LightEngine {
         this.writeCenterOnly = false;
         this.markDirty = true;
         try {
-            this.exchangeLayer(north, south, west, east);
+            if (this.hasSkylight) this.exchangeLayer(north, south, west, east);
             this.skyLayer = false;
             this.exchangeLayer(north, south, west, east);
             /* applyDirty einmal am Ende: die dirtyMasks sammeln über beide Ebenen. */
@@ -141,7 +153,9 @@ public final class LightEngine {
         this.markDirty = true;
         try {
             /* Himmelslicht interessiert sich nur für die Opazität. */
-            if (opacityChanged) this.updateSkyAt(center, lx, y, lz, newOpacity > oldOpacity);
+            if (this.hasSkylight && opacityChanged) {
+                this.updateSkyAt(center, lx, y, lz, newOpacity > oldOpacity);
+            }
             /* Blocklicht für beides: eine neu gesetzte Wand blockt auch Fackellicht. */
             this.skyLayer = false;
             this.updateBlockAt(lx, y, lz, newLuminance);
@@ -181,7 +195,7 @@ public final class LightEngine {
 
             /* --- Himmelslicht: erst alle Abrisse, dann die Säulen, dann EIN Flood. --- */
             boolean anySky = false;
-            for (int i = 0; i < count; i++) {
+            for (int i = 0; this.hasSkylight && i < count; i++) {
                 int pos = packedPos[i];
                 int lx = pos & 31, lz = (pos >> 5) & 31, y = (pos >> 10) & 511;
                 int oldOpacity = BlockRegistry.getState(oldIds[i]).getLightOpacity();
@@ -196,7 +210,7 @@ public final class LightEngine {
                     if (level > 1) this.increase.push(encode(nx, ny, nz, level));
                 }
             }
-            if (anySky) {
+            if (this.hasSkylight && anySky) {
                 /* Heightmap je Säule EINMAL neu (Dedup über ein 32x32-Bitfeld): geöffnete
                    Säulen bekommen ihre 15er-Direktzellen NACH den removeLights geseedet —
                    sonst würde der Staleness-Check die frischen 15er gleich wieder verwerfen. */

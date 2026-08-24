@@ -7,6 +7,7 @@ import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.post.passes.AntiAliasingPass;
 import de.skyengine.graphics.post.passes.ColorGradingPass;
 import de.skyengine.graphics.post.passes.MenuBlurPass;
+import de.skyengine.graphics.post.passes.PortalDistortionPass;
 import de.skyengine.graphics.post.passes.UnderwaterFogPass;
 import org.joml.Vector2f;
 import de.skyengine.utils.logging.LogManager;
@@ -66,6 +67,7 @@ public class PostProcessor implements IDisposable {
     private final List<PostPass> passes = new ArrayList<>();
     private final MenuBlurPass menuBlur = new MenuBlurPass();
     private final UnderwaterFogPass underwaterFog = new UnderwaterFogPass();
+    private final PortalDistortionPass portalDistortion = new PortalDistortionPass();
     private final AntiAliasingPass antiAliasing = new AntiAliasingPass();
     private PostProcessingSettings settings;
     private int ubo;
@@ -92,6 +94,7 @@ public class PostProcessor implements IDisposable {
 
         this.passes.add(new ColorGradingPass());
         this.passes.add(this.underwaterFog);
+        this.passes.add(this.portalDistortion);
         this.passes.add(this.antiAliasing);
         /* Menü-Blur als LETZTER Pass: nur aktiv bei offenem Pause-Menü (Stärke > 0) —
            dann übernimmt er automatisch das Default-FBO (Last-Active-Mechanik der Kette). */
@@ -116,6 +119,14 @@ public class PostProcessor implements IDisposable {
         if (this.context.underwater == underwater) return;
         this.context.underwater = underwater;
         this.antiAliasing.invalidateHistory();
+    }
+
+    public void setPortalEffect(float progress) {
+        boolean wasActive = this.portalDistortion.progress() > 0.001F;
+        this.portalDistortion.setProgress(progress);
+        if (wasActive != (this.portalDistortion.progress() > 0.001F)) {
+            this.antiAliasing.invalidateHistory();
+        }
     }
 
     /**

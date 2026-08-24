@@ -13,6 +13,8 @@ public enum ParticleType {
     LARGE_SMOKE(-0.004F, 0.96F, true, false, 0.25F, 20, 100),
     POOF(-0.004F, 0.9F, true, false, 0.10F, 18, 82),
     DUST(0F, 0.96F, true, true, 0.10F, 8, 40),
+    PORTAL(0F, 1F, false, false, 0.10F, 40, 49),
+    PORTAL_BURST(0F, 0.985F, false, true, 0.16F, 18, 37),
     FLAME(0F, 0.96F, false, true, 0.10F, 12, 44),
     EXPLOSION_EMITTER(0F, 1F, false, false, 0F, 8, 8),
     EXPLOSION(0F, 1F, false, false, 2F, 6, 9),

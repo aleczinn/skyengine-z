@@ -11,15 +11,23 @@ public final class PortalController {
 
     public static final int TRAVEL_TICKS = 20;
 
-    public record Travel(Identifier targetDimension, Identifier portalType, int x, int z) {}
+    public record Travel(Identifier targetDimension, Identifier portalType, int x, int y, int z) {
+        public Travel(Identifier targetDimension, Identifier portalType, int x, int z) {
+            this(targetDimension, portalType, x, 0, z);
+        }
+    }
 
     private Identifier contactPortal;
     private int contactTicks;
+    private int contactDelayTicks = TRAVEL_TICKS;
     private boolean locked;
 
     public Travel tick(World world, EntityPlayer player) {
         PortalContact contact = contact(world, player.getBoundingBox());
-        return this.advance(world.getDimensionId(), contact);
+        int delay = contact == null ? TRAVEL_TICKS
+                : (player.getGamemode().isInstantBreak()
+                ? contact.definition.creativeDelayTicks() : contact.definition.survivalDelayTicks());
+        return this.advance(world.getDimensionId(), contact, delay);
     }
 
     /** Aktiviert ein USE-Portal durch einen gezielten Rechtsklick. */
@@ -27,30 +35,36 @@ public final class PortalController {
         int state = world.getBlock(x, y, z);
         if (state == Blocks.AIR) return null;
         Identifier block = Blocks.getState(state).getBlock().getIdentifier();
-        return this.useBlock(world.getDimensionId(), block, x, z);
+        return this.useBlock(world.getDimensionId(), block, x, y, z);
     }
 
-    Travel useBlock(Identifier source, Identifier block, int x, int z) {
+    Travel useBlock(Identifier source, Identifier block, int x, int y, int z) {
         for (PortalDefinition definition : WorldgenRegistries.PORTALS.values()) {
             if (definition.activation() != PortalDefinition.Activation.USE
                     || !definition.block().equals(block)) continue;
             Identifier target = definition.targetFrom(source);
-            return target == null ? null : new Travel(target, definition.id(), x, z);
+            return target == null ? null : new Travel(target, definition.id(), x, y, z);
         }
         return null;
+    }
+
+    Travel useBlock(Identifier source, Identifier block, int x, int z) {
+        return this.useBlock(source, block, x, 0, z);
     }
 
     /** Paketintern getrennt von der Kollisionserkennung, damit die Tick-Semantik testbar bleibt. */
     Travel tickContact(Identifier source, PortalDefinition definition, int x, int z) {
         return this.advance(source, definition == null
                 || definition.activation() != PortalDefinition.Activation.CONTACT
-                ? null : new PortalContact(definition, x, z));
+                ? null : new PortalContact(definition, x, 0, z),
+                definition == null ? TRAVEL_TICKS : definition.survivalDelayTicks());
     }
 
-    private Travel advance(Identifier source, PortalContact contact) {
+    private Travel advance(Identifier source, PortalContact contact, int delayTicks) {
         if (contact == null) {
             this.contactPortal = null;
             this.contactTicks = 0;
+            this.contactDelayTicks = TRAVEL_TICKS;
             this.locked = false;
             return null;
         }
@@ -59,24 +73,32 @@ public final class PortalController {
             this.contactPortal = contact.definition.id();
             this.contactTicks = 0;
         }
-        if (++this.contactTicks < TRAVEL_TICKS) return null;
+        this.contactDelayTicks = delayTicks;
+        if (++this.contactTicks < delayTicks) return null;
         Identifier target = contact.definition.targetFrom(source);
         this.contactTicks = 0;
         if (target == null) return null;
         this.locked = true;
-        return new Travel(target, contact.definition.id(), contact.x, contact.z);
+        return new Travel(target, contact.definition.id(), contact.x, contact.y, contact.z);
+    }
+
+    public float contactProgress() {
+        if (this.contactPortal == null || this.locked) return 0F;
+        return Math.clamp(this.contactTicks / (float) this.contactDelayTicks, 0F, 1F);
     }
 
     /** Nach einem Wechsel bleibt das Zielportal gesperrt, bis es verlassen wurde. */
     public void lockUntilExit() {
         this.locked = true;
         this.contactTicks = 0;
+        this.contactDelayTicks = TRAVEL_TICKS;
         this.contactPortal = null;
     }
 
     public void reset() {
         this.locked = false;
         this.contactTicks = 0;
+        this.contactDelayTicks = TRAVEL_TICKS;
         this.contactPortal = null;
     }
 
@@ -93,7 +115,7 @@ public final class PortalController {
                     for (PortalDefinition definition : WorldgenRegistries.PORTALS.values()) {
                         if (definition.activation() == PortalDefinition.Activation.CONTACT
                                 && definition.block().equals(block)) {
-                            return new PortalContact(definition, x, z);
+                            return new PortalContact(definition, x, y, z);
                         }
                     }
                 }
@@ -102,5 +124,5 @@ public final class PortalController {
         return null;
     }
 
-    private record PortalContact(PortalDefinition definition, int x, int z) {}
+    private record PortalContact(PortalDefinition definition, int x, int y, int z) {}
 }

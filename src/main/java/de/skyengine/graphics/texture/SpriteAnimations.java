@@ -127,7 +127,9 @@ public final class SpriteAnimations {
             int frametime = meta != null && meta.animation != null && meta.animation.frametime != null
                     ? meta.animation.frametime : 1;
             int[] sequence = resolveSequence(meta, frameCount);
-            return new AnimatedSprite(layer, frames, sequence, frametime);
+            boolean interpolate = meta != null && meta.animation != null
+                    && Boolean.TRUE.equals(meta.animation.interpolate);
+            return new AnimatedSprite(layer, frames, sequence, frametime, interpolate);
         }
     }
 

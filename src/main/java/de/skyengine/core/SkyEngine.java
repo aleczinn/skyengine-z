@@ -100,12 +100,19 @@ public class SkyEngine {
 
         this.window.getFrameBuffer().bind();
 
-        GL11.glClearColor(
-                this.config.getWindowClearColor().red,
-                this.config.getWindowClearColor().green,
-                this.config.getWindowClearColor().blue,
-                this.config.getWindowClearColor().alpha
-        );
+        de.skyengine.game.world.World activeWorld = this.game.getWorld();
+        if (activeWorld != null) {
+            var environment = activeWorld.getEnvironment();
+            GL11.glClearColor(environment.backgroundRed(), environment.backgroundGreen(),
+                    environment.backgroundBlue(), 1.0F);
+        } else {
+            GL11.glClearColor(
+                    this.config.getWindowClearColor().red,
+                    this.config.getWindowClearColor().green,
+                    this.config.getWindowClearColor().blue,
+                    this.config.getWindowClearColor().alpha
+            );
+        }
 
         /* Depth-Test/Cull-Face pro Frame neu aktivieren: GUI-/BlockEntity-Renderer deaktivieren
            sie ohne Restore. Die Basis-Depth-Func spiegelt EngineProperties.baseDepthFunc() —

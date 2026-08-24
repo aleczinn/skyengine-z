@@ -211,7 +211,8 @@
   "dimension": {
     "skyengine": {
       "overworld": "Overworld",
-      "mining": "Mining Dimension"
+      "mining": "Mining Dimension",
+      "nether": "Nether"
     }
   },
 
@@ -446,6 +447,8 @@
       "mangrove_trapdoor": "Mangrove Trapdoor",
       "melon": "Melon",
       "mining_portal": "Mining Portal",
+      "nether_portal": "Nether Portal",
+      "glowstone": "Glowstone",
       "mossy_stone_bricks": "Mossy Stone Bricks",
       "mud": "Mud",
       "mud_bricks": "Mud Bricks",
