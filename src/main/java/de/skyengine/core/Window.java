@@ -134,10 +134,11 @@ public class Window implements IDisposable {
         long monitor = GLFW.glfwGetPrimaryMonitor();
         GLFWVidMode vidMode  = GLFW.glfwGetVideoMode(monitor);
 
+        String title = "%s v%s".formatted(this.config.getTitle(), this.config.getVersion());
         this.windowID = GLFW.glfwCreateWindow(
                 this.config.getWindowWidth(),
                 this.config.getWindowHeight(),
-                this.config.getTitle(),
+                title,
                 MemoryUtil.NULL,
                 MemoryUtil.NULL
         );

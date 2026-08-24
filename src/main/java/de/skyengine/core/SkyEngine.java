@@ -25,7 +25,7 @@ public class SkyEngine {
 
     /** Kompatibilitaetsname fuer bestehende Anzeigen und Fenstertitel. */
     public static final String ENGINE_NAME = "SkyEngine";
-    public static final String ENGINE_VERSION = "0.0.15";
+    public static final String ENGINE_VERSION = "0.0.15-alpha";
 
     /** Zentrale Spielidentitaet: Zum Umbenennen nur GAME_NAME aendern. */
     public static final String GAME_NAME = "Voxel Stories";
@@ -258,8 +258,8 @@ public class SkyEngine {
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
                     /* Ohne Welt (Hauptmenü) gibt es keine Chunk-/Spieler-Werte für den Titel. */
                     if (this.game.getWorld() != null && this.game.getPlayer() != null) {
-                        this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s | AntiAliasing: %s".formatted(
-                                ENGINE_NAME,
+                        this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s".formatted(
+                                GAME_NAME,
                                 ENGINE_VERSION,
                                 frames,
                                 updates,
@@ -268,11 +268,10 @@ public class SkyEngine {
                                 this.game.getWorld().getChunkManager().getChunks().size(),
                                 Math.round(this.game.getPlayer().x),
                                 Math.round(this.game.getPlayer().y),
-                                Math.round(this.game.getPlayer().z),
-                                this.postProcessor.getSettings().getAaMode()
+                                Math.round(this.game.getPlayer().z)
                         ));
                     } else {
-                        this.window.setTitle("%s v%s | FPS: %d, TPS: %d".formatted(ENGINE_NAME, ENGINE_VERSION, frames, updates));
+                        this.window.setTitle("%s v%s | FPS: %d, TPS: %d".formatted(GAME_NAME, ENGINE_VERSION, frames, updates));
                     }
                 }
 

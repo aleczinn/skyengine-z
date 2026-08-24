@@ -5,7 +5,7 @@ import de.skyengine.graphics.color.Color4;
 public class EngineConfig {
 
     private String title = SkyEngine.GAME_NAME;
-    private String version = "1.0.0";
+    private String version = SkyEngine.ENGINE_VERSION;
 
     private int windowWidth = 1280;
     private int windowHeight = 720;
