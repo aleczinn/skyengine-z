@@ -75,7 +75,7 @@ public final class DebugOverlay {
         long maxMb = runtime.maxMemory() / (1024 * 1024);
 
         List<String> lines = new ArrayList<>();
-        lines.add(SkyEngine.ENGINE_NAME + " v" + SkyEngine.ENGINE_VERSION);
+        lines.add(SkyEngine.GAME_NAME + " v" + SkyEngine.ENGINE_VERSION);
         lines.add("FPS: %d  TPS: %d".formatted(SkyEngine.get().getCurrentFps(), SkyEngine.get().getCurrentTps()));
         lines.add(String.format(Locale.ROOT, "XYZ: %.3f / %.3f / %.3f", player.x, player.y, player.z));
         lines.add("Block: %d %d %d  Chunk: %d %d %d in %d %d".formatted(
