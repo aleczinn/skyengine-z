@@ -260,7 +260,7 @@
       "error_source": "Not a folder: please pick a Minecraft world",
       "error_name": "Please enter a world name"
     },
-    "loading": "Generating world..."
+    "loading": "Entering %s..."
   },
 
   "resourcepacks": {

@@ -49,10 +49,14 @@ final class DimensionCommandTest {
                 dispatcher.suggest(context, "/dimension skyengine:mi"));
         assertEquals("Mining Portal", I18n.tr("block.skyengine.mining_portal"));
         assertEquals("Mining Dimension", DimensionDefinition.displayName(WorldgenRegistries.MINING));
+        assertEquals("Entering Mining Dimension...", I18n.tr("world.loading",
+                DimensionDefinition.displayName(WorldgenRegistries.MINING)));
 
         I18n.load("de_de");
         assertEquals("Bergbauportal", I18n.tr("block.skyengine.mining_portal"));
         assertEquals("Bergbau-Dimension", DimensionDefinition.displayName(WorldgenRegistries.MINING));
+        assertEquals("Betrete Bergbau-Dimension...", I18n.tr("world.loading",
+                DimensionDefinition.displayName(WorldgenRegistries.MINING)));
         I18n.load("en_us");
     }
 }

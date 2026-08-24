@@ -268,7 +268,7 @@
       "error_source": "Kein Ordner: bitte eine Minecraft-Welt auswählen",
       "error_name": "Bitte einen Weltnamen angeben"
     },
-    "loading": "Welt wird generiert..."
+    "loading": "Betrete %s..."
   },
 
   "resourcepacks": {

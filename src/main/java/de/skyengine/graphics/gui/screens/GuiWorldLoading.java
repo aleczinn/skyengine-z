@@ -6,6 +6,7 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.game.world.dimension.DimensionDefinition;
 import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
@@ -62,7 +63,7 @@ public final class GuiWorldLoading extends GuiScreen {
         sr.drawRect(bx, by, BAR_W * progress, BAR_H, 1f, 1f, 1f, 0.9f);
         sr.end();
 
-        String text = I18n.tr("world.loading");
+        String text = I18n.tr("world.loading", DimensionDefinition.displayName(world.getDimensionId()));
         gui.font().begin(vW, vH);
         gui.font().drawStringWithShadow(text,
                 (vW - gui.font().getStringWidth(text, GuiText.MEDIUM)) / 2f, vH / 2f - 12, GuiText.MEDIUM, Colors.WHITE);
