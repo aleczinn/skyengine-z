@@ -1,6 +1,7 @@
 {
   "id": "skyengine:oak_button",
   "parent": "preset/button",
+  "creative_tab": ["building_blocks", "redstone_blocks"],
   "press_ticks": 30,
   "sound": "wood",
   "tool": "axe",

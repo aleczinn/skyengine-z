@@ -1,0 +1,9 @@
+{
+  "id": "skyengine:pale_oak_button",
+  "parent": "preset/button",
+  "creative_tab": "building_blocks",
+  "press_ticks": 30,
+  "sound": "wood",
+  "tool": "axe",
+  "vars": { "texture": "pale_oak_planks" }
+}

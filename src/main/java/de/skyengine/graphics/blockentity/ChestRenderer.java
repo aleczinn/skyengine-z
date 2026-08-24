@@ -9,7 +9,7 @@ import de.skyengine.game.world.block.state.ChestType;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.GlState;
 import de.skyengine.graphics.camera.Camera;
-import de.skyengine.graphics.gui.ItemIconRenderer;
+import de.skyengine.graphics.gui.ItemIconLighting;
 import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
@@ -95,13 +95,15 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.locTopBrightness = this.shader.getUniformLocation("u_TopBrightness");
         this.locZBrightness = this.shader.getUniformLocation("u_ZBrightness");
         this.locSideBrightness = this.shader.getUniformLocation("u_SideBrightness");
+        this.locIconLighting = this.shader.getUniformLocation("u_IconLighting");
         this.shader.bind();
         this.shader.setUniformi("u_Texture", 0);
+        this.shader.setUniformi(this.locIconLighting, 0);
         this.shader.unbind();
     }
 
     private int locProjectionView, locLight, locNormalRot, locModel,
-            locTopBrightness, locZBrightness, locSideBrightness;
+            locTopBrightness, locZBrightness, locSideBrightness, locIconLighting;
 
     @Override
     public void render(BlockEntity be, Camera camera, float partialTick, float light) {
@@ -152,6 +154,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.setUniformf(this.locTopBrightness, 1.0f);
         this.shader.setUniformf(this.locZBrightness, 0.8f);
         this.shader.setUniformf(this.locSideBrightness, 0.6f);
+        this.shader.setUniformi(this.locIconLighting, 0);
         this.shader.setUniformf(this.locLight, light);
         tex.bind(0);
 
@@ -198,7 +201,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
      * der Treiber den auch in der Welt genutzten Truhen-Shader pro Frame (GL-Performance-Warnung).
      */
     @Override
-    public void renderIcon(Matrix4f mvp) {
+    public void renderIcon(Matrix4f mvp, Matrix4f itemTransform) {
         this.iconModel.identity()
                 .translate(0.5f, 0.5f, 0.5f).rotateY((float) (1.5 * Math.PI)).translate(-0.5f, -0.5f, -0.5f);
 
@@ -206,12 +209,11 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.setUniformMatrix4f("u_ProjectionView", mvp);
         this.shader.setUniformMatrix4f("u_Model", this.iconModel);
         /* Normalen wie die Icon-Geometrie um 270° drehen -> gleiche Iso-Schattierung wie Würfel-Icons. */
-        this.normalRot.identity().rotateY((float) (1.5 * Math.PI));
+        this.normalRot.set(itemTransform).mul(this.iconModel);
         this.shader.setUniformMatrix4f("u_NormalRot", this.normalRot);
         /* Icon: dieselben pro-Achsen-Schrauben wie die Würfel-Icons (oben/Nord-Süd/West-Ost). */
-        this.shader.setUniformf("u_TopBrightness", ItemIconRenderer.ICON_TOP_BRIGHTNESS);
-        this.shader.setUniformf("u_ZBrightness", ItemIconRenderer.ICON_Z_BRIGHTNESS);
-        this.shader.setUniformf("u_SideBrightness", ItemIconRenderer.ICON_X_BRIGHTNESS);
+        this.shader.setUniformi(this.locIconLighting, 1);
+        ItemIconLighting.apply3D(this.shader);
         /* GUI: NIE abdunkeln — derselbe Shader wie im Welt-Pass, also explizit zurücksetzen. */
         this.shader.setUniformf("u_Light", 1.0f);
         this.shader.setUniformi("u_Texture", 0);
@@ -238,6 +240,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
         this.shader.setUniformMatrix4f("u_Model", this.iconModel);
         this.normalRot.identity();
         this.shader.setUniformMatrix4f("u_NormalRot", this.normalRot);
+        this.shader.setUniformi(this.locIconLighting, 0);
         /* Hand: normale Welt-Helligkeit statt der dunkleren Icon-Schrauben; das Licht der Zelle
            kommt im Shader dazu. In der Inventar-Vorschau reicht der Aufrufer light = 1.0 durch. */
         this.shader.setUniformf("u_TopBrightness", 1.0f);
@@ -372,7 +375,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
         out vec3 v_normal;
         void main() {
             v_uv = a_uv;
-            v_normal = mat3(u_NormalRot) * a_normal;
+            v_normal = normalize(transpose(inverse(mat3(u_NormalRot))) * a_normal);
             gl_Position = u_ProjectionView * u_Model * vec4(a_position, 1.0);
         }
         """;
@@ -385,6 +388,9 @@ public final class ChestRenderer implements BlockEntityRenderer {
         uniform float u_TopBrightness;
         uniform float u_ZBrightness;
         uniform float u_SideBrightness;
+        uniform int u_IconLighting;
+        uniform vec3 u_ItemLight0;
+        uniform vec3 u_ItemLight1;
         /* Licht der Zelle, Himmel + Block (ChunkRenderer.lightFactor); 1.0 = voll hell bzw. GUI. */
         uniform float u_Light;
         out vec4 fragColor;
@@ -395,10 +401,16 @@ public final class ChestRenderer implements BlockEntityRenderer {
             // variabel (Welt: 1.0/0.8/0.6, Icon: eigene Schrauben); die Unterseite ist eine Konstante
             // (0.5 wie FACE_BRIGHTNESS[1]) und an der gekippten Truhe in der HAND sehr wohl sichtbar.
             vec3 n = normalize(v_normal);
-            float br = (n.y > 0.5) ? u_TopBrightness
-                     : (n.y < -0.5) ? 0.5
-                     : (abs(n.z) > 0.5) ? u_ZBrightness
-                     : u_SideBrightness;
+            float br;
+            if (u_IconLighting != 0) {
+                float diffuse = max(0.0, dot(n, u_ItemLight0)) + max(0.0, dot(n, u_ItemLight1));
+                br = min(1.0, diffuse * 0.6 + 0.4);
+            } else {
+                br = (n.y > 0.5) ? u_TopBrightness
+                   : (n.y < -0.5) ? 0.5
+                   : (abs(n.z) > 0.5) ? u_ZBrightness
+                   : u_SideBrightness;
+            }
             /* Zellenlicht bewusst EINMAL ganz am Ende statt an jede Helligkeit einzeln: so kann
                keine Flaeche es verpassen. Genau daran ist die Unterseite schon einmal
                vorbeigelaufen, weil sie als einzige kein Uniform ist. */

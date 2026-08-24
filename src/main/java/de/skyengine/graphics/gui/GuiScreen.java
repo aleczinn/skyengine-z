@@ -5,6 +5,7 @@ import de.skyengine.graphics.gui.layout.Stack;
 import de.skyengine.graphics.gui.text.RichText;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.GuiComponent;
+import de.skyengine.graphics.gui.widget.Slider;
 import de.skyengine.graphics.texture.Texture;
 import org.lwjgl.glfw.GLFW;
 
@@ -178,8 +179,8 @@ public abstract class GuiScreen {
         for (GuiComponent c : this.leaves) {
             c.setFocused(c == clicked && c.isFocusable());
         }
-        /* MC-Klick-Sound zentral für alle Buttons (inkl. Cycle-/Keybind-Buttons);
-           Slider/Textfelder/Listeneinträge bleiben bewusst stumm (wie MC). */
+        /* MC-Klick-Sound zentral für alle Buttons (inkl. Cycle-/Keybind-Buttons).
+           Slider spielen ihn wie 26.2 erst beim Loslassen, nicht hier beim Druck. */
         if (clicked instanceof Button) {
             gui.sound().playUiClick();
         }
@@ -187,9 +188,14 @@ public abstract class GuiScreen {
     }
 
     public void mouseReleased(GuiManager gui, double mouseX, double mouseY, int button) {
+        boolean playSliderClick = false;
         for (GuiComponent c : this.leaves) {
-            if (c.visible) c.mouseReleased(mouseX, mouseY, button);
+            if (c.visible && c.mouseReleased(mouseX, mouseY, button)
+                    && c instanceof Slider) {
+                playSliderClick = true;
+            }
         }
+        if (playSliderClick) gui.sound().playUiClick();
     }
 
     public void mouseDragged(GuiManager gui, double mouseX, double mouseY, int button) {

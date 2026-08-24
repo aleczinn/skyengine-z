@@ -93,10 +93,12 @@ public final class Slider extends GuiComponent {
     }
 
     @Override
-    public void mouseReleased(double mx, double my, int button) {
+    public boolean mouseReleased(double mx, double my, int button) {
         if (this.dragging && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             this.dragging = false;
             if (this.onRelease != null) this.onRelease.run();
+            return true;
         }
+        return false;
     }
 }

@@ -1,5 +1,6 @@
 {
   "id": "skyengine:spruce_door",
   "parent": "preset/door",
-  "lod_replacement": "skyengine:spruce_planks"
+  "lod_replacement": "skyengine:spruce_planks",
+  "creative_tab": ["building_blocks", "functional"]
 }

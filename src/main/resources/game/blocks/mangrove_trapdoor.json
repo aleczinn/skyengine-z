@@ -1,4 +1,5 @@
 {
   "id": "skyengine:mangrove_trapdoor",
-  "parent": "preset/trapdoor"
+  "parent": "preset/trapdoor",
+  "creative_tab": ["building_blocks", "functional"]
 }

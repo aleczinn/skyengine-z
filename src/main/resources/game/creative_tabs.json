@@ -16,7 +16,8 @@
       "items": [
         { "for": "wood", "items": [
             "{wood}_log", "stripped_{wood}_log", "{wood}_planks",
-            "{wood}_stairs", "{wood}_slab", "{wood}_fence", "{wood}_fence_gate"
+            "{wood}_stairs", "{wood}_slab", "{wood}_fence", "{wood}_fence_gate",
+            "{wood}_door", "{wood}_trapdoor", "{wood}_pressure_plate", "{wood}_button"
         ]},
 
         "stone", "stone_stairs", "stone_slab",
@@ -86,8 +87,8 @@
         "redstone_ore", "redstone", "redstone_torch", "redstone_block",
         "repeater", "comparator",
         "lever",
-        "stone_button", "oak_button",
-        "stone_pressure_plate", "oak_pressure_plate",
+        "oak_button", "stone_button",
+        "oak_pressure_plate", "stone_pressure_plate",
         "light_weighted_pressure_plate", "heavy_weighted_pressure_plate",
         "obsidian_pressure_plate", "diamond_pressure_plate", "emerald_pressure_plate",
         "copper_pressure_plate", "netherite_pressure_plate",

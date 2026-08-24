@@ -29,6 +29,7 @@
     ]
   },
   "inventory_model": "block/${id}_inventory",
+  "inventory_display_model": "block/${id}_inventory",
   "multipart": [
     {
       "apply": {

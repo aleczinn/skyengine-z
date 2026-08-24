@@ -3,6 +3,7 @@ package de.skyengine.audio;
 import de.skyengine.core.file.FileHandle;
 import de.skyengine.core.file.FileType;
 import de.skyengine.core.io.IDisposable;
+import de.skyengine.core.resource.ResourceManager;
 import de.skyengine.core.resource.Resources;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.entity.MinecartEntity;
@@ -31,6 +32,7 @@ import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Random;
 
 /**
@@ -56,6 +58,11 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
        und über den Pool hinaus fällt der Sound still weg. OpenAL Soft trägt 256 Mono-Sources. */
     private static final int POOL_SIZE = 64;
     private static final int MAX_VARIANTS = 32; // u.a. 14 Spieler-Schwimmvarianten
+
+    /* Musik ist nicht-positional und viele Tracks sind bis nahe Vollpegel gemastert. Der
+       MUSIC-Regler steuert deshalb den vorgesehenen Mixbereich statt direkt OpenAL 0..1:
+       100 % entsprechen rund -9 dB und bleiben damit im Verhaeltnis zu Effekten ausgewogen. */
+    private static final float MUSIC_BASE_GAIN = 0.35F;
 
     /* Lautstärke/Pitch-Konventionen wie Minecraft. */
     private static final float STEP_GAIN = 0.15F, STEP_PITCH = 1.0F;
@@ -915,16 +922,7 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
 
         this.playlist.clear();
         try {
-            var resolved = Resources.get().listResolved("sounds/music/");
-            for (var entry : resolved.entrySet().stream()
-                    .sorted(java.util.Comparator.comparing(entry -> entry.getKey().toString())).toList()) {
-                String name = entry.getKey().toString();
-                String lower = name.toLowerCase(Locale.ROOT);
-                if (!lower.endsWith(".ogg") && !lower.endsWith(".wav")) continue;
-                try (InputStream in = entry.getValue().open()) {
-                    this.playlist.add(new MusicTrack(name, in.readAllBytes()));
-                }
-            }
+            this.playlist.addAll(loadMusicTracks(Resources.get()));
         } catch (IOException error) {
             this.logger.warning("Musik-Ressourcen konnten nicht geladen werden: " + error.getMessage());
         }
@@ -939,6 +937,27 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         this.playlistIndex = this.playlist.size(); // erzwingt das Mischen in playNextTrack
         this.playlistActive = true;
         this.playNextTrack();
+    }
+
+    /** Sichtbarer Test-Seam fuer die Ressourcenauflistung; OpenAL ist hier noch nicht beteiligt. */
+    static List<MusicTrack> loadMusicTracks(ResourceManager resources) throws IOException {
+        List<MusicTrack> tracks = new ArrayList<>();
+        var resolved = resources.listResolved("sounds/music/");
+        for (var entry : resolved.entrySet().stream()
+                .sorted(java.util.Comparator
+                        .comparing((Map.Entry<de.skyengine.core.resource.ResourceId,
+                                ResourceManager.Match> value) -> value.getKey().namespace())
+                        .thenComparing(value -> value.getKey().path()))
+                .toList()) {
+            var id = entry.getKey();
+            String path = id.path();
+            String lower = path.toLowerCase(Locale.ROOT);
+            if (!lower.endsWith(".ogg") && !lower.endsWith(".wav")) continue;
+            try (InputStream in = entry.getValue().open()) {
+                tracks.add(new MusicTrack(id.namespace() + ":" + path, in.readAllBytes()));
+            }
+        }
+        return tracks;
     }
 
     /** Beendet die Musik dauerhaft (die Playlist rückt danach nicht mehr nach). */
@@ -1012,7 +1031,7 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
     public void setCategoryVolume(SoundCategory category, float gain) {
         if (!this.enabled) return;
         this.categoryGains[category.ordinal()] = gain;
-        if (category == SoundCategory.MUSIC) this.music.setVolume(gain);
+        if (category == SoundCategory.MUSIC) this.music.setVolume(gain * MUSIC_BASE_GAIN);
         if (category == SoundCategory.AMBIENT && this.underwaterLoopSource != -1) {
             AL10.alSourcef(this.underwaterLoopSource, AL10.AL_GAIN,
                     0.65F * this.underwaterLoopGain * gain);

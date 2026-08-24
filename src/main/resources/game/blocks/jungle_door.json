@@ -1,5 +1,6 @@
 {
   "id": "skyengine:jungle_door",
   "parent": "preset/door",
-  "lod_replacement": "skyengine:jungle_planks"
+  "lod_replacement": "skyengine:jungle_planks",
+  "creative_tab": ["building_blocks", "functional"]
 }

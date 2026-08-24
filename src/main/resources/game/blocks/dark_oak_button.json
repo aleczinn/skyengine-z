@@ -1,0 +1,9 @@
+{
+  "id": "skyengine:dark_oak_button",
+  "parent": "preset/button",
+  "creative_tab": "building_blocks",
+  "press_ticks": 30,
+  "sound": "wood",
+  "tool": "axe",
+  "vars": { "texture": "dark_oak_planks" }
+}

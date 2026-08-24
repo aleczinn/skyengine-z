@@ -1,0 +1,9 @@
+{
+  "id": "skyengine:dark_oak_pressure_plate",
+  "parent": "preset/pressure_plate",
+  "creative_tab": "building_blocks",
+  "press_ticks": 20,
+  "sound": "wood",
+  "tool": "axe",
+  "vars": { "texture": "dark_oak_planks" }
+}

@@ -8,6 +8,7 @@ import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.VStack;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.GuiComponent;
+import de.skyengine.graphics.gui.widget.Slider;
 import de.skyengine.graphics.gui.widget.Label;
 import de.skyengine.graphics.gui.GuiText;
 
@@ -202,9 +203,14 @@ public abstract class GuiOptionsScreen extends GuiScreen {
     public void mouseReleased(GuiManager gui, double mouseX, double mouseY, int button) {
         this.scrollBar.mouseReleased();
         super.mouseReleased(gui, mouseX, mouseY, button);
+        boolean playSliderClick = false;
         for (GuiComponent c : this.rowComponents) {
-            c.mouseReleased(mouseX, mouseY, button);
+            if (c.mouseReleased(mouseX, mouseY, button)
+                    && c instanceof Slider) {
+                playSliderClick = true;
+            }
         }
+        if (playSliderClick) gui.sound().playUiClick();
     }
 
     @Override

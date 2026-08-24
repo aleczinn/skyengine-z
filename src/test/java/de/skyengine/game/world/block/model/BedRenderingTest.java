@@ -1,6 +1,7 @@
 package de.skyengine.game.world.block.model;
 
 import de.skyengine.audio.BlockSoundGroup;
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockTextures;
@@ -92,6 +93,34 @@ final class BedRenderingTest {
     }
 
     @Test
+    void regularBlocksAndFencesUseTheirVanillaGuiTransforms() {
+        ModelLoader.Display cube = ModelLoader.display("block/oak_planks", "gui");
+        assertNotNull(cube);
+        assertArrayEquals(new float[]{30F, 225F, 0F}, cube.rotation());
+        assertArrayEquals(new float[]{0F, 0F, 0F}, cube.translation());
+        assertArrayEquals(new float[]{0.625F, 0.625F, 0.625F}, cube.scale());
+
+        Block fence = block("oak_fence");
+        String fenceModel = BlockStateModels.inventoryDisplayModel(fence);
+        assertEquals("block/oak_fence_inventory", fenceModel);
+        ModelLoader.Display fenceGui = ModelLoader.display(fenceModel, "gui");
+        assertNotNull(fenceGui);
+        assertArrayEquals(new float[]{30F, 135F, 0F}, fenceGui.rotation());
+        assertArrayEquals(new float[]{0F, 0F, 0F}, fenceGui.translation());
+        assertArrayEquals(new float[]{0.625F, 0.625F, 0.625F}, fenceGui.scale());
+    }
+
+    @Test
+    void stairsOverrideTheCubeGuiRotationLikeMinecraft() {
+        ModelLoader.Display stairs = ModelLoader.display("block/oak_stairs", "gui");
+
+        assertNotNull(stairs);
+        assertArrayEquals(new float[]{30F, 135F, 0F}, stairs.rotation());
+        assertArrayEquals(new float[]{0F, 0F, 0F}, stairs.translation());
+        assertArrayEquals(new float[]{0.625F, 0.625F, 0.625F}, stairs.scale());
+    }
+
+    @Test
     void collisionUsesMattressAndTwoOuterFeetPerHalf() {
         Block bed = block("white_bed");
         BlockState foot = withPart(bed.getDefaultState().with(Properties.FACING, Direction.NORTH), "foot");
@@ -124,6 +153,37 @@ final class BedRenderingTest {
                 "dispenser", "dropper", "hopper", "emerald_hopper", "chest", "iron_door", "oak_door",
                 "iron_trapdoor", "oak_trapdoor", "oak_fence_gate", "powered_rail");
         assertTrue(redstone.contains("redstone_ore"));
+
+        List<String> building = CreativeTabs.items("building_blocks").stream()
+                .map(item -> item.getId().path()).toList();
+        String[] woods = {"oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "mangrove", "pale_oak"};
+        for (String wood : woods) {
+            if (wood.equals("oak")) {
+                assertOrdered(building, wood + "_log", wood + "_planks", wood + "_stairs", wood + "_slab",
+                        wood + "_fence", wood + "_fence_gate", wood + "_door", wood + "_trapdoor",
+                        wood + "_pressure_plate", wood + "_button");
+            } else {
+                assertOrdered(building, wood + "_log", "stripped_" + wood + "_log", wood + "_planks",
+                        wood + "_stairs", wood + "_slab", wood + "_fence", wood + "_fence_gate",
+                        wood + "_door", wood + "_trapdoor", wood + "_pressure_plate", wood + "_button");
+            }
+            assertEquals(BlockSoundGroup.WOOD, block(wood + "_button").getSoundGroup());
+            assertEquals(BlockSoundGroup.WOOD, block(wood + "_pressure_plate").getSoundGroup());
+        }
+
+        assertTrue(redstone.indexOf("oak_button") < redstone.indexOf("stone_button"));
+        assertTrue(redstone.indexOf("oak_pressure_plate") < redstone.indexOf("stone_pressure_plate"));
+    }
+
+    @Test
+    void newWoodControlsHaveEnglishAndGermanNames() {
+        I18n.load("en_us");
+        assertEquals("Spruce Button", I18n.tr("block.skyengine.spruce_button"));
+        assertEquals("Pale Oak Pressure Plate", I18n.tr("block.skyengine.pale_oak_pressure_plate"));
+        I18n.load("de_de");
+        assertEquals("Fichtenholzknopf", I18n.tr("block.skyengine.spruce_button"));
+        assertEquals("Blasseichenholzdruckplatte", I18n.tr("block.skyengine.pale_oak_pressure_plate"));
+        I18n.load("en_us");
     }
 
     @Test
