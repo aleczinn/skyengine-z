@@ -2162,9 +2162,8 @@ public class GameContainer implements IResizeable, IDisposable {
                 state.getBlock().getBehavior(de.skyengine.game.world.block.behavior.ExplosionBehavior.class);
         if (explosive == null) return false;
 
-        if (this.world.getSoundManager() != null) {
-            this.world.getSoundManager().playIgnite(this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
-        }
+        /* TNT spielt beim Prime bereits seinen Fuse-Sound in World.spawnPrimedTnt. Minecrafts
+           TntBlock.useItemOn legt hier keinen zusaetzlichen Feuerzeug-/Ignite-Sound darueber. */
         explosive.prime(this.world, this.hit.x(), this.hit.y(), this.hit.z());
         this.damageFlintAndSteel(held);
         return true;

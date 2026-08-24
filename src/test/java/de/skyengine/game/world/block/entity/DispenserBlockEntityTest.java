@@ -99,6 +99,27 @@ final class DispenserBlockEntityTest {
     }
 
     @Test
+    void dispenserSpawnsPrimedTntInAdjacentBlockForEveryFacing() {
+        for (Direction facing : Direction.sharedValues()) {
+            TestWorld world = new TestWorld();
+            DispenserBlockEntity dispenser = world.addDispenser(0, "dispenser");
+            dispenser.getInventory().set(0, tnt(2));
+
+            dispenser.activate(facing, false);
+
+            assertEquals(1, world.spawned.size(), "Entity-Anzahl fuer " + facing);
+            Entity entity = world.spawned.getFirst();
+            assertInstanceOf(de.skyengine.game.entity.PrimedTntEntity.class, entity,
+                    "Entity-Typ fuer " + facing);
+            assertEquals(facing.offsetX() + 0.5, entity.x, "TNT-X fuer " + facing);
+            assertEquals(64 + facing.offsetY(), entity.y, "TNT-Y fuer " + facing);
+            assertEquals(facing.offsetZ() + 0.5, entity.z, "TNT-Z fuer " + facing);
+            assertEquals(1, dispenser.getInventory().get(0).getCount(),
+                    "TNT-Verbrauch fuer " + facing);
+        }
+    }
+
+    @Test
     void signalAboveUsesQuasiConnectivityAndSchedulesFourTicksOnce() {
         TestWorld world = new TestWorld();
         BlockState dispenser = state("dispenser")
@@ -134,6 +155,10 @@ final class DispenserBlockEntityTest {
 
     private static ItemStack stone(int count) {
         return new ItemStack(Items.get(Identifier.of("skyengine:stone")), count);
+    }
+
+    private static ItemStack tnt(int count) {
+        return new ItemStack(Items.get(Identifier.of("skyengine:tnt")), count);
     }
 
     private static BlockState state(String path) {
