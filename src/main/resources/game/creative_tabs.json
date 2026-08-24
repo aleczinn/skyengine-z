@@ -76,7 +76,7 @@
         "{wood}_door", "iron_door",
         "{wood}_trapdoor", "iron_trapdoor",
         { "for": "color", "items": ["{color}_bed"] },
-        "torch", "tnt", "minecart", "slime_block", "honey_block"
+        "torch", "tnt", "minecart", "mining_portal", "slime_block", "honey_block"
       ]
     },
     {

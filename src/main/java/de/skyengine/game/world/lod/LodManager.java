@@ -167,6 +167,7 @@ public class LodManager {
     private final LodDataSource source;
     private final LodBlockAppearance appearance;
     private final ChunkManager chunkManager;
+    private final boolean lodAllowed;
 
     /* Eine Mesher-Instanz pro Worker-Thread (wiederverwendete Puffer, wie ChunkMesher) */
     private final ThreadLocal<LodMesher> meshers = ThreadLocal.withInitial(LodMesher::new);
@@ -227,9 +228,15 @@ public class LodManager {
     private double viewX, viewZ = -1;
 
     public LodManager(LodDataSource source, LodBlockAppearance appearance, ChunkManager chunkManager) {
+        this(source, appearance, chunkManager, true);
+    }
+
+    public LodManager(LodDataSource source, LodBlockAppearance appearance, ChunkManager chunkManager,
+                      boolean lodAllowed) {
         this.source = source;
         this.appearance = appearance;
         this.chunkManager = chunkManager;
+        this.lodAllowed = lodAllowed;
     }
 
     public static long key(int rx, int rz) {
@@ -254,7 +261,7 @@ public class LodManager {
         if (this.chunkManager.isLoadingPaused()) return;
 
         GameSettings settings = GameSettings.get();
-        boolean enabled = settings.lodEnabled;
+        boolean enabled = this.lodAllowed && settings.lodEnabled;
         int rd = settings.renderDistance;
         int lodMax = settings.lodMaxDistance;
         boolean ao = settings.ambientOcclusion;

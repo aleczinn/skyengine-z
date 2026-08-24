@@ -16,14 +16,28 @@ import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.*;
 
 import java.util.Iterator;
+import java.util.Locale;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 
 public class SkyEngine {
 
+    /** Kompatibilitaetsname fuer bestehende Anzeigen und Fenstertitel. */
     public static final String ENGINE_NAME = "SkyEngine";
     public static final String ENGINE_VERSION = "0.0.15";
+
+    /** Zentrale Spielidentitaet: Zum Umbenennen nur GAME_NAME aendern. */
+    public static final String GAME_NAME = "Voxel Stories";
+    public static final String GAME_PREFIX = derivePrefix(GAME_NAME);
+
+    private static String derivePrefix(String name) {
+        String prefix = name.toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "_")
+                .replaceAll("^_+|_+$", "");
+        if (prefix.isEmpty()) throw new IllegalArgumentException("Spielname ergibt keinen gueltigen Prefix: " + name);
+        return prefix;
+    }
 
     /** The index/token used in an index buffer for primitive restart. */
     public static final int PRIMITIVE_RESTART_INDEX = 0xFFFF;

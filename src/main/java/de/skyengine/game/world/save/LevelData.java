@@ -27,6 +27,9 @@ public final class LevelData {
     /** Version des Generators, mit dem die Welt läuft (Mismatch -> Warnung). null = 1. */
     public Integer generatorVersion;
 
+    /** Dimensions-Metadaten; fehlt bei Format 1 und wird dann aus den Root-Feldern migriert. */
+    public Map<String, DimensionData> dimensions = new LinkedHashMap<>();
+
     /** NUR noch Migration: Alt-Saves vor player.dat. Wird beim nächsten Speichern genullt. */
     public PlayerData player;
     /** NUR noch Migration, s. {@link #player}. */
@@ -36,6 +39,12 @@ public final class LevelData {
     public Map<String, Long> lootRandomStates = new LinkedHashMap<>();
     /** Vanilla-Gamerule; false/null ist der Standard der aktuellen Java Edition. */
     public Boolean tntExplosionDropDecay;
+
+    public static final class DimensionData {
+        public int seed;
+        public String generator;
+        public Integer generatorVersion;
+    }
 
     public static final class PlayerData {
         public double x, y, z;

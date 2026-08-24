@@ -205,6 +205,21 @@
       "invalid_amount": "Ungültige Anzahl: %s",
       "inventory_full": "Das Inventar ist voll.",
       "success": "%d × %s wurde dem Inventar hinzugefügt."
+    },
+    "dimension": {
+      "usage": "Verwendung: /dimension <id>",
+      "no_world": "Keine Welt aktiv.",
+      "unknown": "Unbekannte Dimension: %s",
+      "already_active": "Dimension bereits aktiv: %s",
+      "queued": "Dimensionswechsel eingereiht: %s",
+      "failed": "Dimensionswechsel konnte nicht eingereiht werden."
+    }
+  },
+
+  "dimension": {
+    "skyengine": {
+      "overworld": "Oberwelt",
+      "mining": "Bergbau-Dimension"
     }
   },
 
@@ -438,6 +453,7 @@
       "mangrove_stairs": "Mangrovenholztreppe",
       "mangrove_trapdoor": "Mangrovenholzfalltür",
       "melon": "Melone",
+      "mining_portal": "Bergbauportal",
       "mossy_stone_bricks": "Bemooste Steinziegel",
       "mud": "Schlamm",
       "mud_bricks": "Schlammziegel",

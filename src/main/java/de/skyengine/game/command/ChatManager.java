@@ -16,6 +16,7 @@ public final class ChatManager {
 
     public ChatManager() {
         this.register(new GiveCommand());
+        this.register(new DimensionCommand());
     }
 
     /** Zentraler Erweiterungspunkt fuer spaetere Engine- oder Mod-Befehle. */

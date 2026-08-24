@@ -31,12 +31,11 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.core.file.GameDirectory;
 import de.skyengine.game.world.debug.SimulationTelemetry;
+import de.skyengine.game.world.dimension.DimensionSaves;
+import de.skyengine.game.world.dimension.GenerationSetup;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
-import de.skyengine.game.world.generator.feature.trees.BiomeTreeFeature;
-import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
-import de.skyengine.game.world.generator.generators.VoidWorldGenerator;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.loot.LootContext;
 import de.skyengine.game.world.save.LevelData;
@@ -103,6 +102,8 @@ public class World implements IInitializable, IDisposable {
     }
 
     private final String name;
+    private final Identifier dimensionId;
+    private final boolean lodAllowed;
 
     private final WorldGenerator generator;
     private final ChunkDecorator decorator;
@@ -116,6 +117,7 @@ public class World implements IInitializable, IDisposable {
     private LodManager lodManager;
     private PersistentLodDataSource persistentLodSource;
     private final int generatorVersion;
+    private final File lodDirectory;
     /* Engine-Lebensdauer (GameContainer): Atlas + BlockEntity-Renderer überleben Welt-Austritte —
        die Welt hält nur Referenzen und disposed sie NICHT. */
     private final BlockTextureAtlas atlas;
@@ -258,8 +260,25 @@ public class World implements IInitializable, IDisposable {
     /* Spieler-Chunk des laufenden Ticks - Basis für isSimulated(). */
     private int playerChunkX, playerChunkZ;
 
-    public World(String dirName, LevelData level, BlockTextureAtlas atlas, BlockEntityRenderDispatcher blockEntityRenderer) {
+    public World(String dirName, LevelData level, BlockTextureAtlas atlas,
+                 BlockEntityRenderDispatcher blockEntityRenderer) {
+        this(dirName, level, de.skyengine.game.world.dimension.WorldgenRegistries.OVERWORLD,
+                atlas, blockEntityRenderer);
+    }
+
+    public World(String dirName, LevelData level, Identifier dimensionId, BlockTextureAtlas atlas,
+                 BlockEntityRenderDispatcher blockEntityRenderer) {
+        this(dirName, level, dimensionId,
+                DimensionSaves.resolve(new File(GameDirectory.resolve("saves"), dirName), level, dimensionId),
+                atlas, blockEntityRenderer);
+    }
+
+    private World(String dirName, LevelData level, Identifier dimensionId,
+                  DimensionSaves.Resolved resolved, BlockTextureAtlas atlas,
+                  BlockEntityRenderDispatcher blockEntityRenderer) {
         this.name = dirName;
+        this.dimensionId = dimensionId;
+        this.lodAllowed = resolved.dimension().lodAllowed();
         this.atlas = atlas;
         this.blockEntityRenderer = blockEntityRenderer;
         this.particles = new ParticleEngine(this);
@@ -273,40 +292,41 @@ public class World implements IInitializable, IDisposable {
             }
         }
 
-        /* Generator nach worldType: importierte Welten (MC-Import) kommen komplett aus den
-           Region-Dateien und bekommen den Void-Generator ohne Features. */
-        boolean imported = "imported".equals(level.worldType);
-        this.imported = imported;
-        if (imported) {
-            this.generator = new VoidWorldGenerator(level.seed);
-            this.decorator = new ChunkDecorator(this.generator, List.of());
-            this.chunkManager = new ChunkManager(this.generator, this.decorator);
-        } else {
-            this.generator = new AlphaWorldGeneratorV2(level.seed);
-            /* Feature-Pass (Dekoration): biome-abhaengige Baeume (featureId 0) */
-            this.decorator = new ChunkDecorator(this.generator, List.of(new BiomeTreeFeature()));
-            this.chunkManager = new ChunkManager(this.generator, this.decorator);
-            if (level.generatorVersion != null && level.generatorVersion != AlphaWorldGeneratorV2.VERSION) {
-                this.logger.warning("Welt wurde mit Generator-Version " + level.generatorVersion
-                        + " erstellt, Engine hat Version " + AlphaWorldGeneratorV2.VERSION
-                        + " — ungespeicherte Gegenden können sich ändern (Nähte möglich)");
-            }
+        GenerationSetup setup = resolved.generator().create(resolved.data().seed);
+        this.generator = setup.generator();
+        this.decorator = new ChunkDecorator(this.generator, setup.features());
+        this.chunkManager = new ChunkManager(this.generator, this.decorator);
+        this.imported = setup.storageMode() == GenerationSetup.StorageMode.IMPORTED;
+        if (resolved.data().generatorVersion != null
+                && resolved.data().generatorVersion != resolved.generator().version()) {
+            this.logger.warning("Dimension " + dimensionId + " wurde mit Generator-Version "
+                    + resolved.data().generatorVersion + " erstellt, Engine hat Version "
+                    + resolved.generator().version()
+                    + " — ungespeicherte Gegenden können sich ändern (Nähte möglich)");
         }
         this.chunkRenderer = new ChunkRenderer(this.chunkManager);
+        this.chunkRenderer.setLodAllowed(this.lodAllowed);
 
         /* Chunk-Persistenz: Snapshots liegen in saves/<dir>/region; generierte Welten
            speichern nur modifizierte Chunks (Tints werden beim Laden neu berechnet),
            importierte alle (Tints im Payload). */
-        String generatorId = level.generator != null ? level.generator : (imported ? "minecraft_import" : "alpha_v2");
-        this.generatorVersion = level.generatorVersion != null ? level.generatorVersion
-                : (imported ? 1 : AlphaWorldGeneratorV2.VERSION);
-        this.storage = new WorldStorage(new File(GameDirectory.resolve("saves"), dirName + "/region"),
-                this, this.generator, generatorId, this.generatorVersion, imported);
+        this.generatorVersion = resolved.generator().version();
+        this.lodDirectory = resolved.lodDir();
+        this.storage = new WorldStorage(resolved.regionDir(), this, this.generator,
+                resolved.generator().id().toString(), this.generatorVersion, this.imported);
         this.chunkManager.setStorage(this.storage);
     }
 
     public String getName() {
         return name;
+    }
+
+    public Identifier getDimensionId() {
+        return this.dimensionId;
+    }
+
+    public boolean isLodAllowed() {
+        return this.lodAllowed;
     }
 
     /** Injiziert der GameContainer nach der Welt-Erzeugung; erlaubt Sounds aus der Welt-Logik. */
@@ -397,10 +417,10 @@ public class World implements IInitializable, IDisposable {
            Generator-Noise. */
         this.persistentLodSource = new PersistentLodDataSource(this.chunkManager, this.storage,
                 this.generator, this.decorator, this.imported,
-                new File(GameDirectory.resolve("saves"), this.name + "/lod"),
-                this.imported ? this.generatorVersion : AlphaWorldGeneratorV2.VERSION);
+                this.lodDirectory, this.generatorVersion);
         LodDataSource lodSource = this.persistentLodSource;
-        this.lodManager = new LodManager(lodSource, new LodBlockAppearance(), this.chunkManager);
+        this.lodManager = new LodManager(lodSource, new LodBlockAppearance(), this.chunkManager,
+                this.lodAllowed);
         this.chunkRenderer.setLodManager(this.lodManager);
         this.chunkManager.setLodManager(this.lodManager); // Unload-Gate: erst entladen, wenn LOD deckt
         /* BlockEntity-Renderer werden beim Boot registriert/initialisiert (GameContainer). */

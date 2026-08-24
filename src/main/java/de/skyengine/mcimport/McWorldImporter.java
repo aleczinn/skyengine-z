@@ -10,6 +10,7 @@ import de.skyengine.game.world.block.entity.ChestBlockEntity;
 import de.skyengine.game.world.block.entity.DataTag;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.dimension.WorldgenRegistries;
 import de.skyengine.game.world.item.Item;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
@@ -253,10 +254,15 @@ public final class McWorldImporter {
     public static WorldSaves.WorldSave createTargetWorld(String worldName) {
         WorldSaves.WorldSave save = WorldSaves.create(worldName, 0);
         LevelData level = save.level();
-        level.formatVersion = 1;
+        level.formatVersion = 2;
         level.worldType = "imported";
         level.generator = "minecraft_import";
         level.generatorVersion = 1;
+        LevelData.DimensionData overworld = new LevelData.DimensionData();
+        overworld.seed = level.seed;
+        overworld.generator = WorldgenRegistries.MINECRAFT_IMPORT.toString();
+        overworld.generatorVersion = 1;
+        level.dimensions.put(WorldgenRegistries.OVERWORLD.toString(), overworld);
         WorldSaves.save(save);
         return save;
     }

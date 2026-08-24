@@ -60,10 +60,15 @@ public final class WorldSaves {
         level.seed = seed;
         level.created = System.currentTimeMillis();
         level.lastPlayed = level.created;
-        level.formatVersion = 1;
+        level.formatVersion = 2;
         level.worldType = "default";
         level.generator = "alpha_v2";
         level.generatorVersion = AlphaWorldGeneratorV2.VERSION;
+        LevelData.DimensionData overworld = new LevelData.DimensionData();
+        overworld.seed = seed;
+        overworld.generator = "skyengine:alpha_v2";
+        overworld.generatorVersion = 2;
+        level.dimensions.put("skyengine:overworld", overworld);
         WorldSave save = new WorldSave(dirName, level);
         save(save);
         return save;

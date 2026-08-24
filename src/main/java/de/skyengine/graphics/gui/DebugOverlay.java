@@ -5,6 +5,7 @@ import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.dimension.DimensionDefinition;
 import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.PerformanceProfiler;
@@ -43,6 +44,7 @@ public final class DebugOverlay {
     /* Biome-Cache: biomeAt ist ein voller Klima-Noise-Sample — das Ergebnis ändert sich
        nur beim Blockwechsel, nicht pro Frame. */
     private int lastBiomeX = Integer.MIN_VALUE, lastBiomeZ;
+    private String lastBiomeDimension = "";
     private String lastBiomeName = "";
 
     public void toggle() {
@@ -82,9 +84,13 @@ public final class DebugOverlay {
                 bx >> ChunkSection.SHIFT, bz >> ChunkSection.SHIFT));
         lines.add(String.format(Locale.ROOT, "Facing: %s (yaw %.1f / pitch %.1f)",
                 I18n.tr(FACING[facing]), player.yaw, player.pitch));
-        if (bx != this.lastBiomeX || bz != this.lastBiomeZ) {
+        String dimension = world.getDimensionId().toString();
+        lines.add("Dimension: " + DimensionDefinition.displayName(world.getDimensionId()));
+        if (bx != this.lastBiomeX || bz != this.lastBiomeZ
+                || !dimension.equals(this.lastBiomeDimension)) {
             this.lastBiomeX = bx;
             this.lastBiomeZ = bz;
+            this.lastBiomeDimension = dimension;
             this.lastBiomeName = world.biomeAt(bx, bz).name;
         }
         lines.add("Biome: " + this.lastBiomeName);
@@ -128,7 +134,7 @@ public final class DebugOverlay {
         boolean compact = vW < 520 || vH < 420;
         float graphH = compact ? 34 : 52;
         float graphY = gui.vHeight() - graphH - MARGIN;
-        float normalBottom = MARGIN + 8 * (font.lineHeight(TEXT_SIZE) + 1) + 2;
+        float normalBottom = MARGIN + 9 * (font.lineHeight(TEXT_SIZE) + 1) + 2;
         float panelsTop = normalBottom;
         PanelRect[] layout = workerPanelLayout(vW, panelsTop, graphY);
         float panelW = layout[0].width, panelH = layout[0].height;

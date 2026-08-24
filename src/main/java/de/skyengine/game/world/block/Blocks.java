@@ -35,7 +35,7 @@ public final class Blocks {
     public static int AIR, BEDROCK;
     public static int STONE, COBBLESTONE, OAK_PLANKS, DIRT, GRASS_BLOCK, OBSIDIAN, SNOW, OAK_LOG;
     public static int OAK_LEAVES;
-    public static int GLASS;
+    public static int GLASS, MINING_PORTAL;
     public static int TNT;
     public static int PISTON, STICKY_PISTON, PISTON_HEAD, MOVING_PISTON;
     public static int FERN, SHORT_GRASS, ORANGE_TULIP;
@@ -324,6 +324,9 @@ public final class Blocks {
         CACTUS = idOf("skyengine:cactus");
 
         CLAY = idOf("skyengine:clay");
+
+        MINING_PORTAL = idOf("skyengine:mining_portal");
+        de.skyengine.game.world.dimension.WorldgenRegistries.bootstrap();
     }
 
     /** Laedt nur Modelle/Blockstates neu; Registry, IDs, Regeln und Kollision bleiben bestehen. */

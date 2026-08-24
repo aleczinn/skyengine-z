@@ -197,6 +197,21 @@
       "invalid_amount": "Invalid amount: %s",
       "inventory_full": "The inventory is full.",
       "success": "Added %d × %s to the inventory."
+    },
+    "dimension": {
+      "usage": "Usage: /dimension <id>",
+      "no_world": "No world is active.",
+      "unknown": "Unknown dimension: %s",
+      "already_active": "Dimension already active: %s",
+      "queued": "Queued dimension change: %s",
+      "failed": "Could not queue the dimension change."
+    }
+  },
+
+  "dimension": {
+    "skyengine": {
+      "overworld": "Overworld",
+      "mining": "Mining Dimension"
     }
   },
 
@@ -430,6 +445,7 @@
       "mangrove_stairs": "Mangrove Stairs",
       "mangrove_trapdoor": "Mangrove Trapdoor",
       "melon": "Melon",
+      "mining_portal": "Mining Portal",
       "mossy_stone_bricks": "Mossy Stone Bricks",
       "mud": "Mud",
       "mud_bricks": "Mud Bricks",

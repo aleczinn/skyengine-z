@@ -19,6 +19,10 @@ import de.skyengine.game.world.block.BlockRaycast;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.World;
+import de.skyengine.game.world.dimension.PortalController;
+import de.skyengine.game.world.dimension.PortalDefinition;
+import de.skyengine.game.world.dimension.DimensionDefinition;
+import de.skyengine.game.world.dimension.WorldgenRegistries;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.ChestBlockEntity;
@@ -49,6 +53,7 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.FrameProfiler;
@@ -88,7 +93,6 @@ import de.skyengine.graphics.player.PlayerRenderer;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.game.world.block.entity.BlockEntities;
 import de.skyengine.game.world.block.entity.DataTag;
-import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.game.world.save.PlayerIO;
 import de.skyengine.game.world.save.WorldSaves;
@@ -238,6 +242,13 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /* Aktives Savegame (null im Hauptmenü) — Ziel für saveCurrentWorld beim Austritt/Beenden. */
     private WorldSaves.WorldSave currentSave;
+    private final PortalController portalController = new PortalController();
+    private PendingDimensionSwitch pendingDimensionSwitch;
+    private PendingArrival pendingArrival;
+
+    private record PendingDimensionSwitch(Identifier target, int x, int z,
+                                          Identifier portalType, boolean createReturnPortal) {}
+    private record PendingArrival(int x, int z, Identifier portalType, boolean createReturnPortal) {}
 
     /** Autosave-Intervall in Ticks (60 s bei 20 TPS). */
     private static final int AUTOSAVE_INTERVAL = 1200;
@@ -315,9 +326,16 @@ public class GameContainer implements IResizeable, IDisposable {
         this.playerWasInWater = false;
         this.underwaterAudio.reset();
         this.currentSave = save;
-        this.world = new World(save.dirName(), save.level(), this.atlas, this.blockEntityRenderers);
+        /* Die aktive Dimension steht im player.dat. Alt-Saves und entfernte optionale
+           Dimensionen fallen sicher auf die Overworld zurueck. */
+        DataTag playerTag = PlayerIO.read(new File(WorldSaves.dir(save.dirName()), "player/player.dat"));
+        Identifier dimension = this.playerDimension(playerTag);
+        this.world = new World(save.dirName(), save.level(), dimension, this.atlas, this.blockEntityRenderers);
         this.world.setSoundManager(this.soundManager); // Sounds aus der Welt-Logik (z.B. TNT-Explosion)
         this.world.init();
+        this.portalController.reset();
+        this.pendingDimensionSwitch = null;
+        this.pendingArrival = null;
 
         this.player = new EntityPlayer();
         this.hudStatusText = "";
@@ -325,7 +343,6 @@ public class GameContainer implements IResizeable, IDisposable {
         this.playerUuid = null;
         /* Spielerzustand: player.dat ist die Quelle; Alt-Saves ohne player.dat werden einmalig
            aus den level.json-Feldern migriert (beim nächsten Speichern genullt). */
-        DataTag playerTag = PlayerIO.read(new File(WorldSaves.dir(save.dirName()), "player/player.dat"));
         LevelData.PlayerData saved = save.level().player;
         if (playerTag != null) {
             this.player.setPosition(playerTag.getDouble("x", 0.5),
@@ -378,6 +395,15 @@ public class GameContainer implements IResizeable, IDisposable {
         this.guiManager.open(new GuiWorldLoading());
     }
 
+    private Identifier playerDimension(DataTag playerTag) {
+        Identifier fallback = WorldgenRegistries.OVERWORLD;
+        if (playerTag == null) return fallback;
+        Identifier saved = Identifier.of(playerTag.getString("dimension", fallback.toString()));
+        if (WorldgenRegistries.DIMENSIONS.get(saved) != null) return saved;
+        this.logger.warning("Spielerdimension ist nicht registriert, verwende Overworld: " + saved);
+        return fallback;
+    }
+
     /** Setzt den Spieler an den Weltspawn (deterministisch: Terrainhöhe bei 0,0 + 2). */
     private void placeAtWorldSpawn(EntityPlayer player) {
         int spawnY = this.world.getGenerator().sampleHeight(0, 0) + 2;
@@ -395,11 +421,16 @@ public class GameContainer implements IResizeable, IDisposable {
         this.playerWasInWater = false;
         this.underwaterAudio.reset();
         this.animState.reset();
-        this.placeAtWorldSpawn(this.player);
         this.player.motionX = 0;
         this.player.motionY = 0;
         this.player.motionZ = 0;
         this.player.resetVitals();
+        if (!this.world.getDimensionId().equals(WorldgenRegistries.OVERWORLD)) {
+            this.pendingDimensionSwitch = new PendingDimensionSwitch(
+                    WorldgenRegistries.OVERWORLD, 0, 0, null, false);
+        } else {
+            this.placeAtWorldSpawn(this.player);
+        }
         this.player.snapPrevToCurrent();
     }
 
@@ -420,6 +451,9 @@ public class GameContainer implements IResizeable, IDisposable {
         this.world = null;
         this.player = null;
         this.currentSave = null;
+        this.pendingDimensionSwitch = null;
+        this.pendingArrival = null;
+        this.portalController.reset();
         this.hit = null;
         this.itemFrameHit = null;
         this.minecartHit = null;
@@ -445,10 +479,8 @@ public class GameContainer implements IResizeable, IDisposable {
         level.lastPlayed = System.currentTimeMillis();
         /* Save-Layout-Defaults für Alt-Welten nachziehen; die alten Spieler-Felder werden
            genullt — die Migration nach player.dat ist damit abgeschlossen. */
-        if (level.formatVersion == null) level.formatVersion = 1;
+        level.formatVersion = 2;
         if (level.worldType == null) level.worldType = "default";
-        if (level.generator == null) level.generator = "alpha_v2";
-        if (level.generatorVersion == null) level.generatorVersion = AlphaWorldGeneratorV2.VERSION;
         level.player = null;
         level.inventory.clear();
         this.world.saveLootRandomStates(level);
@@ -460,6 +492,7 @@ public class GameContainer implements IResizeable, IDisposable {
         tag.putDouble("x", this.player.x);
         tag.putDouble("y", this.player.y);
         tag.putDouble("z", this.player.z);
+        tag.putString("dimension", this.world.getDimensionId().toString());
         tag.putDouble("yaw", this.player.yaw);
         tag.putDouble("pitch", this.player.pitch);
         tag.putString("gamemode", this.player.getGamemode().name());
@@ -576,6 +609,13 @@ public class GameContainer implements IResizeable, IDisposable {
             this.updateStepSounds();
             this.updateHurtSounds();
             this.updateEating(input);
+            if (!this.player.isDead() && this.pendingDimensionSwitch == null) {
+                PortalController.Travel travel = this.portalController.tick(this.world, this.player);
+                if (travel != null) {
+                    this.pendingDimensionSwitch = new PendingDimensionSwitch(travel.targetDimension(),
+                            travel.x(), travel.z(), travel.portalType(), true);
+                }
+            }
             /* Tod (z.B. Fallschaden — auch mit offenem Container-GUI möglich): Todesscreen
                öffnen; open() schließt ein offenes Inventar/eine Truhe sauber über onClose. */
             if (this.player.isDead() && !(this.guiManager.current() instanceof GuiDeathScreen)) {
@@ -588,12 +628,134 @@ public class GameContainer implements IResizeable, IDisposable {
             profiler.recordElapsed(PerformanceProfiler.TickSection.PLAYER_GAME_LOGIC, playerLogicStarted);
             this.world.update(input, this.player);
             this.pickupItems();
+            this.finalizePendingArrival();
             /* Autosave. Die Modulo-Prüfung gehört IN diesen Zweig: gameTime steht bei Pause
                still, außerhalb würde sie dann jeden Tick erneut feuern. */
             if (this.world.getGameTime() % AUTOSAVE_INTERVAL == 0 && this.saveCurrentWorld(false) > 0) {
                 this.notifyOnSaveDone = true; // beim Autosave nur melden, wenn es wirklich etwas gab
             }
+            if (this.pendingDimensionSwitch != null) this.executeDimensionSwitch();
         }
+    }
+
+    /** Reiht einen sicheren 1:1-Wechsel fuer Befehle und spaetere Gameplay-Systeme ein. */
+    public boolean requestDimensionChange(Identifier target) {
+        if (this.world == null || this.player == null || this.pendingDimensionSwitch != null
+                || target == null || target.equals(this.world.getDimensionId())
+                || WorldgenRegistries.DIMENSIONS.get(target) == null) return false;
+        this.pendingDimensionSwitch = new PendingDimensionSwitch(target,
+                (int) Math.floor(this.player.x), (int) Math.floor(this.player.z), null, false);
+        return true;
+    }
+
+    private void executeDimensionSwitch() {
+        PendingDimensionSwitch request = this.pendingDimensionSwitch;
+        this.pendingDimensionSwitch = null;
+        if (request == null || this.currentSave == null || request.target.equals(this.world.getDimensionId())) return;
+
+        /* Zielmetadaten vor dem Abbau validieren und bei Erstbetreten persistent anlegen. */
+        de.skyengine.game.world.dimension.DimensionSaves.resolve(
+                WorldSaves.dir(this.currentSave.dirName()), this.currentSave.level(), request.target);
+        this.saveCurrentWorld(true);
+        GL11.glFinish();
+        this.soundManager.stopMinecartSounds();
+        this.underwaterAudio.reset();
+        this.waterVision.reset();
+        this.world.dispose();
+
+        this.world = new World(this.currentSave.dirName(), this.currentSave.level(), request.target,
+                this.atlas, this.blockEntityRenderers);
+        this.world.setSoundManager(this.soundManager);
+        this.world.init();
+        int provisionalY = Math.clamp(this.world.getGenerator().sampleHeight(request.x, request.z) + 2,
+                2, de.skyengine.game.world.chunk.Chunk.HEIGHT - 2);
+        this.player.setPosition(request.x + 0.5, provisionalY, request.z + 0.5);
+        this.resetPlayerAfterDimensionMove();
+        this.pendingArrival = new PendingArrival(request.x, request.z,
+                request.portalType, request.createReturnPortal);
+        this.portalController.lockUntilExit();
+        this.notifyOnSaveDone = false;
+        this.hit = null;
+        this.itemFrameHit = null;
+        this.minecartHit = null;
+        this.resetMining();
+        this.applySettings();
+        this.guiManager.open(new GuiWorldLoading());
+    }
+
+    private void finalizePendingArrival() {
+        PendingArrival arrival = this.pendingArrival;
+        if (arrival == null || !this.world.getChunkManager().isInitialLoadComplete()
+                || !this.arrivalAreaReady(arrival.x, arrival.z)) return;
+
+        int portalY = arrival.createReturnPortal
+                ? this.findSafePortalY(arrival.x, arrival.z, arrival.portalType) : -1;
+        int feetY;
+        if (portalY >= 1) {
+            feetY = portalY;
+        } else {
+            int floorY = this.findArrivalFloor(arrival.x, arrival.z);
+            for (int x = arrival.x - 1; x <= arrival.x + 1; x++) {
+                for (int z = arrival.z - 1; z <= arrival.z + 1; z++) {
+                    this.world.setBlock(x, floorY, z, Blocks.OBSIDIAN);
+                    this.world.setBlock(x, floorY + 1, z, Blocks.AIR);
+                    this.world.setBlock(x, floorY + 2, z, Blocks.AIR);
+                }
+            }
+            feetY = floorY + 1;
+            if (arrival.createReturnPortal) {
+                this.world.setBlock(arrival.x, feetY, arrival.z, Blocks.MINING_PORTAL);
+            }
+        }
+        this.player.setPosition(arrival.x + 0.5, feetY, arrival.z + 0.5);
+        this.resetPlayerAfterDimensionMove();
+        this.portalController.lockUntilExit();
+        this.pendingArrival = null;
+        this.saveCurrentWorld(false);
+    }
+
+    private boolean arrivalAreaReady(int centerX, int centerZ) {
+        for (int x = centerX - 1; x <= centerX + 1; x++) {
+            for (int z = centerZ - 1; z <= centerZ + 1; z++) {
+                var chunk = this.world.getChunkManager().getChunk(
+                        x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+                if (chunk == null || chunk.status != ChunkStatus.READY) return false;
+            }
+        }
+        return true;
+    }
+
+    private int findSafePortalY(int x, int z, Identifier portalType) {
+        PortalDefinition definition = portalType == null ? null : WorldgenRegistries.PORTALS.get(portalType);
+        if (definition == null) return -1;
+        for (int y = de.skyengine.game.world.chunk.Chunk.HEIGHT - 2; y >= 1; y--) {
+            int state = this.world.getBlock(x, y, z);
+            if (!Blocks.getState(state).getBlock().getIdentifier().equals(definition.block())) continue;
+            int floor = this.world.getBlock(x, y - 1, z);
+            int head = this.world.getBlock(x, y + 1, z);
+            if (Blocks.getState(floor).isSolid() && !Blocks.getState(head).isSolid()) return y;
+        }
+        return -1;
+    }
+
+    private int findArrivalFloor(int x, int z) {
+        for (int y = de.skyengine.game.world.chunk.Chunk.HEIGHT - 3; y >= 1; y--) {
+            BlockState state = Blocks.getState(this.world.getBlock(x, y, z));
+            if (state.isSolid() && !state.isFluid()) return y;
+        }
+        return 64;
+    }
+
+    private void resetPlayerAfterDimensionMove() {
+        this.player.motionX = 0;
+        this.player.motionY = 0;
+        this.player.motionZ = 0;
+        this.player.snapPrevToCurrent();
+        this.animState.reset();
+        this.animState.snapPrev();
+        this.waterVision.reset();
+        this.playerWasInWater = false;
+        this.underwaterAudio.reset();
     }
 
     /**
@@ -1592,6 +1754,16 @@ public class GameContainer implements IResizeable, IDisposable {
                 && held.getItem() != null
                 && (held.getItem().getPlacedBlock() != null || held.getItem() instanceof ItemFrameItem);
 
+        if (!placingWhileSneaking && this.pendingDimensionSwitch == null) {
+            PortalController.Travel travel = this.portalController.use(this.world,
+                    this.hit.x(), this.hit.y(), this.hit.z());
+            if (travel != null) {
+                this.pendingDimensionSwitch = new PendingDimensionSwitch(travel.targetDimension(),
+                        travel.x(), travel.z(), travel.portalType(), true);
+                return true;
+            }
+        }
+
         /* Feuerzeug: der einzige Zündweg für TNT, der über die Hand läuft. Steht VOR der
            Block-Interaktion und bewusst NICHT hinter dem Sneak-Gate — in MC überspringt Sneaken
            nur `useWithoutItem`, `useItemOn` läuft trotzdem. */
@@ -2053,13 +2225,30 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private void openChat(String initial) {
-        this.guiManager.open(new GuiChat(this.chat, new CommandContext(this.playerInventory),
+        CommandContext.DimensionAccess dimensions = new CommandContext.DimensionAccess() {
+            @Override public Identifier current() {
+                return GameContainer.this.world.getDimensionId();
+            }
+
+            @Override public List<Identifier> available() {
+                WorldgenRegistries.bootstrap();
+                return WorldgenRegistries.DIMENSIONS.values().stream()
+                        .map(DimensionDefinition::id).toList();
+            }
+
+            @Override public boolean request(Identifier target) {
+                return GameContainer.this.requestDimensionChange(target);
+            }
+        };
+        this.guiManager.open(new GuiChat(this.chat, new CommandContext(this.playerInventory, dimensions),
                 this.chatHud, initial));
     }
 
     /** Sichtweite der Projektion: mit LOD hinter den äußersten Ring gelegt, sonst wie bisher 1500. */
     private float computeFarPlane() {
-        if (!this.settings.lodEnabled) return 1500.0F;
+        if (!this.settings.lodEnabled || (this.world != null && !this.world.isLodAllowed())) {
+            return 1500.0F;
+        }
         return (Math.max(this.settings.lodMaxDistance, this.settings.renderDistance) + 8) * 32.0F;
     }
 

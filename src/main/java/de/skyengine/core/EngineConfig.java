@@ -4,7 +4,7 @@ import de.skyengine.graphics.color.Color4;
 
 public class EngineConfig {
 
-    private String title = "SkyEngine";
+    private String title = SkyEngine.GAME_NAME;
     private String version = "1.0.0";
 
     private int windowWidth = 1280;

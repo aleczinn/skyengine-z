@@ -132,6 +132,7 @@ public class ChunkRenderer {
     private final LongObjMap<LodMesh> lodMeshes = new LongObjMap<>(1024);
     private final List<LodMesh> visibleLod = new ArrayList<>();
     private LodManager lodManager;
+    private boolean lodAllowed = true;
 
     /* Cull-Hierarchie LOD: 4×4-Regionen-Kacheln (512 Blöcke) mit aggregiertem [minY,maxY] —
        analog zum Spalten-Index (der flache Regionen-Loop war die größere Hälfte der Cull-Zeit).
@@ -332,6 +333,15 @@ public class ChunkRenderer {
         this.lodManager = lodManager;
     }
 
+    /** Dimensionsregel: globale LOD-Einstellung darf eine gesperrte Dimension nicht ueberstimmen. */
+    public void setLodAllowed(boolean lodAllowed) {
+        this.lodAllowed = lodAllowed;
+    }
+
+    private boolean lodEnabled(GameSettings settings) {
+        return this.lodAllowed && settings.lodEnabled;
+    }
+
 
     /** Render thread, GL context required. Der Atlas muss bereits gebaut sein (Boot). */
     public void init(BlockTextureAtlas atlas) {
@@ -399,7 +409,7 @@ public class ChunkRenderer {
            Deckel nach unten auf 8 MB (kleine Sichtweiten / LOD aus). Wächst bei Bedarf weiter. */
         long lodOpaqueBytes = 8L * 1024 * 1024;
         long lodTranslucentBytes = 8L * 1024 * 1024;
-        if (settings.lodEnabled) {
+        if (this.lodEnabled(settings)) {
             LodConfig lodConfig = LodConfig.of(settings.renderDistance, settings.lodMaxDistance);
             lodOpaqueBytes = Math.max(lodOpaqueBytes,
                     LodMesher.estimateOpaqueArenaBytes(lodConfig, settings.lodAmbientOcclusionQuality));
@@ -1238,14 +1248,15 @@ public class ChunkRenderer {
         /* Die Qualitaetsstufe gehoert mit in die Bedingung: sie aendert die Quads/Zelle und
            damit die Schaetzung (LOW->HIGH sind +38 % Quads). Ohne sie waechse die Arena nach
            einem Stufenwechsel treppenweise nach — genau der Fall, den dieser Block verhindert. */
-        if (settings.lodEnabled != this.lastLodEnabled || settings.renderDistance != this.lastLodRenderDistance
+        boolean lodEnabled = this.lodEnabled(settings);
+        if (lodEnabled != this.lastLodEnabled || settings.renderDistance != this.lastLodRenderDistance
                 || settings.lodMaxDistance != this.lastLodMaxDistance
                 || settings.lodAmbientOcclusionQuality != this.lastLodAmbientOcclusionQuality) {
-            this.lastLodEnabled = settings.lodEnabled;
+            this.lastLodEnabled = lodEnabled;
             this.lastLodRenderDistance = settings.renderDistance;
             this.lastLodMaxDistance = settings.lodMaxDistance;
             this.lastLodAmbientOcclusionQuality = settings.lodAmbientOcclusionQuality;
-            if (settings.lodEnabled) {
+            if (lodEnabled) {
                 LodConfig lodConfig = LodConfig.of(settings.renderDistance, settings.lodMaxDistance);
                 opaqueArena.ensureCapacity(
                         LodMesher.estimateOpaqueArenaBytes(lodConfig, settings.lodAmbientOcclusionQuality));
@@ -1605,7 +1616,8 @@ public class ChunkRenderer {
         GameSettings settings = GameSettings.get();
         float fogStart, fogEnd;
         if (settings.fog) {
-            float range = (settings.lodEnabled
+            boolean lodEnabled = this.lodEnabled(settings);
+            float range = (lodEnabled
                     ? Math.max(settings.lodMaxDistance, settings.renderDistance)
                     : settings.renderDistance) * ChunkSection.SIZE;
             /* Fog-Ende ~3 Chunks VOR die theoretische Grenze: der Lade-Kreis ist auf ganze
@@ -1617,7 +1629,7 @@ public class ChunkRenderer {
             /* Ohne LOD ist der einzige Fog-Zweck das Verstecken der Ladekante -> kurze steile
                Rampe (80 %), damit von der knappen Sichtweite mehr klar bleibt; mit LOD lange
                Rampe (60 %) gegen das Sub-Pixel-Flimmern des Fernterrains. */
-            fogStart = fogEnd * (settings.lodEnabled ? 0.60F : 0.80F);
+            fogStart = fogEnd * (lodEnabled ? 0.60F : 0.80F);
         } else {
             /* Fog aus: Start/Ende jenseits jeder Distanz -> Faktor 0, keine Shader-Variante nötig */
             fogStart = 1.0e30F;
