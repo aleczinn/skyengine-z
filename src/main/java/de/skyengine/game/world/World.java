@@ -120,6 +120,7 @@ public class World implements IInitializable, IDisposable {
     private final int generatorVersion;
     private final File lodDirectory;
     private final de.skyengine.game.world.dimension.PortalIndex portalIndex;
+    private final de.skyengine.game.world.dimension.PortalLinks portalLinks;
     /* Engine-Lebensdauer (GameContainer): Atlas + BlockEntity-Renderer überleben Welt-Austritte —
        die Welt hält nur Referenzen und disposed sie NICHT. */
     private final BlockTextureAtlas atlas;
@@ -270,13 +271,18 @@ public class World implements IInitializable, IDisposable {
 
     public World(String dirName, LevelData level, Identifier dimensionId, BlockTextureAtlas atlas,
                  BlockEntityRenderDispatcher blockEntityRenderer) {
-        this(dirName, level, dimensionId,
-                DimensionSaves.resolve(new File(GameDirectory.resolve("saves"), dirName), level, dimensionId),
+        this(dirName, level, dimensionId, new File(GameDirectory.resolve("saves"), dirName),
                 atlas, blockEntityRenderer);
     }
 
+    private World(String dirName, LevelData level, Identifier dimensionId, File saveRoot,
+                  BlockTextureAtlas atlas, BlockEntityRenderDispatcher blockEntityRenderer) {
+        this(dirName, level, dimensionId, saveRoot,
+                DimensionSaves.resolve(saveRoot, level, dimensionId), atlas, blockEntityRenderer);
+    }
+
     private World(String dirName, LevelData level, Identifier dimensionId,
-                  DimensionSaves.Resolved resolved, BlockTextureAtlas atlas,
+                  File saveRoot, DimensionSaves.Resolved resolved, BlockTextureAtlas atlas,
                   BlockEntityRenderDispatcher blockEntityRenderer) {
         this.name = dirName;
         this.dimensionId = dimensionId;
@@ -318,6 +324,7 @@ public class World implements IInitializable, IDisposable {
         this.generatorVersion = resolved.generator().version();
         this.lodDirectory = resolved.lodDir();
         this.portalIndex = new de.skyengine.game.world.dimension.PortalIndex(resolved.root());
+        this.portalLinks = new de.skyengine.game.world.dimension.PortalLinks(saveRoot);
         this.storage = new WorldStorage(resolved.regionDir(), this, this.generator,
                 resolved.generator().id().toString(), this.generatorVersion, this.imported);
         this.chunkManager.setStorage(this.storage);
@@ -341,6 +348,10 @@ public class World implements IInitializable, IDisposable {
 
     public de.skyengine.game.world.dimension.PortalIndex getPortalIndex() {
         return this.portalIndex;
+    }
+
+    public de.skyengine.game.world.dimension.PortalLinks getPortalLinks() {
+        return this.portalLinks;
     }
 
     /** Injiziert der GameContainer nach der Welt-Erzeugung; erlaubt Sounds aus der Welt-Logik. */

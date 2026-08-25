@@ -20,7 +20,10 @@ import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.dimension.PortalController;
+import de.skyengine.game.world.dimension.PortalCoordinates;
 import de.skyengine.game.world.dimension.PortalDefinition;
+import de.skyengine.game.world.dimension.PortalIndex;
+import de.skyengine.game.world.dimension.PortalLinks;
 import de.skyengine.game.world.dimension.DimensionDefinition;
 import de.skyengine.game.world.dimension.WorldgenRegistries;
 import de.skyengine.game.world.block.Blocks;
@@ -249,10 +252,12 @@ public class GameContainer implements IResizeable, IDisposable {
 
     private record PendingDimensionSwitch(Identifier target, int x, int y, int z,
                                           Identifier portalType, boolean createReturnPortal,
-                                          Direction.Axis portalAxis) {}
+                                          Direction.Axis portalAxis, Identifier sourceDimension,
+                                          String sourcePortalId, String targetPortalId) {}
     private record PendingArrival(int x, int y, int z, Identifier portalType,
                                   boolean createReturnPortal, Direction.Axis portalAxis,
-                                  de.skyengine.game.world.dimension.PortalIndex.Entry indexedPortal) {}
+                                  Identifier sourceDimension, String sourcePortalId,
+                                  PortalIndex.Entry indexedPortal) {}
 
     /** Autosave-Intervall in Ticks (60 s bei 20 TPS). */
     private static final int AUTOSAVE_INTERVAL = 1200;
@@ -431,7 +436,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.player.resetVitals();
         if (!this.world.getDimensionId().equals(WorldgenRegistries.OVERWORLD)) {
             this.pendingDimensionSwitch = new PendingDimensionSwitch(
-                    WorldgenRegistries.OVERWORLD, 0, 64, 0, null, false, null);
+                    WorldgenRegistries.OVERWORLD, 0, 64, 0, null, false, null,
+                    this.world.getDimensionId(), null, null);
         } else {
             this.placeAtWorldSpawn(this.player);
         }
@@ -646,23 +652,37 @@ public class GameContainer implements IResizeable, IDisposable {
         PortalDefinition definition = WorldgenRegistries.PORTALS.get(travel.portalType());
         int sourceX = travel.x(), sourceY = travel.y(), sourceZ = travel.z();
         Direction.Axis axis = null;
+        Identifier sourceDimension = this.world.getDimensionId();
+        String sourcePortalId = null;
+        String targetPortalId = null;
         if (definition != null && definition.linkPolicy() == PortalDefinition.LinkPolicy.NETHER) {
             var shape = de.skyengine.game.world.dimension.NetherPortalShape.find(
                     this.world, sourceX, sourceY, sourceZ, true);
             if (shape != null) {
-                sourceX = shape.centerX();
+                PortalIndex.Entry sourceEntry = this.world.getPortalIndex().add(travel.portalType(), shape);
+                sourcePortalId = sourceEntry.id();
+                sourceX = PortalCoordinates.scale(sourceEntry.centerX(),
+                        this.world.getEnvironment(),
+                        WorldgenRegistries.DIMENSIONS.get(travel.targetDimension()).environment());
                 sourceY = shape.bottomY();
-                sourceZ = shape.centerZ();
+                sourceZ = PortalCoordinates.scale(sourceEntry.centerZ(),
+                        this.world.getEnvironment(),
+                        WorldgenRegistries.DIMENSIONS.get(travel.targetDimension()).environment());
                 axis = shape.axis();
+                PortalLinks.Endpoint linked = this.world.getPortalLinks().linked(
+                        travel.portalType(), sourceDimension, sourcePortalId);
+                if (linked != null && linked.dimension().equals(travel.targetDimension().toString())) {
+                    targetPortalId = linked.portalId();
+                }
+            } else {
+                var target = WorldgenRegistries.DIMENSIONS.get(travel.targetDimension());
+                sourceX = PortalCoordinates.scale(sourceX, this.world.getEnvironment(), target.environment());
+                sourceZ = PortalCoordinates.scale(sourceZ, this.world.getEnvironment(), target.environment());
             }
-            var target = WorldgenRegistries.DIMENSIONS.get(travel.targetDimension());
-            double ratio = this.world.getEnvironment().coordinateScale()
-                    / target.environment().coordinateScale();
-            sourceX = (int) Math.floor(sourceX * ratio);
-            sourceZ = (int) Math.floor(sourceZ * ratio);
         }
         this.pendingDimensionSwitch = new PendingDimensionSwitch(travel.targetDimension(),
-                sourceX, sourceY, sourceZ, travel.portalType(), true, axis);
+                sourceX, sourceY, sourceZ, travel.portalType(), true, axis,
+                sourceDimension, sourcePortalId, targetPortalId);
     }
 
     /** Reiht einen sicheren 1:1-Wechsel fuer Befehle und spaetere Gameplay-Systeme ein. */
@@ -672,7 +692,8 @@ public class GameContainer implements IResizeable, IDisposable {
                 || WorldgenRegistries.DIMENSIONS.get(target) == null) return false;
         this.pendingDimensionSwitch = new PendingDimensionSwitch(target,
                 (int) Math.floor(this.player.x), (int) Math.floor(this.player.y),
-                (int) Math.floor(this.player.z), null, false, null);
+                (int) Math.floor(this.player.z), null, false, null,
+                this.world.getDimensionId(), null, null);
         return true;
     }
 
@@ -697,10 +718,19 @@ public class GameContainer implements IResizeable, IDisposable {
         this.world.init();
         PortalDefinition definition = request.portalType == null ? null
                 : WorldgenRegistries.PORTALS.get(request.portalType);
-        int radius = request.target.equals(WorldgenRegistries.NETHER) ? 16 : 128;
-        var indexed = definition != null && definition.linkPolicy() == PortalDefinition.LinkPolicy.NETHER
-                ? this.world.getPortalIndex().nearest(request.portalType, request.x, request.y, request.z, radius)
-                : null;
+        boolean netherLink = definition != null
+                && definition.linkPolicy() == PortalDefinition.LinkPolicy.NETHER;
+        PortalIndex.Entry indexed = null;
+        if (netherLink && request.targetPortalId != null) {
+            indexed = this.world.getPortalIndex().byId(request.targetPortalId);
+            if (indexed == null && request.sourcePortalId != null) {
+                this.world.getPortalLinks().unlink(request.portalType,
+                        request.sourceDimension, request.sourcePortalId);
+            }
+        }
+        if (netherLink && indexed == null) {
+            indexed = this.findAvailablePortal(request.portalType, request.x, request.y, request.z);
+        }
         int loadX = indexed == null ? request.x : indexed.x();
         int loadZ = indexed == null ? request.z : indexed.z();
         int provisionalY = indexed == null
@@ -710,7 +740,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.player.setPosition(loadX + 0.5, provisionalY, loadZ + 0.5);
         this.resetPlayerAfterDimensionMove();
         this.pendingArrival = new PendingArrival(request.x, request.y, request.z,
-                request.portalType, request.createReturnPortal, request.portalAxis, indexed);
+                request.portalType, request.createReturnPortal, request.portalAxis,
+                request.sourceDimension, request.sourcePortalId, indexed);
         this.portalController.lockUntilExit();
         this.notifyOnSaveDone = false;
         this.hit = null;
@@ -766,15 +797,32 @@ public class GameContainer implements IResizeable, IDisposable {
             var entry = arrival.indexedPortal;
             var shape = de.skyengine.game.world.dimension.NetherPortalShape.find(
                     this.world, entry.x(), entry.y(), entry.z(), true);
+            /* Ein fest verbundenes, nur erloschenes Gegenportal wird in seinem intakten Rahmen
+               wieder entfacht. Ist der Rahmen zerstoert, faellt die Aktivierung sauber durch. */
+            if (shape == null && de.skyengine.game.world.dimension.NetherPortalShape.activate(
+                    this.world, entry.x(), entry.y(), entry.z())) {
+                shape = de.skyengine.game.world.dimension.NetherPortalShape.find(
+                        this.world, entry.x(), entry.y(), entry.z(), true);
+            }
             if (shape != null) {
-                this.finishArrival(shape.centerX() + 0.5, shape.bottomY(), shape.centerZ() + 0.5);
+                PortalIndex.Entry targetEntry = this.world.getPortalIndex().add(arrival.portalType, shape);
+                this.pairArrival(arrival, targetEntry);
+                this.finishArrival(targetEntry.centerX(), shape.bottomY(), targetEntry.centerZ());
                 return;
             }
             this.world.getPortalIndex().remove(entry);
-            this.player.setPosition(arrival.x + 0.5, Math.clamp(arrival.y, 2, Chunk.HEIGHT - 2),
-                    arrival.z + 0.5);
+            this.world.getPortalLinks().unlink(arrival.portalType,
+                    this.world.getDimensionId(), entry.id());
+            PortalIndex.Entry next = this.findAvailablePortal(
+                    arrival.portalType, arrival.x, arrival.y, arrival.z);
+            int retryX = next == null ? arrival.x : next.x();
+            int retryY = next == null ? arrival.y : next.y();
+            int retryZ = next == null ? arrival.z : next.z();
+            this.player.setPosition(retryX + 0.5, Math.clamp(retryY, 2, Chunk.HEIGHT - 2),
+                    retryZ + 0.5);
             this.pendingArrival = new PendingArrival(arrival.x, arrival.y, arrival.z,
-                    arrival.portalType, arrival.createReturnPortal, arrival.portalAxis, null);
+                    arrival.portalType, arrival.createReturnPortal, arrival.portalAxis,
+                    arrival.sourceDimension, arrival.sourcePortalId, next);
             return;
         }
 
@@ -787,7 +835,25 @@ public class GameContainer implements IResizeable, IDisposable {
         var shape = de.skyengine.game.world.dimension.NetherPortalShape.find(
                 this.world, minX, bottomY, minZ, true);
         if (shape == null) throw new IllegalStateException("Erzeugtes Netherportal ist ungueltig");
-        this.finishArrival(shape.centerX() + 0.5, shape.bottomY(), shape.centerZ() + 0.5);
+        PortalIndex.Entry targetEntry = this.world.getPortalIndex().add(arrival.portalType, shape);
+        this.pairArrival(arrival, targetEntry);
+        this.finishArrival(targetEntry.centerX(), shape.bottomY(), targetEntry.centerZ());
+    }
+
+    private PortalIndex.Entry findAvailablePortal(Identifier portalType, int x, int y, int z) {
+        int radius = PortalCoordinates.searchRadius(this.world.getEnvironment());
+        List<PortalIndex.Entry> candidates = this.world.getPortalIndex().candidates(
+                portalType, x, y, z, radius,
+                entry -> !this.world.getPortalLinks().isLinked(
+                        portalType, this.world.getDimensionId(), entry.id()));
+        return candidates.isEmpty() ? null : candidates.getFirst();
+    }
+
+    private void pairArrival(PendingArrival arrival, PortalIndex.Entry targetEntry) {
+        if (arrival.sourcePortalId == null || arrival.sourceDimension == null || targetEntry == null) return;
+        this.world.getPortalLinks().pair(arrival.portalType,
+                arrival.sourceDimension, arrival.sourcePortalId,
+                this.world.getDimensionId(), targetEntry.id());
     }
 
     private int[] findNetherPortalSite(int targetX, int targetY, int targetZ, Direction.Axis axis) {

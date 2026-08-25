@@ -13,22 +13,29 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
+import java.util.function.Predicate;
 
-/** Kleiner dimensionsgebundener Index fuer Portalrahmen in nicht geladenen Chunks. */
+/** Dimensionsgebundener, persistenter Index fuer aktive und erloschene Portalrahmen. */
 public final class PortalIndex {
 
     private static final Logger LOGGER = LogManager.getLogger(PortalIndex.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    public record Entry(String type, int x, int y, int z, String axis, int width, int height) {
+    public record Entry(String id, String type, int x, int y, int z, String axis,
+                        int width, int height, boolean active) {
         public Direction.Axis portalAxis() { return Direction.Axis.valueOf(axis); }
         public double centerX() { return portalAxis() == Direction.Axis.X ? x + width * 0.5 : x + 0.5; }
         public double centerY() { return y + height * 0.5; }
         public double centerZ() { return portalAxis() == Direction.Axis.Z ? z + width * 0.5 : z + 0.5; }
+
+        Entry withActive(boolean value) {
+            return new Entry(id, type, x, y, z, axis, width, height, value);
+        }
     }
 
     private static final class Data {
-        int version = 1;
+        int version = 2;
         List<Entry> portals = new ArrayList<>();
     }
 
@@ -41,35 +48,100 @@ public final class PortalIndex {
     }
 
     public Entry nearest(Identifier type, int x, int y, int z, int radius) {
-        long radiusSq = (long) radius * radius;
+        List<Entry> candidates = this.candidates(type, x, y, z, radius, entry -> true);
+        return candidates.isEmpty() ? null : candidates.getFirst();
+    }
+
+    /** Aktive Kandidaten, geometrisch zentriert und deterministisch nach Entfernung sortiert. */
+    public List<Entry> candidates(Identifier type, int x, int y, int z, int radius,
+                                  Predicate<Entry> available) {
+        double radiusSq = (double) radius * radius;
         return this.entries.stream()
+                .filter(Entry::active)
                 .filter(entry -> entry.type.equals(type.toString()))
+                .filter(available)
                 .filter(entry -> {
-                    long dx = entry.x - x, dz = entry.z - z;
+                    double dx = entry.centerX() - (x + 0.5);
+                    double dz = entry.centerZ() - (z + 0.5);
                     return dx * dx + dz * dz <= radiusSq;
                 })
-                .min(Comparator.comparingLong((Entry entry) -> distanceSquared(entry, x, y, z))
-                        .thenComparingInt(Entry::y).thenComparingInt(Entry::x).thenComparingInt(Entry::z))
-                .orElse(null);
+                .sorted(Comparator.comparingDouble((Entry entry) -> distanceSquared(entry, x, y, z))
+                        .thenComparingInt(Entry::y).thenComparingInt(Entry::x)
+                        .thenComparingInt(Entry::z).thenComparing(Entry::id))
+                .toList();
     }
 
-    public void add(Identifier type, NetherPortalShape.Shape shape) {
-        Entry entry = new Entry(type.toString(), shape.minX(), shape.bottomY(), shape.minZ(),
-                shape.axis().name(), shape.width(), shape.height());
-        this.entries.removeIf(old -> old.type.equals(entry.type) && old.x == entry.x
-                && old.y == entry.y && old.z == entry.z);
+    public Entry byId(String id) {
+        if (id == null) return null;
+        for (Entry entry : this.entries) if (id.equals(entry.id)) return entry;
+        return null;
+    }
+
+    public Entry containing(Identifier type, int x, int y, int z) {
+        for (Entry entry : this.entries) {
+            if (entry.type.equals(type.toString()) && contains(entry, x, y, z)) return entry;
+        }
+        return null;
+    }
+
+    /** Registriert einen neuen Rahmen oder reaktiviert exakt denselben unter seiner alten UUID. */
+    public Entry add(Identifier type, NetherPortalShape.Shape shape) {
+        for (int i = 0; i < this.entries.size(); i++) {
+            Entry old = this.entries.get(i);
+            if (!sameGeometry(old, type, shape)) continue;
+            if (!old.active) {
+                old = old.withActive(true);
+                this.entries.set(i, old);
+                this.save();
+            }
+            return old;
+        }
+        Entry entry = new Entry(UUID.randomUUID().toString(), type.toString(), shape.minX(),
+                shape.bottomY(), shape.minZ(), shape.axis().name(), shape.width(), shape.height(), true);
         this.entries.add(entry);
         this.save();
+        return entry;
     }
 
-    public void remove(Entry entry) {
-        if (entry != null && this.entries.remove(entry)) this.save();
+    /** Erhaelt Identitaet und Link eines intakten, aber nicht mehr entzuendeten Rahmens. */
+    public Entry deactivateContaining(Identifier type, int x, int y, int z) {
+        for (int i = 0; i < this.entries.size(); i++) {
+            Entry old = this.entries.get(i);
+            if (!old.type.equals(type.toString()) || !contains(old, x, y, z)) continue;
+            if (old.active) {
+                old = old.withActive(false);
+                this.entries.set(i, old);
+                this.save();
+            }
+            return old;
+        }
+        return null;
     }
 
-    public void removeContaining(Identifier type, int x, int y, int z) {
-        boolean removed = this.entries.removeIf(entry -> entry.type.equals(type.toString())
-                && contains(entry, x, y, z));
-        if (removed) this.save();
+    public Entry remove(Entry entry) {
+        if (entry != null && this.entries.remove(entry)) {
+            this.save();
+            return entry;
+        }
+        return null;
+    }
+
+    public Entry removeContaining(Identifier type, int x, int y, int z) {
+        for (int i = 0; i < this.entries.size(); i++) {
+            Entry entry = this.entries.get(i);
+            if (!entry.type.equals(type.toString()) || !contains(entry, x, y, z)) continue;
+            this.entries.remove(i);
+            this.save();
+            return entry;
+        }
+        return null;
+    }
+
+    private static boolean sameGeometry(Entry entry, Identifier type, NetherPortalShape.Shape shape) {
+        return entry.type.equals(type.toString()) && entry.x == shape.minX()
+                && entry.y == shape.bottomY() && entry.z == shape.minZ()
+                && entry.axis.equals(shape.axis().name()) && entry.width == shape.width()
+                && entry.height == shape.height();
     }
 
     private static boolean contains(Entry entry, int x, int y, int z) {
@@ -79,8 +151,10 @@ public final class PortalIndex {
                 : x == entry.x && z >= entry.z && z < entry.z + entry.width;
     }
 
-    private static long distanceSquared(Entry entry, int x, int y, int z) {
-        long dx = entry.x - x, dy = entry.y - y, dz = entry.z - z;
+    private static double distanceSquared(Entry entry, int x, int y, int z) {
+        double dx = entry.centerX() - (x + 0.5);
+        double dy = entry.centerY() - (y + 0.5);
+        double dz = entry.centerZ() - (z + 0.5);
         return dx * dx + dy * dy + dz * dz;
     }
 
@@ -88,7 +162,18 @@ public final class PortalIndex {
         if (!this.file.isFile()) return;
         try {
             Data data = GSON.fromJson(Files.readString(this.file.toPath()), Data.class);
-            if (data != null && data.version == 1 && data.portals != null) this.entries.addAll(data.portals);
+            if (data == null || data.portals == null) return;
+            if (data.version == 1) {
+                for (Entry old : data.portals) {
+                    this.entries.add(new Entry(UUID.randomUUID().toString(), old.type, old.x, old.y,
+                            old.z, old.axis, old.width, old.height, true));
+                }
+                this.save();
+            } else if (data.version == 2) {
+                for (Entry entry : data.portals) {
+                    if (entry.id != null && !entry.id.isBlank()) this.entries.add(entry);
+                }
+            }
         } catch (Exception e) {
             LOGGER.warning("Portalindex konnte nicht geladen werden: " + this.file + " (" + e.getMessage() + ")");
         }

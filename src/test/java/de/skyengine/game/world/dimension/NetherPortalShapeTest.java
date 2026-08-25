@@ -3,6 +3,8 @@ package de.skyengine.game.world.dimension;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
@@ -18,6 +20,8 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 final class NetherPortalShapeTest {
+
+    private static final Identifier TYPE = Identifier.of("skyengine:nether_portal");
 
     @BeforeAll
     static void bootstrapBlocks() {
@@ -48,6 +52,10 @@ final class NetherPortalShapeTest {
         buildFrame(chunk, Direction.Axis.Z, 5, 64, 5, 2, 3);
         world.install(chunk);
         assertTrue(NetherPortalShape.activate(world, 5, 64, 5));
+        PortalIndex.Entry original = world.getPortalIndex().containing(TYPE, 5, 65, 5);
+        assertNotNull(original);
+        world.getPortalLinks().pair(TYPE, world.getDimensionId(), original.id(),
+                WorldgenRegistries.NETHER, "target-portal");
 
         NetherPortalShape.Collapse collapse = NetherPortalShape.collapse(
                 world, 5, 65, 5, Direction.Axis.Z);
@@ -56,6 +64,63 @@ final class NetherPortalShapeTest {
         assertEquals(1, countPortalBlocks(world));
         world.setBlock(5, 65, 5, Blocks.AIR, false);
         assertNull(NetherPortalShape.collapse(world, 5, 65, 5, Direction.Axis.Z));
+        PortalIndex.Entry inactive = world.getPortalIndex().byId(original.id());
+        assertNotNull(inactive);
+        assertFalse(inactive.active());
+        assertEquals("target-portal", world.getPortalLinks()
+                .linked(TYPE, world.getDimensionId(), original.id()).portalId());
+
+        assertTrue(NetherPortalShape.activate(world, 5, 64, 5));
+        assertEquals(original.id(), world.getPortalIndex().containing(TYPE, 5, 64, 5).id());
+    }
+
+    @Test
+    void brokenFrameRemovesPortalIdentityAndReleasesItsLink() throws Exception {
+        TestWorld world = new TestWorld("broken_frame_link");
+        Chunk chunk = new Chunk(0, 0);
+        chunk.status = ChunkStatus.READY;
+        buildFrame(chunk, Direction.Axis.Z, 5, 64, 5, 2, 3);
+        world.install(chunk);
+        assertTrue(NetherPortalShape.activate(world, 5, 64, 5));
+        PortalIndex.Entry original = world.getPortalIndex().containing(TYPE, 5, 64, 5);
+        world.getPortalLinks().pair(TYPE, world.getDimensionId(), original.id(),
+                WorldgenRegistries.NETHER, "target-to-release");
+
+        world.setBlock(5, 64, 4, Blocks.AIR, false);
+        BlockState portal = Blocks.getState(world.getBlock(5, 64, 5));
+        BlockState invalid = portal.getBlock().getStateForNeighborUpdate(
+                world, 5, 64, 5, portal);
+        assertTrue(invalid.isAir());
+        world.setBlock(5, 64, 5, invalid.getId(), false);
+
+        assertNull(world.getPortalIndex().byId(original.id()));
+        assertNull(world.getPortalLinks().linked(TYPE, world.getDimensionId(), original.id()));
+    }
+
+    @Test
+    void resizedInactiveFrameGetsNewIdentityAndReleasesOldLink() throws Exception {
+        TestWorld world = new TestWorld("resized_frame_link");
+        Chunk chunk = new Chunk(0, 0);
+        chunk.status = ChunkStatus.READY;
+        buildFrame(chunk, Direction.Axis.Z, 5, 64, 5, 2, 3);
+        world.install(chunk);
+        assertTrue(NetherPortalShape.activate(world, 5, 64, 5));
+        PortalIndex.Entry original = world.getPortalIndex().containing(TYPE, 5, 64, 5);
+        world.getPortalLinks().pair(TYPE, world.getDimensionId(), original.id(),
+                WorldgenRegistries.NETHER, "old-target");
+
+        NetherPortalShape.collapse(world, 5, 64, 5, Direction.Axis.Z);
+        world.setBlock(5, 64, 5, Blocks.AIR, false);
+        for (int y = 64; y < 67; y++) chunk.setBlock(5, y, 7, Blocks.AIR);
+        buildFrame(chunk, Direction.Axis.Z, 5, 64, 5, 3, 3);
+
+        assertTrue(NetherPortalShape.activate(world, 5, 64, 5));
+        PortalIndex.Entry replacement = world.getPortalIndex().containing(TYPE, 5, 64, 5);
+        assertNotNull(replacement);
+        assertNotEquals(original.id(), replacement.id());
+        assertEquals(3, replacement.width());
+        assertNull(world.getPortalIndex().byId(original.id()));
+        assertNull(world.getPortalLinks().linked(TYPE, world.getDimensionId(), original.id()));
     }
 
     private static int countPortalBlocks(World world) {

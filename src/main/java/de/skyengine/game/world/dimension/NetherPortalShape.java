@@ -40,6 +40,7 @@ public final class NetherPortalShape {
     public static boolean activate(World world, int x, int y, int z) {
         Shape shape = find(world, x, y, z, false);
         if (shape == null) return false;
+        Identifier type = Identifier.of("skyengine:nether_portal");
         BlockState portal = Blocks.getState(Blocks.NETHER_PORTAL)
                 .with(Properties.HORIZONTAL_AXIS, shape.axis);
         List<Cell> written = new ArrayList<>(shape.width * shape.height);
@@ -55,9 +56,21 @@ public final class NetherPortalShape {
             for (Cell cell : written) world.setBlock(cell.x, cell.y, cell.z, Blocks.AIR, false);
             return false;
         }
-        world.getPortalIndex().add(Identifier.of("skyengine:nether_portal"), shape);
+        PortalIndex.Entry previous = world.getPortalIndex().containing(
+                type, shape.minX, shape.bottomY, shape.minZ);
+        if (previous != null && !sameGeometry(previous, shape)) {
+            world.getPortalIndex().remove(previous);
+            world.getPortalLinks().unlink(type, world.getDimensionId(), previous.id());
+        }
+        world.getPortalIndex().add(type, shape);
         forEachInterior(shape, world::updateNeighbors);
         return true;
+    }
+
+    private static boolean sameGeometry(PortalIndex.Entry entry, Shape shape) {
+        return entry.x() == shape.minX && entry.y() == shape.bottomY
+                && entry.z() == shape.minZ && entry.portalAxis() == shape.axis
+                && entry.width() == shape.width && entry.height() == shape.height;
     }
 
     /** Aktiviert einen Rahmen auch dann, wenn der Klick eine Rahmenkante statt der Luft trifft. */
@@ -98,7 +111,11 @@ public final class NetherPortalShape {
         for (Cell cell : cells) {
             if (!cell.equals(source)) world.setBlock(cell.x, cell.y, cell.z, Blocks.AIR, false);
         }
-        world.getPortalIndex().removeContaining(Identifier.of("skyengine:nether_portal"), x, y, z);
+        /* Eine zerstoerte Portaloberflaeche kann bei intaktem Rahmen spaeter unter derselben
+           UUID reaktiviert werden. Ob der Rahmen selbst zerstoert ist, entscheidet der
+           onRemoved-Hook nach dem Blockwechsel und loest dann gegebenenfalls auch den Link. */
+        world.getPortalIndex().deactivateContaining(
+                Identifier.of("skyengine:nether_portal"), x, y, z);
         int width = axis == Direction.Axis.X ? maxX - minX + 1 : maxZ - minZ + 1;
         return new Collapse(axis, (minX + maxX + 1) * 0.5, (minY + maxY + 1) * 0.5,
                 (minZ + maxZ + 1) * 0.5, width, maxY - minY + 1, cells.size());
