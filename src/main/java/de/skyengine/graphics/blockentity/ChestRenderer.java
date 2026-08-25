@@ -190,9 +190,9 @@ public final class ChestRenderer implements BlockEntityRenderer {
 
     /**
      * Zeichnet die GESCHLOSSENE Truhe als Inventar-Icon mit derselben Geometrie/Textur wie in der
-     * Welt. {@code mvp} ist die fertige (Ortho × Iso) Icon-Matrix des Icon-Renderers; das Modell wird um
-     * 270° um die Blockmitte gedreht. (Netto mit ROT_Y=135 ergibt das 405°≡45° — also exakt dieselbe
-     * Truhen-Ausrichtung wie zuvor bei ROT_Y=225 + 180°; Front/Schloss zeigt zur sichtbaren Seite.)
+     * Welt. {@code mvp} enthaelt bereits den exakten {@code template_chest}-GUI-Transform aus
+     * {@code chest_item.json}; eine weitere Modellrotation wuerde die Front wieder um 90 Grad
+     * verdrehen.
      *
      * <p>KEINE GL-State-Änderung: nutzt den im Icon-Pass aktiven State (Back-Face-Culling an,
      * Tiefentest aus, Blend an). Das {@code buildBox}-Winding ist konsistent außen=Vorderseite, daher
@@ -202,14 +202,13 @@ public final class ChestRenderer implements BlockEntityRenderer {
      */
     @Override
     public void renderIcon(Matrix4f mvp, Matrix4f itemTransform) {
-        this.iconModel.identity()
-                .translate(0.5f, 0.5f, 0.5f).rotateY((float) (1.5 * Math.PI)).translate(-0.5f, -0.5f, -0.5f);
+        this.iconModel.identity();
 
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", mvp);
         this.shader.setUniformMatrix4f("u_Model", this.iconModel);
-        /* Normalen wie die Icon-Geometrie um 270° drehen -> gleiche Iso-Schattierung wie Würfel-Icons. */
-        this.normalRot.set(itemTransform).mul(this.iconModel);
+        /* Der Display-Transform dreht Geometrie und Normalen gemeinsam wie in Vanilla. */
+        this.normalRot.set(itemTransform);
         this.shader.setUniformMatrix4f("u_NormalRot", this.normalRot);
         /* Icon: dieselben pro-Achsen-Schrauben wie die Würfel-Icons (oben/Nord-Süd/West-Ost). */
         this.shader.setUniformi(this.locIconLighting, 1);

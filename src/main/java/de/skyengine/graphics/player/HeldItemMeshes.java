@@ -148,11 +148,13 @@ public final class HeldItemMeshes {
     public void drawFirstPerson(Item item, Matrix4f base) {
         HeldMesh held = this.meshFor(item);
         if (held.custom != null) {
-            /* BER-Block (Truhe): gleiche Display-Kette wie der Block-Zweig, aber der eigene
-               Renderer zeichnet (eigener Shader/Textur) — danach unseren State wiederherstellen. */
-            this.transform.set(base)
-                    .rotateXYZ(0F, (float) Math.toRadians(45), 0F).scale(0.40F)
-                    .translate(-0.5F, -0.5F, -0.5F);
+            /* BER-Block (Truhe): eigener Renderer, aber derselbe datengetriebene Display-Kontext
+               wie bei normalen Block-Items. template_chest nutzt hier Y=315 statt Block-Y=45. */
+            this.transform.set(base);
+            if (!this.applyDisplay(held.model, "firstperson_righthand", 1F / 16F, 1F)) {
+                this.transform.rotateXYZ(0F, (float) Math.toRadians(45), 0F).scale(0.40F);
+            }
+            this.transform.translate(-held.pivotX, -held.pivotY, -held.pivotZ);
             this.projView.mul(this.transform, this.mvp);
             held.custom.renderHeld(this.mvp, this.heldLight);
             this.restoreAfterCustom();
@@ -179,12 +181,14 @@ public final class HeldItemMeshes {
     public void drawThirdPerson(Item item, Matrix4f base) {
         HeldMesh held = this.meshFor(item);
         if (held.custom != null) {
-            /* BER-Block (Truhe): Block-Display-Kette, gezeichnet vom eigenen Renderer. */
-            this.transform.set(base)
-                    .translate(0F, 2.5F, 0F)
-                    .rotateXYZ((float) Math.toRadians(75), (float) Math.toRadians(45), 0F)
-                    .scale(16F * 0.375F)
-                    .translate(-0.5F, -0.5F, -0.5F);
+            /* Auch Spezialmodelle beziehen ihre Third-Person-Ausrichtung aus dem Itemmodell. */
+            this.transform.set(base);
+            if (!this.applyDisplay(held.model, "thirdperson_righthand", 1F, 16F)) {
+                this.transform.translate(0F, 2.5F, 0F)
+                        .rotateXYZ((float) Math.toRadians(75), (float) Math.toRadians(45), 0F)
+                        .scale(16F * 0.375F);
+            }
+            this.transform.translate(-held.pivotX, -held.pivotY, -held.pivotZ);
             this.projView.mul(this.transform, this.mvp);
             held.custom.renderHeld(this.mvp, this.heldLight);
             this.restoreAfterCustom();
@@ -270,8 +274,11 @@ public final class HeldItemMeshes {
             BakedQuad[] quads = bi.getBlock().getDefaultState().getModel();
             if (quads == null || quads.length == 0) {
                 BlockEntityRenderer custom = this.customHeldFor(bi);
-                if (custom != null) return new HeldMesh(null, false, false, custom, null, false,
-                        0.5F, 0.5F, 0.5F);
+                if (custom != null) {
+                    String model = BlockStateModels.inventoryDisplayModel(bi.getBlock());
+                    return new HeldMesh(null, false, false, custom, model, false,
+                            0.5F, 0.5F, 0.5F);
+                }
             }
             /* Deklariert der Block ein inventory_model (Zaun mit Armen, Glasscheibe), gilt es auch
                in der Hand — sonst hielte man beim Zaun nur den nackten Pfosten. Dieser Pfad backt

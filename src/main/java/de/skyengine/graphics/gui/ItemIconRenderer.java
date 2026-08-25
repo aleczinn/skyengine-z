@@ -4,6 +4,7 @@ import de.skyengine.core.EngineProperties;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
@@ -54,6 +55,8 @@ public final class ItemIconRenderer {
      * jeden Block oben und unten ~0,3 px über den Slotrahmen ragen.
      */
     private static final float ICON_SCALE = 0.625f;
+    static final float CUTOUT_ALPHA = 0.5F;
+    static final float TRANSLUCENT_ALPHA = 0.001F;
 
     private ShaderProgram shader;
     private TextureArray textures;
@@ -87,6 +90,7 @@ public final class ItemIconRenderer {
         }
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
+        this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);
         this.textures.bind(0);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glDisable(GL11.GL_DEPTH_TEST);
@@ -157,6 +161,7 @@ public final class ItemIconRenderer {
         ItemIconLighting.apply3D(this.shader);
         this.shader.setUniformMatrix4f("u_MVP", this.mvp);
         this.shader.setUniformMatrix4f("u_Model", this.model);
+        this.shader.setUniformf("u_AlphaCutoff", alphaCutoffFor(stack.getItem()));
         /* Tiefentest pro Icon: durchdringende Modellteile (Zaun-Balken in den Pfosten) brauchen
            echte Verdeckung. Clear pro Icon -> das zuletzt gezeichnete Cursor-Icon bleibt oben.
            "or-equal"-Func, damit koplanare Overlay-Quads (Grasblock-Seite) exakt gewinnen. */
@@ -168,6 +173,7 @@ public final class ItemIconRenderer {
         mesh.render();
         GL11.glDepthFunc(properties.baseDepthFunc());
         GL11.glDisable(GL11.GL_DEPTH_TEST);
+        this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);
     }
 
     /**
@@ -189,7 +195,17 @@ public final class ItemIconRenderer {
         ItemIconLighting.applyFlat(this.shader);
         this.shader.setUniformMatrix4f("u_MVP", this.mvp);
         this.shader.setUniformMatrix4f("u_Model", this.model);
+        this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);
         flat.mesh.render();
+    }
+
+    /** Gleiche Materialtrennung wie Chunk-, Entity- und Hand-Renderer. */
+    static float alphaCutoffFor(Item item) {
+        if (item instanceof BlockItem bi
+                && bi.getBlock().getDefaultState().getRenderLayer() == RenderLayer.TRANSLUCENT) {
+            return TRANSLUCENT_ALPHA;
+        }
+        return CUTOUT_ALPHA;
     }
 
     /**
@@ -432,10 +448,25 @@ public final class ItemIconRenderer {
         uniform sampler2DArray u_Textures;
         uniform vec3 u_ItemLight0;
         uniform vec3 u_ItemLight1;
+        uniform float u_AlphaCutoff;
         out vec4 fragColor;
+
+        /* Inventar-Icons sind Pixelgrafik. Bei kleinen, schraeg projizierten Composite-Modellen
+           (vor allem Betten) mischte der normale Mipmap-Filter die weisse Kopf- mit der schwarzen
+           Fuss-Textur zu einer grauen Naht. texelFetch aus Level 0 entspricht dem scharfen
+           GUI-Sampling von Minecraft; fract behaelt dabei das REPEAT-Verhalten des Arrays. */
+        vec4 samplePixelPerfect(vec3 coord) {
+            ivec3 size = textureSize(u_Textures, 0);
+            vec2 wrapped = fract(coord.xy);
+            ivec2 texel = clamp(ivec2(floor(wrapped * vec2(size.xy))),
+                                ivec2(0), size.xy - ivec2(1));
+            int layer = clamp(int(floor(coord.z + 0.5)), 0, size.z - 1);
+            return texelFetch(u_Textures, ivec3(texel, layer), 0);
+        }
+
         void main() {
-            vec4 c = texture(u_Textures, v_texCoord);
-            if (c.a < 0.01) discard;
+            vec4 c = samplePixelPerfect(v_texCoord);
+            if (c.a < u_AlphaCutoff) discard;
             vec3 n = normalize(v_normal);
             float diffuse = max(dot(u_ItemLight0, n), 0.0) + max(dot(u_ItemLight1, n), 0.0);
             float light = min(1.0, diffuse * 0.6 + 0.4);
