@@ -5,10 +5,19 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.Gamemode;
 import de.skyengine.game.physics.AABB;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
+import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.utils.math.MathUtils;
 
+import java.util.UUID;
+
 public class EntityPlayer extends Entity {
+
+    private final UUID uuid;
+    private final SimpleItemStorage inventory = new SimpleItemStorage(36);
+    private int selectedSlot;
+    private Identifier dimensionId;
 
     /* --- Augenhöhe --- */
     private static final float EYE_HEIGHT_STANDING = 1.62F;
@@ -99,14 +108,43 @@ public class EntityPlayer extends Entity {
     private float lastEyeHeight = EYE_HEIGHT_STANDING;
 
     public EntityPlayer() {
+        this(UUID.randomUUID());
+    }
+
+    public EntityPlayer(UUID uuid) {
+        this.uuid = java.util.Objects.requireNonNull(uuid, "uuid");
         this.setSize(0.6F, 1.8F);
         this.stepHeight = 0.6; // halbe Slabs/Stufen automatisch hochlaufen (wie Minecraft)
+    }
+
+    public UUID getUuid() {
+        return this.uuid;
+    }
+
+    public SimpleItemStorage getInventory() {
+        return this.inventory;
+    }
+
+    public int getSelectedSlot() {
+        return this.selectedSlot;
+    }
+
+    public void setSelectedSlot(int selectedSlot) {
+        this.selectedSlot = Math.clamp(selectedSlot, 0, 8);
+    }
+
+    public Identifier getDimensionId() {
+        return this.dimensionId;
+    }
+
+    public void setDimensionId(Identifier dimensionId) {
+        this.dimensionId = java.util.Objects.requireNonNull(dimensionId, "dimensionId");
     }
 
     /**
      * Per-TICK movement (20 TPS). Deterministic - only reads the frozen input state.
      */
-    public void update(Input input, World world) {
+    public void update(Input input, Dimension world) {
         super.update();
         this.landingDistanceThisTick = 0;
 
@@ -215,7 +253,7 @@ public class EntityPlayer extends Entity {
      * regeneriert 1 HP (kostet 6 Erschöpfung), bei Hunger 0 verhungert man bis auf ein
      * halbes Herz (MC-Normal: kein Hungertod).
      */
-    private void updateHunger(World world) {
+    private void updateHunger(Dimension world) {
         if (this.gamemode != Gamemode.SURVIVAL || this.isDead()) {
             this.foodTimer = 0;
             return;
@@ -259,7 +297,7 @@ public class EntityPlayer extends Entity {
      * {@code calculateFallDamage}, also Schwelle zuerst). Fliegen, Fluid-Kontakt oder
      * Aufwärtsbewegung setzen die Fallhöhe zurück (Wasser-Landung ist damit immer schadensfrei).
      */
-    private void updateFallDamage(World world, boolean wasOnGround) {
+    private void updateFallDamage(Dimension world, boolean wasOnGround) {
         if (this.flying || this.isTouchingFluid(world)) {
             this.fallDistance = 0;
             return;
@@ -288,7 +326,7 @@ public class EntityPlayer extends Entity {
      * Fluids haben keine Kollision - der Spieler sinkt/schwimmt also durch sie hindurch.
      * {@code depth} = Eintauchtiefe (siehe {@link #fluidDepth}) für die Sprung-Fallunterscheidung.
      */
-    private void travelSwimming(World world, double forward, double strafe, boolean up, boolean lava, double depth) {
+    private void travelSwimming(Dimension world, double forward, double strafe, boolean up, boolean lava, double depth) {
         this.moveRelative(strafe, forward, SWIM_ACCEL);
         double mx = this.motionX, mz = this.motionZ; // Bewegungsabsicht für den Kanten-Check
         this.move(world, this.motionX, this.motionY, this.motionZ);
@@ -320,10 +358,10 @@ public class EntityPlayer extends Entity {
 
     /**
      * true, wenn die um (dx, dy, dz) verschobene Box kollisionsfrei wäre. Präziser
-     * {@code intersects}-Test, weil {@link World#getCollisionBoxes} nur eine Broadphase ist
+     * {@code intersects}-Test, weil {@link Dimension#getCollisionBoxes} nur eine Broadphase ist
      * (siehe {@link #noGroundUnder}).
      */
-    private boolean isFree(World world, double dx, double dy, double dz) {
+    private boolean isFree(Dimension world, double dx, double dy, double dz) {
         AABB probe = this.boundingBox.copy().move(dx, dy, dz);
         for (AABB box : world.getCollisionBoxes(probe)) {
             if (box.intersects(probe)) return false;
@@ -335,7 +373,7 @@ public class EntityPlayer extends Entity {
      * Normales Movement: Gravitation, Springen, Boden-/Luftreibung, Sneak-Kantenschutz.
      * Reihenfolge wie Minecraft: Beschleunigen -> Bewegen -> Reibung & Gravitation.
      */
-    private void travelWalking(World world, double forward, double strafe, boolean jump) {
+    private void travelWalking(Dimension world, double forward, double strafe, boolean jump) {
         double blockFriction = this.onGround ? this.frictionBelow(world) : DEFAULT_FRICTION;
 
         if (jump && this.onGround) {
@@ -386,7 +424,7 @@ public class EntityPlayer extends Entity {
     }
 
     /** Reibung des Blocks unter den Füßen (MC: eine halbe Zelle unter der Fußposition). */
-    private double frictionBelow(World world) {
+    private double frictionBelow(Dimension world) {
         return this.blockBelow(world).getFriction();
     }
 
@@ -394,7 +432,7 @@ public class EntityPlayer extends Entity {
      * Sprung-Faktor, gleiche Zwei-Stufen-Auswahl wie {@link Entity#speedFactor} (MC
      * {@code getBlockJumpFactor}). Bleibt beim Spieler — springen tut sonst niemand.
      */
-    private double jumpFactor(World world) {
+    private double jumpFactor(Dimension world) {
         float own = this.blockAt(world, this.y).getJumpFactor();
         return own != 1.0F ? own : this.blockBelow(world).getJumpFactor();
     }
@@ -419,7 +457,7 @@ public class EntityPlayer extends Entity {
      * Creative-Fly: keine Gravitation, Space/Shift für hoch/runter,
      * Sprint verdoppelt die Geschwindigkeit.
      */
-    private void travelFlying(World world, double forward, double strafe, boolean up, boolean down) {
+    private void travelFlying(Dimension world, double forward, double strafe, boolean up, boolean down) {
         double speedFactor = this.gamemode == Gamemode.SPECTATOR ? this.spectatorFlySpeed : 1.0;
         double accel = FLY_ACCEL * speedFactor * (this.sprinting ? FLY_SPRINT_FACTOR : 1.0);
         this.moveRelative(strafe, forward, accel);
@@ -469,7 +507,7 @@ public class EntityPlayer extends Entity {
      * KEIN Boden mehr wäre. Erst je Achse einzeln, dann beide kombiniert
      * (für diagonales Sneaken an Ecken).
      */
-    private double[] backOffFromEdge(World world, double dx, double dz) {
+    private double[] backOffFromEdge(Dimension world, double dx, double dz) {
         double x = dx, z = dz;
 
         while (x != 0 && this.noGroundUnder(world, x, 0)) {
@@ -490,13 +528,13 @@ public class EntityPlayer extends Entity {
      * true, wenn unter der um (dx, dz) versetzten und um SNEAK_EDGE_DROP abgesenkten
      * Box KEINE Kollisionsbox tatsächlich liegt.
      *
-     * <p>Wichtig: {@link World#getCollisionBoxes} ist nur eine Broadphase und meldet
+     * <p>Wichtig: {@link Dimension#getCollisionBoxes} ist nur eine Broadphase und meldet
      * auch Boxen benachbarter Voxel. Bei schmalen Blöcken (Zaun-Pfosten, Glasscheibe,
      * Eisenstäbe), die schmaler als ihr Voxel sind, würde ein reiner {@code isEmpty()}-
      * Test fälschlich "Boden vorhanden" liefern, sobald man seitlich vom Pfosten steht –
      * man liefe beim Sneaken herunter. Darum hier ein präziser Schnitt-Test.
      */
-    private boolean noGroundUnder(World world, double dx, double dz) {
+    private boolean noGroundUnder(Dimension world, double dx, double dz) {
         AABB probe = this.boundingBox.copy().move(dx, -SNEAK_EDGE_DROP, dz);
         for (AABB box : world.getCollisionBoxes(probe)) {
             if (box.intersects(probe)) return false;
@@ -634,12 +672,12 @@ public class EntityPlayer extends Entity {
     }
 
     /** true, wenn der Spieler in Wasser oder Lava steht (z.B. für die Laufgeräusch-Sperre). */
-    public boolean isTouchingFluid(World world) {
+    public boolean isTouchingFluid(Dimension world) {
         return this.isInFluid(world, false) || this.isInFluid(world, true);
     }
 
     /** true, wenn die Spielerbox die echte Wasseroberfläche überlappt (Lava ausgeschlossen). */
-    public boolean isTouchingWater(World world) {
+    public boolean isTouchingWater(Dimension world) {
         return this.isInFluid(world, false);
     }
 

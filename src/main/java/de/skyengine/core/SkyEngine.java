@@ -100,7 +100,7 @@ public class SkyEngine {
 
         this.window.getFrameBuffer().bind();
 
-        de.skyengine.game.world.World activeWorld = this.game.getWorld();
+        de.skyengine.game.world.Dimension activeWorld = this.game.getDimension();
         if (activeWorld != null) {
             var environment = activeWorld.getEnvironment();
             GL11.glClearColor(environment.backgroundRed(), environment.backgroundGreen(),
@@ -251,28 +251,28 @@ public class SkyEngine {
                 String profilerLine = FrameProfiler.statusLineAndReset();
                 if (profilerLine != null) {
                     System.out.println(profilerLine);
-                    String simulationLine = this.game.getWorld() != null
-                            ? this.game.getWorld().getSimulationTelemetry().statusLineAndReset() : null;
+                    String simulationLine = this.game.getDimension() != null
+                            ? this.game.getDimension().getSimulationTelemetry().statusLineAndReset() : null;
                     if (simulationLine != null) System.out.println(simulationLine);
-                    String syncLine = this.game.getWorld() != null
-                            ? this.game.getWorld().getChunkRenderer().syncStatsLineAndReset() : null;
+                    String syncLine = this.game.getDimension() != null
+                            ? this.game.getDimensionView().chunks().syncStatsLineAndReset() : null;
                     if (syncLine != null) System.out.println(syncLine);
-                    String gpuCullLine = this.game.getWorld() != null
-                            ? this.game.getWorld().getChunkRenderer().gpuCullStatsLineAndReset() : null;
+                    String gpuCullLine = this.game.getDimension() != null
+                            ? this.game.getDimensionView().chunks().gpuCullStatsLineAndReset() : null;
                     if (gpuCullLine != null) System.out.println(gpuCullLine);
                 }
                 de.skyengine.graphics.world.CullBench.tick(this.game);
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
                     /* Ohne Welt (Hauptmenü) gibt es keine Chunk-/Spieler-Werte für den Titel. */
-                    if (this.game.getWorld() != null && this.game.getPlayer() != null) {
+                    if (this.game.getDimension() != null && this.game.getPlayer() != null) {
                         this.window.setTitle("%s v%s | FPS: %d, TPS: %d | Sections: %d/%d | Chunks: %d | Player: X: %s Y: %s Z: %s".formatted(
                                 GAME_NAME,
                                 ENGINE_VERSION,
                                 frames,
                                 updates,
-                                this.game.getWorld().getChunkRenderer().getRenderedSections(),
-                                this.game.getWorld().getChunkRenderer().getTotalSections(),
-                                this.game.getWorld().getChunkManager().getChunks().size(),
+                                this.game.getDimensionView().chunks().getRenderedSections(),
+                                this.game.getDimensionView().chunks().getTotalSections(),
+                                this.game.getDimension().getChunkManager().getChunks().size(),
                                 Math.round(this.game.getPlayer().x),
                                 Math.round(this.game.getPlayer().y),
                                 Math.round(this.game.getPlayer().z)

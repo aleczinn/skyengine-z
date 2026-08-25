@@ -2,7 +2,7 @@ package de.skyengine.game.world.particle;
 
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.physics.AABB;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.model.BakedQuad;
@@ -35,7 +35,7 @@ public final class ParticleEngine {
     private static final int MAX_EXPLOSION_BLOCK_PARTICLES = 512;
     private static final ParticleType[] TYPES = ParticleType.values();
 
-    private final World world;
+    private final Dimension world;
     private final Random random;
     private final double[] x = new double[MAX_PARTICLES], y = new double[MAX_PARTICLES], z = new double[MAX_PARTICLES];
     private final double[] prevX = new double[MAX_PARTICLES], prevY = new double[MAX_PARTICLES], prevZ = new double[MAX_PARTICLES];
@@ -64,7 +64,7 @@ public final class ParticleEngine {
     private long spawned;
     private long rejected;
 
-    public ParticleEngine(World world) {
+    public ParticleEngine(Dimension world) {
         this.world = world;
         this.random = new Random();
     }

@@ -7,7 +7,7 @@ package de.skyengine.game.world.chunk;
 public enum ChunkStatus {
     /* LIGHTING/LIT liegen zwischen DECORATED und MESHING: der Licht-Job liest Blöcke über die
        Chunk-Ränder (Gate 8× DECORATED) und der Mesher liest Nachbar-LICHT fürs Corner-Smoothing
-       (Gate 8× LIT). Die DECORATED-Lesegrenze in World bleibt davon unberührt — sie liegt
+       (Gate 8× LIT). Die DECORATED-Lesegrenze in Dimension bleibt davon unberührt — sie liegt
        darunter. */
     NEW, GENERATING, GENERATED, DECORATING, DECORATED, LIGHTING, LIT, MESHING, READY;
 

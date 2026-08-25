@@ -1,7 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.game.entity.Entity;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
@@ -40,7 +40,7 @@ public interface BlockBehavior {
      * Seiteneffekte NACH erfolgreicher Platzierung (z.B. zweite Block-Hälfte setzen).
      * Hier ist der eigene Block bereits gesetzt und validiert. Default: nichts.
      */
-    default void onPlaced(World world, int x, int y, int z, BlockState state) {
+    default void onPlaced(Dimension world, int x, int y, int z, BlockState state) {
     }
 
     /**
@@ -53,11 +53,11 @@ public interface BlockBehavior {
      * @param moveDirection Richtung, in die der Block bewegt wurde (Quellzelle = Position
      *                      minus diese Richtung).
      */
-    default void onMovedByPiston(World world, int x, int y, int z, BlockState state, Direction moveDirection) {
+    default void onMovedByPiston(Dimension world, int x, int y, int z, BlockState state, Direction moveDirection) {
     }
 
     /** Nach Nachbaränderung: liefert den ggf. angepassten State (Verbindungen, Ecken). */
-    default BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    default BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         return state;
     }
 
@@ -66,7 +66,7 @@ public interface BlockBehavior {
      * diesem Block zu der Zelle, die das Update ausgelöst hat. Das entspricht der Richtung,
      * die Vanilla an {@code Block#updateShape} übergibt.
      */
-    default BlockState onNeighborShapeUpdate(World world, int x, int y, int z, BlockState state,
+    default BlockState onNeighborShapeUpdate(Dimension world, int x, int y, int z, BlockState state,
                                              Direction direction, BlockState neighborState) {
         return state;
     }
@@ -75,22 +75,22 @@ public interface BlockBehavior {
      * Blockeigener Seiteneffekt NACHDEM ein {@link #onNeighborUpdate}-Ergebnis geschrieben wurde.
      * Die allgemeine Observer-Benachrichtigung erfolgt anschließend zentral in {@code Block}.
      */
-    default void onStateChangedByNeighborUpdate(World world, int x, int y, int z,
+    default void onStateChangedByNeighborUpdate(Dimension world, int x, int y, int z,
                                                 BlockState oldState, BlockState newState) {
     }
 
     /** Rechtsklick auf den Block. true = verbraucht (kein Platzieren). Default: ignoriert. */
-    default boolean onUse(World world, int x, int y, int z, BlockState state) {
+    default boolean onUse(Dimension world, int x, int y, int z, BlockState state) {
         return false;
     }
 
     /** Rechtsklick mit horizontaler Spieler-Blickrichtung; bestehende Behaviors bleiben kompatibel. */
-    default boolean onUse(World world, int x, int y, int z, BlockState state, float playerYaw) {
+    default boolean onUse(Dimension world, int x, int y, int z, BlockState state, float playerYaw) {
         return this.onUse(world, x, y, z, state);
     }
 
     /** Abbau-Hook VOR dem Entfernen (andere Hälfte aufräumen, Inventar leeren, ...). Default: nichts. */
-    default void onBreak(World world, int x, int y, int z, BlockState state) {
+    default void onBreak(Dimension world, int x, int y, int z, BlockState state) {
     }
 
     /**
@@ -98,7 +98,7 @@ public interface BlockBehavior {
      * Entspricht Vanillas {@code affectNeighborsAfterRemoval}; Redstone-Ausgaenge muessen hier
      * die fallende Flanke verteilen, damit ihre Empfaenger nicht mehr den alten Block lesen.
      */
-    default void onRemoved(World world, int x, int y, int z,
+    default void onRemoved(Dimension world, int x, int y, int z,
                            BlockState oldState, BlockState newState) {
     }
 
@@ -126,39 +126,39 @@ public interface BlockBehavior {
      * {@code Entity.move}) — Druckplatte, später Seelensand-Bremse o.ä. Default: nichts.
      * {@code entity} ist die auslösende Entity (für Filter/Zählung der Sensor-Platten).
      */
-    default void onEntityInside(World world, int x, int y, int z, BlockState state,
+    default void onEntityInside(Dimension world, int x, int y, int z, BlockState state,
                                 Entity entity) {
     }
 
     /**
-     * Geplanter Tick (von {@code World.scheduleTick} ausgelöst): Fluss-Ausbreitung, Fallprüfung, ...
+     * Geplanter Tick (von {@code Dimension.scheduleTick} ausgelöst): Fluss-Ausbreitung, Fallprüfung, ...
      * Default: nichts.
      *
      * <p><b>Konvention „tolerantes Feuern":</b> der Scheduler bindet einen Tick an den Blocktyp
      * und verwirft ihn nach einem Typwechsel. Zustände desselben Blocks können sich bis zum
      * Feuern aber ändern; jede Implementierung validiert deshalb weiterhin ihren State.</p>
      */
-    default void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    default void scheduledTick(Dimension world, int x, int y, int z, BlockState state) {
     }
 
     /** Zufalls-Tick (nur wenn der Block ticksRandomly meldet): Wachstum, Verfall, ... Default: nichts. */
-    default void randomTick(World world, int x, int y, int z, BlockState state) {
+    default void randomTick(Dimension world, int x, int y, int z, BlockState state) {
     }
 
     /**
      * Clientseitiger Zufalls-/Animations-Tick nahe am Spieler. Darf nur kosmetische Effekte
      * auslösen (Sounds, später Partikel), niemals persistente Weltzustände verändern.
      */
-    default void animateTick(World world, int x, int y, int z, BlockState state, Random random) {
+    default void animateTick(Dimension world, int x, int y, int z, BlockState state, Random random) {
     }
 
     /**
-     * Block-Event (s. {@code World.enqueueBlockEvent}): läuft im SELBEN Game-Tick wie die
+     * Block-Event (s. {@code Dimension.enqueueBlockEvent}): läuft im SELBEN Game-Tick wie die
      * auslösende Flanke, aber außerhalb der Nachbar-Update-Kaskade — der Ort für schwere
      * Multi-Block-Aktionen (Kolben). {@code eventId} bestimmt die Aktion, {@code eventParam}
      * trägt blockspezifische Zusatzdaten. Tolerantes Feuern wie beim Tick-Scheduler. Default: nichts.
      */
-    default void onBlockEvent(World world, int x, int y, int z, BlockState state,
+    default void onBlockEvent(Dimension world, int x, int y, int z, BlockState state,
                               int eventId, int eventParam) {
     }
 
@@ -171,7 +171,7 @@ public interface BlockBehavior {
      * Schwach heißt: wirkt auf direkte Nachbarn, wird aber von Redstone-Leitern NICHT
      * weitergeleitet. Default 0.
      */
-    default int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    default int weakPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return 0;
     }
 
@@ -180,7 +180,7 @@ public interface BlockBehavior {
      * {@link #weakPower}). Nur starke Signale machen einen leitenden Block selbst zur
      * Quelle (Leitung durch Wände — Hebel am Block schaltet die Tür dahinter). Default 0.
      */
-    default int strongPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    default int strongPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return 0;
     }
 

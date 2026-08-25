@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.state.BlockHalf;
 import de.skyengine.game.world.block.state.BlockState;
@@ -22,7 +22,7 @@ public final class TallPlantBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         if (state.get(Properties.HALF) == BlockHalf.BOTTOM
                 && !Blocks.getState(world.getBlock(x, y - 1, z)).isSolid()) {
             return Blocks.getState(Blocks.AIR);

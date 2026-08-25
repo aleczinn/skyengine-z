@@ -1,7 +1,7 @@
 package de.skyengine.game.entity;
 
 import de.skyengine.game.physics.AABB;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.behavior.FluidBehavior;
 import de.skyengine.game.world.block.state.BlockState;
@@ -80,7 +80,7 @@ public abstract class Entity {
      * als Sonderfall in {@code GameContainer} getickt). Default: nur der {@code last*}-Snapshot für
      * die Render-Interpolation; bewegte Entities (fallender Block, Item) überschreiben das.
      */
-    public void tick(World world) {
+    public void tick(Dimension world) {
         this.update();
     }
 
@@ -148,7 +148,7 @@ public abstract class Entity {
         return false;
     }
 
-    public void stopRiding(World world) {
+    public void stopRiding(Dimension world) {
         Entity oldVehicle = this.vehicle;
         if (oldVehicle == null) return;
         this.vehicle = null;
@@ -172,7 +172,7 @@ public abstract class Entity {
     }
 
     /** Standardausstieg über dem Fahrzeug; konkrete Fahrzeuge dürfen sichere Plätze suchen. */
-    protected void positionDismountedPassenger(Entity passenger, World world) {
+    protected void positionDismountedPassenger(Entity passenger, Dimension world) {
         passenger.setPosition(this.x, this.y + this.height, this.z);
     }
 
@@ -189,7 +189,7 @@ public abstract class Entity {
      * Tunneling-sicher bei hoher Geschwindigkeit: die Broadphase-Box deckt
      * über expandTowards() den kompletten Bewegungsweg dieses Ticks ab.
      */
-    public void move(World world, double dx, double dy, double dz) {
+    public void move(Dimension world, double dx, double dy, double dz) {
         /* NoClip: ohne Kollision verschieben, aber denselben Bewegungs-/Positions-Pfad
            wie sonst nutzen (lastX/Y/Z aus update() bleiben erhalten -> Interpolation ok). */
         if (this.isNoClip()) {
@@ -268,7 +268,7 @@ public abstract class Entity {
      * Berührung als Lebenszeichen wertet. Im NoClip (Spectator) bewusst nicht — dort steigt
      * move() vorher aus. Das Epsilon hält exakt bündige Boxen aus der Nachbarzelle heraus.
      */
-    private void checkInsideBlocks(World world) {
+    private void checkInsideBlocks(Dimension world) {
         final double eps = 1.0E-7;
         int minX = (int) Math.floor(this.boundingBox.minX);
         int minY = (int) Math.floor(this.boundingBox.minY);
@@ -298,7 +298,7 @@ public abstract class Entity {
      * <p>Der Block wird direkt über die State-Tabelle gelesen und nicht über {@code getBehavior} —
      * das hier ist ein Pro-Tick-Pro-Entity-Pfad, dieselbe Überlegung wie bei der Strömung.
      */
-    private double landingMotionY(World world, double origDy) {
+    private double landingMotionY(Dimension world, double origDy) {
         if (origDy >= 0 || this.isSuppressingBounce()) return 0; // Deckenstoß / Sneak: nie federn
         double bounciness = this.blockBelow(world).getBounciness();
         if (bounciness <= 0) return 0;
@@ -319,7 +319,7 @@ public abstract class Entity {
     }
 
     /** Block an der eigenen XZ-Spalte auf der Höhe {@code atY} (Luft außerhalb geladener Chunks). */
-    protected de.skyengine.game.world.block.Block blockAt(World world, double atY) {
+    protected de.skyengine.game.world.block.Block blockAt(Dimension world, double atY) {
         return Blocks.getState(world.getBlock(
                 (int) Math.floor(this.x), (int) Math.floor(atY), (int) Math.floor(this.z))).getBlock();
     }
@@ -329,7 +329,7 @@ public abstract class Entity {
      * ({@code getOnPos(0.500001f)}). Eine halbe Zelle unter der Fußhöhe, damit auch der Block
      * unter einer knapp darüber schwebenden Box zählt.
      */
-    protected de.skyengine.game.world.block.Block blockBelow(World world) {
+    protected de.skyengine.game.world.block.Block blockBelow(Dimension world) {
         return this.blockAt(world, this.y - 0.5000001);
     }
 
@@ -338,7 +338,7 @@ public abstract class Entity {
      * {@code Entity.getBlockSpeedFactor} — so bremst Seelensand auch, wenn man knapp darüber
      * steht). Gilt für ALLE Entitäten, deshalb sitzt er hier und nicht am Spieler.
      */
-    protected double speedFactor(World world) {
+    protected double speedFactor(Dimension world) {
         float own = this.blockAt(world, this.y).getSpeedFactor();
         return own != 1.0F ? own : this.blockBelow(world).getSpeedFactor();
     }
@@ -347,7 +347,7 @@ public abstract class Entity {
      * Achsenweise Kollision (Y -> X -> Z) gegen die Broadphase-Boxen. Verschiebt
      * die BoundingBox und liefert die tatsächlich zurückgelegte {dx, dy, dz}.
      */
-    private double[] collideAxes(World world, double dx, double dy, double dz) {
+    private double[] collideAxes(Dimension world, double dx, double dy, double dz) {
         List<AABB> boxes = this.collisionBoxes(world,
                 this.boundingBox.copy().expandTowards(dx, dy, dz));
 
@@ -367,12 +367,12 @@ public abstract class Entity {
     }
 
     /** Kollisionsboxen für die Bewegung; spezialisierte Entities dürfen gezielt filtern. */
-    protected List<AABB> collisionBoxes(World world, AABB area) {
+    protected List<AABB> collisionBoxes(Dimension world, AABB area) {
         return world.getCollisionBoxes(area);
     }
 
     /** true, wenn die Box ein Fluid (lava=true: Lava, sonst Wasser) tatsächlich überlappt. */
-    protected boolean isInFluid(World world, boolean lava) {
+    protected boolean isInFluid(Dimension world, boolean lava) {
         return this.fluidDepth(world, lava) > 0;
     }
 
@@ -387,7 +387,7 @@ public abstract class Entity {
      * geprüft: eine Zelle zählt nur, wenn die Box unter die Fluid-Oberfläche reicht – Stehen knapp
      * über der Oberfläche schwimmt also nicht mehr.
      */
-    protected double fluidDepth(World world, boolean lava) {
+    protected double fluidDepth(Dimension world, boolean lava) {
         double minX = this.boundingBox.minX + FLUID_EPSILON, maxX = this.boundingBox.maxX - FLUID_EPSILON;
         double minY = this.boundingBox.minY + FLUID_EPSILON, maxY = this.boundingBox.maxY - FLUID_EPSILON;
         double minZ = this.boundingBox.minZ + FLUID_EPSILON, maxZ = this.boundingBox.maxZ - FLUID_EPSILON;
@@ -419,7 +419,7 @@ public abstract class Entity {
      * Ruhende Entities bekommen einen Mindest-Push (0.0045), damit sie in schwacher Strömung
      * nicht festkleben. Vanillas FALLING-Sog entfällt.
      */
-    protected void applyFluidPush(World world, boolean lava, double scale) {
+    protected void applyFluidPush(Dimension world, boolean lava, double scale) {
         double minX = this.boundingBox.minX + FLUID_EPSILON, maxX = this.boundingBox.maxX - FLUID_EPSILON;
         double minY = this.boundingBox.minY + FLUID_EPSILON, maxY = this.boundingBox.maxY - FLUID_EPSILON;
         double minZ = this.boundingBox.minZ + FLUID_EPSILON, maxZ = this.boundingBox.maxZ - FLUID_EPSILON;

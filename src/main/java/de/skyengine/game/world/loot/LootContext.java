@@ -1,13 +1,13 @@
 package de.skyengine.game.world.loot;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.item.ItemStack;
 
 import java.util.random.RandomGenerator;
 
 /** Alle zur Auswertung einer Block-Loot-Tabelle erforderlichen Laufzeitdaten. */
-public record LootContext(World world, int x, int y, int z, BlockState state, ItemStack tool,
+public record LootContext(Dimension world, int x, int y, int z, BlockState state, ItemStack tool,
                           Cause cause, float explosionRadius, RandomGenerator random) {
 
     public enum Cause { PLAYER, EXPLOSION, PISTON, SUPPORT, FLUID }

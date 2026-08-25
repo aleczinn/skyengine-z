@@ -15,7 +15,7 @@ class ExplosionLineOfSightTest {
         TestWorld world = new TestWorld(BlockShape.box(0.61, 0.0, 0.0, 0.62, 1.0, 1.0));
 
         boolean visible = Explosion.hasLineOfSight(world,
-                -1.0, 0.5, 0.5, 2.0, 0.5, 0.5, new World.ChunkMemo());
+                -1.0, 0.5, 0.5, 2.0, 0.5, 0.5, new Dimension.ChunkMemo());
 
         assertFalse(visible);
     }
@@ -25,12 +25,12 @@ class ExplosionLineOfSightTest {
         TestWorld world = new TestWorld(BlockShape.box(0.0, 0.5, 0.0, 1.0, 1.0, 1.0));
 
         boolean visible = Explosion.hasLineOfSight(world,
-                -1.0, 0.25, 0.5, 2.0, 0.25, 0.5, new World.ChunkMemo());
+                -1.0, 0.25, 0.5, 2.0, 0.25, 0.5, new Dimension.ChunkMemo());
 
         assertTrue(visible);
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private final BlockShape shape;
 
         private TestWorld(BlockShape shape) {

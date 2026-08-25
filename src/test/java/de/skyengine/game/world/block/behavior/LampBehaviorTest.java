@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
@@ -35,7 +35,7 @@ final class LampBehaviorTest {
         assertFalse(dark.get(Properties.LIT));
     }
 
-    private static BlockState placementState(World world) {
+    private static BlockState placementState(Dimension world) {
         return state("redstone_lamp").getBlock().getPlacementState(
                 world, 0, 64, 0,
                 0, 1, 0, 0.5, 0.5, 0.5,
@@ -48,7 +48,7 @@ final class LampBehaviorTest {
         return block.getDefaultState();
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private final LongIntMap blocks = new LongIntMap(4);
 
         TestWorld() {

@@ -66,7 +66,7 @@ public final class BlockEntityRenderDispatcher {
                         ox + 1f + CULL_MARGIN, oy + 1f + CULL_MARGIN, oz + 1f + CULL_MARGIN)) continue;
 
                 /* Licht der eigenen Zelle (Himmel + Block) — Chunk und BlockPos liegen hier
-                   ohnehin vor, ein World-Lookup wäre überflüssig. */
+                   ohnehin vor, ein Dimension-Lookup wäre überflüssig. */
                 int lx = pos.x() & ChunkSection.MASK, lz = pos.z() & ChunkSection.MASK;
                 float light = ChunkRenderer.lightFactor(chunk.light.get(lx, pos.y(), lz),
                         chunk.blockLight.get(lx, pos.y(), lz), ambientLight);

@@ -1,6 +1,6 @@
 package de.skyengine.game.world.save;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.world.block.BlockPos;
@@ -294,7 +294,7 @@ public final class ChunkSerializer {
      * Wirft {@link IOException} bei jedem Formatfehler; der Aufrufer fällt dann auf
      * Regeneration zurück.
      */
-    public static void deserialize(Chunk chunk, byte[] payload, World world) throws IOException {
+    public static void deserialize(Chunk chunk, byte[] payload, Dimension world) throws IOException {
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload));
 
         byte version = in.readByte();
@@ -534,7 +534,7 @@ public final class ChunkSerializer {
                         remaining, priority, subOrder));
             }
             chunk.pendingScheduledTicks = ticks == null || ticks.isEmpty() ? null : ticks;
-            /* Beim Manager anmelden: World.restorePendingScheduledTicks pollt nur noch die
+            /* Beim Manager anmelden: Dimension.restorePendingScheduledTicks pollt nur noch die
                Announce-Queue (kein Voll-Walk mehr). No-op ohne Manager (Tools/Tests). */
             chunk.announceTickRestore();
         }
@@ -600,7 +600,7 @@ public final class ChunkSerializer {
         }
     }
 
-    private static void ensureRequiredBlockEntities(Chunk chunk, World world) {
+    private static void ensureRequiredBlockEntities(Chunk chunk, Dimension world) {
         int originX = chunk.chunkX << ChunkSection.SHIFT;
         int originZ = chunk.chunkZ << ChunkSection.SHIFT;
         for (int sectionIndex = 0; sectionIndex < Chunk.SECTIONS; sectionIndex++) {

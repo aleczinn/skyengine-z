@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.entity;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.world.block.Block;
@@ -297,7 +297,7 @@ final class HopperBlockEntityTest {
         return block.getDefaultState();
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private static final Field CHUNKS_FIELD;
 
         static {
@@ -321,7 +321,7 @@ final class HopperBlockEntityTest {
         TestWorld() {
             super("__hopper_test", level(), null, null);
             try {
-                Field managerField = World.class.getDeclaredField("chunkManager");
+                Field managerField = Dimension.class.getDeclaredField("chunkManager");
                 managerField.setAccessible(true);
                 ChunkManager manager = (ChunkManager) managerField.get(this);
                 @SuppressWarnings("unchecked")

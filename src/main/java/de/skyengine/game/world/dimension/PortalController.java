@@ -2,7 +2,7 @@ package de.skyengine.game.world.dimension;
 
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.physics.AABB;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
 
@@ -22,7 +22,7 @@ public final class PortalController {
     private int contactDelayTicks = TRAVEL_TICKS;
     private boolean locked;
 
-    public Travel tick(World world, EntityPlayer player) {
+    public Travel tick(Dimension world, EntityPlayer player) {
         PortalContact contact = contact(world, player.getBoundingBox());
         int delay = contact == null ? TRAVEL_TICKS
                 : (player.getGamemode().isInstantBreak()
@@ -31,7 +31,7 @@ public final class PortalController {
     }
 
     /** Aktiviert ein USE-Portal durch einen gezielten Rechtsklick. */
-    public Travel use(World world, int x, int y, int z) {
+    public Travel use(Dimension world, int x, int y, int z) {
         int state = world.getBlock(x, y, z);
         if (state == Blocks.AIR) return null;
         Identifier block = Blocks.getState(state).getBlock().getIdentifier();
@@ -102,7 +102,7 @@ public final class PortalController {
         this.contactPortal = null;
     }
 
-    private static PortalContact contact(World world, AABB box) {
+    private static PortalContact contact(Dimension world, AABB box) {
         int minX = (int) Math.floor(box.minX), maxX = (int) Math.floor(Math.nextDown(box.maxX));
         int minY = (int) Math.floor(box.minY), maxY = (int) Math.floor(Math.nextDown(box.maxY));
         int minZ = (int) Math.floor(box.minZ), maxZ = (int) Math.floor(Math.nextDown(box.maxZ));

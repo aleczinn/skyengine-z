@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
@@ -53,7 +53,7 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         if (shouldBeLit(world, x, y, z, state) != state.get(Properties.LIT)
                 && !world.willTickThisTick(x, y, z)) {
             /* Vanilla plant regulär; ein bereits wartender Burnout-Neustart wird nicht vorgezogen. */
@@ -63,7 +63,7 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
     }
 
     @Override
-    public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    public void scheduledTick(Dimension world, int x, int y, int z, BlockState state) {
         /* Tolerantes Feuern: neu prüfen — hat sich das Signal zurückgedreht, passiert nichts. */
         boolean lit = shouldBeLit(world, x, y, z, state);
         if (lit == state.get(Properties.LIT)) return;
@@ -95,7 +95,7 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
      * Speicher ist deshalb pro Welt getrennt. Der defensive Zukunfts-Check bleibt für Tests und
      * Werkzeuge erhalten, die die Spielzeit derselben Welt gezielt zurücksetzen.
      */
-    private boolean recordToggle(World world, int x, int y, int z) {
+    private boolean recordToggle(Dimension world, int x, int y, int z) {
         long now = world.getGameTime();
         this.recent = this.recentByWorld.diagnosticEntries(world);
         Toggles toggles = this.recentByWorld.computeIfAbsent(world, x, y, z, Toggles::new);
@@ -112,7 +112,7 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
      * nicht mehr und die Fackel darf wieder. Ein Zeitstempel aus der „Zukunft" (Weltwechsel,
      * s. {@link #recordToggle}) gilt genauso als abgelaufen.
      */
-    private boolean isBurntOut(World world, int x, int y, int z) {
+    private boolean isBurntOut(Dimension world, int x, int y, int z) {
         this.recent = this.recentByWorld.diagnosticEntries(world);
         Toggles toggles = this.recentByWorld.get(world, x, y, z);
         if (toggles == null) return false;
@@ -136,12 +136,12 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
        Das erreicht Radius 2, bewahrt aber die beobachtbaren Duplikate und Reihenfolgen. */
 
     @Override
-    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+    public void onPlaced(Dimension world, int x, int y, int z, BlockState state) {
         world.updateGeneralNeighborsAroundAdjacentCells(x, y, z);
     }
 
     @Override
-    public void onRemoved(World world, int x, int y, int z,
+    public void onRemoved(Dimension world, int x, int y, int z,
                           BlockState oldState, BlockState newState) {
         this.recent = this.recentByWorld.diagnosticEntries(world);
         this.recentByWorld.remove(world, x, y, z);
@@ -149,20 +149,20 @@ public final class RedstoneTorchBehavior implements BlockBehavior {
     }
 
     /** An, solange der Trägerblock KEIN Signal in die Fackel speist (Inverter). */
-    private static boolean shouldBeLit(World world, int x, int y, int z, BlockState state) {
+    private static boolean shouldBeLit(Dimension world, int x, int y, int z, BlockState state) {
         Direction support = ButtonBehavior.supportDirection(state);
         int sx = x + support.offsetX(), sy = y + support.offsetY(), sz = z + support.offsetZ();
         return RedstonePower.emittedSignal(world, sx, sy, sz, support.opposite(), false) == 0;
     }
 
     @Override
-    public int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int weakPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         if (!state.get(Properties.LIT)) return 0;
         return side == ButtonBehavior.supportDirection(state) ? 0 : 15;
     }
 
     @Override
-    public int strongPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int strongPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return state.get(Properties.LIT) && side == Direction.UP ? 15 : 0;
     }
 

@@ -30,7 +30,7 @@ public final class LodBlockAppearance {
     private final boolean[] skipsAo;
     private final boolean[] skyLightAttenuatingFluids;
 
-    /** Erst nach BlockRegistry.bake() erzeugen (World.init). */
+    /** Erst nach BlockRegistry.bake() erzeugen (Dimension.init). */
     public LodBlockAppearance() {
         int count = BlockRegistry.getStateCount();
         this.topLayers = new int[count];

@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Chunk identisch neu berechnet — keine Cross-Chunk-Writes, nichts geht beim
  * Unload/Regenerieren verloren.
  *
- * <p>Hält bewusst KEINE Referenz auf ChunkManager/World: Dekorieren kann konstruktionsbedingt
+ * <p>Hält bewusst KEINE Referenz auf ChunkManager/Dimension: Dekorieren kann konstruktionsbedingt
  * keine Nachbar-Generierung anstoßen (keine Kaskaden/Deadlocks im Worker-Pool — der
  * ChunkManager wartet, nie der Job).
  */

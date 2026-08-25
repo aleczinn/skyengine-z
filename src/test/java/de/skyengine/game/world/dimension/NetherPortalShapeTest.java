@@ -1,6 +1,6 @@
 package de.skyengine.game.world.dimension;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
@@ -123,7 +123,7 @@ final class NetherPortalShapeTest {
         assertNull(world.getPortalLinks().linked(TYPE, world.getDimensionId(), original.id()));
     }
 
-    private static int countPortalBlocks(World world) {
+    private static int countPortalBlocks(Dimension world) {
         int count = 0;
         for (int y = 64; y < 67; y++) for (int z = 5; z < 7; z++) {
             if (NetherPortalShape.isPortalState(world.getBlock(5, y, z))) count++;
@@ -145,7 +145,7 @@ final class NetherPortalShapeTest {
         }
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private static final Field CHUNKS_FIELD;
         static {
             try {
@@ -159,7 +159,7 @@ final class NetherPortalShapeTest {
 
         TestWorld(String name) throws ReflectiveOperationException {
             super("__nether_portal_" + name, level(name), null, null);
-            Field field = World.class.getDeclaredField("chunkManager");
+            Field field = Dimension.class.getDeclaredField("chunkManager");
             field.setAccessible(true);
             this.manager = (ChunkManager) field.get(this);
         }

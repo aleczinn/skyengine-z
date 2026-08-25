@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.multiblock;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.behavior.BlockBehavior;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Property;
@@ -21,7 +21,7 @@ public final class MultiblockBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         return state.with(this.formed, this.pattern.matches(world, x, y, z));
     }
 }

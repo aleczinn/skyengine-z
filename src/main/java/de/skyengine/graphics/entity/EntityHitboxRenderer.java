@@ -4,7 +4,7 @@ import de.skyengine.core.SkyEngine;
 import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.physics.AABB;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
@@ -43,7 +43,7 @@ public final class EntityHitboxRenderer {
         GL30.glBindVertexArray(0);
     }
 
-    public void render(Camera camera, EntityPlayer player, World world, float partialTick) {
+    public void render(Camera camera, EntityPlayer player, Dimension world, float partialTick) {
         this.boxCount = 0;
         this.directionCount = 0;
         this.add(player, camera, partialTick, true);

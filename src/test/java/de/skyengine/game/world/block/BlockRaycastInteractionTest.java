@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.test.BlocksTestBootstrap;
 import org.joml.Vector3d;
@@ -43,7 +43,7 @@ final class BlockRaycastInteractionTest {
         assertEquals(Blocks.STONE, hit.block());
     }
 
-    private static final class RaycastWorld extends World {
+    private static final class RaycastWorld extends Dimension {
         private final int blockedFromX;
 
         RaycastWorld(int blockedFromX) {

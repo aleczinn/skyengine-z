@@ -1,6 +1,6 @@
 package de.skyengine.game.world.dimension;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
@@ -32,12 +32,12 @@ public final class NetherPortalShape {
 
     private record Cell(int x, int y, int z) {}
 
-    public static Shape find(World world, int x, int y, int z, boolean requirePortal) {
+    public static Shape find(Dimension world, int x, int y, int z, boolean requirePortal) {
         Shape xShape = find(world, x, y, z, Direction.Axis.X, requirePortal);
         return xShape != null ? xShape : find(world, x, y, z, Direction.Axis.Z, requirePortal);
     }
 
-    public static boolean activate(World world, int x, int y, int z) {
+    public static boolean activate(Dimension world, int x, int y, int z) {
         Shape shape = find(world, x, y, z, false);
         if (shape == null) return false;
         Identifier type = Identifier.of("skyengine:nether_portal");
@@ -74,7 +74,7 @@ public final class NetherPortalShape {
     }
 
     /** Aktiviert einen Rahmen auch dann, wenn der Klick eine Rahmenkante statt der Luft trifft. */
-    public static boolean activateNear(World world, int x, int y, int z) {
+    public static boolean activateNear(Dimension world, int x, int y, int z) {
         if (activate(world, x, y, z)) return true;
         for (int dy = -1; dy <= 1; dy++) {
             for (int dz = -1; dz <= 1; dz++) {
@@ -88,7 +88,7 @@ public final class NetherPortalShape {
     }
 
     /** Entfernt eine zusammenhaengende Portaloberflaeche ohne Effekte pro Einzelblock. */
-    public static Collapse collapse(World world, int x, int y, int z, Direction.Axis axis) {
+    public static Collapse collapse(Dimension world, int x, int y, int z, Direction.Axis axis) {
         if (!portal(world, x, y, z, axis)) return null;
         ArrayDeque<Cell> open = new ArrayDeque<>();
         Set<Cell> cells = new HashSet<>();
@@ -121,7 +121,7 @@ public final class NetherPortalShape {
                 (minZ + maxZ + 1) * 0.5, width, maxY - minY + 1, cells.size());
     }
 
-    private static void addPortal(World world, Direction.Axis axis, Set<Cell> cells,
+    private static void addPortal(Dimension world, Direction.Axis axis, Set<Cell> cells,
                                   ArrayDeque<Cell> open, int x, int y, int z) {
         Cell cell = new Cell(x, y, z);
         if (cells.size() >= MAX_WIDTH * MAX_HEIGHT || cells.contains(cell)
@@ -130,7 +130,7 @@ public final class NetherPortalShape {
         open.addLast(cell);
     }
 
-    private static boolean portal(World world, int x, int y, int z, Direction.Axis axis) {
+    private static boolean portal(Dimension world, int x, int y, int z, Direction.Axis axis) {
         int id = world.getBlock(x, y, z);
         if (!isPortalState(id)) return false;
         return Blocks.getState(id).get(Properties.HORIZONTAL_AXIS) == axis;
@@ -140,12 +140,12 @@ public final class NetherPortalShape {
         return Blocks.getState(stateId).getBlock() == Blocks.getState(Blocks.NETHER_PORTAL).getBlock();
     }
 
-    public static boolean isValidPortal(World world, int x, int y, int z, Direction.Axis axis) {
+    public static boolean isValidPortal(Dimension world, int x, int y, int z, Direction.Axis axis) {
         Shape shape = find(world, x, y, z, axis, true);
         return shape != null;
     }
 
-    private static Shape find(World world, int x, int y, int z, Direction.Axis axis,
+    private static Shape find(Dimension world, int x, int y, int z, Direction.Axis axis,
                               boolean requirePortal) {
         if (!interior(world, x, y, z, requirePortal, axis)) return null;
         int bottom = y;
@@ -195,7 +195,7 @@ public final class NetherPortalShape {
         return new Shape(axis, minX, bottom, minZ, width, height);
     }
 
-    private static boolean interior(World world, int x, int y, int z, boolean requirePortal,
+    private static boolean interior(Dimension world, int x, int y, int z, boolean requirePortal,
                                     Direction.Axis axis) {
         int id = world.getBlock(x, y, z);
         if (id == Blocks.AIR) return !requirePortal;
@@ -204,7 +204,7 @@ public final class NetherPortalShape {
         return state.get(Properties.HORIZONTAL_AXIS) == axis;
     }
 
-    private static boolean obsidian(World world, int x, int y, int z) {
+    private static boolean obsidian(Dimension world, int x, int y, int z) {
         return world.getBlock(x, y, z) == Blocks.OBSIDIAN;
     }
 

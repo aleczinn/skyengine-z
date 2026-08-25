@@ -35,8 +35,8 @@ import java.util.concurrent.ThreadLocalRandom;
  * {@code onBreak}, damit z.B. Truheninhalt herausfällt.
  *
  * <p>Läuft ausschließlich auf dem Tick-Thread (einziger Aufrufer ist {@code PrimedTntEntity.tick}
- * über {@code World.tickEntities}). Die Massen-Zerstörung läuft über
- * {@link World#breakBlocksBatch} — ein Write-Lock, ein Dirty-CAS und ein Licht-Update pro
+ * über {@code Dimension.tickEntities}). Die Massen-Zerstörung läuft über
+ * {@link Dimension#breakBlocksBatch} — ein Write-Lock, ein Dirty-CAS und ein Licht-Update pro
  * betroffenem Chunk statt pro Block; das Remesh ist ohnehin pro Frame gebatcht.
  */
 public final class Explosion {
@@ -64,7 +64,7 @@ public final class Explosion {
      *
      * @return Anzahl der vom Raycast betroffenen Blöcke für Minecrafts clientseitige Partikelwolke
      */
-    public static int explode(World world, double cx, double cy, double cz, float power) {
+    public static int explode(Dimension world, double cx, double cy, double cz, float power) {
         long start = System.nanoTime();
         int n = subdivisions(power);
         int max = n - 1;
@@ -73,7 +73,7 @@ public final class Explosion {
            das waren bei großen Explosionen Millionen transiente Records. */
         LongIntMap toBlow = new LongIntMap(4096);
         ThreadLocalRandom rnd = ThreadLocalRandom.current();
-        World.ChunkMemo memo = new World.ChunkMemo();
+        Dimension.ChunkMemo memo = new Dimension.ChunkMemo();
 
         /* Nur die Randpunkte des n³-Würfels ergeben Strahlrichtungen (die Oberfläche einer Kugel). */
         for (int i = 0; i < n; i++) {
@@ -124,8 +124,8 @@ public final class Explosion {
      * Item-Drops in Reichweite werden vernichtet, gezündetes TNT und fallende Blöcke fliegen bloß
      * — genau das trägt in MC die TNT-Kanonen.
      */
-    private static void hurtEntities(World world, double cx, double cy, double cz, float power,
-                                     World.ChunkMemo memo) {
+    private static void hurtEntities(Dimension world, double cx, double cy, double cz, float power,
+                                     Dimension.ChunkMemo memo) {
         double reach = power * 2.0;
         if (reach <= 0.0) return;
         /* Chunk-Fenster großzügig genug für die Reichweite (power kann weit über TNT liegen). */
@@ -139,8 +139,8 @@ public final class Explosion {
     }
 
     /** Eine einzelne Entität: Distanz prüfen, Sichtbarkeit messen, Schaden und Rückstoß setzen. */
-    private static void blastEntity(World world, Entity entity, double cx, double cy, double cz,
-                                    double reach, World.ChunkMemo memo) {
+    private static void blastEntity(Dimension world, Entity entity, double cx, double cy, double cz,
+                                    double reach, Dimension.ChunkMemo memo) {
         if (entity.isRemoved()) return;
         /* Zuschauer sind unantastbar (MCs ignoreExplosion) — auch kein Rückstoß. */
         if (entity instanceof EntityPlayer p && p.getGamemode() == Gamemode.SPECTATOR) return;
@@ -187,8 +187,8 @@ public final class Explosion {
      * (MCs {@code getSeenPercent}). Abgetastet wird ein Raster über die Box; die Schrittweite
      * hängt an ihrer Größe, damit große Entitäten nicht feiner gerastert werden als nötig.
      */
-    private static float seenPercent(World world, double cx, double cy, double cz, AABB box,
-                                     World.ChunkMemo memo) {
+    private static float seenPercent(Dimension world, double cx, double cy, double cz, AABB box,
+                                     Dimension.ChunkMemo memo) {
         double stepX = 1.0 / ((box.maxX - box.minX) * 2.0 + 1.0);
         double stepY = 1.0 / ((box.maxY - box.minY) * 2.0 + 1.0);
         double stepZ = 1.0 / ((box.maxZ - box.minZ) * 2.0 + 1.0);
@@ -218,8 +218,8 @@ public final class Explosion {
      * Kollisionsform und blockieren deshalb nicht, entsprechend Vanillas
      * {@code ClipContext.Fluid.NONE}.
      */
-    static boolean hasLineOfSight(World world, double px, double py, double pz,
-                                  double cx, double cy, double cz, World.ChunkMemo memo) {
+    static boolean hasLineOfSight(Dimension world, double px, double py, double pz,
+                                  double cx, double cy, double cz, Dimension.ChunkMemo memo) {
         double dx = cx - px, dy = cy - py, dz = cz - pz;
         if (dx * dx + dy * dy + dz * dz < 1.0E-12) return true;
 
@@ -272,7 +272,7 @@ public final class Explosion {
     }
 
     /** Prueft den gesamten Segmentabschnitt [0,1] exakt gegen jede lokale Kollisionsbox. */
-    private static boolean rayHitsShape(World world, int bx, int by, int bz,
+    private static boolean rayHitsShape(Dimension world, int bx, int by, int bz,
                                         double px, double py, double pz,
                                         double dx, double dy, double dz) {
         for (AABB local : world.getCollisionShape(bx, by, bz).boxes()) {
@@ -317,9 +317,9 @@ public final class Explosion {
     }
 
     /** Ein einzelner Strahl: läuft in {@link #STEP}-Schritten, bis die Stärke aufgezehrt ist. */
-    private static void castRay(World world, double px, double py, double pz,
+    private static void castRay(Dimension world, double px, double py, double pz,
                                 double dx, double dy, double dz, float strength,
-                                LongIntMap toBlow, World.ChunkMemo memo) {
+                                LongIntMap toBlow, Dimension.ChunkMemo memo) {
         /* Zuletzt aufgenommene Zelle — spart die Map-Zugriffe, wenn mehrere Schritte in derselben
            liegen (STEP < 1). Der Stärkeverlust wird trotzdem in JEDEM Schritt gerechnet (wie MC). */
         int lastX = Integer.MIN_VALUE, lastY = 0, lastZ = 0;
@@ -360,7 +360,7 @@ public final class Explosion {
      * kein Werkzeug, gesprengter Stein droppt also auch ohne Spitzhacke. Mangels Loot-Tables
      * droppt jeder Block sich selbst, genau wie im normalen Abbaupfad.
      */
-    private static void applyBlast(World world, LongIntMap toBlow, ThreadLocalRandom rnd, float power) {
+    private static void applyBlast(Dimension world, LongIntMap toBlow, ThreadLocalRandom rnd, float power) {
         long[] positions = new long[toBlow.size()];
         int count = 0;
         for (int i = 0, n = toBlow.tableSize(); i < n; i++) {

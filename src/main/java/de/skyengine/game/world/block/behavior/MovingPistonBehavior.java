@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.PistonMovingBlockEntity;
 import de.skyengine.game.world.block.state.BlockState;
@@ -22,7 +22,7 @@ public final class MovingPistonBehavior implements BlockBehavior {
     @Override
     public void appendDrops(LootContext context,
                             LootSink sink) {
-        World world = context.world();
+        Dimension world = context.world();
         if (!(world.getBlockEntity(context.x(), context.y(), context.z()) instanceof PistonMovingBlockEntity be)) return;
         BlockState moved = Blocks.getState(be.getMovedStateId());
         var movedContext = new LootContext(world,

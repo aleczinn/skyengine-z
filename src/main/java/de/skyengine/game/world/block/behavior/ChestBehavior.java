@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.BlockEntity;
@@ -62,7 +62,7 @@ public final class ChestBehavior implements BlockBehavior {
      * ZUERST gesetzte Truhe von der neu daneben platzierten).
      */
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         ChestType type = state.get(Properties.CHEST_TYPE);
         Direction facing = state.get(Properties.FACING);
 
@@ -71,7 +71,7 @@ public final class ChestBehavior implements BlockBehavior {
             BlockState partner = chestAt(world, state, x + toPartner.offsetX(), y, z + toPartner.offsetZ());
             ChestType partnerType = partner == null ? null : partner.get(Properties.CHEST_TYPE);
             /* SINGLE zählt hier ausdrücklich als gültiger Partner — und das ist keine Lücke,
-               sondern PFLICHT: World.updateNeighbors aktualisiert als erstes den gerade gesetzten
+               sondern PFLICHT: Dimension.updateNeighbors aktualisiert als erstes den gerade gesetzten
                Block SELBST, und in diesem Moment steht der Partner noch auf SINGLE (er erfährt
                erst einen Schritt später von uns). Ohne diesen Fall würde sich jede frisch
                platzierte Hälfte sofort wieder zur Einzeltruhe zurücksetzen — MC hat das Problem
@@ -98,7 +98,7 @@ public final class ChestBehavior implements BlockBehavior {
     @Override
     public void appendDrops(LootContext context,
                             LootSink sink) {
-        World world = context.world();
+        Dimension world = context.world();
         BlockEntity be = world.getBlockEntity(context.x(), context.y(), context.z());
         if (!(be instanceof ChestBlockEntity chest)) return;
         ItemStorage inventory = chest.getInventory();
@@ -122,7 +122,7 @@ public final class ChestBehavior implements BlockBehavior {
     }
 
     /** State an der Position, aber nur wenn es derselbe Truhen-Block ist. */
-    private static BlockState chestAt(World world, BlockState self, int x, int y, int z) {
+    private static BlockState chestAt(Dimension world, BlockState self, int x, int y, int z) {
         BlockState state = Blocks.getState(world.getBlock(x, y, z));
         return state.getBlock() == self.getBlock() ? state : null;
     }

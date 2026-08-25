@@ -8,7 +8,7 @@ import java.util.Arrays;
 
 /**
  * Abstrahierte Oberflächen-Quelle fürs LOD: liefert pro Zelle den obersten sichtbaren Block
- * und dessen Höhe. Verdrahtet ist ausschließlich {@link PersistentLodDataSource} (s. World.init).
+ * und dessen Höhe. Verdrahtet ist ausschließlich {@link PersistentLodDataSource} (s. Dimension.init).
  * Sie entscheidet je QUELLCHUNK und NICHT je Level, in dieser Reihenfolge:
  * <ol>
  *   <li><b>RAM-Cache</b> — zaehlt nur als Treffer, wenn dort ein Level <b>&le;</b> dem

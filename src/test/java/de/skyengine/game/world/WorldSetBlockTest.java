@@ -171,7 +171,7 @@ final class WorldSetBlockTest {
         return state.getId();
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private static final Field CHUNKS_FIELD;
 
         static {
@@ -191,7 +191,7 @@ final class WorldSetBlockTest {
 
         TestWorld() throws ReflectiveOperationException {
             super("__set_block_test", level(), null, null);
-            Field field = World.class.getDeclaredField("chunkManager");
+            Field field = Dimension.class.getDeclaredField("chunkManager");
             field.setAccessible(true);
             this.manager = (ChunkManager) field.get(this);
         }

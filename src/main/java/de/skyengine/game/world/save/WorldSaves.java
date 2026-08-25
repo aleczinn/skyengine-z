@@ -60,7 +60,7 @@ public final class WorldSaves {
         level.seed = seed;
         level.created = System.currentTimeMillis();
         level.lastPlayed = level.created;
-        level.formatVersion = 2;
+        level.formatVersion = 3;
         level.worldType = "default";
         level.generator = "alpha_v2";
         level.generatorVersion = AlphaWorldGeneratorV2.VERSION;
@@ -81,7 +81,11 @@ public final class WorldSaves {
 
     /** Schreibt die level.json des Savegames (legt den Ordner bei Bedarf an). */
     public static void save(WorldSave save) {
-        File dir = new File(ROOT, save.dirName());
+        saveInDirectory(save, new File(ROOT, save.dirName()));
+    }
+
+    /** Schreibt Metadaten in einen expliziten Save-Root (Server, Tests, alternative Hosts). */
+    public static void saveInDirectory(WorldSave save, File dir) {
         if (!dir.exists() && !dir.mkdirs()) {
             LOGGER.error("Save-Ordner konnte nicht angelegt werden: " + dir.getPath());
             return;

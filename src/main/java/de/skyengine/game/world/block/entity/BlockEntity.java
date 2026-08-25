@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.entity;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Direction;
 
@@ -16,19 +16,19 @@ public abstract class BlockEntity {
 
     protected final BlockEntityType<?> type;
     protected final BlockPos pos;
-    protected World world;
+    protected Dimension world;
 
     protected BlockEntity(BlockEntityType<?> type, BlockPos pos) {
         this.type = type;
         this.pos = pos;
     }
 
-    public final void setWorld(World world) {
+    public final void setWorld(Dimension world) {
         this.world = world;
     }
 
     /** Welt, in der die BlockEntity liegt (null vor dem Einhängen in einen Chunk). */
-    public final World getWorld() {
+    public final Dimension getWorld() {
         return this.world;
     }
 

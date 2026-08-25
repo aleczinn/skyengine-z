@@ -37,7 +37,7 @@ public final class ExplosionDropCollector implements LootSink {
 
     public int entityCount() { return this.ordered.size(); }
 
-    public void spawn(World world) {
+    public void spawn(Dimension world) {
         for (DropSlot slot : ordered) {
             world.spawnItem(slot.x + 0.5, slot.y + 0.5, slot.z + 0.5, slot.stack);
         }

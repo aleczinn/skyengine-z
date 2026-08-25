@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.state.BlockState;
 
@@ -13,13 +13,13 @@ import de.skyengine.game.world.block.state.BlockState;
 public final class PlantBehavior implements BlockBehavior {
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         if (canSurvive(world, x, y, z)) return state;
         return Blocks.getState(Blocks.AIR); // zerbricht
     }
 
     /** Überlebt nur auf einem festen Block. */
-    private static boolean canSurvive(World world, int x, int y, int z) {
+    private static boolean canSurvive(Dimension world, int x, int y, int z) {
         return Blocks.getState(world.getBlock(x, y - 1, z)).isSolid();
     }
 }

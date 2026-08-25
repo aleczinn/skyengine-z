@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.state.BlockState;
@@ -15,7 +15,7 @@ import java.util.Random;
 public final class NetherPortalBehavior implements BlockBehavior {
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         if (NetherPortalShape.isValidPortal(world, x, y, z, state.get(Properties.HORIZONTAL_AXIS))) {
             return state;
         }
@@ -23,7 +23,7 @@ public final class NetherPortalBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
+    public void onBreak(Dimension world, int x, int y, int z, BlockState state) {
         NetherPortalShape.Collapse collapse = NetherPortalShape.collapse(
                 world, x, y, z, state.get(Properties.HORIZONTAL_AXIS));
         if (collapse == null) return;
@@ -36,7 +36,7 @@ public final class NetherPortalBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onRemoved(World world, int x, int y, int z, BlockState oldState, BlockState newState) {
+    public void onRemoved(Dimension world, int x, int y, int z, BlockState oldState, BlockState newState) {
         Identifier type = Identifier.of("skyengine:nether_portal");
         PortalIndex.Entry entry = world.getPortalIndex().containing(type, x, y, z);
         if (entry == null) return;
@@ -58,7 +58,7 @@ public final class NetherPortalBehavior implements BlockBehavior {
     }
 
     @Override
-    public void animateTick(World world, int x, int y, int z, BlockState state, Random random) {
+    public void animateTick(Dimension world, int x, int y, int z, BlockState state, Random random) {
         if (random.nextInt(100) == 0 && world.getSoundManager() != null) {
             world.getSoundManager().playPortalAmbient(x + 0.5, y + 0.5, z + 0.5);
         }

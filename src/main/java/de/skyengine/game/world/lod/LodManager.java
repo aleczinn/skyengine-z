@@ -34,7 +34,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  *
  * <p>Datenquelle ist ausschließlich die abstrahierte {@link LodDataSource} — LOD kann
  * Spieleränderungen weder überschreiben noch verzögern. Tick-getrieben aus
- * {@code World.update()} (Tick und Render laufen auf demselben Thread); Mesh-Jobs laufen mit
+ * {@code Dimension.update()} (Tick und Render laufen auf demselben Thread); Mesh-Jobs laufen mit
  * niedrigster Priorität (unter Spieler-Remeshes und Chunk-Load) auf den Chunk-Workern.
  */
 public class LodManager {

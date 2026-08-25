@@ -103,7 +103,7 @@ public final class McWorldAnalyzer {
 
         System.out.println();
         System.out.println("=== Zusammenfassung ===");
-        System.out.println("World DataVersion:        " + (worldDataVersion < 0 ? "unbekannt" : worldDataVersion));
+        System.out.println("Dimension DataVersion:        " + (worldDataVersion < 0 ? "unbekannt" : worldDataVersion));
         System.out.println("Anzahl Regionen:          " + regionFiles.length);
         System.out.println("Anzahl Chunks gelesen:    " + chunksRead);
         System.out.println("Anzahl Chunks übersprungen: " + (chunksNotFull + chunkErrors)

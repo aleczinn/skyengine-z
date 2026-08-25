@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -39,7 +39,7 @@ import de.skyengine.game.world.redstone.RedstonePower;
  * weiter gepollt. Signal wie MC über die 5 Seiten ohne die Blickrichtung, dazu
  * Quasi-Konnektivität über die Zelle darüber (s. {@link #hasSignal}).
  *
- * <p><b>Timing (MC-Parität):</b> Flanken laufen als Block-Event ({@code World.enqueueBlockEvent})
+ * <p><b>Timing (MC-Parität):</b> Flanken laufen als Block-Event ({@code Dimension.enqueueBlockEvent})
  * im SELBEN Game-Tick — 0 Ticks Reaktion wie MCs Block-Events — gefolgt von 2 Game-Ticks
  * Animation. Der finish der Source-BE reiht den Re-Check ebenfalls als Block-Event ein; weil
  * Vanillas einziger Event-Drain dann bereits vorbei ist, läuft dieser im folgenden Welttick.
@@ -80,7 +80,7 @@ public final class PistonBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         Direction f = state.get(Properties.FACING_ALL);
         boolean want = hasSignal(world, x, y, z, f);
         /* Effektiver Zustand statt EXTENDED: der Basis-State bleibt beim Retract bis zum
@@ -100,18 +100,18 @@ public final class PistonBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onBlockEvent(World world, int x, int y, int z, BlockState state,
+    public void onBlockEvent(Dimension world, int x, int y, int z, BlockState state,
                              int eventId, int eventParam) {
         this.evaluate(world, x, y, z, state, eventId, eventParam);
     }
 
     /** Fallback-Pfad (nicht simulierter Chunk, fremde Animation) — gleiche Logik wie das Event. */
     @Override
-    public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    public void scheduledTick(Dimension world, int x, int y, int z, BlockState state) {
         this.evaluate(world, x, y, z, state, -1, vanillaDirectionId(state.get(Properties.FACING_ALL)));
     }
 
-    private void evaluate(World world, int x, int y, int z, BlockState state,
+    private void evaluate(Dimension world, int x, int y, int z, BlockState state,
                           int eventId, int eventParam) {
         Direction f = state.get(Properties.FACING_ALL);
         boolean want = hasSignal(world, x, y, z, f);
@@ -168,7 +168,7 @@ public final class PistonBehavior implements BlockBehavior {
     }
 
     /** Vanillas checkIfExtend-Auswahl zwischen normalem Einfahren und TRIGGER_DROP. */
-    private int retractionEvent(World world, int x, int y, int z, Direction facing) {
+    private int retractionEvent(Dimension world, int x, int y, int z, Direction facing) {
         int cx = x + 2 * facing.offsetX();
         int cy = y + 2 * facing.offsetY();
         int cz = z + 2 * facing.offsetZ();
@@ -217,14 +217,14 @@ public final class PistonBehavior implements BlockBehavior {
      * Fortschrittsschwelle angenähert werden, weil Kolben auch außerhalb des Weltticks geschaltet
      * werden können.
      */
-    private static boolean isTooEarlyToPull(World world, PistonMovingBlockEntity cargo) {
+    private static boolean isTooEarlyToPull(Dimension world, PistonMovingBlockEntity cargo) {
         return cargo.getProgress(0.0f) < 0.5f
                 || cargo.getLastTicked() == world.getGameTime()
                 || world.isHandlingTick();
     }
 
     /** Die eigene laufende Extend-Source an der Kopfzelle; Retract ersetzt bereits die Basis. */
-    private static PistonMovingBlockEntity ownSourceMoving(World world, int x, int y, int z, Direction f) {
+    private static PistonMovingBlockEntity ownSourceMoving(Dimension world, int x, int y, int z, Direction f) {
         int hx = x + f.offsetX(), hy = y + f.offsetY(), hz = z + f.offsetZ();
         BlockState head = Blocks.getState(world.getBlock(hx, hy, hz));
         if (head.getBlock().getBlockEntityType() != BlockEntities.PISTON_MOVING) return null;
@@ -232,7 +232,7 @@ public final class PistonBehavior implements BlockBehavior {
                 && be.isSource() && be.getFacing() == f ? be : null;
     }
 
-    private void extend(World world, int x, int y, int z, BlockState state, Direction f) {
+    private void extend(Dimension world, int x, int y, int z, BlockState state, Direction f) {
         PistonResolver.Result result = PistonResolver.resolveExtend(world, x, y, z, f);
         /* Wie Vanilla: Scheitert die zweite Auflösung beim Ausführen des Events, wird kein
            künstlicher Poll geplant. Ein späterer Versuch braucht ein echtes Nachbarupdate. */
@@ -312,7 +312,7 @@ public final class PistonBehavior implements BlockBehavior {
         }
     }
 
-    private void retract(World world, int x, int y, int z, BlockState state, Direction f,
+    private void retract(Dimension world, int x, int y, int z, BlockState state, Direction f,
                          boolean dropCargo, Direction storedFacing) {
         int hx = x + f.offsetX(), hy = y + f.offsetY(), hz = z + f.offsetZ();
         BlockState head = Blocks.getState(world.getBlock(hx, hy, hz));
@@ -401,7 +401,7 @@ public final class PistonBehavior implements BlockBehavior {
     }
 
     /** Setzt einen moving_piston und konfiguriert die frisch angelegte BE. */
-    private static PistonMovingBlockEntity spawnMoving(World world, int x, int y, int z,
+    private static PistonMovingBlockEntity spawnMoving(Dimension world, int x, int y, int z,
                                     int movedStateId, Direction facing, boolean extending,
                                     boolean source, boolean sticky) {
         int movingState = Blocks.getState(Blocks.MOVING_PISTON)
@@ -430,7 +430,7 @@ public final class PistonBehavior implements BlockBehavior {
      * weiter außen laufen zu Ende (MC-Verhalten).
      */
     @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
+    public void onBreak(Dimension world, int x, int y, int z, BlockState state) {
         if (!state.get(Properties.EXTENDED)) return;
         Direction f = state.get(Properties.FACING_ALL);
         int hx = x + f.offsetX(), hy = y + f.offsetY(), hz = z + f.offsetZ();
@@ -457,7 +457,7 @@ public final class PistonBehavior implements BlockBehavior {
      * <p>In der oberen Runde bleibt DOWN ausgespart: dieser Nachbar der oberen Zelle ist der
      * Kolben selbst, er wuerde sich sonst ueber seinen eigenen Ausgang selbst speisen.
      */
-    private static boolean hasSignal(World world, int x, int y, int z, Direction facing) {
+    private static boolean hasSignal(Dimension world, int x, int y, int z, Direction facing) {
         for (Direction d : Direction.vanillaValues()) {
             if (d == facing) continue;
             if (emitsInto(world, x, y, z, d)) return true;
@@ -470,7 +470,7 @@ public final class PistonBehavior implements BlockBehavior {
     }
 
     /** Speist der Nachbar in Richtung {@code d} Signal in die Zelle (x,y,z)? */
-    private static boolean emitsInto(World world, int x, int y, int z, Direction d) {
+    private static boolean emitsInto(Dimension world, int x, int y, int z, Direction d) {
         return RedstonePower.emittedSignal(world, x + d.offsetX(), y + d.offsetY(), z + d.offsetZ(),
                 d.opposite(), false) > 0;
     }

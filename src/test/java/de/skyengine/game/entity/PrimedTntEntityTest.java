@@ -1,7 +1,7 @@
 package de.skyengine.game.entity;
 
 import de.skyengine.game.physics.AABB;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.test.BlocksTestBootstrap;
 import org.junit.jupiter.api.BeforeAll;
@@ -79,12 +79,12 @@ class PrimedTntEntityTest {
         }
 
         @Override
-        public void move(World world, double dx, double dy, double dz) {
+        public void move(Dimension world, double dx, double dy, double dz) {
             this.onGround = true;
         }
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private Entity spawned;
 
         private TestWorld() {

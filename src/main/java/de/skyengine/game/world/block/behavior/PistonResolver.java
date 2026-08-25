@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -21,7 +21,7 @@ import java.util.List;
  * {@link #MAX_PUSH} für die GESAMTE Struktur.
  *
  * <p><b>Vorab-Totalvalidierung:</b> jede betrachtete Zelle läuft über
- * {@code World.isPositionEditable} — ein halb fehlgeschlagener setBlock-Lauf an der
+ * {@code Dimension.isPositionEditable} — ein halb fehlgeschlagener setBlock-Lauf an der
  * Ladefront hinterließe sonst Block-Duplikate. Die Writes selbst laufen im Behavior über
  * einen State-SNAPSHOT, damit die Schreib-Reihenfolge bei Verzweigungen irrelevant ist.
  */
@@ -46,7 +46,7 @@ public final class PistonResolver {
     }
 
     /** Auflösung eines Ausfahrens ab der Basis (bx,by,bz) in Richtung {@code facing}. */
-    public static Result resolveExtend(World world, int bx, int by, int bz, Direction facing) {
+    public static Result resolveExtend(Dimension world, int bx, int by, int bz, Direction facing) {
         Structure s = new Structure(world, facing, BlockPos.asLong(bx, by, bz), NO_POS, true);
         long start = offset(BlockPos.asLong(bx, by, bz), facing, 1);
         return s.resolve(start);
@@ -58,7 +58,7 @@ public final class PistonResolver {
      * die erste Fracht-Moving-BE entsteht.
      * Blockiert/leer heißt hier nur „nichts ziehen" — das Einfahren selbst läuft immer.
      */
-    public static Result resolveRetract(World world, int bx, int by, int bz, Direction facing) {
+    public static Result resolveRetract(Dimension world, int bx, int by, int bz, Direction facing) {
         long base = BlockPos.asLong(bx, by, bz);
         Structure s = new Structure(world, facing.opposite(), base, offset(base, facing, 1), false);
         return s.resolve(offset(base, facing, 2));
@@ -66,7 +66,7 @@ public final class PistonResolver {
 
     /** Traversierungs-Zustand einer Auflösung. */
     private static final class Structure {
-        final World world;
+        final Dimension world;
         final Direction moveDir;
         final long basePos;
         /** Zelle, die als Luft zählt (Retract: die Kopf-Zelle). */
@@ -78,7 +78,7 @@ public final class PistonResolver {
         final List<Long> toDestroy = new ArrayList<>();
         boolean blockedByMoving;
 
-        Structure(World world, Direction moveDir, long basePos, long ignoredPos, boolean allowDestroy) {
+        Structure(Dimension world, Direction moveDir, long basePos, long ignoredPos, boolean allowDestroy) {
             this.world = world;
             this.moveDir = moveDir;
             this.basePos = basePos;

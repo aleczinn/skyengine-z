@@ -114,7 +114,7 @@ final class WorldDeferredStateUpdateTest {
         return chunk;
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private static final Field CHUNKS_FIELD;
         private static final Field REMOVAL_VERSION_FIELD;
         private static final Field DEFERRED_FIELD;
@@ -128,13 +128,13 @@ final class WorldDeferredStateUpdateTest {
                 CHUNKS_FIELD.setAccessible(true);
                 REMOVAL_VERSION_FIELD = ChunkManager.class.getDeclaredField("chunkRemovalVersion");
                 REMOVAL_VERSION_FIELD.setAccessible(true);
-                DEFERRED_FIELD = World.class.getDeclaredField("deferredStateUpdates");
+                DEFERRED_FIELD = Dimension.class.getDeclaredField("deferredStateUpdates");
                 DEFERRED_FIELD.setAccessible(true);
-                PARKED_COUNT_FIELD = World.class.getDeclaredField("parkedStateUpdateCount");
+                PARKED_COUNT_FIELD = Dimension.class.getDeclaredField("parkedStateUpdateCount");
                 PARKED_COUNT_FIELD.setAccessible(true);
-                PROCESS_READY = World.class.getDeclaredMethod("processReadyChunks");
+                PROCESS_READY = Dimension.class.getDeclaredMethod("processReadyChunks");
                 PROCESS_READY.setAccessible(true);
-                PROCESS_DEFERRED = World.class.getDeclaredMethod("processDeferredStateUpdates");
+                PROCESS_DEFERRED = Dimension.class.getDeclaredMethod("processDeferredStateUpdates");
                 PROCESS_DEFERRED.setAccessible(true);
             } catch (ReflectiveOperationException e) {
                 throw new ExceptionInInitializerError(e);
@@ -145,7 +145,7 @@ final class WorldDeferredStateUpdateTest {
 
         TestWorld() throws ReflectiveOperationException {
             super("__deferred_state_update_test", level(), null, null);
-            Field field = World.class.getDeclaredField("chunkManager");
+            Field field = Dimension.class.getDeclaredField("chunkManager");
             field.setAccessible(true);
             this.manager = (ChunkManager) field.get(this);
         }

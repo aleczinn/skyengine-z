@@ -131,8 +131,8 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
 
     /** AO/Laub stecken im gebackenen Mesh -> Voll-Remesh (nur mit Welt möglich). */
     private void remesh(GameContainer game) {
-        if (game.getWorld() != null) {
-            game.getWorld().getChunkManager().remeshAll();
+        if (game.getDimension() != null) {
+            game.getDimension().getChunkManager().remeshAll();
         }
     }
 

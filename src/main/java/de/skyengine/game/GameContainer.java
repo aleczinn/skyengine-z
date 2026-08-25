@@ -18,6 +18,8 @@ import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRaycast;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.Dimension;
+import de.skyengine.game.world.DimensionManager;
 import de.skyengine.game.world.World;
 import de.skyengine.game.world.dimension.PortalController;
 import de.skyengine.game.world.dimension.PortalCoordinates;
@@ -30,7 +32,6 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.ChestBlockEntity;
 import de.skyengine.game.world.block.entity.DispenserBlockEntity;
-import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.ChestType;
@@ -96,14 +97,13 @@ import de.skyengine.graphics.player.HeldItemMeshes;
 import de.skyengine.graphics.player.PlayerRenderer;
 import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.game.world.block.entity.BlockEntities;
-import de.skyengine.game.world.block.entity.DataTag;
 import de.skyengine.game.world.save.LevelData;
-import de.skyengine.game.world.save.PlayerIO;
 import de.skyengine.game.world.save.WorldSaves;
 import org.lwjgl.opengl.GL11;
 import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.graphics.world.ChunkBorderRenderer;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
+import de.skyengine.graphics.world.DimensionView;
 import de.skyengine.graphics.entity.EntityHitboxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
@@ -116,8 +116,10 @@ import org.lwjgl.glfw.GLFW;
 import java.io.File;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.UUID;
 import java.util.function.Supplier;
+
+import de.skyengine.game.GameplaySession.PendingArrival;
+import de.skyengine.game.GameplaySession.PendingDimensionSwitch;
 
 /* Kein IInitializable mehr: der Boot läuft zweistufig über initBoot()/initStaged() (Ladebildschirm). */
 public class GameContainer implements IResizeable, IDisposable {
@@ -125,8 +127,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private final Logger logger = LogManager.getLogger(GameContainer.class.getName());
 
     private Camera camera;
-    private EntityPlayer player;
-    private World world;
+    private GameplaySession session;
     private SelectionBoxRenderer selectionBoxRenderer;
     private ChunkBorderRenderer chunkBorderRenderer;
     private EntityHitboxRenderer entityHitboxRenderer;
@@ -226,13 +227,8 @@ public class GameContainer implements IResizeable, IDisposable {
     private ItemFrameEntity itemFrameHit = null;
     private MinecartEntity minecartHit = null;
 
-    /* Spieler-Inventar (36 Slots: 0..8 Hotbar, 9..35 Hauptinventar). Auswahl per Zahlentasten 1..9. */
-    private final SimpleItemStorage playerInventory = new SimpleItemStorage(36);
     private final ChatManager chat = new ChatManager();
     private final ChatHud chatHud = new ChatHud();
-    private int hotbarIndex = 0;
-    /* Spieler-UUID (player.dat, Multiplayer-Vorbereitung): beim Betreten geladen oder neu erzeugt. */
-    private UUID playerUuid;
     /* Slot-Wechsel-Zeitpunkt für die Itemnamen-Einblendung über der Hotbar (reine Anzeige). */
     private static final long ITEM_NAME_HOLD_MS = 2000, ITEM_NAME_FADE_MS = 500;
     private long itemNameShownAt = 0;
@@ -243,21 +239,6 @@ public class GameContainer implements IResizeable, IDisposable {
        Public: auch Zeitbasis der Ess-Animation (FirstPersonHandRenderer). */
     public static final int EAT_TICKS = 32;
     private int eatingTicks = 0;
-
-    /* Aktives Savegame (null im Hauptmenü) — Ziel für saveCurrentWorld beim Austritt/Beenden. */
-    private WorldSaves.WorldSave currentSave;
-    private final PortalController portalController = new PortalController();
-    private PendingDimensionSwitch pendingDimensionSwitch;
-    private PendingArrival pendingArrival;
-
-    private record PendingDimensionSwitch(Identifier target, int x, int y, int z,
-                                          Identifier portalType, boolean createReturnPortal,
-                                          Direction.Axis portalAxis, Identifier sourceDimension,
-                                          String sourcePortalId, String targetPortalId) {}
-    private record PendingArrival(int x, int y, int z, Identifier portalType,
-                                  boolean createReturnPortal, Direction.Axis portalAxis,
-                                  Identifier sourceDimension, String sourcePortalId,
-                                  PortalIndex.Entry indexedPortal) {}
 
     /** Autosave-Intervall in Ticks (60 s bei 20 TPS). */
     private static final int AUTOSAVE_INTERVAL = 1200;
@@ -327,75 +308,21 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /**
      * Betritt eine Welt aus einem Savegame (Render-Thread, aus einem GuiScreen-Callback): baut
-     * World + Spieler auf (Position/Inventar aus level.json, sonst Spawn + Start-Inventar),
+     * Dimension + Spieler auf (Position/Inventar aus level.json, sonst Spawn + Start-Inventar),
      * wendet die Welt-Einstellungen an und zeigt den Welt-Ladebildschirm.
      */
     public void enterWorld(WorldSaves.WorldSave save) {
         this.waterVision.reset();
         this.playerWasInWater = false;
         this.underwaterAudio.reset();
-        this.currentSave = save;
-        /* Die aktive Dimension steht im player.dat. Alt-Saves und entfernte optionale
-           Dimensionen fallen sicher auf die Overworld zurueck. */
-        DataTag playerTag = PlayerIO.read(new File(WorldSaves.dir(save.dirName()), "player/player.dat"));
-        Identifier dimension = this.playerDimension(playerTag);
-        this.world = new World(save.dirName(), save.level(), dimension, this.atlas, this.blockEntityRenderers);
-        this.world.setSoundManager(this.soundManager); // Sounds aus der Welt-Logik (z.B. TNT-Explosion)
-        this.world.init();
-        this.portalController.reset();
-        this.pendingDimensionSwitch = null;
-        this.pendingArrival = null;
+        this.session = new GameplaySession(save, this.atlas, this.blockEntityRenderers,
+                this.soundManager);
+        this.session.portalController.reset();
+        this.session.pendingDimensionSwitch = null;
+        this.session.pendingArrival = null;
 
-        this.player = new EntityPlayer();
         this.hudStatusText = "";
         this.hudStatusShownAt = 0;
-        this.playerUuid = null;
-        /* Spielerzustand: player.dat ist die Quelle; Alt-Saves ohne player.dat werden einmalig
-           aus den level.json-Feldern migriert (beim nächsten Speichern genullt). */
-        LevelData.PlayerData saved = save.level().player;
-        if (playerTag != null) {
-            this.player.setPosition(playerTag.getDouble("x", 0.5),
-                    playerTag.getDouble("y", 80), playerTag.getDouble("z", 0.5));
-            this.player.yaw = (float) playerTag.getDouble("yaw", 0);
-            this.player.pitch = (float) playerTag.getDouble("pitch", 0);
-            try {
-                this.player.setGamemode(Gamemode.valueOf(playerTag.getString("gamemode", "")));
-            } catch (Exception ignored) { /* unbekannter Modus -> Default */ }
-            this.player.setFlying(playerTag.getBoolean("flying", false));
-            /* Fehlende Keys -> Defaults des frischen Spielers (volle Vitals). */
-            this.player.setHealth((float) playerTag.getDouble("health", this.player.getHealth()));
-            this.player.setFoodLevel(playerTag.getInt("foodLevel", this.player.getFoodLevel()));
-            this.player.setSaturation((float) playerTag.getDouble("saturation", this.player.getSaturation()));
-            long most = playerTag.getLong("uuidMost", 0);
-            long least = playerTag.getLong("uuidLeast", 0);
-            if (most != 0 || least != 0) this.playerUuid = new UUID(most, least);
-        } else if (saved != null) {
-            this.player.setPosition(saved.x, saved.y, saved.z);
-            this.player.yaw = saved.yaw;
-            this.player.pitch = saved.pitch;
-            try {
-                this.player.setGamemode(Gamemode.valueOf(saved.gamemode));
-            } catch (Exception ignored) { /* unbekannter Modus -> Default */ }
-            this.player.setFlying(saved.flying);
-            /* Vitals nur übernehmen, wenn vorhanden — alte level.json ohne die Felder liefert
-               null (Boxed-Typen), sonst wäre GSON-Default 0 = sofort tot. */
-            if (saved.health != null) this.player.setHealth(saved.health);
-            if (saved.foodLevel != null) this.player.setFoodLevel(saved.foodLevel);
-            if (saved.saturation != null) this.player.setSaturation(saved.saturation);
-        } else {
-            this.placeAtWorldSpawn(this.player);
-        }
-        if (this.playerUuid == null) this.playerUuid = UUID.randomUUID();
-
-        this.clearInventory();
-        this.hotbarIndex = 0;
-        DataTag savedInventory = playerTag != null ? playerTag.getTag("inventory") : null;
-        if (savedInventory != null) {
-            this.playerInventory.load(savedInventory);
-            this.hotbarIndex = Math.clamp(playerTag.getInt("selectedSlot", 0), 0, 8);
-        } else if (!save.level().inventory.isEmpty()) {
-            this.loadInventory(save.level().inventory);
-        }
         this.animState.reset();
         this.perspective = CameraPerspective.FIRST_PERSON;
 
@@ -404,18 +331,9 @@ public class GameContainer implements IResizeable, IDisposable {
         this.guiManager.open(new GuiWorldLoading());
     }
 
-    private Identifier playerDimension(DataTag playerTag) {
-        Identifier fallback = WorldgenRegistries.OVERWORLD;
-        if (playerTag == null) return fallback;
-        Identifier saved = Identifier.of(playerTag.getString("dimension", fallback.toString()));
-        if (WorldgenRegistries.DIMENSIONS.get(saved) != null) return saved;
-        this.logger.warning("Spielerdimension ist nicht registriert, verwende Overworld: " + saved);
-        return fallback;
-    }
-
     /** Setzt den Spieler an den Weltspawn (deterministisch: Terrainhöhe bei 0,0 + 2). */
     private void placeAtWorldSpawn(EntityPlayer player) {
-        int spawnY = this.world.getGenerator().sampleHeight(0, 0) + 2;
+        int spawnY = this.dimension().getGenerator().sampleHeight(0, 0) + 2;
         player.setPosition(0.5, spawnY, 0.5);
     }
 
@@ -424,24 +342,24 @@ public class GameContainer implements IResizeable, IDisposable {
      * das Inventar bleibt unangetastet (kein Item-Drop, User-Entscheid).
      */
     public void respawnPlayer() {
-        if (this.world == null || this.player == null) return;
+        if (this.dimension() == null || this.player() == null) return;
         this.guiManager.close();
         this.waterVision.reset();
         this.playerWasInWater = false;
         this.underwaterAudio.reset();
         this.animState.reset();
-        this.player.motionX = 0;
-        this.player.motionY = 0;
-        this.player.motionZ = 0;
-        this.player.resetVitals();
-        if (!this.world.getDimensionId().equals(WorldgenRegistries.OVERWORLD)) {
-            this.pendingDimensionSwitch = new PendingDimensionSwitch(
+        this.player().motionX = 0;
+        this.player().motionY = 0;
+        this.player().motionZ = 0;
+        this.player().resetVitals();
+        if (!this.dimension().getDimensionId().equals(WorldgenRegistries.OVERWORLD)) {
+            this.session.pendingDimensionSwitch = new PendingDimensionSwitch(
                     WorldgenRegistries.OVERWORLD, 0, 64, 0, null, false, null,
-                    this.world.getDimensionId(), null, null);
+                    this.dimension().getDimensionId(), null, null);
         } else {
-            this.placeAtWorldSpawn(this.player);
+            this.placeAtWorldSpawn(this.player());
         }
-        this.player.snapPrevToCurrent();
+        this.player().snapPrevToCurrent();
     }
 
     /**
@@ -457,13 +375,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.soundManager.stopMinecartSounds();
         this.underwaterAudio.reset();
         this.waterVision.reset();
-        this.world.dispose();
-        this.world = null;
-        this.player = null;
-        this.currentSave = null;
-        this.pendingDimensionSwitch = null;
-        this.pendingArrival = null;
-        this.portalController.reset();
+        this.session.dispose();
+        this.session = null;
         this.hit = null;
         this.itemFrameHit = null;
         this.minecartHit = null;
@@ -473,7 +386,7 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     /**
-     * Speichert die Welt: level.json (nur Welt-Metadaten), player/player.dat
+     * Speichert die Welt: level.json (nur Welt-Metadaten), players/&lt;uuid&gt;.dat
      * (Zustand + Inventar, binäres DataTag) und reiht alle modifizierten Chunks ein
      * (den Flush garantiert storage.close() in world.dispose()).
      *
@@ -483,63 +396,29 @@ public class GameContainer implements IResizeable, IDisposable {
      * @return Anzahl der eingereihten Chunks (0 = nichts zu schreiben oder keine Welt)
      */
     private int saveCurrentWorld(boolean materializeFalling) {
-        if (this.currentSave == null || this.world == null || this.player == null) return 0;
+        if (this.currentSave() == null || this.dimension() == null || this.player() == null) return 0;
 
-        LevelData level = this.currentSave.level();
+        LevelData level = this.currentSave().level();
         level.lastPlayed = System.currentTimeMillis();
         /* Save-Layout-Defaults für Alt-Welten nachziehen; die alten Spieler-Felder werden
            genullt — die Migration nach player.dat ist damit abgeschlossen. */
-        level.formatVersion = 2;
+        level.formatVersion = 3;
         if (level.worldType == null) level.worldType = "default";
         level.player = null;
         level.inventory.clear();
-        this.world.saveLootRandomStates(level);
-        WorldSaves.save(this.currentSave);
-
-        DataTag tag = new DataTag();
-        tag.putLong("uuidMost", this.playerUuid.getMostSignificantBits());
-        tag.putLong("uuidLeast", this.playerUuid.getLeastSignificantBits());
-        tag.putDouble("x", this.player.x);
-        tag.putDouble("y", this.player.y);
-        tag.putDouble("z", this.player.z);
-        tag.putString("dimension", this.world.getDimensionId().toString());
-        tag.putDouble("yaw", this.player.yaw);
-        tag.putDouble("pitch", this.player.pitch);
-        tag.putString("gamemode", this.player.getGamemode().name());
-        tag.putBoolean("flying", this.player.isFlying());
-        tag.putDouble("health", this.player.getHealth());
-        tag.putInt("foodLevel", this.player.getFoodLevel());
-        tag.putDouble("saturation", this.player.getSaturation());
-        tag.putInt("selectedSlot", this.hotbarIndex);
-        DataTag inventory = new DataTag();
-        this.playerInventory.save(inventory);
-        tag.putTag("inventory", inventory);
-        PlayerIO.write(new File(WorldSaves.dir(this.currentSave.dirName()), "player/player.dat"), tag);
-
-        int chunks = this.world.saveModifiedChunks(materializeFalling);
-        this.logger.info("Welt gespeichert: " + this.currentSave.dirName() + " (" + chunks + " Chunks)");
+        this.player().setDimensionId(this.dimension().getDimensionId());
+        int chunks = this.world().saveModifiedChunks(materializeFalling);
+        this.logger.info("Welt gespeichert: " + this.currentSave().dirName() + " (" + chunks + " Chunks)");
         return chunks;
-    }
-
-    /** Stellt das Inventar aus level.json wieder her (unbekannte Item-IDs -> Slot bleibt leer). */
-    private void loadInventory(java.util.List<LevelData.ItemEntry> entries) {
-        for (LevelData.ItemEntry entry : entries) {
-            if (entry.slot < 0 || entry.slot >= this.playerInventory.size()) continue;
-            Item item = Items.get(Identifier.of(entry.id));
-            if (item == null) continue;
-            ItemStack stack = new ItemStack(item, entry.count);
-            stack.setDamage(entry.damage);
-            this.playerInventory.set(entry.slot, stack);
-        }
     }
 
     /** Übernimmt die persistenten Einstellungen in die laufenden Systeme (auch vom Optionsmenü genutzt). */
     public void applySettings() {
         /* Welt-Anteile nur mit Welt (Optionen sind auch aus dem Hauptmenü erreichbar);
            beim nächsten enterWorld laufen sie ohnehin erneut. */
-        if (this.world != null) {
-            this.world.getChunkManager().setRenderDistance(this.settings.renderDistance);
-            this.world.setSimulationDistance(this.settings.simulationDistance);
+        if (this.dimension() != null) {
+            this.dimension().getChunkManager().setRenderDistance(this.settings.renderDistance);
+            this.dimension().setSimulationDistance(this.settings.simulationDistance);
         }
         this.camera.setFov(this.settings.fov);
         this.camera.setFarPlane(this.computeFarPlane());
@@ -560,13 +439,14 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     public void update(Input input) {
-        if (this.world == null || this.player == null) return; // Hauptmenü: nichts zu ticken
+        if (this.dimension() == null || this.player() == null) return; // Hauptmenü: nichts zu ticken
+        this.world().tickLifecycle();
         PerformanceProfiler profiler = PerformanceProfiler.get();
         long playerLogicStarted = profiler.begin();
 
         /* Gespeichert-Meldung erst, wenn der IO-Thread durch ist. Bewusst VOR dem Pause-Zweig:
            das Speichern beim Öffnen des Pausenmenüs läuft ja gerade dann fertig. */
-        if (this.notifyOnSaveDone && !this.world.hasPendingSaves()) {
+        if (this.notifyOnSaveDone && !this.world().hasPendingSaves()) {
             this.notifyOnSaveDone = false;
             this.saveToast.show();
         }
@@ -582,7 +462,7 @@ public class GameContainer implements IResizeable, IDisposable {
                besser: der Snap läuft im Tick VOR dem einfrierenden Frame und würde die Kamera
                beim Pausieren noch auf die letzte Tick-Position springen lassen. */
             if (loading) {
-                this.player.snapPrevToCurrent();
+                this.player().snapPrevToCurrent();
                 this.animState.snapPrev();
             }
             /* Ess-Animation nicht in der Pause weiterwackeln lassen (ihr Kau-Nicken hängt am
@@ -591,7 +471,7 @@ public class GameContainer implements IResizeable, IDisposable {
         } else {
             /* Offenes Container-GUI (Inventar/Truhe): Physik läuft weiter (fallen/Strömung),
                aber ohne Tasten — wie in MC gehen die Eingaben ans GUI. */
-            this.player.update(this.guiManager.isOpen() ? Input.EMPTY : input, this.world);
+            this.player().update(this.guiManager.isOpen() ? Input.EMPTY : input, this.dimension());
             this.updateMovementParticles();
 
             /* Reihenfolge wie Minecraft.tick: erst die Eingabe (Schwung-/Hand-Trigger), dann die
@@ -606,28 +486,28 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.handleBlockInteraction(input);
                 if (this.missTime > 0) this.missTime--;
             }
-            this.animState.tickHeldItem(this.playerInventory.get(this.hotbarIndex));
-            this.animState.tick(this.player);
+            this.animState.tickHeldItem(this.player().getInventory().get(this.player().getSelectedSlot()));
+            this.animState.tick(this.player());
 
             boolean eyesUnderwater = this.playerEyesUnderwater();
             this.waterVision.tick(eyesUnderwater);
-            this.underwaterAudio.tick(eyesUnderwater, this.player.isTouchingWater(this.world),
-                    !this.player.isFlying(),
-                    this.player.x - this.player.lastX,
-                    this.player.y - this.player.lastY,
-                    this.player.z - this.player.lastZ);
+            this.underwaterAudio.tick(eyesUnderwater, this.player().isTouchingWater(this.dimension()),
+                    !this.player().isFlying(),
+                    this.player().x - this.player().lastX,
+                    this.player().y - this.player().lastY,
+                    this.player().z - this.player().lastZ);
             this.updateStepSounds();
             this.updateHurtSounds();
             this.updateEating(input);
-            if (!this.player.isDead() && this.pendingDimensionSwitch == null) {
-                PortalController.Travel travel = this.portalController.tick(this.world, this.player);
+            if (!this.player().isDead() && this.session.pendingDimensionSwitch == null) {
+                PortalController.Travel travel = this.session.portalController.tick(this.dimension(), this.player());
                 if (travel != null) {
                     this.queuePortalTravel(travel);
                 }
             }
             /* Tod (z.B. Fallschaden — auch mit offenem Container-GUI möglich): Todesscreen
                öffnen; open() schließt ein offenes Inventar/eine Truhe sauber über onClose. */
-            if (this.player.isDead() && !(this.guiManager.current() instanceof GuiDeathScreen)) {
+            if (this.player().isDead() && !(this.guiManager.current() instanceof GuiDeathScreen)) {
                 this.guiManager.open(new GuiDeathScreen());
             }
         }
@@ -635,15 +515,15 @@ public class GameContainer implements IResizeable, IDisposable {
            (Truhe) lassen sie weiterticken. */
         if (!this.guiManager.pausesGame()) {
             profiler.recordElapsed(PerformanceProfiler.TickSection.PLAYER_GAME_LOGIC, playerLogicStarted);
-            this.world.update(input, this.player);
+            this.dimension().update(input, this.player());
             this.pickupItems();
             this.finalizePendingArrival();
             /* Autosave. Die Modulo-Prüfung gehört IN diesen Zweig: gameTime steht bei Pause
                still, außerhalb würde sie dann jeden Tick erneut feuern. */
-            if (this.world.getGameTime() % AUTOSAVE_INTERVAL == 0 && this.saveCurrentWorld(false) > 0) {
+            if (this.dimension().getGameTime() % AUTOSAVE_INTERVAL == 0 && this.saveCurrentWorld(false) > 0) {
                 this.notifyOnSaveDone = true; // beim Autosave nur melden, wenn es wirklich etwas gab
             }
-            if (this.pendingDimensionSwitch != null) this.executeDimensionSwitch();
+            if (this.session.pendingDimensionSwitch != null) this.executeDimensionSwitch();
         }
     }
 
@@ -652,79 +532,71 @@ public class GameContainer implements IResizeable, IDisposable {
         PortalDefinition definition = WorldgenRegistries.PORTALS.get(travel.portalType());
         int sourceX = travel.x(), sourceY = travel.y(), sourceZ = travel.z();
         Direction.Axis axis = null;
-        Identifier sourceDimension = this.world.getDimensionId();
+        Identifier sourceDimension = this.dimension().getDimensionId();
         String sourcePortalId = null;
         String targetPortalId = null;
         if (definition != null && definition.linkPolicy() == PortalDefinition.LinkPolicy.NETHER) {
             var shape = de.skyengine.game.world.dimension.NetherPortalShape.find(
-                    this.world, sourceX, sourceY, sourceZ, true);
+                    this.dimension(), sourceX, sourceY, sourceZ, true);
             if (shape != null) {
-                PortalIndex.Entry sourceEntry = this.world.getPortalIndex().add(travel.portalType(), shape);
+                PortalIndex.Entry sourceEntry = this.dimension().getPortalIndex().add(travel.portalType(), shape);
                 sourcePortalId = sourceEntry.id();
                 sourceX = PortalCoordinates.scale(sourceEntry.centerX(),
-                        this.world.getEnvironment(),
+                        this.dimension().getEnvironment(),
                         WorldgenRegistries.DIMENSIONS.get(travel.targetDimension()).environment());
                 sourceY = shape.bottomY();
                 sourceZ = PortalCoordinates.scale(sourceEntry.centerZ(),
-                        this.world.getEnvironment(),
+                        this.dimension().getEnvironment(),
                         WorldgenRegistries.DIMENSIONS.get(travel.targetDimension()).environment());
                 axis = shape.axis();
-                PortalLinks.Endpoint linked = this.world.getPortalLinks().linked(
+                PortalLinks.Endpoint linked = this.dimension().getPortalLinks().linked(
                         travel.portalType(), sourceDimension, sourcePortalId);
                 if (linked != null && linked.dimension().equals(travel.targetDimension().toString())) {
                     targetPortalId = linked.portalId();
                 }
             } else {
                 var target = WorldgenRegistries.DIMENSIONS.get(travel.targetDimension());
-                sourceX = PortalCoordinates.scale(sourceX, this.world.getEnvironment(), target.environment());
-                sourceZ = PortalCoordinates.scale(sourceZ, this.world.getEnvironment(), target.environment());
+                sourceX = PortalCoordinates.scale(sourceX, this.dimension().getEnvironment(), target.environment());
+                sourceZ = PortalCoordinates.scale(sourceZ, this.dimension().getEnvironment(), target.environment());
             }
         }
-        this.pendingDimensionSwitch = new PendingDimensionSwitch(travel.targetDimension(),
+        this.session.pendingDimensionSwitch = new PendingDimensionSwitch(travel.targetDimension(),
                 sourceX, sourceY, sourceZ, travel.portalType(), true, axis,
                 sourceDimension, sourcePortalId, targetPortalId);
     }
 
     /** Reiht einen sicheren 1:1-Wechsel fuer Befehle und spaetere Gameplay-Systeme ein. */
     public boolean requestDimensionChange(Identifier target) {
-        if (this.world == null || this.player == null || this.pendingDimensionSwitch != null
-                || target == null || target.equals(this.world.getDimensionId())
+        if (this.dimension() == null || this.player() == null || this.session.pendingDimensionSwitch != null
+                || target == null || target.equals(this.dimension().getDimensionId())
                 || WorldgenRegistries.DIMENSIONS.get(target) == null) return false;
-        this.pendingDimensionSwitch = new PendingDimensionSwitch(target,
-                (int) Math.floor(this.player.x), (int) Math.floor(this.player.y),
-                (int) Math.floor(this.player.z), null, false, null,
-                this.world.getDimensionId(), null, null);
+        this.session.pendingDimensionSwitch = new PendingDimensionSwitch(target,
+                (int) Math.floor(this.player().x), (int) Math.floor(this.player().y),
+                (int) Math.floor(this.player().z), null, false, null,
+                this.dimension().getDimensionId(), null, null);
         return true;
     }
 
     private void executeDimensionSwitch() {
-        PendingDimensionSwitch request = this.pendingDimensionSwitch;
-        this.pendingDimensionSwitch = null;
-        if (request == null || this.currentSave == null || request.target.equals(this.world.getDimensionId())) return;
+        PendingDimensionSwitch request = this.session.pendingDimensionSwitch;
+        this.session.pendingDimensionSwitch = null;
+        if (request == null || this.currentSave() == null || request.target.equals(this.dimension().getDimensionId())) return;
 
-        /* Zielmetadaten vor dem Abbau validieren und bei Erstbetreten persistent anlegen. */
-        de.skyengine.game.world.dimension.DimensionSaves.resolve(
-                WorldSaves.dir(this.currentSave.dirName()), this.currentSave.level(), request.target);
-        this.saveCurrentWorld(true);
+        this.saveCurrentWorld(false);
         GL11.glFinish();
         this.soundManager.stopMinecartSounds();
         this.underwaterAudio.reset();
         this.waterVision.reset();
-        this.world.dispose();
-
-        this.world = new World(this.currentSave.dirName(), this.currentSave.level(), request.target,
-                this.atlas, this.blockEntityRenderers);
-        this.world.setSoundManager(this.soundManager);
-        this.world.init();
+        this.session.switchDimension(request.target, request);
         PortalDefinition definition = request.portalType == null ? null
                 : WorldgenRegistries.PORTALS.get(request.portalType);
         boolean netherLink = definition != null
                 && definition.linkPolicy() == PortalDefinition.LinkPolicy.NETHER;
         PortalIndex.Entry indexed = null;
         if (netherLink && request.targetPortalId != null) {
-            indexed = this.world.getPortalIndex().byId(request.targetPortalId);
+            indexed = this.dimension().getPortalIndex().byId(request.targetPortalId);
             if (indexed == null && request.sourcePortalId != null) {
-                this.world.getPortalLinks().unlink(request.portalType,
+                this.dimension().getPortalLinks().unlink(request.portalType,
                         request.sourceDimension, request.sourcePortalId);
             }
         }
@@ -734,15 +606,15 @@ public class GameContainer implements IResizeable, IDisposable {
         int loadX = indexed == null ? request.x : indexed.x();
         int loadZ = indexed == null ? request.z : indexed.z();
         int provisionalY = indexed == null
-                ? Math.clamp(request.y > 0 ? request.y : this.world.getGenerator().sampleHeight(loadX, loadZ) + 2,
+                ? Math.clamp(request.y > 0 ? request.y : this.dimension().getGenerator().sampleHeight(loadX, loadZ) + 2,
                 2, de.skyengine.game.world.chunk.Chunk.HEIGHT - 2)
                 : indexed.y();
-        this.player.setPosition(loadX + 0.5, provisionalY, loadZ + 0.5);
+        this.player().setPosition(loadX + 0.5, provisionalY, loadZ + 0.5);
         this.resetPlayerAfterDimensionMove();
-        this.pendingArrival = new PendingArrival(request.x, request.y, request.z,
+        this.session.pendingArrival = new PendingArrival(request.x, request.y, request.z,
                 request.portalType, request.createReturnPortal, request.portalAxis,
                 request.sourceDimension, request.sourcePortalId, indexed);
-        this.portalController.lockUntilExit();
+        this.session.portalController.lockUntilExit();
         this.notifyOnSaveDone = false;
         this.hit = null;
         this.itemFrameHit = null;
@@ -753,10 +625,10 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private void finalizePendingArrival() {
-        PendingArrival arrival = this.pendingArrival;
+        PendingArrival arrival = this.session.pendingArrival;
         int checkX = arrival != null && arrival.indexedPortal != null ? arrival.indexedPortal.x() : arrival == null ? 0 : arrival.x;
         int checkZ = arrival != null && arrival.indexedPortal != null ? arrival.indexedPortal.z() : arrival == null ? 0 : arrival.z;
-        if (arrival == null || !this.world.getChunkManager().isInitialLoadComplete()
+        if (arrival == null || !this.dimension().getChunkManager().isInitialLoadComplete()
                 || !this.arrivalAreaReady(checkX, checkZ)) return;
 
         PortalDefinition definition = arrival.portalType == null ? null
@@ -775,20 +647,20 @@ public class GameContainer implements IResizeable, IDisposable {
             int floorY = this.findArrivalFloor(arrival.x, arrival.z);
             for (int x = arrival.x - 1; x <= arrival.x + 1; x++) {
                 for (int z = arrival.z - 1; z <= arrival.z + 1; z++) {
-                    this.world.setBlock(x, floorY, z, Blocks.OBSIDIAN);
-                    this.world.setBlock(x, floorY + 1, z, Blocks.AIR);
-                    this.world.setBlock(x, floorY + 2, z, Blocks.AIR);
+                    this.dimension().setBlock(x, floorY, z, Blocks.OBSIDIAN);
+                    this.dimension().setBlock(x, floorY + 1, z, Blocks.AIR);
+                    this.dimension().setBlock(x, floorY + 2, z, Blocks.AIR);
                 }
             }
             feetY = floorY + 1;
             if (arrival.createReturnPortal) {
-                this.world.setBlock(arrival.x, feetY, arrival.z, Blocks.MINING_PORTAL);
+                this.dimension().setBlock(arrival.x, feetY, arrival.z, Blocks.MINING_PORTAL);
             }
         }
-        this.player.setPosition(arrival.x + 0.5, feetY, arrival.z + 0.5);
+        this.player().setPosition(arrival.x + 0.5, feetY, arrival.z + 0.5);
         this.resetPlayerAfterDimensionMove();
-        this.portalController.lockUntilExit();
-        this.pendingArrival = null;
+        this.session.portalController.lockUntilExit();
+        this.session.pendingArrival = null;
         this.saveCurrentWorld(false);
     }
 
@@ -796,31 +668,31 @@ public class GameContainer implements IResizeable, IDisposable {
         if (arrival.indexedPortal != null) {
             var entry = arrival.indexedPortal;
             var shape = de.skyengine.game.world.dimension.NetherPortalShape.find(
-                    this.world, entry.x(), entry.y(), entry.z(), true);
+                    this.dimension(), entry.x(), entry.y(), entry.z(), true);
             /* Ein fest verbundenes, nur erloschenes Gegenportal wird in seinem intakten Rahmen
                wieder entfacht. Ist der Rahmen zerstoert, faellt die Aktivierung sauber durch. */
             if (shape == null && de.skyengine.game.world.dimension.NetherPortalShape.activate(
-                    this.world, entry.x(), entry.y(), entry.z())) {
+                    this.dimension(), entry.x(), entry.y(), entry.z())) {
                 shape = de.skyengine.game.world.dimension.NetherPortalShape.find(
-                        this.world, entry.x(), entry.y(), entry.z(), true);
+                        this.dimension(), entry.x(), entry.y(), entry.z(), true);
             }
             if (shape != null) {
-                PortalIndex.Entry targetEntry = this.world.getPortalIndex().add(arrival.portalType, shape);
+                PortalIndex.Entry targetEntry = this.dimension().getPortalIndex().add(arrival.portalType, shape);
                 this.pairArrival(arrival, targetEntry);
                 this.finishArrival(targetEntry.centerX(), shape.bottomY(), targetEntry.centerZ());
                 return;
             }
-            this.world.getPortalIndex().remove(entry);
-            this.world.getPortalLinks().unlink(arrival.portalType,
-                    this.world.getDimensionId(), entry.id());
+            this.dimension().getPortalIndex().remove(entry);
+            this.dimension().getPortalLinks().unlink(arrival.portalType,
+                    this.dimension().getDimensionId(), entry.id());
             PortalIndex.Entry next = this.findAvailablePortal(
                     arrival.portalType, arrival.x, arrival.y, arrival.z);
             int retryX = next == null ? arrival.x : next.x();
             int retryY = next == null ? arrival.y : next.y();
             int retryZ = next == null ? arrival.z : next.z();
-            this.player.setPosition(retryX + 0.5, Math.clamp(retryY, 2, Chunk.HEIGHT - 2),
+            this.player().setPosition(retryX + 0.5, Math.clamp(retryY, 2, Chunk.HEIGHT - 2),
                     retryZ + 0.5);
-            this.pendingArrival = new PendingArrival(arrival.x, arrival.y, arrival.z,
+            this.session.pendingArrival = new PendingArrival(arrival.x, arrival.y, arrival.z,
                     arrival.portalType, arrival.createReturnPortal, arrival.portalAxis,
                     arrival.sourceDimension, arrival.sourcePortalId, next);
             return;
@@ -833,31 +705,31 @@ public class GameContainer implements IResizeable, IDisposable {
         int bottomY = site[1] + 1;
         this.buildNetherPortal(minX, bottomY, minZ, axis);
         var shape = de.skyengine.game.world.dimension.NetherPortalShape.find(
-                this.world, minX, bottomY, minZ, true);
+                this.dimension(), minX, bottomY, minZ, true);
         if (shape == null) throw new IllegalStateException("Erzeugtes Netherportal ist ungueltig");
-        PortalIndex.Entry targetEntry = this.world.getPortalIndex().add(arrival.portalType, shape);
+        PortalIndex.Entry targetEntry = this.dimension().getPortalIndex().add(arrival.portalType, shape);
         this.pairArrival(arrival, targetEntry);
         this.finishArrival(targetEntry.centerX(), shape.bottomY(), targetEntry.centerZ());
     }
 
     private PortalIndex.Entry findAvailablePortal(Identifier portalType, int x, int y, int z) {
-        int radius = PortalCoordinates.searchRadius(this.world.getEnvironment());
-        List<PortalIndex.Entry> candidates = this.world.getPortalIndex().candidates(
+        int radius = PortalCoordinates.searchRadius(this.dimension().getEnvironment());
+        List<PortalIndex.Entry> candidates = this.dimension().getPortalIndex().candidates(
                 portalType, x, y, z, radius,
-                entry -> !this.world.getPortalLinks().isLinked(
-                        portalType, this.world.getDimensionId(), entry.id()));
+                entry -> !this.dimension().getPortalLinks().isLinked(
+                        portalType, this.dimension().getDimensionId(), entry.id()));
         return candidates.isEmpty() ? null : candidates.getFirst();
     }
 
     private void pairArrival(PendingArrival arrival, PortalIndex.Entry targetEntry) {
         if (arrival.sourcePortalId == null || arrival.sourceDimension == null || targetEntry == null) return;
-        this.world.getPortalLinks().pair(arrival.portalType,
+        this.dimension().getPortalLinks().pair(arrival.portalType,
                 arrival.sourceDimension, arrival.sourcePortalId,
-                this.world.getDimensionId(), targetEntry.id());
+                this.dimension().getDimensionId(), targetEntry.id());
     }
 
     private int[] findNetherPortalSite(int targetX, int targetY, int targetZ, Direction.Axis axis) {
-        int maxFloor = this.world.getDimensionId().equals(WorldgenRegistries.NETHER) ? 120 : Chunk.HEIGHT - 5;
+        int maxFloor = this.dimension().getDimensionId().equals(WorldgenRegistries.NETHER) ? 120 : Chunk.HEIGHT - 5;
         for (int radius = 0; radius <= 8; radius++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
@@ -873,8 +745,8 @@ public class GameContainer implements IResizeable, IDisposable {
         int floor = Math.clamp(targetY, 32, maxFloor);
         for (int x = targetX - 2; x <= targetX + 2; x++) {
             for (int z = targetZ - 2; z <= targetZ + 2; z++) {
-                this.world.setBlock(x, floor, z, Blocks.OBSIDIAN, false);
-                for (int y = floor + 1; y <= floor + 5; y++) this.world.setBlock(x, y, z, Blocks.AIR, false);
+                this.dimension().setBlock(x, floor, z, Blocks.OBSIDIAN, false);
+                for (int y = floor + 1; y <= floor + 5; y++) this.dimension().setBlock(x, y, z, Blocks.AIR, false);
             }
         }
         return new int[]{targetX, floor, targetZ};
@@ -887,10 +759,10 @@ public class GameContainer implements IResizeable, IDisposable {
         int pz = axis == Direction.Axis.Z ? 0 : 1;
         for (int w = -2; w <= 1; w++) {
             int x = centerX + sx * w, z = centerZ + sz * w;
-            if (!Blocks.getState(this.world.getBlock(x, floorY, z)).isSolid()) return false;
+            if (!Blocks.getState(this.dimension().getBlock(x, floorY, z)).isSolid()) return false;
             for (int side = -1; side <= 1; side++) {
                 for (int y = 1; y <= 4; y++) {
-                    BlockState state = Blocks.getState(this.world.getBlock(
+                    BlockState state = Blocks.getState(this.dimension().getBlock(
                             x + px * side, floorY + y, z + pz * side));
                     if (state.isSolid() || state.isFluid()) return false;
                 }
@@ -903,34 +775,34 @@ public class GameContainer implements IResizeable, IDisposable {
         int sx = axis == Direction.Axis.X ? 1 : 0;
         int sz = axis == Direction.Axis.Z ? 1 : 0;
         for (int w = -1; w <= 2; w++) {
-            this.world.setBlock(minX + sx * w, bottomY - 1, minZ + sz * w, Blocks.OBSIDIAN, false);
-            this.world.setBlock(minX + sx * w, bottomY + 3, minZ + sz * w, Blocks.OBSIDIAN, false);
+            this.dimension().setBlock(minX + sx * w, bottomY - 1, minZ + sz * w, Blocks.OBSIDIAN, false);
+            this.dimension().setBlock(minX + sx * w, bottomY + 3, minZ + sz * w, Blocks.OBSIDIAN, false);
         }
         for (int h = 0; h < 3; h++) {
-            this.world.setBlock(minX - sx, bottomY + h, minZ - sz, Blocks.OBSIDIAN, false);
-            this.world.setBlock(minX + sx * 2, bottomY + h, minZ + sz * 2, Blocks.OBSIDIAN, false);
+            this.dimension().setBlock(minX - sx, bottomY + h, minZ - sz, Blocks.OBSIDIAN, false);
+            this.dimension().setBlock(minX + sx * 2, bottomY + h, minZ + sz * 2, Blocks.OBSIDIAN, false);
             for (int w = 0; w < 2; w++) {
-                this.world.setBlock(minX + sx * w, bottomY + h, minZ + sz * w, Blocks.AIR, false);
+                this.dimension().setBlock(minX + sx * w, bottomY + h, minZ + sz * w, Blocks.AIR, false);
             }
         }
         if (!de.skyengine.game.world.dimension.NetherPortalShape.activate(
-                this.world, minX, bottomY, minZ)) {
+                this.dimension(), minX, bottomY, minZ)) {
             throw new IllegalStateException("Netherportalrahmen konnte nicht aktiviert werden");
         }
     }
 
     private void finishArrival(double x, int feetY, double z) {
-        this.player.setPosition(x, feetY, z);
+        this.player().setPosition(x, feetY, z);
         this.resetPlayerAfterDimensionMove();
-        this.portalController.lockUntilExit();
-        this.pendingArrival = null;
+        this.session.portalController.lockUntilExit();
+        this.session.pendingArrival = null;
         this.saveCurrentWorld(false);
     }
 
     private boolean arrivalAreaReady(int centerX, int centerZ) {
         for (int x = centerX - 1; x <= centerX + 1; x++) {
             for (int z = centerZ - 1; z <= centerZ + 1; z++) {
-                var chunk = this.world.getChunkManager().getChunk(
+                var chunk = this.dimension().getChunkManager().getChunk(
                         x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
                 if (chunk == null || chunk.status != ChunkStatus.READY) return false;
             }
@@ -942,10 +814,10 @@ public class GameContainer implements IResizeable, IDisposable {
         PortalDefinition definition = portalType == null ? null : WorldgenRegistries.PORTALS.get(portalType);
         if (definition == null) return -1;
         for (int y = de.skyengine.game.world.chunk.Chunk.HEIGHT - 2; y >= 1; y--) {
-            int state = this.world.getBlock(x, y, z);
+            int state = this.dimension().getBlock(x, y, z);
             if (!Blocks.getState(state).getBlock().getIdentifier().equals(definition.block())) continue;
-            int floor = this.world.getBlock(x, y - 1, z);
-            int head = this.world.getBlock(x, y + 1, z);
+            int floor = this.dimension().getBlock(x, y - 1, z);
+            int head = this.dimension().getBlock(x, y + 1, z);
             if (Blocks.getState(floor).isSolid() && !Blocks.getState(head).isSolid()) return y;
         }
         return -1;
@@ -953,17 +825,17 @@ public class GameContainer implements IResizeable, IDisposable {
 
     private int findArrivalFloor(int x, int z) {
         for (int y = de.skyengine.game.world.chunk.Chunk.HEIGHT - 3; y >= 1; y--) {
-            BlockState state = Blocks.getState(this.world.getBlock(x, y, z));
+            BlockState state = Blocks.getState(this.dimension().getBlock(x, y, z));
             if (state.isSolid() && !state.isFluid()) return y;
         }
         return 64;
     }
 
     private void resetPlayerAfterDimensionMove() {
-        this.player.motionX = 0;
-        this.player.motionY = 0;
-        this.player.motionZ = 0;
-        this.player.snapPrevToCurrent();
+        this.player().motionX = 0;
+        this.player().motionY = 0;
+        this.player().motionZ = 0;
+        this.player().snapPrevToCurrent();
         this.animState.reset();
         this.animState.snapPrev();
         this.waterVision.reset();
@@ -976,10 +848,10 @@ public class GameContainer implements IResizeable, IDisposable {
      * das removed-Flag (die Welt räumt die Liste selbst auf) - daher keine Mutation der Liste hier.
      */
     private void pickupItems() {
-        double px = this.player.x;
-        double py = this.player.y + 0.9; // grob Körpermitte
-        double pz = this.player.z;
-        this.world.forEachEntityNearby(px, pz, 1, entity -> {
+        double px = this.player().x;
+        double py = this.player().y + 0.9; // grob Körpermitte
+        double pz = this.player().z;
+        this.dimension().forEachEntityNearby(px, pz, 1, entity -> {
             if (!(entity instanceof ItemEntity item) || item.isRemoved() || item.getPickupDelay() > 0) return;
             double dx = item.x - px;
             double dy = item.y - py;
@@ -987,7 +859,7 @@ public class GameContainer implements IResizeable, IDisposable {
             if (dx * dx + dy * dy + dz * dz > PICKUP_RANGE * PICKUP_RANGE) return;
 
             int before = item.getStack().getCount();
-            ItemStack remaining = this.playerInventory.insert(item.getStack());
+            ItemStack remaining = this.player().getInventory().insert(item.getStack());
             if (remaining.isEmpty()) {
                 item.remove();
             } else {
@@ -1001,39 +873,39 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /** Bewegungspartikel aus bereits berechneten Spieler-Flanken; verändert keinerlei Physik. */
     private void updateMovementParticles() {
-        boolean inWater = this.player.isTouchingWater(this.world);
-        double dx = this.player.x - this.player.lastX;
-        double dy = this.player.y - this.player.lastY;
-        double dz = this.player.z - this.player.lastZ;
+        boolean inWater = this.player().isTouchingWater(this.dimension());
+        double dx = this.player().x - this.player().lastX;
+        double dy = this.player().y - this.player().lastY;
+        double dz = this.player().z - this.player().lastZ;
         double speed = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (inWater && !this.playerWasInWater) {
-            this.world.particles().splash(this.player.x, this.player.y, this.player.z, dx, dy, dz);
+            this.dimension().particles().splash(this.player().x, this.player().y, this.player().z, dx, dy, dz);
         } else if (inWater && speed > 0.02) {
-            this.world.particles().swim(this.player.x, this.player.y + 0.8, this.player.z, dx, dy, dz);
+            this.dimension().particles().swim(this.player().x, this.player().y + 0.8, this.player().z, dx, dy, dz);
         }
         this.playerWasInWater = inWater;
 
         BlockState ground = this.groundStateAtPlayer();
-        if (!inWater && ground != null && this.player.onGround && this.player.isSprinting()
+        if (!inWater && ground != null && this.player().onGround && this.player().isSprinting()
                 && dx * dx + dz * dz > 0.001) {
-            this.world.particles().sprint(this.player.x, this.player.y, this.player.z, ground, dx, dz);
+            this.dimension().particles().sprint(this.player().x, this.player().y, this.player().z, ground, dx, dz);
         }
-        float landing = this.player.consumeLandingDistance();
+        float landing = this.player().consumeLandingDistance();
         if (landing > 3F && ground != null && !inWater) {
-            this.world.particles().landing(this.player.x, this.player.y, this.player.z, ground, landing);
+            this.dimension().particles().landing(this.player().x, this.player().y, this.player().z, ground, landing);
         }
     }
 
     private BlockState groundStateAtPlayer() {
-        int bx = (int) Math.floor(this.player.x);
-        int by = (int) Math.floor(this.player.y - 0.2);
-        int bz = (int) Math.floor(this.player.z);
-        BlockState state = Blocks.getState(this.world.getBlock(bx, by, bz));
-        if (state.isAir() || state.isFluid()) state = Blocks.getState(this.world.getBlock(bx, by - 1, bz));
+        int bx = (int) Math.floor(this.player().x);
+        int by = (int) Math.floor(this.player().y - 0.2);
+        int bz = (int) Math.floor(this.player().z);
+        BlockState state = Blocks.getState(this.dimension().getBlock(bx, by, bz));
+        if (state.isAir() || state.isFluid()) state = Blocks.getState(this.dimension().getBlock(bx, by - 1, bz));
         return state.isAir() || state.isFluid() ? null : state;
     }
 
-    /** Itemkrümel am Gesicht; verwendet denselben TextureArray-Layer wie GUI und World-Items. */
+    /** Itemkrümel am Gesicht; verwendet denselben TextureArray-Layer wie GUI und Dimension-Items. */
     private void emitHeldItemParticles(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return;
         int texture = -1;
@@ -1044,16 +916,16 @@ public class GameContainer implements IResizeable, IDisposable {
             texture = BlockTextures.layerOf(stack.getItem().getIconTexture());
         }
         if (texture < 0) return;
-        double yaw = Math.toRadians(this.player.yaw);
-        double pitch = Math.toRadians(this.player.pitch);
+        double yaw = Math.toRadians(this.player().yaw);
+        double pitch = Math.toRadians(this.player().pitch);
         double cp = Math.cos(pitch);
         double dirX = cp * Math.sin(yaw);
         double dirY = -Math.sin(pitch);
         double dirZ = -cp * Math.cos(yaw);
-        double px = this.player.x + dirX * 0.35;
-        double py = this.player.y + this.player.getEyeHeight(1F) + dirY * 0.35 - 0.1;
-        double pz = this.player.z + dirZ * 0.35;
-        this.world.particles().itemCrumb(texture, px, py, pz, dirX, dirY, dirZ);
+        double px = this.player().x + dirX * 0.35;
+        double py = this.player().y + this.player().getEyeHeight(1F) + dirY * 0.35 - 0.1;
+        double pz = this.player().z + dirZ * 0.35;
+        this.dimension().particles().itemCrumb(texture, px, py, pz, dirX, dirY, dirZ);
     }
 
     /**
@@ -1062,24 +934,24 @@ public class GameContainer implements IResizeable, IDisposable {
      * Kadenz). Kein Sound in der Luft, beim Fliegen, Sneaken (lautlos wie MC) oder im Fluid.
      */
     private void updateStepSounds() {
-        if (this.player.isFlying() || this.player.isSneaking()
-                || this.player.isTouchingFluid(this.world)) {
+        if (this.player().isFlying() || this.player().isSneaking()
+                || this.player().isTouchingFluid(this.dimension())) {
             return;
         }
         /* Distanz auch in der Luft akkumulieren (MC: walkDist) — so überschreitet ein
            Sprint-Sprung die Schwelle sofort bei der Landung -> Schritt bei jedem Aufkommen. */
-        double dx = this.player.x - this.player.lastX;
-        double dz = this.player.z - this.player.lastZ;
+        double dx = this.player().x - this.player().lastX;
+        double dz = this.player().z - this.player().lastZ;
         this.stepDistance += Math.sqrt(dx * dx + dz * dz);
-        if (!this.player.onGround || this.stepDistance < STEP_INTERVAL) return;
+        if (!this.player().onGround || this.stepDistance < STEP_INTERVAL) return;
         this.stepDistance = 0;
 
-        int bx = (int) Math.floor(this.player.x);
-        int by = (int) Math.floor(this.player.y - 0.2); // Fußpunkt leicht abgesenkt: trifft auch Slabs/Stufen
-        int bz = (int) Math.floor(this.player.z);
-        int ground = this.world.getBlock(bx, by, bz);
+        int bx = (int) Math.floor(this.player().x);
+        int by = (int) Math.floor(this.player().y - 0.2); // Fußpunkt leicht abgesenkt: trifft auch Slabs/Stufen
+        int bz = (int) Math.floor(this.player().z);
+        int ground = this.dimension().getBlock(bx, by, bz);
         if (ground == Blocks.AIR || Blocks.getState(ground).isFluid()) {
-            ground = this.world.getBlock(bx, by - 1, bz); // Kantenlauf: eine Zelle tiefer probieren
+            ground = this.dimension().getBlock(bx, by - 1, bz); // Kantenlauf: eine Zelle tiefer probieren
             if (ground == Blocks.AIR || Blocks.getState(ground).isFluid()) return;
         }
         this.soundManager.playStep(Blocks.getState(ground).getBlock().getSoundGroup());
@@ -1087,9 +959,9 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /** Hurt-/Aufprall-Sounds aus den EntityPlayer-Flanken (der Schaden entsteht tief in der Physik). */
     private void updateHurtSounds() {
-        float fall = this.player.consumeFallDamage();
+        float fall = this.player().consumeFallDamage();
         if (fall > 0) this.soundManager.playFall(fall >= 4); // MC-Grenze: ab 4 Schaden „big"
-        if (this.player.consumeHurt()) {
+        if (this.player().consumeHurt()) {
             this.soundManager.playHurt();
             this.animState.hurt(); // Kamera-Roll (Hurt-Tilt)
         }
@@ -1146,10 +1018,10 @@ public class GameContainer implements IResizeable, IDisposable {
            der Pass animiert die Stärke selbst (Ein-/Ausblenden). */
         PostProcessor post = SkyEngine.get().getPostProcessor();
         post.setMenuBlur(
-                this.world != null && this.guiManager.blursBackground());
+                this.dimension() != null && this.guiManager.blursBackground());
 
         /* Hauptmenü (keine Welt): nur GUI-Eingaben routen, gezeichnet wird in renderGui. */
-        if (this.world == null) {
+        if (this.dimension() == null) {
             post.setUnderwater(false, 0F);
             post.setPortalEffect(0F);
             this.guiManager.handleInput();
@@ -1173,11 +1045,11 @@ public class GameContainer implements IResizeable, IDisposable {
                wieder (closesOnInventoryKey im GuiManager-Routing). Im Creative tritt das
                Creative-Inventar mit seinen Reitern an dessen Stelle (wie in MC). */
             if (input.isBindPressed(this.settings.key(KeyBindings.OPEN_INVENTORY))) {
-                Supplier<ItemStack> held = () -> this.playerInventory.get(this.hotbarIndex);
-                this.guiManager.open(this.player.getGamemode() == Gamemode.CREATIVE
-                        ? new GuiCreativeInventory(this.playerInventory, this.playerRenderer,
+                Supplier<ItemStack> held = () -> this.player().getInventory().get(this.player().getSelectedSlot());
+                this.guiManager.open(this.player().getGamemode() == Gamemode.CREATIVE
+                        ? new GuiCreativeInventory(this.player().getInventory(), this.playerRenderer,
                                 this.heldItemMeshes, held)
-                        : new GuiInventory(this.playerInventory, this.playerRenderer,
+                        : new GuiInventory(this.player().getInventory(), this.playerRenderer,
                                 this.heldItemMeshes, held));
             }
             /* T oeffnet eine leere Chatzeile; Slash springt wie in Minecraft direkt in einen
@@ -1197,7 +1069,7 @@ public class GameContainer implements IResizeable, IDisposable {
                frei, und seine Bewegung soll die Kamera nicht mitziehen. */
             if (input.isCursorGrabbed()) {
                 double sens = this.settings.mouseSensitivity;
-                this.player.turn(input.getDeltaMouseX() * sens, input.getDeltaMouseY() * sens);
+                this.player().turn(input.getDeltaMouseX() * sens, input.getDeltaMouseY() * sens);
             }
         }
 
@@ -1211,12 +1083,12 @@ public class GameContainer implements IResizeable, IDisposable {
         float wantedBias = post.getSettings().isTemporalAa()
                 ? post.getSettings().getTaaMipBias() : 0F;
         if (wantedBias != this.appliedMipBias) {
-            this.world.getChunkRenderer().getTextureArray().setLodBias(wantedBias);
+            this.view().chunks().getTextureArray().setLodBias(wantedBias);
             this.appliedMipBias = wantedBias;
             this.logger.debug("Textur-LOD-Bias: " + wantedBias);
         }
 
-        this.camera.follow(this.player, partialTick);
+        this.camera.follow(this.player(), partialTick);
         /* Augenpunkt/-richtung VOR dem Third-Person-Versatz sichern — Interaktion, Mining und
            der Eimer-Strahl zielen immer vom Auge, egal wo die Kamera hängt. */
         this.eyePosition.set(this.camera.getPosition());
@@ -1229,29 +1101,29 @@ public class GameContainer implements IResizeable, IDisposable {
         BlockState cameraFluid = this.cameraFluidState();
         post.setUnderwater(shouldRenderUnderwaterEffect(DebugFlags.underwaterEffect, cameraFluid),
                 this.waterVision.factor());
-        post.setPortalEffect(this.portalController.contactProgress());
+        post.setPortalEffect(this.session.portalController.contactProgress());
 
         /* Audio pro Frame: Listener auf die interpolierte Kamera (Streaming läuft oben). */
         this.soundManager.updateListener(this.camera);
-        this.world.updateEntitySounds(partialTick);
+        this.dimension().updateEntitySounds(partialTick);
 
-        this.hit = BlockRaycast.raycastInteractive(this.world, this.eyePosition, this.eyeDirection, REACH);
+        this.hit = BlockRaycast.raycastInteractive(this.dimension(), this.eyePosition, this.eyeDirection, REACH);
         double entityReach = this.hit == null ? REACH : Math.sqrt(
                 sq(this.hit.hitX() - this.eyePosition.x)
                         + sq(this.hit.hitY() - this.eyePosition.y)
                         + sq(this.hit.hitZ() - this.eyePosition.z));
-        this.itemFrameHit = this.world.raycastItemFrame(this.eyePosition.x, this.eyePosition.y,
+        this.itemFrameHit = this.dimension().raycastItemFrame(this.eyePosition.x, this.eyePosition.y,
                 this.eyePosition.z, this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z,
                 entityReach);
-        if (this.itemFrameHit != null && !this.world.isPlayerInteractionReady(
+        if (this.itemFrameHit != null && !this.dimension().isPlayerInteractionReady(
                 this.itemFrameHit.getAnchorX(), this.itemFrameHit.getAnchorY(),
                 this.itemFrameHit.getAnchorZ())) {
             this.itemFrameHit = null;
         }
-        this.minecartHit = this.world.raycastMinecart(this.eyePosition.x, this.eyePosition.y,
+        this.minecartHit = this.dimension().raycastMinecart(this.eyePosition.x, this.eyePosition.y,
                 this.eyePosition.z, this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z,
                 entityReach);
-        if (this.minecartHit != null && !this.world.isPlayerInteractionReady(
+        if (this.minecartHit != null && !this.dimension().isPlayerInteractionReady(
                 (int) Math.floor(this.minecartHit.x), (int) Math.floor(this.minecartHit.y),
                 (int) Math.floor(this.minecartHit.z))) {
             this.minecartHit = null;
@@ -1261,7 +1133,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.guiManager.handleInput();       // Schließen + Slot-Klicks (kann den GuiScreen schließen)
             /* Ein GuiScreen-Callback (GuiIngameMenu „Hauptmenü") kann exitToTitle() ausgelöst haben —
                dann ist die Welt weg und der Rest des Frames darf sie nicht mehr anfassen. */
-            if (this.world == null) {
+            if (this.dimension() == null) {
                 post.setUnderwater(false, 0F);
                 return;
             }
@@ -1275,20 +1147,20 @@ public class GameContainer implements IResizeable, IDisposable {
            machen — dann bliebe der Default-Framebuffer unbeschrieben ("eingefrorenes" Bild). */
         if (DebugFlags.wireframe) Utils.enableWireframe();
         if (this.perspective.isFirstPerson()) {
-            this.world.render(this.camera, partialTick);
+            this.view().render(this.camera, partialTick);
         } else {
             /* Am Auge samplen: Der Fußpunkt liegt beim Sitzen im Fahrzeug oder Stützblock. */
             float playerLight = this.playerLightAtEyes(partialTick);
-            this.world.render(this.camera, partialTick, () ->
-                    this.playerRenderer.renderThirdPerson(this.player, this.animState, this.camera, partialTick,
-                            this.heldItemMeshes, this.playerInventory.get(this.hotbarIndex), playerLight));
+            this.view().render(this.camera, partialTick, () ->
+                    this.playerRenderer.renderThirdPerson(this.player(), this.animState, this.camera, partialTick,
+                            this.heldItemMeshes, this.player().getInventory().get(this.player().getSelectedSlot()), playerLight));
         }
         if (DebugFlags.wireframe) Utils.disableWireframe();
 
         FrameProfiler.cpuStart(FrameProfiler.Cpu.OVL);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.OVERLAYS);
 
-        if (this.hit != null && !this.guiManager.isOpen() && this.player.getGamemode().interactsWithWorld()) {
+        if (this.hit != null && !this.guiManager.isOpen() && this.player().getGamemode().interactsWithWorld()) {
             this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z(),
                     Blocks.getState(this.hit.block()).getOutlineShape());
 
@@ -1302,24 +1174,24 @@ public class GameContainer implements IResizeable, IDisposable {
         }
 
         /* Chunk-Grenzen (F3+G) um die nahen Chunks — nach dem Welt-Draw, mit gültiger Kamera. */
-        if (DebugFlags.chunkBorders != 0 && this.world != null) {
-            int ccx = ((int) Math.floor(this.player.x)) >> ChunkSection.SHIFT;
-            int ccz = ((int) Math.floor(this.player.z)) >> ChunkSection.SHIFT;
-            this.chunkBorderRenderer.render(this.camera, this.world.getChunkManager(),
+        if (DebugFlags.chunkBorders != 0 && this.dimension() != null) {
+            int ccx = ((int) Math.floor(this.player().x)) >> ChunkSection.SHIFT;
+            int ccz = ((int) Math.floor(this.player().z)) >> ChunkSection.SHIFT;
+            this.chunkBorderRenderer.render(this.camera, this.dimension().getChunkManager(),
                     ccx, ccz, DebugFlags.chunkBorders);
         }
 
         if (DebugFlags.entityHitboxes) {
-            this.entityHitboxRenderer.render(this.camera, this.player, this.world, partialTick);
+            this.entityHitboxRenderer.render(this.camera, this.player(), this.dimension(), partialTick);
         }
 
         /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Nah-Depthbereich. */
         if (!this.hudHidden && this.perspective.isFirstPerson()
-                && this.player.getGamemode() != Gamemode.SPECTATOR) {
+                && this.player().getGamemode() != Gamemode.SPECTATOR) {
             /* Licht der AUGEN-Zelle (nicht der Füße): die Hand hängt vor dem Gesicht, und in
                einem 1 Block hohen Kriechgang unterscheiden sich beide sichtbar. */
             float handLight = this.playerLightAtEyes(partialTick);
-            this.handRenderer.render(this.playerRenderer, this.heldItemMeshes, this.player,
+            this.handRenderer.render(this.playerRenderer, this.heldItemMeshes, this.player(),
                     this.animState, (float) width / height, partialTick, this.viewEffect, handLight);
         }
 
@@ -1338,10 +1210,10 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /** Licht an der interpolierten Augenposition; verhindert 20-TPS-Sprünge beim Rendern. */
     private float playerLightAtEyes(float partialTick) {
-        double x = this.player.lastX + (this.player.x - this.player.lastX) * partialTick;
-        double y = this.player.lastY + (this.player.y - this.player.lastY) * partialTick
-                + this.player.getEyeHeight(partialTick);
-        double z = this.player.lastZ + (this.player.z - this.player.lastZ) * partialTick;
+        double x = this.player().lastX + (this.player().x - this.player().lastX) * partialTick;
+        double y = this.player().lastY + (this.player().y - this.player().lastY) * partialTick
+                + this.player().getEyeHeight(partialTick);
+        double z = this.player().lastZ + (this.player().z - this.player().lastZ) * partialTick;
         return this.lightAt(x, y, z);
     }
 
@@ -1363,9 +1235,9 @@ public class GameContainer implements IResizeable, IDisposable {
                 for (int dx = 0; dx <= 1; dx++) {
                     float wx = dx == 0 ? 1F - fx : fx;
                     float light = ChunkRenderer.lightFactor(
-                            this.world.getRenderedSkyLight(x0 + dx, y0 + dy, z0 + dz),
-                            this.world.getBlockLight(x0 + dx, y0 + dy, z0 + dz),
-                            this.world.getEnvironment().ambientLight());
+                            this.dimension().getRenderedSkyLight(x0 + dx, y0 + dy, z0 + dz),
+                            this.dimension().getBlockLight(x0 + dx, y0 + dy, z0 + dz),
+                            this.dimension().getEnvironment().ambientLight());
                     result += light * wx * wy * wz;
                 }
             }
@@ -1386,7 +1258,7 @@ public class GameContainer implements IResizeable, IDisposable {
             float roll = (float) Math.sin(f * f * f * f * Math.PI) * 14F;
             this.viewEffect.rotateZ((float) Math.toRadians(-roll));
         }
-        if (this.settings.viewBobbing && this.perspective.isFirstPerson() && !this.player.isFlying()) {
+        if (this.settings.viewBobbing && this.perspective.isFirstPerson() && !this.player().isFlying()) {
             float f1 = -this.animState.getWalkDistExtrapolated(partialTick);
             float f2 = this.animState.getBob(partialTick);
             float sin = (float) Math.sin(f1 * Math.PI);
@@ -1410,7 +1282,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!front) this.camRayDirection.negate();
 
         double dist = THIRD_PERSON_DISTANCE;
-        BlockRaycast.Hit blocked = BlockRaycast.raycast(this.world, this.eyePosition, this.camRayDirection, dist);
+        BlockRaycast.Hit blocked = BlockRaycast.raycast(this.dimension(), this.eyePosition, this.camRayDirection, dist);
         if (blocked != null) {
             double dx = blocked.hitX() - this.eyePosition.x;
             double dy = blocked.hitY() - this.eyePosition.y;
@@ -1420,7 +1292,7 @@ public class GameContainer implements IResizeable, IDisposable {
         /* getPosition() ist die Live-Referenz der Kamera — bewusst in-place versetzen. */
         this.camera.getPosition().fma(dist, this.camRayDirection);
         if (front) {
-            this.camera.setRotation(this.player.yaw + 180F, -this.player.pitch);
+            this.camera.setRotation(this.player().yaw + 180F, -this.player().pitch);
         }
     }
 
@@ -1430,22 +1302,24 @@ public class GameContainer implements IResizeable, IDisposable {
      * GuiScreen-Overlay + Cursor-Sync.
      */
     public void renderGui(int width, int height) {
+        EntityPlayer player = this.player();
         /* Spectator zeigt wie MC keine Hotbar (Crosshair bleibt); ohne Spieler/Welt gibt es keine. */
-        boolean showHotbar = this.player != null && this.player.getGamemode() != Gamemode.SPECTATOR;
-        boolean showDebug = !this.hudHidden && this.debugOverlay.isVisible() && this.world != null;
+        boolean showHotbar = player != null && player.getGamemode() != Gamemode.SPECTATOR;
+        boolean showDebug = !this.hudHidden && this.debugOverlay.isVisible() && this.dimension() != null;
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.GUI);
         /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair);
            Crosshair nur in First Person (in den F5-Ansichten zielt man nicht über die Bildmitte). */
         this.guiManager.render(width, height,
-                this.world != null && !this.hudHidden ? this.playerInventory : null,
-                this.hotbarIndex, showHotbar && !this.hudHidden,
+                player != null && this.dimension() != null && !this.hudHidden
+                        ? player.getInventory() : null,
+                selectedSlotForGui(player), showHotbar && !this.hudHidden,
                 !this.hudHidden && this.perspective.isFirstPerson(),
                 this.hudHidden ? 0F : this.itemNameAlpha(),
                 this.hudHidden ? "" : this.hudStatusText,
-                this.hudHidden ? 0F : this.hudStatusAlpha(), this.player,
+                this.hudHidden ? 0F : this.hudStatusAlpha(), player,
                 showDebug && FrameProfiler.isEnabled() ? this.profilerOverlayPass : null);
-        if (!this.hudHidden && this.world != null && !this.guiManager.isOpen()) {
+        if (!this.hudHidden && this.dimension() != null && !this.guiManager.isOpen()) {
             this.chatHud.render(this.guiManager, this.chat, this.guiManager.vHeight() - 40F, false);
         }
         if (showDebug) {
@@ -1453,7 +1327,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
                 FrameProfiler.cpuStart(FrameProfiler.Cpu.PROFILER_UI);
             }
-            this.debugOverlay.render(this.guiManager, this.world, this.player);
+            this.debugOverlay.render(this.guiManager, this.dimension(), this.view(), player);
             if (FrameProfiler.isEnabled()) {
                 FrameProfiler.cpuStop(FrameProfiler.Cpu.PROFILER_UI);
                 FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
@@ -1461,9 +1335,13 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         /* Gespeichert-Meldung NACH dem GuiScreen: sie soll auch über dem abgedunkelten
            Pausenmenü lesbar sein (im Hud läge sie unter dessen Dim). */
-        if (!this.hudHidden && this.world != null) this.saveToast.render(this.guiManager);
+        if (!this.hudHidden && this.dimension() != null) this.saveToast.render(this.guiManager);
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.GUI);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
+    }
+
+    static int selectedSlotForGui(EntityPlayer player) {
+        return player == null ? 0 : player.getSelectedSlot();
     }
 
     /** Profiler unter einem offenen GuiScreen, aber ueber HUD und Welt zeichnen. */
@@ -1483,12 +1361,12 @@ public class GameContainer implements IResizeable, IDisposable {
      * der Platzierungs-Pfad in handleBlockInteraction ignoriert sie ohnehin.
      */
     private void updateEating(Input input) {
-        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         if (this.guiManager.isOpen()
-                || this.player.getGamemode() != Gamemode.SURVIVAL
-                || this.player.isDead()
+                || this.player().getGamemode() != Gamemode.SURVIVAL
+                || this.player().isDead()
                 || !(held.getItem() instanceof FoodItem food)
-                || this.player.getFoodLevel() >= EntityPlayer.MAX_FOOD
+                || this.player().getFoodLevel() >= EntityPlayer.MAX_FOOD
                 || !input.isBindDown(this.settings.key(KeyBindings.USE))) {
             this.eatingTicks = 0;
             this.animState.clearEating();
@@ -1497,11 +1375,11 @@ public class GameContainer implements IResizeable, IDisposable {
         if (++this.eatingTicks >= EAT_TICKS) {
             this.eatingTicks = 0;
             this.animState.clearEating();
-            this.player.eat(food.getNutrition(), food.getSaturation());
+            this.player().eat(food.getNutrition(), food.getSaturation());
             this.soundManager.playBurp();
             held.setCount(held.getCount() - 1);
             if (held.getCount() <= 0) {
-                this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
+                this.player().getInventory().set(this.player().getSelectedSlot(), ItemStack.EMPTY);
             }
         } else {
             this.animState.setEating(EAT_TICKS - this.eatingTicks); // zählt runter wie MC
@@ -1536,24 +1414,24 @@ public class GameContainer implements IResizeable, IDisposable {
         int bx = (int) Math.floor(eye.x);
         int by = (int) Math.floor(eye.y);
         int bz = (int) Math.floor(eye.z);
-        BlockState state = Blocks.getState(this.world.getRenderedBlock(bx, by, bz));
-        BlockState above = Blocks.getState(this.world.getRenderedBlock(bx, by + 1, bz));
+        BlockState state = Blocks.getState(this.dimension().getRenderedBlock(bx, by, bz));
+        BlockState above = Blocks.getState(this.dimension().getRenderedBlock(bx, by + 1, bz));
         return isCameraSubmerged(eye.y, by, state, above) ? state : null;
     }
 
     /** Tick-Sample am echten Spielerauge; steuert Water Vision und Unterwasser-Audio. */
     private boolean playerEyesUnderwater() {
-        double eyeY = this.player.y + this.player.getEyeHeight(1F);
-        int bx = (int) Math.floor(this.player.x);
+        double eyeY = this.player().y + this.player().getEyeHeight(1F);
+        int bx = (int) Math.floor(this.player().x);
         int by = (int) Math.floor(eyeY);
-        int bz = (int) Math.floor(this.player.z);
-        BlockState state = Blocks.getState(this.world.getRenderedBlock(bx, by, bz));
-        BlockState above = Blocks.getState(this.world.getRenderedBlock(bx, by + 1, bz));
+        int bz = (int) Math.floor(this.player().z);
+        BlockState state = Blocks.getState(this.dimension().getRenderedBlock(bx, by, bz));
+        BlockState above = Blocks.getState(this.dimension().getRenderedBlock(bx, by + 1, bz));
         return isCameraSubmerged(eyeY, by, state, above)
                 && !state.getBlock().getFluidInfo().lava;
     }
 
-    /** Pure Oberflaechenpruefung, getrennt vom World-Zugriff fuer Regressionstests. */
+    /** Pure Oberflaechenpruefung, getrennt vom Dimension-Zugriff fuer Regressionstests. */
     static boolean isCameraSubmerged(double eyeY, int blockY, BlockState state, BlockState above) {
         if (!state.isFluid()) return false;
         float height = above.isFluid() && above.getBlock() == state.getBlock()
@@ -1581,8 +1459,9 @@ public class GameContainer implements IResizeable, IDisposable {
     public void dispose() {
         this.settings.save();
         this.saveCurrentWorld(true); // Welt-Zustand auch beim direkten Beenden aus dem Spiel sichern
-        if (this.world != null) {
-            this.world.dispose();
+        if (this.session != null) {
+            this.session.dispose();
+            this.session = null;
         }
         this.selectionBoxRenderer.dispose();
         if (this.chunkBorderRenderer != null) this.chunkBorderRenderer.dispose();
@@ -1608,14 +1487,14 @@ public class GameContainer implements IResizeable, IDisposable {
         if (hardness < 0F) return 0F;
         if (hardness == 0F) return 1F;
 
-        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         float speed = 1F;
         if (held.getItem() instanceof ToolItem tool && tool.getType() == state.getBlock().getToolType()) {
             speed = tool.getTier().speed();
         }
         float perTick = speed / hardness / (isHarvestable(state, held) ? 30F : 100F);
         /* MC-Malus: Abbau in der Luft (fallend/springend) ist 5x langsamer. */
-        if (!this.player.onGround) perTick /= 5F;
+        if (!this.player().onGround) perTick /= 5F;
         return perTick;
     }
 
@@ -1626,7 +1505,7 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     private void startDestroyBlock() {
         BlockState state = Blocks.getState(this.hit.block());
-        if (this.player.getGamemode().isInstantBreak()) {
+        if (this.player().getGamemode().isInstantBreak()) {
             if (this.breakTargetBlock(state, false)) this.destroyDelay = DESTROY_DELAY;
             return;
         }
@@ -1654,7 +1533,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.destroyDelay--;
             return true;
         }
-        if (this.player.getGamemode().isInstantBreak()) {
+        if (this.player().getGamemode().isInstantBreak()) {
             boolean broken = this.breakTargetBlock(Blocks.getState(this.hit.block()), false);
             if (broken) this.destroyDelay = DESTROY_DELAY;
             return broken;
@@ -1669,7 +1548,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.destroyTicks % 4F == 0F) {
             this.soundManager.playHit(state.getBlock().getSoundGroup(),
                     this.miningX + 0.5, this.miningY + 0.5, this.miningZ + 0.5);
-            this.world.particles().blockHit(state, this.hit.hitX(), this.hit.hitY(), this.hit.hitZ(),
+            this.dimension().particles().blockHit(state, this.hit.hitX(), this.hit.hitY(), this.hit.hitZ(),
                     this.hit.faceX(), this.hit.faceY(), this.hit.faceZ());
         }
         this.destroyTicks++;
@@ -1704,25 +1583,25 @@ public class GameContainer implements IResizeable, IDisposable {
      * dropsItems UND passendem Tool (MC-Harvest-Regel), optional Tool-Abnutzung.
      */
     private boolean breakTargetBlock(BlockState broken, boolean applyDurability) {
-        if (this.hit == null || !this.world.isPlayerInteractionReady(
+        if (this.hit == null || !this.dimension().isPlayerInteractionReady(
                 this.hit.x(), this.hit.y(), this.hit.z())
-                || this.world.getBlock(this.hit.x(), this.hit.y(), this.hit.z()) != broken.getId()) {
+                || this.dimension().getBlock(this.hit.x(), this.hit.y(), this.hit.z()) != broken.getId()) {
             this.resetMining();
             return false;
         }
         /* Loot VOR onBreak/setBlock auswerten — solange State und BlockEntity lesbar sind. */
-        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         java.util.ArrayList<ItemStack> drops = new java.util.ArrayList<>(2);
-        if (this.player.getGamemode().dropsItems() && isHarvestable(broken, held)) {
-            var context = new LootContext(this.world,
+        if (this.player().getGamemode().dropsItems() && isHarvestable(broken, held)) {
+            var context = new LootContext(this.dimension(),
                     this.hit.x(), this.hit.y(), this.hit.z(), broken, held,
-                    LootContext.Cause.PLAYER, 0.0F, this.world.random());
+                    LootContext.Cause.PLAYER, 0.0F, this.dimension().random());
             broken.getBlock().appendDrops(context, (stack, x, y, z) -> drops.add(stack));
         }
         int breakX = this.hit.x(), breakY = this.hit.y(), breakZ = this.hit.z();
-        boolean removed = this.world.runPlayerBlockChange(() -> {
-            broken.getBlock().onBreak(this.world, breakX, breakY, breakZ, broken);
-            return this.world.setBlock(breakX, breakY, breakZ, Blocks.AIR);
+        boolean removed = this.dimension().runPlayerBlockChange(() -> {
+            broken.getBlock().onBreak(this.dimension(), breakX, breakY, breakZ, broken);
+            return this.dimension().setBlock(breakX, breakY, breakZ, Blocks.AIR);
         });
         if (!removed) {
             this.resetMining();
@@ -1733,10 +1612,10 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!de.skyengine.game.world.dimension.NetherPortalShape.isPortalState(broken.getId())) {
             this.soundManager.playBreak(broken.getBlock().getSoundGroup(),
                     this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
-            this.world.particles().blockBreak(breakX, breakY, breakZ, broken);
+            this.dimension().particles().blockBreak(breakX, breakY, breakZ, broken);
         }
 
-        for (ItemStack drop : drops) this.world.spawnItem(this.hit.x() + 0.5,
+        for (ItemStack drop : drops) this.dimension().spawnItem(this.hit.x() + 0.5,
                 this.hit.y() + 0.5, this.hit.z() + 0.5, drop);
 
         /* Tool-Abnutzung (nur Survival bei Härte > 0): zerbricht bei erreichter Haltbarkeit. */
@@ -1744,7 +1623,7 @@ public class GameContainer implements IResizeable, IDisposable {
             held.setDamage(held.getDamage() + 1);
             if (held.getDamage() >= tool.getTier().durability()) {
                 this.emitHeldItemParticles(held);
-                this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
+                this.player().getInventory().set(this.player().getSelectedSlot(), ItemStack.EMPTY);
             }
         } else if (applyDurability && held.getItem() instanceof de.skyengine.game.world.item.ShearsItem
                 && (broken.isLeaves() || broken.getBlock().getIdentifier().path().equals("short_grass")
@@ -1754,7 +1633,7 @@ public class GameContainer implements IResizeable, IDisposable {
             held.setDamage(held.getDamage() + 1);
             if (held.getDamage() >= de.skyengine.game.world.item.ShearsItem.DURABILITY) {
                 this.emitHeldItemParticles(held);
-                this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
+                this.player().getInventory().set(this.player().getSelectedSlot(), ItemStack.EMPTY);
             }
         }
 
@@ -1803,7 +1682,7 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     private void handleBlockInteraction(Input input) {
         /* Spectator kann nicht abbauen/platzieren/nutzen (auch keine Truhe öffnen). */
-        if (!this.player.getGamemode().interactsWithWorld()) {
+        if (!this.player().getGamemode().interactsWithWorld()) {
             this.clearInteractionClicks();
             return;
         }
@@ -1846,10 +1725,10 @@ public class GameContainer implements IResizeable, IDisposable {
      * ganzen Stapel. Geschwungen wird nur bei Erfolg — auf einem leeren Slot passiert nichts.
      */
     private void dropSelectedItem(boolean fullStack) {
-        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         if (held.isEmpty()) return;
         int amount = fullStack ? held.getCount() : 1;
-        this.world.throwItem(this.player, this.playerInventory.extract(this.hotbarIndex, amount));
+        this.dimension().throwItem(this.player(), this.player().getInventory().extract(this.player().getSelectedSlot(), amount));
         this.animState.swing();
     }
 
@@ -1859,14 +1738,14 @@ public class GameContainer implements IResizeable, IDisposable {
      * hier durch. Geschwungen wird wie beim normalen Drop — sonst fehlt dem Wurf das Feedback.
      */
     public void dropFromGui(ItemStack stack) {
-        if (this.world == null || this.player == null) return;
-        this.world.throwItem(this.player, stack);
+        if (this.dimension() == null || this.player() == null) return;
+        this.dimension().throwItem(this.player(), stack);
         this.animState.swing();
     }
 
     /** MC {@code MultiPlayerGameMode.hasMissTime}: im Creative gibt es keine Schlagsperre. */
     private boolean hasMissTime() {
-        return this.player.getGamemode() != Gamemode.CREATIVE;
+        return this.player().getGamemode() != Gamemode.CREATIVE;
     }
 
     /**
@@ -1880,20 +1759,20 @@ public class GameContainer implements IResizeable, IDisposable {
         boolean endAttack = false;
         if (this.minecartHit != null) {
             MinecartEntity minecart = this.minecartHit;
-            ItemStack held = this.playerInventory.get(this.hotbarIndex);
+            ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
             boolean pickaxe = held.getItem() instanceof ToolItem tool
                     && tool.getType() == de.skyengine.game.world.item.ToolType.PICKAXE;
-            minecart.attack(this.world, this.player.getGamemode() == Gamemode.CREATIVE, pickaxe);
+            minecart.attack(this.dimension(), this.player().getGamemode() == Gamemode.CREATIVE, pickaxe);
             this.soundManager.playStrongAttack();
             this.stopDestroyBlock();
             endAttack = true;
         } else if (this.itemFrameHit != null) {
-            this.itemFrameHit.attack(this.world, this.player.getGamemode() == Gamemode.CREATIVE);
+            this.itemFrameHit.attack(this.dimension(), this.player().getGamemode() == Gamemode.CREATIVE);
             this.stopDestroyBlock();
             endAttack = true;
         } else if (this.hit != null) {
             this.startDestroyBlock();
-            if (Blocks.getState(this.world.getBlock(this.hit.x(), this.hit.y(), this.hit.z())).isAir()) {
+            if (Blocks.getState(this.dimension().getBlock(this.hit.x(), this.hit.y(), this.hit.z())).isAir()) {
                 endAttack = true;
             }
         } else {
@@ -1928,16 +1807,16 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.isDestroying) return;
         this.rightClickDelay = RIGHT_CLICK_DELAY;
 
-        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         Item beforeItem = held.getItem();
         int beforeCount = held.getCount();
 
         if (!this.useItemOn()) return;
 
         this.animState.swing();
-        ItemStack after = this.playerInventory.get(this.hotbarIndex);
+        ItemStack after = this.player().getInventory().get(this.player().getSelectedSlot());
         boolean stackChanged = after.getItem() != beforeItem || after.getCount() != beforeCount;
-        if (beforeItem != null && (stackChanged || this.player.getGamemode() == Gamemode.CREATIVE)) {
+        if (beforeItem != null && (stackChanged || this.player().getGamemode() == Gamemode.CREATIVE)) {
             this.animState.itemUsed();
         }
     }
@@ -1950,11 +1829,11 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Eimer vor der hit==null-Prüfung: Der LEERE Eimer nutzt einen eigenen fluid-bewussten
            Strahl (Fluids sind im Normal-Raycast unsichtbar) und funktioniert auch ohne this.hit.
            Der gefüllte Eimer platziert wie ein Block über this.hit (siehe handleBucket). */
-        ItemStack held = this.playerInventory.get(this.hotbarIndex);
-        if (this.minecartHit != null && this.minecartHit.interact(this.player)) return true;
+        ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
+        if (this.minecartHit != null && this.minecartHit.interact(this.player())) return true;
         if (this.itemFrameHit != null
-                && this.itemFrameHit.interact(this.world, held,
-                this.player.getGamemode() == Gamemode.CREATIVE)) return true;
+                && this.itemFrameHit.interact(this.dimension(), held,
+                this.player().getGamemode() == Gamemode.CREATIVE)) return true;
         /* Ein leerer Eimer kann eine Fluid-Quelle treffen, obwohl der normale Blockstrahl keinen
            Treffer hat. Bei einem Blocktreffer kommt er dagegen erst NACH dessen Interaktion:
            Container öffnen sich in Vanilla mit einem Eimer in der Hand, außer Secondary Use ist
@@ -1969,12 +1848,12 @@ public class GameContainer implements IResizeable, IDisposable {
            stattdessen — MCs Regel (`!isSecondaryUseActive() || leere Hand`). Das ist die einzige
            Möglichkeit, eine Truhe an die Seite einer anderen zu setzen oder auf einem Redstone-
            Staub zu bauen, statt ihn umzuschalten. */
-        boolean placingWhileSneaking = this.player.isSecondaryUseActive()
+        boolean placingWhileSneaking = this.player().isSecondaryUseActive()
                 && held.getItem() != null
                 && (held.getItem().getPlacedBlock() != null || held.getItem() instanceof ItemFrameItem);
 
-        if (!placingWhileSneaking && this.pendingDimensionSwitch == null) {
-            PortalController.Travel travel = this.portalController.use(this.world,
+        if (!placingWhileSneaking && this.session.pendingDimensionSwitch == null) {
+            PortalController.Travel travel = this.session.portalController.use(this.dimension(),
                     this.hit.x(), this.hit.y(), this.hit.z());
             if (travel != null) {
                 this.queuePortalTravel(travel);
@@ -1990,8 +1869,8 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Rechtsklick-Interaktion des getroffenen Blocks (z.B. Tür auf/zu) hat Vorrang. */
         BlockState hitState = Blocks.getState(this.hit.block());
         if (!placingWhileSneaking
-                && hitState.getBlock().onUse(this.world, this.hit.x(), this.hit.y(), this.hit.z(),
-                        hitState, this.player.yaw)) {
+                && hitState.getBlock().onUse(this.dimension(), this.hit.x(), this.hit.y(), this.hit.z(),
+                        hitState, this.player().yaw)) {
             return true;
         }
 
@@ -2021,10 +1900,10 @@ public class GameContainer implements IResizeable, IDisposable {
         double relHitX = this.hit.hitX() - px;
         double relHitY = this.hit.hitY() - py;
         double relHitZ = this.hit.hitZ() - pz;
-        BlockState place = block.getPlacementState(this.world, px, py, pz,
+        BlockState place = block.getPlacementState(this.dimension(), px, py, pz,
                 this.hit.faceX(), this.hit.faceY(), this.hit.faceZ(),
-                relHitX, relHitY, relHitZ, this.player.yaw, this.player.pitch,
-                this.player.isSecondaryUseActive());
+                relHitX, relHitY, relHitZ, this.player().yaw, this.player().pitch,
+                this.player().isSecondaryUseActive());
 
         /* place == null: ein Behavior lehnt ab (z.B. Tür ohne Platz). Sonst nicht in den
            eigenen Körper bauen - gegen die ECHTE Kollisionsform testen, damit dünne Blöcke
@@ -2033,10 +1912,10 @@ public class GameContainer implements IResizeable, IDisposable {
                 || this.collidesWithEntities(place, px, py, pz)) {
             return false;
         }
-        if (!this.world.runPlayerBlockChange(() -> this.world.placeBlock(px, py, pz, place))) return false;
+        if (!this.dimension().runPlayerBlockChange(() -> this.dimension().placeBlock(px, py, pz, place))) return false;
         this.soundManager.playPlace(place.getBlock().getSoundGroup(), px + 0.5, py + 0.5, pz + 0.5);
         /* Survival verbraucht den Block (Creative baut unbegrenzt, wie MC). */
-        if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
+        if (this.player().getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
         return true;
     }
 
@@ -2044,15 +1923,15 @@ public class GameContainer implements IResizeable, IDisposable {
      * Pick Block (nur Creative): legt den anvisierten Block in den ausgewählten Hotbar-Slot.
      */
     private void pickBlock() {
-        if (this.player.getGamemode() != Gamemode.CREATIVE) return;
+        if (this.player().getGamemode() != Gamemode.CREATIVE) return;
         if (this.minecartHit != null) {
             Item item = Items.get(Identifier.of("skyengine:minecart"));
-            if (item != null) this.playerInventory.set(this.hotbarIndex, new ItemStack(item, 1));
+            if (item != null) this.player().getInventory().set(this.player().getSelectedSlot(), new ItemStack(item, 1));
             this.itemNameShownAt = System.currentTimeMillis();
             return;
         }
         if (this.itemFrameHit != null) {
-            this.playerInventory.set(this.hotbarIndex, this.itemFrameHit.getPickResult());
+            this.player().getInventory().set(this.player().getSelectedSlot(), this.itemFrameHit.getPickResult());
             this.itemNameShownAt = System.currentTimeMillis();
             return;
         }
@@ -2060,7 +1939,7 @@ public class GameContainer implements IResizeable, IDisposable {
         Block picked = Blocks.getState(this.hit.block()).getBlock();
         Item item = Items.forBlock(picked); // BlockItem bzw. places_block-Item (Staub); null bei Air/Fluid
         if (item != null) {
-            this.playerInventory.set(this.hotbarIndex, new ItemStack(item, 1));
+            this.player().getInventory().set(this.player().getSelectedSlot(), new ItemStack(item, 1));
             this.itemNameShownAt = System.currentTimeMillis(); // Namens-Einblendung wie bei Slot-Wechsel
         }
     }
@@ -2072,9 +1951,9 @@ public class GameContainer implements IResizeable, IDisposable {
         int x = this.hit.x() + direction.offsetX();
         int y = this.hit.y() + direction.offsetY();
         int z = this.hit.z() + direction.offsetZ();
-        if (!this.world.isPlayerInteractionReady(x, y, z)) return false;
-        if (!this.world.placeItemFrame(x, y, z, direction)) return false;
-        if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
+        if (!this.dimension().isPlayerInteractionReady(x, y, z)) return false;
+        if (!this.dimension().placeItemFrame(x, y, z, direction)) return false;
+        if (this.player().getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
         return true;
     }
 
@@ -2108,8 +1987,8 @@ public class GameContainer implements IResizeable, IDisposable {
         int px = this.hit.x() + this.hit.faceX();
         int py = this.hit.y() + this.hit.faceY();
         int pz = this.hit.z() + this.hit.faceZ();
-        if (!this.world.isPlayerInteractionReady(px, py, pz)
-                || !this.isReplaceable(this.world.getBlock(px, py, pz))) return null;
+        if (!this.dimension().isPlayerInteractionReady(px, py, pz)
+                || !this.isReplaceable(this.dimension().getBlock(px, py, pz))) return null;
         return new int[]{px, py, pz};
     }
 
@@ -2124,12 +2003,12 @@ public class GameContainer implements IResizeable, IDisposable {
                 || (type == SlabType.TOP && this.hit.faceY() < 0);
         if (!merge) return false;
 
-        if (!this.world.runPlayerBlockChange(() -> this.world.setBlock(
+        if (!this.dimension().runPlayerBlockChange(() -> this.dimension().setBlock(
                 this.hit.x(), this.hit.y(), this.hit.z(),
                 target.with(Properties.SLAB_TYPE, SlabType.DOUBLE).getId()))) return false;
         this.soundManager.playPlace(block.getSoundGroup(),
                 this.hit.x() + 0.5, this.hit.y() + 0.5, this.hit.z() + 0.5);
-        if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
+        if (this.player().getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
         return true;
     }
 
@@ -2139,10 +2018,10 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     private boolean tryOpenChest() {
         int x = this.hit.x(), y = this.hit.y(), z = this.hit.z();
-        BlockEntity be = this.world.getBlockEntity(x, y, z);
+        BlockEntity be = this.dimension().getBlockEntity(x, y, z);
         if (!(be instanceof ChestBlockEntity chest)) return false;
 
-        BlockState state = Blocks.getState(this.world.getBlock(x, y, z));
+        BlockState state = Blocks.getState(this.dimension().getBlock(x, y, z));
         ChestType type = state.getValues().containsKey(Properties.CHEST_TYPE)
                 ? state.get(Properties.CHEST_TYPE) : ChestType.SINGLE;
         ChestBlockEntity partner = null;
@@ -2151,7 +2030,7 @@ public class GameContainer implements IResizeable, IDisposable {
             Direction toPartner = ChestType.connectedDirection(state.get(Properties.FACING), type);
             partnerX = x + toPartner.offsetX();
             partnerZ = z + toPartner.offsetZ();
-            if (this.world.getBlockEntity(partnerX, y, partnerZ) instanceof ChestBlockEntity other) {
+            if (this.dimension().getBlockEntity(partnerX, y, partnerZ) instanceof ChestBlockEntity other) {
                 partner = other;
             }
         }
@@ -2159,7 +2038,7 @@ public class GameContainer implements IResizeable, IDisposable {
            drei Reihen. */
         ChestBlockEntity top = type == ChestType.LEFT && partner != null ? partner : chest;
         ChestBlockEntity bottom = top == chest ? partner : chest;
-        this.guiManager.open(new GuiChest(top, bottom, this.playerInventory));
+        this.guiManager.open(new GuiChest(top, bottom, this.player().getInventory()));
 
         return true;
     }
@@ -2167,9 +2046,9 @@ public class GameContainer implements IResizeable, IDisposable {
     /** Rechtsklick auf einen Trichter öffnet sein GUI (5 Slots + Spielerinventar). */
     private boolean tryOpenHopper() {
         int x = this.hit.x(), y = this.hit.y(), z = this.hit.z();
-        BlockEntity be = this.world.getBlockEntity(x, y, z);
+        BlockEntity be = this.dimension().getBlockEntity(x, y, z);
         if (!(be instanceof de.skyengine.game.world.block.entity.HopperBlockEntity hopper)) return false;
-        this.guiManager.open(new de.skyengine.graphics.gui.screens.GuiHopper(hopper, this.playerInventory));
+        this.guiManager.open(new de.skyengine.graphics.gui.screens.GuiHopper(hopper, this.player().getInventory()));
         return true;
     }
 
@@ -2180,16 +2059,16 @@ public class GameContainer implements IResizeable, IDisposable {
                 && !rail.getValues().containsKey(Properties.STRAIGHT_RAIL_SHAPE)) return false;
         double yOffset = de.skyengine.game.world.block.behavior.RailBehavior.shape(rail).isAscending()
                 ? 0.5625 : 0.0625;
-        this.world.spawnMinecart(this.hit.x() + 0.5, this.hit.y() + yOffset, this.hit.z() + 0.5);
-        if (this.player.getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
+        this.dimension().spawnMinecart(this.hit.x() + 0.5, this.hit.y() + yOffset, this.hit.z() + 0.5);
+        if (this.player().getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
         return true;
     }
 
     /** Rechtsklick auf Dispenser oder Dropper öffnet das gemeinsame 9-Slot-GUI. */
     private boolean tryOpenDispenser() {
-        BlockEntity blockEntity = this.world.getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
+        BlockEntity blockEntity = this.dimension().getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
         if (!(blockEntity instanceof DispenserBlockEntity dispenser)) return false;
-        this.guiManager.open(new GuiDispenser(dispenser, this.playerInventory));
+        this.guiManager.open(new GuiDispenser(dispenser, this.player().getInventory()));
         return true;
     }
 
@@ -2211,12 +2090,12 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     private boolean tryIgnite(ItemStack held) {
         int[] target = this.placementTarget();
-        if (target != null && this.world.runPlayerBlockChange(() ->
+        if (target != null && this.dimension().runPlayerBlockChange(() ->
                 de.skyengine.game.world.dimension.NetherPortalShape.activateNear(
-                        this.world, target[0], target[1], target[2]))) {
-            if (this.world.getSoundManager() != null) {
-                this.world.getSoundManager().playIgnite(target[0] + 0.5, target[1] + 0.5, target[2] + 0.5);
-                this.world.getSoundManager().playPortalTrigger(
+                        this.dimension(), target[0], target[1], target[2]))) {
+            if (this.dimension().getSoundManager() != null) {
+                this.dimension().getSoundManager().playIgnite(target[0] + 0.5, target[1] + 0.5, target[2] + 0.5);
+                this.dimension().getSoundManager().playPortalTrigger(
                         target[0] + 0.5, target[1] + 1.5, target[2] + 0.5);
             }
             this.damageFlintAndSteel(held);
@@ -2228,35 +2107,35 @@ public class GameContainer implements IResizeable, IDisposable {
                 state.getBlock().getBehavior(de.skyengine.game.world.block.behavior.ExplosionBehavior.class);
         if (explosive == null) return false;
 
-        /* TNT spielt beim Prime bereits seinen Fuse-Sound in World.spawnPrimedTnt. Minecrafts
+        /* TNT spielt beim Prime bereits seinen Fuse-Sound in Dimension.spawnPrimedTnt. Minecrafts
            TntBlock.useItemOn legt hier keinen zusaetzlichen Feuerzeug-/Ignite-Sound darueber. */
-        explosive.prime(this.world, this.hit.x(), this.hit.y(), this.hit.z());
+        explosive.prime(this.dimension(), this.hit.x(), this.hit.y(), this.hit.z());
         this.damageFlintAndSteel(held);
         return true;
     }
 
     private void damageFlintAndSteel(ItemStack held) {
-        if (this.player.getGamemode() != Gamemode.SURVIVAL) return;
+        if (this.player().getGamemode() != Gamemode.SURVIVAL) return;
         held.setDamage(held.getDamage() + 1);
         if (held.getDamage() >= FlintAndSteelItem.DURABILITY) {
             this.emitHeldItemParticles(held);
-            this.playerInventory.set(this.hotbarIndex, ItemStack.EMPTY);
+            this.player().getInventory().set(this.player().getSelectedSlot(), ItemStack.EMPTY);
         }
     }
 
     private boolean handleBucket(BucketItem bucket) {
-        boolean consume = this.player.getGamemode() == Gamemode.SURVIVAL;
+        boolean consume = this.player().getGamemode() == Gamemode.SURVIVAL;
 
         if (bucket.isEmpty()) {
             /* Aufnehmen: fluid-bewusster Strahl, damit Wasser/Lava als Ziel zählt. Nur eine
                Quelle (LEVEL 0, nicht fallend). */
-            BlockRaycast.Hit fhit = BlockRaycast.raycastInteractive(this.world, this.eyePosition,
+            BlockRaycast.Hit fhit = BlockRaycast.raycastInteractive(this.dimension(), this.eyePosition,
                     this.eyeDirection, REACH, true);
             if (fhit == null) return false;
             BlockState state = Blocks.getState(fhit.block());
             if (!state.isFluid() || state.get(Properties.FALLING) || state.get(Properties.LEVEL) != 0) return false;
-            if (!this.world.runPlayerBlockChange(() ->
-                    this.world.setBlock(fhit.x(), fhit.y(), fhit.z(), Blocks.AIR))) return false;
+            if (!this.dimension().runPlayerBlockChange(() ->
+                    this.dimension().setBlock(fhit.x(), fhit.y(), fhit.z(), Blocks.AIR))) return false;
             if (consume) {
                 String id = state.getBlock().getFluidInfo().lava ? "skyengine:lava_bucket" : "skyengine:water_bucket";
                 this.consumeHeld(Items.get(Identifier.of(id)));
@@ -2270,36 +2149,29 @@ public class GameContainer implements IResizeable, IDisposable {
         if (t == null) return false;
 
         Block fluid = bucket.getFluid();
-        if (this.world.getEnvironment().ultrawarm() && fluid.getFluidInfo() != null
+        if (this.dimension().getEnvironment().ultrawarm() && fluid.getFluidInfo() != null
                 && !fluid.getFluidInfo().lava) {
-            this.world.playFluidExtinguish(t[0], t[1], t[2]);
+            this.dimension().playFluidExtinguish(t[0], t[1], t[2]);
             if (consume) this.consumeHeld(Items.get(Identifier.of("skyengine:bucket")));
             return true;
         }
         int source = fluid.getDefaultState()
                 .with(Properties.LEVEL, 0).with(Properties.FALLING, false).getId();
-        if (!this.world.runPlayerBlockChange(() ->
-                this.world.setBlock(t[0], t[1], t[2], source))) return false;
-        this.world.scheduleTick(t[0], t[1], t[2], 1);
+        if (!this.dimension().runPlayerBlockChange(() ->
+                this.dimension().setBlock(t[0], t[1], t[2], source))) return false;
+        this.dimension().scheduleTick(t[0], t[1], t[2], 1);
         if (consume) this.consumeHeld(Items.get(Identifier.of("skyengine:bucket")));
         return true;
     }
 
     /** Verbraucht einen Eimer aus dem gehaltenen Slot und legt das Ergebnis-Item ab. */
     private void consumeHeld(Item result) {
-        ItemStack held = this.playerInventory.get(this.hotbarIndex);
+        ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         if (held.getCount() > 1) {
             held.setCount(held.getCount() - 1);
-            if (result != null) this.playerInventory.insert(new ItemStack(result, 1));
+            if (result != null) this.player().getInventory().insert(new ItemStack(result, 1));
         } else {
-            this.playerInventory.set(this.hotbarIndex, result != null ? new ItemStack(result, 1) : ItemStack.EMPTY);
-        }
-    }
-
-    /** Leert das Spielerinventar (vor jedem Welt-Eintritt — keine Items aus der Vorwelt). */
-    private void clearInventory() {
-        for (int i = 0; i < this.playerInventory.size(); i++) {
-            this.playerInventory.set(i, ItemStack.EMPTY);
+            this.player().getInventory().set(this.player().getSelectedSlot(), result != null ? new ItemStack(result, 1) : ItemStack.EMPTY);
         }
     }
 
@@ -2313,7 +2185,7 @@ public class GameContainer implements IResizeable, IDisposable {
     /** true, wenn die Kollisionsform des Blocks an px/py/pz die Spieler-Box schneidet. */
     private boolean collidesWithPlayer(BlockState state, int px, int py, int pz) {
         for (AABB local : state.getCollisionShape().boxes()) {
-            if (local.copy().move(px, py, pz).intersects(this.player.getBoundingBox())) {
+            if (local.copy().move(px, py, pz).intersects(this.player().getBoundingBox())) {
                 return true;
             }
         }
@@ -2326,7 +2198,7 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     private boolean collidesWithEntities(BlockState state, int px, int py, int pz) {
         for (AABB local : state.getCollisionShape().boxes()) {
-            if (this.world.intersectsCollidableEntity(local.copy().move(px, py, pz))) {
+            if (this.dimension().intersectsCollidableEntity(local.copy().move(px, py, pz))) {
                 return true;
             }
         }
@@ -2334,28 +2206,28 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private void handleHotbarInput(Input input) {
-        int before = this.hotbarIndex;
+        int before = this.player().getSelectedSlot();
         for (int i = 0; i < 9; i++) {
             if (input.isBindPressed(this.settings.key(KeyBindings.hotbar(i + 1)))) {
-                this.hotbarIndex = i;
+                this.player().setSelectedSlot(i);
             }
         }
         /* Mausrad: hoch = vorheriger Slot, runter = nächster (mit Wrap), wie in Minecraft. */
         double scroll = input.getScrollY();
-        if (this.player.getGamemode() == Gamemode.SPECTATOR && scroll != 0) {
-            float beforeSpeed = this.player.getSpectatorFlySpeed();
-            this.player.adjustSpectatorFlySpeed(scroll);
-            float speed = this.player.getSpectatorFlySpeed();
+        if (this.player().getGamemode() == Gamemode.SPECTATOR && scroll != 0) {
+            float beforeSpeed = this.player().getSpectatorFlySpeed();
+            this.player().adjustSpectatorFlySpeed(scroll);
+            float speed = this.player().getSpectatorFlySpeed();
             if (speed != beforeSpeed) {
                 this.hudStatusText = I18n.tr("gui.hud.spectator_speed", Math.round(speed * 100F));
                 this.hudStatusShownAt = System.currentTimeMillis();
             }
         } else if (scroll > 0) {
-            this.hotbarIndex = (this.hotbarIndex + 8) % 9;
+            this.player().setSelectedSlot((this.player().getSelectedSlot() + 8) % 9);
         } else if (scroll < 0) {
-            this.hotbarIndex = (this.hotbarIndex + 1) % 9;
+            this.player().setSelectedSlot((this.player().getSelectedSlot() + 1) % 9);
         }
-        if (this.hotbarIndex != before) {
+        if (this.player().getSelectedSlot() != before) {
             this.itemNameShownAt = System.currentTimeMillis();
             this.eatingTicks = 0; // Slot-Wechsel bricht angefangenes Essen ab
         }
@@ -2367,8 +2239,8 @@ public class GameContainer implements IResizeable, IDisposable {
         if (input.isBindPressed(this.settings.key(KeyBindings.JUMP))) {
             long now = System.currentTimeMillis();
             if (now - this.lastSpacePressTime <= DOUBLE_TAP_MS) {
-                this.player.toggleFlying();
-                this.logger.debug("Flying: " + this.player.isFlying());
+                this.player().toggleFlying();
+                this.logger.debug("Flying: " + this.player().isFlying());
                 this.lastSpacePressTime = 0; // verbraucht, damit ein dritter Tipp nicht sofort wieder toggelt
             } else {
                 this.lastSpacePressTime = now;
@@ -2376,8 +2248,8 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         /* Gamemode durchschalten (Cheat-Feature-Keybind, Default G). */
         if (input.isBindPressed(this.settings.key(KeyBindings.GAMEMODE))) {
-            this.player.setGamemode(this.player.getGamemode().next());
-            this.logger.debug("Gamemode: " + this.player.getGamemode());
+            this.player().setGamemode(this.player().getGamemode().next());
+            this.logger.debug("Gamemode: " + this.player().getGamemode());
         }
     }
 
@@ -2396,7 +2268,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.screenshotRequested = true;
         }
 
-        if (this.world != null && input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_HUD))) {
+        if (this.dimension() != null && input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_HUD))) {
             this.hudHidden = !this.hudHidden;
             this.logger.debug("HUD: " + (this.hudHidden ? "aus" : "an"));
         }
@@ -2466,7 +2338,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private void openChat(String initial) {
         CommandContext.DimensionAccess dimensions = new CommandContext.DimensionAccess() {
             @Override public Identifier current() {
-                return GameContainer.this.world.getDimensionId();
+                return GameContainer.this.dimension().getDimensionId();
             }
 
             @Override public List<Identifier> available() {
@@ -2479,13 +2351,13 @@ public class GameContainer implements IResizeable, IDisposable {
                 return GameContainer.this.requestDimensionChange(target);
             }
         };
-        this.guiManager.open(new GuiChat(this.chat, new CommandContext(this.playerInventory, dimensions),
+        this.guiManager.open(new GuiChat(this.chat, new CommandContext(this.player().getInventory(), dimensions),
                 this.chatHud, initial));
     }
 
     /** Sichtweite der Projektion: mit LOD hinter den äußersten Ring gelegt, sonst wie bisher 1500. */
     private float computeFarPlane() {
-        if (!this.settings.lodEnabled || (this.world != null && !this.world.isLodAllowed())) {
+        if (!this.settings.lodEnabled || (this.dimension() != null && !this.dimension().isLodAllowed())) {
             return 1500.0F;
         }
         return (Math.max(this.settings.lodMaxDistance, this.settings.renderDistance) + 8) * 32.0F;
@@ -2519,12 +2391,40 @@ public class GameContainer implements IResizeable, IDisposable {
         return camera;
     }
 
+    private EntityPlayer player() {
+        return this.session == null ? null : this.session.player();
+    }
+
+    private Dimension dimension() {
+        return this.session == null ? null : this.session.dimension();
+    }
+
+    private World world() {
+        return this.session == null ? null : this.session.world();
+    }
+
+    private DimensionView view() {
+        return this.session == null ? null : this.session.view();
+    }
+
+    private WorldSaves.WorldSave currentSave() {
+        return this.session == null ? null : this.session.save();
+    }
+
     public EntityPlayer getPlayer() {
-        return player;
+        return this.player();
+    }
+
+    public Dimension getDimension() {
+        return this.dimension();
     }
 
     public World getWorld() {
-        return world;
+        return this.world();
+    }
+
+    public DimensionView getDimensionView() {
+        return this.view();
     }
 
     public GuiManager getGuiManager() {
@@ -2598,10 +2498,10 @@ public class GameContainer implements IResizeable, IDisposable {
         this.blockEntityRenderers.init();
         this.playerRenderer.init();
         this.heldItemMeshes.init(this.atlas.textures(), this.blockEntityRenderers);
-        if (this.world != null) {
+        if (this.dimension() != null) {
             progress.frame(I18n.tr("resourcepacks.loading.world"), 0.70F);
-            this.world.reloadEntityRenderer();
-            this.world.getChunkManager().remeshAll();
+            this.view().reloadEntityRenderers();
+            this.dimension().getChunkManager().remeshAll();
         }
 
         progress.frame(I18n.tr("resourcepacks.loading.audio"), 0.82F);

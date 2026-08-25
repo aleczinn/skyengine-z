@@ -1,6 +1,6 @@
 package de.skyengine.game.entity;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.item.Item;
@@ -39,7 +39,7 @@ public class FallingBlockEntity extends Entity {
     }
 
     @Override
-    public void tick(World world) {
+    public void tick(Dimension world) {
         super.update();
 
         this.motionY -= GRAVITY;
@@ -66,7 +66,7 @@ public class FallingBlockEntity extends Entity {
         }
     }
 
-    private void dropAsItem(World world, int bx, int by, int bz) {
+    private void dropAsItem(Dimension world, int bx, int by, int bz) {
         BlockState state = Blocks.getState(this.blockId);
         world.dropBlockLoot(bx, by, bz, state, LootContext.Cause.SUPPORT);
     }

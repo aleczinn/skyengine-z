@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.state.BlockState;
 
@@ -20,18 +20,18 @@ public final class GravityBehavior implements BlockBehavior {
     private static final int FALL_DELAY = 2;
 
     @Override
-    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+    public void onPlaced(Dimension world, int x, int y, int z, BlockState state) {
         scheduleIfUnsupported(world, x, y, z);
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         scheduleIfUnsupported(world, x, y, z);
         return state;
     }
 
     @Override
-    public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    public void scheduledTick(Dimension world, int x, int y, int z, BlockState state) {
         if (!Blocks.canFallInto(world.getBlock(x, y - 1, z))) return; // Boden erreicht -> liegen bleiben
         world.particles().fallingDust(x + 0.5, y, z + 0.5, state);
         world.setBlock(x, y, z, Blocks.AIR);                          // Block entfernen ...
@@ -39,7 +39,7 @@ public final class GravityBehavior implements BlockBehavior {
     }
 
     /** Plant einen Fall-Tick nur, wenn unter dem Block Luft/Fluid ist (kein Tick für ruhende Blöcke). */
-    private static void scheduleIfUnsupported(World world, int x, int y, int z) {
+    private static void scheduleIfUnsupported(Dimension world, int x, int y, int z) {
         if (Blocks.canFallInto(world.getBlock(x, y - 1, z))) world.scheduleTick(x, y, z, FALL_DELAY);
     }
 }

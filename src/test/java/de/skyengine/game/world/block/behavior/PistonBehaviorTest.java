@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
@@ -321,7 +321,7 @@ final class PistonBehaviorTest {
         return (PistonMovingBlockEntity) blockEntity;
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private final LongIntMap blocks = new LongIntMap(16);
         private final Map<Long, BlockEntity> blockEntities = new HashMap<>();
         private int eventId = -1;
@@ -415,7 +415,7 @@ final class PistonBehaviorTest {
         }
     }
 
-    private static final class ClockWorld extends World {
+    private static final class ClockWorld extends Dimension {
         private static final Field CHUNKS_FIELD;
         private static final Field GAME_TIME_FIELD;
         private static final Field HANDLING_TICK_FIELD;
@@ -426,13 +426,13 @@ final class PistonBehaviorTest {
             try {
                 CHUNKS_FIELD = ChunkManager.class.getDeclaredField("chunks");
                 CHUNKS_FIELD.setAccessible(true);
-                GAME_TIME_FIELD = World.class.getDeclaredField("gameTime");
+                GAME_TIME_FIELD = Dimension.class.getDeclaredField("gameTime");
                 GAME_TIME_FIELD.setAccessible(true);
-                HANDLING_TICK_FIELD = World.class.getDeclaredField("handlingTick");
+                HANDLING_TICK_FIELD = Dimension.class.getDeclaredField("handlingTick");
                 HANDLING_TICK_FIELD.setAccessible(true);
-                TICK_SCHEDULED = World.class.getDeclaredMethod("tickScheduled");
+                TICK_SCHEDULED = Dimension.class.getDeclaredMethod("tickScheduled");
                 TICK_SCHEDULED.setAccessible(true);
-                PROCESS_BLOCK_EVENTS = World.class.getDeclaredMethod("processBlockEvents");
+                PROCESS_BLOCK_EVENTS = Dimension.class.getDeclaredMethod("processBlockEvents");
                 PROCESS_BLOCK_EVENTS.setAccessible(true);
             } catch (ReflectiveOperationException e) {
                 throw new ExceptionInInitializerError(e);

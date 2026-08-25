@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
@@ -43,9 +43,9 @@ public final class WorldScopedPositionMap<V> {
         }
     }
 
-    private final Map<World, State<V>> worlds = new WeakHashMap<>();
+    private final Map<Dimension, State<V>> worlds = new WeakHashMap<>();
 
-    public V get(World world, int x, int y, int z) {
+    public V get(Dimension world, int x, int y, int z) {
         long position = BlockPos.asLong(x, y, z);
         State<V> state = this.state(world);
         Entry<V> entry = state.entries.get(position);
@@ -58,7 +58,7 @@ public final class WorldScopedPositionMap<V> {
     }
 
     /** @return der vorherige Wert desselben Chunk-Objekts oder {@code null}. */
-    public V put(World world, int x, int y, int z, V value) {
+    public V put(Dimension world, int x, int y, int z, V value) {
         if (value == null) throw new IllegalArgumentException("null ist kein gültiger Behavior-Zustand");
         long position = BlockPos.asLong(x, y, z);
         State<V> state = this.state(world);
@@ -72,7 +72,7 @@ public final class WorldScopedPositionMap<V> {
         return previous != null && previous.chunk.get() == chunk ? previous.value : null;
     }
 
-    public V computeIfAbsent(World world, int x, int y, int z, Supplier<V> factory) {
+    public V computeIfAbsent(Dimension world, int x, int y, int z, Supplier<V> factory) {
         V value = this.get(world, x, y, z);
         if (value != null) return value;
         value = factory.get();
@@ -80,13 +80,13 @@ public final class WorldScopedPositionMap<V> {
         return value;
     }
 
-    public V remove(World world, int x, int y, int z) {
+    public V remove(Dimension world, int x, int y, int z) {
         Entry<V> removed = this.state(world).entries.remove(BlockPos.asLong(x, y, z));
         return removed == null ? null : removed.value;
     }
 
-    /** Wird von {@link World} nur nach einer tatsächlichen Entfernung aus der Chunk-Map gerufen. */
-    public void prune(World world) {
+    /** Wird von {@link Dimension} nur nach einer tatsächlichen Entfernung aus der Chunk-Map gerufen. */
+    public void prune(Dimension world) {
         State<V> state = this.worlds.get(world);
         if (state == null) return;
         int removalVersion = world.getChunkManager().getChunkRemovalVersion();
@@ -106,11 +106,11 @@ public final class WorldScopedPositionMap<V> {
      * Diagnose-Sicht der aktiven Welt. Die Werte sind absichtlich gekapselte Einträge;
      * {@code clear()} und {@code keySet()} bleiben für die bestehende Headless-Sonde nutzbar.
      */
-    public Map<Long, ?> diagnosticEntries(World world) {
+    public Map<Long, ?> diagnosticEntries(Dimension world) {
         return this.state(world).entries;
     }
 
-    private State<V> state(World world) {
+    private State<V> state(Dimension world) {
         State<V> state = this.worlds.get(world);
         if (state == null) {
             state = new State<>(world.getChunkManager().getChunkRemovalVersion());

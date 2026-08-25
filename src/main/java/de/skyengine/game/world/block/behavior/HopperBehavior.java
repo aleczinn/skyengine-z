@@ -2,7 +2,7 @@ package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.ItemEntity;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.HopperBlockEntity;
@@ -36,10 +36,10 @@ public final class HopperBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+    public void onPlaced(Dimension world, int x, int y, int z, BlockState state) {
         /* Vanilla setzt im Placement-State zunaechst enabled=true und fuehrt erst in
            HopperBlock#onPlace checkPoweredState aus. Flag 2 erzeugt dabei keinen allgemeinen
-           Nachbar-Ring; den regulaeren Placement-Ring startet World direkt im Anschluss. */
+           Nachbar-Ring; den regulaeren Placement-Ring startet Dimension direkt im Anschluss. */
         BlockState checked = this.onNeighborUpdate(world, x, y, z, state);
         if (checked != state) world.setBlock(x, y, z, checked.getId(), false);
     }
@@ -52,7 +52,7 @@ public final class HopperBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         boolean enabled = !RedstonePower.isReceiving(world, x, y, z);
         if (enabled != state.get(Properties.ENABLED)) {
             return state.with(Properties.ENABLED, enabled);
@@ -61,7 +61,7 @@ public final class HopperBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onEntityInside(World world, int x, int y, int z, BlockState state, Entity entity) {
+    public void onEntityInside(Dimension world, int x, int y, int z, BlockState state, Entity entity) {
         if (!(entity instanceof ItemEntity item)) return;
         BlockEntity blockEntity = world.getBlockEntity(x, y, z);
         if (blockEntity instanceof HopperBlockEntity hopper) {
@@ -73,7 +73,7 @@ public final class HopperBehavior implements BlockBehavior {
     @Override
     public void appendDrops(LootContext context,
                             LootSink sink) {
-        World world = context.world();
+        Dimension world = context.world();
         BlockEntity be = world.getBlockEntity(context.x(), context.y(), context.z());
         if (!(be instanceof HopperBlockEntity hopper)) return;
         ItemStorage inventory = hopper.getInventory();

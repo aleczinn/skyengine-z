@@ -61,6 +61,7 @@ public class ChunkRenderer {
     private final Logger logger = LogManager.getLogger(ChunkRenderer.class.getName());
 
     private final ChunkManager chunkManager;
+    private final long renderGeneration;
     private ShaderProgram shader;
     /* Block-Atlas: gehört dem GameContainer (Engine-Lebensdauer, welt-unabhängig) —
        der Renderer hält nur Referenzen und disposed NICHTS davon. */
@@ -325,12 +326,13 @@ public class ChunkRenderer {
     private float lastFogStart = Float.NaN, lastFogEnd = Float.NaN;
     private float lastFogR = -1F, lastFogG = -1F, lastFogB = -1F;
 
-    public ChunkRenderer(ChunkManager chunkManager) {
+    public ChunkRenderer(ChunkManager chunkManager, long renderGeneration) {
         this.chunkManager = chunkManager;
+        this.renderGeneration = renderGeneration;
         for (int l = 1; l <= MAX_LOD_LEVELS; l++) this.visibleLodByLevel[l] = new ArrayList<>();
     }
 
-    /** Verdrahtet das LOD-System (aus World.init). Ohne Manager rendert alles wie bisher. */
+    /** Verdrahtet das LOD-System (aus Dimension.init). Ohne Manager rendert alles wie bisher. */
     public void setLodManager(LodManager lodManager) {
         this.lodManager = lodManager;
     }
@@ -1166,6 +1168,8 @@ public class ChunkRenderer {
     }
 
     private void applyBatch(ChunkManager.MeshBatch batch) {
+        if (batch.renderGeneration() != this.renderGeneration
+                || !this.chunkManager.isRenderGenerationActive(this.renderGeneration)) return;
         for (ChunkManager.MeshResult result : batch.results()) {
             Chunk chunk = this.chunkManager.getChunks().get(Chunk.key(result.chunkX(), result.chunkZ()));
 
@@ -1173,14 +1177,15 @@ public class ChunkRenderer {
                haben — ein dort wartendes Erst-Mesh darf ein bereits angewendetes, NEUERES
                Priority-Remesh derselben Section nicht überschreiben (das Dirty-Bit ist dann
                schon konsumiert, die falsche Geometrie bliebe bis zum nächsten Edit stehen). */
-            if (chunk != null && !chunk.tryApplyMeshSection(result.sectionY(), result.meshSeq(),
+            if (chunk != null && !chunk.tryApplyMeshSection(this.renderGeneration,
+                    result.sectionY(), result.meshSeq(),
                     result.data() == null ? null : result.data().boundaryFaces())) continue;
 
             /* Upload-Bestätigung für die LOD-Maske: erst wenn alle Sections angewendet sind,
                darf das LOD dort weichen (Chunk kann bei Unload-Race schon fehlen). Zählt nur
                tatsächlich angewendete Batches — verworfene Nachzügler würden den Zähler sonst
                verfrüht sättigen und das LOD risse ein Loch vor dem echten Terrain. */
-            if (chunk != null) chunk.markSectionUploaded();
+            if (chunk != null) chunk.markSectionUploaded(this.renderGeneration, result.sectionY());
 
             long key = sectionKey(result.chunkX(), result.sectionY(), result.chunkZ());
 

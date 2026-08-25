@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
@@ -27,7 +27,7 @@ public final class BlockRaycast {
      * @param maxDistance Reichweite in Blöcken
      * @return Hit oder null, wenn nichts getroffen wurde
      */
-    public static Hit raycast(World world, Vector3d origin, Vector3d dir, double maxDistance) {
+    public static Hit raycast(Dimension world, Vector3d origin, Vector3d dir, double maxDistance) {
         return raycast(world, origin, dir, maxDistance, false, false);
     }
 
@@ -37,7 +37,7 @@ public final class BlockRaycast {
      *                      durchquert, damit man die Quelle dahinter trifft (wie Minecraft
      *                      {@code Fluid.SOURCE_ONLY}). Sonst werden alle Fluids übersprungen.
      */
-    public static Hit raycast(World world, Vector3d origin, Vector3d dir, double maxDistance, boolean includeFluids) {
+    public static Hit raycast(Dimension world, Vector3d origin, Vector3d dir, double maxDistance, boolean includeFluids) {
         return raycast(world, origin, dir, maxDistance, includeFluids, false);
     }
 
@@ -46,18 +46,18 @@ public final class BlockRaycast {
      * Verantwortung bereits uebernommen hat. Eine LOD-Zelle beendet den Strahl, damit kein
      * dahinterliegender Block durch die Ladegrenze hindurch getroffen werden kann.
      */
-    public static Hit raycastInteractive(World world, Vector3d origin, Vector3d dir,
+    public static Hit raycastInteractive(Dimension world, Vector3d origin, Vector3d dir,
                                          double maxDistance) {
         return raycast(world, origin, dir, maxDistance, false, true);
     }
 
     /** Fluid-bewusste Spieler-Variante fuer den leeren Eimer. */
-    public static Hit raycastInteractive(World world, Vector3d origin, Vector3d dir,
+    public static Hit raycastInteractive(Dimension world, Vector3d origin, Vector3d dir,
                                          double maxDistance, boolean includeFluids) {
         return raycast(world, origin, dir, maxDistance, includeFluids, true);
     }
 
-    private static Hit raycast(World world, Vector3d origin, Vector3d dir, double maxDistance,
+    private static Hit raycast(Dimension world, Vector3d origin, Vector3d dir, double maxDistance,
                                boolean includeFluids, boolean requirePlayerInteractionReady) {
         int x = (int) Math.floor(origin.x);
         int y = (int) Math.floor(origin.y);

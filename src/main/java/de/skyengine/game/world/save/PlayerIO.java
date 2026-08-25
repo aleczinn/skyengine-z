@@ -12,12 +12,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.UUID;
 
 /**
- * Liest/schreibt {@code saves/<ordner>/player/player.dat} (binäres {@link DataTag} via
- * {@link DataTagIO}). Den Tag-Inhalt (Position, Vitals, Inventar, UUID als uuidMost/uuidLeast)
- * baut der GameContainer — hier nur das Datei-Handling. Multiplayer später:
- * {@code players/<uuid>.dat} mit derselben Struktur.
+ * Liest/schreibt UUID-basierte {@code players/<uuid>.dat} sowie die alte
+ * {@code player/player.dat} während der Migration. Den Tag-Inhalt baut der PlayerManager.
  */
 public final class PlayerIO {
 
@@ -45,6 +44,14 @@ public final class PlayerIO {
         } catch (IOException e) {
             LOGGER.error("player.dat konnte nicht geschrieben werden: " + file.getPath(), e);
         }
+    }
+
+    public static File playerFile(File worldRoot, UUID uuid) {
+        return new File(new File(worldRoot, "players"), uuid + ".dat");
+    }
+
+    public static File legacyPlayerFile(File worldRoot) {
+        return new File(worldRoot, "player/player.dat");
     }
 
     private PlayerIO() {}

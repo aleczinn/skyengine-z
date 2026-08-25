@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
@@ -229,7 +229,7 @@ final class FluidBehaviorSimulationTest {
         return world;
     }
 
-    private static void assertFluid(World world, int x, int y, int z,
+    private static void assertFluid(Dimension world, int x, int y, int z,
                                     int fluidId, int level, boolean falling) {
         BlockState actual = Blocks.getState(world.getBlock(x, y, z));
         assertTrue(actual.isFluid(), "expected fluid at " + x + "," + y + "," + z);
@@ -250,7 +250,7 @@ final class FluidBehaviorSimulationTest {
                 && state.get(Properties.LEVEL) == 0;
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private static final Field CHUNKS_FIELD;
         private static final Field GAME_TIME_FIELD;
         private static final Method TICK_SCHEDULED;
@@ -259,9 +259,9 @@ final class FluidBehaviorSimulationTest {
             try {
                 CHUNKS_FIELD = ChunkManager.class.getDeclaredField("chunks");
                 CHUNKS_FIELD.setAccessible(true);
-                GAME_TIME_FIELD = World.class.getDeclaredField("gameTime");
+                GAME_TIME_FIELD = Dimension.class.getDeclaredField("gameTime");
                 GAME_TIME_FIELD.setAccessible(true);
-                TICK_SCHEDULED = World.class.getDeclaredMethod("tickScheduled");
+                TICK_SCHEDULED = Dimension.class.getDeclaredMethod("tickScheduled");
                 TICK_SCHEDULED.setAccessible(true);
             } catch (ReflectiveOperationException e) {
                 throw new ExceptionInInitializerError(e);
@@ -277,7 +277,7 @@ final class FluidBehaviorSimulationTest {
 
         TestWorld() throws ReflectiveOperationException {
             super("__fluid_simulation_test", levelData(), null, null);
-            Field field = World.class.getDeclaredField("chunkManager");
+            Field field = Dimension.class.getDeclaredField("chunkManager");
             field.setAccessible(true);
             this.manager = (ChunkManager) field.get(this);
             this.chunk.status = ChunkStatus.READY;

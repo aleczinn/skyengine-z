@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -28,23 +28,23 @@ import java.util.Random;
 public final class FluidBehavior implements BlockBehavior {
 
     @Override
-    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+    public void onPlaced(Dimension world, int x, int y, int z, BlockState state) {
         FluidInfo info = state.getBlock().getFluidInfo();
         world.scheduleTickEarlier(x, y, z, info.tickDelay);
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         return this.neighborUpdate(world, x, y, z, state);
     }
 
     @Override
-    public BlockState onNeighborShapeUpdate(World world, int x, int y, int z, BlockState state,
+    public BlockState onNeighborShapeUpdate(Dimension world, int x, int y, int z, BlockState state,
                                             Direction direction, BlockState neighborState) {
         return this.neighborUpdate(world, x, y, z, state);
     }
 
-    private BlockState neighborUpdate(World world, int x, int y, int z, BlockState state) {
+    private BlockState neighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         FluidInfo info = state.getBlock().getFluidInfo();
         if (info == null) return state; // Shape-Hook kann im selben Update bereits zu Stein konvertieren.
         /* Lava+Wasser reagiert synchron - updateStateAt wendet den zurückgegebenen Fremd-State
@@ -63,7 +63,7 @@ public final class FluidBehavior implements BlockBehavior {
     }
 
     @Override
-    public void animateTick(World world, int x, int y, int z, BlockState state, Random random) {
+    public void animateTick(Dimension world, int x, int y, int z, BlockState state, Random random) {
         FluidInfo info = state.getBlock().getFluidInfo();
         if (info == null) return;
         if (!info.lava) {
@@ -78,7 +78,7 @@ public final class FluidBehavior implements BlockBehavior {
     }
 
     @Override
-    public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    public void scheduledTick(Dimension world, int x, int y, int z, BlockState state) {
         Block fluid = state.getBlock();
         FluidInfo info = fluid.getFluidInfo();
         if (info == null) return;
@@ -231,7 +231,7 @@ public final class FluidBehavior implements BlockBehavior {
      * Eigenes fließendes Fluid zählt ebenfalls, eine Quelle blockiert dagegen die Suche. Vom
      * Gegen-Fluid ist nur Wasser unter Lava ein gültiges Ziel, weil dort die Stein-Reaktion greift.
      */
-    private static boolean canDescend(World world, int x, int y, int z, Block fluid,
+    private static boolean canDescend(Dimension world, int x, int y, int z, Block fluid,
                                       SlopeSearch search) {
         if (y <= 0) return false;
         if (!world.isPositionEditable(x, y - 1, z)) {
@@ -248,7 +248,7 @@ public final class FluidBehavior implements BlockBehavior {
     }
 
     /** Rekursive Gefälle-Suche: kürzeste horizontale Distanz zu einem Abgrund (max. maxDist Schritte). */
-    private static int slopeDistance(World world, int x, int y, int z, Block fluid,
+    private static int slopeDistance(Dimension world, int x, int y, int z, Block fluid,
                                      int dist, int maxDist, Direction cameFrom,
                                      SlopeSearch search) {
         int min = Integer.MAX_VALUE;
@@ -271,7 +271,7 @@ public final class FluidBehavior implements BlockBehavior {
     }
 
     /** Wasser oben/seitlich angrenzend? (Unten nicht: dort gilt die Stein-Regel im Abfluss.) */
-    private static boolean waterAdjacent(World world, int x, int y, int z) {
+    private static boolean waterAdjacent(Dimension world, int x, int y, int z) {
         for (Direction d : Direction.sharedValues()) {
             if (d == Direction.DOWN) continue;
             int ns = world.getBlock(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ());
@@ -282,7 +282,7 @@ public final class FluidBehavior implements BlockBehavior {
 
     /** Wasser+Lava-Kontakt (Fallback, falls kein Nachbar-Update lief, z.B. nach Chunk-Load).
      *  Gibt true zurück, wenn dieser Block dabei ersetzt wurde. */
-    private boolean reaction(World world, int x, int y, int z, BlockState state, FluidInfo info) {
+    private boolean reaction(Dimension world, int x, int y, int z, BlockState state, FluidInfo info) {
         if (info.lava) {
             if (waterAdjacent(world, x, y, z)) {
                 /* Lava-Quelle + Wasser seitlich/oben -> Obsidian; fließende Lava + Wasser -> Cobblestone. */
@@ -304,7 +304,7 @@ public final class FluidBehavior implements BlockBehavior {
         return false;
     }
 
-    private int countSourceNeighbors(World world, int x, int y, int z, Block fluid) {
+    private int countSourceNeighbors(Dimension world, int x, int y, int z, Block fluid) {
         int count = 0;
         for (Direction d : Direction.horizontalValues()) {
             int ns = world.getBlock(x + d.offsetX(), y, z + d.offsetZ());
@@ -325,7 +325,7 @@ public final class FluidBehavior implements BlockBehavior {
     }
 
     /** Droppt das Item des weggespülten Blocks (Pflanze, Staub), falls eines registriert ist. */
-    private static void dropBlockItem(World world, int x, int y, int z, BlockState state) {
+    private static void dropBlockItem(Dimension world, int x, int y, int z, BlockState state) {
         world.particles().blockBreak(x, y, z, state);
         world.dropBlockLoot(x, y, z, state, LootContext.Cause.FLUID);
     }
@@ -335,7 +335,7 @@ public final class FluidBehavior implements BlockBehavior {
      * angrenzende Fluide; der eigene Folgetick wird mit dem zustandsabhängigen Delay geplant,
      * ohne dass ein allgemeines Eigen-Update ihn wieder auf den Basistakt vorzieht.
      */
-    private void updateOwnState(World world, int x, int y, int z, BlockState oldState,
+    private void updateOwnState(Dimension world, int x, int y, int z, BlockState oldState,
                                 BlockState newState, FluidInfo info) {
         if (!world.setBlockWithShapeUpdates(x, y, z, newState.getId())) return;
         int delay = info.tickDelay;
@@ -364,9 +364,9 @@ public final class FluidBehavior implements BlockBehavior {
      * FlowingFluid.getFlow): pro Himmelsrichtung zieht nur gleiches Fluid (Level-Differenz) bzw.
      * eine Abfall-Kante (freie Zelle mit gleichem Fluid eine Ebene tiefer); solide Nachbarn und
      * leere Zellen tragen nichts bei. Bewusst dupliziert: der Mesher sampelt aus Thread-Gründen
-     * über Chunks, Entities über die World.
+     * über Chunks, Entities über die Dimension.
      */
-    public static void flowVector(World world, int x, int y, int z, double[] out) {
+    public static void flowVector(Dimension world, int x, int y, int z, double[] out) {
         out[0] = 0;
         out[1] = 0;
         BlockState state = Blocks.getState(world.getBlock(x, y, z));

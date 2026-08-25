@@ -8,7 +8,7 @@ import java.util.Map;
 /**
  * Welt-Metadaten für {@code saves/<ordner>/level.json} (GSON-DTO). Chunks liegen in
  * {@code region/*.srg} (nur modifizierte; s. WorldStorage), der Spieler in
- * {@code player/player.dat} — level.json hält NUR noch Welt-Metadaten.
+ * {@code players/<uuid>.dat} — level.json hält NUR noch Welt-Metadaten.
  * Alle neuen Felder sind Boxed/null-tolerant (alte level.json laden mit Defaults).
  */
 public final class LevelData {
@@ -20,6 +20,8 @@ public final class LevelData {
 
     /** Version des Save-Layouts (null = 1). Strikt getrennt von der Chunk-payloadVersion. */
     public Integer formatVersion;
+    /** UUID des lokalen Singleplayer-Profils; Multiplayer-Verbindungen liefern ihre UUID selbst. */
+    public String localPlayerUuid;
     /** "default" (generiert) oder "imported" (MC-Import, Void-Generator). null = default. */
     public String worldType;
     /** Generator-Kennung (Provenienz), z.B. "alpha_v2" / "minecraft_import". null = alpha_v2. */
@@ -44,6 +46,8 @@ public final class LevelData {
         public int seed;
         public String generator;
         public Integer generatorVersion;
+        /** Dimensionslokale, deterministische Loot-Zufallsfolgen. */
+        public Map<String, Long> lootRandomStates = new LinkedHashMap<>();
     }
 
     public static final class PlayerData {

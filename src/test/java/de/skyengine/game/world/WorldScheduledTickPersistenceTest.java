@@ -266,7 +266,7 @@ final class WorldScheduledTickPersistenceTest {
         return chunk;
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private static final Field CHUNKS_FIELD;
         private static final Field CHUNK_MANAGER_FIELD;
         private static final Field GAME_TIME_FIELD;
@@ -278,15 +278,15 @@ final class WorldScheduledTickPersistenceTest {
             try {
                 CHUNKS_FIELD = ChunkManager.class.getDeclaredField("chunks");
                 CHUNKS_FIELD.setAccessible(true);
-                CHUNK_MANAGER_FIELD = World.class.getDeclaredField("chunkManager");
+                CHUNK_MANAGER_FIELD = Dimension.class.getDeclaredField("chunkManager");
                 CHUNK_MANAGER_FIELD.setAccessible(true);
-                GAME_TIME_FIELD = World.class.getDeclaredField("gameTime");
+                GAME_TIME_FIELD = Dimension.class.getDeclaredField("gameTime");
                 GAME_TIME_FIELD.setAccessible(true);
                 UNLOAD_QUEUE_FIELD = ChunkManager.class.getDeclaredField("unloadAnnounceQueue");
                 UNLOAD_QUEUE_FIELD.setAccessible(true);
-                TICK_SCHEDULED = World.class.getDeclaredMethod("tickScheduled");
+                TICK_SCHEDULED = Dimension.class.getDeclaredMethod("tickScheduled");
                 TICK_SCHEDULED.setAccessible(true);
-                PROCESS_UNLOADED = World.class.getDeclaredMethod("processUnloadedChunkBoundaries");
+                PROCESS_UNLOADED = Dimension.class.getDeclaredMethod("processUnloadedChunkBoundaries");
                 PROCESS_UNLOADED.setAccessible(true);
             } catch (ReflectiveOperationException e) {
                 throw new ExceptionInInitializerError(e);

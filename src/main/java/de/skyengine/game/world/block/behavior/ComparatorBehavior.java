@@ -1,7 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.audio.SoundManager;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.BlockEntity;
@@ -32,7 +32,7 @@ import de.skyengine.game.world.tick.TickPriority;
  * POWERED im State steuert nur die Optik; die Ausgangsstärke liegt wie in Vanilla persistent
  * in der {@link ComparatorBlockEntity}. Änderungen takten mit 1 Redstone-Tick (2 Game-Ticks).
  * Container-Mutationen stoßen wie in Vanilla unmittelbar
- * {@code World.updateComparatorOutputs} an.
+ * {@code Dimension.updateComparatorOutputs} an.
  */
 public final class ComparatorBehavior implements BlockBehavior {
 
@@ -40,7 +40,7 @@ public final class ComparatorBehavior implements BlockBehavior {
      * Initialer Abgleich nach Chunk-Load. Neue Saves besitzen bereits OutputSignal; alte Saves
      * bekommen beim Deserialisieren erstmals eine ComparatorBlockEntity mit Ausgang 0.
      */
-    public static void reconcileLoadedChunk(World world, Chunk chunk) {
+    public static void reconcileLoadedChunk(Dimension world, Chunk chunk) {
         for (BlockEntity blockEntity : chunk.blockEntities()) {
             if (!(blockEntity instanceof ComparatorBlockEntity)) continue;
             int x = blockEntity.getPos().x(), y = blockEntity.getPos().y(), z = blockEntity.getPos().z();
@@ -63,18 +63,18 @@ public final class ComparatorBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+    public void onPlaced(Dimension world, int x, int y, int z, BlockState state) {
         notifyStrongTarget(world, x, y, z, state);
     }
 
     @Override
-    public void onRemoved(World world, int x, int y, int z,
+    public void onRemoved(Dimension world, int x, int y, int z,
                           BlockState oldState, BlockState newState) {
         notifyStrongTarget(world, x, y, z, oldState);
     }
 
     @Override
-    public boolean onUse(World world, int x, int y, int z, BlockState state) {
+    public boolean onUse(Dimension world, int x, int y, int z, BlockState state) {
         ComparatorMode next = state.get(Properties.MODE) == ComparatorMode.COMPARE
                 ? ComparatorMode.SUBTRACT : ComparatorMode.COMPARE;
         BlockState toggled = state.with(Properties.MODE, next);
@@ -89,7 +89,7 @@ public final class ComparatorBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         int output = computeOutput(world, x, y, z, state);
         if ((output != outputSignal(world, x, y, z)
                 || state.get(Properties.POWERED) != shouldTurnOn(world, x, y, z, state))
@@ -102,13 +102,13 @@ public final class ComparatorBehavior implements BlockBehavior {
     }
 
     @Override
-    public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    public void scheduledTick(Dimension world, int x, int y, int z, BlockState state) {
         if (!state.getValues().containsKey(Properties.MODE)) return;   // tolerantes Feuern
         refreshOutputState(world, x, y, z, state);
     }
 
     /** Exakte Reihenfolge von Vanilla ComparatorBlock#refreshOutputState. */
-    private static void refreshOutputState(World world, int x, int y, int z, BlockState state) {
+    private static void refreshOutputState(Dimension world, int x, int y, int z, BlockState state) {
         int output = computeOutput(world, x, y, z, state);
         int oldOutput = outputSignal(world, x, y, z);
         BlockEntity blockEntity = world.getBlockEntity(x, y, z);
@@ -127,14 +127,14 @@ public final class ComparatorBehavior implements BlockBehavior {
         notifyStrongTarget(world, x, y, z, state);
     }
 
-    private static int outputSignal(World world, int x, int y, int z) {
+    private static int outputSignal(Dimension world, int x, int y, int z) {
         BlockEntity blockEntity = world.getBlockEntity(x, y, z);
         return blockEntity instanceof ComparatorBlockEntity comparator
                 ? comparator.getOutputSignal() : 0;
     }
 
     /** Vanillas separate POWERED-Bedingung; insbesondere Compare-Gleichstand bleibt an. */
-    private static boolean shouldTurnOn(World world, int x, int y, int z, BlockState state) {
+    private static boolean shouldTurnOn(Dimension world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
         int rear = rearInput(world, x, y, z, out.opposite());
         if (rear == 0) return false;
@@ -148,7 +148,7 @@ public final class ComparatorBehavior implements BlockBehavior {
      * Vanilla DiodeBlock#shouldPrioritize, auf die Engine-Konvention FACING=Ausgang uebersetzt:
      * Eine Diode in der Ausgangszelle priorisiert den Tick, ausser sie zeigt zurueck auf uns.
      */
-    private static boolean shouldPrioritize(World world, int x, int y, int z, BlockState state) {
+    private static boolean shouldPrioritize(Dimension world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
         int nx = x + out.offsetX(), nz = z + out.offsetZ();
         BlockState neighbor = Blocks.getState(world.getBlock(nx, y, nz));
@@ -158,7 +158,7 @@ public final class ComparatorBehavior implements BlockBehavior {
     }
 
     /** Soll-Ausgang aus hinterem Eingang (Signal/Container) und den Seiten. */
-    static int computeOutput(World world, int x, int y, int z, BlockState state) {
+    static int computeOutput(Dimension world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
         int rear = rearInput(world, x, y, z, out.opposite());
         int side = Math.max(sideInput(world, x, y, z, out.rotateYCW()),
@@ -170,7 +170,7 @@ public final class ComparatorBehavior implements BlockBehavior {
     }
 
     /** Hinterer Eingang entsprechend Vanilla ComparatorBlock#getInputSignal. */
-    private static int rearInput(World world, int x, int y, int z, Direction back) {
+    private static int rearInput(Dimension world, int x, int y, int z, Direction back) {
         int bx = x + back.offsetX(), by = y + back.offsetY(), bz = z + back.offsetZ();
         BlockState directState = Blocks.getState(world.getBlock(bx, by, bz));
         int signal = RedstonePower.emittedSignal(world, bx, by, bz, back.opposite(), false);
@@ -194,7 +194,7 @@ public final class ComparatorBehavior implements BlockBehavior {
     }
 
     /** Füllstands-Signal eines Containers oder −1 (kein Container). */
-    private static int containerSignal(World world, int x, int y, int z) {
+    private static int containerSignal(Dimension world, int x, int y, int z) {
         BlockEntity be = world.getBlockEntity(x, y, z);
         if (be == null) return -1;
         ItemStorage storage = be.getCapability(Capabilities.ITEM_STORAGE, null).orElse(null);
@@ -214,7 +214,7 @@ public final class ComparatorBehavior implements BlockBehavior {
     }
 
     /** Seiten-Eingang: nur echte Redstone-Komponenten zählen (MC). */
-    private static int sideInput(World world, int x, int y, int z, Direction side) {
+    private static int sideInput(Dimension world, int x, int y, int z, Direction side) {
         int sx = x + side.offsetX(), sz = z + side.offsetZ();
         BlockState neighbor = Blocks.getState(world.getBlock(sx, y, sz));
         /* Vanillas SignalGetter.getControlInputSignal liest Staub direkt aus dessen POWER-
@@ -226,7 +226,7 @@ public final class ComparatorBehavior implements BlockBehavior {
     }
 
     /* Exakter allgemeiner Sechser-Pfad von DiodeBlock.updateNeighborsInFront. */
-    private static void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
+    private static void notifyStrongTarget(Dimension world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
         world.updateDirectionalOutputNeighbors(x, y, z, out);
     }
@@ -234,13 +234,13 @@ public final class ComparatorBehavior implements BlockBehavior {
     /* --- Ausgang: POWERED-gated BE-Stärke, schwach UND stark, nur in FACING-Richtung --- */
 
     @Override
-    public int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int weakPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return side == state.get(Properties.FACING) && state.get(Properties.POWERED)
                 ? outputSignal(world, x, y, z) : 0;
     }
 
     @Override
-    public int strongPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int strongPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return weakPower(world, x, y, z, state, side);
     }
 

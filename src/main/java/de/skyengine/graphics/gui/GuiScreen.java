@@ -102,7 +102,7 @@ public abstract class GuiScreen {
      */
     protected void renderBackground(GuiManager gui) {
         float vW = gui.vWidth(), vH = gui.vHeight();
-        if (SkyEngine.get().getGame().getWorld() != null) {
+        if (SkyEngine.get().getGame().getDimension() != null) {
             gui.sprites().drawRect(0, 0, vW, vH, 0f, 0f, 0f, 0.6f);
             return;
         }

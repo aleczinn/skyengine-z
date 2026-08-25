@@ -3,7 +3,8 @@ package de.skyengine.graphics.gui;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.entity.EntityPlayer;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
+import de.skyengine.graphics.world.DimensionView;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.dimension.DimensionDefinition;
 import de.skyengine.graphics.color.Color4;
@@ -19,7 +20,7 @@ import java.util.Locale;
 /**
  * F3-Debug-Overlay (Minecraft-artig): linke Spalte mit Engine-/Welt-/Spieler-Infos,
  * je Zeile ein halbtransparentes Hintergrund-Rechteck plus Text mit Schatten.
- * Gehalten vom GameContainer (braucht World/Player/Engine-Daten), gezeichnet nach
+ * Gehalten vom GameContainer (braucht Dimension/Player/Engine-Daten), gezeichnet nach
  * dem regulären GUI-Pass über die Renderer des {@link GuiManager}.
  */
 public final class DebugOverlay {
@@ -62,7 +63,7 @@ public final class DebugOverlay {
         if (enable) this.visible = true;
     }
 
-    public void render(GuiManager gui, World world, EntityPlayer player) {
+    public void render(GuiManager gui, Dimension world, DimensionView view, EntityPlayer player) {
         FontRenderer font = gui.font();
         if (!font.available()) return;
 
@@ -95,8 +96,8 @@ public final class DebugOverlay {
         }
         lines.add("Biome: " + this.lastBiomeName);
         lines.add("Sections: %d/%d  Chunks: %d".formatted(
-                world.getChunkRenderer().getRenderedSections(),
-                world.getChunkRenderer().getTotalSections(),
+                view.chunks().getRenderedSections(),
+                view.chunks().getTotalSections(),
                 world.getChunkManager().getChunks().size()));
         lines.add("Mem: %d/%d MB".formatted(usedMb, maxMb));
 

@@ -1,7 +1,7 @@
 package de.skyengine.game.world.block.entity;
 
 import de.skyengine.game.entity.Entity;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
@@ -165,7 +165,7 @@ final class DispenserBlockEntityTest {
         return BlockRegistry.get(Identifier.of("skyengine:" + path)).getDefaultState();
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private final LongIntMap blocks = new LongIntMap(16);
         private final Map<Long, BlockEntity> blockEntities = new HashMap<>();
         private final List<Entity> spawned = new ArrayList<>();

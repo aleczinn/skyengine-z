@@ -2,7 +2,7 @@ package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.audio.BlockOpenSound;
 import de.skyengine.audio.SoundManager;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
@@ -28,7 +28,7 @@ public final class FenceGateBehavior implements BlockBehavior {
     }
 
     @Override
-    public boolean onUse(World world, int x, int y, int z, BlockState state, float playerYaw) {
+    public boolean onUse(Dimension world, int x, int y, int z, BlockState state, float playerYaw) {
         boolean open = state.get(Properties.OPEN);
         BlockState changed = state;
         if (open) {
@@ -46,7 +46,7 @@ public final class FenceGateBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         Direction facing = state.get(Properties.FACING);
         boolean inWall = this.isInWall(world, x, y, z, facing);
         boolean powered = RedstonePower.isReceiving(world, x, y, z);
@@ -59,18 +59,18 @@ public final class FenceGateBehavior implements BlockBehavior {
         return changed;
     }
 
-    private boolean isInWall(World world, int x, int y, int z, Direction facing) {
+    private boolean isInWall(Dimension world, int x, int y, int z, Direction facing) {
         if (facing.axis() == Direction.Axis.Z) {
             return isWall(world, x - 1, y, z) || isWall(world, x + 1, y, z);
         }
         return isWall(world, x, y, z - 1) || isWall(world, x, y, z + 1);
     }
 
-    private static boolean isWall(World world, int x, int y, int z) {
+    private static boolean isWall(Dimension world, int x, int y, int z) {
         return "wall".equals(Blocks.getState(world.getBlock(x, y, z)).getBlock().getConnectionGroup());
     }
 
-    private static void playSound(World world, int x, int y, int z, BlockState state, boolean open) {
+    private static void playSound(Dimension world, int x, int y, int z, BlockState state, boolean open) {
         SoundManager sounds = world.getSoundManager();
         BlockOpenSound set = state.getBlock().getOpenSound();
         if (sounds == null || set == null) return;

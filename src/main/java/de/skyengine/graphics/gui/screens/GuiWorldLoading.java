@@ -2,10 +2,8 @@ package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.core.SkyEngine;
 import de.skyengine.core.i18n.I18n;
-import de.skyengine.core.settings.GameSettings;
-import de.skyengine.game.world.World;
-import de.skyengine.game.world.chunk.Chunk;
-import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.game.entity.EntityPlayer;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.dimension.DimensionDefinition;
 import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.GuiManager;
@@ -14,10 +12,9 @@ import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.gui.GuiText;
 
 /**
- * Welt-Ladebildschirm nach dem Eintritt: Balken ≈ READY-Chunks / Lade-Kreis; schließt sich,
- * sobald {@code ChunkManager.isInitialLoadComplete()} den Lade-Fixpunkt meldet (einmaliger
- * Latch — spätere Resets des Flags durch Remesh/Renderdistanz sind hier egal, der GuiScreen
- * existiert dann nicht mehr). Nicht schließbar, pausiert NICHT (sonst laden nie Chunks).
+ * Welt-Ladebildschirm nach dem Eintritt. Er schließt erst, wenn der Lade-Fixpunkt erreicht
+ * und das unmittelbare Chunk-Umfeld des Spielers tatsächlich in die aktuelle GPU-View hochgeladen ist.
+ * Nicht schließbar und nicht pausierend, damit die Chunk-Pipeline weiterarbeiten kann.
  */
 public final class GuiWorldLoading extends GuiScreen {
 
@@ -39,19 +36,14 @@ public final class GuiWorldLoading extends GuiScreen {
 
     @Override
     public void render(GuiManager gui, double mouseX, double mouseY) {
-        World world = SkyEngine.get().getGame().getWorld();
-        if (world == null || world.getChunkManager().isInitialLoadComplete()) {
+        Dimension world = SkyEngine.get().getGame().getDimension();
+        EntityPlayer player = SkyEngine.get().getGame().getPlayer();
+        if (world == null || world.getChunkManager().isInitialRenderReady(player)) {
             gui.close();
             return;
         }
 
-        int rd = GameSettings.get().renderDistance;
-        int target = Math.max(1, (int) Math.round(Math.PI * rd * rd));
-        int ready = 0;
-        for (Chunk chunk : world.getChunkManager().getChunks().values()) {
-            if (chunk.status.isAtLeast(ChunkStatus.READY)) ready++;
-        }
-        float progress = Math.min(1f, ready / (float) target);
+        float progress = world.getChunkManager().initialRenderProgress(player);
 
         float vW = gui.vWidth(), vH = gui.vHeight();
         SpriteRenderer sr = gui.sprites();

@@ -203,14 +203,14 @@ final class WorldChunkRedstoneReconciliationTest {
         return ChunkSerializer.serialize(chunk, "test", 1, false, List.of(), List.of());
     }
 
-    private static Chunk deserialize(int chunkX, int chunkZ, byte[] payload, World world) throws Exception {
+    private static Chunk deserialize(int chunkX, int chunkZ, byte[] payload, Dimension world) throws Exception {
         Chunk chunk = new Chunk(chunkX, chunkZ);
         ChunkSerializer.deserialize(chunk, payload, world);
         chunk.status = ChunkStatus.READY;
         return chunk;
     }
 
-    private static int[] captureMatrix(World world, int width) {
+    private static int[] captureMatrix(Dimension world, int width) {
         int[] states = new int[width * ChunkSection.SIZE];
         int i = 0;
         for (int z = 0; z < ChunkSection.SIZE; z++) {
@@ -231,7 +231,7 @@ final class WorldChunkRedstoneReconciliationTest {
         return state.getId();
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private static final Field CHUNKS_FIELD;
         private static final Field UNLOAD_QUEUE_FIELD;
         private static final Method PROCESS_READY;
@@ -245,13 +245,13 @@ final class WorldChunkRedstoneReconciliationTest {
                 CHUNKS_FIELD.setAccessible(true);
                 UNLOAD_QUEUE_FIELD = ChunkManager.class.getDeclaredField("unloadAnnounceQueue");
                 UNLOAD_QUEUE_FIELD.setAccessible(true);
-                PROCESS_READY = World.class.getDeclaredMethod("processReadyChunks");
+                PROCESS_READY = Dimension.class.getDeclaredMethod("processReadyChunks");
                 PROCESS_READY.setAccessible(true);
-                PROCESS_UNLOADED = World.class.getDeclaredMethod("processUnloadedChunkBoundaries");
+                PROCESS_UNLOADED = Dimension.class.getDeclaredMethod("processUnloadedChunkBoundaries");
                 PROCESS_UNLOADED.setAccessible(true);
-                GAME_TIME_FIELD = World.class.getDeclaredField("gameTime");
+                GAME_TIME_FIELD = Dimension.class.getDeclaredField("gameTime");
                 GAME_TIME_FIELD.setAccessible(true);
-                TICK_SCHEDULED = World.class.getDeclaredMethod("tickScheduled");
+                TICK_SCHEDULED = Dimension.class.getDeclaredMethod("tickScheduled");
                 TICK_SCHEDULED.setAccessible(true);
             } catch (ReflectiveOperationException e) {
                 throw new ExceptionInInitializerError(e);
@@ -262,7 +262,7 @@ final class WorldChunkRedstoneReconciliationTest {
 
         TestWorld() throws ReflectiveOperationException {
             super("__chunk_redstone_test", level(), null, null);
-            Field field = World.class.getDeclaredField("chunkManager");
+            Field field = Dimension.class.getDeclaredField("chunkManager");
             field.setAccessible(true);
             this.manager = (ChunkManager) field.get(this);
         }

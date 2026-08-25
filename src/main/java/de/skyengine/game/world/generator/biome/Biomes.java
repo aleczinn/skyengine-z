@@ -14,7 +14,7 @@ import de.skyengine.game.world.generator.feature.trees.TreeShapes;
  * <p><b>Achtung Init-Reihenfolge:</b> Die Konstanten fangen {@code Blocks.*}-IDs beim
  * Klassen-Init ein. Diese Klasse darf deshalb erst NACH {@code Blocks.bootstrap(...)}
  * erstmals beruehrt werden — also nur aus Laufzeitpfaden (generate/biomeAt/Features),
- * NIE aus einem Generator-Konstruktor (World wird vor dem Block-Bootstrap erzeugt!).
+ * NIE aus einem Generator-Konstruktor (Dimension wird vor dem Block-Bootstrap erzeugt!).
  */
 public final class Biomes {
 

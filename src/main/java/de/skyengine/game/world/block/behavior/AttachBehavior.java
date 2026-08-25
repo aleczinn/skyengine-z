@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.AttachFace;
@@ -19,7 +19,7 @@ import java.util.Set;
  * angeklickte Fläche nicht, fällt die Platzierung wie in Minecraft auf die Bodenvariante zurück.
  *
  * <p>Verschwindet der Träger, entfernt sich der Block selbst (gleiches Muster wie
- * {@link PlantBehavior}/{@link SupportBehavior}; {@code World.updateStateAt} kaskadiert das) —
+ * {@link PlantBehavior}/{@link SupportBehavior}; {@code Dimension.updateStateAt} kaskadiert das) —
  * anders als jene droppt er dabei aber sein Item, wie die Fackel in Minecraft.
  *
  * @param allowed erlaubte Trägerflächen — eine Fackel kann nicht von der Decke hängen,
@@ -68,7 +68,7 @@ public record AttachBehavior(Set<AttachFace> allowed) implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         if (hasSupport(world, x, y, z, state)) return state;
         /* Träger weg -> zerbricht und fällt als Item (Vanilla). Der Drop steht bewusst HIER und
            nicht in onBreak: onBreak läuft auch beim Abbau durch den Spieler, und dort droppt
@@ -77,7 +77,7 @@ public record AttachBehavior(Set<AttachFace> allowed) implements BlockBehavior {
     }
 
     /** Der Träger liegt der Ausrichtung genau gegenüber: Boden unten, Decke oben, Wand hinten. */
-    private static boolean hasSupport(World world, int x, int y, int z, BlockState state) {
+    private static boolean hasSupport(Dimension world, int x, int y, int z, BlockState state) {
         return switch (state.get(Properties.ATTACH)) {
             case FLOOR -> Blocks.getState(world.getBlock(x, y - 1, z)).isSolid();
             case CEILING -> Blocks.getState(world.getBlock(x, y + 1, z)).isSolid();

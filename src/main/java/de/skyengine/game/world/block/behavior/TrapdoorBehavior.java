@@ -2,7 +2,7 @@ package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.audio.BlockOpenSound;
 import de.skyengine.audio.SoundManager;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockHalf;
 import de.skyengine.game.world.block.state.BlockState;
@@ -46,7 +46,7 @@ public final class TrapdoorBehavior implements BlockBehavior {
     }
 
     @Override
-    public boolean onUse(World world, int x, int y, int z, BlockState state) {
+    public boolean onUse(Dimension world, int x, int y, int z, BlockState state) {
         /* false = Klick NICHT verbraucht, der Aufrufer platziert dann normal weiter. */
         if (!this.handOpenable) return false;
 
@@ -61,7 +61,7 @@ public final class TrapdoorBehavior implements BlockBehavior {
      * Handbedienung bleibt dazwischen unberührt. Einteilig, daher einfacher.
      */
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         boolean powered = RedstonePower.isReceiving(world, x, y, z);
         if (powered == state.get(Properties.POWERED)) return state;
 
@@ -70,7 +70,7 @@ public final class TrapdoorBehavior implements BlockBehavior {
     }
 
     /** Nullbar wie bei der Tür: ohne SoundManager (Weltgen-Tests) bleibt es still. */
-    private static void playOpenSound(World world, int x, int y, int z, BlockState state, boolean open) {
+    private static void playOpenSound(Dimension world, int x, int y, int z, BlockState state, boolean open) {
         SoundManager sound = world.getSoundManager();
         BlockOpenSound set = state.getBlock().getOpenSound();
         if (sound != null && set != null) {

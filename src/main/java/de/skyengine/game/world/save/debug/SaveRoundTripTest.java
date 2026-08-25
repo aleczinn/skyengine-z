@@ -327,7 +327,7 @@ public final class SaveRoundTripTest {
             check(third.x() == repeaterX && third.z() == repeaterZ && third.remainingTicks() == 5,
                     "Verstärker-Tick mit Rest-Delay wiederhergestellt (Clock läuft nach dem Laden weiter)");
 
-            /* Restore-Pipeline (wie World.restorePendingScheduledTicks): Queue -> drainDue feuert. */
+            /* Restore-Pipeline (wie Dimension.restorePendingScheduledTicks): Queue -> drainDue feuert. */
             ScheduledTickQueue queue = new ScheduledTickQueue();
             long now = 1000;
             for (SavedTick tick : restoredTicks) {

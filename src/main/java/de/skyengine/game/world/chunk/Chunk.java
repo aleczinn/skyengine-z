@@ -7,6 +7,7 @@ import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.tick.SavedTick;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -34,7 +35,7 @@ public class Chunk {
     private Map<Integer, BlockEntity> blockEntities;
 
     /* Welt-Entities (fallende Blöcke, gedroppte Items) in diesem Chunk. Lazy; nur READY-Chunks
-       ticken/rendern. Entities, die den Chunk wechseln, werden umgehängt (siehe World.tickEntities). */
+       ticken/rendern. Entities, die den Chunk wechseln, werden umgehängt (siehe Dimension.tickEntities). */
     private List<Entity> entities;
 
     /* Biome-Tint-Eckwerte (33x33, Index cx*33+cz, 0xRRGGBB) — vom Generator in generate()
@@ -68,7 +69,8 @@ public class Chunk {
        erst ab SECTIONS angewendeten Batches ist der Chunk wirklich sichtbar (die LOD-Maske
        wartet darauf, sonst reißt sie Löcher vor dem Upload). Nur der Render-Thread schreibt
        (applyBatch), gelesen wird auf demselben Thread — keine Synchronisation nötig. */
-    private int uploadedSections;
+    private int uploadedSectionMask;
+    private long renderGeneration;
 
     /* Unload-Gate: Chunk liegt außerhalb der Unload-Distanz, wartet aber, bis das LOD
        seine Zelle deckt (symmetrisch zum Lade-Gate der LOD-Maske). Nur Tick-Thread. */
@@ -88,20 +90,20 @@ public class Chunk {
        (Chunk bleibt bis zum fertigen Save in der Map). Tick-Thread setzt, IO-Thread löscht. */
     public volatile boolean saveQueued;
 
-    /* true, sobald World.processReadyChunks den transienten Beobachter-Zustand initialisiert hat.
+    /* true, sobald Dimension.processReadyChunks den transienten Beobachter-Zustand initialisiert hat.
        Redstone-Kanten werden bei späteren READY-Meldungen erneut abgeglichen, dieses Flag
        verhindert dabei ausschließlich ein erneutes Observer-Seeding nach remeshAll. Ein neu
        geladener Chunk ist ein neues Objekt und startet automatisch false. Nur Tick-Thread. */
     public boolean loadSeeded;
 
     /* Beim Unload eines Nachbarn vorgemerkte offene Redstone-Kanten (Direction.faceIndex-Bits).
-       Nicht-READY-Chunks sind noch nicht editierbar; World arbeitet die Maske beim nächsten
+       Nicht-READY-Chunks sind noch nicht editierbar; Dimension arbeitet die Maske beim nächsten
        READY auf dem Tick-Thread ab. Ein neues Chunk-Objekt startet automatisch leer. */
     public int pendingRedstoneBoundaryMask;
 
     /* Schützt die Section-Container (PalettedContainer + sections[]-Allokation) gegen
        gleichzeitige Worker-Mesh-Reads und Render-Thread-Writes. Mesh-Jobs nehmen den
-       Read-Lock, World.setBlockRaw den Write-Lock. */
+       Read-Lock, Dimension.setBlockRaw den Write-Lock. */
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
     public Chunk(int chunkX, int chunkZ) {
@@ -136,6 +138,12 @@ public class Chunk {
      * akzeptierter (nicht veralteter) Batch darf den LOD-Vertrag veraendern.
      */
     public boolean tryApplyMeshSection(int sectionY, long meshSeq, int[] boundaryFaces) {
+        return this.tryApplyMeshSection(this.renderGeneration, sectionY, meshSeq, boundaryFaces);
+    }
+
+    /** Rejects uploads produced for a DimensionView that has already been destroyed. */
+    public boolean tryApplyMeshSection(long generation, int sectionY, long meshSeq, int[] boundaryFaces) {
+        if (generation != this.renderGeneration) return false;
         if (!this.tryApplyMeshSeq(sectionY, meshSeq)) return false;
         int[] published = boundaryFaces == null
                 ? new int[4 * ChunkSection.SIZE]
@@ -161,13 +169,28 @@ public class Chunk {
     }
 
     /** Renderer meldet einen angewendeten Section-Upload (Remesh-Batches sättigen harmlos). */
-    public void markSectionUploaded() {
-        this.uploadedSections++;
+    void beginRenderGeneration(long generation) {
+        this.renderGeneration = generation;
+        this.uploadedSectionMask = 0;
+        Arrays.fill(this.appliedMeshSeq, 0L);
+        for (int section = 0; section < SECTIONS; section++) {
+            this.renderedBoundaryFaces.set(section, null);
+        }
+        this.boundaryMeshRevision.incrementAndGet();
+    }
+
+    void endRenderGeneration(long generation) {
+        if (generation == this.renderGeneration) this.uploadedSectionMask = 0;
+    }
+
+    public void markSectionUploaded(long generation, int sectionY) {
+        if (generation != this.renderGeneration || sectionY < 0 || sectionY >= SECTIONS) return;
+        this.uploadedSectionMask |= 1 << sectionY;
     }
 
     /** true, sobald alle 16 Initial-Section-Meshes vom Renderer angewendet wurden. */
     public boolean isFullyUploaded() {
-        return this.uploadedSections >= SECTIONS;
+        return this.uploadedSectionMask == (1 << SECTIONS) - 1;
     }
 
     /**
@@ -284,7 +307,7 @@ public class Chunk {
     }
 
     /* Announce „dieser Chunk bringt gespeicherte Scheduled-Ticks mit": der Load-Worker
-       (ChunkSerializer.deserialize) meldet den Chunk an, World.restorePendingScheduledTicks
+       (ChunkSerializer.deserialize) meldet den Chunk an, Dimension.restorePendingScheduledTicks
        pollt nur noch die Queue statt jeden Tick alle Chunks zu scannen. Vom ChunkManager
        beim Anlegen gesetzt; null in Tools/Tests. */
     ConcurrentLinkedQueue<Chunk> tickRestoreQueue;
@@ -350,6 +373,12 @@ public class Chunk {
     public DirtySections consumeDirtySections() {
         int state = this.dirtySections.getAndSet(0);
         return new DirtySections(state & ~PLAYER_DIRTY_BIT, (state & PLAYER_DIRTY_BIT) != 0);
+    }
+
+    /** A full view rebuild supersedes every queued partial remesh. */
+    void discardDirtySectionsForFullRemesh() {
+        this.dirtySections.set(0);
+        this.remeshEnqueued.set(false);
     }
 
     /** Markiert eine persistente Mutation. Nur der Tick-/Render-Thread darf diese Methode aufrufen. */

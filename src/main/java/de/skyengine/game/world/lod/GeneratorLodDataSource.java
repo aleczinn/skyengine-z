@@ -8,7 +8,7 @@ import de.skyengine.game.world.generator.WorldGenerator;
  *
  * <p><b>Aktuell nicht verdrahtet</b> — die Engine nutzt {@link WorldLodDataSource}
  * (nah: echte Chunkdaten, fern: Generator). Bewusst behalten als rein generatorbasierte
- * Quelle für GL-freie Werkzeuge/Debug; NICHT versehentlich in World.init einsetzen.
+ * Quelle für GL-freie Werkzeuge/Debug; NICHT versehentlich in Dimension.init einsetzen.
  */
 public final class GeneratorLodDataSource implements LodDataSource {
 
