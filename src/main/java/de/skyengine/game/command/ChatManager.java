@@ -18,6 +18,9 @@ public final class ChatManager {
         this.register(new GiveCommand());
         this.register(new DimensionCommand());
         this.register(new StructureCommand());
+        for (String name : List.of("wand", "rotate", "flip", "preview", "paste", "undo", "redo")) {
+            this.register(new WorldEditCommand(name));
+        }
     }
 
     /** Zentraler Erweiterungspunkt fuer spaetere Engine- oder Mod-Befehle. */

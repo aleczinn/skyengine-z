@@ -644,7 +644,8 @@
       "lava_bucket": "Lavaeimer",
       "flint_and_steel": "Feuerzeug",
       "item_frame": "Gegenstandsrahmen",
-      "minecart": "Lore"
+      "minecart": "Lore",
+      "structure_wand": "Debug-Stick"
     }
   }
 }

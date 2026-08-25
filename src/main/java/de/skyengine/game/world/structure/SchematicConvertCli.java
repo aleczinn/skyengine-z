@@ -35,14 +35,16 @@ public final class SchematicConvertCli {
                     ? GameDirectory.resolve("bin/structures").toPath().toAbsolutePath().normalize()
                     : options.output.toAbsolutePath().normalize();
             Files.createDirectories(output);
-            SchematicImporter importer = SchematicImporter.createDefault();
+            de.skyengine.mcimport.mapping.BlockMapper mapper = de.skyengine.mcimport.mapping.BlockMapper.loadDefault();
+            SchematicImporter importer = new SchematicImporter(mapper);
+            LegacySchematicImporter legacyImporter = new LegacySchematicImporter(mapper);
             if (mode == Mode.CONVERT) {
                 if (options.id == null) throw new IllegalArgumentException("Einzelimport benoetigt --id=<namespace:path>");
-                convert(input, options.id, output, options, importer, out);
+                convert(input, options.id, output, options, importer, legacyImporter, out);
                 return 0;
             }
             if (options.id != null) throw new IllegalArgumentException("--id ist nur bei convert erlaubt");
-            return batch(input, output, options, importer, out, err);
+            return batch(input, output, options, importer, legacyImporter, out, err);
         } catch (IllegalArgumentException e) {
             err.println("Argumentfehler:");
             err.println("  " + e.getMessage());
@@ -56,27 +58,28 @@ public final class SchematicConvertCli {
     }
 
     private static int batch(Path input, Path output, Options options, SchematicImporter importer,
+                             LegacySchematicImporter legacyImporter,
                              PrintStream out, PrintStream err) throws Exception {
         if (!Files.isDirectory(input)) throw new IllegalArgumentException("Batch-Quelle ist kein Ordner: " + input);
         List<Path> files;
         try (var walk = Files.walk(input)) {
             files = walk.filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".schem"))
+                    .filter(SchematicConvertCli::isSchematic)
                     .sorted(Comparator.comparing(Path::toString)).toList();
         }
         if (files.isEmpty()) {
-            out.println("Keine .schem-Dateien gefunden: " + input);
+            out.println("Keine .schem- oder .schematic-Dateien gefunden: " + input);
             return 0;
         }
         int converted = 0, failed = 0;
         for (Path source : files) {
             String relative = input.relativize(source).toString().replace('\\', '/');
-            relative = relative.substring(0, relative.length() - ".schem".length());
+            relative = stripSchematicExtension(relative);
             String path = normalizePath(relative);
             if (!options.prefix.isBlank()) path = options.prefix + "/" + path;
             Identifier id = new Identifier(options.namespace, path);
             try {
-                convert(source, id, output, options, importer, out);
+                convert(source, id, output, options, importer, legacyImporter, out);
                 converted++;
             } catch (Exception e) {
                 failed++;
@@ -89,10 +92,15 @@ public final class SchematicConvertCli {
     }
 
     private static void convert(Path input, Identifier id, Path output, Options options,
-                                SchematicImporter importer, PrintStream out) throws Exception {
+                                SchematicImporter importer, LegacySchematicImporter legacyImporter,
+                                PrintStream out) throws Exception {
         if (!Files.isRegularFile(input)) throw new IllegalArgumentException("Schematic nicht gefunden: " + input);
-        SchematicImporter.Result result = importer.importFile(input, id,
-                new SchematicImporter.Options(options.includeAir, SchematicImporter.UnknownBlocks.ERROR));
+        SchematicImporter.Options importOptions = new SchematicImporter.Options(options.includeAir,
+                SchematicImporter.UnknownBlocks.ERROR);
+        SchematicImporter.Result result = input.getFileName().toString().toLowerCase(Locale.ROOT)
+                .endsWith(".schematic")
+                ? legacyImporter.importFile(input, id, importOptions)
+                : importer.importFile(input, id, importOptions);
         Path target = output.resolve(id.path() + ".structure").normalize();
         if (!target.startsWith(output)) throw new IllegalArgumentException("Structure-ID verlaesst den Ausgabeordner: " + id);
         if (Files.isRegularFile(target)) {
@@ -120,9 +128,20 @@ public final class SchematicConvertCli {
         return normalized;
     }
 
+    private static boolean isSchematic(Path path) {
+        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return name.endsWith(".schem") || name.endsWith(".schematic");
+    }
+
+    private static String stripSchematicExtension(String path) {
+        String lower = path.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".schematic")) return path.substring(0, path.length() - ".schematic".length());
+        return path.substring(0, path.length() - ".schem".length());
+    }
+
     private static void usage(PrintStream stream) {
         stream.println("Verwendung:");
-        stream.println("  schematicConvert convert <input.schem> --id=<namespace:path> [Optionen]");
+        stream.println("  schematicConvert convert <input.schem|input.schematic> --id=<namespace:path> [Optionen]");
         stream.println("  schematicConvert batch <input-ordner> [--namespace=skyengine] [--prefix=pfad] [Optionen]");
         stream.println("Optionen: --output=<ordner> --air=ignore|include --overwrite");
     }

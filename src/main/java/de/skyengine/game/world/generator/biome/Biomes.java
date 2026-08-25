@@ -35,11 +35,11 @@ public final class Biomes {
             0F, Biome.NO_TREES, 0F, Biome.NO_PLANTS);
     public static final Biome CARIBBEAN_BEACH = new Biome(2, "caribbean_beach",
             Blocks.SAND, Blocks.SANDSTONE, 0x64C93F, 0x30BB0B, 0x2FD5C8,
-            0.25F, new TreeEntry[]{new TreeEntry(1, TreeShapes.PALM)},
+            0.25F, new TreeEntry[]{new TreeEntry(1, "palm", TreeShapes.PALM)},
             0F, Biome.NO_PLANTS);
     public static final Biome PLAINS = new Biome(3, "plains",
             Blocks.GRASS_BLOCK, Blocks.DIRT, 0x91BD59, 0x77AB2F, 0x8DB360,
-            0.04F, new TreeEntry[]{new TreeEntry(4, TreeShapes.OAK), new TreeEntry(1, TreeShapes.BIRCH)},
+            0.04F, new TreeEntry[]{new TreeEntry(4, "oak", TreeShapes.OAK), new TreeEntry(1, "birch", TreeShapes.BIRCH)},
             0.40F, new PlantEntry[]{new PlantEntry(70, Blocks.SHORT_GRASS), new PlantEntry(12, Blocks.TALL_GRASS),
                     new PlantEntry(5, Blocks.POPPY), new PlantEntry(5, Blocks.DANDELION),
                     new PlantEntry(3, Blocks.ORANGE_TULIP)});
@@ -49,20 +49,20 @@ public final class Biomes {
             0.015F, new PlantEntry[]{new PlantEntry(1, Blocks.DEAD_BUSH)});
     public static final Biome JUNGLE = new Biome(5, "jungle",
             Blocks.GRASS_BLOCK, Blocks.DIRT, 0x59C93C, 0x30BB0B, 0x537B09,
-            0.65F, new TreeEntry[]{new TreeEntry(4, TreeShapes.JUNGLE), new TreeEntry(1, TreeShapes.OAK)},
+            0.65F, new TreeEntry[]{new TreeEntry(4, "jungle", TreeShapes.JUNGLE), new TreeEntry(1, "oak", TreeShapes.OAK)},
             0.55F, new PlantEntry[]{new PlantEntry(45, Blocks.SHORT_GRASS), new PlantEntry(30, Blocks.FERN),
                     new PlantEntry(25, Blocks.TALL_GRASS)});
     public static final Biome SPRUCE_FOREST = new Biome(6, "spruce_forest",
             Blocks.GRASS_BLOCK, Blocks.DIRT, 0x86B783, 0x68A464, 0x0B6659,
-            0.45F, new TreeEntry[]{new TreeEntry(1, TreeShapes.SPRUCE)},
+            0.45F, new TreeEntry[]{new TreeEntry(1, "spruce", TreeShapes.SPRUCE)},
             0.28F, new PlantEntry[]{new PlantEntry(60, Blocks.SHORT_GRASS), new PlantEntry(40, Blocks.FERN)});
     public static final Biome REDWOOD_FOREST = new Biome(7, "redwood_forest",
             Blocks.GRASS_BLOCK, Blocks.DIRT, 0x86B87F, 0x68A55F, 0x8B4513,
-            0.22F, new TreeEntry[]{new TreeEntry(3, TreeShapes.REDWOOD), new TreeEntry(1, TreeShapes.SPRUCE)},
+            0.22F, new TreeEntry[]{new TreeEntry(3, "redwood", TreeShapes.REDWOOD), new TreeEntry(1, "spruce", TreeShapes.SPRUCE)},
             0.30F, new PlantEntry[]{new PlantEntry(55, Blocks.FERN), new PlantEntry(45, Blocks.SHORT_GRASS)});
     public static final Biome EXTREME_HILLS = new Biome(8, "extreme_hills",
             Blocks.GRASS_BLOCK, Blocks.DIRT, 0x8AB689, 0x6DA36B, 0x606060,
-            0.08F, new TreeEntry[]{new TreeEntry(2, TreeShapes.SPRUCE), new TreeEntry(1, TreeShapes.OAK)},
+            0.08F, new TreeEntry[]{new TreeEntry(2, "spruce", TreeShapes.SPRUCE), new TreeEntry(1, "oak", TreeShapes.OAK)},
             0.20F, new PlantEntry[]{new PlantEntry(1, Blocks.SHORT_GRASS)});
     public static final Biome NETHER_WASTES = new Biome(9, "nether_wastes",
             Blocks.NETHERRACK, Blocks.NETHERRACK, 0x8B6B4A, 0x75533A, 0x330808,

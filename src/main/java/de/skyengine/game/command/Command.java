@@ -5,6 +5,9 @@ import java.util.List;
 /** Erweiterungspunkt fuer einen Chat-Befehl. Argumente enthalten den Befehlsnamen nicht. */
 public interface Command {
 
+    /** Befehls-Namespace; normale Spielbefehle nutzen '/', Editorbefehle '//'. */
+    default String prefix() { return "/"; }
+
     String name();
 
     /** Argument-Signatur fuer die graue Eingabevorschau, z.B. {@code <item> [amount]}. */

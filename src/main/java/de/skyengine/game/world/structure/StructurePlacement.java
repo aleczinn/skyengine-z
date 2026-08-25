@@ -21,6 +21,64 @@ public final class StructurePlacement {
         public boolean complete() { return failed == 0; }
     }
 
+    /** Vorab vollstaendig validierter, atomar anwendbarer Editor-Write. */
+    public record Plan(long[] positions, int[] before, int[] after, int count, int skipped) {}
+
+    public Plan prepareInWorld(StructureTemplate template, Dimension dimension,
+                               int x, int y, int z, StructureTransform transform, Rule rule) {
+        long[] positions = new long[template.cells().size()];
+        int[] before = new int[positions.length];
+        int[] after = new int[positions.length];
+        int requested = 0, skipped = 0;
+        for (StructureTemplate.Cell cell : template.cells()) {
+            BlockState state = transform.state(Blocks.getState(cell.state()));
+            if (rule == Rule.KEEP_EXISTING && state.getId() == Blocks.AIR) { skipped++; continue; }
+            int relX = cell.x() - template.anchorX(), relZ = cell.z() - template.anchorZ();
+            int wx = x + transform.transformedX(relX, relZ);
+            int wy = y + cell.y() - template.anchorY();
+            int wz = z + transform.transformedZ(relX, relZ);
+            if (!dimension.isPositionEditable(wx, wy, wz)) {
+                throw new IllegalStateException("Zielposition liegt nicht in einem READY-Chunk: "
+                        + wx + ' ' + wy + ' ' + wz);
+            }
+            int existing = dimension.getBlock(wx, wy, wz);
+            if (rule == Rule.KEEP_EXISTING && existing != Blocks.AIR) { skipped++; continue; }
+            if (existing == state.getId()) { skipped++; continue; }
+            positions[requested] = BlockPos.asLong(wx, wy, wz);
+            before[requested] = existing;
+            after[requested] = state.getId();
+            requested++;
+        }
+        return new Plan(java.util.Arrays.copyOf(positions, requested),
+                java.util.Arrays.copyOf(before, requested), java.util.Arrays.copyOf(after, requested),
+                requested, skipped);
+    }
+
+    public Result applyPlan(Dimension dimension, Plan plan, boolean forward) {
+        for (int i = 0; i < plan.count(); i++) {
+            int x = BlockPos.unpackX(plan.positions()[i]);
+            int y = BlockPos.unpackY(plan.positions()[i]);
+            int z = BlockPos.unpackZ(plan.positions()[i]);
+            if (!dimension.isPositionEditable(x, y, z)) {
+                throw new IllegalStateException("Zielposition liegt nicht mehr in einem READY-Chunk: "
+                        + x + ' ' + y + ' ' + z);
+            }
+        }
+        int[] states = forward ? plan.after() : plan.before();
+        final int[] changed = {0};
+        dimension.runPlayerBlockChange(() -> {
+            changed[0] = dimension.setBlocksBatch(plan.positions(), states, plan.count());
+            return true;
+        });
+        for (int i = 0; i < plan.count(); i++) {
+            int wx = BlockPos.unpackX(plan.positions()[i]);
+            int wy = BlockPos.unpackY(plan.positions()[i]);
+            int wz = BlockPos.unpackZ(plan.positions()[i]);
+            if (dimension.getBlock(wx, wy, wz) == states[i]) dimension.updateNeighbors(wx, wy, wz);
+        }
+        return new Result(changed[0], plan.skipped(), plan.count() - changed[0]);
+    }
+
     public Result place(StructureTemplate template, int anchorX, int anchorY, int anchorZ,
                         StructureTransform transform, Rule rule, Writer writer) {
         int written = 0, skipped = 0, failed = 0;
@@ -42,38 +100,7 @@ public final class StructurePlacement {
 
     public Result placeInWorld(StructureTemplate template, Dimension dimension,
                                int x, int y, int z, StructureTransform transform, Rule rule) {
-        long[] positions = new long[template.cells().size()];
-        int[] states = new int[template.cells().size()];
-        int requested = 0, skipped = 0, unchanged = 0;
-        for (StructureTemplate.Cell cell : template.cells()) {
-            BlockState state = transform.state(Blocks.getState(cell.state()));
-            if (rule == Rule.KEEP_EXISTING && state.getId() == Blocks.AIR) { skipped++; continue; }
-            int relX = cell.x() - template.anchorX(), relZ = cell.z() - template.anchorZ();
-            int wx = x + transform.transformedX(relX, relZ);
-            int wy = y + cell.y() - template.anchorY();
-            int wz = z + transform.transformedZ(relX, relZ);
-            int existing = dimension.getBlock(wx, wy, wz);
-            if (rule == Rule.KEEP_EXISTING && existing != Blocks.AIR) { skipped++; continue; }
-            if (existing == state.getId()) { unchanged++; continue; }
-            positions[requested] = BlockPos.asLong(wx, wy, wz);
-            states[requested] = state.getId();
-            requested++;
-        }
-        final int writeCount = requested;
-        final int[] changed = {0};
-        dimension.runPlayerBlockChange(() -> {
-            changed[0] = dimension.setBlocksBatch(positions, states, writeCount);
-            return true;
-        });
-        Result result = new Result(changed[0] + unchanged, skipped, requested - changed[0]);
-        /* Erst wenn alle Zellen sichtbar sind, Verbindungen/Shapes nachziehen. So sehen Tore,
-           Zaeune und Treppen beim Update bereits ihre komplette Struktur. */
-        for (int i = 0; i < requested; i++) {
-            int wx = BlockPos.unpackX(positions[i]), wy = BlockPos.unpackY(positions[i]),
-                    wz = BlockPos.unpackZ(positions[i]);
-            if (dimension.getBlock(wx, wy, wz) == states[i]) dimension.updateNeighbors(wx, wy, wz);
-        }
-        return result;
+        return applyPlan(dimension, prepareInWorld(template, dimension, x, y, z, transform, rule), true);
     }
 
     public Result placeInFeature(StructureTemplate template, FeatureContext context,

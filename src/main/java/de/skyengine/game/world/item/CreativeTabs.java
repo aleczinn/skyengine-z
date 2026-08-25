@@ -245,6 +245,7 @@ public final class CreativeTabs {
         List<String> unknownTabs = new ArrayList<>();
 
         for (Item item : Registries.ITEM.values()) {
+            if (Items.isCommandOnly(item.getId())) continue;
             ALL.add(item);
             boolean placed = false;
             for (String tabId : PENDING.getOrDefault(item.getId(), List.of())) {
@@ -348,6 +349,7 @@ public final class CreativeTabs {
         /* Sicherheitsnetz: aus der Suche darf nichts verschwinden, auch wenn ein Item wider
            Erwarten in keinem Reiter landet. */
         for (Item item : Registries.ITEM.values()) {
+            if (Items.isCommandOnly(item.getId())) continue;
             if (listed.add(item.getId())) ALL.add(item);
         }
 

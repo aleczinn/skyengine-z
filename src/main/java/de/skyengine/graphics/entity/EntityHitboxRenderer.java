@@ -60,11 +60,17 @@ public final class EntityHitboxRenderer {
         GL30.glBindVertexArray(this.vao);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
         boolean blendWasEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
+        boolean depthWasEnabled = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+        boolean depthWriteWasEnabled = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
         GL11.glEnable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glDepthMask(false);
 
         this.draw(this.boxes, this.boxCount, 1.0F, 1.0F, 1.0F, 0.85F);
         this.draw(this.directions, this.directionCount, 0.1F, 0.25F, 1.0F, 1.0F);
 
+        GL11.glDepthMask(depthWriteWasEnabled);
+        if (depthWasEnabled) GL11.glEnable(GL11.GL_DEPTH_TEST);
         if (!blendWasEnabled) GL11.glDisable(GL11.GL_BLEND);
         this.shader.unbind();
     }

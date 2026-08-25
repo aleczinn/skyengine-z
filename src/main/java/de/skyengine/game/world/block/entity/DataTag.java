@@ -45,4 +45,14 @@ public final class DataTag {
 
     public boolean isEmpty() { return values.isEmpty(); }
     public Map<String, Object> raw() { return values; }
+
+    /** Tiefe Kopie fuer transaktionale Editor-Snapshots. */
+    public DataTag copy() {
+        DataTag copy = new DataTag();
+        for (Map.Entry<String, Object> entry : this.values.entrySet()) {
+            Object value = entry.getValue();
+            copy.values.put(entry.getKey(), value instanceof DataTag nested ? nested.copy() : value);
+        }
+        return copy;
+    }
 }

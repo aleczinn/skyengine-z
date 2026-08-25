@@ -23,10 +23,10 @@ import java.util.Comparator;
 public final class BiomeTreeFeature implements Feature {
 
     private static final int MAX_ATTEMPTS = 8;
-    private static final String SPRUCE_TEMPLATE_PREFIX = "trees/spruce/";
     private static final StructurePlacement TEMPLATE_PLACEMENT = new StructurePlacement();
     private final StructureTemplateManager.Snapshot structures;
-    private volatile StructureTemplate[] spruceTemplates;
+    private final java.util.concurrent.ConcurrentHashMap<String, StructureTemplate[]> templateCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     public BiomeTreeFeature() { this(null); }
 
@@ -64,13 +64,16 @@ public final class BiomeTreeFeature implements Feature {
                 continue;
             }
 
-            TreeShape shape = TreeShapes.pick(biome.trees, rng);
+            Biome.TreeEntry tree = TreeShapes.pick(biome.trees, rng);
+            TreeShape shape = tree.shape();
             int baseY = placer.surfaceHeight(x, z) + 1;
             placer.markLodSupport(x, baseY, z);
-            /* Grosse native Vorlagen bleiben selten, damit der dichte Fichtenwald nicht aus
-               mehreren 50-Block-Baeumen pro Chunk besteht. Auswahl/Rotation sind deterministisch. */
-            if (shape == TreeShapes.SPRUCE && rng.nextInt(8) == 0) {
-                StructureTemplate[] templates = spruceTemplates();
+            de.skyengine.game.world.structure.TreeTemplateCatalog.Group group = this.structures == null
+                    ? null : this.structures.treeCatalog().group(tree.type());
+            boolean useTemplate = group != null && rng.nextInt(group.templateWeight() + group.proceduralWeight())
+                    < group.templateWeight();
+            if (useTemplate) {
+                StructureTemplate[] templates = templates(tree.type(), group.folder());
                 if (templates.length > 0) {
                     StructureTemplate template = templates[rng.nextInt(templates.length)];
                     StructureTransform.Rotation rotation = StructureTransform.Rotation.values()[rng.nextInt(4)];
@@ -86,18 +89,11 @@ public final class BiomeTreeFeature implements Feature {
         }
     }
 
-    private StructureTemplate[] spruceTemplates() {
-        StructureTemplate[] result = this.spruceTemplates;
-        if (result != null) return result;
-        synchronized (this) {
-            if (this.spruceTemplates != null) return this.spruceTemplates;
-            if (this.structures == null) result = new StructureTemplate[0];
-            else result = this.structures.ids().stream()
-                    .filter(id -> id.path().startsWith(SPRUCE_TEMPLATE_PREFIX))
-                    .sorted(Comparator.comparing(Identifier::toString))
-                    .map(this.structures::get)
-                    .toArray(StructureTemplate[]::new);
-            return this.spruceTemplates = result;
-        }
+    private StructureTemplate[] templates(String type, String prefix) {
+        return this.templateCache.computeIfAbsent(type, ignored -> this.structures.ids().stream()
+                .filter(id -> id.path().startsWith(prefix))
+                .sorted(Comparator.comparing(Identifier::toString))
+                .map(this.structures::get)
+                .toArray(StructureTemplate[]::new));
     }
 }

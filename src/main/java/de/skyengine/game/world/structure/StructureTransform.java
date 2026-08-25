@@ -14,6 +14,24 @@ public record StructureTransform(Rotation rotation, Mirror mirror) {
     public enum Mirror { NONE, LEFT_RIGHT, FRONT_BACK }
     public static final StructureTransform IDENTITY = new StructureTransform(Rotation.NONE, Mirror.NONE);
 
+    /** Komponiert die acht verlustfreien D4-Transformationen: erst {@code this}, dann {@code next}. */
+    public StructureTransform then(StructureTransform next) {
+        int exX = next.transformedX(transformedX(1, 0), transformedZ(1, 0));
+        int exZ = next.transformedZ(transformedX(1, 0), transformedZ(1, 0));
+        int ezX = next.transformedX(transformedX(0, 1), transformedZ(0, 1));
+        int ezZ = next.transformedZ(transformedX(0, 1), transformedZ(0, 1));
+        for (Rotation rotation : Rotation.values()) {
+            for (Mirror mirror : Mirror.values()) {
+                StructureTransform candidate = new StructureTransform(rotation, mirror);
+                if (candidate.transformedX(1, 0) == exX && candidate.transformedZ(1, 0) == exZ
+                        && candidate.transformedX(0, 1) == ezX && candidate.transformedZ(0, 1) == ezZ) {
+                    return candidate;
+                }
+            }
+        }
+        throw new IllegalStateException("Structure-Transformation nicht darstellbar");
+    }
+
     public int transformedX(int x, int z) {
         int mx = mirror == Mirror.FRONT_BACK ? -x : x;
         int mz = mirror == Mirror.LEFT_RIGHT ? -z : z;

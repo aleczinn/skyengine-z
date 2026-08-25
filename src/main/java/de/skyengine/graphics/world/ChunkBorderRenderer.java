@@ -1,6 +1,5 @@
 package de.skyengine.graphics.world;
 
-import de.skyengine.core.EngineProperties;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
@@ -71,9 +70,12 @@ public class ChunkBorderRenderer {
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
         GL11.glEnable(GL11.GL_BLEND);
 
-        /* Reversed-Z wie SelectionBox: or-equal-Depth-Func, Tiefen-Bias im Vertex-Shader. */
-        EngineProperties properties = SkyEngine.get().getWindow().getProperties();
-        GL11.glDepthFunc(properties.orEqualDepthFunc());
+        /* Debug-Grenzen bleiben auch hinter Terrain und Wasser sichtbar, verändern den
+           Tiefenpuffer aber nicht für die anschließend gerenderte Hand und Overlays. */
+        boolean depthWasEnabled = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+        boolean depthWriteWasEnabled = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glDepthMask(false);
 
         int size = ChunkSection.SIZE;
 
@@ -108,7 +110,8 @@ public class ChunkBorderRenderer {
             if (this.count > 0) draw(0.2F, 0.9F, 0.9F);
         }
 
-        GL11.glDepthFunc(properties.baseDepthFunc());
+        GL11.glDepthMask(depthWriteWasEnabled);
+        if (depthWasEnabled) GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glDisable(GL11.GL_BLEND);
         this.shader.unbind();
     }
@@ -125,13 +128,16 @@ public class ChunkBorderRenderer {
         GL30.glBindVertexArray(this.vao);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
         GL11.glEnable(GL11.GL_BLEND);
-        EngineProperties properties = SkyEngine.get().getWindow().getProperties();
-        GL11.glDepthFunc(properties.orEqualDepthFunc());
+        boolean depthWasEnabled = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+        boolean depthWriteWasEnabled = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glDepthMask(false);
         this.count = 0;
         box(cam, bounds.minX(), bounds.minY(), bounds.minZ(), bounds.maxX() + 1,
                 bounds.maxY() + 1, bounds.maxZ() + 1);
         draw(r, g, b);
-        GL11.glDepthFunc(properties.baseDepthFunc());
+        GL11.glDepthMask(depthWriteWasEnabled);
+        if (depthWasEnabled) GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glDisable(GL11.GL_BLEND);
         this.shader.unbind();
     }

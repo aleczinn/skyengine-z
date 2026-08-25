@@ -103,11 +103,13 @@ import de.skyengine.game.world.structure.StructurePlacement;
 import de.skyengine.game.world.structure.StructureTemplate;
 import de.skyengine.game.world.structure.StructureTransform;
 import de.skyengine.game.world.structure.StructureSelection;
+import de.skyengine.game.world.structure.StructureEditorSession;
 import org.lwjgl.opengl.GL11;
 import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.graphics.world.ChunkBorderRenderer;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.graphics.world.DimensionView;
+import de.skyengine.graphics.world.StructurePreviewRenderer;
 import de.skyengine.graphics.entity.EntityHitboxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
@@ -136,6 +138,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private ChunkBorderRenderer chunkBorderRenderer;
     private EntityHitboxRenderer entityHitboxRenderer;
     private CrackRenderer crackRenderer;
+    private StructurePreviewRenderer structurePreviewRenderer;
     private GuiManager guiManager;
 
     /* Welt-unabhängige Engine-Ressourcen (Boot-Init, leben bis zum Exit): Welt-Ein-/Austritte
@@ -262,6 +265,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.chunkBorderRenderer = new ChunkBorderRenderer();
         this.entityHitboxRenderer = new EntityHitboxRenderer();
         this.crackRenderer = new CrackRenderer();
+        this.structurePreviewRenderer = new StructurePreviewRenderer();
     }
 
     /**
@@ -291,6 +295,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.chunkBorderRenderer.init();
         this.entityHitboxRenderer.init();
         this.crackRenderer.init(this.atlas.textures());
+        this.structurePreviewRenderer.init(this.atlas.textures());
         this.blockEntityRenderers.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderers.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
         this.blockEntityRenderers.register(BlockEntities.PISTON_MOVING,
@@ -1185,20 +1190,21 @@ public class GameContainer implements IResizeable, IDisposable {
                     ccx, ccz, DebugFlags.chunkBorders);
         }
 
-        /* Authoring-Boxen sind absichtlich immer sichtbar: gruen = Auswahl, violett = letzter Paste. */
+        /* Auswahl nur mit Debug-Stick; Preview bleibt unabhaengig davon sichtbar. */
         if (this.world() != null && this.dimension() != null) {
-            var authoring = this.world().structureAuthoring();
-            StructureSelection selection = authoring.selection();
-            if (selection != null && selection.complete()
+            StructureEditorSession editor = this.world().structureAuthoring().session(this.player().getUuid());
+            StructureSelection selection = editor.selection();
+            if (this.isStructureWandHeld() && selection != null && selection.complete()
                     && selection.dimension().equals(this.dimension().getDimensionId())) {
                 this.chunkBorderRenderer.renderBox(this.camera, selection.bounds(), 0.2F, 0.95F, 0.35F);
-                var anchor = selection.effectiveAnchor();
-                this.chunkBorderRenderer.renderBox(this.camera,
-                        new de.skyengine.game.world.structure.StructureBounds(anchor.x(), anchor.y(), anchor.z(),
-                                anchor.x(), anchor.y(), anchor.z()), 1F, 0.8F, 0.15F);
             }
-            if (this.dimension().getDimensionId().equals(authoring.previewDimension())) {
-                this.chunkBorderRenderer.renderBox(this.camera, authoring.previewBounds(), 0.75F, 0.25F, 0.95F);
+            StructureEditorSession.Preview preview = editor.preview();
+            if (preview != null && this.dimension().getDimensionId().equals(preview.dimension())) {
+                this.structurePreviewRenderer.render(this.camera, preview);
+                this.chunkBorderRenderer.renderBox(this.camera, preview.bounds(), 0.75F, 0.25F, 0.95F);
+                this.chunkBorderRenderer.renderBox(this.camera,
+                        new de.skyengine.game.world.structure.StructureBounds(preview.x(), preview.y(), preview.z(),
+                                preview.x(), preview.y(), preview.z()), 0.15F, 0.9F, 1F);
             }
         }
 
@@ -1488,6 +1494,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.chunkBorderRenderer != null) this.chunkBorderRenderer.dispose();
         if (this.entityHitboxRenderer != null) this.entityHitboxRenderer.dispose();
         if (this.crackRenderer != null) this.crackRenderer.dispose();
+        if (this.structurePreviewRenderer != null) this.structurePreviewRenderer.dispose();
         this.playerRenderer.dispose();
         this.heldItemMeshes.dispose();
         if (this.guiManager != null) this.guiManager.dispose();
@@ -1734,7 +1741,10 @@ public class GameContainer implements IResizeable, IDisposable {
             }
         }
 
-        if (input.isBindDown(this.settings.key(KeyBindings.USE)) && this.rightClickDelay == 0 && !usingItem) {
+        /* Der Debug-Stick setzt Position 2 nur auf der Klickflanke. Der normale Haltepfad
+           würde den Befehl sonst alle RIGHT_CLICK_DELAY Ticks erneut auslösen. */
+        if (input.isBindDown(this.settings.key(KeyBindings.USE)) && this.rightClickDelay == 0
+                && !usingItem && !this.isStructureWandHeld()) {
             this.startUseItem();
         }
 
@@ -1748,6 +1758,11 @@ public class GameContainer implements IResizeable, IDisposable {
     private void dropSelectedItem(boolean fullStack) {
         ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         if (held.isEmpty()) return;
+        if (this.isStructureWandHeld()) {
+            this.clearStructureSelection();
+            this.stopDestroyBlock();
+            return;
+        }
         int amount = fullStack ? held.getCount() : 1;
         this.dimension().throwItem(this.player(), this.player().getInventory().extract(this.player().getSelectedSlot(), amount));
         this.animState.swing();
@@ -1764,6 +1779,13 @@ public class GameContainer implements IResizeable, IDisposable {
         this.animState.swing();
     }
 
+    /** Q mit dem Debug-Stick entfernt die Auswahl, ohne Clipboard oder Preview anzutasten. */
+    public void clearStructureSelection() {
+        if (this.world() == null || this.player() == null) return;
+        this.world().structureAuthoring().session(this.player().getUuid()).clearSelection();
+        this.chat.addMessage("§eStructure-Auswahl entfernt");
+    }
+
     /** MC {@code MultiPlayerGameMode.hasMissTime}: im Creative gibt es keine Schlagsperre. */
     private boolean hasMissTime() {
         return this.player().getGamemode() != Gamemode.CREATIVE;
@@ -1776,6 +1798,15 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     private boolean startAttack() {
         if (this.missTime > 0) return false;
+
+        if (this.isStructureWandHeld() && this.hit != null) {
+            this.world().structureAuthoring().session(this.player().getUuid()).pos1(
+                    this.dimension().getDimensionId(), this.hit.x(), this.hit.y(), this.hit.z());
+            this.chat.addMessage("§aPosition 1 gesetzt: " + this.hit.x() + " " + this.hit.y() + " " + this.hit.z());
+            this.stopDestroyBlock();
+            this.animState.swing();
+            return true;
+        }
 
         boolean endAttack = false;
         if (this.minecartHit != null) {
@@ -1810,6 +1841,13 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!down) this.missTime = 0;
         if (this.missTime > 0 || this.animState.isEating()) return;
 
+        /* Position 1 wird ebenfalls nur über die Klickflanke gesetzt. Solange der Debug-Stick
+           gehalten wird, darf der Dauer-Abbau niemals auf den markierten Block durchfallen. */
+        if (this.isStructureWandHeld()) {
+            this.stopDestroyBlock();
+            return;
+        }
+
         if (down && (this.itemFrameHit != null || this.minecartHit != null)) {
             this.stopDestroyBlock();
         } else if (down && this.hit != null) {
@@ -1827,6 +1865,14 @@ public class GameContainer implements IResizeable, IDisposable {
     private void startUseItem() {
         if (this.isDestroying) return;
         this.rightClickDelay = RIGHT_CLICK_DELAY;
+
+        if (this.isStructureWandHeld() && this.hit != null) {
+            this.world().structureAuthoring().session(this.player().getUuid()).pos2(
+                    this.dimension().getDimensionId(), this.hit.x(), this.hit.y(), this.hit.z());
+            this.chat.addMessage("§aPosition 2 gesetzt: " + this.hit.x() + " " + this.hit.y() + " " + this.hit.z());
+            this.animState.swing();
+            return;
+        }
 
         ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         Item beforeItem = held.getItem();
@@ -2376,47 +2422,97 @@ public class GameContainer implements IResizeable, IDisposable {
             private int x() { return (int) Math.floor(GameContainer.this.player().x); }
             private int y() { return (int) Math.floor(GameContainer.this.player().y); }
             private int z() { return (int) Math.floor(GameContainer.this.player().z); }
-            @Override public void pos1() {
-                GameContainer.this.world().structureAuthoring().pos1(GameContainer.this.dimension().getDimensionId(), x(), y(), z());
-            }
-            @Override public void pos2() {
-                GameContainer.this.world().structureAuthoring().pos2(GameContainer.this.dimension().getDimensionId(), x(), y(), z());
+            private StructureEditorSession editor() {
+                return GameContainer.this.world().structureAuthoring().session(GameContainer.this.player().getUuid());
             }
             @Override public void anchor() { anchor(x(), y(), z()); }
             @Override public void anchor(int x, int y, int z) {
-                GameContainer.this.world().structureAuthoring().anchor(
-                        GameContainer.this.dimension().getDimensionId(), x, y, z);
+                editor().anchor(GameContainer.this.dimension().getDimensionId(), x, y, z);
             }
             @Override public void resetAnchor() {
-                GameContainer.this.world().structureAuthoring().resetAnchor(
-                        GameContainer.this.dimension().getDimensionId());
+                editor().resetAnchor(GameContainer.this.dimension().getDimensionId());
             }
-              @Override public StructureTemplate save(String reference, boolean includeAir, boolean overwrite) throws Exception {
-                  return GameContainer.this.world().structureAuthoring().save(GameContainer.this.dimension(), reference, includeAir, overwrite);
-              }
-              @Override public StructureTemplate load(String reference) throws Exception {
-                  StructureTemplate template = GameContainer.this.world().structureAuthoring().load(reference);
-                GameContainer.this.world().structureAuthoring().previewAt(GameContainer.this.dimension().getDimensionId(),
-                        x(), y(), z(), StructureTransform.IDENTITY);
-                return template;
+            @Override public StructureTemplate save(String reference, boolean includeAir, boolean overwrite) throws Exception {
+                return editor().save(GameContainer.this.dimension(), reference, includeAir, overwrite);
             }
-            @Override public StructurePlacement.Result paste(StructureTransform transform,
-                                                              StructurePlacement.Rule rule) {
-                return pasteAt(x(), y(), z(), transform, rule);
+            @Override public StructureTemplate load(String reference) throws Exception {
+                return editor().load(reference);
             }
-            @Override public StructurePlacement.Result pasteAt(int x, int y, int z,
-                                                                StructureTransform transform,
-                                                                StructurePlacement.Rule rule) {
-                return GameContainer.this.world().structureAuthoring().paste(
-                        GameContainer.this.dimension(), x, y, z, transform, rule);
+            @Override public List<String> templates() throws Exception {
+                return GameContainer.this.world().structures().references();
             }
-              @Override public List<String> templates() throws Exception {
-                  return GameContainer.this.world().structures().references();
-              }
+            @Override public String wand() { return GameContainer.this.giveStructureWand(); }
+            @Override public String rotate(int degrees) {
+                return "Structure gedreht: " + editor().rotate(degrees).rotation();
+            }
+            @Override public String flip() {
+                double yaw = Math.toRadians(GameContainer.this.player().yaw);
+                boolean northSouth = Math.abs(Math.cos(yaw)) >= Math.abs(Math.sin(yaw));
+                return "Structure gespiegelt: " + editor().flip(northSouth).mirror();
+            }
+            @Override public String preview(Integer px, Integer py, Integer pz, StructurePlacement.Rule rule) {
+                int tx = px == null ? x() : px, ty = py == null ? y() : py, tz = pz == null ? z() : pz;
+                StructureEditorSession.Preview preview = editor().preview(
+                        GameContainer.this.dimension().getDimensionId(), tx, ty, tz, rule);
+                return "Structure-Vorschau bei " + preview.x() + " " + preview.y() + " " + preview.z();
+            }
+            @Override public void clearPreview() { editor().clearPreview(); }
+            @Override public StructurePlacement.Result paste(Integer px, Integer py, Integer pz,
+                                                               StructurePlacement.Rule rule) {
+                StructureEditorSession.Preview preview = editor().preview();
+                int tx, ty, tz;
+                StructurePlacement.Rule effectiveRule = rule;
+                if (px == null && preview != null
+                        && preview.dimension().equals(GameContainer.this.dimension().getDimensionId())) {
+                    tx = preview.x(); ty = preview.y(); tz = preview.z(); effectiveRule = preview.rule();
+                } else {
+                    tx = px == null ? x() : px; ty = py == null ? y() : py; tz = pz == null ? z() : pz;
+                }
+                return editor().paste(GameContainer.this.dimension(), tx, ty, tz, effectiveRule);
+            }
+            @Override public String undo(int amount) {
+                var result = editor().undo(GameContainer.this.dimension(), amount);
+                return result.operations() == 0 ? "Nichts zum Rueckgaengigmachen"
+                        : result.operations() + " Vorgang/Vorgaenge rueckgaengig (" + result.cells() + " Zellen)";
+            }
+            @Override public String redo(int amount) {
+                var result = editor().redo(GameContainer.this.dimension(), amount);
+                return result.operations() == 0 ? "Nichts zum Wiederholen"
+                        : result.operations() + " Vorgang/Vorgaenge wiederholt (" + result.cells() + " Zellen)";
+            }
         };
         this.guiManager.open(new GuiChat(this.chat,
                 new CommandContext(this.player().getInventory(), dimensions, structures),
                 this.chatHud, initial));
+    }
+
+    private boolean isStructureWandHeld() {
+        if (this.player() == null) return false;
+        ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
+        return !held.isEmpty() && held.getItem() != null
+                && held.getItem().getId().equals(Identifier.of("skyengine:structure_wand"));
+    }
+
+    private String giveStructureWand() {
+        Item wand = Items.get(Identifier.of("skyengine:structure_wand"));
+        if (wand == null) throw new IllegalStateException("Debug-Stick ist nicht registriert");
+        for (int i = 0; i < this.player().getInventory().size(); i++) {
+            ItemStack stack = this.player().getInventory().get(i);
+            if (!stack.isEmpty() && stack.getItem() == wand) {
+                if (i < 9) this.player().setSelectedSlot(i);
+                return "Debug-Stick bereits im Inventar";
+            }
+        }
+        for (int i = 0; i < 9; i++) {
+            if (this.player().getInventory().get(i).isEmpty()) {
+                this.player().getInventory().set(i, new ItemStack(wand, 1));
+                this.player().setSelectedSlot(i);
+                return "Debug-Stick erhalten";
+            }
+        }
+        ItemStack remaining = this.player().getInventory().insert(new ItemStack(wand, 1));
+        if (!remaining.isEmpty()) throw new IllegalStateException("Inventar ist voll");
+        return "Debug-Stick erhalten (Inventar)";
     }
 
     /** Sichtweite der Projektion: mit LOD hinter den äußersten Ring gelegt, sonst wie bisher 1500. */
@@ -2553,6 +2649,7 @@ public class GameContainer implements IResizeable, IDisposable {
 
         progress.frame(I18n.tr("resourcepacks.loading.textures"), 0.35F);
         this.atlas.reload();
+        this.structurePreviewRenderer.invalidate();
 
         /* Renderer mit eigenem Textur-/Modellcache in sicherer Reihenfolge erneuern. */
         progress.frame(I18n.tr("resourcepacks.loading.renderers"), 0.58F);

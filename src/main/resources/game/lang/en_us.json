@@ -636,7 +636,8 @@
       "lava_bucket": "Lava Bucket",
       "flint_and_steel": "Flint and Steel",
       "item_frame": "Item Frame",
-      "minecart": "Minecart"
+      "minecart": "Minecart",
+      "structure_wand": "Debug Stick"
     }
   }
 }

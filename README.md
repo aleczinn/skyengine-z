@@ -65,17 +65,36 @@ Als Texturen wurden die offiziellen Minecraft Texturen aus der 1.21 genutzt. Zus
 
 ## Tools
 
-Ab der 0.0.9 kann man Minecraft Welten in das SkyEngine Format konvertieren. Im Spiel geht das über
-Einzelspieler → „Importieren" (oben rechts): dort stehen die Welten aus `%APPDATA%\.minecraft\saves`
-zur Auswahl, der Import läuft im Hintergrund und zeigt Fortschritt + Log an.
-Ansonsten kann man es mit diesem Befehl nutzen:
+### Minecraft-World-Importer
+
+Minecraft-Welten lassen sich am einfachsten im Spiel über **Einzelspieler → Importieren**
+konvertieren. Dort werden die Welten aus `%APPDATA%\.minecraft\saves` angeboten; Fortschritt und
+Importprotokoll sind direkt in der GUI sichtbar.
+
+Der Kommandozeilen-Importer bleibt für Automatisierung und Entwicklung verfügbar:
 
 ```bash
-./gradlew mcimport --args="'<path_for_minecraft_world>' '<world_name>'"
+# Windows PowerShell
+.\gradlew.bat mcImport --args='"C:\Pfad\.minecraft\saves\MeineWelt" "MeineWelt"'
 
-Beispiel:
-./gradlew mcImport --args="'C:/Users/useerrr/AppData/Roaming/.minecraft/saves/MeineWelt' 'MeineWelt'"
+# Linux/macOS
+./gradlew mcImport --args='"/pfad/.minecraft/saves/MeineWelt" "MeineWelt"'
 ```
+
+### Minecraft-Schematic-Konverter
+
+Sponge-`.schem` und alte WorldEdit-`.schematic`-Dateien sind reine Importformate. Sie werden
+einmalig in das native `.structure`-Format umgewandelt und danach weder zur Laufzeit noch für den
+Worldgen benötigt:
+
+```bash
+.\gradlew.bat schematicConvert --args='convert "C:\schematics\oak.schem" --id=skyengine:trees/oak/oak_1'
+.\gradlew.bat schematicConvert --args='batch "C:\schematics\trees" --namespace=skyengine --prefix=trees'
+```
+
+Ohne `--output` landen die Dateien im globalen Katalog unter
+`%APPDATA%\.voxelstories\bin\structures`. Mit `--overwrite` dürfen vorhandene Ziele ersetzt und
+mit `--air=include` explizite Luftzellen übernommen werden. Standardmäßig wird Luft ignoriert.
 
 ## Shortcuts
 ```
@@ -84,6 +103,22 @@ F3 + G  :  Chunk-Wireframe AN/AUS
 F3 + V  :  Wireframe AN/AUS
 F3 + B  :  Entity Hitboxen anzeigen AN/AUS
 F3 + P  :  Profiler Gui
+```
+
+## Befehle
+```
+/structure load <id>       Struktur in die Bearbeitungssitzung laden
+/structure save <id>       aktuelle Auswahl als .structure speichern
+/structure list [Seite]    verfügbare Strukturen auflisten
+/structure anchor [...]    Anker anzeigen, setzen oder zurücksetzen
+//wand                     exklusiven Debug-Stick erhalten
+//rotate <90|180|270>      geladene Struktur relativ rotieren
+//flip                     anhand der Blickrichtung spiegeln
+//preview [x y z]          transparente Vorschau anzeigen
+//preview clear            Vorschau entfernen
+//paste [x y z]            Struktur platzieren
+//undo [Anzahl]            Platzierungen rückgängig machen
+//redo [Anzahl]            rückgängig gemachte Platzierungen wiederholen
 ```
 
 ## Development

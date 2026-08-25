@@ -125,7 +125,8 @@ public final class StructureTemplateManager {
             StructureTemplate template = get(id);
             if (template != null) templates.put(id, template);
         }
-        return new Snapshot(templates);
+        Path catalogPath = this.externalRoot.getParent().resolve("worldgen/tree_templates.json");
+        return new Snapshot(templates, TreeTemplateCatalog.load(catalogPath));
     }
 
     private void refreshExternalIndex() throws IOException {
@@ -216,20 +217,23 @@ public final class StructureTemplateManager {
     public static final class Snapshot {
         private final Map<Identifier, StructureTemplate> templates;
         private final int fingerprint;
+        private final TreeTemplateCatalog treeCatalog;
 
-        private Snapshot(Map<Identifier, StructureTemplate> templates) {
+        private Snapshot(Map<Identifier, StructureTemplate> templates, TreeTemplateCatalog treeCatalog) {
             this.templates = Map.copyOf(templates);
+            this.treeCatalog = treeCatalog;
             int hash = 1;
             for (Map.Entry<Identifier, StructureTemplate> entry : templates.entrySet().stream()
                     .sorted(Map.Entry.comparingByKey(Comparator.comparing(Identifier::toString))).toList()) {
                 hash = 31 * hash + entry.getKey().hashCode();
                 hash = 31 * hash + entry.getValue().fingerprint().hashCode();
             }
-            this.fingerprint = hash;
+            this.fingerprint = 31 * hash + treeCatalog.fingerprint();
         }
 
         public StructureTemplate get(Identifier id) { return this.templates.get(id); }
         public Collection<Identifier> ids() { return this.templates.keySet(); }
         public int fingerprint() { return this.fingerprint; }
+        public TreeTemplateCatalog treeCatalog() { return this.treeCatalog; }
     }
 }

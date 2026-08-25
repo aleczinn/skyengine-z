@@ -16,8 +16,10 @@ public final class CommandDispatcher {
 
     public void register(Command command) {
         String name = command.name().toLowerCase(Locale.ROOT);
-        if (this.commands.putIfAbsent(name, command) != null) {
-            throw new IllegalArgumentException("Doppelter Befehl: " + name);
+        String key = command.prefix() + name;
+        if ((!command.prefix().equals("/") && !command.prefix().equals("//"))
+                || this.commands.putIfAbsent(key, command) != null) {
+            throw new IllegalArgumentException("Doppelter/ungueltiger Befehl: " + key);
         }
     }
 
@@ -26,12 +28,13 @@ public final class CommandDispatcher {
         if (!value.startsWith("/")) {
             return CommandResult.error(I18n.tr("chat.commands_only"));
         }
-        String body = value.substring(1).trim();
+        String prefix = value.startsWith("//") ? "//" : "/";
+        String body = value.substring(prefix.length()).trim();
         if (body.isEmpty()) return CommandResult.error(I18n.tr("chat.empty_command"));
 
         List<String> tokens = tokens(body);
         String name = tokens.removeFirst().toLowerCase(Locale.ROOT);
-        Command command = this.commands.get(name);
+        Command command = this.commands.get(prefix + name);
         if (command == null) return CommandResult.error(I18n.tr("chat.unknown_command", name));
         return command.execute(context, List.copyOf(tokens));
     }
@@ -39,18 +42,21 @@ public final class CommandDispatcher {
     /** Liefert vollstaendige Eingabezeilen, damit das GUI sie ohne Parserwissen einsetzen kann. */
     public List<String> suggest(CommandContext context, String input) {
         if (input == null || !input.startsWith("/")) return List.of();
-        String body = input.substring(1);
+        String commandPrefix = input.startsWith("//") ? "//" : "/";
+        String body = input.substring(commandPrefix.length());
         int firstSpace = body.indexOf(' ');
         if (firstSpace < 0) {
             String prefix = body.toLowerCase(Locale.ROOT);
-            return this.commands.keySet().stream()
+            return this.commands.entrySet().stream()
+                    .filter(entry -> entry.getValue().prefix().equals(commandPrefix))
+                    .map(entry -> entry.getValue().name())
                     .filter(name -> name.startsWith(prefix))
-                    .map(name -> "/" + name)
+                    .map(name -> commandPrefix + name)
                     .toList();
         }
 
         String name = body.substring(0, firstSpace).toLowerCase(Locale.ROOT);
-        Command command = this.commands.get(name);
+        Command command = this.commands.get(commandPrefix + name);
         if (command == null) return List.of();
         String argumentText = body.substring(firstSpace + 1);
         boolean trailingSpace = argumentText.endsWith(" ");
@@ -59,7 +65,7 @@ public final class CommandDispatcher {
         List<String> candidates = command.suggest(context, List.copyOf(arguments), current);
         if (candidates.isEmpty()) return List.of();
 
-        StringBuilder fixed = new StringBuilder("/").append(name).append(' ');
+        StringBuilder fixed = new StringBuilder(commandPrefix).append(name).append(' ');
         for (String argument : arguments) fixed.append(argument).append(' ');
         List<String> result = new ArrayList<>(candidates.size());
         for (String candidate : candidates) result.add(fixed + candidate);
@@ -69,10 +75,11 @@ public final class CommandDispatcher {
     /** Noch fehlender Teil der registrierten Befehlssignatur fuer eine Inline-Vorschau. */
     public String hint(String input) {
         if (input == null || !input.startsWith("/")) return "";
-        String body = input.substring(1);
+        String commandPrefix = input.startsWith("//") ? "//" : "/";
+        String body = input.substring(commandPrefix.length());
         int firstSpace = body.indexOf(' ');
         String name = (firstSpace < 0 ? body : body.substring(0, firstSpace)).toLowerCase(Locale.ROOT);
-        Command command = this.commands.get(name);
+        Command command = this.commands.get(commandPrefix + name);
         if (command == null || command.usage().isBlank()) return "";
         if (firstSpace < 0) return " " + command.usage();
 

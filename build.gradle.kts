@@ -54,7 +54,7 @@ tasks.register<JavaExec>("mcImport") {
 
 tasks.register<JavaExec>("schematicConvert") {
     group = "application"
-    description = "Konvertiert Sponge-.schem-Dateien einzeln oder als Batch in globale .structure-Dateien"
+    description = "Konvertiert Sponge-.schem und alte WorldEdit-.schematic in globale .structure-Dateien"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass = "de.skyengine.game.world.structure.SchematicConvertCli"
 }

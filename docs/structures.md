@@ -15,9 +15,9 @@ In-engine selection ──┘              │
                                      └─> StructurePlacement (world generation / LOD)
 ```
 
-Sponge `.schem` is an import format only. It is never required by the game runtime or regular
-world generation. The standalone Gradle task `schematicConvert` provides the offline content
-pipeline; there is deliberately no in-game `/schematics` command.
+Sponge `.schem` and legacy WorldEdit `.schematic` are import formats only. They are never required
+by the game runtime or regular world generation. The standalone Gradle task `schematicConvert`
+provides the offline content pipeline; there is deliberately no in-game `/schematics` command.
 
 ## Cell semantics
 
@@ -32,18 +32,36 @@ cutting holes into each other. Buildings can opt into explicit air using `air=in
 ## In-engine authoring
 
 ```text
-/structure pos1
-/structure pos2
+/structure load trees/spruce/spruce_large_01
+/structure save houses/test air=include overwrite=true anchor=player
 /structure anchor
 /structure anchor 120 64 -30
 /structure anchor reset
-/structure save houses/test.structure
-/structure save houses/test.structure air=include overwrite=true anchor=player
-/structure load houses/test.structure
-/structure paste rotation=90 mirror=front_back
-/structure paste houses/test.structure 120 64 -30 rotation=270
 /structure list 2
+
+//wand
+//rotate 90
+//flip
+//preview
+//preview 120 64 -30 replace=keep
+//preview clear
+//paste
+//paste 120 64 -30 replace=all
+//undo
+//redo 2
 ```
+
+The command-only Debug Stick sets selection position 1 with left click and position 2 with right
+click. It is intentionally absent from creative tabs and `/give`. `/structure load` only changes
+the editor clipboard; it does not create a preview or place blocks. Rotation is limited to multiples
+of 90 degrees because voxel block states and integer template cells cannot represent arbitrary
+angles such as 40 degrees without resampling and invalid stair, door or log orientations. `//flip`
+chooses its mirror plane from the player's horizontal look direction.
+
+`//preview` renders transformed blocks as depth-tested translucent ghosts, outlines the complete
+template and highlights its anchor separately. `//paste`, `//undo` and `//redo` use atomic placement
+transactions. Undo history is per player and dimension, remains in memory only and is bounded by
+both transaction count and changed-cell count.
 
 Player-authored and imported files are shared by all saves and stored below
 `%APPDATA%/.voxelstories/bin/structures/<path>.structure` (or
@@ -56,19 +74,24 @@ compatible.
 Offline conversion examples:
 
 ```text
-./gradlew schematicConvert --args="convert C:/schematics/oak.schem --id=skyengine:trees/oak/oak_1"
-./gradlew schematicConvert --args="batch C:/schematics/trees --namespace=skyengine --prefix=trees"
+./gradlew schematicConvert --args='convert "C:/schematics/oak.schem" --id=skyengine:trees/oak/oak_1'
+./gradlew schematicConvert --args='convert "C:/schematics/old_oak.schematic" --id=skyengine:trees/oak/old_oak_1'
+./gradlew schematicConvert --args='batch "C:/schematics/trees" --namespace=skyengine --prefix=trees'
 ```
 
 The defaults are `air=ignore`, unknown Minecraft block states are errors and existing targets
 require `--overwrite`. `--output=<folder>` can target a staging directory instead of the global
 catalog.
 
-The green debug box visualizes the current selection, yellow its effective anchor and violet the
-last paste bounds. World generation receives a stable snapshot of `bin/structures` when a save is
-opened; external changes therefore affect debug loading immediately and worldgen after re-entering
-a save. Spruce templates below `trees/spruce/` are discovered dynamically; without one, spruce
-generation falls back to its procedural tree shape.
+Selection and anchor boxes are visible while the Debug Stick is held. World generation receives a
+stable snapshot of `bin/structures` when a save is opened; external changes therefore affect debug
+loading immediately and worldgen after re-entering a save.
+
+Tree templates are selected through `%APPDATA%/.voxelstories/bin/worldgen/tree_templates.json`.
+The versioned catalog maps stable tree types such as `oak`, `birch`, `spruce`, `acacia`, `jungle`,
+`redwood` and `palm` to folders below `bin/structures/trees/` and assigns separate template and
+procedural fallback weights. Missing or empty folders therefore degrade safely to the existing
+procedural generator instead of suppressing trees.
 `StructureAuthoringService`, `StructureSelection`, `StructureTemplateManager` and
 `StructurePlacement` are intentionally GUI-independent so a later Structure Block can invoke
 the same SAVE/LOAD/CORNER/DATA operations rather than duplicating command behavior.

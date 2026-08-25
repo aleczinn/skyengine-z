@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -70,6 +71,21 @@ final class StructureTemplateManagerTest {
         Files.write(installed, custom);
         DefaultStructureInstaller.install(structures);
         assertArrayEquals(custom, Files.readAllBytes(installed));
+    }
+
+    @Test
+    void editorSelectionCanBeClearedWithoutDiscardingLoadedClipboard(@TempDir Path temp) throws Exception {
+        StructureTemplateManager manager = new StructureTemplateManager(temp.resolve("structures"), temp.toFile());
+        manager.saveAuthored(template(Identifier.of("skyengine:test/clipboard"), Blocks.STONE), false);
+        StructureEditorSession editor = new StructureAuthoringService(manager).session(UUID.randomUUID());
+        editor.load("test/clipboard");
+        editor.pos1(Identifier.of("skyengine:overworld"), 1, 2, 3);
+        editor.pos2(Identifier.of("skyengine:overworld"), 4, 5, 6);
+
+        editor.clearSelection();
+
+        assertNull(editor.selection());
+        assertNotNull(editor.loaded());
     }
 
     private static StructureTemplate template(Identifier id, int state) {

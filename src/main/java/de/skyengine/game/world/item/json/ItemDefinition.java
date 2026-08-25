@@ -32,6 +32,9 @@ public class ItemDefinition {
        "misc" (mit Warnung). Siehe de.skyengine.game.world.item.CreativeTabs. */
     public com.google.gson.JsonElement creative_tab;
 
+    /** Internes Debug-Item: nicht in Creative-Inventar, Suche oder /give sichtbar. */
+    public boolean command_only;
+
     /** nutrition/saturation wie in {@link de.skyengine.game.world.item.FoodItem}. */
     public static final class FoodDef {
         public int nutrition;

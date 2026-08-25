@@ -1,0 +1,7 @@
+{
+  "id": "skyengine:structure_wand",
+  "archetype": "item",
+  "max_stack": 1,
+  "texture": "game/textures/item/stick.png",
+  "command_only": true
+}

@@ -20,4 +20,16 @@ final class StructureTransformTest {
         assertEquals(-3, transform.transformedX(2, 3));
         assertEquals(-2, transform.transformedZ(2, 3));
     }
+
+    @Test void composesRotationAndWorldAxisMirror() {
+        StructureTransform first = new StructureTransform(StructureTransform.Rotation.CLOCKWISE_90,
+                StructureTransform.Mirror.NONE);
+        StructureTransform second = new StructureTransform(StructureTransform.Rotation.NONE,
+                StructureTransform.Mirror.LEFT_RIGHT);
+        StructureTransform composed = first.then(second);
+        assertEquals(second.transformedX(first.transformedX(2, 3), first.transformedZ(2, 3)),
+                composed.transformedX(2, 3));
+        assertEquals(second.transformedZ(first.transformedX(2, 3), first.transformedZ(2, 3)),
+                composed.transformedZ(2, 3));
+    }
 }

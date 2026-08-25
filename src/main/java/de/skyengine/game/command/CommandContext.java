@@ -6,7 +6,6 @@ import de.skyengine.game.world.block.Identifier;
 import java.util.List;
 import de.skyengine.game.world.structure.StructurePlacement;
 import de.skyengine.game.world.structure.StructureTemplate;
-import de.skyengine.game.world.structure.StructureTransform;
 
 /** Die fuer Singleplayer-Befehle verfuegbare Spielumgebung. */
 public record CommandContext(SimpleItemStorage inventory, DimensionAccess dimensions, StructureAccess structures) {
@@ -26,16 +25,20 @@ public record CommandContext(SimpleItemStorage inventory, DimensionAccess dimens
     }
 
     public interface StructureAccess {
-        void pos1();
-        void pos2();
         void anchor();
         void anchor(int x, int y, int z);
         void resetAnchor();
         StructureTemplate save(String reference, boolean includeAir, boolean overwrite) throws Exception;
         StructureTemplate load(String reference) throws Exception;
-        StructurePlacement.Result paste(StructureTransform transform, StructurePlacement.Rule rule) throws Exception;
-        StructurePlacement.Result pasteAt(int x, int y, int z, StructureTransform transform,
-                                          StructurePlacement.Rule rule) throws Exception;
         List<String> templates() throws Exception;
+        String wand();
+        String rotate(int degrees);
+        String flip();
+        String preview(Integer x, Integer y, Integer z, StructurePlacement.Rule rule);
+        void clearPreview();
+        StructurePlacement.Result paste(Integer x, Integer y, Integer z,
+                                        StructurePlacement.Rule rule) throws Exception;
+        String undo(int amount);
+        String redo(int amount);
     }
 }

@@ -63,6 +63,22 @@ final class CommandDispatcherTest {
         assertEquals(" [amount]", dispatcher.hint("/give stone"));
     }
 
+    @Test
+    void dispatchesDoubleSlashNamespaceSeparately() {
+        CommandDispatcher dispatcher = new CommandDispatcher();
+        dispatcher.register(new Command() {
+            @Override public String prefix() { return "//"; }
+            @Override public String name() { return "paste"; }
+            @Override public CommandResult execute(CommandContext context, List<String> arguments) {
+                return CommandResult.success("ok");
+            }
+        });
+        assertTrue(dispatcher.execute(new CommandContext(new SimpleItemStorage(1)), "//paste").success());
+        assertFalse(dispatcher.execute(new CommandContext(new SimpleItemStorage(1)), "/paste").success());
+        assertEquals(List.of("//paste"), dispatcher.suggest(
+                new CommandContext(new SimpleItemStorage(1)), "//p"));
+    }
+
     private static CommandDispatcher dispatcher() {
         CommandDispatcher dispatcher = new CommandDispatcher();
         dispatcher.register(new GiveCommand());

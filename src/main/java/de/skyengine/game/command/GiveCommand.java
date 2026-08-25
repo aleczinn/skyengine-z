@@ -30,7 +30,7 @@ public final class GiveCommand implements Command {
             return CommandResult.error(I18n.tr("command.give.usage"));
         }
         Item item = Items.get(Identifier.of(arguments.getFirst()));
-        if (item == null) {
+        if (item == null || Items.isCommandOnly(item.getId())) {
             return CommandResult.error(I18n.tr("command.give.unknown_item", arguments.getFirst()));
         }
         int amount = 1;
@@ -57,6 +57,7 @@ public final class GiveCommand implements Command {
         String prefix = normalize(current);
         return Registries.ITEM.values().stream()
                 .map(Item::getId)
+                .filter(id -> !Items.isCommandOnly(id))
                 .filter(id -> normalize(id.toString()).startsWith(prefix)
                         || normalize(id.path()).startsWith(prefix))
                 .map(Identifier::toString)

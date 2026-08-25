@@ -5,7 +5,6 @@ import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.game.world.structure.StructurePlacement;
 import de.skyengine.game.world.structure.StructureTemplate;
-import de.skyengine.game.world.structure.StructureTransform;
 import de.skyengine.test.BlocksTestBootstrap;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -32,15 +31,10 @@ final class StructureCommandTest {
     }
 
     @Test
-    void pasteAcceptsIdCoordinatesAndTransform() {
+    void oldPasteAndPositionSubcommandsAreRemoved() {
         FakeStructures structures = new FakeStructures();
-        CommandResult result = command().execute(context(structures),
-                List.of("paste", "trees/oak.structure", "-12", "64", "7", "rotation=90", "mirror=front_back"));
-        assertTrue(result.success());
-        assertEquals("trees/oak.structure", structures.loaded);
-        assertArrayEquals(new int[]{-12, 64, 7}, structures.pastePosition);
-        assertEquals(StructureTransform.Rotation.CLOCKWISE_90, structures.transform.rotation());
-        assertEquals(StructureTransform.Mirror.FRONT_BACK, structures.transform.mirror());
+        assertFalse(command().execute(context(structures), List.of("paste")).success());
+        assertFalse(command().execute(context(structures), List.of("pos1")).success());
     }
 
     @Test
@@ -55,6 +49,33 @@ final class StructureCommandTest {
         assertTrue(structures.playerAnchor);
     }
 
+    @Test
+    void worldEditPlacementCommandsParseCoordinatesRulesAndHistory() {
+        FakeStructures structures = new FakeStructures();
+        assertTrue(new WorldEditCommand("preview").execute(context(structures),
+                List.of("10", "64", "-5", "replace=keep")).success());
+        assertArrayEquals(new Integer[]{10, 64, -5}, structures.placementPosition);
+        assertEquals(StructurePlacement.Rule.KEEP_EXISTING, structures.placementRule);
+
+        assertTrue(new WorldEditCommand("paste").execute(context(structures),
+                List.of("replace=all")).success());
+        assertArrayEquals(new Integer[]{null, null, null}, structures.placementPosition);
+        assertEquals(StructurePlacement.Rule.REPLACE_ALL, structures.placementRule);
+        assertTrue(new WorldEditCommand("undo").execute(context(structures), List.of("3")).success());
+        assertEquals(3, structures.undoAmount);
+        assertTrue(new WorldEditCommand("redo").execute(context(structures), List.of()).success());
+        assertEquals(1, structures.redoAmount);
+    }
+
+    @Test
+    void worldEditRejectsFreeAngleAndMalformedPlacement() {
+        FakeStructures structures = new FakeStructures();
+        assertFalse(new WorldEditCommand("rotate").execute(context(structures), List.of("40")).success());
+        assertFalse(new WorldEditCommand("paste").execute(context(structures), List.of("1", "2")).success());
+        assertFalse(new WorldEditCommand("preview").execute(context(structures),
+                List.of("replace=unknown")).success());
+    }
+
     private static StructureCommand command() { return new StructureCommand(); }
     private static CommandContext context(FakeStructures structures) {
         return new CommandContext(new SimpleItemStorage(1), null, structures);
@@ -63,14 +84,13 @@ final class StructureCommandTest {
     private static final class FakeStructures implements CommandContext.StructureAccess {
         final List<String> paths = new ArrayList<>();
         String loaded;
-        int[] pastePosition;
         int[] anchorPosition;
         boolean anchorReset;
         boolean playerAnchor;
-        StructureTransform transform;
-
-        @Override public void pos1() {}
-        @Override public void pos2() {}
+        Integer[] placementPosition;
+        StructurePlacement.Rule placementRule;
+        int undoAmount;
+        int redoAmount;
         @Override public void anchor() { playerAnchor = true; }
         @Override public void anchor(int x, int y, int z) { anchorPosition = new int[]{x, y, z}; }
         @Override public void resetAnchor() { anchorReset = true; }
@@ -81,16 +101,24 @@ final class StructureCommandTest {
             loaded = reference;
             return template(Identifier.of(reference.replace(".structure", "")));
         }
-        @Override public StructurePlacement.Result paste(StructureTransform transform, StructurePlacement.Rule rule) {
-            this.transform = transform;
+        @Override public List<String> templates() { return List.copyOf(paths); }
+        @Override public String wand() { return "wand"; }
+        @Override public String rotate(int degrees) {
+            if (degrees % 90 != 0) throw new IllegalArgumentException("rotation");
+            return "rotate";
+        }
+        @Override public String flip() { return "flip"; }
+        @Override public String preview(Integer x, Integer y, Integer z, StructurePlacement.Rule rule) {
+            placementPosition = new Integer[]{x, y, z}; placementRule = rule; return "preview";
+        }
+        @Override public void clearPreview() {}
+        @Override public StructurePlacement.Result paste(Integer x, Integer y, Integer z,
+                                                          StructurePlacement.Rule rule) {
+            placementPosition = new Integer[]{x, y, z}; placementRule = rule;
             return new StructurePlacement.Result(1, 0, 0);
         }
-        @Override public StructurePlacement.Result pasteAt(int x, int y, int z, StructureTransform transform,
-                                                           StructurePlacement.Rule rule) {
-            this.pastePosition = new int[]{x, y, z};
-            return paste(transform, rule);
-        }
-        @Override public List<String> templates() { return List.copyOf(paths); }
+        @Override public String undo(int amount) { undoAmount = amount; return "undo"; }
+        @Override public String redo(int amount) { redoAmount = amount; return "redo"; }
         private static StructureTemplate template(Identifier id) {
             return new StructureTemplate(id, 1, 1, 1, 0, 0, 0,
                     List.of(new StructureTemplate.Cell(0, 0, 0, Blocks.STONE)));

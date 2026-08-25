@@ -2,6 +2,7 @@ package de.skyengine.game.world.structure;
 
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.mcimport.mapping.BlockMapper;
 import de.skyengine.mcimport.nbt.NbtCompound;
 import de.skyengine.mcimport.nbt.NbtTag;
 import de.skyengine.mcimport.nbt.NbtWriter;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.DataOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -69,6 +71,53 @@ final class StructureFormatTest {
                 new SchematicImporter.Options(true, SchematicImporter.UnknownBlocks.ERROR)).template();
         assertEquals(2, building.cells().size());
         assertTrue(building.hasExplicitAir());
+    }
+
+    @Test
+    void legacySchematicImportsClassicIdsMetadataAndWorldEditAnchor(@TempDir Path temp) throws Exception {
+        Path schematic = temp.resolve("legacy.schematic");
+        NbtCompound root = new NbtCompound()
+                .put("Width", new NbtTag.NbtShort((short) 2))
+                .put("Height", new NbtTag.NbtShort((short) 1))
+                .put("Length", new NbtTag.NbtShort((short) 1))
+                .put("Blocks", new NbtTag.NbtByteArray(new byte[]{17, 18}))
+                .put("Data", new NbtTag.NbtByteArray(new byte[]{4, 0}))
+                .put("WEOffsetX", new NbtTag.NbtInt(-1));
+        try (OutputStream file = Files.newOutputStream(schematic);
+             GZIPOutputStream gzip = new GZIPOutputStream(file);
+             DataOutputStream output = new DataOutputStream(gzip)) {
+            NbtWriter.write(output, "Schematic", root);
+        }
+
+        var result = new LegacySchematicImporter(BlockMapper.loadDefault()).importFile(
+                schematic, Identifier.of("test:legacy"), SchematicImporter.Options.NATURAL_FEATURE);
+        assertEquals(2, result.template().cells().size());
+        assertEquals(1, result.template().anchorX());
+        assertEquals("skyengine:oak_log", Blocks.getState(result.template().cells().get(0).state())
+                .getBlock().getIdentifier().toString());
+        assertEquals("skyengine:oak_leaves", Blocks.getState(result.template().cells().get(1).state())
+                .getBlock().getIdentifier().toString());
+    }
+
+    @Test
+    void legacySchematicReportsUnknownClassicIds(@TempDir Path temp) throws Exception {
+        Path schematic = temp.resolve("unknown.schematic");
+        NbtCompound root = new NbtCompound()
+                .put("Width", new NbtTag.NbtShort((short) 1))
+                .put("Height", new NbtTag.NbtShort((short) 1))
+                .put("Length", new NbtTag.NbtShort((short) 1))
+                .put("Blocks", new NbtTag.NbtByteArray(new byte[]{(byte) 250}))
+                .put("Data", new NbtTag.NbtByteArray(new byte[]{0}));
+        try (OutputStream file = Files.newOutputStream(schematic);
+             GZIPOutputStream gzip = new GZIPOutputStream(file);
+             DataOutputStream output = new DataOutputStream(gzip)) {
+            NbtWriter.write(output, "Schematic", root);
+        }
+
+        IOException error = assertThrows(IOException.class,
+                () -> new LegacySchematicImporter(BlockMapper.loadDefault()).importFile(
+                        schematic, Identifier.of("test:unknown"), SchematicImporter.Options.NATURAL_FEATURE));
+        assertTrue(error.getMessage().contains("250:0"));
     }
 
     @Test
