@@ -17,6 +17,7 @@ public final class ChatManager {
     public ChatManager() {
         this.register(new GiveCommand());
         this.register(new DimensionCommand());
+        this.register(new StructureCommand());
     }
 
     /** Zentraler Erweiterungspunkt fuer spaetere Engine- oder Mod-Befehle. */
@@ -32,7 +33,9 @@ public final class ChatManager {
             this.history.add(value);
         }
         CommandResult result = this.dispatcher.execute(context, value);
-        this.addMessage((result.success() ? "§f" : "§c") + result.message());
+        for (String message : result.messages()) {
+            this.addMessage((result.success() ? "§f" : "§c") + message);
+        }
     }
 
     public void addMessage(String markup) {

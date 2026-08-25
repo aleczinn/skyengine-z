@@ -7,6 +7,12 @@ import de.skyengine.game.world.generator.feature.Feature;
 import de.skyengine.game.world.generator.feature.FeatureContext;
 
 import java.util.Random;
+import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.structure.StructurePlacement;
+import de.skyengine.game.world.structure.StructureTemplate;
+import de.skyengine.game.world.structure.StructureTemplateManager;
+import de.skyengine.game.world.structure.StructureTransform;
+import java.util.Comparator;
 
 /**
  * Biome-abhaengige Baumplatzierung: pro Quell-Chunk eine feste Anzahl Versuche; jeder Versuch
@@ -17,10 +23,23 @@ import java.util.Random;
 public final class BiomeTreeFeature implements Feature {
 
     private static final int MAX_ATTEMPTS = 8;
+    private static final String SPRUCE_TEMPLATE_PREFIX = "trees/spruce/";
+    private static final StructurePlacement TEMPLATE_PLACEMENT = new StructurePlacement();
+    private final StructureTemplateManager.Snapshot structures;
+    private volatile StructureTemplate[] spruceTemplates;
+
+    public BiomeTreeFeature() { this(null); }
+
+    private BiomeTreeFeature(StructureTemplateManager.Snapshot structures) { this.structures = structures; }
+
+    @Override
+    public Feature withStructures(StructureTemplateManager.Snapshot structures) {
+        return new BiomeTreeFeature(structures);
+    }
 
     @Override
     public int cacheVersion() {
-        return 2;
+        return this.structures == null ? 3 : 31 * 3 + this.structures.fingerprint();
     }
 
     @Override
@@ -48,7 +67,37 @@ public final class BiomeTreeFeature implements Feature {
             TreeShape shape = TreeShapes.pick(biome.trees, rng);
             int baseY = placer.surfaceHeight(x, z) + 1;
             placer.markLodSupport(x, baseY, z);
-            shape.place(placer, x, baseY, z, rng);
+            /* Grosse native Vorlagen bleiben selten, damit der dichte Fichtenwald nicht aus
+               mehreren 50-Block-Baeumen pro Chunk besteht. Auswahl/Rotation sind deterministisch. */
+            if (shape == TreeShapes.SPRUCE && rng.nextInt(8) == 0) {
+                StructureTemplate[] templates = spruceTemplates();
+                if (templates.length > 0) {
+                    StructureTemplate template = templates[rng.nextInt(templates.length)];
+                    StructureTransform.Rotation rotation = StructureTransform.Rotation.values()[rng.nextInt(4)];
+                    TEMPLATE_PLACEMENT.placeInFeature(template, placer, x, baseY, z,
+                            new StructureTransform(rotation, StructureTransform.Mirror.NONE),
+                            StructurePlacement.Rule.KEEP_EXISTING);
+                } else {
+                    shape.place(placer, x, baseY, z, rng);
+                }
+            } else {
+                shape.place(placer, x, baseY, z, rng);
+            }
+        }
+    }
+
+    private StructureTemplate[] spruceTemplates() {
+        StructureTemplate[] result = this.spruceTemplates;
+        if (result != null) return result;
+        synchronized (this) {
+            if (this.spruceTemplates != null) return this.spruceTemplates;
+            if (this.structures == null) result = new StructureTemplate[0];
+            else result = this.structures.ids().stream()
+                    .filter(id -> id.path().startsWith(SPRUCE_TEMPLATE_PREFIX))
+                    .sorted(Comparator.comparing(Identifier::toString))
+                    .map(this.structures::get)
+                    .toArray(StructureTemplate[]::new);
+            return this.spruceTemplates = result;
         }
     }
 }

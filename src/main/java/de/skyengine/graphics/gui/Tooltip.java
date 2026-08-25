@@ -2,6 +2,7 @@ package de.skyengine.graphics.gui;
 
 import de.skyengine.graphics.color.Colors;
 import de.skyengine.graphics.gui.text.RichText;
+import de.skyengine.graphics.gui.text.RichTextWrapper;
 import de.skyengine.graphics.gui.text.Span;
 
 import java.util.ArrayList;
@@ -31,7 +32,11 @@ public final class Tooltip {
         if (lines == null || lines.isEmpty()) return;
 
         float vW = gui.vWidth(), vH = gui.vHeight();
-        lines = wrap(gui, lines, Math.min(MAX_WIDTH, vW - 8));
+        float wrapWidth = Math.min(MAX_WIDTH, vW - 8);
+        lines = lines.stream()
+                .flatMap(line -> RichTextWrapper.wrap(line, gui.font(), TEXT_SIZE, wrapWidth).stream())
+                .map(RichTextWrapper.Line::text)
+                .toList();
         float lineStep = gui.font().lineHeight(TEXT_SIZE);
         float textW = 0;
         for (RichText line : lines) {

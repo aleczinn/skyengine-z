@@ -10,12 +10,13 @@ public final class NbtList implements NbtTag {
     private final byte elementType;
     private final List<NbtTag> values = new ArrayList<>();
 
-    NbtList(byte elementType) {
+    public NbtList(byte elementType) {
         this.elementType = elementType;
     }
 
-    void add(NbtTag tag) {
+    public NbtList add(NbtTag tag) {
         this.values.add(tag);
+        return this;
     }
 
     /** NBT-Typ-ID der Elemente (0 bei leerer Liste möglich). */

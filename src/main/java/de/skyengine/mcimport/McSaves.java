@@ -13,7 +13,7 @@ import java.util.List;
 /**
  * Findet die Minecraft-Welten des Spielers für die Import-Auswahl (GuiImportWorld).
  * Aufgelöst wird {@code %APPDATA%\.minecraft\saves} — dieselbe Logik, mit der
- * {@code GameDirectory} den eigenen Spiel-Ordner {@code .skyengine} findet.
+ * {@code GameDirectory} den eigenen Spiel-Ordner {@code .voxelstories} findet.
  */
 public final class McSaves {
 

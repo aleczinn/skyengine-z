@@ -17,6 +17,7 @@ import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 
 import java.util.Arrays;
+import de.skyengine.game.world.structure.StructureBounds;
 
 /**
  * Debug-Overlay der Chunk-Grenzen (F3+G), Vorbild {@link SelectionBoxRenderer}: dünne
@@ -107,6 +108,29 @@ public class ChunkBorderRenderer {
             if (this.count > 0) draw(0.2F, 0.9F, 0.9F);
         }
 
+        GL11.glDepthFunc(properties.baseDepthFunc());
+        GL11.glDisable(GL11.GL_BLEND);
+        this.shader.unbind();
+    }
+
+    /** Einzelne Debug-AABB, z.B. Structure-Auswahl. Max-Koordinaten sind inklusiv. */
+    public void renderBox(Camera camera, StructureBounds bounds, float r, float g, float b) {
+        if (bounds == null) return;
+        Vector3d cam = camera.getPosition();
+        this.shader.bind();
+        this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
+        this.shader.setUniformVector2f("u_Viewport", SkyEngine.get().getWindow().getWidth(),
+                SkyEngine.get().getWindow().getHeight());
+        this.shader.setUniformf("u_LineWidth", 2.5F);
+        GL30.glBindVertexArray(this.vao);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
+        GL11.glEnable(GL11.GL_BLEND);
+        EngineProperties properties = SkyEngine.get().getWindow().getProperties();
+        GL11.glDepthFunc(properties.orEqualDepthFunc());
+        this.count = 0;
+        box(cam, bounds.minX(), bounds.minY(), bounds.minZ(), bounds.maxX() + 1,
+                bounds.maxY() + 1, bounds.maxZ() + 1);
+        draw(r, g, b);
         GL11.glDepthFunc(properties.baseDepthFunc());
         GL11.glDisable(GL11.GL_BLEND);
         this.shader.unbind();

@@ -6,6 +6,8 @@ import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.chunk.WorldWorkerPool;
 import de.skyengine.game.world.dimension.PortalLinks;
 import de.skyengine.game.world.save.WorldSaves;
+import de.skyengine.game.world.structure.StructureAuthoringService;
+import de.skyengine.game.world.structure.StructureTemplateManager;
 
 import java.io.File;
 
@@ -18,6 +20,8 @@ public final class World implements IDisposable {
     private final PortalLinks portalLinks;
     private final PlayerManager players;
     private final DimensionManager dimensions;
+    private final StructureTemplateManager structures;
+    private final StructureAuthoringService structureAuthoring;
 
     public World(WorldSaves.WorldSave save, SoundManager soundManager) {
         this(save, WorldSaves.dir(save.dirName()), soundManager);
@@ -30,8 +34,18 @@ public final class World implements IDisposable {
         this.portalLinks = new PortalLinks(this.root);
         this.players = new PlayerManager(save, this.root,
                 () -> WorldSaves.saveInDirectory(save, this.root));
+        this.structures = new StructureTemplateManager();
+        this.structureAuthoring = new StructureAuthoringService(this.structures);
         this.dimensions = new DimensionManager(save.dirName(), save.level(), this.root,
-                this.workers, this.portalLinks, soundManager);
+                this.workers, this.portalLinks, soundManager, structureSnapshot());
+    }
+
+    private StructureTemplateManager.Snapshot structureSnapshot() {
+        try {
+            return this.structures.snapshot();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Structure-Snapshot fuer Worldgen konnte nicht geladen werden", e);
+        }
     }
 
     public WorldSaves.WorldSave saveDescriptor() {
@@ -53,6 +67,10 @@ public final class World implements IDisposable {
     public PlayerManager players() {
         return this.players;
     }
+
+    public StructureTemplateManager structures() { return this.structures; }
+
+    public StructureAuthoringService structureAuthoring() { return this.structureAuthoring; }
 
     public DimensionManager.DimensionTicket acquireDimension(Identifier id,
                                                               DimensionManager.TicketType type,

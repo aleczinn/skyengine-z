@@ -285,12 +285,20 @@ public class Dimension implements IInitializable, IDisposable {
                       WorldWorkerPool workerPool,
                       de.skyengine.game.world.dimension.PortalLinks portalLinks) {
         this(dirName, level, dimensionId, saveRoot,
-                DimensionSaves.resolve(saveRoot, level, dimensionId), workerPool, portalLinks);
+                DimensionSaves.resolve(saveRoot, level, dimensionId), workerPool, portalLinks, null);
+    }
+
+    Dimension(String dirName, LevelData level, Identifier dimensionId, File saveRoot,
+              WorldWorkerPool workerPool, de.skyengine.game.world.dimension.PortalLinks portalLinks,
+              de.skyengine.game.world.structure.StructureTemplateManager.Snapshot structures) {
+        this(dirName, level, dimensionId, saveRoot,
+                DimensionSaves.resolve(saveRoot, level, dimensionId), workerPool, portalLinks, structures);
     }
 
     private Dimension(String dirName, LevelData level, Identifier dimensionId,
                   File saveRoot, DimensionSaves.Resolved resolved, WorldWorkerPool workerPool,
-                  de.skyengine.game.world.dimension.PortalLinks portalLinks) {
+                  de.skyengine.game.world.dimension.PortalLinks portalLinks,
+                  de.skyengine.game.world.structure.StructureTemplateManager.Snapshot structures) {
         this.name = dirName;
         this.levelData = level;
         this.dimensionData = resolved.data();
@@ -316,7 +324,9 @@ public class Dimension implements IInitializable, IDisposable {
 
         GenerationSetup setup = resolved.generator().create(resolved.data().seed);
         this.generator = setup.generator();
-        this.decorator = new ChunkDecorator(this.generator, setup.features());
+        java.util.List<de.skyengine.game.world.generator.feature.Feature> sessionFeatures = structures == null
+                ? setup.features() : setup.features().stream().map(feature -> feature.withStructures(structures)).toList();
+        this.decorator = new ChunkDecorator(this.generator, sessionFeatures);
         this.chunkManager = workerPool == null
                 ? new ChunkManager(this.generator, this.decorator, this.environment.hasSkylight())
                 : new ChunkManager(this.generator, this.decorator, workerPool,
@@ -1970,6 +1980,127 @@ public class Dimension implements IInitializable, IDisposable {
     /* Randnachbar-Offsets für borderMasks (Index-Reihenfolge N,S,W,E,NW,NE,SW,SE). */
     private static final int[] BORDER_DX = {0, 0, -1, 1, -1, 1, -1, 1};
     private static final int[] BORDER_DZ = {-1, 1, 0, 0, -1, -1, 1, 1};
+
+    /** Batch-Gruppe fuer Structure-/Editor-Writes; Layout entspricht dem Licht-Batch. */
+    private static final class SetBatchGroup {
+        final Chunk chunk;
+        int[] packed = new int[64], oldIds = new int[64], newIds = new int[64];
+        int count, ownMask;
+        final int[] borderMasks = new int[8];
+        SetBatchGroup(Chunk chunk) { this.chunk = chunk; }
+        void add(int position, int oldId, int newId) {
+            if (count == packed.length) {
+                packed = java.util.Arrays.copyOf(packed, count * 2);
+                oldIds = java.util.Arrays.copyOf(oldIds, count * 2);
+                newIds = java.util.Arrays.copyOf(newIds, count * 2);
+            }
+            packed[count] = position; oldIds[count] = oldId; newIds[count] = newId; count++;
+        }
+    }
+
+    /**
+     * Schreibt viele unabhaengige Blockstates mit einem Lock/Dirty-/Licht-Batch pro Chunk.
+     * Gedacht fuer Structure-Placement; Neighbor-Updates erfolgen nach dem kompletten Paste.
+     *
+     * @return Zahl tatsaechlich geaenderter Zellen; nicht-READY-Chunks werden abgewiesen.
+     */
+    public int setBlocksBatch(long[] positions, int[] states, int count) {
+        if (count < 0 || count > positions.length || count > states.length) {
+            throw new IllegalArgumentException("Ungueltige Batch-Laenge " + count);
+        }
+        LongObjMap<SetBatchGroup> groups = new LongObjMap<>(64);
+        for (int i = 0; i < count; i++) {
+            int x = BlockPos.unpackX(positions[i]), y = BlockPos.unpackY(positions[i]), z = BlockPos.unpackZ(positions[i]);
+            if (y < 0 || y >= Chunk.HEIGHT) continue;
+            int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+            long key = Chunk.key(cx, cz);
+            SetBatchGroup group = groups.get(key);
+            if (group == null) {
+                Chunk candidate = this.chunkManager.getChunk(cx, cz);
+                group = new SetBatchGroup(candidate != null && candidate.status == ChunkStatus.READY ? candidate : null);
+                groups.put(key, group);
+            }
+            if (group.chunk == null) continue;
+            int lx = x & ChunkSection.MASK, lz = z & ChunkSection.MASK;
+            int oldId = group.chunk.getBlock(lx, y, lz), newId = states[i];
+            if (oldId == newId) continue;
+            group.add(lx | (lz << 5) | (y << 10), oldId, newId);
+            int sy = y >> ChunkSection.SHIFT;
+            int mask = 1 << sy;
+            if ((y & ChunkSection.MASK) == 0 && sy > 0) mask |= 1 << (sy - 1);
+            if ((y & ChunkSection.MASK) == ChunkSection.MASK && sy < Chunk.SECTIONS - 1) mask |= 1 << (sy + 1);
+            group.ownMask |= mask;
+            boolean west = lx == 0, east = lx == ChunkSection.MASK;
+            boolean north = lz == 0, south = lz == ChunkSection.MASK;
+            if (north) group.borderMasks[0] |= mask;
+            if (south) group.borderMasks[1] |= mask;
+            if (west) group.borderMasks[2] |= mask;
+            if (east) group.borderMasks[3] |= mask;
+            if (west && north) group.borderMasks[4] |= mask;
+            if (east && north) group.borderMasks[5] |= mask;
+            if (west && south) group.borderMasks[6] |= mask;
+            if (east && south) group.borderMasks[7] |= mask;
+        }
+
+        int changed = 0;
+        boolean playerChange = this.playerBlockChangeDepth > 0;
+        for (int gi = 0, gn = groups.tableSize(); gi < gn; gi++) {
+            SetBatchGroup group = groups.valueAt(gi);
+            if (group == null || group.chunk == null || group.count == 0) continue;
+            Chunk chunk = group.chunk;
+            chunk.writeLock().lock();
+            try {
+                for (int i = 0; i < group.count; i++) {
+                    int packed = group.packed[i];
+                    chunk.setBlock(packed & 31, (packed >> 10) & 511, (packed >> 5) & 31, group.newIds[i]);
+                }
+            } finally {
+                chunk.writeLock().unlock();
+            }
+            changed += group.count;
+            chunk.markSectionsDirty(group.ownMask, playerChange);
+            chunk.markModified();
+            for (int b = 0; b < 8; b++) {
+                if (group.borderMasks[b] == 0) continue;
+                Chunk neighbor = this.chunkManager.getChunk(chunk.chunkX + BORDER_DX[b], chunk.chunkZ + BORDER_DZ[b]);
+                if (neighbor != null && neighbor.status.isAtLeast(ChunkStatus.LIT)) {
+                    neighbor.markSectionsDirty(group.borderMasks[b], playerChange);
+                }
+            }
+            int baseX = chunk.chunkX << ChunkSection.SHIFT, baseZ = chunk.chunkZ << ChunkSection.SHIFT;
+            for (int i = 0; i < group.count; i++) {
+                int packed = group.packed[i];
+                int wx = baseX + (packed & 31), wy = (packed >> 10) & 511, wz = baseZ + ((packed >> 5) & 31);
+                this.manageBlockEntity(wx, wy, wz, group.oldIds[i], group.newIds[i]);
+            }
+            PerformanceProfiler profiler = PerformanceProfiler.get();
+            long lightStarted = profiler.begin();
+            int cx = chunk.chunkX, cz = chunk.chunkZ;
+            Chunk north = this.chunkManager.getChunk(cx, cz - 1), south = this.chunkManager.getChunk(cx, cz + 1);
+            Chunk west = this.chunkManager.getChunk(cx - 1, cz), east = this.chunkManager.getChunk(cx + 1, cz);
+            this.lightDiagonals[0] = this.chunkManager.getChunk(cx - 1, cz - 1);
+            this.lightDiagonals[1] = this.chunkManager.getChunk(cx + 1, cz - 1);
+            this.lightDiagonals[2] = this.chunkManager.getChunk(cx - 1, cz + 1);
+            this.lightDiagonals[3] = this.chunkManager.getChunk(cx + 1, cz + 1);
+            this.lightEngine.onBlocksChanged(chunk, north, south, west, east, this.lightDiagonals,
+                    group.packed, group.oldIds, group.count);
+            profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE, 0, lightStarted);
+        }
+        for (int gi = 0, gn = groups.tableSize(); gi < gn; gi++) {
+            SetBatchGroup group = groups.valueAt(gi);
+            if (group == null || group.chunk == null) continue;
+            int baseX = group.chunk.chunkX << ChunkSection.SHIFT, baseZ = group.chunk.chunkZ << ChunkSection.SHIFT;
+            for (int i = 0; i < group.count; i++) {
+                int packed = group.packed[i];
+                BlockState oldState = Blocks.getState(group.oldIds[i]);
+                BlockState newState = Blocks.getState(group.newIds[i]);
+                if (oldState.getBlock() != newState.getBlock()) oldState.getBlock().onRemoved(this,
+                        baseX + (packed & 31), (packed >> 10) & 511,
+                        baseZ + ((packed >> 5) & 31), oldState, newState);
+            }
+        }
+        return changed;
+    }
 
     /**
      * Zerstört viele Blöcke als Batch (Explosion): gruppiert nach Chunk, EIN Write-Lock,

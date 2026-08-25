@@ -23,13 +23,12 @@ import java.util.concurrent.CountDownLatch;
 
 public class SkyEngine {
 
-    /** Kompatibilitaetsname fuer bestehende Anzeigen und Fenstertitel. */
     public static final String ENGINE_NAME = "SkyEngine";
     public static final String ENGINE_VERSION = "0.0.16-alpha";
 
-    /** Zentrale Spielidentitaet: Zum Umbenennen nur GAME_NAME aendern. */
     public static final String GAME_NAME = "Voxel Stories";
     public static final String GAME_PREFIX = derivePrefix(GAME_NAME);
+    public static final String GAME_DATA_DIRECTORY_NAME = "." + GAME_PREFIX.replace("_", "");
 
     private static String derivePrefix(String name) {
         String prefix = name.toLowerCase(Locale.ROOT)

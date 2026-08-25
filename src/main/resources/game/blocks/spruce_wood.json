@@ -1,0 +1,8 @@
+{
+  "id": "skyengine:spruce_wood",
+  "parent": "preset/cube",
+  "textures": { "all": "game/textures/block/spruce_log.png" },
+  "no_lod_surface": true,
+  "hardness": 2,
+  "tool": "axe"
+}

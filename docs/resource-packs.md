@@ -1,8 +1,8 @@
 # SkyEngine resource packs
 
 SkyEngine resource packs work as an overlay above the built-in presentation assets. Packs may be
-directories or `.zip` files in `%APPDATA%/.skyengine/resourcepacks` (on other systems:
-`~/.skyengine/resourcepacks`). They are enabled under **Options > Resource Packs**.
+directories or `.zip` files in `%APPDATA%/.voxelstories/resourcepacks` (on other systems:
+`~/.voxelstories/resourcepacks`). They are enabled under **Options > Resource Packs**.
 
 The selected list is ordered from highest to lowest priority. Resolution happens per file: if the
 top pack only contains a sand texture, an ore texture from the pack below it remains active. Any

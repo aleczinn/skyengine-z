@@ -99,6 +99,10 @@ import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.game.world.block.entity.BlockEntities;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.game.world.save.WorldSaves;
+import de.skyengine.game.world.structure.StructurePlacement;
+import de.skyengine.game.world.structure.StructureTemplate;
+import de.skyengine.game.world.structure.StructureTransform;
+import de.skyengine.game.world.structure.StructureSelection;
 import org.lwjgl.opengl.GL11;
 import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.graphics.world.ChunkBorderRenderer;
@@ -1179,6 +1183,23 @@ public class GameContainer implements IResizeable, IDisposable {
             int ccz = ((int) Math.floor(this.player().z)) >> ChunkSection.SHIFT;
             this.chunkBorderRenderer.render(this.camera, this.dimension().getChunkManager(),
                     ccx, ccz, DebugFlags.chunkBorders);
+        }
+
+        /* Authoring-Boxen sind absichtlich immer sichtbar: gruen = Auswahl, violett = letzter Paste. */
+        if (this.world() != null && this.dimension() != null) {
+            var authoring = this.world().structureAuthoring();
+            StructureSelection selection = authoring.selection();
+            if (selection != null && selection.complete()
+                    && selection.dimension().equals(this.dimension().getDimensionId())) {
+                this.chunkBorderRenderer.renderBox(this.camera, selection.bounds(), 0.2F, 0.95F, 0.35F);
+                var anchor = selection.effectiveAnchor();
+                this.chunkBorderRenderer.renderBox(this.camera,
+                        new de.skyengine.game.world.structure.StructureBounds(anchor.x(), anchor.y(), anchor.z(),
+                                anchor.x(), anchor.y(), anchor.z()), 1F, 0.8F, 0.15F);
+            }
+            if (this.dimension().getDimensionId().equals(authoring.previewDimension())) {
+                this.chunkBorderRenderer.renderBox(this.camera, authoring.previewBounds(), 0.75F, 0.25F, 0.95F);
+            }
         }
 
         if (DebugFlags.entityHitboxes) {
@@ -2351,7 +2372,50 @@ public class GameContainer implements IResizeable, IDisposable {
                 return GameContainer.this.requestDimensionChange(target);
             }
         };
-        this.guiManager.open(new GuiChat(this.chat, new CommandContext(this.player().getInventory(), dimensions),
+        CommandContext.StructureAccess structures = new CommandContext.StructureAccess() {
+            private int x() { return (int) Math.floor(GameContainer.this.player().x); }
+            private int y() { return (int) Math.floor(GameContainer.this.player().y); }
+            private int z() { return (int) Math.floor(GameContainer.this.player().z); }
+            @Override public void pos1() {
+                GameContainer.this.world().structureAuthoring().pos1(GameContainer.this.dimension().getDimensionId(), x(), y(), z());
+            }
+            @Override public void pos2() {
+                GameContainer.this.world().structureAuthoring().pos2(GameContainer.this.dimension().getDimensionId(), x(), y(), z());
+            }
+            @Override public void anchor() { anchor(x(), y(), z()); }
+            @Override public void anchor(int x, int y, int z) {
+                GameContainer.this.world().structureAuthoring().anchor(
+                        GameContainer.this.dimension().getDimensionId(), x, y, z);
+            }
+            @Override public void resetAnchor() {
+                GameContainer.this.world().structureAuthoring().resetAnchor(
+                        GameContainer.this.dimension().getDimensionId());
+            }
+              @Override public StructureTemplate save(String reference, boolean includeAir, boolean overwrite) throws Exception {
+                  return GameContainer.this.world().structureAuthoring().save(GameContainer.this.dimension(), reference, includeAir, overwrite);
+              }
+              @Override public StructureTemplate load(String reference) throws Exception {
+                  StructureTemplate template = GameContainer.this.world().structureAuthoring().load(reference);
+                GameContainer.this.world().structureAuthoring().previewAt(GameContainer.this.dimension().getDimensionId(),
+                        x(), y(), z(), StructureTransform.IDENTITY);
+                return template;
+            }
+            @Override public StructurePlacement.Result paste(StructureTransform transform,
+                                                              StructurePlacement.Rule rule) {
+                return pasteAt(x(), y(), z(), transform, rule);
+            }
+            @Override public StructurePlacement.Result pasteAt(int x, int y, int z,
+                                                                StructureTransform transform,
+                                                                StructurePlacement.Rule rule) {
+                return GameContainer.this.world().structureAuthoring().paste(
+                        GameContainer.this.dimension(), x, y, z, transform, rule);
+            }
+              @Override public List<String> templates() throws Exception {
+                  return GameContainer.this.world().structures().references();
+              }
+        };
+        this.guiManager.open(new GuiChat(this.chat,
+                new CommandContext(this.player().getInventory(), dimensions, structures),
                 this.chatHud, initial));
     }
 
