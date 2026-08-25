@@ -42,7 +42,7 @@ public final class GuiMainMenu extends GuiScreen {
         Button options = new Button(I18n.tr("gui.options"), 98, 20, () -> gui.open(new GuiOptionsMenu(this)));
         Button quit = new Button(I18n.tr("gui.quit"), 98, 20, () -> SkyEngine.get().shutdown());
 
-        Label version = new Label(SkyEngine.GAME_NAME + " v" + SkyEngine.ENGINE_VERSION, GuiText.SMALL, VERSION_COLOR, true).measure(gui);
+        Label version = new Label(" v" + SkyEngine.ENGINE_VERSION, GuiText.SMALL, VERSION_COLOR, true).measure(gui);
         Label copyright = new Label(I18n.tr("gui.menu.copyright"), GuiText.SMALL, VERSION_COLOR, true).measure(gui);
 
         /* Logo fest oben (wie die Menü-Titel), Buttons bleiben mittig. */

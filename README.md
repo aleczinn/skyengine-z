@@ -49,9 +49,12 @@ Als Texturen wurden die offiziellen Minecraft Texturen aus der 1.21 genutzt. Zus
   - Ambient Occlusion
   - Level of Detail
   - GPU Acceleration (Frustum-/Occlusion Culling)
-- 🏔️ Welt-Generator
-  - Biome
-  - Strukturen wie Bäume, Palmen
+- 🏔️ Welt
+  - Verschiedene Welt-Generatoren (Flachland, Void, Default)
+    - Biome
+    - Dekorationen pro Biome (Wüste = Kakteen, Fichtenwald = Pilze)
+    - Strukturen wie Bäume
+  - Dimensionen inkl. Portale (aktuell Nether & Mining Dimension mit erhöhtem Erzvorkommen)
 - 🖼️ Post Processing Pipeline
   - Color Grading
   - Antialiasing: None, FXAA, TAA, FXAA + TAA, MSAA
@@ -121,6 +124,13 @@ Der Fokus liegt auf:
 - Moderne OpenGL-Techniken
 
 ## Screenshots / Changelog
+
+v0.0.16 | Dimensionen & Bugfixes
+- Dimensionen hinzugefügt (Nether & Mining Dimension)
+- Struktur-Optimierung (EntityPlayer wurde in World verschoben; World ist jetzt der Manager von allem)
+- Bett Inventar Icon gefixt; Inventory/HeldItem Renderer verbessert und Licht korrigiert
+
+![Nether Dimension](project/0.0.16_dimensions.png?raw=true)
 
 v0.0.15 | Partikel-System
 - Partikel-System inkl. Effekte für Explosion, Block Interaktion, Redstone, Wasser, Lava, Laub was von Bäumen fällt und vieles mehr

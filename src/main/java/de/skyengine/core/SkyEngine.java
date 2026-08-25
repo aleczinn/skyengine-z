@@ -25,7 +25,7 @@ public class SkyEngine {
 
     /** Kompatibilitaetsname fuer bestehende Anzeigen und Fenstertitel. */
     public static final String ENGINE_NAME = "SkyEngine";
-    public static final String ENGINE_VERSION = "0.0.15-alpha";
+    public static final String ENGINE_VERSION = "0.0.16-alpha";
 
     /** Zentrale Spielidentitaet: Zum Umbenennen nur GAME_NAME aendern. */
     public static final String GAME_NAME = "Voxel Stories";
