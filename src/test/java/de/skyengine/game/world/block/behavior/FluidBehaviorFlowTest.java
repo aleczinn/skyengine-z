@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.state.BlockState;
@@ -54,7 +54,7 @@ final class FluidBehaviorFlowTest {
         assertEquals(0.0, flow[1], 0.000001);
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private final Map<Long, Integer> blocks = new HashMap<>();
 
         TestWorld() {

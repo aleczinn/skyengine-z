@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
@@ -41,18 +41,18 @@ public final class RepeaterBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+    public void onPlaced(Dimension world, int x, int y, int z, BlockState state) {
         notifyStrongTarget(world, x, y, z, state);
     }
 
     @Override
-    public void onRemoved(World world, int x, int y, int z,
+    public void onRemoved(Dimension world, int x, int y, int z,
                           BlockState oldState, BlockState newState) {
         notifyStrongTarget(world, x, y, z, oldState);
     }
 
     @Override
-    public boolean onUse(World world, int x, int y, int z, BlockState state) {
+    public boolean onUse(Dimension world, int x, int y, int z, BlockState state) {
         int delay = state.get(Properties.DELAY) % 4 + 1;
         /* MIT Nachbar-Update (MCs Flag 3): die Verzoegerung steckt im State, ein danebenstehender
            Beobachter erkennt die Aenderung nur, wenn er geweckt wird. Nebenbei bewertet der
@@ -62,7 +62,7 @@ public final class RepeaterBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         /* Locking (MC): eine seitliche Diode (Verstärker/Komparator), die auf uns zeigt und
            Signal führt, friert den Ausgang ein — solange gesperrt, werden Eingangs-Flanken
            ignoriert. Beim Entsperren wird der Zustand frisch bewertet. */
@@ -86,7 +86,7 @@ public final class RepeaterBehavior implements BlockBehavior {
     }
 
     /** Vanilla DiodeBlock#shouldPrioritize, uebersetzt auf FACING=Ausgang. */
-    private static boolean shouldPrioritize(World world, int x, int y, int z, BlockState state) {
+    private static boolean shouldPrioritize(Dimension world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
         int nx = x + out.offsetX(), nz = z + out.offsetZ();
         BlockState neighbor = Blocks.getState(world.getBlock(nx, y, nz));
@@ -96,13 +96,13 @@ public final class RepeaterBehavior implements BlockBehavior {
     }
 
     /** Gesperrt, wenn links oder rechts eine Diode mit Signal auf diesen Verstärker zeigt. */
-    private static boolean isLocked(World world, int x, int y, int z, BlockState state) {
+    private static boolean isLocked(Dimension world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
         return isLockingSide(world, x, y, z, out.rotateYCW())
                 || isLockingSide(world, x, y, z, out.rotateYCCW());
     }
 
-    private static boolean isLockingSide(World world, int x, int y, int z, Direction side) {
+    private static boolean isLockingSide(Dimension world, int x, int y, int z, Direction side) {
         int sx = x + side.offsetX(), sz = z + side.offsetZ();
         BlockState neighbor = Blocks.getState(world.getBlock(sx, y, sz));
         boolean diode = neighbor.getValues().containsKey(Properties.DELAY)
@@ -114,7 +114,7 @@ public final class RepeaterBehavior implements BlockBehavior {
     }
 
     @Override
-    public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    public void scheduledTick(Dimension world, int x, int y, int z, BlockState state) {
         if (state.get(Properties.LOCKED)) return;   // gesperrt: Ausgang eingefroren
         boolean powered = state.get(Properties.POWERED);
         boolean input = hasInput(world, x, y, z, state);
@@ -134,7 +134,7 @@ public final class RepeaterBehavior implements BlockBehavior {
         }
     }
 
-    private static void switchOutput(World world, int x, int y, int z, BlockState state, boolean powered) {
+    private static void switchOutput(Dimension world, int x, int y, int z, BlockState state, boolean powered) {
         world.setBlockWithShapeUpdates(
                 x, y, z, state.with(Properties.POWERED, powered).getId());
         /* Exakter DiodeBlock.updateNeighborsInFront-Pfad: Ausgangszelle plus ihre fünf vom
@@ -143,13 +143,13 @@ public final class RepeaterBehavior implements BlockBehavior {
     }
 
     /** Vanillas DiodeBlock#updateNeighborsInFront fuer Platzierung, Flanke und Entfernung. */
-    private static void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
+    private static void notifyStrongTarget(Dimension world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
         world.updateDirectionalOutputNeighbors(x, y, z, out);
     }
 
     /** Signal am Eingang (Gegenseite von FACING)? */
-    private static boolean hasInput(World world, int x, int y, int z, BlockState state) {
+    private static boolean hasInput(Dimension world, int x, int y, int z, BlockState state) {
         Direction out = state.get(Properties.FACING);
         int ix = x - out.offsetX(), iz = z - out.offsetZ();
         return RedstonePower.emittedSignal(world, ix, y, iz, out, false) > 0;
@@ -158,12 +158,12 @@ public final class RepeaterBehavior implements BlockBehavior {
     /* Ausgang: volle 15, schwach UND stark, nur in FACING-Richtung. */
 
     @Override
-    public int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int weakPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return state.get(Properties.POWERED) && side == state.get(Properties.FACING) ? 15 : 0;
     }
 
     @Override
-    public int strongPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int strongPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return weakPower(world, x, y, z, state, side);
     }
 

@@ -134,10 +134,11 @@ public class Window implements IDisposable {
         long monitor = GLFW.glfwGetPrimaryMonitor();
         GLFWVidMode vidMode  = GLFW.glfwGetVideoMode(monitor);
 
+        String title = "%s v%s".formatted(SkyEngine.GAME_NAME, SkyEngine.ENGINE_VERSION);
         this.windowID = GLFW.glfwCreateWindow(
                 this.config.getWindowWidth(),
                 this.config.getWindowHeight(),
-                this.config.getTitle(),
+                title,
                 MemoryUtil.NULL,
                 MemoryUtil.NULL
         );
@@ -337,12 +338,7 @@ public class Window implements IDisposable {
         return windowID;
     }
 
-    public String getTitle() {
-        return this.config.getTitle();
-    }
-
     public void setTitle(String title) {
-        this.config.setTitle(title);
         GLFW.glfwSetWindowTitle(this.windowID, title);
     }
 

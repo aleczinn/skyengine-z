@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 
 /**
  * Kontext einer Block-Platzierung: Zielfeld, getroffene Fläche, relativer Trefferpunkt
@@ -13,7 +13,7 @@ import de.skyengine.game.world.World;
  * <p>{@code sneaking} ist MCs „secondary use": es unterdrückt z.B. das automatische
  * Verschmelzen zweier Truhen zur Doppeltruhe.
  */
-public record PlacementContext(World world, int x, int y, int z,
+public record PlacementContext(Dimension world, int x, int y, int z,
                                int faceX, int faceY, int faceZ,
                                double hitX, double hitY, double hitZ, float playerYaw,
                                float playerPitch, boolean sneaking) {}

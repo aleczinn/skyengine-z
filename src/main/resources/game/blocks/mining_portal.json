@@ -1,0 +1,11 @@
+{
+  "id": "skyengine:mining_portal",
+  "creative_tab": "functional",
+  "parent": "preset/cube",
+  "vars": {
+    "texture": "mining_portal"
+  },
+  "hardness": 1.5,
+  "resistance": 6,
+  "tool": "pickaxe"
+}

@@ -2,7 +2,7 @@ package de.skyengine.game.world.particle;
 
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.physics.AABB;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.model.BakedQuad;
@@ -35,10 +35,11 @@ public final class ParticleEngine {
     private static final int MAX_EXPLOSION_BLOCK_PARTICLES = 512;
     private static final ParticleType[] TYPES = ParticleType.values();
 
-    private final World world;
+    private final Dimension world;
     private final Random random;
     private final double[] x = new double[MAX_PARTICLES], y = new double[MAX_PARTICLES], z = new double[MAX_PARTICLES];
     private final double[] prevX = new double[MAX_PARTICLES], prevY = new double[MAX_PARTICLES], prevZ = new double[MAX_PARTICLES];
+    private final double[] originX = new double[MAX_PARTICLES], originY = new double[MAX_PARTICLES], originZ = new double[MAX_PARTICLES];
     private final float[] vx = new float[MAX_PARTICLES], vy = new float[MAX_PARTICLES], vz = new float[MAX_PARTICLES];
     private final float[] size = new float[MAX_PARTICLES], rotation = new float[MAX_PARTICLES];
     private final float[] rotationVelocity = new float[MAX_PARTICLES];
@@ -63,7 +64,7 @@ public final class ParticleEngine {
     private long spawned;
     private long rejected;
 
-    public ParticleEngine(World world) {
+    public ParticleEngine(Dimension world) {
         this.world = world;
         this.random = new Random();
     }
@@ -102,6 +103,10 @@ public final class ParticleEngine {
             }
             if (kind == ParticleType.FALLING_LEAF) {
                 this.tickFallingLeaf(i);
+                continue;
+            }
+            if (kind == ParticleType.PORTAL) {
+                this.tickPortal(i);
                 continue;
             }
             int nextAge = (this.age[i] & 0xFFFF) + 1;
@@ -154,11 +159,35 @@ public final class ParticleEngine {
                 this.spawnVanillaSmoke(this.x[i], this.y[i], this.z[i],
                         this.vx[i], this.vy[i], this.vz[i], 1F, ParticlePriority.AMBIENT);
             }
+            if (kind == ParticleType.PORTAL_BURST) {
+                this.rotation[i] += this.rotationVelocity[i];
+                this.alpha[i] = Math.max(0F,
+                        1F - nextAge / (float) (this.lifetime[i] & 0xFFFF));
+            }
             if (kind != ParticleType.LAVA && kind != ParticleType.EXPLOSION) {
                 this.light[i] = this.sampleLight(this.x[i], this.y[i], this.z[i]);
             }
         }
         this.flushExplosionClouds();
+    }
+
+    /** Exakte 26.2-Bahnkurve: erst aus der Portalebene heraus, dann wieder zu ihr zurueck. */
+    private void tickPortal(int index) {
+        int nextAge = (this.age[index] & 0xFFFF) + 1;
+        this.age[index] = (short) nextAge;
+        int life = this.lifetime[index] & 0xFFFF;
+        if (nextAge >= life) {
+            this.remove(index);
+            return;
+        }
+        float progress = nextAge / (float) life;
+        float path = 1F + progress - 2F * progress * progress;
+        this.x[index] = this.originX[index] + this.vx[index] * path;
+        this.y[index] = this.originY[index] + this.vy[index] * path + 1F - progress;
+        this.z[index] = this.originZ[index] + this.vz[index] * path;
+        float glow = progress * progress;
+        glow *= glow;
+        this.light[index] = Math.max(this.sampleLight(this.x[index], this.y[index], this.z[index]), glow);
     }
 
     /** Vanillas EXPLOSION_EMITTER: acht Ticks lang je sechs ortsfeste Explosion-Sprites. */
@@ -419,6 +448,64 @@ public final class ParticleEngine {
                 vanillaQuadSize() * (this.random.nextFloat() * 0.6F + 0.2F));
         if (index >= 0) this.lifetime[index] = (short) Math.max(1,
                 (int) (16F / (this.random.nextFloat() * 0.8F + 0.2F)));
+    }
+
+    /** Minecraft 26.2: vier Partikel pro Animate-Tick mit identischer Position und Bewegung. */
+    public void portal(int blockX, int blockY, int blockZ, Direction.Axis axis, Random source) {
+        for (int n = 0; n < 4; n++) {
+            double px = blockX + source.nextDouble();
+            double py = blockY + source.nextDouble();
+            double pz = blockZ + source.nextDouble();
+            float mx = (source.nextFloat() - 0.5F) * 0.5F;
+            float my = (source.nextFloat() - 0.5F) * 0.5F;
+            float mz = (source.nextFloat() - 0.5F) * 0.5F;
+            int sign = source.nextInt(2) * 2 - 1;
+            if (axis == Direction.Axis.X) {
+                pz = blockZ + 0.5 + 0.25 * sign;
+                mz = source.nextFloat() * 2F * sign;
+            } else {
+                px = blockX + 0.5 + 0.25 * sign;
+                mx = source.nextFloat() * 2F * sign;
+            }
+
+            float shade = source.nextFloat() * 0.6F + 0.4F;
+            int red = Math.clamp(Math.round(shade * 0.9F * 255F), 0, 255);
+            int green = Math.clamp(Math.round(shade * 0.3F * 255F), 0, 255);
+            int blue = Math.clamp(Math.round(shade * 255F), 0, 255);
+            float particleSize = 0.1F * (source.nextFloat() * 0.2F + 0.5F);
+            int index = this.add(ParticleType.PORTAL, ParticlePriority.AMBIENT,
+                    px, py, pz, mx, my, mz, -1, red << 16 | green << 8 | blue,
+                    1F, particleSize);
+            if (index < 0) continue;
+            this.originX[index] = px;
+            this.originY[index] = py;
+            this.originZ[index] = pz;
+            this.lifetime[index] = (short) ((int) (source.nextFloat() * 10F) + 40);
+            this.layer[index] = ParticleSprites.randomPortal(source.nextInt(8));
+            this.rotation[index] = 0F;
+        }
+    }
+
+    /** Ein einzelner, begrenzter Burst fuer den Kollaps der gesamten Portaloberflaeche. */
+    public void portalCollapse(double centerX, double centerY, double centerZ,
+                               Direction.Axis axis, int width, int height) {
+        int amount = scaledAmount(Math.min(40, 18 + width * height), false);
+        for (int i = 0; i < amount; i++) {
+            double tangent = (this.random.nextDouble() - 0.5) * width;
+            double vertical = (this.random.nextDouble() - 0.5) * height;
+            double normal = (this.random.nextDouble() - 0.5) * 0.3;
+            double px = centerX + (axis == Direction.Axis.X ? tangent : normal);
+            double pz = centerZ + (axis == Direction.Axis.Z ? tangent : normal);
+            int index = this.add(ParticleType.PORTAL_BURST, ParticlePriority.CRITICAL,
+                    px, centerY + vertical, pz,
+                    jitter(0.11F), jitter(0.11F), jitter(0.11F), -1,
+                    this.random.nextBoolean() ? 0xC65CFF : 0x7621BC,
+                    0.95F, 0.16F + this.random.nextFloat() * 0.12F);
+            if (index >= 0) {
+                this.lifetime[index] = (short) (18 + this.random.nextInt(20));
+                this.rotationVelocity[index] = jitter(0.12F);
+            }
+        }
     }
 
     public void drip(double px, double py, double pz, boolean lava) {
@@ -782,6 +869,9 @@ public final class ParticleEngine {
         this.x[index] = this.prevX[index] = px;
         this.y[index] = this.prevY[index] = py;
         this.z[index] = this.prevZ[index] = pz;
+        this.originX[index] = px;
+        this.originY[index] = py;
+        this.originZ[index] = pz;
         this.vx[index] = mx;
         this.vy[index] = my;
         this.vz[index] = mz;
@@ -871,7 +961,8 @@ public final class ParticleEngine {
         Chunk chunk = this.world.getChunkManager().getChunk(bx >> ChunkSection.SHIFT, bz >> ChunkSection.SHIFT);
         if (chunk == null || !chunk.status.isAtLeast(ChunkStatus.LIT)) return 1F;
         return ChunkRenderer.lightFactor(chunk.light.get(bx & ChunkSection.MASK, by, bz & ChunkSection.MASK),
-                chunk.blockLight.get(bx & ChunkSection.MASK, by, bz & ChunkSection.MASK));
+                chunk.blockLight.get(bx & ChunkSection.MASK, by, bz & ChunkSection.MASK),
+                this.world.getEnvironment().ambientLight());
     }
 
     private int tintAt(BlockParticleSprite sprite, double px, double pz) {
@@ -898,6 +989,7 @@ public final class ParticleEngine {
         if (index == last) return;
         this.x[index] = this.x[last]; this.y[index] = this.y[last]; this.z[index] = this.z[last];
         this.prevX[index] = this.prevX[last]; this.prevY[index] = this.prevY[last]; this.prevZ[index] = this.prevZ[last];
+        this.originX[index] = this.originX[last]; this.originY[index] = this.originY[last]; this.originZ[index] = this.originZ[last];
         this.vx[index] = this.vx[last]; this.vy[index] = this.vy[last]; this.vz[index] = this.vz[last];
         this.size[index] = this.size[last]; this.rotation[index] = this.rotation[last];
         this.rotationVelocity[index] = this.rotationVelocity[last];
@@ -943,8 +1035,13 @@ public final class ParticleEngine {
         float progress = ((this.age[index] & 0xFFFF) + partialTick)
                 / Math.max(1F, this.lifetime[index] & 0xFFFF);
         if (kind == ParticleType.SMOKE || kind == ParticleType.LARGE_SMOKE
-                || kind == ParticleType.DUST || kind == ParticleType.FALLING_DUST) {
+                || kind == ParticleType.DUST || kind == ParticleType.PORTAL_BURST
+                || kind == ParticleType.FALLING_DUST) {
             return base * Math.clamp(progress * 32F, 0F, 1F);
+        }
+        if (kind == ParticleType.PORTAL) {
+            float inverse = 1F - progress;
+            return base * (1F - inverse * inverse);
         }
         if (kind == ParticleType.LAVA) return base * (1F - progress * progress);
         if (kind == ParticleType.FLAME) return base * (1F - progress * progress * 0.5F);

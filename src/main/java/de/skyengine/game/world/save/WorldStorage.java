@@ -1,6 +1,6 @@
 package de.skyengine.game.world.save;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.tick.SavedTick;
@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>Save-Jobs laufen bewusst NICHT auf dem Chunk-Worker-Pool: dessen dispose() macht
  * {@code shutdownNow} und würde wartende Saves verwerfen (Datenverlust). Der eigene
  * IO-Executor wird in {@link #close()} per shutdown + await geflusht — Aufruf in
- * {@code World.dispose()} NACH {@code chunkManager.dispose()}.
+ * {@code Dimension.dispose()} NACH {@code chunkManager.dispose()}.
  */
 public class WorldStorage {
 
@@ -48,7 +48,7 @@ public class WorldStorage {
     /* Regionen, deren Datei nicht existiert — Cache für den häufigen Miss-Fall. */
     private final Set<Long> missingRegions = new HashSet<>();
 
-    private final World world;
+    private final Dimension world;
     private final WorldGenerator generator;
     private final String generatorId;
     private final int generatorVersion;
@@ -79,7 +79,7 @@ public class WorldStorage {
                                 List<SavedBlockEntity> blockEntities,
                                 List<SavedEntity> entities) {}
 
-    public WorldStorage(File regionDir, World world, WorldGenerator generator,
+    public WorldStorage(File regionDir, Dimension world, WorldGenerator generator,
                         String generatorId, int generatorVersion, boolean storeTints) {
         this.regionDir = regionDir;
         this.world = world;
@@ -272,7 +272,7 @@ public class WorldStorage {
 
     /**
      * Flusht alle ausstehenden Save-Jobs (bis 10 s) und schließt die Region-Handles.
-     * In {@code World.dispose()} NACH {@code chunkManager.dispose()} aufrufen — danach
+     * In {@code Dimension.dispose()} NACH {@code chunkManager.dispose()} aufrufen — danach
      * schreibt kein Worker mehr auf Chunks.
      */
     public void close() {

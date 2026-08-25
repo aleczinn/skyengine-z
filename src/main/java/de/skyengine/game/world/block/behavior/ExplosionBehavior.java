@@ -3,7 +3,7 @@ package de.skyengine.game.world.block.behavior;
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.world.Explosion;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.archetype.ArchetypeBlockFactory;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.state.BlockState;
@@ -75,13 +75,13 @@ public final class ExplosionBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         if (RedstonePower.isReceiving(world, x, y, z)) this.prime(world, x, y, z);
         return state;
     }
 
     @Override
-    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+    public void onPlaced(Dimension world, int x, int y, int z, BlockState state) {
         if (RedstonePower.isReceiving(world, x, y, z)) this.prime(world, x, y, z);
     }
 
@@ -95,7 +95,7 @@ public final class ExplosionBehavior implements BlockBehavior {
      * das ist unkritisch, weil der Aufrufer danach nur noch den unveränderten Rückgabe-State
      * gegen den alten vergleicht und nichts mehr schreibt.
      */
-    public void prime(World world, int x, int y, int z) {
+    public void prime(Dimension world, int x, int y, int z) {
         world.setBlock(x, y, z, Blocks.AIR);
         world.spawnPrimedTnt(x + 0.5, y, z + 0.5, this.power, this.fuse);
     }

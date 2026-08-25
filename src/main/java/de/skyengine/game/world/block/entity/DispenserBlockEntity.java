@@ -91,10 +91,17 @@ public final class DispenserBlockEntity extends BlockEntity {
             ExplosionBehavior tnt = blockItem.getBlock().getBehavior(ExplosionBehavior.class);
             float power = tnt == null ? 4.0F : tnt.power();
             int fuse = tnt == null ? 80 : tnt.fuse();
+            int tx = this.pos.x() + facing.offsetX();
+            int ty = this.pos.y() + facing.offsetY();
+            int tz = this.pos.z() + facing.offsetZ();
+            /* Vanillas TNT-DispenseBehavior erzeugt PrimedTnt im Mittelpunkt der angrenzenden
+               Blockzelle und verwendet deren Y-Koordinate als Fusspunkt. Der allgemeine
+               0.7-Auswurfoffset ist fuer die fast blockgrosse TNT-Box zu klein: Sie wuerde den
+               Dispenser weiterhin ueberlappen und bei der ersten Kollision darin festhaengen. */
             this.world.spawnPrimedTnt(
-                    this.pos.x() + 0.5 + facing.offsetX() * 0.7,
-                    this.pos.y() + 0.5 + facing.offsetY() * 0.7,
-                    this.pos.z() + 0.5 + facing.offsetZ() * 0.7,
+                    tx + 0.5,
+                    ty,
+                    tz + 0.5,
                     power, fuse);
             this.world.playDispenserSuccess(this.pos.x(), this.pos.y(), this.pos.z());
             return true;

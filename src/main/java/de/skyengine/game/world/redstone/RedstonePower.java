@@ -1,6 +1,6 @@
 package de.skyengine.game.world.redstone;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
@@ -29,7 +29,7 @@ public final class RedstonePower {
      * Signal, das der Block an (x,y,z) in Richtung {@code toward} abgibt: sein eigenes
      * schwaches Signal, bei Redstone-Leitern zusätzlich das stark empfangene.
      */
-    public static int emittedSignal(World world, int x, int y, int z, Direction toward, boolean ignoreWire) {
+    public static int emittedSignal(Dimension world, int x, int y, int z, Direction toward, boolean ignoreWire) {
         BlockState state = Blocks.getState(world.getBlock(x, y, z));
         if (state.isAir()) return 0;
         if (ignoreWire && isWire(state)) return 0;
@@ -43,7 +43,7 @@ public final class RedstonePower {
     }
 
     /** Stark empfangenes Signal der Zelle: max über die strongPower der 6 Nachbarn in ihre Richtung. */
-    public static int strongPowerInto(World world, int x, int y, int z, boolean ignoreWire) {
+    public static int strongPowerInto(Dimension world, int x, int y, int z, boolean ignoreWire) {
         int power = 0;
         for (Direction d : Direction.values()) {
             int nx = x + d.offsetX(), ny = y + d.offsetY(), nz = z + d.offsetZ();
@@ -57,21 +57,21 @@ public final class RedstonePower {
     }
 
     /** Empfänger-Sicht (Tür, Lampe, Verstärker-Eingang): max über die Signale der 6 Nachbarn. */
-    public static int receivedPower(World world, int x, int y, int z) {
+    public static int receivedPower(Dimension world, int x, int y, int z) {
         return received(world, x, y, z, false);
     }
 
     /** true, wenn irgendein Nachbar die Zelle mit Signal &gt; 0 versorgt. */
-    public static boolean isReceiving(World world, int x, int y, int z) {
+    public static boolean isReceiving(Dimension world, int x, int y, int z) {
         return received(world, x, y, z, false) > 0;
     }
 
     /** Wie {@link #receivedPower}, aber ohne Staub als Quelle — die Abfrage des Staubs selbst. */
-    public static int receivedPowerIgnoringWire(World world, int x, int y, int z) {
+    public static int receivedPowerIgnoringWire(Dimension world, int x, int y, int z) {
         return received(world, x, y, z, true);
     }
 
-    private static int received(World world, int x, int y, int z, boolean ignoreWire) {
+    private static int received(Dimension world, int x, int y, int z, boolean ignoreWire) {
         int power = 0;
         for (Direction d : Direction.values()) {
             power = Math.max(power, emittedSignal(world,

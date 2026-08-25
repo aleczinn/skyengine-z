@@ -1,7 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.game.entity.MinecartEntity;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
@@ -101,7 +101,7 @@ final class RailBehaviorTest {
         return BlockRegistry.get(Identifier.of("skyengine:" + path)).getDefaultState();
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private final LongIntMap blocks = new LongIntMap(32);
         int lastScheduledDelay = -1;
 

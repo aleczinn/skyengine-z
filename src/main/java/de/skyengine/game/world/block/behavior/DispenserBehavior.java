@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.BlockEntity;
@@ -41,7 +41,7 @@ public final class DispenserBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         /* Vanilla-Quasi-Connectivity: Dispenser und Dropper prüfen zusätzlich die Zelle darüber. */
         boolean powered = RedstonePower.isReceiving(world, x, y, z)
                 || RedstonePower.isReceiving(world, x, y + 1, z);
@@ -55,7 +55,7 @@ public final class DispenserBehavior implements BlockBehavior {
     }
 
     @Override
-    public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    public void scheduledTick(Dimension world, int x, int y, int z, BlockState state) {
         BlockEntity blockEntity = world.getBlockEntity(x, y, z);
         if (blockEntity instanceof DispenserBlockEntity dispenser) {
             dispenser.activate(state.get(Properties.FACING_ALL), this.dropper);

@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.redstone.RedstonePower;
@@ -26,7 +26,7 @@ public final class LampBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         boolean powered = RedstonePower.isReceiving(world, x, y, z);
         boolean lit = state.get(Properties.LIT);
         if (powered && !lit) return state.with(Properties.LIT, true);
@@ -37,7 +37,7 @@ public final class LampBehavior implements BlockBehavior {
     }
 
     @Override
-    public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    public void scheduledTick(Dimension world, int x, int y, int z, BlockState state) {
         /* Tolerantes Feuern: erneut pruefen — kam das Signal zurueck, bleibt sie an. */
         if (!state.get(Properties.LIT) || RedstonePower.isReceiving(world, x, y, z)) return;
         /* Niemand liest den Lampen-State — kein Nachbar-Ring noetig, Licht/Mesh macht setBlock. */

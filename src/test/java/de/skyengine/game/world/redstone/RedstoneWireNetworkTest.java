@@ -1,6 +1,6 @@
 package de.skyengine.game.world.redstone;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
@@ -240,7 +240,7 @@ final class RedstoneWireNetworkTest {
         assertTrue(connected, message);
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private final LongIntMap blocks = new LongIntMap(2048);
         private final CountDownLatch solverEntered;
         private final CountDownLatch releaseSolver;

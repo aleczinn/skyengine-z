@@ -1,6 +1,6 @@
 package de.skyengine.game.world.redstone;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -38,7 +38,7 @@ public final class RedstoneWireNetwork {
     /** Ein Update-Kontext je Thread; unabhängige Welten unterdrücken einander nicht. */
     private static final ThreadLocal<UpdateContext> ACTIVE = new ThreadLocal<>();
 
-    public static void update(World world, int x, int y, int z) {
+    public static void update(Dimension world, int x, int y, int z) {
         update(world, x, y, z, null);
     }
 
@@ -46,7 +46,7 @@ public final class RedstoneWireNetwork {
      * Chunk-Kanten-Abgleich. Anders als der frühere Komponentenlöser darf Vanilla einzelne
      * Zellen nicht überspringen; {@code visited} dient nur noch der Statistik des Scan-Aufrufers.
      */
-    public static void updateOncePerComponent(World world, int x, int y, int z, LongIntMap visited) {
+    public static void updateOncePerComponent(Dimension world, int x, int y, int z, LongIntMap visited) {
         update(world, x, y, z, visited);
     }
 
@@ -54,7 +54,7 @@ public final class RedstoneWireNetwork {
      * Vanillas Default-Evaluator-Aufruf nach dem Entfernen eines Staubs. Die Position enthaelt
      * bereits Luft; der alte State wird nur fuer den Leistungsvergleich verwendet.
      */
-    public static void updateAfterRemoval(World world, int x, int y, int z, BlockState oldState) {
+    public static void updateAfterRemoval(Dimension world, int x, int y, int z, BlockState oldState) {
         int external = RedstonePower.receivedPowerIgnoringWire(world, x, y, z);
         int incoming = external == 15 ? 0 : incomingWirePower(world, x, y, z);
         int target = Math.max(external, Math.max(0, incoming - 1));
@@ -63,7 +63,7 @@ public final class RedstoneWireNetwork {
     }
 
     /** Vanillas {@code RedStoneWireBlock.updateNeighborsOfNeighboringWires}. */
-    public static void updateNeighborsOfNeighboringWires(World world, int x, int y, int z) {
+    public static void updateNeighborsOfNeighboringWires(Dimension world, int x, int y, int z) {
         for (Direction direction : Direction.horizontalValues()) {
             checkCornerChangeAt(world, x + direction.offsetX(), y, z + direction.offsetZ());
         }
@@ -78,7 +78,7 @@ public final class RedstoneWireNetwork {
         }
     }
 
-    private static void checkCornerChangeAt(World world, int x, int y, int z) {
+    private static void checkCornerChangeAt(Dimension world, int x, int y, int z) {
         if (!RedstonePower.isWire(Blocks.getState(world.getBlock(x, y, z)))) return;
         world.updateGeneralNeighborsAt(x, y, z);
         for (Direction direction : Direction.vanillaValues()) {
@@ -87,13 +87,13 @@ public final class RedstoneWireNetwork {
         }
     }
 
-    private static void notifyCentersImmediately(World world, List<WirePos> centers) {
+    private static void notifyCentersImmediately(Dimension world, List<WirePos> centers) {
         for (WirePos center : centers) {
             world.updateGeneralNeighborsAt(center.x, center.y, center.z);
         }
     }
 
-    private static void update(World world, int x, int y, int z, LongIntMap visited) {
+    private static void update(Dimension world, int x, int y, int z, LongIntMap visited) {
         if (!RedstonePower.isWire(Blocks.getState(world.getBlock(x, y, z)))) return;
         if (visited != null) visited.put(BlockPos.asLong(x, y, z), 1);
         world.getSimulationTelemetry().recordWireWake();
@@ -121,10 +121,10 @@ public final class RedstoneWireNetwork {
     }
 
     private static final class UpdateContext {
-        private final World world;
+        private final Dimension world;
         private final ArrayDeque<UpdateTask> stack = new ArrayDeque<>();
 
-        private UpdateContext(World world) {
+        private UpdateContext(Dimension world) {
             this.world = world;
         }
     }
@@ -133,7 +133,7 @@ public final class RedstoneWireNetwork {
     private record EvaluateTask(int x, int y, int z) implements UpdateTask {
         @Override
         public void run(UpdateContext context) {
-            World world = context.world;
+            Dimension world = context.world;
             BlockState current = Blocks.getState(world.getBlock(this.x, this.y, this.z));
             if (!RedstonePower.isWire(current)) return;
             long started = world.getSimulationTelemetry().beginRedstoneTiming();
@@ -202,7 +202,7 @@ public final class RedstoneWireNetwork {
     }
 
     /** Höchstes benachbartes Staubsignal nach Vanillas getIncomingWireSignal. */
-    private static int incomingWirePower(World world, int x, int y, int z) {
+    private static int incomingWirePower(Dimension world, int x, int y, int z) {
         int power = 0;
         boolean aboveConductive = Blocks.getState(world.getBlock(x, y + 1, z)).isRedstoneConductor();
         for (Direction direction : Direction.horizontalValues()) {
@@ -224,7 +224,7 @@ public final class RedstoneWireNetwork {
         return RedstonePower.isWire(state) ? state.get(Properties.POWER) : 0;
     }
 
-    private static BlockState updateShape(World world, int x, int y, int z, BlockState current) {
+    private static BlockState updateShape(Dimension world, int x, int y, int z, BlockState current) {
         RedstoneSide north = sideShape(world, x, y, z, Direction.NORTH);
         RedstoneSide east = sideShape(world, x, y, z, Direction.EAST);
         RedstoneSide south = sideShape(world, x, y, z, Direction.SOUTH);
@@ -274,11 +274,11 @@ public final class RedstoneWireNetwork {
     }
 
     /** Vanillas getConnectionState für den manuellen Punkt/Kreuz-Wechsel. */
-    public static BlockState connectionState(World world, int x, int y, int z, BlockState state) {
+    public static BlockState connectionState(Dimension world, int x, int y, int z, BlockState state) {
         return updateShape(world, x, y, z, state);
     }
 
-    private static RedstoneSide sideShape(World world, int x, int y, int z, Direction direction) {
+    private static RedstoneSide sideShape(Dimension world, int x, int y, int z, Direction direction) {
         int nx = x + direction.offsetX(), nz = z + direction.offsetZ();
         boolean aboveOpen = !Blocks.getState(world.getBlock(x, y + 1, z)).isRedstoneConductor();
         BlockState neighbor = Blocks.getState(world.getBlock(nx, y, nz));

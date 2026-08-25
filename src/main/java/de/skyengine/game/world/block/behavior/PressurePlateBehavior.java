@@ -1,7 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.game.entity.Entity;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
@@ -51,7 +51,7 @@ public final class PressurePlateBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onEntityInside(World world, int x, int y, int z, BlockState state, Entity entity) {
+    public void onEntityInside(Dimension world, int x, int y, int z, BlockState state, Entity entity) {
         if (!this.filter.test(entity)) return;
 
         long now = world.getGameTime();
@@ -73,7 +73,7 @@ public final class PressurePlateBehavior implements BlockBehavior {
     }
 
     @Override
-    public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    public void scheduledTick(Dimension world, int x, int y, int z, BlockState state) {
         int current = signalOf(state);
         if (current == 0) return;   // tolerantes Feuern (z.B. Tick am Nachfolge-Block)
 
@@ -89,7 +89,7 @@ public final class PressurePlateBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onRemoved(World world, int x, int y, int z,
+    public void onRemoved(Dimension world, int x, int y, int z,
                           BlockState oldState, BlockState newState) {
         this.touches.remove(world, x, y, z);
         if (signalOf(oldState) > 0) this.notifyNeighbors(world, x, y, z);
@@ -103,7 +103,7 @@ public final class PressurePlateBehavior implements BlockBehavior {
     }
 
     /** Schreibt das Signal in POWERED bzw. POWER + zweiter Ring um den stark gepowerten Träger. */
-    private void applySignal(World world, int x, int y, int z, BlockState state, int signal) {
+    private void applySignal(Dimension world, int x, int y, int z, BlockState state, int signal) {
         BlockState updated = this.counting
                 ? state.with(Properties.POWER, signal)
                 : state.with(Properties.POWERED, signal > 0);
@@ -112,7 +112,7 @@ public final class PressurePlateBehavior implements BlockBehavior {
         this.notifyNeighbors(world, x, y, z);
     }
 
-    private void notifyNeighbors(World world, int x, int y, int z) {
+    private void notifyNeighbors(Dimension world, int x, int y, int z) {
         world.updateGeneralNeighborsAt(x, y, z);
         world.updateGeneralNeighborsAt(x, y - 1, z);
     }
@@ -126,12 +126,12 @@ public final class PressurePlateBehavior implements BlockBehavior {
     /* --- Redstone: Signalwert in alle Richtungen (schwach), stark nur nach unten --- */
 
     @Override
-    public int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int weakPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return signalOf(state);
     }
 
     @Override
-    public int strongPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int strongPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return side == Direction.DOWN ? signalOf(state) : 0;
     }
 

@@ -1,5 +1,6 @@
 {
   "id": "skyengine:birch_door",
   "parent": "preset/door",
-  "lod_replacement": "skyengine:birch_planks"
+  "lod_replacement": "skyengine:birch_planks",
+  "creative_tab": ["building_blocks", "functional"]
 }

@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.multiblock;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.state.BlockState;
 
@@ -28,7 +28,7 @@ public final class MultiblockPattern {
     }
 
     /** Prüft das Muster mit Ursprung an (ox,oy,oz) = unterste, „erste" Ecke. */
-    public boolean matches(World world, int ox, int oy, int oz) {
+    public boolean matches(Dimension world, int ox, int oy, int oz) {
         for (int y = 0; y < this.sy; y++) {
             for (int z = 0; z < this.sz; z++) {
                 String row = this.layers[y][z];

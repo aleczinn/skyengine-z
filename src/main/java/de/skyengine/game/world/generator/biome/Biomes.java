@@ -14,7 +14,7 @@ import de.skyengine.game.world.generator.feature.trees.TreeShapes;
  * <p><b>Achtung Init-Reihenfolge:</b> Die Konstanten fangen {@code Blocks.*}-IDs beim
  * Klassen-Init ein. Diese Klasse darf deshalb erst NACH {@code Blocks.bootstrap(...)}
  * erstmals beruehrt werden — also nur aus Laufzeitpfaden (generate/biomeAt/Features),
- * NIE aus einem Generator-Konstruktor (World wird vor dem Block-Bootstrap erzeugt!).
+ * NIE aus einem Generator-Konstruktor (Dimension wird vor dem Block-Bootstrap erzeugt!).
  */
 public final class Biomes {
 
@@ -64,9 +64,12 @@ public final class Biomes {
             Blocks.GRASS_BLOCK, Blocks.DIRT, 0x8AB689, 0x6DA36B, 0x606060,
             0.08F, new TreeEntry[]{new TreeEntry(2, TreeShapes.SPRUCE), new TreeEntry(1, TreeShapes.OAK)},
             0.20F, new PlantEntry[]{new PlantEntry(1, Blocks.SHORT_GRASS)});
+    public static final Biome NETHER_WASTES = new Biome(9, "nether_wastes",
+            Blocks.NETHERRACK, Blocks.NETHERRACK, 0x8B6B4A, 0x75533A, 0x330808,
+            0F, Biome.NO_TREES, 0F, Biome.NO_PLANTS);
 
     public static final Biome[] ALL = {OCEAN, BEACH, CARIBBEAN_BEACH, PLAINS, DESERT,
-            JUNGLE, SPRUCE_FOREST, REDWOOD_FOREST, EXTREME_HILLS};
+            JUNGLE, SPRUCE_FOREST, REDWOOD_FOREST, EXTREME_HILLS, NETHER_WASTES};
 
     /*
      * Inland-Zuordnung [Temperatur-Bucket][Feuchtigkeits-Bucket]:

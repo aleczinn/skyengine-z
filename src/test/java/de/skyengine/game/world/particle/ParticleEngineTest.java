@@ -280,6 +280,41 @@ final class ParticleEngineTest {
     }
 
     @Test
+    void portalUsesFourSmallOpaqueMinecraftParticlesWithAFixedSprite() {
+        GameSettings.get().particleQuality = GameSettings.ParticleQuality.ALL;
+        ParticleEngine engine = new ParticleEngine(new Random(262));
+        engine.portal(0, 1, -3, de.skyengine.game.world.block.Direction.Axis.X,
+                new Random(262));
+
+        assertEquals(4, engine.count());
+        Camera camera = new Camera();
+        camera.update(1.0);
+        FloatBuffer opaque = FloatBuffer.allocate(4 * ParticleEngine.INSTANCE_FLOATS);
+        assertEquals(4, engine.writeInstances(opaque, camera, 0F, false));
+        assertEquals(0, engine.writeInstances(FloatBuffer.allocate(
+                4 * ParticleEngine.INSTANCE_FLOATS), camera, 0F, true));
+        for (int i = 0; i < 4; i++) {
+            int base = i * ParticleEngine.INSTANCE_FLOATS;
+            assertEquals(0F, opaque.get(base + 3), 0.000001F,
+                    "Vanillas Portal-Partikel waechst im ersten Frame aus Groesse null");
+            int sprite = (int) opaque.get(base + 9);
+            int first = BlockTextures.layerOf("game/textures/particle/generic_0.png");
+            int last = BlockTextures.layerOf("game/textures/particle/generic_7.png");
+            assertTrue(sprite >= Math.min(first, last) && sprite <= Math.max(first, last));
+        }
+
+        engine.tick();
+        opaque.clear();
+        assertEquals(4, engine.writeInstances(opaque, camera, 0F, false));
+        for (int i = 0; i < 4; i++) {
+            float renderedSize = opaque.get(i * ParticleEngine.INSTANCE_FLOATS + 3);
+            assertTrue(renderedSize > 0F && renderedSize < 0.07F);
+        }
+        for (int i = 1; i < 49; i++) engine.tick();
+        assertEquals(0, engine.count());
+    }
+
+    @Test
     void fallingLeafUsesDedicatedSpriteAndSlowRotatingDescent() {
         GameSettings.get().particleQuality = GameSettings.ParticleQuality.ALL;
         ParticleEngine engine = new ParticleEngine(new Random(44));

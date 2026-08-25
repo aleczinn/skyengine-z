@@ -1,0 +1,9 @@
+{
+  "id": "skyengine:spruce_button",
+  "parent": "preset/button",
+  "creative_tab": "building_blocks",
+  "press_ticks": 30,
+  "sound": "wood",
+  "tool": "axe",
+  "vars": { "texture": "spruce_planks" }
+}

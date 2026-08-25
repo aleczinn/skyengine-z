@@ -103,7 +103,7 @@ final class WorldBlockEventBudgetTest {
         assertEquals(2, world.blockEventCount());
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private static final Field BLOCK_EVENTS_FIELD;
         private static final Field RESCHEDULED_BLOCK_EVENTS_FIELD;
         private static final Field GAME_TIME_FIELD;
@@ -112,15 +112,15 @@ final class WorldBlockEventBudgetTest {
 
         static {
             try {
-                BLOCK_EVENTS_FIELD = World.class.getDeclaredField("blockEvents");
+                BLOCK_EVENTS_FIELD = Dimension.class.getDeclaredField("blockEvents");
                 BLOCK_EVENTS_FIELD.setAccessible(true);
-                RESCHEDULED_BLOCK_EVENTS_FIELD = World.class.getDeclaredField("blockEventsToReschedule");
+                RESCHEDULED_BLOCK_EVENTS_FIELD = Dimension.class.getDeclaredField("blockEventsToReschedule");
                 RESCHEDULED_BLOCK_EVENTS_FIELD.setAccessible(true);
-                GAME_TIME_FIELD = World.class.getDeclaredField("gameTime");
+                GAME_TIME_FIELD = Dimension.class.getDeclaredField("gameTime");
                 GAME_TIME_FIELD.setAccessible(true);
                 CHUNKS_FIELD = ChunkManager.class.getDeclaredField("chunks");
                 CHUNKS_FIELD.setAccessible(true);
-                PROCESS_BLOCK_EVENTS = World.class.getDeclaredMethod("processBlockEvents");
+                PROCESS_BLOCK_EVENTS = Dimension.class.getDeclaredMethod("processBlockEvents");
                 PROCESS_BLOCK_EVENTS.setAccessible(true);
             } catch (ReflectiveOperationException e) {
                 throw new ExceptionInInitializerError(e);
@@ -141,7 +141,7 @@ final class WorldBlockEventBudgetTest {
 
         @SuppressWarnings("unchecked")
         void install(Chunk chunk) throws ReflectiveOperationException {
-            Field managerField = World.class.getDeclaredField("chunkManager");
+            Field managerField = Dimension.class.getDeclaredField("chunkManager");
             managerField.setAccessible(true);
             ChunkManager manager = (ChunkManager) managerField.get(this);
             ((Map<Long, Chunk>) CHUNKS_FIELD.get(manager))

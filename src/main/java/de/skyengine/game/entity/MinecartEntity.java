@@ -1,6 +1,6 @@
 package de.skyengine.game.entity;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.behavior.RailBehavior;
 import de.skyengine.game.world.block.state.BlockState;
@@ -37,7 +37,7 @@ public final class MinecartEntity extends Entity {
      * platziertes Cart bis zum ersten Anrollen den Entity-Default und stand quer auf Ost-West-
      * Schienen beziehungsweise gerade in Kurven.
      */
-    public void alignToRail(World world) {
+    public void alignToRail(Dimension world) {
         RailPosition rail = this.findRail(world);
         if (rail == null) return;
         Segment segment = segment(rail.x, rail.y, rail.z, RailBehavior.shape(rail.state));
@@ -61,7 +61,7 @@ public final class MinecartEntity extends Entity {
     }
 
     @Override
-    public void tick(World world) {
+    public void tick(Dimension world) {
         this.previousYaw = this.yaw;
         this.previousPitch = this.pitch;
         this.update();
@@ -94,7 +94,7 @@ public final class MinecartEntity extends Entity {
         world.markChunkModified((int) Math.floor(this.x), (int) Math.floor(this.z));
     }
 
-    private void moveOnRail(World world, RailPosition rail) {
+    private void moveOnRail(Dimension world, RailPosition rail) {
         RailShape shape = RailBehavior.shape(rail.state);
         this.motionY = 0;
         switch (shape) {
@@ -180,7 +180,7 @@ public final class MinecartEntity extends Entity {
         }
     }
 
-    private void launchFromPoweredRail(World world, RailPosition rail, RailShape shape) {
+    private void launchFromPoweredRail(Dimension world, RailPosition rail, RailShape shape) {
         if (RailBehavior.axis(shape) == Direction.Axis.X) {
             boolean westSolid = de.skyengine.game.world.block.Blocks.getState(
                     world.getBlock(rail.x - 1, rail.y, rail.z)).isSolid();
@@ -197,7 +197,7 @@ public final class MinecartEntity extends Entity {
     }
 
     @Override
-    protected List<AABB> collisionBoxes(World world, AABB area) {
+    protected List<AABB> collisionBoxes(Dimension world, AABB area) {
         List<AABB> boxes = super.collisionBoxes(world, area);
         if (boxes.isEmpty() || this.findRail(world) == null) return boxes;
         ArrayList<AABB> filtered = null;
@@ -230,7 +230,7 @@ public final class MinecartEntity extends Entity {
         this.updateBoundingBox();
     }
 
-    private RailPosition findRail(World world) {
+    private RailPosition findRail(Dimension world) {
         int bx = (int) Math.floor(this.x);
         int bz = (int) Math.floor(this.z);
         int by = (int) Math.floor(this.y);
@@ -245,7 +245,7 @@ public final class MinecartEntity extends Entity {
      * Die horizontale Reststrecke liegt dann bereits auf der unteren Geraden. Nur dieser Nachlauf
      * prüft deshalb zusätzlich eine Zelle oberhalb; die normale Suche saugt keine freien Carts an.
      */
-    private RailPosition findRailAfterMovement(World world) {
+    private RailPosition findRailAfterMovement(Dimension world) {
         RailPosition rail = this.findRail(world);
         if (rail != null) return rail;
         int bx = (int) Math.floor(this.x);
@@ -280,7 +280,7 @@ public final class MinecartEntity extends Entity {
     }
 
     /** Vanilla-Damage-Akkumulator: Zerbruch oberhalb von 40 oder ein erzwungener Werkzeugtreffer. */
-    public void attack(World world, boolean creative, boolean efficientTool) {
+    public void attack(Dimension world, boolean creative, boolean efficientTool) {
         this.hurtDirection = -this.hurtDirection;
         this.hurtTime = 10;
         this.damage += 10;
@@ -318,7 +318,7 @@ public final class MinecartEntity extends Entity {
      * verhindert, dass der Boden an einem Gefälleübergang die Schiene schneidet; dieselben beiden
      * Punkte liefern die geglättete Renderrotation.
      */
-    public RenderPose renderPose(World world, float partialTick) {
+    public RenderPose renderPose(Dimension world, float partialTick) {
         double ix = this.lastX + (this.x - this.lastX) * partialTick;
         double iy = this.lastY + (this.y - this.lastY) * partialTick;
         double iz = this.lastZ + (this.z - this.lastZ) * partialTick;
@@ -365,7 +365,7 @@ public final class MinecartEntity extends Entity {
                 sampledYaw, sampledPitch);
     }
 
-    private static RailSample projectToRail(World world, double x, double y, double z) {
+    private static RailSample projectToRail(Dimension world, double x, double y, double z) {
         int bx = (int) Math.floor(x);
         int by = (int) Math.floor(y);
         int bz = (int) Math.floor(z);
@@ -421,7 +421,7 @@ public final class MinecartEntity extends Entity {
     }
 
     @Override
-    protected void positionDismountedPassenger(Entity passenger, World world) {
+    protected void positionDismountedPassenger(Entity passenger, Dimension world) {
         double[][] candidates = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
         for (double[] candidate : candidates) {
             passenger.setPosition(this.x + candidate[0], this.y, this.z + candidate[1]);

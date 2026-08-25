@@ -1,7 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.audio.SoundManager;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.AttachFace;
 import de.skyengine.game.world.block.state.BlockState;
@@ -24,7 +24,7 @@ public final class LeverBehavior implements BlockBehavior {
     }
 
     @Override
-    public boolean onUse(World world, int x, int y, int z, BlockState state) {
+    public boolean onUse(Dimension world, int x, int y, int z, BlockState state) {
         boolean powered = !state.get(Properties.POWERED);
         /* true = Nachbar-Update, sonst erführe die Tür nebenan nichts davon. */
         world.setBlock(x, y, z, state.with(Properties.POWERED, powered).getId(), true);
@@ -37,7 +37,7 @@ public final class LeverBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onRemoved(World world, int x, int y, int z,
+    public void onRemoved(Dimension world, int x, int y, int z,
                           BlockState oldState, BlockState newState) {
         if (oldState.get(Properties.POWERED)) {
             ButtonBehavior.notifyStrongTarget(world, x, y, z, oldState);
@@ -45,12 +45,12 @@ public final class LeverBehavior implements BlockBehavior {
     }
 
     @Override
-    public int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int weakPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return state.get(Properties.POWERED) ? 15 : 0;
     }
 
     @Override
-    public int strongPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int strongPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return state.get(Properties.POWERED) && side == ButtonBehavior.supportDirection(state) ? 15 : 0;
     }
 

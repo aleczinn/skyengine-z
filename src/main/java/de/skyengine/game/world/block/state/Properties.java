@@ -36,6 +36,10 @@ public final class Properties {
     public static final Property<Direction.Axis> AXIS =
             Property.ofEnum("axis", Direction.Axis.class);
 
+    /** Stehende Ebenen wie Netherportale erlauben nur die beiden horizontalen Achsen. */
+    public static final Property<Direction.Axis> HORIZONTAL_AXIS =
+            Property.of("axis", List.of(Direction.Axis.X, Direction.Axis.Z));
+
     /** Fluid-Stand 0..15 (0 = Quelle, 1..7 = fließend). */
     public static final Property<Integer> LEVEL = Property.of("level", levels());
 

@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.physics.AABB;
@@ -62,14 +62,14 @@ public final class SupportBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         if (isUpperHalf(state)) return state;
         if (this.isValidSupport(world, x, y - 1, z,
                 Blocks.getState(world.getBlock(x, y - 1, z)), state)) return state;
         return Blocks.getState(Blocks.AIR); // Stütze ungültig -> zerbricht (kein Drop)
     }
 
-    private boolean isValidSupport(World world, int supportX, int supportY, int supportZ,
+    private boolean isValidSupport(Dimension world, int supportX, int supportY, int supportZ,
                                    BlockState support, BlockState supported) {
         if (this.allowedGround != null && !this.allowedGround.contains(support.getBlock().getIdentifier())) {
             return false;

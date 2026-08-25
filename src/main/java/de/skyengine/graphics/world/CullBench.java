@@ -71,7 +71,7 @@ public final class CullBench {
         if (!isActive()) return;
         letzterContainer = game;
 
-        if (game.getWorld() == null) {
+        if (game.getDimension() == null) {
             if (!weltAngefordert) {
                 weltAngefordert = true;
                 WorldSaves.list().stream()
@@ -88,7 +88,7 @@ public final class CullBench {
             return;
         }
 
-        var chunkManager = game.getWorld().getChunkManager();
+        var chunkManager = game.getDimension().getChunkManager();
         if (!chunkManager.isInitialLoadComplete()) return;
 
         long jetzt = System.currentTimeMillis() / 1000;
@@ -97,7 +97,7 @@ public final class CullBench {
            (erster Lauf maß versehentlich 375 statt ~3400 Regionen). Erst einfrieren, wenn die
            Regionszahl steht — sonst misst man eine halb aufgebaute Szene. */
         if (eingefrorenSeit == 0) {
-            int regionen = game.getWorld().getChunkRenderer().getLodRegionCount();
+            int regionen = game.getDimensionView().chunks().getLodRegionCount();
             if (regionen != letzteLodRegionen) {
                 letzteLodRegionen = regionen;
                 lodStabilSeit = jetzt;

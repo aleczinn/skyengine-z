@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockHalf;
@@ -29,11 +29,11 @@ public final class StairsBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         return state.with(Properties.STAIR_SHAPE, stairShape(world, x, y, z, state));
     }
 
-    private static StairShape stairShape(World world, int x, int y, int z, BlockState state) {
+    private static StairShape stairShape(Dimension world, int x, int y, int z, BlockState state) {
         Direction facing = state.get(Properties.FACING);
         BlockHalf half = state.get(Properties.HALF);
 
@@ -57,14 +57,14 @@ public final class StairsBehavior implements BlockBehavior {
     }
 
     /** true, wenn in Richtung dir KEINE gleich orientierte Treppe steht. */
-    private static boolean isDifferent(World world, int x, int y, int z, BlockState state, Direction dir) {
+    private static boolean isDifferent(Dimension world, int x, int y, int z, BlockState state, Direction dir) {
         BlockState s = stairAt(world, x + dir.offsetX(), y + dir.offsetY(), z + dir.offsetZ());
         return s == null
                 || s.get(Properties.FACING) != state.get(Properties.FACING)
                 || s.get(Properties.HALF) != state.get(Properties.HALF);
     }
 
-    private static BlockState stairAt(World world, int x, int y, int z) {
+    private static BlockState stairAt(Dimension world, int x, int y, int z) {
         BlockState s = Blocks.getState(world.getBlock(x, y, z));
         return s.getValues().containsKey(Properties.STAIR_SHAPE) ? s : null;
     }

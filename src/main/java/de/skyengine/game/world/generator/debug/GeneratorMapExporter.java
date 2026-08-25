@@ -50,7 +50,7 @@ public final class GeneratorMapExporter {
         /* Block-Registry GL-frei laden, damit Blocks.*-IDs fuer die Materialkarte stimmen */
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
 
-        int seed = 123; // gleicher Seed wie World
+        int seed = 123; // gleicher Seed wie Dimension
         AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(seed);
         ClimateSampler climate = new ClimateSampler(seed);
 

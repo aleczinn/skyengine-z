@@ -1,7 +1,7 @@
 package de.skyengine.game.entity;
 
 import de.skyengine.game.physics.AABB;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
@@ -57,7 +57,7 @@ public final class ItemFrameEntity extends Entity {
     }
 
     @Override
-    public void tick(World world) {
+    public void tick(Dimension world) {
         super.update();
         if (++this.survivalCheck >= SURVIVAL_CHECK_INTERVAL) {
             this.survivalCheck = 0;
@@ -66,7 +66,7 @@ public final class ItemFrameEntity extends Entity {
     }
 
     /** Vanilla: Vollblock, bei horizontalem Rahmen ausserdem Repeater/Comparator als Stuetzblock. */
-    public boolean hasValidSupport(World world) {
+    public boolean hasValidSupport(Dimension world) {
         int sx = this.anchorX - this.direction.offsetX();
         int sy = this.anchorY - this.direction.offsetY();
         int sz = this.anchorZ - this.direction.offsetZ();
@@ -77,7 +77,7 @@ public final class ItemFrameEntity extends Entity {
                     || support.getValues().containsKey(Properties.MODE));
     }
 
-    public boolean survives(World world) {
+    public boolean survives(Dimension world) {
         if (!this.hasValidSupport(world)) return false;
         for (AABB collision : world.getCollisionBoxes(this.boundingBox)) {
             if (collision.intersects(this.boundingBox)) return false;
@@ -96,7 +96,7 @@ public final class ItemFrameEntity extends Entity {
     }
 
     /** Rechtsklick: erst ein Exemplar einsetzen, danach in acht 45-Grad-Schritten drehen. */
-    public boolean interact(World world, ItemStack held, boolean creative) {
+    public boolean interact(Dimension world, ItemStack held, boolean creative) {
         if (this.isRemoved()) return false;
         if (this.item.isEmpty()) {
             if (held == null || held.isEmpty()) return false;
@@ -112,7 +112,7 @@ public final class ItemFrameEntity extends Entity {
     }
 
     /** Erster Schlag entfernt den Inhalt, erst der Schlag auf den leeren Rahmen den Rahmen selbst. */
-    public void attack(World world, boolean creative) {
+    public void attack(Dimension world, boolean creative) {
         if (this.isRemoved()) return;
         if (!this.item.isEmpty()) {
             if (!creative) world.spawnItem(this.x, this.y, this.z, this.item.copy());
@@ -128,7 +128,7 @@ public final class ItemFrameEntity extends Entity {
         this.changed(world);
     }
 
-    public void breakNaturally(World world) {
+    public void breakNaturally(Dimension world) {
         if (this.isRemoved()) return;
         if (!this.item.isEmpty()) world.spawnItem(this.x, this.y, this.z, this.item.copy());
         world.spawnItem(this.x, this.y, this.z,
@@ -176,7 +176,7 @@ public final class ItemFrameEntity extends Entity {
         return near <= maxDistance ? near : Double.POSITIVE_INFINITY;
     }
 
-    private void changed(World world) {
+    private void changed(Dimension world) {
         world.markChunkModified(this.anchorX, this.anchorZ);
         world.updateComparatorOutputs(this.anchorX, this.anchorY, this.anchorZ);
     }

@@ -35,7 +35,8 @@ public final class Blocks {
     public static int AIR, BEDROCK;
     public static int STONE, COBBLESTONE, OAK_PLANKS, DIRT, GRASS_BLOCK, OBSIDIAN, SNOW, OAK_LOG;
     public static int OAK_LEAVES;
-    public static int GLASS;
+    public static int GLASS, MINING_PORTAL;
+    public static int NETHER_PORTAL, NETHERRACK, SOUL_SAND, SOUL_SOIL, MAGMA, GLOWSTONE;
     public static int TNT;
     public static int PISTON, STICKY_PISTON, PISTON_HEAD, MOVING_PISTON;
     public static int FERN, SHORT_GRASS, ORANGE_TULIP;
@@ -261,6 +262,11 @@ public final class Blocks {
         BASALT = idOf("skyengine:basalt");
         POLISHED_BASALT = idOf("skyengine:polished_basalt");
         SMOOTH_BASALT = idOf("skyengine:smooth_basalt");
+        NETHERRACK = idOf("skyengine:netherrack");
+        SOUL_SAND = idOf("skyengine:soul_sand");
+        SOUL_SOIL = idOf("skyengine:soul_soil");
+        MAGMA = idOf("skyengine:magma_block");
+        GLOWSTONE = idOf("skyengine:glowstone");
 
         BIRCH_LOG = idOf("skyengine:birch_log");
         SPRUCE_LOG = idOf("skyengine:spruce_log");
@@ -324,6 +330,10 @@ public final class Blocks {
         CACTUS = idOf("skyengine:cactus");
 
         CLAY = idOf("skyengine:clay");
+
+        MINING_PORTAL = idOf("skyengine:mining_portal");
+        NETHER_PORTAL = idOf("skyengine:nether_portal");
+        de.skyengine.game.world.dimension.WorldgenRegistries.bootstrap();
     }
 
     /** Laedt nur Modelle/Blockstates neu; Registry, IDs, Regeln und Kollision bleiben bestehen. */

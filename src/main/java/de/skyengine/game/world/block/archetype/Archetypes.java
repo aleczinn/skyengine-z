@@ -47,6 +47,7 @@ public final class Archetypes {
         register("dropper", new DispenserArchetype(true));
         register("rail", new RailArchetype());
         register("custom", new CustomArchetype());
+        register("nether_portal", new NetherPortalArchetype());
     }
 
     private static void register(String name, Archetype archetype) {

@@ -21,7 +21,7 @@ import java.util.Map;
  *
  * <p>Reine Daten + Persistenz — das Anwenden (Render-Distanz, FOV, VSync, GUI-Scale, Sensitivität,
  * AO, MSAA, Fog, LOD an/aus + Reichweite, anisotropes Filtern, …) erledigen {@code GameContainer}
- * bzw. die jeweiligen Renderer-/Framebuffer-Stellen, die Zugriff auf World/Camera/Window/Gui haben.
+ * bzw. die jeweiligen Renderer-/Framebuffer-Stellen, die Zugriff auf Dimension/Camera/Window/Gui haben.
  */
 public final class GameSettings {
 

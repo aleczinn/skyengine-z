@@ -26,7 +26,9 @@ public class ChunkManager {
     private final Logger logger = LogManager.getLogger(ChunkManager.class.getName());
 
     private final ConcurrentHashMap<Long, Chunk> chunks = new ConcurrentHashMap<>();
+    private final WorldWorkerPool workerPool;
     private final ThreadPoolExecutor workers;
+    private final boolean ownsWorkerPool;
     private final int workerCount;
     private final WorldGenerator generator;
     private final ChunkDecorator decorator;
@@ -52,17 +54,17 @@ public class ChunkManager {
     private final LinkedHashSet<Chunk> chunksWithBlockEntities = new LinkedHashSet<>();
 
     /* Chunks mit beim Laden mitgebrachten Scheduled-Ticks (Announce vom Load-Worker über
-       Chunk.announceTickRestore): World.restorePendingScheduledTicks pollt nur diese Queue
+       Chunk.announceTickRestore): Dimension.restorePendingScheduledTicks pollt nur diese Queue
        statt jeden Tick alle Chunks zu scannen (im Steady-State null Treffer). */
     private final ConcurrentLinkedQueue<Chunk> tickRestoreQueue = new ConcurrentLinkedQueue<>();
 
-    /* READY gewordene Chunks (Announce vom Mesh-Worker). World.processReadyChunks initialisiert
+    /* READY gewordene Chunks (Announce vom Mesh-Worker). Dimension.processReadyChunks initialisiert
        beim ersten Mal transiente Zustände und gleicht bei jeder Meldung Redstone-Kanten ab.
        Bewusst hier und nicht früher: erst jetzt ist der Chunk selbst editierbar; Nachbarn sind
        durch das Mesh-Gate mindestens LIT und damit sicher lesbar. */
     private final ConcurrentLinkedQueue<Chunk> readyAnnounceQueue = new ConcurrentLinkedQueue<>();
 
-    /* Tick-Thread -> World: Koordinaten regulär entladener Chunks. Erst NACH dem Entfernen
+    /* Tick-Thread -> Dimension: Koordinaten regulär entladener Chunks. Erst NACH dem Entfernen
        kann der verbleibende Nachbar Redstone an der nun offenen Kante korrekt neu berechnen. */
     private final ConcurrentLinkedQueue<Long> unloadAnnounceQueue = new ConcurrentLinkedQueue<>();
 
@@ -72,6 +74,8 @@ public class ChunkManager {
        überschreibt ein Erst-Mesh aus der langen uploadQueue ein bereits angewendetes
        Priority-Remesh derselben Section (Dirty-Bit ist dann schon konsumiert → dauerhafte Naht). */
     private long nextMeshSeq = 1;
+    private long nextRenderGeneration = 1;
+    private volatile long activeRenderGeneration;
 
     private int renderDistance = 16; // in chunks
 
@@ -81,7 +85,7 @@ public class ChunkManager {
        tausende 4×4-Regionsscans im LodManager. */
     private int pendingUnloadCount;
 
-    /* Chunk-Persistenz: Lade-Quelle (statt Generierung) + Save-Ziel beim Unload. Von World
+    /* Chunk-Persistenz: Lade-Quelle (statt Generierung) + Save-Ziel beim Unload. Von Dimension
        nach der Konstruktion gesetzt; null-tolerant (Tools/Tests ohne Persistenz). */
     private WorldStorage storage;
 
@@ -131,8 +135,6 @@ public class ChunkManager {
     private static final int PRIO_LOAD = 3;
     private static final int PRIO_LIGHT = 4;
     private static final int PRIO_LOD = 5;
-
-    private final AtomicLong taskSeq = new AtomicLong();
 
     /* AUSSTEHENDE Lade-Jobs (wartend + laufend) — Basis für LOAD_QUEUE_LIMIT und den Latch. */
     private final AtomicInteger pendingLoadTasks = new AtomicInteger();
@@ -206,39 +208,54 @@ public class ChunkManager {
     private final ThreadLocal<ChunkMesher> meshers = ThreadLocal.withInitial(ChunkMesher::new);
 
     /* Dito für die Licht-Engine: eine Instanz ist NICHT threadsicher (BFS-Queues + 3x3-Kontext
-       als Felder). World hält eine eigene für die Edit-Updates auf dem Render-Thread. */
-    private final ThreadLocal<LightEngine> lightEngines = ThreadLocal.withInitial(LightEngine::new);
+       als Felder). Dimension hält eine eigene für die Edit-Updates auf dem Render-Thread. */
+    private final ThreadLocal<LightEngine> lightEngines;
 
     public record MeshResult(int chunkX, int sectionY, int chunkZ, ChunkMesher.MeshData data, long meshSeq) {}
 
-    public record MeshBatch(List<MeshResult> results, PerformanceProfiler.AsyncToken enqueuedAt) {
-        public MeshBatch(List<MeshResult> results) {
-            this(results, PerformanceProfiler.get().beginAsync());
+    public record MeshBatch(List<MeshResult> results, long renderGeneration,
+                            PerformanceProfiler.AsyncToken enqueuedAt) {
+        public MeshBatch(List<MeshResult> results, long renderGeneration) {
+            this(results, renderGeneration, PerformanceProfiler.get().beginAsync());
         }
     }
 
     public ChunkManager(WorldGenerator generator, ChunkDecorator decorator) {
-        this(generator, decorator, Math.max(2, Runtime.getRuntime().availableProcessors() - 2));
+        this(generator, decorator, Math.max(2, Runtime.getRuntime().availableProcessors() - 2), true);
     }
 
     ChunkManager(WorldGenerator generator, ChunkDecorator decorator, int threads) {
+        this(generator, decorator, threads, true);
+    }
+
+    public ChunkManager(WorldGenerator generator, ChunkDecorator decorator, boolean hasSkylight) {
+        this(generator, decorator, new WorldWorkerPool(), true, hasSkylight);
+    }
+
+    ChunkManager(WorldGenerator generator, ChunkDecorator decorator, int threads, boolean hasSkylight) {
+        this(generator, decorator, new WorldWorkerPool(threads), true, hasSkylight);
+    }
+
+    public ChunkManager(WorldGenerator generator, ChunkDecorator decorator,
+                        WorldWorkerPool workerPool, boolean hasSkylight) {
+        this(generator, decorator, workerPool, false, hasSkylight);
+    }
+
+    private ChunkManager(WorldGenerator generator, ChunkDecorator decorator,
+                         WorldWorkerPool workerPool, boolean ownsWorkerPool, boolean hasSkylight) {
         this.generator = generator;
         this.decorator = decorator;
-        if (threads < 1) throw new IllegalArgumentException("threads muss positiv sein");
-        this.workerCount = threads;
-        /* Eine gemeinsame Prioritäts-Queue verteilt die gesamte Kapazität auf die jeweils
-           höchste nicht-leere Arbeitsklasse, ohne einen Worker statisch zu reservieren. */
-        this.workers = new ThreadPoolExecutor(threads, threads, 0L, TimeUnit.MILLISECONDS, new PriorityBlockingQueue<>(), r -> {
-            Thread t = new Thread(r, "Chunk Worker");
-            t.setDaemon(true);
-            t.setPriority(Thread.NORM_PRIORITY - 1);
-            return t;
-        });
+        this.lightEngines = ThreadLocal.withInitial(() -> new LightEngine(hasSkylight));
+        this.workerPool = java.util.Objects.requireNonNull(workerPool, "workerPool");
+        this.workers = workerPool.executor();
+        this.workerCount = workerPool.workerCount();
+        this.ownsWorkerPool = ownsWorkerPool;
     }
 
     private void submitTask(int prio, Runnable job) {
         /* execute statt submit: submit() würde in ein nicht-vergleichbares FutureTask wrappen */
-        this.workers.execute(PrioTask.foreground(prio, this.taskSeq.getAndIncrement(), job));
+        this.workers.execute(PrioTask.foreground(this, prio,
+                this.workerPool.nextSequence(), job));
     }
 
     private void submitForegroundTask(int prio, Runnable job) {
@@ -297,7 +314,7 @@ public class ChunkManager {
                 this.queuedForegroundTasks.decrementAndGet();
                 onDiscard.run();
             };
-            this.workers.execute(PrioTask.lodClip(this.taskSeq.getAndIncrement(), priority,
+            this.workers.execute(PrioTask.lodClip(this, this.workerPool.nextSequence(), priority,
                     countedJob, discarded));
             return true;
         }
@@ -336,7 +353,7 @@ public class ChunkManager {
                 this.queuedNormalLodTasks.decrementAndGet();
                 onDiscard.run();
             };
-            this.workers.execute(PrioTask.lod(this.taskSeq.getAndIncrement(), priority,
+            this.workers.execute(PrioTask.lod(this, this.workerPool.nextSequence(), priority,
                     countedJob, discarded));
             return true;
         }
@@ -363,7 +380,7 @@ public class ChunkManager {
             this.lodScheduleVersion = version;
             Object[] queued = this.workers.getQueue().toArray();
             for (Object entry : queued) {
-                if (!(entry instanceof PrioTask task) || !task.isLod()
+                if (!(entry instanceof PrioTask task) || task.owner() != this || !task.isLod()
                         || task.lodPriority().anchorVersion() == version) continue;
                 if (!this.workers.getQueue().remove(task)) continue;
                 task.discard();
@@ -375,7 +392,8 @@ public class ChunkManager {
     private PrioTask worstQueuedLod() {
         PrioTask worst = null;
         for (Runnable entry : this.workers.getQueue()) {
-            if (!(entry instanceof PrioTask task) || !task.isNormalLod()) continue;
+            if (!(entry instanceof PrioTask task) || task.owner() != this
+                    || !task.isNormalLod()) continue;
             if (worst == null || compareLodPriorities(task.lodPriority(), worst.lodPriority()) > 0
                     || (compareLodPriorities(task.lodPriority(), worst.lodPriority()) == 0
                     && task.seq() > worst.seq())) {
@@ -459,20 +477,22 @@ public class ChunkManager {
         return Double.compare(a.distanceSq, b.distanceSq);
     }
 
-    private record PrioTask(int prio, long seq, LodPriority lodPriority,
+    private record PrioTask(ChunkManager owner, int prio, long seq, LodPriority lodPriority,
                             Runnable job, Runnable onDiscard)
             implements Runnable, Comparable<PrioTask> {
 
-        static PrioTask foreground(int priority, long sequence, Runnable job) {
-            return new PrioTask(priority, sequence, null, job, null);
+        static PrioTask foreground(ChunkManager owner, int priority, long sequence, Runnable job) {
+            return new PrioTask(owner, priority, sequence, null, job, null);
         }
 
-        static PrioTask lod(long sequence, LodPriority priority, Runnable job, Runnable onDiscard) {
-            return new PrioTask(PRIO_LOD, sequence, priority, job, onDiscard);
+        static PrioTask lod(ChunkManager owner, long sequence, LodPriority priority,
+                            Runnable job, Runnable onDiscard) {
+            return new PrioTask(owner, PRIO_LOD, sequence, priority, job, onDiscard);
         }
 
-        static PrioTask lodClip(long sequence, LodPriority priority, Runnable job, Runnable onDiscard) {
-            return new PrioTask(PRIO_LOD_CLIP, sequence, priority, job, onDiscard);
+        static PrioTask lodClip(ChunkManager owner, long sequence, LodPriority priority,
+                                Runnable job, Runnable onDiscard) {
+            return new PrioTask(owner, PRIO_LOD_CLIP, sequence, priority, job, onDiscard);
         }
 
         boolean isLod() { return this.lodPriority != null; }
@@ -607,6 +627,7 @@ public class ChunkManager {
             Chunk chunk = this.chunks.get(key);
             if (chunk == null) {
                 chunk = new Chunk(cx, cz);
+                chunk.beginRenderGeneration(this.activeRenderGeneration);
                 chunk.remeshQueue = this.remeshQueue; // Dirty-Markierungen melden sich hier an
                 chunk.blockEntityAnnounceQueue = this.blockEntityAnnounceQueue;
                 chunk.tickRestoreQueue = this.tickRestoreQueue;
@@ -712,6 +733,7 @@ public class ChunkManager {
                 chunk.status = ChunkStatus.MESHING;
                 Chunk finalChunk = chunk;
                 long meshSeq = this.nextMeshSeq++;
+                long renderGeneration = this.activeRenderGeneration;
                 this.submitLoadTask(PRIO_LIGHT, () -> {
                     ChunkMesher mesher = this.meshers.get();
                     List<MeshResult> batch = new ArrayList<>(Chunk.SECTIONS);
@@ -734,9 +756,11 @@ public class ChunkManager {
                        steht. Enqueue ausserhalb der Read-Locks wie im Remesh-Pfad. Der Chunk wird
                        damit ausserdem in EINEM Frame vollstaendig — der atomare Swap gegen das LOD
                        (lodShowsCell) bekommt keinen Zwischenzustand mehr zu sehen. */
-                    this.uploadQueue.add(new MeshBatch(batch));
-                    finalChunk.status = ChunkStatus.READY;
-                    this.readyAnnounceQueue.add(finalChunk);
+                    if (renderGeneration == this.activeRenderGeneration) {
+                        this.uploadQueue.add(new MeshBatch(batch, renderGeneration));
+                        finalChunk.status = ChunkStatus.READY;
+                        this.readyAnnounceQueue.add(finalChunk);
+                    }
                 });
             }
         }
@@ -868,7 +892,7 @@ public class ChunkManager {
     }
 
     /**
-     * Einmal pro FRAME (z.B. aus World.render) aufrufen: stößt Remeshes
+     * Einmal pro FRAME (z.B. aus Dimension.render) aufrufen: stößt Remeshes
      * für dirty Sections sofort an, statt auf den nächsten Tick zu warten.
      */
     public void processRemeshes() {
@@ -886,7 +910,7 @@ public class ChunkManager {
             if (this.chunks.get(Chunk.key(chunk.chunkX, chunk.chunkZ)) != chunk) continue;
             if (!chunk.hasDirtySections()) continue;
             if (chunk.status != ChunkStatus.READY) {
-                /* Markierung vor READY (World.markDirty ab LIT, Licht-Randaustausch):
+                /* Markierung vor READY (Dimension.markDirty ab LIT, Licht-Randaustausch):
                    dranbleiben — der Erst-Mesh konsumiert die Maske nicht. */
                 chunk.enqueueRemesh();
                 continue;
@@ -913,6 +937,7 @@ public class ChunkManager {
             if (mask == 0) continue;
 
             long meshSeq = this.nextMeshSeq++;
+            long renderGeneration = this.activeRenderGeneration;
             int priority = dirty.player() ? PRIO_PLAYER_REMESH : PRIO_SYSTEM_REMESH;
             this.submitForegroundTask(priority, () -> {
                 ChunkMesher mesher = this.meshers.get();
@@ -932,8 +957,10 @@ public class ChunkManager {
                 }
                 /* Enqueue außerhalb des Locks ist ok: überholen sich zwei Remesh-Jobs derselben
                    Section hier, verwirft applyBatch den älteren über die meshSeq-Prüfung. */
-                (dirty.player() ? this.playerUploadQueue : this.priorityUploadQueue)
-                        .add(new MeshBatch(batch));
+                if (renderGeneration == this.activeRenderGeneration) {
+                    (dirty.player() ? this.playerUploadQueue : this.priorityUploadQueue)
+                            .add(new MeshBatch(batch, renderGeneration));
+                }
             });
         }
     }
@@ -1080,22 +1107,100 @@ public class ChunkManager {
         this.lodManager = lodManager;
     }
 
-    /** Chunk-Persistenz-Anbindung (von World nach der Konstruktion gesetzt). */
+    /**
+     * Starts a new GPU residency generation without discarding terrain or savegame state.
+     * Existing READY chunks are sent through the normal full-mesh pipeline again.
+     */
+    public long attachRenderer() {
+        if (this.activeRenderGeneration != 0) {
+            throw new IllegalStateException("Dimension already has an active render view");
+        }
+        long generation = this.nextRenderGeneration++;
+        this.activeRenderGeneration = generation;
+        this.clearRenderQueues();
+        for (Chunk chunk : this.chunks.values()) {
+            chunk.beginRenderGeneration(generation);
+            chunk.discardDirtySectionsForFullRemesh();
+            if (chunk.status == ChunkStatus.READY || chunk.status == ChunkStatus.MESHING) {
+                chunk.status = ChunkStatus.LIT;
+            }
+        }
+        this.resetLoadDiagnostics();
+        return generation;
+    }
+
+    /** Invalidates all GPU residency owned by the specified view. */
+    public void detachRenderer(long generation) {
+        if (generation == 0 || generation != this.activeRenderGeneration) return;
+        this.activeRenderGeneration = 0;
+        this.clearRenderQueues();
+        for (Chunk chunk : this.chunks.values()) {
+            chunk.endRenderGeneration(generation);
+            chunk.discardDirtySectionsForFullRemesh();
+            if (chunk.status == ChunkStatus.READY || chunk.status == ChunkStatus.MESHING) {
+                chunk.status = ChunkStatus.LIT;
+            }
+        }
+    }
+
+    public boolean isRenderGenerationActive(long generation) {
+        return generation != 0 && generation == this.activeRenderGeneration;
+    }
+
+    /** The loading screen waits for actual GPU uploads around the player. */
+    public boolean isInitialRenderReady(EntityPlayer player) {
+        return this.initialLoadComplete && this.initialRenderProgress(player) >= 1F;
+    }
+
+    public float initialRenderProgress(EntityPlayer player) {
+        if (player == null) return 0F;
+        int pcx = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
+        int pcz = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
+        /* At render distance 2, corner chunks of a 3x3 area cannot reach READY because their
+           own 3x3 meshing neighbourhood extends beyond the circular load radius. */
+        int radius = this.renderDistance >= 3 ? 1 : 0;
+        int target = (radius * 2 + 1) * (radius * 2 + 1);
+        int uploaded = 0;
+        for (int dz = -radius; dz <= radius; dz++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                Chunk chunk = this.getChunk(pcx + dx, pcz + dz);
+                if (chunk != null && chunk.status == ChunkStatus.READY && chunk.isFullyUploaded()) uploaded++;
+            }
+        }
+        return uploaded / (float) target;
+    }
+
+    private void clearRenderQueues() {
+        this.uploadQueue.clear();
+        this.playerUploadQueue.clear();
+        this.priorityUploadQueue.clear();
+        this.remeshQueue.clear();
+    }
+
+    /** Chunk-Persistenz-Anbindung (von Dimension nach der Konstruktion gesetzt). */
     public void setStorage(WorldStorage storage) {
         this.storage = storage;
     }
 
     public void dispose() {
-        this.workers.shutdownNow();
-        /* Auf laufende Jobs warten: beim Welt-Austritt (Rückkehr ins Hauptmenü) dürfen keine
-           Alt-Jobs mehr auf Chunk-/Generator-Daten arbeiten, wenn direkt danach eine neue Welt
-           entsteht. Beim App-Exit ist das Warten ebenso korrekt (Jobs sind kurz). */
-        try {
-            if (!this.workers.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)) {
-                this.logger.warning("Chunk-Worker haben nach 2 s nicht terminiert");
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        if (!this.ownsWorkerPool) {
+            this.awaitWorkerTasks();
+            return;
+        }
+        this.workerPool.dispose();
+    }
+
+    /** Render-Thread-Barriere vor dem Abbau einer aktiven DimensionView. */
+    public void awaitWorkerTasks() {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+        while (this.queuedForegroundTasks.get() + this.activeForegroundTasks.get()
+                + this.queuedNormalLodTasks.get() + this.activeNormalLodTasks.get() > 0
+                && System.nanoTime() < deadline) {
+            java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
+        }
+        if (this.queuedForegroundTasks.get() + this.activeForegroundTasks.get()
+                + this.queuedNormalLodTasks.get() + this.activeNormalLodTasks.get() > 0) {
+            this.logger.warning("Dimensions-Worker waren nach 10 s noch aktiv");
         }
     }
 }

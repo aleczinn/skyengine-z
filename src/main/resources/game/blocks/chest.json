@@ -9,6 +9,7 @@
   "opaque": false,
   "open_sound": "chest",
   "block_entity": "skyengine:chest",
+  "inventory_display_model": "block/chest_item",
   "collision": {
     "boxes": [
       { "from": [1, 0, 1], "to": [15, 14, 15] }

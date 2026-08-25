@@ -1,7 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.game.entity.MinecartEntity;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.redstone.RedstonePower;
 import de.skyengine.game.world.block.state.BlockState;
@@ -49,12 +49,12 @@ public final class RailBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+    public void onPlaced(Dimension world, int x, int y, int z, BlockState state) {
         this.refreshNeighbors(world, x, y, z);
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         boolean direct = this.isDirectlyPowered(world, x, y, z);
         BlockState shaped = this.calculateShape(world, x, y, z, state, direct);
         if (this.kind == Kind.POWERED || this.kind == Kind.ACTIVATOR) {
@@ -71,7 +71,7 @@ public final class RailBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onStateChangedByNeighborUpdate(World world, int x, int y, int z,
+    public void onStateChangedByNeighborUpdate(Dimension world, int x, int y, int z,
                                                BlockState oldState, BlockState newState) {
         if (oldState.get(this.shapeProperty) != newState.get(this.shapeProperty)) {
             this.refreshNeighbors(world, x, y, z);
@@ -83,12 +83,12 @@ public final class RailBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onRemoved(World world, int x, int y, int z, BlockState oldState, BlockState newState) {
+    public void onRemoved(Dimension world, int x, int y, int z, BlockState oldState, BlockState newState) {
         this.refreshNeighbors(world, x, y, z);
     }
 
     @Override
-    public void onEntityInside(World world, int x, int y, int z, BlockState state,
+    public void onEntityInside(Dimension world, int x, int y, int z, BlockState state,
                                de.skyengine.game.entity.Entity entity) {
         if (this.kind != Kind.DETECTOR || !(entity instanceof MinecartEntity)
                 || state.get(Properties.POWERED)) return;
@@ -97,7 +97,7 @@ public final class RailBehavior implements BlockBehavior {
     }
 
     @Override
-    public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    public void scheduledTick(Dimension world, int x, int y, int z, BlockState state) {
         if (this.kind != Kind.DETECTOR) return;
         boolean occupied = world.hasMinecartAtRail(x, y, z);
         if (state.get(Properties.POWERED) != occupied) {
@@ -108,12 +108,12 @@ public final class RailBehavior implements BlockBehavior {
     }
 
     @Override
-    public int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int weakPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return this.kind == Kind.DETECTOR && state.get(Properties.POWERED) ? 15 : 0;
     }
 
     @Override
-    public int strongPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int strongPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return this.kind == Kind.DETECTOR && state.get(Properties.POWERED) && side == Direction.DOWN ? 15 : 0;
     }
 
@@ -132,11 +132,11 @@ public final class RailBehavior implements BlockBehavior {
         return this.kind != Kind.NORMAL;
     }
 
-    private boolean isDirectlyPowered(World world, int x, int y, int z) {
+    private boolean isDirectlyPowered(Dimension world, int x, int y, int z) {
         return RedstonePower.isReceiving(world, x, y, z);
     }
 
-    private BlockState calculateShape(World world, int x, int y, int z, BlockState state,
+    private BlockState calculateShape(Dimension world, int x, int y, int z, BlockState state,
                                       boolean powered) {
         boolean north = canConnectTo(world, x, y, z, Direction.NORTH);
         boolean south = canConnectTo(world, x, y, z, Direction.SOUTH);
@@ -183,7 +183,7 @@ public final class RailBehavior implements BlockBehavior {
         return state.with(this.shapeProperty, shape);
     }
 
-    private boolean findPoweredRailSignal(World world, int x, int y, int z,
+    private boolean findPoweredRailSignal(Dimension world, int x, int y, int z,
                                           BlockState state, int depth) {
         if (depth >= POWER_RANGE) return false;
         for (Direction direction : endpoints(state.get(this.shapeProperty))) {
@@ -200,7 +200,7 @@ public final class RailBehavior implements BlockBehavior {
         return false;
     }
 
-    private boolean isPoweredContinuation(World world, int x, int y, int z,
+    private boolean isPoweredContinuation(Dimension world, int x, int y, int z,
                                           BlockState origin, RailShape originShape, int depth) {
         BlockState next = railAt(world, x, y, z);
         if (next == null || next.getBlock() != origin.getBlock()
@@ -210,7 +210,7 @@ public final class RailBehavior implements BlockBehavior {
                 || this.findPoweredRailSignal(world, x, y, z, next, depth + 1);
     }
 
-    private void refreshNeighbors(World world, int x, int y, int z) {
+    private void refreshNeighbors(Dimension world, int x, int y, int z) {
         for (Direction d : Direction.horizontalValues()) {
             world.updateBlockStateAt(x + d.offsetX(), y, z + d.offsetZ());
             world.updateBlockStateAt(x + d.offsetX(), y + 1, z + d.offsetZ());
@@ -218,12 +218,12 @@ public final class RailBehavior implements BlockBehavior {
         }
     }
 
-    private static boolean hasRail(World world, int x, int y, int z) {
+    private static boolean hasRail(Dimension world, int x, int y, int z) {
         return isRail(world, x, y, z) || isRail(world, x, y + 1, z) || isRail(world, x, y - 1, z);
     }
 
     /** Vanillas RailState.canConnectTo: vorhandene Verbindung oder ein Nachbar mit freiem Ende. */
-    private static boolean canConnectTo(World world, int x, int y, int z, Direction toward) {
+    private static boolean canConnectTo(Dimension world, int x, int y, int z, Direction toward) {
         int nx = x + toward.offsetX(), nz = z + toward.offsetZ();
         BlockState neighbor = railAt(world, nx, y, nz);
         int ny = y;
@@ -245,11 +245,11 @@ public final class RailBehavior implements BlockBehavior {
         return connected < 2;
     }
 
-    public static boolean isRail(World world, int x, int y, int z) {
+    public static boolean isRail(Dimension world, int x, int y, int z) {
         return railAt(world, x, y, z) != null;
     }
 
-    public static BlockState railAt(World world, int x, int y, int z) {
+    public static BlockState railAt(Dimension world, int x, int y, int z) {
         BlockState state = de.skyengine.game.world.block.Blocks.getState(world.getBlock(x, y, z));
         return state.getValues().containsKey(Properties.RAIL_SHAPE)
                 || state.getValues().containsKey(Properties.STRAIGHT_RAIL_SHAPE) ? state : null;

@@ -33,7 +33,7 @@ public interface BlockEntityRenderer {
      * des Icon-Renderers; das Modell liegt in 0..1-Blockeinheiten. Implementierungen verwalten ihren
      * GL-State (Shader/Textur/Depth) selbst.
      */
-    default void renderIcon(Matrix4f mvp) {}
+    default void renderIcon(Matrix4f mvp, Matrix4f iconModel) {}
 
     /**
      * Zeichnet das Block-Modell als gehaltenes Item (First-/Third-Person-Hand, Inventar-Vorschau).

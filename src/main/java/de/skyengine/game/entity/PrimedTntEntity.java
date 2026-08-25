@@ -1,12 +1,12 @@
 package de.skyengine.game.entity;
 
 import de.skyengine.game.world.Explosion;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 
 /**
  * Gezündetes TNT als Entity (wie Minecraft): fällt/hüpft mit einem Fuse-Countdown, blinkt beim
  * Rendern weiß auf und detoniert am Ende über {@link Explosion#explode}. Gespawnt von {@link
- * de.skyengine.game.world.World#spawnPrimedTnt} (aus {@link
+ * de.skyengine.game.world.Dimension#spawnPrimedTnt} (aus {@link
  * de.skyengine.game.world.block.behavior.ExplosionBehavior} beim Rechtsklick bzw. aus der
  * Kettenreaktion in {@link Explosion}).
  *
@@ -37,7 +37,7 @@ public class PrimedTntEntity extends Entity {
     }
 
     @Override
-    public void tick(World world) {
+    public void tick(Dimension world) {
         super.update();
 
         this.motionY -= GRAVITY;

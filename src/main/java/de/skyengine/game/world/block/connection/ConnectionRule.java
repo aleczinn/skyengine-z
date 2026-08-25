@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.connection;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 
@@ -10,5 +10,5 @@ import de.skyengine.game.world.block.state.BlockState;
  */
 @FunctionalInterface
 public interface ConnectionRule {
-    boolean connects(World world, int x, int y, int z, Direction dir, BlockState self, BlockState neighbor);
+    boolean connects(Dimension world, int x, int y, int z, Direction dir, BlockState self, BlockState neighbor);
 }

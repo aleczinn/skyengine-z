@@ -1,0 +1,9 @@
+{
+  "id": "skyengine:glowstone",
+  "creative_tab": "natural",
+  "parent": "preset/cube",
+  "vars": { "texture": "glowstone" },
+  "hardness": 0.3,
+  "sound": "glass",
+  "light_level": 15
+}

@@ -36,55 +36,94 @@ final class MusicPlayer {
     private int restartAttempts;
     private float volume = 1.0F;
 
+    /** Reserviert Source und Streaming-Buffer, bevor der Effekt-Pool alle Sources belegen kann. */
+    boolean init() {
+        if (this.source != -1 && this.buffers != null) return true;
+        this.deleteOpenAlObjects();
+        clearAlError();
+        int generatedSource = AL10.alGenSources();
+        int sourceError = AL10.alGetError();
+        if (generatedSource == 0 || sourceError != AL10.AL_NO_ERROR) {
+            if (generatedSource != 0) AL10.alDeleteSources(generatedSource);
+            this.logger.warning("Musik-Source konnte nicht reserviert werden (AL-Fehler "
+                    + sourceError + ").");
+            return false;
+        }
+        this.source = generatedSource;
+        AL10.alSourcei(this.source, AL10.AL_SOURCE_RELATIVE, AL10.AL_TRUE);
+        AL10.alSource3f(this.source, AL10.AL_POSITION, 0, 0, 0);
+
+        this.buffers = new int[BUFFER_COUNT];
+        for (int i = 0; i < BUFFER_COUNT; i++) {
+            clearAlError();
+            int buffer = AL10.alGenBuffers();
+            int bufferError = AL10.alGetError();
+            if (buffer == 0 || bufferError != AL10.AL_NO_ERROR) {
+                if (buffer != 0) AL10.alDeleteBuffers(buffer);
+                this.logger.warning("Musik-Buffer konnten nicht reserviert werden (AL-Fehler "
+                        + bufferError + ").");
+                this.deleteOpenAlObjects();
+                return false;
+            }
+            this.buffers[i] = buffer;
+        }
+        if (this.pcm == null) this.pcm = MemoryUtil.memAllocShort(BUFFER_SAMPLES * 2);
+        return true;
+    }
+
     /**
      * Startet die Datei (ersetzt laufende Musik). Fehler → Warnung, kein Crash.
      *
      * @return true, wenn wirklich Musik läuft — die Playlist überspringt damit defekte Dateien
      */
     boolean play(MusicTrack file, boolean loop) {
-        this.stop();
         if (file == null || file.data().length == 0) {
             this.logger.warning("Musik-Ressource ist leer.");
             return false;
         }
-
-        this.stream = openStream(file);
-        if (this.stream == null) return false; // Warnung kam aus dem Stream
-        this.channels = this.stream.channels();
-        this.sampleRate = this.stream.sampleRate();
-        this.format = this.channels == 1 ? AL10.AL_FORMAT_MONO16 : AL10.AL_FORMAT_STEREO16;
-        this.loop = loop;
-
-        if (this.source == -1) {
-            this.source = AL10.alGenSources();
-            AL10.alSourcei(this.source, AL10.AL_SOURCE_RELATIVE, AL10.AL_TRUE);
-            AL10.alSource3f(this.source, AL10.AL_POSITION, 0, 0, 0);
-        }
-        AL10.alSourcef(this.source, AL10.AL_GAIN, this.volume);
-        if (this.buffers == null) {
-            this.buffers = new int[BUFFER_COUNT];
-            for (int i = 0; i < BUFFER_COUNT; i++) this.buffers[i] = AL10.alGenBuffers();
-        }
-        if (this.pcm == null) {
-            this.pcm = MemoryUtil.memAllocShort(BUFFER_SAMPLES * 2); // reicht für Stereo
-        }
-
-        int queued = 0;
-        for (int buffer : this.buffers) {
-            if (!this.fillAndQueue(buffer)) break; // sehr kurze Datei: weniger Buffer queuen
-            queued++;
-        }
-        /* Kein einziges Sample: die Source liefe nie an und update() käme nie zum exhausted-Zweig
-           — die Playlist bliebe an dieser Datei hängen. Lieber sofort aufgeben. */
-        if (queued == 0) {
-            this.logger.warning("Musik-Datei liefert keine Daten: " + file.name());
+        for (int attempt = 0; attempt < 2; attempt++) {
             this.stop();
-            return false;
+            if (!this.init()) return false;
+            this.stream = openStream(file);
+            if (this.stream == null) return false;
+            this.channels = this.stream.channels();
+            this.sampleRate = this.stream.sampleRate();
+            this.format = this.channels == 1 ? AL10.AL_FORMAT_MONO16 : AL10.AL_FORMAT_STEREO16;
+            this.loop = loop;
+            AL10.alSourcef(this.source, AL10.AL_GAIN, this.volume);
+
+            clearAlError();
+            int queued = 0;
+            for (int buffer : this.buffers) {
+                if (!this.fillAndQueue(buffer)) break;
+                queued++;
+            }
+            int queueError = AL10.alGetError();
+            if (queued == 0 || queueError != AL10.AL_NO_ERROR) {
+                this.logger.warning(queued == 0
+                        ? "Musik-Datei liefert keine Daten: " + file.name()
+                        : "Musik konnte nicht gepuffert werden (AL-Fehler " + queueError + "): " + file.name());
+                this.stop();
+                return false;
+            }
+
+            clearAlError();
+            AL10.alSourcePlay(this.source);
+            int playError = AL10.alGetError();
+            int state = AL10.alGetSourcei(this.source, AL10.AL_SOURCE_STATE);
+            if (playError == AL10.AL_NO_ERROR && state == AL10.AL_PLAYING) {
+                this.playing = true;
+                this.logger.info("Musik gestartet: " + file.name() + (loop ? " (Loop)" : ""));
+                return true;
+            }
+
+            this.logger.warning("Musikstart fehlgeschlagen (Versuch " + (attempt + 1)
+                    + ", Source " + this.source + ", State " + state + ", AL-Fehler "
+                    + playError + "): " + file.name());
+            this.stop();
+            this.deleteOpenAlObjects();
         }
-        AL10.alSourcePlay(this.source);
-        this.playing = true;
-        this.logger.info("Musik gestartet: " + file.name() + (loop ? " (Loop)" : ""));
-        return true;
+        return false;
     }
 
     /** Wählt den Dekoder nach Dateiendung; {@code null} = Format unbekannt oder Datei defekt. */
@@ -206,17 +245,29 @@ final class MusicPlayer {
 
     void dispose() {
         this.stop();
+        this.deleteOpenAlObjects();
+        if (this.pcm != null) {
+            MemoryUtil.memFree(this.pcm);
+            this.pcm = null;
+        }
+    }
+
+    private void deleteOpenAlObjects() {
         if (this.source != -1) {
             AL10.alDeleteSources(this.source);
             this.source = -1;
         }
         if (this.buffers != null) {
-            for (int buffer : this.buffers) AL10.alDeleteBuffers(buffer);
+            for (int buffer : this.buffers) {
+                if (buffer != 0) AL10.alDeleteBuffers(buffer);
+            }
             this.buffers = null;
         }
-        if (this.pcm != null) {
-            MemoryUtil.memFree(this.pcm);
-            this.pcm = null;
+    }
+
+    private static void clearAlError() {
+        while (AL10.alGetError() != AL10.AL_NO_ERROR) {
+            // OpenAL speichert Fehler pro Context; vor einer geprueften Operation leeren.
         }
     }
 }

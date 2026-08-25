@@ -11,6 +11,7 @@ import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.chunk.FluidGeometry;
+import de.skyengine.game.world.dimension.DimensionEnvironment;
 import de.skyengine.game.world.lod.LodConfig;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.LodMesher;
@@ -60,6 +61,7 @@ public class ChunkRenderer {
     private final Logger logger = LogManager.getLogger(ChunkRenderer.class.getName());
 
     private final ChunkManager chunkManager;
+    private final long renderGeneration;
     private ShaderProgram shader;
     /* Block-Atlas: gehört dem GameContainer (Engine-Lebensdauer, welt-unabhängig) —
        der Renderer hält nur Referenzen und disposed NICHTS davon. */
@@ -132,6 +134,8 @@ public class ChunkRenderer {
     private final LongObjMap<LodMesh> lodMeshes = new LongObjMap<>(1024);
     private final List<LodMesh> visibleLod = new ArrayList<>();
     private LodManager lodManager;
+    private boolean lodAllowed = true;
+    private DimensionEnvironment environment = DimensionEnvironment.OVERWORLD;
 
     /* Cull-Hierarchie LOD: 4×4-Regionen-Kacheln (512 Blöcke) mit aggregiertem [minY,maxY] —
        analog zum Spalten-Index (der flache Regionen-Loop war die größere Hälfte der Cull-Zeit).
@@ -322,14 +326,30 @@ public class ChunkRenderer {
     private float lastFogStart = Float.NaN, lastFogEnd = Float.NaN;
     private float lastFogR = -1F, lastFogG = -1F, lastFogB = -1F;
 
-    public ChunkRenderer(ChunkManager chunkManager) {
+    public ChunkRenderer(ChunkManager chunkManager, long renderGeneration) {
         this.chunkManager = chunkManager;
+        this.renderGeneration = renderGeneration;
         for (int l = 1; l <= MAX_LOD_LEVELS; l++) this.visibleLodByLevel[l] = new ArrayList<>();
     }
 
-    /** Verdrahtet das LOD-System (aus World.init). Ohne Manager rendert alles wie bisher. */
+    /** Verdrahtet das LOD-System (aus Dimension.init). Ohne Manager rendert alles wie bisher. */
     public void setLodManager(LodManager lodManager) {
         this.lodManager = lodManager;
+    }
+
+    /** Dimensionsregel: globale LOD-Einstellung darf eine gesperrte Dimension nicht ueberstimmen. */
+    public void setLodAllowed(boolean lodAllowed) {
+        this.lodAllowed = lodAllowed;
+    }
+
+    public void setEnvironment(DimensionEnvironment environment) {
+        this.environment = environment == null ? DimensionEnvironment.OVERWORLD : environment;
+        this.lastFogStart = Float.NaN;
+        this.lastMinLight = Float.NaN;
+    }
+
+    private boolean lodEnabled(GameSettings settings) {
+        return this.lodAllowed && settings.lodEnabled;
     }
 
 
@@ -399,7 +419,7 @@ public class ChunkRenderer {
            Deckel nach unten auf 8 MB (kleine Sichtweiten / LOD aus). Wächst bei Bedarf weiter. */
         long lodOpaqueBytes = 8L * 1024 * 1024;
         long lodTranslucentBytes = 8L * 1024 * 1024;
-        if (settings.lodEnabled) {
+        if (this.lodEnabled(settings)) {
             LodConfig lodConfig = LodConfig.of(settings.renderDistance, settings.lodMaxDistance);
             lodOpaqueBytes = Math.max(lodOpaqueBytes,
                     LodMesher.estimateOpaqueArenaBytes(lodConfig, settings.lodAmbientOcclusionQuality));
@@ -1148,6 +1168,8 @@ public class ChunkRenderer {
     }
 
     private void applyBatch(ChunkManager.MeshBatch batch) {
+        if (batch.renderGeneration() != this.renderGeneration
+                || !this.chunkManager.isRenderGenerationActive(this.renderGeneration)) return;
         for (ChunkManager.MeshResult result : batch.results()) {
             Chunk chunk = this.chunkManager.getChunks().get(Chunk.key(result.chunkX(), result.chunkZ()));
 
@@ -1155,14 +1177,15 @@ public class ChunkRenderer {
                haben — ein dort wartendes Erst-Mesh darf ein bereits angewendetes, NEUERES
                Priority-Remesh derselben Section nicht überschreiben (das Dirty-Bit ist dann
                schon konsumiert, die falsche Geometrie bliebe bis zum nächsten Edit stehen). */
-            if (chunk != null && !chunk.tryApplyMeshSection(result.sectionY(), result.meshSeq(),
+            if (chunk != null && !chunk.tryApplyMeshSection(this.renderGeneration,
+                    result.sectionY(), result.meshSeq(),
                     result.data() == null ? null : result.data().boundaryFaces())) continue;
 
             /* Upload-Bestätigung für die LOD-Maske: erst wenn alle Sections angewendet sind,
                darf das LOD dort weichen (Chunk kann bei Unload-Race schon fehlen). Zählt nur
                tatsächlich angewendete Batches — verworfene Nachzügler würden den Zähler sonst
                verfrüht sättigen und das LOD risse ein Loch vor dem echten Terrain. */
-            if (chunk != null) chunk.markSectionUploaded();
+            if (chunk != null) chunk.markSectionUploaded(this.renderGeneration, result.sectionY());
 
             long key = sectionKey(result.chunkX(), result.sectionY(), result.chunkZ());
 
@@ -1238,14 +1261,15 @@ public class ChunkRenderer {
         /* Die Qualitaetsstufe gehoert mit in die Bedingung: sie aendert die Quads/Zelle und
            damit die Schaetzung (LOW->HIGH sind +38 % Quads). Ohne sie waechse die Arena nach
            einem Stufenwechsel treppenweise nach — genau der Fall, den dieser Block verhindert. */
-        if (settings.lodEnabled != this.lastLodEnabled || settings.renderDistance != this.lastLodRenderDistance
+        boolean lodEnabled = this.lodEnabled(settings);
+        if (lodEnabled != this.lastLodEnabled || settings.renderDistance != this.lastLodRenderDistance
                 || settings.lodMaxDistance != this.lastLodMaxDistance
                 || settings.lodAmbientOcclusionQuality != this.lastLodAmbientOcclusionQuality) {
-            this.lastLodEnabled = settings.lodEnabled;
+            this.lastLodEnabled = lodEnabled;
             this.lastLodRenderDistance = settings.renderDistance;
             this.lastLodMaxDistance = settings.lodMaxDistance;
             this.lastLodAmbientOcclusionQuality = settings.lodAmbientOcclusionQuality;
-            if (settings.lodEnabled) {
+            if (lodEnabled) {
                 LodConfig lodConfig = LodConfig.of(settings.renderDistance, settings.lodMaxDistance);
                 opaqueArena.ensureCapacity(
                         LodMesher.estimateOpaqueArenaBytes(lodConfig, settings.lodAmbientOcclusionQuality));
@@ -1604,8 +1628,12 @@ public class ChunkRenderer {
     private void setFogUniforms() {
         GameSettings settings = GameSettings.get();
         float fogStart, fogEnd;
-        if (settings.fog) {
-            float range = (settings.lodEnabled
+        if (this.environment.forceFog()) {
+            fogStart = this.environment.fogStart();
+            fogEnd = this.environment.fogEnd();
+        } else if (settings.fog) {
+            boolean lodEnabled = this.lodEnabled(settings);
+            float range = (lodEnabled
                     ? Math.max(settings.lodMaxDistance, settings.renderDistance)
                     : settings.renderDistance) * ChunkSection.SIZE;
             /* Fog-Ende ~3 Chunks VOR die theoretische Grenze: der Lade-Kreis ist auf ganze
@@ -1617,28 +1645,31 @@ public class ChunkRenderer {
             /* Ohne LOD ist der einzige Fog-Zweck das Verstecken der Ladekante -> kurze steile
                Rampe (80 %), damit von der knappen Sichtweite mehr klar bleibt; mit LOD lange
                Rampe (60 %) gegen das Sub-Pixel-Flimmern des Fernterrains. */
-            fogStart = fogEnd * (settings.lodEnabled ? 0.60F : 0.80F);
+            fogStart = fogEnd * (lodEnabled ? 0.60F : 0.80F);
         } else {
             /* Fog aus: Start/Ende jenseits jeder Distanz -> Faktor 0, keine Shader-Variante nötig */
             fogStart = 1.0e30F;
             fogEnd = 2.0e30F;
         }
         Color4 clear = SkyEngine.get().getConfig().getWindowClearColor();
+        float fogRed = this.environment.forceFog() ? this.environment.fogRed() : clear.red;
+        float fogGreen = this.environment.forceFog() ? this.environment.fogGreen() : clear.green;
+        float fogBlue = this.environment.forceFog() ? this.environment.fogBlue() : clear.blue;
 
         /* Upload nur bei Änderung — die Werte hängen nur an Settings/Clear-Color, nicht an
            der Kamera. Uniform-State bleibt im Programm erhalten. */
         if (fogStart == this.lastFogStart && fogEnd == this.lastFogEnd
-                && clear.red == this.lastFogR && clear.green == this.lastFogG && clear.blue == this.lastFogB) {
+                && fogRed == this.lastFogR && fogGreen == this.lastFogG && fogBlue == this.lastFogB) {
             return;
         }
         this.shader.setUniformf(this.locFogStart, fogStart);
         this.shader.setUniformf(this.locFogEnd, fogEnd);
-        this.shader.setUniformVector3f(this.locFogColor, clear.red, clear.green, clear.blue);
+        this.shader.setUniformVector3f(this.locFogColor, fogRed, fogGreen, fogBlue);
         this.lastFogStart = fogStart;
         this.lastFogEnd = fogEnd;
-        this.lastFogR = clear.red;
-        this.lastFogG = clear.green;
-        this.lastFogB = clear.blue;
+        this.lastFogR = fogRed;
+        this.lastFogG = fogGreen;
+        this.lastFogB = fogBlue;
     }
 
     /**
@@ -1651,7 +1682,7 @@ public class ChunkRenderer {
         /* AUS = Fullbright: minLight 1.0 macht das Ergebnis unabhängig von allem anderen exakt
            1.0, der Regler-Wert ist dann egal (auf 0 gesetzt, damit der Cache eindeutig bleibt). */
         boolean fullbright = brightness <= 0;
-        float minLight = fullbright ? 1.0F : AMBIENT_LIGHT;
+        float minLight = fullbright ? 1.0F : this.environment.ambientLight();
         float gamma = fullbright ? 0.0F : brightness / 100F;
         if (minLight == this.lastMinLight && gamma == this.lastBrightness) return;
         this.shader.setUniformf(this.locMinLight, minLight);
@@ -1677,11 +1708,15 @@ public class ChunkRenderer {
      * @return 1.0 bei Fullbright (Regler AUS) und bei Lichtlevel 15
      */
     public static float lightFactor(int skyLevel, int blockLevel) {
+        return lightFactor(skyLevel, blockLevel, AMBIENT_LIGHT);
+    }
+
+    public static float lightFactor(int skyLevel, int blockLevel, float ambientLight) {
         int brightness = GameSettings.get().brightness;
         if (brightness <= 0) return 1.0F; // Fullbright
         float f = Math.clamp(Math.max(skyLevel, blockLevel), 0, 15) / 15.0F;
         float light = f / (4.0F - 3.0F * f);
-        light = AMBIENT_LIGHT + (1.0F - AMBIENT_LIGHT) * light;
+        light = ambientLight + (1.0F - ambientLight) * light;
         float inv = 1.0F - light;
         float inv2 = inv * inv;
         float lifted = 1.0F - inv2 * inv2;

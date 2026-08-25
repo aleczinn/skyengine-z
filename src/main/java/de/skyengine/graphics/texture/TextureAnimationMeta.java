@@ -13,7 +13,7 @@ public final class TextureAnimationMeta {
         public Integer frametime;
         /** Optionale Frame-Reihenfolge (Indizes in den Streifen). Default: 0..N-1. */
         public int[] frames;
-        /** Reserviert (Interpolation), aktuell ungenutzt. */
+        /** Mischt den aktuellen weich in den naechsten Frame. */
         public Boolean interpolate;
     }
 }

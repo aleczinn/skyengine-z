@@ -8,7 +8,7 @@ import java.util.Map;
 /**
  * Welt-Metadaten für {@code saves/<ordner>/level.json} (GSON-DTO). Chunks liegen in
  * {@code region/*.srg} (nur modifizierte; s. WorldStorage), der Spieler in
- * {@code player/player.dat} — level.json hält NUR noch Welt-Metadaten.
+ * {@code players/<uuid>.dat} — level.json hält NUR noch Welt-Metadaten.
  * Alle neuen Felder sind Boxed/null-tolerant (alte level.json laden mit Defaults).
  */
 public final class LevelData {
@@ -20,12 +20,17 @@ public final class LevelData {
 
     /** Version des Save-Layouts (null = 1). Strikt getrennt von der Chunk-payloadVersion. */
     public Integer formatVersion;
+    /** UUID des lokalen Singleplayer-Profils; Multiplayer-Verbindungen liefern ihre UUID selbst. */
+    public String localPlayerUuid;
     /** "default" (generiert) oder "imported" (MC-Import, Void-Generator). null = default. */
     public String worldType;
     /** Generator-Kennung (Provenienz), z.B. "alpha_v2" / "minecraft_import". null = alpha_v2. */
     public String generator;
     /** Version des Generators, mit dem die Welt läuft (Mismatch -> Warnung). null = 1. */
     public Integer generatorVersion;
+
+    /** Dimensions-Metadaten; fehlt bei Format 1 und wird dann aus den Root-Feldern migriert. */
+    public Map<String, DimensionData> dimensions = new LinkedHashMap<>();
 
     /** NUR noch Migration: Alt-Saves vor player.dat. Wird beim nächsten Speichern genullt. */
     public PlayerData player;
@@ -36,6 +41,14 @@ public final class LevelData {
     public Map<String, Long> lootRandomStates = new LinkedHashMap<>();
     /** Vanilla-Gamerule; false/null ist der Standard der aktuellen Java Edition. */
     public Boolean tntExplosionDropDecay;
+
+    public static final class DimensionData {
+        public int seed;
+        public String generator;
+        public Integer generatorVersion;
+        /** Dimensionslokale, deterministische Loot-Zufallsfolgen. */
+        public Map<String, Long> lootRandomStates = new LinkedHashMap<>();
+    }
 
     public static final class PlayerData {
         public double x, y, z;

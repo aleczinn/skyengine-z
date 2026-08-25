@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.json.BlockDefinition;
@@ -106,11 +106,11 @@ public final class PartsBehavior implements BlockBehavior {
 
     /**
      * Setzt die übrigen Teile, nachdem der Ursprung validiert platziert wurde. Ohne
-     * Nachbar-Kaskade — die löst {@code World.placeBlock} erst danach aus, sonst würde sich der
+     * Nachbar-Kaskade — die löst {@code Dimension.placeBlock} erst danach aus, sonst würde sich der
      * Ursprung selbst entfernen, bevor seine Geschwister existieren.
      */
     @Override
-    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+    public void onPlaced(Dimension world, int x, int y, int z, BlockState state) {
         Direction facing = facingOf(state);
         for (Map.Entry<String, int[]> e : this.offsets.entrySet()) {
             if (e.getKey().equals(this.origin)) continue;
@@ -124,7 +124,7 @@ public final class PartsBehavior implements BlockBehavior {
 
     /** Fehlt ein Geschwisterteil, entfernt sich dieser Teil selbst (kein Drop). */
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         String self = partOf(state);
         if (self == null) return state;   // z.B. bereits zu Luft geworden
         int[] own = this.offsets.get(self);

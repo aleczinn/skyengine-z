@@ -4,6 +4,7 @@ import de.skyengine.core.EngineProperties;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
@@ -20,7 +21,6 @@ import de.skyengine.graphics.shader.Shader;
 import de.skyengine.graphics.shader.ShaderProgram;
 import de.skyengine.graphics.shader.ShaderType;
 import de.skyengine.graphics.texture.TextureArray;
-import de.skyengine.graphics.texture.BlockTextureAtlas;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
@@ -43,13 +43,10 @@ import java.util.Map;
  */
 public final class ItemIconRenderer {
 
-    /* Isometrische Ausrichtung. ROT_X=30 wie MC; ROT_Y=135 statt 225, damit das Richtungs-Shading
-       (hellere 0.8-Seite vs dunklere 0.6-Seite) wie in Minecraft RECHTS heller ist (225 zeigte es
-       links). Eine 90°-Drehung vertauscht die beiden sichtbaren Seitenflächen. Richtungsblöcke
-       (Truhe/Treppe) kompensieren das über ihre eigene Rotation, sodass ihre Netto-Drehung gleich
-       bleibt (Truhe: 270° Vorrotation, Treppe: inventory_y=270 -> netto 45° wie zuvor). */
+    /* Fallback fuer Modelle ohne display.gui. Normale Blockmodelle erben ihre exakten Werte aus
+       block/block.json; Sondermodelle wie Zaun und Zauntor ueberschreiben sie wie in Vanilla. */
     private static final float ROT_X = 30f;
-    private static final float ROT_Y = 135f;
+    private static final float ROT_Y = 225f;
     /**
      * Würfelkante als Anteil der Slot-Pixelgröße — 0.625 ist MCs {@code gui}-Display-Scale und
      * KEIN frei wählbarer Geschmackswert: unter Rx(30)·Ry(135) ist ein Einheitswürfel
@@ -58,15 +55,8 @@ public final class ItemIconRenderer {
      * jeden Block oben und unten ~0,3 px über den Slotrahmen ragen.
      */
     private static final float ICON_SCALE = 0.625f;
-
-    /* Pro-Achsen-Helligkeit NUR im Icon (Stell-Schrauben für den Iso-Look, kleiner = dunkler). In der
-       Iso-Ansicht sichtbar sind genau drei Flächengruppen: oben, X-Achse (West/Ost) und Z-Achse
-       (Nord/Süd) — die Unterseite ist nie sichtbar. Betrifft ausschließlich Hotbar-/Inventar-Icons,
-       die Welt-Block-Schattierung (BlockModels.FACE_BRIGHTNESS) bleibt unberührt. Auch vom Truhen-Icon
-       (ChestRenderer.renderIcon) genutzt, damit alle Icons über dieselben Schrauben laufen. */
-    public static final float ICON_TOP_BRIGHTNESS = 1.0f;  // oben
-    public static final float ICON_Z_BRIGHTNESS = 0.7f;    // Nord/Süd
-    public static final float ICON_X_BRIGHTNESS = 0.4f;   // West/Ost
+    static final float CUTOUT_ALPHA = 0.5F;
+    static final float TRANSLUCENT_ALPHA = 0.001F;
 
     private ShaderProgram shader;
     private TextureArray textures;
@@ -100,10 +90,8 @@ public final class ItemIconRenderer {
         }
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
-        this.shader.setUniformi("u_NormalTextures", 1);
-        this.shader.setUniformi("u_MaterialTextures", 2);
+        this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);
         this.textures.bind(0);
-        BlockTextureAtlas.bindOptionalMaterials(this.shader);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glDisable(GL11.GL_DEPTH_TEST);
     }
@@ -124,34 +112,8 @@ public final class ItemIconRenderer {
 
         float s = slotPixelSize * ICON_SCALE;
         float cyUp = vH - centerY; // Ortho ist Y-up, Slotkoordinaten sind Y-down
-        this.model.identity()
-                .translate(centerX, cyUp, 0)
-                .scale(s, s, s)
-                .rotateX((float) Math.toRadians(ROT_X))
-                .rotateY((float) Math.toRadians(ROT_Y))
-                .translate(-0.5f, -0.5f, -0.5f);
-        this.proj.mul(this.model, this.mvp);
-
-        /* Block-Entity-Icon (z.B. Truhe): echtes BER-Modell + dessen 2D-Textur statt Block-Quads. */
-        BlockEntityRenderer custom = customIconFor(stack.getItem());
-        if (custom != null) {
-            custom.renderIcon(this.mvp);
-            /* Shader/Textur des Würfel-Pfads für nachfolgende Icons wiederherstellen. */
-            this.shader.bind();
-            this.shader.setUniformi("u_Textures", 0);
-            this.textures.bind(0);
-            BlockTextureAtlas.bindOptionalMaterials(this.shader);
-            return;
-        }
-
-        Mesh mesh = this.cache.computeIfAbsent(stack.getItem(), this::bake);
-        if (mesh == null || mesh.count == 0) return;
         ModelLoader.Display guiDisplay = guiDisplayFor(stack.getItem());
         if (guiDisplay != null) {
-            /* Minecraft-Display-Kontext "gui": Translation ist in Modellpixeln, die Skalierung
-               bezieht sich auf eine Blockkante. Dadurch darf ein zweiteiliges Bett seine echte
-               Laenge behalten; das generische Composite-Fit wuerde es auf einen halben Block
-               schrumpfen und mit dem allgemeinen Blockwinkel statt der Bettperspektive zeigen. */
             this.model.identity()
                     .translate(centerX, cyUp, 0)
                     .translate(guiDisplay.translation()[0] * slotPixelSize / 16F,
@@ -163,11 +125,31 @@ public final class ItemIconRenderer {
                     .scale(slotPixelSize * guiDisplay.scale()[0],
                            slotPixelSize * guiDisplay.scale()[1],
                            slotPixelSize * guiDisplay.scale()[2])
-                    /* Minecraft verschiebt Blockmodelle immer um den festen Modellursprung;
-                       auch ein Composite wird nicht um seine Gesamt-Bounds nachzentriert. */
                     .translate(-0.5F, -0.5F, -0.5F);
-            this.proj.mul(this.model, this.mvp);
-        } else if (mesh.fit != 1F) {
+        } else {
+            this.model.identity()
+                    .translate(centerX, cyUp, 0)
+                    .scale(s, s, s)
+                    .rotateX((float) Math.toRadians(ROT_X))
+                    .rotateY((float) Math.toRadians(ROT_Y))
+                    .translate(-0.5f, -0.5f, -0.5f);
+        }
+        this.proj.mul(this.model, this.mvp);
+
+        /* Block-Entity-Icon (z.B. Truhe): echtes BER-Modell + dessen 2D-Textur statt Block-Quads. */
+        BlockEntityRenderer custom = customIconFor(stack.getItem());
+        if (custom != null) {
+            custom.renderIcon(this.mvp, this.model);
+            /* Shader/Textur des Würfel-Pfads für nachfolgende Icons wiederherstellen. */
+            this.shader.bind();
+            this.shader.setUniformi("u_Textures", 0);
+            this.textures.bind(0);
+            return;
+        }
+
+        Mesh mesh = this.cache.computeIfAbsent(stack.getItem(), this::bake);
+        if (mesh == null || mesh.count == 0) return;
+        if (guiDisplay == null && mesh.fit != 1F) {
             this.model.identity()
                     .translate(centerX, cyUp, 0)
                     .scale(s * mesh.fit, s * mesh.fit, s * mesh.fit)
@@ -176,7 +158,10 @@ public final class ItemIconRenderer {
                     .translate(-mesh.centerX, -mesh.centerY, -mesh.centerZ);
             this.proj.mul(this.model, this.mvp);
         }
+        ItemIconLighting.apply3D(this.shader);
         this.shader.setUniformMatrix4f("u_MVP", this.mvp);
+        this.shader.setUniformMatrix4f("u_Model", this.model);
+        this.shader.setUniformf("u_AlphaCutoff", alphaCutoffFor(stack.getItem()));
         /* Tiefentest pro Icon: durchdringende Modellteile (Zaun-Balken in den Pfosten) brauchen
            echte Verdeckung. Clear pro Icon -> das zuletzt gezeichnete Cursor-Icon bleibt oben.
            "or-equal"-Func, damit koplanare Overlay-Quads (Grasblock-Seite) exakt gewinnen. */
@@ -188,6 +173,7 @@ public final class ItemIconRenderer {
         mesh.render();
         GL11.glDepthFunc(properties.baseDepthFunc());
         GL11.glDisable(GL11.GL_DEPTH_TEST);
+        this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);
     }
 
     /**
@@ -206,8 +192,20 @@ public final class ItemIconRenderer {
         float cyUp = vH - centerY;
         this.model.identity().translate(centerX - w / 2f, cyUp - h / 2f, 0).scale(w, h, 1f);
         this.proj.mul(this.model, this.mvp);
+        ItemIconLighting.applyFlat(this.shader);
         this.shader.setUniformMatrix4f("u_MVP", this.mvp);
+        this.shader.setUniformMatrix4f("u_Model", this.model);
+        this.shader.setUniformf("u_AlphaCutoff", CUTOUT_ALPHA);
         flat.mesh.render();
+    }
+
+    /** Gleiche Materialtrennung wie Chunk-, Entity- und Hand-Renderer. */
+    static float alphaCutoffFor(Item item) {
+        if (item instanceof BlockItem bi
+                && bi.getBlock().getDefaultState().getRenderLayer() == RenderLayer.TRANSLUCENT) {
+            return TRANSLUCENT_ALPHA;
+        }
+        return CUTOUT_ALPHA;
     }
 
     /**
@@ -235,7 +233,7 @@ public final class ItemIconRenderer {
         float g = ((tint >> 8) & 0xFF) / 255F;
         float b = (tint & 0xFF) / 255F;
         int n = paths.length;
-        float[] data = new float[n * 6 * 9];
+        float[] data = new float[n * 6 * 12];
         int p = 0;
         for (int i = 0; i < n; i++) {
             int layer = BlockTextures.layerOf(paths[i]);
@@ -258,6 +256,7 @@ public final class ItemIconRenderer {
     private static int flatVert(float[] d, int p, float x, float y, float u, float v, int layer, float r, float g, float b) {
         d[p++] = x; d[p++] = y; d[p++] = 0; d[p++] = u; d[p++] = v; d[p++] = layer;
         d[p++] = r; d[p++] = g; d[p++] = b;
+        d[p++] = 0; d[p++] = 0; d[p++] = 1;
         return p;
     }
 
@@ -276,7 +275,7 @@ public final class ItemIconRenderer {
         GL11.glEnable(GL11.GL_DEPTH_TEST);
     }
 
-    /** Backt die Quads des Block-Default-States in ein interleaved Mesh [x,y,z,u,v,layer,r,g,b]. */
+    /** Backt die Quads als [x,y,z,u,v,layer,r,g,b,nx,ny,nz]. */
     private Mesh bake(Item item) {
         if (!(item instanceof BlockItem bi)) return null;
         /* bakeInventory nutzt ein optionales icon-spezifisches Modell (z.B. Zaun mit Armen, kleine
@@ -299,19 +298,16 @@ public final class ItemIconRenderer {
         for (BakedQuad q : quads) verts += q.vertices().length / 5;
         if (verts == 0) return null;
 
-        float[] data = new float[verts * 9];
+        float[] data = new float[verts * 12];
         int p = 0;
         for (BakedQuad q : quads) {
             float[] v = q.vertices();
             int n = v.length / 5;
-            /* Icon-Helligkeit je Fläche aus der geometrischen Normale (pro-Achsen-Schrauben). Robust
-               gegen Innen-/NO_CULL-Seiten mehrteiliger Modelle (Treppenstufe). Diagonale Cross-Flächen
-               (Gras/Blumen) und die nie sichtbare Unterseite behalten ihren gebackenen Wert. */
-            float iconBrightness = iconBrightnessFor(v, q.brightness());
+            float[] normal = normalFor(v);
             int tint = q.tint();
-            float r = iconBrightness * ((tint >> 16) & 0xFF) / 255F;
-            float g = iconBrightness * ((tint >> 8) & 0xFF) / 255F;
-            float b = iconBrightness * (tint & 0xFF) / 255F;
+            float r = ((tint >> 16) & 0xFF) / 255F;
+            float g = ((tint >> 8) & 0xFF) / 255F;
+            float b = (tint & 0xFF) / 255F;
             for (int i = 0; i < n; i++) {
                 data[p++] = v[i * 5];
                 data[p++] = v[i * 5 + 1];
@@ -322,6 +318,9 @@ public final class ItemIconRenderer {
                 data[p++] = r;
                 data[p++] = g;
                 data[p++] = b;
+                data[p++] = normal[0];
+                data[p++] = normal[1];
+                data[p++] = normal[2];
             }
         }
         float[] bounds = compositeBounds(quads);
@@ -347,25 +346,19 @@ public final class ItemIconRenderer {
     }
 
     /**
-     * Wählt die Icon-Helligkeit einer Fläche anhand ihrer geometrischen Normale (aus dem ersten
-     * Dreieck der Quad-Vertices, 5 Floats je Vertex). Achsenparallele Box-Flächen (|Komponente|=1)
-     * werden den pro-Achsen-Schrauben zugeordnet; diagonale Cross-Flächen (|Komp.|≈0.707) und die
-     * Unterseite fallen auf den gebackenen Wert zurück.
+     * Berechnet die geometrische Normale aus dem ersten Dreieck der Quad-Vertices. Sie wird erst im
+     * Shader durch den individuellen display.gui-Transform gedreht und dort wie in 26.2 beleuchtet.
      */
-    private static float iconBrightnessFor(float[] v, float baked) {
+    private static float[] normalFor(float[] v) {
         float e1x = v[5] - v[0], e1y = v[6] - v[1], e1z = v[7] - v[2];
         float e2x = v[10] - v[0], e2y = v[11] - v[1], e2z = v[12] - v[2];
         float nx = e1y * e2z - e1z * e2y;
         float ny = e1z * e2x - e1x * e2z;
         float nz = e1x * e2y - e1y * e2x;
         float len = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
-        if (len == 0f) return baked;
+        if (len == 0f) return new float[]{0F, 1F, 0F};
         nx /= len; ny /= len; nz /= len;
-
-        if (ny > 0.5f) return ICON_TOP_BRIGHTNESS;        // oben
-        if (nx * nx > 0.81f) return ICON_X_BRIGHTNESS;    // West/Ost (|nx| > 0.9)
-        if (nz * nz > 0.81f) return ICON_Z_BRIGHTNESS;    // Nord/Süd (|nz| > 0.9)
-        return baked;                                     // Unterseite / diagonale Cross-Flächen
+        return new float[]{nx, ny, nz};
     }
 
     public void dispose() {
@@ -385,7 +378,7 @@ public final class ItemIconRenderer {
         }
 
         Mesh(float[] data, float centerX, float centerY, float centerZ, float fit) {
-            this.count = data.length / 9;
+            this.count = data.length / 12;
             this.centerX = centerX;
             this.centerY = centerY;
             this.centerZ = centerZ;
@@ -396,13 +389,15 @@ public final class ItemIconRenderer {
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
             GL15.glBufferData(GL15.GL_ARRAY_BUFFER, data, GL15.GL_STATIC_DRAW);
             GlDebug.labelBuffer(this.vbo, "ItemIconRenderer Mesh-VBO");
-            int stride = 9 * Float.BYTES;
+            int stride = 12 * Float.BYTES;
             GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, stride, 0);
             GL20.glVertexAttribPointer(1, 3, GL11.GL_FLOAT, false, stride, 3 * Float.BYTES);
             GL20.glVertexAttribPointer(2, 3, GL11.GL_FLOAT, false, stride, 6 * Float.BYTES);
+            GL20.glVertexAttribPointer(3, 3, GL11.GL_FLOAT, false, stride, 9 * Float.BYTES);
             GL20.glEnableVertexAttribArray(0);
             GL20.glEnableVertexAttribArray(1);
             GL20.glEnableVertexAttribArray(2);
+            GL20.glEnableVertexAttribArray(3);
             GL30.glBindVertexArray(0);
         }
 
@@ -431,14 +426,16 @@ public final class ItemIconRenderer {
         layout(location = 0) in vec3 a_position;
         layout(location = 1) in vec3 a_texCoord;
         layout(location = 2) in vec3 a_color;
+        layout(location = 3) in vec3 a_normal;
         uniform mat4 u_MVP;
+        uniform mat4 u_Model;
         out vec3 v_texCoord;
         out vec3 v_color;
-        out vec3 v_pos;
+        out vec3 v_normal;
         void main() {
             v_texCoord = a_texCoord;
             v_color = a_color;
-            v_pos = a_position;
+            v_normal = normalize(transpose(inverse(mat3(u_Model))) * a_normal);
             gl_Position = u_MVP * vec4(a_position, 1.0);
         }
         """;
@@ -447,30 +444,33 @@ public final class ItemIconRenderer {
         #version 460 core
         in vec3 v_texCoord;
         in vec3 v_color;
-        in vec3 v_pos;
+        in vec3 v_normal;
         uniform sampler2DArray u_Textures;
-        uniform sampler2DArray u_NormalTextures;
-        uniform sampler2DArray u_MaterialTextures;
-        uniform int u_PbrEnabled;
+        uniform vec3 u_ItemLight0;
+        uniform vec3 u_ItemLight1;
+        uniform float u_AlphaCutoff;
         out vec4 fragColor;
-        vec3 materialLight(vec3 albedo) {
-            if(u_PbrEnabled==0) return albedo;
-            vec4 nt=texture(u_NormalTextures,v_texCoord), m=texture(u_MaterialTextures,v_texCoord);
-            if(nt.a<=0.0&&m.a<=0.0) return albedo;
-            vec3 gn=normalize(cross(dFdx(v_pos),dFdy(v_pos))); if(!gl_FrontFacing)gn=-gn;
-            vec3 dp1=dFdx(v_pos),dp2=dFdy(v_pos);vec2 d1=dFdx(v_texCoord.xy),d2=dFdy(v_texCoord.xy);
-            vec3 t=cross(dp2,gn)*d1.x+cross(gn,dp1)*d2.x,b=cross(dp2,gn)*d1.y+cross(gn,dp1)*d2.y;
-            float s=inversesqrt(max(max(dot(t,t),dot(b,b)),1e-8));
-            vec3 n=nt.a>0.0?normalize(mat3(t*s,b*s,gn)*(nt.rgb*2.0-1.0)):gn;
-            vec3 l=normalize(vec3(-0.35,0.80,0.45)),h=normalize(l+vec3(0.2,0.3,1.0));
-            float rough=m.a>0.0?m.r:1.0,metal=m.a>0.0?m.g:0.0,emit=m.a>0.0?m.b:0.0;
-            float diff=0.35+0.65*max(dot(n,l),0.0),spec=pow(max(dot(n,h),0.0),mix(96.0,2.0,rough))*(1.0-rough);
-            return albedo*(1.0-metal)*diff+mix(vec3(0.04),albedo,metal)*spec+albedo*emit;
+
+        /* Inventar-Icons sind Pixelgrafik. Bei kleinen, schraeg projizierten Composite-Modellen
+           (vor allem Betten) mischte der normale Mipmap-Filter die weisse Kopf- mit der schwarzen
+           Fuss-Textur zu einer grauen Naht. texelFetch aus Level 0 entspricht dem scharfen
+           GUI-Sampling von Minecraft; fract behaelt dabei das REPEAT-Verhalten des Arrays. */
+        vec4 samplePixelPerfect(vec3 coord) {
+            ivec3 size = textureSize(u_Textures, 0);
+            vec2 wrapped = fract(coord.xy);
+            ivec2 texel = clamp(ivec2(floor(wrapped * vec2(size.xy))),
+                                ivec2(0), size.xy - ivec2(1));
+            int layer = clamp(int(floor(coord.z + 0.5)), 0, size.z - 1);
+            return texelFetch(u_Textures, ivec3(texel, layer), 0);
         }
+
         void main() {
-            vec4 c = texture(u_Textures, v_texCoord);
-            if (c.a < 0.01) discard;
-            fragColor = vec4(materialLight(c.rgb) * v_color, c.a);
+            vec4 c = samplePixelPerfect(v_texCoord);
+            if (c.a < u_AlphaCutoff) discard;
+            vec3 n = normalize(v_normal);
+            float diffuse = max(dot(u_ItemLight0, n), 0.0) + max(dot(u_ItemLight1, n), 0.0);
+            float light = min(1.0, diffuse * 0.6 + 0.4);
+            fragColor = vec4(c.rgb * v_color * light, c.a);
         }
         """;
 }

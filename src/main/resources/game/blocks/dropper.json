@@ -22,13 +22,13 @@
     "facing=east,triggered=false":  { "model": "block/${id}", "y": 90 },
     "facing=south,triggered=false": { "model": "block/${id}", "y": 180 },
     "facing=west,triggered=false":  { "model": "block/${id}", "y": 270 },
-    "facing=up,triggered=false":    { "model": "block/${id}_vertical", "x": 270 },
-    "facing=down,triggered=false":  { "model": "block/${id}_vertical", "x": 90 },
+    "facing=up,triggered=false":    { "model": "block/${id}_vertical" },
+    "facing=down,triggered=false":  { "model": "block/${id}_vertical", "x": 180 },
     "facing=north,triggered=true":  { "model": "block/${id}" },
     "facing=east,triggered=true":   { "model": "block/${id}", "y": 90 },
     "facing=south,triggered=true":  { "model": "block/${id}", "y": 180 },
     "facing=west,triggered=true":   { "model": "block/${id}", "y": 270 },
-    "facing=up,triggered=true":     { "model": "block/${id}_vertical", "x": 270 },
-    "facing=down,triggered=true":   { "model": "block/${id}_vertical", "x": 90 }
+    "facing=up,triggered=true":     { "model": "block/${id}_vertical" },
+    "facing=down,triggered=true":   { "model": "block/${id}_vertical", "x": 180 }
   }
 }

@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
@@ -24,7 +24,7 @@ import de.skyengine.game.world.loot.LootSink;
 public final class PistonHeadBehavior implements BlockBehavior {
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         Direction f = state.get(Properties.FACING_ALL);
         int bx = x - f.offsetX(), by = y - f.offsetY(), bz = z - f.offsetZ();
         BlockState base = Blocks.getState(world.getBlock(bx, by, bz));
@@ -36,7 +36,7 @@ public final class PistonHeadBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onBreak(World world, int x, int y, int z, BlockState state) {
+    public void onBreak(Dimension world, int x, int y, int z, BlockState state) {
         if (!hasMatchingBase(world, x, y, z, state)) return;
         Direction f = state.get(Properties.FACING_ALL);
         world.setBlock(x - f.offsetX(), y - f.offsetY(), z - f.offsetZ(), Blocks.AIR, true);
@@ -53,7 +53,7 @@ public final class PistonHeadBehavior implements BlockBehavior {
     }
 
     /** Passende ausgefahrene Basis hinter dem Kopf? (Nur die wird beim Kopf-Abbau entfernt.) */
-    private static boolean hasMatchingBase(World world, int x, int y, int z, BlockState state) {
+    private static boolean hasMatchingBase(Dimension world, int x, int y, int z, BlockState state) {
         Direction f = state.get(Properties.FACING_ALL);
         BlockState base = Blocks.getState(world.getBlock(x - f.offsetX(), y - f.offsetY(), z - f.offsetZ()));
         return base.getValues().containsKey(Properties.EXTENDED)

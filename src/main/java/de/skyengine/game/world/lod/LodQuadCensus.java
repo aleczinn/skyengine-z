@@ -37,7 +37,7 @@ import java.util.Map;
  */
 public final class LodQuadCensus {
 
-    private static final int SEED = 123; // gleicher Seed wie World
+    private static final int SEED = 123; // gleicher Seed wie Dimension
 
     /* Anker = Zentrum der Region (0,0) — Regionszentren-Abstände wie in recomputeDesired */
     private static final int ANCHOR = LodMesher.REGION_BLOCKS / 2;

@@ -1,5 +1,6 @@
 {
   "id": "skyengine:acacia_door",
   "parent": "preset/door",
-  "lod_replacement": "skyengine:acacia_planks"
+  "lod_replacement": "skyengine:acacia_planks",
+  "creative_tab": ["building_blocks", "functional"]
 }

@@ -1,0 +1,9 @@
+{
+  "id": "skyengine:jungle_pressure_plate",
+  "parent": "preset/pressure_plate",
+  "creative_tab": "building_blocks",
+  "press_ticks": 20,
+  "sound": "wood",
+  "tool": "axe",
+  "vars": { "texture": "jungle_planks" }
+}

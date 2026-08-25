@@ -1,7 +1,7 @@
 package de.skyengine.game.entity;
 
 import de.skyengine.game.physics.AABB;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.item.ItemStack;
 
 import java.util.function.Consumer;
@@ -56,7 +56,7 @@ public class ItemEntity extends Entity {
     }
 
     @Override
-    public void tick(World world) {
+    public void tick(Dimension world) {
         super.update();
         this.age++;
         /* Nach 5 Minuten verschwindet der Drop (wie MC). Ausserhalb der Simulations-Distanz wird
@@ -105,7 +105,7 @@ public class ItemEntity extends Entity {
      * der Vertrag von {@code forEachEntityNearby} erlaubt: Zähler umbuchen und das removed-Flag
      * setzen. Aus den Chunk-Listen räumt erst {@code reconcileEntityChunks} nach dem Tick.
      */
-    private void mergeNearby(World world) {
+    private void mergeNearby(Dimension world) {
         if (!this.isMergeable()) return;
         MERGE_RANGE.set(this.boundingBox.minX, this.boundingBox.minY, this.boundingBox.minZ,
                         this.boundingBox.maxX, this.boundingBox.maxY, this.boundingBox.maxZ)

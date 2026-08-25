@@ -4,9 +4,6 @@ import de.skyengine.graphics.color.Color4;
 
 public class EngineConfig {
 
-    private String title = "SkyEngine";
-    private String version = "1.0.0";
-
     private int windowWidth = 1280;
     private int windowHeight = 720;
 
@@ -30,22 +27,6 @@ public class EngineConfig {
        (massiver FPS-Verlust). Nur zum Einkreisen von Fehlerquellen aktivieren, wenn der
        exakte Auslöser einer Debug-Meldung im Callstack gebraucht wird. */
     private boolean synchronousDebug = false;
-
-    public String getTitle() {
-        return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
-
-    public String getVersion() {
-        return version;
-    }
-
-    public void setVersion(String version) {
-        this.version = version;
-    }
 
     public int getWindowWidth() {
         return windowWidth;

@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.connection;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.behavior.BlockBehavior;
@@ -27,11 +27,11 @@ public final class ConnectionBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         return compute(world, x, y, z, state);
     }
 
-    private BlockState compute(World world, int x, int y, int z, BlockState state) {
+    private BlockState compute(Dimension world, int x, int y, int z, BlockState state) {
         for (Direction d : this.component.axes()) {
             BlockState neighbor = Blocks.getState(world.getBlock(x + d.offsetX(), y + d.offsetY(), z + d.offsetZ()));
             boolean connected = this.component.rule().connects(world, x, y, z, d, state, neighbor);

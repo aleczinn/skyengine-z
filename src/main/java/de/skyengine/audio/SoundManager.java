@@ -3,6 +3,7 @@ package de.skyengine.audio;
 import de.skyengine.core.file.FileHandle;
 import de.skyengine.core.file.FileType;
 import de.skyengine.core.io.IDisposable;
+import de.skyengine.core.resource.ResourceManager;
 import de.skyengine.core.resource.Resources;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.entity.MinecartEntity;
@@ -31,6 +32,7 @@ import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Random;
 
 /**
@@ -56,6 +58,11 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
        und über den Pool hinaus fällt der Sound still weg. OpenAL Soft trägt 256 Mono-Sources. */
     private static final int POOL_SIZE = 64;
     private static final int MAX_VARIANTS = 32; // u.a. 14 Spieler-Schwimmvarianten
+
+    /* Musik ist nicht-positional und viele Tracks sind bis nahe Vollpegel gemastert. Der
+       MUSIC-Regler steuert deshalb den vorgesehenen Mixbereich statt direkt OpenAL 0..1:
+       100 % entsprechen rund -9 dB und bleiben damit im Verhaeltnis zu Effekten ausgewogen. */
+    private static final float MUSIC_BASE_GAIN = 0.35F;
 
     /* Lautstärke/Pitch-Konventionen wie Minecraft. */
     private static final float STEP_GAIN = 0.15F, STEP_PITCH = 1.0F;
@@ -129,6 +136,9 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
     private int[] fuseVariants;      // random/fuse.ogg
     private int[] fizzVariants;      // random/fizz.ogg (Fackel brennt durch)
     private int[] igniteVariants;    // random/ignite.ogg (Feuerzeug, in MC fire/ignite)
+    private int[] portalAmbientVariants; // portal/ambient.ogg
+    private int[] portalTriggerVariants; // portal/trigger.ogg
+    private int[] portalTravelVariants;  // portal/travel.ogg
     private int[] pickupVariants;    // random/pop.ogg
     private int[] pistonOutVariants; // piston/out.ogg (Ausfahren)
     private int[] pistonInVariants;  // piston/in.ogg (Einfahren)
@@ -195,10 +205,31 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         ALC10.alcMakeContextCurrent(this.context);
         AL.createCapabilities(deviceCaps);
 
-        this.pool = new int[POOL_SIZE];
-        for (int i = 0; i < POOL_SIZE; i++) {
-            this.pool[i] = AL10.alGenSources();
+        /* Musik zuerst: Einige OpenAL-Treiber stellen deutlich weniger Sources als OpenAL Soft
+           bereit. Eine dedizierte Musik-Source darf deshalb nicht erst nach dem Effekt-Pool
+           angefordert werden. */
+        boolean musicReserved = this.music.init();
+        if (!musicReserved) {
+            this.logger.warning("OpenAL konnte keine dedizierte Musik-Source reservieren.");
         }
+
+        int[] requestedPool = new int[POOL_SIZE];
+        int poolCount = 0;
+        for (int i = 0; i < POOL_SIZE; i++) {
+            while (AL10.alGetError() != AL10.AL_NO_ERROR) {
+                // vorherige Fehler anderer Initialisierungsschritte leeren
+            }
+            int source = AL10.alGenSources();
+            int error = AL10.alGetError();
+            if (source == 0 || error != AL10.AL_NO_ERROR) {
+                if (source != 0) AL10.alDeleteSources(source);
+                break;
+            }
+            requestedPool[poolCount++] = source;
+        }
+        this.pool = Arrays.copyOf(requestedPool, poolCount);
+        this.logger.info("OpenAL-Sources: " + (musicReserved ? 1 : 0)
+                + " fuer Musik reserviert, " + poolCount + " fuer Effekte.");
 
         int loaded = 0;
         for (BlockSoundGroup group : BlockSoundGroup.values()) {
@@ -230,6 +261,9 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         this.fuseVariants = this.loadVariants("random", "fuse");
         this.fizzVariants = this.loadVariants("random", "fizz");
         this.igniteVariants = this.loadVariants("random", "ignite");
+        this.portalAmbientVariants = this.loadVariants("portal", "ambient");
+        this.portalTriggerVariants = this.loadVariants("portal", "trigger");
+        this.portalTravelVariants = this.loadVariants("portal", "travel");
         this.pickupVariants = this.loadVariants("random", "pop");
         this.pistonOutVariants = this.loadVariants("piston", "out");
         this.pistonInVariants = this.loadVariants("piston", "in");
@@ -259,7 +293,9 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         loaded += count(this.uiClickVariants) + count(this.hurtVariants) + count(this.fallSmallVariants)
                 + count(this.fallBigVariants) + count(this.eatVariants) + count(this.burpVariants)
                 + count(this.explosionVariants) + count(this.fuseVariants) + count(this.fizzVariants)
-                + count(this.igniteVariants) + count(this.pickupVariants)
+                + count(this.igniteVariants) + count(this.portalAmbientVariants)
+                + count(this.portalTriggerVariants) + count(this.portalTravelVariants)
+                + count(this.pickupVariants)
                 + count(this.pistonOutVariants) + count(this.pistonInVariants)
                 + count(this.minecartVariants) + count(this.minecartInsideVariants)
                 + count(this.strongAttackVariants) + count(this.underwaterEnterVariants)
@@ -617,6 +653,25 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         this.play(this.igniteVariants, SoundCategory.BLOCKS, 1.0F, pitch, false, true, x, y, z);
     }
 
+    /** Minecraft 26.2: zufaelliger lokaler block.portal.ambient-Sound, kein Dauer-Loop. */
+    public void playPortalAmbient(double x, double y, double z) {
+        float pitch = this.random.nextFloat() * 0.4F + 0.8F;
+        this.play(this.portalAmbientVariants, SoundCategory.BLOCKS, 0.5F, pitch,
+                false, true, x, y, z, 1F, 10F);
+    }
+
+    /** Kurzer Energieschub, sobald ein vollstaendiger Obsidianrahmen aktiviert wurde. */
+    public void playPortalTrigger(double x, double y, double z) {
+        this.play(this.portalTriggerVariants, SoundCategory.BLOCKS, 0.9F, 1F,
+                false, true, x, y, z);
+    }
+
+    /** Nicht-positionaler Uebergangssound beim Dimensionswechsel des lokalen Spielers. */
+    public void playPortalTravel() {
+        this.play(this.portalTravelVariants, SoundCategory.PLAYER, 0.8F, 1F,
+                false, false, 0, 0, 0);
+    }
+
     /** Dispenser/Dropper gibt ein Item aus: Vanillas Level-Event 1000, random/click bei Pitch 1,0. */
     public void playDispenserSuccess(double x, double y, double z) {
         this.play(this.uiClickVariants, SoundCategory.BLOCKS, 1.0F, 1.0F,
@@ -748,6 +803,12 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
     /** Zufällige Variante + optional ±10 % Zufalls-Pitch auf einer freien Pool-Source. */
     private void play(int[] variants, SoundCategory category, float gain, float pitch, boolean pitchJitter,
                       boolean positional, double x, double y, double z) {
+        this.play(variants, category, gain, pitch, pitchJitter, positional, x, y, z, 4F, 32F);
+    }
+
+    private void play(int[] variants, SoundCategory category, float gain, float pitch, boolean pitchJitter,
+                      boolean positional, double x, double y, double z,
+                      float referenceDistance, float maxDistance) {
         if (!this.enabled || variants == null) return;
         int source = this.acquireSource();
         if (source == -1) {
@@ -755,7 +816,7 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
                verworfen war diese Fehlerklasse unsichtbar — genau daran fehlte der Kolben-Sound. */
             if (!this.poolExhaustedReported) {
                 this.poolExhaustedReported = true;
-                this.logger.warning("Sound-Pool erschoepft (" + POOL_SIZE
+                this.logger.warning("Sound-Pool erschoepft (" + (this.pool == null ? 0 : this.pool.length)
                         + " Sources belegt) — Sounds fallen aus. Wird nur einmal gemeldet.");
             }
             return;
@@ -768,8 +829,9 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         if (positional) {
             AL10.alSourcei(source, AL10.AL_SOURCE_RELATIVE, AL10.AL_FALSE);
             AL10.alSource3f(source, AL10.AL_POSITION, (float) x, (float) y, (float) z);
-            AL10.alSourcef(source, AL10.AL_REFERENCE_DISTANCE, 4.0F);
-            AL10.alSourcef(source, AL10.AL_MAX_DISTANCE, 32.0F);
+            AL10.alSourcef(source, AL10.AL_REFERENCE_DISTANCE, referenceDistance);
+            AL10.alSourcef(source, AL10.AL_MAX_DISTANCE, maxDistance);
+            AL10.alSourcef(source, AL10.AL_ROLLOFF_FACTOR, 1.0F);
         } else {
             AL10.alSourcei(source, AL10.AL_SOURCE_RELATIVE, AL10.AL_TRUE);
             AL10.alSource3f(source, AL10.AL_POSITION, 0, 0, 0);
@@ -791,11 +853,12 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
      * verloren und {@code alSourcei(src, AL_BUFFER, …)} liefe laut Spec in AL_INVALID_OPERATION.
      */
     private int acquireSource() {
-        for (int i = 0; i < POOL_SIZE; i++) {
-            int source = this.pool[(this.poolCursor + i) % POOL_SIZE];
+        if (this.pool == null || this.pool.length == 0) return -1;
+        for (int i = 0; i < this.pool.length; i++) {
+            int source = this.pool[(this.poolCursor + i) % this.pool.length];
             int state = AL10.alGetSourcei(source, AL10.AL_SOURCE_STATE);
             if (state == AL10.AL_STOPPED || state == AL10.AL_INITIAL) {
-                this.poolCursor = (this.poolCursor + i + 1) % POOL_SIZE;
+                this.poolCursor = (this.poolCursor + i + 1) % this.pool.length;
                 return source;
             }
         }
@@ -859,16 +922,7 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
 
         this.playlist.clear();
         try {
-            var resolved = Resources.get().listResolved("sounds/music/");
-            for (var entry : resolved.entrySet().stream()
-                    .sorted(java.util.Comparator.comparing(entry -> entry.getKey().toString())).toList()) {
-                String name = entry.getKey().toString();
-                String lower = name.toLowerCase(Locale.ROOT);
-                if (!lower.endsWith(".ogg") && !lower.endsWith(".wav")) continue;
-                try (InputStream in = entry.getValue().open()) {
-                    this.playlist.add(new MusicTrack(name, in.readAllBytes()));
-                }
-            }
+            this.playlist.addAll(loadMusicTracks(Resources.get()));
         } catch (IOException error) {
             this.logger.warning("Musik-Ressourcen konnten nicht geladen werden: " + error.getMessage());
         }
@@ -883,6 +937,27 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         this.playlistIndex = this.playlist.size(); // erzwingt das Mischen in playNextTrack
         this.playlistActive = true;
         this.playNextTrack();
+    }
+
+    /** Sichtbarer Test-Seam fuer die Ressourcenauflistung; OpenAL ist hier noch nicht beteiligt. */
+    static List<MusicTrack> loadMusicTracks(ResourceManager resources) throws IOException {
+        List<MusicTrack> tracks = new ArrayList<>();
+        var resolved = resources.listResolved("sounds/music/");
+        for (var entry : resolved.entrySet().stream()
+                .sorted(java.util.Comparator
+                        .comparing((Map.Entry<de.skyengine.core.resource.ResourceId,
+                                ResourceManager.Match> value) -> value.getKey().namespace())
+                        .thenComparing(value -> value.getKey().path()))
+                .toList()) {
+            var id = entry.getKey();
+            String path = id.path();
+            String lower = path.toLowerCase(Locale.ROOT);
+            if (!lower.endsWith(".ogg") && !lower.endsWith(".wav")) continue;
+            try (InputStream in = entry.getValue().open()) {
+                tracks.add(new MusicTrack(id.namespace() + ":" + path, in.readAllBytes()));
+            }
+        }
+        return tracks;
     }
 
     /** Beendet die Musik dauerhaft (die Playlist rückt danach nicht mehr nach). */
@@ -956,7 +1031,7 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
     public void setCategoryVolume(SoundCategory category, float gain) {
         if (!this.enabled) return;
         this.categoryGains[category.ordinal()] = gain;
-        if (category == SoundCategory.MUSIC) this.music.setVolume(gain);
+        if (category == SoundCategory.MUSIC) this.music.setVolume(gain * MUSIC_BASE_GAIN);
         if (category == SoundCategory.AMBIENT && this.underwaterLoopSource != -1) {
             AL10.alSourcef(this.underwaterLoopSource, AL10.AL_GAIN,
                     0.65F * this.underwaterLoopGain * gain);
@@ -1014,6 +1089,7 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         this.uiClickVariants = this.hurtVariants = this.fallSmallVariants = this.fallBigVariants = null;
         this.eatVariants = this.burpVariants = this.explosionVariants = this.fuseVariants = null;
         this.fizzVariants = this.igniteVariants = this.pickupVariants = null;
+        this.portalAmbientVariants = this.portalTriggerVariants = this.portalTravelVariants = null;
         this.pistonOutVariants = this.pistonInVariants = this.minecartVariants = null;
         this.minecartInsideVariants = this.strongAttackVariants = null;
         this.underwaterEnterVariants = this.underwaterExitVariants = this.underwaterLoopVariants = null;
@@ -1045,7 +1121,8 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         unique.addAll(this.closeBuffers.values());
         for (int[] loose : new int[][]{this.uiClickVariants, this.hurtVariants, this.fallSmallVariants,
                 this.fallBigVariants, this.eatVariants, this.burpVariants, this.explosionVariants,
-                this.fuseVariants, this.fizzVariants, this.igniteVariants, this.pickupVariants, this.pistonOutVariants,
+                this.fuseVariants, this.fizzVariants, this.igniteVariants, this.portalAmbientVariants,
+                this.portalTriggerVariants, this.portalTravelVariants, this.pickupVariants, this.pistonOutVariants,
                 this.pistonInVariants, this.minecartVariants, this.minecartInsideVariants,
                 this.strongAttackVariants, this.underwaterEnterVariants, this.underwaterExitVariants,
                 this.underwaterLoopVariants, this.swimVariants, this.splashVariants,

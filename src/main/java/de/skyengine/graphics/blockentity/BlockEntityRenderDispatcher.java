@@ -40,7 +40,8 @@ public final class BlockEntityRenderDispatcher {
         for (BlockEntityRenderer renderer : this.renderers.values()) renderer.init();
     }
 
-    public void render(ChunkManager chunkManager, LodManager lodManager, Camera camera, float partialTick) {
+    public void render(ChunkManager chunkManager, LodManager lodManager, Camera camera, float partialTick,
+                       float ambientLight) {
         if (this.renderers.isEmpty()) return;
         Vector3d cam = camera.getPosition();
         FrustumIntersection frustum = camera.getFrustum();
@@ -65,10 +66,10 @@ public final class BlockEntityRenderDispatcher {
                         ox + 1f + CULL_MARGIN, oy + 1f + CULL_MARGIN, oz + 1f + CULL_MARGIN)) continue;
 
                 /* Licht der eigenen Zelle (Himmel + Block) — Chunk und BlockPos liegen hier
-                   ohnehin vor, ein World-Lookup wäre überflüssig. */
+                   ohnehin vor, ein Dimension-Lookup wäre überflüssig. */
                 int lx = pos.x() & ChunkSection.MASK, lz = pos.z() & ChunkSection.MASK;
                 float light = ChunkRenderer.lightFactor(chunk.light.get(lx, pos.y(), lz),
-                        chunk.blockLight.get(lx, pos.y(), lz));
+                        chunk.blockLight.get(lx, pos.y(), lz), ambientLight);
                 renderer.render(be, camera, partialTick, light);
             }
         }

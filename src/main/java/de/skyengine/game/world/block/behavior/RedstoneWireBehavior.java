@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.Properties;
@@ -35,7 +35,7 @@ public final class RedstoneWireBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onPlaced(World world, int x, int y, int z, BlockState state) {
+    public void onPlaced(Dimension world, int x, int y, int z, BlockState state) {
         RedstoneWireNetwork.update(world, x, y, z);
         /* RedStoneWireBlock.onPlace: zusaetzlich allgemeine Ringe unter und ueber dem Staub,
            danach die beiden horizontalen Corner-Wire-Paesse. */
@@ -50,7 +50,7 @@ public final class RedstoneWireBehavior implements BlockBehavior {
      * Punkt speist horizontal nichts, das Kreuz alle vier Nachbarn.
      */
     @Override
-    public boolean onUse(World world, int x, int y, int z, BlockState state) {
+    public boolean onUse(Dimension world, int x, int y, int z, BlockState state) {
         BlockState base;
         if (RedstoneWireNetwork.isCross(state)) {
             base = RedstoneWireNetwork.toDot(state);
@@ -82,7 +82,7 @@ public final class RedstoneWireBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         /* State unverändert zurück: der Evaluator schreibt selbst (auch die eigene Zelle) —
            so bleibt der Pull-Vertrag von updateStateAt formal erfüllt, kein Doppel-Write. */
         RedstoneWireNetwork.update(world, x, y, z);
@@ -90,7 +90,7 @@ public final class RedstoneWireBehavior implements BlockBehavior {
     }
 
     @Override
-    public void onRemoved(World world, int x, int y, int z,
+    public void onRemoved(Dimension world, int x, int y, int z,
                           BlockState state, BlockState newState) {
         /* RedStoneWireBlock.affectNeighborsAfterRemoval: alle Phasen laufen sofort und in
            dieser Reihenfolge, nachdem die Welt bereits den Nachfolgezustand enthält. */
@@ -100,12 +100,12 @@ public final class RedstoneWireBehavior implements BlockBehavior {
     }
 
     @Override
-    public int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int weakPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return signalToward(state, side);
     }
 
     @Override
-    public int strongPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int strongPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return signalToward(state, side);
     }
 

@@ -9,7 +9,7 @@ import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.entity.MinecartEntity;
 import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.world.block.Blocks;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.RenderLayer;
@@ -139,11 +139,11 @@ public final class EntityRenderer {
 
     /**
      * Zeichnet die Entities der übergebenen Chunks. Der Aufrufer reicht nur die Chunks mit
-     * mindestens einer Entity durch (World#chunksWithEntities) — kein Iterieren über ALLE
+     * mindestens einer Entity durch (Dimension#chunksWithEntities) — kein Iterieren über ALLE
      * geladenen Chunks pro Frame. Der READY-Guard bleibt: zwischen zwei Ticks kann ein Chunk
      * bereits entladen sein, bevor das Reconcile ihn aus der Menge nimmt.
      */
-    public void render(World world, Iterable<Chunk> chunks, Camera camera, float partialTick) {
+    public void render(Dimension world, Iterable<Chunk> chunks, Camera camera, float partialTick) {
         this.shader.bind();
         this.shader.setUniformMatrix4f(this.locProjectionView, camera.getProjectionViewMatrix());
         this.shader.setUniformf(this.locWhiteFlash, 0f); // Default: kein Blink (Falling/Item unverändert)
@@ -164,7 +164,7 @@ public final class EntityRenderer {
         this.shader.unbind();
     }
 
-    private void drawEntity(World world, Entity e, Chunk chunk, Vector3d cam,
+    private void drawEntity(Dimension world, Entity e, Chunk chunk, Vector3d cam,
                             FrustumIntersection frustum, float partialTick) {
         if (e.isRemoved()) return;
 
@@ -178,12 +178,13 @@ public final class EntityRenderer {
                 ox + CULL_MARGIN, oy + 1f + CULL_MARGIN, oz + CULL_MARGIN)) return;
 
         /* Licht der eigenen Zelle (Himmel + Block). Der Chunk der Schleife IST der Chunk der
-           Entity (Entities hängen an ihrem Chunk, s. World.tickEntities) — kein World-Lookup. */
+           Entity (Entities hängen an ihrem Chunk, s. Dimension.tickEntities) — kein Dimension-Lookup. */
         int lx = (int) Math.floor(e.x) & ChunkSection.MASK;
         int ly = Math.clamp((int) Math.floor(e.y), 0, Chunk.HEIGHT - 1);
         int lz = (int) Math.floor(e.z) & ChunkSection.MASK;
         this.shader.setUniformf(this.locLight, ChunkRenderer.lightFactor(
-                chunk.light.get(lx, ly, lz), chunk.blockLight.get(lx, ly, lz)));
+                chunk.light.get(lx, ly, lz), chunk.blockLight.get(lx, ly, lz),
+                world.getEnvironment().ambientLight()));
 
         if (e instanceof FallingBlockEntity fb) {
             Mesh mesh = this.meshFor(fb.getBlockId());
@@ -541,7 +542,7 @@ public final class EntityRenderer {
      * läge ein gedroppter Slimeblock deckend in der Welt, weil seine Textur mit Alpha ≈ 0,7 am
      * 0,5-Test vorbeikommt.
      *
-     * <p>Die Pass-Reihenfolge stimmt bereits: Entities zeichnet {@code World.render} VOR
+     * <p>Die Pass-Reihenfolge stimmt bereits: Entities zeichnet {@code Dimension.render} VOR
      * {@code ChunkRenderer.renderTranslucent}, ein durchscheinender Drop blendet also gegen die
      * fertige opake Welt, und Wasser kommt danach korrekt darüber.
      */

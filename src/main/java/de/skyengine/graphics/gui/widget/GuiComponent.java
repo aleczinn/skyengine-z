@@ -96,7 +96,10 @@ public abstract class GuiComponent implements Layoutable {
         return false;
     }
 
-    public void mouseReleased(double mx, double my, int button) {}
+    /** @return true, wenn dieses Release eine abgeschlossene Widget-Aktion ausgeloest hat. */
+    public boolean mouseReleased(double mx, double my, int button) {
+        return false;
+    }
 
     public void mouseDragged(double mx, double my, int button) {}
 

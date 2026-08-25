@@ -319,11 +319,11 @@ final class LodMesherColumnAoTest {
                                                   LodManager.LodClipSnapshot clipSnapshot) {
         GameSettings settings = GameSettings.get();
         boolean previousAo = settings.ambientOcclusion;
-        GameSettings.LodQuality previousQuality = settings.lodQuality;
-        /* Diese Tests pruefen den AO-MODUS je Level. Der haengt seit LodQuality an einer
+        GameSettings.LodAmbientOcclusionQuality previousQuality = settings.lodAmbientOcclusionQuality;
+        /* Diese Tests pruefen den AO-MODUS je Level. Der haengt seit LodAmbientOcclusionQuality an einer
            Einstellung, die GameSettings.get() aus der echten options.json des Nutzers laedt —
            ohne dieses Pinnen faellt der Test um, sobald jemand im Spiel MID/HIGH waehlt. */
-        settings.lodQuality = GameSettings.LodQuality.LOW;
+        settings.lodAmbientOcclusionQuality = GameSettings.LodAmbientOcclusionQuality.LOW;
         settings.ambientOcclusion = ao;
         try {
             return new LodMesher().mesh(source, new LodBlockAppearance(), LodConfig.of(16, 128),
@@ -331,7 +331,7 @@ final class LodMesherColumnAoTest {
                     neighbors, 64, 64);
         } finally {
             settings.ambientOcclusion = previousAo;
-            settings.lodQuality = previousQuality;
+            settings.lodAmbientOcclusionQuality = previousQuality;
         }
     }
 

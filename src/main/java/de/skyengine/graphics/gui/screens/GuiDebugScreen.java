@@ -61,17 +61,17 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
         CycleButton<Boolean> lodSplit = CycleButton.onOff(I18n.tr("options.debug.lod_split"), CELL_W, CELL_H,
                 DebugFlags.lodLevelSplit, v -> DebugFlags.lodLevelSplit = v);
 
-        boolean paused = game.getWorld() != null && game.getWorld().getChunkManager().isLoadingPaused();
+        boolean paused = game.getDimension() != null && game.getDimension().getChunkManager().isLoadingPaused();
         CycleButton<Boolean> pauseLoading = CycleButton.onOff(I18n.tr("options.debug.pause_loading"), CELL_W, CELL_H,
                 paused, v -> {
-                    if (game.getWorld() != null) game.getWorld().getChunkManager().setLoadingPaused(v);
+                    if (game.getDimension() != null) game.getDimension().getChunkManager().setLoadingPaused(v);
                 });
 
         CycleButton<Boolean> guiSlots = CycleButton.onOff(I18n.tr("options.debug.gui_slots"), CELL_W, CELL_H, DebugFlags.guiSlotBounds, v -> DebugFlags.guiSlotBounds = v);
         CycleButton<Boolean> underwaterEffect = CycleButton.onOff(I18n.tr("options.debug.underwater_effect"), CELL_W, CELL_H, DebugFlags.underwaterEffect, v -> DebugFlags.underwaterEffect = v);
 
         Button reloadChunks = new Button(I18n.tr("options.debug.reload_chunks"), CELL_W, CELL_H, () -> {
-            if (game.getWorld() != null) game.getWorld().reloadAllChunks();
+            if (game.getDimension() != null) game.getDimension().reloadAllChunks();
         });
         Button reloadPost = new Button(I18n.tr("options.debug.reload_post"), CELL_W, CELL_H,
                 () -> SkyEngine.get().getPostProcessor().getSettings().reloadFromFile());

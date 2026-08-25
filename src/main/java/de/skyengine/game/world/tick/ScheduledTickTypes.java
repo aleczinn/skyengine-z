@@ -1,6 +1,6 @@
 package de.skyengine.game.world.tick;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -17,7 +17,7 @@ public final class ScheduledTickTypes {
     /** Stellt einen geladenen Tick im jeweiligen System wieder her (Tick-Thread). */
     @FunctionalInterface
     public interface ScheduledTickRestorer {
-        void restore(World world, SavedTick tick);
+        void restore(Dimension world, SavedTick tick);
     }
 
     public static final String BLOCK = "block";
@@ -28,8 +28,8 @@ public final class ScheduledTickTypes {
     static {
         /* Der Restorer erhält Zielidentität, Priorität und persistente Suborder. Liegt noch
            ein Live-Eintrag für denselben Block vor, gewinnt weiterhin der frühere Tick. */
-        register(BLOCK, World::restoreScheduledBlockTick);
-        register(BLOCK_EVENT, World::restoreBlockEvent);
+        register(BLOCK, Dimension::restoreScheduledBlockTick);
+        register(BLOCK_EVENT, Dimension::restoreBlockEvent);
     }
 
     /** Registriert einen Tick-Typ. Doppelte IDs werfen — nichts darf fremde Typen still überschreiben. */

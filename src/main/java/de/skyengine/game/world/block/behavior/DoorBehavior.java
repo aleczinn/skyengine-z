@@ -2,7 +2,7 @@ package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.audio.BlockOpenSound;
 import de.skyengine.audio.SoundManager;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockHalf;
@@ -51,7 +51,7 @@ public final class DoorBehavior implements BlockBehavior {
     }
 
     @Override
-    public boolean onUse(World world, int x, int y, int z, BlockState state) {
+    public boolean onUse(Dimension world, int x, int y, int z, BlockState state) {
         /* false = Klick NICHT verbraucht, der Aufrufer platziert dann normal weiter. */
         if (!this.handOpenable) return false;
 
@@ -77,7 +77,7 @@ public final class DoorBehavior implements BlockBehavior {
      * Empfänger, die andere Hälfte zieht ohne Kaskade mit.
      */
     @Override
-    public BlockState onNeighborUpdate(World world, int x, int y, int z, BlockState state) {
+    public BlockState onNeighborUpdate(Dimension world, int x, int y, int z, BlockState state) {
         BlockHalf half = state.get(Properties.HALF);
         int otherY = half == BlockHalf.BOTTOM ? y + 1 : y - 1;
         boolean powered = RedstonePower.isReceiving(world, x, y, z)
@@ -98,7 +98,7 @@ public final class DoorBehavior implements BlockBehavior {
      * Nullbar wie beim TNT-Fuse: ohne SoundManager (Weltgen-Tests) oder ohne Sound-Satz
      * bleibt es einfach still. Ein Sound für beide Hälften, an der auslösenden.
      */
-    private static void playOpenSound(World world, int x, int y, int z, BlockState state, boolean open) {
+    private static void playOpenSound(Dimension world, int x, int y, int z, BlockState state, boolean open) {
         SoundManager sound = world.getSoundManager();
         BlockOpenSound set = state.getBlock().getOpenSound();
         if (sound != null && set != null) {

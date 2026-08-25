@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -25,7 +25,7 @@ public final class ObserverBehavior implements BlockBehavior {
      * Nachbar-Recomputes entstanden ist. Nur der passende gerichtete Observer-Hook läuft;
      * fremde Behaviors werden dabei nicht ein zweites Mal allgemein aktualisiert.
      */
-    public static void notifyWatching(World world, int x, int y, int z) {
+    public static void notifyWatching(Dimension world, int x, int y, int z) {
         for (Direction direction : Direction.shapeUpdateValues()) {
             int ox = x + direction.offsetX();
             int oy = y + direction.offsetY();
@@ -53,7 +53,7 @@ public final class ObserverBehavior implements BlockBehavior {
     }
 
     @Override
-    public BlockState onNeighborShapeUpdate(World world, int x, int y, int z, BlockState state,
+    public BlockState onNeighborShapeUpdate(Dimension world, int x, int y, int z, BlockState state,
                                             Direction direction, BlockState neighborState) {
         if (direction == state.get(Properties.FACING_ALL)
                 && !state.get(Properties.POWERED)
@@ -64,7 +64,7 @@ public final class ObserverBehavior implements BlockBehavior {
     }
 
     @Override
-    public void scheduledTick(World world, int x, int y, int z, BlockState state) {
+    public void scheduledTick(Dimension world, int x, int y, int z, BlockState state) {
         boolean powered = state.get(Properties.POWERED);
         /* Vanilla-Flag 2: kein allgemeiner Nachbarring; der gerichtete Shape-Ring bleibt
            erhalten und macht die Flanke insbesondere fuer einen zweiten Observer sichtbar. */
@@ -80,7 +80,7 @@ public final class ObserverBehavior implements BlockBehavior {
      * Flanke verteilen. Ein kuenstlich POWERED gesetzter Observer ohne Tick tut das bewusst nicht.
      */
     @Override
-    public void onRemoved(World world, int x, int y, int z,
+    public void onRemoved(Dimension world, int x, int y, int z,
                           BlockState oldState, BlockState newState) {
         /* The scheduled OFF tick stays at the old coordinate while the observer moves.
            Emitting the falling edge here would retract the piston before the complete
@@ -93,7 +93,7 @@ public final class ObserverBehavior implements BlockBehavior {
     }
 
     /** Zweiter Ring um das stark gepowerte Ziel hinter dem Ausgang (Leitung durch den Block). */
-    private void notifyStrongTarget(World world, int x, int y, int z, BlockState state) {
+    private void notifyStrongTarget(Dimension world, int x, int y, int z, BlockState state) {
         Direction back = state.get(Properties.FACING_ALL).opposite();
         world.updateDirectionalOutputNeighbors(x, y, z, back);
     }
@@ -104,7 +104,7 @@ public final class ObserverBehavior implements BlockBehavior {
      * normalen Ankunftspuls erzeugt der anschließende gerichtete Shape-Pass der Welt.
      */
     @Override
-    public void onMovedByPiston(World world, int x, int y, int z, BlockState state, Direction moveDirection) {
+    public void onMovedByPiston(Dimension world, int x, int y, int z, BlockState state, Direction moveDirection) {
         if (world.isTickScheduled(x, y, z)) return;
         if (state.get(Properties.POWERED)) {
             /* ObserverBlock#onPlace: Der Abschalt-Tick bleibt an der alten Position und wird
@@ -130,13 +130,13 @@ public final class ObserverBehavior implements BlockBehavior {
     /* --- Ausgang: 15 stark UND schwach, nur aus der Rückseite --- */
 
     @Override
-    public int weakPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int weakPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return state.get(Properties.POWERED)
                 && side == state.get(Properties.FACING_ALL).opposite() ? 15 : 0;
     }
 
     @Override
-    public int strongPower(World world, int x, int y, int z, BlockState state, Direction side) {
+    public int strongPower(Dimension world, int x, int y, int z, BlockState state, Direction side) {
         return weakPower(world, x, y, z, state, side);
     }
 

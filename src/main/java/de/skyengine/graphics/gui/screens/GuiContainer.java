@@ -683,7 +683,7 @@ public abstract class GuiContainer extends GuiScreen {
         lines.add(stack.getDisplayNameText());
         GameContainer game = SkyEngine.get().getGame();
         stack.getItem().appendTooltip(stack,
-                new TooltipContext(game.getWorld(), game.getPlayer()), lines);
+                new TooltipContext(game.getDimension(), game.getPlayer()), lines);
         lines.add(RichText.plain(stack.getItem().getId().toString(), Colors.DARK_GRAY));
         return lines;
     }
@@ -704,7 +704,7 @@ public abstract class GuiContainer extends GuiScreen {
     public void onClose() {
         if (this.carried.isEmpty()) return;
         GameContainer game = SkyEngine.get().getGame();
-        if (game.getWorld() != null) {
+        if (game.getDimension() != null) {
             game.dropFromGui(this.carried);  // wie in MC: der getragene Stapel fliegt raus
         } else {
             /* Ohne Welt gibt es kein Wurfziel (Screen-Wechsel Richtung Hauptmenü) — dann

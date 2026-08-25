@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.save.LevelData;
@@ -58,7 +58,7 @@ final class WorldScopedPositionMapTest {
         assertEquals(0, diagnosticView.size());
     }
 
-    private static final class TestWorld extends World {
+    private static final class TestWorld extends Dimension {
         private static final Field CHUNKS_FIELD;
         private static final Field REMOVAL_VERSION_FIELD;
         private static final Method PRUNE_TRANSIENT;
@@ -69,7 +69,7 @@ final class WorldScopedPositionMapTest {
                 CHUNKS_FIELD.setAccessible(true);
                 REMOVAL_VERSION_FIELD = ChunkManager.class.getDeclaredField("chunkRemovalVersion");
                 REMOVAL_VERSION_FIELD.setAccessible(true);
-                PRUNE_TRANSIENT = World.class.getDeclaredMethod("pruneTransientPositionStates");
+                PRUNE_TRANSIENT = Dimension.class.getDeclaredMethod("pruneTransientPositionStates");
                 PRUNE_TRANSIENT.setAccessible(true);
             } catch (ReflectiveOperationException e) {
                 throw new ExceptionInInitializerError(e);
@@ -80,7 +80,7 @@ final class WorldScopedPositionMapTest {
 
         TestWorld(String name) throws ReflectiveOperationException {
             super("__world_scoped_state_" + name, level(name), null, null);
-            Field field = World.class.getDeclaredField("chunkManager");
+            Field field = Dimension.class.getDeclaredField("chunkManager");
             field.setAccessible(true);
             this.manager = (ChunkManager) field.get(this);
         }

@@ -3,8 +3,10 @@ package de.skyengine.graphics.gui;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.entity.EntityPlayer;
-import de.skyengine.game.world.World;
+import de.skyengine.game.world.Dimension;
+import de.skyengine.graphics.world.DimensionView;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.dimension.DimensionDefinition;
 import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.PerformanceProfiler;
@@ -18,7 +20,7 @@ import java.util.Locale;
 /**
  * F3-Debug-Overlay (Minecraft-artig): linke Spalte mit Engine-/Welt-/Spieler-Infos,
  * je Zeile ein halbtransparentes Hintergrund-Rechteck plus Text mit Schatten.
- * Gehalten vom GameContainer (braucht World/Player/Engine-Daten), gezeichnet nach
+ * Gehalten vom GameContainer (braucht Dimension/Player/Engine-Daten), gezeichnet nach
  * dem regulären GUI-Pass über die Renderer des {@link GuiManager}.
  */
 public final class DebugOverlay {
@@ -43,6 +45,7 @@ public final class DebugOverlay {
     /* Biome-Cache: biomeAt ist ein voller Klima-Noise-Sample — das Ergebnis ändert sich
        nur beim Blockwechsel, nicht pro Frame. */
     private int lastBiomeX = Integer.MIN_VALUE, lastBiomeZ;
+    private String lastBiomeDimension = "";
     private String lastBiomeName = "";
 
     public void toggle() {
@@ -60,7 +63,7 @@ public final class DebugOverlay {
         if (enable) this.visible = true;
     }
 
-    public void render(GuiManager gui, World world, EntityPlayer player) {
+    public void render(GuiManager gui, Dimension world, DimensionView view, EntityPlayer player) {
         FontRenderer font = gui.font();
         if (!font.available()) return;
 
@@ -73,7 +76,7 @@ public final class DebugOverlay {
         long maxMb = runtime.maxMemory() / (1024 * 1024);
 
         List<String> lines = new ArrayList<>();
-        lines.add(SkyEngine.ENGINE_NAME + " v" + SkyEngine.ENGINE_VERSION);
+        lines.add(SkyEngine.GAME_NAME + " v" + SkyEngine.ENGINE_VERSION);
         lines.add("FPS: %d  TPS: %d".formatted(SkyEngine.get().getCurrentFps(), SkyEngine.get().getCurrentTps()));
         lines.add(String.format(Locale.ROOT, "XYZ: %.3f / %.3f / %.3f", player.x, player.y, player.z));
         lines.add("Block: %d %d %d  Chunk: %d %d %d in %d %d".formatted(
@@ -82,15 +85,19 @@ public final class DebugOverlay {
                 bx >> ChunkSection.SHIFT, bz >> ChunkSection.SHIFT));
         lines.add(String.format(Locale.ROOT, "Facing: %s (yaw %.1f / pitch %.1f)",
                 I18n.tr(FACING[facing]), player.yaw, player.pitch));
-        if (bx != this.lastBiomeX || bz != this.lastBiomeZ) {
+        String dimension = world.getDimensionId().toString();
+        lines.add("Dimension: " + DimensionDefinition.displayName(world.getDimensionId()));
+        if (bx != this.lastBiomeX || bz != this.lastBiomeZ
+                || !dimension.equals(this.lastBiomeDimension)) {
             this.lastBiomeX = bx;
             this.lastBiomeZ = bz;
+            this.lastBiomeDimension = dimension;
             this.lastBiomeName = world.biomeAt(bx, bz).name;
         }
         lines.add("Biome: " + this.lastBiomeName);
         lines.add("Sections: %d/%d  Chunks: %d".formatted(
-                world.getChunkRenderer().getRenderedSections(),
-                world.getChunkRenderer().getTotalSections(),
+                view.chunks().getRenderedSections(),
+                view.chunks().getTotalSections(),
                 world.getChunkManager().getChunks().size()));
         lines.add("Mem: %d/%d MB".formatted(usedMb, maxMb));
 
@@ -128,7 +135,7 @@ public final class DebugOverlay {
         boolean compact = vW < 520 || vH < 420;
         float graphH = compact ? 34 : 52;
         float graphY = gui.vHeight() - graphH - MARGIN;
-        float normalBottom = MARGIN + 8 * (font.lineHeight(TEXT_SIZE) + 1) + 2;
+        float normalBottom = MARGIN + 9 * (font.lineHeight(TEXT_SIZE) + 1) + 2;
         float panelsTop = normalBottom;
         PanelRect[] layout = workerPanelLayout(vW, panelsTop, graphY);
         float panelW = layout[0].width, panelH = layout[0].height;
