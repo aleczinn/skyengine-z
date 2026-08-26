@@ -1,5 +1,6 @@
 package de.skyengine.game.command;
 
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.world.structure.StructurePlacement;
 
 import java.util.List;
@@ -24,11 +25,15 @@ public final class WorldEditCommand implements Command {
 
     @Override
     public CommandResult execute(CommandContext context, List<String> arguments) {
-        if (context.structures() == null) return CommandResult.error("Keine Welt fuer Editor-Befehle geoeffnet");
+        if (context.structures() == null) return CommandResult.error(I18n.tr("command.worldedit.no_world"));
         try {
             return switch (name) {
                 case "wand" -> arguments.isEmpty() ? CommandResult.success(context.structures().wand())
                         : CommandResult.error("Verwendung: //wand");
+                case "pos1" -> arguments.isEmpty() ? CommandResult.success(context.structures().pos1())
+                        : CommandResult.error(I18n.tr("command.worldedit.pos1_usage"));
+                case "pos2" -> arguments.isEmpty() ? CommandResult.success(context.structures().pos2())
+                        : CommandResult.error(I18n.tr("command.worldedit.pos2_usage"));
                 case "rotate" -> rotate(context, arguments);
                 case "flip" -> arguments.isEmpty() ? CommandResult.success(context.structures().flip())
                         : CommandResult.error("Verwendung: //flip");

@@ -144,6 +144,9 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
     private int[] pistonInVariants;  // piston/in.ogg (Einfahren)
     private int[] minecartVariants;   // minecart/base.ogg (fahrendes Minecart)
     private int[] minecartInsideVariants; // minecart/inside.ogg (nur lokaler Insasse)
+    private int[] itemFrameBreakVariants; // entity.item_frame.break, break1..3
+    private int[] itemFrameRemoveItemVariants; // entity.item_frame.remove_item, remove_item1..4
+    private int[] weakAttackVariants; // entity.player.attack.weak/nodamage, weak1..4
     private int[] strongAttackVariants; // entity/player/attack/strong1..6 (Entity-Treffer)
     private int[] underwaterEnterVariants;
     private int[] underwaterExitVariants;
@@ -269,6 +272,9 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         this.pistonInVariants = this.loadVariants("piston", "in");
         this.minecartVariants = this.loadVariants("minecart", "base");
         this.minecartInsideVariants = this.loadVariants("minecart", "inside");
+        this.itemFrameBreakVariants = this.loadVariants("item_frame", "break");
+        this.itemFrameRemoveItemVariants = this.loadVariants("item_frame", "remove_item");
+        this.weakAttackVariants = this.loadVariants("player_attack", "weak");
         this.strongAttackVariants = this.loadVariants("player_attack", "strong");
         this.underwaterEnterVariants = this.loadVariants("underwater", "enter");
         this.underwaterExitVariants = this.loadVariants("underwater", "exit");
@@ -298,7 +304,9 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
                 + count(this.pickupVariants)
                 + count(this.pistonOutVariants) + count(this.pistonInVariants)
                 + count(this.minecartVariants) + count(this.minecartInsideVariants)
-                + count(this.strongAttackVariants) + count(this.underwaterEnterVariants)
+                + count(this.itemFrameBreakVariants) + count(this.itemFrameRemoveItemVariants)
+                + count(this.weakAttackVariants) + count(this.strongAttackVariants)
+                + count(this.underwaterEnterVariants)
                 + count(this.underwaterExitVariants) + count(this.underwaterLoopVariants)
                 + count(this.swimVariants) + count(this.splashVariants) + count(this.heavySplashVariants)
                 + count(this.waterAmbientVariants) + count(this.lavaAmbientVariants)
@@ -729,6 +737,24 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
                 false, false, 0, 0, 0);
     }
 
+    /** Minecrafts entity.player.attack.weak/nodamage: einmal pro normalem Angriffsklick. */
+    public void playSwingAttack() {
+        this.play(this.weakAttackVariants, SoundCategory.PLAYER, 1.0F, 1.0F,
+                false, false, 0, 0, 0);
+    }
+
+    /** Inhalt aus einem Item Frame schlagen: entity.item_frame.remove_item. */
+    public void playItemFrameRemoveItem(double x, double y, double z) {
+        this.play(this.itemFrameRemoveItemVariants, SoundCategory.BLOCKS, 1.0F, 1.0F,
+                false, true, x, y, z);
+    }
+
+    /** Leeren Item Frame beziehungsweise seine Aufhaengung zerstoeren. */
+    public void playItemFrameBreak(double x, double y, double z) {
+        this.play(this.itemFrameBreakVariants, SoundCategory.BLOCKS, 1.0F, 1.0F,
+                false, true, x, y, z);
+    }
+
     /** Vanillas separater {@code entity.minecart.inside}-Loop direkt am Listener. */
     private void updateMinecartInsideSound(MinecartEntity minecart, double horizontalSpeed) {
         if (this.minecartInsideVariants == null) return;
@@ -1091,7 +1117,8 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         this.fizzVariants = this.igniteVariants = this.pickupVariants = null;
         this.portalAmbientVariants = this.portalTriggerVariants = this.portalTravelVariants = null;
         this.pistonOutVariants = this.pistonInVariants = this.minecartVariants = null;
-        this.minecartInsideVariants = this.strongAttackVariants = null;
+        this.minecartInsideVariants = this.itemFrameBreakVariants = this.itemFrameRemoveItemVariants = null;
+        this.weakAttackVariants = this.strongAttackVariants = null;
         this.underwaterEnterVariants = this.underwaterExitVariants = this.underwaterLoopVariants = null;
         this.swimVariants = this.splashVariants = this.heavySplashVariants = null;
         this.waterAmbientVariants = this.lavaAmbientVariants = this.lavaPopVariants = null;
@@ -1124,7 +1151,9 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
                 this.fuseVariants, this.fizzVariants, this.igniteVariants, this.portalAmbientVariants,
                 this.portalTriggerVariants, this.portalTravelVariants, this.pickupVariants, this.pistonOutVariants,
                 this.pistonInVariants, this.minecartVariants, this.minecartInsideVariants,
-                this.strongAttackVariants, this.underwaterEnterVariants, this.underwaterExitVariants,
+                this.itemFrameBreakVariants, this.itemFrameRemoveItemVariants,
+                this.weakAttackVariants, this.strongAttackVariants,
+                this.underwaterEnterVariants, this.underwaterExitVariants,
                 this.underwaterLoopVariants, this.swimVariants, this.splashVariants,
                 this.heavySplashVariants, this.waterAmbientVariants, this.lavaAmbientVariants,
                 this.lavaPopVariants}) {

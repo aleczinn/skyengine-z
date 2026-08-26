@@ -17,8 +17,15 @@ public final class ChatManager {
     public ChatManager() {
         this.register(new GiveCommand());
         this.register(new DimensionCommand());
+        this.register(new KillCommand());
+        this.register(new GamemodeCommand());
+        this.register(new TeleportCommand());
+        this.register(new SetSpawnPointCommand());
+        this.register(new SetHomeCommand());
+        this.register(new HomeCommand());
+        this.register(new BiomeCommand());
         this.register(new StructureCommand());
-        for (String name : List.of("wand", "rotate", "flip", "preview", "paste", "undo", "redo")) {
+        for (String name : List.of("wand", "pos1", "pos2", "rotate", "flip", "preview", "paste", "undo", "redo")) {
             this.register(new WorldEditCommand(name));
         }
     }

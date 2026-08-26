@@ -106,10 +106,6 @@ public abstract class GuiScreen {
             gui.sprites().drawRect(0, 0, vW, vH, 0f, 0f, 0f, 0.6f);
             return;
         }
-        /* drawMenuImage dimmt bereits selbst — hier NICHT nochmal (sonst Doppel-Dim). */
-        if (!this.drawMenuImage(gui)) {
-            this.drawMenuTiles(gui);
-        }
     }
 
     /**

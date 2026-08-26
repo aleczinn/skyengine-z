@@ -42,6 +42,14 @@ public final class LevelData {
     /** Vanilla-Gamerule; false/null ist der Standard der aktuellen Java Edition. */
     public Boolean tntExplosionDropDecay;
 
+    /** Optionaler, dimensionsfaehiger Weltspawn. Fehlt bei alten Welten: Overworld bei 0/0. */
+    public String spawnDimension;
+    public Integer spawnX;
+    public Integer spawnY;
+    public Integer spawnZ;
+    public Float spawnYaw;
+    public Float spawnPitch;
+
     public static final class DimensionData {
         public int seed;
         public String generator;

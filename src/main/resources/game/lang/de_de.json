@@ -213,6 +213,57 @@
       "already_active": "Dimension bereits aktiv: %s",
       "queued": "Dimensionswechsel eingereiht: %s",
       "failed": "Dimensionswechsel konnte nicht eingereiht werden."
+    },
+    "no_player": "Kein Spieler verfügbar.",
+    "no_world": "Keine Welt aktiv.",
+    "teleport_busy": "Es steht bereits ein Dimensionswechsel aus.",
+    "kill": {
+      "usage": "Verwendung: /kill",
+      "success": "Der Spieler wurde getötet."
+    },
+    "gamemode": {
+      "usage": "Verwendung: /gamemode <creative|spectator|survival>",
+      "unknown": "Unbekannter Spielmodus: %s",
+      "success": "Spielmodus auf %s gesetzt.",
+      "mode": {
+        "creative": "Kreativmodus",
+        "spectator": "Zuschauermodus",
+        "survival": "Überlebensmodus"
+      }
+    },
+    "tp": {
+      "usage": "Verwendung: /tp <x> <y> <z>",
+      "invalid": "Koordinaten müssen endliche Zahlen sein.",
+      "success": "Zu %s %s %s teleportiert."
+    },
+    "setspawnpoint": {
+      "usage": "Verwendung: /setspawnpoint",
+      "success": "Weltspawn in %s auf %d %d %d gesetzt."
+    },
+    "sethome": {
+      "usage": "Verwendung: /sethome",
+      "success": "Home in %s bei %.2f %.2f %.2f gesetzt."
+    },
+    "home": {
+      "usage": "Verwendung: /home",
+      "success": "Zum Home teleportiert.",
+      "queued": "Teleport zum Home eingereiht.",
+      "not_set": "Es ist kein Home gesetzt. Nutze zuerst /sethome."
+    },
+    "biome": {
+      "usage": "Verwendung: /biome <name>",
+      "unknown": "Unbekanntes Biom: %s",
+      "searching": "Suche nach Biom %s...",
+      "found": "Biom %s in %s bei %d %d gefunden (%d Blöcke entfernt).",
+      "not_found": "Biom %s wurde in %s im Umkreis von 6400 Blöcken nicht gefunden.",
+      "failed": "Biomsuche fehlgeschlagen: %s"
+    },
+    "worldedit": {
+      "no_world": "Keine Welt für Editor-Befehle geöffnet.",
+      "pos1_usage": "Verwendung: //pos1",
+      "pos2_usage": "Verwendung: //pos2",
+      "pos1_success": "Position 1 gesetzt: %d %d %d",
+      "pos2_success": "Position 2 gesetzt: %d %d %d"
     }
   },
 

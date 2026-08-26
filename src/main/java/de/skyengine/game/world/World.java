@@ -10,6 +10,7 @@ import de.skyengine.game.world.structure.StructureAuthoringService;
 import de.skyengine.game.world.structure.StructureTemplateManager;
 
 import java.io.File;
+import java.util.concurrent.CompletableFuture;
 
 /** Laufzeit eines geoeffneten Savegames; besitzt Dimensionen und weltweite Dienste. */
 public final class World implements IDisposable {
@@ -71,6 +72,38 @@ public final class World implements IDisposable {
     public StructureTemplateManager structures() { return this.structures; }
 
     public StructureAuthoringService structureAuthoring() { return this.structureAuthoring; }
+
+    public record SpawnPoint(Identifier dimension, int x, int y, int z, float yaw, float pitch) {}
+
+    /** null bedeutet den historischen Defaultspawn: Overworld 0/0 mit Generatorhoehe. */
+    public SpawnPoint spawnPoint() {
+        var level = this.save.level();
+        if (level.spawnX == null || level.spawnY == null || level.spawnZ == null) return null;
+        Identifier dimension = Identifier.of(level.spawnDimension == null
+                ? de.skyengine.game.world.dimension.WorldgenRegistries.OVERWORLD.toString()
+                : level.spawnDimension);
+        if (de.skyengine.game.world.dimension.WorldgenRegistries.DIMENSIONS.get(dimension) == null) {
+            dimension = de.skyengine.game.world.dimension.WorldgenRegistries.OVERWORLD;
+        }
+        return new SpawnPoint(dimension, level.spawnX, level.spawnY, level.spawnZ,
+                level.spawnYaw == null ? 0F : level.spawnYaw,
+                level.spawnPitch == null ? 0F : level.spawnPitch);
+    }
+
+    public void setSpawnPoint(Identifier dimension, int x, int y, int z, float yaw, float pitch) {
+        var level = this.save.level();
+        level.spawnDimension = dimension.toString();
+        level.spawnX = x;
+        level.spawnY = y;
+        level.spawnZ = z;
+        level.spawnYaw = yaw;
+        level.spawnPitch = pitch;
+        WorldSaves.saveInDirectory(this.save, this.root);
+    }
+
+    public <T> CompletableFuture<T> submitBackground(java.util.function.Supplier<T> task) {
+        return this.workers.submitBackground(task);
+    }
 
     public DimensionManager.DimensionTicket acquireDimension(Identifier id,
                                                               DimensionManager.TicketType type,

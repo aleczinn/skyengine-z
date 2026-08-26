@@ -44,4 +44,9 @@ public final class GuiIngameMenu extends GuiScreen {
         this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
         this.components.add(content.anchor(Anchor.TOP_CENTER, 0, contentTop(vH, content.height())));
     }
+
+    @Override
+    protected void renderBackground(GuiManager gui) {
+        super.renderBackground(gui);
+    }
 }

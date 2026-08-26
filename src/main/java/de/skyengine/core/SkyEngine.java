@@ -135,6 +135,7 @@ public class SkyEngine {
         this.postProcessor.render(this.window.getFrameBuffer());
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.BLIT);
 
+        this.game.renderDebugWorldOverlays();
         this.game.renderGui(this.window.getWidth(), this.window.getHeight());
 
         /* Screenshot aus dem fertigen Default-Framebuffer (inkl. GUI), vor dem Present. */

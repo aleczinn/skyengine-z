@@ -16,6 +16,7 @@ public final class ChatHud {
     private static final long CLOSED_LIFETIME_MS = 10_000;
     private static final float TEXT_SIZE = GuiText.NORMAL;
     public static final float DEFAULT_WIDTH = 320F;
+    public static final float LINE_HEIGHT = 12F;
     private static final Color4 WHITE = new Color4(1F, 1F, 1F, 1F);
 
     public void render(GuiManager gui, ChatManager chat, float bottom, boolean open) {
@@ -24,7 +25,7 @@ public final class ChatHud {
 
     public void render(GuiManager gui, ChatManager chat, float bottom, boolean open, int scrollLines) {
         long now = System.currentTimeMillis();
-        float lineHeight = gui.font().lineHeight(TEXT_SIZE) + 1F;
+        float lineHeight = LINE_HEIGHT;
         float chatWidth = Math.min(DEFAULT_WIDTH, gui.vWidth() - 4F);
         List<VisualLine> lines = visualLines(gui, chat.messages(), chatWidth, now, open);
         if (lines.isEmpty()) return;
@@ -35,8 +36,7 @@ public final class ChatHud {
         for (int drawn = 0; drawn < visible; drawn++) {
             VisualLine line = lines.get(lines.size() - 1 - offset - drawn);
             float y = bottom - (drawn + 1) * lineHeight;
-            float width = Math.min(chatWidth, gui.font().width(line.wrapped.text(), TEXT_SIZE) + 4F);
-            gui.sprites().drawRect(2, y, width, lineHeight, 0F, 0F, 0F, 0.5F);
+            gui.sprites().drawRect(2, y, chatWidth, lineHeight, 0F, 0F, 0F, 0.5F);
         }
         if (open && lines.size() > VISIBLE_LINES) {
             float trackHeight = VISIBLE_LINES * lineHeight;
@@ -62,7 +62,7 @@ public final class ChatHud {
     /** Liefert beim Klick auf einen auch nach Umbruch korrekt zugeordneten Span dessen Zielpfad. */
     public Path clickedTarget(GuiManager gui, ChatManager chat, float bottom,
                               double mouseX, double mouseY, int scrollLines) {
-        float lineHeight = gui.font().lineHeight(TEXT_SIZE) + 1F;
+        float lineHeight = LINE_HEIGHT;
         float chatWidth = Math.min(DEFAULT_WIDTH, gui.vWidth() - 4F);
         List<VisualLine> lines = visualLines(gui, chat.messages(), chatWidth,
                 System.currentTimeMillis(), true);

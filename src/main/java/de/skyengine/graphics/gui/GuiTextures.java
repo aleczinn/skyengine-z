@@ -68,6 +68,10 @@ public final class GuiTextures {
     /* Optionales Vollbild-Hintergrundbild fürs Hauptmenü (object-cover); null, wenn die
        Datei fehlt -> Kachel-Fallback. */
     public Texture menuBackgroundImage;
+    /** Frei verwendbarer 16:9-Bildhintergrund fuer GuiScreens. */
+    public Texture imageBackground;
+    /** Vollbild-Vignette mit transparentem Zentrum. */
+    public Texture vignette;
     /* Optionales Logo fürs Hauptmenü; null, wenn die Datei fehlt -> Text-Titel-Fallback. */
     public Texture logo;
 
@@ -122,7 +126,17 @@ public final class GuiTextures {
         /* Fehlertolerant: Bild + Logo sind optionale User-Assets. Mipmaps + trilinear,
            weil beide beim Zeichnen stark herunterskaliert werden. */
         this.menuBackgroundImage = loadOptional("game/textures/menu/main_menu_v0.0.7.png");
-        this.logo = loadOptional("game/textures/menu/logo.png");
+        this.logo = loadOptional("game/textures/ui/logo.png");
+
+        this.imageBackground = loadHighResolution("game/textures/ui/background.png");
+        this.vignette = loadHighResolution("game/textures/ui/vignette.png");
+    }
+
+    /** Laedt eine hochaufloesende, beim Zeichnen typischerweise verkleinerte UI-Textur. */
+    private static Texture loadHighResolution(String path) {
+        Texture texture = new Texture(new FileHandle(path, FileType.RESOURCE), true);
+        texture.setFilter(TextureFilter.MIPMAP, TextureFilter.LINEAR);
+        return texture;
     }
 
     /** Lädt eine optionale hochauflösende Textur (null, wenn die Datei fehlt). */
@@ -178,6 +192,8 @@ public final class GuiTextures {
         if (this.creativeScrollerDisabled != null) this.creativeScrollerDisabled.dispose();
         if (this.menuBackground != null) this.menuBackground.dispose();
         if (this.menuBackgroundImage != null) this.menuBackgroundImage.dispose();
+        if (this.imageBackground != null) this.imageBackground.dispose();
+        if (this.vignette != null) this.vignette.dispose();
         if (this.logo != null) this.logo.dispose();
     }
 }

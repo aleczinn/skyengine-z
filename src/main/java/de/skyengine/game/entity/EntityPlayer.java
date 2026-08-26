@@ -6,6 +6,7 @@ import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.Gamemode;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.Dimension;
+import de.skyengine.game.world.PlayerLocation;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.utils.math.MathUtils;
@@ -91,6 +92,7 @@ public class EntityPlayer extends Entity {
     private float saturation = 5;
     private float exhaustion = 0;
     private float fallDistance = 0;
+    private PlayerLocation home;
     private float landingDistanceThisTick = 0;
     private int foodTimer = 0;
 
@@ -695,6 +697,17 @@ public class EntityPlayer extends Entity {
         return true;
     }
 
+    /**
+     * Erzwingt den normalen Todesablauf unabhaengig vom Spielmodus. Anders als {@link #setHealth(float)}
+     * ist dies kein Savegame-Restore: Die Hurt-Flanke bleibt erhalten, damit Sound und Kamera-Tilt
+     * genau wie bei einem toedlichen Treffer ausgeloest werden.
+     */
+    public void kill() {
+        if (this.isDead()) return;
+        this.health = 0;
+        this.hurtThisTick = true;
+    }
+
     /** Liest und löscht die „Schaden erlitten"-Flanke (GameContainer spielt darauf den Hurt-Sound). */
     public boolean consumeHurt() {
         boolean hurt = this.hurtThisTick;
@@ -737,6 +750,11 @@ public class EntityPlayer extends Entity {
         this.fallDamageTaken = 0;
     }
 
+    /** Verwirft nach einem Teleport eine eventuell angesammelte Fallstrecke. */
+    public void resetFallDistance() {
+        this.fallDistance = 0;
+    }
+
     /** Essen anwenden (MC): Hunger auffüllen, Sättigung dazu — nie über den Hungerbalken hinaus. */
     public void eat(int nutrition, float saturationValue) {
         this.foodLevel = Math.min(MAX_FOOD, this.foodLevel + nutrition);
@@ -763,6 +781,14 @@ public class EntityPlayer extends Entity {
 
     public float getSaturation() {
         return saturation;
+    }
+
+    public PlayerLocation getHome() {
+        return this.home;
+    }
+
+    public void setHome(PlayerLocation home) {
+        this.home = home;
     }
 
     /** Savegame-Restore. */

@@ -205,6 +205,57 @@
       "already_active": "Dimension already active: %s",
       "queued": "Queued dimension change: %s",
       "failed": "Could not queue the dimension change."
+    },
+    "no_player": "No player is available.",
+    "no_world": "No world is active.",
+    "teleport_busy": "Another dimension change is already pending.",
+    "kill": {
+      "usage": "Usage: /kill",
+      "success": "Killed the player."
+    },
+    "gamemode": {
+      "usage": "Usage: /gamemode <creative|spectator|survival>",
+      "unknown": "Unknown game mode: %s",
+      "success": "Set game mode to %s.",
+      "mode": {
+        "creative": "Creative Mode",
+        "spectator": "Spectator Mode",
+        "survival": "Survival Mode"
+      }
+    },
+    "tp": {
+      "usage": "Usage: /tp <x> <y> <z>",
+      "invalid": "Coordinates must be finite numbers.",
+      "success": "Teleported to %s %s %s."
+    },
+    "setspawnpoint": {
+      "usage": "Usage: /setspawnpoint",
+      "success": "Set the world spawn in %s to %d %d %d."
+    },
+    "sethome": {
+      "usage": "Usage: /sethome",
+      "success": "Set home in %s at %.2f %.2f %.2f."
+    },
+    "home": {
+      "usage": "Usage: /home",
+      "success": "Teleported home.",
+      "queued": "Queued teleport home.",
+      "not_set": "No home is set. Use /sethome first."
+    },
+    "biome": {
+      "usage": "Usage: /biome <name>",
+      "unknown": "Unknown biome: %s",
+      "searching": "Searching for biome %s...",
+      "found": "Biome %s found in %s at %d %d (%d blocks away).",
+      "not_found": "Biome %s was not found within 6400 blocks in %s.",
+      "failed": "Biome search failed: %s"
+    },
+    "worldedit": {
+      "no_world": "No world is open for editor commands.",
+      "pos1_usage": "Usage: //pos1",
+      "pos2_usage": "Usage: //pos2",
+      "pos1_success": "Set position 1: %d %d %d",
+      "pos2_success": "Set position 2: %d %d %d"
     }
   },
 

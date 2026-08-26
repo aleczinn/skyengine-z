@@ -45,6 +45,15 @@ public class Color4 {
         this.green = color.green;
         this.blue = color.blue;
         this.alpha = 1.0F;
+        this.clamp();
+    }
+
+    public Color4(Color3 color, float alpha) {
+        this.red = color.red;
+        this.green = color.green;
+        this.blue = color.blue;
+        this.alpha = alpha;
+        this.clamp();
     }
 
     public Color4(float red, float green, float blue, float alpha) {
@@ -57,6 +66,14 @@ public class Color4 {
 
     public Color4(int hex) {
         this.alpha = ((hex & 0xff000000) >>> 24) / 255F;
+        this.red = ((hex & 0x00ff0000) >>> 16) / 255F;
+        this.green = ((hex & 0x0000ff00) >>> 8) / 255F;
+        this.blue = ((hex & 0x000000ff)) / 255f;
+        this.clamp();
+    }
+
+    public Color4(int hex, float alpha) {
+        this.alpha = alpha;
         this.red = ((hex & 0x00ff0000) >>> 16) / 255F;
         this.green = ((hex & 0x0000ff00) >>> 8) / 255F;
         this.blue = ((hex & 0x000000ff)) / 255f;
