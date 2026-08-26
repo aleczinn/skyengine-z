@@ -61,6 +61,10 @@ public record CommandContext(SimpleItemStorage inventory, DimensionAccess dimens
         StructureTemplate load(String reference) throws Exception;
         List<String> templates() throws Exception;
         String wand();
+        String copy(boolean useAnchor);
+        String expand(int amount);
+        String contract(int amount);
+        StructurePlacement.Result setBlock(int state);
         String rotate(int degrees);
         String flip();
         String preview(Integer x, Integer y, Integer z, StructurePlacement.Rule rule);

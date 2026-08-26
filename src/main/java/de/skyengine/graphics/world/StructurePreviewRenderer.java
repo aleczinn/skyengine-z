@@ -2,7 +2,7 @@ package de.skyengine.graphics.world;
 
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.model.BakedQuad;
-import de.skyengine.game.world.structure.StructureEditorSession;
+import de.skyengine.game.world.structure.WorldEditSession;
 import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.shader.Shader;
@@ -23,7 +23,7 @@ public final class StructurePreviewRenderer {
     private ShaderProgram shader;
     private TextureArray textures;
     private int vao, vbo, vertices;
-    private StructureEditorSession.Preview cached;
+    private WorldEditSession.Preview cached;
 
     public void init(TextureArray textures) {
         this.textures = textures;
@@ -48,7 +48,7 @@ public final class StructurePreviewRenderer {
 
     public void invalidate() { this.cached = null; }
 
-    public void render(Camera camera, StructureEditorSession.Preview preview) {
+    public void render(Camera camera, WorldEditSession.Preview preview) {
         if (preview == null) return;
         if (!preview.equals(this.cached)) rebuild(preview);
         if (vertices == 0) return;
@@ -73,7 +73,7 @@ public final class StructurePreviewRenderer {
         this.shader.unbind();
     }
 
-    private void rebuild(StructureEditorSession.Preview preview) {
+    private void rebuild(WorldEditSession.Preview preview) {
         FloatBuilder out = new FloatBuilder(Math.max(1024,
                 Math.min(preview.template().cells().size() * 6 * STRIDE, 1_000_000)));
         for (var cell : preview.template().cells()) {
@@ -81,10 +81,10 @@ public final class StructurePreviewRenderer {
             var state = preview.transform().state(Blocks.getState(cell.state()));
             BakedQuad[] quads = state.getModel();
             if (quads == null) continue;
-            int relX = cell.x() - preview.template().anchorX();
-            int relZ = cell.z() - preview.template().anchorZ();
+            int relX = cell.x() - preview.originX();
+            int relZ = cell.z() - preview.originZ();
             float ox = preview.transform().transformedX(relX, relZ);
-            float oy = cell.y() - preview.template().anchorY();
+            float oy = cell.y() - preview.originY();
             float oz = preview.transform().transformedZ(relX, relZ);
             for (BakedQuad quad : quads) append(out, quad, ox, oy, oz);
             for (BakedQuad quad : state.getOverlay()) append(out, quad, ox, oy, oz);

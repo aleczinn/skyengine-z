@@ -26,6 +26,14 @@ public final class StructurePlacement {
 
     public Plan prepareInWorld(StructureTemplate template, Dimension dimension,
                                int x, int y, int z, StructureTransform transform, Rule rule) {
+        return prepareInWorld(template, template.anchorX(), template.anchorY(), template.anchorZ(),
+                dimension, x, y, z, transform, rule);
+    }
+
+    /** Placement mit einem Clipboard-Ursprung, der unabhaengig vom nativen Template-Anker ist. */
+    public Plan prepareInWorld(StructureTemplate template, int originX, int originY, int originZ,
+                               Dimension dimension, int x, int y, int z,
+                               StructureTransform transform, Rule rule) {
         long[] positions = new long[template.cells().size()];
         int[] before = new int[positions.length];
         int[] after = new int[positions.length];
@@ -33,9 +41,9 @@ public final class StructurePlacement {
         for (StructureTemplate.Cell cell : template.cells()) {
             BlockState state = transform.state(Blocks.getState(cell.state()));
             if (rule == Rule.KEEP_EXISTING && state.getId() == Blocks.AIR) { skipped++; continue; }
-            int relX = cell.x() - template.anchorX(), relZ = cell.z() - template.anchorZ();
+            int relX = cell.x() - originX, relZ = cell.z() - originZ;
             int wx = x + transform.transformedX(relX, relZ);
-            int wy = y + cell.y() - template.anchorY();
+            int wy = y + cell.y() - originY;
             int wz = z + transform.transformedZ(relX, relZ);
             if (!dimension.isPositionEditable(wx, wy, wz)) {
                 throw new IllegalStateException("Zielposition liegt nicht in einem READY-Chunk: "

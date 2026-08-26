@@ -1,6 +1,7 @@
 package de.skyengine.game.world.structure;
 
 import de.skyengine.game.world.Dimension;
+import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
 
@@ -10,9 +11,9 @@ import java.util.List;
 /** Erzeugt Templates aus Weltregionen. Fehlende Zellen sind IGNORE, AIR ist optional explizit. */
 public final class StructureTemplateBuilder {
 
-    public StructureTemplate capture(Dimension dimension, StructureSelection selection,
-                                     Identifier id, boolean includeAir) {
-        if (!selection.complete()) throw new IllegalArgumentException("Die Structure-Auswahl ist unvollstaendig");
+    public StructureTemplate capture(Dimension dimension, WorldEditSelection selection,
+                                     Identifier id, boolean includeAir, BlockPos anchor) {
+        if (!selection.complete()) throw new IllegalArgumentException("Die Selektion ist unvollstaendig");
         if (!dimension.getDimensionId().equals(selection.dimension())) {
             throw new IllegalArgumentException("Die Auswahl gehoert zu einer anderen Dimension");
         }
@@ -28,7 +29,7 @@ public final class StructureTemplateBuilder {
                 }
             }
         }
-        var anchor = selection.effectiveAnchor();
+        if (!selection.contains(anchor)) throw new IllegalArgumentException("Structure-Anker liegt ausserhalb der Selektion");
         return new StructureTemplate(id, bounds.sizeX(), bounds.sizeY(), bounds.sizeZ(),
                 anchor.x() - bounds.minX(), anchor.y() - bounds.minY(),
                 anchor.z() - bounds.minZ(), cells);

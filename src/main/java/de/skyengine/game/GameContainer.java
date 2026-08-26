@@ -15,6 +15,7 @@ import de.skyengine.game.command.ChatManager;
 import de.skyengine.game.command.CommandContext;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Block;
+import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRaycast;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
@@ -103,8 +104,8 @@ import de.skyengine.game.world.save.WorldSaves;
 import de.skyengine.game.world.structure.StructurePlacement;
 import de.skyengine.game.world.structure.StructureTemplate;
 import de.skyengine.game.world.structure.StructureTransform;
-import de.skyengine.game.world.structure.StructureSelection;
-import de.skyengine.game.world.structure.StructureEditorSession;
+import de.skyengine.game.world.structure.WorldEditSelection;
+import de.skyengine.game.world.structure.WorldEditSession;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.biome.BiomeLocator;
 import de.skyengine.game.world.generator.biome.Biomes;
@@ -1317,8 +1318,8 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Chunk-Grenzen (F3+G) um die nahen Chunks — nach dem Welt-Draw, mit gültiger Kamera. */
         /* Die Ghost-Bloecke gehoeren zur Welt; ihre Linien folgen nach dem Postprocessing. */
         if (this.world() != null && this.dimension() != null) {
-            StructureEditorSession editor = this.world().structureAuthoring().session(this.player().getUuid());
-            StructureEditorSession.Preview preview = editor.preview();
+            WorldEditSession editor = this.world().worldEdit().session(this.player().getUuid());
+            WorldEditSession.Preview preview = editor.preview();
             if (preview != null && this.dimension().getDimensionId().equals(preview.dimension())) {
                 this.structurePreviewRenderer.render(this.camera, preview);
             }
@@ -1358,13 +1359,20 @@ public class GameContainer implements IResizeable, IDisposable {
         }
 
         if (this.world() != null) {
-            StructureEditorSession editor = this.world().structureAuthoring().session(this.player().getUuid());
-            StructureSelection selection = editor.selection();
+            WorldEditSession editor = this.world().worldEdit().session(this.player().getUuid());
+            WorldEditSelection selection = editor.selection();
             if (this.isStructureWandHeld() && selection != null && selection.complete()
                     && selection.dimension().equals(this.dimension().getDimensionId())) {
                 this.chunkBorderRenderer.renderBox(this.camera, selection.bounds(), 0.2F, 0.95F, 0.35F);
+                BlockPos anchor = editor.structureAnchor();
+                if (anchor != null) {
+                    this.chunkBorderRenderer.renderBox(this.camera,
+                            new de.skyengine.game.world.structure.StructureBounds(
+                                    anchor.x(), anchor.y(), anchor.z(), anchor.x(), anchor.y(), anchor.z()),
+                            1F, 0.75F, 0.1F);
+                }
             }
-            StructureEditorSession.Preview preview = editor.preview();
+            WorldEditSession.Preview preview = editor.preview();
             if (preview != null && this.dimension().getDimensionId().equals(preview.dimension())) {
                 this.chunkBorderRenderer.renderBox(this.camera, preview.bounds(), 0.75F, 0.25F, 0.95F);
                 this.chunkBorderRenderer.renderBox(this.camera,
@@ -1889,7 +1897,7 @@ public class GameContainer implements IResizeable, IDisposable {
             }
         }
 
-        /* Der Debug-Stick setzt Position 2 nur auf der Klickflanke. Der normale Haltepfad
+        /* Die Debug-Axt setzt Position 2 beziehungsweise den Anchor nur auf der Klickflanke. Der normale Haltepfad
            würde den Befehl sonst alle RIGHT_CLICK_DELAY Ticks erneut auslösen. */
         if (input.isBindDown(this.settings.key(KeyBindings.USE)) && this.rightClickDelay == 0
                 && !usingItem && !this.isStructureWandHeld()) {
@@ -1907,7 +1915,7 @@ public class GameContainer implements IResizeable, IDisposable {
         ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         if (held.isEmpty()) return;
         if (this.isStructureWandHeld()) {
-            this.clearStructureSelection();
+            this.clearWorldEditSelection();
             this.stopDestroyBlock();
             return;
         }
@@ -1927,11 +1935,11 @@ public class GameContainer implements IResizeable, IDisposable {
         this.animState.swing();
     }
 
-    /** Q mit dem Debug-Stick entfernt die Auswahl, ohne Clipboard oder Preview anzutasten. */
-    public void clearStructureSelection() {
+    /** Q mit der Debug-Axt setzt die allgemeine Selektion zurueck; Clipboard/Preview bleiben. */
+    public void clearWorldEditSelection() {
         if (this.world() == null || this.player() == null) return;
-        this.world().structureAuthoring().session(this.player().getUuid()).clearSelection();
-        this.chat.addMessage("§eStructure-Auswahl entfernt");
+        this.world().worldEdit().session(this.player().getUuid()).clearSelection();
+        this.chat.addMessage("§e" + I18n.tr("command.worldedit.selection_reset"));
     }
 
     /** MC {@code MultiPlayerGameMode.hasMissTime}: im Creative gibt es keine Schlagsperre. */
@@ -1947,14 +1955,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private boolean startAttack() {
         if (this.missTime > 0) return false;
 
-        if (this.isStructureWandHeld() && this.hit != null) {
-            this.world().structureAuthoring().session(this.player().getUuid()).pos1(
-                    this.dimension().getDimensionId(), this.hit.x(), this.hit.y(), this.hit.z());
-            this.chat.addMessage("§aPosition 1 gesetzt: " + this.hit.x() + " " + this.hit.y() + " " + this.hit.z());
-            this.stopDestroyBlock();
-            this.animState.swing();
-            return true;
-        }
+        if (this.handleWorldEditToolClick(true)) return true;
 
         boolean endAttack = false;
         if (this.minecartHit != null) {
@@ -1990,7 +1991,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!down) this.missTime = 0;
         if (this.missTime > 0 || this.animState.isEating()) return;
 
-        /* Position 1 wird ebenfalls nur über die Klickflanke gesetzt. Solange der Debug-Stick
+        /* Position 1 beziehungsweise der Anchor wird nur über die Klickflanke gesetzt. Solange die Debug-Axt
            gehalten wird, darf der Dauer-Abbau niemals auf den markierten Block durchfallen. */
         if (this.isStructureWandHeld()) {
             this.stopDestroyBlock();
@@ -2015,13 +2016,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.isDestroying) return;
         this.rightClickDelay = RIGHT_CLICK_DELAY;
 
-        if (this.isStructureWandHeld() && this.hit != null) {
-            this.world().structureAuthoring().session(this.player().getUuid()).pos2(
-                    this.dimension().getDimensionId(), this.hit.x(), this.hit.y(), this.hit.z());
-            this.chat.addMessage("§aPosition 2 gesetzt: " + this.hit.x() + " " + this.hit.y() + " " + this.hit.z());
-            this.animState.swing();
-            return;
-        }
+        if (this.handleWorldEditToolClick(false)) return;
 
         ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         Item beforeItem = held.getItem();
@@ -2430,7 +2425,16 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         /* Mausrad: hoch = vorheriger Slot, runter = nächster (mit Wrap), wie in Minecraft. */
         double scroll = input.getScrollY();
-        if (this.player().getGamemode() == Gamemode.SPECTATOR && scroll != 0) {
+        boolean changeWorldEditMode = scroll != 0 && this.isStructureWandHeld()
+                && input.isBindDown(this.settings.key(KeyBindings.SNEAK));
+        if (changeWorldEditMode) {
+            WorldEditSession.ToolMode mode = this.world().worldEdit().session(this.player().getUuid())
+                    .cycleToolMode(scroll > 0 ? -1 : 1);
+            this.hudStatusText = I18n.tr("command.worldedit.tool_mode_status",
+                    I18n.tr("command.worldedit.tool_mode_"
+                            + mode.name().toLowerCase(java.util.Locale.ROOT)));
+            this.hudStatusShownAt = System.currentTimeMillis();
+        } else if (this.player().getGamemode() == Gamemode.SPECTATOR && scroll != 0) {
             float beforeSpeed = this.player().getSpectatorFlySpeed();
             this.player().adjustSpectatorFlySpeed(scroll);
             float speed = this.player().getSpectatorFlySpeed();
@@ -2571,8 +2575,8 @@ public class GameContainer implements IResizeable, IDisposable {
             private int x() { return (int) Math.floor(GameContainer.this.player().x); }
             private int y() { return (int) Math.floor(GameContainer.this.player().y); }
             private int z() { return (int) Math.floor(GameContainer.this.player().z); }
-            private StructureEditorSession editor() {
-                return GameContainer.this.world().structureAuthoring().session(GameContainer.this.player().getUuid());
+            private WorldEditSession editor() {
+                return GameContainer.this.world().worldEdit().session(GameContainer.this.player().getUuid());
             }
             @Override public String pos1() {
                 int py = (int) Math.floor(GameContainer.this.player().y) - 1;
@@ -2601,6 +2605,40 @@ public class GameContainer implements IResizeable, IDisposable {
                 return GameContainer.this.world().structures().references();
             }
             @Override public String wand() { return GameContainer.this.giveStructureWand(); }
+            private Direction lookDirection() {
+                if (GameContainer.this.player().pitch > 45F) return Direction.DOWN;
+                if (GameContainer.this.player().pitch < -45F) return Direction.UP;
+                return Direction.fromYaw(GameContainer.this.player().yaw);
+            }
+            private String directionName(Direction direction) {
+                return I18n.tr("command.worldedit.direction_" + direction.name().toLowerCase());
+            }
+            @Override public String copy(boolean useAnchor) {
+                var copied = editor().copy(GameContainer.this.dimension(), x(), y(), z(),
+                        useAnchor ? WorldEditSession.CopyOrigin.ANCHOR
+                                : WorldEditSession.CopyOrigin.PLAYER);
+                String key = useAnchor ? "command.worldedit.copy_success_anchor"
+                        : "command.worldedit.copy_success";
+                return I18n.tr(key, copied.template().sizeX(),
+                        copied.template().sizeY(), copied.template().sizeZ(), copied.template().cells().size());
+            }
+            @Override public String expand(int amount) {
+                Direction direction = lookDirection();
+                var changed = editor().expand(GameContainer.this.dimension().getDimensionId(), direction, amount);
+                var bounds = changed.bounds();
+                return I18n.tr("command.worldedit.expand_success", amount, directionName(direction),
+                        bounds.sizeX(), bounds.sizeY(), bounds.sizeZ());
+            }
+            @Override public String contract(int amount) {
+                Direction direction = lookDirection();
+                var changed = editor().contract(GameContainer.this.dimension().getDimensionId(), direction, amount);
+                var bounds = changed.bounds();
+                return I18n.tr("command.worldedit.contract_success", amount, directionName(direction),
+                        bounds.sizeX(), bounds.sizeY(), bounds.sizeZ());
+            }
+            @Override public StructurePlacement.Result setBlock(int state) {
+                return editor().setBlock(GameContainer.this.dimension(), state);
+            }
             @Override public String rotate(int degrees) {
                 return "Structure gedreht: " + editor().rotate(degrees).rotation();
             }
@@ -2611,14 +2649,14 @@ public class GameContainer implements IResizeable, IDisposable {
             }
             @Override public String preview(Integer px, Integer py, Integer pz, StructurePlacement.Rule rule) {
                 int tx = px == null ? x() : px, ty = py == null ? y() : py, tz = pz == null ? z() : pz;
-                StructureEditorSession.Preview preview = editor().preview(
+                WorldEditSession.Preview preview = editor().preview(
                         GameContainer.this.dimension().getDimensionId(), tx, ty, tz, rule);
                 return "Structure-Vorschau bei " + preview.x() + " " + preview.y() + " " + preview.z();
             }
             @Override public void clearPreview() { editor().clearPreview(); }
             @Override public StructurePlacement.Result paste(Integer px, Integer py, Integer pz,
                                                                StructurePlacement.Rule rule) {
-                StructureEditorSession.Preview preview = editor().preview();
+                WorldEditSession.Preview preview = editor().preview();
                 int tx, ty, tz;
                 StructurePlacement.Rule effectiveRule = rule;
                 if (px == null && preview != null
@@ -2696,26 +2734,54 @@ public class GameContainer implements IResizeable, IDisposable {
                 && held.getItem().getId().equals(Identifier.of("skyengine:structure_wand"));
     }
 
+    /** Konsumiert Debug-Axt-Klicks, damit weder Abbau noch normale Blockinteraktion durchfallen. */
+    private boolean handleWorldEditToolClick(boolean primary) {
+        if (!this.isStructureWandHeld() || this.hit == null) return false;
+        WorldEditSession editor = this.world().worldEdit().session(this.player().getUuid());
+        try {
+            if (editor.toolMode() == WorldEditSession.ToolMode.ANCHOR) {
+                editor.anchor(this.dimension().getDimensionId(), this.hit.x(), this.hit.y(), this.hit.z());
+                this.chat.addMessage("§e" + I18n.tr("command.worldedit.anchor_success",
+                        this.hit.x(), this.hit.y(), this.hit.z()));
+            } else if (primary) {
+                editor.pos1(this.dimension().getDimensionId(), this.hit.x(), this.hit.y(), this.hit.z());
+                this.chat.addMessage("§a" + I18n.tr("command.worldedit.pos1_success",
+                        this.hit.x(), this.hit.y(), this.hit.z()));
+            } else {
+                editor.pos2(this.dimension().getDimensionId(), this.hit.x(), this.hit.y(), this.hit.z());
+                this.chat.addMessage("§a" + I18n.tr("command.worldedit.pos2_success",
+                        this.hit.x(), this.hit.y(), this.hit.z()));
+            }
+        } catch (RuntimeException error) {
+            String message = error.getMessage();
+            if (message == null || message.isBlank()) message = error.getClass().getSimpleName();
+            this.chat.addMessage("§c" + I18n.tr("command.worldedit.error_prefix", message));
+        }
+        this.stopDestroyBlock();
+        this.animState.swing();
+        return true;
+    }
+
     private String giveStructureWand() {
         Item wand = Items.get(Identifier.of("skyengine:structure_wand"));
-        if (wand == null) throw new IllegalStateException("Debug-Stick ist nicht registriert");
+        if (wand == null) throw new IllegalStateException(I18n.tr("command.worldedit.tool_not_registered"));
         for (int i = 0; i < this.player().getInventory().size(); i++) {
             ItemStack stack = this.player().getInventory().get(i);
             if (!stack.isEmpty() && stack.getItem() == wand) {
                 if (i < 9) this.player().setSelectedSlot(i);
-                return "Debug-Stick bereits im Inventar";
+                return I18n.tr("command.worldedit.tool_already_owned");
             }
         }
         for (int i = 0; i < 9; i++) {
             if (this.player().getInventory().get(i).isEmpty()) {
                 this.player().getInventory().set(i, new ItemStack(wand, 1));
                 this.player().setSelectedSlot(i);
-                return "Debug-Stick erhalten";
+                return I18n.tr("command.worldedit.tool_received");
             }
         }
         ItemStack remaining = this.player().getInventory().insert(new ItemStack(wand, 1));
         if (!remaining.isEmpty()) throw new IllegalStateException("Inventar ist voll");
-        return "Debug-Stick erhalten (Inventar)";
+        return I18n.tr("command.worldedit.tool_received_inventory");
     }
 
     /** Sichtweite der Projektion: mit LOD hinter den äußersten Ring gelegt, sonst wie bisher 1500. */

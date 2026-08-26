@@ -51,6 +51,9 @@ import java.util.Random;
  */
 public final class SoundManager implements IDisposable, UnderwaterAudioSink {
 
+    /** Minecraft 26.2 {@code sounds.json}: volume=0.7 fuer entity.player.attack.weak. */
+    static final float WEAK_ATTACK_VOLUME = 0.7F;
+
     /* 12 waren zu wenig, seit es Redstone-Maschinen gibt: der Kolben-Sound ist mit 0,65-0,92 s
        (0,552-s-Datei, gestreckt durch den MC-Pitch 0.6) der längste Effekt der Engine, und eine
        Kolbentür feuert ALLE ihre Kolben im selben Tick. Vier Kolben bei vier Schaltvorgängen pro
@@ -739,7 +742,8 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
 
     /** Minecrafts entity.player.attack.weak/nodamage: einmal pro normalem Angriffsklick. */
     public void playSwingAttack() {
-        this.play(this.weakAttackVariants, SoundCategory.PLAYER, 1.0F, 1.0F,
+        /* Minecraft 26.2 sounds.json setzt fuer alle vier weak-Varianten volume=0.7. */
+        this.play(this.weakAttackVariants, SoundCategory.PLAYER, WEAK_ATTACK_VOLUME, 1.0F,
                 false, false, 0, 0, 0);
     }
 

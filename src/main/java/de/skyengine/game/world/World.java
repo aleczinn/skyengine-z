@@ -6,8 +6,8 @@ import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.chunk.WorldWorkerPool;
 import de.skyengine.game.world.dimension.PortalLinks;
 import de.skyengine.game.world.save.WorldSaves;
-import de.skyengine.game.world.structure.StructureAuthoringService;
 import de.skyengine.game.world.structure.StructureTemplateManager;
+import de.skyengine.game.world.structure.WorldEditService;
 
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
@@ -22,7 +22,7 @@ public final class World implements IDisposable {
     private final PlayerManager players;
     private final DimensionManager dimensions;
     private final StructureTemplateManager structures;
-    private final StructureAuthoringService structureAuthoring;
+    private final WorldEditService worldEdit;
 
     public World(WorldSaves.WorldSave save, SoundManager soundManager) {
         this(save, WorldSaves.dir(save.dirName()), soundManager);
@@ -36,7 +36,7 @@ public final class World implements IDisposable {
         this.players = new PlayerManager(save, this.root,
                 () -> WorldSaves.saveInDirectory(save, this.root));
         this.structures = new StructureTemplateManager();
-        this.structureAuthoring = new StructureAuthoringService(this.structures);
+        this.worldEdit = new WorldEditService(this.structures);
         this.dimensions = new DimensionManager(save.dirName(), save.level(), this.root,
                 this.workers, this.portalLinks, soundManager, structureSnapshot());
     }
@@ -71,7 +71,7 @@ public final class World implements IDisposable {
 
     public StructureTemplateManager structures() { return this.structures; }
 
-    public StructureAuthoringService structureAuthoring() { return this.structureAuthoring; }
+    public WorldEditService worldEdit() { return this.worldEdit; }
 
     public record SpawnPoint(Identifier dimension, int x, int y, int z, float yaw, float pitch) {}
 

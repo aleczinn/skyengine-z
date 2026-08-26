@@ -76,6 +76,31 @@ final class StructureCommandTest {
                 List.of("replace=unknown")).success());
     }
 
+    @Test
+    void worldEditCopyResizeAndSetBlockUseTheSharedPlayerSession() {
+        FakeStructures structures = new FakeStructures();
+        assertTrue(new WorldEditCommand("copy").execute(context(structures), List.of()).success());
+        assertEquals(1, structures.copyCount);
+        assertFalse(structures.copyWithAnchor);
+        assertTrue(new WorldEditCommand("copy").execute(context(structures), List.of("--anchor")).success());
+        assertEquals(2, structures.copyCount);
+        assertTrue(structures.copyWithAnchor);
+        assertTrue(new WorldEditCommand("copy").execute(context(structures), List.of("-a")).success());
+        assertFalse(new WorldEditCommand("copy").execute(context(structures), List.of("anchor")).success());
+        assertTrue(new WorldEditCommand("expand").execute(context(structures), List.of("12")).success());
+        assertEquals(12, structures.expandAmount);
+        assertTrue(new WorldEditCommand("contract").execute(context(structures), List.of("3")).success());
+        assertEquals(3, structures.contractAmount);
+        assertFalse(new WorldEditCommand("expand").execute(context(structures), List.of("0")).success());
+
+        assertTrue(new WorldEditCommand("setblock").execute(context(structures), List.of("stone")).success());
+        assertEquals(Blocks.STONE, structures.setBlockState);
+        assertTrue(new WorldEditCommand("setblock").execute(context(structures), List.of("skyengine:air")).success());
+        assertEquals(Blocks.AIR, structures.setBlockState);
+        assertFalse(new WorldEditCommand("setblock").execute(context(structures),
+                List.of("skyengine:stone[unknown=true]")).success());
+    }
+
     private static StructureCommand command() { return new StructureCommand(); }
     private static CommandContext context(FakeStructures structures) {
         return new CommandContext(new SimpleItemStorage(1), null, structures);
@@ -91,6 +116,11 @@ final class StructureCommandTest {
         StructurePlacement.Rule placementRule;
         int undoAmount;
         int redoAmount;
+        int copyCount;
+        int expandAmount;
+        int contractAmount;
+        int setBlockState = -1;
+        boolean copyWithAnchor;
         @Override public void anchor() { playerAnchor = true; }
         @Override public void anchor(int x, int y, int z) { anchorPosition = new int[]{x, y, z}; }
         @Override public void resetAnchor() { anchorReset = true; }
@@ -103,6 +133,17 @@ final class StructureCommandTest {
         }
         @Override public List<String> templates() { return List.copyOf(paths); }
         @Override public String wand() { return "wand"; }
+        @Override public String copy(boolean useAnchor) {
+            copyCount++;
+            copyWithAnchor = useAnchor;
+            return "copy";
+        }
+        @Override public String expand(int amount) { expandAmount = amount; return "expand"; }
+        @Override public String contract(int amount) { contractAmount = amount; return "contract"; }
+        @Override public StructurePlacement.Result setBlock(int state) {
+            setBlockState = state;
+            return new StructurePlacement.Result(1, 0, 0);
+        }
         @Override public String rotate(int degrees) {
             if (degrees % 90 != 0) throw new IllegalArgumentException("rotation");
             return "rotate";

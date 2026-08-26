@@ -2,10 +2,13 @@ package de.skyengine.game.command;
 
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.world.structure.StructurePlacement;
+import de.skyengine.game.world.block.Block;
+import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.registry.Registries;
 
 import java.util.List;
 
-/** Kleine WorldEdit-artige Befehlssuite fuer das native Structure-Clipboard. */
+/** Kleine WorldEdit-artige Befehlssuite fuer Selektion, Clipboard und History. */
 public final class WorldEditCommand implements Command {
     private final String name;
 
@@ -16,6 +19,9 @@ public final class WorldEditCommand implements Command {
     @Override public String usage() {
         return switch (name) {
             case "rotate" -> "<vielfaches-von-90>";
+            case "copy" -> "[-a|--anchor]";
+            case "setblock" -> "<blockstate>";
+            case "expand", "contract" -> "<wert>";
             case "preview" -> "[clear|x y z] [replace=all|keep]";
             case "paste" -> "[x y z] [replace=all|keep]";
             case "undo", "redo" -> "[anzahl]";
@@ -34,6 +40,10 @@ public final class WorldEditCommand implements Command {
                         : CommandResult.error(I18n.tr("command.worldedit.pos1_usage"));
                 case "pos2" -> arguments.isEmpty() ? CommandResult.success(context.structures().pos2())
                         : CommandResult.error(I18n.tr("command.worldedit.pos2_usage"));
+                case "copy" -> copy(context, arguments);
+                case "expand" -> resize(context, arguments, false);
+                case "contract" -> resize(context, arguments, true);
+                case "setblock" -> setBlock(context, arguments);
                 case "rotate" -> rotate(context, arguments);
                 case "flip" -> arguments.isEmpty() ? CommandResult.success(context.structures().flip())
                         : CommandResult.error("Verwendung: //flip");
@@ -44,8 +54,34 @@ public final class WorldEditCommand implements Command {
                 default -> CommandResult.error("Unbekannter Editor-Befehl: //" + name);
             };
         } catch (Exception e) {
-            return CommandResult.error("Editor-Fehler: " + e.getMessage());
+            return CommandResult.error(I18n.tr("command.worldedit.error_prefix", e.getMessage()));
         }
+    }
+
+    private static CommandResult copy(CommandContext context, List<String> args) {
+        if (args.isEmpty()) return CommandResult.success(context.structures().copy(false));
+        if (args.size() == 1 && (args.getFirst().equalsIgnoreCase("-a")
+                || args.getFirst().equalsIgnoreCase("--anchor"))) {
+            return CommandResult.success(context.structures().copy(true));
+        }
+        return CommandResult.error(I18n.tr("command.worldedit.copy_usage"));
+    }
+
+    private static CommandResult resize(CommandContext context, List<String> args, boolean contract) {
+        if (args.size() != 1) return CommandResult.error(I18n.tr(
+                "command.worldedit.resize_usage", contract ? "contract" : "expand"));
+        int amount = StructureCommand.integer(args.getFirst());
+        if (amount <= 0) throw new IllegalArgumentException(I18n.tr("command.worldedit.positive_value"));
+        return CommandResult.success(contract ? context.structures().contract(amount)
+                : context.structures().expand(amount));
+    }
+
+    private static CommandResult setBlock(CommandContext context, List<String> args) {
+        if (args.size() != 1) return CommandResult.error(I18n.tr("command.worldedit.setblock_usage"));
+        int state = WorldEditBlockParser.parse(args.getFirst()).getId();
+        StructurePlacement.Result result = context.structures().setBlock(state);
+        return result.complete() ? CommandResult.success(I18n.tr("command.worldedit.setblock_success", result.written()))
+                : CommandResult.error(I18n.tr("command.worldedit.setblock_failed", result.failed()));
     }
 
     private static CommandResult rotate(CommandContext context, List<String> args) {
@@ -98,7 +134,18 @@ public final class WorldEditCommand implements Command {
         if (name.equals("preview") && arguments.isEmpty() && "clear".startsWith(current.toLowerCase())) {
             return List.of("clear");
         }
+        if (name.equals("setblock") && arguments.isEmpty()) {
+            String needle = current.toLowerCase(java.util.Locale.ROOT).replace("_", "").replace("-", "");
+            return Registries.BLOCK.values().stream().map(Block::getIdentifier)
+                    .filter(id -> normalize(id.toString()).startsWith(needle)
+                            || normalize(id.path()).startsWith(needle))
+                    .map(Identifier::toString).sorted().toList();
+        }
         return List.of();
+    }
+
+    private static String normalize(String value) {
+        return value.toLowerCase(java.util.Locale.ROOT).replace("_", "").replace("-", "");
     }
 
     private record ParsedPlacement(Integer x, Integer y, Integer z, StructurePlacement.Rule rule) {}

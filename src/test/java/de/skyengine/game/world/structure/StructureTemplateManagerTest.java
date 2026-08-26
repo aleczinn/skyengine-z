@@ -77,7 +77,7 @@ final class StructureTemplateManagerTest {
     void editorSelectionCanBeClearedWithoutDiscardingLoadedClipboard(@TempDir Path temp) throws Exception {
         StructureTemplateManager manager = new StructureTemplateManager(temp.resolve("structures"), temp.toFile());
         manager.saveAuthored(template(Identifier.of("skyengine:test/clipboard"), Blocks.STONE), false);
-        StructureEditorSession editor = new StructureAuthoringService(manager).session(UUID.randomUUID());
+        WorldEditSession editor = new WorldEditService(manager).session(UUID.randomUUID());
         editor.load("test/clipboard");
         editor.pos1(Identifier.of("skyengine:overworld"), 1, 2, 3);
         editor.pos2(Identifier.of("skyengine:overworld"), 4, 5, 6);
@@ -86,6 +86,41 @@ final class StructureTemplateManagerTest {
 
         assertNull(editor.selection());
         assertNotNull(editor.loaded());
+    }
+
+    @Test
+    void clipboardsAndTransformsAreIsolatedPerPlayer(@TempDir Path temp) throws Exception {
+        StructureTemplateManager manager = new StructureTemplateManager(temp.resolve("structures"), temp.toFile());
+        manager.saveAuthored(template(Identifier.of("skyengine:test/one"), Blocks.STONE), false);
+        manager.saveAuthored(template(Identifier.of("skyengine:test/two"), Blocks.DIRT), false);
+        WorldEditService service = new WorldEditService(manager);
+        WorldEditSession first = service.session(UUID.randomUUID());
+        WorldEditSession second = service.session(UUID.randomUUID());
+
+        first.load("test/one");
+        first.rotate(90);
+        second.load("test/two");
+
+        assertEquals(Blocks.STONE, first.clipboard().template().cells().getFirst().state());
+        assertEquals(StructureTransform.Rotation.CLOCKWISE_90, first.transform().rotation());
+        assertEquals(Blocks.DIRT, second.clipboard().template().cells().getFirst().state());
+        assertEquals(StructureTransform.IDENTITY, second.transform());
+    }
+
+    @Test
+    void debugToolModesAreCyclicPlayerLocalAndSurviveSelectionReset(@TempDir Path temp) {
+        StructureTemplateManager manager = new StructureTemplateManager(temp.resolve("structures"), temp.toFile());
+        WorldEditService service = new WorldEditService(manager);
+        WorldEditSession first = service.session(UUID.randomUUID());
+        WorldEditSession second = service.session(UUID.randomUUID());
+
+        assertEquals(WorldEditSession.ToolMode.SELECTION, first.toolMode());
+        assertEquals(WorldEditSession.ToolMode.ANCHOR, first.cycleToolMode(1));
+        first.clearSelection();
+        assertEquals(WorldEditSession.ToolMode.ANCHOR, first.toolMode());
+        assertEquals(WorldEditSession.ToolMode.SELECTION, first.cycleToolMode(1));
+        assertEquals(WorldEditSession.ToolMode.ANCHOR, first.cycleToolMode(-1));
+        assertEquals(WorldEditSession.ToolMode.SELECTION, second.toolMode());
     }
 
     private static StructureTemplate template(Identifier id, int state) {

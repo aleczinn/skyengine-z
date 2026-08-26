@@ -423,7 +423,7 @@ public abstract class GuiContainer extends GuiScreen {
         boolean fullStack = SkyEngine.get().getInput().isCtrlDown();
         if (!this.carried.isEmpty()) {
             if (isCommandOnly(this.carried)) {
-                SkyEngine.get().getGame().clearStructureSelection();
+                SkyEngine.get().getGame().clearWorldEditSelection();
                 return true;
             }
             this.throwFromCarried(fullStack ? this.carried.getCount() : 1);
@@ -432,7 +432,7 @@ public abstract class GuiContainer extends GuiScreen {
         Slot slot = this.slotAt(gui.mouseX(), gui.mouseY());
         if (slot != null && !slot.get().isEmpty()) {
             if (isCommandOnly(slot.get())) {
-                SkyEngine.get().getGame().clearStructureSelection();
+                SkyEngine.get().getGame().clearWorldEditSelection();
                 return true;
             }
             throwOut(slot.storage.extract(slot.index, fullStack ? slot.get().getCount() : 1));
