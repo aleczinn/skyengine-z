@@ -178,21 +178,21 @@ final class BedRenderingTest {
     @Test
     void newWoodControlsHaveEnglishAndGermanNames() {
         I18n.load("en_us");
-        assertEquals("Spruce Button", I18n.tr("block.skyengine.spruce_button"));
-        assertEquals("Pale Oak Pressure Plate", I18n.tr("block.skyengine.pale_oak_pressure_plate"));
+        assertEquals("Spruce Button", I18n.tr("block.voxelstories.spruce_button"));
+        assertEquals("Pale Oak Pressure Plate", I18n.tr("block.voxelstories.pale_oak_pressure_plate"));
         I18n.load("de_de");
-        assertEquals("Fichtenholzknopf", I18n.tr("block.skyengine.spruce_button"));
-        assertEquals("Blasseichenholzdruckplatte", I18n.tr("block.skyengine.pale_oak_pressure_plate"));
+        assertEquals("Fichtenholzknopf", I18n.tr("block.voxelstories.spruce_button"));
+        assertEquals("Blasseichenholzdruckplatte", I18n.tr("block.voxelstories.pale_oak_pressure_plate"));
         I18n.load("en_us");
     }
 
     @Test
     void emeraldHopperReplacesOldIdWithoutMigrationAlias() {
-        assertNotNull(Registries.BLOCK.get(Identifier.of("skyengine:emerald_hopper")));
-        assertNotNull(Registries.ITEM.get(Identifier.of("skyengine:emerald_hopper")));
-        assertNull(Registries.BLOCK.get(Identifier.of("skyengine:netherite_hopper")));
-        assertNull(Registries.ITEM.get(Identifier.of("skyengine:netherite_hopper")));
-        assertNull(BlockStateCodec.decode("skyengine:netherite_hopper[facing=down,enabled=true]"));
+        assertNotNull(Registries.BLOCK.get(Identifier.of("voxelstories:emerald_hopper")));
+        assertNotNull(Registries.ITEM.get(Identifier.of("voxelstories:emerald_hopper")));
+        assertNull(Registries.BLOCK.get(Identifier.of("voxelstories:netherite_hopper")));
+        assertNull(Registries.ITEM.get(Identifier.of("voxelstories:netherite_hopper")));
+        assertNull(BlockStateCodec.decode("voxelstories:netherite_hopper[facing=down,enabled=true]"));
     }
 
     private static boolean hasCullFace(BakedQuad[] quads, int face) {
@@ -267,6 +267,6 @@ final class BedRenderingTest {
     }
 
     private static Block block(String path) {
-        return Registries.BLOCK.get(Identifier.of("skyengine:" + path));
+        return Registries.BLOCK.get(Identifier.of("voxelstories:" + path));
     }
 }

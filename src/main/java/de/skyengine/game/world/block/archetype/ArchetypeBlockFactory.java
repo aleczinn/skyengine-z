@@ -180,7 +180,7 @@ public final class ArchetypeBlockFactory {
             }
             builder.craftingGrid(def.crafting_grid[0], def.crafting_grid[1],
                     Identifier.of(def.crafting_recipe_type == null
-                            ? "skyengine:crafting" : def.crafting_recipe_type));
+                            ? "crafting" : def.crafting_recipe_type));
         }
 
         /* Sound-Gruppe: explizites JSON-Feld oder Ableitung aus Tool/Archetyp. */

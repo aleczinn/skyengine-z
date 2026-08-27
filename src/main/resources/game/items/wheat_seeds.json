@@ -1,1 +1,1 @@
-{ "id": "skyengine:wheat_seeds", "parent": "preset/material", "creative_tab": "natural" }
+{ "id": "wheat_seeds", "parent": "preset/material", "creative_tab": "natural" }

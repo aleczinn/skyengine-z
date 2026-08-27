@@ -1,20 +1,20 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
-          "name": "skyengine:oak_button"
+          "type": "item",
+          "name": "oak_button"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/oak_button"
+  "random_sequence": "blocks/oak_button"
 }

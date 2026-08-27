@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:sand",
+  "id": "sand",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "sound": "sand",

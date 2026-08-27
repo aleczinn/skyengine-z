@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:cobblestone_stairs",
+  "id": "cobblestone_stairs",
   "parent": "preset/stairs",
   "vars": {
     "texture": "cobblestone"

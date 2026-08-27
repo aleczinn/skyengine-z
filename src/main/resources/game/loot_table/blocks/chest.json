@@ -1,29 +1,29 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
+          "type": "item",
           "functions": [
             {
-              "function": "skyengine:copy_components",
+              "function": "copy_components",
               "include": [
-                "skyengine:custom_name"
+                "custom_name"
               ],
               "source": "block_entity"
             }
           ],
-          "name": "skyengine:chest"
+          "name": "chest"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/chest"
+  "random_sequence": "blocks/chest"
 }

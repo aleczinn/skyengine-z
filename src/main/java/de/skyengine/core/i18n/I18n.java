@@ -79,18 +79,7 @@ public final class I18n {
     private static String lookup(String key) {
         String value = active.get(key);
         if (value == null) value = fallback.get(key);
-        if (value != null) return value;
-        String marker = "." + SkyEngine.GAME_PREFIX + ".";
-        int namespace = key.indexOf(marker);
-        if (namespace < 0) return null;
-        for (String legacy : SkyEngine.LEGACY_GAME_PREFIXES) {
-            String legacyKey = key.substring(0, namespace) + "." + legacy + "."
-                    + key.substring(namespace + marker.length());
-            value = active.get(legacyKey);
-            if (value == null) value = fallback.get(legacyKey);
-            if (value != null) return value;
-        }
-        return null;
+        return value;
     }
 
     /** Alle anlegbaren Sprachen (eine JSON-Datei = eine Sprache), Name immer nativ. */
@@ -131,7 +120,8 @@ public final class I18n {
     /** Flacht die verschachtelte Struktur zu Punkt-Keys ab ({@code gui.done} usw.). */
     private static void flatten(String prefix, JsonObject obj, Map<String, String> out) {
         for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
-            String key = prefix.isEmpty() ? entry.getKey() : prefix + "." + entry.getKey();
+            String segment = entry.getKey().replace("${game}", SkyEngine.GAME_PREFIX);
+            String key = prefix.isEmpty() ? segment : prefix + "." + segment;
             if (entry.getValue().isJsonObject()) {
                 flatten(key, entry.getValue().getAsJsonObject(), out);
             } else {

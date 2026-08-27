@@ -1,21 +1,21 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "entries": [
         {
-          "type": "skyengine:alternatives",
+          "type": "alternatives",
           "children": [
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:match_tool",
+                  "condition": "match_tool",
                   "predicate": {
                     "predicates": {
-                      "skyengine:enchantments": [
+                      "enchantments": [
                         {
-                          "enchantments": "skyengine:silk_touch",
+                          "enchantments": "silk_touch",
                           "levels": {
                             "min": 1
                           }
@@ -25,13 +25,13 @@
                   }
                 }
               ],
-              "name": "skyengine:gravel"
+              "name": "gravel"
             },
             {
-              "type": "skyengine:alternatives",
+              "type": "alternatives",
               "children": [
                 {
-                  "type": "skyengine:item",
+                  "type": "item",
                   "conditions": [
                     {
                       "chances": [
@@ -40,20 +40,20 @@
                         0.25,
                         1.0
                       ],
-                      "condition": "skyengine:table_bonus",
-                      "enchantment": "skyengine:fortune"
+                      "condition": "table_bonus",
+                      "enchantment": "fortune"
                     }
                   ],
-                  "name": "skyengine:flint"
+                  "name": "flint"
                 },
                 {
-                  "type": "skyengine:item",
-                  "name": "skyengine:gravel"
+                  "type": "item",
+                  "name": "gravel"
                 }
               ],
               "conditions": [
                 {
-                  "condition": "skyengine:survives_explosion"
+                  "condition": "survives_explosion"
                 }
               ]
             }
@@ -63,5 +63,5 @@
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/gravel"
+  "random_sequence": "blocks/gravel"
 }

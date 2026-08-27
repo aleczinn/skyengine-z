@@ -183,7 +183,7 @@ final class WorldDeferredStateUpdateTest {
             LevelData level = new LevelData();
             level.name = "deferred-state-update-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

@@ -1,5 +1,8 @@
 { "replace": false, "values": [
-  "skyengine:oak_log", "skyengine:birch_log", "skyengine:spruce_log",
-  "skyengine:dark_oak_log", "skyengine:acacia_log", "skyengine:jungle_log",
-  "skyengine:mangrove_log", "skyengine:pale_oak_log"
+  "oak_log", "birch_log", "spruce_log",
+  "dark_oak_log", "acacia_log", "jungle_log",
+  "mangrove_log", "pale_oak_log", "spruce_wood",
+  "stripped_birch_log", "stripped_spruce_log", "stripped_dark_oak_log",
+  "stripped_acacia_log", "stripped_jungle_log", "stripped_mangrove_log",
+  "stripped_pale_oak_log"
 ] }

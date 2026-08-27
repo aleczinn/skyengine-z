@@ -1,20 +1,20 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
-          "name": "skyengine:mangrove_stairs"
+          "type": "item",
+          "name": "mangrove_stairs"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/mangrove_stairs"
+  "random_sequence": "blocks/mangrove_stairs"
 }

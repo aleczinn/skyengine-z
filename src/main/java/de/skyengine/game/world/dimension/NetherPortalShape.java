@@ -40,7 +40,7 @@ public final class NetherPortalShape {
     public static boolean activate(Dimension world, int x, int y, int z) {
         Shape shape = find(world, x, y, z, false);
         if (shape == null) return false;
-        Identifier type = Identifier.of("skyengine:nether_portal");
+        Identifier type = Identifier.of("nether_portal");
         BlockState portal = Blocks.getState(Blocks.NETHER_PORTAL)
                 .with(Properties.HORIZONTAL_AXIS, shape.axis);
         List<Cell> written = new ArrayList<>(shape.width * shape.height);
@@ -115,7 +115,7 @@ public final class NetherPortalShape {
            UUID reaktiviert werden. Ob der Rahmen selbst zerstoert ist, entscheidet der
            onRemoved-Hook nach dem Blockwechsel und loest dann gegebenenfalls auch den Link. */
         world.getPortalIndex().deactivateContaining(
-                Identifier.of("skyengine:nether_portal"), x, y, z);
+                Identifier.of("nether_portal"), x, y, z);
         int width = axis == Direction.Axis.X ? maxX - minX + 1 : maxZ - minZ + 1;
         return new Collapse(axis, (minX + maxX + 1) * 0.5, (minY + maxY + 1) * 0.5,
                 (minZ + maxZ + 1) * 0.5, width, maxY - minY + 1, cells.size());

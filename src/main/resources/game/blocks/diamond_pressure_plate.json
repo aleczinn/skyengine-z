@@ -1,6 +1,6 @@
 {
   "_comment": "Eigener Block (kein Vanilla): reagiert NUR auf feindliche Mobs. Der Filter hostile_mob ist reserviert und matcht nichts, solange die Engine keine Mobs hat - die Platte funktioniert automatisch, sobald sie existieren (EntityFilters).",
-  "id": "skyengine:diamond_pressure_plate",
+  "id": "diamond_pressure_plate",
   "parent": "preset/pressure_plate",
   "press_ticks": 20,
   "sound": "stone",

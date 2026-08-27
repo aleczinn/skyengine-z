@@ -1,9 +1,9 @@
 {
-  "type": "skyengine:crafting_shaped",
+  "type": "crafting_shaped",
   "pattern": ["C", "S"],
   "key": {
-    "C": { "tag": "skyengine:coals" },
-    "S": { "item": "skyengine:stick" }
+    "C": { "tag": "coals" },
+    "S": { "item": "stick" }
   },
-  "result": { "id": "skyengine:torch", "count": 4 }
+  "result": { "id": "torch", "count": 4 }
 }

@@ -23,29 +23,29 @@ public final class BlockMapperTest {
 
         /* half-Werte: MC lower/upper -> Engine bottom/top (Codec fiele sonst LAUTLOS auf Default). */
         check(mapper, "minecraft:oak_door", Map.of("facing", "east", "half", "upper", "hinge", "left", "open", "false"),
-                "skyengine:oak_door[facing=east,half=top,hinge=left,open=false]");
+                "oak_door[facing=east,half=top,hinge=left,open=false]");
         check(mapper, "minecraft:oak_door", Map.of("facing", "north", "half", "lower", "hinge", "right", "open", "true"),
-                "skyengine:oak_door[facing=north,half=bottom,hinge=right,open=true]");
-        check(mapper, "minecraft:tall_grass", Map.of("half", "upper"), "skyengine:tall_grass[half=top]");
+                "oak_door[facing=north,half=bottom,hinge=right,open=true]");
+        check(mapper, "minecraft:tall_grass", Map.of("half", "upper"), "tall_grass[half=top]");
         /* Treppen nutzen in BEIDEN Welten top/bottom — dürfen vom Remap unberührt bleiben. */
         check(mapper, "minecraft:stone_stairs", Map.of("facing", "east", "half", "top", "shape", "straight"),
-                "skyengine:stone_stairs[facing=east,half=top,shape=straight]");
+                "stone_stairs[facing=east,half=top,shape=straight]");
 
         /* Fluide: MC level>=8 = fallend -> Engine FALLING-Property. */
-        check(mapper, "minecraft:water", Map.of("level", "0"), "skyengine:water[falling=false,level=0]");
-        check(mapper, "minecraft:water", Map.of("level", "3"), "skyengine:water[falling=false,level=3]");
-        check(mapper, "minecraft:water", Map.of("level", "9"), "skyengine:water[falling=true,level=0]");
-        check(mapper, "minecraft:lava", Map.of("level", "10"), "skyengine:lava[falling=true,level=0]");
+        check(mapper, "minecraft:water", Map.of("level", "0"), "water[falling=false,level=0]");
+        check(mapper, "minecraft:water", Map.of("level", "3"), "water[falling=false,level=3]");
+        check(mapper, "minecraft:water", Map.of("level", "9"), "water[falling=true,level=0]");
+        check(mapper, "minecraft:lava", Map.of("level", "10"), "lava[falling=true,level=0]");
 
         /* Unbekannte Property-NAMEN verwirft der Codec (snowy/waterlogged/lit/distance). */
-        check(mapper, "minecraft:grass_block", Map.of("snowy", "true"), "skyengine:grass_block");
-        check(mapper, "minecraft:redstone_ore", Map.of("lit", "false"), "skyengine:redstone_ore");
+        check(mapper, "minecraft:grass_block", Map.of("snowy", "true"), "grass_block");
+        check(mapper, "minecraft:redstone_ore", Map.of("lit", "false"), "redstone_ore");
 
         /* Alias, Umbenennung, Identität, Luft-Familie. */
-        check(mapper, "minecraft:deepslate", Map.of("axis", "y"), "skyengine:stone");
-        check(mapper, "minecraft:grass", Map.of(), "skyengine:short_grass");
-        check(mapper, "minecraft:seagrass", Map.of(), "skyengine:water[falling=false,level=0]");
-        check(mapper, "minecraft:stone", Map.of(), "skyengine:stone");
+        check(mapper, "minecraft:deepslate", Map.of("axis", "y"), "stone");
+        check(mapper, "minecraft:grass", Map.of(), "short_grass");
+        check(mapper, "minecraft:seagrass", Map.of(), "water[falling=false,level=0]");
+        check(mapper, "minecraft:stone", Map.of(), "stone");
         checkAir(mapper, "minecraft:cave_air", true);
 
         /* Unbekannt -> Luft + isKnown false (Basis des Unknown-Block-Reports). */

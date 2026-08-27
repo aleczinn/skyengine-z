@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:oak_leaves",
+  "id": "oak_leaves",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "sound": "grass",

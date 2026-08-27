@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:oak_trapdoor",
+  "id": "oak_trapdoor",
   "parent": "preset/trapdoor",
   "creative_tab": ["building_blocks", "functional", "redstone_blocks"]
 }

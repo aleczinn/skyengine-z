@@ -52,40 +52,35 @@ final class StructureTemplateManagerTest {
         assertTrue(manager.ids().isEmpty());
         assertTrue(manager.references().isEmpty());
 
-        Identifier id = Identifier.of("skyengine:trees/oak/oak_1");
+        Identifier id = Identifier.of("voxelstories:trees/oak/oak_1");
         manager.saveAuthored(template(id, Blocks.STONE), false);
         assertEquals(List.of("trees/oak/oak_1.structure"), manager.references());
         assertEquals(id, manager.get("trees/oak/oak_1.structure").id());
-        assertEquals(id, manager.get("skyengine:trees/oak/oak_1").id());
+        assertEquals(id, manager.get("voxelstories:trees/oak/oak_1").id());
     }
 
     @Test
-    void defaultInstallerIsMarkerlessAndNeverOverwrites(@TempDir Path temp) throws Exception {
+    void defaultInstallerNeverOverwrites(@TempDir Path temp) throws Exception {
         Path structures = temp.resolve("structures");
         Files.createDirectories(structures);
-        Files.writeString(structures.resolve(".default-structure-v1"), "version=1");
-        Files.writeString(structures.resolve(".default-structures-v1"), "version=1");
         DefaultStructureInstaller.install(structures);
         Path installed = structures.resolve("trees/spruce/big_spruce_3.structure");
         assertTrue(Files.isRegularFile(installed));
-        assertFalse(Files.exists(structures.resolve(".default-structure-v1")));
-        assertFalse(Files.exists(structures.resolve(".default-structures-v1")));
 
         byte[] custom = {1, 2, 3, 4};
         Files.write(installed, custom);
         DefaultStructureInstaller.install(structures);
         assertArrayEquals(custom, Files.readAllBytes(installed));
-        assertFalse(Files.exists(structures.resolve(".default-structures-v1")));
     }
 
     @Test
     void editorSelectionCanBeClearedWithoutDiscardingLoadedClipboard(@TempDir Path temp) throws Exception {
         StructureTemplateManager manager = new StructureTemplateManager(temp.resolve("structures"), temp.toFile());
-        manager.saveAuthored(template(Identifier.of("skyengine:test/clipboard"), Blocks.STONE), false);
+        manager.saveAuthored(template(Identifier.of("voxelstories:test/clipboard"), Blocks.STONE), false);
         WorldEditSession editor = new WorldEditService(manager).session(UUID.randomUUID());
         editor.load("test/clipboard");
-        editor.pos1(Identifier.of("skyengine:overworld"), 1, 2, 3);
-        editor.pos2(Identifier.of("skyengine:overworld"), 4, 5, 6);
+        editor.pos1(Identifier.of("voxelstories:overworld"), 1, 2, 3);
+        editor.pos2(Identifier.of("voxelstories:overworld"), 4, 5, 6);
 
         editor.clearSelection();
 
@@ -96,8 +91,8 @@ final class StructureTemplateManagerTest {
     @Test
     void clipboardsAndTransformsAreIsolatedPerPlayer(@TempDir Path temp) throws Exception {
         StructureTemplateManager manager = new StructureTemplateManager(temp.resolve("structures"), temp.toFile());
-        manager.saveAuthored(template(Identifier.of("skyengine:test/one"), Blocks.STONE), false);
-        manager.saveAuthored(template(Identifier.of("skyengine:test/two"), Blocks.DIRT), false);
+        manager.saveAuthored(template(Identifier.of("voxelstories:test/one"), Blocks.STONE), false);
+        manager.saveAuthored(template(Identifier.of("voxelstories:test/two"), Blocks.DIRT), false);
         WorldEditService service = new WorldEditService(manager);
         WorldEditSession first = service.session(UUID.randomUUID());
         WorldEditSession second = service.session(UUID.randomUUID());

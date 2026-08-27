@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:acacia_fence",
+  "id": "acacia_fence",
   "parent": "preset/fence",
   "vars": {
     "texture": "acacia_planks"

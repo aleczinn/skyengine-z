@@ -1,12 +1,12 @@
 {
-  "id": "skyengine:cactus",
+  "id": "cactus",
   "creative_tab": "natural",
   "sound": "cloth",
   "type": "custom",
   "layer": "cutout",
   "hardness": 0.4,
   "opaque": false,
-  "place_on": ["skyengine:sand", "skyengine:cactus"],
+  "place_on": ["sand", "cactus"],
   "textures": {
     "side": "game/textures/block/cactus_side.png"
   },

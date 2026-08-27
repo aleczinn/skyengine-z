@@ -1,20 +1,20 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
-          "name": "skyengine:honey_block"
+          "type": "item",
+          "name": "honey_block"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/honey_block"
+  "random_sequence": "blocks/honey_block"
 }

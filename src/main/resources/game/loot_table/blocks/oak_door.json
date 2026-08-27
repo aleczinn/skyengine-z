@@ -1,29 +1,29 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
+          "type": "item",
           "conditions": [
             {
-              "block": "skyengine:oak_door",
-              "condition": "skyengine:block_state_property",
+              "block": "oak_door",
+              "condition": "block_state_property",
               "properties": {
                 "half": "lower"
               }
             }
           ],
-          "name": "skyengine:oak_door"
+          "name": "oak_door"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/oak_door"
+  "random_sequence": "blocks/oak_door"
 }

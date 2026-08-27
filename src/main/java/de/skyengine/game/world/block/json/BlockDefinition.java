@@ -135,7 +135,7 @@ public class BlockDefinition {
     public int redstone_power = 0;
 
     /* true: KEIN Auto-BlockItem für diesen Block — ein Material-Item mit "places_block"
-       übernimmt stattdessen (Redstone-Staub: das Item skyengine:redstone platziert den Block).
+       übernimmt stattdessen (Redstone-Staub: das Item redstone platziert den Block).
        Pick-Block läuft über Items.forBlock; Drops werden separat durch Loot-Tabellen bestimmt. */
     public boolean no_item = false;
 
@@ -180,7 +180,7 @@ public class BlockDefinition {
        die x-Breite die Kollisions-Balkenbreite und ist daher Pflicht. */
     public ModelElements.ModelBox post;
 
-    /* Optionaler BlockEntityType-Identifier (z.B. "skyengine:furnace") für „lebende" Blöcke. */
+    /* Optionaler BlockEntityType-Identifier (z.B. "furnace") für „lebende" Blöcke. */
     public String block_entity;
 
     /* Optionales temporaeres Crafting-Raster; beide Werte muessen gemeinsam 1..9 sein. */

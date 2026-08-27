@@ -88,7 +88,7 @@ final class RedstoneWireBehaviorTest {
     }
 
     private static BlockState state(String path) {
-        var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
+        var block = BlockRegistry.get(Identifier.of("voxelstories:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
         return block.getDefaultState();
     }
@@ -141,7 +141,7 @@ final class RedstoneWireBehaviorTest {
             LevelData level = new LevelData();
             level.name = "redstone-wire-behavior-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

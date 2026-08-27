@@ -12,7 +12,7 @@
   "tabs": [
     {
       "id": "building_blocks",
-      "icon": "skyengine:bricks",
+      "icon": "bricks",
       "items": [
         { "for": "wood", "items": [
             "{wood}_log", "{wood}_wood", "stripped_{wood}_log", "{wood}_planks",
@@ -36,7 +36,7 @@
     },
     {
       "id": "colored_blocks",
-      "icon": "skyengine:cyan_wool",
+      "icon": "cyan_wool",
       "items": [
         "{color}_wool", "{color}_carpet", "{color}_terracotta", "{color}_bed",
         "glass", "{color}_stained_glass",
@@ -45,7 +45,7 @@
     },
     {
       "id": "natural",
-      "icon": "skyengine:grass_block",
+      "icon": "grass_block",
       "items": [
         "grass_block", "podzol", "dirt_path", "dirt", "coarse_dirt", "rooted_dirt",
         "mud", "muddy_mangrove_roots", "clay", "gravel", "sand",
@@ -71,7 +71,7 @@
     },
     {
       "id": "functional",
-      "icon": "skyengine:torch",
+      "icon": "torch",
       "items": [
         "crafting_table", "furnace", "chest", "enchanting_table", "item_frame",
         "{wood}_door", "iron_door",
@@ -82,7 +82,7 @@
     },
     {
       "id": "redstone_blocks",
-      "icon": "skyengine:redstone",
+      "icon": "redstone",
       "items": [
         "redstone_ore", "redstone", "redstone_torch", "redstone_block",
         "repeater", "comparator",
@@ -102,7 +102,7 @@
     },
     {
       "id": "tools",
-      "icon": "skyengine:iron_pickaxe",
+      "icon": "iron_pickaxe",
       "items": [
         { "for": "tier", "items": [
             "{tier}_pickaxe", "{tier}_axe", "{tier}_shovel", "{tier}_sword"
@@ -113,12 +113,12 @@
     },
     {
       "id": "food",
-      "icon": "skyengine:apple",
+      "icon": "apple",
       "items": ["apple", "bread", "melon_slice"]
     },
     {
       "id": "ingredients",
-      "icon": "skyengine:iron_ingot",
+      "icon": "iron_ingot",
       "items": [
         "stick", "coal", "charcoal",
         "raw_iron", "raw_copper", "raw_gold",
@@ -127,8 +127,8 @@
         "flint", "clay_ball", "brick", "paper", "leather"
       ]
     },
-    { "id": "misc",      "icon": "skyengine:flint" },
-    { "id": "search",    "icon": "skyengine:flint", "type": "search" },
-    { "id": "inventory", "icon": "skyengine:chest", "type": "inventory" }
+    { "id": "misc",      "icon": "flint" },
+    { "id": "search",    "icon": "flint", "type": "search" },
+    { "id": "inventory", "icon": "chest", "type": "inventory" }
   ]
 }

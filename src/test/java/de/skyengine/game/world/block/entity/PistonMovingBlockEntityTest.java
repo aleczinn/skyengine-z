@@ -117,7 +117,7 @@ final class PistonMovingBlockEntityTest {
     }
 
     private static BlockState state(String path) {
-        var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
+        var block = BlockRegistry.get(Identifier.of("voxelstories:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
         return block.getDefaultState();
     }
@@ -167,7 +167,7 @@ final class PistonMovingBlockEntityTest {
             LevelData level = new LevelData();
             level.name = "piston-moving-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

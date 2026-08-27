@@ -16,13 +16,13 @@ import java.util.Map;
 /** Eingebaute und erweiterbare Dimension-/Generatorregistries. */
 public final class WorldgenRegistries {
 
-    public static final Identifier OVERWORLD = Identifier.of("skyengine:overworld");
-    public static final Identifier MINING = Identifier.of("skyengine:mining");
-    public static final Identifier NETHER = Identifier.of("skyengine:nether");
-    public static final Identifier ALPHA_V2 = Identifier.of("skyengine:alpha_v2");
-    public static final Identifier MINING_FLAT_V1 = Identifier.of("skyengine:mining_flat_v1");
-    public static final Identifier NETHER_V1 = Identifier.of("skyengine:nether_v1");
-    public static final Identifier MINECRAFT_IMPORT = Identifier.of("skyengine:minecraft_import");
+    public static final Identifier OVERWORLD = Identifier.of("overworld");
+    public static final Identifier MINING = Identifier.of("mining");
+    public static final Identifier NETHER = Identifier.of("nether");
+    public static final Identifier ALPHA_V2 = Identifier.of("alpha_v2");
+    public static final Identifier MINING_FLAT_V1 = Identifier.of("mining_flat_v1");
+    public static final Identifier NETHER_V1 = Identifier.of("nether_v1");
+    public static final Identifier MINECRAFT_IMPORT = Identifier.of("minecraft_import");
 
     public static final Registry<GeneratorDefinition> GENERATORS = new Registry<>("world_generator");
     public static final Registry<DimensionDefinition> DIMENSIONS = new Registry<>("dimension");
@@ -53,12 +53,12 @@ public final class WorldgenRegistries {
         registerDimension(new DimensionDefinition(MINING, MINING_FLAT_V1, 0x4D494E45, true));
         registerDimension(new DimensionDefinition(NETHER, NETHER_V1, 0x4E455448, false,
                 DimensionEnvironment.NETHER));
-        PortalDefinition miningPortal = new PortalDefinition(Identifier.of("skyengine:mining_portal"),
-                Identifier.of("skyengine:mining_portal"), Map.of(OVERWORLD, MINING, MINING, OVERWORLD),
+        PortalDefinition miningPortal = new PortalDefinition(Identifier.of("mining_portal"),
+                Identifier.of("mining_portal"), Map.of(OVERWORLD, MINING, MINING, OVERWORLD),
                 PortalDefinition.Activation.USE);
         registerPortal(miningPortal);
-        PortalDefinition netherPortal = new PortalDefinition(Identifier.of("skyengine:nether_portal"),
-                Identifier.of("skyengine:nether_portal"), Map.of(OVERWORLD, NETHER, NETHER, OVERWORLD),
+        PortalDefinition netherPortal = new PortalDefinition(Identifier.of("nether_portal"),
+                Identifier.of("nether_portal"), Map.of(OVERWORLD, NETHER, NETHER, OVERWORLD),
                 PortalDefinition.Activation.CONTACT, 80, 1, PortalDefinition.LinkPolicy.NETHER);
         registerPortal(netherPortal);
     }

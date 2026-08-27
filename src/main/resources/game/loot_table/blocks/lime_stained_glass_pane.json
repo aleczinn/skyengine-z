@@ -1,20 +1,20 @@
-﻿{
-  "type": "skyengine:block",
+{
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
-          "name": "skyengine:lime_stained_glass_pane"
+          "type": "item",
+          "name": "lime_stained_glass_pane"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/lime_stained_glass_pane"
+  "random_sequence": "blocks/lime_stained_glass_pane"
 }

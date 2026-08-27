@@ -1,6 +1,6 @@
 {
-  "id": "skyengine:redstone",
+  "id": "redstone",
   "parent": "preset/material",
   "creative_tab": ["ingredients", "redstone_blocks"],
-  "places_block": "skyengine:redstone_wire"
+  "places_block": "redstone_wire"
 }

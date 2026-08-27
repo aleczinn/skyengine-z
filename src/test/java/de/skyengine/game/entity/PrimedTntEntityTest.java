@@ -110,7 +110,7 @@ class PrimedTntEntityTest {
             LevelData level = new LevelData();
             level.name = "primed-tnt-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

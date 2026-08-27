@@ -22,7 +22,7 @@ final class ItemFrameEntityTest {
     @Test
     void analogOutputRunsFromOneThroughEightAndWraps() {
         ItemFrameEntity frame = new ItemFrameEntity(1, 64, 2, Direction.NORTH);
-        frame.loadContent(new ItemStack(Items.get(Identifier.of("skyengine:stone")), 1), 0);
+        frame.loadContent(new ItemStack(Items.get(Identifier.of("voxelstories:stone")), 1), 0);
 
         assertEquals(1, frame.getAnalogOutput());
         for (int rotation = 1; rotation < 8; rotation++) {

@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:mangrove_log",
+  "id": "mangrove_log",
   "parent": "preset/pillar",
   "hardness": 2,
   "tool": "axe"

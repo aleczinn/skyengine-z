@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:tuff",
+  "id": "tuff",
   "parent": "preset/cube",
   "hardness": 1.5,
   "resistance": 6,

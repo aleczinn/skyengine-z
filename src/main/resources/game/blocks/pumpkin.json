@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:pumpkin",
+  "id": "pumpkin",
   "creative_tab": "natural",
   "parent": "preset/cube_bottom_top",
   "vars": {

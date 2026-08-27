@@ -7,11 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 final class IdentifierMigrationTest {
     @Test
-    void gameAndLegacyNamespacesCanonicalizeWithoutTouchingForeignContent() {
-        assertEquals("voxel_stories", SkyEngine.GAME_PREFIX);
-        assertEquals("voxel_stories:stone", Identifier.of("stone").toString());
-        assertEquals("voxel_stories:stone", Identifier.of("skyengine:stone").toString());
-        assertEquals("voxel_stories:stone", new Identifier("skyengine", "stone").toString());
+    void defaultNamespaceComesFromGamePrefixWithoutLegacyCanonicalization() {
+        assertEquals("voxelstories", SkyEngine.GAME_PREFIX);
+        assertEquals("voxelstories:stone", Identifier.of("stone").toString());
+        assertEquals("voxelstories:stone", Identifier.of("voxelstories:stone").toString());
+        assertEquals("skyengine:stone", new Identifier("skyengine", "stone").toString());
         assertEquals("example:stone", Identifier.of("example:stone").toString());
     }
 }

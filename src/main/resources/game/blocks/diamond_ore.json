@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:diamond_ore",
+  "id": "diamond_ore",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 3,

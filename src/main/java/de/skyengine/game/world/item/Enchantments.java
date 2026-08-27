@@ -10,8 +10,8 @@ public final class Enchantments {
 
     private static final Map<Identifier, Enchantment> VALUES = new LinkedHashMap<>();
 
-    public static final Enchantment SILK_TOUCH = register("skyengine:silk_touch", 1);
-    public static final Enchantment FORTUNE = register("skyengine:fortune", 3);
+    public static final Enchantment SILK_TOUCH = register("silk_touch", 1);
+    public static final Enchantment FORTUNE = register("fortune", 3);
 
     private static Enchantment register(String id, int maxLevel) {
         Enchantment enchantment = new Enchantment(Identifier.of(id), maxLevel);

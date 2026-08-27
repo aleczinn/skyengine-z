@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:birch_stairs",
+  "id": "birch_stairs",
   "parent": "preset/stairs",
   "vars": {
     "texture": "birch_planks"

@@ -113,7 +113,7 @@ final class RedstoneTorchBehaviorTest {
     }
 
     private static BlockState state(String path) {
-        var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
+        var block = BlockRegistry.get(Identifier.of("voxelstories:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
         return block.getDefaultState();
     }
@@ -204,7 +204,7 @@ final class RedstoneTorchBehaviorTest {
             LevelData level = new LevelData();
             level.name = "redstone-torch-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

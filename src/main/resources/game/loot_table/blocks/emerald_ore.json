@@ -1,21 +1,21 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "entries": [
         {
-          "type": "skyengine:alternatives",
+          "type": "alternatives",
           "children": [
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:match_tool",
+                  "condition": "match_tool",
                   "predicate": {
                     "predicates": {
-                      "skyengine:enchantments": [
+                      "enchantments": [
                         {
-                          "enchantments": "skyengine:silk_touch",
+                          "enchantments": "silk_touch",
                           "levels": {
                             "min": 1
                           }
@@ -25,21 +25,21 @@
                   }
                 }
               ],
-              "name": "skyengine:emerald_ore"
+              "name": "emerald_ore"
             },
             {
-              "type": "skyengine:item",
+              "type": "item",
               "functions": [
                 {
-                  "enchantment": "skyengine:fortune",
-                  "formula": "skyengine:ore_drops",
-                  "function": "skyengine:apply_bonus"
+                  "enchantment": "fortune",
+                  "formula": "ore_drops",
+                  "function": "apply_bonus"
                 },
                 {
-                  "function": "skyengine:explosion_decay"
+                  "function": "explosion_decay"
                 }
               ],
-              "name": "skyengine:emerald"
+              "name": "emerald"
             }
           ]
         }
@@ -47,5 +47,5 @@
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/emerald_ore"
+  "random_sequence": "blocks/emerald_ore"
 }

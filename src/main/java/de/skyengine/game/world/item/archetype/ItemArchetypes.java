@@ -73,7 +73,7 @@ public final class ItemArchetypes {
 
     private static Block resolveBlock(String value, Identifier itemId, String field) {
         if (value == null || value.isBlank()) return null;
-        Block block = Registries.BLOCK.get(Identifier.of(value));
+        Block block = Registries.BLOCK.get(Identifier.of(value, itemId.namespace()));
         if (block == null) throw new IllegalArgumentException(field + " unbekannt bei " + itemId + ": " + value);
         return block;
     }

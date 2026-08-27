@@ -1,6 +1,6 @@
 {
   "_comment": "Klebriger Kolben: wie piston, Stirn- und Inventar-Top-Textur sind die Schleim-Variante.",
-  "id": "skyengine:sticky_piston",
+  "id": "sticky_piston",
   "creative_tab": "redstone_blocks",
   "archetype": "sticky_piston",
   "hardness": 1.5,

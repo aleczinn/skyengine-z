@@ -154,15 +154,15 @@ final class DispenserBlockEntityTest {
     }
 
     private static ItemStack stone(int count) {
-        return new ItemStack(Items.get(Identifier.of("skyengine:stone")), count);
+        return new ItemStack(Items.get(Identifier.of("voxelstories:stone")), count);
     }
 
     private static ItemStack tnt(int count) {
-        return new ItemStack(Items.get(Identifier.of("skyengine:tnt")), count);
+        return new ItemStack(Items.get(Identifier.of("voxelstories:tnt")), count);
     }
 
     private static BlockState state(String path) {
-        return BlockRegistry.get(Identifier.of("skyengine:" + path)).getDefaultState();
+        return BlockRegistry.get(Identifier.of("voxelstories:" + path)).getDefaultState();
     }
 
     private static final class TestWorld extends Dimension {
@@ -248,7 +248,7 @@ final class DispenserBlockEntityTest {
             LevelData level = new LevelData();
             level.name = "dispenser-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

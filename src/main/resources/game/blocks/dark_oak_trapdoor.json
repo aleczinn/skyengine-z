@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:dark_oak_trapdoor",
+  "id": "dark_oak_trapdoor",
   "parent": "preset/trapdoor",
   "creative_tab": ["building_blocks", "functional"]
 }

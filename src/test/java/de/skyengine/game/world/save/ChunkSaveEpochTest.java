@@ -55,7 +55,7 @@ final class ChunkSaveEpochTest {
         ChestBlockEntity chest = (ChestBlockEntity) BlockEntities.CHEST.create(
                 new BlockPos(chunk.chunkX * 32 + 2, 64, chunk.chunkZ * 32 + 2),
                 Blocks.getState(Blocks.CHEST));
-        chest.getInventory().set(0, new ItemStack(Items.get(Identifier.of("skyengine:stone")), 1));
+        chest.getInventory().set(0, new ItemStack(Items.get(Identifier.of("voxelstories:stone")), 1));
         chunk.setBlockEntity(2, 64, 2, chest);
         chunk.grassTintCorners = new int[33 * 33];
         chunk.foliageTintCorners = new int[33 * 33];

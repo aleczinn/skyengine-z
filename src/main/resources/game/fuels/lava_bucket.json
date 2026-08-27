@@ -1,0 +1,5 @@
+{
+  "fuel_type": "solid_fuel",
+  "ingredient": "lava_bucket",
+  "burn_time": 20000
+}

@@ -434,12 +434,7 @@ public class GameContainer implements IResizeable, IDisposable {
 
         LevelData level = this.currentSave().level();
         level.lastPlayed = System.currentTimeMillis();
-        /* Save-Layout-Defaults für Alt-Welten nachziehen; die alten Spieler-Felder werden
-           genullt — die Migration nach player.dat ist damit abgeschlossen. */
-        level.formatVersion = 3;
-        if (level.worldType == null) level.worldType = "default";
-        level.player = null;
-        level.inventory.clear();
+        level.formatVersion = WorldSaves.CURRENT_FORMAT_VERSION;
         this.player().setDimensionId(this.dimension().getDimensionId());
         int chunks = this.world().saveModifiedChunks(materializeFalling);
         this.logger.info("Welt gespeichert: " + this.currentSave().dirName() + " (" + chunks + " Chunks)");
@@ -679,7 +674,7 @@ public class GameContainer implements IResizeable, IDisposable {
             return;
         }
 
-        boolean miningPortal = Identifier.of("skyengine:mining_portal").equals(arrival.portalType);
+        boolean miningPortal = Identifier.of("mining_portal").equals(arrival.portalType);
         boolean createMiningArrival = shouldCreateMiningArrivalPlatform(arrival.portalType,
                 this.dimension().getDimensionId(), arrival.createReturnPortal);
         int portalY = miningPortal
@@ -716,7 +711,7 @@ public class GameContainer implements IResizeable, IDisposable {
                                                       Identifier targetDimension,
                                                       boolean createReturnPortal) {
         return createReturnPortal
-                && Identifier.of("skyengine:mining_portal").equals(portalType)
+                && Identifier.of("mining_portal").equals(portalType)
                 && WorldgenRegistries.MINING.equals(targetDimension);
     }
 
@@ -2140,7 +2135,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private void pickBlock() {
         if (this.player().getGamemode() != Gamemode.CREATIVE) return;
         if (this.minecartHit != null) {
-            Item item = Items.get(Identifier.of("skyengine:minecart"));
+            Item item = Items.get(Identifier.of("minecart"));
             if (item != null) this.player().getInventory().set(this.player().getSelectedSlot(), new ItemStack(item, 1));
             this.itemNameShownAt = System.currentTimeMillis();
             return;
@@ -2369,8 +2364,10 @@ public class GameContainer implements IResizeable, IDisposable {
             if (!state.isFluid() || state.get(Properties.FALLING) || state.get(Properties.LEVEL) != 0) return false;
             if (!this.dimension().runPlayerBlockChange(() ->
                     this.dimension().setBlock(fhit.x(), fhit.y(), fhit.z(), Blocks.AIR))) return false;
+            this.dimension().playBucketFill(fhit.x(), fhit.y(), fhit.z(),
+                    state.getBlock().getFluidInfo().lava);
             if (consume) {
-                String id = state.getBlock().getFluidInfo().lava ? "skyengine:lava_bucket" : "skyengine:water_bucket";
+                String id = state.getBlock().getFluidInfo().lava ? "lava_bucket" : "water_bucket";
                 this.consumeHeld(Items.get(Identifier.of(id)));
             }
             return true;
@@ -2385,7 +2382,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.dimension().getEnvironment().ultrawarm() && fluid.getFluidInfo() != null
                 && !fluid.getFluidInfo().lava) {
             this.dimension().playFluidExtinguish(t[0], t[1], t[2]);
-            if (consume) this.consumeHeld(Items.get(Identifier.of("skyengine:bucket")));
+            if (consume) this.consumeHeld(Items.get(Identifier.of("bucket")));
             return true;
         }
         int source = fluid.getDefaultState()
@@ -2393,7 +2390,8 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!this.dimension().runPlayerBlockChange(() ->
                 this.dimension().setBlock(t[0], t[1], t[2], source))) return false;
         this.dimension().scheduleTick(t[0], t[1], t[2], 1);
-        if (consume) this.consumeHeld(Items.get(Identifier.of("skyengine:bucket")));
+        this.dimension().playBucketEmpty(t[0], t[1], t[2], fluid.getFluidInfo().lava);
+        if (consume) this.consumeHeld(Items.get(Identifier.of("bucket")));
         return true;
     }
 
@@ -2789,7 +2787,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.player() == null) return false;
         ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         return !held.isEmpty() && held.getItem() != null
-                && held.getItem().getId().equals(Identifier.of("skyengine:structure_wand"));
+                && held.getItem().getId().equals(Identifier.of("structure_wand"));
     }
 
     /** Konsumiert Debug-Axt-Klicks, damit weder Abbau noch normale Blockinteraktion durchfallen. */
@@ -2821,7 +2819,7 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private String giveStructureWand() {
-        Item wand = Items.get(Identifier.of("skyengine:structure_wand"));
+        Item wand = Items.get(Identifier.of("structure_wand"));
         if (wand == null) throw new IllegalStateException(I18n.tr("command.worldedit.tool_not_registered"));
         for (int i = 0; i < this.player().getInventory().size(); i++) {
             ItemStack stack = this.player().getInventory().get(i);

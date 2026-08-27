@@ -1,8 +1,9 @@
 {
-  "id": "skyengine:lava_bucket",
+  "id": "lava_bucket",
   "archetype": "bucket",
   "max_stack": 1,
+  "crafting_remainder": "bucket",
   "texture": "game/textures/item/lava_bucket.png",
   "creative_tab": "tools",
-  "bucket": { "fluid": "skyengine:lava" }
+  "bucket": { "fluid": "lava" }
 }

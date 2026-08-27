@@ -1,20 +1,20 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
-          "name": "skyengine:light_weighted_pressure_plate"
+          "type": "item",
+          "name": "light_weighted_pressure_plate"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/light_weighted_pressure_plate"
+  "random_sequence": "blocks/light_weighted_pressure_plate"
 }

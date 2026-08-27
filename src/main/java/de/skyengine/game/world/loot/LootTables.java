@@ -104,7 +104,7 @@ public final class LootTables {
     }
 
     private static LootTable compile(JsonObject root, String source) {
-        requireType(root, "type", "skyengine:block", source);
+        requireType(root, "type", "block", source);
         JsonArray poolsJson = requireArray(root, "pools", source);
         Pool[] pools = new Pool[poolsJson.size()];
         for (int i = 0; i < pools.length; i++) pools[i] = compilePool(poolsJson.get(i).getAsJsonObject(), source);
@@ -130,12 +130,12 @@ public final class LootTables {
         Condition[] conditions = conditions(json, source);
         int weight = json.has("weight") ? json.get("weight").getAsInt() : 1;
         if (weight < 1) throw invalid(source, "weight muss positiv sein");
-        if (type.equals("skyengine:item")) {
+        if (type.equals("item")) {
             Item item = resolveItem(requireString(json, "name", source), source);
             Function[] functions = functions(json, source);
             return new ItemEntry(item, conditions, functions, weight);
         }
-        if (type.equals("skyengine:alternatives")) {
+        if (type.equals("alternatives")) {
             JsonArray childrenJson = requireArray(json, "children", source);
             Entry[] children = new Entry[childrenJson.size()];
             for (int i = 0; i < children.length; i++) children[i] = entry(childrenJson.get(i).getAsJsonObject(), source);
@@ -155,17 +155,17 @@ public final class LootTables {
     private static Condition condition(JsonObject json, String source) {
         String type = requireString(json, "condition", source);
         return switch (type) {
-            case "skyengine:survives_explosion" -> context -> !context.hasExplosionDecay()
+            case "survives_explosion" -> context -> !context.hasExplosionDecay()
                     || context.random().nextFloat() <= 1.0F / context.explosionRadius();
-            case "skyengine:random_chance" -> {
+            case "random_chance" -> {
                 float chance = json.get("chance").getAsFloat();
                 yield context -> context.random().nextFloat() < chance;
             }
-            case "skyengine:inverted" -> {
+            case "inverted" -> {
                 Condition term = condition(json.getAsJsonObject("term"), source);
                 yield context -> !term.test(context);
             }
-            case "skyengine:any_of" -> {
+            case "any_of" -> {
                 JsonArray termsJson = requireArray(json, "terms", source);
                 Condition[] terms = new Condition[termsJson.size()];
                 for (int i = 0; i < terms.length; i++) terms[i] = condition(termsJson.get(i).getAsJsonObject(), source);
@@ -174,7 +174,7 @@ public final class LootTables {
                     return false;
                 };
             }
-            case "skyengine:table_bonus" -> {
+            case "table_bonus" -> {
                 Enchantment enchantment = resolveEnchantment(requireString(json, "enchantment", source), source);
                 float[] chances = floats(requireArray(json, "chances", source));
                 yield context -> {
@@ -182,9 +182,9 @@ public final class LootTables {
                     return context.random().nextFloat() < chances[Math.min(level, chances.length - 1)];
                 };
             }
-            case "skyengine:match_tool" -> matchTool(json.getAsJsonObject("predicate"), source);
-            case "skyengine:block_state_property" -> blockStateCondition(json, source);
-            case "skyengine:entity_properties" -> {
+            case "match_tool" -> matchTool(json.getAsJsonObject("predicate"), source);
+            case "block_state_property" -> blockStateCondition(json, source);
+            case "entity_properties" -> {
                 JsonObject predicate = json.getAsJsonObject("predicate");
                 if (!"this".equals(requireString(json, "entity", source))
                         || (predicate != null && !predicate.entrySet().isEmpty())) {
@@ -192,7 +192,7 @@ public final class LootTables {
                 }
                 yield context -> true;
             }
-            case "skyengine:location_check" -> locationCondition(json, source);
+            case "location_check" -> locationCondition(json, source);
             default -> throw invalid(source, "unbekannte Condition " + type);
         };
     }
@@ -233,8 +233,8 @@ public final class LootTables {
         }
         List<EnchantmentLevel> enchantments = new ArrayList<>();
         JsonObject predicates = predicate.getAsJsonObject("predicates");
-        if (predicates != null && predicates.has("skyengine:enchantments")) {
-            for (JsonElement element : predicates.getAsJsonArray("skyengine:enchantments")) {
+        if (predicates != null && predicates.has("enchantments")) {
+            for (JsonElement element : predicates.getAsJsonArray("enchantments")) {
                 JsonObject value = element.getAsJsonObject();
                 Enchantment enchantment = resolveEnchantment(requireString(value, "enchantments", source), source);
                 JsonObject levels = value.getAsJsonObject("levels");
@@ -246,13 +246,13 @@ public final class LootTables {
         ToolType toolType = null;
         ToolTier minTier = null;
         ToolTier maxTier = null;
-        if (predicates != null && predicates.has("skyengine:tool")) {
-            JsonObject tool = predicates.getAsJsonObject("skyengine:tool");
+        if (predicates != null && predicates.has("tool")) {
+            JsonObject tool = predicates.getAsJsonObject("tool");
             toolType = ToolType.byName(requireString(tool, "type", source));
             minTier = tool.has("min_tier") ? ToolTier.byName(tool.get("min_tier").getAsString()) : null;
             maxTier = tool.has("max_tier") ? ToolTier.byName(tool.get("max_tier").getAsString()) : null;
             if (toolType == null || (tool.has("min_tier") && minTier == null) || (tool.has("max_tier") && maxTier == null)) {
-                throw invalid(source, "ungültiges skyengine:tool-Prädikat");
+                throw invalid(source, "ungültiges tool-Prädikat");
             }
         }
         ToolType finalToolType = toolType;
@@ -305,32 +305,32 @@ public final class LootTables {
         String type = requireString(json, "function", source);
         Condition[] conditions = conditions(json, source);
         Function action = switch (type) {
-            case "skyengine:set_count" -> {
+            case "set_count" -> {
                 NumberProvider count = number(json.get("count"), source);
                 boolean add = json.has("add") && json.get("add").getAsBoolean();
                 yield (stack, context) -> stack.setCount(add ? stack.getCount() + count.next(context) : count.next(context));
             }
-            case "skyengine:limit_count" -> {
+            case "limit_count" -> {
                 JsonObject limit = json.getAsJsonObject("limit");
                 int min = limit != null && limit.has("min") ? limit.get("min").getAsInt() : 0;
                 int max = limit != null && limit.has("max") ? limit.get("max").getAsInt() : Integer.MAX_VALUE;
                 yield (stack, context) -> stack.setCount(Math.max(min, Math.min(max, stack.getCount())));
             }
-            case "skyengine:explosion_decay" -> (stack, context) -> {
+            case "explosion_decay" -> (stack, context) -> {
                 if (!context.hasExplosionDecay()) return;
                 int kept = 0;
                 float chance = 1.0F / context.explosionRadius();
                 for (int i = 0; i < stack.getCount(); i++) if (context.random().nextFloat() <= chance) kept++;
                 stack.setCount(kept);
             };
-            case "skyengine:apply_bonus" -> applyBonus(json, source);
-            case "skyengine:copy_components" -> {
+            case "apply_bonus" -> applyBonus(json, source);
+            case "copy_components" -> {
                 if (!"block_entity".equals(requireString(json, "source", source))) {
                     throw invalid(source, "copy_components unterstützt nur block_entity");
                 }
                 JsonArray include = requireArray(json, "include", source);
                 for (JsonElement component : include) {
-                    if (!"skyengine:custom_name".equals(component.getAsString())) {
+                    if (!"custom_name".equals(component.getAsString())) {
                         throw invalid(source, "copy_components-Komponente noch nicht unterstützt: " + component);
                     }
                 }
@@ -349,14 +349,14 @@ public final class LootTables {
     private static Function applyBonus(JsonObject json, String source) {
         Enchantment enchantment = resolveEnchantment(requireString(json, "enchantment", source), source);
         String formula = requireString(json, "formula", source);
-        if (formula.equals("skyengine:ore_drops")) return (stack, context) -> {
+        if (formula.equals("ore_drops")) return (stack, context) -> {
             int level = context.tool() == null ? 0 : context.tool().getEnchantmentLevel(enchantment);
             if (level <= 0) return;
             int bonus = context.random().nextInt(level + 2) - 1;
             if (bonus < 0) bonus = 0;
             stack.setCount(stack.getCount() * (bonus + 1));
         };
-        if (formula.equals("skyengine:uniform_bonus_count")) {
+        if (formula.equals("uniform_bonus_count")) {
             int multiplier = json.has("parameters") && json.getAsJsonObject("parameters").has("bonusMultiplier")
                     ? json.getAsJsonObject("parameters").get("bonusMultiplier").getAsInt() : 1;
             return (stack, context) -> {
@@ -374,7 +374,7 @@ public final class LootTables {
             return constant(value);
         }
         JsonObject object = json.getAsJsonObject();
-        requireType(object, "type", "skyengine:uniform", source);
+        requireType(object, "type", "uniform", source);
         float min = object.get("min").getAsFloat();
         float max = object.get("max").getAsFloat();
         if (max < min) throw invalid(source, "uniform.max liegt unter min");

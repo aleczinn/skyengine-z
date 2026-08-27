@@ -1,8 +1,8 @@
 {
-  "id": "skyengine:furnace",
+  "id": "furnace",
   "creative_tab": "functional",
   "archetype": "furnace",
-  "block_entity": "skyengine:furnace",
+  "block_entity": "furnace",
   "layer": "opaque",
   "hardness": 3.5,
   "resistance": 3.5,

@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:iron_block",
+  "id": "iron_block",
   "creative_tab": "building_blocks",
   "parent": "preset/cube",
   "hardness": 5,

@@ -14,9 +14,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PortalLinksTest {
 
-    private static final Identifier TYPE = Identifier.of("skyengine:nether_portal");
-    private static final Identifier OVERWORLD = Identifier.of("skyengine:overworld");
-    private static final Identifier NETHER = Identifier.of("skyengine:nether");
+    private static final Identifier TYPE = Identifier.of("voxelstories:nether_portal");
+    private static final Identifier OVERWORLD = Identifier.of("voxelstories:overworld");
+    private static final Identifier NETHER = Identifier.of("voxelstories:nether");
 
     @Test
     void persistsBidirectionalOneToOneLinks(@TempDir Path saveRoot) {
@@ -44,16 +44,16 @@ final class PortalLinksTest {
     }
 
     @Test
-    void readsLegacyNamespacesAsCurrentGameIds(@TempDir Path saveRoot) throws Exception {
+    void ignoresIncompatibleVersionOneLinks(@TempDir Path saveRoot) throws Exception {
         Files.writeString(saveRoot.resolve("portal_links.json"), """
-                {"version":1,"links":[{"type":"skyengine:nether_portal",
-                "first":{"dimension":"skyengine:overworld","portalId":"old-a"},
-                "second":{"dimension":"skyengine:nether","portalId":"old-b"}}]}
+                {"version":1,"links":[{"type":"voxelstories:nether_portal",
+                "first":{"dimension":"voxelstories:overworld","portalId":"old-a"},
+                "second":{"dimension":"voxelstories:nether","portalId":"old-b"}}]}
                 """);
 
         PortalLinks links = new PortalLinks(saveRoot.toFile());
 
-        assertEquals("old-b", links.linked(Identifier.of("voxel_stories:nether_portal"),
-                Identifier.of("voxel_stories:overworld"), "old-a").portalId());
+        assertNull(links.linked(Identifier.of("voxelstories:nether_portal"),
+                Identifier.of("voxelstories:overworld"), "old-a"));
     }
 }

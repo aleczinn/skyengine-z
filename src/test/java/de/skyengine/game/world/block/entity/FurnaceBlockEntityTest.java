@@ -60,11 +60,11 @@ final class FurnaceBlockEntityTest {
         assertEquals(2, loaded.getInventory().get(FurnaceBlockEntity.INPUT).getCount());
     }
 
-    private static Item item(String id) { return Items.get(Identifier.of("skyengine:" + id)); }
+    private static Item item(String id) { return Items.get(Identifier.of("voxelstories:" + id)); }
     private static ItemStack stack(String id, int count) { return new ItemStack(item(id), count); }
 
     private static final class TestWorld extends Dimension {
-        private BlockState state = BlockRegistry.get(Identifier.of("skyengine:furnace")).getDefaultState();
+        private BlockState state = BlockRegistry.get(Identifier.of("voxelstories:furnace")).getDefaultState();
         private final FurnaceBlockEntity furnace;
         TestWorld() {
             super("__furnace_test", level(), null, null);
@@ -78,7 +78,7 @@ final class FurnaceBlockEntityTest {
         @Override public void markChunkModified(int x, int z) { }
         @Override public void updateComparatorOutputs(int x, int y, int z) { }
         private static LevelData level() {
-            LevelData level = new LevelData(); level.name = "furnace-test"; level.seed = 1; level.worldType = "imported";
+            LevelData level = new LevelData(); level.name = "furnace-test"; level.seed = 1;
             return level;
         }
     }

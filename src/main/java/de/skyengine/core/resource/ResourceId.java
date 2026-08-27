@@ -1,16 +1,18 @@
 package de.skyengine.core.resource;
 
+import de.skyengine.core.SkyEngine;
+
 import java.util.Locale;
 import java.util.Objects;
 
 /**
  * Normalisierte, logische Ressourcen-ID. Das Pack-Layout ist
  * {@code assets/<namespace>/<path>}; bestehende Engine-Pfade unter {@code game/}
- * werden dem Namespace {@code skyengine} zugeordnet.
+ * werden dem aktuellen Spiel-Namespace zugeordnet.
  */
 public record ResourceId(String namespace, String path) {
 
-    public static final String DEFAULT_NAMESPACE = "skyengine";
+    public static final String DEFAULT_NAMESPACE = SkyEngine.GAME_PREFIX;
 
     public ResourceId {
         namespace = normalizeNamespace(namespace);
@@ -18,10 +20,15 @@ public record ResourceId(String namespace, String path) {
     }
 
     public static ResourceId of(String value) {
+        return of(value, DEFAULT_NAMESPACE);
+    }
+
+    /** Qualifiziert unbenannte Pack-Referenzen mit dem Namespace ihrer Quelle. */
+    public static ResourceId of(String value, String defaultNamespace) {
         Objects.requireNonNull(value, "value");
         String normalized = value.replace('\\', '/');
         if (normalized.startsWith("game/")) {
-            return new ResourceId(DEFAULT_NAMESPACE, normalized.substring("game/".length()));
+            return new ResourceId(defaultNamespace, normalized.substring("game/".length()));
         }
         if (normalized.startsWith("assets/")) {
             String rest = normalized.substring("assets/".length());
@@ -35,14 +42,14 @@ public record ResourceId(String namespace, String path) {
         if (colon >= 0) {
             return new ResourceId(normalized.substring(0, colon), normalized.substring(colon + 1));
         }
-        return new ResourceId(DEFAULT_NAMESPACE, normalized);
+        return new ResourceId(defaultNamespace, normalized);
     }
 
     public String assetPath() {
         return "assets/" + this.namespace + "/" + this.path;
     }
 
-    public String legacyPath() {
+    public String sourcePath() {
         return this.namespace.equals(DEFAULT_NAMESPACE) ? "game/" + this.path : this.assetPath();
     }
 

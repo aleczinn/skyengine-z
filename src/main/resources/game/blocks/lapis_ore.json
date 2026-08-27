@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:lapis_ore",
+  "id": "lapis_ore",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 3,

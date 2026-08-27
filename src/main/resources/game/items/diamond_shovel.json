@@ -1,1 +1,1 @@
-{"id":"skyengine:diamond_shovel","parent":"preset/tool","tool":{"type":"shovel","tier":"diamond"}}
+{"id":"diamond_shovel","parent":"preset/tool","tool":{"type":"shovel","tier":"diamond"}}

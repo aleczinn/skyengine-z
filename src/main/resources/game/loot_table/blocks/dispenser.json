@@ -1,11 +1,11 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
-      "conditions": [{ "condition": "skyengine:survives_explosion" }],
-      "entries": [{ "type": "skyengine:item", "name": "skyengine:dispenser" }],
+      "conditions": [{ "condition": "survives_explosion" }],
+      "entries": [{ "type": "item", "name": "dispenser" }],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/dispenser"
+  "random_sequence": "blocks/dispenser"
 }

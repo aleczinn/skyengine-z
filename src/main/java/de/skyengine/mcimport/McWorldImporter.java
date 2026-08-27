@@ -254,10 +254,7 @@ public final class McWorldImporter {
     public static WorldSaves.WorldSave createTargetWorld(String worldName) {
         WorldSaves.WorldSave save = WorldSaves.create(worldName, 0);
         LevelData level = save.level();
-        level.formatVersion = 2;
-        level.worldType = "imported";
-        level.generator = "minecraft_import";
-        level.generatorVersion = 1;
+        level.formatVersion = WorldSaves.CURRENT_FORMAT_VERSION;
         LevelData.DimensionData overworld = new LevelData.DimensionData();
         overworld.seed = level.seed;
         overworld.generator = WorldgenRegistries.MINECRAFT_IMPORT.toString();
@@ -438,7 +435,7 @@ public final class McWorldImporter {
                         String mcItemId = itemTag.getString("id", "");
                         String path = mcItemId.startsWith("minecraft:")
                                 ? mcItemId.substring("minecraft:".length()) : mcItemId;
-                        Item item = Items.get(Identifier.of("skyengine:" + path));
+                        Item item = Items.get(Identifier.of(path));
                         if (item == null) {
                             counters.itemsSkipped++;
                             continue;

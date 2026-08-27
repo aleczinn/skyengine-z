@@ -13,14 +13,9 @@ import java.util.List;
 final class DefaultStructureInstaller {
     private static final String MANIFEST = "/game/worldgen/default-structures.txt";
     private static final String RESOURCE_ROOT = "/game/worldgen/structures/";
-    private static final String[] OBSOLETE_MARKERS = {
-            ".default-structure-v1", ".default-structures-v1"
-    };
-
     static void install(Path targetRoot) throws IOException {
         Path root = targetRoot.toAbsolutePath().normalize();
         Files.createDirectories(root);
-        for (String marker : OBSOLETE_MARKERS) Files.deleteIfExists(root.resolve(marker));
         for (String relative : manifest()) {
             Path target = root.resolve(relative).normalize();
             if (!target.startsWith(root)) throw new IOException("Unsicherer Default-Structure-Pfad: " + relative);

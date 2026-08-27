@@ -47,28 +47,28 @@ public final class SaveRoundTripTest {
         String gameNamespace = Identifier.DEFAULT_NAMESPACE + ":";
 
         /* --- Edits: Properties, Fluide, BlockEntity --- */
-        chunk.setBlock(4, 200, 4, decodeId("skyengine:stone_stairs[facing=east,half=top,shape=inner_left]"));
-        chunk.setBlock(5, 200, 5, decodeId("skyengine:water[falling=false,level=3]"));  // fließend -> Tick
-        chunk.setBlock(6, 200, 6, decodeId("skyengine:water[falling=true,level=0]"));   // fallend  -> Tick
-        chunk.setBlock(7, 200, 7, decodeId("skyengine:water[falling=false,level=0]"));  // Quelle   -> KEIN Tick
+        chunk.setBlock(4, 200, 4, decodeId("stone_stairs[facing=east,half=top,shape=inner_left]"));
+        chunk.setBlock(5, 200, 5, decodeId("water[falling=false,level=3]"));  // fließend -> Tick
+        chunk.setBlock(6, 200, 6, decodeId("water[falling=true,level=0]"));   // fallend  -> Tick
+        chunk.setBlock(7, 200, 7, decodeId("water[falling=false,level=0]"));  // Quelle   -> KEIN Tick
 
-        int chestId = decodeId("skyengine:chest");
+        int chestId = decodeId("chest");
         chunk.setBlock(8, 200, 8, chestId);
         ChestBlockEntity chest = (ChestBlockEntity) BlockEntities.CHEST.create(
                 new BlockPos(3 * ChunkSection.SIZE + 8, 200, -7 * ChunkSection.SIZE + 8), Blocks.getState(chestId));
-        chest.getInventory().set(0, new ItemStack(Items.get(Identifier.of("skyengine:stone")), 42));
-        ItemStack damaged = new ItemStack(Items.get(Identifier.of("skyengine:oak_planks")), 7);
+        chest.getInventory().set(0, new ItemStack(Items.get(Identifier.of("stone")), 42));
+        ItemStack damaged = new ItemStack(Items.get(Identifier.of("oak_planks")), 7);
         damaged.setDamage(5);
         chest.getInventory().set(13, damaged);
         chunk.setBlockEntity(8, 200, 8, chest);
 
         /* Zweite Truhe als DOPPELTRUHEN-Hälfte: prüft, dass die neue type-Property den
            State-String übersteht und dass beide Hälften ihr eigenes Inventar behalten. */
-        int leftChestId = decodeId("skyengine:chest[facing=north,type=left]");
+        int leftChestId = decodeId("chest[facing=north,type=left]");
         chunk.setBlock(10, 200, 10, leftChestId);
         ChestBlockEntity leftChest = (ChestBlockEntity) BlockEntities.CHEST.create(
                 new BlockPos(3 * ChunkSection.SIZE + 10, 200, -7 * ChunkSection.SIZE + 10), Blocks.getState(leftChestId));
-        leftChest.getInventory().set(26, new ItemStack(Items.get(Identifier.of("skyengine:cobblestone")), 5));
+        leftChest.getInventory().set(26, new ItemStack(Items.get(Identifier.of("cobblestone")), 5));
         chunk.setBlockEntity(10, 200, 10, leftChest);
 
         /* Redstone: Verstärker + Staub mit vollem Property-Satz. Der Momentanzustand einer
@@ -89,18 +89,18 @@ public final class SaveRoundTripTest {
         String headState = gameNamespace + "piston_head[facing=down,short=false,type=sticky]";
         chunk.setBlock(15, 200, 15, decodeId(pistonState));
         chunk.setBlock(16, 200, 16, decodeId(headState));
-        int movingId = decodeId("skyengine:moving_piston");
+        int movingId = decodeId("moving_piston");
         chunk.setBlock(17, 200, 17, movingId);
         de.skyengine.game.world.block.entity.PistonMovingBlockEntity moving =
                 (de.skyengine.game.world.block.entity.PistonMovingBlockEntity)
                         BlockEntities.PISTON_MOVING.create(
                                 new BlockPos(3 * ChunkSection.SIZE + 17, 200, -7 * ChunkSection.SIZE + 17),
                                 Blocks.getState(movingId));
-        moving.configure(decodeId("skyengine:stone"),
+        moving.configure(decodeId("stone"),
                 de.skyengine.game.world.block.Direction.EAST, true, false, true);
         chunk.setBlockEntity(17, 200, 17, moving);
         int retractMovingId = decodeId(
-                "skyengine:moving_piston[facing=east,retracting_source=true,type=normal]");
+                "moving_piston[facing=east,retracting_source=true,type=normal]");
         chunk.setBlock(22, 200, 22, retractMovingId);
         de.skyengine.game.world.block.entity.PistonMovingBlockEntity retractMoving =
                 (de.skyengine.game.world.block.entity.PistonMovingBlockEntity)
@@ -108,7 +108,7 @@ public final class SaveRoundTripTest {
                                 new BlockPos(3 * ChunkSection.SIZE + 22, 200,
                                         -7 * ChunkSection.SIZE + 22),
                                 Blocks.getState(retractMovingId));
-        retractMoving.configure(decodeId("skyengine:piston[extended=false,facing=east]"),
+        retractMoving.configure(decodeId("piston[extended=false,facing=east]"),
                 de.skyengine.game.world.block.Direction.EAST, false, true, false);
         chunk.setBlockEntity(22, 200, 22, retractMoving);
         int repeaterX = 3 * ChunkSection.SIZE + 12, repeaterZ = -7 * ChunkSection.SIZE + 12;
@@ -116,7 +116,7 @@ public final class SaveRoundTripTest {
         /* Beobachter mit offenem Puls-Tick: POWERED liegt im State, der Rest-Delay in den
            Ticks — nur zusammen laeuft eine Beobachter-Clock nach dem Laden weiter. */
         int observerX = 3 * ChunkSection.SIZE + 19, observerZ = -7 * ChunkSection.SIZE + 19;
-        chunk.setBlock(19, 200, 19, decodeId("skyengine:observer[facing=east,powered=true]"));
+        chunk.setBlock(19, 200, 19, decodeId("observer[facing=east,powered=true]"));
 
         /* Comparator: POWERED bleibt im State, die tatsächliche Stärke ausschließlich in der BE. */
         String comparatorState = gameNamespace + "comparator[facing=east,mode=compare,powered=true]";
@@ -140,7 +140,7 @@ public final class SaveRoundTripTest {
                         BlockEntities.HOPPER.create(
                                 new BlockPos(3 * ChunkSection.SIZE + 18, 200, -7 * ChunkSection.SIZE + 18),
                                 Blocks.getState(decodeId(hopperState)));
-        hopper.getInventory().set(2, new ItemStack(Items.get(Identifier.of("skyengine:redstone")), 17));
+        hopper.getInventory().set(2, new ItemStack(Items.get(Identifier.of("redstone")), 17));
         de.skyengine.game.world.block.entity.DataTag hopperCooldownTag =
                 new de.skyengine.game.world.block.entity.DataTag();
         hopperCooldownTag.putInt("cooldown", 5);
@@ -247,7 +247,7 @@ public final class SaveRoundTripTest {
                 "Kolbenkopf-State (facing + type) übersteht den Round-Trip");
         if (restored.getBlockEntity(17, 200, 17) instanceof
                 de.skyengine.game.world.block.entity.PistonMovingBlockEntity restoredMoving) {
-            check(restoredMoving.getMovedStateId() == decodeId("skyengine:stone")
+            check(restoredMoving.getMovedStateId() == decodeId("stone")
                             && restoredMoving.getFacing() == de.skyengine.game.world.block.Direction.EAST
                             && restoredMoving.isExtending() && !restoredMoving.isSource()
                             && restoredMoving.isSticky(),
@@ -268,7 +268,7 @@ public final class SaveRoundTripTest {
         }
         de.skyengine.game.world.block.entity.DataTag brokenTag =
                 new de.skyengine.game.world.block.entity.DataTag();
-        brokenTag.putString("state", "skyengine:gibtsnicht[kaputt=ja]");
+        brokenTag.putString("state", "gibtsnicht[kaputt=ja]");
         de.skyengine.game.world.block.entity.PistonMovingBlockEntity fallbackMoving =
                 (de.skyengine.game.world.block.entity.PistonMovingBlockEntity)
                         BlockEntities.PISTON_MOVING.create(new BlockPos(0, 0, 0), Blocks.getState(Blocks.AIR));
@@ -303,7 +303,7 @@ public final class SaveRoundTripTest {
 
         /* Alt-Format: ein Tür-String OHNE das neue powered-Property muss auf den
            Default powered=false fallen (Codec-Toleranz — alte Welten bleiben ladbar). */
-        BlockState oldDoor = BlockStateCodec.decode("skyengine:iron_door[facing=north,half=bottom,hinge=left,open=false]");
+        BlockState oldDoor = BlockStateCodec.decode("iron_door[facing=north,half=bottom,hinge=left,open=false]");
         check(oldDoor != null && !oldDoor.get(de.skyengine.game.world.block.state.Properties.POWERED),
                 "Alt-Tür-String ohne powered dekodiert auf powered=false");
 
@@ -346,7 +346,7 @@ public final class SaveRoundTripTest {
 
         /* forEachPending: Vorzeichen-Erweiterung + Vanilla-Restzeit für Überfälliges. */
         ScheduledTickQueue negQueue = new ScheduledTickQueue();
-        negQueue.schedule(-100, 50, -217, Identifier.of("skyengine:stone"), 500);
+        negQueue.schedule(-100, 50, -217, Identifier.of("stone"), 500);
         int[] got = new int[4];
         negQueue.forEachPending(1000, (x, y, z, block, rem, priority, order) -> {
             got[0] = x; got[1] = y; got[2] = z; got[3] = rem;

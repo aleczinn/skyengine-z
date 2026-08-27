@@ -201,7 +201,7 @@ public final class BlockConfig {
     }
 
     /**
-     * Erlaubte Träger-Block-IDs ("skyengine:sand", …) oder null = keine Einschränkung.
+     * Erlaubte Träger-Block-IDs ("sand", …) oder null = keine Einschränkung.
      */
     public List<String> placeOn() {
         return placeOn;

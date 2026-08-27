@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:polished_diorite",
+  "id": "polished_diorite",
   "parent": "preset/cube",
   "hardness": 1.5,
   "resistance": 6,

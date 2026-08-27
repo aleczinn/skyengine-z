@@ -1,20 +1,20 @@
-﻿{
-  "type": "skyengine:block",
+{
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
-          "name": "skyengine:red_bed"
+          "type": "item",
+          "name": "red_bed"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/red_bed"
+  "random_sequence": "blocks/red_bed"
 }

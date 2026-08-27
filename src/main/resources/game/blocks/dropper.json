@@ -1,8 +1,8 @@
 {
-  "id": "skyengine:dropper",
+  "id": "dropper",
   "creative_tab": "redstone_blocks",
   "archetype": "dropper",
-  "block_entity": "skyengine:dropper",
+  "block_entity": "dropper",
   "hardness": 3.5,
   "resistance": 3.5,
   "tool": "pickaxe",

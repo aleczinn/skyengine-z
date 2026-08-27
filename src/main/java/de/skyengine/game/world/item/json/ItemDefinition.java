@@ -23,7 +23,7 @@ public class ItemDefinition {
     public ToolDef tool;
 
     /* Block-Identifier, den ein Rechtsklick mit diesem Item platziert (Redstone-Staub:
-       "skyengine:redstone_wire"). Der Block trägt dann "no_item": true — das Item hier
+       "redstone_wire"). Der Block trägt dann "no_item": true — das Item hier
        übernimmt Platzieren und Pick-Block (Items.forBlock); Drops kommen aus Loot-Tabellen. */
     public String places_block;
 

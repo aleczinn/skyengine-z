@@ -1,1 +1,1 @@
-{"id":"skyengine:iron_shovel","parent":"preset/tool","tool":{"type":"shovel","tier":"iron"}}
+{"id":"iron_shovel","parent":"preset/tool","tool":{"type":"shovel","tier":"iron"}}

@@ -117,7 +117,7 @@ final class FenceGateBehaviorTest {
     }
 
     private static BlockState state(String path) {
-        return BlockRegistry.get(Identifier.of("skyengine:" + path)).getDefaultState();
+        return BlockRegistry.get(Identifier.of("voxelstories:" + path)).getDefaultState();
     }
 
     private static BlockState stateAt(TestWorld world, int x, int y) {
@@ -155,7 +155,7 @@ final class FenceGateBehaviorTest {
             LevelData level = new LevelData();
             level.name = "fence-gate-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

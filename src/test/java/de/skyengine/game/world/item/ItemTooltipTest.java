@@ -30,7 +30,7 @@ final class ItemTooltipTest {
 
     @Test
     void blockItemLoadsItsOptionalLocalizedDescription() {
-        Block tnt = Registries.BLOCK.get(Identifier.of("skyengine:tnt"));
+        Block tnt = Registries.BLOCK.get(Identifier.of("voxelstories:tnt"));
         BlockItem item = new BlockItem(tnt);
         List<RichText> lines = new ArrayList<>();
 
@@ -45,7 +45,7 @@ final class ItemTooltipTest {
 
     @Test
     void missingDescriptionDoesNotLeakItsTranslationKey() {
-        Item item = new Item(Identifier.of("skyengine:no_description"));
+        Item item = new Item(Identifier.of("voxelstories:no_description"));
         List<RichText> lines = new ArrayList<>();
 
         item.appendTooltip(new ItemStack(item, 1), new TooltipContext(null, null), lines);
@@ -99,7 +99,7 @@ final class ItemTooltipTest {
         private int energy = 10;
 
         private MutableTooltipItem() {
-            super(Identifier.of("skyengine:energy_cube"));
+            super(Identifier.of("voxelstories:energy_cube"));
         }
 
         @Override

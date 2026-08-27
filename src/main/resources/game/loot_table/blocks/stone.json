@@ -1,21 +1,21 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "entries": [
         {
-          "type": "skyengine:alternatives",
+          "type": "alternatives",
           "children": [
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:match_tool",
+                  "condition": "match_tool",
                   "predicate": {
                     "predicates": {
-                      "skyengine:enchantments": [
+                      "enchantments": [
                         {
-                          "enchantments": "skyengine:silk_touch",
+                          "enchantments": "silk_touch",
                           "levels": {
                             "min": 1
                           }
@@ -25,16 +25,16 @@
                   }
                 }
               ],
-              "name": "skyengine:stone"
+              "name": "stone"
             },
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:survives_explosion"
+                  "condition": "survives_explosion"
                 }
               ],
-              "name": "skyengine:cobblestone"
+              "name": "cobblestone"
             }
           ]
         }
@@ -42,5 +42,5 @@
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/stone"
+  "random_sequence": "blocks/stone"
 }

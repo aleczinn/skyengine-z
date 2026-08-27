@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:coal_ore",
+  "id": "coal_ore",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 3,

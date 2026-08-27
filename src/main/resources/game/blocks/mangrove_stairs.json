@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:mangrove_stairs",
+  "id": "mangrove_stairs",
   "parent": "preset/stairs",
   "vars": {
     "texture": "mangrove_planks"

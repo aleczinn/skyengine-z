@@ -1,18 +1,18 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "rolls": 1,
       "entries": [
         {
-          "type": "skyengine:item",
-          "name": "skyengine:emerald_hopper",
+          "type": "item",
+          "name": "emerald_hopper",
           "conditions": [
-            { "condition": "skyengine:survives_explosion" }
+            { "condition": "survives_explosion" }
           ]
         }
       ]
     }
   ],
-  "random_sequence": "skyengine:blocks/emerald_hopper"
+  "random_sequence": "blocks/emerald_hopper"
 }

@@ -37,7 +37,7 @@ public final class BlockJson {
     /** Schutz gegen Zyklen in der parent-Kette. */
     private static final int MAX_DEPTH = 10;
 
-    public static LinkedHashMap<String, JsonObject> load(File directory) {
+    public static LinkedHashMap<String, JsonObject> load(File directory, String namespace) {
         LinkedHashMap<String, JsonObject> out = new LinkedHashMap<>();
         if (directory == null || !directory.isDirectory()) {
             LOGGER.warning("Block-Ordner nicht gefunden: " + directory);
@@ -62,7 +62,7 @@ public final class BlockJson {
             String key = stripExtension(file.getName());
             JsonObject merged = resolve(key, lookup, 0);
             if (merged == null) continue;
-            applyVars(key, merged);
+            applyVars(key, merged, namespace);
             out.put(key, merged);
         }
         return out;
@@ -110,12 +110,12 @@ public final class BlockJson {
      * eingebauten Variablen benutzen, nicht sich gegenseitig — eine zweite Auflösungsebene
      * bräuchte Fixpunkt-Iteration und wäre von der Feldreihenfolge abhängig.
      */
-    private static void applyVars(String key, JsonObject merged) {
+    private static void applyVars(String key, JsonObject merged, String namespace) {
         String id = merged.has("id") ? merged.get("id").getAsString() : key;
         int colon = id.indexOf(':');
 
         Map<String, String> builtin = new HashMap<>();
-        builtin.put("ns", colon >= 0 ? id.substring(0, colon) : "skyengine");
+        builtin.put("ns", colon >= 0 ? id.substring(0, colon) : namespace);
         builtin.put("id", colon >= 0 ? id.substring(colon + 1) : id);
 
         Map<String, String> vars = new HashMap<>(builtin);

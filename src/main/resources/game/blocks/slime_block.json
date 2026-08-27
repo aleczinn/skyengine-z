@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:slime_block",
+  "id": "slime_block",
   "creative_tab": ["functional", "redstone_blocks"],
   "parent": "preset/cube",
   "sticky_group": "slime",

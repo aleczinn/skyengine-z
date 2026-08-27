@@ -1,30 +1,30 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "entries": [
         {
-          "type": "skyengine:alternatives",
+          "type": "alternatives",
           "children": [
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:any_of",
+                  "condition": "any_of",
                   "terms": [
                     {
-                      "condition": "skyengine:match_tool",
+                      "condition": "match_tool",
                       "predicate": {
-                        "items": "skyengine:shears"
+                        "items": "shears"
                       }
                     },
                     {
-                      "condition": "skyengine:match_tool",
+                      "condition": "match_tool",
                       "predicate": {
                         "predicates": {
-                          "skyengine:enchantments": [
+                          "enchantments": [
                             {
-                              "enchantments": "skyengine:silk_touch",
+                              "enchantments": "silk_touch",
                               "levels": {
                                 "min": 1
                               }
@@ -36,13 +36,13 @@
                   ]
                 }
               ],
-              "name": "skyengine:jungle_leaves"
+              "name": "jungle_leaves"
             },
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:survives_explosion"
+                  "condition": "survives_explosion"
                 },
                 {
                   "chances": [
@@ -52,11 +52,11 @@
                     0.041666668,
                     0.1
                   ],
-                  "condition": "skyengine:table_bonus",
-                  "enchantment": "skyengine:fortune"
+                  "condition": "table_bonus",
+                  "enchantment": "fortune"
                 }
               ],
-              "name": "skyengine:jungle_sapling"
+              "name": "jungle_sapling"
             }
           ]
         }
@@ -66,23 +66,23 @@
     {
       "conditions": [
         {
-          "condition": "skyengine:inverted",
+          "condition": "inverted",
           "term": {
-            "condition": "skyengine:any_of",
+            "condition": "any_of",
             "terms": [
               {
-                "condition": "skyengine:match_tool",
+                "condition": "match_tool",
                 "predicate": {
-                  "items": "skyengine:shears"
+                  "items": "shears"
                 }
               },
               {
-                "condition": "skyengine:match_tool",
+                "condition": "match_tool",
                 "predicate": {
                   "predicates": {
-                    "skyengine:enchantments": [
+                    "enchantments": [
                       {
-                        "enchantments": "skyengine:silk_touch",
+                        "enchantments": "silk_touch",
                         "levels": {
                           "min": 1
                         }
@@ -97,7 +97,7 @@
       ],
       "entries": [
         {
-          "type": "skyengine:item",
+          "type": "item",
           "conditions": [
             {
               "chances": [
@@ -107,28 +107,28 @@
                 0.033333335,
                 0.1
               ],
-              "condition": "skyengine:table_bonus",
-              "enchantment": "skyengine:fortune"
+              "condition": "table_bonus",
+              "enchantment": "fortune"
             }
           ],
           "functions": [
             {
               "count": {
-                "type": "skyengine:uniform",
+                "type": "uniform",
                 "max": 2.0,
                 "min": 1.0
               },
-              "function": "skyengine:set_count"
+              "function": "set_count"
             },
             {
-              "function": "skyengine:explosion_decay"
+              "function": "explosion_decay"
             }
           ],
-          "name": "skyengine:stick"
+          "name": "stick"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/jungle_leaves"
+  "random_sequence": "blocks/jungle_leaves"
 }

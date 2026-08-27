@@ -1,6 +1,6 @@
 {
   "_comment": "Kolben-Basis. Varianten verbatim aus MC 26.2 (Stirn zeigt im Modell nach Norden; up=x270, down=x90). MC-Werte: Haerte 1.5.",
-  "id": "skyengine:piston",
+  "id": "piston",
   "creative_tab": "redstone_blocks",
   "archetype": "piston",
   "hardness": 1.5,

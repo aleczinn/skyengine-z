@@ -14,8 +14,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ScheduledTickQueueTest {
 
-    private static final Identifier STONE = Identifier.of("skyengine:stone");
-    private static final Identifier DIRT = Identifier.of("skyengine:dirt");
+    private static final Identifier STONE = Identifier.of("voxelstories:stone");
+    private static final Identifier DIRT = Identifier.of("voxelstories:dirt");
 
     @Test
     void drainsByTriggerTimeAndFifoWithinSameTick() {

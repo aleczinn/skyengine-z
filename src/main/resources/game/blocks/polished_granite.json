@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:polished_granite",
+  "id": "polished_granite",
   "parent": "preset/cube",
   "hardness": 1.5,
   "resistance": 6,

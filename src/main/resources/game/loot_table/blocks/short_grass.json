@@ -1,45 +1,45 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "entries": [
         {
-          "type": "skyengine:alternatives",
+          "type": "alternatives",
           "children": [
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:match_tool",
+                  "condition": "match_tool",
                   "predicate": {
-                    "items": "skyengine:shears"
+                    "items": "shears"
                   }
                 }
               ],
-              "name": "skyengine:short_grass"
+              "name": "short_grass"
             },
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
                   "chance": 0.125,
-                  "condition": "skyengine:random_chance"
+                  "condition": "random_chance"
                 }
               ],
               "functions": [
                 {
-                  "enchantment": "skyengine:fortune",
-                  "formula": "skyengine:uniform_bonus_count",
-                  "function": "skyengine:apply_bonus",
+                  "enchantment": "fortune",
+                  "formula": "uniform_bonus_count",
+                  "function": "apply_bonus",
                   "parameters": {
                     "bonusMultiplier": 2
                   }
                 },
                 {
-                  "function": "skyengine:explosion_decay"
+                  "function": "explosion_decay"
                 }
               ],
-              "name": "skyengine:wheat_seeds"
+              "name": "wheat_seeds"
             }
           ]
         }
@@ -47,5 +47,5 @@
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/short_grass"
+  "random_sequence": "blocks/short_grass"
 }

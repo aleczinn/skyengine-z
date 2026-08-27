@@ -50,9 +50,9 @@ final class PortalControllerTest {
     void usePortalIgnoresContactAndTravelsImmediatelyOnActivation() {
         Identifier overworld = WorldgenRegistries.OVERWORLD;
         Identifier mining = WorldgenRegistries.MINING;
-        Identifier block = Identifier.of("skyengine:mining_portal");
+        Identifier block = Identifier.of("voxelstories:mining_portal");
         PortalDefinition portal = WorldgenRegistries.PORTALS.get(
-                Identifier.of("skyengine:mining_portal"));
+                Identifier.of("voxelstories:mining_portal"));
         PortalController controller = new PortalController();
 
         for (int tick = 0; tick < PortalController.TRAVEL_TICKS + 5; tick++) {
@@ -68,7 +68,7 @@ final class PortalControllerTest {
     @Test
     void netherPortalUsesLongSurvivalDelayAndReportsProgress() {
         PortalDefinition portal = WorldgenRegistries.PORTALS.get(
-                Identifier.of("skyengine:nether_portal"));
+                Identifier.of("voxelstories:nether_portal"));
         PortalController controller = new PortalController();
 
         for (int tick = 1; tick < 80; tick++) {

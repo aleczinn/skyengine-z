@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/** Scannt {@code .skyengine/resourcepacks} nach Verzeichnissen und ZIP-Dateien. */
+/** Scannt den spielnamensabhaengigen {@code resourcepacks}-Ordner. */
 public final class ResourcePackRepository {
     private static final Logger LOGGER = LogManager.getLogger(ResourcePackRepository.class.getName());
     private final Path directory;

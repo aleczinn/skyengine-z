@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:birch_planks",
+  "id": "birch_planks",
   "parent": "preset/cube",
   "hardness": 2,
   "resistance": 3,

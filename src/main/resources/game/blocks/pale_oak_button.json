@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:pale_oak_button",
+  "id": "pale_oak_button",
   "parent": "preset/button",
   "creative_tab": "building_blocks",
   "press_ticks": 30,

@@ -66,8 +66,26 @@ final class RecipeManagerTest {
     @Test void fuelLookupIsConstantMapResult() {
         assertEquals(1600, RecipeManager.get().fuels().burnTime(RecipeManager.SOLID_FUEL,
                 new ItemStack(item("coal"), 1)));
+        assertEquals(20_000, burnTime("lava_bucket"));
+        assertEquals(item("bucket"), item("lava_bucket").getCraftingRemainder());
+        assertEquals(300, burnTime("oak_log"));
+        assertEquals(300, burnTime("stripped_spruce_log"));
+        assertEquals(300, burnTime("oak_planks"));
+        assertEquals(300, burnTime("oak_stairs"));
+        assertEquals(150, burnTime("oak_slab"));
+        assertEquals(200, burnTime("oak_door"));
+        assertEquals(200, burnTime("wooden_pickaxe"));
+        assertEquals(100, burnTime("stick"));
+        assertEquals(100, burnTime("oak_sapling"));
+        assertEquals(100, burnTime("white_wool"));
+        assertEquals(67, burnTime("white_carpet"));
         assertTrue(RecipeManager.get().fuels().burnTime(Identifier.of("test:other"),
                 new ItemStack(item("coal"), 1)) == 0);
+    }
+
+    private static int burnTime(String id) {
+        return RecipeManager.get().fuels().burnTime(RecipeManager.SOLID_FUEL,
+                new ItemStack(item(id), 1));
     }
 
     @Test void indexDoesNotScanOneHundredThousandIrrelevantRecipes() {
@@ -90,7 +108,7 @@ final class RecipeManagerTest {
         assertEquals(1, manager.lastCandidateCount());
     }
 
-    private static Item item(String id) { return Items.get(Identifier.of("skyengine:" + id)); }
+    private static Item item(String id) { return Items.get(Identifier.of("voxelstories:" + id)); }
 
     private static final class ArrayGrid implements CraftingGrid {
         private final int width, height;

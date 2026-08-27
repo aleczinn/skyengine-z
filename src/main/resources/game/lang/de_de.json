@@ -382,7 +382,7 @@
   },
 
   "dimension": {
-    "skyengine": {
+    "${game}": {
       "overworld": "Oberwelt",
       "mining": "Bergbau-Dimension",
       "nether": "Nether"
@@ -485,7 +485,7 @@
   },
 
   "block": {
-    "skyengine": {
+    "${game}": {
       "acacia_button": "Akazienholzknopf",
       "acacia_door": "Akazienholztür",
       "acacia_fence": "Akazienholzzaun",
@@ -753,13 +753,13 @@
   },
   "description": {
     "block": {
-      "skyengine": {
+      "${game}": {
         "tnt": "Kann mit Feuer oder Redstone gezündet werden. Explodiert nach §6%fuse_ticks% Ticks§r (%fuse_seconds% Sekunden)."
       }
     }
   },
   "item": {
-    "skyengine": {
+    "${game}": {
       "apple": "Apfel",
       "bread": "Brot",
       "iron_ingot": "Eisenbarren",

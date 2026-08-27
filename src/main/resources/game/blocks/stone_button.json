@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:stone_button",
+  "id": "stone_button",
   "parent": "preset/button",
   "press_ticks": 20,
   "sound": "stone",

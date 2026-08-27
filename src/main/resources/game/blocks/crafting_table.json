@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:crafting_table",
+  "id": "crafting_table",
   "creative_tab": "functional",
   "model": "block/cube",
   "type": "cube",
@@ -7,7 +7,7 @@
   "hardness": 2.5,
   "tool": "axe",
   "crafting_grid": [3, 3],
-  "crafting_recipe_type": "skyengine:crafting",
+  "crafting_recipe_type": "crafting",
   "textures": {
     "all": "game/textures/block/crafting_table_top.png",
     "up": "game/textures/block/crafting_table_top.png",

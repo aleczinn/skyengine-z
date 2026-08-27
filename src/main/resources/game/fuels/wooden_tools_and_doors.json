@@ -1,0 +1,5 @@
+{
+  "fuel_type": "solid_fuel",
+  "ingredient": { "tag": "wooden_tools_and_doors" },
+  "burn_time": 200
+}

@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:gravel",
+  "id": "gravel",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 0.6,

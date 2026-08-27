@@ -1,21 +1,21 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "entries": [
         {
-          "type": "skyengine:alternatives",
+          "type": "alternatives",
           "children": [
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:match_tool",
+                  "condition": "match_tool",
                   "predicate": {
                     "predicates": {
-                      "skyengine:enchantments": [
+                      "enchantments": [
                         {
-                          "enchantments": "skyengine:silk_touch",
+                          "enchantments": "silk_touch",
                           "levels": {
                             "min": 1
                           }
@@ -25,38 +25,38 @@
                   }
                 }
               ],
-              "name": "skyengine:melon"
+              "name": "melon"
             },
             {
-              "type": "skyengine:item",
+              "type": "item",
               "functions": [
                 {
                   "count": {
-                    "type": "skyengine:uniform",
+                    "type": "uniform",
                     "max": 7.0,
                     "min": 3.0
                   },
-                  "function": "skyengine:set_count"
+                  "function": "set_count"
                 },
                 {
-                  "enchantment": "skyengine:fortune",
-                  "formula": "skyengine:uniform_bonus_count",
-                  "function": "skyengine:apply_bonus",
+                  "enchantment": "fortune",
+                  "formula": "uniform_bonus_count",
+                  "function": "apply_bonus",
                   "parameters": {
                     "bonusMultiplier": 1
                   }
                 },
                 {
-                  "function": "skyengine:limit_count",
+                  "function": "limit_count",
                   "limit": {
                     "max": 9.0
                   }
                 },
                 {
-                  "function": "skyengine:explosion_decay"
+                  "function": "explosion_decay"
                 }
               ],
-              "name": "skyengine:melon_slice"
+              "name": "melon_slice"
             }
           ]
         }
@@ -64,5 +64,5 @@
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/melon"
+  "random_sequence": "blocks/melon"
 }

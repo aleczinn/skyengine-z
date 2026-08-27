@@ -37,13 +37,13 @@ final class RecipeLoader {
                 Identifier id = new Identifier(source.namespace(), ItemTags.relativeId(root, file));
                 try (FileReader reader = new FileReader(file)) {
                     JsonObject json = GSON.fromJson(reader, JsonObject.class);
-                    String type = qualified(json.get("type").getAsString(), source.namespace());
+                    Identifier type = Identifier.of(json.get("type").getAsString(), source.namespace());
                     int priority = integer(json, "priority", 0);
-                    if (type.equals("skyengine:crafting_shaped")) {
+                    if (type.equals(Identifier.of("crafting_shaped"))) {
                         crafting.put(id, shaped(id, json, source.namespace(), tags, priority, order++));
-                    } else if (type.equals("skyengine:crafting_shapeless")) {
+                    } else if (type.equals(Identifier.of("crafting_shapeless"))) {
                         crafting.put(id, shapeless(id, json, source.namespace(), tags, priority, order++));
-                    } else if (type.equals("skyengine:processing")) {
+                    } else if (type.equals(Identifier.of("processing"))) {
                         processing.put(id, processing(id, json, source.namespace(), tags, priority, order++));
                     } else {
                         throw new IllegalArgumentException("Unbekannter Rezept-Serializer: " + type);

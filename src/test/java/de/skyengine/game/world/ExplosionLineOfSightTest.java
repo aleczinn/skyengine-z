@@ -52,7 +52,7 @@ class ExplosionLineOfSightTest {
             LevelData level = new LevelData();
             level.name = "explosion-los-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

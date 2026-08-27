@@ -1,20 +1,20 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
-          "name": "skyengine:pale_oak_trapdoor"
+          "type": "item",
+          "name": "pale_oak_trapdoor"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/pale_oak_trapdoor"
+  "random_sequence": "blocks/pale_oak_trapdoor"
 }

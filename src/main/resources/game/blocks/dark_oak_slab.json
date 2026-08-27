@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:dark_oak_slab",
+  "id": "dark_oak_slab",
   "parent": "preset/slab",
   "vars": {
     "texture": "dark_oak_planks"

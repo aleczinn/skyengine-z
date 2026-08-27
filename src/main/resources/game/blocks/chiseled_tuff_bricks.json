@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:chiseled_tuff_bricks",
+  "id": "chiseled_tuff_bricks",
   "parent": "preset/cube_bottom_top",
   "vars": {
     "bottom": "chiseled_tuff_bricks_top",

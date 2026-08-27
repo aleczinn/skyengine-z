@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:tuff_bricks",
+  "id": "tuff_bricks",
   "parent": "preset/cube",
   "hardness": 1.5,
   "resistance": 6,

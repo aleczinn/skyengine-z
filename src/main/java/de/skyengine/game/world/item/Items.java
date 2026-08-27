@@ -38,7 +38,7 @@ public final class Items {
         }
 
         /* Alle eigenstaendigen Items werden mitsamt Archetyp und Texturen aus JSON erzeugt. */
-        for (ContentSource source : ContentSources.all()) ItemLoader.load(source.items());
+        for (ContentSource source : ContentSources.all()) ItemLoader.load(source.items(), source.namespace());
         resolveCraftingRemainders();
 
         for (ContentSource source : ContentSources.all()) CreativeTabs.loadDefinitions(source.creativeTabs());

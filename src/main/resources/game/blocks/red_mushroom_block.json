@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:red_mushroom_block",
+  "id": "red_mushroom_block",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 0.2,

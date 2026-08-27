@@ -1,5 +1,5 @@
 {
-  "id":"skyengine:detector_rail", "archetype":"rail", "rail_kind":"detector",
+  "id":"detector_rail", "archetype":"rail", "rail_kind":"detector",
   "creative_tab":"redstone_blocks", "layer":"cutout", "opaque":false, "solid":false,
   "no_lod_surface":true, "place_on_full_top":true,
   "hardness":0.7, "tool":"pickaxe", "sound":"stone", "icon_flat":["game/textures/block/detector_rail.png"],

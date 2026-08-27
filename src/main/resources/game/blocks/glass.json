@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:glass",
+  "id": "glass",
   "creative_tab": "colored_blocks",
   "parent": "preset/cube",
   "sound": "glass",

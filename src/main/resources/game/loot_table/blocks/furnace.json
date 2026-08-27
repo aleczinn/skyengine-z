@@ -1,11 +1,11 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
-      "conditions": [{ "condition": "skyengine:survives_explosion" }],
-      "entries": [{ "type": "skyengine:item", "name": "skyengine:furnace" }],
+      "conditions": [{ "condition": "survives_explosion" }],
+      "entries": [{ "type": "item", "name": "furnace" }],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/furnace"
+  "random_sequence": "blocks/furnace"
 }

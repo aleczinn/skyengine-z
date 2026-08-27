@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:item_frame",
+  "id": "item_frame",
   "archetype": "item_frame",
   "texture": "game/textures/item/item_frame.png",
   "additional_textures": ["game/textures/block/item_frame.png"],

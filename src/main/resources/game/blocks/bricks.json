@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:bricks",
+  "id": "bricks",
   "parent": "preset/cube",
   "hardness": 2,
   "resistance": 6,

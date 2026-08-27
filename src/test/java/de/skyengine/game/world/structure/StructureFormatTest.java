@@ -45,10 +45,10 @@ final class StructureFormatTest {
     }
 
     @Test
-    void versionOneNativeFilesRemainReadable(@TempDir Path temp) throws Exception {
+    void versionOneNativeFilesAreRejected(@TempDir Path temp) throws Exception {
         Path file = temp.resolve("v1.structure");
         NbtList palette = new NbtList((byte) 8);
-        palette.add(new NbtTag.NbtString("skyengine:stone"));
+        palette.add(new NbtTag.NbtString("voxelstories:stone"));
         NbtCompound root = new NbtCompound()
                 .put("Id", new NbtTag.NbtString("test:v1"))
                 .put("Size", new NbtTag.NbtIntArray(new int[]{1, 1, 1}))
@@ -64,9 +64,8 @@ final class StructureFormatTest {
             gzip.finish();
         }
 
-        StructureTemplate restored = StructureSerializer.read(file, Identifier.of("test:v1"));
-        assertEquals(Blocks.STONE, restored.cells().getFirst().state());
-        assertNull(restored.cells().getFirst().blockEntity());
+        assertThrows(IOException.class,
+                () -> StructureSerializer.read(file, Identifier.of("test:v1")));
     }
 
     @Test
@@ -128,9 +127,9 @@ final class StructureFormatTest {
                 schematic, Identifier.of("test:legacy"), SchematicImporter.Options.NATURAL_FEATURE);
         assertEquals(2, result.template().cells().size());
         assertEquals(1, result.template().anchorX());
-        assertEquals("voxel_stories:oak_log", Blocks.getState(result.template().cells().get(0).state())
+        assertEquals("voxelstories:oak_log", Blocks.getState(result.template().cells().get(0).state())
                 .getBlock().getIdentifier().toString());
-        assertEquals("voxel_stories:oak_leaves", Blocks.getState(result.template().cells().get(1).state())
+        assertEquals("voxelstories:oak_leaves", Blocks.getState(result.template().cells().get(1).state())
                 .getBlock().getIdentifier().toString());
     }
 
@@ -161,7 +160,7 @@ final class StructureFormatTest {
                 "spruce_tree_big_01", "spruce_tree_big_02", "spruce_tree_mid_wide_01"};
         for (String name : names) {
             StructureTemplate template = StructureTemplateManager.loadResource(
-                    Identifier.of("skyengine:trees/spruce/" + name));
+                    Identifier.of("voxelstories:trees/spruce/" + name));
             assertNotNull(template, name);
             assertFalse(template.hasExplicitAir(), name);
             assertTrue(template.cells().size() > 100, name);

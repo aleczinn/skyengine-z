@@ -23,9 +23,9 @@ final class LodBlockRulesTest {
 
     @Test
     void representativeNonFullBlocksUseTheirConfiguredFullCubeProxy() {
-        int oakDoor = state("skyengine:oak_door");
-        int oakPlanks = state("skyengine:oak_planks");
-        int chest = state("skyengine:chest");
+        int oakDoor = state("voxelstories:oak_door");
+        int oakPlanks = state("voxelstories:oak_planks");
+        int chest = state("voxelstories:chest");
 
         assertEquals(oakPlanks, LodBlockRules.simplify(oakDoor));
         assertEquals(oakPlanks, LodBlockRules.simplify(chest));

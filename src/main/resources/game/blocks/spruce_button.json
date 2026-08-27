@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:spruce_button",
+  "id": "spruce_button",
   "parent": "preset/button",
   "creative_tab": "building_blocks",
   "press_ticks": 30,

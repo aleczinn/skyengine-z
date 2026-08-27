@@ -1,1 +1,1 @@
-{ "id": "skyengine:oak_fence_gate", "parent": "preset/fence_gate", "creative_tab": ["building_blocks", "redstone_blocks"], "vars": { "texture": "oak_planks" } }
+{ "id": "oak_fence_gate", "parent": "preset/fence_gate", "creative_tab": ["building_blocks", "redstone_blocks"], "vars": { "texture": "oak_planks" } }

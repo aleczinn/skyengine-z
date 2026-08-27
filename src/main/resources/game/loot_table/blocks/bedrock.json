@@ -1,7 +1,7 @@
 {
-    "type":  "skyengine:block",
+    "type":  "block",
     "pools":  [
 
               ],
-    "random_sequence":  "skyengine:blocks/bedrock"
+    "random_sequence":  "blocks/bedrock"
 }

@@ -48,7 +48,7 @@ final class MinecartEntityTest {
         TestWorld world = new TestWorld();
         MinecartEntity cart = new MinecartEntity();
 
-        BlockState normalRail = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState();
+        BlockState normalRail = BlockRegistry.get(Identifier.of("voxelstories:rail")).getDefaultState();
         world.put(0, 64, 0, normalRail
                 .with(Properties.RAIL_SHAPE, RailShape.EAST_WEST));
         cart.setPosition(0.5, 64.0625, 0.5);
@@ -124,7 +124,7 @@ final class MinecartEntityTest {
     @Test
     void passengerImpulseStartsCartGraduallyInEitherRailDirection() {
         TestWorld world = new TestWorld();
-        world.put(0, 64, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+        world.put(0, 64, 0, BlockRegistry.get(Identifier.of("voxelstories:rail")).getDefaultState()
                 .with(Properties.RAIL_SHAPE, RailShape.EAST_WEST));
 
         MinecartEntity eastbound = new MinecartEntity();
@@ -160,8 +160,8 @@ final class MinecartEntityTest {
                 if (area.intersects(block)) boxes.add(block);
             }
         };
-        BlockState normal = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState();
-        BlockState powered = BlockRegistry.get(Identifier.of("skyengine:powered_rail")).getDefaultState()
+        BlockState normal = BlockRegistry.get(Identifier.of("voxelstories:rail")).getDefaultState();
+        BlockState powered = BlockRegistry.get(Identifier.of("voxelstories:powered_rail")).getDefaultState()
                 .with(Properties.POWERED, true);
 
         world.put(0, 64, 4, normal.with(Properties.RAIL_SHAPE, RailShape.NORTH_EAST));
@@ -214,7 +214,7 @@ final class MinecartEntityTest {
     @Test
     void poweredRailBoostIsAppliedAfterEmptyCartFriction() {
         TestWorld world = new TestWorld();
-        BlockState powered = BlockRegistry.get(Identifier.of("skyengine:powered_rail"))
+        BlockState powered = BlockRegistry.get(Identifier.of("voxelstories:powered_rail"))
                 .getDefaultState()
                 .with(Properties.POWERED, true)
                 .with(Properties.STRAIGHT_RAIL_SHAPE, RailShape.EAST_WEST);
@@ -232,10 +232,10 @@ final class MinecartEntityTest {
     @Test
     void cartGainsHeightWhileClimbingAscendingRail() {
         TestWorld world = new TestWorld();
-        BlockState slope = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+        BlockState slope = BlockRegistry.get(Identifier.of("voxelstories:rail")).getDefaultState()
                 .with(Properties.RAIL_SHAPE, RailShape.ASCENDING_EAST);
         world.put(0, 64, 0, slope);
-        world.put(1, 65, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+        world.put(1, 65, 0, BlockRegistry.get(Identifier.of("voxelstories:rail")).getDefaultState()
                 .with(Properties.RAIL_SHAPE, RailShape.EAST_WEST));
         MinecartEntity cart = new MinecartEntity();
         cart.setPosition(0.25, 64.3125, 0.5);
@@ -251,7 +251,7 @@ final class MinecartEntityTest {
     @Test
     void renderPoseSamplesBothSidesOfSlopeTransition() {
         TestWorld world = new TestWorld();
-        BlockState rail = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState();
+        BlockState rail = BlockRegistry.get(Identifier.of("voxelstories:rail")).getDefaultState();
         world.put(0, 64, 0, rail.with(Properties.RAIL_SHAPE, RailShape.ASCENDING_EAST));
         world.put(1, 65, 0, rail.with(Properties.RAIL_SHAPE, RailShape.EAST_WEST));
 
@@ -271,7 +271,7 @@ final class MinecartEntityTest {
     @Test
     void descendingSlopeAppliesVanillaHeightVelocityCorrection() {
         TestWorld world = new TestWorld();
-        world.put(0, 64, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+        world.put(0, 64, 0, BlockRegistry.get(Identifier.of("voxelstories:rail")).getDefaultState()
                 .with(Properties.RAIL_SHAPE, RailShape.ASCENDING_EAST));
         MinecartEntity cart = new MinecartEntity();
         cart.setPosition(0.75, 64.8125, 0.5);
@@ -292,10 +292,10 @@ final class MinecartEntityTest {
                 return area.intersects(upperSupport) ? List.of(upperSupport) : List.of();
             }
         };
-        world.put(0, 64, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+        world.put(0, 64, 0, BlockRegistry.get(Identifier.of("voxelstories:rail")).getDefaultState()
                 .with(Properties.RAIL_SHAPE, RailShape.ASCENDING_EAST));
-        world.put(1, 64, 0, BlockRegistry.get(Identifier.of("skyengine:stone")).getDefaultState());
-        world.put(1, 65, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+        world.put(1, 64, 0, BlockRegistry.get(Identifier.of("voxelstories:stone")).getDefaultState());
+        world.put(1, 65, 0, BlockRegistry.get(Identifier.of("voxelstories:rail")).getDefaultState()
                 .with(Properties.RAIL_SHAPE, RailShape.EAST_WEST));
         MinecartEntity cart = new MinecartEntity();
         cart.setPosition(0.2, 64.2625, 0.5);
@@ -318,10 +318,10 @@ final class MinecartEntityTest {
                 return supports.stream().filter(area::intersects).toList();
             }
         };
-        BlockState straight = BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+        BlockState straight = BlockRegistry.get(Identifier.of("voxelstories:rail")).getDefaultState()
                 .with(Properties.RAIL_SHAPE, RailShape.EAST_WEST);
         world.put(-1, 64, 0, straight);
-        world.put(0, 64, 0, BlockRegistry.get(Identifier.of("skyengine:rail")).getDefaultState()
+        world.put(0, 64, 0, BlockRegistry.get(Identifier.of("voxelstories:rail")).getDefaultState()
                 .with(Properties.RAIL_SHAPE, RailShape.ASCENDING_EAST));
         world.put(1, 65, 0, straight);
         MinecartEntity cart = new MinecartEntity();
@@ -348,7 +348,7 @@ final class MinecartEntityTest {
     }
 
     private static BlockState rail(String id, boolean powered) {
-        return BlockRegistry.get(Identifier.of("skyengine:" + id)).getDefaultState()
+        return BlockRegistry.get(Identifier.of("voxelstories:" + id)).getDefaultState()
                 .with(Properties.STRAIGHT_RAIL_SHAPE, RailShape.EAST_WEST)
                 .with(Properties.POWERED, powered);
     }
@@ -370,7 +370,7 @@ final class MinecartEntityTest {
             LevelData level = new LevelData();
             level.name = "minecart-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

@@ -58,5 +58,5 @@ final class CraftingMenuTest {
         for (int i = 0; i < storage.size(); i++) if (storage.get(i).getItem() == item) count += storage.get(i).getCount();
         return count;
     }
-    private static Item item(String id) { return Items.get(Identifier.of("skyengine:" + id)); }
+    private static Item item(String id) { return Items.get(Identifier.of("voxelstories:" + id)); }
 }

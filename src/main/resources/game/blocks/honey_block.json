@@ -1,6 +1,6 @@
 {
   "_comment": "MCs Wandrutschen fehlt bewusst; alles andere (Innenwuerfel-Modell, Kollisionshoehe, gedaempfter Fallschaden, Tempo/Sprung) ist vanilla-getreu.",
-  "id": "skyengine:honey_block",
+  "id": "honey_block",
   "creative_tab": ["functional", "redstone_blocks"],
   "parent": "preset/cube_bottom_top",
   "sticky_group": "honey",

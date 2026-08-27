@@ -1,1 +1,1 @@
-{ "type": "skyengine:crafting_shapeless", "ingredients": [{"item":"skyengine:mangrove_log"}], "result": {"id":"skyengine:mangrove_planks","count":4} }
+{ "type": "crafting_shapeless", "ingredients": [{"item":"mangrove_log"}], "result": {"id":"mangrove_planks","count":4} }

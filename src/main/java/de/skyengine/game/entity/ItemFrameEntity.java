@@ -130,7 +130,7 @@ public final class ItemFrameEntity extends Entity {
             world.getSoundManager().playItemFrameBreak(this.x, this.y, this.z);
         }
         if (!creative) world.spawnItem(this.x, this.y, this.z,
-                new ItemStack(Items.get(de.skyengine.game.world.block.Identifier.of("skyengine:item_frame")), 1));
+                new ItemStack(Items.get(de.skyengine.game.world.block.Identifier.of("item_frame")), 1));
         this.changed(world);
     }
 
@@ -141,7 +141,7 @@ public final class ItemFrameEntity extends Entity {
         }
         if (!this.item.isEmpty()) world.spawnItem(this.x, this.y, this.z, this.item.copy());
         world.spawnItem(this.x, this.y, this.z,
-                new ItemStack(Items.get(de.skyengine.game.world.block.Identifier.of("skyengine:item_frame")), 1));
+                new ItemStack(Items.get(de.skyengine.game.world.block.Identifier.of("item_frame")), 1));
         this.item = ItemStack.EMPTY;
         this.remove();
         this.changed(world);
@@ -153,7 +153,7 @@ public final class ItemFrameEntity extends Entity {
 
     public ItemStack getPickResult() {
         if (!this.item.isEmpty()) return this.item.copy();
-        return new ItemStack(Items.get(de.skyengine.game.world.block.Identifier.of("skyengine:item_frame")), 1);
+        return new ItemStack(Items.get(de.skyengine.game.world.block.Identifier.of("item_frame")), 1);
     }
 
     public void loadContent(ItemStack item, int rotation) {

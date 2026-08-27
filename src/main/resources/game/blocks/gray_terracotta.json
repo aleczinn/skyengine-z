@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:gray_terracotta",
+  "id": "gray_terracotta",
   "creative_tab": "colored_blocks",
   "parent": "preset/cube",
   "hardness": 1.25,

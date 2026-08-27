@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:birch_leaves",
+  "id": "birch_leaves",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "sound": "grass",

@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:cobblestone",
+  "id": "cobblestone",
   "parent": "preset/cube",
   "hardness": 2,
   "resistance": 6,

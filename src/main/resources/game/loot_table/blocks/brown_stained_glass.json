@@ -1,20 +1,20 @@
-﻿{
-  "type": "skyengine:block",
+{
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
-          "name": "skyengine:brown_stained_glass"
+          "type": "item",
+          "name": "brown_stained_glass"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/brown_stained_glass"
+  "random_sequence": "blocks/brown_stained_glass"
 }

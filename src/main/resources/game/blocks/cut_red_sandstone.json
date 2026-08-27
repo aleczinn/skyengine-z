@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:cut_red_sandstone",
+  "id": "cut_red_sandstone",
   "parent": "preset/cube_bottom_top",
   "vars": {
     "top": "red_sandstone_top",

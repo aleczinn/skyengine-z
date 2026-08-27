@@ -21,9 +21,9 @@ import java.util.Set;
 /** Globale, nach dem Item-Bootstrap unveraenderliche Rezept- und Brennstoffverwaltung. */
 public final class RecipeManager {
 
-    public static final Identifier CRAFTING = Identifier.of("skyengine:crafting");
-    public static final Identifier FURNACE = Identifier.of("skyengine:furnace");
-    public static final Identifier SOLID_FUEL = Identifier.of("skyengine:solid_fuel");
+    public static final Identifier CRAFTING = Identifier.of("crafting");
+    public static final Identifier FURNACE = Identifier.of("furnace");
+    public static final Identifier SOLID_FUEL = Identifier.of("solid_fuel");
 
     private static final Logger LOGGER = LogManager.getLogger(RecipeManager.class.getName());
     private static RecipeManager INSTANCE = empty();

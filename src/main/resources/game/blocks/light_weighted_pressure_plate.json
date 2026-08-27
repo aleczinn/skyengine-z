@@ -1,6 +1,6 @@
 {
   "_comment": "Waegeplatte (leicht, Gold): Signal = Anzahl der Entities (1 je Stufe, Deckel 15) - MC-Werte inkl. press_ticks 10. Die power-Varianten brauchen dank Teilmengen-Match + Leer-Key-Fallback nur zwei Eintraege; die geerbten powered-Keys matchen nie und bleiben harmlos liegen.",
-  "id": "skyengine:light_weighted_pressure_plate",
+  "id": "light_weighted_pressure_plate",
   "parent": "preset/pressure_plate",
   "press_ticks": 10,
   "sound": "stone",

@@ -412,7 +412,8 @@ public final class GuiCreativeInventory extends GuiContainer {
         boolean search = tab != null && tab.type() == CreativeTab.Type.SEARCH;
         /* Randlos: der Eingabekasten ist bereits ins Sheet gemalt (x 80..169, y 4..15) — ein
            eigener 9-Slice läge nur doppelt darüber. */
-        this.searchField = new TextField(SEARCH_W, SEARCH_H, 64, null).borderless();
+        this.searchField = new TextField(SEARCH_W, SEARCH_H, 64, null)
+                .borderless().clearOnRightClick();
         this.searchField.layoutAt(Math.round(this.guiX) + SEARCH_X, Math.round(this.guiY) + SEARCH_Y);
         this.searchField.visible = search;
         this.searchField.setFocused(search);

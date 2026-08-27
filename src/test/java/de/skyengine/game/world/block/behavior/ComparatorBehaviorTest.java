@@ -182,15 +182,6 @@ final class ComparatorBehaviorTest {
     }
 
     @Test
-    void legacyPowerPropertyMigratesToPoweredVisualState() {
-        BlockState migrated = BlockStateCodec.decode(
-                "skyengine:comparator[facing=east,mode=compare,power=7]");
-
-        assertTrue(migrated.get(Properties.POWERED));
-        assertFalse(migrated.getValues().containsKey(Properties.POWER));
-    }
-
-    @Test
     void comparatorBlockEntityIsNonTickingButPistonStillDestroysBlock() {
         assertFalse(BlockEntities.COMPARATOR.isTicking());
         assertEquals(PistonReaction.DESTROY, state("comparator").getBlock().getPistonReaction());
@@ -214,7 +205,7 @@ final class ComparatorBehaviorTest {
         ChestBlockEntity first = (ChestBlockEntity) world.getBlockEntity(-1, 64, 0);
         for (int slot = 0; slot < ChestBlockEntity.SLOTS; slot++) {
             first.getInventory().set(slot, new ItemStack(
-                    Items.get(Identifier.of("skyengine:stone")), 64));
+                    Items.get(Identifier.of("voxelstories:stone")), 64));
         }
 
         assertEquals(8, ComparatorBehavior.computeOutput(world, 0, 64, 0, comparator));
@@ -228,7 +219,7 @@ final class ComparatorBehaviorTest {
         world.comparatorOutputUpdates = 0;
 
         chest.getInventory().set(0, new ItemStack(
-                Items.get(Identifier.of("skyengine:stone")), 1));
+                Items.get(Identifier.of("voxelstories:stone")), 1));
 
         assertEquals(1, world.comparatorOutputUpdates);
     }
@@ -261,7 +252,7 @@ final class ComparatorBehaviorTest {
         var combined = chest.getCombinedInventory();
         world.comparatorUpdatePositions.clear();
 
-        combined.set(0, new ItemStack(Items.get(Identifier.of("skyengine:stone")), 1));
+        combined.set(0, new ItemStack(Items.get(Identifier.of("voxelstories:stone")), 1));
         combined.setChanged();
 
         assertEquals(54, combined.size());
@@ -271,7 +262,7 @@ final class ComparatorBehaviorTest {
     }
 
     private static BlockState state(String path) {
-        var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
+        var block = BlockRegistry.get(Identifier.of("voxelstories:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
         return block.getDefaultState();
     }
@@ -346,7 +337,7 @@ final class ComparatorBehaviorTest {
             LevelData level = new LevelData();
             level.name = "comparator-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

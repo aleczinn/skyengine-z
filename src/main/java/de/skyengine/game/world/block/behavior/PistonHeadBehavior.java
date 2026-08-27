@@ -48,7 +48,7 @@ public final class PistonHeadBehavior implements BlockBehavior {
         BlockState state = context.state();
         if (!hasMatchingBase(context.world(), context.x(), context.y(), context.z(), state)) return;
         Item item = Items.get(Identifier.of(state.get(Properties.PISTON_TYPE) == PistonType.STICKY
-                ? "skyengine:sticky_piston" : "skyengine:piston"));
+                ? "sticky_piston" : "piston"));
         if (item != null) sink.accept(new ItemStack(item, 1), context.x(), context.y(), context.z());
     }
 

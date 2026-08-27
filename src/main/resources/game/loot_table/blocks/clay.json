@@ -1,21 +1,21 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "entries": [
         {
-          "type": "skyengine:alternatives",
+          "type": "alternatives",
           "children": [
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:match_tool",
+                  "condition": "match_tool",
                   "predicate": {
                     "predicates": {
-                      "skyengine:enchantments": [
+                      "enchantments": [
                         {
-                          "enchantments": "skyengine:silk_touch",
+                          "enchantments": "silk_touch",
                           "levels": {
                             "min": 1
                           }
@@ -25,20 +25,20 @@
                   }
                 }
               ],
-              "name": "skyengine:clay"
+              "name": "clay"
             },
             {
-              "type": "skyengine:item",
+              "type": "item",
               "functions": [
                 {
                   "count": 4.0,
-                  "function": "skyengine:set_count"
+                  "function": "set_count"
                 },
                 {
-                  "function": "skyengine:explosion_decay"
+                  "function": "explosion_decay"
                 }
               ],
-              "name": "skyengine:clay_ball"
+              "name": "clay_ball"
             }
           ]
         }
@@ -46,5 +46,5 @@
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/clay"
+  "random_sequence": "blocks/clay"
 }

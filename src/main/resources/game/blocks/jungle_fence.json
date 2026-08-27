@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:jungle_fence",
+  "id": "jungle_fence",
   "parent": "preset/fence",
   "vars": {
     "texture": "jungle_planks"

@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:apple",
+  "id": "apple",
   "archetype": "food",
   "texture": "game/textures/item/apple.png",
   "creative_tab": "food",

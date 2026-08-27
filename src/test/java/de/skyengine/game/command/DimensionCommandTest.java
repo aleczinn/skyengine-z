@@ -40,20 +40,20 @@ final class DimensionCommandTest {
         CommandDispatcher dispatcher = new CommandDispatcher();
         dispatcher.register(new DimensionCommand());
 
-        CommandResult result = dispatcher.execute(context, "/dimension skyengine:mining");
+        CommandResult result = dispatcher.execute(context, "/dimension voxelstories:mining");
 
         assertTrue(result.success());
         assertTrue(result.message().contains("Mining Dimension"));
         assertEquals(WorldgenRegistries.MINING, requested.get());
-        assertEquals(List.of("/dimension voxel_stories:mining"),
-                dispatcher.suggest(context, "/dimension voxel_stories:mi"));
-        assertEquals("Mining Portal", I18n.tr("block.skyengine.mining_portal"));
+        assertEquals(List.of("/dimension voxelstories:mining"),
+                dispatcher.suggest(context, "/dimension voxelstories:mi"));
+        assertEquals("Mining Portal", I18n.tr("block.voxelstories.mining_portal"));
         assertEquals("Mining Dimension", DimensionDefinition.displayName(WorldgenRegistries.MINING));
         assertEquals("Entering Mining Dimension...", I18n.tr("world.loading",
                 DimensionDefinition.displayName(WorldgenRegistries.MINING)));
 
         I18n.load("de_de");
-        assertEquals("Bergbauportal", I18n.tr("block.skyengine.mining_portal"));
+        assertEquals("Bergbauportal", I18n.tr("block.voxelstories.mining_portal"));
         assertEquals("Bergbau-Dimension", DimensionDefinition.displayName(WorldgenRegistries.MINING));
         assertEquals("Betrete Bergbau-Dimension...", I18n.tr("world.loading",
                 DimensionDefinition.displayName(WorldgenRegistries.MINING)));

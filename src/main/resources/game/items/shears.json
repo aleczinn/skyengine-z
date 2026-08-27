@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:shears",
+  "id": "shears",
   "archetype": "shears",
   "max_stack": 1,
   "texture": "game/textures/item/shears.png",

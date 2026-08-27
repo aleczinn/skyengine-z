@@ -12,7 +12,7 @@ public class FileHandle {
 
     private final File file;
     private final FileType type;
-    /** Logischer Legacy-Pfad fuer RESOURCE-Handles (z.B. game/textures/...). */
+    /** Logischer Ressourcenpfad fuer RESOURCE-Handles (z.B. game/textures/...). */
     private final String resourcePath;
 
     private final Logger logger = LogManager.getLogger(FileHandle.class.getName());

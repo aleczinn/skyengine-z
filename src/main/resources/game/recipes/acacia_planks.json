@@ -1,1 +1,1 @@
-{ "type": "skyengine:crafting_shapeless", "ingredients": [{"item":"skyengine:acacia_log"}], "result": {"id":"skyengine:acacia_planks","count":4} }
+{ "type": "crafting_shapeless", "ingredients": [{"item":"acacia_log"}], "result": {"id":"acacia_planks","count":4} }

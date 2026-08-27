@@ -21,8 +21,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Übersetzt Minecraft-BlockStates in SkyEngine-Runtime-State-IDs. Auflösung dreistufig:
  * <ol>
  *   <li><b>Alias</b> aus {@code block_map.json} (z.B. {@code minecraft:deepslate} →
- *       {@code skyengine:stone}, Umbenennungen wie {@code grass} → {@code short_grass}),</li>
- *   <li><b>Identität</b>: {@code skyengine:<pfad>} falls registriert — deckt die große
+ *       {@code stone}, Umbenennungen wie {@code grass} → {@code short_grass}),</li>
+ *   <li><b>Identität</b>: {@code <pfad>} falls registriert — deckt die große
  *       Mehrheit ab und wächst automatisch mit neuen Engine-Blöcken,</li>
  *   <li><b>unbekannt</b> → Luft; der {@code McMappingReport} macht das vollständig sichtbar.</li>
  * </ol>
@@ -83,7 +83,7 @@ public final class BlockMapper {
         String target = this.aliases.get(name);
         if (target == null) {
             String path = name.startsWith("minecraft:") ? name.substring("minecraft:".length()) : name;
-            String candidate = "skyengine:" + path;
+            String candidate = path;
             if (Registries.BLOCK.contains(Identifier.of(candidate))) target = candidate;
         }
         if (target == null) {

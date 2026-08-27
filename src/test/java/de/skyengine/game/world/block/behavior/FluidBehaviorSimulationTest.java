@@ -329,7 +329,7 @@ final class FluidBehaviorSimulationTest {
             LevelData level = new LevelData();
             level.name = "fluid-simulation-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

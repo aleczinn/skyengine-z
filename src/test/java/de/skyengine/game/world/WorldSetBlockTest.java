@@ -60,10 +60,10 @@ final class WorldSetBlockTest {
         TestWorld world = new TestWorld();
         Chunk chunk = new Chunk(0, 0);
         chunk.status = ChunkStatus.READY;
-        chunk.setBlock(1, 64, 1, id("skyengine:lever[face=wall,facing=east,powered=true]"));
-        chunk.setBlock(3, 64, 1, id("skyengine:oak_button[face=wall,facing=east,powered=true]"));
-        chunk.setBlock(5, 64, 1, id("skyengine:oak_pressure_plate[powered=true]"));
-        chunk.setBlock(7, 64, 1, id("skyengine:lever[face=wall,facing=east,powered=false]"));
+        chunk.setBlock(1, 64, 1, id("voxelstories:lever[face=wall,facing=east,powered=true]"));
+        chunk.setBlock(3, 64, 1, id("voxelstories:oak_button[face=wall,facing=east,powered=true]"));
+        chunk.setBlock(5, 64, 1, id("voxelstories:oak_pressure_plate[powered=true]"));
+        chunk.setBlock(7, 64, 1, id("voxelstories:lever[face=wall,facing=east,powered=false]"));
         world.install(chunk);
 
         world.setBlock(1, 64, 1, Blocks.AIR, false);
@@ -130,7 +130,7 @@ final class WorldSetBlockTest {
         TestWorld world = new TestWorld();
         Chunk chunk = new Chunk(0, 0);
         chunk.status = ChunkStatus.READY;
-        chunk.setBlock(1, 64, 1, id("skyengine:lever[face=wall,facing=east,powered=true]"));
+        chunk.setBlock(1, 64, 1, id("voxelstories:lever[face=wall,facing=east,powered=true]"));
         world.install(chunk);
 
         world.breakBlocksBatch(new long[]{BlockPos.asLong(1, 64, 1)}, 1);
@@ -147,8 +147,8 @@ final class WorldSetBlockTest {
         TestWorld world = new TestWorld();
         Chunk chunk = new Chunk(0, 0);
         chunk.status = ChunkStatus.READY;
-        chunk.setBlock(1, 64, 1, id("skyengine:white_bed[facing=north,part=foot]"));
-        chunk.setBlock(1, 64, 2, id("skyengine:white_bed[facing=north,part=head]"));
+        chunk.setBlock(1, 64, 1, id("voxelstories:white_bed[facing=north,part=foot]"));
+        chunk.setBlock(1, 64, 2, id("voxelstories:white_bed[facing=north,part=head]"));
         world.install(chunk);
 
         world.setBlock(1, 64, 1, Blocks.AIR, false);
@@ -223,7 +223,7 @@ final class WorldSetBlockTest {
             LevelData level = new LevelData();
             level.name = "set-block-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

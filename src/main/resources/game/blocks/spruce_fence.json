@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:spruce_fence",
+  "id": "spruce_fence",
   "parent": "preset/fence",
   "vars": {
     "texture": "spruce_planks"

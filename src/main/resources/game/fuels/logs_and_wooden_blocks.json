@@ -1,0 +1,5 @@
+{
+  "fuel_type": "solid_fuel",
+  "ingredient": [ { "tag": "logs" }, { "tag": "planks" }, { "tag": "wooden_blocks" } ],
+  "burn_time": 300
+}

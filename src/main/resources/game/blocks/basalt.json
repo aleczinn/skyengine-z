@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:basalt",
+  "id": "basalt",
   "creative_tab": "natural",
   "parent": "preset/pillar",
   "vars": {

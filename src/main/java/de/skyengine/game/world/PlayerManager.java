@@ -4,9 +4,6 @@ import de.skyengine.game.Gamemode;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.DataTag;
-import de.skyengine.game.world.item.Item;
-import de.skyengine.game.world.item.ItemStack;
-import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.dimension.WorldgenRegistries;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.game.world.save.PlayerIO;
@@ -36,21 +33,14 @@ public final class PlayerManager {
         LevelData level = save.level();
         UUID uuid = parseUuid(level.localPlayerUuid);
         DataTag tag = uuid == null ? null : PlayerIO.read(PlayerIO.playerFile(root, uuid));
-        boolean legacy = false;
-        if (tag == null) {
-            tag = PlayerIO.read(PlayerIO.legacyPlayerFile(root));
-            legacy = tag != null;
-            if (uuid == null && tag != null) uuid = uuidFrom(tag);
-        }
         if (uuid == null) uuid = UUID.randomUUID();
 
         this.localPlayer = new EntityPlayer(uuid);
         this.localPlayerHasPosition = this.load(this.localPlayer, tag, level);
         this.players.put(uuid, this.localPlayer);
         level.localPlayerUuid = uuid.toString();
-        level.formatVersion = 3;
+        level.formatVersion = WorldSaves.CURRENT_FORMAT_VERSION;
         levelSaver.run();
-        if (legacy) this.save(this.localPlayer);
     }
 
     public EntityPlayer localPlayer() {
@@ -89,19 +79,7 @@ public final class PlayerManager {
             if (inventory != null) player.getInventory().load(inventory);
             player.setSelectedSlot(tag.getInt("selectedSlot", 0));
             hasPosition = true;
-        } else if (level.player != null) {
-            LevelData.PlayerData old = level.player;
-            player.setPosition(old.x, old.y, old.z);
-            player.yaw = old.yaw;
-            player.pitch = old.pitch;
-            applyState(player, old.gamemode, old.flying,
-                    old.health == null ? player.getHealth() : old.health,
-                    old.foodLevel == null ? player.getFoodLevel() : old.foodLevel,
-                    old.saturation == null ? player.getSaturation() : old.saturation);
-            loadLegacyInventory(player, level);
-            hasPosition = true;
         } else {
-            loadLegacyInventory(player, level);
             Identifier spawnDimension = Identifier.of(level.spawnDimension == null
                     ? WorldgenRegistries.OVERWORLD.toString() : level.spawnDimension);
             if (WorldgenRegistries.DIMENSIONS.get(spawnDimension) != null) dimension = spawnDimension;
@@ -130,18 +108,6 @@ public final class PlayerManager {
         player.setHealth(health);
         player.setFoodLevel(foodLevel);
         player.setSaturation(saturation);
-    }
-
-    private static void loadLegacyInventory(EntityPlayer player, LevelData level) {
-        if (level.inventory == null) return;
-        for (LevelData.ItemEntry entry : level.inventory) {
-            if (entry.slot < 0 || entry.slot >= player.getInventory().size()) continue;
-            Item item = Items.get(Identifier.of(entry.id));
-            if (item == null) continue;
-            ItemStack stack = new ItemStack(item, entry.count);
-            stack.setDamage(entry.damage);
-            player.getInventory().set(entry.slot, stack);
-        }
     }
 
     public void save(EntityPlayer player) {
@@ -174,12 +140,6 @@ public final class PlayerManager {
         player.getInventory().save(inventory);
         tag.putTag("inventory", inventory);
         PlayerIO.write(PlayerIO.playerFile(this.root, uuid), tag);
-    }
-
-    private static UUID uuidFrom(DataTag tag) {
-        long most = tag.getLong("uuidMost", 0);
-        long least = tag.getLong("uuidLeast", 0);
-        return most == 0 && least == 0 ? null : new UUID(most, least);
     }
 
     private static UUID parseUuid(String value) {

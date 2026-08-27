@@ -1,6 +1,6 @@
 {
-  "type": "skyengine:crafting_shaped",
+  "type": "crafting_shaped",
   "pattern": ["CCC", "C C", "CCC"],
-  "key": { "C": { "item": "skyengine:cobblestone" } },
-  "result": { "id": "skyengine:furnace" }
+  "key": { "C": { "item": "cobblestone" } },
+  "result": { "id": "furnace" }
 }

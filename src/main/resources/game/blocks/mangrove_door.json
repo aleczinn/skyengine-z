@@ -1,6 +1,6 @@
 {
-  "id": "skyengine:mangrove_door",
+  "id": "mangrove_door",
   "parent": "preset/door",
-  "lod_replacement": "skyengine:mangrove_planks",
+  "lod_replacement": "mangrove_planks",
   "creative_tab": ["building_blocks", "functional"]
 }

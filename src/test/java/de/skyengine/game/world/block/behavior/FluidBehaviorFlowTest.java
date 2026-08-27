@@ -74,7 +74,7 @@ final class FluidBehaviorFlowTest {
             LevelData level = new LevelData();
             level.name = "fluid-flow-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:tnt",
+  "id": "tnt",
   "creative_tab": ["functional", "redstone_blocks"],
   "parent": "preset/cube_bottom_top",
   "explosion_power": 4,

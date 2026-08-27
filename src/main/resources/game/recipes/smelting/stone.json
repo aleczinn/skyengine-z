@@ -1,1 +1,1 @@
-{ "type":"skyengine:processing", "recipe_type":"skyengine:furnace", "inputs":[{"item":"skyengine:cobblestone"}], "result":{"id":"skyengine:stone"}, "duration":200 }
+{ "type":"processing", "recipe_type":"furnace", "inputs":[{"item":"cobblestone"}], "result":{"id":"stone"}, "duration":200 }

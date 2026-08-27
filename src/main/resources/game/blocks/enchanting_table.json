@@ -1,8 +1,8 @@
 {
-  "id": "skyengine:enchanting_table",
+  "id": "enchanting_table",
   "creative_tab": "functional",
   "type": "cube",
-  "lod_replacement": "skyengine:obsidian",
+  "lod_replacement": "obsidian",
   "layer": "opaque",
   "hardness": 5,
   "resistance": 1200,
@@ -10,7 +10,7 @@
   "light_level": 7,
   "light_color": "#C77DFF",
   "opaque": false,
-  "block_entity": "skyengine:enchanting_table",
+  "block_entity": "enchanting_table",
   "collision": {
     "boxes": [
       { "from": [0, 0, 0], "to": [16, 12, 16] }

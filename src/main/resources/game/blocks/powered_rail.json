@@ -1,5 +1,5 @@
 {
-  "id":"skyengine:powered_rail", "archetype":"rail", "rail_kind":"powered",
+  "id":"powered_rail", "archetype":"rail", "rail_kind":"powered",
   "creative_tab":"redstone_blocks", "layer":"cutout", "opaque":false, "solid":false,
   "no_lod_surface":true, "place_on_full_top":true,
   "hardness":0.7, "tool":"pickaxe", "sound":"stone", "icon_flat":["game/textures/block/powered_rail.png"],

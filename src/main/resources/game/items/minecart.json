@@ -1,5 +1,5 @@
 {
-  "id":"skyengine:minecart", "archetype":"minecart", "max_stack":1,
+  "id":"minecart", "archetype":"minecart", "max_stack":1,
   "texture":"game/textures/item/minecart.png",
   "creative_tab":["functional", "redstone_blocks"]
 }

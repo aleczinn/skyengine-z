@@ -1,6 +1,6 @@
 {
-  "type": "skyengine:crafting_shaped",
+  "type": "crafting_shaped",
   "pattern": ["PP", "PP"],
-  "key": { "P": { "tag": "skyengine:planks" } },
-  "result": { "id": "skyengine:crafting_table" }
+  "key": { "P": { "tag": "planks" } },
+  "result": { "id": "crafting_table" }
 }

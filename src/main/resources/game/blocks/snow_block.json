@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:snow_block",
+  "id": "snow_block",
   "parent": "preset/cube",
   "creative_tab": "natural",
   "vars": { "texture": "snow" },

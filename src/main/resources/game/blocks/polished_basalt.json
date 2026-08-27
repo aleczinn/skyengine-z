@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:polished_basalt",
+  "id": "polished_basalt",
   "parent": "preset/pillar",
   "vars": {
     "side": "polished_basalt_side"

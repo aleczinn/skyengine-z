@@ -1,1 +1,1 @@
-{ "type":"skyengine:block", "pools":[{ "conditions":[{"condition":"skyengine:survives_explosion"}], "entries":[{"type":"skyengine:item","name":"skyengine:jungle_fence_gate"}], "rolls":1.0 }], "random_sequence":"skyengine:blocks/jungle_fence_gate" }
+{ "type":"block", "pools":[{ "conditions":[{"condition":"survives_explosion"}], "entries":[{"type":"item","name":"jungle_fence_gate"}], "rolls":1.0 }], "random_sequence":"blocks/jungle_fence_gate" }

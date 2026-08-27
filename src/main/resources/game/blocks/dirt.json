@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:dirt",
+  "id": "dirt",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 0.5,

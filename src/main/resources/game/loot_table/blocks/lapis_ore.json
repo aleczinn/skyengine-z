@@ -1,21 +1,21 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "entries": [
         {
-          "type": "skyengine:alternatives",
+          "type": "alternatives",
           "children": [
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:match_tool",
+                  "condition": "match_tool",
                   "predicate": {
                     "predicates": {
-                      "skyengine:enchantments": [
+                      "enchantments": [
                         {
-                          "enchantments": "skyengine:silk_touch",
+                          "enchantments": "silk_touch",
                           "levels": {
                             "min": 1
                           }
@@ -25,29 +25,29 @@
                   }
                 }
               ],
-              "name": "skyengine:lapis_ore"
+              "name": "lapis_ore"
             },
             {
-              "type": "skyengine:item",
+              "type": "item",
               "functions": [
                 {
                   "count": {
-                    "type": "skyengine:uniform",
+                    "type": "uniform",
                     "max": 9.0,
                     "min": 4.0
                   },
-                  "function": "skyengine:set_count"
+                  "function": "set_count"
                 },
                 {
-                  "enchantment": "skyengine:fortune",
-                  "formula": "skyengine:ore_drops",
-                  "function": "skyengine:apply_bonus"
+                  "enchantment": "fortune",
+                  "formula": "ore_drops",
+                  "function": "apply_bonus"
                 },
                 {
-                  "function": "skyengine:explosion_decay"
+                  "function": "explosion_decay"
                 }
               ],
-              "name": "skyengine:lapis_lazuli"
+              "name": "lapis_lazuli"
             }
           ]
         }
@@ -55,5 +55,5 @@
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/lapis_ore"
+  "random_sequence": "blocks/lapis_ore"
 }
