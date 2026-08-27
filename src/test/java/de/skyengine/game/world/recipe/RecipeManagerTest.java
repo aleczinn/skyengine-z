@@ -63,6 +63,24 @@ final class RecipeManagerTest {
         }
     }
 
+    @Test void chestRecipeAcceptsEveryPlankTypeAndMixedPlanks() {
+        List<String> plankTypes = List.of(
+                "oak_planks", "birch_planks", "spruce_planks", "dark_oak_planks",
+                "acacia_planks", "jungle_planks", "mangrove_planks", "pale_oak_planks");
+
+        for (String plankType : plankTypes) {
+            ArrayGrid grid = chestGrid(java.util.Collections.nCopies(8, plankType));
+            CraftingRecipe recipe = RecipeManager.get().findCrafting(RecipeManager.CRAFTING, grid);
+            assertNotNull(recipe, () -> "Chest recipe missing for " + plankType);
+            assertEquals(item("chest"), recipe.result().getItem());
+        }
+
+        CraftingRecipe mixedRecipe = RecipeManager.get().findCrafting(
+                RecipeManager.CRAFTING, chestGrid(plankTypes));
+        assertNotNull(mixedRecipe, "Chest recipe must accept mixed plank types");
+        assertEquals(item("chest"), mixedRecipe.result().getItem());
+    }
+
     @Test void fuelLookupIsConstantMapResult() {
         assertEquals(1600, RecipeManager.get().fuels().burnTime(RecipeManager.SOLID_FUEL,
                 new ItemStack(item("coal"), 1)));
@@ -86,6 +104,18 @@ final class RecipeManagerTest {
     private static int burnTime(String id) {
         return RecipeManager.get().fuels().burnTime(RecipeManager.SOLID_FUEL,
                 new ItemStack(item(id), 1));
+    }
+
+    private static ArrayGrid chestGrid(List<String> plankTypes) {
+        ArrayGrid grid = new ArrayGrid(3, 3);
+        int plankIndex = 0;
+        for (int y = 0; y < 3; y++) {
+            for (int x = 0; x < 3; x++) {
+                if (x == 1 && y == 1) continue;
+                grid.set(x, y, item(plankTypes.get(plankIndex++)));
+            }
+        }
+        return grid;
     }
 
     @Test void indexDoesNotScanOneHundredThousandIrrelevantRecipes() {
