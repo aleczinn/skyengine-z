@@ -10,6 +10,11 @@ import java.util.List;
 
 /** Kleine WorldEdit-artige Befehlssuite fuer Selektion, Clipboard und History. */
 public final class WorldEditCommand implements Command {
+    private static final java.util.Map<String, String> ANCHOR_FLAGS = java.util.Map.of(
+            "-a", "anchor", "--anchor", "anchor");
+    private static final java.util.Map<String, String> PASTE_FLAGS = java.util.Map.of(
+            "-a", "air", "--air", "air", "-s", "selection", "--selection", "selection");
+    private static final java.util.Set<String> PLACEMENT_OPTIONS = java.util.Set.of("replace");
     private final String name;
 
     public WorldEditCommand(String name) { this.name = name; }
@@ -24,7 +29,7 @@ public final class WorldEditCommand implements Command {
             case "replace" -> "[von] <block>";
             case "expand", "contract", "stack", "move" -> "<wert>";
             case "preview" -> "[clear|x y z] [replace=all|keep]";
-            case "paste" -> "[x y z] [replace=all|keep]";
+            case "paste" -> "[x y z] [-a|--air] [-s|--selection] [replace=all|keep]";
             case "undo", "redo" -> "[anzahl]";
             default -> "";
         };
@@ -36,7 +41,7 @@ public final class WorldEditCommand implements Command {
         try {
             return switch (name) {
                 case "wand" -> arguments.isEmpty() ? CommandResult.success(context.structures().wand())
-                        : CommandResult.error("Verwendung: //wand");
+                        : CommandResult.error(I18n.tr("command.worldedit.wand_usage"));
                 case "pos1" -> arguments.isEmpty() ? CommandResult.success(context.structures().pos1())
                         : CommandResult.error(I18n.tr("command.worldedit.pos1_usage"));
                 case "pos2" -> arguments.isEmpty() ? CommandResult.success(context.structures().pos2())
@@ -58,12 +63,12 @@ public final class WorldEditCommand implements Command {
                         : CommandResult.error(I18n.tr("command.worldedit.regen_usage"));
                 case "rotate" -> rotate(context, arguments);
                 case "flip" -> arguments.isEmpty() ? CommandResult.success(context.structures().flip())
-                        : CommandResult.error("Verwendung: //flip");
+                        : CommandResult.error(I18n.tr("command.worldedit.flip_usage"));
                 case "preview" -> preview(context, arguments);
                 case "paste" -> paste(context, arguments);
                 case "undo" -> history(context, arguments, false);
                 case "redo" -> history(context, arguments, true);
-                default -> CommandResult.error("Unbekannter Editor-Befehl: //" + name);
+                default -> CommandResult.error(I18n.tr("command.worldedit.unknown_command", name));
             };
         } catch (Exception e) {
             return CommandResult.error(I18n.tr("command.worldedit.error_prefix", e.getMessage()));
@@ -71,22 +76,16 @@ public final class WorldEditCommand implements Command {
     }
 
     private static CommandResult cut(CommandContext context, List<String> args) {
-        boolean anchor;
-        if (args.isEmpty()) anchor = false;
-        else if (args.size() == 1 && (args.getFirst().equalsIgnoreCase("-a")
-                || args.getFirst().equalsIgnoreCase("--anchor"))) anchor = true;
-        else return CommandResult.error(I18n.tr("command.worldedit.cut_usage"));
-        return editResult(context.structures().cut(anchor), "command.worldedit.cut_success",
+        TrailingArguments.Parsed parsed = TrailingArguments.parse(args, ANCHOR_FLAGS, java.util.Set.of());
+        if (!parsed.positionals().isEmpty()) return CommandResult.error(I18n.tr("command.worldedit.cut_usage"));
+        return editResult(context.structures().cut(parsed.flag("anchor")), "command.worldedit.cut_success",
                 "command.worldedit.cut_failed");
     }
 
     private static CommandResult copy(CommandContext context, List<String> args) {
-        if (args.isEmpty()) return CommandResult.success(context.structures().copy(false));
-        if (args.size() == 1 && (args.getFirst().equalsIgnoreCase("-a")
-                || args.getFirst().equalsIgnoreCase("--anchor"))) {
-            return CommandResult.success(context.structures().copy(true));
-        }
-        return CommandResult.error(I18n.tr("command.worldedit.copy_usage"));
+        TrailingArguments.Parsed parsed = TrailingArguments.parse(args, ANCHOR_FLAGS, java.util.Set.of());
+        if (!parsed.positionals().isEmpty()) return CommandResult.error(I18n.tr("command.worldedit.copy_usage"));
+        return CommandResult.success(context.structures().copy(parsed.flag("anchor")));
     }
 
     private static CommandResult resize(CommandContext context, List<String> args, boolean contract) {
@@ -134,48 +133,80 @@ public final class WorldEditCommand implements Command {
     }
 
     private static CommandResult rotate(CommandContext context, List<String> args) {
-        if (args.size() != 1) return CommandResult.error("Verwendung: //rotate <vielfaches-von-90>");
+        if (args.size() != 1) return CommandResult.error(I18n.tr("command.worldedit.rotate_usage"));
         return CommandResult.success(context.structures().rotate(StructureCommand.integer(args.getFirst())));
     }
 
     private static CommandResult preview(CommandContext context, List<String> args) {
         if (args.size() == 1 && args.getFirst().equalsIgnoreCase("clear")) {
             context.structures().clearPreview();
-            return CommandResult.success("Structure-Vorschau entfernt");
+            return CommandResult.success(I18n.tr("command.worldedit.preview_cleared"));
         }
-        ParsedPlacement parsed = placementArguments(args, "//preview");
+        ParsedPlacement parsed = placementArguments(args, "//preview", false);
         return CommandResult.success(context.structures().preview(parsed.x, parsed.y, parsed.z, parsed.rule));
     }
 
     private static CommandResult paste(CommandContext context, List<String> args) throws Exception {
-        ParsedPlacement parsed = placementArguments(args, "//paste");
-        StructurePlacement.Result result = context.structures().paste(parsed.x, parsed.y, parsed.z, parsed.rule);
-        return result.complete() ? CommandResult.success("Structure platziert: " + result.written() + " Zellen")
-                : CommandResult.error("Structure konnte nicht vollstaendig platziert werden: " + result.failed());
+        ParsedPlacement parsed = placementArguments(args, "//paste", true);
+        StructurePlacement.Result result = context.structures().paste(parsed.x, parsed.y, parsed.z,
+                parsed.rule, parsed.selectBounds);
+        return result.complete()
+                ? CommandResult.success(I18n.tr("command.worldedit.paste_success", result.written()))
+                : CommandResult.error(I18n.tr("command.worldedit.paste_failed", result.failed()));
     }
 
     private static CommandResult history(CommandContext context, List<String> args, boolean redo) {
-        if (args.size() > 1) return CommandResult.error("Verwendung: //" + (redo ? "redo" : "undo") + " [anzahl]");
+        if (args.size() > 1) return CommandResult.error(I18n.tr(
+                redo ? "command.worldedit.redo_usage" : "command.worldedit.undo_usage"));
         int amount = args.isEmpty() ? 1 : StructureCommand.integer(args.getFirst());
         String result = redo ? context.structures().redo(amount) : context.structures().undo(amount);
         return CommandResult.success(result);
     }
 
-    private static ParsedPlacement placementArguments(List<String> args, String command) {
-        int index = 0;
+    private static ParsedPlacement placementArguments(List<String> args, String command,
+                                                       boolean allowSelection) {
+        TrailingArguments.Parsed parsed = TrailingArguments.parse(args,
+                allowSelection ? PASTE_FLAGS : java.util.Map.of(), PLACEMENT_OPTIONS);
+        List<String> coordinates = parsed.positionals();
         Integer x = null, y = null, z = null;
-        if (!args.isEmpty() && !args.getFirst().contains("=")) {
-            if (args.size() < 3) throw new IllegalArgumentException("Verwendung: " + command + " [x y z] [replace=all|keep]");
-            x = StructureCommand.integer(args.get(index++));
-            y = StructureCommand.integer(args.get(index++));
-            z = StructureCommand.integer(args.get(index++));
+        if (!coordinates.isEmpty()) {
+            if (coordinates.size() != 3) throw new IllegalArgumentException(I18n.tr(
+                    command.equals("//paste") ? "command.worldedit.paste_usage"
+                            : "command.worldedit.preview_usage"));
+            x = StructureCommand.integer(coordinates.get(0));
+            y = StructureCommand.integer(coordinates.get(1));
+            z = StructureCommand.integer(coordinates.get(2));
         }
-        List<String> options = args.subList(index, args.size());
-        StructureCommand.validateOptions(options, "replace");
-        String replace = StructureCommand.option(options, "replace", "all").toLowerCase();
-        if (!replace.equals("all") && !replace.equals("keep")) throw new IllegalArgumentException("replace muss all oder keep sein");
-        return new ParsedPlacement(x, y, z, replace.equals("keep")
-                ? StructurePlacement.Rule.KEEP_EXISTING : StructurePlacement.Rule.REPLACE_ALL);
+        String replace = parsed.option("replace", "all").toLowerCase();
+        if (!replace.equals("all") && !replace.equals("keep")) throw new IllegalArgumentException(
+                I18n.tr("command.worldedit.invalid_replace"));
+        StructurePlacement.Rule rule = replace.equals("keep")
+                ? StructurePlacement.Rule.KEEP_EXISTING
+                : parsed.flag("air") ? StructurePlacement.Rule.IGNORE_AIR : StructurePlacement.Rule.REPLACE_ALL;
+        return new ParsedPlacement(x, y, z, rule,
+                parsed.flag("selection"));
+    }
+
+    @Override
+    public CommandSyntax syntax(List<String> arguments) {
+        return switch (name) {
+            case "paste" -> CommandSyntax.of(List.of(CommandSyntax.Group.optional("x", "y", "z")),
+                    I18n.tr("command.worldedit.paste_args"));
+            case "preview" -> CommandSyntax.of(List.of(CommandSyntax.Group.optional("x", "y", "z")),
+                    I18n.tr("command.worldedit.preview_args"));
+            case "copy", "cut" -> CommandSyntax.of(List.of(), I18n.tr("command.worldedit.anchor_args"));
+            default -> Command.super.syntax(arguments);
+        };
+    }
+
+    @Override
+    public boolean isOptionToken(String token) {
+        return switch (name) {
+            case "paste" -> TrailingArguments.optionToken(token, PASTE_FLAGS.keySet(), PLACEMENT_OPTIONS);
+            case "preview" -> TrailingArguments.optionToken(token, java.util.Set.of(), PLACEMENT_OPTIONS);
+            case "copy", "cut" -> TrailingArguments.optionToken(token, ANCHOR_FLAGS.keySet(), java.util.Set.of());
+            default -> false;
+        };
     }
 
     @Override
@@ -198,5 +229,6 @@ public final class WorldEditCommand implements Command {
         return value.toLowerCase(java.util.Locale.ROOT).replace("_", "").replace("-", "");
     }
 
-    private record ParsedPlacement(Integer x, Integer y, Integer z, StructurePlacement.Rule rule) {}
+    private record ParsedPlacement(Integer x, Integer y, Integer z,
+                                   StructurePlacement.Rule rule, boolean selectBounds) {}
 }

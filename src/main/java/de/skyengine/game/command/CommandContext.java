@@ -57,10 +57,8 @@ public record CommandContext(SimpleItemStorage inventory, DimensionAccess dimens
         default String pos2() { throw new UnsupportedOperationException("//pos2 ist hier nicht verfuegbar"); }
         default String hpos1() { throw new UnsupportedOperationException("//hpos1 ist hier nicht verfuegbar"); }
         default String hpos2() { throw new UnsupportedOperationException("//hpos2 ist hier nicht verfuegbar"); }
-        void anchor();
-        void anchor(int x, int y, int z);
-        void resetAnchor();
-        StructureTemplate save(String reference, boolean includeAir, boolean overwrite) throws Exception;
+        StructureTemplate save(String reference, boolean includeAir, boolean overwrite,
+                               boolean useAnchor) throws Exception;
         StructureTemplate load(String reference) throws Exception;
         List<String> templates() throws Exception;
         String wand();
@@ -78,7 +76,8 @@ public record CommandContext(SimpleItemStorage inventory, DimensionAccess dimens
         String preview(Integer x, Integer y, Integer z, StructurePlacement.Rule rule);
         void clearPreview();
         StructurePlacement.Result paste(Integer x, Integer y, Integer z,
-                                        StructurePlacement.Rule rule) throws Exception;
+                                        StructurePlacement.Rule rule,
+                                        boolean selectBounds) throws Exception;
         String undo(int amount);
         String redo(int amount);
     }

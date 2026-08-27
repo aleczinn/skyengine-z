@@ -1,5 +1,6 @@
 package de.skyengine.game.command;
 
+import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.Direction;
@@ -19,7 +20,10 @@ import java.util.function.IntPredicate;
 import static org.junit.jupiter.api.Assertions.*;
 
 final class StructureCommandTest {
-    @BeforeAll static void bootstrap() { BlocksTestBootstrap.ensureBootstrapped(); }
+    @BeforeAll static void bootstrap() {
+        BlocksTestBootstrap.ensureBootstrapped();
+        I18n.load("en_us");
+    }
 
     @Test
     void listUsesTenSeparateMessagesPerPage() {
@@ -28,7 +32,7 @@ final class StructureCommandTest {
         CommandResult result = command().execute(context(structures), List.of("list", "2"));
         assertTrue(result.success());
         assertEquals(11, result.messages().size());
-        assertEquals("Structures Seite 2/3:", result.messages().getFirst());
+        assertEquals("Structures page 2/3:", result.messages().getFirst());
         assertTrue(result.messages().get(1).endsWith("trees/tree_10.structure"));
         assertTrue(result.messages().getLast().endsWith("trees/tree_19.structure"));
         assertFalse(command().execute(context(structures), List.of("list", "4")).success());
@@ -42,15 +46,22 @@ final class StructureCommandTest {
     }
 
     @Test
-    void anchorSupportsPlayerCoordinatesResetAndSaveOption() {
+    void saveUsesPlayerByDefaultAndMarkedAnchorOnlyWithTrailingFlag() {
         FakeStructures structures = new FakeStructures();
-        assertTrue(command().execute(context(structures), List.of("anchor", "1", "2", "3")).success());
-        assertArrayEquals(new int[]{1, 2, 3}, structures.anchorPosition);
-        assertTrue(command().execute(context(structures), List.of("anchor", "reset")).success());
-        assertTrue(structures.anchorReset);
+        assertTrue(command().execute(context(structures), List.of("save", "test:tree")).success());
+        assertFalse(structures.saveWithAnchor);
+        assertFalse(structures.savedIncludeAir);
+        assertFalse(structures.savedOverwrite);
+
         assertTrue(command().execute(context(structures),
-                List.of("save", "test:tree", "anchor=player")).success());
-        assertTrue(structures.playerAnchor);
+                List.of("save", "test:tree", "-a", "air=include", "overwrite=true")).success());
+        assertTrue(structures.saveWithAnchor);
+        assertTrue(structures.savedIncludeAir);
+        assertTrue(structures.savedOverwrite);
+
+        assertFalse(command().execute(context(structures), List.of("save", "-a", "test:tree")).success());
+        assertFalse(command().execute(context(structures), List.of("save", "test:tree", "anchor=player")).success());
+        assertFalse(command().execute(context(structures), List.of("anchor", "1", "2", "3")).success());
     }
 
     @Test
@@ -65,6 +76,26 @@ final class StructureCommandTest {
                 List.of("replace=all")).success());
         assertArrayEquals(new Integer[]{null, null, null}, structures.placementPosition);
         assertEquals(StructurePlacement.Rule.REPLACE_ALL, structures.placementRule);
+        assertFalse(structures.selectPastedBounds);
+
+        assertTrue(new WorldEditCommand("paste").execute(context(structures),
+                List.of("10", "64", "-5", "--selection", "replace=keep")).success());
+        assertArrayEquals(new Integer[]{10, 64, -5}, structures.placementPosition);
+        assertEquals(StructurePlacement.Rule.KEEP_EXISTING, structures.placementRule);
+        assertTrue(structures.selectPastedBounds);
+
+        structures.selectPastedBounds = false;
+        assertTrue(new WorldEditCommand("paste").execute(context(structures),
+                List.of("1", "2", "3", "-s")).success());
+        assertTrue(structures.selectPastedBounds);
+
+        assertTrue(new WorldEditCommand("paste").execute(context(structures),
+                List.of("4", "5", "6", "--air", "-s", "replace=all")).success());
+        assertEquals(StructurePlacement.Rule.IGNORE_AIR, structures.placementRule);
+        assertTrue(structures.selectPastedBounds);
+        assertTrue(new WorldEditCommand("paste").execute(context(structures),
+                List.of("-a", "replace=keep")).success());
+        assertEquals(StructurePlacement.Rule.KEEP_EXISTING, structures.placementRule);
         assertTrue(new WorldEditCommand("undo").execute(context(structures), List.of("3")).success());
         assertEquals(3, structures.undoAmount);
         assertTrue(new WorldEditCommand("redo").execute(context(structures), List.of()).success());
@@ -78,6 +109,35 @@ final class StructureCommandTest {
         assertFalse(new WorldEditCommand("paste").execute(context(structures), List.of("1", "2")).success());
         assertFalse(new WorldEditCommand("preview").execute(context(structures),
                 List.of("replace=unknown")).success());
+        assertFalse(new WorldEditCommand("preview").execute(context(structures),
+                List.of("--selection")).success());
+        assertFalse(new WorldEditCommand("paste").execute(context(structures),
+                List.of("-s", "--selection")).success());
+        assertFalse(new WorldEditCommand("paste").execute(context(structures),
+                List.of("-a", "--air")).success());
+        assertFalse(new WorldEditCommand("paste").execute(context(structures),
+                List.of("-a", "1", "2", "3")).success());
+        assertFalse(new WorldEditCommand("paste").execute(context(structures),
+                List.of("replace=keep", "1", "2", "3")).success());
+        assertFalse(new WorldEditCommand("preview").execute(context(structures),
+                List.of("--air")).success());
+    }
+
+    @Test
+    void structureMessagesAreLocalizedInGermanAndEnglish() {
+        FakeStructures structures = new FakeStructures();
+        I18n.load("de_de");
+        try {
+            CommandResult loaded = command().execute(context(structures), List.of("load", "test:tree"));
+            CommandResult pasted = new WorldEditCommand("paste").execute(context(structures), List.of());
+            assertTrue(loaded.messages().getFirst().startsWith("Struktur "));
+            assertTrue(pasted.messages().getFirst().startsWith("Struktur "));
+            assertFalse(loaded.messages().getFirst().contains("Structure"));
+        } finally {
+            I18n.load("en_us");
+        }
+        assertTrue(command().execute(context(structures), List.of("load", "test:tree"))
+                .messages().getFirst().startsWith("Structure "));
     }
 
     @Test
@@ -147,9 +207,9 @@ final class StructureCommandTest {
     private static final class FakeStructures implements CommandContext.StructureAccess {
         final List<String> paths = new ArrayList<>();
         String loaded;
-        int[] anchorPosition;
-        boolean anchorReset;
-        boolean playerAnchor;
+        boolean saveWithAnchor;
+        boolean savedIncludeAir;
+        boolean savedOverwrite;
         Integer[] placementPosition;
         StructurePlacement.Rule placementRule;
         int undoAmount;
@@ -166,12 +226,14 @@ final class StructureCommandTest {
         int stackCount;
         int moveDistance;
         int regenCount;
+        boolean selectPastedBounds;
         @Override public String hpos1() { hpos1Count++; return "hpos1"; }
         @Override public String hpos2() { hpos2Count++; return "hpos2"; }
-        @Override public void anchor() { playerAnchor = true; }
-        @Override public void anchor(int x, int y, int z) { anchorPosition = new int[]{x, y, z}; }
-        @Override public void resetAnchor() { anchorReset = true; }
-        @Override public StructureTemplate save(String reference, boolean includeAir, boolean overwrite) {
+        @Override public StructureTemplate save(String reference, boolean includeAir, boolean overwrite,
+                                                boolean useAnchor) {
+            savedIncludeAir = includeAir;
+            savedOverwrite = overwrite;
+            saveWithAnchor = useAnchor;
             return template(Identifier.of(reference.replace(".structure", "")));
         }
         @Override public StructureTemplate load(String reference) {
@@ -222,8 +284,10 @@ final class StructureCommandTest {
         }
         @Override public void clearPreview() {}
         @Override public StructurePlacement.Result paste(Integer x, Integer y, Integer z,
-                                                          StructurePlacement.Rule rule) {
+                                                          StructurePlacement.Rule rule,
+                                                          boolean selectBounds) {
             placementPosition = new Integer[]{x, y, z}; placementRule = rule;
+            selectPastedBounds = selectBounds;
             return new StructurePlacement.Result(1, 0, 0);
         }
         @Override public String undo(int amount) { undoAmount = amount; return "undo"; }

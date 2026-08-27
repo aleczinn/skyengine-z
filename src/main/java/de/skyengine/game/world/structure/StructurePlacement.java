@@ -12,7 +12,14 @@ import de.skyengine.game.world.block.BlockPos;
 /** Einziger Placement-Pfad fuer Debug-Tools, Structure Blocks und Worldgen. */
 public final class StructurePlacement {
 
-    public enum Rule { REPLACE_ALL, KEEP_EXISTING }
+    public enum Rule {
+        /** Alle gespeicherten Zellen einschliesslich expliziter Luft anwenden. */
+        REPLACE_ALL,
+        /** Explizite Luft ignorieren, normale Strukturzellen aber weiterhin ersetzen. */
+        IGNORE_AIR,
+        /** Explizite Luft und bereits belegte Weltzellen ignorieren. */
+        KEEP_EXISTING
+    }
 
     @FunctionalInterface
     public interface Writer {
@@ -50,7 +57,7 @@ public final class StructurePlacement {
         int requested = 0, skipped = 0;
         for (StructureTemplate.Cell cell : template.cells()) {
             BlockState state = transform.state(Blocks.getState(cell.state()));
-            if (rule == Rule.KEEP_EXISTING && state.getId() == Blocks.AIR) { skipped++; continue; }
+            if (rule != Rule.REPLACE_ALL && state.getId() == Blocks.AIR) { skipped++; continue; }
             int relX = cell.x() - originX, relZ = cell.z() - originZ;
             int wx = x + transform.transformedX(relX, relZ);
             int wy = y + cell.y() - originY;
@@ -90,6 +97,10 @@ public final class StructurePlacement {
             return true;
         });
         int written = 0;
+        /* Alle Zielstates pruefen und BlockEntities anwenden, BEVOR Neighbor-Updates laufen.
+           Verbindungsbloecke (Zaun, Pane, Treppe, Doppeltruhe, ...) normalisieren ihren State
+           waehrend updateNeighbors absichtlich. Die fruehere verschachtelte Pruefung wertete
+           deshalb einen bereits korrekt verbundenen spaeteren Block faelschlich als Write-Fehler. */
         for (int i = 0; i < plan.count(); i++) {
             int wx = BlockPos.unpackX(plan.positions()[i]);
             int wy = BlockPos.unpackY(plan.positions()[i]);
@@ -98,8 +109,13 @@ public final class StructurePlacement {
             if (forward && plan.afterBlockEntities()[i] != null) {
                 applyBlockEntity(dimension, wx, wy, wz, plan.afterBlockEntities()[i]);
             }
-            dimension.updateNeighbors(wx, wy, wz);
             written++;
+        }
+        for (int i = 0; i < plan.count(); i++) {
+            int wx = BlockPos.unpackX(plan.positions()[i]);
+            int wy = BlockPos.unpackY(plan.positions()[i]);
+            int wz = BlockPos.unpackZ(plan.positions()[i]);
+            dimension.updateNeighbors(wx, wy, wz);
         }
         return new Result(written, plan.skipped(), plan.count() - written);
     }
@@ -127,7 +143,7 @@ public final class StructurePlacement {
             int y = anchorY + cell.y() - template.anchorY();
             int z = anchorZ + transform.transformedZ(relX, relZ);
             BlockState state = transform.state(Blocks.getState(cell.state()));
-            if (rule == Rule.KEEP_EXISTING && state.getId() == Blocks.AIR) {
+            if (rule != Rule.REPLACE_ALL && state.getId() == Blocks.AIR) {
                 skipped++;
                 continue;
             }
@@ -146,7 +162,7 @@ public final class StructurePlacement {
         int written = 0, skipped = 0;
         for (StructureTemplate.Cell cell : template.cells()) {
             BlockState state = transform.state(Blocks.getState(cell.state()));
-            if (rule == Rule.KEEP_EXISTING && state.getId() == Blocks.AIR) { skipped++; continue; }
+            if (rule != Rule.REPLACE_ALL && state.getId() == Blocks.AIR) { skipped++; continue; }
             int relX = cell.x() - template.anchorX(), relZ = cell.z() - template.anchorZ();
             int wx = x + transform.transformedX(relX, relZ);
             int wy = y + cell.y() - template.anchorY();

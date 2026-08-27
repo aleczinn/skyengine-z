@@ -9,18 +9,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-/** Installiert mitgelieferte Startvorlagen einmalig in den beschreibbaren globalen Katalog. */
+/** Ergaenzt fehlende mitgelieferte Startvorlagen im beschreibbaren globalen Katalog. */
 final class DefaultStructureInstaller {
     private static final String MANIFEST = "/game/worldgen/default-structures.txt";
     private static final String RESOURCE_ROOT = "/game/worldgen/structures/";
-    private static final String MARKER = ".default-structures-v1";
+    private static final String[] OBSOLETE_MARKERS = {
+            ".default-structure-v1", ".default-structures-v1"
+    };
 
     static void install(Path targetRoot) throws IOException {
         Path root = targetRoot.toAbsolutePath().normalize();
-        Path marker = root.resolve(MARKER);
-        if (Files.isRegularFile(marker)) return;
-
         Files.createDirectories(root);
+        for (String marker : OBSOLETE_MARKERS) Files.deleteIfExists(root.resolve(marker));
         for (String relative : manifest()) {
             Path target = root.resolve(relative).normalize();
             if (!target.startsWith(root)) throw new IOException("Unsicherer Default-Structure-Pfad: " + relative);
@@ -31,7 +31,6 @@ final class DefaultStructureInstaller {
                 Files.copy(in, target);
             }
         }
-        Files.writeString(marker, "version=1\n", StandardCharsets.UTF_8);
     }
 
     private static List<String> manifest() throws IOException {

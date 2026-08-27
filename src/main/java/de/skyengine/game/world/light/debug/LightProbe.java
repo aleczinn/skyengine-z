@@ -7,6 +7,7 @@ import de.skyengine.game.world.block.state.BlockStateCodec;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.game.world.chunk.VertexLight;
 import de.skyengine.game.world.light.LightEngine;
 
 import java.io.File;
@@ -48,6 +49,7 @@ public final class LightProbe {
 
         testHeightmapAndColumn();
         testDeepSkyShaft();
+        testMinecraftAxisContour();
         testTunnelGradient();
         testSealAndBreak();
         testWaterColumn();
@@ -58,7 +60,9 @@ public final class LightProbe {
         testTwoTorches();
         testTorchSeam();
         testWalledInEmitter();
+        testVertexLightPrecision();
         testMesherVertices();
+        testSmoothVertexPrecision();
         testBatchEquivalence();
         testMultiChunkBatchOrder();
 
@@ -187,6 +191,32 @@ public final class LightProbe {
         check(chunk.light.get(17, 10, 16) == 14, "seitlich ein Block entfernt: 14");
         check(chunk.light.get(30, 10, 16) == 1, "seitlich 14 Bloecke entfernt: 1");
         check(chunk.light.get(31, 10, 16) == 0, "seitlich ab 15 Bloecken: dunkel");
+    }
+
+    /**
+     * Das Minecraft-artige Lichtfeld nutzt sechs Achsen-Nachbarn. Auf einer freien Ebene ist
+     * die Distanz deshalb |dx|+|dz|: Die sichtbare Kontur darf blockig sein, aber niemals einen
+     * isolierten Wert oder einen Sprung entgegen dieser monotonen 15..0-Folge enthalten.
+     */
+    private static void testMinecraftAxisContour() {
+        System.out.println("== Minecraft-Achsenkontur ==");
+        Chunk chunk = new Chunk(0, 0);
+        fillLayer(chunk, 0, 40, STONE);
+        for (int z = 3; z <= 29; z++) {
+            for (int x = 3; x <= 29; x++) chunk.setBlock(x, 11, z, AIR);
+        }
+        for (int y = 12; y <= 40; y++) chunk.setBlock(16, y, 16, AIR);
+
+        light(chunk);
+
+        boolean contour = true;
+        for (int dz = -6; dz <= 6; dz++) {
+            for (int dx = -6; dx <= 6; dx++) {
+                int expected = Math.max(0, 15 - Math.abs(dx) - Math.abs(dz));
+                contour &= chunk.light.get(16 + dx, 11, 16 + dz) == expected;
+            }
+        }
+        check(contour, "freie Ebene folgt exakt der monotonen |dx|+|dz|-Kontur");
     }
 
     /** Waagerechter Tunnel in einen Berg: Gradient faellt monoton, Reichweite hoechstens 15. */
@@ -500,7 +530,7 @@ public final class LightProbe {
                         || py < (100 - yBase) - 0.01F || py > (101 - yBase) + 0.01F) {
                     allInPocket = false;
                 }
-                quadMax = Math.max(quadMax, (buf[b + 4] >> 4) & 0xF);
+                quadMax = Math.max(quadMax, VertexLight.block(buf[b + 4]));
             }
             if (!allInPocket) blockMax = Math.max(blockMax, quadMax);
         }
@@ -531,18 +561,19 @@ public final class LightProbe {
         check(mesh != null && mesh.opaque != null, "Mesher liefert Geometrie");
         if (mesh == null || mesh.opaque == null) return;
 
-        int min = 15, max = 0, count = 0, freeBits = 0;
+        int min = VertexLight.CHANNEL_MAX, max = 0, count = 0, freeBits = 0;
         for (int i = 4; i < mesh.opaque.length; i += de.skyengine.game.world.chunk.ChunkMesher.VERTEX_SIZE) {
-            int v = mesh.opaque[i] & 0xF;
+            int v = VertexLight.sky(mesh.opaque[i]);
             min = Math.min(min, v);
             max = Math.max(max, v);
-            freeBits |= mesh.opaque[i] & ~0x1FF;
+            freeBits |= mesh.opaque[i] & ~VertexLight.CHANNELS_MASK;
             count++;
         }
         System.out.println("  " + count + " opake Vertices, Himmelslicht min " + min + " / max " + max);
-        check(max == 15, "belichtete Oberflaeche erreicht den Vertex mit Licht 15");
+        check(max == VertexLight.CHANNEL_MAX,
+                "belichtete Oberflaeche erreicht den Vertex mit Licht 255");
         check(min == 0, "versiegelter Hohlraum erreicht den Vertex mit Licht 0");
-        check(freeBits == 0, "Bits 9-31 des Licht-/Flag-Ints bleiben reserviert");
+        check(freeBits == 0, "Bits 16-31 des Licht-/Flag-Ints bleiben reserviert");
 
         /* Zweite Runde mit einer Fackel im Hohlraum: landet auch das BLOCKlicht im Vertex? */
         Chunk lit = new Chunk(0, 0);
@@ -560,11 +591,62 @@ public final class LightProbe {
         int blockMax = 0;
         if (litMesh != null && litMesh.opaque != null) {
             for (int i = 4; i < litMesh.opaque.length; i += de.skyengine.game.world.chunk.ChunkMesher.VERTEX_SIZE) {
-                blockMax = Math.max(blockMax, (litMesh.opaque[i] >> 4) & 0xF);
+                blockMax = Math.max(blockMax, VertexLight.block(litMesh.opaque[i]));
             }
         }
         System.out.println("  Blocklicht im Vertex, max " + blockMax);
         check(blockMax > 0, "die Fackel erreicht den Vertex ueber die Blocklicht-Bits");
+    }
+
+    private static void testVertexLightPrecision() {
+        int direct = VertexLight.fromLevels(15, 14);
+        check(VertexLight.sky(direct) == 255, "Vertex-Himmelslicht nutzt den vollen Byte-Bereich");
+        check(VertexLight.block(direct) == 238, "Vertex-Blocklicht nutzt den vollen Byte-Bereich");
+        check((direct & ~VertexLight.CHANNELS_MASK) == 0,
+                "reines Vertex-Licht setzt keine Renderer-Flags");
+
+        int averaged = VertexLight.average(58, 0, 4);
+        check(VertexLight.sky(averaged) == 247,
+                "Eckenlicht bewahrt halbe Lichtstufen statt auf 14 oder 15 zu runden");
+        check(VertexLight.sky(averaged) % 17 != 0,
+                "gemitteltes Eckenlicht bewahrt Bruchteile der 0..15-Lichtstufen");
+    }
+
+    private static void testSmoothVertexPrecision() {
+        System.out.println("== Praezises Eckenlicht im Mesh ==");
+        Chunk chunk = new Chunk(0, 0);
+        fillLayer(chunk, 0, 120, STONE);
+
+        /* Ein horizontaler Tunnel mit offenem Schacht erzeugt einen reproduzierbaren
+           Himmelslicht-Verlauf mit halben Werten an gemeinsam genutzten Ecken. */
+        for (int x = 2; x <= 30; x++) {
+            for (int y = 118; y <= 119; y++) {
+                for (int z = 15; z <= 17; z++) chunk.setBlock(x, y, z, AIR);
+            }
+        }
+        for (int x = 29; x <= 31; x++) {
+            for (int y = 118; y <= 120; y++) {
+                for (int z = 15; z <= 17; z++) chunk.setBlock(x, y, z, AIR);
+            }
+        }
+
+        light(chunk);
+        de.skyengine.game.world.chunk.ChunkMesher.MeshData mesh =
+                new de.skyengine.game.world.chunk.ChunkMesher()
+                        .mesh(chunk, 3, null, null, null, null, new Chunk[4]);
+        check(mesh != null && mesh.opaque != null, "Gradient-Mesher liefert Geometrie");
+        if (mesh == null || mesh.opaque == null) return;
+
+        boolean foundFractionalVertex = false;
+        for (int i = 4; i < mesh.opaque.length; i += de.skyengine.game.world.chunk.ChunkMesher.VERTEX_SIZE) {
+            int sky = VertexLight.sky(mesh.opaque[i]);
+            if (sky > 0 && sky < VertexLight.CHANNEL_MAX && sky % 17 != 0) {
+                foundFractionalVertex = true;
+                break;
+            }
+        }
+        check(foundFractionalVertex,
+                "Mesh bewahrt gemittelte Lichtstufen ohne Ganzzahl-Banding");
     }
 
     /**

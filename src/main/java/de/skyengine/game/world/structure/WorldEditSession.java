@@ -34,8 +34,8 @@ public final class WorldEditSession {
         }
     }
 
-    /** Ursprung, um den ein frisch kopiertes Clipboard spaeter platziert und transformiert wird. */
-    public enum CopyOrigin { PLAYER, ANCHOR }
+    /** Ursprung fuer Clipboard-Operationen und das Speichern nativer Strukturen. */
+    public enum OperationOrigin { PLAYER, ANCHOR }
 
     public record Preview(Identifier dimension, WorldEditClipboard clipboard, int x, int y, int z,
                           StructurePlacement.Rule rule, StructureBounds bounds) {
@@ -120,16 +120,21 @@ public final class WorldEditSession {
         this.structureAnchor = value;
     }
 
-    public void resetAnchor(Identifier dimension) {
-        requireSelection(dimension, true);
-        this.structureAnchor = null;
-    }
-
     public StructureTemplate save(Dimension dimension, String reference, boolean includeAir,
-                                  boolean overwrite) throws IOException {
+                                  boolean overwrite, int playerX, int playerY, int playerZ,
+                                  OperationOrigin origin) throws IOException {
         requireSelection(dimension.getDimensionId(), true);
         validateSelectionReady(dimension);
-        BlockPos anchor = structureAnchor == null ? selection.pos1() : structureAnchor;
+        BlockPos anchor;
+        if (origin == OperationOrigin.ANCHOR) {
+            if (structureAnchor == null) throw new IllegalStateException(
+                    I18n.tr("command.worldedit.anchor_missing"));
+            anchor = structureAnchor;
+        } else {
+            anchor = new BlockPos(playerX, playerY, playerZ);
+            if (!selection.contains(anchor)) throw new IllegalArgumentException(
+                    I18n.tr("command.structure.player_outside"));
+        }
         StructureTemplate template = builder.capture(dimension, selection,
                 templates.idForNewReference(reference), includeAir, anchor);
         templates.saveAuthored(template, overwrite);
@@ -140,7 +145,7 @@ public final class WorldEditSession {
 
     public StructureTemplate load(String reference) throws IOException {
         StructureTemplate template = templates.get(reference);
-        if (template == null) throw new IOException("Structure nicht gefunden: " + reference);
+        if (template == null) throw new IOException(I18n.tr("command.structure.not_found", reference));
         this.clipboard = WorldEditClipboard.fromTemplate(template);
         this.preview = null;
         return template;
@@ -148,12 +153,12 @@ public final class WorldEditSession {
 
     /** Kopiert die komplette Selektion inklusive expliziter Luft relativ zur Spielerposition. */
     public WorldEditClipboard copy(Dimension dimension, int playerX, int playerY, int playerZ) {
-        return copy(dimension, playerX, playerY, playerZ, CopyOrigin.PLAYER);
+        return copy(dimension, playerX, playerY, playerZ, OperationOrigin.PLAYER);
     }
 
     /** Kopiert relativ zur Spielerposition oder zum explizit markierten Structure-Anker. */
     public WorldEditClipboard copy(Dimension dimension, int playerX, int playerY, int playerZ,
-                                   CopyOrigin origin) {
+                                   OperationOrigin origin) {
         WorldEditClipboard copied = captureClipboard(dimension, playerX, playerY, playerZ, origin);
         this.clipboard = copied;
         this.preview = null;
@@ -161,12 +166,12 @@ public final class WorldEditSession {
     }
 
     private WorldEditClipboard captureClipboard(Dimension dimension, int playerX, int playerY,
-                                                int playerZ, CopyOrigin origin) {
+                                                int playerZ, OperationOrigin origin) {
         requireSelection(dimension.getDimensionId(), true);
         validateSelectionReady(dimension);
         StructureBounds bounds = selection.bounds();
         BlockPos sourceOrigin;
-        if (origin == CopyOrigin.ANCHOR) {
+        if (origin == OperationOrigin.ANCHOR) {
             if (structureAnchor == null) throw new IllegalStateException(
                     I18n.tr("command.worldedit.anchor_missing"));
             sourceOrigin = structureAnchor;
@@ -217,11 +222,26 @@ public final class WorldEditSession {
 
     public StructurePlacement.Result paste(Dimension dimension, int x, int y, int z,
                                            StructurePlacement.Rule rule) {
+        return paste(dimension, x, y, z, rule, false);
+    }
+
+    public StructurePlacement.Result paste(Dimension dimension, int x, int y, int z,
+                                           StructurePlacement.Rule rule, boolean selectBounds) {
         requireClipboard();
+        StructureBounds pastedBounds = selectBounds ? bounds(clipboard, x, y, z) : null;
         StructurePlacement.Plan plan = placement.prepareInWorld(clipboard.template(),
                 clipboard.originX(), clipboard.originY(), clipboard.originZ(), dimension,
                 x, y, z, clipboard.transform(), rule);
         StructurePlacement.Result result = history.apply(dimension, placement, plan);
+        if (selectBounds && result.complete()) {
+            this.selection = new WorldEditSelection(dimension.getDimensionId(),
+                    new BlockPos(pastedBounds.minX(), pastedBounds.minY(), pastedBounds.minZ()),
+                    new BlockPos(pastedBounds.maxX(), pastedBounds.maxY(), pastedBounds.maxZ()));
+            /* //paste --selection erzeugt eine allgemeine WorldEdit-Selektion. Ein alter
+               Authoring-Anker darf darin weder erscheinen noch spaeter versehentlich fuer
+               //copy --anchor verwendet werden. */
+            this.structureAnchor = null;
+        }
         this.preview = null;
         return result;
     }
@@ -264,7 +284,7 @@ public final class WorldEditSession {
 
     /** Kopiert wie //copy und leert danach die Auswahl; Clipboard-Aenderung erst nach Erfolg. */
     public StructurePlacement.Result cut(Dimension dimension, int playerX, int playerY, int playerZ,
-                                         CopyOrigin origin) {
+                                         OperationOrigin origin) {
         WorldEditClipboard copied = captureClipboard(dimension, playerX, playerY, playerZ, origin);
         StructurePlacement.Result result = replace(dimension, ignored -> true, Blocks.AIR);
         if (result.complete()) {

@@ -9,6 +9,7 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.FluidGeometry;
+import de.skyengine.game.world.chunk.VertexLight;
 import de.skyengine.game.world.lod.LodManager.LodClipSnapshot;
 import de.skyengine.game.world.lod.LodManager.LodMeshResult;
 import de.skyengine.game.world.lod.LodManager.LodNeighborSnapshot;
@@ -129,8 +130,8 @@ public final class LodMesher {
     private final float[] aoScratch = new float[4]; // wiederverwendet: P1,P2,P3,P4 pro Top-Quad
     private final float[] aoFlatScratch = new float[4]; // Scratch für cellAoFlat (Merge-Kandidaten)
     /**
-     * Vertex-Flag: dieses Quad ohne Alpha-Test als geschlossene Flaeche zeichnen. Liegt in Bit 9
-     * des Licht-Ints, direkt neben {@link ChunkMesher#FLAT_SOURCE_FLUID_TOP} (Bit 8) — das
+     * Vertex-Flag: dieses Quad ohne Alpha-Test als geschlossene Flaeche zeichnen. Liegt in Bit 17
+     * des Licht-Ints, direkt neben {@link ChunkMesher#FLAT_SOURCE_FLUID_TOP} (Bit 16) — das
      * Vertexformat bleibt unveraendert.
      *
      * <p>Gebraucht fuer Laub: seine Textur traegt Alpha-Loecher, die auf Fern-Distanz ohnehin
@@ -139,7 +140,7 @@ public final class LodMesher {
      * Texel dabei sinnvolle Farben tragen, stellt {@code TextureArray.bleedAlpha} sicher (laeuft
      * ueber alle Blocktexturen).
      */
-    public static final int DENSE_ALPHA = 1 << 9;
+    public static final int DENSE_ALPHA = 1 << (VertexLight.FIRST_FLAG_BIT + 1);
 
     private boolean flatAo;                    // uniformes Flächen-AO statt weichem Corner-AO
     private boolean lodAo;                     // AO im LOD überhaupt gebacken (Setting + LodQuality)
@@ -2564,10 +2565,10 @@ public final class LodMesher {
         buf[i++] = (pz & 0xFFFF) | ((pu & 0xFFFF) << 16);
         buf[i++] = (pv & 0xFFFF) | ((layer & 0xFFFF) << 16);
         buf[i++] = r | (g << 8) | (b << 16);
-        /* Skylight in Bits 0-3, Blocklicht bleibt 0 (Bits 4-7), Vertex-Flags beginnen bei Bit 8:
+        /* Skylight in Bits 0-7, Blocklicht bleibt 0 (Bits 8-15), Vertex-Flags beginnen bei Bit 16:
            Fernregionen simulieren keine Lichtausbreitung, nur die deterministische
            Wasser-Dämpfung der sichtbaren Geometrie. */
-        buf[i++] = Math.clamp(skyLight, 0, 15) | vertexFlags | this.quadFlags;
+        buf[i++] = VertexLight.fromLevels(skyLight, 0) | vertexFlags | this.quadFlags;
         if (translucent) this.viTranslucent = i; else this.viOpaque = i;
     }
 

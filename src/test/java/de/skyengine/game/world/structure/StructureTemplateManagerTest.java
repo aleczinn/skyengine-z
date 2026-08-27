@@ -60,17 +60,22 @@ final class StructureTemplateManagerTest {
     }
 
     @Test
-    void defaultInstallerCopiesOnceAndNeverOverwrites(@TempDir Path temp) throws Exception {
+    void defaultInstallerIsMarkerlessAndNeverOverwrites(@TempDir Path temp) throws Exception {
         Path structures = temp.resolve("structures");
+        Files.createDirectories(structures);
+        Files.writeString(structures.resolve(".default-structure-v1"), "version=1");
+        Files.writeString(structures.resolve(".default-structures-v1"), "version=1");
         DefaultStructureInstaller.install(structures);
         Path installed = structures.resolve("trees/spruce/big_spruce_3.structure");
         assertTrue(Files.isRegularFile(installed));
-        assertTrue(Files.isRegularFile(structures.resolve(".default-structures-v1")));
+        assertFalse(Files.exists(structures.resolve(".default-structure-v1")));
+        assertFalse(Files.exists(structures.resolve(".default-structures-v1")));
 
         byte[] custom = {1, 2, 3, 4};
         Files.write(installed, custom);
         DefaultStructureInstaller.install(structures);
         assertArrayEquals(custom, Files.readAllBytes(installed));
+        assertFalse(Files.exists(structures.resolve(".default-structures-v1")));
     }
 
     @Test

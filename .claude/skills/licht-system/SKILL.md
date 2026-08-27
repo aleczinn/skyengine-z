@@ -14,8 +14,9 @@ Es gibt **zwei Ebenen**, beide monochrom 0..15 und beide über dieselbe Maschine
 **Farbiges Licht gibt es noch nicht.** `light_color` wird zwar aus der Block-JSON gelesen,
 validiert und in `BlockConfig` abgelegt, wirkt aber **nirgends aufs Bild** — das ist die
 vorbereitete Datenhälfte der RGB-Phase, kein vergessener Draht. Wer RGB nachrüstet, legt weitere
-`LightStorage`-Ebenen daneben und nutzt die freien Bits 8-31 des Licht-Ints; er baut sie **nicht**
-in die vorhandenen Nibbles hinein.
+`LightStorage`-Ebenen daneben und erweitert beziehungsweise repackt auch den Vertex-Transport;
+die heutigen Bits 0-17 sind bereits für zwei präzise Lichtkanäle und Flags belegt. RGB gehört
+**nicht** in die vorhandenen Storage-Nibbles.
 
 **Entities emittieren nicht** (kein Dynamic Lights) — sie empfangen nur.
 
@@ -162,21 +163,25 @@ Chunk-Grenzen hinweg); die Engine markiert selbst, inklusive ±1-Ring fürs Corn
 
 ## Mesher
 
-`computeCornerLight` liefert **gepacktes** Licht: Himmel in Bits 0-3, Block in Bits 4-7. Je Kanal
-das Mittel der vier Zellen im Layer VOR der Face, die die Ecke berühren, je Kanal kaufmännisch
-gerundet; opake Zellen zählen nicht. Gegated über `quad.face() >= 0` (dieselbe Bedingung wie das
-AO), Quads ohne Richtung (Cross, Fluid-Geometrie) bekommen flach das Licht der eigenen Zelle.
+`computeCornerLight` liefert das **präzise Vertexformat**: Himmel in Bits 0-7, Block in Bits 8-15.
+Die LightEngine und `NeighborSampler` bleiben intern bei zwei Nibbles mit 0..15. Je Kanal wird das
+Minecraft-artige Mittel der vier Zellen im Layer VOR der Face direkt auf 0..255 skaliert, statt
+vorher wieder auf eine ganze Lichtstufe zu runden. Okkludierte Kanten-/Diagonal-Samples werden
+dabei durch die Basiszelle vor der Face ersetzt; der Nenner bleibt vier. Dadurch bleiben halbe,
+Drittel- und Viertelstufen bis zum Shader erhalten. Gegated über `quad.face() >= 0` (dieselbe
+Bedingung wie das AO), Quads ohne Richtung (Cross, Fluid-Geometrie) bekommen flach das
+konvertierte Licht ihrer eigenen Zelle.
 
-> **Dass hier schon gepackt wird, ist der Grund, warum der Blocklicht-Umbau so klein blieb:**
-> `putVertex`, `emitGreedyQuad` und `emitWaterTop` reichen den einen int unverändert durch und
-> mussten **gar nicht** angefasst werden.
+`VertexLight` ist die einzige Konvertierungsstelle zwischen dem internen Nibble-Layout und dem
+Vertex-Layout. `putVertex` und `emitGreedyQuad` reichen den präzisen int unverändert durch;
+`emitWaterTop` konvertiert sein flaches Storage-Sample vor dem Setzen des Fluid-Flags.
 
 **Der Diagonal-Guard darf nicht weg.** Die vier Zellen sind Basiszelle, zwei Kanten-Nachbarn und
-die **Diagonale**; sind beide Kanten massiv, wird die Diagonale übersprungen — dieselbe Regel wie
-in `computeAo` (`side1 && side2` → Eck-Block egal). Der Okklusions-Filter prüft nämlich nur die
-Zelle selbst, **nie den Weg dorthin**, und `occludes()` nutzt `isOpaqueCube` (das JSON-Feld
-`opaque`), nicht die Licht-Opazität: **jeder Leuchtblock ist selbst nicht-okkludierend**
-(`torch` und `lava` haben beide `"opaque": false`) und fällt damit nie aus der Mittelung heraus.
+die **Diagonale**; sind beide Kanten massiv, wird die Diagonale wie die blockierten Kanten durch
+die Basiszelle ersetzt — dieselbe Regel wie in `computeAo` (`side1 && side2` → Eck-Block egal).
+Der Okklusions-Filter prüft nämlich nur die Zelle selbst, **nie den Weg dorthin**, und `occludes()`
+nutzt `isOpaqueCube` (das JSON-Feld `opaque`), nicht die Licht-Opazität: **jeder Leuchtblock ist
+selbst nicht-okkludierend** (`torch` und `lava` haben beide `"opaque": false`).
 
 > Ohne den Guard leckt eine **allseitig eingemauerte** Lichtquelle über Eck ins Bild — gemessen:
 > Blocklicht 7 auf dem Bodenquad davor, an manchen Faces sogar die vollen 14 (dort ist auch die
@@ -190,28 +195,28 @@ Warum der Guard **vollständig** ist: sei `E` ein Emitter mit allen 6 Nachbarn m
 die (nicht okkludierte) Basiszelle — dann wäre `E` nicht eingemauert. Bleibt `E == cell3`; dann
 sind `cell1`/`cell2` orthogonale Nachbarn von `E`, also massiv, also greift der Guard. **Immer.**
 
-Minecrafts `blend()`-Semantik (okkludierte Samples durch die Zelle vor der Face ersetzen, Nenner
-immer 4) ist bewusst **nicht** übernommen: in genau dem Zweig, den der Guard betrifft, ist das
-Ergebnis ohnehin identisch (MC ersetzt Seite1/Seite2/Ecke je durch die Zentrumszelle →
-`4 × Zentrum / 4`; hier bleibt `count == 1` mit `cell0` → **ebenfalls Zentrum**). Der Rest wäre
-Drive-by am abgenommenen Himmelslicht.
+Minecrafts `blend()`-Semantik ist verbindlich: okkludierte Samples werden durch die Basiszelle
+vor der Face ersetzt und der Nenner bleibt immer vier. Das verhindert, dass ein Eckwert allein
+durch eine wechselnde Anzahl berücksichtigter Samples heller oder dunkler wird.
 
 `NeighborSampler.samplePackedLight` (früher `sampleLight`) liefert denselben gepackten Wert. Die
 Randkonstanten stimmen gepackt unverändert weiter: `15` heißt „Himmel 15, Blocklicht 0" (fehlender
 Nachbar-Chunk darf hell sein, aber nicht glühen), `0` heißt „beides aus". Deshalb braucht es dort
 **keinen** zweiten Fallback-Wert.
 
-Der **Diagonal-Flip-Tiebreak** in `emitQuad` vergleicht `effectiveLight()` (= `max` beider Kanäle,
-dieselbe Regel wie im Shader), nicht den gepackten int — sonst dominierte das Blocklicht in den
-oberen Bits jeden Vergleich.
+Der **Diagonal-Flip** in `emitQuad` bewertet AO und sichtbares Licht gemeinsam. Der Lichtanteil
+nutzt `max` beider Kanäle und dieselbe statische Kurve wie der Shader; getrennte AO-/Licht-
+Entscheidungen konnten sonst die sichtbar dunklere Diagonale wählen und ein Dreieck als Spike in
+den Verlauf ziehen. Der gepackte int darf nie direkt verglichen werden, weil der obere Kanal dann
+den Vergleich dominieren würde.
 
 > **Die Falle beim „Vereinheitlichen mit `computeAo`":** `computeAo` verschiebt die Basiszelle nur
 > bei bündigem Quad (`flush`) — das erzeugt bewusst das dunkle Band an der Treppenstufe. Fürs Licht
 > muss **immer** verschoben werden. Sonst wäre bei einer Slab-Oberseite (y = 0,5, nicht bündig) die
 > Basiszelle der Slab selbst, alle vier Zellen okkludiert, `count == 0` → **schwarze Slab-Oberseiten**.
 
-Der **Greedy-Merge-Schlüssel** trägt die 8 Bit gepacktes Licht zwischen State-ID und AO
-(`stateId << 10 | packedLight << 2 | aoIdx`). Nur Flächen mit gleichem Licht UND gleichem AO werden
+Der **Greedy-Merge-Schlüssel** trägt die 16 Bit Vertex-Licht zwischen State-ID und AO
+(`stateId << 18 | packedLight << 2 | aoIdx`). Nur Flächen mit gleichem Licht UND gleichem AO werden
 zusammengefasst. Licht ist `int` — der Uniformitätsvergleich ist hier, anders als beim AO, nicht
 ULP-empfindlich. Der gemergte Wasser-Top-Pass bleibt bewusst **lichtfrei** im Schlüssel (sonst
 zerreißen die großen Ozean-Quads); er nimmt flach das Licht der Zelle über der Oberfläche.
@@ -228,7 +233,8 @@ Blöcke Radius begrenzt.
 ## Shader
 
 `v_light` ist ein **`vec2`**: x = Himmel, y = Block, je 0..1. Der Vertex-Shader dekodiert beide
-Nibbles aus `a_light` — weiterhin **vor** dem Detail-Ausdünnungsblock, der mit `return` aussteigt.
+Bytes aus `a_light` und normiert mit `1/255` — weiterhin **vor** dem Detail-Ausdünnungsblock, der
+mit `return` aussteigt.
 
 ```glsl
 float lightCurve(float f) { return f / (4.0 - 3.0 * f); }   // MC-Helligkeitskurve

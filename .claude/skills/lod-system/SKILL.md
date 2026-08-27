@@ -103,7 +103,7 @@ beschattete Fernregionen (Schluchtwände, Nordseiten) sind heller als echtes Ter
 
 ## Optik-Details
 
-- **Dichtes Laub (`LodMesher.DENSE_ALPHA`, Bit 9 des Licht-Ints):** Laub wird im LOD OHNE
+- **Dichtes Laub (`LodMesher.DENSE_ALPHA`, Bit 17 des Licht-Ints):** Laub wird im LOD OHNE
   Alpha-Test gezeichnet — den Discard überspringt der Fragment-Shader für markierte Quads.
   Grund ist ein sichtbarer Fehler, nicht nur Optik: `topExposed` zählt ausschließlich
   **TRANSLUCENT**-Nachbarn als durchsichtig. Laub ist `cutout`, liegt also ein Laub-Intervall

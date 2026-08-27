@@ -12,7 +12,7 @@ description: ChunkMesher — Greedy-Meshing-Pass, Ambient Occlusion (inkl. Flip 
 Puffer werden wiederverwendet; der Chunk-Kontext wird am Ende genullt (kein Leak).
 
 - **Pass 1 (Greedy):** nur opake Full-Cube-Faces im OPAQUE-Layer. Slice-weise pro Face-Richtung;
-  Merge-Schlüssel = `stateId << 10 | packedLight << 2 | AO-Quantisierung` (+1, damit 0 = leer
+  Merge-Schlüssel = `stateId << 18 | packedLight << 2 | AO-Quantisierung` (+1, damit 0 = leer
   bleibt — seit dem Licht steht das gepackte Eck-Licht mit im Schlüssel). Zellen mit
   **uneinheitlichem AO oder Licht** (Kanten/Ecken) werden einzeln mit per-Vertex-Werten emittiert —
   Greedy merged nur uniforme Flächen. Texturen kacheln über UV > 1 (GL_REPEAT im TextureArray).
@@ -50,9 +50,10 @@ auf Würfeln), muss prüfen, ob der Greedy-Check sie korrekt ablehnt oder korrek
    (Toleranz `FLUSH_EPS`), wird der Layer VOR der Face gesampelt, sonst die Schicht des Blocks
    SELBST. Letzteres erzeugt das dunkle Band am hinteren Rand einer Treppenstufe und die
    abgedunkelte Slab-Oberseite — beides wie in Minecraft.
-4. **Anisotropie-Flip** (`EMIT_FLIPPED`): Ist `ao[1]+ao[3] > ao[0]+ao[2]`, wird die Emissions-
-   Reihenfolge rotiert, damit die Triangulierungs-Diagonale durch das hellere Eckpaar läuft —
-   sonst kippt der Interpolations-Gradient sichtbar. Der Index-Buffer trianguliert IMMER
+4. **Anisotropie-Flip** (`EMIT_FLIPPED`): AO und der im Shader sichtbare Lichtwert werden zu einem
+   Eck-Score kombiniert. Die Emissions-Reihenfolge wird so rotiert, dass die feste
+   Triangulierungs-Diagonale durch das hellere Eckpaar läuft — getrennte AO-/Licht-Entscheidungen
+   erzeugten an Höhlenkanten sichtbare Dreiecks-Spikes. Der Index-Buffer trianguliert IMMER
    0,1,2/2,3,0 über die emittierte Reihenfolge; geflippt wird die Reihenfolge, nicht der Index.
 5. **Shader-Clamp gegen Funkel-Striche:** Kantenparallel gesehene Faces rastern als degenerierte
    Sliver-Dreiecke, deren Interpolation die AO-Farben ÜBER 1.0 extrapoliert → helle Striche auf
@@ -83,13 +84,19 @@ int0: posX | posY << 16   (u16 fixed 6.10, POS_SCALE=1024, Bias +1 Block, sectio
 int1: posZ | u    << 16   (UV fixed 6.10, UV_SCALE=1024, Bias +1)
 int2: v    | layer << 16  (layer = TextureArray-Layer)
 int3: r | g<<8 | b<<16 | plantHash<<24  (Farbe = Helligkeit × AO × Tint; Bits 24-31 = Pflanzen-Hash für die Vegetations-Ausdünnung)
-int4: Skylight 0..15 in Bits 0-3, Blocklicht 0..15 in Bits 4-7 (Bits 8-31 frei für späteres farbiges Licht)
+int4: gemitteltes Skylight 0..255 in Bits 0-7, Blocklicht 0..255 in Bits 8-15,
+      Fluid-Top-Flag in Bit 16, LOD-Dense-Alpha in Bit 17 (Bits 18-31 reserviert)
 ```
 **int4 ist seit dem Himmelslicht belegt** und liegt als **eigenes Vertex-Attribut 1** an
 (`glVertexAttribIPointer(1, 1, GL_UNSIGNED_INT, stride, 16)` in `ChunkRenderer.ensureVaoBindings`);
 int0..int3 bleiben das uvec4 von Attribut 0. Licht steht bewusst **getrennt** und wird NICHT wie AO
 und Tint in int3 einmultipliziert: Helligkeitskurve und Helligkeits-Regler laufen im Fragment-Shader,
 sonst wäre jede Helligkeitsänderung ein Voll-Remesh. Details im Skill `licht-system`.
+Die LightEngine und der Chunk-Speicher bleiben weiterhin bei 0..15 je Kanal. Erst
+`VertexLight.average` skaliert die vier Corner-Samples ohne Rückrundung auf ganze Lichtstufen in
+den Byte-Bereich; so bleiben halbe, Drittel- und Viertelstufen bis zum Shader erhalten.
+Okkludierte Corner-Samples werden Minecraft-artig durch die Basiszelle vor der Face ersetzt;
+der Nenner bleibt vier und gemeinsame Welt-Ecken erhalten bitidentische Werte.
 Konsequenzen: Positionen tragen nur ~−1..+62 Blöcke, UVs max. ~63 (deshalb Merge-Deckel im LOD;
 Section-Greedy bleibt ≤ 32 durch die Section-Größe).
 

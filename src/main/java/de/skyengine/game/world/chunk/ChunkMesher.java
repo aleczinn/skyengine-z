@@ -20,10 +20,10 @@ public class ChunkMesher {
      * int1: posZ | u    &lt;&lt; 16     (u als u16 fixed-point 6.10, Bias +1)
      * int2: v    | layer &lt;&lt; 16    (v wie u; layer = Texture-Array-Layer)
      * int3: r | g &lt;&lt; 8 | b &lt;&lt; 16  (Farbe = Helligkeit * AO * Tint, je u8)
-     * int4: Skylight 0..15 in Bits 0-3, Blocklicht 0..15 in Bits 4-7,
-     *       {@link #FLAT_SOURCE_FLUID_TOP} in Bit 8,
-     *       {@link de.skyengine.game.world.lod.LodMesher#DENSE_ALPHA} in Bit 9 (nur LOD),
-     *       Bits 10-31 reserviert; liest der Vertex-Shader als eigenes Attribut 1
+     * int4: gemitteltes Skylight 0..255 in Bits 0-7, Blocklicht 0..255 in Bits 8-15,
+     *       {@link #FLAT_SOURCE_FLUID_TOP} in Bit 16,
+     *       {@link de.skyengine.game.world.lod.LodMesher#DENSE_ALPHA} in Bit 17 (nur LOD),
+     *       Bits 18-31 reserviert; liest der Vertex-Shader als eigenes Attribut 1
      * </pre>
      * Entpackt wird im Vertex-Shader des ChunkRenderers. Ein Quad = 4 Vertices (A,B,C,D),
      * Triangulierung über den geteilten Index-Buffer (0,1,2, 2,3,0).
@@ -35,7 +35,7 @@ public class ChunkMesher {
      * Nachkommastelle analytisch, damit Section-, LOD- und Superregion-Packung dieselbe Ebene
      * ergeben statt an den unterschiedlichen Fixed-Point-Skalen feine Risse zu erzeugen.
      */
-    public static final int FLAT_SOURCE_FLUID_TOP = 1 << 8;
+    public static final int FLAT_SOURCE_FLUID_TOP = 1 << VertexLight.FIRST_FLAG_BIT;
 
     /**
      * Bias/Skalierung des Positions-Fixed-Points (1/1024 Block; Bias fängt Offsets bis -1 ab).
@@ -412,7 +412,7 @@ public class ChunkMesher {
                         }
 
                         BakedQuad quad = gf.quads[face];
-                        /* Das gepackte Licht (Himmel + Block, 8 Bit) geht in den Merge-Schlüssel
+                        /* Das gepackte Licht (Himmel + Block, 16 Bit) geht in den Merge-Schlüssel
                            ein: nur Flächen mit gleichem Licht dürfen zusammengefasst werden.
                            Ganzzahlig — der ==-Vergleich ist hier anders als beim AO nicht
                            ULP-empfindlich. */
@@ -426,7 +426,7 @@ public class ChunkMesher {
                             /* AO aus: alle Zellen uniform hell (aoIdx 3 = 1.0) -> mergen maximal,
                                solange auch das Licht uniform ist. */
                             if (lightUniform) {
-                                grid[b << ChunkSection.SHIFT | a] = (((long) stateId << 10) | ((long) packedLight << 2) | 3L) + 1L;
+                                grid[b << ChunkSection.SHIFT | a] = (((long) stateId << 18) | ((long) packedLight << 2) | 3L) + 1L;
                                 any = true;
                             } else {
                                 this.emitQuad(buffer, quad, x, y, worldY, z, 0F, 0F);
@@ -439,7 +439,7 @@ public class ChunkMesher {
                                 && ao == this.aoCorners[3]) {
                             /* +1, damit der Schlüssel nie 0 (= leer) ist */
                             int aoIdx = Math.round((ao - 0.4F) * 5F);
-                            grid[b << ChunkSection.SHIFT | a] = (((long) stateId << 10) | ((long) packedLight << 2) | aoIdx) + 1L;
+                            grid[b << ChunkSection.SHIFT | a] = (((long) stateId << 18) | ((long) packedLight << 2) | aoIdx) + 1L;
                             any = true;
                         } else {
                             /* Uneinheitliches AO oder Licht (Kante/Ecke/Höhleneingang):
@@ -472,12 +472,12 @@ public class ChunkMesher {
                             for (int i = 0; i < w; i++) grid[(b + j) << ChunkSection.SHIFT | (a + i)] = 0L;
                         }
 
-                        /* Schlüssel-Layout: stateId << 10 | packedLight << 2 | aoIdx.
+                        /* Schlüssel-Layout: stateId << 18 | packedLight << 2 | aoIdx.
                            Wer das Licht-Feld verbreitert, muss ALLE DREI Stellen anfassen
                            (beide Bau-Zweige oben und diese Auflösung) — sonst kollidieren
                            Schlüssel und Flächen werden mit falscher Helligkeit gemergt. */
-                        int stateId = (int) ((key - 1L) >>> 10);
-                        int packedLight = (int) (((key - 1L) >>> 2) & 0xFFL);
+                        int stateId = (int) ((key - 1L) >>> 18);
+                        int packedLight = (int) (((key - 1L) >>> 2) & 0xFFFFL);
                         float ao = 0.4F + ((key - 1L) & 3L) * 0.2F;
                         this.emitGreedyQuad(buffer, this.greedyFaces(stateId), face, slice, a, b, w, h, ao, packedLight);
                         a += w - 1;
@@ -638,7 +638,8 @@ public class ChunkMesher {
         float g = brightness * ((tint >> 8) & 0xFF) / 255F;
         float b = brightness * (tint & 0xFF) / 255F;
         float y = localY + FluidGeometry.SOURCE_RENDER_HEIGHT;
-        int light = this.samplePackedLight(x, worldY + 1, z) | FLAT_SOURCE_FLUID_TOP;
+        int light = VertexLight.fromStoragePacked(this.samplePackedLight(x, worldY + 1, z))
+                | FLAT_SOURCE_FLUID_TOP;
 
         buffer.ensure((backward ? 8 : 4) * VERTEX_SIZE);
         putVertex(buffer, x, y, z, 0F, 0F, layer, r, g, b, light);
@@ -862,17 +863,10 @@ public class ChunkMesher {
         if (this.ambientOcclusion && quad.face() >= 0) {
             ao = this.aoCorners;
             this.computeAo(quad, x, worldY, z, ao);
-            /* Anisotropie-Fix: Diagonale durch das hellere Eckpaar legen, sonst
-               kippt der Interpolations-Gradient je nach Triangulierung sichtbar. */
-            if (ao[1] + ao[3] > ao[0] + ao[2]) emitOrder = EMIT_FLIPPED;
         }
-        /* Bei AO-Gleichstand (oder AO aus) entscheidet das Licht über die Diagonale —
-           sonst kippt der Licht-Gradient an Höhlenkanten je nach Triangulierung. Verglichen wird
-           der WIRKSAME Pegel (was der Shader nachher sieht), nicht der gepackte int: sonst
-           dominierte das Blocklicht in den oberen Bits jeden Vergleich. */
-        if (emitOrder == EMIT_NORMAL && (ao == null || ao[1] + ao[3] == ao[0] + ao[2])
-                && effectiveLight(light[1]) + effectiveLight(light[3])
-                 > effectiveLight(light[0]) + effectiveLight(light[2])) {
+        /* AO und Licht gemeinsam bewerten: getrennte Entscheidungen konnten an Lichtkanten die
+           sichtbar dunklere Diagonale waehlen und ein Dreieck als Spike in den Verlauf ziehen. */
+        if (shouldFlipForSmoothLighting(ao, light)) {
             emitOrder = EMIT_FLIPPED;
         }
 
@@ -887,17 +881,27 @@ public class ChunkMesher {
         }
     }
 
-    /** Wirksamer Lichtpegel eines gepackten Werts — dieselbe max-Regel wie im Fragment-Shader. */
-    private static int effectiveLight(int packed) {
-        return Math.max(packed & 0xF, (packed >> 4) & 0xF);
+    /** Statischer Shader-Anteil fuer eine stabile Diagonalwahl ohne Remesh bei Reglerwechsel. */
+    private static float visibleCornerScore(float[] ao, int[] light, int corner) {
+        float f = VertexLight.effective(light[corner]) / 255F;
+        float curved = f / (4F - 3F * f);
+        float ambient = 0.04F + 0.96F * curved;
+        return (ao != null ? ao[corner] : 1F) * ambient;
+    }
+
+    /** Paketintern fuer einen deterministischen Regressionstest beider Quad-Diagonalen. */
+    static boolean shouldFlipForSmoothLighting(float[] ao, int[] light) {
+        return visibleCornerScore(ao, light, 1) + visibleCornerScore(ao, light, 3)
+                > visibleCornerScore(ao, light, 0) + visibleCornerScore(ao, light, 2);
     }
 
     /**
      * <b>Gepacktes</b> Licht an den 4 Quad-Ecken (Reihenfolge A,B,C,D wie {@link #computeAo}):
-     * Himmelslicht in Bits 0-3, Blocklicht in Bits 4-7, beide 0..15. Je Kanal das Mittel der vier
-     * Zellen im Layer VOR der Face, die die Ecke berühren — opake Zellen zählen nicht mit
-     * (Minecraft-Smooth-Lighting). Die <b>Diagonale</b> zählt zusätzlich nur, wenn nicht beide
-     * Kanten-Nachbarn massiv sind, sonst leckt eine eingemauerte Lichtquelle über Eck ins Bild.
+     * Himmelslicht in Bits 0-7, Blocklicht in Bits 8-15, beide 0..255. Je Kanal das Mittel der vier
+     * Zellen im Layer VOR der Face, die die Ecke berühren. Wie bei Minecraft ersetzt die
+     * Basiszelle vor der Face jedes okkludierte Kanten-/Diagonal-Sample; der Nenner bleibt vier.
+     * Sind beide Kanten-Nachbarn massiv, wird die Diagonale ebenfalls durch die Basis ersetzt,
+     * damit eine eingemauerte Lichtquelle nicht über Eck ins Bild leckt.
      * Quads ohne achsenparallele Richtung (Cross-Pflanzen,
      * nicht-planare Fluid-Geometrie) bekommen flach das Licht der eigenen Zelle.
      *
@@ -912,7 +916,7 @@ public class ChunkMesher {
     private void computeCornerLight(BakedQuad quad, int x, int y, int z, int[] out) {
         int face = quad.face();
         if (face < 0) {
-            int own = this.samplePackedLight(x, y, z);
+            int own = VertexLight.fromStoragePacked(this.samplePackedLight(x, y, z));
             out[0] = out[1] = out[2] = out[3] = own;
             return;
         }
@@ -929,43 +933,34 @@ public class ChunkMesher {
             int s1x = t1 == 0 ? s : 0, s1y = t1 == 1 ? s : 0, s1z = t1 == 2 ? s : 0;
             int s2x = t2 == 0 ? t : 0, s2y = t2 == 1 ? t : 0, s2z = t2 == 2 ? t : 0;
 
-            int skySum = 0, blockSum = 0, count = 0;
+            int center = this.samplePackedLight(fx, fy, fz);
+            int skySum = center & 0xF;
+            int blockSum = (center >>> 4) & 0xF;
             /* Sind BEIDE Kanten-Nachbarn massiv, führt von dieser Ecke aus kein Weg zur
-               Diagonalen — sie darf dann nicht mitgemittelt werden. Dieselbe Regel wie in
-               computeAo ("side1 && side2 -> Eck-Block egal"), und dort stand sie von Anfang an.
-               Ohne sie leckt eine allseitig eingemauerte Lichtquelle über Eck ins Bild: der
-               Okklusions-Filter prüft nur die Zelle SELBST, nie den Weg dorthin, und jeder
-               Leuchtblock ist selbst nicht-okkludierend ("opaque": false bei Fackel und Lava) —
-               er fällt also nie aus der Mittelung heraus.
-               Die Zellen werden in der Reihenfolge 0,1,2,3 besucht, side1/side2 stehen damit
-               fest, bevor die Diagonale drankommt: der Guard kostet keinen zusätzlichen Sample. */
-            boolean side1 = false, side2 = false;
-            for (int cell = 0; cell < 4; cell++) {
-                if (cell == 3 && side1 && side2) break;
+               Diagonalen. Minecrafts Blend-Semantik ersetzt dann alle blockierten Samples durch
+               die Basiszelle vor der Face. Das verhindert Eck-Lecks eingemauerter Lichtquellen,
+               ohne den festen Vierer-Nenner oder gemeinsame Eckwerte zu verändern. */
+            boolean side1 = this.occludes(fx + s1x, fy + s1y, fz + s1z);
+            boolean side2 = this.occludes(fx + s2x, fy + s2y, fz + s2z);
+            for (int cell = 1; cell < 4; cell++) {
                 boolean useS1 = cell == 1 || cell == 3;
                 boolean useS2 = cell == 2 || cell == 3;
                 int cx = fx + (useS1 ? s1x : 0) + (useS2 ? s2x : 0);
                 int cy = fy + (useS1 ? s1y : 0) + (useS2 ? s2y : 0);
                 int cz = fz + (useS1 ? s1z : 0) + (useS2 ? s2z : 0);
-                if (this.occludes(cx, cy, cz)) {
-                    if (cell == 1) side1 = true;
-                    else if (cell == 2) side2 = true;
-                    continue;
-                }
-                int packed = this.samplePackedLight(cx, cy, cz);
+                boolean blocked = cell == 1 ? side1 : cell == 2 ? side2
+                        : (side1 && side2) || this.occludes(cx, cy, cz);
+                int packed = blocked ? center : this.samplePackedLight(cx, cy, cz);
                 skySum += packed & 0xF;
-                blockSum += (packed >> 4) & 0xF;
-                count++;
+                blockSum += (packed >>> 4) & 0xF;
             }
-            /* Je Kanal kaufmännisch runden, dann wieder packen. */
-            out[c] = count == 0 ? 0
-                    : ((skySum + count / 2) / count) | (((blockSum + count / 2) / count) << 4);
+            out[c] = VertexLight.average(skySum, blockSum, 4);
         }
     }
 
     /**
      * Packt einen Vertex ins 5-Int-Format (siehe {@link #VERTEX_SIZE}); {@code light} = gepacktes
-     * Licht (Himmel in Bits 0-3, Block in Bits 4-7) aus {@link #computeCornerLight}.
+     * Licht (Himmel in Bits 0-7, Block in Bits 8-15) aus {@link #computeCornerLight}.
      */
     private void putVertex(VertexBuffer buffer, float px, float py, float pz,
                                   float u, float v, int layer, float r, float g, float b, int light) {
@@ -978,8 +973,8 @@ public class ChunkMesher {
         buffer.data[buffer.count++] = zi | ui << 16;
         buffer.data[buffer.count++] = vi | layer << 16;
         buffer.data[buffer.count++] = ri | gi << 8 | bi << 16 | this.plantHash << 24;
-        /* Skylight in Bits 0-3, Blocklicht in Bits 4-7; Bit 8 markiert flache Quell-Fluid-Tops,
-           9-31 bleiben reserviert. Bewusst NICHT in int3 einmultipliziert: der Helligkeits-Regler
+        /* Skylight in Bits 0-7, Blocklicht in Bits 8-15; Bit 16 markiert flache Quell-Fluid-Tops,
+           17-31 bleiben reserviert. Bewusst NICHT in int3 einmultipliziert: der Helligkeits-Regler
            und die Lichtkurve laufen im Shader, sonst wäre jede Helligkeitsänderung ein Voll-Remesh. */
         buffer.data[buffer.count++] = light;
     }

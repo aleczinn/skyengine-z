@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class GameDirectoryTest {
     @Test
@@ -27,17 +28,20 @@ final class GameDirectoryTest {
     }
 
     @Test
-    void migrationCopiesRecursivelyWithoutOverwritingTarget(@TempDir Path temp) throws Exception {
-        Path source = temp.resolve("old"), target = temp.resolve("new");
-        Files.createDirectories(source.resolve("saves/world"));
-        Files.createDirectories(target.resolve("saves/world"));
-        Files.writeString(source.resolve("saves/world/level.dat"), "old");
-        Files.writeString(source.resolve("config.json"), "copied");
-        Files.writeString(target.resolve("saves/world/level.dat"), "new");
+    void obsoleteMarkersAreRemovedWithoutTouchingOtherHiddenFiles(@TempDir Path temp) throws Exception {
+        Files.createDirectories(temp.resolve("bin/structures"));
+        Files.writeString(temp.resolve(".migration-from-skyengine-v1"), "completed");
+        Files.writeString(temp.resolve(".migration-from-working-directory-v1"), "completed");
+        Files.writeString(temp.resolve("bin/structures/.default-structure-v1"), "version=1");
+        Files.writeString(temp.resolve("bin/structures/.default-structures-v1"), "version=1");
+        Files.writeString(temp.resolve(".keep-me"), "data");
 
-        GameDirectory.copyRecursive(source, target);
+        GameDirectory.cleanupObsoleteMarkers(temp);
 
-        assertEquals("new", Files.readString(target.resolve("saves/world/level.dat")));
-        assertEquals("copied", Files.readString(target.resolve("config.json")));
+        assertFalse(Files.exists(temp.resolve(".migration-from-skyengine-v1")));
+        assertFalse(Files.exists(temp.resolve(".migration-from-working-directory-v1")));
+        assertFalse(Files.exists(temp.resolve("bin/structures/.default-structure-v1")));
+        assertFalse(Files.exists(temp.resolve("bin/structures/.default-structures-v1")));
+        assertTrue(Files.isRegularFile(temp.resolve(".keep-me")));
     }
 }

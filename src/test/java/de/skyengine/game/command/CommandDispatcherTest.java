@@ -79,6 +79,37 @@ final class CommandDispatcherTest {
                 new CommandContext(new SimpleItemStorage(1)), "//p"));
     }
 
+    @Test
+    void structureAndPlacementHintsUseDoubleSlashAndGroupedTrailingArguments() {
+        CommandDispatcher dispatcher = new CommandDispatcher();
+        dispatcher.register(new StructureCommand());
+        dispatcher.register(new WorldEditCommand("paste"));
+
+        assertEquals(List.of("//structure"), dispatcher.suggest(
+                new CommandContext(new SimpleItemStorage(1)), "//str"));
+        assertEquals(List.of(), dispatcher.suggest(
+                new CommandContext(new SimpleItemStorage(1)), "/str"));
+        CommandContext emptyContext = new CommandContext(new SimpleItemStorage(1));
+        assertTrue(dispatcher.execute(emptyContext, "/structure list").messages().getFirst()
+                .startsWith("Unknown command"));
+        assertTrue(dispatcher.execute(emptyContext, "//structures list").messages().getFirst()
+                .startsWith("Unknown command"));
+        assertEquals("No world is open for structure commands",
+                dispatcher.execute(emptyContext, "//structure list").messages().getFirst());
+        assertEquals(" <save|load|list>", dispatcher.hint("//structure"));
+        assertEquals(" <name> [args: -a Use anchor, air=include Include air, overwrite=true Overwrite]",
+                dispatcher.hint("//structure save"));
+        assertEquals(" [args: -a Use anchor, air=include Include air, overwrite=true Overwrite]",
+                dispatcher.hint("//structure save trees/oak"));
+
+        String pasteArgs = " [args: -a Ignore air, -s Select structure, "
+                + "replace=keep Keep existing blocks]";
+        assertEquals(" [x y z]" + pasteArgs, dispatcher.hint("//paste"));
+        assertEquals(" [y z]" + pasteArgs, dispatcher.hint("//paste -5"));
+        assertEquals(pasteArgs, dispatcher.hint("//paste 0 64 3"));
+        assertEquals("", dispatcher.hint("//paste 0 64 3 -a"));
+    }
+
     private static CommandDispatcher dispatcher() {
         CommandDispatcher dispatcher = new CommandDispatcher();
         dispatcher.register(new GiveCommand());

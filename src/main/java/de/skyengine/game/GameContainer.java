@@ -2608,15 +2608,11 @@ public class GameContainer implements IResizeable, IDisposable {
                 return I18n.tr("command.worldedit.pos2_success",
                         targeted.x(), targeted.y(), targeted.z());
             }
-            @Override public void anchor() { anchor(x(), y(), z()); }
-            @Override public void anchor(int x, int y, int z) {
-                editor().anchor(GameContainer.this.dimension().getDimensionId(), x, y, z);
-            }
-            @Override public void resetAnchor() {
-                editor().resetAnchor(GameContainer.this.dimension().getDimensionId());
-            }
-            @Override public StructureTemplate save(String reference, boolean includeAir, boolean overwrite) throws Exception {
-                return editor().save(GameContainer.this.dimension(), reference, includeAir, overwrite);
+            @Override public StructureTemplate save(String reference, boolean includeAir,
+                                                    boolean overwrite, boolean useAnchor) throws Exception {
+                return editor().save(GameContainer.this.dimension(), reference, includeAir, overwrite,
+                        x(), y(), z(), useAnchor ? WorldEditSession.OperationOrigin.ANCHOR
+                                : WorldEditSession.OperationOrigin.PLAYER);
             }
             @Override public StructureTemplate load(String reference) throws Exception {
                 return editor().load(reference);
@@ -2635,8 +2631,8 @@ public class GameContainer implements IResizeable, IDisposable {
             }
             @Override public String copy(boolean useAnchor) {
                 var copied = editor().copy(GameContainer.this.dimension(), x(), y(), z(),
-                        useAnchor ? WorldEditSession.CopyOrigin.ANCHOR
-                                : WorldEditSession.CopyOrigin.PLAYER);
+                        useAnchor ? WorldEditSession.OperationOrigin.ANCHOR
+                                : WorldEditSession.OperationOrigin.PLAYER);
                 String key = useAnchor ? "command.worldedit.copy_success_anchor"
                         : "command.worldedit.copy_success";
                 return I18n.tr(key, copied.template().sizeX(),
@@ -2644,8 +2640,8 @@ public class GameContainer implements IResizeable, IDisposable {
             }
             @Override public StructurePlacement.Result cut(boolean useAnchor) {
                 return editor().cut(GameContainer.this.dimension(), x(), y(), z(),
-                        useAnchor ? WorldEditSession.CopyOrigin.ANCHOR
-                                : WorldEditSession.CopyOrigin.PLAYER);
+                        useAnchor ? WorldEditSession.OperationOrigin.ANCHOR
+                                : WorldEditSession.OperationOrigin.PLAYER);
             }
             @Override public String expand(int amount) {
                 Direction direction = lookDirection();
@@ -2677,22 +2673,24 @@ public class GameContainer implements IResizeable, IDisposable {
                 return editor().regenerate(GameContainer.this.dimension());
             }
             @Override public String rotate(int degrees) {
-                return "Structure gedreht: " + editor().rotate(degrees).rotation();
+                return I18n.tr("command.worldedit.rotate_success", editor().rotate(degrees).rotation());
             }
             @Override public String flip() {
                 double yaw = Math.toRadians(GameContainer.this.player().yaw);
                 boolean northSouth = Math.abs(Math.cos(yaw)) >= Math.abs(Math.sin(yaw));
-                return "Structure gespiegelt: " + editor().flip(northSouth).mirror();
+                return I18n.tr("command.worldedit.flip_success", editor().flip(northSouth).mirror());
             }
             @Override public String preview(Integer px, Integer py, Integer pz, StructurePlacement.Rule rule) {
                 int tx = px == null ? x() : px, ty = py == null ? y() : py, tz = pz == null ? z() : pz;
                 WorldEditSession.Preview preview = editor().preview(
                         GameContainer.this.dimension().getDimensionId(), tx, ty, tz, rule);
-                return "Structure-Vorschau bei " + preview.x() + " " + preview.y() + " " + preview.z();
+                return I18n.tr("command.worldedit.preview_success",
+                        preview.x(), preview.y(), preview.z());
             }
             @Override public void clearPreview() { editor().clearPreview(); }
             @Override public StructurePlacement.Result paste(Integer px, Integer py, Integer pz,
-                                                               StructurePlacement.Rule rule) {
+                                                               StructurePlacement.Rule rule,
+                                                               boolean selectBounds) {
                 WorldEditSession.Preview preview = editor().preview();
                 int tx, ty, tz;
                 StructurePlacement.Rule effectiveRule = rule;
@@ -2702,17 +2700,18 @@ public class GameContainer implements IResizeable, IDisposable {
                 } else {
                     tx = px == null ? x() : px; ty = py == null ? y() : py; tz = pz == null ? z() : pz;
                 }
-                return editor().paste(GameContainer.this.dimension(), tx, ty, tz, effectiveRule);
+                return editor().paste(GameContainer.this.dimension(), tx, ty, tz,
+                        effectiveRule, selectBounds);
             }
             @Override public String undo(int amount) {
                 var result = editor().undo(GameContainer.this.dimension(), amount);
-                return result.operations() == 0 ? "Nichts zum Rueckgaengigmachen"
-                        : result.operations() + " Vorgang/Vorgaenge rueckgaengig (" + result.cells() + " Zellen)";
+                return result.operations() == 0 ? I18n.tr("command.worldedit.undo_empty")
+                        : I18n.tr("command.worldedit.undo_success", result.operations(), result.cells());
             }
             @Override public String redo(int amount) {
                 var result = editor().redo(GameContainer.this.dimension(), amount);
-                return result.operations() == 0 ? "Nichts zum Wiederholen"
-                        : result.operations() + " Vorgang/Vorgaenge wiederholt (" + result.cells() + " Zellen)";
+                return result.operations() == 0 ? I18n.tr("command.worldedit.redo_empty")
+                        : I18n.tr("command.worldedit.redo_success", result.operations(), result.cells());
             }
         };
         CommandContext.PlayerAccess playerAccess = new CommandContext.PlayerAccess() {

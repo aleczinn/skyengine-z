@@ -15,6 +15,16 @@ public interface Command {
         return "";
     }
 
+    /** Gruppierte Syntax fuer Inline-Hinweise; einfache Befehle nutzen weiterhin {@link #usage()}. */
+    default CommandSyntax syntax(List<String> arguments) {
+        return CommandSyntax.legacy(usage());
+    }
+
+    /** Erkennt den Beginn des abschliessenden Optionsbereichs fuer die Hint-Berechnung. */
+    default boolean isOptionToken(String token) {
+        return false;
+    }
+
     CommandResult execute(CommandContext context, List<String> arguments);
 
     /** Vorschlaege fuer das aktuelle (letzte) Argument, ohne den bereits geschriebenen Prefix. */

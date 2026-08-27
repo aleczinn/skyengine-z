@@ -107,10 +107,10 @@ F3 + P  :  Profiler Gui
 
 ## Befehle
 ```
-/structure load <id>       Struktur in die Bearbeitungssitzung laden
-/structure save <id>       aktuelle Auswahl als .structure speichern
-/structure list [Seite]    verfügbare Strukturen auflisten
-/structure anchor [...]    Anker anzeigen, setzen oder zurücksetzen
+//structure load <name>    Struktur in die Bearbeitungssitzung laden
+//structure save <name>    Auswahl mit Spielerposition als Ursprung speichern
+//structure save <name> -a markierten Debug-Axt-Anker als Ursprung verwenden
+//structure list [Seite]   verfügbare Strukturen auflisten
 //wand                     exklusive Debug-Axt erhalten
 //pos1                     Position 1 unter den Füßen setzen
 //pos2                     Position 2 unter den Füßen setzen
@@ -131,7 +131,7 @@ F3 + P  :  Profiler Gui
 //flip                     anhand der Blickrichtung spiegeln
 //preview [x y z]          transparente Vorschau anzeigen
 //preview clear            Vorschau entfernen
-//paste [x y z]            Struktur platzieren
+//paste [x y z] [-a] [-s]  Struktur platzieren; Flags stehen immer am Ende
 //undo [Anzahl]            Platzierungen rückgängig machen
 //redo [Anzahl]            rückgängig gemachte Platzierungen wiederholen
 ```

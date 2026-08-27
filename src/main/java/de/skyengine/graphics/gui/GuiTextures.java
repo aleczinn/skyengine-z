@@ -128,7 +128,7 @@ public final class GuiTextures {
         this.menuBackgroundImage = loadOptional("game/textures/menu/main_menu_v0.0.7.png");
         this.logo = loadOptional("game/textures/ui/logo.png");
 
-        this.imageBackground = loadHighResolution("game/textures/ui/background.png");
+        this.imageBackground = loadHighResolution("game/textures/ui/background-2x.png");
         this.vignette = loadHighResolution("game/textures/ui/vignette.png");
     }
 

@@ -12,6 +12,7 @@ import de.skyengine.game.world.block.entity.PistonMovingBlockEntity;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.save.LevelData;
@@ -94,6 +95,120 @@ final class StructureBlockEntityTest {
     }
 
     @Test
+    void connectedStatesNormalizeWithoutTurningThePasteIntoAFailure() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = new Chunk(0, 0);
+        chunk.status = ChunkStatus.READY;
+        world.install(chunk);
+        world.enableNeighborUpdates();
+        StructureTemplate fences = new StructureTemplate(Identifier.of("test:fences"),
+                2, 1, 1, 0, 0, 0, List.of(
+                new StructureTemplate.Cell(0, 0, 0, Blocks.SPRUCE_FENCE),
+                new StructureTemplate.Cell(1, 0, 0, Blocks.SPRUCE_FENCE)));
+        StructurePlacement placement = new StructurePlacement();
+        StructurePlacement.Plan plan = placement.prepareInWorld(fences, world,
+                1, 64, 1, StructureTransform.IDENTITY, StructurePlacement.Rule.REPLACE_ALL);
+
+        StructurePlacement.Result result = placement.applyPlan(world, plan, true);
+
+        assertTrue(result.complete());
+        assertEquals(2, result.written());
+        assertTrue(Blocks.getState(world.getBlock(1, 64, 1)).get(Properties.EAST));
+        assertTrue(Blocks.getState(world.getBlock(2, 64, 1)).get(Properties.WEST));
+    }
+
+    @Test
+    void explicitAirCanBeReplacedIgnoredOrCombinedWithKeepExisting() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = new Chunk(0, 0);
+        chunk.status = ChunkStatus.READY;
+        chunk.setBlock(1, 64, 1, Blocks.DIRT);
+        chunk.setBlock(2, 64, 1, Blocks.DIRT);
+        world.install(chunk);
+        StructureTemplate template = new StructureTemplate(Identifier.of("test:explicit_air"),
+                2, 1, 1, 0, 0, 0, List.of(
+                new StructureTemplate.Cell(0, 0, 0, Blocks.STONE),
+                new StructureTemplate.Cell(1, 0, 0, Blocks.AIR)));
+        StructurePlacement placement = new StructurePlacement();
+
+        StructurePlacement.Result ignored = placement.placeInWorld(template, world,
+                1, 64, 1, StructureTransform.IDENTITY, StructurePlacement.Rule.IGNORE_AIR);
+        assertTrue(ignored.complete());
+        assertEquals(1, ignored.written());
+        assertEquals(1, ignored.skipped());
+        assertEquals(Blocks.STONE, world.getBlock(1, 64, 1));
+        assertEquals(Blocks.DIRT, world.getBlock(2, 64, 1));
+
+        world.setBlock(1, 64, 1, Blocks.DIRT, false);
+        StructurePlacement.Result kept = placement.placeInWorld(template, world,
+                1, 64, 1, StructureTransform.IDENTITY, StructurePlacement.Rule.KEEP_EXISTING);
+        assertTrue(kept.complete());
+        assertEquals(0, kept.written());
+        assertEquals(2, kept.skipped());
+        assertEquals(Blocks.DIRT, world.getBlock(1, 64, 1));
+        assertEquals(Blocks.DIRT, world.getBlock(2, 64, 1));
+
+        StructurePlacement.Result replaced = placement.placeInWorld(template, world,
+                1, 64, 1, StructureTransform.IDENTITY, StructurePlacement.Rule.REPLACE_ALL);
+        assertTrue(replaced.complete());
+        assertEquals(2, replaced.written());
+        assertEquals(Blocks.STONE, world.getBlock(1, 64, 1));
+        assertEquals(Blocks.AIR, world.getBlock(2, 64, 1));
+    }
+
+    @Test
+    void bundledBigSprucePastesAllCellsDespiteFenceNormalization() throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = new Chunk(0, 0);
+        chunk.status = ChunkStatus.READY;
+        world.install(chunk);
+        world.enableNeighborUpdates();
+        StructureTemplate spruce = StructureTemplateManager.loadResource(
+                Identifier.of("skyengine:trees/spruce/big_spruce_3"));
+        assertNotNull(spruce);
+        StructurePlacement placement = new StructurePlacement();
+        StructurePlacement.Plan plan = placement.prepareInWorld(spruce, world,
+                1, 64, 1, StructureTransform.IDENTITY, StructurePlacement.Rule.REPLACE_ALL);
+
+        StructurePlacement.Result result = placement.applyPlan(world, plan, true);
+
+        assertTrue(result.complete());
+        assertEquals(spruce.cells().size(), result.written());
+        assertEquals(0, result.failed());
+    }
+
+    @Test
+    void pasteCanSelectTheTransformedBoundsIncludingANoOp(@TempDir Path temp) throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = new Chunk(0, 0);
+        chunk.status = ChunkStatus.READY;
+        world.install(chunk);
+        StructureTemplateManager manager = new StructureTemplateManager(
+                temp.resolve("structures"), temp.resolve("saves").toFile());
+        StructureTemplate template = new StructureTemplate(Identifier.of("test:selection"),
+                3, 2, 2, 0, 0, 0,
+                List.of(new StructureTemplate.Cell(0, 0, 0, Blocks.STONE)));
+        manager.saveAuthored(template, false);
+        WorldEditSession editor = new WorldEditService(manager).session(UUID.randomUUID());
+        editor.load("test:selection");
+        editor.rotate(90);
+        StructureBounds expected = WorldEditSession.bounds(editor.clipboard(), 10, 64, 8);
+
+        StructurePlacement.Result first = editor.paste(world, 10, 64, 8,
+                StructurePlacement.Rule.REPLACE_ALL, true);
+        assertTrue(first.complete());
+        assertEquals(expected, editor.selection().bounds());
+        assertNull(editor.structureAnchor());
+
+        editor.clearSelection();
+        StructurePlacement.Result noOp = editor.paste(world, 10, 64, 8,
+                StructurePlacement.Rule.REPLACE_ALL, true);
+        assertTrue(noOp.complete());
+        assertEquals(0, noOp.written());
+        assertEquals(expected, editor.selection().bounds());
+    }
+
+    @Test
     void captureStoresPersistentEntitiesAndRejectsMovingPistons() throws Exception {
         TestWorld world = new TestWorld();
         Chunk chunk = new Chunk(0, 0);
@@ -161,12 +276,45 @@ final class StructureBlockEntityTest {
                 world.getBlockEntity(1, 64, 1)).getInventory().get(3).getCount());
         assertEquals(Blocks.STONE, world.getBlock(2, 64, 1));
 
-        editor.cut(world, 1, 64, 1, WorldEditSession.CopyOrigin.PLAYER);
+        editor.cut(world, 1, 64, 1, WorldEditSession.OperationOrigin.PLAYER);
         assertEquals(Blocks.AIR, world.getBlock(1, 64, 1));
         assertNotNull(editor.clipboard().template().cells().getFirst().blockEntity());
         editor.undo(world, 1);
         assertEquals(4, assertInstanceOf(ChestBlockEntity.class,
                 world.getBlockEntity(1, 64, 1)).getInventory().get(3).getCount());
+    }
+
+    @Test
+    void structureSaveChoosesPlayerOrExplicitToolAnchor(@TempDir Path temp) throws Exception {
+        TestWorld world = new TestWorld();
+        Chunk chunk = new Chunk(0, 0);
+        chunk.status = ChunkStatus.READY;
+        chunk.setBlock(1, 64, 1, Blocks.STONE);
+        chunk.setBlock(2, 64, 1, Blocks.DIRT);
+        chunk.setBlock(3, 64, 1, Blocks.STONE);
+        world.install(chunk);
+
+        WorldEditSession editor = new WorldEditService(new StructureTemplateManager(
+                temp.resolve("structures"), temp.toFile())).session(UUID.randomUUID());
+        editor.pos1(world.getDimensionId(), 1, 64, 1);
+        editor.pos2(world.getDimensionId(), 3, 64, 1);
+        editor.anchor(world.getDimensionId(), 3, 64, 1);
+
+        StructureTemplate playerOrigin = editor.save(world, "test:player-origin", false, false,
+                2, 64, 1, WorldEditSession.OperationOrigin.PLAYER);
+        assertEquals(1, playerOrigin.anchorX());
+        assertEquals(0, playerOrigin.anchorY());
+        assertEquals(0, playerOrigin.anchorZ());
+
+        StructureTemplate toolOrigin = editor.save(world, "test:tool-origin", false, false,
+                2, 64, 1, WorldEditSession.OperationOrigin.ANCHOR);
+        assertEquals(2, toolOrigin.anchorX());
+        assertEquals(0, toolOrigin.anchorY());
+        assertEquals(0, toolOrigin.anchorZ());
+
+        assertThrows(IllegalArgumentException.class, () -> editor.save(world,
+                "test:outside", false, false, 8, 64, 1,
+                WorldEditSession.OperationOrigin.PLAYER));
     }
 
     @Test
@@ -215,6 +363,7 @@ final class StructureBlockEntityTest {
     private static final class TestWorld extends Dimension {
         private static final Field CHUNKS_FIELD;
         private final ChunkManager manager;
+        private boolean neighborUpdates;
 
         static {
             try {
@@ -240,7 +389,11 @@ final class StructureBlockEntityTest {
             ((Map<Long, Chunk>) CHUNKS_FIELD.get(this.manager)).put(Chunk.key(0, 0), chunk);
         }
 
-        @Override public void updateNeighbors(int x, int y, int z) {}
+        void enableNeighborUpdates() { this.neighborUpdates = true; }
+
+        @Override public void updateNeighbors(int x, int y, int z) {
+            if (this.neighborUpdates) super.updateNeighbors(x, y, z);
+        }
 
         private static LevelData level(boolean imported) {
             LevelData level = new LevelData();
