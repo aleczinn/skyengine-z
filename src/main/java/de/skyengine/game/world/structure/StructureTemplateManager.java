@@ -89,7 +89,12 @@ public final class StructureTemplateManager {
 
     /** Pack-Ressource ohne externes Overlay. */
     public static StructureTemplate loadResource(Identifier id) throws IOException {
-        ResourceId resource = new ResourceId(id.namespace(), RESOURCE_PREFIX + id.path() + ".structure");
+        /* Spiel-IDs benutzen GAME_PREFIX, das eingebaute Asset-Pack behaelt jedoch seinen
+           technischen skyengine-Namespace. Fremde Namespaces werden unveraendert aufgeloest. */
+        String resourceNamespace = id.namespace().equals(Identifier.DEFAULT_NAMESPACE)
+                ? ResourceId.DEFAULT_NAMESPACE : id.namespace();
+        ResourceId resource = new ResourceId(resourceNamespace,
+                RESOURCE_PREFIX + id.path() + ".structure");
         var match = Resources.get().find(resource);
         if (match.isEmpty()) return null;
         try (InputStream in = match.get().open()) {

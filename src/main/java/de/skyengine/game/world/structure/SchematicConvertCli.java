@@ -142,7 +142,8 @@ public final class SchematicConvertCli {
     private static void usage(PrintStream stream) {
         stream.println("Verwendung:");
         stream.println("  schematicConvert convert <input.schem|input.schematic> --id=<namespace:path> [Optionen]");
-        stream.println("  schematicConvert batch <input-ordner> [--namespace=skyengine] [--prefix=pfad] [Optionen]");
+        stream.println("  schematicConvert batch <input-ordner> [--namespace="
+                + Identifier.DEFAULT_NAMESPACE + "] [--prefix=pfad] [Optionen]");
         stream.println("Optionen: --output=<ordner> --air=ignore|include --overwrite");
     }
 
@@ -150,7 +151,7 @@ public final class SchematicConvertCli {
 
     private static final class Options {
         Identifier id;
-        String namespace = "skyengine";
+        String namespace = Identifier.DEFAULT_NAMESPACE;
         String prefix = "";
         Path output;
         boolean includeAir;

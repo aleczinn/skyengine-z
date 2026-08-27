@@ -2,7 +2,10 @@ package de.skyengine.game.command;
 
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
+import de.skyengine.game.world.block.state.BlockHalf;
+import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.structure.StructurePlacement;
 import de.skyengine.game.world.structure.StructureTemplate;
 import de.skyengine.test.BlocksTestBootstrap;
@@ -11,6 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.IntPredicate;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -77,7 +81,7 @@ final class StructureCommandTest {
     }
 
     @Test
-    void worldEditCopyResizeAndSetBlockUseTheSharedPlayerSession() {
+    void worldEditCopyResizeSetAndReplaceUseTheSharedPlayerSession() {
         FakeStructures structures = new FakeStructures();
         assertTrue(new WorldEditCommand("copy").execute(context(structures), List.of()).success());
         assertEquals(1, structures.copyCount);
@@ -93,12 +97,46 @@ final class StructureCommandTest {
         assertEquals(3, structures.contractAmount);
         assertFalse(new WorldEditCommand("expand").execute(context(structures), List.of("0")).success());
 
-        assertTrue(new WorldEditCommand("setblock").execute(context(structures), List.of("stone")).success());
+        assertTrue(new WorldEditCommand("set").execute(context(structures), List.of("stone")).success());
         assertEquals(Blocks.STONE, structures.setBlockState);
-        assertTrue(new WorldEditCommand("setblock").execute(context(structures), List.of("skyengine:air")).success());
+        assertTrue(new WorldEditCommand("set").execute(context(structures), List.of("skyengine:air")).success());
         assertEquals(Blocks.AIR, structures.setBlockState);
-        assertFalse(new WorldEditCommand("setblock").execute(context(structures),
+        assertFalse(new WorldEditCommand("set").execute(context(structures),
                 List.of("skyengine:stone[unknown=true]")).success());
+
+        assertTrue(new WorldEditCommand("set").execute(context(structures),
+                List.of("oak_stairs[facing=east,half=top,shape=straight]")).success());
+        var stairs = Blocks.getState(structures.setBlockState);
+        assertEquals(Direction.EAST, stairs.get(Properties.FACING));
+        assertEquals(BlockHalf.TOP, stairs.get(Properties.HALF));
+
+        assertTrue(new WorldEditCommand("replace").execute(context(structures),
+                List.of("oak_stairs[facing=east]", "stone")).success());
+        assertTrue(structures.replaceMatcher.test(stairs.getId()));
+        assertFalse(structures.replaceMatcher.test(Blocks.STONE));
+        assertTrue(new WorldEditCommand("replace").execute(context(structures), List.of("air")).success());
+        assertTrue(structures.replaceMatcher.test(Blocks.STONE));
+        assertFalse(structures.replaceMatcher.test(Blocks.AIR));
+    }
+
+    @Test
+    void worldEditTargetCutDirectionalAndRegenCommandsReachTheSharedSession() {
+        FakeStructures structures = new FakeStructures();
+        assertTrue(new WorldEditCommand("hpos1").execute(context(structures), List.of()).success());
+        assertTrue(new WorldEditCommand("hpos2").execute(context(structures), List.of()).success());
+        assertEquals(1, structures.hpos1Count);
+        assertEquals(1, structures.hpos2Count);
+
+        assertTrue(new WorldEditCommand("cut").execute(context(structures), List.of("--anchor")).success());
+        assertTrue(structures.cutWithAnchor);
+        assertTrue(new WorldEditCommand("stack").execute(context(structures), List.of("4")).success());
+        assertEquals(4, structures.stackCount);
+        assertTrue(new WorldEditCommand("move").execute(context(structures), List.of("7")).success());
+        assertEquals(7, structures.moveDistance);
+        assertTrue(new WorldEditCommand("regen").execute(context(structures), List.of()).success());
+        assertEquals(1, structures.regenCount);
+        assertFalse(new WorldEditCommand("stack").execute(context(structures), List.of("0")).success());
+        assertFalse(new WorldEditCommand("regen").execute(context(structures), List.of("extra")).success());
     }
 
     private static StructureCommand command() { return new StructureCommand(); }
@@ -120,7 +158,16 @@ final class StructureCommandTest {
         int expandAmount;
         int contractAmount;
         int setBlockState = -1;
+        IntPredicate replaceMatcher;
         boolean copyWithAnchor;
+        boolean cutWithAnchor;
+        int hpos1Count;
+        int hpos2Count;
+        int stackCount;
+        int moveDistance;
+        int regenCount;
+        @Override public String hpos1() { hpos1Count++; return "hpos1"; }
+        @Override public String hpos2() { hpos2Count++; return "hpos2"; }
         @Override public void anchor() { playerAnchor = true; }
         @Override public void anchor(int x, int y, int z) { anchorPosition = new int[]{x, y, z}; }
         @Override public void resetAnchor() { anchorReset = true; }
@@ -138,10 +185,31 @@ final class StructureCommandTest {
             copyWithAnchor = useAnchor;
             return "copy";
         }
+        @Override public StructurePlacement.Result cut(boolean useAnchor) {
+            cutWithAnchor = useAnchor;
+            return new StructurePlacement.Result(1, 0, 0);
+        }
         @Override public String expand(int amount) { expandAmount = amount; return "expand"; }
         @Override public String contract(int amount) { contractAmount = amount; return "contract"; }
-        @Override public StructurePlacement.Result setBlock(int state) {
+        @Override public StructurePlacement.Result set(int state) {
             setBlockState = state;
+            return new StructurePlacement.Result(1, 0, 0);
+        }
+        @Override public StructurePlacement.Result replace(IntPredicate matcher, int state) {
+            replaceMatcher = matcher;
+            setBlockState = state;
+            return new StructurePlacement.Result(1, 0, 0);
+        }
+        @Override public StructurePlacement.Result stack(int count) {
+            stackCount = count;
+            return new StructurePlacement.Result(count, 0, 0);
+        }
+        @Override public StructurePlacement.Result move(int distance) {
+            moveDistance = distance;
+            return new StructurePlacement.Result(distance, 0, 0);
+        }
+        @Override public StructurePlacement.Result regen() {
+            regenCount++;
             return new StructurePlacement.Result(1, 0, 0);
         }
         @Override public String rotate(int degrees) {

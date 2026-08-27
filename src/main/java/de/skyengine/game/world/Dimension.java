@@ -32,11 +32,11 @@ import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.chunk.WorldWorkerPool;
 import de.skyengine.core.file.GameDirectory;
 import de.skyengine.game.world.debug.SimulationTelemetry;
-import de.skyengine.game.world.dimension.DimensionSaves;
-import de.skyengine.game.world.dimension.GenerationSetup;
+import de.skyengine.game.world.dimension.*;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
+import de.skyengine.game.world.generator.feature.Feature;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.loot.LootContext;
 import de.skyengine.game.world.save.LevelData;
@@ -64,16 +64,7 @@ import de.skyengine.utils.collect.LongIntMap;
 import de.skyengine.utils.collect.LongObjMap;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Random;
+import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.BooleanSupplier;
 
@@ -101,7 +92,7 @@ public class Dimension implements IInitializable, IDisposable {
     private final String name;
     private final Identifier dimensionId;
     private final boolean lodAllowed;
-    private final de.skyengine.game.world.dimension.DimensionEnvironment environment;
+    private final DimensionEnvironment environment;
 
     private final WorldGenerator generator;
     private final ChunkDecorator decorator;
@@ -117,8 +108,8 @@ public class Dimension implements IInitializable, IDisposable {
     private final LevelData levelData;
     private final LevelData.DimensionData dimensionData;
     private final File lodDirectory;
-    private final de.skyengine.game.world.dimension.PortalIndex portalIndex;
-    private final de.skyengine.game.world.dimension.PortalLinks portalLinks;
+    private final PortalIndex portalIndex;
+    private final PortalLinks portalLinks;
     /* Engine-Lebensdauer (GameContainer): Atlas + BlockEntity-Renderer überleben Welt-Austritte —
        die Welt hält nur Referenzen und disposed sie NICHT. */
     private final ParticleEngine particles;
@@ -198,7 +189,7 @@ public class Dimension implements IInitializable, IDisposable {
             this.dimensionData.lootRandomStates = new java.util.LinkedHashMap<>();
         }
         this.dimensionData.lootRandomStates.clear();
-        for (java.util.Map.Entry<String, LootRandom> entry : this.lootRandoms.entrySet()) {
+        for (Map.Entry<String, LootRandom> entry : this.lootRandoms.entrySet()) {
             this.dimensionData.lootRandomStates.put(entry.getKey(), entry.getValue().state());
         }
         this.levelData.tntExplosionDropDecay = this.tntExplosionDropDecay;
@@ -258,7 +249,7 @@ public class Dimension implements IInitializable, IDisposable {
 
     /* Eigener Generator für die Zufalls-Ticks: ~75k Ziehungen/s — java.util.Random wäre
        ein CAS-Loop pro nextInt. this.random bleibt für die seltenen Nutzer (Drops/Spawns). */
-    private final java.util.SplittableRandom randomTick = new java.util.SplittableRandom();
+    private final SplittableRandom randomTick = new SplittableRandom();
 
     /** Notfallbudget gegen einen einzelnen Tick mit massenhaft gleichzeitig fälligen Block-Ticks. */
     /** ServerLevel.MAX_SCHEDULED_TICKS_PER_TICK in Vanilla 26.2. */
@@ -317,15 +308,14 @@ public class Dimension implements IInitializable, IDisposable {
             savedLootRandomStates = level.lootRandomStates;
         }
         if (savedLootRandomStates != null) {
-            for (java.util.Map.Entry<String, Long> entry : savedLootRandomStates.entrySet()) {
+            for (Map.Entry<String, Long> entry : savedLootRandomStates.entrySet()) {
                 this.lootRandoms.put(entry.getKey(), new LootRandom(entry.getValue(), true));
             }
         }
 
         GenerationSetup setup = resolved.generator().create(resolved.data().seed);
         this.generator = setup.generator();
-        java.util.List<de.skyengine.game.world.generator.feature.Feature> sessionFeatures = structures == null
-                ? setup.features() : setup.features().stream().map(feature -> feature.withStructures(structures)).toList();
+        List<Feature> sessionFeatures = structures == null ? setup.features() : setup.features().stream().map(feature -> feature.withStructures(structures)).toList();
         this.decorator = new ChunkDecorator(this.generator, sessionFeatures);
         this.chunkManager = workerPool == null
                 ? new ChunkManager(this.generator, this.decorator, this.environment.hasSkylight())
@@ -633,6 +623,8 @@ public class Dimension implements IInitializable, IDisposable {
         for (Chunk chunk : this.readyChunkScratch) {
             if (chunk == previous) continue;
             previous = chunk;
+            /* Generierte Structure-BEs entstehen im Decorator noch ohne Dimension-Referenz. */
+            for (BlockEntity blockEntity : chunk.blockEntities()) blockEntity.setWorld(this);
             if (!chunk.loadSeeded) {
                 de.skyengine.game.world.block.behavior.ComparatorBehavior
                         .reconcileLoadedChunk(this, chunk);
@@ -2845,6 +2837,23 @@ public class Dimension implements IInitializable, IDisposable {
 
     public WorldGenerator getGenerator() {
         return generator;
+    }
+
+    /**
+     * Erzeugt einen kurzlebigen, voll dekorierten Chunk aus dem aktuellen Generatorzustand.
+     * Der Snapshot wird weder in den ChunkManager eingesetzt noch gespeichert.
+     */
+    public Chunk generateWorldgenSnapshot(int chunkX, int chunkZ) {
+        if (this.imported) throw new IllegalStateException(
+                "Importierte Welten besitzen keinen rekonstruierbaren Weltgenerator");
+        Chunk snapshot = new Chunk(chunkX, chunkZ);
+        this.generator.generate(snapshot);
+        this.decorator.decorate(snapshot);
+        return snapshot;
+    }
+
+    public boolean supportsRegeneration() {
+        return !this.imported;
     }
 
     public ChunkManager getChunkManager() {

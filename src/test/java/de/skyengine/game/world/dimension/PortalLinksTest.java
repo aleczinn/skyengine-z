@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -40,5 +41,19 @@ final class PortalLinksTest {
 
         links.unlink(TYPE, NETHER, "nether-a");
         assertFalse(links.isLinked(TYPE, OVERWORLD, "overworld-b"));
+    }
+
+    @Test
+    void readsLegacyNamespacesAsCurrentGameIds(@TempDir Path saveRoot) throws Exception {
+        Files.writeString(saveRoot.resolve("portal_links.json"), """
+                {"version":1,"links":[{"type":"skyengine:nether_portal",
+                "first":{"dimension":"skyengine:overworld","portalId":"old-a"},
+                "second":{"dimension":"skyengine:nether","portalId":"old-b"}}]}
+                """);
+
+        PortalLinks links = new PortalLinks(saveRoot.toFile());
+
+        assertEquals("old-b", links.linked(Identifier.of("voxel_stories:nether_portal"),
+                Identifier.of("voxel_stories:overworld"), "old-a").portalId());
     }
 }

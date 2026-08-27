@@ -132,7 +132,7 @@ public final class ChunkSerializer {
                         .putString("direction", frame.getDirection().name())
                         .putInt("rotation", frame.getRotation())
                         .putTag("item", frame.getItem().save());
-                out.add(new SavedEntity("skyengine:item_frame", tag));
+                out.add(new SavedEntity(Identifier.of("item_frame").toString(), tag));
             } else if (entity instanceof de.skyengine.game.entity.MinecartEntity minecart) {
                 DataTag tag = new DataTag()
                         .putDouble("x", minecart.x).putDouble("y", minecart.y).putDouble("z", minecart.z)
@@ -143,7 +143,7 @@ public final class ChunkSerializer {
                         .putDouble("damage", minecart.getDamage())
                         .putInt("hurt_time", minecart.getHurtTime())
                         .putInt("hurt_direction", minecart.getHurtDirection());
-                out.add(new SavedEntity("skyengine:minecart", tag));
+                out.add(new SavedEntity(Identifier.of("minecart").toString(), tag));
             }
         }
         return out;
@@ -547,7 +547,14 @@ public final class ChunkSerializer {
             for (int i = 0; i < entityCount; i++) {
                 String typeId = in.readUTF();
                 DataTag tag = DataTagIO.read(in);
-                if ("skyengine:minecart".equals(typeId)) {
+                Identifier entityType;
+                try {
+                    entityType = Identifier.of(typeId);
+                } catch (IllegalArgumentException invalidIdentifier) {
+                    LOGGER.warning("Ungültiger persistenter Entity-Typ, überspringe: " + typeId);
+                    continue;
+                }
+                if (Identifier.of("minecart").equals(entityType)) {
                     double x = tag.getDouble("x", Double.NaN);
                     double y = tag.getDouble("y", Double.NaN);
                     double z = tag.getDouble("z", Double.NaN);
@@ -571,7 +578,7 @@ public final class ChunkSerializer {
                     chunk.addEntity(minecart);
                     continue;
                 }
-                if (!"skyengine:item_frame".equals(typeId)) {
+                if (!Identifier.of("item_frame").equals(entityType)) {
                     LOGGER.warning("Unbekannter persistenter Entity-Typ, ueberspringe: " + typeId);
                     continue;
                 }
@@ -643,7 +650,13 @@ public final class ChunkSerializer {
 
     /** Liest die bis einschließlich des alten Comparator-State-Modells gespeicherte Stärke. */
     private static int legacyComparatorOutput(String encoded) {
-        if (!encoded.startsWith("skyengine:comparator[")) return -1;
+        int bracket = encoded.indexOf('[');
+        if (bracket < 0) return -1;
+        try {
+            if (!Identifier.of(encoded.substring(0, bracket)).equals(Identifier.of("comparator"))) return -1;
+        } catch (IllegalArgumentException invalidIdentifier) {
+            return -1;
+        }
         int property = encoded.indexOf("power=");
         if (property < 0) return -1;
         int start = property + "power=".length();

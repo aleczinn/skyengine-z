@@ -25,7 +25,8 @@ public final class ChatManager {
         this.register(new HomeCommand());
         this.register(new BiomeCommand());
         this.register(new StructureCommand());
-        for (String name : List.of("wand", "pos1", "pos2", "copy", "setblock", "expand", "contract",
+        for (String name : List.of("wand", "pos1", "pos2", "hpos1", "hpos2", "copy", "cut",
+                "set", "replace", "expand", "contract", "stack", "move", "regen",
                 "rotate", "flip", "preview", "paste", "undo", "redo")) {
             this.register(new WorldEditCommand(name));
         }

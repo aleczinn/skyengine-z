@@ -19,9 +19,10 @@ public final class WorldEditCommand implements Command {
     @Override public String usage() {
         return switch (name) {
             case "rotate" -> "<vielfaches-von-90>";
-            case "copy" -> "[-a|--anchor]";
-            case "setblock" -> "<blockstate>";
-            case "expand", "contract" -> "<wert>";
+            case "copy", "cut" -> "[-a|--anchor]";
+            case "set" -> "<block>";
+            case "replace" -> "[von] <block>";
+            case "expand", "contract", "stack", "move" -> "<wert>";
             case "preview" -> "[clear|x y z] [replace=all|keep]";
             case "paste" -> "[x y z] [replace=all|keep]";
             case "undo", "redo" -> "[anzahl]";
@@ -40,10 +41,21 @@ public final class WorldEditCommand implements Command {
                         : CommandResult.error(I18n.tr("command.worldedit.pos1_usage"));
                 case "pos2" -> arguments.isEmpty() ? CommandResult.success(context.structures().pos2())
                         : CommandResult.error(I18n.tr("command.worldedit.pos2_usage"));
+                case "hpos1" -> arguments.isEmpty() ? CommandResult.success(context.structures().hpos1())
+                        : CommandResult.error(I18n.tr("command.worldedit.hpos1_usage"));
+                case "hpos2" -> arguments.isEmpty() ? CommandResult.success(context.structures().hpos2())
+                        : CommandResult.error(I18n.tr("command.worldedit.hpos2_usage"));
                 case "copy" -> copy(context, arguments);
+                case "cut" -> cut(context, arguments);
                 case "expand" -> resize(context, arguments, false);
                 case "contract" -> resize(context, arguments, true);
-                case "setblock" -> setBlock(context, arguments);
+                case "set" -> set(context, arguments);
+                case "replace" -> replace(context, arguments);
+                case "stack" -> directionalEdit(context, arguments, true);
+                case "move" -> directionalEdit(context, arguments, false);
+                case "regen" -> arguments.isEmpty() ? editResult(context.structures().regen(),
+                        "command.worldedit.regen_success", "command.worldedit.regen_failed")
+                        : CommandResult.error(I18n.tr("command.worldedit.regen_usage"));
                 case "rotate" -> rotate(context, arguments);
                 case "flip" -> arguments.isEmpty() ? CommandResult.success(context.structures().flip())
                         : CommandResult.error("Verwendung: //flip");
@@ -56,6 +68,16 @@ public final class WorldEditCommand implements Command {
         } catch (Exception e) {
             return CommandResult.error(I18n.tr("command.worldedit.error_prefix", e.getMessage()));
         }
+    }
+
+    private static CommandResult cut(CommandContext context, List<String> args) {
+        boolean anchor;
+        if (args.isEmpty()) anchor = false;
+        else if (args.size() == 1 && (args.getFirst().equalsIgnoreCase("-a")
+                || args.getFirst().equalsIgnoreCase("--anchor"))) anchor = true;
+        else return CommandResult.error(I18n.tr("command.worldedit.cut_usage"));
+        return editResult(context.structures().cut(anchor), "command.worldedit.cut_success",
+                "command.worldedit.cut_failed");
     }
 
     private static CommandResult copy(CommandContext context, List<String> args) {
@@ -76,12 +98,39 @@ public final class WorldEditCommand implements Command {
                 : context.structures().expand(amount));
     }
 
-    private static CommandResult setBlock(CommandContext context, List<String> args) {
-        if (args.size() != 1) return CommandResult.error(I18n.tr("command.worldedit.setblock_usage"));
+    private static CommandResult set(CommandContext context, List<String> args) {
+        if (args.size() != 1) return CommandResult.error(I18n.tr("command.worldedit.set_usage"));
         int state = WorldEditBlockParser.parse(args.getFirst()).getId();
-        StructurePlacement.Result result = context.structures().setBlock(state);
-        return result.complete() ? CommandResult.success(I18n.tr("command.worldedit.setblock_success", result.written()))
-                : CommandResult.error(I18n.tr("command.worldedit.setblock_failed", result.failed()));
+        return editResult(context.structures().set(state), "command.worldedit.set_success",
+                "command.worldedit.set_failed");
+    }
+
+    private static CommandResult replace(CommandContext context, List<String> args) {
+        if (args.size() < 1 || args.size() > 2) {
+            return CommandResult.error(I18n.tr("command.worldedit.replace_usage"));
+        }
+        int target = WorldEditBlockParser.parse(args.getLast()).getId();
+        java.util.function.IntPredicate matcher = args.size() == 1
+                ? state -> state != de.skyengine.game.world.block.Blocks.AIR
+                : WorldEditBlockParser.parseMatcher(args.getFirst())::matches;
+        return editResult(context.structures().replace(matcher, target),
+                "command.worldedit.replace_success", "command.worldedit.replace_failed");
+    }
+
+    private static CommandResult directionalEdit(CommandContext context, List<String> args, boolean stack) {
+        if (args.size() != 1) return CommandResult.error(I18n.tr(
+                stack ? "command.worldedit.stack_usage" : "command.worldedit.move_usage"));
+        int amount = StructureCommand.integer(args.getFirst());
+        if (amount <= 0) throw new IllegalArgumentException(I18n.tr("command.worldedit.positive_value"));
+        StructurePlacement.Result result = stack ? context.structures().stack(amount)
+                : context.structures().move(amount);
+        return editResult(result, stack ? "command.worldedit.stack_success" : "command.worldedit.move_success",
+                stack ? "command.worldedit.stack_failed" : "command.worldedit.move_failed");
+    }
+
+    private static CommandResult editResult(StructurePlacement.Result result, String success, String failed) {
+        return result.complete() ? CommandResult.success(I18n.tr(success, result.written()))
+                : CommandResult.error(I18n.tr(failed, result.failed()));
     }
 
     private static CommandResult rotate(CommandContext context, List<String> args) {
@@ -134,7 +183,8 @@ public final class WorldEditCommand implements Command {
         if (name.equals("preview") && arguments.isEmpty() && "clear".startsWith(current.toLowerCase())) {
             return List.of("clear");
         }
-        if (name.equals("setblock") && arguments.isEmpty()) {
+        if ((name.equals("set") && arguments.isEmpty())
+                || name.equals("replace") && arguments.size() <= 1) {
             String needle = current.toLowerCase(java.util.Locale.ROOT).replace("_", "").replace("-", "");
             return Registries.BLOCK.values().stream().map(Block::getIdentifier)
                     .filter(id -> normalize(id.toString()).startsWith(needle)

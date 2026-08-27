@@ -5,6 +5,7 @@ import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.Gamemode;
 
 import java.util.List;
+import java.util.function.IntPredicate;
 import de.skyengine.game.world.structure.StructurePlacement;
 import de.skyengine.game.world.structure.StructureTemplate;
 
@@ -54,6 +55,8 @@ public record CommandContext(SimpleItemStorage inventory, DimensionAccess dimens
     public interface StructureAccess {
         default String pos1() { throw new UnsupportedOperationException("//pos1 ist hier nicht verfuegbar"); }
         default String pos2() { throw new UnsupportedOperationException("//pos2 ist hier nicht verfuegbar"); }
+        default String hpos1() { throw new UnsupportedOperationException("//hpos1 ist hier nicht verfuegbar"); }
+        default String hpos2() { throw new UnsupportedOperationException("//hpos2 ist hier nicht verfuegbar"); }
         void anchor();
         void anchor(int x, int y, int z);
         void resetAnchor();
@@ -62,9 +65,14 @@ public record CommandContext(SimpleItemStorage inventory, DimensionAccess dimens
         List<String> templates() throws Exception;
         String wand();
         String copy(boolean useAnchor);
+        StructurePlacement.Result cut(boolean useAnchor);
         String expand(int amount);
         String contract(int amount);
-        StructurePlacement.Result setBlock(int state);
+        StructurePlacement.Result set(int state);
+        StructurePlacement.Result replace(IntPredicate matcher, int state);
+        StructurePlacement.Result stack(int count);
+        StructurePlacement.Result move(int distance);
+        StructurePlacement.Result regen();
         String rotate(int degrees);
         String flip();
         String preview(Integer x, Integer y, Integer z, StructurePlacement.Rule rule);

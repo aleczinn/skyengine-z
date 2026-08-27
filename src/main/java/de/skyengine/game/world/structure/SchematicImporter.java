@@ -61,6 +61,8 @@ public final class SchematicImporter {
         int[] indices = decodeVarInts(data, cellCount);
         ArrayList<StructureTemplate.Cell> cells = new ArrayList<>();
         ArrayList<String> warnings = new ArrayList<>();
+        warnList(root, "BlockEntities", warnings);
+        warnList(root, "TileEntities", warnings);
         for (int linear = 0; linear < indices.length; linear++) {
             int paletteIndex = indices[linear];
             if (paletteIndex < 0 || paletteIndex >= palette.length || palette[paletteIndex] == null) {
@@ -98,6 +100,13 @@ public final class SchematicImporter {
                     anchorX, anchorY, anchorZ, cells), List.copyOf(warnings));
         } catch (IllegalArgumentException e) {
             throw new IOException("Ungueltige Schematic: " + e.getMessage(), e);
+        }
+    }
+
+    private static void warnList(NbtCompound root, String key, List<String> warnings) {
+        de.skyengine.mcimport.nbt.NbtList list = root.getList(key);
+        if (list != null && list.size() > 0) {
+            warnings.add(key + " werden noch nicht importiert (" + list.size() + ")");
         }
     }
 

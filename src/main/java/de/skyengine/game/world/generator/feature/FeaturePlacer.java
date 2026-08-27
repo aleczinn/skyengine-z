@@ -6,6 +6,7 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.lod.LodDataSource;
+import de.skyengine.game.world.structure.StructureTemplate;
 
 import java.util.Random;
 
@@ -79,6 +80,18 @@ public final class FeaturePlacer implements FeatureContext {
         int lx = wx & ChunkSection.MASK, lz = wz & ChunkSection.MASK;
         if (this.target.getBlock(lx, wy, lz) != Blocks.AIR) return;
         this.target.setBlock(lx, wy, lz, block);
+    }
+
+    @Override
+    public void setStructureCell(int wx, int wy, int wz, int block, boolean ifAir,
+                                 StructureTemplate.BlockEntitySnapshot blockEntity) {
+        if (!this.inTarget(wx, wz) || wy < 0 || wy >= Chunk.HEIGHT) return;
+        int lx = wx & ChunkSection.MASK, lz = wz & ChunkSection.MASK;
+        if (ifAir && this.target.getBlock(lx, wy, lz) != Blocks.AIR) return;
+        this.target.setBlock(lx, wy, lz, block);
+        if (Blocks.getState(block).getBlock().getBlockEntityType() != null) {
+            this.target.queueStructureBlockEntity(lx, wy, lz, blockEntity);
+        }
     }
 
     private boolean inTarget(int wx, int wz) {

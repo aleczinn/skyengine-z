@@ -44,6 +44,7 @@ public final class SaveRoundTripTest {
         long t0 = System.currentTimeMillis();
         generator.generate(chunk);
         System.out.println("Chunk (3,-7) generiert in " + (System.currentTimeMillis() - t0) + " ms");
+        String gameNamespace = Identifier.DEFAULT_NAMESPACE + ":";
 
         /* --- Edits: Properties, Fluide, BlockEntity --- */
         chunk.setBlock(4, 200, 4, decodeId("skyengine:stone_stairs[facing=east,half=top,shape=inner_left]"));
@@ -74,9 +75,9 @@ public final class SaveRoundTripTest {
            Clock liegt KOMPLETT in diesen State-Strings (Sektions-Palette); der laufende
            Delay steckt im Scheduled-Tick unten — zusammen ist das der Beweis, dass eine
            Clock Save/Load übersteht. */
-        String repeaterState = "skyengine:repeater[delay=3,facing=north,locked=true,powered=true]";
-        String wireState = "skyengine:redstone_wire[east=side,north=none,power=13,south=up,west=none]";
-        String plateState = "skyengine:light_weighted_pressure_plate[power=7]";
+        String repeaterState = gameNamespace + "repeater[delay=3,facing=north,locked=true,powered=true]";
+        String wireState = gameNamespace + "redstone_wire[east=side,north=none,power=13,south=up,west=none]";
+        String plateState = gameNamespace + "light_weighted_pressure_plate[power=7]";
         chunk.setBlock(12, 200, 12, decodeId(repeaterState));
         chunk.setBlock(13, 200, 13, decodeId(wireState));
         chunk.setBlock(14, 200, 14, decodeId(plateState));
@@ -84,8 +85,8 @@ public final class SaveRoundTripTest {
         /* Kolben: 6-Wege-Facing + der bewegte Block mitten in der Animation (Moving-BE mit
            movedState als Codec-String) — Save/Load mitten im Schub muss die Bewegung
            unverändert fortsetzen können. */
-        String pistonState = "skyengine:piston[extended=true,facing=up]";
-        String headState = "skyengine:piston_head[facing=down,short=false,type=sticky]";
+        String pistonState = gameNamespace + "piston[extended=true,facing=up]";
+        String headState = gameNamespace + "piston_head[facing=down,short=false,type=sticky]";
         chunk.setBlock(15, 200, 15, decodeId(pistonState));
         chunk.setBlock(16, 200, 16, decodeId(headState));
         int movingId = decodeId("skyengine:moving_piston");
@@ -118,7 +119,7 @@ public final class SaveRoundTripTest {
         chunk.setBlock(19, 200, 19, decodeId("skyengine:observer[facing=east,powered=true]"));
 
         /* Comparator: POWERED bleibt im State, die tatsächliche Stärke ausschließlich in der BE. */
-        String comparatorState = "skyengine:comparator[facing=east,mode=compare,powered=true]";
+        String comparatorState = gameNamespace + "comparator[facing=east,mode=compare,powered=true]";
         int comparatorId = decodeId(comparatorState);
         chunk.setBlock(20, 200, 20, comparatorId);
         de.skyengine.game.world.block.entity.ComparatorBlockEntity comparator =
@@ -132,7 +133,7 @@ public final class SaveRoundTripTest {
         /* Trichter: State (facing + enabled) + BE mit Inventar UND Rest-Cooldown — der
            Transfer-Takt muss Save/Load überstehen. Der Cooldown wird über load() gesetzt
            (ein leeres inventory-Tag lässt die Slots in Ruhe). */
-        String hopperState = "skyengine:hopper[enabled=false,facing=west]";
+        String hopperState = gameNamespace + "hopper[enabled=false,facing=west]";
         chunk.setBlock(18, 200, 18, decodeId(hopperState));
         de.skyengine.game.world.block.entity.HopperBlockEntity hopper =
                 (de.skyengine.game.world.block.entity.HopperBlockEntity)
@@ -221,7 +222,7 @@ public final class SaveRoundTripTest {
 
         /* Doppeltruhen-Hälfte: State-String (facing + type) und eigenes Inventar. */
         check(BlockStateCodec.encode(Blocks.getState(restored.getBlock(10, 200, 10)))
-                        .equals("skyengine:chest[facing=north,type=left]"),
+                        .equals(gameNamespace + "chest[facing=north,type=left]"),
                 "Doppeltruhen-Hälfte behält facing + type");
         if (restored.getBlockEntity(10, 200, 10) instanceof ChestBlockEntity restoredLeft) {
             ItemStack stack = restoredLeft.getInventory().get(26);
@@ -355,8 +356,8 @@ public final class SaveRoundTripTest {
 
         /* --- Luft-Fallback: unbekannter State (Block aus dem Spiel entfernt) --- */
         byte[] tampered = raw.clone();
-        byte[] needle = "skyengine:stone_stairs[".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        byte[] replacement = "skyengine:kaput_stairs[".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] needle = (gameNamespace + "stone_stairs[").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] replacement = (gameNamespace + "kaput_stairs[").getBytes(java.nio.charset.StandardCharsets.UTF_8);
         int at = indexOf(tampered, needle);
         check(at >= 0, "Treppen-State-String im Payload gefunden");
         if (at >= 0) {

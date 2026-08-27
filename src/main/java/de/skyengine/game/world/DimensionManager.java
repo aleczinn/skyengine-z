@@ -7,6 +7,7 @@ import de.skyengine.game.world.chunk.WorldWorkerPool;
 import de.skyengine.game.world.dimension.PortalLinks;
 import de.skyengine.game.world.dimension.WorldgenRegistries;
 import de.skyengine.game.world.save.LevelData;
+import de.skyengine.game.world.structure.StructureTemplateManager;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -83,9 +84,8 @@ public final class DimensionManager implements IDisposable {
 
     DimensionManager(String dirName, LevelData level, File saveRoot, WorldWorkerPool workers,
                      PortalLinks portalLinks, SoundManager soundManager,
-                     de.skyengine.game.world.structure.StructureTemplateManager.Snapshot structures) {
-        this(dirName, level, saveRoot, workers, portalLinks, soundManager,
-                System::nanoTime, DEFAULT_UNLOAD_DELAY_NANOS, structures);
+                     StructureTemplateManager.Snapshot structures) {
+        this(dirName, level, saveRoot, workers, portalLinks, soundManager, System::nanoTime, DEFAULT_UNLOAD_DELAY_NANOS, structures);
     }
 
     DimensionManager(String dirName, LevelData level, File saveRoot, WorldWorkerPool workers,
@@ -97,7 +97,7 @@ public final class DimensionManager implements IDisposable {
     DimensionManager(String dirName, LevelData level, File saveRoot, WorldWorkerPool workers,
                      PortalLinks portalLinks, SoundManager soundManager,
                      LongSupplier clock, long unloadDelayNanos,
-                     de.skyengine.game.world.structure.StructureTemplateManager.Snapshot structures) {
+                     StructureTemplateManager.Snapshot structures) {
         this.dirName = dirName;
         this.level = level;
         this.saveRoot = saveRoot;

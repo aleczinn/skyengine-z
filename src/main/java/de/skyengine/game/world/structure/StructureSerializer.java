@@ -31,7 +31,8 @@ import java.util.zip.GZIPOutputStream;
 /** Kanonischer Reader/Writer fuer das versionierte Voxel-Stories-Format {@code .structure}. */
 public final class StructureSerializer {
     public static final int MAGIC = 0x56535452; // VSTR
-    public static final int FORMAT_VERSION = 1;
+    public static final int FORMAT_VERSION = 2;
+    private static final int MIN_READABLE_VERSION = 1;
     private static final int COMPRESSION_GZIP = 1;
 
     public static void write(Path target, StructureTemplate template) throws IOException {
@@ -72,11 +73,13 @@ public final class StructureSerializer {
         DataInputStream header = new DataInputStream(buffered);
         if (header.readInt() != MAGIC) throw new IOException("Keine .structure-Datei (VSTR-Magic fehlt)");
         int version = header.readUnsignedShort();
-        if (version != FORMAT_VERSION) throw new IOException("Nicht unterstuetzte .structure-Version " + version);
+        if (version < MIN_READABLE_VERSION || version > FORMAT_VERSION) {
+            throw new IOException("Nicht unterstuetzte .structure-Version " + version);
+        }
         int compression = header.readUnsignedByte();
         if (compression != COMPRESSION_GZIP) throw new IOException("Unbekannte Structure-Kompression " + compression);
         try (DataInputStream payload = new DataInputStream(new GZIPInputStream(buffered))) {
-            return fromNbt(NbtReader.read(payload), expectedId);
+            return fromNbt(NbtReader.read(payload), expectedId, version);
         }
     }
 
@@ -94,15 +97,24 @@ public final class StructureSerializer {
             blocks[i++] = cell.x(); blocks[i++] = cell.y(); blocks[i++] = cell.z();
             blocks[i++] = palette.get(BlockStateCodec.encode(Blocks.getState(cell.state())));
         }
+        NbtList blockEntities = new NbtList((byte) 10);
+        for (StructureTemplate.Cell cell : template.cells()) {
+            if (cell.blockEntity() == null) continue;
+            blockEntities.add(new NbtCompound()
+                    .put("Pos", new NbtTag.NbtIntArray(new int[]{cell.x(), cell.y(), cell.z()}))
+                    .put("Type", new NbtTag.NbtString(cell.blockEntity().type().toString()))
+                    .put("Data", DataTagNbtCodec.toNbt(cell.blockEntity().data())));
+        }
         return new NbtCompound()
                 .put("Id", new NbtTag.NbtString(template.id().toString()))
                 .put("Size", new NbtTag.NbtIntArray(new int[]{template.sizeX(), template.sizeY(), template.sizeZ()}))
                 .put("Anchor", new NbtTag.NbtIntArray(new int[]{template.anchorX(), template.anchorY(), template.anchorZ()}))
                 .put("Palette", paletteTags)
-                .put("Blocks", new NbtTag.NbtIntArray(blocks));
+                .put("Blocks", new NbtTag.NbtIntArray(blocks))
+                .put("BlockEntities", blockEntities);
     }
 
-    private static StructureTemplate fromNbt(NbtCompound root, Identifier expectedId) throws IOException {
+    private static StructureTemplate fromNbt(NbtCompound root, Identifier expectedId, int version) throws IOException {
         Identifier stored = Identifier.of(root.requireString("Id"));
         if (expectedId != null && !stored.equals(expectedId)) {
             throw new IOException("Structure-ID " + stored + " stimmt nicht mit Ressource " + expectedId + " ueberein");
@@ -120,18 +132,47 @@ public final class StructureSerializer {
             if (state == null) throw new IOException("Unbekannter BlockState in Structure: " + string.value());
             palette[i] = state.getId();
         }
+        Map<Long, StructureTemplate.BlockEntitySnapshot> blockEntities = new LinkedHashMap<>();
+        if (version >= 2) {
+            NbtList entries = root.requireList("BlockEntities");
+            if (entries.elementType() != 10) throw new IOException("Structure BlockEntities ist keine Compound-Liste");
+            if (entries.size() > blocks.length / 4) throw new IOException("Mehr BlockEntities als Blockzellen");
+            for (int i = 0; i < entries.size(); i++) {
+                if (!(entries.get(i) instanceof NbtCompound entry)) {
+                    throw new IOException("Ungueltiger BlockEntity-Eintrag " + i);
+                }
+                int[] pos = entry.getIntArray("Pos");
+                if (pos == null || pos.length != 3) throw new IOException("BlockEntity Pos muss drei Werte haben");
+                if (pos[0] < 0 || pos[0] >= size[0] || pos[1] < 0 || pos[1] >= size[1]
+                        || pos[2] < 0 || pos[2] >= size[2]) throw new IOException("BlockEntity ausserhalb der Structure");
+                long key = cellKey(pos[0], pos[1], pos[2]);
+                StructureTemplate.BlockEntitySnapshot snapshot = new StructureTemplate.BlockEntitySnapshot(
+                        Identifier.of(entry.requireString("Type")),
+                        DataTagNbtCodec.fromNbt(entry.requireCompound("Data")));
+                if (blockEntities.putIfAbsent(key, snapshot) != null) {
+                    throw new IOException("Doppelte BlockEntity bei " + pos[0] + ',' + pos[1] + ',' + pos[2]);
+                }
+            }
+        }
         List<StructureTemplate.Cell> cells = new ArrayList<>(blocks.length / 4);
         for (int i = 0; i < blocks.length; i += 4) {
             int paletteIndex = blocks[i + 3];
             if (paletteIndex < 0 || paletteIndex >= palette.length) throw new IOException("Paletteindex ausserhalb: " + paletteIndex);
-            cells.add(new StructureTemplate.Cell(blocks[i], blocks[i + 1], blocks[i + 2], palette[paletteIndex]));
+            int x = blocks[i], y = blocks[i + 1], z = blocks[i + 2];
+            cells.add(new StructureTemplate.Cell(x, y, z, palette[paletteIndex],
+                    blockEntities.remove(cellKey(x, y, z))));
         }
+        if (!blockEntities.isEmpty()) throw new IOException("BlockEntity ohne zugehoerige Blockzelle");
         try {
             return new StructureTemplate(stored, size[0], size[1], size[2],
                     anchor[0], anchor[1], anchor[2], cells);
         } catch (IllegalArgumentException e) {
             throw new IOException("Ungueltiges StructureTemplate: " + e.getMessage(), e);
         }
+    }
+
+    private static long cellKey(int x, int y, int z) {
+        return ((long) y << 16) | ((long) z << 8) | x;
     }
 
     private StructureSerializer() {}

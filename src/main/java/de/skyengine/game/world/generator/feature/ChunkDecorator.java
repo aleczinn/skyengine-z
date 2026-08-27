@@ -100,6 +100,10 @@ public final class ChunkDecorator {
      * deterministischen Vorzustand sieht.
      */
     public void decorate(Chunk target) {
+        this.decorate(target, true);
+    }
+
+    private void decorate(Chunk target, boolean materializeBlockEntities) {
         for (int sx = target.chunkX - 1; sx <= target.chunkX + 1; sx++) {
             for (int sz = target.chunkZ - 1; sz <= target.chunkZ + 1; sz++) {
                 for (int i = 0; i < this.features.size(); i++) {
@@ -108,11 +112,12 @@ public final class ChunkDecorator {
                 }
             }
         }
+        if (materializeBlockEntities) target.materializeStructureBlockEntities();
     }
 
     /** Erzeugt denselben Feature-Pass für kurzlebige LOD-Scratch-Chunks. */
     public void decorateForLod(Chunk target) {
-        this.decorate(target);
+        this.decorate(target, false);
     }
 
     /** Derselbe Feature-Pass wie fuer echte Chunks, aber ohne Voxel-Sections und Vollscan. */

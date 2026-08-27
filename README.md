@@ -88,8 +88,8 @@ einmalig in das native `.structure`-Format umgewandelt und danach weder zur Lauf
 Worldgen benötigt:
 
 ```bash
-.\gradlew.bat schematicConvert --args='convert "C:\schematics\oak.schem" --id=skyengine:trees/oak/oak_1'
-.\gradlew.bat schematicConvert --args='batch "C:\schematics\trees" --namespace=skyengine --prefix=trees'
+.\gradlew.bat schematicConvert --args='convert "C:\schematics\oak.schem" --id=voxel_stories:trees/oak/oak_1'
+.\gradlew.bat schematicConvert --args='batch "C:\schematics\trees" --namespace=voxel_stories --prefix=trees'
 ```
 
 Ohne `--output` landen die Dateien im globalen Katalog unter
@@ -111,7 +111,22 @@ F3 + P  :  Profiler Gui
 /structure save <id>       aktuelle Auswahl als .structure speichern
 /structure list [Seite]    verfügbare Strukturen auflisten
 /structure anchor [...]    Anker anzeigen, setzen oder zurücksetzen
-//wand                     exklusiven Debug-Stick erhalten
+//wand                     exklusive Debug-Axt erhalten
+//pos1                     Position 1 unter den Füßen setzen
+//pos2                     Position 2 unter den Füßen setzen
+//hpos1                    Position 1 auf den angesehenen Block setzen
+//hpos2                    Position 2 auf den angesehenen Block setzen
+//copy [-a|--anchor]       Auswahl mit Spieler- oder gesetztem Anker kopieren
+//cut [-a|--anchor]        Auswahl kopieren und durch Luft ersetzen
+//set <block>              Auswahl mit dem angegebenen Block füllen
+                           z.B. oak_stairs[facing=east,half=top]
+//replace <von> <zu>       passenden Block bzw. BlockState ersetzen
+//replace <zu>             alle Nicht-Luft-Blöcke ersetzen
+//expand <Wert>            Auswahl in Blickrichtung erweitern
+//contract <Wert>          Auswahl in Blickrichtung verkleinern
+//stack <Anzahl>           Auswahl in Blickrichtung wiederholen
+//move <Distanz>           Blöcke in Blickrichtung verschieben
+//regen                    Auswahl aus dem Worldgen rekonstruieren
 //rotate <90|180|270>      geladene Struktur relativ rotieren
 //flip                     anhand der Blickrichtung spiegeln
 //preview [x y z]          transparente Vorschau anzeigen

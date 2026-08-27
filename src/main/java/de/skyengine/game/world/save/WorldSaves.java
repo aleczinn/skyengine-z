@@ -3,6 +3,7 @@ package de.skyengine.game.world.save;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
+import de.skyengine.game.world.block.Identifier;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -21,7 +22,7 @@ public final class WorldSaves {
 
     private static final Logger LOGGER = LogManager.getLogger(WorldSaves.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    /* Liegt im Spiel-Root (%APPDATA%\.skyengine), nicht im Arbeitsverzeichnis. */
+    /* Liegt im konfigurierten Spiel-Root (standardmäßig %APPDATA%\.voxelstories). */
     private static final File ROOT = de.skyengine.core.file.GameDirectory.resolve("saves");
 
     /** Ein Savegame: Ordnername (eindeutig) + geladene Metadaten. */
@@ -66,9 +67,9 @@ public final class WorldSaves {
         level.generatorVersion = AlphaWorldGeneratorV2.VERSION;
         LevelData.DimensionData overworld = new LevelData.DimensionData();
         overworld.seed = seed;
-        overworld.generator = "skyengine:alpha_v2";
+        overworld.generator = Identifier.of("alpha_v2").toString();
         overworld.generatorVersion = 2;
-        level.dimensions.put("skyengine:overworld", overworld);
+        level.dimensions.put(Identifier.of("overworld").toString(), overworld);
         WorldSave save = new WorldSave(dirName, level);
         save(save);
         return save;

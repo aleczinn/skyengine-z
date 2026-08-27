@@ -2588,6 +2588,26 @@ public class GameContainer implements IResizeable, IDisposable {
                 editor().pos2(GameContainer.this.dimension().getDimensionId(), x(), py, z());
                 return I18n.tr("command.worldedit.pos2_success", x(), py, z());
             }
+            private BlockRaycast.Hit targetedBlock() {
+                BlockRaycast.Hit targeted = GameContainer.this.hit;
+                if (targeted == null) throw new IllegalStateException(
+                        I18n.tr("command.worldedit.no_target"));
+                return targeted;
+            }
+            @Override public String hpos1() {
+                BlockRaycast.Hit targeted = targetedBlock();
+                editor().pos1(GameContainer.this.dimension().getDimensionId(),
+                        targeted.x(), targeted.y(), targeted.z());
+                return I18n.tr("command.worldedit.pos1_success",
+                        targeted.x(), targeted.y(), targeted.z());
+            }
+            @Override public String hpos2() {
+                BlockRaycast.Hit targeted = targetedBlock();
+                editor().pos2(GameContainer.this.dimension().getDimensionId(),
+                        targeted.x(), targeted.y(), targeted.z());
+                return I18n.tr("command.worldedit.pos2_success",
+                        targeted.x(), targeted.y(), targeted.z());
+            }
             @Override public void anchor() { anchor(x(), y(), z()); }
             @Override public void anchor(int x, int y, int z) {
                 editor().anchor(GameContainer.this.dimension().getDimensionId(), x, y, z);
@@ -2622,6 +2642,11 @@ public class GameContainer implements IResizeable, IDisposable {
                 return I18n.tr(key, copied.template().sizeX(),
                         copied.template().sizeY(), copied.template().sizeZ(), copied.template().cells().size());
             }
+            @Override public StructurePlacement.Result cut(boolean useAnchor) {
+                return editor().cut(GameContainer.this.dimension(), x(), y(), z(),
+                        useAnchor ? WorldEditSession.CopyOrigin.ANCHOR
+                                : WorldEditSession.CopyOrigin.PLAYER);
+            }
             @Override public String expand(int amount) {
                 Direction direction = lookDirection();
                 var changed = editor().expand(GameContainer.this.dimension().getDimensionId(), direction, amount);
@@ -2636,8 +2661,20 @@ public class GameContainer implements IResizeable, IDisposable {
                 return I18n.tr("command.worldedit.contract_success", amount, directionName(direction),
                         bounds.sizeX(), bounds.sizeY(), bounds.sizeZ());
             }
-            @Override public StructurePlacement.Result setBlock(int state) {
+            @Override public StructurePlacement.Result set(int state) {
                 return editor().setBlock(GameContainer.this.dimension(), state);
+            }
+            @Override public StructurePlacement.Result replace(java.util.function.IntPredicate matcher, int state) {
+                return editor().replace(GameContainer.this.dimension(), matcher, state);
+            }
+            @Override public StructurePlacement.Result stack(int count) {
+                return editor().stack(GameContainer.this.dimension(), lookDirection(), count);
+            }
+            @Override public StructurePlacement.Result move(int distance) {
+                return editor().move(GameContainer.this.dimension(), lookDirection(), distance);
+            }
+            @Override public StructurePlacement.Result regen() {
+                return editor().regenerate(GameContainer.this.dimension());
             }
             @Override public String rotate(int degrees) {
                 return "Structure gedreht: " + editor().rotate(degrees).rotation();

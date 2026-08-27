@@ -79,7 +79,10 @@ public final class WorldEditHistory {
             if (tags[i] == null) continue;
             BlockEntity entity = dimension.getBlockEntity(BlockPos.unpackX(positions[i]),
                     BlockPos.unpackY(positions[i]), BlockPos.unpackZ(positions[i]));
-            if (entity != null) entity.load(tags[i].copy());
+            if (entity != null) {
+                entity.load(tags[i].copy());
+                entity.setChanged();
+            }
         }
     }
 

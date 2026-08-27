@@ -6,10 +6,17 @@ import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.entity.BlockEntity;
+import de.skyengine.game.world.block.entity.BlockEntityType;
+import de.skyengine.game.world.block.entity.DataTag;
+import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.chunk.Chunk;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.function.IntPredicate;
 
 /** Nicht persistierte, UUID-gebundene Sitzung des allgemeinen In-Engine-Welteditors. */
 public final class WorldEditSession {
@@ -147,6 +154,14 @@ public final class WorldEditSession {
     /** Kopiert relativ zur Spielerposition oder zum explizit markierten Structure-Anker. */
     public WorldEditClipboard copy(Dimension dimension, int playerX, int playerY, int playerZ,
                                    CopyOrigin origin) {
+        WorldEditClipboard copied = captureClipboard(dimension, playerX, playerY, playerZ, origin);
+        this.clipboard = copied;
+        this.preview = null;
+        return copied;
+    }
+
+    private WorldEditClipboard captureClipboard(Dimension dimension, int playerX, int playerY,
+                                                int playerZ, CopyOrigin origin) {
         requireSelection(dimension.getDimensionId(), true);
         validateSelectionReady(dimension);
         StructureBounds bounds = selection.bounds();
@@ -160,11 +175,9 @@ public final class WorldEditSession {
         }
         StructureTemplate template = builder.capture(dimension, selection,
                 Identifier.of("skyengine:clipboard"), true, selection.pos1());
-        this.clipboard = new WorldEditClipboard(template, sourceOrigin.x() - bounds.minX(),
+        return new WorldEditClipboard(template, sourceOrigin.x() - bounds.minX(),
                 sourceOrigin.y() - bounds.minY(), sourceOrigin.z() - bounds.minZ(),
                 StructureTransform.IDENTITY);
-        this.preview = null;
-        return this.clipboard;
     }
 
     public StructureTransform rotate(int degrees) {
@@ -215,6 +228,11 @@ public final class WorldEditSession {
 
     /** Fuellt die Selektion als genau eine undo-faehige Batch-Transaktion. */
     public StructurePlacement.Result setBlock(Dimension dimension, int state) {
+        return replace(dimension, ignored -> true, state);
+    }
+
+    /** Ersetzt alle von {@code matcher} akzeptierten Zellen als eine History-Transaktion. */
+    public StructurePlacement.Result replace(Dimension dimension, IntPredicate matcher, int state) {
         requireSelection(dimension.getDimensionId(), true);
         StructureBounds bounds = selection.bounds();
         long volume = bounds.volume();
@@ -230,6 +248,7 @@ public final class WorldEditSession {
                     if (!dimension.isPositionEditable(x, y, z)) throw new IllegalStateException(
                             I18n.tr("command.worldedit.target_not_ready", x, y, z));
                     int existing = dimension.getBlock(x, y, z);
+                    if (!matcher.test(existing)) { skipped++; continue; }
                     if (existing == state) { skipped++; continue; }
                     positions[count] = BlockPos.asLong(x, y, z);
                     before[count] = existing;
@@ -242,6 +261,180 @@ public final class WorldEditSession {
                 Arrays.copyOf(before, count), Arrays.copyOf(after, count), count, skipped);
         return history.apply(dimension, placement, plan);
     }
+
+    /** Kopiert wie //copy und leert danach die Auswahl; Clipboard-Aenderung erst nach Erfolg. */
+    public StructurePlacement.Result cut(Dimension dimension, int playerX, int playerY, int playerZ,
+                                         CopyOrigin origin) {
+        WorldEditClipboard copied = captureClipboard(dimension, playerX, playerY, playerZ, origin);
+        StructurePlacement.Result result = replace(dimension, ignored -> true, Blocks.AIR);
+        if (result.complete()) {
+            this.clipboard = copied;
+            this.preview = null;
+        }
+        return result;
+    }
+
+    /** Wiederholt die Auswahl direkt angrenzend in Blickrichtung; das Original bleibt bestehen. */
+    public StructurePlacement.Result stack(Dimension dimension, Direction direction, int count) {
+        if (count <= 0) throw new IllegalArgumentException(I18n.tr("command.worldedit.positive_value"));
+        SelectionSnapshot source = captureSelection(dimension);
+        StructureBounds bounds = source.bounds();
+        long requested = Math.multiplyExact(bounds.volume(), (long) count);
+        if (requested > WorldEditHistory.MAX_CELLS) throw new IllegalStateException(
+                I18n.tr("command.worldedit.edit_too_large", requested));
+        Map<Long, EditCell> finalCells = new LinkedHashMap<>((int) Math.min(requested * 4L / 3L + 1,
+                WorldEditHistory.MAX_CELLS));
+        int stepX = direction.offsetX() * bounds.sizeX();
+        int stepY = direction.offsetY() * bounds.sizeY();
+        int stepZ = direction.offsetZ() * bounds.sizeZ();
+        for (int copy = 1; copy <= count; copy++) {
+            int dx = Math.multiplyExact(stepX, copy);
+            int dy = Math.multiplyExact(stepY, copy);
+            int dz = Math.multiplyExact(stepZ, copy);
+            for (SourceCell cell : source.cells()) {
+                putTranslated(finalCells, cell, dx, dy, dz);
+            }
+        }
+        return applyFinal(dimension, finalCells);
+    }
+
+    /** Verschiebt einen vorab aufgenommenen Snapshot ueberlappungssicher; Selektion bleibt. */
+    public StructurePlacement.Result move(Dimension dimension, Direction direction, int distance) {
+        if (distance <= 0) throw new IllegalArgumentException(I18n.tr("command.worldedit.positive_value"));
+        SelectionSnapshot source = captureSelection(dimension);
+        long maximum = Math.multiplyExact(source.bounds().volume(), 2L);
+        if (maximum > WorldEditHistory.MAX_CELLS * 2L) throw new IllegalStateException(
+                I18n.tr("command.worldedit.selection_too_large", source.bounds().volume()));
+        Map<Long, EditCell> finalCells = new LinkedHashMap<>();
+        for (SourceCell cell : source.cells()) finalCells.put(cell.position(), new EditCell(Blocks.AIR, null));
+        int dx = Math.multiplyExact(direction.offsetX(), distance);
+        int dy = Math.multiplyExact(direction.offsetY(), distance);
+        int dz = Math.multiplyExact(direction.offsetZ(), distance);
+        for (SourceCell cell : source.cells()) putTranslated(finalCells, cell, dx, dy, dz);
+        if (finalCells.size() > WorldEditHistory.MAX_CELLS) throw new IllegalStateException(
+                I18n.tr("command.worldedit.edit_too_large", finalCells.size()));
+        return applyFinal(dimension, finalCells);
+    }
+
+    /** Rekonstruiert die Auswahl aus Terrain- und Feature-Pass der aktiven Dimension. */
+    public StructurePlacement.Result regenerate(Dimension dimension) {
+        requireSelection(dimension.getDimensionId(), true);
+        validateSelectionReady(dimension);
+        if (!dimension.supportsRegeneration()) throw new IllegalStateException(
+                I18n.tr("command.worldedit.regen_imported"));
+        StructureBounds bounds = selection.bounds();
+        if (bounds.volume() > WorldEditHistory.MAX_CELLS) throw new IllegalStateException(
+                I18n.tr("command.worldedit.selection_too_large", bounds.volume()));
+        Map<Long, EditCell> finalCells = new LinkedHashMap<>((int) Math.min(
+                bounds.volume() * 4L / 3L + 1, WorldEditHistory.MAX_CELLS));
+        int minChunkX = bounds.minX() >> de.skyengine.game.world.chunk.ChunkSection.SHIFT;
+        int maxChunkX = bounds.maxX() >> de.skyengine.game.world.chunk.ChunkSection.SHIFT;
+        int minChunkZ = bounds.minZ() >> de.skyengine.game.world.chunk.ChunkSection.SHIFT;
+        int maxChunkZ = bounds.maxZ() >> de.skyengine.game.world.chunk.ChunkSection.SHIFT;
+        for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+            for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+                Chunk generated = dimension.generateWorldgenSnapshot(chunkX, chunkZ);
+                int fromX = Math.max(bounds.minX(), chunkX << de.skyengine.game.world.chunk.ChunkSection.SHIFT);
+                int toX = Math.min(bounds.maxX(), ((chunkX + 1) << de.skyengine.game.world.chunk.ChunkSection.SHIFT) - 1);
+                int fromZ = Math.max(bounds.minZ(), chunkZ << de.skyengine.game.world.chunk.ChunkSection.SHIFT);
+                int toZ = Math.min(bounds.maxZ(), ((chunkZ + 1) << de.skyengine.game.world.chunk.ChunkSection.SHIFT) - 1);
+                for (int y = bounds.minY(); y <= bounds.maxY(); y++) {
+                    for (int z = fromZ; z <= toZ; z++) {
+                        for (int x = fromX; x <= toX; x++) {
+                            int state = generated.getBlock(x & 31, y, z & 31);
+                            BlockEntity entity = generated.getBlockEntity(x & 31, y, z & 31);
+                            finalCells.put(BlockPos.asLong(x, y, z), new EditCell(state,
+                                    snapshotBlockEntity(entity, x, y, z, state)));
+                        }
+                    }
+                }
+            }
+        }
+        return applyFinal(dimension, finalCells);
+    }
+
+    private SelectionSnapshot captureSelection(Dimension dimension) {
+        requireSelection(dimension.getDimensionId(), true);
+        validateSelectionReady(dimension);
+        StructureBounds bounds = selection.bounds();
+        if (bounds.volume() > WorldEditHistory.MAX_CELLS) throw new IllegalStateException(
+                I18n.tr("command.worldedit.selection_too_large", bounds.volume()));
+        SourceCell[] cells = new SourceCell[(int) bounds.volume()];
+        int index = 0;
+        for (int y = bounds.minY(); y <= bounds.maxY(); y++) {
+            for (int z = bounds.minZ(); z <= bounds.maxZ(); z++) {
+                for (int x = bounds.minX(); x <= bounds.maxX(); x++) {
+                    int state = dimension.getBlock(x, y, z);
+                    cells[index++] = new SourceCell(BlockPos.asLong(x, y, z), state,
+                            snapshotBlockEntity(dimension, x, y, z, state));
+                }
+            }
+        }
+        return new SelectionSnapshot(bounds, cells);
+    }
+
+    private static StructureTemplate.BlockEntitySnapshot snapshotBlockEntity(
+            Dimension dimension, int x, int y, int z, int state) {
+        return snapshotBlockEntity(dimension.getBlockEntity(x, y, z), x, y, z, state);
+    }
+
+    private static StructureTemplate.BlockEntitySnapshot snapshotBlockEntity(
+            BlockEntity entity, int x, int y, int z, int state) {
+        BlockEntityType<?> expected = Blocks.getState(state).getBlock().getBlockEntityType();
+        if (expected != null && !expected.isStructureSerializable()) {
+            throw new IllegalArgumentException("Kurzlebige BlockEntity kann bei "
+                    + x + " " + y + " " + z + " nicht editiert werden");
+        }
+        if (entity == null) return null;
+        Identifier type = Registries.BLOCK_ENTITY.idOf(entity.getType());
+        if (type == null) throw new IllegalArgumentException("BlockEntity ohne Registry-Typ bei "
+                + x + " " + y + " " + z);
+        DataTag data = new DataTag();
+        entity.save(data);
+        return new StructureTemplate.BlockEntitySnapshot(type, data);
+    }
+
+    private static void putTranslated(Map<Long, EditCell> target, SourceCell cell,
+                                      int dx, int dy, int dz) {
+        int x = Math.addExact(BlockPos.unpackX(cell.position()), dx);
+        int y = Math.addExact(BlockPos.unpackY(cell.position()), dy);
+        int z = Math.addExact(BlockPos.unpackZ(cell.position()), dz);
+        if (y < 0 || y >= Chunk.HEIGHT) throw new IllegalArgumentException(
+                I18n.tr("command.worldedit.world_height", Chunk.HEIGHT - 1));
+        target.put(BlockPos.asLong(x, y, z), new EditCell(cell.state(), cell.blockEntity()));
+    }
+
+    private StructurePlacement.Result applyFinal(Dimension dimension, Map<Long, EditCell> finalCells) {
+        long[] positions = new long[finalCells.size()];
+        int[] before = new int[finalCells.size()];
+        int[] after = new int[finalCells.size()];
+        StructureTemplate.BlockEntitySnapshot[] blockEntities =
+                new StructureTemplate.BlockEntitySnapshot[finalCells.size()];
+        int count = 0, skipped = 0;
+        for (Map.Entry<Long, EditCell> entry : finalCells.entrySet()) {
+            long position = entry.getKey();
+            int x = BlockPos.unpackX(position), y = BlockPos.unpackY(position), z = BlockPos.unpackZ(position);
+            if (!dimension.isPositionEditable(x, y, z)) throw new IllegalStateException(
+                    I18n.tr("command.worldedit.target_not_ready", x, y, z));
+            EditCell cell = entry.getValue();
+            int existing = dimension.getBlock(x, y, z);
+            if (existing == cell.state() && cell.blockEntity() == null) { skipped++; continue; }
+            positions[count] = position;
+            before[count] = existing;
+            after[count] = cell.state();
+            blockEntities[count] = cell.blockEntity();
+            count++;
+        }
+        StructurePlacement.Plan plan = new StructurePlacement.Plan(Arrays.copyOf(positions, count),
+                Arrays.copyOf(before, count), Arrays.copyOf(after, count),
+                Arrays.copyOf(blockEntities, count), count, skipped);
+        return history.apply(dimension, placement, plan);
+    }
+
+    private record SourceCell(long position, int state,
+                              StructureTemplate.BlockEntitySnapshot blockEntity) {}
+    private record SelectionSnapshot(StructureBounds bounds, SourceCell[] cells) {}
+    private record EditCell(int state, StructureTemplate.BlockEntitySnapshot blockEntity) {}
 
     public WorldEditHistory.Result undo(Dimension dimension, int amount) {
         return history.undo(dimension, placement, amount);

@@ -45,8 +45,8 @@ final class DimensionCommandTest {
         assertTrue(result.success());
         assertTrue(result.message().contains("Mining Dimension"));
         assertEquals(WorldgenRegistries.MINING, requested.get());
-        assertEquals(List.of("/dimension skyengine:mining"),
-                dispatcher.suggest(context, "/dimension skyengine:mi"));
+        assertEquals(List.of("/dimension voxel_stories:mining"),
+                dispatcher.suggest(context, "/dimension voxel_stories:mi"));
         assertEquals("Mining Portal", I18n.tr("block.skyengine.mining_portal"));
         assertEquals("Mining Dimension", DimensionDefinition.displayName(WorldgenRegistries.MINING));
         assertEquals("Entering Mining Dimension...", I18n.tr("world.loading",

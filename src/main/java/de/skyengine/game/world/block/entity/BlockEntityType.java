@@ -20,10 +20,16 @@ public final class BlockEntityType<T extends BlockEntity> {
 
     private final Factory<T> factory;
     private final boolean ticking;
+    private final boolean structureSerializable;
 
     public BlockEntityType(Factory<T> factory, boolean ticking) {
+        this(factory, ticking, true);
+    }
+
+    public BlockEntityType(Factory<T> factory, boolean ticking, boolean structureSerializable) {
         this.factory = factory;
         this.ticking = ticking;
+        this.structureSerializable = structureSerializable;
     }
 
     public T create(BlockPos pos, BlockState state) {
@@ -32,5 +38,10 @@ public final class BlockEntityType<T extends BlockEntity> {
 
     public boolean isTicking() {
         return ticking;
+    }
+
+    /** Kurzlebige technische BlockEntities (z.B. bewegte Kolben) sind keine Template-Daten. */
+    public boolean isStructureSerializable() {
+        return structureSerializable;
     }
 }

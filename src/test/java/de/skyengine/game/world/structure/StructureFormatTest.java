@@ -4,6 +4,7 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.mcimport.mapping.BlockMapper;
 import de.skyengine.mcimport.nbt.NbtCompound;
+import de.skyengine.mcimport.nbt.NbtList;
 import de.skyengine.mcimport.nbt.NbtTag;
 import de.skyengine.mcimport.nbt.NbtWriter;
 import de.skyengine.test.BlocksTestBootstrap;
@@ -44,6 +45,31 @@ final class StructureFormatTest {
     }
 
     @Test
+    void versionOneNativeFilesRemainReadable(@TempDir Path temp) throws Exception {
+        Path file = temp.resolve("v1.structure");
+        NbtList palette = new NbtList((byte) 8);
+        palette.add(new NbtTag.NbtString("skyengine:stone"));
+        NbtCompound root = new NbtCompound()
+                .put("Id", new NbtTag.NbtString("test:v1"))
+                .put("Size", new NbtTag.NbtIntArray(new int[]{1, 1, 1}))
+                .put("Anchor", new NbtTag.NbtIntArray(new int[]{0, 0, 0}))
+                .put("Palette", palette)
+                .put("Blocks", new NbtTag.NbtIntArray(new int[]{0, 0, 0, 0}));
+        try (DataOutputStream output = new DataOutputStream(Files.newOutputStream(file))) {
+            output.writeInt(StructureSerializer.MAGIC);
+            output.writeShort(1);
+            output.writeByte(1);
+            GZIPOutputStream gzip = new GZIPOutputStream(output);
+            NbtWriter.write(new DataOutputStream(gzip), "VoxelStructure", root);
+            gzip.finish();
+        }
+
+        StructureTemplate restored = StructureSerializer.read(file, Identifier.of("test:v1"));
+        assertEquals(Blocks.STONE, restored.cells().getFirst().state());
+        assertNull(restored.cells().getFirst().blockEntity());
+    }
+
+    @Test
     void schematicAirCanBeIgnoredOrMadeExplicit(@TempDir Path temp) throws Exception {
         Path schematic = temp.resolve("semantic.schem");
         NbtCompound palette = new NbtCompound()
@@ -57,20 +83,29 @@ final class StructureFormatTest {
                 .put("Length", new NbtTag.NbtShort((short) 1))
                 .put("PaletteMax", new NbtTag.NbtInt(3))
                 .put("Palette", palette)
-                .put("BlockData", new NbtTag.NbtByteArray(new byte[]{0, 1, 2}));
+                .put("BlockData", new NbtTag.NbtByteArray(new byte[]{0, 1, 2}))
+                .put("BlockEntities", blockEntities(1));
         try (OutputStream file = Files.newOutputStream(schematic);
              GZIPOutputStream gzip = new GZIPOutputStream(file);
              DataOutputStream output = new DataOutputStream(gzip)) {
             NbtWriter.write(output, "Schematic", root);
         }
         SchematicImporter importer = SchematicImporter.createDefault();
-        var natural = importer.importFile(schematic, Identifier.of("test:natural"),
-                SchematicImporter.Options.NATURAL_FEATURE).template();
+        var naturalResult = importer.importFile(schematic, Identifier.of("test:natural"),
+                SchematicImporter.Options.NATURAL_FEATURE);
+        var natural = naturalResult.template();
         assertEquals(1, natural.cells().size());
+        assertTrue(naturalResult.warnings().stream().anyMatch(warning -> warning.contains("BlockEntities")));
         var building = importer.importFile(schematic, Identifier.of("test:building"),
                 new SchematicImporter.Options(true, SchematicImporter.UnknownBlocks.ERROR)).template();
         assertEquals(2, building.cells().size());
         assertTrue(building.hasExplicitAir());
+    }
+
+    private static NbtList blockEntities(int count) {
+        NbtList list = new NbtList((byte) 10);
+        for (int i = 0; i < count; i++) list.add(new NbtCompound());
+        return list;
     }
 
     @Test
@@ -93,9 +128,9 @@ final class StructureFormatTest {
                 schematic, Identifier.of("test:legacy"), SchematicImporter.Options.NATURAL_FEATURE);
         assertEquals(2, result.template().cells().size());
         assertEquals(1, result.template().anchorX());
-        assertEquals("skyengine:oak_log", Blocks.getState(result.template().cells().get(0).state())
+        assertEquals("voxel_stories:oak_log", Blocks.getState(result.template().cells().get(0).state())
                 .getBlock().getIdentifier().toString());
-        assertEquals("skyengine:oak_leaves", Blocks.getState(result.template().cells().get(1).state())
+        assertEquals("voxel_stories:oak_leaves", Blocks.getState(result.template().cells().get(1).state())
                 .getBlock().getIdentifier().toString());
     }
 

@@ -28,7 +28,7 @@ final class CommandDispatcherTest {
         CommandResult result = dispatcher.execute(new CommandContext(inventory), "/give stone");
 
         assertTrue(result.success());
-        assertEquals("skyengine:stone", inventory.get(0).getItem().getId().toString());
+        assertEquals("voxel_stories:stone", inventory.get(0).getItem().getId().toString());
         assertEquals(1, inventory.get(0).getCount());
     }
 
@@ -53,12 +53,12 @@ final class CommandDispatcherTest {
         CommandContext context = new CommandContext(new SimpleItemStorage(1));
 
         assertEquals(List.of("/give"), dispatcher.suggest(context, "/g"));
-        assertTrue(dispatcher.suggest(context, "/give skyengine:sto")
-                .contains("/give skyengine:stone"));
+        assertTrue(dispatcher.suggest(context, "/give voxel_stories:sto")
+                .contains("/give voxel_stories:stone"));
         assertTrue(dispatcher.suggest(context, "/give sto")
-                .contains("/give skyengine:stone"));
+                .contains("/give voxel_stories:stone"));
         assertTrue(dispatcher.suggest(context, "/give ends")
-                .contains("/give skyengine:end_stone"));
+                .contains("/give voxel_stories:end_stone"));
         assertEquals(" <item> [amount]", dispatcher.hint("/give"));
         assertEquals(" [amount]", dispatcher.hint("/give stone"));
     }

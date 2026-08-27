@@ -12,7 +12,7 @@ import de.skyengine.game.world.structure.WorldEditService;
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
 
-/** Laufzeit eines geoeffneten Savegames; besitzt Dimensionen und weltweite Dienste. */
+/** Laufzeit eines geöffneten Savegames; besitzt Dimensionen und weltweite Dienste. */
 public final class World implements IDisposable {
 
     private final WorldSaves.WorldSave save;
@@ -33,12 +33,10 @@ public final class World implements IDisposable {
         this.root = root;
         this.workers = new WorldWorkerPool();
         this.portalLinks = new PortalLinks(this.root);
-        this.players = new PlayerManager(save, this.root,
-                () -> WorldSaves.saveInDirectory(save, this.root));
+        this.players = new PlayerManager(save, this.root, () -> WorldSaves.saveInDirectory(save, this.root));
         this.structures = new StructureTemplateManager();
         this.worldEdit = new WorldEditService(this.structures);
-        this.dimensions = new DimensionManager(save.dirName(), save.level(), this.root,
-                this.workers, this.portalLinks, soundManager, structureSnapshot());
+        this.dimensions = new DimensionManager(save.dirName(), save.level(), this.root, this.workers, this.portalLinks, soundManager, structureSnapshot());
     }
 
     private StructureTemplateManager.Snapshot structureSnapshot() {

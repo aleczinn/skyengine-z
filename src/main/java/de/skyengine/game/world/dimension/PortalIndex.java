@@ -163,20 +163,30 @@ public final class PortalIndex {
         try {
             Data data = GSON.fromJson(Files.readString(this.file.toPath()), Data.class);
             if (data == null || data.portals == null) return;
+            boolean migrated = false;
             if (data.version == 1) {
                 for (Entry old : data.portals) {
-                    this.entries.add(new Entry(UUID.randomUUID().toString(), old.type, old.x, old.y,
+                    this.entries.add(new Entry(UUID.randomUUID().toString(), canonicalType(old.type), old.x, old.y,
                             old.z, old.axis, old.width, old.height, true));
                 }
-                this.save();
+                migrated = true;
             } else if (data.version == 2) {
                 for (Entry entry : data.portals) {
-                    if (entry.id != null && !entry.id.isBlank()) this.entries.add(entry);
+                    if (entry.id == null || entry.id.isBlank()) continue;
+                    String type = canonicalType(entry.type);
+                    this.entries.add(type.equals(entry.type) ? entry : new Entry(entry.id, type,
+                            entry.x, entry.y, entry.z, entry.axis, entry.width, entry.height, entry.active));
+                    migrated |= !type.equals(entry.type);
                 }
             }
+            if (migrated) this.save();
         } catch (Exception e) {
             LOGGER.warning("Portalindex konnte nicht geladen werden: " + this.file + " (" + e.getMessage() + ")");
         }
+    }
+
+    private static String canonicalType(String type) {
+        return Identifier.of(type).toString();
     }
 
     private void save() {

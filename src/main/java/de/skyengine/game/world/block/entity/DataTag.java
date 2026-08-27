@@ -55,4 +55,10 @@ public final class DataTag {
         }
         return copy;
     }
+
+    @Override public boolean equals(Object other) {
+        return other instanceof DataTag tag && this.values.equals(tag.values);
+    }
+
+    @Override public int hashCode() { return this.values.hashCode(); }
 }
