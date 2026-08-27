@@ -1,1 +1,13 @@
-{ "type":"processing", "recipe_type":"furnace", "inputs":[{"item":"sand"}], "result":{"id":"glass"}, "duration":200 }
+{
+  "type": "processing",
+  "recipe_type": "furnace",
+  "inputs": [
+    {
+      "item": "sand"
+    }
+  ],
+  "result": {
+    "id": "glass"
+  },
+  "duration": 200
+}

@@ -1,5 +1,17 @@
-{ "replace": false, "values": [
-  "wooden_pickaxe", "wooden_axe", "wooden_shovel", "wooden_sword",
-  "oak_door", "birch_door", "spruce_door", "dark_oak_door",
-  "acacia_door", "jungle_door", "mangrove_door", "pale_oak_door"
-] }
+{
+  "replace": false,
+  "values": [
+    "wooden_pickaxe",
+    "wooden_axe",
+    "wooden_shovel",
+    "wooden_sword",
+    "oak_door",
+    "birch_door",
+    "spruce_door",
+    "dark_oak_door",
+    "acacia_door",
+    "jungle_door",
+    "mangrove_door",
+    "pale_oak_door"
+  ]
+}

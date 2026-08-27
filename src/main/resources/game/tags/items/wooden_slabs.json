@@ -1,4 +1,13 @@
-{ "replace": false, "values": [
-  "oak_slab", "birch_slab", "spruce_slab", "dark_oak_slab",
-  "acacia_slab", "jungle_slab", "mangrove_slab", "pale_oak_slab"
-] }
+{
+  "replace": false,
+  "values": [
+    "oak_slab",
+    "birch_slab",
+    "spruce_slab",
+    "dark_oak_slab",
+    "acacia_slab",
+    "jungle_slab",
+    "mangrove_slab",
+    "pale_oak_slab"
+  ]
+}

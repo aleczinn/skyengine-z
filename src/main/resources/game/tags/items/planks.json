@@ -1,5 +1,13 @@
-{ "replace": false, "values": [
-  "oak_planks", "birch_planks", "spruce_planks",
-  "dark_oak_planks", "acacia_planks", "jungle_planks",
-  "mangrove_planks", "pale_oak_planks"
-] }
+{
+  "replace": false,
+  "values": [
+    "oak_planks",
+    "birch_planks",
+    "spruce_planks",
+    "dark_oak_planks",
+    "acacia_planks",
+    "jungle_planks",
+    "mangrove_planks",
+    "pale_oak_planks"
+  ]
+}

@@ -1,1 +1,13 @@
-{ "type":"processing", "recipe_type":"furnace", "inputs":[{"item":"raw_copper"}], "result":{"id":"copper_ingot"}, "duration":200 }
+{
+  "type": "processing",
+  "recipe_type": "furnace",
+  "inputs": [
+    {
+      "item": "raw_copper"
+    }
+  ],
+  "result": {
+    "id": "copper_ingot"
+  },
+  "duration": 200
+}
