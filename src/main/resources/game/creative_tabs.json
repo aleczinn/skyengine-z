@@ -73,7 +73,7 @@
       "id": "functional",
       "icon": "skyengine:torch",
       "items": [
-        "crafting_table", "chest", "enchanting_table", "item_frame",
+        "crafting_table", "furnace", "chest", "enchanting_table", "item_frame",
         "{wood}_door", "iron_door",
         "{wood}_trapdoor", "iron_trapdoor",
         { "for": "color", "items": ["{color}_bed"] },

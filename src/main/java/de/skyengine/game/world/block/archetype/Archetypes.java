@@ -42,6 +42,7 @@ public final class Archetypes {
         register("moving_piston", new MovingPistonArchetype());
         register("observer", new ObserverArchetype());
         register("hopper", new HopperArchetype());
+        register("furnace", new FurnaceArchetype());
         register("comparator", new ComparatorArchetype());
         register("dispenser", new DispenserArchetype(false));
         register("dropper", new DispenserArchetype(true));

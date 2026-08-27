@@ -1,0 +1,5 @@
+{ "replace": false, "values": [
+  "skyengine:oak_log", "skyengine:birch_log", "skyengine:spruce_log",
+  "skyengine:dark_oak_log", "skyengine:acacia_log", "skyengine:jungle_log",
+  "skyengine:mangrove_log", "skyengine:pale_oak_log"
+] }

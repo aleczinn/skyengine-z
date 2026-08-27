@@ -1,0 +1,5 @@
+{ "replace": false, "values": [
+  "skyengine:oak_planks", "skyengine:birch_planks", "skyengine:spruce_planks",
+  "skyengine:dark_oak_planks", "skyengine:acacia_planks", "skyengine:jungle_planks",
+  "skyengine:mangrove_planks", "skyengine:pale_oak_planks"
+] }

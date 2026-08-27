@@ -15,6 +15,11 @@ public final class GuiTextures {
     public Texture hopperBackground;
     public Texture dispenserBackground;
     public Texture inventoryBackground;
+    public Texture craftingBackground;
+    public Texture furnaceBackground;
+    public Texture furnaceBurnProgress;
+    public Texture furnaceLitProgress;
+    public Texture slotFrame;
     public Texture hotbar;
     public Texture hotbarSelection;
     public Texture crosshair;
@@ -80,6 +85,11 @@ public final class GuiTextures {
         this.hopperBackground = load("game/textures/gui/container/hopper.png");
         this.dispenserBackground = load("game/textures/gui/container/dispenser.png");
         this.inventoryBackground = load("game/textures/gui/container/inventory.png");
+        this.craftingBackground = load("game/textures/gui/container/crafting_table.png");
+        this.furnaceBackground = load("game/textures/gui/container/furnace.png");
+        this.furnaceBurnProgress = load("game/textures/gui/sprites/container/furnace/burn_progress.png");
+        this.furnaceLitProgress = load("game/textures/gui/sprites/container/furnace/lit_progress.png");
+        this.slotFrame = load("game/textures/gui/sprites/widget/slot_frame.png");
         this.hotbar = load("game/textures/gui/sprites/hud/hotbar.png");
         this.hotbarSelection = load("game/textures/gui/sprites/hud/hotbar_selection.png");
         this.crosshair = load("game/textures/gui/sprites/hud/crosshair.png");
@@ -157,6 +167,11 @@ public final class GuiTextures {
         if (this.hopperBackground != null) this.hopperBackground.dispose();
         if (this.dispenserBackground != null) this.dispenserBackground.dispose();
         if (this.inventoryBackground != null) this.inventoryBackground.dispose();
+        if (this.craftingBackground != null) this.craftingBackground.dispose();
+        if (this.furnaceBackground != null) this.furnaceBackground.dispose();
+        if (this.furnaceBurnProgress != null) this.furnaceBurnProgress.dispose();
+        if (this.furnaceLitProgress != null) this.furnaceLitProgress.dispose();
+        if (this.slotFrame != null) this.slotFrame.dispose();
         if (this.hotbar != null) this.hotbar.dispose();
         if (this.hotbarSelection != null) this.hotbarSelection.dispose();
         if (this.crosshair != null) this.crosshair.dispose();

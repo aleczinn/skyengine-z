@@ -35,6 +35,9 @@ public class ItemDefinition {
     /** Internes Debug-Item: nicht in Creative-Inventar, Suche oder /give sichtbar. */
     public boolean command_only;
 
+    /** Optionales Rest-Item nach Verbrauch als Crafting-/Maschinenzutat. */
+    public String crafting_remainder;
+
     /** nutrition/saturation wie in {@link de.skyengine.game.world.item.FoodItem}. */
     public static final class FoodDef {
         public int nutrition;

@@ -1,0 +1,1 @@
+{ "type": "skyengine:crafting_shapeless", "ingredients": [{"item":"skyengine:oak_log"}], "result": {"id":"skyengine:oak_planks","count":4} }

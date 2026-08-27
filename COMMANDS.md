@@ -24,8 +24,10 @@
     //replace <block>                       | Ersetzt alle nicht Luft-Blöcke mit dem genannten Block
     //replace <from> <to>                   | Ersetzt alle Blöcke bei from mit den Blöcken bei to
     
-//copy
+//copy                                      | Kopiert alle Blöcke und Entitäten in der ausgewählten Selektion in ein Clipboard
 //paste
+    //paste -a
+    //paste -s
 //undo
 //redo
 //cut

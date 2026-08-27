@@ -40,7 +40,7 @@ public final class GuiManager {
        reduziert (wie MCs Auto-GUI-Scale), damit Menüs/Hotbar IMMER komplett passen.
        MIN_VH deckt das höchste Fenster ab — die Doppeltruhe ist mit 222 px das größte;
        240 ist derselbe Wert, den auch Minecraft garantiert. */
-    private static final float MIN_VW = 340, MIN_VH = 240;
+    private static final float MIN_VW = 400, MIN_VH = 240;
 
     private GuiScreen screen;
     /** Gewünschter Faktor aus den Settings; 0 = automatisch. Obergrenze für {@link #effectiveScale}. */

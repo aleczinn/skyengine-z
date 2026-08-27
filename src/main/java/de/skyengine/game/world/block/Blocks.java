@@ -146,6 +146,7 @@ public final class Blocks {
             }
         }
         de.skyengine.game.world.item.Items.bootstrap();
+        de.skyengine.game.world.recipe.RecipeManager.bootstrap();
         LootTables.bootstrap();
 
         /* Abbau-Riss-Texturen in den Block-Atlas aufnehmen (vor dem TextureArray-Bau in

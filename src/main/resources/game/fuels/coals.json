@@ -1,0 +1,5 @@
+{
+  "fuel_type": "skyengine:solid_fuel",
+  "ingredient": { "tag": "skyengine:coals" },
+  "burn_time": 1600
+}

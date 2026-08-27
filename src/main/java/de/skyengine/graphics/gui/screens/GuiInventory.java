@@ -2,6 +2,9 @@ package de.skyengine.graphics.gui.screens;
 
 import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.recipe.CraftingMenu;
+import de.skyengine.game.world.recipe.RecipeManager;
+import de.skyengine.core.SkyEngine;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.Slot;
 import de.skyengine.graphics.gui.SlotGroup;
@@ -27,6 +30,7 @@ public final class GuiInventory extends GuiContainer {
     private final HeldItemMeshes heldItemMeshes;
     private final Supplier<ItemStack> heldItem;   // ausgewählter Hotbar-Slot (fürs Modell in der Hand)
     private float guiX, guiY;
+    private final CraftingMenu crafting;
 
     public GuiInventory(ItemStorage playerInv, PlayerRenderer playerRenderer,
                         HeldItemMeshes heldItemMeshes, Supplier<ItemStack> heldItem) {
@@ -35,6 +39,8 @@ public final class GuiInventory extends GuiContainer {
         this.playerRenderer = playerRenderer;
         this.heldItemMeshes = heldItemMeshes;
         this.heldItem = heldItem;
+        this.crafting = new CraftingMenu(2, 2, RecipeManager.CRAFTING, playerInv,
+                stack -> SkyEngine.get().getGame().dropFromGui(stack));
     }
 
     @Override
@@ -44,6 +50,12 @@ public final class GuiInventory extends GuiContainer {
         int gx = Math.round(this.guiX), gy = Math.round(this.guiY);
 
         this.slots.clear();
+        for (int r = 0; r < 2; r++) for (int c = 0; c < 2; c++) {
+            this.slots.add(new Slot(this.crafting.input(), r * 2 + c,
+                    gx + 98 + c * STEP, gy + 18 + r * STEP, SlotGroup.CRAFT_INPUT));
+        }
+        this.slots.add(new Slot(this.crafting.output(), 0, gx + 154, gy + 28,
+                SlotGroup.CRAFT_RESULT, stack -> false));
         /* Hauptinventar (Indizes 9..35). */
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < COLS; c++)
@@ -52,6 +64,23 @@ public final class GuiInventory extends GuiContainer {
         /* Hotbar (Indizes 0..8). */
         for (int c = 0; c < COLS; c++)
             this.slots.add(new Slot(this.playerInv, c, gx + 8 + c * STEP, gy + 142, SlotGroup.HOTBAR));
+    }
+
+    @Override
+    protected int quickMove(Slot from, int amount) {
+        if (from.group == SlotGroup.CRAFT_RESULT) return this.crafting.craftAll();
+        return super.quickMove(from, amount);
+    }
+
+    @Override
+    protected java.util.List<Slot> quickMoveTargets(SlotGroup from) {
+        if (from == SlotGroup.CRAFT_INPUT) {
+            java.util.List<Slot> targets = new java.util.ArrayList<>(this.slotsOf(SlotGroup.HOTBAR));
+            targets.addAll(this.slotsOf(SlotGroup.INVENTORY));
+            return targets;
+        }
+        if (from == SlotGroup.CRAFT_RESULT) return java.util.List.of();
+        return this.slotsOf(from == SlotGroup.HOTBAR ? SlotGroup.INVENTORY : SlotGroup.HOTBAR);
     }
 
     @Override
@@ -77,5 +106,11 @@ public final class GuiInventory extends GuiContainer {
 
         this.drawSlotIcons(gui, mouseX, mouseY);
         this.drawTooltip(gui, mouseX, mouseY);
+    }
+
+    @Override
+    public void onClose() {
+        this.crafting.close();
+        super.onClose();
     }
 }

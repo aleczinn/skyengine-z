@@ -1,0 +1,1 @@
+{ "type":"skyengine:processing", "recipe_type":"skyengine:furnace", "inputs":[{"item":"skyengine:clay_ball"}], "result":{"id":"skyengine:brick"}, "duration":200 }

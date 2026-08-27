@@ -10,6 +10,16 @@ public enum SlotGroup {
 
     /** Der Block-Container des Screens (Truhe, später Ofen o.ä.). */
     CONTAINER,
+    /** Eingaberaster eines Crafting-Menues. */
+    CRAFT_INPUT,
+    /** Virtueller Ergebnis-Slot eines Crafting-Menues. */
+    CRAFT_RESULT,
+    /** Materialeingabe einer Maschine. */
+    MACHINE_INPUT,
+    /** Brennstoffslot einer Maschine. */
+    MACHINE_FUEL,
+    /** Nicht befuellbare Maschinenausgabe. */
+    MACHINE_OUTPUT,
     /** Spieler-Hauptinventar (Storage-Indizes 9..35). */
     INVENTORY,
     /** Spieler-Hotbar (Storage-Indizes 0..8). */

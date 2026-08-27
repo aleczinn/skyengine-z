@@ -1,0 +1,1 @@
+{ "type": "skyengine:crafting_shapeless", "ingredients": [{"item":"skyengine:birch_log"}], "result": {"id":"skyengine:birch_planks","count":4} }

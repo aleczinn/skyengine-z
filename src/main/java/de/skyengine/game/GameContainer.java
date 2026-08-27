@@ -79,6 +79,8 @@ import de.skyengine.graphics.gui.screens.GuiChat;
 import de.skyengine.graphics.gui.screens.GuiDispenser;
 import de.skyengine.graphics.gui.screens.GuiCreativeInventory;
 import de.skyengine.graphics.gui.screens.GuiInventory;
+import de.skyengine.graphics.gui.screens.GuiCraftingStation;
+import de.skyengine.graphics.gui.screens.GuiFurnace;
 import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.SaveToast;
@@ -2089,6 +2091,8 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!placingWhileSneaking && this.tryOpenChest()) return true;
         if (!placingWhileSneaking && this.tryOpenHopper()) return true;
         if (!placingWhileSneaking && this.tryOpenDispenser()) return true;
+        if (!placingWhileSneaking && this.tryOpenFurnace()) return true;
+        if (!placingWhileSneaking && this.tryOpenCraftingStation()) return true;
 
         if (held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket)) return true;
 
@@ -2280,6 +2284,24 @@ public class GameContainer implements IResizeable, IDisposable {
         BlockEntity blockEntity = this.dimension().getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
         if (!(blockEntity instanceof DispenserBlockEntity dispenser)) return false;
         this.guiManager.open(new GuiDispenser(dispenser, this.player().getInventory()));
+        return true;
+    }
+
+    /** Oeffnet jedes ueber crafting_grid deklarierte, temporaere Crafting-Raster. */
+    private boolean tryOpenCraftingStation() {
+        BlockState state = Blocks.getState(this.dimension().getBlock(this.hit.x(), this.hit.y(), this.hit.z()));
+        Block block = state.getBlock();
+        if (block.getCraftingWidth() <= 0 || block.getCraftingHeight() <= 0
+                || block.getCraftingRecipeType() == null) return false;
+        this.guiManager.open(new GuiCraftingStation(block.getCraftingWidth(), block.getCraftingHeight(),
+                block.getCraftingRecipeType(), this.player().getInventory()));
+        return true;
+    }
+
+    private boolean tryOpenFurnace() {
+        BlockEntity entity = this.dimension().getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
+        if (!(entity instanceof de.skyengine.game.world.block.entity.FurnaceBlockEntity furnace)) return false;
+        this.guiManager.open(new GuiFurnace(furnace, this.player().getInventory()));
         return true;
     }
 

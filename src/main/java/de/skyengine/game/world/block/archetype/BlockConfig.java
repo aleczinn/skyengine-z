@@ -61,6 +61,9 @@ public final class BlockConfig {
     private final int lightOpacity;
     private final int lightLevel;
     private final int lightColor;
+    private final int craftingWidth;
+    private final int craftingHeight;
+    private final de.skyengine.game.world.block.Identifier craftingRecipeType;
 
     private BlockConfig(Builder b) {
         this.properties = List.copyOf(b.properties);
@@ -101,6 +104,9 @@ public final class BlockConfig {
         this.lightOpacity = b.lightOpacity;
         this.lightLevel = b.lightLevel;
         this.lightColor = b.lightColor;
+        this.craftingWidth = b.craftingWidth;
+        this.craftingHeight = b.craftingHeight;
+        this.craftingRecipeType = b.craftingRecipeType;
     }
 
     public List<Property<?>> properties() {
@@ -321,6 +327,10 @@ public final class BlockConfig {
         return lightColor;
     }
 
+    public int craftingWidth() { return this.craftingWidth; }
+    public int craftingHeight() { return this.craftingHeight; }
+    public de.skyengine.game.world.block.Identifier craftingRecipeType() { return this.craftingRecipeType; }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -365,6 +375,9 @@ public final class BlockConfig {
         private int lightOpacity = -1;
         private int lightLevel = 0;
         private int lightColor = 0xFFFFFF;
+        private int craftingWidth;
+        private int craftingHeight;
+        private de.skyengine.game.world.block.Identifier craftingRecipeType;
 
         public Builder property(Property<?> p) {
             this.properties.add(p);
@@ -555,6 +568,14 @@ public final class BlockConfig {
 
         public Builder lightColor(int rgb) {
             this.lightColor = rgb;
+            return this;
+        }
+
+        public Builder craftingGrid(int width, int height,
+                                    de.skyengine.game.world.block.Identifier recipeType) {
+            this.craftingWidth = width;
+            this.craftingHeight = height;
+            this.craftingRecipeType = recipeType;
             return this;
         }
 

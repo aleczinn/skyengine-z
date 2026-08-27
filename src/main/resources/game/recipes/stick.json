@@ -1,0 +1,6 @@
+{
+  "type": "skyengine:crafting_shaped",
+  "pattern": ["P", "P"],
+  "key": { "P": { "tag": "skyengine:planks" } },
+  "result": { "id": "skyengine:stick", "count": 4 }
+}

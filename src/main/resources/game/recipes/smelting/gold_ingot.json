@@ -1,0 +1,1 @@
+{ "type":"skyengine:processing", "recipe_type":"skyengine:furnace", "inputs":[{"item":"skyengine:raw_gold"}], "result":{"id":"skyengine:gold_ingot"}, "duration":200 }

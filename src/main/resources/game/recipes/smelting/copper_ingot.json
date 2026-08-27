@@ -1,0 +1,1 @@
+{ "type":"skyengine:processing", "recipe_type":"skyengine:furnace", "inputs":[{"item":"skyengine:raw_copper"}], "result":{"id":"skyengine:copper_ingot"}, "duration":200 }

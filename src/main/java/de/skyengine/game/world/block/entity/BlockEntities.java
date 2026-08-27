@@ -18,6 +18,7 @@ public final class BlockEntities {
     public static BlockEntityType<ComparatorBlockEntity> COMPARATOR;
     public static BlockEntityType<DispenserBlockEntity> DISPENSER;
     public static BlockEntityType<DispenserBlockEntity> DROPPER;
+    public static BlockEntityType<FurnaceBlockEntity> FURNACE;
 
     private static boolean registered;
 
@@ -48,6 +49,9 @@ public final class BlockEntities {
 
         DROPPER = Registries.BLOCK_ENTITY.register(Identifier.of("dropper"),
                 new BlockEntityType<>((type, pos, state) -> new DispenserBlockEntity(type, pos), false));
+
+        FURNACE = Registries.BLOCK_ENTITY.register(Identifier.of("furnace"),
+                new BlockEntityType<>((type, pos, state) -> new FurnaceBlockEntity(type, pos), true));
     }
 
     private BlockEntities() {}

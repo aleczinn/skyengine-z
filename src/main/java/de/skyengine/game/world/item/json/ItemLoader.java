@@ -89,6 +89,9 @@ public final class ItemLoader {
 
         Item item = ItemArchetypes.create(id, def);
         Registries.ITEM.register(id, item);
+        if (def.crafting_remainder != null && !def.crafting_remainder.isBlank()) {
+            Items.registerCraftingRemainder(id, Identifier.of(def.crafting_remainder));
+        }
         if (def.command_only) Items.registerCommandOnly(id);
         if (placedBlock != null) Items.registerPlacer(placedBlock.getIdentifier(), item);
         if (!def.command_only) CreativeTabs.assign(id, CreativeTabs.parse(def.creative_tab));

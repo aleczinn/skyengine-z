@@ -183,6 +183,10 @@ public class BlockDefinition {
     /* Optionaler BlockEntityType-Identifier (z.B. "skyengine:furnace") für „lebende" Blöcke. */
     public String block_entity;
 
+    /* Optionales temporaeres Crafting-Raster; beide Werte muessen gemeinsam 1..9 sein. */
+    public int[] crafting_grid;
+    public String crafting_recipe_type;
+
     /* Selbst deklarierte Properties (Name -> Werte + Default). Kommen NACH den Properties des
        Archetyps in die Liste, damit bestehende Blöcke ihre State-Reihenfolge behalten.
        Achtung: jede Property multipliziert die State-Zahl des Blocks. */

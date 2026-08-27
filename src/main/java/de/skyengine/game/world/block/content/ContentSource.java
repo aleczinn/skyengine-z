@@ -20,6 +20,15 @@ public interface ContentSource {
     /** Ordner der Item-Definitionen; darf fehlen (eine Quelle kann nur Blöcke liefern). */
     File items();
 
+    /** Datengetriebene Rezepte dieser Inhaltsquelle; darf fehlen. */
+    default File recipes() { return null; }
+
+    /** Item-Tags dieser Inhaltsquelle; darf fehlen. */
+    default File itemTags() { return null; }
+
+    /** Brennstoffdefinitionen dieser Inhaltsquelle; darf fehlen. */
+    default File fuels() { return null; }
+
     /** Datei mit den Creative-Tab-Definitionen; darf fehlen (dann bringt die Quelle keine Tabs mit). */
     File creativeTabs();
 

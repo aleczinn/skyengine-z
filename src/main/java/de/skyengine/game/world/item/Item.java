@@ -20,6 +20,7 @@ public class Item {
 
     private final Identifier id;
     private final int maxStackSize;
+    private Item craftingRemainder;
 
     public Item(Identifier id) {
         this(id, DEFAULT_MAX_STACK);
@@ -36,6 +37,15 @@ public class Item {
 
     public int getMaxStackSize() {
         return maxStackSize;
+    }
+
+    /** Item, das beim Verbrauch als Zutat zurueckbleibt, etwa der leere Eimer. */
+    public Item getCraftingRemainder() {
+        return this.craftingRemainder;
+    }
+
+    void setCraftingRemainder(Item craftingRemainder) {
+        this.craftingRemainder = craftingRemainder;
     }
 
     /** i18n-Key des Anzeigenamens ({@code item.<namespace>.<pfad>}; BlockItems überschreiben auf {@code block.}). */
