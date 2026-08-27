@@ -47,6 +47,7 @@ public final class LightProbe {
         check(Blocks.getState(TORCH).getLightOpacity() == 0, "Fackel blockt kein Licht");
 
         testHeightmapAndColumn();
+        testDeepSkyShaft();
         testTunnelGradient();
         testSealAndBreak();
         testWaterColumn();
@@ -59,6 +60,7 @@ public final class LightProbe {
         testWalledInEmitter();
         testMesherVertices();
         testBatchEquivalence();
+        testMultiChunkBatchOrder();
 
         System.out.println(errors == 0 ? "LICHT OK" : "LICHT FEHLGESCHLAGEN: " + errors + " Fehler");
         System.exit(errors == 0 ? 0 : 1);
@@ -165,6 +167,26 @@ public final class LightProbe {
         /* Unter dem Dach: kein Direkt-Himmel; seitlich sickert Licht ein (14 an der Kante). */
         check(chunk.light.get(20, 102, 20) < 15, "unter dem Dach kein voller Himmel");
         check(chunk.light.get(20, 102, 20) > 0, "unter dem Dach nicht schwarz (seitliches Einsickern)");
+    }
+
+    /** Tiefer 1x1-Schacht: Direkt-Himmel bleibt 15, nur der waagerechte Abzweig verliert Licht. */
+    private static void testDeepSkyShaft() {
+        System.out.println("== Tiefer Direkt-Schacht ==");
+        Chunk chunk = new Chunk(0, 0);
+        fillLayer(chunk, 0, 300, STONE);
+        for (int y = 10; y <= 300; y++) chunk.setBlock(16, y, 16, AIR);
+        for (int x = 16; x < SIZE; x++) chunk.setBlock(x, 10, 16, AIR);
+
+        light(chunk);
+
+        boolean directFull = true;
+        for (int y = 10; y <= 300; y++) {
+            if (chunk.light.get(16, y, 16) != 15) directFull = false;
+        }
+        check(directFull, "freier 1x1-Schacht bleibt ueber die gesamte Tiefe auf 15");
+        check(chunk.light.get(17, 10, 16) == 14, "seitlich ein Block entfernt: 14");
+        check(chunk.light.get(30, 10, 16) == 1, "seitlich 14 Bloecke entfernt: 1");
+        check(chunk.light.get(31, 10, 16) == 0, "seitlich ab 15 Bloecken: dunkel");
     }
 
     /** Waagerechter Tunnel in einen Berg: Gradient faellt monoton, Reichweite hoechstens 15. */
@@ -543,6 +565,177 @@ public final class LightProbe {
         }
         System.out.println("  Blocklicht im Vertex, max " + blockMax);
         check(blockMax > 0, "die Fackel erreicht den Vertex ueber die Blocklicht-Bits");
+    }
+
+    /**
+     * Grosser Editor-Aushub ueber 3x3 Chunks: vorwaerts und rueckwaerts aktualisierte Batches
+     * muessen exakt dieselben Heightmaps/Lichtwerte wie ein frisches Initial-Lighting liefern.
+     */
+    private static void testMultiChunkBatchOrder() {
+        System.out.println("== Mehrchunk-Batch gegen Neubeleuchtung ==");
+        Chunk[][] forward = buildSolidGrid();
+        Chunk[][] reverse = buildSolidGrid();
+        Chunk[][] fresh = buildSolidGrid();
+        lightGrid(forward);
+        lightGrid(reverse);
+
+        LightBatch[][] forwardBatches = carveGrid(forward);
+        LightBatch[][] reverseBatches = carveGrid(reverse);
+        carveGrid(fresh);
+
+        updateGridBatches(forward, forwardBatches, false);
+        updateGridBatches(reverse, reverseBatches, true);
+        lightGrid(fresh);
+
+        int[] forwardDiff = compareGridLight(forward, fresh);
+        int[] reverseDiff = compareGridLight(reverse, fresh);
+        System.out.println("  vorwaerts: Himmel " + forwardDiff[0] + ", Block " + forwardDiff[1]
+                + ", Heightmap " + forwardDiff[2]);
+        System.out.println("  rueckwaerts: Himmel " + reverseDiff[0] + ", Block " + reverseDiff[1]
+                + ", Heightmap " + reverseDiff[2]);
+        check(forwardDiff[0] == 0 && forwardDiff[1] == 0 && forwardDiff[2] == 0,
+                "Mehrchunk-Batch vorwaerts == frisches Lighting");
+        check(reverseDiff[0] == 0 && reverseDiff[1] == 0 && reverseDiff[2] == 0,
+                "Mehrchunk-Batch rueckwaerts == frisches Lighting");
+    }
+
+    private static Chunk[][] buildSolidGrid() {
+        Chunk[][] grid = new Chunk[3][3];
+        for (int gz = 0; gz < 3; gz++) {
+            for (int gx = 0; gx < 3; gx++) {
+                Chunk chunk = new Chunk(gx - 1, gz - 1);
+                fillLayer(chunk, 0, 40, STONE);
+                grid[gz][gx] = chunk;
+            }
+        }
+        return grid;
+    }
+
+    /**
+     * Hohlraum x/z -16..47, y 10..39 unter einem Steindach; vier Schaechte an Chunk-Kanten
+     * oeffnen das Dach. Alle neun Chunks tragen Edits, das Licht kreuzt mehrere ihrer Raender.
+     */
+    private static LightBatch[][] carveGrid(Chunk[][] grid) {
+        LightBatch[][] batches = new LightBatch[3][3];
+        for (int gz = 0; gz < 3; gz++) {
+            for (int gx = 0; gx < 3; gx++) {
+                Chunk chunk = grid[gz][gx];
+                LightBatch batch = new LightBatch();
+                batches[gz][gx] = batch;
+                int baseX = chunk.chunkX << ChunkSection.SHIFT;
+                int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
+                for (int lz = 0; lz < SIZE; lz++) {
+                    int wz = baseZ + lz;
+                    if (wz < -16 || wz > 47) continue;
+                    for (int lx = 0; lx < SIZE; lx++) {
+                        int wx = baseX + lx;
+                        if (wx < -16 || wx > 47) continue;
+                        for (int y = 10; y <= 39; y++) {
+                            batch.add(lx | (lz << ChunkSection.SHIFT) | (y << 10), STONE);
+                            chunk.setBlock(lx, y, lz, AIR);
+                        }
+                        if (isTestShaft(wx, wz)) {
+                            batch.add(lx | (lz << ChunkSection.SHIFT) | (40 << 10), STONE);
+                            chunk.setBlock(lx, 40, lz, AIR);
+                        }
+                    }
+                }
+            }
+        }
+        return batches;
+    }
+
+    private static boolean isTestShaft(int x, int z) {
+        return (x == -1 || x == 31) && (z == -1 || z == 31);
+    }
+
+    private static void updateGridBatches(Chunk[][] grid, LightBatch[][] batches, boolean reverse) {
+        LightEngine engine = new LightEngine();
+        for (int step = 0; step < 9; step++) {
+            int index = reverse ? 8 - step : step;
+            int gx = index % 3, gz = index / 3;
+            Chunk center = grid[gz][gx];
+            LightBatch batch = batches[gz][gx];
+            engine.onBlocksChanged(center,
+                    at(grid, gx, gz - 1), at(grid, gx, gz + 1),
+                    at(grid, gx - 1, gz), at(grid, gx + 1, gz),
+                    diagonals(grid, gx, gz), batch.packed, batch.oldIds, batch.count);
+        }
+        stabilizeGrid(engine, grid, reverse);
+    }
+
+    private static void lightGrid(Chunk[][] grid) {
+        LightEngine engine = new LightEngine();
+        for (int gz = 0; gz < 3; gz++) {
+            for (int gx = 0; gx < 3; gx++) {
+                engine.lightInitial(grid[gz][gx],
+                        at(grid, gx, gz - 1), at(grid, gx, gz + 1),
+                        at(grid, gx - 1, gz), at(grid, gx + 1, gz), diagonals(grid, gx, gz));
+            }
+        }
+        for (Chunk[] row : grid) {
+            for (Chunk chunk : row) chunk.status = ChunkStatus.LIT;
+        }
+        stabilizeGrid(engine, grid, false);
+    }
+
+    private static void stabilizeGrid(LightEngine engine, Chunk[][] grid, boolean reverse) {
+        boolean changed;
+        do {
+            changed = false;
+            for (int step = 0; step < 9; step++) {
+                int index = reverse ? 8 - step : step;
+                int gx = index % 3, gz = index / 3;
+                changed |= engine.exchangeBorders(grid[gz][gx],
+                        at(grid, gx, gz - 1), at(grid, gx, gz + 1),
+                        at(grid, gx - 1, gz), at(grid, gx + 1, gz), diagonals(grid, gx, gz));
+            }
+        } while (changed);
+    }
+
+    private static Chunk at(Chunk[][] grid, int gx, int gz) {
+        return gx >= 0 && gx < 3 && gz >= 0 && gz < 3 ? grid[gz][gx] : null;
+    }
+
+    private static Chunk[] diagonals(Chunk[][] grid, int gx, int gz) {
+        return new Chunk[]{at(grid, gx - 1, gz - 1), at(grid, gx + 1, gz - 1),
+                at(grid, gx - 1, gz + 1), at(grid, gx + 1, gz + 1)};
+    }
+
+    /** Rueckgabe: Abweichungen Himmelslicht, Blocklicht, Heightmap. */
+    private static int[] compareGridLight(Chunk[][] actual, Chunk[][] expected) {
+        int sky = 0, block = 0, height = 0;
+        for (int gz = 0; gz < 3; gz++) {
+            for (int gx = 0; gx < 3; gx++) {
+                Chunk a = actual[gz][gx], e = expected[gz][gx];
+                for (int z = 0; z < SIZE; z++) {
+                    for (int x = 0; x < SIZE; x++) {
+                        if (a.heightmap[idx(x, z)] != e.heightmap[idx(x, z)]) height++;
+                        for (int y = 0; y <= 50; y++) {
+                            if (a.light.get(x, y, z) != e.light.get(x, y, z)) sky++;
+                            if (a.blockLight.get(x, y, z) != e.blockLight.get(x, y, z)) block++;
+                        }
+                    }
+                }
+            }
+        }
+        return new int[]{sky, block, height};
+    }
+
+    private static final class LightBatch {
+        int[] packed = new int[4096];
+        int[] oldIds = new int[4096];
+        int count;
+
+        void add(int position, int oldId) {
+            if (this.count == this.packed.length) {
+                this.packed = java.util.Arrays.copyOf(this.packed, this.count * 2);
+                this.oldIds = java.util.Arrays.copyOf(this.oldIds, this.count * 2);
+            }
+            this.packed[this.count] = position;
+            this.oldIds[this.count] = oldId;
+            this.count++;
+        }
     }
 
     /* ------------------------------------------------------------------ */

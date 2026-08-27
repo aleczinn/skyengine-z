@@ -67,6 +67,10 @@ public final class LightEngine {
     /* Emitter, die eine Unlight-Welle gelöscht hat und die sich selbst wieder speisen. Erst NACH
        der Welle anzuwenden — Begründung in removeLight. */
     private final IntQueue reseed = new IntQueue();
+    /* Nur waehrend exchangeBorders: meldet, ob der Randabgleich noch einen Lichtwert erhoeht
+       hat. Massen-Edits koennen damit ihre betroffenen Raender bis zum Fixpunkt abgleichen,
+       ohne den normalen Initial-/Edit-Pfad mit zusaetzlichen Speicher-Reads zu belasten. */
+    private boolean trackIncreases, increased;
 
     /* ------------------------- Öffentliche Einstiege ------------------------- */
 
@@ -108,17 +112,21 @@ public final class LightEngine {
      * Geänderte Sections werden dirty markiert (Remesh konvergiert sichtbar). Gilt für beide
      * Ebenen — eine Fackel dicht an der Chunkgrenze leuchtet erst dadurch in den Nachbarn hinein.
      */
-    public void exchangeBorders(Chunk center, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals) {
+    /* Rueckgabe: true, wenn der Durchgang mindestens einen Lichtwert erhoeht hat. */
+    public boolean exchangeBorders(Chunk center, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals) {
         this.setContext(center, north, south, west, east, diagonals);
         this.writeCenterOnly = false;
         this.markDirty = true;
+        this.trackIncreases = true;
         try {
             if (this.hasSkylight) this.exchangeLayer(north, south, west, east);
             this.skyLayer = false;
             this.exchangeLayer(north, south, west, east);
             /* applyDirty einmal am Ende: die dirtyMasks sammeln über beide Ebenen. */
             this.applyDirty();
+            return this.increased;
         } finally {
+            this.trackIncreases = false;
             this.clearContext();
         }
     }
@@ -627,6 +635,7 @@ public final class LightEngine {
         this.decrease.clear();
         this.reseed.clear();
         this.skyLayer = true;
+        this.increased = false;
     }
 
     private void clearContext() {
@@ -666,6 +675,9 @@ public final class LightEngine {
     private void setLight(int x, int y, int z, int value) {
         Chunk chunk = this.chunkAt(x, z);
         if (chunk == null) return;
+        /* exchangeBorders ruft setLight nur nach next > alter Wert auf. Deshalb genuegt das
+           Flag ohne einen zweiten Speicher-Read im heissen BFS-Pfad. */
+        if (this.trackIncreases) this.increased = true;
         this.storageOf(chunk).set(x & ChunkSection.MASK, y, z & ChunkSection.MASK, value);
     }
 

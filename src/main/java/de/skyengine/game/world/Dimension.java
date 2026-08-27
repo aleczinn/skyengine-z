@@ -2034,11 +2034,22 @@ public class Dimension implements IInitializable, IDisposable {
             if (east && south) group.borderMasks[7] |= mask;
         }
 
-        int changed = 0;
-        boolean playerChange = this.playerBlockChangeDepth > 0;
+        List<SetBatchGroup> activeGroups = new ArrayList<>(groups.size());
         for (int gi = 0, gn = groups.tableSize(); gi < gn; gi++) {
             SetBatchGroup group = groups.valueAt(gi);
-            if (group == null || group.chunk == null || group.count == 0) continue;
+            if (group != null && group.chunk != null && group.count > 0) activeGroups.add(group);
+        }
+        /* Die Map-Slotreihenfolge ist ein Implementierungsdetail. Eine feste Weltreihenfolge
+           macht Profiling und Regressionstests reproduzierbar; fuer die Lichtkorrektheit darf
+           die Reihenfolge nach der Phasentrennung keine Rolle mehr spielen. */
+        activeGroups.sort(Comparator.comparingInt((SetBatchGroup g) -> g.chunk.chunkZ)
+                .thenComparingInt(g -> g.chunk.chunkX));
+
+        int changed = 0;
+        boolean playerChange = this.playerBlockChangeDepth > 0;
+        /* Phase 1: ALLE Blockdaten schreiben. Licht darf erst danach laufen, damit jeder
+           3x3-Kontext bereits den endgueltigen Zustand seiner Nachbar-Chunks liest. */
+        for (SetBatchGroup group : activeGroups) {
             Chunk chunk = group.chunk;
             chunk.writeLock().lock();
             try {
@@ -2065,22 +2076,17 @@ public class Dimension implements IInitializable, IDisposable {
                 int wx = baseX + (packed & 31), wy = (packed >> 10) & 511, wz = baseZ + ((packed >> 5) & 31);
                 this.manageBlockEntity(wx, wy, wz, group.oldIds[i], group.newIds[i]);
             }
-            PerformanceProfiler profiler = PerformanceProfiler.get();
-            long lightStarted = profiler.begin();
-            int cx = chunk.chunkX, cz = chunk.chunkZ;
-            Chunk north = this.chunkManager.getChunk(cx, cz - 1), south = this.chunkManager.getChunk(cx, cz + 1);
-            Chunk west = this.chunkManager.getChunk(cx - 1, cz), east = this.chunkManager.getChunk(cx + 1, cz);
-            this.lightDiagonals[0] = this.chunkManager.getChunk(cx - 1, cz - 1);
-            this.lightDiagonals[1] = this.chunkManager.getChunk(cx + 1, cz - 1);
-            this.lightDiagonals[2] = this.chunkManager.getChunk(cx - 1, cz + 1);
-            this.lightDiagonals[3] = this.chunkManager.getChunk(cx + 1, cz + 1);
-            this.lightEngine.onBlocksChanged(chunk, north, south, west, east, this.lightDiagonals,
-                    group.packed, group.oldIds, group.count);
-            profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE, 0, lightStarted);
         }
-        for (int gi = 0, gn = groups.tableSize(); gi < gn; gi++) {
-            SetBatchGroup group = groups.valueAt(gi);
-            if (group == null || group.chunk == null) continue;
+
+        /* Phase 2: Heightmaps und beide Lichtebenen gegen den finalen Blockzustand pflegen.
+           Phase 3 gleicht danach die betroffenen Raender bis zum monotonen Fixpunkt ab. */
+        PerformanceProfiler profiler = PerformanceProfiler.get();
+        long lightStarted = profiler.begin();
+        for (SetBatchGroup group : activeGroups) this.updateSetBatchLight(group);
+        this.stabilizeSetBatchBorders(activeGroups);
+        profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE, 0, lightStarted);
+
+        for (SetBatchGroup group : activeGroups) {
             int baseX = group.chunk.chunkX << ChunkSection.SHIFT, baseZ = group.chunk.chunkZ << ChunkSection.SHIFT;
             for (int i = 0; i < group.count; i++) {
                 int packed = group.packed[i];
@@ -2092,6 +2098,49 @@ public class Dimension implements IInitializable, IDisposable {
             }
         }
         return changed;
+    }
+
+    /** Licht-Update einer bereits vollstaendig geschriebenen Structure-/Editor-Chunkgruppe. */
+    private void updateSetBatchLight(SetBatchGroup group) {
+        Chunk chunk = group.chunk;
+        int cx = chunk.chunkX, cz = chunk.chunkZ;
+        Chunk north = this.chunkManager.getChunk(cx, cz - 1);
+        Chunk south = this.chunkManager.getChunk(cx, cz + 1);
+        Chunk west = this.chunkManager.getChunk(cx - 1, cz);
+        Chunk east = this.chunkManager.getChunk(cx + 1, cz);
+        this.fillLightDiagonals(cx, cz);
+        this.lightEngine.onBlocksChanged(chunk, north, south, west, east, this.lightDiagonals,
+                group.packed, group.oldIds, group.count);
+    }
+
+    /**
+     * Rand-Fixpunkt nach einem mehrchunkigen Edit. exchangeBorders erhoeht Werte ausschliesslich;
+     * damit terminiert die Schleife sicher. Der Lichtradius 15 ist kleiner als ein 32er-Chunk,
+     * also bleibt die Ausbreitung im Zentrum plus dessen direktem Ein-Chunk-Halo.
+     */
+    private void stabilizeSetBatchBorders(List<SetBatchGroup> groups) {
+        boolean changed;
+        do {
+            changed = false;
+            for (SetBatchGroup group : groups) {
+                Chunk chunk = group.chunk;
+                int cx = chunk.chunkX, cz = chunk.chunkZ;
+                Chunk north = this.chunkManager.getChunk(cx, cz - 1);
+                Chunk south = this.chunkManager.getChunk(cx, cz + 1);
+                Chunk west = this.chunkManager.getChunk(cx - 1, cz);
+                Chunk east = this.chunkManager.getChunk(cx + 1, cz);
+                this.fillLightDiagonals(cx, cz);
+                changed |= this.lightEngine.exchangeBorders(
+                        chunk, north, south, west, east, this.lightDiagonals);
+            }
+        } while (changed);
+    }
+
+    private void fillLightDiagonals(int cx, int cz) {
+        this.lightDiagonals[0] = this.chunkManager.getChunk(cx - 1, cz - 1);
+        this.lightDiagonals[1] = this.chunkManager.getChunk(cx + 1, cz - 1);
+        this.lightDiagonals[2] = this.chunkManager.getChunk(cx - 1, cz + 1);
+        this.lightDiagonals[3] = this.chunkManager.getChunk(cx + 1, cz + 1);
     }
 
     /**
