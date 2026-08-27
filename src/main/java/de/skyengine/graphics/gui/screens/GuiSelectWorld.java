@@ -253,4 +253,11 @@ public final class GuiSelectWorld extends GuiScreen {
         this.applyScroll();
         return true;
     }
+
+    @Override
+    protected void renderBackground(GuiManager gui) {
+        gui.renderImageBackground();
+        gui.renderOverlay(0.3F);
+        gui.renderVignette();
+    }
 }

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.Collections;
 
 /**
  * NBT-Compound mit typisierten Accessorn in zwei Varianten:
@@ -20,8 +21,13 @@ public final class NbtCompound implements NbtTag {
 
     private final Map<String, NbtTag> values = new LinkedHashMap<>();
 
-    void put(String key, NbtTag tag) {
+    public NbtCompound put(String key, NbtTag tag) {
         this.values.put(key, tag);
+        return this;
+    }
+
+    public Map<String, NbtTag> entries() {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(this.values));
     }
 
     public boolean contains(String key) {

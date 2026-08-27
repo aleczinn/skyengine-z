@@ -52,6 +52,13 @@ tasks.register<JavaExec>("mcImport") {
     mainClass = "de.skyengine.mcimport.McWorldImporter"
 }
 
+tasks.register<JavaExec>("schematicConvert") {
+    group = "application"
+    description = "Konvertiert Sponge-.schem und alte WorldEdit-.schematic in globale .structure-Dateien"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "de.skyengine.game.world.structure.SchematicConvertCli"
+}
+
 /* Fensterlose Prüfstände: bootstrappen die Block-Registry ohne GL und melden über den
    Exit-Code. Damit lassen sich Block-JSON-Änderungen prüfen, ohne das Spiel zu starten. */
 tasks.register<JavaExec>("saveTest") {
@@ -127,8 +134,27 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+val isolatedTestGameDirectory = layout.buildDirectory.dir("test-game-directory")
+val isolatedVerificationTasks = setOf(
+    "saveTest", "lightTest", "meshTest", "lodCensus", "lodQuads", "mapExport"
+)
+
 tasks.test {
     useJUnitPlatform()
+    systemProperty("skyengine.gameDirectory", isolatedTestGameDirectory.get().asFile.absolutePath)
+    doFirst {
+        delete(isolatedTestGameDirectory)
+    }
+}
+
+tasks.withType<JavaExec>().configureEach {
+    if (name in isolatedVerificationTasks) {
+        val isolatedDirectory = layout.buildDirectory.dir("verification-game-directories/$name")
+        systemProperty("skyengine.gameDirectory", isolatedDirectory.get().asFile.absolutePath)
+        doFirst {
+            delete(isolatedDirectory)
+        }
+    }
 }
 
 tasks.named("check") {

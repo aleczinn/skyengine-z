@@ -102,6 +102,20 @@ public final class PlayerManager {
             hasPosition = true;
         } else {
             loadLegacyInventory(player, level);
+            Identifier spawnDimension = Identifier.of(level.spawnDimension == null
+                    ? WorldgenRegistries.OVERWORLD.toString() : level.spawnDimension);
+            if (WorldgenRegistries.DIMENSIONS.get(spawnDimension) != null) dimension = spawnDimension;
+        }
+        DataTag home = tag == null ? null : tag.getTag("home");
+        if (home != null) {
+            Identifier homeDimension = Identifier.of(home.getString("dimension", ""));
+            if (WorldgenRegistries.DIMENSIONS.get(homeDimension) != null) {
+                try {
+                    player.setHome(new PlayerLocation(homeDimension,
+                            home.getDouble("x", 0), home.getDouble("y", 0), home.getDouble("z", 0),
+                            (float) home.getDouble("yaw", 0), (float) home.getDouble("pitch", 0)));
+                } catch (IllegalArgumentException ignored) { }
+            }
         }
         player.setDimensionId(dimension);
         return hasPosition;
@@ -130,7 +144,7 @@ public final class PlayerManager {
         }
     }
 
-    private void save(EntityPlayer player) {
+    public void save(EntityPlayer player) {
         DataTag tag = new DataTag();
         UUID uuid = player.getUuid();
         tag.putLong("uuidMost", uuid.getMostSignificantBits());
@@ -149,6 +163,13 @@ public final class PlayerManager {
         tag.putInt("foodLevel", player.getFoodLevel());
         tag.putDouble("saturation", player.getSaturation());
         tag.putInt("selectedSlot", player.getSelectedSlot());
+        PlayerLocation home = player.getHome();
+        if (home != null) {
+            tag.putTag("home", new DataTag()
+                    .putString("dimension", home.dimension().toString())
+                    .putDouble("x", home.x()).putDouble("y", home.y()).putDouble("z", home.z())
+                    .putDouble("yaw", home.yaw()).putDouble("pitch", home.pitch()));
+        }
         DataTag inventory = new DataTag();
         player.getInventory().save(inventory);
         tag.putTag("inventory", inventory);

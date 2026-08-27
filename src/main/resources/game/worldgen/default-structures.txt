@@ -1,0 +1,7 @@
+# Beim ersten Start konfliktfrei nach bin/structures installierte Vorlagen.
+trees/spruce/big_spruce_3.structure
+trees/spruce/large_spruce_tree_1.structure
+trees/spruce/large_spruce_tree_2.structure
+trees/spruce/spruce_tree_big_01.structure
+trees/spruce/spruce_tree_big_02.structure
+trees/spruce/spruce_tree_mid_wide_01.structure

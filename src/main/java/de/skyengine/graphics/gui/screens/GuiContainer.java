@@ -8,6 +8,7 @@ import de.skyengine.game.Gamemode;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.block.entity.ItemStorage;
 import de.skyengine.game.world.item.ItemStack;
+import de.skyengine.game.world.item.Items;
 import de.skyengine.game.world.item.TooltipContext;
 import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.color.Colors;
@@ -196,6 +197,7 @@ public abstract class GuiContainer extends GuiScreen {
         }
         /* Klick neben das Fenster wirft den getragenen Stapel aus: links alles, rechts einzeln. */
         if (!this.carried.isEmpty() && !this.isInsideWindow(mouseX, mouseY)) {
+            if (isCommandOnly(this.carried)) return true;
             this.throwFromCarried(button == GLFW.GLFW_MOUSE_BUTTON_RIGHT ? 1 : this.carried.getCount());
             return true;
         }
@@ -420,11 +422,19 @@ public abstract class GuiContainer extends GuiScreen {
 
         boolean fullStack = SkyEngine.get().getInput().isCtrlDown();
         if (!this.carried.isEmpty()) {
+            if (isCommandOnly(this.carried)) {
+                SkyEngine.get().getGame().clearWorldEditSelection();
+                return true;
+            }
             this.throwFromCarried(fullStack ? this.carried.getCount() : 1);
             return true;
         }
         Slot slot = this.slotAt(gui.mouseX(), gui.mouseY());
         if (slot != null && !slot.get().isEmpty()) {
+            if (isCommandOnly(slot.get())) {
+                SkyEngine.get().getGame().clearWorldEditSelection();
+                return true;
+            }
             throwOut(slot.storage.extract(slot.index, fullStack ? slot.get().getCount() : 1));
             slot.setChanged();
         }
@@ -490,6 +500,10 @@ public abstract class GuiContainer extends GuiScreen {
     /** Wirft einen Stapel in die Welt (ohne Welt — Hauptmenü — passiert nichts). */
     private static void throwOut(ItemStack stack) {
         if (!stack.isEmpty()) SkyEngine.get().getGame().dropFromGui(stack);
+    }
+
+    private static boolean isCommandOnly(ItemStack stack) {
+        return !stack.isEmpty() && stack.getItem() != null && Items.isCommandOnly(stack.getItem().getId());
     }
 
     /**
@@ -704,7 +718,7 @@ public abstract class GuiContainer extends GuiScreen {
     public void onClose() {
         if (this.carried.isEmpty()) return;
         GameContainer game = SkyEngine.get().getGame();
-        if (game.getDimension() != null) {
+        if (game.getDimension() != null && !isCommandOnly(this.carried)) {
             game.dropFromGui(this.carried);  // wie in MC: der getragene Stapel fliegt raus
         } else {
             /* Ohne Welt gibt es kein Wurfziel (Screen-Wechsel Richtung Hauptmenü) — dann

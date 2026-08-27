@@ -1,46 +1,25 @@
 package de.skyengine.graphics.entity;
 
-import de.skyengine.core.SkyEngine;
 import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.Dimension;
-import de.skyengine.graphics.GlDebug;
 import de.skyengine.graphics.camera.Camera;
-import de.skyengine.graphics.shader.Shader;
-import de.skyengine.graphics.shader.ShaderProgram;
-import de.skyengine.graphics.shader.ShaderType;
+import de.skyengine.graphics.world.DebugLineRenderer;
 import org.joml.Vector3d;
-import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL15;
-import org.lwjgl.opengl.GL20;
-import org.lwjgl.opengl.GL30;
 
 import java.util.Arrays;
 
-/** F3+B-Debugdarstellung für Entity-AABBs und ihre Blick-/Fahrtrichtung. */
+/** F3+B-Debugdarstellung fuer Entity-AABBs und ihre Blick-/Fahrtrichtung. */
 public final class EntityHitboxRenderer {
 
-    private ShaderProgram shader;
-    private int vao, vbo;
+    private final DebugLineRenderer lines = new DebugLineRenderer();
     private float[] boxes = new float[24 * 3 * 32];
     private float[] directions = new float[10 * 3 * 32];
     private int boxCount, directionCount;
 
     public void init() {
-        this.shader = new ShaderProgram(
-                new Shader(VERTEX, ShaderType.VERTEX),
-                new Shader(GEOMETRY, ShaderType.GEOMETRY),
-                new Shader(FRAGMENT, ShaderType.FRAGMENT));
-        this.vao = GL30.glGenVertexArrays();
-        this.vbo = GL15.glGenBuffers();
-        GL30.glBindVertexArray(this.vao);
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
-        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, this.boxes.length * Float.BYTES, GL15.GL_DYNAMIC_DRAW);
-        GlDebug.labelBuffer(this.vbo, "Entity-Hitbox VBO (Streaming)");
-        GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, 0, 0);
-        GL20.glEnableVertexAttribArray(0);
-        GL30.glBindVertexArray(0);
+        this.lines.init("Entity-Hitbox VBO (Streaming)");
     }
 
     public void render(Camera camera, EntityPlayer player, Dimension world, float partialTick) {
@@ -50,23 +29,8 @@ public final class EntityHitboxRenderer {
         world.forEachLoadedEntity(entity -> {
             if (!entity.isRemoved()) this.add(entity, camera, partialTick, false);
         });
-        if (this.boxCount == 0) return;
-
-        this.shader.bind();
-        this.shader.setUniformMatrix4f("u_ProjectionView", camera.getProjectionViewMatrix());
-        this.shader.setUniformVector2f("u_Viewport",
-                SkyEngine.get().getWindow().getWidth(), SkyEngine.get().getWindow().getHeight());
-        this.shader.setUniformf("u_LineWidth", 2.0F);
-        GL30.glBindVertexArray(this.vao);
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
-        boolean blendWasEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
-        GL11.glEnable(GL11.GL_BLEND);
-
-        this.draw(this.boxes, this.boxCount, 1.0F, 1.0F, 1.0F, 0.85F);
-        this.draw(this.directions, this.directionCount, 0.1F, 0.25F, 1.0F, 1.0F);
-
-        if (!blendWasEnabled) GL11.glDisable(GL11.GL_BLEND);
-        this.shader.unbind();
+        this.lines.render(camera, this.boxes, this.boxCount, 2.0F, 1F, 1F, 1F, 1F);
+        this.lines.render(camera, this.directions, this.directionCount, 2.0F, 0.1F, 0.25F, 1F, 1F);
     }
 
     private void add(Entity entity, Camera camera, float partialTick, boolean player) {
@@ -138,53 +102,7 @@ public final class EntityHitboxRenderer {
         return at;
     }
 
-    private void draw(float[] data, int count, float r, float g, float b, float a) {
-        if (count == 0) return;
-        this.shader.setUniformVector4f("u_Color", r, g, b, a);
-        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, Arrays.copyOf(data, count), GL15.GL_DYNAMIC_DRAW);
-        GL11.glDrawArrays(GL11.GL_LINES, 0, count / 3);
-    }
-
     public void dispose() {
-        GL30.glDeleteVertexArrays(this.vao);
-        GL15.glDeleteBuffers(this.vbo);
-        this.shader.dispose();
+        this.lines.dispose();
     }
-
-    private static final String VERTEX = """
-        #version 460 core
-        layout(location = 0) in vec3 a_position;
-        uniform mat4 u_ProjectionView;
-        void main() { gl_Position = u_ProjectionView * vec4(a_position, 1.0); }
-        """;
-
-    private static final String GEOMETRY = """
-        #version 460 core
-        layout(lines) in;
-        layout(triangle_strip, max_vertices = 4) out;
-        uniform vec2 u_Viewport;
-        uniform float u_LineWidth;
-        void main() {
-            vec4 p0 = gl_in[0].gl_Position;
-            vec4 p1 = gl_in[1].gl_Position;
-            vec2 n0 = p0.xy / p0.w;
-            vec2 n1 = p1.xy / p1.w;
-            vec2 delta = (n1 - n0) * u_Viewport;
-            if (dot(delta, delta) < 0.0001) return;
-            vec2 normal = normalize(vec2(-delta.y, delta.x));
-            vec2 offset = normal * u_LineWidth / u_Viewport;
-            gl_Position = vec4((n0 + offset) * p0.w, p0.z, p0.w); EmitVertex();
-            gl_Position = vec4((n0 - offset) * p0.w, p0.z, p0.w); EmitVertex();
-            gl_Position = vec4((n1 + offset) * p1.w, p1.z, p1.w); EmitVertex();
-            gl_Position = vec4((n1 - offset) * p1.w, p1.z, p1.w); EmitVertex();
-            EndPrimitive();
-        }
-        """;
-
-    private static final String FRAGMENT = """
-        #version 460 core
-        uniform vec4 u_Color;
-        out vec4 fragColor;
-        void main() { fragColor = u_Color; }
-        """;
 }

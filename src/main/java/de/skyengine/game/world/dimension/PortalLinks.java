@@ -75,13 +75,25 @@ public final class PortalLinks {
             if (data != null && data.version == 1 && data.links != null) {
                 for (Link link : data.links) {
                     if (link != null && link.type != null && link.first != null && link.second != null) {
-                        this.links.add(link);
+                        this.links.add(new Link(canonical(link.type), canonical(link.first), canonical(link.second)));
                     }
                 }
             }
         } catch (Exception e) {
             LOGGER.warning("Portalverbindungen konnten nicht geladen werden: " + this.file
                     + " (" + e.getMessage() + ")");
+        }
+    }
+
+    private static Endpoint canonical(Endpoint endpoint) {
+        return new Endpoint(canonical(endpoint.dimension), endpoint.portalId);
+    }
+
+    private static String canonical(String id) {
+        try {
+            return Identifier.of(id).toString();
+        } catch (IllegalArgumentException ignored) {
+            return id;
         }
     }
 

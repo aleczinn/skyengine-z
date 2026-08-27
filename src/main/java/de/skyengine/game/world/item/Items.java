@@ -14,9 +14,11 @@ public final class Items {
 
     /** Rueckwaerts-Zuordnung fuer no_item-Bloecke mit fremdem places_block-Item. */
     private static final java.util.Map<Identifier, Item> PLACER_BY_BLOCK = new java.util.HashMap<>();
+    private static final java.util.Set<Identifier> COMMAND_ONLY = new java.util.HashSet<>();
 
     public static void bootstrap() {
         PLACER_BY_BLOCK.clear();
+        COMMAND_ONLY.clear();
         for (Block block : Registries.BLOCK.values()) {
             if (block.isAir() || block.isFluid()) continue;
             Identifier id = block.getIdentifier();
@@ -43,6 +45,9 @@ public final class Items {
     public static Item get(Identifier id) {
         return Registries.ITEM.get(id);
     }
+
+    public static void registerCommandOnly(Identifier id) { COMMAND_ONLY.add(id); }
+    public static boolean isCommandOnly(Identifier id) { return COMMAND_ONLY.contains(id); }
 
     public static void registerPlacer(Identifier blockId, Item item) {
         PLACER_BY_BLOCK.putIfAbsent(blockId, item);

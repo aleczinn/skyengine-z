@@ -89,8 +89,9 @@ public final class ItemLoader {
 
         Item item = ItemArchetypes.create(id, def);
         Registries.ITEM.register(id, item);
+        if (def.command_only) Items.registerCommandOnly(id);
         if (placedBlock != null) Items.registerPlacer(placedBlock.getIdentifier(), item);
-        CreativeTabs.assign(id, CreativeTabs.parse(def.creative_tab));
+        if (!def.command_only) CreativeTabs.assign(id, CreativeTabs.parse(def.creative_tab));
 
         /* SOFORT anmelden — siehe Klassenkommentar. */
         BlockTextures.layerOf(def.texture);

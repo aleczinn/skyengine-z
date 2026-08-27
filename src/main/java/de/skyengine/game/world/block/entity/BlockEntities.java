@@ -35,7 +35,7 @@ public final class BlockEntities {
                 new BlockEntityType<>((type, pos, state) -> new EnchantingTableBlockEntity(type, pos), true));
 
         PISTON_MOVING = Registries.BLOCK_ENTITY.register(Identifier.of("piston_moving"),
-                new BlockEntityType<>((type, pos, state) -> new PistonMovingBlockEntity(type, pos), true));
+                new BlockEntityType<>((type, pos, state) -> new PistonMovingBlockEntity(type, pos), true, false));
 
         HOPPER = Registries.BLOCK_ENTITY.register(Identifier.of("hopper"),
                 new BlockEntityType<>((type, pos, state) -> new HopperBlockEntity(type, pos), true));

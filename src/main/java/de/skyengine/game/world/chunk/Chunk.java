@@ -4,6 +4,10 @@ import de.skyengine.game.entity.Entity;
 import de.skyengine.game.entity.FallingBlockEntity;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.entity.BlockEntity;
+import de.skyengine.game.world.block.entity.BlockEntityType;
+import de.skyengine.game.world.block.BlockPos;
+import de.skyengine.game.world.block.registry.Registries;
+import de.skyengine.game.world.structure.StructureTemplate;
 import de.skyengine.game.world.tick.SavedTick;
 
 import java.util.ArrayList;
@@ -33,6 +37,8 @@ public class Chunk {
 
     /* BlockEntities, sparse; Key = lokale Position (x 0..31, z 0..31, y 0..511). Lazy. */
     private Map<Integer, BlockEntity> blockEntities;
+    /* Nur waehrend DECORATING: letzter Structure-BE-Wunsch pro Position. */
+    private Map<Integer, StructureTemplate.BlockEntitySnapshot> pendingStructureBlockEntities;
 
     /* Welt-Entities (fallende Blöcke, gedroppte Items) in diesem Chunk. Lazy; nur READY-Chunks
        ticken/rendern. Entities, die den Chunk wechseln, werden umgehängt (siehe Dimension.tickEntities). */
@@ -255,6 +261,34 @@ public class Chunk {
 
     public Collection<BlockEntity> blockEntities() {
         return this.blockEntities == null ? Collections.emptyList() : this.blockEntities.values();
+    }
+
+    /** Merkt eine Structure-BE vor; null bedeutet eine leere Default-BlockEntity. */
+    public void queueStructureBlockEntity(int x, int y, int z,
+                                          StructureTemplate.BlockEntitySnapshot snapshot) {
+        if (this.pendingStructureBlockEntities == null) this.pendingStructureBlockEntities = new HashMap<>();
+        this.pendingStructureBlockEntities.put(beKey(x, y, z), snapshot);
+    }
+
+    /** Materialisiert nach ALLEN Feature-Writes nur Eintraege, deren finaler BlockState noch passt. */
+    public void materializeStructureBlockEntities() {
+        if (this.pendingStructureBlockEntities == null) return;
+        for (Map.Entry<Integer, StructureTemplate.BlockEntitySnapshot> entry
+                : this.pendingStructureBlockEntities.entrySet()) {
+            int packed = entry.getKey();
+            int lx = packed & 31, lz = (packed >> 5) & 31, y = (packed >> 10) & 511;
+            int stateId = this.getBlock(lx, y, lz);
+            BlockEntityType<?> type = Blocks.getState(stateId).getBlock().getBlockEntityType();
+            StructureTemplate.BlockEntitySnapshot snapshot = entry.getValue();
+            if (type == null || snapshot != null
+                    && type != Registries.BLOCK_ENTITY.get(snapshot.type())) continue;
+            BlockPos pos = new BlockPos((this.chunkX << ChunkSection.SHIFT) + lx, y,
+                    (this.chunkZ << ChunkSection.SHIFT) + lz);
+            BlockEntity entity = type.create(pos, Blocks.getState(stateId));
+            if (snapshot != null) entity.load(snapshot.data());
+            this.setBlockEntity(lx, y, lz, entity);
+        }
+        this.pendingStructureBlockEntities = null;
     }
 
     /* --- Entities --- */

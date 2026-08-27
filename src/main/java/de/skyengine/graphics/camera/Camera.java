@@ -162,6 +162,11 @@ public class Camera {
         return projectionView;
     }
 
+    /** Aktuelle Projection-View-Matrix ohne TAA-Subpixel-Jitter, z.B. fuer pixelstabile Debug-Linien. */
+    public Matrix4f getUnjitteredProjectionViewMatrix() {
+        return unjitteredProjectionView;
+    }
+
     public FrustumIntersection getFrustum() {
         return frustum;
     }

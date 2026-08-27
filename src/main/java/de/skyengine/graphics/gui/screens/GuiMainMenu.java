@@ -17,7 +17,7 @@ import de.skyengine.graphics.gui.GuiText;
  */
 public final class GuiMainMenu extends GuiScreen {
 
-    private static final Color4 VERSION_COLOR = new Color4(1.0F, 1.0F, 1.0F, 1.0F);
+    private static final Color4 VERSION_COLOR = new Color4(0xFF918E97);
 
     public GuiMainMenu() {
         super(null);
@@ -34,7 +34,7 @@ public final class GuiMainMenu extends GuiScreen {
 
         /* Logo-Bild, wenn vorhanden — sonst Text-Titel als Fallback. */
         GuiComponent title = gui.textures().logo != null
-                ? new Image(gui.textures().logo, 256)
+                ? new Image(gui.textures().logo, 140)
                 : new Label(SkyEngine.ENGINE_NAME, GuiText.HERO).measure(gui);
         Button singleplayer = new Button(I18n.tr("gui.singleplayer"), () -> gui.open(new GuiSelectWorld(this)));
         Button multiplayer = new Button(I18n.tr("gui.multiplayer"), null);
@@ -56,11 +56,10 @@ public final class GuiMainMenu extends GuiScreen {
         this.components.add(copyright.anchor(Anchor.BOTTOM_RIGHT, 2, 2));
     }
 
-    /** Hauptmenü: Hintergrundbild UNGEDIMMT (object-cover); ohne Bild der Kachel-Fallback. */
     @Override
     protected void renderBackground(GuiManager gui) {
-        if (!this.drawMenuImage(gui)) {
-            this.drawMenuTiles(gui);
-        }
+        gui.renderImageBackground();
+        gui.renderOverlay(0.3F);
+        gui.renderVignette();
     }
 }

@@ -4,6 +4,7 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.FluidGeometry;
+import de.skyengine.game.world.chunk.VertexLight;
 import de.skyengine.test.BlocksTestBootstrap;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -166,7 +167,8 @@ final class LodMesherLightingTest {
                 int lightAndFlags = data[q + v * ChunkMesher.VERTEX_SIZE + 4];
                 assertEquals(ChunkMesher.FLAT_SOURCE_FLUID_TOP,
                         lightAndFlags & ChunkMesher.FLAT_SOURCE_FLUID_TOP);
-                assertEquals(15, lightAndFlags & 0xF, "fluid-top skylight must be preserved");
+                assertEquals(15, VertexLight.sky(lightAndFlags) / 17,
+                        "fluid-top skylight must be preserved");
             }
         }
         assertTrue(found, "expected a flat LOD fluid top at " + expectedY);
@@ -182,7 +184,7 @@ final class LodMesherLightingTest {
             }
             if (!matches) continue;
             for (int v = 0; v < 4; v++) {
-                result.add(data[q + v * ChunkMesher.VERTEX_SIZE + 4] & 0xF);
+                result.add(VertexLight.sky(data[q + v * ChunkMesher.VERTEX_SIZE + 4]) / 17);
             }
         }
         assertFalse(result.isEmpty(), "Erwartete horizontale LOD-Fläche fehlt");
@@ -207,7 +209,7 @@ final class LodMesherLightingTest {
                     && Math.abs(maxY - expectedMaxY) <= 0.01F) {
                 List<Integer> result = new ArrayList<>(4);
                 for (int v = 0; v < 4; v++) {
-                    result.add(data[q + v * ChunkMesher.VERTEX_SIZE + 4] & 0xF);
+                    result.add(VertexLight.sky(data[q + v * ChunkMesher.VERTEX_SIZE + 4]) / 17);
                 }
                 return result;
             }

@@ -27,7 +27,7 @@ public final class GameSettings {
 
     private static final Logger LOGGER = LogManager.getLogger(GameSettings.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    /* Liegt im Spiel-Root (%APPDATA%\.skyengine), nicht im Arbeitsverzeichnis. */
+    /* Liegt im zentralen Spiel-Root (standardmaessig %APPDATA%/.voxelstories). */
     private static final File FILE = de.skyengine.core.file.GameDirectory.resolve("config/options.json");
 
     private static GameSettings instance;

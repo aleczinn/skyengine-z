@@ -91,7 +91,7 @@ public final class BlockMapper {
             return AIR; // Stufe 3: unbekannt
         }
         this.known.put(mc.toString(), true);
-        if (target.equals("skyengine:air")) return AIR;
+        if (Identifier.of(target).equals(Identifier.of("air"))) return AIR;
 
         Block block = Registries.BLOCK.get(Identifier.of(target));
         if (block == null) {

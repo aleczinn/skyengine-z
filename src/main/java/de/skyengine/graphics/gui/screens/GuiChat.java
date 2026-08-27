@@ -20,7 +20,7 @@ import java.util.concurrent.CompletableFuture;
 /** Nicht pausierender Singleplayer-Chat zur Eingabe und Vervollstaendigung von Befehlen. */
 public final class GuiChat extends GuiScreen {
 
-    private static final float INPUT_HEIGHT = 10F;
+    private static final float INPUT_HEIGHT = ChatHud.LINE_HEIGHT;
     private static final float CHAT_BOTTOM_OFFSET = 40F;
     private static final int MAX_INPUT_LENGTH = 256;
     private static final Color4 SUGGESTION = new Color4(0.7F, 0.7F, 0.7F, 1F);
@@ -37,6 +37,8 @@ public final class GuiChat extends GuiScreen {
     private List<String> completions = List.of();
     private int completionIndex;
     private boolean completionApplied;
+    private int scrollLines;
+    private int lastVisualLineCount = -1;
 
     public GuiChat(ChatManager chat, CommandContext context, ChatHud chatHud, String initial) {
         super(null);
@@ -50,7 +52,7 @@ public final class GuiChat extends GuiScreen {
     public void init(GuiManager gui, float vW, float vH) {
         if (this.input != null) this.draft = this.input.getText();
         this.components.clear();
-        float width = Math.min(ChatHud.DEFAULT_WIDTH, vW - 4F);
+        float width = vW - 4F;
         this.input = new TextField(width, INPUT_HEIGHT, MAX_INPUT_LENGTH, null)
                 .borderless()
                 .text(this.draft)
@@ -62,20 +64,29 @@ public final class GuiChat extends GuiScreen {
 
     @Override
     public void render(GuiManager gui, double mouseX, double mouseY) {
+        /* Solange der Chat offen ist, bleibt das Eingabefeld der einzige Texteingabefokus. */
+        this.input.setFocused(true);
         if (this.completions.isEmpty()) {
             this.completions = this.chat.suggestions(this.context, this.input.getText());
         }
         float inputY = this.input.y;
         /* Minecraft haengt die letzte Chatzeile auch bei offener Eingabe oberhalb der Hotbar ein;
            sie sitzt nicht unmittelbar auf dem Eingabefeld am unteren Bildschirmrand. */
-        this.chatHud.render(gui, this.chat, gui.vHeight() - CHAT_BOTTOM_OFFSET, true);
+        int visualLineCount = this.chatHud.visualLineCount(gui, this.chat);
+        if (this.lastVisualLineCount >= 0 && this.scrollLines > 0
+                && visualLineCount > this.lastVisualLineCount) {
+            this.scrollLines += visualLineCount - this.lastVisualLineCount;
+        }
+        this.lastVisualLineCount = visualLineCount;
+        this.scrollLines = ChatHud.clampScroll(this.scrollLines, visualLineCount);
+        this.chatHud.render(gui, this.chat, gui.vHeight() - CHAT_BOTTOM_OFFSET, true, this.scrollLines);
 
         gui.sprites().begin(gui.vWidth(), gui.vHeight());
         gui.sprites().drawRect(this.input.x, inputY, this.input.w, INPUT_HEIGHT,
                 0F, 0F, 0F, 0.65F);
         this.input.renderBackground(gui, mouseX, mouseY);
         if (!this.completions.isEmpty()) {
-            float line = gui.font().lineHeight(GuiText.NORMAL) + 1F;
+            float line = ChatHud.LINE_HEIGHT;
             int visible = Math.min(8, this.completions.size());
             gui.sprites().drawRect(this.input.x, inputY - 2F - visible * line, this.input.w,
                     visible * line, 0F, 0F, 0F, 0.8F);
@@ -93,7 +104,7 @@ public final class GuiChat extends GuiScreen {
                     GuiText.NORMAL, SYNTAX_HINT);
         }
         if (!this.completions.isEmpty()) {
-            float line = gui.font().lineHeight(GuiText.NORMAL) + 1F;
+            float line = ChatHud.LINE_HEIGHT;
             int visible = Math.min(8, this.completions.size());
             for (int i = 0; i < visible; i++) {
                 int candidate = (this.completionIndex + i) % this.completions.size();
@@ -110,8 +121,9 @@ public final class GuiChat extends GuiScreen {
     public boolean mousePressed(GuiManager gui, double mouseX, double mouseY, int button) {
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             Path target = this.chatHud.clickedTarget(gui, this.chat,
-                    gui.vHeight() - CHAT_BOTTOM_OFFSET, mouseX, mouseY);
+                    gui.vHeight() - CHAT_BOTTOM_OFFSET, mouseX, mouseY, this.scrollLines);
             if (target != null) {
+                this.input.setFocused(true);
                 CompletableFuture.runAsync(() -> Screenshot.open(target.toFile()))
                         .whenComplete((unused, error) -> {
                             if (error != null) {
@@ -122,7 +134,16 @@ public final class GuiChat extends GuiScreen {
                 return true;
             }
         }
-        return super.mousePressed(gui, mouseX, mouseY, button);
+        boolean handled = super.mousePressed(gui, mouseX, mouseY, button);
+        this.input.setFocused(true);
+        return handled;
+    }
+
+    @Override
+    public boolean mouseScrolled(GuiManager gui, double mouseX, double mouseY, double amount) {
+        int step = SkyEngine.get().getInput().isShiftDown() ? 1 : 7;
+        this.scroll(gui, amount > 0 ? step : -step);
+        return true;
     }
 
     @Override
@@ -142,6 +163,22 @@ public final class GuiChat extends GuiScreen {
         }
         if (key == GLFW.GLFW_KEY_TAB) {
             this.complete();
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_PAGE_UP) {
+            this.scroll(gui, ChatHud.VISIBLE_LINES);
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_PAGE_DOWN) {
+            this.scroll(gui, -ChatHud.VISIBLE_LINES);
+            return true;
+        }
+        if (SkyEngine.get().getInput().isCtrlDown() && key == GLFW.GLFW_KEY_HOME) {
+            this.scrollLines = ChatHud.maxScroll(this.chatHud.visualLineCount(gui, this.chat));
+            return true;
+        }
+        if (SkyEngine.get().getInput().isCtrlDown() && key == GLFW.GLFW_KEY_END) {
+            this.scrollLines = 0;
             return true;
         }
         this.resetCompletion();
@@ -171,6 +208,11 @@ public final class GuiChat extends GuiScreen {
         this.completions = List.of();
         this.completionIndex = 0;
         this.completionApplied = false;
+    }
+
+    private void scroll(GuiManager gui, int delta) {
+        int count = this.chatHud.visualLineCount(gui, this.chat);
+        this.scrollLines = ChatHud.clampScroll(this.scrollLines + delta, count);
     }
 
     private void moveHistory(int direction) {

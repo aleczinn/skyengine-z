@@ -18,6 +18,11 @@ package de.skyengine.game.world.generator.feature;
  */
 public interface Feature {
 
+    /** Bindet einen stabilen Structure-Katalogstand an diese Worldgen-Sitzung. */
+    default Feature withStructures(de.skyengine.game.world.structure.StructureTemplateManager.Snapshot structures) {
+        return this;
+    }
+
     /** Platziert alle Instanzen dieses Features für den Quell-Chunk des Placers. */
     default int cacheVersion() {
         return 1;

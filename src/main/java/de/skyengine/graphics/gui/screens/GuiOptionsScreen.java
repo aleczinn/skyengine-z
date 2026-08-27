@@ -6,6 +6,7 @@ import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.ScrollBar;
 import de.skyengine.graphics.gui.layout.Anchor;
 import de.skyengine.graphics.gui.layout.VStack;
+import de.skyengine.graphics.gui.text.RichText;
 import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.GuiComponent;
 import de.skyengine.graphics.gui.widget.Slider;
@@ -148,7 +149,7 @@ public abstract class GuiOptionsScreen extends GuiScreen {
     }
 
     @Override
-    public java.util.List<de.skyengine.graphics.gui.text.RichText> tooltipAt(double mouseX, double mouseY) {
+    public List<RichText> tooltipAt(double mouseX, double mouseY) {
         /* Der Scroll-Inhalt liegt außerhalb von leaves — und nur im sichtbaren Bereich. */
         if (this.inViewport(mouseY)) {
             var tooltip = tooltipIn(this.rowComponents, mouseX, mouseY);
@@ -218,5 +219,12 @@ public abstract class GuiOptionsScreen extends GuiScreen {
         this.scrollOffset -= amount * SCROLL_STEP;
         this.applyScroll();
         return true;
+    }
+
+    @Override
+    protected void renderBackground(GuiManager gui) {
+        gui.renderImageBackground();
+        gui.renderOverlay(0.3F);
+        gui.renderVignette();
     }
 }

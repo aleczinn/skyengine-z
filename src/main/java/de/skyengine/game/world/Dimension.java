@@ -32,11 +32,11 @@ import de.skyengine.game.world.chunk.ChunkStatus;
 import de.skyengine.game.world.chunk.WorldWorkerPool;
 import de.skyengine.core.file.GameDirectory;
 import de.skyengine.game.world.debug.SimulationTelemetry;
-import de.skyengine.game.world.dimension.DimensionSaves;
-import de.skyengine.game.world.dimension.GenerationSetup;
+import de.skyengine.game.world.dimension.*;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
+import de.skyengine.game.world.generator.feature.Feature;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.loot.LootContext;
 import de.skyengine.game.world.save.LevelData;
@@ -64,16 +64,7 @@ import de.skyengine.utils.collect.LongIntMap;
 import de.skyengine.utils.collect.LongObjMap;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Random;
+import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.BooleanSupplier;
 
@@ -101,7 +92,7 @@ public class Dimension implements IInitializable, IDisposable {
     private final String name;
     private final Identifier dimensionId;
     private final boolean lodAllowed;
-    private final de.skyengine.game.world.dimension.DimensionEnvironment environment;
+    private final DimensionEnvironment environment;
 
     private final WorldGenerator generator;
     private final ChunkDecorator decorator;
@@ -117,8 +108,8 @@ public class Dimension implements IInitializable, IDisposable {
     private final LevelData levelData;
     private final LevelData.DimensionData dimensionData;
     private final File lodDirectory;
-    private final de.skyengine.game.world.dimension.PortalIndex portalIndex;
-    private final de.skyengine.game.world.dimension.PortalLinks portalLinks;
+    private final PortalIndex portalIndex;
+    private final PortalLinks portalLinks;
     /* Engine-Lebensdauer (GameContainer): Atlas + BlockEntity-Renderer überleben Welt-Austritte —
        die Welt hält nur Referenzen und disposed sie NICHT. */
     private final ParticleEngine particles;
@@ -198,7 +189,7 @@ public class Dimension implements IInitializable, IDisposable {
             this.dimensionData.lootRandomStates = new java.util.LinkedHashMap<>();
         }
         this.dimensionData.lootRandomStates.clear();
-        for (java.util.Map.Entry<String, LootRandom> entry : this.lootRandoms.entrySet()) {
+        for (Map.Entry<String, LootRandom> entry : this.lootRandoms.entrySet()) {
             this.dimensionData.lootRandomStates.put(entry.getKey(), entry.getValue().state());
         }
         this.levelData.tntExplosionDropDecay = this.tntExplosionDropDecay;
@@ -258,7 +249,7 @@ public class Dimension implements IInitializable, IDisposable {
 
     /* Eigener Generator für die Zufalls-Ticks: ~75k Ziehungen/s — java.util.Random wäre
        ein CAS-Loop pro nextInt. this.random bleibt für die seltenen Nutzer (Drops/Spawns). */
-    private final java.util.SplittableRandom randomTick = new java.util.SplittableRandom();
+    private final SplittableRandom randomTick = new SplittableRandom();
 
     /** Notfallbudget gegen einen einzelnen Tick mit massenhaft gleichzeitig fälligen Block-Ticks. */
     /** ServerLevel.MAX_SCHEDULED_TICKS_PER_TICK in Vanilla 26.2. */
@@ -285,12 +276,20 @@ public class Dimension implements IInitializable, IDisposable {
                       WorldWorkerPool workerPool,
                       de.skyengine.game.world.dimension.PortalLinks portalLinks) {
         this(dirName, level, dimensionId, saveRoot,
-                DimensionSaves.resolve(saveRoot, level, dimensionId), workerPool, portalLinks);
+                DimensionSaves.resolve(saveRoot, level, dimensionId), workerPool, portalLinks, null);
+    }
+
+    Dimension(String dirName, LevelData level, Identifier dimensionId, File saveRoot,
+              WorldWorkerPool workerPool, de.skyengine.game.world.dimension.PortalLinks portalLinks,
+              de.skyengine.game.world.structure.StructureTemplateManager.Snapshot structures) {
+        this(dirName, level, dimensionId, saveRoot,
+                DimensionSaves.resolve(saveRoot, level, dimensionId), workerPool, portalLinks, structures);
     }
 
     private Dimension(String dirName, LevelData level, Identifier dimensionId,
                   File saveRoot, DimensionSaves.Resolved resolved, WorldWorkerPool workerPool,
-                  de.skyengine.game.world.dimension.PortalLinks portalLinks) {
+                  de.skyengine.game.world.dimension.PortalLinks portalLinks,
+                  de.skyengine.game.world.structure.StructureTemplateManager.Snapshot structures) {
         this.name = dirName;
         this.levelData = level;
         this.dimensionData = resolved.data();
@@ -309,14 +308,15 @@ public class Dimension implements IInitializable, IDisposable {
             savedLootRandomStates = level.lootRandomStates;
         }
         if (savedLootRandomStates != null) {
-            for (java.util.Map.Entry<String, Long> entry : savedLootRandomStates.entrySet()) {
+            for (Map.Entry<String, Long> entry : savedLootRandomStates.entrySet()) {
                 this.lootRandoms.put(entry.getKey(), new LootRandom(entry.getValue(), true));
             }
         }
 
         GenerationSetup setup = resolved.generator().create(resolved.data().seed);
         this.generator = setup.generator();
-        this.decorator = new ChunkDecorator(this.generator, setup.features());
+        List<Feature> sessionFeatures = structures == null ? setup.features() : setup.features().stream().map(feature -> feature.withStructures(structures)).toList();
+        this.decorator = new ChunkDecorator(this.generator, sessionFeatures);
         this.chunkManager = workerPool == null
                 ? new ChunkManager(this.generator, this.decorator, this.environment.hasSkylight())
                 : new ChunkManager(this.generator, this.decorator, workerPool,
@@ -623,6 +623,8 @@ public class Dimension implements IInitializable, IDisposable {
         for (Chunk chunk : this.readyChunkScratch) {
             if (chunk == previous) continue;
             previous = chunk;
+            /* Generierte Structure-BEs entstehen im Decorator noch ohne Dimension-Referenz. */
+            for (BlockEntity blockEntity : chunk.blockEntities()) blockEntity.setWorld(this);
             if (!chunk.loadSeeded) {
                 de.skyengine.game.world.block.behavior.ComparatorBehavior
                         .reconcileLoadedChunk(this, chunk);
@@ -1971,6 +1973,176 @@ public class Dimension implements IInitializable, IDisposable {
     private static final int[] BORDER_DX = {0, 0, -1, 1, -1, 1, -1, 1};
     private static final int[] BORDER_DZ = {-1, 1, 0, 0, -1, -1, 1, 1};
 
+    /** Batch-Gruppe fuer Structure-/Editor-Writes; Layout entspricht dem Licht-Batch. */
+    private static final class SetBatchGroup {
+        final Chunk chunk;
+        int[] packed = new int[64], oldIds = new int[64], newIds = new int[64];
+        int count, ownMask;
+        final int[] borderMasks = new int[8];
+        SetBatchGroup(Chunk chunk) { this.chunk = chunk; }
+        void add(int position, int oldId, int newId) {
+            if (count == packed.length) {
+                packed = java.util.Arrays.copyOf(packed, count * 2);
+                oldIds = java.util.Arrays.copyOf(oldIds, count * 2);
+                newIds = java.util.Arrays.copyOf(newIds, count * 2);
+            }
+            packed[count] = position; oldIds[count] = oldId; newIds[count] = newId; count++;
+        }
+    }
+
+    /**
+     * Schreibt viele unabhaengige Blockstates mit einem Lock/Dirty-/Licht-Batch pro Chunk.
+     * Gedacht fuer Structure-Placement; Neighbor-Updates erfolgen nach dem kompletten Paste.
+     *
+     * @return Zahl tatsaechlich geaenderter Zellen; nicht-READY-Chunks werden abgewiesen.
+     */
+    public int setBlocksBatch(long[] positions, int[] states, int count) {
+        if (count < 0 || count > positions.length || count > states.length) {
+            throw new IllegalArgumentException("Ungueltige Batch-Laenge " + count);
+        }
+        LongObjMap<SetBatchGroup> groups = new LongObjMap<>(64);
+        for (int i = 0; i < count; i++) {
+            int x = BlockPos.unpackX(positions[i]), y = BlockPos.unpackY(positions[i]), z = BlockPos.unpackZ(positions[i]);
+            if (y < 0 || y >= Chunk.HEIGHT) continue;
+            int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
+            long key = Chunk.key(cx, cz);
+            SetBatchGroup group = groups.get(key);
+            if (group == null) {
+                Chunk candidate = this.chunkManager.getChunk(cx, cz);
+                group = new SetBatchGroup(candidate != null && candidate.status == ChunkStatus.READY ? candidate : null);
+                groups.put(key, group);
+            }
+            if (group.chunk == null) continue;
+            int lx = x & ChunkSection.MASK, lz = z & ChunkSection.MASK;
+            int oldId = group.chunk.getBlock(lx, y, lz), newId = states[i];
+            if (oldId == newId) continue;
+            group.add(lx | (lz << 5) | (y << 10), oldId, newId);
+            int sy = y >> ChunkSection.SHIFT;
+            int mask = 1 << sy;
+            if ((y & ChunkSection.MASK) == 0 && sy > 0) mask |= 1 << (sy - 1);
+            if ((y & ChunkSection.MASK) == ChunkSection.MASK && sy < Chunk.SECTIONS - 1) mask |= 1 << (sy + 1);
+            group.ownMask |= mask;
+            boolean west = lx == 0, east = lx == ChunkSection.MASK;
+            boolean north = lz == 0, south = lz == ChunkSection.MASK;
+            if (north) group.borderMasks[0] |= mask;
+            if (south) group.borderMasks[1] |= mask;
+            if (west) group.borderMasks[2] |= mask;
+            if (east) group.borderMasks[3] |= mask;
+            if (west && north) group.borderMasks[4] |= mask;
+            if (east && north) group.borderMasks[5] |= mask;
+            if (west && south) group.borderMasks[6] |= mask;
+            if (east && south) group.borderMasks[7] |= mask;
+        }
+
+        List<SetBatchGroup> activeGroups = new ArrayList<>(groups.size());
+        for (int gi = 0, gn = groups.tableSize(); gi < gn; gi++) {
+            SetBatchGroup group = groups.valueAt(gi);
+            if (group != null && group.chunk != null && group.count > 0) activeGroups.add(group);
+        }
+        /* Die Map-Slotreihenfolge ist ein Implementierungsdetail. Eine feste Weltreihenfolge
+           macht Profiling und Regressionstests reproduzierbar; fuer die Lichtkorrektheit darf
+           die Reihenfolge nach der Phasentrennung keine Rolle mehr spielen. */
+        activeGroups.sort(Comparator.comparingInt((SetBatchGroup g) -> g.chunk.chunkZ)
+                .thenComparingInt(g -> g.chunk.chunkX));
+
+        int changed = 0;
+        boolean playerChange = this.playerBlockChangeDepth > 0;
+        /* Phase 1: ALLE Blockdaten schreiben. Licht darf erst danach laufen, damit jeder
+           3x3-Kontext bereits den endgueltigen Zustand seiner Nachbar-Chunks liest. */
+        for (SetBatchGroup group : activeGroups) {
+            Chunk chunk = group.chunk;
+            chunk.writeLock().lock();
+            try {
+                for (int i = 0; i < group.count; i++) {
+                    int packed = group.packed[i];
+                    chunk.setBlock(packed & 31, (packed >> 10) & 511, (packed >> 5) & 31, group.newIds[i]);
+                }
+            } finally {
+                chunk.writeLock().unlock();
+            }
+            changed += group.count;
+            chunk.markSectionsDirty(group.ownMask, playerChange);
+            chunk.markModified();
+            for (int b = 0; b < 8; b++) {
+                if (group.borderMasks[b] == 0) continue;
+                Chunk neighbor = this.chunkManager.getChunk(chunk.chunkX + BORDER_DX[b], chunk.chunkZ + BORDER_DZ[b]);
+                if (neighbor != null && neighbor.status.isAtLeast(ChunkStatus.LIT)) {
+                    neighbor.markSectionsDirty(group.borderMasks[b], playerChange);
+                }
+            }
+            int baseX = chunk.chunkX << ChunkSection.SHIFT, baseZ = chunk.chunkZ << ChunkSection.SHIFT;
+            for (int i = 0; i < group.count; i++) {
+                int packed = group.packed[i];
+                int wx = baseX + (packed & 31), wy = (packed >> 10) & 511, wz = baseZ + ((packed >> 5) & 31);
+                this.manageBlockEntity(wx, wy, wz, group.oldIds[i], group.newIds[i]);
+            }
+        }
+
+        /* Phase 2: Heightmaps und beide Lichtebenen gegen den finalen Blockzustand pflegen.
+           Phase 3 gleicht danach die betroffenen Raender bis zum monotonen Fixpunkt ab. */
+        PerformanceProfiler profiler = PerformanceProfiler.get();
+        long lightStarted = profiler.begin();
+        for (SetBatchGroup group : activeGroups) this.updateSetBatchLight(group);
+        this.stabilizeSetBatchBorders(activeGroups);
+        profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE, 0, lightStarted);
+
+        for (SetBatchGroup group : activeGroups) {
+            int baseX = group.chunk.chunkX << ChunkSection.SHIFT, baseZ = group.chunk.chunkZ << ChunkSection.SHIFT;
+            for (int i = 0; i < group.count; i++) {
+                int packed = group.packed[i];
+                BlockState oldState = Blocks.getState(group.oldIds[i]);
+                BlockState newState = Blocks.getState(group.newIds[i]);
+                if (oldState.getBlock() != newState.getBlock()) oldState.getBlock().onRemoved(this,
+                        baseX + (packed & 31), (packed >> 10) & 511,
+                        baseZ + ((packed >> 5) & 31), oldState, newState);
+            }
+        }
+        return changed;
+    }
+
+    /** Licht-Update einer bereits vollstaendig geschriebenen Structure-/Editor-Chunkgruppe. */
+    private void updateSetBatchLight(SetBatchGroup group) {
+        Chunk chunk = group.chunk;
+        int cx = chunk.chunkX, cz = chunk.chunkZ;
+        Chunk north = this.chunkManager.getChunk(cx, cz - 1);
+        Chunk south = this.chunkManager.getChunk(cx, cz + 1);
+        Chunk west = this.chunkManager.getChunk(cx - 1, cz);
+        Chunk east = this.chunkManager.getChunk(cx + 1, cz);
+        this.fillLightDiagonals(cx, cz);
+        this.lightEngine.onBlocksChanged(chunk, north, south, west, east, this.lightDiagonals,
+                group.packed, group.oldIds, group.count);
+    }
+
+    /**
+     * Rand-Fixpunkt nach einem mehrchunkigen Edit. exchangeBorders erhoeht Werte ausschliesslich;
+     * damit terminiert die Schleife sicher. Der Lichtradius 15 ist kleiner als ein 32er-Chunk,
+     * also bleibt die Ausbreitung im Zentrum plus dessen direktem Ein-Chunk-Halo.
+     */
+    private void stabilizeSetBatchBorders(List<SetBatchGroup> groups) {
+        boolean changed;
+        do {
+            changed = false;
+            for (SetBatchGroup group : groups) {
+                Chunk chunk = group.chunk;
+                int cx = chunk.chunkX, cz = chunk.chunkZ;
+                Chunk north = this.chunkManager.getChunk(cx, cz - 1);
+                Chunk south = this.chunkManager.getChunk(cx, cz + 1);
+                Chunk west = this.chunkManager.getChunk(cx - 1, cz);
+                Chunk east = this.chunkManager.getChunk(cx + 1, cz);
+                this.fillLightDiagonals(cx, cz);
+                changed |= this.lightEngine.exchangeBorders(
+                        chunk, north, south, west, east, this.lightDiagonals);
+            }
+        } while (changed);
+    }
+
+    private void fillLightDiagonals(int cx, int cz) {
+        this.lightDiagonals[0] = this.chunkManager.getChunk(cx - 1, cz - 1);
+        this.lightDiagonals[1] = this.chunkManager.getChunk(cx + 1, cz - 1);
+        this.lightDiagonals[2] = this.chunkManager.getChunk(cx - 1, cz + 1);
+        this.lightDiagonals[3] = this.chunkManager.getChunk(cx + 1, cz + 1);
+    }
+
     /**
      * Zerstört viele Blöcke als Batch (Explosion): gruppiert nach Chunk, EIN Write-Lock,
      * EIN Dirty-CAS und EIN Licht-Update ({@link LightEngine#onBlocksChanged}) pro Chunk statt
@@ -2714,6 +2886,23 @@ public class Dimension implements IInitializable, IDisposable {
 
     public WorldGenerator getGenerator() {
         return generator;
+    }
+
+    /**
+     * Erzeugt einen kurzlebigen, voll dekorierten Chunk aus dem aktuellen Generatorzustand.
+     * Der Snapshot wird weder in den ChunkManager eingesetzt noch gespeichert.
+     */
+    public Chunk generateWorldgenSnapshot(int chunkX, int chunkZ) {
+        if (this.imported) throw new IllegalStateException(
+                "Importierte Welten besitzen keinen rekonstruierbaren Weltgenerator");
+        Chunk snapshot = new Chunk(chunkX, chunkZ);
+        this.generator.generate(snapshot);
+        this.decorator.decorate(snapshot);
+        return snapshot;
+    }
+
+    public boolean supportsRegeneration() {
+        return !this.imported;
     }
 
     public ChunkManager getChunkManager() {

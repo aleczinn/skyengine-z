@@ -23,6 +23,7 @@ public final class DimensionSaves {
         if (dimension == null) throw new IllegalArgumentException("Unbekannte Dimension: " + id);
         if (level.dimensions == null) level.dimensions = new LinkedHashMap<>();
 
+        migrateDimensionKeys(level);
         LevelData.DimensionData data = level.dimensions.get(id.toString());
         if (data == null) {
             data = id.equals(WorldgenRegistries.OVERWORLD)
@@ -75,8 +76,25 @@ public final class DimensionSaves {
         return switch (value) {
             case "alpha_v2" -> WorldgenRegistries.ALPHA_V2.toString();
             case "minecraft_import" -> WorldgenRegistries.MINECRAFT_IMPORT.toString();
-            default -> value.indexOf(':') < 0 ? "skyengine:" + value : value;
+            default -> value.indexOf(':') < 0 ? Identifier.DEFAULT_NAMESPACE + ":" + value
+                    : Identifier.of(value).toString();
         };
+    }
+
+    private static void migrateDimensionKeys(LevelData level) {
+        if (level.dimensions.isEmpty()) return;
+        LinkedHashMap<String, LevelData.DimensionData> migrated = new LinkedHashMap<>();
+        for (var entry : level.dimensions.entrySet()) {
+            String key;
+            try {
+                key = Identifier.of(entry.getKey()).toString();
+            } catch (IllegalArgumentException ignored) {
+                key = entry.getKey();
+            }
+            if (key.equals(entry.getKey())) migrated.put(key, entry.getValue());
+            else migrated.putIfAbsent(key, entry.getValue());
+        }
+        level.dimensions = migrated;
     }
 
     private static void mirrorLegacyOverworld(LevelData level, LevelData.DimensionData data) {
@@ -105,10 +123,15 @@ public final class DimensionSaves {
         Path destination = target.toPath().toAbsolutePath().normalize();
         if (Files.exists(destination)) return;
 
-        Path oldNamespace = dimensions.resolve(id.namespace());
-        for (String part : id.path().split("/")) oldNamespace = oldNamespace.resolve(part);
         Path flat = dimensions.resolve(id.path().replace('/', '-'));
-        for (Path legacy : new Path[]{oldNamespace.normalize(), flat.normalize()}) {
+        java.util.List<Path> candidates = new java.util.ArrayList<>();
+        for (String namespace : SkyEngine.LEGACY_GAME_PREFIXES) {
+            Path oldNamespace = dimensions.resolve(namespace);
+            for (String part : id.path().split("/")) oldNamespace = oldNamespace.resolve(part);
+            candidates.add(oldNamespace.normalize());
+        }
+        candidates.add(flat.normalize());
+        for (Path legacy : candidates) {
             if (legacy.equals(destination) || !legacy.startsWith(dimensions) || !Files.exists(legacy)) continue;
             try {
                 Files.createDirectories(destination.getParent());

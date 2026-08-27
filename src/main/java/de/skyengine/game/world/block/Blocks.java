@@ -79,7 +79,7 @@ public final class Blocks {
     public static int BASALT, POLISHED_BASALT, SMOOTH_BASALT;
 
     /* Holz: Logs (+ stripped), Planks, Leaves, Slabs, Stairs, Fences */
-    public static int BIRCH_LOG, SPRUCE_LOG, DARK_OAK_LOG, ACACIA_LOG, JUNGLE_LOG, MANGROVE_LOG, PALE_OAK_LOG;
+    public static int BIRCH_LOG, SPRUCE_LOG, SPRUCE_WOOD, DARK_OAK_LOG, ACACIA_LOG, JUNGLE_LOG, MANGROVE_LOG, PALE_OAK_LOG;
     public static int STRIPPED_BIRCH_LOG, STRIPPED_SPRUCE_LOG, STRIPPED_DARK_OAK_LOG, STRIPPED_ACACIA_LOG,
             STRIPPED_JUNGLE_LOG, STRIPPED_MANGROVE_LOG, STRIPPED_PALE_OAK_LOG;
     public static int BIRCH_PLANKS, SPRUCE_PLANKS, DARK_OAK_PLANKS, ACACIA_PLANKS, JUNGLE_PLANKS, MANGROVE_PLANKS, PALE_OAK_PLANKS;
@@ -270,6 +270,7 @@ public final class Blocks {
 
         BIRCH_LOG = idOf("skyengine:birch_log");
         SPRUCE_LOG = idOf("skyengine:spruce_log");
+        SPRUCE_WOOD = idOf("skyengine:spruce_wood");
         DARK_OAK_LOG = idOf("skyengine:dark_oak_log");
         ACACIA_LOG = idOf("skyengine:acacia_log");
         JUNGLE_LOG = idOf("skyengine:jungle_log");

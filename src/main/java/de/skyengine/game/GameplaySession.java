@@ -6,6 +6,7 @@ import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.DimensionManager;
 import de.skyengine.game.world.World;
+import de.skyengine.game.world.PlayerLocation;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.dimension.PortalController;
@@ -37,11 +38,20 @@ public final class GameplaySession implements IDisposable {
         final Direction.Axis portalAxis;
         final Identifier sourceDimension;
         final String sourcePortalId, targetPortalId;
+        final PlayerLocation exactDestination;
 
         PendingDimensionSwitch(Identifier target, int x, int y, int z, Identifier portalType,
                                boolean createReturnPortal, Direction.Axis portalAxis,
                                Identifier sourceDimension, String sourcePortalId,
                                String targetPortalId) {
+            this(target, x, y, z, portalType, createReturnPortal, portalAxis,
+                    sourceDimension, sourcePortalId, targetPortalId, null);
+        }
+
+        PendingDimensionSwitch(Identifier target, int x, int y, int z, Identifier portalType,
+                               boolean createReturnPortal, Direction.Axis portalAxis,
+                               Identifier sourceDimension, String sourcePortalId,
+                               String targetPortalId, PlayerLocation exactDestination) {
             this.target = target;
             this.x = x;
             this.y = y;
@@ -52,6 +62,7 @@ public final class GameplaySession implements IDisposable {
             this.sourceDimension = sourceDimension;
             this.sourcePortalId = sourcePortalId;
             this.targetPortalId = targetPortalId;
+            this.exactDestination = exactDestination;
         }
     }
 
@@ -63,10 +74,19 @@ public final class GameplaySession implements IDisposable {
         final Identifier sourceDimension;
         final String sourcePortalId;
         final PortalIndex.Entry indexedPortal;
+        final PlayerLocation exactDestination;
 
         PendingArrival(int x, int y, int z, Identifier portalType, boolean createReturnPortal,
                        Direction.Axis portalAxis, Identifier sourceDimension,
                        String sourcePortalId, PortalIndex.Entry indexedPortal) {
+            this(x, y, z, portalType, createReturnPortal, portalAxis, sourceDimension,
+                    sourcePortalId, indexedPortal, null);
+        }
+
+        PendingArrival(int x, int y, int z, Identifier portalType, boolean createReturnPortal,
+                       Direction.Axis portalAxis, Identifier sourceDimension,
+                       String sourcePortalId, PortalIndex.Entry indexedPortal,
+                       PlayerLocation exactDestination) {
             this.x = x;
             this.y = y;
             this.z = z;
@@ -76,6 +96,7 @@ public final class GameplaySession implements IDisposable {
             this.sourceDimension = sourceDimension;
             this.sourcePortalId = sourcePortalId;
             this.indexedPortal = indexedPortal;
+            this.exactDestination = exactDestination;
         }
     }
 
@@ -100,8 +121,15 @@ public final class GameplaySession implements IDisposable {
         this.dimension = this.playerDimensionTicket.dimension();
         this.view = this.createView(this.dimension);
         if (!this.world.players().localPlayerHasPosition()) {
-            int spawnY = this.dimension.getGenerator().sampleHeight(0, 0) + 2;
-            this.localPlayer.setPosition(0.5, spawnY, 0.5);
+            World.SpawnPoint spawn = this.world.spawnPoint();
+            if (spawn == null) {
+                int spawnY = this.dimension.getGenerator().sampleHeight(0, 0) + 2;
+                this.localPlayer.setPosition(0.5, spawnY, 0.5);
+            } else {
+                this.localPlayer.setPosition(spawn.x() + 0.5, spawn.y(), spawn.z() + 0.5);
+                this.localPlayer.yaw = spawn.yaw();
+                this.localPlayer.pitch = spawn.pitch();
+            }
         }
     }
 

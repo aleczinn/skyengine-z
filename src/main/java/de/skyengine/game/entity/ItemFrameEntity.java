@@ -117,12 +117,18 @@ public final class ItemFrameEntity extends Entity {
         if (!this.item.isEmpty()) {
             if (!creative) world.spawnItem(this.x, this.y, this.z, this.item.copy());
             this.item = ItemStack.EMPTY;
+            if (world.getSoundManager() != null) {
+                world.getSoundManager().playItemFrameRemoveItem(this.x, this.y, this.z);
+            }
             /* Vanilla setzt beim Entfernen nur DATA_ITEM auf leer: DATA_ROTATION bleibt erhalten.
                Ein spaeter eingesetztes Item erscheint deshalb wieder in derselben Drehung. */
             this.changed(world);
             return;
         }
         this.remove();
+        if (world.getSoundManager() != null) {
+            world.getSoundManager().playItemFrameBreak(this.x, this.y, this.z);
+        }
         if (!creative) world.spawnItem(this.x, this.y, this.z,
                 new ItemStack(Items.get(de.skyengine.game.world.block.Identifier.of("skyengine:item_frame")), 1));
         this.changed(world);
@@ -130,6 +136,9 @@ public final class ItemFrameEntity extends Entity {
 
     public void breakNaturally(Dimension world) {
         if (this.isRemoved()) return;
+        if (world.getSoundManager() != null) {
+            world.getSoundManager().playItemFrameBreak(this.x, this.y, this.z);
+        }
         if (!this.item.isEmpty()) world.spawnItem(this.x, this.y, this.z, this.item.copy());
         world.spawnItem(this.x, this.y, this.z,
                 new ItemStack(Items.get(de.skyengine.game.world.block.Identifier.of("skyengine:item_frame")), 1));

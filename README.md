@@ -65,17 +65,36 @@ Als Texturen wurden die offiziellen Minecraft Texturen aus der 1.21 genutzt. Zus
 
 ## Tools
 
-Ab der 0.0.9 kann man Minecraft Welten in das SkyEngine Format konvertieren. Im Spiel geht das über
-Einzelspieler → „Importieren" (oben rechts): dort stehen die Welten aus `%APPDATA%\.minecraft\saves`
-zur Auswahl, der Import läuft im Hintergrund und zeigt Fortschritt + Log an.
-Ansonsten kann man es mit diesem Befehl nutzen:
+### Minecraft-World-Importer
+
+Minecraft-Welten lassen sich am einfachsten im Spiel über **Einzelspieler → Importieren**
+konvertieren. Dort werden die Welten aus `%APPDATA%\.minecraft\saves` angeboten; Fortschritt und
+Importprotokoll sind direkt in der GUI sichtbar.
+
+Der Kommandozeilen-Importer bleibt für Automatisierung und Entwicklung verfügbar:
 
 ```bash
-./gradlew mcimport --args="'<path_for_minecraft_world>' '<world_name>'"
+# Windows PowerShell
+.\gradlew.bat mcImport --args='"C:\Pfad\.minecraft\saves\MeineWelt" "MeineWelt"'
 
-Beispiel:
-./gradlew mcImport --args="'C:/Users/useerrr/AppData/Roaming/.minecraft/saves/MeineWelt' 'MeineWelt'"
+# Linux/macOS
+./gradlew mcImport --args='"/pfad/.minecraft/saves/MeineWelt" "MeineWelt"'
 ```
+
+### Minecraft-Schematic-Konverter
+
+Sponge-`.schem` und alte WorldEdit-`.schematic`-Dateien sind reine Importformate. Sie werden
+einmalig in das native `.structure`-Format umgewandelt und danach weder zur Laufzeit noch für den
+Worldgen benötigt:
+
+```bash
+.\gradlew.bat schematicConvert --args='convert "C:\schematics\oak.schem" --id=voxel_stories:trees/oak/oak_1'
+.\gradlew.bat schematicConvert --args='batch "C:\schematics\trees" --namespace=voxel_stories --prefix=trees'
+```
+
+Ohne `--output` landen die Dateien im globalen Katalog unter
+`%APPDATA%\.voxelstories\bin\structures`. Mit `--overwrite` dürfen vorhandene Ziele ersetzt und
+mit `--air=include` explizite Luftzellen übernommen werden. Standardmäßig wird Luft ignoriert.
 
 ## Shortcuts
 ```
@@ -84,6 +103,37 @@ F3 + G  :  Chunk-Wireframe AN/AUS
 F3 + V  :  Wireframe AN/AUS
 F3 + B  :  Entity Hitboxen anzeigen AN/AUS
 F3 + P  :  Profiler Gui
+```
+
+## Befehle
+```
+//structure load <name>    Struktur in die Bearbeitungssitzung laden
+//structure save <name>    Auswahl mit Spielerposition als Ursprung speichern
+//structure save <name> -a markierten Debug-Axt-Anker als Ursprung verwenden
+//structure list [Seite]   verfügbare Strukturen auflisten
+//wand                     exklusive Debug-Axt erhalten
+//pos1                     Position 1 unter den Füßen setzen
+//pos2                     Position 2 unter den Füßen setzen
+//hpos1                    Position 1 auf den angesehenen Block setzen
+//hpos2                    Position 2 auf den angesehenen Block setzen
+//copy [-a|--anchor]       Auswahl mit Spieler- oder gesetztem Anker kopieren
+//cut [-a|--anchor]        Auswahl kopieren und durch Luft ersetzen
+//set <block>              Auswahl mit dem angegebenen Block füllen
+                           z.B. oak_stairs[facing=east,half=top]
+//replace <von> <zu>       passenden Block bzw. BlockState ersetzen
+//replace <zu>             alle Nicht-Luft-Blöcke ersetzen
+//expand <Wert>            Auswahl in Blickrichtung erweitern
+//contract <Wert>          Auswahl in Blickrichtung verkleinern
+//stack <Anzahl>           Auswahl in Blickrichtung wiederholen
+//move <Distanz>           Blöcke in Blickrichtung verschieben
+//regen                    Auswahl aus dem Worldgen rekonstruieren
+//rotate <90|180|270>      geladene Struktur relativ rotieren
+//flip                     anhand der Blickrichtung spiegeln
+//preview [x y z]          transparente Vorschau anzeigen
+//preview clear            Vorschau entfernen
+//paste [x y z] [-a] [-s]  Struktur platzieren; Flags stehen immer am Ende
+//undo [Anzahl]            Platzierungen rückgängig machen
+//redo [Anzahl]            rückgängig gemachte Platzierungen wiederholen
 ```
 
 ## Development
@@ -186,7 +236,7 @@ v0.0.8
 - Gui-System (GuiScreens, Komponenten wie Button, Slider, CycleButton inkl. Persistenz; Ressourcenpacks sind WIP)
 - Gui Inventare sind ebenfalls möglich (z. B. Inventar im Survival mit Spielermodell)
 - I18n für Übersetzungen im Menü, Hotbar oder Itemnamen
-- Spieler wird basierend auf Minecraft Skins gerendert (eigener Skin in appdata/.skyengine/skin.png)
+- Spieler wird basierend auf Minecraft Skins gerendert (eigener Skin in appdata/.voxelstories/skin.png)
 - Hand-Item-Rendering
 - Spieleranimationen für Laufen/Essen/Block Interaktion
 

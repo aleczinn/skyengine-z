@@ -10,7 +10,12 @@ import de.skyengine.game.world.generator.feature.trees.TreeShape;
 public final class Biome {
 
     /** Gewichteter Baumtyp des Bioms (Auswahl via {@code TreeShapes.pick}). */
-    public record TreeEntry(int weight, TreeShape shape) {
+    public record TreeEntry(int weight, String type, TreeShape shape) {
+        public TreeEntry {
+            if (weight <= 0 || type == null || type.isBlank() || shape == null) {
+                throw new IllegalArgumentException("Ungueltiger Baum-Eintrag");
+            }
+        }
     }
 
     /** Gewichtete Bodenpflanze (Auswahl per Hash gegen die Gewichtssumme). */

@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import de.skyengine.core.file.Files;
+import de.skyengine.core.SkyEngine;
 import de.skyengine.core.resource.ResourceId;
 import de.skyengine.core.resource.ResourceManager;
 import de.skyengine.core.resource.Resources;
@@ -61,8 +62,7 @@ public final class I18n {
 
     /** Übersetzter Text zu einem Key (Fallback-Kette siehe Klassen-Doku). */
     public static String tr(String key) {
-        String value = active.get(key);
-        if (value == null) value = fallback.get(key);
+        String value = lookup(key);
         return value != null ? value : missing(key);
     }
 
@@ -73,7 +73,24 @@ public final class I18n {
 
     /** true, wenn der Schlüssel in aktiver Sprache oder Fallback tatsächlich vorhanden ist. */
     public static boolean has(String key) {
-        return active.containsKey(key) || fallback.containsKey(key);
+        return lookup(key) != null;
+    }
+
+    private static String lookup(String key) {
+        String value = active.get(key);
+        if (value == null) value = fallback.get(key);
+        if (value != null) return value;
+        String marker = "." + SkyEngine.GAME_PREFIX + ".";
+        int namespace = key.indexOf(marker);
+        if (namespace < 0) return null;
+        for (String legacy : SkyEngine.LEGACY_GAME_PREFIXES) {
+            String legacyKey = key.substring(0, namespace) + "." + legacy + "."
+                    + key.substring(namespace + marker.length());
+            value = active.get(legacyKey);
+            if (value == null) value = fallback.get(legacyKey);
+            if (value != null) return value;
+        }
+        return null;
     }
 
     /** Alle anlegbaren Sprachen (eine JSON-Datei = eine Sprache), Name immer nativ. */

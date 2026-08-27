@@ -17,6 +17,19 @@ public final class ChatManager {
     public ChatManager() {
         this.register(new GiveCommand());
         this.register(new DimensionCommand());
+        this.register(new KillCommand());
+        this.register(new GamemodeCommand());
+        this.register(new TeleportCommand());
+        this.register(new SetSpawnPointCommand());
+        this.register(new SetHomeCommand());
+        this.register(new HomeCommand());
+        this.register(new BiomeCommand());
+        this.register(new StructureCommand());
+        for (String name : List.of("wand", "pos1", "pos2", "hpos1", "hpos2", "copy", "cut",
+                "set", "replace", "expand", "contract", "stack", "move", "regen",
+                "rotate", "flip", "preview", "paste", "undo", "redo")) {
+            this.register(new WorldEditCommand(name));
+        }
     }
 
     /** Zentraler Erweiterungspunkt fuer spaetere Engine- oder Mod-Befehle. */
@@ -32,7 +45,9 @@ public final class ChatManager {
             this.history.add(value);
         }
         CommandResult result = this.dispatcher.execute(context, value);
-        this.addMessage((result.success() ? "§f" : "§c") + result.message());
+        for (String message : result.messages()) {
+            this.addMessage((result.success() ? "§f" : "§c") + message);
+        }
     }
 
     public void addMessage(String markup) {

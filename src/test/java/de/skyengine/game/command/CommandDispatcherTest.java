@@ -28,7 +28,7 @@ final class CommandDispatcherTest {
         CommandResult result = dispatcher.execute(new CommandContext(inventory), "/give stone");
 
         assertTrue(result.success());
-        assertEquals("skyengine:stone", inventory.get(0).getItem().getId().toString());
+        assertEquals("voxel_stories:stone", inventory.get(0).getItem().getId().toString());
         assertEquals(1, inventory.get(0).getCount());
     }
 
@@ -53,14 +53,61 @@ final class CommandDispatcherTest {
         CommandContext context = new CommandContext(new SimpleItemStorage(1));
 
         assertEquals(List.of("/give"), dispatcher.suggest(context, "/g"));
-        assertTrue(dispatcher.suggest(context, "/give skyengine:sto")
-                .contains("/give skyengine:stone"));
+        assertTrue(dispatcher.suggest(context, "/give voxel_stories:sto")
+                .contains("/give voxel_stories:stone"));
         assertTrue(dispatcher.suggest(context, "/give sto")
-                .contains("/give skyengine:stone"));
+                .contains("/give voxel_stories:stone"));
         assertTrue(dispatcher.suggest(context, "/give ends")
-                .contains("/give skyengine:end_stone"));
+                .contains("/give voxel_stories:end_stone"));
         assertEquals(" <item> [amount]", dispatcher.hint("/give"));
         assertEquals(" [amount]", dispatcher.hint("/give stone"));
+    }
+
+    @Test
+    void dispatchesDoubleSlashNamespaceSeparately() {
+        CommandDispatcher dispatcher = new CommandDispatcher();
+        dispatcher.register(new Command() {
+            @Override public String prefix() { return "//"; }
+            @Override public String name() { return "paste"; }
+            @Override public CommandResult execute(CommandContext context, List<String> arguments) {
+                return CommandResult.success("ok");
+            }
+        });
+        assertTrue(dispatcher.execute(new CommandContext(new SimpleItemStorage(1)), "//paste").success());
+        assertFalse(dispatcher.execute(new CommandContext(new SimpleItemStorage(1)), "/paste").success());
+        assertEquals(List.of("//paste"), dispatcher.suggest(
+                new CommandContext(new SimpleItemStorage(1)), "//p"));
+    }
+
+    @Test
+    void structureAndPlacementHintsUseDoubleSlashAndGroupedTrailingArguments() {
+        CommandDispatcher dispatcher = new CommandDispatcher();
+        dispatcher.register(new StructureCommand());
+        dispatcher.register(new WorldEditCommand("paste"));
+
+        assertEquals(List.of("//structure"), dispatcher.suggest(
+                new CommandContext(new SimpleItemStorage(1)), "//str"));
+        assertEquals(List.of(), dispatcher.suggest(
+                new CommandContext(new SimpleItemStorage(1)), "/str"));
+        CommandContext emptyContext = new CommandContext(new SimpleItemStorage(1));
+        assertTrue(dispatcher.execute(emptyContext, "/structure list").messages().getFirst()
+                .startsWith("Unknown command"));
+        assertTrue(dispatcher.execute(emptyContext, "//structures list").messages().getFirst()
+                .startsWith("Unknown command"));
+        assertEquals("No world is open for structure commands",
+                dispatcher.execute(emptyContext, "//structure list").messages().getFirst());
+        assertEquals(" <save|load|list>", dispatcher.hint("//structure"));
+        assertEquals(" <name> [args: -a Use anchor, air=include Include air, overwrite=true Overwrite]",
+                dispatcher.hint("//structure save"));
+        assertEquals(" [args: -a Use anchor, air=include Include air, overwrite=true Overwrite]",
+                dispatcher.hint("//structure save trees/oak"));
+
+        String pasteArgs = " [args: -a Ignore air, -s Select structure, "
+                + "replace=keep Keep existing blocks]";
+        assertEquals(" [x y z]" + pasteArgs, dispatcher.hint("//paste"));
+        assertEquals(" [y z]" + pasteArgs, dispatcher.hint("//paste -5"));
+        assertEquals(pasteArgs, dispatcher.hint("//paste 0 64 3"));
+        assertEquals("", dispatcher.hint("//paste 0 64 3 -a"));
     }
 
     private static CommandDispatcher dispatcher() {

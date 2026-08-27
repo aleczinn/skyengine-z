@@ -2122,13 +2122,13 @@ public class ChunkRenderer {
        LOD nutzt für X/Z eine 32-Block-Transition-Marge und für Y weiterhin Bias +1.
        UV ist fixed 6.10 mit Bias +1.
        z: v | layer<<16 — w: rgb8
-       5. Int: Licht in Bits 0-7, Vertex-Flags ab Bit 8 (siehe ChunkMesher) — Stride wächst
+       5. Int: Licht in Bits 0-15, Vertex-Flags ab Bit 16 (siehe ChunkMesher) — Stride wächst
        automatisch über ChunkMesher.VERTEX_SIZE, a_data liest weiterhin nur die ersten 4 Ints
        Section-Origin (kamerarelativ) kommt pro Draw aus dem SSBO, indiziert via gl_DrawID. */
     private static final String VERTEX_SOURCE = """
             #version 460 core
             layout(location = 0) in uvec4 a_data;
-            /* 5. Int: Skylight Bits 0-3, Blocklight 4-7, Vertex-Flags ab Bit 8. */
+            /* 5. Int: Skylight Bits 0-7, Blocklight 8-15, Vertex-Flags ab Bit 16. */
             layout(location = 1) in uint a_light;
 
             const uint FLAT_SOURCE_FLUID_TOP = %du;
@@ -2189,7 +2189,7 @@ public class ChunkRenderer {
                 v_debugLocalXZ = pos.xz;
                 /* Himmels- und Blocklicht je 0..1, interpoliert -> weiche Verlaeufe (Smooth
                    Lighting). Muss VOR dem Ausduennungs-Block stehen, der mit return aussteigt. */
-                v_light = vec2(float(a_light & 0xFu), float((a_light >> 4) & 0xFu)) * (1.0 / 15.0);
+                v_light = vec2(float(a_light & 0xFFu), float((a_light >> 8) & 0xFFu)) * (1.0 / 255.0);
                 v_denseAlpha = (a_light & LOD_DENSE_ALPHA) != 0u ? 1u : 0u;
                 /* Occlusion-Debug (GpuCull.DEBUG_TINT): der Compute markiert Verdeckt-Verdikte
                    ueber baseInstance=1 statt sie zu cullen -> rot tinten. */

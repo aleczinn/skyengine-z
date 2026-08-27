@@ -15,7 +15,7 @@
       "icon": "skyengine:bricks",
       "items": [
         { "for": "wood", "items": [
-            "{wood}_log", "stripped_{wood}_log", "{wood}_planks",
+            "{wood}_log", "{wood}_wood", "stripped_{wood}_log", "{wood}_planks",
             "{wood}_stairs", "{wood}_slab", "{wood}_fence", "{wood}_fence_gate",
             "{wood}_door", "{wood}_trapdoor", "{wood}_pressure_plate", "{wood}_button"
         ]},

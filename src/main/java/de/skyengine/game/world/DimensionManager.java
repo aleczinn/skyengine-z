@@ -7,6 +7,7 @@ import de.skyengine.game.world.chunk.WorldWorkerPool;
 import de.skyengine.game.world.dimension.PortalLinks;
 import de.skyengine.game.world.dimension.WorldgenRegistries;
 import de.skyengine.game.world.save.LevelData;
+import de.skyengine.game.world.structure.StructureTemplateManager;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -70,6 +71,7 @@ public final class DimensionManager implements IDisposable {
     private final WorldWorkerPool workers;
     private final PortalLinks portalLinks;
     private final SoundManager soundManager;
+    private final de.skyengine.game.world.structure.StructureTemplateManager.Snapshot structures;
     private final LongSupplier clock;
     private final long unloadDelayNanos;
     private final Map<Identifier, Loaded> dimensions = new LinkedHashMap<>();
@@ -77,18 +79,32 @@ public final class DimensionManager implements IDisposable {
     DimensionManager(String dirName, LevelData level, File saveRoot, WorldWorkerPool workers,
                      PortalLinks portalLinks, SoundManager soundManager) {
         this(dirName, level, saveRoot, workers, portalLinks, soundManager,
-                System::nanoTime, DEFAULT_UNLOAD_DELAY_NANOS);
+                System::nanoTime, DEFAULT_UNLOAD_DELAY_NANOS, null);
+    }
+
+    DimensionManager(String dirName, LevelData level, File saveRoot, WorldWorkerPool workers,
+                     PortalLinks portalLinks, SoundManager soundManager,
+                     StructureTemplateManager.Snapshot structures) {
+        this(dirName, level, saveRoot, workers, portalLinks, soundManager, System::nanoTime, DEFAULT_UNLOAD_DELAY_NANOS, structures);
     }
 
     DimensionManager(String dirName, LevelData level, File saveRoot, WorldWorkerPool workers,
                      PortalLinks portalLinks, SoundManager soundManager,
                      LongSupplier clock, long unloadDelayNanos) {
+        this(dirName, level, saveRoot, workers, portalLinks, soundManager, clock, unloadDelayNanos, null);
+    }
+
+    DimensionManager(String dirName, LevelData level, File saveRoot, WorldWorkerPool workers,
+                     PortalLinks portalLinks, SoundManager soundManager,
+                     LongSupplier clock, long unloadDelayNanos,
+                     StructureTemplateManager.Snapshot structures) {
         this.dirName = dirName;
         this.level = level;
         this.saveRoot = saveRoot;
         this.workers = workers;
         this.portalLinks = portalLinks;
         this.soundManager = soundManager;
+        this.structures = structures;
         this.clock = clock;
         this.unloadDelayNanos = unloadDelayNanos;
     }
@@ -157,7 +173,7 @@ public final class DimensionManager implements IDisposable {
 
     private Loaded load(Identifier id) {
         Dimension dimension = new Dimension(this.dirName, this.level, id, this.saveRoot,
-                this.workers, this.portalLinks);
+                this.workers, this.portalLinks, this.structures);
         dimension.setSoundManager(this.soundManager);
         dimension.init();
         return new Loaded(dimension);

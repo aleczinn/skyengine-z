@@ -1,5 +1,6 @@
 package de.skyengine.core.file;
 
+import de.skyengine.core.SkyEngine;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -7,34 +8,31 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.stream.Stream;
 
 /**
- * Zentraler Spiel-Root-Ordner (analog {@code .minecraft}): {@code %APPDATA%\.skyengine}
- * (Fallback {@code user.home/.skyengine} auf Nicht-Windows). Enthält {@code config/},
- * {@code saves/} und {@code screenshots/}; {@code debug/} + {@code debug-maps/} bleiben
- * bewusst als Dev-Werkzeuge im Arbeitsverzeichnis.
- *
- * <p><b>Einmalige Migration:</b> Existiert der Root noch nicht, werden beim ersten Zugriff
- * vorhandene {@code config/}, {@code saves/}, {@code screenshots/} aus dem Arbeitsverzeichnis
- * hineinkopiert (Marker = Existenz des Root-Ordners). Läuft im statischen Lazy-Init, weil
- * {@code GameSettings.get()} sehr früh liest — vor jedem Engine-Init-Hook.
+ * Zentraler Spiel-Root-Ordner (analog {@code .minecraft}): {@code %APPDATA%/.voxelstories}
+ * (Fallback {@code user.home/.voxelstories} auf Nicht-Windows). Enthält unter anderem
+ * {@code config/}, {@code saves/} und {@code screenshots/}. Tests und Werkzeuge können den
+ * Root mit {@code -Dskyengine.gameDirectory=<pfad>} vollständig isolieren.
  */
 public final class GameDirectory {
 
+    public static final String ROOT_PROPERTY = "skyengine.gameDirectory";
     private static final Logger LOGGER = LogManager.getLogger(GameDirectory.class.getName());
-    private static final String[] MIGRATED_DIRS = {"config", "saves", "screenshots"};
+    private static final String[] OBSOLETE_MARKERS = {
+            ".migration-from-skyengine-v1",
+            ".migration-from-working-directory-v1",
+            "bin/structures/.default-structure-v1",
+            "bin/structures/.default-structures-v1"
+    };
 
     private static File root;
 
-    /** Der Spiel-Root-Ordner (beim ersten Aufruf: anlegen + ggf. Migration). */
+    /** Der Spiel-Root-Ordner; wird beim ersten Aufruf angelegt. */
     public static synchronized File root() {
         if (root == null) {
             root = resolveRoot();
-            if (!root.exists()) {
-                migrate(root);
-            }
+            ensureRoot(root);
         }
         return root;
     }
@@ -45,40 +43,39 @@ public final class GameDirectory {
     }
 
     private static File resolveRoot() {
+        String configured = System.getProperty(ROOT_PROPERTY);
+        if (configured != null && !configured.isBlank()) {
+            return new File(configured).getAbsoluteFile();
+        }
         String appData = System.getenv("APPDATA");
-        File base = appData != null && !appData.isBlank() ? new File(appData) : new File(System.getProperty("user.home"));
-        return new File(base, ".skyengine");
+        File base = appData != null && !appData.isBlank()
+                ? new File(appData) : new File(System.getProperty("user.home"));
+        return new File(base, SkyEngine.GAME_DATA_DIRECTORY_NAME);
     }
 
-    /** Root anlegen und Altbestand aus dem Arbeitsverzeichnis EINMALIG hinüberkopieren. */
-    private static void migrate(File target) {
-        if (!target.mkdirs()) {
+    /** Root anlegen und veraltete technische Marker früherer Alpha-Versionen entfernen. */
+    private static void ensureRoot(File target) {
+        if (!target.isDirectory() && !target.mkdirs()) {
             LOGGER.error("Spiel-Ordner konnte nicht angelegt werden: " + target.getPath());
             return;
         }
-        for (String dir : MIGRATED_DIRS) {
-            File source = new File(dir);
-            if (!source.isDirectory()) continue;
-            try {
-                copyRecursive(source.toPath(), new File(target, dir).toPath());
-                LOGGER.info("Migriert: " + source.getPath() + " -> " + new File(target, dir).getPath());
-            } catch (IOException e) {
-                LOGGER.error("Migration fehlgeschlagen für " + source.getPath(), e);
-            }
+        cleanupObsoleteMarkers(target.toPath());
+        String configured = System.getProperty(ROOT_PROPERTY);
+        if (configured != null && !configured.isBlank()) {
+            LOGGER.info("Isolierter Spiel-Ordner: " + target.getPath());
+        } else {
+            LOGGER.info("Spiel-Ordner: " + target.getPath());
         }
-        LOGGER.info("Spiel-Ordner: " + target.getPath());
     }
 
-    private static void copyRecursive(Path source, Path target) throws IOException {
-        try (Stream<Path> walk = Files.walk(source)) {
-            for (Path path : (Iterable<Path>) walk::iterator) {
-                Path dest = target.resolve(source.relativize(path).toString());
-                if (Files.isDirectory(path)) {
-                    Files.createDirectories(dest);
-                } else {
-                    Files.createDirectories(dest.getParent());
-                    Files.copy(path, dest, StandardCopyOption.REPLACE_EXISTING);
-                }
+    static void cleanupObsoleteMarkers(Path root) {
+        for (String relative : OBSOLETE_MARKERS) {
+            Path marker = root.resolve(relative);
+            try {
+                Files.deleteIfExists(marker);
+            } catch (IOException e) {
+                LOGGER.warning("Veralteter Marker konnte nicht entfernt werden: "
+                        + marker + " (" + e.getMessage() + ")");
             }
         }
     }

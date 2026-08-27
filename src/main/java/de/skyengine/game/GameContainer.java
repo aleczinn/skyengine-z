@@ -15,12 +15,14 @@ import de.skyengine.game.command.ChatManager;
 import de.skyengine.game.command.CommandContext;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.block.Block;
+import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.BlockRaycast;
 import de.skyengine.game.world.block.BlockTextures;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.DimensionManager;
 import de.skyengine.game.world.World;
+import de.skyengine.game.world.PlayerLocation;
 import de.skyengine.game.world.dimension.PortalController;
 import de.skyengine.game.world.dimension.PortalCoordinates;
 import de.skyengine.game.world.dimension.PortalDefinition;
@@ -99,11 +101,20 @@ import de.skyengine.graphics.texture.BlockTextureAtlas;
 import de.skyengine.game.world.block.entity.BlockEntities;
 import de.skyengine.game.world.save.LevelData;
 import de.skyengine.game.world.save.WorldSaves;
+import de.skyengine.game.world.structure.StructurePlacement;
+import de.skyengine.game.world.structure.StructureTemplate;
+import de.skyengine.game.world.structure.StructureTransform;
+import de.skyengine.game.world.structure.WorldEditSelection;
+import de.skyengine.game.world.structure.WorldEditSession;
+import de.skyengine.game.world.generator.biome.Biome;
+import de.skyengine.game.world.generator.biome.BiomeLocator;
+import de.skyengine.game.world.generator.biome.Biomes;
 import org.lwjgl.opengl.GL11;
 import de.skyengine.graphics.post.PostProcessor;
 import de.skyengine.graphics.world.ChunkBorderRenderer;
 import de.skyengine.graphics.world.SelectionBoxRenderer;
 import de.skyengine.graphics.world.DimensionView;
+import de.skyengine.graphics.world.StructurePreviewRenderer;
 import de.skyengine.graphics.entity.EntityHitboxRenderer;
 import de.skyengine.utils.Utils;
 import de.skyengine.utils.logging.LogManager;
@@ -117,6 +128,7 @@ import java.io.File;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.function.Supplier;
+import java.util.concurrent.CompletableFuture;
 
 import de.skyengine.game.GameplaySession.PendingArrival;
 import de.skyengine.game.GameplaySession.PendingDimensionSwitch;
@@ -132,6 +144,7 @@ public class GameContainer implements IResizeable, IDisposable {
     private ChunkBorderRenderer chunkBorderRenderer;
     private EntityHitboxRenderer entityHitboxRenderer;
     private CrackRenderer crackRenderer;
+    private StructurePreviewRenderer structurePreviewRenderer;
     private GuiManager guiManager;
 
     /* Welt-unabhängige Engine-Ressourcen (Boot-Init, leben bis zum Exit): Welt-Ein-/Austritte
@@ -221,6 +234,8 @@ public class GameContainer implements IResizeable, IDisposable {
        — siehe updatePaused. */
     private boolean paused = false;
     private float pausedPartialTick = 0F;
+    /** Effektiver (auch im Pausemenue eingefrorener) Partial-Tick des zuletzt gerenderten Weltframes. */
+    private float renderedPartialTick = 0F;
 
     private BlockRaycast.Hit hit = null;
     /** Entity-Treffer nur, wenn er vor dem naechsten Block auf demselben Augenstrahl liegt. */
@@ -229,6 +244,8 @@ public class GameContainer implements IResizeable, IDisposable {
 
     private final ChatManager chat = new ChatManager();
     private final ChatHud chatHud = new ChatHud();
+    private CompletableFuture<BiomeLocator.Result> biomeSearch;
+    private int biomeSearchGeneration;
     /* Slot-Wechsel-Zeitpunkt für die Itemnamen-Einblendung über der Hotbar (reine Anzeige). */
     private static final long ITEM_NAME_HOLD_MS = 2000, ITEM_NAME_FADE_MS = 500;
     private long itemNameShownAt = 0;
@@ -258,6 +275,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.chunkBorderRenderer = new ChunkBorderRenderer();
         this.entityHitboxRenderer = new EntityHitboxRenderer();
         this.crackRenderer = new CrackRenderer();
+        this.structurePreviewRenderer = new StructurePreviewRenderer();
     }
 
     /**
@@ -287,6 +305,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.chunkBorderRenderer.init();
         this.entityHitboxRenderer.init();
         this.crackRenderer.init(this.atlas.textures());
+        this.structurePreviewRenderer.init(this.atlas.textures());
         this.blockEntityRenderers.register(BlockEntities.CHEST, new ChestRenderer());
         this.blockEntityRenderers.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
         this.blockEntityRenderers.register(BlockEntities.PISTON_MOVING,
@@ -312,6 +331,7 @@ public class GameContainer implements IResizeable, IDisposable {
      * wendet die Welt-Einstellungen an und zeigt den Welt-Ladebildschirm.
      */
     public void enterWorld(WorldSaves.WorldSave save) {
+        this.cancelBiomeSearch();
         this.waterVision.reset();
         this.playerWasInWater = false;
         this.underwaterAudio.reset();
@@ -352,12 +372,23 @@ public class GameContainer implements IResizeable, IDisposable {
         this.player().motionY = 0;
         this.player().motionZ = 0;
         this.player().resetVitals();
-        if (!this.dimension().getDimensionId().equals(WorldgenRegistries.OVERWORLD)) {
+        World.SpawnPoint configured = this.world().spawnPoint();
+        Identifier spawnDimension = configured == null ? WorldgenRegistries.OVERWORLD : configured.dimension();
+        if (!this.dimension().getDimensionId().equals(spawnDimension)) {
+            PlayerLocation exact = configured == null ? null : new PlayerLocation(spawnDimension,
+                    configured.x() + 0.5, configured.y(), configured.z() + 0.5,
+                    configured.yaw(), configured.pitch());
             this.session.pendingDimensionSwitch = new PendingDimensionSwitch(
-                    WorldgenRegistries.OVERWORLD, 0, 64, 0, null, false, null,
-                    this.dimension().getDimensionId(), null, null);
+                    spawnDimension, configured == null ? 0 : configured.x(),
+                    configured == null ? 64 : configured.y(), configured == null ? 0 : configured.z(),
+                    null, false, null, this.dimension().getDimensionId(), null, null, exact);
         } else {
-            this.placeAtWorldSpawn(this.player());
+            if (configured == null) this.placeAtWorldSpawn(this.player());
+            else {
+                this.player().yaw = configured.yaw();
+                this.player().pitch = configured.pitch();
+                this.teleportPlayer(configured.x() + 0.5, configured.y(), configured.z() + 0.5);
+            }
         }
         this.player().snapPrevToCurrent();
     }
@@ -369,6 +400,7 @@ public class GameContainer implements IResizeable, IDisposable {
      * liegt, bevor sie sterben (ein einmaliger Stall beim Menü-Wechsel ist unkritisch).
      */
     public void exitToTitle() {
+        this.cancelBiomeSearch();
         this.guiManager.close();
         this.saveCurrentWorld(true);
         GL11.glFinish();
@@ -613,7 +645,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.resetPlayerAfterDimensionMove();
         this.session.pendingArrival = new PendingArrival(request.x, request.y, request.z,
                 request.portalType, request.createReturnPortal, request.portalAxis,
-                request.sourceDimension, request.sourcePortalId, indexed);
+                request.sourceDimension, request.sourcePortalId, indexed, request.exactDestination);
         this.session.portalController.lockUntilExit();
         this.notifyOnSaveDone = false;
         this.hit = null;
@@ -633,17 +665,30 @@ public class GameContainer implements IResizeable, IDisposable {
 
         PortalDefinition definition = arrival.portalType == null ? null
                 : WorldgenRegistries.PORTALS.get(arrival.portalType);
+        if (arrival.exactDestination != null) {
+            PlayerLocation destination = arrival.exactDestination;
+            this.player().yaw = destination.yaw();
+            this.player().pitch = destination.pitch();
+            this.finishArrival(destination.x(), destination.y(), destination.z());
+            return;
+        }
         if (definition != null && definition.linkPolicy() == PortalDefinition.LinkPolicy.NETHER) {
             this.finalizeNetherArrival(arrival);
             return;
         }
 
-        int portalY = arrival.createReturnPortal
+        boolean miningPortal = Identifier.of("skyengine:mining_portal").equals(arrival.portalType);
+        boolean createMiningArrival = shouldCreateMiningArrivalPlatform(arrival.portalType,
+                this.dimension().getDimensionId(), arrival.createReturnPortal);
+        int portalY = miningPortal
                 ? this.findSafePortalY(arrival.x, arrival.z, arrival.portalType) : -1;
-        int feetY;
         if (portalY >= 1) {
-            feetY = portalY;
-        } else {
+            /* Mining-Portale sind feste Bloecke. Der Spieler erscheint deshalb oestlich daneben
+               und nie innerhalb des Portalblocks. Dabei wird die Zielwelt nicht veraendert. */
+            this.finishArrival(arrival.x + 1.5, portalY, arrival.z + 0.5);
+            return;
+        }
+        if (createMiningArrival) {
             int floorY = this.findArrivalFloor(arrival.x, arrival.z);
             for (int x = arrival.x - 1; x <= arrival.x + 1; x++) {
                 for (int z = arrival.z - 1; z <= arrival.z + 1; z++) {
@@ -652,16 +697,25 @@ public class GameContainer implements IResizeable, IDisposable {
                     this.dimension().setBlock(x, floorY + 2, z, Blocks.AIR);
                 }
             }
-            feetY = floorY + 1;
-            if (arrival.createReturnPortal) {
-                this.dimension().setBlock(arrival.x, feetY, arrival.z, Blocks.MINING_PORTAL);
-            }
+            int feetY = floorY + 1;
+            this.dimension().setBlock(arrival.x, feetY, arrival.z, Blocks.MINING_PORTAL);
+            this.finishArrival(arrival.x + 1.5, feetY, arrival.z + 0.5);
+            return;
         }
-        this.player().setPosition(arrival.x + 0.5, feetY, arrival.z + 0.5);
-        this.resetPlayerAfterDimensionMove();
-        this.session.portalController.lockUntilExit();
-        this.session.pendingArrival = null;
-        this.saveCurrentWorld(false);
+
+        /* Befehle und allgemeine SIMPLE-Portale duerfen am Ziel keine Plattform, Lufttasche oder
+           sonstige Bloecke erzeugen. Es wird ausschliesslich ein vorhandener sicherer Standpunkt
+           in der geladenen Umgebung gesucht. */
+        int[] safe = this.findSafeArrival(arrival.x, arrival.y, arrival.z);
+        this.finishArrival(safe[0] + 0.5, safe[1], safe[2] + 0.5);
+    }
+
+    static boolean shouldCreateMiningArrivalPlatform(Identifier portalType,
+                                                      Identifier targetDimension,
+                                                      boolean createReturnPortal) {
+        return createReturnPortal
+                && Identifier.of("skyengine:mining_portal").equals(portalType)
+                && WorldgenRegistries.MINING.equals(targetDimension);
     }
 
     private void finalizeNetherArrival(PendingArrival arrival) {
@@ -743,12 +797,8 @@ public class GameContainer implements IResizeable, IDisposable {
         }
 
         int floor = Math.clamp(targetY, 32, maxFloor);
-        for (int x = targetX - 2; x <= targetX + 2; x++) {
-            for (int z = targetZ - 2; z <= targetZ + 2; z++) {
-                this.dimension().setBlock(x, floor, z, Blocks.OBSIDIAN, false);
-                for (int y = floor + 1; y <= floor + 5; y++) this.dimension().setBlock(x, y, z, Blocks.AIR, false);
-            }
-        }
+        /* Der anschliessende buildNetherPortal-Aufruf erzeugt nur den notwendigen Rahmen und
+           dessen Innenraum. Eine zusaetzliche Obsidianplattform gehoert nicht zur Ankunft. */
         return new int[]{targetX, floor, targetZ};
     }
 
@@ -791,7 +841,7 @@ public class GameContainer implements IResizeable, IDisposable {
         }
     }
 
-    private void finishArrival(double x, int feetY, double z) {
+    private void finishArrival(double x, double feetY, double z) {
         this.player().setPosition(x, feetY, z);
         this.resetPlayerAfterDimensionMove();
         this.session.portalController.lockUntilExit();
@@ -831,7 +881,41 @@ public class GameContainer implements IResizeable, IDisposable {
         return 64;
     }
 
+    private int[] findSafeArrival(int targetX, int preferredY, int targetZ) {
+        int clampedY = Math.clamp(preferredY, 1, Chunk.HEIGHT - 2);
+        for (int radius = 0; radius <= 1; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
+                    int x = targetX + dx, z = targetZ + dz;
+                    for (int distance = 0; distance < Chunk.HEIGHT; distance++) {
+                        int above = clampedY + distance;
+                        if (above < Chunk.HEIGHT - 1 && this.isSafeArrivalCell(x, above, z)) {
+                            return new int[]{x, above, z};
+                        }
+                        int below = clampedY - distance;
+                        if (distance > 0 && below >= 1 && this.isSafeArrivalCell(x, below, z)) {
+                            return new int[]{x, below, z};
+                        }
+                    }
+                }
+            }
+        }
+        /* Auch im unguenstigen Fall bleibt die Operation strikt blockfrei. */
+        return new int[]{targetX, clampedY, targetZ};
+    }
+
+    private boolean isSafeArrivalCell(int x, int feetY, int z) {
+        BlockState floor = Blocks.getState(this.dimension().getBlock(x, feetY - 1, z));
+        BlockState feet = Blocks.getState(this.dimension().getBlock(x, feetY, z));
+        BlockState head = Blocks.getState(this.dimension().getBlock(x, feetY + 1, z));
+        return floor.isSolid() && !floor.isFluid()
+                && !feet.isSolid() && !feet.isFluid()
+                && !head.isSolid() && !head.isFluid();
+    }
+
     private void resetPlayerAfterDimensionMove() {
+        this.player().resetFallDistance();
         this.player().motionX = 0;
         this.player().motionY = 0;
         this.player().motionZ = 0;
@@ -841,6 +925,63 @@ public class GameContainer implements IResizeable, IDisposable {
         this.waterVision.reset();
         this.playerWasInWater = false;
         this.underwaterAudio.reset();
+    }
+
+    /** Teleport innerhalb der aktiven Dimension, ohne irgendeinen Weltblock anzufassen. */
+    private void teleportPlayer(double x, double y, double z) {
+        this.player().setPosition(x, y, z);
+        this.resetPlayerAfterDimensionMove();
+        this.session.portalController.reset();
+    }
+
+    private CommandContext.HomeResult teleportHome() {
+        PlayerLocation home = this.player().getHome();
+        if (home == null) return CommandContext.HomeResult.NOT_SET;
+        if (this.session.pendingDimensionSwitch != null) return CommandContext.HomeResult.BUSY;
+        this.player().yaw = home.yaw();
+        this.player().pitch = home.pitch();
+        if (home.dimension().equals(this.dimension().getDimensionId())) {
+            this.teleportPlayer(home.x(), home.y(), home.z());
+            return CommandContext.HomeResult.TELEPORTED;
+        }
+        this.session.pendingDimensionSwitch = new PendingDimensionSwitch(home.dimension(),
+                (int) Math.floor(home.x()), (int) Math.floor(home.y()), (int) Math.floor(home.z()),
+                null, false, null, this.dimension().getDimensionId(), null, null, home);
+        return CommandContext.HomeResult.QUEUED;
+    }
+
+    private void cancelBiomeSearch() {
+        this.biomeSearchGeneration++;
+        if (this.biomeSearch != null) this.biomeSearch.cancel(true);
+        this.biomeSearch = null;
+    }
+
+    private boolean locateBiome(String name) {
+        Biome target = BiomeLocator.byName(name);
+        if (target == null || this.world() == null || this.dimension() == null) return false;
+        if (this.biomeSearch != null) this.biomeSearch.cancel(true);
+        int generation = ++this.biomeSearchGeneration;
+        GameplaySession sourceSession = this.session;
+        Identifier sourceDimension = this.dimension().getDimensionId();
+        int originX = (int) Math.floor(this.player().x);
+        int originZ = (int) Math.floor(this.player().z);
+        var generator = this.dimension().getGenerator();
+        this.biomeSearch = this.world().submitBackground(() -> BiomeLocator.locate(generator, target,
+                originX, originZ, BiomeLocator.DEFAULT_RADIUS, BiomeLocator.DEFAULT_STEP));
+        this.biomeSearch.whenComplete((result, error) -> SkyEngine.get().addTaskToRenderThread(() -> {
+            if (this.session != sourceSession || generation != this.biomeSearchGeneration) return;
+            this.biomeSearch = null;
+            if (error != null && !(error instanceof java.util.concurrent.CancellationException)) {
+                this.chat.addMessage("§c" + I18n.tr("command.biome.failed", error.getMessage()));
+            } else if (result == null) {
+                this.chat.addMessage("§c" + I18n.tr("command.biome.not_found", name,
+                        DimensionDefinition.displayName(sourceDimension)));
+            } else {
+                this.chat.addMessage("§f" + I18n.tr("command.biome.found", name,
+                        DimensionDefinition.displayName(sourceDimension), result.x(), result.z(), result.distance()));
+            }
+        }));
+        return true;
     }
 
     /**
@@ -1013,6 +1154,7 @@ public class GameContainer implements IResizeable, IDisposable {
         /* Pause: Audio anhalten UND den partialTick einfrieren. Ab hier zählt nur noch dieser
            Wert — er geht an Kamera, Welt, BlockEntities, Entities und Hand. */
         final float partialTick = this.updatePaused(rawPartialTick);
+        this.renderedPartialTick = partialTick;
 
         /* Menü-Blur: nur mit Welt UND blur-wolligem Screen (Pause + Unterseiten);
            der Pass animiert die Stärke selbst (Ein-/Ausblenden). */
@@ -1174,15 +1316,13 @@ public class GameContainer implements IResizeable, IDisposable {
         }
 
         /* Chunk-Grenzen (F3+G) um die nahen Chunks — nach dem Welt-Draw, mit gültiger Kamera. */
-        if (DebugFlags.chunkBorders != 0 && this.dimension() != null) {
-            int ccx = ((int) Math.floor(this.player().x)) >> ChunkSection.SHIFT;
-            int ccz = ((int) Math.floor(this.player().z)) >> ChunkSection.SHIFT;
-            this.chunkBorderRenderer.render(this.camera, this.dimension().getChunkManager(),
-                    ccx, ccz, DebugFlags.chunkBorders);
-        }
-
-        if (DebugFlags.entityHitboxes) {
-            this.entityHitboxRenderer.render(this.camera, this.player(), this.dimension(), partialTick);
+        /* Die Ghost-Bloecke gehoeren zur Welt; ihre Linien folgen nach dem Postprocessing. */
+        if (this.world() != null && this.dimension() != null) {
+            WorldEditSession editor = this.world().worldEdit().session(this.player().getUuid());
+            WorldEditSession.Preview preview = editor.preview();
+            if (preview != null && this.dimension().getDimensionId().equals(preview.dimension())) {
+                this.structurePreviewRenderer.render(this.camera, preview);
+            }
         }
 
         /* First-Person-Hand ins Szene-Target (läuft durch die Post-Kette), eigener Nah-Depthbereich. */
@@ -1201,6 +1341,49 @@ public class GameContainer implements IResizeable, IDisposable {
 
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.OVERLAYS);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
+    }
+
+    /**
+     * Immer sichtbare Welt-Debughilfen im fertigen Default-Framebuffer. Der Aufruf erfolgt nach
+     * TAA, Wasser-/Portal-Effekten und Color-Grading, damit Linien weder reprojiziert noch getoent
+     * werden; das GUI wird anschliessend weiterhin darueber gezeichnet.
+     */
+    public void renderDebugWorldOverlays() {
+        if (this.dimension() == null || this.player() == null) return;
+
+        if (DebugFlags.chunkBorders != 0) {
+            int ccx = ((int) Math.floor(this.player().x)) >> ChunkSection.SHIFT;
+            int ccz = ((int) Math.floor(this.player().z)) >> ChunkSection.SHIFT;
+            this.chunkBorderRenderer.render(this.camera, this.dimension().getChunkManager(),
+                    ccx, ccz, DebugFlags.chunkBorders);
+        }
+
+        if (this.world() != null) {
+            WorldEditSession editor = this.world().worldEdit().session(this.player().getUuid());
+            WorldEditSelection selection = editor.selection();
+            if (this.isStructureWandHeld() && selection != null && selection.complete()
+                    && selection.dimension().equals(this.dimension().getDimensionId())) {
+                this.chunkBorderRenderer.renderBox(this.camera, selection.bounds(), 0.2F, 0.95F, 0.35F);
+                BlockPos anchor = editor.structureAnchor();
+                if (anchor != null) {
+                    this.chunkBorderRenderer.renderBox(this.camera,
+                            new de.skyengine.game.world.structure.StructureBounds(
+                                    anchor.x(), anchor.y(), anchor.z(), anchor.x(), anchor.y(), anchor.z()),
+                            1F, 0.75F, 0.1F);
+                }
+            }
+            WorldEditSession.Preview preview = editor.preview();
+            if (preview != null && this.dimension().getDimensionId().equals(preview.dimension())) {
+                this.chunkBorderRenderer.renderBox(this.camera, preview.bounds(), 0.75F, 0.25F, 0.95F);
+                this.chunkBorderRenderer.renderBox(this.camera,
+                        new de.skyengine.game.world.structure.StructureBounds(preview.x(), preview.y(), preview.z(),
+                                preview.x(), preview.y(), preview.z()), 0.15F, 0.9F, 1F);
+            }
+        }
+
+        if (DebugFlags.entityHitboxes) {
+            this.entityHitboxRenderer.render(this.camera, this.player(), this.dimension(), this.renderedPartialTick);
+        }
     }
 
     static boolean shouldRenderUnderwaterEffect(boolean enabled, BlockState cameraFluid) {
@@ -1467,6 +1650,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.chunkBorderRenderer != null) this.chunkBorderRenderer.dispose();
         if (this.entityHitboxRenderer != null) this.entityHitboxRenderer.dispose();
         if (this.crackRenderer != null) this.crackRenderer.dispose();
+        if (this.structurePreviewRenderer != null) this.structurePreviewRenderer.dispose();
         this.playerRenderer.dispose();
         this.heldItemMeshes.dispose();
         if (this.guiManager != null) this.guiManager.dispose();
@@ -1713,7 +1897,10 @@ public class GameContainer implements IResizeable, IDisposable {
             }
         }
 
-        if (input.isBindDown(this.settings.key(KeyBindings.USE)) && this.rightClickDelay == 0 && !usingItem) {
+        /* Die Debug-Axt setzt Position 2 beziehungsweise den Anchor nur auf der Klickflanke. Der normale Haltepfad
+           würde den Befehl sonst alle RIGHT_CLICK_DELAY Ticks erneut auslösen. */
+        if (input.isBindDown(this.settings.key(KeyBindings.USE)) && this.rightClickDelay == 0
+                && !usingItem && !this.isStructureWandHeld()) {
             this.startUseItem();
         }
 
@@ -1727,6 +1914,11 @@ public class GameContainer implements IResizeable, IDisposable {
     private void dropSelectedItem(boolean fullStack) {
         ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         if (held.isEmpty()) return;
+        if (this.isStructureWandHeld()) {
+            this.clearWorldEditSelection();
+            this.stopDestroyBlock();
+            return;
+        }
         int amount = fullStack ? held.getCount() : 1;
         this.dimension().throwItem(this.player(), this.player().getInventory().extract(this.player().getSelectedSlot(), amount));
         this.animState.swing();
@@ -1743,6 +1935,13 @@ public class GameContainer implements IResizeable, IDisposable {
         this.animState.swing();
     }
 
+    /** Q mit der Debug-Axt setzt die allgemeine Selektion zurueck; Clipboard/Preview bleiben. */
+    public void clearWorldEditSelection() {
+        if (this.world() == null || this.player() == null) return;
+        this.world().worldEdit().session(this.player().getUuid()).clearSelection();
+        this.chat.addMessage("§e" + I18n.tr("command.worldedit.selection_reset"));
+    }
+
     /** MC {@code MultiPlayerGameMode.hasMissTime}: im Creative gibt es keine Schlagsperre. */
     private boolean hasMissTime() {
         return this.player().getGamemode() != Gamemode.CREATIVE;
@@ -1755,6 +1954,8 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     private boolean startAttack() {
         if (this.missTime > 0) return false;
+
+        if (this.handleWorldEditToolClick(true)) return true;
 
         boolean endAttack = false;
         if (this.minecartHit != null) {
@@ -1776,6 +1977,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 endAttack = true;
             }
         } else {
+            this.soundManager.playSwingAttack();
             /* MISS: Sperre (außer Creative) + Ticker-Reset, die Hand sinkt dadurch kurz ab. */
             if (this.hasMissTime()) this.missTime = MISS_TIME;
             this.animState.resetSwapTicker();
@@ -1788,6 +1990,13 @@ public class GameContainer implements IResizeable, IDisposable {
     private void continueAttack(boolean down) {
         if (!down) this.missTime = 0;
         if (this.missTime > 0 || this.animState.isEating()) return;
+
+        /* Position 1 beziehungsweise der Anchor wird nur über die Klickflanke gesetzt. Solange die Debug-Axt
+           gehalten wird, darf der Dauer-Abbau niemals auf den markierten Block durchfallen. */
+        if (this.isStructureWandHeld()) {
+            this.stopDestroyBlock();
+            return;
+        }
 
         if (down && (this.itemFrameHit != null || this.minecartHit != null)) {
             this.stopDestroyBlock();
@@ -1806,6 +2015,8 @@ public class GameContainer implements IResizeable, IDisposable {
     private void startUseItem() {
         if (this.isDestroying) return;
         this.rightClickDelay = RIGHT_CLICK_DELAY;
+
+        if (this.handleWorldEditToolClick(false)) return;
 
         ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
         Item beforeItem = held.getItem();
@@ -2214,7 +2425,16 @@ public class GameContainer implements IResizeable, IDisposable {
         }
         /* Mausrad: hoch = vorheriger Slot, runter = nächster (mit Wrap), wie in Minecraft. */
         double scroll = input.getScrollY();
-        if (this.player().getGamemode() == Gamemode.SPECTATOR && scroll != 0) {
+        boolean changeWorldEditMode = scroll != 0 && this.isStructureWandHeld()
+                && input.isBindDown(this.settings.key(KeyBindings.SNEAK));
+        if (changeWorldEditMode) {
+            WorldEditSession.ToolMode mode = this.world().worldEdit().session(this.player().getUuid())
+                    .cycleToolMode(scroll > 0 ? -1 : 1);
+            this.hudStatusText = I18n.tr("command.worldedit.tool_mode_status",
+                    I18n.tr("command.worldedit.tool_mode_"
+                            + mode.name().toLowerCase(java.util.Locale.ROOT)));
+            this.hudStatusShownAt = System.currentTimeMillis();
+        } else if (this.player().getGamemode() == Gamemode.SPECTATOR && scroll != 0) {
             float beforeSpeed = this.player().getSpectatorFlySpeed();
             this.player().adjustSpectatorFlySpeed(scroll);
             float speed = this.player().getSpectatorFlySpeed();
@@ -2351,8 +2571,253 @@ public class GameContainer implements IResizeable, IDisposable {
                 return GameContainer.this.requestDimensionChange(target);
             }
         };
-        this.guiManager.open(new GuiChat(this.chat, new CommandContext(this.player().getInventory(), dimensions),
+        CommandContext.StructureAccess structures = new CommandContext.StructureAccess() {
+            private int x() { return (int) Math.floor(GameContainer.this.player().x); }
+            private int y() { return (int) Math.floor(GameContainer.this.player().y); }
+            private int z() { return (int) Math.floor(GameContainer.this.player().z); }
+            private WorldEditSession editor() {
+                return GameContainer.this.world().worldEdit().session(GameContainer.this.player().getUuid());
+            }
+            @Override public String pos1() {
+                int py = (int) Math.floor(GameContainer.this.player().y) - 1;
+                editor().pos1(GameContainer.this.dimension().getDimensionId(), x(), py, z());
+                return I18n.tr("command.worldedit.pos1_success", x(), py, z());
+            }
+            @Override public String pos2() {
+                int py = (int) Math.floor(GameContainer.this.player().y) - 1;
+                editor().pos2(GameContainer.this.dimension().getDimensionId(), x(), py, z());
+                return I18n.tr("command.worldedit.pos2_success", x(), py, z());
+            }
+            private BlockRaycast.Hit targetedBlock() {
+                BlockRaycast.Hit targeted = GameContainer.this.hit;
+                if (targeted == null) throw new IllegalStateException(
+                        I18n.tr("command.worldedit.no_target"));
+                return targeted;
+            }
+            @Override public String hpos1() {
+                BlockRaycast.Hit targeted = targetedBlock();
+                editor().pos1(GameContainer.this.dimension().getDimensionId(),
+                        targeted.x(), targeted.y(), targeted.z());
+                return I18n.tr("command.worldedit.pos1_success",
+                        targeted.x(), targeted.y(), targeted.z());
+            }
+            @Override public String hpos2() {
+                BlockRaycast.Hit targeted = targetedBlock();
+                editor().pos2(GameContainer.this.dimension().getDimensionId(),
+                        targeted.x(), targeted.y(), targeted.z());
+                return I18n.tr("command.worldedit.pos2_success",
+                        targeted.x(), targeted.y(), targeted.z());
+            }
+            @Override public StructureTemplate save(String reference, boolean includeAir,
+                                                    boolean overwrite, boolean useAnchor) throws Exception {
+                return editor().save(GameContainer.this.dimension(), reference, includeAir, overwrite,
+                        x(), y(), z(), useAnchor ? WorldEditSession.OperationOrigin.ANCHOR
+                                : WorldEditSession.OperationOrigin.PLAYER);
+            }
+            @Override public StructureTemplate load(String reference) throws Exception {
+                return editor().load(reference);
+            }
+            @Override public List<String> templates() throws Exception {
+                return GameContainer.this.world().structures().references();
+            }
+            @Override public String wand() { return GameContainer.this.giveStructureWand(); }
+            private Direction lookDirection() {
+                if (GameContainer.this.player().pitch > 45F) return Direction.DOWN;
+                if (GameContainer.this.player().pitch < -45F) return Direction.UP;
+                return Direction.fromYaw(GameContainer.this.player().yaw);
+            }
+            private String directionName(Direction direction) {
+                return I18n.tr("command.worldedit.direction_" + direction.name().toLowerCase());
+            }
+            @Override public String copy(boolean useAnchor) {
+                var copied = editor().copy(GameContainer.this.dimension(), x(), y(), z(),
+                        useAnchor ? WorldEditSession.OperationOrigin.ANCHOR
+                                : WorldEditSession.OperationOrigin.PLAYER);
+                String key = useAnchor ? "command.worldedit.copy_success_anchor"
+                        : "command.worldedit.copy_success";
+                return I18n.tr(key, copied.template().sizeX(),
+                        copied.template().sizeY(), copied.template().sizeZ(), copied.template().cells().size());
+            }
+            @Override public StructurePlacement.Result cut(boolean useAnchor) {
+                return editor().cut(GameContainer.this.dimension(), x(), y(), z(),
+                        useAnchor ? WorldEditSession.OperationOrigin.ANCHOR
+                                : WorldEditSession.OperationOrigin.PLAYER);
+            }
+            @Override public String expand(int amount) {
+                Direction direction = lookDirection();
+                var changed = editor().expand(GameContainer.this.dimension().getDimensionId(), direction, amount);
+                var bounds = changed.bounds();
+                return I18n.tr("command.worldedit.expand_success", amount, directionName(direction),
+                        bounds.sizeX(), bounds.sizeY(), bounds.sizeZ());
+            }
+            @Override public String contract(int amount) {
+                Direction direction = lookDirection();
+                var changed = editor().contract(GameContainer.this.dimension().getDimensionId(), direction, amount);
+                var bounds = changed.bounds();
+                return I18n.tr("command.worldedit.contract_success", amount, directionName(direction),
+                        bounds.sizeX(), bounds.sizeY(), bounds.sizeZ());
+            }
+            @Override public StructurePlacement.Result set(int state) {
+                return editor().setBlock(GameContainer.this.dimension(), state);
+            }
+            @Override public StructurePlacement.Result replace(java.util.function.IntPredicate matcher, int state) {
+                return editor().replace(GameContainer.this.dimension(), matcher, state);
+            }
+            @Override public StructurePlacement.Result stack(int count) {
+                return editor().stack(GameContainer.this.dimension(), lookDirection(), count);
+            }
+            @Override public StructurePlacement.Result move(int distance) {
+                return editor().move(GameContainer.this.dimension(), lookDirection(), distance);
+            }
+            @Override public StructurePlacement.Result regen() {
+                return editor().regenerate(GameContainer.this.dimension());
+            }
+            @Override public String rotate(int degrees) {
+                return I18n.tr("command.worldedit.rotate_success", editor().rotate(degrees).rotation());
+            }
+            @Override public String flip() {
+                double yaw = Math.toRadians(GameContainer.this.player().yaw);
+                boolean northSouth = Math.abs(Math.cos(yaw)) >= Math.abs(Math.sin(yaw));
+                return I18n.tr("command.worldedit.flip_success", editor().flip(northSouth).mirror());
+            }
+            @Override public String preview(Integer px, Integer py, Integer pz, StructurePlacement.Rule rule) {
+                int tx = px == null ? x() : px, ty = py == null ? y() : py, tz = pz == null ? z() : pz;
+                WorldEditSession.Preview preview = editor().preview(
+                        GameContainer.this.dimension().getDimensionId(), tx, ty, tz, rule);
+                return I18n.tr("command.worldedit.preview_success",
+                        preview.x(), preview.y(), preview.z());
+            }
+            @Override public void clearPreview() { editor().clearPreview(); }
+            @Override public StructurePlacement.Result paste(Integer px, Integer py, Integer pz,
+                                                               StructurePlacement.Rule rule,
+                                                               boolean selectBounds) {
+                WorldEditSession.Preview preview = editor().preview();
+                int tx, ty, tz;
+                StructurePlacement.Rule effectiveRule = rule;
+                if (px == null && preview != null
+                        && preview.dimension().equals(GameContainer.this.dimension().getDimensionId())) {
+                    tx = preview.x(); ty = preview.y(); tz = preview.z(); effectiveRule = preview.rule();
+                } else {
+                    tx = px == null ? x() : px; ty = py == null ? y() : py; tz = pz == null ? z() : pz;
+                }
+                return editor().paste(GameContainer.this.dimension(), tx, ty, tz,
+                        effectiveRule, selectBounds);
+            }
+            @Override public String undo(int amount) {
+                var result = editor().undo(GameContainer.this.dimension(), amount);
+                return result.operations() == 0 ? I18n.tr("command.worldedit.undo_empty")
+                        : I18n.tr("command.worldedit.undo_success", result.operations(), result.cells());
+            }
+            @Override public String redo(int amount) {
+                var result = editor().redo(GameContainer.this.dimension(), amount);
+                return result.operations() == 0 ? I18n.tr("command.worldedit.redo_empty")
+                        : I18n.tr("command.worldedit.redo_success", result.operations(), result.cells());
+            }
+        };
+        CommandContext.PlayerAccess playerAccess = new CommandContext.PlayerAccess() {
+            @Override public CommandContext.Position position() {
+                return new CommandContext.Position(GameContainer.this.dimension().getDimensionId(),
+                        GameContainer.this.player().x, GameContainer.this.player().y, GameContainer.this.player().z);
+            }
+            @Override public void kill() { GameContainer.this.player().kill(); }
+            @Override public Gamemode gamemode() { return GameContainer.this.player().getGamemode(); }
+            @Override public void gamemode(Gamemode gamemode) {
+                GameContainer.this.player().setGamemode(gamemode);
+            }
+            @Override public boolean teleport(double x, double y, double z) {
+                if (GameContainer.this.session.pendingDimensionSwitch != null) return false;
+                GameContainer.this.teleportPlayer(x, y, z);
+                return true;
+            }
+            @Override public CommandContext.Position setHome() {
+                PlayerLocation home = new PlayerLocation(GameContainer.this.dimension().getDimensionId(),
+                        GameContainer.this.player().x, GameContainer.this.player().y,
+                        GameContainer.this.player().z, GameContainer.this.player().yaw,
+                        GameContainer.this.player().pitch);
+                GameContainer.this.player().setHome(home);
+                GameContainer.this.world().players().save(GameContainer.this.player());
+                return new CommandContext.Position(home.dimension(), home.x(), home.y(), home.z());
+            }
+            @Override public CommandContext.HomeResult home() { return GameContainer.this.teleportHome(); }
+        };
+        CommandContext.WorldAccess worldAccess = new CommandContext.WorldAccess() {
+            @Override public CommandContext.Position setSpawnPoint() {
+                int x = (int) Math.floor(GameContainer.this.player().x);
+                int y = (int) Math.floor(GameContainer.this.player().y);
+                int z = (int) Math.floor(GameContainer.this.player().z);
+                Identifier dimension = GameContainer.this.dimension().getDimensionId();
+                GameContainer.this.world().setSpawnPoint(dimension, x, y, z,
+                        GameContainer.this.player().yaw, GameContainer.this.player().pitch);
+                return new CommandContext.Position(dimension, x, y, z);
+            }
+            @Override public List<String> biomeNames() {
+                return java.util.Arrays.stream(Biomes.ALL).map(biome -> biome.name).sorted().toList();
+            }
+            @Override public boolean locateBiome(String name) {
+                return GameContainer.this.locateBiome(name);
+            }
+        };
+        this.guiManager.open(new GuiChat(this.chat,
+                new CommandContext(this.player().getInventory(), dimensions, structures,
+                        playerAccess, worldAccess),
                 this.chatHud, initial));
+    }
+
+    private boolean isStructureWandHeld() {
+        if (this.player() == null) return false;
+        ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
+        return !held.isEmpty() && held.getItem() != null
+                && held.getItem().getId().equals(Identifier.of("skyengine:structure_wand"));
+    }
+
+    /** Konsumiert Debug-Axt-Klicks, damit weder Abbau noch normale Blockinteraktion durchfallen. */
+    private boolean handleWorldEditToolClick(boolean primary) {
+        if (!this.isStructureWandHeld() || this.hit == null) return false;
+        WorldEditSession editor = this.world().worldEdit().session(this.player().getUuid());
+        try {
+            if (editor.toolMode() == WorldEditSession.ToolMode.ANCHOR) {
+                editor.anchor(this.dimension().getDimensionId(), this.hit.x(), this.hit.y(), this.hit.z());
+                this.chat.addMessage("§e" + I18n.tr("command.worldedit.anchor_success",
+                        this.hit.x(), this.hit.y(), this.hit.z()));
+            } else if (primary) {
+                editor.pos1(this.dimension().getDimensionId(), this.hit.x(), this.hit.y(), this.hit.z());
+                this.chat.addMessage("§a" + I18n.tr("command.worldedit.pos1_success",
+                        this.hit.x(), this.hit.y(), this.hit.z()));
+            } else {
+                editor.pos2(this.dimension().getDimensionId(), this.hit.x(), this.hit.y(), this.hit.z());
+                this.chat.addMessage("§a" + I18n.tr("command.worldedit.pos2_success",
+                        this.hit.x(), this.hit.y(), this.hit.z()));
+            }
+        } catch (RuntimeException error) {
+            String message = error.getMessage();
+            if (message == null || message.isBlank()) message = error.getClass().getSimpleName();
+            this.chat.addMessage("§c" + I18n.tr("command.worldedit.error_prefix", message));
+        }
+        this.stopDestroyBlock();
+        this.animState.swing();
+        return true;
+    }
+
+    private String giveStructureWand() {
+        Item wand = Items.get(Identifier.of("skyengine:structure_wand"));
+        if (wand == null) throw new IllegalStateException(I18n.tr("command.worldedit.tool_not_registered"));
+        for (int i = 0; i < this.player().getInventory().size(); i++) {
+            ItemStack stack = this.player().getInventory().get(i);
+            if (!stack.isEmpty() && stack.getItem() == wand) {
+                if (i < 9) this.player().setSelectedSlot(i);
+                return I18n.tr("command.worldedit.tool_already_owned");
+            }
+        }
+        for (int i = 0; i < 9; i++) {
+            if (this.player().getInventory().get(i).isEmpty()) {
+                this.player().getInventory().set(i, new ItemStack(wand, 1));
+                this.player().setSelectedSlot(i);
+                return I18n.tr("command.worldedit.tool_received");
+            }
+        }
+        ItemStack remaining = this.player().getInventory().insert(new ItemStack(wand, 1));
+        if (!remaining.isEmpty()) throw new IllegalStateException("Inventar ist voll");
+        return I18n.tr("command.worldedit.tool_received_inventory");
     }
 
     /** Sichtweite der Projektion: mit LOD hinter den äußersten Ring gelegt, sonst wie bisher 1500. */
@@ -2489,6 +2954,7 @@ public class GameContainer implements IResizeable, IDisposable {
 
         progress.frame(I18n.tr("resourcepacks.loading.textures"), 0.35F);
         this.atlas.reload();
+        this.structurePreviewRenderer.invalidate();
 
         /* Renderer mit eigenem Textur-/Modellcache in sicherer Reihenfolge erneuern. */
         progress.frame(I18n.tr("resourcepacks.loading.renderers"), 0.58F);

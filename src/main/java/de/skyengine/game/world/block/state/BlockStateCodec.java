@@ -70,7 +70,7 @@ public final class BlockStateCodec {
            Blockstate. Die Stärke übernimmt ChunkSerializer in OutputSignal; hier bleibt die
            dazugehörige Vanilla-Optik als powered erhalten. */
         if (name.equals("power")
-                && state.getBlock().getIdentifier().toString().equals("skyengine:comparator")
+                && state.getBlock().getIdentifier().equals(Identifier.of("comparator"))
                 && state.getValues().containsKey(Properties.POWERED)) {
             try {
                 return state.with(Properties.POWERED, Integer.parseInt(value) > 0);

@@ -8,6 +8,7 @@ import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.block.entity.SimpleItemStorage;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.gui.font.FontRenderer;
+import de.skyengine.graphics.texture.Texture;
 import de.skyengine.graphics.texture.TextureArray;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL11;
@@ -101,6 +102,57 @@ public final class GuiManager {
     public float vHeight() {
         return this.vH;
     }
+
+    /**
+     * Zeichnet den neuen UI-Hintergrund unverzerrt und zentriert im Object-Cover-Verfahren.
+     * Muss innerhalb eines bereits laufenden {@link SpriteRenderer}-Passes aufgerufen werden.
+     */
+    public void renderImageBackground() {
+        Texture image = this.textures.imageBackground;
+        if (image == null) return;
+        CoverBounds bounds = coverBounds(this.vW, this.vH, image.getWidth(), image.getHeight());
+        this.sprites.drawSprite(image, bounds.x(), bounds.y(), bounds.width(), bounds.height());
+    }
+
+    /**
+     * Zeichnet die UI-Vignette pixelgenau ueber den gesamten virtuellen Viewport.
+     * Muss innerhalb eines bereits laufenden {@link SpriteRenderer}-Passes aufgerufen werden.
+     */
+    public void renderVignette() {
+        Texture vignette = this.textures.vignette;
+        if (vignette != null) {
+            this.sprites.drawSprite(vignette, 0, 0, this.vW, this.vH);
+        }
+    }
+
+    /**
+     * Zeichnet ein schwarzes Vollbild-Overlay. Alpha wird auf {@code 0..1} begrenzt.
+     * Muss innerhalb eines bereits laufenden {@link SpriteRenderer}-Passes aufgerufen werden.
+     */
+    public void renderOverlay(float alpha) {
+        float clampedAlpha = clampOverlayAlpha(alpha);
+        if (clampedAlpha > 0F) {
+            this.sprites.drawRect(0, 0, this.vW, this.vH, 0F, 0F, 0F, clampedAlpha);
+        }
+    }
+
+    static CoverBounds coverBounds(float viewportWidth, float viewportHeight,
+                                   float imageWidth, float imageHeight) {
+        if (viewportWidth < 0F || viewportHeight < 0F || imageWidth <= 0F || imageHeight <= 0F) {
+            throw new IllegalArgumentException("Invalid viewport or image dimensions");
+        }
+        float scale = Math.max(viewportWidth / imageWidth, viewportHeight / imageHeight);
+        float width = imageWidth * scale;
+        float height = imageHeight * scale;
+        return new CoverBounds((viewportWidth - width) * 0.5F,
+                (viewportHeight - height) * 0.5F, width, height);
+    }
+
+    static float clampOverlayAlpha(float alpha) {
+        return Math.clamp(alpha, 0F, 1F);
+    }
+
+    record CoverBounds(float x, float y, float width, float height) {}
 
     /** Gewünschter GUI-Faktor; 0 = automatisch (größter, der ins Fenster passt). */
     public void setScale(int level) {

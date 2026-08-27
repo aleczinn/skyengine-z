@@ -11,6 +11,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class DimensionSavesTest {
@@ -107,5 +108,24 @@ final class DimensionSavesTest {
         assertTrue(java.nio.file.Files.exists(
                 saveRoot.resolve("dimensions/voxel_stories/mining/region/marker.txt")));
         assertTrue(java.nio.file.Files.notExists(legacy));
+    }
+
+    @Test
+    void canonicalizesLegacyDimensionMapKeysAndGeneratorIds(@TempDir Path saveRoot) {
+        LevelData level = new LevelData();
+        level.seed = 19;
+        LevelData.DimensionData legacy = new LevelData.DimensionData();
+        legacy.seed = 42;
+        legacy.generator = "skyengine:mining_flat_v1";
+        legacy.generatorVersion = 1;
+        level.dimensions.put("skyengine:mining", legacy);
+
+        DimensionSaves.Resolved resolved = DimensionSaves.resolve(
+                saveRoot.toFile(), level, WorldgenRegistries.MINING);
+
+        assertSame(legacy, resolved.data());
+        assertEquals("voxel_stories:mining_flat_v1", resolved.data().generator);
+        assertTrue(level.dimensions.containsKey("voxel_stories:mining"));
+        assertTrue(!level.dimensions.containsKey("skyengine:mining"));
     }
 }

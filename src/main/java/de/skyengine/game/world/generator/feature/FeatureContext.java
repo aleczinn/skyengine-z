@@ -1,6 +1,7 @@
 package de.skyengine.game.world.generator.feature;
 
 import de.skyengine.game.world.generator.biome.Biome;
+import de.skyengine.game.world.structure.StructureTemplate;
 
 import java.util.Random;
 
@@ -20,4 +21,13 @@ public interface FeatureContext {
     default void markLodSupport(int wx, int wy, int wz) {}
     void set(int wx, int wy, int wz, int block);
     void setIfAir(int wx, int wy, int wz, int block);
+
+    /**
+     * Atomare Structure-Zelle. LOD-Kontexte uebernehmen nur den BlockState; echte Chunks
+     * koennen zusaetzlich die BlockEntity nach dem vollstaendigen Feature-Pass materialisieren.
+     */
+    default void setStructureCell(int wx, int wy, int wz, int block, boolean ifAir,
+                                  StructureTemplate.BlockEntitySnapshot blockEntity) {
+        if (ifAir) setIfAir(wx, wy, wz, block); else set(wx, wy, wz, block);
+    }
 }

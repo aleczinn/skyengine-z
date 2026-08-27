@@ -126,15 +126,15 @@ public final class TreeShapes {
     };
 
     /** Gewichtete Auswahl eines Baumtyps (ein RNG-Zug, feste Reihenfolge). */
-    public static TreeShape pick(Biome.TreeEntry[] trees, Random rng) {
+    public static Biome.TreeEntry pick(Biome.TreeEntry[] trees, Random rng) {
         int total = 0;
         for (Biome.TreeEntry entry : trees) total += entry.weight();
         int roll = rng.nextInt(total);
         for (Biome.TreeEntry entry : trees) {
             roll -= entry.weight();
-            if (roll < 0) return entry.shape();
+            if (roll < 0) return entry;
         }
-        return trees[trees.length - 1].shape(); // unerreichbar
+        return trees[trees.length - 1]; // unerreichbar
     }
 
     /** Eiche/Birke: Stamm + 5x5-Kronenscheiben unter der Spitze, 3x3 oben (Ecken zufaellig). */
