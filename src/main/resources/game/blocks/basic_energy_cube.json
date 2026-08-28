@@ -1,6 +1,6 @@
 {
   "id": "basic_energy_cube",
-  "creative_tab": "functional",
+  "creative_tab": "technology",
   "archetype": "energy_cube",
   "block_entity": "basic_energy_cube",
   "item_max_stack_size": 1,

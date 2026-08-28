@@ -1,6 +1,6 @@
 {
   "id": "coal_generator",
-  "creative_tab": "functional",
+  "creative_tab": "technology",
   "archetype": "coal_generator",
   "block_entity": "coal_generator",
   "layer": "cutout",

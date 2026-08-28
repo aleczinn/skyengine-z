@@ -212,6 +212,10 @@ public final class BlockStateModels {
         String path = block.getIdentifier().path();
         JsonObject root = STATES.get(path);
         if (root != null) {
+            if (root.has("model_loader")
+                    && root.get("model_loader").getAsString().equals("mekanism:transmitter")) {
+                return MekanismTransmitterModel.bake(state);
+            }
             if (root.has("multipart")) return bakeMultipart(root.getAsJsonArray("multipart"), state);
             if (root.has("variants")) return bakeVariant(root.getAsJsonObject("variants"), state);
         }

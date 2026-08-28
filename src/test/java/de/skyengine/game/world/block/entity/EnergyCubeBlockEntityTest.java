@@ -5,6 +5,7 @@ import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.Items;
+import de.skyengine.game.world.item.CreativeTabs;
 import de.skyengine.test.BlocksTestBootstrap;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -30,14 +31,14 @@ final class EnergyCubeBlockEntityTest {
         EnergyCubeBlockEntity original = cube();
         original.getCapability(Capabilities.ENERGY, Direction.EAST).orElseThrow()
                 .receive(1_234_567L, false);
-        original.setSideMode(RelativeSide.RIGHT, EnergySideMode.DISABLED);
+        original.setSideMode(RelativeSide.LEFT, EnergySideMode.DISABLED);
         DataTag portable = new DataTag();
         original.savePortable(portable);
 
         EnergyCubeBlockEntity loaded = cube();
         loaded.loadPortable(portable);
         assertEquals(1_600L, loaded.getEnergy()); // one capability operation is rate limited
-        assertEquals(EnergySideMode.DISABLED, loaded.getSideMode(RelativeSide.RIGHT));
+        assertEquals(EnergySideMode.DISABLED, loaded.getSideMode(RelativeSide.LEFT));
         assertTrue(loaded.getCapability(Capabilities.ENERGY, Direction.EAST).isEmpty());
     }
 
@@ -47,6 +48,28 @@ final class EnergyCubeBlockEntityTest {
         ItemStack loaded = ItemStack.load(stack.save());
         assertEquals(1, loaded.getMaxStackSize());
         assertEquals(42_000, loaded.getCustomData().getLong("energy", 0));
+    }
+
+    @Test void relativeSidesAreAnExactBijectionForEveryPossibleFront() {
+        for (Direction front : Direction.sharedValues()) {
+            for (RelativeSide relative : RelativeSide.values()) {
+                Direction world = relative.toWorld(front);
+                assertEquals(relative, RelativeSide.fromWorld(front, world));
+            }
+        }
+        assertEquals(Direction.EAST, RelativeSide.LEFT.toWorld(Direction.NORTH));
+        assertEquals(Direction.WEST, RelativeSide.RIGHT.toWorld(Direction.NORTH));
+        assertEquals(Direction.SOUTH, RelativeSide.TOP.toWorld(Direction.UP));
+        assertEquals(Direction.NORTH, RelativeSide.BOTTOM.toWorld(Direction.UP));
+    }
+
+    @Test void technologyTabContainsOnlyTheThreeEnergyComponentsInRequestedOrder() {
+        assertEquals(java.util.List.of("coal_generator", "basic_energy_cube", "basic_universal_cable"),
+                CreativeTabs.items("technology").stream().map(item -> item.getId().path()).toList());
+        assertTrue(CreativeTabs.items("functional").stream().noneMatch(item ->
+                item.getId().path().equals("coal_generator")
+                        || item.getId().path().equals("basic_energy_cube")
+                        || item.getId().path().equals("basic_universal_cable")));
     }
 
     private static EnergyCubeBlockEntity cube() {

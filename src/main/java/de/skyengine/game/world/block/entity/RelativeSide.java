@@ -6,17 +6,30 @@ import de.skyengine.game.world.block.Direction;
 public enum RelativeSide {
     FRONT, BACK, LEFT, RIGHT, TOP, BOTTOM;
 
+    /** Exact mapping used by Mekanism's RelativeSide#getDirection. */
+    public Direction toWorld(Direction front) {
+        return switch (this) {
+            case FRONT -> front;
+            case BACK -> front.opposite();
+            case LEFT -> front.axis() == Direction.Axis.Y ? Direction.EAST : front.rotateYCW();
+            case RIGHT -> front.axis() == Direction.Axis.Y ? Direction.WEST : front.rotateYCCW();
+            case TOP -> switch (front) {
+                case DOWN -> Direction.NORTH;
+                case UP -> Direction.SOUTH;
+                default -> Direction.UP;
+            };
+            case BOTTOM -> switch (front) {
+                case DOWN -> Direction.SOUTH;
+                case UP -> Direction.NORTH;
+                default -> Direction.DOWN;
+            };
+        };
+    }
+
     public static RelativeSide fromWorld(Direction front, Direction side) {
-        if (side == front) return FRONT;
-        if (side == front.opposite()) return BACK;
-        if (front.axis() != Direction.Axis.Y) {
-            if (side == Direction.UP) return TOP;
-            if (side == Direction.DOWN) return BOTTOM;
-            return side == front.rotateYCCW() ? LEFT : RIGHT;
+        for (RelativeSide relative : values()) {
+            if (relative.toWorld(front) == side) return relative;
         }
-        if (side == Direction.WEST) return LEFT;
-        if (side == Direction.EAST) return RIGHT;
-        if (front == Direction.UP) return side == Direction.NORTH ? TOP : BOTTOM;
-        return side == Direction.SOUTH ? TOP : BOTTOM;
+        throw new IllegalArgumentException("No relative side for " + front + " / " + side);
     }
 }

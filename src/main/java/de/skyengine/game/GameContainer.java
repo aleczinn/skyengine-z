@@ -320,7 +320,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.blockEntityRenderers.register(BlockEntities.PISTON_MOVING,
                 new de.skyengine.graphics.blockentity.PistonMovingRenderer(this.atlas.textures()));
         this.blockEntityRenderers.register(BlockEntities.BASIC_ENERGY_CUBE,
-                new de.skyengine.graphics.blockentity.EnergyCubeRenderer());
+                new de.skyengine.graphics.blockentity.EnergyCubeRenderer(this.atlas.textures()));
         this.blockEntityRenderers.init();
         this.playerRenderer.init();
         this.heldItemMeshes.init(this.atlas.textures(), this.blockEntityRenderers);

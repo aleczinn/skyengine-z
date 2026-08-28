@@ -8,6 +8,7 @@
       "colored_blocks": "Colored Blocks",
       "natural": "Natural Blocks",
       "functional": "Functional Blocks",
+      "technology": "Technology",
       "redstone_blocks": "Redstone Blocks",
       "tools": "Tools & Utilities",
       "food": "Food & Drinks",
@@ -47,12 +48,14 @@
     },
     "energy_cube": {
       "title": "Basic Energy Cube",
-      "rate": "Transfer: %s/t"
+      "rate": "Transfer: %s/t",
+      "configuration": "Side configuration"
     },
     "coal_generator": {
       "title": "Coal Generator",
       "production": "Generation: %s/t",
-      "output": "Output: %s/t"
+      "output": "Output: %s/t",
+      "remaining": "Fuel remaining: %s"
     },
     "energy": {
       "side": { "front":"Front", "back":"Back", "left":"Left", "right":"Right", "top":"Top", "bottom":"Bottom" },

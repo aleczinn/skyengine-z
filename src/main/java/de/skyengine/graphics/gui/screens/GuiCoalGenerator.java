@@ -68,31 +68,38 @@ public final class GuiCoalGenerator extends GuiContainer {
         SpriteRenderer sr = gui.sprites();
         sr.begin(gui.vWidth(), gui.vHeight());
         this.renderBackground(gui);
-        sr.drawRect(this.x, this.y, W, H, .12F, .12F, .14F, .98F);
-        sr.drawRect(this.x + 8, this.y + 83, W - 16, 1, .35F, .35F, .38F, 1F);
-        sr.drawRect(this.x + 61, this.y + 26, 16, 50, .03F, .04F, .05F, 1F);
-        float energyHeight = 48 * this.generator.getEnergy() / (float) this.generator.getCapacity();
-        sr.drawRect(this.x + 62, this.y + 75 - energyHeight, 14, energyHeight, .15F, .75F, .95F, 1F);
-        sr.drawRect(this.x + 26, this.y + 40, 20, 20, .25F, .25F, .28F, 1F);
+        sr.drawNineSlice(gui.textures().mekanismBase, this.x, this.y, W, H, 2);
+        sr.drawSprite(gui.textures().mekanismEnergyInfoTab, this.x + W - 2, this.y + 5, 26, 26);
+        sr.drawSprite(gui.textures().mekanismEnergy, this.x + W + 2, this.y + 9, 18, 18);
+        for (Slot slot : this.slots) sr.drawSprite(gui.textures().mekanismSlot, slot.x - 1, slot.y - 1, 18, 18);
+        sr.drawRect(this.x + 61, this.y + 25, 8, 54, .10F, .10F, .10F, 1F);
+        float energyHeight = 52 * this.generator.getEnergy() / (float) this.generator.getCapacity();
+        float hiddenEnergy = 52 - energyHeight;
+        if (energyHeight > 0) sr.drawSprite(gui.textures().mekanismVerticalPower,
+                this.x + 63, this.y + 26 + hiddenEnergy, 4, energyHeight, 0, hiddenEnergy / 52F, 1, 1);
         if (this.generator.getBurnTime() > 0) {
-            float burn = 14 * this.generator.getBurnTime() / (float) Math.max(1, this.generator.getBurnDuration());
-            sr.drawRect(this.x + 29, this.y + 66 - burn, 14, burn, 1F, .45F, .05F, 1F);
+            float burn = 26 * this.generator.getBurnTime() / (float) Math.max(1, this.generator.getBurnDuration());
+            sr.drawSprite(gui.textures().mekanismFlame, this.x + 23, this.y + 64, burn, 13,
+                    0, 0, burn / 26F, 1);
         }
         this.drawSlotHover(gui, mouseX, mouseY);
         sr.end();
         this.drawSlotIcons(gui, mouseX, mouseY);
         gui.font().begin(gui.vWidth(), gui.vHeight());
         gui.font().drawString(I18n.tr("gui.coal_generator.title"), this.x + 8, this.y + 7,
-                GuiText.NORMAL, Colors.WHITE);
+                GuiText.NORMAL, Colors.DARK_GRAY);
         gui.font().drawString(EnergyText.format(this.generator.getEnergy()) + " / "
                         + EnergyText.format(this.generator.getCapacity()), this.x + 82, this.y + 32,
-                GuiText.SMALL, Colors.WHITE);
+                GuiText.SMALL, Colors.DARK_GRAY);
         gui.font().drawString(I18n.tr("gui.coal_generator.production",
                         EnergyText.format(CoalGeneratorBlockEntity.PRODUCTION)), this.x + 82, this.y + 48,
-                GuiText.SMALL, Colors.WHITE);
+                GuiText.SMALL, Colors.DARK_GRAY);
         gui.font().drawString(I18n.tr("gui.coal_generator.output",
                         EnergyText.format(CoalGeneratorBlockEntity.MAX_OUTPUT)), this.x + 82, this.y + 61,
-                GuiText.SMALL, Colors.WHITE);
+                GuiText.SMALL, Colors.DARK_GRAY);
+        long remainingFuel = (long) this.generator.getBurnTime() * CoalGeneratorBlockEntity.PRODUCTION;
+        gui.font().drawString(I18n.tr("gui.coal_generator.remaining", EnergyText.format(remainingFuel)),
+                this.x + 82, this.y + 74, GuiText.TINY, Colors.DARK_GRAY);
         gui.font().end();
         this.drawTooltip(gui, mouseX, mouseY);
     }

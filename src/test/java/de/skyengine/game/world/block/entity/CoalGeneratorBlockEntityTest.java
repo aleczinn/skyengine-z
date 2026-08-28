@@ -52,6 +52,15 @@ final class CoalGeneratorBlockEntityTest {
         assertEquals(100, loaded.getBurnTime());
     }
 
+    @Test void oneWoodBlockProducesTwentyFourThousandRfAtEightyRfPerTick() {
+        TestWorld world = new TestWorld();
+        world.generator.getInventory().set(0,
+                new ItemStack(Items.get(Identifier.of("voxelstories:oak_planks")), 1));
+        for (int i = 0; i < 300; i++) world.generator.tick();
+        assertEquals(24_000L, world.generator.getEnergy());
+        assertEquals(0, world.generator.getBurnTime());
+    }
+
     private static final class TestWorld extends Dimension {
         private BlockState state = BlockRegistry.get(Identifier.of("voxelstories:coal_generator")).getDefaultState();
         private final CoalGeneratorBlockEntity generator;
