@@ -7,6 +7,9 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.biome.Biomes;
 import de.skyengine.game.world.lod.LodDataSource;
+import de.skyengine.game.world.lod.LodVolumeRequest;
+import de.skyengine.game.world.lod.LodVolumeWriter;
+import de.skyengine.game.world.lod.LodVoxel;
 
 public abstract class WorldGenerator {
 
@@ -63,6 +66,56 @@ public abstract class WorldGenerator {
                 int index = z * ChunkSection.SIZE + x;
                 ground[index] = sampled.ground;
                 surface[index] = sampled.surface;
+            }
+        }
+    }
+
+    /**
+     * Analytischer volumetrischer LOD-Pfad. Er erzeugt einen 32³-Knoten ohne einen echten
+     * {@link Chunk} und bildet damit die schnelle vorlaeufige Quelle der Hierarchie. Der Default
+     * extrudiert die beiden vorhandenen Oberflaechen-Samples; Generatoren mit 3D-Dichte,
+     * Ueberhaengen oder Hoehlen koennen diese Methode ueberschreiben und echte Volumenzellen
+     * schreiben. Gespeicherte oder live geladene Kindknoten ersetzen diese Daten spaeter
+     * kanonisch.
+     */
+    public void fillLodVolume(LodVolumeRequest request, LodVolumeWriter writer) {
+        if (request == null || writer == null) throw new IllegalArgumentException("LOD-Request/Writer fehlt");
+        int cell = request.cellSize();
+        int originX = request.originX(), originY = request.originY(), originZ = request.originZ();
+        int bottomState = this.lodWorldBottomState();
+        for (int z = 0; z < ChunkSection.SIZE; z++) {
+            int worldZ = originZ + z * cell + cell / 2;
+            for (int x = 0; x < ChunkSection.SIZE; x++) {
+                int worldX = originX + x * cell + cell / 2;
+                LodSurfaces surfaces = this.sampleLodSurfaces(worldX, worldZ);
+                int groundState = LodDataSource.block(surfaces.ground());
+                int groundTop = LodDataSource.height(surfaces.ground()) + 1;
+                int surfaceState = LodDataSource.block(surfaces.surface());
+                int surfaceTop = Math.max(groundTop, LodDataSource.height(surfaces.surface()) + 1);
+                for (int y = 0; y < ChunkSection.SIZE; y++) {
+                    int minY = originY + y * cell;
+                    int maxY = minY + cell;
+                    int filledTop = Math.min(maxY, surfaceTop);
+                    int filled = Math.max(0, filledTop - minY);
+                    if (filled == 0 || maxY <= 0) continue;
+                    int state;
+                    int importance;
+                    if (minY < 1 && bottomState != Blocks.AIR) {
+                        state = bottomState;
+                        importance = 63;
+                    } else if (maxY > groundTop && surfaceState != Blocks.AIR) {
+                        state = surfaceState;
+                        importance = 12;
+                    } else {
+                        state = groundState;
+                        importance = 4;
+                    }
+                    if (state == Blocks.AIR) continue;
+                    int coverage = Math.clamp((filled * 255 + cell / 2) / cell, 1, 255);
+                    int sky = maxY >= surfaceTop ? 15 : 0;
+                    writer.set(x, y, z, LodVoxel.pack(state, sky, 0, 0, 0, coverage,
+                            LodVoxel.PROVENANCE_ANALYTIC, importance));
+                }
             }
         }
     }

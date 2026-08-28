@@ -99,6 +99,15 @@ public final class GameSettings {
         }
     }
 
+    /** Screen-Space-AO fuer das gemeinsame Tiefenbild; AUTO faellt bei MSAA auf Baked AO zurueck. */
+    public enum ScreenSpaceAoQuality {
+        AUTO(12), OFF(0), BASIC(8), HIGH(16), ULTRA(24);
+
+        public final int samples;
+
+        ScreenSpaceAoQuality(int samples) { this.samples = samples; }
+    }
+
     /* GUI-Größe als GANZZAHLIGER Faktor: 0 = automatisch (größter Faktor, der ins Fenster
        passt), sonst 1..MAX_GUI_SCALE. Zwischenstufen gibt es nicht und können es nicht geben:
        GUI-Grafik ist ein Texel-Raster mit GL_NEAREST, eine 1 Texel breite Linie muss also auf
@@ -145,7 +154,19 @@ public final class GameSettings {
     /* Äußerste LOD-Reichweite in Chunks. Level ergeben sich automatisch: Level L endet bei
        renderDistance·2^L, gedeckelt bei lodMaxDistance (rd16/lod128 → L1 16-32, L2 32-64,
        L3 64-128). lodMaxDistance <= renderDistance schaltet das LOD faktisch ab. */
+    /* Bleibt bis zur Umschaltung des Renderers bei 128: 256 im alten Ring-Mesher vervierfacht
+       die Regionen. Der volumetrische Pfad hat 256 als Zielprofil, nicht als stillen Legacy-
+       Performancewechsel. */
     public int lodMaxDistance = 128;
+
+    /* Screen-Space-Auswahl der volumetrischen Hierarchie. Ein Knoten wird verfeinert, wenn
+       seine projizierte Kantenlaenge diese Pixelzahl uebersteigt. Auto-Quality passt den Wert
+       innerhalb 32..256 an das GPU-Budget an; Zoom erhoeht die Projektion und verfeinert damit
+       ohne Sonderfall. */
+    public int lodScreenSize = 64;
+    public boolean lodAutoQuality = true;
+    public float lodGpuBudgetMs = 3.0F;
+    public ScreenSpaceAoQuality screenSpaceAoQuality = ScreenSpaceAoQuality.AUTO;
 
     /* AO-Qualitaet der LOD-Ringe (s. LodQuality). Default LOW = bisheriges Verhalten, damit
        bestehende options.json ihre Performance behalten. volatile: die Chunk-Worker lesen das
@@ -237,6 +258,8 @@ public final class GameSettings {
         this.anisotropicFiltering = Math.clamp(this.anisotropicFiltering, 1, 16);
         this.msaaSamples = Math.clamp(this.msaaSamples, 0, 16);
         this.lodMaxDistance = Math.clamp(this.lodMaxDistance, 8, 512);
+        this.lodScreenSize = Math.clamp(this.lodScreenSize, 16, 256);
+        this.lodGpuBudgetMs = Math.clamp(this.lodGpuBudgetMs, 1.0F, 12.0F);
         this.vegetationDistance = Math.clamp(this.vegetationDistance, 0, 32);
         this.brightness = Math.clamp((this.brightness + 2) / 5 * 5, 0, 100);
         this.masterVolume = Math.clamp(this.masterVolume, 0, 100);
@@ -267,6 +290,7 @@ public final class GameSettings {
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;
         if (this.particleQuality == null) this.particleQuality = ParticleQuality.ALL;
         if (this.lodAmbientOcclusionQuality == null) this.lodAmbientOcclusionQuality = LodAmbientOcclusionQuality.MID;
+        if (this.screenSpaceAoQuality == null) this.screenSpaceAoQuality = ScreenSpaceAoQuality.AUTO;
         if (this.keyBindings == null) {
             this.keyBindings = KeyBindings.defaults();
         } else {

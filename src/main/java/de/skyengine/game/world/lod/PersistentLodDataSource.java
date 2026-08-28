@@ -66,11 +66,14 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
     private final ChunkDecorator decorator;
     private final boolean imported;
     private final LodCacheStore disk;
+    private final LodVolumeHierarchy volumes;
+    private final LodVolumeStore volumeDisk;
     private final Map<Long, ChunkLodColumns> cache = new LinkedHashMap<>(256, 0.75F, true);
     /* Separat gespeichert, weil ChunkLodColumns durch Lazy-Ableitung/merge nachtraeglich waechst. */
     private final Map<Long, Long> cacheSizes = new java.util.HashMap<>();
     private final Map<Long, CompletableFuture<ChunkLodColumns>> builds = new ConcurrentHashMap<>();
     private final Set<Long> invalidated = ConcurrentHashMap.newKeySet();
+    private final Set<Long> publishedVolumeChunks = ConcurrentHashMap.newKeySet();
     private final AtomicLong memoryHits = new AtomicLong();
     private final AtomicLong diskHits = new AtomicLong();
     private final AtomicLong generatedBuilds = new AtomicLong();
@@ -99,6 +102,10 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
         this.decorator = decorator;
         this.imported = imported;
         this.disk = new LodCacheStore(directory, generatorVersion, decorator.cacheFingerprint());
+        int volumeFingerprint = 31 * (31 * generatorVersion + decorator.cacheFingerprint())
+                + LodBlockRules.fingerprint();
+        this.volumes = new LodVolumeHierarchy(this::fillAnalyticVolume);
+        this.volumeDisk = new LodVolumeStore(directory, volumeFingerprint);
         storage.setWriteListener((cx, cz) -> {
             long key = Chunk.key(cx, cz);
             synchronized (this.cache) {
@@ -107,7 +114,57 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
                 if (removed != null && bytes != null) this.cacheBytes -= bytes;
             }
             this.invalidated.add(key);
+            this.publishedVolumeChunks.remove(key);
+            this.volumes.invalidateColumn(cx, cz);
         });
+    }
+
+    /** Neuer volumetrischer Quellenpfad; Cache gewinnt vor analytischem Generator-Fallback. */
+    public LodVoxelSection volume(int nodeX, int nodeY, int nodeZ, int level) {
+        LodVolumeHierarchy.Key key = new LodVolumeHierarchy.Key(nodeX, nodeY, nodeZ, level);
+        LodVoxelSection resident = this.volumes.get(key);
+        if (resident != null) return resident;
+        LodVoxelSection stored = this.volumeDisk.read(nodeX, nodeY, nodeZ, level);
+        if (stored != null) {
+            this.volumes.publish(stored);
+            return stored;
+        }
+        return this.volumes.getOrCreateAnalytic(nodeX, nodeY, nodeZ, level);
+    }
+
+    /** Terrain plus derselbe deterministische Feature-Pass wie L0 (Baeume/Strukturen). */
+    private void fillAnalyticVolume(LodVolumeRequest request, LodVolumeWriter writer) {
+        this.generator.fillLodVolume(request, writer);
+        int cell = request.cellSize();
+        int minChunkX = request.originX() >> ChunkSection.SHIFT;
+        int minChunkZ = request.originZ() >> ChunkSection.SHIFT;
+        int chunksPerAxis = request.extent() >> ChunkSection.SHIFT;
+        int originX = request.originX(), originY = request.originY(), originZ = request.originZ();
+        ChunkDecorator.LodRegionFeatures region = this.decorator.lodRegion(
+                minChunkX, minChunkZ, chunksPerAxis, chunksPerAxis);
+        for (int dz = 0; dz < chunksPerAxis; dz++) for (int dx = 0; dx < chunksPerAxis; dx++) {
+            int chunkX = minChunkX + dx, chunkZ = minChunkZ + dz;
+            LodFeatureBuffer features = region.forChunk(chunkX, chunkZ);
+            features.forEach((localX, y, localZ, state) -> {
+                int x = Math.floorDiv((chunkX << ChunkSection.SHIFT) + localX - originX, cell);
+                int localY = Math.floorDiv(y - originY, cell);
+                int z = Math.floorDiv((chunkZ << ChunkSection.SHIFT) + localZ - originZ, cell);
+                if ((x | localY | z) < 0 || x >= 32 || localY >= 32 || z >= 32) return;
+                int coverage = Math.max(1, 255 / (cell * cell * cell));
+                writer.set(x, localY, z, LodVoxel.pack(LodBlockRules.simplify(state), 15,
+                        0, 0, 0, coverage, LodVoxel.PROVENANCE_GENERATED, 63));
+            });
+        }
+    }
+
+    /** Publiziert die 16 exakten L0-Volumenknoten eines geladenen Chunks. */
+    public void publishLiveVolumes(Chunk chunk) {
+        long chunkKey = Chunk.key(chunk.chunkX, chunk.chunkZ);
+        if (!this.publishedVolumeChunks.add(chunkKey)) return;
+        for (int sectionY = 0; sectionY < Chunk.SECTIONS; sectionY++) {
+            LodVoxelSection section = LodVolumeHierarchy.fromChunk(chunk, sectionY);
+            this.volumes.publish(section);
+        }
     }
 
     @Override public boolean hasColumns() { return true; }
@@ -287,7 +344,8 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
                     + ", Storage=" + this.storageTimes.text() + ", Exakt=" + this.exactTimes.text()
                     + ", Terrain=" + this.terrainTimes.text() + ", Features=" + this.featureTimes.text()
                     + ", Projektion=" + this.projectionTimes.text() + ", Reduktion=" + this.reductionTimes.text()
-                    + ", RAM=" + (this.cacheBytes >> 20) + " MiB, verworfene Writes=" + this.disk.droppedWrites();
+                    + ", RAM=" + (this.cacheBytes >> 20) + " MiB, Volumen-Knoten=" + this.volumes.size()
+                    + ", verworfene Writes=" + this.disk.droppedWrites();
         }
     }
 
@@ -507,7 +565,9 @@ public final class PersistentLodDataSource implements LodDataSource, AutoCloseab
             this.cacheSizes.clear();
             this.cacheBytes = 0;
         }
+        this.publishedVolumeChunks.clear();
         this.decorator.clearLodFeatureCache();
         this.disk.close();
+        this.volumeDisk.close();
     }
 }
