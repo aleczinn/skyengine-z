@@ -73,7 +73,8 @@
       "id": "functional",
       "icon": "torch",
       "items": [
-        "crafting_table", "furnace", "chest", "enchanting_table", "item_frame",
+        "crafting_table", "furnace", "coal_generator", "basic_energy_cube", "basic_universal_cable",
+        "chest", "enchanting_table", "item_frame",
         "{wood}_door", "iron_door",
         "{wood}_trapdoor", "iron_trapdoor",
         { "for": "color", "items": ["{color}_bed"] },

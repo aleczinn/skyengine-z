@@ -223,6 +223,8 @@ public class Block {
         return this.settings.noItem;
     }
 
+    public int getItemMaxStackSize() { return this.settings.itemMaxStackSize; }
+
     /**
      * Kolben-Reaktion dieses Blocks. Unzerstörbare Blöcke blockieren immer; ein explizites
      * DESTROY gilt auch für BlockEntity-Blöcke wie den Vanilla-Comparator. Übrige
@@ -717,6 +719,7 @@ public class Block {
         boolean leaves = false;
         boolean doesNotBlockHoppers = false;
         boolean noItem = false;
+        int itemMaxStackSize = 64;
         RenderLayer renderLayer = RenderLayer.OPAQUE;
 
         public static Settings create() {
@@ -757,6 +760,11 @@ public class Block {
 
         public Settings noItem(boolean noItem) {
             this.noItem = noItem;
+            return this;
+        }
+
+        public Settings itemMaxStackSize(int size) {
+            this.itemMaxStackSize = Math.clamp(size, 1, 64);
             return this;
         }
 

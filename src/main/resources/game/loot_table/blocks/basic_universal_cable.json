@@ -1,0 +1,1 @@
+{"type":"block","pools":[{"conditions":[{"condition":"survives_explosion"}],"entries":[{"type":"item","name":"basic_universal_cable"}],"rolls":1.0}],"random_sequence":"blocks/basic_universal_cable"}

@@ -1,0 +1,34 @@
+{
+  "id": "basic_universal_cable",
+  "creative_tab": "functional",
+  "archetype": "custom",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": true,
+  "hardness": 1.0,
+  "resistance": 1.0,
+  "tool": "pickaxe",
+  "sound": "stone",
+  "connection": {
+    "axes": ["north", "east", "south", "west", "up", "down"],
+    "rule": "energy",
+    "group": "energy"
+  },
+  "models": {
+    "_core": "block/basic_universal_cable_core_model",
+    "_arm": "block/basic_universal_cable_arm_model"
+  },
+  "textures": {
+    "all": "game/textures/block/mekanism/basic_universal_cable.png"
+  },
+  "collision": { "model": true },
+  "multipart": [
+    { "apply": { "model": "block/basic_universal_cable_core" } },
+    { "when": { "north": "true" }, "apply": { "model": "block/basic_universal_cable_arm" } },
+    { "when": { "east": "true" },  "apply": { "model": "block/basic_universal_cable_arm", "y": 90 } },
+    { "when": { "south": "true" }, "apply": { "model": "block/basic_universal_cable_arm", "y": 180 } },
+    { "when": { "west": "true" },  "apply": { "model": "block/basic_universal_cable_arm", "y": 270 } },
+    { "when": { "up": "true" },    "apply": { "model": "block/basic_universal_cable_arm", "x": 90 } },
+    { "when": { "down": "true" },  "apply": { "model": "block/basic_universal_cable_arm", "x": 270 } }
+  ]
+}

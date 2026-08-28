@@ -142,6 +142,10 @@ public class ShaderProgram implements IDisposable {
         GL20.glUniform3f(location, x, y, z);
     }
 
+    public void setUniformVector4f(int location, float x, float y, float z, float w) {
+        GL20.glUniform4f(location, x, y, z, w);
+    }
+
     public void setUniformMatrix4f(int location, Matrix4f matrix) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             GL20.glUniformMatrix4fv(location, false, matrix.get(stack.mallocFloat(16)));

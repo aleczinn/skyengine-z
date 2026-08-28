@@ -10,7 +10,7 @@ public final class BlockItem extends Item {
     private final Block block;
 
     public BlockItem(Block block) {
-        super(block.getIdentifier());
+        super(block.getIdentifier(), block.getItemMaxStackSize());
         this.block = block;
     }
 

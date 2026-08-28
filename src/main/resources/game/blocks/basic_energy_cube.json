@@ -1,0 +1,29 @@
+{
+  "id": "basic_energy_cube",
+  "creative_tab": "functional",
+  "archetype": "energy_cube",
+  "block_entity": "basic_energy_cube",
+  "item_max_stack_size": 1,
+  "layer": "cutout",
+  "opaque": false,
+  "solid": true,
+  "hardness": 2.5,
+  "resistance": 2.5,
+  "tool": "pickaxe",
+  "sound": "stone",
+  "models": { "": "block/basic_energy_cube_model" },
+  "textures": {
+    "frame": "game/textures/block/mekanism/energy_cube.png",
+    "corner": "game/textures/block/mekanism/energy_cube_basic_corner.png",
+    "port": "game/textures/block/mekanism/ports.png",
+    "core": "game/textures/block/mekanism/energy_cube_particle.png"
+  },
+  "variants": {
+    "facing=north": { "model": "block/basic_energy_cube" },
+    "facing=east":  { "model": "block/basic_energy_cube", "y": 90 },
+    "facing=south": { "model": "block/basic_energy_cube", "y": 180 },
+    "facing=west":  { "model": "block/basic_energy_cube", "y": 270 },
+    "facing=up":    { "model": "block/basic_energy_cube", "x": 90 },
+    "facing=down":  { "model": "block/basic_energy_cube", "x": 270 }
+  }
+}

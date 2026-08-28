@@ -1,0 +1,6 @@
+{
+  "type":"crafting_shaped",
+  "pattern":["RIR","ICI","RIR"],
+  "key":{"I":{"item":"iron_ingot"},"R":{"item":"redstone"},"C":{"item":"basic_universal_cable"}},
+  "result":{"id":"basic_energy_cube"}
+}

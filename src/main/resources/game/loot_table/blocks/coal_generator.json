@@ -1,0 +1,1 @@
+{"type":"block","pools":[{"conditions":[{"condition":"survives_explosion"}],"entries":[{"type":"item","name":"coal_generator"}],"rolls":1.0}],"random_sequence":"blocks/coal_generator"}

@@ -20,6 +20,8 @@ import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.BlockEntityType;
 import de.skyengine.game.world.block.entity.PistonMovingBlockEntity;
+import de.skyengine.game.world.block.entity.PortableBlockEntity;
+import de.skyengine.game.world.block.network.EnergyNetworkManager;
 import de.skyengine.game.world.block.behavior.WorldScopedPositionMap;
 import de.skyengine.game.world.block.shape.BlockShape;
 import de.skyengine.game.world.block.state.BlockState;
@@ -75,6 +77,7 @@ public class Dimension implements IInitializable, IDisposable {
     private static final int ANIMATE_TICK_FAR_RADIUS = 32;
 
     private final Logger logger = LogManager.getLogger(Dimension.class.getName());
+    private final EnergyNetworkManager energyNetworks = new EnergyNetworkManager(this);
     /* Synchronous player action scope. Nested block behavior mutations inherit the origin. */
     private int playerBlockChangeDepth;
     /** True while a piston replaces a complete structure by moving-piston placeholders. */
@@ -536,6 +539,9 @@ public class Dimension implements IInitializable, IDisposable {
         this.tickBlockEntities();
         attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.BLOCK_ENTITY_TICKS, phase);
         phase = profiler.begin();
+        this.energyNetworks.tick(this.playerChunkX, this.playerChunkZ);
+        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.ENERGY_NETWORKS, phase);
+        phase = profiler.begin();
         this.particles.tick();
         attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.PARTICLE_TICKS, phase);
         profiler.set(PerformanceProfiler.Counter.ACTIVE_PARTICLES, this.particles.count());
@@ -623,6 +629,7 @@ public class Dimension implements IInitializable, IDisposable {
         /* Worker-Abschlussreihenfolge ist nicht deterministisch. Der zustandsändernde
            Kantenabgleich läuft deshalb stabil nach Chunkkoordinate. */
         if (this.readyChunkScratch.isEmpty()) return;
+        this.energyNetworks.invalidate();
         this.readyChunkScratch.sort(Comparator
                 .comparingInt((Chunk chunk) -> chunk.chunkX)
                 .thenComparingInt(chunk -> chunk.chunkZ));
@@ -668,6 +675,7 @@ public class Dimension implements IInitializable, IDisposable {
     private void processUnloadedChunkBoundaries() {
         int pending = this.chunkManager.unloadAnnouncePending();
         if (pending == 0) return;
+        this.energyNetworks.invalidate();
         this.unloadedChunkScratch.clear();
         for (int i = 0; i < pending; i++) {
             Long key = this.chunkManager.pollUnloadAnnounce();
@@ -1803,6 +1811,10 @@ public class Dimension implements IInitializable, IDisposable {
         this.manageBlockEntity(x, y, z, old, block);
         BlockState oldState = Blocks.getState(old);
         BlockState newState = Blocks.getState(block);
+        if (EnergyNetworkManager.isConnector(oldState) || EnergyNetworkManager.isConnector(newState)
+                || oldState.getBlock().getBlockEntityType() != newState.getBlock().getBlockEntityType()) {
+            this.energyNetworks.invalidate();
+        }
         if (oldState.getBlock() != newState.getBlock()) {
             oldState.getBlock().onRemoved(this, x, y, z, oldState, newState);
         }
@@ -1832,10 +1844,19 @@ public class Dimension implements IInitializable, IDisposable {
      * untere Türhälfte selbst, bevor die obere existiert.
      */
     public boolean placeBlock(int x, int y, int z, BlockState state) {
+        return this.placeBlock(x, y, z, state, ItemStack.EMPTY);
+    }
+
+    public boolean placeBlock(int x, int y, int z, BlockState state, ItemStack sourceStack) {
         /* Schlägt der Schreibzugriff fehl (Chunk nicht READY), dürfen onPlaced/updateNeighbors
            NICHT laufen — PartsBehavior setzte sonst Geschwisterteile für einen Ursprung,
            der nie geschrieben wurde. */
         if (!this.setBlock(x, y, z, state.getId(), false)) return false;
+        if (sourceStack != null && sourceStack.getCustomData() != null
+                && this.getBlockEntity(x, y, z) instanceof PortableBlockEntity portable) {
+            portable.loadPortable(sourceStack.getCustomData());
+            this.markChunkModified(x, z);
+        }
         state.getBlock().onPlaced(this, x, y, z, state);
         this.updateNeighbors(x, y, z);
         return true;
@@ -2915,6 +2936,18 @@ public class Dimension implements IInitializable, IDisposable {
 
     public ChunkManager getChunkManager() {
         return chunkManager;
+    }
+
+    public EnergyNetworkManager getEnergyNetworks() {
+        return this.energyNetworks;
+    }
+
+    /** True only for READY chunks inside the current simulation circle. */
+    public boolean isPositionSimulated(int blockX, int blockZ) {
+        int chunkX = blockX >> ChunkSection.SHIFT;
+        int chunkZ = blockZ >> ChunkSection.SHIFT;
+        Chunk chunk = this.chunkManager.getChunk(chunkX, chunkZ);
+        return chunk != null && chunk.status == ChunkStatus.READY && this.isSimulated(chunkX, chunkZ);
     }
 
 }

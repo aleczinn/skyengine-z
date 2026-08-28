@@ -7,12 +7,20 @@ package de.skyengine.game.world.block.entity;
 public interface EnergyStorage {
 
     /** Nimmt bis zu maxReceive auf; liefert die tatsächlich aufgenommene Menge. */
-    int receive(int maxReceive, boolean simulate);
+    long receive(long maxReceive, boolean simulate);
 
     /** Entnimmt bis zu maxExtract; liefert die tatsächlich entnommene Menge. */
-    int extract(int maxExtract, boolean simulate);
+    long extract(long maxExtract, boolean simulate);
 
-    int getEnergy();
+    long getEnergy();
 
-    int getCapacity();
+    long getCapacity();
+
+    long getMaxReceive();
+
+    long getMaxExtract();
+
+    default boolean canReceive() { return getMaxReceive() > 0; }
+
+    default boolean canExtract() { return getMaxExtract() > 0; }
 }
