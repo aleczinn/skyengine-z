@@ -39,6 +39,7 @@ public final class EnergyNetworkManager {
     private long transferredThisTick;
     private long topologyRebuilds;
     private int endpointCount;
+    private volatile List<FlowCable> flowCables = List.of();
 
     public EnergyNetworkManager(Dimension world) {
         this.world = world;
@@ -64,8 +65,14 @@ public final class EnergyNetworkManager {
         Map<Long, Long> receivedByMachine = new HashMap<>();
         Map<Long, Long> extractedByMachine = new HashMap<>();
         for (Network network : this.networks) {
-            this.transferredThisTick += network.transfer(receivedByMachine, extractedByMachine);
+            long moved = network.transfer(receivedByMachine, extractedByMachine);
+            this.transferredThisTick += moved;
+            network.activity = moved > 0 ? 1F : Math.max(0F, network.activity - 1F / 6F);
         }
+        List<FlowCable> visible = new ArrayList<>();
+        for (Network network : this.networks) if (network.activity > 0)
+            for (Cable cable : network.cables) visible.add(new FlowCable(cable.pos, cable.mask, network.activity));
+        this.flowCables = List.copyOf(visible);
         PerformanceProfiler profiler = PerformanceProfiler.get();
         profiler.set(PerformanceProfiler.Counter.ACTIVE_ENERGY_NETWORKS, this.networks.size());
         profiler.set(PerformanceProfiler.Counter.ENERGY_ENDPOINTS, this.endpointCount);
@@ -76,6 +83,9 @@ public final class EnergyNetworkManager {
     public int networkCount() { return this.networks.size(); }
     public long transferredThisTick() { return this.transferredThisTick; }
     public long topologyRebuilds() { return this.topologyRebuilds; }
+    public List<FlowCable> flowCables() { return this.flowCables; }
+
+    public record FlowCable(BlockPos pos, int connectionMask, float intensity) {}
 
     private void rebuild() {
         this.dirty = false;
@@ -117,7 +127,7 @@ public final class EnergyNetworkManager {
             Endpoint otherEndpoint = endpointByFace.get(otherFaceKey);
             if (otherEndpoint == null) continue;
             DirectKey key = DirectKey.of(endpoint, otherEndpoint);
-            if (visitedDirect.add(key)) this.networks.add(new Network(List.of(endpoint, otherEndpoint)));
+            if (visitedDirect.add(key)) this.networks.add(new Network(List.of(endpoint, otherEndpoint), List.of(), true));
         }
         this.networks.removeIf(network -> network.endpoints.size() < 2);
         this.endpointCount = endpointByFace.size();
@@ -127,11 +137,13 @@ public final class EnergyNetworkManager {
                                       Map<Long, Endpoint> endpointByFace) {
         ArrayDeque<BlockPos> queue = new ArrayDeque<>();
         LinkedHashMap<Long, Endpoint> endpoints = new LinkedHashMap<>();
+        List<BlockPos> positions = new ArrayList<>();
         queue.add(start);
         while (!queue.isEmpty()) {
             BlockPos cable = queue.removeFirst();
             long key = BlockPos.asLong(cable.x(), cable.y(), cable.z());
             if (!visitedCables.add(key)) continue;
+            positions.add(cable);
             for (Direction direction : Direction.sharedValues()) {
                 BlockPos neighbor = cable.offset(direction);
                 if (!this.world.isPositionSimulated(neighbor.x(), neighbor.z())) continue;
@@ -145,7 +157,18 @@ public final class EnergyNetworkManager {
                 }
             }
         }
-        return new Network(new ArrayList<>(endpoints.values()));
+        List<Cable> cables = new ArrayList<>(positions.size());
+        for (BlockPos cable : positions) {
+            int mask = 0;
+            for (Direction direction : Direction.sharedValues()) {
+                BlockPos neighbor = cable.offset(direction);
+                BlockState state = Blocks.getState(this.world.getBlock(neighbor.x(), neighbor.y(), neighbor.z()));
+                if (isConnector(state) || endpointByFace.containsKey(faceKey(neighbor, direction.opposite())))
+                    mask |= 1 << direction.ordinal();
+            }
+            cables.add(new Cable(cable, mask));
+        }
+        return new Network(new ArrayList<>(endpoints.values()), cables, false);
     }
 
     private static boolean hasEnergySide(BlockEntity blockEntity) {
@@ -159,7 +182,7 @@ public final class EnergyNetworkManager {
         for (Direction side : Direction.sharedValues()) {
             EnergyStorage storage = blockEntity.getCapability(Capabilities.ENERGY, side).orElse(null);
             if (storage == null || (!storage.canReceive() && !storage.canExtract())) continue;
-            Endpoint endpoint = new Endpoint(blockEntity.getPos(), side, storage);
+            Endpoint endpoint = new Endpoint(blockEntity.getPos(), side, storage, blockEntity);
             endpoints.put(endpoint.key(), endpoint);
         }
     }
@@ -168,7 +191,7 @@ public final class EnergyNetworkManager {
         return (BlockPos.asLong(pos.x(), pos.y(), pos.z()) * 7L) + side.ordinal() + 1L;
     }
 
-    private record Endpoint(BlockPos pos, Direction side, EnergyStorage storage) {
+    private record Endpoint(BlockPos pos, Direction side, EnergyStorage storage, BlockEntity owner) {
         long ownerKey() { return BlockPos.asLong(pos.x(), pos.y(), pos.z()); }
         long key() { return faceKey(pos, side); }
     }
@@ -180,13 +203,20 @@ public final class EnergyNetworkManager {
         }
     }
 
+    private record Cable(BlockPos pos, int mask) {}
+
     private static final class Network {
         private final List<Endpoint> endpoints;
+        private final boolean direct;
+        private final List<Cable> cables;
+        private float activity;
         private int sourceCursor;
         private int sinkCursor;
 
-        private Network(List<Endpoint> endpoints) {
+        private Network(List<Endpoint> endpoints, List<Cable> cables, boolean direct) {
             this.endpoints = endpoints;
+            this.cables = cables;
+            this.direct = direct;
         }
 
         long transfer(Map<Long, Long> receivedByMachine, Map<Long, Long> extractedByMachine) {
@@ -197,6 +227,8 @@ public final class EnergyNetworkManager {
             for (int si = 0; si < count && networkBudget > 0; si++) {
                 Endpoint source = this.endpoints.get((this.sourceCursor + si) % count);
                 if (!source.storage.canExtract()) continue;
+                if (this.direct && source.owner instanceof DirectEnergyOutput policy
+                        && !policy.allowsDirectEnergyOutput(source.side)) continue;
                 long ownerExtracted = extractedByMachine.getOrDefault(source.ownerKey(), 0L);
                 long sourceBudget = Math.max(0, source.storage.getMaxExtract() - ownerExtracted);
                 long available = source.storage.extract(Math.min(networkBudget, sourceBudget), true);

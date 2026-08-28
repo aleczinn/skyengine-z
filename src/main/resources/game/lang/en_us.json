@@ -49,7 +49,16 @@
     "energy_cube": {
       "title": "Basic Energy Cube",
       "rate": "Transfer: %s/t",
-      "configuration": "Side configuration"
+      "configuration": "Side configuration",
+      "energy_config": "Energy Config",
+      "inventory": "Inventory",
+      "slots": "Sides",
+      "input": "Input: %s/t",
+      "output": "Max output: %s/t",
+      "unit": "Unit: RF",
+      "eject_status": "Eject: %s",
+      "auto_eject": "Auto-eject",
+      "clear_sides": "Clear side configuration"
     },
     "coal_generator": {
       "title": "Coal Generator",

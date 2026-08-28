@@ -31,11 +31,19 @@ public final class GuiTextures {
     public Texture mekanismItems;
     public Texture mekanismHolderLeft;
     public Texture mekanismHolderRight;
+    public Texture mekanismButton;
+    public Texture mekanismInnerScreen;
+    public Texture mekanismGaugeNormal;
     public Texture mekanismWideGauge;
     public Texture mekanismVerticalPower;
     public Texture mekanismSlot;
+    public Texture mekanismSlotMinus;
+    public Texture mekanismSlotPlus;
+    public Texture mekanismAutoEject;
+    public Texture mekanismClearSides;
     public Texture mekanismEnergyInfoTab;
     public Texture mekanismFlame;
+    public Texture mekanismLiquidEnergy;
 
     /* Survival-HUD: Herzen + Hungerbalken (9×9-Einzelsprites, MC-1.20.5+-Layout) */
     public Texture heartContainer;
@@ -114,11 +122,19 @@ public final class GuiTextures {
         this.mekanismItems = load(mekanism + "items.png");
         this.mekanismHolderLeft = load(mekanism + "holder_left.png");
         this.mekanismHolderRight = load(mekanism + "holder_right.png");
+        this.mekanismButton = load(mekanism + "button.png");
+        this.mekanismInnerScreen = load(mekanism + "inner_screen.png");
+        this.mekanismGaugeNormal = load(mekanism + "gauge/normal.png");
         this.mekanismWideGauge = load(mekanism + "gauge/wide.png");
         this.mekanismVerticalPower = load(mekanism + "bar/vertical_power.png");
         this.mekanismSlot = load(mekanism + "slot/normal.png");
+        this.mekanismSlotMinus = load(mekanism + "slot/overlay_minus.png");
+        this.mekanismSlotPlus = load(mekanism + "slot/overlay_plus.png");
+        this.mekanismAutoEject = load(mekanism + "button/auto_eject.png");
+        this.mekanismClearSides = load(mekanism + "button/clear_sides.png");
         this.mekanismEnergyInfoTab = load(mekanism + "tabs/energy_info.png");
         this.mekanismFlame = load(mekanism + "progress/flame.png");
+        this.mekanismLiquidEnergy = load("game/textures/liquid/mekanism/energy.png");
 
         this.heartContainer = load("game/textures/gui/sprites/hud/heart/container.png");
         this.heartFull = load("game/textures/gui/sprites/hud/heart/full.png");
@@ -207,11 +223,19 @@ public final class GuiTextures {
         if (this.mekanismItems != null) this.mekanismItems.dispose();
         if (this.mekanismHolderLeft != null) this.mekanismHolderLeft.dispose();
         if (this.mekanismHolderRight != null) this.mekanismHolderRight.dispose();
+        if (this.mekanismButton != null) this.mekanismButton.dispose();
+        if (this.mekanismInnerScreen != null) this.mekanismInnerScreen.dispose();
+        if (this.mekanismGaugeNormal != null) this.mekanismGaugeNormal.dispose();
         if (this.mekanismWideGauge != null) this.mekanismWideGauge.dispose();
         if (this.mekanismVerticalPower != null) this.mekanismVerticalPower.dispose();
         if (this.mekanismSlot != null) this.mekanismSlot.dispose();
+        if (this.mekanismSlotMinus != null) this.mekanismSlotMinus.dispose();
+        if (this.mekanismSlotPlus != null) this.mekanismSlotPlus.dispose();
+        if (this.mekanismAutoEject != null) this.mekanismAutoEject.dispose();
+        if (this.mekanismClearSides != null) this.mekanismClearSides.dispose();
         if (this.mekanismEnergyInfoTab != null) this.mekanismEnergyInfoTab.dispose();
         if (this.mekanismFlame != null) this.mekanismFlame.dispose();
+        if (this.mekanismLiquidEnergy != null) this.mekanismLiquidEnergy.dispose();
         if (this.heartContainer != null) this.heartContainer.dispose();
         if (this.heartFull != null) this.heartFull.dispose();
         if (this.heartHalf != null) this.heartHalf.dispose();

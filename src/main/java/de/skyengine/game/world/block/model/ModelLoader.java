@@ -216,6 +216,16 @@ public final class ModelLoader {
                 ignored -> bakeGroupUncached(key, group));
     }
 
+    /**
+     * Bakes all named pieces of a dynamic model before the block texture array is created.
+     * Dynamic block-entity renderers otherwise discover their texture layers too late: the
+     * returned layer ids then point past the already allocated GL texture array and sample
+     * undefined data. The baked results stay in the normal model cache for the renderer.
+     */
+    public static void preloadGroups(String name, String... groups) {
+        for (String group : groups) bakeGroup(name, group);
+    }
+
     private static Baked bakeGroupUncached(String name, String group) {
         Map<String, String> tex = new HashMap<>();
         collectTextures(name, tex, 0);

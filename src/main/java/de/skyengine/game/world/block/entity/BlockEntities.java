@@ -51,7 +51,7 @@ public final class BlockEntities {
                 new BlockEntityType<>((type, pos, state) -> new FurnaceBlockEntity(type, pos), true));
 
         BASIC_ENERGY_CUBE = Registries.BLOCK_ENTITY.register(Identifier.of("basic_energy_cube"),
-                new BlockEntityType<>((type, pos, state) -> new EnergyCubeBlockEntity(type, pos), false));
+                new BlockEntityType<>((type, pos, state) -> new EnergyCubeBlockEntity(type, pos), true));
 
         COAL_GENERATOR = Registries.BLOCK_ENTITY.register(Identifier.of("coal_generator"),
                 new BlockEntityType<>((type, pos, state) -> new CoalGeneratorBlockEntity(type, pos), true));

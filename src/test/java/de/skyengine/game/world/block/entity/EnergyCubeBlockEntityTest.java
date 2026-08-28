@@ -50,6 +50,63 @@ final class EnergyCubeBlockEntityTest {
         assertEquals(42_000, loaded.getCustomData().getLong("energy", 0));
     }
 
+    @Test void allInputAndOutputFacesShareOneTransferBudgetPerTick() {
+        EnergyCubeBlockEntity cube = cube();
+        EnergyStorage east = cube.getCapability(Capabilities.ENERGY, Direction.EAST).orElseThrow();
+        EnergyStorage west = cube.getCapability(Capabilities.ENERGY, Direction.WEST).orElseThrow();
+        assertEquals(1_000, east.receive(1_000, false));
+        assertEquals(600, west.receive(1_000, false));
+        assertEquals(1_600, cube.getEnergy());
+
+        cube.setSideMode(RelativeSide.LEFT, EnergySideMode.OUTPUT);
+        cube.tick();
+        EnergyStorage north = cube.getCapability(Capabilities.ENERGY, Direction.NORTH).orElseThrow();
+        EnergyStorage outputEast = cube.getCapability(Capabilities.ENERGY, Direction.EAST).orElseThrow();
+        assertEquals(1_000, north.extract(1_000, false));
+        assertEquals(600, outputEast.extract(1_000, false));
+    }
+
+    @Test void cubeItemsExposeStackBackedEnergyAndBothMachineSlotsTransfer() {
+        ItemStack battery = new ItemStack(Items.get(Identifier.of("voxelstories:basic_energy_cube")), 1);
+        EnergyStorage batteryEnergy = battery.getItem().getCapability(Capabilities.ENERGY, battery).orElseThrow();
+        assertEquals(1_600, batteryEnergy.receive(2_000, false));
+        assertEquals(1_600, battery.getCustomData().getLong("energy", 0));
+
+        EnergyCubeBlockEntity cube = cube();
+        cube.getInventory().set(0, battery);
+        cube.tick();
+        assertEquals(1_600, cube.getEnergy());
+        assertEquals(0, batteryEnergy.getEnergy());
+
+        ItemStack emptyBattery = new ItemStack(Items.get(Identifier.of("voxelstories:basic_energy_cube")), 1);
+        cube.getInventory().set(0, ItemStack.EMPTY);
+        cube.getInventory().set(1, emptyBattery);
+        cube.tick();
+        assertEquals(0, cube.getEnergy());
+        assertEquals(1_600, EnergyCubeBlockEntity.itemEnergy(emptyBattery).getEnergy());
+    }
+
+    @Test void fullSaveKeepsSlotsButPortableDropDoesNotAndOldDataDefaultsToAutoEject() {
+        EnergyCubeBlockEntity cube = cube();
+        ItemStack battery = new ItemStack(Items.get(Identifier.of("voxelstories:basic_energy_cube")), 1);
+        cube.getInventory().set(0, battery);
+        cube.setAutoEject(false);
+        DataTag full = new DataTag();
+        cube.save(full);
+        DataTag portable = new DataTag();
+        cube.savePortable(portable);
+        assertTrue(full.getTag("inventory") != null);
+        assertTrue(portable.getTag("inventory") == null);
+
+        EnergyCubeBlockEntity loaded = cube();
+        loaded.load(full);
+        assertFalse(loaded.isAutoEject());
+        assertFalse(loaded.getInventory().get(0).isEmpty());
+        EnergyCubeBlockEntity legacy = cube();
+        legacy.load(new DataTag());
+        assertTrue(legacy.isAutoEject());
+    }
+
     @Test void relativeSidesAreAnExactBijectionForEveryPossibleFront() {
         for (Direction front : Direction.sharedValues()) {
             for (RelativeSide relative : RelativeSide.values()) {

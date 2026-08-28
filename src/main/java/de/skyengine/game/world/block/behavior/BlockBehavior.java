@@ -4,12 +4,14 @@ import de.skyengine.game.entity.Entity;
 import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Direction;
+import de.skyengine.game.world.block.entity.Capability;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.loot.LootContext;
 import de.skyengine.game.world.loot.LootSink;
 import de.skyengine.game.world.item.ItemStack;
 import de.skyengine.game.world.item.TooltipContext;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 
 /**
@@ -17,6 +19,11 @@ import java.util.Random;
  * beliebig viele Behaviors; jeder Hook transformiert den State. Default = no-op.
  */
 public interface BlockBehavior {
+
+    /** Capability of the block's item form, backed by the supplied stack. */
+    default <C> Optional<C> getItemCapability(Capability<C> capability, ItemStack stack) {
+        return Optional.empty();
+    }
 
     /** Benannte Laufzeitwerte für Platzhalter in der Beschreibung des BlockItems. */
     default void appendTooltipVariables(ItemStack stack, TooltipContext context,

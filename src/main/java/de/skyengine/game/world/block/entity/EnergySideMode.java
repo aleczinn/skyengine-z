@@ -8,4 +8,8 @@ public enum EnergySideMode {
     public EnergySideMode next() {
         return values()[(ordinal() + 1) % values().length];
     }
+
+    public EnergySideMode previous() {
+        return values()[(ordinal() + values().length - 1) % values().length];
+    }
 }

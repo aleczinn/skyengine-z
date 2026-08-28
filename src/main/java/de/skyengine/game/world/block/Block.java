@@ -10,6 +10,7 @@ import de.skyengine.game.world.block.behavior.BlockBehavior;
 import de.skyengine.game.world.block.behavior.ObserverBehavior;
 import de.skyengine.game.world.block.behavior.PlacementContext;
 import de.skyengine.game.world.block.entity.BlockEntityType;
+import de.skyengine.game.world.block.entity.Capability;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockParticleSprite;
 import de.skyengine.game.world.block.model.BlockModels;
@@ -29,6 +30,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class Block {
 
@@ -532,6 +534,14 @@ public class Block {
         for (BlockBehavior behavior : this.config.behaviors()) {
             behavior.appendTooltipVariables(stack, context, variables);
         }
+    }
+
+    public <C> Optional<C> getItemCapability(Capability<C> capability, ItemStack stack) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            Optional<C> result = behavior.getItemCapability(capability, stack);
+            if (result.isPresent()) return result;
+        }
+        return Optional.empty();
     }
 
     /**

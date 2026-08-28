@@ -49,7 +49,16 @@
     "energy_cube": {
       "title": "Basic Energy Cube",
       "rate": "Transfer: %s/t",
-      "configuration": "Seitenkonfiguration"
+      "configuration": "Seitenkonfiguration",
+      "energy_config": "Energiekonfiguration",
+      "inventory": "Inventar",
+      "slots": "Seiten",
+      "input": "Eingang: %s/t",
+      "output": "Max. Ausgang: %s/t",
+      "unit": "Einheit: RF",
+      "eject_status": "Ausgabe: %s",
+      "auto_eject": "Automatische Ausgabe",
+      "clear_sides": "Seitenkonfiguration zurücksetzen"
     },
     "coal_generator": {
       "title": "Kohlegenerator",
@@ -561,7 +570,7 @@
       "cracked_stone_bricks": "Rissige Steinziegel",
       "crafting_table": "Werkbank",
       "furnace": "Ofen",
-      "basic_universal_cable": "Basic Universal-Energiekabel",
+      "basic_universal_cable": "Basis-Universalkabel",
       "basic_energy_cube": "Basic Energy Cube",
       "coal_generator": "Kohlegenerator",
       "cut_red_sandstone": "Geschnittener roter Sandstein",

@@ -300,7 +300,7 @@ public class GameContainer implements IResizeable, IDisposable {
         BlockEntityMenus.clear();
         BlockEntityMenus.register(BlockEntities.FURNACE, GuiFurnace::new);
         BlockEntityMenus.register(BlockEntities.BASIC_ENERGY_CUBE,
-                (cube, inventory) -> new de.skyengine.graphics.gui.screens.GuiEnergyCube(cube));
+                de.skyengine.graphics.gui.screens.GuiEnergyCube::new);
         BlockEntityMenus.register(BlockEntities.COAL_GENERATOR,
                 de.skyengine.graphics.gui.screens.GuiCoalGenerator::new);
         ParticleSprites.bootstrap();
