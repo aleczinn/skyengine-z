@@ -239,6 +239,30 @@ public class LodManager {
         this.lodAllowed = lodAllowed;
     }
 
+    /** Immutable Blockdarstellung fuer Materialtabellen des Renderers. */
+    public LodBlockAppearance blockAppearance() { return this.appearance; }
+
+    /** Liefert einen Volumenknoten; null bei alternativen Test-/Tool-Datenquellen. */
+    public LodVoxelSection volumeNode(int nodeX, int nodeY, int nodeZ, int level) {
+        return this.source instanceof PersistentLodDataSource persistent
+                ? persistent.volume(nodeX, nodeY, nodeZ, level) : null;
+    }
+
+    /** Mesht einen Knoten mit gleichstufigen Nachbarn, damit an Knotengrenzen keine Doppelfaces entstehen. */
+    public VoxelLodMesher.Mesh meshVolumeNode(int nodeX, int nodeY, int nodeZ, int level,
+                                              VoxelLodMesher.MaterialResolver materials) {
+        LodVoxelSection center = this.volumeNode(nodeX, nodeY, nodeZ, level);
+        if (center == null) return null;
+        return VoxelLodMesher.mesh(center, materials, (x, y, z) -> {
+            int dx = Math.floorDiv(x, LodVoxelSection.SIZE);
+            int dy = Math.floorDiv(y, LodVoxelSection.SIZE);
+            int dz = Math.floorDiv(z, LodVoxelSection.SIZE);
+            LodVoxelSection neighbor = this.volumeNode(nodeX + dx, nodeY + dy, nodeZ + dz, level);
+            return neighbor == null ? 0L : neighbor.get(Math.floorMod(x, LodVoxelSection.SIZE),
+                    Math.floorMod(y, LodVoxelSection.SIZE), Math.floorMod(z, LodVoxelSection.SIZE));
+        });
+    }
+
     public static long key(int rx, int rz) {
         return ((long) rx << 32) | (rz & 0xFFFFFFFFL);
     }

@@ -51,4 +51,36 @@ final class PackedQuadTest {
         assertThrows(IllegalArgumentException.class, () -> PackedQuad.pack(0, 0, 0, 0,
                 false, 0, 1, 0, false, 0, 0, 0));
     }
+
+    @Test
+    void reconstructsSectionEdgeAndOutwardWindingForEveryAxis() {
+        for (int axis = 0; axis < 3; axis++) for (int side = 0; side < 2; side++) {
+            long quad = PackedQuad.pack(31, 31, 31, axis, side != 0,
+                    1, 1, 0, false, 0, 0, 0);
+            PackedQuad.Vertex a = PackedQuad.vertex(quad, 0);
+            PackedQuad.Vertex b = PackedQuad.vertex(quad, 1);
+            PackedQuad.Vertex c = PackedQuad.vertex(quad, 2);
+            float abx = b.x() - a.x(), aby = b.y() - a.y(), abz = b.z() - a.z();
+            float acx = c.x() - a.x(), acy = c.y() - a.y(), acz = c.z() - a.z();
+            float nx = aby * acz - abz * acy;
+            float ny = abz * acx - abx * acz;
+            float nz = abx * acy - aby * acx;
+            float component = axis == 0 ? nx : axis == 1 ? ny : nz;
+            assertEquals(side != 0 ? 1F : -1F, component);
+            PackedQuad.Vertex edge = PackedQuad.vertex(quad, 3);
+            if (side != 0) {
+                assertEquals(32F, axis == 0 ? edge.x() : axis == 1 ? edge.y() : edge.z());
+            }
+        }
+    }
+
+    @Test
+    void uvTransformRotatesAndMirrorsWithoutLosingTilingExtent() {
+        long quad = PackedQuad.pack(0, 0, 0, PackedQuad.AXIS_Z, true,
+                7, 3, 5, false, 0, 0, 0); // mirror + 90 Grad
+        PackedQuad.Vertex a = PackedQuad.vertex(quad, 0);
+        PackedQuad.Vertex c = PackedQuad.vertex(quad, 2);
+        assertEquals(3F, Math.abs(c.u() - a.u()));
+        assertEquals(7F, Math.abs(c.v() - a.v()));
+    }
 }

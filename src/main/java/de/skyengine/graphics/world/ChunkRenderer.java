@@ -14,6 +14,7 @@ import de.skyengine.game.world.chunk.FluidGeometry;
 import de.skyengine.game.world.dimension.DimensionEnvironment;
 import de.skyengine.game.world.lod.LodConfig;
 import de.skyengine.game.world.lod.LodManager;
+import de.skyengine.game.world.lod.LodMaterialTable;
 import de.skyengine.game.world.lod.LodMesher;
 import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.FrameProfiler;
@@ -67,6 +68,9 @@ public class ChunkRenderer {
        der Renderer hält nur Referenzen und disposed NICHTS davon. */
     private BlockTextureAtlas atlas;
     private TextureArray textures;
+    /* Gemeinsame Materialtabelle des kompakten Pfads (vier uint/Material). Bereits jetzt
+       hochgeladen, damit Mesher- und Shader-Cutover denselben stabilen ID-Raum verwenden. */
+    private int packedMaterialBuffer;
 
     /* sectionKey -> mesh, render thread only. LongObjMap: kein Long-Boxing pro Zugriff,
        Cleanup-Walk und Frame-Iterationen laufen als flacher Array-Scan. */
@@ -391,6 +395,16 @@ public class ChunkRenderer {
            Austritte erzeugen ihn nicht neu (Layer-Indizes stecken in den gebackenen Modellen). */
         this.atlas = atlas;
         this.textures = atlas.textures();
+
+        if (this.lodManager != null) {
+            int[] materialWords = new LodMaterialTable(this.lodManager.blockAppearance()).gpuWords();
+            this.packedMaterialBuffer = GL15.glGenBuffers();
+            GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, this.packedMaterialBuffer);
+            GL15.glBufferData(GL43.GL_SHADER_STORAGE_BUFFER, materialWords, GL15.GL_STATIC_DRAW);
+            GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
+            GlDebug.labelBuffer(this.packedMaterialBuffer, "Packed Quad Materials ("
+                    + (materialWords.length / PackedQuadVertexShader.MATERIAL_UINTS) + ")");
+        }
 
         /* Arenen so starten, dass das Wachstum auch beim SCHNELLEN FLIEGEN entfällt — jeder
            Grow ist eine GPU-Vollkopie der ganzen Arena im Frame (= gemessener Ruckler, der
@@ -2115,6 +2129,7 @@ public class ChunkRenderer {
         /* Atlas (textures/animations) NICHT disposen — gehört dem GameContainer und
            überlebt Welt-Austritte (Hauptmenü braucht ihn für Item-Icons). */
         if (this.shader != null) this.shader.dispose();
+        if (this.packedMaterialBuffer != 0) GL15.glDeleteBuffers(this.packedMaterialBuffer);
     }
 
     /* Gepacktes Vertex-Format (20 Bytes, siehe ChunkMesher.VERTEX_SIZE):

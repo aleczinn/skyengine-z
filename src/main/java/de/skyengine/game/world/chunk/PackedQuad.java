@@ -76,6 +76,61 @@ public final class PackedQuad {
     public static int tintIndex(long packed) { return (int) (packed >>> TINT_SHIFT & 0xFFL); }
     public static int flags(long packed) { return (int) (packed >>> FLAGS_SHIFT & 0xFFL); }
 
+    /** Eine vom Vertex-Shader rekonstruierte Ecke; dient auch CPU-Tests und Debug-Exporten. */
+    public record Vertex(float x, float y, float z, float u, float v) {}
+
+    /**
+     * Rekonstruiert eine der vier Ecken exakt wie der Vertex-Pulling-Shader. Die gespeicherte
+     * Normalenkoordinate bezeichnet die Zelle; auf der positiven Seite wird die Face-Ebene um
+     * eine Zelle verschoben. Dadurch bleibt auch die aeussere Ebene einer Section mit
+     * Koordinate 32 darstellbar, obwohl x/y/z jeweils nur fuenf Bit besitzen.
+     */
+    public static Vertex vertex(long packed, int corner) {
+        requireRange("corner", corner, 0, 3);
+        int axis = axis(packed);
+        if (axis > AXIS_Z) throw new IllegalArgumentException("Reservierte Achse: " + axis);
+        int width = width(packed), height = height(packed);
+        boolean basePositive = axis != AXIS_Y; // cross(T1,T2): X=+, Y=-, Z=+
+        boolean forward = positiveSide(packed) == basePositive;
+        int diagonalCorner = flippedDiagonal(packed) ? (corner + 1) & 3 : corner;
+        int orderedCorner = forward ? diagonalCorner
+                : (diagonalCorner == 0 ? 0 : 4 - diagonalCorner);
+        int alongWidth = orderedCorner == 1 || orderedCorner == 2 ? 1 : 0;
+        int alongHeight = orderedCorner >= 2 ? 1 : 0;
+
+        float px = x(packed), py = y(packed), pz = z(packed);
+        if (positiveSide(packed)) {
+            if (axis == AXIS_X) px++;
+            else if (axis == AXIS_Y) py++;
+            else pz++;
+        }
+        if (axis == AXIS_X) {
+            py += alongWidth * width;
+            pz += alongHeight * height;
+        } else if (axis == AXIS_Y) {
+            px += alongWidth * width;
+            pz += alongHeight * height;
+        } else {
+            px += alongWidth * width;
+            py += alongHeight * height;
+        }
+
+        float su = alongWidth, sv = alongHeight;
+        int transform = uvTransform(packed);
+        if ((transform & 4) != 0) su = 1F - su;
+        float tu, tv;
+        switch (transform & 3) {
+            case 1 -> { tu = sv; tv = 1F - su; }
+            case 2 -> { tu = 1F - su; tv = 1F - sv; }
+            case 3 -> { tu = 1F - sv; tv = su; }
+            default -> { tu = su; tv = sv; }
+        }
+        boolean swapped = (transform & 1) != 0;
+        float u = tu * (swapped ? height : width);
+        float v = tv * (swapped ? width : height);
+        return new Vertex(px, py, pz, u, v);
+    }
+
     /**
      * 128-Bit-Shadingblock. Vier Ecken tragen je Sky/R/G/B als rohe 6-Bit-Summe 0..60;
      * dadurch bleibt das bisherige Mittel aus vier 0..15-Lichtsamples verlustfrei. Danach

@@ -68,6 +68,21 @@ public final class LodMaterialTable implements VoxelLodMesher.MaterialResolver {
 
     public List<Entry> entries() { return this.entries; }
 
+    /** Direkt hochladbares std430-Layout, vier uint pro Material. */
+    public int[] gpuWords() {
+        int[] words = new int[this.entries.size() * 4];
+        for (int i = 0; i < this.entries.size(); i++) {
+            Entry entry = this.entries.get(i);
+            int base = i * 4;
+            words[base] = entry.textureLayer;
+            words[base + 1] = entry.tintRgb;
+            words[base + 2] = entry.flags | entry.faceShade << 8
+                    | (entry.tintType & 0xFF) << 16 | entry.renderLayer.ordinal() << 24;
+            words[base + 3] = 0;
+        }
+        return words;
+    }
+
     private static int face(int axis, boolean positive) {
         return switch (axis) {
             case 0 -> positive ? 5 : 4;
