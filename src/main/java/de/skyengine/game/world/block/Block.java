@@ -684,6 +684,10 @@ public class Block {
         return this.config.blockEntityType();
     }
 
+    public int getCraftingWidth() { return this.config.craftingWidth(); }
+    public int getCraftingHeight() { return this.config.craftingHeight(); }
+    public Identifier getCraftingRecipeType() { return this.config.craftingRecipeType(); }
+
     public Identifier getIdentifier() {
         return identifier;
     }

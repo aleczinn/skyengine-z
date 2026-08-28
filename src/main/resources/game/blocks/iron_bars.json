@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:iron_bars",
+  "id": "iron_bars",
   "creative_tab": "building_blocks",
   "models": {
     "_post": "block/bars_post",

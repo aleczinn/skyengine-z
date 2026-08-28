@@ -1,0 +1,12 @@
+{
+  "fuel_type": "solid_fuel",
+  "ingredient": [
+    {
+      "tag": "wooden_buttons_and_saplings"
+    },
+    {
+      "tag": "wool"
+    }
+  ],
+  "burn_time": 100
+}

@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:spruce_planks",
+  "id": "spruce_planks",
   "parent": "preset/cube",
   "hardness": 2,
   "resistance": 3,

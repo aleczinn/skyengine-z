@@ -1,1 +1,1 @@
-{ "id": "skyengine:acacia_fence_gate", "parent": "preset/fence_gate", "vars": { "texture": "acacia_planks" } }
+{ "id": "acacia_fence_gate", "parent": "preset/fence_gate", "vars": { "texture": "acacia_planks" } }

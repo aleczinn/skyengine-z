@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:structure_wand",
+  "id": "structure_wand",
   "archetype": "item",
   "max_stack": 1,
   "texture": "game/textures/item/wooden_axe.png",

@@ -1,14 +1,14 @@
 {
-  "id": "skyengine:chest",
+  "id": "chest",
   "creative_tab": ["functional", "redstone_blocks"],
   "type": "chest",
-  "lod_replacement": "skyengine:oak_planks",
+  "lod_replacement": "oak_planks",
   "layer": "opaque",
   "hardness": 2.5,
   "tool": "axe",
   "opaque": false,
   "open_sound": "chest",
-  "block_entity": "skyengine:chest",
+  "block_entity": "chest",
   "inventory_display_model": "block/chest_item",
   "collision": {
     "boxes": [

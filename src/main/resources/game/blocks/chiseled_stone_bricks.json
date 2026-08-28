@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:chiseled_stone_bricks",
+  "id": "chiseled_stone_bricks",
   "parent": "preset/cube",
   "hardness": 1.5,
   "resistance": 6,

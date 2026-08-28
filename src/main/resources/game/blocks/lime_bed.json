@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:lime_bed",
+  "id": "lime_bed",
   "parent": "preset/bed",
   "textures": {
     "head_east": "game/textures/block/lime_bed_head_east.png",

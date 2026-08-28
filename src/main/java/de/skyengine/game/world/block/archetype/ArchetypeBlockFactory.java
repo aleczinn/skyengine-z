@@ -173,6 +173,16 @@ public final class ArchetypeBlockFactory {
             builder.lightColor(parseHexColor(def.light_color, id));
         }
 
+        if (def.crafting_grid != null) {
+            if (def.crafting_grid.length != 2 || def.crafting_grid[0] < 1 || def.crafting_grid[0] > 9
+                    || def.crafting_grid[1] < 1 || def.crafting_grid[1] > 9) {
+                throw new IllegalArgumentException("crafting_grid bei " + id + " muss [1..9, 1..9] sein");
+            }
+            builder.craftingGrid(def.crafting_grid[0], def.crafting_grid[1],
+                    Identifier.of(def.crafting_recipe_type == null
+                            ? "crafting" : def.crafting_recipe_type));
+        }
+
         /* Sound-Gruppe: explizites JSON-Feld oder Ableitung aus Tool/Archetyp. */
         String archetypeName = def.archetype != null ? def.archetype : def.type;
         builder.sound(BlockSoundGroup.resolve(def.sound, ToolType.byName(def.tool), archetypeName));

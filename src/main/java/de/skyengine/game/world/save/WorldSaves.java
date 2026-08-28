@@ -2,7 +2,6 @@ package de.skyengine.game.world.save;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
@@ -20,6 +19,8 @@ import java.util.List;
  */
 public final class WorldSaves {
 
+    public static final int CURRENT_FORMAT_VERSION = 4;
+
     private static final Logger LOGGER = LogManager.getLogger(WorldSaves.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     /* Liegt im konfigurierten Spiel-Root (standardmäßig %APPDATA%\.voxelstories). */
@@ -30,16 +31,24 @@ public final class WorldSaves {
 
     /** Alle Welten, zuletzt gespielte zuerst. Fehlerhafte level.json werden übersprungen. */
     public static List<WorldSave> list() {
+        return listInDirectory(ROOT);
+    }
+
+    static List<WorldSave> listInDirectory(File root) {
         List<WorldSave> result = new ArrayList<>();
-        File[] dirs = ROOT.listFiles(File::isDirectory);
+        File[] dirs = root.listFiles(File::isDirectory);
         if (dirs == null) return result;
         for (File dir : dirs) {
             File file = new File(dir, "level.json");
             if (!file.isFile()) continue;
             try (FileReader r = new FileReader(file)) {
                 LevelData level = GSON.fromJson(r, LevelData.class);
-                if (level != null && level.name != null) {
+                if (level != null && level.name != null
+                        && level.formatVersion != null
+                        && level.formatVersion == CURRENT_FORMAT_VERSION) {
                     result.add(new WorldSave(dir.getName(), level));
+                } else if (level != null && level.name != null) {
+                    LOGGER.warning("Inkompatible Welt wird ausgeblendet: " + file.getPath());
                 }
             } catch (Exception e) {
                 LOGGER.error("level.json fehlerhaft, überspringe: " + file.getPath(), e);
@@ -61,10 +70,7 @@ public final class WorldSaves {
         level.seed = seed;
         level.created = System.currentTimeMillis();
         level.lastPlayed = level.created;
-        level.formatVersion = 3;
-        level.worldType = "default";
-        level.generator = "alpha_v2";
-        level.generatorVersion = AlphaWorldGeneratorV2.VERSION;
+        level.formatVersion = CURRENT_FORMAT_VERSION;
         LevelData.DimensionData overworld = new LevelData.DimensionData();
         overworld.seed = seed;
         overworld.generator = Identifier.of("alpha_v2").toString();

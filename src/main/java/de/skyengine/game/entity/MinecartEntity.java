@@ -290,7 +290,7 @@ public final class MinecartEntity extends Entity {
         this.remove();
         if (!creative) {
             de.skyengine.game.world.item.Item item = de.skyengine.game.world.item.Items.get(
-                    de.skyengine.game.world.block.Identifier.of("skyengine:minecart"));
+                    de.skyengine.game.world.block.Identifier.of("minecart"));
             if (item != null) world.spawnItem(dropX, dropY, dropZ,
                     new de.skyengine.game.world.item.ItemStack(item, 1));
         }

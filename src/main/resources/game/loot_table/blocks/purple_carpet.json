@@ -1,20 +1,20 @@
-﻿{
-  "type": "skyengine:block",
+{
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
-          "name": "skyengine:purple_carpet"
+          "type": "item",
+          "name": "purple_carpet"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/purple_carpet"
+  "random_sequence": "blocks/purple_carpet"
 }

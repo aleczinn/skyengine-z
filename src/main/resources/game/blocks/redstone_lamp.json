@@ -1,6 +1,6 @@
 {
   "_comment": "Redstone-Lampe: lit folgt dem Signal (an sofort, aus nach 4 Ticks - LampBehavior). light_level 15 wirkt nur bei lit=true (LIT-Konvention in Block.getLuminance). MC-Werte: Haerte 0.3, ohne Werkzeug abbaubar.",
-  "id": "skyengine:redstone_lamp",
+  "id": "redstone_lamp",
   "archetype": "redstone_lamp",
   "creative_tab": "redstone_blocks",
   "layer": "opaque",

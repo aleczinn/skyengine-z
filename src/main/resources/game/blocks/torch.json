@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:torch",
+  "id": "torch",
   "piston_reaction": "destroy",
   "creative_tab": "functional",
   "archetype": "attached",

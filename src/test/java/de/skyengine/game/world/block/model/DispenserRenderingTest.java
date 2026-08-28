@@ -27,7 +27,7 @@ final class DispenserRenderingTest {
     }
 
     private static void assertVerticalTextures(String blockName, String frontTexture) {
-        Block block = BlockRegistry.get(Identifier.of("skyengine:" + blockName));
+        Block block = BlockRegistry.get(Identifier.of("voxelstories:" + blockName));
         int frontLayer = BlockTextures.layerOf("game/textures/block/" + frontTexture);
         int casingLayer = BlockTextures.layerOf("game/textures/block/furnace_top.png");
 

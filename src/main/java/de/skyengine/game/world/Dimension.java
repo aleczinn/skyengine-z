@@ -413,6 +413,14 @@ public class Dimension implements IInitializable, IDisposable {
         if (this.soundManager != null) this.soundManager.playDispenserFailure(x + 0.5, y + 0.5, z + 0.5);
     }
 
+    public void playBucketEmpty(int x, int y, int z, boolean lava) {
+        if (this.soundManager != null) this.soundManager.playBucketEmpty(lava, x + 0.5, y + 0.5, z + 0.5);
+    }
+
+    public void playBucketFill(int x, int y, int z, boolean lava) {
+        if (this.soundManager != null) this.soundManager.playBucketFill(lava, x + 0.5, y + 0.5, z + 0.5);
+    }
+
     public void playFluidExtinguish(int x, int y, int z) {
         this.particles.fluidReaction(x + 0.5, y + 0.5, z + 0.5);
         if (this.soundManager != null) this.soundManager.playFluidExtinguish(x + 0.5, y + 0.5, z + 0.5);

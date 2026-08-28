@@ -1,6 +1,7 @@
 package de.skyengine.core.resource;
 
 import de.skyengine.core.file.Files;
+import de.skyengine.core.SkyEngine;
 import de.skyengine.core.settings.GameSettings;
 
 import java.nio.file.Path;
@@ -13,7 +14,7 @@ public final class Resources {
 
     public static synchronized void initialize() {
         if (manager != null) return;
-        ResourceSource defaults = new DirectoryResourceSource("skyengine-default",
+        ResourceSource defaults = new DirectoryResourceSource(SkyEngine.GAME_PREFIX + "-default",
                 Path.of(Files.RESOURCES_PATH, "game"), true);
         repository = new ResourcePackRepository();
         repository.refresh();

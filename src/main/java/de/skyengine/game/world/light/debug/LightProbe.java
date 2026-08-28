@@ -30,11 +30,11 @@ public final class LightProbe {
     public static void main(String[] args) {
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
         AIR = Blocks.AIR;
-        STONE = id("skyengine:stone");
-        WATER = id("skyengine:water[falling=false,level=0]");
-        GLASS = id("skyengine:glass");
-        LEAVES = id("skyengine:oak_leaves");
-        TORCH = id("skyengine:torch");
+        STONE = id("stone");
+        WATER = id("water[falling=false,level=0]");
+        GLASS = id("glass");
+        LEAVES = id("oak_leaves");
+        TORCH = id("torch");
 
         System.out.println("== Licht-Opazitaeten ==");
         check(Blocks.getState(STONE).getLightOpacity() == 15, "Stein blockt (15)");

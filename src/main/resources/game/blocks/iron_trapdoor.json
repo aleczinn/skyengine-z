@@ -1,6 +1,6 @@
 {
   "_comment": "Wie die Eisentuer: laesst sich NICHT von Hand oeffnen, sie braucht ein Signal (Etappe 3).",
-  "id": "skyengine:iron_trapdoor",
+  "id": "iron_trapdoor",
   "parent": "preset/trapdoor",
   "creative_tab": ["functional", "redstone_blocks"],
   "hardness": 5,

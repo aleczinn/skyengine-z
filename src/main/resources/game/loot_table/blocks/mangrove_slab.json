@@ -1,33 +1,33 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "entries": [
         {
-          "type": "skyengine:item",
+          "type": "item",
           "functions": [
             {
               "conditions": [
                 {
-                  "block": "skyengine:mangrove_slab",
-                  "condition": "skyengine:block_state_property",
+                  "block": "mangrove_slab",
+                  "condition": "block_state_property",
                   "properties": {
                     "type": "double"
                   }
                 }
               ],
               "count": 2.0,
-              "function": "skyengine:set_count"
+              "function": "set_count"
             },
             {
-              "function": "skyengine:explosion_decay"
+              "function": "explosion_decay"
             }
           ],
-          "name": "skyengine:mangrove_slab"
+          "name": "mangrove_slab"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/mangrove_slab"
+  "random_sequence": "blocks/mangrove_slab"
 }

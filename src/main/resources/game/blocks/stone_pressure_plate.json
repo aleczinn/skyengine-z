@@ -1,6 +1,6 @@
 {
   "_comment": "MC: die Stein-Druckplatte droppt nur mit Spitzhacke und reagiert NUR auf Spieler und Mobs - Items druecken sie nicht.",
-  "id": "skyengine:stone_pressure_plate",
+  "id": "stone_pressure_plate",
   "parent": "preset/pressure_plate",
   "press_ticks": 20,
   "sound": "stone",

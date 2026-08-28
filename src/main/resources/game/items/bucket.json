@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:bucket",
+  "id": "bucket",
   "archetype": "bucket",
   "max_stack": 16,
   "texture": "game/textures/item/bucket.png",

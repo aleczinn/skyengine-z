@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:magenta_bed",
+  "id": "magenta_bed",
   "parent": "preset/bed",
   "textures": {
     "head_east": "game/textures/block/magenta_bed_head_east.png",

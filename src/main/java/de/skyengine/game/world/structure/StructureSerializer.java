@@ -32,7 +32,6 @@ import java.util.zip.GZIPOutputStream;
 public final class StructureSerializer {
     public static final int MAGIC = 0x56535452; // VSTR
     public static final int FORMAT_VERSION = 2;
-    private static final int MIN_READABLE_VERSION = 1;
     private static final int COMPRESSION_GZIP = 1;
 
     public static void write(Path target, StructureTemplate template) throws IOException {
@@ -73,7 +72,7 @@ public final class StructureSerializer {
         DataInputStream header = new DataInputStream(buffered);
         if (header.readInt() != MAGIC) throw new IOException("Keine .structure-Datei (VSTR-Magic fehlt)");
         int version = header.readUnsignedShort();
-        if (version < MIN_READABLE_VERSION || version > FORMAT_VERSION) {
+        if (version != FORMAT_VERSION) {
             throw new IOException("Nicht unterstuetzte .structure-Version " + version);
         }
         int compression = header.readUnsignedByte();
@@ -133,7 +132,7 @@ public final class StructureSerializer {
             palette[i] = state.getId();
         }
         Map<Long, StructureTemplate.BlockEntitySnapshot> blockEntities = new LinkedHashMap<>();
-        if (version >= 2) {
+        {
             NbtList entries = root.requireList("BlockEntities");
             if (entries.elementType() != 10) throw new IOException("Structure BlockEntities ist keine Compound-Liste");
             if (entries.size() > blocks.length / 4) throw new IOException("Mehr BlockEntities als Blockzellen");

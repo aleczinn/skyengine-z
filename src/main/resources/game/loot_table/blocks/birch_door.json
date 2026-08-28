@@ -1,29 +1,29 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
+          "type": "item",
           "conditions": [
             {
-              "block": "skyengine:birch_door",
-              "condition": "skyengine:block_state_property",
+              "block": "birch_door",
+              "condition": "block_state_property",
               "properties": {
                 "half": "lower"
               }
             }
           ],
-          "name": "skyengine:birch_door"
+          "name": "birch_door"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/birch_door"
+  "random_sequence": "blocks/birch_door"
 }

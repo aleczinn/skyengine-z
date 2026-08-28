@@ -1,29 +1,29 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
+          "type": "item",
           "conditions": [
             {
-              "block": "skyengine:lilac",
-              "condition": "skyengine:block_state_property",
+              "block": "lilac",
+              "condition": "block_state_property",
               "properties": {
                 "half": "lower"
               }
             }
           ],
-          "name": "skyengine:lilac"
+          "name": "lilac"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/lilac"
+  "random_sequence": "blocks/lilac"
 }

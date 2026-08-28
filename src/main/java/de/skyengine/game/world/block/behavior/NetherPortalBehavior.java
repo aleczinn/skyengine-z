@@ -37,7 +37,7 @@ public final class NetherPortalBehavior implements BlockBehavior {
 
     @Override
     public void onRemoved(Dimension world, int x, int y, int z, BlockState oldState, BlockState newState) {
-        Identifier type = Identifier.of("skyengine:nether_portal");
+        Identifier type = Identifier.of("nether_portal");
         PortalIndex.Entry entry = world.getPortalIndex().containing(type, x, y, z);
         if (entry == null) return;
         NetherPortalShape.Shape intact = NetherPortalShape.find(world, x, y, z, false);

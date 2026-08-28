@@ -25,29 +25,29 @@ final class PlayerManagerTest {
     }
 
     @Test
-    void migratesLegacyPlayerToUuidFileWithoutDeletingBackup(@TempDir Path root) {
+    void loadsCurrentUuidPlayerFile(@TempDir Path root) {
         UUID uuid = UUID.randomUUID();
-        DataTag legacy = new DataTag()
+        DataTag saved = new DataTag()
                 .putLong("uuidMost", uuid.getMostSignificantBits())
                 .putLong("uuidLeast", uuid.getLeastSignificantBits())
                 .putDouble("x", 12.5)
                 .putDouble("y", 70.0)
                 .putDouble("z", -8.5)
-                .putString("dimension", "skyengine:overworld")
+                .putString("dimension", WorldgenRegistries.OVERWORLD.toString())
                 .putInt("selectedSlot", 4);
-        PlayerIO.write(PlayerIO.legacyPlayerFile(root.toFile()), legacy);
+        PlayerIO.write(PlayerIO.playerFile(root.toFile(), uuid), saved);
 
         LevelData level = new LevelData();
-        level.name = "Migration";
+        level.name = "Current";
         level.seed = 7;
-        PlayerManager players = new PlayerManager(new WorldSaves.WorldSave("migration", level),
+        level.localPlayerUuid = uuid.toString();
+        PlayerManager players = new PlayerManager(new WorldSaves.WorldSave("current", level),
                 root.toFile());
 
         assertEquals(uuid, players.localPlayer().getUuid());
         assertEquals(uuid.toString(), level.localPlayerUuid);
         assertEquals(12.5, players.localPlayer().x);
         assertEquals(4, players.localPlayer().getSelectedSlot());
-        assertTrue(Files.isRegularFile(PlayerIO.legacyPlayerFile(root.toFile()).toPath()));
         assertTrue(Files.isRegularFile(PlayerIO.playerFile(root.toFile(), uuid).toPath()));
 
         players.localPlayer().setSelectedSlot(6);

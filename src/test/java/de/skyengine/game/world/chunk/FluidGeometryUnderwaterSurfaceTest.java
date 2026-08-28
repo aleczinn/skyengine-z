@@ -249,6 +249,6 @@ final class FluidGeometryUnderwaterSurfaceTest {
     }
 
     private static int ice() {
-        return BlockRegistry.get(Identifier.of("skyengine:ice")).getDefaultState().getId();
+        return BlockRegistry.get(Identifier.of("voxelstories:ice")).getDefaultState().getId();
     }
 }

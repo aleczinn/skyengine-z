@@ -37,7 +37,7 @@ public final class ItemLoader {
     private static final Gson GSON = new Gson();
     private static final int MAX_DEPTH = 10;
 
-    public static void load(File directory) {
+    public static void load(File directory, String namespace) {
         if (directory == null || !directory.isDirectory()) return;   // items/ ist optional
 
         Map<String, JsonObject> lookup = new HashMap<>();
@@ -52,9 +52,9 @@ public final class ItemLoader {
             String key = stripExtension(file.getName());
             JsonObject merged = resolve(key, lookup, 0);
             if (merged == null) continue;
-            applyVars(key, merged);
+            applyVars(key, merged, namespace);
             try {
-                if (register(GSON.fromJson(merged, ItemDefinition.class), key)) loaded++;
+                if (register(GSON.fromJson(merged, ItemDefinition.class), key, namespace)) loaded++;
             } catch (Exception e) {
                 LOGGER.error("Fehlerhafte Item-Definition: " + key, e);
             }
@@ -62,7 +62,7 @@ public final class ItemLoader {
         LOGGER.info(loaded + " Item-Definitionen geladen");
     }
 
-    private static boolean register(ItemDefinition def, String key) {
+    private static boolean register(ItemDefinition def, String key, String namespace) {
         if (def.id == null || def.id.isBlank()) {
             LOGGER.error("Item-Definition ohne 'id': " + key);
             return false;
@@ -71,7 +71,7 @@ public final class ItemLoader {
             LOGGER.error("Item-Definition ohne 'texture': " + def.id);
             return false;
         }
-        Identifier id = Identifier.of(def.id);
+        Identifier id = Identifier.of(def.id, namespace);
         if (Registries.ITEM.contains(id)) {
             LOGGER.warning("Item bereits registriert, JSON ignoriert: " + id);
             return false;
@@ -81,7 +81,7 @@ public final class ItemLoader {
            registriert (Items.bootstrap läuft nach dem Block-Bake). */
         de.skyengine.game.world.block.Block placedBlock = null;
         if (def.places_block != null && !def.places_block.isBlank()) {
-            placedBlock = Registries.BLOCK.get(Identifier.of(def.places_block));
+            placedBlock = Registries.BLOCK.get(Identifier.of(def.places_block, namespace));
             if (placedBlock == null) {
                 LOGGER.warning("places_block unbekannt bei " + id + ": " + def.places_block);
             }
@@ -89,6 +89,9 @@ public final class ItemLoader {
 
         Item item = ItemArchetypes.create(id, def);
         Registries.ITEM.register(id, item);
+        if (def.crafting_remainder != null && !def.crafting_remainder.isBlank()) {
+            Items.registerCraftingRemainder(id, Identifier.of(def.crafting_remainder, namespace));
+        }
         if (def.command_only) Items.registerCommandOnly(id);
         if (placedBlock != null) Items.registerPlacer(placedBlock.getIdentifier(), item);
         if (!def.command_only) CreativeTabs.assign(id, CreativeTabs.parse(def.creative_tab));
@@ -134,12 +137,12 @@ public final class ItemLoader {
         return parent == null ? self.deepCopy() : JsonMerge.deepMerge(parent, self);
     }
 
-    private static void applyVars(String key, JsonObject merged) {
+    private static void applyVars(String key, JsonObject merged, String namespace) {
         String id = merged.has("id") ? merged.get("id").getAsString() : key;
         int colon = id.indexOf(':');
 
         Map<String, String> builtin = new HashMap<>();
-        builtin.put("ns", colon >= 0 ? id.substring(0, colon) : "skyengine");
+        builtin.put("ns", colon >= 0 ? id.substring(0, colon) : namespace);
         builtin.put("id", colon >= 0 ? id.substring(colon + 1) : id);
 
         Map<String, String> vars = new HashMap<>(builtin);

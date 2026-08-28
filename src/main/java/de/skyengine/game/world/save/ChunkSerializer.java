@@ -8,14 +8,10 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.block.entity.BlockEntity;
 import de.skyengine.game.world.block.entity.BlockEntityType;
-import de.skyengine.game.world.block.entity.ComparatorBlockEntity;
 import de.skyengine.game.world.block.entity.DataTag;
-import de.skyengine.game.world.block.entity.PistonMovingBlockEntity;
 import de.skyengine.game.world.block.registry.Registries;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.BlockStateCodec;
-import de.skyengine.game.world.block.state.PistonType;
-import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.palette.BitStorage;
@@ -32,8 +28,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,10 +44,10 @@ import java.util.zip.Inflater;
  * {@link BlockStateCodec} persistiert (Runtime-IDs sind flüchtig!), dedupliziert über eine
  * chunk-weite Palette; die Section-Bit-Daten ({@link BitStorage}) werden roh übernommen.
  *
- * <p>Payload-Format v4 (unkomprimiert; Kompression/CRC über {@link #compress}/{@link #crc32},
+ * <p>Payload-Format v5 (unkomprimiert; Kompression/CRC über {@link #compress}/{@link #crc32},
  * CRC immer über den ROHEN Payload — Kompressionswechsel ändern die Prüfsumme nicht):
  * <pre>
- * byte  payloadVersion = 4                      (v1-v3 bleiben lesbar)
+ * byte  payloadVersion = 5
  * UTF   generatorId, int generatorVersion      (Provenienz — strikt getrennt von payloadVersion)
  * int   paletteCount, paletteCount × UTF        (chunk-weite State-Strings)
  * 16 ×  Section: byte mode
@@ -75,9 +69,8 @@ import java.util.zip.Inflater;
  */
 public final class ChunkSerializer {
 
-    /* v4: persistente Entities. v3 brachte stabile Tick-Zielidentität/Priorität/Suborder;
-       v2 hat nur Typ, Position und Rest-Delay, v1 keinen Tick-Abschnitt. */
-    public static final byte PAYLOAD_VERSION = 4;
+    /* v5 ist das einzige lesbare Payload-Format. */
+    public static final byte PAYLOAD_VERSION = 5;
 
     private static final Logger LOGGER = LogManager.getLogger(ChunkSerializer.class.getName());
 
@@ -298,7 +291,7 @@ public final class ChunkSerializer {
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload));
 
         byte version = in.readByte();
-        if (version < 1 || version > PAYLOAD_VERSION) {
+        if (version != PAYLOAD_VERSION) {
             throw new IOException("Unbekannte Chunk-Payload-Version " + version);
         }
         in.readUTF();  // generatorId — Provenienz, aktuell nur Format-Bestandteil
@@ -310,12 +303,9 @@ public final class ChunkSerializer {
             throw new IOException("Ungültige Paletten-Größe " + paletteCount);
         }
         int[] palette = new int[paletteCount];
-        int[] legacyComparatorOutputs = new int[paletteCount];
-        java.util.Arrays.fill(legacyComparatorOutputs, -1);
         boolean[] unknown = new boolean[paletteCount];
         for (int i = 0; i < paletteCount; i++) {
             String encoded = in.readUTF();
-            legacyComparatorOutputs[i] = legacyComparatorOutput(encoded);
             BlockState state = BlockStateCodec.decode(encoded);
             if (state == null) {
                 palette[i] = 0;
@@ -328,8 +318,6 @@ public final class ChunkSerializer {
             }
         }
 
-        Map<Integer, Integer> migratedComparatorOutputs = new HashMap<>();
-
         for (int s = 0; s < Chunk.SECTIONS; s++) {
             byte mode = in.readByte();
             switch (mode) {
@@ -341,18 +329,6 @@ public final class ChunkSerializer {
                         chunk.installSection(s, null);
                     } else {
                         chunk.installSection(s, new ChunkSection(new PalettedContainer(ChunkSection.VOLUME, stateId)));
-                        int legacyOutput = legacyComparatorOutputs[paletteIndex];
-                        if (legacyOutput >= 0) {
-                            int baseY = s << ChunkSection.SHIFT;
-                            for (int ly = 0; ly < ChunkSection.SIZE; ly++) {
-                                for (int lz = 0; lz < ChunkSection.SIZE; lz++) {
-                                    for (int lx = 0; lx < ChunkSection.SIZE; lx++) {
-                                        migratedComparatorOutputs.put(
-                                                packLocalPos(lx, baseY + ly, lz), legacyOutput);
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
                 case SECTION_BITS -> {
@@ -366,12 +342,10 @@ public final class ChunkSerializer {
                         throw new IOException("Ungültige Section-Palette (" + localCount + " Einträge)");
                     }
                     int[] local = new int[localCount];
-                    int[] localLegacyOutputs = new int[localCount];
                     boolean anyUnknown = false;
                     for (int i = 0; i < localCount; i++) {
                         int idx = checkIndex(in.readInt(), paletteCount);
                         local[i] = palette[idx];
-                        localLegacyOutputs[i] = legacyComparatorOutputs[idx];
                         anyUnknown |= unknown[idx];
                     }
                     int bitsPerEntry = in.readByte();
@@ -402,16 +376,6 @@ public final class ChunkSerializer {
                     }
                     PalettedContainer container = new PalettedContainer(ChunkSection.VOLUME, local, localCount, storage, nonAir);
                     chunk.installSection(s, nonAir == 0 ? null : new ChunkSection(container));
-                    int baseY = s << ChunkSection.SHIFT;
-                    for (int i = 0; i < ChunkSection.VOLUME; i++) {
-                        int localIndex = storage.get(i);
-                        if (localIndex >= localCount || localLegacyOutputs[localIndex] < 0) continue;
-                        int lx = i & ChunkSection.MASK;
-                        int lz = (i >> ChunkSection.SHIFT) & ChunkSection.MASK;
-                        int ly = i >> (ChunkSection.SHIFT * 2);
-                        migratedComparatorOutputs.put(packLocalPos(lx, baseY + ly, lz),
-                                localLegacyOutputs[localIndex]);
-                    }
                 }
                 default -> throw new IOException("Unbekannter Section-Modus " + mode);
             }
@@ -432,7 +396,6 @@ public final class ChunkSerializer {
         if (beCount < 0 || beCount > ChunkSection.VOLUME * Chunk.SECTIONS) {
             throw new IOException("Ungültige BlockEntity-Anzahl " + beCount);
         }
-        Set<Integer> explicitBlockEntityPositions = new HashSet<>();
         for (int i = 0; i < beCount; i++) {
             int packed = in.readInt();
             String typeId = in.readUTF();
@@ -450,40 +413,11 @@ public final class ChunkSerializer {
                     (chunk.chunkZ << ChunkSection.SHIFT) + lz);
             BlockEntity be = type.create(pos, Blocks.getState(chunk.getBlock(lx, y, lz)));
             be.load(tag);
-            /* Alte Saves hatten nur einen einzigen, stets unsichtbaren moving_piston-State.
-               Seit der Vanilla-konformen Source-Position trägt ein einfahrender Source-State
-               die stationäre Basis im Chunk-Mesh. Aus den bereits persistenten BE-Daten lässt
-               sich diese reine Render-Variante verlustfrei nachtragen. */
-            if (be instanceof PistonMovingBlockEntity moving
-                    && moving.isSource() && !moving.isExtending()) {
-                int renderState = Blocks.getState(Blocks.MOVING_PISTON)
-                        .with(Properties.FACING_ALL, moving.getFacing())
-                        .with(Properties.PISTON_TYPE,
-                                moving.isSticky() ? PistonType.STICKY : PistonType.NORMAL)
-                        .with(Properties.RETRACTING_SOURCE, true)
-                        .getId();
-                chunk.setBlock(lx, y, lz, renderState);
-            }
             if (world != null) be.setWorld(world);
             chunk.setBlockEntity(lx, y, lz, be);
-            explicitBlockEntityPositions.add(packed);
         }
-
-        /* Migration und Korruptionsheilung: ältere Saves kennen ggf. einen inzwischen
-           hinzugekommenen BlockEntity-Typ noch nicht (insbesondere Comparatoren vor der
-           OutputSignal-Umstellung). Nur Sections mit passendem Paletteneintrag werden gescannt. */
-        ensureRequiredBlockEntities(chunk, world);
-        for (Map.Entry<Integer, Integer> entry : migratedComparatorOutputs.entrySet()) {
-            if (explicitBlockEntityPositions.contains(entry.getKey())) continue;
-            int packed = entry.getKey();
-            int lx = packed & 31, lz = (packed >> 5) & 31, y = (packed >> 10) & 511;
-            if (chunk.getBlockEntity(lx, y, lz) instanceof ComparatorBlockEntity comparator) {
-                comparator.setOutputSignal(entry.getValue());
-            }
-        }
-
-        /* Scheduled-Ticks: v2 ohne Zielidentität/Reihenfolge, v3 vollständig; v1 ohne Ticks. */
-        if (version >= 2) {
+        /* Scheduled-Ticks. */
+        {
             int tickCount = in.readInt();
             if (tickCount < 0 || tickCount > ChunkSection.VOLUME * Chunk.SECTIONS) {
                 throw new IOException("Ungültige Tick-Anzahl " + tickCount);
@@ -491,14 +425,14 @@ public final class ChunkSerializer {
             List<SavedTick> ticks = tickCount == 0 ? null : new ArrayList<>(tickCount);
             for (int i = 0; i < tickCount; i++) {
                 String type = in.readUTF();
-                String expectedBlock = version >= 3 ? in.readUTF() : null;
+                String expectedBlock = in.readUTF();
                 if (expectedBlock != null && expectedBlock.isEmpty()) expectedBlock = null;
                 int x = in.readInt();
                 int y = in.readInt();
                 int z = in.readInt();
                 int remaining = in.readInt();
-                int priority = version >= 3 ? in.readInt() : 0;
-                long subOrder = version >= 3 ? in.readLong() : i;
+                int priority = in.readInt();
+                long subOrder = in.readLong();
                 /* Unbekannter Typ (Save aus neuerer Engine): Eintrag überspringen, Stream
                    bleibt intakt (feste Feldbreiten). */
                 if (ScheduledTickTypes.get(type) == null) {
@@ -539,7 +473,7 @@ public final class ChunkSerializer {
             chunk.announceTickRestore();
         }
 
-        if (version >= 4) {
+        {
             int entityCount = in.readInt();
             if (entityCount < 0 || entityCount > ChunkSection.VOLUME * Chunk.SECTIONS) {
                 throw new IOException("Ungueltige Entity-Anzahl " + entityCount);
@@ -607,70 +541,12 @@ public final class ChunkSerializer {
         }
     }
 
-    private static void ensureRequiredBlockEntities(Chunk chunk, Dimension world) {
-        int originX = chunk.chunkX << ChunkSection.SHIFT;
-        int originZ = chunk.chunkZ << ChunkSection.SHIFT;
-        for (int sectionIndex = 0; sectionIndex < Chunk.SECTIONS; sectionIndex++) {
-            ChunkSection section = chunk.getSection(sectionIndex);
-            if (section == null || section.isEmpty() || section.container() == null) continue;
-
-            boolean containsBlockEntityBlock = false;
-            for (int stateId : section.container().paletteEntries()) {
-                if (stateId != 0 && Blocks.getState(stateId).getBlock().getBlockEntityType() != null) {
-                    containsBlockEntityBlock = true;
-                    break;
-                }
-            }
-            if (!containsBlockEntityBlock) continue;
-
-            int baseY = sectionIndex << ChunkSection.SHIFT;
-            for (int ly = 0; ly < ChunkSection.SIZE; ly++) {
-                for (int lz = 0; lz < ChunkSection.SIZE; lz++) {
-                    for (int lx = 0; lx < ChunkSection.SIZE; lx++) {
-                        BlockState state = Blocks.getState(section.getBlock(lx, ly, lz));
-                        BlockEntityType<?> required = state.getBlock().getBlockEntityType();
-                        if (required == null) continue;
-                        BlockEntity current = chunk.getBlockEntity(lx, baseY + ly, lz);
-                        if (current != null && current.getType() == required) continue;
-
-                        BlockPos pos = new BlockPos(originX + lx, baseY + ly, originZ + lz);
-                        BlockEntity created = required.create(pos, state);
-                        if (world != null) created.setWorld(world);
-                        chunk.setBlockEntity(lx, baseY + ly, lz, created);
-                    }
-                }
-            }
-        }
-    }
-
     /* Gleiche Packung wie Chunk.beKey (x | z<<5 | y<<10). */
     private static int packLocalPos(int lx, int y, int lz) {
         return (lx & 31) | ((lz & 31) << 5) | ((y & 511) << 10);
     }
 
     /** Liest die bis einschließlich des alten Comparator-State-Modells gespeicherte Stärke. */
-    private static int legacyComparatorOutput(String encoded) {
-        int bracket = encoded.indexOf('[');
-        if (bracket < 0) return -1;
-        try {
-            if (!Identifier.of(encoded.substring(0, bracket)).equals(Identifier.of("comparator"))) return -1;
-        } catch (IllegalArgumentException invalidIdentifier) {
-            return -1;
-        }
-        int property = encoded.indexOf("power=");
-        if (property < 0) return -1;
-        int start = property + "power=".length();
-        int end = encoded.indexOf(',', start);
-        if (end < 0) end = encoded.indexOf(']', start);
-        if (end < 0) return -1;
-        try {
-            int value = Integer.parseInt(encoded.substring(start, end));
-            return value >= 0 && value <= 15 ? value : -1;
-        } catch (NumberFormatException ignored) {
-            return -1;
-        }
-    }
-
     private static int checkIndex(int index, int paletteCount) throws IOException {
         if (index < 0 || index >= paletteCount) {
             throw new IOException("Paletten-Index außerhalb des Bereichs: " + index + " / " + paletteCount);

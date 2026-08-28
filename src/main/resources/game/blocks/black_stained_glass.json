@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:black_stained_glass",
+  "id": "black_stained_glass",
   "creative_tab": "colored_blocks",
   "parent": "preset/cube",
   "sound": "glass",

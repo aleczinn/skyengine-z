@@ -49,19 +49,19 @@ final class WorldChunkRedstoneReconciliationTest {
         world.install(east);
         west.loadSeeded = true;
 
-        int wire = id("skyengine:redstone_wire[east=none,north=none,power=0,south=none,west=none]");
+        int wire = id("voxelstories:redstone_wire[east=none,north=none,power=0,south=none,west=none]");
         west.setBlock(ChunkSection.MASK, 64, 8, wire);
         east.setBlock(0, 64, 8, wire);
-        west.setBlock(ChunkSection.MASK, 63, 8, id("skyengine:stone"));
-        east.setBlock(0, 63, 8, id("skyengine:stone"));
-        east.setBlock(1, 64, 8, id("skyengine:redstone_block"));
+        west.setBlock(ChunkSection.MASK, 63, 8, id("voxelstories:stone"));
+        east.setBlock(0, 63, 8, id("voxelstories:stone"));
+        east.setBlock(1, 64, 8, id("voxelstories:redstone_block"));
 
         /* Der Hebel speist den Stein an der Kante stark; die Lampe liegt eine weitere Zelle
            im neuen Chunk. Damit beweist der Test das erforderliche Zwei-Zellen-Band. */
         west.setBlock(ChunkSection.MASK, 64, 12,
-                id("skyengine:lever[face=wall,facing=west,powered=true]"));
-        east.setBlock(0, 64, 12, id("skyengine:stone"));
-        east.setBlock(1, 64, 12, id("skyengine:redstone_lamp[lit=false]"));
+                id("voxelstories:lever[face=wall,facing=west,powered=true]"));
+        east.setBlock(0, 64, 12, id("voxelstories:stone"));
+        east.setBlock(1, 64, 12, id("voxelstories:redstone_lamp[lit=false]"));
 
         world.manager.requeueReadyAnnounce(east);
         world.processReadyChunks();
@@ -101,14 +101,14 @@ final class WorldChunkRedstoneReconciliationTest {
         west.loadSeeded = true;
         east.loadSeeded = true;
 
-        int wire = id("skyengine:redstone_wire[east=none,north=none,power=0,south=none,west=none]");
-        int redstoneBlock = id("skyengine:redstone_block");
+        int wire = id("voxelstories:redstone_wire[east=none,north=none,power=0,south=none,west=none]");
+        int redstoneBlock = id("voxelstories:redstone_block");
         int width = ChunkSection.SIZE + 8;
         for (int z = 0; z < ChunkSection.SIZE; z++) {
             for (int x = 0; x < width; x++) {
                 Chunk chunk = x < ChunkSection.SIZE ? west : east;
                 chunk.setBlock(x & ChunkSection.MASK, 64, z, wire);
-                chunk.setBlock(x & ChunkSection.MASK, 63, z, id("skyengine:stone"));
+                chunk.setBlock(x & ChunkSection.MASK, 63, z, id("voxelstories:stone"));
             }
             /* Eine Quellenlinie an der Naht speist auch die acht Spalten im Ostchunk. */
             west.setBlock(ChunkSection.MASK, 63, z, redstoneBlock);
@@ -155,15 +155,15 @@ final class WorldChunkRedstoneReconciliationTest {
         Chunk east = readyChunk(1, 0);
         int comparatorX = ChunkSection.MASK - 1;
         west.setBlock(comparatorX, 64, 8,
-                id("skyengine:comparator[facing=west,mode=compare,powered=false]"));
-        west.setBlock(comparatorX, 63, 8, id("skyengine:stone"));
-        west.setBlock(ChunkSection.MASK, 64, 8, id("skyengine:stone"));
+                id("voxelstories:comparator[facing=west,mode=compare,powered=false]"));
+        west.setBlock(comparatorX, 63, 8, id("voxelstories:stone"));
+        west.setBlock(ChunkSection.MASK, 64, 8, id("voxelstories:stone"));
         west.setBlockEntity(comparatorX, 64, 8, new ComparatorBlockEntity(
                 BlockEntities.COMPARATOR, new BlockPos(comparatorX, 64, 8)));
 
         ItemFrameEntity frame = new ItemFrameEntity(ChunkSection.SIZE, 64, 8, Direction.EAST);
         frame.loadContent(new ItemStack(
-                Items.get(Identifier.of("skyengine:diamond")), 1), 5);
+                Items.get(Identifier.of("voxelstories:diamond")), 1), 5);
         east.addEntity(frame);
 
         byte[] westPayload = serialize(west);
@@ -200,7 +200,8 @@ final class WorldChunkRedstoneReconciliationTest {
     }
 
     private static byte[] serialize(Chunk chunk) {
-        return ChunkSerializer.serialize(chunk, "test", 1, false, List.of(), List.of());
+        return ChunkSerializer.serialize(chunk, "test", 1, false, List.of(),
+                ChunkSerializer.snapshotBlockEntities(chunk));
     }
 
     private static Chunk deserialize(int chunkX, int chunkZ, byte[] payload, Dimension world) throws Exception {
@@ -309,7 +310,7 @@ final class WorldChunkRedstoneReconciliationTest {
             LevelData level = new LevelData();
             level.name = "chunk-redstone-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

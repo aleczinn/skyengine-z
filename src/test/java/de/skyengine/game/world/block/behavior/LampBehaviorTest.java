@@ -43,7 +43,7 @@ final class LampBehaviorTest {
     }
 
     private static BlockState state(String path) {
-        var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
+        var block = BlockRegistry.get(Identifier.of("voxelstories:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
         return block.getDefaultState();
     }
@@ -68,7 +68,7 @@ final class LampBehaviorTest {
             LevelData level = new LevelData();
             level.name = "lamp-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

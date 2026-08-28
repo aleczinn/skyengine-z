@@ -5,8 +5,6 @@ import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.entity.MinecartEntity;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.Identifier;
-import de.skyengine.game.world.block.entity.ComparatorBlockEntity;
-import de.skyengine.game.world.block.state.Properties;
 import de.skyengine.game.world.block.state.BlockStateCodec;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
@@ -44,7 +42,7 @@ final class ChunkSerializerTest {
         int worldX = source.chunkX * 32 + 3;
         int worldZ = source.chunkZ * 32 + 7;
         List<SavedTick> ticks = List.of(
-                new SavedTick(ScheduledTickTypes.BLOCK, "skyengine:stone",
+                new SavedTick(ScheduledTickTypes.BLOCK, "voxelstories:stone",
                         worldX, 64, worldZ, 4, -1, 42));
 
         byte[] payload = ChunkSerializer.serialize(
@@ -63,7 +61,7 @@ final class ChunkSerializerTest {
         int x = (source.chunkX << 5) + 7;
         int z = (source.chunkZ << 5) + 11;
         ItemFrameEntity frame = new ItemFrameEntity(x, 64, z, Direction.WEST);
-        frame.loadContent(new ItemStack(Items.get(Identifier.of("skyengine:diamond")), 1), 6);
+        frame.loadContent(new ItemStack(Items.get(Identifier.of("voxelstories:diamond")), 1), 6);
         source.addEntity(frame);
 
         byte[] payload = ChunkSerializer.serialize(source, "test", 1, false,
@@ -78,7 +76,7 @@ final class ChunkSerializerTest {
         assertEquals(z, loaded.getAnchorZ());
         assertEquals(Direction.WEST, loaded.getDirection());
         assertEquals(6, loaded.getRotation());
-        assertEquals(Identifier.of("skyengine:diamond"), loaded.getItem().getItem().getId());
+        assertEquals(Identifier.of("voxelstories:diamond"), loaded.getItem().getItem().getId());
         assertEquals(7, loaded.getAnalogOutput());
     }
 
@@ -113,74 +111,6 @@ final class ChunkSerializerTest {
         assertEquals(minecart.getDamage(), loaded.getDamage());
         assertEquals(minecart.getHurtTime(), loaded.getHurtTime());
         assertEquals(minecart.getHurtDirection(), loaded.getHurtDirection());
-    }
-
-    @Test
-    void legacyV2TicksRemainReadableAndAreMarkedAsUnbound() throws Exception {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        try (DataOutputStream out = new DataOutputStream(bytes)) {
-            out.writeByte(2);
-            out.writeUTF("test");
-            out.writeInt(1);
-            out.writeInt(0);
-            for (int section = 0; section < 16; section++) out.writeByte(0);
-            out.writeByte(0);
-            out.writeInt(0);
-            out.writeInt(1);
-            out.writeUTF(ScheduledTickTypes.BLOCK);
-            out.writeInt(3);
-            out.writeInt(64);
-            out.writeInt(7);
-            out.writeInt(5);
-        }
-
-        Chunk restored = new Chunk(0, 0);
-        ChunkSerializer.deserialize(restored, bytes.toByteArray(), null);
-
-        assertNotNull(restored.pendingScheduledTicks);
-        assertEquals(1, restored.pendingScheduledTicks.size());
-        SavedTick tick = restored.pendingScheduledTicks.getFirst();
-        assertEquals(ScheduledTickTypes.BLOCK, tick.type());
-        assertNull(tick.expectedBlock());
-        assertEquals(5, tick.remainingTicks());
-        assertEquals(0, tick.priority());
-        assertEquals(0, tick.subOrder());
-    }
-
-    @Test
-    void legacyComparatorPowerMigratesIntoSynthesizedBlockEntity() throws Exception {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        try (DataOutputStream out = new DataOutputStream(bytes)) {
-            out.writeByte(2);
-            out.writeUTF("test");
-            out.writeInt(1);
-            out.writeInt(2);
-            out.writeUTF("skyengine:air");
-            out.writeUTF("skyengine:comparator[facing=east,mode=compare,power=7]");
-
-            out.writeByte(2); // SECTION_BITS
-            out.writeInt(2);
-            out.writeInt(0); // air
-            out.writeInt(1); // legacy comparator
-            out.writeByte(1);
-            out.writeInt(1);
-            out.writeInt(512);
-            out.writeLong(1L); // lokale Position 0 -> Palettenindex 1
-            for (int i = 1; i < 512; i++) out.writeLong(0L);
-            for (int section = 1; section < Chunk.SECTIONS; section++) out.writeByte(0);
-            out.writeByte(0); // keine Tints
-            out.writeInt(0);  // alte Saves hatten keine Comparator-BE
-            out.writeInt(0);  // keine Scheduled-Ticks
-        }
-
-        Chunk restored = new Chunk(0, 0);
-        ChunkSerializer.deserialize(restored, bytes.toByteArray(), null);
-
-        assertTrue(Blocks.getState(restored.getBlock(0, 0, 0)).get(Properties.POWERED));
-        ComparatorBlockEntity comparator =
-                (ComparatorBlockEntity) restored.getBlockEntity(0, 0, 0);
-        assertNotNull(comparator);
-        assertEquals(7, comparator.getOutputSignal());
     }
 
     @Test
@@ -246,7 +176,7 @@ final class ChunkSerializerTest {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(bytes)) {
             writeHeader(out, 1);
-            out.writeUTF("skyengine:stone");
+            out.writeUTF("voxelstories:stone");
             out.writeByte(2); // SECTION_BITS
             out.writeInt(1);
             out.writeInt(0);

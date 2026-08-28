@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:mangrove_fence",
+  "id": "mangrove_fence",
   "parent": "preset/fence",
   "vars": {
     "texture": "mangrove_planks"

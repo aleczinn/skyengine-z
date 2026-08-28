@@ -248,25 +248,28 @@ public final class GuiCreativeInventory extends GuiContainer {
         return null;
     }
 
-    private void selectTab(CreativeTab tab) {
+    private void selectTab(CreativeTab tab, boolean clearSearch) {
         if (tab == null) return;
         boolean search = tab.type() == CreativeTab.Type.SEARCH;
         boolean same = tab.id().equals(selectedTabId);
 
-        /* Ein Klick auf die Lupe leert das Suchfeld — auch dann, wenn der Such-Reiter schon offen
-           ist. Das ist der schnellste Weg, eine Eingabe komplett zurückzunehmen. lastQuery MUSS
-           mitgehen: render() erkennt eine Änderung nur über den Vergleich mit diesem Feld. */
-        if (search && this.searchField != null) {
-            this.searchField.text("");
+        /* Nur Rechtsklick auf die Lupe leert die Suche. Ein Linksklick darf einen bestehenden
+           Suchtext beim Wechsel zwischen Reitern nicht verwerfen. lastQuery MUSS beim Leeren
+           mitgehen: render() erkennt Änderungen sonst erst über den Feldvergleich. */
+        if (search && clearSearch && this.searchField != null) {
+            this.searchField.clear();
             this.searchField.setFocused(true);
             this.lastQuery = "";
         }
         if (same) {
-            if (search) {
-                /* Nach dem Leeren steht wieder die volle Liste — sonst bliebe der Scroll-Stand
-                   des kurzen Suchergebnisses stehen und spränge mitten hinein. */
-                this.rowOffset = 0;
-                this.refreshContents();
+            if (search && this.searchField != null) {
+                this.searchField.setFocused(true);
+                if (clearSearch) {
+                    /* Nach dem Leeren steht wieder die volle Liste — sonst bliebe der Scroll-Stand
+                       des kurzen Suchergebnisses stehen und spränge mitten hinein. */
+                    this.rowOffset = 0;
+                    this.refreshContents();
+                }
             }
             return;
         }
@@ -412,7 +415,8 @@ public final class GuiCreativeInventory extends GuiContainer {
         boolean search = tab != null && tab.type() == CreativeTab.Type.SEARCH;
         /* Randlos: der Eingabekasten ist bereits ins Sheet gemalt (x 80..169, y 4..15) — ein
            eigener 9-Slice läge nur doppelt darüber. */
-        this.searchField = new TextField(SEARCH_W, SEARCH_H, 64, null).borderless();
+        this.searchField = new TextField(SEARCH_W, SEARCH_H, 64, null)
+                .borderless().clearOnRightClick();
         this.searchField.layoutAt(Math.round(this.guiX) + SEARCH_X, Math.round(this.guiY) + SEARCH_Y);
         this.searchField.visible = search;
         this.searchField.setFocused(search);
@@ -490,11 +494,21 @@ public final class GuiCreativeInventory extends GuiContainer {
     public boolean mousePressed(GuiManager gui, double mouseX, double mouseY, int button) {
         if (this.searchField != null && this.searchField.visible) {
             boolean hit = this.searchField.mousePressed(mouseX, mouseY, button);
-            this.searchField.setFocused(hit);
-            if (hit) return true;
+            /* Solange der Such-Reiter aktiv ist, bleibt sein Feld der Tastatur-Empfänger — auch
+               bei Klicks auf Items, Hotbar, Scroller oder freie Flächen. Ein Tab-Wechsel nimmt
+               den Fokus weiterhin explizit in selectTab() weg. */
+            this.searchField.setFocused(true);
+            if (hit) {
+                if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                    this.lastQuery = "";
+                    this.rowOffset = 0;
+                    this.refreshContents();
+                }
+                return true;
+            }
         }
         if (this.clickPager(gui, mouseX, mouseY, button)) return true;
-        if (this.clickTab(mouseX, mouseY)) return true;
+        if (this.clickTab(mouseX, mouseY, button)) return true;
 
         if (this.isOverDelete(mouseX, mouseY)) {
             this.carried = ItemStack.EMPTY;
@@ -514,11 +528,12 @@ public final class GuiCreativeInventory extends GuiContainer {
         return super.mousePressed(gui, mouseX, mouseY, button);
     }
 
-    private boolean clickTab(double mx, double my) {
+    private boolean clickTab(double mx, double my, int button) {
         for (int slot = 0; slot < TAB_SLOTS; slot++) {
             CreativeTab tab = this.tabAt(slot);
             if (tab != null && this.overTab(slot, mx, my)) {
-                this.selectTab(tab);
+                this.selectTab(tab, tab.type() == CreativeTab.Type.SEARCH
+                        && button == GLFW.GLFW_MOUSE_BUTTON_RIGHT);
                 return true;
             }
         }

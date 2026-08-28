@@ -65,7 +65,7 @@ final class BlockRaycastInteractionTest {
             LevelData level = new LevelData();
             level.name = "raycast-interaction-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

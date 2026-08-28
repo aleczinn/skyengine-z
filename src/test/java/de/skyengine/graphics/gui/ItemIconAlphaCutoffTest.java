@@ -30,7 +30,7 @@ final class ItemIconAlphaCutoffTest {
     }
 
     private static Item item(String path) {
-        Item item = Registries.ITEM.get(Identifier.of("skyengine:" + path));
+        Item item = Registries.ITEM.get(Identifier.of("voxelstories:" + path));
         assertNotNull(item);
         return item;
     }

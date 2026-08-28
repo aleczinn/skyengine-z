@@ -1,6 +1,6 @@
 {
   "_comment": "Redstone-Fackel (Inverter): aus, sobald der Traegerblock Signal fuehrt, mit 1 Redstone-Tick Verzoegerung (RedstoneTorchBehavior). Multipart wie torch.json, um lit erweitert. light_level 7 wirkt nur bei lit=true.",
-  "id": "skyengine:redstone_torch",
+  "id": "redstone_torch",
   "piston_reaction": "destroy",
   "creative_tab": "redstone_blocks",
   "archetype": "redstone_torch",

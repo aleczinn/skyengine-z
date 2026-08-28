@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:glowstone",
+  "id": "glowstone",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "vars": { "texture": "glowstone" },

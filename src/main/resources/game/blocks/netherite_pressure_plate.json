@@ -1,6 +1,6 @@
 {
   "_comment": "Eigener Block (kein Vanilla): gewichtssensitiv wie die leichte Waegeplatte (1 Entity je Stufe) und explosionsresistent wie Obsidian (resistance 1200).",
-  "id": "skyengine:netherite_pressure_plate",
+  "id": "netherite_pressure_plate",
   "parent": "preset/pressure_plate",
   "press_ticks": 10,
   "resistance": 1200,

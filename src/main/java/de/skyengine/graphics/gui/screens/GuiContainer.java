@@ -145,15 +145,20 @@ public abstract class GuiContainer extends GuiScreen {
     protected int quickMove(Slot from, int amount) {
         ItemStack stack = from.get();
         if (stack.isEmpty() || amount <= 0) return 0;
-        ItemStack moving = stack.split(amount);
+        ItemStack moving = from.take(amount);
         int wanted = moving.getCount();
 
         this.moveInto(moving, this.quickMoveTargets(from.group));
 
         /* Nicht untergebrachten Rest zurücklegen — split hat ihn schon abgezogen. */
-        if (!moving.isEmpty()) stack.setCount(stack.getCount() + moving.getCount());
-        if (stack.isEmpty()) from.set(ItemStack.EMPTY);
-        else from.setChanged();
+        if (!moving.isEmpty()) {
+            ItemStack existing = from.get();
+            if (existing.isEmpty()) from.set(moving);
+            else {
+                existing.setCount(existing.getCount() + moving.getCount());
+                from.setChanged();
+            }
+        }
         return wanted - moving.getCount();
     }
 
@@ -167,6 +172,7 @@ public abstract class GuiContainer extends GuiScreen {
         for (Slot target : targets) {
             if (stack.isEmpty()) return;
             ItemStack existing = target.get();
+            if (!target.canPlace(stack)) continue;
             if (!existing.canStackWith(stack)) continue;
             int space = existing.getMaxStackSize() - existing.getCount();
             if (space <= 0) continue;
@@ -176,6 +182,7 @@ public abstract class GuiContainer extends GuiScreen {
         for (Slot target : targets) {
             if (stack.isEmpty()) return;
             if (!target.get().isEmpty()) continue;
+            if (!target.canPlace(stack)) continue;
             target.set(stack.split(stack.getMaxStackSize()));
         }
     }
@@ -316,6 +323,7 @@ public abstract class GuiContainer extends GuiScreen {
 
     /** Kann der getragene Stapel in diesem Slot überhaupt landen? (MC {@code canItemQuickReplace}) */
     private boolean canDistributeTo(Slot slot) {
+        if (!slot.canPlace(this.carried)) return false;
         ItemStack existing = slot.get();
         return existing.isEmpty()
                 || (existing.canStackWith(this.carried) && existing.getCount() < existing.getMaxStackSize());
@@ -328,9 +336,8 @@ public abstract class GuiContainer extends GuiScreen {
         if (space <= 0) return;
         ItemStack stack = slot.get();
         if (!stack.canStackWith(this.carried)) return;
-        this.carried.setCount(this.carried.getCount() + stack.split(space).getCount());
-        if (stack.isEmpty()) slot.set(ItemStack.EMPTY);
-        else slot.setChanged();
+        ItemStack taken = slot.take(space);
+        this.carried.setCount(this.carried.getCount() + taken.getCount());
     }
 
     /**
@@ -388,13 +395,11 @@ public abstract class GuiContainer extends GuiScreen {
     /** Holt ein passendes Item aus dem anderen Bereich in {@code slot} zurück. */
     private void pullOne(Slot slot) {
         ItemStack target = slot.get();
-        if (target.isEmpty() || target.getCount() >= target.getMaxStackSize()) return;
+        if (target.isEmpty() || target.getCount() >= target.getMaxStackSize() || !slot.canPlace(target)) return;
         for (Slot source : this.quickMoveTargets(slot.group)) {
             ItemStack stack = source.get();
             if (!stack.canStackWith(target)) continue;
-            target.setCount(target.getCount() + stack.split(1).getCount());
-            if (stack.isEmpty()) source.set(ItemStack.EMPTY);
-            else source.setChanged();
+            target.setCount(target.getCount() + source.take(1).getCount());
             slot.setChanged();
             return;
         }
@@ -462,6 +467,7 @@ public abstract class GuiContainer extends GuiScreen {
             if (hotbar.group != SlotGroup.HOTBAR || hotbar.index != hotbarIndex) continue;
             if (hotbar == slot) return;
             ItemStack previous = hotbar.get();
+            if (!slot.canPlace(previous) || !hotbar.canPlace(slot.get())) return;
             hotbar.set(slot.get());
             slot.set(previous);
             return;
@@ -485,9 +491,7 @@ public abstract class GuiContainer extends GuiScreen {
             ItemStack stack = s.get();
             if (!stack.canStackWith(this.carried)) continue;
             if ((stack.getCount() >= stack.getMaxStackSize()) != fromFullStacks) continue;
-            this.carried.setCount(this.carried.getCount() + stack.split(space).getCount());
-            if (stack.isEmpty()) s.set(ItemStack.EMPTY);
-            else s.setChanged();
+            this.carried.setCount(this.carried.getCount() + s.take(space).getCount());
         }
     }
 
@@ -531,12 +535,18 @@ public abstract class GuiContainer extends GuiScreen {
 
         ItemStack slotStack = slot.get();
         if (this.carried.isEmpty()) {
-            this.carried = slotStack;
-            slot.set(ItemStack.EMPTY);
+            this.carried = slot.take(slotStack.getCount());
         } else if (slotStack.isEmpty()) {
+            if (!slot.canPlace(this.carried)) return;
             slot.set(this.carried);
             this.carried = ItemStack.EMPTY;
         } else if (slotStack.canStackWith(this.carried)) {
+            if (!slot.canPlace(this.carried)) {
+                int space = this.carried.getMaxStackSize() - this.carried.getCount();
+                ItemStack taken = slot.take(space);
+                this.carried.setCount(this.carried.getCount() + taken.getCount());
+                return;
+            }
             int space = slotStack.getMaxStackSize() - slotStack.getCount();
             int move = Math.min(space, this.carried.getCount());
             slotStack.setCount(slotStack.getCount() + move);
@@ -544,6 +554,7 @@ public abstract class GuiContainer extends GuiScreen {
             this.carried.setCount(this.carried.getCount() - move);
             if (this.carried.getCount() <= 0) this.carried = ItemStack.EMPTY;
         } else {
+            if (!slot.canPlace(this.carried)) return;
             slot.set(this.carried);
             this.carried = slotStack;
         }
@@ -554,9 +565,15 @@ public abstract class GuiContainer extends GuiScreen {
         ItemStack slotStack = slot.get();
         if (this.carried.isEmpty()) {
             if (slotStack.isEmpty()) return;
-            this.carried = slotStack.split((slotStack.getCount() + 1) / 2);
-            if (slotStack.isEmpty()) slot.set(ItemStack.EMPTY);
-            else slot.setChanged();
+            int amount = slot.canPlace(slotStack) ? (slotStack.getCount() + 1) / 2 : slotStack.getCount();
+            this.carried = slot.take(amount);
+            return;
+        }
+        if (!slot.canPlace(this.carried)) {
+            if (!slotStack.canStackWith(this.carried)) return;
+            int space = this.carried.getMaxStackSize() - this.carried.getCount();
+            ItemStack taken = slot.take(space);
+            this.carried.setCount(this.carried.getCount() + taken.getCount());
             return;
         }
         if (slotStack.isEmpty()) {

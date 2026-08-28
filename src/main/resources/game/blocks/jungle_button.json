@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:jungle_button",
+  "id": "jungle_button",
   "parent": "preset/button",
   "creative_tab": "building_blocks",
   "press_ticks": 30,

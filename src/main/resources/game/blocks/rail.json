@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:rail", "archetype": "rail", "rail_kind": "normal",
+  "id": "rail", "archetype": "rail", "rail_kind": "normal",
   "creative_tab": "redstone_blocks", "layer": "cutout", "opaque": false, "solid": false,
   "no_lod_surface": true, "place_on_full_top": true,
   "hardness": 0.7, "tool": "pickaxe", "sound": "stone",

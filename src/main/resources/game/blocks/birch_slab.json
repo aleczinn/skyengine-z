@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:birch_slab",
+  "id": "birch_slab",
   "parent": "preset/slab",
   "vars": {
     "texture": "birch_planks"

@@ -374,7 +374,7 @@
   },
 
   "dimension": {
-    "skyengine": {
+    "${game}": {
       "overworld": "Overworld",
       "mining": "Mining Dimension",
       "nether": "Nether"
@@ -477,7 +477,7 @@
   },
 
   "block": {
-    "skyengine": {
+    "${game}": {
       "acacia_button": "Acacia Button",
       "acacia_door": "Acacia Door",
       "acacia_fence": "Acacia Fence",
@@ -538,6 +538,7 @@
       "cornflower": "Cornflower",
       "cracked_stone_bricks": "Cracked Stone Bricks",
       "crafting_table": "Crafting Table",
+      "furnace": "Furnace",
       "cut_red_sandstone": "Cut Red Sandstone",
       "cut_sandstone": "Cut Sandstone",
       "cyan_terracotta": "Cyan Terracotta",
@@ -744,13 +745,13 @@
   },
   "description": {
     "block": {
-      "skyengine": {
+      "${game}": {
         "tnt": "Can be ignited by fire or redstone. Explodes after §6%fuse_ticks% ticks§r (%fuse_seconds% seconds)."
       }
     }
   },
   "item": {
-    "skyengine": {
+    "${game}": {
       "apple": "Apple",
       "bread": "Bread",
       "iron_ingot": "Iron Ingot",

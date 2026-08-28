@@ -1,6 +1,6 @@
 {
   "_comment": "Rutschigster Block in MC (friction 0.989) - deutlich glatter als normales Eis.",
-  "id": "skyengine:blue_ice",
+  "id": "blue_ice",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "sound": "glass",

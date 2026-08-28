@@ -33,7 +33,7 @@ final class ItemArchetypeTest {
         assertTrue(empty.isEmpty());
         assertEquals(16, empty.getMaxStackSize());
         assertEquals(1, water.getMaxStackSize());
-        assertEquals(Identifier.of("skyengine:water"), water.getFluid().getIdentifier());
+        assertEquals(Identifier.of("voxelstories:water"), water.getFluid().getIdentifier());
     }
 
     @Test
@@ -44,6 +44,6 @@ final class ItemArchetypeTest {
     }
 
     private static Item item(String path) {
-        return Items.get(Identifier.of("skyengine:" + path));
+        return Items.get(Identifier.of("voxelstories:" + path));
     }
 }

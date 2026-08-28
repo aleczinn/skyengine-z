@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:bread",
+  "id": "bread",
   "archetype": "food",
   "texture": "game/textures/item/bread.png",
   "creative_tab": "food",

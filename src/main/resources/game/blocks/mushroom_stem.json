@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:mushroom_stem",
+  "id": "mushroom_stem",
   "creative_tab": "natural",
   "parent": "preset/cube_bottom_top",
   "vars": {

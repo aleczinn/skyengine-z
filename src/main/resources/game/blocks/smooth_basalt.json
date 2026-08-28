@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:smooth_basalt",
+  "id": "smooth_basalt",
   "parent": "preset/cube",
   "hardness": 1.25,
   "resistance": 4.2,

@@ -1,1 +1,1 @@
-{"id":"skyengine:diamond_axe","parent":"preset/tool","tool":{"type":"axe","tier":"diamond"}}
+{"id":"diamond_axe","parent":"preset/tool","tool":{"type":"axe","tier":"diamond"}}

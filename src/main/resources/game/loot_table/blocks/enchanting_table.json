@@ -1,29 +1,29 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
+          "type": "item",
           "functions": [
             {
-              "function": "skyengine:copy_components",
+              "function": "copy_components",
               "include": [
-                "skyengine:custom_name"
+                "custom_name"
               ],
               "source": "block_entity"
             }
           ],
-          "name": "skyengine:enchanting_table"
+          "name": "enchanting_table"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/enchanting_table"
+  "random_sequence": "blocks/enchanting_table"
 }

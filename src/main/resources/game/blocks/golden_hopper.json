@@ -1,6 +1,6 @@
 {
   "_comment": "Eigene Stufe (kein MC-Block): doppelt so schnell wie der Trichter (5 Items/s).",
-  "id": "skyengine:golden_hopper",
+  "id": "golden_hopper",
   "parent": "preset/hopper",
   "hopper_cooldown": 4
 }

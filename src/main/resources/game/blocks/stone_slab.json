@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:stone_slab",
+  "id": "stone_slab",
   "parent": "preset/slab",
   "vars": {
     "texture": "stone"

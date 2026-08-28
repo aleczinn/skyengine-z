@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:stripped_jungle_log",
+  "id": "stripped_jungle_log",
   "parent": "preset/pillar",
   "hardness": 2,
   "tool": "axe"

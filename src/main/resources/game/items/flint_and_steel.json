@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:flint_and_steel",
+  "id": "flint_and_steel",
   "archetype": "flint_and_steel",
   "max_stack": 1,
   "texture": "game/textures/item/flint_and_steel.png",

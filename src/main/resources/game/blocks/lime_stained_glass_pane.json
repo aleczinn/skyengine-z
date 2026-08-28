@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:lime_stained_glass_pane",
+  "id": "lime_stained_glass_pane",
   "parent": "preset/stained_glass_pane",
   "textures": {
     "pane": "game/textures/block/lime_stained_glass.png",

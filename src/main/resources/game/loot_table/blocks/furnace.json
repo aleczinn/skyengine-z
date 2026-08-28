@@ -1,0 +1,11 @@
+{
+  "type": "block",
+  "pools": [
+    {
+      "conditions": [{ "condition": "survives_explosion" }],
+      "entries": [{ "type": "item", "name": "furnace" }],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "blocks/furnace"
+}

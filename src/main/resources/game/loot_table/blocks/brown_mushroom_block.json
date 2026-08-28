@@ -1,21 +1,21 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "entries": [
         {
-          "type": "skyengine:alternatives",
+          "type": "alternatives",
           "children": [
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:match_tool",
+                  "condition": "match_tool",
                   "predicate": {
                     "predicates": {
-                      "skyengine:enchantments": [
+                      "enchantments": [
                         {
-                          "enchantments": "skyengine:silk_touch",
+                          "enchantments": "silk_touch",
                           "levels": {
                             "min": 1
                           }
@@ -25,30 +25,30 @@
                   }
                 }
               ],
-              "name": "skyengine:brown_mushroom_block"
+              "name": "brown_mushroom_block"
             },
             {
-              "type": "skyengine:item",
+              "type": "item",
               "functions": [
                 {
                   "count": {
-                    "type": "skyengine:uniform",
+                    "type": "uniform",
                     "max": 2.0,
                     "min": -6.0
                   },
-                  "function": "skyengine:set_count"
+                  "function": "set_count"
                 },
                 {
-                  "function": "skyengine:limit_count",
+                  "function": "limit_count",
                   "limit": {
                     "min": 0.0
                   }
                 },
                 {
-                  "function": "skyengine:explosion_decay"
+                  "function": "explosion_decay"
                 }
               ],
-              "name": "skyengine:brown_mushroom"
+              "name": "brown_mushroom"
             }
           ]
         }
@@ -56,5 +56,5 @@
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/brown_mushroom_block"
+  "random_sequence": "blocks/brown_mushroom_block"
 }

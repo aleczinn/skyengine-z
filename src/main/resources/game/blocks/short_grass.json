@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:short_grass",
+  "id": "short_grass",
   "parent": "preset/cross",
   "replaceable": true,
   "tint": "grass"

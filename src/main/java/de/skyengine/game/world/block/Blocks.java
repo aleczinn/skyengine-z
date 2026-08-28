@@ -1,5 +1,6 @@
 package de.skyengine.game.world.block;
 
+import de.skyengine.core.SkyEngine;
 import de.skyengine.game.world.block.content.ContentSource;
 import de.skyengine.game.world.block.content.ContentSources;
 import de.skyengine.game.world.block.content.FileContentSource;
@@ -101,24 +102,26 @@ public final class Blocks {
         List<String> configuredPacks = de.skyengine.core.resource.Resources.get().activePackNames();
         if (!configuredPacks.isEmpty()) de.skyengine.core.resource.Resources.activate(List.of());
         /* Luft IMMER zuerst registrieren -> State-ID 0. Chunks sind per Default 0 = leer. */
-        BlockRegistry.register(new Block(Identifier.of("skyengine:air"), Block.Settings.create().air()));
+        BlockRegistry.register(new Block(Identifier.of("air"), Block.Settings.create().air()));
 
         /* BlockEntity-Typen registrieren, bevor Blöcke ihren block_entity-Verweis auflösen. */
         BlockEntities.bootstrap();
 
         /* Engine-Inhaltsquelle registrieren; Mods/Packs können vorher weitere hinzufügen. */
         File gameDir = blockDirectory.getParentFile();
-        ContentSources.register(new FileContentSource("skyengine", gameDir));
+        ContentSources.register(new FileContentSource(SkyEngine.GAME_PREFIX, gameDir));
 
         /* Inhalte aus allen Quellen laden (Blöcke, dann Modelle + Blockstates vor dem Bake).
            Die variants/multipart-Render-Sektion steckt in derselben Block-Datei — deshalb wird
            jede Quelle EINMAL aufgelöst (parent-Vererbung + ${var}) und dieselbe Map an beide
            Leser gegeben; so können Definition und Render-Sektion nicht auseinanderlaufen. */
         List<LinkedHashMap<String, JsonObject>> blockJson = new ArrayList<>();
-        for (ContentSource source : ContentSources.all()) blockJson.add(BlockJson.load(source.blocks()));
+        for (ContentSource source : ContentSources.all()) blockJson.add(BlockJson.load(source.blocks(), source.namespace()));
 
         List<BlockDefinition> definitions = new ArrayList<>();
-        for (LinkedHashMap<String, JsonObject> defs : blockJson) definitions.addAll(BlockLoader.load(defs));
+        for (int i = 0; i < blockJson.size(); i++) {
+            definitions.addAll(BlockLoader.load(blockJson.get(i), ContentSources.all().get(i).namespace()));
+        }
 
         /* Reihenfolge ist zwingend: ModelLoader.load leert MODELS und CACHE, die virtuellen
            Modelle aus den Block-Definitionen müssen also danach kommen — und vor dem ersten bake. */
@@ -146,6 +149,7 @@ public final class Blocks {
             }
         }
         de.skyengine.game.world.item.Items.bootstrap();
+        de.skyengine.game.world.recipe.RecipeManager.bootstrap();
         LootTables.bootstrap();
 
         /* Abbau-Riss-Texturen in den Block-Atlas aufnehmen (vor dem TextureArray-Bau in
@@ -154,186 +158,186 @@ public final class Blocks {
             BlockTextures.layerOf("game/textures/block/destroy_stage_" + i + ".png");
         }
 
-        AIR = idOf("skyengine:air");
-        BEDROCK = idOf("skyengine:bedrock");
+        AIR = idOf("air");
+        BEDROCK = idOf("bedrock");
 
-        STONE = idOf("skyengine:stone");
-        COBBLESTONE = idOf("skyengine:cobblestone");
-        DIRT = idOf("skyengine:dirt");
-        GRASS_BLOCK = idOf("skyengine:grass_block");
-        OAK_LOG = idOf("skyengine:oak_log");
-        OAK_PLANKS = idOf("skyengine:oak_planks");
-        SNOW = idOf("skyengine:snow");
+        STONE = idOf("stone");
+        COBBLESTONE = idOf("cobblestone");
+        DIRT = idOf("dirt");
+        GRASS_BLOCK = idOf("grass_block");
+        OAK_LOG = idOf("oak_log");
+        OAK_PLANKS = idOf("oak_planks");
+        SNOW = idOf("snow");
 
 
-        OAK_LEAVES = idOf("skyengine:oak_leaves");
+        OAK_LEAVES = idOf("oak_leaves");
 
-        SAND = idOf("skyengine:sand");
-        GRAVEL = idOf("skyengine:gravel");
-        TNT = idOf("skyengine:tnt");
-        GLASS = idOf("skyengine:glass");
-        FERN = idOf("skyengine:fern");
-        SHORT_GRASS = idOf("skyengine:short_grass");
-        ORANGE_TULIP = idOf("skyengine:orange_tulip");
+        SAND = idOf("sand");
+        GRAVEL = idOf("gravel");
+        TNT = idOf("tnt");
+        GLASS = idOf("glass");
+        FERN = idOf("fern");
+        SHORT_GRASS = idOf("short_grass");
+        ORANGE_TULIP = idOf("orange_tulip");
 
-        STONE_SLAB = idOf("skyengine:stone_slab");
-        COBBLESTONE_SLAB = idOf("skyengine:cobblestone_slab");
-        STONE_STAIRS = idOf("skyengine:stone_stairs");
-        COBBLESTONE_STAIRS = idOf("skyengine:cobblestone_stairs");
-        OAK_FENCE = idOf("skyengine:oak_fence");
-        GLASS_PANE = idOf("skyengine:glass_pane");
-        IRON_BARS = idOf("skyengine:iron_bars");
-        OAK_DOOR = idOf("skyengine:oak_door");
-        CHEST = idOf("skyengine:chest");
-        ENCHANTING_TABLE = idOf("skyengine:enchanting_table");
+        STONE_SLAB = idOf("stone_slab");
+        COBBLESTONE_SLAB = idOf("cobblestone_slab");
+        STONE_STAIRS = idOf("stone_stairs");
+        COBBLESTONE_STAIRS = idOf("cobblestone_stairs");
+        OAK_FENCE = idOf("oak_fence");
+        GLASS_PANE = idOf("glass_pane");
+        IRON_BARS = idOf("iron_bars");
+        OAK_DOOR = idOf("oak_door");
+        CHEST = idOf("chest");
+        ENCHANTING_TABLE = idOf("enchanting_table");
 
-        WATER = idOf("skyengine:water");
-        LAVA = idOf("skyengine:lava");
-        OBSIDIAN = idOf("skyengine:obsidian");
+        WATER = idOf("water");
+        LAVA = idOf("lava");
+        OBSIDIAN = idOf("obsidian");
 
-        PISTON = idOf("skyengine:piston");
-        STICKY_PISTON = idOf("skyengine:sticky_piston");
-        PISTON_HEAD = idOf("skyengine:piston_head");
-        MOVING_PISTON = idOf("skyengine:moving_piston");
+        PISTON = idOf("piston");
+        STICKY_PISTON = idOf("sticky_piston");
+        PISTON_HEAD = idOf("piston_head");
+        MOVING_PISTON = idOf("moving_piston");
 
-        DIORITE = idOf("skyengine:diorite");
-        ANDESITE = idOf("skyengine:andesite");
-        GRANITE = idOf("skyengine:granite");
-        POLISHED_DIORITE = idOf("skyengine:polished_diorite");
-        POLISHED_ANDESITE = idOf("skyengine:polished_andesite");
-        POLISHED_GRANITE = idOf("skyengine:polished_granite");
-        STONE_BRICKS = idOf("skyengine:stone_bricks");
-        MOSSY_STONE_BRICKS = idOf("skyengine:mossy_stone_bricks");
-        CRACKED_STONE_BRICKS = idOf("skyengine:cracked_stone_bricks");
-        CHISELED_STONE_BRICKS = idOf("skyengine:chiseled_stone_bricks");
-        BRICKS = idOf("skyengine:bricks");
+        DIORITE = idOf("diorite");
+        ANDESITE = idOf("andesite");
+        GRANITE = idOf("granite");
+        POLISHED_DIORITE = idOf("polished_diorite");
+        POLISHED_ANDESITE = idOf("polished_andesite");
+        POLISHED_GRANITE = idOf("polished_granite");
+        STONE_BRICKS = idOf("stone_bricks");
+        MOSSY_STONE_BRICKS = idOf("mossy_stone_bricks");
+        CRACKED_STONE_BRICKS = idOf("cracked_stone_bricks");
+        CHISELED_STONE_BRICKS = idOf("chiseled_stone_bricks");
+        BRICKS = idOf("bricks");
 
-        SANDSTONE = idOf("skyengine:sandstone");
-        CHISELED_SANDSTONE = idOf("skyengine:chiseled_sandstone");
-        CUT_SANDSTONE = idOf("skyengine:cut_sandstone");
-        RED_SANDSTONE = idOf("skyengine:red_sandstone");
-        CHISELED_RED_SANDSTONE = idOf("skyengine:chiseled_red_sandstone");
-        CUT_RED_SANDSTONE = idOf("skyengine:cut_red_sandstone");
+        SANDSTONE = idOf("sandstone");
+        CHISELED_SANDSTONE = idOf("chiseled_sandstone");
+        CUT_SANDSTONE = idOf("cut_sandstone");
+        RED_SANDSTONE = idOf("red_sandstone");
+        CHISELED_RED_SANDSTONE = idOf("chiseled_red_sandstone");
+        CUT_RED_SANDSTONE = idOf("cut_red_sandstone");
 
-        COAL_ORE = idOf("skyengine:coal_ore");
-        IRON_ORE = idOf("skyengine:iron_ore");
-        COPPER_ORE = idOf("skyengine:copper_ore");
-        GOLD_ORE = idOf("skyengine:gold_ore");
-        REDSTONE_ORE = idOf("skyengine:redstone_ore");
-        LAPIS_ORE = idOf("skyengine:lapis_ore");
-        DIAMOND_ORE = idOf("skyengine:diamond_ore");
-        EMERALD_ORE = idOf("skyengine:emerald_ore");
+        COAL_ORE = idOf("coal_ore");
+        IRON_ORE = idOf("iron_ore");
+        COPPER_ORE = idOf("copper_ore");
+        GOLD_ORE = idOf("gold_ore");
+        REDSTONE_ORE = idOf("redstone_ore");
+        LAPIS_ORE = idOf("lapis_ore");
+        DIAMOND_ORE = idOf("diamond_ore");
+        EMERALD_ORE = idOf("emerald_ore");
 
-        WHITE_WOOL = idOf("skyengine:white_wool");
-        ORANGE_WOOL = idOf("skyengine:orange_wool");
-        MAGENTA_WOOL = idOf("skyengine:magenta_wool");
-        LIGHT_BLUE_WOOL = idOf("skyengine:light_blue_wool");
-        YELLOW_WOOL = idOf("skyengine:yellow_wool");
-        LIME_WOOL = idOf("skyengine:lime_wool");
-        PINK_WOOL = idOf("skyengine:pink_wool");
-        GRAY_WOOL = idOf("skyengine:gray_wool");
-        LIGHT_GRAY_WOOL = idOf("skyengine:light_gray_wool");
-        CYAN_WOOL = idOf("skyengine:cyan_wool");
-        PURPLE_WOOL = idOf("skyengine:purple_wool");
-        BLUE_WOOL = idOf("skyengine:blue_wool");
-        BROWN_WOOL = idOf("skyengine:brown_wool");
-        GREEN_WOOL = idOf("skyengine:green_wool");
-        RED_WOOL = idOf("skyengine:red_wool");
-        BLACK_WOOL = idOf("skyengine:black_wool");
+        WHITE_WOOL = idOf("white_wool");
+        ORANGE_WOOL = idOf("orange_wool");
+        MAGENTA_WOOL = idOf("magenta_wool");
+        LIGHT_BLUE_WOOL = idOf("light_blue_wool");
+        YELLOW_WOOL = idOf("yellow_wool");
+        LIME_WOOL = idOf("lime_wool");
+        PINK_WOOL = idOf("pink_wool");
+        GRAY_WOOL = idOf("gray_wool");
+        LIGHT_GRAY_WOOL = idOf("light_gray_wool");
+        CYAN_WOOL = idOf("cyan_wool");
+        PURPLE_WOOL = idOf("purple_wool");
+        BLUE_WOOL = idOf("blue_wool");
+        BROWN_WOOL = idOf("brown_wool");
+        GREEN_WOOL = idOf("green_wool");
+        RED_WOOL = idOf("red_wool");
+        BLACK_WOOL = idOf("black_wool");
 
-        TERRACOTTA = idOf("skyengine:terracotta");
-        WHITE_TERRACOTTA = idOf("skyengine:white_terracotta");
-        ORANGE_TERRACOTTA = idOf("skyengine:orange_terracotta");
-        MAGENTA_TERRACOTTA = idOf("skyengine:magenta_terracotta");
-        LIGHT_BLUE_TERRACOTTA = idOf("skyengine:light_blue_terracotta");
-        YELLOW_TERRACOTTA = idOf("skyengine:yellow_terracotta");
-        LIME_TERRACOTTA = idOf("skyengine:lime_terracotta");
-        PINK_TERRACOTTA = idOf("skyengine:pink_terracotta");
-        GRAY_TERRACOTTA = idOf("skyengine:gray_terracotta");
-        LIGHT_GRAY_TERRACOTTA = idOf("skyengine:light_gray_terracotta");
-        CYAN_TERRACOTTA = idOf("skyengine:cyan_terracotta");
-        PURPLE_TERRACOTTA = idOf("skyengine:purple_terracotta");
-        BLUE_TERRACOTTA = idOf("skyengine:blue_terracotta");
-        BROWN_TERRACOTTA = idOf("skyengine:brown_terracotta");
-        GREEN_TERRACOTTA = idOf("skyengine:green_terracotta");
-        RED_TERRACOTTA = idOf("skyengine:red_terracotta");
-        BLACK_TERRACOTTA = idOf("skyengine:black_terracotta");
+        TERRACOTTA = idOf("terracotta");
+        WHITE_TERRACOTTA = idOf("white_terracotta");
+        ORANGE_TERRACOTTA = idOf("orange_terracotta");
+        MAGENTA_TERRACOTTA = idOf("magenta_terracotta");
+        LIGHT_BLUE_TERRACOTTA = idOf("light_blue_terracotta");
+        YELLOW_TERRACOTTA = idOf("yellow_terracotta");
+        LIME_TERRACOTTA = idOf("lime_terracotta");
+        PINK_TERRACOTTA = idOf("pink_terracotta");
+        GRAY_TERRACOTTA = idOf("gray_terracotta");
+        LIGHT_GRAY_TERRACOTTA = idOf("light_gray_terracotta");
+        CYAN_TERRACOTTA = idOf("cyan_terracotta");
+        PURPLE_TERRACOTTA = idOf("purple_terracotta");
+        BLUE_TERRACOTTA = idOf("blue_terracotta");
+        BROWN_TERRACOTTA = idOf("brown_terracotta");
+        GREEN_TERRACOTTA = idOf("green_terracotta");
+        RED_TERRACOTTA = idOf("red_terracotta");
+        BLACK_TERRACOTTA = idOf("black_terracotta");
 
-        BASALT = idOf("skyengine:basalt");
-        POLISHED_BASALT = idOf("skyengine:polished_basalt");
-        SMOOTH_BASALT = idOf("skyengine:smooth_basalt");
-        NETHERRACK = idOf("skyengine:netherrack");
-        SOUL_SAND = idOf("skyengine:soul_sand");
-        SOUL_SOIL = idOf("skyengine:soul_soil");
-        MAGMA = idOf("skyengine:magma_block");
-        GLOWSTONE = idOf("skyengine:glowstone");
+        BASALT = idOf("basalt");
+        POLISHED_BASALT = idOf("polished_basalt");
+        SMOOTH_BASALT = idOf("smooth_basalt");
+        NETHERRACK = idOf("netherrack");
+        SOUL_SAND = idOf("soul_sand");
+        SOUL_SOIL = idOf("soul_soil");
+        MAGMA = idOf("magma_block");
+        GLOWSTONE = idOf("glowstone");
 
-        BIRCH_LOG = idOf("skyengine:birch_log");
-        SPRUCE_LOG = idOf("skyengine:spruce_log");
-        SPRUCE_WOOD = idOf("skyengine:spruce_wood");
-        DARK_OAK_LOG = idOf("skyengine:dark_oak_log");
-        ACACIA_LOG = idOf("skyengine:acacia_log");
-        JUNGLE_LOG = idOf("skyengine:jungle_log");
-        MANGROVE_LOG = idOf("skyengine:mangrove_log");
-        PALE_OAK_LOG = idOf("skyengine:pale_oak_log");
-        STRIPPED_BIRCH_LOG = idOf("skyengine:stripped_birch_log");
-        STRIPPED_SPRUCE_LOG = idOf("skyengine:stripped_spruce_log");
-        STRIPPED_DARK_OAK_LOG = idOf("skyengine:stripped_dark_oak_log");
-        STRIPPED_ACACIA_LOG = idOf("skyengine:stripped_acacia_log");
-        STRIPPED_JUNGLE_LOG = idOf("skyengine:stripped_jungle_log");
-        STRIPPED_MANGROVE_LOG = idOf("skyengine:stripped_mangrove_log");
-        STRIPPED_PALE_OAK_LOG = idOf("skyengine:stripped_pale_oak_log");
-        BIRCH_PLANKS = idOf("skyengine:birch_planks");
-        SPRUCE_PLANKS = idOf("skyengine:spruce_planks");
-        DARK_OAK_PLANKS = idOf("skyengine:dark_oak_planks");
-        ACACIA_PLANKS = idOf("skyengine:acacia_planks");
-        JUNGLE_PLANKS = idOf("skyengine:jungle_planks");
-        MANGROVE_PLANKS = idOf("skyengine:mangrove_planks");
-        PALE_OAK_PLANKS = idOf("skyengine:pale_oak_planks");
-        BIRCH_LEAVES = idOf("skyengine:birch_leaves");
-        SPRUCE_LEAVES = idOf("skyengine:spruce_leaves");
-        DARK_OAK_LEAVES = idOf("skyengine:dark_oak_leaves");
-        ACACIA_LEAVES = idOf("skyengine:acacia_leaves");
-        JUNGLE_LEAVES = idOf("skyengine:jungle_leaves");
-        MANGROVE_LEAVES = idOf("skyengine:mangrove_leaves");
-        PALE_OAK_LEAVES = idOf("skyengine:pale_oak_leaves");
-        BIRCH_SLAB = idOf("skyengine:birch_slab");
-        SPRUCE_SLAB = idOf("skyengine:spruce_slab");
-        DARK_OAK_SLAB = idOf("skyengine:dark_oak_slab");
-        ACACIA_SLAB = idOf("skyengine:acacia_slab");
-        JUNGLE_SLAB = idOf("skyengine:jungle_slab");
-        MANGROVE_SLAB = idOf("skyengine:mangrove_slab");
-        PALE_OAK_SLAB = idOf("skyengine:pale_oak_slab");
-        BIRCH_STAIRS = idOf("skyengine:birch_stairs");
-        SPRUCE_STAIRS = idOf("skyengine:spruce_stairs");
-        DARK_OAK_STAIRS = idOf("skyengine:dark_oak_stairs");
-        ACACIA_STAIRS = idOf("skyengine:acacia_stairs");
-        JUNGLE_STAIRS = idOf("skyengine:jungle_stairs");
-        MANGROVE_STAIRS = idOf("skyengine:mangrove_stairs");
-        PALE_OAK_STAIRS = idOf("skyengine:pale_oak_stairs");
-        BIRCH_FENCE = idOf("skyengine:birch_fence");
-        SPRUCE_FENCE = idOf("skyengine:spruce_fence");
-        DARK_OAK_FENCE = idOf("skyengine:dark_oak_fence");
-        ACACIA_FENCE = idOf("skyengine:acacia_fence");
-        JUNGLE_FENCE = idOf("skyengine:jungle_fence");
-        MANGROVE_FENCE = idOf("skyengine:mangrove_fence");
-        PALE_OAK_FENCE = idOf("skyengine:pale_oak_fence");
+        BIRCH_LOG = idOf("birch_log");
+        SPRUCE_LOG = idOf("spruce_log");
+        SPRUCE_WOOD = idOf("spruce_wood");
+        DARK_OAK_LOG = idOf("dark_oak_log");
+        ACACIA_LOG = idOf("acacia_log");
+        JUNGLE_LOG = idOf("jungle_log");
+        MANGROVE_LOG = idOf("mangrove_log");
+        PALE_OAK_LOG = idOf("pale_oak_log");
+        STRIPPED_BIRCH_LOG = idOf("stripped_birch_log");
+        STRIPPED_SPRUCE_LOG = idOf("stripped_spruce_log");
+        STRIPPED_DARK_OAK_LOG = idOf("stripped_dark_oak_log");
+        STRIPPED_ACACIA_LOG = idOf("stripped_acacia_log");
+        STRIPPED_JUNGLE_LOG = idOf("stripped_jungle_log");
+        STRIPPED_MANGROVE_LOG = idOf("stripped_mangrove_log");
+        STRIPPED_PALE_OAK_LOG = idOf("stripped_pale_oak_log");
+        BIRCH_PLANKS = idOf("birch_planks");
+        SPRUCE_PLANKS = idOf("spruce_planks");
+        DARK_OAK_PLANKS = idOf("dark_oak_planks");
+        ACACIA_PLANKS = idOf("acacia_planks");
+        JUNGLE_PLANKS = idOf("jungle_planks");
+        MANGROVE_PLANKS = idOf("mangrove_planks");
+        PALE_OAK_PLANKS = idOf("pale_oak_planks");
+        BIRCH_LEAVES = idOf("birch_leaves");
+        SPRUCE_LEAVES = idOf("spruce_leaves");
+        DARK_OAK_LEAVES = idOf("dark_oak_leaves");
+        ACACIA_LEAVES = idOf("acacia_leaves");
+        JUNGLE_LEAVES = idOf("jungle_leaves");
+        MANGROVE_LEAVES = idOf("mangrove_leaves");
+        PALE_OAK_LEAVES = idOf("pale_oak_leaves");
+        BIRCH_SLAB = idOf("birch_slab");
+        SPRUCE_SLAB = idOf("spruce_slab");
+        DARK_OAK_SLAB = idOf("dark_oak_slab");
+        ACACIA_SLAB = idOf("acacia_slab");
+        JUNGLE_SLAB = idOf("jungle_slab");
+        MANGROVE_SLAB = idOf("mangrove_slab");
+        PALE_OAK_SLAB = idOf("pale_oak_slab");
+        BIRCH_STAIRS = idOf("birch_stairs");
+        SPRUCE_STAIRS = idOf("spruce_stairs");
+        DARK_OAK_STAIRS = idOf("dark_oak_stairs");
+        ACACIA_STAIRS = idOf("acacia_stairs");
+        JUNGLE_STAIRS = idOf("jungle_stairs");
+        MANGROVE_STAIRS = idOf("mangrove_stairs");
+        PALE_OAK_STAIRS = idOf("pale_oak_stairs");
+        BIRCH_FENCE = idOf("birch_fence");
+        SPRUCE_FENCE = idOf("spruce_fence");
+        DARK_OAK_FENCE = idOf("dark_oak_fence");
+        ACACIA_FENCE = idOf("acacia_fence");
+        JUNGLE_FENCE = idOf("jungle_fence");
+        MANGROVE_FENCE = idOf("mangrove_fence");
+        PALE_OAK_FENCE = idOf("pale_oak_fence");
 
-        RED_TULIP = idOf("skyengine:red_tulip");
-        WHITE_TULIP = idOf("skyengine:white_tulip");
-        PINK_TULIP = idOf("skyengine:pink_tulip");
-        DANDELION = idOf("skyengine:dandelion");
-        AZURE_BLUET = idOf("skyengine:azure_bluet");
-        POPPY = idOf("skyengine:poppy");
-        CORNFLOWER = idOf("skyengine:cornflower");
-        TALL_GRASS = idOf("skyengine:tall_grass");
-        DEAD_BUSH = idOf("skyengine:dead_bush");
-        CACTUS = idOf("skyengine:cactus");
+        RED_TULIP = idOf("red_tulip");
+        WHITE_TULIP = idOf("white_tulip");
+        PINK_TULIP = idOf("pink_tulip");
+        DANDELION = idOf("dandelion");
+        AZURE_BLUET = idOf("azure_bluet");
+        POPPY = idOf("poppy");
+        CORNFLOWER = idOf("cornflower");
+        TALL_GRASS = idOf("tall_grass");
+        DEAD_BUSH = idOf("dead_bush");
+        CACTUS = idOf("cactus");
 
-        CLAY = idOf("skyengine:clay");
+        CLAY = idOf("clay");
 
-        MINING_PORTAL = idOf("skyengine:mining_portal");
-        NETHER_PORTAL = idOf("skyengine:nether_portal");
+        MINING_PORTAL = idOf("mining_portal");
+        NETHER_PORTAL = idOf("nether_portal");
         de.skyengine.game.world.dimension.WorldgenRegistries.bootstrap();
     }
 

@@ -23,7 +23,7 @@ public class ItemDefinition {
     public ToolDef tool;
 
     /* Block-Identifier, den ein Rechtsklick mit diesem Item platziert (Redstone-Staub:
-       "skyengine:redstone_wire"). Der Block trägt dann "no_item": true — das Item hier
+       "redstone_wire"). Der Block trägt dann "no_item": true — das Item hier
        übernimmt Platzieren und Pick-Block (Items.forBlock); Drops kommen aus Loot-Tabellen. */
     public String places_block;
 
@@ -34,6 +34,9 @@ public class ItemDefinition {
 
     /** Internes Debug-Item: nicht in Creative-Inventar, Suche oder /give sichtbar. */
     public boolean command_only;
+
+    /** Optionales Rest-Item nach Verbrauch als Crafting-/Maschinenzutat. */
+    public String crafting_remainder;
 
     /** nutrition/saturation wie in {@link de.skyengine.game.world.item.FoodItem}. */
     public static final class FoodDef {

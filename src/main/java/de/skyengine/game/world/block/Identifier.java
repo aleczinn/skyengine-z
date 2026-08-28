@@ -12,7 +12,6 @@ public record Identifier(String namespace, String path) {
     public Identifier {
         if (namespace == null || namespace.isBlank()) namespace = DEFAULT_NAMESPACE;
         namespace = namespace.toLowerCase(Locale.ROOT);
-        if (SkyEngine.LEGACY_GAME_PREFIXES.contains(namespace)) namespace = DEFAULT_NAMESPACE;
         if (!namespace.matches("[a-z0-9_.-]+")) {
             throw new IllegalArgumentException("Ungueltiger Namespace: " + namespace);
         }
@@ -24,10 +23,15 @@ public record Identifier(String namespace, String path) {
     }
 
     public static Identifier of(String id) {
+        return of(id, DEFAULT_NAMESPACE);
+    }
+
+    /** Qualifiziert unbenannte IDs mit dem Namespace ihrer Content-Quelle. */
+    public static Identifier of(String id, String defaultNamespace) {
         if (id == null) throw new IllegalArgumentException("Identifier fehlt");
         id = id.trim().toLowerCase(Locale.ROOT);
         int i = id.indexOf(':');
-        if (i == -1) return new Identifier(DEFAULT_NAMESPACE, id);
+        if (i == -1) return new Identifier(defaultNamespace, id);
         if (i != id.lastIndexOf(':')) throw new IllegalArgumentException("Ungueltiger Identifier: " + id);
         return new Identifier(id.substring(0, i), id.substring(i + 1));
     }

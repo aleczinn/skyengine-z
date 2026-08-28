@@ -1,6 +1,6 @@
 {
   "_comment": "Waegeplatte (schwer, Eisen): Signal = ceil(Anzahl/10), Deckel 15 - MC-Werte inkl. press_ticks 10.",
-  "id": "skyengine:heavy_weighted_pressure_plate",
+  "id": "heavy_weighted_pressure_plate",
   "parent": "preset/pressure_plate",
   "press_ticks": 10,
   "sound": "stone",

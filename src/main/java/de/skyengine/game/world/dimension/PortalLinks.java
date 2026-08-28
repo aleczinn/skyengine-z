@@ -22,7 +22,7 @@ public final class PortalLinks {
     public record Link(String type, Endpoint first, Endpoint second) {}
 
     private static final class Data {
-        int version = 1;
+        int version = 2;
         List<Link> links = new ArrayList<>();
     }
 
@@ -72,28 +72,16 @@ public final class PortalLinks {
         if (!this.file.isFile()) return;
         try {
             Data data = GSON.fromJson(Files.readString(this.file.toPath()), Data.class);
-            if (data != null && data.version == 1 && data.links != null) {
+            if (data != null && data.version == 2 && data.links != null) {
                 for (Link link : data.links) {
                     if (link != null && link.type != null && link.first != null && link.second != null) {
-                        this.links.add(new Link(canonical(link.type), canonical(link.first), canonical(link.second)));
+                        this.links.add(link);
                     }
                 }
             }
         } catch (Exception e) {
             LOGGER.warning("Portalverbindungen konnten nicht geladen werden: " + this.file
                     + " (" + e.getMessage() + ")");
-        }
-    }
-
-    private static Endpoint canonical(Endpoint endpoint) {
-        return new Endpoint(canonical(endpoint.dimension), endpoint.portalId);
-    }
-
-    private static String canonical(String id) {
-        try {
-            return Identifier.of(id).toString();
-        } catch (IllegalArgumentException ignored) {
-            return id;
         }
     }
 

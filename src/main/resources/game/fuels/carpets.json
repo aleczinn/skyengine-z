@@ -1,0 +1,5 @@
+{
+  "fuel_type": "solid_fuel",
+  "ingredient": { "tag": "carpets" },
+  "burn_time": 67
+}

@@ -86,9 +86,9 @@ class LootTablesTest {
     @Test
     void parserLehntUnbekannteKonstrukteStriktAb() {
         String json = """
-                {"type":"skyengine:block","pools":[{"rolls":1,"entries":[
-                  {"type":"skyengine:item","name":"skyengine:dirt","conditions":[
-                    {"condition":"skyengine:nicht_vorhanden"}
+                {"type":"block","pools":[{"rolls":1,"entries":[
+                  {"type":"item","name":"voxelstories:dirt","conditions":[
+                    {"condition":"nicht_vorhanden"}
                   ]}
                 ]}]}
                 """;
@@ -100,13 +100,13 @@ class LootTablesTest {
     @Test
     void gewichteteEntriesWerdenBeideErreicht() {
         String json = """
-                {"type":"skyengine:block","pools":[{"rolls":1,"entries":[
-                  {"type":"skyengine:item","name":"skyengine:dirt","weight":1},
-                  {"type":"skyengine:item","name":"skyengine:stone","weight":3}
+                {"type":"block","pools":[{"rolls":1,"entries":[
+                  {"type":"item","name":"voxelstories:dirt","weight":1},
+                  {"type":"item","name":"voxelstories:stone","weight":3}
                 ]}]}
                 """;
         LootTable table = LootTables.compileForTest(json);
-        BlockState state = BlockStateCodec.decode("skyengine:dirt");
+        BlockState state = BlockStateCodec.decode("voxelstories:dirt");
         Random random = new Random(72);
         int[] counts = new int[2];
         for (int i = 0; i < 1000; i++) {
@@ -120,7 +120,7 @@ class LootTablesTest {
 
     @Test
     void fehlendeTabelleFaelltAufBlockItemZurueck() {
-        BlockState dirt = BlockStateCodec.decode("skyengine:dirt");
+        BlockState dirt = BlockStateCodec.decode("voxelstories:dirt");
         List<ItemStack> result = new ArrayList<>();
         LootContext context = new LootContext(null, 0, 64, 0, dirt, ItemStack.EMPTY,
                 LootContext.Cause.PLAYER, 0, new Random(1));
@@ -139,7 +139,7 @@ class LootTablesTest {
 
     private static List<ItemStack> drops(String encoded, ItemStack tool, LootContext.Cause cause,
                                          float radius, long seed) {
-        String full = encoded.contains(":") ? encoded : "skyengine:" + encoded;
+        String full = encoded.contains(":") ? encoded : "voxelstories:" + encoded;
         BlockState state = BlockStateCodec.decode(full);
         assertNotNull(state, full);
         List<ItemStack> result = new ArrayList<>();
@@ -149,7 +149,7 @@ class LootTablesTest {
     }
 
     private static Item item(String path) {
-        Item item = Items.get(Identifier.of("skyengine:" + path));
+        Item item = Items.get(Identifier.of("voxelstories:" + path));
         assertNotNull(item, path);
         return item;
     }

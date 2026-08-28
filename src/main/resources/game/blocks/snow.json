@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:snow",
+  "id": "snow",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "sound": "snow",

@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:obsidian",
+  "id": "obsidian",
   "piston_reaction": "block",
   "creative_tab": "natural",
   "parent": "preset/cube",

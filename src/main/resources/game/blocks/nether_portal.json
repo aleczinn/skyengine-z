@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:nether_portal",
+  "id": "nether_portal",
   "archetype": "nether_portal",
   "layer": "translucent",
   "opaque": false,

@@ -1,8 +1,8 @@
 {
   "_comment": "Laesst sich wie in Minecraft NICHT von Hand oeffnen - sie braucht ein Signal (Druckplatte/Knopf, Etappe 3). Bis dahin bewusst ohne Funktion.",
-  "id": "skyengine:iron_door",
+  "id": "iron_door",
   "parent": "preset/door",
-  "lod_replacement": "skyengine:iron_block",
+  "lod_replacement": "iron_block",
   "creative_tab": ["functional", "redstone_blocks"],
   "hardness": 5,
   "resistance": 5,

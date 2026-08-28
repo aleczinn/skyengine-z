@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:packed_mud",
+  "id": "packed_mud",
   "parent": "preset/cube",
   "hardness": 1,
   "resistance": 3,

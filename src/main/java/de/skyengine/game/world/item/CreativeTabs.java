@@ -77,7 +77,7 @@ public final class CreativeTabs {
         String type;
         /**
          * Anzeigereihenfolge. Ein Eintrag ist entweder ein String (Namespace optional,
-         * {@code "oak_log"} == {@code "skyengine:oak_log"}, mit {@code {achse}}-Platzhaltern)
+         * {@code "oak_log"} == {@code "oak_log"}, mit {@code {achse}}-Platzhaltern)
          * oder eine Gruppe {@code {"for": "<achse>", "items": [...]}}.
          */
         List<JsonElement> items;

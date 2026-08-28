@@ -24,7 +24,7 @@ final class ChunkMesherWaterGreedyTest {
             for (int x = 4; x < 12; x++) chunk.setBlock(x, 1, z, Blocks.WATER);
         }
         chunk.setBlock(8, 1, 8,
-                BlockRegistry.get(Identifier.of("skyengine:ice")).getDefaultState().getId());
+                BlockRegistry.get(Identifier.of("voxelstories:ice")).getDefaultState().getId());
 
         ChunkMesher.MeshData mesh = new ChunkMesher().mesh(chunk, 0,
                 null, null, null, null, new Chunk[4]);

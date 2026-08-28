@@ -1,6 +1,6 @@
 {
   "_comment": "Hebel: Umschalter ohne Selbst-Ruecksetzung. Varianten verbatim aus MC 26.2 - inkl. des Vanilla-Namensdrehers: powered=false zeigt das _on-Modell (Griff oben) und umgekehrt.",
-  "id": "skyengine:lever",
+  "id": "lever",
   "piston_reaction": "destroy",
   "creative_tab": "redstone_blocks",
   "archetype": "lever",

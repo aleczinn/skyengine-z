@@ -1,7 +1,7 @@
 {
-    "type":  "skyengine:block",
+    "type":  "block",
     "pools":  [
 
               ],
-    "random_sequence":  "skyengine:blocks/piston_head"
+    "random_sequence":  "blocks/piston_head"
 }

@@ -2,7 +2,7 @@
   "_comment": "Preset (nicht registriert): Trichter. facing = Auslaufrichtung (MC), down-Default; enabled=false bei Redstone-Signal. Transferrate hopper_cooldown/hopper_amount (MC 8/1 = 2,5 Items/s) - die schnelleren Stufen ueberschreiben nur den Cooldown. facing=up ist toter State (wie die ceiling-Fackel) und zeigt das down-Modell. MC-Werte: Haerte 3, Widerstand 4.8, Spitzhacke; Metal-Sound-Gruppe gibt es nicht, deshalb stone.",
   "creative_tab": "redstone_blocks",
   "archetype": "hopper",
-  "block_entity": "skyengine:hopper",
+  "block_entity": "hopper",
   "hardness": 3,
   "resistance": 4.8,
   "tool": "pickaxe",

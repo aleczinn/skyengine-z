@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 final class NetherPortalShapeTest {
 
-    private static final Identifier TYPE = Identifier.of("skyengine:nether_portal");
+    private static final Identifier TYPE = Identifier.of("voxelstories:nether_portal");
 
     @BeforeAll
     static void bootstrapBlocks() {
@@ -176,7 +176,7 @@ final class NetherPortalShapeTest {
             LevelData level = new LevelData();
             level.name = "nether-portal-" + name;
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

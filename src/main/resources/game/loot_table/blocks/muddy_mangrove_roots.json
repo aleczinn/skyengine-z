@@ -1,20 +1,20 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "condition": "skyengine:survives_explosion"
+          "condition": "survives_explosion"
         }
       ],
       "entries": [
         {
-          "type": "skyengine:item",
-          "name": "skyengine:muddy_mangrove_roots"
+          "type": "item",
+          "name": "muddy_mangrove_roots"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/muddy_mangrove_roots"
+  "random_sequence": "blocks/muddy_mangrove_roots"
 }

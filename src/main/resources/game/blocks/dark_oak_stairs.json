@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:dark_oak_stairs",
+  "id": "dark_oak_stairs",
   "parent": "preset/stairs",
   "vars": {
     "texture": "dark_oak_planks"

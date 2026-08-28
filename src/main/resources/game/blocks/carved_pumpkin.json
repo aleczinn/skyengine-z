@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:carved_pumpkin",
+  "id": "carved_pumpkin",
   "creative_tab": "natural",
   "model": "block/cube",
   "archetype": "cube",

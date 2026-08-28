@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:pink_wool",
+  "id": "pink_wool",
   "creative_tab": "colored_blocks",
   "parent": "preset/cube",
   "sound": "cloth",

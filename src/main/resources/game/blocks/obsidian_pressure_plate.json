@@ -1,6 +1,6 @@
 {
   "_comment": "Eigener Block (kein Vanilla): reagiert NUR auf den Spieler. Abbau-Werte wie Obsidian-Zubehoer: Spitzhacke ab Diamant.",
-  "id": "skyengine:obsidian_pressure_plate",
+  "id": "obsidian_pressure_plate",
   "parent": "preset/pressure_plate",
   "press_ticks": 20,
   "sound": "stone",

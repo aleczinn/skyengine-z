@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:jungle_trapdoor",
+  "id": "jungle_trapdoor",
   "parent": "preset/trapdoor",
   "creative_tab": ["building_blocks", "functional"]
 }

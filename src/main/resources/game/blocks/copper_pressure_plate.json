@@ -1,6 +1,6 @@
 {
   "_comment": "Eigener Block (kein Vanilla): reagiert NUR auf am Boden liegende Items (Sortieranlagen).",
-  "id": "skyengine:copper_pressure_plate",
+  "id": "copper_pressure_plate",
   "parent": "preset/pressure_plate",
   "press_ticks": 20,
   "sound": "stone",

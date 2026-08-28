@@ -1,6 +1,6 @@
 {
   "_comment": "Komparator. Vanilla-State: facing, mode, powered; OutputSignal liegt in der BlockEntity.",
-  "id": "skyengine:comparator",
+  "id": "comparator",
   "creative_tab": "redstone_blocks",
   "archetype": "comparator",
   "layer": "cutout",
@@ -10,7 +10,7 @@
   "hardness": 0,
   "piston_reaction": "destroy",
   "sound": "stone",
-  "block_entity": "skyengine:comparator",
+  "block_entity": "comparator",
   "place_on_full_top": true,
   "icon_item": "game/textures/item/comparator.png",
   "models": {

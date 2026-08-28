@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:acacia_button",
+  "id": "acacia_button",
   "parent": "preset/button",
   "creative_tab": "building_blocks",
   "press_ticks": 30,

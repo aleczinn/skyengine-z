@@ -1,0 +1,13 @@
+{
+  "type": "processing",
+  "recipe_type": "furnace",
+  "inputs": [
+    {
+      "item": "clay_ball"
+    }
+  ],
+  "result": {
+    "id": "brick"
+  },
+  "duration": 200
+}

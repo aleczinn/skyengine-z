@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:mud",
+  "id": "mud",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 0.5,

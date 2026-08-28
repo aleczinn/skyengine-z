@@ -1,0 +1,13 @@
+{
+  "type": "processing",
+  "recipe_type": "furnace",
+  "inputs": [
+    {
+      "item": "cobblestone"
+    }
+  ],
+  "result": {
+    "id": "stone"
+  },
+  "duration": 200
+}

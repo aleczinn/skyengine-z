@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PortalIndexTest {
 
-    private static final Identifier TYPE = Identifier.of("skyengine:nether_portal");
+    private static final Identifier TYPE = Identifier.of("voxelstories:nether_portal");
 
     @Test
     void persistsFindsAndRemovesPortals(@TempDir Path dimensionRoot) {
@@ -54,26 +54,20 @@ final class PortalIndexTest {
     }
 
     @Test
-    void migratesVersionOneEntriesAsActivePortalsWithStableIds(@TempDir Path dimensionRoot)
+    void ignoresIncompatibleVersionOneIndex(@TempDir Path dimensionRoot)
             throws Exception {
         java.nio.file.Files.writeString(dimensionRoot.resolve("portals.json"), """
                 {
                   "version": 1,
                   "portals": [
-                    {"type":"skyengine:nether_portal","x":4,"y":60,"z":8,
+                    {"type":"voxelstories:nether_portal","x":4,"y":60,"z":8,
                      "axis":"Z","width":2,"height":3}
                   ]
                 }
                 """);
 
-        PortalIndex migrated = new PortalIndex(dimensionRoot.toFile());
-        PortalIndex.Entry entry = migrated.nearest(TYPE, 4, 60, 8, 16);
-
-        assertNotNull(entry);
-        assertTrue(entry.active());
-        assertNotNull(entry.id());
-        assertFalse(entry.id().isBlank());
-        assertEquals(entry.id(), new PortalIndex(dimensionRoot.toFile()).byId(entry.id()).id());
+        PortalIndex index = new PortalIndex(dimensionRoot.toFile());
+        assertNull(index.nearest(TYPE, 4, 60, 8, 16));
     }
 
     @Test

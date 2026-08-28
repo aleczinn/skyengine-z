@@ -14,7 +14,7 @@ final class StructureWandItemTest {
 
     @Test
     void debugAxeUsesWoodenAxeVisualButRemainsCommandOnly() {
-        Identifier id = Identifier.of("skyengine:structure_wand");
+        Identifier id = Identifier.of("voxelstories:structure_wand");
         Item item = Items.get(id);
         assertNotNull(item);
         assertEquals("game/textures/item/wooden_axe.png", item.getIconTexture());

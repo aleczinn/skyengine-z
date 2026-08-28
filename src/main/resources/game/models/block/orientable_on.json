@@ -1,0 +1,4 @@
+{
+  "parent": "block/orientable",
+  "textures": { "front": "#front_on" }
+}

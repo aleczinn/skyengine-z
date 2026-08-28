@@ -1,0 +1,5 @@
+{
+  "fuel_type": "solid_fuel",
+  "ingredient": { "tag": "wooden_slabs" },
+  "burn_time": 150
+}

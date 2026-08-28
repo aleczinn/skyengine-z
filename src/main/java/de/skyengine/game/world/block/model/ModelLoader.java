@@ -180,7 +180,7 @@ public final class ModelLoader {
         String path = id.path();
         if (!path.startsWith("textures/")) path = "textures/" + path;
         if (!path.endsWith(".png")) path += ".png";
-        return new ResourceId(id.namespace(), path).legacyPath();
+        return new ResourceId(id.namespace(), path).sourcePath();
     }
 
     public static Baked bake(String name, int xDeg, int yDeg) {

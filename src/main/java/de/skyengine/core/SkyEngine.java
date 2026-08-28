@@ -18,7 +18,6 @@ import org.lwjgl.opengl.*;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.Queue;
-import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 
@@ -29,17 +28,13 @@ public class SkyEngine {
 
     public static final String GAME_NAME = "Voxel Stories";
     public static final String GAME_PREFIX = derivePrefix(GAME_NAME);
-    /**
-     * Fruehere Namespaces spielseitiger IDs. Bei einer Umbenennung muss der bisherige
-     * {@link #GAME_PREFIX} hier ergaenzt werden, damit Saves und Content weiter laden.
-     */
-    public static final Set<String> LEGACY_GAME_PREFIXES = Set.of("skyengine");
-    public static final String GAME_DATA_DIRECTORY_NAME = "." + GAME_PREFIX.replace("_", "");
+    public static final String GAME_DATA_DIRECTORY_NAME = "." + GAME_PREFIX;
 
     private static String derivePrefix(String name) {
         String prefix = name.toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9]+", "_")
-                .replaceAll("^_+|_+$", "");
+                .replaceAll("^_+|_+$", "")
+                .replace("_", "");
         if (prefix.isEmpty()) throw new IllegalArgumentException("Spielname ergibt keinen gueltigen Prefix: " + name);
         return prefix;
     }

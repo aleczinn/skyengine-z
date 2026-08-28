@@ -1,6 +1,6 @@
 {
   "_comment": "Kolben-Kopf (technisch, kein Item): existiert nur vor einer ausgefahrenen Basis. piston_reaction=block, damit kein fremder Kolben den Arm wegschiebt. short = Render-Variante ohne Arm-Ueberstand (Animation in Basisnaehe); der materialisierte Kopf ist immer short=false.",
-  "id": "skyengine:piston_head",
+  "id": "piston_head",
   "archetype": "piston_head",
   "no_item": true,
   "opaque": false,

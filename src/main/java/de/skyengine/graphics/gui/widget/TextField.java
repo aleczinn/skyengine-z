@@ -50,6 +50,7 @@ public final class TextField extends GuiComponent {
     private String placeholder = "";
     /** true: kein eigener Hintergrund — das Feld liegt über einem bereits gemalten Kasten. */
     private boolean borderless;
+    private boolean clearOnRightClick;
     private int caret;
     /** Selektions-Anker: Auswahl ist {@code [min(anchor,caret), max(anchor,caret))}. */
     private int anchor;
@@ -81,6 +82,12 @@ public final class TextField extends GuiComponent {
         return this;
     }
 
+    /** Leert dieses Feld bei einem Rechtsklick. */
+    public TextField clearOnRightClick() {
+        this.clearOnRightClick = true;
+        return this;
+    }
+
     /** Innenabstand des aktuellen Modus (der 9-Slice-Rand fehlt im randlosen Fall). */
     private float pad() {
         return this.borderless ? PAD_BORDERLESS : PAD;
@@ -96,6 +103,14 @@ public final class TextField extends GuiComponent {
 
     public String getText() {
         return this.text.toString();
+    }
+
+    public void clear() {
+        this.text.setLength(0);
+        this.caret = 0;
+        this.anchor = 0;
+        this.viewOffset = 0;
+        this.repeatKey = 0;
     }
 
     @Override
@@ -295,9 +310,12 @@ public final class TextField extends GuiComponent {
     @Override
     public boolean mousePressed(double mx, double my, int button) {
         /* Fokus setzt der GuiScreen (über isFocusable) — hier nur konsumieren, wenn getroffen. */
-        if (!this.enabled || button != GLFW.GLFW_MOUSE_BUTTON_LEFT || !this.isMouseOver(mx, my)) {
-            return false;
+        if (!this.enabled || !this.isMouseOver(mx, my)) return false;
+        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT && this.clearOnRightClick) {
+            this.clear();
+            return true;
         }
+        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return false;
         this.caret = this.caretAt(mx);
         this.anchor = this.caret;
         this.repeatKey = 0;

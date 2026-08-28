@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:copper_ore",
+  "id": "copper_ore",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 3,

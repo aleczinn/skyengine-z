@@ -1,6 +1,6 @@
 {
   "_comment": "Eigene Stufe (kein MC-Block): schnellste Ausbaustufe (20 Items/s).",
-  "id": "skyengine:emerald_hopper",
+  "id": "emerald_hopper",
   "parent": "preset/hopper",
   "hopper_cooldown": 1,
   "resistance": 1200

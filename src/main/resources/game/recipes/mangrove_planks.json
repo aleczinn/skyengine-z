@@ -1,0 +1,12 @@
+{
+  "type": "crafting_shapeless",
+  "ingredients": [
+    {
+      "item": "mangrove_log"
+    }
+  ],
+  "result": {
+    "id": "mangrove_planks",
+    "count": 4
+  }
+}

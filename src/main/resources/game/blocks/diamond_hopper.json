@@ -1,6 +1,6 @@
 {
   "_comment": "Eigene Stufe (kein MC-Block): viermal so schnell wie der Trichter (10 Items/s).",
-  "id": "skyengine:diamond_hopper",
+  "id": "diamond_hopper",
   "parent": "preset/hopper",
   "hopper_cooldown": 2
 }

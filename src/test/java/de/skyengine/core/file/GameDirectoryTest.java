@@ -19,7 +19,6 @@ final class GameDirectoryTest {
         assertNotNull(configured, "Der Testprozess muss einen isolierten Spielordner konfigurieren");
         assertEquals(Path.of(configured).toAbsolutePath().normalize(),
                 GameDirectory.root().toPath().toAbsolutePath().normalize());
-        assertFalse(Files.exists(GameDirectory.root().toPath().resolve(".migration-from-skyengine-v1")));
     }
 
     @Test
@@ -27,21 +26,4 @@ final class GameDirectoryTest {
         assertEquals(".voxelstories", SkyEngine.GAME_DATA_DIRECTORY_NAME);
     }
 
-    @Test
-    void obsoleteMarkersAreRemovedWithoutTouchingOtherHiddenFiles(@TempDir Path temp) throws Exception {
-        Files.createDirectories(temp.resolve("bin/structures"));
-        Files.writeString(temp.resolve(".migration-from-skyengine-v1"), "completed");
-        Files.writeString(temp.resolve(".migration-from-working-directory-v1"), "completed");
-        Files.writeString(temp.resolve("bin/structures/.default-structure-v1"), "version=1");
-        Files.writeString(temp.resolve("bin/structures/.default-structures-v1"), "version=1");
-        Files.writeString(temp.resolve(".keep-me"), "data");
-
-        GameDirectory.cleanupObsoleteMarkers(temp);
-
-        assertFalse(Files.exists(temp.resolve(".migration-from-skyengine-v1")));
-        assertFalse(Files.exists(temp.resolve(".migration-from-working-directory-v1")));
-        assertFalse(Files.exists(temp.resolve("bin/structures/.default-structure-v1")));
-        assertFalse(Files.exists(temp.resolve("bin/structures/.default-structures-v1")));
-        assertTrue(Files.isRegularFile(temp.resolve(".keep-me")));
-    }
 }

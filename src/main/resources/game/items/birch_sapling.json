@@ -1,1 +1,1 @@
-{ "id": "skyengine:birch_sapling", "parent": "preset/material", "creative_tab": "natural" }
+{ "id": "birch_sapling", "parent": "preset/material", "creative_tab": "natural" }

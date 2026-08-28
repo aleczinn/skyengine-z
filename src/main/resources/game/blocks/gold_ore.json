@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:gold_ore",
+  "id": "gold_ore",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 3,

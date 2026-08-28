@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:mining_portal",
+  "id": "mining_portal",
   "creative_tab": "functional",
   "parent": "preset/cube",
   "vars": {

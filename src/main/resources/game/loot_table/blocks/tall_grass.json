@@ -1,21 +1,21 @@
 {
-  "type": "skyengine:block",
+  "type": "block",
   "pools": [
     {
       "conditions": [
         {
-          "block": "skyengine:tall_grass",
-          "condition": "skyengine:block_state_property",
+          "block": "tall_grass",
+          "condition": "block_state_property",
           "properties": {
             "half": "lower"
           }
         },
         {
-          "condition": "skyengine:location_check",
+          "condition": "location_check",
           "offsetY": 1,
           "predicate": {
             "block": {
-              "blocks": "skyengine:tall_grass",
+              "blocks": "tall_grass",
               "state": {
                 "half": "upper"
               }
@@ -25,38 +25,38 @@
       ],
       "entries": [
         {
-          "type": "skyengine:alternatives",
+          "type": "alternatives",
           "children": [
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:match_tool",
+                  "condition": "match_tool",
                   "predicate": {
-                    "items": "skyengine:shears"
+                    "items": "shears"
                   }
                 }
               ],
               "functions": [
                 {
                   "count": 2.0,
-                  "function": "skyengine:set_count"
+                  "function": "set_count"
                 }
               ],
-              "name": "skyengine:short_grass"
+              "name": "short_grass"
             },
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:survives_explosion"
+                  "condition": "survives_explosion"
                 },
                 {
                   "chance": 0.125,
-                  "condition": "skyengine:random_chance"
+                  "condition": "random_chance"
                 }
               ],
-              "name": "skyengine:wheat_seeds"
+              "name": "wheat_seeds"
             }
           ]
         }
@@ -66,18 +66,18 @@
     {
       "conditions": [
         {
-          "block": "skyengine:tall_grass",
-          "condition": "skyengine:block_state_property",
+          "block": "tall_grass",
+          "condition": "block_state_property",
           "properties": {
             "half": "upper"
           }
         },
         {
-          "condition": "skyengine:location_check",
+          "condition": "location_check",
           "offsetY": -1,
           "predicate": {
             "block": {
-              "blocks": "skyengine:tall_grass",
+              "blocks": "tall_grass",
               "state": {
                 "half": "lower"
               }
@@ -87,38 +87,38 @@
       ],
       "entries": [
         {
-          "type": "skyengine:alternatives",
+          "type": "alternatives",
           "children": [
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:match_tool",
+                  "condition": "match_tool",
                   "predicate": {
-                    "items": "skyengine:shears"
+                    "items": "shears"
                   }
                 }
               ],
               "functions": [
                 {
                   "count": 2.0,
-                  "function": "skyengine:set_count"
+                  "function": "set_count"
                 }
               ],
-              "name": "skyengine:short_grass"
+              "name": "short_grass"
             },
             {
-              "type": "skyengine:item",
+              "type": "item",
               "conditions": [
                 {
-                  "condition": "skyengine:survives_explosion"
+                  "condition": "survives_explosion"
                 },
                 {
                   "chance": 0.125,
-                  "condition": "skyengine:random_chance"
+                  "condition": "random_chance"
                 }
               ],
-              "name": "skyengine:wheat_seeds"
+              "name": "wheat_seeds"
             }
           ]
         }
@@ -126,5 +126,5 @@
       "rolls": 1.0
     }
   ],
-  "random_sequence": "skyengine:blocks/tall_grass"
+  "random_sequence": "blocks/tall_grass"
 }

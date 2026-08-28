@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:dark_oak_fence",
+  "id": "dark_oak_fence",
   "parent": "preset/fence",
   "vars": {
     "texture": "dark_oak_planks"

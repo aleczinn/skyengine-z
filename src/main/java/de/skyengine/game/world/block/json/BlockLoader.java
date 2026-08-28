@@ -28,7 +28,7 @@ public final class BlockLoader {
      * Registriert die von {@link BlockJson} aufgelösten Blockdefinitionen. Die Iterations-
      * reihenfolge der Map ist die alte Dateisortierung und bestimmt die Runtime-State-IDs.
      */
-    public static List<BlockDefinition> load(Map<String, JsonObject> definitions) {
+    public static List<BlockDefinition> load(Map<String, JsonObject> definitions, String namespace) {
         List<BlockDefinition> loaded = new ArrayList<>();
         if (definitions.isEmpty()) return loaded;
 
@@ -42,6 +42,7 @@ public final class BlockLoader {
                     LOGGER.error("Block-Definition ohne 'id': " + entry.getKey());
                     continue;
                 }
+                definition.id = Identifier.of(definition.id, namespace).toString();
                 register(definition);
                 loaded.add(definition);
             } catch (Exception e) {

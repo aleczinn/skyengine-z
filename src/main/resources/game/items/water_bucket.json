@@ -1,8 +1,8 @@
 {
-  "id": "skyengine:water_bucket",
+  "id": "water_bucket",
   "archetype": "bucket",
   "max_stack": 1,
   "texture": "game/textures/item/water_bucket.png",
   "creative_tab": "tools",
-  "bucket": { "fluid": "skyengine:water" }
+  "bucket": { "fluid": "water" }
 }

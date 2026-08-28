@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:pale_oak_log",
+  "id": "pale_oak_log",
   "parent": "preset/pillar",
   "hardness": 2,
   "tool": "axe"

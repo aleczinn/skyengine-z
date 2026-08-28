@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:cracked_stone_bricks",
+  "id": "cracked_stone_bricks",
   "parent": "preset/cube",
   "hardness": 1.5,
   "resistance": 6,

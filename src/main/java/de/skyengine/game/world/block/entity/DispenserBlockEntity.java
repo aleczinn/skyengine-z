@@ -86,7 +86,7 @@ public final class DispenserBlockEntity extends BlockEntity {
         ItemStack stack = this.inventory.get(slot);
         Item item = stack.getItem();
         if (item instanceof BlockItem blockItem
-                && blockItem.getBlock().getIdentifier().equals(Identifier.of("skyengine:tnt"))) {
+                && blockItem.getBlock().getIdentifier().equals(Identifier.of("tnt"))) {
             this.inventory.extract(slot, 1);
             ExplosionBehavior tnt = blockItem.getBlock().getBehavior(ExplosionBehavior.class);
             float power = tnt == null ? 4.0F : tnt.power();
@@ -154,17 +154,19 @@ public final class DispenserBlockEntity extends BlockEntity {
             BlockState target = Blocks.getState(this.world.getBlock(tx, ty, tz));
             if (!(target.isAir() || target.isFluid() || target.getBlock().isReplaceable())) return false;
             if (!this.world.setBlock(tx, ty, tz, bucket.getFluid().getDefaultState().getId())) return false;
-            this.replaceContainerItem(slot, Items.get(Identifier.of("skyengine:bucket")), facing);
+            this.replaceContainerItem(slot, Items.get(Identifier.of("bucket")), facing);
+            this.world.playBucketEmpty(tx, ty, tz, bucket.getFluid().getFluidInfo().lava);
             this.world.playDispenserSuccess(this.pos.x(), this.pos.y(), this.pos.z());
             return true;
         }
 
         BlockState target = Blocks.getState(this.world.getBlock(tx, ty, tz));
         if (!target.isFluid() || target.get(Properties.FALLING) || target.get(Properties.LEVEL) != 0) return false;
-        Identifier filledId = Identifier.of("skyengine:" + target.getBlock().getIdentifier().path() + "_bucket");
+        Identifier filledId = Identifier.of(target.getBlock().getIdentifier().path() + "_bucket");
         Item filled = Items.get(filledId);
         if (filled == null || !this.world.setBlock(tx, ty, tz, Blocks.AIR)) return false;
         this.replaceContainerItem(slot, filled, facing);
+        this.world.playBucketFill(tx, ty, tz, target.getBlock().getFluidInfo().lava);
         this.world.playDispenserSuccess(this.pos.x(), this.pos.y(), this.pos.z());
         return true;
     }

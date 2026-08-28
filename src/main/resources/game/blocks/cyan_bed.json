@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:cyan_bed",
+  "id": "cyan_bed",
   "parent": "preset/bed",
   "textures": {
     "head_east": "game/textures/block/cyan_bed_head_east.png",

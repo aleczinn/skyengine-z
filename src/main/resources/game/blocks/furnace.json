@@ -1,0 +1,32 @@
+{
+  "id": "furnace",
+  "creative_tab": "functional",
+  "archetype": "furnace",
+  "block_entity": "furnace",
+  "layer": "opaque",
+  "hardness": 3.5,
+  "resistance": 3.5,
+  "tool": "pickaxe",
+  "sound": "stone",
+  "light_level": 13,
+  "models": {
+    "": "block/orientable",
+    "_on": "block/orientable_on"
+  },
+  "textures": {
+    "front": "game/textures/block/furnace_front.png",
+    "front_on": "game/textures/block/furnace_front_on.png",
+    "side": "game/textures/block/furnace_side.png",
+    "top": "game/textures/block/furnace_top.png"
+  },
+  "variants": {
+    "facing=north,lit=false": { "model": "block/${id}" },
+    "facing=east,lit=false":  { "model": "block/${id}", "y": 90 },
+    "facing=south,lit=false": { "model": "block/${id}", "y": 180 },
+    "facing=west,lit=false":  { "model": "block/${id}", "y": 270 },
+    "facing=north,lit=true":  { "model": "block/${id}_on" },
+    "facing=east,lit=true":   { "model": "block/${id}_on", "y": 90 },
+    "facing=south,lit=true":  { "model": "block/${id}_on", "y": 180 },
+    "facing=west,lit=true":   { "model": "block/${id}_on", "y": 270 }
+  }
+}

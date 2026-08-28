@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:dark_oak_button",
+  "id": "dark_oak_button",
   "parent": "preset/button",
   "creative_tab": "building_blocks",
   "press_ticks": 30,

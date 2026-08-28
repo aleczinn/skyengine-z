@@ -179,7 +179,7 @@ public final class WorldEditSession {
             sourceOrigin = new BlockPos(playerX, playerY, playerZ);
         }
         StructureTemplate template = builder.capture(dimension, selection,
-                Identifier.of("skyengine:clipboard"), true, selection.pos1());
+                Identifier.of("clipboard"), true, selection.pos1());
         return new WorldEditClipboard(template, sourceOrigin.x() - bounds.minX(),
                 sourceOrigin.y() - bounds.minY(), sourceOrigin.z() - bounds.minZ(),
                 StructureTransform.IDENTITY);

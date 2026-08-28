@@ -159,10 +159,10 @@ final class StructureCommandTest {
 
         assertTrue(new WorldEditCommand("set").execute(context(structures), List.of("stone")).success());
         assertEquals(Blocks.STONE, structures.setBlockState);
-        assertTrue(new WorldEditCommand("set").execute(context(structures), List.of("skyengine:air")).success());
+        assertTrue(new WorldEditCommand("set").execute(context(structures), List.of("voxelstories:air")).success());
         assertEquals(Blocks.AIR, structures.setBlockState);
         assertFalse(new WorldEditCommand("set").execute(context(structures),
-                List.of("skyengine:stone[unknown=true]")).success());
+                List.of("voxelstories:stone[unknown=true]")).success());
 
         assertTrue(new WorldEditCommand("set").execute(context(structures),
                 List.of("oak_stairs[facing=east,half=top,shape=straight]")).success());

@@ -41,7 +41,6 @@ public final class StructureTemplateManager {
         this.externalRoot = externalRoot.toAbsolutePath().normalize();
         try {
             Files.createDirectories(this.externalRoot);
-            migrateLegacyAuthoring(savesRoot);
             if (installDefaults) DefaultStructureInstaller.install(this.externalRoot);
             refreshExternalIndex();
         } catch (IOException e) {
@@ -76,7 +75,7 @@ public final class StructureTemplateManager {
     public Identifier idForNewReference(String reference) throws IOException {
         if (reference.indexOf(':') >= 0) return referenceId(reference);
         String path = normalizeReferencePath(reference);
-        return Identifier.of("skyengine:" + path.substring(0, path.length() - ".structure".length()));
+        return Identifier.of(path.substring(0, path.length() - ".structure".length()));
     }
 
     /** Sichtbare, reale Pfade relativ zu bin/structures. */
@@ -189,34 +188,6 @@ public final class StructureTemplateManager {
             throw new IOException("Ungueltiger Structure-Pfad: " + reference);
         }
         return value;
-    }
-
-    private void migrateLegacyAuthoring(File savesRoot) throws IOException {
-        if (savesRoot == null || !savesRoot.isDirectory()) return;
-        Path legacySegment = Path.of("datapacks", "voxel_stories_authoring", "data");
-        try (var walk = Files.walk(savesRoot.toPath())) {
-            for (Path source : walk.filter(Files::isRegularFile)
-                    .filter(path -> path.toAbsolutePath().normalize().toString()
-                            .contains(legacySegment.toString()))
-                    .filter(path -> path.getFileName().toString().endsWith(".structure")).toList()) {
-                try {
-                    StructureTemplate template = StructureSerializer.read(source, null);
-                    Path target = externalPath(template.id());
-                    if (!Files.exists(target)) {
-                        Files.createDirectories(target.getParent());
-                        Files.copy(source, target);
-                        LOGGER.info("Weltbezogene Structure global migriert: " + source + " -> " + target);
-                    } else {
-                        StructureTemplate existing = StructureSerializer.read(target, null);
-                        if (!existing.fingerprint().equals(template.fingerprint())) {
-                            LOGGER.warning("Structure-Migrationskonflikt, Quelldatei bleibt erhalten: " + source);
-                        }
-                    }
-                } catch (IOException e) {
-                    LOGGER.warning("Structure konnte nicht global migriert werden: " + source + " (" + e.getMessage() + ")");
-                }
-            }
-        }
     }
 
     public static final class Snapshot {

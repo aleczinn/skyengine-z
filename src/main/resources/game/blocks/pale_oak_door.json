@@ -1,6 +1,6 @@
 {
-  "id": "skyengine:pale_oak_door",
+  "id": "pale_oak_door",
   "parent": "preset/door",
-  "lod_replacement": "skyengine:pale_oak_planks",
+  "lod_replacement": "pale_oak_planks",
   "creative_tab": ["building_blocks", "functional"]
 }

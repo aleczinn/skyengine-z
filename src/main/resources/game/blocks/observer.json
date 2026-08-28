@@ -1,6 +1,6 @@
 {
   "_comment": "Beobachter: 2-Tick-Puls bei Blockaenderung vor dem Gesicht (facing zeigt zum beobachteten Block, beim Platzieren vom Spieler weg). Varianten verbatim aus MC 26.2. MC-Werte: Haerte 3, Spitzhacke.",
-  "id": "skyengine:observer",
+  "id": "observer",
   "creative_tab": "redstone_blocks",
   "archetype": "observer",
   "hardness": 3,

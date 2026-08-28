@@ -1,8 +1,8 @@
 {
-  "id": "skyengine:dispenser",
+  "id": "dispenser",
   "creative_tab": "redstone_blocks",
   "archetype": "dispenser",
-  "block_entity": "skyengine:dispenser",
+  "block_entity": "dispenser",
   "hardness": 3.5,
   "resistance": 3.5,
   "tool": "pickaxe",

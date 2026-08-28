@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class GameContainerPortalArrivalPolicyTest {
 
-    private static final Identifier MINING_PORTAL = Identifier.of("skyengine:mining_portal");
+    private static final Identifier MINING_PORTAL = Identifier.of("voxelstories:mining_portal");
 
     @Test
     void onlyMiningPortalArrivalInMiningDimensionCreatesPlatform() {
@@ -18,7 +18,7 @@ final class GameContainerPortalArrivalPolicyTest {
         assertFalse(GameContainer.shouldCreateMiningArrivalPlatform(
                 MINING_PORTAL, WorldgenRegistries.OVERWORLD, true));
         assertFalse(GameContainer.shouldCreateMiningArrivalPlatform(
-                Identifier.of("skyengine:nether_portal"), WorldgenRegistries.MINING, true));
+                Identifier.of("voxelstories:nether_portal"), WorldgenRegistries.MINING, true));
         assertFalse(GameContainer.shouldCreateMiningArrivalPlatform(
                 null, WorldgenRegistries.MINING, false));
     }

@@ -164,7 +164,7 @@ final class StructureBlockEntityTest {
         world.install(chunk);
         world.enableNeighborUpdates();
         StructureTemplate spruce = StructureTemplateManager.loadResource(
-                Identifier.of("skyengine:trees/spruce/big_spruce_3"));
+                Identifier.of("voxelstories:trees/spruce/big_spruce_3"));
         assertNotNull(spruce);
         StructurePlacement placement = new StructurePlacement();
         StructurePlacement.Plan plan = placement.prepareInWorld(spruce, world,
@@ -349,11 +349,11 @@ final class StructureBlockEntityTest {
         chest.getInventory().set(3, stack(count));
         DataTag data = new DataTag();
         chest.save(data);
-        return new StructureTemplate.BlockEntitySnapshot(Identifier.of("skyengine:chest"), data);
+        return new StructureTemplate.BlockEntitySnapshot(Identifier.of("voxelstories:chest"), data);
     }
 
     private static ItemStack stack(int count) {
-        return new ItemStack(Items.get(Identifier.of("skyengine:stone")), count);
+        return new ItemStack(Items.get(Identifier.of("voxelstories:stone")), count);
     }
 
     private static ChestBlockEntity chest(TestWorld world) {
@@ -399,7 +399,7 @@ final class StructureBlockEntityTest {
             LevelData level = new LevelData();
             level.name = "structure-be-test";
             level.seed = 1;
-            level.worldType = imported ? "imported" : "default";
+
             return level;
         }
     }

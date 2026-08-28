@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:clay",
+  "id": "clay",
   "creative_tab": "natural",
   "parent": "preset/cube",
   "hardness": 0.6,

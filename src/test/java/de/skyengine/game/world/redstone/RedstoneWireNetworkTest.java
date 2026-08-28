@@ -219,14 +219,14 @@ final class RedstoneWireNetworkTest {
     }
 
     private static BlockState state(String path) {
-        var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
+        var block = BlockRegistry.get(Identifier.of("voxelstories:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
         return block.getDefaultState();
     }
 
     private static BlockState wireState() {
         BlockState wire = BlockStateCodec.decode(
-                "skyengine:redstone_wire[east=none,north=none,power=0,south=none,west=none]");
+                "voxelstories:redstone_wire[east=none,north=none,power=0,south=none,west=none]");
         if (wire == null) throw new IllegalStateException("Redstone-Staub fehlt in der Test-Registry");
         return wire;
     }
@@ -296,7 +296,7 @@ final class RedstoneWireNetworkTest {
             LevelData level = new LevelData();
             level.name = "redstone-wire-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

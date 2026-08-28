@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:gray_wool",
+  "id": "gray_wool",
   "creative_tab": "colored_blocks",
   "parent": "preset/cube",
   "sound": "cloth",

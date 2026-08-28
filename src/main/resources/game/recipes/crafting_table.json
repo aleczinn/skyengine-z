@@ -1,0 +1,15 @@
+{
+  "type": "crafting_shaped",
+  "pattern": [
+    "PP",
+    "PP"
+  ],
+  "key": {
+    "P": {
+      "tag": "planks"
+    }
+  },
+  "result": {
+    "id": "crafting_table"
+  }
+}

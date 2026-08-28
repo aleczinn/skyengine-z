@@ -279,7 +279,7 @@ final class HopperBlockEntityTest {
 
     @Test
     void doesNotBlockHoppersFlagOverridesFullCollisionBlock() {
-        Block exempt = new Block(Identifier.of("skyengine:test_beehive"),
+        Block exempt = new Block(Identifier.of("voxelstories:test_beehive"),
                 Block.Settings.create().doesNotBlockHoppers(true));
 
         assertTrue(exempt.getDefaultState().getCollisionShape().isFullCube());
@@ -288,11 +288,11 @@ final class HopperBlockEntityTest {
     }
 
     private static ItemStack stone(int count) {
-        return new ItemStack(Items.get(Identifier.of("skyengine:stone")), count);
+        return new ItemStack(Items.get(Identifier.of("voxelstories:stone")), count);
     }
 
     private static BlockState state(String path) {
-        var block = BlockRegistry.get(Identifier.of("skyengine:" + path));
+        var block = BlockRegistry.get(Identifier.of("voxelstories:" + path));
         if (block == null) throw new IllegalStateException("Testblock fehlt: " + path);
         return block.getDefaultState();
     }
@@ -415,7 +415,7 @@ final class HopperBlockEntityTest {
             LevelData level = new LevelData();
             level.name = "hopper-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

@@ -1,20 +1,20 @@
 {
-    "type":  "skyengine:block",
+    "type":  "block",
     "pools":  [
                   {
                       "rolls":  1,
                       "entries":  [
                                       {
-                                          "type":  "skyengine:item",
-                                          "name":  "skyengine:tnt",
+                                          "type":  "item",
+                                          "name":  "tnt",
                                           "conditions":  [
                                                              {
-                                                                 "condition":  "skyengine:survives_explosion"
+                                                                 "condition":  "survives_explosion"
                                                              }
                                                          ]
                                       }
                                   ]
                   }
               ],
-    "random_sequence":  "skyengine:blocks/tnt"
+    "random_sequence":  "blocks/tnt"
 }

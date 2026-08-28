@@ -108,7 +108,7 @@ final class WorldScheduledTickPersistenceTest {
         world.install(chunk);
         chunk.markSaved(chunk.modificationEpoch());
 
-        world.restoreScheduledBlockTick(new SavedTick("block", "skyengine:piston",
+        world.restoreScheduledBlockTick(new SavedTick("block", "voxelstories:piston",
                 3, 64, 4, 7, 0, 12));
 
         assertFalse(chunk.isModified(),
@@ -123,7 +123,7 @@ final class WorldScheduledTickPersistenceTest {
         world.install(chunk);
         chunk.markSaved(chunk.modificationEpoch());
 
-        world.restoreBlockEvent(new SavedTick("block_event", "skyengine:piston",
+        world.restoreBlockEvent(new SavedTick("block_event", "voxelstories:piston",
                 3, 64, 4, 1, 0, 0));
 
         assertFalse(chunk.isModified(),
@@ -333,7 +333,7 @@ final class WorldScheduledTickPersistenceTest {
             LevelData level = new LevelData();
             level.name = "scheduled-tick-persistence-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

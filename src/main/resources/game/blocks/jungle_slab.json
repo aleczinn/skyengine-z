@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:jungle_slab",
+  "id": "jungle_slab",
   "parent": "preset/slab",
   "vars": {
     "texture": "jungle_planks"

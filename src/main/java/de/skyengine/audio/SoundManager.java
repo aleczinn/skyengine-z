@@ -52,7 +52,7 @@ import java.util.Random;
 public final class SoundManager implements IDisposable, UnderwaterAudioSink {
 
     /** Minecraft 26.2 {@code sounds.json}: volume=0.7 fuer entity.player.attack.weak. */
-    static final float WEAK_ATTACK_VOLUME = 0.7F;
+    static final float WEAK_ATTACK_VOLUME = 0.2F;
 
     /* 12 waren zu wenig, seit es Redstone-Maschinen gibt: der Kolben-Sound ist mit 0,65-0,92 s
        (0,552-s-Datei, gestreckt durch den MC-Pitch 0.6) der längste Effekt der Engine, und eine
@@ -160,6 +160,10 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
     private int[] waterAmbientVariants; // block.water.ambient -> liquid/water.ogg
     private int[] lavaAmbientVariants;  // block.lava.ambient -> liquid/lava.ogg
     private int[] lavaPopVariants;      // block.lava.pop -> liquid/lavapop.ogg
+    private int[] bucketEmptyVariants;
+    private int[] bucketEmptyLavaVariants;
+    private int[] bucketFillVariants;
+    private int[] bucketFillLavaVariants;
     private VariantSet underwaterAdditions;
     private VariantSet underwaterRareAdditions;
     private VariantSet underwaterUltraRareAdditions;
@@ -288,6 +292,10 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         this.waterAmbientVariants = this.loadVariants("liquid", "water");
         this.lavaAmbientVariants = this.loadVariants("liquid", "lava");
         this.lavaPopVariants = this.loadVariants("liquid", "lavapop");
+        this.bucketEmptyVariants = this.loadVariants("bucket", "empty");
+        this.bucketEmptyLavaVariants = this.loadVariants("bucket", "empty_lava");
+        this.bucketFillVariants = this.loadVariants("bucket", "fill");
+        this.bucketFillLavaVariants = this.loadVariants("bucket", "fill_lava");
         this.underwaterAdditions = this.loadNamedWithGains("underwater/additions",
                 new String[]{"bubbles1", "bubbles2", "bubbles3", "bubbles4", "bubbles5", "bubbles6",
                         "water1", "water2"},
@@ -314,6 +322,8 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
                 + count(this.swimVariants) + count(this.splashVariants) + count(this.heavySplashVariants)
                 + count(this.waterAmbientVariants) + count(this.lavaAmbientVariants)
                 + count(this.lavaPopVariants)
+                + count(this.bucketEmptyVariants) + count(this.bucketEmptyLavaVariants)
+                + count(this.bucketFillVariants) + count(this.bucketFillLavaVariants)
                 + count(this.underwaterAdditions) + count(this.underwaterRareAdditions)
                 + count(this.underwaterUltraRareAdditions);
 
@@ -693,6 +703,16 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
     public void playDispenserFailure(double x, double y, double z) {
         this.play(this.uiClickVariants, SoundCategory.BLOCKS, 1.0F, 1.2F,
                 false, true, x, y, z);
+    }
+
+    public void playBucketEmpty(boolean lava, double x, double y, double z) {
+        this.play(lava ? this.bucketEmptyLavaVariants : this.bucketEmptyVariants,
+                SoundCategory.BLOCKS, 1.0F, 1.0F, false, true, x, y, z);
+    }
+
+    public void playBucketFill(boolean lava, double x, double y, double z) {
+        this.play(lava ? this.bucketFillLavaVariants : this.bucketFillVariants,
+                SoundCategory.BLOCKS, 1.0F, 1.0F, false, true, x, y, z);
     }
 
     /** Beginnt den pro Frame ausgeführten Sichtungsdurchlauf für gebundene Minecart-Loops. */
@@ -1126,6 +1146,8 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
         this.underwaterEnterVariants = this.underwaterExitVariants = this.underwaterLoopVariants = null;
         this.swimVariants = this.splashVariants = this.heavySplashVariants = null;
         this.waterAmbientVariants = this.lavaAmbientVariants = this.lavaPopVariants = null;
+        this.bucketEmptyVariants = this.bucketEmptyLavaVariants = null;
+        this.bucketFillVariants = this.bucketFillLavaVariants = null;
         this.underwaterAdditions = this.underwaterRareAdditions = this.underwaterUltraRareAdditions = null;
         this.underwaterLoopSource = -1;
         this.underwaterLoopGain = 0F;
@@ -1160,7 +1182,8 @@ public final class SoundManager implements IDisposable, UnderwaterAudioSink {
                 this.underwaterEnterVariants, this.underwaterExitVariants,
                 this.underwaterLoopVariants, this.swimVariants, this.splashVariants,
                 this.heavySplashVariants, this.waterAmbientVariants, this.lavaAmbientVariants,
-                this.lavaPopVariants}) {
+                this.lavaPopVariants, this.bucketEmptyVariants, this.bucketEmptyLavaVariants,
+                this.bucketFillVariants, this.bucketFillLavaVariants}) {
             if (loose != null) unique.add(loose);
         }
         for (VariantSet variants : new VariantSet[]{this.underwaterAdditions,

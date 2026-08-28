@@ -14,15 +14,12 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.UUID;
 
-/**
- * Liest/schreibt UUID-basierte {@code players/<uuid>.dat} sowie die alte
- * {@code player/player.dat} während der Migration. Den Tag-Inhalt baut der PlayerManager.
- */
+/** Liest und schreibt UUID-basierte {@code players/<uuid>.dat}. */
 public final class PlayerIO {
 
     private static final Logger LOGGER = LogManager.getLogger(PlayerIO.class.getName());
 
-    /** null, wenn die Datei fehlt oder nicht lesbar ist (Aufrufer fällt auf Migration/Spawn zurück). */
+    /** null, wenn die Datei fehlt oder nicht lesbar ist. */
     public static DataTag read(File file) {
         if (!file.isFile()) return null;
         try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(file)))) {
@@ -48,10 +45,6 @@ public final class PlayerIO {
 
     public static File playerFile(File worldRoot, UUID uuid) {
         return new File(new File(worldRoot, "players"), uuid + ".dat");
-    }
-
-    public static File legacyPlayerFile(File worldRoot) {
-        return new File(worldRoot, "player/player.dat");
     }
 
     private PlayerIO() {}

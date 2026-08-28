@@ -2,7 +2,7 @@
   "_comment": "Preset: Treppe. Die 40 Varianten aus facing x half x shape stehen hier EINMAL.",
   "creative_tab": "building_blocks",
   "type": "stairs",
-  "lod_replacement": "skyengine:${texture}",
+  "lod_replacement": "${texture}",
   "layer": "opaque",
   "vars": {
     "texture": "${id}"

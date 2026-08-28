@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:mud_bricks",
+  "id": "mud_bricks",
   "parent": "preset/cube",
   "hardness": 1.5,
   "resistance": 3,

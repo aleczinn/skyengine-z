@@ -1,1 +1,1 @@
-{"id":"skyengine:wooden_axe","parent":"preset/tool","tool":{"type":"axe","tier":"wood"}}
+{"id":"wooden_axe","parent":"preset/tool","tool":{"type":"axe","tier":"wood"}}

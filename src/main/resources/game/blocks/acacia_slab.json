@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:acacia_slab",
+  "id": "acacia_slab",
   "parent": "preset/slab",
   "vars": {
     "texture": "acacia_planks"

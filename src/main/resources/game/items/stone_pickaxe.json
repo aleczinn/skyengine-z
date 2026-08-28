@@ -1,1 +1,1 @@
-{"id":"skyengine:stone_pickaxe","parent":"preset/tool","tool":{"type":"pickaxe","tier":"stone"}}
+{"id":"stone_pickaxe","parent":"preset/tool","tool":{"type":"pickaxe","tier":"stone"}}

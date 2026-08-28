@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:mangrove_planks",
+  "id": "mangrove_planks",
   "parent": "preset/cube",
   "hardness": 2,
   "resistance": 3,

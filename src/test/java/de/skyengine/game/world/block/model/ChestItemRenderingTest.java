@@ -20,7 +20,7 @@ final class ChestItemRenderingTest {
 
     @Test
     void chestUsesMinecraft262SpecialItemTransforms() {
-        Block chest = Registries.BLOCK.get(Identifier.of("skyengine:chest"));
+        Block chest = Registries.BLOCK.get(Identifier.of("voxelstories:chest"));
         assertNotNull(chest);
         assertEquals("block/chest_item", BlockStateModels.inventoryDisplayModel(chest));
 

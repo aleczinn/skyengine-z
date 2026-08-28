@@ -74,7 +74,7 @@ final class WorldBlockEventBudgetTest {
         assertEquals(1, saved.size());
         SavedTick event = saved.getFirst();
         assertEquals("block_event", event.type());
-        assertEquals("voxel_stories:piston", event.expectedBlock());
+        assertEquals("voxelstories:piston", event.expectedBlock());
         assertEquals(1, event.remainingTicks());
         assertEquals(Integer.MAX_VALUE, event.priority());
         byte[] payload = ChunkSerializer.serialize(chunk, "test", 1, false, saved, List.of());
@@ -160,7 +160,7 @@ final class WorldBlockEventBudgetTest {
             LevelData level = new LevelData();
             level.name = "block-event-budget-test";
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

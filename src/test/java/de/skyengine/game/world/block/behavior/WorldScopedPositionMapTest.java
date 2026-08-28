@@ -106,7 +106,7 @@ final class WorldScopedPositionMapTest {
             LevelData level = new LevelData();
             level.name = name;
             level.seed = 1;
-            level.worldType = "imported";
+
             return level;
         }
     }

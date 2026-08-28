@@ -15,10 +15,12 @@ public final class Items {
     /** Rueckwaerts-Zuordnung fuer no_item-Bloecke mit fremdem places_block-Item. */
     private static final java.util.Map<Identifier, Item> PLACER_BY_BLOCK = new java.util.HashMap<>();
     private static final java.util.Set<Identifier> COMMAND_ONLY = new java.util.HashSet<>();
+    private static final java.util.Map<Identifier, Identifier> PENDING_REMAINDERS = new java.util.LinkedHashMap<>();
 
     public static void bootstrap() {
         PLACER_BY_BLOCK.clear();
         COMMAND_ONLY.clear();
+        PENDING_REMAINDERS.clear();
         for (Block block : Registries.BLOCK.values()) {
             if (block.isAir() || block.isFluid()) continue;
             Identifier id = block.getIdentifier();
@@ -36,7 +38,8 @@ public final class Items {
         }
 
         /* Alle eigenstaendigen Items werden mitsamt Archetyp und Texturen aus JSON erzeugt. */
-        for (ContentSource source : ContentSources.all()) ItemLoader.load(source.items());
+        for (ContentSource source : ContentSources.all()) ItemLoader.load(source.items(), source.namespace());
+        resolveCraftingRemainders();
 
         for (ContentSource source : ContentSources.all()) CreativeTabs.loadDefinitions(source.creativeTabs());
         CreativeTabs.build();
@@ -51,6 +54,23 @@ public final class Items {
 
     public static void registerPlacer(Identifier blockId, Item item) {
         PLACER_BY_BLOCK.putIfAbsent(blockId, item);
+    }
+
+    public static void registerCraftingRemainder(Identifier item, Identifier remainder) {
+        PENDING_REMAINDERS.put(item, remainder);
+    }
+
+    private static void resolveCraftingRemainders() {
+        for (var entry : PENDING_REMAINDERS.entrySet()) {
+            Item item = get(entry.getKey());
+            Item remainder = get(entry.getValue());
+            if (item == null || remainder == null) {
+                de.skyengine.utils.logging.LogManager.getLogger(Items.class.getName()).warning(
+                        "crafting_remainder unbekannt bei " + entry.getKey() + ": " + entry.getValue());
+                continue;
+            }
+            item.setCraftingRemainder(remainder);
+        }
     }
 
     public static Item forBlock(Block block) {

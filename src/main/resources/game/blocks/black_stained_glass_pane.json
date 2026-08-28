@@ -1,5 +1,5 @@
 {
-  "id": "skyengine:black_stained_glass_pane",
+  "id": "black_stained_glass_pane",
   "parent": "preset/stained_glass_pane",
   "textures": {
     "pane": "game/textures/block/black_stained_glass.png",
