@@ -18,6 +18,7 @@ import java.util.List;
 
 public final class GuiCoalGenerator extends GuiContainer {
     private static final int W = 176, H = 166;
+    private static final float FLAME_SIZE = 13F;
     private final CoalGeneratorBlockEntity generator;
     private final ItemStorage machine;
     private final ItemStorage player;
@@ -77,10 +78,17 @@ public final class GuiCoalGenerator extends GuiContainer {
         float hiddenEnergy = 52 - energyHeight;
         if (energyHeight > 0) sr.drawSprite(gui.textures().mekanismVerticalPower,
                 this.x + 63, this.y + 26 + hiddenEnergy, 4, energyHeight, 0, hiddenEnergy / 52F, 1, 1);
-        if (this.generator.getBurnTime() > 0) {
-            float burn = 26 * this.generator.getBurnTime() / (float) Math.max(1, this.generator.getBurnDuration());
-            sr.drawSprite(gui.textures().mekanismFlame, this.x + 23, this.y + 64, burn, 13,
-                    0, 0, burn / 26F, 1);
+        /* flame.png contains two 13x13 states next to each other: inactive on the left,
+           burning on the right. Both belong at the same position below the fuel slot. */
+        float flameX = this.x + 29.5F;
+        float flameY = this.y + 64F;
+        sr.drawSprite(gui.textures().mekanismFlame, flameX, flameY, FLAME_SIZE, FLAME_SIZE,
+                0, 0, .5F, 1);
+        FlameSlice flame = flameSlice(this.generator.getBurnTime(), this.generator.getBurnDuration());
+        if (flame.height > 0) {
+            sr.drawSprite(gui.textures().mekanismFlame,
+                    flameX, flameY + FLAME_SIZE - flame.height, FLAME_SIZE, flame.height,
+                    .5F, flame.v0, 1, 1);
         }
         this.drawSlotHover(gui, mouseX, mouseY);
         sr.end();
@@ -103,4 +111,13 @@ public final class GuiCoalGenerator extends GuiContainer {
         gui.font().end();
         this.drawTooltip(gui, mouseX, mouseY);
     }
+
+    /** Bottom-up crop of the active (right-hand) 13x13 flame sprite. */
+    static FlameSlice flameSlice(int burnTime, int burnDuration) {
+        float progress = burnDuration <= 0 ? 0F
+                : Math.max(0F, Math.min(1F, burnTime / (float) burnDuration));
+        return new FlameSlice(FLAME_SIZE * progress, 1F - progress);
+    }
+
+    record FlameSlice(float height, float v0) {}
 }

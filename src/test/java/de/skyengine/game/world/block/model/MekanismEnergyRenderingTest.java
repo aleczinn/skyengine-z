@@ -33,6 +33,26 @@ final class MekanismEnergyRenderingTest {
         assertEquals(1D, maximum(boxes, true), 0.00001);
     }
 
+    @Test void cableObjQuadsUseTheChunkMeshersAbccdaVertexContract() {
+        Block cable = BlockRegistry.get(Identifier.of("voxelstories:basic_universal_cable"));
+        for (String direction : new String[]{"north", "south", "west", "east", "down", "up"}) {
+            BlockState state = withBoolean(cable.getDefaultState(), direction, true);
+            assertTrue(state.getModel().length > 0);
+            for (BakedQuad quad : state.getModel()) {
+                float[] vertices = quad.vertices();
+                assertEquals(30, vertices.length);
+                assertVertexEquals(vertices, 2, 3);
+                assertVertexEquals(vertices, 0, 5);
+            }
+        }
+    }
+
+    private static void assertVertexEquals(float[] vertices, int expected, int actual) {
+        for (int component = 0; component < 5; component++) {
+            assertEquals(vertices[expected * 5 + component], vertices[actual * 5 + component], 0.00001F);
+        }
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static BlockState withBoolean(BlockState state, String name, boolean value) {
         for (Property<?> property : state.getValues().keySet()) {

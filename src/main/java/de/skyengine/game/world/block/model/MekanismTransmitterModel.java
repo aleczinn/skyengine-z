@@ -86,9 +86,9 @@ public final class MekanismTransmitterModel {
                 at = put(data, at, vertices, uvs, refs[1]);
                 at = put(data, at, vertices, uvs, refs[2]);
                 if (refs.length >= 4) {
-                    at = put(data, at, vertices, uvs, refs[0]);
                     at = put(data, at, vertices, uvs, refs[2]);
-                    put(data, at, vertices, uvs, refs[3]);
+                    at = put(data, at, vertices, uvs, refs[3]);
+                    put(data, at, vertices, uvs, refs[0]);
                 }
                 groups.get(group).add(new BakedQuad(data, texture, BakedQuad.NO_CULL, face,
                         face < 0 ? 1F : BlockModels.FACE_BRIGHTNESS[face], BakedQuad.WHITE, BakedQuad.TINT_NONE));
