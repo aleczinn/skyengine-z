@@ -73,12 +73,18 @@
       "id": "functional",
       "icon": "torch",
       "items": [
-        "crafting_table", "furnace", "chest", "enchanting_table", "item_frame",
+        "crafting_table", "furnace",
+        "chest", "enchanting_table", "item_frame",
         "{wood}_door", "iron_door",
         "{wood}_trapdoor", "iron_trapdoor",
         { "for": "color", "items": ["{color}_bed"] },
         "torch", "tnt", "minecart", "mining_portal", "slime_block", "honey_block"
       ]
+    },
+    {
+      "id": "technology",
+      "icon": "basic_energy_cube",
+      "items": ["coal_generator", "basic_energy_cube", "basic_universal_cable"]
     },
     {
       "id": "redstone_blocks",

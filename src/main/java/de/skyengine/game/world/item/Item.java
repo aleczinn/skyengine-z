@@ -3,12 +3,14 @@ package de.skyengine.game.world.item;
 import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.entity.Capability;
 import de.skyengine.graphics.gui.text.RichText;
 import de.skyengine.graphics.gui.text.TextColors;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Ein registrierbarer Gegenstand. Basisklasse - Blöcke bekommen automatisch ein {@link BlockItem}
@@ -103,6 +105,11 @@ public class Item {
      */
     public Block getPlacedBlock() {
         return null;
+    }
+
+    /** Stack-backed capability exposed by this item (for example an RF container). */
+    public <C> Optional<C> getCapability(Capability<C> capability, ItemStack stack) {
+        return Optional.empty();
     }
 
     @Override

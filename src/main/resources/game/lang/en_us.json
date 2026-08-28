@@ -8,6 +8,7 @@
       "colored_blocks": "Colored Blocks",
       "natural": "Natural Blocks",
       "functional": "Functional Blocks",
+      "technology": "Technology",
       "redstone_blocks": "Redstone Blocks",
       "tools": "Tools & Utilities",
       "food": "Food & Drinks",
@@ -44,6 +45,30 @@
     },
     "hud": {
       "spectator_speed": "Spectator Speed: %d %%"
+    },
+    "energy_cube": {
+      "title": "Basic Energy Cube",
+      "rate": "Transfer: %s/t",
+      "configuration": "Side configuration",
+      "energy_config": "Energy Config",
+      "inventory": "Inventory",
+      "slots": "Sides",
+      "input": "Input: %s/t",
+      "output": "Max output: %s/t",
+      "unit": "Unit: RF",
+      "eject_status": "Eject: %s",
+      "auto_eject": "Auto-eject",
+      "clear_sides": "Clear side configuration"
+    },
+    "coal_generator": {
+      "title": "Coal Generator",
+      "production": "Generation: %s/t",
+      "output": "Output: %s/t",
+      "remaining": "Fuel remaining: %s"
+    },
+    "energy": {
+      "side": { "front":"Front", "back":"Back", "left":"Left", "right":"Right", "top":"Top", "bottom":"Bottom" },
+      "mode": { "input":"In", "output":"Out", "disabled":"Off" }
     }
   },
 
@@ -539,6 +564,9 @@
       "cracked_stone_bricks": "Cracked Stone Bricks",
       "crafting_table": "Crafting Table",
       "furnace": "Furnace",
+      "basic_universal_cable": "Basic Universal Cable",
+      "basic_energy_cube": "Basic Energy Cube",
+      "coal_generator": "Coal Generator",
       "cut_red_sandstone": "Cut Red Sandstone",
       "cut_sandstone": "Cut Sandstone",
       "cyan_terracotta": "Cyan Terracotta",
@@ -746,7 +774,10 @@
   "description": {
     "block": {
       "${game}": {
-        "tnt": "Can be ignited by fire or redstone. Explodes after §6%fuse_ticks% ticks§r (%fuse_seconds% seconds)."
+        "tnt": "Can be ignited by fire or redstone. Explodes after §6%fuse_ticks% ticks§r (%fuse_seconds% seconds).",
+        "basic_universal_cable": "Transfers up to 3200 RF/t without storing energy.",
+        "basic_energy_cube": "Stored: §b%energy% / %capacity% RF§r. Transfer: %rate% RF/t.",
+        "coal_generator": "Burns any solid furnace fuel to generate 80 RF/t."
       }
     }
   },

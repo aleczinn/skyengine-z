@@ -138,6 +138,8 @@ public class BlockDefinition {
        übernimmt stattdessen (Redstone-Staub: das Item redstone platziert den Block).
        Pick-Block läuft über Items.forBlock; Drops werden separat durch Loot-Tabellen bestimmt. */
     public boolean no_item = false;
+    /** Optional stack limit of the automatically generated BlockItem (1..64). */
+    public Integer item_max_stack_size;
 
     /* Kolben-Reaktion: "normal" (schiebbar, Default), "destroy" (zerbricht mit Drop —
        Fackeln, Staub, Pflanzen) oder "block" (stoppt den Kolben — Obsidian). Härte < 0 und

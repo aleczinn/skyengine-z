@@ -1,0 +1,25 @@
+{
+  "id": "coal_generator",
+  "creative_tab": "technology",
+  "archetype": "coal_generator",
+  "block_entity": "coal_generator",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": true,
+  "hardness": 2.5,
+  "resistance": 2.5,
+  "tool": "pickaxe",
+  "sound": "stone",
+  "light_level": 13,
+  "models": { "": "block/coal_generator_model", "_on": "block/coal_generator_active_model" },
+  "variants": {
+    "facing=north,lit=false": { "model": "block/coal_generator" },
+    "facing=east,lit=false":  { "model": "block/coal_generator", "y": 90 },
+    "facing=south,lit=false": { "model": "block/coal_generator", "y": 180 },
+    "facing=west,lit=false":  { "model": "block/coal_generator", "y": 270 },
+    "facing=north,lit=true": { "model": "block/coal_generator_on" },
+    "facing=east,lit=true":  { "model": "block/coal_generator_on", "y": 90 },
+    "facing=south,lit=true": { "model": "block/coal_generator_on", "y": 180 },
+    "facing=west,lit=true":  { "model": "block/coal_generator_on", "y": 270 }
+  }
+}

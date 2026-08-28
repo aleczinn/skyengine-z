@@ -1,0 +1,6 @@
+{
+  "type":"crafting_shaped",
+  "pattern":["III","R R","III"],
+  "key":{"I":{"item":"iron_ingot"},"R":{"item":"redstone"}},
+  "result":{"id":"basic_universal_cable","count":8}
+}

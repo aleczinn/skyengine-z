@@ -27,6 +27,12 @@ public final class BlockStateMesh {
         BakedQuad[] overlay = Blocks.getState(stateId).getOverlay();
         if (overlay.length > 0) quads = BlockModels.concat(quads, overlay);
 
+        return interleave(quads);
+    }
+
+    /** Interleaves already baked model pieces for dynamic block-entity models. */
+    public static float[] interleave(BakedQuad[] quads) {
+        if (quads == null || quads.length == 0) return null;
         int verts = 0;
         for (BakedQuad q : quads) verts += q.vertices().length / 5;
         if (verts == 0) return null;

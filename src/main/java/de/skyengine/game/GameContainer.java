@@ -83,6 +83,7 @@ import de.skyengine.graphics.gui.screens.GuiCraftingStation;
 import de.skyengine.graphics.gui.screens.GuiFurnace;
 import de.skyengine.graphics.gui.DebugOverlay;
 import de.skyengine.graphics.gui.GuiManager;
+import de.skyengine.graphics.gui.BlockEntityMenus;
 import de.skyengine.graphics.gui.SaveToast;
 import de.skyengine.graphics.gui.SpriteRenderer;
 import de.skyengine.graphics.gui.font.FontStyle;
@@ -296,6 +297,12 @@ public class GameContainer implements IResizeable, IDisposable {
     public void initStaged(BootProgress progress) {
         progress.frame(I18n.tr("boot.blocks"), 0.05f);
         Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
+        BlockEntityMenus.clear();
+        BlockEntityMenus.register(BlockEntities.FURNACE, GuiFurnace::new);
+        BlockEntityMenus.register(BlockEntities.BASIC_ENERGY_CUBE,
+                de.skyengine.graphics.gui.screens.GuiEnergyCube::new);
+        BlockEntityMenus.register(BlockEntities.COAL_GENERATOR,
+                de.skyengine.graphics.gui.screens.GuiCoalGenerator::new);
         ParticleSprites.bootstrap();
 
         progress.frame(I18n.tr("boot.textures"), 0.45f);
@@ -312,6 +319,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.blockEntityRenderers.register(BlockEntities.ENCHANTING_TABLE, new EnchantingTableRenderer());
         this.blockEntityRenderers.register(BlockEntities.PISTON_MOVING,
                 new de.skyengine.graphics.blockentity.PistonMovingRenderer(this.atlas.textures()));
+        this.blockEntityRenderers.register(BlockEntities.BASIC_ENERGY_CUBE,
+                new de.skyengine.graphics.blockentity.EnergyCubeRenderer(this.atlas.textures()));
         this.blockEntityRenderers.init();
         this.playerRenderer.init();
         this.heldItemMeshes.init(this.atlas.textures(), this.blockEntityRenderers);
@@ -2086,7 +2095,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (!placingWhileSneaking && this.tryOpenChest()) return true;
         if (!placingWhileSneaking && this.tryOpenHopper()) return true;
         if (!placingWhileSneaking && this.tryOpenDispenser()) return true;
-        if (!placingWhileSneaking && this.tryOpenFurnace()) return true;
+        if (!placingWhileSneaking && this.tryOpenRegisteredBlockEntityMenu()) return true;
         if (!placingWhileSneaking && this.tryOpenCraftingStation()) return true;
 
         if (held.getItem() instanceof BucketItem bucket && this.handleBucket(bucket)) return true;
@@ -2122,7 +2131,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 || this.collidesWithEntities(place, px, py, pz)) {
             return false;
         }
-        if (!this.dimension().runPlayerBlockChange(() -> this.dimension().placeBlock(px, py, pz, place))) return false;
+        if (!this.dimension().runPlayerBlockChange(() -> this.dimension().placeBlock(px, py, pz, place, held))) return false;
         this.soundManager.playPlace(place.getBlock().getSoundGroup(), px + 0.5, py + 0.5, pz + 0.5);
         /* Survival verbraucht den Block (Creative baut unbegrenzt, wie MC). */
         if (this.player().getGamemode() == Gamemode.SURVIVAL) this.consumeHeld(null);
@@ -2293,10 +2302,12 @@ public class GameContainer implements IResizeable, IDisposable {
         return true;
     }
 
-    private boolean tryOpenFurnace() {
+    private boolean tryOpenRegisteredBlockEntityMenu() {
         BlockEntity entity = this.dimension().getBlockEntity(this.hit.x(), this.hit.y(), this.hit.z());
-        if (!(entity instanceof de.skyengine.game.world.block.entity.FurnaceBlockEntity furnace)) return false;
-        this.guiManager.open(new GuiFurnace(furnace, this.player().getInventory()));
+        de.skyengine.graphics.gui.GuiScreen screen = BlockEntityMenus.create(
+                entity, this.player().getInventory());
+        if (screen == null) return false;
+        this.guiManager.open(screen);
         return true;
     }
 

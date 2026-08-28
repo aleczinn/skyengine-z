@@ -1,0 +1,6 @@
+{
+  "type":"crafting_shaped",
+  "pattern":["IRI","CFC","IRI"],
+  "key":{"I":{"item":"iron_ingot"},"R":{"item":"redstone"},"C":{"item":"copper_ingot"},"F":{"item":"furnace"}},
+  "result":{"id":"coal_generator"}
+}

@@ -136,8 +136,15 @@ public final class SpriteRenderer {
     /** Zeichnet einen Texturausschnitt [u0,v0]..[u1,v1] (normalisiert) als Quad. */
     public void drawSprite(Texture texture, float x, float y, float w, float h,
                            float u0, float v0, float u1, float v1) {
+        this.drawSprite(texture, x, y, w, h, u0, v0, u1, v1, 1, 1, 1, 1);
+    }
+
+    /** Zeichnet einen Texturausschnitt mit einer multiplizierten RGBA-Farbe. */
+    public void drawSprite(Texture texture, float x, float y, float w, float h,
+                           float u0, float v0, float u1, float v1,
+                           float red, float green, float blue, float alpha) {
         this.shader.setUniformi("u_UseTexture", 1);
-        this.shader.setUniformVector4f("u_Color", 1f, 1f, 1f, 1f);
+        this.shader.setUniformVector4f("u_Color", red, green, blue, alpha);
         texture.bind(0);
         this.draw(x, y, w, h, u0, v0, u1, v1);
     }
@@ -148,34 +155,37 @@ public final class SpriteRenderer {
      * (MC-Widget-Sprites nutzen Rand 3). Erwartet 1 Texel = 1 virtueller Pixel.
      */
     public void drawNineSlice(Texture texture, float x, float y, float w, float h, int border) {
-        float tw = texture.getWidth(), th = texture.getHeight();
-        float b = border;
-        float u1 = b / tw, u2 = (tw - b) / tw;
-        float v1 = b / th, v2 = (th - b) / th;
-        float mw = w - 2 * b, mh = h - 2 * b; // Innenmaße (Kanten/Mitte)
+        this.drawNineSlice(texture, x, y, w, h, 0, 0,
+                texture.getWidth(), texture.getHeight(), border, 1, 1, 1, 1);
+    }
+
+    /** 9-Slice aus einem Pixel-Ausschnitt eines Texture-Sheets, optional eingefärbt. */
+    public void drawNineSlice(Texture texture, float x, float y, float w, float h,
+                              int sourceX, int sourceY, int sourceWidth, int sourceHeight, int border,
+                              float red, float green, float blue, float alpha) {
+        float tw = texture.getWidth(), th = texture.getHeight(), b = border;
+        float u0 = sourceX / tw, u1 = (sourceX + b) / tw;
+        float u2 = (sourceX + sourceWidth - b) / tw, u3 = (sourceX + sourceWidth) / tw;
+        float v0 = sourceY / th, v1 = (sourceY + b) / th;
+        float v2 = (sourceY + sourceHeight - b) / th, v3 = (sourceY + sourceHeight) / th;
+        float mw = w - 2 * b, mh = h - 2 * b;
 
         this.shader.setUniformi("u_UseTexture", 1);
-        this.shader.setUniformVector4f("u_Color", 1f, 1f, 1f, 1f);
+        this.shader.setUniformVector4f("u_Color", red, green, blue, alpha);
         texture.bind(0);
-
-        /* Ecken */
-        this.draw(x, y, b, b, 0, 0, u1, v1);
-        this.draw(x + w - b, y, b, b, u2, 0, 1, v1);
-        this.draw(x, y + h - b, b, b, 0, v2, u1, 1);
-        this.draw(x + w - b, y + h - b, b, b, u2, v2, 1, 1);
-        /* Kanten */
+        this.draw(x, y, b, b, u0, v0, u1, v1);
+        this.draw(x + w - b, y, b, b, u2, v0, u3, v1);
+        this.draw(x, y + h - b, b, b, u0, v2, u1, v3);
+        this.draw(x + w - b, y + h - b, b, b, u2, v2, u3, v3);
         if (mw > 0) {
-            this.draw(x + b, y, mw, b, u1, 0, u2, v1);
-            this.draw(x + b, y + h - b, mw, b, u1, v2, u2, 1);
+            this.draw(x + b, y, mw, b, u1, v0, u2, v1);
+            this.draw(x + b, y + h - b, mw, b, u1, v2, u2, v3);
         }
         if (mh > 0) {
-            this.draw(x, y + b, b, mh, 0, v1, u1, v2);
-            this.draw(x + w - b, y + b, b, mh, u2, v1, 1, v2);
+            this.draw(x, y + b, b, mh, u0, v1, u1, v2);
+            this.draw(x + w - b, y + b, b, mh, u2, v1, u3, v2);
         }
-        /* Mitte */
-        if (mw > 0 && mh > 0) {
-            this.draw(x + b, y + b, mw, mh, u1, v1, u2, v2);
-        }
+        if (mw > 0 && mh > 0) this.draw(x + b, y + b, mw, mh, u1, v1, u2, v2);
     }
 
     private void draw(float x, float y, float w, float h, float u0, float v0, float u1, float v1) {

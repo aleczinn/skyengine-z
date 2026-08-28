@@ -1,0 +1,23 @@
+{
+  "id": "basic_universal_cable",
+  "creative_tab": "technology",
+  "archetype": "custom",
+  "layer": "cutout",
+  "opaque": false,
+  "solid": true,
+  "hardness": 1.0,
+  "resistance": 1.0,
+  "tool": "pickaxe",
+  "sound": "stone",
+  "connection": {
+    "axes": ["north", "east", "south", "west", "up", "down"],
+    "rule": "energy",
+    "group": "energy"
+  },
+  "model_loader": "mekanism:transmitter",
+  "textures": {
+    "center": "game/textures/block/mekanism/multipart/basic_universal_cable.png",
+    "side": "game/textures/block/mekanism/multipart/basic_universal_cable_vertical.png"
+  },
+  "collision": { "model": true }
+}

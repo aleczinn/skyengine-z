@@ -8,6 +8,7 @@
       "colored_blocks": "Farbige Blöcke",
       "natural": "Naturblöcke",
       "functional": "Funktionsblöcke",
+      "technology": "Technik",
       "redstone_blocks": "Redstone Blocks",
       "tools": "Werkzeuge & Hilfsmittel",
       "food": "Essen & Trinken",
@@ -44,6 +45,30 @@
     },
     "hud": {
       "spectator_speed": "Spectator-Geschwindigkeit: %d %%"
+    },
+    "energy_cube": {
+      "title": "Basic Energy Cube",
+      "rate": "Transfer: %s/t",
+      "configuration": "Seitenkonfiguration",
+      "energy_config": "Energiekonfiguration",
+      "inventory": "Inventar",
+      "slots": "Seiten",
+      "input": "Eingang: %s/t",
+      "output": "Max. Ausgang: %s/t",
+      "unit": "Einheit: RF",
+      "eject_status": "Ausgabe: %s",
+      "auto_eject": "Automatische Ausgabe",
+      "clear_sides": "Seitenkonfiguration zurücksetzen"
+    },
+    "coal_generator": {
+      "title": "Kohlegenerator",
+      "production": "Erzeugung: %s/t",
+      "output": "Ausgabe: %s/t",
+      "remaining": "Restenergie: %s"
+    },
+    "energy": {
+      "side": { "front":"Vorne", "back":"Hinten", "left":"Links", "right":"Rechts", "top":"Oben", "bottom":"Unten" },
+      "mode": { "input":"Rein", "output":"Raus", "disabled":"Aus" }
     }
   },
 
@@ -545,6 +570,9 @@
       "cracked_stone_bricks": "Rissige Steinziegel",
       "crafting_table": "Werkbank",
       "furnace": "Ofen",
+      "basic_universal_cable": "Basis-Universalkabel",
+      "basic_energy_cube": "Basic Energy Cube",
+      "coal_generator": "Kohlegenerator",
       "cut_red_sandstone": "Geschnittener roter Sandstein",
       "cut_sandstone": "Geschnittener Sandstein",
       "cyan_terracotta": "Türkise Keramik",
@@ -754,7 +782,10 @@
   "description": {
     "block": {
       "${game}": {
-        "tnt": "Kann mit Feuer oder Redstone gezündet werden. Explodiert nach §6%fuse_ticks% Ticks§r (%fuse_seconds% Sekunden)."
+        "tnt": "Kann mit Feuer oder Redstone gezündet werden. Explodiert nach §6%fuse_ticks% Ticks§r (%fuse_seconds% Sekunden).",
+        "basic_universal_cable": "Überträgt bis zu 3200 RF/t, ohne selbst Energie zu speichern.",
+        "basic_energy_cube": "Gespeichert: §b%energy% / %capacity% RF§r. Transfer: %rate% RF/t.",
+        "coal_generator": "Verbrennt jeden festen Ofenbrennstoff und erzeugt 80 RF/t."
       }
     }
   },

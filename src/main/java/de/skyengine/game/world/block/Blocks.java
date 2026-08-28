@@ -128,6 +128,7 @@ public final class Blocks {
         visualDefinitions = List.copyOf(definitions);
         ModelLoader.loadResources();
         ModelLoader.registerBlockModels(visualDefinitions);
+        preloadDynamicModelGroups();
 
         defaultVisualStates = new LinkedHashMap<>();
         for (LinkedHashMap<String, JsonObject> defs : blockJson) defaultVisualStates.putAll(defs);
@@ -345,6 +346,7 @@ public final class Blocks {
     public static void reloadVisuals() {
         ModelLoader.loadResources();
         ModelLoader.registerBlockModels(visualDefinitions);
+        preloadDynamicModelGroups();
         BlockStateModels.loadResources(defaultVisualStates);
         for (int id = 0; id < BlockRegistry.getStateCount(); id++) {
             var state = BlockRegistry.getState(id);
@@ -352,6 +354,18 @@ public final class Blocks {
             state.setParticleSprite(state.getBlock().bakeParticleSprite(state, state.getModel()));
             state.setOverlay(state.getBlock().bakeOverlay(state));
         }
+    }
+
+    /** Registers textures used only by block-entity model groups before the atlas is built. */
+    private static void preloadDynamicModelGroups() {
+        ModelLoader.preloadGroups("block/mekanism/energy_cube_basic",
+                "frame",
+                "bottomLEDs", "bottomPort",
+                "topLEDs", "topPort",
+                "frontLEDs", "frontPort",
+                "backLEDs", "backPort",
+                "leftLEDs", "leftPort",
+                "rightLEDs", "rightPort");
     }
 
     private static int idOf(String id) {

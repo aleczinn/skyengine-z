@@ -1,7 +1,6 @@
 package de.skyengine.game.world.block.entity;
 
 import de.skyengine.game.world.block.Identifier;
-import de.skyengine.game.world.block.network.CableBlockEntity;
 import de.skyengine.game.world.block.registry.Registries;
 
 /**
@@ -10,7 +9,6 @@ import de.skyengine.game.world.block.registry.Registries;
  */
 public final class BlockEntities {
 
-    public static BlockEntityType<CableBlockEntity> ENERGY_CABLE;
     public static BlockEntityType<ChestBlockEntity> CHEST;
     public static BlockEntityType<EnchantingTableBlockEntity> ENCHANTING_TABLE;
     public static BlockEntityType<PistonMovingBlockEntity> PISTON_MOVING;
@@ -19,15 +17,14 @@ public final class BlockEntities {
     public static BlockEntityType<DispenserBlockEntity> DISPENSER;
     public static BlockEntityType<DispenserBlockEntity> DROPPER;
     public static BlockEntityType<FurnaceBlockEntity> FURNACE;
+    public static BlockEntityType<EnergyCubeBlockEntity> BASIC_ENERGY_CUBE;
+    public static BlockEntityType<CoalGeneratorBlockEntity> COAL_GENERATOR;
 
     private static boolean registered;
 
     public static void bootstrap() {
         if (registered) return;
         registered = true;
-
-        ENERGY_CABLE = Registries.BLOCK_ENTITY.register(Identifier.of("energy_cable"),
-                new BlockEntityType<>((type, pos, state) -> new CableBlockEntity(type, pos), true));
 
         CHEST = Registries.BLOCK_ENTITY.register(Identifier.of("chest"),
                 new BlockEntityType<>((type, pos, state) -> new ChestBlockEntity(type, pos), true));
@@ -52,6 +49,12 @@ public final class BlockEntities {
 
         FURNACE = Registries.BLOCK_ENTITY.register(Identifier.of("furnace"),
                 new BlockEntityType<>((type, pos, state) -> new FurnaceBlockEntity(type, pos), true));
+
+        BASIC_ENERGY_CUBE = Registries.BLOCK_ENTITY.register(Identifier.of("basic_energy_cube"),
+                new BlockEntityType<>((type, pos, state) -> new EnergyCubeBlockEntity(type, pos), true));
+
+        COAL_GENERATOR = Registries.BLOCK_ENTITY.register(Identifier.of("coal_generator"),
+                new BlockEntityType<>((type, pos, state) -> new CoalGeneratorBlockEntity(type, pos), true));
     }
 
     private BlockEntities() {}

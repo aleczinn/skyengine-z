@@ -73,7 +73,9 @@ public final class BlockLoader {
                 .noLodSurface(definition.no_lod_surface)
                 .leaves(definition.leaves)
                 .doesNotBlockHoppers(definition.does_not_block_hoppers)
-                .noItem(definition.no_item);
+                .noItem(definition.no_item)
+                .itemMaxStackSize(definition.item_max_stack_size == null ? 64
+                        : Math.clamp(definition.item_max_stack_size, 1, 64));
 
         Identifier id = Identifier.of(definition.id);
 

@@ -21,6 +21,7 @@ public final class DimensionView implements IDisposable {
     private final EntityRenderer entities = new EntityRenderer();
     private final ParticleRenderer particles;
     private final LodManager lod;
+    private final EnergyCableFlowRenderer cableFlow;
     private boolean disposed;
 
     public DimensionView(Dimension dimension, BlockTextureAtlas atlas,
@@ -39,6 +40,8 @@ public final class DimensionView implements IDisposable {
             this.entities.init(atlas.textures());
             this.particles = new ParticleRenderer(dimension.particles(), atlas.textures());
             this.particles.init();
+            this.cableFlow = new EnergyCableFlowRenderer(dimension.getEnergyNetworks());
+            this.cableFlow.init();
         } catch (RuntimeException | Error failure) {
             dimension.disposeClientLod();
             dimension.getChunkManager().detachRenderer(this.renderGeneration);
@@ -88,6 +91,7 @@ public final class DimensionView implements IDisposable {
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.PARTICLES_OPAQUE);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.PARTICLES);
         this.chunks.renderTranslucent(camera);
+        this.cableFlow.render(camera);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.PARTICLES);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.PARTICLES_TRANSLUCENT);
         this.particles.renderTranslucent(camera, partialTick);
@@ -104,6 +108,7 @@ public final class DimensionView implements IDisposable {
         this.entities.dispose();
         this.particles.dispose();
         this.chunks.dispose();
+        this.cableFlow.dispose();
         this.dimension.disposeClientLod();
     }
 }

@@ -22,6 +22,8 @@ public final class ItemStack {
     private int damage;
     /** Nur bei verzauberten Stacks alloziert; Schlüssel sind stabile Registry-IDs. */
     private Map<Identifier, Integer> enchantments;
+    /** Optional item-specific payload (for example portable block-entity state). */
+    private DataTag customData;
 
     public ItemStack(Item item, int count) {
         this.item = item;
@@ -62,7 +64,8 @@ public final class ItemStack {
     /** true, wenn beide denselben Item-Typ tragen (stapelbar). */
     public boolean canStackWith(ItemStack other) {
         return !this.isEmpty() && !other.isEmpty() && this.item == other.item
-                && this.damage == other.damage && Objects.equals(this.enchantments, other.enchantments);
+                && this.damage == other.damage && Objects.equals(this.enchantments, other.enchantments)
+                && Objects.equals(this.customData, other.customData);
     }
 
     public int getDamage() {
@@ -71,6 +74,14 @@ public final class ItemStack {
 
     public void setDamage(int damage) {
         this.damage = Math.max(0, damage);
+    }
+
+    public DataTag getCustomData() {
+        return this.customData == null ? null : this.customData.copy();
+    }
+
+    public void setCustomData(DataTag customData) {
+        this.customData = customData == null || customData.isEmpty() ? null : customData.copy();
     }
 
     public int getEnchantmentLevel(Enchantment enchantment) {
@@ -101,6 +112,7 @@ public final class ItemStack {
         ItemStack copy = new ItemStack(this.item, this.count);
         copy.damage = this.damage;
         if (this.enchantments != null) copy.enchantments = new LinkedHashMap<>(this.enchantments);
+        if (this.customData != null) copy.customData = this.customData.copy();
         return copy;
     }
 
@@ -132,6 +144,7 @@ public final class ItemStack {
                 }
                 tag.putTag("enchantments", enchantmentTag);
             }
+            if (this.customData != null) tag.putTag("custom_data", this.customData.copy());
         }
         return tag;
     }
@@ -152,6 +165,8 @@ public final class ItemStack {
                 if (enchantment != null) stack.setEnchantment(enchantment, number.intValue());
             }
         }
+        DataTag customData = tag.getTag("custom_data");
+        if (customData != null && !customData.isEmpty()) stack.customData = customData.copy();
         return stack;
     }
 

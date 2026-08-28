@@ -10,6 +10,7 @@ import de.skyengine.game.world.block.behavior.BlockBehavior;
 import de.skyengine.game.world.block.behavior.ObserverBehavior;
 import de.skyengine.game.world.block.behavior.PlacementContext;
 import de.skyengine.game.world.block.entity.BlockEntityType;
+import de.skyengine.game.world.block.entity.Capability;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockParticleSprite;
 import de.skyengine.game.world.block.model.BlockModels;
@@ -29,6 +30,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class Block {
 
@@ -222,6 +224,8 @@ public class Block {
     public boolean hasNoItem() {
         return this.settings.noItem;
     }
+
+    public int getItemMaxStackSize() { return this.settings.itemMaxStackSize; }
 
     /**
      * Kolben-Reaktion dieses Blocks. Unzerstörbare Blöcke blockieren immer; ein explizites
@@ -532,6 +536,14 @@ public class Block {
         }
     }
 
+    public <C> Optional<C> getItemCapability(Capability<C> capability, ItemStack stack) {
+        for (BlockBehavior behavior : this.config.behaviors()) {
+            Optional<C> result = behavior.getItemCapability(capability, stack);
+            if (result.isPresent()) return result;
+        }
+        return Optional.empty();
+    }
+
     /**
      * Backt das Modell eines States aus dem datengetriebenen Blockstate-/Modell-System
      * (Phase 3). Wird beim Registry-Bake aufgerufen, nachdem die Modelle geladen sind.
@@ -717,6 +729,7 @@ public class Block {
         boolean leaves = false;
         boolean doesNotBlockHoppers = false;
         boolean noItem = false;
+        int itemMaxStackSize = 64;
         RenderLayer renderLayer = RenderLayer.OPAQUE;
 
         public static Settings create() {
@@ -757,6 +770,11 @@ public class Block {
 
         public Settings noItem(boolean noItem) {
             this.noItem = noItem;
+            return this;
+        }
+
+        public Settings itemMaxStackSize(int size) {
+            this.itemMaxStackSize = Math.clamp(size, 1, 64);
             return this;
         }
 

@@ -53,7 +53,17 @@ public final class ModelLoader {
        primitiven boolean liefert GSON für ein FEHLENDES Feld false und würde AO überall
        abschalten. Kleinschreibung ohne Trennzeichen ist der MC-Feldname (wie cullface).
        Dasselbe gilt für RawElement.shade (Default true, s. fullBright). */
-    public static final class RawModel { String parent; Map<String, String> textures; List<RawElement> elements; Boolean ambientocclusion; Map<String, RawDisplay> display; }
+    public static final class RawModel {
+        String parent;
+        Map<String, String> textures;
+        List<RawElement> elements;
+        Boolean ambientocclusion;
+        Map<String, RawDisplay> display;
+        /* Mekanism's energy-cube loader stores independently selectable pieces in named arrays. */
+        List<RawElement> frame, bottomLEDs, bottomPort, topLEDs, topPort,
+                frontLEDs, frontPort, backLEDs, backPort,
+                rightLEDs, rightPort, leftLEDs, leftPort;
+    }
     /** MC-Display-Sektion je Kontext (gui, firstperson_righthand, ...): rotation/translation/scale. */
     public static final class RawDisplay { float[] rotation; float[] translation; float[] scale; }
     /* from/to bewusst float: MC-Modelle nutzen Halbpixel (Wandfackel 3.5/19.5) und Werte
@@ -66,7 +76,8 @@ public final class ModelLoader {
      */
     public static final class RawRotation { float[] origin; String axis; float angle; boolean rescale; }
     /** rotation: MC-Feld, dreht die Textur IN der Face um 0/90/180/270 Grad (Wrapper = optional). */
-    public static final class RawFace { String texture; String cullface; int[] uv; Integer rotation; }
+    /** Minecraft model UVs are floating point; several Mekanism models use half-texel values. */
+    public static final class RawFace { String texture; String cullface; float[] uv; Integer rotation; }
 
     public static void load(File modelsRoot) {
         MODELS.clear();
@@ -196,6 +207,76 @@ public final class ModelLoader {
         String key = modelKey(name);
         return CACHE.computeIfAbsent(key + "|" + xDeg + "|" + yDeg + "|" + uvlock,
                 k -> bakeUncached(key, xDeg, yDeg, uvlock));
+    }
+
+    /** Bakes one named element group used by Mekanism's dynamic energy-cube model. */
+    public static Baked bakeGroup(String name, String group) {
+        String key = modelKey(name);
+        return CACHE.computeIfAbsent(key + "|group|" + group,
+                ignored -> bakeGroupUncached(key, group));
+    }
+
+    /**
+     * Bakes all named pieces of a dynamic model before the block texture array is created.
+     * Dynamic block-entity renderers otherwise discover their texture layers too late: the
+     * returned layer ids then point past the already allocated GL texture array and sample
+     * undefined data. The baked results stay in the normal model cache for the renderer.
+     */
+    public static void preloadGroups(String name, String... groups) {
+        for (String group : groups) bakeGroup(name, group);
+    }
+
+    private static Baked bakeGroupUncached(String name, String group) {
+        Map<String, String> tex = new HashMap<>();
+        collectTextures(name, tex, 0);
+        List<RawElement> elements = collectGroup(name, group, 0);
+        boolean ao = collectAmbientOcclusion(name, 0);
+        List<BakedQuad[]> parts = new ArrayList<>();
+        List<AABB> boxes = new ArrayList<>();
+        for (RawElement el : elements) {
+            if (el.rotation != null) {
+                BakedQuad[] quads = rotateQuads(toBox(name, el, tex).bake(), el.rotation, 0, 0);
+                if (el.shade == Boolean.FALSE) fullBright(quads);
+                parts.add(quads);
+                boxes.add(enclosingBox(quads));
+            } else {
+                BoxElement box = toBox(name, el, tex);
+                BakedQuad[] quads = box.bake();
+                if (!ao) stripDirection(quads);
+                if (el.shade == Boolean.FALSE) fullBright(quads);
+                parts.add(quads);
+                boxes.add(box.toAABB());
+            }
+        }
+        BakedQuad[] quads = BlockModels.concat(parts.toArray(new BakedQuad[0][]));
+        String particlePath = resolveRef(tex, "#particle");
+        int particle = particlePath != null ? BlockTextures.layerOf(texturePath(particlePath))
+                : quads.length == 0 ? -1 : quads[0].textureLayer();
+        return new Baked(quads, boxes.toArray(new AABB[0]), particle);
+    }
+
+    private static List<RawElement> collectGroup(String name, String group, int depth) {
+        if (depth > 20) return List.of();
+        RawModel model = MODELS.get(modelKey(name));
+        if (model == null) return List.of();
+        List<RawElement> found = switch (group) {
+            case "frame" -> model.frame;
+            case "bottomLEDs" -> model.bottomLEDs;
+            case "bottomPort" -> model.bottomPort;
+            case "topLEDs" -> model.topLEDs;
+            case "topPort" -> model.topPort;
+            case "frontLEDs" -> model.frontLEDs;
+            case "frontPort" -> model.frontPort;
+            case "backLEDs" -> model.backLEDs;
+            case "backPort" -> model.backPort;
+            case "rightLEDs" -> model.rightLEDs;
+            case "rightPort" -> model.rightPort;
+            case "leftLEDs" -> model.leftLEDs;
+            case "leftPort" -> model.leftPort;
+            default -> null;
+        };
+        if (found != null) return found;
+        return model.parent == null ? List.of() : collectGroup(model.parent, group, depth + 1);
     }
 
     /**
@@ -511,7 +592,7 @@ public final class ModelLoader {
      * vier Eck-UVs A,B,C,D (0..1) der jeweiligen Face um. Die Eckreihenfolge entspricht der in
      * {@link BlockModels#box}; für ein Voll-Face-UV deckt sich das mit dem Extent-Default.
      */
-    private static float[] cornerUv(int face, int[] rect) {
+    private static float[] cornerUv(int face, float[] rect) {
         float u0 = rect[0] / 16f, v0 = rect[1] / 16f, u1 = rect[2] / 16f, v1 = rect[3] / 16f;
         return switch (face) {
             case 0 -> new float[]{u0, v0,  u0, v1,  u1, v1,  u1, v0}; // top:    A,B,C,D
