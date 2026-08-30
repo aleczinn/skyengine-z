@@ -46,6 +46,7 @@ public final class PackedQuadArena {
     private final Logger logger = LogManager.getLogger(PackedQuadArena.class.getName());
     private final String name;
     private final int longsPerQuad, recordBytes;
+    private final long maxCapacity;
     private final TreeMap<Long, Long> freeList = new TreeMap<>();
     private final TreeMap<Long, java.util.TreeSet<Long>> freeBySize = new TreeMap<>();
     private final ArrayDeque<PendingFree> pendingFrees = new ArrayDeque<>();
@@ -54,6 +55,10 @@ public final class PackedQuadArena {
     private long capacity, usedBytes;
 
     public PackedQuadArena(String name, int longsPerQuad, long initialCapacity) {
+        this(name, longsPerQuad, initialCapacity, Long.MAX_VALUE);
+    }
+
+    public PackedQuadArena(String name, int longsPerQuad, long initialCapacity, long maxCapacity) {
         if (longsPerQuad != BASE_LONGS && longsPerQuad != SHADED_LONGS) {
             throw new IllegalArgumentException("Quadformat braucht 1 oder 3 longs");
         }
@@ -61,6 +66,8 @@ public final class PackedQuadArena {
         this.longsPerQuad = longsPerQuad;
         this.recordBytes = longsPerQuad * Long.BYTES;
         initialCapacity = align(Math.max(initialCapacity, this.recordBytes));
+        this.maxCapacity = maxCapacity == Long.MAX_VALUE ? Long.MAX_VALUE
+                : align(Math.max(initialCapacity, maxCapacity));
         this.stagingBuffer = GL15.glGenBuffers();
         GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, this.stagingBuffer);
         GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, 0);
@@ -75,13 +82,23 @@ public final class PackedQuadArena {
     public int recordBytes() { return this.recordBytes; }
 
     public Region alloc(long[] data) {
+        Region region = this.tryAlloc(data);
+        if (region == null) throw new IllegalStateException("Packed-Arena-Budget erschoepft: " + this.name);
+        return region;
+    }
+
+    /** Budgetierter Upload; null statt eines ungedeckelten GPU-Grows. */
+    public Region tryAlloc(long[] data) {
         if (data == null || data.length == 0 || data.length % this.longsPerQuad != 0) {
             throw new IllegalArgumentException("Nichtleere, vollstaendige Quad-Datensaetze erforderlich");
         }
         long size = (long) data.length * Long.BYTES;
         Long offset = this.findBestFit(size);
         if (offset == null) {
-            this.grow(align(Math.max(this.capacity * 2, this.capacity + size)));
+            long minimum = align(this.capacity + size);
+            if (minimum > this.maxCapacity) return null;
+            long target = Math.min(this.maxCapacity, align(Math.max(this.capacity * 2, minimum)));
+            this.grow(target);
             offset = this.findBestFit(size);
         }
         long blockSize = this.freeList.get(offset);

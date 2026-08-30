@@ -3,8 +3,8 @@ package de.skyengine.game.world.generator.feature;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
+import de.skyengine.game.world.generator.SurfaceSample;
 import de.skyengine.game.world.generator.biome.Biome;
-import de.skyengine.game.world.lod.LodDataSource;
 import de.skyengine.utils.collect.LongIntMap;
 import de.skyengine.utils.collect.LongLongMap;
 
@@ -78,7 +78,7 @@ final class LodFeatureTile implements FeatureContext {
             cached = this.generator.sampleSurface(wx, wz);
             this.surfaces.put(key, cached);
         }
-        return LodDataSource.block(cached);
+        return SurfaceSample.block(cached);
     }
     @Override public Biome biome(int wx, int wz) { return this.generator.biomeAt(wx, wz); }
 

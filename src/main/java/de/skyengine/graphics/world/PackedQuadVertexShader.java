@@ -50,8 +50,11 @@ public final class PackedQuadVertexShader {
             }
 
             void main() {
-                uint quad = uint(gl_VertexID) >> 2u;
-                uint inputCorner = uint(gl_VertexID) & 3u;
+                /* DrawArraysIndirect: sechs Triangle-Vertices je Instanz; baseInstance ist
+                   direkt der Quad-Offset der Arena-Region. */
+                const uint TRI_CORNERS[6] = uint[6](0u, 1u, 2u, 2u, 3u, 0u);
+                uint quad = uint(gl_BaseInstance) + uint(gl_InstanceID);
+                uint inputCorner = TRI_CORNERS[uint(gl_VertexID) % 6u];
                 uint base = quad * (SHADED_FORMAT != 0 ? 6u : 2u);
                 uint geometry = u_QuadData[base];
                 uint attributes = u_QuadData[base + 1u];
@@ -67,7 +70,7 @@ public final class PackedQuadVertexShader {
                 uint height = ((geometry >> 23u) & 31u) + 1u;
                 uint transform = (geometry >> 28u) & 7u;
                 bool diagonal = ((geometry >> 31u) & 1u) != 0u;
-                uint corner = diagonal ? ((inputCorner + 1u) & 3u) : inputCorner;
+                uint corner = diagonal && axis != 3u ? ((inputCorner + 1u) & 3u) : inputCorner;
                 bool basePositive = axis != 1u;
                 if (positive != basePositive && corner != 0u) corner = 4u - corner;
                 float alongWidth = corner == 1u || corner == 2u ? 1.0 : 0.0;
@@ -75,8 +78,19 @@ public final class PackedQuadVertexShader {
 
                 vec3 pos = vec3(float(geometry & 31u), float((geometry >> 5u) & 31u),
                                 float((geometry >> 10u) & 31u));
-                if (positive) pos[axis] += 1.0;
-                if (axis == 0u) { pos.y += alongWidth * float(width); pos.z += alongHeight * float(height); }
+                if (positive && axis != 3u) pos[axis] += 1.0;
+                if (axis == 3u) {
+                    const float CROSS_MIN = 0.1464466;
+                    const float CROSS_MAX = 0.8535534;
+                    pos.x += mix(CROSS_MIN, CROSS_MAX, alongWidth);
+                    pos.z += diagonal ? mix(CROSS_MAX, CROSS_MIN, alongWidth)
+                                      : mix(CROSS_MIN, CROSS_MAX, alongWidth);
+                    pos.y += alongHeight * float(height);
+                    uint random = (attributes >> 16u) & 255u;
+                    pos.x += (float(random & 15u) / 15.0 - 0.5) * 0.4;
+                    pos.z += (float((random >> 4u) & 15u) / 15.0 - 0.5) * 0.4;
+                }
+                else if (axis == 0u) { pos.y += alongWidth * float(width); pos.z += alongHeight * float(height); }
                 else if (axis == 1u) { pos.x += alongWidth * float(width); pos.z += alongHeight * float(height); }
                 else { pos.x += alongWidth * float(width); pos.y += alongHeight * float(height); }
 
@@ -119,7 +133,8 @@ public final class PackedQuadVertexShader {
                 uint drawMetadata = uint(u_DrawOffsets[gl_DrawID].w + 0.5);
                 v_debugLevel = drawMetadata & 7u;
                 v_debugConflictMask = (drawMetadata >> 3u) & 0xFFFFu;
-                v_gpuCullDebug = gl_BaseInstance != 0 ? 1u : 0u;
+                v_gpuCullDebug = 0u;
+                pos *= float(1u << v_debugLevel);
                 v_debugLocalXZ = pos.xz;
                 vec3 rel = pos + u_DrawOffsets[gl_DrawID].xyz;
                 v_viewDist = length(rel.xz);

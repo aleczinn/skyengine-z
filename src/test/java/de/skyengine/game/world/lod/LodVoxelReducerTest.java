@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.*;
 final class LodVoxelReducerTest {
 
     @Test
-    void cellReductionKeepsImportantSilhouetteAndRgbLight() {
+    void cellReductionUsesOccupiedMassInsteadOfInflatingImportantFeature() {
         long stone = LodVoxel.pack(7, 12, 2, 4, 6, 255,
                 LodVoxel.PROVENANCE_SAVED, 3);
         long landmark = LodVoxel.pack(99, 15, 14, 13, 12, 96,
@@ -16,11 +16,11 @@ final class LodVoxelReducerTest {
 
         long reduced = LodVoxelReducer.reduceCell(children);
 
-        assertEquals(99, LodVoxel.stateId(reduced), "Landmark-Gewicht soll duenne Strukturen erhalten");
+        assertEquals(7, LodVoxel.stateId(reduced), "Duenne Features duerfen Terrain nicht verdraengen");
         assertEquals((4 * 255 + 96 + 4) / 8, LodVoxel.coverage(reduced));
         assertEquals(LodVoxel.PROVENANCE_LIVE, LodVoxel.provenance(reduced));
         assertTrue(LodVoxel.red(reduced) >= 2 && LodVoxel.red(reduced) <= 14);
-        assertEquals(63, LodVoxel.importance(reduced));
+        assertEquals(63, LodVoxel.importance(reduced), "Importance bleibt nur als Verfeinerungsfehler erhalten");
     }
 
     @Test

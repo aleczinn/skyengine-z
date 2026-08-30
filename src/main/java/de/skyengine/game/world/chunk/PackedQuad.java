@@ -22,6 +22,7 @@ public final class PackedQuad {
     public static final int AXIS_X = 0;
     public static final int AXIS_Y = 1;
     public static final int AXIS_Z = 2;
+    public static final int AXIS_CROSS = 3;
 
     private static final int X_SHIFT = 0;
     private static final int Y_SHIFT = 5;
@@ -42,7 +43,7 @@ public final class PackedQuad {
         requireRange("x", x, 0, 31);
         requireRange("y", y, 0, 31);
         requireRange("z", z, 0, 31);
-        requireRange("axis", axis, AXIS_X, AXIS_Z);
+        requireRange("axis", axis, AXIS_X, AXIS_CROSS);
         requireRange("width", width, 1, 32);
         requireRange("height", height, 1, 32);
         requireRange("uvTransform", uvTransform, 0, 7);
@@ -88,23 +89,28 @@ public final class PackedQuad {
     public static Vertex vertex(long packed, int corner) {
         requireRange("corner", corner, 0, 3);
         int axis = axis(packed);
-        if (axis > AXIS_Z) throw new IllegalArgumentException("Reservierte Achse: " + axis);
         int width = width(packed), height = height(packed);
         boolean basePositive = axis != AXIS_Y; // cross(T1,T2): X=+, Y=-, Z=+
         boolean forward = positiveSide(packed) == basePositive;
-        int diagonalCorner = flippedDiagonal(packed) ? (corner + 1) & 3 : corner;
+        int diagonalCorner = flippedDiagonal(packed) && axis != AXIS_CROSS ? (corner + 1) & 3 : corner;
         int orderedCorner = forward ? diagonalCorner
                 : (diagonalCorner == 0 ? 0 : 4 - diagonalCorner);
         int alongWidth = orderedCorner == 1 || orderedCorner == 2 ? 1 : 0;
         int alongHeight = orderedCorner >= 2 ? 1 : 0;
 
         float px = x(packed), py = y(packed), pz = z(packed);
-        if (positiveSide(packed)) {
+        if (positiveSide(packed) && axis != AXIS_CROSS) {
             if (axis == AXIS_X) px++;
             else if (axis == AXIS_Y) py++;
             else pz++;
         }
-        if (axis == AXIS_X) {
+        if (axis == AXIS_CROSS) {
+            float min = 0.1464466F, max = 0.8535534F;
+            px += alongWidth == 0 ? min : max;
+            pz += flippedDiagonal(packed)
+                    ? (alongWidth == 0 ? max : min) : (alongWidth == 0 ? min : max);
+            py += alongHeight * height;
+        } else if (axis == AXIS_X) {
             py += alongWidth * width;
             pz += alongHeight * height;
         } else if (axis == AXIS_Y) {

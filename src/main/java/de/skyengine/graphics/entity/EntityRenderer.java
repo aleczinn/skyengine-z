@@ -682,7 +682,8 @@ public final class EntityRenderer {
         /* Wie im ChunkRenderer: 0.5 = harter Cutout, 0.001 = praktisch aus, damit ein
            transluzenter Block (Slime, Honig, Eis, Glas) sein Alpha ins Blending bringt. */
         uniform float u_AlphaCutoff;
-        out vec4 fragColor;
+        layout(location = 0) out vec4 fragColor;
+        layout(location = 1) out float fragLodMask;
         vec3 materialLight(vec3 albedo) {
             if(u_PbrEnabled==0||u_UseEntityTexture!=0)return albedo;
             vec4 nt=texture(u_NormalTextures,v_texCoord),m=texture(u_MaterialTextures,v_texCoord);
@@ -705,6 +706,7 @@ public final class EntityRenderer {
                rein weiss aufblitzen und nicht mit abgedunkelt werden. */
             vec3 rgb = mix(materialLight(c.rgb) * v_color * u_Light, vec3(1.0), u_WhiteFlash);
             fragColor = vec4(rgb, c.a);
+            fragLodMask = 0.0;
         }
         """;
 }

@@ -7,6 +7,7 @@ import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
 import de.skyengine.graphics.post.passes.AntiAliasingPass;
 import de.skyengine.graphics.post.passes.ColorGradingPass;
 import de.skyengine.graphics.post.passes.MenuBlurPass;
+import de.skyengine.graphics.post.passes.LodSsaoPass;
 import de.skyengine.graphics.post.passes.PortalDistortionPass;
 import de.skyengine.graphics.post.passes.UnderwaterFogPass;
 import org.joml.Vector2f;
@@ -69,6 +70,7 @@ public class PostProcessor implements IDisposable {
     private final UnderwaterFogPass underwaterFog = new UnderwaterFogPass();
     private final PortalDistortionPass portalDistortion = new PortalDistortionPass();
     private final AntiAliasingPass antiAliasing = new AntiAliasingPass();
+    private final LodSsaoPass lodSsao = new LodSsaoPass();
     private PostProcessingSettings settings;
     private int ubo;
 
@@ -92,6 +94,7 @@ public class PostProcessor implements IDisposable {
                 .getProperties().isUseInverseDepth();
         this.context.create(width, height);
 
+        this.passes.add(this.lodSsao);
         this.passes.add(new ColorGradingPass());
         this.passes.add(this.underwaterFog);
         this.passes.add(this.portalDistortion);
@@ -185,6 +188,7 @@ public class PostProcessor implements IDisposable {
         this.context.frame++;
         this.context.sceneColor = frameBuffer.getColorTexture();
         this.context.sceneDepth = frameBuffer.getPostDepthTexture();
+        this.context.sceneLodMask = frameBuffer.getLodMaskTexture();
 
         if (this.settings.consumeDirty()) this.uploadUbo();
 

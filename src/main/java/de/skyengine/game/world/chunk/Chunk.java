@@ -72,14 +72,13 @@ public class Chunk {
     private final AtomicInteger dirtySections = new AtomicInteger(0);
 
     /* Vom Renderer angewendete Section-Uploads. READY heißt nur "Batches eingereiht" —
-       erst ab SECTIONS angewendeten Batches ist der Chunk wirklich sichtbar (die LOD-Maske
-       wartet darauf, sonst reißt sie Löcher vor dem Upload). Nur der Render-Thread schreibt
-       (applyBatch), gelesen wird auf demselben Thread — keine Synchronisation nötig. */
+       erst nach allen angewendeten Sections ersetzt L0 den atomaren LOD-Fallback. Nur der
+       Render-Thread schreibt (applyBatch) und liest — keine Synchronisation nötig. */
     private int uploadedSectionMask;
     private long renderGeneration;
 
-    /* Unload-Gate: Chunk liegt außerhalb der Unload-Distanz, wartet aber, bis das LOD
-       seine Zelle deckt (symmetrisch zum Lade-Gate der LOD-Maske). Nur Tick-Thread. */
+    /* Unload-Gate: Chunk liegt außerhalb der Unload-Distanz, wartet aber, bis ein sichtbarer
+       Octree-Knoten seine Spalte als Fallback deckt. Nur Tick-Thread. */
     public boolean pendingUnload;
 
     /* Vom ChunkSerializer beim Laden übergebene Scheduled-Ticks. KEIN Persistenzspeicher,

@@ -13,7 +13,7 @@ import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.biome.Biomes;
 import de.skyengine.game.world.generator.climate.Climate;
 import de.skyengine.game.world.generator.climate.ClimateSampler;
-import de.skyengine.game.world.lod.LodDataSource;
+import de.skyengine.game.world.generator.SurfaceSample;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import de.skyengine.utils.math.FastNoiseLite;
@@ -745,9 +745,9 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
             groundBlock = this.surfaceTop(x, z, solidHeight, biome, cs.uplift, cs.waterLevel);
         }
 
-        long ground = LodDataSource.pack(groundBlock, solidHeight);
+        long ground = SurfaceSample.pack(groundBlock, solidHeight);
         long surface = solidHeight < cs.waterLevel
-                ? LodDataSource.pack(Blocks.WATER, cs.waterLevel) : ground;
+                ? SurfaceSample.pack(Blocks.WATER, cs.waterLevel) : ground;
         return new LodSurfaces(ground, surface);
     }
 
@@ -793,10 +793,10 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                 }
 
                 int outputIndex = z * size + x;
-                long packedGround = LodDataSource.pack(groundBlock, solidHeight);
+                long packedGround = SurfaceSample.pack(groundBlock, solidHeight);
                 ground[outputIndex] = packedGround;
                 surface[outputIndex] = solidHeight < waterLevel
-                        ? LodDataSource.pack(Blocks.WATER, waterLevel) : packedGround;
+                        ? SurfaceSample.pack(Blocks.WATER, waterLevel) : packedGround;
             }
         }
     }

@@ -22,8 +22,7 @@ public class ChunkMesher {
      * int3: r | g &lt;&lt; 8 | b &lt;&lt; 16  (Farbe = Helligkeit * AO * Tint, je u8)
      * int4: gemitteltes Skylight 0..255 in Bits 0-7, Blocklicht 0..255 in Bits 8-15,
      *       {@link #FLAT_SOURCE_FLUID_TOP} in Bit 16,
-     *       {@link de.skyengine.game.world.lod.LodMesher#DENSE_ALPHA} in Bit 17 (nur LOD),
-     *       Bits 18-31 reserviert; liest der Vertex-Shader als eigenes Attribut 1
+     *       Bits 17-31 reserviert; liest der Vertex-Shader als eigenes Attribut 1
      * </pre>
      * Entpackt wird im Vertex-Shader des ChunkRenderers. Ein Quad = 4 Vertices (A,B,C,D),
      * Triangulierung über den geteilten Index-Buffer (0,1,2, 2,3,0).
@@ -46,8 +45,7 @@ public class ChunkMesher {
      * winzigen Offsets trennen; bei 1/256 war der kleinste darstellbare Versatz (1/16 px) selbst
      * schon sichtbar. Größter section-lokaler Wert: (32 + MAX_OFFSET + 1) × 1024 = 35072 von 65535.
      *
-     * <p>Das LOD teilt diese Konstante bewusst NICHT ({@code LodMesher.posScaleFor}) — dort zählt
-     * die Reichweite, nicht die Auflösung.
+     * <p>Das volumetrische LOD verwendet ein separates gepacktes Quadformat.
      */
     public static final float POS_SCALE = 1024F;
     /** Skalierung des UV-Fixed-Points (1/1024; reicht für Greedy-UVs bis 32+). */

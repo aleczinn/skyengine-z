@@ -359,8 +359,9 @@ public final class EnergyCubeRenderer implements BlockEntityRenderer {
             uniform int u_PbrEnabled;
             uniform float u_Light;
             uniform float u_AlphaCutoff;
-            out vec4 fragColor;
-            void main(){vec4 c=texture(u_Textures,v_texCoord);if(c.a<u_AlphaCutoff)discard;fragColor=vec4(c.rgb*v_color*u_Light,c.a);}
+            layout(location = 0) out vec4 fragColor;
+            layout(location = 1) out float fragLodMask;
+            void main(){vec4 c=texture(u_Textures,v_texCoord);if(c.a<u_AlphaCutoff)discard;fragColor=vec4(c.rgb*v_color*u_Light,c.a);fragLodMask=0.0;}
             """;
     private static final String CORE_VERTEX = """
             #version 330 core
@@ -376,7 +377,8 @@ public final class EnergyCubeRenderer implements BlockEntityRenderer {
             in vec2 v_uv;
             uniform sampler2D u_Texture;
             uniform float u_Alpha;
-            out vec4 fragColor;
-            void main(){vec4 c=texture(u_Texture,v_uv);if(c.a<.01)discard;fragColor=vec4(c.rgb*vec3(.37255,1.0,.72157),c.a*u_Alpha);}
+            layout(location = 0) out vec4 fragColor;
+            layout(location = 1) out float fragLodMask;
+            void main(){vec4 c=texture(u_Texture,v_uv);if(c.a<.01)discard;fragColor=vec4(c.rgb*vec3(.37255,1.0,.72157),c.a*u_Alpha);fragLodMask=0.0;}
             """;
 }

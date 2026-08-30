@@ -344,7 +344,8 @@ public final class PlayerRenderer implements IDisposable {
         /* Himmelslicht der Spielerzelle, fertig durch die Kurve gerechnet
            (ChunkRenderer.lightFactor). 1.0 = voll hell, Fullbright ODER GUI-Vorschau. */
         uniform float u_Light;
-        out vec4 fragColor;
+        layout(location = 0) out vec4 fragColor;
+        layout(location = 1) out float fragLodMask;
         void main() {
             vec4 c = texture(u_Texture, v_uv);
             if (c.a < 0.5) discard;
@@ -356,6 +357,7 @@ public final class PlayerRenderer implements IDisposable {
                         + max(n.y, 0.0) * max(n.y, 0.0)
                         + max(-n.y, 0.0) * max(-n.y, 0.0) * 0.5;
             fragColor = vec4(c.rgb * shade * u_Light, c.a);
+            fragLodMask = 0.0;
         }
         """;
 }

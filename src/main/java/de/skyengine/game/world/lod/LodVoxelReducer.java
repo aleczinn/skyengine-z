@@ -36,30 +36,41 @@ public final class LodVoxelReducer {
             }
             parent.set(x, y, z, reduceCell(samples));
         }
+        parent.compact();
         return parent;
     }
 
     public static long reduceCell(long[] children) {
         if (children == null || children.length != 8) throw new IllegalArgumentException("Acht Zellen erforderlich");
         int totalCoverage = 0, sky = 0, red = 0, green = 0, blue = 0;
-        int bestState = 0, bestScore = -1, bestImportance = 0, bestProvenance = 0;
+        int bestState = 0, bestCoverage = -1, bestStateImportance = 0;
+        int maxImportance = 0, bestProvenance = 0;
         for (long child : children) {
             int coverage = LodVoxel.coverage(child);
+            if (coverage == 0) continue;
             totalCoverage += coverage;
             sky += LodVoxel.sky(child) * coverage;
             red += LodVoxel.red(child) * coverage;
             green += LodVoxel.green(child) * coverage;
             blue += LodVoxel.blue(child) * coverage;
-            int importance = LodVoxel.importance(child);
-            /* Importance ist absichtlich additiv und stark: ein duennes 1-Zellen-Dach, ein
-               Baumstamm oder eine Turmspitze darf nicht gegen einen voll gedeckten, aber
-               belanglosen Terrain-Voxel verlieren. Bei gleicher Importance entscheidet
-               weiterhin die tatsaechliche Bedeckung. */
-            int score = coverage + importance * 256;
-            if (score > bestScore || score == bestScore && Integer.compareUnsigned(LodVoxel.stateId(child), bestState) < 0) {
-                bestScore = score;
-                bestState = LodVoxel.stateId(child);
-                bestImportance = importance;
+            int state = LodVoxel.stateId(child);
+            maxImportance = Math.max(maxImportance, LodVoxel.importance(child));
+            int stateCoverage = 0, stateImportance = 0;
+            for (long candidate : children) {
+                if (LodVoxel.coverage(candidate) == 0 || LodVoxel.stateId(candidate) != state) continue;
+                stateCoverage += LodVoxel.coverage(candidate);
+                stateImportance = Math.max(stateImportance, LodVoxel.importance(candidate));
+            }
+            /* Material folgt ausschliesslich der tatsaechlich belegten Masse. Importance ist
+               nur ein deterministischer Gleichstandsbrecher und darf duenne Features niemals
+               zu einem vollen Grobvoxel aufblasen. */
+            if (stateCoverage > bestCoverage
+                    || stateCoverage == bestCoverage && stateImportance > bestStateImportance
+                    || stateCoverage == bestCoverage && stateImportance == bestStateImportance
+                    && Integer.compareUnsigned(state, bestState) < 0) {
+                bestCoverage = stateCoverage;
+                bestState = state;
+                bestStateImportance = stateImportance;
             }
             bestProvenance = Math.max(bestProvenance, LodVoxel.provenance(child));
         }
@@ -67,7 +78,7 @@ public final class LodVoxelReducer {
         int coverage = (totalCoverage + 4) / 8;
         return LodVoxel.pack(bestState, rounded(sky, totalCoverage), rounded(red, totalCoverage),
                 rounded(green, totalCoverage), rounded(blue, totalCoverage), coverage,
-                bestProvenance, bestImportance);
+                bestProvenance, maxImportance);
     }
 
     private static int rounded(int sum, int weight) { return (sum + weight / 2) / weight; }

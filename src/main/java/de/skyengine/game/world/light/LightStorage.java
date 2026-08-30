@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * Luft- und Untergrund-Sections nichts kosten. Ohne diesen Kurzschluss läge der Bedarf bei
  * 16 × 16 KB pro Chunk statt bei den typischen 2-5 materialisierten Sections.
  *
- * <p><b>Threading (bewusst lock-frei, wie {@code WorldLodDataSource}):</b> Byte-Schreib-/
+ * <p><b>Threading (bewusst lock-frei):</b> Byte-Schreib-/
  * Lesezugriffe reißen nicht; die Array-Referenzen liegen in einer {@link AtomicReferenceArray}
  * (sichere Publikation der Materialisierung). Nebenläufige Reader (Mesher) können transient
  * veraltete Werte sehen — die {@link LightEngine} markiert geänderte Sections dirty, der Remesh

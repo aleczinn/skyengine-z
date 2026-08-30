@@ -160,11 +160,13 @@ public class CrackRenderer {
         #version 460 core
         in vec3 v_texCoord;
         uniform sampler2DArray u_Textures;
-        out vec4 fragColor;
+        layout(location = 0) out vec4 fragColor;
+        layout(location = 1) out float fragLodMask;
         void main() {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < 0.1) discard;
             fragColor = c;
+            fragLodMask = 0.0;
         }
         """;
 }

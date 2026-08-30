@@ -103,18 +103,11 @@ public class GpuCull {
 
 
 
-    /* Segmente in Draw-Reihenfolge: Sections OPAQUE, Sections CUTOUT, LOD-Opaque (ALLE Level
-       in EINEM Segment). Früher gab es je Level ein eigenes Segment — dadurch besuchte der
-       Compute jeden LOD-Slot K-mal pro Phase und jedes Level-Segment submittete die VOLLE
-       LOD-Descriptor-Zahl (bei Default-Settings ~20k überflüssige Null-Commands pro Frame,
-       bei lodMax=256 ~105k — der Kern der GPU-Pfad-Fixkosten). Der Level steckt weiterhin
-       im Descriptor (ipos.z), wird aber für nichts mehr gebraucht.
-       Translucent (Sections + LOD) bleibt bewusst CPU (Sortierung bzw. Kleinstmengen). */
+    /* Segmente in Draw-Reihenfolge: Sections OPAQUE und Sections CUTOUT.
+       Translucent bleibt wegen seiner Sortierreihenfolge auf der CPU. */
     public static final int SEG_OPAQUE = 0;
     public static final int SEG_CUTOUT = 1;
-    public static final int SEG_LOD = 2;
-    public static final int MAX_LOD_LEVELS = 5;
-    public static final int SEGMENTS = 3;
+    public static final int SEGMENTS = 2;
 
     private static final int SLOTS = 3;                 // muss zu den ChunkRenderer-Fences passen
     private static final int DESC_INTS = 12;            // ivec4 + vec4 + uvec4 (48 Bytes, std430)
@@ -124,10 +117,8 @@ public class GpuCull {
        des Treibers erfüllen (bis 256) — 28-Byte-Schritte wären ab Slot 1 GL_INVALID_VALUE. */
     private static final int COUNT_SLOT_BYTES = MappedRing.ALIGNMENT;
 
-    /* Descriptor-Arrays: 0 = Sections OPAQUE, 1 = Sections CUTOUT, 2 = LOD (alle Level gemischt
-       — seit dem Segment-Merge 1:1 das LOD-Segment, kein Level-Filter mehr). */
-    private static final int DESC_KINDS = 3;
-    private static final int DESC_LOD = 2;
+    /* Descriptor-Arrays: 0 = Sections OPAQUE, 1 = Sections CUTOUT. */
+    private static final int DESC_KINDS = 2;
 
     private final Logger logger = LogManager.getLogger(GpuCull.class.getName());
 
@@ -378,33 +369,6 @@ public class GpuCull {
 
     public void removeSection(int segKind, int slot) {
         this.clearDesc(segKind, slot);
-    }
-
-    /** Registriert eine LOD-Region (Level 1..5; Superregionen tragen ihre eigene posScale). */
-    public int addLod(int level, int blockX, int blockZ, int yBase, float minY, float maxY,
-                      float sizeBlocks, float invPosScale, int posScaleCode, int debugConflictMask,
-                      int indexCount, int baseVertex) {
-        this.lodTotalCount++;
-        return this.addDesc(DESC_LOD, blockX, blockZ, level, yBase,
-                minY, maxY, sizeBlocks, invPosScale,
-                descriptorDebug(posScaleCode, debugConflictMask), indexCount, baseVertex);
-    }
-
-    public void removeLod(int level, int slot) {
-        this.lodTotalCount--;
-        this.clearDesc(DESC_LOD, slot);
-    }
-
-    /** true, wenn überhaupt LOD-Descriptoren registriert sind (Skip fürs LOD-Segment). */
-    public boolean hasLod() {
-        return this.lodTotalCount > 0;
-    }
-
-    private int lodTotalCount;
-
-    /** Aktualisiert nur die Debugmaske; Geometrie, Gate und Draw-Daten bleiben unverändert. */
-    public void setLodDebugConflict(int slot, int conflictMask) {
-        this.setDebugConflict(DESC_LOD, slot, conflictMask);
     }
 
     /** Markiert einen Section-Draw, falls er trotz LOD-Besitz sichtbar werden sollte. */
@@ -662,11 +626,6 @@ public class GpuCull {
         /* Sections: OPAQUE + CUTOUT (Level-Filter -1 = Sicht-Gate aktiv). */
         this.dispatchKind(frameSlot, SEG_OPAQUE, 0, this.phase1Count[0], -1, phase);
         this.dispatchKind(frameSlot, SEG_CUTOUT, 1, this.phase1Count[1], -1, phase);
-        /* LOD gemergt: EIN Dispatch für alle Level (-2 = kein Filter, kein Sicht-Gate) —
-           jeder Slot wird pro Phase genau einmal besucht. */
-        if (this.lodTotalCount > 0) {
-            this.dispatchKind(frameSlot, SEG_LOD, DESC_LOD, this.phase1Count[DESC_LOD], -2, phase);
-        }
     }
 
     private void dispatchKind(int frameSlot, int segment, int kind, int count, int levelFilter, int phase) {
@@ -870,7 +829,7 @@ public class GpuCull {
     public int drawCount(int segment) {
         if (segment == SEG_OPAQUE) return this.phase1Count[0];
         if (segment == SEG_CUTOUT) return this.phase1Count[1];
-        return this.phase1Count[DESC_LOD];
+        throw new IllegalArgumentException("Unbekanntes GPU-Cull-Segment: " + segment);
     }
 
     /**
@@ -879,9 +838,8 @@ public class GpuCull {
      * über die Zahl lebender Slots, arbeitet der Pfad an der Slot-Verwaltung statt an der Szene.
      */
     public String descStatsLine() {
-        return "GpuCull-Descs: op %d, cut %d, lod %d (Kapazitaet %d, Gates %d)".formatted(
-                this.mirrorCount[0], this.mirrorCount[1], this.mirrorCount[DESC_LOD],
-                this.descCapacity, this.gateCount);
+        return "GpuCull-Descs: op %d, cut %d (Kapazitaet %d, Gates %d)".formatted(
+                this.mirrorCount[0], this.mirrorCount[1], this.descCapacity, this.gateCount);
     }
 
     /**

@@ -3,6 +3,7 @@ package de.skyengine.game.world.lod;
 import de.skyengine.game.world.block.Block;
 import de.skyengine.game.world.block.BlockRegistry;
 import de.skyengine.game.world.block.Identifier;
+import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.state.BlockState;
 
 import java.util.HashMap;
@@ -34,6 +35,30 @@ public final class LodBlockRules {
             }
         }
         return table[stateId];
+    }
+
+    /** Volumenpfad darf zusaetzlich die kompakt darstellbaren Cross-Modelle behalten. */
+    public static int simplifyVolume(int stateId) {
+        int simplified = simplify(stateId);
+        return simplified == 0 && isCross(BlockRegistry.getState(stateId)) ? stateId : simplified;
+    }
+
+    /** Screen-Space-Fehler, getrennt von Materialmasse und Belegungsgrad. */
+    public static int volumeImportance(int stateId) {
+        BlockState state = BlockRegistry.getState(stateId);
+        if (isCross(state)) return 32;
+        if (state.isLeaves()) return 24;
+        String id = state.getBlock().getIdentifier().toString();
+        if (id.endsWith("_log") || id.endsWith("_wood") || id.contains("structure")) return 24;
+        return 4;
+    }
+
+    public static int volumeFingerprint() {
+        int hash = fingerprint();
+        for (int state = 0; state < BlockRegistry.getStateCount(); state++) {
+            hash = 31 * hash + simplifyVolume(state);
+        }
+        return hash;
     }
 
     /** Fingerabdruck der Runtime-Registry inklusive aller aufgelösten LOD-Regeln. */
@@ -80,6 +105,17 @@ public final class LodBlockRules {
             }
         }
         return table;
+    }
+
+    private static boolean isCross(BlockState state) {
+        BakedQuad[] model = state.getModel();
+        if (model.length != 4) return false;
+        int layer = model[0].textureLayer();
+        for (BakedQuad quad : model) {
+            if (quad.cullFace() != BakedQuad.NO_CULL || quad.face() != BakedQuad.NO_DIRECTION
+                    || quad.textureLayer() != layer) return false;
+        }
+        return true;
     }
 
     private LodBlockRules() {}

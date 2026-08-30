@@ -1,16 +1,22 @@
 package de.skyengine.game.world.generator.generators;
 
 import de.skyengine.game.world.block.Blocks;
+import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.chunk.PackedQuad;
 import de.skyengine.game.world.generator.WorldGenerator;
-import de.skyengine.game.world.lod.LodDataSource;
+import de.skyengine.game.world.generator.SurfaceSample;
+import de.skyengine.game.world.lod.LodVolumeRequest;
+import de.skyengine.game.world.lod.LodVoxelSection;
+import de.skyengine.game.world.lod.VoxelLodMesher;
 import de.skyengine.test.BlocksTestBootstrap;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class AlphaWorldGeneratorV2LodSurfaceTest {
 
@@ -35,7 +41,7 @@ final class AlphaWorldGeneratorV2LodSurfaceTest {
             assertNotEquals(baseHeight, solidHeight,
                     "Regression braucht 3D-Relief bei " + point[0] + "," + point[1]);
             assertEquals(solidHeight,
-                    LodDataSource.height(generator.sampleLodSurfaces(point[0], point[1]).ground()));
+                    SurfaceSample.height(generator.sampleLodSurfaces(point[0], point[1]).ground()));
         }
     }
 
@@ -56,16 +62,16 @@ final class AlphaWorldGeneratorV2LodSurfaceTest {
             int lz = Math.floorMod(point[1], ChunkSection.SIZE);
             WorldGenerator.LodSurfaces surfaces = generator.sampleLodSurfaces(point[0], point[1]);
 
-            int groundY = LodDataSource.height(surfaces.ground());
+            int groundY = SurfaceSample.height(surfaces.ground());
             assertEquals(generator.surfaceSolidHeight(point[0], point[1]), groundY);
-            assertEquals(LodDataSource.block(surfaces.ground()), chunk.getBlock(lx, groundY, lz),
+            assertEquals(SurfaceSample.block(surfaces.ground()), chunk.getBlock(lx, groundY, lz),
                     "LOD-Bodenmaterial weicht von generate() ab");
 
-            int surfaceY = LodDataSource.height(surfaces.surface());
-            assertEquals(LodDataSource.block(surfaces.surface()), chunk.getBlock(lx, surfaceY, lz),
+            int surfaceY = SurfaceSample.height(surfaces.surface());
+            assertEquals(SurfaceSample.block(surfaces.surface()), chunk.getBlock(lx, surfaceY, lz),
                     "LOD-Oberflaeche weicht von generate() ab");
             if (surfaceY > groundY) assertEquals(Blocks.WATER,
-                    LodDataSource.block(surfaces.surface()));
+                    SurfaceSample.block(surfaces.surface()));
         }
     }
 
@@ -88,9 +94,9 @@ final class AlphaWorldGeneratorV2LodSurfaceTest {
             assertEquals(0, generator.surfaceSolidHeight(worldX, -17057),
                     "LOD darf den Wasserblock auf Y=1 nicht als festen Boden melden");
             WorldGenerator.LodSurfaces surfaces = generator.sampleLodSurfaces(worldX, -17057);
-            assertEquals(0, LodDataSource.height(surfaces.ground()));
-            assertEquals(Blocks.BEDROCK, LodDataSource.block(surfaces.ground()));
-            assertEquals(Blocks.WATER, LodDataSource.block(surfaces.surface()));
+            assertEquals(0, SurfaceSample.height(surfaces.ground()));
+            assertEquals(Blocks.BEDROCK, SurfaceSample.block(surfaces.ground()));
+            assertEquals(Blocks.WATER, SurfaceSample.block(surfaces.surface()));
         }
     }
 
@@ -124,5 +130,21 @@ final class AlphaWorldGeneratorV2LodSurfaceTest {
                 }
             }
         }
+    }
+
+    @Test
+    void analyticRootProducesBroadUpwardTerrainCoverage() {
+        AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(1234);
+        LodVoxelSection root = new LodVoxelSection(0, 0, 0, 4,
+                LodVoxelSection.Completeness.PROVISIONAL);
+        generator.fillLodVolume(new LodVolumeRequest(0, 0, 0, 4), root::set);
+        VoxelLodMesher.MaterialResolver materials = (state, axis, side) ->
+                new VoxelLodMesher.Material(state & 0xFFFF, RenderLayer.OPAQUE, 0, 0, true);
+
+        VoxelLodMesher.Mesh mesh = VoxelLodMesher.mesh(root, materials, null);
+
+        assertTrue(java.util.Arrays.stream(mesh.opaque()).anyMatch(quad ->
+                        PackedQuad.axis(quad) == PackedQuad.AXIS_Y && PackedQuad.positiveSide(quad)),
+                "Der analytische Root braucht sichtbare Oberseiten");
     }
 }

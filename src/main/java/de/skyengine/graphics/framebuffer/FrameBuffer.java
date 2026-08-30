@@ -10,7 +10,9 @@ import org.lwjgl.opengl.ARBDirectStateAccess;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
+import org.lwjgl.opengl.GL40;
 
 import java.nio.ByteBuffer;
 
@@ -39,6 +41,7 @@ public class FrameBuffer implements IDisposable {
     /* MSAA-Pfad (samples > 0) */
     private int colorRbo;
     private int depthRbo;
+    private int lodMaskRbo;
     private int resolveFbo;
 
     /* Sample-bare Ziele: colorTexture ist bei MSAA=0 direktes Attachment, sonst Resolve-Ziel.
@@ -47,8 +50,11 @@ public class FrameBuffer implements IDisposable {
     private int depthTexture;
     /* Nur bei MSAA: nach resolve() sample-bare Tiefe fuer Post-Effekte. */
     private int resolvedDepthTexture;
+    private int lodMaskTexture;
+    private int resolvedLodMaskTexture;
 
     private int samples;
+    private boolean lodMaskEnabled;
 
     public FrameBuffer(EngineConfig config, EngineProperties properties) {
         this.config = config;
@@ -71,6 +77,7 @@ public class FrameBuffer implements IDisposable {
         this.samples = post != null && post.getSettings() != null
                 ? post.getSettings().effectiveMsaaSamples(GameSettings.get().msaaSamples)
                 : GameSettings.get().msaaSamples;
+        this.lodMaskEnabled = wantsLodMask(GameSettings.get());
         int granted = Math.min(this.samples, GL11.glGetInteger(GL30.GL_MAX_SAMPLES));
 
         this.id = GL30.glGenFramebuffers();
@@ -85,6 +92,12 @@ public class FrameBuffer implements IDisposable {
 
             this.depthTexture = this.createTexture(GL30.GL_DEPTH_COMPONENT32F, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, GL11.GL_NEAREST, width, height);
             GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT, GL11.GL_TEXTURE_2D, this.depthTexture, 0);
+            if (this.lodMaskEnabled) {
+                this.lodMaskTexture = this.createTexture(GL30.GL_R8, GL11.GL_RED,
+                        GL11.GL_UNSIGNED_BYTE, GL11.GL_NEAREST, width, height);
+                GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT1,
+                        GL11.GL_TEXTURE_2D, this.lodMaskTexture, 0);
+            }
         } else {
             /* Multisample-Renderbuffer; Color als RGBA16F, damit HDR-Werte den Resolve überleben. */
             this.colorRbo = GL30.glGenRenderbuffers();
@@ -98,8 +111,19 @@ public class FrameBuffer implements IDisposable {
             GL30.glRenderbufferStorageMultisample(GL30.GL_RENDERBUFFER, granted, GL30.GL_DEPTH_COMPONENT32F, width, height);
             GL30.glFramebufferRenderbuffer(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT, GL30.GL_RENDERBUFFER, this.depthRbo);
 
+            if (this.lodMaskEnabled) {
+                this.lodMaskRbo = GL30.glGenRenderbuffers();
+                GL30.glBindRenderbuffer(GL30.GL_RENDERBUFFER, this.lodMaskRbo);
+                GL30.glRenderbufferStorageMultisample(GL30.GL_RENDERBUFFER, granted,
+                        GL30.GL_R8, width, height);
+                GL30.glFramebufferRenderbuffer(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT1,
+                        GL30.GL_RENDERBUFFER, this.lodMaskRbo);
+            }
+
             GL30.glBindRenderbuffer(GL30.GL_RENDERBUFFER, 0);
         }
+
+        this.configureDrawBuffers();
 
         this.checkStatus("Szene");
 
@@ -115,6 +139,13 @@ public class FrameBuffer implements IDisposable {
                     GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, GL11.GL_NEAREST, width, height);
             GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_ATTACHMENT,
                     GL11.GL_TEXTURE_2D, this.resolvedDepthTexture, 0);
+            if (this.lodMaskEnabled) {
+                this.resolvedLodMaskTexture = this.createTexture(GL30.GL_R8, GL11.GL_RED,
+                        GL11.GL_UNSIGNED_BYTE, GL11.GL_NEAREST, width, height);
+                GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT1,
+                        GL11.GL_TEXTURE_2D, this.resolvedLodMaskTexture, 0);
+            }
+            this.configureDrawBuffers();
             this.checkStatus("Resolve");
         }
 
@@ -147,6 +178,14 @@ public class FrameBuffer implements IDisposable {
         }
     }
 
+    private void configureDrawBuffers() {
+        if (this.lodMaskEnabled) {
+            GL20.glDrawBuffers(new int[]{GL30.GL_COLOR_ATTACHMENT0, GL30.GL_COLOR_ATTACHMENT1});
+        } else {
+            GL11.glDrawBuffer(GL30.GL_COLOR_ATTACHMENT0);
+        }
+    }
+
     /**
      * Loggt die vom Treiber tatsächlich GEWÄHRTE Sample-Zahl des aktuell gebundenen
      * Renderbuffers — Treiber dürfen Anfragen aufrunden.
@@ -164,6 +203,15 @@ public class FrameBuffer implements IDisposable {
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
     }
 
+    /** Der normale Color-Clear benutzt die Umgebungsfarbe und wuerde deshalb auch das
+        R8-Maskenattachment auf einen Nichtnullwert setzen. Direkt danach separat auf L0. */
+    public void clearLodMask() {
+        if (this.lodMaskEnabled) {
+            GL30.glClearBufferfv(GL11.GL_COLOR, 1, new float[]{0F});
+            GL40.glBlendFunci(1, GL11.GL_ONE, GL11.GL_ZERO);
+        }
+    }
+
     /**
      * Macht Color und Post-Depth sample-bar: bei MSAA Blit MS → Resolve-Texturen, ohne MSAA
      * No-op. Vor den Post-Pässen aufrufen.
@@ -172,15 +220,23 @@ public class FrameBuffer implements IDisposable {
         if (this.samples <= 0) return;
 
         int width = this.config.getWindowWidth(), height = this.config.getWindowHeight();
-        if (this.properties.isUseDirectStateAccess()) {
+        if (this.properties.isUseDirectStateAccess() && !this.lodMaskEnabled) {
             ARBDirectStateAccess.glBlitNamedFramebuffer(this.id, this.resolveFbo,
                     0, 0, width, height, 0, 0, width, height,
                     GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
         } else {
             GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, this.id);
             GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, this.resolveFbo);
+            GL11.glReadBuffer(GL30.GL_COLOR_ATTACHMENT0);
+            GL11.glDrawBuffer(GL30.GL_COLOR_ATTACHMENT0);
             GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
                     GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
+            if (this.lodMaskEnabled) {
+                GL11.glReadBuffer(GL30.GL_COLOR_ATTACHMENT1);
+                GL11.glDrawBuffer(GL30.GL_COLOR_ATTACHMENT1);
+                GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
+                        GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
+            }
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
         }
     }
@@ -213,6 +269,21 @@ public class FrameBuffer implements IDisposable {
         return this.samples > 0 ? this.resolvedDepthTexture : this.depthTexture;
     }
 
+    public int getLodMaskTexture() {
+        if (!this.lodMaskEnabled) return 0;
+        return this.samples > 0 ? this.resolvedLodMaskTexture : this.lodMaskTexture;
+    }
+
+    public boolean isLodMaskEnabled() {
+        return this.lodMaskEnabled;
+    }
+
+    public static boolean wantsLodMask(GameSettings settings) {
+        return settings.lodEnabled && settings.ambientOcclusion
+                && settings.lodMaxDistance > settings.renderDistance
+                && settings.screenSpaceAoQuality != GameSettings.ScreenSpaceAoQuality.OFF;
+    }
+
     /**
      * Aktive MSAA-Sample-Zahl (0 = aus).
      */
@@ -226,19 +297,25 @@ public class FrameBuffer implements IDisposable {
 
         GL30.glDeleteFramebuffers(this.id);
         if (this.resolveFbo != 0) GL30.glDeleteFramebuffers(this.resolveFbo);
-        if (this.colorRbo != 0 || this.depthRbo != 0) {
-            GL30.glDeleteRenderbuffers(new int[]{this.colorRbo, this.depthRbo});
+        if (this.colorRbo != 0 || this.depthRbo != 0 || this.lodMaskRbo != 0) {
+            GL30.glDeleteRenderbuffers(new int[]{this.colorRbo, this.depthRbo, this.lodMaskRbo});
         }
         if (this.colorTexture != 0) GL11.glDeleteTextures(this.colorTexture);
         if (this.depthTexture != 0) GL11.glDeleteTextures(this.depthTexture);
         if (this.resolvedDepthTexture != 0) GL11.glDeleteTextures(this.resolvedDepthTexture);
+        if (this.lodMaskTexture != 0) GL11.glDeleteTextures(this.lodMaskTexture);
+        if (this.resolvedLodMaskTexture != 0) GL11.glDeleteTextures(this.resolvedLodMaskTexture);
 
         this.id = 0;
         this.resolveFbo = 0;
         this.colorRbo = 0;
         this.depthRbo = 0;
+        this.lodMaskRbo = 0;
         this.colorTexture = 0;
         this.depthTexture = 0;
         this.resolvedDepthTexture = 0;
+        this.lodMaskTexture = 0;
+        this.resolvedLodMaskTexture = 0;
+        this.lodMaskEnabled = false;
     }
 }

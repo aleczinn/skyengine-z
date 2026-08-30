@@ -7,7 +7,7 @@ import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.biome.Biomes;
-import de.skyengine.game.world.lod.LodDataSource;
+import de.skyengine.game.world.generator.SurfaceSample;
 import de.skyengine.utils.math.FastNoiseLite;
 
 /** Billige flache Miningwelt mit geschuetzten 3D-Noise-Hoehlen. */
@@ -34,7 +34,7 @@ public final class FlatMiningWorldGenerator extends WorldGenerator {
 
     @Override public int sampleHeight(int x, int z) { return SURFACE_Y; }
     @Override public int surfaceSolidHeight(int x, int z) { return SURFACE_Y; }
-    @Override public long sampleSurface(int x, int z) { return LodDataSource.pack(Blocks.GRASS_BLOCK, SURFACE_Y); }
+    @Override public long sampleSurface(int x, int z) { return SurfaceSample.pack(Blocks.GRASS_BLOCK, SURFACE_Y); }
     @Override public int lodWorldBottomState() { return Blocks.BEDROCK; }
     @Override public Biome biomeAt(int x, int z) { return Biomes.PLAINS; }
     @Override public int grassTintAt(int x, int z) { return Tints.GRASS; }

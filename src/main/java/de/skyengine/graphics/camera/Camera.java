@@ -179,6 +179,8 @@ public class Camera {
         return pitch;
     }
 
+    public float getFov() { return this.fov; }
+
     /** Bob-/Hurt-Effektmatrix des Frames (kopiert); Identität = kein Effekt. Vor update() setzen. */
     public void setViewEffect(Matrix4f effect) {
         this.viewEffect.set(effect);

@@ -64,44 +64,9 @@ public final class GameSettings {
         }
     }
 
-    /**
-     * AO-Qualitaet der LOD-Ringe. Weiches Corner-AO trennt Zellen mit unterschiedlichen Eckwerten
-     * und bricht damit Greedy-Merges — jede Stufe hoeher kostet also Quads und GPU-Zeit, waehrend
-     * flaches Flaechen-AO grosse mergefaehige Flaechen erhaelt. Die Stufe steuert, bis zu welchem
-     * LOD-Level Corner-AO gebacken wird; darueber gilt Flaechen-AO.
-     *
-     * <p>{@link #OFF} schaltet AO NUR im LOD ab — das globale {@code ambientOcclusion} und damit
-     * das echte Terrain (L0) bleibt unberuehrt.
-     */
-    public enum LodAmbientOcclusionQuality {
-        /** Kein AO in den LOD-Ringen. */
-        OFF,
-        /** Corner-AO nur auf L1, ab L2 flach (bisheriges Verhalten). */
-        LOW,
-        /** Corner-AO bis einschliesslich L2. */
-        MID,
-        /** Corner-AO auf allen LOD-Leveln. */
-        HIGH;
-
-        /** false = im LOD wird gar kein AO gebacken. */
-        public boolean usesAo() {
-            return this != OFF;
-        }
-
-        /** Hoechstes LOD-Level mit weichem Corner-AO; darueber flaches Flaechen-AO. */
-        public int cornerAoMaxLevel() {
-            return switch (this) {
-                case OFF -> 0;
-                case LOW -> 1;
-                case MID -> 2;
-                case HIGH -> Integer.MAX_VALUE;
-            };
-        }
-    }
-
-    /** Screen-Space-AO fuer das gemeinsame Tiefenbild; AUTO faellt bei MSAA auf Baked AO zurueck. */
+    /** Screen-Space-AO für das gemeinsame Tiefenbild; AUTO wählt eine passende Samplezahl. */
     public enum ScreenSpaceAoQuality {
-        AUTO(12), OFF(0), BASIC(8), HIGH(16), ULTRA(24);
+        AUTO(8), OFF(0), BASIC(6), HIGH(12), ULTRA(16);
 
         public final int samples;
 
@@ -149,7 +114,7 @@ public final class GameSettings {
     /* Kleinvegetation (Gras/Blumen/Pilze): Distanz in Chunks, ab der die Ausdünnung beginnt
        (graduell per Pflanzen-Hash, komplett weg bei +50 %). 0 = keine Ausdünnung. */
     public int vegetationDistance = 8;
-    /* Heightmap-LOD jenseits der Render-Distanz (Fernsicht) */
+    /* Volumetrisches Fern-LOD jenseits der Render-Distanz. */
     public boolean lodEnabled = true;
     /* Äußerste LOD-Reichweite in Chunks. Level ergeben sich automatisch: Level L endet bei
        renderDistance·2^L, gedeckelt bei lodMaxDistance (rd16/lod128 → L1 16-32, L2 32-64,
@@ -159,19 +124,12 @@ public final class GameSettings {
        Performancewechsel. */
     public int lodMaxDistance = 128;
 
-    /* Screen-Space-Auswahl der volumetrischen Hierarchie. Ein Knoten wird verfeinert, wenn
-       seine projizierte Kantenlaenge diese Pixelzahl uebersteigt. Auto-Quality passt den Wert
-       innerhalb 32..256 an das GPU-Budget an; Zoom erhoeht die Projektion und verfeinert damit
-       ohne Sonderfall. */
+    /* Kompatible Detail-/GPU-Einstellungen fuer optionale LOD-Geometrie. Die Terrain-Stufe
+       folgt immer den festen Distanzbaendern und wird von Auto-Quality nicht umgeschaltet. */
     public int lodScreenSize = 64;
     public boolean lodAutoQuality = true;
     public float lodGpuBudgetMs = 3.0F;
     public ScreenSpaceAoQuality screenSpaceAoQuality = ScreenSpaceAoQuality.AUTO;
-
-    /* AO-Qualitaet der LOD-Ringe (s. LodQuality). Default LOW = bisheriges Verhalten, damit
-       bestehende options.json ihre Performance behalten. volatile: die Chunk-Worker lesen das
-       Feld im LodMesher; jede Aenderung bumpt zusaetzlich die LOD-Epoche (LodManager). */
-    public volatile LodAmbientOcclusionQuality lodAmbientOcclusionQuality = LodAmbientOcclusionQuality.MID;
     /* Gesamtlautstärke 0..100 (wirkt global als OpenAL-Listener-Gain). */
     public int masterVolume = 100;
     /* Kanal-Lautstärken 0..100, Keys = SoundCategory-Namen (ersetzt das alte musicVolume-Feld:
@@ -289,7 +247,6 @@ public final class GameSettings {
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;
         if (this.particleQuality == null) this.particleQuality = ParticleQuality.ALL;
-        if (this.lodAmbientOcclusionQuality == null) this.lodAmbientOcclusionQuality = LodAmbientOcclusionQuality.MID;
         if (this.screenSpaceAoQuality == null) this.screenSpaceAoQuality = ScreenSpaceAoQuality.AUTO;
         if (this.keyBindings == null) {
             this.keyBindings = KeyBindings.defaults();

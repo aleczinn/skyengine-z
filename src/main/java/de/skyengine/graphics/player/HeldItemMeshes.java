@@ -458,7 +458,8 @@ public final class HeldItemMeshes {
         /* Wie im ChunkRenderer: 0.5 = harter Cutout (Sprites, Laub, Fackel), 0.001 = praktisch
            aus, damit ein transluzenter Block sein echtes Alpha ins Blending bringt. */
         uniform float u_AlphaCutoff;
-        out vec4 fragColor;
+        layout(location = 0) out vec4 fragColor;
+        layout(location = 1) out float fragLodMask;
         vec3 materialLight(vec3 albedo) {
             if (u_PbrEnabled == 0) return albedo;
             vec4 ntex = texture(u_NormalTextures, v_texCoord);
@@ -481,6 +482,7 @@ public final class HeldItemMeshes {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < u_AlphaCutoff) discard;
             fragColor = vec4(materialLight(c.rgb) * v_color * u_Light, c.a);
+            fragLodMask = 0.0;
         }
         """;
 }

@@ -156,8 +156,8 @@ final class EnergyCableFlowRenderer {
     private static final String FRAGMENT="""
             #version 330 core
             in float v_alpha; in vec2 v_uv; uniform float u_Pulse; uniform float u_Frame;
-            uniform sampler2D u_Texture; out vec4 fragColor;
+            uniform sampler2D u_Texture; layout(location=0) out vec4 fragColor; layout(location=1) out float fragLodMask;
             void main(){vec4 c=texture(u_Texture,vec2(v_uv.x,(u_Frame+v_uv.y)/32.0));if(c.a<.01)discard;
-                fragColor=vec4(c.rgb*u_Pulse,c.a*.78*v_alpha);}
+                fragColor=vec4(c.rgb*u_Pulse,c.a*.78*v_alpha);fragLodMask=0.0;}
             """;
 }

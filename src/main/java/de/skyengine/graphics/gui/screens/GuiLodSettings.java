@@ -53,14 +53,13 @@ public final class GuiLodSettings extends GuiOptionsScreen {
                 v -> this.settings.lodMaxDistance = (int) v,
                 game::applySettings);
 
-        CycleButton<GameSettings.LodAmbientOcclusionQuality> quality = new CycleButton<>(I18n.tr("options.lod.quality"),
-                CELL_W, CELL_H, GameSettings.LodAmbientOcclusionQuality.values(), this.settings.lodAmbientOcclusionQuality,
-                Enum::name,
-                v -> this.settings.lodAmbientOcclusionQuality = v)
-                .tooltipOf(v -> I18n.tr("options.lod.quality_hint_" + v.name().toLowerCase()));
+        CycleButton<GameSettings.ScreenSpaceAoQuality> ssao = new CycleButton<>(I18n.tr("options.lod.ssao"),
+                CELL_W, CELL_H, GameSettings.ScreenSpaceAoQuality.values(), this.settings.screenSpaceAoQuality,
+                Enum::name, v -> this.settings.screenSpaceAoQuality = v)
+                .tooltipOf(v -> I18n.tr("options.lod.ssao_hint"));
 
         content.add(new HStack(4, enabled, distance));
-        content.add(new HStack(4, quality, null));
+        content.add(new HStack(4, ssao, null));
     }
 
     @Override

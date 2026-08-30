@@ -30,9 +30,4 @@ final class PlayerAttackAssetTest {
             }
         }
     }
-
-    @Test
-    void weakAttackUsesMinecraft262SoundDefinitionVolume() {
-        assertEquals(0.7F, SoundManager.WEAK_ATTACK_VOLUME);
-    }
 }

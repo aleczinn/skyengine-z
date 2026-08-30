@@ -2,43 +2,31 @@ package de.skyengine.graphics.world;
 
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.FluidGeometry;
-import de.skyengine.game.world.lod.LodMesher;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class FluidVertexQuantizationTest {
 
     @Test
-    void analyticFlatFluidHeightIsIdenticalAcrossEveryPositionScale() {
-        float[] scales = {ChunkMesher.POS_SCALE, LodMesher.posScaleFor(1), LodMesher.posScaleFor(4)};
+    void analyticFlatFluidHeightIsStableAtSectionPositionScale() {
         int[] worldBlockY = {0, 31, 63, 255, 511};
 
         for (int worldY : worldBlockY) {
-            float l0Raw = decodedWorldY(worldY, sectionOrigin(worldY), scales[0]);
-            float lodRaw = decodedWorldY(worldY, 0, scales[1]);
-            assertNotEquals(l0Raw, lodRaw,
-                    "the regression requires different raw fixed-point results at y=" + worldY);
-
             float expected = worldY + FluidGeometry.SOURCE_RENDER_HEIGHT;
-            for (float scale : scales) {
-                int origin = scale == ChunkMesher.POS_SCALE ? sectionOrigin(worldY) : 0;
-                float resolved = shaderResolvedWorldY(worldY, origin, scale,
-                        ChunkMesher.FLAT_SOURCE_FLUID_TOP);
-                assertEquals(expected, resolved, 0.000001F,
-                        "flat fluid height differs for packing scale " + scale);
-            }
+            float resolved = shaderResolvedWorldY(worldY, sectionOrigin(worldY), ChunkMesher.POS_SCALE,
+                    ChunkMesher.FLAT_SOURCE_FLUID_TOP);
+            assertEquals(expected, resolved, 0.000001F);
         }
     }
 
     @Test
     void unmarkedFractionalGeometryKeepsItsPackedHeight() {
-        float scale = LodMesher.posScaleFor(1);
+        float scale = ChunkMesher.POS_SCALE;
         int worldY = 63;
         float raw = decodedWorldY(worldY, 0, scale);
 
@@ -46,30 +34,10 @@ final class FluidVertexQuantizationTest {
     }
 
     @Test
-    void integerVerticalBoundaryCoordinatesRemainExactAtEveryScale() {
-        float[] scales = {ChunkMesher.POS_SCALE, LodMesher.posScaleFor(1), LodMesher.posScaleFor(4)};
-        for (float scale : scales) {
-            for (int coordinate : new int[]{0, 16, 32, 128, 512}) {
-                int packed = Math.round((coordinate + 1F) * scale);
-                assertEquals(coordinate, packed / scale - 1F, 0F,
-                        "integer boundary shifted at packing scale " + scale);
-            }
-        }
-    }
-
-    @Test
-    void lodHorizontalBiasPreservesNegativeSafetyCapCoordinates() {
-        float[] scales = {LodMesher.posScaleFor(1), LodMesher.posScaleFor(4)};
-        int[][] coordinates = {{-32, -4, 0, 128, 160}, {-32, -4, 0, 128, 512, 544}};
-        for (int i = 0; i < scales.length; i++) {
-            float scale = scales[i];
-            for (int coordinate : coordinates[i]) {
-                int packed = Math.round((coordinate + LodMesher.XZ_POSITION_BIAS) * scale);
-                assertTrue(packed >= 0 && packed <= 0xFFFF,
-                        "LOD-X/Z passt nicht in u16 bei Skala " + scale + ": " + coordinate);
-                assertEquals(coordinate, packed / scale - LodMesher.XZ_POSITION_BIAS, 0F,
-                        "LOD-X/Z wurde bei Skala " + scale + " verschoben");
-            }
+    void integerVerticalBoundaryCoordinatesRemainExact() {
+        for (int coordinate : new int[]{0, 16, 32, 128, 512}) {
+            int packed = Math.round((coordinate + 1F) * ChunkMesher.POS_SCALE);
+            assertEquals(coordinate, packed / ChunkMesher.POS_SCALE - 1F, 0F);
         }
     }
 
@@ -85,9 +53,7 @@ final class FluidVertexQuantizationTest {
                 + ChunkMesher.FLAT_SOURCE_FLUID_TOP + "u;"));
         assertTrue(source.contains("const float SOURCE_FLUID_RENDER_HEIGHT = "
                 + Float.toString(FluidGeometry.SOURCE_RENDER_HEIGHT) + ";"));
-        assertTrue(source.contains("const float LOD_XZ_POSITION_BIAS = "
-                + Float.toString(LodMesher.XZ_POSITION_BIAS) + ";"));
-        assertTrue(source.contains("pos.xz -= scaleCode == 0u ? 1.0 : LOD_XZ_POSITION_BIAS;"));
+        assertTrue(source.contains("pos.xz -= 1.0;"));
         assertTrue(source.contains("pos.y = floor(pos.y) + SOURCE_FLUID_RENDER_HEIGHT;"));
     }
 

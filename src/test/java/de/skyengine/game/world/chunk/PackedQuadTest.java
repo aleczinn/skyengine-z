@@ -83,4 +83,24 @@ final class PackedQuadTest {
         assertEquals(3F, Math.abs(c.u() - a.u()));
         assertEquals(7F, Math.abs(c.v() - a.v()));
     }
+
+    @Test
+    void crossAxisReconstructsBothDiagonalPlanesInsideTheCell() {
+        long first = PackedQuad.pack(4, 5, 6, PackedQuad.AXIS_CROSS, true,
+                1, 1, 0, false, 2, 0, 0);
+        long second = PackedQuad.pack(4, 5, 6, PackedQuad.AXIS_CROSS, true,
+                1, 1, 0, true, 2, 0, 0);
+
+        PackedQuad.Vertex a = PackedQuad.vertex(first, 0);
+        PackedQuad.Vertex b = PackedQuad.vertex(first, 2);
+        PackedQuad.Vertex c = PackedQuad.vertex(second, 0);
+        PackedQuad.Vertex d = PackedQuad.vertex(second, 2);
+        assertEquals(4.1464466F, a.x(), 0.00001F);
+        assertEquals(6.1464466F, a.z(), 0.00001F);
+        assertEquals(4.8535533F, b.x(), 0.00001F);
+        assertEquals(6.8535533F, b.z(), 0.00001F);
+        assertEquals(6.8535533F, c.z(), 0.00001F);
+        assertEquals(6.1464466F, d.z(), 0.00001F);
+        assertEquals(6F, b.y(), 0.00001F);
+    }
 }

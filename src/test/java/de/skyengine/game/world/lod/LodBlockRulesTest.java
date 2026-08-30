@@ -31,6 +31,13 @@ final class LodBlockRulesTest {
         assertEquals(oakPlanks, LodBlockRules.simplify(chest));
     }
 
+    @Test
+    void crossPlantsRemainRepresentableInsteadOfBecomingAir() {
+        int shortGrass = state("voxelstories:short_grass");
+        assertEquals(0, LodBlockRules.simplify(shortGrass));
+        assertEquals(shortGrass, LodBlockRules.simplifyVolume(shortGrass));
+    }
+
     private static int state(String id) {
         return BlockRegistry.get(Identifier.of(id)).getDefaultState().getId();
     }

@@ -94,7 +94,10 @@ public class SkyEngine {
            und VOR bind/clear, damit kein halb-initialisierter Frame entsteht. */
         int wantedSamples = this.postProcessor.getSettings()
                 .effectiveMsaaSamples(GameSettings.get().msaaSamples);
-        if (wantedSamples != this.window.getFrameBuffer().getSamples()) {
+        GameSettings gameSettings = GameSettings.get();
+        boolean wantedLodMask = de.skyengine.graphics.framebuffer.FrameBuffer.wantsLodMask(gameSettings);
+        if (wantedSamples != this.window.getFrameBuffer().getSamples()
+                || wantedLodMask != this.window.getFrameBuffer().isLodMaskEnabled()) {
             this.window.getFrameBuffer().create();
         }
 
@@ -124,6 +127,7 @@ public class SkyEngine {
         GL11.glDepthFunc(this.window.getProperties().baseDepthFunc());
 
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
+        this.window.getFrameBuffer().clearLodMask();
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.CLEAR);
 

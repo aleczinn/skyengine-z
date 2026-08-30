@@ -58,7 +58,7 @@ final class ChunkManagerLodSchedulingTest {
                     started.countDown();
                     try { release.await(5, TimeUnit.SECONDS); }
                     catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                }, false, new ChunkManager.LodPriority(1, distance, 1, 0, distance), () -> {}));
+                }, new ChunkManager.LodPriority(1, distance, 1, 0, distance), () -> {}));
             }
             assertTrue(started.await(2, TimeUnit.SECONDS),
                     "Ohne Vordergrundlast darf LOD die gesamte Worker-Kapazitaet nutzen");
@@ -81,22 +81,22 @@ final class ChunkManagerLodSchedulingTest {
                 catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             };
             for (int i = 0; i < 2; i++) {
-                assertTrue(manager.submitLodTask(blocker, false,
+                assertTrue(manager.submitLodTask(blocker,
                         new ChunkManager.LodPriority(1, 20 + i, 5, 1, 100_000 + i),
                         discarded::incrementAndGet));
             }
             assertTrue(started.await(2, TimeUnit.SECONDS));
             for (int i = 0; i < 6; i++) {
-                assertTrue(manager.submitLodTask(() -> {}, false,
+                assertTrue(manager.submitLodTask(() -> {},
                         new ChunkManager.LodPriority(1, 10 + i, 4, 1, 10_000 + i),
                         discarded::incrementAndGet));
             }
             assertEquals(0, manager.normalLodSubmissionBudget());
-            assertTrue(manager.submitLodTask(() -> {}, false,
+            assertTrue(manager.submitLodTask(() -> {},
                     new ChunkManager.LodPriority(1, 0, 1, 0, 1),
                     discarded::incrementAndGet));
             assertEquals(1, discarded.get(), "Die schlechteste wartende Anfrage muss weichen");
-            assertFalse(manager.submitLodTask(() -> {}, false,
+            assertFalse(manager.submitLodTask(() -> {},
                     new ChunkManager.LodPriority(1, 99, 5, 1, 999_999),
                     discarded::incrementAndGet));
         } finally {
@@ -116,18 +116,15 @@ final class ChunkManagerLodSchedulingTest {
                 started.countDown();
                 try { release.await(5, TimeUnit.SECONDS); }
                 catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            }, false, new ChunkManager.LodPriority(1, 0, 1, 0, 1), discarded::incrementAndGet));
+            }, new ChunkManager.LodPriority(1, 0, 1, 0, 1), discarded::incrementAndGet));
             assertTrue(started.await(2, TimeUnit.SECONDS));
             for (int i = 0; i < 3; i++) {
-                assertTrue(manager.submitLodTask(() -> {}, false,
+                assertTrue(manager.submitLodTask(() -> {},
                         new ChunkManager.LodPriority(1, i + 1, 2, 0, i + 2),
                         discarded::incrementAndGet));
             }
-            assertTrue(manager.submitLodTask(() -> {}, true,
-                    new ChunkManager.LodPriority(1, 0, 1, 0, 0),
-                    discarded::incrementAndGet));
             manager.updateLodScheduleVersion(2);
-            assertEquals(4, discarded.get(), "Auch veraltete Clip-Remeshes muessen weichen");
+            assertEquals(3, discarded.get(), "Alle veralteten wartenden LOD-Jobs müssen weichen");
             assertEquals(3, manager.normalLodSubmissionBudget());
         } finally {
             release.countDown();

@@ -18,34 +18,33 @@ public final class LodMaterialTable implements VoxelLodMesher.MaterialResolver {
     public static final int FLAG_DENSE_ALPHA = 1;
 
     public record Entry(int textureLayer, int tintRgb, int tintType, int faceShade,
-                        RenderLayer renderLayer, int flags, boolean occludes) {}
+                        RenderLayer renderLayer, int flags, boolean occludes, boolean fluid) {}
 
     private final int[][][] materialIds;
     private final List<Entry> entries;
 
     public LodMaterialTable(LodBlockAppearance appearance) {
         int states = BlockRegistry.getStateCount();
-        this.materialIds = new int[states][3][2];
+        this.materialIds = new int[states][4][2];
         ArrayList<Entry> built = new ArrayList<>();
         Map<Entry, Integer> interned = new HashMap<>();
         for (int state = 0; state < states; state++) for (int axis = 0; axis < 3; axis++) {
             for (int side = 0; side < 2; side++) {
-                boolean top = axis == 1 && side == 1;
-                int texture = top ? appearance.topLayer(state) : appearance.sideLayer(state);
+                int face = face(axis, side != 0);
+                int texture = appearance.faceLayer(state, face);
                 if (texture < 0) {
                     this.materialIds[state][axis][side] = -1;
                     continue;
                 }
-                int tint = top ? appearance.topTint(state) : appearance.sideTint(state);
-                int tintType = top ? appearance.topTintType(state) : appearance.sideTintType(state);
-                int face = face(axis, side != 0);
+                int tint = appearance.faceTint(state, face);
+                int tintType = appearance.faceTintType(state, face);
                 RenderLayer renderLayer = appearance.isTranslucent(state)
                         ? RenderLayer.TRANSLUCENT : appearance.isDense(state)
                         ? RenderLayer.OPAQUE : BlockRegistry.getState(state).getRenderLayer();
                 int flags = appearance.isDense(state) ? FLAG_DENSE_ALPHA : 0;
                 Entry entry = new Entry(texture, tint, tintType,
                         Math.round(BlockModels.FACE_BRIGHTNESS[face] * 255F), renderLayer,
-                        flags, !appearance.isTranslucent(state));
+                        flags, !appearance.isTranslucent(state), appearance.isFluid(state));
                 int id = interned.computeIfAbsent(entry, ignored -> {
                     if (built.size() >= 65536) throw new IllegalStateException("Mehr als 65536 LOD-Materialien");
                     built.add(entry);
@@ -54,16 +53,32 @@ public final class LodMaterialTable implements VoxelLodMesher.MaterialResolver {
                 this.materialIds[state][axis][side] = id;
             }
         }
+        for (int state = 0; state < states; state++) {
+            int texture = appearance.crossLayer(state);
+            if (texture < 0) {
+                this.materialIds[state][3][0] = this.materialIds[state][3][1] = -1;
+                continue;
+            }
+            Entry entry = new Entry(texture, appearance.crossTint(state), appearance.crossTintType(state),
+                    255, RenderLayer.CUTOUT, 0, false, false);
+            int id = interned.computeIfAbsent(entry, ignored -> {
+                if (built.size() >= 65536) throw new IllegalStateException("Mehr als 65536 LOD-Materialien");
+                built.add(entry);
+                return built.size() - 1;
+            });
+            this.materialIds[state][3][0] = this.materialIds[state][3][1] = id;
+        }
         this.entries = List.copyOf(built);
     }
 
     @Override
     public VoxelLodMesher.Material resolve(int stateId, int axis, boolean positiveSide) {
-        if (stateId < 0 || stateId >= this.materialIds.length || axis < 0 || axis > 2) return null;
+        if (stateId < 0 || stateId >= this.materialIds.length || axis < 0 || axis > 3) return null;
         int id = this.materialIds[stateId][axis][positiveSide ? 1 : 0];
         if (id < 0) return null;
         Entry entry = this.entries.get(id);
-        return new VoxelLodMesher.Material(id, entry.renderLayer, 0, entry.flags, entry.occludes);
+        return new VoxelLodMesher.Material(id, entry.renderLayer, 0, entry.flags,
+                entry.occludes, entry.fluid);
     }
 
     public List<Entry> entries() { return this.entries; }

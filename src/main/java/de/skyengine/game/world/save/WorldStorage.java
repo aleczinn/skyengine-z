@@ -61,7 +61,7 @@ public class WorldStorage {
         void onChunkWritten(int chunkX, int chunkZ);
     }
 
-    /* Invalidiert z.B. den LOD-Heightmap-Cache importierter Welten (StorageLodDataSource). */
+    /* Revision gespeicherter Chunkdaten, u.a. für davon abgeleitete Fernrepräsentationen. */
     private volatile ChunkWriteListener writeListener;
 
     private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor(r -> {

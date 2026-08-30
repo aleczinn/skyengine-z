@@ -4,7 +4,7 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
-import de.skyengine.game.world.lod.LodDataSource;
+import de.skyengine.game.world.generator.SurfaceSample;
 import de.skyengine.utils.math.FastNoiseLite;
 
 public class MountainWorldGeneratorV1 extends WorldGenerator {
@@ -83,8 +83,8 @@ public class MountainWorldGeneratorV1 extends WorldGenerator {
     @Override
     public long sampleSurface(int x, int z) {
         int height = this.sampleHeight(x, z);
-        if (height < SEA_LEVEL) return LodDataSource.pack(Blocks.WATER, SEA_LEVEL);
-        return LodDataSource.pack(this.surfaceTop(x, z, height), height);
+        if (height < SEA_LEVEL) return SurfaceSample.pack(Blocks.WATER, SEA_LEVEL);
+        return SurfaceSample.pack(this.surfaceTop(x, z, height), height);
     }
 
     /** Deckmaterial nach Höhe (inkl. verwackelter Fels-/Schneegrenze) — von generate() UND LOD genutzt. */

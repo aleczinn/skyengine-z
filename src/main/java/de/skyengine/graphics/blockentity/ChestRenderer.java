@@ -392,7 +392,8 @@ public final class ChestRenderer implements BlockEntityRenderer {
         uniform vec3 u_ItemLight1;
         /* Licht der Zelle, Himmel + Block (ChunkRenderer.lightFactor); 1.0 = voll hell bzw. GUI. */
         uniform float u_Light;
-        out vec4 fragColor;
+        layout(location = 0) out vec4 fragColor;
+        layout(location = 1) out float fragLodMask;
         void main() {
             vec4 c = texture(u_Texture, v_uv);
             if (c.a < 0.5) discard;
@@ -414,6 +415,7 @@ public final class ChestRenderer implements BlockEntityRenderer {
                keine Flaeche es verpassen. Genau daran ist die Unterseite schon einmal
                vorbeigelaufen, weil sie als einzige kein Uniform ist. */
             fragColor = vec4(c.rgb * br * u_Light, c.a);
+            fragLodMask = 0.0;
         }
         """;
 }

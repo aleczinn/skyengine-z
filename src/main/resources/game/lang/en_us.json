@@ -131,10 +131,8 @@
       "enabled": "LOD Enabled",
       "distance": "LOD Distance: %d",
       "quality": "AO Quality",
-      "quality_hint_off": "<b>AO Quality (LOD only)</b>\n<gray>OFF: no AO in the distance - <b>fewest quads</b>, flattest look. Real terrain keeps its AO.</>",
-      "quality_hint_low": "<b>AO Quality (LOD only)</b>\n<gray>LOW: smooth AO in the nearest ring only, flat beyond - default.</>",
-      "quality_hint_mid": "<b>AO Quality (LOD only)</b>\n<gray>MID: smooth AO in the second ring too - mountains look rounder.</>",
-      "quality_hint_high": "<b>AO Quality (LOD only)</b>\n<gray>HIGH: smooth AO all the way out - best look, <gold>most quads</></>"
+      "ssao": "Distant SSAO",
+      "ssao_hint": "<b>Screen-space AO (distant terrain only)</b>\n<gray>Adds depth to volumetric LOD surfaces without enlarging the 8-byte quads. AUTO uses 12 samples.</>"
     },
     "sound": {
       "button": "Music & Sounds...",

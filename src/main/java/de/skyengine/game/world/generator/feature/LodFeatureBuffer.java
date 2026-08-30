@@ -4,7 +4,7 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
-import de.skyengine.game.world.lod.LodDataSource;
+import de.skyengine.game.world.generator.SurfaceSample;
 import de.skyengine.utils.collect.LongIntMap;
 import de.skyengine.utils.collect.LongLongMap;
 
@@ -39,7 +39,7 @@ public final class LodFeatureBuffer {
         int key = key(wx & ChunkSection.MASK, wy, wz & ChunkSection.MASK);
         if (this.blocks.containsKey(key)) return;
         long surface = this.surface(wx, wz);
-        if (wy <= LodDataSource.height(surface) && LodDataSource.block(surface) != Blocks.AIR) return;
+        if (wy <= SurfaceSample.height(surface) && SurfaceSample.block(surface) != Blocks.AIR) return;
         this.blocks.put(key, block);
     }
 

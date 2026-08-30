@@ -27,7 +27,7 @@ final class LodVolumeStoreTest {
             assertEquals(voxel, loaded.get(31, 7, 0));
             assertEquals(0L, loaded.get(0, 0, 0));
         }
-        assertTrue(new File(temporary, "volumes-v1/l2/y3/r.-2.-1.srg").isFile());
+        assertTrue(new File(temporary, "volumes-v5/l2/r.-2.-1.srg").isFile());
     }
 
     @Test
@@ -38,6 +38,29 @@ final class LodVolumeStoreTest {
         try (LodVolumeStore reader = new LodVolumeStore(temporary, 2)) {
             assertNull(reader.read(0, 0, 0, 0));
         }
-        assertTrue(new File(temporary, "volumes-v1/l0/y0/r.0.0.srg").isFile());
+        assertTrue(new File(temporary, "volumes-v5/l0/r.0.0.srg").isFile());
+    }
+
+    @Test
+    void compactProvisionalRootSurvivesWarmReopen() {
+        LodVoxelSection section = new LodVoxelSection(7, 0, -9, 4,
+                LodVoxelSection.Completeness.PROVISIONAL);
+        long voxel = LodVoxel.pack(4, 15, 0, 0, 0, 255,
+                LodVoxel.PROVENANCE_ANALYTIC, 12);
+        for (int z = 0; z < 32; z++) for (int x = 0; x < 32; x++) {
+            section.set(x, 3, z, voxel);
+        }
+        section.compact();
+        long compactBytes = section.estimatedBytes();
+
+        try (LodVolumeStore writer = new LodVolumeStore(temporary, 77)) { writer.write(section); }
+        try (LodVolumeStore reader = new LodVolumeStore(temporary, 77)) {
+            LodVoxelSection loaded = reader.read(7, 0, -9, 4);
+            assertNotNull(loaded);
+            assertEquals(LodVoxelSection.Completeness.PROVISIONAL, loaded.completeness());
+            assertEquals(voxel, loaded.get(12, 3, 17));
+            assertEquals(0L, loaded.get(12, 4, 17));
+            assertEquals(compactBytes, loaded.estimatedBytes());
+        }
     }
 }

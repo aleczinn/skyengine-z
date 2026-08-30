@@ -6,7 +6,6 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.biome.Biomes;
-import de.skyengine.game.world.lod.LodDataSource;
 import de.skyengine.game.world.lod.LodVolumeRequest;
 import de.skyengine.game.world.lod.LodVolumeWriter;
 import de.skyengine.game.world.lod.LodVoxel;
@@ -26,11 +25,11 @@ public abstract class WorldGenerator {
 
     /**
      * Oberflächen-Sample fürs LOD: oberster sichtbarer Block + dessen Höhe, gepackt via
-     * {@link LodDataSource#pack}. Pure Funktion, threadsicher. Default: Gras auf
+     * {@link SurfaceSample#pack}. Pure Funktion, threadsicher. Default: Gras auf
      * {@link #sampleHeight}; Generatoren mit Wasser/Material-Zonen überschreiben das.
      */
     public long sampleSurface(int x, int z) {
-        return LodDataSource.pack(Blocks.GRASS_BLOCK, this.sampleHeight(x, z));
+        return SurfaceSample.pack(Blocks.GRASS_BLOCK, this.sampleHeight(x, z));
     }
 
     /**
@@ -81,42 +80,55 @@ public abstract class WorldGenerator {
     public void fillLodVolume(LodVolumeRequest request, LodVolumeWriter writer) {
         if (request == null || writer == null) throw new IllegalArgumentException("LOD-Request/Writer fehlt");
         int cell = request.cellSize();
-        int originX = request.originX(), originY = request.originY(), originZ = request.originZ();
-        int bottomState = this.lodWorldBottomState();
+        int originY = request.originY();
+        /* Halo-Meshing fragt auch den Knoten ueber und unter der Welt ab. Diese beiden
+           32x32-Spalten duerfen keine tausenden teuren Klima-/Noise-Samples ausloesen. */
+        if (originY >= Chunk.HEIGHT || (long) originY + request.extent() <= 0L) return;
         for (int z = 0; z < ChunkSection.SIZE; z++) {
-            int worldZ = originZ + z * cell + cell / 2;
             for (int x = 0; x < ChunkSection.SIZE; x++) {
-                int worldX = originX + x * cell + cell / 2;
-                LodSurfaces surfaces = this.sampleLodSurfaces(worldX, worldZ);
-                int groundState = LodDataSource.block(surfaces.ground());
-                int groundTop = LodDataSource.height(surfaces.ground()) + 1;
-                int surfaceState = LodDataSource.block(surfaces.surface());
-                int surfaceTop = Math.max(groundTop, LodDataSource.height(surfaces.surface()) + 1);
-                for (int y = 0; y < ChunkSection.SIZE; y++) {
-                    int minY = originY + y * cell;
-                    int maxY = minY + cell;
-                    int filledTop = Math.min(maxY, surfaceTop);
-                    int filled = Math.max(0, filledTop - minY);
-                    if (filled == 0 || maxY <= 0) continue;
-                    int state;
-                    int importance;
-                    if (minY < 1 && bottomState != Blocks.AIR) {
-                        state = bottomState;
-                        importance = 63;
-                    } else if (maxY > groundTop && surfaceState != Blocks.AIR) {
-                        state = surfaceState;
-                        importance = 12;
-                    } else {
-                        state = groundState;
-                        importance = 4;
-                    }
-                    if (state == Blocks.AIR) continue;
-                    int coverage = Math.clamp((filled * 255 + cell / 2) / cell, 1, 255);
-                    int sky = maxY >= surfaceTop ? 15 : 0;
-                    writer.set(x, y, z, LodVoxel.pack(state, sky, 0, 0, 0, coverage,
-                            LodVoxel.PROVENANCE_ANALYTIC, importance));
-                }
+                this.fillLodVolumeColumn(request, x, z, writer);
             }
+        }
+    }
+
+    /** Befuellt genau eine X/Z-Spalte eines analytischen Knotens. Der LOD-Mesher verwendet
+        dies fuer ein Zellen-duennes Rand-Halo, ohne vier komplette Nachbarknoten aufzubauen. */
+    public void fillLodVolumeColumn(LodVolumeRequest request, int x, int z, LodVolumeWriter writer) {
+        if (request == null || writer == null || x < 0 || x >= ChunkSection.SIZE
+                || z < 0 || z >= ChunkSection.SIZE) throw new IllegalArgumentException("LOD-Spalte");
+        int cell = request.cellSize();
+        int originY = request.originY();
+        if (originY >= Chunk.HEIGHT || (long) originY + request.extent() <= 0L) return;
+        int worldX = request.originX() + x * cell + cell / 2;
+        int worldZ = request.originZ() + z * cell + cell / 2;
+        LodSurfaces surfaces = this.sampleLodSurfaces(worldX, worldZ);
+        int groundState = SurfaceSample.block(surfaces.ground());
+        int groundTop = SurfaceSample.height(surfaces.ground()) + 1;
+        int surfaceState = SurfaceSample.block(surfaces.surface());
+        int surfaceTop = Math.max(groundTop, SurfaceSample.height(surfaces.surface()) + 1);
+        int bottomState = this.lodWorldBottomState();
+        for (int y = 0; y < ChunkSection.SIZE; y++) {
+            int minY = originY + y * cell;
+            int maxY = minY + cell;
+            int filled = Math.max(0, Math.min(maxY, surfaceTop) - minY);
+            if (filled == 0 || maxY <= 0) continue;
+            int state;
+            int importance;
+            if (minY < 1 && bottomState != Blocks.AIR) {
+                state = bottomState;
+                importance = 4;
+            } else if (maxY > groundTop && surfaceState != Blocks.AIR) {
+                state = surfaceState;
+                importance = 12;
+            } else {
+                state = groundState;
+                importance = 4;
+            }
+            if (state == Blocks.AIR) continue;
+            int coverage = Math.clamp((filled * 255 + cell / 2) / cell, 1, 255);
+            int sky = maxY >= surfaceTop ? 15 : 0;
+            writer.set(x, y, z, LodVoxel.pack(state, sky, 0, 0, 0, coverage,
+                    LodVoxel.PROVENANCE_ANALYTIC, importance));
         }
     }
 

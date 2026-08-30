@@ -81,8 +81,7 @@ public class ChunkManager {
 
     /* Unload-Gate: sichtbare Chunks erst entladen, wenn das LOD ihre Zelle deckt. null = Gate aus. */
     private LodManager lodManager;
-    /* Tick-genaue Schnellabfrage für dringende LOD-Handoff-Builds; vermeidet im Normalfall
-       tausende 4×4-Regionsscans im LodManager. */
+    /* Tick-genaue Schnellabfrage, ob Chunks auf einen sichtbaren LOD-Fallback warten. */
     private int pendingUnloadCount;
 
     /* Chunk-Persistenz: Lade-Quelle (statt Generierung) + Save-Ziel beim Unload. Von Dimension
@@ -124,23 +123,19 @@ public class ChunkManager {
     private static final int NEAR_ALWAYS = 2;
 
     /* Job-Prioritäten für den Worker-Pool: Remeshes überholen den Initial-Load;
-       LOD-Meshes laufen nur, wenn keine Chunk-Arbeit ansteht. Ausnahme LOD_CLIP:
-       Masken-Remeshes (Chunk wurde sichtbar bzw. geht in pendingUnload) überholen die
-       Lade-Queue — hinter bis zu LOAD_QUEUE_LIMIT Lade-Jobs verhungert der Clip sonst
-       beim Schnellflug: sichtbare Doppel-Geometrie (LOD über frischen L0-Chunks) in
-       Lade-Richtung, festgehaltene pendingUnload-Meshes (Arena-Druck) in Unload-Richtung. */
+       LOD-Meshes bleiben eine begrenzte Hintergrundklasse. L0-Residency ändert nur den
+       sichtbaren Octree-Frontier und erzeugt keine speziellen Clip-Remeshes mehr. */
     private static final int PRIO_PLAYER_REMESH = 0;
     private static final int PRIO_SYSTEM_REMESH = 1;
-    private static final int PRIO_LOD_CLIP = 2;
-    private static final int PRIO_LOAD = 3;
-    private static final int PRIO_LIGHT = 4;
-    private static final int PRIO_LOD = 5;
+    private static final int PRIO_LOAD = 2;
+    private static final int PRIO_LIGHT = 3;
+    private static final int PRIO_LOD = 4;
 
     /* AUSSTEHENDE Lade-Jobs (wartend + laufend) — Basis für LOAD_QUEUE_LIMIT und den Latch. */
     private final AtomicInteger pendingLoadTasks = new AtomicInteger();
 
-    /* Scheduler-Telemetrie und adaptive LOD-Zulassung. Vordergrund umfasst Load, Remesh und
-       die dringenden LOD-Clip-Jobs; normale LOD-Jobs bleiben die einzige Hintergrundklasse. */
+    /* Scheduler-Telemetrie und adaptive LOD-Zulassung. LOD bleibt die einzige
+       Hintergrundklasse; L0-Load und Remesh zählen als Vordergrund. */
     private final AtomicInteger queuedForegroundTasks = new AtomicInteger();
     private final AtomicInteger activeForegroundTasks = new AtomicInteger();
     private final AtomicInteger queuedNormalLodTasks = new AtomicInteger();
@@ -157,8 +152,7 @@ public class ChunkManager {
 
     /* Latch: true, sobald die Lade-Pipeline einmal ihren FIXPUNKT erreicht hat — nichts mehr
        einzureihen UND nichts mehr ausstehend. Gate für das LOD: echte Chunks haben Vorrang,
-       LOD-Jobs (beim Start teuer — ohne Chunks fällt die LodDataSource pro Zelle auf den
-       Generator-Noise zurück) laufen erst danach.
+       LOD-Jobs (beim Start teuer, da zunächst Volumenknoten aufgebaut werden) laufen erst danach.
 
        Fixpunkt statt "alle Chunks READY": die äußersten Ringe des Lade-Kreises finden ihre
        Gating-Nachbarn (Dekoration braucht 8× GENERATED, Erst-Mesh 8× DECORATED) außerhalb des
@@ -293,32 +287,9 @@ public class ChunkManager {
     }
 
     /**
-     * Reiht einen LOD-Mesh-Job ein. Normale Builds laufen mit niedrigster Priorität
-     * (verdrängen nie Chunk-Jobs); Clip-Remeshes ({@code clip=true}, reiner Masken-Diff)
-     * überholen die Lade-Queue (s. Kommentar an den PRIO_*-Konstanten).
+     * Reiht einen begrenzten LOD-Mesh-Job mit niedrigster Worker-Priorität ein.
      */
-    public boolean submitLodTask(Runnable job, boolean clip, LodPriority priority,
-                                 Runnable onDiscard) {
-        if (clip) {
-            this.queuedForegroundTasks.incrementAndGet();
-            Runnable countedJob = () -> {
-                this.queuedForegroundTasks.decrementAndGet();
-                this.activeForegroundTasks.incrementAndGet();
-                try {
-                    job.run();
-                } finally {
-                    this.activeForegroundTasks.decrementAndGet();
-                }
-            };
-            Runnable discarded = () -> {
-                this.queuedForegroundTasks.decrementAndGet();
-                onDiscard.run();
-            };
-            this.workers.execute(PrioTask.lodClip(this, this.workerPool.nextSequence(), priority,
-                    countedJob, discarded));
-            return true;
-        }
-
+    public boolean submitLodTask(Runnable job, LodPriority priority, Runnable onDiscard) {
         synchronized (this.lodAdmissionLock) {
             int limit = this.workerCount * 4;
             while (this.queuedNormalLodTasks.get() + this.activeNormalLodTasks.get() >= limit) {
@@ -488,11 +459,6 @@ public class ChunkManager {
         static PrioTask lod(ChunkManager owner, long sequence, LodPriority priority,
                             Runnable job, Runnable onDiscard) {
             return new PrioTask(owner, PRIO_LOD, sequence, priority, job, onDiscard);
-        }
-
-        static PrioTask lodClip(ChunkManager owner, long sequence, LodPriority priority,
-                                Runnable job, Runnable onDiscard) {
-            return new PrioTask(owner, PRIO_LOD_CLIP, sequence, priority, job, onDiscard);
         }
 
         boolean isLod() { return this.lodPriority != null; }
@@ -797,7 +763,12 @@ public class ChunkManager {
             int dx = chunk.chunkX - pcx, dz = chunk.chunkZ - pcz;
             int d2 = dx * dx + dz * dz;
             if (d2 <= unloadDist * unloadDist) {
-                chunk.pendingUnload = false; // wieder im Radius → Gate zurücksetzen
+                if (chunk.pendingUnload) {
+                    chunk.pendingUnload = false; // wieder im Radius → L0 besitzt erneut
+                    if (this.lodManager != null) {
+                        this.lodManager.refreshL0Ownership(chunk.chunkX, chunk.chunkZ);
+                    }
+                }
                 continue;
             }
 
@@ -817,15 +788,18 @@ public class ChunkManager {
                     if (chunk.pendingUnload) pendingUnloads++;
                     continue;
                 }
-                /* Sichtbare Chunks (alle Sections auf dem Schirm) erst entfernen, wenn das
-                   hochgeladene LOD-Mesh die Zelle deckt — sonst reißt ein Loch auf, bis der
-                   Region-Remesh durch ist. Nicht (voll) hochgeladene Chunks waren nie in
-                   einer LOD-Maske geclippt und dürfen sofort weg. */
+                /* Vollständig sichtbare Chunks erst entfernen, wenn ein ausgewählter
+                   LOD-Octree-Knoten ihre Spalte deckt. Der Parent ist ein gültiger grober
+                   Fallback und bleibt stehen, während feinere Kinder nachladen. */
                 if (chunk.isFullyUploaded() && this.lodManager != null
                         && !this.lodManager.coversChunk(chunk.chunkX, chunk.chunkZ)) {
-                    chunk.pendingUnload = true; // computeMask behandelt ihn ab jetzt als abwesend
+                    chunk.pendingUnload = true;
+                    this.lodManager.refreshL0Ownership(chunk.chunkX, chunk.chunkZ);
                     pendingUnloads++;
                     continue;
+                }
+                if (this.lodManager != null) {
+                    this.lodManager.clearL0Ownership(chunk.chunkX, chunk.chunkZ);
                 }
                 it.remove();
                 this.unloadAnnounceQueue.add(Chunk.key(chunk.chunkX, chunk.chunkZ));
@@ -869,6 +843,7 @@ public class ChunkManager {
             }
         }
         this.chunks.clear();
+        if (this.lodManager != null) this.lodManager.clearL0Ownership();
         /* Ausstehende Upload-Batches der alten Chunk-Objekte verwerfen — applyBatch würde sie
            sonst auf die NEU angelegten Chunks derselben Koordinaten anwenden (alte Geometrie +
            uploadedSections-Inflation). Noch laufende Worker-Jobs können danach vereinzelt
@@ -1125,6 +1100,7 @@ public class ChunkManager {
                 chunk.status = ChunkStatus.LIT;
             }
         }
+        if (this.lodManager != null) this.lodManager.clearL0Ownership();
         this.resetLoadDiagnostics();
         return generation;
     }
@@ -1141,6 +1117,7 @@ public class ChunkManager {
                 chunk.status = ChunkStatus.LIT;
             }
         }
+        if (this.lodManager != null) this.lodManager.clearL0Ownership();
     }
 
     public boolean isRenderGenerationActive(long generation) {

@@ -47,7 +47,6 @@ import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import de.skyengine.game.world.light.LightEngine;
 import de.skyengine.game.world.lod.LodBlockAppearance;
-import de.skyengine.game.world.lod.LodDataSource;
 import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.lod.PersistentLodDataSource;
 import de.skyengine.game.world.particle.ParticleEngine;
@@ -459,8 +458,7 @@ public class Dimension implements IInitializable, IDisposable {
         this.persistentLodSource = new PersistentLodDataSource(this.chunkManager, this.storage,
                 this.generator, this.decorator, this.imported,
                 this.lodDirectory, this.generatorVersion);
-        LodDataSource lodSource = this.persistentLodSource;
-        this.lodManager = new LodManager(lodSource, new LodBlockAppearance(), this.chunkManager,
+        this.lodManager = new LodManager(this.persistentLodSource, new LodBlockAppearance(), this.chunkManager,
                 this.lodAllowed);
         this.chunkManager.setLodManager(this.lodManager); // Unload-Gate: erst entladen, wenn LOD deckt
         return this.lodManager;
@@ -650,6 +648,7 @@ public class Dimension implements IInitializable, IDisposable {
             /* Persistente Hanging-Entities wurden bereits vom Load-Worker in den Chunk gelegt.
                Erst ab READY duerfen Tick und Renderer sie sehen. */
             if (!chunk.entities().isEmpty()) this.chunksWithEntities.add(chunk);
+            if (this.persistentLodSource != null) this.persistentLodSource.queueLiveVolumes(chunk);
             chunk.loadSeeded = true;
         }
     }
@@ -1650,10 +1649,9 @@ public class Dimension implements IInitializable, IDisposable {
      * Ob der Spieler diese Zelle bereits wirklich sehen und damit sicher anvisieren darf.
      *
      * <p>{@link ChunkStatus#READY} bedeutet nur, dass alle initialen Section-Meshes erzeugt und
-     * zum Upload eingereiht wurden. Bis der Renderer sie komplett uebernommen und das LOD-Mesh
-     * passend geclippt hat, kann noch ein sichtbarer LOD-Proxy ueber dem echten Chunk liegen.
-     * In diesem Uebergang duerfen weder Auswahl noch Interaktionen auf die verdeckten L0-Daten
-     * zugreifen.</p>
+     * zum Upload eingereiht wurden. Bis der Renderer sie komplett übernommen hat, bleibt der
+     * atomare LOD-Parent als sichtbarer Fallback aktiv. In diesem Übergang dürfen weder Auswahl
+     * noch Interaktionen auf die noch nicht vollständig sichtbaren L0-Daten zugreifen.</p>
      */
     public boolean isPlayerInteractionReady(int x, int y, int z) {
         if (y < 0 || y >= Chunk.HEIGHT) return false;
