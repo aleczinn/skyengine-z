@@ -46,24 +46,47 @@ public class ShaderProgram implements IDisposable {
 
     private void create() {
         this.programId = GL20.glCreateProgram();
-        for(Shader shader : this.shaders) {
-            GL20.glAttachShader(this.programId, shader.getId());
+        try {
+            for(Shader shader : this.shaders) {
+                GL20.glAttachShader(this.programId, shader.getId());
+            }
+
+            GL20.glLinkProgram(this.programId);
+            if (GL20.glGetProgrami(this.programId, GL20.GL_LINK_STATUS) == GL20.GL_FALSE) {
+                String message = "ShaderProgram could not be linked!\n"
+                        + GL20.glGetProgramInfoLog(this.programId);
+                this.logger.fatal(message);
+                throw new IllegalStateException(message);
+            }
+
+            /* Validation prueft auch den momentanen OpenGL-Zustand und ist daher kein
+               verlaessliches Erstellungs-Kriterium. Ein Link-Fehler ist fatal, ein
+               Validation-Hinweis bleibt dagegen diagnostisch. */
+            GL20.glValidateProgram(this.programId);
+            if (GL20.glGetProgrami(this.programId, GL20.GL_VALIDATE_STATUS) == GL20.GL_FALSE) {
+                this.logger.warning("ShaderProgram validation failed:\n"
+                        + GL20.glGetProgramInfoLog(this.programId));
+            }
+
+            this.fetchAttributes();
+            this.fetchUniforms();
+
+            this.logger.debug("create shader programm with id " + this.programId);
+        } catch (RuntimeException exception) {
+            this.deleteProgramAndShaders();
+            throw exception;
         }
+    }
 
-        GL20.glLinkProgram(this.programId);
-        if (GL20.glGetProgrami(this.programId, GL20.GL_LINK_STATUS) == GL20.GL_FALSE) {
-            this.logger.fatal("ShaderProgram could not be linked!\n" + GL20.glGetProgramInfoLog(this.programId));
+    private void deleteProgramAndShaders() {
+        if (this.programId > 0) {
+            for (Shader shader : this.shaders) {
+                if (shader.getId() > 0) GL20.glDetachShader(this.programId, shader.getId());
+            }
+            GL20.glDeleteProgram(this.programId);
+            this.programId = -1;
         }
-
-        GL20.glValidateProgram(this.programId);
-        if (GL20.glGetProgrami(this.programId, GL20.GL_VALIDATE_STATUS) == GL20.GL_FALSE) {
-            this.logger.fatal("ShaderProgram could not be validated!\n" + GL20.glGetProgramInfoLog(this.programId));
-        }
-
-        this.fetchAttributes();
-        this.fetchUniforms();
-
-        this.logger.debug("create shader programm with id " + this.programId);
+        for (Shader shader : this.shaders) shader.dispose();
     }
 
     protected void setDefaultUniforms() {}
@@ -224,14 +247,11 @@ public class ShaderProgram implements IDisposable {
 
     @Override
     public void dispose() {
-        this.unbind();
-
-        for(Shader shader : this.shaders) {
-            GL20.glDetachShader(this.programId, shader.getId());
-            shader.dispose();
+        if (this.programId > 0) {
+            this.unbind();
+            this.deleteProgramAndShaders();
+        } else {
+            for (Shader shader : this.shaders) shader.dispose();
         }
-
-        GL20.glDeleteProgram(this.programId);
-        this.programId = -1;
     }
 }

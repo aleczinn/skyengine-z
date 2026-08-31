@@ -70,6 +70,10 @@ public final class MesherCensus {
         ChunkMesher mesher = new ChunkMesher();
         long hash = 0xcbf29ce484222325L; // FNV-1a Offset-Basis
         long[] quads = new long[4];      // opaque, cutout, translucent, detail
+        long[] compactQuads = new long[3];
+        long[] compactBytes = new long[3];
+        long fullCubeFaces = 0, cornerFaces = 0, rejectedShading = 0,
+                rejectedMaterial = 0, rejectedState = 0, overlayFallbackFaces = 0;
         int sections = 0;
         for (int i = 0; i < 9; i++) {
             for (int s = 0; s < Chunk.SECTIONS; s++) {
@@ -81,6 +85,23 @@ public final class MesherCensus {
                 hash = fnv(hash, data.cutout);
                 hash = fnv(hash, data.translucent);
                 hash = fnv(hash, data.detail);
+                if (data.compactGeometry != null) for (int mode = 0; mode < 3; mode++) {
+                    hash = fnv(hash, data.compactGeometry[mode]);
+                    hash = fnv(hash, data.compactShading[mode]);
+                    compactQuads[mode] += data.compactGeometry[mode] == null ? 0
+                            : data.compactGeometry[mode].length / 2L;
+                }
+                if (data.stats != null) {
+                    fullCubeFaces += data.stats.fullCubeFacesBeforeGreedy();
+                    cornerFaces += data.stats.cornerShadingFaces();
+                    rejectedShading += data.stats.mergeRejectedByShading();
+                    rejectedMaterial += data.stats.mergeRejectedByMaterial();
+                    rejectedState += data.stats.mergeRejectedByState();
+                    overlayFallbackFaces += data.stats.overlayFallbackFaces();
+                    compactBytes[0] += data.stats.standardBytes();
+                    compactBytes[1] += data.stats.uniformBytes();
+                    compactBytes[2] += data.stats.cornerBytes();
+                }
                 quads[0] += quadCount(data.opaque);
                 quads[1] += quadCount(data.cutout);
                 quads[2] += quadCount(data.translucent);
@@ -91,6 +112,13 @@ public final class MesherCensus {
         System.out.println("Sections mit Geometrie: " + sections);
         System.out.println("Quads: opaque=" + quads[0] + " cutout=" + quads[1]
                 + " translucent=" + quads[2] + " detail=" + quads[3]);
+        System.out.println("Compact: standard=" + compactQuads[0] + " uniform=" + compactQuads[1]
+                + " corner=" + compactQuads[2] + " bytes=" + compactBytes[0] + "/"
+                + compactBytes[1] + "/" + compactBytes[2]);
+        System.out.println("FullCube: faces=" + fullCubeFaces + " corner=" + cornerFaces
+                + " rejected(shading/material/state)=" + rejectedShading + "/"
+                + rejectedMaterial + "/" + rejectedState
+                + " overlayFallback=" + overlayFallbackFaces);
         System.out.println(String.format(Locale.ROOT, "MESH %016x", hash));
         System.out.println("MESH OK");
     }

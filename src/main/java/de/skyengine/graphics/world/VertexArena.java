@@ -26,7 +26,7 @@ import java.util.TreeMap;
 public final class VertexArena {
 
     /** Bytes pro Vertex (gepacktes Format, siehe {@link ChunkMesher#VERTEX_SIZE}). */
-    private static final int VERTEX_BYTES = ChunkMesher.VERTEX_SIZE * Integer.BYTES;
+    private static final int DEFAULT_ELEMENT_BYTES = ChunkMesher.VERTEX_SIZE * Integer.BYTES;
 
     /* Bewusst NICHT gemappt und NICHT per glBufferSubData beschrieben: beides bewegt den
        Buffer im NVIDIA-Treiber frueher oder spaeter ins Host-RAM ("copied/moved from VIDEO
@@ -39,16 +39,23 @@ public final class VertexArena {
     public static final class Region {
         private final long offset; // Bytes
         private final long size;   // Bytes
+        private final int elementBytes;
 
-        private Region(long offset, long size) {
+        private Region(long offset, long size, int elementBytes) {
             this.offset = offset;
             this.size = size;
+            this.elementBytes = elementBytes;
         }
 
         /** Vertex-Index des Region-Anfangs — direkt als baseVertex des Indirect-Commands nutzbar. */
         public int vertexOffset() {
-            return (int) (this.offset / VERTEX_BYTES);
+            return this.elementOffset();
         }
+
+        /** Index des ersten Elements fuer SSBO-/Vertex-Pulling-Pfade. */
+        public int elementOffset() { return (int) (this.offset / this.elementBytes); }
+
+        public long sizeBytes() { return this.size; }
     }
 
     private record PendingFree(Region region, long frame) {}
@@ -56,6 +63,7 @@ public final class VertexArena {
     private final Logger logger = LogManager.getLogger(VertexArena.class.getName());
 
     private final String name;
+    private final int elementBytes;
     private int buffer;
     private long capacity;
 
@@ -75,7 +83,15 @@ public final class VertexArena {
     private final int stagingBuffer;
 
     public VertexArena(String name, long initialCapacity) {
+        this(name, initialCapacity, DEFAULT_ELEMENT_BYTES);
+    }
+
+    public VertexArena(String name, long initialCapacity, int elementBytes) {
+        if (elementBytes <= 0 || (elementBytes & 3) != 0) {
+            throw new IllegalArgumentException("elementBytes muss positiv und durch vier teilbar sein");
+        }
         this.name = name;
+        this.elementBytes = elementBytes;
         this.stagingBuffer = GL15.glGenBuffers();
         /* Buffer-Name wird erst durch das erste Bind zum Objekt — sonst GL_INVALID_VALUE beim Label */
         GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, this.stagingBuffer);
@@ -129,7 +145,7 @@ public final class VertexArena {
         GL31.glCopyBufferSubData(GL31.GL_COPY_READ_BUFFER, GL31.GL_COPY_WRITE_BUFFER, 0, offset, size);
         GL15.glBindBuffer(GL31.GL_COPY_READ_BUFFER, 0);
         GL15.glBindBuffer(GL31.GL_COPY_WRITE_BUFFER, 0);
-        return new Region(offset, size);
+        return new Region(offset, size, this.elementBytes);
     }
 
     /**
@@ -227,12 +243,25 @@ public final class VertexArena {
     private void createBuffer(long size) {
         this.buffer = GL15.glGenBuffers();
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.buffer);
+        /* glGetError ist global fuer den aktuellen Context. Ohne vorheriges Leeren wuerde
+           beispielsweise ein alter glUseProgram-Fehler faelschlich dieser Allokation
+           zugeschrieben. */
+        int staleError;
+        while ((staleError = org.lwjgl.opengl.GL11.glGetError())
+                != org.lwjgl.opengl.GL11.GL_NO_ERROR) {
+            this.logger.warning("VertexArena " + this.name
+                    + ": vor glBufferStorage lag bereits GL-Fehler 0x"
+                    + Integer.toHexString(staleError) + " an");
+        }
         GL44.glBufferStorage(GL15.GL_ARRAY_BUFFER, size, STORAGE_FLAGS);
         /* Fail-Fast statt stiller Folgefehler (Muster MappedRing.create): schlägt die
            Allokation fehl (GL_OUT_OF_MEMORY bei großen Render-Distanzen), liefen alle
            glCopyBufferSubData ins Leere und die Geometrie fehlte einfach. */
         int error = org.lwjgl.opengl.GL11.glGetError();
         if (error != 0) {
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
+            GL15.glDeleteBuffers(this.buffer);
+            this.buffer = 0;
             throw new IllegalStateException("VertexArena " + this.name + ": glBufferStorage("
                     + (size >> 20) + " MB) fehlgeschlagen (GL-Fehler 0x" + Integer.toHexString(error) + ")");
         }

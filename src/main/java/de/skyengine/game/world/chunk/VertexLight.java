@@ -12,7 +12,10 @@ public final class VertexLight {
     public static final int BLOCK_SHIFT = 8;
     public static final int BLOCK_MASK = 0xFF << BLOCK_SHIFT;
     public static final int CHANNELS_MASK = SKY_MASK | BLOCK_MASK;
-    public static final int FIRST_FLAG_BIT = 16;
+    /** Im generischen GPU-Vertexformat liegen Flags nach vier 6-Bit-Lichtkanaelen. */
+    public static final int FIRST_FLAG_BIT = 24;
+    public static final int GENERIC_CHANNELS_MASK = 0x00FFFFFF;
+    public static final int GENERIC_FLAGS_MASK = 0xFF000000;
 
     /** Wandelt die beiden gespeicherten Level 0..15 in das praezise Vertexformat um. */
     public static int fromLevels(int sky, int block) {
@@ -41,6 +44,26 @@ public final class VertexLight {
     /** Derselbe monochrome Max-Vergleich wie im Fragment-Shader. */
     public static int effective(int packed) {
         return Math.max(sky(packed), block(packed));
+    }
+
+    /**
+     * Migriert das interne Sky/Mono-Block-Byteformat in Sky/R/G/B je sechs Bit. Die Werte sind
+     * weiterhin die verlustfreien Summen der vier 0..15-Corner-Samples; Blocklicht wird bis zur
+     * RGB-Lichtsimulation identisch in R/G/B repliziert. Bits 24..31 bleiben Renderer-Flags.
+     */
+    public static int packGenericRgb(int packed) {
+        int sky = PackedTerrainQuad.byteLightToSampleSum(sky(packed));
+        int block = PackedTerrainQuad.byteLightToSampleSum(block(packed));
+        return sky | block << 6 | block << 12 | block << 18 | packed & GENERIC_FLAGS_MASK;
+    }
+
+    public static int genericSky(int packed) { return genericChannel(packed, 0); }
+    public static int genericRed(int packed) { return genericChannel(packed, 6); }
+    public static int genericGreen(int packed) { return genericChannel(packed, 12); }
+    public static int genericBlue(int packed) { return genericChannel(packed, 18); }
+
+    private static int genericChannel(int packed, int shift) {
+        return PackedTerrainQuad.sampleSumToByteLight((packed >>> shift) & 0x3F);
     }
 
     public static int levelToByte(int level) {

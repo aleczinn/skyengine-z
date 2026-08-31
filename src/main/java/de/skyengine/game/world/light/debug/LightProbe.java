@@ -7,6 +7,8 @@ import de.skyengine.game.world.block.state.BlockStateCodec;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
+import de.skyengine.game.world.chunk.ChunkMesher;
+import de.skyengine.game.world.chunk.PackedTerrainQuad;
 import de.skyengine.game.world.chunk.VertexLight;
 import de.skyengine.game.world.light.LightEngine;
 
@@ -502,8 +504,8 @@ public final class LightProbe {
         de.skyengine.game.world.chunk.ChunkMesher.MeshData mesh =
                 new de.skyengine.game.world.chunk.ChunkMesher()
                         .mesh(chunk, 3, null, null, null, null, new Chunk[4]); // Section 3 = y 96..127
-        check(mesh != null && mesh.opaque != null, "Mesher liefert Geometrie");
-        if (mesh == null || mesh.opaque == null) return;
+        check(hasOpaqueGeometry(mesh), "Mesher liefert Geometrie");
+        if (!hasOpaqueGeometry(mesh)) return;
 
         /* Die sechs Steinflaechen, die IN die Nische hineinschauen, tragen legitim das Licht der
            Fackelzelle (14) — sie sind eingemauert und nie sichtbar. Sie muessen deshalb aus der
@@ -518,7 +520,7 @@ public final class LightProbe {
         final int yBase = 3 << ChunkSection.SHIFT; // Section 3 -> y 96; Vertex-y ist section-lokal
         int blockMax = 0;
         int[] buf = mesh.opaque;
-        for (int q = 0; q + 4 * stride <= buf.length; q += 4 * stride) {
+        for (int q = 0; buf != null && q + 4 * stride <= buf.length; q += 4 * stride) {
             boolean allInPocket = true;
             int quadMax = 0;
             for (int v = 0; v < 4; v++) {
@@ -530,10 +532,11 @@ public final class LightProbe {
                         || py < (100 - yBase) - 0.01F || py > (101 - yBase) + 0.01F) {
                     allInPocket = false;
                 }
-                quadMax = Math.max(quadMax, VertexLight.block(buf[b + 4]));
+                quadMax = Math.max(quadMax, VertexLight.genericRed(buf[b + 4]));
             }
             if (!allInPocket) blockMax = Math.max(blockMax, quadMax);
         }
+        blockMax = Math.max(blockMax, compactBlockMaxOutsidePocket(mesh, yBase));
         System.out.println("  Blocklicht ausserhalb der Nische: max " + blockMax + " (erwartet 0)");
         check(blockMax == 0, "eingemauerte Fackel erreicht KEINEN sichtbaren Vertex (kein Diagonal-Leck)");
     }
@@ -558,22 +561,28 @@ public final class LightProbe {
         de.skyengine.game.world.chunk.ChunkMesher mesher = new de.skyengine.game.world.chunk.ChunkMesher();
         de.skyengine.game.world.chunk.ChunkMesher.MeshData mesh =
                 mesher.mesh(chunk, 3, null, null, null, null, new Chunk[4]); // Section 3 = y 96..127
-        check(mesh != null && mesh.opaque != null, "Mesher liefert Geometrie");
-        if (mesh == null || mesh.opaque == null) return;
+        check(hasOpaqueGeometry(mesh), "Mesher liefert Geometrie");
+        if (!hasOpaqueGeometry(mesh)) return;
 
         int min = VertexLight.CHANNEL_MAX, max = 0, count = 0, freeBits = 0;
-        for (int i = 4; i < mesh.opaque.length; i += de.skyengine.game.world.chunk.ChunkMesher.VERTEX_SIZE) {
-            int v = VertexLight.sky(mesh.opaque[i]);
-            min = Math.min(min, v);
-            max = Math.max(max, v);
-            freeBits |= mesh.opaque[i] & ~VertexLight.CHANNELS_MASK;
-            count++;
+        if (mesh.opaque != null) {
+            for (int i = 4; i < mesh.opaque.length; i += ChunkMesher.VERTEX_SIZE) {
+                int v = VertexLight.genericSky(mesh.opaque[i]);
+                min = Math.min(min, v);
+                max = Math.max(max, v);
+                freeBits |= mesh.opaque[i] & ~VertexLight.GENERIC_CHANNELS_MASK;
+                count++;
+            }
         }
+        int[] compact = compactLightStats(mesh);
+        min = Math.min(min, compact[0]);
+        max = Math.max(max, compact[1]);
+        count += compact[3];
         System.out.println("  " + count + " opake Vertices, Himmelslicht min " + min + " / max " + max);
         check(max == VertexLight.CHANNEL_MAX,
                 "belichtete Oberflaeche erreicht den Vertex mit Licht 255");
         check(min == 0, "versiegelter Hohlraum erreicht den Vertex mit Licht 0");
-        check(freeBits == 0, "Bits 16-31 des Licht-/Flag-Ints bleiben reserviert");
+        check(freeBits == 0, "Bits 24-31 des generischen Licht-/Flag-Ints bleiben reserviert");
 
         /* Zweite Runde mit einer Fackel im Hohlraum: landet auch das BLOCKlicht im Vertex? */
         Chunk lit = new Chunk(0, 0);
@@ -591,9 +600,10 @@ public final class LightProbe {
         int blockMax = 0;
         if (litMesh != null && litMesh.opaque != null) {
             for (int i = 4; i < litMesh.opaque.length; i += de.skyengine.game.world.chunk.ChunkMesher.VERTEX_SIZE) {
-                blockMax = Math.max(blockMax, VertexLight.block(litMesh.opaque[i]));
+                blockMax = Math.max(blockMax, VertexLight.genericRed(litMesh.opaque[i]));
             }
         }
+        if (litMesh != null) blockMax = Math.max(blockMax, compactLightStats(litMesh)[2]);
         System.out.println("  Blocklicht im Vertex, max " + blockMax);
         check(blockMax > 0, "die Fackel erreicht den Vertex ueber die Blocklicht-Bits");
     }
@@ -634,19 +644,101 @@ public final class LightProbe {
         de.skyengine.game.world.chunk.ChunkMesher.MeshData mesh =
                 new de.skyengine.game.world.chunk.ChunkMesher()
                         .mesh(chunk, 3, null, null, null, null, new Chunk[4]);
-        check(mesh != null && mesh.opaque != null, "Gradient-Mesher liefert Geometrie");
-        if (mesh == null || mesh.opaque == null) return;
+        check(hasOpaqueGeometry(mesh), "Gradient-Mesher liefert Geometrie");
+        if (!hasOpaqueGeometry(mesh)) return;
 
         boolean foundFractionalVertex = false;
-        for (int i = 4; i < mesh.opaque.length; i += de.skyengine.game.world.chunk.ChunkMesher.VERTEX_SIZE) {
-            int sky = VertexLight.sky(mesh.opaque[i]);
+        for (int i = 4; mesh.opaque != null && i < mesh.opaque.length; i += ChunkMesher.VERTEX_SIZE) {
+            int sky = VertexLight.genericSky(mesh.opaque[i]);
             if (sky > 0 && sky < VertexLight.CHANNEL_MAX && sky % 17 != 0) {
                 foundFractionalVertex = true;
                 break;
             }
         }
+        if (!foundFractionalVertex) foundFractionalVertex = compactHasFractionalSky(mesh);
         check(foundFractionalVertex,
                 "Mesh bewahrt gemittelte Lichtstufen ohne Ganzzahl-Banding");
+    }
+
+    private static boolean hasOpaqueGeometry(ChunkMesher.MeshData mesh) {
+        if (mesh == null) return false;
+        if (mesh.opaque != null) return true;
+        if (mesh.compactGeometry == null) return false;
+        for (int[] geometry : mesh.compactGeometry) if (geometry != null) return true;
+        return false;
+    }
+
+    /** minSky, maxSky, maxBlock, cornerCount ueber alle Compact-Shading-Streams. */
+    private static int[] compactLightStats(ChunkMesher.MeshData mesh) {
+        int min = VertexLight.CHANNEL_MAX, max = 0, blockMax = 0, count = 0;
+        for (int mode = 0; mode < 3; mode++) {
+            int[] geometry = mesh.compactGeometry == null ? null : mesh.compactGeometry[mode];
+            if (geometry == null) continue;
+            int quads = geometry.length / 2;
+            int[] shading = mesh.compactShading[mode];
+            for (int quad = 0; quad < quads; quad++) for (int corner = 0; corner < 4; corner++) {
+                int sky = 255, block = 0;
+                if (mode != PackedTerrainQuad.SHADING_STANDARD) {
+                    int word = shading[mode == PackedTerrainQuad.SHADING_UNIFORM ? quad : quad * 4 + corner];
+                    sky = PackedTerrainQuad.sampleSumToByteLight(PackedTerrainQuad.skySum(word));
+                    block = PackedTerrainQuad.sampleSumToByteLight(PackedTerrainQuad.redSum(word));
+                }
+                min = Math.min(min, sky);
+                max = Math.max(max, sky);
+                blockMax = Math.max(blockMax, block);
+                count++;
+            }
+        }
+        return new int[]{min, max, blockMax, count};
+    }
+
+    private static boolean compactHasFractionalSky(ChunkMesher.MeshData mesh) {
+        for (int mode = PackedTerrainQuad.SHADING_UNIFORM; mode <= PackedTerrainQuad.SHADING_CORNER; mode++) {
+            int[] shading = mesh.compactShading[mode];
+            if (shading == null) continue;
+            for (int word : shading) {
+                int sky = PackedTerrainQuad.sampleSumToByteLight(PackedTerrainQuad.skySum(word));
+                if (sky > 0 && sky < 255 && sky % 17 != 0) return true;
+            }
+        }
+        return false;
+    }
+
+    private static int compactBlockMaxOutsidePocket(ChunkMesher.MeshData mesh, int yBase) {
+        int result = 0;
+        for (int mode = 0; mode < 3; mode++) {
+            int[] geometry = mesh.compactGeometry[mode];
+            if (geometry == null) continue;
+            int[] shading = mesh.compactShading[mode];
+            for (int quad = 0; quad < geometry.length / 2; quad++) {
+                int g0 = geometry[quad * 2];
+                int axis = PackedTerrainQuad.axis(g0);
+                boolean positive = PackedTerrainQuad.positive(g0);
+                int x = PackedTerrainQuad.x(g0), y = PackedTerrainQuad.y(g0);
+                int z = PackedTerrainQuad.z(g0);
+                int minX = x, maxX = x, minY = y, maxY = y, minZ = z, maxZ = z;
+                if (axis == 0) {
+                    minX = maxX = x + (positive ? 1 : 0);
+                    maxY += PackedTerrainQuad.width(g0); maxZ += PackedTerrainQuad.height(g0);
+                } else if (axis == 1) {
+                    minY = maxY = y + (positive ? 1 : 0);
+                    maxX += PackedTerrainQuad.width(g0); maxZ += PackedTerrainQuad.height(g0);
+                } else {
+                    minZ = maxZ = z + (positive ? 1 : 0);
+                    maxX += PackedTerrainQuad.width(g0); maxY += PackedTerrainQuad.height(g0);
+                }
+                boolean allInPocket = minX >= 15 && maxX <= 16 && minZ >= 15 && maxZ <= 16
+                        && minY >= 100 - yBase && maxY <= 101 - yBase;
+                if (allInPocket || mode == PackedTerrainQuad.SHADING_STANDARD) continue;
+                int corners = mode == PackedTerrainQuad.SHADING_UNIFORM ? 1 : 4;
+                for (int corner = 0; corner < corners; corner++) {
+                    int word = shading[mode == PackedTerrainQuad.SHADING_UNIFORM ? quad : quad * 4 + corner];
+                    result = Math.max(result, PackedTerrainQuad.sampleSumToByteLight(
+                            PackedTerrainQuad.redSum(word)));
+                }
+            }
+        }
+        return result;
     }
 
     /**

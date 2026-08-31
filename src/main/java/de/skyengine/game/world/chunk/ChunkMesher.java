@@ -20,9 +20,8 @@ public class ChunkMesher {
      * int1: posZ | u    &lt;&lt; 16     (u als u16 fixed-point 6.10, Bias +1)
      * int2: v    | layer &lt;&lt; 16    (v wie u; layer = Texture-Array-Layer)
      * int3: r | g &lt;&lt; 8 | b &lt;&lt; 16  (Farbe = Helligkeit * AO * Tint, je u8)
-     * int4: gemitteltes Skylight 0..255 in Bits 0-7, Blocklicht 0..255 in Bits 8-15,
-     *       {@link #FLAT_SOURCE_FLUID_TOP} in Bit 16,
-     *       Bits 17-31 reserviert; liest der Vertex-Shader als eigenes Attribut 1
+     * int4: Sky/R/G/B als vier 6-Bit-Samplesummen, {@link #FLAT_SOURCE_FLUID_TOP} in Bit 24,
+     *       Bits 25-31 reserviert; liest der Vertex-Shader als eigenes Attribut 1
      * </pre>
      * Entpackt wird im Vertex-Shader des ChunkRenderers. Ein Quad = 4 Vertices (A,B,C,D),
      * Triangulierung über den geteilten Index-Buffer (0,1,2, 2,3,0).
@@ -69,24 +68,50 @@ public class ChunkMesher {
         public final int[] cutout;
         public final int[] translucent;
         public final int[] detail;
-        MeshData(int[] opaque, int[] cutout, int[] translucent, int[] detail) {
+        public final int[][] compactGeometry;
+        public final int[][] compactShading;
+        public final MeshStats stats;
+
+        MeshData(int[] opaque, int[] cutout, int[] translucent, int[] detail,
+                 int[][] compactGeometry, int[][] compactShading, MeshStats stats) {
             this.opaque = opaque;
             this.cutout = cutout;
             this.translucent = translucent;
             this.detail = detail;
+            this.compactGeometry = compactGeometry;
+            this.compactShading = compactShading;
+            this.stats = stats;
         }
 
         public boolean isEmpty() {
             return this.opaque == null && this.cutout == null && this.translucent == null
-                    && this.detail == null;
+                    && this.detail == null && allNull(this.compactGeometry);
         }
 
+        private static boolean allNull(int[][] arrays) {
+            if (arrays == null) return true;
+            for (int[] array : arrays) if (array != null) return false;
+            return true;
+        }
+
+    }
+
+    public record MeshStats(long fullCubeFacesBeforeGreedy, long fullCubeQuadsAfterGreedy,
+                            long mergedStandardQuads, long mergedUniformQuads, long mergedCornerQuads,
+                            long cornerShadingFaces, long cornerShadingFacesMerged,
+                            long cornerShadingFacesUnmerged, long mergeRejectedByShading,
+                            long mergeRejectedByMaterial, long mergeRejectedByState,
+                            long overlayFallbackFaces,
+                            long standardBytes, long uniformBytes, long cornerBytes) {
+        static final MeshStats EMPTY = new MeshStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     /* Ein wiederverwendeter Buffer pro RenderLayer (Index = RenderLayer.ordinal()) + 1 für
        das Kleinvegetations-Segment (Index DETAIL_BUFFER). */
     private static final int DETAIL_BUFFER = RenderLayer.VALUES.length;
     private final VertexBuffer[] buffers = {new VertexBuffer(), new VertexBuffer(), new VertexBuffer(), new VertexBuffer()};
+    private final VertexBuffer[] compactGeometry = {new VertexBuffer(), new VertexBuffer(), new VertexBuffer()};
+    private final VertexBuffer[] compactShading = {null, new VertexBuffer(), new VertexBuffer()};
 
     /* Kontext des laufenden mesh()-Aufrufs (für AO-Sampling über Chunk-Grenzen).
        Mesher ist ThreadLocal -> keine Nebenläufigkeit; wird am Ende genullt (kein Chunk-Leak). */
@@ -129,6 +154,15 @@ public class ChunkMesher {
     private static final int[] AXIS_N = {1, 1, 2, 2, 0, 0};
     private static final int[] AXIS_T1 = {0, 0, 0, 0, 1, 1};
     private static final int[] AXIS_T2 = {2, 2, 1, 1, 2, 2};
+    /* Tangenten-Koordinaten der BakedQuad-Ecken A,B,C,D je Face. */
+    private static final int[][] CORNER_S = {
+            {0,0,1,1}, {0,1,1,0}, {1,0,0,1}, {0,1,1,0}, {0,0,1,1}, {0,0,1,1}
+    };
+    private static final int[][] CORNER_T = {
+            {0,1,1,0}, {0,0,1,1}, {0,0,1,1}, {0,0,1,1}, {0,1,1,0}, {1,0,0,1}
+    };
+    private static final int[][] TRIANGLES_NORMAL = {{0,1,2}, {2,3,0}};
+    private static final int[][] TRIANGLES_FLIPPED = {{1,2,3}, {3,0,1}};
 
     /* Halo-Snapshot der Section (34³ = Section + 1-Zellen-Rand): deckt exakt die
        Sampling-Reichweite von Cull, AO und Corner-Licht ab (jede Abfrage liegt ±1 um eine
@@ -151,6 +185,13 @@ public class ChunkMesher {
        das BlockState-Objekt (volatile statesById-Load + Pointer-Chase im heißesten Loop). */
     private boolean[] occluderCache = new boolean[0];
     /* Merge-Grid einer Slice: 0 = leer/schon emittiert, sonst Merge-Schlüssel */
+    private final int[] faceState = new int[ChunkSection.SIZE * ChunkSection.SIZE];
+    private final byte[] faceClass = new byte[ChunkSection.SIZE * ChunkSection.SIZE];
+    private final int[] faceLight = new int[ChunkSection.SIZE * ChunkSection.SIZE * 4];
+    private final byte[] faceAo = new byte[ChunkSection.SIZE * ChunkSection.SIZE * 4];
+    private final byte[] faceDiagonal = new byte[ChunkSection.SIZE * ChunkSection.SIZE];
+    private final boolean[] faceActualCorner = new boolean[ChunkSection.SIZE * ChunkSection.SIZE];
+    /** Nur noch fuer den vorerst behaltenen Referenzpfad; der Compact-Pfad nutzt die Face-Arrays. */
     private final long[] keyGrid = new long[ChunkSection.SIZE * ChunkSection.SIZE];
     /* Markiert Fluid-Zellen, deren flach-stilles Top-Face der gemergte Wasser-Pass schon
        emittiert hat -> Pass 2 (FluidGeometry.build) lässt dort den Top aus. Pro mesh() neu. */
@@ -158,11 +199,18 @@ public class ChunkMesher {
     /* Wiederverwendete Zellkoordinate (Achsen-indiziert) */
     private final int[] cellPos = new int[3];
     private final float[] vertPos = new float[3];
+    private final int[] candidateLight = new int[4];
+    private final byte[] candidateAo = new byte[4];
+    private final float[] candidateAoFloat = new float[4];
 
     /* Greedy-Eignung + Face-Quads je BlockState-ID (lazy; Mesher ist ThreadLocal).
        Array statt HashMap: der Lookup läuft ~200k-mal pro Section (Pass 1 + Pass 2) —
        das Autoboxing der State-IDs würde pro Lookup allozieren. */
     private GreedyFaces[] greedyCache = new GreedyFaces[0];
+
+    private long statFullCubeFaces, statFullCubeQuads, statMergedStandard, statMergedUniform,
+            statMergedCorner, statCornerFaces, statCornerFacesMerged, statCornerFacesUnmerged,
+            statRejectedShading, statRejectedMaterial, statRejectedState, statOverlayFallbackFaces;
 
     /**
      * Vorberechnete Daten eines greedy-fähigen States: die 6 Full-Cube-Face-Quads und je Face
@@ -170,17 +218,20 @@ public class ChunkMesher {
      * des gemergten Quads skaliert). {@link #NONE} = State ist nicht greedy-fähig.
      */
     private static final class GreedyFaces {
-        static final GreedyFaces NONE = new GreedyFaces(null, null, null, null);
+        static final GreedyFaces NONE = new GreedyFaces(null, null, null, null, null);
 
         final BlockState state;
         final BakedQuad[] quads;     // Index = Face
         final boolean[] uAlongT1;    // Index = Face
+        final byte[] uvTransform;    // D4-Transformation der beiden Face-Tangenten
         final BakedQuad[] overlays;  // Index = Face, null = keine Overlays (Normalfall)
 
-        GreedyFaces(BlockState state, BakedQuad[] quads, boolean[] uAlongT1, BakedQuad[] overlays) {
+        GreedyFaces(BlockState state, BakedQuad[] quads, boolean[] uAlongT1,
+                    byte[] uvTransform, BakedQuad[] overlays) {
             this.state = state;
             this.quads = quads;
             this.uAlongT1 = uAlongT1;
+            this.uvTransform = uvTransform;
             this.overlays = overlays;
         }
     }
@@ -193,10 +244,17 @@ public class ChunkMesher {
     public MeshData mesh(Chunk chunk, int sectionIndex, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals) {
         ChunkSection section = chunk.getSection(sectionIndex);
         if (section == null || section.isEmpty()) {
-            return new MeshData(null, null, null, null);
+            return new MeshData(null, null, null, null, null, null, MeshStats.EMPTY);
         }
 
         for (VertexBuffer buffer : this.buffers) buffer.reset();
+        for (VertexBuffer buffer : this.compactGeometry) buffer.reset();
+        for (VertexBuffer buffer : this.compactShading) if (buffer != null) buffer.reset();
+        this.statFullCubeFaces = this.statFullCubeQuads = 0;
+        this.statMergedStandard = this.statMergedUniform = this.statMergedCorner = 0;
+        this.statCornerFaces = this.statCornerFacesMerged = this.statCornerFacesUnmerged = 0;
+        this.statRejectedShading = this.statRejectedMaterial = this.statRejectedState = 0;
+        this.statOverlayFallbackFaces = 0;
 
         this.chunk = chunk;
         this.north = north;
@@ -318,13 +376,35 @@ public class ChunkMesher {
         this.chunk = this.north = this.south = this.west = this.east = null;
         this.diagonals = null;
 
+        int[][] compactGeometryData = new int[3][];
+        int[][] compactShadingData = new int[3][];
+        for (int i = 0; i < 3; i++) {
+            compactGeometryData[i] = this.compactGeometry[i].copyOrNull();
+            if (this.compactShading[i] != null) compactShadingData[i] = this.compactShading[i].copyOrNull();
+        }
+        MeshStats stats = new MeshStats(this.statFullCubeFaces, this.statFullCubeQuads,
+                this.statMergedStandard, this.statMergedUniform, this.statMergedCorner,
+                this.statCornerFaces, this.statCornerFacesMerged, this.statCornerFacesUnmerged,
+                this.statRejectedShading, this.statRejectedMaterial, this.statRejectedState,
+                this.statOverlayFallbackFaces,
+                bytes(compactGeometryData[PackedTerrainQuad.SHADING_STANDARD], null),
+                bytes(compactGeometryData[PackedTerrainQuad.SHADING_UNIFORM],
+                        compactShadingData[PackedTerrainQuad.SHADING_UNIFORM]),
+                bytes(compactGeometryData[PackedTerrainQuad.SHADING_CORNER],
+                        compactShadingData[PackedTerrainQuad.SHADING_CORNER]));
         MeshData data = new MeshData(
                 this.buffers[0].copyOrNull(),
                 this.buffers[1].copyOrNull(),
                 this.buffers[2].copyOrNull(),
-                this.buffers[DETAIL_BUFFER].copyOrNull()
+                this.buffers[DETAIL_BUFFER].copyOrNull(),
+                compactGeometryData, compactShadingData, stats
         );
         return data;
+    }
+
+    private static long bytes(int[] first, int[] second) {
+        return (long) ((first == null ? 0 : first.length) + (second == null ? 0 : second.length))
+                * Integer.BYTES;
     }
 
     /* ------------------------- Greedy Meshing ------------------------- */
@@ -337,6 +417,386 @@ public class ChunkMesher {
      * sind per Definition opak.
      */
     private void greedyPass(int baseY) {
+        int[] pos = this.cellPos;
+        int size = ChunkSection.SIZE;
+
+        for (int face = 0; face < 6; face++) {
+            int axisN = AXIS_N[face], axisT1 = AXIS_T1[face], axisT2 = AXIS_T2[face];
+            int offX = FACE_OFFSET[face][0], offY = FACE_OFFSET[face][1], offZ = FACE_OFFSET[face][2];
+
+            for (int slice = 0; slice < size; slice++) {
+                Arrays.fill(this.faceClass, (byte) -1);
+                Arrays.fill(this.faceActualCorner, false);
+
+                for (int b = 0; b < size; b++) {
+                    for (int a = 0; a < size; a++) {
+                        pos[axisN] = slice;
+                        pos[axisT1] = a;
+                        pos[axisT2] = b;
+                        int x = pos[0], y = pos[1], z = pos[2];
+                        int stateId = this.haloBlocks[haloIndex(x, y, z)];
+                        if (stateId == Blocks.AIR) continue;
+                        GreedyFaces gf = this.greedyFaces(stateId);
+                        if (gf == GreedyFaces.NONE) continue;
+                        int worldY = baseY + y;
+                        if (!shouldRenderFace(gf.state,
+                                this.sample(x + offX, worldY + offY, z + offZ))) continue;
+
+                        this.statFullCubeFaces++;
+                        if (gf.overlays != null && gf.overlays[face] != null) {
+                            /* Basis und Overlay muessen denselben Vertexpfad, dieselben vier
+                               Positionen und dieselbe Diagonale verwenden. Eine grosse Compact-
+                               Basis gegen einzelne Overlay-Quads ist zwar mathematisch koplanar,
+                               liefert rasterisiert aber nicht garantiert identische Tiefenwerte. */
+                            this.emitQuad(this.buffers[RenderLayer.OPAQUE.ordinal()], gf.quads[face],
+                                    x, y, worldY, z, 0F, 0F);
+                            this.emitQuad(this.buffers[RenderLayer.CUTOUT.ordinal()], gf.overlays[face],
+                                    x, y, worldY, z, 0F, 0F);
+                            this.statOverlayFallbackFaces++;
+                            continue;
+                        }
+
+                        BakedQuad quad = gf.quads[face];
+                        this.computeCornerLight(quad, x, worldY, z, this.lightCorners);
+                        if (this.ambientOcclusion) this.computeAo(quad, x, worldY, z, this.aoCorners);
+                        else Arrays.fill(this.aoCorners, 1F);
+
+                        int cell = b << ChunkSection.SHIFT | a;
+                        int base = cell << 2;
+                        boolean uniform = true;
+                        for (int corner = 0; corner < 4; corner++) {
+                            this.faceLight[base + corner] = this.lightCorners[corner];
+                            this.faceAo[base + corner] = (byte) aoIndex(this.aoCorners[corner]);
+                            if (corner > 0 && (this.faceLight[base + corner] != this.faceLight[base]
+                                    || this.faceAo[base + corner] != this.faceAo[base])) uniform = false;
+                        }
+                        boolean actualCorner = !uniform;
+                        if (actualCorner) {
+                            this.statCornerFaces++;
+                            this.faceActualCorner[cell] = true;
+                        }
+                        boolean needsExactTint = quad.tintType() == BakedQuad.TINT_NONE
+                                && quad.tint() != BakedQuad.WHITE;
+                        if ((quad.tintType() == BakedQuad.TINT_GRASS && this.chunk.grassTintCorners == null)
+                                || (quad.tintType() == BakedQuad.TINT_FOLIAGE
+                                && this.chunk.foliageTintCorners == null)) needsExactTint = true;
+                        int shadingClass;
+                        if (!uniform || needsExactTint) shadingClass = PackedTerrainQuad.SHADING_CORNER;
+                        else if (isStandardShading(this.faceLight[base], this.faceAo[base])) {
+                            shadingClass = PackedTerrainQuad.SHADING_STANDARD;
+                        } else shadingClass = PackedTerrainQuad.SHADING_UNIFORM;
+
+                        this.faceState[cell] = stateId;
+                        this.faceClass[cell] = (byte) shadingClass;
+                        this.faceDiagonal[cell] = (byte) (shouldFlipForSmoothLighting(
+                                this.aoCorners, this.lightCorners) ? 1 : 0);
+                    }
+                }
+
+                for (int b = 0; b < size; b++) {
+                    for (int a = 0; a < size; a++) {
+                        int cell = b << ChunkSection.SHIFT | a;
+                        int shadingClass = this.faceClass[cell];
+                        if (shadingClass < 0) continue;
+                        int stateId = this.faceState[cell];
+
+                        int w = 1;
+                        while (a + w < size && this.canExtend(face, cell,
+                                b << ChunkSection.SHIFT | (a + w), shadingClass, a, b, w + 1, 1)) w++;
+
+                        int h = 1;
+                        while (b + h < size) {
+                            boolean row = true;
+                            for (int i = 0; i < w; i++) {
+                                int candidate = (b + h) << ChunkSection.SHIFT | (a + i);
+                                if (!this.sameMergeIdentity(face, cell, candidate, shadingClass, true)) {
+                                    row = false;
+                                    break;
+                                }
+                            }
+                            if (!row) break;
+                            if (shadingClass == PackedTerrainQuad.SHADING_CORNER
+                                    && this.compatibleCornerDiagonal(face, a, b, w, h + 1) < 0) {
+                                this.statRejectedShading++;
+                                break;
+                            }
+                            h++;
+                        }
+
+                        int diagonal = shadingClass == PackedTerrainQuad.SHADING_CORNER
+                                ? this.compatibleCornerDiagonal(face, a, b, w, h) : 0;
+                        if (diagonal < 0) diagonal = this.faceDiagonal[cell];
+                        this.emitCompactQuad(stateId, face, slice, a, b, w, h,
+                                shadingClass, diagonal != 0);
+
+                        int sourceFaces = w * h;
+                        this.statFullCubeQuads++;
+                        /* Diese drei Zaehler sind die resultierenden Quads NACH Greedy (auch ein
+                           1x1-Ergebnis). Zusammen ergeben sie fullCubeQuadsAfterGreedy;
+                           ob Corner-Faces wirklich absorbiert wurden, erfassen die beiden
+                           cornerShadingFacesMerged/Unmerged-Zaehler separat. */
+                        if (shadingClass == PackedTerrainQuad.SHADING_STANDARD) this.statMergedStandard++;
+                        else if (shadingClass == PackedTerrainQuad.SHADING_UNIFORM) this.statMergedUniform++;
+                        else this.statMergedCorner++;
+                        int actualCorners = 0;
+                        for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) {
+                            int consumed = (b + j) << ChunkSection.SHIFT | (a + i);
+                            if (this.faceActualCorner[consumed]) actualCorners++;
+                            this.faceClass[consumed] = -1;
+                        }
+                        if (sourceFaces > 1) this.statCornerFacesMerged += actualCorners;
+                        else this.statCornerFacesUnmerged += actualCorners;
+                        a += w - 1;
+                    }
+                }
+            }
+        }
+    }
+
+    private boolean canExtend(int face, int root, int candidate, int shadingClass,
+                              int a, int b, int width, int height) {
+        if (!this.sameMergeIdentity(face, root, candidate, shadingClass, true)) return false;
+        if (shadingClass == PackedTerrainQuad.SHADING_CORNER
+                && this.compatibleCornerDiagonal(face, a, b, width, height) < 0) {
+            this.statRejectedShading++;
+            return false;
+        }
+        return true;
+    }
+
+    private boolean sameMergeIdentity(int face, int root, int other, int shadingClass, boolean count) {
+        if (other < 0 || other >= this.faceClass.length || this.faceClass[other] < 0) return false;
+        int rootState = this.faceState[root], otherState = this.faceState[other];
+        if (rootState != otherState) {
+            if (count) {
+                GreedyFaces rootFaces = this.greedyFaces(rootState);
+                GreedyFaces otherFaces = this.greedyFaces(otherState);
+                if (sameMaterialFace(rootFaces.quads[face], otherFaces.quads[face],
+                        rootFaces.uvTransform[face], otherFaces.uvTransform[face])) this.statRejectedState++;
+                else this.statRejectedMaterial++;
+            }
+            return false;
+        }
+        if (this.faceClass[other] != shadingClass) {
+            if (count) this.statRejectedShading++;
+            return false;
+        }
+        if (shadingClass == PackedTerrainQuad.SHADING_UNIFORM) {
+            int rb = root << 2, ob = other << 2;
+            if (this.faceLight[rb] != this.faceLight[ob] || this.faceAo[rb] != this.faceAo[ob]) {
+                if (count) this.statRejectedShading++;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean sameMaterialFace(BakedQuad a, BakedQuad b, int uvA, int uvB) {
+        return a.textureLayer() == b.textureLayer() && a.tint() == b.tint()
+                && a.tintType() == b.tintType() && uvA == uvB;
+    }
+
+    private void emitCompactQuad(int stateId, int face, int slice, int a, int b, int w, int h,
+                                 int shadingClass, boolean diagonalFlip) {
+        GreedyFaces gf = this.greedyFaces(stateId);
+        BakedQuad quad = gf.quads[face];
+        int[] p = this.cellPos;
+        p[AXIS_N[face]] = slice;
+        p[AXIS_T1[face]] = a;
+        p[AXIS_T2[face]] = b;
+        int axis = AXIS_N[face];
+        boolean positive = FACE_OFFSET[face][axis] > 0;
+
+        VertexBuffer geometry = this.compactGeometry[shadingClass];
+        geometry.ensure(2);
+        geometry.data[geometry.count++] = PackedTerrainQuad.geometry0(p[0], p[1], p[2], axis,
+                positive, w, h, gf.uvTransform[face], diagonalFlip);
+        geometry.data[geometry.count++] = PackedTerrainQuad.geometry1(
+                quad.textureLayer(), 0, quad.tintType() & 3);
+
+        if (shadingClass == PackedTerrainQuad.SHADING_UNIFORM) {
+            int cell = b << ChunkSection.SHIFT | a;
+            VertexBuffer shading = this.compactShading[shadingClass];
+            shading.ensure(1);
+            shading.data[shading.count++] = this.packUniform(cell << 2);
+        } else if (shadingClass == PackedTerrainQuad.SHADING_CORNER) {
+            VertexBuffer shading = this.compactShading[shadingClass];
+            shading.ensure(4);
+            for (int corner = 0; corner < 4; corner++) {
+                int source = this.rectangleCornerIndex(face, a, b, w, h, corner);
+                int light = this.faceLight[source];
+                int block = PackedTerrainQuad.byteLightToSampleSum(VertexLight.block(light));
+                shading.data[shading.count++] = PackedTerrainQuad.cornerShading(
+                        PackedTerrainQuad.byteLightToSampleSum(VertexLight.sky(light)),
+                        block, block, block, this.faceAo[source] & 3, quad.tint(), corner);
+            }
+        }
+    }
+
+    private int packUniform(int cornerIndex) {
+        int light = this.faceLight[cornerIndex];
+        int block = PackedTerrainQuad.byteLightToSampleSum(VertexLight.block(light));
+        return PackedTerrainQuad.uniformShading(
+                PackedTerrainQuad.byteLightToSampleSum(VertexLight.sky(light)),
+                block, block, block, this.faceAo[cornerIndex] & 3);
+    }
+
+    private static boolean isStandardShading(int light, byte ao) {
+        return VertexLight.sky(light) == 255 && VertexLight.block(light) == 0 && (ao & 3) == 3;
+    }
+
+    private static int aoIndex(float ao) {
+        return Math.clamp(Math.round((ao - 0.4F) * 5F), 0, 3);
+    }
+
+    /**
+     * Liefert 0/1 fuer eine verlustfrei darstellbare Zieldiagonale oder -1. Verglichen wird
+     * das tatsaechliche stueckweise affine Feld aller Quelldreiecke gegen beide Dreiecke des
+     * grossen Quads. Die Plane-Vergleiche arbeiten ausschliesslich ganzzahlig.
+     */
+    private int compatibleCornerDiagonal(int face, int a, int b, int w, int h) {
+        for (int corner = 0; corner < 4; corner++) {
+            int source = this.rectangleCornerIndex(face, a, b, w, h, corner);
+            this.candidateLight[corner] = this.faceLight[source];
+            this.candidateAo[corner] = this.faceAo[source];
+            this.candidateAoFloat[corner] = 0.4F + (this.candidateAo[corner] & 3) * 0.2F;
+        }
+        boolean normal = this.cornerRectMatches(face, a, b, w, h, false);
+        boolean flipped = this.cornerRectMatches(face, a, b, w, h, true);
+        if (!normal && !flipped) return -1;
+        if (normal != flipped) return flipped ? 1 : 0;
+        return shouldFlipForSmoothLighting(this.candidateAoFloat, this.candidateLight) ? 1 : 0;
+    }
+
+    private boolean cornerRectMatches(int face, int a, int b, int w, int h, boolean targetFlip) {
+        int[][] targetTriangles = targetFlip ? TRIANGLES_FLIPPED : TRIANGLES_NORMAL;
+        int diag0 = targetFlip ? 1 : 0;
+        int diag1 = targetFlip ? 3 : 2;
+        int other0 = targetFlip ? 2 : 1;
+        int other1 = targetFlip ? 0 : 3;
+
+        int dx0 = a + CORNER_S[face][diag0] * w;
+        int dy0 = b + CORNER_T[face][diag0] * h;
+        int dx1 = a + CORNER_S[face][diag1] * w;
+        int dy1 = b + CORNER_T[face][diag1] * h;
+        long targetSide0 = side(dx0, dy0, dx1, dy1,
+                a + CORNER_S[face][other0] * w, b + CORNER_T[face][other0] * h);
+        long targetSide1 = side(dx0, dy0, dx1, dy1,
+                a + CORNER_S[face][other1] * w, b + CORNER_T[face][other1] * h);
+
+        for (int y = b; y < b + h; y++) {
+            for (int x = a; x < a + w; x++) {
+                int cell = y << ChunkSection.SHIFT | x;
+                int[][] sourceTriangles = this.faceDiagonal[cell] != 0
+                        ? TRIANGLES_FLIPPED : TRIANGLES_NORMAL;
+                for (int[] sourceTriangle : sourceTriangles) {
+                    boolean needs0 = false, needs1 = false;
+                    for (int corner : sourceTriangle) {
+                        int px = x + CORNER_S[face][corner];
+                        int py = y + CORNER_T[face][corner];
+                        long s = side(dx0, dy0, dx1, dy1, px, py);
+                        if (s == 0) continue;
+                        if (sameSign(s, targetSide0)) needs0 = true;
+                        if (sameSign(s, targetSide1)) needs1 = true;
+                    }
+                    if (!needs0 && !needs1) {
+                        /* Ein nicht-degeneriertes Quelldreieck kann nicht vollstaendig auf der
+                           Zieldiagonale liegen; defensiv muessen dann beide Ebenen passen. */
+                        needs0 = needs1 = true;
+                    }
+                    if (needs0 && !this.trianglePlanesMatch(face, x, y, sourceTriangle,
+                            a, b, w, h, targetTriangles[0])) return false;
+                    if (needs1 && !this.trianglePlanesMatch(face, x, y, sourceTriangle,
+                            a, b, w, h, targetTriangles[1])) return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private boolean trianglePlanesMatch(int face, int cellA, int cellB, int[] sourceTriangle,
+                                        int a, int b, int w, int h, int[] targetTriangle) {
+        int sx0 = cellA + CORNER_S[face][sourceTriangle[0]];
+        int sy0 = cellB + CORNER_T[face][sourceTriangle[0]];
+        int sx1 = cellA + CORNER_S[face][sourceTriangle[1]];
+        int sy1 = cellB + CORNER_T[face][sourceTriangle[1]];
+        int sx2 = cellA + CORNER_S[face][sourceTriangle[2]];
+        int sy2 = cellB + CORNER_T[face][sourceTriangle[2]];
+        int tx0 = a + CORNER_S[face][targetTriangle[0]] * w;
+        int ty0 = b + CORNER_T[face][targetTriangle[0]] * h;
+        int tx1 = a + CORNER_S[face][targetTriangle[1]] * w;
+        int ty1 = b + CORNER_T[face][targetTriangle[1]] * h;
+        int tx2 = a + CORNER_S[face][targetTriangle[2]] * w;
+        int ty2 = b + CORNER_T[face][targetTriangle[2]] * h;
+
+        int cell = cellB << ChunkSection.SHIFT | cellA;
+        int base = cell << 2;
+        for (int channel = 0; channel < 3; channel++) {
+            int sv0 = this.shadingValue(base + sourceTriangle[0], channel);
+            int sv1 = this.shadingValue(base + sourceTriangle[1], channel);
+            int sv2 = this.shadingValue(base + sourceTriangle[2], channel);
+            int tv0 = this.candidateValue(targetTriangle[0], channel);
+            int tv1 = this.candidateValue(targetTriangle[1], channel);
+            int tv2 = this.candidateValue(targetTriangle[2], channel);
+            if (!samePlane(sx0, sy0, sv0, sx1, sy1, sv1, sx2, sy2, sv2,
+                    tx0, ty0, tv0, tx1, ty1, tv1, tx2, ty2, tv2)) return false;
+        }
+        return true;
+    }
+
+    private int shadingValue(int cornerIndex, int channel) {
+        if (channel == 2) return this.faceAo[cornerIndex] & 3;
+        int light = this.faceLight[cornerIndex];
+        return PackedTerrainQuad.byteLightToSampleSum(channel == 0
+                ? VertexLight.sky(light) : VertexLight.block(light));
+    }
+
+    private int candidateValue(int corner, int channel) {
+        if (channel == 2) return this.candidateAo[corner] & 3;
+        int light = this.candidateLight[corner];
+        return PackedTerrainQuad.byteLightToSampleSum(channel == 0
+                ? VertexLight.sky(light) : VertexLight.block(light));
+    }
+
+    private int rectangleCornerIndex(int face, int a, int b, int w, int h, int corner) {
+        int cellA = a + (CORNER_S[face][corner] == 0 ? 0 : w - 1);
+        int cellB = b + (CORNER_T[face][corner] == 0 ? 0 : h - 1);
+        return ((cellB << ChunkSection.SHIFT | cellA) << 2) | corner;
+    }
+
+    private static long side(int ax, int ay, int bx, int by, int px, int py) {
+        return (long) (bx - ax) * (py - ay) - (long) (by - ay) * (px - ax);
+    }
+
+    private static boolean sameSign(long a, long b) {
+        return a != 0 && b != 0 && (a < 0) == (b < 0);
+    }
+
+    private static boolean samePlane(int x0, int y0, int v0, int x1, int y1, int v1,
+                                     int x2, int y2, int v2, int qx0, int qy0, int qv0,
+                                     int qx1, int qy1, int qv1, int qx2, int qy2, int qv2) {
+        long d = determinant(x0, y0, x1, y1, x2, y2);
+        long qd = determinant(qx0, qy0, qx1, qy1, qx2, qy2);
+        long pa = (long) v0 * (y1 - y2) + (long) v1 * (y2 - y0) + (long) v2 * (y0 - y1);
+        long pb = (long) v0 * (x2 - x1) + (long) v1 * (x0 - x2) + (long) v2 * (x1 - x0);
+        long pc = (long) v0 * ((long) x1 * y2 - (long) x2 * y1)
+                + (long) v1 * ((long) x2 * y0 - (long) x0 * y2)
+                + (long) v2 * ((long) x0 * y1 - (long) x1 * y0);
+        long qa = (long) qv0 * (qy1 - qy2) + (long) qv1 * (qy2 - qy0)
+                + (long) qv2 * (qy0 - qy1);
+        long qb = (long) qv0 * (qx2 - qx1) + (long) qv1 * (qx0 - qx2)
+                + (long) qv2 * (qx1 - qx0);
+        long qc = (long) qv0 * ((long) qx1 * qy2 - (long) qx2 * qy1)
+                + (long) qv1 * ((long) qx2 * qy0 - (long) qx0 * qy2)
+                + (long) qv2 * ((long) qx0 * qy1 - (long) qx1 * qy0);
+        return pa * qd == qa * d && pb * qd == qb * d && pc * qd == qc * d;
+    }
+
+    private static long determinant(int x0, int y0, int x1, int y1, int x2, int y2) {
+        return (long) x0 * (y1 - y2) + (long) x1 * (y2 - y0) + (long) x2 * (y0 - y1);
+    }
+
+    private void greedyPassLegacy(int baseY) {
         VertexBuffer buffer = this.buffers[RenderLayer.OPAQUE.ordinal()];
         long[] grid = this.keyGrid;
         int[] pos = this.cellPos;
@@ -683,8 +1143,12 @@ public class ChunkMesher {
         }
 
         boolean[] uAlongT1 = new boolean[6];
+        byte[] uvTransform = new byte[6];
         for (int face = 0; face < 6; face++) {
             BakedQuad quad = quads[face];
+            /* Der Compact-Shader leitet die Richtungshelligkeit aus dem Face ab. Modelle mit
+               absichtlich abweichender Helligkeit bleiben deshalb im verlustfreien Fallback. */
+            if (quad.brightness() != BlockModels.FACE_BRIGHTNESS[face]) return GreedyFaces.NONE;
             int axisN = AXIS_N[face], axisT1 = AXIS_T1[face], axisT2 = AXIS_T2[face];
             float plane = FACE_OFFSET[face][0] + FACE_OFFSET[face][1] + FACE_OFFSET[face][2] > 0 ? 1F : 0F;
             float[] verts = quad.vertices();
@@ -724,6 +1188,9 @@ public class ChunkMesher {
                 }
             }
             uAlongT1[face] = uT1;
+            int transform = findUvTransform(cu, cv);
+            if (transform < 0) return GreedyFaces.NONE;
+            uvTransform[face] = (byte) transform;
         }
 
         /* Seiten-Overlays (Grasblock) je Face einsortieren — sie werden pro sichtbarer Zelle
@@ -733,7 +1200,31 @@ public class ChunkMesher {
             if (overlays == null) overlays = new BakedQuad[6];
             overlays[quad.cullFace()] = quad;
         }
-        return new GreedyFaces(state, quads, uAlongT1, overlays);
+        return new GreedyFaces(state, quads, uAlongT1, uvTransform, overlays);
+    }
+
+    /** D4-Abbildung von Face-Tangenten (s,t) auf die gebackenen 0/1-UVs. */
+    private static int findUvTransform(float[] u, float[] v) {
+        for (int transform = 0; transform < 8; transform++) {
+            boolean matches = true;
+            for (int t = 0; t <= 1 && matches; t++) for (int s = 0; s <= 1; s++) {
+                int corner = s | t << 1;
+                float expectedU = switch (transform) {
+                    case 0 -> s; case 1 -> 1 - s; case 2 -> s; case 3 -> 1 - s;
+                    case 4 -> t; case 5 -> 1 - t; case 6 -> t; default -> 1 - t;
+                };
+                float expectedV = switch (transform) {
+                    case 0 -> t; case 1 -> t; case 2 -> 1 - t; case 3 -> 1 - t;
+                    case 4 -> s; case 5 -> s; case 6 -> 1 - s; default -> 1 - s;
+                };
+                if (u[corner] != expectedU || v[corner] != expectedV) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) return transform;
+        }
+        return -1;
     }
 
     private static int snapIndex(int x, int y, int z) {
@@ -886,8 +1377,8 @@ public class ChunkMesher {
     }
 
     /**
-     * Packt einen Vertex ins 5-Int-Format (siehe {@link #VERTEX_SIZE}); {@code light} = gepacktes
-     * Licht (Himmel in Bits 0-7, Block in Bits 8-15) aus {@link #computeCornerLight}.
+     * Packt einen Vertex ins 5-Int-Format (siehe {@link #VERTEX_SIZE}); {@code light} kommt intern
+     * als Sky/Mono-Block je Byte an und wird hier in Sky/R/G/B je sechs Bit plus Flags migriert.
      */
     private void putVertex(VertexBuffer buffer, float px, float py, float pz,
                                   float u, float v, int layer, float r, float g, float b, int light) {
@@ -900,10 +1391,10 @@ public class ChunkMesher {
         buffer.data[buffer.count++] = zi | ui << 16;
         buffer.data[buffer.count++] = vi | layer << 16;
         buffer.data[buffer.count++] = ri | gi << 8 | bi << 16 | this.plantHash << 24;
-        /* Skylight in Bits 0-7, Blocklicht in Bits 8-15; Bit 16 markiert flache Quell-Fluid-Tops,
-           17-31 bleiben reserviert. Bewusst NICHT in int3 einmultipliziert: der Helligkeits-Regler
+        /* Sky/R/G/B in je sechs Bit; Bit 24 markiert flache Quell-Fluid-Tops. Bewusst NICHT in
+           int3 einmultipliziert: der Helligkeits-Regler
            und die Lichtkurve laufen im Shader, sonst wäre jede Helligkeitsänderung ein Voll-Remesh. */
-        buffer.data[buffer.count++] = light;
+        buffer.data[buffer.count++] = VertexLight.packGenericRgb(light);
     }
 
     private static int fixedPos(float f) {
