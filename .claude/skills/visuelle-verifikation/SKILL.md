@@ -27,7 +27,7 @@ description: Wie man Änderungen an dieser Engine ehrlich verifiziert — was oh
    3×3 Generator-Chunks (Seed 123), Quad-Zähler je Layer + FNV-Hash über alle Vertex-Daten.
    Identische `MESH <hash>`-Zeile vor/nach einer Mesher-Änderung = bit-identische Geometrie;
    explodierende Quad-Zähler = stiller Greedy-Regress (Merge bricht weg).
-6. **`./gradlew run`** — alles Sichtbare (Meshing, Rendering, Fluids, LOD, GUI, Tints) ist NUR so
+6. **`./gradlew run`** — alles Sichtbare (Meshing, Rendering, Fluids, GUI, Tints) ist NUR so
    prüfbar. Konsole zeigt FPS/TPS jede Sekunde; der Fenstertitel (im Debug-Modus) Sections
    sichtbar/total, Chunk-Zahl, Spielerposition.
 
@@ -56,9 +56,9 @@ Verdrahtete Tasten (KeyBindings bzw. GameContainer):
 | ESC | Pausenmenü (löst auch einen Save aus) |
 
 **Alle übrigen Debug-Schalter liegen im `GuiDebugScreen` (Optionsmenü), NICHT auf Tasten:**
-Wireframe, GpuCull an/aus + Occlusion-Debug-Tint, LOD-Gras-Overlay, Chunk-Loading einfrieren
-(Edit-Remeshes laufen weiter), alle Chunks neu laden (Determinismus-Check; LOD-Neuaufbau geht
-über den LOD-Toggle in den Grafik-Optionen). AO/LOD/Render-Distanz/Fog/AA schalten die
+Wireframe, Chunk-Loading einfrieren
+(Edit-Remeshes laufen weiter) und alle Chunks neu laden (Determinismus-Check).
+AO/Render-Distanz/Fog/AA schalten die
 Grafik-Optionen (`GuiVideoSettings`, Live-Apply). Die früheren Hotkeys F6/F7/F8/P/N/V/−/=/[/]
 existieren nicht mehr.
 
@@ -86,5 +86,4 @@ Durchlauf sofort abbrechen statt weiterzusteuern.
 - Textur-Änderung im Block wirkt nicht → eine gleichnamige Modell-Datei überdeckt die
   Block-Definition (Warnung im Log) oder ein Preset-Feld wird vom Kind überschrieben.
 - Falsche Textur auf anderem Block → `layerOf` nach TextureArray-Bau aufgerufen.
-- Schlitze am LOD/L0-Übergang → fehlende Skirts an Masken-Kanten (lod-system).
 - Naht in der Welt nach „Chunks neu laden" → Generator-Purity verletzt (weltgen-v2).

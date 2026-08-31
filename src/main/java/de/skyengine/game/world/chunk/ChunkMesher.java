@@ -31,8 +31,7 @@ public class ChunkMesher {
 
     /**
      * Vertex-Flag für horizontal gerenderte Quell-Fluid-Tops. Der Shader rekonstruiert deren
-     * Nachkommastelle analytisch, damit Section-, LOD- und Superregion-Packung dieselbe Ebene
-     * ergeben statt an den unterschiedlichen Fixed-Point-Skalen feine Risse zu erzeugen.
+     * Nachkommastelle analytisch, damit flache Quelloberflächen exakt auf ihrer Sollhöhe liegen.
      */
     public static final int FLAT_SOURCE_FLUID_TOP = 1 << VertexLight.FIRST_FLAG_BIT;
 
@@ -44,8 +43,6 @@ public class ChunkMesher {
      * unverändert, nur die Interpretation ändert sich. Nötig, weil MC-Modelle koplanare Flächen mit
      * winzigen Offsets trennen; bei 1/256 war der kleinste darstellbare Versatz (1/16 px) selbst
      * schon sichtbar. Größter section-lokaler Wert: (32 + MAX_OFFSET + 1) × 1024 = 35072 von 65535.
-     *
-     * <p>Das volumetrische LOD verwendet ein separates gepacktes Quadformat.
      */
     public static final float POS_SCALE = 1024F;
     /** Skalierung des UV-Fixed-Points (1/1024; reicht für Greedy-UVs bis 32+). */
@@ -72,19 +69,11 @@ public class ChunkMesher {
         public final int[] cutout;
         public final int[] translucent;
         public final int[] detail;
-        /* Tatsaechlich emittierte Rand-Faces dieser Section. Layout:
-           (face - NORTH) * 32 + Tangentialkoordinate, Bits = lokales Y 0..31.
-           Das LOD-Stitching verwendet damit exakt dieselbe Ownership wie das sichtbare
-           L0-Mesh statt die Cull-Entscheidung spaeter aus Blockdaten zu erraten. */
-        private final int[] boundaryFaces;
-
-        MeshData(int[] opaque, int[] cutout, int[] translucent, int[] detail,
-                 int[] boundaryFaces) {
+        MeshData(int[] opaque, int[] cutout, int[] translucent, int[] detail) {
             this.opaque = opaque;
             this.cutout = cutout;
             this.translucent = translucent;
             this.detail = detail;
-            this.boundaryFaces = boundaryFaces;
         }
 
         public boolean isEmpty() {
@@ -92,17 +81,6 @@ public class ChunkMesher {
                     && this.detail == null;
         }
 
-        /** Unveraenderlicher Snapshot der vier horizontalen Section-Raender. */
-        public int[] boundaryFaces() {
-            return this.boundaryFaces;
-        }
-
-        public boolean rendersBoundaryFace(int face, int tangent, int localY) {
-            if (face < 2 || face > 5 || tangent < 0 || tangent >= ChunkSection.SIZE
-                    || localY < 0 || localY >= ChunkSection.SIZE) return false;
-            int index = (face - 2) * ChunkSection.SIZE + tangent;
-            return (this.boundaryFaces[index] & (1 << localY)) != 0;
-        }
     }
 
     /* Ein wiederverwendeter Buffer pro RenderLayer (Index = RenderLayer.ordinal()) + 1 für
@@ -177,8 +155,6 @@ public class ChunkMesher {
     /* Markiert Fluid-Zellen, deren flach-stilles Top-Face der gemergte Wasser-Pass schon
        emittiert hat -> Pass 2 (FluidGeometry.build) lässt dort den Top aus. Pro mesh() neu. */
     private final boolean[] mergedWaterTop = new boolean[ChunkSection.VOLUME];
-    /* Pro mesh()-Aufruf aufgebauter Ownership-Snapshot fuer NORTH/SOUTH/WEST/EAST. */
-    private final int[] boundaryFaces = new int[4 * ChunkSection.SIZE];
     /* Wiederverwendete Zellkoordinate (Achsen-indiziert) */
     private final int[] cellPos = new int[3];
     private final float[] vertPos = new float[3];
@@ -212,14 +188,12 @@ public class ChunkMesher {
     /**
      * Mesht eine Section. Läuft auf einem Worker-Thread - reine Daten, kein GL.
      *
-     * @return MeshData; auch eine leere Section liefert einen leeren Ownership-Snapshot,
-     *         damit ein Remesh zuvor publizierte Rand-Faces sicher loeschen kann
+     * @return MeshData der vier Rendersegmente
      */
     public MeshData mesh(Chunk chunk, int sectionIndex, Chunk north, Chunk south, Chunk west, Chunk east, Chunk[] diagonals) {
         ChunkSection section = chunk.getSection(sectionIndex);
-        Arrays.fill(this.boundaryFaces, 0);
         if (section == null || section.isEmpty()) {
-            return new MeshData(null, null, null, null, this.boundaryFaces.clone());
+            return new MeshData(null, null, null, null);
         }
 
         for (VertexBuffer buffer : this.buffers) buffer.reset();
@@ -313,13 +287,11 @@ public class ChunkMesher {
 
                             int neighborId = this.sample(nx, ny, nz);
                             if (!shouldRenderFace(state, neighborId)) continue;
-                            this.markBoundaryFace(cullFace, x, y, z);
                         } else if (state.isFluid()) {
                             /* FluidGeometry hat die Nachbarentscheidung bereits getroffen und
                                liefert nur wirklich sichtbare Seiten, allerdings bewusst mit
                                NO_CULL. Die planare Seitenrichtung wird deshalb aus dem Quad
                                gelesen; Tops/Bottoms ergeben NO_CULL und werden ignoriert. */
-                            this.markBoundaryFace(fluidSideFace(quad), x, y, z);
                         }
                         int vertexFlags = state.isFluid() && FluidGeometry.isFlatSourceTop(quad)
                                 ? FLAT_SOURCE_FLUID_TOP : 0;
@@ -337,7 +309,6 @@ public class ChunkMesher {
                         int nz = z + FACE_OFFSET[cullFace][2];
                         int neighborId = this.sample(nx, ny, nz);
                         if (!shouldRenderFace(state, neighborId)) continue;
-                        this.markBoundaryFace(cullFace, x, y, z);
                         this.emitQuad(this.buffers[RenderLayer.CUTOUT.ordinal()], quad, x, y, worldY, z, offsetX, offsetZ);
                     }
                 }
@@ -351,8 +322,7 @@ public class ChunkMesher {
                 this.buffers[0].copyOrNull(),
                 this.buffers[1].copyOrNull(),
                 this.buffers[2].copyOrNull(),
-                this.buffers[DETAIL_BUFFER].copyOrNull(),
-                this.boundaryFaces.clone()
+                this.buffers[DETAIL_BUFFER].copyOrNull()
         );
         return data;
     }
@@ -396,7 +366,6 @@ public class ChunkMesher {
                         int worldY = baseY + y;
                         int neighborId = this.sample(x + offX, worldY + offY, z + offZ);
                         if (!shouldRenderFace(gf.state, neighborId)) continue;
-                        this.markBoundaryFace(face, x, y, z);
 
                         /* Seiten-Overlay (Grasblock): Basis-Face EINZELN emittieren (nicht mergen)
                            + koplanares Overlay in den CUTOUT-Layer. Identische Vertices in derselben
@@ -791,46 +760,6 @@ public class ChunkMesher {
     private void emitQuad(VertexBuffer buffer, BakedQuad quad, int x, int localY, int worldY,
                           int z, float offsetX, float offsetZ) {
         this.emitQuad(buffer, quad, x, localY, worldY, z, offsetX, offsetZ, 0);
-    }
-
-    /** Merkt nur Faces, die wirklich an einem horizontalen Section-Rand emittiert werden. */
-    private void markBoundaryFace(int face, int x, int y, int z) {
-        int tangent;
-        switch (face) {
-            case 2 -> {
-                if (z != 0) return;
-                tangent = x;
-            }
-            case 3 -> {
-                if (z != ChunkSection.MASK) return;
-                tangent = x;
-            }
-            case 4 -> {
-                if (x != 0) return;
-                tangent = z;
-            }
-            case 5 -> {
-                if (x != ChunkSection.MASK) return;
-                tangent = z;
-            }
-            default -> {
-                return;
-            }
-        }
-        this.boundaryFaces[(face - 2) * ChunkSection.SIZE + tangent] |= 1 << y;
-    }
-
-    private static int fluidSideFace(BakedQuad quad) {
-        float[] vertices = quad.vertices();
-        float x = vertices[0], z = vertices[2];
-        boolean constantX = true, constantZ = true;
-        for (int p = 5; p < vertices.length; p += 5) {
-            constantX &= Math.abs(vertices[p] - x) <= FLUSH_EPS;
-            constantZ &= Math.abs(vertices[p + 2] - z) <= FLUSH_EPS;
-        }
-        if (constantX) return x < 0.5F ? 4 : 5;
-        if (constantZ) return z < 0.5F ? 2 : 3;
-        return BakedQuad.NO_CULL;
     }
 
     private void emitQuad(VertexBuffer buffer, BakedQuad quad, int x, int localY, int worldY,

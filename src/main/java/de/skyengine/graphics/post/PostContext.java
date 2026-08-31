@@ -26,7 +26,6 @@ public final class PostContext implements IDisposable {
     /* --- Ressourcen-Slots (Textur-IDs, 0 = aktuell nicht vorhanden) --- */
     public int sceneColor;   // HDR-Szene (RGBA16F), bei MSAA erst nach FrameBuffer.resolve() aktuell
     public int sceneDepth;   // Szenen-Tiefe (32F, Reversed-Z), bei MSAA nach Resolve
-    public int sceneLodMask; // R8: 1 nur dort, wo nach dem Depth-Test wirklich LOD sichtbar ist
     public int velocity;     // reserviert: per-Objekt-Bewegungsvektoren (TAA nutzt bisher Kamera-Reprojektion)
     public int history;      // TAA-History des Frames (Write-Seite, vom AntiAliasingPass publiziert)
     public int lut;          // reserviert: 3D-LUT (LUTPass, display-referred nach Grading)

@@ -19,7 +19,7 @@ final class BlockRaycastInteractionTest {
     }
 
     @Test
-    void interactiveRayStopsAtFirstLodOwnedCell() {
+    void interactiveRayStopsAtFirstUnreadyCell() {
         RaycastWorld world = new RaycastWorld(1);
         Vector3d origin = new Vector3d(0.5, 64.5, 0.5);
         Vector3d direction = new Vector3d(1, 0, 0);
@@ -32,7 +32,7 @@ final class BlockRaycastInteractionTest {
     }
 
     @Test
-    void interactiveRayHitsBlockWhenEveryTraversedCellIsL0Owned() {
+    void interactiveRayHitsBlockWhenEveryTraversedCellIsReady() {
         RaycastWorld world = new RaycastWorld(Integer.MAX_VALUE);
 
         BlockRaycast.Hit hit = BlockRaycast.raycastInteractive(world,

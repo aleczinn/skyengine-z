@@ -14,8 +14,7 @@ description: Wasser/Lava — FluidBehavior (Scheduled-Tick-Fluss, LEVEL-Konventi
 - Parameter kommen aus `FluidInfo` (JSON: `fluid_spread`, `drop_off`, `fluid_tick` in
   `game/blocks/water.json`/`lava.json`; water.json setzt kein `drop_off` → Default 1;
   Takt: Wasser 5, Lava 30 Ticks).
-- Sichthöhe: `(8 − level) / 9` (`FluidGeometry.ownHeight`); Quelle = 8/9 (`SOURCE_HEIGHT` —
-  das LOD setzt Fluid-Zellen exakt darauf → koplanar, kein Z-Fighting).
+- Sichthöhe: `(8 − level) / 9` (`FluidGeometry.ownHeight`); Quelle = 8/9 (`SOURCE_HEIGHT`).
 
 ## Fluss-Logik (`behavior/FluidBehavior.scheduledTick`)
 
@@ -67,8 +66,7 @@ U/V 0..0,5. Nicht wieder den ganzen Frame über einen Block spannen oder in 16px
 Wasser wird per `WATER_TINT 0x4076E6` eingefärbt (Texturen sind grau), Lava neutral.
 **Greedy-Kopplung:** flach-stille Quell-Tops merged der ChunkMesher in einem eigenen Pass 1.5
 greedy zu großen TRANSLUCENT-Quads (`FluidGeometry.isMergeableFlatStillTop` + Markierung in
-`mergedWaterTop`, damit `FluidGeometry.build` das Top auslässt — s. chunk-meshing); im LOD
-meshen Fluid-Flächen vollständig greedy und rendern transluzent (s. lod-system).
+`mergedWaterTop`, damit `FluidGeometry.build` das Top auslässt — s. chunk-meshing).
 Eimer: `BucketItem` + `GameContainer.handleBucket` (leerer Eimer nutzt einen fluid-bewussten
 Raycast; der normale Raycast ignoriert Fluids). Unterwasser-Overlay: `renderFluidOverlay`.
 Oberwelt-Audio läuft über den kosmetischen `BlockBehavior.animateTick`: nur fließendes,

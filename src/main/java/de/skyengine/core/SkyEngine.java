@@ -94,10 +94,7 @@ public class SkyEngine {
            und VOR bind/clear, damit kein halb-initialisierter Frame entsteht. */
         int wantedSamples = this.postProcessor.getSettings()
                 .effectiveMsaaSamples(GameSettings.get().msaaSamples);
-        GameSettings gameSettings = GameSettings.get();
-        boolean wantedLodMask = de.skyengine.graphics.framebuffer.FrameBuffer.wantsLodMask(gameSettings);
-        if (wantedSamples != this.window.getFrameBuffer().getSamples()
-                || wantedLodMask != this.window.getFrameBuffer().isLodMaskEnabled()) {
+        if (wantedSamples != this.window.getFrameBuffer().getSamples()) {
             this.window.getFrameBuffer().create();
         }
 
@@ -127,7 +124,6 @@ public class SkyEngine {
         GL11.glDepthFunc(this.window.getProperties().baseDepthFunc());
 
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
-        this.window.getFrameBuffer().clearLodMask();
 
         FrameProfiler.cpuStop(FrameProfiler.Cpu.CLEAR);
 
@@ -135,10 +131,12 @@ public class SkyEngine {
            Default-Framebuffer — HUD/Text durchlaufen nie Grading/AA (pixelgenau). */
         this.game.renderWorld(this.input, this.window.getWidth(), this.window.getHeight(), partialTick);
 
-        FrameProfiler.gpuBegin(FrameProfiler.Gpu.BLIT); // misst jetzt Resolve + Post-Kette
+        FrameProfiler.gpuBegin(FrameProfiler.Gpu.RESOLVE);
         this.window.getFrameBuffer().resolve();
+        FrameProfiler.gpuEnd(FrameProfiler.Gpu.RESOLVE);
+        FrameProfiler.cpuStart(FrameProfiler.Cpu.POST);
         this.postProcessor.render(this.window.getFrameBuffer());
-        FrameProfiler.gpuEnd(FrameProfiler.Gpu.BLIT);
+        FrameProfiler.cpuStop(FrameProfiler.Cpu.POST);
 
         this.game.renderDebugWorldOverlays();
         this.game.renderGui(this.window.getWidth(), this.window.getHeight());
@@ -262,11 +260,7 @@ public class SkyEngine {
                     String syncLine = this.game.getDimension() != null
                             ? this.game.getDimensionView().chunks().syncStatsLineAndReset() : null;
                     if (syncLine != null) System.out.println(syncLine);
-                    String gpuCullLine = this.game.getDimension() != null
-                            ? this.game.getDimensionView().chunks().gpuCullStatsLineAndReset() : null;
-                    if (gpuCullLine != null) System.out.println(gpuCullLine);
                 }
-                de.skyengine.graphics.world.CullBench.tick(this.game);
                 if (this.config.isWindowed() && !this.config.getDebugMode().equals(EngineConfig.DebugMode.NONE)) {
                     /* Ohne Welt (Hauptmenü) gibt es keine Chunk-/Spieler-Werte für den Titel. */
                     if (this.game.getDimension() != null && this.game.getPlayer() != null) {

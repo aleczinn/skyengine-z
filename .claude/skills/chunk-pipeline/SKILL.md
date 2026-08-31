@@ -36,10 +36,7 @@ Kaskaden/Deadlocks im Worker-Pool). Diese Invariante bei neuen Feature-Typen NIC
 ## Worker-Prioritäten (häufige Falle)
 
 `PriorityBlockingQueue` mit `PrioTask(prio, seq)`:
-PRIO_REMESH(0) < PRIO_LOD_CLIP(1) < PRIO_LOAD(2) < PRIO_LOD(3).
-LOD_CLIP = LOD-Masken-Remeshes (Chunk sichtbar geworden / pendingUnload) — die überholen die
-Lade-Queue bewusst, sonst steht beim Schnellflug die alte LOD-Geometrie sekundenlang über frisch
-erschienenen L0-Chunks (Clip-Job hinter bis zu LOAD_QUEUE_LIMIT Lade-Jobs).
+PRIO_PLAYER_REMESH(0) < PRIO_SYSTEM_REMESH(1) < PRIO_LOAD(2) < PRIO_LIGHT(3).
 Zwei Fallen:
 1. **`workers.execute(...)`, niemals `submit(...)`** — submit wrappt in ein nicht-vergleichbares
    FutureTask → ClassCastException in der Priority-Queue.
@@ -65,12 +62,11 @@ neu bewertet.
 **`initialLoadComplete` (Latch):** true, sobald die Lade-Pipeline einmal ihren **Fixpunkt** erreicht
 hat — `loadSubmitsThisTick == 0` UND `pendingLoadTasks == 0`. Reset in `clearAllChunks()`
 (GuiDebugScreen „Chunks neu laden") und
-`setRenderDistance`. Der `LodManager` submittet erst danach (s. Skill `lod-system`).
-**Nicht „alle Chunks READY" als Kriterium nehmen** (real gebaut, LOD blieb für immer aus): die
+`setRenderDistance`.
+**Nicht „alle Chunks READY" als Kriterium nehmen:** die
 äußersten Ringe des Lade-Kreises finden ihre Gating-Nachbarn außerhalb des Kreises nicht und bleiben
-dauerhaft auf GENERATED/DECORATED stehen — „alle READY" tritt nie ein. Bewusst ein EINMALIGER Latch —
-ein Dauer-Gate „solange etwas lädt" würde LOD im Betrieb permanent blockieren (an der Ladefront ist
-immer etwas offen).
+dauerhaft auf GENERATED/DECORATED stehen — „alle READY" tritt nie ein. Der Latch markiert daher
+bewusst nur den einmalig erreichten Lade-Fixpunkt.
 
 ## Upload-Pfad (Worker → Render-Thread)
 
@@ -80,8 +76,7 @@ Mesh-Ergebnisse laufen als `MeshBatch` über zwei Queues, die der `ChunkRenderer
   eigenen Batch ein → Uploads verteilen sich über Frames).
 
 READY heißt nur „Batches eingereiht". Wirklich sichtbar ist der Chunk erst, wenn der Renderer alle
-16 Sections angewendet hat (`chunk.markSectionUploaded()` / `isFullyUploaded()`) — darauf wartet
-die **LOD-Maske**, sonst reißt das LOD Löcher auf, bevor der echte Mesh da ist.
+16 Sections angewendet hat (`chunk.markSectionUploaded()` / `isFullyUploaded()`).
 
 ## Edits & Remeshing
 
@@ -89,9 +84,7 @@ die **LOD-Maske**, sonst reißt das LOD Löcher auf, bevor der echte Mesh da ist
 DECORATED wie ungeladen (AIR bzw. FULL_CUBE), und `processRemeshes` verlangt Nachbarn ≥
 DECORATED — denn GENERATING/DECORATING-Chunks werden von Workern **lock-frei** beschrieben
 (Generator/FeaturePlacer), und `PalettedContainer`/`BitStorage` sind nicht threadsicher
-(torn reads). Diese Schwellen nie auf GENERATED absenken. Einzige bewusste Ausnahme:
-`WorldLodDataSource` liest ab GENERATED lock-frei (transiente Fehler remeshen sich weg —
-siehe lod-system-Skill); diese Ausnahme weder auf andere Leser übertragen noch dort „reparieren".
+(torn reads). Diese Schwellen nie auf GENERATED absenken.
 
 `World.setBlockRaw` schreibt nur in READY-Chunks (verhindert Races mit laufenden Mesh-Jobs), nimmt den
 **Write-Lock** des Chunks; Mesh-Jobs nehmen Read-Locks auf alle 9 beteiligten Chunks
@@ -115,13 +108,6 @@ unveränderte Licht komplett neu fluten. Alte Meshes bleiben sichtbar, bis der E
 Radius `renderDistance + 2`; nur NEW/GENERATED/DECORATED/LIT/READY werden entfernt — Chunks mit
 laufenden Jobs (GENERATING/DECORATING/LIGHTING/MESHING) bleiben, bis der Job fertig ist. Die GL-Meshes
 entsorgt der Renderer selbst, wenn er den Chunk nicht mehr in der Map findet.
-
-**LOD-Unload-Gate:** Sichtbare Chunks (`isFullyUploaded()` — bewusst nicht status==READY,
-s. remeshAll) warten zusätzlich auf `lodManager.coversChunk(...)`: solange das hochgeladene
-LOD-Mesh ihre Zelle noch clippt, bleiben sie mit `pendingUnload = true` in der Map (die
-LOD-Maske zählt sie ab da als abwesend → Region remesht die Zelle un-geclippt, erst dann
-Unload — sonst Pop-in-Loch). Zurück im Radius wird das Flag zurückgesetzt. Notventil: jenseits
-`renderDistance + 6` wird bedingungslos entladen. Details: Skill `lod-system`, Mechanismus 3.
 
 ## Verifikation
 

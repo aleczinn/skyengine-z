@@ -39,10 +39,8 @@ Konsequenzen:
 - Wer die Emissions-/Vertex-Reihenfolge von Basis oder Overlay ändert, bricht die Invarianz →
   Z-Fighting. Wer die or-equal-Logik im ChunkRenderer entfernt, macht Overlays unsichtbar.
 
-## LOD & Icons
+## Icons
 
-- LOD: `LodMesher.tintFor` fragt die Datenquelle (`grassTintAt`/`foliageTintAt` = pures
-  Biom-Sample, ohne 16-Block-Glättung — auf LOD-Distanz unsichtbar) am Quad-Zentrum.
 - Item-Icons backen frisch aus den Modell-JSONs und wenden den festen Tint über
   `Block.applyTint` selbst an (kein Biome-Kontext im Inventar).
 
@@ -59,6 +57,5 @@ Konsequenzen:
 
 Nur visuell: An eine Biomgrenze laufen (z.B. Plains↔Jungle) und prüfen, dass der Übergang über
 ~16 Blöcke weich verläuft — auf großen Grasflächen (Greedy-Quads!) UND auf Cross-Gras/Blättern.
-Grasblock von der Seite: Rand gefärbt, kein Z-Fighting, auch schräg von unten. LOD-Distanz:
-Farbverlauf setzt sich ohne harten Sprung am L0-Rand fort. `GeneratorMapExporter` (debug-maps/)
-zeigt die Biome-Verteilung ohne Engine-Start.
+Grasblock von der Seite: Rand gefärbt, kein Z-Fighting, auch schräg von unten.
+`GeneratorMapExporter` (debug-maps/) zeigt die Biome-Verteilung ohne Engine-Start.

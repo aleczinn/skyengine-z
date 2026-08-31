@@ -7,7 +7,6 @@
   "layer": "cutout",
   "opaque": false,
   "solid": false,
-  "no_lod_surface": true,
   "hardness": 0,
   "sound": "stone",
   "place_on_full_top": true,

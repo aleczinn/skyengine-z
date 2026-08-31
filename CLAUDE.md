@@ -62,10 +62,10 @@ bzw. `Variante ... fehlt` müssen **null** Treffer haben.
 20-TPS-Tick UND Rendering, `GameContainer` → `World`) und den **Main/Window-Thread** (nur
 GLFW-Events + `mainThreadTasks`). Chunks (32×512×32, 16 Sections à 32³, Palette-komprimiert)
 laufen durch die Status-Pipeline NEW→…→READY auf einem **Chunk-Worker-Pool** (Priority-Queue:
-Edit-Remesh > Load > LOD). Worker meshen Sections (Greedy + AO, gepacktes 20-Byte-Vertex-Format)
+Edit-Remesh > Load). Worker meshen Sections (Greedy + AO, gepacktes 20-Byte-Vertex-Format)
 und legen Batches in Upload-Queues; der `ChunkRenderer` zeichnet alles per **MultiDrawIndirect**
-aus je einer `VertexArena` pro RenderLayer (OPAQUE/CUTOUT/TRANSLUCENT), plus Heightmap-**LOD**-
-Regionen jenseits der Render-Distanz. Blöcke sind **datengetrieben** (JSON + Archetypen +
+aus je einer `VertexArena` pro RenderLayer (OPAQUE/CUTOUT/TRANSLUCENT). Blöcke sind
+**datengetrieben** (JSON + Archetypen +
 Behavior-Komposition, Registry-Bake vergibt Runtime-State-IDs). Die Welt kommt aus
 `AlphaWorldGeneratorV2`: Klima-Felder → Höhe UND Biome, Worley-Seen, explizites
 Quelle→Mündung-Flussnetz, Feature-Pass im Scheiben-Modell.
@@ -81,12 +81,11 @@ Quelle→Mündung-Flussnetz, Feature-Pass im Scheiben-Modell.
   (BlockEntities + Capabilities), connection/, shape/, registry/, multiblock/, network/
 - `game/world/generator/` — WorldGenerator, generators/ (V2 + RiverNetwork), climate/, biome/,
   feature/ (ChunkDecorator, FeaturePlacer, trees/), debug/ (GeneratorMapExporter)
-- `game/world/lod/` — LodManager, LodConfig, LodMesher, LodDataSource(+World/Generator-Impl)
 - `game/world/save/` — Chunk-Persistenz: WorldStorage (Region-Store + IO-Thread), RegionFile,
   ChunkSerializer, DataTagIO, PlayerIO (`player.dat`)
 - `game/world/item/` (+ `json/` = ItemLoader/ItemDefinition), `game/entity/`, `game/physics/`,
   `game/GameContainer` (Verdrahtung, Interaktion, Mining, Inventar)
-- `graphics/` — world/ (ChunkRenderer, VertexArena, SectionMesh, LodMesh, MappedRing, GpuCull,
+- `graphics/` — world/ (ChunkRenderer, VertexArena, SectionMesh, MappedRing,
   SelectionBox-/CrackRenderer), blockentity/, entity/, player/, gui/ (+font/, text/), shader/,
   texture/ (TextureArray, SpriteAnimations), camera/, framebuffer/, post/ (PostProcessor,
   Grading/AA-Pässe), color/
@@ -114,7 +113,6 @@ ausdrücken).
 | `block-system` | …Blöcke/Properties/Behaviors/Registry angelegt oder geändert werden |
 | `block-modelle-und-texturen` | …Modelle, Blockstates, Texturen, Icons, RenderLayer |
 | `fluid-system` | …Wasser/Lava-Verhalten, -Geometrie, Eimer, Strömung |
-| `lod-system` | …LodManager/LodMesher/LodConfig oder LOD-Anbindung im Renderer |
 | `licht-system` | …Himmelslicht, Licht-Opazität, ChunkStatus, der 5. Vertex-Int, Chunk-Shader |
 | `weltgen-v2` | …Weltgenerierung, Biome, Seen, Flüsse, Features, Noise-Seeds |
 | `vegetation-tint` | …Gras-/Laubfärbung, Tint-Grids, Grasblock-Overlay |
@@ -137,7 +135,7 @@ ausdrücken).
   am selben Licht. Licht wird nicht persistiert. Prüfstand `gradlew lightTest`
 - Rendering: MDI + VertexArena + Frame-Fences, TextureArray mit animierten Sprites,
   Translucent-Sortierung, BlockEntity-Renderer (Chest, EnchantingTable), Reversed-Z,
-  Distanz-Fog (auch über LOD); Szene rendert in ein HDR-Offscreen-Target (RGBA16F)
+  Distanz-Fog; Szene rendert in ein HDR-Offscreen-Target (RGBA16F)
 - Post-Processing (`graphics/post/`): `PostProcessor`-Kette Color-Grading (Exposure/Tonemap/
   Lift/Gain, eigenes JSON `PostProcessingSettings`) → Anti-Aliasing mit Modi
   NONE/FXAA/TAA/TAA_FXAA/MSAA (MSAA = Multisample-Framebuffer wie früher, alle anderen Modi
@@ -209,21 +207,10 @@ ausdrücken).
 - Fluids komplett (Fluss, Reaktionen, Eimer, Schwimmen/Strömung, Unterwasser-Overlay)
 - Weltgen V2: Klima→Höhe/Biome, 3D-Dichte/Höhlen, Worley-Seen, Fluss-Netz Quelle→Mündung
   (~2,5 ms/Chunk), Feature-Bäume (Scheiben-Modell), Debug-Karten-Exporter
-- LOD: formelbasierte Clipmap-Ringe, Chunk-Masken-Clipping (Load- UND Unload-Gate gegen
-  Pop-ins), Skirts, Epoche/Hysterese, eigene Vertex-Arenen, AO, transluzentes LOD-Wasser,
-  getönte Gras-Overlay-Wände
 - Vegetations-Tint biome-abhängig (Eck-Grids + bilinear), koplanare Grasblock-Overlays
-- GPU-driven Culling (GpuCull, Default **AUS**, Umschalten im GuiDebugScreen): Frustum +
-  Sicht-Gate + LOD per Compute, Two-Phase-Hi-Z-Occlusion (Pow2-Viertel-Pyramide).
-  **Gemessen 2026-07-30:** das Compute-Frustum kostet nur +35 µs/Frame gegenüber dem CPU-Cull,
-  die Hi-Z-Occlusion obendrauf +134 µs — und spart nichts: die Rasterarbeit (`solid`+`cut`)
-  bleibt in allen Konfigurationen bei 156 µs, weil Early-Z verdeckte Fragmente ohnehin
-  verwirft. 156 µs sind zugleich die Obergrenze des möglichen Nutzens, Hi-Z kostet 85 µs.
-  Deshalb `FRUSTUM_ONLY` Default AN (Hi-Z aus), beides getrennt schaltbar; Hi-Z wieder an,
-  sobald Fragmente teuer werden (Licht/Schatten heben die Decke). Messstand: `./gradlew run
-  -Dskyengine.cullbench=<Weltordner> [-Dskyengine.window=BxH]` (`CullBench`, feste Pose +
-  eingefrorenes Laden, sonst sind Läufe nicht vergleichbar). Details/Fallen im Skill
-  `mdi-rendering`
+- CPU-Frustum-Culling über Chunk-Spalten-Hierarchie; sichtbare Sections werden in persistente
+  MDI-Command-/Offset-Ringe geschrieben. Der frühere GPU-Frustum-/Hi-Z-Parallelpfad wurde nach
+  Messungen entfernt, weil seine Compute-/Pyramidenkosten die eingesparte Rasterarbeit überstiegen.
 - Mining: MC-Harvest-Regel, 28 Tools (7 Tiers × 4 Typen), Durability, Crack-Overlay,
   Bedrock unzerstörbar; Gamemodes Survival/Creative/Spectator; Item-Entities + Aufsammeln
 - TNT/Explosion: raybasierte Explosion (`Explosion`, MC-ServerExplosion-Modell), Widerstand aus
@@ -307,7 +294,7 @@ ausdrücken).
   Live-Wechsel), Sound-Optionen, Grafik-Optionen (`GuiVideoSettings`), MC-Welt-Import
   (`GuiImportWorld`), Bestätigungsdialog (`GuiConfirm`), Ressourcenpakete-Platzhalter
   (`GuiResourcePacks`) und der **GuiDebugScreen** (Optionsmenü) mit allen Debug-Schaltern
-  (Wireframe, GpuCull + Tint, LOD-Overlay, Loading einfrieren, Chunks neu laden, **GUI-Slot-
+  (Wireframe, Loading einfrieren, Chunks neu laden, **GUI-Slot-
   Flächen** u.a. — die früheren F-Hotkeys dafür sind weg); **GuiScale = ganzzahliger Faktor**
   (`GameSettings.guiScaleLevel`, 0 = automatisch, sonst 1..6), garantierte virtuelle
   Mindestfläche 340×240 (deckt das höchste Fenster ab — die Doppeltruhe mit 222 px).
@@ -328,8 +315,8 @@ ausdrücken).
 - Spieler-Rendering (graphics/player): Humanoid-Modell mit Classic-/Slim-Skin 64×64; Legacy
   64×32 wird nach Vanillas UV-Spiegelung intern auf 64×64 konvertiert (skin.png im Spielordner
   überschreibt Steve), Inventar-Vorschau (folgt Maus), F5-Perspektiven
-  (Ego/hinten/vorne mit Kamera-Kollisions-Raycast; Interaktion zielt IMMER vom Auge;
-  LOD-Gras-Overlay-Debug liegt im GuiDebugScreen), prozedurale Animationen (Limb-Swing/Sneak/Arm-Schwung,
+  (Ego/hinten/vorne mit Kamera-Kollisions-Raycast; Interaktion zielt IMMER vom Auge),
+  prozedurale Animationen (Limb-Swing/Sneak/Arm-Schwung,
   `PlayerAnimationState`), First-Person-Hand mit extrudierten Item-Sprites +
   Vanilla-Display-Transforms (bei Block-Items aus der `display`-Sektion des Modells, bei flachen
   Items weiterhin hartkodiert; der Iso-Würfel im `ItemIconRenderer` bleibt bewusst außen vor —
@@ -350,7 +337,7 @@ ausdrücken).
 - Farbiges (RGB) Blocklicht — `light_color` steht schon in der Block-JSON und liegt in
   `BlockConfig` bereit, wirkt aber noch nicht; dafür sind die freien Bits 8-31 des Licht-Ints und
   weitere `LightStorage`-Ebenen da. Danach Tag-Nacht-Zyklus und Schatten-Pass
-  (`lightning-system`-Branch als Vorlage) — dann amortisiert sich der GPU-Cull-Pfad
+  (`lightning-system`-Branch als Vorlage)
 - Crafting (kein Recipe-/Crafting-Menü; `GuiInventory`-Crafting-Bereich noch funktionslos);
   Inventar-Phase 2: Stack-Größen je Item, Maus-Shortcuts (mouse tweaks), Sortieren
   (Andockpunkt: `GuiContainer.onSlotClick`)
@@ -388,7 +375,7 @@ ausdrücken).
 - `ModelLoader.registerBlockModels` MUSS nach `ModelLoader.load` (das leert MODELS *und*
   CACHE) und vor dem ersten `bake` laufen — Reihenfolge steht in `Blocks.bootstrap`
 - Preset-Felder gelten für ALLE Kinder: ein Feld ins Preset zu ziehen, das nur ein Teil der
-  Blöcke hatte, ändert die anderen still mit (`no_lod_surface` bei Säulen war genau der Fall)
+  Blöcke hatte, ändert die anderen still mit.
 - Fluid-LEVEL ist invers zu Vanilla (0 = Quelle); Ausbreitung immer im eigenen Takt
 - Seen dürfen nie von Flüssen abhängen (Cache-Rekursion); Generator-Funktionen müssen pur sein
 - Reversed-Z: Depth-Funcs nie hartkodieren, or-equal-Mapping wie im ChunkRenderer
@@ -399,7 +386,7 @@ ausdrücken).
 **Die 5 häufigsten Fehlerquellen in diesem Projekt (subsystemübergreifend):**
 
 1. **„Kompiliert" mit „funktioniert" verwechseln.** Fast alles Sichtbare (Meshing, Rendering,
-   Fluids, LOD, Tints) ist NUR im laufenden Fenster prüfbar. Ohne Fenster: ehrlich als
+   Fluids, Tints) ist NUR im laufenden Fenster prüfbar. Ohne Fenster: ehrlich als
    „visuell ungetestet" ausweisen (Skill `visuelle-verifikation`).
 2. **Minecraft-Wissen ungeprüft übertragen.** Dieses Projekt weicht bewusst ab: 32er-Chunks
    (nie `>>4`/`&15`), Fluid-LEVEL invers (0 = Quelle), eigene Entity-UV-Konvention, kein
@@ -424,7 +411,7 @@ ausdrücken).
   (Vertex-Format, Arena/EBO, Palette, Seed-Offsets);
 - die generierte Welt bestehender Seeds verändern würde (Weltgen bit-stabil halten —
   Beweis: `GeneratorMapExporter`-Karten vorher/nachher hashen);
-- scheinbar toten Code löschen soll (Beispiel: `GeneratorLodDataSource` ist absichtlich da);
+- scheinbar toten Code löschen soll, dessen Zweck nicht geklärt ist;
 - auf einen Widerspruch zwischen Code und Skill-Doku stößt — dann ist eines von beiden
   falsch: melden, nicht stillschweigend „reparieren".
 

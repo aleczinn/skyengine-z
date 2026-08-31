@@ -152,7 +152,7 @@ public final class VertexArena {
 
     /**
      * Wächst einmalig auf mindestens {@code target} Bytes — statt vieler 1,5x-Schritte mit
-     * jeweils voller GPU-Kopie (z.B. beim Einschalten des LOD zur Laufzeit: sonst wächst die
+     * jeweils voller GPU-Kopie (z.B. bei einem starken Upload-Burst: sonst wächst die
      * Arena vom kleinen Floor treppenweise auf den Steady-State hoch).
      */
     public void ensureCapacity(long target) {

@@ -84,11 +84,6 @@
       "button": "Debug...",
       "title": "Debug Options",
       "wireframe": "Wireframe",
-      "gpu_cull": "GPU Culling",
-      "gpu_cull_tint": "GPU Cull Debug (red)",
-      "gpu_cull_hiz": "GPU Cull: Hi-Z Occlusion",
-      "lod_colors": "Color LOD Levels",
-      "lod_split": "Profile LOD per Level",
       "pause_loading": "Pause Chunk Loading",
       "aa_mode": "Anti-Aliasing",
       "gui_slots": "GUI Slot Bounds",
@@ -122,17 +117,6 @@
       "view_bobbing": "View Bobbing",
       "damage_tilt": "Damage Tilt",
       "brightness": "Brightness: %s"
-    },
-
-
-    "lod": {
-      "button": "LOD (Far View) ...",
-      "title": "LOD (Far View)",
-      "enabled": "LOD Enabled",
-      "distance": "LOD Distance: %d",
-      "quality": "AO Quality",
-      "ssao": "Distant SSAO",
-      "ssao_hint": "<b>Screen-space AO (distant terrain only)</b>\n<gray>Adds depth to volumetric LOD surfaces without enlarging the 8-byte quads. AUTO uses 12 samples.</>"
     },
     "sound": {
       "button": "Music & Sounds...",

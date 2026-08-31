@@ -31,7 +31,7 @@ final class MappedRing {
     private ByteBuffer mapped;
     /* Gecachte Slot-Sichten: memIntBuffer/memFloatBuffer allozieren pro Aufruf ein neues
        NIO-Buffer-Objekt (6 Stück pro Frame über alle Ringe). Invalidiert in create();
-       Aufrufer mit relativen puts (GpuCull) setzen die Position selbst zurück. */
+       Aufrufer mit relativen puts setzen die Position selbst zurück. */
     private IntBuffer[] intViews;
     private FloatBuffer[] floatViews;
 

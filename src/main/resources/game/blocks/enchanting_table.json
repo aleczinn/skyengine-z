@@ -2,7 +2,6 @@
   "id": "enchanting_table",
   "creative_tab": "functional",
   "type": "cube",
-  "lod_replacement": "obsidian",
   "layer": "opaque",
   "hardness": 5,
   "resistance": 1200,

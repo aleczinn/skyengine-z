@@ -1,6 +1,5 @@
 {
   "id": "jungle_door",
   "parent": "preset/door",
-  "lod_replacement": "jungle_planks",
   "creative_tab": ["building_blocks", "functional"]
 }

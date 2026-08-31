@@ -11,19 +11,15 @@ final class WorldPlayerInteractionReadinessTest {
 
     @Test
     void requiresReadyFullyUploadedVisibleL0Chunk() {
-        assertFalse(Dimension.isPlayerInteractionReady(null, false));
+        assertFalse(Dimension.isPlayerInteractionReady(null));
 
         Chunk chunk = new Chunk(0, 0);
         chunk.status = ChunkStatus.DECORATED;
         uploadAllSections(chunk);
-        assertFalse(Dimension.isPlayerInteractionReady(chunk, false));
+        assertFalse(Dimension.isPlayerInteractionReady(chunk));
 
         chunk.status = ChunkStatus.READY;
-        assertTrue(Dimension.isPlayerInteractionReady(chunk, false));
-        assertFalse(Dimension.isPlayerInteractionReady(chunk, true));
-
-        chunk.pendingUnload = true;
-        assertFalse(Dimension.isPlayerInteractionReady(chunk, false));
+        assertTrue(Dimension.isPlayerInteractionReady(chunk));
     }
 
     @Test
@@ -32,10 +28,10 @@ final class WorldPlayerInteractionReadinessTest {
         chunk.status = ChunkStatus.READY;
         for (int i = 0; i < Chunk.SECTIONS - 1; i++) chunk.markSectionUploaded(0, i);
 
-        assertFalse(Dimension.isPlayerInteractionReady(chunk, false));
+        assertFalse(Dimension.isPlayerInteractionReady(chunk));
 
         chunk.markSectionUploaded(0, Chunk.SECTIONS - 1);
-        assertTrue(Dimension.isPlayerInteractionReady(chunk, false));
+        assertTrue(Dimension.isPlayerInteractionReady(chunk));
     }
 
     private static void uploadAllSections(Chunk chunk) {

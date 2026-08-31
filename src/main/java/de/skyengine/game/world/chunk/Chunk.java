@@ -21,8 +21,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -71,15 +69,10 @@ public class Chunk {
     public volatile ChunkStatus status = ChunkStatus.NEW;
     private final AtomicInteger dirtySections = new AtomicInteger(0);
 
-    /* Vom Renderer angewendete Section-Uploads. READY heißt nur "Batches eingereiht" —
-       erst nach allen angewendeten Sections ersetzt L0 den atomaren LOD-Fallback. Nur der
-       Render-Thread schreibt (applyBatch) und liest — keine Synchronisation nötig. */
+    /* Vom Renderer angewendete Section-Uploads. READY heißt nur "Batches eingereiht";
+       erst nach allen angewendeten Sections ist der Chunk vollständig sichtbar. */
     private int uploadedSectionMask;
     private long renderGeneration;
-
-    /* Unload-Gate: Chunk liegt außerhalb der Unload-Distanz, wartet aber, bis ein sichtbarer
-       Octree-Knoten seine Spalte als Fallback deckt. Nur Tick-Thread. */
-    public boolean pendingUnload;
 
     /* Vom ChunkSerializer beim Laden übergebene Scheduled-Ticks. KEIN Persistenzspeicher,
        sondern nur ein temporärer Übergabepuffer zwischen Lade-Worker und Tick-Thread:
@@ -120,14 +113,6 @@ public class Chunk {
        Verhindert, dass ein älterer Batch (Erst-Mesh hinter einem Priority-Remesh in der
        Upload-FIFO) ein bereits angewendetes neueres Mesh derselben Section überschreibt. */
     private final long[] appliedMeshSeq = new long[SECTIONS];
-    /* Vom Renderer publizierte, tatsaechlich emittierte NORTH/SOUTH/WEST/EAST-Faces je
-       Section. Ein Eintrag hat 4*32 ints; pro Randspalte markieren 32 Bits die lokalen
-       Y-Werte. AtomicReferenceArray macht die unveraenderlichen Snapshots fuer LOD-Worker
-       sichtbar, ohne den Blockdaten-Lock mit Render-Uploads zu koppeln. */
-    private final AtomicReferenceArray<int[]> renderedBoundaryFaces =
-            new AtomicReferenceArray<>(SECTIONS);
-    private final AtomicLong boundaryMeshRevision = new AtomicLong();
-
     /**
      * true, wenn {@code meshSeq} neuer ist als das zuletzt angewendete Mesh dieser Section —
      * dann wird die Sequenz übernommen. false = Batch ist veraltet und muss verworfen werden.
@@ -138,39 +123,14 @@ public class Chunk {
         return true;
     }
 
-    /**
-     * Wendet Sequenz und Rand-Face-Ownership als einen logischen Section-Upload an. Nur ein
-     * akzeptierter (nicht veralteter) Batch darf den LOD-Vertrag veraendern.
-     */
-    public boolean tryApplyMeshSection(int sectionY, long meshSeq, int[] boundaryFaces) {
-        return this.tryApplyMeshSection(this.renderGeneration, sectionY, meshSeq, boundaryFaces);
+    public boolean tryApplyMeshSection(int sectionY, long meshSeq) {
+        return this.tryApplyMeshSection(this.renderGeneration, sectionY, meshSeq);
     }
 
     /** Rejects uploads produced for a DimensionView that has already been destroyed. */
-    public boolean tryApplyMeshSection(long generation, int sectionY, long meshSeq, int[] boundaryFaces) {
+    public boolean tryApplyMeshSection(long generation, int sectionY, long meshSeq) {
         if (generation != this.renderGeneration) return false;
-        if (!this.tryApplyMeshSeq(sectionY, meshSeq)) return false;
-        int[] published = boundaryFaces == null
-                ? new int[4 * ChunkSection.SIZE]
-                : boundaryFaces.clone();
-        this.renderedBoundaryFaces.set(sectionY, published);
-        /* Auch bei gleicher Bitmaske koennen Material oder exakte Rand-States gewechselt
-           haben. Jeder akzeptierte Section-Upload invalidiert daher laufende LOD-Stitches. */
-        this.boundaryMeshRevision.incrementAndGet();
-        return true;
-    }
-
-    /** Bitmaske der tatsaechlich gerenderten Rand-Faces fuer eine Section/Tangente. */
-    public int boundaryFaceBits(int sectionY, int face, int tangent) {
-        if (sectionY < 0 || sectionY >= SECTIONS || face < 2 || face > 5
-                || tangent < 0 || tangent >= ChunkSection.SIZE) return 0;
-        int[] ownership = this.renderedBoundaryFaces.get(sectionY);
-        return ownership == null ? 0 : ownership[(face - 2) * ChunkSection.SIZE + tangent];
-    }
-
-    /** Aendert sich bei jedem angewendeten L0-Section-Mesh (States, Material oder Ownership). */
-    public long boundaryMeshRevision() {
-        return this.boundaryMeshRevision.get();
+        return this.tryApplyMeshSeq(sectionY, meshSeq);
     }
 
     /** Renderer meldet einen angewendeten Section-Upload (Remesh-Batches sättigen harmlos). */
@@ -178,10 +138,6 @@ public class Chunk {
         this.renderGeneration = generation;
         this.uploadedSectionMask = 0;
         Arrays.fill(this.appliedMeshSeq, 0L);
-        for (int section = 0; section < SECTIONS; section++) {
-            this.renderedBoundaryFaces.set(section, null);
-        }
-        this.boundaryMeshRevision.incrementAndGet();
     }
 
     void endRenderGeneration(long generation) {

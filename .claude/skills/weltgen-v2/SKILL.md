@@ -73,9 +73,7 @@ Terrain-Anhebung des Fluss-Systems.
 3D-Dichte nur an Gitterpunkten (4×4 horizontal, 8 vertikal) + trilineare Interpolation;
 `surfaceSolidHeight` reproduziert exakt dieselbe Mathematik (globale Raster!) — Features stehen
 damit auf dem realen Boden. Höhlen (Cheese + 2×Spaghetti) stechen nie Oberflächen-/Bodenkruste
-unter Wasser an. Materialien: `surfaceTop`/`fillerFor` werden von generate() UND LOD
-(`sampleSurface`) geteilt — geänderte Deckmaterialien MÜSSEN durch beide Pfade, sonst Nähte am
-LOD-Übergang. Bodenpflanzen: Dichtefeld × Pro-Block-Hash (`hash01`), kein Feature-Pass nötig.
+unter Wasser an. Bodenpflanzen: Dichtefeld × Pro-Block-Hash (`hash01`), kein Feature-Pass nötig.
 
 Bäume laufen im Feature-Pass (`ChunkDecorator`, **Scheiben-Modell**): der Ziel-Chunk wertet die
 Features aller 9 Chunks seines 3×3-Umfelds deterministisch aus (`featureSeed` pro Quell-Chunk ×

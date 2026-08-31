@@ -2,7 +2,6 @@ package de.skyengine.graphics.world;
 
 import de.skyengine.core.io.IDisposable;
 import de.skyengine.game.world.Dimension;
-import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.camera.Camera;
@@ -20,7 +19,6 @@ public final class DimensionView implements IDisposable {
     private final ChunkRenderer chunks;
     private final EntityRenderer entities = new EntityRenderer();
     private final ParticleRenderer particles;
-    private final LodManager lod;
     private final EnergyCableFlowRenderer cableFlow;
     private boolean disposed;
 
@@ -31,11 +29,8 @@ public final class DimensionView implements IDisposable {
         this.blockEntityRenderers = blockEntityRenderers;
         this.renderGeneration = dimension.getChunkManager().attachRenderer();
         try {
-            this.lod = dimension.initClientLod();
             this.chunks = new ChunkRenderer(dimension.getChunkManager(), this.renderGeneration);
-            this.chunks.setLodAllowed(dimension.isLodAllowed());
             this.chunks.setEnvironment(dimension.getEnvironment());
-            this.chunks.setLodManager(this.lod);
             this.chunks.init(atlas);
             this.entities.init(atlas.textures());
             this.particles = new ParticleRenderer(dimension.particles(), atlas.textures());
@@ -43,7 +38,6 @@ public final class DimensionView implements IDisposable {
             this.cableFlow = new EnergyCableFlowRenderer(dimension.getEnergyNetworks());
             this.cableFlow.init();
         } catch (RuntimeException | Error failure) {
-            dimension.disposeClientLod();
             dimension.getChunkManager().detachRenderer(this.renderGeneration);
             throw failure;
         }
@@ -75,7 +69,7 @@ public final class DimensionView implements IDisposable {
         this.chunks.renderSolid(camera);
         FrameProfiler.cpuStart(FrameProfiler.Cpu.BE);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.BLOCK_ENTITIES);
-        this.blockEntityRenderers.render(this.dimension.getChunkManager(), this.lod, camera,
+        this.blockEntityRenderers.render(this.dimension.getChunkManager(), camera,
                 partialTick, this.dimension.getEnvironment().ambientLight());
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.BLOCK_ENTITIES);
         FrameProfiler.cpuStop(FrameProfiler.Cpu.BE);
@@ -109,6 +103,5 @@ public final class DimensionView implements IDisposable {
         this.particles.dispose();
         this.chunks.dispose();
         this.cableFlow.dispose();
-        this.dimension.disposeClientLod();
     }
 }

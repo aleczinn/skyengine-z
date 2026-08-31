@@ -15,11 +15,6 @@ public class BlockDefinition {
     public Boolean opaque;              // default: true wenn layer == opaque
     public Boolean solid;               // default: false bei cross, sonst true
     public boolean cull_same = false;   // Glas-an-Glas-Culling
-    public boolean no_lod_surface = false; // nie als LOD-Terrain-Oberfläche sampeln (Logs)
-    /* Fern-LOD: Nicht-Vollblöcke können als Default-State eines Vollblocks erscheinen oder
-       vollständig entfallen. Gemeinsame Regeln gehören in die JSON-Presets. */
-    public String lod_replacement;
-    public boolean lod_ignore = false;
     public boolean leaves = false;      // Laub: bei LeavesQuality LOW cullt Laub-an-Laub
     /* Licht-Opazität 0..15: wie viel Himmelslicht eine Zelle schluckt. null = automatisch
        (opaker Vollblock 15, sonst 0). Explizit nur da, wo Licht DÄMPFEN soll — Wasser und

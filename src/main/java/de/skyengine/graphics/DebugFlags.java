@@ -2,8 +2,7 @@ package de.skyengine.graphics;
 
 /**
  * Transiente Debug-Schalter (nur Session, NICHT in options.json). Vom {@code GuiDebugScreen}
- * und dem Render-/Input-Pfad gelesen/geschrieben. GPU-Cull ({@code GpuCull.ENABLED/DEBUG_TINT})
- * liegt bewusst in seinem Subsystem; hier nur, was sonst nirgends ein Zuhause hat.
+ * und dem Render-/Input-Pfad gelesen/geschrieben.
  */
 public final class DebugFlags {
 
@@ -15,22 +14,6 @@ public final class DebugFlags {
 
     /** Chunk-Grenzen (per F3+G): 0 = aus, 1 = ganzer Chunk, 2 = Chunk + nicht-leere Sections. */
     public static volatile int chunkBorders = 0;
-
-    /**
-     * LOD-Opaque im CPU-Pfad pro Level in eigene Sub-Draws aufteilen (Mess-Gate für die
-     * per-Level-GPU-Queries lodO1..lodO5). Hing früher direkt an {@code FrameProfiler
-     * .isEnabled()} — dadurch zeichnete der CPU-Pfad unter DebugMode.FULL bis zu 5 Sub-Draws,
-     * der GPU-Pfad (gemergtes LOD-Segment) nur einen: jeder CPU-vs-GPU-Vergleich war
-     * dadurch verzerrt. Jetzt eigener Schalter, Default AUS.
-     */
-    public static volatile boolean lodLevelSplit = false;
-
-    /**
-     * Färbt echte Chunk-Meshes als L0 und Fern-Meshes nach ihrem LOD-Level. Zellen, in denen
-     * ein interaktiver L0-Chunk noch unter einem sichtbaren LOD liegt, werden zusätzlich
-     * magenta markiert. Reiner Shader-/Draw-Metadaten-Debug, kein Remesh.
-     */
-    public static volatile boolean lodLevelColors = false;
 
     /**
      * Trefferflächen der Inventar-Slots einfärben (jeder Slot eine eigene Farbe). Macht tote

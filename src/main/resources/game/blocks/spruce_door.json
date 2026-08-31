@@ -1,6 +1,5 @@
 {
   "id": "spruce_door",
   "parent": "preset/door",
-  "lod_replacement": "spruce_planks",
   "creative_tab": ["building_blocks", "functional"]
 }

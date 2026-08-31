@@ -49,9 +49,9 @@ public final class WorldgenRegistries {
                 new GenerationSetup(new NetherWorldGenerator(seed), List.of(),
                         GenerationSetup.StorageMode.GENERATED)));
 
-        registerDimension(new DimensionDefinition(OVERWORLD, ALPHA_V2, 0, true));
-        registerDimension(new DimensionDefinition(MINING, MINING_FLAT_V1, 0x4D494E45, true));
-        registerDimension(new DimensionDefinition(NETHER, NETHER_V1, 0x4E455448, false,
+        registerDimension(new DimensionDefinition(OVERWORLD, ALPHA_V2, 0));
+        registerDimension(new DimensionDefinition(MINING, MINING_FLAT_V1, 0x4D494E45));
+        registerDimension(new DimensionDefinition(NETHER, NETHER_V1, 0x4E455448,
                 DimensionEnvironment.NETHER));
         PortalDefinition miningPortal = new PortalDefinition(Identifier.of("mining_portal"),
                 Identifier.of("mining_portal"), Map.of(OVERWORLD, MINING, MINING, OVERWORLD),

@@ -1,7 +1,6 @@
 {
   "id": "acacia_log",
   "parent": "preset/pillar",
-  "no_lod_surface": true,
   "hardness": 2,
   "tool": "axe"
 }

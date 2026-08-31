@@ -5,14 +5,9 @@ import de.skyengine.game.world.block.Identifier;
 
 /** Registrierbare Dimension mit Standardgenerator, stabilem Seed-Salt und Darstellungsregeln. */
 public record DimensionDefinition(Identifier id, Identifier defaultGenerator, int seedSalt,
-                                  boolean lodAllowed, DimensionEnvironment environment) {
-    public DimensionDefinition(Identifier id, Identifier defaultGenerator, int seedSalt,
-                               boolean lodAllowed) {
-        this(id, defaultGenerator, seedSalt, lodAllowed, DimensionEnvironment.OVERWORLD);
-    }
-
+                                  DimensionEnvironment environment) {
     public DimensionDefinition(Identifier id, Identifier defaultGenerator, int seedSalt) {
-        this(id, defaultGenerator, seedSalt, true, DimensionEnvironment.OVERWORLD);
+        this(id, defaultGenerator, seedSalt, DimensionEnvironment.OVERWORLD);
     }
 
     public DimensionDefinition {

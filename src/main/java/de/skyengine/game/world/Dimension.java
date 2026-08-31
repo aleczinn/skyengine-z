@@ -46,9 +46,6 @@ import de.skyengine.game.world.save.WorldStorage;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import de.skyengine.game.world.light.LightEngine;
-import de.skyengine.game.world.lod.LodBlockAppearance;
-import de.skyengine.game.world.lod.LodManager;
-import de.skyengine.game.world.lod.PersistentLodDataSource;
 import de.skyengine.game.world.particle.ParticleEngine;
 import de.skyengine.game.world.particle.ParticlePriority;
 import de.skyengine.game.world.redstone.RedstonePower;
@@ -93,7 +90,6 @@ public class Dimension implements IInitializable, IDisposable {
 
     private final String name;
     private final Identifier dimensionId;
-    private final boolean lodAllowed;
     private final DimensionEnvironment environment;
 
     private final WorldGenerator generator;
@@ -101,15 +97,11 @@ public class Dimension implements IInitializable, IDisposable {
     private final ChunkManager chunkManager;
     /* Chunk-Persistenz (Region-Dateien + eigener IO-Thread); Flush in dispose(). */
     private final WorldStorage storage;
-    /* worldType "imported" — steuert u.a. die LOD-Datenquelle (Storage statt Generator). */
+    /* worldType "imported" — importierte Chunks werden vollständig aus dem Storage geladen. */
     private final boolean imported;
-    /* Mehrschichtiges Spalten-LOD jenseits der Render-Distanz; init() braucht gebackene Modelle. */
-    private LodManager lodManager;
-    private PersistentLodDataSource persistentLodSource;
     private final int generatorVersion;
     private final LevelData levelData;
     private final LevelData.DimensionData dimensionData;
-    private final File lodDirectory;
     private final PortalIndex portalIndex;
     private final PortalLinks portalLinks;
     /* Engine-Lebensdauer (GameContainer): Atlas + BlockEntity-Renderer überleben Welt-Austritte —
@@ -296,7 +288,6 @@ public class Dimension implements IInitializable, IDisposable {
         this.levelData = level;
         this.dimensionData = resolved.data();
         this.dimensionId = dimensionId;
-        this.lodAllowed = resolved.dimension().lodAllowed();
         this.environment = resolved.dimension().environment();
         this.lightEngine = new LightEngine(this.environment.hasSkylight());
         this.particles = new ParticleEngine(this);
@@ -336,7 +327,6 @@ public class Dimension implements IInitializable, IDisposable {
            speichern nur modifizierte Chunks (Tints werden beim Laden neu berechnet),
            importierte alle (Tints im Payload). */
         this.generatorVersion = resolved.generator().version();
-        this.lodDirectory = resolved.lodDir();
         this.portalIndex = new de.skyengine.game.world.dimension.PortalIndex(resolved.root());
         this.portalLinks = portalLinks == null
                 ? new de.skyengine.game.world.dimension.PortalLinks(saveRoot) : portalLinks;
@@ -351,10 +341,6 @@ public class Dimension implements IInitializable, IDisposable {
 
     public Identifier getDimensionId() {
         return this.dimensionId;
-    }
-
-    public boolean isLodAllowed() {
-        return this.lodAllowed;
     }
 
     public de.skyengine.game.world.dimension.DimensionEnvironment getEnvironment() {
@@ -449,32 +435,6 @@ public class Dimension implements IInitializable, IDisposable {
         /* Reine Savegame-/Simulationslaufzeit; die Clientansicht wird separat erzeugt. */
     }
 
-    public LodManager initClientLod() {
-        if (this.lodManager != null) return this.lodManager;
-        /* LOD: abstrahierte Datenquelle + Block-Darstellung aus den gebackenen Modellen —
-           erst nach dem Registry-Bake. Importierte Welten sampeln die Region-Snapshots
-           (der Void-Generator kennt kein Terrain), generierte wie bisher Chunkdaten +
-           Generator-Noise. */
-        this.persistentLodSource = new PersistentLodDataSource(this.chunkManager, this.storage,
-                this.generator, this.decorator, this.imported,
-                this.lodDirectory, this.generatorVersion);
-        this.lodManager = new LodManager(this.persistentLodSource, new LodBlockAppearance(), this.chunkManager,
-                this.lodAllowed);
-        this.chunkManager.setLodManager(this.lodManager); // Unload-Gate: erst entladen, wenn LOD deckt
-        return this.lodManager;
-    }
-
-    public void disposeClientLod() {
-        this.chunkManager.setLodManager(null);
-        this.lodManager = null;
-        if (this.persistentLodSource != null) this.persistentLodSource.close();
-        this.persistentLodSource = null;
-    }
-
-    public LodManager getLodManager() {
-        return this.lodManager;
-    }
-
     public Iterable<Chunk> entityChunks() {
         return this.chunksWithEntities;
     }
@@ -506,11 +466,10 @@ public class Dimension implements IInitializable, IDisposable {
         long phase = profiler.begin();
         this.chunkManager.update(player);
         this.pruneTransientPositionStates();
-        if (this.lodManager != null) this.lodManager.update(player);
         this.processUnloadedChunkBoundaries();
         this.restorePendingScheduledTicks();
         this.processReadyChunks();
-        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.CHUNK_LOD_MANAGEMENT, phase);
+        attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.CHUNK_MANAGEMENT, phase);
         phase = profiler.begin();
         this.processDeferredStateUpdates();
         attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.DEFERRED_STATE_UPDATES, phase);
@@ -648,7 +607,6 @@ public class Dimension implements IInitializable, IDisposable {
             /* Persistente Hanging-Entities wurden bereits vom Load-Worker in den Chunk gelegt.
                Erst ab READY duerfen Tick und Renderer sie sehen. */
             if (!chunk.entities().isEmpty()) this.chunksWithEntities.add(chunk);
-            if (this.persistentLodSource != null) this.persistentLodSource.queueLiveVolumes(chunk);
             chunk.loadSeeded = true;
         }
     }
@@ -1649,22 +1607,19 @@ public class Dimension implements IInitializable, IDisposable {
      * Ob der Spieler diese Zelle bereits wirklich sehen und damit sicher anvisieren darf.
      *
      * <p>{@link ChunkStatus#READY} bedeutet nur, dass alle initialen Section-Meshes erzeugt und
-     * zum Upload eingereiht wurden. Bis der Renderer sie komplett übernommen hat, bleibt der
-     * atomare LOD-Parent als sichtbarer Fallback aktiv. In diesem Übergang dürfen weder Auswahl
-     * noch Interaktionen auf die noch nicht vollständig sichtbaren L0-Daten zugreifen.</p>
+     * zum Upload eingereiht wurden. Bis der Renderer sie komplett übernommen hat, dürfen weder
+     * Auswahl noch Interaktionen auf noch unsichtbare Daten zugreifen.</p>
      */
     public boolean isPlayerInteractionReady(int x, int y, int z) {
         if (y < 0 || y >= Chunk.HEIGHT) return false;
         int cx = x >> ChunkSection.SHIFT, cz = z >> ChunkSection.SHIFT;
         Chunk chunk = this.chunkManager.getChunk(cx, cz);
-        boolean lodShowsCell = this.lodManager != null && this.lodManager.lodShowsCell(cx, cz);
-        return isPlayerInteractionReady(chunk, lodShowsCell);
+        return isPlayerInteractionReady(chunk);
     }
 
     /** Pure Statusmatrix fuer Tests und den oeffentlichen Weltkoordinaten-Pfad oben. */
-    static boolean isPlayerInteractionReady(Chunk chunk, boolean lodShowsCell) {
-        return chunk != null && chunk.status == ChunkStatus.READY && chunk.isFullyUploaded()
-                && !chunk.pendingUnload && !lodShowsCell;
+    static boolean isPlayerInteractionReady(Chunk chunk) {
+        return chunk != null && chunk.status == ChunkStatus.READY && chunk.isFullyUploaded();
     }
 
 
@@ -1675,7 +1630,6 @@ public class Dimension implements IInitializable, IDisposable {
            sonst arbeiten Alt-Jobs beim direkten Wiedereintritt in die neue Welt hinein. */
         this.chunkManager.dispose();
         this.saveRuntimeState();
-        this.disposeClientLod();
         /* NACH den Workern: jetzt schreibt niemand mehr auf Chunks — ausstehende Save-Jobs
            flushen (bis 10 s) und die Region-Handles schließen. */
         this.storage.close();
@@ -1695,16 +1649,8 @@ public class Dimension implements IInitializable, IDisposable {
         return chunk.getBlock(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
     }
 
-    /**
-     * Block der aktuell sichtbaren Welt-Darstellung. Solange ein LOD-Mesh die Zelle ersetzt,
-     * wird dessen Spalte gesampelt; andernfalls gelten die echten Chunkdaten aus
-     * {@link #getBlock}. Nur fuer Kamera- und Render-Effekte verwenden, nie fuer Simulation.
-     */
+    /** Block der aktuell gerenderten Welt; für Kamera- und Render-Effekte. */
     public int getRenderedBlock(int x, int y, int z) {
-        if (this.lodManager != null) {
-            int lodState = this.lodManager.visibleStateAt(x, y, z);
-            if (lodState >= 0) return lodState;
-        }
         return this.getBlock(x, y, z);
     }
 
@@ -1756,12 +1702,8 @@ public class Dimension implements IInitializable, IDisposable {
         return chunk.light.get(x & ChunkSection.MASK, y, z & ChunkSection.MASK);
     }
 
-    /** Sichtbares Himmelslicht inklusive Wasserdaempfung eines gerade dargestellten LOD-Meshes. */
+    /** Himmelslicht der aktuell gerenderten Welt. */
     public int getRenderedSkyLight(int x, int y, int z) {
-        if (this.lodManager != null) {
-            int lodLight = this.lodManager.visibleSkyLightAt(x, y, z);
-            if (lodLight >= 0) return lodLight;
-        }
         return this.getSkyLight(x, y, z);
     }
 
@@ -1967,7 +1909,7 @@ public class Dimension implements IInitializable, IDisposable {
         this.lightDiagonals[3] = this.chunkManager.getChunk(cx + 1, cz + 1);
         this.lightEngine.onBlockChanged(chunk, north, south, west, east, this.lightDiagonals,
                 lx, y, lz, oldBlock, newBlock);
-        profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE, 0, started);
+        profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE, started);
     }
 
     /* ------------------- Massen-Zerstörung (Explosion) ------------------- */
@@ -2111,7 +2053,7 @@ public class Dimension implements IInitializable, IDisposable {
         long lightStarted = profiler.begin();
         for (SetBatchGroup group : activeGroups) this.updateSetBatchLight(group);
         this.stabilizeSetBatchBorders(activeGroups);
-        profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE, 0, lightStarted);
+        profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE, lightStarted);
 
         for (SetBatchGroup group : activeGroups) {
             int baseX = group.chunk.chunkX << ChunkSection.SHIFT, baseZ = group.chunk.chunkZ << ChunkSection.SHIFT;
@@ -2292,7 +2234,7 @@ public class Dimension implements IInitializable, IDisposable {
             this.lightDiagonals[3] = this.chunkManager.getChunk(cx + 1, cz + 1);
             this.lightEngine.onBlocksChanged(chunk, north, south, west, east, this.lightDiagonals,
                     group.packedPos, group.oldIds, group.count);
-            profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE, 0, lightStarted);
+            profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE, lightStarted);
         }
 
         /* Erst nachdem ALLE Batch-Writes sichtbar sind: Vanilla-Post-Removal-Hooks duerfen

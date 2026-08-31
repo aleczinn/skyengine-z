@@ -1,7 +1,6 @@
 package de.skyengine.graphics;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
@@ -9,7 +8,7 @@ import java.util.Map;
 
 /**
  * GL-unabhaengige, thread-sichere Zentrale des Ingame-Profilers. Messpunkte duerfen diese
- * Klasse auch aus Chunk-/LOD-Workern aufrufen. Der deaktivierte Pfad liest nur das volatile
+ * Klasse auch aus Chunk-Workern aufrufen. Der deaktivierte Pfad liest nur das volatile
  * enabled-Flag; insbesondere wird dort weder die Uhr gelesen noch synchronisiert.
  */
 public final class PerformanceProfiler {
@@ -19,23 +18,20 @@ public final class PerformanceProfiler {
     }
 
     public enum GpuSection {
-        L0_OPAQUE, L0_CUTOUT, L0_TRANSLUCENT, LOD_OPAQUE, LOD_TRANSLUCENT,
-        CULL_HIZ, ENTITIES, BLOCK_ENTITIES, PARTICLES, HAND_OVERLAYS, RESOLVE,
+        L0_OPAQUE, L0_CUTOUT, L0_TRANSLUCENT,
+        ENTITIES, BLOCK_ENTITIES, PARTICLES, HAND_OVERLAYS, RESOLVE,
         POSTPROCESSING, GUI, FRAME_SPAN
     }
 
     public enum TickSection {
-        PLAYER_GAME_LOGIC, CHUNK_LOD_MANAGEMENT, DEFERRED_STATE_UPDATES,
+        PLAYER_GAME_LOGIC, CHUNK_MANAGEMENT, DEFERRED_STATE_UPDATES,
         SCHEDULED_TICKS, BLOCK_EVENTS, RANDOM_TICKS, BLOCK_ENTITY_TICKS, ENERGY_NETWORKS,
         ENTITY_TICKS, PARTICLE_TICKS, REST, TOTAL
     }
 
     public enum WorkerSection {
         L0_QUEUE_WAIT, L0_DISK_LOAD, L0_TERRAIN, L0_FEATURES, L0_INITIAL_LIGHT,
-        L0_LIGHT_UPDATE, L0_INITIAL_MESH, L0_REMESH, L0_UPLOAD_WAIT, L0_UPLOAD,
-        LOD_SOURCE_CACHE_DISK_SAVE, LOD_SOURCE_TERRAIN, LOD_SOURCE_FEATURES,
-        LOD_PROJECTION, LOD_REDUCTION, LOD_MESH_SAMPLING, LOD_MESH_GEOMETRY,
-        LOD_WORKER_QUEUE, LOD_RESULT_QUEUE, LOD_GPU_UPLOAD
+        L0_LIGHT_UPDATE, L0_INITIAL_MESH, L0_REMESH, L0_UPLOAD_WAIT, L0_UPLOAD
     }
 
     /** Threaduebergreifender Startwert fuer Worker -> Render-Queue-Zeiten. */
@@ -43,8 +39,7 @@ public final class PerformanceProfiler {
 
     public enum Counter {
         TICKED_ENTITIES, TICKED_BLOCK_ENTITIES, EXECUTED_BLOCK_TICKS,
-        L0_ACTIVE_JOBS, L0_WAITING_JOBS, LOD_ACTIVE_JOBS, LOD_WAITING_JOBS,
-        LOD_FINISHED_REGIONS, ACTIVE_PARTICLES, REJECTED_PARTICLES,
+        L0_ACTIVE_JOBS, L0_WAITING_JOBS, ACTIVE_PARTICLES, REJECTED_PARTICLES,
         ACTIVE_ENERGY_NETWORKS, ENERGY_ENDPOINTS, ENERGY_TRANSFERRED, ENERGY_TOPOLOGY_REBUILDS
     }
 
@@ -65,14 +60,8 @@ public final class PerformanceProfiler {
                                    Map<GpuSection, TimingStats> gpu,
                                    Map<TickSection, TimingStats> tick,
                                    Map<WorkerSection, TimingStats> l0,
-                                   List<Map<WorkerSection, TimingStats>> lod,
                                    Map<Counter, Long> counters,
-                                   List<GraphSample> graph) {
-        public TimingStats lod(WorkerSection section, int level) {
-            if (level < 1 || level > 5) return TimingStats.EMPTY;
-            return this.lod.get(level - 1).getOrDefault(section, TimingStats.EMPTY);
-        }
-    }
+                                   List<GraphSample> graph) {}
 
     private static final int STAT_CAPACITY = 1024;
     private static final int GRAPH_CAPACITY = 200;
@@ -84,7 +73,6 @@ public final class PerformanceProfiler {
     private final EnumMap<GpuSection, Series> gpu = series(GpuSection.class);
     private final EnumMap<TickSection, Series> tick = series(TickSection.class);
     private final EnumMap<WorkerSection, Series> l0 = series(WorkerSection.class);
-    private final List<EnumMap<WorkerSection, Series>> lod = new ArrayList<>(5);
     private final EnumMap<Counter, Long> counters = new EnumMap<>(Counter.class);
     private final ArrayDeque<GraphSample> graph = new ArrayDeque<>(GRAPH_CAPACITY);
     private final ThreadLocal<Long> beginGeneration = ThreadLocal.withInitial(() -> -1L);
@@ -99,9 +87,7 @@ public final class PerformanceProfiler {
     private double pendingGpuFrame = Double.NaN;
     private double pendingTick = Double.NaN;
 
-    public PerformanceProfiler() {
-        for (int i = 0; i < 5; i++) this.lod.add(series(WorkerSection.class));
-    }
+    public PerformanceProfiler() {}
 
     public static PerformanceProfiler get() { return INSTANCE; }
     public boolean isEnabled() { return this.enabled; }
@@ -152,17 +138,14 @@ public final class PerformanceProfiler {
         }
     }
 
-    /** level 0 = L0, level 1..5 = LOD. */
-    public void record(WorkerSection section, int level, long nanos) {
+    public void record(WorkerSection section, long nanos) {
         if (!this.enabled) return;
-        if (level == 0) this.l0.get(section).add(nanos);
-        else if (level >= 1 && level <= 5) this.lod.get(level - 1).get(section).add(nanos);
-        else throw new IllegalArgumentException("LOD-Level ausserhalb 0..5: " + level);
+        this.l0.get(section).add(nanos);
     }
 
-    public void record(WorkerSection section, int level, long nanos, AsyncToken token) {
+    public void record(WorkerSection section, long nanos, AsyncToken token) {
         if (!asyncMeasurementIsCurrent(token)) return;
-        record(section, level, nanos);
+        record(section, nanos);
     }
 
     public void recordElapsed(CpuSection section, long startedNanos) {
@@ -175,14 +158,14 @@ public final class PerformanceProfiler {
         record(section, System.nanoTime() - startedNanos);
     }
 
-    public void recordElapsed(WorkerSection section, int level, long startedNanos) {
+    public void recordElapsed(WorkerSection section, long startedNanos) {
         if (!measurementIsCurrent(startedNanos)) return;
-        record(section, level, System.nanoTime() - startedNanos);
+        record(section, System.nanoTime() - startedNanos);
     }
 
-    public void recordElapsed(WorkerSection section, int level, AsyncToken token) {
+    public void recordElapsed(WorkerSection section, AsyncToken token) {
         if (!asyncMeasurementIsCurrent(token)) return;
-        record(section, level, System.nanoTime() - token.startedNanos());
+        record(section, System.nanoTime() - token.startedNanos());
     }
 
     public void add(Counter counter, long amount) {
@@ -241,17 +224,14 @@ public final class PerformanceProfiler {
     private ProfilerSnapshot buildSnapshot(long now) {
         EnumMap<Counter, Long> counterCopy;
         synchronized (this.counters) { counterCopy = new EnumMap<>(this.counters); }
-        List<Map<WorkerSection, TimingStats>> lodCopy = new ArrayList<>(5);
-        for (EnumMap<WorkerSection, Series> level : this.lod) lodCopy.add(snapshot(level, now));
         return new ProfilerSnapshot(this.generation, now, snapshot(this.cpu, now),
                 snapshot(this.gpu, now), snapshot(this.tick, now), snapshot(this.l0, now),
-                List.copyOf(lodCopy), Collections.unmodifiableMap(counterCopy), List.copyOf(this.graph));
+                Collections.unmodifiableMap(counterCopy), List.copyOf(this.graph));
     }
 
     private void resetLocked() {
         this.generation++;
         clear(this.cpu); clear(this.gpu); clear(this.tick); clear(this.l0);
-        for (EnumMap<WorkerSection, Series> level : this.lod) clear(level);
         synchronized (this.counters) { this.counters.clear(); }
         this.graph.clear();
         this.pendingCpuFrame = this.pendingGpuFrame = this.pendingTick = Double.NaN;
@@ -276,10 +256,8 @@ public final class PerformanceProfiler {
     private static void clear(Map<?, Series> map) { map.values().forEach(Series::clear); }
 
     private static ProfilerSnapshot emptySnapshot(long generation) {
-        List<Map<WorkerSection, TimingStats>> levels = new ArrayList<>(5);
-        for (int i = 0; i < 5; i++) levels.add(Map.of());
         return new ProfilerSnapshot(generation, 0, Map.of(), Map.of(), Map.of(), Map.of(),
-                List.copyOf(levels), Map.of(), List.of());
+                Map.of(), List.of());
     }
 
     private static final class Series {

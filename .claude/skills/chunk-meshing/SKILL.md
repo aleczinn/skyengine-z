@@ -85,7 +85,7 @@ int1: posZ | u    << 16   (UV fixed 6.10, UV_SCALE=1024, Bias +1)
 int2: v    | layer << 16  (layer = TextureArray-Layer)
 int3: r | g<<8 | b<<16 | plantHash<<24  (Farbe = Helligkeit × AO × Tint; Bits 24-31 = Pflanzen-Hash für die Vegetations-Ausdünnung)
 int4: gemitteltes Skylight 0..255 in Bits 0-7, Blocklicht 0..255 in Bits 8-15,
-      Fluid-Top-Flag in Bit 16, LOD-Dense-Alpha in Bit 17 (Bits 18-31 reserviert)
+      Fluid-Top-Flag in Bit 16 (Bits 17-31 reserviert)
 ```
 **int4 ist seit dem Himmelslicht belegt** und liegt als **eigenes Vertex-Attribut 1** an
 (`glVertexAttribIPointer(1, 1, GL_UNSIGNED_INT, stride, 16)` in `ChunkRenderer.ensureVaoBindings`);
@@ -97,18 +97,15 @@ Die LightEngine und der Chunk-Speicher bleiben weiterhin bei 0..15 je Kanal. Ers
 den Byte-Bereich; so bleiben halbe, Drittel- und Viertelstufen bis zum Shader erhalten.
 Okkludierte Corner-Samples werden Minecraft-artig durch die Basiszelle vor der Face ersetzt;
 der Nenner bleibt vier und gemeinsame Welt-Ecken erhalten bitidentische Werte.
-Konsequenzen: Positionen tragen nur ~−1..+62 Blöcke, UVs max. ~63 (deshalb Merge-Deckel im LOD;
-Section-Greedy bleibt ≤ 32 durch die Section-Größe).
+Konsequenzen: Positionen tragen nur ~−1..+62 Blöcke; Section-Greedy und UVs bleiben durch die
+Section-Größe ≤ 32.
 
 **Position: 6.10, nicht 8.8** — eine Section braucht nur −1..33, die übrigen Bits gehen in die
 Nachkommastellen (1/1024 Block). Der Grund ist Modellgeometrie: MC-Modelle trennen koplanare Flächen
 mit winzigen Offsets, und bei 1/256 war der kleinste darstellbare Versatz (1/16 px) selbst schon
 sichtbar. Vorrechnen muss man diese Offsets im Modell-JSON nicht: `ModelElements.pxEdge` hebt beim
 Laden jeden Wert, der auf eine Blockgrenze rundet ohne exakt darauf zu liegen, auf einen
-Quantisierungsschritt an — Vanilla-Werte wie `0.001` funktionieren dadurch wörtlich. **Das LOD teilt diese Konstante NICHT** (`LodMesher.posScaleFor` führt eigene 256/64) —
-dort zählt Reichweite statt Auflösung, deshalb packt es zusätzlich relativ zu `yBase`.
-Die Skala steht **pro Draw** im Offset-SSBO (`.w`), der Shader hat sie nicht hartkodiert; wer
-`POS_SCALE` ändert, muss nur die Java-Schreiber mitziehen (`ChunkRenderer.writeSegment`, `GpuCull`).
+Quantisierungsschritt an — Vanilla-Werte wie `0.001` funktionieren dadurch wörtlich.
 Sie muss eine **Zweierpotenz** bleiben: nur dann ist `raw * 2^-n` im Shader eine reine
 Exponenten-Verschiebung und zwei Vertices mit gleichem Rohwert landen bitidentisch — worauf die
 koplanaren Gras-Overlays angewiesen sind. Ein Quad = 4 Vertices (BakedQuad liefert 6 Modell-Vertices A,B,C,C,D,A —
@@ -132,6 +129,5 @@ Cross-Blöcke mit `hasRandomOffset()` bekommen einen deterministischen XZ-Versat
   Z-Fighting, falsche UV-Kachelung auf großen Flächen, dunkle/flackernde Ecken).
 - Nach AO-/Greedy-Änderungen gezielt prüfen: große ebene Flächen (Merge korrekt?), Kanten/Ecken
   von Klippen (per-Vertex-AO + Flip?), Blick flach über eine Ebene (Funkel-Striche?).
-- Nach Format-Änderungen: Pack- und Unpack-Seite synchron ändern — es gibt zwei Schreiber
-  (`ChunkMesher.putVertex`, `LodMesher.putVertex`) und einen Leser (Vertex-Shader-String in
-  `ChunkRenderer`).
+- Nach Format-Änderungen: Pack- und Unpack-Seite synchron ändern — Schreiber ist
+  `ChunkMesher.putVertex`, Leser der Vertex-Shader-String in `ChunkRenderer`.

@@ -13,14 +13,13 @@ import de.skyengine.graphics.gui.widget.CycleButton;
 import de.skyengine.graphics.gui.widget.Spacer;
 import de.skyengine.graphics.post.PostProcessingSettings;
 import de.skyengine.graphics.post.PostProcessingSettings.AntiAliasingMode;
-import de.skyengine.graphics.world.GpuCull;
 
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
 
 /**
- * Debug-Unterseite des Optionsmenüs: transiente Entwickler-Schalter (Wireframe, GPU-Cull,
- * LOD-Level-Farben, AA-Modus) und Aktionen (Chunks/Postprocessing neu laden). Nichts davon
+ * Debug-Unterseite des Optionsmenüs: transiente Entwickler-Schalter (Wireframe, AA-Modus)
+ * und Aktionen (Chunks/Postprocessing neu laden). Nichts davon
  * wird persistiert — beim Neustart wieder Standard. Welt-abhängige Schalter sind null-geguardet
  * (der Screen ist auch aus dem Titelmenü ohne Welt erreichbar).
  */
@@ -42,25 +41,6 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
         CycleButton<Boolean> wireframe = CycleButton.onOff(I18n.tr("options.debug.wireframe"), CELL_W, CELL_H,
                 DebugFlags.wireframe, v -> DebugFlags.wireframe = v);
 
-        CycleButton<Boolean> gpuCull = CycleButton.onOff(I18n.tr("options.debug.gpu_cull"), CELL_W, CELL_H,
-                GpuCull.ENABLED, v -> GpuCull.ENABLED = v);
-
-        CycleButton<Boolean> gpuCullTint = CycleButton.onOff(I18n.tr("options.debug.gpu_cull_tint"), CELL_W, CELL_H,
-                GpuCull.DEBUG_TINT, v -> GpuCull.DEBUG_TINT = v);
-
-        /* Hi-Z getrennt schaltbar: gemessen kostet die Occlusion deutlich mehr, als sie bei
-           heutigem Content spart — das reine Compute-Frustum ist dagegen fast gratis. */
-        CycleButton<Boolean> gpuCullHiZ = CycleButton.onOff(I18n.tr("options.debug.gpu_cull_hiz"), CELL_W, CELL_H,
-                !GpuCull.FRUSTUM_ONLY, v -> GpuCull.FRUSTUM_ONLY = !v);
-
-        CycleButton<Boolean> lodColors = CycleButton.onOff(I18n.tr("options.debug.lod_colors"), CELL_W, CELL_H,
-                DebugFlags.lodLevelColors, v -> DebugFlags.lodLevelColors = v);
-
-        /* Zerlegt den LOD-Opaque-Draw pro Level, damit der FrameProfiler lodO1..lodO5 statt
-           nur lodO ausweist. Kostet zusaetzliche Draws — nur zum Messen einschalten. */
-        CycleButton<Boolean> lodSplit = CycleButton.onOff(I18n.tr("options.debug.lod_split"), CELL_W, CELL_H,
-                DebugFlags.lodLevelSplit, v -> DebugFlags.lodLevelSplit = v);
-
         boolean paused = game.getDimension() != null && game.getDimension().getChunkManager().isLoadingPaused();
         CycleButton<Boolean> pauseLoading = CycleButton.onOff(I18n.tr("options.debug.pause_loading"), CELL_W, CELL_H,
                 paused, v -> {
@@ -77,11 +57,8 @@ public final class GuiDebugScreen extends GuiOptionsScreen {
                 () -> SkyEngine.get().getPostProcessor().getSettings().reloadFromFile());
 
         content.add(new HStack(4, wireframe, null));
-        content.add(new HStack(4, gpuCull, gpuCullHiZ));
-        content.add(new HStack(4, gpuCullTint, null));
         content.add(new HStack(4, underwaterEffect, guiSlots));
         content.add(new HStack(4, reloadChunks, reloadPost));
-        content.add(new HStack(4, pauseLoading, lodColors));
-        content.add(new HStack(4, lodSplit, null));
+        content.add(new HStack(4, pauseLoading, null));
     }
 }

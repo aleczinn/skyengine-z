@@ -1,6 +1,5 @@
 {
   "id": "birch_door",
   "parent": "preset/door",
-  "lod_replacement": "birch_planks",
   "creative_tab": ["building_blocks", "functional"]
 }

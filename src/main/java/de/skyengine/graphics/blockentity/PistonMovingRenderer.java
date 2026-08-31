@@ -224,7 +224,6 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
         /* Wie im ChunkRenderer: 0.5 = harter Cutout, 0.001 = praktisch aus fürs Blending. */
         uniform float u_AlphaCutoff;
         layout(location = 0) out vec4 fragColor;
-        layout(location = 1) out float fragLodMask;
         vec3 materialLight(vec3 a){
             if(u_PbrEnabled==0)return a;
             vec4 nt=texture(u_NormalTextures,v_texCoord),m=texture(u_MaterialTextures,v_texCoord);
@@ -240,7 +239,6 @@ public final class PistonMovingRenderer implements BlockEntityRenderer {
             vec4 c = texture(u_Textures, v_texCoord);
             if (c.a < u_AlphaCutoff) discard;
             fragColor = vec4(materialLight(c.rgb) * v_color * u_Light, c.a);
-            fragLodMask = 0.0;
         }
         """;
 }

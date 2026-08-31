@@ -7,7 +7,6 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
-import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.world.ChunkRenderer;
 import org.joml.FrustumIntersection;
@@ -40,7 +39,7 @@ public final class BlockEntityRenderDispatcher {
         for (BlockEntityRenderer renderer : this.renderers.values()) renderer.init();
     }
 
-    public void render(ChunkManager chunkManager, LodManager lodManager, Camera camera, float partialTick,
+    public void render(ChunkManager chunkManager, Camera camera, float partialTick,
                        float ambientLight) {
         if (this.renderers.isEmpty()) return;
         Vector3d cam = camera.getPosition();
@@ -49,9 +48,6 @@ public final class BlockEntityRenderDispatcher {
            Scan über ALLE geladenen Chunks inkl. Sicht-Gate-Lookup war O(Chunks) pro Frame. */
         for (Chunk chunk : chunkManager.chunksWithBlockEntities()) {
             if (chunk.status != ChunkStatus.READY) continue;
-            /* Sicht-Gate wie im ChunkRenderer-Cull: solange das LOD die Zelle noch zeigt, ist
-               der Chunk unsichtbar — seine BlockEntities dürfen nicht über dem LOD schweben. */
-            if (lodManager != null && lodManager.lodShowsCell(chunk.chunkX, chunk.chunkZ)) continue;
             for (BlockEntity be : chunk.blockEntities()) {
                 BlockEntityRenderer renderer = this.renderers.get(be.getType());
                 if (renderer == null) continue;

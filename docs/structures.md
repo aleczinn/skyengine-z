@@ -13,7 +13,7 @@ Sponge .schem import ─┐
                       ├─> StructureTemplate -> StructureSerializer (.structure)
 In-engine selection ──┘              │
                                      ├─> StructurePlacement (debug / Structure Block)
-                                     └─> StructurePlacement (world generation / LOD)
+                                     └─> StructurePlacement (world generation)
 ```
 
 Sponge `.schem` and legacy WorldEdit `.schematic` are import formats only. They are never required

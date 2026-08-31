@@ -77,7 +77,6 @@ public final class BlockRegistry {
         if (block.getBlockEntityType() != null) flags |= StateFlags.HAS_BLOCK_ENTITY;
         if (block.ticksRandomly()) flags |= StateFlags.TICKS_RANDOMLY;
         if (block.isFluid()) flags |= StateFlags.FLUID;
-        if (block.isExcludedFromLodSurface()) flags |= StateFlags.NO_LOD_SURFACE;
         if (block.isLeaves()) flags |= StateFlags.LEAVES;
         flags = StateFlags.packOpacity(flags, block.getLightOpacity(state));
         flags = StateFlags.packLuminance(flags, block.getLuminance(state));

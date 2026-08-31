@@ -10,7 +10,6 @@ import de.skyengine.game.world.dimension.DimensionDefinition;
 import de.skyengine.graphics.color.Color4;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.PerformanceProfiler;
-import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.gui.font.FontRenderer;
 
 import java.util.ArrayList;
@@ -27,6 +26,8 @@ public final class DebugOverlay {
 
     private static final float TEXT_SIZE = GuiText.NORMAL;
     private static final float MARGIN = 2.5F;
+    private static final float PROFILER_SUMMARY_WIDTH = 204F;
+    private static final int PROFILER_SUMMARY_ROWS = 8;
 
     /** 8 Himmelsrichtungen (i18n-Keys), Index = round(yaw/45) % 8; yaw 0 blickt Richtung -Z. */
     private static final String[] FACING = {
@@ -146,8 +147,9 @@ public final class DebugOverlay {
         SpriteRenderer sprites = gui.sprites();
         sprites.begin(vW, vH);
         if (vW >= 470) {
-            float summaryStep = font.lineHeight(GuiText.SMALL) + 0.5F;
-            sprites.drawRect(vW - 155, MARGIN - 1, 154, 5 * summaryStep + 2,
+            float summaryStep = font.lineHeight(GuiText.TINY) + 0.5F;
+            sprites.drawRect(vW - PROFILER_SUMMARY_WIDTH - 1, MARGIN - 1,
+                    PROFILER_SUMMARY_WIDTH, PROFILER_SUMMARY_ROWS * summaryStep + 2,
                     0, 0, 0, 0.55F);
         }
         for (int i = 0; i < panels.size(); i++) {
@@ -176,19 +178,13 @@ public final class DebugOverlay {
     }
 
     static PanelRect[] workerPanelLayout(float vWidth, float panelsTop, float graphY) {
-        float gap = 1.5F;
-        float width = (vWidth - 2 * MARGIN - 2 * gap) / 3F;
-        float height = Math.max(1, (graphY - panelsTop - gap) / 2F);
-        PanelRect[] result = new PanelRect[6];
-        for (int i = 0; i < result.length; i++) {
-            result[i] = new PanelRect(MARGIN + (i % 3) * (width + gap),
-                    panelsTop + (i / 3) * (height + gap), width, height);
-        }
-        return result;
+        float width = Math.max(1, vWidth - 2 * MARGIN);
+        float height = Math.max(1, graphY - panelsTop);
+        return new PanelRect[]{new PanelRect(MARGIN, panelsTop, width, height)};
     }
 
     private static List<WorkerPanel> workerPanels(PerformanceProfiler.ProfilerSnapshot snapshot) {
-        List<WorkerPanel> panels = new ArrayList<>(6);
+        List<WorkerPanel> panels = new ArrayList<>(1);
         panels.add(new WorkerPanel("L0", List.of(
                 row("Queue/job", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_QUEUE_WAIT)),
                 row("Disk/chunk", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_DISK_LOAD)),
@@ -200,29 +196,11 @@ public final class DebugOverlay {
                 row("Remesh/section", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_REMESH)),
                 row("Upload wait/batch", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_UPLOAD_WAIT)),
                 row("Upload/section", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_UPLOAD)))));
-        for (int level = 1; level <= 5; level++) {
-            panels.add(new WorkerPanel("L" + level, List.of(
-                    lodRow(snapshot, level, "Queue/region", PerformanceProfiler.WorkerSection.LOD_WORKER_QUEUE),
-                    lodRow(snapshot, level, "Source I/O/chunk", PerformanceProfiler.WorkerSection.LOD_SOURCE_CACHE_DISK_SAVE),
-                    lodRow(snapshot, level, "Terrain/chunk", PerformanceProfiler.WorkerSection.LOD_SOURCE_TERRAIN),
-                    lodRow(snapshot, level, "Features/chunk", PerformanceProfiler.WorkerSection.LOD_SOURCE_FEATURES),
-                    lodRow(snapshot, level, "Projection/chunk", PerformanceProfiler.WorkerSection.LOD_PROJECTION),
-                    lodRow(snapshot, level, "Reduction/chunk", PerformanceProfiler.WorkerSection.LOD_REDUCTION),
-                    lodRow(snapshot, level, "Sampling/region", PerformanceProfiler.WorkerSection.LOD_MESH_SAMPLING),
-                    lodRow(snapshot, level, "Mesh/light/region", PerformanceProfiler.WorkerSection.LOD_MESH_GEOMETRY),
-                    lodRow(snapshot, level, "Result wait/region", PerformanceProfiler.WorkerSection.LOD_RESULT_QUEUE),
-                    lodRow(snapshot, level, "Upload/region", PerformanceProfiler.WorkerSection.LOD_GPU_UPLOAD))));
-        }
         return panels;
     }
 
     private static WorkerRow row(String label, PerformanceProfiler.TimingStats stats) {
         return new WorkerRow(label, stats == null ? PerformanceProfiler.TimingStats.EMPTY : stats);
-    }
-
-    private static WorkerRow lodRow(PerformanceProfiler.ProfilerSnapshot snapshot, int level,
-                                    String label, PerformanceProfiler.WorkerSection section) {
-        return row(label, snapshot.lod(section, level));
     }
 
     private static void drawWorkerPanel(FontRenderer font, WorkerPanel panel, float x, float y,
@@ -263,11 +241,10 @@ public final class DebugOverlay {
     }
 
     private static void drawSummary(FontRenderer font, PerformanceProfiler.ProfilerSnapshot snapshot, float vW) {
-        float size = GuiText.SMALL, step = font.lineHeight(size) + 0.5F;
-        float x = vW - 154, y = MARGIN;
-        font.drawStringWithShadow(DebugFlags.lodLevelSplit ? "Profiler [LOD split!]" : "Profiler",
-                x, y, size, Color4.WHITE);
-        float[] rights = {x + 67, x + 94, x + 121, x + 151};
+        float size = GuiText.TINY, step = font.lineHeight(size) + 0.5F;
+        float x = vW - PROFILER_SUMMARY_WIDTH, y = MARGIN;
+        font.drawStringWithShadow("Profiler", x, y, size, Color4.WHITE);
+        float[] rights = {x + 90, x + 126, x + 163, x + 201};
         String[] headings = {"cur", "avg", "p95", "max"};
         for (int i = 0; i < headings.length; i++) {
             drawRight(font, headings[i], rights[i], y, size, Color4.LIGHT_GRAY);
@@ -275,16 +252,24 @@ public final class DebugOverlay {
         drawSummaryRow(font, "CPU", snapshot.cpu().get(PerformanceProfiler.CpuSection.FRAME), x, y + step, size);
         drawSummaryRow(font, "GPU", snapshot.gpu().get(PerformanceProfiler.GpuSection.FRAME_SPAN), x, y + 2 * step, size);
         drawSummaryRow(font, "Tick", snapshot.tick().get(PerformanceProfiler.TickSection.TOTAL), x, y + 3 * step, size);
-        long active = snapshot.counters().getOrDefault(PerformanceProfiler.Counter.ACTIVE_PARTICLES, 0L);
-        long rejected = snapshot.counters().getOrDefault(PerformanceProfiler.Counter.REJECTED_PARTICLES, 0L);
-        font.drawStringWithShadow("Particles " + active + "  rejected " + rejected,
-                x, y + 4 * step, size, Color4.WHITE);
+        drawSummaryRow(font, "Culling", snapshot.cpu().get(PerformanceProfiler.CpuSection.CULL),
+                x, y + 4 * step, size);
+        drawSummaryRow(font, "Commands",
+                snapshot.cpu().get(PerformanceProfiler.CpuSection.COMMAND_BUILD),
+                x, y + 5 * step, size);
+        drawSummaryRow(font, "Terrain GPU", sumStats(snapshot.gpu(),
+                PerformanceProfiler.GpuSection.L0_OPAQUE,
+                PerformanceProfiler.GpuSection.L0_CUTOUT,
+                PerformanceProfiler.GpuSection.L0_TRANSLUCENT), x, y + 6 * step, size);
+        drawSummaryRow(font, "Post",
+                snapshot.gpu().get(PerformanceProfiler.GpuSection.POSTPROCESSING),
+                x, y + 7 * step, size);
     }
 
     private static void drawSummaryRow(FontRenderer font, String label, PerformanceProfiler.TimingStats stats,
                                        float x, float y, float size) {
         font.drawStringWithShadow(label, x, y, size, Color4.WHITE);
-        float[] rights = {x + 67, x + 94, x + 121, x + 151};
+        float[] rights = {x + 90, x + 126, x + 163, x + 201};
         if (stats == null || stats.samples() == 0) {
             drawRight(font, "-", rights[0], y, size, Color4.WHITE);
             return;
@@ -293,6 +278,26 @@ public final class DebugOverlay {
         for (int i = 0; i < values.length; i++) {
             drawRight(font, String.format(Locale.ROOT, "%.2f", values[i]), rights[i], y, size, Color4.WHITE);
         }
+    }
+
+    @SafeVarargs
+    private static PerformanceProfiler.TimingStats sumStats(
+            java.util.Map<PerformanceProfiler.GpuSection, PerformanceProfiler.TimingStats> values,
+            PerformanceProfiler.GpuSection... sections) {
+        long current = 0L, p95 = 0L, max = 0L, samples = 0L;
+        double mean = 0.0, jobs = 0.0;
+        for (PerformanceProfiler.GpuSection section : sections) {
+            PerformanceProfiler.TimingStats stats = values.get(section);
+            if (stats == null || stats.samples() == 0) continue;
+            current += stats.currentNanos();
+            mean += stats.meanNanos();
+            p95 += stats.p95Nanos();
+            max += stats.maxNanos();
+            samples = Math.max(samples, stats.samples());
+            jobs += stats.jobsPerSecond();
+        }
+        return samples == 0 ? PerformanceProfiler.TimingStats.EMPTY
+                : new PerformanceProfiler.TimingStats(current, mean, p95, max, samples, jobs);
     }
 
     private static void drawGraphs(SpriteRenderer sprites, List<PerformanceProfiler.GraphSample> samples,

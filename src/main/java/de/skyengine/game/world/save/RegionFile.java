@@ -27,11 +27,12 @@ import java.util.BitSet;
  * nicht unbegrenzt. Kein eigenes Locking — der Aufrufer ({@code WorldStorage}) serialisiert.
  *
  * <p><b>Batch-Modus</b> ({@link #RegionFile(File, boolean)} mit {@code syncEachWrite=false}):
- * für Massen-Schreiben beim Welt-Import und regenerierbare Caches. Die beiden {@code force()} pro Chunk
+ * für das einmalige Massen-Schreiben beim Welt-Import. Die beiden {@code force()} pro Chunk
  * entfallen (bei 256 Chunks sind das 512 fsyncs pro Datei — der mit Abstand größte Zeitposten),
- * stattdessen wird explizit mit {@link #flush()} oder beim {@link #close()} geflusht. Damit gilt
- * die oben beschriebene Pro-Chunk-Crash-Sicherheit bis zum Batch-Commit nicht. Der normale
- * Weltspeicher benutzt weiterhin ausschließlich den Standard-Konstruktor.
+ * stattdessen wird einmal beim {@link #close()} geflusht. Damit gilt die oben beschriebene
+ * Pro-Chunk-Crash-Sicherheit NICHT: bricht der Import ab, ist die Datei möglicherweise
+ * inkonsistent — eine abgebrochene Import-Welt wird ohnehin verworfen. Der Spielbetrieb
+ * benutzt weiterhin ausschließlich den Standard-Konstruktor.
  */
 public final class RegionFile implements AutoCloseable {
 
@@ -85,12 +86,6 @@ public final class RegionFile implements AutoCloseable {
     /** fsync — im Batch-Modus ein No-Op (dort wird einmal beim close() geflusht). */
     private void sync() throws IOException {
         if (this.syncEachWrite) this.file.getChannel().force(false);
-    }
-
-    /** Expliziter Batch-Commit fuer regenerierbare Caches. Normale World-Regionen nutzen
-        weiterhin den crash-sicheren Sync pro Eintrag. */
-    public void flush() throws IOException {
-        this.file.getChannel().force(false);
     }
 
     private void readHeader(File path) throws IOException {

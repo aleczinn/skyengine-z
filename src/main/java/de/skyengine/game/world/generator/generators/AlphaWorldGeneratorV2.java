@@ -13,7 +13,6 @@ import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.biome.Biomes;
 import de.skyengine.game.world.generator.climate.Climate;
 import de.skyengine.game.world.generator.climate.ClimateSampler;
-import de.skyengine.game.world.generator.SurfaceSample;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import de.skyengine.utils.math.FastNoiseLite;
@@ -88,13 +87,13 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
 
     private final ClimateSampler climate;
     /* Kontinentalwellen: sehr niederfrequente Hebung/Senkung ganzer Regionen (~12k Bloecke),
-     * damit die Welt aus LOD-Distanz nicht wie eine flache Scheibe wirkt */
+     * damit die Welt in der Ferne nicht wie eine flache Scheibe wirkt. */
     private final FastNoiseLite upliftNoise;
     /* Bergform-Vielfalt: langsam wechselndes Noise, das lokal die Ridged-Schaerfe kappt —
      * statt durchgehend spitzer Grate entstehen Hochebenen, breite Ruecken und offene Taeler */
     private final FastNoiseLite plateauNoise;
     /* Grossraeumige Welligkeit der Stein-/Schneegrenze: das kleinraeumige LINE_DITHER
-     * verschwindet aus LOD-Distanz optisch, dieses Noise haelt die Grenze auch fern wellig */
+     * verschwindet aus großer Distanz optisch, dieses Noise haelt die Grenze auch fern wellig. */
     private final FastNoiseLite snowWobbleNoise;
     /* Lokales Terrain-Detail; Amplitude skaliert mit der Erosion (glatt vs. zerklueftet) */
     private final FastNoiseLite detailNoise;
@@ -264,7 +263,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
     }
 
     /**
-     * Gemeinsam von Chunk-Generierung und LOD verwendeter, unveraenderlicher 32x32-Spaltenkontext.
+     * Unveraenderlicher 32x32-Spaltenkontext der Chunk-Generierung.
      * Die interne Ordnung bleibt x-major, weil generate() seine Noise-Spalten so durchlaeuft.
      */
     private record TerrainColumns(int[] heights, int[] tops, int[] fillers, int[] waterLevels,
@@ -652,8 +651,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         int top = Math.min(Chunk.HEIGHT - 2, h2d + (int) amp + 3);
         /* generate() wertet nur Y>=1 ueber die Dichte aus; Y=0 ist separat Bedrock. Liegt
            die garantiert feste 2D-Zone unter Y=1, darf die Oberflaechenprobe deshalb keinen
-           Phantom-Boden bei Y=1 erfinden. Genau das erzeugte unter tiefem Ozean die sichtbare
-           L0/L1-Wand: L0 hatte dort Wasser, L1 dagegen einen vermeintlichen Deckblock. */
+           Phantom-Boden bei Y=1 erfinden. */
         int guaranteedSolidTop = h2d - (int) SHAPE_AMP_MAX - 4;
         int scanMin = Math.max(1, guaranteedSolidTop + 1);
         if (top < scanMin) return Math.max(0, guaranteedSolidTop);
@@ -703,106 +701,25 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         return lerp(lerp(v00, v01, fz), lerp(v10, v11, fz), fx);
     }
 
-    /**
-     * Oberflaechen-Sample fuers LOD: im Ozean ist die sichtbare Oberflaeche der Wasserspiegel
-     * (nicht der Meeresboden), sonst das geteilte Deckmaterial.
-     */
+    /** Oberster sichtbarer Block der Spalte; unter Wasser ist das der Wasserspiegel. */
     @Override
-    public long sampleSurface(int x, int z) {
-        return this.sampleLodSurfaces(x, z).surface();
-    }
-
-    /**
-     * Boden-Sample fuers LOD: wie {@link #sampleSurface}, aber ohne Wasser-Zweig — liefert
-     * auch unter Wasser (Ozean/See/Fluss) den festen Boden (Deckmaterial + gecarvte
-     * Bodenhoehe). Pure Funktion, rein lesend — generiert nichts, aendert keine Seeds.
-     */
-    @Override
-    public long sampleGroundSurface(int x, int z) {
-        return this.sampleLodSurfaces(x, z).ground();
-    }
-
-    @Override
-    public int lodWorldBottomState() {
-        return Blocks.BEDROCK;
-    }
-
-    @Override
-    public LodSurfaces sampleLodSurfaces(int x, int z) {
+    public int surfaceBlock(int x, int z) {
         Climate smooth = this.climate.sampleSmooth(x, z);
         ColumnSample cs = this.columnFor(x, z, smooth, true);
         Biome biome = Biomes.lookup(this.climate.sample(x, z, smooth));
         int solidHeight = this.surfaceSolidHeight(x, z, cs);
-
-        /* generate() bereitet das Deckmaterial aus der 2D-Hoehe vor. Nur wenn die
-           3D-Verformung einen eigentlich nassen Punkt ueber den Wasserspiegel hebt, wird das
-           Material fuer die reale trockene Hoehe neu bestimmt (s. Ufersaum-Korrektur dort).
-           Genau diese Reihenfolge ist Teil des Generatorvertrags und muss das LOD spiegeln. */
+        if (solidHeight < cs.waterLevel) return Blocks.WATER;
         int groundBlock = solidHeight == 0
-                ? this.lodWorldBottomState()
+                ? Blocks.BEDROCK
                 : this.surfaceTop(x, z, cs.height, biome, cs.uplift, cs.waterLevel);
         if (solidHeight > 0 && solidHeight >= cs.waterLevel && cs.height < cs.waterLevel) {
             groundBlock = this.surfaceTop(x, z, solidHeight, biome, cs.uplift, cs.waterLevel);
         }
-
-        long ground = SurfaceSample.pack(groundBlock, solidHeight);
-        long surface = solidHeight < cs.waterLevel
-                ? SurfaceSample.pack(Blocks.WATER, cs.waterLevel) : ground;
-        return new LodSurfaces(ground, surface);
+        return groundBlock;
     }
 
     /**
-     * Chunkweiter LOD-Pfad: Klima/Fluesse werden einmal als zusammenhaengender Spaltenkontext
-     * aufgebaut und das 3D-Shape-Noise nur an den gemeinsamen Gitterpunkten ausgewertet.
-     * Die Ausgabe bleibt exakt dieselbe kanonische L0-Projektion wie beim Einzel-Sampling.
-     */
-    @Override
-    public void fillLodSurfaces(int chunkX, int chunkZ, long[] ground, long[] surface) {
-        requireLodSurfaceCapacity(ground, surface);
-        int baseX = chunkX << ChunkSection.SHIFT;
-        int baseZ = chunkZ << ChunkSection.SHIFT;
-        int size = ChunkSection.SIZE;
-        TerrainColumns terrain = this.buildTerrainColumns(baseX, baseZ);
-
-        int yTop = Math.min(Chunk.HEIGHT - 2,
-                terrain.maxHeight + (int) SHAPE_AMP_MAX + 4);
-        int gridsXZ = size / GRID_XZ + 1;
-        int gridsY = yTop / GRID_Y + 2;
-        float[] shapeGrid = this.buildShapeGrid(baseX, baseZ, gridsXZ, gridsY);
-        float[] colShape = new float[gridsY];
-
-        for (int x = 0; x < size; x++) {
-            for (int z = 0; z < size; z++) {
-                int columnIndex = x * size + z;
-                int h2d = terrain.heights[columnIndex];
-                float amp = terrain.shapeAmps[columnIndex];
-                int solidHeight;
-                if (amp <= 0F) {
-                    solidHeight = Math.max(0, h2d);
-                } else {
-                    bilinearColumn(shapeGrid, gridsXZ, gridsY, x, z, colShape);
-                    solidHeight = surfaceSolidHeight(h2d, amp, 0, colShape);
-                }
-
-                int waterLevel = terrain.waterLevels[columnIndex];
-                int groundBlock = solidHeight == 0
-                        ? this.lodWorldBottomState() : terrain.tops[columnIndex];
-                if (solidHeight > 0 && solidHeight >= waterLevel && h2d < waterLevel) {
-                    groundBlock = this.surfaceTop(baseX + x, baseZ + z, solidHeight,
-                            terrain.biomes[columnIndex], terrain.uplifts[columnIndex], waterLevel);
-                }
-
-                int outputIndex = z * size + x;
-                long packedGround = SurfaceSample.pack(groundBlock, solidHeight);
-                ground[outputIndex] = packedGround;
-                surface[outputIndex] = solidHeight < waterLevel
-                        ? SurfaceSample.pack(Blocks.WATER, waterLevel) : packedGround;
-            }
-        }
-    }
-
-    /**
-     * Deckmaterial an (wx, wz) — von generate() UND LOD genutzt (geteilte Logik gegen Naehte).
+     * Deckmaterial an (wx, wz), gemeinsam für die Generator-Pfade genutzt.
      * {@code uplift} verschiebt die Stein-/Schneegrenze mit dem regionalen Grundniveau,
      * sonst waeren hochgehobene Ebenen komplett schneebedeckt. {@code waterLevel} ist der
      * lokale Wasserspiegel (Meer ODER See) — Seeboeden bekommen dieselben Material-Flecken.
@@ -887,8 +804,7 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
         final int size = ChunkSection.SIZE;
 
-        /* 1) Spaltendaten: exakte 2D-Hoehe (Basis der Dichte — haelt flache Biome exakt auf
-         *    der Heightmap, LOD-konsistent), Materialien und 3D-Amplitude */
+        /* 1) Spaltendaten: exakte 2D-Hoehe, Materialien und 3D-Amplitude. */
         TerrainColumns terrain = this.buildTerrainColumns(baseX, baseZ);
         int[] heights = terrain.heights;
         int[] tops = terrain.tops;
@@ -1015,11 +931,10 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         }
 
         this.buildTintGrids(chunk, baseX, baseZ);
-
         this.trackGenerateTime(System.nanoTime() - start);
     }
 
-    /** Baut alle von generate() und dem LOD-Bulk-Pfad gemeinsam benoetigten Spaltendaten. */
+    /** Baut die vom Terrain-Fill gemeinsam benötigten Spaltendaten. */
     private TerrainColumns buildTerrainColumns(int baseX, int baseZ) {
         int size = ChunkSection.SIZE;
         int[] heights = new int[size * size];
@@ -1129,17 +1044,6 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
         chunk.foliageTintCorners = foliage;
     }
 
-    /** LOD-Grasfarbe: pures Biom-Sample am Punkt — die 16-Block-Glaettung ist auf LOD-Distanz unsichtbar. */
-    @Override
-    public int grassTintAt(int x, int z) {
-        return Biomes.lookup(this.climate.sampleSmooth(x, z)).grassTint;
-    }
-
-    @Override
-    public int foliageTintAt(int x, int z) {
-        return Biomes.lookup(this.climate.sampleSmooth(x, z)).foliageTint;
-    }
-
     /** Mittel der 3x3-Nachbarschaft im Grobraster (0xRRGGBB, kanalweise). */
     private static int boxAverage(int[] coarse, int ci, int cj) {
         int r = 0, g = 0, b = 0;
@@ -1170,7 +1074,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
      * Block-Hash wuerfelt Platzierung und Art (Gewichte) — natuerliche, durchmischte
      * Verteilung statt binaerer Klumpen. Kein Feature-Pass noetig (einbloeckig).
      */
-    private void placePlants(Chunk chunk, int x, int z, int wx, int wz, int topSolid, int top, Biome biome) {
+    private void placePlants(Chunk chunk, int x, int z, int wx, int wz,
+                             int topSolid, int top, Biome biome) {
         /* Dichtefaktor 0.25..1: nie ganz kahl, nie Vollteppich */
         float density = 0.25F + 0.75F * (this.vegNoise.GetNoise(wx, wz) + 1F) * 0.5F;
 
@@ -1200,7 +1105,8 @@ public class AlphaWorldGeneratorV2 extends WorldGenerator {
                  * Default-State ist nur die untere (HALF=BOTTOM, vgl. TallPlantBehavior) */
                 BlockState state = BlockRegistry.getState(plant.blockId());
                 if (state.getValues().containsKey(Properties.HALF)) {
-                    chunk.setBlock(x, topSolid + 2, z, state.with(Properties.HALF, BlockHalf.TOP).getId());
+                    chunk.setBlock(x, topSolid + 2, z,
+                            state.with(Properties.HALF, BlockHalf.TOP).getId());
                 }
                 return;
             }

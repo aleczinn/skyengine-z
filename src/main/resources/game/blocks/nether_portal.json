@@ -6,7 +6,6 @@
   "solid": false,
   "cull_same": true,
   "no_item": true,
-  "no_lod_surface": true,
   "piston_reaction": "block",
   "hardness": -1,
   "light_level": 11,

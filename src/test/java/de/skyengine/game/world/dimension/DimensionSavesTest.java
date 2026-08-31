@@ -49,7 +49,6 @@ final class DimensionSavesTest {
         assertEquals(saveRoot.resolve("dimensions/voxelstories/mining").toAbsolutePath().normalize(),
                 resolved.root().toPath().toAbsolutePath().normalize());
         assertTrue(resolved.regionDir().toPath().startsWith(resolved.root().toPath()));
-        assertTrue(resolved.lodDir().toPath().startsWith(resolved.root().toPath()));
     }
 
     @Test
@@ -64,7 +63,6 @@ final class DimensionSavesTest {
         assertEquals(WorldgenRegistries.NETHER_V1.toString(), resolved.data().generator);
         assertEquals(saveRoot.resolve("dimensions/voxelstories/nether").toAbsolutePath().normalize(),
                 resolved.root().toPath().toAbsolutePath().normalize());
-        assertTrue(!definition.lodAllowed());
         assertTrue(!definition.environment().hasSkylight());
         assertTrue(definition.environment().forceFog());
         assertEquals(8.0, definition.environment().coordinateScale());

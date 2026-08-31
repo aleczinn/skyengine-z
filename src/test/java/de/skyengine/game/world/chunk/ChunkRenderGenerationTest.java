@@ -54,7 +54,7 @@ final class ChunkRenderGenerationTest {
             assertTrue(second != first);
             assertTrue(manager.getChunk(4, -2) == chunk, "terrain data must stay resident");
             assertFalse(chunk.isFullyUploaded());
-            assertFalse(chunk.tryApplyMeshSection(first, 0, 99L, null),
+            assertFalse(chunk.tryApplyMeshSection(first, 0, 99L),
                     "stale mesh results must not enter the new view");
             manager.detachRenderer(second);
         } finally {

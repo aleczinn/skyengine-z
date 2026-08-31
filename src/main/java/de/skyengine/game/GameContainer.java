@@ -2851,12 +2851,8 @@ public class GameContainer implements IResizeable, IDisposable {
         return I18n.tr("command.worldedit.tool_received_inventory");
     }
 
-    /** Sichtweite der Projektion: mit LOD hinter den äußersten Ring gelegt, sonst wie bisher 1500. */
     private float computeFarPlane() {
-        if (!this.settings.lodEnabled || (this.dimension() != null && !this.dimension().isLodAllowed())) {
-            return 1500.0F;
-        }
-        return (Math.max(this.settings.lodMaxDistance, this.settings.renderDistance) + 8) * 32.0F;
+        return 1500.0F;
     }
 
     /** Screenshot programmatisch anfordern (Messstand: Bildvergleich der Cull-Pfade). */

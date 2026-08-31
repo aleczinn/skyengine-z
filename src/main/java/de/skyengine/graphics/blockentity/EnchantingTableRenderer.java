@@ -241,12 +241,10 @@ public final class EnchantingTableRenderer implements BlockEntityRenderer {
            (ChunkRenderer.lightFactor). 1.0 = voll hell bzw. Fullbright. */
         uniform float u_Light;
         layout(location = 0) out vec4 fragColor;
-        layout(location = 1) out float fragLodMask;
         void main() {
             vec4 c = texture(u_Texture, v_uv);
             if (c.a < 0.5) discard;
             fragColor = vec4(c.rgb * u_Light, c.a);
-            fragLodMask = 0.0;
         }
         """;
 }

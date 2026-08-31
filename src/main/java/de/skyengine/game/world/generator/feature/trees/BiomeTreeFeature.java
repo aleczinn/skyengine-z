@@ -67,7 +67,6 @@ public final class BiomeTreeFeature implements Feature {
             Biome.TreeEntry tree = TreeShapes.pick(biome.trees, rng);
             TreeShape shape = tree.shape();
             int baseY = placer.surfaceHeight(x, z) + 1;
-            placer.markLodSupport(x, baseY, z);
             de.skyengine.game.world.structure.TreeTemplateCatalog.Group group = this.structures == null
                     ? null : this.structures.treeCatalog().group(tree.type());
             boolean useTemplate = group != null && rng.nextInt(group.templateWeight() + group.proceduralWeight())

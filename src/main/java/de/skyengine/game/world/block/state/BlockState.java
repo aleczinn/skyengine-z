@@ -97,11 +97,6 @@ public final class BlockState {
         return (this.flags & StateFlags.FLUID) != 0;
     }
 
-    /** true: nie als LOD-Terrain-Oberfläche sampeln (Logs — LOD zeigt nur Terrain). */
-    public boolean isExcludedFromLodSurface() {
-        return (this.flags & StateFlags.NO_LOD_SURFACE) != 0;
-    }
-
     /**
      * Licht-Opazität 0..15: wie viel Himmelslicht dieser Block je Zelle schluckt.
      * 0 = durchlässig (Glas, Luft), 1 = dämpfend (Wasser, Laub), 15 = opak.

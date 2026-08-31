@@ -4,7 +4,6 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
-import de.skyengine.game.world.generator.SurfaceSample;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.structure.StructureTemplate;
 
@@ -60,7 +59,7 @@ public final class FeaturePlacer implements FeatureContext {
 
     /** Purer Oberflächen-Block an (wx, wz) (im Ozean: Wasser am Meeresspiegel). */
     public int surfaceBlock(int wx, int wz) {
-        return SurfaceSample.block(this.generator.sampleSurface(wx, wz));
+        return this.generator.surfaceBlock(wx, wz);
     }
 
     /** Pures Biom an (wx, wz) — Basis für biome-abhängige Feature-Entscheidungen. */

@@ -1,18 +1,11 @@
 package de.skyengine.game.world.generator;
 
 import de.skyengine.game.world.block.Blocks;
-import de.skyengine.game.world.block.Tints;
 import de.skyengine.game.world.chunk.Chunk;
-import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.biome.Biome;
 import de.skyengine.game.world.generator.biome.Biomes;
-import de.skyengine.game.world.lod.LodVolumeRequest;
-import de.skyengine.game.world.lod.LodVolumeWriter;
-import de.skyengine.game.world.lod.LodVoxel;
 
 public abstract class WorldGenerator {
-
-    public record LodSurfaces(long ground, long surface) {}
 
     protected final int seed;
 
@@ -24,163 +17,32 @@ public abstract class WorldGenerator {
     public abstract void generate(Chunk chunk);
 
     /**
-     * Oberflächen-Sample fürs LOD: oberster sichtbarer Block + dessen Höhe, gepackt via
-     * {@link SurfaceSample#pack}. Pure Funktion, threadsicher. Default: Gras auf
-     * {@link #sampleHeight}; Generatoren mit Wasser/Material-Zonen überschreiben das.
-     */
-    public long sampleSurface(int x, int z) {
-        return SurfaceSample.pack(Blocks.GRASS_BLOCK, this.sampleHeight(x, z));
-    }
-
-    /**
-     * Boden-Sample fürs LOD: wie {@link #sampleSurface}, aber ohne Wasser — liefert auch
-     * unter Wasser den festen Boden. Default: identisch zur Oberfläche (Generatoren ohne
-     * Wasser); Generatoren mit Wasserspiegel überschreiben das.
-     */
-    public long sampleGroundSurface(int x, int z) {
-        return this.sampleSurface(x, z);
-    }
-
-    /** Gemeinsames LOD-Sample; teure Generatoren können beide Oberflächen in einem Pass liefern. */
-    public LodSurfaces sampleLodSurfaces(int x, int z) {
-        return new LodSurfaces(this.sampleGroundSurface(x, z), this.sampleSurface(x, z));
-    }
-
-    /**
-     * Befuellt die kanonischen 32x32-L0-Oberflaechen eines Chunks. Der Index ist immer
-     * {@code localZ * 32 + localX}; beide Zielarrays muessen mindestens 1024 Eintraege haben.
-     *
-     * <p>Der Default erhaelt jeden bestehenden und zukuenftigen Generator korrekt, indem er
-     * {@link #sampleLodSurfaces} pro Spalte aufruft. Generatoren mit gemeinsam nutzbaren
-     * Klima-/Noise-Grids koennen die Methode ueberschreiben und den Chunk in einem Bulk-Pass
-     * berechnen, ohne den LOD-Vertrag oder {@link #generate} aufzurufen.
-     */
-    public void fillLodSurfaces(int chunkX, int chunkZ, long[] ground, long[] surface) {
-        requireLodSurfaceCapacity(ground, surface);
-        int baseX = chunkX << ChunkSection.SHIFT;
-        int baseZ = chunkZ << ChunkSection.SHIFT;
-        for (int z = 0; z < ChunkSection.SIZE; z++) {
-            for (int x = 0; x < ChunkSection.SIZE; x++) {
-                LodSurfaces sampled = this.sampleLodSurfaces(baseX + x, baseZ + z);
-                int index = z * ChunkSection.SIZE + x;
-                ground[index] = sampled.ground;
-                surface[index] = sampled.surface;
-            }
-        }
-    }
-
-    /**
-     * Analytischer volumetrischer LOD-Pfad. Er erzeugt einen 32³-Knoten ohne einen echten
-     * {@link Chunk} und bildet damit die schnelle vorlaeufige Quelle der Hierarchie. Der Default
-     * extrudiert die beiden vorhandenen Oberflaechen-Samples; Generatoren mit 3D-Dichte,
-     * Ueberhaengen oder Hoehlen koennen diese Methode ueberschreiben und echte Volumenzellen
-     * schreiben. Gespeicherte oder live geladene Kindknoten ersetzen diese Daten spaeter
-     * kanonisch.
-     */
-    public void fillLodVolume(LodVolumeRequest request, LodVolumeWriter writer) {
-        if (request == null || writer == null) throw new IllegalArgumentException("LOD-Request/Writer fehlt");
-        int cell = request.cellSize();
-        int originY = request.originY();
-        /* Halo-Meshing fragt auch den Knoten ueber und unter der Welt ab. Diese beiden
-           32x32-Spalten duerfen keine tausenden teuren Klima-/Noise-Samples ausloesen. */
-        if (originY >= Chunk.HEIGHT || (long) originY + request.extent() <= 0L) return;
-        for (int z = 0; z < ChunkSection.SIZE; z++) {
-            for (int x = 0; x < ChunkSection.SIZE; x++) {
-                this.fillLodVolumeColumn(request, x, z, writer);
-            }
-        }
-    }
-
-    /** Befuellt genau eine X/Z-Spalte eines analytischen Knotens. Der LOD-Mesher verwendet
-        dies fuer ein Zellen-duennes Rand-Halo, ohne vier komplette Nachbarknoten aufzubauen. */
-    public void fillLodVolumeColumn(LodVolumeRequest request, int x, int z, LodVolumeWriter writer) {
-        if (request == null || writer == null || x < 0 || x >= ChunkSection.SIZE
-                || z < 0 || z >= ChunkSection.SIZE) throw new IllegalArgumentException("LOD-Spalte");
-        int cell = request.cellSize();
-        int originY = request.originY();
-        if (originY >= Chunk.HEIGHT || (long) originY + request.extent() <= 0L) return;
-        int worldX = request.originX() + x * cell + cell / 2;
-        int worldZ = request.originZ() + z * cell + cell / 2;
-        LodSurfaces surfaces = this.sampleLodSurfaces(worldX, worldZ);
-        int groundState = SurfaceSample.block(surfaces.ground());
-        int groundTop = SurfaceSample.height(surfaces.ground()) + 1;
-        int surfaceState = SurfaceSample.block(surfaces.surface());
-        int surfaceTop = Math.max(groundTop, SurfaceSample.height(surfaces.surface()) + 1);
-        int bottomState = this.lodWorldBottomState();
-        for (int y = 0; y < ChunkSection.SIZE; y++) {
-            int minY = originY + y * cell;
-            int maxY = minY + cell;
-            int filled = Math.max(0, Math.min(maxY, surfaceTop) - minY);
-            if (filled == 0 || maxY <= 0) continue;
-            int state;
-            int importance;
-            if (minY < 1 && bottomState != Blocks.AIR) {
-                state = bottomState;
-                importance = 4;
-            } else if (maxY > groundTop && surfaceState != Blocks.AIR) {
-                state = surfaceState;
-                importance = 12;
-            } else {
-                state = groundState;
-                importance = 4;
-            }
-            if (state == Blocks.AIR) continue;
-            int coverage = Math.clamp((filled * 255 + cell / 2) / cell, 1, 255);
-            int sky = maxY >= surfaceTop ? 15 : 0;
-            writer.set(x, y, z, LodVoxel.pack(state, sky, 0, 0, 0, coverage,
-                    LodVoxel.PROVENANCE_ANALYTIC, importance));
-        }
-    }
-
-    /** Gemeinsame Vertragspruefung fuer optimierte Generator-Overrides. */
-    protected static void requireLodSurfaceCapacity(long[] ground, long[] surface) {
-        int required = ChunkSection.SIZE * ChunkSection.SIZE;
-        if (ground == null || surface == null || ground.length < required || surface.length < required) {
-            throw new IllegalArgumentException("LOD-Oberflaechenpuffer muessen mindestens "
-                    + required + " Eintraege besitzen");
-        }
-    }
-
-    /** Unterste Materialschicht der Generatorwelt; AIR bedeutet, dass kein Weltboden existiert. */
-    public int lodWorldBottomState() {
-        return Blocks.AIR;
-    }
-
-    /**
-     * Biom an Weltposition — pures Sampling, threadsicher. Default: Ebene (Generatoren ohne
-     * Biome, z.B. V1); Biome-Generatoren ueberschreiben das.
+     * Biom an einer Weltposition. Die pure Abfrage wird von Features, Befehlen und Debug-
+     * Anzeigen auch außerhalb bereits geladener Chunks verwendet.
      */
     public Biome biomeAt(int x, int z) {
         return Biomes.PLAINS;
     }
 
     /**
-     * Echte Terrainoberkante (oberster Solid-Block) — Basis fuer Feature-Platzierung.
-     * Default: {@link #sampleHeight}; Generatoren mit 3D-Dichte ueberschreiben das, weil
-     * ihre reale Oberflaeche von der 2D-Hoehe abweichen kann.
+     * Echte Terrainoberkante (oberster Solid-Block) als Basis für Feature-Platzierung.
+     * Generatoren mit 3D-Dichte überschreiben die 2D-Heightmap-Vorgabe.
      */
     public int surfaceSolidHeight(int x, int z) {
         return this.sampleHeight(x, z);
     }
 
     /**
-     * Gras-Farbe an Weltposition (fuers LOD; L0 nutzt die Tint-Grids aus generate()).
-     * Default: fester Platzhalter — Generatoren mit Biomen ueberschreiben das.
+     * Oberster sichtbarer Block einer Weltspalte. Features verwenden diese pure Abfrage
+     * auch über Chunkgrenzen hinweg. Generatoren mit Wasser oder Materialzonen überschreiben sie.
      */
-    public int grassTintAt(int x, int z) {
-        return Tints.GRASS;
-    }
-
-    /** Laub-Farbe an Weltposition, s. {@link #grassTintAt}. */
-    public int foliageTintAt(int x, int z) {
-        return Tints.FOLIAGE;
+    public int surfaceBlock(int x, int z) {
+        return Blocks.GRASS_BLOCK;
     }
 
     /**
-     * Befüllt die 33x33-Tint-Eck-Grids des Chunks neu — Persistenz-Load-Pfad, wenn keine
-     * Grids gespeichert sind. MUSS derselbe Codepfad wie in {@link #generate} sein (V2:
-     * geglättetes Bilerp, NICHT {@link #grassTintAt} — sonst Farb-Nähte zu frisch
-     * generierten Nachbarn). Default: keine Grids (Generatoren ohne Biome-Tints).
+     * Befüllt die 33x33-Tint-Eck-Grids eines geladenen Chunks neu. Der Persistenzpfad nutzt
+     * denselben Code wie die reguläre Generierung; Generatoren ohne Biome-Tints bleiben No-op.
      */
     public void fillTintCorners(Chunk chunk) {}
 

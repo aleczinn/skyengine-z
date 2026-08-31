@@ -42,9 +42,8 @@ public final class BlockRaycast {
     }
 
     /**
-     * Spieler-Raycasts laufen nur durch Zellen, deren echtes L0-Mesh die sichtbare
-     * Verantwortung bereits uebernommen hat. Eine LOD-Zelle beendet den Strahl, damit kein
-     * dahinterliegender Block durch die Ladegrenze hindurch getroffen werden kann.
+     * Spieler-Raycasts laufen nur durch Zellen, deren Chunk vollständig bereit und hochgeladen
+     * ist. An der Ladegrenze endet der Strahl, damit kein dahinterliegender Block getroffen wird.
      */
     public static Hit raycastInteractive(Dimension world, Vector3d origin, Vector3d dir,
                                          double maxDistance) {

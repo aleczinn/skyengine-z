@@ -9,28 +9,16 @@ import java.util.Arrays;
 public final class FrameProfiler {
     public enum Gpu {
         SOLID("solid", PerformanceProfiler.GpuSection.L0_OPAQUE),
-        LOD_OPAQUE("lodO", PerformanceProfiler.GpuSection.LOD_OPAQUE),
-        LOD_O_L1("lodO1", PerformanceProfiler.GpuSection.LOD_OPAQUE),
-        LOD_O_L2("lodO2", PerformanceProfiler.GpuSection.LOD_OPAQUE),
-        LOD_O_L3("lodO3", PerformanceProfiler.GpuSection.LOD_OPAQUE),
-        LOD_O_L4("lodO4", PerformanceProfiler.GpuSection.LOD_OPAQUE),
-        LOD_O_L5("lodO5", PerformanceProfiler.GpuSection.LOD_OPAQUE),
         CUTOUT("cut", PerformanceProfiler.GpuSection.L0_CUTOUT),
-        CULL_P1("cull1", PerformanceProfiler.GpuSection.CULL_HIZ),
-        HIZ("hiz", PerformanceProfiler.GpuSection.CULL_HIZ),
-        CULL_P2("cull2", PerformanceProfiler.GpuSection.CULL_HIZ),
-        SOLID_P2("solid2", PerformanceProfiler.GpuSection.L0_OPAQUE),
-        LOD_P2("lodO2p", PerformanceProfiler.GpuSection.LOD_OPAQUE),
-        CUTOUT_P2("cut2", PerformanceProfiler.GpuSection.L0_CUTOUT),
         TRANSLUCENT("trans", PerformanceProfiler.GpuSection.L0_TRANSLUCENT),
-        LOD_TRANSLUCENT("lodT", PerformanceProfiler.GpuSection.LOD_TRANSLUCENT),
         BLOCK_ENTITIES("blockEntities", PerformanceProfiler.GpuSection.BLOCK_ENTITIES),
         ENTITIES("entities", PerformanceProfiler.GpuSection.ENTITIES),
         PARTICLES_OPAQUE("particlesO", PerformanceProfiler.GpuSection.PARTICLES),
         PARTICLES_TRANSLUCENT("particlesT", PerformanceProfiler.GpuSection.PARTICLES),
         OVERLAYS("overlays", PerformanceProfiler.GpuSection.HAND_OVERLAYS),
         GUI("gui", PerformanceProfiler.GpuSection.GUI),
-        BLIT("resolve/post", PerformanceProfiler.GpuSection.POSTPROCESSING);
+        RESOLVE("resolve", PerformanceProfiler.GpuSection.RESOLVE),
+        POSTPROCESSING("post", PerformanceProfiler.GpuSection.POSTPROCESSING);
 
         final String label;
         final PerformanceProfiler.GpuSection target;
@@ -49,6 +37,7 @@ public final class FrameProfiler {
         ENT("ent", PerformanceProfiler.CpuSection.ENTITIES),
         PARTICLES("particles", PerformanceProfiler.CpuSection.PARTICLES),
         SORT("sort", PerformanceProfiler.CpuSection.SORT),
+        POST("post", PerformanceProfiler.CpuSection.POSTPROCESSING),
         OVL("ovl", PerformanceProfiler.CpuSection.OVERLAYS),
         GUI("gui", PerformanceProfiler.CpuSection.GUI),
         PROFILER_UI("profiler", PerformanceProfiler.CpuSection.PROFILER_UI),

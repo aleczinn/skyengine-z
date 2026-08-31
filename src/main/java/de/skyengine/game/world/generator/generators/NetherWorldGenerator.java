@@ -47,13 +47,13 @@ public final class NetherWorldGenerator extends WorldGenerator {
     }
 
     @Override
-    public int lodWorldBottomState() {
-        return Blocks.BEDROCK;
+    public Biome biomeAt(int x, int z) {
+        return Biomes.NETHER_WASTES;
     }
 
     @Override
-    public Biome biomeAt(int x, int z) {
-        return Biomes.NETHER_WASTES;
+    public int surfaceBlock(int x, int z) {
+        return Blocks.NETHERRACK;
     }
 
     @Override

@@ -153,10 +153,8 @@ public class SelectionBoxRenderer {
     private static final String FRAGMENT = """
         #version 460 core
         layout(location = 0) out vec4 fragColor;
-        layout(location = 1) out float fragLodMask;
         void main() {
             fragColor = vec4(0.0, 0.0, 0.0, 0.6);
-            fragLodMask = 0.0;
         }
         """;
 }

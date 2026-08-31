@@ -92,11 +92,6 @@
       "button": "Debug ...",
       "title": "Debug-Optionen",
       "wireframe": "Wireframe",
-      "gpu_cull": "GPU-Culling",
-      "gpu_cull_tint": "GPU-Cull Debug (rot)",
-      "gpu_cull_hiz": "GPU-Cull: Hi-Z-Occlusion",
-      "lod_colors": "LOD-Level einfärben",
-      "lod_split": "LOD pro Level messen",
       "pause_loading": "Chunk-Laden pausieren",
       "aa_mode": "Anti-Aliasing",
       "gui_slots": "GUI-Slot-Flächen",
@@ -130,17 +125,6 @@
       "view_bobbing": "Gehbewegung",
       "damage_tilt": "Schadensneigung",
       "brightness": "Helligkeit: %s"
-    },
-
-
-    "lod": {
-      "button": "LOD (Fernsicht) ...",
-      "title": "LOD (Fernsicht)",
-      "enabled": "LOD aktiviert",
-      "distance": "LOD-Distanz: %d",
-      "quality": "AO-Qualität",
-      "ssao": "Fern-SSAO",
-      "ssao_hint": "<b>Screen-Space AO (nur Fernbereich)</b>\n<gray>Erzeugt Tiefe an volumetrischen LOD-Flächen, ohne die 8-Byte-Quads zu vergrößern. AUTO nutzt 12 Samples.</>"
     },
     "sound": {
       "button": "Musik & Geräusche...",

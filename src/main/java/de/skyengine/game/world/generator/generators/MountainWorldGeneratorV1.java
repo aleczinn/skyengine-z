@@ -4,15 +4,9 @@ import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.generator.WorldGenerator;
-import de.skyengine.game.world.generator.SurfaceSample;
 import de.skyengine.utils.math.FastNoiseLite;
 
 public class MountainWorldGeneratorV1 extends WorldGenerator {
-
-    @Override
-    public int lodWorldBottomState() {
-        return Blocks.BEDROCK;
-    }
 
     /* Meeresspiegel: bis zu dieser Hoehe wird Wasser aufgefuellt */
     private static final int SEA_LEVEL = 64;
@@ -77,17 +71,17 @@ public class MountainWorldGeneratorV1 extends WorldGenerator {
     }
 
     /**
-     * Oberflächen-Sample fürs LOD: im Ozean ist die sichtbare Oberfläche der Wasserspiegel
+     * Oberflächenmaterial: Im Ozean ist die sichtbare Oberfläche der Wasserspiegel
      * (nicht der Meeresboden), sonst das höhenabhängige Deckmaterial.
      */
     @Override
-    public long sampleSurface(int x, int z) {
+    public int surfaceBlock(int x, int z) {
         int height = this.sampleHeight(x, z);
-        if (height < SEA_LEVEL) return SurfaceSample.pack(Blocks.WATER, SEA_LEVEL);
-        return SurfaceSample.pack(this.surfaceTop(x, z, height), height);
+        if (height < SEA_LEVEL) return Blocks.WATER;
+        return this.surfaceTop(x, z, height);
     }
 
-    /** Deckmaterial nach Höhe (inkl. verwackelter Fels-/Schneegrenze) — von generate() UND LOD genutzt. */
+    /** Deckmaterial nach Höhe inklusive verwackelter Fels-/Schneegrenze. */
     private int surfaceTop(int wx, int wz, int height) {
         int snowLine = SNOW_LINE;
         int stoneLine = STONE_LINE;
@@ -130,7 +124,7 @@ public class MountainWorldGeneratorV1 extends WorldGenerator {
 
                 int height = this.sampleHeight(wx, wz);
 
-                /* Oberflaechenmaterial nach Hoehe (geteilte Logik mit dem LOD-Sample) */
+                /* Oberflaechenmaterial nach Hoehe. */
                 int top = this.surfaceTop(wx, wz, height);
                 int filler = fillerFor(top);
 

@@ -16,7 +16,7 @@ description: Threading-Modell der Engine (Render-Thread vs. Window-Processing-Th
 2. **"Window-Processing Thread"** (der eigentliche Main-Thread): `runWindowProcessLoop()` mit
    `glfwWaitEvents()` und Abarbeitung der `mainThreadTasks`-Queue.
 3. **"Chunk Worker"-Pool** (`ChunkManager`): `max(2, cores-2)` Daemon-Threads mit
-   `PriorityBlockingQueue` — Generierung, Dekoration, Meshing, LOD. **Kein GL hier, nur Daten.**
+   `PriorityBlockingQueue` — Generierung, Dekoration und Meshing. **Kein GL hier, nur Daten.**
 
 Ein schwächeres Modell nimmt typisch an, der Main-Thread sei der Render-Thread. Falsch herum:
 Der Main-Thread macht NUR Fenster-Events.

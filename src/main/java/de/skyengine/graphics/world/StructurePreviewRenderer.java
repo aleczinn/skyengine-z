@@ -151,12 +151,10 @@ public final class StructurePreviewRenderer {
         uniform sampler2DArray u_Textures;
         uniform float u_Alpha;
         layout(location = 0) out vec4 fragColor;
-        layout(location = 1) out float fragLodMask;
         void main() {
             vec4 tex = texture(u_Textures, v_TexCoord);
             if (tex.a < 0.01) discard;
             fragColor = vec4(tex.rgb * v_Color, tex.a * u_Alpha);
-            fragLodMask = 0.0;
         }
         """;
 }

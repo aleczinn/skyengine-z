@@ -40,7 +40,7 @@ Die Klasse weiß **nichts von Ebenen** — es gibt schlicht zwei Instanzen pro C
 `blockLight`). Fürs Blocklicht ist der Uniform-Default 0 goldrichtig: eine Section ohne
 Leuchtblock materialisiert nie. Deshalb kostet die zweite Ebene in normalem Terrain **nichts**.
 
-**Bewusst lock-frei** (wie `WorldLodDataSource`): Byte-Zugriffe reißen nicht, nebenläufige Reader
+**Bewusst lock-frei:** Byte-Zugriffe reißen nicht, nebenläufige Reader
 (Mesher) sehen höchstens transient veraltete Werte, die Dirty-Masken sorgen für Konvergenz. Hier
 nachträglich Locks einzuziehen bricht die Architektur, statt sie abzusichern.
 
@@ -150,8 +150,8 @@ MESHING (Gate: 8× LIT, der Mesher liest Nachbar-LICHT).
   Erst-Mesh-Job `consumeDirtySections()` nicht aufruft.
 - *Warum im try:* `exchangeBorders` liest Nachbar-Blöcke, das braucht die Read-Locks.
 
-**`submitLoadTask`, nicht `submitTask`** — sonst zählt der Licht-Job nicht in `pendingLoadTasks`,
-der `initialLoadComplete`-Latch feuert zu früh und das LOD startet auf halb belichtetem Terrain.
+**`submitLoadTask`, nicht `submitTask`** — sonst zählt der Licht-Job nicht in `pendingLoadTasks`
+und der `initialLoadComplete`-Latch feuert zu früh.
 
 `remeshAll()` fällt auf **LIT** zurück (nicht DECORATED): sonst flutet jeder AO-Toggle das
 unveränderte Licht komplett neu.
@@ -260,7 +260,7 @@ läuft die Skala 0 → 0,095 · 4 → 0,260 · 8 → 0,471 · 12 → 0,733 · 15
 rundet `0.04f + 0.96f` auf exakt 1.0 und die Kurve lässt 1.0 stehen — die Oberfläche sieht also
 aus wie ohne Lichtsystem. `u_MinLight = 1.0` ⇒ `light == 1.0` für jedes `v_light`, das ist
 Fullbright, ohne Shader-Zweig, ohne zweite Programmvariante, ohne Remesh. Es gibt nur **ein**
-Chunk-Shader-Programm (Opaque/Cutout/Detail/Translucent/LOD/GPU-Cull-Phase-2 teilen es sich),
+Chunk-Shader-Programm (Opaque/Cutout/Detail/Translucent teilen es sich),
 deshalb reicht ein Upload pro Frame in `renderSolid`.
 
 **Kein Remesh** bei Reglerwechsel — genau deshalb liegt Licht in int4 und wird nicht wie AO/Tint
@@ -298,9 +298,7 @@ vorliegt. `getBlockLight` hat dasselbe LIT-Gate wie `getSkyLight`, aber Fallback
 **Die GUI-Pfade setzen hart `1.0F`** (Inventar-Vorschau, Item/Truhe in der Vorschauhand,
 Slot-Icons): sie teilen sich die Shader mit der Welt und würden sonst mit der Höhle abdunkeln.
 
-Item-Icons bleiben außen vor. LOD verwendet kein `LightStorage`: freie Oberflächen bekommen
-Himmel 15, sichtbarer Meeresboden und Unterwasserwände eine analytische Dämpfung um eine Stufe
-pro Block Wassertiefe; Blocklicht bleibt 0 (s. Skill `lod-system`).
+Item-Icons bleiben außen vor.
 
 ## Persistenz
 

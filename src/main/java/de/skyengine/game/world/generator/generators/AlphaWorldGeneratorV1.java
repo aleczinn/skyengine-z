@@ -8,11 +8,6 @@ import de.skyengine.utils.math.FastNoiseLite;
 
 public class AlphaWorldGeneratorV1 extends WorldGenerator {
 
-    @Override
-    public int lodWorldBottomState() {
-        return Blocks.BEDROCK;
-    }
-
     private final FastNoiseLite noise;
 
     public AlphaWorldGeneratorV1(int seed) {
@@ -27,7 +22,7 @@ public class AlphaWorldGeneratorV1 extends WorldGenerator {
 
     /**
      * Terrainhöhe (y des obersten Blocks) an Weltkoordinaten — pure Funktion ohne
-     * Chunk-Abhängigkeit. Threadsicher (Noise wird nur gelesen); Basis fürs LOD-System.
+     * Chunk-Abhängigkeit. Threadsicher, weil das Noise-Objekt nur gelesen wird.
      */
     @Override
     public int sampleHeight(int x, int z) {

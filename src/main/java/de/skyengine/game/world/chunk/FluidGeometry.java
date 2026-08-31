@@ -29,13 +29,12 @@ public final class FluidGeometry {
     private static final float FLOW_TOP_UV_RADIUS = 0.25F;
     private static final float FLOW_SIDE_UV_SCALE = 0.5F;
 
-    /** Default-Wasserfarbe (gepackt 0xRRGGBB). Später positions-/biome-abhängig. Auch vom LOD genutzt. */
+    /** Default-Wasserfarbe (gepackt 0xRRGGBB). Später positions-/biome-abhängig. */
     public static final int WATER_TINT = 0x3F76E4;
 
     /**
      * Oberkante einer stillen Quelle (Level 0) nach der Formel {@code (8 - level) / 9}
-     * (s. {@link #ownHeight}). Das LOD setzt seine Fluid-Zellen exakt auf diese Höhe —
-     * gleiche Pack-Quantisierung wie das echte stille Wasser → koplanar, kein Z-Fighting.
+     * (s. {@link #ownHeight}).
      */
     public static final float SOURCE_HEIGHT = 8F / 9F;
 

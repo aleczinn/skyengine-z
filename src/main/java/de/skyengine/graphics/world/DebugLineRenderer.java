@@ -140,7 +140,6 @@ public final class DebugLineRenderer {
         #version 460 core
         uniform vec4 u_Color;
         layout(location = 0) out vec4 fragColor;
-        layout(location = 1) out float fragLodMask;
-        void main() { fragColor = u_Color; fragLodMask = 0.0; }
+        void main() { fragColor = u_Color; }
         """;
 }

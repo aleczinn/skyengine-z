@@ -4,7 +4,6 @@ import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.generator.WorldGenerator;
 import de.skyengine.game.world.generator.feature.ChunkDecorator;
 import de.skyengine.game.world.light.LightEngine;
-import de.skyengine.game.world.lod.LodManager;
 import de.skyengine.game.world.save.WorldStorage;
 import de.skyengine.graphics.PerformanceProfiler;
 import de.skyengine.utils.logging.LogManager;
@@ -19,7 +18,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class ChunkManager {
 
@@ -79,11 +77,6 @@ public class ChunkManager {
 
     private int renderDistance = 16; // in chunks
 
-    /* Unload-Gate: sichtbare Chunks erst entladen, wenn das LOD ihre Zelle deckt. null = Gate aus. */
-    private LodManager lodManager;
-    /* Tick-genaue Schnellabfrage, ob Chunks auf einen sichtbaren LOD-Fallback warten. */
-    private int pendingUnloadCount;
-
     /* Chunk-Persistenz: Lade-Quelle (statt Generierung) + Save-Ziel beim Unload. Von Dimension
        nach der Konstruktion gesetzt; null-tolerant (Tools/Tests ohne Persistenz). */
     private WorldStorage storage;
@@ -122,46 +115,29 @@ public class ChunkManager {
        Spielerchunks) — auch wenn sie hinter dem Spieler liegen. */
     private static final int NEAR_ALWAYS = 2;
 
-    /* Job-Prioritäten für den Worker-Pool: Remeshes überholen den Initial-Load;
-       LOD-Meshes bleiben eine begrenzte Hintergrundklasse. L0-Residency ändert nur den
-       sichtbaren Octree-Frontier und erzeugt keine speziellen Clip-Remeshes mehr. */
+    /* Job-Prioritäten für den Worker-Pool: Remeshes überholen den Initial-Load. */
     private static final int PRIO_PLAYER_REMESH = 0;
     private static final int PRIO_SYSTEM_REMESH = 1;
     private static final int PRIO_LOAD = 2;
     private static final int PRIO_LIGHT = 3;
-    private static final int PRIO_LOD = 4;
 
     /* AUSSTEHENDE Lade-Jobs (wartend + laufend) — Basis für LOAD_QUEUE_LIMIT und den Latch. */
     private final AtomicInteger pendingLoadTasks = new AtomicInteger();
 
-    /* Scheduler-Telemetrie und adaptive LOD-Zulassung. LOD bleibt die einzige
-       Hintergrundklasse; L0-Load und Remesh zählen als Vordergrund. */
+    /* Scheduler-Telemetrie für L0-Load und Remeshes. */
     private final AtomicInteger queuedForegroundTasks = new AtomicInteger();
     private final AtomicInteger activeForegroundTasks = new AtomicInteger();
-    private final AtomicInteger queuedNormalLodTasks = new AtomicInteger();
-    private final AtomicInteger activeNormalLodTasks = new AtomicInteger();
-    private final TaskTimingWindow normalLodQueueTimes = new TaskTimingWindow();
-    private final AtomicLong evictedLodTasks = new AtomicLong();
-    private final AtomicLong staleQueuedLodTasks = new AtomicLong();
-    private final AtomicLong rejectedLodTasks = new AtomicLong();
-    private final Object lodAdmissionLock = new Object();
-    private volatile int lodScheduleVersion = -1;
 
     /* Lade-Jobs, die update() in DIESEM Tick eingereiht hat (nur Tick-Thread). */
     private int loadSubmitsThisTick;
 
     /* Latch: true, sobald die Lade-Pipeline einmal ihren FIXPUNKT erreicht hat — nichts mehr
-       einzureihen UND nichts mehr ausstehend. Gate für das LOD: echte Chunks haben Vorrang,
-       LOD-Jobs (beim Start teuer, da zunächst Volumenknoten aufgebaut werden) laufen erst danach.
+       einzureihen UND nichts mehr ausstehend. Der Ladebildschirm nutzt diesen Zustand.
 
        Fixpunkt statt "alle Chunks READY": die äußersten Ringe des Lade-Kreises finden ihre
        Gating-Nachbarn (Dekoration braucht 8× GENERATED, Erst-Mesh 8× DECORATED) außerhalb des
        Kreises NICHT und bleiben dauerhaft auf GENERATED/DECORATED stehen. Ein "alle READY"-Latch
-       würde deshalb NIE auslösen und das LOD für immer abschalten (real beobachtet).
-
-       Bewusst ein EINMALIGER Latch, kein Dauer-Gate: "solange irgendein Chunk lädt" würde im
-       Betrieb permanent greifen (an der Ladefront ist immer etwas offen) → LOD-Regionen würden
-       nie mehr remeshen. */
+       würde deshalb NIE auslösen. */
     private volatile boolean initialLoadComplete = false;
 
     /* Startdiagnose (nur Debug-Log): Nullpunkt aller "nach X ms"-Zeilen. Wird zusammen mit dem
@@ -172,9 +148,8 @@ public class ChunkManager {
        ChunkRenderers; -1 = der Fixpunkt wurde in diesem Durchlauf noch nicht erreicht. */
     private volatile int initialUploadBacklog = -1;
 
-    /* Zaehlt jeden Neuaufbau des Radius. ChunkRenderer und LodManager haengen ihre eigenen
-       Diagnose-Zustaende daran auf und armen neu, sobald sich der Wert aendert — ohne das
-       blieben ihre Einmal-Latches gesetzt und zwei der drei Stoppuhren feuerten nie wieder. */
+    /* Zaehlt jeden Neuaufbau des Radius. Der ChunkRenderer setzt daran seine
+       Upload-Diagnose zurueck. */
     private volatile int loadCycle;
 
     /* (dx, dz)-Offsets im Kreis, einmal pro renderDistance gebaut; Reihenfolge wird per
@@ -259,7 +234,7 @@ public class ChunkManager {
             this.queuedForegroundTasks.decrementAndGet();
             this.activeForegroundTasks.incrementAndGet();
             PerformanceProfiler.get().recordElapsed(
-                    PerformanceProfiler.WorkerSection.L0_QUEUE_WAIT, 0, queuedAt);
+                    PerformanceProfiler.WorkerSection.L0_QUEUE_WAIT, queuedAt);
             try {
                 job.run();
             } finally {
@@ -287,108 +262,7 @@ public class ChunkManager {
     }
 
     /**
-     * Reiht einen begrenzten LOD-Mesh-Job mit niedrigster Worker-Priorität ein.
-     */
-    public boolean submitLodTask(Runnable job, LodPriority priority, Runnable onDiscard) {
-        synchronized (this.lodAdmissionLock) {
-            int limit = this.workerCount * 4;
-            while (this.queuedNormalLodTasks.get() + this.activeNormalLodTasks.get() >= limit) {
-                PrioTask worst = this.worstQueuedLod();
-                if (worst == null || compareLodPriorities(priority, worst.lodPriority()) >= 0) {
-                    this.rejectedLodTasks.incrementAndGet();
-                    return false;
-                }
-                if (!this.workers.getQueue().remove(worst)) continue;
-                worst.discard();
-                this.evictedLodTasks.incrementAndGet();
-            }
-
-            PerformanceProfiler.AsyncToken queuedAt = PerformanceProfiler.get().beginAsync();
-            this.queuedNormalLodTasks.incrementAndGet();
-            Runnable countedJob = () -> {
-                this.queuedNormalLodTasks.decrementAndGet();
-                this.activeNormalLodTasks.incrementAndGet();
-                if (queuedAt != null) {
-                    long waited = System.nanoTime() - queuedAt.startedNanos();
-                    this.normalLodQueueTimes.add(waited);
-                    PerformanceProfiler.get().record(PerformanceProfiler.WorkerSection.LOD_WORKER_QUEUE,
-                            priority.level(), waited, queuedAt);
-                }
-                try {
-                    job.run();
-                } finally {
-                    this.activeNormalLodTasks.decrementAndGet();
-                }
-            };
-            Runnable discarded = () -> {
-                this.queuedNormalLodTasks.decrementAndGet();
-                onDiscard.run();
-            };
-            this.workers.execute(PrioTask.lod(this, this.workerPool.nextSequence(), priority,
-                    countedJob, discarded));
-            return true;
-        }
-    }
-
-    /**
-     * Freie Submit-Plaetze fuer normale LOD-Arbeit. Vier Worker-Wellen ueberbruecken den
-     * 50-ms-Tick, ohne die Queue unbeschraenkt wachsen zu lassen. Vordergrundarbeit sperrt die
-     * Einreihung nicht: erst die gemeinsame Prioritaetsqueue entscheidet ueber die Ausfuehrung.
-     * Laufende LOD-Jobs werden bewusst nicht abgebrochen.
-     */
-    public int normalLodSubmissionBudget() {
-        int outstanding = this.queuedNormalLodTasks.get() + this.activeNormalLodTasks.get();
-        return normalLodSubmissionBudget(this.workerCount, outstanding);
-    }
-
-    static int normalLodSubmissionBudget(int workers, int normalOutstanding) {
-        return Math.max(0, workers * 4 - normalOutstanding);
-    }
-
-    public void updateLodScheduleVersion(int version) {
-        synchronized (this.lodAdmissionLock) {
-            if (version == this.lodScheduleVersion) return;
-            this.lodScheduleVersion = version;
-            Object[] queued = this.workers.getQueue().toArray();
-            for (Object entry : queued) {
-                if (!(entry instanceof PrioTask task) || task.owner() != this || !task.isLod()
-                        || task.lodPriority().anchorVersion() == version) continue;
-                if (!this.workers.getQueue().remove(task)) continue;
-                task.discard();
-                this.staleQueuedLodTasks.incrementAndGet();
-            }
-        }
-    }
-
-    private PrioTask worstQueuedLod() {
-        PrioTask worst = null;
-        for (Runnable entry : this.workers.getQueue()) {
-            if (!(entry instanceof PrioTask task) || task.owner() != this
-                    || !task.isNormalLod()) continue;
-            if (worst == null || compareLodPriorities(task.lodPriority(), worst.lodPriority()) > 0
-                    || (compareLodPriorities(task.lodPriority(), worst.lodPriority()) == 0
-                    && task.seq() > worst.seq())) {
-                worst = task;
-            }
-        }
-        return worst;
-    }
-
-    public String lodWorkerStats() {
-        return "LOD-Worker: Threads=" + this.workerCount
-                + ", Vordergrund=" + this.activeForegroundTasks.get() + "/"
-                + this.queuedForegroundTasks.get() + " aktiv/wartend, normal="
-                + this.activeNormalLodTasks.get() + "/" + this.queuedNormalLodTasks.get()
-                + " aktiv/wartend, Verdraengt=" + this.evictedLodTasks.get()
-                + ", Stale-Queue=" + this.staleQueuedLodTasks.get()
-                + ", Abgelehnt=" + this.rejectedLodTasks.get() + ", Remesh-Marker="
-                + this.remeshQueue.size()
-                + ", Queue-Wartezeit=" + this.normalLodQueueTimes.text();
-    }
-
-    /**
-     * true, sobald alle Chunks im Radius einmal READY waren (s. {@link #initialLoadComplete}).
-     * Der {@link LodManager} submittet erst danach — echtes Terrain hat Vorrang.
+     * true, sobald die initiale Lade-Pipeline ihren Fixpunkt erreicht hat.
      */
     public boolean isInitialLoadComplete() {
         return this.initialLoadComplete;
@@ -410,7 +284,7 @@ public class ChunkManager {
 
     /**
      * Startdiagnose: Zyklusnummer des laufenden Radius-Aufbaus. Aendert sie sich, muessen
-     * ChunkRenderer und LodManager ihre eigenen Messzustaende zuruecksetzen.
+     * Der ChunkRenderer setzt daran seinen Messzustand zurueck.
      */
     public int loadCycle() {
         return this.loadCycle;
@@ -435,37 +309,11 @@ public class ChunkManager {
 
     /* PriorityBlockingQueue ist nicht stabil — seq hält gleiche Prioritäten in Einreihungs-
        Reihenfolge, sonst würde die Blickrichtungs-Sortierung der Lade-Jobs verwürfelt. */
-    public record LodPriority(int anchorVersion, int distanceBand, int level,
-                              int viewTier, double distanceSq) {}
-
-    static int compareLodPriorities(LodPriority a, LodPriority b) {
-        int compare = Integer.compare(a.distanceBand, b.distanceBand);
-        if (compare != 0) return compare;
-        compare = Integer.compare(a.level, b.level);
-        if (compare != 0) return compare;
-        compare = Integer.compare(a.viewTier, b.viewTier);
-        if (compare != 0) return compare;
-        return Double.compare(a.distanceSq, b.distanceSq);
-    }
-
-    private record PrioTask(ChunkManager owner, int prio, long seq, LodPriority lodPriority,
-                            Runnable job, Runnable onDiscard)
+    private record PrioTask(int prio, long seq, Runnable job)
             implements Runnable, Comparable<PrioTask> {
 
         static PrioTask foreground(ChunkManager owner, int priority, long sequence, Runnable job) {
-            return new PrioTask(owner, priority, sequence, null, job, null);
-        }
-
-        static PrioTask lod(ChunkManager owner, long sequence, LodPriority priority,
-                            Runnable job, Runnable onDiscard) {
-            return new PrioTask(owner, PRIO_LOD, sequence, priority, job, onDiscard);
-        }
-
-        boolean isLod() { return this.lodPriority != null; }
-        boolean isNormalLod() { return this.prio == PRIO_LOD; }
-
-        void discard() {
-            if (this.onDiscard != null) this.onDiscard.run();
+            return new PrioTask(priority, sequence, job);
         }
 
         @Override
@@ -476,36 +324,7 @@ public class ChunkManager {
         @Override
         public int compareTo(PrioTask o) {
             if (this.prio != o.prio) return Integer.compare(this.prio, o.prio);
-            if (this.isLod() && o.isLod()) {
-                int compare = compareLodPriorities(this.lodPriority, o.lodPriority);
-                if (compare != 0) return compare;
-            }
             return Long.compare(this.seq, o.seq);
-        }
-    }
-
-    private static final class TaskTimingWindow {
-        private final long[] recent = new long[256];
-        private long total, count, max;
-        private int cursor;
-
-        synchronized void add(long nanos) {
-            if (nanos < 0) return;
-            this.total += nanos;
-            this.count++;
-            this.max = Math.max(this.max, nanos);
-            this.recent[this.cursor++ & (this.recent.length - 1)] = nanos;
-        }
-
-        synchronized String text() {
-            if (this.count == 0) return "-";
-            int length = (int) Math.min(this.count, this.recent.length);
-            long[] sorted = Arrays.copyOf(this.recent, length);
-            Arrays.sort(sorted);
-            long p95 = sorted[Math.max(0, (int) Math.ceil(length * 0.95) - 1)];
-            return String.format(java.util.Locale.ROOT, "%.2f/p95 %.2f/max %.2f ms",
-                    this.total / this.count / 1_000_000.0, p95 / 1_000_000.0,
-                    this.max / 1_000_000.0);
         }
     }
 
@@ -542,8 +361,6 @@ public class ChunkManager {
         if (telemetryProfiler.isEnabled()) {
             telemetryProfiler.set(PerformanceProfiler.Counter.L0_ACTIVE_JOBS, this.activeForegroundTasks.get());
             telemetryProfiler.set(PerformanceProfiler.Counter.L0_WAITING_JOBS, this.queuedForegroundTasks.get());
-            telemetryProfiler.set(PerformanceProfiler.Counter.LOD_ACTIVE_JOBS, this.activeNormalLodTasks.get());
-            telemetryProfiler.set(PerformanceProfiler.Counter.LOD_WAITING_JOBS, this.queuedNormalLodTasks.get());
         }
         if (this.loadingPaused) return;
 
@@ -612,13 +429,13 @@ public class ChunkManager {
                     PerformanceProfiler profiler = PerformanceProfiler.get();
                     long started = profiler.begin();
                     boolean loaded = this.storage != null && this.storage.loadChunk(finalChunk);
-                    profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_DISK_LOAD, 0, started);
+                    profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_DISK_LOAD, started);
                     if (loaded) {
                         finalChunk.status = ChunkStatus.DECORATED;
                     } else {
                         started = profiler.begin();
                         this.generator.generate(finalChunk);
-                        profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_TERRAIN, 0, started);
+                        profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_TERRAIN, started);
                         finalChunk.status = ChunkStatus.GENERATED;
                     }
                 });
@@ -639,7 +456,7 @@ public class ChunkManager {
                     PerformanceProfiler profiler = PerformanceProfiler.get();
                     long started = profiler.begin();
                     this.decorator.decorate(finalChunk);
-                    profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_FEATURES, 0, started);
+                    profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_FEATURES, started);
                     finalChunk.status = ChunkStatus.DECORATED;
                 });
             }
@@ -647,8 +464,7 @@ public class ChunkManager {
             /* 3. Initial-Lighting: Heightmap + Himmelslicht-Flood, sobald alle 8 Nachbarn
                dekoriert sind - der Job LIEST Blöcke über die Ränder (schreibt Licht aber nur
                ins Zentrum). submitLoadTask und nicht submitTask: sonst zählt der Job nicht in
-               pendingLoadTasks, der initialLoadComplete-Fixpunkt feuert zu früh und das LOD
-               startet auf halb belichtetem Terrain. */
+               pendingLoadTasks, sonst feuert der initialLoadComplete-Fixpunkt zu früh. */
             if (chunk.status == ChunkStatus.DECORATED) {
                 Chunk north = this.getAtLeast(cx, cz - 1, ChunkStatus.DECORATED);
                 Chunk south = this.getAtLeast(cx, cz + 1, ChunkStatus.DECORATED);
@@ -679,7 +495,7 @@ public class ChunkManager {
                     } finally {
                         unlockRead(finalChunk, north, south, west, east, diagonals);
                     }
-                    profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_INITIAL_LIGHT, 0, started);
+                    profiler.recordElapsed(PerformanceProfiler.WorkerSection.L0_INITIAL_LIGHT, started);
                 });
             }
 
@@ -710,7 +526,7 @@ public class ChunkManager {
                             batch.add(new MeshResult(finalChunk.chunkX, s, finalChunk.chunkZ,
                                     mesher.mesh(finalChunk, s, north, south, west, east, diagonals), meshSeq));
                             PerformanceProfiler.get().recordElapsed(
-                                    PerformanceProfiler.WorkerSection.L0_INITIAL_MESH, 0, started);
+                                    PerformanceProfiler.WorkerSection.L0_INITIAL_MESH, started);
                         }
                     } finally {
                         unlockRead(finalChunk, north, south, west, east, diagonals);
@@ -720,8 +536,7 @@ public class ChunkManager {
                        hiess also 0,5 Chunks pro Frame. Gemessen bei 5120x1440: 5072 offene Batches
                        beim Lade-Fixpunkt und 2,2 s, in denen der Spieler in einer halb leeren Welt
                        steht. Enqueue ausserhalb der Read-Locks wie im Remesh-Pfad. Der Chunk wird
-                       damit ausserdem in EINEM Frame vollstaendig — der atomare Swap gegen das LOD
-                       (lodShowsCell) bekommt keinen Zwischenzustand mehr zu sehen. */
+                       damit außerdem in EINEM Frame vollständig. */
                     if (renderGeneration == this.activeRenderGeneration) {
                         this.uploadQueue.add(new MeshBatch(batch, renderGeneration));
                         finalChunk.status = ChunkStatus.READY;
@@ -731,8 +546,7 @@ public class ChunkManager {
             }
         }
 
-        /* Fixpunkt der Lade-Pipeline: nichts mehr einzureihen UND nichts mehr ausstehend →
-           ab jetzt darf das LOD submitten. Nur setzen, nie löschen (s. initialLoadComplete). */
+        /* Fixpunkt der Lade-Pipeline: nichts mehr einzureihen und nichts mehr ausstehend. */
         if (!this.initialLoadComplete && this.loadSubmitsThisTick == 0 && this.pendingLoadTasks.get() == 0) {
             this.initialLoadComplete = true;
             /* Startdiagnose: genau HIER schliesst auch der Ladebildschirm (GuiWorldLoading haengt
@@ -746,7 +560,7 @@ public class ChunkManager {
             this.initialUploadBacklog = this.uploadQueue.size();
             this.logger.debug("Initialer Chunk-Load fertig nach "
                     + ((System.nanoTime() - this.loadStartNanos) / 1_000_000L)
-                    + " ms — LOD-Jobs sind ab jetzt freigegeben; " + sichtbar + "/"
+                    + " ms; " + sichtbar + "/"
                     + this.chunks.size() + " Chunks sichtbar, " + this.initialUploadBacklog
                     + " Erst-Mesh-Batches offen");
         }
@@ -756,21 +570,12 @@ public class ChunkManager {
            (GENERATING/DECORATING/LIGHTING/MESHING) bleiben, bis sie fertig sind,
            sonst arbeiten Worker auf entfernten Chunks. */
         int unloadDist = this.renderDistance + 2;
-        int pendingUnloads = 0;
         Iterator<Map.Entry<Long, Chunk>> it = this.chunks.entrySet().iterator();
         while (it.hasNext()) {
             Chunk chunk = it.next().getValue();
             int dx = chunk.chunkX - pcx, dz = chunk.chunkZ - pcz;
             int d2 = dx * dx + dz * dz;
-            if (d2 <= unloadDist * unloadDist) {
-                if (chunk.pendingUnload) {
-                    chunk.pendingUnload = false; // wieder im Radius → L0 besitzt erneut
-                    if (this.lodManager != null) {
-                        this.lodManager.refreshL0Ownership(chunk.chunkX, chunk.chunkZ);
-                    }
-                }
-                continue;
-            }
+            if (d2 <= unloadDist * unloadDist) continue;
 
             ChunkStatus status = chunk.status;
             if (status == ChunkStatus.READY || status == ChunkStatus.LIT
@@ -785,30 +590,14 @@ public class ChunkManager {
                         chunk.saveQueued = true;
                         this.storage.enqueueSave(chunk);
                     }
-                    if (chunk.pendingUnload) pendingUnloads++;
                     continue;
-                }
-                /* Vollständig sichtbare Chunks erst entfernen, wenn ein ausgewählter
-                   LOD-Octree-Knoten ihre Spalte deckt. Der Parent ist ein gültiger grober
-                   Fallback und bleibt stehen, während feinere Kinder nachladen. */
-                if (chunk.isFullyUploaded() && this.lodManager != null
-                        && !this.lodManager.coversChunk(chunk.chunkX, chunk.chunkZ)) {
-                    chunk.pendingUnload = true;
-                    this.lodManager.refreshL0Ownership(chunk.chunkX, chunk.chunkZ);
-                    pendingUnloads++;
-                    continue;
-                }
-                if (this.lodManager != null) {
-                    this.lodManager.clearL0Ownership(chunk.chunkX, chunk.chunkZ);
                 }
                 it.remove();
                 this.unloadAnnounceQueue.add(Chunk.key(chunk.chunkX, chunk.chunkZ));
                 /* Renderer disposes the GL meshes when it notices the chunk is gone */
                 this.chunkRemovalVersion++;
             }
-            if (chunk.pendingUnload) pendingUnloads++;
         }
-        this.pendingUnloadCount = pendingUnloads;
     }
 
     /**
@@ -843,7 +632,6 @@ public class ChunkManager {
             }
         }
         this.chunks.clear();
-        if (this.lodManager != null) this.lodManager.clearL0Ownership();
         /* Ausstehende Upload-Batches der alten Chunk-Objekte verwerfen — applyBatch würde sie
            sonst auf die NEU angelegten Chunks derselben Koordinaten anwenden (alte Geometrie +
            uploadedSections-Inflation). Noch laufende Worker-Jobs können danach vereinzelt
@@ -857,9 +645,8 @@ public class ChunkManager {
         this.readyAnnounceQueue.clear();
         this.unloadAnnounceQueue.clear();
         this.chunksWithBlockEntities.clear();
-        this.pendingUnloadCount = 0;
         this.chunkRemovalVersion++;
-        this.resetLoadDiagnostics(); // alles lädt neu → LOD wartet wieder auf das echte Terrain
+        this.resetLoadDiagnostics();
     }
 
     public int getChunkRemovalVersion() {
@@ -925,7 +712,7 @@ public class ChunkManager {
                         batch.add(new MeshResult(chunk.chunkX, s, chunk.chunkZ,
                                 mesher.mesh(chunk, s, north, south, west, east, diagonals), meshSeq));
                         PerformanceProfiler.get().recordElapsed(
-                                PerformanceProfiler.WorkerSection.L0_REMESH, 0, started);
+                                PerformanceProfiler.WorkerSection.L0_REMESH, started);
                     }
                 } finally {
                     unlockRead(chunk, north, south, west, east, diagonals);
@@ -1041,10 +828,6 @@ public class ChunkManager {
         return this.chunks.values();
     }
 
-    public boolean hasPendingUnloads() {
-        return this.pendingUnloadCount > 0;
-    }
-
     public ConcurrentLinkedQueue<MeshBatch> getUploadQueue() {
         return uploadQueue;
     }
@@ -1069,17 +852,11 @@ public class ChunkManager {
 
     public void setRenderDistance(int renderDistance) {
         int clamped = Math.max(2, renderDistance);
-        /* Idempotent: unveränderter Wert darf initialLoadComplete nicht resetten (das Optionsmenü
-           ruft applySettings auch für unabhängige Einstellungen auf und würde sonst das
-           LOD-Gating jedes Mal neu anstoßen). */
+        /* Unveränderter Wert darf die Startdiagnose nicht neu beginnen. */
         if (clamped == this.renderDistance) return;
         this.renderDistance = clamped;
         /* loadOrder wird beim nächsten update() automatisch neu berechnet */
-        this.resetLoadDiagnostics(); // größerer Radius → erst die neuen Chunks, dann LOD
-    }
-
-    public void setLodManager(LodManager lodManager) {
-        this.lodManager = lodManager;
+        this.resetLoadDiagnostics();
     }
 
     /**
@@ -1100,7 +877,6 @@ public class ChunkManager {
                 chunk.status = ChunkStatus.LIT;
             }
         }
-        if (this.lodManager != null) this.lodManager.clearL0Ownership();
         this.resetLoadDiagnostics();
         return generation;
     }
@@ -1117,7 +893,6 @@ public class ChunkManager {
                 chunk.status = ChunkStatus.LIT;
             }
         }
-        if (this.lodManager != null) this.lodManager.clearL0Ownership();
     }
 
     public boolean isRenderGenerationActive(long generation) {
@@ -1170,13 +945,11 @@ public class ChunkManager {
     /** Render-Thread-Barriere vor dem Abbau einer aktiven DimensionView. */
     public void awaitWorkerTasks() {
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
-        while (this.queuedForegroundTasks.get() + this.activeForegroundTasks.get()
-                + this.queuedNormalLodTasks.get() + this.activeNormalLodTasks.get() > 0
+        while (this.queuedForegroundTasks.get() + this.activeForegroundTasks.get() > 0
                 && System.nanoTime() < deadline) {
             java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L);
         }
-        if (this.queuedForegroundTasks.get() + this.activeForegroundTasks.get()
-                + this.queuedNormalLodTasks.get() + this.activeNormalLodTasks.get() > 0) {
+        if (this.queuedForegroundTasks.get() + this.activeForegroundTasks.get() > 0) {
             this.logger.warning("Dimensions-Worker waren nach 10 s noch aktiv");
         }
     }

@@ -6,7 +6,6 @@
   "layer": "cutout",
   "opaque": false,
   "solid": false,
-  "no_lod_surface": true,
   "hardness": 0,
   "piston_reaction": "destroy",
   "sound": "stone",

@@ -202,11 +202,6 @@ public class Block {
         return this.settings.cullSame;
     }
 
-    /** true: nie als LOD-Terrain-Oberfläche sampeln (Logs — LOD zeigt nur Terrain). */
-    public boolean isExcludedFromLodSurface() {
-        return this.settings.noLodSurface;
-    }
-
     /** true: Laub — bei LeavesQuality LOW cullen Laub-Faces gegen JEDES Nachbar-Laub. */
     public boolean isLeaves() {
         return this.settings.leaves;
@@ -725,7 +720,6 @@ public class Block {
         boolean opaque = true;
         boolean solid = true;
         boolean cullSame = false;
-        boolean noLodSurface = false;
         boolean leaves = false;
         boolean doesNotBlockHoppers = false;
         boolean noItem = false;
@@ -760,11 +754,6 @@ public class Block {
 
         public Settings cullSame(boolean cullSame) {
             this.cullSame = cullSame;
-            return this;
-        }
-
-        public Settings noLodSurface(boolean noLodSurface) {
-            this.noLodSurface = noLodSurface;
             return this;
         }
 

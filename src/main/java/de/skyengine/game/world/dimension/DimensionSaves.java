@@ -11,7 +11,7 @@ import java.nio.file.Path;
 public final class DimensionSaves {
 
     public record Resolved(DimensionDefinition dimension, GeneratorDefinition generator,
-                           LevelData.DimensionData data, File root, File regionDir, File lodDir) {}
+                           LevelData.DimensionData data, File root, File regionDir) {}
 
     public static Resolved resolve(File saveRoot, LevelData level, Identifier id) {
         WorldgenRegistries.bootstrap();
@@ -36,7 +36,7 @@ public final class DimensionSaves {
         File dimensionRoot = id.equals(WorldgenRegistries.OVERWORLD)
                 ? saveRoot : dimensionRoot(saveRoot, id);
         return new Resolved(dimension, generator, data, dimensionRoot,
-                new File(dimensionRoot, "region"), new File(dimensionRoot, "lod"));
+                new File(dimensionRoot, "region"));
     }
 
     private static LevelData.DimensionData create(int worldSeed, DimensionDefinition dimension) {

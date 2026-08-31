@@ -20,7 +20,7 @@ import java.util.Map;
  * Singleton-Zugriff über {@link #get()}.
  *
  * <p>Reine Daten + Persistenz — das Anwenden (Render-Distanz, FOV, VSync, GUI-Scale, Sensitivität,
- * AO, MSAA, Fog, LOD an/aus + Reichweite, anisotropes Filtern, …) erledigen {@code GameContainer}
+ * AO, MSAA, Fog und anisotropes Filtern) erledigen {@code GameContainer}
  * bzw. die jeweiligen Renderer-/Framebuffer-Stellen, die Zugriff auf Dimension/Camera/Window/Gui haben.
  */
 public final class GameSettings {
@@ -64,15 +64,6 @@ public final class GameSettings {
         }
     }
 
-    /** Screen-Space-AO für das gemeinsame Tiefenbild; AUTO wählt eine passende Samplezahl. */
-    public enum ScreenSpaceAoQuality {
-        AUTO(8), OFF(0), BASIC(6), HIGH(12), ULTRA(16);
-
-        public final int samples;
-
-        ScreenSpaceAoQuality(int samples) { this.samples = samples; }
-    }
-
     /* GUI-Größe als GANZZAHLIGER Faktor: 0 = automatisch (größter Faktor, der ins Fenster
        passt), sonst 1..MAX_GUI_SCALE. Zwischenstufen gibt es nicht und können es nicht geben:
        GUI-Grafik ist ein Texel-Raster mit GL_NEAREST, eine 1 Texel breite Linie muss also auf
@@ -98,8 +89,8 @@ public final class GameSettings {
        Framebuffer-Aufbau (Start bzw. Fenster-Resize). 4 gegen das kriechende Kanten-Aliasing
        des fernen Voxel-Terrains. */
     public int msaaSamples = 4;
-    /* Distanz-Fog Richtung Clear-Color am Sichtweiten-Rand (dämpft Horizont-Flimmern,
-       versteckt Far-Plane-Kante und LOD-Übergänge) */
+    /* Distanz-Fog Richtung Clear-Color am Sichtweiten-Rand (dämpft Horizont-Flimmern
+       und versteckt die Far-Plane-Kante). */
     public boolean fog = true;
     /* Helligkeit in Prozent (5er-Raster): 0 = AUS = Fullbright — das Himmelslicht bleibt
        berechnet, wird im Shader aber wirkungslos, das Bild ist bit-identisch zum Zustand ohne
@@ -114,22 +105,6 @@ public final class GameSettings {
     /* Kleinvegetation (Gras/Blumen/Pilze): Distanz in Chunks, ab der die Ausdünnung beginnt
        (graduell per Pflanzen-Hash, komplett weg bei +50 %). 0 = keine Ausdünnung. */
     public int vegetationDistance = 8;
-    /* Volumetrisches Fern-LOD jenseits der Render-Distanz. */
-    public boolean lodEnabled = true;
-    /* Äußerste LOD-Reichweite in Chunks. Level ergeben sich automatisch: Level L endet bei
-       renderDistance·2^L, gedeckelt bei lodMaxDistance (rd16/lod128 → L1 16-32, L2 32-64,
-       L3 64-128). lodMaxDistance <= renderDistance schaltet das LOD faktisch ab. */
-    /* Bleibt bis zur Umschaltung des Renderers bei 128: 256 im alten Ring-Mesher vervierfacht
-       die Regionen. Der volumetrische Pfad hat 256 als Zielprofil, nicht als stillen Legacy-
-       Performancewechsel. */
-    public int lodMaxDistance = 128;
-
-    /* Kompatible Detail-/GPU-Einstellungen fuer optionale LOD-Geometrie. Die Terrain-Stufe
-       folgt immer den festen Distanzbaendern und wird von Auto-Quality nicht umgeschaltet. */
-    public int lodScreenSize = 64;
-    public boolean lodAutoQuality = true;
-    public float lodGpuBudgetMs = 3.0F;
-    public ScreenSpaceAoQuality screenSpaceAoQuality = ScreenSpaceAoQuality.AUTO;
     /* Gesamtlautstärke 0..100 (wirkt global als OpenAL-Listener-Gain). */
     public int masterVolume = 100;
     /* Kanal-Lautstärken 0..100, Keys = SoundCategory-Namen (ersetzt das alte musicVolume-Feld:
@@ -215,9 +190,6 @@ public final class GameSettings {
         this.fov = Math.clamp(this.fov, 30, 120);
         this.anisotropicFiltering = Math.clamp(this.anisotropicFiltering, 1, 16);
         this.msaaSamples = Math.clamp(this.msaaSamples, 0, 16);
-        this.lodMaxDistance = Math.clamp(this.lodMaxDistance, 8, 512);
-        this.lodScreenSize = Math.clamp(this.lodScreenSize, 16, 256);
-        this.lodGpuBudgetMs = Math.clamp(this.lodGpuBudgetMs, 1.0F, 12.0F);
         this.vegetationDistance = Math.clamp(this.vegetationDistance, 0, 32);
         this.brightness = Math.clamp((this.brightness + 2) / 5 * 5, 0, 100);
         this.masterVolume = Math.clamp(this.masterVolume, 0, 100);
@@ -247,7 +219,6 @@ public final class GameSettings {
         if (this.graphicsMode == null) this.graphicsMode = GraphicsMode.FANCY;
         if (this.leavesQuality == null) this.leavesQuality = LeavesQuality.MID;
         if (this.particleQuality == null) this.particleQuality = ParticleQuality.ALL;
-        if (this.screenSpaceAoQuality == null) this.screenSpaceAoQuality = ScreenSpaceAoQuality.AUTO;
         if (this.keyBindings == null) {
             this.keyBindings = KeyBindings.defaults();
         } else {

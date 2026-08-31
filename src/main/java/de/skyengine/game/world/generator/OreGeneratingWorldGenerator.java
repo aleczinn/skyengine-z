@@ -21,17 +21,9 @@ public final class OreGeneratingWorldGenerator extends WorldGenerator {
     }
 
     @Override public int sampleHeight(int x, int z) { return this.delegate.sampleHeight(x, z); }
-    @Override public long sampleSurface(int x, int z) { return this.delegate.sampleSurface(x, z); }
-    @Override public long sampleGroundSurface(int x, int z) { return this.delegate.sampleGroundSurface(x, z); }
-    @Override public LodSurfaces sampleLodSurfaces(int x, int z) { return this.delegate.sampleLodSurfaces(x, z); }
-    @Override public void fillLodSurfaces(int x, int z, long[] ground, long[] surface) {
-        this.delegate.fillLodSurfaces(x, z, ground, surface);
-    }
-    @Override public int lodWorldBottomState() { return this.delegate.lodWorldBottomState(); }
     @Override public Biome biomeAt(int x, int z) { return this.delegate.biomeAt(x, z); }
     @Override public int surfaceSolidHeight(int x, int z) { return this.delegate.surfaceSolidHeight(x, z); }
-    @Override public int grassTintAt(int x, int z) { return this.delegate.grassTintAt(x, z); }
-    @Override public int foliageTintAt(int x, int z) { return this.delegate.foliageTintAt(x, z); }
+    @Override public int surfaceBlock(int x, int z) { return this.delegate.surfaceBlock(x, z); }
     @Override public void fillTintCorners(Chunk chunk) { this.delegate.fillTintCorners(chunk); }
 
     @Override

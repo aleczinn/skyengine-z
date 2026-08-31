@@ -6,7 +6,6 @@
   "archetype": "lever",
   "opaque": false,
   "solid": false,
-  "no_lod_surface": true,
   "hardness": 0.5,
   "sound": "stone",
   "icon_item": "game/textures/block/lever.png",

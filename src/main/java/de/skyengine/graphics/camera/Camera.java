@@ -179,8 +179,6 @@ public class Camera {
         return pitch;
     }
 
-    public float getFov() { return this.fov; }
-
     /** Bob-/Hurt-Effektmatrix des Frames (kopiert); Identität = kein Effekt. Vor update() setzen. */
     public void setViewEffect(Matrix4f effect) {
         this.viewEffect.set(effect);
@@ -196,7 +194,7 @@ public class Camera {
         this.fov = fov;
     }
 
-    /** Sichtweite der Projektion (in Blöcken) — mit LOD hinter den äußersten Ring gelegt. */
+    /** Sichtweite der Projektion in Blöcken. */
     public void setFarPlane(float farPlane) {
         this.farPlane = farPlane;
     }

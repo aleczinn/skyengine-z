@@ -3,12 +3,10 @@ package de.skyengine.game.world.generator.generators;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.generator.WorldGenerator;
-import de.skyengine.game.world.generator.SurfaceSample;
 
 /**
  * Leer-Generator für importierte Welten (worldType "imported"): alle Chunks kommen aus den
- * Region-Dateien, Generierung liefert bewusst nichts. Das Fern-LOD sampelt bei diesen
- * Welten ihre gespeicherten Volumenknoten, nicht diesen Generator.
+ * Region-Dateien, Generierung liefert bewusst nichts.
  */
 public final class VoidWorldGenerator extends WorldGenerator {
 
@@ -27,7 +25,7 @@ public final class VoidWorldGenerator extends WorldGenerator {
     }
 
     @Override
-    public long sampleSurface(int x, int z) {
-        return SurfaceSample.pack(Blocks.AIR, 0);
+    public int surfaceBlock(int x, int z) {
+        return Blocks.AIR;
     }
 }

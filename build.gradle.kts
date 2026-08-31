@@ -20,13 +20,9 @@ application {
     )
 }
 
-/* Messstand-Durchreichung: `./gradlew run -Dskyengine.cullbench=<Weltordner>` lädt die Welt
-   automatisch, friert das Chunk-Loading ein und schaltet CPU-/GPU-Cull im festen Takt um
-   (s. graphics/world/CullBench). Ohne die Property unverändertes Startverhalten. */
+/* Optionale Fenstergröße für reproduzierbare Messläufe an den Spielprozess weiterreichen. */
 tasks.named<JavaExec>("run") {
-    for (schluessel in listOf("skyengine.cullbench", "skyengine.window")) {
-        System.getProperty(schluessel)?.let { systemProperty(schluessel, it) }
-    }
+    System.getProperty("skyengine.window")?.let { systemProperty("skyengine.window", it) }
 }
 
 /* Minecraft-Importer liegt im Haupt-SourceSet (de.skyengine.mcimport), damit die Weltauswahl
@@ -82,21 +78,6 @@ tasks.register<JavaExec>("meshTest") {
     mainClass = "de.skyengine.game.world.chunk.debug.MesherCensus"
 }
 
-tasks.register<JavaExec>("lodCensus") {
-    group = "verification"
-    description = "Misst reproduzierbar Surface-Baseline und strukturhaltige LOD-Regionen (Cold/Warm)"
-    classpath = sourceSets["main"].runtimeClasspath
-    mainClass = "de.skyengine.game.world.lod.LodPerformanceCensus"
-}
-
-tasks.register<JavaExec>("lodQuads") {
-    group = "verification"
-    description = "Zählt die LOD-Quads des kompletten Rings pro Level (Spaltenpfad) — Vorher/Nachher-Beleg für Merge-Änderungen"
-    classpath = sourceSets["main"].runtimeClasspath
-    mainClass = "de.skyengine.game.world.lod.LodQuadCensus"
-    maxHeapSize = "6g"
-}
-
 tasks.register<JavaExec>("mapExport") {
     group = "verification"
     description = "Exportiert Weltgen-Debugkarten nach debug-maps/ (Bitstabilität der Generierung)"
@@ -136,7 +117,7 @@ dependencies {
 
 val isolatedTestGameDirectory = layout.buildDirectory.dir("test-game-directory")
 val isolatedVerificationTasks = setOf(
-    "saveTest", "lightTest", "meshTest", "lodCensus", "lodQuads", "mapExport"
+    "saveTest", "lightTest", "meshTest", "mapExport"
 )
 
 tasks.test {

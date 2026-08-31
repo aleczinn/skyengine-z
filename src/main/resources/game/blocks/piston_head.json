@@ -5,7 +5,6 @@
   "no_item": true,
   "opaque": false,
   "solid": false,
-  "no_lod_surface": true,
   "hardness": 1.5,
   "sound": "stone",
   "piston_reaction": "block",

@@ -1,6 +1,5 @@
 {
   "id": "acacia_door",
   "parent": "preset/door",
-  "lod_replacement": "acacia_planks",
   "creative_tab": ["building_blocks", "functional"]
 }

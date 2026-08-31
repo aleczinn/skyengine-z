@@ -1,6 +1,5 @@
 {
   "id": "oak_door",
   "parent": "preset/door",
-  "lod_replacement": "oak_planks",
   "creative_tab": ["building_blocks", "functional", "redstone_blocks"]
 }

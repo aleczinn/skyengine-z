@@ -224,12 +224,10 @@ public final class ParticleRenderer {
             uniform sampler2DArray u_Textures;
             uniform float u_AlphaCutoff;
             layout(location = 0) out vec4 o_Color;
-            layout(location = 1) out float o_LodMask;
             void main() {
                 vec4 tex = texture(u_Textures, v_TexCoord) * v_Color;
                 if (tex.a < u_AlphaCutoff) discard;
                 o_Color = tex;
-                o_LodMask = 0.0;
             }
             """;
 }

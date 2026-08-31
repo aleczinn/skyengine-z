@@ -1,6 +1,5 @@
 {
   "id": "pale_oak_door",
   "parent": "preset/door",
-  "lod_replacement": "pale_oak_planks",
   "creative_tab": ["building_blocks", "functional"]
 }
