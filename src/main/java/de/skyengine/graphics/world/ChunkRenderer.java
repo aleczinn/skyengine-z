@@ -10,6 +10,7 @@ import de.skyengine.game.world.chunk.ChunkManager;
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.FluidGeometry;
+import de.skyengine.game.world.chunk.PackedTerrainQuad;
 import de.skyengine.game.world.dimension.DimensionEnvironment;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.PerformanceProfiler;
@@ -52,6 +53,9 @@ public class ChunkRenderer {
     private static final int SLOTS = 3;                 // Frames in flight (Command-/Offset-Ringe)
     private static final int COMMAND_BYTES = 20;        // DrawElementsIndirectCommand (5 uints)
     private static final int OFFSET_BYTES = 16;         // vec4 im std430-SSBO
+    private static final int COMPACT_META_BYTES = 32;   // vec4 Offset + uvec4 Stream-/Tint-Basen
+    private static final int COMPACT_MODES = 3;
+    private static final int TINT_GRID_TEXELS = 33 * 33;
 
     private final Logger logger = LogManager.getLogger(ChunkRenderer.class.getName());
 
@@ -86,6 +90,10 @@ public class ChunkRenderer {
 
     /* Pro Frame neu befüllt: alle Sections, die den Frustum-Test bestanden haben */
     private final List<SectionMesh> visible = new ArrayList<>();
+    private final int[] compactDrawCounts = new int[COMPACT_MODES];
+    private final int[] compactWrittenCounts = new int[COMPACT_MODES];
+    private final long[] compactCommandOffsets = new long[COMPACT_MODES];
+    private final long[] compactMetadataOffsets = new long[COMPACT_MODES];
 
     /* Teilmenge von visible mit TRANSLUCENT-Layer - nur diese werden back-to-front sortiert */
     private final List<SectionMesh> translucentVisible = new ArrayList<>();
@@ -113,6 +121,17 @@ public class ChunkRenderer {
 
     /* Deckel für die Vorab-Reservierung je Arena (s. cappedArenaBytes). */
     private static final long MAX_INITIAL_ARENA_BYTES = 768L << 20;
+    /* Sechs getrennte Compact-/Tint-Arenen duerfen nicht JEWEILS den grossen Legacy-Deckel
+       ausschoepfen. Bei RD 128 ergab die ungekappte (rd+6)-Formel sonst schon beim Start eine
+       Multi-GB-Reservierung, lange bevor reale Meshdaten hochgeladen wurden. */
+    private static final long MAX_INITIAL_COMPACT_ARENA_BYTES = 128L << 20;
+    /**
+     * Reproduzierbarer GPU-A/B-Schalter fuer die zusaetzliche Fragment-Tintgrid-Abfrage:
+     * {@code -Dskyengine.profile.disableCompactBiomeTint=true}. Geometrie und Draw-Anzahl
+     * bleiben identisch, sodass die Differenz in L0_OPAQUE die Lookup-Kosten isoliert.
+     */
+    private static final boolean COMPACT_BIOME_TINT_LOOKUP =
+            !Boolean.getBoolean("skyengine.profile.disableCompactBiomeTint");
 
     /* Weicher Deckel der Priority-Uploads (Edit-Remeshes): Einzel-Edits liegen weit darunter,
        Explosions-Wellen verteilen sich über wenige Frames (s. renderSolid Schritt 2a). */
@@ -149,6 +168,18 @@ public class ChunkRenderer {
     private final int[] vaoArenaBuffer = new int[ARENA_SLOTS];
     private final int[] vaoEbo = new int[ARENA_SLOTS];
 
+    private final VertexArena[] compactGeometryArenas = new VertexArena[COMPACT_MODES];
+    private final VertexArena[] compactShadingArenas = new VertexArena[COMPACT_MODES];
+    private VertexArena tintArena;
+    private int compactVao;
+    private int compactVaoEbo;
+
+    private static final class TintRegion {
+        final VertexArena.Region region;
+        TintRegion(VertexArena.Region region) { this.region = region; }
+    }
+    private final LongObjMap<TintRegion> tintRegions = new LongObjMap<>(1024);
+
     /* Dynamischer Quad-Index-Buffer (0,1,2, 2,3,0 je Quad). */
     private int sharedEbo = 0;
     private int indexCapacityQuads = 0;
@@ -156,6 +187,7 @@ public class ChunkRenderer {
 
     private MappedRing commandRing;
     private MappedRing offsetRing;
+    private MappedRing compactMetaRing;
 
     /* Frame-Fences je Ring-Slot: schützen Slot-Wiederverwendung und Arena-Deferred-Frees */
     private final long[] fences = new long[SLOTS];
@@ -172,7 +204,7 @@ public class ChunkRenderer {
     /* Gecachte Uniform-Locations des Chunk-Shaders (erspart Map-Lookups im Hot-Path) */
     private int locProjectionView, locAlphaCutoff, locFogStart, locFogEnd, locFogColor,
             locDetailFade, locDetailCamSnap, locMinLight, locBrightness,
-            locPbrEnabled;
+            locPbrEnabled, locCompactMode, locBiomeTintLookup;
 
     /* Grundhelligkeit bei Lichtlevel 0 (Minecraft-Niveau): eine unbeleuchtete Höhle ist nie
        exakt schwarz. Der Regler hebt genau diesen Wert mit an (0,04 bei 0 % bis 0,15 bei 100 %,
@@ -220,10 +252,17 @@ public class ChunkRenderer {
         this.locMinLight = this.shader.getUniformLocation("u_MinLight");
         this.locBrightness = this.shader.getUniformLocation("u_Brightness");
         this.locPbrEnabled = this.shader.getUniformLocation("u_PbrEnabled");
+        this.locCompactMode = this.shader.getUniformLocation("u_CompactMode");
+        this.locBiomeTintLookup = this.shader.getUniformLocation("u_BiomeTintLookup");
         this.shader.bind();
         this.shader.setUniformi("u_Textures", 0);
         this.shader.setUniformi("u_NormalTextures", 1);
         this.shader.setUniformi("u_MaterialTextures", 2);
+        this.shader.setUniformi(this.locCompactMode, 0);
+        this.shader.setUniformi(this.locBiomeTintLookup, COMPACT_BIOME_TINT_LOOKUP ? 1 : 0);
+        if (!COMPACT_BIOME_TINT_LOOKUP) {
+            this.logger.warning("Compact-Biome-Tint fuer GPU-A/B-Profiling deaktiviert");
+        }
         this.shader.setUniformVector2f(this.locDetailFade, 0F, 0F); // Ausdünnung default aus
         this.shader.unbind();
         /* Atlas kommt von außen (BlockTextureAtlas, einmal beim Boot gebaut) — Welt-Ein-/
@@ -250,6 +289,24 @@ public class ChunkRenderer {
                 cappedArenaBytes("CUTOUT", Math.max(64L << 20, holdChunks * 256L * 1024)));
         this.arenas[RenderLayer.TRANSLUCENT.ordinal()] = new VertexArena("VertexArena TRANSLUCENT",
                 cappedArenaBytes("TRANSLUCENT", Math.max(8L << 20, holdChunks * 16L * 1024)));
+        this.compactGeometryArenas[PackedTerrainQuad.SHADING_STANDARD] = new VertexArena(
+                "Compact Geometry STANDARD", cappedCompactArenaBytes("Compact Geometry STANDARD",
+                Math.max(16L << 20, holdChunks * 24L * 1024)), 8);
+        this.compactGeometryArenas[PackedTerrainQuad.SHADING_UNIFORM] = new VertexArena(
+                "Compact Geometry UNIFORM", cappedCompactArenaBytes("Compact Geometry UNIFORM",
+                Math.max(8L << 20, holdChunks * 12L * 1024)), 8);
+        this.compactGeometryArenas[PackedTerrainQuad.SHADING_CORNER] = new VertexArena(
+                "Compact Geometry CORNER", cappedCompactArenaBytes("Compact Geometry CORNER",
+                Math.max(8L << 20, holdChunks * 8L * 1024)), 8);
+        this.compactShadingArenas[PackedTerrainQuad.SHADING_UNIFORM] = new VertexArena(
+                "Compact Shading UNIFORM", cappedCompactArenaBytes("Compact Shading UNIFORM",
+                Math.max(4L << 20, holdChunks * 6L * 1024)), 4);
+        this.compactShadingArenas[PackedTerrainQuad.SHADING_CORNER] = new VertexArena(
+                "Compact Shading CORNER", cappedCompactArenaBytes("Compact Shading CORNER",
+                Math.max(16L << 20, holdChunks * 16L * 1024)), 4);
+        this.tintArena = new VertexArena("Chunk Biome-Tintgrids",
+                cappedCompactArenaBytes("Chunk Biome-Tintgrids",
+                Math.max(16L << 20, holdChunks * (long) TINT_GRID_TEXELS * 2L * Integer.BYTES)), 4);
         for (int i = 0; i < this.vaos.length; i++) {
             this.vaos[i] = GL30.glGenVertexArrays();
             /* VAO-Name existiert erst nach dem ersten Bind — sonst GL_INVALID_VALUE beim Label */
@@ -258,9 +315,16 @@ public class ChunkRenderer {
         }
         GL30.glBindVertexArray(0);
 
+        this.compactVao = GL30.glGenVertexArrays();
+        GL30.glBindVertexArray(this.compactVao);
+        GlDebug.labelVertexArray(this.compactVao, "ChunkRenderer Compact VAO");
+        GL30.glBindVertexArray(0);
+
         /* Initial: 16k Draws je Layer-Segment reichen weit; Ringe wachsen bei Bedarf. */
         this.commandRing = new MappedRing("MDI CommandRing", SLOTS, 3 * MappedRing.align(16384L * COMMAND_BYTES));
         this.offsetRing = new MappedRing("MDI OffsetRing", SLOTS, 3 * MappedRing.align(16384L * OFFSET_BYTES));
+        this.compactMetaRing = new MappedRing("MDI CompactMetaRing", SLOTS,
+                3 * MappedRing.align(16384L * COMPACT_META_BYTES));
 
         this.logger.info("MDI-Renderer: Arenen " + (this.arenas[0].getCapacity() >> 20) + "/"
                 + (this.arenas[1].getCapacity() >> 20) + "/" + (this.arenas[2].getCapacity() >> 20)
@@ -280,6 +344,15 @@ public class ChunkRenderer {
         if (capped < wanted) {
             this.logger.warning("Arena-Startgroesse " + label + " gedeckelt: " + (wanted >> 20)
                     + " -> " + (capped >> 20) + " MB — Grows (Frame-Ruckler) sind moeglich");
+        }
+        return capped;
+    }
+
+    private long cappedCompactArenaBytes(String label, long wanted) {
+        long capped = Math.min(wanted, MAX_INITIAL_COMPACT_ARENA_BYTES);
+        if (capped < wanted) {
+            this.logger.warning("Arena-Startgroesse " + label + " gedeckelt: " + (wanted >> 20)
+                    + " -> " + (capped >> 20) + " MB — bedarfsgesteuertes Wachstum bleibt aktiv");
         }
         return capped;
     }
@@ -338,8 +411,14 @@ public class ChunkRenderer {
             this.lastChunkRemovalVersion = removalVersion;
             this.meshes.removeIf((key, mesh) -> {
                 if (this.chunkManager.getChunks().containsKey(Chunk.key(mesh.chunkX, mesh.chunkZ))) return false;
-                mesh.dispose(this.arenas, this.frameId);
+                mesh.dispose(this.arenas, this.compactGeometryArenas,
+                        this.compactShadingArenas, this.frameId);
                 this.unregisterSectionMesh(mesh);
+                return true;
+            });
+            this.tintRegions.removeIf((key, tint) -> {
+                if (this.chunkManager.getChunks().containsKey(key)) return false;
+                this.tintArena.free(tint.region, this.frameId);
                 return true;
             });
         }
@@ -358,6 +437,8 @@ public class ChunkRenderer {
         this.totalSections = this.meshes.size();
 
         int opaqueDraws = 0, cutoutDraws = 0;
+        int[] compactDraws = this.compactDrawCounts;
+        Arrays.fill(compactDraws, 0);
         FrustumIntersection frustum = camera.getFrustum();
         for (int ci = 0, cn = this.cullColumns.tableSize(); ci < cn; ci++) {
             CullColumn col = this.cullColumns.valueAt(ci);
@@ -380,6 +461,9 @@ public class ChunkRenderer {
                 if (mesh.hasLayer(RenderLayer.CUTOUT)) cutoutDraws++;
                 if (mesh.hasLayer(RenderLayer.TRANSLUCENT)) this.translucentVisible.add(mesh);
                 if (mesh.hasDetail()) this.visibleDetail.add(mesh);
+                for (int mode = 0; mode < COMPACT_MODES; mode++) {
+                    if (mesh.hasCompact(mode)) compactDraws[mode]++;
+                }
             }
         }
         this.renderedSections = this.visible.size();
@@ -392,8 +476,14 @@ public class ChunkRenderer {
 
         int translucentDraws = this.translucentVisible.size();
         int detailDraws = this.visibleDetail.size();
+        long compactCommandBytes = 0, compactMetadataBytes = 0;
+        for (int mode = 0; mode < COMPACT_MODES; mode++) {
+            compactCommandBytes += MappedRing.align((long) compactDraws[mode] * COMMAND_BYTES);
+            compactMetadataBytes += MappedRing.align((long) compactDraws[mode] * COMPACT_META_BYTES);
+        }
         this.commandRing.ensureSlotCapacity(
                 MappedRing.align((long) opaqueDraws * COMMAND_BYTES)
+                        + compactCommandBytes
                         + MappedRing.align((long) cutoutDraws * COMMAND_BYTES)
                         + MappedRing.align((long) detailDraws * COMMAND_BYTES)
                         + MappedRing.align((long) translucentDraws * COMMAND_BYTES));
@@ -402,17 +492,32 @@ public class ChunkRenderer {
                         + MappedRing.align((long) cutoutDraws * OFFSET_BYTES)
                         + MappedRing.align((long) detailDraws * OFFSET_BYTES)
                         + MappedRing.align((long) translucentDraws * OFFSET_BYTES));
+        this.compactMetaRing.ensureSlotCapacity(
+                compactMetadataBytes);
 
         /* 6. Command-/Offset-Segmente für OPAQUE und CUTOUT schreiben */
         FrameProfiler.cpuStart(FrameProfiler.Cpu.WRITE);
 
         IntBuffer cmds = this.commandRing.intView(this.frameSlot);
         FloatBuffer offs = this.offsetRing.floatView(this.frameSlot);
+        IntBuffer compactMeta = this.compactMetaRing.intView(this.frameSlot);
 
         long cmdOpaque = 0, offOpaque = 0;
         int nOpaque = this.writeSegment(RenderLayer.OPAQUE, this.visible, cmds, offs, cmdOpaque, offOpaque, cam);
 
-        long cmdCutout = cmdOpaque + MappedRing.align((long) nOpaque * COMMAND_BYTES);
+        long cmdCompact = cmdOpaque + MappedRing.align((long) nOpaque * COMMAND_BYTES);
+        long metaCompact = 0;
+        int[] nCompact = this.compactWrittenCounts;
+        for (int mode = 0; mode < COMPACT_MODES; mode++) {
+            this.compactCommandOffsets[mode] = cmdCompact;
+            this.compactMetadataOffsets[mode] = metaCompact;
+            nCompact[mode] = this.writeCompactSegment(mode, this.visible, cmds, compactMeta,
+                    cmdCompact, metaCompact, cam);
+            cmdCompact += MappedRing.align((long) nCompact[mode] * COMMAND_BYTES);
+            metaCompact += MappedRing.align((long) nCompact[mode] * COMPACT_META_BYTES);
+        }
+
+        long cmdCutout = cmdCompact;
         long offCutout = offOpaque + MappedRing.align((long) nOpaque * OFFSET_BYTES);
         int nCutout = this.writeSegment(RenderLayer.CUTOUT, this.visible, cmds, offs, cmdCutout, offCutout, cam);
 
@@ -438,7 +543,14 @@ public class ChunkRenderer {
 
         this.shader.setUniformf(this.locAlphaCutoff, 0.5F);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.SOLID);
+        this.shader.setUniformi(this.locCompactMode, 0);
         this.drawSegment(RenderLayer.OPAQUE.ordinal(), cmdOpaque, offOpaque, nOpaque);
+        for (int mode = 0; mode < COMPACT_MODES; mode++) {
+            this.shader.setUniformi(this.locCompactMode, mode + 1);
+            this.drawCompactSegment(mode, this.compactCommandOffsets[mode],
+                    this.compactMetadataOffsets[mode], nCompact[mode]);
+        }
+        this.shader.setUniformi(this.locCompactMode, 0);
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.SOLID);
         /* CUTOUT mit "or-equal"-Depth-Func: die koplanaren Gras-Seiten-Overlays (identische
            Vertices wie ihre OPAQUE-Basis-Seite) muessen den Tiefentest exakt gewinnen.
@@ -586,6 +698,9 @@ public class ChunkRenderer {
             /* Frames werden in Reihenfolge fertig -> alles bis slotFrames[slot] ist durch. */
             long completed = this.slotFrames[this.frameSlot];
             for (VertexArena arena : this.arenas) arena.collect(completed);
+            for (VertexArena arena : this.compactGeometryArenas) arena.collect(completed);
+            for (VertexArena arena : this.compactShadingArenas) if (arena != null) arena.collect(completed);
+            this.tintArena.collect(completed);
 
         }
     }
@@ -665,7 +780,8 @@ public class ChunkRenderer {
 
             SectionMesh old = this.meshes.remove(key);
             if (old != null) {
-                old.dispose(this.arenas, this.frameId);
+                old.dispose(this.arenas, this.compactGeometryArenas,
+                        this.compactShadingArenas, this.frameId);
                 this.unregisterSectionMesh(old);
             }
 
@@ -673,12 +789,53 @@ public class ChunkRenderer {
                Schritt 3 läuft nur noch bei Removal-Version-Wechsel — ein danach eingefügtes
                Waisen-Mesh würde nie wieder abgeräumt (Arena-Leak + Geistergeometrie). */
             if (chunk != null && result.data() != null && !result.data().isEmpty()) {
-                SectionMesh mesh = new SectionMesh(result.chunkX(), result.sectionY(), result.chunkZ(), result.data(), this.arenas);
+                SectionMesh mesh = new SectionMesh(result.chunkX(), result.sectionY(), result.chunkZ(),
+                        result.data(), this.arenas, this.compactGeometryArenas,
+                        this.compactShadingArenas, this.tintBase(chunk));
                 this.meshes.put(key, mesh);
                 this.registerSectionMesh(mesh);
                 this.maxSeenQuads = Math.max(this.maxSeenQuads, mesh.maxQuads());
+                this.recordCompactStats(result.data().stats);
             }
         }
+    }
+
+    private int tintBase(Chunk chunk) {
+        if (chunk.grassTintCorners == null || chunk.foliageTintCorners == null) return -1;
+        long key = Chunk.key(chunk.chunkX, chunk.chunkZ);
+        TintRegion existing = this.tintRegions.get(key);
+        if (existing != null) return existing.region.elementOffset();
+        int[] grids = new int[TINT_GRID_TEXELS * 2];
+        System.arraycopy(chunk.grassTintCorners, 0, grids, 0, TINT_GRID_TEXELS);
+        System.arraycopy(chunk.foliageTintCorners, 0, grids, TINT_GRID_TEXELS, TINT_GRID_TEXELS);
+        TintRegion created = new TintRegion(this.tintArena.alloc(grids));
+        this.tintRegions.put(key, created);
+        return created.region.elementOffset();
+    }
+
+    private void recordCompactStats(ChunkMesher.MeshStats stats) {
+        if (stats == null) return;
+        PerformanceProfiler profiler = PerformanceProfiler.get();
+        profiler.add(PerformanceProfiler.Counter.L0_FULL_CUBE_FACES, stats.fullCubeFacesBeforeGreedy());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPACT_QUADS, stats.fullCubeQuadsAfterGreedy());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPACT_STANDARD_QUADS, stats.mergedStandardQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPACT_UNIFORM_QUADS, stats.mergedUniformQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPACT_CORNER_QUADS, stats.mergedCornerQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_CORNER_SHADING_FACES, stats.cornerShadingFaces());
+        profiler.add(PerformanceProfiler.Counter.L0_CORNER_SHADING_FACES_MERGED,
+                stats.cornerShadingFacesMerged());
+        profiler.add(PerformanceProfiler.Counter.L0_CORNER_SHADING_FACES_UNMERGED,
+                stats.cornerShadingFacesUnmerged());
+        profiler.add(PerformanceProfiler.Counter.L0_MERGE_REJECTED_SHADING, stats.mergeRejectedByShading());
+        profiler.add(PerformanceProfiler.Counter.L0_MERGE_REJECTED_MATERIAL, stats.mergeRejectedByMaterial());
+        profiler.add(PerformanceProfiler.Counter.L0_MERGE_REJECTED_STATE, stats.mergeRejectedByState());
+        profiler.add(PerformanceProfiler.Counter.L0_OVERLAY_FALLBACK_FACES,
+                stats.overlayFallbackFaces());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPACT_STANDARD_BYTES, stats.standardBytes());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPACT_UNIFORM_BYTES, stats.uniformBytes());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPACT_CORNER_BYTES, stats.cornerBytes());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPACT_BYTES,
+                stats.standardBytes() + stats.uniformBytes() + stats.cornerBytes());
     }
 
     /**
@@ -746,6 +903,35 @@ public class ChunkRenderer {
         return n;
     }
 
+    private int writeCompactSegment(int mode, List<SectionMesh> list, IntBuffer cmds, IntBuffer meta,
+                                    long cmdSegBytes, long metaSegBytes, Vector3d cam) {
+        int cmdBase = (int) (cmdSegBytes / Integer.BYTES);
+        int metaBase = (int) (metaSegBytes / Integer.BYTES);
+        int n = 0;
+        for (int i = 0; i < list.size(); i++) {
+            SectionMesh mesh = list.get(i);
+            if (!mesh.hasCompact(mode)) continue;
+            int ci = cmdBase + n * 5;
+            cmds.put(ci, mesh.compactIndexCount(mode));
+            cmds.put(ci + 1, 1);
+            cmds.put(ci + 2, 0);
+            cmds.put(ci + 3, 0); // Vertex Pulling: Quad-ID bleibt draw-lokal
+            cmds.put(ci + 4, 0);
+
+            int mi = metaBase + n * 8;
+            meta.put(mi, Float.floatToRawIntBits(offsetX(mesh, cam)));
+            meta.put(mi + 1, Float.floatToRawIntBits(offsetY(mesh, cam)));
+            meta.put(mi + 2, Float.floatToRawIntBits(offsetZ(mesh, cam)));
+            meta.put(mi + 3, 0);
+            meta.put(mi + 4, mesh.compactGeometryBase(mode));
+            meta.put(mi + 5, mesh.compactShadingBase(mode));
+            meta.put(mi + 6, mesh.tintBase());
+            meta.put(mi + 7, 0);
+            n++;
+        }
+        return n;
+    }
+
     /**
      * Schreibt die Kleinvegetations-Draws (Detail-Region in der CUTOUT-Arena) der sichtbaren
      * Sections als eigenes Segment — analog {@link #writeSegment}, aber über die
@@ -789,6 +975,25 @@ public class ChunkRenderer {
         GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, this.commandRing.getBuffer());
         GL30.glBindBufferRange(GL43.GL_SHADER_STORAGE_BUFFER, 0, this.offsetRing.getBuffer(),
                 this.offsetRing.slotOffset(this.frameSlot) + offSegBytes, (long) drawCount * OFFSET_BYTES);
+        GL43.glMultiDrawElementsIndirect(GL11.GL_TRIANGLES, GL11.GL_UNSIGNED_INT,
+                this.commandRing.slotOffset(this.frameSlot) + cmdSegBytes, drawCount, 0);
+        GL30.glBindVertexArray(0);
+    }
+
+    private void drawCompactSegment(int mode, long cmdSegBytes, long metaSegBytes, int drawCount) {
+        if (drawCount == 0) return;
+        GL30.glBindVertexArray(this.compactVao);
+        GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, this.commandRing.getBuffer());
+        GL30.glBindBufferRange(GL43.GL_SHADER_STORAGE_BUFFER, 0, this.compactMetaRing.getBuffer(),
+                this.compactMetaRing.slotOffset(this.frameSlot) + metaSegBytes,
+                (long) drawCount * COMPACT_META_BYTES);
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 1,
+                this.compactGeometryArenas[mode].getBuffer());
+        if (mode != PackedTerrainQuad.SHADING_STANDARD) {
+            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 2,
+                    this.compactShadingArenas[mode].getBuffer());
+        }
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 3, this.tintArena.getBuffer());
         GL43.glMultiDrawElementsIndirect(GL11.GL_TRIANGLES, GL11.GL_UNSIGNED_INT,
                 this.commandRing.slotOffset(this.frameSlot) + cmdSegBytes, drawCount, 0);
         GL30.glBindVertexArray(0);
@@ -857,6 +1062,12 @@ public class ChunkRenderer {
 
             this.vaoArenaBuffer[i] = arenaBuffer;
             this.vaoEbo[i] = ebo;
+        }
+        if (this.compactVaoEbo != this.sharedEbo) {
+            GL30.glBindVertexArray(this.compactVao);
+            GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, this.sharedEbo);
+            GL30.glBindVertexArray(0);
+            this.compactVaoEbo = this.sharedEbo;
         }
     }
 
@@ -1051,20 +1262,27 @@ public class ChunkRenderer {
     public void dispose() {
         for (int i = 0, n = this.meshes.tableSize(); i < n; i++) {
             SectionMesh mesh = this.meshes.valueAt(i);
-            if (mesh != null) mesh.dispose(this.arenas, this.frameId);
+            if (mesh != null) mesh.dispose(this.arenas, this.compactGeometryArenas,
+                    this.compactShadingArenas, this.frameId);
         }
         this.meshes.clear();
         this.cullColumns.clear();
+        this.tintRegions.clear();
         for (long fence : this.fences) {
             if (fence != 0L) GL32.glDeleteSync(fence);
         }
         for (int vao : this.vaos) GL30.glDeleteVertexArrays(vao);
+        if (this.compactVao != 0) GL30.glDeleteVertexArrays(this.compactVao);
         if (this.sharedEbo != 0) GL15.glDeleteBuffers(this.sharedEbo);
         if (this.commandRing != null) this.commandRing.dispose();
         if (this.offsetRing != null) this.offsetRing.dispose();
+        if (this.compactMetaRing != null) this.compactMetaRing.dispose();
         for (VertexArena arena : this.arenas) {
             if (arena != null) arena.dispose();
         }
+        for (VertexArena arena : this.compactGeometryArenas) if (arena != null) arena.dispose();
+        for (VertexArena arena : this.compactShadingArenas) if (arena != null) arena.dispose();
+        if (this.tintArena != null) this.tintArena.dispose();
         /* Atlas (textures/animations) NICHT disposen — gehört dem GameContainer und
            überlebt Welt-Austritte (Hauptmenü braucht ihn für Item-Icons). */
         if (this.shader != null) this.shader.dispose();
@@ -1074,21 +1292,29 @@ public class ChunkRenderer {
        x: posX | posY<<16 — y: posZ | u<<16. Section-Positionen nutzen Bias +1;
        UV ist fixed 6.10 mit Bias +1.
        z: v | layer<<16 — w: rgb8
-       5. Int: Licht in Bits 0-15, Vertex-Flags ab Bit 16 (siehe ChunkMesher) — Stride wächst
+       5. Int: Sky/R/G/B je 6 Bit, Vertex-Flags ab Bit 24 (siehe ChunkMesher) — Stride wächst
        automatisch über ChunkMesher.VERTEX_SIZE, a_data liest weiterhin nur die ersten 4 Ints
        Section-Origin (kamerarelativ) kommt pro Draw aus dem SSBO, indiziert via gl_DrawID. */
     private static final String VERTEX_SOURCE = """
             #version 460 core
             layout(location = 0) in uvec4 a_data;
-            /* 5. Int: Skylight Bits 0-7, Blocklight 8-15, Vertex-Flags ab Bit 16. */
+            /* 5. Int: Sky/R/G/B je 6 Bit, Vertex-Flags ab Bit 24. */
             layout(location = 1) in uint a_light;
 
             const uint FLAT_SOURCE_FLUID_TOP = %du;
             const float SOURCE_FLUID_RENDER_HEIGHT = %s;
 
-            layout(std430, binding = 0) readonly buffer DrawOffsets {
-                vec4 u_DrawOffsets[];
+            layout(std430, binding = 0) readonly buffer DrawData {
+                uvec4 u_DrawData[];
             };
+            layout(std430, binding = 1) readonly buffer CompactGeometry {
+                uvec2 u_CompactGeometry[];
+            };
+            layout(std430, binding = 2) readonly buffer CompactShading {
+                uint u_CompactShading[];
+            };
+
+            uniform int u_CompactMode; // 0=generisch, 1=Standard, 2=Uniform, 3=Corner
 
             uniform mat4 u_ProjectionView;
             /* Kleinvegetations-Ausduennung: x = Start-Distanz (Bloecke), y = 1/Fade-Spanne.
@@ -1101,11 +1327,112 @@ public class ChunkRenderer {
 
             out vec3 v_texCoord;
             out vec3 v_color;
-            out vec2 v_light;   // x = Himmelslicht, y = Blocklicht (je 0..1)
+            out vec4 v_light;   // Sky/R/G/B, je 0..1
             out float v_viewDist;
             out vec3 v_relPos;
+            out vec2 v_tintPos;
+            flat out uint v_tintType;
+            flat out uint v_tintBase;
+            flat out vec3 v_fixedTint;
+
+            const uint COMPACT_S_BITS[6] = uint[6](12u, 6u, 9u, 6u, 12u, 12u);
+            const uint COMPACT_T_BITS[6] = uint[6](6u, 12u, 12u, 12u, 6u, 9u);
+
+            vec2 compactCornerST(uint face, uint corner) {
+                return vec2(float((COMPACT_S_BITS[face] >> corner) & 1u),
+                        float((COMPACT_T_BITS[face] >> corner) & 1u));
+            }
+
+            float compactLight(uint sum) {
+                return float((sum * 17u + 2u) / 4u) * (1.0 / 255.0);
+            }
+
+            vec2 compactUv(uint transform, vec2 st, vec2 extent) {
+                float s = st.x * extent.x, t = st.y * extent.y;
+                if (transform == 0u) return vec2(s, t);
+                if (transform == 1u) return vec2(extent.x - s, t);
+                if (transform == 2u) return vec2(s, extent.y - t);
+                if (transform == 3u) return vec2(extent.x - s, extent.y - t);
+                if (transform == 4u) return vec2(t, s);
+                if (transform == 5u) return vec2(extent.y - t, s);
+                if (transform == 6u) return vec2(t, extent.x - s);
+                return vec2(extent.y - t, extent.x - s);
+            }
+
+            float compactFaceBrightness(uint face) {
+                if (face == 0u) return 1.0;
+                if (face == 1u) return 0.5;
+                if (face <= 3u) return 0.8;
+                return 0.6;
+            }
 
             void main() {
+                if (u_CompactMode != 0) {
+                    uint localQuad = uint(gl_VertexID) >> 2u;
+                    uint emittedCorner = uint(gl_VertexID) & 3u;
+                    uvec4 drawOffsetBits = u_DrawData[gl_DrawID * 2];
+                    uvec4 drawMeta = u_DrawData[gl_DrawID * 2 + 1];
+                    uvec2 geometry = u_CompactGeometry[drawMeta.x + localQuad];
+                    uint g0 = geometry.x, g1 = geometry.y;
+                    uint axis = (g0 >> 15u) & 3u;
+                    bool positive = ((g0 >> 17u) & 1u) != 0u;
+                    uint face = axis == 1u ? (positive ? 0u : 1u)
+                            : axis == 2u ? (positive ? 3u : 2u) : (positive ? 5u : 4u);
+                    bool flip = (g0 & 0x80000000u) != 0u;
+                    uint corner = flip ? ((emittedCorner + 1u) & 3u) : emittedCorner;
+                    vec2 st = compactCornerST(face, corner);
+                    vec2 extent = vec2(float(((g0 >> 18u) & 31u) + 1u),
+                            float(((g0 >> 23u) & 31u) + 1u));
+                    vec3 pos = vec3(float(g0 & 31u), float((g0 >> 5u) & 31u),
+                            float((g0 >> 10u) & 31u));
+                    if (axis == 0u) {
+                        pos.x += positive ? 1.0 : 0.0;
+                        pos.y += st.x * extent.x; pos.z += st.y * extent.y;
+                    } else if (axis == 1u) {
+                        pos.y += positive ? 1.0 : 0.0;
+                        pos.x += st.x * extent.x; pos.z += st.y * extent.y;
+                    } else {
+                        pos.z += positive ? 1.0 : 0.0;
+                        pos.x += st.x * extent.x; pos.y += st.y * extent.y;
+                    }
+
+                    uint sky = 60u, red = 0u, green = 0u, blue = 0u, aoIndex = 3u;
+                    uint fixedTint = 0xFFFFFFu;
+                    if (u_CompactMode == 2) {
+                        uint shading = u_CompactShading[drawMeta.y + localQuad];
+                        sky = shading & 63u; red = (shading >> 6u) & 63u;
+                        green = (shading >> 12u) & 63u; blue = (shading >> 18u) & 63u;
+                        aoIndex = (shading >> 24u) & 3u;
+                    } else if (u_CompactMode == 3) {
+                        uint shadingBase = drawMeta.y + localQuad * 4u;
+                        uint s0 = u_CompactShading[shadingBase];
+                        uint s1 = u_CompactShading[shadingBase + 1u];
+                        uint s2 = u_CompactShading[shadingBase + 2u];
+                        uint s3 = u_CompactShading[shadingBase + 3u];
+                        uint shading = u_CompactShading[shadingBase + corner];
+                        sky = shading & 63u; red = (shading >> 6u) & 63u;
+                        green = (shading >> 12u) & 63u; blue = (shading >> 18u) & 63u;
+                        aoIndex = (shading >> 24u) & 3u;
+                        fixedTint = ((s0 >> 26u) & 63u) | (((s1 >> 26u) & 63u) << 6u)
+                                | (((s2 >> 26u) & 63u) << 12u) | (((s3 >> 26u) & 63u) << 18u);
+                    }
+                    float ao = 0.4 + float(aoIndex) * 0.2;
+                    v_texCoord = vec3(compactUv((g0 >> 28u) & 7u, st, extent),
+                            float(g1 & 0xFFFFu));
+                    v_color = vec3(compactFaceBrightness(face) * ao);
+                    v_light = vec4(compactLight(sky), compactLight(red),
+                            compactLight(green), compactLight(blue));
+                    v_tintPos = pos.xz;
+                    v_tintType = (g1 >> 24u) & 3u;
+                    v_tintBase = drawMeta.z;
+                    v_fixedTint = vec3(float((fixedTint >> 16u) & 255u),
+                            float((fixedTint >> 8u) & 255u), float(fixedTint & 255u)) * (1.0 / 255.0);
+                    vec3 rel = pos + uintBitsToFloat(drawOffsetBits.xyz);
+                    v_viewDist = length(rel.xz);
+                    v_relPos = rel;
+                    gl_Position = u_ProjectionView * vec4(rel, 1.0);
+                    return;
+                }
                 vec3 pos = vec3(float(a_data.x & 0xFFFFu), float(a_data.x >> 16),
                         float(a_data.y & 0xFFFFu)) * (1.0 / 1024.0);
                 pos.xz -= 1.0;
@@ -1124,12 +1451,20 @@ public class ChunkRenderer {
                 v_color = color;
                 /* Himmels- und Blocklicht je 0..1, interpoliert -> weiche Verlaeufe (Smooth
                    Lighting). Muss VOR dem Ausduennungs-Block stehen, der mit return aussteigt. */
-                v_light = vec2(float(a_light & 0xFFu), float((a_light >> 8) & 0xFFu)) * (1.0 / 255.0);
+                v_light = vec4(compactLight(a_light & 63u),
+                        compactLight((a_light >> 6u) & 63u),
+                        compactLight((a_light >> 12u) & 63u),
+                        compactLight((a_light >> 18u) & 63u));
+                v_tintPos = pos.xz;
+                v_tintType = 0u;
+                v_tintBase = 0xFFFFFFFFu;
+                v_fixedTint = vec3(1.0);
                 /* Positionen sind kamerarelativ und welt-achsen-ausgerichtet -> length(rel.xz) =
                    horizontale Sichtdistanz fuer ZYLINDRISCHEN Fog (wie MC 1.18+): Hochfliegen
                    schiebt das Terrain unter dem Spieler nicht in den Nebel, die horizontale
                    Ladekante bleibt verdeckt. Rotationsinvariant, kein "Atmen" beim Umschauen. */
-                vec3 rel = pos + u_DrawOffsets[gl_DrawID].xyz;
+                vec3 drawOffset = uintBitsToFloat(u_DrawData[gl_DrawID].xyz);
+                vec3 rel = pos + drawOffset;
                 v_viewDist = length(rel.xz);
                 v_relPos = rel;
 
@@ -1141,7 +1476,7 @@ public class ChunkRenderer {
                    Vertices eines Quads identisch. Per-Vertex-Distanz wuerde nahe der
                    Schwelle einzelne Ecken kollabieren -> himmelweite Sliver-Dreiecke. */
                 if (u_DetailFade.y > 0.0) {
-                    float sectionDist = length(u_DrawOffsets[gl_DrawID].xz + vec2(16.0) + u_DetailCamSnap);
+                    float sectionDist = length(drawOffset.xz + vec2(16.0) + u_DetailCamSnap);
                     float dichte = 1.0 - clamp((sectionDist - u_DetailFade.x) * u_DetailFade.y, 0.0, 1.0);
                     if (float((a_data.w >> 24) & 0xFFu) > dichte * 255.0) {
                         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -1158,9 +1493,17 @@ public class ChunkRenderer {
             #version 460 core
             in vec3 v_texCoord;
             in vec3 v_color;
-            in vec2 v_light;    // x = Himmelslicht, y = Blocklicht (je 0..1)
+            in vec4 v_light;    // Sky/R/G/B, je 0..1
             in float v_viewDist;
             in vec3 v_relPos;
+            in vec2 v_tintPos;
+            flat in uint v_tintType;
+            flat in uint v_tintBase;
+            flat in vec3 v_fixedTint;
+
+            layout(std430, binding = 3) readonly buffer TintGrids {
+                uint u_TintGrids[];
+            };
 
             uniform sampler2DArray u_Textures;
             uniform sampler2DArray u_NormalTextures;
@@ -1176,11 +1519,30 @@ public class ChunkRenderer {
             uniform float u_MinLight;
             /* Helligkeitsregler 0..1 (Minecraft-Brightness). */
             uniform float u_Brightness;
+            uniform int u_BiomeTintLookup;
             layout(location = 0) out vec4 fragColor;
 
             /* Minecraft-Helligkeitskurve (lightBrightnessTable): staucht mittlere Licht-Level
                nach unten. Linear waere der Abfall fast ueberall zu grell. */
             float lightCurve(float f) { return f / (4.0 - 3.0 * f); }
+
+            vec3 unpackTint(uint packedColor) {
+                return vec3(float((packedColor >> 16u) & 255u), float((packedColor >> 8u) & 255u),
+                        float(packedColor & 255u)) * (1.0 / 255.0);
+            }
+
+            vec3 spatialBiomeTint() {
+                vec2 p = clamp(v_tintPos, vec2(0.0), vec2(32.0));
+                uvec2 lo = uvec2(floor(p));
+                uvec2 hi = min(lo + uvec2(1u), uvec2(32u));
+                vec2 f = fract(p);
+                uint base = v_tintBase + (v_tintType == 2u ? 1089u : 0u);
+                vec3 c00 = unpackTint(u_TintGrids[base + lo.y * 33u + lo.x]);
+                vec3 c10 = unpackTint(u_TintGrids[base + lo.y * 33u + hi.x]);
+                vec3 c01 = unpackTint(u_TintGrids[base + hi.y * 33u + lo.x]);
+                vec3 c11 = unpackTint(u_TintGrids[base + hi.y * 33u + hi.x]);
+                return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
+            }
 
             mat3 cotangentFrame(vec3 n, vec3 p, vec2 uv) {
                 vec3 dp1 = dFdx(p), dp2 = dFdy(p);
@@ -1212,7 +1574,8 @@ public class ChunkRenderer {
                 if (color.a < u_AlphaCutoff) discard;
                 /* Monochrom wie in Minecraft: der hellere der beiden Werte gewinnt. Erst DANACH
                    die Kurve — die Reihenfolge darunter bleibt unangetastet. */
-                float light = lightCurve(clamp(max(v_light.x, v_light.y), 0.0, 1.0));
+                float light = lightCurve(clamp(max(v_light.x,
+                        max(max(v_light.y, v_light.z), v_light.w)), 0.0, 1.0));
                 /* Ambient-Boden ZUERST — er ist der Wert, den der Regler anheben soll. Stuende
                    die Kurve davor, bekaeme sie bei Lichtlevel 0 eine Null herein und gaebe eine
                    Null heraus (1 - 1^4 = 0): der Regler waere in der dunkelsten Hoehle exakt
@@ -1230,7 +1593,11 @@ public class ChunkRenderer {
                 /* Clamp gegen Attribut-EXTRApolation: kantenparallel gesehene Faces rastern als
                    degenerierte Sliver-Dreiecke, deren Interpolation die per-Vertex-AO-Farben
                    ueber 1.0 hinaus extrapoliert -> helle Funkel-Striche auf Augenhoehe. */
-                vec3 lit = color.rgb * clamp(v_color, 0.0, 1.0) * light;
+                vec3 tint = v_fixedTint;
+                if (u_BiomeTintLookup != 0 && v_tintType != 0u && v_tintBase != 0xFFFFFFFFu) {
+                    tint = spatialBiomeTint();
+                }
+                vec3 lit = color.rgb * clamp(v_color * tint, 0.0, 1.0) * light;
                 if (u_PbrEnabled != 0) {
                     vec4 normalTex = texture(u_NormalTextures, v_texCoord);
                     vec4 material = texture(u_MaterialTextures, v_texCoord);

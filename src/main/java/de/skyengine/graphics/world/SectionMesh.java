@@ -3,6 +3,7 @@ package de.skyengine.graphics.world;
 import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.game.world.chunk.PackedTerrainQuad;
 import de.skyengine.graphics.camera.Camera;
 import org.joml.Vector3d;
 
@@ -24,6 +25,11 @@ public class SectionMesh {
     private final VertexArena.Region[] regions = new VertexArena.Region[RenderLayer.VALUES.length];
     private final int[] quadCounts = new int[RenderLayer.VALUES.length];
 
+    private final VertexArena.Region[] compactGeometry = new VertexArena.Region[3];
+    private final VertexArena.Region[] compactShading = new VertexArena.Region[3];
+    private final int[] compactQuadCounts = new int[3];
+    private final int tintBase;
+
     /* Kleinvegetations-Segment (Gras/Blumen/Pilze): eigene Region in der CUTOUT-Arena,
        eigenes Draw-Segment im Renderer (distanzabhängige Ausdünnung/Skip). */
     private VertexArena.Region detailRegion;
@@ -42,10 +48,13 @@ public class SectionMesh {
     private static int[] sortScratch = new int[1024 * QUAD_INTS];
 
     /** Alloziert die Regionen aller nicht-leeren Layer. Render-Thread. */
-    public SectionMesh(int chunkX, int sectionY, int chunkZ, ChunkMesher.MeshData data, VertexArena[] arenas) {
+    public SectionMesh(int chunkX, int sectionY, int chunkZ, ChunkMesher.MeshData data,
+                       VertexArena[] arenas, VertexArena[] compactGeometryArenas,
+                       VertexArena[] compactShadingArenas, int tintBase) {
         this.chunkX = chunkX;
         this.sectionY = sectionY;
         this.chunkZ = chunkZ;
+        this.tintBase = tintBase;
         this.translucentData = data.translucent;
 
         this.upload(RenderLayer.OPAQUE, data.opaque, arenas);
@@ -54,6 +63,16 @@ public class SectionMesh {
         if (data.detail != null) {
             this.detailRegion = arenas[RenderLayer.CUTOUT.ordinal()].alloc(data.detail);
             this.detailQuadCount = data.detail.length / QUAD_INTS;
+        }
+        if (data.compactGeometry != null) {
+            for (int mode = 0; mode < this.compactGeometry.length; mode++) {
+                int[] geometry = data.compactGeometry[mode];
+                if (geometry == null) continue;
+                this.compactGeometry[mode] = compactGeometryArenas[mode].alloc(geometry);
+                this.compactQuadCounts[mode] = geometry.length / PackedTerrainQuad.GEOMETRY_INTS;
+                int[] shading = data.compactShading == null ? null : data.compactShading[mode];
+                if (shading != null) this.compactShading[mode] = compactShadingArenas[mode].alloc(shading);
+            }
         }
     }
 
@@ -82,6 +101,15 @@ public class SectionMesh {
         return this.detailRegion != null;
     }
 
+    public boolean hasCompact(int mode) { return this.compactGeometry[mode] != null; }
+    public int compactIndexCount(int mode) { return this.compactQuadCounts[mode] * 6; }
+    public int compactGeometryBase(int mode) { return this.compactGeometry[mode].elementOffset(); }
+    public int compactShadingBase(int mode) {
+        VertexArena.Region region = this.compactShading[mode];
+        return region == null ? 0 : region.elementOffset();
+    }
+    public int tintBase() { return this.tintBase; }
+
     /** baseVertex des Kleinvegetations-Segments (CUTOUT-Arena). Nur bei hasDetail aufrufen. */
     public int baseVertexDetail() {
         return this.detailRegion.vertexOffset();
@@ -94,8 +122,10 @@ public class SectionMesh {
 
     /** Größte Quad-Anzahl aller Layer — fürs Sizing des geteilten Index-Buffers. */
     public int maxQuads() {
-        return Math.max(Math.max(this.quadCounts[0], this.detailQuadCount),
+        int max = Math.max(Math.max(this.quadCounts[0], this.detailQuadCount),
                 Math.max(this.quadCounts[1], this.quadCounts[2]));
+        for (int count : this.compactQuadCounts) max = Math.max(max, count);
+        return max;
     }
 
     /** Entpackt eine Fixed-Point-Positions-Komponente (u16, 6.10, Bias +1). */
@@ -179,7 +209,8 @@ public class SectionMesh {
     }
 
     /** Gibt alle Regionen deferred frei. */
-    public void dispose(VertexArena[] arenas, long currentFrame) {
+    public void dispose(VertexArena[] arenas, VertexArena[] compactGeometryArenas,
+                        VertexArena[] compactShadingArenas, long currentFrame) {
         for (int i = 0; i < this.regions.length; i++) {
             if (this.regions[i] != null) {
                 arenas[i].free(this.regions[i], currentFrame);
@@ -189,6 +220,16 @@ public class SectionMesh {
         if (this.detailRegion != null) {
             arenas[RenderLayer.CUTOUT.ordinal()].free(this.detailRegion, currentFrame);
             this.detailRegion = null;
+        }
+        for (int mode = 0; mode < this.compactGeometry.length; mode++) {
+            if (this.compactGeometry[mode] != null) {
+                compactGeometryArenas[mode].free(this.compactGeometry[mode], currentFrame);
+                this.compactGeometry[mode] = null;
+            }
+            if (this.compactShading[mode] != null) {
+                compactShadingArenas[mode].free(this.compactShading[mode], currentFrame);
+                this.compactShading[mode] = null;
+            }
         }
     }
 }

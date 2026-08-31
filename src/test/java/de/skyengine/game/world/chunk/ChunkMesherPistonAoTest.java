@@ -75,12 +75,19 @@ final class ChunkMesherPistonAoTest {
 
         ChunkMesher.MeshData mesh = new ChunkMesher().mesh(chunk, 0,
                 null, null, null, null, new Chunk[4]);
-        return colorsOfQuad(mesh.opaque, 10F, 1F, 10F, 11F, 1F, 11F);
+        List<Integer> generic = colorsOfQuad(mesh.opaque, 10F, 1F, 10F, 11F, 1F, 11F);
+        if (!generic.isEmpty()) return generic;
+        return CompactTerrainTestView.quads(mesh).stream()
+                .filter(q -> q.axis() == 1 && q.positive() && q.plane() == 1
+                        && q.minS() <= 10 && q.maxS() >= 11
+                        && q.minT() <= 10 && q.maxT() >= 11)
+                .findFirst().map(CompactTerrainTestView.Quad::cornerColors).orElse(List.of());
     }
 
     private static List<Integer> colorsOfQuad(int[] data,
                                                float minX, float minY, float minZ,
                                                float maxX, float maxY, float maxZ) {
+        if (data == null) return List.of();
         for (int q = 0; q < data.length; q += 4 * ChunkMesher.VERTEX_SIZE) {
             List<Integer> colors = new ArrayList<>(4);
             float quadMinX = Float.POSITIVE_INFINITY, quadMinY = Float.POSITIVE_INFINITY;
