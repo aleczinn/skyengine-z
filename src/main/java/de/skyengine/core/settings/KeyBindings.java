@@ -30,6 +30,7 @@ public final class KeyBindings {
     public static final String USE = "use";
     public static final String TOGGLE_HUD = "toggle_hud";
     public static final String TOGGLE_PERSPECTIVE = "toggle_perspective";
+    public static final String ZOOM = "zoom";
     public static final String SCREENSHOT = "screenshot";
     public static final String GAMEMODE = "gamemode";
     public static final String PICK_BLOCK = "pick_block";
@@ -55,6 +56,7 @@ public final class KeyBindings {
         m.put(USE, Input.mouseBind(GLFW.GLFW_MOUSE_BUTTON_RIGHT));
         m.put(TOGGLE_HUD, GLFW.GLFW_KEY_F1);
         m.put(TOGGLE_PERSPECTIVE, GLFW.GLFW_KEY_F5);
+        m.put(ZOOM, GLFW.GLFW_KEY_C);
         m.put(SCREENSHOT, GLFW.GLFW_KEY_F2);
         m.put(GAMEMODE, GLFW.GLFW_KEY_G);
         m.put(PICK_BLOCK, Input.mouseBind(GLFW.GLFW_MOUSE_BUTTON_MIDDLE));

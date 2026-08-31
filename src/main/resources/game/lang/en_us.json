@@ -167,6 +167,7 @@
       "button": "Controls...",
       "title": "Controls",
       "sensitivity": "Sensitivity: %d %%",
+      "zoom_factor": "Zoom Factor: %s×",
       "sneak": "Sneak",
       "sprint": "Sprint",
       "toggle": "Toggle",
@@ -176,6 +177,7 @@
 
     "keybinds": {
       "title": "Key Binds",
+      "unbound": "Not Bound",
       "reset_all": "Reset All",
       "reset": "Reset"
     }
@@ -209,6 +211,7 @@
     "use": "Use Item/Place Block",
     "toggle_hud": "Toggle HUD",
     "toggle_perspective": "Toggle Perspective",
+    "zoom": "Zoom",
     "screenshot": "Screenshot",
     "gamemode": "Cycle Game Mode",
     "pick_block": "Pick Block",

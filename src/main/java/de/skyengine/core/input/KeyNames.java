@@ -1,5 +1,6 @@
 package de.skyengine.core.input;
 
+import de.skyengine.core.i18n.I18n;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -9,6 +10,7 @@ import org.lwjgl.glfw.GLFW;
 public final class KeyNames {
 
     public static String name(int glfwKey) {
+        if (glfwKey == GLFW.GLFW_KEY_UNKNOWN) return I18n.tr("options.keybinds.unbound");
         /* Maustasten (ab Input.MOUSE_OFFSET codiert): 0/1/2 = links/rechts/mitte, sonst Nummer. */
         if (Input.isMouseBind(glfwKey)) {
             int button = glfwKey - Input.MOUSE_OFFSET;

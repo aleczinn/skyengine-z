@@ -23,7 +23,8 @@ import java.util.List;
 /**
  * Tastenbelegungs-Menü: scrollbare Liste (Scissor-Clipping) mit einer Zeile pro Aktion
  * [Name — Taste — Reset], unten „Alle zurücksetzen" und „Fertig". Klick auf die Taste startet
- * die Aufnahme; die nächste gedrückte Taste bindet, ESC bricht ab. Konflikte werden rot
+ * die Aufnahme; die nächste gedrückte Taste bindet, ESC setzt die Aktion auf „Nicht belegt".
+ * Konflikte werden rot
  * markiert, aber erlaubt. Gespeichert wird beim Verlassen.
  */
 public final class GuiKeybinds extends GuiScreen {
@@ -211,14 +212,15 @@ public final class GuiKeybinds extends GuiScreen {
     public boolean keyPressed(GuiManager gui, int key) {
         KeybindButton capturing = this.capturing();
         if (capturing != null) {
-            if (key == GLFW.GLFW_KEY_ESCAPE) {
-                capturing.cancelCapture();
-            } else {
-                capturing.bind(key);
-            }
+            capturing.bind(capturedBinding(key));
             return true;
         }
         return super.keyPressed(gui, key);
+    }
+
+    /** Minecraft-Verhalten: Escape löscht die Belegung, statt die Aufnahme abzubrechen. */
+    static int capturedBinding(int key) {
+        return key == GLFW.GLFW_KEY_ESCAPE ? GLFW.GLFW_KEY_UNKNOWN : key;
     }
 
     @Override

@@ -25,6 +25,10 @@ import java.util.Map;
  */
 public final class GameSettings {
 
+    public static final float ZOOM_FACTOR_MIN = 2F;
+    public static final float ZOOM_FACTOR_MAX = 15F;
+    public static final float ZOOM_FACTOR_DEFAULT = 8F;
+
     private static final Logger LOGGER = LogManager.getLogger(GameSettings.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     /* Liegt im zentralen Spiel-Root (standardmaessig %APPDATA%/.voxelstories). */
@@ -75,6 +79,8 @@ public final class GameSettings {
     public int renderDistance = 16;   // in Chunks
     public int simulationDistance = 10; // in Chunks; nur Chunks in diesem Radius ticken (wie MC)
     public int fov = 75;
+    /* Gehaltener First-Person-Zoom: Vergrößerung relativ zum normalen Kamera-FOV. */
+    public float zoomFactor = ZOOM_FACTOR_DEFAULT;
     public boolean vsync = false;
     public double mouseSensitivity = 1.0;
     public GraphicsMode graphicsMode = GraphicsMode.FANCY;
@@ -188,6 +194,7 @@ public final class GameSettings {
         this.renderDistance = Math.clamp(this.renderDistance, 2, 32);
         this.simulationDistance = Math.clamp(this.simulationDistance, 2, 32);
         this.fov = Math.clamp(this.fov, 30, 120);
+        this.zoomFactor = normalizeZoomFactor(this.zoomFactor);
         this.anisotropicFiltering = Math.clamp(this.anisotropicFiltering, 1, 16);
         this.msaaSamples = Math.clamp(this.msaaSamples, 0, 16);
         this.vegetationDistance = Math.clamp(this.vegetationDistance, 0, 32);
@@ -225,5 +232,11 @@ public final class GameSettings {
             KeyBindings.defaults().forEach(this.keyBindings::putIfAbsent);       // fehlende Binds ergänzen
             this.keyBindings.keySet().retainAll(KeyBindings.defaults().keySet()); // verwaiste entfernen
         }
+    }
+
+    /** Normalisiert persistierte Zoomwerte auf den vom UI angebotenen Halbschritt. */
+    static float normalizeZoomFactor(float value) {
+        if (!Float.isFinite(value)) return ZOOM_FACTOR_DEFAULT;
+        return Math.round(Math.clamp(value, ZOOM_FACTOR_MIN, ZOOM_FACTOR_MAX) * 2F) / 2F;
     }
 }

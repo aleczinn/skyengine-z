@@ -3,12 +3,13 @@ package de.skyengine.graphics.gui.widget;
 import de.skyengine.core.input.KeyNames;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.graphics.color.Color4;
+import org.lwjgl.glfw.GLFW;
 
 import java.util.Map;
 
 /**
  * Button einer Tastenbelegung: zeigt die gebundene Taste; Klick startet die Aufnahme
- * („> Taste... <"), die nächste Taste bindet (ESC bricht ab — behandelt der GuiKeybinds).
+ * („> Taste... <"), die nächste Taste bindet (ESC entfernt die Belegung im GuiKeybinds).
  * Kollidiert die Taste mit einer anderen Aktion, wird der Text rot (erlaubt, nur markiert).
  */
 public final class KeybindButton extends Button {
@@ -40,11 +41,6 @@ public final class KeybindButton extends Button {
         this.refresh();
     }
 
-    public void cancelCapture() {
-        this.capturing = false;
-        this.refresh();
-    }
-
     public void refresh() {
         this.setLabel(this.capturing ? "> Taste... <" : KeyNames.name(GameSettings.get().key(this.action)));
     }
@@ -57,6 +53,7 @@ public final class KeybindButton extends Button {
 
     private boolean hasConflict() {
         int key = GameSettings.get().key(this.action);
+        if (key == GLFW.GLFW_KEY_UNKNOWN) return false;
         for (Map.Entry<String, Integer> e : GameSettings.get().keyBindings.entrySet()) {
             if (!e.getKey().equals(this.action) && e.getValue() == key) return true;
         }

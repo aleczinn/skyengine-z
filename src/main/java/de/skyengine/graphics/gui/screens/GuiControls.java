@@ -11,6 +11,8 @@ import de.skyengine.graphics.gui.widget.CycleButton;
 import de.skyengine.graphics.gui.widget.Slider;
 import de.skyengine.graphics.gui.widget.Spacer;
 
+import java.util.Locale;
+
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
 
@@ -39,6 +41,12 @@ public final class GuiControls extends GuiOptionsScreen {
                 v -> I18n.tr("options.controls.sensitivity", (int) v),
                 v -> this.settings.mouseSensitivity = v / 100.0, null);
 
+        Slider zoomFactor = new Slider(wideW, CELL_H,
+                GameSettings.ZOOM_FACTOR_MIN, GameSettings.ZOOM_FACTOR_MAX, 0.5,
+                this.settings.zoomFactor,
+                v -> I18n.tr("options.controls.zoom_factor", formatZoomFactor(v)),
+                v -> this.settings.zoomFactor = (float) v, null);
+
         CycleButton<Boolean> sneak = new CycleButton<>(I18n.tr("options.controls.sneak"), CELL_W, CELL_H,
                 new Boolean[]{false, true}, this.settings.sneakToggle,
                 v -> I18n.tr(v ? "options.controls.toggle" : "options.controls.hold"),
@@ -52,6 +60,7 @@ public final class GuiControls extends GuiOptionsScreen {
         Button keybinds = new Button(I18n.tr("options.controls.keybinds"), wideW, CELL_H, () -> gui.open(new GuiKeybinds(this)));
 
         content.add(sensitivity);
+        content.add(zoomFactor);
         content.add(new HStack(4, sneak, sprint));
         content.add(new Spacer(0, 4));
         content.add(keybinds);
@@ -60,5 +69,11 @@ public final class GuiControls extends GuiOptionsScreen {
     @Override
     public void onClose() {
         this.settings.save();
+    }
+
+    private static String formatZoomFactor(double value) {
+        return value == Math.rint(value)
+                ? String.format(Locale.ROOT, "%.0f", value)
+                : String.format(Locale.ROOT, "%.1f", value);
     }
 }

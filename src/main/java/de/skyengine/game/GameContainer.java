@@ -66,6 +66,7 @@ import de.skyengine.graphics.DebugFlags;
 import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.PerformanceProfiler;
 import de.skyengine.graphics.camera.Camera;
+import de.skyengine.graphics.camera.ZoomController;
 import de.skyengine.audio.SoundCategory;
 import de.skyengine.audio.SoundManager;
 import de.skyengine.audio.UnderwaterAudioController;
@@ -159,6 +160,8 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /* TAA-Jitter des Frames (wiederverwendet, s. renderWorld) */
     private final Vector2f taaJitter = new Vector2f();
+    /* Gehaltener First-Person-Zoom: pro Frame animiert, unabhängig vom 20-TPS-Takt. */
+    private final ZoomController zoomController = new ZoomController();
     /* Zuletzt angewandter Textur-LOD-Bias (TAA aktiv → taaMipBias, sonst 0) */
     private float appliedMipBias;
 
@@ -1170,6 +1173,8 @@ public class GameContainer implements IResizeable, IDisposable {
 
         /* Hauptmenü (keine Welt): nur GUI-Eingaben routen, gezeichnet wird in renderGui. */
         if (this.dimension() == null) {
+            this.zoomController.reset();
+            this.camera.setFov(this.settings.fov);
             post.setUnderwater(false, 0F);
             post.setPortalEffect(0F);
             this.guiManager.handleInput();
@@ -1212,13 +1217,22 @@ public class GameContainer implements IResizeable, IDisposable {
             if (input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_PERSPECTIVE))) {
                 this.perspective = this.perspective.next();
             }
+            boolean zoomActive = !this.guiManager.isOpen()
+                    && this.perspective.isFirstPerson()
+                    && input.isBindDown(this.settings.key(KeyBindings.ZOOM));
+            this.zoomController.update(zoomActive, System.nanoTime());
+            this.camera.setFov(this.zoomController.fov(this.settings.fov, this.settings.zoomFactor));
             /* Blick nur drehen, wenn der Cursor auch PHYSISCH gefangen ist. Der Moduswechsel läuft
                deferiert auf dem Window-Thread — direkt nach dem Schließen eines GUIs ist er noch
                frei, und seine Bewegung soll die Kamera nicht mitziehen. */
             if (input.isCursorGrabbed()) {
-                double sens = this.settings.mouseSensitivity;
+                double sens = this.settings.mouseSensitivity
+                        * this.zoomController.sensitivityScale(this.settings.zoomFactor);
                 this.player().turn(input.getDeltaMouseX() * sens, input.getDeltaMouseY() * sens);
             }
+        } else {
+            this.zoomController.update(false, System.nanoTime());
+            this.camera.setFov(this.zoomController.fov(this.settings.fov, this.settings.zoomFactor));
         }
 
         /* TAA-Subpixel-Jitter (0,0 wenn TAA aus) VOR dem Matrix-Update, Kameradaten für

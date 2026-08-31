@@ -175,6 +175,7 @@
       "button": "Steuerung...",
       "title": "Steuerung",
       "sensitivity": "Sensitivität: %d %%",
+      "zoom_factor": "Zoomfaktor: %s×",
       "sneak": "Schleichen",
       "sprint": "Sprinten",
       "toggle": "Umschalten",
@@ -184,6 +185,7 @@
 
     "keybinds": {
       "title": "Tastenbelegung",
+      "unbound": "Nicht belegt",
       "reset_all": "Alle zurücksetzen",
       "reset": "Reset"
     }
@@ -217,6 +219,7 @@
     "use": "Benutzen/Platzieren",
     "toggle_hud": "HUD ein-/ausblenden",
     "toggle_perspective": "Perspektive wechseln",
+    "zoom": "Zoom",
     "screenshot": "Screenshot",
     "gamemode": "Spielmodus wechseln",
     "pick_block": "Block aufnehmen",
