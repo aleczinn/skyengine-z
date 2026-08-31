@@ -106,6 +106,9 @@ public abstract class GuiScreen {
             gui.sprites().drawRect(0, 0, vW, vH, 0f, 0f, 0f, 0.6f);
             return;
         }
+        gui.renderImageBackground();
+        gui.renderOverlay(0.3F);
+        gui.renderVignette();
     }
 
     /**

@@ -31,6 +31,8 @@ import java.util.List;
 public abstract class GuiOptionsScreen extends GuiScreen {
 
     private static final float SCROLL_STEP = 22; // etwa eine Zeile pro Rastung
+    private static final float FOOTER_BOTTOM = 4;
+    private static final float CONTENT_FOOTER_GAP = 8;
 
     /* Scroll-Inhalt: getrennt von components (eigenes Clipping + Routing, wie GuiKeybinds). */
     private final List<GuiComponent> rowComponents = new ArrayList<>();
@@ -60,8 +62,17 @@ public abstract class GuiOptionsScreen extends GuiScreen {
     /** Füllt den scrollbaren Mittelteil — nur {@code content.add(...)}-Zeilen. */
     protected abstract void buildContent(GuiManager gui, VStack content);
 
-    /** Footer unten (Default: nur „Fertig") — Screens mit Zusatz-Buttons überschreiben
-     *  (eine 20 hohe Button-Reihe; höhere Footer verschieben listBottom NICHT mit). */
+    /**
+     * Optionale maximale Höhe des Scroll-Viewports. Unterseiten mit sehr vielen, kompakten
+     * Zeilen können dadurch bewusst einen kürzeren Scrollbereich verwenden, statt den Platz
+     * bis unmittelbar vor dem Footer auszuschöpfen.
+     */
+    protected float maxScrollViewportHeight() {
+        return Float.POSITIVE_INFINITY;
+    }
+
+    /** Footer unten (Default: nur „Fertig") — seine tatsächliche Höhe begrenzt den
+     *  darüberliegenden Scrollbereich automatisch. */
     protected GuiComponent buildFooter(GuiManager gui) {
         return new Button(I18n.tr("gui.done"), () -> this.goBack(gui));
     }
@@ -73,17 +84,19 @@ public abstract class GuiOptionsScreen extends GuiScreen {
 
         Label title = new Label(this.title(), GuiText.TITLE).measure(gui);
         this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
-        this.components.add(this.buildFooter(gui).anchor(Anchor.BOTTOM_CENTER, 0, 4));
+        GuiComponent footer = this.buildFooter(gui);
+        this.components.add(footer.anchor(Anchor.BOTTOM_CENTER, 0, FOOTER_BOTTOM));
 
         this.rows = new VStack(4);
         this.buildContent(gui, this.rows);
         this.rows.collectLeaves(this.rowComponents);
 
-        /* Zonen knapp bemessen: bei der Mindest-vHöhe 210 (720p-Fenster) müssen 140 vpx
-           Inhalt (Sound-/Grafik-Screen) noch OHNE Scrollbalken passen. */
-        this.listTop = titleTop(vH) + 18;
-        this.listBottom = vH - 26;
+        /* Der gesamte Optionsinhalt bleibt im geclippten Scroll-Viewport. Dessen Unterkante
+           endet mit festem Abstand über dem Footer, sodass die letzte Zeile ihn nie berührt. */
         this.vQuarter = vH / 4f;
+        this.listTop = Math.max(titleTop(vH) + 18, this.vQuarter);
+        float availableBottom = vH - FOOTER_BOTTOM - footer.height() - CONTENT_FOOTER_GAP;
+        this.listBottom = Math.min(availableBottom, this.listTop + this.maxScrollViewportHeight());
         this.rowsX = (vW - this.rows.width()) / 2f;
         this.scrollBar.layout(this.rowsX + this.rows.width() + 4, this.listTop,
                 this.listBottom - this.listTop);
@@ -221,10 +234,4 @@ public abstract class GuiOptionsScreen extends GuiScreen {
         return true;
     }
 
-    @Override
-    protected void renderBackground(GuiManager gui) {
-        gui.renderImageBackground();
-        gui.renderOverlay(0.3F);
-        gui.renderVignette();
-    }
 }

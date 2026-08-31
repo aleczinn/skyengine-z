@@ -15,13 +15,22 @@ import java.io.FileWriter;
  * Werte über die Setter — das Dirty-Flag sorgt dafür, dass der {@link PostProcessor} das
  * UBO nur bei Änderung neu hochlädt. Shader werden dafür NIE angefasst.
  *
- * <p>Die JSON ({@code config/postprocessing.json}) liefert nur Defaults und dient dem
- * Entwickler-Tuning (Reload-Hotkey F10); fehlt sie, wird sie einmalig mit Neutral-Defaults
- * angelegt. Sie wird — anders als options.json — beim Beenden NICHT überschrieben.
+ * <p>Die JSON ({@code config/postprocessing.json}) speichert die dauerhaft gewählten Werte
+ * des Post-Processing-Menüs und bleibt zugleich über den Reload-Hotkey zur Laufzeit editierbar.
+ * Fehlt sie, wird sie einmalig mit Neutral-Defaults angelegt.
  *
  * <p>Alle Defaults sind neutral: die Kette ist dann ein reiner Copy (Look unverändert).
  */
 public final class PostProcessingSettings {
+
+    public static final float EXPOSURE_MIN = 0.25F, EXPOSURE_MAX = 4.0F;
+    public static final float GAMMA_MIN = 0.5F, GAMMA_MAX = 2.5F;
+    public static final float MULTIPLIER_MIN = 0.0F, MULTIPLIER_MAX = 2.0F;
+    public static final float OFFSET_MIN = -0.5F, OFFSET_MAX = 0.5F;
+    public static final float COLOR_SHIFT_MIN = -1.0F, COLOR_SHIFT_MAX = 1.0F;
+    public static final float TAA_HISTORY_MIN = 0.0F, TAA_HISTORY_MAX = 0.98F;
+    public static final float TAA_MIP_BIAS_MIN = -2.0F, TAA_MIP_BIAS_MAX = 0.0F;
+    public static final float SHARPEN_MIN = 0.0F, SHARPEN_MAX = 1.0F;
 
     private static final Logger LOGGER = LogManager.getLogger(PostProcessingSettings.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -80,8 +89,8 @@ public final class PostProcessingSettings {
        holt von der zeitlichen Mittelung weggeglättetes Mip-Detail zurück). */
     private float taaMipBias = -0.5F;
 
-    /* --- Reserviert: Pässe existieren noch nicht (Bloom/Vignette/Sharpen kommen später,
-           die Felder sind bereits ladbar/setzbar, werden aber von keinem Pass gelesen) --- */
+    /* --- Reserviert: Bloom/Vignette werden noch von keinem Pass gelesen. Sharpen wird
+           dagegen vom temporalen AA-Pfad als Nachschärfung ausgewertet. --- */
     private float bloomIntensity = 0.0F;
     private float bloomThreshold = 1.0F;
     private float vignette = 0.0F;
@@ -106,21 +115,22 @@ public final class PostProcessingSettings {
             }
         }
         PostProcessingSettings s = new PostProcessingSettings();
-        s.saveDefaults();
+        s.save();
         return s;
     }
 
-    /** Legt die JSON einmalig mit Neutral-Defaults an (Vorlage fürs Entwickler-Tuning). */
-    private void saveDefaults() {
+    /** Speichert den aktuellen, validierten Laufzeitstand dauerhaft. */
+    public void save() {
+        this.sanitize();
+        this.dirty = true;
         try {
             File dir = FILE.getParentFile();
             if (dir != null && !dir.exists()) dir.mkdirs();
             try (FileWriter w = new FileWriter(FILE)) {
                 GSON.toJson(this, w);
             }
-            LOGGER.info("Post-Processing-Defaults angelegt: " + FILE.getPath());
         } catch (Exception e) {
-            LOGGER.error("Post-Processing-Defaults konnten nicht geschrieben werden", e);
+            LOGGER.error("Post-Processing-Einstellungen konnten nicht gespeichert werden", e);
         }
     }
 
@@ -157,13 +167,22 @@ public final class PostProcessingSettings {
         if (this.tonemapOperator == null) this.tonemapOperator = TonemapOperator.NONE;
         if (this.aaMode == null) this.aaMode = AntiAliasingMode.NONE;
         if (this.debugMode == null) this.debugMode = PostDebugMode.NONE;
-        if (this.gamma <= 0F) this.gamma = 1.0F;
-        if (this.gain < 0F) this.gain = 0F;
-        this.saturation = Math.max(0F, this.saturation);
-        this.contrast = Math.max(0F, this.contrast);
-        this.taaHistoryWeight = Math.clamp(this.taaHistoryWeight, 0F, 0.98F);
-        this.taaMipBias = Math.clamp(this.taaMipBias, -2F, 0F);
-        this.sharpen = Math.clamp(this.sharpen, 0F, 1F); // CAS-Stärke
+        this.exposure = Math.clamp(this.exposure, EXPOSURE_MIN, EXPOSURE_MAX);
+        this.gamma = Math.clamp(this.gamma, GAMMA_MIN, GAMMA_MAX);
+        this.contrast = Math.clamp(this.contrast, MULTIPLIER_MIN, MULTIPLIER_MAX);
+        this.saturation = Math.clamp(this.saturation, MULTIPLIER_MIN, MULTIPLIER_MAX);
+        this.gain = Math.clamp(this.gain, MULTIPLIER_MIN, MULTIPLIER_MAX);
+        this.shadows = Math.clamp(this.shadows, MULTIPLIER_MIN, MULTIPLIER_MAX);
+        this.midtones = Math.clamp(this.midtones, MULTIPLIER_MIN, MULTIPLIER_MAX);
+        this.highlights = Math.clamp(this.highlights, MULTIPLIER_MIN, MULTIPLIER_MAX);
+        this.brightness = Math.clamp(this.brightness, OFFSET_MIN, OFFSET_MAX);
+        this.lift = Math.clamp(this.lift, OFFSET_MIN, OFFSET_MAX);
+        this.vibrance = Math.clamp(this.vibrance, COLOR_SHIFT_MIN, COLOR_SHIFT_MAX);
+        this.temperature = Math.clamp(this.temperature, COLOR_SHIFT_MIN, COLOR_SHIFT_MAX);
+        this.tint = Math.clamp(this.tint, COLOR_SHIFT_MIN, COLOR_SHIFT_MAX);
+        this.taaHistoryWeight = Math.clamp(this.taaHistoryWeight, TAA_HISTORY_MIN, TAA_HISTORY_MAX);
+        this.taaMipBias = Math.clamp(this.taaMipBias, TAA_MIP_BIAS_MIN, TAA_MIP_BIAS_MAX);
+        this.sharpen = Math.clamp(this.sharpen, SHARPEN_MIN, SHARPEN_MAX);
     }
 
     /** true genau einmal nach jeder Änderung — der PostProcessor lädt dann das UBO neu. */
@@ -212,26 +231,26 @@ public final class PostProcessingSettings {
 
     /* --- Setter (Runtime-Steuerung: Debug-Menü, später Biome/Dimension/Gameplay) --- */
 
-    public void setExposure(float v) { this.exposure = v; this.dirty = true; }
-    public void setTemperature(float v) { this.temperature = v; this.dirty = true; }
-    public void setTint(float v) { this.tint = v; this.dirty = true; }
+    public void setExposure(float v) { this.exposure = Math.clamp(v, EXPOSURE_MIN, EXPOSURE_MAX); this.dirty = true; }
+    public void setTemperature(float v) { this.temperature = Math.clamp(v, COLOR_SHIFT_MIN, COLOR_SHIFT_MAX); this.dirty = true; }
+    public void setTint(float v) { this.tint = Math.clamp(v, COLOR_SHIFT_MIN, COLOR_SHIFT_MAX); this.dirty = true; }
     public void setTonemapOperator(TonemapOperator v) { this.tonemapOperator = v == null ? TonemapOperator.NONE : v; this.dirty = true; }
-    public void setLift(float v) { this.lift = v; this.dirty = true; }
-    public void setGain(float v) { this.gain = v; this.dirty = true; }
-    public void setShadows(float v) { this.shadows = v; this.dirty = true; }
-    public void setMidtones(float v) { this.midtones = v; this.dirty = true; }
-    public void setHighlights(float v) { this.highlights = v; this.dirty = true; }
-    public void setContrast(float v) { this.contrast = v; this.dirty = true; }
-    public void setBrightness(float v) { this.brightness = v; this.dirty = true; }
-    public void setSaturation(float v) { this.saturation = v; this.dirty = true; }
-    public void setVibrance(float v) { this.vibrance = v; this.dirty = true; }
-    public void setGamma(float v) { this.gamma = v <= 0F ? 1.0F : v; this.dirty = true; }
+    public void setLift(float v) { this.lift = Math.clamp(v, OFFSET_MIN, OFFSET_MAX); this.dirty = true; }
+    public void setGain(float v) { this.gain = Math.clamp(v, MULTIPLIER_MIN, MULTIPLIER_MAX); this.dirty = true; }
+    public void setShadows(float v) { this.shadows = Math.clamp(v, MULTIPLIER_MIN, MULTIPLIER_MAX); this.dirty = true; }
+    public void setMidtones(float v) { this.midtones = Math.clamp(v, MULTIPLIER_MIN, MULTIPLIER_MAX); this.dirty = true; }
+    public void setHighlights(float v) { this.highlights = Math.clamp(v, MULTIPLIER_MIN, MULTIPLIER_MAX); this.dirty = true; }
+    public void setContrast(float v) { this.contrast = Math.clamp(v, MULTIPLIER_MIN, MULTIPLIER_MAX); this.dirty = true; }
+    public void setBrightness(float v) { this.brightness = Math.clamp(v, OFFSET_MIN, OFFSET_MAX); this.dirty = true; }
+    public void setSaturation(float v) { this.saturation = Math.clamp(v, MULTIPLIER_MIN, MULTIPLIER_MAX); this.dirty = true; }
+    public void setVibrance(float v) { this.vibrance = Math.clamp(v, COLOR_SHIFT_MIN, COLOR_SHIFT_MAX); this.dirty = true; }
+    public void setGamma(float v) { this.gamma = Math.clamp(v, GAMMA_MIN, GAMMA_MAX); this.dirty = true; }
     public void setAaMode(AntiAliasingMode v) { this.aaMode = v == null ? AntiAliasingMode.NONE : v; this.dirty = true; }
-    public void setTaaHistoryWeight(float v) { this.taaHistoryWeight = Math.clamp(v, 0F, 0.98F); this.dirty = true; }
-    public void setTaaMipBias(float v) { this.taaMipBias = Math.clamp(v, -2F, 0F); this.dirty = true; }
+    public void setTaaHistoryWeight(float v) { this.taaHistoryWeight = Math.clamp(v, TAA_HISTORY_MIN, TAA_HISTORY_MAX); this.dirty = true; }
+    public void setTaaMipBias(float v) { this.taaMipBias = Math.clamp(v, TAA_MIP_BIAS_MIN, TAA_MIP_BIAS_MAX); this.dirty = true; }
     public void setDebugMode(PostDebugMode v) { this.debugMode = v == null ? PostDebugMode.NONE : v; this.dirty = true; }
     public void setBloomIntensity(float v) { this.bloomIntensity = v; this.dirty = true; }
     public void setBloomThreshold(float v) { this.bloomThreshold = v; this.dirty = true; }
     public void setVignette(float v) { this.vignette = v; this.dirty = true; }
-    public void setSharpen(float v) { this.sharpen = v; this.dirty = true; }
+    public void setSharpen(float v) { this.sharpen = Math.clamp(v, SHARPEN_MIN, SHARPEN_MAX); this.dirty = true; }
 }

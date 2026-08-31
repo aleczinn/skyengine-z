@@ -8,16 +8,16 @@ import de.skyengine.graphics.gui.GuiManager;
 import de.skyengine.graphics.gui.GuiScreen;
 import de.skyengine.graphics.gui.layout.HStack;
 import de.skyengine.graphics.gui.layout.VStack;
+import de.skyengine.graphics.gui.widget.Button;
 import de.skyengine.graphics.gui.widget.CycleButton;
 import de.skyengine.graphics.gui.widget.Slider;
-import de.skyengine.graphics.post.PostProcessingSettings;
 
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_H;
 import static de.skyengine.graphics.gui.screens.GuiOptionsMenu.CELL_W;
 
 /**
- * Grafik-Unterseite des Optionsmenüs: Distanzen, MSAA/Anisotropie (greifen erst beim nächsten
- * Framebuffer-/Textur-Aufbau), AO/Laub (lösen einen Voll-Remesh aus), Nebel, VSync.
+ * Grafik-Unterseite des Optionsmenüs: Distanzen, Anisotropie, AO/Laub, Nebel und VSync.
+ * Anti-Aliasing und Farbkorrektur liegen gebündelt in {@link GuiPostProcessing}.
  * Welt-abhängige Anwendungen sind null-geguardet (Optionen sind auch ohne Welt erreichbar).
  */
 public final class GuiVideoSettings extends GuiOptionsScreen {
@@ -47,13 +47,6 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
                 v -> I18n.tr("options.video.simulation_distance", (int) v),
                 v -> this.settings.simulationDistance = (int) v,
                 game::applySettings);
-
-        CycleButton<Integer> msaa = new CycleButton<>(I18n.tr("options.video.msaa"), CELL_W, CELL_H,
-                new Integer[]{0, 2, 4, 8, 16}, this.settings.msaaSamples,
-                v -> v == 0 ? I18n.tr("gui.off") : v + "x",
-                v -> this.settings.msaaSamples = v) // greift beim nächsten Framebuffer-Aufbau (Resize/Neustart)
-                .tooltipOf(v -> I18n.tr("options.video.msaa_hint")
-                        + "\n" + I18n.tr(v == 0 ? "options.video.msaa_off" : "options.video.msaa_on", v));
 
         CycleButton<Integer> aniso = new CycleButton<>(I18n.tr("options.video.anisotropy"), CELL_W, CELL_H,
                 new Integer[]{1, 2, 4, 8, 16}, this.settings.anisotropicFiltering,
@@ -109,17 +102,16 @@ public final class GuiVideoSettings extends GuiOptionsScreen {
                         (int) v == 0 ? I18n.tr("gui.off") : (int) v + " %"),
                 v -> this.settings.brightness = (int) v, null);
 
-        PostProcessingSettings post = SkyEngine.get().getPostProcessor().getSettings();
-        CycleButton<PostProcessingSettings.AntiAliasingMode> aa = new CycleButton<>(I18n.tr("options.debug.aa_mode"), CELL_W, CELL_H, PostProcessingSettings.AntiAliasingMode.values(), post.getAaMode(), Enum::name, post::setAaMode);
+        Button postProcessing = new Button(I18n.tr("options.post.button"), CELL_W, CELL_H,
+                () -> gui.open(new GuiPostProcessing(this)));
 
         content.add(new HStack(4, render, simulation));
-        content.add(new HStack(4, msaa, aniso));
+        content.add(new HStack(4, aniso, postProcessing));
         content.add(new HStack(4, ao, leaves));
         content.add(new HStack(4, fog, particles));
         content.add(new HStack(4, vegetation, null));
         content.add(new HStack(4, bobbing, damageTilt));
         content.add(new HStack(4, vsync, brightness));
-        content.add(new HStack(4, aa));
     }
 
     /** AO/Laub stecken im gebackenen Mesh -> Voll-Remesh (nur mit Welt möglich). */
