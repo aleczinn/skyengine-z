@@ -174,7 +174,24 @@ public class ChunkManager {
     }
 
     /* One mesher per worker thread, reused (allocation-free) */
-    private final ThreadLocal<ChunkMesher> meshers = ThreadLocal.withInitial(ChunkMesher::new);
+    private final ThreadLocal<ChunkMesher> meshers = ThreadLocal.withInitial(() ->
+            new ChunkMesher(new ChunkMesher.MeshPhaseRecorder() {
+                @Override
+                public boolean enabled() {
+                    return PerformanceProfiler.get().isEnabled();
+                }
+
+                @Override
+                public void record(ChunkMesher.MeshPhase phase, long nanos) {
+                    PerformanceProfiler.get().record(switch (phase) {
+                        case PREPARE_AND_HALO -> PerformanceProfiler.WorkerSection.L0_MESH_PREPARE_HALO;
+                        case FULL_CUBE_GREEDY -> PerformanceProfiler.WorkerSection.L0_MESH_FULL_CUBE_GREEDY;
+                        case WATER_GREEDY -> PerformanceProfiler.WorkerSection.L0_MESH_WATER_GREEDY;
+                        case GENERIC_MODELS -> PerformanceProfiler.WorkerSection.L0_MESH_GENERIC_MODELS;
+                        case FINALIZE_AND_COPY -> PerformanceProfiler.WorkerSection.L0_MESH_FINALIZE_COPY;
+                    }, nanos);
+                }
+            }));
 
     /* Dito für die Licht-Engine: eine Instanz ist NICHT threadsicher (BFS-Queues + 3x3-Kontext
        als Felder). Dimension hält eine eigene für die Edit-Updates auf dem Render-Thread. */

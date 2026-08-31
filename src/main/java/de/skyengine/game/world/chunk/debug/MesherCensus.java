@@ -5,8 +5,6 @@ import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkMesher;
-import de.skyengine.game.world.chunk.ChunkStatus;
-import de.skyengine.game.world.generator.generators.AlphaWorldGeneratorV2;
 import de.skyengine.game.world.light.LightEngine;
 
 import java.io.File;
@@ -26,10 +24,6 @@ import java.util.Locale;
  */
 public final class MesherCensus {
 
-    private static final int SEED = 123;
-    /* Zentrum = der auch von LightProbe genutzte Terrain-Chunk (Wasser, Bäume, Höhlen). */
-    private static final int CENTER_X = 3, CENTER_Z = -7;
-
     private MesherCensus() {
     }
 
@@ -42,29 +36,9 @@ public final class MesherCensus {
         settings.ambientOcclusion = true;
         settings.leavesQuality = GameSettings.LeavesQuality.HIGH;
 
-        /* 3×3-Feld generieren (Index = (dz+1)*3 + (dx+1)). */
-        Chunk[] grid = new Chunk[9];
-        AlphaWorldGeneratorV2 generator = new AlphaWorldGeneratorV2(SEED);
-        for (int dz = -1; dz <= 1; dz++) {
-            for (int dx = -1; dx <= 1; dx++) {
-                Chunk chunk = new Chunk(CENTER_X + dx, CENTER_Z + dz);
-                generator.generate(chunk);
-                grid[(dz + 1) * 3 + (dx + 1)] = chunk;
-            }
-        }
-
-        /* Licht in fester Reihenfolge: erst alle initial (mit vorhandenen Nachbarn), dann der
-           Randaustausch — Reihenfolge ist Teil des Determinismus-Vertrags dieses Zensus. */
-        LightEngine engine = new LightEngine();
-        for (int i = 0; i < 9; i++) {
-            engine.lightInitial(grid[i], at(grid, i, 0, -1), at(grid, i, 0, 1),
-                    at(grid, i, -1, 0), at(grid, i, 1, 0), diagonals(grid, i));
-            grid[i].status = ChunkStatus.LIT;
-        }
-        for (int i = 0; i < 9; i++) {
-            engine.exchangeBorders(grid[i], at(grid, i, 0, -1), at(grid, i, 0, 1),
-                    at(grid, i, -1, 0), at(grid, i, 1, 0), diagonals(grid, i));
-        }
+        /* Fixture erzeugt und beleuchtet das deterministische 3×3-Feld. */
+        MesherFixture.Grid fixture = MesherFixture.generated();
+        Chunk[] grid = fixture.chunks();
 
         /* Alle 9 Chunks meshen, Hash + Quad-Zähler einsammeln. */
         ChunkMesher mesher = new ChunkMesher();
@@ -77,8 +51,9 @@ public final class MesherCensus {
         int sections = 0;
         for (int i = 0; i < 9; i++) {
             for (int s = 0; s < Chunk.SECTIONS; s++) {
-                ChunkMesher.MeshData data = mesher.mesh(grid[i], s, at(grid, i, 0, -1),
-                        at(grid, i, 0, 1), at(grid, i, -1, 0), at(grid, i, 1, 0), diagonals(grid, i));
+                ChunkMesher.MeshData data = mesher.mesh(grid[i], s, fixture.at(i, 0, -1),
+                        fixture.at(i, 0, 1), fixture.at(i, -1, 0), fixture.at(i, 1, 0),
+                        fixture.diagonals(i));
                 if (data == null) continue;
                 sections++;
                 hash = fnv(hash, data.opaque);
@@ -121,18 +96,6 @@ public final class MesherCensus {
                 + " overlayFallback=" + overlayFallbackFaces);
         System.out.println(String.format(Locale.ROOT, "MESH %016x", hash));
         System.out.println("MESH OK");
-    }
-
-    /** Nachbar (dx,dz) im 3×3-Feld oder null (Randchunk → NeighborSampler-Fallback). */
-    private static Chunk at(Chunk[] grid, int index, int dx, int dz) {
-        int gx = index % 3 + dx, gz = index / 3 + dz;
-        return gx < 0 || gx > 2 || gz < 0 || gz > 2 ? null : grid[gz * 3 + gx];
-    }
-
-    /** Diagonalen in der ChunkManager-Reihenfolge NW, NE, SW, SE. */
-    private static Chunk[] diagonals(Chunk[] grid, int index) {
-        return new Chunk[]{at(grid, index, -1, -1), at(grid, index, 1, -1),
-                at(grid, index, -1, 1), at(grid, index, 1, 1)};
     }
 
     private static long quadCount(int[] data) {

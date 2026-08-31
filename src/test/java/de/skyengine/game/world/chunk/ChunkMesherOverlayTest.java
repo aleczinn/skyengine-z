@@ -21,8 +21,14 @@ final class ChunkMesherOverlayTest {
     void grassSidesKeepDepthIdenticalLegacyBaseAndOverlayGeometry() {
         Chunk chunk = new Chunk(0, 0);
         chunk.setBlock(8, 10, 8, Blocks.GRASS_BLOCK);
+        long[] phaseSamples = new long[ChunkMesher.MeshPhase.values().length];
 
-        ChunkMesher.MeshData mesh = new ChunkMesher().mesh(
+        ChunkMesher.MeshData mesh = new ChunkMesher(new ChunkMesher.MeshPhaseRecorder() {
+            @Override public boolean enabled() { return true; }
+            @Override public void record(ChunkMesher.MeshPhase phase, long nanos) {
+                phaseSamples[phase.ordinal()]++;
+            }
+        }).mesh(
                 chunk, 0, null, null, null, null, new Chunk[4]);
 
         assertNotNull(mesh.opaque);
@@ -44,5 +50,8 @@ final class ChunkMesherOverlayTest {
         assertEquals(2, compact.size(), "top and bottom remain compact");
         assertEquals(List.of(0, 1), compact.stream().map(CompactTerrainTestView.Quad::face).sorted().toList());
         assertEquals(4, mesh.stats.overlayFallbackFaces());
+        assertEquals(0, mesh.stats.axisAlignedQuantizedLegacyQuads(),
+                "grass base/overlay fallback is not a partial-box packing candidate");
+        for (long samples : phaseSamples) assertEquals(1, samples, "each mesher phase is recorded once");
     }
 }

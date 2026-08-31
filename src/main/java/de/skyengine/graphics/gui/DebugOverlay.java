@@ -140,9 +140,10 @@ public final class DebugOverlay {
         float panelsTop = normalBottom;
         PanelRect[] layout = workerPanelLayout(vW, panelsTop, graphY);
         float panelW = layout[0].width, panelH = layout[0].height;
-        float workerSize = workerTextSize(font, panelH, 12);
+        float workerSize = workerTextSize(font, panelH, 16);
 
         List<WorkerPanel> panels = workerPanels(snapshot);
+        MetricPanel meshMetrics = meshMetrics(snapshot);
 
         SpriteRenderer sprites = gui.sprites();
         sprites.begin(vW, vH);
@@ -152,8 +153,7 @@ public final class DebugOverlay {
                     PROFILER_SUMMARY_WIDTH, PROFILER_SUMMARY_ROWS * summaryStep + 2,
                     0, 0, 0, 0.55F);
         }
-        for (int i = 0; i < panels.size(); i++) {
-            PanelRect rect = layout[i];
+        for (PanelRect rect : layout) {
             sprites.drawRect(rect.x, rect.y, rect.width, rect.height, 0, 0, 0, 0.58F);
         }
         drawGraphs(sprites, snapshot.graph(), MARGIN, graphY, vW - 2 * MARGIN, graphH);
@@ -166,6 +166,9 @@ public final class DebugOverlay {
             drawWorkerPanel(font, panels.get(i), rect.x, rect.y,
                     rect.width, rect.height, workerSize);
         }
+        PanelRect metricsRect = layout[1];
+        drawMetricPanel(font, meshMetrics, metricsRect.x, metricsRect.y,
+                metricsRect.width, metricsRect.height, workerSize);
         drawGraphLabels(font, graphY, graphH, vW);
         font.end();
     }
@@ -180,7 +183,10 @@ public final class DebugOverlay {
     static PanelRect[] workerPanelLayout(float vWidth, float panelsTop, float graphY) {
         float width = Math.max(1, vWidth - 2 * MARGIN);
         float height = Math.max(1, graphY - panelsTop);
-        return new PanelRect[]{new PanelRect(MARGIN, panelsTop, width, height)};
+        float gap = 2F;
+        float half = Math.max(1, (width - gap) * 0.5F);
+        return new PanelRect[]{new PanelRect(MARGIN, panelsTop, half, height),
+                new PanelRect(MARGIN + half + gap, panelsTop, half, height)};
     }
 
     private static List<WorkerPanel> workerPanels(PerformanceProfiler.ProfilerSnapshot snapshot) {
@@ -194,9 +200,77 @@ public final class DebugOverlay {
                 row("Light update/job", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_LIGHT_UPDATE)),
                 row("Mesh init/section", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_INITIAL_MESH)),
                 row("Remesh/section", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_REMESH)),
+                row("  Prepare+halo", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_MESH_PREPARE_HALO)),
+                row("  Full-cube greedy", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_MESH_FULL_CUBE_GREEDY)),
+                row("  Water greedy", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_MESH_WATER_GREEDY)),
+                row("  Generic models", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_MESH_GENERIC_MODELS)),
+                row("  Finalize+copy", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_MESH_FINALIZE_COPY)),
                 row("Upload wait/batch", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_UPLOAD_WAIT)),
                 row("Upload/section", snapshot.l0().get(PerformanceProfiler.WorkerSection.L0_UPLOAD)))));
         return panels;
+    }
+
+    private static MetricPanel meshMetrics(PerformanceProfiler.ProfilerSnapshot snapshot) {
+        long faces = counter(snapshot, PerformanceProfiler.Counter.L0_FULL_CUBE_FACES);
+        long compact = counter(snapshot, PerformanceProfiler.Counter.L0_COMPACT_QUADS);
+        long standard = counter(snapshot, PerformanceProfiler.Counter.L0_COMPACT_STANDARD_QUADS);
+        long uniform = counter(snapshot, PerformanceProfiler.Counter.L0_COMPACT_UNIFORM_QUADS);
+        long corner = counter(snapshot, PerformanceProfiler.Counter.L0_COMPACT_CORNER_QUADS);
+        long cornerFaces = counter(snapshot, PerformanceProfiler.Counter.L0_CORNER_SHADING_FACES);
+        long cornerMerged = counter(snapshot, PerformanceProfiler.Counter.L0_CORNER_SHADING_FACES_MERGED);
+        long legacyOpaque = counter(snapshot, PerformanceProfiler.Counter.L0_LEGACY_OPAQUE_QUADS);
+        long legacyCutout = counter(snapshot, PerformanceProfiler.Counter.L0_LEGACY_CUTOUT_QUADS);
+        long legacyTranslucent = counter(snapshot, PerformanceProfiler.Counter.L0_LEGACY_TRANSLUCENT_QUADS);
+        long legacyDetail = counter(snapshot, PerformanceProfiler.Counter.L0_LEGACY_DETAIL_QUADS);
+        long legacy = legacyOpaque + legacyCutout + legacyTranslucent + legacyDetail;
+        long axisLegacy = counter(snapshot, PerformanceProfiler.Counter.L0_AXIS_ALIGNED_QUANTIZED_LEGACY_QUADS);
+        return new MetricPanel("Uploaded mesh work since reset", List.of(
+                metric("Faces -> compact", shortCount(faces) + " -> " + shortCount(compact)),
+                metric("Greedy compression", ratioText(faces, compact, "x")),
+                metric("8/12/24-byte quads", percentTriple(standard, uniform, corner)),
+                metric("Corner merge rate", percent(cornerMerged, cornerFaces)),
+                metric("Reject S/M/State", shortCount(counter(snapshot, PerformanceProfiler.Counter.L0_MERGE_REJECTED_SHADING))
+                        + "/" + shortCount(counter(snapshot, PerformanceProfiler.Counter.L0_MERGE_REJECTED_MATERIAL))
+                        + "/" + shortCount(counter(snapshot, PerformanceProfiler.Counter.L0_MERGE_REJECTED_STATE))),
+                metric("Overlay fallback", shortCount(counter(snapshot, PerformanceProfiler.Counter.L0_OVERLAY_FALLBACK_FACES))),
+                metric("Legacy O/C/T/D", shortCount(legacyOpaque) + "/" + shortCount(legacyCutout)
+                        + "/" + shortCount(legacyTranslucent) + "/" + shortCount(legacyDetail)),
+                metric("Axis 1/16 legacy", shortCount(axisLegacy) + " (" + percent(axisLegacy, legacy) + ")"),
+                metric("Compact bytes", byteText(counter(snapshot, PerformanceProfiler.Counter.L0_COMPACT_BYTES))),
+                metric("Legacy bytes", byteText(counter(snapshot, PerformanceProfiler.Counter.L0_LEGACY_BYTES)))));
+    }
+
+    private static long counter(PerformanceProfiler.ProfilerSnapshot snapshot, PerformanceProfiler.Counter counter) {
+        return snapshot.counters().getOrDefault(counter, 0L);
+    }
+
+    private static MetricRow metric(String label, String value) { return new MetricRow(label, value); }
+
+    private static String percentTriple(long first, long second, long third) {
+        long total = first + second + third;
+        if (total == 0) return "-";
+        return Math.round(first * 100.0 / total) + "/" + Math.round(second * 100.0 / total)
+                + "/" + Math.round(third * 100.0 / total) + "%";
+    }
+
+    private static String percent(long numerator, long denominator) {
+        return denominator == 0 ? "-" : String.format(Locale.ROOT, "%.1f%%", numerator * 100.0 / denominator);
+    }
+
+    private static String ratioText(long numerator, long denominator, String suffix) {
+        return denominator == 0 ? "-" : String.format(Locale.ROOT, "%.2f%s", numerator / (double) denominator, suffix);
+    }
+
+    private static String shortCount(long value) {
+        if (value >= 1_000_000) return String.format(Locale.ROOT, "%.1fM", value / 1_000_000.0);
+        if (value >= 10_000) return String.format(Locale.ROOT, "%.1fk", value / 1_000.0);
+        return Long.toString(value);
+    }
+
+    private static String byteText(long bytes) {
+        if (bytes >= 1024L * 1024L) return String.format(Locale.ROOT, "%.1f MiB", bytes / 1048576.0);
+        if (bytes >= 1024L) return String.format(Locale.ROOT, "%.1f KiB", bytes / 1024.0);
+        return bytes + " B";
     }
 
     private static WorkerRow row(String label, PerformanceProfiler.TimingStats stats) {
@@ -220,6 +294,20 @@ public final class DebugOverlay {
             drawRight(font, stat(row.stats, 0, narrow), avgRight, rowY, size, Color4.WHITE);
             drawRight(font, stat(row.stats, 1, narrow), p95Right, rowY, size, Color4.WHITE);
             drawRight(font, stat(row.stats, 2, narrow), maxRight, rowY, size, Color4.WHITE);
+            rowY += step;
+        }
+    }
+
+    private static void drawMetricPanel(FontRenderer font, MetricPanel panel, float x, float y,
+                                        float width, float height, float size) {
+        float step = font.lineHeight(size) + 0.35F;
+        float left = x + 2, right = x + width - 2;
+        font.drawStringWithShadow(panel.title, left, y + 1, size, Color4.CYAN);
+        float rowY = y + 1 + step;
+        for (MetricRow row : panel.rows) {
+            if (rowY + step > y + height) break;
+            font.drawStringWithShadow(row.label, left, rowY, size, Color4.WHITE);
+            drawRight(font, row.value, right, rowY, size, Color4.WHITE);
             rowY += step;
         }
     }
@@ -364,5 +452,7 @@ public final class DebugOverlay {
 
     private record WorkerPanel(String title, List<WorkerRow> rows) {}
     private record WorkerRow(String label, PerformanceProfiler.TimingStats stats) {}
+    private record MetricPanel(String title, List<MetricRow> rows) {}
+    private record MetricRow(String label, String value) {}
     record PanelRect(float x, float y, float width, float height) {}
 }

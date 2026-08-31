@@ -831,6 +831,14 @@ public class ChunkRenderer {
         profiler.add(PerformanceProfiler.Counter.L0_MERGE_REJECTED_STATE, stats.mergeRejectedByState());
         profiler.add(PerformanceProfiler.Counter.L0_OVERLAY_FALLBACK_FACES,
                 stats.overlayFallbackFaces());
+        profiler.add(PerformanceProfiler.Counter.L0_LEGACY_OPAQUE_QUADS, stats.legacyOpaqueQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_LEGACY_CUTOUT_QUADS, stats.legacyCutoutQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_LEGACY_TRANSLUCENT_QUADS,
+                stats.legacyTranslucentQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_LEGACY_DETAIL_QUADS, stats.legacyDetailQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_AXIS_ALIGNED_QUANTIZED_LEGACY_QUADS,
+                stats.axisAlignedQuantizedLegacyQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_LEGACY_BYTES, stats.legacyBytes());
         profiler.add(PerformanceProfiler.Counter.L0_COMPACT_STANDARD_BYTES, stats.standardBytes());
         profiler.add(PerformanceProfiler.Counter.L0_COMPACT_UNIFORM_BYTES, stats.uniformBytes());
         profiler.add(PerformanceProfiler.Counter.L0_COMPACT_CORNER_BYTES, stats.cornerBytes());

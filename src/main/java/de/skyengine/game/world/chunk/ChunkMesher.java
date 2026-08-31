@@ -13,6 +13,20 @@ import java.util.Arrays;
 
 public class ChunkMesher {
 
+    public enum MeshPhase {
+        PREPARE_AND_HALO,
+        FULL_CUBE_GREEDY,
+        WATER_GREEDY,
+        GENERIC_MODELS,
+        FINALIZE_AND_COPY
+    }
+
+    /** Optional, thread-local phase timing. The normal path reads no clock while disabled. */
+    public interface MeshPhaseRecorder {
+        boolean enabled();
+        void record(MeshPhase phase, long nanos);
+    }
+
     /**
      * Ints pro Vertex (gepacktes Format, 20 Bytes statt 36):
      * <pre>
@@ -101,9 +115,23 @@ public class ChunkMesher {
                             long cornerShadingFaces, long cornerShadingFacesMerged,
                             long cornerShadingFacesUnmerged, long mergeRejectedByShading,
                             long mergeRejectedByMaterial, long mergeRejectedByState,
-                            long overlayFallbackFaces,
+                            long overlayFallbackFaces, long legacyOpaqueQuads,
+                            long legacyCutoutQuads, long legacyTranslucentQuads,
+                            long legacyDetailQuads, long axisAlignedQuantizedLegacyQuads,
+                            long legacyBytes,
                             long standardBytes, long uniformBytes, long cornerBytes) {
-        static final MeshStats EMPTY = new MeshStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        static final MeshStats EMPTY = new MeshStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0);
+    }
+
+    private final MeshPhaseRecorder phaseRecorder;
+
+    public ChunkMesher() {
+        this(null);
+    }
+
+    public ChunkMesher(MeshPhaseRecorder phaseRecorder) {
+        this.phaseRecorder = phaseRecorder;
     }
 
     /* Ein wiederverwendeter Buffer pro RenderLayer (Index = RenderLayer.ordinal()) + 1 für
@@ -141,6 +169,10 @@ public class ChunkMesher {
        dünnt damit ferne Pflanzen deterministisch aus. 0 = kein Detail-Quad (alle anderen
        Pfade schreiben weiter bit-identische Vertices). */
     private int plantHash = 0;
+
+    private long statAxisAlignedQuantizedLegacy;
+    private boolean collectDetailedStats;
+    private boolean suppressAxisCandidate;
 
     /* Eindeutige Ecken A,B,C,D im 6-Vertex-Quad der BakedQuads (A,B,C,C,D,A) */
     private static final int[] UNIQUE_VERTS = {0, 1, 2, 4};
@@ -247,6 +279,8 @@ public class ChunkMesher {
             return new MeshData(null, null, null, null, null, null, MeshStats.EMPTY);
         }
 
+        long phaseStarted = this.beginPhase();
+        this.collectDetailedStats = phaseStarted != 0L;
         for (VertexBuffer buffer : this.buffers) buffer.reset();
         for (VertexBuffer buffer : this.compactGeometry) buffer.reset();
         for (VertexBuffer buffer : this.compactShading) if (buffer != null) buffer.reset();
@@ -255,6 +289,8 @@ public class ChunkMesher {
         this.statCornerFaces = this.statCornerFacesMerged = this.statCornerFacesUnmerged = 0;
         this.statRejectedShading = this.statRejectedMaterial = this.statRejectedState = 0;
         this.statOverlayFallbackFaces = 0;
+        this.statAxisAlignedQuantizedLegacy = 0;
+        this.suppressAxisCandidate = false;
 
         this.chunk = chunk;
         this.north = north;
@@ -287,16 +323,22 @@ public class ChunkMesher {
             }
         }
         Arrays.fill(this.haloLight, -1);
+        this.endPhase(MeshPhase.PREPARE_AND_HALO, phaseStarted);
 
         /* Pass 1: Greedy Meshing für opake Full-Cube-Faces */
+        phaseStarted = this.beginPhase();
         this.greedyPass(baseY);
+        this.endPhase(MeshPhase.FULL_CUBE_GREEDY, phaseStarted);
 
         /* Pass 1.5: flach-stille Wasser-Tops (Meeresoberfläche) greedy zu großen TRANSLUCENT-Quads
            zusammenfassen; markiert die betroffenen Zellen für Pass 2. */
+        phaseStarted = this.beginPhase();
         this.waterTopPass(baseY);
+        this.endPhase(MeshPhase.WATER_GREEDY, phaseStarted);
 
         /* Pass 2: alles andere (Fluids, Cross, Slabs, Stairs, ... sowie Cubes mit un-greedy-baren
            Modellen) über den klassischen Pfad */
+        phaseStarted = this.beginPhase();
         for (int y = 0; y < ChunkSection.SIZE; y++) {
             for (int z = 0; z < ChunkSection.SIZE; z++) {
                 for (int x = 0; x < ChunkSection.SIZE; x++) {
@@ -367,39 +409,56 @@ public class ChunkMesher {
                         int nz = z + FACE_OFFSET[cullFace][2];
                         int neighborId = this.sample(nx, ny, nz);
                         if (!shouldRenderFace(state, neighborId)) continue;
+                        this.suppressAxisCandidate = true;
                         this.emitQuad(this.buffers[RenderLayer.CUTOUT.ordinal()], quad, x, y, worldY, z, offsetX, offsetZ);
+                        this.suppressAxisCandidate = false;
                     }
                 }
             }
         }
 
+        this.endPhase(MeshPhase.GENERIC_MODELS, phaseStarted);
         this.chunk = this.north = this.south = this.west = this.east = null;
         this.diagonals = null;
 
+        phaseStarted = this.beginPhase();
         int[][] compactGeometryData = new int[3][];
         int[][] compactShadingData = new int[3][];
         for (int i = 0; i < 3; i++) {
             compactGeometryData[i] = this.compactGeometry[i].copyOrNull();
             if (this.compactShading[i] != null) compactShadingData[i] = this.compactShading[i].copyOrNull();
         }
+        int[] opaqueData = this.buffers[0].copyOrNull();
+        int[] cutoutData = this.buffers[1].copyOrNull();
+        int[] translucentData = this.buffers[2].copyOrNull();
+        int[] detailData = this.buffers[DETAIL_BUFFER].copyOrNull();
+        long legacyBytes = bytes(opaqueData, cutoutData) + bytes(translucentData, detailData);
         MeshStats stats = new MeshStats(this.statFullCubeFaces, this.statFullCubeQuads,
                 this.statMergedStandard, this.statMergedUniform, this.statMergedCorner,
                 this.statCornerFaces, this.statCornerFacesMerged, this.statCornerFacesUnmerged,
                 this.statRejectedShading, this.statRejectedMaterial, this.statRejectedState,
-                this.statOverlayFallbackFaces,
+                this.statOverlayFallbackFaces, legacyQuadCount(opaqueData), legacyQuadCount(cutoutData),
+                legacyQuadCount(translucentData), legacyQuadCount(detailData),
+                this.statAxisAlignedQuantizedLegacy, legacyBytes,
                 bytes(compactGeometryData[PackedTerrainQuad.SHADING_STANDARD], null),
                 bytes(compactGeometryData[PackedTerrainQuad.SHADING_UNIFORM],
                         compactShadingData[PackedTerrainQuad.SHADING_UNIFORM]),
                 bytes(compactGeometryData[PackedTerrainQuad.SHADING_CORNER],
                         compactShadingData[PackedTerrainQuad.SHADING_CORNER]));
         MeshData data = new MeshData(
-                this.buffers[0].copyOrNull(),
-                this.buffers[1].copyOrNull(),
-                this.buffers[2].copyOrNull(),
-                this.buffers[DETAIL_BUFFER].copyOrNull(),
+                opaqueData, cutoutData, translucentData, detailData,
                 compactGeometryData, compactShadingData, stats
         );
+        this.endPhase(MeshPhase.FINALIZE_AND_COPY, phaseStarted);
         return data;
+    }
+
+    private long beginPhase() {
+        return this.phaseRecorder != null && this.phaseRecorder.enabled() ? System.nanoTime() : 0L;
+    }
+
+    private void endPhase(MeshPhase phase, long started) {
+        if (started != 0L) this.phaseRecorder.record(phase, System.nanoTime() - started);
     }
 
     private static long bytes(int[] first, int[] second) {
@@ -448,10 +507,12 @@ public class ChunkMesher {
                                Positionen und dieselbe Diagonale verwenden. Eine grosse Compact-
                                Basis gegen einzelne Overlay-Quads ist zwar mathematisch koplanar,
                                liefert rasterisiert aber nicht garantiert identische Tiefenwerte. */
+                            this.suppressAxisCandidate = true;
                             this.emitQuad(this.buffers[RenderLayer.OPAQUE.ordinal()], gf.quads[face],
                                     x, y, worldY, z, 0F, 0F);
                             this.emitQuad(this.buffers[RenderLayer.CUTOUT.ordinal()], gf.overlays[face],
                                     x, y, worldY, z, 0F, 0F);
+                            this.suppressAxisCandidate = false;
                             this.statOverlayFallbackFaces++;
                             continue;
                         }
@@ -1255,6 +1316,9 @@ public class ChunkMesher {
 
     private void emitQuad(VertexBuffer buffer, BakedQuad quad, int x, int localY, int worldY,
                           int z, float offsetX, float offsetZ, int vertexFlags) {
+        if (this.collectDetailedStats && !this.suppressAxisCandidate && isAxisAlignedQuantized(quad)) {
+            this.statAxisAlignedQuantizedLegacy++;
+        }
         buffer.ensure(4 * VERTEX_SIZE);
         float[] verts = quad.vertices();
         int layer = quad.textureLayer();
@@ -1297,6 +1361,22 @@ public class ChunkMesher {
                     verts[i + 3], verts[i + 4], layer,
                     r * aoValue, g * aoValue, b * aoValue, light[corner] | vertexFlags);
         }
+    }
+
+    private static boolean isAxisAlignedQuantized(BakedQuad quad) {
+        if (quad.face() == BakedQuad.NO_DIRECTION) return false;
+        float[] vertices = quad.vertices();
+        for (int i = 0; i < vertices.length; i += 5) {
+            for (int axis = 0; axis < 3; axis++) {
+                float scaled = vertices[i + axis] * 16F;
+                if (Math.abs(scaled - Math.round(scaled)) > 1.0E-4F) return false;
+            }
+        }
+        return true;
+    }
+
+    private static long legacyQuadCount(int[] data) {
+        return data == null ? 0L : data.length / (4L * VERTEX_SIZE);
     }
 
     /** Statischer Shader-Anteil fuer eine stabile Diagonalwahl ohne Remesh bei Reglerwechsel. */
