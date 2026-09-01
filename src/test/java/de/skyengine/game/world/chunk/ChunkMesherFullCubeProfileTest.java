@@ -12,6 +12,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ChunkMesherFullCubeProfileTest {
 
@@ -84,6 +85,36 @@ final class ChunkMesherFullCubeProfileTest {
             assertEquals(0, profile.operations.aoOccluderLookups());
             assertEquals(0, profile.operationsByPhase.get(
                     ChunkMesher.FullCubePhase.CORNER_AO_SAMPLING));
+        } finally {
+            GameSettings.get().ambientOcclusion = previous;
+        }
+    }
+
+    @Test
+    void affineCornerMergeReportsSinglePlaneSavingsWithoutFinalRescan() {
+        boolean previous = GameSettings.get().ambientOcclusion;
+        GameSettings.get().ambientOcclusion = true;
+        try {
+            Chunk chunk = new Chunk(0, 0);
+            for (int x = 5; x <= 12; x++) chunk.setBlock(x, 10, 8, Blocks.STONE);
+            for (int z = 7; z <= 9; z++) for (int x = 3; x <= 14; x++) {
+                chunk.light.set(x, 11, z, Math.clamp(15 - x, 0, 15));
+            }
+            RecordingProfile profile = new RecordingProfile();
+            new ChunkMesher(null, profile).mesh(
+                    chunk, 0, null, null, null, null, new Chunk[4]);
+
+            ChunkMesher.FullCubeOperations operations = profile.operations;
+            assertNotNull(operations);
+            assertEquals(0, operations.compatibilityFinalCalls());
+            assertTrue(operations.singlePlaneCandidates() > 0);
+            assertTrue(operations.singlePlaneAccepted() > 0);
+            assertTrue(operations.incrementalBorderChecks() > 0);
+            assertTrue(operations.fullCandidateRescansAvoided() > 0);
+            assertTrue(operations.sourceCellsAvoided() > 0);
+            long histogramCalls = 0;
+            for (long count : operations.compatibilityCellHistogram()) histogramCalls += count;
+            assertEquals(operations.compatibilityCalls(), histogramCalls);
         } finally {
             GameSettings.get().ambientOcclusion = previous;
         }

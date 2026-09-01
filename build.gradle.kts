@@ -88,7 +88,7 @@ tasks.register<JavaExec>("meshBench") {
     systemProperty("meshBench.detailIterations",
         providers.gradleProperty("meshBenchDetailIterations").getOrElse("16"))
     systemProperty("meshBench.fullCubeSampleStride",
-        providers.gradleProperty("meshBenchFullCubeSampleStride").getOrElse("16"))
+        providers.gradleProperty("meshBenchFullCubeSampleStride").getOrElse("64"))
     systemProperty("meshBench.visibilityPath",
         providers.gradleProperty("meshBenchVisibilityPath").getOrElse("ROW_MASK"))
     val label = providers.gradleProperty("meshBenchLabel").orNull
