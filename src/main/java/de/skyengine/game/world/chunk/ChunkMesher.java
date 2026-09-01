@@ -38,10 +38,12 @@ public class ChunkMesher {
         LIGHT_SAMPLING,
         CORNER_AO_SAMPLING,
         MASK_BUILD,
+        MASK_SCAN_ENVELOPE,
         GREEDY_RECTANGLE_SEARCH,
         SHADING_DIAGONAL_COMPATIBILITY,
         PACKED_QUAD_EMISSION,
-        OVERLAY_FALLBACK_EMISSION
+        OVERLAY_FALLBACK_EMISSION,
+        GREEDY_ENVELOPE
     }
 
     /** Optional, thread-local phase timing. The normal path reads no clock while disabled. */
@@ -58,6 +60,8 @@ public class ChunkMesher {
     public interface FullCubeProfileRecorder {
         boolean enabled();
         boolean collectOperations();
+        /** Allows diagnostic runs to time exactly one phase without perturbing all others. */
+        default boolean measures(FullCubePhase phase) { return true; }
         boolean sampleSlice(int face, int slice);
         void record(FullCubePhase phase, long nanos, long operations, long spans);
         default void recordSection(FullCubePhase phase, long nanos, long operations, long spans) {
@@ -656,7 +660,9 @@ public class ChunkMesher {
         int[] blocks = this.haloBlocks;
 
         FullCubeProfileRecorder profiler = this.profileFullCube ? this.fullCubeProfileRecorder : null;
-        long classificationStarted = profiler == null ? 0L : System.nanoTime();
+        boolean measureClassification = profiler != null
+                && profiler.measures(FullCubePhase.STATE_CLASSIFICATION);
+        long classificationStarted = measureClassification ? System.nanoTime() : 0L;
         long candidateFaces = 0;
         for (int hy = 0; hy < HALO; hy++) {
             for (int hz = 0; hz < HALO; hz++) {
@@ -680,13 +686,15 @@ public class ChunkMesher {
                 }
             }
         }
-        if (profiler != null) {
+        if (measureClassification) {
             profiler.recordSection(FullCubePhase.STATE_CLASSIFICATION,
                     System.nanoTime() - classificationStarted, (long) HALO * HALO * HALO, 1);
         }
         Arrays.fill(this.visibleRows, 0);
 
-        long visibilityStarted = profiler == null ? 0L : System.nanoTime();
+        boolean measureVisibilityWords = profiler != null
+                && profiler.measures(FullCubePhase.VISIBILITY_WORD_DERIVATION);
+        long visibilityStarted = measureVisibilityWords ? System.nanoTime() : 0L;
         int plane = size * size;
         for (int y = 0; y < size; y++) {
             int hy = y + 1;
@@ -718,7 +726,7 @@ public class ChunkMesher {
                 }
             }
         }
-        if (profiler != null) {
+        if (measureVisibilityWords) {
             profiler.recordSection(FullCubePhase.VISIBILITY_WORD_DERIVATION,
                     System.nanoTime() - visibilityStarted, 6L * size * size, 1);
         }
@@ -739,7 +747,9 @@ public class ChunkMesher {
         int size = ChunkSection.SIZE;
         int[] pos = this.cellPos;
         Arrays.fill(this.visibleRows, 0);
-        long started = this.profileFullCube ? System.nanoTime() : 0L;
+        boolean measureVisibility = this.profileFullCube
+                && this.fullCubeProfileRecorder.measures(FullCubePhase.BLOCK_FACE_VISIBILITY);
+        long started = measureVisibility ? System.nanoTime() : 0L;
         for (int face = 0; face < 6; face++) {
             int axisN = AXIS_N[face], axisT1 = AXIS_T1[face], axisT2 = AXIS_T2[face];
             int offX = FACE_OFFSET[face][0], offY = FACE_OFFSET[face][1], offZ = FACE_OFFSET[face][2];
@@ -768,7 +778,7 @@ public class ChunkMesher {
                 }
             }
         }
-        if (this.profileFullCube) {
+        if (measureVisibility) {
             this.fullCubeProfileRecorder.recordSection(FullCubePhase.STATE_CLASSIFICATION,
                     System.nanoTime() - started, 6L * size * size * size, 1);
         }
@@ -788,6 +798,12 @@ public class ChunkMesher {
         boolean rowMaskVisibility = this.visibilityPath == VisibilityPath.ROW_MASK;
         if (rowMaskVisibility) this.buildFullCubeVisibilityRows();
         else this.buildScalarReferenceVisibilityRows();
+        boolean profileMaskEnvelope = profiler != null
+                && profiler.measures(FullCubePhase.MASK_SCAN_ENVELOPE);
+        boolean profileGreedyEnvelope = profiler != null
+                && profiler.measures(FullCubePhase.GREEDY_ENVELOPE);
+        long maskEnvelopeNanos = 0L, maskEnvelopeSpans = 0L;
+        long greedyEnvelopeNanos = 0L, greedyEnvelopeSpans = 0L;
 
         for (int face = 0; face < 6; face++) {
             int axisN = AXIS_N[face], axisT1 = AXIS_T1[face], axisT2 = AXIS_T2[face];
@@ -795,19 +811,42 @@ public class ChunkMesher {
 
             for (int slice = 0; slice < size; slice++) {
                 boolean sampled = profiler != null && profiler.sampleSlice(face, slice);
-                this.profileSampledSlice = sampled;
+                boolean measureMaskEnvelope = sampled && profileMaskEnvelope;
+                boolean measureVisibility = sampled
+                        && profiler.measures(FullCubePhase.BLOCK_FACE_VISIBILITY);
+                boolean measureNeighbor = sampled
+                        && profiler.measures(FullCubePhase.NEIGHBOR_LOOKUPS);
+                boolean measureSignature = sampled
+                        && profiler.measures(FullCubePhase.FACE_SIGNATURE_MATERIAL);
+                boolean measureLight = sampled
+                        && profiler.measures(FullCubePhase.LIGHT_SAMPLING);
+                boolean measureAo = sampled
+                        && profiler.measures(FullCubePhase.CORNER_AO_SAMPLING);
+                boolean measureMask = sampled
+                        && profiler.measures(FullCubePhase.MASK_BUILD);
+                boolean measureOverlay = sampled
+                        && profiler.measures(FullCubePhase.OVERLAY_FALLBACK_EMISSION);
+                boolean measureGreedyEnvelope = sampled && profileGreedyEnvelope;
+                boolean measureGreedy = sampled
+                        && profiler.measures(FullCubePhase.GREEDY_RECTANGLE_SEARCH);
+                boolean measureCompatibility = sampled
+                        && profiler.measures(FullCubePhase.SHADING_DIAGONAL_COMPATIBILITY);
+                boolean measureEmission = sampled
+                        && profiler.measures(FullCubePhase.PACKED_QUAD_EMISSION);
+                this.profileSampledSlice = measureCompatibility;
                 long maskNanos = 0, maskSpans = 0, maskScanSpans = 0;
 
                 long neighborNanos = 0, signatureNanos = 0, lightNanos = 0, aoNanos = 0;
                 long overlayNanos = 0;
                 long neighborSpans = 0, signatureSpans = 0, lightSpans = 0, aoSpans = 0;
                 long overlaySpans = 0, maskFaceSpans = 0, sampledVisibleCandidates = 0;
-                long scanStarted = sampled ? System.nanoTime() : 0;
+                long scanStarted = measureVisibility || measureMaskEnvelope
+                        ? System.nanoTime() : 0;
 
                 for (int b = 0; b < size; b++) {
                     int visible = this.visibleRows[(face * size + slice) * size + b];
                     while (visible != 0) {
-                        if (sampled) sampledVisibleCandidates++;
+                        if (measureVisibility) sampledVisibleCandidates++;
                         int a = Integer.numberOfTrailingZeros(visible);
                         visible &= visible - 1;
                         pos[axisN] = slice;
@@ -817,7 +856,7 @@ public class ChunkMesher {
                         int stateId = this.haloBlocks[haloIndex(x, y, z)];
                         FullCubeMeshStateTable.FaceSet gf = this.fullCubeFaces(stateId);
                         int worldY = baseY + y;
-                        long operationStarted = sampled ? System.nanoTime() : 0;
+                        long operationStarted = measureNeighbor ? System.nanoTime() : 0;
                         int rules = this.fullCubeStates.meshFlags[stateId];
                         if (rowMaskVisibility && (rules & (FullCubeMeshStateTable.CULL_SAME_EXCEPTION
                                 | FullCubeMeshStateTable.LEAVES_EXCEPTION)) != 0) {
@@ -826,15 +865,15 @@ public class ChunkMesher {
                                 this.profileExceptionNeighborStateReads++;
                             }
                             int neighborId = this.haloBlocks[haloIndex(x + offX, y + offY, z + offZ)];
-                            if (sampled) neighborSpans++;
+                            if (measureNeighbor) neighborSpans++;
                             boolean render = shouldRenderFace(gf.state, neighborId);
-                            if (sampled) neighborNanos += System.nanoTime() - operationStarted;
+                            if (measureNeighbor) neighborNanos += System.nanoTime() - operationStarted;
                             if (!render) continue;
                         }
 
                         this.statFullCubeFaces++;
                         if (this.profileOperations) this.profileVisibleFaces++;
-                        operationStarted = sampled ? System.nanoTime() : 0;
+                        operationStarted = measureSignature ? System.nanoTime() : 0;
                         BakedQuad overlay = gf.overlays == null ? null : gf.overlays[face];
                         BakedQuad quad = gf.quads[face];
                         boolean needsExactTint = quad.tintType() == BakedQuad.TINT_NONE
@@ -842,7 +881,7 @@ public class ChunkMesher {
                         if ((quad.tintType() == BakedQuad.TINT_GRASS && this.chunk.grassTintCorners == null)
                                 || (quad.tintType() == BakedQuad.TINT_FOLIAGE
                                 && this.chunk.foliageTintCorners == null)) needsExactTint = true;
-                        if (sampled) {
+                        if (measureSignature) {
                             signatureNanos += System.nanoTime() - operationStarted;
                             signatureSpans++;
                         }
@@ -851,7 +890,7 @@ public class ChunkMesher {
                                Positionen und dieselbe Diagonale verwenden. Eine grosse Compact-
                                Basis gegen einzelne Overlay-Quads ist zwar mathematisch koplanar,
                                liefert rasterisiert aber nicht garantiert identische Tiefenwerte. */
-                            operationStarted = sampled ? System.nanoTime() : 0;
+                            operationStarted = measureOverlay ? System.nanoTime() : 0;
                             this.suppressAxisCandidate = true;
                             this.emitQuad(this.buffers[RenderLayer.OPAQUE.ordinal()], quad,
                                     x, y, worldY, z, 0F, 0F);
@@ -860,44 +899,44 @@ public class ChunkMesher {
                             this.suppressAxisCandidate = false;
                             this.statOverlayFallbackFaces++;
                             if (this.profileOperations) this.profileOverlayFallbackFaces++;
-                            if (sampled) {
+                            if (measureOverlay) {
                                 overlayNanos += System.nanoTime() - operationStarted;
                                 overlaySpans++;
                             }
                             continue;
                         }
 
-                        operationStarted = sampled ? System.nanoTime() : 0;
+                        operationStarted = measureLight ? System.nanoTime() : 0;
                         this.profileOccluderContext = this.profileOperations ? 1 : 0;
                         this.computeCornerLight(quad, x, worldY, z, this.lightCorners);
                         this.profileOccluderContext = 0;
                         if (this.profileOperations) this.profileLightFaces++;
-                        if (sampled) {
+                        if (measureLight) {
                             lightNanos += System.nanoTime() - operationStarted;
                             lightSpans++;
                         }
 
                         if (this.ambientOcclusion) {
-                            operationStarted = sampled ? System.nanoTime() : 0;
+                            operationStarted = measureAo ? System.nanoTime() : 0;
                             this.profileOccluderContext = this.profileOperations ? 2 : 0;
                             this.computeAo(quad, x, worldY, z, this.aoCorners);
                             this.profileOccluderContext = 0;
                             if (this.profileOperations) this.profileAoFaces++;
-                            if (sampled) {
+                            if (measureAo) {
                                 aoNanos += System.nanoTime() - operationStarted;
                                 aoSpans++;
                             }
                         } else {
-                            operationStarted = sampled ? System.nanoTime() : 0;
+                            operationStarted = measureMask ? System.nanoTime() : 0;
                             Arrays.fill(this.aoCorners, 1F);
-                            if (sampled) {
+                            if (measureMask) {
                                 maskNanos += System.nanoTime() - operationStarted;
                                 maskSpans++;
                                 maskScanSpans++;
                             }
                         }
 
-                        operationStarted = sampled ? System.nanoTime() : 0;
+                        operationStarted = measureMask ? System.nanoTime() : 0;
                         int cell = b << ChunkSection.SHIFT | a;
                         int base = cell << 2;
                         boolean uniform = true;
@@ -923,7 +962,7 @@ public class ChunkMesher {
                         this.faceDiagonal[cell] = (byte) (shouldFlipForSmoothLighting(
                                 this.aoCorners, this.lightCorners) ? 1 : 0);
                         if (this.profileOperations) this.profileMaskCells++;
-                        if (sampled) {
+                        if (measureMask) {
                             maskNanos += System.nanoTime() - operationStarted;
                             maskFaceSpans++;
                         }
@@ -931,33 +970,41 @@ public class ChunkMesher {
                 }
 
                 if (sampled) {
-                    long scanNanos = System.nanoTime() - scanStarted;
-                    /* Der Fill liegt vor scanStarted; nur der Face-Anteil der Maskenzeit wird
-                       deshalb aus dem exklusiven Visibility-Rest entfernt. */
-                    long faceMaskOnly = maskNanos;
-                    long visibility = Math.max(0, scanNanos - neighborNanos - signatureNanos
-                            - lightNanos - aoNanos - faceMaskOnly - overlayNanos);
-                    profiler.record(FullCubePhase.BLOCK_FACE_VISIBILITY, visibility,
-                            sampledVisibleCandidates, 1 + neighborSpans + signatureSpans + lightSpans
-                                    + aoSpans + maskScanSpans + maskFaceSpans + overlaySpans);
-                    profiler.record(FullCubePhase.NEIGHBOR_LOOKUPS, neighborNanos,
-                            neighborSpans, neighborSpans);
-                    profiler.record(FullCubePhase.FACE_SIGNATURE_MATERIAL, signatureNanos,
-                            signatureSpans, signatureSpans);
-                    profiler.record(FullCubePhase.LIGHT_SAMPLING, lightNanos,
-                            lightSpans, lightSpans);
-                    profiler.record(FullCubePhase.CORNER_AO_SAMPLING, aoNanos,
-                            aoSpans, aoSpans);
-                    profiler.record(FullCubePhase.MASK_BUILD, maskNanos,
-                            maskFaceSpans, maskFaceSpans + maskSpans);
-                    profiler.record(FullCubePhase.OVERLAY_FALLBACK_EMISSION, overlayNanos,
-                            overlaySpans, overlaySpans);
+                    if (measureVisibility) {
+                        long scanNanos = System.nanoTime() - scanStarted;
+                        /* Der Fill liegt vor scanStarted; nur der Face-Anteil der Maskenzeit wird
+                           deshalb aus dem exklusiven Visibility-Rest entfernt. */
+                        long faceMaskOnly = maskNanos;
+                        long visibility = Math.max(0, scanNanos - neighborNanos - signatureNanos
+                                - lightNanos - aoNanos - faceMaskOnly - overlayNanos);
+                        profiler.record(FullCubePhase.BLOCK_FACE_VISIBILITY, visibility,
+                                sampledVisibleCandidates, 1 + neighborSpans + signatureSpans + lightSpans
+                                        + aoSpans + maskScanSpans + maskFaceSpans + overlaySpans);
+                    }
+                    if (measureNeighbor) profiler.record(FullCubePhase.NEIGHBOR_LOOKUPS,
+                            neighborNanos, neighborSpans, neighborSpans);
+                    if (measureSignature) profiler.record(FullCubePhase.FACE_SIGNATURE_MATERIAL,
+                            signatureNanos, signatureSpans, signatureSpans);
+                    if (measureLight) profiler.record(FullCubePhase.LIGHT_SAMPLING,
+                            lightNanos, lightSpans, lightSpans);
+                    if (measureAo) profiler.record(FullCubePhase.CORNER_AO_SAMPLING,
+                            aoNanos, aoSpans, aoSpans);
+                    if (measureMask) profiler.record(FullCubePhase.MASK_BUILD,
+                            maskNanos, maskFaceSpans, maskFaceSpans + maskSpans);
+                    if (measureOverlay) profiler.record(FullCubePhase.OVERLAY_FALLBACK_EMISSION,
+                            overlayNanos, overlaySpans, overlaySpans);
+                }
+
+                if (measureMaskEnvelope) {
+                    maskEnvelopeNanos += System.nanoTime() - scanStarted;
+                    maskEnvelopeSpans++;
                 }
 
                 long compatibilityBefore = this.profileCompatibilityNanos;
                 long compatibilitySpansBefore = this.profileCompatibilitySpans;
                 long emissionNanos = 0, emissionSpans = 0, sampledRoots = 0;
-                long greedyStarted = sampled ? System.nanoTime() : 0;
+                long greedyStarted = measureGreedy || measureGreedyEnvelope
+                        ? System.nanoTime() : 0;
 
                 for (int b = 0; b < size; b++) {
                     for (int a = 0; a < size; a++) {
@@ -966,7 +1013,7 @@ public class ChunkMesher {
                         if (shadingClass < 0) continue;
                         int stateId = this.faceState[cell];
                         if (this.profileOperations) this.profileRectangleRoots++;
-                        if (sampled) sampledRoots++;
+                        if (measureGreedy) sampledRoots++;
 
                         int diagonal = this.faceDiagonal[cell];
                         this.acceptedSinglePlaneValid = false;
@@ -1004,7 +1051,7 @@ public class ChunkMesher {
                             h++;
                         }
 
-                        long emissionStarted = sampled ? System.nanoTime() : 0;
+                        long emissionStarted = measureEmission ? System.nanoTime() : 0;
                         this.emitCompactQuad(stateId, face, slice, a, b, w, h,
                                 shadingClass, diagonal != 0);
                         if (this.profileOperations) {
@@ -1015,7 +1062,7 @@ public class ChunkMesher {
                                 default -> 24;
                             };
                         }
-                        if (sampled) {
+                        if (measureEmission) {
                             emissionNanos += System.nanoTime() - emissionStarted;
                             emissionSpans++;
                         }
@@ -1041,19 +1088,34 @@ public class ChunkMesher {
                     }
                 }
                 if (sampled) {
-                    long greedyTotal = System.nanoTime() - greedyStarted;
-                    long compatibilityNanos = this.profileCompatibilityNanos - compatibilityBefore;
-                    long compatibilitySpans = this.profileCompatibilitySpans - compatibilitySpansBefore;
-                    profiler.record(FullCubePhase.GREEDY_RECTANGLE_SEARCH,
-                            Math.max(0, greedyTotal - compatibilityNanos - emissionNanos),
-                            sampledRoots, 1 + compatibilitySpans + emissionSpans);
-                    profiler.record(FullCubePhase.SHADING_DIAGONAL_COMPATIBILITY,
-                            compatibilityNanos, compatibilitySpans, compatibilitySpans);
-                    profiler.record(FullCubePhase.PACKED_QUAD_EMISSION,
+                    if (measureGreedy) {
+                        long greedyTotal = System.nanoTime() - greedyStarted;
+                        profiler.record(FullCubePhase.GREEDY_RECTANGLE_SEARCH,
+                                Math.max(0, greedyTotal), sampledRoots, 1);
+                    }
+                    if (measureCompatibility) {
+                        long compatibilityNanos = this.profileCompatibilityNanos - compatibilityBefore;
+                        long compatibilitySpans = this.profileCompatibilitySpans - compatibilitySpansBefore;
+                        profiler.record(FullCubePhase.SHADING_DIAGONAL_COMPATIBILITY,
+                                compatibilityNanos, compatibilitySpans, compatibilitySpans);
+                    }
+                    if (measureEmission) profiler.record(FullCubePhase.PACKED_QUAD_EMISSION,
                             emissionNanos, emissionSpans, emissionSpans);
+                }
+                if (measureGreedyEnvelope) {
+                    greedyEnvelopeNanos += System.nanoTime() - greedyStarted;
+                    greedyEnvelopeSpans++;
                 }
                 this.profileSampledSlice = false;
             }
+        }
+        if (profileMaskEnvelope) {
+            profiler.recordSection(FullCubePhase.MASK_SCAN_ENVELOPE,
+                    maskEnvelopeNanos, 0L, maskEnvelopeSpans);
+        }
+        if (profileGreedyEnvelope) {
+            profiler.recordSection(FullCubePhase.GREEDY_ENVELOPE,
+                    greedyEnvelopeNanos, 0L, greedyEnvelopeSpans);
         }
     }
 

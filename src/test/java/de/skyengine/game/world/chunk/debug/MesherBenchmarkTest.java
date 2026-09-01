@@ -5,9 +5,22 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class MesherBenchmarkTest {
+
+    @Test
+    void benchmarkModesKeepBaselineAndDiagnosticsSeparate() {
+        assertFalse(MesherBenchmark.Mode.BASELINE.includesDetail());
+        assertFalse(MesherBenchmark.Mode.BASELINE.includesOperations());
+        assertTrue(MesherBenchmark.Mode.DETAIL.includesDetail());
+        assertFalse(MesherBenchmark.Mode.DETAIL.includesOperations());
+        assertFalse(MesherBenchmark.Mode.OPERATIONS.includesDetail());
+        assertTrue(MesherBenchmark.Mode.OPERATIONS.includesOperations());
+        assertTrue(MesherBenchmark.Mode.ALL.includesDetail());
+        assertTrue(MesherBenchmark.Mode.ALL.includesOperations());
+    }
     @Test
     void timingSummaryUsesDeterministicMedianAndP95() {
         Map<String, Object> summary = MesherBenchmark.summarizeNanos(

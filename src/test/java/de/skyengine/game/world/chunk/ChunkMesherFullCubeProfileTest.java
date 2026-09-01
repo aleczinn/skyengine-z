@@ -120,6 +120,23 @@ final class ChunkMesherFullCubeProfileTest {
         }
     }
 
+    @Test
+    void isolatedProfilerMeasuresOnlySelectedEnvelope() {
+        Chunk chunk = new Chunk(0, 0);
+        chunk.setBlock(8, 10, 8, Blocks.STONE);
+        ChunkMesher.MeshData baseline = new ChunkMesher().mesh(
+                chunk, 0, null, null, null, null, new Chunk[4]);
+        SelectiveProfile profile = new SelectiveProfile(
+                ChunkMesher.FullCubePhase.MASK_SCAN_ENVELOPE);
+        ChunkMesher.MeshData measured = new ChunkMesher(null, profile).mesh(
+                chunk, 0, null, null, null, null, new Chunk[4]);
+
+        assertMeshEquals(baseline, measured);
+        assertEquals(1, profile.samples.getOrDefault(
+                ChunkMesher.FullCubePhase.MASK_SCAN_ENVELOPE, 0L));
+        assertEquals(1, profile.samples.size());
+    }
+
     private static void assertMeshEquals(ChunkMesher.MeshData expected,
                                          ChunkMesher.MeshData actual) {
         assertArrayEquals(expected.opaque, actual.opaque);
@@ -150,5 +167,24 @@ final class ChunkMesherFullCubeProfileTest {
         @Override public void recordOperations(ChunkMesher.FullCubeOperations operations) {
             this.operations = operations;
         }
+    }
+
+    private static final class SelectiveProfile implements ChunkMesher.FullCubeProfileRecorder {
+        final ChunkMesher.FullCubePhase target;
+        final Map<ChunkMesher.FullCubePhase, Long> samples =
+                new EnumMap<>(ChunkMesher.FullCubePhase.class);
+
+        SelectiveProfile(ChunkMesher.FullCubePhase target) { this.target = target; }
+        @Override public boolean enabled() { return true; }
+        @Override public boolean collectOperations() { return false; }
+        @Override public boolean measures(ChunkMesher.FullCubePhase phase) {
+            return phase == this.target;
+        }
+        @Override public boolean sampleSlice(int face, int slice) { return true; }
+        @Override public void record(ChunkMesher.FullCubePhase phase, long nanos,
+                                     long operations, long spans) {
+            this.samples.merge(phase, 1L, Long::sum);
+        }
+        @Override public void recordOperations(ChunkMesher.FullCubeOperations operations) {}
     }
 }

@@ -9,6 +9,8 @@ import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkMesher;
 
 import java.io.File;
+import jdk.jfr.Configuration;
+import jdk.jfr.Recording;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
@@ -29,6 +31,13 @@ public final class MesherBenchmark {
     private static final int DEFAULT_DETAIL_SAMPLE_STRIDE = 64;
     private static volatile long blackhole;
 
+    enum Mode {
+        BASELINE, DETAIL, OPERATIONS, ALL;
+
+        boolean includesDetail() { return this == DETAIL || this == ALL; }
+        boolean includesOperations() { return this == OPERATIONS || this == ALL; }
+    }
+
     private MesherBenchmark() {}
 
     public static void main(String[] args) throws Exception {
@@ -38,6 +47,8 @@ public final class MesherBenchmark {
         int detailIterations = positiveProperty("meshBench.detailIterations", DEFAULT_DETAIL_ITERATIONS);
         int detailSampleStride = positiveProperty("meshBench.fullCubeSampleStride",
                 DEFAULT_DETAIL_SAMPLE_STRIDE);
+        Mode mode = Mode.valueOf(System.getProperty("meshBench.mode", "ALL")
+                .trim().toUpperCase(Locale.ROOT));
         ChunkMesher.VisibilityPath visibilityPath = ChunkMesher.VisibilityPath.valueOf(
                 System.getProperty("meshBench.visibilityPath", "ROW_MASK")
                         .trim().toUpperCase(Locale.ROOT));
@@ -54,26 +65,33 @@ public final class MesherBenchmark {
                 new Scenario("generated-no-ao", generated, allChunks(), false),
                 new Scenario("full-cube-best-case", MesherFixture.solidFullCube(), new int[]{4}, true),
                 new Scenario("mixed-models", MesherFixture.mixedModels(), new int[]{4}, true));
+        Recording recording = startJfrRecording();
 
         Map<String, Object> report = new LinkedHashMap<>();
-        report.put("schemaVersion", 3);
+        report.put("schemaVersion", 4);
         report.put("createdUtc", Instant.now().toString());
         report.put("label", System.getProperty("meshBench.label", ""));
         report.put("environment", environment());
-        report.put("config", Map.of("warmups", warmups, "iterations", iterations,
-                "detailIterations", detailIterations, "fullCubeSampleStride", detailSampleStride,
-                "timerOverheadNanos", timerOverheadNanos,
-                "seed", MesherFixture.SEED, "threads", 1,
-                "visibilityPath", visibilityPath.name()));
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("mode", mode.name());
+        config.put("warmups", warmups);
+        config.put("iterations", iterations);
+        config.put("detailIterations", detailIterations);
+        config.put("fullCubeSampleStride", detailSampleStride);
+        config.put("timerOverheadNanos", timerOverheadNanos);
+        config.put("seed", MesherFixture.SEED);
+        config.put("threads", 1);
+        config.put("visibilityPath", visibilityPath.name());
+        report.put("config", config);
         List<Map<String, Object>> results = new ArrayList<>();
         report.put("scenarios", results);
 
         System.out.printf(Locale.ROOT,
-                "L0 mesh benchmark: warmups=%d iterations=%d thread=1 visibility=%s%n",
-                warmups, iterations, visibilityPath);
+                "L0 mesh benchmark: mode=%s warmups=%d iterations=%d thread=1 visibility=%s%n",
+                mode, warmups, iterations, visibilityPath);
         for (Scenario scenario : scenarios) {
             Map<String, Object> result = run(scenario, warmups, iterations, detailIterations,
-                    detailSampleStride, timerOverheadNanos, visibilityPath);
+                    detailSampleStride, timerOverheadNanos, visibilityPath, mode);
             results.add(result);
             print(result);
         }
@@ -82,13 +100,29 @@ public final class MesherBenchmark {
         java.nio.file.Files.createDirectories(output.toAbsolutePath().getParent());
         java.nio.file.Files.writeString(output, serializeReport(report) + System.lineSeparator(),
                 StandardCharsets.UTF_8);
+        if (recording != null) {
+            recording.stop();
+            recording.close();
+        }
         System.out.println("JSON: " + output.toAbsolutePath());
+    }
+
+    private static Recording startJfrRecording() throws Exception {
+        String configured = System.getProperty("meshBench.jfrOutput", "").trim();
+        if (configured.isEmpty()) return null;
+        Path destination = Path.of(configured).toAbsolutePath();
+        java.nio.file.Files.createDirectories(destination.getParent());
+        Recording recording = new Recording(Configuration.getConfiguration("profile"));
+        recording.setName("L0 Mesher Benchmark");
+        recording.setDestination(destination);
+        recording.start();
+        return recording;
     }
 
     private static Map<String, Object> run(Scenario scenario, int warmups, int iterations,
                                            int detailIterations, int detailSampleStride,
                                            long timerOverheadNanos,
-                                           ChunkMesher.VisibilityPath visibilityPath) {
+                                           ChunkMesher.VisibilityPath visibilityPath, Mode mode) {
         GameSettings.get().ambientOcclusion = scenario.ambientOcclusion;
         PhaseCollector phases = new PhaseCollector();
         ChunkMesher mesher = new ChunkMesher(phases, null, visibilityPath);
@@ -132,16 +166,28 @@ public final class MesherBenchmark {
                 "sectionsPerSecond", sectionCalls * 1_000_000_000.0 / meshElapsed,
                 "chunksPerSecond", chunkTimes.size * 1_000_000_000.0 / meshElapsed));
         result.put("phases", phases.report(sectionCalls));
-        result.put("allocatedBytesPerSection", allocatedBefore >= 0 && allocatedAfter >= allocatedBefore
-                ? (allocatedAfter - allocatedBefore) / (double) sectionCalls : null);
+        long allocatedBytes = allocatedBefore >= 0 && allocatedAfter >= allocatedBefore
+                ? allocatedAfter - allocatedBefore : -1L;
+        int nonEmptyCalls = nonEmptyTimes.size;
+        result.put("allocatedBytesPerSection", allocatedBytes < 0
+                ? null : allocatedBytes / (double) sectionCalls);
+        result.put("allocatedBytesPerNonEmptySection", allocatedBytes < 0 || nonEmptyCalls == 0
+                ? null : allocatedBytes / (double) nonEmptyCalls);
         result.put("gcCollections", gcAfter.collections - gcBefore.collections);
         result.put("gcTimeMs", gcAfter.timeMillis - gcBefore.timeMillis);
-        result.put("mesh", lastMetrics == null ? Map.of() : lastMetrics.report());
-        result.put("fullCubeDetail", runDetailed(scenario, warmups, detailIterations,
-                detailSampleStride, timerOverheadNanos, phases.meanWhenExecuted(
-                        ChunkMesher.MeshPhase.FULL_CUBE_GREEDY),
-                lastMetrics == null ? "" : lastMetrics.hashText(),
-                lastMetrics == null ? 0L : lastMetrics.cornerQuads, visibilityPath));
+        Map<String, Object> meshReport = lastMetrics == null ? Map.of() : lastMetrics.report();
+        result.put("mesh", meshReport);
+        if (mode.includesDetail()) {
+            result.put("fullCubeDetail", runDetailed(scenario, warmups, detailIterations,
+                    detailSampleStride, timerOverheadNanos, phases.medianWhenExecuted(
+                            ChunkMesher.MeshPhase.FULL_CUBE_GREEDY),
+                    lastMetrics == null ? "" : lastMetrics.hashText(), visibilityPath));
+        }
+        if (mode.includesOperations()) {
+            result.put("fullCubeOperations", runOperations(scenario, warmups,
+                    lastMetrics == null ? "" : lastMetrics.hashText(),
+                    lastMetrics == null ? 0L : lastMetrics.cornerQuads, visibilityPath));
+        }
         return result;
     }
 
@@ -149,25 +195,38 @@ public final class MesherBenchmark {
                                                     int sampleStride, long timerOverheadNanos,
                                                     double coarseFullCubeMeanMs,
                                                     String baselineHash,
-                                                    long cornerQuads,
                                                     ChunkMesher.VisibilityPath visibilityPath) {
-        DetailCollector detail = new DetailCollector(sampleStride, timerOverheadNanos);
-        ChunkMesher mesher = new ChunkMesher(null, detail, visibilityPath);
-        for (int i = 0; i < warmups; i++) meshRound(mesher, scenario, null, null, null);
-
-        detail.active = true;
-        detail.collectOperations = true;
-        meshRound(mesher, scenario, null, null, null);
-        detail.collectOperations = false;
-        Metrics lastMetrics = null;
-        for (int i = 0; i < iterations; i++) {
-            Metrics metrics = new Metrics();
-            meshRound(mesher, scenario, null, null, new RoundState(metrics, null, null));
-            lastMetrics = metrics;
+        IsolatedDetailReport report = new IsolatedDetailReport(sampleStride,
+                timerOverheadNanos, coarseFullCubeMeanMs, baselineHash,
+                scenario.name.startsWith("generated-") ? 15.0 : 20.0);
+        for (ChunkMesher.FullCubePhase phase : IsolatedDetailReport.MEASURED_PHASES) {
+            DetailCollector detail = new DetailCollector(phase, sampleStride, timerOverheadNanos);
+            ChunkMesher mesher = new ChunkMesher(null, detail, visibilityPath);
+            for (int i = 0; i < warmups; i++) meshRound(mesher, scenario, null, null, null);
+            detail.active = true;
+            Metrics lastMetrics = null;
+            for (int i = 0; i < iterations; i++) {
+                Metrics metrics = new Metrics();
+                meshRound(mesher, scenario, null, null, new RoundState(metrics, null, null));
+                lastMetrics = metrics;
+            }
+            detail.active = false;
+            report.add(detail, lastMetrics == null ? "" : lastMetrics.hashText());
         }
-        detail.active = false;
-        String detailHash = lastMetrics == null ? "" : lastMetrics.hashText();
-        return detail.report(coarseFullCubeMeanMs, baselineHash, detailHash, cornerQuads);
+        return report.report();
+    }
+
+    private static Map<String, Object> runOperations(Scenario scenario, int warmups,
+                                                      String baselineHash, long cornerQuads,
+                                                      ChunkMesher.VisibilityPath visibilityPath) {
+        OperationsCollector collector = new OperationsCollector();
+        ChunkMesher mesher = new ChunkMesher(null, collector, visibilityPath);
+        for (int i = 0; i < warmups; i++) meshRound(mesher, scenario, null, null, null);
+        collector.active = true;
+        Metrics metrics = new Metrics();
+        meshRound(mesher, scenario, null, null, new RoundState(metrics, null, null));
+        collector.active = false;
+        return collector.report(cornerQuads, baselineHash, metrics.hashText());
     }
 
     private static void meshRound(ChunkMesher mesher, Scenario scenario, LongList sectionTimes,
@@ -249,10 +308,12 @@ public final class MesherBenchmark {
         Map<String, Object> detail = (Map<String, Object>) result.get("fullCubeDetail");
         if (detail == null) return;
         List<Map<String, Object>> ranked = (List<Map<String, Object>>) detail.get("rankedPhases");
+        Map<String, Object> reconciliation =
+                (Map<String, Object>) detail.get("reconciliation");
         System.out.printf(Locale.ROOT,
-                "  full-cube detail: estimated=%.3f ms coarse=%.3f ms delta=%+.1f%% hash=%s%n",
-                ((Number) detail.get("estimatedMsPerNonEmptySection")).doubleValue(),
-                ((Number) detail.get("coarseMeanMsWhenExecuted")).doubleValue(),
+                "  isolated detail: envelopes=%.3f ms coarse=%.3f ms delta=%+.1f%% hash=%s%n",
+                ((Number) reconciliation.get("isolatedEnvelopeTotalMs")).doubleValue(),
+                ((Number) reconciliation.get("coarseFullCubeMedianMs")).doubleValue(),
                 ((Number) detail.get("attributionDeltaPercent")).doubleValue(),
                 Boolean.TRUE.equals(detail.get("meshHashMatches")) ? "ok" : "MISMATCH");
         for (int i = 0; i < Math.min(5, ranked.size()); i++) {
@@ -263,9 +324,8 @@ public final class MesherBenchmark {
                     ((Number) phase.get("sharePercent")).doubleValue());
         }
         if (Boolean.TRUE.equals(detail.get("attributionWarning"))) {
-            System.out.println("    WARNING: detailed attribution differs by more than 15% from coarse timing");
+            System.out.println("    WARNING: detail attribution is not eligible for optimization decisions");
         }
-        System.out.println("    next: " + detail.get("recommendedNextStep"));
     }
 
     private static String number(Object value) {
@@ -276,7 +336,9 @@ public final class MesherBenchmark {
         Runtime runtime = Runtime.getRuntime();
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("javaVersion", System.getProperty("java.version"));
+        map.put("javaVendor", System.getProperty("java.vendor"));
         map.put("vm", System.getProperty("java.vm.name"));
+        map.put("jvmArguments", ManagementFactory.getRuntimeMXBean().getInputArguments());
         map.put("os", System.getProperty("os.name") + " " + System.getProperty("os.version"));
         map.put("architecture", System.getProperty("os.arch"));
         map.put("processors", runtime.availableProcessors());
@@ -382,70 +444,271 @@ public final class MesherBenchmark {
                         total / (double) sectionCalls / 1_000_000.0);
                 values.put("meanMsWhenExecuted",
                         count == 0 ? 0 : total / (double) count / 1_000_000.0);
-                report.put(phase.name(), values);
+                String reportName = switch (phase) {
+                    case WATER_GREEDY -> "WATER";
+                    case FINALIZE_AND_COPY -> "OUTPUT_COPY";
+                    default -> phase.name();
+                };
+                report.put(reportName, values);
             }
             return report;
         }
-        double meanWhenExecuted(ChunkMesher.MeshPhase phase) {
-            long count = this.samples[phase.ordinal()];
-            return count == 0 ? 0.0 : this.nanos[phase.ordinal()] / (double) count / 1_000_000.0;
+        double medianWhenExecuted(ChunkMesher.MeshPhase phase) {
+            LongList values = this.distributions[phase.ordinal()];
+            if (values.size == 0) return 0.0;
+            return ((Number) summary(values).get("medianMs")).doubleValue();
         }
     }
 
     private static final class DetailCollector implements ChunkMesher.FullCubeProfileRecorder {
         private static final int SLICES_PER_SECTION = 6 * 32;
-
+        private final ChunkMesher.FullCubePhase target;
         private final int sampleStride;
         private final long timerOverheadNanos;
-        private final long[] nanos = new long[ChunkMesher.FullCubePhase.values().length];
-        private final long[] sampledOperations = new long[nanos.length];
-        private final long[] spans = new long[nanos.length];
-        private final long[] sectionNanos = new long[nanos.length];
-        private final long[] sectionOperations = new long[nanos.length];
-        private final long[] sectionSpans = new long[nanos.length];
-        private final long[] sectionPhaseSamples = new long[nanos.length];
-        private final long[] operations = new long[48];
-        private final long[] compatibilityCellHistogram = new long[2049];
-        private long sliceCursor, totalSlices, sampledSlices, sections;
-        private boolean active, collectOperations;
+        private long nanos, operations, spans, sectionNanos, sectionOperations, sectionSpans;
+        private long sectionSamples, sliceCursor, totalSlices, sampledSlices;
+        private final LongList sectionDistribution = new LongList(1024);
+        private boolean active;
 
-        DetailCollector(int sampleStride, long timerOverheadNanos) {
+        DetailCollector(ChunkMesher.FullCubePhase target, int sampleStride,
+                        long timerOverheadNanos) {
+            this.target = target;
             this.sampleStride = sampleStride;
             this.timerOverheadNanos = timerOverheadNanos;
         }
 
         @Override public boolean enabled() { return this.active; }
-
-        @Override public boolean collectOperations() { return this.collectOperations; }
-
+        @Override public boolean collectOperations() { return false; }
+        @Override public boolean measures(ChunkMesher.FullCubePhase phase) {
+            return phase == this.target;
+        }
         @Override public boolean sampleSlice(int face, int slice) {
-            if (this.collectOperations) return false;
             this.totalSlices++;
-            boolean sampled = sampledSlice(this.sliceCursor, this.sampleStride);
+            boolean envelope = this.target == ChunkMesher.FullCubePhase.MASK_SCAN_ENVELOPE
+                    || this.target == ChunkMesher.FullCubePhase.GREEDY_ENVELOPE;
+            boolean sampled = envelope || sampledSlice(this.sliceCursor, this.sampleStride);
             this.sliceCursor++;
             if (sampled) this.sampledSlices++;
             return sampled;
         }
-
         @Override public void record(ChunkMesher.FullCubePhase phase, long elapsed,
                                      long operations, long spans) {
-            int index = phase.ordinal();
-            long overhead = multiplySaturated(this.timerOverheadNanos, spans);
-            this.nanos[index] += Math.max(0, elapsed - overhead);
-            this.sampledOperations[index] += operations;
-            this.spans[index] += spans;
+            if (phase != this.target) return;
+            this.nanos += corrected(elapsed, spans);
+            this.operations += operations;
+            this.spans += spans;
         }
-
         @Override public void recordSection(ChunkMesher.FullCubePhase phase, long elapsed,
                                             long operations, long spans) {
-            int index = phase.ordinal();
-            long overhead = multiplySaturated(this.timerOverheadNanos, spans);
-            this.sectionNanos[index] += Math.max(0, elapsed - overhead);
-            this.sectionOperations[index] += operations;
-            this.sectionSpans[index] += spans;
-            this.sectionPhaseSamples[index]++;
+            if (phase != this.target) return;
+            this.sectionNanos += corrected(elapsed, spans);
+            this.sectionOperations += operations;
+            this.sectionSpans += spans;
+            this.sectionSamples++;
+            this.sectionDistribution.add(corrected(elapsed, spans));
+        }
+        @Override public void recordOperations(ChunkMesher.FullCubeOperations operations) {}
+
+        Map<String, Object> measurement() {
+            boolean sectionTimed = this.sectionSamples != 0;
+            long measuredNanos = sectionTimed ? this.sectionNanos : this.nanos;
+            long measuredOperations = sectionTimed ? this.sectionOperations : this.operations;
+            long measuredSpans = sectionTimed ? this.sectionSpans : this.spans;
+            Map<String, Object> sectionTiming = sectionTimed
+                    ? summary(this.sectionDistribution) : Map.of();
+            double estimate = sectionTimed
+                    ? ((Number) sectionTiming.get("medianMs")).doubleValue()
+                    : this.sampledSlices == 0 ? 0.0
+                    : measuredNanos / (double) this.sampledSlices
+                    * SLICES_PER_SECTION / 1_000_000.0;
+            Map<String, Object> values = new LinkedHashMap<>();
+            boolean fullSliceCoverage = this.sampledSlices == this.totalSlices
+                    && this.totalSlices != 0;
+            values.put("source", sectionTimed ? "section"
+                    : fullSliceCoverage ? "all-slices" : "sampled-slice");
+            values.put("correctedSampledNanos", measuredNanos);
+            values.put("sampledOperations", measuredOperations);
+            values.put("timerSpans", measuredSpans);
+            values.put("totalSlices", this.totalSlices);
+            values.put("sampledSlices", this.sampledSlices);
+            values.put("sectionSamples", this.sectionSamples);
+            if (sectionTimed) values.put("sectionTiming", sectionTiming);
+            values.put("nanosPerSampledOperation", measuredOperations == 0 ? 0.0
+                    : measuredNanos / (double) measuredOperations);
+            values.put("estimatedMsPerNonEmptySection", estimate);
+            return values;
         }
 
+        double estimateMs() {
+            return ((Number) measurement().get("estimatedMsPerNonEmptySection")).doubleValue();
+        }
+
+        private long corrected(long elapsed, long spans) {
+            return Math.max(0L, elapsed - multiplySaturated(this.timerOverheadNanos, spans));
+        }
+    }
+
+    private static final class IsolatedDetailReport {
+        static final List<ChunkMesher.FullCubePhase> MEASURED_PHASES = List.of(
+                ChunkMesher.FullCubePhase.STATE_CLASSIFICATION,
+                ChunkMesher.FullCubePhase.VISIBILITY_WORD_DERIVATION,
+                ChunkMesher.FullCubePhase.MASK_SCAN_ENVELOPE,
+                ChunkMesher.FullCubePhase.NEIGHBOR_LOOKUPS,
+                ChunkMesher.FullCubePhase.FACE_SIGNATURE_MATERIAL,
+                ChunkMesher.FullCubePhase.LIGHT_SAMPLING,
+                ChunkMesher.FullCubePhase.CORNER_AO_SAMPLING,
+                ChunkMesher.FullCubePhase.MASK_BUILD,
+                ChunkMesher.FullCubePhase.OVERLAY_FALLBACK_EMISSION,
+                ChunkMesher.FullCubePhase.GREEDY_ENVELOPE,
+                ChunkMesher.FullCubePhase.SHADING_DIAGONAL_COMPATIBILITY,
+                ChunkMesher.FullCubePhase.PACKED_QUAD_EMISSION);
+
+        private final int sampleStride;
+        private final long timerOverheadNanos;
+        private final double coarseMeanMs;
+        private final String baselineHash;
+        private final double attributionThresholdPercent;
+        private final Map<ChunkMesher.FullCubePhase, DetailCollector> measurements =
+                new java.util.EnumMap<>(ChunkMesher.FullCubePhase.class);
+        private final List<String> detailHashes = new ArrayList<>();
+
+        IsolatedDetailReport(int sampleStride, long timerOverheadNanos,
+                             double coarseMeanMs, String baselineHash,
+                             double attributionThresholdPercent) {
+            this.sampleStride = sampleStride;
+            this.timerOverheadNanos = timerOverheadNanos;
+            this.coarseMeanMs = coarseMeanMs;
+            this.baselineHash = baselineHash;
+            this.attributionThresholdPercent = attributionThresholdPercent;
+        }
+
+        void add(DetailCollector collector, String detailHash) {
+            this.measurements.put(collector.target, collector);
+            this.detailHashes.add(detailHash);
+        }
+
+        Map<String, Object> report() {
+            Map<String, Object> raw = new LinkedHashMap<>();
+            for (ChunkMesher.FullCubePhase phase : MEASURED_PHASES) {
+                raw.put(phase.name(), this.measurements.get(phase).measurement());
+            }
+
+            double state = estimate(ChunkMesher.FullCubePhase.STATE_CLASSIFICATION);
+            double words = estimate(ChunkMesher.FullCubePhase.VISIBILITY_WORD_DERIVATION);
+            double maskEnvelope = estimate(ChunkMesher.FullCubePhase.MASK_SCAN_ENVELOPE);
+            double neighbor = estimate(ChunkMesher.FullCubePhase.NEIGHBOR_LOOKUPS);
+            double signature = estimate(ChunkMesher.FullCubePhase.FACE_SIGNATURE_MATERIAL);
+            double light = estimate(ChunkMesher.FullCubePhase.LIGHT_SAMPLING);
+            double ao = estimate(ChunkMesher.FullCubePhase.CORNER_AO_SAMPLING);
+            double mask = estimate(ChunkMesher.FullCubePhase.MASK_BUILD);
+            double overlay = estimate(ChunkMesher.FullCubePhase.OVERLAY_FALLBACK_EMISSION);
+            double greedyEnvelope = estimate(ChunkMesher.FullCubePhase.GREEDY_ENVELOPE);
+            double compatibility = estimate(ChunkMesher.FullCubePhase.SHADING_DIAGONAL_COMPATIBILITY);
+            double emission = estimate(ChunkMesher.FullCubePhase.PACKED_QUAD_EMISSION);
+            double visibility = maskEnvelope - neighbor - signature - light - ao - mask - overlay;
+            double rectangle = greedyEnvelope - compatibility - emission;
+            double envelopeTotal = state + words + maskEnvelope + greedyEnvelope;
+            double control = this.coarseMeanMs - envelopeTotal;
+
+            Map<String, Object> phases = new LinkedHashMap<>();
+            putPhase(phases, "STATE_CLASSIFICATION", state, "direct", true);
+            putPhase(phases, "VISIBILITY_WORD_DERIVATION", words, "direct", true);
+            putPhase(phases, "BLOCK_FACE_VISIBILITY", visibility, "mask-envelope-residual",
+                    visibility >= 0.0);
+            putPhase(phases, "NEIGHBOR_LOOKUPS", neighbor, "direct", true);
+            putPhase(phases, "FACE_SIGNATURE_MATERIAL", signature, "direct", true);
+            putPhase(phases, "LIGHT_SAMPLING", light, "direct", true);
+            putPhase(phases, "CORNER_AO_SAMPLING", ao, "direct", true);
+            putPhase(phases, "MASK_BUILD", mask, "direct", true);
+            putPhase(phases, "GREEDY_RECTANGLE_SEARCH", rectangle, "greedy-envelope-residual",
+                    rectangle >= 0.0);
+            putPhase(phases, "SHADING_DIAGONAL_COMPATIBILITY", compatibility, "direct", true);
+            putPhase(phases, "PACKED_QUAD_EMISSION", emission, "direct", true);
+            putPhase(phases, "OVERLAY_FALLBACK_EMISSION", overlay, "direct", true);
+            putPhase(phases, "CONTROL_OVERHEAD", control, "coarse-envelope-residual",
+                    control >= 0.0);
+
+            List<Map<String, Object>> ranked = new ArrayList<>();
+            for (Map.Entry<String, Object> entry : phases.entrySet()) {
+                @SuppressWarnings("unchecked") Map<String, Object> values =
+                        (Map<String, Object>) entry.getValue();
+                double value = ((Number) values.get("estimatedMsPerNonEmptySection")).doubleValue();
+                if (value < 0.0) continue;
+                Map<String, Object> rank = new LinkedHashMap<>();
+                rank.put("phase", entry.getKey());
+                rank.put("estimatedMsPerNonEmptySection", value);
+                rank.put("sharePercent", this.coarseMeanMs == 0.0 ? 0.0
+                        : value * 100.0 / this.coarseMeanMs);
+                ranked.add(rank);
+            }
+            ranked.sort((a, b) -> Double.compare(
+                    ((Number) b.get("estimatedMsPerNonEmptySection")).doubleValue(),
+                    ((Number) a.get("estimatedMsPerNonEmptySection")).doubleValue()));
+
+            double deltaPercent = this.coarseMeanMs == 0.0 ? 0.0
+                    : (envelopeTotal - this.coarseMeanMs) * 100.0 / this.coarseMeanMs;
+            boolean hashMatches = this.detailHashes.stream().allMatch(this.baselineHash::equals);
+            Map<String, Object> reconciliation = new LinkedHashMap<>();
+            reconciliation.put("coarseFullCubeMedianMs", this.coarseMeanMs);
+            reconciliation.put("isolatedEnvelopeTotalMs", envelopeTotal);
+            reconciliation.put("residualMs", control);
+            reconciliation.put("deltaPercent", deltaPercent);
+            boolean validResiduals = visibility >= 0.0 && rectangle >= 0.0 && control >= 0.0;
+            boolean decisionEligible = hashMatches && validResiduals
+                    && Math.abs(deltaPercent) <= this.attributionThresholdPercent;
+            reconciliation.put("thresholdPercent", this.attributionThresholdPercent);
+            reconciliation.put("validResiduals", validResiduals);
+            reconciliation.put("decisionEligible", decisionEligible);
+            reconciliation.put("warning", !decisionEligible);
+
+            Map<String, Object> report = new LinkedHashMap<>();
+            report.put("method", "isolated-phase-rotating-slice-sampling");
+            report.put("sampleStride", this.sampleStride);
+            report.put("timerOverheadNanos", this.timerOverheadNanos);
+            report.put("rawMeasurements", raw);
+            report.put("envelopes", Map.of(
+                    "MASK_SCAN_ENVELOPE", maskEnvelope,
+                    "GREEDY_ENVELOPE", greedyEnvelope));
+            report.put("phases", phases);
+            report.put("rankedPhases", ranked);
+            report.put("reconciliation", reconciliation);
+            report.put("attributionDeltaPercent", deltaPercent);
+            report.put("attributionWarning", reconciliation.get("warning"));
+            report.put("baselineMeshHash", this.baselineHash);
+            report.put("detailMeshHashes", this.detailHashes);
+            report.put("meshHashMatches", hashMatches);
+            report.put("decisionEligible", decisionEligible);
+            report.put("dominantMeasuredPhase", ranked.isEmpty() ? "NONE"
+                    : ranked.getFirst().get("phase"));
+            return report;
+        }
+
+        private double estimate(ChunkMesher.FullCubePhase phase) {
+            return this.measurements.get(phase).estimateMs();
+        }
+
+        private static void putPhase(Map<String, Object> phases, String name, double value,
+                                     String source, boolean valid) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("estimatedMsPerNonEmptySection", value);
+            row.put("source", source);
+            row.put("valid", valid);
+            phases.put(name, row);
+        }
+    }
+
+    private static final class OperationsCollector implements ChunkMesher.FullCubeProfileRecorder {
+        private final long[] operations = new long[48];
+        private final long[] compatibilityCellHistogram = new long[2049];
+        private long sections;
+        private boolean active;
+
+        @Override public boolean enabled() { return this.active; }
+        @Override public boolean collectOperations() { return true; }
+        @Override public boolean measures(ChunkMesher.FullCubePhase phase) { return false; }
+        @Override public boolean sampleSlice(int face, int slice) { return false; }
+        @Override public void record(ChunkMesher.FullCubePhase phase, long nanos,
+                                     long operations, long spans) {}
         @Override public void recordOperations(ChunkMesher.FullCubeOperations value) {
             this.sections++;
             long[] v = this.operations;
@@ -504,103 +767,15 @@ public final class MesherBenchmark {
             }
         }
 
-        Map<String, Object> report(double coarseMeanMs, String baselineHash, String detailHash,
-                                   long cornerQuads) {
+        Map<String, Object> report(long cornerQuads, String baselineHash, String operationsHash) {
             Map<String, Object> report = new LinkedHashMap<>();
-            report.put("method", "deterministic-rotating-slice-sampling");
-            report.put("sampleStride", this.sampleStride);
-            report.put("timerOverheadNanos", this.timerOverheadNanos);
+            report.put("method", "timer-free-single-round");
             report.put("profiledNonEmptySections", this.sections);
-            report.put("totalSlices", this.totalSlices);
-            report.put("sampledSlices", this.sampledSlices);
-
-            Map<String, Object> phases = new LinkedHashMap<>();
-            List<Map<String, Object>> ranked = new ArrayList<>();
-            double estimatedTotal = 0.0;
-            for (ChunkMesher.FullCubePhase phase : ChunkMesher.FullCubePhase.values()) {
-                int index = phase.ordinal();
-                double estimatedMs = this.sectionPhaseSamples[index] == 0
-                        ? estimatedMsPerSection(this.nanos[index])
-                        : this.sectionNanos[index] / (double) this.sectionPhaseSamples[index] / 1_000_000.0;
-                estimatedTotal += estimatedMs;
-                Map<String, Object> values = new LinkedHashMap<>();
-                long measuredNanos = this.sectionPhaseSamples[index] == 0
-                        ? this.nanos[index] : this.sectionNanos[index];
-                long measuredOperations = this.sectionPhaseSamples[index] == 0
-                        ? this.sampledOperations[index] : this.sectionOperations[index];
-                long measuredSpans = this.sectionPhaseSamples[index] == 0
-                        ? this.spans[index] : this.sectionSpans[index];
-                values.put("correctedSampledNanos", measuredNanos);
-                values.put("sampledOperations", measuredOperations);
-                values.put("timerSpans", measuredSpans);
-                values.put("nanosPerSampledOperation", measuredOperations == 0 ? 0.0
-                        : measuredNanos / (double) measuredOperations);
-                values.put("estimatedMsPerNonEmptySection", estimatedMs);
-                phases.put(phase.name(), values);
-                Map<String, Object> rank = new LinkedHashMap<>();
-                rank.put("phase", phase.name());
-                rank.put("estimatedMsPerNonEmptySection", estimatedMs);
-                ranked.add(rank);
-            }
-
-            double controlOverhead = Math.max(0.0, coarseMeanMs - estimatedTotal);
-            if (controlOverhead > 0.0) {
-                Map<String, Object> rank = new LinkedHashMap<>();
-                rank.put("phase", "CONTROL_OVERHEAD");
-                rank.put("estimatedMsPerNonEmptySection", controlOverhead);
-                ranked.add(rank);
-            }
-            double denominator = estimatedTotal + controlOverhead;
-            for (Map<String, Object> rank : ranked) {
-                double value = ((Number) rank.get("estimatedMsPerNonEmptySection")).doubleValue();
-                rank.put("sharePercent", denominator == 0.0 ? 0.0 : value * 100.0 / denominator);
-            }
-            ranked.sort((a, b) -> Double.compare(
-                    ((Number) b.get("estimatedMsPerNonEmptySection")).doubleValue(),
-                    ((Number) a.get("estimatedMsPerNonEmptySection")).doubleValue()));
-
-            double deltaPercent = coarseMeanMs == 0.0 ? 0.0
-                    : (estimatedTotal - coarseMeanMs) * 100.0 / coarseMeanMs;
-            report.put("phases", phases);
-            report.put("rankedPhases", ranked);
             report.put("operations", operationsReport(cornerQuads));
-            report.put("estimatedMsPerNonEmptySection", estimatedTotal);
-            report.put("coarseMeanMsWhenExecuted", coarseMeanMs);
-            report.put("controlOverheadMsPerNonEmptySection", controlOverhead);
-            report.put("attributionDeltaPercent", deltaPercent);
-            report.put("attributionResidualMsPerNonEmptySection", coarseMeanMs - estimatedTotal);
-            report.put("attributionWarning", Math.abs(deltaPercent) > 15.0);
             report.put("baselineMeshHash", baselineHash);
-            report.put("detailMeshHash", detailHash);
-            report.put("meshHashMatches", baselineHash.equals(detailHash));
-            String dominant = ranked.stream().map(row -> (String) row.get("phase"))
-                    .filter(phase -> !"CONTROL_OVERHEAD".equals(phase))
-                    .findFirst().orElse("NONE");
-            report.put("dominantMeasuredPhase", dominant);
-            report.put("recommendedNextStep", recommendation(dominant));
+            report.put("operationsMeshHash", operationsHash);
+            report.put("meshHashMatches", baselineHash.equals(operationsHash));
             return report;
-        }
-
-        private static String recommendation(String phase) {
-            return switch (phase) {
-                case "STATE_CLASSIFICATION", "VISIBILITY_WORD_DERIVATION",
-                        "BLOCK_FACE_VISIBILITY", "NEIGHBOR_LOOKUPS" ->
-                        "inspect remaining scalar visibility work before adding complexity";
-                case "LIGHT_SAMPLING", "CORNER_AO_SAMPLING" ->
-                        "benchmark a full-cube-specialized light/AO sampler";
-                case "GREEDY_RECTANGLE_SEARCH" ->
-                        "benchmark run-length or precomputed mask traversal";
-                case "SHADING_DIAGONAL_COMPATIBILITY" ->
-                        "benchmark incremental or cached plane compatibility";
-                case "PACKED_QUAD_EMISSION", "OVERLAY_FALLBACK_EMISSION" ->
-                        "benchmark the corresponding compact or overlay write path";
-                default -> "collect a longer detailed run before selecting an optimization";
-            };
-        }
-
-        private double estimatedMsPerSection(long sampledNanos) {
-            if (this.sampledSlices == 0) return 0.0;
-            return sampledNanos / (double) this.sampledSlices * SLICES_PER_SECTION / 1_000_000.0;
         }
 
         private Map<String, Object> operationsReport(long cornerQuads) {
@@ -651,11 +826,12 @@ public final class MesherBenchmark {
             return result;
         }
 
-        private static long multiplySaturated(long a, long b) {
-            if (a == 0 || b == 0) return 0;
-            if (a > Long.MAX_VALUE / b) return Long.MAX_VALUE;
-            return a * b;
-        }
+    }
+
+    private static long multiplySaturated(long a, long b) {
+        if (a == 0 || b == 0) return 0;
+        if (a > Long.MAX_VALUE / b) return Long.MAX_VALUE;
+        return a * b;
     }
 
     private static final class Metrics {
@@ -723,6 +899,21 @@ public final class MesherBenchmark {
             map.put("axisAlignedLegacyRate", ratio(this.axisAlignedLegacy, legacyQuads));
             map.put("legacyBytes", this.legacyBytes);
             map.put("compactBytes", compactBytes);
+            long meshPayloadBytes = this.legacyBytes + compactBytes;
+            long totalQuads = legacyQuads + this.compactQuads;
+            long overlayFallbackLegacyQuads = this.overlayFallback * 2L;
+            long overlayFallbackBytes = overlayFallbackLegacyQuads * 4L
+                    * ChunkMesher.VERTEX_SIZE * Integer.BYTES;
+            map.put("totalQuads", totalQuads);
+            map.put("quadsPerNonEmptySection", this.nonEmptySections == 0 ? 0.0
+                    : totalQuads / (double) this.nonEmptySections);
+            map.put("meshPayloadBytes", meshPayloadBytes);
+            map.put("meshPayloadBytesPerNonEmptySection", this.nonEmptySections == 0 ? 0.0
+                    : meshPayloadBytes / (double) this.nonEmptySections);
+            map.put("overlayFallbackLegacyQuads", overlayFallbackLegacyQuads);
+            map.put("overlayFallbackBytes", overlayFallbackBytes);
+            map.put("overlayFallbackQuadShare", ratio(overlayFallbackLegacyQuads, totalQuads));
+            map.put("overlayFallbackPayloadShare", ratio(overlayFallbackBytes, meshPayloadBytes));
             map.put("standardBytes", this.standardBytes);
             map.put("uniformBytes", this.uniformBytes);
             map.put("cornerBytes", this.cornerBytes);

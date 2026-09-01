@@ -89,6 +89,8 @@ tasks.register<JavaExec>("meshBench") {
         providers.gradleProperty("meshBenchDetailIterations").getOrElse("16"))
     systemProperty("meshBench.fullCubeSampleStride",
         providers.gradleProperty("meshBenchFullCubeSampleStride").getOrElse("64"))
+    systemProperty("meshBench.mode",
+        providers.gradleProperty("meshBenchMode").getOrElse("ALL"))
     systemProperty("meshBench.visibilityPath",
         providers.gradleProperty("meshBenchVisibilityPath").getOrElse("ROW_MASK"))
     val label = providers.gradleProperty("meshBenchLabel").orNull
@@ -96,6 +98,25 @@ tasks.register<JavaExec>("meshBench") {
     systemProperty("meshBench.label", label ?: "")
     systemProperty("meshBench.output",
         layout.buildDirectory.file("reports/meshing/mesh-benchmark$suffix.json").get().asFile.absolutePath)
+}
+
+tasks.register<JavaExec>("meshBenchJfr") {
+    group = "verification"
+    description = "Langer uninstrumentierter L0-Mesher-Lauf mit Java Flight Recorder"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "de.skyengine.game.world.chunk.debug.MesherBenchmark"
+    val recording = layout.buildDirectory.file("reports/meshing/mesh-benchmark.jfr")
+    doFirst { recording.get().asFile.parentFile.mkdirs() }
+    systemProperty("meshBench.jfrOutput", recording.get().asFile.absolutePath)
+    systemProperty("meshBench.mode", "BASELINE")
+    systemProperty("meshBench.warmups", "20")
+    systemProperty("meshBench.iterations", "100")
+    systemProperty("meshBench.detailIterations", "1")
+    systemProperty("meshBench.fullCubeSampleStride", "64")
+    systemProperty("meshBench.visibilityPath", "ROW_MASK")
+    systemProperty("meshBench.label", "jfr")
+    systemProperty("meshBench.output",
+        layout.buildDirectory.file("reports/meshing/mesh-benchmark-jfr.json").get().asFile.absolutePath)
 }
 
 tasks.register<JavaExec>("mapExport") {
@@ -137,7 +158,7 @@ dependencies {
 
 val isolatedTestGameDirectory = layout.buildDirectory.dir("test-game-directory")
 val isolatedVerificationTasks = setOf(
-    "saveTest", "lightTest", "meshTest", "meshBench", "mapExport"
+    "saveTest", "lightTest", "meshTest", "meshBench", "meshBenchJfr", "mapExport"
 )
 
 tasks.test {
