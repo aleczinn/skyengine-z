@@ -5,6 +5,8 @@ import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.StateFlags;
 
+import java.util.Arrays;
+
 /**
  * Immutable, registry-sized lookup data for the compact full-cube mesher.
  *
@@ -25,20 +27,26 @@ public final class FullCubeMeshStateTable {
     private static final int[] AXIS_T2 = {2, 2, 1, 1, 2, 2};
 
     private static volatile Snapshot current = Snapshot.EMPTY;
+    private static volatile Snapshot legacyReference = Snapshot.EMPTY;
 
     public static final class FaceSet {
         public final BlockState state;
         public final BakedQuad[] quads;
         public final boolean[] uAlongT1;
         public final byte[] uvTransform;
+        public final int[] materialHandles;
+        public final byte[] compositeKinds;
         public final BakedQuad[] overlays;
 
         private FaceSet(BlockState state, BakedQuad[] quads, boolean[] uAlongT1,
-                        byte[] uvTransform, BakedQuad[] overlays) {
+                        byte[] uvTransform, int[] materialHandles, byte[] compositeKinds,
+                        BakedQuad[] overlays) {
             this.state = state;
             this.quads = quads;
             this.uAlongT1 = uAlongT1;
             this.uvTransform = uvTransform;
+            this.materialHandles = materialHandles;
+            this.compositeKinds = compositeKinds;
             this.overlays = overlays;
         }
     }
@@ -69,6 +77,11 @@ public final class FullCubeMeshStateTable {
         return current;
     }
 
+    /** Benchmark-only snapshot that preserves the former base-plus-coplanar-overlay geometry. */
+    public static Snapshot current(boolean legacyOverlayReference) {
+        return legacyOverlayReference ? legacyReference : current;
+    }
+
     /** Rebuild after every model/overlay bake. Publication is one volatile snapshot swap. */
     public static void rebuildFromRegistry() {
         int count = BlockRegistry.getStateCount();
@@ -76,6 +89,7 @@ public final class FullCubeMeshStateTable {
         byte[] faceOcclusion = new byte[count];
         boolean[] aoOccluder = new boolean[count];
         FaceSet[] faceSets = new FaceSet[count];
+        FaceSet[] legacyFaceSets = new FaceSet[count];
 
         for (int id = 0; id < count; id++) {
             BlockState state = BlockRegistry.getState(id);
@@ -85,18 +99,20 @@ public final class FullCubeMeshStateTable {
             }
             aoOccluder[id] = (stateFlags & StateFlags.AO_OCCLUDER) != 0;
 
-            FaceSet faces = buildFaceSet(state);
-            if (faces == null) continue;
+            FaceSet[] variants = buildFaceSets(state);
+            if (variants == null) continue;
             int flags = GREEDY;
             if ((stateFlags & StateFlags.CULL_SAME) != 0) flags |= CULL_SAME_EXCEPTION;
             if ((stateFlags & StateFlags.LEAVES) != 0) flags |= LEAVES_EXCEPTION;
             meshFlags[id] = (byte) flags;
-            faceSets[id] = faces;
+            faceSets[id] = variants[0];
+            legacyFaceSets[id] = variants[1];
         }
         current = new Snapshot(meshFlags, faceOcclusion, aoOccluder, faceSets);
+        legacyReference = new Snapshot(meshFlags, faceOcclusion, aoOccluder, legacyFaceSets);
     }
 
-    private static FaceSet buildFaceSet(BlockState state) {
+    private static FaceSet[] buildFaceSets(BlockState state) {
         if (!state.isOpaqueCube() || state.isFluid() || state.hasRandomOffset()
                 || state.getRenderLayer() != RenderLayer.OPAQUE) return null;
         BakedQuad[] model = state.getModel();
@@ -145,12 +161,56 @@ public final class FullCubeMeshStateTable {
             uvTransform[face] = (byte) transform;
         }
 
-        BakedQuad[] overlays = null;
+        BakedQuad[] originalOverlays = null;
         for (BakedQuad quad : state.getOverlay()) {
-            if (overlays == null) overlays = new BakedQuad[6];
-            overlays[quad.cullFace()] = quad;
+            int face = quad.cullFace();
+            if (face < 0 || face >= 6) return null;
+            if (originalOverlays == null) originalOverlays = new BakedQuad[6];
+            if (originalOverlays[face] != null) return null;
+            originalOverlays[face] = quad;
         }
-        return new FaceSet(state, quads, uAlongT1, uvTransform, overlays);
+
+        int[] directHandles = new int[6];
+        int[] compositeHandles = new int[6];
+        byte[] compositeKinds = new byte[6];
+        BakedQuad[] unsupportedOverlays = null;
+        for (int face = 0; face < 6; face++) {
+            BakedQuad base = quads[face];
+            int direct = CompactCompositeMaterialTable.directHandle(base.textureLayer());
+            directHandles[face] = direct;
+            compositeHandles[face] = direct;
+            BakedQuad overlay = originalOverlays == null ? null : originalOverlays[face];
+            if (overlay == null) continue;
+            if (!compatibleOverlay(base, overlay)) {
+                if (unsupportedOverlays == null) unsupportedOverlays = new BakedQuad[6];
+                unsupportedOverlays[face] = overlay;
+                continue;
+            }
+            compositeHandles[face] = CompactCompositeMaterialTable.intern(
+                    new CompactCompositeMaterialTable.Entry(base.textureLayer(), overlay.textureLayer(),
+                            overlay.tintType(), overlay.tint(),
+                            CompactCompositeMaterialTable.MODE_CUTOUT_REPLACE));
+            if (overlay.tintType() == BakedQuad.TINT_GRASS) {
+                compositeKinds[face] = CompactCompositeMaterialTable.KIND_GRASS;
+            }
+        }
+
+        FaceSet composite = new FaceSet(state, quads, uAlongT1, uvTransform,
+                compositeHandles, compositeKinds, unsupportedOverlays);
+        FaceSet legacy = new FaceSet(state, quads, uAlongT1, uvTransform,
+                directHandles, new byte[6], originalOverlays);
+        return new FaceSet[] {composite, legacy};
+    }
+
+    private static boolean compatibleOverlay(BakedQuad base, BakedQuad overlay) {
+        return base.cullFace() == overlay.cullFace()
+                && base.face() == overlay.face()
+                && base.brightness() == overlay.brightness()
+                && Arrays.equals(base.vertices(), overlay.vertices())
+                && overlay.tintType() >= BakedQuad.TINT_NONE
+                && overlay.tintType() <= BakedQuad.TINT_FOLIAGE
+                && overlay.textureLayer() >= 0
+                && overlay.textureLayer() <= CompactCompositeMaterialTable.INDEX_MASK;
     }
 
     private static int findUvTransform(float[] u, float[] v) {

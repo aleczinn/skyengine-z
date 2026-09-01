@@ -233,6 +233,12 @@ public final class DebugOverlay {
                         + "/" + shortCount(counter(snapshot, PerformanceProfiler.Counter.L0_MERGE_REJECTED_MATERIAL))
                         + "/" + shortCount(counter(snapshot, PerformanceProfiler.Counter.L0_MERGE_REJECTED_STATE))),
                 metric("Overlay fallback", shortCount(counter(snapshot, PerformanceProfiler.Counter.L0_OVERLAY_FALLBACK_FACES))),
+                metric("Grass composite", shortCount(counter(snapshot, PerformanceProfiler.Counter.L0_COMPOSITE_GRASS_FACES))
+                        + " -> " + shortCount(counter(snapshot, PerformanceProfiler.Counter.L0_COMPOSITE_GRASS_QUADS))),
+                metric("Grass composite bytes", byteText(counter(snapshot,
+                        PerformanceProfiler.Counter.L0_COMPOSITE_GRASS_BYTES))),
+                metric("Overlay legacy bytes", byteText(counter(snapshot,
+                        PerformanceProfiler.Counter.L0_OVERLAY_LEGACY_BYTES))),
                 metric("Legacy O/C/T/D", shortCount(legacyOpaque) + "/" + shortCount(legacyCutout)
                         + "/" + shortCount(legacyTranslucent) + "/" + shortCount(legacyDetail)),
                 metric("Axis 1/16 legacy", shortCount(axisLegacy) + " (" + percent(axisLegacy, legacy) + ")"),

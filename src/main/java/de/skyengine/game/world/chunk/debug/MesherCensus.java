@@ -24,6 +24,9 @@ import java.util.Locale;
  */
 public final class MesherCensus {
 
+    /** Intentional Grass-Composite baseline; update only together with a reviewed mesh change. */
+    private static final long EXPECTED_MESH_HASH = 0xb100fe64b6cb9abdL;
+
     private MesherCensus() {
     }
 
@@ -48,6 +51,7 @@ public final class MesherCensus {
         long[] compactBytes = new long[3];
         long fullCubeFaces = 0, cornerFaces = 0, rejectedShading = 0,
                 rejectedMaterial = 0, rejectedState = 0, overlayFallbackFaces = 0;
+        long compositeGrassFaces = 0, compositeGrassQuads = 0, compositeGrassBytes = 0;
         int sections = 0;
         for (int i = 0; i < 9; i++) {
             for (int s = 0; s < Chunk.SECTIONS; s++) {
@@ -73,6 +77,9 @@ public final class MesherCensus {
                     rejectedMaterial += data.stats.mergeRejectedByMaterial();
                     rejectedState += data.stats.mergeRejectedByState();
                     overlayFallbackFaces += data.stats.overlayFallbackFaces();
+                    compositeGrassFaces += data.stats.compositeGrassFacesBeforeGreedy();
+                    compositeGrassQuads += data.stats.compositeGrassQuadsAfterGreedy();
+                    compositeGrassBytes += data.stats.compositeGrassBytes();
                     compactBytes[0] += data.stats.standardBytes();
                     compactBytes[1] += data.stats.uniformBytes();
                     compactBytes[2] += data.stats.cornerBytes();
@@ -94,7 +101,13 @@ public final class MesherCensus {
                 + " rejected(shading/material/state)=" + rejectedShading + "/"
                 + rejectedMaterial + "/" + rejectedState
                 + " overlayFallback=" + overlayFallbackFaces);
+        System.out.println("GrassComposite: faces=" + compositeGrassFaces + " quads="
+                + compositeGrassQuads + " bytes=" + compositeGrassBytes);
         System.out.println(String.format(Locale.ROOT, "MESH %016x", hash));
+        if (hash != EXPECTED_MESH_HASH) {
+            throw new AssertionError(String.format(Locale.ROOT,
+                    "Mesh hash mismatch: expected %016x, got %016x", EXPECTED_MESH_HASH, hash));
+        }
         System.out.println("MESH OK");
     }
 

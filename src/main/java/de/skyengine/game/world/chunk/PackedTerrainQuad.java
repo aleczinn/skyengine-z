@@ -1,5 +1,7 @@
 package de.skyengine.game.world.chunk;
 
+import de.skyengine.game.world.block.model.CompactCompositeMaterialTable;
+
 /**
  * Bitlayout des kompakten, achsenparallelen Full-Cube-Pfads.
  *
@@ -51,7 +53,11 @@ public final class PackedTerrainQuad {
     public static int height(int word) { return ((word >>> 23) & MASK_5) + 1; }
     public static int uvTransform(int word) { return (word >>> 28) & 7; }
     public static boolean diagonalFlip(int word) { return word < 0; }
+    /** Direct texture layer or a high-bit-tagged compact composite table handle. */
     public static int materialId(int word) { return word & 0xFFFF; }
+    public static boolean compositeMaterial(int word) {
+        return CompactCompositeMaterialTable.isComposite(materialId(word));
+    }
     public static int tintIndex(int word) { return (word >>> 16) & 0xFF; }
     public static int flags(int word) { return word >>> 24; }
 

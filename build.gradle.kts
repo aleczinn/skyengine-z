@@ -93,6 +93,8 @@ tasks.register<JavaExec>("meshBench") {
         providers.gradleProperty("meshBenchMode").getOrElse("ALL"))
     systemProperty("meshBench.visibilityPath",
         providers.gradleProperty("meshBenchVisibilityPath").getOrElse("ROW_MASK"))
+    systemProperty("meshBench.overlayPath",
+        providers.gradleProperty("meshBenchOverlayPath").getOrElse("COMPOSITE"))
     val label = providers.gradleProperty("meshBenchLabel").orNull
     val suffix = if (label.isNullOrBlank()) "" else "-$label"
     systemProperty("meshBench.label", label ?: "")

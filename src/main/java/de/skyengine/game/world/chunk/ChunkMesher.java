@@ -7,6 +7,7 @@ import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
+import de.skyengine.game.world.block.model.CompactCompositeMaterialTable;
 import de.skyengine.game.world.block.model.FullCubeMeshStateTable;
 import de.skyengine.game.world.block.state.BlockState;
 
@@ -18,6 +19,12 @@ public class ChunkMesher {
     public enum VisibilityPath {
         ROW_MASK,
         SCALAR_REFERENCE
+    }
+
+    /** Development/A-B selection; gameplay always uses COMPOSITE. */
+    public enum OverlayPath {
+        COMPOSITE,
+        LEGACY_REFERENCE
     }
 
     public enum MeshPhase {
@@ -184,38 +191,54 @@ public class ChunkMesher {
                             long cornerShadingFaces, long cornerShadingFacesMerged,
                             long cornerShadingFacesUnmerged, long mergeRejectedByShading,
                             long mergeRejectedByMaterial, long mergeRejectedByState,
-                            long overlayFallbackFaces, long legacyOpaqueQuads,
+                            long overlayFallbackFaces, long overlayLegacyQuads,
+                            long overlayLegacyBytes,
+                            long compositeGrassFacesBeforeGreedy,
+                            long compositeGrassQuadsAfterGreedy,
+                            long compositeGrassStandardQuads,
+                            long compositeGrassUniformQuads,
+                            long compositeGrassCornerQuads,
+                            long compositeGrassBytes,
+                            long legacyOpaqueQuads,
                             long legacyCutoutQuads, long legacyTranslucentQuads,
                             long legacyDetailQuads, long axisAlignedQuantizedLegacyQuads,
                             long legacyBytes,
                             long standardBytes, long uniformBytes, long cornerBytes) {
         static final MeshStats EMPTY = new MeshStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0);
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     private final MeshPhaseRecorder phaseRecorder;
     private final FullCubeProfileRecorder fullCubeProfileRecorder;
     private final VisibilityPath visibilityPath;
+    private final OverlayPath overlayPath;
 
     public ChunkMesher() {
-        this(null, null, VisibilityPath.ROW_MASK);
+        this(null, null, VisibilityPath.ROW_MASK, OverlayPath.COMPOSITE);
     }
 
     public ChunkMesher(MeshPhaseRecorder phaseRecorder) {
-        this(phaseRecorder, null, VisibilityPath.ROW_MASK);
+        this(phaseRecorder, null, VisibilityPath.ROW_MASK, OverlayPath.COMPOSITE);
     }
 
     public ChunkMesher(MeshPhaseRecorder phaseRecorder,
                        FullCubeProfileRecorder fullCubeProfileRecorder) {
-        this(phaseRecorder, fullCubeProfileRecorder, VisibilityPath.ROW_MASK);
+        this(phaseRecorder, fullCubeProfileRecorder, VisibilityPath.ROW_MASK, OverlayPath.COMPOSITE);
     }
 
     public ChunkMesher(MeshPhaseRecorder phaseRecorder,
                        FullCubeProfileRecorder fullCubeProfileRecorder,
                        VisibilityPath visibilityPath) {
+        this(phaseRecorder, fullCubeProfileRecorder, visibilityPath, OverlayPath.COMPOSITE);
+    }
+
+    public ChunkMesher(MeshPhaseRecorder phaseRecorder,
+                       FullCubeProfileRecorder fullCubeProfileRecorder,
+                       VisibilityPath visibilityPath, OverlayPath overlayPath) {
         this.phaseRecorder = phaseRecorder;
         this.fullCubeProfileRecorder = fullCubeProfileRecorder;
         this.visibilityPath = visibilityPath;
+        this.overlayPath = overlayPath;
         Arrays.fill(this.faceClass, (byte) -1);
     }
 
@@ -338,6 +361,9 @@ public class ChunkMesher {
     private long statFullCubeFaces, statFullCubeQuads, statMergedStandard, statMergedUniform,
             statMergedCorner, statCornerFaces, statCornerFacesMerged, statCornerFacesUnmerged,
             statRejectedShading, statRejectedMaterial, statRejectedState, statOverlayFallbackFaces;
+    private long statCompositeGrassFaces, statCompositeGrassQuads;
+    private long statCompositeGrassStandard, statCompositeGrassUniform, statCompositeGrassCorner;
+    private long statCompositeGrassBytes;
 
     /* Nur waehrend einer expliziten meshBench-Detailrunde aktiv. Der normale Spielpfad hat
        lediglich den einen null/enabled-Test am Beginn des Full-Cube-Passes. */
@@ -390,6 +416,9 @@ public class ChunkMesher {
         this.statCornerFaces = this.statCornerFacesMerged = this.statCornerFacesUnmerged = 0;
         this.statRejectedShading = this.statRejectedMaterial = this.statRejectedState = 0;
         this.statOverlayFallbackFaces = 0;
+        this.statCompositeGrassFaces = this.statCompositeGrassQuads = 0;
+        this.statCompositeGrassStandard = this.statCompositeGrassUniform = 0;
+        this.statCompositeGrassCorner = this.statCompositeGrassBytes = 0;
         this.statAxisAlignedQuantizedLegacy = 0;
         this.suppressAxisCandidate = false;
         this.resetFullCubeProfile();
@@ -402,7 +431,8 @@ public class ChunkMesher {
         this.diagonals = diagonals;
         this.ambientOcclusion = GameSettings.get().ambientOcclusion;
         this.cullLeaves = GameSettings.get().leavesQuality == GameSettings.LeavesQuality.LOW;
-        this.fullCubeStates = FullCubeMeshStateTable.current();
+        this.fullCubeStates = FullCubeMeshStateTable.current(
+                this.overlayPath == OverlayPath.LEGACY_REFERENCE);
 
         int baseY = sectionIndex << ChunkSection.SHIFT;
         this.sectionBaseY = baseY;
@@ -541,7 +571,12 @@ public class ChunkMesher {
                 this.statMergedStandard, this.statMergedUniform, this.statMergedCorner,
                 this.statCornerFaces, this.statCornerFacesMerged, this.statCornerFacesUnmerged,
                 this.statRejectedShading, this.statRejectedMaterial, this.statRejectedState,
-                this.statOverlayFallbackFaces, legacyQuadCount(opaqueData), legacyQuadCount(cutoutData),
+                this.statOverlayFallbackFaces, this.statOverlayFallbackFaces * 2,
+                this.statOverlayFallbackFaces * 2L * 4L * VERTEX_SIZE * Integer.BYTES,
+                this.statCompositeGrassFaces, this.statCompositeGrassQuads,
+                this.statCompositeGrassStandard, this.statCompositeGrassUniform,
+                this.statCompositeGrassCorner, this.statCompositeGrassBytes,
+                legacyQuadCount(opaqueData), legacyQuadCount(cutoutData),
                 legacyQuadCount(translucentData), legacyQuadCount(detailData),
                 this.statAxisAlignedQuantizedLegacy, legacyBytes,
                 bytes(compactGeometryData[PackedTerrainQuad.SHADING_STANDARD], null),
@@ -876,6 +911,9 @@ public class ChunkMesher {
                         operationStarted = measureSignature ? System.nanoTime() : 0;
                         BakedQuad overlay = gf.overlays == null ? null : gf.overlays[face];
                         BakedQuad quad = gf.quads[face];
+                        boolean compositeGrass = gf.compositeKinds[face]
+                                == CompactCompositeMaterialTable.KIND_GRASS;
+                        if (compositeGrass) this.statCompositeGrassFaces++;
                         boolean needsExactTint = quad.tintType() == BakedQuad.TINT_NONE
                                 && quad.tint() != BakedQuad.WHITE;
                         if ((quad.tintType() == BakedQuad.TINT_GRASS && this.chunk.grassTintCorners == null)
@@ -1069,6 +1107,24 @@ public class ChunkMesher {
 
                         int sourceFaces = w * h;
                         this.statFullCubeQuads++;
+                        FullCubeMeshStateTable.FaceSet emittedFaces = this.fullCubeFaces(stateId);
+                        if (emittedFaces.compositeKinds[face]
+                                == CompactCompositeMaterialTable.KIND_GRASS) {
+                            this.statCompositeGrassQuads++;
+                            long quadBytes = switch (shadingClass) {
+                                case PackedTerrainQuad.SHADING_STANDARD -> 8;
+                                case PackedTerrainQuad.SHADING_UNIFORM -> 12;
+                                default -> 24;
+                            };
+                            this.statCompositeGrassBytes += quadBytes;
+                            if (shadingClass == PackedTerrainQuad.SHADING_STANDARD) {
+                                this.statCompositeGrassStandard++;
+                            } else if (shadingClass == PackedTerrainQuad.SHADING_UNIFORM) {
+                                this.statCompositeGrassUniform++;
+                            } else {
+                                this.statCompositeGrassCorner++;
+                            }
+                        }
                         /* Diese drei Zaehler sind die resultierenden Quads NACH Greedy (auch ein
                            1x1-Ergebnis). Zusammen ergeben sie fullCubeQuadsAfterGreedy;
                            ob Corner-Faces wirklich absorbiert wurden, erfassen die beiden
@@ -1143,8 +1199,7 @@ public class ChunkMesher {
             if (count) {
                 FullCubeMeshStateTable.FaceSet rootFaces = this.fullCubeFaces(rootState);
                 FullCubeMeshStateTable.FaceSet otherFaces = this.fullCubeFaces(otherState);
-                if (sameMaterialFace(rootFaces.quads[face], otherFaces.quads[face],
-                        rootFaces.uvTransform[face], otherFaces.uvTransform[face])) this.statRejectedState++;
+                if (sameMaterialFace(rootFaces, otherFaces, face)) this.statRejectedState++;
                 else this.statRejectedMaterial++;
             }
             return false;
@@ -1163,9 +1218,12 @@ public class ChunkMesher {
         return true;
     }
 
-    private static boolean sameMaterialFace(BakedQuad a, BakedQuad b, int uvA, int uvB) {
-        return a.textureLayer() == b.textureLayer() && a.tint() == b.tint()
-                && a.tintType() == b.tintType() && uvA == uvB;
+    private static boolean sameMaterialFace(FullCubeMeshStateTable.FaceSet a,
+                                            FullCubeMeshStateTable.FaceSet b, int face) {
+        BakedQuad aq = a.quads[face], bq = b.quads[face];
+        return a.materialHandles[face] == b.materialHandles[face]
+                && aq.tint() == bq.tint() && aq.tintType() == bq.tintType()
+                && a.uvTransform[face] == b.uvTransform[face];
     }
 
     private void emitCompactQuad(int stateId, int face, int slice, int a, int b, int w, int h,
@@ -1184,7 +1242,7 @@ public class ChunkMesher {
         geometry.data[geometry.count++] = PackedTerrainQuad.geometry0(p[0], p[1], p[2], axis,
                 positive, w, h, gf.uvTransform[face], diagonalFlip);
         geometry.data[geometry.count++] = PackedTerrainQuad.geometry1(
-                quad.textureLayer(), 0, quad.tintType() & 3);
+                gf.materialHandles[face], 0, quad.tintType() & 3);
 
         if (shadingClass == PackedTerrainQuad.SHADING_UNIFORM) {
             int cell = b << ChunkSection.SHIFT | a;

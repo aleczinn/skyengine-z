@@ -52,6 +52,9 @@ public final class MesherBenchmark {
         ChunkMesher.VisibilityPath visibilityPath = ChunkMesher.VisibilityPath.valueOf(
                 System.getProperty("meshBench.visibilityPath", "ROW_MASK")
                         .trim().toUpperCase(Locale.ROOT));
+        ChunkMesher.OverlayPath overlayPath = ChunkMesher.OverlayPath.valueOf(
+                System.getProperty("meshBench.overlayPath", "COMPOSITE")
+                        .trim().toUpperCase(Locale.ROOT));
         long timerOverheadNanos = calibrateNanoTimeOverhead();
         Path output = Path.of(System.getProperty("meshBench.output",
                 "build/reports/meshing/mesh-benchmark.json"));
@@ -68,7 +71,7 @@ public final class MesherBenchmark {
         Recording recording = startJfrRecording();
 
         Map<String, Object> report = new LinkedHashMap<>();
-        report.put("schemaVersion", 4);
+        report.put("schemaVersion", 5);
         report.put("createdUtc", Instant.now().toString());
         report.put("label", System.getProperty("meshBench.label", ""));
         report.put("environment", environment());
@@ -82,16 +85,17 @@ public final class MesherBenchmark {
         config.put("seed", MesherFixture.SEED);
         config.put("threads", 1);
         config.put("visibilityPath", visibilityPath.name());
+        config.put("overlayPath", overlayPath.name());
         report.put("config", config);
         List<Map<String, Object>> results = new ArrayList<>();
         report.put("scenarios", results);
 
         System.out.printf(Locale.ROOT,
-                "L0 mesh benchmark: mode=%s warmups=%d iterations=%d thread=1 visibility=%s%n",
-                mode, warmups, iterations, visibilityPath);
+                "L0 mesh benchmark: mode=%s warmups=%d iterations=%d thread=1 visibility=%s overlay=%s%n",
+                mode, warmups, iterations, visibilityPath, overlayPath);
         for (Scenario scenario : scenarios) {
             Map<String, Object> result = run(scenario, warmups, iterations, detailIterations,
-                    detailSampleStride, timerOverheadNanos, visibilityPath, mode);
+                    detailSampleStride, timerOverheadNanos, visibilityPath, overlayPath, mode);
             results.add(result);
             print(result);
         }
@@ -122,10 +126,11 @@ public final class MesherBenchmark {
     private static Map<String, Object> run(Scenario scenario, int warmups, int iterations,
                                            int detailIterations, int detailSampleStride,
                                            long timerOverheadNanos,
-                                           ChunkMesher.VisibilityPath visibilityPath, Mode mode) {
+                                           ChunkMesher.VisibilityPath visibilityPath,
+                                           ChunkMesher.OverlayPath overlayPath, Mode mode) {
         GameSettings.get().ambientOcclusion = scenario.ambientOcclusion;
         PhaseCollector phases = new PhaseCollector();
-        ChunkMesher mesher = new ChunkMesher(phases, null, visibilityPath);
+        ChunkMesher mesher = new ChunkMesher(phases, null, visibilityPath, overlayPath);
         for (int i = 0; i < warmups; i++) meshRound(mesher, scenario, null, null, null);
 
         LongList sectionTimes = new LongList(iterations * scenario.chunkIndices.length * Chunk.SECTIONS);
@@ -181,12 +186,12 @@ public final class MesherBenchmark {
             result.put("fullCubeDetail", runDetailed(scenario, warmups, detailIterations,
                     detailSampleStride, timerOverheadNanos, phases.medianWhenExecuted(
                             ChunkMesher.MeshPhase.FULL_CUBE_GREEDY),
-                    lastMetrics == null ? "" : lastMetrics.hashText(), visibilityPath));
+                    lastMetrics == null ? "" : lastMetrics.hashText(), visibilityPath, overlayPath));
         }
         if (mode.includesOperations()) {
             result.put("fullCubeOperations", runOperations(scenario, warmups,
                     lastMetrics == null ? "" : lastMetrics.hashText(),
-                    lastMetrics == null ? 0L : lastMetrics.cornerQuads, visibilityPath));
+                    lastMetrics == null ? 0L : lastMetrics.cornerQuads, visibilityPath, overlayPath));
         }
         return result;
     }
@@ -195,13 +200,14 @@ public final class MesherBenchmark {
                                                     int sampleStride, long timerOverheadNanos,
                                                     double coarseFullCubeMeanMs,
                                                     String baselineHash,
-                                                    ChunkMesher.VisibilityPath visibilityPath) {
+                                                    ChunkMesher.VisibilityPath visibilityPath,
+                                                    ChunkMesher.OverlayPath overlayPath) {
         IsolatedDetailReport report = new IsolatedDetailReport(sampleStride,
                 timerOverheadNanos, coarseFullCubeMeanMs, baselineHash,
                 scenario.name.startsWith("generated-") ? 15.0 : 20.0);
         for (ChunkMesher.FullCubePhase phase : IsolatedDetailReport.MEASURED_PHASES) {
             DetailCollector detail = new DetailCollector(phase, sampleStride, timerOverheadNanos);
-            ChunkMesher mesher = new ChunkMesher(null, detail, visibilityPath);
+            ChunkMesher mesher = new ChunkMesher(null, detail, visibilityPath, overlayPath);
             for (int i = 0; i < warmups; i++) meshRound(mesher, scenario, null, null, null);
             detail.active = true;
             Metrics lastMetrics = null;
@@ -218,9 +224,10 @@ public final class MesherBenchmark {
 
     private static Map<String, Object> runOperations(Scenario scenario, int warmups,
                                                       String baselineHash, long cornerQuads,
-                                                      ChunkMesher.VisibilityPath visibilityPath) {
+                                                      ChunkMesher.VisibilityPath visibilityPath,
+                                                      ChunkMesher.OverlayPath overlayPath) {
         OperationsCollector collector = new OperationsCollector();
-        ChunkMesher mesher = new ChunkMesher(null, collector, visibilityPath);
+        ChunkMesher mesher = new ChunkMesher(null, collector, visibilityPath, overlayPath);
         for (int i = 0; i < warmups; i++) meshRound(mesher, scenario, null, null, null);
         collector.active = true;
         Metrics metrics = new Metrics();
@@ -839,6 +846,9 @@ public final class MesherBenchmark {
         private long fullCubeFaces, compactQuads, standardQuads, uniformQuads, cornerQuads;
         private long cornerFaces, cornerMerged, rejectedShading, rejectedMaterial, rejectedState;
         private long overlayFallback, legacyOpaque, legacyCutout, legacyTranslucent, legacyDetail;
+        private long overlayLegacyQuads, overlayLegacyBytes;
+        private long compositeGrassFaces, compositeGrassQuads, compositeGrassStandard;
+        private long compositeGrassUniform, compositeGrassCorner, compositeGrassBytes;
         private long axisAlignedLegacy, legacyBytes, standardBytes, uniformBytes, cornerBytes;
 
         void accept(ChunkMesher.MeshData data) {
@@ -859,6 +869,14 @@ public final class MesherBenchmark {
             this.rejectedMaterial += stats.mergeRejectedByMaterial();
             this.rejectedState += stats.mergeRejectedByState();
             this.overlayFallback += stats.overlayFallbackFaces();
+            this.overlayLegacyQuads += stats.overlayLegacyQuads();
+            this.overlayLegacyBytes += stats.overlayLegacyBytes();
+            this.compositeGrassFaces += stats.compositeGrassFacesBeforeGreedy();
+            this.compositeGrassQuads += stats.compositeGrassQuadsAfterGreedy();
+            this.compositeGrassStandard += stats.compositeGrassStandardQuads();
+            this.compositeGrassUniform += stats.compositeGrassUniformQuads();
+            this.compositeGrassCorner += stats.compositeGrassCornerQuads();
+            this.compositeGrassBytes += stats.compositeGrassBytes();
             this.legacyOpaque += stats.legacyOpaqueQuads();
             this.legacyCutout += stats.legacyCutoutQuads();
             this.legacyTranslucent += stats.legacyTranslucentQuads();
@@ -890,6 +908,16 @@ public final class MesherBenchmark {
             map.put("mergeRejectedByMaterial", this.rejectedMaterial);
             map.put("mergeRejectedByState", this.rejectedState);
             map.put("overlayFallbackFaces", this.overlayFallback);
+            map.put("overlayLegacyQuads", this.overlayLegacyQuads);
+            map.put("overlayLegacyBytes", this.overlayLegacyBytes);
+            map.put("compositeGrassFacesBeforeGreedy", this.compositeGrassFaces);
+            map.put("compositeGrassQuadsAfterGreedy", this.compositeGrassQuads);
+            map.put("compositeGrassGreedyCompression",
+                    ratio(this.compositeGrassFaces, this.compositeGrassQuads));
+            map.put("compositeGrassStandardQuads", this.compositeGrassStandard);
+            map.put("compositeGrassUniformQuads", this.compositeGrassUniform);
+            map.put("compositeGrassCornerQuads", this.compositeGrassCorner);
+            map.put("compositeGrassBytes", this.compositeGrassBytes);
             map.put("legacyQuads", legacyQuads);
             map.put("legacyOpaqueQuads", this.legacyOpaque);
             map.put("legacyCutoutQuads", this.legacyCutout);
@@ -901,9 +929,8 @@ public final class MesherBenchmark {
             map.put("compactBytes", compactBytes);
             long meshPayloadBytes = this.legacyBytes + compactBytes;
             long totalQuads = legacyQuads + this.compactQuads;
-            long overlayFallbackLegacyQuads = this.overlayFallback * 2L;
-            long overlayFallbackBytes = overlayFallbackLegacyQuads * 4L
-                    * ChunkMesher.VERTEX_SIZE * Integer.BYTES;
+            long overlayFallbackLegacyQuads = this.overlayLegacyQuads;
+            long overlayFallbackBytes = this.overlayLegacyBytes;
             map.put("totalQuads", totalQuads);
             map.put("quadsPerNonEmptySection", this.nonEmptySections == 0 ? 0.0
                     : totalQuads / (double) this.nonEmptySections);

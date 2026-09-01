@@ -39,8 +39,8 @@ final class ChunkMesherFullCubeProfileTest {
         assertMeshEquals(scalarReference, measured);
         assertNotNull(profile.operations);
         assertEquals(6, profile.operations.visibleFaces());
-        assertEquals(4, profile.operations.overlayFallbackFaces());
-        assertEquals(2, profile.operations.compactQuads());
+        assertEquals(0, profile.operations.overlayFallbackFaces());
+        assertEquals(6, profile.operations.compactQuads());
         assertEquals(39_304, profile.operations.cellsScanned());
         assertEquals(32_768, profile.operations.sectionCellsClassified());
         assertEquals(6_536, profile.operations.haloCellsClassified());
