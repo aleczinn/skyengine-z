@@ -38,6 +38,8 @@ public final class GuiMainMenu extends GuiScreen {
                 : new Label(SkyEngine.ENGINE_NAME, GuiText.HERO).measure(gui);
         Button singleplayer = new Button(I18n.tr("gui.singleplayer"), () -> gui.open(new GuiSelectWorld(this)));
         Button multiplayer = new Button(I18n.tr("gui.multiplayer"), null);
+        multiplayer.enabled = false;
+
         /* Nebeneinander wie in MC: 98 + 4 + 98 = 200 = Breite des Einzelspieler-Buttons. */
         Button options = new Button(I18n.tr("gui.options"), 98, 20, () -> gui.open(new GuiOptionsMenu(this)));
         Button quit = new Button(I18n.tr("gui.quit"), 98, 20, () -> SkyEngine.get().shutdown());
@@ -49,6 +51,7 @@ public final class GuiMainMenu extends GuiScreen {
         this.components.add(title.anchor(Anchor.TOP_CENTER, 0, titleTop(vH)));
         this.components.add(new VStack(8,
                 singleplayer,
+                multiplayer,
                 new HStack(4, options, quit)
         ).anchor(Anchor.TOP_CENTER, 0, vH * 0.48f));
 
