@@ -22,7 +22,8 @@ public class ChunkBorderRenderer {
     }
 
     /** centerCX/CZ = Chunk-Koordinaten des Spielers; mode 1 = Chunk, 2 = Chunk + Sections. */
-    public void render(Camera camera, ChunkManager chunks, int centerCX, int centerCZ, int mode) {
+    public void render(Camera camera, ChunkManager chunks, int centerCX, int centerCZ, int mode,
+                       int sceneDepthTexture) {
         if (mode <= 0) return;
         Vector3d cam = camera.getPosition();
         int size = ChunkSection.SIZE;
@@ -35,7 +36,7 @@ public class ChunkBorderRenderer {
                 box(cam, ox, 0, oz, ox + size, Chunk.HEIGHT, oz + size);
             }
         }
-        draw(camera, 2.0F, 0.95F, 0.95F, 0.15F);
+        drawDepthOccluded(camera, 2.0F, 0.95F, 0.95F, 0.15F, sceneDepthTexture);
 
         if (mode >= 2) {
             this.count = 0;
@@ -53,7 +54,7 @@ public class ChunkBorderRenderer {
                     }
                 }
             }
-            draw(camera, 2.0F, 0.2F, 0.9F, 0.9F);
+            drawDepthOccluded(camera, 2.0F, 0.2F, 0.9F, 0.9F, sceneDepthTexture);
         }
     }
 
@@ -68,6 +69,12 @@ public class ChunkBorderRenderer {
 
     private void draw(Camera camera, float width, float r, float g, float b) {
         this.lines.render(camera, this.buf, this.count, width, r, g, b, 1.0F);
+    }
+
+    private void drawDepthOccluded(Camera camera, float width, float r, float g, float b,
+                                   int sceneDepthTexture) {
+        this.lines.renderDepthOccluded(camera, this.buf, this.count, width, r, g, b, 1.0F,
+                sceneDepthTexture);
     }
 
     private void box(Vector3d cam, int x0, int y0, int z0, int x1, int y1, int z1) {

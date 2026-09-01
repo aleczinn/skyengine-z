@@ -2,6 +2,11 @@ package de.skyengine.graphics.texture;
 
 import de.skyengine.core.resource.Resources;
 import de.skyengine.game.world.block.BlockTextures;
+import de.skyengine.game.world.block.model.CompactCompositeMaterialTable;
+import de.skyengine.graphics.GlDebug;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL43;
 
 /** Welt-unabhaengiger Besitzer der Block-Farb-, Normal- und Material-Arrays. */
 public final class BlockTextureAtlas {
@@ -11,6 +16,7 @@ public final class BlockTextureAtlas {
     private TextureArray normals;
     private TextureArray materials;
     private SpriteAnimations animations;
+    private int compositeMaterialBuffer;
     private long lastAnimNanos;
     private static BlockTextureAtlas active;
 
@@ -21,6 +27,7 @@ public final class BlockTextureAtlas {
         this.animations = SpriteAnimations.build(paths, size);
         this.textures = new TextureArray(size, paths, this.animations.animatedLayers());
         this.buildMaterials(paths, size);
+        this.compositeMaterialBuffer = createCompositeMaterialBuffer();
         this.animations.uploadInitial(this.textures);
         this.textures.regenerateMipmaps();
         this.lastAnimNanos = System.nanoTime();
@@ -42,6 +49,7 @@ public final class BlockTextureAtlas {
             nextNormals = new TextureArray(size, normalPaths, java.util.Set.of(), TextureArray.Fallback.FLAT_NORMAL);
             nextMaterials = new TextureArray(size, materialPaths, java.util.Set.of(), TextureArray.Fallback.DEFAULT_MATERIAL);
         }
+        int nextCompositeMaterialBuffer = createCompositeMaterialBuffer();
 
         if (this.animations != null) this.animations.dispose();
         this.animations = nextAnimations;
@@ -59,6 +67,9 @@ public final class BlockTextureAtlas {
             this.materials.replaceWith(nextMaterials);
         }
         this.lastAnimNanos = System.nanoTime();
+        int previousCompositeMaterialBuffer = this.compositeMaterialBuffer;
+        this.compositeMaterialBuffer = nextCompositeMaterialBuffer;
+        if (previousCompositeMaterialBuffer != 0) GL15.glDeleteBuffers(previousCompositeMaterialBuffer);
     }
 
     private void buildMaterials(String[] paths, int size) {
@@ -81,6 +92,26 @@ public final class BlockTextureAtlas {
     public TextureArray normals() { return this.normals; }
     public TextureArray materials() { return this.materials; }
     public boolean hasMaterials() { return this.normals != null && this.materials != null; }
+    public int compositeMaterialBuffer() { return this.compositeMaterialBuffer; }
+
+    private static int createCompositeMaterialBuffer() {
+        while (GL11.glGetError() != GL11.GL_NO_ERROR) {
+            // Attribute a following error to this allocation, not to an earlier GL call.
+        }
+        int buffer = GL15.glGenBuffers();
+        GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, buffer);
+        GL15.glBufferData(GL43.GL_SHADER_STORAGE_BUFFER,
+                CompactCompositeMaterialTable.gpuSnapshot(), GL15.GL_STATIC_DRAW);
+        int error = GL11.glGetError();
+        GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
+        if (error != GL11.GL_NO_ERROR) {
+            GL15.glDeleteBuffers(buffer);
+            throw new IllegalStateException("Compact composite material SSBO upload failed: GL 0x"
+                    + Integer.toHexString(error));
+        }
+        GlDebug.labelBuffer(buffer, "Compact Composite Materials");
+        return buffer;
+    }
 
     /** Bindet optionale Materialarrays fuer alle kleineren Voxelrenderer. */
     public static void bindOptionalMaterials(de.skyengine.graphics.shader.ShaderProgram shader) {
@@ -112,5 +143,6 @@ public final class BlockTextureAtlas {
         if (this.textures != null) this.textures.dispose();
         if (this.normals != null) this.normals.dispose();
         if (this.materials != null) this.materials.dispose();
+        if (this.compositeMaterialBuffer != 0) GL15.glDeleteBuffers(this.compositeMaterialBuffer);
     }
 }

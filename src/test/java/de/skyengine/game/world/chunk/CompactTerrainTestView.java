@@ -45,7 +45,7 @@ final class CompactTerrainTestView {
                         ao[corner] = PackedTerrainQuad.ao(word);
                     }
                 }
-                result.add(new Quad(g0, lights, ao));
+                result.add(new Quad(g0, geometry[offset + 1], lights, ao));
             }
         }
         return result;
@@ -66,7 +66,7 @@ final class CompactTerrainTestView {
         return sky | block << 8;
     }
 
-    record Quad(int geometry, int[] lights, int[] ao) {
+    record Quad(int geometry, int material, int[] lights, int[] ao) {
 
         int axis() { return PackedTerrainQuad.axis(this.geometry); }
         boolean positive() { return PackedTerrainQuad.positive(this.geometry); }
@@ -74,6 +74,7 @@ final class CompactTerrainTestView {
             return this.axis() == 1 ? (this.positive() ? 0 : 1)
                     : this.axis() == 2 ? (this.positive() ? 3 : 2) : (this.positive() ? 5 : 4);
         }
+        int materialHandle() { return PackedTerrainQuad.materialId(this.material); }
         double plane() {
             int base = this.axis() == 0 ? PackedTerrainQuad.x(this.geometry)
                     : this.axis() == 1 ? PackedTerrainQuad.y(this.geometry)

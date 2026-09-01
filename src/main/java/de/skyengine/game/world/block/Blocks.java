@@ -354,6 +354,7 @@ public final class Blocks {
             state.setParticleSprite(state.getBlock().bakeParticleSprite(state, state.getModel()));
             state.setOverlay(state.getBlock().bakeOverlay(state));
         }
+        de.skyengine.game.world.block.model.FullCubeMeshStateTable.rebuildFromRegistry();
     }
 
     /** Registers textures used only by block-entity model groups before the atlas is built. */

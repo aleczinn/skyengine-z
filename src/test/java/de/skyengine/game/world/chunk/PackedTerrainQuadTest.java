@@ -30,6 +30,7 @@ final class PackedTerrainQuadTest {
 
         int material = PackedTerrainQuad.geometry1(0xFEDC, 0xBA, 0x98);
         assertEquals(0xFEDC, PackedTerrainQuad.materialId(material));
+        assertTrue(PackedTerrainQuad.compositeMaterial(material));
         assertEquals(0xBA, PackedTerrainQuad.tintIndex(material));
         assertEquals(0x98, PackedTerrainQuad.flags(material));
     }

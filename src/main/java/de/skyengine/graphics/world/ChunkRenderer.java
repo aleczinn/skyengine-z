@@ -552,8 +552,8 @@ public class ChunkRenderer {
         }
         this.shader.setUniformi(this.locCompactMode, 0);
         FrameProfiler.gpuEnd(FrameProfiler.Gpu.SOLID);
-        /* CUTOUT mit "or-equal"-Depth-Func: die koplanaren Gras-Seiten-Overlays (identische
-           Vertices wie ihre OPAQUE-Basis-Seite) muessen den Tiefentest exakt gewinnen.
+        /* CUTOUT mit "or-equal"-Depth-Func: nicht als Composite darstellbare Resource-Pack-
+           Overlays koennen weiterhin koplanar zu ihrer OPAQUE-Basis sein und muessen gewinnen.
            Reversed-Z: GREATER -> GEQUAL. Die Funcs kommen statisch aus EngineProperties
            statt per glGetInteger (synchroner Treiber-Roundtrip pro Frame). */
         EngineProperties properties = SkyEngine.get().getWindow().getProperties();
@@ -831,6 +831,30 @@ public class ChunkRenderer {
         profiler.add(PerformanceProfiler.Counter.L0_MERGE_REJECTED_STATE, stats.mergeRejectedByState());
         profiler.add(PerformanceProfiler.Counter.L0_OVERLAY_FALLBACK_FACES,
                 stats.overlayFallbackFaces());
+        profiler.add(PerformanceProfiler.Counter.L0_OVERLAY_LEGACY_QUADS,
+                stats.overlayLegacyQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_OVERLAY_LEGACY_BYTES,
+                stats.overlayLegacyBytes());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPOSITE_GRASS_FACES,
+                stats.compositeGrassFacesBeforeGreedy());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPOSITE_GRASS_QUADS,
+                stats.compositeGrassQuadsAfterGreedy());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPOSITE_GRASS_STANDARD_QUADS,
+                stats.compositeGrassStandardQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPOSITE_GRASS_UNIFORM_QUADS,
+                stats.compositeGrassUniformQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPOSITE_GRASS_CORNER_QUADS,
+                stats.compositeGrassCornerQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_COMPOSITE_GRASS_BYTES,
+                stats.compositeGrassBytes());
+        profiler.add(PerformanceProfiler.Counter.L0_LEGACY_OPAQUE_QUADS, stats.legacyOpaqueQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_LEGACY_CUTOUT_QUADS, stats.legacyCutoutQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_LEGACY_TRANSLUCENT_QUADS,
+                stats.legacyTranslucentQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_LEGACY_DETAIL_QUADS, stats.legacyDetailQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_AXIS_ALIGNED_QUANTIZED_LEGACY_QUADS,
+                stats.axisAlignedQuantizedLegacyQuads());
+        profiler.add(PerformanceProfiler.Counter.L0_LEGACY_BYTES, stats.legacyBytes());
         profiler.add(PerformanceProfiler.Counter.L0_COMPACT_STANDARD_BYTES, stats.standardBytes());
         profiler.add(PerformanceProfiler.Counter.L0_COMPACT_UNIFORM_BYTES, stats.uniformBytes());
         profiler.add(PerformanceProfiler.Counter.L0_COMPACT_CORNER_BYTES, stats.cornerBytes());
@@ -994,6 +1018,8 @@ public class ChunkRenderer {
                     this.compactShadingArenas[mode].getBuffer());
         }
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 3, this.tintArena.getBuffer());
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 4,
+                this.atlas.compositeMaterialBuffer());
         GL43.glMultiDrawElementsIndirect(GL11.GL_TRIANGLES, GL11.GL_UNSIGNED_INT,
                 this.commandRing.slotOffset(this.frameSlot) + cmdSegBytes, drawCount, 0);
         GL30.glBindVertexArray(0);
@@ -1295,7 +1321,7 @@ public class ChunkRenderer {
        5. Int: Sky/R/G/B je 6 Bit, Vertex-Flags ab Bit 24 (siehe ChunkMesher) — Stride wächst
        automatisch über ChunkMesher.VERTEX_SIZE, a_data liest weiterhin nur die ersten 4 Ints
        Section-Origin (kamerarelativ) kommt pro Draw aus dem SSBO, indiziert via gl_DrawID. */
-    private static final String VERTEX_SOURCE = """
+    static final String VERTEX_SOURCE = """
             #version 460 core
             layout(location = 0) in uvec4 a_data;
             /* 5. Int: Sky/R/G/B je 6 Bit, Vertex-Flags ab Bit 24. */
@@ -1312,6 +1338,9 @@ public class ChunkRenderer {
             };
             layout(std430, binding = 2) readonly buffer CompactShading {
                 uint u_CompactShading[];
+            };
+            layout(std430, binding = 4) readonly buffer CompositeMaterials {
+                uvec4 u_CompositeMaterials[];
             };
 
             uniform int u_CompactMode; // 0=generisch, 1=Standard, 2=Uniform, 3=Corner
@@ -1334,6 +1363,8 @@ public class ChunkRenderer {
             flat out uint v_tintType;
             flat out uint v_tintBase;
             flat out vec3 v_fixedTint;
+            /* x=packed mode/tint flags, y=overlay layer, w=overlay fixed tint; x=0 => direct. */
+            flat out uvec4 v_composite;
 
             const uint COMPACT_S_BITS[6] = uint[6](12u, 6u, 9u, 6u, 12u, 12u);
             const uint COMPACT_T_BITS[6] = uint[6](6u, 12u, 12u, 12u, 6u, 9u);
@@ -1417,8 +1448,16 @@ public class ChunkRenderer {
                                 | (((s2 >> 26u) & 63u) << 12u) | (((s3 >> 26u) & 63u) << 18u);
                     }
                     float ao = 0.4 + float(aoIndex) * 0.2;
+                    uint materialHandle = g1 & 0xFFFFu;
+                    uint baseLayer = materialHandle;
+                    v_composite = uvec4(0u);
+                    if ((materialHandle & 0x8000u) != 0u) {
+                        uvec4 descriptor = u_CompositeMaterials[materialHandle & 0x7FFFu];
+                        baseLayer = descriptor.x;
+                        v_composite = uvec4(descriptor.z, descriptor.y, 0u, descriptor.w);
+                    }
                     v_texCoord = vec3(compactUv((g0 >> 28u) & 7u, st, extent),
-                            float(g1 & 0xFFFFu));
+                            float(baseLayer));
                     v_color = vec3(compactFaceBrightness(face) * ao);
                     v_light = vec4(compactLight(sky), compactLight(red),
                             compactLight(green), compactLight(blue));
@@ -1459,6 +1498,7 @@ public class ChunkRenderer {
                 v_tintType = 0u;
                 v_tintBase = 0xFFFFFFFFu;
                 v_fixedTint = vec3(1.0);
+                v_composite = uvec4(0u);
                 /* Positionen sind kamerarelativ und welt-achsen-ausgerichtet -> length(rel.xz) =
                    horizontale Sichtdistanz fuer ZYLINDRISCHEN Fog (wie MC 1.18+): Hochfliegen
                    schiebt das Terrain unter dem Spieler nicht in den Nebel, die horizontale
@@ -1500,6 +1540,7 @@ public class ChunkRenderer {
             flat in uint v_tintType;
             flat in uint v_tintBase;
             flat in vec3 v_fixedTint;
+            flat in uvec4 v_composite;
 
             layout(std430, binding = 3) readonly buffer TintGrids {
                 uint u_TintGrids[];
@@ -1531,17 +1572,25 @@ public class ChunkRenderer {
                         float(packedColor & 255u)) * (1.0 / 255.0);
             }
 
-            vec3 spatialBiomeTint() {
+            vec3 spatialBiomeTint(uint tintType) {
                 vec2 p = clamp(v_tintPos, vec2(0.0), vec2(32.0));
                 uvec2 lo = uvec2(floor(p));
                 uvec2 hi = min(lo + uvec2(1u), uvec2(32u));
                 vec2 f = fract(p);
-                uint base = v_tintBase + (v_tintType == 2u ? 1089u : 0u);
+                uint base = v_tintBase + (tintType == 2u ? 1089u : 0u);
                 vec3 c00 = unpackTint(u_TintGrids[base + lo.y * 33u + lo.x]);
                 vec3 c10 = unpackTint(u_TintGrids[base + lo.y * 33u + hi.x]);
                 vec3 c01 = unpackTint(u_TintGrids[base + hi.y * 33u + lo.x]);
                 vec3 c11 = unpackTint(u_TintGrids[base + hi.y * 33u + hi.x]);
                 return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
+            }
+
+            vec3 resolveTint(uint tintType, vec3 fallbackTint) {
+                if (u_BiomeTintLookup != 0 && tintType != 0u
+                        && v_tintBase != 0xFFFFFFFFu) {
+                    return spatialBiomeTint(tintType);
+                }
+                return fallbackTint;
             }
 
             mat3 cotangentFrame(vec3 n, vec3 p, vec2 uv) {
@@ -1570,8 +1619,27 @@ public class ChunkRenderer {
             }
 
             void main() {
-                vec4 color = texture(u_Textures, v_texCoord);
-                if (color.a < u_AlphaCutoff) discard;
+                vec3 selectedTexCoord = v_texCoord;
+                vec4 color = texture(u_Textures, selectedTexCoord);
+                uint selectedTintType = v_tintType;
+                vec3 selectedFixedTint = v_fixedTint;
+                uint compositeMode = v_composite.x & 255u;
+                if (compositeMode == 1u) {
+                    vec3 overlayTexCoord = vec3(v_texCoord.xy, float(v_composite.y));
+                    vec4 overlay = texture(u_Textures, overlayTexCoord);
+                    bool baseVisible = color.a >= u_AlphaCutoff;
+                    bool overlayVisible = overlay.a >= u_AlphaCutoff;
+                    if (overlayVisible) {
+                        color = overlay;
+                        selectedTexCoord = overlayTexCoord;
+                        selectedTintType = (v_composite.x >> 8u) & 3u;
+                        selectedFixedTint = unpackTint(v_composite.w);
+                    } else if (!baseVisible) {
+                        discard;
+                    }
+                } else if (color.a < u_AlphaCutoff) {
+                    discard;
+                }
                 /* Monochrom wie in Minecraft: der hellere der beiden Werte gewinnt. Erst DANACH
                    die Kurve — die Reihenfolge darunter bleibt unangetastet. */
                 float light = lightCurve(clamp(max(v_light.x,
@@ -1593,20 +1661,17 @@ public class ChunkRenderer {
                 /* Clamp gegen Attribut-EXTRApolation: kantenparallel gesehene Faces rastern als
                    degenerierte Sliver-Dreiecke, deren Interpolation die per-Vertex-AO-Farben
                    ueber 1.0 hinaus extrapoliert -> helle Funkel-Striche auf Augenhoehe. */
-                vec3 tint = v_fixedTint;
-                if (u_BiomeTintLookup != 0 && v_tintType != 0u && v_tintBase != 0xFFFFFFFFu) {
-                    tint = spatialBiomeTint();
-                }
+                vec3 tint = resolveTint(selectedTintType, selectedFixedTint);
                 vec3 lit = color.rgb * clamp(v_color * tint, 0.0, 1.0) * light;
                 if (u_PbrEnabled != 0) {
-                    vec4 normalTex = texture(u_NormalTextures, v_texCoord);
-                    vec4 material = texture(u_MaterialTextures, v_texCoord);
+                    vec4 normalTex = texture(u_NormalTextures, selectedTexCoord);
+                    vec4 material = texture(u_MaterialTextures, selectedTexCoord);
                     if (normalTex.a > 0.0 || material.a > 0.0) {
                         vec3 geometric = normalize(cross(dFdx(v_relPos), dFdy(v_relPos)));
                         if (!gl_FrontFacing) geometric = -geometric;
                         vec3 n = geometric;
                         if (normalTex.a > 0.0) {
-                            n = normalize(cotangentFrame(geometric, v_relPos, v_texCoord.xy)
+                            n = normalize(cotangentFrame(geometric, v_relPos, selectedTexCoord.xy)
                                     * (normalTex.rgb * 2.0 - 1.0));
                         }
                         float roughness = material.a > 0.0 ? clamp(material.r, 0.04, 1.0) : 1.0;
@@ -1620,7 +1685,8 @@ public class ChunkRenderer {
                         float hv = max(dot(h, v), 0.0);
                         float skyShare = v_light.x / max(v_light.x + v_light.y, 0.001);
                         float normalShade = mix(1.0, 0.35 + 0.65 * nl, skyShare);
-                        vec3 albedo = color.rgb * clamp(v_color, 0.0, 1.0);
+                        vec3 pbrTint = compositeMode == 1u ? tint : vec3(1.0);
+                        vec3 albedo = color.rgb * clamp(v_color * pbrTint, 0.0, 1.0);
                         vec3 f0 = mix(vec3(0.04), albedo, metallic);
                         vec3 f = f0 + (1.0 - f0) * pow(1.0 - hv, 5.0);
                         float d = distributionGGX(n, h, roughness);
