@@ -1,0 +1,123 @@
+package de.skyengine.game.world.chunk;
+
+import de.skyengine.core.settings.GameSettings;
+import de.skyengine.game.world.block.Blocks;
+import de.skyengine.test.BlocksTestBootstrap;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+
+import java.util.EnumMap;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
+final class ChunkMesherFullCubeProfileTest {
+
+    @BeforeAll
+    static void bootstrapBlocks() {
+        BlocksTestBootstrap.ensureBootstrapped();
+    }
+
+    @Test
+    void detailedRecorderDoesNotChangeMeshAndCountsOverlayPath() {
+        Chunk chunk = new Chunk(0, 0);
+        chunk.setBlock(8, 10, 8, Blocks.GRASS_BLOCK);
+        ChunkMesher.MeshData baseline = new ChunkMesher().mesh(
+                chunk, 0, null, null, null, null, new Chunk[4]);
+        ChunkMesher.MeshData scalarReference = new ChunkMesher(null, null,
+                ChunkMesher.VisibilityPath.SCALAR_REFERENCE).mesh(
+                chunk, 0, null, null, null, null, new Chunk[4]);
+
+        RecordingProfile profile = new RecordingProfile();
+        ChunkMesher.MeshData measured = new ChunkMesher(null, profile).mesh(
+                chunk, 0, null, null, null, null, new Chunk[4]);
+
+        assertMeshEquals(baseline, measured);
+        assertMeshEquals(scalarReference, measured);
+        assertNotNull(profile.operations);
+        assertEquals(6, profile.operations.visibleFaces());
+        assertEquals(4, profile.operations.overlayFallbackFaces());
+        assertEquals(2, profile.operations.compactQuads());
+        assertEquals(39_304, profile.operations.cellsScanned());
+        assertEquals(32_768, profile.operations.sectionCellsClassified());
+        assertEquals(6_536, profile.operations.haloCellsClassified());
+        assertEquals(6_144, profile.operations.visibilityWordsProcessed());
+        assertEquals(6_144, profile.operations.neighborWordReads());
+        assertEquals(0, profile.operations.faceNeighborLookups());
+        assertEquals(1, profile.samples.get(ChunkMesher.FullCubePhase.STATE_CLASSIFICATION));
+        assertEquals(1, profile.samples.get(ChunkMesher.FullCubePhase.VISIBILITY_WORD_DERIVATION));
+        assertEquals(192, profile.samples.get(ChunkMesher.FullCubePhase.BLOCK_FACE_VISIBILITY));
+    }
+
+    @Test
+    void rowMaskAndScalarReferenceMatchAcrossChunkBoundary() {
+        Chunk center = new Chunk(-1, 2);
+        Chunk east = new Chunk(0, 2);
+        center.setBlock(31, 5, 12, Blocks.STONE);
+        east.setBlock(0, 5, 12, Blocks.STONE);
+
+        ChunkMesher.MeshData rowMask = new ChunkMesher().mesh(
+                center, 0, null, null, null, east, new Chunk[4]);
+        ChunkMesher.MeshData scalar = new ChunkMesher(null, null,
+                ChunkMesher.VisibilityPath.SCALAR_REFERENCE).mesh(
+                center, 0, null, null, null, east, new Chunk[4]);
+
+        assertMeshEquals(scalar, rowMask);
+        assertEquals(5, rowMask.stats.fullCubeFacesBeforeGreedy());
+    }
+
+    @Test
+    void disabledAoProducesNoAoTimingOperations() {
+        boolean previous = GameSettings.get().ambientOcclusion;
+        try {
+            GameSettings.get().ambientOcclusion = false;
+            Chunk chunk = new Chunk(0, 0);
+            chunk.setBlock(8, 10, 8, Blocks.STONE);
+            RecordingProfile profile = new RecordingProfile();
+            new ChunkMesher(null, profile).mesh(
+                    chunk, 0, null, null, null, null, new Chunk[4]);
+
+            assertNotNull(profile.operations);
+            assertEquals(0, profile.operations.aoFaces());
+            assertEquals(0, profile.operations.aoOccluderLookups());
+            assertEquals(0, profile.operationsByPhase.get(
+                    ChunkMesher.FullCubePhase.CORNER_AO_SAMPLING));
+        } finally {
+            GameSettings.get().ambientOcclusion = previous;
+        }
+    }
+
+    private static void assertMeshEquals(ChunkMesher.MeshData expected,
+                                         ChunkMesher.MeshData actual) {
+        assertArrayEquals(expected.opaque, actual.opaque);
+        assertArrayEquals(expected.cutout, actual.cutout);
+        assertArrayEquals(expected.translucent, actual.translucent);
+        assertArrayEquals(expected.detail, actual.detail);
+        for (int i = 0; i < expected.compactGeometry.length; i++) {
+            assertArrayEquals(expected.compactGeometry[i], actual.compactGeometry[i]);
+            assertArrayEquals(expected.compactShading[i], actual.compactShading[i]);
+        }
+    }
+
+    private static final class RecordingProfile implements ChunkMesher.FullCubeProfileRecorder {
+        final Map<ChunkMesher.FullCubePhase, Long> samples =
+                new EnumMap<>(ChunkMesher.FullCubePhase.class);
+        final Map<ChunkMesher.FullCubePhase, Long> operationsByPhase =
+                new EnumMap<>(ChunkMesher.FullCubePhase.class);
+        ChunkMesher.FullCubeOperations operations;
+
+        @Override public boolean enabled() { return true; }
+        @Override public boolean collectOperations() { return true; }
+        @Override public boolean sampleSlice(int face, int slice) { return true; }
+        @Override public void record(ChunkMesher.FullCubePhase phase, long nanos,
+                                     long operations, long spans) {
+            this.samples.merge(phase, 1L, Long::sum);
+            this.operationsByPhase.merge(phase, operations, Long::sum);
+        }
+        @Override public void recordOperations(ChunkMesher.FullCubeOperations operations) {
+            this.operations = operations;
+        }
+    }
+}

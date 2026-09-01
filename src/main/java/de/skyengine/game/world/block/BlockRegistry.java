@@ -1,6 +1,7 @@
 package de.skyengine.game.world.block;
 
 import de.skyengine.game.world.block.registry.Registries;
+import de.skyengine.game.world.block.model.FullCubeMeshStateTable;
 import de.skyengine.game.world.block.state.BlockState;
 import de.skyengine.game.world.block.state.StateFlags;
 import de.skyengine.utils.logging.LogManager;
@@ -58,6 +59,7 @@ public final class BlockRegistry {
         }
 
         statesById = all.toArray(new BlockState[0]);
+        FullCubeMeshStateTable.rebuildFromRegistry();
         Registries.BLOCK.freeze();
         baked = true;
 

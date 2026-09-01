@@ -22,11 +22,28 @@ final class MesherBenchmarkTest {
     @Test
     void reportSerializationKeepsMachineReadableFields() {
         String json = MesherBenchmark.serializeReport(Map.of(
-                "schemaVersion", 1,
+                "schemaVersion", 2,
                 "scenarios", new Object[]{Map.of("name", "generated-ao", "sectionsPerSecond", 42.5)}));
 
-        assertTrue(json.contains("\"schemaVersion\": 1"));
+        assertTrue(json.contains("\"schemaVersion\": 2"));
         assertTrue(json.contains("\"generated-ao\""));
         assertTrue(json.contains("\"sectionsPerSecond\": 42.5"));
+    }
+
+    @Test
+    void nanoTimeCalibrationNeverReportsZero() {
+        assertTrue(MesherBenchmark.calibrateNanoTimeOverhead() > 0);
+    }
+
+    @Test
+    void sliceSamplingRotatesAcrossAllOffsets() {
+        int[] sampled = new int[6 * 32];
+        long cursor = 0;
+        for (int section = 0; section < 16; section++) {
+            for (int slice = 0; slice < sampled.length; slice++, cursor++) {
+                if (MesherBenchmark.sampledSlice(cursor, 16)) sampled[slice]++;
+            }
+        }
+        for (int count : sampled) assertEquals(1, count);
     }
 }

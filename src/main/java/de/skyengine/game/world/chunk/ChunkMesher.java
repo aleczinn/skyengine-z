@@ -7,11 +7,18 @@ import de.skyengine.game.world.block.RenderLayer;
 import de.skyengine.game.world.block.archetype.FluidInfo;
 import de.skyengine.game.world.block.model.BakedQuad;
 import de.skyengine.game.world.block.model.BlockModels;
+import de.skyengine.game.world.block.model.FullCubeMeshStateTable;
 import de.skyengine.game.world.block.state.BlockState;
 
 import java.util.Arrays;
 
 public class ChunkMesher {
+
+    /** Benchmark-/Testauswahl; der normale Spielpfad verwendet immer ROW_MASK. */
+    public enum VisibilityPath {
+        ROW_MASK,
+        SCALAR_REFERENCE
+    }
 
     public enum MeshPhase {
         PREPARE_AND_HALO,
@@ -21,10 +28,58 @@ public class ChunkMesher {
         FINALIZE_AND_COPY
     }
 
+    /** Feine, ausschliesslich fuer den Offline-Benchmark gedachte Full-Cube-Attribution. */
+    public enum FullCubePhase {
+        STATE_CLASSIFICATION,
+        VISIBILITY_WORD_DERIVATION,
+        BLOCK_FACE_VISIBILITY,
+        NEIGHBOR_LOOKUPS,
+        FACE_SIGNATURE_MATERIAL,
+        LIGHT_SAMPLING,
+        CORNER_AO_SAMPLING,
+        MASK_BUILD,
+        GREEDY_RECTANGLE_SEARCH,
+        SHADING_DIAGONAL_COMPATIBILITY,
+        PACKED_QUAD_EMISSION,
+        OVERLAY_FALLBACK_EMISSION
+    }
+
     /** Optional, thread-local phase timing. The normal path reads no clock while disabled. */
     public interface MeshPhaseRecorder {
         boolean enabled();
         void record(MeshPhase phase, long nanos);
+    }
+
+    /**
+     * Optionaler Detail-Recorder. Ist er nicht aktiv, liest der Full-Cube-Hotpath keine Uhr.
+     * {@code spans} ist die Zahl der in {@code nanos} aufsummierten Timer-Paare und erlaubt dem
+     * Benchmark, den zuvor kalibrierten Mess-Overhead abzuziehen.
+     */
+    public interface FullCubeProfileRecorder {
+        boolean enabled();
+        boolean collectOperations();
+        boolean sampleSlice(int face, int slice);
+        void record(FullCubePhase phase, long nanos, long operations, long spans);
+        default void recordSection(FullCubePhase phase, long nanos, long operations, long spans) {
+            record(phase, nanos, operations, spans);
+        }
+        void recordOperations(FullCubeOperations operations);
+    }
+
+    /** Operationszaehler eines einzelnen nichtleeren Section-Meshes. */
+    public record FullCubeOperations(
+            long cellsScanned, long fullCubeCandidates, long faceNeighborLookups,
+            long visibleFaces, long lightFaces, long lightSampleRequests,
+            long lightCacheHits, long lightCacheMisses, long aoFaces,
+            long lightOccluderLookups, long aoOccluderLookups, long maskCells,
+            long rectangleRoots, long identityChecks, long widthExtensions,
+            long heightExtensions, long compatibilityCalls, long compatibilityCells,
+            long planeComparisons, long compatibilityEarlyRejects,
+            long normalDiagonalAccepted, long flippedDiagonalAccepted,
+            long compactQuads, long compactBytes, long overlayFallbackFaces,
+            long sectionCellsClassified, long haloCellsClassified,
+            long visibilityWordsProcessed, long neighborWordReads,
+            long exceptionNeighborStateReads) {
     }
 
     /**
@@ -125,13 +180,29 @@ public class ChunkMesher {
     }
 
     private final MeshPhaseRecorder phaseRecorder;
+    private final FullCubeProfileRecorder fullCubeProfileRecorder;
+    private final VisibilityPath visibilityPath;
 
     public ChunkMesher() {
-        this(null);
+        this(null, null, VisibilityPath.ROW_MASK);
     }
 
     public ChunkMesher(MeshPhaseRecorder phaseRecorder) {
+        this(phaseRecorder, null, VisibilityPath.ROW_MASK);
+    }
+
+    public ChunkMesher(MeshPhaseRecorder phaseRecorder,
+                       FullCubeProfileRecorder fullCubeProfileRecorder) {
+        this(phaseRecorder, fullCubeProfileRecorder, VisibilityPath.ROW_MASK);
+    }
+
+    public ChunkMesher(MeshPhaseRecorder phaseRecorder,
+                       FullCubeProfileRecorder fullCubeProfileRecorder,
+                       VisibilityPath visibilityPath) {
         this.phaseRecorder = phaseRecorder;
+        this.fullCubeProfileRecorder = fullCubeProfileRecorder;
+        this.visibilityPath = visibilityPath;
+        Arrays.fill(this.faceClass, (byte) -1);
     }
 
     /* Ein wiederverwendeter Buffer pro RenderLayer (Index = RenderLayer.ordinal()) + 1 für
@@ -213,9 +284,13 @@ public class ChunkMesher {
     /* Basis-Welt-y der aktuellen Section (sample/occludes rechnen globales y → halo-lokal). */
     private int sectionBaseY;
 
-    /* occludesAo je State-ID (lazy wie greedyCache): erspart occludes() den Umweg über
-       das BlockState-Objekt (volatile statesById-Load + Pointer-Chase im heißesten Loop). */
-    private boolean[] occluderCache = new boolean[0];
+    /* Ein atomarer Registry-/Visual-Snapshot pro mesh()-Aufruf. */
+    private FullCubeMeshStateTable.Snapshot fullCubeStates;
+    /* X-Zeilen: Halo-Opazitaet nutzt Bits 0..33 fuer x=-1..32; Kandidaten Bits 0..31. */
+    private final long[] opaqueRows = new long[HALO * HALO];
+    private final int[] candidateRows = new int[ChunkSection.SIZE * ChunkSection.SIZE];
+    /* Endgueltige Face-Zeilen in der Orientierung [face][slice][b], Bits = a. */
+    private final int[] visibleRows = new int[6 * ChunkSection.SIZE * ChunkSection.SIZE];
     /* Merge-Grid einer Slice: 0 = leer/schon emittiert, sonst Merge-Schlüssel */
     private final int[] faceState = new int[ChunkSection.SIZE * ChunkSection.SIZE];
     private final byte[] faceClass = new byte[ChunkSection.SIZE * ChunkSection.SIZE];
@@ -235,38 +310,29 @@ public class ChunkMesher {
     private final byte[] candidateAo = new byte[4];
     private final float[] candidateAoFloat = new float[4];
 
-    /* Greedy-Eignung + Face-Quads je BlockState-ID (lazy; Mesher ist ThreadLocal).
-       Array statt HashMap: der Lookup läuft ~200k-mal pro Section (Pass 1 + Pass 2) —
-       das Autoboxing der State-IDs würde pro Lookup allozieren. */
-    private GreedyFaces[] greedyCache = new GreedyFaces[0];
-
     private long statFullCubeFaces, statFullCubeQuads, statMergedStandard, statMergedUniform,
             statMergedCorner, statCornerFaces, statCornerFacesMerged, statCornerFacesUnmerged,
             statRejectedShading, statRejectedMaterial, statRejectedState, statOverlayFallbackFaces;
 
-    /**
-     * Vorberechnete Daten eines greedy-fähigen States: die 6 Full-Cube-Face-Quads und je Face
-     * die UV-Orientierung (läuft u entlang T1 oder T2 — entscheidet, ob u mit Breite oder Höhe
-     * des gemergten Quads skaliert). {@link #NONE} = State ist nicht greedy-fähig.
-     */
-    private static final class GreedyFaces {
-        static final GreedyFaces NONE = new GreedyFaces(null, null, null, null, null);
-
-        final BlockState state;
-        final BakedQuad[] quads;     // Index = Face
-        final boolean[] uAlongT1;    // Index = Face
-        final byte[] uvTransform;    // D4-Transformation der beiden Face-Tangenten
-        final BakedQuad[] overlays;  // Index = Face, null = keine Overlays (Normalfall)
-
-        GreedyFaces(BlockState state, BakedQuad[] quads, boolean[] uAlongT1,
-                    byte[] uvTransform, BakedQuad[] overlays) {
-            this.state = state;
-            this.quads = quads;
-            this.uAlongT1 = uAlongT1;
-            this.uvTransform = uvTransform;
-            this.overlays = overlays;
-        }
-    }
+    /* Nur waehrend einer expliziten meshBench-Detailrunde aktiv. Der normale Spielpfad hat
+       lediglich den einen null/enabled-Test am Beginn des Full-Cube-Passes. */
+    private boolean profileFullCube;
+    private boolean profileOperations;
+    private boolean profileSampledSlice;
+    private int profileOccluderContext; // 0=keiner, 1=Licht, 2=AO
+    private long profileCompatibilityNanos, profileCompatibilitySpans;
+    private long profileCellsScanned, profileFullCubeCandidates, profileFaceNeighborLookups;
+    private long profileVisibleFaces, profileLightFaces, profileLightSampleRequests;
+    private long profileLightCacheHits, profileLightCacheMisses, profileAoFaces;
+    private long profileLightOccluderLookups, profileAoOccluderLookups, profileMaskCells;
+    private long profileRectangleRoots, profileIdentityChecks, profileWidthExtensions;
+    private long profileHeightExtensions, profileCompatibilityCalls, profileCompatibilityCells;
+    private long profilePlaneComparisons, profileCompatibilityEarlyRejects;
+    private long profileNormalDiagonalAccepted, profileFlippedDiagonalAccepted;
+    private long profileCompactQuads, profileCompactBytes, profileOverlayFallbackFaces;
+    private long profileSectionCellsClassified, profileHaloCellsClassified;
+    private long profileVisibilityWordsProcessed, profileNeighborWordReads;
+    private long profileExceptionNeighborStateReads;
 
     /**
      * Mesht eine Section. Läuft auf einem Worker-Thread - reine Daten, kein GL.
@@ -291,6 +357,7 @@ public class ChunkMesher {
         this.statOverlayFallbackFaces = 0;
         this.statAxisAlignedQuantizedLegacy = 0;
         this.suppressAxisCandidate = false;
+        this.resetFullCubeProfile();
 
         this.chunk = chunk;
         this.north = north;
@@ -300,6 +367,7 @@ public class ChunkMesher {
         this.diagonals = diagonals;
         this.ambientOcclusion = GameSettings.get().ambientOcclusion;
         this.cullLeaves = GameSettings.get().leavesQuality == GameSettings.LeavesQuality.LOW;
+        this.fullCubeStates = FullCubeMeshStateTable.current();
 
         int baseY = sectionIndex << ChunkSection.SHIFT;
         this.sectionBaseY = baseY;
@@ -318,7 +386,7 @@ public class ChunkMesher {
                             : NeighborSampler.sample(chunk, north, south, west, east, diagonals, x, baseY + y, z);
                     int idx = haloIndex(x, y, z);
                     blocks[idx] = id;
-                    occluder[idx] = this.occluderById(id);
+                    occluder[idx] = this.fullCubeStates.aoOccluder[id];
                 }
             }
         }
@@ -329,6 +397,7 @@ public class ChunkMesher {
         phaseStarted = this.beginPhase();
         this.greedyPass(baseY);
         this.endPhase(MeshPhase.FULL_CUBE_GREEDY, phaseStarted);
+        this.finishFullCubeProfile();
 
         /* Pass 1.5: flach-stille Wasser-Tops (Meeresoberfläche) greedy zu großen TRANSLUCENT-Quads
            zusammenfassen; markiert die betroffenen Zellen für Pass 2. */
@@ -344,7 +413,7 @@ public class ChunkMesher {
                 for (int x = 0; x < ChunkSection.SIZE; x++) {
                     int stateId = blocks[haloIndex(x, y, z)];
                     if (stateId == Blocks.AIR) continue;
-                    if (this.greedyFaces(stateId) != GreedyFaces.NONE) continue; // in Pass 1 erledigt
+                    if (this.fullCubeFaces(stateId) != null) continue; // in Pass 1 erledigt
 
                     BlockState state = BlockRegistry.getState(stateId);
                     int worldY = baseY + y;
@@ -461,12 +530,188 @@ public class ChunkMesher {
         if (started != 0L) this.phaseRecorder.record(phase, System.nanoTime() - started);
     }
 
+    private void resetFullCubeProfile() {
+        this.profileFullCube = this.fullCubeProfileRecorder != null
+                && this.fullCubeProfileRecorder.enabled();
+        this.profileOperations = this.profileFullCube
+                && this.fullCubeProfileRecorder.collectOperations();
+        this.profileSampledSlice = false;
+        this.profileOccluderContext = 0;
+        this.profileCompatibilityNanos = this.profileCompatibilitySpans = 0;
+        this.profileCellsScanned = this.profileFullCubeCandidates = 0;
+        this.profileFaceNeighborLookups = this.profileVisibleFaces = 0;
+        this.profileLightFaces = this.profileLightSampleRequests = 0;
+        this.profileLightCacheHits = this.profileLightCacheMisses = 0;
+        this.profileAoFaces = this.profileLightOccluderLookups = this.profileAoOccluderLookups = 0;
+        this.profileMaskCells = this.profileRectangleRoots = this.profileIdentityChecks = 0;
+        this.profileWidthExtensions = this.profileHeightExtensions = 0;
+        this.profileCompatibilityCalls = this.profileCompatibilityCells = 0;
+        this.profilePlaneComparisons = this.profileCompatibilityEarlyRejects = 0;
+        this.profileNormalDiagonalAccepted = this.profileFlippedDiagonalAccepted = 0;
+        this.profileCompactQuads = this.profileCompactBytes = this.profileOverlayFallbackFaces = 0;
+        this.profileSectionCellsClassified = this.profileHaloCellsClassified = 0;
+        this.profileVisibilityWordsProcessed = this.profileNeighborWordReads = 0;
+        this.profileExceptionNeighborStateReads = 0;
+    }
+
+    private void finishFullCubeProfile() {
+        if (!this.profileOperations) return;
+        this.fullCubeProfileRecorder.recordOperations(new FullCubeOperations(
+                this.profileCellsScanned, this.profileFullCubeCandidates,
+                this.profileFaceNeighborLookups, this.profileVisibleFaces,
+                this.profileLightFaces, this.profileLightSampleRequests,
+                this.profileLightCacheHits, this.profileLightCacheMisses,
+                this.profileAoFaces, this.profileLightOccluderLookups,
+                this.profileAoOccluderLookups, this.profileMaskCells,
+                this.profileRectangleRoots, this.profileIdentityChecks,
+                this.profileWidthExtensions, this.profileHeightExtensions,
+                this.profileCompatibilityCalls, this.profileCompatibilityCells,
+                this.profilePlaneComparisons, this.profileCompatibilityEarlyRejects,
+                this.profileNormalDiagonalAccepted, this.profileFlippedDiagonalAccepted,
+                this.profileCompactQuads, this.profileCompactBytes,
+                this.profileOverlayFallbackFaces,
+                this.profileSectionCellsClassified, this.profileHaloCellsClassified,
+                this.profileVisibilityWordsProcessed, this.profileNeighborWordReads,
+                this.profileExceptionNeighborStateReads));
+        this.profileSampledSlice = false;
+        this.profileOccluderContext = 0;
+    }
+
     private static long bytes(int[] first, int[] second) {
         return (long) ((first == null ? 0 : first.length) + (second == null ? 0 : second.length))
                 * Integer.BYTES;
     }
 
     /* ------------------------- Greedy Meshing ------------------------- */
+
+    /**
+     * Classifies the 34^3 halo once and derives all six final visibility planes with word
+     * operations. The face rows use the exact orientation consumed by the existing greedy pass.
+     */
+    private void buildFullCubeVisibilityRows() {
+        int size = ChunkSection.SIZE;
+        byte[] meshFlags = this.fullCubeStates.meshFlags;
+        byte[] occlusion = this.fullCubeStates.faceOcclusionMask;
+        int[] blocks = this.haloBlocks;
+
+        FullCubeProfileRecorder profiler = this.profileFullCube ? this.fullCubeProfileRecorder : null;
+        long classificationStarted = profiler == null ? 0L : System.nanoTime();
+        long candidateFaces = 0;
+        for (int hy = 0; hy < HALO; hy++) {
+            for (int hz = 0; hz < HALO; hz++) {
+                int haloBase = (hy * HALO + hz) * HALO;
+                long opaque = 0L;
+                int candidates = 0;
+                for (int hx = 0; hx < HALO; hx++) {
+                    int stateId = blocks[haloBase + hx];
+                    if ((occlusion[stateId] & FullCubeMeshStateTable.ALL_FACES) != 0) {
+                        opaque |= 1L << hx;
+                    }
+                    if (hy > 0 && hy <= size && hz > 0 && hz <= size && hx > 0 && hx <= size
+                            && (meshFlags[stateId] & FullCubeMeshStateTable.GREEDY) != 0) {
+                        candidates |= 1 << (hx - 1);
+                    }
+                }
+                this.opaqueRows[hy * HALO + hz] = opaque;
+                if (hy > 0 && hy <= size && hz > 0 && hz <= size) {
+                    this.candidateRows[(hy - 1) * size + (hz - 1)] = candidates;
+                    candidateFaces += (long) Integer.bitCount(candidates) * 6L;
+                }
+            }
+        }
+        if (profiler != null) {
+            profiler.recordSection(FullCubePhase.STATE_CLASSIFICATION,
+                    System.nanoTime() - classificationStarted, (long) HALO * HALO * HALO, 1);
+        }
+        Arrays.fill(this.visibleRows, 0);
+
+        long visibilityStarted = profiler == null ? 0L : System.nanoTime();
+        int plane = size * size;
+        for (int y = 0; y < size; y++) {
+            int hy = y + 1;
+            for (int z = 0; z < size; z++) {
+                int hz = z + 1;
+                int candidates = this.candidateRows[y * size + z];
+                long aligned = Integer.toUnsignedLong(candidates) << 1;
+                long row = this.opaqueRows[hy * HALO + hz];
+
+                int top = (int) ((aligned & ~this.opaqueRows[(hy + 1) * HALO + hz]) >>> 1);
+                int bottom = (int) ((aligned & ~this.opaqueRows[(hy - 1) * HALO + hz]) >>> 1);
+                int north = (int) ((aligned & ~this.opaqueRows[hy * HALO + hz - 1]) >>> 1);
+                int south = (int) ((aligned & ~this.opaqueRows[hy * HALO + hz + 1]) >>> 1);
+                int west = (int) ((aligned & ~(row << 1)) >>> 1);
+                int east = (int) ((aligned & ~(row >>> 1)) >>> 1);
+
+                this.visibleRows[y * size + z] = top;
+                this.visibleRows[plane + y * size + z] = bottom;
+                this.visibleRows[2 * plane + z * size + y] = north;
+                this.visibleRows[3 * plane + z * size + y] = south;
+
+                for (int bits = west; bits != 0; bits &= bits - 1) {
+                    int x = Integer.numberOfTrailingZeros(bits);
+                    this.visibleRows[4 * plane + x * size + z] |= 1 << y;
+                }
+                for (int bits = east; bits != 0; bits &= bits - 1) {
+                    int x = Integer.numberOfTrailingZeros(bits);
+                    this.visibleRows[5 * plane + x * size + z] |= 1 << y;
+                }
+            }
+        }
+        if (profiler != null) {
+            profiler.recordSection(FullCubePhase.VISIBILITY_WORD_DERIVATION,
+                    System.nanoTime() - visibilityStarted, 6L * size * size, 1);
+        }
+
+        if (this.profileOperations) {
+            this.profileCellsScanned += (long) HALO * HALO * HALO;
+            this.profileFullCubeCandidates += candidateFaces;
+            this.profileSectionCellsClassified += (long) size * size * size;
+            this.profileHaloCellsClassified += (long) HALO * HALO * HALO
+                    - (long) size * size * size;
+            this.profileVisibilityWordsProcessed += 6L * size * size;
+            this.profileNeighborWordReads += 6L * size * size;
+        }
+    }
+
+    /** Scalar pre-optimization oracle retained for meshBench and differential tests only. */
+    private void buildScalarReferenceVisibilityRows() {
+        int size = ChunkSection.SIZE;
+        int[] pos = this.cellPos;
+        Arrays.fill(this.visibleRows, 0);
+        long started = this.profileFullCube ? System.nanoTime() : 0L;
+        for (int face = 0; face < 6; face++) {
+            int axisN = AXIS_N[face], axisT1 = AXIS_T1[face], axisT2 = AXIS_T2[face];
+            int offX = FACE_OFFSET[face][0], offY = FACE_OFFSET[face][1], offZ = FACE_OFFSET[face][2];
+            for (int slice = 0; slice < size; slice++) {
+                for (int b = 0; b < size; b++) {
+                    int visible = 0;
+                    for (int a = 0; a < size; a++) {
+                        if (this.profileOperations) this.profileCellsScanned++;
+                        pos[axisN] = slice;
+                        pos[axisT1] = a;
+                        pos[axisT2] = b;
+                        int x = pos[0], y = pos[1], z = pos[2];
+                        int stateId = this.haloBlocks[haloIndex(x, y, z)];
+                        if ((this.fullCubeStates.meshFlags[stateId]
+                                & FullCubeMeshStateTable.GREEDY) == 0) continue;
+                        if (this.profileOperations) {
+                            this.profileFullCubeCandidates++;
+                            this.profileFaceNeighborLookups++;
+                            this.profileExceptionNeighborStateReads++;
+                        }
+                        int neighborId = this.haloBlocks[haloIndex(x + offX, y + offY, z + offZ)];
+                        FullCubeMeshStateTable.FaceSet faces = this.fullCubeFaces(stateId);
+                        if (shouldRenderFace(faces.state, neighborId)) visible |= 1 << a;
+                    }
+                    this.visibleRows[(face * size + slice) * size + b] = visible;
+                }
+            }
+        }
+        if (this.profileFullCube) {
+            this.fullCubeProfileRecorder.recordSection(FullCubePhase.STATE_CLASSIFICATION,
+                    System.nanoTime() - started, 6L * size * size * size, 1);
+        }
+    }
 
     /**
      * Pass 1: fasst benachbarte, identisch aussehende Full-Cube-Faces pro Face-Richtung und
@@ -478,50 +723,120 @@ public class ChunkMesher {
     private void greedyPass(int baseY) {
         int[] pos = this.cellPos;
         int size = ChunkSection.SIZE;
+        FullCubeProfileRecorder profiler = this.profileFullCube ? this.fullCubeProfileRecorder : null;
+        boolean rowMaskVisibility = this.visibilityPath == VisibilityPath.ROW_MASK;
+        if (rowMaskVisibility) this.buildFullCubeVisibilityRows();
+        else this.buildScalarReferenceVisibilityRows();
 
         for (int face = 0; face < 6; face++) {
             int axisN = AXIS_N[face], axisT1 = AXIS_T1[face], axisT2 = AXIS_T2[face];
             int offX = FACE_OFFSET[face][0], offY = FACE_OFFSET[face][1], offZ = FACE_OFFSET[face][2];
 
             for (int slice = 0; slice < size; slice++) {
-                Arrays.fill(this.faceClass, (byte) -1);
-                Arrays.fill(this.faceActualCorner, false);
+                boolean sampled = profiler != null && profiler.sampleSlice(face, slice);
+                this.profileSampledSlice = sampled;
+                long maskNanos = 0, maskSpans = 0, maskScanSpans = 0;
+
+                long neighborNanos = 0, signatureNanos = 0, lightNanos = 0, aoNanos = 0;
+                long overlayNanos = 0;
+                long neighborSpans = 0, signatureSpans = 0, lightSpans = 0, aoSpans = 0;
+                long overlaySpans = 0, maskFaceSpans = 0, sampledVisibleCandidates = 0;
+                long scanStarted = sampled ? System.nanoTime() : 0;
 
                 for (int b = 0; b < size; b++) {
-                    for (int a = 0; a < size; a++) {
+                    int visible = this.visibleRows[(face * size + slice) * size + b];
+                    while (visible != 0) {
+                        if (sampled) sampledVisibleCandidates++;
+                        int a = Integer.numberOfTrailingZeros(visible);
+                        visible &= visible - 1;
                         pos[axisN] = slice;
                         pos[axisT1] = a;
                         pos[axisT2] = b;
                         int x = pos[0], y = pos[1], z = pos[2];
                         int stateId = this.haloBlocks[haloIndex(x, y, z)];
-                        if (stateId == Blocks.AIR) continue;
-                        GreedyFaces gf = this.greedyFaces(stateId);
-                        if (gf == GreedyFaces.NONE) continue;
+                        FullCubeMeshStateTable.FaceSet gf = this.fullCubeFaces(stateId);
                         int worldY = baseY + y;
-                        if (!shouldRenderFace(gf.state,
-                                this.sample(x + offX, worldY + offY, z + offZ))) continue;
+                        long operationStarted = sampled ? System.nanoTime() : 0;
+                        int rules = this.fullCubeStates.meshFlags[stateId];
+                        if (rowMaskVisibility && (rules & (FullCubeMeshStateTable.CULL_SAME_EXCEPTION
+                                | FullCubeMeshStateTable.LEAVES_EXCEPTION)) != 0) {
+                            if (this.profileOperations) {
+                                this.profileFaceNeighborLookups++;
+                                this.profileExceptionNeighborStateReads++;
+                            }
+                            int neighborId = this.haloBlocks[haloIndex(x + offX, y + offY, z + offZ)];
+                            if (sampled) neighborSpans++;
+                            boolean render = shouldRenderFace(gf.state, neighborId);
+                            if (sampled) neighborNanos += System.nanoTime() - operationStarted;
+                            if (!render) continue;
+                        }
 
                         this.statFullCubeFaces++;
-                        if (gf.overlays != null && gf.overlays[face] != null) {
+                        if (this.profileOperations) this.profileVisibleFaces++;
+                        operationStarted = sampled ? System.nanoTime() : 0;
+                        BakedQuad overlay = gf.overlays == null ? null : gf.overlays[face];
+                        BakedQuad quad = gf.quads[face];
+                        boolean needsExactTint = quad.tintType() == BakedQuad.TINT_NONE
+                                && quad.tint() != BakedQuad.WHITE;
+                        if ((quad.tintType() == BakedQuad.TINT_GRASS && this.chunk.grassTintCorners == null)
+                                || (quad.tintType() == BakedQuad.TINT_FOLIAGE
+                                && this.chunk.foliageTintCorners == null)) needsExactTint = true;
+                        if (sampled) {
+                            signatureNanos += System.nanoTime() - operationStarted;
+                            signatureSpans++;
+                        }
+                        if (overlay != null) {
                             /* Basis und Overlay muessen denselben Vertexpfad, dieselben vier
                                Positionen und dieselbe Diagonale verwenden. Eine grosse Compact-
                                Basis gegen einzelne Overlay-Quads ist zwar mathematisch koplanar,
                                liefert rasterisiert aber nicht garantiert identische Tiefenwerte. */
+                            operationStarted = sampled ? System.nanoTime() : 0;
                             this.suppressAxisCandidate = true;
-                            this.emitQuad(this.buffers[RenderLayer.OPAQUE.ordinal()], gf.quads[face],
+                            this.emitQuad(this.buffers[RenderLayer.OPAQUE.ordinal()], quad,
                                     x, y, worldY, z, 0F, 0F);
-                            this.emitQuad(this.buffers[RenderLayer.CUTOUT.ordinal()], gf.overlays[face],
+                            this.emitQuad(this.buffers[RenderLayer.CUTOUT.ordinal()], overlay,
                                     x, y, worldY, z, 0F, 0F);
                             this.suppressAxisCandidate = false;
                             this.statOverlayFallbackFaces++;
+                            if (this.profileOperations) this.profileOverlayFallbackFaces++;
+                            if (sampled) {
+                                overlayNanos += System.nanoTime() - operationStarted;
+                                overlaySpans++;
+                            }
                             continue;
                         }
 
-                        BakedQuad quad = gf.quads[face];
+                        operationStarted = sampled ? System.nanoTime() : 0;
+                        this.profileOccluderContext = this.profileOperations ? 1 : 0;
                         this.computeCornerLight(quad, x, worldY, z, this.lightCorners);
-                        if (this.ambientOcclusion) this.computeAo(quad, x, worldY, z, this.aoCorners);
-                        else Arrays.fill(this.aoCorners, 1F);
+                        this.profileOccluderContext = 0;
+                        if (this.profileOperations) this.profileLightFaces++;
+                        if (sampled) {
+                            lightNanos += System.nanoTime() - operationStarted;
+                            lightSpans++;
+                        }
 
+                        if (this.ambientOcclusion) {
+                            operationStarted = sampled ? System.nanoTime() : 0;
+                            this.profileOccluderContext = this.profileOperations ? 2 : 0;
+                            this.computeAo(quad, x, worldY, z, this.aoCorners);
+                            this.profileOccluderContext = 0;
+                            if (this.profileOperations) this.profileAoFaces++;
+                            if (sampled) {
+                                aoNanos += System.nanoTime() - operationStarted;
+                                aoSpans++;
+                            }
+                        } else {
+                            operationStarted = sampled ? System.nanoTime() : 0;
+                            Arrays.fill(this.aoCorners, 1F);
+                            if (sampled) {
+                                maskNanos += System.nanoTime() - operationStarted;
+                                maskSpans++;
+                                maskScanSpans++;
+                            }
+                        }
+
+                        operationStarted = sampled ? System.nanoTime() : 0;
                         int cell = b << ChunkSection.SHIFT | a;
                         int base = cell << 2;
                         boolean uniform = true;
@@ -532,15 +847,10 @@ public class ChunkMesher {
                                     || this.faceAo[base + corner] != this.faceAo[base])) uniform = false;
                         }
                         boolean actualCorner = !uniform;
+                        this.faceActualCorner[cell] = actualCorner;
                         if (actualCorner) {
                             this.statCornerFaces++;
-                            this.faceActualCorner[cell] = true;
                         }
-                        boolean needsExactTint = quad.tintType() == BakedQuad.TINT_NONE
-                                && quad.tint() != BakedQuad.WHITE;
-                        if ((quad.tintType() == BakedQuad.TINT_GRASS && this.chunk.grassTintCorners == null)
-                                || (quad.tintType() == BakedQuad.TINT_FOLIAGE
-                                && this.chunk.foliageTintCorners == null)) needsExactTint = true;
                         int shadingClass;
                         if (!uniform || needsExactTint) shadingClass = PackedTerrainQuad.SHADING_CORNER;
                         else if (isStandardShading(this.faceLight[base], this.faceAo[base])) {
@@ -551,8 +861,42 @@ public class ChunkMesher {
                         this.faceClass[cell] = (byte) shadingClass;
                         this.faceDiagonal[cell] = (byte) (shouldFlipForSmoothLighting(
                                 this.aoCorners, this.lightCorners) ? 1 : 0);
+                        if (this.profileOperations) this.profileMaskCells++;
+                        if (sampled) {
+                            maskNanos += System.nanoTime() - operationStarted;
+                            maskFaceSpans++;
+                        }
                     }
                 }
+
+                if (sampled) {
+                    long scanNanos = System.nanoTime() - scanStarted;
+                    /* Der Fill liegt vor scanStarted; nur der Face-Anteil der Maskenzeit wird
+                       deshalb aus dem exklusiven Visibility-Rest entfernt. */
+                    long faceMaskOnly = maskNanos;
+                    long visibility = Math.max(0, scanNanos - neighborNanos - signatureNanos
+                            - lightNanos - aoNanos - faceMaskOnly - overlayNanos);
+                    profiler.record(FullCubePhase.BLOCK_FACE_VISIBILITY, visibility,
+                            sampledVisibleCandidates, 1 + neighborSpans + signatureSpans + lightSpans
+                                    + aoSpans + maskScanSpans + maskFaceSpans + overlaySpans);
+                    profiler.record(FullCubePhase.NEIGHBOR_LOOKUPS, neighborNanos,
+                            neighborSpans, neighborSpans);
+                    profiler.record(FullCubePhase.FACE_SIGNATURE_MATERIAL, signatureNanos,
+                            signatureSpans, signatureSpans);
+                    profiler.record(FullCubePhase.LIGHT_SAMPLING, lightNanos,
+                            lightSpans, lightSpans);
+                    profiler.record(FullCubePhase.CORNER_AO_SAMPLING, aoNanos,
+                            aoSpans, aoSpans);
+                    profiler.record(FullCubePhase.MASK_BUILD, maskNanos,
+                            maskFaceSpans, maskFaceSpans + maskSpans);
+                    profiler.record(FullCubePhase.OVERLAY_FALLBACK_EMISSION, overlayNanos,
+                            overlaySpans, overlaySpans);
+                }
+
+                long compatibilityBefore = this.profileCompatibilityNanos;
+                long compatibilitySpansBefore = this.profileCompatibilitySpans;
+                long emissionNanos = 0, emissionSpans = 0, sampledRoots = 0;
+                long greedyStarted = sampled ? System.nanoTime() : 0;
 
                 for (int b = 0; b < size; b++) {
                     for (int a = 0; a < size; a++) {
@@ -560,6 +904,8 @@ public class ChunkMesher {
                         int shadingClass = this.faceClass[cell];
                         if (shadingClass < 0) continue;
                         int stateId = this.faceState[cell];
+                        if (this.profileOperations) this.profileRectangleRoots++;
+                        if (sampled) sampledRoots++;
 
                         int w = 1;
                         while (a + w < size && this.canExtend(face, cell,
@@ -567,6 +913,7 @@ public class ChunkMesher {
 
                         int h = 1;
                         while (b + h < size) {
+                            if (this.profileOperations) this.profileHeightExtensions++;
                             boolean row = true;
                             for (int i = 0; i < w; i++) {
                                 int candidate = (b + h) << ChunkSection.SHIFT | (a + i);
@@ -587,8 +934,21 @@ public class ChunkMesher {
                         int diagonal = shadingClass == PackedTerrainQuad.SHADING_CORNER
                                 ? this.compatibleCornerDiagonal(face, a, b, w, h) : 0;
                         if (diagonal < 0) diagonal = this.faceDiagonal[cell];
+                        long emissionStarted = sampled ? System.nanoTime() : 0;
                         this.emitCompactQuad(stateId, face, slice, a, b, w, h,
                                 shadingClass, diagonal != 0);
+                        if (this.profileOperations) {
+                            this.profileCompactQuads++;
+                            this.profileCompactBytes += switch (shadingClass) {
+                                case PackedTerrainQuad.SHADING_STANDARD -> 8;
+                                case PackedTerrainQuad.SHADING_UNIFORM -> 12;
+                                default -> 24;
+                            };
+                        }
+                        if (sampled) {
+                            emissionNanos += System.nanoTime() - emissionStarted;
+                            emissionSpans++;
+                        }
 
                         int sourceFaces = w * h;
                         this.statFullCubeQuads++;
@@ -610,12 +970,26 @@ public class ChunkMesher {
                         a += w - 1;
                     }
                 }
+                if (sampled) {
+                    long greedyTotal = System.nanoTime() - greedyStarted;
+                    long compatibilityNanos = this.profileCompatibilityNanos - compatibilityBefore;
+                    long compatibilitySpans = this.profileCompatibilitySpans - compatibilitySpansBefore;
+                    profiler.record(FullCubePhase.GREEDY_RECTANGLE_SEARCH,
+                            Math.max(0, greedyTotal - compatibilityNanos - emissionNanos),
+                            sampledRoots, 1 + compatibilitySpans + emissionSpans);
+                    profiler.record(FullCubePhase.SHADING_DIAGONAL_COMPATIBILITY,
+                            compatibilityNanos, compatibilitySpans, compatibilitySpans);
+                    profiler.record(FullCubePhase.PACKED_QUAD_EMISSION,
+                            emissionNanos, emissionSpans, emissionSpans);
+                }
+                this.profileSampledSlice = false;
             }
         }
     }
 
     private boolean canExtend(int face, int root, int candidate, int shadingClass,
                               int a, int b, int width, int height) {
+        if (this.profileOperations) this.profileWidthExtensions++;
         if (!this.sameMergeIdentity(face, root, candidate, shadingClass, true)) return false;
         if (shadingClass == PackedTerrainQuad.SHADING_CORNER
                 && this.compatibleCornerDiagonal(face, a, b, width, height) < 0) {
@@ -626,12 +1000,13 @@ public class ChunkMesher {
     }
 
     private boolean sameMergeIdentity(int face, int root, int other, int shadingClass, boolean count) {
+        if (this.profileOperations) this.profileIdentityChecks++;
         if (other < 0 || other >= this.faceClass.length || this.faceClass[other] < 0) return false;
         int rootState = this.faceState[root], otherState = this.faceState[other];
         if (rootState != otherState) {
             if (count) {
-                GreedyFaces rootFaces = this.greedyFaces(rootState);
-                GreedyFaces otherFaces = this.greedyFaces(otherState);
+                FullCubeMeshStateTable.FaceSet rootFaces = this.fullCubeFaces(rootState);
+                FullCubeMeshStateTable.FaceSet otherFaces = this.fullCubeFaces(otherState);
                 if (sameMaterialFace(rootFaces.quads[face], otherFaces.quads[face],
                         rootFaces.uvTransform[face], otherFaces.uvTransform[face])) this.statRejectedState++;
                 else this.statRejectedMaterial++;
@@ -659,7 +1034,7 @@ public class ChunkMesher {
 
     private void emitCompactQuad(int stateId, int face, int slice, int a, int b, int w, int h,
                                  int shadingClass, boolean diagonalFlip) {
-        GreedyFaces gf = this.greedyFaces(stateId);
+        FullCubeMeshStateTable.FaceSet gf = this.fullCubeFaces(stateId);
         BakedQuad quad = gf.quads[face];
         int[] p = this.cellPos;
         p[AXIS_N[face]] = slice;
@@ -716,6 +1091,8 @@ public class ChunkMesher {
      * grossen Quads. Die Plane-Vergleiche arbeiten ausschliesslich ganzzahlig.
      */
     private int compatibleCornerDiagonal(int face, int a, int b, int w, int h) {
+        long profileStarted = this.profileSampledSlice ? System.nanoTime() : 0;
+        if (this.profileOperations) this.profileCompatibilityCalls++;
         for (int corner = 0; corner < 4; corner++) {
             int source = this.rectangleCornerIndex(face, a, b, w, h, corner);
             this.candidateLight[corner] = this.faceLight[source];
@@ -724,9 +1101,21 @@ public class ChunkMesher {
         }
         boolean normal = this.cornerRectMatches(face, a, b, w, h, false);
         boolean flipped = this.cornerRectMatches(face, a, b, w, h, true);
-        if (!normal && !flipped) return -1;
-        if (normal != flipped) return flipped ? 1 : 0;
-        return shouldFlipForSmoothLighting(this.candidateAoFloat, this.candidateLight) ? 1 : 0;
+        if (this.profileOperations) {
+            if (!normal) this.profileCompatibilityEarlyRejects++;
+            else this.profileNormalDiagonalAccepted++;
+            if (!flipped) this.profileCompatibilityEarlyRejects++;
+            else this.profileFlippedDiagonalAccepted++;
+        }
+        int result;
+        if (!normal && !flipped) result = -1;
+        else if (normal != flipped) result = flipped ? 1 : 0;
+        else result = shouldFlipForSmoothLighting(this.candidateAoFloat, this.candidateLight) ? 1 : 0;
+        if (profileStarted != 0) {
+            this.profileCompatibilityNanos += System.nanoTime() - profileStarted;
+            this.profileCompatibilitySpans++;
+        }
+        return result;
     }
 
     private boolean cornerRectMatches(int face, int a, int b, int w, int h, boolean targetFlip) {
@@ -747,6 +1136,7 @@ public class ChunkMesher {
 
         for (int y = b; y < b + h; y++) {
             for (int x = a; x < a + w; x++) {
+                if (this.profileOperations) this.profileCompatibilityCells++;
                 int cell = y << ChunkSection.SHIFT | x;
                 int[][] sourceTriangles = this.faceDiagonal[cell] != 0
                         ? TRIANGLES_FLIPPED : TRIANGLES_NORMAL;
@@ -793,6 +1183,7 @@ public class ChunkMesher {
         int cell = cellB << ChunkSection.SHIFT | cellA;
         int base = cell << 2;
         for (int channel = 0; channel < 3; channel++) {
+            if (this.profileOperations) this.profilePlaneComparisons++;
             int sv0 = this.shadingValue(base + sourceTriangle[0], channel);
             int sv1 = this.shadingValue(base + sourceTriangle[1], channel);
             int sv2 = this.shadingValue(base + sourceTriangle[2], channel);
@@ -881,8 +1272,8 @@ public class ChunkMesher {
 
                         int stateId = this.haloBlocks[haloIndex(x, y, z)];
                         if (stateId == Blocks.AIR) continue;
-                        GreedyFaces gf = this.greedyFaces(stateId);
-                        if (gf == GreedyFaces.NONE) continue;
+                        FullCubeMeshStateTable.FaceSet gf = this.fullCubeFaces(stateId);
+                        if (gf == null) continue;
 
                         int worldY = baseY + y;
                         int neighborId = this.sample(x + offX, worldY + offY, z + offZ);
@@ -967,7 +1358,7 @@ public class ChunkMesher {
                         int stateId = (int) ((key - 1L) >>> 18);
                         int packedLight = (int) (((key - 1L) >>> 2) & 0xFFFFL);
                         float ao = 0.4F + ((key - 1L) & 3L) * 0.2F;
-                        this.emitGreedyQuad(buffer, this.greedyFaces(stateId), face, slice, a, b, w, h, ao, packedLight);
+                        this.emitGreedyQuad(buffer, this.fullCubeFaces(stateId), face, slice, a, b, w, h, ao, packedLight);
                         a += w - 1;
                     }
                 }
@@ -976,7 +1367,7 @@ public class ChunkMesher {
     }
 
     /** Emittiert ein gemergtes w×h-Quad; Geometrie und UV-Orientierung kommen aus dem Face-Quad. */
-    private void emitGreedyQuad(VertexBuffer buffer, GreedyFaces gf, int face, int slice,
+    private void emitGreedyQuad(VertexBuffer buffer, FullCubeMeshStateTable.FaceSet gf, int face, int slice,
                                 int a, int b, int w, int h, float ao, int light) {
         BakedQuad quad = gf.quads[face];
         float[] verts = quad.vertices();
@@ -1166,126 +1557,8 @@ public class ChunkMesher {
         return a + (b - a) * t;
     }
 
-    /** Greedy-Eignung eines States (lazy gecacht; Index = State-ID). */
-    private GreedyFaces greedyFaces(int stateId) {
-        GreedyFaces[] cache = this.greedyCache;
-        if (stateId >= cache.length) {
-            /* Größe steht nach dem Registry-Bake fest; wächst nur beim allerersten Zugriff */
-            cache = Arrays.copyOf(cache, BlockRegistry.getStateCount());
-            this.greedyCache = cache;
-        }
-        GreedyFaces gf = cache[stateId];
-        if (gf == null) {
-            gf = buildGreedyFaces(stateId);
-            cache[stateId] = gf;
-        }
-        return gf;
-    }
-
-    /**
-     * Greedy-fähig = opaker Full-Cube im OPAQUE-Layer ohne Random-Offset, dessen Modell aus
-     * exakt 6 Full-Face-Quads (eines je Face, Ecken-Koordinaten und -UVs auf 0/1) besteht.
-     * Alles andere (Slabs, Stairs, Custom-Modelle, ...) läuft über den klassischen Pfad.
-     */
-    private static GreedyFaces buildGreedyFaces(int stateId) {
-        BlockState state = BlockRegistry.getState(stateId);
-        if (!state.isOpaqueCube() || state.isFluid() || state.hasRandomOffset()
-                || state.getRenderLayer() != RenderLayer.OPAQUE) {
-            return GreedyFaces.NONE;
-        }
-        BakedQuad[] model = state.getModel();
-        if (model == null || model.length != 6) return GreedyFaces.NONE;
-
-        BakedQuad[] quads = new BakedQuad[6];
-        for (BakedQuad quad : model) {
-            int face = quad.cullFace();
-            if (face < 0 || face >= 6 || quads[face] != null) return GreedyFaces.NONE;
-            quads[face] = quad;
-        }
-
-        boolean[] uAlongT1 = new boolean[6];
-        byte[] uvTransform = new byte[6];
-        for (int face = 0; face < 6; face++) {
-            BakedQuad quad = quads[face];
-            /* Der Compact-Shader leitet die Richtungshelligkeit aus dem Face ab. Modelle mit
-               absichtlich abweichender Helligkeit bleiben deshalb im verlustfreien Fallback. */
-            if (quad.brightness() != BlockModels.FACE_BRIGHTNESS[face]) return GreedyFaces.NONE;
-            int axisN = AXIS_N[face], axisT1 = AXIS_T1[face], axisT2 = AXIS_T2[face];
-            float plane = FACE_OFFSET[face][0] + FACE_OFFSET[face][1] + FACE_OFFSET[face][2] > 0 ? 1F : 0F;
-            float[] verts = quad.vertices();
-
-            int cornerMask = 0;
-            /* UV je geometrischer Ecke, indiziert wie cornerMask: (t1==1) | (t2==1) << 1 */
-            float[] cu = new float[4], cv = new float[4];
-            for (int c = 0; c < 4; c++) {
-                int i = UNIQUE_VERTS[c] * 5;
-                if (verts[i + axisN] != plane) return GreedyFaces.NONE;
-                float c1 = verts[i + axisT1], c2 = verts[i + axisT2];
-                float u = verts[i + 3], v = verts[i + 4];
-                if ((c1 != 0F && c1 != 1F) || (c2 != 0F && c2 != 1F)) return GreedyFaces.NONE;
-                if ((u != 0F && u != 1F) || (v != 0F && v != 1F)) return GreedyFaces.NONE;
-                int corner = (c1 == 1F ? 1 : 0) | (c2 == 1F ? 2 : 0);
-                cornerMask |= 1 << corner;
-                cu[corner] = u;
-                cv[corner] = v;
-            }
-            if (cornerMask != 0b1111) return GreedyFaces.NONE;
-
-            /* Separierbarkeit über ALLE vier Ecken prüfen: u muss an genau einer Tangente hängen
-               und v an der anderen. emitGreedyQuad skaliert u mit der Breite ODER der Höhe des
-               gemergten Rechtecks — ein Mapping, das an beiden Achsen hängt, würde dort still
-               falsch kacheln (erst bei w != h sichtbar). Seit die Blockstate-Rotation die UVs
-               mitdreht, ist das der Sicherheitsgurt gegen fehlerhafte Modelle. */
-            boolean uT1 = cu[0] != cu[1];
-            if (uT1) {
-                if (cu[2] != cu[0] || cu[3] != cu[1] || cv[0] != cv[1] || cv[2] != cv[3]
-                        || cv[0] == cv[2]) {
-                    return GreedyFaces.NONE;
-                }
-            } else {
-                if (cu[0] != cu[1] || cu[2] != cu[3] || cu[0] == cu[2]
-                        || cv[0] != cv[2] || cv[1] != cv[3] || cv[0] == cv[1]) {
-                    return GreedyFaces.NONE;
-                }
-            }
-            uAlongT1[face] = uT1;
-            int transform = findUvTransform(cu, cv);
-            if (transform < 0) return GreedyFaces.NONE;
-            uvTransform[face] = (byte) transform;
-        }
-
-        /* Seiten-Overlays (Grasblock) je Face einsortieren — sie werden pro sichtbarer Zelle
-           einzeln in den CUTOUT-Layer emittiert und mergen nicht (Greedy bleibt OPAQUE-only). */
-        BakedQuad[] overlays = null;
-        for (BakedQuad quad : state.getOverlay()) {
-            if (overlays == null) overlays = new BakedQuad[6];
-            overlays[quad.cullFace()] = quad;
-        }
-        return new GreedyFaces(state, quads, uAlongT1, uvTransform, overlays);
-    }
-
-    /** D4-Abbildung von Face-Tangenten (s,t) auf die gebackenen 0/1-UVs. */
-    private static int findUvTransform(float[] u, float[] v) {
-        for (int transform = 0; transform < 8; transform++) {
-            boolean matches = true;
-            for (int t = 0; t <= 1 && matches; t++) for (int s = 0; s <= 1; s++) {
-                int corner = s | t << 1;
-                float expectedU = switch (transform) {
-                    case 0 -> s; case 1 -> 1 - s; case 2 -> s; case 3 -> 1 - s;
-                    case 4 -> t; case 5 -> 1 - t; case 6 -> t; default -> 1 - t;
-                };
-                float expectedV = switch (transform) {
-                    case 0 -> t; case 1 -> t; case 2 -> 1 - t; case 3 -> 1 - t;
-                    case 4 -> s; case 5 -> s; case 6 -> 1 - s; default -> 1 - s;
-                };
-                if (u[corner] != expectedU || v[corner] != expectedV) {
-                    matches = false;
-                    break;
-                }
-            }
-            if (matches) return transform;
-        }
-        return -1;
+    private FullCubeMeshStateTable.FaceSet fullCubeFaces(int stateId) {
+        return this.fullCubeStates.faceSets[stateId];
     }
 
     private static int snapIndex(int x, int y, int z) {
@@ -1566,6 +1839,10 @@ public class ChunkMesher {
     }
 
     private boolean occludes(int x, int y, int z) {
+        if (this.profileOperations) {
+            if (this.profileOccluderContext == 1) this.profileLightOccluderLookups++;
+            else if (this.profileOccluderContext == 2) this.profileAoOccluderLookups++;
+        }
         int ly = y - this.sectionBaseY;
         if (inHalo(x, ly, z)) return this.haloOccluder[haloIndex(x, ly, z)];
         /* Außerhalb des Halos (nach der Reichweiten-Analyse unerreichbar — defensiv für
@@ -1586,16 +1863,27 @@ public class ChunkMesher {
     /** Gepacktes Licht-Sample (Himmel Bits 0-3, Block 4-7), lazy memoisiert im Halo:
      *  der erste Zugriff je Zelle ist exakt der bisherige NeighborSampler-Aufruf. */
     private int samplePackedLight(int x, int y, int z) {
+        if (this.profileOperations && this.profileOccluderContext == 1) {
+            this.profileLightSampleRequests++;
+        }
         int ly = y - this.sectionBaseY;
         if (inHalo(x, ly, z)) {
             int idx = haloIndex(x, ly, z);
             int v = this.haloLight[idx];
             if (v < 0) {
+                if (this.profileOperations && this.profileOccluderContext == 1) {
+                    this.profileLightCacheMisses++;
+                }
                 v = NeighborSampler.samplePackedLight(this.chunk, this.north, this.south,
                         this.west, this.east, this.diagonals, x, y, z);
                 this.haloLight[idx] = v;
+            } else if (this.profileOperations && this.profileOccluderContext == 1) {
+                this.profileLightCacheHits++;
             }
             return v;
+        }
+        if (this.profileOperations && this.profileOccluderContext == 1) {
+            this.profileLightCacheMisses++;
         }
         return NeighborSampler.samplePackedLight(this.chunk, this.north, this.south, this.west, this.east,
                 this.diagonals, x, y, z);
@@ -1609,19 +1897,6 @@ public class ChunkMesher {
 
     private static int haloIndex(int x, int y, int z) {
         return ((y + 1) * HALO + (z + 1)) * HALO + (x + 1);
-    }
-
-    /** occludesAo je State-ID, lazy auf Registry-Größe gewachsen (Muster greedyCache). */
-    private boolean occluderById(int stateId) {
-        boolean[] cache = this.occluderCache;
-        if (stateId >= cache.length) {
-            cache = new boolean[BlockRegistry.getStateCount()];
-            for (int i = 0; i < cache.length; i++) {
-                cache[i] = BlockRegistry.getState(i).occludesAo();
-            }
-            this.occluderCache = cache;
-        }
-        return cache[stateId];
     }
 
     /** Liefert aus 4 Seed-Bits einen Versatz in [-MAX_OFFSET, +MAX_OFFSET]. */

@@ -85,6 +85,12 @@ tasks.register<JavaExec>("meshBench") {
     mainClass = "de.skyengine.game.world.chunk.debug.MesherBenchmark"
     systemProperty("meshBench.warmups", providers.gradleProperty("meshBenchWarmups").getOrElse("10"))
     systemProperty("meshBench.iterations", providers.gradleProperty("meshBenchIterations").getOrElse("30"))
+    systemProperty("meshBench.detailIterations",
+        providers.gradleProperty("meshBenchDetailIterations").getOrElse("16"))
+    systemProperty("meshBench.fullCubeSampleStride",
+        providers.gradleProperty("meshBenchFullCubeSampleStride").getOrElse("16"))
+    systemProperty("meshBench.visibilityPath",
+        providers.gradleProperty("meshBenchVisibilityPath").getOrElse("ROW_MASK"))
     val label = providers.gradleProperty("meshBenchLabel").orNull
     val suffix = if (label.isNullOrBlank()) "" else "-$label"
     systemProperty("meshBench.label", label ?: "")
