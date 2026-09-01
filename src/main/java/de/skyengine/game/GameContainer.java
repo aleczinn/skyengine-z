@@ -1364,9 +1364,10 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     /**
-     * Immer sichtbare Welt-Debughilfen im fertigen Default-Framebuffer. Der Aufruf erfolgt nach
-     * TAA, Wasser-/Portal-Effekten und Color-Grading, damit Linien weder reprojiziert noch getoent
-     * werden; das GUI wird anschliessend weiterhin darueber gezeichnet.
+     * Welt-Debughilfen im fertigen Default-Framebuffer. Der Aufruf erfolgt nach TAA,
+     * Wasser-/Portal-Effekten und Color-Grading, damit Linien weder reprojiziert noch getoent
+     * werden; das GUI wird anschliessend weiterhin darueber gezeichnet. Nur F3+G prueft gegen
+     * die aufgeloeste Szenentiefe, die uebrigen Debug-Bounds bleiben bewusst immer sichtbar.
      */
     public void renderDebugWorldOverlays() {
         if (this.dimension() == null || this.player() == null) return;
@@ -1375,7 +1376,8 @@ public class GameContainer implements IResizeable, IDisposable {
             int ccx = ((int) Math.floor(this.player().x)) >> ChunkSection.SHIFT;
             int ccz = ((int) Math.floor(this.player().z)) >> ChunkSection.SHIFT;
             this.chunkBorderRenderer.render(this.camera, this.dimension().getChunkManager(),
-                    ccx, ccz, DebugFlags.chunkBorders);
+                    ccx, ccz, DebugFlags.chunkBorders,
+                    SkyEngine.get().getWindow().getFrameBuffer().getPostDepthTexture());
         }
 
         if (this.world() != null) {

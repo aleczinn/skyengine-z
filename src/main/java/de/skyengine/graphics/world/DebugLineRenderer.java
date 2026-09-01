@@ -13,7 +13,7 @@ import org.lwjgl.opengl.GL30;
 
 import java.util.Arrays;
 
-/** Gemeinsame, homogenen-geclippte Pipeline fuer immer sichtbare 3D-Debug-Linien. */
+/** Gemeinsame, homogen geclippte Pipeline fuer 3D-Debug-Linien. */
 public final class DebugLineRenderer {
 
     private ShaderProgram shader;
@@ -37,6 +37,21 @@ public final class DebugLineRenderer {
 
     public void render(Camera camera, float[] vertices, int count, float width,
                        float r, float g, float b, float a) {
+        render(camera, vertices, count, width, r, g, b, a, 0);
+    }
+
+    /**
+     * Zeichnet Linien nach dem Post-Processing, verwirft aber Fragmente hinter der aufgeloesten
+     * Szenentiefe. Der Default-Framebuffer besitzt an dieser Stelle keine Welt-Tiefe; deshalb
+     * erfolgt der Vergleich gezielt im Fragmentshader statt ueber globalen GL-Depth-State.
+     */
+    public void renderDepthOccluded(Camera camera, float[] vertices, int count, float width,
+                                    float r, float g, float b, float a, int sceneDepthTexture) {
+        render(camera, vertices, count, width, r, g, b, a, sceneDepthTexture);
+    }
+
+    private void render(Camera camera, float[] vertices, int count, float width,
+                        float r, float g, float b, float a, int sceneDepthTexture) {
         if (count == 0) return;
         this.shader.bind();
         this.shader.setUniformMatrix4f("u_ProjectionView", camera.getUnjitteredProjectionViewMatrix());
@@ -44,8 +59,11 @@ public final class DebugLineRenderer {
                 SkyEngine.get().getWindow().getHeight());
         this.shader.setUniformf("u_LineWidth", width);
         this.shader.setUniformVector4f("u_Color", r, g, b, a);
-        this.shader.setUniformi("u_ZeroToOne",
-                SkyEngine.get().getWindow().getProperties().isUseInverseDepth() ? 1 : 0);
+        boolean reversedDepth = SkyEngine.get().getWindow().getProperties().isUseInverseDepth();
+        this.shader.setUniformi("u_ZeroToOne", reversedDepth ? 1 : 0);
+        this.shader.setUniformi("u_DepthOcclusion", sceneDepthTexture != 0 ? 1 : 0);
+        this.shader.setUniformi("u_ReversedDepth", reversedDepth ? 1 : 0);
+        this.shader.setUniformi("u_SceneDepth", 0);
         GL11.glViewport(0, 0, SkyEngine.get().getWindow().getWidth(),
                 SkyEngine.get().getWindow().getHeight());
 
@@ -58,11 +76,18 @@ public final class DebugLineRenderer {
         GL11.glDisable(GL11.GL_CULL_FACE);
         GL11.glDepthMask(false);
 
+        if (sceneDepthTexture != 0) {
+            org.lwjgl.opengl.GL13.glActiveTexture(org.lwjgl.opengl.GL13.GL_TEXTURE0);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, sceneDepthTexture);
+        }
+
         GL30.glBindVertexArray(this.vao);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vbo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, Arrays.copyOf(vertices, count), GL15.GL_DYNAMIC_DRAW);
         GL11.glDrawArrays(GL11.GL_LINES, 0, count / 3);
         GL30.glBindVertexArray(0);
+
+        if (sceneDepthTexture != 0) GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
 
         GL11.glDepthMask(depthWriteWasEnabled);
         if (depthWasEnabled) GL11.glEnable(GL11.GL_DEPTH_TEST);
@@ -139,7 +164,19 @@ public final class DebugLineRenderer {
     private static final String FRAGMENT = """
         #version 460 core
         uniform vec4 u_Color;
+        uniform sampler2D u_SceneDepth;
+        uniform int u_DepthOcclusion;
+        uniform int u_ReversedDepth;
         layout(location = 0) out vec4 fragColor;
-        void main() { fragColor = u_Color; }
+        void main() {
+            if (u_DepthOcclusion != 0) {
+                float sceneDepth = texelFetch(u_SceneDepth, ivec2(gl_FragCoord.xy), 0).r;
+                bool hidden = u_ReversedDepth != 0
+                        ? gl_FragCoord.z < sceneDepth
+                        : gl_FragCoord.z > sceneDepth;
+                if (hidden) discard;
+            }
+            fragColor = u_Color;
+        }
         """;
 }
