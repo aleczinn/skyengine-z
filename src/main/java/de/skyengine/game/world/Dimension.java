@@ -968,6 +968,12 @@ public class Dimension implements IInitializable, IDisposable {
      * damit sie nicht den vorherigen Plattenstand lesen.
      */
     public void reloadAllChunks() {
+        if (this.replicatedClientView) {
+            // A client mirror has no authoritative storage/generator to reload from. Rebuild only
+            // its meshes; chunk replacement remains exclusively driven by server snapshots.
+            this.chunkManager.remeshAll();
+            return;
+        }
         this.chunkReloadRequested = true;
         /* Ohne älteren Save kann der Button den synchronen Snapshot/Clear sofort ausführen.
            Das hält die bisherige unmittelbare Debug-Aktion bei und vereinfacht Headless-Tests. */

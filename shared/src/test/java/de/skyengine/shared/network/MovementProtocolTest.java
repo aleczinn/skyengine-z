@@ -4,12 +4,43 @@ import de.skyengine.shared.network.packets.CorePackets;
 import de.skyengine.shared.player.PlayerInputFrame;
 import de.skyengine.shared.player.PlayerStateSnapshot;
 import de.skyengine.shared.player.PlayerGameMode;
+import de.skyengine.shared.gameplay.PlayerAbilityAction;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class MovementProtocolTest {
+    @Test void reliableHotbarSelectionRoundTripsIndependentlyOfMovementSnapshots() throws Exception {
+        PacketRegistry registry = CoreProtocol.createRegistry();
+        CorePackets.SelectedHotbarSlot selected = new CorePackets.SelectedHotbarSlot(17, 6);
+        var encoded = registry.encode(PacketDirection.CLIENT_TO_SERVER, ConnectionState.PLAY,
+                new PacketEnvelope(selected));
+        var decoded = registry.decode(PacketDirection.CLIENT_TO_SERVER, ConnectionState.PLAY, encoded);
+        assertEquals(selected, decoded.packet());
+        assertEquals(DeliveryClass.RELIABLE_ORDERED,
+                registry.type(selected).delivery());
+
+        CorePackets.SelectedHotbarSlotResult result = new CorePackets.SelectedHotbarSlotResult(17, 6);
+        encoded = registry.encode(PacketDirection.SERVER_TO_CLIENT, ConnectionState.PLAY,
+                new PacketEnvelope(result));
+        decoded = registry.decode(PacketDirection.SERVER_TO_CLIENT, ConnectionState.PLAY, encoded);
+        assertEquals(result, decoded.packet());
+    }
+    @Test
+    void edgeTriggeredAbilityUsesReliableOrderedMovementChannel() throws Exception {
+        PacketRegistry registry = CoreProtocol.createRegistry();
+        CorePackets.PlayerAbility ability = new CorePackets.PlayerAbility(
+                12, 7, PlayerAbilityAction.TOGGLE_FLY);
+        byte[] body = registry.encode(PacketDirection.CLIENT_TO_SERVER, ConnectionState.PLAY,
+                new PacketEnvelope(ability));
+        DecodedPacket decoded = registry.decode(PacketDirection.CLIENT_TO_SERVER,
+                ConnectionState.PLAY, body);
+        assertEquals(ability, decoded.packet());
+        assertEquals(LogicalChannel.MOVEMENT, decoded.type().channel());
+        assertEquals(DeliveryClass.RELIABLE_ORDERED, decoded.type().delivery());
+    }
+
     @Test
     void inputUsesSequencedDeliveryAndBoundedAxes() throws Exception {
         PacketRegistry registry = CoreProtocol.createRegistry();

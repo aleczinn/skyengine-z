@@ -7,8 +7,10 @@ import de.skyengine.shared.network.packets.CorePackets;
 import de.skyengine.shared.network.transport.TransportConnection;
 import de.skyengine.shared.player.PlayerStateSnapshot;
 import de.skyengine.shared.player.PlayerInputFrame;
+import de.skyengine.shared.gameplay.PlayerAbilityAction;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayDeque;
 import java.util.Objects;
 
 public final class PlayerSession {
@@ -25,8 +27,16 @@ public final class PlayerSession {
     private int entityId;
     private long lastInputSequence;
     private long nextPlayerStateSequence;
+    private long lastAbilityActionId = -1;
+    private long lastHotbarActionId = -1;
+    private long lastBlockActionId = -1;
     private PlayerStateSnapshot playerState;
-    private PlayerInputFrame simulationInput;
+    /** Ordered movement intents awaiting the authoritative tick owner. */
+    private final ArrayDeque<PlayerInputFrame> simulationInputs = new ArrayDeque<>();
+    record PendingAbility(long actionId, long inputSequence, PlayerAbilityAction action) { }
+    private final ArrayDeque<PendingAbility> pendingAbilities = new ArrayDeque<>();
+    private static final int MAX_PENDING_INPUTS = 256;
+    private static final int MAX_PENDING_ABILITIES = 64;
     private int sentInventoryRevision = Integer.MIN_VALUE;
     private int activeContainerId;
     private int sentContainerDataHash = Integer.MIN_VALUE;
@@ -65,14 +75,32 @@ public final class PlayerSession {
     void lastInputSequence(long value) { this.lastInputSequence = value; }
     public PlayerStateSnapshot playerState() { return this.playerState; }
     void playerState(PlayerStateSnapshot value) { this.playerState = value; }
-    void simulationInput(PlayerInputFrame value) {
-        int oneShots = this.simulationInput == null ? 0 : this.simulationInput.buttons()
-                & (PlayerInputFrame.CYCLE_GAME_MODE | PlayerInputFrame.TOGGLE_FLY);
-        this.simulationInput = oneShots == 0 ? value : new PlayerInputFrame(value.sequence(),
-                value.clientTick(), value.forward(), value.strafe(), value.yaw(), value.pitch(),
-                value.buttons() | oneShots, value.selectedHotbarSlot());
+    long lastAbilityActionId() { return this.lastAbilityActionId; }
+    void lastAbilityActionId(long value) { this.lastAbilityActionId = value; }
+    long lastHotbarActionId() { return this.lastHotbarActionId; }
+    void lastHotbarActionId(long value) { this.lastHotbarActionId = value; }
+    long lastBlockActionId() { return this.lastBlockActionId; }
+    void lastBlockActionId(long value) { this.lastBlockActionId = value; }
+    boolean enqueueSimulationInput(PlayerInputFrame value) {
+        if (this.simulationInputs.size() >= MAX_PENDING_INPUTS) return false;
+        this.simulationInputs.addLast(value);
+        return true;
     }
-    PlayerInputFrame simulationInput() { return this.simulationInput; }
+    PlayerInputFrame pollSimulationInput() { return this.simulationInputs.pollFirst(); }
+    int pendingSimulationInputs() { return this.simulationInputs.size(); }
+    boolean enqueueAbility(long actionId, long inputSequence, PlayerAbilityAction action) {
+        if (this.pendingAbilities.size() >= MAX_PENDING_ABILITIES) return false;
+        this.pendingAbilities.addLast(new PendingAbility(actionId, inputSequence, action));
+        return true;
+    }
+    java.util.List<PendingAbility> abilitiesThrough(long inputSequence) {
+        java.util.List<PendingAbility> result = new java.util.ArrayList<>();
+        while (!this.pendingAbilities.isEmpty()
+                && this.pendingAbilities.peekFirst().inputSequence() <= inputSequence) {
+            result.add(this.pendingAbilities.removeFirst());
+        }
+        return result;
+    }
     int sentInventoryRevision() { return this.sentInventoryRevision; }
     void sentInventoryRevision(int value) { this.sentInventoryRevision = value; }
     int activeContainerId() { return this.activeContainerId; }
@@ -83,15 +111,6 @@ public final class PlayerSession {
     }
     int sentContainerDataHash() { return this.sentContainerDataHash; }
     void sentContainerDataHash(int value) { this.sentContainerDataHash = value; }
-    void clearOneShotInputButtons() {
-        if (this.simulationInput == null) return;
-        int persistent = this.simulationInput.buttons()
-                & ~(PlayerInputFrame.CYCLE_GAME_MODE | PlayerInputFrame.TOGGLE_FLY);
-        this.simulationInput = new PlayerInputFrame(this.simulationInput.sequence(),
-                this.simulationInput.clientTick(), this.simulationInput.forward(),
-                this.simulationInput.strafe(), this.simulationInput.yaw(), this.simulationInput.pitch(),
-                persistent, this.simulationInput.selectedHotbarSlot());
-    }
     boolean interestCenterChanged(String dimension, int chunkX, int chunkZ) {
         if (Objects.equals(this.interestDimension, dimension)
                 && this.interestChunkX == chunkX && this.interestChunkZ == chunkZ) return false;

@@ -65,6 +65,18 @@ public record ServerConfig(
     public InetSocketAddress listenAddress() { return new InetSocketAddress(this.bindAddress, this.serverPort); }
     public Path worldDirectory() { return this.serverDirectory.resolve("worlds").resolve(this.world).normalize(); }
 
+    /** Laufzeitkonfiguration fuer einen im Clientprozess gehosteten Server. */
+    public static ServerConfig integrated(Path worldDirectory, int viewDistance, int simulationDistance) {
+        Path directory = worldDirectory.toAbsolutePath().normalize();
+        int workers = Math.max(2, Runtime.getRuntime().availableProcessors() - 2);
+        return new ServerConfig(directory.getParent(), "127.0.0.1", 25565, 1,
+                viewDistance, Math.min(simulationDistance, viewDistance), directory.getFileName().toString(),
+                "Integrierter SkyEngine-Server", EngineInfo.TICKS_PER_SECOND, 5, 30,
+                "none", 1, 1024, ProtocolLimits.MAX_FRAME_BYTES,
+                ProtocolLimits.MAX_DECOMPRESSED_BYTES, 128 * 1024 * 1024, 1200,
+                "offline", workers);
+    }
+
     private void validate() {
         range("server-port", this.serverPort, 1, 65535);
         range("max-players", this.maxPlayers, 1, 10000);

@@ -56,6 +56,7 @@ import de.skyengine.game.world.recipe.RecipeManager;
 import de.skyengine.server.ServerConfig;
 import de.skyengine.server.player.PlayerIdentity;
 import de.skyengine.shared.gameplay.BlockActionRequest;
+import de.skyengine.shared.gameplay.AuthoritativeBlockCorrection;
 import de.skyengine.shared.gameplay.InventoryActionRequest;
 import de.skyengine.shared.gameplay.EntityActionRequest;
 import de.skyengine.shared.gameplay.NetworkItemStack;
@@ -64,6 +65,7 @@ import de.skyengine.shared.gameplay.WorldSoundType;
 import de.skyengine.shared.network.pack.RegistryMapping;
 import de.skyengine.shared.player.PlayerGameMode;
 import de.skyengine.shared.player.PlayerInputFrame;
+import de.skyengine.shared.gameplay.PlayerAbilityAction;
 import de.skyengine.shared.player.PlayerMovementState;
 import de.skyengine.shared.player.PlayerStateSnapshot;
 import de.skyengine.shared.world.BlockChange;
@@ -93,6 +95,10 @@ import java.util.UUID;
 import java.util.IdentityHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The actual server-side game world. This deliberately reuses the same World, Dimension,
@@ -100,6 +106,7 @@ import java.util.concurrent.CompletionStage;
  * around that authoritative state.
  */
 public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
+    private static final int NETWORK_LOAD_HALO = 2;
     private record ColumnKey(String dimension, int x, int z) { }
 
     private final ServerConfig config;
@@ -157,12 +164,22 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
     private final Map<UUID, OpenContainer> openContainers = new HashMap<>();
     private int nextContainerId = 1;
     private final Map<UUID, DimensionManager.DimensionTicket> playerTickets = new HashMap<>();
-    private final Map<ColumnKey, List<CompletableFuture<Optional<ChunkColumnSnapshot>>>> snapshots =
-            new LinkedHashMap<>();
+    private static final class SnapshotWork {
+        final List<ChunkSnapshotTicket> tickets = new ArrayList<>();
+        boolean encoding;
+    }
+    private record SnapshotCompletion(ColumnKey key, SnapshotWork work,
+                                      ChunkColumnSnapshot snapshot, Throwable failure) { }
+    private final Map<ColumnKey, SnapshotWork> snapshots = new LinkedHashMap<>();
+    private final ConcurrentLinkedQueue<SnapshotCompletion> completedSnapshots = new ConcurrentLinkedQueue<>();
+    private ExecutorService snapshotWorkers;
+    private int snapshotWorkerCount;
+    private int activeSnapshotJobs;
     private final List<ChunkBlockChanges> pendingBlockChanges = new ArrayList<>();
     private final List<BlockEntityReplicationUpdate> pendingBlockEntityUpdates = new ArrayList<>();
     private final List<WorldSoundEvent> pendingSoundEvents = new ArrayList<>();
     private final List<EntityReplicationUpdate.Event> pendingEntityEvents = new ArrayList<>();
+    private final List<EntityReplicationUpdate.Despawn> pendingEntityDespawns = new ArrayList<>();
     private final IdentityHashMap<Dimension, Boolean> networkConfiguredDimensions = new IdentityHashMap<>();
     private final List<RegistryMapping> registryMappings;
     private final Map<Item, Integer> itemNetworkIds = new IdentityHashMap<>();
@@ -170,8 +187,13 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
     private boolean closed;
 
     public AuthoritativeWorldRuntime(ServerConfig config) throws IOException {
+        this(config, config.worldDirectory());
+    }
+
+    /** Oeffnet einen expliziten Saveordner fuer den Integrated Server. */
+    public AuthoritativeWorldRuntime(ServerConfig config, Path worldDirectory) throws IOException {
         this.config = config;
-        this.directory = config.worldDirectory().toAbsolutePath().normalize();
+        this.directory = worldDirectory.toAbsolutePath().normalize();
         java.nio.file.Files.createDirectories(this.directory);
         this.lockChannel = FileChannel.open(this.directory.resolve("session.lock"),
                 StandardOpenOption.CREATE, StandardOpenOption.WRITE);
@@ -184,7 +206,11 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
             bootstrapGameplay();
             int seed = new SecureRandom().nextInt();
             this.save = WorldSaves.openOrCreate(this.directory.toFile(), config.world(), seed);
-            this.world = new World(this.save, this.directory.toFile(), WorldSoundSink.NONE, false);
+            this.world = new World(this.save, this.directory.toFile(), WorldSoundSink.NONE, false,
+                    config.workerThreads());
+            this.snapshotWorkerCount = Math.min(4, Math.max(1, config.workerThreads() / 4));
+            this.snapshotWorkers = Executors.newFixedThreadPool(this.snapshotWorkerCount,
+                    Thread.ofPlatform().daemon().name("Chunk Snapshot-", 0).factory());
             this.registryMappings = createRegistryMappings();
             this.networkItems.add(null);
             int itemId = 1;
@@ -193,6 +219,7 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
                 this.networkItems.add(item);
             }
         } catch (IOException | RuntimeException failure) {
+            if (this.snapshotWorkers != null) this.snapshotWorkers.shutdownNow();
             try { this.lock.release(); } catch (IOException ignored) { }
             try { this.lockChannel.close(); } catch (IOException ignored) { }
             throw failure;
@@ -260,42 +287,61 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
     @Override public void autosave(long serverTick) { this.world.saveModifiedChunks(false); }
 
     @Override
-    public CompletionStage<Optional<ChunkColumnSnapshot>> requestChunkSnapshot(
+    public ChunkSnapshotTicket requestChunkSnapshot(
             String dimensionName, int chunkX, int chunkZ) {
-        if (this.closed) return CompletableFuture.completedFuture(Optional.empty());
+        if (this.closed) return ChunkSnapshotTicket.completed(Optional.empty());
         Identifier id;
         try { id = Identifier.of(dimensionName); }
         catch (IllegalArgumentException invalid) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return ChunkSnapshotTicket.completed(Optional.empty());
         }
         Dimension dimension = this.world.dimensions().getLoaded(id);
-        if (dimension == null) return CompletableFuture.completedFuture(Optional.empty());
-        Chunk chunk = dimension.getChunkManager().getChunk(chunkX, chunkZ);
-        if (isSnapshotReady(chunk)) {
-            return CompletableFuture.completedFuture(Optional.of(
-                    ChunkSnapshotEncoder.encode(id.toString(), chunk, dimension.getGenerator())));
-        }
-        CompletableFuture<Optional<ChunkColumnSnapshot>> future = new CompletableFuture<>();
+        if (dimension == null) return ChunkSnapshotTicket.completed(Optional.empty());
+        ChunkSnapshotTicket ticket = new ChunkSnapshotTicket();
         this.snapshots.computeIfAbsent(new ColumnKey(id.toString(), chunkX, chunkZ),
-                ignored -> new ArrayList<>()).add(future);
-        return future;
+                ignored -> new SnapshotWork()).tickets.add(ticket);
+        return ticket;
     }
 
     private void completeReadySnapshots() {
+        SnapshotCompletion completion;
+        while ((completion = this.completedSnapshots.poll()) != null) {
+            this.activeSnapshotJobs = Math.max(0, this.activeSnapshotJobs - 1);
+            // A cancelled job can finish after a newer request for the same column was queued.
+            // Remove only the exact work item that produced this completion.
+            this.snapshots.remove(completion.key(), completion.work());
+            for (ChunkSnapshotTicket ticket : completion.work().tickets) {
+                if (completion.failure() == null) ticket.complete(Optional.of(completion.snapshot()));
+                else ticket.completeExceptionally(completion.failure());
+            }
+        }
+
         var iterator = this.snapshots.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<ColumnKey, List<CompletableFuture<Optional<ChunkColumnSnapshot>>>> entry = iterator.next();
+        while (iterator.hasNext() && this.activeSnapshotJobs < this.snapshotWorkerCount) {
+            Map.Entry<ColumnKey, SnapshotWork> entry = iterator.next();
+            SnapshotWork work = entry.getValue();
+            work.tickets.removeIf(ChunkSnapshotTicket::cancelled);
+            if (work.tickets.isEmpty()) {
+                iterator.remove();
+                continue;
+            }
+            if (work.encoding) continue;
             ColumnKey key = entry.getKey();
             Dimension dimension = this.world.dimensions().getLoaded(Identifier.of(key.dimension()));
             if (dimension == null) continue;
             Chunk chunk = dimension.getChunkManager().getChunk(key.x(), key.z());
             if (!isSnapshotReady(chunk)) continue;
-            ChunkColumnSnapshot snapshot = ChunkSnapshotEncoder.encode(key.dimension(), chunk,
-                    dimension.getGenerator());
-            for (CompletableFuture<Optional<ChunkColumnSnapshot>> future : entry.getValue()) {
-                future.complete(Optional.of(snapshot));
-            }
-            iterator.remove();
+            work.encoding = true;
+            this.activeSnapshotJobs++;
+            this.snapshotWorkers.execute(() -> {
+                try {
+                    ChunkColumnSnapshot snapshot = ChunkSnapshotEncoder.encode(key.dimension(), chunk,
+                            dimension.getGenerator());
+                    this.completedSnapshots.add(new SnapshotCompletion(key, work, snapshot, null));
+                } catch (Throwable failure) {
+                    this.completedSnapshots.add(new SnapshotCompletion(key, work, null, failure));
+                }
+            });
         }
     }
 
@@ -318,7 +364,7 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         if (previous != null) previous.close();
         Dimension dimension = ticket.dimension();
         configureNetworkDimension(dimension);
-        dimension.getChunkManager().setRenderDistance(this.config.viewDistance());
+        dimension.getChunkManager().setRenderDistance(this.config.viewDistance() + NETWORK_LOAD_HALO);
         dimension.setSimulationDistance(this.config.simulationDistance());
         if (!persisted) {
             World.SpawnPoint spawn = this.world.spawnPoint();
@@ -343,17 +389,12 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         if (player == null) return previous;
         player.yaw = input.yaw();
         player.pitch = input.pitch();
-        player.setSelectedSlot(input.selectedHotbarSlot());
         if (this.pendingSimplePortalArrivals.containsKey(identity.uuid())
                 || this.pendingNetherPortalArrivals.containsKey(identity.uuid())) {
             player.motionX = player.motionY = player.motionZ = 0;
             player.snapPrevToCurrent();
             return snapshot(player, serverTick, input.sequence());
         }
-        if (input.pressed(PlayerInputFrame.CYCLE_GAME_MODE)) player.setGamemode(player.getGamemode().next());
-        if (input.pressed(PlayerInputFrame.TOGGLE_FLY)) player.toggleFlying();
-        if (input.pressed(PlayerInputFrame.SPECTATOR_SPEED_UP)) player.adjustSpectatorFlySpeed(1);
-        if (input.pressed(PlayerInputFrame.SPECTATOR_SPEED_DOWN)) player.adjustSpectatorFlySpeed(-1);
         Dimension dimension = this.world.dimensions().getLoaded(player.getDimensionId());
         if (dimension != null && collisionAreaReady(dimension, player)) {
             player.update(new PlayerControls(input.forward(), input.strafe(),
@@ -393,6 +434,31 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         return snapshot(player, serverTick, input.sequence());
     }
 
+    @Override
+    public PlayerStateSnapshot applyPlayerAbility(PlayerIdentity identity, int entityId,
+                                                   PlayerStateSnapshot previous, PlayerAbilityAction action,
+                                                   long serverTick) {
+        EntityPlayer player = this.players.get(identity.uuid());
+        if (player == null) return previous;
+        switch (action) {
+            case CYCLE_GAME_MODE -> player.setGamemode(player.getGamemode().next());
+            case TOGGLE_FLY -> player.toggleFlying();
+            case SPECTATOR_SPEED_UP -> player.adjustSpectatorFlySpeed(1);
+            case SPECTATOR_SPEED_DOWN -> player.adjustSpectatorFlySpeed(-1);
+        }
+        return snapshot(player, serverTick, previous.lastProcessedInputSequence());
+    }
+
+    @Override
+    public PlayerStateSnapshot selectHotbarSlot(PlayerIdentity identity, int entityId,
+                                                PlayerStateSnapshot previous, int slot,
+                                                long serverTick) {
+        EntityPlayer player = this.players.get(identity.uuid());
+        if (player == null) return previous;
+        player.setSelectedSlot(slot);
+        return snapshot(player, serverTick, previous.lastProcessedInputSequence());
+    }
+
     private static boolean collisionAreaReady(Dimension dimension, EntityPlayer player) {
         int centerX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         int centerZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
@@ -426,7 +492,7 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         DimensionManager.DimensionTicket nextTicket = this.world.acquireDimension(targetDimension,
                 DimensionManager.TicketType.PLAYER, identity.uuid());
         Dimension dimension = nextTicket.dimension();
-        dimension.getChunkManager().setRenderDistance(this.config.viewDistance());
+        dimension.getChunkManager().setRenderDistance(this.config.viewDistance() + NETWORK_LOAD_HALO);
         dimension.setSimulationDistance(this.config.simulationDistance());
         DimensionManager.DimensionTicket oldTicket = this.playerTickets.put(identity.uuid(), nextTicket);
         if (oldTicket != null) oldTicket.close();
@@ -468,6 +534,9 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         if (player != null) this.world.players().remove(identity.uuid(), true);
         DimensionManager.DimensionTicket ticket = this.playerTickets.remove(identity.uuid());
         if (ticket != null) ticket.close();
+        // Player entities are not part of entityNetworkIds. Publish their lifecycle explicitly so
+        // every interested client removes the replica before this network ID can ever be reused.
+        if (entityId > 0) this.pendingEntityDespawns.add(new EntityReplicationUpdate.Despawn(entityId, 0));
     }
 
     @Override
@@ -621,6 +690,8 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         }
         updates.addAll(this.pendingEntityEvents);
         this.pendingEntityEvents.clear();
+        updates.addAll(this.pendingEntityDespawns);
+        this.pendingEntityDespawns.clear();
         return updates;
     }
 
@@ -1218,9 +1289,26 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         if (dimension == null || !collisionAreaReady(dimension, player)) {
             return BlockActionOutcome.rejected(request.actionId(), "Chunk is not ready");
         }
+        if (request.y() < 0 || request.y() >= Chunk.HEIGHT) {
+            return BlockActionOutcome.rejected(request.actionId(), "Block position is outside the world");
+        }
         int current = dimension.getBlock(request.x(), request.y(), request.z());
         if (current != request.expectedStateId()) {
-            return BlockActionOutcome.rejected(request.actionId(), "Block state changed");
+            return BlockActionOutcome.rejected(request.actionId(), "Block state changed",
+                    blockCorrections(dimension, request));
+        }
+        if ((request.action() == BlockActionRequest.Action.PLACE
+                || request.action() == BlockActionRequest.Action.INTERACT)
+                && request.expectedTargetStateId() >= 0) {
+            int[] target = placementTarget(dimension, request);
+            if (target[1] < 0 || target[1] >= Chunk.HEIGHT) {
+                return BlockActionOutcome.rejected(request.actionId(), "Placement target is outside the world",
+                        blockCorrections(dimension, request));
+            }
+            if (dimension.getBlock(target[0], target[1], target[2]) != request.expectedTargetStateId()) {
+                return BlockActionOutcome.rejected(request.actionId(), "Placement target changed",
+                        blockCorrections(dimension, request));
+            }
         }
         BlockActionOutcome outcome = switch (request.action()) {
             case START_BREAK -> startBreaking(identity, player, dimension, request);
@@ -1234,7 +1322,38 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         if (outcome.accepted() && request.action() != BlockActionRequest.Action.CANCEL_BREAK) {
             emitPlayerEvent(identity.uuid(), EntityEventTypes.SWING, 0);
         }
+        if (!outcome.accepted() && outcome.corrections().isEmpty()) {
+            return BlockActionOutcome.rejected(request.actionId(), outcome.message(),
+                    blockCorrections(dimension, request));
+        }
         return outcome;
+    }
+
+    private static List<AuthoritativeBlockCorrection> blockCorrections(
+            Dimension dimension, BlockActionRequest request) {
+        List<AuthoritativeBlockCorrection> result = new ArrayList<>(2);
+        String id = dimension.getDimensionId().toString();
+        result.add(new AuthoritativeBlockCorrection(id, request.x(), request.y(), request.z(),
+                dimension.getBlock(request.x(), request.y(), request.z())));
+        if (request.action() == BlockActionRequest.Action.PLACE
+                || request.action() == BlockActionRequest.Action.INTERACT) {
+            int[] target = placementTarget(dimension, request);
+            if ((target[0] != request.x() || target[1] != request.y() || target[2] != request.z())
+                    && target[1] >= 0 && target[1] < Chunk.HEIGHT) {
+                result.add(new AuthoritativeBlockCorrection(id, target[0], target[1], target[2],
+                        dimension.getBlock(target[0], target[1], target[2])));
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    private static int[] placementTarget(Dimension dimension, BlockActionRequest request) {
+        int x = request.x(), y = request.y(), z = request.z();
+        if (!Blocks.getState(dimension.getBlock(x, y, z)).getBlock().isReplaceable()) {
+            Direction face = PlayerBlockActions.directionFromFace(request.face());
+            x += face.offsetX(); y += face.offsetY(); z += face.offsetZ();
+        }
+        return new int[]{x, y, z};
     }
 
     private void emitPlayerEvent(UUID identity, int eventId, int data) {
@@ -1242,6 +1361,11 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
         if (networkId != null) {
             this.pendingEntityEvents.add(new EntityReplicationUpdate.Event(networkId, eventId, data));
         }
+    }
+
+    @Override
+    public void playerSwing(PlayerIdentity identity, int entityId) {
+        emitPlayerEvent(identity.uuid(), EntityEventTypes.SWING, 0);
     }
 
     private BlockActionOutcome startBreaking(PlayerIdentity identity, EntityPlayer player,
@@ -1417,7 +1541,7 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
                 DimensionManager.TicketType.PLAYER, identity.uuid());
         Dimension target = next.dimension();
         configureNetworkDimension(target);
-        target.getChunkManager().setRenderDistance(this.config.viewDistance());
+        target.getChunkManager().setRenderDistance(this.config.viewDistance() + NETWORK_LOAD_HALO);
         target.setSimulationDistance(this.config.simulationDistance());
         DimensionManager.DimensionTicket previous = this.playerTickets.put(identity.uuid(), next);
         if (previous != null) previous.close();
@@ -1769,10 +1893,15 @@ public final class AuthoritativeWorldRuntime implements ServerWorldRuntime {
     public void close() {
         if (this.closed) return;
         this.closed = true;
-        for (var pending : this.snapshots.values()) {
-            for (var future : pending) future.complete(Optional.empty());
+        for (SnapshotWork pending : this.snapshots.values()) {
+            for (ChunkSnapshotTicket ticket : pending.tickets) ticket.complete(Optional.empty());
         }
         this.snapshots.clear();
+        if (this.snapshotWorkers != null) {
+            this.snapshotWorkers.shutdownNow();
+            try { this.snapshotWorkers.awaitTermination(2, TimeUnit.SECONDS); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+        }
         for (DimensionManager.DimensionTicket ticket : this.playerTickets.values()) ticket.close();
         this.playerTickets.clear();
         this.players.clear();

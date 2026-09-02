@@ -9,14 +9,14 @@ import de.skyengine.shared.player.PlayerMovementSimulation;
 import de.skyengine.shared.gameplay.BlockActionRequest;
 import de.skyengine.shared.gameplay.InventoryActionRequest;
 import de.skyengine.shared.gameplay.EntityActionRequest;
+import de.skyengine.shared.gameplay.PlayerAbilityAction;
+import de.skyengine.shared.player.PlayerMovementState;
 import de.skyengine.shared.network.pack.PackDescriptor;
 import de.skyengine.shared.network.pack.RegistryMapping;
 
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 
 /** Tick-owned world boundary. The existing world implementation is migrated behind this interface. */
 public interface ServerWorldRuntime extends AutoCloseable {
@@ -39,9 +39,9 @@ public interface ServerWorldRuntime extends AutoCloseable {
      * Produces an immutable snapshot without exposing tick-owned world objects to compression/network workers.
      * Implementations may load or deterministically generate previously unseen terrain.
      */
-    default CompletionStage<Optional<ChunkColumnSnapshot>> requestChunkSnapshot(
+    default ChunkSnapshotTicket requestChunkSnapshot(
             String dimension, int chunkX, int chunkZ) {
-        return CompletableFuture.completedFuture(Optional.empty());
+        return ChunkSnapshotTicket.completed(Optional.empty());
     }
     default PlayerStateSnapshot playerJoined(PlayerIdentity identity, int entityId, long serverTick) {
         return new PlayerStateSnapshot(serverTick, 0, "skyengine:overworld",
@@ -53,12 +53,45 @@ public interface ServerWorldRuntime extends AutoCloseable {
         // The legacy EntityPlayer/Dimension adapter replaces this conservative headless fallback.
         return new PlayerStateSnapshot(serverTick, input.sequence(), previous.dimension(),
                 previous.x(), previous.y(), previous.z(), 0, 0, 0,
-                input.yaw(), input.pitch(), previous.grounded(), previous.gameMode(), previous.movementState());
+                input.yaw(), input.pitch(), previous.grounded(), previous.gameMode(), previous.movementState(),
+                previous.health(), previous.foodLevel(), previous.saturation(), previous.selectedHotbarSlot(),
+                previous.vehicleEntityId(), previous.spectatorFlySpeed());
+    }
+    /** Applies an edge-triggered ability exactly once without advancing movement physics. */
+    default PlayerStateSnapshot applyPlayerAbility(PlayerIdentity identity, int entityId,
+                                                   PlayerStateSnapshot previous, PlayerAbilityAction action,
+                                                   long serverTick) {
+        if (action == PlayerAbilityAction.CYCLE_GAME_MODE) {
+            return PlayerMovementSimulation.withGameMode(previous, previous.gameMode().next(), serverTick);
+        }
+        int movement = previous.movementState();
+        float speed = previous.spectatorFlySpeed();
+        if (action == PlayerAbilityAction.TOGGLE_FLY && previous.gameMode() == PlayerGameMode.CREATIVE) {
+            movement ^= PlayerMovementState.FLYING;
+        } else if (previous.gameMode() == PlayerGameMode.SPECTATOR) {
+            if (action == PlayerAbilityAction.SPECTATOR_SPEED_UP) speed += 0.5F;
+            if (action == PlayerAbilityAction.SPECTATOR_SPEED_DOWN) speed -= 0.5F;
+            speed = Math.clamp(speed, 1.0F, 10.0F);
+        }
+        return new PlayerStateSnapshot(serverTick, previous.lastProcessedInputSequence(), previous.dimension(),
+                previous.x(), previous.y(), previous.z(), previous.velocityX(), previous.velocityY(),
+                previous.velocityZ(), previous.yaw(), previous.pitch(), previous.grounded(), previous.gameMode(),
+                movement, previous.health(), previous.foodLevel(), previous.saturation(),
+                previous.selectedHotbarSlot(), previous.vehicleEntityId(), speed);
     }
     default PlayerStateSnapshot changePlayerGameMode(PlayerIdentity identity, int entityId,
                                                      PlayerStateSnapshot previous, PlayerGameMode mode,
                                                      long serverTick) {
         return PlayerMovementSimulation.withGameMode(previous, mode, serverTick);
+    }
+    default PlayerStateSnapshot selectHotbarSlot(PlayerIdentity identity, int entityId,
+                                                 PlayerStateSnapshot previous, int slot,
+                                                 long serverTick) {
+        return new PlayerStateSnapshot(serverTick, previous.lastProcessedInputSequence(), previous.dimension(),
+                previous.x(), previous.y(), previous.z(), previous.velocityX(), previous.velocityY(),
+                previous.velocityZ(), previous.yaw(), previous.pitch(), previous.grounded(), previous.gameMode(),
+                previous.movementState(), previous.health(), previous.foodLevel(), previous.saturation(), slot,
+                previous.vehicleEntityId(), previous.spectatorFlySpeed());
     }
     /** Authoritative death-screen respawn. Returns the unchanged state when respawn is invalid. */
     default PlayerStateSnapshot respawnPlayer(PlayerIdentity identity, int entityId,
@@ -99,5 +132,7 @@ public interface ServerWorldRuntime extends AutoCloseable {
                                                    EntityActionRequest request, long serverTick) {
         return EntityActionOutcome.rejected(request.actionId(), "Entity interactions are unavailable");
     }
+    /** Records a harmless arm-swing presentation event for interested observers. */
+    default void playerSwing(PlayerIdentity identity, int entityId) { }
     @Override void close();
 }

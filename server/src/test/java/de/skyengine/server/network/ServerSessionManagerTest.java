@@ -9,6 +9,9 @@ import de.skyengine.shared.network.packets.CorePackets;
 import de.skyengine.shared.network.transport.LocalTransport;
 import de.skyengine.shared.network.transport.TransportConnection;
 import de.skyengine.shared.player.PlayerGameMode;
+import de.skyengine.shared.player.PlayerInputFrame;
+import de.skyengine.shared.player.PlayerMovementState;
+import de.skyengine.shared.gameplay.PlayerAbilityAction;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -67,6 +70,32 @@ class ServerSessionManagerTest {
         PlayerSession session = manager.sessions().iterator().next();
         assertEquals(ConnectionState.PLAY, session.state());
         assertEquals("Alec", session.identity().name());
+        PlayerInputFrame olderInput = new PlayerInputFrame(1, 1, 0, 0, 0, 0, 0);
+        assertTrue(pair.client().send(new PacketEnvelope(
+                new CorePackets.PlayerInput(olderInput), olderInput.sequence())));
+        CorePackets.PlayerAbility toggle = new CorePackets.PlayerAbility(1, 2,
+                PlayerAbilityAction.TOGGLE_FLY);
+        assertTrue(pair.client().send(new PacketEnvelope(toggle)));
+        PlayerInputFrame predictedToggle = new PlayerInputFrame(2, 2,
+                0, 0, 0, 0, PlayerInputFrame.TOGGLE_FLY);
+        assertTrue(pair.client().send(new PacketEnvelope(
+                new CorePackets.PlayerInput(predictedToggle), predictedToggle.sequence())));
+        manager.tick(6, now + 6);
+        assertFalse((session.playerState().movementState() & PlayerMovementState.FLYING) != 0,
+                "Ability must wait for the input sequence that predicted it");
+        assertEquals(1, session.playerState().lastProcessedInputSequence());
+        manager.tick(7, now + 7);
+        assertTrue((session.playerState().movementState() & PlayerMovementState.FLYING) != 0,
+                "Reliable ability and its prediction frame must toggle flight exactly once");
+        assertEquals(2, session.playerState().lastProcessedInputSequence());
+        assertTrue(pair.client().send(new PacketEnvelope(new CorePackets.SelectedHotbarSlot(2, 5))));
+        PlayerInputFrame staleSlot = new PlayerInputFrame(3, 3, 0, 0, 0, 0, 0, 0);
+        assertTrue(pair.client().send(new PacketEnvelope(new CorePackets.PlayerInput(staleSlot),
+                staleSlot.sequence())));
+        manager.tick(8, now + 8);
+        assertEquals(5, session.playerState().selectedHotbarSlot());
+        assertTrue(drain(pair.client()).stream().anyMatch(packet -> packet instanceof
+                CorePackets.SelectedHotbarSlotResult result && result.actionId() == 2 && result.slot() == 5));
         assertTrue(manager.setGameMode(session, PlayerGameMode.SPECTATOR));
         assertEquals(PlayerGameMode.SPECTATOR, session.playerState().gameMode());
         assertFalse(drain(pair.client()).stream().anyMatch(CorePackets.PlayerJoined.class::isInstance),

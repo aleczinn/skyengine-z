@@ -47,7 +47,9 @@ public final class ClientNetworkSession {
         default void disconnected(DisconnectReason reason, String message) {}
         default void registryReceived(RegistryMapping mapping) {}
         default void authoritativePlayerState(PlayerStateSnapshot state) {}
+        default void selectedHotbarSlotResult(CorePackets.SelectedHotbarSlotResult result) {}
         default void blockActionResult(CorePackets.BlockActionResult result) {}
+        default void blockActionEffect(CorePackets.BlockActionEffect effect) {}
         default void entityActionResult(CorePackets.EntityActionResult result) {}
         default void inventoryTransactionResult(CorePackets.InventoryTransactionResult result) {}
         default void containerOpened(CorePackets.ContainerOpen opened) {}
@@ -122,7 +124,16 @@ public final class ClientNetworkSession {
         }
     }
 
+    public void sendAbility(long actionId, long inputSequence,
+                            de.skyengine.shared.gameplay.PlayerAbilityAction action) {
+        sendPlay(new CorePackets.PlayerAbility(actionId, inputSequence, action));
+    }
+    public void selectHotbarSlot(long actionId, int slot) {
+        sendPlay(new CorePackets.SelectedHotbarSlot(actionId, slot));
+    }
+
     public void sendBlockAction(BlockActionRequest request) { sendPlay(new CorePackets.BlockAction(request)); }
+    public void sendSwing(long actionId) { sendPlay(new CorePackets.PlayerSwing(actionId)); }
     public void sendEntityAction(de.skyengine.shared.gameplay.EntityActionRequest request) {
         sendPlay(new CorePackets.EntityAction(request));
     }
@@ -136,6 +147,10 @@ public final class ClientNetworkSession {
     public void sendChat(String message) { sendPlay(new CorePackets.ChatMessageRequest(message)); }
     public void sendCommand(long commandId, String command) {
         sendPlay(new CorePackets.CommandRequest(commandId, command));
+    }
+    public void requestChunkResync(ReplicatedChunkCache.ResyncRequest request) {
+        sendPlay(new CorePackets.ChunkResyncRequest(request.dimension(), request.chunkX(), request.chunkZ(),
+                request.knownRevision()));
     }
 
     private void handle(Packet packet) throws ProtocolException {
@@ -220,7 +235,11 @@ public final class ClientNetworkSession {
         if (packet instanceof CorePackets.PlayerJoined joined) this.listener.playerJoined(joined);
         else if (packet instanceof CorePackets.PlayerLeft left) this.listener.playerLeft(left);
         else if (packet instanceof CorePackets.PlayerState state) this.listener.authoritativePlayerState(state.state());
+        else if (packet instanceof CorePackets.SelectedHotbarSlotResult result) {
+            this.listener.selectedHotbarSlotResult(result);
+        }
         else if (packet instanceof CorePackets.BlockActionResult result) this.listener.blockActionResult(result);
+        else if (packet instanceof CorePackets.BlockActionEffect effect) this.listener.blockActionEffect(effect);
         else if (packet instanceof CorePackets.EntityActionResult result) this.listener.entityActionResult(result);
         else if (packet instanceof CorePackets.InventoryTransactionResult result) {
             this.listener.inventoryTransactionResult(result);
@@ -243,11 +262,17 @@ public final class ClientNetworkSession {
         else if (packet instanceof CorePackets.EntityEvent event) this.listener.entityEvent(event);
         else if (packet instanceof CorePackets.ChunkBatchStart
                 || packet instanceof CorePackets.ChunkColumnData
+                || packet instanceof CorePackets.ChunkColumnFragment
                 || packet instanceof CorePackets.ChunkBatchEnd
                 || packet instanceof CorePackets.UnloadChunk
                 || packet instanceof CorePackets.BlockUpdate
                 || packet instanceof CorePackets.MultiBlockUpdate
-                || packet instanceof CorePackets.BlockEntityUpdate) this.chunks.accept(packet);
+                || packet instanceof CorePackets.BlockEntityUpdate) {
+            this.chunks.accept(packet);
+            if (packet instanceof CorePackets.ChunkBatchEnd end) {
+                sendPlay(new CorePackets.ChunkBatchApplied(end.batchId()));
+            }
+        }
         else throw unexpected(packet);
     }
 

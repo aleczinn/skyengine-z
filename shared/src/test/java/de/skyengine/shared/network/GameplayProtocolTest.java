@@ -6,6 +6,8 @@ import de.skyengine.shared.gameplay.NetworkItemStack;
 import de.skyengine.shared.gameplay.ContainerKind;
 import de.skyengine.shared.gameplay.EntityActionRequest;
 import de.skyengine.shared.gameplay.WorldSoundType;
+import de.skyengine.shared.gameplay.BlockActionEffectType;
+import de.skyengine.shared.gameplay.AuthoritativeBlockCorrection;
 import de.skyengine.shared.network.packets.CorePackets;
 import org.junit.jupiter.api.Test;
 
@@ -95,5 +97,43 @@ class GameplayProtocolTest {
         assertThrows(IllegalArgumentException.class, () -> new InventoryActionRequest(1, 0,
                 5000, 0, InventoryActionRequest.Action.PICKUP, 0));
         assertThrows(IllegalArgumentException.class, () -> new NetworkItemStack(1, 0, null));
+    }
+
+    @Test
+    void swingIntentAndAuthoritativeBlockEffectRoundTrip() throws Exception {
+        PacketRegistry registry = CoreProtocol.createRegistry();
+        CorePackets.PlayerSwing swing = new CorePackets.PlayerSwing(44);
+        byte[] encoded = registry.encode(PacketDirection.CLIENT_TO_SERVER, ConnectionState.PLAY,
+                new PacketEnvelope(swing));
+        assertEquals(swing, registry.decode(PacketDirection.CLIENT_TO_SERVER,
+                ConnectionState.PLAY, encoded).packet());
+
+        CorePackets.BlockActionEffect effect = new CorePackets.BlockActionEffect(44, 9,
+                BlockActionEffectType.BREAK, "skyengine:overworld", 17,
+                -33, 70, 65, 4, 128, 64, 255);
+        encoded = registry.encode(PacketDirection.SERVER_TO_CLIENT, ConnectionState.PLAY,
+                new PacketEnvelope(effect));
+        assertEquals(effect, registry.decode(PacketDirection.SERVER_TO_CLIENT,
+                ConnectionState.PLAY, encoded).packet());
+    }
+
+    @Test
+    void placementTargetAndTargetedCorrectionsRoundTrip() throws Exception {
+        PacketRegistry registry = CoreProtocol.createRegistry();
+        var request = new CorePackets.BlockAction(new BlockActionRequest(77,
+                BlockActionRequest.Action.PLACE, "skyengine:overworld", -33, 71, 65,
+                1, 0, 42, 99, 0, 12, 128, 244, false));
+        byte[] encoded = registry.encode(PacketDirection.CLIENT_TO_SERVER, ConnectionState.PLAY,
+                new PacketEnvelope(request));
+        assertEquals(request, registry.decode(PacketDirection.CLIENT_TO_SERVER,
+                ConnectionState.PLAY, encoded).packet());
+
+        var result = new CorePackets.BlockActionResult(77, false, "Placement target changed", List.of(
+                new AuthoritativeBlockCorrection("skyengine:overworld", -33, 71, 65, 42),
+                new AuthoritativeBlockCorrection("skyengine:overworld", -33, 72, 65, 0)));
+        encoded = registry.encode(PacketDirection.SERVER_TO_CLIENT, ConnectionState.PLAY,
+                new PacketEnvelope(result));
+        assertEquals(result, registry.decode(PacketDirection.SERVER_TO_CLIENT,
+                ConnectionState.PLAY, encoded).packet());
     }
 }

@@ -10,7 +10,10 @@
       "generator": "voxelstories:alpha_v2",
       "generatorVersion": 2,
       "lootRandomStates": {
-        "blocks/short_grass": 63834627321456
+        "blocks/dandelion": 23363732615112,
+        "blocks/orange_tulip": 258111287120743,
+        "blocks/short_grass": 188834193982582,
+        "blocks/poppy": 258111814541372
       }
     }
   },

@@ -32,6 +32,7 @@ public final class ChunkInterestManager {
         boolean sameDimension = dimension.equals(old.dimension);
         for (int dz = -viewDistance; dz <= viewDistance; dz++) {
             for (int dx = -viewDistance; dx <= viewDistance; dx++) {
+                if (dx * dx + dz * dz > viewDistance * viewDistance) continue;
                 int chunkX = centerX + dx, chunkZ = centerZ + dz;
                 long key = ChunkPosition.pack(chunkX, chunkZ);
                 next.add(key);

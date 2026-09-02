@@ -16,6 +16,8 @@ import de.skyengine.shared.gameplay.EntityActionRequest;
 import de.skyengine.shared.gameplay.ContainerKind;
 import de.skyengine.shared.gameplay.NetworkItemStack;
 import de.skyengine.shared.gameplay.WorldSoundType;
+import de.skyengine.shared.gameplay.BlockActionEffectType;
+import de.skyengine.shared.gameplay.PlayerAbilityAction;
 import de.skyengine.shared.entity.NetworkEntitySnapshot;
 
 import java.util.ArrayList;
@@ -212,10 +214,29 @@ public final class CoreProtocol {
                     out.writeVarLong(p.batchId());
                     writeChunk(out, p.chunk());
                 }, in -> new CorePackets.ChunkColumnData(in.readVarLong(), readChunk(in)))));
+        registry.register(type(27, CorePackets.ChunkColumnFragment.class, PacketDirection.SERVER_TO_CLIENT, play,
+                LogicalChannel.CHUNK_DATA, DeliveryClass.RELIABLE_ORDERED,
+                CorePackets.ChunkColumnFragment.MAX_FRAGMENT_BYTES + 64,
+                PacketCodec.of((out, p) -> {
+                    out.writeVarLong(p.batchId()); out.writeVarInt(p.fragmentIndex());
+                    out.writeVarInt(p.fragmentCount()); out.writeVarInt(p.totalLength());
+                    out.writeByteArray(p.data(), CorePackets.ChunkColumnFragment.MAX_FRAGMENT_BYTES);
+                }, in -> {
+                    try { return new CorePackets.ChunkColumnFragment(in.readVarLong(), in.readVarInt(),
+                            in.readVarInt(), in.readVarInt(),
+                            in.readByteArray(CorePackets.ChunkColumnFragment.MAX_FRAGMENT_BYTES)); }
+                    catch (IllegalArgumentException e) { throw new ProtocolException("Invalid chunk fragment", e); }
+                })));
         registry.register(type(22, CorePackets.ChunkBatchEnd.class, PacketDirection.SERVER_TO_CLIENT, play,
                 LogicalChannel.CHUNK_DATA, DeliveryClass.RELIABLE_ORDERED, 16,
                 PacketCodec.of((out, p) -> out.writeVarLong(p.batchId()),
                         in -> new CorePackets.ChunkBatchEnd(in.readVarLong()))));
+        registry.register(type(28, CorePackets.ChunkBatchApplied.class, PacketDirection.CLIENT_TO_SERVER, play,
+                LogicalChannel.CHUNK_DATA, DeliveryClass.RELIABLE_ORDERED, 16,
+                PacketCodec.of((out, p) -> out.writeVarLong(p.batchId()), in -> {
+                    try { return new CorePackets.ChunkBatchApplied(in.readVarLong()); }
+                    catch (IllegalArgumentException e) { throw new ProtocolException("Invalid chunk ack", e); }
+                })));
         registry.register(type(23, CorePackets.UnloadChunk.class, PacketDirection.SERVER_TO_CLIENT, play,
                 LogicalChannel.CHUNK_DATA, DeliveryClass.RELIABLE_ORDERED, 272,
                 PacketCodec.of((out, p) -> {
@@ -223,6 +244,14 @@ public final class CoreProtocol {
                     out.writeInt(p.chunkX()); out.writeInt(p.chunkZ());
                 }, in -> new CorePackets.UnloadChunk(in.readString(ProtocolLimits.MAX_IDENTIFIER_BYTES),
                         in.readInt(), in.readInt()))));
+        registry.register(type(11, CorePackets.ChunkResyncRequest.class, PacketDirection.CLIENT_TO_SERVER, play,
+                LogicalChannel.GAMEPLAY, DeliveryClass.RELIABLE_ORDERED, 288,
+                PacketCodec.of((out, p) -> {
+                    out.writeString(p.dimension(), ProtocolLimits.MAX_IDENTIFIER_BYTES);
+                    out.writeInt(p.chunkX()); out.writeInt(p.chunkZ()); out.writeVarLong(p.knownRevision());
+                }, in -> new CorePackets.ChunkResyncRequest(
+                        in.readString(ProtocolLimits.MAX_IDENTIFIER_BYTES), in.readInt(), in.readInt(),
+                        in.readVarLong()))));
         registry.register(type(24, CorePackets.BlockUpdate.class, PacketDirection.SERVER_TO_CLIENT, play,
                 LogicalChannel.GAMEPLAY, DeliveryClass.RELIABLE_ORDERED, 320,
                 PacketCodec.of((out, p) -> {
@@ -280,14 +309,49 @@ public final class CoreProtocol {
                         throw new ProtocolException("Invalid player input", e);
                     }
                 })));
+        registry.register(type(10, CorePackets.PlayerAbility.class, PacketDirection.CLIENT_TO_SERVER, play,
+                LogicalChannel.MOVEMENT, DeliveryClass.RELIABLE_ORDERED, 24,
+                PacketCodec.of((out, p) -> {
+                    out.writeVarLong(p.actionId()); out.writeVarLong(p.inputSequence());
+                    out.writeByte(p.action().ordinal());
+                }, in -> {
+                    long actionId = in.readVarLong(), inputSequence = in.readVarLong();
+                    PlayerAbilityAction action = enumValue(PlayerAbilityAction.values(),
+                            in.readUnsignedByte(), "player ability");
+                    try { return new CorePackets.PlayerAbility(actionId, inputSequence, action); }
+                    catch (IllegalArgumentException e) { throw new ProtocolException("Invalid player ability", e); }
+                })));
         registry.register(type(10, CorePackets.PlayerState.class, PacketDirection.SERVER_TO_CLIENT, play,
                 LogicalChannel.MOVEMENT, DeliveryClass.UNRELIABLE_SEQUENCED, 128,
                 PacketCodec.of((out, p) -> writePlayerState(out, p.state()),
                         in -> new CorePackets.PlayerState(readPlayerState(in)))));
+        registry.register(type(12, CorePackets.SelectedHotbarSlot.class, PacketDirection.CLIENT_TO_SERVER, play,
+                LogicalChannel.GAMEPLAY, DeliveryClass.RELIABLE_ORDERED, 16,
+                PacketCodec.of((out, p) -> {
+                    out.writeVarLong(p.actionId()); out.writeByte(p.slot());
+                }, in -> {
+                    try { return new CorePackets.SelectedHotbarSlot(in.readVarLong(), in.readUnsignedByte()); }
+                    catch (IllegalArgumentException e) { throw new ProtocolException("Invalid hotbar selection", e); }
+                })));
+        registry.register(type(62, CorePackets.SelectedHotbarSlotResult.class,
+                PacketDirection.SERVER_TO_CLIENT, play, LogicalChannel.GAMEPLAY,
+                DeliveryClass.RELIABLE_ORDERED, 16,
+                PacketCodec.of((out, p) -> {
+                    out.writeVarLong(p.actionId()); out.writeByte(p.slot());
+                }, in -> {
+                    try { return new CorePackets.SelectedHotbarSlotResult(in.readVarLong(), in.readUnsignedByte()); }
+                    catch (IllegalArgumentException e) { throw new ProtocolException("Invalid hotbar result", e); }
+                })));
     }
 
     private static void registerGameplay(PacketRegistry registry) {
         EnumSet<ConnectionState> play = states(ConnectionState.PLAY);
+        registry.register(type(9, CorePackets.PlayerSwing.class, PacketDirection.CLIENT_TO_SERVER, play,
+                LogicalChannel.GAMEPLAY, DeliveryClass.RELIABLE_ORDERED, 16,
+                PacketCodec.of((out, p) -> out.writeVarLong(p.actionId()), in -> {
+                    try { return new CorePackets.PlayerSwing(in.readVarLong()); }
+                    catch (IllegalArgumentException e) { throw new ProtocolException("Invalid swing", e); }
+                })));
         registry.register(type(1, CorePackets.BlockAction.class, PacketDirection.CLIENT_TO_SERVER, play,
                 LogicalChannel.GAMEPLAY, DeliveryClass.RELIABLE_ORDERED, 384,
                 PacketCodec.of((out, p) -> {
@@ -298,6 +362,7 @@ public final class CoreProtocol {
                     out.writeByte(request.face()); out.writeByte(request.hand());
                     out.writeVarInt(request.expectedStateId());
                     out.writeVarInt(request.requestedStateId() + 1);
+                    out.writeVarInt(request.expectedTargetStateId() + 1);
                     out.writeByte(request.hitX()); out.writeByte(request.hitY()); out.writeByte(request.hitZ());
                     out.writeBoolean(request.secondaryUse());
                 }, in -> {
@@ -309,6 +374,7 @@ public final class CoreProtocol {
                                 in.readString(ProtocolLimits.MAX_IDENTIFIER_BYTES), in.readInt(),
                                 in.readUnsignedShort(), in.readInt(), in.readUnsignedByte(),
                                 in.readUnsignedByte(), in.readVarInt(), in.readVarInt() - 1,
+                                in.readVarInt() - 1,
                                 in.readUnsignedByte(), in.readUnsignedByte(), in.readUnsignedByte(),
                                 in.readBoolean()));
                     } catch (IllegalArgumentException e) { throw new ProtocolException("Invalid block action", e); }
@@ -318,8 +384,43 @@ public final class CoreProtocol {
                 PacketCodec.of((out, p) -> {
                     out.writeVarLong(p.actionId()); out.writeBoolean(p.accepted());
                     out.writeString(p.message(), ProtocolLimits.MAX_MESSAGE_BYTES);
-                }, in -> new CorePackets.BlockActionResult(in.readVarLong(), in.readBoolean(),
-                        in.readString(ProtocolLimits.MAX_MESSAGE_BYTES)))));
+                    out.writeVarInt(p.corrections().size());
+                    for (var correction : p.corrections()) {
+                        out.writeString(correction.dimension(), ProtocolLimits.MAX_IDENTIFIER_BYTES);
+                        out.writeInt(correction.x()); out.writeShort(correction.y()); out.writeInt(correction.z());
+                        out.writeVarInt(correction.stateId());
+                    }
+                }, in -> {
+                    long id = in.readVarLong(); boolean accepted = in.readBoolean();
+                    String message = in.readString(ProtocolLimits.MAX_MESSAGE_BYTES);
+                    int count = checkedCount(in, 0, 4, "block corrections");
+                    List<de.skyengine.shared.gameplay.AuthoritativeBlockCorrection> corrections =
+                            new ArrayList<>(count);
+                    for (int i = 0; i < count; i++) {
+                        corrections.add(new de.skyengine.shared.gameplay.AuthoritativeBlockCorrection(
+                                in.readString(ProtocolLimits.MAX_IDENTIFIER_BYTES), in.readInt(),
+                                in.readUnsignedShort(), in.readInt(), in.readVarInt()));
+                    }
+                    return new CorePackets.BlockActionResult(id, accepted, message, corrections);
+                })));
+        registry.register(type(61, CorePackets.BlockActionEffect.class, PacketDirection.SERVER_TO_CLIENT, play,
+                LogicalChannel.GAMEPLAY, DeliveryClass.RELIABLE_ORDERED, 128,
+                PacketCodec.of((out, p) -> {
+                    out.writeVarLong(p.actionId()); out.writeVarInt(p.sourceEntityId());
+                    out.writeByte(p.type().ordinal());
+                    out.writeString(p.dimension(), ProtocolLimits.MAX_IDENTIFIER_BYTES);
+                    out.writeVarInt(p.stateId()); out.writeInt(p.x()); out.writeShort(p.y()); out.writeInt(p.z());
+                    out.writeByte(p.face()); out.writeByte(p.hitX()); out.writeByte(p.hitY()); out.writeByte(p.hitZ());
+                }, in -> {
+                    long actionId = in.readVarLong(); int source = in.readVarInt();
+                    BlockActionEffectType type = enumValue(BlockActionEffectType.values(),
+                            in.readUnsignedByte(), "block action effect");
+                    try { return new CorePackets.BlockActionEffect(actionId, source, type,
+                            in.readString(ProtocolLimits.MAX_IDENTIFIER_BYTES), in.readVarInt(),
+                            in.readInt(), in.readUnsignedShort(), in.readInt(), in.readUnsignedByte(),
+                            in.readUnsignedByte(), in.readUnsignedByte(), in.readUnsignedByte()); }
+                    catch (IllegalArgumentException e) { throw new ProtocolException("Invalid block effect", e); }
+                })));
         registry.register(type(5, CorePackets.EntityAction.class, PacketDirection.CLIENT_TO_SERVER, play,
                 LogicalChannel.GAMEPLAY, DeliveryClass.RELIABLE_ORDERED, 32,
                 PacketCodec.of((out, p) -> {
@@ -587,6 +688,21 @@ public final class CoreProtocol {
         for (BlockEntitySnapshot blockEntity : chunk.blockEntities()) {
             writeBlockEntity(out, blockEntity);
         }
+    }
+
+    /** Canonical payload used by bounded TCP chunk fragmentation. */
+    public static byte[] encodeChunkSnapshot(ChunkColumnSnapshot chunk) throws ProtocolException {
+        PacketBuffer output = new PacketBuffer();
+        writeChunk(output, chunk);
+        return output.toByteArray();
+    }
+
+    /** Reassembles only after all bounded fragments have arrived. */
+    public static ChunkColumnSnapshot decodeChunkSnapshot(byte[] payload) throws ProtocolException {
+        PacketBuffer input = PacketBuffer.wrap(payload);
+        ChunkColumnSnapshot chunk = readChunk(input);
+        input.requireFullyRead();
+        return chunk;
     }
 
     private static ChunkColumnSnapshot readChunk(PacketBuffer in) throws ProtocolException {

@@ -35,9 +35,16 @@ public final class World implements IDisposable {
     /** Dedicated servers use the same world without manufacturing a process-local player. */
     public World(WorldSaves.WorldSave save, File root, WorldSoundSink soundManager,
                  boolean createLocalPlayer) {
+        this(save, root, soundManager, createLocalPlayer,
+                Math.max(2, Runtime.getRuntime().availableProcessors() - 2));
+    }
+
+    /** Server worlds pass their configured worker budget instead of silently using the host default. */
+    public World(WorldSaves.WorldSave save, File root, WorldSoundSink soundManager,
+                 boolean createLocalPlayer, int workerThreads) {
         this.save = save;
         this.root = root;
-        this.workers = new WorldWorkerPool();
+        this.workers = new WorldWorkerPool(Math.max(1, workerThreads));
         this.portalLinks = new PortalLinks(this.root);
         this.players = new PlayerManager(save, this.root,
                 () -> WorldSaves.saveInDirectory(save, this.root), createLocalPlayer);

@@ -1,9 +1,15 @@
 package de.skyengine.game;
 
 import de.skyengine.client.network.ClientMultiplayerConnection;
+import de.skyengine.client.network.ClientGameSession;
 import de.skyengine.client.network.ClientPredictionController;
+import de.skyengine.client.network.RemoteEntityInterpolationBuffer;
 import de.skyengine.client.network.ServerAddress;
+import de.skyengine.client.input.ClientInputIntentBuffer;
 import de.skyengine.client.world.RemoteWorldView;
+import de.skyengine.server.IntegratedServerHost;
+import de.skyengine.server.ServerConfig;
+import de.skyengine.server.world.AuthoritativeWorldRuntime;
 import de.skyengine.core.EngineConfig;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.core.file.Files;
@@ -150,6 +156,7 @@ import java.util.concurrent.CompletableFuture;
 import de.skyengine.game.GameplaySession.PendingArrival;
 import de.skyengine.game.GameplaySession.PendingDimensionSwitch;
 import de.skyengine.shared.player.PlayerInputFrame;
+import de.skyengine.shared.gameplay.PlayerAbilityAction;
 import de.skyengine.shared.player.PlayerStateSnapshot;
 import de.skyengine.shared.player.PlayerMovementState;
 import de.skyengine.shared.player.PlayerGameMode;
@@ -171,20 +178,31 @@ public class GameContainer implements IResizeable, IDisposable {
 
     private Camera camera;
     private GameplaySession session;
-    private final ClientMultiplayerConnection multiplayer = new ClientMultiplayerConnection();
+    /** Same predicted client gameplay for LocalTransport and TCP; only connect(...) differs. */
+    private final ClientGameSession multiplayer = new ClientGameSession();
+    private IntegratedServerHost integratedServer;
+    private WorldSaves.WorldSave integratedSave;
     private RemoteWorldView remoteWorldView;
     private EntityPlayer remotePlayer;
     private int remoteInventoryRevision = Integer.MIN_VALUE;
     private CorePackets.ContainerOpen remoteOpenContainer;
     private de.skyengine.game.world.block.entity.SimpleItemStorage remoteContainerInventory;
     private long remoteActionSequence;
+    private record PredictedBlockAction(long id, String dimension, int x, int y, int z,
+                                        int previousState, int predictedState) { }
+    private record RemoteBlockPosition(String dimension, int x, int y, int z) { }
+    private final java.util.Map<Long, PredictedBlockAction> remoteBlockPredictions = new java.util.HashMap<>();
+    private final java.util.Map<RemoteBlockPosition, Long> remoteLatestBlockPrediction = new java.util.HashMap<>();
+    private final java.util.LinkedHashSet<Long> locallyPresentedBlockActions = new java.util.LinkedHashSet<>();
+    private final java.util.ArrayDeque<de.skyengine.shared.gameplay.InventoryActionRequest> remoteInventoryActions =
+            new java.util.ArrayDeque<>();
     private long remoteCommandSequence;
+    private final ClientInputIntentBuffer clientInput = new ClientInputIntentBuffer();
     private float remoteYaw, remotePitch;
     private boolean remoteRotationInitialized;
     private long remoteInputSequence;
     private long remoteClientTick;
     private PlayerStateSnapshot remoteLastAuthoritativeState;
-    private long remoteLastSpacePressTime;
     private int remoteSpectatorSpeedDelta;
     private boolean remoteRespawnPending;
     /** Client-only portal contact progress; authoritative travel remains on the server. */
@@ -199,6 +217,8 @@ public class GameContainer implements IResizeable, IDisposable {
         final PlayerAnimationState animation = new PlayerAnimationState();
         ItemStack held = ItemStack.EMPTY;
         long revision = -1;
+        final RemoteEntityInterpolationBuffer interpolation = new RemoteEntityInterpolationBuffer();
+        double renderServerTick = Double.NaN;
 
         RemotePlayerVisual(java.util.UUID identity) { this.player = new EntityPlayer(identity); }
     }
@@ -417,15 +437,43 @@ public class GameContainer implements IResizeable, IDisposable {
     public void enterWorld(WorldSaves.WorldSave save) {
         this.multiplayer.disconnect();
         this.closeRemoteWorldView();
+        this.closeIntegratedServer();
         this.cancelBiomeSearch();
         this.waterVision.reset();
         this.playerWasInWater = false;
         this.underwaterAudio.reset();
-        this.session = new GameplaySession(save, this.atlas, this.blockEntityRenderers,
-                this.soundManager);
-        this.session.portalController.reset();
-        this.session.pendingDimensionSwitch = null;
-        this.session.pendingArrival = null;
+        this.session = null;
+        this.integratedSave = save;
+
+        java.util.UUID identity;
+        try {
+            identity = save.level().localPlayerUuid == null
+                    ? java.util.UUID.randomUUID() : java.util.UUID.fromString(save.level().localPlayerUuid);
+        } catch (IllegalArgumentException invalid) {
+            identity = java.util.UUID.randomUUID();
+        }
+        if (!identity.toString().equals(save.level().localPlayerUuid)) {
+            save.level().localPlayerUuid = identity.toString();
+            WorldSaves.save(save);
+        }
+
+        try {
+            java.nio.file.Path worldDirectory = WorldSaves.dir(save.dirName()).toPath();
+            ServerConfig config = ServerConfig.integrated(worldDirectory,
+                    this.settings.renderDistance, this.settings.simulationDistance);
+            this.integratedServer = new IntegratedServerHost(config,
+                    new AuthoritativeWorldRuntime(config, worldDirectory));
+            this.multiplayer.connect(this.integratedServer.clientConnection(),
+                    System.getProperty("user.name", "Player"), identity);
+        } catch (IOException | RuntimeException failure) {
+            this.logger.error("Integrierter Server konnte nicht gestartet werden", failure);
+            this.closeIntegratedServer();
+            this.integratedSave = null;
+            this.guiManager.open(new GuiDisconnected(new GuiMainMenu(),
+                    I18n.tr("multiplayer.connection_failed"),
+                    failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage()));
+            return;
+        }
 
         this.hudStatusText = "";
         this.hudStatusShownAt = 0;
@@ -434,12 +482,15 @@ public class GameContainer implements IResizeable, IDisposable {
 
         this.applySettings(); // Welt-Anteile (Render-/Sim-Distanz, farPlane) greifen jetzt
 
-        this.guiManager.open(new GuiWorldLoading());
+        this.guiManager.open(new GuiConnecting(new GuiMainMenu(),
+                new ServerAddress("Integrated Server", ServerAddress.DEFAULT_PORT)));
     }
 
     /** Starts a remote connection without blocking the render or tick thread. */
     public void connectToServer(ServerAddress address) {
         if (this.session != null) throw new IllegalStateException("Leave the current world before connecting");
+        this.closeIntegratedServer();
+        this.integratedSave = null;
         this.closeRemoteWorldView();
         this.multiplayer.connect(address, System.getProperty("user.name", "Player"));
     }
@@ -447,6 +498,8 @@ public class GameContainer implements IResizeable, IDisposable {
     public void disconnectFromServer() {
         this.multiplayer.disconnect();
         this.closeRemoteWorldView();
+        this.closeIntegratedServer();
+        this.integratedSave = null;
     }
 
     public ClientMultiplayerConnection getMultiplayerConnection() {
@@ -461,6 +514,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 && this.multiplayer.chunks() != null) {
             this.remoteWorldView = new RemoteWorldView(this.multiplayer.joinGame().dimension(),
                     this.multiplayer.chunks(), this.atlas, this.blockEntityRenderers);
+            this.remoteWorldView.setAuthoritativeChunkListener(this::reapplyRemoteBlockPredictions);
             PlayerStateSnapshot state = this.multiplayer.playerState();
             this.remotePlayer = new EntityPlayer(this.multiplayer.joinGame().identity());
             this.applyRemotePlayerState(state);
@@ -491,6 +545,14 @@ public class GameContainer implements IResizeable, IDisposable {
         this.multiplayer.drainClosedContainers(this::serverClosedRemoteContainer);
         this.multiplayer.drainWorldSounds(this::playRemoteWorldSound);
         this.multiplayer.drainEntityEvents(this::playRemoteEntityEvent);
+        this.multiplayer.drainBlockActionResults(this::reconcileRemoteBlockAction);
+        this.multiplayer.drainBlockActionEffects(this::playRemoteBlockActionEffect);
+        this.multiplayer.drainInventoryResults(this::reconcileRemoteInventoryAction);
+        this.multiplayer.drainHotbarResults(result -> {
+            this.clientInput.confirmHotbarSlot(result.actionId(), result.slot());
+            if (this.remotePlayer != null) this.remotePlayer.setSelectedSlot(
+                    this.clientInput.visibleHotbarSlot(result.slot()));
+        });
         this.syncRemoteInventory();
         this.syncRemotePlayerVisuals();
         this.syncRemoteEntityVisuals();
@@ -503,7 +565,8 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.remoteWorldView != null) {
             this.remoteWorldView.tickVisualEffects();
         }
-        if (this.remoteWorldView != null && this.remoteWorldView.hasRenderableChunks()
+        if (this.remoteWorldView != null && this.remotePlayer != null
+                && this.remoteWorldView.isInitialAreaReady(this.remotePlayer.x, this.remotePlayer.z)
                 && this.guiManager.current() instanceof GuiConnecting) {
             this.guiManager.close();
         }
@@ -574,6 +637,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.remoteWorldView.close();
         this.remoteWorldView = new RemoteWorldView(state.dimension(), this.multiplayer.chunks(), this.atlas,
                 this.blockEntityRenderers);
+        this.remoteWorldView.setAuthoritativeChunkListener(this::reapplyRemoteBlockPredictions);
         if (this.remotePlayer != null) {
             this.applyRemotePlayerState(state);
             this.remoteWorldView.setPhysicsPlayer(this.remotePlayer);
@@ -581,6 +645,7 @@ public class GameContainer implements IResizeable, IDisposable {
         this.remotePlayerVisuals.clear();
         this.remoteEntityVisuals.clear();
         this.remoteRenderedEntities.clear();
+        this.clientInput.reset();
         this.remoteCorrectionX = this.remoteCorrectionY = this.remoteCorrectionZ = 0;
         this.remotePortalPresentation.lockUntilExit();
     }
@@ -588,44 +653,54 @@ public class GameContainer implements IResizeable, IDisposable {
     /** Sends intent only; position, velocity and collision remain authoritative on the server. */
     private void sendRemoteInput(Input input) {
         boolean acceptsInput = !this.guiManager.isOpen();
-        float forward = 0F;
-        float strafe = 0F;
+        float forward = acceptsInput ? this.clientInput.forward() : 0F;
+        float strafe = acceptsInput ? this.clientInput.strafe() : 0F;
         int buttons = 0;
+        boolean cycleGameMode = false;
+        boolean toggleFly = false;
+        boolean spectatorSpeedUp = false;
+        boolean spectatorSpeedDown = false;
         if (acceptsInput) {
-            if (input.isBindDown(this.settings.key(KeyBindings.FORWARD))) forward += 1F;
-            if (input.isBindDown(this.settings.key(KeyBindings.BACK))) forward -= 1F;
-            if (input.isBindDown(this.settings.key(KeyBindings.RIGHT))) strafe += 1F;
-            if (input.isBindDown(this.settings.key(KeyBindings.LEFT))) strafe -= 1F;
-            if (input.isBindDown(this.settings.key(KeyBindings.JUMP))) buttons |= PlayerInputFrame.JUMP;
-            if (input.isBindDown(this.settings.key(KeyBindings.SNEAK))) buttons |= PlayerInputFrame.SNEAK;
-            if (input.isBindDown(this.settings.key(KeyBindings.SPRINT))) buttons |= PlayerInputFrame.SPRINT;
-            if (input.isBindDown(this.settings.key(KeyBindings.USE))) buttons |= PlayerInputFrame.USE;
-            if (input.isBindDown(this.settings.key(KeyBindings.ATTACK))) buttons |= PlayerInputFrame.ATTACK;
-            if (input.consumeBindPress(this.settings.key(KeyBindings.GAMEMODE))) {
+            if (this.clientInput.jumpDown()) buttons |= PlayerInputFrame.JUMP;
+            if (this.clientInput.sneakDown()) buttons |= PlayerInputFrame.SNEAK;
+            if (this.clientInput.sprintDown()) buttons |= PlayerInputFrame.SPRINT;
+            if (this.clientInput.useDown()) buttons |= PlayerInputFrame.USE;
+            if (this.clientInput.attackDown()) buttons |= PlayerInputFrame.ATTACK;
+            if (this.clientInput.takeGameModeCycle()) {
                 buttons |= PlayerInputFrame.CYCLE_GAME_MODE;
+                cycleGameMode = true;
             }
-            if (input.consumeBindPress(this.settings.key(KeyBindings.JUMP))) {
-                long now = System.currentTimeMillis();
-                if (now - this.remoteLastSpacePressTime <= DOUBLE_TAP_MS) {
-                    buttons |= PlayerInputFrame.TOGGLE_FLY;
-                    this.remoteLastSpacePressTime = 0;
-                } else {
-                    this.remoteLastSpacePressTime = now;
-                }
+            if (this.clientInput.takeFlyToggle()) {
+                buttons |= PlayerInputFrame.TOGGLE_FLY;
+                toggleFly = true;
             }
             if (this.settings.sneakToggle) buttons |= PlayerInputFrame.SNEAK_TOGGLE_MODE;
             if (this.settings.sprintToggle) buttons |= PlayerInputFrame.SPRINT_TOGGLE_MODE;
             if (this.remoteSpectatorSpeedDelta > 0) {
                 buttons |= PlayerInputFrame.SPECTATOR_SPEED_UP;
+                spectatorSpeedUp = true;
                 this.remoteSpectatorSpeedDelta--;
             } else if (this.remoteSpectatorSpeedDelta < 0) {
                 buttons |= PlayerInputFrame.SPECTATOR_SPEED_DOWN;
+                spectatorSpeedDown = true;
                 this.remoteSpectatorSpeedDelta++;
             }
         }
-        PlayerInputFrame frame = new PlayerInputFrame(++this.remoteInputSequence,
+        long inputSequence = ++this.remoteInputSequence;
+        PlayerInputFrame frame = new PlayerInputFrame(inputSequence,
                 this.remoteClientTick++, forward, strafe, this.remoteYaw, this.remotePitch, buttons,
-                this.remotePlayer == null ? 0 : this.remotePlayer.getSelectedSlot());
+                this.remotePlayer == null ? 0
+                        : this.clientInput.visibleHotbarSlot(this.remotePlayer.getSelectedSlot()));
+        // These edge-triggered actions are predicted through the frame below, but travel separately
+        // as reliable ordered messages so a dropped/coalesced movement update can never lose them.
+        if (cycleGameMode) this.multiplayer.session().sendAbility(++this.remoteActionSequence,
+                inputSequence, PlayerAbilityAction.CYCLE_GAME_MODE);
+        if (toggleFly) this.multiplayer.session().sendAbility(++this.remoteActionSequence,
+                inputSequence, PlayerAbilityAction.TOGGLE_FLY);
+        if (spectatorSpeedUp) this.multiplayer.session().sendAbility(++this.remoteActionSequence,
+                inputSequence, PlayerAbilityAction.SPECTATOR_SPEED_UP);
+        if (spectatorSpeedDown) this.multiplayer.session().sendAbility(++this.remoteActionSequence,
+                inputSequence, PlayerAbilityAction.SPECTATOR_SPEED_DOWN);
         if (this.remotePrediction != null) {
             this.remotePreviousPredicted = this.remoteCurrentPredicted;
             this.remoteCurrentPredicted = this.remotePrediction.submit(frame);
@@ -641,7 +716,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.cancelRemoteBreaking();
             return;
         }
-        if (input.isBindPressed(this.settings.key(KeyBindings.DROP))) {
+        while (this.clientInput.takeDropPress()) {
             ItemStack selected = this.remotePlayer.getInventory().get(this.remotePlayer.getSelectedSlot());
             if (!selected.isEmpty()) {
                 this.sendRemoteInventoryAction(this.remotePlayer.getSelectedSlot(), -1,
@@ -650,7 +725,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.animState.swing();
             }
         }
-        if (input.isBindPressed(this.settings.key(KeyBindings.PICK_BLOCK))
+        if (this.clientInput.takePickPress()
                 && this.remotePlayer.getGamemode() == Gamemode.CREATIVE) {
             if (this.remoteEntityHitId != 0) {
                 this.sendRemoteEntityAction(de.skyengine.shared.gameplay.EntityActionRequest.Action.PICK);
@@ -664,23 +739,34 @@ public class GameContainer implements IResizeable, IDisposable {
                 }
             }
         }
-        boolean attack = input.isBindDown(this.settings.key(KeyBindings.ATTACK));
+        boolean attackPressed = this.clientInput.takeAttackPress();
+        boolean attack = this.clientInput.attackDown();
         if (this.remoteEntityHitId != 0) {
             this.cancelRemoteBreaking();
-            if (input.isBindPressed(this.settings.key(KeyBindings.ATTACK))) {
+            if (attackPressed) {
                 this.sendRemoteEntityAction(de.skyengine.shared.gameplay.EntityActionRequest.Action.ATTACK);
                 this.animState.swing();
             }
         } else if (!attack || this.hit == null) {
             this.cancelRemoteBreaking();
-        } else if (!this.isDestroying || !this.sameDestroyTarget()) {
+            if (this.hit == null && attackPressed) {
+                // Presentation starts immediately; the reliable swing intent lets observers animate it.
+                this.animState.swing();
+                this.multiplayer.session().sendSwing(++this.remoteActionSequence);
+            }
+        } else if (this.remotePlayer.getGamemode().isInstantBreak()) {
+            this.cancelRemoteBreaking();
+            if (attackPressed) {
+                this.sendRemoteBlockAction(de.skyengine.shared.gameplay.BlockActionRequest.Action.START_BREAK);
+                this.animState.swing();
+            }
+        } else if (attackPressed || !this.isDestroying || !this.sameDestroyTarget()) {
             this.cancelRemoteBreaking();
             this.isDestroying = true;
             this.miningX = this.hit.x(); this.miningY = this.hit.y(); this.miningZ = this.hit.z();
             this.miningProgress = 0F;
             this.sendRemoteBlockAction(de.skyengine.shared.gameplay.BlockActionRequest.Action.START_BREAK);
             this.animState.swing();
-            if (this.remotePlayer.getGamemode().isInstantBreak()) this.resetMining();
         } else {
             BlockState state = Blocks.getState(this.hit.block());
             this.miningProgress += de.skyengine.game.world.PlayerBlockActions.destroyProgress(
@@ -692,7 +778,8 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.resetMining();
             }
         }
-        if (input.isBindDown(this.settings.key(KeyBindings.USE))
+        boolean usePressed = this.clientInput.takeUsePress();
+        if ((usePressed || this.clientInput.useDown())
                 && this.rightClickDelay == 0
                 && !(this.remotePlayer.getInventory().get(this.remotePlayer.getSelectedSlot()).getItem()
                 instanceof FoodItem && this.remotePlayer.getFoodLevel() < EntityPlayer.MAX_FOOD)) {
@@ -739,20 +826,150 @@ public class GameContainer implements IResizeable, IDisposable {
         int hitX = quantizeHit(actionHit.hitX() - targetX);
         int hitY = quantizeHit(actionHit.hitY() - targetY);
         int hitZ = quantizeHit(actionHit.hitZ() - targetZ);
+        long actionId = ++this.remoteActionSequence;
+        int expectedTargetState = (action == de.skyengine.shared.gameplay.BlockActionRequest.Action.PLACE
+                || action == de.skyengine.shared.gameplay.BlockActionRequest.Action.INTERACT)
+                && targetY >= 0 && targetY < Chunk.HEIGHT
+                ? this.multiplayer.blockStateToNetwork(this.remoteWorldView.physicsDimension()
+                        .getBlock(targetX, targetY, targetZ)) : -1;
         this.multiplayer.session().sendBlockAction(new de.skyengine.shared.gameplay.BlockActionRequest(
-                ++this.remoteActionSequence, action, this.multiplayer.playerState().dimension(),
+                actionId, action, this.multiplayer.playerState().dimension(),
                 actionHit.x(), actionHit.y(), actionHit.z(), face.faceIndex(), 0,
                 this.multiplayer.blockStateToNetwork(actionHit.block()), requestedState,
-                hitX, hitY, hitZ, this.remotePlayer.isSecondaryUseActive()));
+                expectedTargetState, hitX, hitY, hitZ, this.remotePlayer.isSecondaryUseActive()));
         var particles = this.remoteWorldView.physicsDimension().particles();
         if (action == de.skyengine.shared.gameplay.BlockActionRequest.Action.START_BREAK) {
-            particles.blockHit(Blocks.getState(actionHit.block()), actionHit.hitX(), actionHit.hitY(),
-                    actionHit.hitZ(), actionHit.faceX(), actionHit.faceY(), actionHit.faceZ());
+            BlockState state = Blocks.getState(actionHit.block());
+            if (this.remotePlayer.getGamemode().isInstantBreak()) {
+                this.predictRemoteBlock(actionId, actionHit.x(), actionHit.y(), actionHit.z(), Blocks.AIR);
+                particles.blockBreak(actionHit.x(), actionHit.y(), actionHit.z(), state);
+                this.soundManager.playBreak(state.getBlock().getSoundGroup(),
+                        actionHit.x() + 0.5, actionHit.y() + 0.5, actionHit.z() + 0.5);
+            } else {
+                particles.blockHit(state, actionHit.hitX(), actionHit.hitY(), actionHit.hitZ(),
+                        actionHit.faceX(), actionHit.faceY(), actionHit.faceZ());
+                this.soundManager.playHit(state.getBlock().getSoundGroup(),
+                        actionHit.x() + 0.5, actionHit.y() + 0.5, actionHit.z() + 0.5);
+            }
+            rememberLocallyPresentedBlockAction(actionId);
         } else if (action == de.skyengine.shared.gameplay.BlockActionRequest.Action.FINISH_BREAK) {
+            BlockState state = Blocks.getState(actionHit.block());
+            this.predictRemoteBlock(actionId, actionHit.x(), actionHit.y(), actionHit.z(), Blocks.AIR);
             particles.blockBreak(actionHit.x(), actionHit.y(), actionHit.z(),
-                    Blocks.getState(actionHit.block()));
+                    state);
+            this.soundManager.playBreak(state.getBlock().getSoundGroup(),
+                    actionHit.x() + 0.5, actionHit.y() + 0.5, actionHit.z() + 0.5);
+            rememberLocallyPresentedBlockAction(actionId);
+        } else if (action == de.skyengine.shared.gameplay.BlockActionRequest.Action.PLACE
+                && held.getItem() != null && held.getItem().getPlacedBlock() != null) {
+            BlockState place = held.getItem().getPlacedBlock().getPlacementState(
+                    this.remoteWorldView.physicsDimension(), targetX, targetY, targetZ,
+                    face.offsetX(), face.offsetY(), face.offsetZ(), hitX / 255.0,
+                    hitY / 255.0, hitZ / 255.0, this.remotePlayer.yaw, this.remotePlayer.pitch,
+                    this.remotePlayer.isSecondaryUseActive());
+            if (place != null) {
+                this.predictRemoteBlock(actionId, targetX, targetY, targetZ, place.getId());
+                this.soundManager.playPlace(place.getBlock().getSoundGroup(),
+                        targetX + 0.5, targetY + 0.5, targetZ + 0.5);
+                rememberLocallyPresentedBlockAction(actionId);
+            }
         }
         return true;
+    }
+
+    private void predictRemoteBlock(long actionId, int x, int y, int z, int predictedState) {
+        if (this.remoteWorldView == null || this.multiplayer.playerState() == null) return;
+        String dimension = this.multiplayer.playerState().dimension();
+        Dimension world = this.remoteWorldView.physicsDimension();
+        int previous = world.getBlock(x, y, z);
+        if (previous == predictedState || !world.applyReplicatedBlockState(x, y, z, predictedState)) return;
+        PredictedBlockAction prediction = new PredictedBlockAction(actionId, dimension, x, y, z,
+                previous, predictedState);
+        this.remoteBlockPredictions.put(actionId, prediction);
+        this.remoteLatestBlockPrediction.put(new RemoteBlockPosition(dimension, x, y, z), actionId);
+    }
+
+    /** Keeps still-unconfirmed local edits visible across an older full snapshot or block delta. */
+    private void reapplyRemoteBlockPredictions(int chunkX, int chunkZ) {
+        if (this.remoteWorldView == null) return;
+        String dimension = this.remoteWorldView.dimension();
+        this.remoteBlockPredictions.values().stream()
+                .filter(prediction -> prediction.dimension().equals(dimension)
+                        && (prediction.x() >> ChunkSection.SHIFT) == chunkX
+                        && (prediction.z() >> ChunkSection.SHIFT) == chunkZ)
+                .filter(prediction -> java.util.Objects.equals(
+                        this.remoteLatestBlockPrediction.get(new RemoteBlockPosition(dimension,
+                                prediction.x(), prediction.y(), prediction.z())), prediction.id()))
+                .sorted(java.util.Comparator.comparingLong(PredictedBlockAction::id))
+                .forEach(prediction -> this.remoteWorldView.physicsDimension().applyReplicatedBlockState(
+                        prediction.x(), prediction.y(), prediction.z(), prediction.predictedState()));
+    }
+
+    private void reconcileRemoteBlockAction(CorePackets.BlockActionResult result) {
+        PredictedBlockAction prediction = this.remoteBlockPredictions.remove(result.actionId());
+        if (prediction == null) return;
+        RemoteBlockPosition position = new RemoteBlockPosition(prediction.dimension(), prediction.x(),
+                prediction.y(), prediction.z());
+        Long latest = this.remoteLatestBlockPrediction.get(position);
+        if (latest == null || latest != prediction.id()) return;
+        this.remoteLatestBlockPrediction.remove(position);
+        if (!result.accepted() && this.remoteWorldView != null
+                && prediction.dimension().equals(this.remoteWorldView.dimension())) {
+            Dimension world = this.remoteWorldView.physicsDimension();
+            boolean corrected = false;
+            for (var correction : result.corrections()) {
+                if (!correction.dimension().equals(prediction.dimension())) continue;
+                int state = this.multiplayer.blockStateFromNetwork(correction.stateId());
+                world.applyReplicatedBlockState(correction.x(), correction.y(), correction.z(), state);
+                corrected = true;
+            }
+            if (!corrected
+                    && world.getBlock(prediction.x(), prediction.y(), prediction.z()) == prediction.predictedState()) {
+                world.applyReplicatedBlockState(prediction.x(), prediction.y(), prediction.z(),
+                        prediction.previousState());
+            }
+        }
+    }
+
+    private void rememberLocallyPresentedBlockAction(long actionId) {
+        this.locallyPresentedBlockActions.add(actionId);
+        while (this.locallyPresentedBlockActions.size() > 256) {
+            this.locallyPresentedBlockActions.remove(this.locallyPresentedBlockActions.getFirst());
+        }
+    }
+
+    private void playRemoteBlockActionEffect(CorePackets.BlockActionEffect effect) {
+        if (this.remoteWorldView == null || !effect.dimension().equals(this.remoteWorldView.dimension())) return;
+        int ownId = this.multiplayer.joinGame() == null ? 0 : this.multiplayer.joinGame().playerEntityId();
+        if (effect.sourceEntityId() == ownId && this.locallyPresentedBlockActions.remove(effect.actionId())) return;
+        int localState = this.multiplayer.blockStateFromNetwork(effect.stateId());
+        BlockState state = Blocks.getState(localState);
+        double centerX = effect.x() + 0.5, centerY = effect.y() + 0.5, centerZ = effect.z() + 0.5;
+        switch (effect.type()) {
+            case HIT -> {
+                Direction direction = directionByFace(effect.face());
+                this.remoteWorldView.physicsDimension().particles().blockHit(state,
+                        effect.x() + effect.hitX() / 255.0,
+                        effect.y() + effect.hitY() / 255.0,
+                        effect.z() + effect.hitZ() / 255.0,
+                        direction.offsetX(), direction.offsetY(), direction.offsetZ());
+                this.soundManager.playHit(state.getBlock().getSoundGroup(), centerX, centerY, centerZ);
+            }
+            case BREAK -> {
+                this.remoteWorldView.physicsDimension().particles().blockBreak(
+                        effect.x(), effect.y(), effect.z(), state);
+                this.soundManager.playBreak(state.getBlock().getSoundGroup(), centerX, centerY, centerZ);
+            }
+            case PLACE -> this.soundManager.playPlace(
+                    state.getBlock().getSoundGroup(), centerX, centerY, centerZ);
+        }
+    }
+
+    private static Direction directionByFace(int face) {
+        for (Direction direction : Direction.sharedValues()) {
+            if (direction.faceIndex() == face) return direction;
+        }
+        return Direction.UP;
     }
 
     private boolean sendRemoteEntityAction(de.skyengine.shared.gameplay.EntityActionRequest.Action action) {
@@ -823,6 +1040,14 @@ public class GameContainer implements IResizeable, IDisposable {
                 input.pressed(PlayerInputFrame.SNEAK_TOGGLE_MODE),
                 input.pressed(PlayerInputFrame.SPRINT_TOGGLE_MODE)),
                 this.remoteWorldView.physicsDimension());
+        if (!this.remoteWorldView.isPhysicsAreaReady(player.x, player.z)) {
+            this.remoteWorldView.setPhysicsPlayer(this.remotePlayer);
+            return new PlayerStateSnapshot(state.serverTick() + 1, input.sequence(), state.dimension(),
+                    state.x(), state.y(), state.z(), 0, 0, 0, input.yaw(), input.pitch(),
+                    state.grounded(), state.gameMode(), state.movementState(), state.health(),
+                    state.foodLevel(), state.saturation(), input.selectedHotbarSlot(),
+                    state.vehicleEntityId(), state.spectatorFlySpeed());
+        }
         this.remoteWorldView.setPhysicsPlayer(this.remotePlayer);
         return snapshotPredictedPlayer(player, state.serverTick() + 1, input.sequence(), state.vehicleEntityId());
     }
@@ -870,6 +1095,7 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.remotePlayer == null || state == null) return;
         double previousX = this.remotePlayer.x, previousY = this.remotePlayer.y, previousZ = this.remotePlayer.z;
         applyPlayerSnapshot(this.remotePlayer, state, false);
+        this.remotePlayer.setSelectedSlot(this.clientInput.visibleHotbarSlot(state.selectedHotbarSlot()));
         if (this.remoteLastAuthoritativeState != null) {
             this.remotePlayer.lastX = previousX;
             this.remotePlayer.lastY = previousY;
@@ -880,6 +1106,9 @@ public class GameContainer implements IResizeable, IDisposable {
 
     private void syncRemoteInventory() {
         if (this.remotePlayer == null || this.multiplayer.session() == null) return;
+        // GUI actions already mutate the presentation copy. Do not overwrite that optimistic state
+        // with an intermediate server revision while ordered transactions are still outstanding.
+        if (!this.remoteInventoryActions.isEmpty()) return;
         int containerId = this.remoteOpenContainer == null ? 0 : this.remoteOpenContainer.containerId();
         var container = this.multiplayer.session().inventory().get(containerId);
         if (container == null) return;
@@ -900,9 +1129,9 @@ public class GameContainer implements IResizeable, IDisposable {
             for (int slot = count; slot < this.remotePlayer.getInventory().size(); slot++) {
                 this.remotePlayer.getInventory().set(slot, ItemStack.EMPTY);
             }
-        }
-        if (this.guiManager.current() instanceof de.skyengine.graphics.gui.screens.GuiContainer screen) {
-            screen.acceptAuthoritativeCarried(this.decodeRemoteItem(container.carried()));
+            if (this.guiManager.current() instanceof de.skyengine.graphics.gui.screens.GuiContainer screen) {
+                screen.acceptAuthoritativeCarried(this.decodeRemoteItem(container.carried()));
+            }
         }
         if (this.guiManager.current() instanceof GuiFurnace furnace && containerId != 0) {
             furnace.acceptRemoteData(this.multiplayer.session().inventory().data(containerId));
@@ -1074,21 +1303,33 @@ public class GameContainer implements IResizeable, IDisposable {
                     ? new java.util.UUID(0, snapshot.networkId()) : joined.identity();
             RemotePlayerVisual visual = this.remotePlayerVisuals.computeIfAbsent(
                     snapshot.networkId(), ignored -> new RemotePlayerVisual(identity));
-            if (snapshot.revision() <= visual.revision) continue;
+            if (snapshot.revision() > visual.revision) {
+                visual.interpolation.add(snapshot);
+                visual.revision = snapshot.revision();
+            }
+            boolean snapTransform = visual.interpolation.consumeDiscontinuity();
+            if (snapTransform) visual.renderServerTick = Double.NaN;
+            double targetTick = visual.interpolation.latestTick() - 2.0;
+            if (Double.isNaN(visual.renderServerTick)) visual.renderServerTick = targetTick;
+            else visual.renderServerTick = Math.min(targetTick, visual.renderServerTick + 1.0);
+            NetworkEntitySnapshot rendered = visual.interpolation.sample(visual.renderServerTick);
+            if (rendered == null) continue;
             EntityPlayer player = visual.player;
             double oldX = player.x, oldY = player.y, oldZ = player.z;
-            player.setPosition(snapshot.x(), snapshot.y(), snapshot.z());
-            if (visual.revision >= 0) {
+            player.setPosition(rendered.x(), rendered.y(), rendered.z());
+            if (snapTransform) {
+                player.lastX = rendered.x(); player.lastY = rendered.y(); player.lastZ = rendered.z();
+            } else if (visual.revision > 0) {
                 player.lastX = oldX;
                 player.lastY = oldY;
                 player.lastZ = oldZ;
             }
-            player.motionX = snapshot.velocityX();
-            player.motionY = snapshot.velocityY();
-            player.motionZ = snapshot.velocityZ();
-            player.yaw = snapshot.yaw();
-            player.pitch = snapshot.pitch();
-            try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(snapshot.metadata()))) {
+            player.motionX = rendered.velocityX();
+            player.motionY = rendered.velocityY();
+            player.motionZ = rendered.velocityZ();
+            player.yaw = rendered.yaw();
+            player.pitch = rendered.pitch();
+            try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(rendered.metadata()))) {
                 int gameMode = input.readUnsignedByte();
                 int selectedSlot = input.readUnsignedByte();
                 if (gameMode < Gamemode.values().length) player.setGamemode(Gamemode.values()[gameMode]);
@@ -1099,7 +1340,6 @@ public class GameContainer implements IResizeable, IDisposable {
             }
             visual.animation.tickHeldItem(visual.held);
             visual.animation.tick(player);
-            visual.revision = snapshot.revision();
         }
         this.remotePlayerVisuals.keySet().removeIf(id -> !present.contains(id));
     }
@@ -1250,12 +1490,15 @@ public class GameContainer implements IResizeable, IDisposable {
         this.remoteOpenContainer = null;
         this.remoteContainerInventory = null;
         this.remoteActionSequence = 0;
+        this.remoteBlockPredictions.clear();
+        this.remoteLatestBlockPrediction.clear();
+        this.locallyPresentedBlockActions.clear();
+        this.remoteInventoryActions.clear();
         this.remoteRotationInitialized = false;
         this.remoteSpectatorSpeedDelta = 0;
         this.remoteInputSequence = 0;
         this.remoteClientTick = 0;
         this.remoteLastAuthoritativeState = null;
-        this.remoteLastSpacePressTime = 0;
         this.remoteRespawnPending = false;
         this.remotePrediction = null;
         this.remotePreviousPredicted = null;
@@ -1265,6 +1508,12 @@ public class GameContainer implements IResizeable, IDisposable {
         this.remotePlayerVisuals.clear();
         this.remoteEntityVisuals.clear();
         this.remoteRenderedEntities.clear();
+    }
+
+    private void closeIntegratedServer() {
+        IntegratedServerHost host = this.integratedServer;
+        this.integratedServer = null;
+        if (host != null) host.close();
     }
 
     public boolean hasRemoteWorldView() {
@@ -1330,6 +1579,8 @@ public class GameContainer implements IResizeable, IDisposable {
         if (this.session == null) {
             this.multiplayer.disconnect();
             this.closeRemoteWorldView();
+            this.closeIntegratedServer();
+            this.integratedSave = null;
             this.guiManager.close();
             this.guiManager.open(new GuiMainMenu());
             return;
@@ -2360,6 +2611,13 @@ public class GameContainer implements IResizeable, IDisposable {
             if (this.remoteWorldView == null) return;
         }
 
+        if (this.guiManager.isOpen()) {
+            this.clientInput.captureMovement(0F, 0F, false, false, false, false, false);
+            this.clientInput.clearInteractionPresses();
+        } else {
+            this.captureClientInput(input);
+        }
+
         if (!this.remoteRotationInitialized) {
             this.remoteYaw = state.yaw();
             this.remotePitch = state.pitch();
@@ -2540,14 +2798,41 @@ public class GameContainer implements IResizeable, IDisposable {
         } else if (scroll < 0) {
             this.remotePlayer.setSelectedSlot((this.remotePlayer.getSelectedSlot() + 1) % 9);
         }
-        if (before != this.remotePlayer.getSelectedSlot()) this.itemNameShownAt = System.currentTimeMillis();
+        if (before != this.remotePlayer.getSelectedSlot()) {
+            long actionId = ++this.remoteActionSequence;
+            this.clientInput.selectHotbarSlot(this.remotePlayer.getSelectedSlot(), actionId);
+            if (this.multiplayer.session() != null) {
+                this.multiplayer.session().selectHotbarSlot(actionId, this.remotePlayer.getSelectedSlot());
+            }
+            this.itemNameShownAt = System.currentTimeMillis();
+        }
+    }
+
+    private void captureClientInput(Input input) {
+        float forward = 0F, strafe = 0F;
+        if (input.isBindDown(this.settings.key(KeyBindings.FORWARD))) forward += 1F;
+        if (input.isBindDown(this.settings.key(KeyBindings.BACK))) forward -= 1F;
+        if (input.isBindDown(this.settings.key(KeyBindings.RIGHT))) strafe += 1F;
+        if (input.isBindDown(this.settings.key(KeyBindings.LEFT))) strafe -= 1F;
+        this.clientInput.captureMovement(forward, strafe,
+                input.isBindDown(this.settings.key(KeyBindings.JUMP)),
+                input.isBindDown(this.settings.key(KeyBindings.SNEAK)),
+                input.isBindDown(this.settings.key(KeyBindings.SPRINT)),
+                input.isBindDown(this.settings.key(KeyBindings.ATTACK)),
+                input.isBindDown(this.settings.key(KeyBindings.USE)));
+        if (input.isBindPressed(this.settings.key(KeyBindings.ATTACK))) this.clientInput.pressAttack();
+        if (input.isBindPressed(this.settings.key(KeyBindings.USE))) this.clientInput.pressUse();
+        if (input.isBindPressed(this.settings.key(KeyBindings.PICK_BLOCK))) this.clientInput.pressPick();
+        if (input.isBindPressed(this.settings.key(KeyBindings.DROP))) this.clientInput.pressDrop();
+        if (input.isBindPressed(this.settings.key(KeyBindings.GAMEMODE))) this.clientInput.pressGameMode();
+        if (input.isBindPressed(this.settings.key(KeyBindings.JUMP))) this.clientInput.pressJump(System.nanoTime());
     }
 
     private void sendRemoteInventoryAction(int sourceSlot, int targetSlot,
                                            de.skyengine.shared.gameplay.InventoryActionRequest.Action action,
                                            int button, ItemStack offered) {
         if (this.multiplayer.session() == null) return;
-        this.multiplayer.session().sendInventoryAction(new de.skyengine.shared.gameplay.InventoryActionRequest(
+        this.queueRemoteInventoryAction(new de.skyengine.shared.gameplay.InventoryActionRequest(
                 ++this.remoteActionSequence, 0, sourceSlot, targetSlot, action, button,
                 this.encodeRemoteItem(offered)));
     }
@@ -2556,9 +2841,34 @@ public class GameContainer implements IResizeable, IDisposable {
                                                      de.skyengine.shared.gameplay.InventoryActionRequest.Action action,
                                                      int button, ItemStack offered) {
         if (this.multiplayer.session() == null) return;
-        this.multiplayer.session().sendInventoryAction(new de.skyengine.shared.gameplay.InventoryActionRequest(
+        this.queueRemoteInventoryAction(new de.skyengine.shared.gameplay.InventoryActionRequest(
                 ++this.remoteActionSequence, containerId, sourceSlot, targetSlot, action, button,
                 this.encodeRemoteItem(offered)));
+    }
+
+    private void queueRemoteInventoryAction(de.skyengine.shared.gameplay.InventoryActionRequest request) {
+        boolean idle = this.remoteInventoryActions.isEmpty();
+        this.remoteInventoryActions.addLast(request);
+        if (idle) this.multiplayer.session().sendInventoryAction(request);
+    }
+
+    private void reconcileRemoteInventoryAction(CorePackets.InventoryTransactionResult result) {
+        var active = this.remoteInventoryActions.peekFirst();
+        if (active == null || active.transactionId() != result.transactionId()) return;
+        this.remoteInventoryActions.removeFirst();
+        if (!result.accepted()) {
+            // Later clicks were based on a prediction the server rejected; authoritative content wins.
+            this.remoteInventoryActions.clear();
+            this.remoteInventoryRevision = Integer.MIN_VALUE;
+            this.syncRemoteInventory();
+            return;
+        }
+        var next = this.remoteInventoryActions.peekFirst();
+        if (next != null) this.multiplayer.session().sendInventoryAction(next);
+        else {
+            this.remoteInventoryRevision = Integer.MIN_VALUE;
+            this.syncRemoteInventory();
+        }
     }
 
     private NetworkItemStack encodeRemoteItem(ItemStack stack) {
@@ -2902,6 +3212,8 @@ public class GameContainer implements IResizeable, IDisposable {
         this.settings.save();
         this.multiplayer.close();
         this.closeRemoteWorldView();
+        this.closeIntegratedServer();
+        this.integratedSave = null;
         this.saveCurrentWorld(true); // Welt-Zustand auch beim direkten Beenden aus dem Spiel sichern
         if (this.session != null) {
             this.session.dispose();
@@ -4157,7 +4469,7 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private WorldSaves.WorldSave currentSave() {
-        return this.session == null ? null : this.session.save();
+        return this.session == null ? this.integratedSave : this.session.save();
     }
 
     public EntityPlayer getPlayer() {

@@ -13,6 +13,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import de.skyengine.shared.world.ChunkColumnSnapshot;
+import de.skyengine.shared.world.ChunkSectionSnapshot;
+import de.skyengine.shared.world.LightPlane;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -48,6 +51,57 @@ class NettyTransportConnectionTest {
         }
         connection.close();
         channel.finishAndReleaseAll();
+    }
+
+    @Test void largeChunkBatchIsSplitIntoBoundedTransportFragments() throws Exception {
+        var registry = CoreProtocol.createRegistry();
+        EmbeddedChannel channel = new EmbeddedChannel();
+        List<Runnable> encoderTasks = new ArrayList<>();
+        NettyTransportConnection connection = new NettyTransportConnection(channel, registry, true,
+                encoderTasks::add);
+        advanceToPlay(connection);
+        ChunkColumnSnapshot chunk = largeChunk();
+        assertTrue(connection.sendBatch(List.of(
+                new PacketEnvelope(new CorePackets.ChunkBatchStart(3, chunk.dimension(), 0, 0, 1)),
+                new PacketEnvelope(new CorePackets.ChunkColumnData(3, chunk)),
+                new PacketEnvelope(new CorePackets.ChunkBatchEnd(3)))));
+        encoderTasks.removeFirst().run();
+
+        List<CorePackets.ChunkColumnFragment> fragments = new ArrayList<>();
+        for (int flush = 0; flush < 16 && connection.outboundSize() > 0; flush++) {
+            connection.flushOutbound(64 * 1024);
+            ByteBuf framed;
+            while ((framed = channel.readOutbound()) != null) {
+                byte[] bytes = new byte[framed.readableBytes()];
+                framed.readBytes(bytes).release();
+                Object packet = registry.decode(PacketDirection.SERVER_TO_CLIENT, ConnectionState.PLAY,
+                        ProtocolFraming.unframe(bytes)).packet();
+                if (packet instanceof CorePackets.ChunkColumnFragment fragment) fragments.add(fragment);
+            }
+        }
+
+        assertTrue(fragments.size() > 1);
+        assertTrue(fragments.stream().allMatch(fragment ->
+                fragment.data().length <= CorePackets.ChunkColumnFragment.MAX_FRAGMENT_BYTES));
+        assertEquals(fragments.size(), fragments.getFirst().fragmentCount());
+        connection.close();
+        channel.finishAndReleaseAll();
+    }
+
+    private static ChunkColumnSnapshot largeChunk() {
+        List<ChunkSectionSnapshot> sections = new ArrayList<>();
+        byte[] light = new byte[LightPlane.PACKED_BYTES];
+        for (int sectionY = 0; sectionY < 4; sectionY++) {
+            sections.add(new ChunkSectionSnapshot(sectionY, ChunkSectionSnapshot.VOLUME,
+                    new int[] {1}, 0, new long[0],
+                    new LightPlane(LightPlane.Mode.PACKED_NIBBLES, light),
+                    new LightPlane(LightPlane.Mode.PACKED_NIBBLES, light)));
+        }
+        return new ChunkColumnSnapshot("skyengine:overworld", 0, 0, 1, sections,
+                new int[ChunkColumnSnapshot.COLUMN_CELLS],
+                new int[ChunkColumnSnapshot.TINT_CORNERS],
+                new int[ChunkColumnSnapshot.TINT_CORNERS],
+                new int[ChunkColumnSnapshot.COLUMN_CELLS]);
     }
 
     private static void advanceToPlay(NettyTransportConnection connection) {

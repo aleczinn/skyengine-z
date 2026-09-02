@@ -13,12 +13,14 @@ import de.skyengine.shared.world.ChunkColumnSnapshot;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.BiConsumer;
 
 /** Owner-thread bridge from network L0 snapshots to the existing chunk mesher/renderer input. */
 public final class ReplicatedChunkWorldAdapter implements ReplicatedChunkCache.Listener {
     private final String dimension;
     private final ChunkManager chunks;
     private final Dimension world;
+    private BiConsumer<Integer, Integer> authoritativeUpdateListener = (x, z) -> { };
 
     public ReplicatedChunkWorldAdapter(String dimension, ChunkManager chunks) {
         this(dimension, chunks, null);
@@ -31,11 +33,15 @@ public final class ReplicatedChunkWorldAdapter implements ReplicatedChunkCache.L
     }
 
     public ChunkManager chunkManager() { return this.chunks; }
+    public void setAuthoritativeUpdateListener(BiConsumer<Integer, Integer> listener) {
+        this.authoritativeUpdateListener = listener == null ? (x, z) -> { } : listener;
+    }
 
     @Override public void chunkLoaded(ChunkColumnSnapshot snapshot) {
         if (!this.dimension.equals(snapshot.dimension())) return;
         try {
             this.chunks.installReplicatedChunk(LegacyChunkSnapshotDecoder.decode(snapshot, this.world));
+            this.authoritativeUpdateListener.accept(snapshot.chunkX(), snapshot.chunkZ());
         } catch (ProtocolException invalidSnapshot) {
             throw new IllegalArgumentException("Invalid replicated chunk " + snapshot.chunkX()
                     + "," + snapshot.chunkZ(), invalidSnapshot);
@@ -71,6 +77,7 @@ public final class ReplicatedChunkWorldAdapter implements ReplicatedChunkCache.L
         if (this.world == null) {
             for (BlockChange change : changes) markGeometryDirty(chunkX, chunkZ, change);
         }
+        this.authoritativeUpdateListener.accept(chunkX, chunkZ);
     }
 
     @Override public ChunkColumnSnapshot snapshotAfterBlockChanges(ChunkColumnSnapshot previous,

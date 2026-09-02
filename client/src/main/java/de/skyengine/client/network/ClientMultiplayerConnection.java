@@ -6,6 +6,7 @@ import de.skyengine.shared.network.DisconnectReason;
 import de.skyengine.shared.network.ProtocolLimits;
 import de.skyengine.shared.network.packets.CorePackets;
 import de.skyengine.shared.player.PlayerStateSnapshot;
+import de.skyengine.shared.network.transport.TransportConnection;
 
 import java.net.ConnectException;
 import java.net.UnknownHostException;
@@ -22,7 +23,7 @@ import java.util.Map;
  * Client-owner-thread lifecycle around an asynchronous TCP connect and {@link ClientNetworkSession}.
  * DNS and socket setup happen on a virtual thread; packet handling remains in {@link #update()}.
  */
-public final class ClientMultiplayerConnection implements AutoCloseable {
+public class ClientMultiplayerConnection implements AutoCloseable {
     public enum Phase {
         IDLE, CONNECTING, HANDSHAKE, LOGIN, CONFIGURATION, JOINING, PLAY, DISCONNECTED, FAILED
     }
@@ -40,6 +41,7 @@ public final class ClientMultiplayerConnection implements AutoCloseable {
     private volatile NettyClientTransport connectingTransport;
     private Thread connectThread;
     private NettyClientTransport transport;
+    private TransportConnection connection;
     private ClientNetworkSession session;
     private ReplicatedChunkCache chunks;
     private ReplicatedChunkCache.Listener chunkListener;
@@ -53,6 +55,11 @@ public final class ClientMultiplayerConnection implements AutoCloseable {
     private final ConcurrentLinkedQueue<Integer> closedContainers = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<CorePackets.WorldSound> worldSounds = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<CorePackets.EntityEvent> entityEvents = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<CorePackets.BlockActionResult> blockActionResults = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<CorePackets.BlockActionEffect> blockActionEffects = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<CorePackets.InventoryTransactionResult> inventoryResults = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<CorePackets.SelectedHotbarSlotResult> hotbarResults =
+            new ConcurrentLinkedQueue<>();
     private final Map<String, Integer> itemNetworkIds = new HashMap<>();
     private final Map<Integer, CorePackets.PlayerJoined> remotePlayers = new HashMap<>();
 
@@ -62,17 +69,9 @@ public final class ClientMultiplayerConnection implements AutoCloseable {
             throw new IllegalStateException("A multiplayer connection is already active");
         }
         closeResources(false);
-        this.cancelled = false;
+        resetForConnect();
         this.phase = Phase.CONNECTING;
         this.detail = address.display();
-        this.disconnectReason = null;
-        this.joinGame = null;
-        this.playerState = null;
-        this.remotePlayers.clear();
-        this.openedContainers.clear();
-        this.closedContainers.clear();
-        this.worldSounds.clear();
-        this.entityEvents.clear();
 
         String safeUsername = normalizeUsername(username);
         // Written before the virtual thread is started and consumed later by the owner thread.
@@ -97,6 +96,19 @@ public final class ClientMultiplayerConnection implements AutoCloseable {
         });
     }
 
+    /** Startet denselben Protokollpfad ueber einen bereits verbundenen In-Process-Transport. */
+    public void connect(TransportConnection connection, String username, UUID identity) {
+        Objects.requireNonNull(connection);
+        Objects.requireNonNull(identity);
+        if (this.phase != Phase.IDLE && this.phase != Phase.DISCONNECTED && this.phase != Phase.FAILED) {
+            throw new IllegalStateException("A client connection is already active");
+        }
+        closeResources(false);
+        resetForConnect();
+        this.pendingUsername = normalizeUsername(username);
+        adoptConnection(connection, identity);
+    }
+
     private String pendingUsername;
 
     /** Called by the game tick thread. */
@@ -107,16 +119,7 @@ public final class ClientMultiplayerConnection implements AutoCloseable {
                 fail(readableFailure(connected.failure));
             } else {
                 this.transport = connected.transport;
-                this.chunks = new ReplicatedChunkCache(this.chunkListener);
-                this.session = new ClientNetworkSession(connected.connection, this.chunks,
-                        packs -> ClientNetworkSession.PackValidation.acceptAll(), new SessionListener());
-                try {
-                    this.session.start(this.pendingUsername, this.launchIdentity);
-                    this.phase = Phase.HANDSHAKE;
-                    this.detail = "";
-                } catch (RuntimeException failure) {
-                    fail(readableFailure(failure));
-                }
+                adoptConnection(connected.connection, this.launchIdentity);
             }
         }
 
@@ -126,7 +129,7 @@ public final class ClientMultiplayerConnection implements AutoCloseable {
             if (this.phase != Phase.PLAY && this.phase != Phase.DISCONNECTED && this.phase != Phase.FAILED) {
                 this.phase = phaseOf(this.session.state());
             }
-            if (!this.transport.connection().open() && this.phase != Phase.DISCONNECTED) {
+            if ((this.connection == null || !this.connection.open()) && this.phase != Phase.DISCONNECTED) {
                 this.disconnectReason = DisconnectReason.INTERNAL_ERROR;
                 this.detail = "Connection closed";
                 this.phase = Phase.DISCONNECTED;
@@ -175,6 +178,22 @@ public final class ClientMultiplayerConnection implements AutoCloseable {
         CorePackets.EntityEvent event;
         while ((event = this.entityEvents.poll()) != null) consumer.accept(event);
     }
+    public void drainBlockActionResults(Consumer<CorePackets.BlockActionResult> consumer) {
+        CorePackets.BlockActionResult result;
+        while ((result = this.blockActionResults.poll()) != null) consumer.accept(result);
+    }
+    public void drainBlockActionEffects(Consumer<CorePackets.BlockActionEffect> consumer) {
+        CorePackets.BlockActionEffect effect;
+        while ((effect = this.blockActionEffects.poll()) != null) consumer.accept(effect);
+    }
+    public void drainInventoryResults(Consumer<CorePackets.InventoryTransactionResult> consumer) {
+        CorePackets.InventoryTransactionResult result;
+        while ((result = this.inventoryResults.poll()) != null) consumer.accept(result);
+    }
+    public void drainHotbarResults(Consumer<CorePackets.SelectedHotbarSlotResult> consumer) {
+        CorePackets.SelectedHotbarSlotResult result;
+        while ((result = this.hotbarResults.poll()) != null) consumer.accept(result);
+    }
     public int itemToNetwork(String identifier) {
         Integer id = this.itemNetworkIds.get(identifier);
         if (id == null) throw new IllegalArgumentException("Item is absent from negotiated registry: " + identifier);
@@ -209,16 +228,22 @@ public final class ClientMultiplayerConnection implements AutoCloseable {
     private void closeResources(boolean asynchronous) {
         NettyClientTransport adopted = this.transport;
         this.transport = null;
+        TransportConnection adoptedConnection = this.connection;
+        this.connection = null;
         this.session = null;
         Connected pending = this.completedConnect.getAndSet(null);
         NettyClientTransport pendingTransport = pending == null ? null : pending.transport;
         NettyClientTransport connecting = this.connectingTransport;
         Runnable close = () -> {
+            if (adoptedConnection != null) {
+                try { adoptedConnection.close(); } catch (RuntimeException ignored) { }
+            }
             closeQuietly(adopted);
             if (pendingTransport != adopted) closeQuietly(pendingTransport);
             if (connecting != adopted && connecting != pendingTransport) closeQuietly(connecting);
         };
-        if (asynchronous && (adopted != null || pendingTransport != null || connecting != null)) {
+        if (asynchronous && (adoptedConnection != null || adopted != null
+                || pendingTransport != null || connecting != null)) {
             Thread.ofVirtual().name("Server Disconnect").start(close);
         } else close.run();
     }
@@ -226,6 +251,44 @@ public final class ClientMultiplayerConnection implements AutoCloseable {
     private static void closeQuietly(NettyClientTransport transport) {
         if (transport == null) return;
         try { transport.close(); } catch (RuntimeException ignored) { }
+    }
+
+    private void resetForConnect() {
+        this.cancelled = false;
+        this.detail = "";
+        this.disconnectReason = null;
+        this.joinGame = null;
+        this.playerState = null;
+        this.remotePlayers.clear();
+        this.openedContainers.clear();
+        this.closedContainers.clear();
+        this.worldSounds.clear();
+        this.entityEvents.clear();
+        this.blockActionResults.clear();
+        this.blockActionEffects.clear();
+        this.inventoryResults.clear();
+        this.hotbarResults.clear();
+        this.itemNetworkIds.clear();
+        this.blockStateLocalToNetwork = id -> id;
+        this.blockStateNetworkToLocal = id -> id;
+    }
+
+    private void adoptConnection(TransportConnection connection, UUID identity) {
+        this.connection = connection;
+        this.chunks = new ReplicatedChunkCache(this.chunkListener);
+        this.session = new ClientNetworkSession(connection, this.chunks,
+                packs -> ClientNetworkSession.PackValidation.acceptAll(), new SessionListener());
+        this.chunks.setResyncRequester(request -> {
+            ClientNetworkSession active = this.session;
+            if (active != null && active.state() == ConnectionState.PLAY) active.requestChunkResync(request);
+        });
+        try {
+            this.session.start(this.pendingUsername, identity);
+            this.phase = Phase.HANDSHAKE;
+            this.detail = "";
+        } catch (RuntimeException failure) {
+            fail(readableFailure(failure));
+        }
     }
 
     private static Phase phaseOf(ConnectionState state) {
@@ -284,6 +347,10 @@ public final class ClientMultiplayerConnection implements AutoCloseable {
             ClientMultiplayerConnection.this.playerState = state;
         }
 
+        @Override public void selectedHotbarSlotResult(CorePackets.SelectedHotbarSlotResult result) {
+            ClientMultiplayerConnection.this.hotbarResults.add(result);
+        }
+
         @Override public void containerOpened(CorePackets.ContainerOpen opened) {
             ClientMultiplayerConnection.this.openedContainers.add(opened);
         }
@@ -296,6 +363,18 @@ public final class ClientMultiplayerConnection implements AutoCloseable {
             ClientMultiplayerConnection.this.worldSounds.add(sound);
         }
 
+        @Override public void blockActionResult(CorePackets.BlockActionResult result) {
+            ClientMultiplayerConnection.this.blockActionResults.add(result);
+        }
+
+        @Override public void blockActionEffect(CorePackets.BlockActionEffect effect) {
+            ClientMultiplayerConnection.this.blockActionEffects.add(effect);
+        }
+
+        @Override public void inventoryTransactionResult(CorePackets.InventoryTransactionResult result) {
+            ClientMultiplayerConnection.this.inventoryResults.add(result);
+        }
+
         @Override public void entityEvent(CorePackets.EntityEvent event) {
             ClientMultiplayerConnection.this.entityEvents.add(event);
         }
@@ -305,8 +384,16 @@ public final class ClientMultiplayerConnection implements AutoCloseable {
         }
 
         @Override public void playerLeft(CorePackets.PlayerLeft packet) {
-            ClientMultiplayerConnection.this.remotePlayers.entrySet().removeIf(
-                    entry -> entry.getValue().identity().equals(packet.identity()));
+            var iterator = ClientMultiplayerConnection.this.remotePlayers.entrySet().iterator();
+            while (iterator.hasNext()) {
+                var entry = iterator.next();
+                if (!entry.getValue().identity().equals(packet.identity())) continue;
+                // Eager local cleanup complements the canonical EntityDespawn. Both are idempotent,
+                // which also makes disconnect/reconnect races harmless.
+                ClientMultiplayerConnection.this.session.entities().despawn(
+                        new CorePackets.EntityDespawn(entry.getKey(), 0));
+                iterator.remove();
+            }
         }
 
         @Override public void chatMessage(CorePackets.ChatMessage message) {

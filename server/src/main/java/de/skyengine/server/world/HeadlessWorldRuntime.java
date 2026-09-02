@@ -27,7 +27,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -106,15 +105,15 @@ public final class HeadlessWorldRuntime implements ServerWorldRuntime {
     @Override public void autosave(long serverTick) { }
 
     @Override
-    public CompletionStage<Optional<ChunkColumnSnapshot>> requestChunkSnapshot(
+    public ChunkSnapshotTicket requestChunkSnapshot(
             String dimension, int chunkX, int chunkZ) {
         if (!OVERWORLD.equals(dimension) || this.closed) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return ChunkSnapshotTicket.completed(Optional.empty());
         }
         ColumnKey key = new ColumnKey(dimension, chunkX, chunkZ);
         synchronized (this.cache) {
             ChunkColumnSnapshot cached = this.cache.get(key);
-            if (cached != null) return CompletableFuture.completedFuture(Optional.of(cached));
+            if (cached != null) return ChunkSnapshotTicket.completed(Optional.of(cached));
         }
         CompletableFuture<ChunkColumnSnapshot> future = this.inFlight.computeIfAbsent(key, requested -> {
             CompletableFuture<ChunkColumnSnapshot> created = CompletableFuture.supplyAsync(
@@ -127,7 +126,12 @@ public final class HeadlessWorldRuntime implements ServerWorldRuntime {
             });
             return created;
         });
-        return future.thenApply(Optional::of);
+        ChunkSnapshotTicket ticket = new ChunkSnapshotTicket();
+        future.whenComplete((snapshot, failure) -> {
+            if (failure == null) ticket.complete(Optional.of(snapshot));
+            else ticket.completeExceptionally(failure);
+        });
+        return ticket;
     }
 
     @Override
@@ -143,7 +147,13 @@ public final class HeadlessWorldRuntime implements ServerWorldRuntime {
     public PlayerStateSnapshot applyPlayerInput(PlayerIdentity identity, int entityId,
                                                  PlayerStateSnapshot previous, PlayerInputFrame input,
                                                  long serverTick) {
-        return PlayerMovementSimulation.simulate(previous, input, serverTick,
+        int continuousButtons = input.buttons() & ~(PlayerInputFrame.CYCLE_GAME_MODE
+                | PlayerInputFrame.TOGGLE_FLY | PlayerInputFrame.SPECTATOR_SPEED_UP
+                | PlayerInputFrame.SPECTATOR_SPEED_DOWN);
+        PlayerInputFrame continuous = new PlayerInputFrame(input.sequence(), input.clientTick(),
+                input.forward(), input.strafe(), input.yaw(), input.pitch(), continuousButtons,
+                previous.selectedHotbarSlot());
+        return PlayerMovementSimulation.simulate(previous, continuous, serverTick,
                 (x, z, fallback) -> heightAt((int) Math.floor(x), (int) Math.floor(z)) + 1.0);
     }
 

@@ -290,7 +290,8 @@ public final class NettyTransportConnection implements TransportConnection, Comp
 
     private boolean enqueueEncoded(EncodedOutbound encoded) {
         ArrayBlockingQueue<EncodedOutbound> queue = this.outbound.get(encoded.channel());
-        if (encoded.delivery() == DeliveryClass.UNRELIABLE_SEQUENCED) {
+        if (encoded.delivery() == DeliveryClass.UNRELIABLE_SEQUENCED
+                && encoded.packetClass() != CorePackets.PlayerInput.class) {
             int before = queue.size();
             queue.removeIf(old -> old.packetClass() == encoded.packetClass()
                     && old.sequence() < encoded.sequence());
@@ -329,7 +330,9 @@ public final class NettyTransportConnection implements TransportConnection, Comp
                 long started = System.nanoTime();
                 try {
                     for (PacketEnvelope envelope : batch.packets()) {
-                        if (!enqueueEncoded(encode(envelope, batch.state(), batch.compression()))) return;
+                        if (envelope.packet() instanceof CorePackets.ChunkColumnData data) {
+                            if (!enqueueChunkFragments(data, batch.state(), batch.compression())) return;
+                        } else if (!enqueueEncoded(encode(envelope, batch.state(), batch.compression()))) return;
                     }
                 } catch (ProtocolException | RuntimeException e) {
                     disconnect(DisconnectReason.INTERNAL_ERROR,
@@ -347,6 +350,23 @@ public final class NettyTransportConnection implements TransportConnection, Comp
             this.batchDrainScheduled.set(false);
             if (!this.pendingBatches.isEmpty() && open()) scheduleBatchDrain();
         }
+    }
+
+    private boolean enqueueChunkFragments(CorePackets.ChunkColumnData data, ConnectionState state,
+                                          CompressionSettings compression) throws ProtocolException {
+        byte[] payload = de.skyengine.shared.network.CoreProtocol.encodeChunkSnapshot(data.chunk());
+        int fragmentBytes = CorePackets.ChunkColumnFragment.MAX_FRAGMENT_BYTES;
+        int count = (payload.length + fragmentBytes - 1) / fragmentBytes;
+        if (count < 1 || count > 256) throw new ProtocolException("Chunk requires too many fragments");
+        for (int index = 0, offset = 0; index < count; index++) {
+            int length = Math.min(fragmentBytes, payload.length - offset);
+            byte[] part = java.util.Arrays.copyOfRange(payload, offset, offset + length);
+            CorePackets.ChunkColumnFragment fragment = new CorePackets.ChunkColumnFragment(
+                    data.batchId(), index, count, payload.length, part);
+            if (!enqueueEncoded(encode(new PacketEnvelope(fragment), state, compression))) return false;
+            offset += length;
+        }
+        return true;
     }
 
     private byte[] encodeTransportBody(byte[] body) throws ProtocolException {

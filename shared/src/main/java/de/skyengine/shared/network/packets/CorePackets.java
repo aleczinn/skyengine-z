@@ -15,6 +15,9 @@ import de.skyengine.shared.gameplay.EntityActionRequest;
 import de.skyengine.shared.gameplay.ContainerKind;
 import de.skyengine.shared.gameplay.NetworkItemStack;
 import de.skyengine.shared.gameplay.WorldSoundType;
+import de.skyengine.shared.gameplay.BlockActionEffectType;
+import de.skyengine.shared.gameplay.PlayerAbilityAction;
+import de.skyengine.shared.gameplay.AuthoritativeBlockCorrection;
 import de.skyengine.shared.entity.NetworkEntitySnapshot;
 
 import java.util.List;
@@ -75,9 +78,58 @@ public final class CorePackets {
                            int ticksPerSecond, int viewDistance, int simulationDistance) implements Packet {}
     public record ClientReady(long lastAppliedChunkBatch) implements Packet {}
     public record PlayerInput(PlayerInputFrame input) implements Packet {}
+    /** Reliable edge paired with the movement input that predicts it locally. */
+    public record PlayerAbility(long actionId, long inputSequence, PlayerAbilityAction action) implements Packet {
+        public PlayerAbility {
+            Objects.requireNonNull(action);
+            if (actionId < 0 || inputSequence < 1) throw new IllegalArgumentException("Invalid player ability");
+        }
+    }
+    /** Reliable selected-slot intent; movement snapshots carry the slot only as redundancy. */
+    public record SelectedHotbarSlot(long actionId, int slot) implements Packet {
+        public SelectedHotbarSlot {
+            if (actionId < 0 || slot < 0 || slot > 8) {
+                throw new IllegalArgumentException("Invalid selected hotbar slot");
+            }
+        }
+    }
+    public record SelectedHotbarSlotResult(long actionId, int slot) implements Packet {
+        public SelectedHotbarSlotResult {
+            if (actionId < 0 || slot < 0 || slot > 8) {
+                throw new IllegalArgumentException("Invalid selected hotbar slot result");
+            }
+        }
+    }
+    /** Presentation intent; the server remains authoritative and fans the animation out to observers. */
+    public record PlayerSwing(long actionId) implements Packet {
+        public PlayerSwing {
+            if (actionId < 0) throw new IllegalArgumentException("Negative swing action ID");
+        }
+    }
     public record PlayerState(PlayerStateSnapshot state) implements Packet {}
     public record BlockAction(BlockActionRequest request) implements Packet {}
-    public record BlockActionResult(long actionId, boolean accepted, String message) implements Packet {}
+    public record BlockActionResult(long actionId, boolean accepted, String message,
+                                    List<AuthoritativeBlockCorrection> corrections) implements Packet {
+        public BlockActionResult {
+            corrections = List.copyOf(corrections);
+            if (corrections.size() > 4) throw new IllegalArgumentException("Too many block corrections");
+        }
+        public BlockActionResult(long actionId, boolean accepted, String message) {
+            this(actionId, accepted, message, List.of());
+        }
+    }
+    public record BlockActionEffect(long actionId, int sourceEntityId, BlockActionEffectType type,
+                                    String dimension, int stateId, int x, int y, int z,
+                                    int face, int hitX, int hitY, int hitZ) implements Packet {
+        public BlockActionEffect {
+            Objects.requireNonNull(type); Objects.requireNonNull(dimension);
+            if (actionId < 0 || sourceEntityId <= 0 || stateId < 0 || y < 0 || y >= 512
+                    || face < 0 || face > 5 || hitX < 0 || hitX > 255
+                    || hitY < 0 || hitY > 255 || hitZ < 0 || hitZ > 255) {
+                throw new IllegalArgumentException("Invalid block action effect");
+            }
+        }
+    }
     public record EntityAction(EntityActionRequest request) implements Packet {}
     public record EntityActionResult(long actionId, boolean accepted, String message) implements Packet {}
     public record InventoryAction(InventoryActionRequest request) implements Packet {}
@@ -145,8 +197,36 @@ public final class CorePackets {
     public record ChunkBatchStart(long batchId, String dimension, int centerChunkX, int centerChunkZ,
                                   int chunkCount) implements Packet {}
     public record ChunkColumnData(long batchId, ChunkColumnSnapshot chunk) implements Packet {}
+    /** Bounded transport fragment of a canonical ChunkColumnSnapshot payload. */
+    public record ChunkColumnFragment(long batchId, int fragmentIndex, int fragmentCount,
+                                      int totalLength, byte[] data) implements Packet {
+        public static final int MAX_FRAGMENT_BYTES = 96 * 1024;
+        public ChunkColumnFragment {
+            data = data == null ? new byte[0] : data.clone();
+            if (batchId < 0 || fragmentIndex < 0 || fragmentCount < 1 || fragmentCount > 256
+                    || fragmentIndex >= fragmentCount || totalLength < 1
+                    || totalLength > de.skyengine.shared.network.ProtocolLimits.MAX_DECOMPRESSED_BYTES
+                    || data.length < 1 || data.length > MAX_FRAGMENT_BYTES) {
+                throw new IllegalArgumentException("Invalid chunk fragment");
+            }
+        }
+        @Override public byte[] data() { return this.data.clone(); }
+    }
     public record ChunkBatchEnd(long batchId) implements Packet {}
+    /** Confirms that the complete batch is installed in the replicated CPU chunk cache. */
+    public record ChunkBatchApplied(long batchId) implements Packet {
+        public ChunkBatchApplied {
+            if (batchId < 0) throw new IllegalArgumentException("Negative chunk batch ID");
+        }
+    }
     public record UnloadChunk(String dimension, int chunkX, int chunkZ) implements Packet {}
+    public record ChunkResyncRequest(String dimension, int chunkX, int chunkZ,
+                                     long knownRevision) implements Packet {
+        public ChunkResyncRequest {
+            Objects.requireNonNull(dimension);
+            if (knownRevision < 0) throw new IllegalArgumentException("Negative chunk revision");
+        }
+    }
     public record BlockUpdate(String dimension, int chunkX, int chunkZ, long revision,
                               BlockChange change) implements Packet {}
     public record MultiBlockUpdate(String dimension, int chunkX, int chunkZ, long revision,

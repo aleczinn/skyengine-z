@@ -594,12 +594,17 @@ public class ChunkManager {
            (GENERATING/DECORATING/LIGHTING/MESHING) bleiben, bis sie fertig sind,
            sonst arbeiten Worker auf entfernten Chunks. */
         int unloadDist = this.renderDistance + 2;
+        unloadOutside(chunk -> {
+            int dx = chunk.chunkX - pcx, dz = chunk.chunkZ - pcz;
+            return dx * dx + dz * dz <= unloadDist * unloadDist;
+        });
+    }
+
+    private void unloadOutside(java.util.function.Predicate<Chunk> retainedByInterest) {
         Iterator<Map.Entry<Long, Chunk>> it = this.chunks.entrySet().iterator();
         while (it.hasNext()) {
             Chunk chunk = it.next().getValue();
-            int dx = chunk.chunkX - pcx, dz = chunk.chunkZ - pcz;
-            int d2 = dx * dx + dz * dz;
-            if (d2 <= unloadDist * unloadDist) continue;
+            if (retainedByInterest.test(chunk)) continue;
 
             ChunkStatus status = chunk.status;
             if (status == ChunkStatus.READY || status == ChunkStatus.LIT
@@ -798,15 +803,49 @@ public class ChunkManager {
 
     /**
      * Dedicated-server interest update. Each player contributes its normal prioritized load
-     * radius; no individual player is allowed to evict another player's chunks.
+     * radius. Loading uses the shared chunk map; unloading happens once against the union of
+     * spatially bucketed player interests, so no player can evict another player's chunks and
+     * the map still releases terrain after every player has left it.
      */
     public void updatePlayers(Iterable<EntityPlayer> players) {
+        java.util.List<EntityPlayer> anchors = new java.util.ArrayList<>();
+        for (EntityPlayer player : players) anchors.add(player);
+        if (anchors.isEmpty()) return;
         this.suppressSingleAnchorUnload = true;
         try {
-            for (EntityPlayer player : players) this.update(player);
+            for (EntityPlayer player : anchors) this.update(player);
         } finally {
             this.suppressSingleAnchorUnload = false;
         }
+        int unloadDistance = this.renderDistance + 2;
+        int unloadDistanceSquared = unloadDistance * unloadDistance;
+        java.util.Map<Long, java.util.List<EntityPlayer>> anchorBuckets = new java.util.HashMap<>();
+        for (EntityPlayer player : anchors) {
+            int playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
+            int playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
+            int bucketX = Math.floorDiv(playerChunkX, unloadDistance);
+            int bucketZ = Math.floorDiv(playerChunkZ, unloadDistance);
+            anchorBuckets.computeIfAbsent(Chunk.key(bucketX, bucketZ), ignored -> new java.util.ArrayList<>())
+                    .add(player);
+        }
+        unloadOutside(chunk -> {
+            int bucketX = Math.floorDiv(chunk.chunkX, unloadDistance);
+            int bucketZ = Math.floorDiv(chunk.chunkZ, unloadDistance);
+            for (int bucketOffsetZ = -1; bucketOffsetZ <= 1; bucketOffsetZ++) {
+                for (int bucketOffsetX = -1; bucketOffsetX <= 1; bucketOffsetX++) {
+                    java.util.List<EntityPlayer> nearby = anchorBuckets.get(Chunk.key(
+                            bucketX + bucketOffsetX, bucketZ + bucketOffsetZ));
+                    if (nearby == null) continue;
+                    for (EntityPlayer player : nearby) {
+                        int playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
+                        int playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
+                        int dx = chunk.chunkX - playerChunkX, dz = chunk.chunkZ - playerChunkZ;
+                        if (dx * dx + dz * dz <= unloadDistanceSquared) return true;
+                    }
+                }
+            }
+            return false;
+        });
     }
 
     /**

@@ -23,6 +23,7 @@ import de.skyengine.shared.player.PlayerGameMode;
 import de.skyengine.shared.player.PlayerStateSnapshot;
 import de.skyengine.shared.gameplay.BlockActionRequest;
 import de.skyengine.shared.gameplay.EntityActionRequest;
+import de.skyengine.shared.gameplay.BlockActionEffectType;
 import de.skyengine.server.world.BlockActionOutcome;
 import de.skyengine.server.world.EntityActionOutcome;
 import de.skyengine.server.world.ContainerOpenData;
@@ -207,8 +208,13 @@ public final class ServerSessionManager implements AutoCloseable {
                 disconnect(session, DisconnectReason.INVALID_PACKET, "Inbound packet flood");
                 continue;
             }
-            if (session.state() == ConnectionState.PLAY && session.simulationInput() != null) {
-                simulateMovement(session);
+            if (session.state() == ConnectionState.PLAY && session.pendingSimulationInputs() > 0) {
+                // Consume every intent exactly once. A small bounded catch-up prevents jitter bursts
+                // from permanently increasing latency without allowing one client to monopolize a tick.
+                int simulations = session.pendingSimulationInputs() > 3 ? 2 : 1;
+                while (simulations-- > 0 && session.pendingSimulationInputs() > 0) {
+                    simulateMovement(session);
+                }
             }
             maintain(session, nowNanos);
         }
@@ -403,15 +409,73 @@ public final class ServerSessionManager implements AutoCloseable {
             }
             handleMovement(session, movement.input(), nowNanos);
         }
+        else if (packet instanceof CorePackets.PlayerAbility ability) handleAbility(session, ability, nowNanos);
+        else if (packet instanceof CorePackets.SelectedHotbarSlot selection) {
+            handleHotbarSelection(session, selection, nowNanos);
+        }
         else if (packet instanceof CorePackets.BlockAction action) handleBlockAction(session, action.request(), nowNanos);
+        else if (packet instanceof CorePackets.PlayerSwing swing) handleSwing(session, swing, nowNanos);
         else if (packet instanceof CorePackets.EntityAction action) handleEntityAction(session, action.request(), nowNanos);
         else if (packet instanceof CorePackets.InventoryAction action) handleInventory(session, action, nowNanos);
         else if (packet instanceof CorePackets.ContainerClose close) handleContainerClose(session, close);
         else if (packet instanceof CorePackets.ContainerOpenRequest) handleContainerOpenRequest(session, nowNanos);
         else if (packet instanceof CorePackets.RespawnRequest) handleRespawn(session);
+        else if (packet instanceof CorePackets.ChunkBatchApplied applied) {
+            if (!this.chunks.acknowledge(session, applied.batchId())) {
+                throw new IllegalArgumentException("Unknown or duplicate chunk batch acknowledgement");
+            }
+        }
+        else if (packet instanceof CorePackets.ChunkResyncRequest request) {
+            if (!session.allowGameplay(nowNanos)) {
+                disconnect(session, DisconnectReason.INVALID_PACKET, "Chunk resync rate limit exceeded");
+                return;
+            }
+            this.chunks.requestResync(session, request.dimension(), request.chunkX(), request.chunkZ());
+        }
         else if (packet instanceof CorePackets.ChatMessageRequest chat) handleChat(session, chat.message(), nowNanos);
         else if (packet instanceof CorePackets.CommandRequest command) handleCommand(session, command, nowNanos);
         else throw unexpected(packet);
+    }
+
+    private void handleSwing(PlayerSession session, CorePackets.PlayerSwing swing, long nowNanos) {
+        if (!session.allowGameplay(nowNanos)) {
+            disconnect(session, DisconnectReason.INVALID_PACKET, "Gameplay action rate limit exceeded");
+            return;
+        }
+        this.world.playerSwing(session.identity(), session.entityId());
+    }
+
+    private void handleAbility(PlayerSession session, CorePackets.PlayerAbility ability, long nowNanos) {
+        if (!session.allowGameplay(nowNanos)) {
+            disconnect(session, DisconnectReason.INVALID_PACKET, "Gameplay action rate limit exceeded");
+            return;
+        }
+        if (ability.actionId() <= session.lastAbilityActionId()
+                || ability.inputSequence() <= session.playerState().lastProcessedInputSequence()
+                || ability.inputSequence() - session.lastInputSequence() > 4096) {
+            disconnect(session, DisconnectReason.INVALID_PACKET, "Replayed or late player ability");
+            return;
+        }
+        session.lastAbilityActionId(ability.actionId());
+        if (!session.enqueueAbility(ability.actionId(), ability.inputSequence(), ability.action())) {
+            disconnect(session, DisconnectReason.INVALID_PACKET, "Player ability queue overflow");
+        }
+    }
+
+    private void handleHotbarSelection(PlayerSession session, CorePackets.SelectedHotbarSlot selection,
+                                       long nowNanos) {
+        if (!session.allowGameplay(nowNanos)) {
+            disconnect(session, DisconnectReason.INVALID_PACKET, "Gameplay action rate limit exceeded");
+            return;
+        }
+        if (selection.actionId() <= session.lastHotbarActionId()) return;
+        session.lastHotbarActionId(selection.actionId());
+        PlayerStateSnapshot state = this.world.selectHotbarSlot(session.identity(), session.entityId(),
+                session.playerState(), selection.slot(), this.serverTick);
+        session.playerState(state);
+        session.send(new CorePackets.SelectedHotbarSlotResult(selection.actionId(),
+                state.selectedHotbarSlot()));
+        session.sendPlayerState(state);
     }
 
     private void handleMovement(PlayerSession session, PlayerInputFrame input, long nowNanos) {
@@ -425,15 +489,28 @@ public final class ServerSessionManager implements AutoCloseable {
             return;
         }
         session.lastInputSequence(input.sequence());
-        session.simulationInput(input);
+        if (!session.enqueueSimulationInput(input)) {
+            disconnect(session, DisconnectReason.INVALID_PACKET, "Movement input queue overflow");
+        }
     }
 
     private void simulateMovement(PlayerSession session) {
         this.profiler.begin(ServerProfiler.Phase.PLAYER_SIMULATION);
         try {
-        PlayerInputFrame input = session.simulationInput();
-        PlayerStateSnapshot next = this.world.applyPlayerInput(session.identity(), session.entityId(),
-                session.playerState(), input, this.serverTick);
+        PlayerInputFrame input = session.pollSimulationInput();
+        if (input == null) return;
+        PlayerStateSnapshot base = session.playerState();
+        for (PlayerSession.PendingAbility ability : session.abilitiesThrough(input.sequence())) {
+            base = this.world.applyPlayerAbility(session.identity(), session.entityId(), base,
+                    ability.action(), this.serverTick);
+        }
+        PlayerStateSnapshot next;
+        if (this.chunks.isCollisionAreaApplied(session, base.dimension(), base.x(), base.z())) {
+            next = this.world.applyPlayerInput(session.identity(), session.entityId(),
+                    base, input, this.serverTick);
+        } else {
+            next = pausedForStreaming(base, input, this.serverTick);
+        }
         if (next.lastProcessedInputSequence() != input.sequence() || next.serverTick() != this.serverTick) {
             throw new IllegalStateException("World returned inconsistent authoritative player state");
         }
@@ -445,7 +522,6 @@ public final class ServerSessionManager implements AutoCloseable {
         session.playerState(next);
         session.sendPlayerState(next);
         syncInventoryIfDirty(session);
-        session.clearOneShotInputButtons();
         int chunkX = floorChunk(next.x()), chunkZ = floorChunk(next.z());
         if (session.interestCenterChanged(next.dimension(), chunkX, chunkZ)) {
             this.chunks.updateInterest(session, next.dimension(), chunkX, chunkZ,
@@ -456,6 +532,14 @@ public final class ServerSessionManager implements AutoCloseable {
         } finally {
             this.profiler.end(ServerProfiler.Phase.PLAYER_SIMULATION);
         }
+    }
+
+    private static PlayerStateSnapshot pausedForStreaming(PlayerStateSnapshot base,
+                                                           PlayerInputFrame input, long serverTick) {
+        return new PlayerStateSnapshot(serverTick, input.sequence(), base.dimension(),
+                base.x(), base.y(), base.z(), 0, 0, 0, input.yaw(), input.pitch(), base.grounded(),
+                base.gameMode(), base.movementState(), base.health(), base.foodLevel(), base.saturation(),
+                base.selectedHotbarSlot(), base.vehicleEntityId(), base.spectatorFlySpeed());
     }
 
     /** Tick-thread-only authoritative game-mode change used by commands and development controls. */
@@ -475,6 +559,8 @@ public final class ServerSessionManager implements AutoCloseable {
             disconnect(session, DisconnectReason.INVALID_PACKET, "Gameplay action rate limit exceeded");
             return;
         }
+        if (request.actionId() <= session.lastBlockActionId()) return;
+        session.lastBlockActionId(request.actionId());
         PlayerStateSnapshot player = session.playerState();
         BlockActionEvent event = this.events.post(new BlockActionEvent(session.identity(), request));
         if (event.cancelled()) {
@@ -493,8 +579,11 @@ public final class ServerSessionManager implements AutoCloseable {
             return;
         }
         BlockActionOutcome outcome = this.world.handleBlockAction(session.identity(), player, request, this.serverTick);
-        session.send(new CorePackets.BlockActionResult(outcome.actionId(), outcome.accepted(), outcome.message()));
+        session.send(new CorePackets.BlockActionResult(outcome.actionId(), outcome.accepted(), outcome.message(),
+                outcome.corrections()));
         if (!outcome.accepted()) return;
+        CorePackets.BlockActionEffect effect = createBlockActionEffect(session, request, outcome);
+        if (effect != null) broadcastBlockActionEffect(effect);
         for (var changes : outcome.chunkChanges()) broadcastBlockChanges(changes);
         if (outcome.inventoryChanged()) {
             InventoryActionOutcome inventory = this.world.playerInventory(session.identity());
@@ -504,6 +593,44 @@ public final class ServerSessionManager implements AutoCloseable {
         }
         if (outcome.openedContainer() != null) {
             sendOpenedContainer(session, outcome.openedContainer());
+        }
+    }
+
+    private CorePackets.BlockActionEffect createBlockActionEffect(PlayerSession session,
+                                                                   BlockActionRequest request,
+                                                                   BlockActionOutcome outcome) {
+        BlockActionEffectType type;
+        int stateId = request.expectedStateId();
+        int x = request.x(), y = request.y(), z = request.z();
+        if (outcome.chunkChanges().isEmpty()) {
+            if (request.action() != BlockActionRequest.Action.START_BREAK) return null;
+            type = BlockActionEffectType.HIT;
+        } else if (request.action() == BlockActionRequest.Action.START_BREAK
+                || request.action() == BlockActionRequest.Action.FINISH_BREAK) {
+            type = BlockActionEffectType.BREAK;
+        } else {
+            type = BlockActionEffectType.PLACE;
+            outer: for (ChunkBlockChanges changes : outcome.chunkChanges()) {
+                for (var change : changes.changes()) {
+                    if (change.stateId() == 0) continue;
+                    stateId = change.stateId();
+                    x = (changes.chunkX() << 5) + change.localX();
+                    y = change.y();
+                    z = (changes.chunkZ() << 5) + change.localZ();
+                    break outer;
+                }
+            }
+        }
+        return new CorePackets.BlockActionEffect(request.actionId(), session.entityId(), type,
+                request.dimension(), stateId, x, y, z, request.face(),
+                request.hitX(), request.hitY(), request.hitZ());
+    }
+
+    private void broadcastBlockActionEffect(CorePackets.BlockActionEffect effect) {
+        int chunkX = effect.x() >> 5, chunkZ = effect.z() >> 5;
+        for (PlayerSession target : this.byIdentity.values()) {
+            if (target.state() == ConnectionState.PLAY && this.chunks.tracks(target,
+                    effect.dimension(), chunkX, chunkZ)) target.send(effect);
         }
     }
 
@@ -709,7 +836,13 @@ public final class ServerSessionManager implements AutoCloseable {
                     + identity.name() + " (" + reason + ")");
             CorePackets.PlayerLeft left = new CorePackets.PlayerLeft(identity.uuid(), reason);
             for (PlayerSession other : this.byIdentity.values()) {
-                if (other.state() == ConnectionState.PLAY) other.send(left);
+                if (other.state() != ConnectionState.PLAY) continue;
+                other.send(left);
+                if (hadJoined && session.entityId() > 0) {
+                    // Immediate lifecycle cleanup; the world/index despawn arriving during
+                    // replication is intentionally idempotent on clients.
+                    other.send(new CorePackets.EntityDespawn(session.entityId(), 0));
+                }
             }
         }
         session.connection().close();

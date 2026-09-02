@@ -591,7 +591,8 @@ public final class GuiCreativeInventory extends GuiContainer {
         }
         boolean right = button == GLFW.GLFW_MOUSE_BUTTON_RIGHT;
         ItemStack stack = slot.get();
-        boolean shift = SkyEngine.get().getInput().isShiftDown();
+        SkyEngine engine = SkyEngine.get();
+        boolean shift = engine != null && engine.getInput().isShiftDown();
         this.sendInventoryAction(-2, -1,
                 de.skyengine.shared.gameplay.InventoryActionRequest.Action.CLONE,
                 shift ? 2 : right ? 1 : 0, stack);

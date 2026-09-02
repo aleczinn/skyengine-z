@@ -40,6 +40,7 @@ public final class RemoteWorldView implements AutoCloseable {
     private final BlockEntityRenderDispatcher blockEntityRenderers;
     private final ParticleEngine particleEngine;
     private final ParticleRenderer particleRenderer;
+    private final ReplicatedChunkWorldAdapter replicatedChunks;
     private boolean closed;
     private final BlockRaycast.BlockAccess blockAccess = new BlockRaycast.BlockAccess() {
         @Override public int getBlock(int x, int y, int z) {
@@ -81,6 +82,7 @@ public final class RemoteWorldView implements AutoCloseable {
             this.particleRenderer.init();
             ReplicatedChunkWorldAdapter adapter = new ReplicatedChunkWorldAdapter(
                     dimension, this.chunks, this.physicsDimension);
+            this.replicatedChunks = adapter;
             this.cache.setListener(adapter);
             for (var snapshot : this.cache.snapshots()) adapter.chunkLoaded(snapshot);
             this.renderer = created;
@@ -122,12 +124,6 @@ public final class RemoteWorldView implements AutoCloseable {
 
     public int loadedChunks() { return this.chunks.getChunks().size(); }
     public String dimension() { return this.dimension; }
-    public boolean hasRenderableChunks() {
-        for (var chunk : this.chunks.loadedChunks()) {
-            if (chunk.status == ChunkStatus.READY) return true;
-        }
-        return false;
-    }
     public ChunkRenderer chunks() { return this.renderer; }
     public DimensionEnvironment environment() { return this.environment; }
     public BlockRaycast.BlockAccess blockAccess() { return this.blockAccess; }
@@ -148,13 +144,30 @@ public final class RemoteWorldView implements AutoCloseable {
     public void setPhysicsPlayer(EntityPlayer player) {
         this.physicsDimension.setReplicatedPhysicsPlayer(player);
     }
+    public void setAuthoritativeChunkListener(java.util.function.BiConsumer<Integer, Integer> listener) {
+        this.replicatedChunks.setAuthoritativeUpdateListener(listener);
+    }
     public boolean isPhysicsAreaReady(double x, double z) {
+        return isAreaReady(x, z, false, 2);
+    }
+
+    /** Spawn gate: the game is shown only after collision data is present and its meshes uploaded. */
+    public boolean isInitialAreaReady(double x, double z) {
+        return isAreaReady(x, z, true, 1);
+    }
+
+    private boolean isAreaReady(double x, double z, boolean requireUploadedMesh, int radius) {
         int centerX = (int) Math.floor(x) >> ChunkSection.SHIFT;
         int centerZ = (int) Math.floor(z) >> ChunkSection.SHIFT;
-        for (int dz = -1; dz <= 1; dz++) {
-            for (int dx = -1; dx <= 1; dx++) {
+        for (int dz = -radius; dz <= radius; dz++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                // The two-chunk physics frontier mirrors circular server interest. The initial
+                // one-chunk render gate intentionally remains a complete 3x3 including corners.
+                if (radius > 1 && dx * dx + dz * dz > radius * radius) continue;
                 Chunk chunk = this.chunks.getChunk(centerX + dx, centerZ + dz);
                 if (chunk == null || !chunk.status.isAtLeast(ChunkStatus.LIT)) return false;
+                if (requireUploadedMesh
+                        && (chunk.status != ChunkStatus.READY || !chunk.isFullyUploaded())) return false;
             }
         }
         return true;

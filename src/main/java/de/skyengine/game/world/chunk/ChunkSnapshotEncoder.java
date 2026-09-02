@@ -28,6 +28,10 @@ public final class ChunkSnapshotEncoder {
     private ChunkSnapshotEncoder() {
     }
 
+    private record Capture(int chunkX, int chunkZ, long revision,
+                           List<ChunkSectionSnapshot> sections, int[] grass, int[] foliage,
+                           int[] heightmap, List<BlockEntitySnapshot> blockEntities) { }
+
     /**
      * Takes a consistent snapshot while mesh/save workers may read the same chunk. Expensive
      * compression remains outside the lock and is handled by the replication worker.
@@ -37,6 +41,25 @@ public final class ChunkSnapshotEncoder {
         Objects.requireNonNull(chunk, "chunk");
         Objects.requireNonNull(generator, "generator");
 
+        Capture capture = capture(chunk);
+        int baseX = capture.chunkX() << ChunkSection.SHIFT;
+        int baseZ = capture.chunkZ() << ChunkSection.SHIFT;
+        int[] biomeIds = new int[COLUMN_SIZE];
+        for (int z = 0; z < ChunkSection.SIZE; z++) {
+            for (int x = 0; x < ChunkSection.SIZE; x++) {
+                biomeIds[(z << ChunkSection.SHIFT) | x] = generator.biomeAt(baseX + x, baseZ + z).id;
+            }
+        }
+        int[] grass = capture.grass() == null
+                ? tintCorners(generator, baseX, baseZ, true) : capture.grass();
+        int[] foliage = capture.foliage() == null
+                ? tintCorners(generator, baseX, baseZ, false) : capture.foliage();
+        return new ChunkColumnSnapshot(dimension, capture.chunkX(), capture.chunkZ(), capture.revision(),
+                capture.sections(), biomeIds, grass, foliage, capture.heightmap(), capture.blockEntities());
+    }
+
+    /** Copies only mutable chunk-owned data while holding the read lock. */
+    private static Capture capture(Chunk chunk) {
         chunk.readLock().lock();
         try {
             List<ChunkSectionSnapshot> sections = new ArrayList<>();
@@ -52,24 +75,14 @@ public final class ChunkSnapshotEncoder {
                         chunk.blockLight.snapshotSection(sectionY)));
             }
 
-            int[] biomeIds = new int[COLUMN_SIZE];
-            int baseX = chunk.chunkX << ChunkSection.SHIFT;
-            int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
-            for (int z = 0; z < ChunkSection.SIZE; z++) {
-                for (int x = 0; x < ChunkSection.SIZE; x++) {
-                    biomeIds[(z << ChunkSection.SHIFT) | x] = generator.biomeAt(baseX + x, baseZ + z).id;
-                }
-            }
-
             int[] grass = chunk.grassTintCorners == null
-                    ? tintCorners(generator, baseX, baseZ, true) : chunk.grassTintCorners.clone();
+                    ? null : chunk.grassTintCorners.clone();
             int[] foliage = chunk.foliageTintCorners == null
-                    ? tintCorners(generator, baseX, baseZ, false) : chunk.foliageTintCorners.clone();
+                    ? null : chunk.foliageTintCorners.clone();
             int[] heightmap = chunk.heightmap == null ? rebuildHeightmap(chunk) : chunk.heightmap.clone();
             List<BlockEntitySnapshot> blockEntities = snapshotBlockEntities(chunk);
-            return new ChunkColumnSnapshot(dimension, chunk.chunkX, chunk.chunkZ,
-                    chunk.modificationEpoch(), List.copyOf(sections), biomeIds, grass, foliage, heightmap,
-                    blockEntities);
+            return new Capture(chunk.chunkX, chunk.chunkZ, chunk.modificationEpoch(), List.copyOf(sections),
+                    grass, foliage, heightmap, blockEntities);
         } finally {
             chunk.readLock().unlock();
         }

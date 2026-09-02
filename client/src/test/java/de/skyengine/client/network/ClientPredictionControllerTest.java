@@ -3,10 +3,12 @@ package de.skyengine.client.network;
 import de.skyengine.shared.player.PlayerInputFrame;
 import de.skyengine.shared.player.PlayerGameMode;
 import de.skyengine.shared.player.PlayerStateSnapshot;
+import de.skyengine.shared.entity.NetworkEntitySnapshot;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ClientPredictionControllerTest {
     @Test
@@ -35,6 +37,35 @@ class ClientPredictionControllerTest {
         PlayerStateSnapshot sampled = buffer.sample(11);
         assertEquals(1, sampled.x(), 1e-9);
         assertEquals(360, sampled.yaw(), 1e-6);
+    }
+
+    @Test
+    void networkEntitySnapshotsInterpolatePositionAndYawWithoutSnapping() {
+        RemoteEntityInterpolationBuffer buffer = new RemoteEntityInterpolationBuffer();
+        buffer.add(entity(20, 0, 350));
+        buffer.add(entity(22, 4, 10));
+
+        NetworkEntitySnapshot sampled = buffer.sample(21);
+
+        assertEquals(2, sampled.x(), 1e-9);
+        assertEquals(360, sampled.yaw(), 1e-6);
+        assertEquals(22, buffer.latestTick(), 1e-9);
+    }
+
+    @Test
+    void remoteTeleportResetsInterpolationHistory() {
+        RemoteEntityInterpolationBuffer buffer = new RemoteEntityInterpolationBuffer();
+        buffer.add(entity(1, 0, 0));
+        buffer.add(entity(2, 100, 0));
+
+        assertTrue(buffer.consumeDiscontinuity());
+        assertEquals(1, buffer.size());
+        assertEquals(100, buffer.sample(1.5).x(), 1e-9);
+    }
+
+    private static NetworkEntitySnapshot entity(long revision, double x, float yaw) {
+        return new NetworkEntitySnapshot(7, 1, "skyengine:overworld", revision,
+                x, 64, 0, 1, 0, 0, yaw, 0, new byte[] {1});
     }
 
     private static PlayerInputFrame input(long sequence) {

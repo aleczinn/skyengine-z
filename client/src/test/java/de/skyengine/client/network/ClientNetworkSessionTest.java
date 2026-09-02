@@ -19,7 +19,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -138,11 +137,11 @@ class ClientNetworkSessionTest {
             @Override public Path directory() { return temporaryDirectory; }
             @Override public void tick(long serverTick) { }
             @Override public void autosave(long serverTick) { }
-            @Override public CompletableFuture<Optional<de.skyengine.shared.world.ChunkColumnSnapshot>>
+            @Override public de.skyengine.server.world.ChunkSnapshotTicket
                     requestChunkSnapshot(String dimension, int chunkX, int chunkZ) {
                 var snapshot = new de.skyengine.shared.world.ChunkColumnSnapshot(dimension, chunkX, chunkZ, 0,
                         List.of(), new int[1024], new int[1089], new int[1089], new int[1024]);
-                return CompletableFuture.completedFuture(Optional.of(snapshot));
+                return de.skyengine.server.world.ChunkSnapshotTicket.completed(Optional.of(snapshot));
             }
             @Override public void close() { }
         };
@@ -159,8 +158,8 @@ class ClientNetworkSessionTest {
             client.update();
         }
         assertEquals(ConnectionState.PLAY, client.state());
-        assertEquals(25, chunks.size());
-        assertTrue(chunks.lastCompletedBatch() >= 25);
+        assertEquals(13, chunks.size());
+        assertTrue(chunks.lastCompletedBatch() >= 13);
         server.close();
     }
 
@@ -180,14 +179,14 @@ class ClientNetworkSessionTest {
                 client.start("TcpChunkPlayer", null);
                 long deadline = System.nanoTime() + 5_000_000_000L;
                 long tick = 0;
-                while (chunks.size() < 25 && System.nanoTime() < deadline) {
+                while (chunks.size() < 13 && System.nanoTime() < deadline) {
                     server.tick(tick++, System.nanoTime());
                     client.update();
                     Thread.sleep(1);
                 }
                 assertEquals(ConnectionState.PLAY, client.state());
-                assertEquals(25, chunks.size());
-                assertTrue(server.networkSnapshot().chunkBatchesEncoded() >= 25);
+                assertEquals(13, chunks.size());
+                assertTrue(server.networkSnapshot().chunkBatchesEncoded() >= 13);
             }
         } finally { server.close(); }
     }
@@ -197,9 +196,9 @@ class ClientNetworkSessionTest {
             @Override public Path directory() { return temporaryDirectory; }
             @Override public void tick(long serverTick) { }
             @Override public void autosave(long serverTick) { }
-            @Override public CompletableFuture<Optional<de.skyengine.shared.world.ChunkColumnSnapshot>>
+            @Override public de.skyengine.server.world.ChunkSnapshotTicket
                     requestChunkSnapshot(String dimension, int chunkX, int chunkZ) {
-                return CompletableFuture.completedFuture(Optional.of(
+                return de.skyengine.server.world.ChunkSnapshotTicket.completed(Optional.of(
                         new de.skyengine.shared.world.ChunkColumnSnapshot(dimension, chunkX, chunkZ, 0,
                                 List.of(), new int[1024], new int[1089], new int[1089], new int[1024])));
             }

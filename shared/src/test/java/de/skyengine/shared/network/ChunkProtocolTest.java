@@ -77,4 +77,14 @@ class ChunkProtocolTest {
         assertThrows(ProtocolException.class, () -> registry.decode(PacketDirection.SERVER_TO_CLIENT,
                 ConnectionState.PLAY, body.toByteArray()));
     }
+
+    @Test
+    void appliedChunkBatchAcknowledgementRoundTripsClientToServer() throws Exception {
+        PacketRegistry registry = CoreProtocol.createRegistry();
+        CorePackets.ChunkBatchApplied acknowledgement = new CorePackets.ChunkBatchApplied(9182);
+        byte[] encoded = registry.encode(PacketDirection.CLIENT_TO_SERVER, ConnectionState.PLAY,
+                new PacketEnvelope(acknowledgement));
+        assertEquals(acknowledgement, registry.decode(PacketDirection.CLIENT_TO_SERVER,
+                ConnectionState.PLAY, encoded).packet());
+    }
 }
