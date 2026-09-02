@@ -1,5 +1,9 @@
 package de.skyengine.game;
 
+import de.skyengine.client.network.ClientMultiplayerConnection;
+import de.skyengine.client.network.ClientPredictionController;
+import de.skyengine.client.network.ServerAddress;
+import de.skyengine.client.world.RemoteWorldView;
 import de.skyengine.core.EngineConfig;
 import de.skyengine.core.SkyEngine;
 import de.skyengine.core.file.Files;
@@ -8,9 +12,13 @@ import de.skyengine.core.resource.Resources;
 import de.skyengine.core.input.Input;
 import de.skyengine.core.io.*;
 import de.skyengine.game.entity.EntityPlayer;
+import de.skyengine.game.entity.PlayerControls;
 import de.skyengine.game.entity.ItemEntity;
 import de.skyengine.game.entity.ItemFrameEntity;
 import de.skyengine.game.entity.MinecartEntity;
+import de.skyengine.game.entity.Entity;
+import de.skyengine.game.entity.FallingBlockEntity;
+import de.skyengine.game.entity.PrimedTntEntity;
 import de.skyengine.game.command.ChatManager;
 import de.skyengine.game.command.CommandContext;
 import de.skyengine.game.physics.AABB;
@@ -58,6 +66,7 @@ import de.skyengine.core.i18n.I18n;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.core.settings.KeyBindings;
 import de.skyengine.game.world.chunk.ChunkManager;
+import de.skyengine.game.world.chunk.ChunkMesher;
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.chunk.ChunkStatus;
@@ -69,6 +78,8 @@ import de.skyengine.graphics.camera.Camera;
 import de.skyengine.graphics.camera.ZoomController;
 import de.skyengine.audio.SoundCategory;
 import de.skyengine.audio.SoundManager;
+import de.skyengine.audio.BlockSoundGroup;
+import de.skyengine.audio.BlockOpenSound;
 import de.skyengine.audio.UnderwaterAudioController;
 import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
 import de.skyengine.graphics.blockentity.ChestRenderer;
@@ -93,6 +104,8 @@ import de.skyengine.graphics.gui.screens.GuiDeathScreen;
 import de.skyengine.graphics.gui.screens.GuiMainMenu;
 import de.skyengine.graphics.gui.screens.GuiResourcePackLoading;
 import de.skyengine.graphics.gui.screens.GuiWorldLoading;
+import de.skyengine.graphics.gui.screens.GuiConnecting;
+import de.skyengine.graphics.gui.screens.GuiDisconnected;
 import de.skyengine.graphics.gui.text.RichText;
 import de.skyengine.graphics.gui.text.Span;
 import de.skyengine.graphics.gui.text.TextColors;
@@ -136,6 +149,20 @@ import java.util.concurrent.CompletableFuture;
 
 import de.skyengine.game.GameplaySession.PendingArrival;
 import de.skyengine.game.GameplaySession.PendingDimensionSwitch;
+import de.skyengine.shared.player.PlayerInputFrame;
+import de.skyengine.shared.player.PlayerStateSnapshot;
+import de.skyengine.shared.player.PlayerMovementState;
+import de.skyengine.shared.player.PlayerGameMode;
+import de.skyengine.shared.entity.NetworkEntityTypes;
+import de.skyengine.shared.entity.NetworkEntitySnapshot;
+import de.skyengine.shared.gameplay.NetworkItemStack;
+import de.skyengine.shared.network.packets.CorePackets;
+import de.skyengine.game.world.save.DataTagIO;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 
 /* Kein IInitializable mehr: der Boot läuft zweistufig über initBoot()/initStaged() (Ladebildschirm). */
 public class GameContainer implements IResizeable, IDisposable {
@@ -144,6 +171,49 @@ public class GameContainer implements IResizeable, IDisposable {
 
     private Camera camera;
     private GameplaySession session;
+    private final ClientMultiplayerConnection multiplayer = new ClientMultiplayerConnection();
+    private RemoteWorldView remoteWorldView;
+    private EntityPlayer remotePlayer;
+    private int remoteInventoryRevision = Integer.MIN_VALUE;
+    private CorePackets.ContainerOpen remoteOpenContainer;
+    private de.skyengine.game.world.block.entity.SimpleItemStorage remoteContainerInventory;
+    private long remoteActionSequence;
+    private long remoteCommandSequence;
+    private float remoteYaw, remotePitch;
+    private boolean remoteRotationInitialized;
+    private long remoteInputSequence;
+    private long remoteClientTick;
+    private PlayerStateSnapshot remoteLastAuthoritativeState;
+    private long remoteLastSpacePressTime;
+    private int remoteSpectatorSpeedDelta;
+    private boolean remoteRespawnPending;
+    /** Client-only portal contact progress; authoritative travel remains on the server. */
+    private final PortalController remotePortalPresentation = new PortalController();
+    private ClientPredictionController remotePrediction;
+    private PlayerStateSnapshot remotePreviousPredicted;
+    private PlayerStateSnapshot remoteCurrentPredicted;
+    private double remoteCorrectionX, remoteCorrectionY, remoteCorrectionZ;
+    private long remoteCorrectionFrameNanos;
+    private static final class RemotePlayerVisual {
+        final EntityPlayer player;
+        final PlayerAnimationState animation = new PlayerAnimationState();
+        ItemStack held = ItemStack.EMPTY;
+        long revision = -1;
+
+        RemotePlayerVisual(java.util.UUID identity) { this.player = new EntityPlayer(identity); }
+    }
+    private final java.util.Map<Integer, RemotePlayerVisual> remotePlayerVisuals = new java.util.HashMap<>();
+    private static final class RemoteEntityVisual {
+        Entity entity;
+        long revision = -1;
+
+        RemoteEntityVisual(Entity entity) { this.entity = entity; }
+    }
+    private final java.util.Map<Integer, RemoteEntityVisual> remoteEntityVisuals = new java.util.HashMap<>();
+    private final java.util.List<Entity> remoteRenderedEntities = new java.util.ArrayList<>();
+    private final java.util.List<Entity> remoteDebugEntities = new java.util.ArrayList<>();
+    private int remoteEntityHitId;
+    private Entity remoteEntityHit;
     private SelectionBoxRenderer selectionBoxRenderer;
     private ChunkBorderRenderer chunkBorderRenderer;
     private EntityHitboxRenderer entityHitboxRenderer;
@@ -299,7 +369,7 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     public void initStaged(BootProgress progress) {
         progress.frame(I18n.tr("boot.blocks"), 0.05f);
-        Blocks.bootstrap(new File(Files.RESOURCES_PATH, "game/blocks"));
+        Blocks.bootstrap(Resources.defaultGameRoot().resolve("blocks").toFile());
         BlockEntityMenus.clear();
         BlockEntityMenus.register(BlockEntities.FURNACE, GuiFurnace::new);
         BlockEntityMenus.register(BlockEntities.BASIC_ENERGY_CUBE,
@@ -345,6 +415,8 @@ public class GameContainer implements IResizeable, IDisposable {
      * wendet die Welt-Einstellungen an und zeigt den Welt-Ladebildschirm.
      */
     public void enterWorld(WorldSaves.WorldSave save) {
+        this.multiplayer.disconnect();
+        this.closeRemoteWorldView();
         this.cancelBiomeSearch();
         this.waterVision.reset();
         this.playerWasInWater = false;
@@ -365,6 +437,840 @@ public class GameContainer implements IResizeable, IDisposable {
         this.guiManager.open(new GuiWorldLoading());
     }
 
+    /** Starts a remote connection without blocking the render or tick thread. */
+    public void connectToServer(ServerAddress address) {
+        if (this.session != null) throw new IllegalStateException("Leave the current world before connecting");
+        this.closeRemoteWorldView();
+        this.multiplayer.connect(address, System.getProperty("user.name", "Player"));
+    }
+
+    public void disconnectFromServer() {
+        this.multiplayer.disconnect();
+        this.closeRemoteWorldView();
+    }
+
+    public ClientMultiplayerConnection getMultiplayerConnection() {
+        return this.multiplayer;
+    }
+
+    private void updateRemoteWorldLifecycle(Input input) {
+        if (this.session != null) return;
+        ClientMultiplayerConnection.Phase phase = this.multiplayer.phase();
+        if (phase == ClientMultiplayerConnection.Phase.PLAY && this.remoteWorldView == null
+                && this.multiplayer.joinGame() != null && this.multiplayer.playerState() != null
+                && this.multiplayer.chunks() != null) {
+            this.remoteWorldView = new RemoteWorldView(this.multiplayer.joinGame().dimension(),
+                    this.multiplayer.chunks(), this.atlas, this.blockEntityRenderers);
+            PlayerStateSnapshot state = this.multiplayer.playerState();
+            this.remotePlayer = new EntityPlayer(this.multiplayer.joinGame().identity());
+            this.applyRemotePlayerState(state);
+            this.remoteWorldView.setPhysicsPlayer(this.remotePlayer);
+            this.syncRemoteInventory();
+            this.remoteYaw = state.yaw();
+            this.remotePitch = state.pitch();
+            this.remoteRotationInitialized = true;
+            this.remoteInputSequence = state.lastProcessedInputSequence();
+            this.remoteClientTick = 0;
+            this.remoteLastAuthoritativeState = state;
+            this.remotePrediction = new ClientPredictionController(state, this::simulateRemoteInput);
+            this.remotePreviousPredicted = state;
+            this.remoteCurrentPredicted = state;
+            this.remoteCorrectionX = this.remoteCorrectionY = this.remoteCorrectionZ = 0;
+            this.remoteCorrectionFrameNanos = System.nanoTime();
+            this.remotePortalPresentation.reset();
+        }
+        this.rebuildRemoteWorldForDimension();
+        this.reconcileRemotePlayerState();
+        if (this.remotePlayer != null && this.remotePlayer.isDead()
+                && !this.remoteRespawnPending
+                && !(this.guiManager.current() instanceof GuiDeathScreen)) {
+            this.guiManager.open(new GuiDeathScreen());
+        }
+        if (this.remotePlayer != null && !this.remotePlayer.isDead()) this.remoteRespawnPending = false;
+        this.multiplayer.drainOpenedContainers(this::openRemoteContainer);
+        this.multiplayer.drainClosedContainers(this::serverClosedRemoteContainer);
+        this.multiplayer.drainWorldSounds(this::playRemoteWorldSound);
+        this.multiplayer.drainEntityEvents(this::playRemoteEntityEvent);
+        this.syncRemoteInventory();
+        this.syncRemotePlayerVisuals();
+        this.syncRemoteEntityVisuals();
+        if (this.remotePlayer != null) {
+            if (this.rightClickDelay > 0) this.rightClickDelay--;
+            this.animState.tickHeldItem(this.remotePlayer.getInventory().get(this.remotePlayer.getSelectedSlot()));
+            this.animState.tick(this.remotePlayer);
+            this.updateRemotePresentation(input);
+        }
+        if (this.remoteWorldView != null) {
+            this.remoteWorldView.tickVisualEffects();
+        }
+        if (this.remoteWorldView != null && this.remoteWorldView.hasRenderableChunks()
+                && this.guiManager.current() instanceof GuiConnecting) {
+            this.guiManager.close();
+        }
+        if (this.remoteWorldView != null && (phase == ClientMultiplayerConnection.Phase.DISCONNECTED
+                || phase == ClientMultiplayerConnection.Phase.FAILED)) {
+            boolean connectingScreen = this.guiManager.current() instanceof GuiConnecting;
+            this.closeRemoteWorldView();
+            if (!connectingScreen) {
+                String message = this.multiplayer.detail();
+                this.guiManager.open(new GuiDisconnected(new GuiMainMenu(),
+                        I18n.tr("multiplayer.connection_failed"), message));
+            }
+        }
+        if (phase == ClientMultiplayerConnection.Phase.PLAY && this.remoteWorldView != null
+                && this.multiplayer.session() != null) {
+            this.sendRemoteInput(input);
+        }
+    }
+
+    private void updateRemotePresentation(Input input) {
+        Dimension visual = this.visualDimension();
+        if (visual == null || this.remotePlayer == null) return;
+        this.updateMovementParticles();
+        boolean eyesUnderwater = this.playerEyesUnderwater();
+        this.waterVision.tick(eyesUnderwater);
+        this.underwaterAudio.tick(eyesUnderwater, this.remotePlayer.isTouchingWater(visual),
+                !this.remotePlayer.isFlying(),
+                this.remotePlayer.x - this.remotePlayer.lastX,
+                this.remotePlayer.y - this.remotePlayer.lastY,
+                this.remotePlayer.z - this.remotePlayer.lastZ);
+        this.updateStepSounds();
+        this.updateRemoteEatingAnimation(input);
+        // Mirror only the visual distortion curve. A returned Travel is deliberately ignored:
+        // the server owns portal activation, destination selection and dimension changes.
+        this.remotePortalPresentation.tick(visual, this.remotePlayer);
+    }
+
+    private void updateRemoteEatingAnimation(Input input) {
+        ItemStack held = this.remotePlayer.getInventory().get(this.remotePlayer.getSelectedSlot());
+        if (this.guiManager.isOpen() || this.remotePlayer.getGamemode() != Gamemode.SURVIVAL
+                || this.remotePlayer.isDead() || !(held.getItem() instanceof FoodItem)
+                || this.remotePlayer.getFoodLevel() >= EntityPlayer.MAX_FOOD
+                || !input.isBindDown(this.settings.key(KeyBindings.USE))) {
+            this.eatingTicks = 0;
+            this.animState.clearEating();
+            return;
+        }
+        if (++this.eatingTicks >= EAT_TICKS) {
+            this.eatingTicks = 0;
+            this.animState.clearEating();
+            this.soundManager.playBurp();
+        } else {
+            this.animState.setEating(EAT_TICKS - this.eatingTicks);
+            if (this.eatingTicks > 7 && this.eatingTicks % 4 == 0) {
+                this.soundManager.playEat();
+                this.emitHeldItemParticles(held);
+            }
+        }
+    }
+
+    /** Replaces only the replicated render/physics view when the authoritative server changes dimension. */
+    private void rebuildRemoteWorldForDimension() {
+        PlayerStateSnapshot state = this.multiplayer.playerState();
+        if (state == null || this.remoteWorldView == null
+                || state.dimension().equals(this.remoteWorldView.dimension())) return;
+        GL11.glFinish();
+        this.soundManager.stopMinecartSounds();
+        this.remoteWorldView.close();
+        this.remoteWorldView = new RemoteWorldView(state.dimension(), this.multiplayer.chunks(), this.atlas,
+                this.blockEntityRenderers);
+        if (this.remotePlayer != null) {
+            this.applyRemotePlayerState(state);
+            this.remoteWorldView.setPhysicsPlayer(this.remotePlayer);
+        }
+        this.remotePlayerVisuals.clear();
+        this.remoteEntityVisuals.clear();
+        this.remoteRenderedEntities.clear();
+        this.remoteCorrectionX = this.remoteCorrectionY = this.remoteCorrectionZ = 0;
+        this.remotePortalPresentation.lockUntilExit();
+    }
+
+    /** Sends intent only; position, velocity and collision remain authoritative on the server. */
+    private void sendRemoteInput(Input input) {
+        boolean acceptsInput = !this.guiManager.isOpen();
+        float forward = 0F;
+        float strafe = 0F;
+        int buttons = 0;
+        if (acceptsInput) {
+            if (input.isBindDown(this.settings.key(KeyBindings.FORWARD))) forward += 1F;
+            if (input.isBindDown(this.settings.key(KeyBindings.BACK))) forward -= 1F;
+            if (input.isBindDown(this.settings.key(KeyBindings.RIGHT))) strafe += 1F;
+            if (input.isBindDown(this.settings.key(KeyBindings.LEFT))) strafe -= 1F;
+            if (input.isBindDown(this.settings.key(KeyBindings.JUMP))) buttons |= PlayerInputFrame.JUMP;
+            if (input.isBindDown(this.settings.key(KeyBindings.SNEAK))) buttons |= PlayerInputFrame.SNEAK;
+            if (input.isBindDown(this.settings.key(KeyBindings.SPRINT))) buttons |= PlayerInputFrame.SPRINT;
+            if (input.isBindDown(this.settings.key(KeyBindings.USE))) buttons |= PlayerInputFrame.USE;
+            if (input.isBindDown(this.settings.key(KeyBindings.ATTACK))) buttons |= PlayerInputFrame.ATTACK;
+            if (input.consumeBindPress(this.settings.key(KeyBindings.GAMEMODE))) {
+                buttons |= PlayerInputFrame.CYCLE_GAME_MODE;
+            }
+            if (input.consumeBindPress(this.settings.key(KeyBindings.JUMP))) {
+                long now = System.currentTimeMillis();
+                if (now - this.remoteLastSpacePressTime <= DOUBLE_TAP_MS) {
+                    buttons |= PlayerInputFrame.TOGGLE_FLY;
+                    this.remoteLastSpacePressTime = 0;
+                } else {
+                    this.remoteLastSpacePressTime = now;
+                }
+            }
+            if (this.settings.sneakToggle) buttons |= PlayerInputFrame.SNEAK_TOGGLE_MODE;
+            if (this.settings.sprintToggle) buttons |= PlayerInputFrame.SPRINT_TOGGLE_MODE;
+            if (this.remoteSpectatorSpeedDelta > 0) {
+                buttons |= PlayerInputFrame.SPECTATOR_SPEED_UP;
+                this.remoteSpectatorSpeedDelta--;
+            } else if (this.remoteSpectatorSpeedDelta < 0) {
+                buttons |= PlayerInputFrame.SPECTATOR_SPEED_DOWN;
+                this.remoteSpectatorSpeedDelta++;
+            }
+        }
+        PlayerInputFrame frame = new PlayerInputFrame(++this.remoteInputSequence,
+                this.remoteClientTick++, forward, strafe, this.remoteYaw, this.remotePitch, buttons,
+                this.remotePlayer == null ? 0 : this.remotePlayer.getSelectedSlot());
+        if (this.remotePrediction != null) {
+            this.remotePreviousPredicted = this.remoteCurrentPredicted;
+            this.remoteCurrentPredicted = this.remotePrediction.submit(frame);
+            this.applyRemotePlayerState(this.remoteCurrentPredicted);
+        }
+        this.multiplayer.session().sendInput(frame);
+        this.sendRemoteWorldActions(input);
+    }
+
+    private void sendRemoteWorldActions(Input input) {
+        if (this.remotePlayer == null || this.guiManager.isOpen()
+                || !this.remotePlayer.getGamemode().interactsWithWorld()) {
+            this.cancelRemoteBreaking();
+            return;
+        }
+        if (input.isBindPressed(this.settings.key(KeyBindings.DROP))) {
+            ItemStack selected = this.remotePlayer.getInventory().get(this.remotePlayer.getSelectedSlot());
+            if (!selected.isEmpty()) {
+                this.sendRemoteInventoryAction(this.remotePlayer.getSelectedSlot(), -1,
+                        de.skyengine.shared.gameplay.InventoryActionRequest.Action.DROP,
+                        input.isCtrlDown() ? 1 : 0, ItemStack.EMPTY);
+                this.animState.swing();
+            }
+        }
+        if (input.isBindPressed(this.settings.key(KeyBindings.PICK_BLOCK))
+                && this.remotePlayer.getGamemode() == Gamemode.CREATIVE) {
+            if (this.remoteEntityHitId != 0) {
+                this.sendRemoteEntityAction(de.skyengine.shared.gameplay.EntityActionRequest.Action.PICK);
+            } else if (this.hit != null) {
+                Item picked = Items.forBlock(Blocks.getState(this.hit.block()).getBlock());
+                if (picked != null) {
+                    ItemStack stack = new ItemStack(picked, picked.getMaxStackSize());
+                    this.sendRemoteInventoryAction(-3, this.remotePlayer.getSelectedSlot(),
+                            de.skyengine.shared.gameplay.InventoryActionRequest.Action.CLONE, 0, stack);
+                    this.itemNameShownAt = System.currentTimeMillis();
+                }
+            }
+        }
+        boolean attack = input.isBindDown(this.settings.key(KeyBindings.ATTACK));
+        if (this.remoteEntityHitId != 0) {
+            this.cancelRemoteBreaking();
+            if (input.isBindPressed(this.settings.key(KeyBindings.ATTACK))) {
+                this.sendRemoteEntityAction(de.skyengine.shared.gameplay.EntityActionRequest.Action.ATTACK);
+                this.animState.swing();
+            }
+        } else if (!attack || this.hit == null) {
+            this.cancelRemoteBreaking();
+        } else if (!this.isDestroying || !this.sameDestroyTarget()) {
+            this.cancelRemoteBreaking();
+            this.isDestroying = true;
+            this.miningX = this.hit.x(); this.miningY = this.hit.y(); this.miningZ = this.hit.z();
+            this.miningProgress = 0F;
+            this.sendRemoteBlockAction(de.skyengine.shared.gameplay.BlockActionRequest.Action.START_BREAK);
+            this.animState.swing();
+            if (this.remotePlayer.getGamemode().isInstantBreak()) this.resetMining();
+        } else {
+            BlockState state = Blocks.getState(this.hit.block());
+            this.miningProgress += de.skyengine.game.world.PlayerBlockActions.destroyProgress(
+                    this.remotePlayer, state);
+            this.destroyTicks++;
+            if (this.miningProgress >= 1F) {
+                this.sendRemoteBlockAction(de.skyengine.shared.gameplay.BlockActionRequest.Action.FINISH_BREAK);
+                this.animState.swing();
+                this.resetMining();
+            }
+        }
+        if (input.isBindDown(this.settings.key(KeyBindings.USE))
+                && this.rightClickDelay == 0
+                && !(this.remotePlayer.getInventory().get(this.remotePlayer.getSelectedSlot()).getItem()
+                instanceof FoodItem && this.remotePlayer.getFoodLevel() < EntityPlayer.MAX_FOOD)) {
+            this.rightClickDelay = RIGHT_CLICK_DELAY;
+            boolean sent = this.remoteEntityHitId != 0
+                    ? this.sendRemoteEntityAction(de.skyengine.shared.gameplay.EntityActionRequest.Action.INTERACT)
+                    : this.sendRemoteBlockAction(de.skyengine.shared.gameplay.BlockActionRequest.Action.PLACE);
+            if (sent) {
+                this.animState.swing();
+            }
+        }
+    }
+
+    private void cancelRemoteBreaking() {
+        if (!this.isDestroying || this.multiplayer.session() == null || this.hit == null) {
+            this.resetMining();
+            return;
+        }
+        this.sendRemoteBlockAction(de.skyengine.shared.gameplay.BlockActionRequest.Action.CANCEL_BREAK);
+        this.resetMining();
+    }
+
+    private boolean sendRemoteBlockAction(de.skyengine.shared.gameplay.BlockActionRequest.Action action) {
+        if (this.multiplayer.playerState() == null) return false;
+        BlockRaycast.Hit actionHit = this.hit;
+        ItemStack held = this.remotePlayer.getInventory().get(this.remotePlayer.getSelectedSlot());
+        if (action == de.skyengine.shared.gameplay.BlockActionRequest.Action.PLACE
+                && held.getItem() instanceof BucketItem bucket && bucket.isEmpty()) {
+            actionHit = BlockRaycast.raycastInteractive(this.remoteWorldView.blockAccess(),
+                    this.eyePosition, this.eyeDirection, REACH, true);
+        }
+        if (actionHit == null) return false;
+        Direction face = directionOf(actionHit.faceX(), actionHit.faceY(), actionHit.faceZ());
+        if (face == null) return false;
+        int requestedState = -1;
+        if (!held.isEmpty() && held.getItem().getPlacedBlock() != null) {
+            requestedState = this.multiplayer.blockStateToNetwork(
+                    held.getItem().getPlacedBlock().getDefaultState().getId());
+        }
+        int targetX = actionHit.x(), targetY = actionHit.y(), targetZ = actionHit.z();
+        if (!Blocks.getState(actionHit.block()).getBlock().isReplaceable()) {
+            targetX += face.offsetX(); targetY += face.offsetY(); targetZ += face.offsetZ();
+        }
+        int hitX = quantizeHit(actionHit.hitX() - targetX);
+        int hitY = quantizeHit(actionHit.hitY() - targetY);
+        int hitZ = quantizeHit(actionHit.hitZ() - targetZ);
+        this.multiplayer.session().sendBlockAction(new de.skyengine.shared.gameplay.BlockActionRequest(
+                ++this.remoteActionSequence, action, this.multiplayer.playerState().dimension(),
+                actionHit.x(), actionHit.y(), actionHit.z(), face.faceIndex(), 0,
+                this.multiplayer.blockStateToNetwork(actionHit.block()), requestedState,
+                hitX, hitY, hitZ, this.remotePlayer.isSecondaryUseActive()));
+        var particles = this.remoteWorldView.physicsDimension().particles();
+        if (action == de.skyengine.shared.gameplay.BlockActionRequest.Action.START_BREAK) {
+            particles.blockHit(Blocks.getState(actionHit.block()), actionHit.hitX(), actionHit.hitY(),
+                    actionHit.hitZ(), actionHit.faceX(), actionHit.faceY(), actionHit.faceZ());
+        } else if (action == de.skyengine.shared.gameplay.BlockActionRequest.Action.FINISH_BREAK) {
+            particles.blockBreak(actionHit.x(), actionHit.y(), actionHit.z(),
+                    Blocks.getState(actionHit.block()));
+        }
+        return true;
+    }
+
+    private boolean sendRemoteEntityAction(de.skyengine.shared.gameplay.EntityActionRequest.Action action) {
+        if (this.multiplayer.session() == null || this.remoteEntityHitId == 0) return false;
+        this.multiplayer.session().sendEntityAction(new de.skyengine.shared.gameplay.EntityActionRequest(
+                ++this.remoteActionSequence, action, this.remoteEntityHitId));
+        return true;
+    }
+
+    private static int quantizeHit(double value) {
+        return (int) Math.round(Math.clamp(value, 0.0, 1.0) * 255.0);
+    }
+
+    private void reconcileRemotePlayerState() {
+        PlayerStateSnapshot authoritative = this.multiplayer.playerState();
+        if (authoritative == null || authoritative == this.remoteLastAuthoritativeState) return;
+        this.remoteLastAuthoritativeState = authoritative;
+        if (this.remotePrediction == null) {
+            this.remotePrediction = new ClientPredictionController(authoritative, this::simulateRemoteInput);
+            this.remotePreviousPredicted = this.remoteCurrentPredicted = authoritative;
+            this.applyRemotePlayerState(authoritative);
+            return;
+        }
+        PlayerStateSnapshot before = this.remotePrediction.predicted();
+        ClientPredictionController.Reconciliation correction = this.remotePrediction.reconcile(authoritative);
+        PlayerStateSnapshot predicted = this.remotePrediction.predicted();
+        this.remotePreviousPredicted = predicted;
+        this.remoteCurrentPredicted = predicted;
+        if (correction.hardCorrection()) {
+            this.remoteCorrectionX = this.remoteCorrectionY = this.remoteCorrectionZ = 0;
+        } else {
+            this.remoteCorrectionX += before.x() - predicted.x();
+            this.remoteCorrectionY += before.y() - predicted.y();
+            this.remoteCorrectionZ += before.z() - predicted.z();
+        }
+        this.applyRemotePlayerState(predicted);
+    }
+
+    /** Runs the same EntityPlayer movement and block-shape collision code as the server. */
+    private PlayerStateSnapshot simulateRemoteInput(PlayerStateSnapshot state, PlayerInputFrame input) {
+        if (state.vehicleEntityId() != 0) {
+            return new PlayerStateSnapshot(state.serverTick() + 1, input.sequence(), state.dimension(),
+                    state.x(), state.y(), state.z(), state.velocityX(), state.velocityY(), state.velocityZ(),
+                    input.yaw(), input.pitch(), state.grounded(), state.gameMode(), state.movementState(),
+                    state.health(), state.foodLevel(), state.saturation(), input.selectedHotbarSlot(),
+                    state.vehicleEntityId(), state.spectatorFlySpeed());
+        }
+        if (this.remoteWorldView == null || !this.remoteWorldView.isPhysicsAreaReady(state.x(), state.z())) {
+            return new PlayerStateSnapshot(state.serverTick() + 1, input.sequence(), state.dimension(),
+                    state.x(), state.y(), state.z(), 0, 0, 0, input.yaw(), input.pitch(),
+                    state.grounded(), state.gameMode(), state.movementState(), state.health(),
+                    state.foodLevel(), state.saturation(), input.selectedHotbarSlot(), state.vehicleEntityId(),
+                    state.spectatorFlySpeed());
+        }
+        EntityPlayer player = new EntityPlayer(this.multiplayer.joinGame().identity());
+        applyPlayerSnapshot(player, state, true);
+        player.yaw = input.yaw();
+        player.pitch = input.pitch();
+        player.setSelectedSlot(input.selectedHotbarSlot());
+        if (input.pressed(PlayerInputFrame.CYCLE_GAME_MODE)) player.setGamemode(player.getGamemode().next());
+        if (input.pressed(PlayerInputFrame.TOGGLE_FLY)) player.toggleFlying();
+        if (input.pressed(PlayerInputFrame.SPECTATOR_SPEED_UP)) player.adjustSpectatorFlySpeed(1);
+        if (input.pressed(PlayerInputFrame.SPECTATOR_SPEED_DOWN)) player.adjustSpectatorFlySpeed(-1);
+        this.remoteWorldView.setPhysicsPlayer(player);
+        player.update(new PlayerControls(input.forward(), input.strafe(),
+                input.pressed(PlayerInputFrame.JUMP), input.pressed(PlayerInputFrame.SNEAK),
+                input.pressed(PlayerInputFrame.SPRINT),
+                input.pressed(PlayerInputFrame.SNEAK_TOGGLE_MODE),
+                input.pressed(PlayerInputFrame.SPRINT_TOGGLE_MODE)),
+                this.remoteWorldView.physicsDimension());
+        this.remoteWorldView.setPhysicsPlayer(this.remotePlayer);
+        return snapshotPredictedPlayer(player, state.serverTick() + 1, input.sequence(), state.vehicleEntityId());
+    }
+
+    private static PlayerStateSnapshot snapshotPredictedPlayer(EntityPlayer player, long tick, long sequence,
+                                                                int vehicleEntityId) {
+        int flags = 0;
+        if (player.isFlying()) flags |= PlayerMovementState.FLYING;
+        if (player.isNoClip()) flags |= PlayerMovementState.NO_CLIP;
+        if (player.isSprinting()) flags |= PlayerMovementState.SPRINTING;
+        if (player.isSneaking()) flags |= PlayerMovementState.SNEAKING;
+        return new PlayerStateSnapshot(tick, sequence, player.getDimensionId().toString(),
+                player.x, player.y, player.z, player.motionX, player.motionY, player.motionZ,
+                player.yaw, player.pitch, player.onGround,
+                PlayerGameMode.valueOf(player.getGamemode().name()), flags, player.getHealth(),
+                player.getFoodLevel(), player.getSaturation(), player.getSelectedSlot(), vehicleEntityId,
+                player.getSpectatorFlySpeed());
+    }
+
+    private static void applyPlayerSnapshot(EntityPlayer player, PlayerStateSnapshot state,
+                                            boolean snapInterpolation) {
+        player.setPosition(state.x(), state.y(), state.z());
+        player.motionX = state.velocityX();
+        player.motionY = state.velocityY();
+        player.motionZ = state.velocityZ();
+        player.yaw = state.yaw();
+        player.pitch = state.pitch();
+        player.onGround = state.grounded();
+        player.setDimensionId(Identifier.of(state.dimension()));
+        player.setGamemode(Gamemode.valueOf(state.gameMode().name()));
+        player.restoreNetworkMovementState(
+                (state.movementState() & PlayerMovementState.FLYING) != 0,
+                (state.movementState() & PlayerMovementState.NO_CLIP) != 0,
+                (state.movementState() & PlayerMovementState.SPRINTING) != 0,
+                (state.movementState() & PlayerMovementState.SNEAKING) != 0);
+        player.restoreNetworkSpectatorFlySpeed(state.spectatorFlySpeed());
+        player.setHealth(state.health());
+        player.setFoodLevel(state.foodLevel());
+        player.setSaturation(state.saturation());
+        player.setSelectedSlot(state.selectedHotbarSlot());
+        if (snapInterpolation) player.snapPrevToCurrent();
+    }
+
+    private void applyRemotePlayerState(PlayerStateSnapshot state) {
+        if (this.remotePlayer == null || state == null) return;
+        double previousX = this.remotePlayer.x, previousY = this.remotePlayer.y, previousZ = this.remotePlayer.z;
+        applyPlayerSnapshot(this.remotePlayer, state, false);
+        if (this.remoteLastAuthoritativeState != null) {
+            this.remotePlayer.lastX = previousX;
+            this.remotePlayer.lastY = previousY;
+            this.remotePlayer.lastZ = previousZ;
+        }
+        this.remoteWorldView.setPhysicsPlayer(this.remotePlayer);
+    }
+
+    private void syncRemoteInventory() {
+        if (this.remotePlayer == null || this.multiplayer.session() == null) return;
+        int containerId = this.remoteOpenContainer == null ? 0 : this.remoteOpenContainer.containerId();
+        var container = this.multiplayer.session().inventory().get(containerId);
+        if (container == null) return;
+        if (container.revision() != this.remoteInventoryRevision) {
+            this.remoteInventoryRevision = container.revision();
+            int offset = this.remoteOpenContainer == null ? 0 : this.remoteOpenContainer.containerSlots();
+            if (this.remoteContainerInventory != null) {
+                int blockSlots = Math.min(this.remoteContainerInventory.size(), container.slots().size());
+                for (int slot = 0; slot < blockSlots; slot++) {
+                    this.remoteContainerInventory.set(slot, this.decodeRemoteItem(container.slots().get(slot)));
+                }
+            }
+            int available = Math.max(0, container.slots().size() - offset);
+            int count = Math.min(this.remotePlayer.getInventory().size(), available);
+            for (int slot = 0; slot < count; slot++) {
+                this.remotePlayer.getInventory().set(slot, this.decodeRemoteItem(container.slots().get(offset + slot)));
+            }
+            for (int slot = count; slot < this.remotePlayer.getInventory().size(); slot++) {
+                this.remotePlayer.getInventory().set(slot, ItemStack.EMPTY);
+            }
+        }
+        if (this.guiManager.current() instanceof de.skyengine.graphics.gui.screens.GuiContainer screen) {
+            screen.acceptAuthoritativeCarried(this.decodeRemoteItem(container.carried()));
+        }
+        if (this.guiManager.current() instanceof GuiFurnace furnace && containerId != 0) {
+            furnace.acceptRemoteData(this.multiplayer.session().inventory().data(containerId));
+        }
+    }
+
+    private void openRemoteContainer(CorePackets.ContainerOpen opened) {
+        if (this.remotePlayer == null || this.multiplayer.session() == null) return;
+        this.setRemoteChestOpen(this.remoteOpenContainer, false);
+        this.remoteOpenContainer = opened;
+        this.setRemoteChestOpen(opened, true);
+        this.remoteInventoryRevision = Integer.MIN_VALUE;
+        this.remoteContainerInventory = new de.skyengine.game.world.block.entity.SimpleItemStorage(
+                opened.containerSlots());
+        this.syncRemoteInventory();
+        de.skyengine.graphics.gui.screens.GuiContainer.InventoryActionSink sink =
+                (source, target, action, button, offered) -> this.sendRemoteContainerInventoryAction(
+                        opened.containerId(), source, target, action, button, offered);
+        Runnable close = () -> this.closeRemoteContainer(opened.containerId());
+        int craftingInputSlots = Math.max(0, opened.containerSlots() - 1);
+        de.skyengine.game.world.block.entity.ItemStorage craftingInput = new de.skyengine.game.world.block.entity.ItemStorageView(
+                this.remoteContainerInventory, 0, craftingInputSlots);
+        de.skyengine.game.world.block.entity.ItemStorage craftingOutput = new de.skyengine.game.world.block.entity.ItemStorageView(
+                this.remoteContainerInventory, craftingInputSlots, opened.containerSlots() - craftingInputSlots);
+        de.skyengine.graphics.gui.GuiScreen screen = switch (opened.kind()) {
+            case CHEST -> new GuiChest(this.remoteContainerInventory,
+                    opened.rows() == 6 ? 6 : 3, this.remotePlayer.getInventory(), sink, close);
+            case HOPPER -> new de.skyengine.graphics.gui.screens.GuiHopper(
+                    this.remoteContainerInventory, this.remotePlayer.getInventory(), sink, close);
+            case DISPENSER -> new GuiDispenser(this.remoteContainerInventory,
+                    this.remotePlayer.getInventory(), sink, close);
+            case FURNACE -> new GuiFurnace(this.remoteContainerInventory,
+                    this.remotePlayer.getInventory(), sink, close);
+            case CRAFTING -> {
+                int grid = (int) Math.round(Math.sqrt(craftingInputSlots));
+                yield new GuiCraftingStation(grid, opened.rows(), craftingInput, craftingOutput,
+                        this.remotePlayer.getInventory(), sink, close);
+            }
+            case PLAYER_INVENTORY -> {
+                Supplier<ItemStack> held = () -> this.remotePlayer.getInventory().get(
+                        this.remotePlayer.getSelectedSlot());
+                yield new GuiInventory(craftingInput, craftingOutput, this.remotePlayer.getInventory(),
+                        this.playerRenderer, this.heldItemMeshes, held, sink, close);
+            }
+        };
+        this.guiManager.open(screen);
+    }
+
+    private void closeRemoteContainer(int containerId) {
+        if (this.multiplayer.session() != null && this.remoteOpenContainer != null
+                && this.remoteOpenContainer.containerId() == containerId) {
+            this.multiplayer.session().closeContainer(containerId);
+        }
+        this.setRemoteChestOpen(this.remoteOpenContainer, false);
+        this.remoteOpenContainer = null;
+        this.remoteContainerInventory = null;
+        this.remoteInventoryRevision = Integer.MIN_VALUE;
+    }
+
+    private void serverClosedRemoteContainer(int containerId) {
+        if (this.remoteOpenContainer == null || this.remoteOpenContainer.containerId() != containerId) return;
+        this.setRemoteChestOpen(this.remoteOpenContainer, false);
+        this.remoteOpenContainer = null;
+        this.remoteContainerInventory = null;
+        this.remoteInventoryRevision = Integer.MIN_VALUE;
+        if (this.guiManager.current() instanceof de.skyengine.graphics.gui.screens.GuiContainer) {
+            this.guiManager.close();
+        }
+    }
+
+    private void setRemoteChestOpen(CorePackets.ContainerOpen opened, boolean open) {
+        if (opened == null || opened.kind() != de.skyengine.shared.gameplay.ContainerKind.CHEST
+                || this.remoteWorldView == null
+                || !opened.dimension().equals(this.remoteWorldView.dimension())) return;
+        BlockEntity entity = this.remoteWorldView.physicsDimension().getBlockEntity(
+                opened.x(), opened.y(), opened.z());
+        if (entity instanceof ChestBlockEntity chest) chest.setOpen(open, false);
+    }
+
+    private void playRemoteWorldSound(CorePackets.WorldSound sound) {
+        if (this.multiplayer.playerState() == null
+                || !sound.dimension().equals(this.multiplayer.playerState().dimension())) return;
+        BlockSoundGroup[] groups = BlockSoundGroup.values();
+        BlockOpenSound[] openSounds = BlockOpenSound.values();
+        switch (sound.type()) {
+            case HIT -> { if (sound.data() >= 0 && sound.data() < groups.length) this.soundManager.playHit(groups[sound.data()], sound.x(), sound.y(), sound.z()); }
+            case BREAK -> { if (sound.data() >= 0 && sound.data() < groups.length) this.soundManager.playBreak(groups[sound.data()], sound.x(), sound.y(), sound.z()); }
+            case PLACE -> { if (sound.data() >= 0 && sound.data() < groups.length) this.soundManager.playPlace(groups[sound.data()], sound.x(), sound.y(), sound.z()); }
+            case COMPARATOR_CLICK -> this.soundManager.playComparatorClick(sound.data() != 0, sound.x(), sound.y(), sound.z());
+            case LEVER_CLICK -> this.soundManager.playLeverClick(sound.data() != 0, sound.x(), sound.y(), sound.z());
+            case EXPLOSION -> {
+                this.soundManager.playExplosion(sound.x(), sound.y(), sound.z());
+                if (this.remoteWorldView != null) this.remoteWorldView.physicsDimension().particles()
+                        .explosion(sound.x(), sound.y(), sound.z(), 4F, 64);
+            }
+            case FUSE -> {
+                this.soundManager.playFuse(sound.x(), sound.y(), sound.z());
+                if (this.remoteWorldView != null) this.remoteWorldView.physicsDimension().particles()
+                        .tntFuseSmoke(sound.x(), sound.y() + 0.5, sound.z());
+            }
+            case PISTON_EXTEND -> this.soundManager.playPistonExtend(sound.x(), sound.y(), sound.z());
+            case PISTON_CONTRACT -> this.soundManager.playPistonContract(sound.x(), sound.y(), sound.z());
+            case FIZZ -> this.soundManager.playFizz(sound.x(), sound.y(), sound.z());
+            case FLUID_EXTINGUISH -> {
+                this.soundManager.playFluidExtinguish(sound.x(), sound.y(), sound.z());
+                if (this.remoteWorldView != null) this.remoteWorldView.physicsDimension().particles()
+                        .fluidReaction(sound.x(), sound.y(), sound.z());
+            }
+            case WATER_AMBIENT -> this.soundManager.playWaterAmbient(sound.x(), sound.y(), sound.z());
+            case LAVA_AMBIENT -> this.soundManager.playLavaAmbient(sound.x(), sound.y(), sound.z());
+            case LAVA_POP -> {
+                this.soundManager.playLavaPop(sound.x(), sound.y(), sound.z());
+                if (this.remoteWorldView != null) this.remoteWorldView.physicsDimension().particles()
+                        .lavaPop(sound.x(), sound.y(), sound.z());
+            }
+            case IGNITE -> this.soundManager.playIgnite(sound.x(), sound.y(), sound.z());
+            case PORTAL_AMBIENT -> this.soundManager.playPortalAmbient(sound.x(), sound.y(), sound.z());
+            case PORTAL_TRIGGER -> this.soundManager.playPortalTrigger(sound.x(), sound.y(), sound.z());
+            case PORTAL_TRAVEL -> this.soundManager.playPortalTravel();
+            case DISPENSER_SUCCESS -> this.soundManager.playDispenserSuccess(sound.x(), sound.y(), sound.z());
+            case DISPENSER_FAILURE -> this.soundManager.playDispenserFailure(sound.x(), sound.y(), sound.z());
+            case BUCKET_EMPTY -> this.soundManager.playBucketEmpty(sound.data() != 0, sound.x(), sound.y(), sound.z());
+            case BUCKET_FILL -> this.soundManager.playBucketFill(sound.data() != 0, sound.x(), sound.y(), sound.z());
+            case ITEM_FRAME_REMOVE_ITEM -> this.soundManager.playItemFrameRemoveItem(sound.x(), sound.y(), sound.z());
+            case ITEM_FRAME_BREAK -> this.soundManager.playItemFrameBreak(sound.x(), sound.y(), sound.z());
+            case BLOCK_OPEN -> { if (sound.data() >= 0 && sound.data() < openSounds.length) this.soundManager.playBlockOpen(openSounds[sound.data()], sound.x(), sound.y(), sound.z()); }
+            case BLOCK_CLOSE -> { if (sound.data() >= 0 && sound.data() < openSounds.length) this.soundManager.playBlockClose(openSounds[sound.data()], sound.x(), sound.y(), sound.z()); }
+        }
+    }
+
+    private void playRemoteEntityEvent(CorePackets.EntityEvent event) {
+        int ownId = this.multiplayer.joinGame() == null ? 0
+                : this.multiplayer.joinGame().playerEntityId();
+        if (event.networkId() == ownId) {
+            if (event.eventId() == de.skyengine.shared.entity.EntityEventTypes.HURT) {
+                float fallDamage = event.data() / 1000F;
+                if (fallDamage > 0) this.soundManager.playFall(fallDamage >= 4F);
+                this.soundManager.playHurt();
+                this.animState.hurt();
+            } else if (event.eventId() == de.skyengine.shared.entity.EntityEventTypes.PICKUP) {
+                this.soundManager.playPickup();
+            }
+            // Der eigene Armschwung startet bereits ohne Netzwerklatenz bei der Eingabe.
+            return;
+        }
+        RemotePlayerVisual visual = this.remotePlayerVisuals.get(event.networkId());
+        if (visual == null) return;
+        if (event.eventId() == de.skyengine.shared.entity.EntityEventTypes.SWING) {
+            visual.animation.swing();
+        } else if (event.eventId() == de.skyengine.shared.entity.EntityEventTypes.HURT) {
+            visual.animation.hurt();
+        }
+    }
+
+    private void syncRemotePlayerVisuals() {
+        if (this.multiplayer.session() == null || this.multiplayer.joinGame() == null
+                || this.multiplayer.playerState() == null) {
+            this.remotePlayerVisuals.clear();
+            return;
+        }
+        int ownId = this.multiplayer.joinGame().playerEntityId();
+        java.util.Set<Integer> present = new java.util.HashSet<>();
+        for (NetworkEntitySnapshot snapshot : this.multiplayer.session().entities().snapshots()) {
+            if (snapshot.typeId() != NetworkEntityTypes.PLAYER || snapshot.networkId() == ownId
+                    || !snapshot.dimension().equals(this.multiplayer.playerState().dimension())) continue;
+            present.add(snapshot.networkId());
+            var joined = this.multiplayer.remotePlayers().get(snapshot.networkId());
+            java.util.UUID identity = joined == null
+                    ? new java.util.UUID(0, snapshot.networkId()) : joined.identity();
+            RemotePlayerVisual visual = this.remotePlayerVisuals.computeIfAbsent(
+                    snapshot.networkId(), ignored -> new RemotePlayerVisual(identity));
+            if (snapshot.revision() <= visual.revision) continue;
+            EntityPlayer player = visual.player;
+            double oldX = player.x, oldY = player.y, oldZ = player.z;
+            player.setPosition(snapshot.x(), snapshot.y(), snapshot.z());
+            if (visual.revision >= 0) {
+                player.lastX = oldX;
+                player.lastY = oldY;
+                player.lastZ = oldZ;
+            }
+            player.motionX = snapshot.velocityX();
+            player.motionY = snapshot.velocityY();
+            player.motionZ = snapshot.velocityZ();
+            player.yaw = snapshot.yaw();
+            player.pitch = snapshot.pitch();
+            try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(snapshot.metadata()))) {
+                int gameMode = input.readUnsignedByte();
+                int selectedSlot = input.readUnsignedByte();
+                if (gameMode < Gamemode.values().length) player.setGamemode(Gamemode.values()[gameMode]);
+                if (selectedSlot < 9) player.setSelectedSlot(selectedSlot);
+                visual.held = this.decodeRemoteItem(readNetworkStack(input));
+            } catch (IOException | IllegalArgumentException invalid) {
+                visual.held = ItemStack.EMPTY;
+            }
+            visual.animation.tickHeldItem(visual.held);
+            visual.animation.tick(player);
+            visual.revision = snapshot.revision();
+        }
+        this.remotePlayerVisuals.keySet().removeIf(id -> !present.contains(id));
+    }
+
+    private void syncRemoteEntityVisuals() {
+        this.remoteRenderedEntities.clear();
+        if (this.multiplayer.session() == null || this.multiplayer.playerState() == null) {
+            this.remoteEntityVisuals.clear();
+            return;
+        }
+        java.util.Set<Integer> present = new java.util.HashSet<>();
+        String dimension = this.multiplayer.playerState().dimension();
+        for (NetworkEntitySnapshot snapshot : this.multiplayer.session().entities().snapshots()) {
+            if (snapshot.typeId() == NetworkEntityTypes.PLAYER || !dimension.equals(snapshot.dimension())) continue;
+            present.add(snapshot.networkId());
+            RemoteEntityVisual visual = this.remoteEntityVisuals.get(snapshot.networkId());
+            if (visual == null) {
+                Entity created = this.createRemoteEntity(snapshot);
+                if (created == null) continue;
+                visual = new RemoteEntityVisual(created);
+                this.remoteEntityVisuals.put(snapshot.networkId(), visual);
+            }
+            if (snapshot.revision() > visual.revision) {
+                Entity entity = visual.entity;
+                double oldX = entity.x, oldY = entity.y, oldZ = entity.z;
+                this.applyRemoteEntityMetadata(entity, snapshot);
+                entity.setPosition(snapshot.x(), snapshot.y(), snapshot.z());
+                if (visual.revision >= 0) {
+                    entity.lastX = oldX;
+                    entity.lastY = oldY;
+                    entity.lastZ = oldZ;
+                }
+                entity.motionX = snapshot.velocityX();
+                entity.motionY = snapshot.velocityY();
+                entity.motionZ = snapshot.velocityZ();
+                entity.yaw = snapshot.yaw();
+                entity.pitch = snapshot.pitch();
+                visual.revision = snapshot.revision();
+            }
+            this.remoteRenderedEntities.add(visual.entity);
+        }
+        this.remoteEntityVisuals.keySet().removeIf(id -> !present.contains(id));
+    }
+
+    private Entity createRemoteEntity(NetworkEntitySnapshot snapshot) {
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(snapshot.metadata()))) {
+            return switch (snapshot.typeId()) {
+                case NetworkEntityTypes.ITEM -> {
+                    ItemEntity item = new ItemEntity(this.decodeRemoteItem(readNetworkStack(input)));
+                    item.restoreNetworkState(input.readInt(), input.readInt());
+                    yield item;
+                }
+                case NetworkEntityTypes.FALLING_BLOCK -> new FallingBlockEntity(
+                        this.multiplayer.blockStateFromNetwork(input.readInt()));
+                case NetworkEntityTypes.PRIMED_TNT -> new PrimedTntEntity(input.readFloat(), input.readInt());
+                case NetworkEntityTypes.ITEM_FRAME -> {
+                    int x = input.readInt(), y = input.readInt(), z = input.readInt();
+                    Direction direction = de.skyengine.game.world.PlayerBlockActions.directionFromFace(
+                            input.readUnsignedByte());
+                    int rotation = input.readUnsignedByte();
+                    ItemFrameEntity frame = new ItemFrameEntity(x, y, z, direction);
+                    frame.loadContent(this.decodeRemoteItem(readNetworkStack(input)), rotation);
+                    yield frame;
+                }
+                case NetworkEntityTypes.MINECART -> {
+                    MinecartEntity minecart = new MinecartEntity();
+                    minecart.setDamage(input.readFloat());
+                    minecart.setHurtTime(input.readInt());
+                    minecart.setHurtDirection(input.readInt());
+                    yield minecart;
+                }
+                default -> null;
+            };
+        } catch (IOException | IllegalArgumentException invalid) {
+            this.logger.warning("Ungueltige Entitydaten vom Server fuer " + snapshot.networkId()
+                    + ": " + invalid.getMessage());
+            return null;
+        }
+    }
+
+    private void applyRemoteEntityMetadata(Entity entity, NetworkEntitySnapshot snapshot) {
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(snapshot.metadata()))) {
+            if (entity instanceof ItemEntity item) {
+                ItemStack stack = this.decodeRemoteItem(readNetworkStack(input));
+                if (item.getStack().getItem() == stack.getItem()) {
+                    item.getStack().setCount(stack.getCount());
+                    item.getStack().setDamage(stack.getDamage());
+                }
+                item.restoreNetworkState(input.readInt(), input.readInt());
+            } else if (entity instanceof PrimedTntEntity tnt) {
+                input.readFloat();
+                tnt.setFuse(input.readInt());
+            } else if (entity instanceof ItemFrameEntity frame) {
+                input.readInt(); input.readInt(); input.readInt();
+                input.readUnsignedByte();
+                int rotation = input.readUnsignedByte();
+                frame.loadContent(this.decodeRemoteItem(readNetworkStack(input)), rotation);
+            } else if (entity instanceof MinecartEntity minecart) {
+                minecart.setDamage(input.readFloat());
+                minecart.setHurtTime(input.readInt());
+                minecart.setHurtDirection(input.readInt());
+            }
+        } catch (IOException | IllegalArgumentException invalid) {
+            this.logger.warning("Ungueltiges Entity-Update fuer " + snapshot.networkId()
+                    + ": " + invalid.getMessage());
+        }
+    }
+
+    private static NetworkItemStack readNetworkStack(DataInputStream input) throws IOException {
+        int itemId = input.readInt();
+        int count = input.readInt();
+        int length = input.readInt();
+        if (length < 0 || length > NetworkItemStack.MAX_COMPONENT_BYTES) {
+            throw new IOException("Item components exceed protocol limit");
+        }
+        return new NetworkItemStack(itemId, count, input.readNBytes(length));
+    }
+
+    private ItemStack decodeRemoteItem(NetworkItemStack network) {
+        if (network == null || network.count() == 0) return ItemStack.EMPTY;
+        byte[] components = network.components();
+        if (components != null && components.length > 0) {
+            try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(components))) {
+                ItemStack stack = ItemStack.load(DataTagIO.read(input));
+                if (!stack.isEmpty()) return stack;
+            } catch (java.io.IOException invalid) {
+                this.logger.warning("Ungueltige Itemdaten vom Server: " + invalid.getMessage());
+            }
+        }
+        var mapping = this.multiplayer.session().registries().get("item");
+        if (mapping == null || network.itemId() <= 0 || network.itemId() >= mapping.identifiers().size()) {
+            return ItemStack.EMPTY;
+        }
+        Item item = Items.get(Identifier.of(mapping.identifiers().get(network.itemId())));
+        return item == null ? ItemStack.EMPTY : new ItemStack(item, network.count());
+    }
+
+    private void closeRemoteWorldView() {
+        this.setRemoteChestOpen(this.remoteOpenContainer, false);
+        this.soundManager.stopMinecartSounds();
+        if (this.remoteWorldView != null) {
+            GL11.glFinish();
+            this.remoteWorldView.close();
+        }
+        this.remoteWorldView = null;
+        this.remotePlayer = null;
+        this.remoteInventoryRevision = Integer.MIN_VALUE;
+        this.remoteOpenContainer = null;
+        this.remoteContainerInventory = null;
+        this.remoteActionSequence = 0;
+        this.remoteRotationInitialized = false;
+        this.remoteSpectatorSpeedDelta = 0;
+        this.remoteInputSequence = 0;
+        this.remoteClientTick = 0;
+        this.remoteLastAuthoritativeState = null;
+        this.remoteLastSpacePressTime = 0;
+        this.remoteRespawnPending = false;
+        this.remotePrediction = null;
+        this.remotePreviousPredicted = null;
+        this.remoteCurrentPredicted = null;
+        this.remoteCorrectionX = this.remoteCorrectionY = this.remoteCorrectionZ = 0;
+        this.remotePortalPresentation.reset();
+        this.remotePlayerVisuals.clear();
+        this.remoteEntityVisuals.clear();
+        this.remoteRenderedEntities.clear();
+    }
+
+    public boolean hasRemoteWorldView() {
+        return this.remoteWorldView != null;
+    }
+
     /** Setzt den Spieler an den Weltspawn (deterministisch: Terrainhöhe bei 0,0 + 2). */
     private void placeAtWorldSpawn(EntityPlayer player) {
         int spawnY = this.dimension().getGenerator().sampleHeight(0, 0) + 2;
@@ -376,6 +1282,13 @@ public class GameContainer implements IResizeable, IDisposable {
      * das Inventar bleibt unangetastet (kein Item-Drop, User-Entscheid).
      */
     public void respawnPlayer() {
+        if (this.session == null && this.remotePlayer != null && this.multiplayer.session() != null) {
+            if (!this.remotePlayer.isDead() || this.remoteRespawnPending) return;
+            this.remoteRespawnPending = true;
+            this.multiplayer.session().requestRespawn();
+            this.guiManager.close();
+            return;
+        }
         if (this.dimension() == null || this.player() == null) return;
         this.guiManager.close();
         this.waterVision.reset();
@@ -414,6 +1327,13 @@ public class GameContainer implements IResizeable, IDisposable {
      * liegt, bevor sie sterben (ein einmaliger Stall beim Menü-Wechsel ist unkritisch).
      */
     public void exitToTitle() {
+        if (this.session == null) {
+            this.multiplayer.disconnect();
+            this.closeRemoteWorldView();
+            this.guiManager.close();
+            this.guiManager.open(new GuiMainMenu());
+            return;
+        }
         this.cancelBiomeSearch();
         this.guiManager.close();
         this.saveCurrentWorld(true);
@@ -455,6 +1375,8 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /** Übernimmt die persistenten Einstellungen in die laufenden Systeme (auch vom Optionsmenü genutzt). */
     public void applySettings() {
+        ChunkMesher.configure(this.settings.ambientOcclusion,
+                this.settings.leavesQuality == GameSettings.LeavesQuality.LOW);
         /* Welt-Anteile nur mit Welt (Optionen sind auch aus dem Hauptmenü erreichbar);
            beim nächsten enterWorld laufen sie ohnehin erneut. */
         if (this.dimension() != null) {
@@ -480,6 +1402,9 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     public void update(Input input) {
+        this.multiplayer.update();
+        this.multiplayer.drainMessages(this.chat::addMessage);
+        this.updateRemoteWorldLifecycle(input);
         if (this.dimension() == null || this.player() == null) return; // Hauptmenü: nichts zu ticken
         this.world().tickLifecycle();
         PerformanceProfiler profiler = PerformanceProfiler.get();
@@ -512,7 +1437,7 @@ public class GameContainer implements IResizeable, IDisposable {
         } else {
             /* Offenes Container-GUI (Inventar/Truhe): Physik läuft weiter (fallen/Strömung),
                aber ohne Tasten — wie in MC gehen die Eingaben ans GUI. */
-            this.player().update(this.guiManager.isOpen() ? Input.EMPTY : input, this.dimension());
+            this.player().update(this.guiManager.isOpen() ? PlayerControls.NONE : playerControls(input), this.dimension());
             this.updateMovementParticles();
 
             /* Reihenfolge wie Minecraft.tick: erst die Eingabe (Schwung-/Hand-Trigger), dann die
@@ -556,7 +1481,7 @@ public class GameContainer implements IResizeable, IDisposable {
            (Truhe) lassen sie weiterticken. */
         if (!this.guiManager.pausesGame()) {
             profiler.recordElapsed(PerformanceProfiler.TickSection.PLAYER_GAME_LOGIC, playerLogicStarted);
-            this.dimension().update(input, this.player());
+            this.dimension().update(this.player());
             this.pickupItems();
             this.finalizePendingArrival();
             /* Autosave. Die Modulo-Prüfung gehört IN diesen Zweig: gameTime steht bei Pause
@@ -1023,35 +1948,39 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /** Bewegungspartikel aus bereits berechneten Spieler-Flanken; verändert keinerlei Physik. */
     private void updateMovementParticles() {
-        boolean inWater = this.player().isTouchingWater(this.dimension());
+        Dimension dimension = this.visualDimension();
+        if (dimension == null) return;
+        boolean inWater = this.player().isTouchingWater(dimension);
         double dx = this.player().x - this.player().lastX;
         double dy = this.player().y - this.player().lastY;
         double dz = this.player().z - this.player().lastZ;
         double speed = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (inWater && !this.playerWasInWater) {
-            this.dimension().particles().splash(this.player().x, this.player().y, this.player().z, dx, dy, dz);
+            dimension.particles().splash(this.player().x, this.player().y, this.player().z, dx, dy, dz);
         } else if (inWater && speed > 0.02) {
-            this.dimension().particles().swim(this.player().x, this.player().y + 0.8, this.player().z, dx, dy, dz);
+            dimension.particles().swim(this.player().x, this.player().y + 0.8, this.player().z, dx, dy, dz);
         }
         this.playerWasInWater = inWater;
 
         BlockState ground = this.groundStateAtPlayer();
         if (!inWater && ground != null && this.player().onGround && this.player().isSprinting()
                 && dx * dx + dz * dz > 0.001) {
-            this.dimension().particles().sprint(this.player().x, this.player().y, this.player().z, ground, dx, dz);
+            dimension.particles().sprint(this.player().x, this.player().y, this.player().z, ground, dx, dz);
         }
         float landing = this.player().consumeLandingDistance();
         if (landing > 3F && ground != null && !inWater) {
-            this.dimension().particles().landing(this.player().x, this.player().y, this.player().z, ground, landing);
+            dimension.particles().landing(this.player().x, this.player().y, this.player().z, ground, landing);
         }
     }
 
     private BlockState groundStateAtPlayer() {
+        Dimension dimension = this.visualDimension();
+        if (dimension == null) return null;
         int bx = (int) Math.floor(this.player().x);
         int by = (int) Math.floor(this.player().y - 0.2);
         int bz = (int) Math.floor(this.player().z);
-        BlockState state = Blocks.getState(this.dimension().getBlock(bx, by, bz));
-        if (state.isAir() || state.isFluid()) state = Blocks.getState(this.dimension().getBlock(bx, by - 1, bz));
+        BlockState state = Blocks.getState(dimension.getBlock(bx, by, bz));
+        if (state.isAir() || state.isFluid()) state = Blocks.getState(dimension.getBlock(bx, by - 1, bz));
         return state.isAir() || state.isFluid() ? null : state;
     }
 
@@ -1075,7 +2004,8 @@ public class GameContainer implements IResizeable, IDisposable {
         double px = this.player().x + dirX * 0.35;
         double py = this.player().y + this.player().getEyeHeight(1F) + dirY * 0.35 - 0.1;
         double pz = this.player().z + dirZ * 0.35;
-        this.dimension().particles().itemCrumb(texture, px, py, pz, dirX, dirY, dirZ);
+        Dimension dimension = this.visualDimension();
+        if (dimension != null) dimension.particles().itemCrumb(texture, px, py, pz, dirX, dirY, dirZ);
     }
 
     /**
@@ -1084,8 +2014,10 @@ public class GameContainer implements IResizeable, IDisposable {
      * Kadenz). Kein Sound in der Luft, beim Fliegen, Sneaken (lautlos wie MC) oder im Fluid.
      */
     private void updateStepSounds() {
+        Dimension dimension = this.visualDimension();
+        if (dimension == null) return;
         if (this.player().isFlying() || this.player().isSneaking()
-                || this.player().isTouchingFluid(this.dimension())) {
+                || this.player().isTouchingFluid(dimension)) {
             return;
         }
         /* Distanz auch in der Luft akkumulieren (MC: walkDist) — so überschreitet ein
@@ -1099,9 +2031,9 @@ public class GameContainer implements IResizeable, IDisposable {
         int bx = (int) Math.floor(this.player().x);
         int by = (int) Math.floor(this.player().y - 0.2); // Fußpunkt leicht abgesenkt: trifft auch Slabs/Stufen
         int bz = (int) Math.floor(this.player().z);
-        int ground = this.dimension().getBlock(bx, by, bz);
+        int ground = dimension.getBlock(bx, by, bz);
         if (ground == Blocks.AIR || Blocks.getState(ground).isFluid()) {
-            ground = this.dimension().getBlock(bx, by - 1, bz); // Kantenlauf: eine Zelle tiefer probieren
+            ground = dimension.getBlock(bx, by - 1, bz); // Kantenlauf: eine Zelle tiefer probieren
             if (ground == Blocks.AIR || Blocks.getState(ground).isFluid()) return;
         }
         this.soundManager.playStep(Blocks.getState(ground).getBlock().getSoundGroup());
@@ -1136,7 +2068,10 @@ public class GameContainer implements IResizeable, IDisposable {
      * von selbst wieder auf.
      */
     private float updatePaused(float partialTick) {
-        boolean now = this.guiManager.pausesGame();
+        // Nur der Integrated-Singleplayer darf durch ein GUI pausieren. Auf einem Dedicated
+        // Server laeuft die autoritative Welt weiter; dort muessen auch Kamera-Interpolation,
+        // Audio und visuelle Replikate weiterlaufen wie in Minecraft-Multiplayer.
+        boolean now = this.session != null && this.guiManager.pausesGame();
         if (now != this.paused) {
             this.paused = now;
             if (now) {
@@ -1170,6 +2105,11 @@ public class GameContainer implements IResizeable, IDisposable {
         PostProcessor post = SkyEngine.get().getPostProcessor();
         post.setMenuBlur(
                 this.dimension() != null && this.guiManager.blursBackground());
+
+        if (this.dimension() == null && this.remoteWorldView != null) {
+            this.renderRemoteWorld(input, width, height, partialTick, post);
+            return;
+        }
 
         /* Hauptmenü (keine Welt): nur GUI-Eingaben routen, gezeichnet wird in renderGui. */
         if (this.dimension() == null) {
@@ -1363,6 +2303,278 @@ public class GameContainer implements IResizeable, IDisposable {
         FrameProfiler.cpuStop(FrameProfiler.Cpu.OVL);
     }
 
+    private PlayerControls playerControls(Input input) {
+        float forward = 0;
+        float strafe = 0;
+        if (input.isBindDown(this.settings.key(KeyBindings.FORWARD))) forward += 1;
+        if (input.isBindDown(this.settings.key(KeyBindings.BACK))) forward -= 1;
+        if (input.isBindDown(this.settings.key(KeyBindings.RIGHT))) strafe += 1;
+        if (input.isBindDown(this.settings.key(KeyBindings.LEFT))) strafe -= 1;
+        return new PlayerControls(forward, strafe,
+                input.isBindDown(this.settings.key(KeyBindings.JUMP)),
+                input.isBindDown(this.settings.key(KeyBindings.SNEAK)),
+                input.isBindDown(this.settings.key(KeyBindings.SPRINT)),
+                this.settings.sneakToggle, this.settings.sprintToggle);
+    }
+
+    /** Transitional remote-world frame: authoritative camera plus the normal L0 renderer. */
+    private void renderRemoteWorld(Input input, int width, int height, float partialTick, PostProcessor post) {
+        PlayerStateSnapshot state = this.multiplayer.playerState();
+        if (state == null) return;
+
+        boolean guiOpen = this.guiManager.isOpen();
+        if (!guiOpen) {
+            if (input.isKeyPressed(GLFW.GLFW_KEY_ESCAPE)) this.guiManager.open(new GuiIngameMenu());
+            if (this.remotePlayer != null
+                    && input.isBindPressed(this.settings.key(KeyBindings.OPEN_INVENTORY))) {
+                if (this.remotePlayer.getGamemode() == Gamemode.CREATIVE) {
+                    Supplier<ItemStack> held = () -> this.remotePlayer.getInventory().get(
+                            this.remotePlayer.getSelectedSlot());
+                    this.guiManager.open(new GuiCreativeInventory(this.remotePlayer.getInventory(),
+                            this.playerRenderer, this.heldItemMeshes, held, this::sendRemoteInventoryAction));
+                } else if (this.multiplayer.session() != null) {
+                    this.multiplayer.session().requestPlayerInventory();
+                }
+            }
+            if (this.remotePlayer != null) this.handleRemoteHotbarInput(input);
+            if (input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_PERSPECTIVE))) {
+                this.perspective = this.perspective.next();
+            }
+            if (input.isBindPressed(this.settings.key(KeyBindings.OPEN_CHAT))) {
+                this.openChat("");
+            } else if (input.isKeyPressed(GLFW.GLFW_KEY_SLASH)) {
+                this.openChat("/");
+            }
+            if (input.isCursorGrabbed()) {
+                double sensitivity = this.settings.mouseSensitivity
+                        * this.zoomController.sensitivityScale(this.settings.zoomFactor);
+                if (this.remotePlayer != null) {
+                    this.remotePlayer.turn(input.getDeltaMouseX() * sensitivity,
+                            input.getDeltaMouseY() * sensitivity);
+                    this.remoteYaw = this.remotePlayer.yaw;
+                    this.remotePitch = this.remotePlayer.pitch;
+                }
+            }
+        } else {
+            this.guiManager.handleInput();
+            if (this.remoteWorldView == null) return;
+        }
+
+        if (!this.remoteRotationInitialized) {
+            this.remoteYaw = state.yaw();
+            this.remotePitch = state.pitch();
+            this.remoteRotationInitialized = true;
+        }
+        boolean zooming = !guiOpen && input.isBindDown(this.settings.key(KeyBindings.ZOOM));
+        this.zoomController.update(zooming, System.nanoTime());
+        this.camera.setFov(this.zoomController.fov(this.settings.fov, this.settings.zoomFactor));
+        PlayerStateSnapshot previous = this.remotePreviousPredicted == null ? state : this.remotePreviousPredicted;
+        PlayerStateSnapshot current = this.remoteCurrentPredicted == null ? state : this.remoteCurrentPredicted;
+        long now = System.nanoTime();
+        if (this.remoteCorrectionFrameNanos != 0) {
+            double seconds = Math.min(0.1, (now - this.remoteCorrectionFrameNanos) / 1_000_000_000.0);
+            double decay = Math.exp(-12.0 * seconds);
+            this.remoteCorrectionX *= decay;
+            this.remoteCorrectionY *= decay;
+            this.remoteCorrectionZ *= decay;
+        }
+        this.remoteCorrectionFrameNanos = now;
+        double cameraX = previous.x() + (current.x() - previous.x()) * partialTick + this.remoteCorrectionX;
+        double cameraY = previous.y() + (current.y() - previous.y()) * partialTick + this.remoteCorrectionY;
+        double cameraZ = previous.z() + (current.z() - previous.z()) * partialTick + this.remoteCorrectionZ;
+        if (current.vehicleEntityId() != 0) {
+            RemoteEntityVisual vehicle = this.remoteEntityVisuals.get(current.vehicleEntityId());
+            if (vehicle != null && vehicle.entity instanceof MinecartEntity) {
+                cameraX = vehicle.entity.lastX + (vehicle.entity.x - vehicle.entity.lastX) * partialTick;
+                cameraY = vehicle.entity.lastY + (vehicle.entity.y - vehicle.entity.lastY) * partialTick - 0.35;
+                cameraZ = vehicle.entity.lastZ + (vehicle.entity.z - vehicle.entity.lastZ) * partialTick;
+            }
+        }
+        float remoteEyeHeight = this.remotePlayer == null
+                ? 1.62F : this.remotePlayer.getEyeHeight(partialTick);
+        this.camera.setTransform(cameraX, cameraY + remoteEyeHeight, cameraZ,
+                this.remoteYaw, this.remotePitch);
+
+        this.eyePosition.set(cameraX, cameraY + remoteEyeHeight, cameraZ);
+        this.camera.getDirection(this.eyeDirection);
+        this.applyPerspective();
+        this.updateViewEffect(partialTick);
+        this.camera.setViewEffect(this.viewEffect);
+
+        post.setMenuBlur(this.guiManager.blursBackground());
+        BlockState cameraFluid = this.cameraFluidState();
+        post.setUnderwater(shouldRenderUnderwaterEffect(DebugFlags.underwaterEffect, cameraFluid),
+                this.waterVision.factor());
+        post.setPortalEffect(this.remotePortalPresentation.contactProgress());
+        post.nextJitter(this.taaJitter, width, height);
+        this.camera.setJitter(this.taaJitter.x, this.taaJitter.y);
+        this.camera.update((double) width / height);
+        post.updateTaaCamera(this.camera);
+        this.soundManager.updateListener(this.camera);
+        this.updateRemoteEntitySounds(partialTick);
+        this.hit = BlockRaycast.raycastInteractive(this.remoteWorldView.blockAccess(),
+                this.eyePosition, this.eyeDirection, REACH);
+        this.updateRemoteEntityHit();
+
+        float wantedBias = post.getSettings().isTemporalAa()
+                ? post.getSettings().getTaaMipBias() : 0F;
+        if (wantedBias != this.appliedMipBias) {
+            this.remoteWorldView.chunks().getTextureArray().setLodBias(wantedBias);
+            this.appliedMipBias = wantedBias;
+        }
+
+        if (DebugFlags.wireframe) Utils.enableWireframe();
+        this.remoteWorldView.render(this.camera, () -> this.renderRemotePlayers(partialTick),
+                this.remoteRenderedEntities, partialTick);
+        if (DebugFlags.wireframe) Utils.disableWireframe();
+        if (this.hit != null && this.remoteEntityHitId == 0 && !this.guiManager.isOpen() && this.remotePlayer != null
+                && this.remotePlayer.getGamemode().interactsWithWorld()) {
+            this.selectionBoxRenderer.render(this.camera, this.hit.x(), this.hit.y(), this.hit.z(),
+                    Blocks.getState(this.hit.block()).getOutlineShape());
+            if (this.miningProgress > 0F && this.hit.x() == this.miningX
+                    && this.hit.y() == this.miningY && this.hit.z() == this.miningZ) {
+                int stage = Math.min(9, (int) (this.miningProgress * 10F));
+                this.crackRenderer.render(this.camera, this.miningX, this.miningY, this.miningZ,
+                        Blocks.getState(this.hit.block()).getOutlineShape(), stage);
+            }
+        }
+        if (!this.hudHidden && this.remotePlayer != null && this.perspective.isFirstPerson()
+                && this.remotePlayer.getGamemode() != Gamemode.SPECTATOR) {
+            float handLight = this.playerLightAtEyes(partialTick);
+            this.handRenderer.render(this.playerRenderer, this.heldItemMeshes, this.remotePlayer,
+                    this.animState, (float) width / height, partialTick, this.viewEffect, handLight);
+        }
+        this.renderLavaOverlay();
+    }
+
+    /** Positional entity loops are presentation state and can be reconstructed from snapshots. */
+    private void updateRemoteEntitySounds(float partialTick) {
+        this.soundManager.beginMinecartSounds();
+        int ridden = this.multiplayer.playerState() == null
+                ? 0 : this.multiplayer.playerState().vehicleEntityId();
+        for (var entry : this.remoteEntityVisuals.entrySet()) {
+            Entity entity = entry.getValue().entity;
+            if (!(entity instanceof MinecartEntity minecart) || minecart.isRemoved()) continue;
+            double x = minecart.lastX + (minecart.x - minecart.lastX) * partialTick;
+            double y = minecart.lastY + (minecart.y - minecart.lastY) * partialTick;
+            double z = minecart.lastZ + (minecart.z - minecart.lastZ) * partialTick;
+            double speed = Math.sqrt(minecart.motionX * minecart.motionX
+                    + minecart.motionZ * minecart.motionZ);
+            this.soundManager.updateMinecartSound(minecart, x, y, z, speed, entry.getKey() == ridden);
+        }
+        this.soundManager.endMinecartSounds();
+    }
+
+    private void updateRemoteEntityHit() {
+        this.remoteEntityHitId = 0;
+        this.remoteEntityHit = null;
+        double nearest = this.hit == null ? REACH : Math.sqrt(
+                sq(this.hit.hitX() - this.eyePosition.x)
+                        + sq(this.hit.hitY() - this.eyePosition.y)
+                        + sq(this.hit.hitZ() - this.eyePosition.z));
+        for (var entry : this.remoteEntityVisuals.entrySet()) {
+            Entity entity = entry.getValue().entity;
+            double distance;
+            if (entity instanceof ItemFrameEntity frame) {
+                distance = frame.rayIntersection(this.eyePosition.x, this.eyePosition.y, this.eyePosition.z,
+                        this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z, nearest);
+            } else if (entity instanceof MinecartEntity minecart) {
+                distance = minecart.rayIntersection(this.eyePosition.x, this.eyePosition.y, this.eyePosition.z,
+                        this.eyeDirection.x, this.eyeDirection.y, this.eyeDirection.z, nearest);
+            } else {
+                continue;
+            }
+            if (distance < nearest) {
+                nearest = distance;
+                this.remoteEntityHitId = entry.getKey();
+                this.remoteEntityHit = entity;
+            }
+        }
+    }
+
+    private void renderRemotePlayers(float partialTick) {
+        if (this.remoteWorldView == null) return;
+        Dimension world = this.remoteWorldView.physicsDimension();
+        if (!this.perspective.isFirstPerson() && this.remotePlayer != null) {
+            int x = (int) Math.floor(this.remotePlayer.x);
+            int y = (int) Math.floor(this.remotePlayer.y + this.remotePlayer.getEyeHeight(partialTick));
+            int z = (int) Math.floor(this.remotePlayer.z);
+            float light = ChunkRenderer.lightFactor(world.getRenderedSkyLight(x, y, z),
+                    world.getBlockLight(x, y, z), world.getEnvironment().ambientLight());
+            ItemStack held = this.remotePlayer.getInventory().get(this.remotePlayer.getSelectedSlot());
+            this.playerRenderer.renderThirdPerson(this.remotePlayer, this.animState, this.camera, partialTick,
+                    this.heldItemMeshes, held, light);
+        }
+        for (RemotePlayerVisual visual : this.remotePlayerVisuals.values()) {
+            EntityPlayer player = visual.player;
+            int x = (int) Math.floor(player.x);
+            int y = (int) Math.floor(player.y + player.getEyeHeight(partialTick));
+            int z = (int) Math.floor(player.z);
+            float light = ChunkRenderer.lightFactor(world.getRenderedSkyLight(x, y, z),
+                    world.getBlockLight(x, y, z), world.getEnvironment().ambientLight());
+            this.playerRenderer.renderThirdPerson(player, visual.animation, this.camera, partialTick,
+                    this.heldItemMeshes, visual.held, light);
+        }
+    }
+
+    private void handleRemoteHotbarInput(Input input) {
+        int before = this.remotePlayer.getSelectedSlot();
+        for (int i = 0; i < 9; i++) {
+            if (input.isBindPressed(this.settings.key(KeyBindings.hotbar(i + 1)))) {
+                this.remotePlayer.setSelectedSlot(i);
+            }
+        }
+        double scroll = input.getScrollY();
+        if (this.remotePlayer.getGamemode() == Gamemode.SPECTATOR && scroll != 0) {
+            int direction = scroll > 0 ? 1 : -1;
+            float beforeSpeed = this.remotePlayer.getSpectatorFlySpeed();
+            this.remotePlayer.adjustSpectatorFlySpeed(direction);
+            float speed = this.remotePlayer.getSpectatorFlySpeed();
+            if (speed != beforeSpeed) {
+                this.remoteSpectatorSpeedDelta += direction;
+                this.hudStatusText = I18n.tr("gui.hud.spectator_speed", Math.round(speed * 100F));
+                this.hudStatusShownAt = System.currentTimeMillis();
+            }
+        } else if (scroll > 0) {
+            this.remotePlayer.setSelectedSlot((this.remotePlayer.getSelectedSlot() + 8) % 9);
+        } else if (scroll < 0) {
+            this.remotePlayer.setSelectedSlot((this.remotePlayer.getSelectedSlot() + 1) % 9);
+        }
+        if (before != this.remotePlayer.getSelectedSlot()) this.itemNameShownAt = System.currentTimeMillis();
+    }
+
+    private void sendRemoteInventoryAction(int sourceSlot, int targetSlot,
+                                           de.skyengine.shared.gameplay.InventoryActionRequest.Action action,
+                                           int button, ItemStack offered) {
+        if (this.multiplayer.session() == null) return;
+        this.multiplayer.session().sendInventoryAction(new de.skyengine.shared.gameplay.InventoryActionRequest(
+                ++this.remoteActionSequence, 0, sourceSlot, targetSlot, action, button,
+                this.encodeRemoteItem(offered)));
+    }
+
+    private void sendRemoteContainerInventoryAction(int containerId, int sourceSlot, int targetSlot,
+                                                     de.skyengine.shared.gameplay.InventoryActionRequest.Action action,
+                                                     int button, ItemStack offered) {
+        if (this.multiplayer.session() == null) return;
+        this.multiplayer.session().sendInventoryAction(new de.skyengine.shared.gameplay.InventoryActionRequest(
+                ++this.remoteActionSequence, containerId, sourceSlot, targetSlot, action, button,
+                this.encodeRemoteItem(offered)));
+    }
+
+    private NetworkItemStack encodeRemoteItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return NetworkItemStack.empty();
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(64);
+            try (DataOutputStream output = new DataOutputStream(bytes)) {
+                DataTagIO.write(stack.save(), output);
+            }
+            return new NetworkItemStack(this.multiplayer.itemToNetwork(stack.getItem().getId().toString()),
+                    stack.getCount(), bytes.toByteArray());
+        } catch (IOException error) {
+            throw new IllegalStateException("Could not encode inventory action", error);
+        }
+    }
+
     /**
      * Welt-Debughilfen im fertigen Default-Framebuffer. Der Aufruf erfolgt nach TAA,
      * Wasser-/Portal-Effekten und Color-Grading, damit Linien weder reprojiziert noch getoent
@@ -1370,12 +2582,13 @@ public class GameContainer implements IResizeable, IDisposable {
      * die aufgeloeste Szenentiefe, die uebrigen Debug-Bounds bleiben bewusst immer sichtbar.
      */
     public void renderDebugWorldOverlays() {
-        if (this.dimension() == null || this.player() == null) return;
+        Dimension visual = this.visualDimension();
+        if (visual == null || this.player() == null) return;
 
         if (DebugFlags.chunkBorders != 0) {
             int ccx = ((int) Math.floor(this.player().x)) >> ChunkSection.SHIFT;
             int ccz = ((int) Math.floor(this.player().z)) >> ChunkSection.SHIFT;
-            this.chunkBorderRenderer.render(this.camera, this.dimension().getChunkManager(),
+            this.chunkBorderRenderer.render(this.camera, visual.getChunkManager(),
                     ccx, ccz, DebugFlags.chunkBorders,
                     SkyEngine.get().getWindow().getFrameBuffer().getPostDepthTexture());
         }
@@ -1404,7 +2617,17 @@ public class GameContainer implements IResizeable, IDisposable {
         }
 
         if (DebugFlags.entityHitboxes) {
-            this.entityHitboxRenderer.render(this.camera, this.player(), this.dimension(), this.renderedPartialTick);
+            if (this.remoteWorldView == null) {
+                this.entityHitboxRenderer.render(this.camera, this.player(), visual, this.renderedPartialTick);
+            } else {
+                this.remoteDebugEntities.clear();
+                this.remoteDebugEntities.addAll(this.remoteRenderedEntities);
+                for (RemotePlayerVisual player : this.remotePlayerVisuals.values()) {
+                    this.remoteDebugEntities.add(player.player);
+                }
+                this.entityHitboxRenderer.render(this.camera, this.player(), this.remoteDebugEntities,
+                        this.renderedPartialTick);
+            }
         }
     }
 
@@ -1429,6 +2652,8 @@ public class GameContainer implements IResizeable, IDisposable {
      * Wechsel zwischen den diskreten Lichtleveln nicht mehr in sichtbaren Etappen.
      */
     private float lightAt(double x, double y, double z) {
+        Dimension dimension = this.visualDimension();
+        if (dimension == null) return 1F;
         double gx = x - 0.5, gy = y - 0.5, gz = z - 0.5;
         int x0 = (int) Math.floor(gx), y0 = (int) Math.floor(gy), z0 = (int) Math.floor(gz);
         float fx = (float) (gx - x0), fy = (float) (gy - y0), fz = (float) (gz - z0);
@@ -1440,9 +2665,9 @@ public class GameContainer implements IResizeable, IDisposable {
                 for (int dx = 0; dx <= 1; dx++) {
                     float wx = dx == 0 ? 1F - fx : fx;
                     float light = ChunkRenderer.lightFactor(
-                            this.dimension().getRenderedSkyLight(x0 + dx, y0 + dy, z0 + dz),
-                            this.dimension().getBlockLight(x0 + dx, y0 + dy, z0 + dz),
-                            this.dimension().getEnvironment().ambientLight());
+                            dimension.getRenderedSkyLight(x0 + dx, y0 + dy, z0 + dz),
+                            dimension.getBlockLight(x0 + dx, y0 + dy, z0 + dz),
+                            dimension.getEnvironment().ambientLight());
                     result += light * wx * wy * wz;
                 }
             }
@@ -1482,12 +2707,14 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     private void applyPerspective() {
         if (this.perspective.isFirstPerson()) return;
+        Dimension dimension = this.visualDimension();
+        if (dimension == null) return;
         boolean front = this.perspective == CameraPerspective.THIRD_PERSON_FRONT;
         this.camRayDirection.set(this.eyeDirection);
         if (!front) this.camRayDirection.negate();
 
         double dist = THIRD_PERSON_DISTANCE;
-        BlockRaycast.Hit blocked = BlockRaycast.raycast(this.dimension(), this.eyePosition, this.camRayDirection, dist);
+        BlockRaycast.Hit blocked = BlockRaycast.raycast(dimension, this.eyePosition, this.camRayDirection, dist);
         if (blocked != null) {
             double dx = blocked.hitX() - this.eyePosition.x;
             double dy = blocked.hitY() - this.eyePosition.y;
@@ -1508,15 +2735,17 @@ public class GameContainer implements IResizeable, IDisposable {
      */
     public void renderGui(int width, int height) {
         EntityPlayer player = this.player();
+        boolean playableWorld = this.dimension() != null || this.remoteWorldView != null;
         /* Spectator zeigt wie MC keine Hotbar (Crosshair bleibt); ohne Spieler/Welt gibt es keine. */
         boolean showHotbar = player != null && player.getGamemode() != Gamemode.SPECTATOR;
-        boolean showDebug = !this.hudHidden && this.debugOverlay.isVisible() && this.dimension() != null;
+        boolean showDebug = !this.hudHidden && this.debugOverlay.isVisible()
+                && this.visualDimension() != null;
         FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
         FrameProfiler.gpuBegin(FrameProfiler.Gpu.GUI);
         /* Im Hauptmenü kein HUD (Inventar null -> GuiManager überspringt Hotbar/Crosshair);
            Crosshair nur in First Person (in den F5-Ansichten zielt man nicht über die Bildmitte). */
         this.guiManager.render(width, height,
-                player != null && this.dimension() != null && !this.hudHidden
+                player != null && playableWorld && !this.hudHidden
                         ? player.getInventory() : null,
                 selectedSlotForGui(player), showHotbar && !this.hudHidden,
                 !this.hudHidden && this.perspective.isFirstPerson(),
@@ -1524,7 +2753,7 @@ public class GameContainer implements IResizeable, IDisposable {
                 this.hudHidden ? "" : this.hudStatusText,
                 this.hudHidden ? 0F : this.hudStatusAlpha(), player,
                 showDebug && FrameProfiler.isEnabled() ? this.profilerOverlayPass : null);
-        if (!this.hudHidden && this.dimension() != null && !this.guiManager.isOpen()) {
+        if (!this.hudHidden && playableWorld && !this.guiManager.isOpen()) {
             this.chatHud.render(this.guiManager, this.chat, this.guiManager.vHeight() - 40F, false);
         }
         if (showDebug) {
@@ -1532,7 +2761,11 @@ public class GameContainer implements IResizeable, IDisposable {
                 FrameProfiler.cpuStop(FrameProfiler.Cpu.GUI);
                 FrameProfiler.cpuStart(FrameProfiler.Cpu.PROFILER_UI);
             }
-            this.debugOverlay.render(this.guiManager, this.dimension(), this.view(), player);
+            ChunkRenderer debugChunks = this.view() != null ? this.view().chunks()
+                    : this.remoteWorldView == null ? null : this.remoteWorldView.chunks();
+            if (debugChunks != null) {
+                this.debugOverlay.render(this.guiManager, this.visualDimension(), debugChunks, player);
+            }
             if (FrameProfiler.isEnabled()) {
                 FrameProfiler.cpuStop(FrameProfiler.Cpu.PROFILER_UI);
                 FrameProfiler.cpuStart(FrameProfiler.Cpu.GUI);
@@ -1615,23 +2848,27 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /** Liefert das Fluid, dessen echte Oberflaeche die Kamera gerade ueberdeckt. */
     private BlockState cameraFluidState() {
+        Dimension dimension = this.visualDimension();
+        if (dimension == null) return null;
         Vector3d eye = this.camera.getPosition();
         int bx = (int) Math.floor(eye.x);
         int by = (int) Math.floor(eye.y);
         int bz = (int) Math.floor(eye.z);
-        BlockState state = Blocks.getState(this.dimension().getRenderedBlock(bx, by, bz));
-        BlockState above = Blocks.getState(this.dimension().getRenderedBlock(bx, by + 1, bz));
+        BlockState state = Blocks.getState(dimension.getRenderedBlock(bx, by, bz));
+        BlockState above = Blocks.getState(dimension.getRenderedBlock(bx, by + 1, bz));
         return isCameraSubmerged(eye.y, by, state, above) ? state : null;
     }
 
     /** Tick-Sample am echten Spielerauge; steuert Water Vision und Unterwasser-Audio. */
     private boolean playerEyesUnderwater() {
+        Dimension dimension = this.visualDimension();
+        if (dimension == null) return false;
         double eyeY = this.player().y + this.player().getEyeHeight(1F);
         int bx = (int) Math.floor(this.player().x);
         int by = (int) Math.floor(eyeY);
         int bz = (int) Math.floor(this.player().z);
-        BlockState state = Blocks.getState(this.dimension().getRenderedBlock(bx, by, bz));
-        BlockState above = Blocks.getState(this.dimension().getRenderedBlock(bx, by + 1, bz));
+        BlockState state = Blocks.getState(dimension.getRenderedBlock(bx, by, bz));
+        BlockState above = Blocks.getState(dimension.getRenderedBlock(bx, by + 1, bz));
         return isCameraSubmerged(eyeY, by, state, above)
                 && !state.getBlock().getFluidInfo().lava;
     }
@@ -1663,6 +2900,8 @@ public class GameContainer implements IResizeable, IDisposable {
     @Override
     public void dispose() {
         this.settings.save();
+        this.multiplayer.close();
+        this.closeRemoteWorldView();
         this.saveCurrentWorld(true); // Welt-Zustand auch beim direkten Beenden aus dem Spiel sichern
         if (this.session != null) {
             this.session.dispose();
@@ -1689,19 +2928,7 @@ public class GameContainer implements IResizeable, IDisposable {
      * Härte &lt; 0 (Bedrock) liefert 0 — der Block wird nie fertig.
      */
     private float getDestroyProgress(BlockState state) {
-        float hardness = state.getBlock().getHardness();
-        if (hardness < 0F) return 0F;
-        if (hardness == 0F) return 1F;
-
-        ItemStack held = this.player().getInventory().get(this.player().getSelectedSlot());
-        float speed = 1F;
-        if (held.getItem() instanceof ToolItem tool && tool.getType() == state.getBlock().getToolType()) {
-            speed = tool.getTier().speed();
-        }
-        float perTick = speed / hardness / (isHarvestable(state, held) ? 30F : 100F);
-        /* MC-Malus: Abbau in der Luft (fallend/springend) ist 5x langsamer. */
-        if (!this.player().onGround) perTick /= 5F;
-        return perTick;
+        return de.skyengine.game.world.PlayerBlockActions.destroyProgress(this.player(), state);
     }
 
     /**
@@ -1849,10 +3076,7 @@ public class GameContainer implements IResizeable, IDisposable {
 
     /** MC-Harvest-Regel: ohne Tool-Anforderung droppt alles; sonst passende Klasse + Mindest-Tier. */
     private static boolean isHarvestable(BlockState state, ItemStack held) {
-        de.skyengine.game.world.item.ToolType required = state.getBlock().getToolType();
-        if (required == null) return true;
-        if (!(held.getItem() instanceof ToolItem tool) || tool.getType() != required) return false;
-        return tool.getTier().level() >= state.getBlock().getHarvestLevel();
+        return de.skyengine.game.world.PlayerBlockActions.isHarvestable(state, held);
     }
 
     private void resetMining() {
@@ -2535,7 +3759,7 @@ public class GameContainer implements IResizeable, IDisposable {
             this.screenshotRequested = true;
         }
 
-        if (this.dimension() != null && input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_HUD))) {
+        if (this.visualDimension() != null && input.isBindPressed(this.settings.key(KeyBindings.TOGGLE_HUD))) {
             this.hudHidden = !this.hudHidden;
             this.logger.debug("HUD: " + (this.hudHidden ? "aus" : "an"));
         }
@@ -2603,6 +3827,17 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private void openChat(String initial) {
+        if (this.session == null && this.multiplayer.session() != null) {
+            this.guiManager.open(new GuiChat(this.chat, this.chatHud, initial, value -> {
+                String message = value == null ? "" : value.trim();
+                if (message.isEmpty()) return;
+                if (message.startsWith("/")) {
+                    this.multiplayer.session().sendCommand(++this.remoteCommandSequence,
+                            message.substring(1));
+                } else this.multiplayer.session().sendChat(message);
+            }));
+            return;
+        }
         CommandContext.DimensionAccess dimensions = new CommandContext.DimensionAccess() {
             @Override public Identifier current() {
                 return GameContainer.this.dimension().getDimensionId();
@@ -2900,11 +4135,17 @@ public class GameContainer implements IResizeable, IDisposable {
     }
 
     private EntityPlayer player() {
-        return this.session == null ? null : this.session.player();
+        return this.session == null ? this.remotePlayer : this.session.player();
     }
 
     private Dimension dimension() {
         return this.session == null ? null : this.session.dimension();
+    }
+
+    /** Active client-visible dimension, including the non-simulating multiplayer mirror. */
+    private Dimension visualDimension() {
+        return this.session != null ? this.session.dimension()
+                : this.remoteWorldView == null ? null : this.remoteWorldView.physicsDimension();
     }
 
     private World world() {
@@ -2925,6 +4166,12 @@ public class GameContainer implements IResizeable, IDisposable {
 
     public Dimension getDimension() {
         return this.dimension();
+    }
+
+    public de.skyengine.game.world.dimension.DimensionEnvironment getRenderEnvironment() {
+        Dimension local = this.dimension();
+        if (local != null) return local.getEnvironment();
+        return this.remoteWorldView == null ? null : this.remoteWorldView.environment();
     }
 
     public World getWorld() {

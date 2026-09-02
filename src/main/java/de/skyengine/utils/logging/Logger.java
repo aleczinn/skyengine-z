@@ -1,13 +1,13 @@
 package de.skyengine.utils.logging;
 
-import de.skyengine.core.EngineConfig;
-import de.skyengine.core.SkyEngine;
 import de.skyengine.utils.ANSI;
 import de.skyengine.utils.TimeUtils;
 
 import java.time.LocalDateTime;
 
 public class Logger {
+
+    private static volatile boolean debugEnabled = Boolean.getBoolean("skyengine.debug");
 
     private final String name;
 
@@ -71,8 +71,12 @@ public class Logger {
     }
 
     private static boolean isDebugEnabled() {
-        SkyEngine engine = SkyEngine.get();
-        return engine != null && engine.getConfig().getDebugMode() == EngineConfig.DebugMode.FULL;
+        return debugEnabled;
+    }
+
+    /** Client and server launchers may enable debug logging without a global engine singleton. */
+    public static void setDebugEnabled(boolean enabled) {
+        debugEnabled = enabled;
     }
 
     private void log(LogLevel level, String color, String message, Throwable throwable, boolean resolveMethod) {

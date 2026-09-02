@@ -47,6 +47,12 @@ public class Chunk {
        vom Mesher pro Vertex bilinear gelesen. null = Generator ohne Biome-Tints (V1). */
     public int[] grassTintCorners;
     public int[] foliageTintCorners;
+    /**
+     * Biome IDs der 32x32 Saeulen. Autoritative Welten duerfen sie aus dem Generator
+     * bestimmen; replizierte Clientwelten benoetigen die mit dem Chunk uebertragenen IDs,
+     * weil dort absichtlich kein WorldGenerator existiert.
+     */
+    public int[] biomeIds;
 
     /* Himmelslicht je Zelle (lazy pro Section, lock-frei — siehe LightStorage). Geschrieben vom
        LIGHTING-Job und von den Edit-Updates der LightEngine, gelesen vom Mesher. */

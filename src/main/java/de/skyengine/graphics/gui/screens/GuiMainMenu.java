@@ -37,8 +37,8 @@ public final class GuiMainMenu extends GuiScreen {
                 ? new Image(gui.textures().logo, 140)
                 : new Label(SkyEngine.ENGINE_NAME, GuiText.HERO).measure(gui);
         Button singleplayer = new Button(I18n.tr("gui.singleplayer"), () -> gui.open(new GuiSelectWorld(this)));
-        Button multiplayer = new Button(I18n.tr("gui.multiplayer"), null);
-        multiplayer.enabled = false;
+        Button multiplayer = new Button(I18n.tr("gui.multiplayer"),
+                () -> gui.open(new GuiMultiplayer(this)));
 
         /* Nebeneinander wie in MC: 98 + 4 + 98 = 200 = Breite des Einzelspieler-Buttons. */
         Button options = new Button(I18n.tr("gui.options"), 98, 20, () -> gui.open(new GuiOptionsMenu(this)));

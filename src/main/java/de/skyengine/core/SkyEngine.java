@@ -74,7 +74,7 @@ public class SkyEngine {
         this.mainThreadTasks = new ConcurrentLinkedQueue<>();
         this.renderTasks = new ConcurrentLinkedQueue<>();
         /* Packs muessen vor GameContainer/I18n/Fonts aktiv sein. */
-        Resources.initialize();
+        Resources.initialize(GameSettings.get().resourcePacks);
         this.game = new GameContainer();
         this.postProcessor = new PostProcessor(); // GL-Init erst in launch() (Render-Thread)
     }
@@ -100,9 +100,8 @@ public class SkyEngine {
 
         this.window.getFrameBuffer().bind();
 
-        de.skyengine.game.world.Dimension activeWorld = this.game.getDimension();
-        if (activeWorld != null) {
-            var environment = activeWorld.getEnvironment();
+        var environment = this.game.getRenderEnvironment();
+        if (environment != null) {
             GL11.glClearColor(environment.backgroundRed(), environment.backgroundGreen(),
                     environment.backgroundBlue(), 1.0F);
         } else {

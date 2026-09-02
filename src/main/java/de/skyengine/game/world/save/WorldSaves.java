@@ -81,6 +81,42 @@ public final class WorldSaves {
         return save;
     }
 
+    /** Loads or creates a world at an explicit dedicated-server directory. */
+    public static WorldSave openOrCreate(File directory, String name, int seed) throws java.io.IOException {
+        File levelFile = new File(directory, "level.json");
+        if (levelFile.isFile()) {
+            try (FileReader reader = new FileReader(levelFile)) {
+                LevelData level = GSON.fromJson(reader, LevelData.class);
+                if (level == null || level.formatVersion == null
+                        || level.formatVersion != CURRENT_FORMAT_VERSION) {
+                    throw new java.io.IOException("Incompatible or missing world format in " + levelFile);
+                }
+                return new WorldSave(directory.getName(), level);
+            } catch (java.io.IOException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new java.io.IOException("Invalid level metadata: " + levelFile, e);
+            }
+        }
+        if (!directory.isDirectory() && !directory.mkdirs()) {
+            throw new java.io.IOException("Could not create world directory " + directory);
+        }
+        LevelData level = new LevelData();
+        level.name = name;
+        level.seed = seed;
+        level.created = System.currentTimeMillis();
+        level.lastPlayed = level.created;
+        level.formatVersion = CURRENT_FORMAT_VERSION;
+        LevelData.DimensionData overworld = new LevelData.DimensionData();
+        overworld.seed = seed;
+        overworld.generator = Identifier.of("alpha_v2").toString();
+        overworld.generatorVersion = 2;
+        level.dimensions.put(Identifier.of("overworld").toString(), overworld);
+        WorldSave save = new WorldSave(directory.getName(), level);
+        saveInDirectory(save, directory);
+        return save;
+    }
+
     /** Absoluter Ordner eines Savegames (für player.dat/region neben der level.json). */
     public static File dir(String dirName) {
         return new File(ROOT, dirName);

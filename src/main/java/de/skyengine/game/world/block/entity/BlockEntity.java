@@ -48,12 +48,29 @@ public abstract class BlockEntity {
     public void save(DataTag tag) {}
 
     /**
+     * Serialisiert den replizierten Laufzeitzustand. Standardmaessig entspricht er dem
+     * persistenten Zustand; BlockEntities mit rein visuellen/transienten Daten koennen den
+     * Netzwerkzustand erweitern, ohne diese Daten ins Welt-Save zu schreiben.
+     */
+    public void saveNetwork(DataTag tag) {
+        this.save(tag);
+    }
+
+    /** Gegenstueck zu {@link #saveNetwork(DataTag)} fuer Client-Replikate. */
+    public void loadNetwork(DataTag tag) {
+        this.load(tag);
+    }
+
+    /**
      * Markiert den eigenen Chunk als seit dem letzten Save verändert — von Unterklassen
      * nach persistenten Zustandsänderungen aufrufen (z.B. künftige tickende Maschinen).
      * Das Truhen-GUI markiert stattdessen beim Öffnen (GameContainer).
      */
     protected final void markDirty() {
-        if (this.world != null) this.world.markChunkModified(this.pos.x(), this.pos.z());
+        if (this.world != null) {
+            this.world.markChunkModified(this.pos.x(), this.pos.z());
+            this.world.markBlockEntityNetworkDirty(this.pos);
+        }
     }
 
     /** Markiert persistente Inventar-/Maschinendaten als geändert. */

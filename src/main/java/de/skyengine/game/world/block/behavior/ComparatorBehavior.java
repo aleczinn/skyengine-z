@@ -1,6 +1,6 @@
 package de.skyengine.game.world.block.behavior;
 
-import de.skyengine.audio.SoundManager;
+import de.skyengine.game.world.effect.WorldSoundSink;
 import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -79,7 +79,7 @@ public final class ComparatorBehavior implements BlockBehavior {
                 ? ComparatorMode.SUBTRACT : ComparatorMode.COMPARE;
         BlockState toggled = state.with(Properties.MODE, next);
         world.setBlockWithShapeUpdates(x, y, z, toggled.getId());
-        SoundManager sound = world.getSoundManager();
+        WorldSoundSink sound = world.getSoundManager();
         if (sound != null) {
             sound.playComparatorClick(next == ComparatorMode.SUBTRACT,
                     x + 0.5, y + 0.5, z + 0.5);

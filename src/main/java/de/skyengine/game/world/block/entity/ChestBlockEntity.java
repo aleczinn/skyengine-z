@@ -1,7 +1,7 @@
 package de.skyengine.game.world.block.entity;
 
 import de.skyengine.audio.BlockOpenSound;
-import de.skyengine.audio.SoundManager;
+import de.skyengine.game.world.effect.WorldSoundSink;
 import de.skyengine.game.world.block.BlockPos;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -90,13 +90,14 @@ public final class ChestBlockEntity extends BlockEntity {
     public void setOpen(boolean open, boolean sound) {
         if (open == this.open) return;   // nur echte Wechsel klingen
         this.open = open;
+        if (this.world != null) this.world.markBlockEntityNetworkDirty(this.pos);
         if (sound) this.playToggleSound(open);
     }
 
     /** Auf-/Zu-Sound aus der Block-Definition; stumm ohne Welt, SoundManager oder Sound-Satz. */
     private void playToggleSound(boolean open) {
         if (this.world == null) return;
-        SoundManager sound = this.world.getSoundManager();
+        WorldSoundSink sound = this.world.getSoundManager();
         if (sound == null) return;
         BlockOpenSound set = Blocks.getState(this.world.getBlock(this.pos.x(), this.pos.y(), this.pos.z()))
                 .getBlock().getOpenSound();
@@ -156,5 +157,17 @@ public final class ChestBlockEntity extends BlockEntity {
     @Override
     public void load(DataTag tag) {
         this.inventory.load(tag.getTag("inventory"));
+    }
+
+    @Override
+    public void saveNetwork(DataTag tag) {
+        this.save(tag);
+        tag.putBoolean("networkOpen", this.open);
+    }
+
+    @Override
+    public void loadNetwork(DataTag tag) {
+        this.load(tag);
+        this.open = tag.getBoolean("networkOpen", false);
     }
 }

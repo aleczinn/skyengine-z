@@ -5,6 +5,7 @@ import de.skyengine.core.i18n.I18n;
 import de.skyengine.game.entity.EntityPlayer;
 import de.skyengine.game.world.Dimension;
 import de.skyengine.graphics.world.DimensionView;
+import de.skyengine.graphics.world.ChunkRenderer;
 import de.skyengine.game.world.chunk.ChunkSection;
 import de.skyengine.game.world.dimension.DimensionDefinition;
 import de.skyengine.graphics.color.Color4;
@@ -65,6 +66,11 @@ public final class DebugOverlay {
     }
 
     public void render(GuiManager gui, Dimension world, DimensionView view, EntityPlayer player) {
+        this.render(gui, world, view.chunks(), player);
+    }
+
+    /** Debugdaten fuer eine replizierte Welt ohne lokale {@link DimensionView}. */
+    public void render(GuiManager gui, Dimension world, ChunkRenderer chunks, EntityPlayer player) {
         FontRenderer font = gui.font();
         if (!font.available()) return;
 
@@ -97,8 +103,8 @@ public final class DebugOverlay {
         }
         lines.add("Biome: " + this.lastBiomeName);
         lines.add("Sections: %d/%d  Chunks: %d".formatted(
-                view.chunks().getRenderedSections(),
-                view.chunks().getTotalSections(),
+                chunks.getRenderedSections(),
+                chunks.getTotalSections(),
                 world.getChunkManager().getChunks().size()));
         lines.add("Mem: %d/%d MB".formatted(usedMb, maxMb));
 

@@ -1,6 +1,6 @@
 package de.skyengine.game.world.dimension;
 
-import de.skyengine.core.SkyEngine;
+import de.skyengine.shared.EngineInfo;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.save.LevelData;
 
@@ -53,7 +53,7 @@ public final class DimensionSaves {
     static File dimensionRoot(File saveRoot, Identifier id) {
         Path root = saveRoot.toPath().toAbsolutePath().normalize();
         Path dimensions = root.resolve("dimensions");
-        Path child = dimensions.resolve(SkyEngine.GAME_PREFIX);
+        Path child = dimensions.resolve(EngineInfo.CONTENT_NAMESPACE);
         for (String part : id.path().split("/")) child = child.resolve(part);
         child = child.normalize();
         if (!child.startsWith(dimensions) || child.equals(dimensions)) {

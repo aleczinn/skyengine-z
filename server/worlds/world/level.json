@@ -1,0 +1,19 @@
+{
+  "name": "world",
+  "seed": -1077471942,
+  "created": 1788340986166,
+  "lastPlayed": 1788340986166,
+  "formatVersion": 4,
+  "dimensions": {
+    "voxelstories:overworld": {
+      "seed": -1077471942,
+      "generator": "voxelstories:alpha_v2",
+      "generatorVersion": 2,
+      "lootRandomStates": {
+        "blocks/short_grass": 63834627321456
+      }
+    }
+  },
+  "lootRandomStates": {},
+  "tntExplosionDropDecay": false
+}

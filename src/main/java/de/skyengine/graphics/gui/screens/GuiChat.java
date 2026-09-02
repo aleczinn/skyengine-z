@@ -16,6 +16,7 @@ import org.lwjgl.glfw.GLFW;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 /** Nicht pausierender Singleplayer-Chat zur Eingabe und Vervollstaendigung von Befehlen. */
 public final class GuiChat extends GuiScreen {
@@ -30,6 +31,7 @@ public final class GuiChat extends GuiScreen {
     private final ChatManager chat;
     private final CommandContext context;
     private final ChatHud chatHud;
+    private final Consumer<String> remoteSubmit;
     private String draft;
     private String historyDraft = "";
     private int historyIndex = -1;
@@ -45,6 +47,16 @@ public final class GuiChat extends GuiScreen {
         this.chat = chat;
         this.context = context;
         this.chatHud = chatHud;
+        this.remoteSubmit = null;
+        this.draft = initial;
+    }
+
+    public GuiChat(ChatManager chat, ChatHud chatHud, String initial, Consumer<String> remoteSubmit) {
+        super(null);
+        this.chat = chat;
+        this.context = null;
+        this.chatHud = chatHud;
+        this.remoteSubmit = java.util.Objects.requireNonNull(remoteSubmit);
         this.draft = initial;
     }
 
@@ -67,7 +79,8 @@ public final class GuiChat extends GuiScreen {
         /* Solange der Chat offen ist, bleibt das Eingabefeld der einzige Texteingabefokus. */
         this.input.setFocused(true);
         if (this.completions.isEmpty()) {
-            this.completions = this.chat.suggestions(this.context, this.input.getText());
+            this.completions = this.context == null ? List.of()
+                    : this.chat.suggestions(this.context, this.input.getText());
         }
         float inputY = this.input.y;
         /* Minecraft haengt die letzte Chatzeile auch bei offener Eingabe oberhalb der Hotbar ein;
@@ -95,7 +108,7 @@ public final class GuiChat extends GuiScreen {
 
         gui.font().begin(gui.vWidth(), gui.vHeight());
         this.input.renderText(gui, mouseX, mouseY);
-        String hint = this.chat.hint(this.input.getText());
+        String hint = this.context == null ? "" : this.chat.hint(this.input.getText());
         float hintX = this.input.x + 1F
                 + gui.font().getStringWidth(this.input.getText(), GuiText.NORMAL);
         if (!hint.isEmpty() && hintX < this.input.x + this.input.w - 1F) {
@@ -149,7 +162,10 @@ public final class GuiChat extends GuiScreen {
     @Override
     public boolean keyPressed(GuiManager gui, int key) {
         if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {
-            this.chat.submit(this.context, this.input.getText());
+            if (this.remoteSubmit != null) {
+                this.chat.recordInput(this.input.getText());
+                this.remoteSubmit.accept(this.input.getText());
+            } else this.chat.submit(this.context, this.input.getText());
             gui.close();
             return true;
         }
@@ -193,7 +209,8 @@ public final class GuiChat extends GuiScreen {
 
     private void complete() {
         if (this.completions.isEmpty()) {
-            this.completions = this.chat.suggestions(this.context, this.input.getText());
+            this.completions = this.context == null ? List.of()
+                    : this.chat.suggestions(this.context, this.input.getText());
             this.completionIndex = 0;
         } else if (this.completionApplied) {
             this.completionIndex = (this.completionIndex + 1) % this.completions.size();

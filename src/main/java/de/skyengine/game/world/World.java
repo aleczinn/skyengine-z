@@ -1,6 +1,6 @@
 package de.skyengine.game.world;
 
-import de.skyengine.audio.SoundManager;
+import de.skyengine.game.world.effect.WorldSoundSink;
 import de.skyengine.core.io.IDisposable;
 import de.skyengine.game.world.block.Identifier;
 import de.skyengine.game.world.chunk.WorldWorkerPool;
@@ -24,16 +24,23 @@ public final class World implements IDisposable {
     private final StructureTemplateManager structures;
     private final WorldEditService worldEdit;
 
-    public World(WorldSaves.WorldSave save, SoundManager soundManager) {
+    public World(WorldSaves.WorldSave save, WorldSoundSink soundManager) {
         this(save, WorldSaves.dir(save.dirName()), soundManager);
     }
 
-    public World(WorldSaves.WorldSave save, File root, SoundManager soundManager) {
+    public World(WorldSaves.WorldSave save, File root, WorldSoundSink soundManager) {
+        this(save, root, soundManager, true);
+    }
+
+    /** Dedicated servers use the same world without manufacturing a process-local player. */
+    public World(WorldSaves.WorldSave save, File root, WorldSoundSink soundManager,
+                 boolean createLocalPlayer) {
         this.save = save;
         this.root = root;
         this.workers = new WorldWorkerPool();
         this.portalLinks = new PortalLinks(this.root);
-        this.players = new PlayerManager(save, this.root, () -> WorldSaves.saveInDirectory(save, this.root));
+        this.players = new PlayerManager(save, this.root,
+                () -> WorldSaves.saveInDirectory(save, this.root), createLocalPlayer);
         this.structures = new StructureTemplateManager();
         this.worldEdit = new WorldEditService(this.structures);
         this.dimensions = new DimensionManager(save.dirName(), save.level(), this.root, this.workers, this.portalLinks, soundManager, structureSnapshot());

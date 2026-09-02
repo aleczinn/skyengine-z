@@ -3,6 +3,7 @@ package de.skyengine.game.world.particle;
 import de.skyengine.core.settings.GameSettings;
 import de.skyengine.game.physics.AABB;
 import de.skyengine.game.world.Dimension;
+import de.skyengine.game.world.effect.ParticleSink;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.model.BakedQuad;
@@ -27,7 +28,7 @@ import java.util.Random;
  * Weltgebundener, dichter SoA-Pool für kosmetische Partikel. Sämtliche Arrays besitzen eine feste
  * Obergrenze; Tick, Spawn und Render-Verdichtung erzeugen dadurch keinen Heap-Müll.
  */
-public final class ParticleEngine {
+public final class ParticleEngine implements ParticleSink {
 
     public static final int MAX_PARTICLES = 8192;
     public static final int INSTANCE_FLOATS = 16;

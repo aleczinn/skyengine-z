@@ -8,6 +8,12 @@ import org.joml.Vector3d;
 
 public final class BlockRaycast {
 
+    /** Minimal read-only world view shared by local dimensions and replicated client chunks. */
+    public interface BlockAccess {
+        int getBlock(int x, int y, int z);
+        boolean isInteractionReady(int x, int y, int z);
+    }
+
     /**
      * @param x/y/z   Position des getroffenen Blocks
      * @param block   Block-ID
@@ -50,6 +56,17 @@ public final class BlockRaycast {
         return raycast(world, origin, dir, maxDistance, false, true);
     }
 
+    public static Hit raycastInteractive(BlockAccess world, Vector3d origin, Vector3d dir,
+                                         double maxDistance) {
+        return raycast(world, origin, dir, maxDistance, false, true);
+    }
+
+    /** Fluid-aware variant used by the replicated empty-bucket interaction. */
+    public static Hit raycastInteractive(BlockAccess world, Vector3d origin, Vector3d dir,
+                                         double maxDistance, boolean includeFluids) {
+        return raycast(world, origin, dir, maxDistance, includeFluids, true);
+    }
+
     /** Fluid-bewusste Spieler-Variante fuer den leeren Eimer. */
     public static Hit raycastInteractive(Dimension world, Vector3d origin, Vector3d dir,
                                          double maxDistance, boolean includeFluids) {
@@ -57,6 +74,16 @@ public final class BlockRaycast {
     }
 
     private static Hit raycast(Dimension world, Vector3d origin, Vector3d dir, double maxDistance,
+                               boolean includeFluids, boolean requirePlayerInteractionReady) {
+        return raycast(new BlockAccess() {
+            @Override public int getBlock(int x, int y, int z) { return world.getBlock(x, y, z); }
+            @Override public boolean isInteractionReady(int x, int y, int z) {
+                return world.isPlayerInteractionReady(x, y, z);
+            }
+        }, origin, dir, maxDistance, includeFluids, requirePlayerInteractionReady);
+    }
+
+    private static Hit raycast(BlockAccess world, Vector3d origin, Vector3d dir, double maxDistance,
                                boolean includeFluids, boolean requirePlayerInteractionReady) {
         int x = (int) Math.floor(origin.x);
         int y = (int) Math.floor(origin.y);
@@ -80,7 +107,7 @@ public final class BlockRaycast {
         int faceX = 0, faceY = 0, faceZ = 0;
 
         while (true) {
-            if (requirePlayerInteractionReady && !world.isPlayerInteractionReady(x, y, z)) {
+            if (requirePlayerInteractionReady && !world.isInteractionReady(x, y, z)) {
                 return null;
             }
             int block = world.getBlock(x, y, z);

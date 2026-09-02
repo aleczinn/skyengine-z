@@ -28,9 +28,18 @@ public final class PlayerManager {
     }
 
     PlayerManager(WorldSaves.WorldSave save, File root, Runnable levelSaver) {
+        this(save, root, levelSaver, true);
+    }
+
+    PlayerManager(WorldSaves.WorldSave save, File root, Runnable levelSaver, boolean createLocalPlayer) {
         this.save = save;
         this.root = root;
         LevelData level = save.level();
+        if (!createLocalPlayer) {
+            this.localPlayer = null;
+            this.localPlayerHasPosition = false;
+            return;
+        }
         UUID uuid = parseUuid(level.localPlayerUuid);
         DataTag tag = uuid == null ? null : PlayerIO.read(PlayerIO.playerFile(root, uuid));
         if (uuid == null) uuid = UUID.randomUUID();
@@ -44,6 +53,7 @@ public final class PlayerManager {
     }
 
     public EntityPlayer localPlayer() {
+        if (this.localPlayer == null) throw new IllegalStateException("World has no local player");
         return this.localPlayer;
     }
 
@@ -53,6 +63,26 @@ public final class PlayerManager {
 
     public EntityPlayer get(UUID uuid) {
         return this.players.get(uuid);
+    }
+
+    /** Loads the persistent player or creates a new authoritative player for this identity. */
+    public EntityPlayer loadOrCreate(UUID uuid) {
+        EntityPlayer existing = this.players.get(uuid);
+        if (existing != null) return existing;
+        DataTag tag = PlayerIO.read(PlayerIO.playerFile(this.root, uuid));
+        EntityPlayer player = new EntityPlayer(uuid);
+        this.load(player, tag, this.save.level());
+        this.players.put(uuid, player);
+        return player;
+    }
+
+    public void remove(UUID uuid, boolean save) {
+        EntityPlayer player = this.players.remove(uuid);
+        if (player != null && save) this.save(player);
+    }
+
+    public Iterable<EntityPlayer> all() {
+        return java.util.List.copyOf(this.players.values());
     }
 
     public void saveAll() {

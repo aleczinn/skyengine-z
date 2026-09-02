@@ -1,7 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.audio.BlockOpenSound;
-import de.skyengine.audio.SoundManager;
+import de.skyengine.game.world.effect.WorldSoundSink;
 import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Direction;
 import de.skyengine.game.world.block.state.BlockHalf;
@@ -71,7 +71,7 @@ public final class TrapdoorBehavior implements BlockBehavior {
 
     /** Nullbar wie bei der Tür: ohne SoundManager (Weltgen-Tests) bleibt es still. */
     private static void playOpenSound(Dimension world, int x, int y, int z, BlockState state, boolean open) {
-        SoundManager sound = world.getSoundManager();
+        WorldSoundSink sound = world.getSoundManager();
         BlockOpenSound set = state.getBlock().getOpenSound();
         if (sound != null && set != null) {
             if (open) sound.playBlockOpen(set, x + 0.5, y + 0.5, z + 0.5);

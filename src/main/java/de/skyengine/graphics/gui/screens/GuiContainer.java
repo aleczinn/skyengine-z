@@ -24,6 +24,7 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.ToIntFunction;
 
 /**
  * Basis aller Slot-Container-Screens (Truhe, Spielerinventar, künftige Maschinen-GUIs):
@@ -32,6 +33,13 @@ import java.util.List;
  * später Stack-Regeln/Maus-Shortcuts (Phase 2) an, ohne die Screens anzufassen.
  */
 public abstract class GuiContainer extends GuiScreen {
+
+    @FunctionalInterface
+    public interface InventoryActionSink {
+        void send(int sourceSlot, int targetSlot,
+                  de.skyengine.shared.gameplay.InventoryActionRequest.Action action,
+                  int button, ItemStack offeredStack);
+    }
 
     protected static final int COLS = 9, SLOT = 16, STEP = 18;
 
@@ -48,6 +56,9 @@ public abstract class GuiContainer extends GuiScreen {
 
     /** Ziele fürs Zurücklegen des getragenen Stapels beim Schließen (in Reihenfolge). */
     private final ItemStorage[] returnCarriedTo;
+    private final InventoryActionSink actionSink;
+    private final ToIntFunction<Slot> networkSlot;
+    private final Runnable closeSink;
 
     /** Zeitfenster für den Doppelklick (wie in {@code GuiSelectWorld}). */
     private static final long DOUBLE_CLICK_MS = 400;
@@ -78,8 +89,33 @@ public abstract class GuiContainer extends GuiScreen {
     private final List<Slot> dragSlots = new ArrayList<>();
 
     protected GuiContainer(ItemStorage... returnCarriedTo) {
+        this(null, returnCarriedTo);
+    }
+
+    protected GuiContainer(InventoryActionSink actionSink, ItemStorage... returnCarriedTo) {
+        this(actionSink, slot -> slot.group == SlotGroup.HOTBAR || slot.group == SlotGroup.INVENTORY
+                ? slot.index : -1, () -> { }, returnCarriedTo);
+    }
+
+    protected GuiContainer(InventoryActionSink actionSink, ToIntFunction<Slot> networkSlot,
+                           Runnable closeSink, ItemStorage... returnCarriedTo) {
         super(null);
+        this.actionSink = actionSink;
+        this.networkSlot = networkSlot;
+        this.closeSink = closeSink;
         this.returnCarriedTo = returnCarriedTo;
+    }
+
+    protected final void sendInventoryAction(int sourceSlot, int targetSlot,
+                                             de.skyengine.shared.gameplay.InventoryActionRequest.Action action,
+                                             int button, ItemStack offeredStack) {
+        if (this.actionSink != null) this.actionSink.send(sourceSlot, targetSlot, action, button,
+                offeredStack == null ? ItemStack.EMPTY : offeredStack.copy());
+    }
+
+    /** Applies the server-owned cursor stack after a multiplayer transaction/correction. */
+    public final void acceptAuthoritativeCarried(ItemStack stack) {
+        this.carried = stack == null ? ItemStack.EMPTY : stack;
     }
 
     @Override
@@ -259,7 +295,7 @@ public abstract class GuiContainer extends GuiScreen {
                 if (this.dragSlots.contains(slot) || !this.sameQuickMoveSide(this.dragStartSlot, slot)) return;
                 this.dragSlots.add(slot);
                 ItemStack stack = slot.get();
-                if (!stack.isEmpty()) this.quickMove(slot, stack.getCount());
+                if (!stack.isEmpty()) this.onSlotClick(slot, GLFW.GLFW_MOUSE_BUTTON_LEFT, true);
             }
             case DISTRIBUTE -> {
                 if (!this.dragSlots.contains(slot) && this.canDistributeTo(slot)) this.dragSlots.add(slot);
@@ -311,6 +347,9 @@ public abstract class GuiContainer extends GuiScreen {
     /** Legt genau ein Item ab; anders als der Rechtsklick tauscht es NIE (Zug über fremde Stapel). */
     private void placeOne(Slot slot) {
         if (this.carried.isEmpty() || !this.canDistributeTo(slot)) return;
+        int networkIndex = this.networkSlot.applyAsInt(slot);
+        if (networkIndex >= 0) this.sendInventoryAction(networkIndex, -1,
+                de.skyengine.shared.gameplay.InventoryActionRequest.Action.DRAG, 1, ItemStack.EMPTY);
         ItemStack existing = slot.get();
         if (existing.isEmpty()) {
             slot.set(this.carried.split(1));
@@ -336,6 +375,9 @@ public abstract class GuiContainer extends GuiScreen {
         if (space <= 0) return;
         ItemStack stack = slot.get();
         if (!stack.canStackWith(this.carried)) return;
+        int networkIndex = this.networkSlot.applyAsInt(slot);
+        if (networkIndex >= 0) this.sendInventoryAction(networkIndex, -1,
+                de.skyengine.shared.gameplay.InventoryActionRequest.Action.PICKUP, 0, stack);
         ItemStack taken = slot.take(space);
         this.carried.setCount(this.carried.getCount() + taken.getCount());
     }
@@ -364,6 +406,9 @@ public abstract class GuiContainer extends GuiScreen {
         for (Slot slot : this.dragSlots) {
             int give = this.dragShare(slot, carriedCount);
             if (give <= 0) continue;
+            int networkIndex = this.networkSlot.applyAsInt(slot);
+            if (networkIndex >= 0) this.sendInventoryAction(networkIndex, -1,
+                    de.skyengine.shared.gameplay.InventoryActionRequest.Action.DRAG, give, ItemStack.EMPTY);
             ItemStack existing = slot.get();
             if (existing.isEmpty()) {
                 slot.set(this.carried.split(give));
@@ -385,6 +430,9 @@ public abstract class GuiContainer extends GuiScreen {
         Slot slot = this.slotAt(mouseX, mouseY);
         if (slot == null || !this.carried.isEmpty()) return false;
         if (amount > 0) {
+            int networkIndex = this.networkSlot.applyAsInt(slot);
+            if (networkIndex >= 0) this.sendInventoryAction(networkIndex, -1,
+                    de.skyengine.shared.gameplay.InventoryActionRequest.Action.QUICK_MOVE, 1, ItemStack.EMPTY);
             this.quickMove(slot, 1);
         } else {
             this.pullOne(slot);
@@ -399,6 +447,10 @@ public abstract class GuiContainer extends GuiScreen {
         for (Slot source : this.quickMoveTargets(slot.group)) {
             ItemStack stack = source.get();
             if (!stack.canStackWith(target)) continue;
+            int sourceNetwork = this.networkSlot.applyAsInt(source);
+            int targetNetwork = this.networkSlot.applyAsInt(slot);
+            if (sourceNetwork >= 0 && targetNetwork >= 0) this.sendInventoryAction(sourceNetwork, targetNetwork,
+                    de.skyengine.shared.gameplay.InventoryActionRequest.Action.DRAG, 1, ItemStack.EMPTY);
             target.setCount(target.getCount() + source.take(1).getCount());
             slot.setChanged();
             return;
@@ -440,6 +492,10 @@ public abstract class GuiContainer extends GuiScreen {
                 SkyEngine.get().getGame().clearWorldEditSelection();
                 return true;
             }
+            int networkIndex = this.networkSlot.applyAsInt(slot);
+            if (networkIndex >= 0) this.sendInventoryAction(networkIndex, -1,
+                    de.skyengine.shared.gameplay.InventoryActionRequest.Action.DROP,
+                    fullStack ? 1 : 0, ItemStack.EMPTY);
             throwOut(slot.storage.extract(slot.index, fullStack ? slot.get().getCount() : 1));
             slot.setChanged();
         }
@@ -468,6 +524,12 @@ public abstract class GuiContainer extends GuiScreen {
             if (hotbar == slot) return;
             ItemStack previous = hotbar.get();
             if (!slot.canPlace(previous) || !hotbar.canPlace(slot.get())) return;
+            int sourceNetworkSlot = this.networkSlot.applyAsInt(slot);
+            int hotbarNetworkSlot = this.networkSlot.applyAsInt(hotbar);
+            if (sourceNetworkSlot >= 0 && hotbarNetworkSlot >= 0) {
+                this.sendInventoryAction(sourceNetworkSlot, hotbarNetworkSlot,
+                        de.skyengine.shared.gameplay.InventoryActionRequest.Action.SWAP, 0, ItemStack.EMPTY);
+            }
             hotbar.set(slot.get());
             slot.set(previous);
             return;
@@ -491,12 +553,18 @@ public abstract class GuiContainer extends GuiScreen {
             ItemStack stack = s.get();
             if (!stack.canStackWith(this.carried)) continue;
             if ((stack.getCount() >= stack.getMaxStackSize()) != fromFullStacks) continue;
+            int networkIndex = this.networkSlot.applyAsInt(s);
+            if (networkIndex >= 0) this.sendInventoryAction(networkIndex, -1,
+                    de.skyengine.shared.gameplay.InventoryActionRequest.Action.PICKUP, 0, stack);
             this.carried.setCount(this.carried.getCount() + s.take(space).getCount());
         }
     }
 
     /** Wirft {@code amount} vom getragenen Stapel aus. */
     private void throwFromCarried(int amount) {
+        if (this.actionSink != null) this.sendInventoryAction(-1, -1,
+                de.skyengine.shared.gameplay.InventoryActionRequest.Action.DROP,
+                amount >= this.carried.getCount() ? 1 : 0, ItemStack.EMPTY);
         throwOut(this.carried.split(amount));
         if (this.carried.isEmpty()) this.carried = ItemStack.EMPTY;
     }
@@ -516,6 +584,16 @@ public abstract class GuiContainer extends GuiScreen {
      * ein Item ab, die Mitte klont im Creative.
      */
     protected void onSlotClick(Slot slot, int button, boolean shift) {
+        de.skyengine.shared.gameplay.InventoryActionRequest.Action networkAction =
+                button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE
+                        ? de.skyengine.shared.gameplay.InventoryActionRequest.Action.CLONE
+                        : shift ? de.skyengine.shared.gameplay.InventoryActionRequest.Action.QUICK_MOVE
+                        : de.skyengine.shared.gameplay.InventoryActionRequest.Action.PICKUP;
+        int networkIndex = this.networkSlot.applyAsInt(slot);
+        if (networkIndex >= 0) {
+            this.sendInventoryAction(networkIndex, -1, networkAction,
+                    button == GLFW.GLFW_MOUSE_BUTTON_RIGHT ? 1 : 0, slot.get());
+        }
         if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
             this.cloneInCreative(slot);
             return;
@@ -733,6 +811,11 @@ public abstract class GuiContainer extends GuiScreen {
 
     @Override
     public void onClose() {
+        this.closeSink.run();
+        if (this.actionSink != null) {
+            this.carried = ItemStack.EMPTY;
+            return;
+        }
         if (this.carried.isEmpty()) return;
         GameContainer game = SkyEngine.get().getGame();
         if (game.getDimension() != null && !isCommandOnly(this.carried)) {

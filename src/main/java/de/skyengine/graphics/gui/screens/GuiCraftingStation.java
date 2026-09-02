@@ -19,6 +19,8 @@ public final class GuiCraftingStation extends GuiContainer {
     private final int gridHeight;
     private final ItemStorage playerInv;
     private final CraftingMenu crafting;
+    private final ItemStorage craftingInput;
+    private final ItemStorage craftingOutput;
     private int width, height;
     private float guiX, guiY;
 
@@ -29,6 +31,24 @@ public final class GuiCraftingStation extends GuiContainer {
         this.playerInv = playerInv;
         this.crafting = new CraftingMenu(gridWidth, gridHeight, recipeType, playerInv,
                 stack -> SkyEngine.get().getGame().dropFromGui(stack));
+        this.craftingInput = this.crafting.input();
+        this.craftingOutput = this.crafting.output();
+    }
+
+    public GuiCraftingStation(int gridWidth, int gridHeight, ItemStorage craftingInput,
+                              ItemStorage craftingOutput, ItemStorage playerInv,
+                              InventoryActionSink actionSink, Runnable closeSink) {
+        super(actionSink, slot -> switch (slot.group) {
+            case CRAFT_INPUT -> slot.index;
+            case CRAFT_RESULT -> craftingInput.size();
+            default -> craftingInput.size() + 1 + slot.index;
+        }, closeSink, playerInv, craftingInput);
+        this.gridWidth = gridWidth;
+        this.gridHeight = gridHeight;
+        this.playerInv = playerInv;
+        this.crafting = null;
+        this.craftingInput = craftingInput;
+        this.craftingOutput = craftingOutput;
     }
 
     @Override
@@ -46,12 +66,12 @@ public final class GuiCraftingStation extends GuiContainer {
         int gridX = vanilla ? 30 : 10;
         int gridY = vanilla ? 17 : 10;
         for (int row = 0; row < this.gridHeight; row++) for (int col = 0; col < this.gridWidth; col++) {
-            this.slots.add(new Slot(this.crafting.input(), row * this.gridWidth + col,
+            this.slots.add(new Slot(this.craftingInput, row * this.gridWidth + col,
                     gx + gridX + col * STEP, gy + gridY + row * STEP, SlotGroup.CRAFT_INPUT));
         }
         int resultX = vanilla ? 124 : gridX + this.gridWidth * STEP + 18;
         int resultY = vanilla ? 35 : gridY + Math.max(0, (this.gridHeight * STEP - SLOT) / 2);
-        this.slots.add(new Slot(this.crafting.output(), 0, gx + resultX, gy + resultY,
+        this.slots.add(new Slot(this.craftingOutput, 0, gx + resultX, gy + resultY,
                 SlotGroup.CRAFT_RESULT, stack -> false));
 
         int playerX = vanilla ? 8 : sideLayout ? resultX + 48 : 8;
@@ -72,7 +92,7 @@ public final class GuiCraftingStation extends GuiContainer {
 
     @Override
     protected int quickMove(Slot from, int amount) {
-        if (from.group == SlotGroup.CRAFT_RESULT) return this.crafting.craftAll();
+        if (from.group == SlotGroup.CRAFT_RESULT && this.crafting != null) return this.crafting.craftAll();
         return super.quickMove(from, amount);
     }
 
@@ -108,7 +128,7 @@ public final class GuiCraftingStation extends GuiContainer {
     }
 
     @Override public void onClose() {
-        this.crafting.close();
+        if (this.crafting != null) this.crafting.close();
         super.onClose();
     }
 }

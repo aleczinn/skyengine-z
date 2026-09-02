@@ -269,6 +269,9 @@ public abstract class Entity {
      * move() vorher aus. Das Epsilon hält exakt bündige Boxen aus der Nachbarzelle heraus.
      */
     private void checkInsideBlocks(Dimension world) {
+        // Prediction reads the replicated world but must never trigger pressure plates,
+        // portals or any other authoritative block mutation locally.
+        if (!world.isAuthoritativeWorld()) return;
         final double eps = 1.0E-7;
         int minX = (int) Math.floor(this.boundingBox.minX);
         int minY = (int) Math.floor(this.boundingBox.minY);

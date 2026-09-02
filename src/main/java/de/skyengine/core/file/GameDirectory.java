@@ -1,6 +1,6 @@
 package de.skyengine.core.file;
 
-import de.skyengine.core.SkyEngine;
+import de.skyengine.shared.EngineInfo;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 
@@ -40,7 +40,7 @@ public final class GameDirectory {
         String appData = System.getenv("APPDATA");
         File base = appData != null && !appData.isBlank()
                 ? new File(appData) : new File(System.getProperty("user.home"));
-        return new File(base, SkyEngine.GAME_DATA_DIRECTORY_NAME);
+        return new File(base, EngineInfo.GAME_DATA_DIRECTORY_NAME);
     }
 
     /** Root anlegen und veraltete technische Marker früherer Alpha-Versionen entfernen. */

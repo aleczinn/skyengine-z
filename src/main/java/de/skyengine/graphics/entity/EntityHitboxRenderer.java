@@ -23,12 +23,32 @@ public final class EntityHitboxRenderer {
     }
 
     public void render(Camera camera, EntityPlayer player, Dimension world, float partialTick) {
-        this.boxCount = 0;
-        this.directionCount = 0;
-        this.add(player, camera, partialTick, true);
+        this.begin(camera, player, partialTick);
         world.forEachLoadedEntity(entity -> {
             if (!entity.isRemoved()) this.add(entity, camera, partialTick, false);
         });
+        this.end(camera);
+    }
+
+    /** Renders hitboxes from a replicated entity collection that is not owned by a Dimension. */
+    public void render(Camera camera, EntityPlayer player, Iterable<? extends Entity> entities,
+                       float partialTick) {
+        this.begin(camera, player, partialTick);
+        for (Entity entity : entities) {
+            if (entity != null && entity != player && !entity.isRemoved()) {
+                this.add(entity, camera, partialTick, entity instanceof EntityPlayer);
+            }
+        }
+        this.end(camera);
+    }
+
+    private void begin(Camera camera, EntityPlayer player, float partialTick) {
+        this.boxCount = 0;
+        this.directionCount = 0;
+        this.add(player, camera, partialTick, true);
+    }
+
+    private void end(Camera camera) {
         this.lines.render(camera, this.boxes, this.boxCount, 2.0F, 1F, 1F, 1F, 1F);
         this.lines.render(camera, this.directions, this.directionCount, 2.0F, 0.1F, 0.25F, 1F, 1F);
     }

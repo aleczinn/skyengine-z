@@ -40,14 +40,19 @@ public final class ChatManager {
     public void submit(CommandContext context, String input) {
         String value = input == null ? "" : input.trim();
         if (value.isEmpty()) return;
-        if (this.history.isEmpty() || !this.history.getLast().equals(value)) {
-            if (this.history.size() == MAX_MESSAGES) this.history.removeFirst();
-            this.history.add(value);
-        }
+        this.recordInput(value);
         CommandResult result = this.dispatcher.execute(context, value);
         for (String message : result.messages()) {
             this.addMessage((result.success() ? "§f" : "§c") + message);
         }
+    }
+
+    /** Records client-side history when command execution is delegated to a remote server. */
+    public void recordInput(String input) {
+        String value = input == null ? "" : input.trim();
+        if (value.isEmpty() || (!this.history.isEmpty() && this.history.getLast().equals(value))) return;
+        if (this.history.size() == MAX_MESSAGES) this.history.removeFirst();
+        this.history.add(value);
     }
 
     public void addMessage(String markup) {

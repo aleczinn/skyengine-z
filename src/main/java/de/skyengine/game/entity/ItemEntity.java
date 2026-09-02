@@ -50,6 +50,12 @@ public class ItemEntity extends Entity {
         return this.pickupDelay;
     }
 
+    /** Restores presentation state received from an authoritative server replica. */
+    public void restoreNetworkState(int age, int pickupDelay) {
+        this.age = Math.max(0, age);
+        this.pickupDelay = Math.max(0, pickupDelay);
+    }
+
     /** Sperre bis zum Aufsammeln in Ticks (MC: 40 beim Spieler-Wurf, sonst bleibt der Default). */
     public void setPickupDelay(int ticks) {
         this.pickupDelay = Math.max(0, ticks);

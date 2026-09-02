@@ -84,6 +84,7 @@ public class ChunkManager {
     /* Debug: friert Laden/Generieren/Unload ein (Remeshes von Spieler-Edits laufen weiter).
        volatile nur der Sichtbarkeit halber — gelesen wird auf dem Tick-/Render-Thread. */
     private volatile boolean loadingPaused = false;
+    private boolean suppressSingleAnchorUnload;
 
     /* Zählt Entfernungen aus der chunks-Map (Unload-Loop + clearAllChunks). Der ChunkRenderer
        räumt seine Section-Meshes nur in Frames auf, in denen sich dieser Wert geändert hat,
@@ -427,10 +428,7 @@ public class ChunkManager {
             Chunk chunk = this.chunks.get(key);
             if (chunk == null) {
                 chunk = new Chunk(cx, cz);
-                chunk.beginRenderGeneration(this.activeRenderGeneration);
-                chunk.remeshQueue = this.remeshQueue; // Dirty-Markierungen melden sich hier an
-                chunk.blockEntityAnnounceQueue = this.blockEntityAnnounceQueue;
-                chunk.tickRestoreQueue = this.tickRestoreQueue;
+                this.prepareManagedChunk(chunk);
                 this.chunks.put(key, chunk);
             }
 
@@ -522,6 +520,13 @@ public class ChunkManager {
                der Mesher fürs Corner-Smoothing sampelt.
                Jede Section als eigener Batch, damit der Upload über Frames verteilt wird. */
             if (chunk.status == ChunkStatus.LIT) {
+                /* Dedicated server: lighting is the final CPU representation. Meshing and
+                   upload queues only exist once a renderer has explicitly attached. */
+                if (this.activeRenderGeneration == 0) {
+                    chunk.status = ChunkStatus.READY;
+                    this.readyAnnounceQueue.add(chunk);
+                    continue;
+                }
                 Chunk north = this.getAtLeast(cx, cz - 1, ChunkStatus.LIT);
                 Chunk south = this.getAtLeast(cx, cz + 1, ChunkStatus.LIT);
                 Chunk west = this.getAtLeast(cx - 1, cz, ChunkStatus.LIT);
@@ -581,6 +586,8 @@ public class ChunkManager {
                     + this.chunks.size() + " Chunks sichtbar, " + this.initialUploadBacklog
                     + " Erst-Mesh-Batches offen");
         }
+
+        if (this.suppressSingleAnchorUnload) return;
 
         /* 5. Unload chunks far outside the render distance.
            READY, LIT, DECORATED und GENERATED dürfen weg - nur laufende Jobs
@@ -787,6 +794,110 @@ public class ChunkManager {
 
     public Chunk getChunk(int chunkX, int chunkZ) {
         return this.chunks.get(Chunk.key(chunkX, chunkZ));
+    }
+
+    /**
+     * Dedicated-server interest update. Each player contributes its normal prioritized load
+     * radius; no individual player is allowed to evict another player's chunks.
+     */
+    public void updatePlayers(Iterable<EntityPlayer> players) {
+        this.suppressSingleAnchorUnload = true;
+        try {
+            for (EntityPlayer player : players) this.update(player);
+        } finally {
+            this.suppressSingleAnchorUnload = false;
+        }
+    }
+
+    /**
+     * Installs an already generated and lit L0 chunk received from an authoritative server.
+     * The normal generator/update loop must not be used by replicated client worlds.
+     */
+    public void installReplicatedChunk(Chunk chunk) {
+        java.util.Objects.requireNonNull(chunk, "chunk");
+        if (!chunk.status.isAtLeast(ChunkStatus.LIT)) {
+            throw new IllegalArgumentException("Replicated chunk must contain final lighting");
+        }
+        this.prepareManagedChunk(chunk);
+        Chunk previous = this.chunks.put(Chunk.key(chunk.chunkX, chunk.chunkZ), chunk);
+        if (previous != null && previous != chunk) {
+            this.chunkRemovalVersion++;
+            this.markReplicatedNeighboursDirty(chunk.chunkX, chunk.chunkZ);
+        }
+        this.scheduleReplicatedMeshesAround(chunk.chunkX, chunk.chunkZ);
+    }
+
+    /** Removes a server-replicated chunk and invalidates its GPU residency. */
+    public void removeReplicatedChunk(int chunkX, int chunkZ) {
+        Chunk removed = this.chunks.remove(Chunk.key(chunkX, chunkZ));
+        if (removed == null) return;
+        this.unloadAnnounceQueue.add(Chunk.key(chunkX, chunkZ));
+        this.chunkRemovalVersion++;
+    }
+
+    private void prepareManagedChunk(Chunk chunk) {
+        chunk.beginRenderGeneration(this.activeRenderGeneration);
+        chunk.remeshQueue = this.remeshQueue;
+        chunk.blockEntityAnnounceQueue = this.blockEntityAnnounceQueue;
+        chunk.tickRestoreQueue = this.tickRestoreQueue;
+    }
+
+    private void scheduleReplicatedMeshesAround(int chunkX, int chunkZ) {
+        if (this.activeRenderGeneration == 0) return;
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                this.tryScheduleReplicatedMesh(chunkX + dx, chunkZ + dz);
+            }
+        }
+    }
+
+    private void tryScheduleReplicatedMesh(int chunkX, int chunkZ) {
+        Chunk chunk = this.getAtLeast(chunkX, chunkZ, ChunkStatus.LIT);
+        if (chunk == null || chunk.status != ChunkStatus.LIT) return;
+        Chunk north = this.getAtLeast(chunkX, chunkZ - 1, ChunkStatus.LIT);
+        Chunk south = this.getAtLeast(chunkX, chunkZ + 1, ChunkStatus.LIT);
+        Chunk west = this.getAtLeast(chunkX - 1, chunkZ, ChunkStatus.LIT);
+        Chunk east = this.getAtLeast(chunkX + 1, chunkZ, ChunkStatus.LIT);
+        Chunk[] diagonals = this.getDiagonalsAtLeast(chunkX, chunkZ, ChunkStatus.LIT);
+        if (north == null || south == null || west == null || east == null || diagonals == null) return;
+
+        chunk.status = ChunkStatus.MESHING;
+        long meshSeq = this.nextMeshSeq++;
+        long renderGeneration = this.activeRenderGeneration;
+        this.submitForegroundTask(PRIO_LOAD, () -> {
+            ChunkMesher mesher = this.meshers.get();
+            List<MeshResult> batch = new ArrayList<>(Chunk.SECTIONS);
+            lockRead(chunk, north, south, west, east, diagonals);
+            try {
+                for (int sectionY = 0; sectionY < Chunk.SECTIONS; sectionY++) {
+                    long started = PerformanceProfiler.get().begin();
+                    batch.add(new MeshResult(chunk.chunkX, sectionY, chunk.chunkZ,
+                            mesher.mesh(chunk, sectionY, north, south, west, east, diagonals), meshSeq));
+                    PerformanceProfiler.get().recordElapsed(
+                            PerformanceProfiler.WorkerSection.L0_INITIAL_MESH, started);
+                }
+            } finally {
+                unlockRead(chunk, north, south, west, east, diagonals);
+            }
+            if (renderGeneration == this.activeRenderGeneration
+                    && this.chunks.get(Chunk.key(chunk.chunkX, chunk.chunkZ)) == chunk) {
+                this.uploadQueue.add(new MeshBatch(batch, renderGeneration));
+                chunk.status = ChunkStatus.READY;
+                this.readyAnnounceQueue.add(chunk);
+            }
+        });
+    }
+
+    private void markReplicatedNeighboursDirty(int chunkX, int chunkZ) {
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                if (dx == 0 && dz == 0) continue;
+                Chunk neighbour = this.getChunk(chunkX + dx, chunkZ + dz);
+                if (neighbour != null && neighbour.status == ChunkStatus.READY) {
+                    neighbour.markSectionsDirty((1 << Chunk.SECTIONS) - 1);
+                }
+            }
+        }
     }
 
     /** Alle aktuell geladenen Chunks (z.B. fürs BlockEntity-Ticking). */

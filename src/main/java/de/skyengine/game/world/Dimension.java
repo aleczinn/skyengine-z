@@ -1,7 +1,5 @@
 package de.skyengine.game.world;
 
-import de.skyengine.audio.SoundManager;
-import de.skyengine.core.input.Input;
 import de.skyengine.core.io.IDisposable;
 import de.skyengine.core.io.IInitializable;
 import de.skyengine.game.entity.Entity;
@@ -46,7 +44,8 @@ import de.skyengine.game.world.save.WorldStorage;
 import de.skyengine.utils.logging.LogManager;
 import de.skyengine.utils.logging.Logger;
 import de.skyengine.game.world.light.LightEngine;
-import de.skyengine.game.world.particle.ParticleEngine;
+import de.skyengine.game.world.effect.ParticleSink;
+import de.skyengine.game.world.effect.WorldSoundSink;
 import de.skyengine.game.world.particle.ParticlePriority;
 import de.skyengine.game.world.redstone.RedstonePower;
 import de.skyengine.game.world.redstone.RedstoneWireNetwork;
@@ -54,9 +53,6 @@ import de.skyengine.game.world.tick.SavedTick;
 import de.skyengine.game.world.tick.ScheduledTickQueue;
 import de.skyengine.game.world.tick.ScheduledTickTypes;
 import de.skyengine.game.world.tick.TickPriority;
-import de.skyengine.graphics.blockentity.BlockEntityRenderDispatcher;
-import de.skyengine.graphics.texture.BlockTextureAtlas;
-import de.skyengine.graphics.FrameProfiler;
 import de.skyengine.graphics.PerformanceProfiler;
 import de.skyengine.utils.collect.LongIntMap;
 import de.skyengine.utils.collect.LongObjMap;
@@ -76,6 +72,11 @@ public class Dimension implements IInitializable, IDisposable {
     private final EnergyNetworkManager energyNetworks = new EnergyNetworkManager(this);
     /* Synchronous player action scope. Nested block behavior mutations inherit the origin. */
     private int playerBlockChangeDepth;
+    private ArrayList<BlockMutation> capturedPlayerBlockChanges;
+    /** Tick-owned mutation journal used by the dedicated-server replication adapter. */
+    private ArrayList<BlockMutation> networkBlockMutations;
+    /** Deduplicated dirty block entities for the dedicated-server replication adapter. */
+    private LinkedHashSet<Long> networkBlockEntityMutations;
     /** True while a piston replaces a complete structure by moving-piston placeholders. */
     private int pistonBlockMoveDepth;
 
@@ -104,11 +105,13 @@ public class Dimension implements IInitializable, IDisposable {
     private final LevelData.DimensionData dimensionData;
     private final PortalIndex portalIndex;
     private final PortalLinks portalLinks;
+    /** Non-simulating client mirror used exclusively by local movement prediction. */
+    private final boolean replicatedClientView;
     /* Engine-Lebensdauer (GameContainer): Atlas + BlockEntity-Renderer überleben Welt-Austritte —
        die Welt hält nur Referenzen und disposed sie NICHT. */
-    private final ParticleEngine particles;
+    private ParticleSink particles = ParticleSink.NONE;
     /* Engine-Lebensdauer (GameContainer): für Sounds aus der Welt-Logik (z.B. TNT-Explosion). Nullable. */
-    private SoundManager soundManager;
+    private WorldSoundSink soundManager = WorldSoundSink.NONE;
 
     /** Reentranzsicherer Puffer: Spawns aus einem laufenden Tick werden erst danach in den Chunk übernommen. */
     private final List<Entity> pendingEntities = new ArrayList<>();
@@ -157,6 +160,8 @@ public class Dimension implements IInitializable, IDisposable {
 
     /** Der Spieler dieses Ticks (für BlockEntities, die ihn brauchen, z.B. das Zaubertisch-Buch). */
     private EntityPlayer player;
+    /** All authoritative players currently ticking this dimension. Local play contains one. */
+    private List<EntityPlayer> activePlayers = List.of();
 
     /** Spielzeit in Ticks (20 TPS), bei jedem update() erhöht - Basis für geplante Ticks. */
     private long gameTime;
@@ -254,16 +259,15 @@ public class Dimension implements IInitializable, IDisposable {
     /* Spieler-Chunk des laufenden Ticks - Basis für isSimulated(). */
     private int playerChunkX, playerChunkZ;
 
-    public Dimension(String dirName, LevelData level, BlockTextureAtlas atlas,
-                 BlockEntityRenderDispatcher blockEntityRenderer) {
-        this(dirName, level, de.skyengine.game.world.dimension.WorldgenRegistries.OVERWORLD,
-                atlas, blockEntityRenderer);
-    }
-
-    public Dimension(String dirName, LevelData level, Identifier dimensionId, BlockTextureAtlas atlas,
-                 BlockEntityRenderDispatcher blockEntityRenderer) {
-        this(dirName, level, dimensionId, new File(GameDirectory.resolve("saves"), dirName),
-                null, null);
+    /**
+     * Source-compatible constructor for the long-standing headless test worlds. The final two
+     * parameters used to be client renderer objects; keeping them as ignored Objects preserves
+     * those fixtures without reintroducing OpenGL dependencies into gameplay/server.
+     */
+    public Dimension(String dirName, LevelData level, Object ignoredAtlas,
+                     Object ignoredBlockEntityRenderer) {
+        this(dirName, level, WorldgenRegistries.OVERWORLD,
+                new File(GameDirectory.resolve("saves"), dirName), null, null);
     }
 
     Dimension(String dirName, LevelData level, Identifier dimensionId, File saveRoot,
@@ -290,7 +294,6 @@ public class Dimension implements IInitializable, IDisposable {
         this.dimensionId = dimensionId;
         this.environment = resolved.dimension().environment();
         this.lightEngine = new LightEngine(this.environment.hasSkylight());
-        this.particles = new ParticleEngine(this);
         this.lootSeed = level.seed;
         this.tntExplosionDropDecay = Boolean.TRUE.equals(level.tntExplosionDropDecay);
         java.util.Map<String, Long> savedLootRandomStates = this.dimensionData.lootRandomStates;
@@ -333,6 +336,48 @@ public class Dimension implements IInitializable, IDisposable {
         this.storage = new WorldStorage(resolved.regionDir(), this, this.generator,
                 resolved.generator().id().toString(), this.generatorVersion, this.imported);
         this.chunkManager.setStorage(this.storage);
+        this.replicatedClientView = false;
+    }
+
+    private Dimension(Identifier dimensionId, DimensionEnvironment environment,
+                      ChunkManager replicatedChunks) {
+        this.name = "remote:" + dimensionId;
+        this.dimensionId = Objects.requireNonNull(dimensionId, "dimensionId");
+        this.environment = Objects.requireNonNull(environment, "environment");
+        this.generator = null;
+        this.decorator = null;
+        this.chunkManager = Objects.requireNonNull(replicatedChunks, "replicatedChunks");
+        this.storage = null;
+        this.imported = false;
+        this.generatorVersion = 0;
+        this.levelData = new LevelData();
+        this.levelData.seed = 0;
+        this.dimensionData = new LevelData.DimensionData();
+        this.portalIndex = null;
+        this.portalLinks = null;
+        this.lootSeed = 0;
+        this.lightEngine = new LightEngine(this.environment.hasSkylight());
+        this.replicatedClientView = true;
+    }
+
+    /** Creates a collision-only world view over authoritative network chunk snapshots. */
+    public static Dimension replicatedClientView(Identifier dimensionId,
+                                                  DimensionEnvironment environment,
+                                                  ChunkManager chunks) {
+        return new Dimension(dimensionId, environment, chunks);
+    }
+
+    public boolean isAuthoritativeWorld() {
+        return !this.replicatedClientView;
+    }
+
+    /** Supplies the predicted player for flying-aware collision at unloaded chunk frontiers. */
+    public void setReplicatedPhysicsPlayer(EntityPlayer player) {
+        if (!this.replicatedClientView) {
+            throw new IllegalStateException("Not a replicated client dimension");
+        }
+        this.player = player;
+        this.activePlayers = player == null ? List.of() : List.of(player);
     }
 
     public String getName() {
@@ -356,17 +401,79 @@ public class Dimension implements IInitializable, IDisposable {
     }
 
     /** Injiziert der GameContainer nach der Welt-Erzeugung; erlaubt Sounds aus der Welt-Logik. */
-    public void setSoundManager(SoundManager soundManager) {
-        this.soundManager = soundManager;
+    public void setSoundManager(WorldSoundSink soundManager) {
+        this.soundManager = soundManager == null ? WorldSoundSink.NONE : soundManager;
     }
 
     /** SoundManager der Welt oder {@code null} (dann bleiben Welt-Sounds stumm). */
-    public SoundManager getSoundManager() {
+    public WorldSoundSink getSoundManager() {
         return this.soundManager;
     }
 
-    public ParticleEngine particles() {
+    public record BlockMutation(int x, int y, int z, int stateId) { }
+    public record PlayerBlockChangeResult(boolean accepted, List<BlockMutation> changes) {
+        public PlayerBlockChangeResult { changes = List.copyOf(changes); }
+    }
+
+    /**
+     * Runs the normal player mutation scope and records every actual state write, including
+     * behavior/neighbor cascades and cross-chunk changes. Tick-thread only.
+     */
+    public PlayerBlockChangeResult capturePlayerBlockChanges(BooleanSupplier action) {
+        if (this.capturedPlayerBlockChanges != null) {
+            throw new IllegalStateException("Nested player block-change capture");
+        }
+        ArrayList<BlockMutation> changes = new ArrayList<>();
+        this.capturedPlayerBlockChanges = changes;
+        boolean accepted;
+        try {
+            accepted = this.runPlayerBlockChange(action);
+        } finally {
+            this.capturedPlayerBlockChanges = null;
+        }
+        return new PlayerBlockChangeResult(accepted, changes);
+    }
+
+    /** Enables the lightweight mutation journal only for authoritative network worlds. */
+    public void enableNetworkBlockMutationTracking() {
+        if (this.networkBlockMutations == null) this.networkBlockMutations = new ArrayList<>();
+        if (this.networkBlockEntityMutations == null) this.networkBlockEntityMutations = new LinkedHashSet<>();
+    }
+
+    /** Tick-owner only. Every changed coordinate is present; callers may coalesce duplicates. */
+    public List<BlockMutation> drainNetworkBlockMutations() {
+        if (this.networkBlockMutations == null || this.networkBlockMutations.isEmpty()) return List.of();
+        List<BlockMutation> mutations = List.copyOf(this.networkBlockMutations);
+        this.networkBlockMutations.clear();
+        return mutations;
+    }
+
+    /** Called by BlockEntity state transitions; a set keeps repeated machine ticks compact. */
+    public void markBlockEntityNetworkDirty(BlockPos pos) {
+        if (this.networkBlockEntityMutations != null && pos != null) {
+            this.networkBlockEntityMutations.add(BlockPos.asLong(pos.x(), pos.y(), pos.z()));
+        }
+    }
+
+    public List<BlockPos> drainNetworkBlockEntityMutations() {
+        if (this.networkBlockEntityMutations == null || this.networkBlockEntityMutations.isEmpty()) {
+            return List.of();
+        }
+        List<BlockPos> positions = new ArrayList<>(this.networkBlockEntityMutations.size());
+        for (long packed : this.networkBlockEntityMutations) {
+            positions.add(new BlockPos(BlockPos.unpackX(packed), BlockPos.unpackY(packed),
+                    BlockPos.unpackZ(packed)));
+        }
+        this.networkBlockEntityMutations.clear();
+        return List.copyOf(positions);
+    }
+
+    public ParticleSink particles() {
         return this.particles;
+    }
+
+    public void setParticleSink(ParticleSink particles) {
+        this.particles = particles == null ? ParticleSink.NONE : particles;
     }
 
     public EntityPlayer getPlayer() {
@@ -375,7 +482,6 @@ public class Dimension implements IInitializable, IDisposable {
 
     /** Aktualisiert positionsgebundene Entity-Sounds unabhängig vom Frustum-Culling. */
     public void updateEntitySounds(float partialTick) {
-        if (this.soundManager == null) return;
         this.soundManager.beginMinecartSounds();
         for (Chunk chunk : this.chunksWithEntities) {
             if (chunk.status != ChunkStatus.READY) continue;
@@ -394,32 +500,32 @@ public class Dimension implements IInitializable, IDisposable {
     }
 
     public void playDispenserSuccess(int x, int y, int z) {
-        if (this.soundManager != null) this.soundManager.playDispenserSuccess(x + 0.5, y + 0.5, z + 0.5);
+        this.soundManager.playDispenserSuccess(x + 0.5, y + 0.5, z + 0.5);
     }
 
     public void playDispenserFailure(int x, int y, int z) {
-        if (this.soundManager != null) this.soundManager.playDispenserFailure(x + 0.5, y + 0.5, z + 0.5);
+        this.soundManager.playDispenserFailure(x + 0.5, y + 0.5, z + 0.5);
     }
 
     public void playBucketEmpty(int x, int y, int z, boolean lava) {
-        if (this.soundManager != null) this.soundManager.playBucketEmpty(lava, x + 0.5, y + 0.5, z + 0.5);
+        this.soundManager.playBucketEmpty(lava, x + 0.5, y + 0.5, z + 0.5);
     }
 
     public void playBucketFill(int x, int y, int z, boolean lava) {
-        if (this.soundManager != null) this.soundManager.playBucketFill(lava, x + 0.5, y + 0.5, z + 0.5);
+        this.soundManager.playBucketFill(lava, x + 0.5, y + 0.5, z + 0.5);
     }
 
     public void playFluidExtinguish(int x, int y, int z) {
         this.particles.fluidReaction(x + 0.5, y + 0.5, z + 0.5);
-        if (this.soundManager != null) this.soundManager.playFluidExtinguish(x + 0.5, y + 0.5, z + 0.5);
+        this.soundManager.playFluidExtinguish(x + 0.5, y + 0.5, z + 0.5);
     }
 
     public void playWaterAmbient(int x, int y, int z) {
-        if (this.soundManager != null) this.soundManager.playWaterAmbient(x + 0.5, y + 0.5, z + 0.5);
+        this.soundManager.playWaterAmbient(x + 0.5, y + 0.5, z + 0.5);
     }
 
     public void playLavaAmbient(int x, int y, int z) {
-        if (this.soundManager != null) this.soundManager.playLavaAmbient(x + 0.5, y + 0.5, z + 0.5);
+        this.soundManager.playLavaAmbient(x + 0.5, y + 0.5, z + 0.5);
     }
 
     public void playLavaPop(int x, int y, int z) {
@@ -427,7 +533,7 @@ public class Dimension implements IInitializable, IDisposable {
         double py = y + 1.0;
         double pz = z + this.animateEffectRandom.nextDouble();
         this.particles.lavaPop(px, py, pz);
-        if (this.soundManager != null) this.soundManager.playLavaPop(px, py, pz);
+        this.soundManager.playLavaPop(px, py, pz);
     }
 
     @Override
@@ -439,32 +545,45 @@ public class Dimension implements IInitializable, IDisposable {
         return this.chunksWithEntities;
     }
 
-    public void update(Input input, EntityPlayer player) {
+    public void update(EntityPlayer player) {
         this.handlingTick = true;
         try {
-            this.updateWhileHandlingTick(input, player);
+            this.updateWhileHandlingTick(player, null);
         } finally {
             this.handlingTick = false;
         }
     }
 
-    private void updateWhileHandlingTick(Input input, EntityPlayer player) {
+    public void updatePlayers(java.util.List<EntityPlayer> players) {
+        if (players == null || players.isEmpty()) return;
+        this.handlingTick = true;
+        try {
+            this.updateWhileHandlingTick(players.getFirst(), players);
+        } finally {
+            this.handlingTick = false;
+        }
+    }
+
+    private void updateWhileHandlingTick(EntityPlayer player, Iterable<EntityPlayer> players) {
         PerformanceProfiler profiler = PerformanceProfiler.get();
         long tickStarted = profiler.begin();
         long attributed = 0;
-        this.simulationTelemetry.setEnabled(FrameProfiler.isEnabled());
+        this.simulationTelemetry.setEnabled(profiler.isEnabled());
         this.simulationTelemetry.beginTick();
         this.gameTime++;
         this.player = player;
+        this.activePlayers = players == null ? List.of(player)
+                : java.util.stream.StreamSupport.stream(players.spliterator(), false).toList();
         this.playerChunkX = (int) Math.floor(player.x) >> ChunkSection.SHIFT;
         this.playerChunkZ = (int) Math.floor(player.z) >> ChunkSection.SHIFT;
         if (this.processChunkReload()) {
-            FrameProfiler.reset();
+            profiler.reset();
             this.simulationTelemetry.endTick();
             return;
         }
         long phase = profiler.begin();
-        this.chunkManager.update(player);
+        if (players == null) this.chunkManager.update(player);
+        else this.chunkManager.updatePlayers(players);
         this.pruneTransientPositionStates();
         this.processUnloadedChunkBoundaries();
         this.restorePendingScheduledTicks();
@@ -489,7 +608,7 @@ public class Dimension implements IInitializable, IDisposable {
            wahr, waehlt PistonBaseBlock bei jeder Gegenflanke faelschlich TRIGGER_DROP. */
         this.handlingTick = false;
         phase = profiler.begin();
-        this.pushMinecartsByPlayer(player);
+        for (EntityPlayer activePlayer : this.activePlayers) this.pushMinecartsByPlayer(activePlayer);
         this.tickEntities();
         attributed += recordTickPhase(profiler, PerformanceProfiler.TickSection.ENTITY_TICKS, phase);
         phase = profiler.begin();
@@ -898,8 +1017,13 @@ public class Dimension implements IInitializable, IDisposable {
 
     /** true, wenn der Chunk im Simulations-Radius um den Spieler liegt (zirkulär, wie Render-Distanz). */
     private boolean isSimulated(int cx, int cz) {
-        int dx = cx - this.playerChunkX, dz = cz - this.playerChunkZ;
-        return dx * dx + dz * dz <= this.simulationDistance * this.simulationDistance;
+        int radiusSquared = this.simulationDistance * this.simulationDistance;
+        for (EntityPlayer active : this.activePlayers) {
+            int dx = cx - ((int) Math.floor(active.x) >> ChunkSection.SHIFT);
+            int dz = cz - ((int) Math.floor(active.z) >> ChunkSection.SHIFT);
+            if (dx * dx + dz * dz <= radiusSquared) return true;
+        }
+        return false;
     }
 
     /**
@@ -1421,10 +1545,17 @@ public class Dimension implements IInitializable, IDisposable {
            Chunks: der Walk skalierte mit renderDistance, relevant ist nur der Sim-Kreis
            (Kreis-Kriterium identisch zu isSimulated). */
         int r = this.simulationDistance;
-        for (int dz = -r; dz <= r; dz++) {
-            for (int dx = -r; dx <= r; dx++) {
-                if (dx * dx + dz * dz > r * r) continue;
-                Chunk chunk = this.chunkManager.getChunk(this.playerChunkX + dx, this.playerChunkZ + dz);
+        Set<Long> visited = this.activePlayers.size() > 1 ? new HashSet<>() : null;
+        for (EntityPlayer active : this.activePlayers) {
+            int centerX = (int) Math.floor(active.x) >> ChunkSection.SHIFT;
+            int centerZ = (int) Math.floor(active.z) >> ChunkSection.SHIFT;
+            for (int dz = -r; dz <= r; dz++) {
+                for (int dx = -r; dx <= r; dx++) {
+                    if (dx * dx + dz * dz > r * r) continue;
+                    int chunkX = centerX + dx, chunkZ = centerZ + dz;
+                    long key = ((long) chunkX << 32) ^ (chunkZ & 0xFFFFFFFFL);
+                    if (visited != null && !visited.add(key)) continue;
+                    Chunk chunk = this.chunkManager.getChunk(chunkX, chunkZ);
                 if (chunk == null || chunk.status != ChunkStatus.READY) continue;
                 int baseX = chunk.chunkX << ChunkSection.SHIFT;
                 int baseZ = chunk.chunkZ << ChunkSection.SHIFT;
@@ -1447,6 +1578,7 @@ public class Dimension implements IInitializable, IDisposable {
                 }
             }
         }
+        }
     }
 
     /**
@@ -1455,13 +1587,14 @@ public class Dimension implements IInitializable, IDisposable {
      * beeinflussen. Minecraft 26.2 prüft pro Sample je einen 16er- und 32er-Ring.
      */
     private void tickAnimateBlocks() {
-        if (this.player == null) return;
-        int px = (int) Math.floor(this.player.x);
-        int py = (int) Math.floor(this.player.y);
-        int pz = (int) Math.floor(this.player.z);
-        for (int i = 0; i < ANIMATE_TICK_SAMPLES; i++) {
-            this.animateBlockSample(px, py, pz, ANIMATE_TICK_NEAR_RADIUS);
-            this.animateBlockSample(px, py, pz, ANIMATE_TICK_FAR_RADIUS);
+        for (EntityPlayer active : this.activePlayers) {
+            int px = (int) Math.floor(active.x);
+            int py = (int) Math.floor(active.y);
+            int pz = (int) Math.floor(active.z);
+            for (int i = 0; i < ANIMATE_TICK_SAMPLES; i++) {
+                this.animateBlockSample(px, py, pz, ANIMATE_TICK_NEAR_RADIUS);
+                this.animateBlockSample(px, py, pz, ANIMATE_TICK_FAR_RADIUS);
+            }
         }
     }
 
@@ -1536,11 +1669,17 @@ public class Dimension implements IInitializable, IDisposable {
      * Aktuell ein einziger Spieler; bei mehreren später den nächsten wählen.
      */
     public EntityPlayer getNearestPlayer(double x, double y, double z, double maxDist) {
-        if (this.player == null) return null;
-        double dx = this.player.x - x;
-        double dy = this.player.y - y;
-        double dz = this.player.z - z;
-        return dx * dx + dy * dy + dz * dz <= maxDist * maxDist ? this.player : null;
+        EntityPlayer nearest = null;
+        double nearestDistance = maxDist * maxDist;
+        for (EntityPlayer active : this.activePlayers) {
+            double dx = active.x - x, dy = active.y - y, dz = active.z - z;
+            double distance = dx * dx + dy * dy + dz * dz;
+            if (distance <= nearestDistance) {
+                nearestDistance = distance;
+                nearest = active;
+            }
+        }
+        return nearest;
     }
 
     /** BlockEntity an Weltkoordinaten oder null. */
@@ -1629,6 +1768,7 @@ public class Dimension implements IInitializable, IDisposable {
            Mesh-Jobs dürfen beim Welt-Austritt nicht mehr laufen, wenn Arenen/Meshes sterben —
            sonst arbeiten Alt-Jobs beim direkten Wiedereintritt in die neue Welt hinein. */
         this.chunkManager.dispose();
+        if (this.replicatedClientView) return;
         this.saveRuntimeState();
         /* NACH den Workern: jetzt schreibt niemand mehr auf Chunks — ausstehende Save-Jobs
            flushen (bis 10 s) und die Region-Handles schließen. */
@@ -1737,6 +1877,22 @@ public class Dimension implements IInitializable, IDisposable {
     }
 
     /**
+     * Wendet einen bereits autoritativ entschiedenen Netzwerk-State an. Es laufen weder
+     * Placement- noch Neighbor-Gameplayregeln ein zweites Mal, Licht, Heightmap,
+     * BlockEntity-Lebenszyklus und Remeshing bleiben jedoch identisch zum lokalen Pfad.
+     */
+    public boolean applyReplicatedBlockState(int x, int y, int z, int block) {
+        if (!this.replicatedClientView) {
+            throw new IllegalStateException("Replicated block update on authoritative dimension");
+        }
+        int old = this.getBlock(x, y, z);
+        if (old == block) return false;
+        if (!this.setBlockRaw(x, y, z, block)) return false;
+        this.manageBlockEntity(x, y, z, old, block);
+        return true;
+    }
+
+    /**
      * @param updateNeighbors true: betroffene Nachbarn (Zäune, Panes, Treppen)
      *                        rechnen ihren State neu. false vermeidet Rekursion
      *                        bei den dadurch ausgelösten Folge-Updates.
@@ -1841,7 +1997,8 @@ public class Dimension implements IInitializable, IDisposable {
 
         Chunk chunk = this.chunkManager.getChunk(cx, cz);
         /* Nur fertige Chunks editieren - vermeidet Races mit laufenden Mesh-Jobs */
-        if (chunk == null || chunk.status != ChunkStatus.READY) return false;
+        if (chunk == null || (this.replicatedClientView
+                ? !chunk.status.isAtLeast(ChunkStatus.LIT) : chunk.status != ChunkStatus.READY)) return false;
 
         int lx = x & ChunkSection.MASK;
         int lz = z & ChunkSection.MASK;
@@ -1857,6 +2014,15 @@ public class Dimension implements IInitializable, IDisposable {
             chunk.setBlock(lx, y, lz, block);
         } finally {
             chunk.writeLock().unlock();
+        }
+        if (this.playerBlockChangeDepth > 0 && this.capturedPlayerBlockChanges != null) {
+            this.capturedPlayerBlockChanges.add(new BlockMutation(x, y, z, block));
+        }
+        // Player-Aktionen liefern ihren vollstaendigen Capture direkt als Action-Outcome. Sie
+        // zusaetzlich in den allgemeinen Tick-Journal zu schreiben wuerde denselben Epoch-Stand
+        // zweimal replizieren. Simulationsaenderungen ohne Capture bleiben im Journal.
+        if (this.networkBlockMutations != null && this.capturedPlayerBlockChanges == null) {
+            this.networkBlockMutations.add(new BlockMutation(x, y, z, block));
         }
         boolean playerChange = this.playerBlockChangeDepth > 0;
         chunk.markSectionDirty(sy, playerChange);
@@ -2850,7 +3016,18 @@ public class Dimension implements IInitializable, IDisposable {
 
     /** Biom an Weltposition (pures Generator-Sampling) — z.B. fürs F3-Debug-Overlay. */
     public Biome biomeAt(int x, int z) {
-        return this.generator.biomeAt(x, z);
+        if (!this.replicatedClientView) return this.generator.biomeAt(x, z);
+        Chunk chunk = this.chunkManager.getChunk(x >> ChunkSection.SHIFT, z >> ChunkSection.SHIFT);
+        if (chunk != null && chunk.biomeIds != null) {
+            int id = chunk.biomeIds[((z & ChunkSection.MASK) << ChunkSection.SHIFT)
+                    | (x & ChunkSection.MASK)];
+            if (id >= 0 && id < de.skyengine.game.world.generator.biome.Biomes.ALL.length) {
+                return de.skyengine.game.world.generator.biome.Biomes.ALL[id];
+            }
+        }
+        return this.environment == de.skyengine.game.world.dimension.DimensionEnvironment.NETHER
+                ? de.skyengine.game.world.generator.biome.Biomes.NETHER_WASTES
+                : de.skyengine.game.world.generator.biome.Biomes.PLAINS;
     }
 
     public WorldGenerator getGenerator() {

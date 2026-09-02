@@ -80,6 +80,57 @@
     "copyright": "Copyright"
   },
 
+  "multiplayer": {
+    "title": "Mehrspieler",
+    "join": "Server beitreten",
+    "direct": "Direkt verbinden",
+    "add": "Server hinzufügen",
+    "edit": "Bearbeiten",
+    "delete": "Löschen",
+    "refresh": "Aktualisieren",
+    "empty": "Keine Server gespeichert",
+    "checking": "Prüfen...",
+    "online": "Online %d/%d  %d ms",
+    "offline": "Offline",
+    "incompatible": "Inkompatibel",
+    "direct_title": "Direkt verbinden",
+    "add_title": "Server hinzufügen",
+    "edit_title": "Server bearbeiten",
+    "server_name": "Servername",
+    "server_name_placeholder": "SkyEngine Server",
+    "address": "Serveradresse",
+    "invalid_address": "Ungültige Serveradresse",
+    "delete_title": "Server löschen?",
+    "delete_message": "'%s' löschen?",
+    "connecting_title": "Verbindung zum Server",
+    "connection_failed": "Verbindung fehlgeschlagen",
+    "disconnected": "Verbindung getrennt",
+    "remote_world_pending": "Verbunden. Warte auf renderbare L0-Chunks vom Server ...",
+    "status": {
+      "idle": "Bereit",
+      "connecting": "Verbindung wird hergestellt...",
+      "handshake": "Protokoll wird ausgehandelt...",
+      "login": "Anmeldung...",
+      "configuration": "Packs und Registries werden geprüft...",
+      "joining": "Welt wird betreten...",
+      "play": "Verbunden",
+      "disconnected": "Verbindung getrennt",
+      "failed": "Verbindung fehlgeschlagen"
+    },
+    "disconnect": {
+      "timeout": "Zeitüberschreitung der Verbindung",
+      "client_quit": "Verbindung geschlossen",
+      "server_stop": "Server wurde beendet",
+      "kicked": "Vom Server entfernt",
+      "protocol_mismatch": "Inkompatible Protokollversion",
+      "pack_mismatch": "Erforderliche Packs stimmen nicht überein",
+      "invalid_packet": "Ungültiges Netzwerkpaket",
+      "login_failed": "Anmeldung fehlgeschlagen",
+      "duplicate_login": "Dieser Spieler ist bereits verbunden",
+      "internal_error": "Netzwerkfehler"
+    }
+  },
+
   "options": {
     "title": "Optionen",
     "fov": "FOV: %d",

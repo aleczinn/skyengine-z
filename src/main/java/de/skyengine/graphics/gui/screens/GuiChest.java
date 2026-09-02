@@ -60,6 +60,19 @@ public final class GuiChest extends GuiContainer {
         if (partner != null) partner.setOpen(true, false);
     }
 
+    /** Network-backed chest; content and clicks are owned by the authoritative server. */
+    public GuiChest(ItemStorage containerInv, int rows, ItemStorage playerInv,
+                    InventoryActionSink actionSink, Runnable closeSink) {
+        super(actionSink, slot -> slot.group == SlotGroup.CONTAINER
+                ? slot.index : containerInv.size() + slot.index, closeSink, playerInv, containerInv);
+        this.chest = null;
+        this.partner = null;
+        this.containerInv = containerInv;
+        this.playerInv = playerInv;
+        this.rows = rows;
+        this.height = rows == 6 ? H_DOUBLE : H_SINGLE;
+    }
+
     @Override
     protected boolean isInsideWindow(double mx, double my) {
         return mx >= this.guiX && mx < this.guiX + W && my >= this.guiY && my < this.guiY + this.height;
@@ -118,7 +131,7 @@ public final class GuiChest extends GuiContainer {
 
     @Override
     public void onClose() {
-        this.chest.setOpen(false);
+        if (this.chest != null) this.chest.setOpen(false);
         if (this.partner != null) this.partner.setOpen(false, false);
         super.onClose(); // getragenen Stapel zurücklegen (Spieler, dann Truhe)
     }

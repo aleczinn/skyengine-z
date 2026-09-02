@@ -1,7 +1,7 @@
 package de.skyengine.game.world.block.behavior;
 
 import de.skyengine.audio.BlockOpenSound;
-import de.skyengine.audio.SoundManager;
+import de.skyengine.game.world.effect.WorldSoundSink;
 import de.skyengine.game.world.Dimension;
 import de.skyengine.game.world.block.Blocks;
 import de.skyengine.game.world.block.Direction;
@@ -71,7 +71,7 @@ public final class FenceGateBehavior implements BlockBehavior {
     }
 
     private static void playSound(Dimension world, int x, int y, int z, BlockState state, boolean open) {
-        SoundManager sounds = world.getSoundManager();
+        WorldSoundSink sounds = world.getSoundManager();
         BlockOpenSound set = state.getBlock().getOpenSound();
         if (sounds == null || set == null) return;
         if (open) sounds.playBlockOpen(set, x + 0.5, y + 0.5, z + 0.5);

@@ -2,6 +2,7 @@ package de.skyengine.game.world.light;
 
 import de.skyengine.game.world.chunk.Chunk;
 import de.skyengine.game.world.chunk.ChunkSection;
+import de.skyengine.shared.world.LightPlane;
 
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReferenceArray;
@@ -66,10 +67,37 @@ public final class LightStorage {
         return this.data.get(section) != null ? -1 : this.uniform[section];
     }
 
+    /** Immutable transport snapshot without materialising a uniform section. */
+    public LightPlane snapshotSection(int section) {
+        if (section < 0 || section >= Chunk.SECTIONS) {
+            throw new IllegalArgumentException("Invalid light section " + section);
+        }
+        byte[] packed = this.data.get(section);
+        if (packed != null) return new LightPlane(LightPlane.Mode.PACKED_NIBBLES, packed);
+        return new LightPlane(this.uniform[section] == 15
+                ? LightPlane.Mode.UNIFORM_FULL : LightPlane.Mode.UNIFORM_ZERO, null);
+    }
+
     /** Setzt eine komplette Section auf einen uniformen Wert (Initial-Lighting). */
     public void setUniform(int section, int value) {
         this.uniform[section] = (byte) value;
         this.data.set(section, null);
+    }
+
+    /**
+     * Installs one complete nibble-packed section from a trusted persistence/network snapshot.
+     * The payload is copied so callers cannot mutate light data after publication.
+     */
+    public void installPackedSection(int section, byte[] packedNibbles) {
+        if (section < 0 || section >= Chunk.SECTIONS) {
+            throw new IllegalArgumentException("Invalid light section " + section);
+        }
+        if (packedNibbles == null || packedNibbles.length != NIBBLES) {
+            throw new IllegalArgumentException("Invalid packed light length: "
+                    + (packedNibbles == null ? -1 : packedNibbles.length));
+        }
+        this.uniform[section] = 0;
+        this.data.set(section, packedNibbles.clone());
     }
 
     /** Anzahl materialisierter Sections — nur für Debug-Telemetrie. */
